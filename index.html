@@ -1,0 +1,4376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Joyful Smile Clinic Manager</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════
+     LOGIN OVERLAY
+════════════════════════════════════════════════════════════ -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <h2>🦷 Joyful Smile Clinic</h2>
+    <label>User ID</label>
+    <input id="loginUserId" type="text"
+           placeholder="e.g. admin / drchan / nurse" autocomplete="username">
+
+    <label>Password</label>
+    <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password">
+
+    <label>Clinic</label>
+    <select id="loginClinic" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;">
+      <option value="">Loading clinics...</option>
+    </select>
+
+    <label>Doctor</label>
+    <select id="loginDoctor" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;">
+      <option value="">Loading doctors...</option>
+    </select>
+    <button id="loginBtn">Log In</button>
+    <button type="button" id="tryAiAssistantBtn" class="login-try-ai-btn">
+      ✨ Try AI Patient Assistant — no login
+    </button>
+    <p id="loginError"></p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     DASHBOARD
+════════════════════════════════════════════════════════════ -->
+<div id="dashboardSection" class="container" style="display:none;">
+  <div class="top-bar">
+    <h1>🦷 Joyful Smile Dashboard</h1>
+    <div class="top-bar-right">
+      <div id="userBadge">
+        <span>👤</span>
+        <span id="badgeName">—</span>
+        <span class="role-tag" id="badgeRole">—</span>
+      </div>
+      <button class="btn-logout" id="logoutBtn">🚪 Logout</button>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <div class="dash-card" id="card-appointment">
+      <div>📅</div><h3>Appointment</h3>
+    </div>
+    <div class="dash-card" id="card-consultation">
+      <div>🩺</div><h3>Consultation</h3>
+    </div>
+    <div class="dash-card" id="card-drugbook">
+      <div>💊</div><h3>Drug Book</h3>
+    </div>
+    <div class="dash-card" id="card-report">
+      <div>📊</div><h3>Report</h3>
+    </div>
+    <div class="dash-card dash-card-premium" id="card-ai-helper">
+      <div class="premium-badge-dash">FREE</div>
+      <div>✨</div><h3>AI Patient Assistant</h3>
+    </div>
+    <div class="dash-card" id="card-memo-ai">
+      <div>🗒️</div><h3>Memo Cards + AI</h3>
+    </div>
+    <div class="dash-card" id="card-patient">
+      <div>👥</div><h3>Patient</h3>
+    </div>
+    <div class="dash-card" id="card-expenses">
+      <div>💰</div><h3>Expenses</h3>
+    </div>
+    <div class="dash-card" id="card-inventory">
+      <div>📦</div><h3>Inventory</h3>
+    </div>
+    <div class="dash-card" id="card-configuration">
+      <div>⚙️</div><h3>Configuration</h3>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     AI PATIENT ASSISTANT (commercial outreach module)
+════════════════════════════════════════════════════════════ -->
+<section id="aiHelperSection" class="container ai-helper-shell" style="display:none;">
+  <button type="button" class="back-btn" id="aiHelperBack">← Back to Dashboard</button>
+
+  <div class="ai-hero-panel">
+    <div class="ai-hero-copy">
+      <span class="ai-tier-pill">AI outreach — open preview (no login required)</span>
+      <h2 class="ai-hero-title">✨ AI Patient Assistant</h2>
+      <p class="ai-hero-desc">
+        Warm birthday touches, polite recall reminders, and ready-to-send messages for WhatsApp, SMS,
+        or email — drafted from your prompts so every patient hears a consistent, human voice.
+      </p>
+      <ul class="ai-value-bullets">
+        <li>Slice patients by age, sex, HK district cues (from address text)</li>
+        <li>Checkbox roster with select-all helpers + smart templated drafts</li>
+        <li>Review before outreach — WhatsApp/SMS/email one recipient at a time</li>
+      </ul>
+      <div class="ai-pitch-row">
+        <span class="ai-price-chip">Free to use — try birthday & recall drafts without signing in</span>
+        <button type="button" class="ai-collapse-toggle" id="aiPitchToggle">Why clinics buy this ↓</button>
+      </div>
+      <div id="aiPitchDetail" class="ai-pitch-detail" style="display:none;">
+        <p>
+          Front-desk teams save hours drafting messages while keeping a premium, consistent tone.
+          This module is framed as an add-on: pair it with your subscription tier for differentiation
+          in demos and tenders.
+        </p>
+      </div>
+    </div>
+    <div class="ai-hero-meta">
+      <div class="ai-disclaimer-mini">
+        <strong>Responsible use:</strong> Suggested text only — not medical advice. Omit sensitive
+        health details from prompts sent to external AI services.
+      </div>
+    </div>
+  </div>
+
+  <p id="aiPatientLoadBanner" class="ai-patient-banner" aria-live="polite"></p>
+
+  <div class="sec-header ai-tabs-wrap">
+    <div class="ai-nav-tabs">
+      <button type="button" class="ai-tab-btn ai-tab-active" data-ai-tab="birthday"
+              onclick="AIHELPER.switchTab('birthday')">🎂 Birthday</button>
+      <button type="button" class="ai-tab-btn" data-ai-tab="recall"
+              onclick="AIHELPER.switchTab('recall')">🔔 Recall</button>
+      <button type="button" class="ai-tab-btn" data-ai-tab="settings"
+              onclick="AIHELPER.switchTab('settings')">⚙ Intelligence</button>
+    </div>
+    <button type="button" class="btn-add ai-refresh-btn" id="aiRefreshPatients" onclick="AIHELPER.refreshPatients()">
+      Reload patients
+    </button>
+  </div>
+
+  <div id="aiPanelBirthday" class="ai-panel">
+    <div class="ai-hub-grid">
+      <div class="ai-hub-col ai-panel-soft">
+        <h4 class="ai-subhead">1) Filter roster</h4>
+        <p class="ai-filter-hint">Age uses DOB. District matches phrases inside Patient <strong>Address</strong>.</p>
+        <div class="ai-filter-chip-row">
+          <div class="ai-field-mini">
+            <label class="ai-label">Age min</label>
+            <input type="number" class="ai-input" id="aiBirthAgeMin" min="0" max="130" placeholder="any">
+          </div>
+          <div class="ai-field-mini">
+            <label class="ai-label">Age max</label>
+            <input type="number" class="ai-input" id="aiBirthAgeMax" min="0" max="130" placeholder="any">
+          </div>
+          <div class="ai-field-mini">
+            <label class="ai-label">Sex</label>
+            <select id="aiBirthSex" class="ai-input">
+              <option value="">Any</option>
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+            </select>
+          </div>
+        </div>
+        <label class="ai-label">Living district (HK areas)</label>
+        <select id="aiBirthDistrict" class="ai-input"></select>
+        <label class="ai-mass-inline">
+          <input type="checkbox" id="aiBirthUpcomingOnly">
+          Prefer birthdays within the next ~60 days
+        </label>
+        <div class="ai-actions-row" style="margin-top:12px;">
+          <button type="button" class="btn-add" onclick="AIHELPER.applyPatientFilter('birth')">
+            Refresh list
+          </button>
+          <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.fillNextBirthdays()" style="padding:10px 14px;">
+            Quick: upcoming birthdays
+          </button>
+        </div>
+        <div class="ai-mass-actions">
+          <label class="ai-mass-lab">
+            <input type="checkbox" id="aiBirthCbMaster" onclick="AIHELPER.togglePickAllBirth();">
+            Select / deselect all in current list
+          </label>
+          <button type="button" class="ai-link-btn" onclick="AIHELPER.clearPickBirth()">Clear all ticks</button>
+          <span class="ai-count-pill"><span id="aiBirthFilterCount">0</span>&nbsp;match</span>
+        </div>
+        <label class="ai-label">Tick patients for this outreach</label>
+        <div id="aiBirthPickList" class="ai-check-scroll" aria-label="Birthday cohort checkboxes"></div>
+        <details class="ai-guest-fold">
+          <summary>Guest outreach (manual name — no roster)</summary>
+          <label class="ai-label">First name</label>
+          <input type="text" id="aiBirthGuestName" class="ai-input" maxlength="120">
+          <label class="ai-label">Phone / email</label>
+          <input type="text" id="aiBirthGuestPhone" class="ai-input" placeholder="Phone">
+          <input type="email" id="aiBirthGuestEmail" class="ai-input" placeholder="Email" style="margin-top:6px;">
+        </details>
+      </div>
+      <div class="ai-hub-col ai-hub-compose">
+        <h4 class="ai-subhead">2) Smart message</h4>
+        <label class="ai-label">Common template starters</label>
+        <select id="aiBirthTemplate" class="ai-input"
+                onchange="AIHELPER.onBirthTemplateChange()"></select>
+        <small class="ai-hint" style="margin-bottom:10px;display:block;line-height:1.45;">
+          Placeholders: <code>{{first}}</code>, <code>{{full}}</code>, <code>{{no}}</code>, <code>{{dob_dm}}</code>, <code>{{sex}}</code>, <code>{{clinic}}</code>
+        </small>
+        <label class="ai-label">Template &amp; briefing (editable)</label>
+        <textarea id="aiBirthSmartBody" class="ai-input ai-textarea" rows="6"></textarea>
+        <label class="ai-label">Extra notes for AI (merge)</label>
+        <textarea id="aiBirthExtraNotes" class="ai-input ai-textarea" rows="3"
+                  placeholder="Promos, blackout dates, special tone…"></textarea>
+        <div class="ai-filter-chip-row">
+          <div style="flex:1;min-width:180px;">
+            <label class="ai-label">Voice</label>
+            <select id="aiBirthTone" class="ai-input">
+              <option value="warm_professional">Warm &amp; professional</option>
+              <option value="festive_light">Festive &amp; light</option>
+              <option value="minimal_modern">Minimal &amp; modern</option>
+            </select>
+          </div>
+        </div>
+        <div class="ai-actions-row">
+          <button type="button" class="btn-add" id="aiBirthGen" onclick="AIHELPER.generateBirthday()">Generate drafts</button>
+          <span id="aiGenStatusBirth" class="ai-status-chip"></span>
+        </div>
+        <label class="ai-label">Preview (bulk = blocks per patient)</label>
+        <textarea id="aiBirthOutput" class="ai-input ai-textarea ai-output" rows="10"></textarea>
+        <label class="ai-label">Send one block via…</label>
+        <select id="aiBirthBulkTarget" class="ai-input ai-send-select"></select>
+        <div class="ai-send-bar">
+          <button type="button" class="ai-channel-btn whatsapp" onclick="AIHELPER.openChannelBirth('wa')">WhatsApp</button>
+          <button type="button" class="ai-channel-btn sms" onclick="AIHELPER.openChannelBirth('sms')">SMS</button>
+          <button type="button" class="ai-channel-btn email" onclick="AIHELPER.openChannelBirth('email')">Email</button>
+          <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.copyOut('birth')">📋 Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiPanelRecall" class="ai-panel" style="display:none;">
+    <div class="ai-hub-grid">
+      <div class="ai-hub-col ai-panel-soft">
+        <h4 class="ai-subhead">1) Filter roster</h4>
+        <p class="ai-filter-hint">Same slicing rules as birthdays; optionally require mobiles for SMS/WhatsApp.</p>
+        <div class="ai-filter-chip-row">
+          <div class="ai-field-mini">
+            <label class="ai-label">Age min</label>
+            <input type="number" class="ai-input" id="aiRecallAgeMin" min="0" max="130" placeholder="any">
+          </div>
+          <div class="ai-field-mini">
+            <label class="ai-label">Age max</label>
+            <input type="number" class="ai-input" id="aiRecallAgeMax" min="0" max="130" placeholder="any">
+          </div>
+          <div class="ai-field-mini">
+            <label class="ai-label">Sex</label>
+            <select id="aiRecallSex" class="ai-input">
+              <option value="">Any</option>
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+            </select>
+          </div>
+        </div>
+        <label class="ai-label">Living district</label>
+        <select id="aiRecallDistrict" class="ai-input"></select>
+        <label class="ai-mass-inline">
+          <input type="checkbox" id="aiRecallRequirePhone" checked="checked">
+          Only show records with plausible phone digits
+        </label>
+        <div class="ai-actions-row" style="margin-top:12px;">
+          <button type="button" class="btn-add" onclick="AIHELPER.applyPatientFilter('recall')">
+            Refresh list
+          </button>
+        </div>
+        <div class="ai-mass-actions">
+          <label class="ai-mass-lab">
+            <input type="checkbox" id="aiRecallCbMaster" onclick="AIHELPER.togglePickAllRecall();">
+            Select / deselect all in current list
+          </label>
+          <button type="button" class="ai-link-btn" onclick="AIHELPER.clearPickRecall()">Clear all ticks</button>
+          <span class="ai-count-pill"><span id="aiRecallFilterCount">0</span>&nbsp;match</span>
+        </div>
+        <label class="ai-label">Tick patients for recalls</label>
+        <div id="aiRecallPickList" class="ai-check-scroll" aria-label="Recall cohort checkboxes"></div>
+        <details class="ai-guest-fold">
+          <summary>Guest outreach (manual name)</summary>
+          <input type="text" id="aiRecallGuestName" class="ai-input" maxlength="120"
+                 placeholder="First name">
+          <input type="text" id="aiRecallGuestPhone" class="ai-input"
+                 placeholder="Phone" style="margin-top:6px;">
+          <input type="email" id="aiRecallGuestEmail" class="ai-input"
+                 placeholder="Email" style="margin-top:6px;">
+        </details>
+      </div>
+      <div class="ai-hub-col ai-hub-compose">
+        <h4 class="ai-subhead">2) Smart recall copy</h4>
+        <label class="ai-label">Common template starters</label>
+        <select id="aiRecallTemplate" class="ai-input"
+                onchange="AIHELPER.onRecallTemplateChange()"></select>
+        <small class="ai-hint" style="margin-bottom:10px;display:block;line-height:1.45;">
+          Placeholders: <code>{{first}}</code>, <code>{{full}}</code>, <code>{{no}}</code>, <code>{{dob_dm}}</code>, <code>{{sex}}</code>, <code>{{clinic}}</code>
+        </small>
+        <label class="ai-label">Template &amp; briefing (editable)</label>
+        <textarea id="aiRecallSmartBody" class="ai-input ai-textarea" rows="6"></textarea>
+        <div class="ai-filter-chip-row">
+          <div style="flex:1;min-width:180px;">
+            <label class="ai-label">Recall focus</label>
+            <select id="aiRecallKind" class="ai-input">
+              <option value="checkup">Routine check-up / hygiene</option>
+              <option value="incomplete_tx">Incomplete treatment plan</option>
+              <option value="review_followup">Post-treatment review</option>
+              <option value="custom">Custom (use briefing)</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:160px;">
+            <label class="ai-label">Voice</label>
+            <select id="aiRecallTone" class="ai-input">
+              <option value="warm_professional">Warm &amp; professional</option>
+              <option value="gentle_reminder">Gentle reminder</option>
+              <option value="concise_busy">Concise</option>
+            </select>
+          </div>
+        </div>
+        <label class="ai-label">Extra notes for AI (merge)</label>
+        <textarea id="aiRecallExtraNotes" class="ai-input ai-textarea" rows="3"
+                  placeholder='e.g. "Offer Tue AM block", gentle Cantonese cues…'></textarea>
+        <div class="ai-actions-row">
+          <button type="button" class="btn-add" id="aiRecallGen" onclick="AIHELPER.generateRecall()">
+            Generate recall drafts
+          </button>
+          <span id="aiGenStatusRecall" class="ai-status-chip"></span>
+        </div>
+        <label class="ai-label">Preview</label>
+        <textarea id="aiRecallOutput" class="ai-input ai-textarea ai-output" rows="10"></textarea>
+        <label class="ai-label">Send one block via…</label>
+        <select id="aiRecallBulkTarget" class="ai-input ai-send-select"></select>
+        <div class="ai-send-bar">
+          <button type="button" class="ai-channel-btn whatsapp" onclick="AIHELPER.openChannelRecall('wa')">WhatsApp</button>
+          <button type="button" class="ai-channel-btn sms" onclick="AIHELPER.openChannelRecall('sms')">SMS</button>
+          <button type="button" class="ai-channel-btn email" onclick="AIHELPER.openChannelRecall('email')">Email</button>
+          <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.copyOut('recall')">📋 Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiPanelSettings" class="ai-panel ai-panel-settings" style="display:none;">
+    <p class="ai-settings-lead">
+      <strong>Default:</strong> the app calls your Supabase project’s Edge Function
+      <code>ai-patient-draft</code>, which validates the logged-in clinic user server-side and
+      calls OpenAI there (never from the browser). Set <code>OPENAI_API_KEY</code> only in Supabase secrets.
+      If the function is missing or errors, Joyful Smile falls back to the optional HTTPS proxy below, then offline demo templates.
+    </p>
+    <div style="margin-bottom:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;">
+      <div style="font-weight:900;font-size:12px;color:#334155;margin-bottom:6px;">Deploy on your Supabase project</div>
+      <ol style="margin:0 0 0 18px;padding:0;color:#475569;font-size:12px;line-height:1.55;">
+        <li>Install CLI, then <code>supabase login</code> and <code>supabase link</code> to your project.</li>
+        <li>Add secret: Dashboard → Functions → Secrets → <code>OPENAI_API_KEY</code> (optional <code>OPENAI_MODEL</code>).</li>
+        <li>Deploy: <code>supabase functions deploy ai-patient-draft</code></li>
+        <li>Use the same anon key/project URL already in Joyful Smile (no key change needed).</li>
+      </ol>
+      <p class="ai-hint" style="margin-top:10px;margin-bottom:0;">
+        Drafting works for anyone by default (<strong>no login check</strong>).
+        Opt-in tightening: add secret <code>AI_REQUIRE_LOGIN=true</code> so only active <code>app_users</code> can call OpenAI via this route.
+      </p>
+    </div>
+    <p class="ai-settings-lead">
+      Advanced: custom HTTPS gateway (same JSON body + <code>{ "message": "…" }</code> response).
+      Include <code>workflow: "memo"</code> plus <code>memoAction</code>, <code>memoBody</code> for memo rewriting.
+    </p>
+    <div class="ai-field-group">
+      <label class="ai-label">Proxy URL (POST JSON, HTTPS)</label>
+      <input type="url" id="aiProxyUrl" class="ai-input"
+             placeholder="https://your-clinic-api.example/generate-message">
+      <small class="ai-hint">Include caller fields (<code>callerUserId</code>, <code>callerClinicId</code>)
+        matching the Edge payload if you migrate this route later.</small>
+    </div>
+    <div class="ai-field-group">
+      <label class="ai-label">Optional Authorization header value (Bearer …)</label>
+      <input type="password" id="aiProxyAuth" class="ai-input" placeholder="stored only in this browser session">
+    </div>
+    <button type="button" class="btn-add" onclick="AIHELPER.saveProxySettings()">Save settings</button>
+    <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.clearProxySettings()" style="margin-left:10px;">
+      Clear
+    </button>
+    <p class="ai-hint" style="margin-top:16px;">
+      Do not vendor API keys in front-end source — Edge secrets or your backend only.
+    </p>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     MEMO CARDS (+ AI revise)
+════════════════════════════════════════════════════════════ -->
+<section id="memoCardsSection" class="container memo-module" style="display:none;">
+  <button type="button" class="back-btn" id="memoBackBtn">← Back to Dashboard</button>
+
+  <div class="sec-header" style="margin-bottom:8px;">
+    <h2>🗒️ Memo Cards</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button type="button" class="btn-add" onclick="MEMO_AI.newMemo()">+ New card</button>
+      <button type="button" class="btn-add ai-channel-btn ghost" onclick="MEMO_AI.duplicateMemo()">Duplicate</button>
+      <button type="button" class="ai-channel-btn ghost" style="padding:10px 16px;color:#991b1b;"
+              onclick="MEMO_AI.deleteMemo()">Delete</button>
+      <button type="button" class="ai-channel-btn ghost" style="padding:10px 16px;border:1px solid #cbd5e1;"
+              onclick="MEMO_AI.saveMemoNow()">Save now</button>
+    </div>
+  </div>
+
+  <p style="margin:0 0 12px;color:#64748b;font-size:13px;line-height:1.45;">
+    Sticky snippets live inside this browser (local storage).
+    Tap a memo, edit freely — AI polishing uses the same secure Edge lane as Outreach when deployed.
+    No clinical jargon required; omit secrets from AI prompts where possible.
+  </p>
+
+  <div class="memo-split">
+    <aside class="memo-list-pane">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:900;font-size:12px;color:#334155;text-transform:uppercase;">Cards</span>
+      </div>
+      <div id="memoCardList" class="memo-card-list"></div>
+    </aside>
+    <div class="memo-editor-pane ai-panel mo-panel-flat">
+      <label class="ai-label">Title</label>
+      <input id="memoEditTitle" type="text" class="ai-input"
+             maxlength="140" placeholder="Short label pinned to the picker">
+      <div style="margin:14px 0 8px;display:flex;gap:14px;align-items:center;">
+        <div>
+          <label class="ai-label" style="margin-bottom:6px;display:block;">Colour strip</label>
+          <input type="color" id="memoHue" value="#f1f5f9"
+                 style="width:52px;height:36px;padding:2px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;"
+                 onchange="MEMO_AI.updateHueFromPicker()" title="Left border cue">
+        </div>
+      </div>
+      <label class="ai-label">Memo body</label>
+      <textarea id="memoEditBody" class="ai-input ai-textarea" rows="12"
+                placeholder="Checklists · phone scripts · quick reminders …"></textarea>
+
+      <div class="memo-ai-bar">
+        <div class="memo-ai-row-head">
+          <span style="font-weight:900;font-size:13px;color:#4338ca;">AI assist</span>
+          <span id="memoAssistStatus" style="font-size:12px;color:#64748b;"></span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-top:10px;">
+          <div style="min-width:180px;">
+            <label class="ai-label">Action</label>
+            <select id="memoAssistAction" class="ai-input">
+              <option value="polish">Polish wording</option>
+              <option value="shorten">Compress / shorten</option>
+              <option value="bulletize">Rebuild as bullets</option>
+              <option value="custom">Custom tweak</option>
+            </select>
+          </div>
+          <button type="button" class="btn-add" id="memoAssistApply" onclick="MEMO_AI.applyAiAssist()">
+            Apply AI to body
+          </button>
+        </div>
+        <label class="ai-label">Custom instruction (when “custom” picked)</label>
+        <textarea id="memoAssistCustom" class="ai-input ai-textarea" rows="2"
+                  placeholder="e.g. Add an extra line thanking the team calmly."></textarea>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     PATIENT SECTION
+════════════════════════════════════════════════════════════ -->
+<div id="patientSection" class="container" style="display:none;">
+  <button class="back-btn" id="patientBack">← Back to Dashboard</button>
+
+  <div class="sec-header">
+    <h2>👥 Patient Directory</h2>
+    <button class="btn-add" id="mainAddBtn">+ New Patient</button>
+  </div>
+
+  <input type="text" id="searchInput"
+         placeholder="🔍  Search by name, no., phone, HKID…">
+
+  <table>
+    <thead>
+      <tr>
+        <th>Patient No. / Name</th>
+        <th>Phone</th>
+        <th>DOB</th>
+        <th>HKID</th>
+        <th>Alerts</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="patientTableBody"></tbody>
+  </table>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     REPORT SECTION
+════════════════════════════════════════════════════════════ -->
+<section id="reportSection" class="container" style="display:none;">
+  <button class="back-btn" id="reportBack">← Back to Dashboard</button>
+
+  <div class="sec-header" style="margin-bottom:10px;">
+    <h2>📊 Reports</h2>
+  </div>
+
+  <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
+    <!-- Horizontal report tabs -->
+    <div style="display:flex;gap:8px;overflow:auto;padding:2px 2px 10px;margin-bottom:10px;border-bottom:1px solid #f0f0f0;">
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="dailySummary"  onclick="REPORT.switchTab('dailySummary')">0) Daily Summary</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="dailyIncome"   onclick="REPORT.switchTab('dailyIncome')">1) Daily Income</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="weeklyIncome"  onclick="REPORT.switchTab('weeklyIncome')">2) Weekly Income</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="monthlyIncome" onclick="REPORT.switchTab('monthlyIncome')">3) Monthly Income</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="drDaily"       onclick="REPORT.switchTab('drDaily')">4) Drs Daily</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="drMonthly"     onclick="REPORT.switchTab('drMonthly')">5) Drs Monthly</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="txStats"       onclick="REPORT.switchTab('txStats')">6) Treatment Items Stats</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="payStats"      onclick="REPORT.switchTab('payStats')">7) Payment Method Stats</button>
+      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="patientDir"    onclick="REPORT.switchTab('patientDir')">8) Patient Directory</button>
+    </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div id="rptTitle" style="font-size:18px;font-weight:900;color:#0d6efd;">—</div>
+          <div id="rptHint" style="font-size:12px;color:#888;margin-top:4px;">—</div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-right:6px;">
+            <button id="rptPrintTableBtn" class="btn-add" style="padding:9px 12px;background:#22c55e;" onclick="REPORT.printTable()">
+              🖨️ Print Table
+            </button>
+            <button id="rptPrintChartBtn" class="btn-add" style="padding:9px 12px;background:#0d6efd;" onclick="REPORT.printChart()">
+              🖨️ Print Chart
+            </button>
+            <button class="btn-add" style="padding:9px 12px;background:#64748b;" onclick="REPORT.exportCSV()">
+              ⬇ Output CSV
+            </button>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">From</div>
+            <input id="rptFrom" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
+          </div>
+          <div>
+            <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">To</div>
+            <input id="rptTo" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
+          </div>
+          <button class="btn-add" style="padding:9px 14px;" onclick="REPORT.refresh()">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <div id="rptMainGrid" style="margin-top:14px;display:grid;grid-template-columns:1fr 360px;gap:14px;align-items:start;">
+        <!-- Table -->
+        <div>
+          <div style="font-size:12px;color:#555;font-weight:900;margin-bottom:8px;">Table</div>
+          <div id="rptTableWrap" style="border:1px solid #eee;border-radius:12px;overflow:hidden;">
+            <div style="padding:12px;color:#888;">Select a report tab.</div>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <div id="rptChartCol">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="font-size:12px;color:#555;font-weight:900;">Graph</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="btn-add"
+                      style="padding:7px 10px;font-size:12px;background:var(--gray);"
+                      onclick="REPORT.magnifyChart()">
+                🔎 Magnify
+              </button>
+              <select id="rptChartType" onchange="REPORT.renderChart()" style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;">
+                <option value="bar">Bar</option>
+                <option value="line">Trend line</option>
+                <option value="pie">Pie</option>
+              </select>
+            </div>
+          </div>
+          <div style="border:1px solid #eee;border-radius:12px;padding:10px;">
+            <canvas id="rptChart" height="280"></canvas>
+            <div id="rptChartNote" style="margin-top:8px;color:#888;font-size:12px;">—</div>
+          </div>
+        </div>
+      </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     APPOINTMENT SECTION
+════════════════════════════════════════════════════════════ -->
+<div id="appointmentSection" class="container" style="display:none;">
+  <button class="back-btn" id="apptBack">← Back to Dashboard</button>
+
+  <!-- user info bar -->
+  <div class="appt-user-bar">
+    <div class="u-info">
+      <span style="font-size:26px;">👤</span>
+      <div>
+        <div class="u-name" id="apptUserName">—</div>
+        <div style="font-size:11px;opacity:0.75;">Logged in</div>
+      </div>
+      <span class="u-role" id="apptUserRole">—</span>
+    </div>
+    <div id="apptTodayDate"
+         style="font-size:14px;opacity:0.85;"></div>
+  </div>
+
+  <!-- tabs -->
+  <div class="appt-tabs">
+    <button class="appt-tab active" data-tab="queue">
+      🏥 Current Queue
+    </button>
+    <button class="appt-tab" data-tab="today">
+      📋 Today's Appointments
+    </button>
+    <button class="appt-tab" data-tab="calendar">
+      📅 Calendar
+    </button>
+    <button class="appt-tab" data-tab="records">
+      📁 Appointment Records
+    </button>
+    <button class="appt-tab" data-tab="recall">
+      📞 Recall Patient
+    </button>
+  </div>
+
+  <!-- ── TAB: QUEUE ─────────────────────────────────────── -->
+  <div id="tab-queue" class="tab-pane active">
+    <div class="toolbar">
+      <div>
+        <strong style="font-size:15px;color:#333;">
+          🏥 Current Queue
+          <span id="queueCount"
+                style="background:#fff3cd;color:#856404;
+                       font-size:12px;font-weight:700;
+                       padding:2px 8px;border-radius:10px;
+                       margin-left:6px;"></span>
+        </strong>
+        <div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;">
+          Drag rows to reorder who goes in to see the doctor (order is saved).
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap queue-wrap">
+      <table class="appt-tbl">
+        <thead>
+          <tr>
+            <th>No.</th>
+            <th>Name</th>
+            <th>Treatment</th>
+            <th>Appt Time</th>
+            <th>Arrived</th>
+            <th>Voucher</th>
+            <th>Bill Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="queueBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB: TODAY ──────────────────────────────────────── -->
+  <div id="tab-today" class="tab-pane">
+    <div class="toolbar">
+      <div>
+        <strong style="font-size:15px;color:#333;">
+          Appointments for
+          <span id="todayLabel"
+                style="color:var(--primary);"></span>
+        </strong>
+        <span id="todayCount"
+              style="background:#e8f4ff;color:var(--primary);
+                     font-size:12px;font-weight:700;
+                     padding:2px 8px;border-radius:10px;
+                     margin-left:6px;"></span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-add" id="addApptBtn">
+          + Add Appointment
+        </button>
+        <button onclick="printTodayList()"
+                style="background:#fff;color:#333;border:1px solid #ccc;
+                       padding:7px 14px;border-radius:6px;font-size:13px;
+                       cursor:pointer;display:flex;align-items:center;gap:5px;">
+          🖨️ Print List
+        </button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="appt-tbl">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Patient No.</th>
+            <th>Name</th>
+            <th>Treatment</th>
+            <th>Remarks</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="todayBody"></tbody>
+      </table>
+    </div>
+    <p style="font-size:12px;color:#aaa;margin-top:8px;">
+      💡 Double-click a row or click Check In to move
+      patient to queue
+    </p>
+  </div>
+
+  <!-- ── TAB: CALENDAR ──────────────────────────────────── -->
+  <div id="tab-calendar" class="tab-pane">
+    <div class="cal-toolbar">
+      <div class="cal-nav">
+        <button id="calPrev">&#8249;</button>
+        <div class="cal-title" id="calTitle">—</div>
+        <button id="calNext">&#8250;</button>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;
+                  flex-wrap:wrap;">
+        <div class="toggle-wrap">
+          <button class="toggle-btn active" id="btnWeek">
+            Weekly
+          </button>
+          <button class="toggle-btn" id="btnMonth">
+            Monthly
+          </button>
+        </div>
+        <button id="calTodayBtn"
+                style="padding:7px 14px;background:#fff;color:var(--primary);
+                       border:1.5px solid var(--primary);border-radius:7px;
+                       font-size:13px;font-weight:700;cursor:pointer;">
+          Today
+        </button>
+        <button class="btn-add" id="calAddBtn">
+          + Add Appointment
+        </button>
+      </div>
+    </div>
+    <div id="calBody"></div>
+    <div class="day-panel" id="dayPanel">
+      <h4 id="dayPanelTitle">—</h4>
+      <div id="dayPanelList"></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: APPOINTMENT RECORDS ───────────────────────────── -->
+  <div id="tab-records" class="tab-pane">
+    <!-- Filter bar -->
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+                padding:12px 0 10px;border-bottom:1px solid #e5e7eb;margin-bottom:12px;">
+      <!-- Status filter pills -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="ar-filter-btn active" data-filter="all"
+                onclick="setArFilter('all')"
+                style="padding:5px 14px;border-radius:20px;border:1.5px solid #0084ff;
+                       background:#0084ff;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">
+          All
+        </button>
+        <button class="ar-filter-btn" data-filter="upcoming"
+                onclick="setArFilter('upcoming')"
+                style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
+                       background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;">
+          🗓 Upcoming
+        </button>
+        <button class="ar-filter-btn" data-filter="past"
+                onclick="setArFilter('past')"
+                style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
+                       background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;">
+          ✅ Past / Done
+        </button>
+        <button class="ar-filter-btn" data-filter="noshow"
+                onclick="setArFilter('noshow')"
+                style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
+                       background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;">
+          ⚠️ No-show / Failed
+        </button>
+      </div>
+      <!-- Patient search -->
+      <div style="flex:1;min-width:200px;max-width:320px;position:relative;">
+        <input id="arSearchInput" type="text" placeholder="🔍  Search patient name or no…"
+               oninput="arSearchDebounce()"
+               style="width:100%;padding:7px 12px;border:1.5px solid #e5e7eb;
+                      border-radius:20px;font-size:12px;box-sizing:border-box;outline:none;">
+      </div>
+      <!-- Result count -->
+      <span id="arCount"
+            style="font-size:12px;color:#888;font-weight:600;white-space:nowrap;"></span>
+    </div>
+
+    <!-- Records table -->
+    <div class="tbl-wrap" style="max-height:calc(100vh - 340px);overflow-y:auto;">
+      <table class="appt-tbl" id="arTable">
+        <thead>
+          <tr>
+            <th style="width:90px;">Date</th>
+            <th style="width:70px;">Time</th>
+            <th style="width:70px;">Pat. No.</th>
+            <th>Name</th>
+            <th>Treatment</th>
+            <th style="width:70px;">Doctor</th>
+            <th style="width:90px;">Status</th>
+            <th>Remarks</th>
+            <th style="width:50px;"></th>
+          </tr>
+        </thead>
+        <tbody id="arBody"></tbody>
+      </table>
+    </div>
+    <p id="arEmptyMsg"
+       style="display:none;text-align:center;color:#aaa;
+              padding:40px 0;font-size:14px;">
+      No records found.
+    </p>
+  </div>
+
+  <!-- ── TAB: RECALL PATIENT ───────────────────────────────── -->
+  <div id="tab-recall" class="tab-pane">
+
+    <!-- Top layout: mini-cal + patient table side-by-side -->
+    <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;padding-top:8px;">
+
+      <!-- ── Mini Calendar ────────────────────── -->
+      <div style="flex-shrink:0;">
+        <div id="rcalContainer"
+             style="background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;
+                    padding:14px;width:220px;box-shadow:0 2px 8px rgba(0,0,0,.06);">
+        </div>
+        <div style="margin-top:8px;padding:8px 10px;background:#f0fdf4;border:1px solid #bbf7d0;
+                    border-radius:8px;font-size:11px;color:#166534;line-height:1.5;">
+          💡 Select a date to load patients with appointments on that day.
+        </div>
+      </div>
+
+      <!-- ── Patient list area ─────────────────── -->
+      <div style="flex:1;min-width:300px;">
+
+        <!-- Date header + count + select controls -->
+        <div style="display:flex;justify-content:space-between;align-items:center;
+                    flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+          <div>
+            <div id="recallDateHdr"
+                 style="font-size:15px;font-weight:700;color:#1e293b;">
+              — select a date —
+            </div>
+            <span id="recallPtCount"
+                  style="font-size:12px;color:#64748b;font-weight:600;"></span>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button onclick="rcSelectAll()"
+                    style="padding:5px 12px;font-size:12px;font-weight:700;
+                           background:#0084ff;color:#fff;border:none;
+                           border-radius:6px;cursor:pointer;">
+              ☑ Select All
+            </button>
+            <button onclick="rcDeselectAll()"
+                    style="padding:5px 12px;font-size:12px;font-weight:700;
+                           background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;
+                           border-radius:6px;cursor:pointer;">
+              ☐ Clear
+            </button>
+          </div>
+        </div>
+
+        <!-- Patient table -->
+        <div class="tbl-wrap" style="max-height:280px;overflow-y:auto;">
+          <table class="appt-tbl" id="recallTable">
+            <thead>
+              <tr>
+                <th style="width:36px;text-align:center;">☑</th>
+                <th style="width:70px;">Pat. No.</th>
+                <th>Name</th>
+                <th style="width:110px;">Phone</th>
+                <th>Treatment</th>
+              </tr>
+            </thead>
+            <tbody id="recallBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </div><!-- /top layout -->
+
+    <!-- ── Contact + Message area ──────────────────────────── -->
+    <div style="margin-top:18px;background:#f8fafc;border:1.5px solid #e2e8f0;
+                border-radius:12px;padding:16px;">
+
+      <!-- Contact method selector -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+        <span style="font-weight:700;font-size:13px;color:#374151;">Send via:</span>
+        <button id="rcContactWA" onclick="setRcContact('whatsapp')"
+                style="padding:7px 18px;border-radius:20px;border:2px solid #25d366;
+                       background:#25d366;color:#fff;font-size:13px;font-weight:700;
+                       cursor:pointer;display:flex;align-items:center;gap:5px;">
+          💬 WhatsApp
+        </button>
+        <button id="rcContactSMS" onclick="setRcContact('sms')"
+                style="padding:7px 18px;border-radius:20px;border:2px solid #e5e7eb;
+                       background:#fff;color:#374151;font-size:13px;font-weight:700;
+                       cursor:pointer;">
+          📱 SMS
+        </button>
+        <span style="font-size:11px;color:#94a3b8;margin-left:4px;">
+          Use <code>{name}</code> <code>{chinese}</code> <code>{date}</code> as placeholders
+        </span>
+      </div>
+
+      <!-- Message textarea -->
+      <textarea id="recallMsgBox" rows="5"
+                placeholder="Type your recall message here…&#10;e.g. Dear {name}, it has been 6 months since your last dental visit on {date}. Please call us to schedule your next appointment. — Joyful Smile Clinic"
+                style="width:100%;padding:12px;font-size:13px;line-height:1.6;
+                       border:1.5px solid #e2e8f0;border-radius:8px;resize:vertical;
+                       box-sizing:border-box;font-family:inherit;outline:none;
+                       background:#fff;color:#1e293b;"></textarea>
+
+      <!-- Action buttons -->
+      <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
+        <button onclick="startRecallSend()"
+                style="flex:1;min-width:180px;padding:11px;
+                       background:linear-gradient(135deg,#0084ff,#0066cc);
+                       color:#fff;border:none;border-radius:8px;
+                       font-size:14px;font-weight:700;cursor:pointer;
+                       box-shadow:0 2px 8px rgba(0,132,255,.25);">
+          🚀 Send to Selected Patients
+        </button>
+        <button onclick="saveRcTemplate()"
+                style="padding:11px 18px;background:#fff;color:#0084ff;
+                       border:1.5px solid #0084ff;border-radius:8px;
+                       font-size:13px;font-weight:700;cursor:pointer;">
+          💾 Save as Template
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Template panel (shown when templates exist) ─────── -->
+    <div id="recallTmplPanel"
+         style="display:none;margin-top:14px;background:#fff;
+                border:1.5px solid #e2e8f0;border-radius:12px;padding:14px;">
+    </div>
+
+  </div><!-- /tab-recall -->
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     CONSULTATION SECTION
+════════════════════════════════════════════════════════════ -->
+<div id="consultationSection" class="container" style="display:none;">
+  <button class="back-btn" id="conBack">← Back to Dashboard</button>
+
+  <div class="sec-header" style="margin-bottom:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <h2 style="margin:0;">🩺 Consultation</h2>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;color:#666;font-weight:800;">Active Doctor:</span>
+        <select id="conDoctorSelect"
+                onchange="conSetActiveDoctor(this.value)"
+                style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;min-width:240px;">
+          <option value="">Loading doctors...</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- consultation tabs -->
+  <div class="con-tabs">
+    <button class="con-tab active" data-tab="treatment"
+            onclick="switchConTab('treatment')">
+        📝 Treatment Notes
+    </button>
+    <button class="con-tab" data-tab="medhistory"
+            onclick="switchConTab('medhistory')">
+        🏥 Medical History
+    </button>
+    <button class="con-tab" data-tab="denhistory"
+            onclick="switchConTab('denhistory')">
+        🦷 Dental History
+    </button>
+    <button class="con-tab" data-tab="xrays"
+            onclick="switchConTab('xrays')">
+        🔬 X-Rays
+    </button>
+    <button class="con-tab" data-tab="charting"
+            onclick="switchConTab('charting')">
+        📊 Charting
+    </button>
+    <button class="con-tab" data-tab="photos"
+            onclick="switchConTab('photos')">
+        📁 Photos / Docs
+    </button>
+    <button class="con-tab" data-tab="forms"
+            onclick="switchConTab('forms')">
+        📄 Forms / Letters
+    </button>
+</div>
+
+
+  <!-- ══ PANE: TREATMENT NOTES ══════════════════════════════ -->
+  <div id="con-treatment" class="con-pane active">
+
+    <!-- Search bar — always visible -->
+    <div class="con-search-bar">
+      <div class="ps-wrap" style="flex:1;max-width:500px;">
+        <input type="text" id="conPsInput"
+               placeholder="🔍  Search patient by name, no. or phone…"
+               autocomplete="off">
+        <div class="ps-drop" id="conPsDrop"></div>
+      </div>
+      <button id="conBillBtn"
+              disabled
+              onclick="openBillFromConsultation()"
+              style="padding:7px 18px;border-radius:7px;border:none;
+                     font-size:13px;font-weight:700;cursor:not-allowed;
+                     background:#d1d5db;color:#9ca3af;transition:background .2s,color .2s;">
+        🧾 Bill
+      </button>
+      <span class="con-search-hint">
+        Select a patient to begin consultation
+      </span>
+    </div>
+
+    <!-- Patient banner — hidden until patient selected -->
+    <!-- Patient banner — hidden until patient selected -->
+  <div id="conPatientBanner" class="con-patient-banner" style="display:none;">
+    <div class="con-banner-left">
+        <span style="font-size:30px;">🧑‍⚕️</span>
+        <div>
+            <div class="con-banner-name" id="conBannerName">—</div>
+            <!-- ADDED: chinese name -->
+            <div id="conBannerChinese"
+                 style="font-size:15px;color:#555;
+                        display:none;margin-top:1px;"></div>
+            <div class="con-banner-sub">
+                <span>No:&nbsp;<strong id="conBannerNo">—</strong></span>
+                <span>DOB:&nbsp;<strong id="conBannerDob">—</strong></span>
+                <!-- ADDED: phone -->
+                <span>📞&nbsp;<strong id="conBannerPhone">—</strong></span>
+                <!-- ADDED: today date -->
+                <span>📅&nbsp;<strong id="conBannerToday">—</strong></span>
+                <span>👨‍⚕️&nbsp;<strong id="conBannerDoctor">—</strong></span>
+            </div>
+        </div>
+    </div>
+    <div class="con-banner-alert">
+        ⚠️&nbsp;<span id="conBannerAlert">None</span>
+    </div>
+</div>
+
+
+    <!-- Two-column layout — hidden until patient selected -->
+    <div id="conMainLayout" class="con-two-col" style="display:none;">
+
+      <!-- ══ LEFT 2/3 — Treatment notes ══════════════════ -->
+      <div class="con-note-col">
+        <div class="con-col-header">
+          <h3>📝 Treatment Notes</h3>
+        </div>
+
+        <!-- add note box -->
+        <div class="con-add-note-box">
+          <textarea id="conNoteInput" rows="4"
+                    placeholder="Enter clinical findings, treatment done, plans…">
+          </textarea>
+          <div style="display:flex;justify-content:flex-end;
+                      margin-top:8px;">
+            <button class="btn-add" id="conNoteSaveBtn">
+              💾 Save Note
+            </button>
+          </div>
+        </div>
+
+        <!-- notes timeline -->
+        <div id="conTimeline" class="con-timeline">
+          <p style="color:#aaa;margin:0;padding:16px;">
+            No notes yet.
+          </p>
+        </div>
+      </div>
+
+      <!-- ══ RIGHT 1/3 — Drug panel ═══════════════════════ -->
+      <div class="con-drug-col">
+        <div class="con-col-header">
+          <div>
+            <h3 style="margin:0;">💊 Medications</h3>
+            <div style="font-size:12px;color:#888;margin-top:2px;">
+              Doctor: <strong id="drugActiveDoctorLabel">—</strong>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-add" id="btnAddPrescription"
+                    style="font-size:12px;padding:5px 12px;">
+              + Add Drug
+            </button>
+            <button id="btnManageDrugList"
+                    style="background:var(--gray);color:white;
+                           border:none;padding:5px 12px;
+                           border-radius:6px;cursor:pointer;
+                           font-size:12px;font-weight:600;">
+              ⚙ List
+            </button>
+          </div>
+        </div>
+
+        <!-- Add prescription panel (hidden by default) -->
+        <div id="drugAddPanel" style="display:none;">
+
+          <div class="drug-add-header">
+            <strong style="font-size:13px;color:var(--primary);">
+              New Prescription
+            </strong>
+            <div style="display:flex;gap:8px;align-items:center;
+                        flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;
+                          gap:5px;font-size:12px;">
+                <label style="color:#555;font-weight:600;
+                               white-space:nowrap;">
+                  Date:
+                </label>
+                <input type="date" id="rxDate"
+                       style="padding:4px 7px;border:1px solid #ddd;
+                              border-radius:4px;font-size:12px;">
+              </div>
+              <div style="display:flex;align-items:center;
+                          gap:5px;font-size:12px;">
+                <label style="color:#555;font-weight:600;
+                               white-space:nowrap;">
+                  Dr:
+                </label>
+                <input type="text" id="rxDentistName"
+                       style="width:100px;padding:4px 7px;
+                              border:1px solid #ddd;
+                              border-radius:4px;font-size:12px;">
+              </div>
+            </div>
+          </div>
+
+          <!-- drug lines rendered by JS -->
+          <div id="rxLinesWrap" style="margin:10px 0;">
+            <p style="color:#aaa;font-size:12px;margin:0;
+                      padding:6px 0;">
+              Click "Add Drug" to add a drug line.
+            </p>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:8px;
+                      flex-wrap:wrap;align-items:center;">
+            <button id="btnAddDrugLine"
+                    style="background:#e8f4ff;color:var(--primary);
+                           border:1px solid var(--primary);
+                           padding:6px 13px;border-radius:6px;
+                           cursor:pointer;font-size:12px;
+                           font-weight:600;">
+              + Add Drug
+            </button>
+            <button id="btnRxOpenDrugLists"
+                    title="Pick a saved multi-drug list"
+                    style="background:#f0fdf4;color:#166534;
+                           border:1px solid #16a34a;
+                           padding:6px 13px;border-radius:6px;
+                           cursor:pointer;font-size:12px;
+                           font-weight:600;">
+              📋 Saved lists
+            </button>
+            <button id="btnRxSaveAsList"
+                    title="Remember this combination under a name"
+                    style="background:#fefce8;color:#854d0e;
+                           border:1px solid #ca8a04;
+                           padding:6px 13px;border-radius:6px;
+                           cursor:pointer;font-size:12px;
+                           font-weight:600;">
+              💾 Save as list
+            </button>
+            <button id="btnSaveRx" class="btn-add"
+                    style="padding:6px 18px;font-size:12px;">
+              💾 Save Prescription
+            </button>
+            <button id="btnCancelRx"
+                    style="background:var(--gray);color:white;
+                           border:none;padding:6px 12px;
+                           border-radius:6px;cursor:pointer;
+                           font-size:12px;">
+              Cancel
+            </button>
+          </div>
+        </div>
+        <!-- /drugAddPanel -->
+
+        <!-- Drug history (grouped by date) -->
+        <div id="drugHistoryWrap" class="drug-hist-wrap">
+          <p style="color:#aaa;font-size:13px;padding:10px 0;">
+            No prescription history yet.
+          </p>
+        </div>
+
+      </div><!-- /con-drug-col -->
+    </div><!-- /conMainLayout -->
+  </div><!-- /con-treatment -->
+
+<!-- ══ PANE: MEDICAL HISTORY ══════════════════════════════ -->
+<div id="con-medhistory" class="con-pane">
+  <div class="history-pane-wrap">
+
+    <!-- Search Card -->
+    <div class="history-search-card">
+      <div class="history-search-title">🏥 Medical History</div>
+      <div class="history-search-row">
+        <div class="ps-wrap" style="flex:1;max-width:480px;">
+          <input type="text" id="conPsInputMed"
+                 placeholder="🔍  Search patient by name, no. or phone…"
+                 autocomplete="off"
+                 oninput="doConPatientSearchMed()">
+          <div class="ps-drop" id="conPsDropMed"></div>
+        </div>
+        <span class="history-search-hint">
+          Select a patient to view or edit medical history
+        </span>
+      </div>
+    </div>
+
+    <!-- Patient Banner -->
+    <div id="conMedBanner" class="history-banner" style="display:none;">
+      <div class="history-banner-left">
+        <div class="history-banner-avatar">🧑‍⚕️</div>
+        <div class="history-banner-info">
+          <div class="history-banner-name" id="conMedBannerName">—</div>
+          <div class="history-banner-sub">
+            <span class="history-banner-tag">
+              No: <strong id="conMedBannerNo">—</strong>
+            </span>
+            <span class="history-banner-tag">
+              DOB: <strong id="conMedBannerDob">—</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="history-banner-alert">
+        ⚠️ <span id="conMedBannerAlert">None</span>
+      </div>
+    </div>
+
+    <!-- Form Card -->
+    <div id="conMedForm" class="history-form-card" style="display:none;">
+      <div class="history-form-header">
+        <span class="history-form-icon">🏥</span>
+        <span class="history-form-title">Medical Information</span>
+        <span class="history-form-sub"
+              id="conMedFormPatientName"></span>
+      </div>
+
+      <div class="history-form-body">
+
+        <div class="history-field">
+          <label class="history-label">
+            <span class="history-label-icon">📋</span>
+            Medical History
+          </label>
+          <textarea id="fldMedHistory" rows="5"
+                    placeholder="Hypertension, diabetes, heart conditions, previous surgeries…">
+          </textarea>
+        </div>
+
+        <div class="history-field">
+          <label class="history-label">
+            <span class="history-label-icon">💊</span>
+            Current Medications
+          </label>
+          <textarea id="fldMedications" rows="4"
+                    placeholder="List all current medications with dosage…">
+          </textarea>
+        </div>
+
+        <div class="history-field">
+          <label class="history-label">
+            <span class="history-label-icon">⚠️</span>
+            Allergy
+          </label>
+          <textarea id="fldAllergy" rows="3"
+                    placeholder="Drug allergies, latex, food allergies…">
+          </textarea>
+        </div>
+
+      </div>
+
+      <div class="history-form-footer">
+        <span class="history-save-hint">
+          Changes are saved to the patient record
+        </span>
+        <button class="history-save-btn"
+                onclick="saveMedicalHistory()">
+          💾 Save Medical History
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ══ PANE: DENTAL HISTORY ════════════════════════════════ -->
+<div id="con-denhistory" class="con-pane">
+  <div class="history-pane-wrap">
+
+    <!-- Search Card -->
+    <div class="history-search-card">
+      <div class="history-search-title">🦷 Dental History</div>
+      <div class="history-search-row">
+        <div class="ps-wrap" style="flex:1;max-width:480px;">
+          <input type="text" id="conPsInputDen"
+                 placeholder="🔍  Search patient by name, no. or phone…"
+                 autocomplete="off"
+                 oninput="doConPatientSearchDen()">
+          <div class="ps-drop" id="conPsDropDen"></div>
+        </div>
+        <span class="history-search-hint">
+          Select a patient to view or edit dental history
+        </span>
+      </div>
+    </div>
+
+    <!-- Patient Banner -->
+    <div id="conDenBanner" class="history-banner" style="display:none;">
+      <div class="history-banner-left">
+        <div class="history-banner-avatar">🧑‍⚕️</div>
+        <div class="history-banner-info">
+          <div class="history-banner-name" id="conDenBannerName">—</div>
+          <div class="history-banner-sub">
+            <span class="history-banner-tag">
+              No: <strong id="conDenBannerNo">—</strong>
+            </span>
+            <span class="history-banner-tag">
+              DOB: <strong id="conDenBannerDob">—</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="history-banner-alert">
+        ⚠️ <span id="conDenBannerAlert">None</span>
+      </div>
+    </div>
+
+    <!-- Form Card -->
+    <div id="conDenForm" class="history-form-card" style="display:none;">
+      <div class="history-form-header">
+        <span class="history-form-icon">🦷</span>
+        <span class="history-form-title">Dental Information</span>
+        <span class="history-form-sub"
+              id="conDenFormPatientName"></span>
+      </div>
+
+      <div class="history-form-body">
+
+        <div class="history-field">
+          <label class="history-label">
+            <span class="history-label-icon">🦷</span>
+            Previous Dental History
+          </label>
+          <textarea id="fldDentalHistory" rows="5"
+                    placeholder="Previous extractions, fillings, root canals, orthodontic treatment…">
+          </textarea>
+        </div>
+
+        <div class="history-field">
+          <label class="history-label">
+            <span class="history-label-icon">🔄</span>
+            Parafunctional Habits
+          </label>
+          <textarea id="fldParafunctional" rows="4"
+                    placeholder="Bruxism, nail biting, tongue thrusting, mouth breathing…">
+          </textarea>
+        </div>
+
+        <div class="history-field">
+          <label class="history-label">
+            <span class="history-label-icon">🪥</span>
+            Oral Hygiene Notes
+          </label>
+          <textarea id="fldOralHygiene" rows="4"
+                    placeholder="Brushing frequency, flossing habits, mouthwash use…">
+          </textarea>
+        </div>
+
+      </div>
+
+      <div class="history-form-footer">
+        <span class="history-save-hint">
+          Changes are saved to the patient record
+        </span>
+        <button class="history-save-btn"
+                onclick="saveDentalHistory()">
+          💾 Save Dental History
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+
+<!-- ══ PANE: X-RAYS ══════════════════════════════════════ -->
+<div id="con-xrays" class="con-pane">
+  <div class="xray-pane-wrap">
+
+    <!-- ── Search Card ─────────────────────────────────── -->
+    <div class="history-search-card">
+      <div class="history-search-title">🔬 X-Ray Images</div>
+      <div class="history-search-row">
+        <div class="ps-wrap" style="flex:1;max-width:480px;">
+          <input type="text" id="conPsInputXray"
+                 placeholder="🔍  Search patient by name, no. or phone…"
+                 autocomplete="off"
+                 oninput="doConPatientSearchXray()">
+          <div class="ps-drop" id="conPsDropXray"></div>
+        </div>
+        <span class="history-search-hint">
+          Select a patient to view or manage X-rays
+        </span>
+      </div>
+    </div>
+
+    <!-- ── Patient Banner ──────────────────────────────── -->
+    <div id="conXrayBanner" class="history-banner" style="display:none;">
+      <div class="history-banner-left">
+        <div class="history-banner-avatar">🔬</div>
+        <div class="history-banner-info">
+          <div class="history-banner-name" id="conXrayBannerName">—</div>
+          <div class="history-banner-sub">
+            <span class="history-banner-tag">
+              No: <strong id="conXrayBannerNo">—</strong>
+            </span>
+            <span class="history-banner-tag">
+              DOB: <strong id="conXrayBannerDob">—</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="history-banner-alert">
+        ⚠️ <span id="conXrayBannerAlert">None</span>
+      </div>
+    </div>
+
+    <!-- ── Main X-Ray Content (hidden until patient selected) ── -->
+    <div id="xrayMainContent" style="display:none;">
+
+      <!-- ── Top Action Bar ───────────────────────────── -->
+      <div class="xray-action-bar">
+	<button class="xray-btn xray-btn-refresh" id="btnRefreshXrays" onclick="refreshXrays()">
+  &#x21BB; Refresh
+</button>
+
+        <!-- Upload -->
+        <div class="xray-action-group">
+          <label class="xray-upload-btn" for="xrayFileInput">
+            📤 Upload X-Ray
+          </label>
+          <input type="file" id="xrayFileInput" multiple
+                 accept="image/*,.dcm,.jpg,.jpeg,.png,.bmp,.tiff,.tif"
+                 style="display:none;">
+          <span class="xray-upload-hint">
+            JPG, PNG, BMP, TIFF, DCM
+          </span>
+        </div>
+
+        <!-- Export -->
+        <div class="xray-action-group">
+          <button class="xray-btn xray-btn-export"
+                  id="btnExportSelected"
+                  onclick="exportSelectedXrays()">
+            📥 Export Selected
+          </button>
+          <button class="xray-btn xray-btn-export"
+                  onclick="exportAllXrays()">
+            📦 Export All
+          </button>
+        </div>
+
+        <!-- View toggle -->
+        <div class="xray-view-toggle">
+          <button class="xray-vtoggle active" id="btnGridView"
+                  onclick="setXrayView('grid')">
+            ⊞ Grid
+          </button>
+          <button class="xray-vtoggle" id="btnSlideView"
+                  onclick="setXrayView('slide')">
+            ▶ Slide
+          </button>
+        </div>
+
+      </div>
+
+      <!-- ── External System Links ────────────────────── -->
+      <div class="xray-systems-bar">
+        <span class="xray-sys-label">🔗 Open in X-Ray System:</span>
+
+        <button class="xray-sys-btn xray-sys-sirona"
+                onclick="openXraySystem('sirona')">
+          <span class="sys-icon">🦷</span>
+          Sidexis (Sirona)
+        </button>
+
+        <button class="xray-sys-btn xray-sys-vatech"
+                onclick="openXraySystem('vatech')">
+          <span class="sys-icon">📡</span>
+          EzDent-i (Vatech)
+        </button>
+
+        <button class="xray-sys-btn xray-sys-planmeca"
+                onclick="openXraySystem('planmeca')">
+          <span class="sys-icon">🖥️</span>
+          Romexis (Planmeca)
+        </button>
+
+        <button class="xray-sys-btn xray-sys-carestream"
+                onclick="openXraySystem('carestream')">
+          <span class="sys-icon">💊</span>
+          CS Imaging (Carestream)
+        </button>
+
+        <button class="xray-sys-btn xray-sys-Trophy"
+                onclick="openXraySystem('Trophy')">
+          <span class="sys-icon">🏆</span>
+          Trophy / Kodak
+        </button>
+
+        <button class="xray-sys-btn xray-sys-diy"
+                id="btnDiySystem"
+                onclick="openDiySystemModal()">
+          <span class="sys-icon">⚙️</span>
+          Custom Link
+          <span class="diy-badge" id="diyBadge"
+                style="display:none;">●</span>
+        </button>
+
+      </div>
+
+      <!-- ── Upload progress bar ──────────────────────── -->
+      <div id="xrayUploadProgress" style="display:none;">
+        <div class="xray-progress-bar">
+          <div class="xray-progress-fill" id="xrayProgressFill"></div>
+        </div>
+        <div class="xray-progress-label" id="xrayProgressLabel">
+          Uploading…
+        </div>
+      </div>
+
+      <!-- ── Filter / Sort Bar ────────────────────────── -->
+      <div class="xray-filter-bar">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="xrayFilterType" onchange="filterXrays()"
+                  class="xray-filter-sel">
+            <option value="">All Types</option>
+            <option value="Periapical">Periapical</option>
+            <option value="Bitewing">Bitewing</option>
+            <option value="Panoramic">Panoramic</option>
+            <option value="CBCT">CBCT</option>
+            <option value="Cephalometric">Cephalometric</option>
+            <option value="Occlusal">Occlusal</option>
+            <option value="Other">Other</option>
+          </select>
+          <select id="xrayFilterYear" onchange="filterXrays()"
+                  class="xray-filter-sel">
+            <option value="">All Years</option>
+          </select>
+          <input type="text" id="xrayFilterSearch"
+                 placeholder="🔍 Search notes…"
+                 oninput="filterXrays()"
+                 class="xray-filter-input">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:12px;color:#666;font-weight:600;">
+            <input type="checkbox" id="xraySelectAll"
+                   onchange="toggleSelectAll(this.checked)"
+                   style="margin-right:4px;">
+            Select All
+          </label>
+          <span id="xraySelectedCount"
+                style="font-size:12px;color:var(--primary);
+                       font-weight:700;"></span>
+        </div>
+      </div>
+
+      <!-- ── GRID VIEW ─────────────────────────────────── -->
+      <div id="xrayGridView" class="xray-grid">
+        <div class="xray-empty" id="xrayEmptyState">
+          <div style="font-size:56px;margin-bottom:12px;">🔬</div>
+          <h3>No X-Rays Yet</h3>
+          <p>Upload images using the button above</p>
+        </div>
+      </div>
+
+      <!-- ── SLIDE VIEW ────────────────────────────────── -->
+      <div id="xraySlideView" style="display:none;">
+        <div class="xray-slide-container">
+
+          <!-- Main viewer -->
+          <div class="xray-slide-main">
+            <button class="xray-slide-nav xray-slide-prev"
+                    onclick="slideNav(-1)">&#8249;</button>
+
+            <div class="xray-slide-viewer" id="xraySlideViewer">
+              <img id="xraySlideImg" src="" alt="X-Ray"
+                   style="max-width:100%;max-height:100%;
+                          object-fit:contain;">
+              <div class="xray-slide-tools">
+                <button onclick="xrayZoom(1.2)"
+                        title="Zoom In">🔍+</button>
+                <button onclick="xrayZoom(0.8)"
+                        title="Zoom Out">🔍-</button>
+                <button onclick="xrayRotate(90)"
+                        title="Rotate">🔄</button>
+                <button onclick="xrayFlip('h')"
+                        title="Flip H">↔️</button>
+                <button onclick="xrayFlip('v')"
+                        title="Flip V">↕️</button>
+                <button onclick="xrayInvert()"
+                        title="Invert">🌗</button>
+                <button onclick="xrayReset()"
+                        title="Reset">↺</button>
+                <button onclick="downloadCurrentXray()"
+                        title="Download">💾</button>
+              </div>
+            </div>
+
+            <button class="xray-slide-nav xray-slide-next"
+                    onclick="slideNav(1)">&#8250;</button>
+          </div>
+
+          <!-- Slide info -->
+          <div class="xray-slide-info" id="xraySlideInfo">
+            <div class="xsi-top">
+              <span class="xsi-counter" id="xraySlideCounter">1 / 1</span>
+              <span class="xsi-type" id="xraySlideType">—</span>
+            </div>
+            <div class="xsi-date" id="xraySlideDate">—</div>
+            <div class="xsi-notes" id="xraySlideNotes">—</div>
+          </div>
+
+          <!-- Filmstrip -->
+          <div class="xray-filmstrip" id="xrayFilmstrip"></div>
+
+        </div>
+      </div>
+
+    </div><!-- /xrayMainContent -->
+
+  </div><!-- /xray-pane-wrap -->
+</div><!-- /con-xrays -->
+
+<!-- ══ PANE: FORMS / LETTERS ═════════════════════════════ -->
+<div id="con-forms" class="con-pane">
+  <div class="history-pane-wrap">
+
+    <!-- Patient search -->
+    <div class="history-search-card">
+      <div class="history-search-title">📄 Forms / Letters</div>
+      <div class="history-search-row">
+        <div class="ps-wrap" style="flex:1;max-width:480px;">
+          <input type="text" id="conFormsPsInput"
+                 placeholder="🔍  Search patient by name, no. or phone…"
+                 autocomplete="off"
+                 oninput="doConFormsPatientSearch()">
+          <div class="ps-drop" id="conFormsPsDrop"></div>
+        </div>
+        <span class="history-search-hint">
+          Select a patient, then choose a template
+        </span>
+      </div>
+    </div>
+
+    <!-- Template selector -->
+    <div id="conFormsTplCard" class="history-form-card" style="display:none;">
+      <div class="history-form-header">
+        <span class="history-form-icon">🧾</span>
+        <span class="history-form-title">Generate Document</span>
+        <span class="history-form-sub" id="conFormsPatientLabel">—</span>
+        <span class="history-form-sub" style="margin-left:10px;">
+          Doctor: <strong id="conFormsDoctorLabel">—</strong>
+        </span>
+      </div>
+
+      <div class="history-form-body">
+        <div style="display:grid;grid-template-columns:1fr 220px;gap:12px;align-items:end;">
+          <div class="history-field">
+            <label class="history-label">
+              <span class="history-label-icon">📄</span>
+              Template
+            </label>
+            <select id="conFormsTemplateSel" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;"
+                    onchange="onConFormsTemplateChange()">
+              <option value="">Loading templates...</option>
+            </select>
+          </div>
+
+          <div class="history-field">
+            <label class="history-label">
+              <span class="history-label-icon">📝</span>
+              Document Name
+            </label>
+            <input id="conFormsDocName" type="text"
+                   placeholder="e.g. Consent Form (Implant)"
+                   style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;">
+          </div>
+        </div>
+
+        <div id="conFormsEditorWrap" style="display:none;margin-top:12px;">
+          <!-- Basic formatting toolbar -->
+          <div id="conFormsToolbar"
+               style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+                      padding:10px;border:1px solid #e5e7eb;border-radius:12px;
+                      background:#f8fafc;margin-bottom:10px;">
+
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsCmd('bold')"><b>B</b></button>
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsCmd('underline')"><u>U</u></button>
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsCmd('italic')"><i>I</i></button>
+
+            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
+
+            <select id="conFormsFontName" onchange="conFormsFontName(this.value)"
+                    style="padding:6px 10px;border:1px solid #ddd;border-radius:10px;">
+              <option value="Arial" selected>Arial</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Calibri">Calibri</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Tahoma">Tahoma</option>
+              <option value="Courier New">Courier New</option>
+            </select>
+
+            <select id="conFormsFontSize" onchange="conFormsFontSize(this.value)"
+                    style="padding:6px 10px;border:1px solid #ddd;border-radius:10px;">
+              <option value="2">Small</option>
+              <option value="3" selected>Normal</option>
+              <option value="4">Large</option>
+              <option value="5">X-Large</option>
+            </select>
+
+            <input id="conFormsFontColor" type="color" value="#111111"
+                   onchange="conFormsForeColor(this.value)"
+                   style="width:42px;height:34px;border:1px solid #ddd;border-radius:10px;padding:2px;background:#fff;">
+
+            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
+
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsCmd('justifyLeft')">⟸</button>
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsCmd('justifyCenter')">≡</button>
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsCmd('justifyRight')">⟹</button>
+
+            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
+
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsCmd('insertUnorderedList')">• List</button>
+
+            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
+
+            <!-- Placeholder insertion -->
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsInsertTag('{patient_name}')">{patient_name}</button>
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsInsertTag('{patient_no}')">{patient_no}</button>
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsInsertTag('{doctor_name}')">{doctor_name}</button>
+            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
+                    onclick="conFormsInsertTag('{date}')">{date}</button>
+          </div>
+
+          <!-- Rich text editor -->
+          <div id="conFormsDocEditor"
+               contenteditable="true"
+               style="min-height:420px;padding:14px;border:1px solid #ddd;border-radius:12px;
+                      background:#fff;overflow:auto;line-height:1.5;">
+            Select a template…
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+            <button class="btn-add" onclick="saveConFormsDoc(false)">💾 Save only</button>
+            <button class="btn-add" style="background:var(--primary);" onclick="saveConFormsDoc(true)">🖨️ Save &amp; Print</button>
+            <button class="btn-add" style="background:var(--gray);" onclick="searchConFormsDocs()">🔎 Search Existing</button>
+          </div>
+
+          <div id="conFormsSearchWrap" style="display:none;margin-top:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="font-weight:900;color:#555;">Existing Documents</div>
+                <label style="font-size:12px;color:#666;font-weight:800;display:flex;align-items:center;gap:6px;">
+                  <input id="conFormsHistSelectAll" type="checkbox"
+                         onchange="conFormsToggleSelectAll(this.checked)">
+                  Select all
+                </label>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button id="conFormsHistPrintBtn"
+                        class="btn-add"
+                        style="padding:7px 12px;font-size:12px;background:#9ca3af;cursor:not-allowed;"
+                        disabled
+                        onclick="conFormsPrintSelectedDocs()">
+                  🖨️ Print
+                </button>
+                <button id="conFormsHistDeleteBtn"
+                        class="btn-add"
+                        style="padding:7px 12px;font-size:12px;background:#9ca3af;cursor:not-allowed;"
+                        disabled
+                        onclick="conFormsDeleteSelectedDocs()">
+                  🗑 Delete
+                </button>
+              </div>
+            </div>
+
+            <div id="conFormsExistingList"
+                 style="background:#fff;border:1px solid #eee;border-radius:12px;overflow:hidden;">
+              <div style="padding:10px;color:#888;">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL — X-RAY LIGHTBOX
+════════════════════════════════════════════════════════════ -->
+<div id="xrayLightbox" class="modal" style="z-index:9999;">
+  <div class="xray-lightbox-box">
+    <button class="mclose" onclick="closeLightbox()">×</button>
+
+    <!-- ══ TOOLBAR ══════════════════════════════════════════════ -->
+    <div class="xray-lb-toolbar">
+
+      <!-- View -->
+      <div class="xray-lb-tgroup">
+        <span class="xray-lb-tglabel">View</span>
+        <button title="Zoom In"   onclick="lbZoom(1.25)">🔍+</button>
+        <button title="Zoom Out"  onclick="lbZoom(0.8)">🔍−</button>
+        <button title="Reset All" onclick="lbReset()">↺ Reset</button>
+        <button title="Print"     onclick="lbPrint()">🖨️</button>
+        <button title="Download"  onclick="downloadLbXray()">💾</button>
+      </div>
+
+      <!-- Transform -->
+      <div class="xray-lb-tgroup">
+        <span class="xray-lb-tglabel">Transform</span>
+        <button title="Rotate CW" onclick="lbRotate(90)">🔄</button>
+        <button title="Flip H"    onclick="lbFlip('h')">↔️</button>
+        <button title="Flip V"    onclick="lbFlip('v')">↕️</button>
+        <button title="Invert"    onclick="lbInvert()">🌗</button>
+      </div>
+
+      <!-- Adjust -->
+      <div class="xray-lb-tgroup">
+        <span class="xray-lb-tglabel">Adjust</span>
+        <label class="xray-lb-slider-lbl" title="Brightness">
+          ☀️
+          <input type="range" id="lbBrightSlider" min="0" max="300" value="100"
+                 oninput="lbSetBrightness(this.value)">
+          <span id="lbBrightVal">100%</span>
+        </label>
+        <label class="xray-lb-slider-lbl" title="Contrast">
+          ◑
+          <input type="range" id="lbContrastSlider" min="0" max="300" value="100"
+                 oninput="lbSetContrast(this.value)">
+          <span id="lbContrastVal">100%</span>
+        </label>
+      </div>
+
+      <!-- Draw -->
+      <div class="xray-lb-tgroup">
+        <span class="xray-lb-tglabel">Draw</span>
+        <button id="lbTBtn-pan"     class="xray-lb-tool-btn" title="Pan / Drag"
+                onclick="lbSetTool('pan')">✋</button>
+        <button id="lbTBtn-free"    class="xray-lb-tool-btn" title="Freehand"
+                onclick="lbSetTool('free')">✏️</button>
+        <button id="lbTBtn-line"    class="xray-lb-tool-btn" title="Line"
+                onclick="lbSetTool('line')">╱</button>
+        <button id="lbTBtn-arrow"   class="xray-lb-tool-btn" title="Arrow"
+                onclick="lbSetTool('arrow')">➤</button>
+        <button id="lbTBtn-rect"    class="xray-lb-tool-btn" title="Rectangle"
+                onclick="lbSetTool('rect')">⬜</button>
+        <button id="lbTBtn-ellipse" class="xray-lb-tool-btn" title="Ellipse / Circle"
+                onclick="lbSetTool('ellipse')">⭕</button>
+        <button id="lbTBtn-poly"    class="xray-lb-tool-btn"
+                title="Polygon — click to add points, double-click to close"
+                onclick="lbSetTool('poly')">⬡</button>
+        <input  type="color" id="lbColorPicker" value="#ff0000"
+                title="Stroke colour" class="xray-lb-color-pick"
+                onchange="lbSetColor(this.value)">
+        <select id="lbStrokeSel" class="xray-lb-stroke-sel" title="Stroke width"
+                onchange="lbSetStrokeWidth(this.value)">
+          <option value="2">Thin</option>
+          <option value="4" selected>Medium</option>
+          <option value="8">Thick</option>
+          <option value="14">Bold</option>
+        </select>
+      </div>
+
+      <!-- Edit -->
+      <div class="xray-lb-tgroup">
+        <span class="xray-lb-tglabel">Edit</span>
+        <button id="lbTBtn-crop" class="xray-lb-tool-btn" title="Crop selection"
+                onclick="lbSetTool('crop')">✂️ Crop</button>
+        <button title="Undo last stroke"   onclick="lbUndoDraw()">↩ Undo</button>
+        <button title="Clear all drawings" onclick="lbClearCanvas()">🗑 Clear</button>
+      </div>
+
+      <!-- Video (hidden until a video file is opened) -->
+      <div class="xray-lb-tgroup" id="lbVideoGroup" style="display:none;">
+        <span class="xray-lb-tglabel">Video</span>
+        <button title="From Start"   onclick="lbVidStart()">⏮</button>
+        <button title="Back 10 s"    onclick="lbVidBack()">⏪</button>
+        <button id="lbVidPlayBtn" title="Play / Pause" onclick="lbVidPlayPause()">▶️</button>
+        <button title="Forward 10 s" onclick="lbVidFwd()">⏩</button>
+        <button title="To End"       onclick="lbVidEnd()">⏭</button>
+        <button title="Stop"         onclick="lbVidStop()">⏹</button>
+        <input type="range" id="lbVidSeekBar" min="0" max="100" value="0" step="0.1"
+               style="width:80px;accent-color:#1a73e8;"
+               oninput="lbVidSeekTo(this.value)">
+      </div>
+
+    </div><!-- /.xray-lb-toolbar -->
+
+    <!-- ══ CONTENT ══════════════════════════════════════════════ -->
+    <div class="xray-lb-main">
+
+      <div class="xray-lb-viewer" id="xrayLbViewerDiv">
+        <div id="xrayLbScrollHost" class="xray-lb-scroll-host">
+          <div id="xrayLbScrollInner" class="xray-lb-scroll-inner">
+            <div id="lbMediaWrap">
+              <img   id="xrayLbImg"   src="" alt="X-Ray">
+              <video id="xrayLbVideo" style="display:none;" preload="metadata"></video>
+              <canvas id="xrayLbCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+        <button id="lbCropApplyBtn" onclick="lbCropApply()"
+                style="display:none;position:absolute;bottom:56px;left:50%;
+                       transform:translateX(-50%);z-index:10;
+                       background:#1a73e8;color:#fff;border:none;
+                       border-radius:6px;padding:8px 20px;
+                       font-weight:700;cursor:pointer;font-size:13px;">
+          ✂️ Apply Crop
+        </button>
+      </div>
+
+      <div class="xray-lb-meta">
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Type</span>
+          <select id="lbType" class="xlm-input" style="width:160px;">
+            <option value="Periapical">Periapical</option>
+            <option value="Bitewing">Bitewing</option>
+            <option value="Panoramic">Panoramic</option>
+            <option value="CBCT">CBCT</option>
+            <option value="Cephalometric">Cephalometric</option>
+            <option value="Occlusal">Occlusal</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Date</span>
+          <input type="date" id="lbDate" class="xlm-input">
+        </div>
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Notes</span>
+          <textarea id="lbNotes" rows="4"
+                    placeholder="Clinical notes, findings…"
+                    class="xlm-input"></textarea>
+        </div>
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Text box on image</span>
+          <input type="text" id="lbAnnotTextInput" class="xlm-input"
+                 placeholder="Type label, then tap the image…"
+                 maxlength="120">
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+            <label style="font-size:12px;color:#555;white-space:nowrap;">
+              Size (px)
+              <input type="number" id="lbTextFontSize" min="8" max="200" value="24"
+                     class="xlm-input" style="width:72px;display:inline-block;
+                     margin-left:4px;margin-top:4px;"
+                     onclick="event.stopPropagation()">
+            </label>
+          </div>
+          <button type="button" id="lbBtnAnnotText" class="lb-meta-tool-btn"
+                  onclick="lbSetTool('text')">
+            Aa Add text box
+          </button>
+          <small style="color:#888;font-size:11px;display:block;margin-top:4px;">
+            Click the image once to place text. Colour follows the toolbar picker.
+          </small>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn-add" onclick="saveLbMeta()"
+                  style="flex:1;padding:10px;">
+            💾 Save
+          </button>
+          <button onclick="deleteLbXray()"
+                  style="flex:1;padding:10px;background:var(--danger);
+                         color:white;border:none;border-radius:6px;
+                         cursor:pointer;font-weight:bold;">
+            🗑 Delete
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /.xray-lb-main -->
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL — DIY SYSTEM LINK
+════════════════════════════════════════════════════════════ -->
+<div id="diySystemModal" class="modal">
+  <div class="modal-box" style="max-width:560px;">
+    <button class="mclose"
+            onclick="closeModal('diySystemModal')">×</button>
+    <h3>⚙️ Custom X-Ray System Links</h3>
+    <p style="color:#888;font-size:13px;margin-top:-8px;">
+      Define your own links to open external X-ray software.
+      Use placeholders like <code>{patient_no}</code>,
+      <code>{patient_name}</code> in the URL.
+    </p>
+
+    <div id="diyLinksList"
+         style="margin-bottom:16px;max-height:300px;
+                overflow-y:auto;"></div>
+
+    <div class="diy-add-form">
+      <h4 style="margin:0 0 12px;color:var(--primary);
+                 font-size:14px;">
+        ➕ Add New Link
+      </h4>
+      <div class="fg">
+        <label>System Name *</label>
+        <input type="text" id="diyName"
+               placeholder="e.g. My PACS System">
+      </div>
+      <div class="fg">
+        <label>URL / Protocol *</label>
+        <input type="text" id="diyUrl"
+               placeholder="e.g. https://pacs.example.com/patient/{patient_no}">
+      </div>
+      <div class="fg">
+        <label>Icon (emoji)</label>
+        <input type="text" id="diyIcon"
+               placeholder="🏥" maxlength="4"
+               style="width:80px;">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button class="btn-add" onclick="saveDiyLink()"
+                style="flex:1;padding:10px;">
+          💾 Save Link
+        </button>
+      </div>
+    </div>
+
+    <div class="diy-placeholder-guide">
+      <strong>Available placeholders:</strong>
+      <div class="diy-ph-tags">
+        <code>{patient_no}</code>
+        <code>{patient_name}</code>
+        <code>{patient_dob}</code>
+        <code>{date}</code>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL — UPLOAD X-RAY METADATA
+════════════════════════════════════════════════════════════ -->
+<div id="xrayUploadModal" class="modal">
+  <div class="modal-box" style="max-width:480px;">
+    <button class="mclose"
+            onclick="closeModal('xrayUploadModal')">×</button>
+    <h3>📤 Upload X-Ray Details</h3>
+    <div id="uploadPreviewWrap"
+         style="text-align:center;margin-bottom:16px;"></div>
+    <div class="fg">
+      <label>X-Ray Type *</label>
+      <select id="uploadType">
+        <option value="Periapical">Periapical</option>
+        <option value="Bitewing">Bitewing</option>
+        <option value="Panoramic">Panoramic</option>
+        <option value="CBCT">CBCT</option>
+        <option value="Cephalometric">Cephalometric</option>
+        <option value="Occlusal">Occlusal</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>Date Taken</label>
+      <input type="date" id="uploadDate">
+    </div>
+    <div class="fg">
+      <label>Notes / Findings</label>
+      <textarea id="uploadNotes" rows="3"
+                placeholder="Clinical notes…"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <button class="btn-add" id="btnConfirmUpload"
+              style="flex:1;padding:12px;">
+        ✅ Confirm Upload
+      </button>
+      <button onclick="closeModal('xrayUploadModal')"
+              style="flex:1;padding:12px;background:var(--gray);
+                     color:white;border:none;border-radius:6px;
+                     cursor:pointer;font-weight:bold;">
+        Cancel
+      </button>
+    </div>
+    <div id="uploadMultiInfo"
+         style="margin-top:10px;font-size:12px;
+                color:#888;text-align:center;"></div>
+  </div>
+</div>
+
+
+  <!-- ══ PANE: CHARTING ════════════════════════════════════ -->
+  <div id="con-charting" class="con-pane">
+   <div id="chartingTabContent" style="height:100%;"></div>
+  </div>
+
+  <!-- ══ PANE: PHOTOS / DOCS ═══════════════════════════════ -->
+<div id="con-photos" class="con-pane">
+  <div class="xray-pane-wrap">
+
+    <!-- ── Search Card ─────────────────────────────────── -->
+    <div class="history-search-card">
+      <div class="history-search-title">📷 Photos &amp; Documents</div>
+      <div class="history-search-row">
+        <div class="ps-wrap" style="flex:1;max-width:480px;">
+          <input type="text" id="conPsInputPhoto"
+                 placeholder="🔍  Search patient by name, no. or phone…"
+                 autocomplete="off"
+                 oninput="doConPatientSearchPhoto()">
+          <div class="ps-drop" id="conPsDropPhoto"></div>
+        </div>
+        <span class="history-search-hint">
+          Select a patient to view or manage photos
+        </span>
+      </div>
+    </div>
+
+    <!-- ── Patient Banner ──────────────────────────────── -->
+    <div id="conPhotoBanner" class="history-banner" style="display:none;">
+      <div class="history-banner-left">
+        <div class="history-banner-avatar">📷</div>
+        <div class="history-banner-info">
+          <div class="history-banner-name" id="conPhotoBannerName">—</div>
+          <div class="history-banner-sub">
+            <span class="history-banner-tag">
+              No: <strong id="conPhotoBannerNo">—</strong>
+            </span>
+            <span class="history-banner-tag">
+              DOB: <strong id="conPhotoBannerDob">—</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="history-banner-alert">
+        ⚠️ <span id="conPhotoBannerAlert">None</span>
+      </div>
+    </div>
+
+    <!-- ── Main Photo Content (hidden until patient selected) ── -->
+    <div id="photoMainContent" style="display:none;">
+
+      <!-- ── Top Action Bar ───────────────────────────── -->
+      <div class="xray-action-bar">
+        <button class="xray-btn xray-btn-refresh"
+                onclick="refreshPhotos()">
+          &#x21BB; Refresh
+        </button>
+
+        <!-- Upload -->
+        <div class="xray-action-group">
+          <label class="xray-upload-btn" for="photoFileInput">
+            📤 Upload Photo
+          </label>
+          <input type="file" id="photoFileInput" multiple
+                 accept="image/*,.pdf,.jpg,.jpeg,.png,.webp,.heic"
+                 style="display:none;">
+          <span class="xray-upload-hint">
+            JPG, PNG, WEBP, HEIC, PDF
+          </span>
+        </div>
+
+        <!-- Export -->
+        <div class="xray-action-group">
+          <button class="xray-btn xray-btn-export"
+                  onclick="exportSelectedPhotos()">
+            📥 Export Selected
+          </button>
+          <button class="xray-btn xray-btn-export"
+                  onclick="exportAllPhotos()">
+            📦 Export All
+          </button>
+        </div>
+
+        <!-- Bulk Delete -->
+        <div class="xray-action-group">
+          <button class="xray-btn"
+                  style="background:#ef4444;color:#fff;"
+                  onclick="bulkDeletePhotos()">
+            🗑 Delete Selected
+          </button>
+        </div>
+
+        <!-- View toggle -->
+        <div class="xray-view-toggle">
+          <button class="xray-vtoggle active" id="btnPhotoGridView"
+                  onclick="setPhotoView('grid')">
+            ⊞ Grid
+          </button>
+          <button class="xray-vtoggle" id="btnPhotoSlideView"
+                  onclick="setPhotoView('slide')">
+            ▶ Slide
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Upload progress bar ──────────────────────── -->
+      <div id="photoUploadProgress" style="display:none;">
+        <div class="xray-progress-bar">
+          <div class="xray-progress-fill" id="photoProgressFill"></div>
+        </div>
+        <div class="xray-progress-label" id="photoProgressLabel">
+          Uploading…
+        </div>
+      </div>
+
+      <!-- ── Filter / Sort Bar ────────────────────────── -->
+      <div class="xray-filter-bar">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="photoFilterCat" onchange="filterPhotos()"
+                  class="xray-filter-sel">
+            <option value="">All Categories</option>
+            <option value="Intraoral">Intraoral</option>
+            <option value="Extraoral">Extraoral</option>
+            <option value="Before/After">Before/After</option>
+            <option value="Consent Form">Consent Form</option>
+            <option value="Lab Report">Lab Report</option>
+            <option value="Other">Other</option>
+          </select>
+          <select id="photoFilterYear" onchange="filterPhotos()"
+                  class="xray-filter-sel">
+            <option value="">All Years</option>
+          </select>
+          <input type="text" id="photoFilterSearch"
+                 placeholder="🔍 Search caption…"
+                 oninput="filterPhotos()"
+                 class="xray-filter-input">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:12px;color:#666;font-weight:600;">
+            <input type="checkbox" id="photoSelectAll"
+                   onchange="togglePhotoSelectAll(this.checked)"
+                   style="margin-right:4px;">
+            Select All
+          </label>
+          <span id="photoSelectedCount"
+                style="font-size:12px;color:var(--primary);
+                       font-weight:700;"></span>
+        </div>
+      </div>
+
+      <!-- ── GRID VIEW ─────────────────────────────────── -->
+      <div id="photoGridView" class="xray-grid">
+        <div class="xray-empty" id="photoEmptyState">
+          <div style="font-size:56px;margin-bottom:12px;">📷</div>
+          <h3>No Photos Yet</h3>
+          <p>Upload images using the button above</p>
+        </div>
+      </div>
+
+      <!-- ── SLIDE VIEW ────────────────────────────────── -->
+      <div id="photoSlideView" style="display:none;">
+        <div class="xray-slide-container">
+
+          <!-- Main viewer -->
+          <div class="xray-slide-main">
+            <button class="xray-slide-nav xray-slide-prev"
+                    onclick="photoSlideNav(-1)">&#8249;</button>
+
+            <div class="xray-slide-viewer" id="photoSlideViewer">
+              <img id="photoSlideImg" src="" alt="Photo"
+                   style="max-width:100%;max-height:100%;
+                          object-fit:contain;">
+              <div class="xray-slide-tools">
+                <button onclick="photoSlideDownload()"
+                        title="Download">💾</button>
+              </div>
+            </div>
+
+            <button class="xray-slide-nav xray-slide-next"
+                    onclick="photoSlideNav(1)">&#8250;</button>
+          </div>
+
+          <!-- Slide info -->
+          <div class="xray-slide-info">
+            <div class="xsi-top">
+              <span class="xsi-counter" id="photoSlideCounter">1 / 1</span>
+              <span class="xsi-type"    id="photoSlideCat">—</span>
+            </div>
+            <div class="xsi-date"  id="photoSlideDate">—</div>
+            <div class="xsi-notes" id="photoSlideCaption">—</div>
+          </div>
+
+          <!-- Filmstrip -->
+          <div class="xray-filmstrip" id="photoFilmstrip"></div>
+
+        </div>
+      </div>
+
+    </div><!-- /photoMainContent -->
+
+  </div><!-- /xray-pane-wrap -->
+</div><!-- /con-photos -->
+
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL — PHOTO LIGHTBOX  (matches X-Ray lightbox UX)
+════════════════════════════════════════════════════════════ -->
+<div id="photoLightbox" class="modal" style="z-index:9999;">
+  <div class="xray-lightbox-box">
+    <button class="mclose" onclick="closePhotoLightbox()">×</button>
+
+    <!-- ══ TOOLBAR ══════════════════════════════════════════════ -->
+    <div class="xray-lb-toolbar">
+      <!-- View -->
+      <div class="xray-lb-tgroup">
+        <span class="xray-lb-tglabel">View</span>
+        <button type="button" title="Zoom In"   onclick="photoLbZoom(1.25)">🔍+</button>
+        <button type="button" title="Zoom Out"  onclick="photoLbZoom(0.8)">🔍−</button>
+        <button type="button" title="Reset All" onclick="photoLbReset()">↺ Reset</button>
+        <button type="button" title="Print"     onclick="photoLbPrint()">🖨️</button>
+        <button type="button" title="Download"  onclick="downloadPhotoLb()">💾</button>
+      </div>
+
+      <!-- Raster-only tools (hidden for PDF) -->
+      <div id="photoLbRasterStrip"
+           style="display:flex;flex-wrap:wrap;align-items:center;">
+        <!-- Transform -->
+        <div class="xray-lb-tgroup">
+          <span class="xray-lb-tglabel">Transform</span>
+          <button type="button" title="Rotate CW" onclick="photoLbRotate(90)">🔄</button>
+          <button type="button" title="Flip H"    onclick="photoLbFlip('h')">↔️</button>
+          <button type="button" title="Flip V"    onclick="photoLbFlip('v')">↕️</button>
+          <button type="button" title="Invert"    onclick="photoLbInvert()">🌗</button>
+        </div>
+        <!-- Adjust -->
+        <div class="xray-lb-tgroup">
+          <span class="xray-lb-tglabel">Adjust</span>
+          <label class="xray-lb-slider-lbl" title="Brightness">
+            ☀️
+            <input type="range" id="photoLbBrightSlider" min="0" max="300" value="100"
+                   oninput="photoLbSetBrightness(this.value)">
+            <span id="photoLbBrightVal">100%</span>
+          </label>
+          <label class="xray-lb-slider-lbl" title="Contrast">
+            ◑
+            <input type="range" id="photoLbContrastSlider" min="0" max="300" value="100"
+                   oninput="photoLbSetContrast(this.value)">
+            <span id="photoLbContrastVal">100%</span>
+          </label>
+        </div>
+        <!-- Draw -->
+        <div class="xray-lb-tgroup">
+          <span class="xray-lb-tglabel">Draw</span>
+          <button id="photoLbTBtn-pan"     class="xray-lb-tool-btn"
+                  title="Pan / Drag"
+                  onclick="photoLbSetTool('pan')" type="button">✋</button>
+          <button id="photoLbTBtn-free"    class="xray-lb-tool-btn"
+                  onclick="photoLbSetTool('free')" type="button">✏️</button>
+          <button id="photoLbTBtn-line"    class="xray-lb-tool-btn"
+                  onclick="photoLbSetTool('line')" type="button">╱</button>
+          <button id="photoLbTBtn-arrow"   class="xray-lb-tool-btn"
+                  onclick="photoLbSetTool('arrow')" type="button">➤</button>
+          <button id="photoLbTBtn-rect"    class="xray-lb-tool-btn"
+                  onclick="photoLbSetTool('rect')" type="button">⬜</button>
+          <button id="photoLbTBtn-ellipse" class="xray-lb-tool-btn"
+                  onclick="photoLbSetTool('ellipse')" type="button">⭕</button>
+          <button id="photoLbTBtn-poly"    class="xray-lb-tool-btn"
+                  title="Polygon — click to add points, double-click to close"
+                  onclick="photoLbSetTool('poly')" type="button">⬡</button>
+          <input  type="color" id="photoLbColorPicker" value="#ff0000"
+                  title="Stroke colour" class="xray-lb-color-pick"
+                  onchange="photoLbSetColor(this.value)">
+          <select id="photoLbStrokeSel" class="xray-lb-stroke-sel"
+                  title="Stroke width"
+                  onchange="photoLbSetStrokeWidth(this.value)">
+            <option value="2">Thin</option>
+            <option value="4" selected>Medium</option>
+            <option value="8">Thick</option>
+            <option value="14">Bold</option>
+          </select>
+        </div>
+        <!-- Edit -->
+        <div class="xray-lb-tgroup">
+          <span class="xray-lb-tglabel">Edit</span>
+          <button id="photoLbTBtn-crop" class="xray-lb-tool-btn"
+                  onclick="photoLbSetTool('crop')" type="button">✂️ Crop</button>
+          <button type="button" onclick="photoLbUndoDraw()">↩ Undo</button>
+          <button type="button" onclick="photoLbClearCanvas()">🗑 Clear</button>
+        </div>
+        <!-- Video -->
+        <div class="xray-lb-tgroup" id="photoLbVideoGroup" style="display:none;">
+          <span class="xray-lb-tglabel">Video</span>
+          <button type="button" onclick="photoLbVidStart()">⏮</button>
+          <button type="button" onclick="photoLbVidBack()">⏪</button>
+          <button id="photoLbVidPlayBtn" type="button"
+                  onclick="photoLbVidPlayPause()">▶️</button>
+          <button type="button" onclick="photoLbVidFwd()">⏩</button>
+          <button type="button" onclick="photoLbVidEnd()">⏭</button>
+          <button type="button" onclick="photoLbVidStop()">⏹</button>
+          <input type="range" id="photoLbVidSeekBar" min="0" max="100"
+                 value="0" step="0.1"
+                 style="width:80px;accent-color:#1a73e8;"
+                 oninput="photoLbVidSeekTo(this.value)">
+        </div>
+      </div><!-- /photoLbRasterStrip -->
+    </div><!-- /.toolbar -->
+
+    <div class="xray-lb-main">
+      <div class="xray-lb-viewer" id="photoLbViewerDiv">
+        <!-- PDF fallback (inside viewer, above scroll zone) -->
+        <div id="photoLbPdf"
+             style="display:none;position:absolute;inset:0;
+                    z-index:5;flex-direction:column;
+                    align-items:center;justify-content:center;
+                    background:#0d0d1a;color:#fbbf24;
+                    gap:12px;text-align:center;padding:24px;">
+          <div style="font-size:4rem;">📄</div>
+          <a id="photoLbPdfLink" href="#" target="_blank"
+             style="color:#fbbf24;font-weight:700;font-size:15px;">
+            Open PDF in new tab
+          </a>
+        </div>
+
+        <div id="photoLbScrollHost" class="xray-lb-scroll-host">
+          <div id="photoLbScrollInner" class="xray-lb-scroll-inner">
+            <div id="photoLbMediaWrap">
+              <img   id="photoLbImg"   src="" alt="Photo">
+              <video id="photoLbVideo" style="display:none;" preload="metadata"></video>
+              <canvas id="photoLbCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+        <button id="photoLbCropApplyBtn" type="button" onclick="photoLbCropApply()"
+                style="display:none;position:absolute;bottom:56px;left:50%;
+                       transform:translateX(-50%);z-index:10;
+                       background:#1a73e8;color:#fff;border:none;
+                       border-radius:6px;padding:8px 20px;
+                       font-weight:700;cursor:pointer;font-size:13px;">
+          ✂️ Apply Crop
+        </button>
+      </div>
+
+      <div class="xray-lb-meta">
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Category</span>
+          <select id="photoLbCat" class="xlm-input" style="width:160px;">
+            <option value="Intraoral">Intraoral</option>
+            <option value="Extraoral">Extraoral</option>
+            <option value="Before/After">Before/After</option>
+            <option value="Consent Form">Consent Form</option>
+            <option value="Lab Report">Lab Report</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Date</span>
+          <input type="date" id="photoLbDate" class="xlm-input">
+        </div>
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Doctor</span>
+          <input type="text" id="photoLbDr" class="xlm-input"
+                 placeholder="Doctor name">
+        </div>
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Clinic</span>
+          <input type="text" id="photoLbClinic" class="xlm-input"
+                 placeholder="Clinic / Branch">
+        </div>
+        <div class="xray-lb-meta-row">
+          <span class="xlm-label">Caption</span>
+          <textarea id="photoLbCaption" rows="3"
+                    placeholder="Caption / notes…"
+                    class="xlm-input"></textarea>
+        </div>
+        <div class="xray-lb-meta-row" id="photoLbAnnotMetaRow">
+          <span class="xlm-label">Text on image</span>
+          <input type="text" id="photoLbAnnotTextInput" class="xlm-input"
+                 placeholder="Type label, then tap the image…"
+                 maxlength="120">
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+            <label style="font-size:12px;color:#555;white-space:nowrap;">
+              Size (px)
+              <input type="number" id="photoLbTextFontSize" min="8" max="200" value="24"
+                     class="xlm-input" style="width:72px;display:inline-block;
+                     margin-left:4px;margin-top:4px;"
+                     onclick="event.stopPropagation()">
+            </label>
+          </div>
+          <button type="button" id="photoLbBtnAnnotText" class="lb-meta-tool-btn"
+                  onclick="photoLbSetTool('text')">
+            Aa Add text box
+          </button>
+          <small style="color:#888;font-size:11px;display:block;margin-top:4px;">
+            Click once on the photo to place text. Uses toolbar colour picker.
+          </small>
+        </div>
+        <div id="photoLbEditRow"
+             style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn-add" onclick="savePhotoLbMeta()"
+                  style="flex:1;padding:10px;">
+            💾 Save
+          </button>
+          <button type="button" onclick="deletePhotoLb()"
+                  style="flex:1;padding:10px;background:var(--danger);
+                         color:white;border:none;border-radius:6px;
+                         cursor:pointer;font-weight:bold;">
+            🗑 Delete
+          </button>
+        </div>
+      </div>
+    </div><!-- /.xray-lb-main -->
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL — UPLOAD PHOTO METADATA
+════════════════════════════════════════════════════════════ -->
+<div id="photoUploadModal" class="modal">
+  <div class="modal-box" style="max-width:480px;">
+    <button class="mclose"
+            onclick="closeModal('photoUploadModal')">×</button>
+    <h3>📤 Upload Photo / Document Details</h3>
+    <div id="photoUploadPreviewWrap"
+         style="text-align:center;margin-bottom:16px;"></div>
+    <div class="fg">
+      <label>Category *</label>
+      <select id="photoUploadCat">
+        <option value="Intraoral">Intraoral</option>
+        <option value="Extraoral">Extraoral</option>
+        <option value="Before/After">Before/After</option>
+        <option value="Consent Form">Consent Form</option>
+        <option value="Lab Report">Lab Report</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>Date Taken</label>
+      <input type="date" id="photoUploadDate">
+    </div>
+    <div class="fg">
+      <label>Doctor</label>
+      <input type="text" id="photoUploadDr"
+             placeholder="Dr. Name">
+    </div>
+    <div class="fg">
+      <label>Clinic / Branch</label>
+      <input type="text" id="photoUploadClinic"
+             placeholder="Clinic name">
+    </div>
+    <div class="fg">
+      <label>Caption / Notes</label>
+      <textarea id="photoUploadCaption" rows="2"
+                placeholder="Optional caption…"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <button class="btn-add" id="btnConfirmPhotoUpload"
+              style="flex:1;padding:12px;">
+        ✅ Confirm Upload
+      </button>
+      <button onclick="closeModal('photoUploadModal')"
+              style="flex:1;padding:12px;background:var(--gray);
+                     color:white;border:none;border-radius:6px;
+                     cursor:pointer;font-weight:bold;">
+        Cancel
+      </button>
+    </div>
+    <div id="photoUploadMultiInfo"
+         style="margin-top:10px;font-size:12px;
+                color:#888;text-align:center;"></div>
+  </div>
+</div>
+
+
+
+</div><!-- /consultationSection -->
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — ADD PATIENT
+════════════════════════════════════════════════════════════ -->
+<div id="addPatientModal" class="modal">
+  <div class="modal-box">
+    <button class="mclose" id="closeAddPatient">×</button>
+    <h2>🆕 New Patient Registration</h2>
+
+    <form id="patientForm">
+      <div class="form-grid">
+
+        <div class="fg full"
+             style="background:#e8f4ff;padding:10px 14px;
+                    border-radius:8px;">
+          <label style="color:var(--primary);">
+            Patient Number (auto-assigned)
+          </label>
+          <input type="text" id="preview_patientNo" readonly
+                 style="background:transparent;border:none;
+                        font-size:18px;font-weight:700;
+                        color:var(--primary);padding:4px 0;">
+        </div>
+
+        <div class="fg">
+          <label>Full Name *</label>
+          <input type="text" id="fullName" required>
+        </div>
+        <div class="fg">
+          <label>Chinese Name</label>
+          <input type="text" id="chineseName" placeholder="中文姓名">
+        </div>
+        <div class="fg">
+          <label>Phone Number</label>
+          <input type="text" id="phone">
+        </div>
+        <div class="fg">
+          <label>Email</label>
+          <input type="email" id="email">
+        </div>
+        <div class="fg">
+          <label>Sex</label>
+          <select id="sex">
+            <option value="">-- Select --</option>
+            <option value="M">Male</option>
+            <option value="F">Female</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Date of Birth</label>
+          <input type="date" id="dob">
+        </div>
+        <div class="fg">
+          <label>HKID No.</label>
+          <input type="text" id="hkid">
+        </div>
+        <div class="fg">
+          <label>Insurance No.</label>
+          <input type="text" id="insuranceNo">
+        </div>
+        <div class="fg">
+          <label>Occupation</label>
+          <input type="text" id="occupation">
+        </div>
+        <div class="fg full">
+          <label>Address</label>
+          <input type="text" id="address">
+        </div>
+        <div class="fg full">
+          <label>Medical Alerts ⚠️</label>
+          <textarea id="alerts" rows="2"
+                    placeholder="Allergies, conditions…"></textarea>
+        </div>
+        <div class="fg full">
+          <label>Remarks</label>
+          <textarea id="remarks" rows="2"></textarea>
+        </div>
+
+      </div>
+
+      <button type="submit" class="btn-add"
+              style="width:100%;margin-top:18px;padding:12px;">
+        ✅ Register Patient
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — PATIENT DETAILS / TREATMENT HISTORY
+════════════════════════════════════════════════════════════ -->
+<div id="patientDetailsModal" class="modal">
+  <div class="modal-box" style="max-width:820px;">
+    <button class="mclose" id="closePatientDetails">×</button>
+
+    <span id="det_patientNo"
+          style="display:inline-block;background:#e8f4ff;
+                 color:var(--primary);font-size:13px;
+                 font-weight:700;padding:3px 10px;
+                 border-radius:10px;margin-bottom:6px;">
+    </span>
+    <h2 id="det_patientName"
+        style="margin:0 0 4px;"></h2>
+    <p  id="det_alerts"
+        style="color:var(--danger);font-weight:bold;
+               margin:0 0 16px;"></p>
+
+    <div id="bulkSec">
+      <h3 style="margin-top:0;font-size:16px;">
+        Add Clinical Note
+      </h3>
+      <textarea id="bulkNoteInput" rows="3"
+                placeholder="Enter treatment details…"
+                style="width:100%;padding:10px;
+                       border:1px solid #ddd;border-radius:6px;
+                       font-size:14px;box-sizing:border-box;
+                       resize:vertical;"></textarea>
+      <button class="btn-add" id="noteSaveBtn"
+              style="margin-top:10px;">
+        Add to History
+      </button>
+    </div>
+
+    <h3 style="margin-bottom:8px;">Treatment History</h3>
+    <div id="treatmentTimeline" class="history-box">
+      Loading…
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — EDIT PATIENT
+════════════════════════════════════════════════════════════ -->
+<div id="editPatientModal" class="modal">
+  <div class="modal-box">
+    <button class="mclose" id="closeEditPatient">×</button>
+    <h2>✏️ Edit Patient</h2>
+
+    <form id="editPatientForm">
+      <div class="form-grid">
+
+        <div class="fg full"
+             style="background:#e8f4ff;padding:10px 14px;
+                    border-radius:8px;">
+          <label style="color:var(--primary);">
+            Patient Number
+          </label>
+          <input type="text" id="edit_patientNo" readonly
+                 style="background:transparent;border:none;
+                        font-size:18px;font-weight:700;
+                        color:var(--primary);padding:4px 0;">
+        </div>
+
+        <div class="fg">
+          <label>Full Name *</label>
+          <input type="text" id="edit_fullName" required>
+        </div>
+        <div class="fg">
+          <label>Chinese Name</label>
+          <input type="text" id="edit_chineseName">
+        </div>
+        <div class="fg">
+          <label>Phone</label>
+          <input type="text" id="edit_phone">
+        </div>
+        <div class="fg">
+          <label>Email</label>
+          <input type="email" id="edit_email">
+        </div>
+        <div class="fg">
+          <label>Sex</label>
+          <select id="edit_sex">
+            <option value="">-- Select --</option>
+            <option value="M">Male</option>
+            <option value="F">Female</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Date of Birth</label>
+          <input type="date" id="edit_dob">
+        </div>
+        <div class="fg">
+          <label>HKID No.</label>
+          <input type="text" id="edit_hkid">
+        </div>
+        <div class="fg">
+          <label>Insurance No.</label>
+          <input type="text" id="edit_insuranceNo">
+        </div>
+        <div class="fg">
+          <label>Occupation</label>
+          <input type="text" id="edit_occupation">
+        </div>
+        <div class="fg full">
+          <label>Address</label>
+          <input type="text" id="edit_address">
+        </div>
+        <div class="fg full">
+          <label>Medical Alerts ⚠️</label>
+          <textarea id="edit_alerts" rows="2"></textarea>
+        </div>
+        <div class="fg full">
+          <label>Remarks</label>
+          <textarea id="edit_remarks" rows="2"></textarea>
+        </div>
+
+      </div>
+
+      <div style="display:flex;justify-content:space-between;
+                  align-items:center;margin-top:22px;">
+        <button type="button" id="edit_deleteBtn"
+                style="background:var(--danger);color:white;
+                       border:none;padding:10px 20px;
+                       border-radius:6px;cursor:pointer;
+                       font-weight:bold;">
+          🗑 Delete Patient
+        </button>
+        <div style="display:flex;gap:10px;">
+          <button type="button" id="cancelEditBtn"
+                  style="background:var(--gray);color:white;
+                         border:none;padding:10px 20px;
+                         border-radius:6px;cursor:pointer;">
+            Cancel
+          </button>
+          <button type="submit" class="btn-add"
+                  style="padding:10px 25px;">
+            💾 Save Changes
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — ADD / EDIT APPOINTMENT
+════════════════════════════════════════════════════════════ -->
+<div id="apptModal" class="modal">
+  <div class="modal-box" style="max-width:520px;">
+    <button class="mclose" id="closeApptModal">×</button>
+    <h3 id="apptModalTitle">📅 New Appointment</h3>
+
+    <!-- ── Patient mode toggle ─────────────────────────── -->
+    <div style="display:flex;border:1.5px solid #e5e7eb;border-radius:8px;
+                overflow:hidden;margin-bottom:12px;">
+      <button id="psModeExistBtn" onclick="switchApptPatientMode('exist')"
+              style="flex:1;padding:8px 6px;font-size:12px;font-weight:700;
+                     background:#0084ff;color:#fff;border:none;cursor:pointer;
+                     transition:background .15s,color .15s;">
+        🔍 Existing Patient
+      </button>
+      <button id="psModeNewBtn" onclick="switchApptPatientMode('new')"
+              style="flex:1;padding:8px 6px;font-size:12px;font-weight:700;
+                     background:#fff;color:#94a3b8;border:none;cursor:pointer;
+                     transition:background .15s,color .15s;">
+        ✨ New / Walk-in
+      </button>
+    </div>
+
+    <!-- ── Existing patient search ─────────────────────── -->
+    <div id="psSectionExist" class="fg">
+      <label>Search Patient *</label>
+      <div class="ps-wrap">
+        <input type="text" id="psInput"
+               placeholder="Type name or patient number…"
+               autocomplete="off">
+        <div class="ps-drop" id="psDrop"></div>
+      </div>
+      <input type="hidden" id="hPid">
+      <input type="hidden" id="hPno">
+      <input type="hidden" id="hPname">
+      <input type="hidden" id="hPchinese">
+      <div id="psSelected"
+           style="margin-top:6px;font-size:13px;
+                  color:var(--success);font-weight:600;
+                  display:none;">
+        ✅ <span id="psSelName"></span>
+        (<span id="psSelNo"></span>)
+      </div>
+    </div>
+
+    <!-- ── New / Walk-in patient quick entry ───────────── -->
+    <div id="psSectionNew" style="display:none;">
+      <div class="form-grid">
+        <div class="fg">
+          <label>Patient Name *</label>
+          <input type="text" id="npName" placeholder="Name or alias…" autocomplete="off">
+        </div>
+        <div class="fg">
+          <label>Phone (optional)</label>
+          <input type="text" id="npPhone" placeholder="e.g. 9123 4567">
+        </div>
+      </div>
+      <div style="margin-top:6px;padding:7px 10px;background:#fffbeb;border:1px solid #fde68a;
+                  border-radius:7px;font-size:11px;color:#92400e;line-height:1.5;">
+        ℹ️ Appointment saved without a patient record.
+        Staff can link to a full record when the patient arrives.
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="fg">
+        <label>Date *</label>
+        <input type="date" id="fDate">
+      </div>
+      <div class="fg">
+        <label>Start Time *</label>
+        <select id="fStart"></select>
+      </div>
+      <div class="fg">
+        <label>Duration</label>
+        <select id="fDur">
+          <option value="15">15 min</option>
+          <option value="30" selected>30 min</option>
+          <option value="45">45 min</option>
+          <option value="60">60 min</option>
+          <option value="90">90 min</option>
+          <option value="120">120 min</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>End Time (auto)</label>
+        <input type="text" id="fEnd" readonly
+               style="background:#f5f5f5;color:#777;">
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="fg">
+        <label>Treatment Items</label>
+        <input type="text" id="fTreatment"
+               placeholder="e.g. Scaling, Filling…">
+      </div>
+      <div class="fg">
+        <label>Doctor (optional)</label>
+        <select id="fApptDoctor">
+          <option value="">— none —</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg">
+      <label>Remarks</label>
+      <textarea id="fRemarks" rows="2"
+                placeholder="Additional notes…"></textarea>
+    </div>
+
+     <button class="btn-add" id="btnSaveAppt" style="width:100%;padding:12px;margin-top:6px;">
+      ✅ Save Appointment
+    </button>
+    <button 
+      id="deleteApptBtn" 
+      class="btn-add" 
+      onclick="deleteAppt()"
+      style="width:100%;padding:12px;margin-top:6px;background:#ef4444;color:white;display:none;">
+      🗑 Delete Appointment
+    </button>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     DRUG BOOK — Full-screen masterlist editor
+     Table: druglist
+     ═══════════════════════════════════════════════════════════ -->
+<section id="drugSection" style="display:none;">
+
+  <!-- Top bar -->
+  <div class="drug-topbar">
+    <button class="back-btn" onclick="showOnly('dashboardSection')">
+  ← Dashboard
+</button>
+<div class="drug-topbar-actions">
+  <button class="btn-add" 
+          style="background:var(--gray);" 
+          onclick="exportDrugCSV()">
+    📥 Export CSV
+  </button>
+  <button class="btn-add" onclick="newDrugItem()">
+    + Add New Drug
+  </button>
+</div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="drugToast" style="display:none;"></div>
+
+  <!-- Main two-column layout -->
+  <div class="drug-layout">
+
+    <!-- ── LEFT PANEL: list ────────────────────────────────── -->
+    <div class="drug-list-panel">
+
+      <!-- Search -->
+      <div class="drug-search-wrap">
+        <input id="drugSearchInput"
+               type="text"
+               placeholder="🔍 Search drug name, category, route…"
+               autocomplete="off" />
+      </div>
+
+      <!-- Category filter pills -->
+      <div id="drugCatPills" class="drug-cat-pills"></div>
+
+      <!-- Scrollable list -->
+      <div id="drugListWrap" class="drug-list-wrap">
+        <div class="drug-empty" style="color:#aaa;">
+          ⏳ Loading…
+        </div>
+      </div>
+
+    </div><!-- /drug-list-panel -->
+
+    <!-- ── RIGHT PANEL: editor ─────────────────────────────── -->
+    <div class="drug-editor-panel">
+
+      <!-- Placeholder (shown when nothing selected) -->
+      <div id="drugEditorPlaceholder" class="drug-editor-placeholder">
+        <div>
+          <div style="font-size:3rem;">💊</div>
+          <div style="margin-top:.5rem;color:#aaa;">
+            Select a drug to edit<br>or click <strong>+ Add New Drug</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Editor form (hidden until drug selected / new) -->
+      <div id="drugEditorWrap" class="drug-editor-wrap" style="display:none;">
+
+        <!-- Editor header -->
+        <div class="drug-editor-header">
+          <h3 id="drugEditorTitle" class="drug-editor-title">Drug Editor</h3>
+          <span id="drugDirtyIndicator"
+                class="drug-dirty-dot"
+                style="display:none;"
+                title="Unsaved changes">●</span>
+        </div>
+
+        <!-- ── FORM FIELDS (all druglist columns) ─────────── -->
+        <div class="drug-form-grid">
+
+          <!-- drug_name  (required) -->
+          <div class="drug-field drug-field--full">
+            <label for="deDrugName">
+              Drug Name <span class="required">*</span>
+            </label>
+            <input id="deDrugName"
+                   type="text"
+                   placeholder="e.g. Amoxicillin"
+                   autocomplete="off" />
+          </div>
+
+          <!-- category -->
+          <div class="drug-field">
+            <label for="deCategory">Category</label>
+            <input id="deCategory"
+                   type="text"
+                   list="drugCategoryList"
+                   placeholder="e.g. Antibiotic" />
+            <datalist id="drugCategoryList">
+              <option value="Antibiotic">
+              <option value="Analgesic">
+              <option value="Anti-inflammatory">
+              <option value="Antiseptic">
+              <option value="Antifungal">
+              <option value="Antihistamine">
+              <option value="Local Anaesthetic">
+              <option value="Sedative">
+              <option value="Vitamin / Supplement">
+              <option value="Mouthwash">
+              <option value="Other">
+            </datalist>
+          </div>
+
+          <!-- route -->
+          <div class="drug-field">
+            <label for="deRoute">Route</label>
+            <input id="deRoute"
+                   type="text"
+                   list="drugRouteList"
+                   placeholder="e.g. Oral" />
+            <datalist id="drugRouteList">
+              <option value="Oral">
+              <option value="Topical">
+              <option value="Injection">
+              <option value="Inhalation">
+              <option value="Sublingual">
+              <option value="Rinse / Gargle">
+            </datalist>
+          </div>
+
+          <!-- dosage -->
+          <div class="drug-field">
+            <label for="deDosage">Dosage</label>
+            <input id="deDosage"
+                   type="text"
+                   placeholder="e.g. 500 mg" />
+          </div>
+
+          <!-- frequency -->
+          <div class="drug-field">
+            <label for="deFrequency">Frequency</label>
+            <input id="deFrequency"
+                   type="text"
+                   list="drugFreqList"
+                   placeholder="e.g. TID" />
+            <datalist id="drugFreqList">
+              <option value="OD – Once daily">
+              <option value="BD – Twice daily">
+              <option value="TID – Three times daily">
+              <option value="QID – Four times daily">
+              <option value="PRN – As needed">
+              <option value="STAT – Immediately">
+              <option value="OW – Once weekly">
+            </datalist>
+          </div>
+
+          <!-- duration -->
+          <div class="drug-field">
+            <label for="deDuration">Duration</label>
+            <input id="deDuration"
+                   type="text"
+                   list="drugDurList"
+                   placeholder="e.g. 5 days" />
+            <datalist id="drugDurList">
+              <option value="3 days">
+              <option value="5 days">
+              <option value="7 days">
+              <option value="10 days">
+              <option value="14 days">
+              <option value="1 month">
+              <option value="Until finished">
+            </datalist>
+          </div>
+
+          <!-- dentist_name -->
+          <div class="drug-field">
+            <label for="deDentistName">Added By (Dentist)</label>
+            <input id="deDentistName"
+                   type="text"
+                   placeholder="Dentist name" />
+          </div>
+
+          <!-- remarks  (full-width textarea) -->
+          <div class="drug-field drug-field--full">
+            <label for="deRemarks">Remarks / Notes</label>
+            <textarea id="deRemarks"
+                      rows="3"
+                      placeholder="Special instructions, contraindications, notes…">
+            </textarea>
+          </div>
+
+          <!-- is_active toggle -->
+          <div class="drug-field drug-field--full drug-field--toggle">
+            <label class="toggle-label">
+              <input id="deIsActive" type="checkbox" checked />
+              <span class="toggle-track"></span>
+              <span class="toggle-text">Active (visible in prescriptions)</span>
+            </label>
+          </div>
+
+          <!-- Read-only info row -->
+          <div class="drug-field drug-field--full drug-field--readonly">
+            <span>
+              🆔 <strong>ID:</strong>
+              <code id="deDrugId" class="drug-id-display">—</code>
+            </span>
+            <span>
+              🕐 <strong>Created:</strong>
+              <span id="deCreatedAt">—</span>
+            </span>
+          </div>
+
+        </div><!-- /drug-form-grid -->
+
+        <!-- Action buttons -->
+        <div class="drug-editor-actions">
+          <button id="btnDrugSave"
+                  class="btn-add"
+                  onclick="saveDrugMaster()">
+            💾 Save Drug
+          </button>
+          <button id="btnDrugDelete"
+                  class="btn-add"
+                  style="display:none;"
+                  onclick="deleteDrugMaster()">
+            🗑 Delete
+          </button>
+        </div>
+
+      </div><!-- /drugEditorWrap -->
+    </div><!-- /drug-editor-panel -->
+
+  </div><!-- /drug-layout -->
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════
+     CONFIGURATION SECTION
+════════════════════════════════════════════════════════ -->
+<section id="sectionConfig" class="app-section hidden">
+
+  <!-- confirm overlay -->
+  <div id="cfgConfirmOverlay" class="cfg-confirm-overlay hidden">
+    <div class="cfg-confirm-box">
+      <p id="cfgConfirmMsg">Are you sure?</p>
+      <div class="cfg-confirm-actions">
+        <button id="cfgConfirmYes" class="btn btn--danger">Delete</button>
+        <button id="cfgConfirmNo"  class="btn btn--ghost">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- backdrop -->
+  <div id="cfgOverlayBackdrop" class="cfg-backdrop hidden"></div>
+
+  <div class="cfg-layout">
+
+        <!-- ── sidebar nav ── -->
+    <nav class="cfg-sidebar">
+      <button class="back-btn" id="cfgBackBtn" style="color:white;margin:0 16px 16px;padding:8px 12px;">← Back to Dashboard</button>
+      <div class="cfg-sidebar__title">Configuration</div>
+      <button class="cfg-nav-item" data-tab="clinic">🏥 Clinic Profile</button>
+      <button class="cfg-nav-item" data-tab="doctors">👨‍⚕️ Doctors</button>
+      <button class="cfg-nav-item" data-tab="payment">💳 Payment Methods</button>
+      <button class="cfg-nav-item" data-tab="treatment">🦷 Treatment Items</button>
+      <button class="cfg-nav-item" data-tab="program">⚙️ Program Settings</button>
+      <button class="cfg-nav-item" data-tab="users">👤 Users</button>
+      <button class="cfg-nav-item" data-tab="templates">📄 Templates</button>
+      <button class="cfg-nav-item" data-tab="data">💾 Data &amp; Backup</button>
+    </nav>
+
+    <!-- ── content area ── -->
+    <div class="cfg-content">
+
+      <!-- 1. CLINIC PROFILE -->
+      <div id="cfgPane-clinic" class="cfg-pane">
+        <div class="cfg-pane__header">
+          <h2>Clinic Profile</h2>
+          <button class="btn btn--primary" onclick="CFG.newClinic()">+ Add Clinic</button>
+        </div>
+        <div id="clinicList" class="cfg-list"></div>
+
+        <!-- slide panel -->
+        <div id="clinicPanel" class="cfg-slide-panel">
+          <div class="cfg-slide-panel__header">
+            <span id="clinicPanelTitle">New Clinic</span>
+            <button class="cfg-close" onclick="CFG.closeAllPanels()">✕</button>
+          </div>
+          <div class="cfg-slide-panel__body">
+            <form id="clinicForm" onsubmit="return false">
+              <label>Clinic Code *<input name="clinic_code" required></label>
+              <label>English Name<input name="english_name"></label>
+              <label>Chinese Name<input name="chinese_name"></label>
+              <label>Qualification<input name="qualification"></label>
+              <label>Address<textarea name="address" rows="3"></textarea></label>
+              <label>Tel<input name="tel"></label>
+              <label>Fax<input name="fax"></label>
+              <label>Open At<input name="open_at" placeholder="09:00"></label>
+              <label>Close At<input name="close_at" placeholder="18:00"></label>
+              <label>Appt Interval (min)<input name="appt_interval" type="number" min="5" step="5" value="30"></label>
+            </form>
+          </div>
+          <div class="cfg-slide-panel__footer">
+            <button class="btn btn--primary" onclick="CFG.saveClinic()">Save</button>
+            <button class="btn btn--ghost"   onclick="CFG.closeAllPanels()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. DOCTORS -->
+      <div id="cfgPane-doctors" class="cfg-pane">
+        <div class="cfg-pane__header">
+          <h2>Doctors</h2>
+          <button class="btn btn--primary" onclick="CFG.newDoctor()">+ Add Doctor</button>
+        </div>
+        <div id="doctorList" class="cfg-list"></div>
+
+        <div id="doctorPanel" class="cfg-slide-panel">
+          <div class="cfg-slide-panel__header">
+            <span id="doctorPanelTitle">New Doctor</span>
+            <button class="cfg-close" onclick="CFG.closeAllPanels()">✕</button>
+          </div>
+          <div class="cfg-slide-panel__body">
+            <form id="doctorForm" onsubmit="return false">
+              <label>Doctor Code *<input name="doctor_code" required></label>
+              <label>English Name<input name="english_name"></label>
+              <label>Chinese Name<input name="chinese_name"></label>
+              <label>Qualification<input name="qualification"></label>
+              <label>Tel<input name="tel"></label>
+              <label>Email<input name="email" type="email"></label>
+              <label>Calendar Color<input name="color" type="color" value="#0084ff"></label>
+              <label class="cfg-check"><input name="is_active" type="checkbox" checked> Active</label>
+            </form>
+          </div>
+          <div class="cfg-slide-panel__footer">
+            <button class="btn btn--primary" onclick="CFG.saveDoctor()">Save</button>
+            <button class="btn btn--ghost"   onclick="CFG.closeAllPanels()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. PAYMENT METHODS -->
+      <div id="cfgPane-payment" class="cfg-pane">
+        <div class="cfg-pane__header">
+          <h2>Payment Methods</h2>
+          <button class="btn btn--primary" onclick="CFG.newPayment()">+ Add Method</button>
+        </div>
+        <div id="paymentList" class="cfg-list"></div>
+
+        <div id="paymentPanel" class="cfg-slide-panel">
+          <div class="cfg-slide-panel__header">
+            <span id="paymentPanelTitle">New Payment Method</span>
+            <button class="cfg-close" onclick="CFG.closeAllPanels()">✕</button>
+          </div>
+          <div class="cfg-slide-panel__body">
+            <form id="paymentForm" onsubmit="return false">
+              <label>Type Code *<input name="type_code" required></label>
+              <label>Display Name *<input name="name" required></label>
+              <label>Type Name<input name="type_name"></label>
+              <label>Group
+                <select name="type_group">
+                  <option>Cash</option><option>Card</option>
+                  <option>Bank</option><option>EWallet</option><option>Other</option>
+                </select>
+              </label>
+              <label>Surcharge %<input name="surcharge_pct" type="number" step="0.01" value="0"></label>
+              <label>Color<input name="color_hex" type="color" value="#0084ff"></label>
+              <label class="cfg-check"><input name="is_default" type="checkbox"> Default</label>
+              <label class="cfg-check"><input name="is_active"  type="checkbox" checked> Active</label>
+            </form>
+          </div>
+          <div class="cfg-slide-panel__footer">
+            <button class="btn btn--primary" onclick="CFG.savePayment()">Save</button>
+            <button class="btn btn--ghost"   onclick="CFG.closeAllPanels()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. TREATMENT ITEMS -->
+      <div id="cfgPane-treatment" class="cfg-pane">
+        <div class="cfg-pane__header">
+          <h2>Treatment Items</h2>
+          <button class="btn btn--primary" onclick="CFG.newTreatment()">+ Add Item</button>
+        </div>
+        <div id="txCategoryPills" class="cfg-pills"></div>
+        <input id="txSearch" class="cfg-search" placeholder="Search items…"
+               oninput="CFG.filterTx(this.value)">
+        <div id="treatmentList" class="cfg-list"></div>
+
+        <div id="treatmentPanel" class="cfg-slide-panel">
+          <div class="cfg-slide-panel__header">
+            <span id="treatmentPanelTitle">New Treatment Item</span>
+            <button class="cfg-close" onclick="CFG.closeAllPanels()">✕</button>
+          </div>
+          <div class="cfg-slide-panel__body">
+            <form id="treatmentForm" onsubmit="return false">
+              <label>Item Code *<input name="item_code" required></label>
+              <label>Item Name *<input name="item_name" required></label>
+              <label>Category<input name="category"></label>
+              <label>Sub Category<input name="sub_category"></label>
+              <label>Unit Price<input name="unit_price" type="number" step="0.01" value="0"></label>
+              <label>Unit<input name="unit" placeholder="visit / tooth / set"></label>
+              <label>Color<input name="color_hex" type="color" value="#0084ff"></label>
+              <label class="cfg-check"><input name="is_active" type="checkbox" checked> Active</label>
+            </form>
+          </div>
+          <div class="cfg-slide-panel__footer">
+            <button class="btn btn--primary" onclick="CFG.saveTreatment()">Save</button>
+            <button class="btn btn--ghost"   onclick="CFG.closeAllPanels()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. PROGRAM SETTINGS -->
+      <div id="cfgPane-program" class="cfg-pane">
+        <div class="cfg-pane__header">
+          <h2>Program Settings</h2>
+          <button class="btn btn--primary" onclick="CFG.saveProgram()">Save All</button>
+        </div>
+        <form id="programForm" class="cfg-settings-form" onsubmit="return false">
+
+          <fieldset><legend>Localisation</legend>
+            <label>Currency Symbol<input name="currency_symbol" placeholder="HK$"></label>
+          </fieldset>
+
+          <fieldset><legend>Patient Numbering</legend>
+            <label>Prefix<input name="patient_no_prefix" placeholder="P"></label>
+            <label>Digits<input name="patient_no_digits" type="number" min="1" max="10"></label>
+            <label class="cfg-check"><input name="auto_generate_patient_code" type="checkbox"> Auto-generate Patient Code</label>
+          </fieldset>
+
+          <fieldset><legend>Receipt</legend>
+            <label>Header<input name="receipt_header"></label>
+            <label>Footer<input name="receipt_footer"></label>
+          </fieldset>
+
+          <fieldset><legend>Appointments &amp; Queue</legend>
+            <label>Default Duration (min)<input name="appt_default_duration" type="number" min="5" step="5"></label>
+            <label>Queue Refresh (sec)<input name="queue_refresh_interval" type="number" min="10"></label>
+          </fieldset>
+
+          <fieldset><legend>Security</legend>
+            <label>Login Timeout (min)<input name="login_timeout_minutes" type="number" min="5"></label>
+            <label class="cfg-check"><input name="audit_trail" type="checkbox"> Audit Trail</label>
+          </fieldset>
+
+          <fieldset><legend>Clinical Notes</legend>
+            <label class="cfg-check"><input name="add_medical_term" type="checkbox"> Allow Add Medical Terms</label>
+            <label class="cfg-check"><input name="lock_medical_notes" type="checkbox"> Lock Medical Notes</label>
+            <label class="cfg-check"><input name="modify_medical_notes" type="checkbox"> Allow Modify Medical Notes</label>
+          </fieldset>
+
+          <fieldset><legend>Billing</legend>
+            <label class="cfg-check"><input name="zero_ar" type="checkbox"> Zero AR (no outstanding)</label>
+            <label class="cfg-check"><input name="default_patient_female" type="checkbox"> Default Patient Gender Female</label>
+          </fieldset>
+
+          <fieldset><legend>Integrations</legend>
+            <label>SMTP Email<input name="smtp_email" type="email"></label>
+            <label>SMS Config<input name="sms_config" placeholder="API key or endpoint"></label>
+            <label>Default Dentist<input name="default_dentist"></label>
+          </fieldset>
+
+        </form>
+      </div>
+
+      <!-- 6. USERS -->
+      <div id="cfgPane-users" class="cfg-pane">
+        <div class="cfg-pane__header">
+          <h2>Users</h2>
+          <small class="cfg-hint">New users are created via Supabase Auth invite.</small>
+        </div>
+        <div id="userList" class="cfg-list"></div>
+
+        <div id="userPanel" class="cfg-slide-panel">
+          <div class="cfg-slide-panel__header">
+            <span id="userPanelTitle">Edit User</span>
+            <button class="cfg-close" onclick="CFG.closeAllPanels()">✕</button>
+          </div>
+          <div class="cfg-slide-panel__body">
+            <form id="userForm" onsubmit="return false">
+              <label>Full Name *<input name="full_name" required></label>
+              <label>Username<input name="username"></label>
+              <label>Email<input name="email" type="email"></label>
+              <label>Role
+                <select name="role">
+                  <option value="admin">Admin</option>
+                  <option value="doctor">Doctor</option>
+                  <option value="staff">Staff</option>
+                  <option value="receptionist">Receptionist</option>
+                </select>
+              </label>
+              <label class="cfg-check"><input name="is_active" type="checkbox" checked> Active</label>
+            </form>
+          </div>
+          <div class="cfg-slide-panel__footer">
+            <button class="btn btn--primary" onclick="CFG.saveUser()">Save</button>
+            <button class="btn btn--ghost"   onclick="CFG.closeAllPanels()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. TEMPLATES -->
+      <div id="cfgPane-templates" class="cfg-pane">
+        <div class="cfg-pane__header">
+          <h2>Document Templates</h2>
+          <button class="btn btn--primary" onclick="CFG.newTemplate()">+ Add Template</button>
+        </div>
+        <div id="templateList" class="cfg-list"></div>
+
+        <div id="templatePanel" class="cfg-slide-panel cfg-slide-panel--wide">
+          <div class="cfg-slide-panel__header">
+            <span id="templatePanelTitle">New Template</span>
+            <button class="cfg-close" onclick="CFG.closeAllPanels()">✕</button>
+          </div>
+          <div class="cfg-slide-panel__body">
+            <form id="templateForm" onsubmit="return false">
+              <label>Template Code *<input name="template_code" required></label>
+              <label>Template Name *<input name="template_name" required></label>
+              <label>Type
+                <select name="template_type">
+                  <option value="receipt">Receipt</option>
+                  <option value="prescription">Prescription</option>
+                  <option value="consent">Consent</option>
+                  <option value="report">Report / Letter</option>
+                </select>
+              </label>
+              <label class="cfg-check"><input name="is_active" type="checkbox" checked> Active</label>
+            </form>
+            <label>Content (HTML)
+              <textarea id="templateContent" rows="18"
+                placeholder="Use {patient_name}, {doctor_name}, {date}, {total_amount} etc."></textarea>
+            </label>
+          </div>
+          <div class="cfg-slide-panel__footer">
+            <button class="btn btn--primary" onclick="CFG.saveTemplate()">Save</button>
+            <button class="btn btn--ghost"   onclick="CFG.closeAllPanels()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8. DATA & BACKUP -->
+      <div id="cfgPane-data" class="cfg-pane">
+        <div class="cfg-pane__header"><h2>Data &amp; Backup</h2></div>
+        <div class="cfg-data-grid">
+          <div class="cfg-data-card">
+            <h3>📋 Treatment Items</h3>
+            <p>Export full masterlist as CSV.</p>
+            <button class="btn btn--secondary" onclick="CFG.exportTable('treatment_items')">Export CSV</button>
+          </div>
+          <div class="cfg-data-card">
+            <h3>💳 Payment Methods</h3>
+            <p>Export bill_types as CSV.</p>
+            <button class="btn btn--secondary" onclick="CFG.exportTable('bill_types')">Export CSV</button>
+          </div>
+          <div class="cfg-data-card">
+            <h3>👨‍⚕️ Doctors</h3>
+            <p>Export doctor list as CSV.</p>
+            <button class="btn btn--secondary" onclick="CFG.exportTable('doctors')">Export CSV</button>
+          </div>
+          <div class="cfg-data-card">
+            <h3>🏥 Clinics</h3>
+            <p>Export clinic profiles as CSV.</p>
+            <button class="btn btn--secondary" onclick="CFG.exportTable('clinics')">Export CSV</button>
+          </div>
+          <div class="cfg-data-card">
+            <h3>👤 Patients</h3>
+            <p>Export patient directory as CSV.</p>
+            <button class="btn btn--secondary" onclick="CFG.exportTable('patients')">Export CSV</button>
+          </div>
+          <div class="cfg-data-card">
+            <h3>📄 Templates</h3>
+            <p>Export document templates as CSV.</p>
+            <button class="btn btn--secondary" onclick="CFG.exportTable('doc_templates')">Export CSV</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /.cfg-content -->
+  </div><!-- /.cfg-layout -->
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     APPOINTMENT POPUP  (calendar click)
+════════════════════════════════════════════════════════════ -->
+<div id="apptPopup">
+  <button id="apptPopupClose">×</button>
+  <h4>📋 Appointment</h4>
+  <div id="apptPopupContent"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     BILL PANEL  (slide-in right)
+════════════════════════════════════════════════════════════ -->
+<div id="billPanel">
+
+  <div class="bill-header">
+    <div>
+      <h2>🧾 Patient Bill</h2>
+      <div id="billPatientInfo"
+           style="font-size:13px;opacity:0.85;margin-top:4px;">
+      </div>
+    </div>
+    <button id="billPanelClose">×</button>
+  </div>
+
+  <div class="bill-body">
+
+    <div id="billFormSection">
+
+      <!-- ── STEP TABS ────────────────────────────────── -->
+      <div class="bill-step-tabs">
+        <button class="bill-step-tab active" id="billTab1Btn"
+                onclick="switchBillTab(1)">
+          📋 Step 1 &nbsp;·&nbsp; Bill Items
+        </button>
+        <button class="bill-step-tab" id="billTab2Btn"
+                onclick="switchBillTab(2)">
+          💳 Step 2 &nbsp;·&nbsp; Payment
+        </button>
+      </div>
+
+      <!-- ══ STEP 1 : Bill Items ═══════════════════════ -->
+      <div id="billStep1">
+
+        <!-- Navigator row -->
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;">
+          <button class="bill-nav-btn" onclick="navPendingList(-1)">◀</button>
+          <span id="pendingCounter"
+                style="font-size:13px;font-weight:700;color:#374151;
+                       min-width:72px;text-align:center;">—</span>
+          <button class="bill-nav-btn" onclick="navPendingList(1)">▶</button>
+          <div style="flex:1;"></div>
+          <button onclick="addNewPendingList()"
+                  style="background:#0084ff;color:#fff;border:none;
+                         padding:5px 13px;border-radius:6px;font-size:12px;
+                         cursor:pointer;font-weight:600;">+ New List</button>
+          <button id="removePendingBtn" onclick="removeCurrentPendingList()"
+                  style="background:#dc2626;color:#fff;border:none;
+                         padding:5px 11px;border-radius:6px;font-size:12px;
+                         cursor:pointer;font-weight:600;" disabled>🗑</button>
+        </div>
+
+        <!-- Empty state -->
+        <div id="pendingEmptyState"
+             style="text-align:center;padding:32px 0;color:#aaa;">
+          <div style="font-size:40px;margin-bottom:8px;">📋</div>
+          <p style="margin:0 0 14px;font-size:14px;">No bill item lists for today.</p>
+          <button onclick="addNewPendingList()"
+                  style="background:var(--primary);color:#fff;border:none;
+                         padding:9px 22px;border-radius:7px;font-size:13px;
+                         cursor:pointer;font-weight:700;">
+            + Create First List
+          </button>
+        </div>
+
+        <!-- Active list editor -->
+        <div id="pendingActiveArea" style="display:none;">
+
+          <div class="fg" style="margin-bottom:12px;">
+            <label>List Label</label>
+            <input id="pendingListLabel" type="text"
+                   placeholder="e.g. Main Treatment, Insurance Claim…"
+                   style="font-size:13px;">
+          </div>
+
+          <!-- Items -->
+          <div style="display:flex;justify-content:space-between;
+                      align-items:center;margin-bottom:8px;">
+            <label style="font-weight:700;font-size:14px;color:#333;">Items</label>
+            <button id="addBillItemBtn"
+                    style="background:var(--primary);color:white;border:none;
+                           padding:5px 14px;border-radius:6px;
+                           cursor:pointer;font-size:13px;">+ Add Item</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="bill-items-table">
+              <thead>
+                <tr>
+                  <th style="width:34%;">Description</th>
+                  <th style="width:10%;">Qty</th>
+                  <th style="width:19%;">Unit Price (HK$)</th>
+                  <th style="width:14%;text-align:center;">Disc %</th>
+                  <th style="width:18%;text-align:right;">Amount</th>
+                  <th style="width:5%;"></th>
+                </tr>
+              </thead>
+          <tbody id="billItemsBody"></tbody>
+        </table>
+      </div>
+
+              <!-- Step 1 subtotal -->
+          <div style="text-align:right;margin:10px 0 4px;
+                      font-size:14px;color:#374151;">
+            Subtotal:&nbsp;<strong>HK$ <span id="pendingSubtotal">0.00</span></strong>
+          </div>
+
+          <!-- Save list + status -->
+          <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
+            <button onclick="saveCurrentPendingList()"
+                    style="background:#16a34a;color:#fff;border:none;
+                           padding:8px 20px;border-radius:7px;font-size:13px;
+                           font-weight:700;cursor:pointer;">
+              💾 Save List
+            </button>
+            <span id="pendingListStatus"
+                  style="font-size:12px;color:#888;">—</span>
+          </div>
+
+        </div><!-- /pendingActiveArea -->
+
+      </div><!-- /billStep1 -->
+
+      <!-- ══ STEP 2 : Payment ══════════════════════════ -->
+      <div id="billStep2" style="display:none;">
+
+        <!-- Pending list selector -->
+        <div style="margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#555;
+                      text-transform:uppercase;letter-spacing:.6px;
+                      margin-bottom:8px;">
+            Select Bill Item List to Pay
+          </div>
+          <div id="step2ListCards"
+               style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+          <p id="step2NoneMsg"
+             style="font-size:13px;color:#aaa;margin:4px 0 0;display:none;">
+            No saved lists for today — go to Step 1 to create one.
+          </p>
+        </div>
+
+        <!-- Items preview (read-only, zebra) -->
+        <div id="payPreviewWrap" style="display:none;margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#555;
+                      text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;">
+            Items Preview
+          </div>
+          <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:7px;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="background:#f1f5f9;">
+                  <th style="padding:7px 12px;text-align:left;">Description</th>
+                  <th style="padding:7px 12px;text-align:center;width:44px;">Qty</th>
+                  <th style="padding:7px 12px;text-align:right;width:90px;">Unit (HK$)</th>
+                  <th style="padding:7px 12px;text-align:center;width:60px;">Disc %</th>
+                  <th style="padding:7px 12px;text-align:right;width:100px;">Amt (HK$)</th>
+                </tr>
+              </thead>
+              <tbody id="payPreviewBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Payment form -->
+        <div class="form-grid" style="margin-bottom:14px;">
+          <div class="fg">
+            <label>Bill Date</label>
+            <input type="date" id="bDate">
+          </div>
+          <div class="fg">
+            <label>Payment Method</label>
+            <select id="bType">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Doctor</label>
+            <select id="bDoctor">
+              <option value="">Loading doctors...</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Totals -->
+        <div class="totals-box">
+          <div class="total-row">
+            <span class="t-label">Subtotal</span>
+            <span class="t-val">HK$ <span id="bSubtotal">0.00</span></span>
+          </div>
+          <div class="total-row">
+            <span class="t-label">Discount</span>
+            <span class="t-val" style="display:flex;align-items:center;gap:6px;">
+              HK$
+              <input type="number" id="bDiscount" value="0" min="0" step="0.01"
+                     style="width:80px;padding:4px 7px;border:1px solid #ddd;
+                            border-radius:4px;font-size:13px;text-align:right;">
+            </span>
+          </div>
+          <div class="total-row grand">
+            <span class="t-label">Total</span>
+            <span class="t-val">HK$ <span id="bTotal">0.00</span></span>
+          </div>
+          <div class="total-row" style="margin-top:12px;">
+            <span class="t-label">Amount Paid</span>
+            <span class="t-val" style="display:flex;align-items:center;gap:6px;">
+              HK$
+              <input type="number" id="bAmtPaid" value="0" min="0" step="0.01"
+                     style="width:100px;padding:4px 7px;border:1px solid #ddd;
+                            border-radius:4px;font-size:13px;text-align:right;">
+            </span>
+          </div>
+          <div class="total-row" style="color:var(--danger);">
+            <span class="t-label">Balance Due</span>
+            <span class="t-val" id="bBalance">HK$ 0.00</span>
+          </div>
+        </div>
+
+        <div class="fg" style="margin-top:10px;">
+          <label>Notes</label>
+          <textarea id="bNotes" rows="2"
+                    placeholder="Payment notes, remarks…"></textarea>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:10px;">
+          <button id="saveBillBtn" class="btn-add" style="flex:1;padding:12px;">
+            💾 Save Bill
+          </button>
+          <button id="savePrintBillBtn"
+                  style="flex:1;padding:12px;background:var(--primary);
+                         color:white;border:none;border-radius:6px;
+                         cursor:pointer;font-weight:bold;font-size:14px;">
+            🖨️ Save &amp; Print Receipt
+          </button>
+        </div>
+
+      </div><!-- /billStep2 -->
+
+    </div><!-- /billFormSection -->
+
+    <!-- bill history -->
+    <div style="margin-top:28px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  gap:12px;border-top:2px solid #eee;padding-top:16px;
+                  margin-bottom:14px;flex-wrap:wrap;">
+        <h3 style="margin:0;font-size:16px;color:#333;">📋 Bill History</h3>
+        <button type="button" id="billHistoryRefreshBtn" onclick="refreshBillHistory()"
+                style="background:var(--primary);color:#fff;border:none;padding:6px 14px;
+                       border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">
+          Refresh
+        </button>
+      </div>
+      <div id="billHistoryList">
+        <p style="color:#aaa;font-size:14px;">No bills yet.</p>
+      </div>
+    </div>
+
+  </div><!-- /bill-body -->
+</div><!-- /billPanel -->
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — RECEIPT
+════════════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════════
+     RECALL SEND QUEUE MODAL
+════════════════════════════════════════════════════════════ -->
+<div id="recallSendModal" class="modal" style="z-index:4500;">
+  <div class="modal-box" style="max-width:440px;">
+    <button class="mclose" onclick="closeModal('recallSendModal')">×</button>
+    <h3 style="margin:0 0 4px;font-size:17px;">📤 Send Recall Message</h3>
+    <p style="font-size:11px;color:#94a3b8;margin:0 0 14px;">
+      Open each patient's contact method and send the personalised message.
+    </p>
+    <div id="rcSendContent"></div>
+  </div>
+</div>
+
+<div id="receiptModal" class="modal">
+  <div class="modal-box" style="max-width:560px;">
+    <button class="mclose" id="closeReceiptModal">×</button>
+
+    <div id="receiptPrintArea">
+
+      <div class="receipt-header">
+        <h2>🦷 Joyful Smile Dental Clinic</h2>
+        <p>Official Receipt</p>
+        <p id="rClinicAddr" style="color:#999;">
+          Unit XX, XX Building, Hong Kong
+        </p>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;
+                  font-size:13px;margin-bottom:12px;">
+        <div>
+          <strong>Receipt No:</strong>
+          <span id="rNo">—</span><br>
+          <strong>Date:</strong>
+          <span id="rDate">—</span><br>
+          <strong>Bill Type:</strong>
+          <span id="rType">—</span>
+        </div>
+        <div style="text-align:right;">
+          <strong>Patient:</strong>
+          <span id="rPatient">—</span><br>
+          <strong>Patient No:</strong>
+          <span id="rPatientNo">—</span>
+          <br>
+          <strong>Doctor:</strong>
+          <span id="rDoctor">—</span>
+        </div>
+      </div>
+
+      <table class="receipt-table">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Disc %</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody id="rItemsBody"></tbody>
+      </table>
+
+      <div class="receipt-totals">
+        <div class="r-row">
+          <span>Subtotal</span>
+          <span>HK$ <span id="rSubtotal">0.00</span></span>
+        </div>
+        <div class="r-row">
+          <span>Discount</span>
+          <span>HK$ <span id="rDiscount">0.00</span></span>
+        </div>
+        <div class="r-row r-grand">
+          <span>Total</span>
+          <span>HK$ <span id="rTotal">0.00</span></span>
+        </div>
+        <div class="r-row" style="margin-top:8px;">
+          <span>Amount Paid</span>
+          <span>HK$ <span id="rPaid">0.00</span></span>
+        </div>
+        <div class="r-row" style="color:var(--danger);">
+          <span>Balance Due</span>
+          <span id="rBalance">HK$ 0.00</span>
+        </div>
+      </div>
+
+      <!-- Payment instalments (shown only when > 1 payment or partial) -->
+      <div id="rInstalmentsSection" style="display:none;margin-top:14px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.5px;
+                    text-transform:uppercase;color:#555;
+                    border-top:1px dashed #ddd;padding-top:10px;margin-bottom:6px;">
+          Payment Instalments
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:#f1f5f9;">
+              <th style="padding:5px 8px;text-align:left;">#</th>
+              <th style="padding:5px 8px;text-align:left;">Date</th>
+              <th style="padding:5px 8px;text-align:right;">Amount (HK$)</th>
+              <th style="padding:5px 8px;text-align:left;">Method</th>
+              <th style="padding:5px 8px;text-align:left;">Notes</th>
+            </tr>
+          </thead>
+          <tbody id="rInstalmentsBody"></tbody>
+        </table>
+        <div id="rOutstandingRow"
+             style="display:none;margin-top:8px;padding:7px 10px;
+                    background:#fef9c3;border:1px solid #fde047;
+                    border-radius:6px;font-size:12px;color:#713f12;
+                    display:flex;justify-content:space-between;">
+          <span>⚠️ Outstanding Balance</span>
+          <strong id="rOutstandingAmt">HK$ 0.00</strong>
+        </div>
+      </div>
+
+      <div class="receipt-footer">
+        <p>Thank you for visiting Joyful Smile Dental Clinic</p>
+        <p>This is a computer-generated receipt</p>
+      </div>
+
+    </div><!-- /receiptPrintArea -->
+
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button onclick="window.print()"
+              style="flex:1;padding:11px;background:var(--primary);
+                     color:white;border:none;border-radius:6px;
+                     cursor:pointer;font-weight:bold;">
+        🖨️ Print
+      </button>
+      <button id="closeReceiptModal2"
+              style="flex:1;padding:11px;background:var(--gray);
+                     color:white;border:none;border-radius:6px;
+                     cursor:pointer;font-weight:bold;">
+        Close
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — BILL DETAIL
+════════════════════════════════════════════════════════════ -->
+<div id="billDetailModal" class="modal">
+  <div class="modal-box" style="max-width:860px;width:95%;">
+    <button class="mclose" onclick="closeModal('billDetailModal')">×</button>
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+      <span style="font-size:26px;">🧾</span>
+      <div>
+        <h2 style="margin:0;font-size:19px;">Bill Detail</h2>
+        <div style="font-size:12px;color:#888;margin-top:2px;">
+          Ref&nbsp;<span id="bdRef">—</span>
+          &nbsp;·&nbsp;
+          <span id="bdCreated">—</span>
+        </div>
+      </div>
+      <span id="bdStatusBadge" class="status-badge" style="margin-left:auto;font-size:13px;"></span>
+    </div>
+
+    <!-- Info row -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+                gap:10px;background:#f8faff;border:1px solid #dde8f5;
+                border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:13px;">
+      <div><span style="color:#888;">Patient</span><br><strong id="bdPatient">—</strong></div>
+      <div><span style="color:#888;">Patient No.</span><br><strong id="bdPatientNo">—</strong></div>
+      <div><span style="color:#888;">Bill Date</span><br><strong id="bdDate">—</strong></div>
+      <div><span style="color:#888;">Doctor</span><br><strong id="bdDoctor">—</strong></div>
+      <div><span style="color:#888;">Payment Method</span><br><strong id="bdType">—</strong></div>
+    </div>
+
+    <!-- Items table -->
+    <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:18px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#1e3a5f;color:#fff;">
+            <th style="padding:10px 14px;text-align:left;font-weight:600;">#</th>
+            <th style="padding:10px 14px;text-align:left;font-weight:600;">Description</th>
+            <th style="padding:10px 14px;text-align:center;font-weight:600;">Qty</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;">Unit Price (HK$)</th>
+            <th style="padding:10px 14px;text-align:center;font-weight:600;">Disc %</th>
+            <th style="padding:10px 14px;text-align:right;font-weight:600;">Amount (HK$)</th>
+          </tr>
+        </thead>
+        <tbody id="bdItemsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Totals + Notes side by side -->
+    <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:start;">
+
+      <!-- Notes -->
+      <div>
+        <div style="font-size:12px;font-weight:700;color:#555;
+                    text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">
+          Notes
+        </div>
+        <div id="bdNotes"
+             style="background:#fafafa;border:1px solid #eee;border-radius:6px;
+                    padding:10px 12px;font-size:13px;color:#555;min-height:60px;
+                    white-space:pre-wrap;"></div>
+      </div>
+
+      <!-- Totals -->
+      <div style="background:#f8faff;border:1px solid #dde8f5;border-radius:8px;padding:14px 16px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;
+                    font-size:13px;border-bottom:1px solid #eee;">
+          <span style="color:#555;">Subtotal</span>
+          <span id="bdSubtotal">HK$ 0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;
+                    font-size:13px;border-bottom:1px solid #eee;">
+          <span style="color:#555;">Discount</span>
+          <span id="bdDiscount" style="color:var(--danger);">- HK$ 0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:7px 0;
+                    font-size:15px;font-weight:700;border-bottom:2px solid #1e3a5f;">
+          <span>Total</span>
+          <span id="bdTotal">HK$ 0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;
+                    font-size:13px;border-bottom:1px solid #eee;">
+          <span style="color:#555;">Amount Paid</span>
+          <span id="bdPaid" style="color:#16a34a;">HK$ 0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:7px 0;
+                    font-size:14px;font-weight:700;">
+          <span style="color:var(--danger);">Balance Due</span>
+          <span id="bdBalance" style="color:var(--danger);">HK$ 0.00</span>
+        </div>
+      </div>
+
+    </div><!-- /grid -->
+
+    <!-- ── Payment History ─────────────────────────────── -->
+    <div style="margin-top:22px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:700;color:#555;
+                    text-transform:uppercase;letter-spacing:.5px;">
+          💰 Payment History
+        </div>
+        <button id="bdAddPaymentBtn"
+                onclick="openAddPaymentModal()"
+                style="display:none;background:#16a34a;color:#fff;border:none;
+                       padding:6px 16px;border-radius:7px;font-size:13px;
+                       font-weight:700;cursor:pointer;">
+          + Add Payment
+        </button>
+      </div>
+
+      <!-- Outstanding balance banner (shown when balance > 0) -->
+      <div id="bdOutstandingBanner" style="display:none;
+           background:#fef9c3;border:1px solid #fde047;border-radius:8px;
+           padding:10px 14px;font-size:13px;color:#713f12;
+           margin-bottom:10px;display:none;">
+        ⚠️ Outstanding balance:&nbsp;
+        <strong id="bdOutstandingAmt">HK$ 0.00</strong>
+        &nbsp;— payment(s) still pending.
+      </div>
+
+      <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f1f5f9;">
+              <th style="padding:8px 12px;text-align:left;">Date</th>
+              <th style="padding:8px 12px;text-align:right;">Amount (HK$)</th>
+              <th style="padding:8px 12px;text-align:left;">Method</th>
+              <th style="padding:8px 12px;text-align:left;">Received By</th>
+              <th style="padding:8px 12px;text-align:left;">Notes</th>
+              <th style="padding:8px 10px;width:32px;"></th>
+            </tr>
+          </thead>
+          <tbody id="bdPaymentHistoryBody">
+            <tr><td colspan="5" style="padding:14px;text-align:center;
+                color:#aaa;">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:10px;">
+      <button onclick="printBillDetailReceipt()"
+              style="padding:9px 22px;background:var(--primary);color:#fff;
+                     border:none;border-radius:7px;font-size:14px;
+                     cursor:pointer;font-weight:600;">
+        🖨️ Print Receipt
+      </button>
+      <button onclick="closeModal('billDetailModal')"
+              style="padding:9px 22px;background:var(--gray);color:#fff;
+                     border:none;border-radius:7px;font-size:14px;
+                     cursor:pointer;font-weight:600;">
+        Close
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — ADD PAYMENT (instalment)
+════════════════════════════════════════════════════════════ -->
+<div id="addPaymentModal" class="modal">
+  <div class="modal-box" style="max-width:420px;">
+    <button class="mclose" onclick="closeModal('addPaymentModal')">×</button>
+    <h3 style="margin:0 0 4px;">💰 Add Payment</h3>
+    <div id="apBillSummary"
+         style="font-size:12px;color:#888;margin-bottom:16px;"></div>
+
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="fg">
+        <label>Payment Date</label>
+        <input type="date" id="apDate">
+      </div>
+      <div class="fg">
+        <label>Payment Method</label>
+        <select id="apMethod">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="fg" style="margin-bottom:14px;">
+      <label>Amount (HK$)</label>
+      <input type="number" id="apAmount" min="0.01" step="0.01"
+             style="font-size:16px;font-weight:700;">
+      <div style="font-size:12px;color:#888;margin-top:4px;">
+        Outstanding balance: <strong id="apBalanceHint"
+        style="color:#dc2626;">HK$ 0.00</strong>
+      </div>
+    </div>
+
+    <div class="fg" style="margin-bottom:16px;">
+      <label>Notes <span style="font-weight:400;color:#aaa;">(optional)</span></label>
+      <input type="text" id="apNotes" placeholder="e.g. Deposit, 1st instalment…">
+    </div>
+
+    <div id="apError"
+         style="display:none;color:#dc2626;font-size:12px;
+                font-weight:600;margin-bottom:10px;"></div>
+
+    <div style="display:flex;gap:10px;">
+      <button onclick="confirmAddPayment()"
+              style="flex:1;padding:11px;background:#16a34a;color:#fff;
+                     border:none;border-radius:7px;font-size:14px;
+                     font-weight:700;cursor:pointer;">
+        ✓ Confirm Payment
+      </button>
+      <button onclick="closeModal('addPaymentModal')"
+              style="flex:1;padding:11px;background:var(--gray);color:#fff;
+                     border:none;border-radius:7px;font-size:14px;
+                     cursor:pointer;">
+        Cancel
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — DELETE BILL CONFIRM
+════════════════════════════════════════════════════════════ -->
+<div id="billDeleteModal" class="modal">
+  <div class="modal-box" style="max-width:480px;">
+    <button class="mclose" onclick="closeModal('billDeleteModal')">×</button>
+
+    <div style="text-align:center;margin-bottom:18px;">
+      <div style="font-size:48px;line-height:1;">⚠️</div>
+      <h2 style="color:#dc2626;margin:10px 0 4px;">Delete Bill</h2>
+      <p style="color:#555;font-size:13px;margin:0;">
+        This action is <strong>permanent</strong> and cannot be undone.
+      </p>
+    </div>
+
+    <!-- Bill summary -->
+    <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;
+                padding:11px 14px;font-size:12px;color:#7f1d1d;
+                margin-bottom:18px;word-break:break-all;">
+      <span id="bdDeleteInfo"></span>
+    </div>
+
+    <!-- Type-to-confirm -->
+    <div style="margin-bottom:6px;">
+      <label style="font-size:13px;font-weight:600;color:#374151;">
+        Type <strong style="color:#dc2626;">DELETE</strong> to confirm:
+      </label>
+      <input id="bdDeleteConfirmInput" type="text"
+             placeholder="DELETE"
+             style="width:100%;margin-top:6px;padding:9px 12px;
+                    border:2px solid #fca5a5;border-radius:7px;
+                    font-size:14px;letter-spacing:2px;text-transform:uppercase;
+                    box-sizing:border-box;"
+             oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div id="bdDeleteError"
+         style="display:none;color:#dc2626;font-size:12px;
+                margin-bottom:10px;font-weight:600;"></div>
+
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button onclick="executeBillDelete()"
+              style="flex:1;padding:10px;background:#dc2626;color:#fff;
+                     border:none;border-radius:7px;font-size:14px;
+                     font-weight:700;cursor:pointer;">
+        🗑 Permanently Delete
+      </button>
+      <button onclick="closeModal('billDeleteModal')"
+              style="flex:1;padding:10px;background:var(--gray);color:#fff;
+                     border:none;border-radius:7px;font-size:14px;
+                     font-weight:600;cursor:pointer;">
+        Cancel
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — SAVED MULTI-DRUG LISTS (prescription combos)
+════════════════════════════════════════════════════════════ -->
+<div id="rxDrugListsModal" class="modal" style="z-index:4550;">
+  <div class="modal-box" style="max-width:540px;">
+    <button class="mclose" id="rxDrugListsModalClose">×</button>
+    <h3 style="margin:0 0 6px;">📋 Saved drug lists</h3>
+    <p style="font-size:12px;color:#64748b;margin:0 0 14px;">
+      Named combinations you saved from the prescription panel. Append adds lines to the
+      current draft; Replace clears it first — then saves you add still go to patient history
+      when you press Save Prescription.
+    </p>
+    <input type="text" id="rxSavedListsSearch" placeholder="🔍 Filter by name…"
+           style="width:100%;box-sizing:border-box;padding:8px 10px;
+                  border:1px solid #e5e7eb;border-radius:6px;margin-bottom:10px;">
+    <div id="rxSavedListsWrap"
+         style="max-height:360px;overflow-y:auto;border:1px solid #e5e7eb;
+                border-radius:8px;background:#fafafa;">
+      <div id="rxSavedListsBody" style="padding:8px;"></div>
+    </div>
+    <p id="rxSavedListsEmpty" style="display:none;color:#94a3b8;font-size:13px;text-align:center;
+       padding:20px;margin:10px 0 0;">
+      No lists yet. Build a prescription and click <strong>Save as list</strong>.
+    </p>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — DRUG LIST MANAGER
+════════════════════════════════════════════════════════════ -->
+<div id="drugListModal" class="modal">
+  <div class="modal-box" style="max-width:920px;">
+    <button class="mclose" id="closeDrugListModal">×</button>
+    <h3>⚙️ Drug List Manager</h3>
+
+    <div style="display:grid;grid-template-columns:1fr 320px;
+                gap:24px;align-items:start;">
+
+      <!-- drug table -->
+      <div style="overflow-x:auto;border:1px solid #eee;
+                  border-radius:8px;">
+        <table style="width:100%;border-collapse:collapse;
+                      min-width:540px;">
+          <thead>
+            <tr>
+              <th class="dl-th">Category</th>
+              <th class="dl-th">Drug Name</th>
+              <th class="dl-th">Dosage</th>
+              <th class="dl-th">Frequency</th>
+              <th class="dl-th">Duration</th>
+              <th class="dl-th">Route</th>
+              <th class="dl-th">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="drugListBody"></tbody>
+        </table>
+      </div>
+
+      <!-- add / edit form -->
+      <div class="dl-form-box">
+        <h4 id="dlFormTitle"
+            style="margin:0 0 14px;color:var(--primary);">
+          ➕ Add New Drug
+        </h4>
+        <div class="fg">
+          <label>Drug Name *</label>
+          <input type="text" id="dlName"
+                 placeholder="e.g. Amoxicillin">
+        </div>
+        <div class="fg">
+          <label>Category</label>
+          <select id="dlCategory">
+            <option value="">-- Select --</option>
+            <option value="Antibiotic">Antibiotic</option>
+            <option value="Analgesic">Analgesic</option>
+            <option value="Antiseptic">Antiseptic</option>
+            <option value="Steroid">Steroid</option>
+            <option value="Antifungal">Antifungal</option>
+            <option value="Antiviral">Antiviral</option>
+            <option value="Anaesthetic">Anaesthetic</option>
+            <option value="Antihistamine">Antihistamine</option>
+            <option value="Fluoride">Fluoride</option>
+            <option value="Gastroprotect">Gastroprotect</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Dosage</label>
+          <input type="text" id="dlDosage"
+                 placeholder="e.g. 500mg">
+        </div>
+        <div class="fg">
+          <label>Frequency</label>
+          <input type="text" id="dlFrequency"
+                 placeholder="e.g. Every 8 hours">
+        </div>
+        <div class="fg">
+          <label>Duration</label>
+          <input type="text" id="dlDuration"
+                 placeholder="e.g. 5 days">
+        </div>
+        <div class="fg">
+          <label>Route</label>
+          <input type="text" id="dlRoute"
+                 placeholder="e.g. Oral, Topical">
+        </div>
+        <div class="fg">
+          <label>Remarks</label>
+          <textarea id="dlRemarks" rows="2"
+                    placeholder="Notes, warnings…"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-add" id="btnSaveDrugItem"
+                  style="flex:1;padding:10px;">
+            💾 Save
+          </button>
+          <button id="dlCancelEdit"
+                  style="display:none;background:var(--gray);
+                         color:white;border:none;padding:10px 14px;
+                         border-radius:6px;cursor:pointer;
+                         font-weight:bold;">
+            Cancel
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     SCRIPTS  (load order matters)
+════════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+<script src="app-config.js"></script>
+<script src="app-report.js"></script>
+<script src="app-ai-helper.js"></script>
+<script src="app-memo-ai.js"></script>
+<script src="app-photos.js"></script>
+<script src="app-patient.js"></script>
+<script src="app-appt.js"></script>
+<script src="app-consultation.js"></script>
+<script src="app-xray.js"></script>
+<script src="app-charts.js"></script>
+<script src="app-drugs.js"></script>
+
+
+</body>
+</html>

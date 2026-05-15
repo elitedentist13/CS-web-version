@@ -239,11 +239,12 @@ var MEMO_AI = MEMO_AI || {};
 
     function defaultStickyXY(i, dw, dh) {
         var gap = 12;
-        var cols = Math.max(1, Math.floor((dw - 16) / (STICKY_W + gap)));
+        var margin = 10;
+        var cols = Math.max(1, Math.floor((dw - margin * 2) / (STICKY_W + gap)));
         var col = i % cols;
-        var row = Math.floor(i / cols);
-        var x = 8 + col * (STICKY_W + gap);
-        var y = 8 + row * (STICKY_H + gap);
+        var rowFromBottom = Math.floor(i / cols);
+        var x = margin + col * (STICKY_W + gap);
+        var y = dh - STICKY_H - margin - rowFromBottom * (STICKY_H + gap);
         return clampStickyPos(x, y, dw, dh, STICKY_W, STICKY_H);
     }
 

@@ -577,6 +577,45 @@ function deleteRcTemplate(id) {
 }
 
 // ── Send Queue ───────────────────────────────────────────────────
+
+/** Placeholders for recall message box ({name}, {date}, …). */
+function buildRecallPersonalised(a) {
+    var msg = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
+    return msg
+        .replace(/\{name\}/gi,    a.patient_name         || a.patient_chinese_name || '')
+        .replace(/\{chinese\}/gi, a.patient_chinese_name || '')
+        .replace(/\{date\}/gi,    rcDate)
+        .replace(/\{phone\}/gi,   a.phone                || '')
+        .replace(/\{no\}/gi,      a.patient_no           || '');
+}
+
+/** WhatsApp prefilled body length guard (GET URL limits). */
+function recallTruncateForWaPrefill(text, maxLen) {
+    var n = maxLen || 1500;
+    if (text.length <= n) return text;
+    return text.slice(0, n - 1) + '…';
+}
+
+/** Build Send URL — desktop targets WhatsApp Web; mobile uses wa.me (opens app reliably). */
+function buildRecallWhatsAppOpenUrl(apptRow, personalised) {
+    var digits = formatPhoneForWA(apptRow.phone);
+    if (!digits) return '';
+    var body = recallTruncateForWaPrefill(personalised, 1500);
+    var enc = encodeURIComponent(body);
+    var mobile =
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+            navigator.userAgent || '');
+    if (mobile) {
+        return 'https://wa.me/' + digits + '?text=' + enc;
+    }
+    return (
+        'https://web.whatsapp.com/send?phone=' +
+        encodeURIComponent(digits) +
+        '&text=' +
+        enc
+    );
+}
+
 function startRecallSend() {
     var msg = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
     if (!msg) { alert('Please enter a recall message.'); return; }
@@ -617,23 +656,12 @@ function showRcSendModal() {
         return;
     }
 
-    var a   = rcSendQueue[rcSendIdx];
-    var msg = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
+    var a = rcSendQueue[rcSendIdx];
 
-    // Substitute placeholders
-    var personalised = msg
-        .replace(/\{name\}/gi,    a.patient_name         || a.patient_chinese_name || '')
-        .replace(/\{chinese\}/gi, a.patient_chinese_name || '')
-        .replace(/\{date\}/gi,    rcDate)
-        .replace(/\{phone\}/gi,   a.phone                || '')
-        .replace(/\{no\}/gi,      a.patient_no           || '');
+    var personalised = buildRecallPersonalised(a);
 
-    var waPhone  = formatPhoneForWA(a.phone);
-    var waUrl    = 'https://wa.me/' + waPhone + '?text=' + encodeURIComponent(personalised);
-    var smsUrl   = 'sms:' + (a.phone || '') + '?body=' + encodeURIComponent(personalised);
-    var isWA     = rcContact === 'whatsapp';
-    var actionUrl   = isWA ? waUrl : smsUrl;
-    var actionLabel = isWA ? '💬 Open WhatsApp' : '📱 Open SMS';
+    var isWA = rcContact === 'whatsapp';
+    var actionLabel = isWA ? '💬 Open WhatsApp Web' : '📱 Open SMS';
     var actionColor = isWA ? '#25d366' : '#0084ff';
 
     var progress = (rcSendIdx + 1) + ' of ' + rcSendQueue.length;
@@ -655,6 +683,16 @@ function showRcSendModal() {
                 (isWA ? '💬 WhatsApp' : '📱 SMS') +
             '</span>' +
         '</div>' +
+        (isWA
+            ? '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;' +
+                'padding:8px 10px;margin-bottom:10px;font-size:11px;line-height:1.45;color:#065f46;">' +
+                '<strong>WhatsApp Web:</strong> Opens a new browser tab with this patient and message filled in. ' +
+                'If you only see a QR code, open ' +
+                '<a href="https://web.whatsapp.com/" target="_blank" rel="noopener noreferrer" ' +
+                'style="color:#047857;text-decoration:underline;">web.whatsapp.com</a> ' +
+                'in another tab, scan to log in, then click <strong>Open WhatsApp Web</strong> again.' +
+            '</div>'
+            : '') +
         // Patient card
         '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;' +
             'padding:14px;margin-bottom:12px;">' +
@@ -671,13 +709,20 @@ function showRcSendModal() {
             'white-space:pre-wrap;max-height:110px;overflow-y:auto;color:#1e293b;">' +
             esc(personalised) +
         '</div>' +
+        (isWA
+            ? '<button type="button" onclick="rcCopyRecallWaLink()" ' +
+                'style="width:100%;margin-bottom:8px;font-size:11px;padding:8px 10px;' +
+                'background:#fff;border:1px solid #cbd5e1;border-radius:8px;' +
+                'cursor:pointer;color:#475569;font-weight:600;">' +
+                '📋 Copy WhatsApp Web link</button>'
+            : '') +
         // Action + Skip
         '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
-            '<a href="' + actionUrl + '" target="_blank" ' +
+            '<button type="button" onclick="rcOpenRecallSend()" ' +
                 'style="flex:1;padding:11px 8px;background:' + actionColor + ';color:#fff;' +
-                'text-decoration:none;border-radius:8px;text-align:center;font-weight:700;' +
-                'font-size:13px;display:block;">' +
-                actionLabel + '</a>' +
+                'border:none;border-radius:8px;text-align:center;font-weight:700;' +
+                'font-size:13px;cursor:pointer;">' +
+                actionLabel + '</button>' +
             '<button onclick="rcSendSkip()" ' +
                 'style="padding:11px 14px;background:#f1f5f9;color:#64748b;border:none;' +
                 'border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;">Skip</button>' +
@@ -704,13 +749,103 @@ function rcSendDone() {
     rcSendQueue = []; rcSendIdx = 0;
 }
 
-// Format phone for WhatsApp (HK numbers → +852 prefix)
+/** WhatsApp Web / SMS — opened via script so Chrome allows popup from user tap; WA uses web app on desktop. */
+function rcOpenRecallSend() {
+    if (!rcSendQueue || rcSendIdx >= rcSendQueue.length) return;
+    var a = rcSendQueue[rcSendIdx];
+    var personalised = buildRecallPersonalised(a);
+
+    if (rcContact === 'sms') {
+        var smsRaw = String(a.phone || '').replace(/\s/g, '');
+        var smsUrl =
+            'sms:' +
+            smsRaw.replace(/[^\d+]/g, '') +
+            '?body=' +
+            encodeURIComponent(recallTruncateForWaPrefill(personalised, 1200));
+        window.location.href = smsUrl;
+        return;
+    }
+
+    var digits = formatPhoneForWA(a.phone);
+    if (!digits || digits.length < 8) {
+        alert('Cannot open WhatsApp — this patient needs a valid mobile number.');
+        return;
+    }
+
+    var url = buildRecallWhatsAppOpenUrl(a, personalised);
+    if (!url) {
+        alert('Cannot build WhatsApp link.');
+        return;
+    }
+
+    var w = window.open(url, '_blank', 'noopener,noreferrer');
+    var blocked = !w || w.closed || typeof w.closed === 'undefined';
+    if (!blocked) return;
+
+    function fallbackPrompt(u) {
+        if (typeof prompt === 'function') {
+            prompt('Pop-up blocked — copy this URL and paste into the address bar:', u);
+        } else {
+            alert('Pop-up blocked. URL:\n' + u);
+        }
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function() {
+            alert(
+                'Your browser blocked the new tab.\n\n' +
+                'The WhatsApp link was copied — paste into the address bar (Ctrl+V) ' +
+                'or allow pop-ups for this site and click again.'
+            );
+        }).catch(function() {
+            fallbackPrompt(url);
+        });
+    } else {
+        fallbackPrompt(url);
+    }
+}
+
+/** Always copies desktop WhatsApp Web compose URL (works after login). */
+function rcCopyRecallWaLink() {
+    if (!rcSendQueue || rcSendIdx >= rcSendQueue.length) return;
+    var a = rcSendQueue[rcSendIdx];
+    var personalised = buildRecallPersonalised(a);
+    var digits = formatPhoneForWA(a.phone);
+    if (!digits || digits.length < 8) {
+        alert('No valid mobile number for this patient.');
+        return;
+    }
+    var url =
+        'https://web.whatsapp.com/send?phone=' +
+        encodeURIComponent(digits) +
+        '&text=' +
+        encodeURIComponent(recallTruncateForWaPrefill(personalised, 1500));
+
+    function fallbackPrompt(u) {
+        if (typeof prompt === 'function') prompt('Copy this WhatsApp Web URL:', u);
+        else alert(u);
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function() {
+            alert('WhatsApp Web link copied. Paste into Chrome / Edge address bar.');
+        }).catch(function() {
+            fallbackPrompt(url);
+        });
+    } else {
+        fallbackPrompt(url);
+    }
+}
+
+// Format phone for WhatsApp Web `phone=` param (digits only, HK → 852…)
 function formatPhoneForWA(phone) {
     if (!phone) return '';
     var digits = phone.replace(/[^\d]/g, '');
-    if (digits.length === 8) return '852' + digits;   // bare HK 8-digit
-    if (digits.slice(0, 5) === '00852') return digits.slice(2);  // 00852XXXXXXXX
-    return digits;                                    // already has country code
+    if (!digits.length) return '';
+    if (digits.length === 8 && /^[569]/.test(digits)) return '852' + digits;
+    if (digits.slice(0, 5) === '00852') return digits.slice(2);
+    if (digits.slice(0, 4) === '8520' && digits.length >= 11) return '852' + digits.slice(4);
+    return digits;
 }
 
 // ════════════════════════════════════════════════════════════════

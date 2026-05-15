@@ -54,6 +54,7 @@
     </div>
   </div>
 
+  <div class="dashboard-float-shell">
   <div class="dashboard-grid">
     <div class="dash-card" id="card-appointment">
       <div>📅</div><h3>Appointment</h3>
@@ -86,6 +87,13 @@
     <div class="dash-card" id="card-configuration">
       <div>⚙️</div><h3>Configuration</h3>
     </div>
+  </div>
+
+  <div id="memoStickyDock" class="memo-sticky-dock memo-sticky-dock-overlay"
+       aria-label="Draggable memo sticky notes floating over dashboard"></div>
+  <p class="memo-sticky-float-hint">
+    📌 Desk stickies float above tiles — drag anywhere in this area · Double-click opens Memo Cards + AI
+  </p>
   </div>
 </div>
 
@@ -412,7 +420,8 @@
 
   <p style="margin:0 0 12px;color:#64748b;font-size:13px;line-height:1.45;">
     Sticky snippets live inside this browser (local storage).
-    Tap a memo, edit freely — AI polishing uses the same secure Edge lane as Outreach when deployed.
+    On the dashboard, the same cards appear as draggable mini notes floating above the tiles — drag them anywhere in that area.
+    Tap a memo here to edit — AI polishing uses the same secure Edge lane as Outreach when deployed.
     No clinical jargon required; omit secrets from AI prompts where possible.
   </p>
 
@@ -3815,8 +3824,9 @@
   <div class="modal-box" style="max-width:440px;">
     <button class="mclose" onclick="closeModal('recallSendModal')">×</button>
     <h3 style="margin:0 0 4px;font-size:17px;">📤 Send Recall Message</h3>
-    <p style="font-size:11px;color:#94a3b8;margin:0 0 14px;">
-      Open each patient's contact method and send the personalised message.
+    <p style="font-size:11px;color:#94a3b8;margin:0 0 14px;line-height:1.45;">
+      Each patient opens in turn — use <strong>Open WhatsApp Web</strong> for a new tab with the message ready (desktop uses web.whatsapp.com).
+      If you see only a QR code, log in at web.whatsapp.com first, then click the button again. Use <strong>Next Patient</strong> to continue through your selected list.
     </p>
     <div id="rcSendContent"></div>
   </div>

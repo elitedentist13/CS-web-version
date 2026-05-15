@@ -168,6 +168,11 @@ function showDashboard() {
     var br = g('badgeRole');
     if (bn) bn.textContent = currentName || '-';
     if (br) br.textContent = currentRole || '-';
+    if (typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.refreshDashboardStickies === 'function') {
+        requestAnimationFrame(function() {
+            MEMO_AI.refreshDashboardStickies();
+        });
+    }
 }
 
 // ════════════════════════════════════════════════════════════════

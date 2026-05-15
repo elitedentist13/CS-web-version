@@ -164,7 +164,134 @@ body {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 20px;
+    position: relative;
+    z-index: 1;
+}
+
+/* Float area: tiles + transparent sticky layer on top */
+.dashboard-float-shell {
+    position: relative;
+    isolation: isolate;
     margin-top: 30px;
+    min-height: min(74vh, calc(100vh - 132px));
+    padding-bottom: 8px;
+}
+
+.dashboard-float-shell .dashboard-grid {
+    margin-top: 0;
+}
+
+/* Dashboard memo stickies — overlay sized by JS from shell box (fixes Chrome 0-height inset bug) */
+.memo-sticky-dock {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 50;
+}
+
+.memo-sticky-dock.memo-sticky-dock-overlay {
+    /* Ensure overlay always has vertical room (inset + min-height work together) */
+    min-height: min(74vh, calc(100vh - 152px));
+}
+
+.memo-sticky-float-hint {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    left: auto;
+    max-width: min(360px, calc(100% - 12px));
+    margin: 0;
+    padding: 7px 11px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: #64748b;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    pointer-events: none;
+    z-index: 51;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.memo-sticky-note {
+    position: absolute;
+    box-sizing: border-box;
+    border-radius: 10px;
+    background: #fffef8;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-left-style: solid;
+    border-left-width: 5px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    pointer-events: auto;
+}
+
+.memo-sticky-draghead {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: rgba(248, 250, 252, 0.98);
+    border-bottom: 1px solid #e2e8f0;
+    cursor: grab;
+    user-select: none;
+}
+
+.memo-sticky-dragging .memo-sticky-draghead {
+    cursor: grabbing;
+}
+
+.memo-sticky-drag-grip {
+    width: 10px;
+    height: 14px;
+    opacity: 0.45;
+    flex-shrink: 0;
+    background: repeating-linear-gradient(
+        180deg,
+        #94a3b8,
+        #94a3b8 2px,
+        transparent 2px,
+        transparent 4px
+    );
+}
+
+.memo-sticky-head-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #1e293b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.memo-sticky-mini-body {
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: #475569;
+    overflow-y: auto;
+    cursor: text;
+}
+
+.memo-sticky-dragging {
+    opacity: 0.92;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+}
+
+@media (max-width: 640px) {
+    .dashboard-float-shell {
+        min-height: min(68vh, calc(100vh - 118px));
+    }
+
+    .memo-sticky-dock.memo-sticky-dock-overlay {
+        min-height: min(68vh, calc(100vh - 118px));
+    }
 }
 
 .dash-card {

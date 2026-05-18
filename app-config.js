@@ -17,6 +17,7 @@ var CFG = (function () {
         { key: 'program',   label: '⚙️ Program Settings' },
         { key: 'users',     label: '👤 Users'            },
         { key: 'templates', label: '📄 Templates'        },
+        { key: 'print',     label: '🖨️ Print'            },
         { key: 'data',      label: '💾 Data / Backup'    }
     ];
 
@@ -215,6 +216,7 @@ var CFG = (function () {
             program:   loadSettings,
             users:     loadUsers,
             templates: loadTemplates,
+            print:     loadPrint,
             data:      loadData
         };
         if (loaders[key]) loaders[key]();
@@ -1160,6 +1162,9 @@ var CFG = (function () {
         .then(function (r) {
             if (r.error) { toast(r.error.message, true); return; }
             toast('Settings saved.');
+            if (typeof restartApptAutoRefresh === 'function') {
+                restartApptAutoRefresh();
+            }
         });
     }
 
@@ -2077,8 +2082,685 @@ var CFG = (function () {
             });
         }
 
+    // ════════════════════════════════════════════════════════
+    // ── TAB: PRINT SETTINGS (per clinic) ───────────────────
+    // ════════════════════════════════════════════════════════
+    var PRINT_LS_KEY = 'jsm_clinic_print_settings_v1';
+    var PRINTERS_LS_KEY = 'jsm_known_printers_v1';
+    var _cachedSystemPrinters = [];
+    var _printClinics = [];
+    var _printRowsByClinic = {};
+    var _printEditDocType = null;
+
+    var PRINT_DOC_TYPES = [
+        { key: 'bill',           label: 'Bill / Receipt',              paper: '80mm roll',     m: { l: 5, r: 5, t: 5, b: 5 } },
+        { key: 'drug_label',     label: 'Drug Label',                  paper: '50mm x 60mm',   m: { l: 2, r: 2, t: 2, b: 2 } },
+        { key: 'letters',        label: 'Letters & Medical Documents', paper: 'A4',            m: { l: 15, r: 15, t: 15, b: 15 } },
+        { key: 'report',         label: 'Report',                      paper: 'A4',            m: { l: 12, r: 12, t: 12, b: 12 } },
+        { key: 'charting',       label: 'Patient Charting',            paper: 'A4',            m: { l: 10, r: 10, t: 10, b: 10 } },
+        { key: 'appointment',    label: 'Appointment List',            paper: 'A4',            m: { l: 10, r: 10, t: 10, b: 10 } },
+        { key: 'today_appt',     label: 'Today Appointments',          paper: 'A4',            m: { l: 10, r: 10, t: 10, b: 10 } },
+        { key: 'prescription',   label: 'Prescription / Rx',           paper: 'A5',            m: { l: 10, r: 10, t: 10, b: 10 } },
+        { key: 'patient_export', label: 'Patient Directory Export',    paper: 'A4',            m: { l: 10, r: 10, t: 10, b: 10 } }
+    ];
+
+    function defaultPrintRow(docType) {
+        var def = PRINT_DOC_TYPES.find(function (d) { return d.key === docType; });
+        var m = def && def.m ? def.m : { l: 10, r: 10, t: 10, b: 10 };
+        return {
+            doc_type:       docType,
+            printer_name:   '',
+            paper_size:     def ? def.paper : 'A4',
+            paper_width_mm: null,
+            paper_height_mm: null,
+            margin_left:    m.l,
+            margin_right:   m.r,
+            margin_top:     m.t,
+            margin_bottom:  m.b,
+            orientation:    'portrait',
+            scale_percent:  100,
+            copies:         1,
+            color_mode:     'color',
+            fit_to_page:    true,
+            show_header:    true,
+            notes:          ''
+        };
+    }
+
+    function mergePrintRow(docType, stored) {
+        var base = defaultPrintRow(docType);
+        if (!stored) return base;
+        return {
+            doc_type:       docType,
+            printer_name:   stored.printer_name != null ? String(stored.printer_name) : base.printer_name,
+            paper_size:     stored.paper_size || base.paper_size,
+            paper_width_mm: stored.paper_width_mm != null ? stored.paper_width_mm : null,
+            paper_height_mm: stored.paper_height_mm != null ? stored.paper_height_mm : null,
+            margin_left:    stored.margin_left != null ? Number(stored.margin_left) : base.margin_left,
+            margin_right:   stored.margin_right != null ? Number(stored.margin_right) : base.margin_right,
+            margin_top:     stored.margin_top != null ? Number(stored.margin_top) : base.margin_top,
+            margin_bottom:  stored.margin_bottom != null ? Number(stored.margin_bottom) : base.margin_bottom,
+            orientation:    stored.orientation || base.orientation,
+            scale_percent:  stored.scale_percent != null ? Number(stored.scale_percent) : base.scale_percent,
+            copies:         stored.copies != null ? Number(stored.copies) : base.copies,
+            color_mode:     stored.color_mode || base.color_mode,
+            fit_to_page:    stored.fit_to_page !== false,
+            show_header:    stored.show_header !== false,
+            notes:          stored.notes != null ? String(stored.notes) : ''
+        };
+    }
+
+    function readPrintLocalStore() {
+        try {
+            var raw = localStorage.getItem(PRINT_LS_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function writePrintLocalStore(all) {
+        try {
+            localStorage.setItem(PRINT_LS_KEY, JSON.stringify(all || {}));
+        } catch (e) {}
+    }
+
+    function rowsMapFromDbList(list) {
+        var map = {};
+        (list || []).forEach(function (row) {
+            if (row && row.doc_type) map[row.doc_type] = row;
+        });
+        return map;
+    }
+
+    function fullRowsForClinic(storedMap) {
+        return PRINT_DOC_TYPES.map(function (d) {
+            return mergePrintRow(d.key, storedMap[d.key]);
+        });
+    }
+
+    function loadPrintRowsForClinic(clinicId, callback) {
+        if (!clinicId) {
+            callback(fullRowsForClinic({}));
+            return;
+        }
+        SB.from('clinic_print_settings')
+            .select('*')
+            .eq('clinic_id', clinicId)
+        .then(function (r) {
+            if (!r.error && r.data) {
+                var map = rowsMapFromDbList(r.data);
+                _printRowsByClinic[clinicId] = fullRowsForClinic(map);
+                var all = readPrintLocalStore();
+                all[clinicId] = map;
+                writePrintLocalStore(all);
+                callback(_printRowsByClinic[clinicId]);
+                return;
+            }
+            var all = readPrintLocalStore();
+            var localMap = all[clinicId] || {};
+            _printRowsByClinic[clinicId] = fullRowsForClinic(localMap);
+            callback(_printRowsByClinic[clinicId]);
+        });
+    }
+
+    function savePrintRowsForClinic(clinicId, rows, callback) {
+        if (!clinicId) {
+            if (callback) callback(false);
+            return;
+        }
+        var map = {};
+        rows.forEach(function (row) {
+            map[row.doc_type] = row;
+        });
+        var all = readPrintLocalStore();
+        all[clinicId] = map;
+        writePrintLocalStore(all);
+        _printRowsByClinic[clinicId] = rows;
+        rows.forEach(function (row) {
+            if (row.printer_name) addKnownPrinter(row.printer_name);
+        });
+
+        var payloads = rows.map(function (row) {
+            return {
+                clinic_id:       clinicId,
+                doc_type:        row.doc_type,
+                printer_name:    row.printer_name || '',
+                paper_size:      row.paper_size || 'A4',
+                paper_width_mm:  row.paper_width_mm,
+                paper_height_mm: row.paper_height_mm,
+                margin_left:     row.margin_left,
+                margin_right:    row.margin_right,
+                margin_top:      row.margin_top,
+                margin_bottom:   row.margin_bottom,
+                orientation:     row.orientation || 'portrait',
+                scale_percent:   row.scale_percent,
+                copies:          row.copies,
+                color_mode:      row.color_mode || 'color',
+                fit_to_page:     !!row.fit_to_page,
+                show_header:     row.show_header !== false,
+                notes:           row.notes || ''
+            };
+        });
+
+        SB.from('clinic_print_settings')
+            .upsert(payloads, { onConflict: 'clinic_id,doc_type' })
+        .then(function (r) {
+            if (!r.error) {
+                if (callback) callback(true);
+                return;
+            }
+            if (callback) callback(true);
+        });
+    }
+
+    function printDocLabel(docType) {
+        var d = PRINT_DOC_TYPES.find(function (x) { return x.key === docType; });
+        return d ? d.label : docType;
+    }
+
+    function renderPrintTable(rows) {
+        var TH = 'padding:10px 12px;text-align:left;font-size:11px;font-weight:800;' +
+            'color:#0d6efd;border-bottom:2px solid #dde8f5;text-transform:uppercase;' +
+            'letter-spacing:.35px;white-space:nowrap;';
+        var TD = 'padding:9px 12px;border-bottom:1px solid #eef2f7;font-size:13px;vertical-align:middle;';
+
+        var html =
+            '<div class="cfg-print-table-wrap">' +
+            '<table class="cfg-print-table">' +
+            '<thead><tr style="background:#f0f7ff;">' +
+            '<th style="' + TH + '">Type of document</th>' +
+            '<th style="' + TH + '">Printer selected</th>' +
+            '<th style="' + TH + '">Paper size</th>' +
+            '<th style="' + TH + 'text-align:right;">Left margin</th>' +
+            '<th style="' + TH + 'text-align:right;">Right margin</th>' +
+            '<th style="' + TH + 'text-align:right;">Upper margin</th>' +
+            '<th style="' + TH + 'text-align:right;">Lower margin</th>' +
+            '</tr></thead><tbody>';
+
+        rows.forEach(function (row, idx) {
+            var paper = row.paper_size || '—';
+            if (row.paper_size === 'Custom' && row.paper_width_mm && row.paper_height_mm) {
+                paper = row.paper_width_mm + '×' + row.paper_height_mm + ' mm';
+            }
+            html +=
+                '<tr class="cfg-print-row" data-doc-type="' + esc(row.doc_type) + '" data-idx="' + idx + '">' +
+                '<td style="' + TD + 'font-weight:700;">' + esc(printDocLabel(row.doc_type)) + '</td>' +
+                '<td style="' + TD + '">' + esc(row.printer_name || '—') + '</td>' +
+                '<td style="' + TD + '">' + esc(paper) + '</td>' +
+                '<td style="' + TD + 'text-align:right;">' + esc(row.margin_left) + ' mm</td>' +
+                '<td style="' + TD + 'text-align:right;">' + esc(row.margin_right) + ' mm</td>' +
+                '<td style="' + TD + 'text-align:right;">' + esc(row.margin_top) + ' mm</td>' +
+                '<td style="' + TD + 'text-align:right;">' + esc(row.margin_bottom) + ' mm</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    }
+
+    function getSelectedPrintClinicId() {
+        var sel = g('cfgPrintClinicSelect');
+        return sel ? String(sel.value || '').trim() : '';
+    }
+
+    function refreshPrintTable() {
+        var clinicId = getSelectedPrintClinicId();
+        var region = g('cfgPrintTableRegion');
+        if (!region) return;
+        region.innerHTML = '<p style="color:#888;padding:16px;">Loading…</p>';
+        loadPrintRowsForClinic(clinicId, function (rows) {
+            region.innerHTML = renderPrintTable(rows);
+            region.querySelectorAll('.cfg-print-row').forEach(function (tr) {
+                tr.addEventListener('dblclick', function () {
+                    var dt = tr.getAttribute('data-doc-type');
+                    var idx = parseInt(tr.getAttribute('data-idx'), 10);
+                    _openPrintDetailModal(dt, rows[idx]);
+                });
+            });
+        });
+    }
+
+    function loadPrint() {
+        var pane = g('cfgPane-print');
+        if (!pane) return;
+        pane.innerHTML = '<p style="color:#888;">Loading…</p>';
+
+        SB.from('clinics').select('id,clinic_code,english_name,chinese_name').order('clinic_code')
+        .then(function (r) {
+            _printClinics = r.data || [];
+            var defaultId = (typeof currentClinicId !== 'undefined' && currentClinicId)
+                ? String(currentClinicId) : '';
+
+            var opts = '<option value="">— Select clinic —</option>';
+            _printClinics.forEach(function (c) {
+                var label = (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
+                    (c.english_name || c.chinese_name || 'Clinic');
+                var sel = String(c.id) === defaultId ? ' selected' : '';
+                opts += '<option value="' + esc(c.id) + '"' + sel + '>' + esc(label) + '</option>';
+            });
+
+            pane.innerHTML =
+                '<div class="cfg-print-pane">' +
+                '<div class="cfg-print-header">' +
+                '<div>' +
+                '<h2 style="margin:0;font-size:20px;">Print settings</h2>' +
+                '<p class="cfg-print-sub">Per-clinic printer, paper, and margins for each document type. ' +
+                'Double-click a row to edit.</p>' +
+                '</div>' +
+                '<div class="cfg-print-clinic-bar">' +
+                '<label for="cfgPrintClinicSelect">Clinic</label>' +
+                '<select id="cfgPrintClinicSelect" class="cfg-print-clinic-select">' + opts + '</select>' +
+                '<button type="button" class="btn btn--primary" id="cfgPrintSaveAllBtn">Save all rows</button>' +
+                '</div>' +
+                '</div>' +
+                '<div id="cfgPrintTableRegion" class="cfg-print-table-region"></div>' +
+                '</div>';
+
+            var selEl = g('cfgPrintClinicSelect');
+            if (selEl) {
+                selEl.addEventListener('change', refreshPrintTable);
+            }
+            var saveAll = g('cfgPrintSaveAllBtn');
+            if (saveAll) {
+                saveAll.addEventListener('click', function () {
+                    var cid = getSelectedPrintClinicId();
+                    if (!cid) { toast('Select a clinic first.', true); return; }
+                    var rows = _printRowsByClinic[cid];
+                    if (!rows) { toast('Nothing to save.', true); return; }
+                    savePrintRowsForClinic(cid, rows, function () {
+                        toast('Print settings saved for this clinic.');
+                    });
+                });
+            }
+            wirePrintModal();
+            wirePrinterCombo();
+            refreshPrinterLists(false);
+            refreshPrintTable();
+        });
+    }
+
+    function readKnownPrinters() {
+        try {
+            var raw = localStorage.getItem(PRINTERS_LS_KEY);
+            var arr = raw ? JSON.parse(raw) : [];
+            return Array.isArray(arr) ? arr.filter(function (n) { return String(n || '').trim(); }) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function addKnownPrinter(name) {
+        var n = String(name || '').trim();
+        if (!n) return;
+        var list = readKnownPrinters();
+        if (list.indexOf(n) >= 0) return;
+        list.push(n);
+        list.sort(function (a, b) { return a.localeCompare(b, undefined, { sensitivity: 'base' }); });
+        try {
+            localStorage.setItem(PRINTERS_LS_KEY, JSON.stringify(list));
+        } catch (e) {}
+    }
+
+    function collectPrintersFromSavedSettings() {
+        var names = [];
+        function add(n) {
+            var s = String(n || '').trim();
+            if (s && names.indexOf(s) < 0) names.push(s);
+        }
+        Object.keys(_printRowsByClinic || {}).forEach(function (cid) {
+            (_printRowsByClinic[cid] || []).forEach(function (row) {
+                add(row.printer_name);
+            });
+        });
+        try {
+            var all = readPrintLocalStore();
+            Object.keys(all).forEach(function (cid) {
+                var map = all[cid] || {};
+                Object.keys(map).forEach(function (dt) {
+                    add(map[dt] && map[dt].printer_name);
+                });
+            });
+        } catch (e) {}
+        readKnownPrinters().forEach(add);
+        return names.sort(function (a, b) {
+            return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+    }
+
+    function enumerateSystemPrintersAsync() {
+        return new Promise(function (resolve) {
+            var names = [];
+            function add(n) {
+                var s = String(n || '').trim();
+                if (s && names.indexOf(s) < 0) names.push(s);
+            }
+
+            var tasks = [];
+
+            if (typeof navigator !== 'undefined' && navigator.printers &&
+                typeof navigator.printers.getPrinters === 'function') {
+                tasks.push(
+                    navigator.printers.getPrinters().then(function (list) {
+                        (list || []).forEach(function (p) {
+                            if (typeof p === 'string') add(p);
+                            else add(p.name || p.deviceName || p.displayName || p.id);
+                        });
+                    }).catch(function () {})
+                );
+            }
+
+            if (typeof printing !== 'undefined' && printing &&
+                typeof printing.getPrinters === 'function') {
+                tasks.push(
+                    printing.getPrinters().then(function (list) {
+                        (list || []).forEach(function (p) {
+                            if (typeof p === 'string') add(p);
+                            else add(p.name || p.id);
+                        });
+                    }).catch(function () {})
+                );
+            }
+
+            Promise.all(tasks.length ? tasks : [Promise.resolve()]).then(function () {
+                resolve(names);
+            });
+        });
+    }
+
+    function mergedPrinterNameList() {
+        var map = {};
+        function add(n) {
+            var s = String(n || '').trim();
+            if (s) map[s] = true;
+        }
+        _cachedSystemPrinters.forEach(add);
+        collectPrintersFromSavedSettings().forEach(add);
+        return Object.keys(map).sort(function (a, b) {
+            return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+    }
+
+    function rebuildPrinterPickOptions(currentValue) {
+        var sel = g('cfgPrintPrinterSelect');
+        var dl = g('cfgPrintPrinterList');
+        if (!sel) return;
+
+        var names = mergedPrinterNameList();
+        var cur = String(currentValue || '').trim();
+        if (cur && names.indexOf(cur) < 0) names.push(cur);
+        names.sort(function (a, b) {
+            return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+
+        var html = '<option value="">— Select printer —</option>';
+        names.forEach(function (n) {
+            html += '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+        });
+        html += '<option value="__custom__">Custom (type below)…</option>';
+        sel.innerHTML = html;
+
+        if (dl) {
+            dl.innerHTML = names.map(function (n) {
+                return '<option value="' + esc(n) + '">';
+            }).join('');
+        }
+
+        syncPrinterComboFromValue(cur);
+    }
+
+    function syncPrinterComboFromValue(val) {
+        var sel = g('cfgPrintPrinterSelect');
+        var inp = g('cfgPrintPrinter');
+        if (!inp) return;
+        var v = String(val || '').trim();
+        inp.value = v;
+        if (!sel) return;
+        var matched = false;
+        for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === v && v) {
+                sel.value = v;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) sel.value = v ? '__custom__' : '';
+    }
+
+    function getResolvedPrinterNameFromForm(form) {
+        var inp = form && form.querySelector('[name="printer_name"]');
+        return inp ? String(inp.value || '').trim() : '';
+    }
+
+    function refreshPrinterLists(showToast) {
+        var inp = g('cfgPrintPrinter');
+        var cur = inp ? inp.value : '';
+        return enumerateSystemPrintersAsync().then(function (sys) {
+            _cachedSystemPrinters = sys || [];
+            sys.forEach(function (n) { addKnownPrinter(n); });
+            rebuildPrinterPickOptions(cur);
+            if (showToast) {
+                var n = mergedPrinterNameList().length;
+                if (sys.length) {
+                    toast('Found ' + sys.length + ' system printer(s). ' + n + ' in list.');
+                } else {
+                    toast(
+                        'No system printers detected in this browser — use the dropdown ' +
+                        'history or type a custom name. (' + n + ' saved name(s).)',
+                        false
+                    );
+                }
+            }
+        });
+    }
+
+    function wirePrinterCombo() {
+        var sel = g('cfgPrintPrinterSelect');
+        var inp = g('cfgPrintPrinter');
+        var refreshBtn = g('cfgPrintRefreshPrinters');
+
+        if (sel && !sel.dataset.wired) {
+            sel.dataset.wired = '1';
+            sel.addEventListener('change', function () {
+                if (!inp) return;
+                if (sel.value === '__custom__') {
+                    inp.focus();
+                    return;
+                }
+                if (sel.value) inp.value = sel.value;
+            });
+        }
+
+        if (inp && !inp.dataset.wired) {
+            inp.dataset.wired = '1';
+            inp.addEventListener('input', function () {
+                if (!sel) return;
+                var v = String(inp.value || '').trim();
+                var matched = false;
+                for (var i = 0; i < sel.options.length; i++) {
+                    if (sel.options[i].value === v && v) {
+                        sel.value = v;
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) sel.value = v ? '__custom__' : '';
+            });
+        }
+
+        if (refreshBtn && !refreshBtn.dataset.wired) {
+            refreshBtn.dataset.wired = '1';
+            refreshBtn.addEventListener('click', function () {
+                refreshBtn.disabled = true;
+                refreshPrinterLists(true).finally(function () {
+                    refreshBtn.disabled = false;
+                });
+            });
+        }
+
+        var hintToggle = g('cfgPrintPrinterHintToggle');
+        var hintPanel = g('cfgPrintPrinterHintPanel');
+        if (hintToggle && hintPanel && !hintToggle.dataset.wired) {
+            hintToggle.dataset.wired = '1';
+            hintToggle.addEventListener('click', function () {
+                hintPanel.classList.toggle('hidden');
+                var expanded = !hintPanel.classList.contains('hidden');
+                hintToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                var chev = hintToggle.querySelector('.cfg-printer-hint-toggle__chev');
+                if (chev) chev.textContent = expanded ? '▾' : '▸';
+            });
+        }
+    }
+
+    function wirePrintModal() {
+        var closeBtn = g('cfgPrintModalClose');
+        var cancelBtn = g('cfgPrintModalCancel');
+        var saveBtn = g('cfgPrintModalSave');
+        var modal = g('cfgPrintModal');
+        var paperSel = g('cfgPrintPaper');
+
+        function closeModal() {
+            if (modal) modal.classList.add('hidden');
+            _printEditDocType = null;
+        }
+
+        if (closeBtn && !closeBtn.dataset.wired) {
+            closeBtn.dataset.wired = '1';
+            closeBtn.addEventListener('click', closeModal);
+        }
+        if (cancelBtn && !cancelBtn.dataset.wired) {
+            cancelBtn.dataset.wired = '1';
+            cancelBtn.addEventListener('click', closeModal);
+        }
+        if (modal && !modal.dataset.wired) {
+            modal.dataset.wired = '1';
+            modal.addEventListener('click', function (e) {
+                if (e.target === modal) closeModal();
+            });
+        }
+        if (paperSel && !paperSel.dataset.wired) {
+            paperSel.dataset.wired = '1';
+            paperSel.addEventListener('change', function () {
+                var custom = g('cfgPrintCustomSize');
+                if (custom) custom.classList.toggle('hidden', paperSel.value !== 'Custom');
+            });
+        }
+        wirePrinterCombo();
+        if (saveBtn && !saveBtn.dataset.wired) {
+            saveBtn.dataset.wired = '1';
+            saveBtn.addEventListener('click', function () {
+                var cid = getSelectedPrintClinicId();
+                if (!cid || !_printEditDocType) { closeModal(); return; }
+                var form = g('cfgPrintForm');
+                if (!form) return;
+                var fd = new FormData(form);
+                var row = {
+                    doc_type:       _printEditDocType,
+                    printer_name:   getResolvedPrinterNameFromForm(form),
+                    paper_size:     String(fd.get('paper_size') || 'A4'),
+                    paper_width_mm: fd.get('paper_width_mm') ? Number(fd.get('paper_width_mm')) : null,
+                    paper_height_mm: fd.get('paper_height_mm') ? Number(fd.get('paper_height_mm')) : null,
+                    margin_left:    Number(fd.get('margin_left')) || 0,
+                    margin_right:   Number(fd.get('margin_right')) || 0,
+                    margin_top:     Number(fd.get('margin_top')) || 0,
+                    margin_bottom:  Number(fd.get('margin_bottom')) || 0,
+                    orientation:    String(fd.get('orientation') || 'portrait'),
+                    scale_percent:  Number(fd.get('scale_percent')) || 100,
+                    copies:         Number(fd.get('copies')) || 1,
+                    color_mode:     String(fd.get('color_mode') || 'color'),
+                    fit_to_page:    !!form.querySelector('[name="fit_to_page"]').checked,
+                    show_header:    !!form.querySelector('[name="show_header"]').checked,
+                    notes:          String(fd.get('notes') || '').trim()
+                };
+                var rows = _printRowsByClinic[cid] || fullRowsForClinic({});
+                var next = rows.map(function (r) {
+                    return r.doc_type === _printEditDocType ? row : r;
+                });
+                var resolvedName = getResolvedPrinterNameFromForm(form);
+                if (resolvedName) addKnownPrinter(resolvedName);
+                savePrintRowsForClinic(cid, next, function () {
+                    toast('Print setup saved.');
+                    closeModal();
+                    refreshPrintTable();
+                });
+            });
+        }
+    }
+
+    function _openPrintDetailModal(docType, row) {
+        var modal = g('cfgPrintModal');
+        var form = g('cfgPrintForm');
+        if (!modal || !form || !row) return;
+        _printEditDocType = docType;
+
+        var title = g('cfgPrintModalTitle');
+        var docLbl = g('cfgPrintModalDocLabel');
+        if (title) title.textContent = 'Print setup — ' + printDocLabel(docType);
+        if (docLbl) docLbl.textContent = 'Document: ' + printDocLabel(docType);
+
+        function setVal(name, val) {
+            var el = form.querySelector('[name="' + name + '"]');
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!val;
+            else el.value = val === null || val === undefined ? '' : String(val);
+        }
+
+        rebuildPrinterPickOptions(row.printer_name);
+        refreshPrinterLists(false);
+        var hintPanel = g('cfgPrintPrinterHintPanel');
+        var hintToggle = g('cfgPrintPrinterHintToggle');
+        if (hintPanel) hintPanel.classList.add('hidden');
+        if (hintToggle) {
+            hintToggle.setAttribute('aria-expanded', 'false');
+            var chev = hintToggle.querySelector('.cfg-printer-hint-toggle__chev');
+            if (chev) chev.textContent = '▸';
+        }
+        setVal('paper_size', row.paper_size);
+        setVal('paper_width_mm', row.paper_width_mm);
+        setVal('paper_height_mm', row.paper_height_mm);
+        setVal('margin_left', row.margin_left);
+        setVal('margin_right', row.margin_right);
+        setVal('margin_top', row.margin_top);
+        setVal('margin_bottom', row.margin_bottom);
+        setVal('orientation', row.orientation);
+        setVal('scale_percent', row.scale_percent);
+        setVal('copies', row.copies);
+        setVal('color_mode', row.color_mode);
+        setVal('fit_to_page', row.fit_to_page);
+        setVal('show_header', row.show_header);
+        setVal('notes', row.notes);
+
+        var custom = g('cfgPrintCustomSize');
+        var paperSel = g('cfgPrintPaper');
+        if (custom && paperSel) {
+            custom.classList.toggle('hidden', paperSel.value !== 'Custom');
+        }
+
+        modal.classList.remove('hidden');
+    }
+
+    function prefetchPrintSettings(clinicId) {
+        loadPrintRowsForClinic(clinicId || currentClinicId, function () {});
+    }
+
+    /** Used by print modules — returns merged settings for active/login clinic. */
+    function getPrintSettingsForDoc(docType, clinicIdOpt) {
+        var cid = clinicIdOpt ||
+            (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+        if (!cid) return defaultPrintRow(docType);
+        if (_printRowsByClinic[cid]) {
+            var hit = _printRowsByClinic[cid].find(function (r) { return r.doc_type === docType; });
+            if (hit) return hit;
+        }
+        var all = readPrintLocalStore();
+        return mergePrintRow(docType, (all[cid] || {})[docType]);
+    }
+
         return {
             init:                   init,
+            getPrintSettingsForDoc: getPrintSettingsForDoc,
+            prefetchPrintSettings:  prefetchPrintSettings,
+            loadPrint:              loadPrint,
             // clinic
             _openClinicPanel:       _openClinicPanel,
             _closeClinicPanel:      _closeClinicPanel,

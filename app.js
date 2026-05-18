@@ -38,6 +38,28 @@ var currentDoctorName = null;
 var APP_CLINICS = [];
 var APP_DOCTORS = [];
 
+var PATIENT_CLINIC_TAG_FIELD = 'clinic_tag';
+var APPOINTMENT_CLINIC_TAG_FIELD = 'clinic_tag';
+var TREATMENT_CLINIC_TAG_FIELD = 'clinic_tag';
+
+/** Populated after DOM exists; refreshed when clinics load. */
+var CLINIC_TAG_FILTER_SELECT_IDS = [
+    'patientDirClinicFilter',
+    'arRecordsClinicFilter',
+    'recallClinicFilter',
+    'apptPsClinicFilter',
+    'conPsClinicFilter',
+    'conPsClinicFilterMed',
+    'conPsClinicFilterDen',
+    'conPsClinicFilterXray',
+    'conPsClinicFilterPhoto',
+    'conPsClinicFilterChart',
+    'conFormsPsClinicFilter',
+    'aiBirthClinicFilter',
+    'aiRecallClinicFilter',
+    'reportPatientDirClinicFilter'
+];
+
 // ════════════════════════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════════════════════════
@@ -94,6 +116,28 @@ function esc(s) {
         .replace(/"/g,  '&quot;');
 }
 
+/** M / F / unknown from patients.sex */
+function patientSexKind(sex) {
+    var s = String(sex || '').trim().toUpperCase();
+    if (s === 'M' || s === 'MALE') return 'male';
+    if (s === 'F' || s === 'FEMALE') return 'female';
+    return 'unknown';
+}
+
+/** Classic ♀ / ♂ symbol (HTML). opt.banner = on blue consultation banner */
+function patientSexSymbolHtml(sex, opt) {
+    opt = opt || {};
+    var kind = patientSexKind(sex);
+    if (kind === 'unknown' && opt.hideUnknown) return '';
+    var sym = kind === 'male' ? '\u2642' : kind === 'female' ? '\u2640' : '\u2014';
+    var title = kind === 'male' ? 'Male' : kind === 'female' ? 'Female' : 'Sex not set';
+    var cls = 'patient-sex-icon patient-sex-icon--' + kind;
+    if (opt.banner) cls += ' patient-sex-icon--banner';
+    if (opt.size === 'lg') cls += ' patient-sex-icon--lg';
+    return '<span class="' + cls + '" title="' + esc(title) + '" aria-label="' +
+        esc(title) + '">' + sym + '</span>';
+}
+
 function sv(id, val) {
     var e = g(id);
     if (e) e.value = (val === null || val === undefined) ? '' : String(val);
@@ -133,6 +177,89 @@ function getActiveDoctorContext() {
     };
 }
 
+function clinicRecordFromId(clinicId) {
+    if (!clinicId || !APP_CLINICS || !APP_CLINICS.length) return null;
+    return APP_CLINICS.find(function(c) {
+        return String(c.id) === String(clinicId);
+    }) || null;
+}
+
+/**
+ * Map patients.clinic_tag (clinic_code or id string) back to clinics.id for dropdowns.
+ */
+function clinicIdFromStoredPatientTag(stored) {
+    if (!stored || !APP_CLINICS || !APP_CLINICS.length) return '';
+    var t = String(stored).trim();
+    for (var i = 0; i < APP_CLINICS.length; i++) {
+        var c = APP_CLINICS[i];
+        if (String(c.id) === t) return String(c.id);
+        var code = String(c.clinic_code || '').trim();
+        if (code && code === t) return String(c.id);
+    }
+    return '';
+}
+
+/** Value stored on new rows; prefers clinics.clinic_code, else clinic UUID string. */
+function currentClinicCodeForTagging() {
+    var rec = clinicRecordFromId(currentClinicId);
+    if (rec) {
+        var code = String(rec.clinic_code || '').trim();
+        if (code) return code;
+    }
+    return currentClinicId ? String(currentClinicId) : '';
+}
+
+/** Empty string means ALL (no filter). */
+function readClinicTagFilter(selectId) {
+    var sel = selectId ? g(selectId) : null;
+    if (!sel) return '';
+    return String(sel.value || '').trim();
+}
+
+function fillClinicTagFilterSelect(selectId, preserveSelection) {
+    var sel = selectId ? g(selectId) : null;
+    if (!sel) return;
+    var prev = preserveSelection !== false ? sel.value : '';
+    sel.innerHTML = '<option value="">ALL</option>';
+    if (!APP_CLINICS || !APP_CLINICS.length) return;
+    APP_CLINICS.forEach(function(c) {
+        var code = String(c.clinic_code || '').trim();
+        var val = code || String(c.id);
+        var label = (code ? '[' + code + '] ' : '') +
+            (c.english_name || c.chinese_name || 'Clinic');
+        var o = document.createElement('option');
+        o.value = val;
+        o.textContent = label;
+        sel.appendChild(o);
+    });
+    var hasPrev = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === prev) {
+            hasPrev = true;
+            break;
+        }
+    }
+    sel.value = hasPrev ? prev : '';
+}
+
+function refreshAllClinicTagFilterSelects() {
+    CLINIC_TAG_FILTER_SELECT_IDS.forEach(function(id) {
+        fillClinicTagFilterSelect(id, true);
+    });
+}
+
+function applyPatientQueryClinicTag(builder, filterSelectId) {
+    var tag = readClinicTagFilter(filterSelectId);
+    if (!tag || !builder) return builder;
+    return builder.eq(PATIENT_CLINIC_TAG_FIELD, tag);
+}
+
+function applyAppointmentQueryClinicTag(builder, filterSelectId) {
+    var tag = readClinicTagFilter(filterSelectId);
+    if (!tag || !builder) return builder;
+    return builder.eq(APPOINTMENT_CLINIC_TAG_FIELD, tag);
+}
+
 // ════════════════════════════════════════════════════════════════
 // SCREEN MANAGEMENT
 // ════════════════════════════════════════════════════════════════
@@ -152,18 +279,86 @@ var SCREENS = [
 function showOnly(id) {
     SCREENS.forEach(function(s) {
         var el = g(s);
-        if (el) el.style.display = 'none';
+        if (!el) return;
+        el.style.display = 'none';
+        el.setAttribute('aria-hidden', 'true');
     });
     var target = g(id);
     if (target) {
         target.style.display = (id === 'loginOverlay') ? 'flex' : 'block';
+        target.removeAttribute('aria-hidden');
     }
+    syncAppSessionChrome();
+}
+
+function refreshAppSessionStripContents() {
+    var dateEl = g('appStripDate');
+    var clinEl = g('appStripClinic');
+    var iso = typeof todayISO === 'function' ? todayISO() : '';
+    var dstr = iso && typeof fmtDateLong === 'function' ? fmtDateLong(iso) : iso;
+    if (dateEl) dateEl.textContent = dstr ? 'Today: ' + dstr : '';
+
+    var cline = '';
+    var rec =
+        currentClinicId && typeof clinicRecordFromId === 'function'
+            ? clinicRecordFromId(currentClinicId)
+            : null;
+    if (rec) {
+        cline =
+            (rec.clinic_code ? '[' + String(rec.clinic_code).trim() + '] ' : '') +
+            (rec.english_name || rec.chinese_name || '');
+    } else if (currentClinicLabel) {
+        cline = currentClinicLabel;
+    }
+    if (clinEl) clinEl.textContent = cline ? 'Clinic: ' + cline : '';
+
+    var shortTitle = 'Joyful Smile Clinic Manager';
+    try {
+        document.title =
+            cline
+                ? 'JSM · ' + cline.replace(/\s+/g, ' ').trim() + (dstr ? ' · ' + dstr : '')
+                : shortTitle + (dstr ? ' · ' + dstr : '');
+    } catch (e) {}
+}
+
+/** Call after login/logout/navigation; shows fixed strip when a user session exists. */
+function syncAppSessionChrome() {
+    var strip = g('appSessionStrip');
+    if (!strip) return;
+
+    if (!currentUserId) {
+        strip.style.display = 'none';
+        document.body.classList.remove('app-session-active');
+        try {
+            document.title = 'Joyful Smile Clinic Manager';
+        } catch (e) {}
+        return;
+    }
+
+    strip.style.display = 'flex';
+    document.body.classList.add('app-session-active');
+    refreshAppSessionStripContents();
+}
+
+var appSessionStripTimer = null;
+function startAppSessionStripClock() {
+    if (appSessionStripTimer) clearInterval(appSessionStripTimer);
+    appSessionStripTimer = setInterval(function() {
+        if (currentUserId) refreshAppSessionStripContents();
+    }, 60000);
 }
 
 function showLogin() { showOnly('loginOverlay'); }
 
 function showDashboard() {
     showOnly('dashboardSection');
+    var cfgSec = g('sectionConfig');
+    if (cfgSec) cfgSec.style.display = 'none';
+    if (typeof CFG !== 'undefined' && typeof CFG.prefetchPrintSettings === 'function' && currentClinicId) {
+        requestAnimationFrame(function() {
+            CFG.prefetchPrintSettings(currentClinicId);
+        });
+    }
     var bn = g('badgeName');
     var br = g('badgeRole');
     if (bn) bn.textContent = currentName || '-';
@@ -244,7 +439,8 @@ function restoreSession() {
 
 function loadClinicsAndDoctorsForLogin() {
     // clinics
-    SB.from('clinics').select('id,clinic_code,english_name,chinese_name')
+    SB.from('clinics')
+      .select('id,clinic_code,english_name,chinese_name,address,tel')
       .order('clinic_code')
     .then(function (r) {
         APP_CLINICS = r.data || [];
@@ -260,6 +456,14 @@ function loadClinicsAndDoctorsForLogin() {
                     (c.english_name || c.chinese_name || 'Clinic');
                 return '<option value="' + esc(c.id) + '">' + esc(label) + '</option>';
             }).join('');
+        refreshAllClinicTagFilterSelects();
+        if (typeof fillAddPatientClinicSelect === 'function') {
+            fillAddPatientClinicSelect();
+        }
+        if (typeof refreshEditPatientClinicIfModalOpen === 'function') {
+            refreshEditPatientClinicIfModalOpen();
+        }
+        refreshAppSessionStripContents();
     });
 
     // doctors
@@ -385,6 +589,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     showLogin();
     loadClinicsAndDoctorsForLogin();
+    refreshAllClinicTagFilterSelects();
 
     // restore local session
     if (restoreSession()) {
@@ -516,6 +721,64 @@ document.addEventListener('DOMContentLoaded', function() {
     g('mainAddBtn').addEventListener('click',  openAddPatient);
     g('searchInput').addEventListener('input', filterTable);
 
+    var patientDirCf = g('patientDirClinicFilter');
+    if (patientDirCf) {
+        patientDirCf.addEventListener('change', function() {
+            if (typeof fetchPatients === 'function') fetchPatients();
+        });
+    }
+
+    var arCf = g('arRecordsClinicFilter');
+    if (arCf) {
+        arCf.addEventListener('change', function() {
+            if (typeof loadApptRecords === 'function') loadApptRecords();
+        });
+    }
+
+    var recallCf = g('recallClinicFilter');
+    if (recallCf) {
+        recallCf.addEventListener('change', function() {
+            if (typeof loadRecallPatients === 'function' &&
+                typeof rcDate !== 'undefined' && rcDate) {
+                loadRecallPatients(rcDate);
+            }
+        });
+    }
+
+    var apptPsCf = g('apptPsClinicFilter');
+    if (apptPsCf) {
+        apptPsCf.addEventListener('change', function() {
+            var inp = g('psInput');
+            if (inp && (inp.value || '').trim() && typeof doPatientSearch === 'function') {
+                doPatientSearch();
+            }
+        });
+    }
+
+    function wireConClinicFilter(selId, inpId, searchFn) {
+        var cf = g(selId);
+        if (!cf || typeof searchFn !== 'function') return;
+        cf.addEventListener('change', function() {
+            var inp = g(inpId);
+            if (inp && (inp.value || '').trim()) searchFn();
+        });
+    }
+
+    wireConClinicFilter('conPsClinicFilter', 'conPsInput', doConPatientSearch);
+    wireConClinicFilter('conPsClinicFilterMed', 'conPsInputMed', doConPatientSearchMed);
+    wireConClinicFilter('conPsClinicFilterDen', 'conPsInputDen', doConPatientSearchDen);
+    wireConClinicFilter('conPsClinicFilterXray', 'conPsInputXray', doConPatientSearchXray);
+    wireConClinicFilter('conPsClinicFilterPhoto', 'conPsInputPhoto', doConPatientSearchPhoto);
+    wireConClinicFilter('conPsClinicFilterChart', 'conPsInputChart', doConPatientSearchChart);
+    wireConClinicFilter('conFormsPsClinicFilter', 'conFormsPsInput', doConFormsPatientSearch);
+
+    var rptCf = g('reportPatientDirClinicFilter');
+    if (rptCf && typeof REPORT !== 'undefined' && typeof REPORT.refresh === 'function') {
+        rptCf.addEventListener('change', function() {
+            REPORT.refresh();
+        });
+    }
+
     g('closeAddPatient').addEventListener('click', function() {
         closeModal('addPatientModal');
     });
@@ -531,6 +794,43 @@ document.addEventListener('DOMContentLoaded', function() {
     g('edit_deleteBtn').addEventListener('click', deletePatient);
     g('noteSaveBtn').addEventListener('click',    saveNote);
     g('patientForm').addEventListener('submit',   submitAddPatient);
+    var previewNoEl = g('preview_patientNo');
+    if (previewNoEl) {
+        previewNoEl.addEventListener('input', function() {
+            if (typeof scheduleAddPatientNoAvailabilityCheck === 'function') {
+                scheduleAddPatientNoAvailabilityCheck();
+            }
+        });
+        previewNoEl.addEventListener('blur', function() {
+            if (typeof normalizePatientNoInput === 'function') {
+                var norm = normalizePatientNoInput(previewNoEl.value);
+                if (norm) sv('preview_patientNo', norm);
+            }
+            if (typeof updateAddPatientNoAvailabilityUI === 'function') {
+                clearTimeout(addPatientNoCheckTimer);
+                updateAddPatientNoAvailabilityUI();
+            }
+        });
+    }
+    var suggestNoBtn = g('btnSuggestPatientNo');
+    if (suggestNoBtn) {
+        suggestNoBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            if (typeof genPatientNo !== 'function') return;
+            genPatientNo(function(no) {
+                if (no) {
+                    sv('preview_patientNo', no);
+                    if (typeof updateAddPatientNoAvailabilityUI === 'function') {
+                        updateAddPatientNoAvailabilityUI();
+                    }
+                } else {
+                    alert(
+                        'No free patient numbers in range 010000–999999 (shared across all clinics).'
+                    );
+                }
+            });
+        });
+    }
     g('editPatientForm').addEventListener('submit', submitEditPatient);
 
     // ════════════════════════════════════════════════════════
@@ -731,6 +1031,11 @@ document.addEventListener('DOMContentLoaded', function() {
             var conDrop = g('conPsDrop');
             if (conDrop) conDrop.style.display = 'none';
         }
+        var conChartWrap = g('conChartPsWrap');
+        if (conChartWrap && !conChartWrap.contains(e.target)) {
+            var conDropChart = g('conPsDropChart');
+            if (conDropChart) conDropChart.style.display = 'none';
+        }
 
         // close appointment popup
         var pop = g('apptPopup');
@@ -749,5 +1054,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (e.target === m) m.style.display = 'none';
         });
     });
+
+    startAppSessionStripClock();
+    syncAppSessionChrome();
 
 }); // end DOMContentLoaded

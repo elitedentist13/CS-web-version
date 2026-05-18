@@ -199,7 +199,13 @@ var REPORT = (function () {
       html += '<tr onmouseover="this.style.background=\'#f5f9ff\'" onmouseout="this.style.background=\'#fff\'">';
       columns.forEach(function (c) {
         var v = r[c.key];
-        html += '<td style="' + td + '">' + esc(v === null || v === undefined ? '' : v) + '</td>';
+        var cell;
+        if (c.key === 'chinese_name' && v) {
+          cell = '<span class="patient-dir-name-cn">' + esc(v) + '</span>';
+        } else {
+          cell = esc(v === null || v === undefined ? '' : v);
+        }
+        html += '<td style="' + td + '">' + cell + '</td>';
       });
       html += '</tr>';
     });
@@ -445,10 +451,18 @@ var REPORT = (function () {
   }
 
   async function loadPatients() {
-    var res = await SB.from('patients')
-      .select('patient_no,full_name,chinese_name,phone_number,dob,hkid,email,address,sex,medical_alerts,remarks')
+    var q = SB.from('patients')
+      .select(
+        'patient_no,full_name,chinese_name,phone_number,dob,hkid,' +
+        'email,address,sex,medical_alerts,remarks,' +
+        PATIENT_CLINIC_TAG_FIELD
+      )
       .order('patient_no', { ascending: true })
       .limit(2000);
+    q = typeof applyPatientQueryClinicTag === 'function'
+      ? applyPatientQueryClinicTag(q, 'reportPatientDirClinicFilter')
+      : q;
+    var res = await q;
     if (res.error) throw new Error(res.error.message);
     return res.data || [];
   }
@@ -1721,6 +1735,7 @@ var REPORT = (function () {
             full_name: p.full_name || '',
             chinese_name: p.chinese_name || '',
             phone: p.phone_number || '',
+            clinic_tag: p[PATIENT_CLINIC_TAG_FIELD] || '',
             dob: p.dob || '',
             hkid: p.hkid || '',
             email: p.email || '',
@@ -1735,6 +1750,7 @@ var REPORT = (function () {
           { key: 'full_name', label: 'Name' },
           { key: 'chinese_name', label: 'Chinese' },
           { key: 'phone', label: 'Phone' },
+          { key: 'clinic_tag', label: 'Clinic tag' },
           { key: 'dob', label: 'DOB' },
           { key: 'hkid', label: 'HKID' },
           { key: 'email', label: 'Email' },

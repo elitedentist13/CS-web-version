@@ -96,15 +96,19 @@ function doConPatientSearchXray() {
     var dd = g('conPsDropXray');
     if (!q) { dd.style.display = 'none'; return; }
 
-    SB.from('patients')
-        .select('id,patient_no,full_name,dob,phone_number,medical_alerts')
+    var xq = SB.from('patients')
+        .select('id,patient_no,full_name,dob,phone_number,medical_alerts,' +
+            PATIENT_CLINIC_TAG_FIELD)
         .or(
             'full_name.ilike.%'   + q + '%,' +
             'patient_no.ilike.%'  + q + '%,' +
             'phone_number.ilike.%' + q + '%'
         )
-        .limit(8)
-    .then(function(r) {
+        .limit(8);
+    xq = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(xq, 'conPsClinicFilterXray')
+        : xq;
+    xq.then(function(r) {
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
             dd.innerHTML =

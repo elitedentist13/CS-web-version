@@ -5,8 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Joyful Smile Clinic Manager</title>
 <link rel="stylesheet" href="style.css">
+<style>
+  /* Prevent configuration sidebar flash before app.js runs */
+  #sectionConfig { display: none; }
+</style>
 </head>
 <body>
+
+<!-- Slim session bar (date + clinic); decorative window controls mirror OS title-bar look -->
+<div id="appSessionStrip" class="app-session-strip" style="display:none;" role="banner" aria-label="Session">
+  <span class="app-session-strip-title">Joyful Smile Clinic Manager</span>
+  <span class="app-session-strip-meta">
+    <span id="appStripDate"></span>
+    <span class="app-session-strip-sep" aria-hidden="true">·</span>
+    <span id="appStripClinic"></span>
+  </span>
+  <span class="app-session-strip-ctrl" title="Window controls (display only)" aria-hidden="true">
+    <span class="app-wbtn app-wbtn-min"></span>
+    <span class="app-wbtn app-wbtn-max"></span>
+    <span class="app-wbtn app-wbtn-close"></span>
+  </span>
+</div>
 
 <!-- ════════════════════════════════════════════════════════════
      LOGIN OVERLAY
@@ -177,6 +196,9 @@
         </div>
         <label class="ai-label">Living district (HK areas)</label>
         <select id="aiBirthDistrict" class="ai-input"></select>
+        <label class="ai-label">Clinic tag (patient roster)</label>
+        <select id="aiBirthClinicFilter" class="ai-input"
+                onchange="AIHELPER.applyPatientFilter('birth')"></select>
         <label class="ai-mass-inline">
           <input type="checkbox" id="aiBirthUpcomingOnly">
           Prefer birthdays within the next ~60 days
@@ -274,6 +296,9 @@
         </div>
         <label class="ai-label">Living district</label>
         <select id="aiRecallDistrict" class="ai-input"></select>
+        <label class="ai-label">Clinic tag (patient roster)</label>
+        <select id="aiRecallClinicFilter" class="ai-input"
+                onchange="AIHELPER.applyPatientFilter('recall')"></select>
         <label class="ai-mass-inline">
           <input type="checkbox" id="aiRecallRequirePhone" checked="checked">
           Only show records with plausible phone digits
@@ -486,14 +511,19 @@
     <button class="btn-add" id="mainAddBtn">+ New Patient</button>
   </div>
 
-  <input type="text" id="searchInput"
-         placeholder="🔍  Search by name, no., phone, HKID…">
+  <div class="patient-dir-toolbar">
+    <input type="text" id="searchInput" class="patient-dir-search-input"
+           placeholder="🔍  Search by name, no., phone, HKID…">
+    <select id="patientDirClinicFilter" class="patient-dir-clinic-select"
+            title="Show patients for one clinic tag only"></select>
+  </div>
 
   <table>
     <thead>
       <tr>
         <th>Patient No. / Name</th>
         <th>Phone</th>
+        <th>Clinic tag</th>
         <th>DOB</th>
         <th>HKID</th>
         <th>Alerts</th>
@@ -553,6 +583,8 @@
             <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">To</div>
             <input id="rptTo" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
           </div>
+          <select id="reportPatientDirClinicFilter" title="Patient directory export — clinic tag"
+                  style="padding:9px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;min-width:140px;"></select>
           <button class="btn-add" style="padding:9px 14px;" onclick="REPORT.refresh()">🔄 Refresh</button>
         </div>
       </div>
@@ -650,7 +682,7 @@
       </div>
     </div>
     <div class="tbl-wrap queue-wrap">
-      <table class="appt-tbl">
+      <table class="appt-tbl queue-tbl">
         <thead>
           <tr>
             <th>No.</th>
@@ -658,7 +690,7 @@
             <th>Treatment</th>
             <th>Appt Time</th>
             <th>Arrived</th>
-            <th>Voucher</th>
+            <th class="queue-remarks-col">Remarks</th>
             <th>Bill Status</th>
             <th>Actions</th>
           </tr>
@@ -786,12 +818,16 @@
           ⚠️ No-show / Failed
         </button>
       </div>
-      <!-- Patient search -->
-      <div style="flex:1;min-width:200px;max-width:320px;position:relative;">
-        <input id="arSearchInput" type="text" placeholder="🔍  Search patient name or no…"
-               oninput="arSearchDebounce()"
-               style="width:100%;padding:7px 12px;border:1.5px solid #e5e7eb;
-                      border-radius:20px;font-size:12px;box-sizing:border-box;outline:none;">
+      <!-- Patient search + clinic tag -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex:1;min-width:220px;">
+        <div style="flex:1;min-width:160px;max-width:280px;position:relative;">
+          <input id="arSearchInput" type="text" placeholder="🔍  Search patient name or no…"
+                 oninput="arSearchDebounce()"
+                 style="width:100%;padding:7px 12px;border:1.5px solid #e5e7eb;
+                        border-radius:20px;font-size:12px;box-sizing:border-box;outline:none;">
+        </div>
+        <select id="arRecordsClinicFilter" title="Reload appointment rows for this clinic tag only"
+                style="padding:7px 10px;border:1px solid #e5e7eb;border-radius:12px;font-size:12px;min-width:130px;"></select>
       </div>
       <!-- Result count -->
       <span id="arCount"
@@ -856,7 +892,9 @@
             <span id="recallPtCount"
                   style="font-size:12px;color:#64748b;font-weight:600;"></span>
           </div>
-          <div style="display:flex;gap:6px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <select id="recallClinicFilter" title="Recall list — appointments for one clinic tag"
+                    style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;min-width:130px;"></select>
             <button onclick="rcSelectAll()"
                     style="padding:5px 12px;font-size:12px;font-weight:700;
                            background:#0084ff;color:#fff;border:none;
@@ -1010,11 +1048,15 @@
 
     <!-- Search bar — always visible -->
     <div class="con-search-bar">
-      <div class="ps-wrap" style="flex:1;max-width:500px;">
-        <input type="text" id="conPsInput"
-               placeholder="🔍  Search patient by name, no. or phone…"
-               autocomplete="off">
-        <div class="ps-drop" id="conPsDrop"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;flex:1;">
+        <div class="ps-wrap" style="flex:1;max-width:500px;">
+          <input type="text" id="conPsInput"
+                 placeholder="🔍  Search patient by name, no. or phone…"
+                 autocomplete="off">
+          <div class="ps-drop" id="conPsDrop"></div>
+        </div>
+        <select id="conPsClinicFilter" title="Limit patient search by clinic tag"
+                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;margin-top:2px;"></select>
       </div>
       <button id="conBillBtn"
               disabled
@@ -1035,13 +1077,14 @@
     <div class="con-banner-left">
         <span style="font-size:30px;">🧑‍⚕️</span>
         <div>
-            <div class="con-banner-name" id="conBannerName">—</div>
-            <!-- ADDED: chinese name -->
             <div id="conBannerChinese"
-                 style="font-size:15px;color:#555;
-                        display:none;margin-top:1px;"></div>
+                 class="con-banner-chinese"
+                 style="display:none;"></div>
+            <div class="con-banner-name" id="conBannerName">—</div>
             <div class="con-banner-sub">
                 <span>No:&nbsp;<strong id="conBannerNo">—</strong></span>
+                <span id="conBannerSexWrap" class="con-banner-sex-wrap" style="display:none;"
+                      title="Sex">Sex:&nbsp;</span>
                 <span>DOB:&nbsp;<strong id="conBannerDob">—</strong></span>
                 <!-- ADDED: phone -->
                 <span>📞&nbsp;<strong id="conBannerPhone">—</strong></span>
@@ -1213,7 +1256,7 @@
     <!-- Search Card -->
     <div class="history-search-card">
       <div class="history-search-title">🏥 Medical History</div>
-      <div class="history-search-row">
+      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputMed"
                  placeholder="🔍  Search patient by name, no. or phone…"
@@ -1221,6 +1264,8 @@
                  oninput="doConPatientSearchMed()">
           <div class="ps-drop" id="conPsDropMed"></div>
         </div>
+        <select id="conPsClinicFilterMed" title="Clinic tag filter"
+                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
         <span class="history-search-hint">
           Select a patient to view or edit medical history
         </span>
@@ -1313,7 +1358,7 @@
     <!-- Search Card -->
     <div class="history-search-card">
       <div class="history-search-title">🦷 Dental History</div>
-      <div class="history-search-row">
+      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputDen"
                  placeholder="🔍  Search patient by name, no. or phone…"
@@ -1321,6 +1366,8 @@
                  oninput="doConPatientSearchDen()">
           <div class="ps-drop" id="conPsDropDen"></div>
         </div>
+        <select id="conPsClinicFilterDen" title="Clinic tag filter"
+                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
         <span class="history-search-hint">
           Select a patient to view or edit dental history
         </span>
@@ -1414,7 +1461,7 @@
     <!-- ── Search Card ─────────────────────────────────── -->
     <div class="history-search-card">
       <div class="history-search-title">🔬 X-Ray Images</div>
-      <div class="history-search-row">
+      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputXray"
                  placeholder="🔍  Search patient by name, no. or phone…"
@@ -1422,6 +1469,8 @@
                  oninput="doConPatientSearchXray()">
           <div class="ps-drop" id="conPsDropXray"></div>
         </div>
+        <select id="conPsClinicFilterXray" title="Clinic tag filter"
+                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
         <span class="history-search-hint">
           Select a patient to view or manage X-rays
         </span>
@@ -1663,7 +1712,7 @@
     <!-- Patient search -->
     <div class="history-search-card">
       <div class="history-search-title">📄 Forms / Letters</div>
-      <div class="history-search-row">
+      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conFormsPsInput"
                  placeholder="🔍  Search patient by name, no. or phone…"
@@ -1671,6 +1720,8 @@
                  oninput="doConFormsPatientSearch()">
           <div class="ps-drop" id="conFormsPsDrop"></div>
         </div>
+        <select id="conFormsPsClinicFilter" title="Clinic tag filter"
+                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
         <span class="history-search-hint">
           Select a patient, then choose a template
         </span>
@@ -2132,7 +2183,31 @@
 
   <!-- ══ PANE: CHARTING ════════════════════════════════════ -->
   <div id="con-charting" class="con-pane">
-   <div id="chartingTabContent" style="height:100%;"></div>
+    <div class="history-pane-wrap" style="display:flex;flex-direction:column;min-height:0;">
+
+      <div class="history-search-card">
+        <div class="history-search-title">📊 Charting</div>
+        <div class="history-search-row"
+             style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
+          <div class="ps-wrap" id="conChartPsWrap"
+               style="flex:1;max-width:480px;">
+            <input type="text" id="conPsInputChart"
+                   placeholder="🔍  Search patient by name, no. or phone…"
+                   autocomplete="off"
+                   oninput="doConPatientSearchChart()">
+            <div class="ps-drop" id="conPsDropChart"></div>
+          </div>
+          <select id="conPsClinicFilterChart" title="Clinic tag filter"
+                  style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
+          <span class="history-search-hint">
+            Select a patient to open the dental / perio chart
+          </span>
+        </div>
+      </div>
+
+      <div id="chartingTabContent"
+           style="flex:1;min-height:280px;"></div>
+    </div>
   </div>
 
   <!-- ══ PANE: PHOTOS / DOCS ═══════════════════════════════ -->
@@ -2142,7 +2217,7 @@
     <!-- ── Search Card ─────────────────────────────────── -->
     <div class="history-search-card">
       <div class="history-search-title">📷 Photos &amp; Documents</div>
-      <div class="history-search-row">
+      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputPhoto"
                  placeholder="🔍  Search patient by name, no. or phone…"
@@ -2150,6 +2225,8 @@
                  oninput="doConPatientSearchPhoto()">
           <div class="ps-drop" id="conPsDropPhoto"></div>
         </div>
+        <select id="conPsClinicFilterPhoto" title="Clinic tag filter"
+                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
         <span class="history-search-hint">
           Select a patient to view or manage photos
         </span>
@@ -2617,16 +2694,45 @@
     <form id="patientForm">
       <div class="form-grid">
 
-        <div class="fg full"
+        <div class="fg full">
+          <label>Clinic *</label>
+          <select id="addPatientClinicSelect" required
+                  style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+            <option value="">-- Loading clinics… --</option>
+          </select>
+          <small style="display:block;margin-top:6px;color:#64748b;">
+            Defaults to your login clinic. The clinic tag is for finding this patient later; patient numbers are one shared series for every clinic.
+          </small>
+        </div>
+
+        <div id="addPatientNoWrap" class="fg full"
              style="background:#e8f4ff;padding:10px 14px;
                     border-radius:8px;">
           <label style="color:var(--primary);">
-            Patient Number (auto-assigned)
+            Patient number * — one shared sequence for all clinics (from 010000); edit if needed.
           </label>
-          <input type="text" id="preview_patientNo" readonly
-                 style="background:transparent;border:none;
-                        font-size:18px;font-weight:700;
-                        color:var(--primary);padding:4px 0;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+            <input type="text" id="preview_patientNo" inputmode="numeric" maxlength="6"
+                   placeholder="010000"
+                   autocomplete="off"
+                   style="width:120px;padding:10px 12px;border:1px solid #cbd5e1;
+                          border-radius:8px;font-size:18px;font-weight:700;
+                          color:var(--primary);">
+            <button type="button" id="btnSuggestPatientNo"
+                    style="padding:8px 14px;font-size:13px;font-weight:600;
+                           border:1px solid var(--primary);border-radius:8px;
+                           background:#fff;color:var(--primary);cursor:pointer;">
+              Suggest next no.
+            </button>
+          </div>
+          <small id="addPatientNoStatus" style="display:block;margin-top:8px;
+                 font-weight:600;min-height:1.2em;"></small>
+          <small style="display:block;margin-top:4px;color:#64748b;">
+            6 digits (010000–999999). Patient numbers are one shared series for the whole practice; each number exists only once. Clinic choice sets the tag for search and records only.
+          </small>
+          <p style="margin:10px 0 0;font-size:13px;line-height:1.5;color:#334155;background:#f8fafc;padding:8px 12px;border-radius:8px;border:1px solid #e2e8f0;">
+            <strong>Staff note:</strong> Registration numbers are organisation-wide (not restarted per branch). Use the clinic field so this chart is easy to find by site; it does not create a separate number pool.
+          </p>
         </div>
 
         <div class="fg">
@@ -2741,7 +2847,11 @@
 <div id="editPatientModal" class="modal">
   <div class="modal-box">
     <button class="mclose" id="closeEditPatient">×</button>
-    <h2>✏️ Edit Patient</h2>
+    <h2 id="editPatientModalTitle">✏️ Edit Patient</h2>
+    <p id="editPatientNurseHint" style="display:none;font-size:13px;line-height:1.45;
+       color:#64748b;margin:-4px 0 14px;">
+      You can update this patient&apos;s clinic tag for filters and records. Other details can only be changed by clinical staff.
+    </p>
 
     <form id="editPatientForm">
       <div class="form-grid">
@@ -2756,6 +2866,17 @@
                  style="background:transparent;border:none;
                         font-size:18px;font-weight:700;
                         color:var(--primary);padding:4px 0;">
+        </div>
+
+        <div class="fg full">
+          <label>Associated clinic *</label>
+          <select id="editPatientClinicSelect" required
+                  style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+            <option value="">-- Loading clinics… --</option>
+          </select>
+          <small style="display:block;margin-top:6px;color:#64748b;">
+            Current branch tag for this chart. Change if the patient mainly attends another clinic; filters and reports use this tag. Patient numbers stay organisation-wide.
+          </small>
         </div>
 
         <div class="fg">
@@ -2829,13 +2950,43 @@
                          border-radius:6px;cursor:pointer;">
             Cancel
           </button>
-          <button type="submit" class="btn-add"
+          <button type="submit" id="editPatientSaveBtn" class="btn-add"
                   style="padding:10px 25px;">
             💾 Save Changes
           </button>
         </div>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — QUEUE: appointment remarks (full text + edit)
+════════════════════════════════════════════════════════════ -->
+<div id="queueRemarksModal" class="modal">
+  <div class="modal-box" style="max-width:560px;">
+    <button class="mclose" id="closeQueueRemarks" type="button">×</button>
+    <h3>📝 Appointment remarks</h3>
+    <p id="queueRemarksApptHint"
+       style="margin:8px 0 12px;font-size:13px;color:#64748b;line-height:1.4;"></p>
+    <label for="queueRemarksText" style="display:block;font-size:12px;color:#475569;margin-bottom:6px;">
+      Remarks (saved on this appointment)
+    </label>
+    <textarea id="queueRemarksText" rows="10"
+              style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;
+                     font-size:14px;line-height:1.45;resize:vertical;box-sizing:border-box;"
+              placeholder="Internal notes for this visit, phone hints, recalls…"></textarea>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+      <button type="button" id="cancelQueueRemarks"
+              style="background:var(--gray);color:white;border:none;
+                     padding:10px 18px;border-radius:6px;cursor:pointer;font-size:14px;">
+        Cancel
+      </button>
+      <button type="button" id="saveQueueRemarks" class="btn-add"
+              style="padding:10px 22px;font-size:14px;">
+        💾 Save
+      </button>
+    </div>
   </div>
 </div>
 
@@ -2867,11 +3018,15 @@
     <!-- ── Existing patient search ─────────────────────── -->
     <div id="psSectionExist" class="fg">
       <label>Search Patient *</label>
-      <div class="ps-wrap">
-        <input type="text" id="psInput"
-               placeholder="Type name or patient number…"
-               autocomplete="off">
-        <div class="ps-drop" id="psDrop"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+        <div class="ps-wrap" style="flex:1;min-width:220px;">
+          <input type="text" id="psInput"
+                 placeholder="Type name or patient number…"
+                 autocomplete="off">
+          <div class="ps-drop" id="psDrop"></div>
+        </div>
+        <select id="apptPsClinicFilter" title="Limit search by clinic tag"
+                style="padding:10px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
       </div>
       <input type="hidden" id="hPid">
       <input type="hidden" id="hPno">
@@ -3204,7 +3359,7 @@
 <!-- ═══════════════════════════════════════════════════════
      CONFIGURATION SECTION
 ════════════════════════════════════════════════════════ -->
-<section id="sectionConfig" class="app-section hidden">
+<section id="sectionConfig" class="app-section" style="display:none;" aria-hidden="true">
 
   <!-- confirm overlay -->
   <div id="cfgConfirmOverlay" class="cfg-confirm-overlay hidden">
@@ -3220,6 +3375,99 @@
   <!-- backdrop -->
   <div id="cfgOverlayBackdrop" class="cfg-backdrop hidden"></div>
 
+  <!-- Print settings detail (Configuration → Print tab) -->
+  <div id="cfgPrintModal" class="cfg-print-modal hidden" role="dialog" aria-modal="true"
+       aria-labelledby="cfgPrintModalTitle">
+    <div class="cfg-print-modal__box">
+      <div class="cfg-print-modal__head">
+        <h3 id="cfgPrintModalTitle">Print setup</h3>
+        <button type="button" class="cfg-close" id="cfgPrintModalClose" aria-label="Close">×</button>
+      </div>
+      <div class="cfg-print-modal__body">
+        <p id="cfgPrintModalDocLabel" class="cfg-print-modal__doc"></p>
+        <form id="cfgPrintForm" class="cfg-print-form" onsubmit="return false;">
+          <label class="cfg-printer-field">Printer name / queue
+            <div class="cfg-printer-row">
+              <div class="cfg-printer-combo">
+              <select id="cfgPrintPrinterSelect" aria-label="Choose from printer list">
+                <option value="">— Select printer —</option>
+                <option value="__custom__">Custom (type below)…</option>
+              </select>
+              <input name="printer_name" id="cfgPrintPrinter" list="cfgPrintPrinterList"
+                     placeholder="Pick above or type any printer name…" autocomplete="off">
+              <datalist id="cfgPrintPrinterList"></datalist>
+              <button type="button" class="btn btn--ghost cfg-printer-refresh" id="cfgPrintRefreshPrinters"
+                      title="Try to detect system printers">↻ Refresh</button>
+              </div>
+              <button type="button" class="cfg-printer-hint-toggle" id="cfgPrintPrinterHintToggle"
+                      aria-expanded="false" aria-controls="cfgPrintPrinterHintPanel">
+                <span class="cfg-printer-hint-toggle__chev" aria-hidden="true">▸</span>
+                Can't find your printer?
+              </button>
+            </div>
+            <div id="cfgPrintPrinterHintPanel" class="cfg-print-hint-panel hidden" role="region"
+                 aria-labelledby="cfgPrintPrinterHintToggle">
+              If it still doesn't appear, type the exact name from
+              <strong>Windows Settings → Printers</strong>.
+            </div>
+          </label>
+          <label>Paper size
+            <select name="paper_size" id="cfgPrintPaper">
+              <option value="A4">A4</option>
+              <option value="A5">A5</option>
+              <option value="Letter">Letter</option>
+              <option value="80mm roll">80mm roll (receipt)</option>
+              <option value="50mm x 60mm">50mm × 60mm (drug label)</option>
+              <option value="Custom">Custom</option>
+            </select>
+          </label>
+          <div id="cfgPrintCustomSize" class="cfg-print-custom-size hidden">
+            <label>Width (mm)<input type="number" name="paper_width_mm" min="20" max="500" step="1"></label>
+            <label>Height (mm)<input type="number" name="paper_height_mm" min="20" max="500" step="1"></label>
+          </div>
+          <div class="cfg-print-form__row2">
+            <label>Left margin (mm)<input type="number" name="margin_left" min="0" max="50" step="0.5"></label>
+            <label>Right margin (mm)<input type="number" name="margin_right" min="0" max="50" step="0.5"></label>
+          </div>
+          <div class="cfg-print-form__row2">
+            <label>Upper margin (mm)<input type="number" name="margin_top" min="0" max="50" step="0.5"></label>
+            <label>Lower margin (mm)<input type="number" name="margin_bottom" min="0" max="50" step="0.5"></label>
+          </div>
+          <div class="cfg-print-form__row2">
+            <label>Orientation
+              <select name="orientation">
+                <option value="portrait">Portrait</option>
+                <option value="landscape">Landscape</option>
+              </select>
+            </label>
+            <label>Scale (%)
+              <input type="number" name="scale_percent" min="50" max="200" step="5" value="100">
+            </label>
+          </div>
+          <div class="cfg-print-form__row2">
+            <label>Copies<input type="number" name="copies" min="1" max="20" step="1" value="1"></label>
+            <label>Colour mode
+              <select name="color_mode">
+                <option value="color">Colour</option>
+                <option value="grayscale">Grayscale</option>
+                <option value="monochrome">Monochrome</option>
+              </select>
+            </label>
+          </div>
+          <label class="cfg-check"><input type="checkbox" name="fit_to_page"> Fit content to page when printing</label>
+          <label class="cfg-check"><input type="checkbox" name="show_header" checked> Show clinic header on document</label>
+          <label>Notes (staff only)
+            <textarea name="notes" rows="2" placeholder="Tray, duplex, driver hints…"></textarea>
+          </label>
+        </form>
+      </div>
+      <div class="cfg-print-modal__foot">
+        <button type="button" class="btn btn--ghost" id="cfgPrintModalCancel">Cancel</button>
+        <button type="button" class="btn btn--primary" id="cfgPrintModalSave">Save for this clinic</button>
+      </div>
+    </div>
+  </div>
+
   <div class="cfg-layout">
 
         <!-- ── sidebar nav ── -->
@@ -3233,6 +3481,7 @@
       <button class="cfg-nav-item" data-tab="program">⚙️ Program Settings</button>
       <button class="cfg-nav-item" data-tab="users">👤 Users</button>
       <button class="cfg-nav-item" data-tab="templates">📄 Templates</button>
+      <button class="cfg-nav-item" data-tab="print">🖨️ Print</button>
       <button class="cfg-nav-item" data-tab="data">💾 Data &amp; Backup</button>
     </nav>
 
@@ -3506,7 +3755,10 @@
         </div>
       </div>
 
-      <!-- 8. DATA & BACKUP -->
+      <!-- 8. PRINT SETTINGS -->
+      <div id="cfgPane-print" class="cfg-pane"></div>
+
+      <!-- 9. DATA & BACKUP -->
       <div id="cfgPane-data" class="cfg-pane">
         <div class="cfg-pane__header"><h2>Data &amp; Backup</h2></div>
         <div class="cfg-data-grid">
@@ -3839,11 +4091,10 @@
     <div id="receiptPrintArea">
 
       <div class="receipt-header">
-        <h2>🦷 Joyful Smile Dental Clinic</h2>
-        <p>Official Receipt</p>
-        <p id="rClinicAddr" style="color:#999;">
-          Unit XX, XX Building, Hong Kong
-        </p>
+        <h2 id="rClinicName">—</h2>
+        <p id="rClinicAddrLine" class="receipt-clinic-line">—</p>
+        <p id="rClinicTelLine" class="receipt-clinic-line">—</p>
+        <p class="receipt-doc-title">Official Receipt</p>
       </div>
 
       <div style="display:flex;justify-content:space-between;
@@ -3933,7 +4184,7 @@
       </div>
 
       <div class="receipt-footer">
-        <p>Thank you for visiting Joyful Smile Dental Clinic</p>
+        <p id="rReceiptFooterThanks">Thank you for your visit</p>
         <p>This is a computer-generated receipt</p>
       </div>
 

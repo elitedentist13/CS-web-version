@@ -135,15 +135,19 @@ function doConPatientSearchPhoto() {
   if (!dd) return;
   if (!q) { dd.style.display = 'none'; return; }
 
-  SB.from('patients')
-    .select('id,patient_no,full_name,dob,phone_number,medical_alerts')
+  var phoq = SB.from('patients')
+    .select('id,patient_no,full_name,dob,phone_number,medical_alerts,' +
+        PATIENT_CLINIC_TAG_FIELD)
     .or(
       'full_name.ilike.%'    + q + '%,' +
       'patient_no.ilike.%'   + q + '%,' +
       'phone_number.ilike.%' + q + '%'
     )
-    .limit(8)
-  .then(function(r) {
+    .limit(8);
+  phoq = typeof applyPatientQueryClinicTag === 'function'
+    ? applyPatientQueryClinicTag(phoq, 'conPsClinicFilterPhoto')
+    : phoq;
+  phoq.then(function(r) {
     dd.innerHTML = '';
     if (r.error || !r.data || !r.data.length) {
       dd.innerHTML =

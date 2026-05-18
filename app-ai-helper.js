@@ -336,6 +336,7 @@ var AIHELPER = AIHELPER || {};
         var ageMaxRaw = trimmedVal(kind === 'birth' ? 'aiBirthAgeMax' : 'aiRecallAgeMax');
         var sexSel = trimmedVal(kind === 'birth' ? 'aiBirthSex' : 'aiRecallSex');
         var dc = trimmedVal(kind === 'birth' ? 'aiBirthDistrict' : 'aiRecallDistrict');
+        var clinicSel = trimmedVal(kind === 'birth' ? 'aiBirthClinicFilter' : 'aiRecallClinicFilter');
         var upcoming = kind === 'birth' && pick('aiBirthUpcomingOnly') &&
             pick('aiBirthUpcomingOnly').checked;
         var reqPhoneRecall = kind === 'recall' && pick('aiRecallRequirePhone') &&
@@ -357,6 +358,8 @@ var AIHELPER = AIHELPER || {};
             }
 
             if (!districtMatch(p.address, dc)) return false;
+
+            if (clinicSel && String(p.clinic_tag || '') !== clinicSel) return false;
 
             if (upcoming && (!p.dob || daysUntilBirthday(p.dob, today) > 60)) return false;
 

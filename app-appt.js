@@ -17,6 +17,10 @@ var treatmentItemsCache = [];
 
 var todayAppts   = [];   // last-fetched list for the Today tab (used by print)
 
+/** Appointment id whose remarks are open in `queueRemarksModal`. */
+var queueRemarksEditApptId = null;
+var queueRemarksModalBound = false;
+
 /** When true, appointment date must be today or later (records tab: new visit from a past row). */
 var arBookingMinDateToday = false;
 
@@ -43,7 +47,9 @@ function initAppt() {
     });
     var qb = g('queueBody');
     if (qb) bindQueueReorderHandlers(qb);
+    bindQueueRemarksModalOnce();
     switchApptTab('queue');
+    restartApptAutoRefresh();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -61,6 +67,71 @@ function switchApptTab(tab) {
     if (tab === 'calendar') { calDate = new Date(); renderCal(); }
     if (tab === 'records')  loadApptRecords();
     if (tab === 'recall')   initRecallTab();
+}
+
+// ════════════════════════════════════════════════════════════════
+// AUTO REFRESH — reception + surgery on same data (no manual refresh)
+// Interval from Configuration → Program Settings → "Queue Refresh (sec)".
+// ════════════════════════════════════════════════════════════════
+var apptAutoRefreshTimer = null;
+var DEFAULT_QUEUE_REFRESH_MS = 30000;
+
+function apptSectionIsActive() {
+    var sec = g('appointmentSection');
+    if (!sec) return false;
+    var d = sec.style.display;
+    return d !== 'none' && d !== '';
+}
+
+function apptActiveTabKey() {
+    var t = document.querySelector('#appointmentSection .appt-tab.active');
+    return t && t.dataset ? t.dataset.tab : null;
+}
+
+function apptAutoRefreshTick() {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (!apptSectionIsActive()) return;
+    var tab = apptActiveTabKey();
+    if (tab === 'queue') loadQueue();
+    else if (tab === 'today') loadToday();
+}
+
+function stopApptAutoRefresh() {
+    if (apptAutoRefreshTimer) {
+        clearInterval(apptAutoRefreshTimer);
+        apptAutoRefreshTimer = null;
+    }
+}
+
+function fetchQueueRefreshIntervalMs(done) {
+    var fallback = DEFAULT_QUEUE_REFRESH_MS;
+    if (!SB || typeof SB.from !== 'function') {
+        if (done) done(fallback);
+        return;
+    }
+    SB.from('program_settings')
+        .select('setting_value')
+        .eq('setting_key', 'queue_refresh_interval')
+        .limit(1)
+        .then(function(r) {
+            var ms = fallback;
+            if (!r.error && r.data && r.data.length) {
+                var n = parseInt(r.data[0].setting_value, 10);
+                if (!isNaN(n) && n >= 10) ms = n * 1000;
+            }
+            if (done) done(ms);
+        })
+        .catch(function() {
+            if (done) done(fallback);
+        });
+}
+
+/** Call from initAppt and after saving Program Settings (Configuration). */
+function restartApptAutoRefresh() {
+    stopApptAutoRefresh();
+    fetchQueueRefreshIntervalMs(function(ms) {
+        apptAutoRefreshTimer = setInterval(apptAutoRefreshTick, ms);
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -97,11 +168,15 @@ function loadApptRecords() {
         '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:30px;">' +
         'Loading…</td></tr>';
 
-    SB.from('appointments')
+    var aq = SB.from('appointments')
         .select('*')
         .order('date', { ascending: false })
         .order('start_time', { ascending: false })
-        .limit(500)
+        .limit(500);
+    aq = typeof applyAppointmentQueryClinicTag === 'function'
+        ? applyAppointmentQueryClinicTag(aq, 'arRecordsClinicFilter')
+        : aq;
+    aq
     .then(function(r) {
         if (r.error) {
             tbody.innerHTML =
@@ -421,11 +496,14 @@ function loadRecallPatients(date) {
         return;
     }
 
-    SB.from('appointments')
+    var rq = SB.from('appointments')
         .select('*')
         .eq('date', date)
-        .order('start_time')
-    .then(function(r) {
+        .order('start_time');
+    rq = typeof applyAppointmentQueryClinicTag === 'function'
+        ? applyAppointmentQueryClinicTag(rq, 'recallClinicFilter')
+        : rq;
+    rq.then(function(r) {
         if (r.error) {
             tbody.innerHTML =
                 '<tr><td colspan="5" style="color:red;padding:20px;">' +
@@ -902,15 +980,18 @@ function doPatientSearch() {
     var dd = g('psDrop');
     if (!q) { dd.style.display = 'none'; return; }
 
-    SB.from('patients')
+    var pq = SB.from('patients')
         .select('id,patient_no,full_name,chinese_name,phone_number')
         .or(
             'full_name.ilike.%' + q + '%,' +
             'patient_no.ilike.%' + q + '%,' +
             'chinese_name.ilike.%' + q + '%'
         )
-        .limit(8)
-    .then(function(r) {
+        .limit(8);
+    pq = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(pq, 'apptPsClinicFilter')
+        : pq;
+    pq.then(function(r) {
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
             dd.innerHTML =
@@ -1132,6 +1213,11 @@ function saveAppt() {
     };
     if (drCode) { payload.doctor_code = drCode; payload.doctor_name = drName; }
 
+    var apCt = typeof currentClinicCodeForTagging === 'function'
+        ? currentClinicCodeForTagging()
+        : '';
+    if (apCt) payload[APPOINTMENT_CLINIC_TAG_FIELD] = apCt;
+
     Object.keys(payload).forEach(function(k) {
         if (payload[k] === undefined) delete payload[k];
     });
@@ -1160,6 +1246,10 @@ function saveAppt() {
                     var p2 = Object.assign({}, p);
                     delete p2.doctor_code; delete p2.doctor_name;
                     tryPayload(p2);
+                } else if (msg.indexOf('clinic_tag') >= 0) {
+                    var p3 = Object.assign({}, p);
+                    delete p3[APPOINTMENT_CLINIC_TAG_FIELD];
+                    tryPayload(p3);
                 } else {
                     alert('Error: ' + msg);
                 }
@@ -1532,7 +1622,14 @@ function checkInPatient(a) {
 
 function queueDragBlockedTarget(el) {
     return !!(el && el.closest && el.closest(
-        'input, button, textarea, select, .action-wrap, .action-drop, label'
+        'input, button, textarea, select, .action-wrap, .action-drop, label, .queue-remarks-preview-wrap'
+    ));
+}
+
+/** Targets where double-click should not open the patient editor (narrower than drag block). */
+function queuePatientEditDblclickBlocked(el) {
+    return !!(el && el.closest && el.closest(
+        'button, input, textarea, select, .action-wrap, .action-drop, label'
     ));
 }
 
@@ -1642,6 +1739,82 @@ function bindQueueReorderHandlers(tbody) {
     }, false);
 }
 
+// ── Queue remarks modal (full text edit) ─────────────────────
+function bindQueueRemarksModalOnce() {
+    if (queueRemarksModalBound) return;
+    var m = g('queueRemarksModal');
+    if (!m) return;
+    queueRemarksModalBound = true;
+
+    m.addEventListener('click', function(e) {
+        if (e.target === m) queueRemarksEditApptId = null;
+    });
+
+    function closeQm() {
+        closeModal('queueRemarksModal');
+        queueRemarksEditApptId = null;
+    }
+
+    var c1 = g('closeQueueRemarks');
+    var c2 = g('cancelQueueRemarks');
+    var sv = g('saveQueueRemarks');
+    if (c1) c1.addEventListener('click', closeQm);
+    if (c2) c2.addEventListener('click', closeQm);
+    if (sv) {
+        sv.addEventListener('click', function() {
+            if (!queueRemarksEditApptId) return;
+            var raw = g('queueRemarksText')
+                ? (g('queueRemarksText').value || '').trim()
+                : '';
+            SB.from('appointments')
+                .update({ remarks: raw || null })
+                .eq('id', queueRemarksEditApptId)
+                .then(function(res) {
+                    if (res.error) {
+                        alert('Error: ' + res.error.message);
+                        return;
+                    }
+                    closeQm();
+                    loadQueue();
+                });
+        });
+    }
+}
+
+function openQueueRemarksEditor(q) {
+    if (!q || !q.id) return;
+    bindQueueRemarksModalOnce();
+
+    queueRemarksEditApptId = q.id;
+    var ta = g('queueRemarksText');
+    var hi = g('queueRemarksApptHint');
+
+    if (ta) ta.value = q.remarks || '';
+
+    if (hi) {
+        var cn = typeof getApptDisplayChinese === 'function'
+            ? getApptDisplayChinese(q)
+            : '';
+        var en = (q.patient_name || '').trim();
+        var name = [cn, en].filter(Boolean).join(' · ') || '(No name)';
+        var bits = [name];
+        if (q.start_time) bits.push(fmt12(q.start_time));
+        if (q.patient_no) bits.push('#' + String(q.patient_no));
+        hi.textContent = bits.join(' · ');
+    }
+
+    openModal('queueRemarksModal');
+    if (ta) {
+        requestAnimationFrame(function() {
+            ta.focus();
+            var L = ta.value.length;
+            try {
+                ta.setSelectionRange(L, L);
+            } catch (e) {}
+        });
+    }
+}
+
 // ════════════════════════════════════════════════════════════════
 // QUEUE
 // ════════════════════════════════════════════════════════════════
@@ -1687,7 +1860,9 @@ function buildQueueRow(tb, q, seqNo) {
     tr.draggable = true;
     tr.title =
         'Drag this row onto another row (above/below midpoint) ' +
-        'to change consultation order.';
+        'to change consultation order.\n\n' +
+        'Double-click the row (outside buttons) to open the edit patient sheet ' +
+        'when this visit is linked to a patient record.';
 
     tr.innerHTML =
         '<td>' +
@@ -1720,13 +1895,20 @@ function buildQueueRow(tb, q, seqNo) {
                   }) + '</span>'
                 : '<span style="color:#aaa;">—</span>') +
         '</td>' +
-        '<td>' +
-            '<input type="text" ' +
-            'id="voucher-' + uid + '" ' +
-            'value="' + esc(q.voucher_no || '') + '" ' +
-            'style="width:88px;padding:4px 6px;' +
-            'border:1px solid #ddd;border-radius:4px;font-size:12px;" ' +
-            'placeholder="Voucher #">' +
+        '<td class="queue-remarks-cell">' +
+            '<div class="queue-remarks-preview-wrap">' +
+                ((q.remarks || '').trim()
+                    ? '<div class="queue-remarks-snippet">' +
+                      esc(q.remarks || '') +
+                      '</div>'
+                    : '<div class="queue-remarks-snippet queue-remarks-empty">' +
+                      'No remarks yet' +
+                      '</div>') +
+                '<button type="button" class="queue-remarks-pencil" ' +
+                'id="qrm-pencil-' + uid + '" ' +
+                'title="View / edit remarks" aria-label="Edit remarks">' +
+                '✎</button>' +
+            '</div>' +
         '</td>' +
         '<td>' +
             '<span class="status-badge ' +
@@ -1772,6 +1954,23 @@ function buildQueueRow(tb, q, seqNo) {
     });
     tr.addEventListener('dragend', function() {
         tr.classList.remove('queue-row-dragging');
+    });
+
+    tr.addEventListener('dblclick', function(e) {
+        if (queuePatientEditDblclickBlocked(e.target)) return;
+        if (!q.patient_id) {
+            alert(
+                'No patient record is linked to this queue entry.\n' +
+                    'Open the appointment to attach a registered patient first.'
+            );
+            return;
+        }
+        document.querySelectorAll('.action-drop.open').forEach(function(d) {
+            d.classList.remove('open');
+        });
+        if (typeof openEditPatient === 'function') {
+            openEditPatient(q.patient_id);
+        }
     });
 
     var drop = g('ad-' + uid);
@@ -1851,17 +2050,13 @@ function buildQueueRow(tb, q, seqNo) {
         }, 60);
     });
 
-    var vi = g('voucher-' + uid);
-    if (vi) {
-        vi.addEventListener('blur', function() {
-            SB.from('appointments')
-                .update({ voucher_no: vi.value.trim() || null })
-                .eq('id', q.id)
-            .then(function(res) {
-                if (res.error) {
-                    console.warn('Voucher save:', res.error.message);
-                }
-            });
+    var pencil = g('qrm-pencil-' + uid);
+    if (pencil) {
+        pencil.addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            drop.classList.remove('open');
+            openQueueRemarksEditor(q);
         });
     }
 }
@@ -4008,7 +4203,36 @@ function deletePaymentRecord(p) {
     });
 }
 
+/** Receipt print header: active clinic from login (currentClinicId + clinics row). Order: name, address, phone. */
+function applyReceiptClinicHeader() {
+    var rec = (typeof clinicRecordFromId === 'function' && currentClinicId)
+        ? clinicRecordFromId(currentClinicId)
+        : null;
+    var nmEl = g('rClinicName');
+    var addrEl = g('rClinicAddrLine');
+    var telEl = g('rClinicTelLine');
+    var footEl = g('rReceiptFooterThanks');
+
+    var name = '';
+    var addr = '';
+    var tel = '';
+    if (rec) {
+        name = String(rec.english_name || rec.chinese_name || '').trim();
+        addr = String(rec.address || '').trim();
+        tel = String(rec.tel || '').trim();
+    }
+    if (!name && currentClinicLabel) name = String(currentClinicLabel).trim();
+    if (!name) name = 'Joyful Smile Dental Clinic';
+
+    if (nmEl) nmEl.textContent = name;
+    if (addrEl) addrEl.textContent = addr || '—';
+    if (telEl) telEl.textContent = 'Tel: ' + (tel || '—');
+    if (footEl) footEl.textContent = 'Thank you for visiting ' + name;
+}
+
 function showReceipt(bill, insertedData, payments) {
+    applyReceiptClinicHeader();
+
     var rNo = insertedData && insertedData[0]
         ? insertedData[0].id.slice(0, 8).toUpperCase()
         : 'RCP-' + Date.now();

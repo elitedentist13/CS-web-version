@@ -48,6 +48,10 @@ function initConsultation() {
     var dd = g('conPsDrop');
     if (dd) dd.style.display = 'none';
 
+    sv('conPsInputChart', '');
+    var ddc = g('conPsDropChart');
+    if (ddc) ddc.style.display = 'none';
+
     var banner = g('conPatientBanner');
     if (banner) banner.style.display = 'none';
 
@@ -193,6 +197,9 @@ function openConForPatient(patientId) {
     var dd = g('conPsDrop');
     if (dd) dd.style.display = 'none';
 
+    sv('conPsInputChart', '');
+    if (g('conPsDropChart')) g('conPsDropChart').style.display = 'none';
+
     var banner = g('conPatientBanner');
     if (banner) banner.style.display = 'none';
 
@@ -205,8 +212,8 @@ function openConForPatient(patientId) {
 
     SB.from('patients')
         .select(
-            'id,patient_no,full_name,chinese_name,dob,' +
-            'phone_number,medical_alerts'
+            'id,patient_no,full_name,chinese_name,sex,dob,' +
+            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
         )
         .eq('id', patientId)
         .single()
@@ -278,18 +285,21 @@ function doConPatientSearch() {
     var dd = g('conPsDrop');
     if (!q) { dd.style.display = 'none'; return; }
 
-    SB.from('patients')
+    var pq = SB.from('patients')
         .select(
-            'id,patient_no,full_name,chinese_name,dob,' +
-            'phone_number,medical_alerts'
+            'id,patient_no,full_name,chinese_name,sex,dob,' +
+            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
         )
         .or(
             'full_name.ilike.%'    + q + '%,' +
             'patient_no.ilike.%'   + q + '%,' +
             'phone_number.ilike.%' + q + '%'
         )
-        .limit(8)
-    .then(function(r) {
+        .limit(8);
+    pq = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(pq, 'conPsClinicFilter')
+        : pq;
+    pq.then(function(r) {
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
             dd.innerHTML =
@@ -321,6 +331,64 @@ function doConPatientSearch() {
     });
 }
 
+// ── Charting tab: same search as treatment, ties into selectConPatient ──
+function doConPatientSearchChart() {
+    var q  = (g('conPsInputChart') && g('conPsInputChart').value || '').trim();
+    var dd = g('conPsDropChart');
+    if (!dd) return;
+    if (!q) {
+        dd.style.display = 'none';
+        return;
+    }
+
+    var pq = SB.from('patients')
+        .select(
+            'id,patient_no,full_name,chinese_name,sex,dob,' +
+            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
+        )
+        .or(
+            'full_name.ilike.%'    + q + '%,' +
+            'patient_no.ilike.%'   + q + '%,' +
+            'phone_number.ilike.%' + q + '%'
+        )
+        .limit(8);
+    pq = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(pq, 'conPsClinicFilterChart')
+        : pq;
+    pq.then(function(r) {
+        dd.innerHTML = '';
+        if (r.error || !r.data || !r.data.length) {
+            dd.innerHTML =
+                '<div class="ps-item" style="color:#aaa;">' +
+                'No patients found</div>';
+            dd.style.display = 'block';
+            return;
+        }
+        r.data.forEach(function(p) {
+            var item = document.createElement('div');
+            item.className = 'ps-item';
+            item.innerHTML =
+                '<strong>' + esc(p.full_name) + '</strong>' +
+                '<br><small style="color:#aaa;">' +
+                '#' + esc(p.patient_no || '-') +
+                ' &nbsp;|&nbsp; ' +
+                esc(p.phone_number || 'No phone') +
+                '</small>';
+            item.addEventListener('click', function() {
+                dd.style.display = 'none';
+                if (g('conPsInputChart')) {
+                    g('conPsInputChart').value =
+                        p.full_name +
+                        ' (#' + (p.patient_no || '') + ')';
+                }
+                selectConPatient(p);
+            });
+            dd.appendChild(item);
+        });
+        dd.style.display = 'block';
+    });
+}
+
 // ════════════════════════════════════════════════════════════════
 // SELECT PATIENT — populate ALL tabs
 // ════════════════════════════════════════════════════════════════
@@ -343,16 +411,36 @@ function selectConPatient(p) {
     if (banner) banner.style.display = 'flex';
 
     var nameEl = g('conBannerName');
-    if (nameEl) nameEl.textContent = p.full_name;
+    if (nameEl) nameEl.textContent = p.full_name || '—';
 
     var cnEl = g('conBannerChinese');
+    var cn   = String(p.chinese_name || '').trim();
     if (cnEl) {
-        cnEl.textContent   = p.chinese_name || '';
-        cnEl.style.display = p.chinese_name ? 'block' : 'none';
+        cnEl.textContent   = cn;
+        cnEl.style.display = cn ? 'block' : 'none';
+        cnEl.className     = 'con-banner-chinese';
+    }
+    if (banner) {
+        banner.classList.toggle('has-chinese-name', !!cn);
     }
 
     var noEl = g('conBannerNo');
     if (noEl) noEl.textContent = p.patient_no || '-';
+
+    var sexWrap = g('conBannerSexWrap');
+    if (sexWrap) {
+        var sexHtml = typeof patientSexSymbolHtml === 'function'
+            ? patientSexSymbolHtml(p.sex, { banner: true })
+            : '';
+        var kind = typeof patientSexKind === 'function' ? patientSexKind(p.sex) : 'unknown';
+        if (kind === 'unknown') {
+            sexWrap.style.display = 'none';
+            sexWrap.innerHTML = 'Sex:&nbsp;';
+        } else {
+            sexWrap.style.display = '';
+            sexWrap.innerHTML = 'Sex:&nbsp;' + sexHtml;
+        }
+    }
 
     var dobEl = g('conBannerDob');
     if (dobEl) dobEl.textContent = p.dob ? formatDobAge(p.dob) : '-';
@@ -413,6 +501,14 @@ function selectConPatient(p) {
     }
     var denDrop = g('conPsDropDen');
     if (denDrop) denDrop.style.display = 'none';
+
+    var chartInput = g('conPsInputChart');
+    if (chartInput) {
+        chartInput.value =
+            p.full_name + ' (#' + (p.patient_no || '') + ')';
+    }
+    var chartDrop = g('conPsDropChart');
+    if (chartDrop) chartDrop.style.display = 'none';
 
     var denBanner = g('conDenBanner');
     if (denBanner) denBanner.style.display = 'flex';
@@ -530,15 +626,21 @@ function doConFormsPatientSearch() {
     var dd = g('conFormsPsDrop');
     if (!q) { if (dd) dd.style.display = 'none'; return; }
 
-    SB.from('patients')
-        .select('id,patient_no,full_name,chinese_name,dob,phone_number,medical_alerts,hkid,email,address')
+    var fq = SB.from('patients')
+        .select(
+            'id,patient_no,full_name,chinese_name,sex,dob,phone_number,' +
+            'medical_alerts,hkid,email,address,' + PATIENT_CLINIC_TAG_FIELD
+        )
         .or(
             'full_name.ilike.%'    + q + '%,' +
             'patient_no.ilike.%'   + q + '%,' +
             'phone_number.ilike.%' + q + '%'
         )
-        .limit(8)
-    .then(function(r) {
+        .limit(8);
+    fq = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(fq, 'conFormsPsClinicFilter')
+        : fq;
+    fq.then(function(r) {
         if (!dd) return;
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
@@ -1088,6 +1190,13 @@ function saveConNote() {
         notes:        note
     };
 
+    var ctNote = (conPatientData && conPatientData[PATIENT_CLINIC_TAG_FIELD])
+        ? conPatientData[PATIENT_CLINIC_TAG_FIELD]
+        : (typeof currentClinicCodeForTagging === 'function'
+            ? currentClinicCodeForTagging()
+            : '');
+    if (ctNote) row[TREATMENT_CLINIC_TAG_FIELD] = ctNote;
+
     SB.from('treatments').insert([row])
     .then(function(r) {
         if (!r.error) {
@@ -1096,6 +1205,36 @@ function saveConNote() {
             return;
         }
         var msg = String(r.error.message || '').toLowerCase();
+        if (msg.indexOf('clinic_tag') >= 0 && row[TREATMENT_CLINIC_TAG_FIELD]) {
+            var rowCt = Object.assign({}, row);
+            delete rowCt[TREATMENT_CLINIC_TAG_FIELD];
+            SB.from('treatments').insert([rowCt])
+            .then(function(rc) {
+                if (!rc.error) {
+                    inp.value = '';
+                    loadConNotes(conPatientId);
+                    return;
+                }
+                var msg2 = String(rc.error.message || '').toLowerCase();
+                if (msg2.indexOf('doctor_tag') >= 0 || msg2.indexOf('doctor_id') >= 0 ||
+                    msg2.indexOf('doctor_name') >= 0) {
+                    var legacyRow = {
+                        patient_id: rowCt.patient_id,
+                        dentist_name: rowCt.dentist_name,
+                        notes: rowCt.notes
+                    };
+                    SB.from('treatments').insert([legacyRow])
+                    .then(function(r2) {
+                        if (r2.error) { alert('Error: ' + r2.error.message); return; }
+                        inp.value = '';
+                        loadConNotes(conPatientId);
+                    });
+                    return;
+                }
+                alert('Error: ' + rc.error.message);
+            });
+            return;
+        }
         if (msg.indexOf('doctor_tag') >= 0 || msg.indexOf('doctor_id') >= 0 || msg.indexOf('doctor_name') >= 0) {
             var legacyRow = {
                 patient_id: row.patient_id,
@@ -1953,6 +2092,8 @@ async function loadDrugHistory(patientId) {
                 ' data-remarks="'         + esc(r.remarks         || '') + '"' +
                 ' data-dentist-name="'    + esc(r.dentist_name    || '') + '"' +
                 ' data-doctor-tag="'      + esc(r.doctor_tag      || r.dentist_name || '') + '"' +
+                ' data-patient-no="'     + esc(r.patient_no      || '') + '"' +
+                ' data-patient-name="'    + esc(r.patient_name    || '') + '"' +
                 ' data-prescribed-date="' + esc(r.prescribed_date || '') + '">' +
                     '<div class="rx-row-main">' +
                         '<span class="rx-row-drug">' +
@@ -2068,11 +2209,63 @@ function deleteRxGroup(btn, dateStr, doctorTag) {
 // ════════════════════════════════════════════════════════════════
 
 // ── Core print engine ────────────────────────────────────────
+/** Resolved from login clinic (APP_CLINICS) for label header; falls back to session label. */
+function currentActiveClinicLabelForPrinting(isZh) {
+    var rec =
+        typeof currentClinicId !== 'undefined' &&
+        currentClinicId &&
+        typeof clinicRecordFromId === 'function'
+            ? clinicRecordFromId(currentClinicId)
+            : null;
+
+    var en = rec ? String(rec.english_name || '').trim() : '';
+    var cn = rec ? String(rec.chinese_name || '').trim() : '';
+
+    if (!en && typeof currentClinicLabel === 'string') {
+        en = currentClinicLabel.trim();
+    }
+
+    if (isZh) {
+        if (cn) return cn;
+        if (en) return en;
+    } else {
+        if (en) return en;
+        if (cn) return cn;
+    }
+
+    if (en) return en;
+    if (cn) return cn;
+    return '—';
+}
+
+/**
+ * Address + phone under clinic name on labels (login clinic). Always three lines: addr, then Tel/電話.
+ */
+function buildClinicContactHtmlForDrugLabel(isZh) {
+    var rec =
+        typeof currentClinicId !== 'undefined' &&
+        currentClinicId &&
+        typeof clinicRecordFromId === 'function'
+            ? clinicRecordFromId(currentClinicId)
+            : null;
+    var addr = rec ? String(rec.address || '').trim() : '';
+    var tel = rec ? String(rec.tel || '').trim() : '';
+    var e = typeof esc === 'function' ? esc : function(s) { return String(s || ''); };
+    var addrShown = addr ? e(addr) : '—';
+    var telBody = tel ? e(tel) : '—';
+    var telLine = (isZh ? '電話：' : 'Tel: ') + telBody;
+    return (
+        '<div class="clinic-addr">' + addrShown + '</div>' +
+        '<div class="clinic-tel">' + telLine + '</div>'
+    );
+}
+
 function printDrugLabel(drugs, lang) {
     var isZh = (lang === 'zh');
-    var clinicName = isZh
-        ? '盈樂牙科中心(將軍澳)'
-        : 'JOYFUL SMILE DENTAL CLINIC';
+    var clinicNameRaw = currentActiveClinicLabelForPrinting(isZh);
+    var clinicName =
+        typeof esc === 'function' ? esc(clinicNameRaw) : String(clinicNameRaw || '');
+    var clinicContactHtml = buildClinicContactHtmlForDrugLabel(isZh);
 
     var fontFamily = isZh
         ? "'Microsoft JhengHei','PingFang TC','Noto Sans TC',Arial,sans-serif"
@@ -2080,60 +2273,189 @@ function printDrugLabel(drugs, lang) {
 
     var labelCSS =
         '* { margin:0; padding:0; box-sizing:border-box; }' +
-        '@page { size:50mm 60mm; margin:2mm; }' +
-        'body {' +
+        '@page { size:50mm 60mm; margin:1mm; }' +
+        'html,body {' +
             'font-family:' + fontFamily + ';' +
-            'font-size:8pt;' +
-            'width:50mm;' +
+            'width:48mm;' +
+            'margin:0 auto;' +
             'background:#fff;' +
             'color:#000;' +
         '}' +
+        /* Base scales with JS so dense labels shrink, light layouts stay large */
         '.label {' +
-            'width:46mm;' +
-            'min-height:56mm;' +
-            'padding:2mm;' +
+            'width:100%;' +
+            'height:58mm;' +
+            'max-height:58mm;' +
+            'padding:1mm 1.1mm 1.1mm 1.1mm;' +
             'page-break-after:always;' +
             'display:flex;' +
             'flex-direction:column;' +
-            'gap:1mm;' +
+            'justify-content:flex-start;' +
+            'align-items:stretch;' +
+            'gap:0.45mm;' +
+            'overflow:hidden;' +
+            'font-size:7.25pt;' +
+            'line-height:1.2;' +
         '}' +
         '.label:last-child { page-break-after:avoid; }' +
+        '.label-top {' +
+            'flex:0 0 auto;' +
+            'max-height:42%;' +
+            'min-height:0;' +
+            'overflow:hidden;' +
+            'display:flex;' +
+            'flex-direction:column;' +
+            'gap:0.2mm;' +
+        '}' +
+        '.label-header {' +
+            'flex:0 1 auto;' +
+            'min-height:0;' +
+            'overflow:hidden;' +
+            'display:flex;' +
+            'flex-direction:column;' +
+            'justify-content:flex-start;' +
+        '}' +
         '.clinic-name {' +
-            'font-size:' + (isZh ? '8pt' : '7.5pt') + ';' +
+            'font-size:0.88em;' +
             'font-weight:bold;' +
             'text-align:center;' +
-            'line-height:1.3;' +
+            'line-height:1.12;' +
+            'word-break:break-word;' +
+            'display:-webkit-box;' +
+            '-webkit-box-orient:vertical;' +
+            '-webkit-line-clamp:2;' +
+            'overflow:hidden;' +
+        '}' +
+        '.clinic-addr,.clinic-tel {' +
+            'font-size:0.78em;' +
+            'font-weight:normal;' +
+            'text-align:center;' +
+            'line-height:1.1;' +
+            'word-break:break-word;' +
+            'display:-webkit-box;' +
+            '-webkit-box-orient:vertical;' +
+            'overflow:hidden;' +
+        '}' +
+        '.clinic-addr { margin-top:0.12em; -webkit-line-clamp:2; }' +
+        '.clinic-tel { margin-top:0.06em; -webkit-line-clamp:1; }' +
+        '.clinic-header-rule {' +
+            'border:none;' +
+            'border-top:0.35pt solid #000;' +
+            'margin:0.15em 0 0 0;' +
+            'flex-shrink:0;' +
+        '}' +
+        '.label-patient {' +
+            'flex:0 0 auto;' +
+            'min-height:0;' +
+            'overflow:hidden;' +
+            'padding:0.15em 0 0 0;' +
+        '}' +
+        '.patient-row {' +
+            'font-size:0.76em;' +
+            'line-height:1.1;' +
+            'word-break:break-word;' +
+            'width:100%;' +
+        '}' +
+        '.patient-name-wrap {' +
+            'display:flex;' +
+            'gap:0.3em;' +
+            'align-items:flex-start;' +
+            'line-height:1.1;' +
+            'width:100%;' +
+        '}' +
+        '.patient-name-wrap .lk { flex-shrink:0; }' +
+        '.patient-name-wrap .patient-val {' +
+            'flex:1;' +
+            'min-width:0;' +
+            'display:-webkit-box;' +
+            '-webkit-box-orient:vertical;' +
+            '-webkit-line-clamp:2;' +
+            'overflow:hidden;' +
+            'font-size:1em;' +
+        '}' +
+        '.patient-drug-rule {' +
+            'border:none;' +
+            'border-top:0.35pt solid #000;' +
+            'margin:0.15em 0 0 0;' +
+        '}' +
+        '.label-mid {' +
+            'flex:1 1 auto;' +
+            'min-height:0;' +
+            'display:flex;' +
+            'flex-direction:column;' +
+            'justify-content:center;' +
+            'align-items:stretch;' +
+            'overflow:hidden;' +
+            'padding:0.35mm 0;' +
+        '}' +
+        '.label-mid-inner {' +
+            'flex:0 1 auto;' +
+            'max-height:100%;' +
+            'width:100%;' +
+            'min-height:0;' +
+            'overflow:hidden;' +
+            'display:flex;' +
+            'flex-direction:column;' +
+            'justify-content:center;' +
+            'gap:0.28em;' +
+        '}' +
+        '.label-footer {' +
+            'flex:0 0 auto;' +
+            'margin-top:auto;' +
+            'padding-top:0.35em;' +
+            'width:100%;' +
         '}' +
         '.divider {' +
             'border:none;' +
-            'border-top:1px dashed #000;' +
-            'margin:1mm 0;' +
+            'border-top:0.35pt dashed #000;' +
+            'margin:0.12em 0;' +
         '}' +
         '.drug-name {' +
-            'font-size:9pt;' +
+            'font-size:1.06em;' +
             'font-weight:bold;' +
-            'line-height:1.3;' +
+            'line-height:1.12;' +
             'word-break:break-word;' +
+            'display:-webkit-box;' +
+            '-webkit-box-orient:vertical;' +
+            '-webkit-line-clamp:3;' +
+            'overflow:hidden;' +
+            'flex-shrink:0;' +
+            'width:100%;' +
+            'text-align:left;' +
         '}' +
         '.info-row {' +
-            'font-size:7.5pt;' +
-            'line-height:1.4;' +
+            'font-size:0.9em;' +
+            'line-height:1.18;' +
             'word-break:break-word;' +
+            'flex-shrink:0;' +
+            'width:100%;' +
+            'text-align:left;' +
         '}' +
         '.lk { font-weight:bold; }' +
         '.remarks-block {' +
-            'font-size:7pt;' +
-            'line-height:1.4;' +
+            'font-size:0.82em;' +
+            'line-height:1.12;' +
             'word-break:break-word;' +
             'font-style:italic;' +
+            'display:-webkit-box;' +
+            '-webkit-box-orient:vertical;' +
+            '-webkit-line-clamp:2;' +
+            'overflow:hidden;' +
+            'flex-shrink:0;' +
+            'width:100%;' +
+            'text-align:left;' +
         '}' +
         '.footer-row {' +
-            'font-size:7.5pt;' +
-            'line-height:1.5;' +
+            'font-size:0.88em;' +
+            'line-height:1.15;' +
+            'word-break:break-word;' +
+            'width:100%;' +
+            'text-align:left;' +
         '}';
 
     // ── Build each label ──────────────────────────────────────
     var labelsHtml = drugs.map(function(d) {
+        var eFn = typeof esc === 'function' ? esc : function(s) { return String(s || ''); };
         var drugName = d.drug_name       || '—';
         var dosage   = d.dosage          || '—';
         var route    = d.route           || '—';
@@ -2143,6 +2465,11 @@ function printDrugLabel(drugs, lang) {
         var remarks  = d.remarks         || '';
         var doctor   = d.doctor_tag      || d.dentist_name || conActiveDoctorTag || conActiveDoctorName || currentName || '—';
         var dateStr  = '—';
+
+        var patNoRaw   = String(d.patient_no || '').trim();
+        var patNameRaw = String(d.patient_name || '').trim();
+        var patNoDisp   = patNoRaw ? eFn(patNoRaw) : '—';
+        var patNameDisp = patNameRaw ? eFn(patNameRaw) : '—';
 
         if (d.prescribed_date) {
             var dt = new Date(d.prescribed_date);
@@ -2157,6 +2484,24 @@ function printDrugLabel(drugs, lang) {
             }
         }
 
+        var patientBlockZh =
+            '<div class="label-patient">' +
+            '<div class="patient-row"><span class="lk">病人編號：</span>' + patNoDisp + '</div>' +
+            '<div class="patient-row patient-name-wrap"><span class="lk">姓名：</span>' +
+                '<span class="patient-val">' + patNameDisp + '</span></div>' +
+            '<div class="patient-row"><span class="lk">日期：</span>' + dateStr + '</div>' +
+            '<hr class="patient-drug-rule">' +
+            '</div>';
+
+        var patientBlockEn =
+            '<div class="label-patient">' +
+            '<div class="patient-row"><span class="lk">No. </span>' + patNoDisp + '</div>' +
+            '<div class="patient-row patient-name-wrap"><span class="lk">Name: </span>' +
+                '<span class="patient-val">' + patNameDisp + '</span></div>' +
+            '<div class="patient-row"><span class="lk">Date: </span>' + dateStr + '</div>' +
+            '<hr class="patient-drug-rule">' +
+            '</div>';
+
         var remarksHtml = remarks
             ? '<hr class="divider">' +
               '<div class="remarks-block">' +
@@ -2168,39 +2513,61 @@ function printDrugLabel(drugs, lang) {
 
         if (isZh) {
             return '<div class="label">' +
+                '<div class="label-top">' +
+                '<div class="label-header">' +
                 '<div class="clinic-name">' + clinicName + '</div>' +
-                '<hr class="divider">' +
+                clinicContactHtml +
+                '<hr class="clinic-header-rule">' +
+                '</div>' +
+                patientBlockZh +
+                '</div>' +
+                '<div class="label-mid">' +
+                '<div class="label-mid-inner">' +
                 '<div class="drug-name">' + drugName + '</div>' +
                 '<div class="info-row">' + dosage + ' &nbsp;|&nbsp; ' + route + '</div>' +
                 '<div class="info-row"><span class="lk">服用頻率：</span>' + freq + '</div>' +
                 '<div class="info-row"><span class="lk">療程：</span>' + duration + '</div>' +
                 '<div class="info-row"><span class="lk">數量：</span>' + qty + '</div>' +
                 remarksHtml +
+                '</div>' +
+                '</div>' +
+                '<div class="label-footer">' +
                 '<hr class="divider">' +
                 '<div class="footer-row"><span class="lk">醫生：</span>' + doctor + '</div>' +
-                '<div class="footer-row"><span class="lk">日期：</span>' + dateStr + '</div>' +
-            '</div>';
+                '</div>' +
+                '</div>';
         } else {
             return '<div class="label">' +
+                '<div class="label-top">' +
+                '<div class="label-header">' +
                 '<div class="clinic-name">' + clinicName + '</div>' +
-                '<hr class="divider">' +
+                clinicContactHtml +
+                '<hr class="clinic-header-rule">' +
+                '</div>' +
+                patientBlockEn +
+                '</div>' +
+                '<div class="label-mid">' +
+                '<div class="label-mid-inner">' +
                 '<div class="drug-name">' + drugName + '</div>' +
                 '<div class="info-row">' + dosage + ' &nbsp;|&nbsp; ' + route + '</div>' +
                 '<div class="info-row"><span class="lk">Freq: </span>' + freq + '</div>' +
                 '<div class="info-row"><span class="lk">Duration: </span>' + duration + '</div>' +
                 '<div class="info-row"><span class="lk">Qty: </span>' + qty + '</div>' +
                 remarksHtml +
+                '</div>' +
+                '</div>' +
+                '<div class="label-footer">' +
                 '<hr class="divider">' +
                 '<div class="footer-row"><span class="lk">Dr. </span>' + doctor + '</div>' +
-                '<div class="footer-row"><span class="lk">Date: </span>' + dateStr + '</div>' +
-            '</div>';
+                '</div>' +
+                '</div>';
         }
     }).join('');
 
-    // ── Open popup and print ──────────────────────────────────
+    // ── Wider popup: Chrome/Edge print UI can show options (LHS) + preview (RHS) when space allows.
     var popup = window.open(
         '', '_blank',
-        'width=300,height=420,toolbar=0,menubar=0,scrollbars=1,resizable=1'
+        'width=1024,height=760,left=60,top=32,toolbar=0,menubar=0,scrollbars=1,resizable=1'
     );
 
     if (!popup) {
@@ -2220,17 +2587,32 @@ function printDrugLabel(drugs, lang) {
         '<body>' +
             labelsHtml +
             '<script>' +
-                'window.onload=function(){' +
-                    'setTimeout(function(){' +
-                        'window.print();' +
-                        'setTimeout(function(){window.close();},600);' +
-                    '},350);' +
-                '};' +
+            '(function(){' +
+            'function fitAllDrugLabels(){' +
+            'var labels=[].slice.call(document.querySelectorAll(".label"));' +
+            'if(!labels.length)return;' +
+            'var lo=5.15,hi=8.2,step=0.12,tol=1.5;' +
+            'function apply(sz){labels.forEach(function(l){l.style.fontSize=sz+"pt";});}' +
+            'function allFit(sz){apply(sz);void document.body.offsetHeight;' +
+            'return labels.every(function(l){return l.scrollHeight<=l.clientHeight+tol;});}' +
+            'var fs=hi;' +
+            'while(fs>lo&&!allFit(fs))fs-=step;' +
+            'if(!allFit(fs))apply(lo);' +
+            '}' +
+            'window.onload=function(){' +
+            'try{fitAllDrugLabels();}catch(e){}' +
+            'try{window.focus();}catch(e2){}' +
+            'setTimeout(function(){window.print();},480);' +
+            '};' +
+            '})();' +
             '<\/script>' +
         '</body>' +
         '</html>'
     );
     popup.document.close();
+    try {
+        popup.focus();
+    } catch (ePrintFocus) {}
 }
 
 // ── Get drug data from a live rx-line-card (before save) ─────
@@ -2259,7 +2641,10 @@ function getDrugFromRxLine(lineEl) {
         quantity:        qtyEl      ? (qtyEl.value      || '') : '',
         remarks:         remarksEl  ? (remarksEl.value  || '') : '',
         dentist_name:    conActiveDoctorName || currentName || '—',
-        prescribed_date: today
+        doctor_tag:      conActiveDoctorTag || conActiveDoctorName || currentName || '',
+        prescribed_date: today,
+        patient_no:      (conPatientData && conPatientData.patient_no) ? String(conPatientData.patient_no) : '',
+        patient_name:    (conPatientData && conPatientData.full_name) ? String(conPatientData.full_name) : ''
     };
 }
 
@@ -2267,6 +2652,10 @@ function getDrugFromRxLine(lineEl) {
 function printRxLineLabelEn(btn) {
     var lineEl = btn.closest('.rx-line-card');
     if (!lineEl) return;
+    if (!conPatientId || !conPatientData) {
+        alert('Please select a patient first (patient no. and name appear on the label).');
+        return;
+    }
     var drug = getDrugFromRxLine(lineEl);
     if (!drug.drug_name) {
         alert('Please select a drug first.');
@@ -2279,6 +2668,10 @@ function printRxLineLabelEn(btn) {
 function printRxLineLabelZh(btn) {
     var lineEl = btn.closest('.rx-line-card');
     if (!lineEl) return;
+    if (!conPatientId || !conPatientData) {
+        alert('請先選擇病人（標籤須顯示病人編號及姓名）。');
+        return;
+    }
     var drug = getDrugFromRxLine(lineEl);
     if (!drug.drug_name) {
         alert('請先選擇藥物。');
@@ -2300,7 +2693,12 @@ function printHistoryRowLabel(btn, lang) {
         quantity:        row.dataset.quantity       || '',
         remarks:         row.dataset.remarks        || '',
         dentist_name:    row.dataset.dentistName    || '',
-        prescribed_date: row.dataset.prescribedDate || ''
+        doctor_tag:      row.dataset.doctorTag      || row.dataset.dentistName || '',
+        prescribed_date: row.dataset.prescribedDate || '',
+        patient_no:      row.dataset.patientNo ||
+            (conPatientData && conPatientData.patient_no ? String(conPatientData.patient_no) : ''),
+        patient_name:    row.dataset.patientName ||
+            (conPatientData && conPatientData.full_name ? String(conPatientData.full_name) : '')
     };
     if (!drug.drug_name) return;
     printDrugLabel([drug], lang);
@@ -2312,6 +2710,18 @@ function printHistoryGroupLabels(btn, lang) {
     if (!group) return;
     var rows  = group.querySelectorAll('.rx-history-row');
     var drugs = [];
+    var defNo = '';
+    var defName = '';
+    if (rows.length && rows[0].dataset) {
+        defNo = rows[0].dataset.patientNo || '';
+        defName = rows[0].dataset.patientName || '';
+    }
+    if (!defNo && conPatientData && conPatientData.patient_no) {
+        defNo = String(conPatientData.patient_no);
+    }
+    if (!defName && conPatientData && conPatientData.full_name) {
+        defName = String(conPatientData.full_name);
+    }
     rows.forEach(function(row) {
         var dn = row.dataset.drugName || '';
         if (!dn) return;
@@ -2324,7 +2734,10 @@ function printHistoryGroupLabels(btn, lang) {
             quantity:        row.dataset.quantity       || '',
             remarks:         row.dataset.remarks        || '',
             dentist_name:    row.dataset.dentistName    || '',
-            prescribed_date: row.dataset.prescribedDate || ''
+            doctor_tag:      row.dataset.doctorTag      || row.dataset.dentistName || '',
+            prescribed_date: row.dataset.prescribedDate || '',
+            patient_no:      row.dataset.patientNo || defNo,
+            patient_name:    row.dataset.patientName || defName
         });
     });
     if (!drugs.length) return;
@@ -2477,18 +2890,21 @@ function doConPatientSearchMed() {
     var dd = g('conPsDropMed');
     if (!q) { dd.style.display = 'none'; return; }
 
-    SB.from('patients')
+    var mq = SB.from('patients')
         .select(
             'id,patient_no,full_name,dob,' +
-            'phone_number,medical_alerts'
+            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
         )
         .or(
             'full_name.ilike.%'    + q + '%,' +
             'patient_no.ilike.%'   + q + '%,' +
             'phone_number.ilike.%' + q + '%'
         )
-        .limit(8)
-    .then(function(r) {
+        .limit(8);
+    mq = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(mq, 'conPsClinicFilterMed')
+        : mq;
+    mq.then(function(r) {
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
             dd.innerHTML =
@@ -2589,18 +3005,21 @@ function doConPatientSearchDen() {
     var dd = g('conPsDropDen');
     if (!q) { dd.style.display = 'none'; return; }
 
-    SB.from('patients')
+    var dq = SB.from('patients')
         .select(
             'id,patient_no,full_name,dob,' +
-            'phone_number,medical_alerts'
+            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
         )
         .or(
             'full_name.ilike.%'    + q + '%,' +
             'patient_no.ilike.%'   + q + '%,' +
             'phone_number.ilike.%' + q + '%'
         )
-        .limit(8)
-    .then(function(r) {
+        .limit(8);
+    dq = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(dq, 'conPsClinicFilterDen')
+        : dq;
+    dq.then(function(r) {
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
             dd.innerHTML =

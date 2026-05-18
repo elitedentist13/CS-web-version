@@ -3,29 +3,270 @@
 // ════════════════════════════════════════════════════════════════
 var selPatientId  = null;
 var editPatientId = null;
+/** Snapshot of patients.clinic_tag when edit modal opened (for refilling dropdown after clinics load). */
+var editPatientLoadedClinicTag = '';
+var selPatientClinicTag = null;
 
 // ════════════════════════════════════════════════════════════════
-// PATIENT NUMBER
+// PATIENT NUMBER — one shared sequence (010000+) for all clinics;
+// clinic_tag is for search / identification only.
 // ════════════════════════════════════════════════════════════════
+var MIN_PATIENT_REG_NO       = 10000; // display 010000
+var MAX_PATIENT_REG_NO       = 999999;
+var addPatientNoCheckTimer = null;
+var PATIENT_NO_PAGE_SIZE = 1000;
+
+/**
+ * Loads all patient_no values (paginated) to compute the next global registry number.
+ * Supabase does not aggregate MAX in client; paging avoids silently using only the first chunk.
+ */
+function collectAllPatientNumbersThen(cb) {
+    var acc = [];
+
+    function page(from) {
+        var to = from + PATIENT_NO_PAGE_SIZE - 1;
+        SB.from('patients').select('patient_no').range(from, to).then(function(r) {
+            if (r.error) {
+                if (typeof cb === 'function') cb(null, r.error);
+                return;
+            }
+            var rows = r.data || [];
+            rows.forEach(function(row) {
+                if (row && row.patient_no != null) acc.push(row.patient_no);
+            });
+            if (rows.length < PATIENT_NO_PAGE_SIZE) {
+                if (typeof cb === 'function') cb(acc, null);
+                return;
+            }
+            page(to + 1);
+        });
+    }
+
+    page(0);
+}
+
+/** Returns 6-digit string e.g. 010000 or null if invalid/out of range. */
+function normalizePatientNoInput(raw) {
+    var s = String(raw || '').trim().replace(/\D/g, '');
+    if (!s.length) return null;
+    if (s.length > 6) return null;
+    var n = parseInt(s, 10);
+    if (isNaN(n) || n < MIN_PATIENT_REG_NO || n > MAX_PATIENT_REG_NO) return null;
+    return String(n).padStart(6, '0');
+}
+
+/** True if any patient row already uses this patient_no (all clinics). */
+function patientNoDupQuery(normalizedSix) {
+    return SB.from('patients')
+        .select('id')
+        .eq('patient_no', normalizedSix)
+        .limit(1);
+}
+
+/** Selected clinic row id in the add-patient modal (defaults to login clinic when filled). */
+function addPatientSelectedClinicId() {
+    var sel = g('addPatientClinicSelect');
+    if (!sel) return '';
+    return String(sel.value || '').trim();
+}
+
+/** Tag stored on patients row for the modal’s clinic pick (matches login tagging rules). */
+function addPatientClinicTagFromSelect() {
+    var id = addPatientSelectedClinicId();
+    if (!id) return '';
+    var rec =
+        typeof clinicRecordFromId === 'function'
+            ? clinicRecordFromId(id)
+            : null;
+    if (rec) {
+        var code = String(rec.clinic_code || '').trim();
+        if (code) return code;
+    }
+    return String(id);
+}
+
+/** Populate clinic list; defaults selection to global login clinic (`currentClinicId`). */
+function fillAddPatientClinicSelect() {
+    var sel = g('addPatientClinicSelect');
+    if (!sel) return;
+
+    var defaultId =
+        typeof currentClinicId !== 'undefined' && currentClinicId
+            ? String(currentClinicId)
+            : '';
+
+    sel.innerHTML = '';
+
+    if (typeof APP_CLINICS === 'undefined' || !APP_CLINICS.length) {
+        sel.innerHTML = '<option value="">(No clinics)</option>';
+        return;
+    }
+
+    APP_CLINICS.forEach(function(c) {
+        var label =
+            (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
+            (c.english_name || c.chinese_name || 'Clinic');
+        var o = document.createElement('option');
+        o.value = String(c.id);
+        o.textContent = label;
+        sel.appendChild(o);
+    });
+
+    var match =
+        defaultId &&
+        Array.from(sel.options).some(function(opt) {
+            return opt.value === defaultId;
+        });
+    sel.value = match ? defaultId : String(APP_CLINICS[0].id || '');
+}
+
+function editPatientSelectedClinicId() {
+    var sel = g('editPatientClinicSelect');
+    if (!sel) return '';
+    return String(sel.value || '').trim();
+}
+
+function editPatientClinicTagFromSelect() {
+    var id = editPatientSelectedClinicId();
+    if (!id) return '';
+    var rec =
+        typeof clinicRecordFromId === 'function'
+            ? clinicRecordFromId(id)
+            : null;
+    if (rec) {
+        var code = String(rec.clinic_code || '').trim();
+        if (code) return code;
+    }
+    return String(id);
+}
+
+/** Populate edit modal clinic list; pre-select from existing patients.clinic_tag. */
+function fillEditPatientClinicSelect(storedClinicTag) {
+    var sel = g('editPatientClinicSelect');
+    if (!sel) return;
+
+    sel.innerHTML = '';
+
+    if (typeof APP_CLINICS === 'undefined' || !APP_CLINICS.length) {
+        sel.innerHTML = '<option value="">(No clinics)</option>';
+        return;
+    }
+
+    APP_CLINICS.forEach(function(c) {
+        var label =
+            (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
+            (c.english_name || c.chinese_name || 'Clinic');
+        var o = document.createElement('option');
+        o.value = String(c.id);
+        o.textContent = label;
+        sel.appendChild(o);
+    });
+
+    var preferred =
+        typeof clinicIdFromStoredPatientTag === 'function'
+            ? clinicIdFromStoredPatientTag(storedClinicTag)
+            : '';
+    var matchPreferred =
+        preferred &&
+        Array.from(sel.options).some(function(opt) {
+            return opt.value === preferred;
+        });
+    var defaultId =
+        typeof currentClinicId !== 'undefined' && currentClinicId
+            ? String(currentClinicId)
+            : '';
+    var matchLogin =
+        defaultId &&
+        Array.from(sel.options).some(function(opt) {
+            return opt.value === defaultId;
+        });
+
+    if (matchPreferred) sel.value = preferred;
+    else if (matchLogin) sel.value = defaultId;
+    else sel.value = String(APP_CLINICS[0].id || '');
+}
+
+/** If clinics arrive after the edit modal opened, repopulate options without losing context. */
+function refreshEditPatientClinicIfModalOpen() {
+    if (!editPatientId) return;
+    var m = g('editPatientModal');
+    if (!m || m.style.display !== 'block') return;
+    fillEditPatientClinicSelect(editPatientLoadedClinicTag);
+}
+
+function scheduleAddPatientNoAvailabilityCheck() {
+    clearTimeout(addPatientNoCheckTimer);
+    addPatientNoCheckTimer = setTimeout(updateAddPatientNoAvailabilityUI, 320);
+}
+
+function updateAddPatientNoAvailabilityUI() {
+    var inp  = g('preview_patientNo');
+    var stat = g('addPatientNoStatus');
+    if (!inp || !stat) return;
+
+    var norm = normalizePatientNoInput(inp.value);
+    if (!norm) {
+        stat.textContent =
+            inp.value.trim() ? 'Use 010000–999999 (digits only).' : '';
+        stat.style.color = '#64748b';
+        return;
+    }
+
+    patientNoDupQuery(norm).then(function(r) {
+        if (!stat) return;
+        var taken = !r.error && r.data && r.data.length > 0;
+        stat.textContent = taken
+            ? 'Already in use (same number cannot exist twice)'
+            : 'Available';
+        stat.style.color = taken ? 'var(--danger)' : '#15803d';
+    });
+}
+
 function genPatientNo(cb) {
-    SB.from('patients').select('patient_no')
-    .then(function(r) {
-        var data = r.data || [];
-        if (!data.length) { cb('001000'); return; }
-        var nums = data
-            .map(function(p){ return parseInt(p.patient_no,10); })
-            .filter(function(n){ return !isNaN(n); });
-        cb(nums.length
-            ? String(Math.max.apply(null,nums)+1).padStart(6,'0')
-            : '001000');
+    collectAllPatientNumbersThen(function(list, err) {
+        if (err) {
+            if (typeof cb === 'function') cb(null);
+            return;
+        }
+        var nums = list
+            .map(function(no) { return parseInt(no, 10); })
+            .filter(function(n) { return !isNaN(n); });
+        var highs = nums.filter(function(n) { return n >= MIN_PATIENT_REG_NO; });
+
+        var nextNum;
+        if (!highs.length) nextNum = MIN_PATIENT_REG_NO;
+        else nextNum = Math.max.apply(null, highs) + 1;
+
+        if (nextNum > MAX_PATIENT_REG_NO) {
+            if (typeof cb === 'function') cb(null);
+            return;
+        }
+
+        var out = String(nextNum).padStart(6, '0');
+        if (typeof cb === 'function') cb(out);
     });
 }
 
 function openAddPatient() {
     g('patientForm').reset();
-    sv('preview_patientNo','...');
+    sv('preview_patientNo','');
+    var st = g('addPatientNoStatus');
+    if (st) { st.textContent = ''; st.style.color = '#64748b'; }
+    fillAddPatientClinicSelect();
     openModal('addPatientModal');
-    genPatientNo(function(no){ sv('preview_patientNo',no); });
+    genPatientNo(function(no) {
+        if (no) {
+            sv('preview_patientNo', no);
+            updateAddPatientNoAvailabilityUI();
+        } else {
+            sv('preview_patientNo', '');
+            if (st) {
+                st.textContent =
+                    'No free patient numbers below 999999 (shared across all clinics).';
+                st.style.color = 'var(--danger)';
+            }
+        }
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -33,7 +274,31 @@ function openAddPatient() {
 // ════════════════════════════════════════════════════════════════
 function submitAddPatient(e) {
     e.preventDefault();
-    genPatientNo(function(no) {
+
+    var no = normalizePatientNoInput(g('preview_patientNo').value);
+    if (!no) {
+        alert('Enter a valid patient number from 010000 to 999999 (6 digits).');
+        return;
+    }
+
+    if (!addPatientSelectedClinicId()) {
+        alert('Please select a clinic.');
+        return;
+    }
+
+    var ctAdd = addPatientClinicTagFromSelect();
+
+    patientNoDupQuery(no).then(function(dupr) {
+        if (dupr.error) {
+            alert('Could not verify patient number: ' + dupr.error.message);
+            return;
+        }
+        if (dupr.data && dupr.data.length) {
+            alert('This patient number is already in use.');
+            updateAddPatientNoAvailabilityUI();
+            return;
+        }
+
         var payload = {
             patient_no:     no,
             full_name:      (g('fullName').value     ||'').trim(),
@@ -49,6 +314,7 @@ function submitAddPatient(e) {
             medical_alerts: (g('alerts').value       ||'').trim()||null,
             remarks:        (g('remarks').value      ||'').trim()||null
         };
+        if (ctAdd) payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
         SB.from('patients').insert([payload])
         .then(function(r) {
             if (r.error) { alert('Error: '+r.error.message); return; }
@@ -64,9 +330,12 @@ function submitAddPatient(e) {
 // PATIENT — FETCH + RENDER
 // ════════════════════════════════════════════════════════════════
 function fetchPatients() {
-    SB.from('patients').select('*')
-        .order('patient_no',{ascending:true})
-    .then(function(r) {
+    var q = SB.from('patients').select('*')
+        .order('patient_no',{ascending:true});
+    q = typeof applyPatientQueryClinicTag === 'function'
+        ? applyPatientQueryClinicTag(q, 'patientDirClinicFilter')
+        : q;
+    q.then(function(r) {
         if (r.error) { console.error(r.error); return; }
         renderPatients(r.data||[]);
     });
@@ -76,7 +345,7 @@ function renderPatients(list) {
     var tb = g('patientTableBody');
     if (!list.length) {
         tb.innerHTML =
-            '<tr><td colspan="6" style="text-align:center;' +
+            '<tr><td colspan="7" style="text-align:center;' +
             'padding:30px;color:#999;">No patients found.</td></tr>';
         return;
     }
@@ -87,18 +356,38 @@ function renderPatients(list) {
             var pts = p.dob.split('-');
             dob = pts[2]+'/'+pts[1]+'/'+pts[0];
         }
+        var cn = String(p.chinese_name || '').trim();
+        var en = String(p.full_name || '').trim();
+        var nameHtml = '';
+        var sexIcon = typeof patientSexSymbolHtml === 'function'
+            ? patientSexSymbolHtml(p.sex, { hideUnknown: true })
+            : '';
+        if (p.patient_no || sexIcon) {
+            nameHtml += '<div class="patient-dir-name-meta">';
+            if (p.patient_no) {
+                nameHtml += '<span class="pno-badge"># ' + esc(p.patient_no) + '</span>';
+            }
+            if (sexIcon) nameHtml += sexIcon;
+            nameHtml += '</div>';
+        }
+        if (cn) {
+            nameHtml += '<span class="patient-dir-name-cn">' + esc(cn) + '</span>';
+        }
+        if (en) {
+            nameHtml += (cn ? '<br>' : '') +
+                '<span class="patient-dir-name-en">' + esc(en) + '</span>';
+        }
+        if (!cn && !en) {
+            nameHtml += '<span class="patient-dir-name-en">—</span>';
+        }
+
         var tr = document.createElement('tr');
         tr.innerHTML =
-            '<td>' +
-                (p.patient_no
-                    ? '<span class="pno-badge"># '+esc(p.patient_no)+'</span><br>'
-                    : '') +
-                '<strong>'+esc(p.full_name)+'</strong>' +
-                (p.chinese_name
-                    ? '<br><small style="color:#999;">'+esc(p.chinese_name)+'</small>'
-                    : '') +
-            '</td>' +
+            '<td class="patient-dir-name-cell">' + nameHtml + '</td>' +
             '<td>'+esc(p.phone_number||'--')+'</td>' +
+            '<td style="font-size:12px;color:#64748b;">' +
+                esc(p[PATIENT_CLINIC_TAG_FIELD]||'—') +
+            '</td>' +
             '<td style="white-space:nowrap;">'+dob+'</td>' +
             '<td>'+esc(p.hkid||'--')+'</td>' +
             '<td><small style="color:'+(p.medical_alerts?'var(--danger)':'#bbb')+';">' +
@@ -109,12 +398,12 @@ function renderPatients(list) {
                     'style="background:#f0f0f0;border:1px solid #ccc;' +
                     'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
                     'data-id="'+p.id+'">📋 Notes</button>' +
-                    (currentRole!=='nurse'
-                        ? '<button class="btn-editp" ' +
-                          'style="background:var(--primary);color:white;border:none;' +
-                          'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
-                          'data-id="'+p.id+'">✏️ Edit</button>'
-                        : '') +
+                    '<button class="btn-editp" ' +
+                    'style="background:var(--primary);color:white;border:none;' +
+                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
+                    'data-id="'+p.id+'">' +
+                    (currentRole === 'nurse' ? '🏷 Clinic' : '✏️ Edit') +
+                    '</button>' +
                 '</div>' +
             '</td>';
         tb.appendChild(tr);
@@ -137,6 +426,48 @@ function filterTable() {
 // ════════════════════════════════════════════════════════════════
 // PATIENT — EDIT
 // ════════════════════════════════════════════════════════════════
+function setEditPatientModalForRole() {
+    var nurse = currentRole === 'nurse';
+    var title = g('editPatientModalTitle');
+    var hint = g('editPatientNurseHint');
+    var saveBtn = g('editPatientSaveBtn');
+    var delBtn = g('edit_deleteBtn');
+    var form = g('editPatientForm');
+
+    if (title) title.textContent = nurse ? '🏷 Patient clinic / branch' : '✏️ Edit Patient';
+    if (hint) hint.style.display = nurse ? 'block' : 'none';
+    if (saveBtn) saveBtn.textContent = nurse ? '💾 Save clinic tag' : '💾 Save Changes';
+    if (delBtn) delBtn.style.display = nurse ? 'none' : '';
+
+    if (form) form.noValidate = nurse;
+
+    [
+        'edit_fullName',
+        'edit_chineseName',
+        'edit_phone',
+        'edit_email',
+        'edit_dob',
+        'edit_hkid',
+        'edit_insuranceNo',
+        'edit_occupation',
+        'edit_address'
+    ].forEach(function(fid) {
+        var el = g(fid);
+        if (el) el.readOnly = nurse;
+    });
+    var sex = g('edit_sex');
+    if (sex) sex.disabled = nurse;
+    ['edit_alerts', 'edit_remarks'].forEach(function(fid) {
+        var el = g(fid);
+        if (el) el.readOnly = nurse;
+    });
+
+    var clin = g('editPatientClinicSelect');
+    if (clin) {
+        clin.removeAttribute('disabled');
+    }
+}
+
 function openEditPatient(id) {
     editPatientId = id;
     SB.from('patients').select('*').eq('id',id).single()
@@ -156,6 +487,9 @@ function openEditPatient(id) {
         sv('edit_address',     p.address        ||'');
         sv('edit_alerts',      p.medical_alerts ||'');
         sv('edit_remarks',     p.remarks        ||'');
+        editPatientLoadedClinicTag = p[PATIENT_CLINIC_TAG_FIELD] || '';
+        fillEditPatientClinicSelect(editPatientLoadedClinicTag);
+        setEditPatientModalForRole();
         openModal('editPatientModal');
     });
 }
@@ -163,26 +497,39 @@ function openEditPatient(id) {
 function submitEditPatient(e) {
     e.preventDefault();
     if (!editPatientId) return;
-    var payload = {
-        full_name:      (g('edit_fullName').value    ||'').trim(),
-        chinese_name:   (g('edit_chineseName').value ||'').trim()||null,
-        phone_number:   (g('edit_phone').value       ||'').trim()||null,
-        email:          (g('edit_email').value       ||'').trim()||null,
-        sex:             g('edit_sex').value          ||null,
-        dob:             g('edit_dob').value          ||null,
-        hkid:           (g('edit_hkid').value        ||'').trim()||null,
-        insurance_no:   (g('edit_insuranceNo').value ||'').trim()||null,
-        occupation:     (g('edit_occupation').value  ||'').trim()||null,
-        address:        (g('edit_address').value     ||'').trim()||null,
-        medical_alerts: (g('edit_alerts').value      ||'').trim()||null,
-        remarks:        (g('edit_remarks').value     ||'').trim()||null
-    };
+    if (!editPatientSelectedClinicId()) {
+        alert('Please select a clinic.');
+        return;
+    }
+    var ctEdit = editPatientClinicTagFromSelect();
+    var nurse = currentRole === 'nurse';
+    var payload = nurse
+        ? (function() {
+              var o = {};
+              if (ctEdit) o[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
+              return o;
+          })()
+        : {
+              full_name:      (g('edit_fullName').value    ||'').trim(),
+              chinese_name:   (g('edit_chineseName').value ||'').trim()||null,
+              phone_number:   (g('edit_phone').value       ||'').trim()||null,
+              email:          (g('edit_email').value       ||'').trim()||null,
+              sex:             g('edit_sex').value          ||null,
+              dob:             g('edit_dob').value          ||null,
+              hkid:           (g('edit_hkid').value        ||'').trim()||null,
+              insurance_no:   (g('edit_insuranceNo').value ||'').trim()||null,
+              occupation:     (g('edit_occupation').value  ||'').trim()||null,
+              address:        (g('edit_address').value     ||'').trim()||null,
+              medical_alerts: (g('edit_alerts').value      ||'').trim()||null,
+              remarks:        (g('edit_remarks').value     ||'').trim()||null
+          };
+    if (!nurse && ctEdit) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
     SB.from('patients').update(payload).eq('id',editPatientId)
     .then(function(r) {
         if (r.error) { alert('Error: '+r.error.message); return; }
         closeModal('editPatientModal');
         fetchPatients();
-        alert('Patient updated!');
+        alert(nurse ? 'Clinic tag saved.' : 'Patient updated!');
     });
 }
 
@@ -213,6 +560,10 @@ function viewHistory(pid) {
     .then(function(r) {
         if (r.error||!r.data) { alert('Could not load patient.'); return; }
         var p = r.data;
+        selPatientClinicTag = p[PATIENT_CLINIC_TAG_FIELD] ||
+            (typeof currentClinicCodeForTagging === 'function'
+                ? currentClinicCodeForTagging()
+                : '');
         g('det_patientNo').textContent   = p.patient_no ? '# '+p.patient_no : '';
         g('det_patientName').textContent = p.full_name+(p.chinese_name?'  '+p.chinese_name:'');
         g('det_alerts').textContent      = p.medical_alerts||'';
@@ -286,8 +637,14 @@ function saveNote() {
     if (!inp) return;
     var note = inp.value.trim();
     if (!note) { alert('Please enter a note.'); return; }
+    var ins = { patient_id: selPatientId, notes: note };
+    var tagIns = selPatientClinicTag ||
+        (typeof currentClinicCodeForTagging === 'function'
+            ? currentClinicCodeForTagging()
+            : '');
+    if (tagIns) ins[TREATMENT_CLINIC_TAG_FIELD] = tagIns;
     SB.from('treatments')
-        .insert([{ patient_id:selPatientId, notes:note }])
+        .insert([ins])
     .then(function(r) {
         if (r.error) { alert('Error: '+r.error.message); return; }
         inp.value = '';

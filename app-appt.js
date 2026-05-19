@@ -16,6 +16,8 @@ var billDoctorList = [];
 var treatmentItemsCache = [];
 
 var todayAppts   = [];   // last-fetched list for the Today tab (used by print)
+/** Today's walk-in appointment id awaiting patient registration before check-in. */
+var todayApptPendingPatientRegId = null;
 
 /** Appointment id whose remarks are open in `queueRemarksModal`. */
 var queueRemarksEditApptId = null;
@@ -1609,9 +1611,77 @@ function loadToday() {
     });
 }
 
+function todayApptNeedsPatientReg(a) {
+    if (!a) return false;
+    if (a.bill_status === 'Queue' || a.bill_status === 'Done') return false;
+    return !a.patient_id;
+}
+
+function clearTodayApptPendingPatientReg() {
+    todayApptPendingPatientRegId = null;
+}
+
+function openNewPatientForTodayAppt(a) {
+    if (!a || !a.id) return;
+    todayApptPendingPatientRegId = a.id;
+    if (typeof openAddPatient !== 'function') {
+        alert('Patient registration is not available.');
+        return;
+    }
+    openAddPatient();
+    setTimeout(function () {
+        var en = String(a.patient_name || '').trim();
+        var cn = String(a.patient_chinese_name || '').trim();
+        if (en && g('fullName')) g('fullName').value = en;
+        if (cn && g('chineseName')) g('chineseName').value = cn;
+    }, 0);
+}
+
+/** Called from patient registration after saving a new patient (app-patient.js). */
+function linkTodayApptAfterPatientRegistration(patient) {
+    if (!todayApptPendingPatientRegId || !patient || !patient.id) return false;
+    var apptId = todayApptPendingPatientRegId;
+    todayApptPendingPatientRegId = null;
+
+    SB.from('appointments')
+        .update({
+            patient_id:           patient.id,
+            patient_no:           patient.patient_no || null,
+            patient_name:         patient.full_name || null,
+            patient_chinese_name: patient.chinese_name || null
+        })
+        .eq('id', apptId)
+    .then(function (res) {
+        if (res.error) {
+            alert('Patient saved but could not link to appointment: ' + res.error.message);
+            loadToday();
+            return;
+        }
+        loadToday();
+        alert(
+            'Patient registered (No. ' + (patient.patient_no || '—') + ').\n' +
+            'You can now use Check In to add them to the queue.'
+        );
+    });
+    return true;
+}
+
 function buildTodayRow(tb, a) {
     var tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
+    var needsReg = todayApptNeedsPatientReg(a);
+    var actionBtn = '';
+    if (a.bill_status !== 'Queue' && a.bill_status !== 'Done') {
+        if (needsReg) {
+            actionBtn =
+                '<button type="button" class="btn-today-newpatient btn-sm" ' +
+                'style="background:#d97706;">New Patient</button>';
+        } else {
+            actionBtn =
+                '<button type="button" class="btn-today-checkin btn-sm" ' +
+                'style="background:var(--success);">Check In</button>';
+        }
+    }
 
     tr.innerHTML =
         '<td>' +
@@ -1637,38 +1707,44 @@ function buildTodayRow(tb, a) {
         '</td>' +
         '<td>' +
             '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
-                '<button class="btn-today-edit btn-sm" ' +
+                '<button type="button" class="btn-today-edit btn-sm" ' +
                 'style="background:var(--primary);">Edit</button>' +
-                (a.bill_status !== 'Queue' &&
-                 a.bill_status !== 'Done'
-                    ? '<button class="btn-today-checkin btn-sm" ' +
-                      'style="background:var(--success);">' +
-                      'Check In</button>'
-                    : '') +
+                actionBtn +
             '</div>' +
         '</td>';
 
     tb.appendChild(tr);
 
-      tr.addEventListener('dblclick', function() {
+    tr.addEventListener('dblclick', function () {
         if (a.bill_status === 'Queue' || a.bill_status === 'Done') {
             openApptEditModal(a);
+            return;
+        }
+        if (todayApptNeedsPatientReg(a)) {
+            openNewPatientForTodayAppt(a);
             return;
         }
         if (!confirm('Check in ' + (a.patient_name || 'this patient') + ' now?')) return;
         checkInFromToday(a.id);
     });
 
-
     tr.querySelector('.btn-today-edit')
-      .addEventListener('click', function(e) {
-          e.stopPropagation();
-          openApptEditModal(a);
-      });
+        .addEventListener('click', function (e) {
+            e.stopPropagation();
+            openApptEditModal(a);
+        });
+
+    var np = tr.querySelector('.btn-today-newpatient');
+    if (np) {
+        np.addEventListener('click', function (e) {
+            e.stopPropagation();
+            openNewPatientForTodayAppt(a);
+        });
+    }
 
     var ci = tr.querySelector('.btn-today-checkin');
     if (ci) {
-        ci.addEventListener('click', function(e) {
+        ci.addEventListener('click', function (e) {
             e.stopPropagation();
             checkInPatient(a);
         });
@@ -1770,6 +1846,10 @@ function printTodayList() {
 }
 
 function checkInPatient(a) {
+    if (todayApptNeedsPatientReg(a)) {
+        alert('Please register this walk-in patient first (New Patient).');
+        return;
+    }
     var now = new Date();
     var arrivalTime = now.toISOString();
 
@@ -1811,8 +1891,61 @@ function queueDragBlockedTarget(el) {
 /** Targets where double-click should not open the patient editor (narrower than drag block). */
 function queuePatientEditDblclickBlocked(el) {
     return !!(el && el.closest && el.closest(
-        'button, input, textarea, select, .action-wrap, .action-drop, label'
+        'button, input, textarea, select, .action-wrap, .action-drop, .queue-remarks-pencil'
     ));
+}
+
+/** Refresh appointment lists after patient details change from queue / today. */
+function refreshApptListsAfterPatientEdit() {
+    if (typeof loadQueue === 'function') loadQueue();
+    if (typeof loadToday === 'function') loadToday();
+}
+
+function resolveQueueRowPatientId(q, done) {
+    if (!q) { if (done) done(null); return; }
+    if (q.patient_id) { if (done) done(q.patient_id); return; }
+    var no = String(q.patient_no || '').trim();
+    if (!no) { if (done) done(null); return; }
+    SB.from('patients').select('id').eq('patient_no', no).limit(1)
+    .then(function (r) {
+        if (r.error || !r.data || !r.data.length) {
+            if (done) done(null);
+            return;
+        }
+        var pid = r.data[0].id;
+        if (pid && q.id) {
+            SB.from('appointments')
+                .update({ patient_id: pid })
+                .eq('id', q.id)
+            .then(function () {
+                q.patient_id = pid;
+                if (done) done(pid);
+            });
+            return;
+        }
+        if (done) done(pid || null);
+    });
+}
+
+function openEditPatientFromQueueRow(q) {
+    if (!q) return;
+    document.querySelectorAll('.action-drop.open').forEach(function (d) {
+        d.classList.remove('open');
+    });
+    resolveQueueRowPatientId(q, function (pid) {
+        if (pid && typeof openEditPatient === 'function') {
+            openEditPatient(pid);
+            return;
+        }
+        if (todayApptNeedsPatientReg(q)) {
+            openNewPatientForTodayAppt(q);
+            return;
+        }
+        alert(
+            'No patient record is linked to this queue entry.\n' +
+            'Register the patient first (Today tab: New Patient), or link a patient on the appointment.'
+        );
+    });
 }
 
 function queueFindRowByApptId(tbody, apptId) {
@@ -2063,8 +2196,7 @@ function buildQueueRow(tb, q, seqNo) {
     tr.title =
         'Drag this row onto another row (above/below midpoint) ' +
         'to change consultation order.\n\n' +
-        'Double-click the row (outside buttons) to open the edit patient sheet ' +
-        'when this visit is linked to a patient record.';
+        'Double-click the row (outside buttons) to edit patient information.';
 
     tr.innerHTML =
         '<td>' +
@@ -2158,21 +2290,11 @@ function buildQueueRow(tb, q, seqNo) {
         tr.classList.remove('queue-row-dragging');
     });
 
-    tr.addEventListener('dblclick', function(e) {
+    tr.addEventListener('dblclick', function (e) {
         if (queuePatientEditDblclickBlocked(e.target)) return;
-        if (!q.patient_id) {
-            alert(
-                'No patient record is linked to this queue entry.\n' +
-                    'Open the appointment to attach a registered patient first.'
-            );
-            return;
-        }
-        document.querySelectorAll('.action-drop.open').forEach(function(d) {
-            d.classList.remove('open');
-        });
-        if (typeof openEditPatient === 'function') {
-            openEditPatient(q.patient_id);
-        }
+        e.preventDefault();
+        e.stopPropagation();
+        openEditPatientFromQueueRow(q);
     });
 
     var drop = g('ad-' + uid);
@@ -4726,6 +4848,14 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
 }
 
 function checkInFromToday(apptId) {
+    var appt = null;
+    for (var i = 0; i < todayAppts.length; i++) {
+        if (todayAppts[i].id === apptId) { appt = todayAppts[i]; break; }
+    }
+    if (appt && todayApptNeedsPatientReg(appt)) {
+        alert('Please register this walk-in patient first (New Patient).');
+        return;
+    }
     var now = new Date();
     var arrivalTime = now.toISOString();
 

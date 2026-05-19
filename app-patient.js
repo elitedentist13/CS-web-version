@@ -315,13 +315,19 @@ function submitAddPatient(e) {
             remarks:        (g('remarks').value      ||'').trim()||null
         };
         if (ctAdd) payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
-        SB.from('patients').insert([payload])
+        SB.from('patients').insert([payload]).select('id,patient_no,full_name,chinese_name')
         .then(function(r) {
             if (r.error) { alert('Error: '+r.error.message); return; }
+            var row = r.data && r.data[0] ? r.data[0] : null;
+            var linkedToday = row &&
+                typeof linkTodayApptAfterPatientRegistration === 'function' &&
+                linkTodayApptAfterPatientRegistration(row);
             closeModal('addPatientModal');
             g('patientForm').reset();
             fetchPatients();
-            alert('Patient registered!  No: '+no);
+            if (!linkedToday) {
+                alert('Patient registered!  No: '+no);
+            }
         });
     });
 }
@@ -529,6 +535,9 @@ function submitEditPatient(e) {
         if (r.error) { alert('Error: '+r.error.message); return; }
         closeModal('editPatientModal');
         fetchPatients();
+        if (typeof refreshApptListsAfterPatientEdit === 'function') {
+            refreshApptListsAfterPatientEdit();
+        }
         alert(nurse ? 'Clinic tag saved.' : 'Patient updated!');
     });
 }

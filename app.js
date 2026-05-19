@@ -619,6 +619,9 @@ function closeModal(id) {
         if (typeof resetApptBookingGuards === 'function') resetApptBookingGuards();
         apptEditId = null;
     }
+    if (id === 'addPatientModal' && typeof clearTodayApptPendingPatientReg === 'function') {
+        clearTodayApptPendingPatientReg();
+    }
 }
 
 // ════════════════════════════════════════════════════════════════

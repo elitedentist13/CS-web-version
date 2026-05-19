@@ -48,7 +48,79 @@ var REPORT = (function () {
 
   function setHeader(title, hint) {
     if (g('rptTitle')) g('rptTitle').textContent = title || '—';
-    if (g('rptHint')) g('rptHint').textContent = hint || '—';
+    var clinicLbl = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
+        ? currentClinicLabel
+        : '';
+    var fullHint = hint || '';
+    if (clinicLbl) {
+      fullHint = (fullHint ? fullHint + ' · ' : '') + 'Clinic: ' + clinicLbl;
+    }
+    if (g('rptHint')) g('rptHint').textContent = fullHint || '—';
+  }
+
+  function reportClinicTag() {
+    return typeof currentClinicCodeForTagging === 'function'
+      ? currentClinicCodeForTagging()
+      : '';
+  }
+
+  function reportClinicId() {
+    return (typeof currentClinicId !== 'undefined' && currentClinicId)
+      ? String(currentClinicId)
+      : '';
+  }
+
+  function uniqIds(arr) {
+    var seen = {};
+    var out = [];
+    (arr || []).forEach(function (id) {
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      out.push(id);
+    });
+    return out;
+  }
+
+  async function filterBillsForReportClinic(bills) {
+    var tag = reportClinicTag();
+    if (!tag || !bills || !bills.length) return bills || [];
+
+    var patientIds = uniqIds(bills.map(function (b) { return b.patient_id; }));
+    var apptIds = uniqIds(bills.map(function (b) { return b.appointment_id; }));
+
+    var pmap = {};
+    if (patientIds.length) {
+      var field = typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? PATIENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+      var pr = await SB.from('patients').select('id,' + field).in('id', patientIds);
+      if (pr.error) throw new Error(pr.error.message);
+      (pr.data || []).forEach(function (p) {
+        pmap[p.id] = String(p[field] || '').trim();
+      });
+    }
+
+    var amap = {};
+    if (apptIds.length) {
+      var af = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? APPOINTMENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+      var ar = await SB.from('appointments').select('id,' + af).in('id', apptIds);
+      if (ar.error) throw new Error(ar.error.message);
+      (ar.data || []).forEach(function (a) {
+        amap[a.id] = String(a[af] || '').trim();
+      });
+    }
+
+    return bills.filter(function (b) {
+      if (b.patient_id && pmap[b.patient_id] !== undefined) {
+        return pmap[b.patient_id] === tag;
+      }
+      if (b.appointment_id && amap[b.appointment_id] !== undefined) {
+        return amap[b.appointment_id] === tag;
+      }
+      return false;
+    });
   }
 
   function setDefaultDates() {
@@ -442,12 +514,12 @@ var REPORT = (function () {
   async function loadBills(from, to) {
     // expects global SB
     var res = await SB.from('bills')
-      .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at')
+      .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at,patient_id,appointment_id')
       .gte('bill_date', from)
       .lte('bill_date', to)
       .order('bill_date', { ascending: true });
     if (res.error) throw new Error(res.error.message);
-    return res.data || [];
+    return filterBillsForReportClinic(res.data || []);
   }
 
   async function loadPatients() {
@@ -459,9 +531,8 @@ var REPORT = (function () {
       )
       .order('patient_no', { ascending: true })
       .limit(2000);
-    q = typeof applyPatientQueryClinicTag === 'function'
-      ? applyPatientQueryClinicTag(q, 'reportPatientDirClinicFilter')
-      : q;
+    var tag = reportClinicTag();
+    if (tag) q = q.eq(PATIENT_CLINIC_TAG_FIELD, tag);
     var res = await q;
     if (res.error) throw new Error(res.error.message);
     return res.data || [];
@@ -487,7 +558,7 @@ var REPORT = (function () {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = (_tab || 'report') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.download = (_tab || 'report') + '_' + todayISO() + '.csv';
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -503,7 +574,7 @@ var REPORT = (function () {
 
   async function loadBillsLite(from, to) {
     var res = await SB.from('bills')
-      .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,created_at')
+      .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at')
       .gte('bill_date', from)
       .lte('bill_date', to)
       .order('bill_date', { ascending: true })
@@ -512,7 +583,7 @@ var REPORT = (function () {
       var m = String(res.error.message || '').toLowerCase();
       if (m.indexOf('doctor_id') >= 0 || m.indexOf('doctor_name') >= 0 || m.indexOf('doctor_tag') >= 0) {
         res = await SB.from('bills')
-          .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,created_at')
+          .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at')
           .gte('bill_date', from)
           .lte('bill_date', to)
           .order('bill_date', { ascending: true })
@@ -520,7 +591,7 @@ var REPORT = (function () {
       }
     }
     if (res.error) throw new Error(res.error.message);
-    return res.data || [];
+    return filterBillsForReportClinic(res.data || []);
   }
 
   async function loadPatientsByIds(ids) {
@@ -545,19 +616,27 @@ var REPORT = (function () {
   async function loadTreatmentsByDay(dayIso) {
     var fromTs = String(dayIso || todayISO()) + 'T00:00:00';
     var toTs = String(dayIso || todayISO()) + 'T23:59:59';
-    var res = await SB.from('treatments')
+    var q = SB.from('treatments')
       .select('id,patient_id,dentist_name,doctor_id,doctor_name,doctor_tag,notes,created_at')
       .gte('created_at', fromTs)
       .lte('created_at', toTs)
       .order('created_at', { ascending: true });
+    var tag = reportClinicTag();
+    var tf = typeof TREATMENT_CLINIC_TAG_FIELD !== 'undefined'
+      ? TREATMENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    if (tag) q = q.eq(tf, tag);
+    var res = await q;
     if (res.error) {
       var m = String(res.error.message || '').toLowerCase();
       if (m.indexOf('doctor_id') >= 0 || m.indexOf('doctor_name') >= 0 || m.indexOf('doctor_tag') >= 0) {
-        res = await SB.from('treatments')
+        var q2 = SB.from('treatments')
           .select('id,patient_id,dentist_name,notes,created_at')
           .gte('created_at', fromTs)
           .lte('created_at', toTs)
           .order('created_at', { ascending: true });
+        if (tag) q2 = q2.eq(tf, tag);
+        res = await q2;
       }
     }
     if (res.error) throw new Error(res.error.message);
@@ -1926,6 +2005,7 @@ var REPORT = (function () {
   }
 
   function init() {
+    if (typeof initReportModuleClinic === 'function') initReportModuleClinic();
     wireReportTabButtons();
     setDefaultDates();
     switchTab(_tab);

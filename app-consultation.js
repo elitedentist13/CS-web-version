@@ -100,6 +100,13 @@ function loadConsultationDoctors() {
     var globalDocs = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS)) ? APP_DOCTORS : null;
     var useDocs = function (docs) {
         docs = (docs || []).filter(function (d) { return d.is_active !== false; });
+        if (typeof currentClinicId !== 'undefined' && currentClinicId) {
+            if (typeof doctorsForClinic === 'function') {
+                docs = doctorsForClinic(currentClinicId);
+            } else {
+                docs = docs.filter(function (d) { return d.clinic_id === currentClinicId; });
+            }
+        }
         conDoctorsById = {};
         docs.forEach(function (d) { conDoctorsById[d.id] = d; });
         if (!sel) return;
@@ -134,7 +141,7 @@ function loadConsultationDoctors() {
         return;
     }
 
-    SB.from('doctors').select('id,doctor_code,english_name,chinese_name,display_name,is_active').order('doctor_code')
+    SB.from('doctors').select('id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id').order('doctor_code')
     .then(function (r) {
         useDocs(r.data || []);
     });
@@ -402,10 +409,12 @@ function selectConPatient(p) {
     conFormsPatientId = p.id;
     conFormsPatientData = p;
 
-    var todayStr = new Date().toLocaleDateString('en-HK', {
-        weekday: 'short', day: 'numeric',
-        month: 'short',   year: 'numeric'
-    });
+    var todayStr = typeof fmtNowDateTimeHK === 'function'
+        ? fmtNowDateTimeHK()
+        : nowLocal().toLocaleDateString(APP_LOCALE || 'en-HK', {
+            weekday: 'short', day: 'numeric',
+            month: 'short', year: 'numeric'
+        });
 
     var banner = g('conPatientBanner');
     if (banner) banner.style.display = 'flex';
@@ -774,7 +783,7 @@ function applyConFormsPlaceholders(html) {
         doctor_name: conActiveDoctorName || d.english_name || currentName || '',
         doctor_code: d.doctor_code || '',
         clinic_name: (conFormsSelectedTemplate && conFormsSelectedTemplate.clinic_name) || '',
-        date: now.toISOString().slice(0, 10),
+        date: todayISO(),
         time: now.toLocaleTimeString('en-HK', { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -877,7 +886,7 @@ function saveConFormsDoc(andPrint) {
         template_name: t.template_name || null,
         template_type: t.template_type || null,
         document_name: docName,
-        document_date: new Date().toISOString().slice(0, 10),
+        document_date: todayISO(),
         content_html: html
     };
 
@@ -1080,10 +1089,13 @@ function openConFormsDoc(id) {
 // HELPERS
 // ════════════════════════════════════════════════════════════════
 function formatDobAge(dob) {
-    var pts = dob.split('-');
-    var d   = new Date(Date.UTC(+pts[0], +pts[1] - 1, +pts[2]));
+    var pts = String(dob || '').split('-');
+    var d = typeof parseISODateOnly === 'function'
+        ? parseISODateOnly(dob)
+        : new Date(+pts[0], +pts[1] - 1, +pts[2]);
+    if (!d || isNaN(d.getTime())) return '—';
     var age = Math.floor(
-        (new Date() - d) / (365.25 * 24 * 3600 * 1000)
+        (nowLocal() - d) / (365.25 * 24 * 3600 * 1000)
     );
     return pts[2] + '/' + pts[1] + '/' + pts[0] +
            ' (' + age + ' yrs)';
@@ -2617,7 +2629,7 @@ function printDrugLabel(drugs, lang) {
 
 // ── Get drug data from a live rx-line-card (before save) ─────
 function getDrugFromRxLine(lineEl) {
-    var today = new Date().toISOString().split('T')[0];
+    var today = todayISO();
     var dosageEl   = lineEl.querySelector('.rx-dosage');
     var routeEl    = lineEl.querySelector('.rx-route');
     var freqEl     = lineEl.querySelector('.rx-freq');

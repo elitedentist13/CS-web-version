@@ -66,17 +66,37 @@ var CLINIC_TAG_FILTER_SELECT_IDS = [
 function g(id) { return document.getElementById(id); }
 function pad(n) { return String(n).padStart(2, '0'); }
 
-function todayISO() {
-    var d = new Date();
-    return d.getFullYear() + '-' +
-           pad(d.getMonth() + 1) + '-' +
-           pad(d.getDate());
+/**
+ * Calendar dates use the PC's local timezone (set Windows to Hong Kong for HK clinic).
+ * Display uses en-HK locale. Do not redefine todayISO in other script files.
+ */
+var APP_LOCALE = 'en-HK';
+
+function nowLocal() {
+    return new Date();
 }
 
 function d2iso(d) {
     return d.getFullYear() + '-' +
            pad(d.getMonth() + 1) + '-' +
            pad(d.getDate());
+}
+
+/** Today's calendar date on this PC (YYYY-MM-DD, local — not UTC). */
+function todayISO() {
+    return d2iso(nowLocal());
+}
+
+/** Calendar date from YYYY-MM-DD (local midnight — matches DB date columns). */
+function parseISODateOnly(iso) {
+    if (!iso) return null;
+    var p = String(iso).trim().split('-');
+    if (p.length < 3) return null;
+    var y = parseInt(p[0], 10);
+    var m = parseInt(p[1], 10) - 1;
+    var day = parseInt(p[2], 10);
+    if (isNaN(y) || isNaN(m) || isNaN(day)) return null;
+    return new Date(y, m, day);
 }
 
 function fmt12(t) {
@@ -95,16 +115,40 @@ function addMins(t, mins) {
     return pad(Math.floor(total / 60) % 24) + ':' + pad(total % 60);
 }
 
-function fmtDateLong(iso) {
-    if (!iso) return '-';
-    var p = iso.split('-');
-    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
-    return d.toLocaleDateString('en-HK', {
+function fmtDateLong(iso, opt) {
+    opt = opt || {};
+    var d = iso ? parseISODateOnly(iso) : nowLocal();
+    if (!d || isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString(APP_LOCALE, {
+        weekday: opt.long ? 'long'  : 'short',
+        day:     'numeric',
+        month:   opt.long ? 'long'  : 'short',
+        year:    'numeric'
+    });
+}
+
+/** Long heading for “today” (appointment module header, etc.). */
+function fmtTodayLong() {
+    return nowLocal().toLocaleDateString(APP_LOCALE, {
+        weekday: 'long',
+        day:     'numeric',
+        month:   'long',
+        year:    'numeric'
+    });
+}
+
+/** Session strip: local calendar date + time (Hong Kong format). */
+function fmtNowDateTimeHK() {
+    var d = nowLocal();
+    return d.toLocaleDateString(APP_LOCALE, {
         weekday: 'short',
         day:     'numeric',
         month:   'short',
-        year:    'numeric',
-        timeZone: 'UTC'
+        year:    'numeric'
+    }) + ' ' + d.toLocaleTimeString(APP_LOCALE, {
+        hour:   '2-digit',
+        minute: '2-digit',
+        hour12: true
     });
 }
 
@@ -162,6 +206,192 @@ function doctorTagFromDoc(doc) {
 function getDoctorById(id) {
     if (!id || !Array.isArray(APP_DOCTORS)) return null;
     return APP_DOCTORS.find(function(d) { return d.id === id; }) || null;
+}
+
+/** Active doctors for one clinic (by doctors.clinic_id). */
+function doctorsForClinic(clinicId) {
+    if (!clinicId) return (APP_DOCTORS || []).slice();
+    return (APP_DOCTORS || []).filter(function (d) {
+        return d.clinic_id === clinicId;
+    });
+}
+
+/** Login: all active doctors (identity is not limited by clinic). */
+function refreshLoginDoctorSelect(preselectDoctorId) {
+    var sel = g('loginDoctor');
+    if (!sel) return;
+    var list = (APP_DOCTORS || []).slice();
+    if (!list.length) {
+        sel.innerHTML = '<option value="">(No doctors)</option>';
+        return;
+    }
+    sel.innerHTML = '<option value="">-- Select doctor identity --</option>' +
+        list.map(function (d) {
+            var shown = d.display_name || d.english_name || d.chinese_name || 'Doctor';
+            var label = (d.doctor_code ? ('[' + d.doctor_code + '] ') : '') + shown;
+            return '<option value="' + esc(d.id) + '">' + esc(label) + '</option>';
+        }).join('');
+    if (preselectDoctorId) sel.value = preselectDoctorId;
+}
+
+function applyIdentityFromDoctor(doctorId) {
+    var doc = getDoctorById(doctorId);
+    currentDoctorId = doctorId || null;
+    currentDoctorName = doc
+        ? (doc.display_name || doc.english_name || doc.chinese_name || null)
+        : null;
+    if (currentDoctorName) currentName = currentDoctorName;
+}
+
+function populateReportClinicSelect() {
+    var sel = g('reportClinicSelect');
+    if (!sel) return;
+    var prev = sel.value || currentClinicId || '';
+    sel.innerHTML = '';
+    if (!APP_CLINICS || !APP_CLINICS.length) {
+        sel.innerHTML = '<option value="">(No clinics)</option>';
+        return;
+    }
+    APP_CLINICS.forEach(function (c) {
+        var o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
+            (c.english_name || c.chinese_name || 'Clinic');
+        sel.appendChild(o);
+    });
+    var def = typeof defaultWorkingClinicId === 'function'
+        ? defaultWorkingClinicId()
+        : (APP_CLINICS[0] ? APP_CLINICS[0].id : '');
+    var has = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === prev) { has = true; break; }
+    }
+    sel.value = has ? prev : def;
+}
+
+function onReportClinicChange() {
+    var sel = g('reportClinicSelect');
+    if (!sel || !sel.value) return;
+    if (typeof setWorkingClinic === 'function') {
+        setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: false });
+    }
+}
+
+function bindReportClinicSelectOnce() {
+    var sel = g('reportClinicSelect');
+    if (!sel || sel.dataset.bound) return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', onReportClinicChange);
+}
+
+function initReportModuleClinic() {
+    populateReportClinicSelect();
+    bindReportClinicSelectOnce();
+    var sel = g('reportClinicSelect');
+    if (sel && sel.value && typeof setWorkingClinic === 'function') {
+        setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: false });
+    }
+}
+
+function populateWorkingClinicSelect() {
+    var sel = g('appWorkingClinicSelect');
+    if (!sel) return;
+    var prev = sel.value || currentClinicId || '';
+    sel.innerHTML = '';
+    if (!APP_CLINICS || !APP_CLINICS.length) {
+        sel.innerHTML = '<option value="">(No clinics)</option>';
+        return;
+    }
+    APP_CLINICS.forEach(function (c) {
+        var o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
+            (c.english_name || c.chinese_name || 'Clinic');
+        sel.appendChild(o);
+    });
+    var has = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === prev) { has = true; break; }
+    }
+    sel.value = has ? prev : (APP_CLINICS[0] ? APP_CLINICS[0].id : '');
+}
+
+/** Working clinic for appointments/print — not tied to login. */
+function setWorkingClinic(clinicId, options) {
+    options = options || {};
+    if (!clinicId) return;
+    currentClinicId = clinicId;
+    var rec = clinicRecordFromId(clinicId);
+    currentClinicLabel = rec
+        ? (rec.english_name || rec.chinese_name || null)
+        : null;
+    var wsel = g('appWorkingClinicSelect');
+    if (wsel && wsel.value !== clinicId) wsel.value = clinicId;
+    var apSel = g('apptClinicSelect');
+    if (apSel && apSel.value !== clinicId) apSel.value = clinicId;
+    var rptSel = g('reportClinicSelect');
+    if (rptSel && rptSel.value !== clinicId) rptSel.value = clinicId;
+
+    if (options.syncFilters !== false && typeof currentClinicCodeForTagging === 'function') {
+        var tag = currentClinicCodeForTagging();
+        ['arRecordsClinicFilter', 'recallClinicFilter', 'apptPsClinicFilter'].forEach(function (fid) {
+            var fs = g(fid);
+            if (!fs) return;
+            var matched = false;
+            for (var j = 0; j < fs.options.length; j++) {
+                if (fs.options[j].value === tag) {
+                    fs.value = tag;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched && tag) fs.value = tag;
+        });
+    }
+
+    persistSession();
+    refreshAppSessionStripContents();
+
+    if (options.reloadAppt) {
+        var apptSec = g('appointmentSection');
+        if (apptSec && apptSec.style.display !== 'none') {
+            if (typeof reloadApptModuleData === 'function') reloadApptModuleData();
+            else {
+                if (typeof loadToday === 'function') loadToday();
+                if (typeof loadQueue === 'function') loadQueue();
+                if (typeof loadApptRecords === 'function') loadApptRecords();
+            }
+        }
+    }
+
+    var rptSec = g('reportSection');
+    if (rptSec && rptSec.style.display !== 'none' &&
+        typeof REPORT !== 'undefined' && typeof REPORT.refresh === 'function') {
+        REPORT.refresh();
+    }
+
+    if (typeof CFG !== 'undefined' && typeof CFG.prefetchPrintSettings === 'function') {
+        CFG.prefetchPrintSettings(clinicId);
+    }
+}
+
+function defaultWorkingClinicId() {
+    if (currentClinicId && clinicRecordFromId(currentClinicId)) return currentClinicId;
+    return APP_CLINICS.length ? APP_CLINICS[0].id : null;
+}
+
+function prefetchLoginDoctorForUserId(uid) {
+    if (!uid) return;
+    SB.from('app_users')
+        .select('doctor_id,role')
+        .eq('user_id', uid)
+        .eq('is_active', true)
+        .limit(1)
+    .then(function (r) {
+        if (!r.data || !r.data.length) return;
+        var u = r.data[0];
+        if (u.doctor_id) refreshLoginDoctorSelect(u.doctor_id);
+    });
 }
 
 function getActiveDoctorContext() {
@@ -293,9 +523,9 @@ function showOnly(id) {
 
 function refreshAppSessionStripContents() {
     var dateEl = g('appStripDate');
-    var clinEl = g('appStripClinic');
-    var iso = typeof todayISO === 'function' ? todayISO() : '';
-    var dstr = iso && typeof fmtDateLong === 'function' ? fmtDateLong(iso) : iso;
+    var dstr = typeof fmtNowDateTimeHK === 'function'
+        ? fmtNowDateTimeHK()
+        : (typeof fmtTodayLong === 'function' ? fmtTodayLong() : '');
     if (dateEl) dateEl.textContent = dstr ? 'Today: ' + dstr : '';
 
     var cline = '';
@@ -310,14 +540,15 @@ function refreshAppSessionStripContents() {
     } else if (currentClinicLabel) {
         cline = currentClinicLabel;
     }
-    if (clinEl) clinEl.textContent = cline ? 'Clinic: ' + cline : '';
+    if (currentUserId) populateWorkingClinicSelect();
 
+    var identity = currentName || currentDoctorName || currentUserId || '';
     var shortTitle = 'Joyful Smile Clinic Manager';
     try {
         document.title =
-            cline
-                ? 'JSM · ' + cline.replace(/\s+/g, ' ').trim() + (dstr ? ' · ' + dstr : '')
-                : shortTitle + (dstr ? ' · ' + dstr : '');
+            (identity ? identity + ' · ' : '') +
+            (cline ? cline.replace(/\s+/g, ' ').trim() + ' · ' : '') +
+            shortTitle + (dstr ? ' · ' + dstr : '');
     } catch (e) {}
 }
 
@@ -438,90 +669,79 @@ function restoreSession() {
 }
 
 function loadClinicsAndDoctorsForLogin() {
-    // clinics
     SB.from('clinics')
       .select('id,clinic_code,english_name,chinese_name,address,tel')
       .order('clinic_code')
     .then(function (r) {
         APP_CLINICS = r.data || [];
-        var sel = g('loginClinic');
-        if (!sel) return;
-        if (!APP_CLINICS.length) {
-            sel.innerHTML = '<option value="">(No clinics)</option>';
-            return;
-        }
-        sel.innerHTML = '<option value="">-- Select Clinic --</option>' +
-            APP_CLINICS.map(function (c) {
-                var label = (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
-                    (c.english_name || c.chinese_name || 'Clinic');
-                return '<option value="' + esc(c.id) + '">' + esc(label) + '</option>';
-            }).join('');
         refreshAllClinicTagFilterSelects();
+        populateWorkingClinicSelect();
+        if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
         if (typeof fillAddPatientClinicSelect === 'function') {
             fillAddPatientClinicSelect();
         }
         if (typeof refreshEditPatientClinicIfModalOpen === 'function') {
             refreshEditPatientClinicIfModalOpen();
         }
-        refreshAppSessionStripContents();
+        if (currentUserId) refreshAppSessionStripContents();
     });
 
-    // doctors
-    SB.from('doctors').select('id,doctor_code,english_name,chinese_name,display_name,is_active')
-      .order('doctor_code')
+    SB.from('doctors').select(
+        'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id'
+    ).order('doctor_code')
     .then(function (r) {
         APP_DOCTORS = (r.data || []).filter(function (d) { return d.is_active !== false; });
-        var sel = g('loginDoctor');
-        if (!sel) return;
-        if (!APP_DOCTORS.length) {
-            sel.innerHTML = '<option value="">(No doctors)</option>';
-            return;
-        }
-        sel.innerHTML = '<option value="">-- Select Doctor --</option>' +
-            APP_DOCTORS.map(function (d) {
-                var shown = d.display_name || d.english_name || d.chinese_name || 'Doctor';
-                var label = (d.doctor_code ? ('[' + d.doctor_code + '] ') : '') + shown;
-                return '<option value="' + esc(d.id) + '">' + esc(label) + '</option>';
-            }).join('');
+        refreshLoginDoctorSelect();
     });
+}
+
+function finishLoginSession(u, doctorId) {
+    currentUserId = u ? u.user_id : currentUserId;
+    currentRole = u ? (u.role || 'staff') : currentRole;
+
+    if (doctorId) {
+        applyIdentityFromDoctor(doctorId);
+    }
+    if (u && u.display_name && (!doctorId || !currentDoctorName)) {
+        currentName = u.display_name;
+    }
+    if (!currentName) currentName = currentUserId;
+
+    var wc = defaultWorkingClinicId();
+    if (wc) setWorkingClinic(wc, { syncFilters: true, reloadAppt: false });
+    else persistSession();
+
+    showDashboard();
 }
 
 function doLogin() {
     var uid = (g('loginUserId').value || '').trim();
     var pw  = (g('loginPassword').value || '');
-    var clinicId = (g('loginClinic') && g('loginClinic').value) ? g('loginClinic').value : '';
     var doctorId = (g('loginDoctor') && g('loginDoctor').value) ? g('loginDoctor').value : '';
 
     if (!uid || !pw) {
         setLoginError('Please enter User ID and Password.');
         return;
     }
-    if (!clinicId) {
-        setLoginError('Please select a clinic.');
-        return;
-    }
-
     setLoginError('');
 
     var btn = g('loginBtn');
     btn.disabled    = true;
     btn.textContent = 'Logging in…';
 
-    // Special nurse login
-    if (uid.toLowerCase() === 'nurse' && pw === 'nurse') {
-        btn.disabled    = false;
+    function done(errMsg) {
+        btn.disabled = false;
         btn.textContent = 'Log In';
+        if (errMsg) setLoginError(errMsg);
+    }
 
+    if (uid.toLowerCase() === 'nurse' && pw === 'nurse') {
         currentUserId = 'nurse';
         currentRole = 'nurse';
-        currentName = 'Nurse';
-        currentClinicId = clinicId;
-        currentClinicLabel = (APP_CLINICS.find(function (c) { return c.id === clinicId; }) || {}).english_name || null;
-        currentDoctorId = doctorId || null;
-        var nd = (APP_DOCTORS.find(function (d) { return d.id === doctorId; }) || {});
-        currentDoctorName = (nd.display_name || nd.english_name) || null;
-        persistSession();
-        showDashboard();
+        applyIdentityFromDoctor(doctorId);
+        if (!currentDoctorName) currentName = 'Nurse';
+        done();
+        finishLoginSession({ user_id: 'nurse', role: 'nurse' }, doctorId);
         return;
     }
 
@@ -532,53 +752,45 @@ function doLogin() {
       .eq('is_active', true)
       .limit(1)
     .then(function (r) {
-        btn.disabled = false;
-        btn.textContent = 'Log In';
-
         if (r.error || !r.data || !r.data.length) {
-            setLoginError('Invalid login. Please check User ID / Password.');
+            done('Invalid login. Check User ID, password, and doctor identity.');
             return;
         }
 
         var u = r.data[0];
-        if (u.clinic_id && u.clinic_id !== clinicId) {
-            setLoginError('This user is not assigned to the selected clinic.');
+
+        if (u.role === 'admin') {
+            if (doctorId) applyIdentityFromDoctor(doctorId);
+            else {
+                currentDoctorId = null;
+                currentDoctorName = null;
+                currentName = u.display_name || u.user_id;
+            }
+            done();
+            finishLoginSession(u, doctorId || null);
             return;
         }
 
-        // For dentist accounts, doctor selection must match
-        if ((u.role === 'doctor' || u.role === 'dentist') && u.doctor_id) {
-            if (!doctorId || u.doctor_id !== doctorId) {
-                setLoginError('Please select the correct doctor for this login.');
-                return;
-            }
+        if (!doctorId) {
+            done('Please select your doctor identity.');
+            return;
         }
 
-        currentUserId = u.user_id;
-        currentRole = u.role || 'staff';
-        currentClinicId = clinicId;
-        currentClinicLabel = (APP_CLINICS.find(function (c) { return c.id === clinicId; }) || {}).english_name || null;
-
-        // Name resolution
-        if (u.doctor_id) {
-            var doc = APP_DOCTORS.find(function (d) { return d.id === u.doctor_id; });
-            currentDoctorId = u.doctor_id;
-            currentDoctorName = doc ? (doc.display_name || doc.english_name) : null;
-            currentName = currentDoctorName || u.display_name || u.user_id;
-        } else {
-            currentDoctorId = doctorId || null;
-            var d2 = (APP_DOCTORS.find(function (d) { return d.id === doctorId; }) || {});
-            currentDoctorName = (d2.display_name || d2.english_name) || null;
-            currentName = u.display_name || u.user_id;
+        if (u.doctor_id && u.doctor_id !== doctorId) {
+            done('This login is not linked to the selected doctor.');
+            return;
         }
 
-        persistSession();
-        showDashboard();
+        if ((u.role === 'doctor' || u.role === 'dentist') && !u.doctor_id) {
+            done('This doctor login is not linked to a doctor profile. Set it in Configuration → Users.');
+            return;
+        }
+
+        done();
+        finishLoginSession(u, doctorId);
     })
     .catch(function (e) {
-        btn.disabled = false;
-        btn.textContent = 'Log In';
-        setLoginError(e.message || 'Login error.');
+        done(e.message || 'Login error.');
     });
 }
 
@@ -593,7 +805,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // restore local session
     if (restoreSession()) {
+        populateWorkingClinicSelect();
         showDashboard();
+    }
+
+    var workClinicSel = g('appWorkingClinicSelect');
+    if (workClinicSel && !workClinicSel.dataset.bound) {
+        workClinicSel.dataset.bound = '1';
+        workClinicSel.addEventListener('change', function () {
+            setWorkingClinic(workClinicSel.value, { syncFilters: true, reloadAppt: true });
+        });
+    }
+
+    var loginUid = g('loginUserId');
+    if (loginUid) {
+        loginUid.addEventListener('blur', function () {
+            prefetchLoginDoctorForUserId((loginUid.value || '').trim());
+        });
     }
 
     // ── Auth buttons ──────────────────────────────────────────
@@ -659,6 +887,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (reportCard) {
         reportCard.addEventListener('click', function () {
             showOnly('reportSection');
+            if (typeof initReportModuleClinic === 'function') initReportModuleClinic();
             if (typeof REPORT !== 'undefined' && typeof REPORT.init === 'function') {
                 REPORT.init();
             } else {
@@ -772,12 +1001,6 @@ document.addEventListener('DOMContentLoaded', function() {
     wireConClinicFilter('conPsClinicFilterChart', 'conPsInputChart', doConPatientSearchChart);
     wireConClinicFilter('conFormsPsClinicFilter', 'conFormsPsInput', doConFormsPatientSearch);
 
-    var rptCf = g('reportPatientDirClinicFilter');
-    if (rptCf && typeof REPORT !== 'undefined' && typeof REPORT.refresh === 'function') {
-        rptCf.addEventListener('change', function() {
-            REPORT.refresh();
-        });
-    }
 
     g('closeAddPatient').addEventListener('click', function() {
         closeModal('addPatientModal');

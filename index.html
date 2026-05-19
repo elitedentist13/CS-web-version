@@ -18,7 +18,8 @@
   <span class="app-session-strip-meta">
     <span id="appStripDate"></span>
     <span class="app-session-strip-sep" aria-hidden="true">·</span>
-    <span id="appStripClinic"></span>
+    <label for="appWorkingClinicSelect" class="app-strip-clinic-label">View clinic</label>
+    <select id="appWorkingClinicSelect" class="app-strip-clinic-select" title="Switch clinic for appointments and records (patients are global)"></select>
   </span>
   <span class="app-session-strip-ctrl" title="Window controls (display only)" aria-hidden="true">
     <span class="app-wbtn app-wbtn-min"></span>
@@ -40,15 +41,11 @@
     <label>Password</label>
     <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password">
 
-    <label>Clinic</label>
-    <select id="loginClinic" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;">
-      <option value="">Loading clinics...</option>
-    </select>
-
-    <label>Doctor</label>
+    <label id="loginDoctorLabel">Doctor identity *</label>
     <select id="loginDoctor" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;">
-      <option value="">Loading doctors...</option>
+      <option value="">Loading doctors…</option>
     </select>
+    <p class="login-hint">User ID and password must match the selected doctor. Clinic is chosen after login.</p>
     <button id="loginBtn">Log In</button>
     <button type="button" id="tryAiAssistantBtn" class="login-try-ai-btn">
       ✨ Try AI Patient Assistant — no login
@@ -544,6 +541,13 @@
     <h2>📊 Reports</h2>
   </div>
 
+  <div class="appt-clinic-bar report-clinic-bar">
+    <label for="reportClinicSelect" class="appt-clinic-label">Clinic</label>
+    <select id="reportClinicSelect" class="appt-clinic-select"
+            title="All report tabs show data for the selected clinic only"></select>
+    <span class="appt-clinic-hint">Income, doctor, and patient reports use this clinic</span>
+  </div>
+
   <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
     <!-- Horizontal report tabs -->
     <div style="display:flex;gap:8px;overflow:auto;padding:2px 2px 10px;margin-bottom:10px;border-bottom:1px solid #f0f0f0;">
@@ -583,8 +587,8 @@
             <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">To</div>
             <input id="rptTo" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
           </div>
-          <select id="reportPatientDirClinicFilter" title="Patient directory export — clinic tag"
-                  style="padding:9px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;min-width:140px;"></select>
+          <select id="reportPatientDirClinicFilter" hidden aria-hidden="true"
+                  title="Synced from clinic bar above"></select>
           <button class="btn-add" style="padding:9px 14px;" onclick="REPORT.refresh()">🔄 Refresh</button>
         </div>
       </div>
@@ -645,6 +649,14 @@
          style="font-size:14px;opacity:0.85;"></div>
   </div>
 
+  <!-- clinic scope for all appointment subtabs -->
+  <div class="appt-clinic-bar">
+    <label for="apptClinicSelect" class="appt-clinic-label">Clinic</label>
+    <select id="apptClinicSelect" class="appt-clinic-select"
+            title="Switch clinic — queue, today, calendar, records, and recall each show that clinic's appointments only"></select>
+    <span class="appt-clinic-hint">Appointments for the selected clinic only</span>
+  </div>
+
   <!-- tabs -->
   <div class="appt-tabs">
     <button class="appt-tab active" data-tab="queue">
@@ -681,6 +693,7 @@
         </div>
       </div>
     </div>
+    <div id="queueDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
     <div class="tbl-wrap queue-wrap">
       <table class="appt-tbl queue-tbl">
         <thead>
@@ -727,6 +740,7 @@
         </button>
       </div>
     </div>
+    <div id="todayDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
     <div class="tbl-wrap">
       <table class="appt-tbl">
         <thead>
@@ -779,6 +793,16 @@
         </button>
       </div>
     </div>
+    <div class="cal-doctor-bar" id="calDoctorBar">
+      <span class="cal-doctor-bar-label">Show doctors</span>
+      <div class="cal-doctor-filter-actions">
+        <button type="button" class="cal-filter-link" onclick="CalDoctorColors.showAllDoctors()">All</button>
+        <span class="cal-filter-sep" aria-hidden="true">·</span>
+        <button type="button" class="cal-filter-link" onclick="CalDoctorColors.hideAllDoctors()">None</button>
+      </div>
+      <div id="calDoctorLegend" class="cal-doctor-legend" aria-live="polite"></div>
+      <button type="button" class="cal-doctor-colors-btn" title="Assign colours to each doctor" onclick="CalDoctorColors.openSettings()">Doctor colours</button>
+    </div>
     <div id="calBody"></div>
     <div class="day-panel" id="dayPanel">
       <h4 id="dayPanelTitle">—</h4>
@@ -826,8 +850,8 @@
                  style="width:100%;padding:7px 12px;border:1.5px solid #e5e7eb;
                         border-radius:20px;font-size:12px;box-sizing:border-box;outline:none;">
         </div>
-        <select id="arRecordsClinicFilter" title="Reload appointment rows for this clinic tag only"
-                style="padding:7px 10px;border:1px solid #e5e7eb;border-radius:12px;font-size:12px;min-width:130px;"></select>
+        <select id="arRecordsClinicFilter" hidden aria-hidden="true"
+                title="Synced from appointment clinic bar"></select>
       </div>
       <!-- Result count -->
       <span id="arCount"
@@ -893,8 +917,8 @@
                   style="font-size:12px;color:#64748b;font-weight:600;"></span>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-            <select id="recallClinicFilter" title="Recall list — appointments for one clinic tag"
-                    style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;min-width:130px;"></select>
+            <select id="recallClinicFilter" hidden aria-hidden="true"
+                    title="Synced from appointment clinic bar"></select>
             <button onclick="rcSelectAll()"
                     style="padding:5px 12px;font-size:12px;font-weight:700;
                            background:#0084ff;color:#fff;border:none;
@@ -3094,10 +3118,14 @@
                placeholder="e.g. Scaling, Filling…">
       </div>
       <div class="fg">
-        <label>Doctor (optional)</label>
-        <select id="fApptDoctor">
-          <option value="">— none —</option>
-        </select>
+        <label>Doctor <span style="color:#dc2626;font-weight:700;">*</span></label>
+        <div class="appt-doctor-row">
+          <span id="apptDoctorColorDot" class="appt-doctor-color-dot" title="Calendar colour"></span>
+          <select id="fApptDoctor" required>
+            <option value="">— Select doctor —</option>
+          </select>
+        </div>
+        <div id="apptDoctorColorLabel" class="appt-doctor-color-label">Select a doctor</div>
       </div>
     </div>
     <div class="fg">
@@ -4191,7 +4219,7 @@
     </div><!-- /receiptPrintArea -->
 
     <div style="display:flex;gap:10px;margin-top:20px;">
-      <button onclick="window.print()"
+      <button type="button" onclick="printReceiptDocument()"
               style="flex:1;padding:11px;background:var(--primary);
                      color:white;border:none;border-radius:6px;
                      cursor:pointer;font-weight:bold;">
@@ -4626,6 +4654,7 @@
 <script src="app-memo-ai.js"></script>
 <script src="app-photos.js"></script>
 <script src="app-patient.js"></script>
+<script src="cal-doctor-colors.js"></script>
 <script src="app-appt.js"></script>
 <script src="app-consultation.js"></script>
 <script src="app-xray.js"></script>

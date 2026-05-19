@@ -31,6 +31,76 @@ var payItems     = [];   // items from the list selected in Step 2
 var payPendingId = null; // DB id of the list selected for payment
 
 // ════════════════════════════════════════════════════════════════
+// CLINIC SCOPE (all appointment subtabs share one clinic)
+// ════════════════════════════════════════════════════════════════
+function applyApptModuleClinicQuery(builder) {
+    if (!builder) return builder;
+    var tag = typeof currentClinicCodeForTagging === 'function'
+        ? currentClinicCodeForTagging()
+        : '';
+    if (!tag) return builder;
+    var field = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? APPOINTMENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+    return builder.eq(field, tag);
+}
+
+function populateApptClinicSelect() {
+    var sel = g('apptClinicSelect');
+    if (!sel) return;
+    var prev = sel.value;
+    sel.innerHTML = '';
+    if (!APP_CLINICS || !APP_CLINICS.length) {
+        sel.innerHTML = '<option value="">(No clinics)</option>';
+        return;
+    }
+    APP_CLINICS.forEach(function(c) {
+        var o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
+            (c.english_name || c.chinese_name || 'Clinic');
+        sel.appendChild(o);
+    });
+    var def = typeof defaultWorkingClinicId === 'function'
+        ? defaultWorkingClinicId()
+        : (APP_CLINICS[0] ? APP_CLINICS[0].id : '');
+    var has = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === prev) { has = true; break; }
+    }
+    sel.value = has ? prev : def;
+}
+
+function reloadApptModuleData() {
+    if (!apptSectionIsActive()) return;
+    var tab = apptActiveTabKey();
+    if (tab === 'queue') loadQueue();
+    else if (tab === 'today') loadToday();
+    else if (tab === 'calendar') renderCal();
+    else if (tab === 'records') loadApptRecords();
+    else if (tab === 'recall') {
+        if (typeof rcDate !== 'undefined' && rcDate) loadRecallPatients(rcDate);
+        else initRecallTab();
+    }
+}
+
+function onApptClinicChange() {
+    var sel = g('apptClinicSelect');
+    if (!sel || !sel.value) return;
+    if (typeof setWorkingClinic === 'function') {
+        setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: false });
+    }
+    reloadApptModuleData();
+}
+
+function bindApptClinicSelectOnce() {
+    var sel = g('apptClinicSelect');
+    if (!sel || sel.dataset.bound) return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', onApptClinicChange);
+}
+
+// ════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════
 function initAppt() {
@@ -39,12 +109,13 @@ function initAppt() {
     var ud = g('apptTodayDate');
     if (un) un.textContent = currentName || '-';
     if (ur) ur.textContent = currentRole || '-';
-    if (ud) ud.textContent = new Date().toLocaleDateString('en-HK', {
-        weekday: 'long',
-        year:    'numeric',
-        month:   'long',
-        day:     'numeric'
-    });
+    syncApptTodayDateLabels();
+    populateApptClinicSelect();
+    bindApptClinicSelectOnce();
+    var apSel = g('apptClinicSelect');
+    if (apSel && apSel.value && typeof setWorkingClinic === 'function') {
+        setWorkingClinic(apSel.value, { syncFilters: true, reloadAppt: false });
+    }
     var qb = g('queueBody');
     if (qb) bindQueueReorderHandlers(qb);
     bindQueueRemarksModalOnce();
@@ -173,9 +244,7 @@ function loadApptRecords() {
         .order('date', { ascending: false })
         .order('start_time', { ascending: false })
         .limit(500);
-    aq = typeof applyAppointmentQueryClinicTag === 'function'
-        ? applyAppointmentQueryClinicTag(aq, 'arRecordsClinicFilter')
-        : aq;
+    aq = applyApptModuleClinicQuery(aq);
     aq
     .then(function(r) {
         if (r.error) {
@@ -481,9 +550,9 @@ function loadRecallPatients(date) {
 
     if (hdr) {
         hdr.textContent = date
-            ? new Date(date + 'T00:00').toLocaleDateString('en-HK', {
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-              })
+            ? (typeof fmtDateLong === 'function'
+                ? fmtDateLong(date, { long: true })
+                : date)
             : '— select a date —';
     }
     if (cntEl) cntEl.textContent = '';
@@ -500,9 +569,7 @@ function loadRecallPatients(date) {
         .select('*')
         .eq('date', date)
         .order('start_time');
-    rq = typeof applyAppointmentQueryClinicTag === 'function'
-        ? applyAppointmentQueryClinicTag(rq, 'recallClinicFilter')
-        : rq;
+    rq = applyApptModuleClinicQuery(rq);
     rq.then(function(r) {
         if (r.error) {
             tbody.innerHTML =
@@ -988,9 +1055,7 @@ function doPatientSearch() {
             'chinese_name.ilike.%' + q + '%'
         )
         .limit(8);
-    pq = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(pq, 'apptPsClinicFilter')
-        : pq;
+    /* Patients are global; appointment clinic only scopes saved visits. */
     pq.then(function(r) {
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
@@ -1188,10 +1253,14 @@ function saveAppt() {
 
     var end = addMins(start, dur);
 
-    // Doctor (optional — column may not exist in older DB schemas)
     var drSel  = g('fApptDoctor');
-    var drCode = drSel ? (drSel.value || null) : null;
-    var drObj  = drCode && billDoctorList
+    var drCode = drSel ? (drSel.value || '').trim() : '';
+    if (!drCode) {
+        alert('Please select a doctor for this appointment.');
+        if (drSel) drSel.focus();
+        return;
+    }
+    var drObj  = billDoctorList
         ? billDoctorList.find(function(d) { return (d.doctor_code || d.id) === drCode; })
         : null;
     var drName = drObj ? (drObj.english_name || drObj.chinese_name || drCode) : drCode;
@@ -1211,7 +1280,10 @@ function saveAppt() {
         remarks:               (g('fRemarks').value   || '').trim() || null,
         bill_status:           apptEditId ? undefined : 'Scheduled'
     };
-    if (drCode) { payload.doctor_code = drCode; payload.doctor_name = drName; }
+    if (drCode) {
+        payload.doctor_code = drCode;
+        payload.doctor_name = drName;
+    }
 
     var apCt = typeof currentClinicCodeForTagging === 'function'
         ? currentClinicCodeForTagging()
@@ -1222,16 +1294,27 @@ function saveAppt() {
         if (payload[k] === undefined) delete payload[k];
     });
 
+    function embedDoctorTagInRemarks(payload, code) {
+        if (!code) return;
+        var rem = String(payload.remarks || '').trim();
+        rem = rem.replace(/\|@dr:[^|]*\|/gi, '').trim();
+        payload.remarks = (rem ? rem + ' | ' : '') + '@dr:' + code + ' |';
+    }
+
     var finishSave = function () {
         closeModal('apptModal');
         apptEditId = null;
         loadToday();
         loadQueue();
         loadApptRecords();
-        if (calView === 'weekly') renderCal();
+        if (typeof renderCal === 'function') {
+            var apptSec = g('appointmentSection');
+            if (apptSec && apptSec.style.display !== 'none') renderCal();
+        }
     };
 
-    var tryPayload = function (p) {
+    var tryPayload = function (p, opts) {
+        opts = opts || {};
         var prom = apptEditId
             ? SB.from('appointments').update(p).eq('id', apptEditId)
             : SB.from('appointments').insert([p]);
@@ -1241,15 +1324,24 @@ function saveAppt() {
                 if (msg.indexOf('patient_chinese_name') >= 0) {
                     var p2 = Object.assign({}, p);
                     delete p2.patient_chinese_name;
-                    tryPayload(p2);
+                    tryPayload(p2, opts);
                 } else if (msg.indexOf('doctor_code') >= 0 || msg.indexOf('doctor_name') >= 0) {
-                    var p2 = Object.assign({}, p);
-                    delete p2.doctor_code; delete p2.doctor_name;
-                    tryPayload(p2);
+                    if (!opts.doctorRemarksFallback && drCode) {
+                        var p2 = Object.assign({}, p);
+                        delete p2.doctor_code;
+                        delete p2.doctor_name;
+                        embedDoctorTagInRemarks(p2, drCode);
+                        tryPayload(p2, { doctorRemarksFallback: true });
+                        return;
+                    }
+                    alert(
+                        'This database is missing doctor columns on appointments. ' +
+                        'Run sql/20260521_appointments_doctor_columns.sql in Supabase, then save again.'
+                    );
                 } else if (msg.indexOf('clinic_tag') >= 0) {
                     var p3 = Object.assign({}, p);
                     delete p3[APPOINTMENT_CLINIC_TAG_FIELD];
-                    tryPayload(p3);
+                    tryPayload(p3, opts);
                 } else {
                     alert('Error: ' + msg);
                 }
@@ -1258,7 +1350,7 @@ function saveAppt() {
             finishSave();
         });
     };
-    tryPayload(payload);
+    tryPayload(payload, {});
 }
 function deleteAppt() {
     if (!apptEditId) return;
@@ -1274,24 +1366,79 @@ function deleteAppt() {
         loadToday();
         loadQueue();
         loadApptRecords();
-        if (calView === 'weekly') renderCal();
+        if (typeof renderCal === 'function') {
+            var apptSec = g('appointmentSection');
+            if (apptSec && apptSec.style.display !== 'none') renderCal();
+        }
     });
 }
 
 // ── Load doctor list into appointment doctor dropdown ──────────
+function renderApptDoctorColorPreview() {
+    var sel = g('fApptDoctor');
+    var dot = g('apptDoctorColorDot');
+    var lbl = g('apptDoctorColorLabel');
+    if (!sel || !dot) return;
+    var code = (sel.value || '').trim();
+    if (!code) {
+        dot.style.background = '#e2e8f0';
+        dot.style.borderColor = '#cbd5e1';
+        if (lbl) lbl.textContent = 'Select a doctor';
+        return;
+    }
+    var col = '#94a3b8';
+    var sty = null;
+    if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.getStyleForAppt) {
+        sty = CalDoctorColors.getStyleForAppt({ doctor_code: code, doctor_name: '' });
+        col = sty.borderColor;
+    } else if (typeof CalDoctorColors !== 'undefined') {
+        col = CalDoctorColors.getColor(code);
+    }
+    dot.style.background = col;
+    dot.style.borderColor = col;
+    var opt = sel.options[sel.selectedIndex];
+    var name = opt ? opt.textContent : code;
+    if (lbl) lbl.textContent = name + ' · ' + col;
+}
+
 function loadApptDoctors(selectVal) {
     var sel = g('fApptDoctor');
     if (!sel) return;
     var populate = function (list) {
+        list = list || [];
+        if (typeof currentClinicId !== 'undefined' && currentClinicId) {
+            if (typeof doctorsForClinic === 'function') {
+                list = doctorsForClinic(currentClinicId);
+            } else {
+                list = list.filter(function (d) { return d.clinic_id === currentClinicId; });
+            }
+        }
         while (sel.options.length > 1) sel.remove(1);
+        if (!list.length) {
+            var empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = '(No doctors for this clinic)';
+            empty.disabled = true;
+            sel.appendChild(empty);
+        }
         list.forEach(function (d) {
+            var code = String(d.doctor_code || '').trim();
+            if (!code) return;
             var opt = document.createElement('option');
-            opt.value       = d.doctor_code || d.id || '';
-            opt.textContent = d.doctor_code || d.english_name || d.chinese_name || 'Doctor';
+            opt.value = code;
+            var name = typeof doctorDisplayName === 'function'
+                ? doctorDisplayName(d)
+                : (d.english_name || d.chinese_name || code);
+            opt.textContent = name + (d.doctor_code ? (' [' + d.doctor_code + ']') : '');
             sel.appendChild(opt);
         });
         if (selectVal) sel.value = selectVal;
+        renderApptDoctorColorPreview();
     };
+    if (!sel.dataset.colorPreviewWired) {
+        sel.dataset.colorPreviewWired = '1';
+        sel.addEventListener('change', renderApptDoctorColorPreview);
+    }
     if (billDoctorList && billDoctorList.length) { populate(billDoctorList); return; }
     SB.from('doctors').select('*').order('doctor_code').then(function (r) {
         billDoctorList = r.data || [];
@@ -1398,20 +1545,37 @@ function apptPatientDisplayNameHTML(a, opt) {
 // ════════════════════════════════════════════════════════════════
 // TODAY'S APPOINTMENTS
 // ════════════════════════════════════════════════════════════════
-function loadToday() {
+function syncApptTodayDateLabels() {
+    var iso = todayISO();
     var lbl = g('todayLabel');
+    var ud  = g('apptTodayDate');
+    if (lbl) lbl.textContent = fmtDateLong(iso);
+    if (ud) {
+        ud.textContent = typeof fmtTodayLong === 'function'
+            ? fmtTodayLong()
+            : fmtDateLong(iso);
+    }
+}
+
+function loadToday() {
     var cnt = g('todayCount');
     var tb  = g('todayBody');
-    if (lbl) lbl.textContent = fmtDateLong(todayISO());
+    syncApptTodayDateLabels();
     tb.innerHTML =
         '<tr><td colspan="8" style="text-align:center;' +
         'color:#aaa;padding:24px;">Loading…</td></tr>';
 
-    SB.from('appointments').select('*')
+    var tq = SB.from('appointments').select('*')
         .eq('date', todayISO())
-        .order('start_time', {ascending: true})
-    .then(function(r) {
+        .order('start_time', {ascending: true});
+    tq = applyApptModuleClinicQuery(tq);
+    tq.then(function(r) {
         tb.innerHTML = '';
+        var doStrip = function (apptRows) {
+            if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
+                CalDoctorColors.renderDoctorFilterStrip('todayDoctorFilterBar', apptRows || []);
+            }
+        };
         if (r.error || !r.data || !r.data.length) {
             todayAppts = [];
             tb.innerHTML =
@@ -1419,14 +1583,28 @@ function loadToday() {
                 'color:#aaa;padding:24px;">No appointments today' +
                 '</td></tr>';
             if (cnt) cnt.textContent = '0 appointments';
+            doStrip([]);
             return;
         }
-        if (cnt) cnt.textContent = r.data.length + ' appointment(s)';
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
             todayAppts = rows;
-            rows.forEach(function(a) {
-                buildTodayRow(tb, a);
-            });
+            var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
+                ? CalDoctorColors.filterAppts(rows) : rows;
+            if (cnt) cnt.textContent = visible.length + ' appointment(s)';
+            if (!visible.length) {
+                tb.innerHTML =
+                    '<tr><td colspan="8" style="text-align:center;' +
+                    'color:#aaa;padding:24px;">' +
+                    (rows.length
+                        ? 'No appointments for the selected doctors'
+                        : 'No appointments today') +
+                    '</td></tr>';
+            } else {
+                visible.forEach(function(a) {
+                    buildTodayRow(tb, a);
+                });
+            }
+            doStrip(rows);
         });
     });
 }
@@ -1506,11 +1684,14 @@ function printTodayList() {
     var dateStr = (typeof fmtDateLong === 'function') ? fmtDateLong(todayISO()) : todayISO();
     var rows    = '';
 
-    if (!todayAppts.length) {
+    var printRows = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
+        ? CalDoctorColors.filterAppts(todayAppts) : todayAppts;
+
+    if (!printRows.length) {
         rows = '<tr><td colspan="6" style="text-align:center;color:#888;' +
                'padding:20px;">No appointments today</td></tr>';
     } else {
-        todayAppts.forEach(function(a, i) {
+        printRows.forEach(function(a, i) {
             var timeStr = (typeof fmt12 === 'function')
                 ? fmt12(a.start_time) + (a.end_time ? ' – ' + fmt12(a.end_time) : '')
                 : (a.start_time || '-');
@@ -1569,7 +1750,7 @@ function printTodayList() {
         '</head><body>' +
         '<h2>📋 ' + esc(clinic) + ' – Daily Appointment List</h2>' +
         '<p class="sub">' + esc(dateStr) + ' &nbsp;|&nbsp; ' +
-            todayAppts.length + ' appointment(s)</p>' +
+            printRows.length + ' appointment(s)</p>' +
         '<table>' +
         '<thead><tr>' +
             '<th>Time</th><th>Patient No.</th><th>Name</th>' +
@@ -1592,13 +1773,14 @@ function checkInPatient(a) {
     var now = new Date();
     var arrivalTime = now.toISOString();
 
-    SB.from('appointments')
+    var cq = SB.from('appointments')
         .select('in_queue')
         .eq('date',      todayISO())
         .not('in_queue', 'is', null)
         .order('in_queue', { ascending: false })
-        .limit(1)
-    .then(function(r) {
+        .limit(1);
+    cq = applyApptModuleClinicQuery(cq);
+    cq.then(function(r) {
         var nextQ = 1;
         if (!r.error && r.data && r.data.length > 0) {
             nextQ = (r.data[0].in_queue || 0) + 1;
@@ -1824,13 +2006,19 @@ function loadQueue() {
         '<tr><td colspan="8" style="text-align:center;' +
         'color:#aaa;padding:24px;">Loading…</td></tr>';
 
-    SB.from('appointments').select('*')
+    var qq = SB.from('appointments').select('*')
         .eq('date',        todayISO())
         .eq('bill_status', 'Queue')
         .order('in_queue',   {ascending: true})
-        .order('start_time', {ascending: true})
-    .then(function(r) {
+        .order('start_time', {ascending: true});
+    qq = applyApptModuleClinicQuery(qq);
+    qq.then(function(r) {
         tb.innerHTML = '';
+        var doStrip = function (apptRows) {
+            if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
+                CalDoctorColors.renderDoctorFilterStrip('queueDoctorFilterBar', apptRows || []);
+            }
+        };
         if (r.error || !r.data || !r.data.length) {
             tb.innerHTML =
                 '<tr><td colspan="8" style="text-align:center;' +
@@ -1838,14 +2026,28 @@ function loadQueue() {
                 'No patients in queue</td></tr>';
             var qc = g('queueCount');
             if (qc) qc.textContent = '0 patients';
+            doStrip([]);
             return;
         }
         var qc = g('queueCount');
-        if (qc) qc.textContent = r.data.length + ' patient(s)';
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
-            rows.forEach(function(q, idx) {
-                buildQueueRow(tb, q, idx + 1);
-            });
+            var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
+                ? CalDoctorColors.filterAppts(rows) : rows;
+            if (qc) qc.textContent = visible.length + ' patient(s)';
+            if (!visible.length) {
+                tb.innerHTML =
+                    '<tr><td colspan="8" style="text-align:center;' +
+                    'color:#aaa;padding:24px;">' +
+                    (rows.length
+                        ? 'No patients in queue for the selected doctors'
+                        : 'No patients in queue') +
+                    '</td></tr>';
+            } else {
+                visible.forEach(function(q, idx) {
+                    buildQueueRow(tb, q, idx + 1);
+                });
+            }
+            doStrip(rows);
         });
     });
 }
@@ -2098,11 +2300,12 @@ function renderMonthly() {
     var last  = y + '-' + pad(m + 1) + '-' +
                 pad(new Date(y, m + 1, 0).getDate());
 
-    SB.from('appointments').select('*')
+    var mq = SB.from('appointments').select('*')
         .gte('date', first)
         .lte('date', last)
-        .order('start_time', {ascending: true})
-    .then(function(r) {
+        .order('start_time', {ascending: true});
+    mq = applyApptModuleClinicQuery(mq);
+    mq.then(function(r) {
         var appts = r.data || [];
         var map   = {};
         appts.forEach(function(a) {
@@ -2110,7 +2313,7 @@ function renderMonthly() {
             map[a.date].push(a);
         });
 
-        var html = '<div class="cal-grid">';
+        var html = '<div class="cal-grid gcal-month-grid">';
         ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(function(d) {
             html += '<div class="cal-day-hdr">' + d + '</div>';
         });
@@ -2126,38 +2329,41 @@ function renderMonthly() {
             var iso  = y + '-' + pad(m + 1) + '-' + pad(d2);
             var isTo = iso === todayStr;
             var list = map[iso] || [];
+            if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts) {
+                list = CalDoctorColors.filterAppts(list);
+            }
             html +=
                 '<div class="cal-cell' +
                 (isTo ? ' cal-today' : '') +
                 '" data-date="' + iso + '">' +
                     '<div class="cal-cell-num">' + d2 + '</div>';
-            list.slice(0, 3).forEach(function(a) {
-                html +=
-                    '<div class="appt-pill chip" data-id="' + a.id + '">' +
-                        fmt12(a.start_time) + ' ' +
-                        esc(a.patient_name || '') +
-                    '</div>';
+            var monthShow = 4;
+            list.slice(0, monthShow).forEach(function(a) {
+                html += typeof CalDoctorColors !== 'undefined'
+                    ? CalDoctorColors.monthPillHtml(a)
+                    : ('<div class="appt-pill" data-id="' + a.id + '">' +
+                       fmt12(a.start_time) + ' ' + esc(a.patient_name || '') + '</div>');
             });
-            if (list.length > 3) {
-                html +=
-                    '<div style="font-size:11px;color:#888;' +
-                    'padding:1px 4px;">+' +
-                    (list.length - 3) + ' more</div>';
+            if (list.length > monthShow) {
+                html += '<div class="gcal-month-more">+' +
+                    (list.length - monthShow) + ' more</div>';
             }
             html += '</div>';
         }
         html += '</div>';
         cb.innerHTML = html;
+        if (typeof CalDoctorColors !== 'undefined') {
+            CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
+        }
 
         cb.querySelectorAll('.cal-cell[data-date]').forEach(function(cell) {
             cell.addEventListener('click', function(e) {
-                if (e.target.classList.contains('appt-pill') ||
-                    e.target.classList.contains('chip')) return;
+                if (e.target.closest && e.target.closest('.appt-pill, .gcal-month-pill')) return;
                 showDayPanel(cell.dataset.date, map);
             });
         });
 
-        cb.querySelectorAll('.appt-pill').forEach(function(pill) {
+        cb.querySelectorAll('.appt-pill, .gcal-month-pill').forEach(function(pill) {
             pill.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var aid = pill.dataset.id;
@@ -2226,8 +2432,24 @@ var GCAL = (function () {
         return PALETTE[h % PALETTE.length];
     }
     function getCardColor(a) {
-        var key = a.doctor_code || a.doctor_name || a.treatment_items || a.patient_name || 'default';
-        return (S.doctorColors[key]) || colorHash(key);
+        if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.getStyleForAppt) {
+            return CalDoctorColors.getStyleForAppt(a).borderColor;
+        }
+        var key = a.doctor_code || a.doctor_name || 'default';
+        return (S.doctorColors && S.doctorColors[key]) || colorHash(key);
+    }
+
+    function getCardStyle(a) {
+        if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.getStyleForAppt) {
+            return CalDoctorColors.getStyleForAppt(a);
+        }
+        var color = getCardColor(a);
+        var bgRgb = hexToRgb(color);
+        return {
+            color: color,
+            borderColor: color,
+            background: 'rgba(' + bgRgb + ',0.24)'
+        };
     }
 
     // ── Safe local-date constructor (avoids UTC midnight = prev-day in UTC- zones)
@@ -2262,10 +2484,11 @@ var GCAL = (function () {
             days[0].toLocaleDateString('en-HK', {month:'short',day:'numeric'}) + ' – ' +
             days[6].toLocaleDateString('en-HK', {month:'short',day:'numeric',year:'numeric'});
 
-        SB.from('appointments').select('*')
+        var wq = SB.from('appointments').select('*')
             .gte('date', d2iso(days[0])).lte('date', d2iso(days[6]))
-            .order('start_time', {ascending: true})
-        .then(function (r) {
+            .order('start_time', {ascending: true});
+        wq = applyApptModuleClinicQuery(wq);
+        wq.then(function (r) {
             appts = r.data || [];
             // collect unique doctor / treatment keys for settings panel
             knownKeys = [];
@@ -2275,7 +2498,57 @@ var GCAL = (function () {
                 if (k && !kSet[k]) { kSet[k] = true; knownKeys.push(k); }
             });
             buildDOM(cb);
+            if (typeof CalDoctorColors !== 'undefined') {
+                CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
+            }
         });
+    }
+
+
+    function layoutDayColumns(dayAppts) {
+        var evts = dayAppts.map(function (a) {
+            return {
+                appt: a,
+                start: timeToMin(a.start_time),
+                end: Math.max(timeToMin(a.end_time), timeToMin(a.start_time) + 15)
+            };
+        }).sort(function (x, y) { return x.start - y.start || x.end - y.end; });
+
+        var clusters = [];
+        var cluster = null;
+        evts.forEach(function (e) {
+            if (!cluster || e.start >= cluster.endMax) {
+                cluster = { events: [], endMax: 0 };
+                clusters.push(cluster);
+            }
+            cluster.events.push(e);
+            cluster.endMax = Math.max(cluster.endMax, e.end);
+        });
+
+        var out = [];
+        clusters.forEach(function (cl) {
+            var cols = [];
+            cl.events.forEach(function (e) {
+                var placed = false;
+                for (var ci = 0; ci < cols.length; ci++) {
+                    if (cols[ci] <= e.start) {
+                        cols[ci] = e.end;
+                        e.col = ci;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) {
+                    e.col = cols.length;
+                    cols.push(e.end);
+                }
+            });
+            var nCols = Math.max(1, cols.length);
+            cl.events.forEach(function (e) {
+                out.push({ appt: e.appt, col: e.col, totalCols: nCols });
+            });
+        });
+        return out;
     }
 
     // ── Build entire calendar DOM ────────────────────────────────
@@ -2364,12 +2637,16 @@ var GCAL = (function () {
                 col.appendChild(line);
             }
 
-            // Appointment cards
-            appts.filter(function (a) { return a.date === iso; })
-                 .forEach(function (a) {
-                     var card = buildCard(a);
-                     if (card) col.appendChild(card);
-                 });
+            // Appointment cards (side-by-side when overlapping — Google Calendar style)
+            var dayAppts = appts.filter(function (a) { return a.date === iso; });
+            if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts) {
+                dayAppts = CalDoctorColors.filterAppts(dayAppts);
+            }
+            var laid = layoutDayColumns(dayAppts);
+            laid.forEach(function (item) {
+                var card = buildCard(item.appt, item.col, item.totalCols);
+                if (card) col.appendChild(card);
+            });
 
             // Click on empty slot → open add-appointment
             col.addEventListener('click', function (e) {
@@ -2402,7 +2679,9 @@ var GCAL = (function () {
     }
 
     // ── Build one appointment card ────────────────────────────────
-    function buildCard(a) {
+    function buildCard(a, colIdx, totalCols) {
+        colIdx = colIdx || 0;
+        totalCols = totalCols || 1;
         var startMin = timeToMin(a.start_time);
         var endMin   = timeToMin(a.end_time);
         var endDay   = S.endHour * 60;
@@ -2413,23 +2692,31 @@ var GCAL = (function () {
         var dur    = endMin - startMin;
         var height = Math.max(S.slotH, dur / S.interval * S.slotH);
 
-        var color  = getCardColor(a);
-        var bgRgb  = hexToRgb(color);
+        var sty    = getCardStyle(a);
+        var color  = sty.borderColor;
 
         var card = document.createElement('div');
         card.className         = 'gcal-card';
         card.dataset.id        = a.id;
         card.style.top         = top + 'px';
         card.style.height      = height + 'px';
-        card.style.borderLeftColor = color;
-        card.style.background  = 'rgba(' + bgRgb + ',0.13)';
         card.style.color       = '#1e293b';
+        if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.paintElement) {
+            CalDoctorColors.paintElement(card, a);
+        } else {
+            card.style.borderLeft  = '4px solid ' + sty.borderColor;
+            card.style.background  = sty.background;
+        }
+        var pct = 100 / totalCols;
+        card.style.left = 'calc(' + (colIdx * pct) + '% + 2px)';
+        card.style.width = 'calc(' + pct + '% - 4px)';
+        card.style.right = 'auto';
 
         var dr           = a.doctor_code || a.doctor_name || '';
         var isWalkIn     = !a.patient_id;
         var chineseName  = a.patient_chinese_name || '';
 
-        var html = '';
+        var html = '<span class="card-time">' + esc(fmt12(a.start_time)) + ' – ' + esc(fmt12(a.end_time)) + '</span>';
         // Chinese name — most prominent line
         if (chineseName) {
             html += '<span class="card-chinese">' + esc(chineseName) + '</span>';
@@ -2618,6 +2905,14 @@ var GCAL = (function () {
     function toggleSettings() {
         var p = document.getElementById('gcalSettingsPanel');
         if (p) p.classList.toggle('open');
+        if (p && p.classList.contains('open') &&
+            typeof CalDoctorColors !== 'undefined' && CalDoctorColors.wireColorPanel) {
+            var box = document.getElementById('gcalDrColorsBox');
+            if (box) {
+                box._calColorPanelWired = false;
+                CalDoctorColors.wireColorPanel(box);
+            }
+        }
     }
 
     function buildSettingsPanel() {
@@ -2643,17 +2938,22 @@ var GCAL = (function () {
                              {v:24,l:'Comfortable (24 px)'},{v:32,l:'Spacious (32 px)'}], S.slotH);
 
         var drRows = '';
-        knownKeys.forEach(function (k) {
-            var col = getColorForKey(k);
+        var colorKeys = typeof CalDoctorColors !== 'undefined'
+            ? CalDoctorColors.collectKeys(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null)
+            : knownKeys.map(function (k) { return { key: k, label: k }; });
+        colorKeys.forEach(function (item) {
+            var k = item.key;
+            var col = typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.getColor(k) : getColorForKey(k);
             drRows +=
                 '<div class="gcal-dr-row">' +
-                '<input type="color" class="gcal-dr-color-inp" data-key="'+esc(k)+'" value="'+col+'" ' +
-                'style="width:28px;height:28px;border:none;border-radius:4px;cursor:pointer;padding:0;flex-shrink:0;">' +
-                '<span style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;">'+esc(k)+'</span>' +
+                '<input type="color" class="gcal-dr-color-inp" data-key="'+encodeURIComponent(k)+'" value="'+col+'" ' +
+                'style="width:32px;height:32px;border:2px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:0;flex-shrink:0;">' +
+                '<span style="font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;">'+esc(item.label)+'</span>' +
+                (typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.presetSwatchesHtml(k, col) : '') +
                 '</div>';
         });
-        if (!knownKeys.length)
-            drRows = '<p style="color:#aaa;font-size:11px;margin:0;">No appointments this week yet.</p>';
+        if (!colorKeys.length)
+            drRows = '<p style="color:#aaa;font-size:11px;margin:0;">Add doctors in Configuration, or book appointments with a doctor assigned.</p>';
 
         p.innerHTML =
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
@@ -2668,12 +2968,22 @@ var GCAL = (function () {
             '</div>' +
             '<label>Row Height</label>' +
             '<select id="gcalSlotH" style="margin-bottom:14px;">'+sHOpts+'</select>' +
-            '<label style="margin-bottom:8px;">Card Colours (by Doctor / Treatment)</label>' +
+            '<label style="margin-bottom:8px;">Doctor colours (weekly &amp; monthly views)</label>' +
+            '<p style="font-size:11px;color:#64748b;margin:0 0 10px;line-height:1.4;">Pick a colour per doctor so multiple doctors on the same day are easy to spot. Click a preset or use the colour wheel.</p>' +
             '<div id="gcalDrColorsBox">' + drRows + '</div>' +
             '<button onclick="GCAL.applySettings()" ' +
             'style="margin-top:14px;width:100%;padding:10px;background:#0084ff;color:#fff;' +
             'border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">' +
             'Apply &amp; Refresh</button>';
+        if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.wireColorPanel) {
+            setTimeout(function () {
+                var box = document.getElementById('gcalDrColorsBox');
+                if (box) {
+                    box._calColorPanelWired = false;
+                    CalDoctorColors.wireColorPanel(box);
+                }
+            }, 0);
+        }
         return p;
     }
 
@@ -2691,8 +3001,11 @@ var GCAL = (function () {
         if (eEl) S.endHour   = parseInt(eEl.value, 10);
         if (hEl) S.slotH     = parseInt(hEl.value, 10);
         if (S.endHour <= S.startHour) { alert('End time must be after start time.'); return; }
-        document.querySelectorAll('.gcal-dr-color-inp').forEach(function (inp) {
-            S.doctorColors[inp.dataset.key] = inp.value;
+        document.querySelectorAll('#gcalDrColorsBox .gcal-dr-color-inp').forEach(function (inp) {
+            var dk = inp.dataset.key;
+            try { dk = decodeURIComponent(dk); } catch (e) {}
+            if (typeof CalDoctorColors !== 'undefined') CalDoctorColors.setColor(dk, inp.value);
+            else S.doctorColors[dk] = inp.value;
         });
         saveSettings();
         toggleSettings();
@@ -2812,9 +3125,36 @@ var GCAL = (function () {
     }
 
     // Public API
+    function openDoctorColors(focusKey) {
+        if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.openColorModal) {
+            CalDoctorColors.openColorModal(focusKey);
+            return;
+        }
+        var p = document.getElementById('gcalSettingsPanel');
+        if (!p) return;
+        p.classList.add('open');
+        if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.wireColorPanel) {
+            var box = document.getElementById('gcalDrColorsBox');
+            if (box) {
+                box._calColorPanelWired = false;
+                CalDoctorColors.wireColorPanel(box);
+            }
+        }
+        if (focusKey && p) {
+            var inps = p.querySelectorAll('.gcal-dr-color-inp');
+            for (var i = 0; i < inps.length; i++) {
+                if (inps[i].dataset.key === focusKey) {
+                    inps[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    break;
+                }
+            }
+        }
+    }
+
     return {
         render:         render,
         toggleSettings: toggleSettings,
+        openDoctorColors: openDoctorColors,
         applySettings:  applySettings,
         toggleMiniCal:  toggleMiniCal,
         miniCalPrev:    miniCalPrev,
@@ -2850,6 +3190,9 @@ function showDayPanel(iso, map) {
 
     title.textContent = fmtDateLong(iso);
     var items = map[iso] || [];
+    if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts) {
+        items = CalDoctorColors.filterAppts(items);
+    }
 
     if (!items.length) {
         list.innerHTML =
@@ -2860,10 +3203,19 @@ function showDayPanel(iso, map) {
         items.forEach(function(a) {
             var div = document.createElement('div');
             div.className = 'day-panel-item';
+            var dpiSty = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.getStyleForAppt
+                ? CalDoctorColors.getStyleForAppt(a)
+                : null;
+            if (dpiSty) {
+                div.style.borderLeft = '4px solid ' + dpiSty.borderColor;
+                div.style.background = dpiSty.background;
+            }
+            var drLbl = a.doctor_code || a.doctor_name || '';
             div.innerHTML =
                 '<div class="dpi-time">' +
                     fmt12(a.start_time) + ' – ' + fmt12(a.end_time) +
                 '</div>' +
+                (drLbl ? '<div class="dpi-dr" style="color:' + (dpiSty ? dpiSty.color : '#64748b') + ';">● ' + esc(drLbl) + '</div>' : '') +
                 '<div class="dpi-name">' +
                     esc(a.patient_name || '-') +
                 '</div>' +
@@ -3574,7 +3926,7 @@ function saveBill(doPrint) {
         apptChain.then(function() {
             if (billApptId) loadQueue();
             loadBillHistory();
-            if (doPrint)  showReceipt(payload, r.data);
+            if (doPrint)  showReceipt(payload, r.data, null, true);
             if (!doPrint) alert('Bill saved successfully.');
         });
     };
@@ -4203,6 +4555,68 @@ function deletePaymentRecord(p) {
     });
 }
 
+var _receiptPrintInProgress = false;
+
+/** CSS embedded in the receipt print popup (one physical page, no fixed positioning). */
+function receiptPrintStyles() {
+    return (
+        'body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#222;margin:12px 16px;}' +
+        '.receipt-header{text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #eee;}' +
+        '.receipt-header h2{margin:0 0 6px;color:#0084ff;font-size:22px;}' +
+        '.receipt-clinic-line{margin:2px 0;color:#555;font-size:13px;line-height:1.45;}' +
+        '.receipt-doc-title{margin:10px 0 0;color:#666;font-size:14px;font-weight:600;}' +
+        '.receipt-table{width:100%;border-collapse:collapse;margin:16px 0;}' +
+        '.receipt-table th{background:#f0f7ff;padding:9px 12px;text-align:left;font-size:13px;color:#0084ff;}' +
+        '.receipt-table td{padding:9px 12px;border-bottom:1px solid #f0f0f0;font-size:14px;}' +
+        '.receipt-totals{background:#f8faff;border-radius:8px;padding:14px 16px;margin-top:12px;}' +
+        '.r-row{display:flex;justify-content:space-between;padding:5px 0;font-size:14px;}' +
+        '.r-grand{border-top:2px solid #0084ff;margin-top:8px;padding-top:10px;font-size:18px;font-weight:700;color:#0084ff;}' +
+        '.receipt-footer{text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid #eee;color:#999;font-size:12px;}' +
+        '@media print{body{margin:8px;} @page{margin:10mm;}}'
+    );
+}
+
+/**
+ * Print receipt in a dedicated popup so the bill appears once (avoids duplicate pages from
+ * position:fixed + visibility print CSS on the main app window).
+ */
+function printReceiptDocument() {
+    var area = g('receiptPrintArea');
+    if (!area) return;
+    if (_receiptPrintInProgress) return;
+    _receiptPrintInProgress = true;
+
+    var popup = window.open(
+        '', '_blank',
+        'width=720,height=820,left=80,top=40,toolbar=0,menubar=0,scrollbars=1,resizable=1'
+    );
+    if (!popup) {
+        _receiptPrintInProgress = false;
+        alert('Please allow pop-ups to print the receipt.');
+        return;
+    }
+
+    var releaseLock = function () {
+        _receiptPrintInProgress = false;
+    };
+
+    popup.document.write(
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        '<title>Receipt</title><style>' + receiptPrintStyles() + '</style></head><body>' +
+        area.innerHTML +
+        '<script>(function(){var printed=false;function run(){if(printed)return;printed=true;' +
+        'try{window.focus();window.print();}catch(e){}}' +
+        'window.onafterprint=function(){try{window.close();}catch(e2){}};' +
+        'window.onload=function(){setTimeout(run,200);};' +
+        'setTimeout(function(){if(!printed)run();},1200);})();<\/script>' +
+        '</body></html>'
+    );
+    popup.document.close();
+
+    try { popup.focus(); } catch (eFocus) {}
+    setTimeout(releaseLock, 4000);
+}
+
 /** Receipt print header: active clinic from login (currentClinicId + clinics row). Order: name, address, phone. */
 function applyReceiptClinicHeader() {
     var rec = (typeof clinicRecordFromId === 'function' && currentClinicId)
@@ -4230,7 +4644,7 @@ function applyReceiptClinicHeader() {
     if (footEl) footEl.textContent = 'Thank you for visiting ' + name;
 }
 
-function showReceipt(bill, insertedData, payments) {
+function showReceipt(bill, insertedData, payments, autoPrint) {
     applyReceiptClinicHeader();
 
     var rNo = insertedData && insertedData[0]
@@ -4306,19 +4720,23 @@ function showReceipt(bill, insertedData, payments) {
     if (outAmt)  outAmt.textContent    = 'HK$ ' + fmt2(bal);
 
     openModal('receiptModal');
+    if (autoPrint) {
+        setTimeout(function () { printReceiptDocument(); }, 400);
+    }
 }
 
 function checkInFromToday(apptId) {
     var now = new Date();
     var arrivalTime = now.toISOString();
 
-    SB.from('appointments')
+    var cq2 = SB.from('appointments')
         .select('in_queue')
         .eq('date', todayISO())
         .not('in_queue', 'is', null)
         .order('in_queue', { ascending: false })
-        .limit(1)
-    .then(function(r) {
+        .limit(1);
+    cq2 = applyApptModuleClinicQuery(cq2);
+    cq2.then(function(r) {
         var nextQ = 1;
         if (!r.error && r.data && r.data.length > 0) {
             nextQ = (r.data[0].in_queue || 0) + 1;

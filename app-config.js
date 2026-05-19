@@ -220,6 +220,10 @@ var CFG = (function () {
             data:      loadData
         };
         if (loaders[key]) loaders[key]();
+        var userPanel = g('cfgUserPanel');
+        if (userPanel && key !== 'users' && key !== 'doctors') {
+            userPanel.style.display = 'none';
+        }
     }
 
     // ════════════════════════════════════════════════════════
@@ -511,20 +515,65 @@ var CFG = (function () {
     // ════════════════════════════════════════════════════════
         var _docEditId = null;
         var _selectedDoctorIds = [];
+        var _docClinics = [];
+        var _docSelectedClinicId = null;
 
-            function loadDoctors() {
+        function cfgClinicLabel(c) {
+            if (!c) return 'Clinic';
+            return (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
+                (c.english_name || c.chinese_name || 'Clinic');
+        }
+
+        function _onDocClinicChange(clinicId) {
+            _docSelectedClinicId = clinicId || null;
+            _selectedDoctorIds = [];
+            loadDoctors();
+        }
+
+        function loadDoctors() {
             var pane = g('cfgPane-doctors');
             if (!pane) return;
             pane.innerHTML = '<p style="color:#888;">Loading…</p>';
 
-            SB.from('doctors').select('*').order('doctor_code')
-            .then(function (r) {
-                var rows = r.data || [];
+            Promise.all([
+                SB.from('clinics').select('id,clinic_code,english_name,chinese_name').order('clinic_code'),
+                SB.from('doctors').select('*').order('doctor_code'),
+                SB.from('app_users').select('*').order('user_id')
+            ]).then(function (all) {
+                if (all[0].error) {
+                    pane.innerHTML = '<p style="color:red;">Error: ' + esc(all[0].error.message) + '</p>';
+                    return;
+                }
+                _docClinics = all[0].data || [];
+                var allDocs = (all[1] && all[1].data) ? all[1].data : [];
+                var allUsers = (all[2] && all[2].data) ? all[2].data : [];
+                if (!_docSelectedClinicId && _docClinics.length) {
+                    _docSelectedClinicId = _docClinics[0].id;
+                }
+                var clinicDocs = allDocs.filter(function (d) {
+                    return d.clinic_id === _docSelectedClinicId;
+                });
+                var recepUsers = allUsers.filter(function (u) {
+                    return u.role === 'receptionist' && u.clinic_id === _docSelectedClinicId;
+                });
+                var adminUsers = allUsers.filter(function (u) {
+                    return u.role === 'admin';
+                });
+                _usrClinics = _docClinics.slice();
+                _usrDoctors = allDocs.filter(function (d) { return d.is_active !== false; });
+                var clinicOpts = _docClinics.length
+                    ? _docClinics.map(function (c) {
+                        var sel = c.id === _docSelectedClinicId ? ' selected' : '';
+                        return '<option value="' + esc(c.id) + '"' + sel + '>' +
+                            esc(cfgClinicLabel(c)) + '</option>';
+                    }).join('')
+                    : '<option value="">(No clinics — create one in Clinic Profile)</option>';
+                var rows = clinicDocs;
                 var html =
                     '<div style="display:flex;justify-content:space-between;' +
                     'align-items:center;margin-bottom:20px;">' +
-                    '<h2 style="margin:0;font-size:20px;">Doctors</h2>' +
-                                        '<div style="display:flex;gap:10px;">' +
+                    '<h2 style="margin:0;font-size:20px;">Doctors &amp; Reception</h2>' +
+                    '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
                     '<button id="btnPrintDoctors" onclick="CFG._printSelectedDoctors()" ' +
                     'disabled style="padding:9px 20px;background:#6c757d;color:#fff;' +
                     'border:none;border-radius:6px;cursor:not-allowed;' +
@@ -533,22 +582,407 @@ var CFG = (function () {
                     'padding:9px 20px;background:#0d6efd;color:#fff;' +
                     'border:none;border-radius:6px;cursor:pointer;' +
                     'font-size:13px;">+ Add Doctor</button></div></div>' +
-                                        '<div id="docList">' + renderDocCards(rows) + '</div>' +
+                    '<div style="margin-bottom:18px;max-width:420px;">' +
+                    '<label style="display:block;font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Clinic</label>' +
+                    '<select id="docClinicSelect" onchange="CFG._onDocClinicChange(this.value)" style="' +
+                    inputStyle() + '">' + clinicOpts + '</select>' +
+                    '<div style="font-size:11px;color:#888;margin-top:6px;">' +
+                    'Admin login (User ID &amp; password) is set in Users. Admin appears first for every clinic.</div>' +
+                    '</div>' +
+                    '<div id="docList">' + renderDocCards(rows, adminUsers) + '</div>' +
+                    renderReceptionSection(recepUsers) +
                     docPanelHTML();
                 pane.innerHTML = html;
-                // reset selection state each time tab loads
                 _selectedDoctorIds = [];
-            })
-            .catch(function (e) {
+                _updateDoctorPrintBtn();
+            }).catch(function (e) {
                 pane.innerHTML = '<p style="color:red;">Error: ' + esc(e.message) + '</p>';
             });
         }
 
-        function renderDocCards(rows) {
-        if (!rows.length) {
-            return '<p style="color:#888;text-align:center;padding:40px 0;">' +
-                'No doctors found. Click "+ Add Doctor" to create one.</p>';
+        function renderReceptionSection(rows) {
+            var TH = 'padding:11px 12px;text-align:left;font-size:12px;font-weight:800;' +
+                'color:#0d6efd;border-bottom:2px solid #dde8f5;text-transform:uppercase;letter-spacing:.4px;';
+            var TD = 'padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
+            var body = '';
+            if (!rows.length) {
+                body = '<tr><td colspan="4" style="padding:16px;text-align:center;color:#888;">' +
+                    'No reception users for this clinic.</td></tr>';
+            } else {
+                rows.forEach(function (u) {
+                    var active = u.is_active !== false;
+                    body +=
+                        '<tr onmouseover="this.style.background=\'#f5f9ff\'" ' +
+                        'onmouseout="this.style.background=\'#fff\'">' +
+                        '<td style="' + TD + 'font-weight:800;color:#0d6efd;">' + esc(u.user_id || '-') + '</td>' +
+                        '<td style="' + TD + '">' + esc(u.display_name || '-') + '</td>' +
+                        '<td style="' + TD + 'text-align:center;">' +
+                        (active
+                            ? '<span style="padding:3px 10px;border-radius:999px;background:#d4edda;color:#155724;font-size:11px;font-weight:800;">Yes</span>'
+                            : '<span style="padding:3px 10px;border-radius:999px;background:#f8d7da;color:#721c24;font-size:11px;font-weight:800;">No</span>') +
+                        '</td>' +
+                        '<td style="' + TD + 'text-align:center;">' +
+                        '<button onclick="CFG._openRecepUserPanel(\'' + esc(u.id) + '\')" ' +
+                        'style="padding:6px 12px;background:#0d6efd;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:800;margin-right:4px;">Edit</button>' +
+                        '<button onclick="CFG._openCopyToClinic(\'reception\',\'' + esc(u.id) + '\')" ' +
+                        'style="padding:6px 10px;background:#17a2b8;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:800;margin-right:4px;">Copy</button>' +
+                        '<button onclick="CFG._deleteUser(\'' + esc(u.id) + '\',\'' + esc(u.user_id) + '\')" ' +
+                        'style="padding:6px 12px;background:#dc3545;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:800;">Delete</button>' +
+                        '</td></tr>';
+                });
+            }
+            return '<div style="margin-top:28px;">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+                '<h3 style="margin:0;font-size:17px;color:#333;">Reception users</h3>' +
+                '<button onclick="CFG._openRecepUserPanel()" style="padding:8px 16px;background:#0d6efd;color:#fff;' +
+                'border:none;border-radius:6px;cursor:pointer;font-size:13px;">+ Add Reception</button>' +
+                '</div>' +
+                '<div style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">' +
+                '<table style="width:100%;border-collapse:collapse;">' +
+                '<thead><tr style="background:#f0f7ff;">' +
+                '<th style="' + TH + 'width:160px;">User ID</th>' +
+                '<th style="' + TH + '">Display Name</th>' +
+                '<th style="' + TH + 'width:90px;text-align:center;">Active</th>' +
+                '<th style="' + TH + 'width:240px;text-align:center;">Actions</th>' +
+                '</tr></thead><tbody>' + body + '</tbody></table></div></div>';
         }
+
+        function _openRecepUserPanel(id) {
+            if (!_docSelectedClinicId) {
+                toast('Select a clinic first.', true);
+                return;
+            }
+            _openUserPanel(id || null);
+            cfgSv('usr_role', 'receptionist');
+            cfgSv('usr_clinic_id', _docSelectedClinicId);
+            _syncUserRoleFields();
+            var t1 = g('cfgUserPanelTitle');
+            if (t1) t1.textContent = id ? 'Edit Reception User' : 'New Reception User';
+        }
+
+        function _openAdminUserPanel(id) {
+            _openUserPanel(id || null);
+            if (!id) {
+                cfgSv('usr_role', 'admin');
+                cfgSv('usr_clinic_id', '');
+                cfgSv('usr_doctor_id', '');
+                cfgSv('usr_password', CFG_ADMIN_DEFAULT_PW);
+            }
+            _syncUserRoleFields();
+            var t2 = g('cfgUserPanelTitle');
+            if (t2) t2.textContent = id ? 'Edit Admin Login' : 'New Admin Login';
+        }
+
+        function _onUserRoleChange() {
+            _syncUserRoleFields();
+            var role = cfgSvGet('usr_role');
+            if (role === 'admin' && !cfgSvGet('usr_password')) {
+                cfgSv('usr_password', CFG_ADMIN_DEFAULT_PW);
+            }
+        }
+
+        function _syncUserRoleFields() {
+            var role = cfgSvGet('usr_role') || 'staff';
+            var isAdmin = role === 'admin';
+            var doctorWrap = _cfgUsrField('usr_doctor_wrap') || g('usr_doctor_wrap');
+            if (doctorWrap) doctorWrap.style.display = isAdmin ? 'none' : 'block';
+            if (isAdmin) cfgSv('usr_doctor_id', '');
+        }
+
+        var _copyPickerKind = null;
+        var _copyPickerRecordId = null;
+
+        function _clinicLabelById(clinicId) {
+            var c = (_docClinics || []).find(function (x) { return x.id === clinicId; });
+            return c ? cfgClinicLabel(c) : 'Clinic';
+        }
+
+        function _showCopyToClinicPicker(kind, recordId, recordLabel) {
+            _copyPickerKind = kind;
+            _copyPickerRecordId = recordId;
+            var others = (_docClinics || []).filter(function (c) {
+                return c.id !== _docSelectedClinicId;
+            });
+            if (!others.length) {
+                toast('No other clinic to copy to. Add another clinic in Clinic Profile first.', true);
+                return;
+            }
+
+            var old = g('cfgCopyClinicOv');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+
+            var ov = document.createElement('div');
+            ov.id = 'cfgCopyClinicOv';
+            ov.style.cssText =
+                'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100001;' +
+                'display:flex;align-items:center;justify-content:center;';
+
+            var box = document.createElement('div');
+            box.style.cssText =
+                'background:#fff;border-radius:10px;padding:28px 24px;max-width:420px;width:92%;' +
+                'box-shadow:0 8px 32px rgba(0,0,0,.3);';
+
+            var title = document.createElement('p');
+            title.style.cssText = 'margin:0 0 8px;font-size:16px;font-weight:700;color:#0d6efd;';
+            title.textContent = 'Copy to another clinic';
+
+            var msgEl = document.createElement('p');
+            msgEl.style.cssText = 'margin:0 0 16px;font-size:14px;color:#444;line-height:1.5;';
+            var kindLabel = kind === 'doctor' ? 'doctor' : 'reception user';
+            msgEl.textContent = 'Copy ' + kindLabel + ' "' + (recordLabel || '') + '" to:';
+
+            var lbl = document.createElement('label');
+            lbl.style.cssText = 'display:block;font-size:12px;font-weight:700;color:#555;margin-bottom:6px;';
+            lbl.textContent = 'Destination clinic';
+
+            var sel = document.createElement('select');
+            sel.style.cssText = inputStyle();
+            var ph = document.createElement('option');
+            ph.value = '';
+            ph.textContent = '-- Select clinic --';
+            sel.appendChild(ph);
+            others.forEach(function (c) {
+                var opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = cfgClinicLabel(c);
+                sel.appendChild(opt);
+            });
+
+            var btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;gap:10px;margin-top:20px;justify-content:flex-end;';
+
+            function closeOv() {
+                if (ov.parentNode) ov.parentNode.removeChild(ov);
+                _copyPickerKind = null;
+                _copyPickerRecordId = null;
+            }
+
+            var copyBtn = document.createElement('button');
+            copyBtn.textContent = 'Copy';
+            copyBtn.style.cssText =
+                'background:#0d6efd;color:#fff;border:none;padding:10px 22px;border-radius:6px;' +
+                'cursor:pointer;font-size:14px;font-weight:600;';
+            copyBtn.addEventListener('click', function () {
+                var targetId = sel.value;
+                if (!targetId) {
+                    toast('Please select a destination clinic.', true);
+                    return;
+                }
+                closeOv();
+                if (kind === 'doctor') {
+                    _copyDoctorToClinic(recordId, targetId);
+                } else {
+                    _copyRecepToClinic(recordId, targetId);
+                }
+            });
+
+            var cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.style.cssText =
+                'background:#6c757d;color:#fff;border:none;padding:10px 22px;border-radius:6px;' +
+                'cursor:pointer;font-size:14px;font-weight:600;';
+            cancelBtn.addEventListener('click', closeOv);
+            ov.addEventListener('click', function (e) { if (e.target === ov) closeOv(); });
+
+            btnRow.appendChild(cancelBtn);
+            btnRow.appendChild(copyBtn);
+            box.appendChild(title);
+            box.appendChild(msgEl);
+            box.appendChild(lbl);
+            box.appendChild(sel);
+            box.appendChild(btnRow);
+            ov.appendChild(box);
+            document.body.appendChild(ov);
+            sel.focus();
+        }
+
+        function _openCopyToClinic(kind, recordId) {
+            if (!_docSelectedClinicId) {
+                toast('Select a source clinic first.', true);
+                return;
+            }
+            if (kind === 'doctor') {
+                SB.from('doctors').select('doctor_code,english_name,chinese_name').eq('id', recordId).single()
+                .then(function (r) {
+                    var d = r.data || {};
+                    var label = d.doctor_code || d.english_name || d.chinese_name || 'Doctor';
+                    _showCopyToClinicPicker('doctor', recordId, label);
+                });
+                return;
+            }
+            SB.from('app_users').select('user_id,display_name').eq('id', recordId).single()
+            .then(function (r) {
+                var u = r.data || {};
+                var label = u.user_id || u.display_name || 'Reception';
+                _showCopyToClinicPicker('reception', recordId, label);
+            });
+        }
+
+        function _clinicCodeSuffix(clinicId) {
+            var c = (_docClinics || []).find(function (x) { return x.id === clinicId; });
+            if (c && c.clinic_code) {
+                return String(c.clinic_code).replace(/[^a-zA-Z0-9]/g, '') || 'C';
+            }
+            return 'C';
+        }
+
+        /** doctor_code is globally unique in DB — suffix with target clinic code when copying. */
+        function _uniqueDoctorCode(baseCode, targetClinicId, done) {
+            var suffix = _clinicCodeSuffix(targetClinicId);
+            var base = String(baseCode || 'DR').trim() || 'DR';
+            var candidates = [];
+            var first = base + '_' + suffix;
+            if (first.length <= 32) candidates.push(first);
+            candidates.push(base + '_' + suffix + '2');
+            candidates.push(base + '_' + suffix + '3');
+            candidates.push(base + '_' + suffix + '_' + String(Date.now()).slice(-5));
+
+            var idx = 0;
+            function tryNext() {
+                if (idx >= candidates.length) {
+                    done(base + '_' + suffix + '_' + Date.now());
+                    return;
+                }
+                var candidate = candidates[idx++];
+                SB.from('doctors').select('id').eq('doctor_code', candidate).limit(1)
+                .then(function (r) {
+                    if (r.data && r.data.length) tryNext();
+                    else done(candidate);
+                });
+            }
+            tryNext();
+        }
+
+        function _copyDoctorToClinic(doctorId, targetClinicId) {
+            if (!doctorId || !targetClinicId) return;
+            SB.from('doctors').select('*').eq('id', doctorId).single()
+            .then(function (r) {
+                if (r.error || !r.data) {
+                    toast('Could not load doctor to copy.', true);
+                    return;
+                }
+                var d = r.data;
+                _uniqueDoctorCode(d.doctor_code, targetClinicId, function (newCode) {
+                    var payload = {
+                        doctor_code:   newCode,
+                        english_name:  d.english_name,
+                        chinese_name:  d.chinese_name,
+                        qualification: d.qualification,
+                        tel:           d.tel,
+                        email:         d.email,
+                        color:         d.color || '#4A90D9',
+                        is_active:     d.is_active !== false,
+                        clinic_id:     targetClinicId
+                    };
+                    SB.from('doctors').insert(payload)
+                    .then(function (ins) {
+                        if (ins.error) { toast(ins.error.message, true); return; }
+                        var msg = 'Doctor copied to ' + _clinicLabelById(targetClinicId) + '.';
+                        if (newCode !== d.doctor_code) {
+                            msg += ' Code: ' + newCode + ' (was ' + (d.doctor_code || '') + ').';
+                        }
+                        toast(msg);
+                        if (typeof loadClinicsAndDoctorsForLogin === 'function') {
+                            loadClinicsAndDoctorsForLogin();
+                        }
+                        if (_docSelectedClinicId === targetClinicId) loadDoctors();
+                    });
+                });
+            });
+        }
+
+        function _uniqueRecepUserId(baseUserId, targetClinicId, done) {
+            var suffix = _clinicCodeSuffix(targetClinicId);
+            var base = String(baseUserId || 'recep').trim() || 'recep';
+            var candidates = [
+                base + '_' + suffix,
+                base + '_' + suffix + '2',
+                base + '_' + suffix + '3',
+                base + '_' + suffix + '_' + String(Date.now()).slice(-5)
+            ];
+            var idx = 0;
+            function tryNext() {
+                if (idx >= candidates.length) {
+                    done(base + '_' + suffix + '_' + Date.now());
+                    return;
+                }
+                var candidate = candidates[idx++];
+                SB.from('app_users').select('id').eq('user_id', candidate).limit(1)
+                .then(function (r) {
+                    if (r.data && r.data.length) tryNext();
+                    else done(candidate);
+                });
+            }
+            tryNext();
+        }
+
+        function _copyRecepToClinic(userDbId, targetClinicId) {
+            if (!userDbId || !targetClinicId) return;
+            SB.from('app_users').select('*').eq('id', userDbId).single()
+            .then(function (r) {
+                if (r.error || !r.data) {
+                    toast('Could not load reception user to copy.', true);
+                    return;
+                }
+                var u = r.data;
+                _uniqueRecepUserId(u.user_id || 'recep', targetClinicId, function (newUserId) {
+                    var payload = {
+                        user_id: newUserId,
+                        password: u.password || '1234',
+                        display_name: u.display_name,
+                        role: 'receptionist',
+                        clinic_id: targetClinicId,
+                        doctor_id: null,
+                        is_active: u.is_active !== false
+                    };
+                    SB.from('app_users').insert([payload])
+                    .then(function (ins) {
+                        if (ins.error) { toast(ins.error.message, true); return; }
+                        toast('Reception user copied to ' + _clinicLabelById(targetClinicId) +
+                            ' (login: ' + newUserId + ').');
+                        if (_docSelectedClinicId === targetClinicId) loadDoctors();
+                        loadUsers();
+                    });
+                });
+            });
+        }
+
+        var BTN_COPY =
+            'padding:4px 9px;background:#17a2b8;color:#fff;border:none;border-radius:4px;' +
+            'cursor:pointer;font-size:11px;font-weight:600;';
+
+        function renderAdminUserRows(adminUsers) {
+            var TD0  = 'padding:11px 14px;font-size:13px;vertical-align:middle;border-bottom:1px solid #f0f0f0;';
+            var TD0_C = 'padding:11px 10px;text-align:center;vertical-align:middle;border-bottom:1px solid #f0f0f0;';
+            if (!adminUsers.length) {
+                return '<tr style="background:#fffbf0;">' +
+                    '<td colspan="9" style="padding:16px;text-align:center;color:#888;font-size:13px;">' +
+                    'No admin login yet. Use <b>Users</b> → <button type="button" onclick="CFG._openAdminUserPanel()" ' +
+                    'style="padding:4px 10px;background:#0d6efd;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;">+ Add Admin</button></td></tr>';
+            }
+            return adminUsers.map(function (u) {
+                var active = u.is_active !== false;
+                var statusBg  = active ? '#d4edda' : '#f8d7da';
+                var statusCol = active ? '#155724' : '#721c24';
+                return '<tr style="background:#fffbf0;">' +
+                    '<td style="' + TD0_C + 'color:#aaa;">—</td>' +
+                    '<td style="' + TD0 + 'font-weight:700;color:#b8860b;">ADMIN</td>' +
+                    '<td style="' + TD0 + 'font-weight:700;">' + esc(u.display_name || 'Admin') + '</td>' +
+                    '<td style="' + TD0 + '">管理員</td>' +
+                    '<td style="' + TD0 + 'color:#0d6efd;font-weight:600;">' + esc(u.user_id || '-') + '</td>' +
+                    '<td style="' + TD0 + 'color:#888;font-style:italic;">Login user</td>' +
+                    '<td style="' + TD0_C + '"><div style="width:22px;height:22px;border-radius:50%;margin:0 auto;background:#6c757d;border:2px solid #ddd;"></div></td>' +
+                    '<td style="' + TD0_C + '"><span style="display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;background:' +
+                    statusBg + ';color:' + statusCol + ';">' + (active ? 'Active' : 'Inactive') + '</span></td>' +
+                    '<td style="' + TD0_C + '">' +
+                    '<button onclick="CFG._openAdminUserPanel(\'' + esc(u.id) + '\')" ' +
+                    'style="padding:4px 11px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;">Edit login</button>' +
+                    '</td></tr>';
+            }).join('');
+        }
+
+        function renderDocCards(rows, adminUsers) {
+        adminUsers = adminUsers || [];
         var TH = 'padding:11px 14px;text-align:left;font-size:12px;font-weight:700;' +
             'color:#0d6efd;border-bottom:2px solid #dde8f5;' +
             'text-transform:uppercase;letter-spacing:0.5px;';
@@ -573,6 +1007,8 @@ var CFG = (function () {
             '<th style="' + TH_C + 'width:80px;">Status</th>' +
             '<th style="' + TH_C + '">Actions</th>' +
             '</tr></thead><tbody>';
+
+        html += renderAdminUserRows(adminUsers);
 
         rows.forEach(function (d) {
             var checked  = (_selectedDoctorIds.indexOf(d.id) !== -1);
@@ -608,10 +1044,12 @@ var CFG = (function () {
                     'font-size:11px;font-weight:600;background:' + statusBg + ';color:' + statusCol + ';">' +
                     (d.is_active ? 'Active' : 'Inactive') + '</span></td>' +
                 '<td style="' + TD_C + '">' +
-                    '<div style="display:flex;gap:5px;justify-content:center;">' +
+                    '<div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;">' +
                     '<button onclick="event.stopPropagation();CFG._openDocPanel(\'' + d.id + '\')" ' +
                     'style="padding:4px 11px;background:#0d6efd;color:#fff;border:none;' +
                     'border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;">Edit</button>' +
+                    '<button onclick="event.stopPropagation();CFG._openCopyToClinic(\'doctor\',\'' + d.id + '\')" ' +
+                    'style="' + BTN_COPY + '">Copy</button>' +
                     '<button onclick="event.stopPropagation();CFG._deleteDoc(\'' + d.id + '\',\'' +
                     esc(d.english_name || d.doctor_code) + '\')" ' +
                     'style="padding:4px 11px;background:#dc3545;color:#fff;border:none;' +
@@ -671,6 +1109,10 @@ var CFG = (function () {
         _docEditId = id || null;
         var panel = g('docPanel');
         if (!panel) return;
+        if (!id && !_docSelectedClinicId) {
+            toast('Select a clinic first.', true);
+            return;
+        }
 
         g('docPanelTitle').textContent = id ? 'Edit Doctor' : 'Add Doctor';
 
@@ -706,6 +1148,10 @@ var CFG = (function () {
     function _saveDoc() {
         var code = (g('dp_code') || {}).value.trim();
         if (!code) { toast('Doctor code is required.', true); return; }
+        if (!_docEditId && !_docSelectedClinicId) {
+            toast('Select a clinic first.', true);
+            return;
+        }
 
         var payload = {
             doctor_code:   code,
@@ -717,6 +1163,9 @@ var CFG = (function () {
             color:         (g('dp_color')  || {}).value,
             is_active:     (g('dp_active') || {}).checked !== false
         };
+        if (!_docEditId) {
+            payload.clinic_id = _docSelectedClinicId;
+        }
 
         var op = _docEditId
             ? SB.from('doctors').update(payload).eq('id', _docEditId)
@@ -727,6 +1176,9 @@ var CFG = (function () {
             toast(_docEditId ? 'Doctor updated.' : 'Doctor added.');
             _closeDocPanel();
             loadDoctors();
+            if (typeof loadClinicsAndDoctorsForLogin === 'function') {
+                loadClinicsAndDoctorsForLogin();
+            }
         });
     }
 
@@ -1174,6 +1626,38 @@ var CFG = (function () {
     var _usrEditId = null;
     var _usrClinics = [];
     var _usrDoctors = [];
+    var CFG_ADMIN_DEFAULT_PW = '1234';
+
+    function _cfgUsrField(fid) {
+        var panel = g('cfgUserPanel');
+        if (panel) {
+            var el = panel.querySelector('#' + fid);
+            if (el) return el;
+        }
+        return g(fid);
+    }
+
+    function cfgSv(fid, val) {
+        var el = _cfgUsrField(fid);
+        if (el && val !== undefined) el.value = val;
+    }
+
+    function cfgSvGet(fid) {
+        var el = _cfgUsrField(fid);
+        return el ? el.value : '';
+    }
+
+    function mountCfgUserPanel() {
+        if (g('cfgUserPanel')) return;
+        var mount = document.createElement('div');
+        mount.id = 'cfgUserPanelMount';
+        mount.style.cssText = 'margin:12px 0 0;max-width:980px;';
+        mount.innerHTML = userPanelHTML();
+        var usersPane = g('cfgPane-users');
+        if (usersPane && usersPane.parentNode) {
+            usersPane.parentNode.insertBefore(mount, usersPane.nextSibling);
+        }
+    }
 
     function loadUsers() {
         var pane = g('cfgPane-users');
@@ -1188,26 +1672,30 @@ var CFG = (function () {
             _usrClinics = (all[0] && all[0].data) ? all[0].data : [];
             _usrDoctors = (all[1] && all[1].data) ? all[1].data.filter(function (d) { return d.is_active !== false; }) : [];
             var usersRes = all[2] || {};
-            var rows = usersRes.data || [];
+            var allRows = usersRes.data || [];
+            var rows = allRows;
 
             var html =
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
                   '<div>' +
                     '<h2 style="margin:0;font-size:20px;">Users</h2>' +
                     '<div style="font-size:12px;color:#888;margin-top:4px;">' +
-                      'Admins can set User ID & Password for dentists and staff. Nurse login is fixed as <b>nurse / nurse</b>.' +
+                      'Link each login to a <b>doctor identity</b> (not a clinic). Patients are global. Pick clinic after login. Nurse: <b>nurse / nurse</b>.' +
                     '</div>' +
                   '</div>' +
+                  '<button class="btn btn--secondary" onclick="CFG._openAdminUserPanel()" style="margin-right:8px;">' +
+                    '+ Add Admin' +
+                  '</button>' +
                   '<button class="btn btn--primary" onclick="CFG._openUserPanel()">' +
                     '+ Add User' +
                   '</button>' +
                 '</div>' +
-                userPanelHTML() +
                 '<div style="margin-top:12px;">' +
                   renderUsersTable(rows) +
                 '</div>';
 
             pane.innerHTML = html;
+            mountCfgUserPanel();
         }).catch(function (e) {
             pane.innerHTML = '<p style="color:#dc3545;">Error: ' + esc(e.message) + '</p>';
         });
@@ -1224,11 +1712,6 @@ var CFG = (function () {
             'letter-spacing:.4px;white-space:nowrap;';
         var TD = 'padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
 
-        function clinicLabel(id) {
-            var c = _usrClinics.find(function (x) { return x.id === id; });
-            if (!c) return '-';
-            return (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') + (c.english_name || 'Clinic');
-        }
         function doctorLabel(id) {
             var d = _usrDoctors.find(function (x) { return x.id === id; });
             if (!d) return '-';
@@ -1241,9 +1724,9 @@ var CFG = (function () {
             '<table style="width:100%;border-collapse:collapse;">' +
             '<thead><tr style="background:#f0f7ff;">' +
               '<th style="' + TH + 'width:160px;">User ID</th>' +
+              '<th style="' + TH + 'width:110px;">PW</th>' +
               '<th style="' + TH + 'width:130px;">Role</th>' +
-              '<th style="' + TH + '">Clinic</th>' +
-              '<th style="' + TH + '">Doctor</th>' +
+              '<th style="' + TH + '">Doctor identity</th>' +
               '<th style="' + TH + 'width:90px;text-align:center;">Active</th>' +
               '<th style="' + TH + 'width:170px;text-align:center;">Actions</th>' +
             '</tr></thead><tbody>';
@@ -1254,8 +1737,12 @@ var CFG = (function () {
               '<tr onmouseover="this.style.background=\'#f5f9ff\'" ' +
               'onmouseout="this.style.background=\'#fff\'">' +
                 '<td style="' + TD + 'font-weight:900;color:#0d6efd;">' + esc(u.user_id || '-') + '</td>' +
+                '<td style="' + TD + '">' +
+                  '<input type="text" data-user-id="' + esc(u.id) + '" value="' + esc(u.password || '') + '" ' +
+                  'onchange="CFG._saveUserPassword(this)" title="Edit password and press Enter or click away" ' +
+                  'style="width:96px;padding:5px 8px;border:1px solid #ccc;border-radius:5px;font-size:12px;font-family:monospace;">' +
+                '</td>' +
                 '<td style="' + TD + '">' + esc(u.role || '-') + '</td>' +
-                '<td style="' + TD + '">' + esc(clinicLabel(u.clinic_id)) + '</td>' +
                 '<td style="' + TD + '">' + esc(doctorLabel(u.doctor_id)) + '</td>' +
                 '<td style="' + TD + 'text-align:center;">' +
                   (active
@@ -1289,13 +1776,13 @@ var CFG = (function () {
         });
 
         return '' +
-          '<div id="userPanel" style="display:none;margin-top:12px;max-width:980px;">' +
+          '<div id="cfgUserPanel" style="display:none;">' +
             '<div style="background:#fff;border-radius:12px;border:1px solid #eef2f7;' +
               'box-shadow:0 1px 4px rgba(0,0,0,.08);padding:14px 14px 12px;">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
                 '<div>' +
-                  '<div id="userPanelTitle" style="font-size:15px;font-weight:900;color:#0d6efd;">New User</div>' +
-                  '<div style="font-size:12px;color:#888;margin-top:2px;">Set credentials for dentist/staff logins.</div>' +
+                  '<div id="cfgUserPanelTitle" style="font-size:15px;font-weight:900;color:#0d6efd;">New User</div>' +
+                  '<div style="font-size:12px;color:#888;margin-top:2px;">User ID, password, and linked doctor identity (not tied to a clinic).</div>' +
                 '</div>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
                   '<button class="btn btn--ghost" onclick="CFG._closeUserPanel()">Close</button>' +
@@ -1310,7 +1797,7 @@ var CFG = (function () {
                 '</div>' +
                 '<div>' +
                   '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">Password *</label>' +
-                  '<input id="usr_password" type="text" style="' + inputStyle() + '" placeholder="Set password">' +
+                  '<input id="usr_password" type="text" style="' + inputStyle() + '" placeholder="Admin default: 1234">' +
                 '</div>' +
                 '<div>' +
                   '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">Display Name</label>' +
@@ -1321,22 +1808,16 @@ var CFG = (function () {
               '<div style="display:grid;grid-template-columns:220px 1fr 1fr;gap:10px;margin-top:10px;">' +
                 '<div>' +
                   '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">Role</label>' +
-                  '<select id="usr_role" style="' + inputStyle() + '">' +
-                    '<option value="admin">admin</option>' +
+                  '<select id="usr_role" onchange="CFG._onUserRoleChange()" style="' + inputStyle() + '">' +
+                    '<option value="admin">admin (global)</option>' +
                     '<option value="doctor">doctor</option>' +
                     '<option value="staff">staff</option>' +
                     '<option value="receptionist">receptionist</option>' +
                     '<option value="nurse">nurse</option>' +
                   '</select>' +
                 '</div>' +
-                '<div>' +
-                  '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">Clinic</label>' +
-                  '<select id="usr_clinic_id" style="' + inputStyle() + '">' +
-                    clinicOpts +
-                  '</select>' +
-                '</div>' +
-                '<div>' +
-                  '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">Doctor (for dentist login)</label>' +
+                '<div id="usr_doctor_wrap">' +
+                  '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">Doctor identity (login)</label>' +
                   '<select id="usr_doctor_id" style="' + inputStyle() + '">' +
                     doctorOpts +
                   '</select>' +
@@ -1357,54 +1838,82 @@ var CFG = (function () {
     }
 
     function _openUserPanel(id) {
+        mountCfgUserPanel();
         _usrEditId = id || null;
-        var panel = g('userPanel');
-        if (!panel) return;
+        var panel = g('cfgUserPanel');
+        if (!panel) {
+            toast('User form is not ready. Please try again.', true);
+            return;
+        }
         panel.style.display = 'block';
-        if (g('userPanelTitle')) g('userPanelTitle').textContent = id ? 'Edit User' : 'New User';
+        if (panel.scrollIntoView) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        var titleEl = g('cfgUserPanelTitle');
+        if (titleEl) titleEl.textContent = id ? 'Edit User' : 'New User';
 
-        // reset
-        sv('usr_user_id', '');
-        sv('usr_password', '');
-        sv('usr_display_name', '');
-        sv('usr_role', 'staff');
-        sv('usr_clinic_id', '');
-        sv('usr_doctor_id', '');
-        var act = g('usr_active'); if (act) act.checked = true;
+        cfgSv('usr_user_id', '');
+        cfgSv('usr_password', '');
+        cfgSv('usr_display_name', '');
+        cfgSv('usr_role', 'staff');
+        cfgSv('usr_doctor_id', '');
+        var act = _cfgUsrField('usr_active');
+        if (act) act.checked = true;
+        _syncUserRoleFields();
 
         if (!id) return;
+
         SB.from('app_users').select('*').eq('id', id).single()
         .then(function (r) {
             var u = r.data || {};
-            sv('usr_user_id', u.user_id || '');
-            sv('usr_password', u.password || '');
-            sv('usr_display_name', u.display_name || '');
-            sv('usr_role', u.role || 'staff');
-            sv('usr_clinic_id', u.clinic_id || '');
-            sv('usr_doctor_id', u.doctor_id || '');
-            var act2 = g('usr_active'); if (act2) act2.checked = u.is_active !== false;
+            cfgSv('usr_user_id', u.user_id || '');
+            cfgSv('usr_password', u.password || '');
+            cfgSv('usr_display_name', u.display_name || '');
+            cfgSv('usr_role', u.role || 'staff');
+            cfgSv('usr_doctor_id', u.doctor_id || '');
+            var act2 = _cfgUsrField('usr_active');
+            if (act2) act2.checked = u.is_active !== false;
+            _syncUserRoleFields();
         });
     }
 
     function _closeUserPanel() {
-        var panel = g('userPanel');
+        var panel = g('cfgUserPanel');
         if (panel) panel.style.display = 'none';
         _usrEditId = null;
     }
 
+    function _saveUserPassword(inputEl) {
+        if (!inputEl) return;
+        var id = inputEl.getAttribute('data-user-id');
+        var pw = (inputEl.value || '').trim();
+        if (!id || !pw) {
+            toast('Password cannot be empty.', true);
+            return;
+        }
+        SB.from('app_users').update({ password: pw }).eq('id', id)
+        .then(function (r) {
+            if (r.error) { toast(r.error.message, true); return; }
+            toast('Password saved.');
+        });
+    }
+
     function _saveUser() {
-        var userId = (g('usr_user_id') || {}).value.trim();
-        var pw = (g('usr_password') || {}).value;
+        mountCfgUserPanel();
+        var userId = cfgSvGet('usr_user_id').trim();
+        var pw = cfgSvGet('usr_password');
         if (!userId || !pw) { toast('User ID and password are required.', true); return; }
 
+        var roleVal = cfgSvGet('usr_role') || 'staff';
+        var actEl = _cfgUsrField('usr_active');
         var payload = {
             user_id: userId,
             password: pw,
-            display_name: (g('usr_display_name') || {}).value.trim() || null,
-            role: (g('usr_role') || {}).value || 'staff',
-            clinic_id: (g('usr_clinic_id') || {}).value || null,
-            doctor_id: (g('usr_doctor_id') || {}).value || null,
-            is_active: (g('usr_active') || {}).checked !== false
+            display_name: cfgSvGet('usr_display_name').trim() || null,
+            role: roleVal,
+            clinic_id: null,
+            doctor_id: roleVal === 'admin'
+                ? null
+                : (cfgSvGet('usr_doctor_id') || null),
+            is_active: actEl ? actEl.checked !== false : true
         };
 
         var op = _usrEditId
@@ -1416,6 +1925,7 @@ var CFG = (function () {
             toast(_usrEditId ? 'User updated.' : 'User added.');
             _closeUserPanel();
             loadUsers();
+            if (_docSelectedClinicId) loadDoctors();
         });
     }
 
@@ -1426,6 +1936,7 @@ var CFG = (function () {
                 if (r.error) { toast(r.error.message, true); return; }
                 toast('User deleted.');
                 loadUsers();
+                if (_docSelectedClinicId) loadDoctors();
             });
         });
     }
@@ -1842,7 +2353,7 @@ var CFG = (function () {
             var url  = URL.createObjectURL(blob);
             var a    = document.createElement('a');
             a.href     = url;
-            a.download = table + '_' + new Date().toISOString().slice(0,10) + '.csv';
+            a.download = table + '_' + (typeof todayISO === 'function' ? todayISO() : '') + '.csv';
             a.click();
             URL.revokeObjectURL(url);
             toast(label + ' exported.');
@@ -2777,6 +3288,11 @@ var CFG = (function () {
             _toggleDoctorSelect:   _toggleDoctorSelect,
             _toggleAllDoctors:     _toggleAllDoctors,
             _printSelectedDoctors: _printSelectedDoctors,
+            _onDocClinicChange:    _onDocClinicChange,
+            _openAdminUserPanel:   _openAdminUserPanel,
+            _onUserRoleChange:     _onUserRoleChange,
+            _openRecepUserPanel:   _openRecepUserPanel,
+            _openCopyToClinic:     _openCopyToClinic,
             _openDocPanel:         _openDocPanel,
             _closeDocPanel:        _closeDocPanel,
             _saveDoc:              _saveDoc,
@@ -2803,8 +3319,11 @@ var CFG = (function () {
         _filterTemplates: _filterTemplates,
         // users
         _openUserPanel: _openUserPanel,
+        _openAdminUserPanel: _openAdminUserPanel,
+        _onUserRoleChange: _onUserRoleChange,
         _closeUserPanel: _closeUserPanel,
         _saveUser: _saveUser,
+        _saveUserPassword: _saveUserPassword,
         _deleteUser: _deleteUser,
         _ensureNurseLogin: _ensureNurseLogin,
         // data

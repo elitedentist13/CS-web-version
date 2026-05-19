@@ -1871,6 +1871,4 @@ function refreshPhotos() {
    SECTION 14 – HELPERS
    ========================================================= */
 
-function todayISO() {
-  return new Date().toISOString().split('T')[0];
-}
+/* todayISO() — use global from app.js (PC local calendar date, not UTC) */

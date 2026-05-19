@@ -65,6 +65,31 @@ body {
     margin: 0 6px;
 }
 
+.app-strip-clinic-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-right: 4px;
+}
+
+.app-strip-clinic-select {
+    max-width: 220px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    border: 1px solid #475569;
+    background: #1e293b;
+    color: #f1f5f9;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.login-hint {
+    font-size: 12px;
+    color: #666;
+    margin: 0 0 12px;
+    line-height: 1.4;
+}
+
 .app-session-strip-ctrl {
     display: inline-flex;
     align-items: center;
@@ -1327,6 +1352,55 @@ tr:hover td { background: #fafcff; }
     text-transform: uppercase;
 }
 
+.appt-clinic-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    margin: -8px 0 16px;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+}
+
+.appt-clinic-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+    white-space: nowrap;
+}
+
+.appt-clinic-select {
+    min-width: 220px;
+    max-width: 100%;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0f172a;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.appt-clinic-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 132, 255, 0.15);
+}
+
+.appt-clinic-hint {
+    font-size: 12px;
+    color: #64748b;
+    flex: 1;
+    min-width: 160px;
+}
+
+.report-clinic-bar {
+    margin-bottom: 14px;
+}
+
 /* ════════════════════════════════════════════════════════════════
    APPOINTMENT — TOOLBAR + TABLE
 ════════════════════════════════════════════════════════════════ */
@@ -1761,6 +1835,320 @@ tr:hover td { background: #fafcff; }
     box-shadow: 0 1px 4px rgba(0,0,0,0.1);
 }
 
+.cal-doctor-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+}
+
+.cal-doctor-bar-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.cal-doctor-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+    min-width: 120px;
+}
+
+.cal-doctor-filter-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.cal-filter-link {
+    padding: 2px 6px;
+    border: none;
+    background: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.cal-filter-link:hover {
+    background: #e0f2fe;
+}
+
+.cal-filter-sep {
+    color: #cbd5e1;
+    font-size: 11px;
+    user-select: none;
+}
+
+.cal-legend-filter-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    cursor: default;
+    transition: opacity 0.15s, border-color 0.15s;
+}
+
+.cal-legend-filter-item.cal-legend-off {
+    opacity: 0.45;
+    background: #f1f5f9;
+}
+
+.cal-legend-check {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: var(--primary);
+}
+
+.cal-legend-color-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    line-height: 0;
+}
+
+.cal-legend-color-btn:hover .cal-legend-dot {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 3px #94a3b8;
+}
+
+.cal-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.cal-legend-empty {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+.cal-doctor-colors-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cal-doctor-colors-btn:hover {
+    background: #f1f5f9;
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.appt-dr-filter-host {
+    margin-bottom: 12px;
+}
+
+.appt-dr-filter-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+}
+
+.appt-dr-filter-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+
+.appt-dr-filter-chips {
+    flex: 1;
+    min-width: 120px;
+}
+
+.cal-colors-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.cal-colors-modal.open {
+    display: flex;
+}
+
+.cal-colors-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.cal-colors-modal-card {
+    position: relative;
+    z-index: 1;
+    width: min(420px, 100%);
+    max-height: min(85vh, 560px);
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+    padding: 18px 20px 20px;
+}
+
+.cal-colors-modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.cal-colors-modal-head strong {
+    font-size: 16px;
+    color: #0f172a;
+}
+
+.cal-colors-close {
+    border: none;
+    background: none;
+    font-size: 22px;
+    line-height: 1;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.cal-colors-hint {
+    font-size: 12px;
+    color: #64748b;
+    margin: 0 0 14px;
+    line-height: 1.45;
+}
+
+.cal-colors-done {
+    margin-top: 14px;
+    width: 100%;
+    padding: 10px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.cal-colors-empty {
+    font-size: 12px;
+    color: #94a3b8;
+    margin: 0;
+}
+
+.gcal-preset-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+    width: 100%;
+}
+
+.gcal-dr-color-inp {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+    background: transparent;
+}
+
+.gcal-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    pointer-events: auto;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.gcal-swatch-on {
+    border-color: #0f172a;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 3px #0f172a;
+}
+
+.gcal-dr-row-label {
+    font-size: 12px;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.appt-doctor-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.appt-doctor-color-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 2px solid #cbd5e1;
+    background: #e2e8f0;
+    flex-shrink: 0;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.appt-doctor-row select {
+    flex: 1;
+    min-width: 0;
+}
+
+.appt-doctor-color-label {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 4px;
+    font-weight: 600;
+}
+
 /* ════════════════════════════════════════════════════════════════
    CALENDAR — MONTHLY GRID
 ════════════════════════════════════════════════════════════════ */
@@ -1772,6 +2160,96 @@ tr:hover td { background: #fafcff; }
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     overflow: hidden;
+}
+
+.gcal-month-grid {
+    background: #fff;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(60, 64, 67, 0.12);
+}
+
+.gcal-month-grid .cal-day-hdr {
+    background: #fff;
+    color: #70757a;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 10px 4px;
+    border-bottom: 1px solid #dadce0;
+}
+
+.gcal-month-grid .cal-cell {
+    min-height: 116px;
+    border-right: 1px solid #dadce0;
+    border-bottom: 1px solid #dadce0;
+    padding: 4px 3px 3px;
+}
+
+.gcal-month-grid .cal-today {
+    background: #e8f0fe !important;
+}
+
+.gcal-month-grid .cal-today .cal-cell-num {
+    background: #1a73e8;
+    color: #fff;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    border-radius: 50%;
+    display: inline-block;
+    margin: 2px 0 4px 2px;
+}
+
+.gcal-month-pill {
+    display: block;
+    margin: 1px 2px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    line-height: 1.35;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left-width: 4px !important;
+    border-left-style: solid !important;
+    box-sizing: border-box;
+}
+
+.gcal-month-pill:hover {
+    filter: brightness(0.96);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.gcal-month-pill-time {
+    font-weight: 700;
+    margin-right: 3px;
+}
+
+.gcal-month-pill-dr {
+    display: block;
+    font-size: 9px;
+    font-weight: 700;
+    opacity: 0.9;
+}
+
+.gcal-month-more {
+    font-size: 11px;
+    color: #1a73e8;
+    font-weight: 600;
+    padding: 2px 5px;
+    cursor: pointer;
+}
+
+.gcal-month-more:hover {
+    text-decoration: underline;
+}
+
+.dpi-dr {
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 2px;
 }
 
 .cal-day-hdr {
@@ -2273,14 +2751,32 @@ tr:hover td { background: #fafcff; }
 /* ════════════════════════════════════════════════════════════════
    PRINT
 ════════════════════════════════════════════════════════════════ */
+/* Prefer printReceiptDocument() (popup). If window.print() is used on the main page, avoid
+   position:fixed on the receipt — it repeats the same page on every sheet in Chrome/Edge. */
 @media print {
-    body * { visibility: hidden; }
-    #receiptPrintArea,
-    #receiptPrintArea * { visibility: visible; }
+    body > *:not(#receiptModal) { display: none !important; }
+    #receiptModal {
+        display: block !important;
+        position: static !important;
+        inset: auto !important;
+        width: 100% !important;
+        height: auto !important;
+        background: #fff !important;
+        overflow: visible !important;
+    }
+    #receiptModal .modal-box {
+        position: static !important;
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 12px !important;
+        box-shadow: none !important;
+    }
+    #receiptModal .mclose,
+    #receiptModal .modal-box > div:last-child { display: none !important; }
     #receiptPrintArea {
-        position: fixed;
-        left: 0; top: 0;
-        width: 100%;
+        position: static !important;
+        width: 100% !important;
     }
 }
 
@@ -4763,9 +5259,10 @@ tr:hover td { background: #fafcff; }
     font-size: 11px; line-height: 1.4;
     overflow: hidden; cursor: pointer;
     box-shadow: 0 1px 3px rgba(0,0,0,.1);
-    border-left: 3px solid;
+    border-left-width: 4px;
+    border-left-style: solid;
     z-index: 2; user-select: none; box-sizing: border-box;
-    transition: box-shadow .15s;
+    transition: box-shadow .15s, background .15s, border-color .15s;
 }
 .gcal-card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.18); z-index: 5; }
 .gcal-card.dragging {
@@ -4788,6 +5285,7 @@ tr:hover td { background: #fafcff; }
     color: inherit;
     -webkit-font-smoothing: antialiased;
 }
+.gcal-card .card-time  { display:block; font-size:10px; font-weight:700; opacity:.9; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .gcal-card .card-name  { display:block; font-weight:600; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.85; }
 .gcal-card .card-sub   { display:block; font-size:10px; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .gcal-card .card-dr    { display:block; font-size:10px; font-weight:700; margin-top:2px; }
@@ -4838,9 +5336,10 @@ tr:hover td { background: #fafcff; }
 }
 .gcal-settings-btn:hover { background: #f1f5f9; color: #374151; }
 .gcal-dr-row {
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 7px; padding: 5px 7px;
-    border-radius: 7px; background: #f8fafc;
+    display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 10px; padding: 8px 10px;
+    border-radius: 8px; background: #f8fafc;
+    border: 1px solid #e2e8f0;
 }
 
 /* ── Mini Calendar panel ──────────────────────────────────────── */

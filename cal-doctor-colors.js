@@ -555,6 +555,18 @@ var CalDoctorColors = (function () {
         return html;
     }
 
+    function syncColorModalCopy(modal) {
+        if (!modal) return;
+        var head = modal.querySelector('.cal-colors-modal-head strong');
+        if (head) head.textContent = calTr('cal.doctor.modalTitle');
+        var hint = modal.querySelector('.cal-colors-hint');
+        if (hint) hint.textContent = calTr('cal.doctor.modalHint');
+        var doneBtn = modal.querySelector('.cal-colors-done');
+        if (doneBtn) doneBtn.textContent = calTr('cal.doctor.done');
+        var closeBtn = modal.querySelector('.cal-colors-close');
+        if (closeBtn) closeBtn.setAttribute('aria-label', calTr('common.closeAria'));
+    }
+
     function openColorModal(focusKey) {
         var modal = document.getElementById('calDoctorColorsModal');
         if (!modal) {
@@ -578,6 +590,7 @@ var CalDoctorColors = (function () {
             document.body.appendChild(modal);
             modal = document.getElementById('calDoctorColorsModal');
         }
+        syncColorModalCopy(modal);
         modal.className = 'cal-colors-modal open';
         var body = document.getElementById('calDoctorColorsModalBody');
         if (body) {
@@ -626,15 +639,10 @@ var CalDoctorColors = (function () {
             }
         }
         var modal = document.getElementById('calDoctorColorsModal');
+        if (modal) {
+            syncColorModalCopy(modal);
+        }
         if (modal && modal.classList.contains('open')) {
-            var head = modal.querySelector('.cal-colors-modal-head strong');
-            if (head) head.textContent = calTr('cal.doctor.modalTitle');
-            var hint = modal.querySelector('.cal-colors-hint');
-            if (hint) hint.textContent = calTr('cal.doctor.modalHint');
-            var doneBtn = modal.querySelector('.cal-colors-done');
-            if (doneBtn) doneBtn.textContent = calTr('cal.doctor.done');
-            var closeBtn = modal.querySelector('.cal-colors-close');
-            if (closeBtn) closeBtn.setAttribute('aria-label', calTr('common.closeAria'));
             var body = document.getElementById('calDoctorColorsModalBody');
             if (body) {
                 body.innerHTML = buildColorRowsHtml();

@@ -17,6 +17,7 @@
   <span class="app-session-strip-title" data-i18n="session.stripTitle"></span>
   <span class="app-session-strip-meta">
     <span id="appStripDate"></span>
+    <span id="appWorkingDateBadge" class="app-working-date-badge" style="display:none;" data-i18n="session.workingDateOn"></span>
     <span class="app-session-strip-sep" aria-hidden="true">·</span>
     <label for="appWorkingClinicSelect" class="app-strip-clinic-label" data-i18n="session.viewClinic"></label>
     <select id="appWorkingClinicSelect" class="app-strip-clinic-select" data-i18n-title="session.clinicSelectTitle"></select>
@@ -26,6 +27,18 @@
     <span class="app-wbtn app-wbtn-max"></span>
     <span class="app-wbtn app-wbtn-close"></span>
   </span>
+</div>
+<div id="appDateAdjustPopover" class="app-date-popover" style="display:none;" role="dialog" aria-modal="false">
+  <div class="app-date-popover-title" data-i18n="session.dateAdjustTitle"></div>
+  <input id="appDateAdjustInput" type="date" class="app-date-popover-input">
+  <div class="app-date-popover-actions">
+    <button type="button" id="appDateAdjustApplyBtn" class="app-date-popover-btn app-date-popover-btn--primary"
+            data-i18n="session.dateAdjustApply"></button>
+    <button type="button" id="appDateAdjustTodayBtn" class="app-date-popover-btn"
+            data-i18n="session.dateAdjustToday"></button>
+    <button type="button" id="appDateAdjustClearBtn" class="app-date-popover-btn"
+            data-i18n="session.dateAdjustClear"></button>
+  </div>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════
@@ -431,6 +444,20 @@
           <input type="color" id="memoHue" value="#f1f5f9"
                  style="width:52px;height:36px;padding:2px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;"
                  onchange="MEMO_AI.updateHueFromPicker()" data-i18n-title="memo.colourTitle">
+          <div class="memo-color-presets" role="group" data-i18n-aria-label="memo.colourPresetLabel">
+            <button type="button" class="memo-color-preset" style="background:#fff59d;" title="Classic Yellow"
+                    onclick="MEMO_AI.pickPresetHue('#fff59d')"></button>
+            <button type="button" class="memo-color-preset" style="background:#fff7d6;" title="Light Yellow"
+                    onclick="MEMO_AI.pickPresetHue('#fff7d6')"></button>
+            <button type="button" class="memo-color-preset" style="background:#dcfcee;" title="Light Green"
+                    onclick="MEMO_AI.pickPresetHue('#dcfcee')"></button>
+            <button type="button" class="memo-color-preset" style="background:#e0ecff;" title="Light Blue"
+                    onclick="MEMO_AI.pickPresetHue('#e0ecff')"></button>
+            <button type="button" class="memo-color-preset" style="background:#fee2e2;" title="Light Pink"
+                    onclick="MEMO_AI.pickPresetHue('#fee2e2')"></button>
+            <button type="button" class="memo-color-preset" style="background:#f5d0fe;" title="Light Violet"
+                    onclick="MEMO_AI.pickPresetHue('#f5d0fe')"></button>
+          </div>
         </div>
       </div>
       <label class="ai-label" data-i18n="memo.body"></label>
@@ -549,6 +576,32 @@
           </div>
           <select id="reportPatientDirClinicFilter" hidden aria-hidden="true"
                   data-i18n-title="common.reportClinicTitle"></select>
+          <div id="rptPatientDirTools"
+               style="display:none;gap:8px;align-items:end;flex-wrap:wrap;padding:8px 10px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;">
+            <div>
+              <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;" data-i18n="report.patientDir.filterLabel"></div>
+              <input id="rptPatientDirSearch" type="text"
+                     style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;min-width:220px;"
+                     data-i18n-placeholder="report.patientDir.searchPh">
+            </div>
+            <div>
+              <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;" data-i18n="report.patientDir.sortBy"></div>
+              <select id="rptPatientDirSortBy" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;min-width:160px;">
+                <option value="patient_no" data-i18n="report.col.patientNo"></option>
+                <option value="full_name" data-i18n="report.col.name"></option>
+                <option value="chinese_name" data-i18n="report.col.chinese"></option>
+                <option value="clinic_tag" data-i18n="report.col.clinicTag"></option>
+                <option value="dob" data-i18n="report.col.dob"></option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;" data-i18n="report.patientDir.sortDir"></div>
+              <select id="rptPatientDirSortDir" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;min-width:130px;">
+                <option value="asc" data-i18n="report.sort.asc"></option>
+                <option value="desc" data-i18n="report.sort.desc"></option>
+              </select>
+            </div>
+          </div>
           <button class="btn-add" style="padding:9px 14px;" onclick="REPORT.refresh()" data-i18n="report.refresh"></button>
         </div>
       </div>
@@ -1624,6 +1677,43 @@
                    data-i18n-placeholder="con.forms.phDocName"
                    style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;">
           </div>
+        </div>
+
+        <div id="conFormsShellCard"
+             style="margin-top:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px 12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+            <strong style="color:#334155;" data-i18n="con.forms.shell.title"></strong>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button class="btn-add" type="button" id="conFormsShellPreviewBtn"
+                      style="padding:6px 10px;font-size:12px;background:#16a34a;"
+                      data-i18n="con.forms.shell.previewBtn"></button>
+              <button class="btn-add" type="button" id="conFormsShellResetBtn"
+                      style="padding:6px 10px;font-size:12px;background:#64748b;"
+                      data-i18n="con.forms.shell.resetBtn"></button>
+              <button class="btn-add" type="button" id="conFormsShellSaveBtn"
+                      style="padding:6px 10px;font-size:12px;background:#0d6efd;"
+                      data-i18n="con.forms.shell.saveBtn"></button>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#64748b;margin-top:6px;" data-i18n="con.forms.shell.hint"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+            <div>
+              <label style="display:block;font-size:12px;color:#475569;font-weight:700;margin-bottom:4px;"
+                     data-i18n="con.forms.shell.headerLabel"></label>
+              <textarea id="conFormsShellHeaderTpl" rows="6"
+                        style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;
+                               font-family:Consolas,monospace;font-size:12px;"></textarea>
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;color:#475569;font-weight:700;margin-bottom:4px;"
+                     data-i18n="con.forms.shell.footerLabel"></label>
+              <textarea id="conFormsShellFooterTpl" rows="6"
+                        style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;
+                               font-family:Consolas,monospace;font-size:12px;"></textarea>
+            </div>
+          </div>
+          <div id="conFormsShellPreviewArea"
+               style="display:none;margin-top:10px;padding:10px;border:1px dashed #93c5fd;border-radius:10px;background:#fff;"></div>
         </div>
 
         <div id="conFormsEditorWrap" style="display:none;margin-top:12px;">
@@ -3583,9 +3673,8 @@
         <p class="receipt-doc-title" data-i18n="bill.receipt.officialTitle"></p>
       </div>
 
-      <div style="display:flex;justify-content:space-between;
-                  font-size:13px;margin-bottom:12px;">
-        <div>
+      <div class="receipt-meta">
+        <div class="receipt-meta-col">
           <strong data-i18n="bill.receipt.no"></strong>
           <span id="rNo">—</span><br>
           <strong data-i18n="bill.receipt.date"></strong>
@@ -3593,7 +3682,7 @@
           <strong data-i18n="bill.receipt.billType"></strong>
           <span id="rType">—</span>
         </div>
-        <div style="text-align:right;">
+        <div class="receipt-meta-col receipt-meta-col-right">
           <strong data-i18n="bill.receipt.patient"></strong>
           <span id="rPatient">—</span><br>
           <strong data-i18n="bill.receipt.patientNo"></strong>
@@ -3668,6 +3757,11 @@
       </div>
 
       <div class="receipt-footer">
+        <div class="receipt-signature">
+          <div class="receipt-sign-line"></div>
+          <div id="rDoctorSignEng" class="receipt-sign-name">—</div>
+          <div id="rDoctorSignChi" class="receipt-sign-name">—</div>
+        </div>
         <p id="rReceiptFooterThanks" data-i18n="bill.receipt.thanks"></p>
         <p data-i18n="bill.receipt.computerGenerated"></p>
       </div>
@@ -3718,6 +3812,7 @@
       <div><span style="color:#888;" data-i18n="bill.detail.labelPatientNo"></span><br><strong id="bdPatientNo">—</strong></div>
       <div><span style="color:#888;" data-i18n="bill.detail.labelBillDate"></span><br><strong id="bdDate">—</strong></div>
       <div><span style="color:#888;" data-i18n="bill.detail.labelDoctor"></span><br><strong id="bdDoctor">—</strong></div>
+      <div><span style="color:#888;" data-i18n="bill.detail.labelClinicCode"></span><br><strong id="bdClinicCode">—</strong></div>
       <div><span style="color:#888;" data-i18n="bill.detail.labelPaymentMethod"></span><br><strong id="bdType">—</strong></div>
     </div>
 

@@ -32,6 +32,11 @@ var conFormsDoctorData = null;
 var conFormsSavedRange = null;
 var conFormsSelectedDocIds = [];
 var conFormsDocsCache = {};
+var conFormsShellHeaderTpl = '';
+var conFormsShellFooterTpl = '';
+var conFormsShellLoaded = false;
+var conFormsShellLoading = false;
+var conFormsShellPreviewOn = false;
 
 var RX_COMBO_LISTS_KEY = 'rx_saved_combo_lists_v1';
 
@@ -580,6 +585,8 @@ function initConForms() {
 
     // try load doctor data (best-effort)
     loadConFormsDoctor();
+    conFormsBindShellSettingsUIOnce();
+    loadConFormsShellSettings();
 
     // preserve selection for toolbar interactions (once)
     var editor = g('conFormsDocEditor');
@@ -593,6 +600,193 @@ function initConForms() {
 
     refreshConFormsToolbarI18n();
     refreshConFormsEditorPlaceholder();
+}
+
+function conFormsDefaultHeaderTemplate() {
+    return '' +
+        '<div data-conforms-default-header="1" style="text-align:center;border-bottom:2px solid #dbe4f0;padding:10px 0 12px;margin-bottom:16px;">' +
+            '<div style="font-size:24px;font-weight:800;color:#0f172a;line-height:1.2;">{clinic_name}</div>' +
+            '<div style="font-size:14px;color:#334155;margin-top:4px;line-height:1.4;">{clinic_address}</div>' +
+            '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;">Tel: {clinic_tel}</div>' +
+        '</div>';
+}
+
+function conFormsDefaultFooterTemplate() {
+    return '' +
+        '<div data-conforms-default-footer="1" style="margin-top:30px;padding-top:8px;">' +
+            '<div style="max-width:320px;">' +
+                '<div style="border-bottom:1.5px solid #334155;height:22px;"></div>' +
+                '<div style="margin-top:8px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;">{doctor_eng}</div>' +
+                '<div style="margin-top:3px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;">{doctor_chi}</div>' +
+            '</div>' +
+        '</div>';
+}
+
+function conFormsBindShellSettingsUIOnce() {
+    var btn = g('conFormsShellSaveBtn');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', conFormsSaveShellSettings);
+    var rb = g('conFormsShellResetBtn');
+    if (rb && rb.dataset.bound !== '1') {
+        rb.dataset.bound = '1';
+        rb.addEventListener('click', conFormsResetShellSettings);
+    }
+    var pb = g('conFormsShellPreviewBtn');
+    if (pb && pb.dataset.bound !== '1') {
+        pb.dataset.bound = '1';
+        pb.addEventListener('click', conFormsToggleShellPreview);
+    }
+    var h = g('conFormsShellHeaderTpl');
+    var f = g('conFormsShellFooterTpl');
+    if (h && h.dataset.bound !== '1') {
+        h.dataset.bound = '1';
+        h.addEventListener('input', function() { if (conFormsShellPreviewOn) conFormsRenderShellPreview(); });
+    }
+    if (f && f.dataset.bound !== '1') {
+        f.dataset.bound = '1';
+        f.addEventListener('input', function() { if (conFormsShellPreviewOn) conFormsRenderShellPreview(); });
+    }
+}
+
+function conFormsSyncShellSettingsUI() {
+    var h = g('conFormsShellHeaderTpl');
+    var f = g('conFormsShellFooterTpl');
+    if (h) h.value = conFormsShellHeaderTpl || conFormsDefaultHeaderTemplate();
+    if (f) f.value = conFormsShellFooterTpl || conFormsDefaultFooterTemplate();
+}
+
+function loadConFormsShellSettings() {
+    if (conFormsShellLoaded || conFormsShellLoading || !SB || typeof SB.from !== 'function') {
+        if (conFormsShellLoaded) conFormsSyncShellSettingsUI();
+        return;
+    }
+    conFormsShellLoading = true;
+    SB.from('program_settings')
+      .select('setting_key,setting_value')
+      .in('setting_key', ['con_forms_header_html', 'con_forms_footer_html'])
+    .then(function(r) {
+        conFormsShellLoading = false;
+        if (!r.error && r.data && r.data.length) {
+            var map = {};
+            (r.data || []).forEach(function(row) { map[row.setting_key] = row.setting_value || ''; });
+            conFormsShellHeaderTpl = String(map.con_forms_header_html || '').trim();
+            conFormsShellFooterTpl = String(map.con_forms_footer_html || '').trim();
+        }
+        conFormsShellLoaded = true;
+        conFormsSyncShellSettingsUI();
+    })
+    .catch(function() {
+        conFormsShellLoading = false;
+        conFormsShellLoaded = true;
+        conFormsSyncShellSettingsUI();
+    });
+}
+
+function conFormsSaveShellSettings() {
+    var h = g('conFormsShellHeaderTpl');
+    var f = g('conFormsShellFooterTpl');
+    var headerTpl = String(h ? h.value : '').trim();
+    var footerTpl = String(f ? f.value : '').trim();
+    if (!headerTpl) headerTpl = conFormsDefaultHeaderTemplate();
+    if (!footerTpl) footerTpl = conFormsDefaultFooterTemplate();
+
+    conFormsShellHeaderTpl = headerTpl;
+    conFormsShellFooterTpl = footerTpl;
+    conFormsSyncShellSettingsUI();
+
+    if (!SB || typeof SB.from !== 'function') {
+        alert(conTr('con.forms.shell.savedLocalOnly'));
+        return;
+    }
+    SB.from('program_settings')
+      .upsert([
+          { setting_key: 'con_forms_header_html', setting_value: headerTpl },
+          { setting_key: 'con_forms_footer_html', setting_value: footerTpl }
+      ], { onConflict: 'setting_key' })
+    .then(function(r) {
+        if (r.error) {
+            alert(conTrRepl('con.forms.shell.saveFailed', { MSG: r.error.message }));
+            return;
+        }
+        alert(conTr('con.forms.shell.saved'));
+        conFormsRefreshEditorShellDefaults();
+        if (conFormsShellPreviewOn) conFormsRenderShellPreview();
+    });
+}
+
+function conFormsRefreshEditorShellDefaults() {
+    var editor = g('conFormsDocEditor');
+    if (!editor || editor.dataset.placeholderMode === '1') return;
+    editor.innerHTML = conFormsEnsureDefaultShell(editor.innerHTML || '', true);
+}
+
+function conFormsResetShellSettings() {
+    if (!confirm(conTr('con.forms.shell.resetConfirm'))) return;
+    conFormsShellHeaderTpl = conFormsDefaultHeaderTemplate();
+    conFormsShellFooterTpl = conFormsDefaultFooterTemplate();
+    conFormsSyncShellSettingsUI();
+    conFormsRefreshEditorShellDefaults();
+    if (conFormsShellPreviewOn) conFormsRenderShellPreview();
+
+    if (!SB || typeof SB.from !== 'function') {
+        alert(conTr('con.forms.shell.resetDoneLocal'));
+        return;
+    }
+    SB.from('program_settings')
+      .upsert([
+          { setting_key: 'con_forms_header_html', setting_value: conFormsShellHeaderTpl },
+          { setting_key: 'con_forms_footer_html', setting_value: conFormsShellFooterTpl }
+      ], { onConflict: 'setting_key' })
+    .then(function(r) {
+        if (r.error) {
+            alert(conTrRepl('con.forms.shell.saveFailed', { MSG: r.error.message }));
+            return;
+        }
+        alert(conTr('con.forms.shell.resetDone'));
+        if (conFormsShellPreviewOn) conFormsRenderShellPreview();
+    });
+}
+
+function conFormsRenderShellPreview() {
+    var area = g('conFormsShellPreviewArea');
+    if (!area) return;
+    var h = g('conFormsShellHeaderTpl');
+    var f = g('conFormsShellFooterTpl');
+    var headerTpl = String(h ? h.value : '').trim() || conFormsDefaultHeaderTemplate();
+    var footerTpl = String(f ? f.value : '').trim() || conFormsDefaultFooterTemplate();
+    var headerHtml = conFormsRenderShellTemplate(headerTpl, {
+        clinic_name: conFormsActiveClinicProfile().name,
+        clinic_address: conFormsActiveClinicProfile().address,
+        clinic_tel: conFormsActiveClinicProfile().tel,
+        doctor_eng: conFormsActiveDoctorProfile().eng,
+        doctor_chi: conFormsActiveDoctorProfile().chi
+    });
+    var footerHtml = conFormsRenderShellTemplate(footerTpl, {
+        clinic_name: conFormsActiveClinicProfile().name,
+        clinic_address: conFormsActiveClinicProfile().address,
+        clinic_tel: conFormsActiveClinicProfile().tel,
+        doctor_eng: conFormsActiveDoctorProfile().eng,
+        doctor_chi: conFormsActiveDoctorProfile().chi
+    });
+    area.innerHTML =
+        '<div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:6px;">' + esc(conTr('con.forms.shell.previewHeader')) + '</div>' +
+        headerHtml +
+        '<div style="height:8px;"></div>' +
+        '<div style="font-size:12px;color:#64748b;font-weight:700;margin:2px 0 6px;">' + esc(conTr('con.forms.shell.previewFooter')) + '</div>' +
+        footerHtml;
+}
+
+function conFormsToggleShellPreview() {
+    conFormsShellPreviewOn = !conFormsShellPreviewOn;
+    var area = g('conFormsShellPreviewArea');
+    var btn = g('conFormsShellPreviewBtn');
+    if (!area || !btn) return;
+    area.style.display = conFormsShellPreviewOn ? 'block' : 'none';
+    btn.textContent = conFormsShellPreviewOn
+        ? conTr('con.forms.shell.previewHideBtn')
+        : conTr('con.forms.shell.previewBtn');
+    if (conFormsShellPreviewOn) conFormsRenderShellPreview();
 }
 
 function conFormsSaveSelection() {
@@ -721,7 +915,7 @@ function onConFormsTemplateChange() {
 
     var seeded = conFormsSelectedTemplate.content || '';
     editor.dataset.placeholderMode = '';
-    editor.innerHTML = applyConFormsPlaceholders(seeded) || '';
+    editor.innerHTML = conFormsEnsureDefaultShell(applyConFormsPlaceholders(seeded) || '', true);
     if (!editor.innerHTML.trim()) {
         editor.dataset.placeholderMode = '1';
         editor.innerHTML = '<span style="color:#aaa;">' + esc(conTr('con.forms.selectTemplatePh')) + '</span>';
@@ -757,6 +951,107 @@ function applyConFormsPlaceholders(html) {
         out = out.replace(re, esc(map[k]));
     });
     return out;
+}
+
+function conFormsActiveClinicProfile() {
+    var rec = null;
+    if (typeof clinicRecordFromId === 'function' && currentClinicId) {
+        rec = clinicRecordFromId(currentClinicId);
+    }
+    if (!rec) {
+        var sel = g('appWorkingClinicSelect');
+        var selVal = sel ? String(sel.value || '').trim() : '';
+        if (selVal && typeof clinicRecordFromId === 'function') {
+            rec = clinicRecordFromId(selVal);
+        }
+    }
+    if (!rec &&
+        typeof currentClinicCodeForTagging === 'function' &&
+        typeof APP_CLINICS !== 'undefined' &&
+        APP_CLINICS && APP_CLINICS.length) {
+        var code = String(currentClinicCodeForTagging() || '').trim();
+        if (code) {
+            for (var i = 0; i < APP_CLINICS.length; i++) {
+                var c = APP_CLINICS[i];
+                if (String(c.id || '') === code || String(c.clinic_code || '') === code) {
+                    rec = c;
+                    break;
+                }
+            }
+        }
+    }
+    var name = '';
+    var addr = '';
+    var tel = '';
+    if (rec) {
+        name = String(rec.english_name || rec.chinese_name || '').trim();
+        addr = String(rec.address || '').trim();
+        tel = String(rec.tel || '').trim();
+    }
+    if (!name && typeof currentClinicLabel === 'string') name = String(currentClinicLabel).trim();
+    if (!name) name = 'Clinic';
+    return { name: name, address: addr || '—', tel: tel || '—' };
+}
+
+function conFormsActiveDoctorProfile() {
+    var d = conFormsDoctorData || {};
+    var eng = String(d.english_name || d.display_name || conActiveDoctorName || currentName || '').trim();
+    var chi = String(d.chinese_name || '').trim();
+    if (!eng) eng = 'Doctor';
+    if (!/^dr\b\.?/i.test(eng)) eng = 'Dr ' + eng;
+    if (!chi) chi = '—';
+    if (chi !== '—' && chi.indexOf('牙科醫生') < 0) chi += ' 牙科醫生';
+    return { eng: eng, chi: chi };
+}
+
+function conFormsDefaultHeaderHtml() {
+    var c = conFormsActiveClinicProfile();
+    var d = conFormsActiveDoctorProfile();
+    return conFormsRenderShellTemplate(conFormsShellHeaderTpl || conFormsDefaultHeaderTemplate(), {
+        clinic_name: c.name,
+        clinic_address: c.address,
+        clinic_tel: c.tel,
+        doctor_eng: d.eng,
+        doctor_chi: d.chi
+    });
+}
+
+function conFormsDefaultFooterHtml() {
+    var d = conFormsActiveDoctorProfile();
+    var c = conFormsActiveClinicProfile();
+    return conFormsRenderShellTemplate(conFormsShellFooterTpl || conFormsDefaultFooterTemplate(), {
+        clinic_name: c.name,
+        clinic_address: c.address,
+        clinic_tel: c.tel,
+        doctor_eng: d.eng,
+        doctor_chi: d.chi
+    });
+}
+
+function conFormsRenderShellTemplate(tpl, map) {
+    var out = String(tpl || '');
+    var data = map || {};
+    Object.keys(data).forEach(function(k) {
+        var re = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\}', 'g');
+        out = out.replace(re, esc(data[k] || ''));
+    });
+    return out;
+}
+
+function conFormsEnsureDefaultShell(html, refreshDefaults) {
+    var root = document.createElement('div');
+    root.innerHTML = String(html || '');
+    if (refreshDefaults) {
+        root.querySelectorAll('[data-conforms-default-header]').forEach(function(n) { n.remove(); });
+        root.querySelectorAll('[data-conforms-default-footer]').forEach(function(n) { n.remove(); });
+    }
+    if (!root.querySelector('[data-conforms-default-header]')) {
+        root.insertAdjacentHTML('afterbegin', conFormsDefaultHeaderHtml());
+    }
+    if (!root.querySelector('[data-conforms-default-footer]')) {
+        root.insertAdjacentHTML('beforeend', conFormsDefaultFooterHtml());
+    }
+    return root.innerHTML;
 }
 
 function conFormsCmd(cmd) {
@@ -900,6 +1195,8 @@ function saveConFormsDoc(andPrint) {
         alert(conTr('con.forms.alertEmpty'));
         return;
     }
+    html = conFormsEnsureDefaultShell(html, true);
+    if (g('conFormsDocEditor')) g('conFormsDocEditor').innerHTML = html;
 
     var t = conFormsSelectedTemplate || {};
     var row = {
@@ -942,8 +1239,25 @@ function printConFormsHtml(html) {
         '<title>' + esc(conTr('con.forms.printDocTitle')) + '</title>' +
         '<style>body{font-family:Arial,sans-serif;padding:28px;color:#111;}@media print{body{padding:0}}</style>' +
         '</head><body>' +
-        html +
-        '<script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>' +
+        (html || '') +
+        '<script>(function(){' +
+        'function fitPageRatio(){' +
+        'var de=document.documentElement,bd=document.body;if(!de||!bd)return;' +
+        'de.style.zoom="";bd.style.zoom="";' +
+        'var vw=Math.max(1,window.innerWidth||de.clientWidth||1);' +
+        'var vh=Math.max(1,window.innerHeight||de.clientHeight||1);' +
+        'var needW=Math.max(1,de.scrollWidth||bd.scrollWidth||vw);' +
+        'var needH=Math.max(1,de.scrollHeight||bd.scrollHeight||vh);' +
+        'var sc=Math.min(1,vw/needW,vh/needH);' +
+        'if(!(sc>0&&sc<=1))sc=1;' +
+        'sc=Math.max(0.5,Math.floor(sc*100)/100);' +
+        'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
+        '}' +
+        'window.onload=function(){' +
+        'try{fitPageRatio();}catch(e0){}' +
+        'setTimeout(function(){window.print();},260);' +
+        '};' +
+        '})();<\/script>' +
         '</body></html>'
     );
     popup.document.close();
@@ -1080,7 +1394,7 @@ function conFormsPrintSelectedDocs() {
         .then(function (r) {
             if (r.error) { alert(conTrRepl('con.alert.printFailed', { MSG: r.error.message })); return; }
             var rows = r.data || [];
-            var html = rows.map(function (d) { return d.content_html || ''; }).join(
+            var html = rows.map(function (d) { return conFormsEnsureDefaultShell(d.content_html || '', true); }).join(
                 '<div style="page-break-after:always;"></div>'
             );
             printConFormsHtml(html);
@@ -1089,7 +1403,7 @@ function conFormsPrintSelectedDocs() {
     }
 
     var htmlJoined = docs
-        .map(function (d) { return d.content_html || ''; })
+        .map(function (d) { return conFormsEnsureDefaultShell(d.content_html || '', true); })
         .join('<div style="page-break-after:always;"></div>');
 
     printConFormsHtml(htmlJoined);
@@ -1106,7 +1420,7 @@ function openConFormsDoc(id) {
         if (g('conFormsDocName')) g('conFormsDocName').value = d.document_name || '';
         if (g('conFormsDocEditor')) {
             g('conFormsDocEditor').dataset.placeholderMode = '';
-            g('conFormsDocEditor').innerHTML = d.content_html || '';
+            g('conFormsDocEditor').innerHTML = conFormsEnsureDefaultShell(d.content_html || '', true);
         }
         if (g('conFormsEditorWrap')) g('conFormsEditorWrap').style.display = 'block';
         setTimeout(function () { if (g('conFormsDocEditor')) g('conFormsDocEditor').focus(); }, 0);
@@ -1127,6 +1441,32 @@ function formatDobAge(dob) {
     );
     var dateStr = pts[2] + '/' + pts[1] + '/' + pts[0];
     return conTrRepl('con.dob.ageFmt', { DATE: dateStr, AGE: String(age) });
+}
+
+function conDateIsoFromTs(ts) {
+    var d = new Date(ts);
+    if (!d || isNaN(d.getTime())) return '';
+    if (typeof d2iso === 'function') return d2iso(d);
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+}
+
+function conClinicCodeFromStoredTag(storedTag) {
+    var raw = String(storedTag || '').trim();
+    if (!raw) return '';
+    if (typeof APP_CLINICS !== 'undefined' && APP_CLINICS && APP_CLINICS.length) {
+        for (var i = 0; i < APP_CLINICS.length; i++) {
+            var c = APP_CLINICS[i];
+            if (String(c.id || '') === raw) {
+                return String(c.clinic_code || '').trim().toUpperCase() || raw.toUpperCase();
+            }
+            var code = String(c.clinic_code || '').trim();
+            if (code && code === raw) return code.toUpperCase();
+        }
+    }
+    if (raw.length <= 8) return raw.toUpperCase();
+    return '';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1154,12 +1494,15 @@ function loadConNotes(pid) {
         }
 
         tl.innerHTML = '';
-        var todayStr = new Date().toDateString();
+        var todayIso = (typeof todayISO === 'function')
+            ? todayISO()
+            : conDateIsoFromTs((typeof nowLocal === 'function' ? nowLocal() : new Date()));
 
         var groups = {};
         var order  = [];
         r.data.forEach(function(t) {
-            var dk = new Date(t.created_at).toDateString();
+            var dk = conDateIsoFromTs(t.created_at);
+            if (!dk) dk = '__unknown__';
             if (!groups[dk]) { groups[dk] = []; order.push(dk); }
             groups[dk].push(t);
         });
@@ -1167,18 +1510,36 @@ function loadConNotes(pid) {
         order.forEach(function(dk) {
             var sep = document.createElement('div');
             sep.className = 'note-date-sep';
-            sep.innerHTML =
-                '<span class="note-date-label">' +
-                    new Date(dk).toLocaleDateString(conUiLocale(), {
+            var dateLabel = '—';
+            if (dk !== '__unknown__') {
+                var dObj = (typeof parseISODateOnly === 'function')
+                    ? parseISODateOnly(dk)
+                    : new Date(dk);
+                if (dObj && !isNaN(dObj.getTime())) {
+                    dateLabel = dObj.toLocaleDateString(conUiLocale(), {
                         weekday: 'short', day: 'numeric',
                         month: 'short',   year: 'numeric'
-                    }) +
+                    });
+                }
+            }
+            sep.innerHTML =
+                '<span class="note-date-label">' +
+                    dateLabel +
                 '</span>';
             tl.appendChild(sep);
 
             groups[dk].forEach(function(t) {
-                var isToday = dk === todayStr;
+                var isToday = dk === todayIso;
                 var canEdit = isToday && currentRole !== 'nurse';
+                var storedClinicTag = t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag || '';
+                var clinicCode = conClinicCodeFromStoredTag(storedClinicTag);
+                var clinicMiniTag = clinicCode
+                    ? '<small class="con-note-clinic-tag" title="' + esc(conTr('common.clinic')) + '">' +
+                      esc(clinicCode) + '</small>'
+                    : '';
+                var doctorMiniTag = t.dentist_name
+                    ? '<small style="color:#888;font-size:11px;">👨‍⚕️ ' + esc(t.dentist_name) + '</small>'
+                    : '';
 
                 var div = document.createElement('div');
                 div.className = 'note-card';
@@ -1191,10 +1552,10 @@ function loadConNotes(pid) {
                                         hour: '2-digit', minute: '2-digit'
                                     }) +
                             '</small>' +
-                            (t.dentist_name
-                                ? '<small style="color:#888;font-size:11px;">' +
-                                  '👨‍⚕️ ' + esc(t.dentist_name) + '</small>'
-                                : '') +
+                            '<div class="con-note-meta-row">' +
+                                doctorMiniTag +
+                                clinicMiniTag +
+                            '</div>' +
                         '</div>' +
                         (canEdit
                             ? '<button class="btn-edit-note btn-sm" ' +
@@ -1233,10 +1594,11 @@ function saveConNote() {
         notes:        note
     };
 
-    var ctNote = (conPatientData && conPatientData[PATIENT_CLINIC_TAG_FIELD])
-        ? conPatientData[PATIENT_CLINIC_TAG_FIELD]
-        : (typeof currentClinicCodeForTagging === 'function'
+    var ctNote = (typeof currentClinicCodeForTagging === 'function'
             ? currentClinicCodeForTagging()
+            : '') ||
+        (conPatientData && conPatientData[PATIENT_CLINIC_TAG_FIELD]
+            ? conPatientData[PATIENT_CLINIC_TAG_FIELD]
             : '');
     if (ctNote) row[TREATMENT_CLINIC_TAG_FIELD] = ctNote;
 
@@ -2262,14 +2624,41 @@ function deleteRxGroup(btn, dateStr, doctorTag) {
 // ════════════════════════════════════════════════════════════════
 
 // ── Core print engine ────────────────────────────────────────
-/** Resolved from login clinic (APP_CLINICS) for label header; falls back to session label. */
-function currentActiveClinicLabelForPrinting(isZh) {
-    var rec =
-        typeof currentClinicId !== 'undefined' &&
+function conResolveActiveClinicRecordForLabels() {
+    var rec = null;
+    if (typeof currentClinicId !== 'undefined' &&
         currentClinicId &&
-        typeof clinicRecordFromId === 'function'
-            ? clinicRecordFromId(currentClinicId)
-            : null;
+        typeof clinicRecordFromId === 'function') {
+        rec = clinicRecordFromId(currentClinicId);
+    }
+    if (!rec) {
+        var sel = g('appWorkingClinicSelect');
+        var selVal = sel ? String(sel.value || '').trim() : '';
+        if (selVal && typeof clinicRecordFromId === 'function') {
+            rec = clinicRecordFromId(selVal);
+        }
+    }
+    if (!rec &&
+        typeof currentClinicCodeForTagging === 'function' &&
+        typeof APP_CLINICS !== 'undefined' &&
+        APP_CLINICS && APP_CLINICS.length) {
+        var code = String(currentClinicCodeForTagging() || '').trim();
+        if (code) {
+            for (var i = 0; i < APP_CLINICS.length; i++) {
+                var c = APP_CLINICS[i];
+                if (String(c.id || '') === code || String(c.clinic_code || '') === code) {
+                    rec = c;
+                    break;
+                }
+            }
+        }
+    }
+    return rec;
+}
+
+/** Resolved from active clinic context for label header; falls back to session label. */
+function currentActiveClinicLabelForPrinting(isZh) {
+    var rec = conResolveActiveClinicRecordForLabels();
 
     var en = rec ? String(rec.english_name || '').trim() : '';
     var cn = rec ? String(rec.chinese_name || '').trim() : '';
@@ -2292,15 +2681,10 @@ function currentActiveClinicLabelForPrinting(isZh) {
 }
 
 /**
- * Address + phone under clinic name on labels (login clinic). Always three lines: addr, then Tel/電話.
+ * Address + phone under clinic name on labels (active clinic context).
  */
 function buildClinicContactHtmlForDrugLabel(isZh) {
-    var rec =
-        typeof currentClinicId !== 'undefined' &&
-        currentClinicId &&
-        typeof clinicRecordFromId === 'function'
-            ? clinicRecordFromId(currentClinicId)
-            : null;
+    var rec = conResolveActiveClinicRecordForLabels();
     var addr = rec ? String(rec.address || '').trim() : '';
     var tel = rec ? String(rec.tel || '').trim() : '';
     var e = typeof esc === 'function' ? esc : function(s) { return String(s || ''); };
@@ -3161,6 +3545,15 @@ document.addEventListener('app-lang-change', function() {
     if (conFormsPatientId) {
         if (typeof refreshConFormsToolbarI18n === 'function') refreshConFormsToolbarI18n();
         if (typeof refreshConFormsFontSizeSelect === 'function') refreshConFormsFontSizeSelect();
+        var previewBtn = g('conFormsShellPreviewBtn');
+        if (previewBtn) {
+            previewBtn.textContent = conFormsShellPreviewOn
+                ? conTr('con.forms.shell.previewHideBtn')
+                : conTr('con.forms.shell.previewBtn');
+        }
+        if (conFormsShellPreviewOn && typeof conFormsRenderShellPreview === 'function') {
+            conFormsRenderShellPreview();
+        }
         var formsEditor = g('conFormsDocEditor');
         if (formsEditor && formsEditor.dataset.placeholderMode === '1' &&
             typeof refreshConFormsEditorPlaceholder === 'function') {
@@ -3210,4 +3603,16 @@ document.addEventListener('app-lang-change', function() {
         applyI18nInRoot(sec);
     }
     if (!sec || sec.style.display === 'none') return;
+});
+
+document.addEventListener('app-working-date-change', function() {
+    var sec = g('consultationSection');
+    if (!sec || sec.style.display === 'none') return;
+    if (!conPatientId) return;
+    if (typeof loadConNotes === 'function') {
+        loadConNotes(conPatientId);
+    }
+    if (typeof loadDrugHistory === 'function') {
+        loadDrugHistory(conPatientId);
+    }
 });

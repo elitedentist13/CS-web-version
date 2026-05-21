@@ -372,6 +372,10 @@ function submitAddPatient(e) {
     }
 
     var ctAdd = addPatientClinicTagFromSelect();
+    if (!ctAdd) {
+        alert(patTr('patient.alertSelectClinic'));
+        return;
+    }
 
     patientNoDupQuery(no).then(function(dupr) {
         if (dupr.error) {
@@ -399,7 +403,7 @@ function submitAddPatient(e) {
             medical_alerts: (g('alerts').value       ||'').trim()||null,
             remarks:        (g('remarks').value      ||'').trim()||null
         };
-        if (ctAdd) payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
+        payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
         SB.from('patients').insert([payload]).select('id,patient_no,full_name,chinese_name')
         .then(function(r) {
             if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
@@ -597,11 +601,15 @@ function submitEditPatient(e) {
         return;
     }
     var ctEdit = editPatientClinicTagFromSelect();
+    if (!ctEdit) {
+        alert(patTr('patient.alertSelectClinic'));
+        return;
+    }
     var nurse = currentRole === 'nurse';
     var payload = nurse
         ? (function() {
               var o = {};
-              if (ctEdit) o[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
+              o[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
               return o;
           })()
         : {
@@ -618,7 +626,7 @@ function submitEditPatient(e) {
               medical_alerts: (g('edit_alerts').value      ||'').trim()||null,
               remarks:        (g('edit_remarks').value     ||'').trim()||null
           };
-    if (!nurse && ctEdit) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
+    if (!nurse) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
     SB.from('patients').update(payload).eq('id',editPatientId)
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
@@ -824,4 +832,11 @@ function editNote(nid) {
 
 document.addEventListener('app-lang-change', function() {
     if (typeof refreshPatientDirI18n === 'function') refreshPatientDirI18n();
+});
+
+document.addEventListener('app-working-date-change', function() {
+    var detModal = g('patientDetailsModal');
+    if (!detModal || detModal.style.display !== 'block') return;
+    if (!selPatientId) return;
+    if (typeof loadTreatments === 'function') loadTreatments(selPatientId);
 });

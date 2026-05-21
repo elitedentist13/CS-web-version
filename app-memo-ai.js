@@ -15,9 +15,20 @@ var MEMO_AI = MEMO_AI || {};
     /** Dashboard mini-stickies */
     var STICKY_W = 172;
     var STICKY_H = 140;
+    var STICKY_W_MIN = 140;
+    var STICKY_W_MAX = 320;
+    var STICKY_H_MIN = 120;
+    var STICKY_H_MAX = 320;
+    var STICKY_FONT_MIN = 10;
+    var STICKY_FONT_MAX = 20;
+    var STICKY_FONT_STEP = 1;
+    var STICKY_FONT_DEFAULT = 11;
+    var MEMO_HUE_PRESETS = ['#fff59d', '#f1f5f9', '#fff7d6', '#dcfcee', '#e0ecff', '#fee2e2', '#f5d0fe'];
     var _stickyDockRO = null;
     var _stickyPaintRetryTid = null;
     var _stickyPaintAttempts = 0;
+    var _stickyEditId = null;
+    var _stickyEditCloserWired = false;
 
     function gmem(id) { return typeof g !== 'undefined' ? g(id) : document.getElementById(id); }
 
@@ -41,6 +52,44 @@ var MEMO_AI = MEMO_AI || {};
         var tt = String(title || '').trim();
         if (!tt || tt === MEMO_UNTITLED_LEGACY) return '';
         return tt;
+    }
+
+    function memoParseHexColor(hex) {
+        var h = String(hex || '').trim().replace('#', '');
+        if (h.length === 3) {
+            h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        }
+        if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+        return {
+            r: parseInt(h.slice(0, 2), 16),
+            g: parseInt(h.slice(2, 4), 16),
+            b: parseInt(h.slice(4, 6), 16)
+        };
+    }
+
+    function memoHexFromRgb(rgb) {
+        function h(n) {
+            var v = Math.max(0, Math.min(255, Math.round(n)));
+            return v.toString(16).padStart(2, '0');
+        }
+        return '#' + h(rgb.r) + h(rgb.g) + h(rgb.b);
+    }
+
+    function memoLuma(rgb) {
+        return (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+    }
+
+    function memoToLightCardColor(hex) {
+        var rgb = memoParseHexColor(hex);
+        if (!rgb) return '#f1f5f9';
+        var guard = 0;
+        while (memoLuma(rgb) < 0.82 && guard < 10) {
+            rgb.r = rgb.r + (255 - rgb.r) * 0.35;
+            rgb.g = rgb.g + (255 - rgb.g) * 0.35;
+            rgb.b = rgb.b + (255 - rgb.b) * 0.35;
+            guard++;
+        }
+        return memoHexFromRgb(rgb);
     }
 
     function isMemoUntitled(title) {
@@ -159,14 +208,30 @@ var MEMO_AI = MEMO_AI || {};
     function normalizeCard(c) {
         var sx = c.stickyX;
         var sy = c.stickyY;
+        var sw = Number(c.stickyW);
+        var sh = Number(c.stickyH);
+        var fp = Number(c.fontPx);
         return {
             id: c.id || genId(),
             title: memoTitleForStore(c.title),
             body: String(c.body || ''),
             updatedAt: c.updatedAt || isoNow(),
-            hue: c.hue || '#f1f5f9',
+            hue: memoToLightCardColor(c.hue || '#f1f5f9'),
             stickyX: typeof sx === 'number' && !isNaN(sx) ? sx : null,
-            stickyY: typeof sy === 'number' && !isNaN(sy) ? sy : null
+            stickyY: typeof sy === 'number' && !isNaN(sy) ? sy : null,
+            stickyW: !isNaN(sw) ? Math.min(STICKY_W_MAX, Math.max(STICKY_W_MIN, sw)) : STICKY_W,
+            stickyH: !isNaN(sh) ? Math.min(STICKY_H_MAX, Math.max(STICKY_H_MIN, sh)) : STICKY_H,
+            fontPx: !isNaN(fp) ? Math.min(STICKY_FONT_MAX, Math.max(STICKY_FONT_MIN, fp)) : STICKY_FONT_DEFAULT,
+            fontBold: !!c.fontBold,
+            fontItalic: !!c.fontItalic,
+            photoData: String(c.photoData || '')
+        };
+    }
+
+    function cardStickySize(card) {
+        return {
+            w: Math.min(STICKY_W_MAX, Math.max(STICKY_W_MIN, Number(card && card.stickyW) || STICKY_W)),
+            h: Math.min(STICKY_H_MAX, Math.max(STICKY_H_MIN, Number(card && card.stickyH) || STICKY_H))
         };
     }
 
@@ -282,6 +347,18 @@ var MEMO_AI = MEMO_AI || {};
         if (shell) _stickyDockRO.observe(shell);
     }
 
+    function ensureStickyEditCloser(dock) {
+        if (!dock || _stickyEditCloserWired) return;
+        _stickyEditCloserWired = true;
+        document.addEventListener('pointerdown', function(ev) {
+            if (!_stickyEditId) return;
+            var t = ev.target;
+            if (t && t.closest && t.closest('.memo-sticky-note.memo-sticky-editing')) return;
+            _stickyEditId = null;
+            if (dashboardVisible()) paintStickyDock(dock);
+        });
+    }
+
     function clampStickyPos(x, y, dw, dh, nw, nh) {
         var maxX = Math.max(0, dw - nw);
         var maxY = Math.max(0, dh - nh);
@@ -291,15 +368,17 @@ var MEMO_AI = MEMO_AI || {};
         };
     }
 
-    function defaultStickyXY(i, dw, dh) {
+    function defaultStickyXY(i, dw, dh, nw, nh) {
+        nw = nw || STICKY_W;
+        nh = nh || STICKY_H;
         var gap = 12;
         var margin = 10;
-        var cols = Math.max(1, Math.floor((dw - margin * 2) / (STICKY_W + gap)));
+        var cols = Math.max(1, Math.floor((dw - margin * 2) / (nw + gap)));
         var col = i % cols;
         var rowFromBottom = Math.floor(i / cols);
-        var x = margin + col * (STICKY_W + gap);
-        var y = dh - STICKY_H - margin - rowFromBottom * (STICKY_H + gap);
-        return clampStickyPos(x, y, dw, dh, STICKY_W, STICKY_H);
+        var x = margin + col * (nw + gap);
+        var y = dh - nh - margin - rowFromBottom * (nh + gap);
+        return clampStickyPos(x, y, dw, dh, nw, nh);
     }
 
     function noteZBoost(note, dock) {
@@ -310,6 +389,113 @@ var MEMO_AI = MEMO_AI || {};
             if (z > maxZ) maxZ = z;
         }
         note.style.zIndex = String(maxZ + 1);
+    }
+
+    function applyStickyBodyStyle(bodyEl, card) {
+        if (!bodyEl || !card) return;
+        var px = Math.min(STICKY_FONT_MAX, Math.max(STICKY_FONT_MIN, Number(card.fontPx) || STICKY_FONT_DEFAULT));
+        bodyEl.style.fontSize = px + 'px';
+        bodyEl.style.fontWeight = card.fontBold ? '700' : '400';
+        bodyEl.style.fontStyle = card.fontItalic ? 'italic' : 'normal';
+    }
+
+    function cycleMemoHue(currentHue) {
+        var now = String(currentHue || '').toLowerCase();
+        var idx = -1;
+        for (var i = 0; i < MEMO_HUE_PRESETS.length; i++) {
+            if (String(MEMO_HUE_PRESETS[i]).toLowerCase() === now) {
+                idx = i;
+                break;
+            }
+        }
+        return MEMO_HUE_PRESETS[(idx + 1) % MEMO_HUE_PRESETS.length];
+    }
+
+    function wireStickyQuickActions(noteEl, dock, cardId) {
+        if (!noteEl || !dock) return;
+        var row = _cards.find(function(c) { return c.id === cardId; });
+        if (!row) return;
+        var bar = noteEl.querySelector('.memo-sticky-quickbar');
+        if (!bar) return;
+        var photoInput = noteEl.querySelector('.memo-sticky-photo-input');
+
+        function commitAndRepaint() {
+            row.updatedAt = isoNow();
+            persist();
+            paintStickyDock(dock);
+        }
+
+        bar.querySelectorAll('button').forEach(function(btn) {
+            btn.addEventListener('pointerdown', function(ev) {
+                ev.stopPropagation();
+            });
+            btn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                var action = String(btn.getAttribute('data-memo-action') || '');
+                if (action === 'font-down') {
+                    row.fontPx = Math.max(STICKY_FONT_MIN, (Number(row.fontPx) || STICKY_FONT_DEFAULT) - STICKY_FONT_STEP);
+                    commitAndRepaint();
+                    return;
+                }
+                if (action === 'font-up') {
+                    row.fontPx = Math.min(STICKY_FONT_MAX, (Number(row.fontPx) || STICKY_FONT_DEFAULT) + STICKY_FONT_STEP);
+                    commitAndRepaint();
+                    return;
+                }
+                if (action === 'font-bold') {
+                    row.fontBold = !row.fontBold;
+                    commitAndRepaint();
+                    return;
+                }
+                if (action === 'font-italic') {
+                    row.fontItalic = !row.fontItalic;
+                    commitAndRepaint();
+                    return;
+                }
+                if (action === 'color') {
+                    row.hue = cycleMemoHue(row.hue);
+                    commitAndRepaint();
+                    return;
+                }
+                if (action === 'photo') {
+                    if (photoInput) photoInput.click();
+                    return;
+                }
+                if (action === 'photo-clear') {
+                    row.photoData = '';
+                    commitAndRepaint();
+                    return;
+                }
+                if (action === 'open') {
+                    ns.openMemoEditorForId(cardId);
+                }
+            });
+        });
+
+        if (photoInput) {
+            photoInput.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+            });
+            photoInput.addEventListener('change', function(ev) {
+                var f = ev.target && ev.target.files && ev.target.files[0]
+                    ? ev.target.files[0]
+                    : null;
+                if (!f) return;
+                if (!/^image\//i.test(f.type || '')) {
+                    alert(memoTr('memo.alert.photoType'));
+                    return;
+                }
+                var fr = new FileReader();
+                fr.onload = function() {
+                    row.photoData = String(fr.result || '');
+                    row.updatedAt = isoNow();
+                    persist();
+                    paintStickyDock(dock);
+                };
+                fr.readAsDataURL(f);
+            });
+        }
     }
 
     function bindStickyDrag(noteEl, dock, cardId) {
@@ -328,7 +514,9 @@ var MEMO_AI = MEMO_AI || {};
             var ny = oy + (ev.clientY - sy);
             var dw = dock.clientWidth;
             var dh = dock.clientHeight;
-            var cl = clampStickyPos(nx, ny, dw, dh, STICKY_W, STICKY_H);
+            var rowMoving = _cards.find(function(c) { return c.id === cardId; });
+            var szMoving = cardStickySize(rowMoving || {});
+            var cl = clampStickyPos(nx, ny, dw, dh, szMoving.w, szMoving.h);
             noteEl.style.left = cl.x + 'px';
             noteEl.style.top = cl.y + 'px';
         }
@@ -345,7 +533,9 @@ var MEMO_AI = MEMO_AI || {};
             var dh = dock.clientHeight;
             var left = parseFloat(noteEl.style.left) || 0;
             var top = parseFloat(noteEl.style.top) || 0;
-            var cl = clampStickyPos(left, top, dw, dh, STICKY_W, STICKY_H);
+            var rowUp = _cards.find(function(c) { return c.id === cardId; });
+            var szUp = cardStickySize(rowUp || {});
+            var cl = clampStickyPos(left, top, dw, dh, szUp.w, szUp.h);
             noteEl.style.left = cl.x + 'px';
             noteEl.style.top = cl.y + 'px';
 
@@ -378,8 +568,87 @@ var MEMO_AI = MEMO_AI || {};
         });
     }
 
+    function bindStickyResize(noteEl, dock, cardId) {
+        var handle = noteEl.querySelector('.memo-sticky-resize-handle');
+        if (!handle) return;
+
+        var resizing = false;
+        var sx = 0;
+        var sy = 0;
+        var sw = 0;
+        var sh = 0;
+        var ox = 0;
+        var oy = 0;
+
+        function onMove(ev) {
+            if (!resizing) return;
+            var dw = dock.clientWidth;
+            var dh = dock.clientHeight;
+            var maxW = Math.min(STICKY_W_MAX, Math.max(STICKY_W_MIN, dw - ox));
+            var maxH = Math.min(STICKY_H_MAX, Math.max(STICKY_H_MIN, dh - oy));
+            var nw = sw + (ev.clientX - sx);
+            var nh = sh + (ev.clientY - sy);
+            nw = Math.min(maxW, Math.max(STICKY_W_MIN, nw));
+            nh = Math.min(maxH, Math.max(STICKY_H_MIN, nh));
+            noteEl.style.width = Math.round(nw) + 'px';
+            noteEl.style.height = Math.round(nh) + 'px';
+        }
+
+        function onUp(ev) {
+            if (!resizing) return;
+            resizing = false;
+            noteEl.classList.remove('memo-sticky-resizing');
+            try {
+                handle.releasePointerCapture(ev.pointerId);
+            } catch (e2) {}
+
+            var row = _cards.find(function(c) { return c.id === cardId; });
+            if (row) {
+                var dw = dock.clientWidth;
+                var dh = dock.clientHeight;
+                var w = parseFloat(noteEl.style.width) || STICKY_W;
+                var h = parseFloat(noteEl.style.height) || STICKY_H;
+                var left = parseFloat(noteEl.style.left) || 0;
+                var top = parseFloat(noteEl.style.top) || 0;
+                var maxW = Math.min(STICKY_W_MAX, Math.max(STICKY_W_MIN, dw - left));
+                var maxH = Math.min(STICKY_H_MAX, Math.max(STICKY_H_MIN, dh - top));
+                row.stickyW = Math.round(Math.min(maxW, Math.max(STICKY_W_MIN, w)));
+                row.stickyH = Math.round(Math.min(maxH, Math.max(STICKY_H_MIN, h)));
+                var cl = clampStickyPos(left, top, dw, dh, row.stickyW, row.stickyH);
+                row.stickyX = cl.x;
+                row.stickyY = cl.y;
+                persist();
+                paintStickyDock(dock);
+            }
+
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+        }
+
+        handle.addEventListener('pointerdown', function(ev) {
+            if (ev.button !== 0) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            noteZBoost(noteEl, dock);
+            resizing = true;
+            noteEl.classList.add('memo-sticky-resizing');
+            sx = ev.clientX;
+            sy = ev.clientY;
+            sw = parseFloat(noteEl.style.width) || STICKY_W;
+            sh = parseFloat(noteEl.style.height) || STICKY_H;
+            ox = parseFloat(noteEl.style.left) || 0;
+            oy = parseFloat(noteEl.style.top) || 0;
+            try {
+                handle.setPointerCapture(ev.pointerId);
+            } catch (e3) {}
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+        });
+    }
+
     function paintStickyDock(dock) {
         ensureStickyDockObserver(dock);
+        ensureStickyEditCloser(dock);
 
         var box = stickyDockBounds(dock);
         var dw = box.w;
@@ -397,14 +666,17 @@ var MEMO_AI = MEMO_AI || {};
 
         var dirty = false;
         _cards.forEach(function(c, i) {
+            var sz = cardStickySize(c);
+            c.stickyW = sz.w;
+            c.stickyH = sz.h;
             if (c.stickyX == null || c.stickyY == null ||
                     typeof c.stickyX !== 'number' || typeof c.stickyY !== 'number') {
-                var d0 = defaultStickyXY(i, dw, dh);
+                var d0 = defaultStickyXY(i, dw, dh, c.stickyW, c.stickyH);
                 c.stickyX = d0.x;
                 c.stickyY = d0.y;
                 dirty = true;
             } else {
-                var cl = clampStickyPos(c.stickyX, c.stickyY, dw, dh, STICKY_W, STICKY_H);
+                var cl = clampStickyPos(c.stickyX, c.stickyY, dw, dh, c.stickyW, c.stickyH);
                 if (cl.x !== c.stickyX || cl.y !== c.stickyY) {
                     c.stickyX = cl.x;
                     c.stickyY = cl.y;
@@ -418,13 +690,14 @@ var MEMO_AI = MEMO_AI || {};
         var zBase = 10;
         _cards.forEach(function(c, idx) {
             var note = document.createElement('div');
-            note.className = 'memo-sticky-note';
-            note.style.width = STICKY_W + 'px';
-            note.style.height = STICKY_H + 'px';
+            note.className = 'memo-sticky-note' + (_stickyEditId === c.id ? ' memo-sticky-editing' : '');
+            note.style.width = c.stickyW + 'px';
+            note.style.height = c.stickyH + 'px';
             note.style.left = c.stickyX + 'px';
             note.style.top = c.stickyY + 'px';
             note.style.zIndex = String(zBase + idx);
             note.style.borderLeftColor = c.hue || '#cbd5e1';
+            note.style.background = c.hue || '#f1f5f9';
 
             var head = document.createElement('div');
             head.className = 'memo-sticky-draghead';
@@ -442,16 +715,45 @@ var MEMO_AI = MEMO_AI || {};
                 String(c.body || '').replace(/\s+/g, ' ').trim().slice(0, 220) ||
                 memoTr('memo.emptySticky');
             body.textContent = preview;
+            applyStickyBodyStyle(body, c);
+
+            var photoHtml = c.photoData
+                ? '<div class="memo-sticky-photo-wrap"><img class="memo-sticky-photo" src="' +
+                    escHtml(c.photoData) + '" alt="' + escHtml(memoTr('memo.photoAlt')) + '"></div>'
+                : '';
+            if (photoHtml) body.insertAdjacentHTML('beforeend', photoHtml);
+
+            var quickBar = document.createElement('div');
+            quickBar.className = 'memo-sticky-quickbar';
+            quickBar.innerHTML =
+                '<button type="button" data-memo-action="font-down" title="' + escHtml(memoTr('memo.quick.fontDown')) + '">A-</button>' +
+                '<button type="button" data-memo-action="font-up" title="' + escHtml(memoTr('memo.quick.fontUp')) + '">A+</button>' +
+                '<button type="button" data-memo-action="font-bold" title="' + escHtml(memoTr('memo.quick.bold')) + '">B</button>' +
+                '<button type="button" data-memo-action="font-italic" title="' + escHtml(memoTr('memo.quick.italic')) + '">I</button>' +
+                '<button type="button" data-memo-action="color" title="' + escHtml(memoTr('memo.quick.color')) + '">C</button>' +
+                '<button type="button" data-memo-action="photo" title="' + escHtml(memoTr('memo.quick.photo')) + '">IMG</button>' +
+                '<button type="button" data-memo-action="photo-clear" title="' + escHtml(memoTr('memo.quick.photoClear')) + '">X</button>' +
+                '<button type="button" data-memo-action="open" title="' + escHtml(memoTr('memo.quick.open')) + '">Edit</button>' +
+                '<input type="file" class="memo-sticky-photo-input" accept="image/*">';
+
+            var resizeHandle = document.createElement('div');
+            resizeHandle.className = 'memo-sticky-resize-handle';
+            resizeHandle.title = memoTr('memo.quick.resize');
 
             note.appendChild(head);
             note.appendChild(body);
+            note.appendChild(quickBar);
+            note.appendChild(resizeHandle);
 
             note.addEventListener('dblclick', function(ev) {
                 ev.stopPropagation();
-                ns.openMemoEditorForId(c.id);
+                _stickyEditId = (_stickyEditId === c.id) ? null : c.id;
+                paintStickyDock(dock);
             });
 
             bindStickyDrag(note, dock, c.id);
+            bindStickyResize(note, dock, c.id);
+            wireStickyQuickActions(note, dock, c.id);
             dock.appendChild(note);
         });
     }
@@ -638,6 +940,12 @@ var MEMO_AI = MEMO_AI || {};
             title: '',
             body: '',
             hue: '#f8fafc',
+            stickyW: STICKY_W,
+            stickyH: STICKY_H,
+            fontPx: STICKY_FONT_DEFAULT,
+            fontBold: false,
+            fontItalic: false,
+            photoData: '',
             updatedAt: isoNow()
         });
         _cards.unshift(c);
@@ -672,7 +980,13 @@ var MEMO_AI = MEMO_AI || {};
             id: genId(),
             title: memoDuplicateTitle(src.title),
             body: src.body,
-            hue: src.hue || '#f1f5f9'
+            hue: src.hue || '#f1f5f9',
+            stickyW: src.stickyW,
+            stickyH: src.stickyH,
+            fontPx: src.fontPx,
+            fontBold: src.fontBold,
+            fontItalic: src.fontItalic,
+            photoData: src.photoData || ''
         });
         if (typeof src.stickyX === 'number' && typeof src.stickyY === 'number') {
             c.stickyX = src.stickyX + 14;
@@ -698,11 +1012,19 @@ var MEMO_AI = MEMO_AI || {};
         var hueEl = gmem('memoHue');
         if (!row || !hueEl) return;
         row.hue = hueEl.value || '#f1f5f9';
+        row.hue = memoToLightCardColor(row.hue);
         row.updatedAt = isoNow();
         persist();
         sortCards();
         renderList();
         maybeRefreshDashStickies();
+    };
+
+    ns.pickPresetHue = function(hex) {
+        var hueEl = gmem('memoHue');
+        var safe = memoToLightCardColor(hex || '#fff59d');
+        if (hueEl) hueEl.value = safe;
+        ns.updateHueFromPicker();
     };
 
     ns.applyAiAssist = function() {

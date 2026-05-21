@@ -96,6 +96,8 @@ var APP_LOCALE = 'en-HK';
 
 /** Local clinic image store on this PC (x-ray / photo archive). */
 var CLINIC_IMAGE_ROOT = 'C:\\Image';
+var APP_WORKING_DATE_LS_KEY = 'joyful_working_date_override_v1';
+var appWorkingDateOverride = '';
 
 function clinicImagePatientDir(patientNo, kind) {
     var root = CLINIC_IMAGE_ROOT.replace(/[\\/]+$/, '');
@@ -107,6 +109,62 @@ function clinicImagePatientDir(patientNo, kind) {
         return root + '\\Photos\\' + no;
     }
     return root + '\\' + no;
+}
+
+function readWorkingDateOverrideFromStore() {
+    try {
+        var raw = String(localStorage.getItem(APP_WORKING_DATE_LS_KEY) || '').trim();
+        if (!raw) return '';
+        var d = parseISODateOnly(raw);
+        return (d && !isNaN(d.getTime())) ? raw : '';
+    } catch (e) {
+        return '';
+    }
+}
+
+function writeWorkingDateOverrideToStore(v) {
+    try {
+        if (!v) localStorage.removeItem(APP_WORKING_DATE_LS_KEY);
+        else localStorage.setItem(APP_WORKING_DATE_LS_KEY, String(v));
+    } catch (e) {}
+}
+
+function realNowLocal() {
+    return new Date();
+}
+
+function realTodayISO() {
+    return d2iso(realNowLocal());
+}
+
+function currentWorkingDateOverride() {
+    return String(appWorkingDateOverride || '').trim();
+}
+
+function hasEffectiveWorkingDateOverride() {
+    var ov = currentWorkingDateOverride();
+    return !!(ov && ov !== realTodayISO());
+}
+
+function setWorkingDateOverride(isoDate) {
+    var iso = String(isoDate || '').trim();
+    if (!iso || iso === realTodayISO()) {
+        appWorkingDateOverride = '';
+        writeWorkingDateOverrideToStore('');
+    } else {
+        var d = parseISODateOnly(iso);
+        if (!d || isNaN(d.getTime())) return;
+        appWorkingDateOverride = iso;
+        writeWorkingDateOverrideToStore(iso);
+    }
+    refreshAppSessionStripContents();
+    document.dispatchEvent(new CustomEvent('app-working-date-change', {
+        detail: { date: appWorkingDateOverride || '' }
+    }));
+}
+
+function clearWorkingDateOverride() {
+    setWorkingDateOverride('');
 }
 
 function appUiLocale() {
@@ -124,7 +182,18 @@ function clinicDisplayFallback() {
 }
 
 function nowLocal() {
-    return new Date();
+    var real = realNowLocal();
+    var override = hasEffectiveWorkingDateOverride() ? currentWorkingDateOverride() : '';
+    if (!override) return real;
+    var d = parseISODateOnly(override);
+    if (!d || isNaN(d.getTime())) return real;
+    d.setHours(
+        real.getHours(),
+        real.getMinutes(),
+        real.getSeconds(),
+        real.getMilliseconds()
+    );
+    return d;
 }
 
 function d2iso(d) {
@@ -408,6 +477,10 @@ function populateReportClinicSelect() {
         sel.innerHTML = '<option value="">' + esc(appTr('common.noClinics')) + '</option>';
         return;
     }
+    var allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = appTr('common.all');
+    sel.appendChild(allOpt);
     APP_CLINICS.forEach(function (c) {
         var o = document.createElement('option');
         o.value = c.id;
@@ -427,9 +500,16 @@ function populateReportClinicSelect() {
 
 function onReportClinicChange() {
     var sel = g('reportClinicSelect');
-    if (!sel || !sel.value) return;
-    if (typeof setWorkingClinic === 'function') {
-        setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: false });
+    if (!sel) return;
+    if (sel.value && typeof setWorkingClinic === 'function') {
+        setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: false, refreshVisible: true });
+        showClinicRefreshToast(sel.value, false);
+    } else if (typeof REPORT !== 'undefined' && typeof REPORT.refresh === 'function') {
+        REPORT.refresh();
+        if (typeof triggerGlobalRefresh === 'function') {
+            triggerGlobalRefresh({ skipReport: true });
+        }
+        showClinicRefreshToast('', true);
     }
 }
 
@@ -486,7 +566,7 @@ function setWorkingClinic(clinicId, options) {
     var apSel = g('apptClinicSelect');
     if (apSel && apSel.value !== clinicId) apSel.value = clinicId;
     var rptSel = g('reportClinicSelect');
-    if (rptSel && rptSel.value !== clinicId) rptSel.value = clinicId;
+    if (rptSel && rptSel.value !== '' && rptSel.value !== clinicId) rptSel.value = clinicId;
 
     if (options.syncFilters !== false && typeof currentClinicCodeForTagging === 'function') {
         var tag = currentClinicCodeForTagging();
@@ -524,6 +604,10 @@ function setWorkingClinic(clinicId, options) {
     if (rptSec && rptSec.style.display !== 'none' &&
         typeof REPORT !== 'undefined' && typeof REPORT.refresh === 'function') {
         REPORT.refresh();
+    }
+
+    if (options.refreshVisible && typeof triggerGlobalRefresh === 'function') {
+        triggerGlobalRefresh({ skipAppt: true, skipReport: true });
     }
 
     if (typeof CFG !== 'undefined' && typeof CFG.prefetchPrintSettings === 'function') {
@@ -959,9 +1043,14 @@ function refreshAppSessionStripContents() {
     var dstr = typeof fmtNowDateTimeHK === 'function'
         ? fmtNowDateTimeHK()
         : (typeof fmtTodayLong === 'function' ? fmtTodayLong() : '');
+    var datePrefix = hasEffectiveWorkingDateOverride()
+        ? appTr('session.workingDatePrefix')
+        : appTr('session.todayPrefix');
     if (dateEl) dateEl.textContent = dstr
-        ? (appTr('session.todayPrefix') + ' ' + dstr)
+        ? (datePrefix + ' ' + dstr)
         : '';
+    var workBadge = g('appWorkingDateBadge');
+    if (workBadge) workBadge.style.display = hasEffectiveWorkingDateOverride() ? 'inline-flex' : 'none';
 
     var cline = '';
     var rec =
@@ -985,6 +1074,78 @@ function refreshAppSessionStripContents() {
             (cline ? cline.replace(/\s+/g, ' ').trim() + ' · ' : '') +
             shortTitle + (dstr ? ' · ' + dstr : '');
     } catch (e) {}
+}
+
+function toggleAppDateAdjustPopover(forceOpen) {
+    var pop = g('appDateAdjustPopover');
+    if (!pop) return;
+    var shouldOpen = typeof forceOpen === 'boolean'
+        ? forceOpen
+        : pop.style.display === 'none' || !pop.style.display;
+    if (shouldOpen) {
+        var inp = g('appDateAdjustInput');
+        if (inp) inp.value = currentWorkingDateOverride() || todayISO();
+        pop.style.display = 'block';
+        positionAppDateAdjustPopover();
+    } else {
+        pop.style.display = 'none';
+    }
+}
+
+function positionAppDateAdjustPopover() {
+    var pop = g('appDateAdjustPopover');
+    if (!pop || pop.style.display === 'none') return;
+    var anchor = g('appStripDate') || g('appSessionStrip');
+    if (!anchor) return;
+    var ar = anchor.getBoundingClientRect();
+    var margin = 8;
+    var left = ar.left;
+    var top = ar.bottom + margin;
+    pop.style.left = Math.max(8, Math.round(left)) + 'px';
+    pop.style.top = Math.max(42, Math.round(top)) + 'px';
+    pop.style.right = 'auto';
+}
+
+function wireAppDateAdjustControls() {
+    var strip = g('appSessionStrip');
+    var pop = g('appDateAdjustPopover');
+    if (!strip || !pop || strip.dataset.dateAdjustWired === '1') return;
+    strip.dataset.dateAdjustWired = '1';
+
+    strip.addEventListener('dblclick', function(ev) {
+        var t = ev.target;
+        if (t && t.closest && t.closest('#appWorkingClinicSelect')) return;
+        toggleAppDateAdjustPopover(true);
+    });
+    window.addEventListener('resize', function() {
+        positionAppDateAdjustPopover();
+    });
+
+    var applyBtn = g('appDateAdjustApplyBtn');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            var inp = g('appDateAdjustInput');
+            var iso = inp ? String(inp.value || '').trim() : '';
+            if (!iso) return;
+            setWorkingDateOverride(iso);
+            toggleAppDateAdjustPopover(false);
+        });
+    }
+    var todayBtn = g('appDateAdjustTodayBtn');
+    if (todayBtn) {
+        todayBtn.addEventListener('click', function() {
+            var realIso = d2iso(realNowLocal());
+            setWorkingDateOverride(realIso);
+            toggleAppDateAdjustPopover(false);
+        });
+    }
+    var clearBtn = g('appDateAdjustClearBtn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            clearWorkingDateOverride();
+            toggleAppDateAdjustPopover(false);
+        });
+    }
 }
 
 /** Call after login/logout/navigation; shows fixed strip when a user session exists. */
@@ -1032,6 +1193,133 @@ function showDashboard() {
             MEMO_AI.refreshDashboardStickies();
         });
     }
+}
+
+// ════════════════════════════════════════════════════════════════
+// GLOBAL REFRESH HOTKEY (F2)
+// ════════════════════════════════════════════════════════════════
+function sectionVisible(id) {
+    var el = g(id);
+    if (!el) return false;
+    return el.style.display !== 'none' && el.style.display !== '';
+}
+
+function activeConsultationTabKey() {
+    var t = document.querySelector('#consultationSection .con-tab.active');
+    return t && t.dataset ? t.dataset.tab : '';
+}
+
+var appGlobalToastTimer = null;
+function showAppGlobalToast(msg) {
+    var text = String(msg || '').trim();
+    if (!text) return;
+    var box = g('appGlobalToast');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'appGlobalToast';
+        box.className = 'app-global-toast';
+        document.body.appendChild(box);
+    }
+    box.textContent = text;
+    box.classList.add('app-global-toast--in');
+    if (appGlobalToastTimer) clearTimeout(appGlobalToastTimer);
+    appGlobalToastTimer = setTimeout(function() {
+        box.classList.remove('app-global-toast--in');
+    }, 1300);
+}
+
+function showClinicRefreshToast(clinicId, isAll) {
+    var clinicLabel = '';
+    if (isAll) {
+        clinicLabel = (typeof appTr === 'function') ? appTr('common.all') : 'ALL';
+    } else if (clinicId && typeof clinicRecordFromId === 'function') {
+        var rec = clinicRecordFromId(clinicId);
+        if (rec) {
+            clinicLabel = (rec.clinic_code ? ('[' + String(rec.clinic_code).trim() + '] ') : '') +
+                (rec.english_name || rec.chinese_name || '');
+        }
+    }
+    if (!clinicLabel) clinicLabel = clinicId || '';
+    var clinicWord = (typeof appTr === 'function') ? appTr('session.viewClinic') : 'Clinic';
+    var refreshWord = (typeof tr === 'function') ? tr('bill.btnRefresh') : 'Refresh';
+    showAppGlobalToast(clinicWord + ': ' + clinicLabel + ' · ' + refreshWord);
+}
+
+function triggerGlobalRefresh(opts) {
+    opts = opts || {};
+    if (currentUserId && typeof refreshAppSessionStripContents === 'function') {
+        refreshAppSessionStripContents();
+    }
+
+    if (sectionVisible('dashboardSection')) {
+        if (typeof refreshDashboardUserBadge === 'function') refreshDashboardUserBadge();
+        if (typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.refreshDashboardStickies === 'function') {
+            MEMO_AI.refreshDashboardStickies();
+        }
+    }
+
+    if (sectionVisible('patientSection')) {
+        if (typeof fetchPatients === 'function') fetchPatients();
+        if (typeof selPatientId !== 'undefined' && selPatientId && typeof loadTreatments === 'function') {
+            loadTreatments(selPatientId);
+        }
+    }
+
+    if (!opts.skipAppt && sectionVisible('appointmentSection') && typeof reloadApptModuleData === 'function') {
+        reloadApptModuleData();
+    }
+    var billPanel = g('billPanel');
+    if (billPanel && billPanel.classList.contains('open') && typeof refreshBillPanelNow === 'function') {
+        refreshBillPanelNow();
+    }
+
+    if (sectionVisible('consultationSection')) {
+        var ctab = activeConsultationTabKey();
+        if (typeof conPatientId !== 'undefined' && conPatientId) {
+            if (typeof loadConNotes === 'function') loadConNotes(conPatientId);
+            if (typeof loadDrugHistory === 'function') loadDrugHistory(conPatientId);
+        }
+        if (ctab === 'photos' && typeof refreshPhotos === 'function') refreshPhotos();
+        if (ctab === 'xrays' && typeof refreshXrays === 'function') refreshXrays();
+    }
+
+    if (sectionVisible('drugSection') && typeof initDrugs === 'function') {
+        initDrugs();
+    }
+
+    if (!opts.skipReport && sectionVisible('reportSection') &&
+        typeof REPORT !== 'undefined' && typeof REPORT.refresh === 'function') {
+        REPORT.refresh();
+    }
+
+    if (sectionVisible('aiHelperSection') &&
+        typeof AIHELPER !== 'undefined' && typeof AIHELPER.init === 'function') {
+        AIHELPER.init();
+    }
+
+    if (sectionVisible('memoCardsSection') &&
+        typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.init === 'function') {
+        MEMO_AI.init();
+    }
+
+    if (sectionVisible('sectionConfig') &&
+        typeof CFG !== 'undefined' &&
+        typeof CFG.init === 'function' &&
+        typeof CFG.isInitialized === 'function' &&
+        CFG.isInitialized()) {
+        CFG.init();
+    }
+}
+
+function onGlobalRefreshHotkey(e) {
+    if (!e) return;
+    if (e.key !== 'F2' && e.code !== 'F2') return;
+    if (e.repeat) return;
+    e.preventDefault();
+    e.stopPropagation();
+    triggerGlobalRefresh();
+    var refreshWord = (typeof tr === 'function') ? tr('bill.btnRefresh') : 'Refreshed';
+    showAppGlobalToast(refreshWord + ' (F2)');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1256,6 +1544,7 @@ function doLogin() {
 // BOOT
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function() {
+    appWorkingDateOverride = readWorkingDateOverrideFromStore();
     syncAppLocaleFromUiLang();
 
     showLogin();
@@ -1273,9 +1562,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (workClinicSel && !workClinicSel.dataset.bound) {
         workClinicSel.dataset.bound = '1';
         workClinicSel.addEventListener('change', function () {
-            setWorkingClinic(workClinicSel.value, { syncFilters: true, reloadAppt: true });
+            setWorkingClinic(workClinicSel.value, { syncFilters: true, reloadAppt: true, refreshVisible: true });
+            showClinicRefreshToast(workClinicSel.value, false);
         });
     }
+    wireAppDateAdjustControls();
 
     var loginUid = g('loginUserId');
     if (loginUid) {
@@ -1290,6 +1581,7 @@ document.addEventListener('DOMContentLoaded', function() {
     g('loginPassword').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') doLogin();
     });
+    document.addEventListener('keydown', onGlobalRefreshHotkey);
 
     g('logoutBtn').addEventListener('click', function() {
         currentRole = null;
@@ -1678,6 +1970,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // ════════════════════════════════════════════════════════
 
     document.addEventListener('click', function(e) {
+        var pop = g('appDateAdjustPopover');
+        var strip = g('appSessionStrip');
+        if (pop && pop.style.display !== 'none') {
+            var insidePop = pop.contains(e.target);
+            var insideStrip = strip && strip.contains(e.target);
+            if (!insidePop && !insideStrip) {
+                toggleAppDateAdjustPopover(false);
+            }
+        }
 
         // close action dropdowns (queue table)
         document.querySelectorAll('.action-drop.open').forEach(function(dd) {

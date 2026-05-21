@@ -29,6 +29,7 @@ var REPORT = (function () {
   var _auditAllRows = [];
   var _auditSelectedId = null;
   var _auditTableMissing = false;
+  var _patientDirToolsWired = false;
 
   function g(id) { return document.getElementById(id); }
   function esc(s) {
@@ -114,15 +115,40 @@ var REPORT = (function () {
   }
 
   function reportClinicTag() {
-    return typeof currentClinicCodeForTagging === 'function'
-      ? currentClinicCodeForTagging()
-      : '';
+    var sel = g('reportClinicSelect');
+    var sid = sel ? String(sel.value || '').trim() : '';
+    if (!sid) return '';
+    if (typeof clinicRecordFromId === 'function') {
+      var rec = clinicRecordFromId(sid);
+      if (rec) {
+        var code = String(rec.clinic_code || '').trim();
+        return code || String(rec.id || '').trim();
+      }
+    }
+    return sid;
   }
 
   function reportClinicId() {
-    return (typeof currentClinicId !== 'undefined' && currentClinicId)
-      ? String(currentClinicId)
-      : '';
+    var sel = g('reportClinicSelect');
+    var sid = sel ? String(sel.value || '').trim() : '';
+    return sid || '';
+  }
+
+  function isReportAllClinicsSelected() {
+    return !reportClinicId();
+  }
+
+  function clinicCodeFromStoredTag(tagOrId) {
+    var t = String(tagOrId || '').trim();
+    if (!t) return '';
+    if (typeof APP_CLINICS !== 'undefined' && APP_CLINICS && APP_CLINICS.length) {
+      for (var i = 0; i < APP_CLINICS.length; i++) {
+        var c = APP_CLINICS[i];
+        if (String(c.id || '') === t) return String(c.clinic_code || '').trim() || t;
+        if (String(c.clinic_code || '').trim() === t) return String(c.clinic_code || '').trim();
+      }
+    }
+    return t;
   }
 
   function uniqIds(arr) {
@@ -188,6 +214,80 @@ var REPORT = (function () {
   function setDateInputs(fromIso, toIso) {
     if (g('rptFrom')) g('rptFrom').value = fromIso;
     if (g('rptTo')) g('rptTo').value = toIso;
+  }
+
+  function showPatientDirTools(show) {
+    var box = g('rptPatientDirTools');
+    if (!box) return;
+    box.style.display = show ? 'flex' : 'none';
+  }
+
+  function wirePatientDirToolsOnce() {
+    if (_patientDirToolsWired) return;
+    _patientDirToolsWired = true;
+    ['rptPatientDirSearch', 'rptPatientDirSortBy', 'rptPatientDirSortDir'].forEach(function (id) {
+      var el = g(id);
+      if (!el) return;
+      var evt = id === 'rptPatientDirSearch' ? 'input' : 'change';
+      el.addEventListener(evt, function () {
+        if (_reportInitialized && _tab === 'patientDir') refresh();
+      });
+    });
+  }
+
+  function patientDirFilterQuery() {
+    var q = g('rptPatientDirSearch') ? String(g('rptPatientDirSearch').value || '').trim() : '';
+    return q.toLowerCase();
+  }
+
+  function patientDirSortKey() {
+    return g('rptPatientDirSortBy') ? String(g('rptPatientDirSortBy').value || 'patient_no') : 'patient_no';
+  }
+
+  function patientDirSortDir() {
+    var dir = g('rptPatientDirSortDir') ? String(g('rptPatientDirSortDir').value || 'asc') : 'asc';
+    return dir === 'desc' ? -1 : 1;
+  }
+
+  function patientDirRowMatchesQuery(r, q) {
+    if (!q) return true;
+    var fields = [
+      r.patient_no, r.full_name, r.chinese_name, r.phone,
+      r.clinic_tag, r.dob, r.hkid, r.email, r.sex,
+      r.address, r.alerts, r.remarks
+    ];
+    for (var i = 0; i < fields.length; i++) {
+      if (String(fields[i] || '').toLowerCase().indexOf(q) >= 0) return true;
+    }
+    return false;
+  }
+
+  function cmpPatientDirValues(a, b, key) {
+    var av = String(a[key] || '').trim();
+    var bv = String(b[key] || '').trim();
+    if (key === 'patient_no') {
+      var an = parseInt(av, 10);
+      var bn = parseInt(bv, 10);
+      if (!isNaN(an) && !isNaN(bn) && an !== bn) return an - bn;
+    }
+    if (key === 'dob') {
+      if (av === bv) return 0;
+      return av < bv ? -1 : 1;
+    }
+    return av.localeCompare(bv, undefined, { sensitivity: 'base', numeric: true });
+  }
+
+  function applyPatientDirFilterSort(rows) {
+    var q = patientDirFilterQuery();
+    var key = patientDirSortKey();
+    var dir = patientDirSortDir();
+    var out = (rows || []).filter(function (r) {
+      return patientDirRowMatchesQuery(r, q);
+    });
+    out.sort(function (a, b) {
+      return cmpPatientDirValues(a, b, key) * dir;
+    });
+    return out;
   }
 
   function iso(d) {
@@ -637,8 +737,11 @@ var REPORT = (function () {
   }
 
   async function loadBillsLite(from, to) {
+    var selectFull = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at,clinic_tag';
+    var selectNoDoctor = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,clinic_tag';
+    var selectLegacy = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at';
     var res = await SB.from('bills')
-      .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at')
+      .select(selectFull)
       .gte('bill_date', from)
       .lte('bill_date', to)
       .order('bill_date', { ascending: true })
@@ -647,7 +750,25 @@ var REPORT = (function () {
       var m = String(res.error.message || '').toLowerCase();
       if (m.indexOf('doctor_id') >= 0 || m.indexOf('doctor_name') >= 0 || m.indexOf('doctor_tag') >= 0) {
         res = await SB.from('bills')
-          .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at')
+          .select(selectNoDoctor)
+          .gte('bill_date', from)
+          .lte('bill_date', to)
+          .order('bill_date', { ascending: true })
+          .order('created_at', { ascending: true });
+        if (res.error) {
+          var m2 = String(res.error.message || '').toLowerCase();
+          if (m2.indexOf('clinic_tag') >= 0) {
+            res = await SB.from('bills')
+              .select(selectLegacy)
+              .gte('bill_date', from)
+              .lte('bill_date', to)
+              .order('bill_date', { ascending: true })
+              .order('created_at', { ascending: true });
+          }
+        }
+      } else if (m.indexOf('clinic_tag') >= 0) {
+        res = await SB.from('bills')
+          .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at')
           .gte('bill_date', from)
           .lte('bill_date', to)
           .order('bill_date', { ascending: true })
@@ -661,8 +782,11 @@ var REPORT = (function () {
   async function loadPatientsByIds(ids) {
     ids = (ids || []).filter(Boolean);
     if (!ids.length) return [];
+    var pField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+      ? PATIENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
     var res = await SB.from('patients')
-      .select('id,patient_no,full_name,chinese_name')
+      .select('id,patient_no,full_name,chinese_name,' + pField)
       .in('id', ids);
     if (res.error) throw new Error(res.error.message);
     return res.data || [];
@@ -765,11 +889,13 @@ var REPORT = (function () {
       '</div>';
     }).join('');
 
+    var showClinicCol = isReportAllClinicsSelected();
     var rowsHtml = transactions.map(function (t) {
       return '<tr>' +
         '<td style="' + td + '">' + esc(t.patient_no) + '</td>' +
         '<td style="' + td + '">' + esc(t.patient_chinese) + '</td>' +
         '<td style="' + td + '">' + esc(t.patient_name) + '</td>' +
+        (showClinicCol ? ('<td style="' + td + '">' + esc(t.clinic_tag || '') + '</td>') : '') +
         '<td style="' + td + '">' + esc(dispPayMethod(t.payment_method)) + '</td>' +
         '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(Number(t.amount)) + '</td>' +
         '<td style="' + td + '">' + esc(t.remarks) + '</td>' +
@@ -784,6 +910,7 @@ var REPORT = (function () {
               '<th style="' + th + 'width:120px;">' + esc(tr('report.col.patientNo')) + '</th>' +
               '<th style="' + th + 'width:160px;">' + esc(tr('report.col.chinese')) + '</th>' +
               '<th style="' + th + '">' + esc(tr('report.ds.col.english')) + '</th>' +
+              (showClinicCol ? ('<th style="' + th + 'width:130px;">' + esc(tr('report.col.clinicTag')) + '</th>') : '') +
               '<th style="' + th + 'width:150px;">' + esc(tr('report.ds.col.payment')) + '</th>' +
               '<th style="' + th + 'width:120px;text-align:right;">' + esc(tr('report.ds.col.amount')) + '</th>' +
               '<th style="' + th + 'width:220px;">' + esc(tr('report.col.remarks')) + '</th>' +
@@ -835,13 +962,18 @@ var REPORT = (function () {
         '</span>';
       }).join('');
 
+      var showClinicCol = isReportAllClinicsSelected();
+      var gridCols = showClinicCol
+        ? 'minmax(90px,110px) minmax(200px,1fr) minmax(110px,130px) minmax(120px,140px) minmax(100px,120px)'
+        : 'minmax(90px,110px) minmax(220px,1fr) minmax(120px,140px) minmax(100px,120px)';
       var rows = c.rows.map(function (t) {
-        return '<div style="display:grid;grid-template-columns:minmax(90px,110px) minmax(220px,1fr) minmax(120px,140px) minmax(100px,120px);gap:10px;align-items:start;padding:10px 0;border-bottom:1px dashed #e6edf5;">' +
+        return '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:start;padding:10px 0;border-bottom:1px dashed #e6edf5;">' +
           '<div style="font-weight:900;color:#0d6efd;font-size:12px;">' + esc(t.patient_no || '-') + '</div>' +
           '<div style="min-width:0;">' +
             '<div style="font-size:13px;font-weight:900;color:#1f2937;line-height:1.35;">' + esc(t.patient_chinese || '') + (t.patient_name ? (' / ' + esc(t.patient_name)) : '') + '</div>' +
             (t.remarks ? '<div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;">' + esc(t.remarks) + '</div>' : '') +
           '</div>' +
+          (showClinicCol ? ('<div style="color:#334155;font-weight:900;font-size:12px;">' + esc(t.clinic_tag || '') + '</div>') : '') +
           '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(dispPayMethod(t.payment_method)) + '</div>' +
           '<div style="text-align:right;font-weight:900;color:#0f172a;font-size:12px;">' + fmtHK(Number(t.amount || 0)) + '</div>' +
         '</div>';
@@ -914,7 +1046,7 @@ var REPORT = (function () {
     return { count: items.length, html: html };
   }
 
-  function detailTxRowHtml(t, isCompact) {
+  function detailTxRowHtml(t, isCompact, showClinicCol) {
     var tx = treatmentEntriesHtml(t.treatment_items);
     var bal = Number(t.bill_balance || 0);
     var balColor = bal > 0 ? '#dc2626' : '#16a34a';
@@ -929,6 +1061,11 @@ var REPORT = (function () {
         '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethod(t.payment_method)) + '</div>' +
         (t.remarks ? '<div style="font-size:11px;color:#64748b;line-height:1.35;margin-top:4px;">' + esc(t.remarks) + '</div>' : '') +
       '</td>' +
+      (showClinicCol
+        ? ('<td style="width:9%;padding:10px 8px;border-bottom:1px solid #eef2f7;vertical-align:top;word-break:break-word;">' +
+            '<div style="font-size:12px;color:#334155;font-weight:900;">' + esc(t.clinic_tag || '') + '</div>' +
+          '</td>')
+        : '') +
       '<td style="width:30%;padding:10px 8px;border-bottom:1px solid #eef2f7;vertical-align:top;word-break:break-word;">' +
         '<div style="font-size:11px;color:#64748b;font-weight:800;margin-bottom:5px;">' + esc(trRepl('report.ds.detail.treatmentEntriesCount', { N: String(tx.count) })) + '</div>' +
         tx.html +
@@ -954,9 +1091,10 @@ var REPORT = (function () {
       '</span>';
     }).join('');
 
-    var rowsHtml = transactions.map(function (t) { return detailTxRowHtml(t, false); }).join('');
+    var showClinicCol = isReportAllClinicsSelected();
+    var rowsHtml = transactions.map(function (t) { return detailTxRowHtml(t, false, showClinicCol); }).join('');
     if (!rowsHtml) {
-      rowsHtml = '<tr><td colspan="7" style="padding:20px;text-align:center;color:#64748b;">' + esc(tr('report.ds.detail.noDetailedTx')) + '</td></tr>';
+      rowsHtml = '<tr><td colspan="' + (showClinicCol ? '8' : '7') + '" style="padding:20px;text-align:center;color:#64748b;">' + esc(tr('report.ds.detail.noDetailedTx')) + '</td></tr>';
     }
 
     body.innerHTML =
@@ -987,6 +1125,7 @@ var REPORT = (function () {
                 '<th style="width:10%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thBillDate')) + '</th>' +
                 '<th style="width:20%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPatient')) + '</th>' +
                 '<th style="width:14%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPaymentNotes')) + '</th>' +
+                (showClinicCol ? ('<th style="width:9%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.col.clinicTag')) + '</th>') : '') +
                 '<th style="width:30%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thTreatmentDetails')) + '</th>' +
                 '<th style="width:9%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thBill')) + '</th>' +
                 '<th style="width:9%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thPaid')) + '</th>' +
@@ -1002,6 +1141,7 @@ var REPORT = (function () {
   function renderDailySummaryDetailMonthly(dayCards, monthTotalsByMethod, monthGrandTotal) {
     var body = g('rptDailySummaryBody');
     if (!body) return;
+    var showClinicCol = isReportAllClinicsSelected();
 
     var totalBills = 0;
     var totalTreatments = 0;
@@ -1025,9 +1165,9 @@ var REPORT = (function () {
     }
 
     var sectionsHtml = dayCards.map(function (c) {
-      var rowsHtml = (c.rows || []).map(function (t) { return detailTxRowHtml(t, true); }).join('');
+      var rowsHtml = (c.rows || []).map(function (t) { return detailTxRowHtml(t, true, showClinicCol); }).join('');
       if (!rowsHtml) {
-        rowsHtml = '<tr><td colspan="7" style="padding:14px;color:#64748b;text-align:center;">' + esc(tr('report.ds.detail.monthlyNoDetailRows')) + '</td></tr>';
+        rowsHtml = '<tr><td colspan="' + (showClinicCol ? '8' : '7') + '" style="padding:14px;color:#64748b;text-align:center;">' + esc(tr('report.ds.detail.monthlyNoDetailRows')) + '</td></tr>';
       }
       return '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;overflow:hidden;margin-bottom:12px;box-shadow:0 2px 8px rgba(15,23,42,.04);">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#f8fbff;border-bottom:1px solid #e6edf5;">' +
@@ -1044,6 +1184,7 @@ var REPORT = (function () {
                 '<th style="width:10%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thBillDate')) + '</th>' +
                 '<th style="width:20%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPatient')) + '</th>' +
                 '<th style="width:14%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPaymentNotes')) + '</th>' +
+                (showClinicCol ? ('<th style="width:9%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.col.clinicTag')) + '</th>') : '') +
                 '<th style="width:30%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thTreatmentDetails')) + '</th>' +
                 '<th style="width:9%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thBill')) + '</th>' +
                 '<th style="width:9%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thPaid')) + '</th>' +
@@ -1668,6 +1809,10 @@ var REPORT = (function () {
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
         var p = pmap[b.patient_id] || {};
+        var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+          ? PATIENT_CLINIC_TAG_FIELD
+          : 'clinic_tag';
+        var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
         return {
           bill_id: b.id || '',
           bill_ref: ref,
@@ -1680,6 +1825,8 @@ var REPORT = (function () {
           bill_total: total,
           bill_paid: paid,
           bill_balance: bal,
+          clinic_tag: clinicTag,
+          clinic_code: clinicCodeFromStoredTag(clinicTag),
           treatment_items: b.items || '[]',
           remarks: b.notes || ''
         };
@@ -1735,6 +1882,10 @@ var REPORT = (function () {
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
         var p = pmapM[b.patient_id] || {};
+        var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+          ? PATIENT_CLINIC_TAG_FIELD
+          : 'clinic_tag';
+        var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
         var txRow = {
           bill_id: b.id || '',
           bill_ref: ref,
@@ -1747,6 +1898,8 @@ var REPORT = (function () {
           bill_total: total,
           bill_paid: paid,
           bill_balance: bal,
+          clinic_tag: clinicTag,
+          clinic_code: clinicCodeFromStoredTag(clinicTag),
           treatment_items: b.items || '[]',
           remarks: b.notes || ''
         };
@@ -2102,6 +2255,7 @@ var REPORT = (function () {
 
     try {
       if (_tab === 'auditTrail') {
+        showPatientDirTools(false);
         setHeader(tr('report.title.auditTrail'), tr('report.hint.auditTrail'));
         showChartColumn(false);
         destroyChart();
@@ -2118,6 +2272,7 @@ var REPORT = (function () {
       }
 
       if (_tab === 'dailySummary') {
+        showPatientDirTools(false);
         setHeader(tr('report.title.dailySummary'), tr('report.hint.dailySummary'));
 
         // Charts not used for this subtab
@@ -2135,8 +2290,11 @@ var REPORT = (function () {
       }
 
       if (_tab === 'patientDir') {
+        wirePatientDirToolsOnce();
+        showPatientDirTools(true);
         // Admin-only gate
         if (typeof currentRole !== 'undefined' && currentRole !== 'admin') {
+          showPatientDirTools(false);
           setHeader(tr('report.title.patientDir'), tr('report.hint.patientDirAdmin'));
           _rows = [];
           renderTable([{ key: 'note', label: tr('report.col.info') }], [{ note: tr('report.patientDir.adminOnlyNote') }]);
@@ -2159,7 +2317,7 @@ var REPORT = (function () {
         if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
 
         var pts = await loadPatients();
-        _rows = pts.map(function (p) {
+        var mappedRows = pts.map(function (p) {
           return {
             patient_no: p.patient_no || '',
             full_name: p.full_name || '',
@@ -2175,6 +2333,7 @@ var REPORT = (function () {
             remarks: p.remarks || ''
           };
         });
+        _rows = applyPatientDirFilterSort(mappedRows);
         renderTable([
           { key: 'patient_no', label: tr('report.col.patientNo') },
           { key: 'full_name', label: tr('report.col.name') },
@@ -2200,6 +2359,7 @@ var REPORT = (function () {
       }
 
       // Ensure chart column visible for other tabs
+      showPatientDirTools(false);
       var grid2 = g('rptMainGrid');
       var col2 = g('rptChartCol');
       if (grid2) grid2.style.gridTemplateColumns = '1fr 360px';

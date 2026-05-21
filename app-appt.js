@@ -1272,10 +1272,22 @@ function getNonDoctorRemarksAuthor() {
 function staffAuthorRemarksHtml(author) {
     if (!author) return '';
     var uid = esc(String(author.uid || '').trim());
-    var name = esc(String(author.name || author.uid || tr('common.staffFallback')).trim());
-    var role = esc(String(author.role || 'staff').trim().toLowerCase());
+    var roleRaw = String(author.role || 'staff').trim().toLowerCase();
+    var nameRaw = String(author.name || author.uid || tr('common.staffFallback')).trim();
+    nameRaw = stripRolePrefixFromStaffName(nameRaw, roleRaw);
+    var name = esc(nameRaw);
+    var role = esc(roleRaw);
     var inner = role && role !== name ? role + ' · ' + name : name;
     return '<span class="appt-rm-by" data-uid="' + uid + '" data-role="' + role + '">' + inner + '</span>';
+}
+
+function stripRolePrefixFromStaffName(name, role) {
+    var n = String(name || '').trim();
+    var r = String(role || '').trim().toLowerCase();
+    if (!n || !r) return n;
+    var escRole = r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var rx = new RegExp('^\\s*' + escRole + '\\s*(?:[·\\-:：]\\s*)+', 'i');
+    return n.replace(rx, '').trim() || n;
 }
 
 function extractStaffAuthorSpan(remarks) {
@@ -1298,10 +1310,12 @@ function sanitizeStaffAuthorSpan(html) {
     var bodyM = s.match(/<span class="appt-rm-by"[^>]*>([\s\S]*?)<\/span>/i);
     if (!bodyM) return '';
     var body = bodyM[1].replace(/<[^>]+>/g, '').trim();
+    var role = roleM ? roleM[1] : 'staff';
+    var cleanName = stripRolePrefixFromStaffName(body, role);
     return staffAuthorRemarksHtml({
         uid: uidM ? uidM[1] : '',
-        role: roleM ? roleM[1] : 'staff',
-        name: body || (uidM ? uidM[1] : tr('common.staffFallback'))
+        role: role,
+        name: cleanName || (uidM ? uidM[1] : tr('common.staffFallback'))
     });
 }
 
@@ -2889,6 +2903,8 @@ var GCAL = (function () {
     var appts      = [];
     var days       = [];
     var dragState  = null;
+    var resizeState = null;
+    var suppressCardClickUntil = 0;
     var nowTimer   = null;
     var knownKeys  = [];   // unique doctor_code / treatment_items for settings
 
@@ -3234,7 +3250,8 @@ var GCAL = (function () {
                 (a.patient_no
                     ? '<span class="card-pno">#' + esc(a.patient_no) + '</span>'
                     : '') +
-            '</span>';
+            '</span>' +
+            '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
         if (chineseName && a.patient_name) {
             html += '<span class="card-name">' + esc(a.patient_name) + '</span>';
         }
@@ -3259,11 +3276,14 @@ var GCAL = (function () {
         }
 
         card.addEventListener('click', function (e) {
+            if (Date.now() < suppressCardClickUntil) return;
             if (e.target.closest && e.target.closest('.gcal-card-lock')) return;
+            if (e.target.closest && e.target.closest('.gcal-card-resize-handle')) return;
             e.stopPropagation();
             showApptPopup(a, card);
         });
         attachDrag(card, a);
+        attachResize(card, a);
         return card;
     }
 
@@ -3272,6 +3292,7 @@ var GCAL = (function () {
         card.addEventListener('mousedown', function (e) {
             if (e.button !== 0) return;
             if (e.target.closest && e.target.closest('.gcal-card-lock')) return;
+            if (e.target.closest && e.target.closest('.gcal-card-resize-handle')) return;
             if (isApptScheduleLocked(appt)) return;
             e.preventDefault(); e.stopPropagation();
 
@@ -3316,6 +3337,142 @@ var GCAL = (function () {
             document.addEventListener('mousemove', onDragMove);
             document.addEventListener('mouseup',   onDragEnd);
         });
+    }
+
+    function setCardTimeInfo(card, startT, endT) {
+        if (!card) return;
+        var timeEl = card.querySelector('.card-time');
+        var text = fmt12(startT) + ' - ' + fmt12(endT);
+        if (timeEl) timeEl.textContent = text;
+    }
+
+    function attachResize(card, appt) {
+        function ensureHandle(cls, mode) {
+            var h = card.querySelector('.' + cls);
+            if (!h) {
+                h = document.createElement('div');
+                h.className = 'gcal-card-resize-handle ' + cls;
+                h.title = tr('appt.cal.resizeHint');
+                h.setAttribute('aria-label', tr('appt.cal.resizeHint'));
+                h.dataset.mode = mode;
+                card.appendChild(h);
+            }
+            return h;
+        }
+        var bottomHandle = ensureHandle('gcal-card-resize-bottom', 'bottom');
+        var topHandle = ensureHandle('gcal-card-resize-top', 'top');
+
+        function onResizeStart(e) {
+            if (e.button !== 0) return;
+            if (isApptScheduleLocked(appt)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            suppressCardClickUntil = Date.now() + 450;
+            var origH = parseInt(card.style.height, 10) || card.getBoundingClientRect().height || S.slotH;
+            var origTop = parseInt(card.style.top, 10) || 0;
+            resizeState = {
+                mode: (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.mode) || 'bottom',
+                appt: appt,
+                card: card,
+                startY: e.clientY,
+                origH: origH,
+                origTop: origTop,
+                origStart: appt.start_time,
+                origEnd: appt.end_time,
+                curStart: appt.start_time,
+                curEnd: appt.end_time
+            };
+            card.classList.add('resizing');
+            document.addEventListener('mousemove', onResizeMove);
+            document.addEventListener('mouseup', onResizeEnd);
+        }
+        bottomHandle.addEventListener('mousedown', onResizeStart);
+        topHandle.addEventListener('mousedown', onResizeStart);
+    }
+
+    function onResizeMove(e) {
+        if (!resizeState) return;
+        var rs = resizeState;
+        var delta = e.clientY - rs.startY;
+        var minH = S.slotH;
+        if (rs.mode === 'top') {
+            var endTopPx = rs.origTop + rs.origH;
+            var newTop = rs.origTop + delta;
+            var maxTop = endTopPx - minH;
+            newTop = Math.max(0, Math.min(maxTop, newTop));
+            var slotIdxTop = Math.round(newTop / S.slotH);
+            var snappedTop = slotIdxTop * S.slotH;
+            if (snappedTop > maxTop) snappedTop = Math.floor(maxTop / S.slotH) * S.slotH;
+            snappedTop = Math.max(0, snappedTop);
+            var snappedHFromTop = Math.max(minH, endTopPx - snappedTop);
+            var startMin = S.startHour * 60 + slotIdxTop * S.interval;
+            var endMinFixed = timeToMin(rs.origEnd);
+            if (startMin >= endMinFixed) {
+                startMin = Math.max(S.startHour * 60, endMinFixed - S.interval);
+                snappedTop = Math.max(0, Math.round((startMin - S.startHour * 60) / S.interval) * S.slotH);
+                snappedHFromTop = Math.max(minH, endTopPx - snappedTop);
+            }
+            rs.curStart = minToTimeStr(startMin);
+            rs.curEnd = rs.origEnd;
+            rs.card.style.top = snappedTop + 'px';
+            rs.card.style.height = snappedHFromTop + 'px';
+            setCardTimeInfo(rs.card, rs.curStart, rs.curEnd);
+            return;
+        }
+
+        var newH = rs.origH + delta;
+        var minH = S.slotH;
+        var maxH = Math.max(minH, totalH() - (parseInt(rs.card.style.top, 10) || 0));
+        newH = Math.max(minH, Math.min(maxH, newH));
+        var slotCount = Math.max(1, Math.round(newH / S.slotH));
+        var snappedH = Math.max(minH, Math.min(maxH, slotCount * S.slotH));
+
+        var startMin = timeToMin(rs.origStart);
+        var maxEnd = S.endHour * 60;
+        var endMin = Math.min(maxEnd, startMin + slotCount * S.interval);
+        if (endMin <= startMin) endMin = Math.min(maxEnd, startMin + S.interval);
+        rs.curStart = rs.origStart;
+        rs.curEnd = minToTimeStr(endMin);
+
+        rs.card.style.height = snappedH + 'px';
+        setCardTimeInfo(rs.card, rs.curStart, rs.curEnd);
+    }
+
+    function onResizeEnd() {
+        if (!resizeState) return;
+        document.removeEventListener('mousemove', onResizeMove);
+        document.removeEventListener('mouseup', onResizeEnd);
+        var rs = resizeState;
+        resizeState = null;
+        rs.card.classList.remove('resizing');
+
+        if (isApptScheduleLocked(rs.appt)) {
+            rs.card.style.top = rs.origTop + 'px';
+            rs.card.style.height = rs.origH + 'px';
+            setCardTimeInfo(rs.card, rs.origStart, rs.origEnd);
+            return;
+        }
+        var startChanged = rs.curStart !== rs.origStart;
+        var endChanged = rs.curEnd !== rs.origEnd;
+        if (!startChanged && !endChanged) return;
+
+        var prevStart = rs.origStart;
+        var prevEnd = rs.origEnd;
+        SB.from('appointments')
+            .update({ start_time: rs.curStart, end_time: rs.curEnd })
+            .eq('id', rs.appt.id)
+            .then(function(r) {
+                if (r.error) {
+                    rs.card.style.top = rs.origTop + 'px';
+                    rs.card.style.height = rs.origH + 'px';
+                    setCardTimeInfo(rs.card, prevStart, prevEnd);
+                    alert(trRepl('appt.cal.couldReschedule', { MSG: r.error.message }));
+                    return;
+                }
+                rs.appt.start_time = rs.curStart;
+                rs.appt.end_time = rs.curEnd;
+                setCardTimeInfo(rs.card, rs.curStart, rs.curEnd);
+            });
     }
 
     function _clearDragGhost(col) {
@@ -4910,6 +5067,18 @@ function saveBill(doPrint) {
         notes:          g('bNotes').value || null,
         status:         bal <= 0 ? 'Paid' : 'Partial'
     };
+    var clinicIdForBill = currentClinicId || ((g('apptClinicSelect') && g('apptClinicSelect').value) ? g('apptClinicSelect').value : null);
+    var clinicTagForBill = (typeof currentClinicCodeForTagging === 'function')
+        ? currentClinicCodeForTagging()
+        : '';
+    if (!clinicTagForBill && clinicIdForBill && typeof clinicRecordFromId === 'function') {
+        var rec = clinicRecordFromId(clinicIdForBill);
+        if (rec) {
+            clinicTagForBill = String(rec.clinic_code || '').trim() || String(rec.id || '').trim();
+        }
+    }
+    payload.clinic_id = clinicIdForBill || null;
+    payload.clinic_tag = clinicTagForBill || null;
 
     var pickedId = (g('bDoctor') && g('bDoctor').value) ? g('bDoctor').value : '';
     var picked = pickedId
@@ -4952,31 +5121,55 @@ function saveBill(doPrint) {
         });
     };
 
+    function stripOptionalColsByError(src, errMsg) {
+        var out = Object.assign({}, src);
+        var msg = String(errMsg || '').toLowerCase();
+        var mentionsDoctor = msg.indexOf('doctor_id') >= 0 ||
+            msg.indexOf('doctor_name') >= 0 ||
+            msg.indexOf('doctor_tag') >= 0;
+        var mentionsClinic = msg.indexOf('clinic_id') >= 0 ||
+            msg.indexOf('clinic_tag') >= 0;
+        var touched = false;
+
+        if (mentionsDoctor) {
+            if (Object.prototype.hasOwnProperty.call(out, 'doctor_id')) { delete out.doctor_id; touched = true; }
+            if (Object.prototype.hasOwnProperty.call(out, 'doctor_name')) { delete out.doctor_name; touched = true; }
+            if (Object.prototype.hasOwnProperty.call(out, 'doctor_tag')) { delete out.doctor_tag; touched = true; }
+        }
+        if (mentionsClinic) {
+            if (Object.prototype.hasOwnProperty.call(out, 'clinic_id')) { delete out.clinic_id; touched = true; }
+            if (Object.prototype.hasOwnProperty.call(out, 'clinic_tag')) { delete out.clinic_tag; touched = true; }
+        }
+
+        return { payload: out, changed: touched };
+    }
+
+    function attemptLegacyInsert(msgFromError, basePayload) {
+        var stripped = stripOptionalColsByError(basePayload, msgFromError);
+        if (!stripped.changed) {
+            alert(trRepl('appt.msg.error', { MSG: msgFromError }));
+            return;
+        }
+        SB.from('bills').insert([stripped.payload])
+        .then(function(r2) {
+            if (!r2.error) { finishAfterSaved(r2); return; }
+            var strippedAgain = stripOptionalColsByError(stripped.payload, r2.error.message);
+            if (!strippedAgain.changed) {
+                alert(trRepl('appt.msg.error', { MSG: r2.error.message }));
+                return;
+            }
+            SB.from('bills').insert([strippedAgain.payload])
+            .then(function(r3) {
+                if (r3.error) { alert(trRepl('appt.msg.error', { MSG: r3.error.message })); return; }
+                finishAfterSaved(r3);
+            });
+        });
+    }
+
     SB.from('bills').insert([payload])
     .then(function(r) {
         if (!r.error) { finishAfterSaved(r); return; }
-
-        var msg = String(r.error.message || '').toLowerCase();
-        var hasDoctorCols = payload.doctor_id || payload.doctor_name || payload.doctor_tag;
-        var missingColErr = msg.indexOf('doctor_id') >= 0 ||
-                            msg.indexOf('doctor_name') >= 0 ||
-                            msg.indexOf('doctor_tag') >= 0 ||
-                            msg.indexOf('column') >= 0;
-        if (!hasDoctorCols || !missingColErr) {
-            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
-            return;
-        }
-
-        // Backward compatibility while DB migration is pending.
-        var legacyPayload = Object.assign({}, payload);
-        delete legacyPayload.doctor_id;
-        delete legacyPayload.doctor_name;
-        delete legacyPayload.doctor_tag;
-        SB.from('bills').insert([legacyPayload])
-        .then(function(r2) {
-            if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
-            finishAfterSaved(r2);
-        });
+        attemptLegacyInsert(r.error.message, payload);
     });
 }
 
@@ -5313,6 +5506,40 @@ function bdSet(id, val) {
     if (e) e.textContent = (val === null || val === undefined) ? '—' : String(val);
 }
 
+function billDetailClinicCode(b) {
+    var active = '';
+    if (typeof currentClinicCodeForTagging === 'function') {
+        active = String(currentClinicCodeForTagging() || '').trim();
+    }
+    if (!active) {
+        var sel = g('appWorkingClinicSelect');
+        var cid = sel && sel.value ? String(sel.value).trim() : '';
+        if (!cid && typeof currentClinicId !== 'undefined' && currentClinicId) {
+            cid = String(currentClinicId).trim();
+        }
+        if (cid && typeof clinicRecordFromId === 'function') {
+            var recActive = clinicRecordFromId(cid);
+            if (recActive) active = String(recActive.clinic_code || recActive.id || '').trim();
+        }
+    }
+    if (active) return active;
+
+    if (!b) return '';
+    var raw = String((b.clinic_tag || b.clinic_id || '')).trim();
+    if (!raw) return '';
+    var rec = null;
+    if (typeof clinicRecordForReceiptByTagOrId === 'function') {
+        rec = clinicRecordForReceiptByTagOrId(raw);
+    }
+    if (!rec && typeof clinicRecordFromId === 'function') {
+        rec = clinicRecordFromId(raw);
+    }
+    if (rec) {
+        return String(rec.clinic_code || rec.id || raw).trim();
+    }
+    return raw;
+}
+
 function printBillDetailReceipt() {
     if (!bdCurrentBill) return;
     var bill = bdCurrentBill;
@@ -5359,6 +5586,7 @@ function showBillDetail(b) {
     bdSet('bdPatientNo', b.patient_no   || '—');
     bdSet('bdDate',      b.bill_date    || '—');
     bdSet('bdDoctor',    b.doctor_tag   || b.doctor_name || '—');
+    bdSet('bdClinicCode', billDetailClinicCode(b) || '—');
     bdSet('bdType',      (typeof dispPayMethod === 'function') ? dispPayMethod(b.bill_type) : (b.bill_type || '—'));
 
     var notesEl = g('bdNotes');
@@ -5497,6 +5725,50 @@ function openAddPaymentModal() {
     openModal('addPaymentModal');
 }
 
+function billPaymentClinicContext() {
+    var clinicId = '';
+    var clinicCode = '';
+    var sel = g('appWorkingClinicSelect');
+    if (sel && sel.value) clinicId = String(sel.value).trim();
+    if (!clinicId && typeof currentClinicId !== 'undefined' && currentClinicId) {
+        clinicId = String(currentClinicId).trim();
+    }
+    if (typeof currentClinicCodeForTagging === 'function') {
+        clinicCode = String(currentClinicCodeForTagging() || '').trim();
+    }
+    if (!clinicCode && clinicId && typeof clinicRecordFromId === 'function') {
+        var rec = clinicRecordFromId(clinicId);
+        if (rec) clinicCode = String(rec.clinic_code || rec.id || '').trim();
+    }
+    return {
+        clinic_id: clinicId || null,
+        clinic_tag: clinicCode || null,
+        clinic_code: clinicCode || null
+    };
+}
+
+function stripBillPaymentClinicColsByError(src, errMsg) {
+    var out = Object.assign({}, src);
+    var msg = String(errMsg || '').toLowerCase();
+    var touched = false;
+    var mentionsTag = msg.indexOf('clinic_tag') >= 0;
+    var mentionsCode = msg.indexOf('clinic_code') >= 0;
+    var mentionsId = msg.indexOf('clinic_id') >= 0;
+    if (mentionsTag && Object.prototype.hasOwnProperty.call(out, 'clinic_tag')) {
+        delete out.clinic_tag;
+        touched = true;
+    }
+    if (mentionsCode && Object.prototype.hasOwnProperty.call(out, 'clinic_code')) {
+        delete out.clinic_code;
+        touched = true;
+    }
+    if (mentionsId && Object.prototype.hasOwnProperty.call(out, 'clinic_id')) {
+        delete out.clinic_id;
+        touched = true;
+    }
+    return { payload: out, changed: touched };
+}
+
 // ── Confirm & save a new payment ────────────────────────
 function confirmAddPayment() {
     if (!bdCurrentBill) return;
@@ -5529,9 +5801,21 @@ function confirmAddPayment() {
         notes:       g('apNotes').value  || null,
         received_by: (typeof currentName !== 'undefined' ? currentName : null)
     };
+    var clinicCtx = billPaymentClinicContext();
+    payRecord.clinic_id = clinicCtx.clinic_id;
+    payRecord.clinic_tag = clinicCtx.clinic_tag;
+    payRecord.clinic_code = clinicCtx.clinic_code;
 
-    SB.from('bill_payments').insert([payRecord])
-    .then(function(r) {
+    function insertBillPayment(payload, done) {
+        SB.from('bill_payments').insert([payload]).then(function(ir) {
+            if (!ir.error) { done(ir); return; }
+            var stripped = stripBillPaymentClinicColsByError(payload, ir.error.message || '');
+            if (!stripped.changed) { done(ir); return; }
+            SB.from('bill_payments').insert([stripped.payload]).then(done);
+        });
+    }
+
+    insertBillPayment(payRecord, function(r) {
         if (r.error) {
             if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); errEl.style.display = ''; }
             return;
@@ -5541,33 +5825,36 @@ function confirmAddPayment() {
             amount_paid: newPaid,
             balance:     newBalance,
             status:      newStatus
-        }).eq('id', bdCurrentBill.id);
-    })
-    .then(function(r) {
-        if (!r || r.error) return;
-        // Refresh in-memory bill object
-        bdCurrentBill.amount_paid = newPaid;
-        bdCurrentBill.balance     = newBalance;
-        bdCurrentBill.status      = newStatus;
+        }).eq('id', bdCurrentBill.id)
+        .then(function(u) {
+            if (u.error) {
+                if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: u.error.message }); errEl.style.display = ''; }
+                return;
+            }
+            // Refresh in-memory bill object
+            bdCurrentBill.amount_paid = newPaid;
+            bdCurrentBill.balance     = newBalance;
+            bdCurrentBill.status      = newStatus;
 
-        closeModal('addPaymentModal');
+            closeModal('addPaymentModal');
 
-        // Refresh the detail view live
-        g('bdPaid').textContent    = fmtHK(newPaid);
-        g('bdBalance').textContent = fmtHK(newBalance);
-        g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
+            // Refresh the detail view live
+            g('bdPaid').textContent    = fmtHK(newPaid);
+            g('bdBalance').textContent = fmtHK(newBalance);
+            g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
 
-        var badge = g('bdStatusBadge');
-        if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
+            var badge = g('bdStatusBadge');
+            if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
 
-        var banner = g('bdOutstandingBanner');
-        var addBtn = g('bdAddPaymentBtn');
-        if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
-        if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
-        if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
+            var banner = g('bdOutstandingBanner');
+            var addBtn = g('bdAddPaymentBtn');
+            if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
+            if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
+            if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
 
-        loadBillPayments(bdCurrentBill.id);
-        loadBillHistory();
+            loadBillPayments(bdCurrentBill.id);
+            loadBillHistory();
+        });
     });
 }
 
@@ -5632,20 +5919,146 @@ var _receiptPrintInProgress = false;
 /** CSS embedded in the receipt print popup (one physical page, no fixed positioning). */
 function receiptPrintStyles() {
     return (
-        'body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#222;margin:12px 16px;}' +
+        'html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
+        'body{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;font-size:26px;color:#222;margin:0;background:#fff;}' +
+        '#receiptPrintArea{width:100%;max-width:none;margin:0 auto;min-height:calc(297mm - 20mm);display:flex;flex-direction:column;box-sizing:border-box;}' +
         '.receipt-header{text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #eee;}' +
-        '.receipt-header h2{margin:0 0 6px;color:#0084ff;font-size:22px;}' +
-        '.receipt-clinic-line{margin:2px 0;color:#555;font-size:13px;line-height:1.45;}' +
-        '.receipt-doc-title{margin:10px 0 0;color:#666;font-size:14px;font-weight:600;}' +
+        '.receipt-header h2{margin:0 0 6px;color:#0084ff;font-size:44px;}' +
+        '.receipt-clinic-line{margin:2px 0;color:#555;font-size:28px;line-height:1.45;}' +
+        '.receipt-doc-title{margin:10px 0 0;color:#666;font-size:30px;font-weight:600;}' +
+        '.receipt-meta{display:flex;justify-content:space-between;font-size:30px;margin-bottom:14px;line-height:1.35;}' +
+        '.receipt-meta-col strong{font-size:30px;}' +
+        '.receipt-meta-col-right{text-align:right;}' +
         '.receipt-table{width:100%;border-collapse:collapse;margin:16px 0;}' +
-        '.receipt-table th{background:#f0f7ff;padding:9px 12px;text-align:left;font-size:13px;color:#0084ff;}' +
-        '.receipt-table td{padding:9px 12px;border-bottom:1px solid #f0f0f0;font-size:14px;}' +
+        '.receipt-table th{background:#f0f7ff;padding:12px 14px;text-align:left;font-size:28px;color:#0084ff;}' +
+        '.receipt-table td{padding:12px 14px;border-bottom:1px solid #f0f0f0;font-size:30px;}' +
         '.receipt-totals{background:#f8faff;border-radius:8px;padding:14px 16px;margin-top:12px;}' +
-        '.r-row{display:flex;justify-content:space-between;padding:5px 0;font-size:14px;}' +
-        '.r-grand{border-top:2px solid #0084ff;margin-top:8px;padding-top:10px;font-size:18px;font-weight:700;color:#0084ff;}' +
-        '.receipt-footer{text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid #eee;color:#999;font-size:12px;}' +
-        '@media print{body{margin:8px;} @page{margin:10mm;}}'
+        '.r-row{display:flex;justify-content:space-between;padding:8px 0;font-size:30px;}' +
+        '.r-grand{border-top:2px solid #0084ff;margin-top:10px;padding-top:12px;font-size:40px;font-weight:700;color:#0084ff;}' +
+        '.receipt-footer{text-align:left;margin-top:auto;padding-top:16px;border-top:1px solid #eee;color:#6b7280;font-size:26px;}' +
+        '.receipt-signature{position:fixed;left:10mm;bottom:10mm;margin:0;max-width:420px;text-align:left;padding-top:0;background:#fff;}' +
+        '.receipt-sign-line{border-bottom:1.5px solid #374151;height:12px;}' +
+        '.receipt-sign-name{margin-top:8px;font-size:28px;font-weight:700;color:#1f2937;line-height:1.25;}' +
+        '.receipt-footer p{margin:4px 0;}' +
+        '@media print{body{margin:0;} #receiptPrintArea{padding:0;min-height:calc(297mm - 20mm);} .receipt-signature{left:10mm;bottom:10mm;} @page{margin:10mm;}}'
     );
+}
+
+function receiptDoctorNames(bill, profileOverride) {
+    var eng = '';
+    var chi = '';
+    var docs = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS)) ? APP_DOCTORS : [];
+    var hit = profileOverride || null;
+    if (bill && bill.doctor_id) {
+        hit = hit || docs.find(function(d) { return d && d.id === bill.doctor_id; }) || null;
+    }
+    if (!hit && bill && bill.doctor_name) {
+        var dn = String(bill.doctor_name).trim().toLowerCase();
+        hit = hit || docs.find(function(d) {
+            if (!d) return false;
+            var d1 = String(d.display_name || '').trim().toLowerCase();
+            var d2 = String(d.english_name || '').trim().toLowerCase();
+            var d3 = String(d.chinese_name || '').trim().toLowerCase();
+            return dn && (dn === d1 || dn === d2 || dn === d3);
+        }) || null;
+    }
+    if (hit) {
+        eng = String(hit.english_name || hit.display_name || '').trim();
+        chi = String(hit.chinese_name || '').trim();
+    }
+    if (!eng && !chi && bill) {
+        eng = String(bill.doctor_name || bill.doctor_tag || '').trim();
+    }
+    if (!eng && !chi) {
+        var fallback = (typeof currentDoctorName !== 'undefined' && currentDoctorName)
+            ? String(currentDoctorName)
+            : (currentName || '—');
+        eng = fallback;
+    }
+    if (chi && chi === eng) chi = '';
+    var engSign = String(eng || '—').trim();
+    if (engSign && engSign !== '—' && !/^dr\b\.?/i.test(engSign)) {
+        engSign = 'Dr ' + engSign;
+    }
+    var chiSign = String(chi || '').trim();
+    if (chiSign && chiSign.indexOf('牙科醫生') < 0) {
+        chiSign = chiSign + ' 牙科醫生';
+    }
+    if (!chiSign) chiSign = '—';
+    var both = eng + (chi ? (' / ' + chi) : '');
+    return {
+        header: bill && bill.doctor_tag ? String(bill.doctor_tag) : both,
+        signatureEng: engSign || '—',
+        signatureChi: chiSign
+    };
+}
+
+function applyReceiptDoctorSignature(docNames) {
+    if (!docNames) return;
+    if (g('rDoctor')) g('rDoctor').textContent = docNames.header;
+    if (g('rDoctorSignEng')) g('rDoctorSignEng').textContent = docNames.signatureEng;
+    if (g('rDoctorSignChi')) g('rDoctorSignChi').textContent = docNames.signatureChi;
+}
+
+function hydrateReceiptDoctorProfile(bill) {
+    if (!bill || !bill.doctor_id || !SB || typeof SB.from !== 'function') return;
+    SB.from('doctors')
+        .select('id,display_name,english_name,chinese_name')
+        .eq('id', bill.doctor_id)
+        .limit(1)
+        .then(function(r) {
+            if (r.error || !r.data || !r.data.length) return;
+            var names = receiptDoctorNames(bill, r.data[0]);
+            applyReceiptDoctorSignature(names);
+        });
+}
+
+function receiptPatientNameFromRow(row, fallbackName) {
+    if (!row) return fallbackName || '—';
+    var chi = String(row.chinese_name || row.name_zh || '').trim();
+    var eng = String(row.english_name || row.name_en || row.full_name || row.display_name || '').trim();
+    return chi || eng || fallbackName || '—';
+}
+
+function applyReceiptPatientProfile(row, bill) {
+    var name = receiptPatientNameFromRow(row, bill ? bill.patient_name : '');
+    var no = '';
+    if (row) no = String(row.patient_no || row.patient_code || '').trim();
+    if (!no && bill) no = String(bill.patient_no || '').trim();
+    if (g('rPatient')) g('rPatient').textContent = name || '—';
+    if (g('rPatientNo')) g('rPatientNo').textContent = no || '—';
+}
+
+function hydrateReceiptPatientProfile(bill) {
+    if (!bill || !SB || typeof SB.from !== 'function') return;
+
+    function queryByPatientNo() {
+        if (!bill.patient_no) return;
+        SB.from('patients')
+            .select('*')
+            .eq('patient_no', bill.patient_no)
+            .limit(1)
+            .then(function(r2) {
+                if (r2.error || !r2.data || !r2.data.length) return;
+                applyReceiptPatientProfile(r2.data[0], bill);
+            });
+    }
+
+    if (bill.patient_id) {
+        SB.from('patients')
+            .select('*')
+            .eq('id', bill.patient_id)
+            .limit(1)
+            .then(function(r) {
+                if (r.error || !r.data || !r.data.length) {
+                    queryByPatientNo();
+                    return;
+                }
+                applyReceiptPatientProfile(r.data[0], bill);
+            });
+        return;
+    }
+    queryByPatientNo();
 }
 
 /**
@@ -5657,7 +6070,6 @@ function printReceiptDocument() {
     if (!area) return;
     if (_receiptPrintInProgress) return;
     _receiptPrintInProgress = true;
-
     var popup = window.open(
         '', '_blank',
         'width=720,height=820,left=80,top=40,toolbar=0,menubar=0,scrollbars=1,resizable=1'
@@ -5676,10 +6088,24 @@ function printReceiptDocument() {
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
         '<title>' + esc(tr('bill.receipt.printTitle')) + '</title><style>' + receiptPrintStyles() + '</style></head><body>' +
         area.innerHTML +
-        '<script>(function(){var printed=false;function run(){if(printed)return;printed=true;' +
+        '<script>(function(){var printed=false;' +
+        'function fitPageRatio(){' +
+        'var de=document.documentElement,bd=document.body;if(!de||!bd)return;' +
+        'de.style.zoom="";bd.style.zoom="";' +
+        'var vw=Math.max(1,window.innerWidth||de.clientWidth||1);' +
+        'var vh=Math.max(1,window.innerHeight||de.clientHeight||1);' +
+        'var needW=Math.max(1,de.scrollWidth||bd.scrollWidth||vw);' +
+        'var needH=Math.max(1,de.scrollHeight||bd.scrollHeight||vh);' +
+        'var sc=Math.min(1,vw/needW,vh/needH);' +
+        'if(!(sc>0&&sc<=1))sc=1;' +
+        'sc=Math.max(0.5,Math.floor(sc*100)/100);' +
+        'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
+        '}' +
+        'function run(){if(printed)return;printed=true;' +
+        'try{fitPageRatio();}catch(e0){}' +
         'try{window.focus();window.print();}catch(e){}}' +
         'window.onafterprint=function(){try{window.close();}catch(e2){}};' +
-        'window.onload=function(){setTimeout(run,200);};' +
+        'window.onload=function(){setTimeout(run,220);};' +
         'setTimeout(function(){if(!printed)run();},1200);})();<\/script>' +
         '</body></html>'
     );
@@ -5689,11 +6115,40 @@ function printReceiptDocument() {
     setTimeout(releaseLock, 4000);
 }
 
-/** Receipt print header: active clinic from login (currentClinicId + clinics row). Order: name, address, phone. */
-function applyReceiptClinicHeader() {
-    var rec = (typeof clinicRecordFromId === 'function' && currentClinicId)
-        ? clinicRecordFromId(currentClinicId)
-        : null;
+function clinicRecordForReceiptByTagOrId(tagOrId) {
+    if (!tagOrId || !APP_CLINICS || !APP_CLINICS.length) return null;
+    var t = String(tagOrId).trim();
+    for (var i = 0; i < APP_CLINICS.length; i++) {
+        var c = APP_CLINICS[i];
+        if (String(c.id) === t) return c;
+        if (String(c.clinic_code || '').trim() === t) return c;
+    }
+    return null;
+}
+
+function resolveActiveClinicRecordForReceipt() {
+    var rec = null;
+    if (typeof clinicRecordFromId === 'function' && currentClinicId) {
+        rec = clinicRecordFromId(currentClinicId);
+    }
+    if (!rec) {
+        var sel = g('appWorkingClinicSelect');
+        var selVal = sel ? String(sel.value || '').trim() : '';
+        if (selVal && typeof clinicRecordFromId === 'function') {
+            rec = clinicRecordFromId(selVal);
+        }
+    }
+    if (!rec &&
+        typeof currentClinicCodeForTagging === 'function' &&
+        typeof APP_CLINICS !== 'undefined' &&
+        APP_CLINICS && APP_CLINICS.length) {
+        var code = String(currentClinicCodeForTagging() || '').trim();
+        if (code) rec = clinicRecordForReceiptByTagOrId(code);
+    }
+    return rec;
+}
+
+function applyReceiptClinicHeaderFromRecord(rec) {
     var nmEl = g('rClinicName');
     var addrEl = g('rClinicAddrLine');
     var telEl = g('rClinicTelLine');
@@ -5716,6 +6171,25 @@ function applyReceiptClinicHeader() {
     if (footEl) footEl.textContent = trRepl('bill.receipt.thanksVisit', { NAME: name });
 }
 
+/** Receipt print header should follow active clinic context first. */
+function applyReceiptClinicHeader(bill) {
+    var rec = resolveActiveClinicRecordForReceipt();
+    if (!rec && bill) rec = clinicRecordForReceiptByTagOrId(bill.clinic_id || bill.clinic_tag);
+    applyReceiptClinicHeaderFromRecord(rec);
+
+    if (!rec && bill && bill.appointment_id && SB && typeof SB.from === 'function') {
+        SB.from('appointments')
+            .select('clinic_tag')
+            .eq('id', bill.appointment_id)
+            .limit(1)
+            .then(function(r) {
+                if (r.error || !r.data || !r.data.length) return;
+                var hit = clinicRecordForReceiptByTagOrId(r.data[0].clinic_tag || '');
+                if (hit) applyReceiptClinicHeaderFromRecord(hit);
+            });
+    }
+}
+
 var _receiptRefreshState = null;
 
 function showReceipt(bill, insertedData, payments, autoPrint) {
@@ -5724,7 +6198,7 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
         insertedData: insertedData,
         payments: payments
     };
-    applyReceiptClinicHeader();
+    applyReceiptClinicHeader(bill);
 
     var rNo = insertedData && insertedData[0]
         ? insertedData[0].id.slice(0, 8).toUpperCase()
@@ -5737,13 +6211,10 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
         : bill.bill_type;
     g('rPatient').textContent   = bill.patient_name;
     g('rPatientNo').textContent = bill.patient_no;
-    if (g('rDoctor')) {
-        g('rDoctor').textContent =
-            bill.doctor_tag || bill.doctor_name ||
-            ((typeof currentDoctorName !== 'undefined' && currentDoctorName)
-                ? currentDoctorName
-                : (currentName || '—'));
-    }
+    var docNames = receiptDoctorNames(bill);
+    applyReceiptDoctorSignature(docNames);
+    hydrateReceiptDoctorProfile(bill);
+    hydrateReceiptPatientProfile(bill);
 
     // ── Item rows (with disc %) ──────────────────────────
     var items = [];

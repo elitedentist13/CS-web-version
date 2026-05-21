@@ -65,6 +65,20 @@ body {
     margin: 0 6px;
 }
 
+.app-working-date-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .02em;
+}
+
 .app-strip-clinic-label {
     font-size: 11px;
     font-weight: 600;
@@ -73,8 +87,8 @@ body {
 }
 
 .app-strip-clinic-select {
-    max-width: 220px;
-    padding: 3px 8px;
+    max-width: 286px;
+    padding: 3px 26px 3px 8px;
     border-radius: 5px;
     border: 1px solid #475569;
     background: #1e293b;
@@ -96,6 +110,83 @@ body {
     gap: 8px;
     flex-shrink: 0;
     opacity: 0.85;
+}
+
+.app-date-popover {
+    position: fixed;
+    top: 42px;
+    left: 14px;
+    z-index: 900;
+    width: 260px;
+    padding: 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.2);
+}
+
+.app-date-popover-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #1e293b;
+    margin-bottom: 8px;
+}
+
+.app-date-popover-input {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #0f172a;
+    margin-bottom: 8px;
+}
+
+.app-date-popover-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.app-date-popover-btn {
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.app-date-popover-btn--primary {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+/* Global quick toast (e.g., F2 refresh feedback) */
+.app-global-toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 10050;
+    background: #0f766e;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 8px 12px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.24);
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.app-global-toast--in {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .app-wbtn {
@@ -508,6 +599,91 @@ body.app-session-active {
     color: #475569;
     overflow-y: auto;
     cursor: text;
+}
+
+.memo-sticky-photo-wrap {
+    margin-top: 6px;
+    border-radius: 7px;
+    overflow: hidden;
+    border: 1px solid #dbe4ef;
+    background: #fff;
+}
+
+.memo-sticky-photo {
+    width: 100%;
+    max-height: 86px;
+    object-fit: cover;
+    display: block;
+}
+
+.memo-sticky-quickbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px;
+    border-top: 1px solid #e2e8f0;
+    background: rgba(248, 250, 252, 0.94);
+    overflow-x: auto;
+}
+
+.memo-sticky-note .memo-sticky-quickbar,
+.memo-sticky-note .memo-sticky-resize-handle {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s ease;
+}
+
+.memo-sticky-note.memo-sticky-editing .memo-sticky-quickbar,
+.memo-sticky-note.memo-sticky-editing .memo-sticky-resize-handle {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Resize stays available on hover even outside edit mode. */
+.memo-sticky-note:hover .memo-sticky-resize-handle {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.memo-sticky-quickbar button {
+    flex: 0 0 auto;
+    min-width: 24px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0 6px;
+}
+
+.memo-sticky-quickbar button:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+}
+
+.memo-sticky-photo-input {
+    display: none;
+}
+
+.memo-sticky-resize-handle {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    cursor: nwse-resize;
+    background:
+        linear-gradient(135deg, transparent 0 42%, #94a3b8 42% 50%, transparent 50% 64%, #94a3b8 64% 72%, transparent 72%);
+    opacity: 0.8;
+}
+
+.memo-sticky-resizing {
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
 }
 
 .memo-sticky-dragging {
@@ -1067,6 +1243,23 @@ body.app-session-active {
 }
 
 .memo-editor-pane { margin-top: 0; }
+
+.memo-color-presets {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.memo-color-preset {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid #94a3b8;
+    cursor: pointer;
+    padding: 0;
+}
 
 .memo-ai-bar {
     margin-top: 18px;
@@ -2738,8 +2931,24 @@ tr:hover td { background: #fafcff; }
 }
 
 .receipt-header h2 { margin: 0 0 6px; color: var(--primary); font-size: 22px; }
-.receipt-header .receipt-clinic-line { margin: 2px 0; color: #555; font-size: 13px; line-height: 1.45; }
-.receipt-header .receipt-doc-title { margin: 10px 0 0; color: #666; font-size: 14px; font-weight: 600; }
+.receipt-header .receipt-clinic-line { margin: 2px 0; color: #555; font-size: 14px; line-height: 1.45; }
+.receipt-header .receipt-doc-title { margin: 10px 0 0; color: #666; font-size: 15px; font-weight: 600; }
+
+.receipt-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 26px;
+    margin-bottom: 14px;
+    line-height: 1.35;
+}
+
+.receipt-meta-col strong {
+    font-size: 26px;
+}
+
+.receipt-meta-col-right {
+    text-align: right;
+}
 
 .receipt-table {
     width: 100%;
@@ -2751,14 +2960,14 @@ tr:hover td { background: #fafcff; }
     background: #f0f7ff;
     padding: 9px 12px;
     text-align: left;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--primary);
 }
 
 .receipt-table td {
     padding: 9px 12px;
     border-bottom: 1px solid #f0f0f0;
-    font-size: 14px;
+    font-size: 15px;
 }
 
 .receipt-totals {
@@ -2772,14 +2981,14 @@ tr:hover td { background: #fafcff; }
     display: flex;
     justify-content: space-between;
     padding: 5px 0;
-    font-size: 14px;
+    font-size: 15px;
 }
 
 .r-grand {
     border-top: 2px solid var(--primary);
     margin-top: 8px;
     padding-top: 10px;
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
     color: var(--primary);
 }
@@ -2790,7 +2999,27 @@ tr:hover td { background: #fafcff; }
     padding-top: 16px;
     border-top: 1px solid #eee;
     color: #999;
-    font-size: 12px;
+    font-size: 13px;
+}
+
+.receipt-signature {
+    margin: 2px auto 10px;
+    max-width: 280px;
+    text-align: center;
+    padding-top: 12em;
+}
+
+.receipt-sign-line {
+    border-bottom: 1.5px solid #374151;
+    height: 12px;
+}
+
+.receipt-sign-name {
+    margin-top: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    line-height: 1.25;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -3062,6 +3291,29 @@ tr:hover td { background: #fafcff; }
 .note-time {
     color: #aaa;
     font-size: 12px;
+}
+
+.con-note-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-height: 16px;
+}
+
+.con-note-clinic-tag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.25px;
+    line-height: 1.3;
 }
 
 .note-body {
@@ -5468,6 +5720,29 @@ tr:hover td { background: #fafcff; }
 .gcal-card .card-name  { display:block; font-weight:600; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.85; }
 .gcal-card .card-sub   { display:block; font-size:10px; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .gcal-card .card-dr    { display:block; font-size:10px; font-weight:700; margin-top:2px; }
+.gcal-card .card-time  { display:block; font-size:10px; font-weight:700; opacity:.78; margin-top:1px; }
+.gcal-card-resize-handle {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 9px;
+    cursor: ns-resize;
+    z-index: 5;
+}
+.gcal-card-resize-bottom {
+    bottom: 0;
+    background: linear-gradient(to top, rgba(30,41,59,.16), rgba(30,41,59,0));
+}
+.gcal-card-resize-top {
+    top: 0;
+    background: linear-gradient(to bottom, rgba(30,41,59,.16), rgba(30,41,59,0));
+}
+.gcal-card.resizing {
+    box-shadow: 0 8px 20px rgba(0,0,0,.25);
+}
+.gcal-card.gcal-card-locked .gcal-card-resize-handle {
+    display: none;
+}
 .appt-rm-by {
     display: inline-block;
     font-size: 9px;

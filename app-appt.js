@@ -118,6 +118,7 @@ function apptCalWeekdayHeaders() {
 var pendingIdx   = -1;   // which list is open in Step 1
 var payItems     = [];   // items from the list selected in Step 2
 var payPendingId = null; // DB id of the list selected for payment
+var pendingServerSnapshotById = {};
 
 // ════════════════════════════════════════════════════════════════
 // CLINIC SCOPE (all appointment subtabs share one clinic)
@@ -4019,6 +4020,7 @@ function wireBillPanelControls() {
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
     bindClickOnce('bdAddPaymentBtn', openAddPaymentModal);
     bindClickOnce('billPendingRefreshBtn', refreshBillPanelNow);
+    bindClickOnce('billPayAllBtn', billPayAllAmount);
 
     var discEl = g('bDiscount');
     if (discEl && discEl.dataset.billInputBound !== '1') {
@@ -4205,7 +4207,7 @@ function switchBillTab(n) {
     if (n === 2) {
         renderStep2(function(ok) {
             if (ok !== false) noteBillPendingRefreshed();
-        });
+        }, { resetForm: true });
     }
 }
 
@@ -4215,28 +4217,59 @@ function switchBillTab(n) {
 function loadPendingLists(cb) {
     var prevListId = null;
     var prevLabel = '';
+    var prevLocalRef = null;
+    syncPendingDraftFromInputs();
     if (pendingIdx >= 0 && pendingIdx < pendingLists.length) {
         prevListId = pendingLists[pendingIdx].id || null;
         prevLabel = pendingLists[pendingIdx].label || '';
+        prevLocalRef = pendingLists[pendingIdx];
     }
+    var preserveById = {};
+    var localUnsaved = [];
+    pendingLists.forEach(function(pl) {
+        if (!pl) return;
+        if (!pl.id) {
+            localUnsaved.push(pl);
+            return;
+        }
+        if (isPendingListDirty(pl)) preserveById[pl.id] = pl;
+    });
     SB.from('pending_bill_items')
         .select('*')
         .eq('patient_id', billPatId)
         .eq('expires_on',  todayISO())
         .order('created_at', { ascending: true })
     .then(function(r) {
-        pendingLists = (!r.error && r.data) ? r.data : [];
-        pendingLists.forEach(function(pl) {
+        var fetched = (!r.error && r.data) ? r.data : [];
+        fetched.forEach(function(pl) {
             if (typeof pl.items === 'string') {
                 try { pl.items = JSON.parse(pl.items); } catch(e) { pl.items = []; }
             }
             pl.items = pl.items || [];
+        });
+        var merged = fetched.map(function(pl) {
+            if (pl.id && preserveById[pl.id]) return preserveById[pl.id];
+            return pl;
+        });
+        Object.keys(preserveById).forEach(function(id) {
+            var exists = fetched.some(function(pl) { return pl.id === id; });
+            if (!exists) merged.push(preserveById[id]);
+        });
+        localUnsaved.forEach(function(pl) {
+            merged.push(pl);
+        });
+        pendingLists = merged;
+        fetched.forEach(function(pl) {
+            if (pl && pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
         });
         if (!pendingLists.length) {
             pendingIdx = -1;
         } else if (prevListId) {
             var hitId = pendingLists.findIndex(function(pl) { return pl.id === prevListId; });
             pendingIdx = hitId >= 0 ? hitId : 0;
+        } else if (prevLocalRef) {
+            var hitRef = pendingLists.findIndex(function(pl) { return pl === prevLocalRef; });
+            pendingIdx = hitRef >= 0 ? hitRef : 0;
         } else if (prevLabel) {
             var hitLabel = pendingLists.findIndex(function(pl) { return (pl.label || '') === prevLabel; });
             pendingIdx = hitLabel >= 0 ? hitLabel : 0;
@@ -4351,6 +4384,7 @@ function saveCurrentPendingList() {
         g('removePendingBtn').disabled = false;
         var t = new Date().toLocaleTimeString(apptDateLocale(), { hour: '2-digit', minute: '2-digit' });
         if (statusEl) { statusEl.textContent = trRepl('bill.status.savedAt', { T: t }); statusEl.style.color = '#16a34a'; }
+        if (pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
         noteBillPendingRefreshed();
     });
 }
@@ -4371,6 +4405,7 @@ function removeCurrentPendingList() {
         SB.from('pending_bill_items').delete().eq('id', pl.id)
         .then(function(r) {
             if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+            delete pendingServerSnapshotById[pl.id];
             doRemove();
         });
     } else {
@@ -4381,19 +4416,33 @@ function removeCurrentPendingList() {
 // ════════════════════════════════════════════════════════════════
 // STEP 2 — PAYMENT (select a pending list, then pay)
 // ════════════════════════════════════════════════════════════════
-function renderStep2(cb) {
+function renderStep2(cb, opts) {
+    opts = opts || {};
+    var resetForm = opts.resetForm === true;
+    var prevType = g('bType') ? g('bType').value : '';
+    var prevDoctor = g('bDoctor') ? g('bDoctor').value : '';
+    var prevDiscount = g('bDiscount') ? g('bDiscount').value : '';
+    var prevPaid = g('bAmtPaid') ? g('bAmtPaid').value : '';
+    var prevNotes = g('bNotes') ? g('bNotes').value : '';
+    var prevDate = g('bDate') ? g('bDate').value : '';
+    var prevPendingId = resetForm ? null : payPendingId;
+
     loadBillTypes();
     loadBillDoctors();
-    sv('bDate',     todayISO());
-    sv('bDiscount', '0');
-    sv('bAmtPaid',  '0');
-    sv('bNotes',    '');
-    payItems     = [];
-    payPendingId = null;
+    if (resetForm) {
+        sv('bDate',     todayISO());
+        sv('bDiscount', '0');
+        sv('bAmtPaid',  '0');
+        sv('bNotes',    '');
+        payItems     = [];
+        payPendingId = null;
+    }
     g('payPreviewWrap').style.display   = 'none';
-    g('bSubtotal').textContent = '0.00';
-    g('bTotal').textContent    = '0.00';
-    g('bBalance').textContent  = fmtHK(0);
+    if (resetForm) {
+        g('bSubtotal').textContent = '0.00';
+        g('bTotal').textContent    = '0.00';
+        g('bBalance').textContent  = fmtHK(0);
+    }
 
     SB.from('pending_bill_items')
         .select('*')
@@ -4442,13 +4491,41 @@ function renderStep2(cb) {
             cards.appendChild(btn);
         });
 
-        if (lists.length === 1) {
+        if (prevPendingId) {
+            var picked = null;
+            Array.prototype.forEach.call(cards.children, function(node, idx) {
+                if (!picked && lists[idx] && lists[idx].id === prevPendingId) {
+                    picked = node;
+                }
+            });
+            if (picked) {
+                picked.click();
+            } else if (lists.length === 1) {
+                cards.firstChild.click();
+            } else {
+                payItems = [];
+                payPendingId = null;
+                g('bSubtotal').textContent = '0.00';
+                g('bTotal').textContent = '0.00';
+                g('bBalance').textContent = fmtHK(0);
+            }
+        } else if (lists.length === 1) {
             cards.firstChild.click();
         } else if (payItems.length) {
             renderPayPreview();
             recalcTotals();
         } else {
             g('bBalance').textContent = fmtHK(0);
+        }
+
+        if (!resetForm) {
+            if (prevDate) sv('bDate', prevDate);
+            if (prevDiscount) sv('bDiscount', prevDiscount);
+            if (prevPaid) sv('bAmtPaid', prevPaid);
+            if (prevNotes) sv('bNotes', prevNotes);
+            if (prevType && g('bType')) g('bType').value = prevType;
+            if (prevDoctor && g('bDoctor')) g('bDoctor').value = prevDoctor;
+            recalcTotals();
         }
         if (cb) cb(!r.error);
     })
@@ -4568,6 +4645,43 @@ function syncBillItemsToPendingList() {
     pendingLists[pendingIdx].items = billItems.map(function(it) {
         return { desc: it.desc, qty: it.qty, price: it.price, disc: it.disc || 0 };
     });
+}
+
+function pendingListSignature(pl) {
+    var list = pl || {};
+    var items = Array.isArray(list.items) ? list.items : [];
+    var safeItems = items.map(function(it) {
+        return {
+            desc: it && it.desc ? String(it.desc) : '',
+            qty: parseFloat(it && it.qty) || 0,
+            price: parseFloat(it && it.price) || 0,
+            disc: parseFloat(it && it.disc) || 0
+        };
+    });
+    return JSON.stringify({
+        label: list.label || '',
+        subtotal: parseFloat(list.subtotal) || 0,
+        items: safeItems
+    });
+}
+
+function isPendingListDirty(pl) {
+    if (!pl || !pl.id) return true;
+    var snap = pendingServerSnapshotById[pl.id];
+    if (!snap) return false;
+    return pendingListSignature(pl) !== snap;
+}
+
+function syncPendingDraftFromInputs() {
+    if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
+    var pl = pendingLists[pendingIdx];
+    if (!pl) return;
+    var labelEl = g('pendingListLabel');
+    if (labelEl) pl.label = (labelEl.value || '').trim();
+    syncBillItemsToPendingList();
+    pl.subtotal = billItems.reduce(function(a, it) {
+        return a + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0));
+    }, 0);
 }
 
 function billItemAmt(it) {
@@ -4763,6 +4877,12 @@ function recalcBalance() {
     g('bBalance').textContent  = fmtHK(balance);
     g('bBalance').style.color  =
         balance > 0 ? 'var(--danger)' : 'var(--success)';
+}
+
+function billPayAllAmount() {
+    var total = parseFloat(g('bTotal').textContent) || 0;
+    sv('bAmtPaid', fmt2(total));
+    recalcBalance();
 }
 
 function saveBill(doPrint) {

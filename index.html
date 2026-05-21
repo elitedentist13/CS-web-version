@@ -3428,6 +3428,10 @@
           <div style="font-size:11px;font-weight:700;color:#555;
                       text-transform:uppercase;letter-spacing:.6px;
                       margin-bottom:8px;" data-i18n="bill.step2.selectListTitle"></div>
+          <div style="font-size:12px;color:#4b5563;margin:0 0 8px;
+                      background:#f8fafc;border:1px solid #e2e8f0;
+                      border-radius:6px;padding:6px 10px;"
+               data-i18n="bill.step2.syncHint"></div>
           <div id="step2ListCards"
                style="display:flex;flex-wrap:wrap;gap:8px;"></div>
           <p id="step2NoneMsg"
@@ -3497,6 +3501,11 @@
             <span class="t-label" data-i18n="bill.labelAmountPaid"></span>
             <span class="t-val" style="display:flex;align-items:center;gap:6px;">
               <span data-i18n="common.currencyPrefix"></span>
+              <button type="button" id="billPayAllBtn"
+                      style="background:#16a34a;color:#fff;border:none;
+                             padding:4px 10px;border-radius:6px;font-size:12px;
+                             font-weight:700;cursor:pointer;"
+                      data-i18n="bill.btnPayAll"></button>
               <input type="number" id="bAmtPaid" value="0" min="0" step="0.01"
                      style="width:100px;padding:4px 7px;border:1px solid #ddd;
                             border-radius:4px;font-size:13px;text-align:right;">

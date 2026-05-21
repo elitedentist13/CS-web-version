@@ -4120,7 +4120,6 @@ function refreshBillPanelLists(opts) {
     var manual = !!opts.manual;
     if (!billPanelIsOpen()) return;
     if (billPendingRefreshBusy) return;
-    if (!manual && !billStep2IsVisible()) return; // avoid interrupting Step 1 edits
 
     billPendingRefreshBusy = true;
     billPendingRefreshState = 'loading';
@@ -4214,6 +4213,12 @@ function switchBillTab(n) {
 // STEP 1 — PENDING BILL ITEM LISTS
 // ════════════════════════════════════════════════════════════════
 function loadPendingLists(cb) {
+    var prevListId = null;
+    var prevLabel = '';
+    if (pendingIdx >= 0 && pendingIdx < pendingLists.length) {
+        prevListId = pendingLists[pendingIdx].id || null;
+        prevLabel = pendingLists[pendingIdx].label || '';
+    }
     SB.from('pending_bill_items')
         .select('*')
         .eq('patient_id', billPatId)
@@ -4227,9 +4232,22 @@ function loadPendingLists(cb) {
             }
             pl.items = pl.items || [];
         });
-        pendingIdx = pendingLists.length ? 0 : -1;
+        if (!pendingLists.length) {
+            pendingIdx = -1;
+        } else if (prevListId) {
+            var hitId = pendingLists.findIndex(function(pl) { return pl.id === prevListId; });
+            pendingIdx = hitId >= 0 ? hitId : 0;
+        } else if (prevLabel) {
+            var hitLabel = pendingLists.findIndex(function(pl) { return (pl.label || '') === prevLabel; });
+            pendingIdx = hitLabel >= 0 ? hitLabel : 0;
+        } else if (pendingIdx < 0 || pendingIdx >= pendingLists.length) {
+            pendingIdx = 0;
+        }
         renderStep1UI();
         if (cb) cb(!r.error);
+    })
+    .catch(function() {
+        if (cb) cb(false);
     });
 }
 
@@ -4333,6 +4351,7 @@ function saveCurrentPendingList() {
         g('removePendingBtn').disabled = false;
         var t = new Date().toLocaleTimeString(apptDateLocale(), { hour: '2-digit', minute: '2-digit' });
         if (statusEl) { statusEl.textContent = trRepl('bill.status.savedAt', { T: t }); statusEl.style.color = '#16a34a'; }
+        noteBillPendingRefreshed();
     });
 }
 
@@ -5035,18 +5054,7 @@ function loadBillHistory(cb) {
 
 function refreshBillHistory() {
     if (!billPatId && (!billPatNo || billPatNo === '-') && !billApptId) return;
-    billPendingRefreshBusy = true;
-    billPendingRefreshState = 'loading';
-    renderBillPendingRefreshMeta();
-    loadBillHistory(function(ok) {
-        if (ok === false) {
-            billPendingRefreshBusy = false;
-            billPendingRefreshState = 'idle';
-            renderBillPendingRefreshMeta();
-            return;
-        }
-        noteBillPendingRefreshed();
-    });
+    refreshBillPanelNow();
 }
 
 function renderBillHistoryRows(wrap, data) {

@@ -17,6 +17,11 @@ var billPatNo    = null;
 var billItems    = [];
 var billDoctorList = [];
 var treatmentItemsCache = [];
+var billPendingRefreshTimer = null;
+var billPendingRefreshBusy = false;
+var billPendingRefreshState = 'idle';
+var billPendingLastRefreshAt = null;
+var DEFAULT_BILL_PENDING_REFRESH_MS = 10000;
 
 var todayAppts   = [];   // last-fetched list for the Today tab (used by print)
 /** Today's walk-in appointment id awaiting patient registration before check-in. */
@@ -4013,6 +4018,7 @@ function wireBillPanelControls() {
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
     bindClickOnce('bdAddPaymentBtn', openAddPaymentModal);
+    bindClickOnce('billPendingRefreshBtn', refreshBillPanelNow);
 
     var discEl = g('bDiscount');
     if (discEl && discEl.dataset.billInputBound !== '1') {
@@ -4024,6 +4030,123 @@ function wireBillPanelControls() {
         paidEl.dataset.billInputBound = '1';
         paidEl.addEventListener('input', recalcBalance);
     }
+}
+
+function billPanelIsOpen() {
+    var panel = g('billPanel');
+    return !!(panel && panel.classList.contains('open'));
+}
+
+function billStep2IsVisible() {
+    var step2 = g('billStep2');
+    return !!(step2 && step2.style.display !== 'none');
+}
+
+function renderBillPendingRefreshMeta() {
+    var meta = g('billPendingRefreshMeta');
+    if (!meta) return;
+    if (billPendingRefreshState === 'loading') {
+        meta.textContent = tr('bill.refresh.loading');
+        return;
+    }
+    if (billPendingLastRefreshAt) {
+        var t = billPendingLastRefreshAt.toLocaleTimeString(apptDateLocale(), {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        meta.textContent = trRepl('bill.refresh.updatedAt', { T: t });
+        return;
+    }
+    meta.textContent = tr('bill.refresh.never');
+}
+
+function noteBillPendingRefreshed() {
+    billPendingRefreshBusy = false;
+    billPendingRefreshState = 'updated';
+    billPendingLastRefreshAt = new Date();
+    renderBillPendingRefreshMeta();
+}
+
+function stopBillPendingAutoRefresh() {
+    if (billPendingRefreshTimer) {
+        clearInterval(billPendingRefreshTimer);
+        billPendingRefreshTimer = null;
+    }
+}
+
+function startBillPendingAutoRefresh() {
+    stopBillPendingAutoRefresh();
+    fetchBillPendingRefreshIntervalMs(function(ms) {
+        billPendingRefreshTimer = setInterval(function() {
+            refreshBillPanelLists({ manual: false });
+        }, ms);
+    });
+}
+
+function restartBillPendingAutoRefresh() {
+    if (billPanelIsOpen()) startBillPendingAutoRefresh();
+    else stopBillPendingAutoRefresh();
+}
+
+function fetchBillPendingRefreshIntervalMs(done) {
+    var fallback = DEFAULT_BILL_PENDING_REFRESH_MS;
+    if (!SB || typeof SB.from !== 'function') {
+        if (done) done(fallback);
+        return;
+    }
+    SB.from('program_settings')
+        .select('setting_key,setting_value')
+        .in('setting_key', ['bill_pending_refresh_interval'])
+        .then(function(r) {
+            var ms = fallback;
+            if (!r.error && r.data && r.data.length) {
+                var map = {};
+                r.data.forEach(function(row) {
+                    map[row.setting_key] = row.setting_value;
+                });
+                var n = parseInt(map.bill_pending_refresh_interval, 10);
+                if (!isNaN(n) && n >= 10) ms = n * 1000;
+            }
+            if (done) done(ms);
+        })
+        .catch(function() {
+            if (done) done(fallback);
+        });
+}
+
+function refreshBillPanelLists(opts) {
+    opts = opts || {};
+    var manual = !!opts.manual;
+    if (!billPanelIsOpen()) return;
+    if (billPendingRefreshBusy) return;
+    if (!manual && !billStep2IsVisible()) return; // avoid interrupting Step 1 edits
+
+    billPendingRefreshBusy = true;
+    billPendingRefreshState = 'loading';
+    renderBillPendingRefreshMeta();
+
+    if (manual) loadBillHistory();
+
+    var done = function(ok) {
+        if (ok === false) {
+            billPendingRefreshBusy = false;
+            billPendingRefreshState = 'idle';
+            renderBillPendingRefreshMeta();
+            return;
+        }
+        noteBillPendingRefreshed();
+    };
+
+    if (billStep2IsVisible()) {
+        renderStep2(done);
+    } else {
+        loadPendingLists(done);
+    }
+}
+
+function refreshBillPanelNow() {
+    refreshBillPanelLists({ manual: true });
 }
 
 function openBillPanel(q) {
@@ -4041,19 +4164,27 @@ function openBillPanel(q) {
     pendingIdx   = -1;
     payItems     = [];
     payPendingId = null;
+    billPendingRefreshBusy = false;
+    billPendingRefreshState = 'idle';
+    billPendingLastRefreshAt = null;
+    renderBillPendingRefreshMeta();
 
     // Start on Step 1; load treatment item dropdown cache then pending lists
     switchBillTab(1);
     loadTreatmentItemsForBilling(function() {
-        loadPendingLists();
+        loadPendingLists(function(ok) {
+            if (ok !== false) noteBillPendingRefreshed();
+        });
     });
     loadBillHistory();
 
     wireBillPanelControls();
+    startBillPendingAutoRefresh();
     g('billPanel').classList.add('open');
 }
 
 function closeBillPanel() {
+    stopBillPendingAutoRefresh();
     g('billPanel').classList.remove('open');
     billApptId   = null;
     billPatId    = null;
@@ -4072,7 +4203,11 @@ function switchBillTab(n) {
     g('billTab2Btn').classList.toggle('active', n === 2);
     g('billStep1').style.display = n === 1 ? '' : 'none';
     g('billStep2').style.display = n === 2 ? '' : 'none';
-    if (n === 2) renderStep2();
+    if (n === 2) {
+        renderStep2(function(ok) {
+            if (ok !== false) noteBillPendingRefreshed();
+        });
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -4094,7 +4229,7 @@ function loadPendingLists(cb) {
         });
         pendingIdx = pendingLists.length ? 0 : -1;
         renderStep1UI();
-        if (cb) cb();
+        if (cb) cb(!r.error);
     });
 }
 
@@ -4227,7 +4362,7 @@ function removeCurrentPendingList() {
 // ════════════════════════════════════════════════════════════════
 // STEP 2 — PAYMENT (select a pending list, then pay)
 // ════════════════════════════════════════════════════════════════
-function renderStep2() {
+function renderStep2(cb) {
     loadBillTypes();
     loadBillDoctors();
     sv('bDate',     todayISO());
@@ -4261,6 +4396,7 @@ function renderStep2() {
 
         if (!lists.length) {
             noneEl.style.display = '';
+            if (cb) cb(!r.error);
             return;
         }
         noneEl.style.display = 'none';
@@ -4295,6 +4431,10 @@ function renderStep2() {
         } else {
             g('bBalance').textContent = fmtHK(0);
         }
+        if (cb) cb(!r.error);
+    })
+    .catch(function() {
+        if (cb) cb(false);
     });
 }
 
@@ -4816,7 +4956,7 @@ function loadBillTypes() {
 }
 
 // Loads all bills for the current patient (same query shape as Consultation → Bill).
-function loadBillHistory() {
+function loadBillHistory(cb) {
     var wrap  = g('billHistoryList');
     var patId = billPatId;
     var patNo = billPatNo;
@@ -4827,6 +4967,7 @@ function loadBillHistory() {
 
     if (!hasPatient && !hasPatNoFallback && !apptFallback) {
         wrap.innerHTML = '<p style="color:#aaa;font-size:14px;">' + esc(tr('bill.historyEmpty')) + '</p>';
+        if (cb) cb(true);
         return;
     }
     wrap.innerHTML = '<p style="color:#aaa;font-size:13px;">' + esc(tr('bill.historyLoading')) + '</p>';
@@ -4835,13 +4976,16 @@ function loadBillHistory() {
         if (r.error) {
             wrap.innerHTML =
                 '<p style="color:#e11d48;font-size:13px;">⚠️ ' + esc(r.error.message) + '</p>';
+            if (cb) cb(false);
             return;
         }
         if (!r.data || !r.data.length) {
             wrap.innerHTML = '<p style="color:#aaa;font-size:14px;">' + esc(tr('bill.historyEmpty')) + '</p>';
+            if (cb) cb(true);
             return;
         }
         renderBillHistoryRows(wrap, r.data);
+        if (cb) cb(true);
     }
 
     if (hasPatient) {
@@ -4854,10 +4998,16 @@ function loadBillHistory() {
                 SB.from('bills').select('*')
                     .eq('patient_no', patNo)
                     .order('created_at', { ascending: false })
-                .then(renderHistory);
+                .then(renderHistory)
+                .catch(function() {
+                    if (cb) cb(false);
+                });
                 return;
             }
             renderHistory(r);
+        })
+        .catch(function() {
+            if (cb) cb(false);
         });
         return;
     }
@@ -4866,7 +5016,10 @@ function loadBillHistory() {
         SB.from('bills').select('*')
             .eq('patient_no', patNo)
             .order('created_at', { ascending: false })
-        .then(renderHistory);
+        .then(renderHistory)
+        .catch(function() {
+            if (cb) cb(false);
+        });
         return;
     }
 
@@ -4874,12 +5027,26 @@ function loadBillHistory() {
     SB.from('bills').select('*')
         .eq('appointment_id', apptFallback)
         .order('created_at', { ascending: false })
-    .then(renderHistory);
+    .then(renderHistory)
+    .catch(function() {
+        if (cb) cb(false);
+    });
 }
 
 function refreshBillHistory() {
     if (!billPatId && (!billPatNo || billPatNo === '-') && !billApptId) return;
-    loadBillHistory();
+    billPendingRefreshBusy = true;
+    billPendingRefreshState = 'loading';
+    renderBillPendingRefreshMeta();
+    loadBillHistory(function(ok) {
+        if (ok === false) {
+            billPendingRefreshBusy = false;
+            billPendingRefreshState = 'idle';
+            renderBillPendingRefreshMeta();
+            return;
+        }
+        noteBillPendingRefreshed();
+    });
 }
 
 function renderBillHistoryRows(wrap, data) {
@@ -5622,6 +5789,7 @@ function refreshOpenBillPanelForLang() {
     var panel = g('billPanel');
     if (!panel || !panel.classList.contains('open')) return;
     if (typeof applyI18nInRoot === 'function') applyI18nInRoot(panel);
+    renderBillPendingRefreshMeta();
     if (typeof applyReceiptClinicHeader === 'function') applyReceiptClinicHeader();
     var step2Visible = g('billStep2') && g('billStep2').style.display !== 'none';
     if (step2Visible) {

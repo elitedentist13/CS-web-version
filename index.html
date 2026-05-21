@@ -3303,7 +3303,19 @@
            style="font-size:13px;opacity:0.85;margin-top:4px;">
       </div>
     </div>
-    <button id="billPanelClose" data-i18n-aria-label="common.closeAria">×</button>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div id="billPendingRefreshMeta"
+           style="font-size:12px;font-weight:700;color:#1f2937;
+                  background:#eef2ff;border:1px solid #c7d2fe;
+                  border-radius:999px;padding:4px 10px;line-height:1.2;
+                  white-space:nowrap;"
+           data-i18n="bill.refresh.never"></div>
+      <button type="button" id="billPendingRefreshBtn"
+              style="background:#fff;color:#1f2937;border:1px solid #d1d5db;
+                     padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;"
+              data-i18n="bill.btnRefresh"></button>
+      <button id="billPanelClose" data-i18n-aria-label="common.closeAria">×</button>
+    </div>
   </div>
 
   <div class="bill-body">

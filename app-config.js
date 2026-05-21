@@ -1723,6 +1723,7 @@ var CFG = (function () {
         { key: 'audit_trail',               labelKey: 'cfg.setting.auditTrail',             type: 'checkbox' },
         { key: 'login_timeout_minutes',     labelKey: 'cfg.setting.loginTimeout',           type: 'number'   },
         { key: 'queue_refresh_interval',    labelKey: 'cfg.setting.queueRefresh',           type: 'number'   },
+        { key: 'bill_pending_refresh_interval', labelKey: 'cfg.setting.billPendingRefresh', type: 'number'   },
         { key: 'receipt_header',            labelKey: 'cfg.setting.receiptHeader',          type: 'textarea' },
         { key: 'receipt_footer',            labelKey: 'cfg.setting.receiptFooter',          type: 'textarea' },
         { key: 'smtp_email',               labelKey: 'cfg.setting.smtpEmail',               type: 'text'     },
@@ -1762,6 +1763,11 @@ var CFG = (function () {
                     html += '<input type="' + s.type + '" id="set_' + s.key +
                         '" value="' + esc(val) + '" style="' + inputStyle() + '">';
                 }
+                if (s.key === 'bill_pending_refresh_interval') {
+                    html += '<div style="font-size:12px;color:#888;margin-top:4px;">' +
+                        esc(ctr('cfg.setting.billPendingRefreshHint')) +
+                        '</div>';
+                }
                 html += '</div>';
             });
 
@@ -1791,6 +1797,9 @@ var CFG = (function () {
             toast(ctr('cfg.msg.settingsSaved'));
             if (typeof restartApptAutoRefresh === 'function') {
                 restartApptAutoRefresh();
+            }
+            if (typeof restartBillPendingAutoRefresh === 'function') {
+                restartBillPendingAutoRefresh();
             }
         });
     }

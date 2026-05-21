@@ -22,6 +22,76 @@ var photoLbCurrentId = null;
 
 var PHOTO_BUCKET = 'photos';
 
+function mediaTr(key) {
+  return (typeof t === 'function') ? t(key) : key;
+}
+
+function mediaTrRepl(key, pairs) {
+  var s = mediaTr(key);
+  if (!pairs) return s;
+  for (var k in pairs) {
+    if (Object.prototype.hasOwnProperty.call(pairs, k)) {
+      s = s.split('{' + k + '}').join(String(pairs[k]));
+    }
+  }
+  return s;
+}
+
+function mediaErr(msg) {
+    return mediaTrRepl('media.alert.error', { MSG: msg });
+}
+
+var PHOTO_CATEGORY_PAIRS = [
+    ['Intraoral', 'media.cat.intraoral'],
+    ['Extraoral', 'media.cat.extraoral'],
+    ['Before/After', 'media.cat.beforeAfter'],
+    ['Consent Form', 'media.cat.consentForm'],
+    ['Lab Report', 'media.cat.labReport'],
+    ['Other', 'media.categoryOther']
+];
+
+function photoCategoryLabel(cat) {
+    var s = String(cat || '').trim();
+    if (!s) return mediaTr('media.categoryOther');
+    var i;
+    for (i = 0; i < PHOTO_CATEGORY_PAIRS.length; i++) {
+        if (PHOTO_CATEGORY_PAIRS[i][0] === s) return mediaTr(PHOTO_CATEGORY_PAIRS[i][1]);
+    }
+    if (/^other$/i.test(s)) return mediaTr('media.categoryOther');
+    return s;
+}
+
+function refreshPhotoCategorySelects() {
+    function fill(selId, includeAll) {
+        var sel = g(selId);
+        if (!sel) return;
+        var prev = sel.value;
+        var html = includeAll
+            ? '<option value="">' + esc(mediaTr('media.allCategories')) + '</option>'
+            : '';
+        PHOTO_CATEGORY_PAIRS.forEach(function(pair) {
+            html += '<option value="' + esc(pair[0]) + '">' + esc(mediaTr(pair[1])) + '</option>';
+        });
+        sel.innerHTML = html;
+        if (prev) sel.value = prev;
+    }
+    fill('photoFilterCat', true);
+    fill('photoUploadCat', false);
+    fill('photoLbCat', false);
+}
+
+function refreshPhotoBannerI18n() {
+    var p = photoPatientData;
+    if (!p) return;
+    var dobEl = g('conPhotoBannerDob');
+    if (dobEl) dobEl.textContent = p.dob ? formatDobAge(p.dob) : '—';
+    var alertEl = g('conPhotoBannerAlert');
+    if (alertEl) {
+        alertEl.textContent = p.medical_alerts || mediaTr('con.banner.none');
+        alertEl.style.color = p.medical_alerts ? 'var(--danger)' : '#999';
+    }
+}
+
 function photoGetPublicUrlForPath(storagePath) {
   var ur = SB.storage.from(PHOTO_BUCKET).getPublicUrl(storagePath);
   if (ur && ur.data && ur.data.publicUrl) return ur.data.publicUrl;
@@ -100,7 +170,7 @@ function _afterPhotoPatientSelected() {
 
   var alertEl = g('conPhotoBannerAlert');
   if (alertEl) {
-    alertEl.textContent = p.medical_alerts || 'None';
+    alertEl.textContent = p.medical_alerts || mediaTr('con.banner.none');
     alertEl.style.color = p.medical_alerts ? 'var(--danger)' : '#999';
   }
 
@@ -130,49 +200,11 @@ function _afterPhotoPatientSelected() {
    ========================================================= */
 
 function doConPatientSearchPhoto() {
-  var q  = (g('conPsInputPhoto') ? g('conPsInputPhoto').value : '').trim();
-  var dd = g('conPsDropPhoto');
-  if (!dd) return;
-  if (!q) { dd.style.display = 'none'; return; }
-
-  var phoq = SB.from('patients')
-    .select('id,patient_no,full_name,dob,phone_number,medical_alerts,' +
-        PATIENT_CLINIC_TAG_FIELD)
-    .or(
-      'full_name.ilike.%'    + q + '%,' +
-      'patient_no.ilike.%'   + q + '%,' +
-      'phone_number.ilike.%' + q + '%'
-    )
-    .limit(8);
-  phoq = typeof applyPatientQueryClinicTag === 'function'
-    ? applyPatientQueryClinicTag(phoq, 'conPsClinicFilterPhoto')
-    : phoq;
-  phoq.then(function(r) {
-    dd.innerHTML = '';
-    if (r.error || !r.data || !r.data.length) {
-      dd.innerHTML =
-        '<div class="ps-item" style="color:#aaa;">No patients found</div>';
-      dd.style.display = 'block';
-      return;
-    }
-    r.data.forEach(function(p) {
-      var item = document.createElement('div');
-      item.className = 'ps-item';
-      item.innerHTML =
-        '<strong>' + esc(p.full_name) + '</strong>' +
-        '<br><small style="color:#aaa;">#' +
-        esc(p.patient_no || '-') + ' &nbsp;|&nbsp; ' +
-        esc(p.phone_number || 'No phone') + '</small>';
-      item.addEventListener('click', function() {
-        dd.style.display = 'none';
-        if (g('conPsInputPhoto'))
-          g('conPsInputPhoto').value =
-            p.full_name + ' (#' + (p.patient_no || '') + ')';
-        selectPhotoPatient(p);
-      });
-      dd.appendChild(item);
-    });
-    dd.style.display = 'block';
+  runPatientSearchDropdown({
+    inputId: 'conPsInputPhoto',
+    dropId: 'conPsDropPhoto',
+    clinicFilterId: 'conPsClinicFilterPhoto',
+    onSelect: selectPhotoPatient
   });
 }
 
@@ -220,7 +252,7 @@ function photoDisplayUrl(record) {
 }
 
 function populatePhotoCatFilter() {
-  /* Category filter is a static <select> — no need to populate */
+    refreshPhotoCategorySelects();
 }
 
 function populatePhotoYearFilter() {
@@ -231,7 +263,7 @@ function populatePhotoYearFilter() {
     if (x.taken_date) years.add(x.taken_date.slice(0, 4));
   });
   var cur = sel.value;
-  sel.innerHTML = '<option value="">All Years</option>';
+  sel.innerHTML = '<option value="">' + esc(mediaTr('media.allYears')) + '</option>';
   Array.from(years).sort().reverse().forEach(function(y) {
     var o = document.createElement('option');
     o.value = y; o.textContent = y;
@@ -318,7 +350,7 @@ function renderPhotoGrid() {
 
     var isPdf    = x.file_path && x.file_path.toLowerCase().endsWith('.pdf');
     var catBadge = getPhotoCatBadge(x.category);
-    var dateStr  = x.taken_date ? fmtDateLong(x.taken_date) : 'No date';
+    var dateStr  = x.taken_date ? fmtDateLong(x.taken_date) : mediaTr('media.noDate');
     var imgSrc   = photoDisplayUrl(x);
 
     var noPreviewSVG =
@@ -327,7 +359,7 @@ function renderPhotoGrid() {
         '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150">' +
         '<rect fill="#1a1a2e"/>' +
         '<text x="50%" y="50%" fill="#666" text-anchor="middle" ' +
-        'dy=".3em" font-size="14">No Preview</text></svg>'
+        'dy=".3em" font-size="14">' + esc(mediaTr('media.noPreview')) + '</text></svg>'
       );
 
     var thumbHtml = isPdf
@@ -335,7 +367,7 @@ function renderPhotoGrid() {
       : (imgSrc
           ? '<img src="' + esc(imgSrc) + '" alt="Photo" ' +
             'onerror="this.src=\'' + noPreviewSVG + '\'">'
-          : '<div class="xray-no-img">📷<br><small>No Preview</small></div>');
+          : '<div class="xray-no-img">📷<br><small>' + esc(mediaTr('media.noPreview')) + '</small></div>');
 
     card.innerHTML =
       (!isNurse
@@ -357,7 +389,7 @@ function renderPhotoGrid() {
           : '') +
         '<div class="xray-card-actions">' +
           '<button class="xray-cb-open" data-idx="' + idx + '">' +
-            '🔍 View' +
+            esc(mediaTr('media.btn.view')) +
           '</button>' +
           (!isPdf
             ? '<button class="xray-cb-dl" ' +
@@ -410,7 +442,7 @@ function getPhotoCatBadge(cat) {
   var c = (palette[cat] || palette['Other']).split(':');
   return '<span style="background:' + c[0] + ';color:' + c[1] + ';' +
          'font-size:10px;font-weight:700;padding:2px 8px;' +
-         'border-radius:10px;">' + esc(cat || 'Other') + '</span>';
+         'border-radius:10px;">' + esc(photoCategoryLabel(cat)) + '</span>';
 }
 
 /* =========================================================
@@ -426,7 +458,7 @@ function renderPhotoSlide() {
         'display:flex;align-items:center;justify-content:center;">' +
         '<div style="text-align:center;color:#666;">' +
         '<div style="font-size:48px;">📷</div>' +
-        '<p>No Photos</p></div></div>';
+        '<p>' + esc(mediaTr('media.noPhotos')) + '</p></div></div>';
     }
     var fs = g('photoFilmstrip');
     if (fs) fs.innerHTML = '';
@@ -469,10 +501,15 @@ function renderPhotoSlideAt(idx) {
   }
 
   var ctr = g('photoSlideCounter');
-  if (ctr) ctr.textContent = (idx + 1) + ' / ' + photoFiltered.length;
+  if (ctr) {
+    ctr.textContent = mediaTrRepl('media.slide.counterFmt', {
+      CURRENT: String(idx + 1),
+      TOTAL: String(photoFiltered.length)
+    });
+  }
 
   var catEl = g('photoSlideCat');
-  if (catEl) catEl.textContent = x.category || 'Other';
+  if (catEl) catEl.textContent = photoCategoryLabel(x.category);
 
   var dateEl = g('photoSlideDate');
   if (dateEl) dateEl.textContent = x.taken_date ? fmtDateLong(x.taken_date) : '—';
@@ -488,7 +525,7 @@ function renderPhotoSlideAt(idx) {
 
 function _buildPhotoSlideTools() {
   return '<div class="xray-slide-tools">' +
-    '<button onclick="photoSlideDownload()" title="Download">💾</button>' +
+    '<button onclick="photoSlideDownload()" title="' + esc(mediaTr('media.lb.download')) + '">💾</button>' +
     '</div>';
 }
 
@@ -709,6 +746,8 @@ function openPhotoLightbox(idx) {
     if (editRow) editRow.style.display = isNurse ? 'none' : 'flex';
 
     openModal('photoLightbox');
+    var plbModal = g('photoLightbox');
+    if (plbModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(plbModal);
     return;
   }
 
@@ -771,6 +810,8 @@ function openPhotoLightbox(idx) {
   if (editRow2) editRow2.style.display = isNurse2 ? 'none' : 'flex';
 
   openModal('photoLightbox');
+  var plbModal2 = g('photoLightbox');
+  if (plbModal2 && typeof applyI18nInRoot === 'function') applyI18nInRoot(plbModal2);
 }
 
 function closePhotoLightbox() {
@@ -1135,7 +1176,7 @@ function photoLbCropApply() {
       phLbCropRect.x, phLbCropRect.y, phLbCropRect.w, phLbCropRect.h,
       0, 0, tmp.width, tmp.height);
   } catch (err) {
-    alert('Crop failed — image may be cross-origin. Download and re-upload to enable cropping.');
+    alert(mediaTr('media.alert.cropFail'));
     return;
   }
   img.crossOrigin = 'anonymous';
@@ -1162,7 +1203,7 @@ function photoLbPrint() {
       tmp2.getContext('2d').drawImage(video, 0, 0);
       src = tmp2.toDataURL('image/jpeg', 0.95);
     } else {
-      alert('No video frame available.');
+      alert(mediaTr('media.alert.noVideoFrame'));
       return;
     }
   } else {
@@ -1192,7 +1233,7 @@ function photoLbPrint() {
 
   var w = window.open('', '_blank', 'width=920,height=720');
   if (!w) {
-    alert('Pop-up blocked — please allow pop-ups for this page.');
+    alert(mediaTr('media.alert.popupBlocked'));
     return;
   }
   w.document.write(
@@ -1411,7 +1452,7 @@ function savePhotoLbMeta() {
   function finishOk(msg) {
     closePhotoLightbox();
     loadPhotoRecords().then(function() {
-      alert(msg || '✅ Saved.');
+      alert(msg || mediaTr('media.alert.savedDefault'));
     });
   }
 
@@ -1428,8 +1469,8 @@ function savePhotoLbMeta() {
   function saveMetaOnly() {
     SB.from('photos').update(metaPayload()).eq('id', photoLbCurrentId)
       .then(function(r) {
-        if (r.error) { alert('Error: ' + r.error.message); return; }
-        finishOk('✅ Photo details saved.');
+        if (r.error) { alert(mediaErr(r.error.message)); return; }
+        finishOk(mediaTr('media.alert.photoDetailsSaved'));
       });
   }
 
@@ -1443,17 +1484,13 @@ function savePhotoLbMeta() {
 
   photoLbExportEditedJpegForSave(function(blob) {
     if (!blob) {
-      alert(
-        'Could not export the edited image (often CORS with hot-linked files). ' +
-          'Metadata will still be saved.'
-      );
+      alert(mediaTr('media.alert.exportEditFail'));
       saveMetaOnly();
       return;
     }
 
     if (!photoPatientId) {
-      alert(
-        'Patient context missing — cannot upload image. Saving details only.');
+      alert(mediaTr('media.alert.patientContextMissingDetails'));
       saveMetaOnly();
       return;
     }
@@ -1472,17 +1509,14 @@ function savePhotoLbMeta() {
       })
       .then(function(up) {
         if (up.error) {
-          alert(
-            'Upload failed: ' + up.error.message + '\nSaving metadata only.');
+          alert(mediaTrRepl('media.alert.uploadFailedMetaOnly', { MSG: up.error.message }));
           saveMetaOnly();
           return null;
         }
         var publicUrl = photoGetPublicUrlForPath(safeName);
 
         if (!publicUrl) {
-          alert(
-            'Upload OK but could not compute public URL. ' +
-              'Check Storage bucket "' + PHOTO_BUCKET + '" is public.');
+          alert(mediaTrRepl('media.alert.publicUrlFail', { BUCKET: PHOTO_BUCKET }));
           saveMetaOnly();
           return null;
         }
@@ -1504,20 +1538,17 @@ function savePhotoLbMeta() {
       .then(function(r) {
         if (!r) return;
         if (r.error) {
-          alert(
-            'Database update failed: ' + r.error.message + '\n\n' +
-              'If you use Row Level Security, allow UPDATE on file_path ' +
-              'and public_url for your role.');
+          alert(mediaTrRepl('media.alert.dbUpdateFailPhoto', { MSG: r.error.message }));
           return;
         }
-        finishOk('✅ Photo saved (image + details updated).');
+        finishOk(mediaTr('media.alert.photoSavedFull'));
       });
   });
 }
 
 function deletePhotoLb() {
   if (!photoLbCurrentId) return;
-  if (!confirm('Delete this photo/document? This cannot be undone.')) return;
+  if (!confirm(mediaTr('media.alert.confirmDeletePhoto'))) return;
 
   var rec = photoAllRecords.find(function(x) { return x.id === photoLbCurrentId; });
   var chain = Promise.resolve();
@@ -1533,7 +1564,7 @@ function deletePhotoLb() {
   chain.then(function() {
     return SB.from('photos').delete().eq('id', photoLbCurrentId);
   }).then(function(r) {
-    if (r.error) { alert('Error: ' + r.error.message); return; }
+    if (r.error) { alert(mediaErr(r.error.message)); return; }
     closePhotoLightbox();
     loadPhotoRecords();
   });
@@ -1558,7 +1589,7 @@ document.addEventListener('DOMContentLoaded', function() {
   if (fi) {
     fi.addEventListener('change', function() {
       if (!photoPatientId) {
-        alert('Please select a patient first.');
+        alert(mediaTr('con.forms.alertSelectPatient'));
         fi.value = '';
         return;
       }
@@ -1643,7 +1674,10 @@ function showPhotoUploadModal(file) {
   if (info) {
     var remaining = photoUploadQueue.length - photoUploadQIdx;
     info.textContent = remaining > 1
-      ? 'File ' + (photoUploadQIdx + 1) + ' of ' + photoUploadQueue.length
+      ? mediaTrRepl('media.upload.fileOf', {
+          N: String(photoUploadQIdx + 1),
+          TOTAL: String(photoUploadQueue.length)
+        })
       : '';
   }
 
@@ -1659,7 +1693,7 @@ function confirmPhotoUpload() {
   var caption = g('photoUploadCaption')? g('photoUploadCaption').value.trim()   : '';
 
   closeModal('photoUploadModal');
-  showPhotoUploadProgress(true, 'Preparing upload…', 5);
+  showPhotoUploadProgress(true, mediaTr('media.upload.preparing'), 5);
 
   var ext      = (file.name.split('.').pop() || 'jpg').toLowerCase();
   var safeName = photoPatientId + '/' +
@@ -1673,7 +1707,7 @@ function confirmPhotoUpload() {
   };
   var contentType = file.type || mimeMap[ext] || 'application/octet-stream';
 
-  showPhotoUploadProgress(true, 'Uploading to storage…', 20);
+  showPhotoUploadProgress(true, mediaTr('media.upload.uploadingStorage'), 20);
 
   /* ── Step 1: Upload to Storage ── */
   SB.storage.from(PHOTO_BUCKET)
@@ -1685,10 +1719,10 @@ function confirmPhotoUpload() {
   .then(function(r) {
     if (r.error) {
       showPhotoUploadProgress(false);
-      alert('Upload failed: ' + r.error.message);
+      alert(mediaTrRepl('media.alert.uploadFailed', { MSG: r.error.message }));
       return null;
     }
-    showPhotoUploadProgress(true, 'Getting file URL…', 60);
+    showPhotoUploadProgress(true, mediaTr('media.upload.gettingUrl'), 60);
     return { ok: true, path: safeName };
   })
 
@@ -1700,7 +1734,7 @@ function confirmPhotoUpload() {
     var publicUrl = (urlRes.data && urlRes.data.publicUrl)
                     ? urlRes.data.publicUrl : null;
 
-    showPhotoUploadProgress(true, 'Saving record…', 80);
+    showPhotoUploadProgress(true, mediaTr('media.upload.savingRecord'), 80);
 
     /* ── Step 3: Insert DB record ── */
     return SB.from('photos').insert([{
@@ -1721,10 +1755,10 @@ function confirmPhotoUpload() {
     if (!r) return;
     if (r.error) {
       showPhotoUploadProgress(false);
-      alert('Database error: ' + r.error.message);
+      alert(mediaTrRepl('media.alert.dbError', { MSG: r.error.message }));
       return;
     }
-    showPhotoUploadProgress(true, '✅ Done!', 100);
+    showPhotoUploadProgress(true, mediaTr('media.upload.done'), 100);
     setTimeout(function() {
       showPhotoUploadProgress(false);
       photoUploadQIdx++;
@@ -1733,7 +1767,7 @@ function confirmPhotoUpload() {
   })
   .catch(function(err) {
     showPhotoUploadProgress(false);
-    alert('Unexpected error: ' + (err.message || String(err)));
+    alert(mediaTrRepl('media.alert.unexpected', { MSG: (err.message || String(err)) }));
   });
 }
 
@@ -1754,7 +1788,7 @@ function showPhotoUploadProgress(show, label, pct) {
 
 function exportSelectedPhotos() {
   if (!photoSelected.size) {
-    alert('Select at least one photo to export.');
+    alert(mediaTr('media.alert.selectPhotoExport'));
     return;
   }
   var toExport = photoFiltered.filter(function(x) {
@@ -1769,8 +1803,8 @@ function exportSelectedPhotos() {
 }
 
 function exportAllPhotos() {
-  if (!photoFiltered.length) { alert('No photos to export.'); return; }
-  if (!confirm('Download all ' + photoFiltered.length + ' photo(s)?')) return;
+  if (!photoFiltered.length) { alert(mediaTr('media.alert.noPhotosExport')); return; }
+  if (!confirm(mediaTrRepl('media.alert.confirmDownloadPhotos', { N: String(photoFiltered.length) }))) return;
   photoFiltered.forEach(function(x, i) {
     setTimeout(function() {
       photoDownloadFile(x.public_url,
@@ -1780,7 +1814,7 @@ function exportAllPhotos() {
 }
 
 function photoDownloadFile(url, filename) {
-  if (!url) { alert('No file URL available.'); return; }
+  if (!url) { alert(mediaTr('media.alert.noFileUrl')); return; }
   fetch(url)
     .then(function(res) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1797,7 +1831,7 @@ function photoDownloadFile(url, filename) {
       setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 10000);
     })
     .catch(function(err) {
-      alert('Download failed: ' + err.message);
+      alert(mediaTrRepl('media.alert.downloadFailed', { MSG: err.message }));
     });
 }
 
@@ -1820,7 +1854,7 @@ function updatePhotoSelectedCount() {
   var el = g('photoSelectedCount');
   if (!el) return;
   el.textContent = photoSelected.size
-    ? photoSelected.size + ' selected' : '';
+    ? mediaTrRepl('media.selectedCount', { N: String(photoSelected.size) }) : '';
 }
 
 /* =========================================================
@@ -1829,10 +1863,10 @@ function updatePhotoSelectedCount() {
 
 function bulkDeletePhotos() {
   if (!photoSelected.size) {
-    alert('Select at least one photo to delete.');
+    alert(mediaTr('media.alert.selectPhotoDelete'));
     return;
   }
-  if (!confirm('Delete ' + photoSelected.size + ' selected item(s)? This cannot be undone.'))
+  if (!confirm(mediaTrRepl('media.alert.confirmBulkDeletePhotos', { N: String(photoSelected.size) })))
     return;
 
   var ids      = Array.from(photoSelected);
@@ -1852,7 +1886,7 @@ function bulkDeletePhotos() {
   chain.then(function() {
     return SB.from('photos').delete().in('id', ids);
   }).then(function(r) {
-    if (r.error) { alert('Bulk delete failed: ' + r.error.message); return; }
+    if (r.error) { alert(mediaTrRepl('media.alert.bulkDeleteFailed', { MSG: r.error.message })); return; }
     photoSelected.clear();
     loadPhotoRecords();
   });
@@ -1872,3 +1906,44 @@ function refreshPhotos() {
    ========================================================= */
 
 /* todayISO() — use global from app.js (PC local calendar date, not UTC) */
+
+function refreshPhotoUiForLangChange() {
+  if (typeof updatePhotoSelectedCount === 'function') updatePhotoSelectedCount();
+  if (!photoPatientId || !photoFiltered.length) return;
+  var slide = g('photoSlideView');
+  if (slide && slide.style.display !== 'none' && typeof renderPhotoSlideAt === 'function') {
+    renderPhotoSlideAt(photoCurrentIdx);
+  } else if (photoView === 'grid' && typeof renderPhotoGrid === 'function') {
+    renderPhotoGrid();
+  }
+}
+
+document.addEventListener('app-lang-change', function () {
+  refreshPhotoCategorySelects();
+  refreshPhotoBannerI18n();
+  var uploadModal = g('photoUploadModal');
+  var lbModal = g('photoLightbox');
+  if (typeof applyI18nInRoot === 'function') {
+    if (uploadModal && uploadModal.style.display === 'block') applyI18nInRoot(uploadModal);
+    if (lbModal && lbModal.style.display === 'block') applyI18nInRoot(lbModal);
+  }
+  if (photoPatientId) {
+    if (photoAllRecords.length && typeof populatePhotoYearFilter === 'function') {
+      populatePhotoYearFilter();
+    }
+    if (typeof refreshPhotoUiForLangChange === 'function') refreshPhotoUiForLangChange();
+    if (typeof applyI18nInRoot === 'function') {
+      var pPaneEarly = g('con-photos');
+      if (pPaneEarly) applyI18nInRoot(pPaneEarly);
+      var pBanner = g('conPhotoBanner');
+      if (pBanner) applyI18nInRoot(pBanner);
+    }
+  }
+  var sec = g('consultationSection');
+  if (!sec || sec.style.display === 'none') return;
+  if (photoPatientId && typeof loadPhotoRecords === 'function') loadPhotoRecords();
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+  refreshPhotoCategorySelects();
+});

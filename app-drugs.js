@@ -14,6 +14,116 @@ var drugIsDirty     = false;// unsaved changes flag
 var drugFilterCat   = '';   // active category filter
 var drugSearchTimer = null; // debounce handle
 
+var DRUG_UNCAT_KEY = 'Uncategorised';
+
+var DRUG_CATEGORY_PAIRS = [
+    ['Antibiotic',     'drug.cat.antibiotic'],
+    ['Analgesic',      'drug.cat.analgesic'],
+    ['Antiseptic',     'drug.cat.antiseptic'],
+    ['Steroid',        'drug.cat.steroid'],
+    ['Antifungal',     'drug.cat.antifungal'],
+    ['Antiviral',      'drug.cat.antiviral'],
+    ['Anaesthetic',    'drug.cat.anaesthetic'],
+    ['Antihistamine',  'drug.cat.antihistamine'],
+    ['Fluoride',       'drug.cat.fluoride'],
+    ['Gastroprotect',  'drug.cat.gastroprotect'],
+    ['Other',          'drug.cat.other']
+];
+
+var DRUG_DATALIST_PAIRS = DRUG_CATEGORY_PAIRS.concat([
+    ['Anti-inflammatory',    'drug.cat.antiInflammatory'],
+    ['Local Anaesthetic',    'drug.cat.localAnaesthetic'],
+    ['Sedative',             'drug.cat.sedative'],
+    ['Vitamin / Supplement', 'drug.cat.vitaminSupplement'],
+    ['Mouthwash',            'drug.cat.mouthwash']
+]);
+
+function drugTr(key) {
+    return typeof t === 'function' ? t(key) : key;
+}
+
+function drugTrRepl(key, pairs) {
+    var s = drugTr(key);
+    if (!pairs) return s;
+    for (var k in pairs) {
+        if (Object.prototype.hasOwnProperty.call(pairs, k)) {
+            s = s.split('{' + k + '}').join(String(pairs[k]));
+        }
+    }
+    return s;
+}
+
+function drugCatKey(cat) {
+    return (cat || DRUG_UNCAT_KEY).trim();
+}
+
+function drugCategoryLabel(cat) {
+    var s = String(cat || '').trim();
+    if (!s || s === DRUG_UNCAT_KEY) return drugTr('drug.uncategorised');
+    var pairs = DRUG_DATALIST_PAIRS;
+    var i;
+    for (i = 0; i < pairs.length; i++) {
+        if (pairs[i][0] === s) return drugTr(pairs[i][1]);
+    }
+    if (/^other$/i.test(s)) return drugTr('drug.cat.other');
+    return s;
+}
+
+function refreshDrugCategoryDatalist() {
+    var dl = g('drugCategoryList');
+    if (!dl) return;
+    var html = '';
+    DRUG_DATALIST_PAIRS.forEach(function(pair) {
+        html += '<option value="' + esc(pair[0]) + '">' + esc(drugTr(pair[1])) + '</option>';
+    });
+    dl.innerHTML = html;
+}
+
+function drugCatDisplay(cat) {
+    return drugCategoryLabel(cat === DRUG_UNCAT_KEY ? '' : cat);
+}
+
+function refreshDrugCategorySelect() {
+    var sel = g('dlCategory');
+    if (!sel) return;
+    var prev = sel.value;
+    var html = '<option value="">' + esc(drugTr('patient.form.select')) + '</option>';
+    DRUG_CATEGORY_PAIRS.forEach(function(pair) {
+        html += '<option value="' + esc(pair[0]) + '">' + esc(drugTr(pair[1])) + '</option>';
+    });
+    sel.innerHTML = html;
+    if (prev) sel.value = prev;
+}
+
+function refreshDrugBookI18n() {
+    var sec = g('drugSection');
+    var visible = sec && sec.style.display !== 'none';
+    if (sec && typeof applyI18nInRoot === 'function') {
+        if (drugMasterList.length || visible) applyI18nInRoot(sec);
+    }
+    refreshDrugCategoryDatalist();
+    if (drugSelectedId) {
+        var d = drugMasterList.find(function(x) { return x.id === drugSelectedId; });
+        if (d) {
+            updateDrugEditorTitle(d.drug_name);
+            var createdEl = g('deCreatedAt');
+            if (createdEl) {
+                createdEl.textContent = d.created_at ? fmtDateTime(d.created_at) : '—';
+            }
+        } else {
+            updateDrugEditorTitle(drugTr('drug.newDrugTitle'));
+        }
+    } else {
+        updateDrugEditorTitle('');
+    }
+    if (drugMasterList.length) {
+        renderDrugCatFilter();
+        renderDrugList();
+    }
+    if (!visible) return;
+    setSaveBtn(false);
+}
+
 // ════════════════════════════════════════════════════════════════
 // INIT  (called by card-drugbook click in app.js)
 // ════════════════════════════════════════════════════════════════
@@ -72,7 +182,7 @@ function renderDrugCatFilter() {
     // collect unique categories
     var cats = [];
     drugMasterList.forEach(function(d) {
-        var c = (d.category || 'Uncategorised').trim();
+        var c = drugCatKey(d.category);
         if (cats.indexOf(c) === -1) cats.push(c);
     });
     cats.sort();
@@ -82,7 +192,7 @@ function renderDrugCatFilter() {
     // "All" pill
     var all = document.createElement('button');
     all.className   = 'drug-cat-pill' + (drugFilterCat === '' ? ' active' : '');
-    all.textContent = 'All (' + drugMasterList.length + ')';
+    all.textContent = drugTrRepl('drug.allPill', { N: drugMasterList.length });
     all.addEventListener('click', function() {
         drugFilterCat = '';
         renderDrugCatFilter();
@@ -92,12 +202,12 @@ function renderDrugCatFilter() {
 
     cats.forEach(function(c) {
         var count = drugMasterList.filter(function(d) {
-            return (d.category || 'Uncategorised').trim() === c;
+            return drugCatKey(d.category) === c;
         }).length;
 
         var pill = document.createElement('button');
         pill.className   = 'drug-cat-pill' + (drugFilterCat === c ? ' active' : '');
-        pill.textContent = c + ' (' + count + ')';
+        pill.textContent = drugCatDisplay(c) + ' (' + count + ')';
         pill.addEventListener('click', function() {
             drugFilterCat = c;
             renderDrugCatFilter();
@@ -118,7 +228,7 @@ function renderDrugList() {
 
     var filtered = drugMasterList.filter(function(d) {
         var catMatch = !drugFilterCat ||
-            (d.category || 'Uncategorised').trim() === drugFilterCat;
+            drugCatKey(d.category) === drugFilterCat;
         var qMatch   = !q ||
             (d.drug_name    || '').toLowerCase().indexOf(q) !== -1 ||
             (d.category     || '').toLowerCase().indexOf(q) !== -1 ||
@@ -133,8 +243,8 @@ function renderDrugList() {
         wrap.innerHTML =
             '<div class="drug-empty">' +
             (drugMasterList.length
-                ? '🔍 No drugs match your search.'
-                : '💊 No drugs yet. Click "+ Add New Drug" to begin.') +
+                ? drugTr('drug.noMatch')
+                : drugTr('drug.noDrugsYet')) +
             '</div>';
         return;
     }
@@ -143,7 +253,7 @@ function renderDrugList() {
     var groups = {};
     var order  = [];
     filtered.forEach(function(d) {
-        var c = (d.category || 'Uncategorised').trim();
+        var c = drugCatKey(d.category);
         if (!groups[c]) { groups[c] = []; order.push(c); }
         groups[c].push(d);
     });
@@ -154,7 +264,7 @@ function renderDrugList() {
         // group header
         var header = document.createElement('div');
         header.className = 'drug-group-header';
-        header.textContent = cat + ' (' + groups[cat].length + ')';
+        header.textContent = drugCatDisplay(cat) + ' (' + groups[cat].length + ')';
         wrap.appendChild(header);
 
         groups[cat].forEach(function(d) {
@@ -176,7 +286,7 @@ function renderDrugList() {
 
             // inactive badge
             var inactiveBadge = !d.is_active
-                ? '<span class="dli-inactive-badge">Inactive</span>'
+                ? '<span class="dli-inactive-badge">' + esc(drugTr('drug.inactive')) + '</span>'
                 : '';
 
             item.innerHTML =
@@ -185,7 +295,7 @@ function renderDrugList() {
 
             item.addEventListener('click', function() {
                 if (drugIsDirty) {
-                    if (!confirm('You have unsaved changes. Discard and switch drug?'))
+                    if (!confirm(drugTr('drug.confirmDiscardSwitch')))
                         return;
                 }
                 selectDrugItem(d.id);
@@ -228,7 +338,7 @@ function selectDrugItem(id) {
     var createdEl = g('deCreatedAt');
     if (createdEl) {
         createdEl.textContent = d.created_at
-            ? new Date(d.created_at).toLocaleString()
+            ? fmtDateTime(d.created_at)
             : '—';
     }
 
@@ -252,7 +362,7 @@ function selectDrugItem(id) {
 // ════════════════════════════════════════════════════════════════
 function newDrugItem() {
     if (drugIsDirty) {
-        if (!confirm('You have unsaved changes. Discard and add new?'))
+        if (!confirm(drugTr('drug.confirmDiscardNew')))
             return;
     }
 
@@ -278,16 +388,16 @@ function newDrugItem() {
 
     // clear read-only display fields
     var createdEl = g('deCreatedAt');
-    if (createdEl) createdEl.textContent = '(new)';
+    if (createdEl) createdEl.textContent = drugTr('drug.labelNew');
 
     var idEl = g('deDrugId');
-    if (idEl) idEl.textContent = '(new)';
+    if (idEl) idEl.textContent = drugTr('drug.labelNew');
 
     // active toggle defaults to true
     var activeToggle = g('deIsActive');
     if (activeToggle) activeToggle.checked = true;
 
-    updateDrugEditorTitle('New Drug');
+    updateDrugEditorTitle(drugTr('drug.newDrugTitle'));
     setDrugDirty(false);
 
     // hide delete button — nothing to delete yet
@@ -307,7 +417,7 @@ function saveDrugMaster() {
     var name   = (nameEl ? nameEl.value : '').trim();
 
     if (!name) {
-        alert('Drug name is required.');
+        alert(drugTr('drug.alertNameRequired'));
         if (nameEl) nameEl.focus();
         return;
     }
@@ -344,7 +454,7 @@ function saveDrugMaster() {
         setSaveBtn(false);
 
         if (r.error) {
-            alert('Save failed: ' + r.error.message);
+            alert(drugTrRepl('drug.alertSaveFailed', { MSG: r.error.message }));
             return;
         }
 
@@ -363,7 +473,7 @@ function saveDrugMaster() {
         // refresh display fields with returned data
         var createdEl = g('deCreatedAt');
         if (createdEl && saved.created_at) {
-            createdEl.textContent = new Date(saved.created_at).toLocaleString();
+            createdEl.textContent = fmtDateTime(saved.created_at);
         }
         var idEl = g('deDrugId');
         if (idEl) idEl.textContent = saved.id;
@@ -376,7 +486,7 @@ function saveDrugMaster() {
         var delBtn = g('btnDrugDelete');
         if (delBtn) delBtn.style.display = 'inline-block';
 
-        showDrugToast('✅ ' + esc(saved.drug_name) + ' saved successfully.');
+        showDrugToast(drugTrRepl('drug.toastSaved', { NAME: saved.drug_name }));
     });
 }
 
@@ -387,11 +497,9 @@ function deleteDrugMaster() {
     if (!drugSelectedId) return;
 
     var d     = drugMasterList.find(function(x) { return x.id === drugSelectedId; });
-    var label = d ? d.drug_name : 'this drug';
+    var label = d ? d.drug_name : drugTr('drug.thisDrug');
 
-    if (!confirm(
-        'Delete "' + label + '" from the masterlist?\n\n' +
-        'Existing prescription records will not be affected.'))
+    if (!confirm(drugTrRepl('drug.confirmDelete', { NAME: label })))
         return;
 
     SB.from('druglist')
@@ -399,7 +507,7 @@ function deleteDrugMaster() {
         .eq('id', drugSelectedId)
     .then(function(r) {
         if (r.error) {
-            alert('Delete failed: ' + r.error.message);
+            alert(drugTrRepl('drug.alertDeleteFailed', { MSG: r.error.message }));
             return;
         }
 
@@ -413,7 +521,7 @@ function deleteDrugMaster() {
         resetDrugEditor();
         renderDrugCatFilter();
         renderDrugList();
-        showDrugToast('🗑 Drug deleted.');
+        showDrugToast(drugTr('drug.toastDeleted'));
     });
 }
 
@@ -425,7 +533,7 @@ function toggleDrugActive(id, current) {
         .update({ is_active: !current })
         .eq('id', id)
     .then(function(r) {
-        if (r.error) { alert('Error: ' + r.error.message); return; }
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
 
         var idx = drugMasterList.findIndex(function(x) { return x.id === id; });
         if (idx !== -1) drugMasterList[idx].is_active = !current;
@@ -437,8 +545,10 @@ function toggleDrugActive(id, current) {
         }
 
         renderDrugList();
-        showDrugToast((!current ? '✅ Activated: ' : '⏸ Deactivated: ') +
-            (drugMasterList[idx] ? drugMasterList[idx].drug_name : ''));
+        var dName = drugMasterList[idx] ? drugMasterList[idx].drug_name : '';
+        showDrugToast(!current
+            ? drugTrRepl('drug.toastActivated', { NAME: dName })
+            : drugTrRepl('drug.toastDeactivated', { NAME: dName }));
     });
 }
 
@@ -455,7 +565,7 @@ function onDrugSearch() {
 // ════════════════════════════════════════════════════════════════
 function exportDrugCSV() {
     if (!drugMasterList.length) {
-        alert('No drugs to export.');
+        alert(drugTr('drug.alertNoExport'));
         return;
     }
 
@@ -495,7 +605,16 @@ function resetDrugEditor() {
 
 function updateDrugEditorTitle(name) {
     var el = g('drugEditorTitle');
-    if (el) el.textContent = name || 'Drug Editor';
+    var def = drugTr('drug.editorTitle');
+    if (el) {
+        if (name) {
+            el.textContent = name;
+            el.removeAttribute('data-i18n');
+        } else {
+            el.setAttribute('data-i18n', 'drug.editorTitle');
+            el.textContent = def;
+        }
+    }
 }
 
 function setDrugDirty(val) {
@@ -510,7 +629,7 @@ function setDrugListLoading(on) {
     if (on) {
         wrap.innerHTML =
             '<div class="drug-empty" style="color:#aaa;">' +
-            '⏳ Loading drug masterlist…</div>';
+            esc(drugTr('drug.loadingList')) + '</div>';
     }
 }
 
@@ -519,7 +638,7 @@ function showDrugListError(msg) {
     if (wrap) {
         wrap.innerHTML =
             '<div class="drug-empty" style="color:var(--danger);">' +
-            '⚠ Error loading drugs: ' + esc(msg) + '</div>';
+            esc(drugTrRepl('drug.loadError', { MSG: msg })) + '</div>';
     }
 }
 
@@ -527,7 +646,7 @@ function setSaveBtn(loading) {
     var btn = g('btnDrugSave');
     if (!btn) return;
     btn.disabled    = loading;
-    btn.textContent = loading ? 'Saving…' : '💾 Save Drug';
+    btn.textContent = loading ? drugTr('drug.btnSaving') : drugTr('drug.btnSave');
 }
 
 function showDrugToast(msg) {
@@ -569,3 +688,18 @@ function initDrugEditorListeners() {
     var si = g('drugSearchInput');
     if (si) si.addEventListener('input', onDrugSearch);
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof refreshDrugCategorySelect === 'function') refreshDrugCategorySelect();
+});
+
+document.addEventListener('app-lang-change', function() {
+    refreshDrugCategorySelect();
+    refreshDrugCategoryDatalist();
+    if (typeof refreshDrugBookI18n === 'function') refreshDrugBookI18n();
+    var dlModal = g('drugListModal');
+    if (dlModal && dlModal.style.display === 'block' &&
+        typeof refreshConOpenModalsI18n === 'function') {
+        refreshConOpenModalsI18n();
+    }
+});

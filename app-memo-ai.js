@@ -21,6 +21,58 @@ var MEMO_AI = MEMO_AI || {};
 
     function gmem(id) { return typeof g !== 'undefined' ? g(id) : document.getElementById(id); }
 
+    function memoTr(key) {
+        return typeof t === 'function' ? t(key) : key;
+    }
+
+    function memoTrRepl(key, pairs) {
+        var s = memoTr(key);
+        if (pairs) {
+            Object.keys(pairs).forEach(function(k) {
+                s = s.split('{' + k + '}').join(String(pairs[k]));
+            });
+        }
+        return s;
+    }
+
+    var MEMO_UNTITLED_LEGACY = 'Untitled memo';
+
+    function memoNormalizeStoredTitle(title) {
+        var tt = String(title || '').trim();
+        if (!tt || tt === MEMO_UNTITLED_LEGACY) return '';
+        return tt;
+    }
+
+    function isMemoUntitled(title) {
+        return !memoNormalizeStoredTitle(title);
+    }
+
+    function memoTitleForStore(title) {
+        return memoNormalizeStoredTitle(title);
+    }
+
+    function memoTitleForAi(title) {
+        var tt = memoNormalizeStoredTitle(title);
+        return tt || memoTr('memo.untitled');
+    }
+
+    function memoListSnip(c) {
+        if (!isMemoUntitled(c.title)) return String(c.title || '').trim();
+        var bodySnip = String(c.body || '').replace(/\s+/g, ' ').slice(0, 52);
+        if (bodySnip) return bodySnip;
+        return memoTr('memo.untitled');
+    }
+
+    function memoDuplicateTitle(srcTitle) {
+        if (isMemoUntitled(srcTitle)) return memoTr('memo.copyLabel');
+        return memoTrRepl('memo.copyPrefix', { TITLE: srcTitle });
+    }
+
+    function memoUpdatedLabel(iso) {
+        var ft = formatShortTime(iso);
+        return ft ? memoTrRepl('memo.updatedLabel', { TIME: ft }) : '';
+    }
+
     function isoNow() { return new Date().toISOString(); }
 
     function genId() {
@@ -30,7 +82,7 @@ var MEMO_AI = MEMO_AI || {};
     function clinicTitleMemo() {
         return (typeof currentClinicLabel === 'string' && currentClinicLabel.trim())
             ? currentClinicLabel.trim()
-            : 'Joyful Smile Clinic';
+            : memoTr('ai.clinicFallback');
     }
 
     function callerPayloadBase() {
@@ -61,22 +113,22 @@ var MEMO_AI = MEMO_AI || {};
         return [
             {
                 id: genId(),
-                title: 'End-of-shift checklist',
-                body: '- Restock pamphlets.\n- Check tomorrow’s first-chair setup.\n- Log handpiece steriliser cycle.',
+                title: memoTr('memo.starter1.title'),
+                body: memoTr('memo.starter1.body'),
                 updatedAt: isoNow(),
                 hue: '#e0ecff'
             },
             {
                 id: genId(),
-                title: 'Insurance wording (gentle)',
-                body: 'We’re happy to help with claim forms — please bring both your HKID copy and insurer card snapshot so we fill the payer box correctly.',
+                title: memoTr('memo.starter2.title'),
+                body: memoTr('memo.starter2.body'),
                 updatedAt: isoNow(),
                 hue: '#dcfcee'
             },
             {
                 id: genId(),
-                title: 'Patient running late?',
-                body: 'Hi team — ring once, offer reschedule after 15 minutes, note reason in diary comment.',
+                title: memoTr('memo.starter3.title'),
+                body: memoTr('memo.starter3.body'),
                 updatedAt: isoNow(),
                 hue: '#fff7d6'
             }
@@ -109,7 +161,7 @@ var MEMO_AI = MEMO_AI || {};
         var sy = c.stickyY;
         return {
             id: c.id || genId(),
-            title: String(c.title || '').trim() || 'Untitled memo',
+            title: memoTitleForStore(c.title),
             body: String(c.body || ''),
             updatedAt: c.updatedAt || isoNow(),
             hue: c.hue || '#f1f5f9',
@@ -133,7 +185,7 @@ var MEMO_AI = MEMO_AI || {};
     function demoMemoAssist(action, title, body, custom) {
         var t = (body || '').trim();
         if (!t && action !== 'shorten')
-            return '(Demo) Nothing to reshape yet — jot a memo first.';
+            return memoTr('memo.demo.noBody');
         var act = action || 'polish';
         if (act === 'shorten') {
             if (t.length <= 260) return t;
@@ -148,8 +200,10 @@ var MEMO_AI = MEMO_AI || {};
                 return (/^[•\-*]/.test(s) ? s : '• ' + s.replace(/^[-•]+\s*/, ''));
             }).filter(Boolean).join('\n');
         }
-        if (act === 'custom' && custom) return t + '\n\n[Tweak — demo] ' + custom;
-        return t + '\n\n[Demo polish] Link Supabase ai-patient-draft for full AI rewrite.';
+        if (act === 'custom' && custom) {
+            return t + '\n\n' + memoTrRepl('memo.demo.customSuffix', { TEXT: custom });
+        }
+        return t + '\n\n' + memoTr('memo.demo.polishSuffix');
     }
 
     function dashboardVisible() {
@@ -374,7 +428,9 @@ var MEMO_AI = MEMO_AI || {};
 
             var head = document.createElement('div');
             head.className = 'memo-sticky-draghead';
-            var tit = c.title === 'Untitled memo' ? '(untitled)' : c.title;
+            var tit = isMemoUntitled(c.title)
+                ? memoTr('memo.untitledShort')
+                : c.title;
             head.innerHTML =
                 '<span class="memo-sticky-drag-grip" aria-hidden="true"></span>' +
                 '<span class="memo-sticky-head-title">' +
@@ -384,7 +440,7 @@ var MEMO_AI = MEMO_AI || {};
             body.className = 'memo-sticky-mini-body';
             var preview =
                 String(c.body || '').replace(/\s+/g, ' ').trim().slice(0, 220) ||
-                '(empty memo)';
+                memoTr('memo.emptySticky');
             body.textContent = preview;
 
             note.appendChild(head);
@@ -407,7 +463,7 @@ var MEMO_AI = MEMO_AI || {};
 
     ns.refreshDashboardStickies = function() {
         var dock = gmem('memoStickyDock');
-        if (!dock || !dashboardVisible()) return;
+        if (!dock || !_cards.length) return;
         _stickyPaintAttempts = 0;
         requestAnimationFrame(function() {
             requestAnimationFrame(function() {
@@ -480,7 +536,7 @@ var MEMO_AI = MEMO_AI || {};
         var ix = _cards.findIndex(function(c) { return c.id === _selectedId; });
         if (ix < 0) return;
         var row = _cards[ix];
-        row.title = d.title.trim() || 'Untitled memo';
+        row.title = memoTitleForStore(d.title);
         row.body = d.body;
         row.updatedAt = isoNow();
         persist();
@@ -495,26 +551,25 @@ var MEMO_AI = MEMO_AI || {};
         _cards.forEach(function(c) {
             var sub = host.querySelector('[data-memo-sub="' + c.id + '"]');
             if (sub) {
-                sub.textContent = formatShortTime(c.updatedAt)
-                    ? 'Updated ' + formatShortTime(c.updatedAt)
-                    : '';
+                sub.textContent = memoUpdatedLabel(c.updatedAt);
             }
             var tit = host.querySelector('[data-memo-title="' + c.id + '"]');
-            if (tit) {
-                var snip =
-                    String(c.title || '').trim() ||
-                    String(c.body || '').replace(/\s+/g, ' ').slice(0, 52) ||
-                    '(empty)';
-                tit.textContent = snip;
-            }
+            if (tit) tit.textContent = memoListSnip(c);
         });
+    }
+
+    function memoUiLocale() {
+        if (typeof appUiLocale === 'function') return appUiLocale();
+        if (typeof appUiLang === 'string' && appUiLang.indexOf('Hant') >= 0) return 'zh-HK';
+        if (typeof appUiLang === 'string' && appUiLang.indexOf('CN') >= 0) return 'zh-CN';
+        return 'en-HK';
     }
 
     function formatShortTime(iso) {
         if (!iso) return '';
         try {
             var d = new Date(iso);
-            return d.toLocaleString('en-HK', {
+            return d.toLocaleString(memoUiLocale(), {
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',
@@ -535,18 +590,13 @@ var MEMO_AI = MEMO_AI || {};
             btn.type = 'button';
             btn.className = 'memo-picker' + (c.id === _selectedId ? ' memo-picker-active' : '');
             btn.setAttribute('data-memo-id', c.id);
-            var snip =
-                String(c.title || '').trim() ||
-                String(c.body || '').replace(/\s+/g, ' ').slice(0, 52) ||
-                '(empty)';
+            var snip = memoListSnip(c);
             btn.style.borderLeft = '4px solid ' + (c.hue || '#cbd5e1');
             btn.innerHTML =
                 '<span class="memo-picker-title" data-memo-title="' + c.id + '">' +
                 escHtml(snip) + '</span>' +
                 '<span class="memo-picker-meta" data-memo-sub="' + c.id + '">' +
-                (formatShortTime(c.updatedAt)
-                    ? 'Updated ' + formatShortTime(c.updatedAt)
-                    : '') +
+                (memoUpdatedLabel(c.updatedAt)) +
                 '</span>';
             btn.addEventListener('click', function() {
                 saveCurrentQuiet(true);
@@ -575,7 +625,7 @@ var MEMO_AI = MEMO_AI || {};
             if (bb) bb.value = '';
             return;
         }
-        if (tt) tt.value = row.title === 'Untitled memo' ? '' : row.title;
+        if (tt) tt.value = isMemoUntitled(row.title) ? '' : row.title;
         if (bb) bb.value = row.body;
         var hue = gmem('memoHue');
         if (hue) hue.value = row.hue || '#f1f5f9';
@@ -585,7 +635,7 @@ var MEMO_AI = MEMO_AI || {};
         saveCurrentQuiet(true);
         var c = normalizeCard({
             id: genId(),
-            title: 'Untitled memo',
+            title: '',
             body: '',
             hue: '#f8fafc',
             updatedAt: isoNow()
@@ -601,10 +651,10 @@ var MEMO_AI = MEMO_AI || {};
 
     ns.deleteMemo = function() {
         if (!_selectedId || _cards.length < 2) {
-            alert('Keep at least one memo card.');
+            alert(memoTr('memo.alert.keepOne'));
             return;
         }
-        if (!confirm('Delete this memo card?')) return;
+        if (!confirm(memoTr('memo.alert.confirmDelete'))) return;
         var id = _selectedId;
         _cards = _cards.filter(function(c) { return c.id !== id; });
         _selectedId = _cards[0].id;
@@ -620,7 +670,7 @@ var MEMO_AI = MEMO_AI || {};
         if (!src) return;
         var c = normalizeCard({
             id: genId(),
-            title: src.title === 'Untitled memo' ? 'Copy' : ('Copy · ' + src.title),
+            title: memoDuplicateTitle(src.title),
             body: src.body,
             hue: src.hue || '#f1f5f9'
         });
@@ -658,7 +708,7 @@ var MEMO_AI = MEMO_AI || {};
     ns.applyAiAssist = function() {
         if (typeof AIHELPER === 'undefined' ||
             typeof AIHELPER.invokeAiPipeline !== 'function') {
-            alert('AI helpers are still loading.');
+            alert(memoTr('memo.alert.aiLoading'));
             return;
         }
         saveCurrentQuiet(true);
@@ -669,7 +719,7 @@ var MEMO_AI = MEMO_AI || {};
         var customInst = custEl ? String(custEl.value || '').trim() : '';
         var st = gmem('memoAssistStatus');
 
-        var title = String(d.title || '').trim() || 'Untitled memo';
+        var title = memoTitleForAi(d.title);
         var body = String(d.body || '');
 
         var payload = flattenPayload({
@@ -705,9 +755,27 @@ var MEMO_AI = MEMO_AI || {};
                 setTimeout(maybeRefreshDashStickies, 500);
             })
             .catch(function() {
-                if (st) st.textContent = 'Could not run AI.';
+                if (st) st.textContent = memoTr('memo.status.aiFail');
                 if (btn) btn.disabled = false;
             });
     };
+
+    document.addEventListener('app-lang-change', function() {
+        if (typeof ns.refreshDashboardStickies === 'function') {
+            ns.refreshDashboardStickies();
+        }
+        if (_cards.length) {
+            if (gmem('memoCardList')) refreshListTexts();
+            renderList();
+        }
+        var memoSec = gmem('memoCardsSection');
+        if (memoSec && typeof applyI18nInRoot === 'function') {
+            applyI18nInRoot(memoSec);
+            var memoAiBar = memoSec.querySelector('.memo-ai-bar');
+            if (memoAiBar) applyI18nInRoot(memoAiBar);
+            var memoEditor = memoSec.querySelector('.memo-editor-pane');
+            if (memoEditor) applyI18nInRoot(memoEditor);
+        }
+    });
 
 })(MEMO_AI);

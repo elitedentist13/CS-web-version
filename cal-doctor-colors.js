@@ -14,6 +14,22 @@ var CalDoctorColors = (function () {
     var lastKeys = [];
     var cachedAppts = [];
     var cachedClinicId = null;
+    var filterStripCache = {};
+
+    function calTr(key) {
+        return typeof t === 'function' ? t(key) : key;
+    }
+
+    function calTrRepl(key, pairs) {
+        var s = calTr(key);
+        if (!pairs) return s;
+        for (var k in pairs) {
+            if (Object.prototype.hasOwnProperty.call(pairs, k)) {
+                s = s.split('{' + k + '}').join(String(pairs[k]));
+            }
+        }
+        return s;
+    }
 
     function clinicFilterId() {
         if (cachedClinicId != null && cachedClinicId !== '') return String(cachedClinicId);
@@ -174,7 +190,10 @@ var CalDoctorColors = (function () {
 
     /** Hidden tag in remarks when DB has no doctor columns yet: |@dr:CODE| */
     function parseDoctorTagFromRemarks(remarks) {
-        var m = String(remarks || '').match(/\|@dr:([^|]+)\|/i);
+        var s = String(remarks || '');
+        var m = s.match(/\|@dr:([^|]+)\|/i);
+        if (m) return String(m[1]).trim();
+        m = s.match(/@dr:([^|]+)/i);
         return m ? String(m[1]).trim() : '';
     }
 
@@ -234,7 +253,7 @@ var CalDoctorColors = (function () {
     }
 
     function labelForKey(key, fallback) {
-        if (key === '__unassigned__') return 'No doctor';
+        if (key === '__unassigned__') return calTr('cal.doctor.noDoctor');
         return fallback || key;
     }
 
@@ -335,9 +354,11 @@ var CalDoctorColors = (function () {
     function renderDoctorFilterStrip(containerId, appts) {
         var wrap = typeof g === 'function' ? g(containerId) : null;
         if (!wrap) return;
+        filterStripCache[containerId] = appts || [];
         var cid = typeof currentClinicId !== 'undefined' ? currentClinicId : null;
         var keysList = collectKeys(appts || [], cid);
         if (!keysList.length) {
+            filterStripCache[containerId] = [];
             wrap.innerHTML = '';
             wrap.style.display = 'none';
             wrap.setAttribute('hidden', 'hidden');
@@ -349,11 +370,13 @@ var CalDoctorColors = (function () {
         wrap.style.display = '';
         wrap.className = 'appt-dr-filter-host appt-dr-filter-bar';
         wrap.innerHTML =
-            '<span class="appt-dr-filter-label">Show doctors</span>' +
+            '<span class="appt-dr-filter-label">' + esc(calTr('appt.calShowDoctors')) + '</span>' +
             '<div class="cal-doctor-filter-actions">' +
-            '<button type="button" class="cal-filter-link" onclick="CalDoctorColors.showAllDoctors()">All</button>' +
+            '<button type="button" class="cal-filter-link" onclick="CalDoctorColors.showAllDoctors()">' +
+                esc(calTr('appt.calAll')) + '</button>' +
             '<span class="cal-filter-sep" aria-hidden="true">·</span>' +
-            '<button type="button" class="cal-filter-link" onclick="CalDoctorColors.hideAllDoctors()">None</button>' +
+            '<button type="button" class="cal-filter-link" onclick="CalDoctorColors.hideAllDoctors()">' +
+                esc(calTr('appt.calNone')) + '</button>' +
             '</div>' +
             '<div class="cal-doctor-legend appt-dr-filter-chips"></div>';
         var chips = wrap.querySelector('.appt-dr-filter-chips');
@@ -361,14 +384,14 @@ var CalDoctorColors = (function () {
             var sty = getStyle(item.key);
             var row = document.createElement('label');
             row.className = 'cal-legend-filter-item' + (isDoctorVisible(item.key) ? '' : ' cal-legend-off');
-            row.title = 'Show or hide ' + item.label + ' on this list';
+            row.title = calTrRepl('cal.doctor.filterListTitle', { NAME: item.label });
 
             var cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.className = 'cal-legend-check';
             cb.checked = isDoctorVisible(item.key);
             cb.dataset.key = encodeURIComponent(item.key);
-            cb.setAttribute('aria-label', 'Show ' + item.label);
+            cb.setAttribute('aria-label', calTrRepl('cal.doctor.filterShowAria', { NAME: item.label }));
             cb.addEventListener('change', function () {
                 setDoctorVisible(item.key, cb.checked);
             });
@@ -376,7 +399,7 @@ var CalDoctorColors = (function () {
             var colorBtn = document.createElement('button');
             colorBtn.type = 'button';
             colorBtn.className = 'cal-legend-color-btn';
-            colorBtn.title = 'Change colour for ' + item.label;
+            colorBtn.title = calTrRepl('cal.doctor.changeColourTitle', { NAME: item.label });
             colorBtn.innerHTML = '<span class="cal-legend-dot" style="background:' + sty.dot + ';"></span>';
             colorBtn.addEventListener('click', function (ev) {
                 ev.preventDefault();
@@ -403,7 +426,7 @@ var CalDoctorColors = (function () {
         lastKeys = collectKeys(cachedAppts, cachedClinicId);
         if (!lastKeys.length) {
             box.innerHTML =
-                '<span class="cal-legend-empty">No doctors — assign a doctor on appointments or configure staff.</span>';
+                '<span class="cal-legend-empty">' + esc(calTr('cal.doctor.legendEmpty')) + '</span>';
             return;
         }
         box.innerHTML = '';
@@ -411,14 +434,14 @@ var CalDoctorColors = (function () {
             var sty = getStyle(item.key);
             var row = document.createElement('label');
             row.className = 'cal-legend-filter-item' + (isDoctorVisible(item.key) ? '' : ' cal-legend-off');
-            row.title = 'Show or hide ' + item.label + ' on the calendar';
+            row.title = calTrRepl('cal.doctor.filterCalendarTitle', { NAME: item.label });
 
             var cb = document.createElement('input');
             cb.type = 'checkbox';
             cb.className = 'cal-legend-check';
             cb.checked = isDoctorVisible(item.key);
             cb.dataset.key = encodeURIComponent(item.key);
-            cb.setAttribute('aria-label', 'Show ' + item.label);
+            cb.setAttribute('aria-label', calTrRepl('cal.doctor.filterShowAria', { NAME: item.label }));
             cb.addEventListener('change', function () {
                 setDoctorVisible(item.key, cb.checked);
             });
@@ -426,7 +449,7 @@ var CalDoctorColors = (function () {
             var colorBtn = document.createElement('button');
             colorBtn.type = 'button';
             colorBtn.className = 'cal-legend-color-btn';
-            colorBtn.title = 'Change colour for ' + item.label;
+            colorBtn.title = calTrRepl('cal.doctor.changeColourTitle', { NAME: item.label });
             colorBtn.innerHTML = '<span class="cal-legend-dot" style="background:' + sty.dot + ';"></span>';
             colorBtn.addEventListener('click', function (ev) {
                 ev.preventDefault();
@@ -517,7 +540,7 @@ var CalDoctorColors = (function () {
         load();
         var keys = collectKeys(cachedAppts, cachedClinicId);
         if (!keys.length) {
-            return '<p class="cal-colors-empty">Configure doctors under Configuration, or assign a doctor when booking.</p>';
+            return '<p class="cal-colors-empty">' + esc(calTr('cal.doctor.colorsEmpty')) + '</p>';
         }
         var html = '';
         keys.forEach(function (item) {
@@ -542,12 +565,15 @@ var CalDoctorColors = (function () {
                 '<div class="cal-colors-modal-backdrop" onclick="CalDoctorColors.closeColorModal()"></div>' +
                 '<div class="cal-colors-modal-card">' +
                 '<div class="cal-colors-modal-head">' +
-                '<strong>Doctor colours</strong>' +
-                '<button type="button" class="cal-colors-close" onclick="CalDoctorColors.closeColorModal()">×</button>' +
+                '<strong>' + esc(calTr('cal.doctor.modalTitle')) + '</strong>' +
+                '<button type="button" class="cal-colors-close" ' +
+                'data-i18n-aria-label="common.closeAria" aria-label="' + esc(calTr('common.closeAria')) + '" ' +
+                'onclick="CalDoctorColors.closeColorModal()">×</button>' +
                 '</div>' +
-                '<p class="cal-colors-hint">Each doctor gets a colour on the weekly and monthly calendars (like Google Calendar).</p>' +
+                '<p class="cal-colors-hint">' + esc(calTr('cal.doctor.modalHint')) + '</p>' +
                 '<div id="calDoctorColorsModalBody"></div>' +
-                '<button type="button" class="cal-colors-done" onclick="CalDoctorColors.closeColorModal()">Done</button>' +
+                '<button type="button" class="cal-colors-done" onclick="CalDoctorColors.closeColorModal()">' +
+                    esc(calTr('cal.doctor.done')) + '</button>' +
                 '</div>';
             document.body.appendChild(modal);
             modal = document.getElementById('calDoctorColorsModal');
@@ -577,13 +603,50 @@ var CalDoctorColors = (function () {
     function monthPillHtml(a) {
         var sty = getStyleForAppt(a);
         var dr = a.doctor_code || a.doctor_name || parseDoctorTagFromRemarks(a.remarks) || '';
+        var walkBadge = !a.patient_id
+            ? '<span class="gcal-month-walkin">' + esc(calTr('appt.badge.newWalkin')) + '</span> '
+            : '';
         return '<div class="gcal-month-pill" data-id="' + esc(a.id) + '" data-dr-color="' + esc(sty.color) + '" ' +
             'style="border-left:4px solid ' + sty.borderColor + ' !important;background:' + sty.background + ' !important;">' +
             '<span class="gcal-month-pill-time">' + esc(fmt12(a.start_time)) + '</span> ' +
-            '<span class="gcal-month-pill-title">' + esc(a.patient_name || '—') + '</span>' +
+            walkBadge +
+            '<span class="gcal-month-pill-title">' + esc(a.patient_name || calTr('appt.cal.cardWalkin')) + '</span>' +
             (dr ? '<span class="gcal-month-pill-dr" style="color:' + sty.color + ';">' + esc(dr) + '</span>' : '') +
             '</div>';
     }
+
+    function refreshCalDoctorColorsI18n() {
+        renderLegend(cachedAppts, cachedClinicId);
+        var cid;
+        for (cid in filterStripCache) {
+            if (!Object.prototype.hasOwnProperty.call(filterStripCache, cid)) continue;
+            var bar = typeof g === 'function' ? g(cid) : null;
+            if (bar && !bar.hasAttribute('hidden')) {
+                renderDoctorFilterStrip(cid, filterStripCache[cid]);
+            }
+        }
+        var modal = document.getElementById('calDoctorColorsModal');
+        if (modal && modal.classList.contains('open')) {
+            var head = modal.querySelector('.cal-colors-modal-head strong');
+            if (head) head.textContent = calTr('cal.doctor.modalTitle');
+            var hint = modal.querySelector('.cal-colors-hint');
+            if (hint) hint.textContent = calTr('cal.doctor.modalHint');
+            var doneBtn = modal.querySelector('.cal-colors-done');
+            if (doneBtn) doneBtn.textContent = calTr('cal.doctor.done');
+            var closeBtn = modal.querySelector('.cal-colors-close');
+            if (closeBtn) closeBtn.setAttribute('aria-label', calTr('common.closeAria'));
+            var body = document.getElementById('calDoctorColorsModalBody');
+            if (body) {
+                body.innerHTML = buildColorRowsHtml();
+                body._calColorPanelWired = false;
+                wireColorPanel(body);
+            }
+        }
+    }
+
+    document.addEventListener('app-lang-change', function () {
+        refreshCalDoctorColorsI18n();
+    });
 
     return {
         load: load,
@@ -612,6 +675,7 @@ var CalDoctorColors = (function () {
         openSettings: openSettings,
         openColorModal: openColorModal,
         closeColorModal: closeColorModal,
-        monthPillHtml: monthPillHtml
+        monthPillHtml: monthPillHtml,
+        refreshI18n: refreshCalDoctorColorsI18n
     };
 })();

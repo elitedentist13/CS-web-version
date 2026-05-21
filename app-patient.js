@@ -6,6 +6,85 @@ var editPatientId = null;
 /** Snapshot of patients.clinic_tag when edit modal opened (for refilling dropdown after clinics load). */
 var editPatientLoadedClinicTag = '';
 var selPatientClinicTag = null;
+/** Last fetched patient list (for i18n re-render). */
+var patientListCache = [];
+/** Patient row shown in treatment-history modal (language refresh). */
+var _patientDetailsPatient = null;
+
+function patTr(key) {
+    return typeof t === 'function' ? t(key) : key;
+}
+
+function patTrRepl(key, pairs) {
+    var s = patTr(key);
+    if (!pairs) return s;
+    for (var k in pairs) {
+        if (Object.prototype.hasOwnProperty.call(pairs, k)) {
+            s = s.split('{' + k + '}').join(String(pairs[k]));
+        }
+    }
+    return s;
+}
+
+function refreshPatientSexSelects() {
+    ['sex', 'edit_sex'].forEach(function(id) {
+        var sel = g(id);
+        if (!sel || !sel.options.length) return;
+        var cur = sel.value;
+        if (sel.options[0]) sel.options[0].textContent = patTr('patient.form.select');
+        var mOpt = sel.querySelector('option[value="M"]');
+        var fOpt = sel.querySelector('option[value="F"]');
+        if (mOpt) mOpt.textContent = patTr('patient.form.sexMale');
+        if (fOpt) fOpt.textContent = patTr('patient.form.sexFemale');
+        sel.value = cur;
+    });
+}
+
+function refreshPatientDirI18n() {
+    if (typeof refreshPatientSexSelects === 'function') refreshPatientSexSelects();
+    if (patientListCache.length && typeof renderPatients === 'function') {
+        renderPatients(patientListCache);
+    }
+    var sec = g('patientSection');
+    if (sec && typeof applyI18nInRoot === 'function') {
+        if (patientListCache.length || sec.style.display !== 'none') {
+            applyI18nInRoot(sec);
+        }
+    }
+    ['addPatientModal', 'editPatientModal', 'patientDetailsModal'].forEach(function(mid) {
+        var mod = g(mid);
+        if (!mod) return;
+        if (mod.style.display === 'block' && typeof applyI18nInRoot === 'function') {
+            applyI18nInRoot(mod);
+        }
+    });
+    refreshPatientSexSelects();
+    var addModal = g('addPatientModal');
+    if (addModal && addModal.style.display === 'block') {
+        var prevAddClinic = addPatientSelectedClinicId();
+        fillAddPatientClinicSelect();
+        if (prevAddClinic) {
+            var addSel = g('addPatientClinicSelect');
+            if (addSel) addSel.value = prevAddClinic;
+        }
+        if (typeof updateAddPatientNoAvailabilityUI === 'function') {
+            updateAddPatientNoAvailabilityUI();
+        }
+    }
+    var editModal = g('editPatientModal');
+    if (editModal && editModal.style.display === 'block') {
+        fillEditPatientClinicSelect(editPatientLoadedClinicTag);
+        setEditPatientModalForRole();
+    }
+    if (_patientDetailsPatient && selPatientId) {
+        refreshPatientDetailsModalHeader(_patientDetailsPatient);
+        refreshPatientDetailsBulkSection();
+    }
+    var detModal = g('patientDetailsModal');
+    if (detModal && detModal.style.display === 'block' && selPatientId) {
+        if (typeof loadTreatments === 'function') loadTreatments(selPatientId);
+    }
+}
 
 // ════════════════════════════════════════════════════════════════
 // PATIENT NUMBER — one shared sequence (010000+) for all clinics;
@@ -98,14 +177,16 @@ function fillAddPatientClinicSelect() {
     sel.innerHTML = '';
 
     if (typeof APP_CLINICS === 'undefined' || !APP_CLINICS.length) {
-        sel.innerHTML = '<option value="">(No clinics)</option>';
+        sel.innerHTML = '<option value="">' + esc(patTr('patient.select.noClinics')) + '</option>';
         return;
     }
 
     APP_CLINICS.forEach(function(c) {
         var label =
             (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
-            (c.english_name || c.chinese_name || 'Clinic');
+            (c.english_name || c.chinese_name || (typeof clinicDisplayFallback === 'function'
+                ? clinicDisplayFallback()
+                : patTr('common.clinic')));
         var o = document.createElement('option');
         o.value = String(c.id);
         o.textContent = label;
@@ -148,14 +229,16 @@ function fillEditPatientClinicSelect(storedClinicTag) {
     sel.innerHTML = '';
 
     if (typeof APP_CLINICS === 'undefined' || !APP_CLINICS.length) {
-        sel.innerHTML = '<option value="">(No clinics)</option>';
+        sel.innerHTML = '<option value="">' + esc(patTr('patient.select.noClinics')) + '</option>';
         return;
     }
 
     APP_CLINICS.forEach(function(c) {
         var label =
             (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
-            (c.english_name || c.chinese_name || 'Clinic');
+            (c.english_name || c.chinese_name || (typeof clinicDisplayFallback === 'function'
+                ? clinicDisplayFallback()
+                : patTr('common.clinic')));
         var o = document.createElement('option');
         o.value = String(c.id);
         o.textContent = label;
@@ -207,7 +290,7 @@ function updateAddPatientNoAvailabilityUI() {
     var norm = normalizePatientNoInput(inp.value);
     if (!norm) {
         stat.textContent =
-            inp.value.trim() ? 'Use 010000–999999 (digits only).' : '';
+            inp.value.trim() ? patTr('patient.noStatusRange') : '';
         stat.style.color = '#64748b';
         return;
     }
@@ -216,8 +299,8 @@ function updateAddPatientNoAvailabilityUI() {
         if (!stat) return;
         var taken = !r.error && r.data && r.data.length > 0;
         stat.textContent = taken
-            ? 'Already in use (same number cannot exist twice)'
-            : 'Available';
+            ? patTr('patient.noStatusTaken')
+            : patTr('patient.noStatusAvailable');
         stat.style.color = taken ? 'var(--danger)' : '#15803d';
     });
 }
@@ -254,6 +337,9 @@ function openAddPatient() {
     if (st) { st.textContent = ''; st.style.color = '#64748b'; }
     fillAddPatientClinicSelect();
     openModal('addPatientModal');
+    var am = g('addPatientModal');
+    if (am && typeof applyI18nInRoot === 'function') applyI18nInRoot(am);
+    refreshPatientSexSelects();
     genPatientNo(function(no) {
         if (no) {
             sv('preview_patientNo', no);
@@ -261,8 +347,7 @@ function openAddPatient() {
         } else {
             sv('preview_patientNo', '');
             if (st) {
-                st.textContent =
-                    'No free patient numbers below 999999 (shared across all clinics).';
+                st.textContent = patTr('patient.noStatusExhausted');
                 st.style.color = 'var(--danger)';
             }
         }
@@ -277,12 +362,12 @@ function submitAddPatient(e) {
 
     var no = normalizePatientNoInput(g('preview_patientNo').value);
     if (!no) {
-        alert('Enter a valid patient number from 010000 to 999999 (6 digits).');
+        alert(patTr('patient.alertInvalidNo'));
         return;
     }
 
     if (!addPatientSelectedClinicId()) {
-        alert('Please select a clinic.');
+        alert(patTr('patient.alertSelectClinic'));
         return;
     }
 
@@ -290,11 +375,11 @@ function submitAddPatient(e) {
 
     patientNoDupQuery(no).then(function(dupr) {
         if (dupr.error) {
-            alert('Could not verify patient number: ' + dupr.error.message);
+            alert(patTrRepl('patient.alertVerifyNoFail', { MSG: dupr.error.message }));
             return;
         }
         if (dupr.data && dupr.data.length) {
-            alert('This patient number is already in use.');
+            alert(patTr('patient.alertNoInUse'));
             updateAddPatientNoAvailabilityUI();
             return;
         }
@@ -317,7 +402,7 @@ function submitAddPatient(e) {
         if (ctAdd) payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
         SB.from('patients').insert([payload]).select('id,patient_no,full_name,chinese_name')
         .then(function(r) {
-            if (r.error) { alert('Error: '+r.error.message); return; }
+            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
             var row = r.data && r.data[0] ? r.data[0] : null;
             var linkedToday = row &&
                 typeof linkTodayApptAfterPatientRegistration === 'function' &&
@@ -326,7 +411,7 @@ function submitAddPatient(e) {
             g('patientForm').reset();
             fetchPatients();
             if (!linkedToday) {
-                alert('Patient registered!  No: '+no);
+                alert(patTrRepl('patient.alertRegistered', { NO: no }));
             }
         });
     });
@@ -348,11 +433,12 @@ function fetchPatients() {
 }
 
 function renderPatients(list) {
+    patientListCache = list || [];
     var tb = g('patientTableBody');
     if (!list.length) {
         tb.innerHTML =
             '<tr><td colspan="7" style="text-align:center;' +
-            'padding:30px;color:#999;">No patients found.</td></tr>';
+            'padding:30px;color:#999;">' + esc(patTr('patient.empty')) + '</td></tr>';
         return;
     }
     tb.innerHTML = '';
@@ -397,18 +483,18 @@ function renderPatients(list) {
             '<td style="white-space:nowrap;">'+dob+'</td>' +
             '<td>'+esc(p.hkid||'--')+'</td>' +
             '<td><small style="color:'+(p.medical_alerts?'var(--danger)':'#bbb')+';">' +
-                esc(p.medical_alerts||'None')+'</small></td>' +
+                esc(p.medical_alerts||patTr('patient.alertsNone'))+'</small></td>' +
             '<td>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
                     '<button class="btn-notes" ' +
                     'style="background:#f0f0f0;border:1px solid #ccc;' +
                     'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
-                    'data-id="'+p.id+'">📋 Notes</button>' +
+                    'data-id="'+p.id+'">' + esc(patTr('patient.btnNotes')) + '</button>' +
                     '<button class="btn-editp" ' +
                     'style="background:var(--primary);color:white;border:none;' +
                     'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
                     'data-id="'+p.id+'">' +
-                    (currentRole === 'nurse' ? '🏷 Clinic' : '✏️ Edit') +
+                    esc(currentRole === 'nurse' ? patTr('patient.btnClinicTag') : patTr('patient.btnEdit')) +
                     '</button>' +
                 '</div>' +
             '</td>';
@@ -440,9 +526,9 @@ function setEditPatientModalForRole() {
     var delBtn = g('edit_deleteBtn');
     var form = g('editPatientForm');
 
-    if (title) title.textContent = nurse ? '🏷 Patient clinic / branch' : '✏️ Edit Patient';
+    if (title) title.textContent = nurse ? patTr('patient.nurseEditTitle') : patTr('patient.editTitle');
     if (hint) hint.style.display = nurse ? 'block' : 'none';
-    if (saveBtn) saveBtn.textContent = nurse ? '💾 Save clinic tag' : '💾 Save Changes';
+    if (saveBtn) saveBtn.textContent = nurse ? patTr('patient.nurseSaveBtn') : patTr('patient.editSaveBtn');
     if (delBtn) delBtn.style.display = nurse ? 'none' : '';
 
     if (form) form.noValidate = nurse;
@@ -478,7 +564,7 @@ function openEditPatient(id) {
     editPatientId = id;
     SB.from('patients').select('*').eq('id',id).single()
     .then(function(r) {
-        if (r.error||!r.data) { alert('Could not load patient.'); return; }
+        if (r.error||!r.data) { alert(patTr('patient.alertCouldNotLoad')); return; }
         var p = r.data;
         sv('edit_patientNo',   p.patient_no    ||'');
         sv('edit_fullName',    p.full_name      ||'');
@@ -497,6 +583,9 @@ function openEditPatient(id) {
         fillEditPatientClinicSelect(editPatientLoadedClinicTag);
         setEditPatientModalForRole();
         openModal('editPatientModal');
+        var em = g('editPatientModal');
+        if (em && typeof applyI18nInRoot === 'function') applyI18nInRoot(em);
+        refreshPatientSexSelects();
     });
 }
 
@@ -504,7 +593,7 @@ function submitEditPatient(e) {
     e.preventDefault();
     if (!editPatientId) return;
     if (!editPatientSelectedClinicId()) {
-        alert('Please select a clinic.');
+        alert(patTr('patient.alertSelectClinic'));
         return;
     }
     var ctEdit = editPatientClinicTagFromSelect();
@@ -532,66 +621,92 @@ function submitEditPatient(e) {
     if (!nurse && ctEdit) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
     SB.from('patients').update(payload).eq('id',editPatientId)
     .then(function(r) {
-        if (r.error) { alert('Error: '+r.error.message); return; }
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         closeModal('editPatientModal');
         fetchPatients();
         if (typeof refreshApptListsAfterPatientEdit === 'function') {
             refreshApptListsAfterPatientEdit();
         }
-        alert(nurse ? 'Clinic tag saved.' : 'Patient updated!');
+        alert(nurse ? patTr('patient.alertClinicTagSaved') : patTr('patient.alertUpdated'));
     });
 }
 
 function deletePatient() {
-    if (currentRole==='nurse') { alert('Permission denied.'); return; }
+    if (currentRole==='nurse') { alert(patTr('patient.alertPermissionDenied')); return; }
     if (!editPatientId) return;
-    var name = g('edit_fullName').value  || 'this patient';
+    var name = g('edit_fullName').value  || patTr('patient.thisPatient');
     var no   = g('edit_patientNo').value || '';
-    if (!confirm('Delete Patient #'+no+' "'+name+'"?\nCannot be undone.')) return;
+    if (!confirm(patTrRepl('patient.confirmDelete', { NO: no, NAME: name }))) return;
     SB.from('treatments').delete().eq('patient_id',editPatientId)
     .then(function() {
         return SB.from('patients').delete().eq('id',editPatientId);
     })
     .then(function(r) {
-        if (r.error) { alert('Error: '+r.error.message); return; }
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         closeModal('editPatientModal');
         fetchPatients();
-        alert('Patient deleted.');
+        alert(patTr('patient.alertDeleted'));
     });
 }
 
 // ════════════════════════════════════════════════════════════════
 // TREATMENT HISTORY
 // ════════════════════════════════════════════════════════════════
+function patientDetailsNameLine(p) {
+    if (!p) return '—';
+    var en = String(p.full_name || '').trim();
+    var cn = String(p.chinese_name || '').trim();
+    if (en && cn) return en + '  ' + cn;
+    return en || cn || '—';
+}
+
+function refreshPatientDetailsModalHeader(p) {
+    p = p || _patientDetailsPatient;
+    if (!p) return;
+    var noEl = g('det_patientNo');
+    var nameEl = g('det_patientName');
+    var alertsEl = g('det_alerts');
+    if (noEl) noEl.textContent = p.patient_no ? '# ' + p.patient_no : '';
+    if (nameEl) nameEl.textContent = patientDetailsNameLine(p);
+    if (alertsEl) alertsEl.textContent = p.medical_alerts || '';
+}
+
+function refreshPatientDetailsBulkSection() {
+    var bs = g('bulkSec');
+    if (!bs) return;
+    if (currentRole !== 'nurse') {
+        bs.innerHTML =
+            '<h3 style="margin-top:0;font-size:16px;">' +
+            esc(patTr('patient.history.addNoteTitle')) + '</h3>' +
+            '<textarea id="bulkNoteInput" rows="3" ' +
+            'placeholder="' + esc(patTr('patient.history.addNotePh')) + '" ' +
+            'style="width:100%;padding:10px;border:1px solid #ddd;' +
+            'border-radius:6px;font-size:14px;box-sizing:border-box;' +
+            'resize:vertical;"></textarea>' +
+            '<button class="btn-add" id="noteSaveBtn" ' +
+            'style="margin-top:10px;">' + esc(patTr('patient.history.addBtn')) + '</button>';
+        var saveBtn = g('noteSaveBtn');
+        if (saveBtn) saveBtn.addEventListener('click', saveNote);
+    } else {
+        bs.innerHTML =
+            '<p style="color:#888;font-style:italic;margin:0;">' +
+            esc(patTr('patient.history.viewingMode')) + '</p>';
+    }
+}
+
 function viewHistory(pid) {
     selPatientId = pid;
     SB.from('patients').select('*').eq('id',pid).single()
     .then(function(r) {
-        if (r.error||!r.data) { alert('Could not load patient.'); return; }
+        if (r.error||!r.data) { alert(patTr('patient.alertCouldNotLoad')); return; }
         var p = r.data;
+        _patientDetailsPatient = p;
         selPatientClinicTag = p[PATIENT_CLINIC_TAG_FIELD] ||
             (typeof currentClinicCodeForTagging === 'function'
                 ? currentClinicCodeForTagging()
                 : '');
-        g('det_patientNo').textContent   = p.patient_no ? '# '+p.patient_no : '';
-        g('det_patientName').textContent = p.full_name+(p.chinese_name?'  '+p.chinese_name:'');
-        g('det_alerts').textContent      = p.medical_alerts||'';
-        var bs = g('bulkSec');
-        if (currentRole!=='nurse') {
-            bs.innerHTML =
-                '<h3 style="margin-top:0;font-size:16px;">Add Clinical Note</h3>' +
-                '<textarea id="bulkNoteInput" rows="3" ' +
-                'placeholder="Enter treatment details..." ' +
-                'style="width:100%;padding:10px;border:1px solid #ddd;' +
-                'border-radius:6px;font-size:14px;box-sizing:border-box;' +
-                'resize:vertical;"></textarea>' +
-                '<button class="btn-add" id="noteSaveBtn" ' +
-                'style="margin-top:10px;">Add to History</button>';
-            g('noteSaveBtn').addEventListener('click', saveNote);
-        } else {
-            bs.innerHTML =
-                '<p style="color:#888;font-style:italic;margin:0;">Viewing Mode</p>';
-        }
+        refreshPatientDetailsModalHeader(p);
+        refreshPatientDetailsBulkSection();
         loadTreatments(pid);
         openModal('patientDetailsModal');
     });
@@ -599,14 +714,14 @@ function viewHistory(pid) {
 
 function loadTreatments(pid) {
     var tl = g('treatmentTimeline');
-    tl.innerHTML = '<p style="color:#999;">Loading...</p>';
+    tl.innerHTML = '<p style="color:#999;">' + esc(patTr('patient.history.loading')) + '</p>';
     SB.from('treatments').select('*')
         .eq('patient_id',pid)
         .order('created_at',{ascending:false})
     .then(function(r) {
         if (r.error||!r.data||!r.data.length) {
             tl.innerHTML =
-                '<p style="color:#999;margin:0;">No treatment history yet.</p>';
+                '<p style="color:#999;margin:0;">' + esc(patTr('patient.history.empty')) + '</p>';
             return;
         }
         var todayStr = new Date().toDateString();
@@ -622,10 +737,10 @@ function loadTreatments(pid) {
                       'style="position:absolute;right:12px;top:12px;' +
                       'background:var(--primary);color:white;border:none;' +
                       'padding:4px 10px;border-radius:4px;cursor:pointer;' +
-                      'font-size:12px;">Edit</button>'
+                      'font-size:12px;">' + esc(patTr('patient.history.editBtn')) + '</button>'
                     : '') +
                 '<small style="color:#aaa;">' +
-                    new Date(t.created_at).toLocaleString() +
+                    esc(fmtDateTime(t.created_at)) +
                 '</small>' +
                 '<div id="nt-'+t.id+'" ' +
                 'style="white-space:pre-wrap;margin-top:6px;font-size:14px;">' +
@@ -645,7 +760,7 @@ function saveNote() {
     var inp = g('bulkNoteInput');
     if (!inp) return;
     var note = inp.value.trim();
-    if (!note) { alert('Please enter a note.'); return; }
+    if (!note) { alert(patTr('patient.alertEnterNote')); return; }
     var ins = { patient_id: selPatientId, notes: note };
     var tagIns = selPatientClinicTag ||
         (typeof currentClinicCodeForTagging === 'function'
@@ -655,7 +770,7 @@ function saveNote() {
     SB.from('treatments')
         .insert([ins])
     .then(function(r) {
-        if (r.error) { alert('Error: '+r.error.message); return; }
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         inp.value = '';
         loadTreatments(selPatientId);
     });
@@ -673,21 +788,24 @@ function editNote(nid) {
         '<div style="display:flex;justify-content:space-between;margin-top:8px;">' +
             '<button id="del-'+nid+'" ' +
             'style="background:var(--danger);color:white;border:none;' +
-            'padding:6px 14px;border-radius:4px;cursor:pointer;">Delete</button>' +
+            'padding:6px 14px;border-radius:4px;cursor:pointer;">' +
+            esc(patTr('patient.history.deleteBtn')) + '</button>' +
             '<div style="display:flex;gap:8px;">' +
                 '<button id="can-'+nid+'" ' +
                 'style="background:var(--gray);color:white;border:none;' +
-                'padding:6px 14px;border-radius:4px;cursor:pointer;">Cancel</button>' +
+                'padding:6px 14px;border-radius:4px;cursor:pointer;">' +
+                esc(patTr('patient.history.cancelBtn')) + '</button>' +
                 '<button id="sav-'+nid+'" ' +
                 'style="background:var(--success);color:white;border:none;' +
-                'padding:6px 14px;border-radius:4px;cursor:pointer;">Save</button>' +
+                'padding:6px 14px;border-radius:4px;cursor:pointer;">' +
+                esc(patTr('patient.history.saveBtn')) + '</button>' +
             '</div>' +
         '</div>';
     g('del-'+nid).addEventListener('click', function() {
-        if (!confirm('Delete this note?')) return;
+        if (!confirm(patTr('patient.confirmDeleteNote'))) return;
         SB.from('treatments').delete().eq('id',nid)
         .then(function(r) {
-            if (r.error) { alert('Error: '+r.error.message); return; }
+            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
             loadTreatments(selPatientId);
         });
     });
@@ -698,8 +816,12 @@ function editNote(nid) {
         var v = g('ei-'+nid).value.trim();
         SB.from('treatments').update({notes:v}).eq('id',nid)
         .then(function(r) {
-            if (r.error) { alert('Error: '+r.error.message); return; }
+            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
             loadTreatments(selPatientId);
         });
     });
 }
+
+document.addEventListener('app-lang-change', function() {
+    if (typeof refreshPatientDirI18n === 'function') refreshPatientDirI18n();
+});

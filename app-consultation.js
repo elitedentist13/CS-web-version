@@ -35,6 +35,83 @@ var conFormsDocsCache = {};
 
 var RX_COMBO_LISTS_KEY = 'rx_saved_combo_lists_v1';
 
+function conUiLocale() {
+    if (typeof appUiLocale === 'function') return appUiLocale();
+    return (typeof APP_LOCALE !== 'undefined' && APP_LOCALE) ? APP_LOCALE : 'en-HK';
+}
+
+function conTr(key) {
+    return (typeof t === 'function') ? t(key) : key;
+}
+function conTrRepl(key, pairs) {
+    var s = conTr(key);
+    if (pairs) {
+        for (var p in pairs) {
+            if (Object.prototype.hasOwnProperty.call(pairs, p)) {
+                s = s.replace(new RegExp('\\{' + p + '\\}', 'g'), pairs[p]);
+            }
+        }
+    }
+    return s;
+}
+
+function conDrugCatLabel(cat) {
+    if (typeof drugCategoryLabel === 'function') return drugCategoryLabel(cat);
+    var s = String(cat || '').trim();
+    return s || conTr('con.rx.categoryOther');
+}
+
+function refreshConPatientBannerI18n(p) {
+    if (!p) return;
+
+    if (g('conBannerToday') && typeof fmtNowDateTimeHK === 'function') {
+        g('conBannerToday').textContent = fmtNowDateTimeHK();
+    }
+    if (g('conBannerDob')) {
+        g('conBannerDob').textContent = p.dob ? formatDobAge(p.dob) : '-';
+    }
+    if (g('conBannerAlert')) {
+        g('conBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
+        g('conBannerAlert').style.color = p.medical_alerts ? 'var(--danger)' : '#999';
+    }
+
+    var sexWrap = g('conBannerSexWrap');
+    if (sexWrap && typeof patientSexSymbolHtml === 'function') {
+        var sexHtml = patientSexSymbolHtml(p.sex, { banner: true });
+        var kind = typeof patientSexKind === 'function'
+            ? patientSexKind(p.sex)
+            : 'unknown';
+        if (kind === 'unknown') {
+            sexWrap.style.display = 'none';
+            sexWrap.innerHTML = esc(conTr('con.banner.sexLabel')) + '&nbsp;';
+        } else {
+            sexWrap.style.display = '';
+            sexWrap.innerHTML = esc(conTr('con.banner.sexLabel')) + '&nbsp;' + sexHtml;
+        }
+    }
+
+    if (g('conMedBannerDob')) {
+        g('conMedBannerDob').textContent = p.dob ? formatDobAge(p.dob) : '-';
+    }
+    if (g('conMedBannerAlert')) {
+        g('conMedBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
+        g('conMedBannerAlert').style.color = p.medical_alerts ? 'var(--danger)' : '#999';
+    }
+
+    if (g('conDenBannerDob')) {
+        g('conDenBannerDob').textContent = p.dob ? formatDobAge(p.dob) : '-';
+    }
+    if (g('conDenBannerAlert')) {
+        g('conDenBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
+        g('conDenBannerAlert').style.color = p.medical_alerts ? 'var(--danger)' : '#999';
+    }
+}
+
+/** Print label field — EN/ZH keys share same text in every UI locale. */
+function conLblPrint(isZh, slug) {
+    return conTr('con.rx.printLbl.' + slug + (isZh ? '.zh' : '.en'));
+}
+
 /** Dropdown value for a line restored from saved history/list but not yet tied to catalogue id */
 var RX_SNAPSHOT_SELECT = '__RX_SNAPSHOT__';
 // ════════════════════════════════════════════════════════════════
@@ -64,6 +141,8 @@ function initConsultation() {
 
     setConBillBtn(false);
     loadConsultationDoctors();
+    refreshConFormsFontSizeSelect();
+    refreshConFormsToolbarI18n();
 }
 
 function setConBillBtn(enabled) {
@@ -94,7 +173,10 @@ function openBillFromConsultation() {
 
 function loadConsultationDoctors() {
     var sel = g('conDoctorSelect');
-    if (sel) sel.innerHTML = '<option value="">Loading doctors...</option>';
+    var preserveId = sel && sel.value ? sel.value : '';
+    if (sel) {
+        sel.innerHTML = '<option value="">' + esc(conTr('common.loadingDoctors')) + '</option>';
+    }
 
     // Prefer globally loaded doctor list from login if present
     var globalDocs = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS)) ? APP_DOCTORS : null;
@@ -111,13 +193,13 @@ function loadConsultationDoctors() {
         docs.forEach(function (d) { conDoctorsById[d.id] = d; });
         if (!sel) return;
         if (!docs.length) {
-            sel.innerHTML = '<option value="">(No doctors)</option>';
+            sel.innerHTML = '<option value="">' + esc(conTr('con.noDoctors')) + '</option>';
             return;
         }
         sel.innerHTML =
-            '<option value="">-- Select Doctor --</option>' +
+            '<option value="">' + esc(conTr('con.selectDoctor')) + '</option>' +
             docs.map(function (d) {
-                var shown = d.display_name || d.english_name || d.chinese_name || 'Doctor';
+                var shown = d.display_name || d.english_name || d.chinese_name || conTr('cfg.label.doctorFallback');
                 var label = (d.doctor_code ? ('[' + d.doctor_code + '] ') : '') + shown;
                 return '<option value="' + esc(d.id) + '">' + esc(label) + '</option>';
             }).join('');
@@ -128,9 +210,12 @@ function loadConsultationDoctors() {
             var m = docs.find(function (d) { return d.english_name === currentName; });
             defaultId = m ? m.id : '';
         }
-        if (defaultId) {
-            sel.value = defaultId;
-            conSetActiveDoctor(defaultId);
+        var pick = preserveId && docs.some(function (d) { return String(d.id) === String(preserveId); })
+            ? preserveId
+            : defaultId;
+        if (pick) {
+            sel.value = pick;
+            conSetActiveDoctor(pick);
         } else {
             conSetActiveDoctor('');
         }
@@ -226,7 +311,7 @@ function openConForPatient(patientId) {
         .single()
     .then(function(r) {
         if (r.error || !r.data) {
-            alert('Could not load patient data.');
+            alert(conTr('con.alert.loadPatientFail'));
             return;
         }
         var inp = g('conPsInput');
@@ -288,111 +373,21 @@ function switchConTab(tab) {
 // PATIENT SEARCH — Treatment tab
 // ════════════════════════════════════════════════════════════════
 function doConPatientSearch() {
-    var q  = (g('conPsInput').value || '').trim();
-    var dd = g('conPsDrop');
-    if (!q) { dd.style.display = 'none'; return; }
-
-    var pq = SB.from('patients')
-        .select(
-            'id,patient_no,full_name,chinese_name,sex,dob,' +
-            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
-        )
-        .or(
-            'full_name.ilike.%'    + q + '%,' +
-            'patient_no.ilike.%'   + q + '%,' +
-            'phone_number.ilike.%' + q + '%'
-        )
-        .limit(8);
-    pq = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(pq, 'conPsClinicFilter')
-        : pq;
-    pq.then(function(r) {
-        dd.innerHTML = '';
-        if (r.error || !r.data || !r.data.length) {
-            dd.innerHTML =
-                '<div class="ps-item" style="color:#aaa;">' +
-                'No patients found</div>';
-            dd.style.display = 'block';
-            return;
-        }
-        r.data.forEach(function(p) {
-            var item = document.createElement('div');
-            item.className = 'ps-item';
-            item.innerHTML =
-                '<strong>' + esc(p.full_name) + '</strong>' +
-                '<br><small style="color:#aaa;">' +
-                '#' + esc(p.patient_no || '-') +
-                ' &nbsp;|&nbsp; ' +
-                esc(p.phone_number || 'No phone') +
-                '</small>';
-            item.addEventListener('click', function() {
-                dd.style.display = 'none';
-                g('conPsInput').value =
-                    p.full_name +
-                    ' (#' + (p.patient_no || '') + ')';
-                selectConPatient(p);
-            });
-            dd.appendChild(item);
-        });
-        dd.style.display = 'block';
+    runPatientSearchDropdown({
+        inputId: 'conPsInput',
+        dropId: 'conPsDrop',
+        clinicFilterId: 'conPsClinicFilter',
+        onSelect: selectConPatient
     });
 }
 
 // ── Charting tab: same search as treatment, ties into selectConPatient ──
 function doConPatientSearchChart() {
-    var q  = (g('conPsInputChart') && g('conPsInputChart').value || '').trim();
-    var dd = g('conPsDropChart');
-    if (!dd) return;
-    if (!q) {
-        dd.style.display = 'none';
-        return;
-    }
-
-    var pq = SB.from('patients')
-        .select(
-            'id,patient_no,full_name,chinese_name,sex,dob,' +
-            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
-        )
-        .or(
-            'full_name.ilike.%'    + q + '%,' +
-            'patient_no.ilike.%'   + q + '%,' +
-            'phone_number.ilike.%' + q + '%'
-        )
-        .limit(8);
-    pq = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(pq, 'conPsClinicFilterChart')
-        : pq;
-    pq.then(function(r) {
-        dd.innerHTML = '';
-        if (r.error || !r.data || !r.data.length) {
-            dd.innerHTML =
-                '<div class="ps-item" style="color:#aaa;">' +
-                'No patients found</div>';
-            dd.style.display = 'block';
-            return;
-        }
-        r.data.forEach(function(p) {
-            var item = document.createElement('div');
-            item.className = 'ps-item';
-            item.innerHTML =
-                '<strong>' + esc(p.full_name) + '</strong>' +
-                '<br><small style="color:#aaa;">' +
-                '#' + esc(p.patient_no || '-') +
-                ' &nbsp;|&nbsp; ' +
-                esc(p.phone_number || 'No phone') +
-                '</small>';
-            item.addEventListener('click', function() {
-                dd.style.display = 'none';
-                if (g('conPsInputChart')) {
-                    g('conPsInputChart').value =
-                        p.full_name +
-                        ' (#' + (p.patient_no || '') + ')';
-                }
-                selectConPatient(p);
-            });
-            dd.appendChild(item);
-        });
-        dd.style.display = 'block';
+    runPatientSearchDropdown({
+        inputId: 'conPsInputChart',
+        dropId: 'conPsDropChart',
+        clinicFilterId: 'conPsClinicFilterChart',
+        onSelect: selectConPatient
     });
 }
 
@@ -444,10 +439,10 @@ function selectConPatient(p) {
         var kind = typeof patientSexKind === 'function' ? patientSexKind(p.sex) : 'unknown';
         if (kind === 'unknown') {
             sexWrap.style.display = 'none';
-            sexWrap.innerHTML = 'Sex:&nbsp;';
+            sexWrap.innerHTML = esc(conTr('con.banner.sexLabel')) + '&nbsp;';
         } else {
             sexWrap.style.display = '';
-            sexWrap.innerHTML = 'Sex:&nbsp;' + sexHtml;
+            sexWrap.innerHTML = esc(conTr('con.banner.sexLabel')) + '&nbsp;' + sexHtml;
         }
     }
 
@@ -467,7 +462,7 @@ function selectConPatient(p) {
 
     var alertEl = g('conBannerAlert');
     if (alertEl) {
-        alertEl.textContent = p.medical_alerts || 'None';
+        alertEl.textContent = p.medical_alerts || conTr('con.banner.none');
         alertEl.style.color = p.medical_alerts
             ? 'var(--danger)' : '#999';
     }
@@ -494,7 +489,7 @@ function selectConPatient(p) {
         g('conMedBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
     if (g('conMedBannerAlert')) {
-        g('conMedBannerAlert').textContent = p.medical_alerts || 'None';
+        g('conMedBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
         g('conMedBannerAlert').style.color = p.medical_alerts
             ? 'var(--danger)' : '#999';
     }
@@ -530,7 +525,7 @@ function selectConPatient(p) {
         g('conDenBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
     if (g('conDenBannerAlert')) {
-        g('conDenBannerAlert').textContent = p.medical_alerts || 'None';
+        g('conDenBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
         g('conDenBannerAlert').style.color = p.medical_alerts
             ? 'var(--danger)' : '#999';
     }
@@ -595,6 +590,9 @@ function initConForms() {
         });
         editor.addEventListener('focus', conFormsSaveSelection);
     }
+
+    refreshConFormsToolbarI18n();
+    refreshConFormsEditorPlaceholder();
 }
 
 function conFormsSaveSelection() {
@@ -625,87 +623,47 @@ function updateConFormsPatientLabel() {
         lbl.textContent = '—';
         return;
     }
-    lbl.textContent =
-        (conFormsPatientData.full_name || '-') +
-        '  (#' + (conFormsPatientData.patient_no || '-') + ')';
+    lbl.textContent = conTrRepl('con.forms.patientLabel', {
+        NAME: conFormsPatientData.full_name || '-',
+        NO: conFormsPatientData.patient_no || '-'
+    });
 }
 
 function doConFormsPatientSearch() {
-    var q  = (g('conFormsPsInput').value || '').trim();
-    var dd = g('conFormsPsDrop');
-    if (!q) { if (dd) dd.style.display = 'none'; return; }
-
-    var fq = SB.from('patients')
-        .select(
-            'id,patient_no,full_name,chinese_name,sex,dob,phone_number,' +
-            'medical_alerts,hkid,email,address,' + PATIENT_CLINIC_TAG_FIELD
-        )
-        .or(
-            'full_name.ilike.%'    + q + '%,' +
-            'patient_no.ilike.%'   + q + '%,' +
-            'phone_number.ilike.%' + q + '%'
-        )
-        .limit(8);
-    fq = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(fq, 'conFormsPsClinicFilter')
-        : fq;
-    fq.then(function(r) {
-        if (!dd) return;
-        dd.innerHTML = '';
-        if (r.error || !r.data || !r.data.length) {
-            dd.innerHTML =
-                '<div class="ps-item" style="color:#aaa;">No patients found</div>';
-            dd.style.display = 'block';
-            return;
+    runPatientSearchDropdown({
+        inputId: 'conFormsPsInput',
+        dropId: 'conFormsPsDrop',
+        clinicFilterId: 'conFormsPsClinicFilter',
+        onSelect: function (p) {
+            selectConPatient(p);
+            initConForms();
         }
-        r.data.forEach(function(p) {
-            var item = document.createElement('div');
-            item.className = 'ps-item';
-            item.innerHTML =
-                '<strong>' + esc(p.full_name) + '</strong>' +
-                '<br><small style="color:#aaa;">' +
-                '#' + esc(p.patient_no || '-') +
-                ' &nbsp;|&nbsp; ' +
-                esc(p.phone_number || 'No phone') +
-                '</small>';
-            item.addEventListener('click', function() {
-                dd.style.display = 'none';
-                if (g('conFormsPsInput')) {
-                    g('conFormsPsInput').value =
-                        p.full_name + ' (#' + (p.patient_no || '') + ')';
-                }
-                // keep consultation-wide patient selection in sync
-                selectConPatient(p);
-                initConForms();
-            });
-            dd.appendChild(item);
-        });
-        dd.style.display = 'block';
     });
 }
 
 function loadConFormsTemplates() {
+    refreshConFormsFontSizeSelect();
     var sel = g('conFormsTemplateSel');
-    if (sel) sel.innerHTML = '<option value="">Loading templates...</option>';
+    if (sel) sel.innerHTML = '<option value="">' + esc(conTr('con.forms.loadingTemplates')) + '</option>';
 
     SB.from('doc_templates')
       .select('id,template_code,template_name,template_type,content,is_active')
       .order('template_code')
     .then(function(r) {
         if (r.error) {
-            if (sel) sel.innerHTML = '<option value="">Error loading templates</option>';
+            if (sel) sel.innerHTML = '<option value="">' + esc(conTr('con.forms.errTemplates')) + '</option>';
             return;
         }
         conFormsTemplates = (r.data || []).filter(function(t) { return t.is_active !== false; });
         if (!sel) return;
 
         if (!conFormsTemplates.length) {
-            sel.innerHTML = '<option value="">No templates available</option>';
+            sel.innerHTML = '<option value="">' + esc(conTr('con.forms.noTemplates')) + '</option>';
             return;
         }
-        sel.innerHTML = '<option value="">-- Select Template --</option>' +
+        sel.innerHTML = '<option value="">' + esc(conTr('con.forms.selectTemplateOpt')) + '</option>' +
             conFormsTemplates.map(function(t) {
-                var label = (t.template_name || t.template_code || 'Template') +
+                var label = (t.template_name || t.template_code || conTr('con.forms.fieldTemplate')) +
                     (t.template_type ? ' · ' + t.template_type : '');
                 return '<option value="' + esc(t.id) + '">' + esc(label) + '</option>';
             }).join('');
@@ -762,8 +720,14 @@ function onConFormsTemplateChange() {
     }
 
     var seeded = conFormsSelectedTemplate.content || '';
+    editor.dataset.placeholderMode = '';
     editor.innerHTML = applyConFormsPlaceholders(seeded) || '';
+    if (!editor.innerHTML.trim()) {
+        editor.dataset.placeholderMode = '1';
+        editor.innerHTML = '<span style="color:#aaa;">' + esc(conTr('con.forms.selectTemplatePh')) + '</span>';
+    }
     editorWrap.style.display = 'block';
+    conFormsInitEditorEvents();
     setTimeout(function () { editor.focus(); }, 0);
 }
 
@@ -784,7 +748,7 @@ function applyConFormsPlaceholders(html) {
         doctor_code: d.doctor_code || '',
         clinic_name: (conFormsSelectedTemplate && conFormsSelectedTemplate.clinic_name) || '',
         date: todayISO(),
-        time: now.toLocaleTimeString('en-HK', { hour: '2-digit', minute: '2-digit' })
+        time: now.toLocaleTimeString(conUiLocale(), { hour: '2-digit', minute: '2-digit' })
     };
 
     var out = String(html || '');
@@ -797,7 +761,9 @@ function applyConFormsPlaceholders(html) {
 
 function conFormsCmd(cmd) {
     var editor = g('conFormsDocEditor');
-    if (editor) editor.focus();
+    if (!editor) return;
+    conFormsClearPlaceholderIfNeeded(editor);
+    editor.focus();
     conFormsRestoreSelection();
     try {
         document.execCommand(cmd, false, null);
@@ -807,15 +773,73 @@ function conFormsCmd(cmd) {
 
 function conFormsFontName(name) {
     var editor = g('conFormsDocEditor');
-    if (editor) editor.focus();
+    if (!editor) return;
+    conFormsClearPlaceholderIfNeeded(editor);
+    editor.focus();
     conFormsRestoreSelection();
     try { document.execCommand('fontName', false, name); } catch (e) {}
     conFormsSaveSelection();
 }
 
+function refreshConFormsToolbarI18n() {
+    var toolbar = g('conFormsToolbar');
+    if (toolbar && typeof applyI18nInRoot === 'function') applyI18nInRoot(toolbar);
+}
+
+function refreshConFormsEditorPlaceholder() {
+    var editor = g('conFormsDocEditor');
+    if (!editor) return;
+    if (editor.dataset.placeholderMode === '1') {
+        editor.innerHTML = '<span style="color:#aaa;">' + esc(conTr('con.forms.selectTemplatePh')) + '</span>';
+    }
+}
+
+function conFormsClearPlaceholderIfNeeded(editor) {
+    editor = editor || g('conFormsDocEditor');
+    if (!editor || editor.dataset.placeholderMode !== '1') return;
+    editor.dataset.placeholderMode = '';
+    editor.innerHTML = '';
+}
+
+function conFormsInitEditorEvents() {
+    var editor = g('conFormsDocEditor');
+    if (!editor || editor.dataset.conFormsEvInit === '1') return;
+    editor.dataset.conFormsEvInit = '1';
+    editor.addEventListener('focus', function () {
+        conFormsClearPlaceholderIfNeeded(editor);
+    });
+    editor.addEventListener('input', function () {
+        if (editor.dataset.placeholderMode === '1') {
+            conFormsClearPlaceholderIfNeeded(editor);
+        }
+    });
+}
+
+function refreshConFormsFontSizeSelect() {
+    var sel = g('conFormsFontSize');
+    if (!sel) return;
+    var prev = sel.value || '3';
+    var sizes = [
+        { v: '2', k: 'con.forms.fontSizeSmall' },
+        { v: '3', k: 'con.forms.fontSizeNormal' },
+        { v: '4', k: 'con.forms.fontSizeLarge' },
+        { v: '5', k: 'con.forms.fontSizeXLarge' }
+    ];
+    sel.innerHTML = sizes.map(function(s) {
+        return '<option value="' + s.v + '">' + esc(conTr(s.k)) + '</option>';
+    }).join('');
+    var has = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === prev) { has = true; break; }
+    }
+    sel.value = has ? prev : '3';
+}
+
 function conFormsFontSize(size) {
     var editor = g('conFormsDocEditor');
-    if (editor) editor.focus();
+    if (!editor) return;
+    conFormsClearPlaceholderIfNeeded(editor);
+    editor.focus();
     conFormsRestoreSelection();
     try { document.execCommand('fontSize', false, String(size)); } catch (e) {}
     conFormsSaveSelection();
@@ -824,6 +848,7 @@ function conFormsFontSize(size) {
 function conFormsForeColor(color) {
     var editor = g('conFormsDocEditor');
     if (!editor) return;
+    conFormsClearPlaceholderIfNeeded(editor);
     // Color picker steals focus; restore the selection the user highlighted.
     conFormsRestoreSelection();
     editor.focus();
@@ -834,6 +859,7 @@ function conFormsForeColor(color) {
 function conFormsInsertTag(tag) {
     var editor = g('conFormsDocEditor');
     if (!editor) return;
+    conFormsClearPlaceholderIfNeeded(editor);
     editor.focus();
     conFormsRestoreSelection();
     try {
@@ -854,24 +880,24 @@ function conFormsInsertTag(tag) {
 
 function saveConFormsDoc(andPrint) {
     if (!conFormsPatientId || !conFormsPatientData) {
-        alert('Select a patient first.');
+        alert(conTr('con.forms.alertSelectPatient'));
         return;
     }
     var sel = g('conFormsTemplateSel');
     if (!sel || !sel.value) {
-        alert('Please select a template.');
+        alert(conTr('con.forms.alertSelectTemplate'));
         return;
     }
 
     var docName = (g('conFormsDocName') ? g('conFormsDocName').value : '').trim();
     if (!docName) {
-        alert('Please enter a document name.');
+        alert(conTr('con.forms.alertDocName'));
         return;
     }
 
     var html = (g('conFormsDocEditor') ? g('conFormsDocEditor').innerHTML : '').trim();
     if (!html) {
-        alert('Document is empty.');
+        alert(conTr('con.forms.alertEmpty'));
         return;
     }
 
@@ -895,11 +921,10 @@ function saveConFormsDoc(andPrint) {
     SB.from('patient_documents').insert([row])
     .then(function(r) {
         if (r.error) {
-            alert('Save failed: ' + r.error.message +
-                '\n\nIf this is the first time using Forms/Letters, create the Supabase table "patient_documents".');
+            alert(conTrRepl('con.forms.alertSaveFailed', { MSG: r.error.message }));
             return;
         }
-        alert('✅ Document saved.');
+        alert(conTr('con.forms.savedOk'));
         if (andPrint) {
             printConFormsHtml(html);
         }
@@ -909,12 +934,12 @@ function saveConFormsDoc(andPrint) {
 function printConFormsHtml(html) {
     var popup = window.open('', '_blank', 'width=900,height=700,scrollbars=1,resizable=1');
     if (!popup) {
-        alert('Please allow popups to print.');
+        alert(conTr('con.alert.popupBlocked'));
         return;
     }
     popup.document.write(
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
-        '<title>Print</title>' +
+        '<title>' + esc(conTr('con.forms.printDocTitle')) + '</title>' +
         '<style>body{font-family:Arial,sans-serif;padding:28px;color:#111;}@media print{body{padding:0}}</style>' +
         '</head><body>' +
         html +
@@ -926,13 +951,13 @@ function printConFormsHtml(html) {
 
 function searchConFormsDocs() {
     if (!conFormsPatientId) {
-        alert('Select a patient first.');
+        alert(conTr('con.forms.alertSelectPatient'));
         return;
     }
     var wrap = g('conFormsSearchWrap');
     var list = g('conFormsExistingList');
     if (wrap) wrap.style.display = 'block';
-    if (list) list.innerHTML = '<div style="color:#aaa;padding:10px;">Loading…</div>';
+    if (list) list.innerHTML = '<div style="color:#aaa;padding:10px;">' + esc(conTr('con.forms.loadingDocs')) + '</div>';
 
     conFormsSelectedDocIds = [];
     conFormsDocsCache = {};
@@ -949,13 +974,13 @@ function searchConFormsDocs() {
         if (!list) return;
         if (r.error) {
             list.innerHTML = '<div style="color:#dc3545;padding:10px;">' +
-                'Error: ' + esc(r.error.message) +
-                '<br><small>Make sure Supabase table "patient_documents" exists.</small></div>';
+                esc(conTrRepl('con.forms.errLoadDocs', { MSG: r.error.message })) +
+                '<br><small>' + esc(conTr('con.forms.errLoadDocsHint')) + '</small></div>';
             return;
         }
         var rows = r.data || [];
         if (!rows.length) {
-            list.innerHTML = '<div style="color:#888;padding:10px;">No documents found.</div>';
+            list.innerHTML = '<div style="color:#888;padding:10px;">' + esc(conTr('con.forms.noDocs')) + '</div>';
             return;
         }
         rows.forEach(function (d) { conFormsDocsCache[d.id] = d; });
@@ -977,7 +1002,7 @@ function searchConFormsDocs() {
                 '</div>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
                   '<button class="btn-add" style="padding:6px 10px;font-size:12px;" ' +
-                  'onclick="openConFormsDoc(\'' + safeId + '\')">Open</button>' +
+                  'onclick="openConFormsDoc(\'' + safeId + '\')">' + esc(conTr('con.forms.btnOpen')) + '</button>' +
                 '</div>' +
               '</div>';
         }).join('');
@@ -1029,13 +1054,13 @@ function conFormsUpdateHistActions() {
 function conFormsDeleteSelectedDocs() {
     if (!conFormsSelectedDocIds.length) return;
     var n = conFormsSelectedDocIds.length;
-    if (!confirm('Delete ' + n + ' document(s)? This cannot be undone.')) return;
+    if (!confirm(conTrRepl('con.forms.deleteConfirm', { N: String(n) }))) return;
 
     SB.from('patient_documents')
       .delete()
       .in('id', conFormsSelectedDocIds)
     .then(function (r) {
-        if (r.error) { alert('Delete failed: ' + r.error.message); return; }
+        if (r.error) { alert(conTrRepl('con.alert.deleteFailed', { MSG: r.error.message })); return; }
         // refresh history list
         searchConFormsDocs();
     });
@@ -1053,7 +1078,7 @@ function conFormsPrintSelectedDocs() {
           .select('id,content_html')
           .in('id', conFormsSelectedDocIds)
         .then(function (r) {
-            if (r.error) { alert('Print failed: ' + r.error.message); return; }
+            if (r.error) { alert(conTrRepl('con.alert.printFailed', { MSG: r.error.message })); return; }
             var rows = r.data || [];
             var html = rows.map(function (d) { return d.content_html || ''; }).join(
                 '<div style="page-break-after:always;"></div>'
@@ -1076,10 +1101,13 @@ function openConFormsDoc(id) {
       .eq('id', id)
       .single()
     .then(function(r) {
-        if (r.error || !r.data) { alert('Could not load document.'); return; }
+        if (r.error || !r.data) { alert(conTr('con.alert.loadDocFail')); return; }
         var d = r.data;
         if (g('conFormsDocName')) g('conFormsDocName').value = d.document_name || '';
-        if (g('conFormsDocEditor')) g('conFormsDocEditor').innerHTML = d.content_html || '';
+        if (g('conFormsDocEditor')) {
+            g('conFormsDocEditor').dataset.placeholderMode = '';
+            g('conFormsDocEditor').innerHTML = d.content_html || '';
+        }
         if (g('conFormsEditorWrap')) g('conFormsEditorWrap').style.display = 'block';
         setTimeout(function () { if (g('conFormsDocEditor')) g('conFormsDocEditor').focus(); }, 0);
     });
@@ -1097,8 +1125,8 @@ function formatDobAge(dob) {
     var age = Math.floor(
         (nowLocal() - d) / (365.25 * 24 * 3600 * 1000)
     );
-    return pts[2] + '/' + pts[1] + '/' + pts[0] +
-           ' (' + age + ' yrs)';
+    var dateStr = pts[2] + '/' + pts[1] + '/' + pts[0];
+    return conTrRepl('con.dob.ageFmt', { DATE: dateStr, AGE: String(age) });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1109,7 +1137,9 @@ function loadConNotes(pid) {
     if (!tl) return;
 
     tl.innerHTML =
-        '<p style="color:#aaa;margin:0;padding:16px;">Loading...</p>';
+        '<p style="color:#aaa;margin:0;padding:16px;">' +
+        esc(conTr('common.loadingEllipsis')) +
+        '</p>';
 
     SB.from('treatments').select('*')
         .eq('patient_id', pid)
@@ -1118,7 +1148,8 @@ function loadConNotes(pid) {
         if (r.error || !r.data || !r.data.length) {
             tl.innerHTML =
                 '<p style="color:#aaa;margin:0;padding:16px;">' +
-                'No treatment notes yet.</p>';
+                esc(conTr('con.noTreatmentNotes')) +
+                '</p>';
             return;
         }
 
@@ -1138,7 +1169,7 @@ function loadConNotes(pid) {
             sep.className = 'note-date-sep';
             sep.innerHTML =
                 '<span class="note-date-label">' +
-                    new Date(dk).toLocaleDateString('en-HK', {
+                    new Date(dk).toLocaleDateString(conUiLocale(), {
                         weekday: 'short', day: 'numeric',
                         month: 'short',   year: 'numeric'
                     }) +
@@ -1156,7 +1187,7 @@ function loadConNotes(pid) {
                         '<div style="display:flex;flex-direction:column;gap:2px;">' +
                             '<small class="note-time">' +
                                 new Date(t.created_at)
-                                    .toLocaleTimeString('en-HK', {
+                                    .toLocaleTimeString(conUiLocale(), {
                                         hour: '2-digit', minute: '2-digit'
                                     }) +
                             '</small>' +
@@ -1168,7 +1199,7 @@ function loadConNotes(pid) {
                         (canEdit
                             ? '<button class="btn-edit-note btn-sm" ' +
                               'style="background:var(--primary);">' +
-                              'Edit</button>'
+                              esc(conTr('con.note.edit')) + '</button>'
                             : '') +
                     '</div>' +
                     '<div id="cnt-' + t.id + '" class="note-body">' +
@@ -1188,10 +1219,10 @@ function loadConNotes(pid) {
 }
 
 function saveConNote() {
-    if (!conPatientId) { alert('Select a patient first.'); return; }
+    if (!conPatientId) { alert(conTr('con.note.alertSelectPatient')); return; }
     var inp  = g('conNoteInput');
     var note = (inp.value || '').trim();
-    if (!note) { alert('Please enter a note.'); return; }
+    if (!note) { alert(conTr('con.note.alertEnterNote')); return; }
 
     var row = {
         patient_id:   conPatientId,
@@ -1237,13 +1268,13 @@ function saveConNote() {
                     };
                     SB.from('treatments').insert([legacyRow])
                     .then(function(r2) {
-                        if (r2.error) { alert('Error: ' + r2.error.message); return; }
+                        if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
                         inp.value = '';
                         loadConNotes(conPatientId);
                     });
                     return;
                 }
-                alert('Error: ' + rc.error.message);
+                alert(trRepl('appt.msg.error', { MSG: rc.error.message }));
             });
             return;
         }
@@ -1255,13 +1286,13 @@ function saveConNote() {
             };
             SB.from('treatments').insert([legacyRow])
             .then(function(r2) {
-                if (r2.error) { alert('Error: ' + r2.error.message); return; }
+                if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
                 inp.value = '';
                 loadConNotes(conPatientId);
             });
             return;
         }
-        alert('Error: ' + r.error.message);
+        alert(trRepl('appt.msg.error', { MSG: r.error.message }));
     });
 }
 
@@ -1280,26 +1311,26 @@ function editConNote(nid, rawText) {
             '<button id="cnd-' + nid + '" ' +
             'style="background:var(--danger);color:white;' +
             'border:none;padding:5px 12px;border-radius:4px;' +
-            'cursor:pointer;">Delete</button>' +
+            'cursor:pointer;">' + esc(conTr('common.btnDelete')) + '</button>' +
             '<div style="display:flex;gap:8px;">' +
                 '<button id="cnc-' + nid + '" ' +
                 'style="background:var(--gray);color:white;' +
                 'border:none;padding:5px 12px;border-radius:4px;' +
-                'cursor:pointer;">Cancel</button>' +
+                'cursor:pointer;">' + esc(conTr('common.btnCancel')) + '</button>' +
                 '<button id="cns-' + nid + '" ' +
                 'style="background:var(--success);color:white;' +
                 'border:none;padding:5px 12px;border-radius:4px;' +
-                'cursor:pointer;">Save</button>' +
+                'cursor:pointer;">' + esc(conTr('common.btnSave')) + '</button>' +
             '</div>' +
         '</div>';
 
     g('cne-' + nid).value = rawText || '';
 
     g('cnd-' + nid).addEventListener('click', function() {
-        if (!confirm('Delete this note?')) return;
+        if (!confirm(conTr('con.note.deleteConfirm'))) return;
         SB.from('treatments').delete().eq('id', nid)
         .then(function(r) {
-            if (r.error) { alert('Error: ' + r.error.message); return; }
+            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
             loadConNotes(conPatientId);
         });
     });
@@ -1310,7 +1341,7 @@ function editConNote(nid, rawText) {
         var v = (g('cne-' + nid).value || '').trim();
         SB.from('treatments').update({ notes: v }).eq('id', nid)
         .then(function(r) {
-            if (r.error) { alert('Error: ' + r.error.message); return; }
+            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
             loadConNotes(conPatientId);
         });
     });
@@ -1356,7 +1387,11 @@ function toggleDrugAddPanel(show, opts) {
             sv('rxDentistName', conActiveDoctorTag || conActiveDoctorName || currentName || '');
         }
 
-        renderRxLines();
+        if (typeof ensureRxPhrasesLoaded === 'function') {
+            ensureRxPhrasesLoaded(function() { renderRxLines(); });
+        } else {
+            renderRxLines();
+        }
     } else {
         panel.style.display = 'none';
         btn.style.display   = 'inline-block';
@@ -1368,7 +1403,7 @@ function toggleDrugAddPanel(show, opts) {
 // RX LINES — RENDER
 // ════════════════════════════════════════════════════════════════
 function addDrugLine() {
-    rxLines.push({
+    rxLines.push(typeof rxEmptyLine === 'function' ? rxEmptyLine() : {
         drug_id: '', drug_name: '', dosage: '',
         frequency: '', duration: '', route: '',
         quantity: '', remarks: ''
@@ -1389,24 +1424,28 @@ function renderRxLines() {
     if (!rxLines.length) {
         wrap.innerHTML =
             '<p style="color:#aaa;font-size:13px;padding:8px 0;">' +
-            'No drugs added yet. Click "+ Add Drug" below.</p>';
+            esc(conTr('con.rx.noDrugsYet')) + '</p>';
         return;
     }
 
     rxLines.forEach(function(line, idx) {
+        if (typeof rxNormalizeLine === 'function') {
+            line = rxNormalizeLine(line);
+            rxLines[idx] = line;
+        }
         var card = document.createElement('div');
         card.className = 'rx-line-card';
         card.id = 'rxline-' + idx;
         card.innerHTML =
             '<div class="rx-line-header">' +
-                '<span class="rx-line-num">Rx ' + (idx + 1) + '</span>' +
+                '<span class="rx-line-num">' + esc(conTrRepl('con.rx.lineNumFmt', { N: String(idx + 1) })) + '</span>' +
                 '<div class="rx-line-actions">' +
                     '<button class="btn-label-en" ' +
                     'onclick="printRxLineLabelEn(this)" ' +
-                    'title="Print English Label">🖨 EN</button>' +
+                    'title="' + esc(conTr('con.rx.printLabelEn')) + '">' + esc(conTr('con.rx.btnPrintEn')) + '</button>' +
                     '<button class="btn-label-zh" ' +
                     'onclick="printRxLineLabelZh(this)" ' +
-                    'title="列印中文標籤">🖨 中文</button>' +
+                    'title="' + esc(conTr('con.rx.printLabelZh')) + '">' + esc(conTr('con.rx.btnPrintZh')) + '</button>' +
                     '<button class="btn-remove-rx btn-sm" ' +
                     'style="background:var(--danger);" ' +
                     'onclick="removeRxLine(' + idx + ')">✕</button>' +
@@ -1416,71 +1455,31 @@ function renderRxLines() {
                 // Row 1: drug select (full width)
                 '<div style="grid-column:1/-1;">' +
                     '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">Drug</label>' +
+                    'display:block;margin-bottom:3px;">' + esc(conTr('con.rx.labelDrug')) + '</label>' +
                     '<select id="rxSel-' + idx + '" ' +
                     'style="width:100%;padding:6px 8px;' +
                     'border:1px solid #d1d5db;border-radius:5px;' +
                     'font-size:13px;">' +
-                    '<option value="">-- Select Drug --</option>' +
+                    '<option value="">' + esc(conTr('con.rx.selectDrug')) + '</option>' +
                     '</select>' +
                 '</div>' +
-                // Row 2: dosage + route
+                (typeof rxPhraseFieldMarkup === 'function'
+                    ? rxPhraseFieldMarkup('dosage', idx, line, conTr('con.rx.labelDosage'))
+                    : '') +
+                (typeof rxPhraseFieldMarkup === 'function'
+                    ? rxPhraseFieldMarkup('frequency', idx, line, conTr('con.rx.labelFrequency'))
+                    : '') +
+                (typeof rxPhraseFieldMarkup === 'function'
+                    ? rxPhraseFieldMarkup('duration', idx, line, conTr('con.rx.labelDuration'))
+                    : '') +
+                (typeof rxPhraseFieldMarkup === 'function'
+                    ? rxPhraseFieldMarkup('quantity', idx, line, conTr('con.rx.labelQty'))
+                    : '') +
+                '<div class="rx-phrase-preview" style="grid-column:1/-1;"></div>' +
                 '<div>' +
                     '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">Dosage</label>' +
-                    '<input class="rx-dosage" placeholder="e.g. 500mg" ' +
-                    'value="' + esc(line.dosage || '') + '" ' +
-                    'oninput="rxLines[' + idx + '].dosage=this.value" ' +
-                    'style="width:100%;padding:6px 8px;' +
-                    'border:1px solid #d1d5db;border-radius:5px;' +
-                    'font-size:13px;box-sizing:border-box;">' +
-                '</div>' +
-                '<div>' +
-                    '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">Route</label>' +
-                    '<input class="rx-route" placeholder="e.g. Oral" ' +
-                    'value="' + esc(line.route || '') + '" ' +
-                    'oninput="rxLines[' + idx + '].route=this.value" ' +
-                    'style="width:100%;padding:6px 8px;' +
-                    'border:1px solid #d1d5db;border-radius:5px;' +
-                    'font-size:13px;box-sizing:border-box;">' +
-                '</div>' +
-                // Row 3: frequency + duration
-                '<div>' +
-                    '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">Frequency</label>' +
-                    '<input class="rx-freq" placeholder="e.g. TDS" ' +
-                    'value="' + esc(line.frequency || '') + '" ' +
-                    'oninput="rxLines[' + idx + '].frequency=this.value" ' +
-                    'style="width:100%;padding:6px 8px;' +
-                    'border:1px solid #d1d5db;border-radius:5px;' +
-                    'font-size:13px;box-sizing:border-box;">' +
-                '</div>' +
-                '<div>' +
-                    '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">Duration</label>' +
-                    '<input class="rx-dur" placeholder="e.g. 5 days" ' +
-                    'value="' + esc(line.duration || '') + '" ' +
-                    'oninput="rxLines[' + idx + '].duration=this.value" ' +
-                    'style="width:100%;padding:6px 8px;' +
-                    'border:1px solid #d1d5db;border-radius:5px;' +
-                    'font-size:13px;box-sizing:border-box;">' +
-                '</div>' +
-                // Row 4: quantity + remarks
-                '<div>' +
-                    '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">Qty</label>' +
-                    '<input class="rx-quantity" placeholder="e.g. 15" ' +
-                    'value="' + esc(line.quantity || '') + '" ' +
-                    'oninput="rxLines[' + idx + '].quantity=this.value" ' +
-                    'style="width:100%;padding:6px 8px;' +
-                    'border:1px solid #d1d5db;border-radius:5px;' +
-                    'font-size:13px;box-sizing:border-box;">' +
-                '</div>' +
-                '<div>' +
-                    '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">Remarks</label>' +
-                    '<input class="rx-remarks" placeholder="Optional" ' +
+                    'display:block;margin-bottom:3px;">' + esc(conTr('con.rx.labelRemarks')) + '</label>' +
+                    '<input class="rx-remarks" placeholder="' + esc(conTr('con.rx.remarksPh')) + '" ' +
                     'value="' + esc(line.remarks || '') + '" ' +
                     'oninput="rxLines[' + idx + '].remarks=this.value" ' +
                     'style="width:100%;padding:6px 8px;' +
@@ -1491,6 +1490,7 @@ function renderRxLines() {
 
         wrap.appendChild(card);
         populateDrugSelect(idx);
+        if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
     });
 }
 
@@ -1509,22 +1509,24 @@ function populateDrugSelect(idx) {
         if (r.error || !r.data) return;
 
         sel.innerHTML =
-            '<option value="">-- Select Drug --</option>';
+            '<option value="">' + esc(conTr('con.rx.selectDrug')) + '</option>';
 
         var pickedCatalog  = false;
         var matchedByName  = false;
 
         var cats = {};
         r.data.forEach(function(d) {
-            var cat = d.category || 'Other';
-            if (!cats[cat]) cats[cat] = [];
-            cats[cat].push(d);
+            var catKey = d.category || '';
+            if (!cats[catKey]) {
+                cats[catKey] = { label: conDrugCatLabel(catKey), items: [] };
+            }
+            cats[catKey].items.push(d);
         });
 
-        Object.keys(cats).sort().forEach(function(cat) {
+        Object.keys(cats).sort().forEach(function(catKey) {
             var og = document.createElement('optgroup');
-            og.label = cat;
-            cats[cat].forEach(function(d) {
+            og.label = cats[catKey].label;
+            cats[catKey].items.forEach(function(d) {
                 var o = document.createElement('option');
                 o.value = d.id;
                 o.textContent =
@@ -1564,12 +1566,12 @@ function populateDrugSelect(idx) {
 
         if (!pickedCatalog && wantNorm && rxLines[idx] && rxLines[idx].drug_name) {
             var ogImp = document.createElement('optgroup');
-            ogImp.label = 'From saved prescription';
+            ogImp.label = conTr('con.rx.fromSavedRx');
             var ox = document.createElement('option');
             ox.value       = RX_SNAPSHOT_SELECT;
             ox.textContent = String(rxLines[idx].drug_name).trim()
-                ? (rxLines[idx].drug_name + ' · (pick catalog to link)')
-                : '(imported · pick catalog to link)';
+                ? (rxLines[idx].drug_name + conTr('con.rx.pickCatalogLink'))
+                : conTr('con.rx.importedPickCatalog');
             ox.selected = true;
             ogImp.appendChild(ox);
             sel.appendChild(ogImp);
@@ -1582,22 +1584,23 @@ function populateDrugSelect(idx) {
 
             rxLines[idx].drug_id   = opt.value;
             rxLines[idx].drug_name = opt.dataset.name;
-            rxLines[idx].dosage    = opt.dataset.dosage;
-            rxLines[idx].frequency = opt.dataset.frequency;
-            rxLines[idx].duration  = opt.dataset.duration;
-            rxLines[idx].route     = opt.dataset.route;
             rxLines[idx].remarks   = opt.dataset.remarks;
 
-            var card = g('rxline-' + idx);
-            if (card) {
-                card.querySelector('.rx-dosage').value = rxLines[idx].dosage;
-                card.querySelector('.rx-freq').value =
-                    rxLines[idx].frequency;
-                card.querySelector('.rx-dur').value   = rxLines[idx].duration;
-                card.querySelector('.rx-route').value = rxLines[idx].route;
-                card.querySelector('.rx-remarks').value =
-                    rxLines[idx].remarks;
+            if (typeof rxApplyCatalogTextToLine === 'function') {
+                rxApplyCatalogTextToLine(idx, {
+                    dosage:    opt.dataset.dosage,
+                    frequency: opt.dataset.frequency,
+                    duration:  opt.dataset.duration,
+                    quantity:  opt.dataset.quantity || ''
+                });
+            } else {
+                rxLines[idx].dosage    = opt.dataset.dosage;
+                rxLines[idx].frequency = opt.dataset.frequency;
+                rxLines[idx].duration  = opt.dataset.duration;
             }
+            rxLines[idx].route = '';
+
+            renderRxLines();
         };
     }
 
@@ -1638,7 +1641,7 @@ function writeRxComboListsStorage(lists) {
     try {
         localStorage.setItem(RX_COMBO_LISTS_KEY, JSON.stringify(lists || []));
     } catch (e) {
-        alert('Could not write saved lists to storage: ' + (e.message || e));
+        alert(conTrRepl('con.rx.storageWriteFail', { MSG: (e.message || e) }));
     }
 }
 
@@ -1649,7 +1652,7 @@ function rxNewComboListId() {
 
 function rxCloneSavedLine(src) {
     var l = src || {};
-    return {
+    var out = {
         drug_id:    String(l.drug_id   || ''),
         drug_name:  String(l.drug_name || ''),
         dosage:     String(l.dosage    || ''),
@@ -1657,8 +1660,20 @@ function rxCloneSavedLine(src) {
         duration:   String(l.duration  || ''),
         route:      String(l.route     || ''),
         quantity:   String(l.quantity  || ''),
-        remarks:    String(l.remarks   || '')
+        remarks:    String(l.remarks   || ''),
+        dosage_code: String(l.dosage_code || ''),
+        dosage_custom: String(l.dosage_custom || ''),
+        frequency_code: String(l.frequency_code || ''),
+        frequency_custom: String(l.frequency_custom || ''),
+        duration_code: String(l.duration_code || ''),
+        duration_custom: String(l.duration_custom || ''),
+        route_code: String(l.route_code || ''),
+        route_custom: String(l.route_custom || ''),
+        quantity_code: String(l.quantity_code || ''),
+        quantity_custom: String(l.quantity_custom || '')
     };
+    if (typeof rxNormalizeLine === 'function') rxNormalizeLine(out);
+    return out;
 }
 
 function rxSnapshotFromDrughistoryRecords(records) {
@@ -1688,18 +1703,18 @@ function rxFirstMissingDrugNameIdx(lines) {
 /** Store a cloned line array under a user-named list (draft or history snapshot). Returns true if saved. */
 function rxPersistNamedComboList(snapshot, promptHintCtx) {
     if (!snapshot || !snapshot.length) {
-        alert('Nothing to save as a drug list.');
+        alert(conTr('con.rx.nothingToSaveList'));
         return false;
     }
     var miss = rxFirstMissingDrugNameIdx(snapshot);
     if (miss >= 0) {
-        alert('Cannot save this list — row ' + (miss + 1) + ' has no drug name.');
+        alert(conTrRepl('con.rx.rowNoDrugName', { N: miss + 1 }));
         return false;
     }
 
     var promptLine = promptHintCtx
-        ? ('Name this drug combination (saved from ' + promptHintCtx + '):')
-        : 'Name this drug combination (e.g. Post-op bundle):';
+        ? conTrRepl('con.rx.promptNameComboFrom', { CTX: promptHintCtx })
+        : conTr('con.rx.promptNameCombo');
     var name = prompt(promptLine, '');
     name = String(name || '').trim();
     if (!name) return false;
@@ -1711,7 +1726,7 @@ function rxPersistNamedComboList(snapshot, promptHintCtx) {
     });
     var safeName = String(name).replace(/"/g, "'");
     if (dupeIdx >= 0 &&
-        !confirm('A list named "' + safeName + '" already exists. Replace it with these drugs?'))
+        !confirm(conTrRepl('con.rx.confirmReplaceList', { NAME: safeName })))
         return false;
 
     var payloadLines = snapshot.map(rxCloneSavedLine);
@@ -1728,7 +1743,7 @@ function rxPersistNamedComboList(snapshot, promptHintCtx) {
     else lists.unshift(payload);
 
     writeRxComboListsStorage(lists);
-    alert('✅ Saved list "' + safeName + '" (' + payloadLines.length + ' drug line(s)).');
+    alert(conTrRepl('con.rx.savedListOk', { NAME: safeName, N: payloadLines.length }));
     return true;
 }
 
@@ -1739,13 +1754,13 @@ function rxSaveCurrentAsComboList() {
     }
 
     if (!rxLines.length) {
-        alert('Add drug lines first, then save them as a named list.');
+        alert(conTr('con.rx.addLinesFirst'));
         return;
     }
 
     var bad = rxFirstInvalidDrugLineIdx();
     if (bad >= 0) {
-        alert('Row ' + (bad + 1) + ': select a drug first (needed before saving this list).');
+        alert(conTrRepl('con.rx.rowSelectDrug', { N: bad + 1 }));
         return;
     }
 
@@ -1755,10 +1770,10 @@ function rxSaveCurrentAsComboList() {
 function rxSaveComboListFromHistoryRecords(records) {
     var snap = rxSnapshotFromDrughistoryRecords(records);
     if (!snap.length) {
-        alert('This prescription entry has no drug lines.');
+        alert(conTr('con.rx.entryNoLines'));
         return;
     }
-    rxPersistNamedComboList(snap, 'prescription history');
+    rxPersistNamedComboList(snap, conTr('con.rx.historyFrom'));
 }
 
 function rxOpenDrugListsPicker() {
@@ -1789,17 +1804,17 @@ function rxEnsureRxDraftChromeOnly() {
 /** Append all drugs from one saved history group to the current Rx draft (edit & save separately). */
 function rxReapplyHistoryGroupRecords(records) {
     if (!conPatientId || !conPatientData) {
-        alert('Select a patient first.');
+        alert(conTr('con.forms.alertSelectPatient'));
         return;
     }
     var snap = rxSnapshotFromDrughistoryRecords(records);
     if (!snap.length) {
-        alert('This history entry has no drug lines.');
+        alert(conTr('con.rx.historyNoLines'));
         return;
     }
     var miss = rxFirstMissingDrugNameIdx(snap);
     if (miss >= 0) {
-        alert('Cannot re-apply — history row ' + (miss + 1) + ' has no drug name.');
+        alert(conTrRepl('con.rx.cannotReapplyRow', { N: miss + 1 }));
         return;
     }
 
@@ -1816,16 +1831,15 @@ function rxApplySavedDrugList(listId, mode) {
     var lists = readRxComboListsStorage();
     var lst   = lists.find(function(x) { return x.id === listId; });
     if (!lst || !lst.lines || !lst.lines.length) {
-        alert('That list has no drugs.');
+        alert(conTr('con.rx.listNoDrugs'));
         return;
     }
     var copies = lst.lines.map(rxCloneSavedLine);
-    var label  = String(lst.name || 'this list').replace(/"/g, "'");
+    var label  = String(lst.name || conTr('con.rx.untitled')).replace(/"/g, "'");
 
     if (mode === 'replace') {
         if (rxLines.length &&
-            !confirm('Replace the current prescription draft (' + rxLines.length +
-                     ' line(s)) with "' + label + '"?'))
+            !confirm(conTrRepl('con.rx.confirmReplaceDraft', { N: rxLines.length, NAME: label })))
             return;
         rxLines = [];
     }
@@ -1872,7 +1886,7 @@ function rxRenderSavedDrugListsModal() {
     if (!lists.length) {
         body.innerHTML =
             '<p style="padding:14px;color:#64748b;text-align:center;">' +
-            'No list names match this filter.</p>';
+            esc(conTr('con.rx.noListMatch')) + '</p>';
         return;
     }
 
@@ -1882,7 +1896,7 @@ function rxRenderSavedDrugListsModal() {
         var um     = '';
         try {
             if (lst.updated_at) {
-                um = new Date(lst.updated_at).toLocaleString('en-HK', {
+                um = new Date(lst.updated_at).toLocaleString(conUiLocale(), {
                     day:    '2-digit',
                     month:  'short',
                     year:   'numeric',
@@ -1901,23 +1915,24 @@ function rxRenderSavedDrugListsModal() {
         row.innerHTML =
             '<div style="flex:1;min-width:176px;">' +
                 '<div style="font-weight:700;font-size:14px;color:#111827;">' +
-                    esc(lst.name || 'Untitled') +
+                    esc(lst.name || conTr('con.rx.untitled')) +
                 '</div>' +
                 '<div style="font-size:11px;color:#64748b;margin-top:2px;">' +
-                    esc(String(nLines) + ' drug line(s)' + (um ? ' · saved ' + um : '')) +
+                    esc(conTrRepl('con.rx.drugLinesMeta', { N: nLines }) +
+                        (um ? conTrRepl('con.rx.savedAt', { WHEN: um }) : '')) +
                 '</div>' +
             '</div>' +
             '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
                 '<button type="button" class="rx-slist-append" ' +
                         'style="padding:5px 10px;font-size:11px;border-radius:5px;' +
                         'border:1px solid #16a34a;background:#f0fdf4;color:#166534;' +
-                        'cursor:pointer;font-weight:600;">Append</button>' +
+                        'cursor:pointer;font-weight:600;">' + esc(conTr('con.rx.append')) + '</button>' +
                 '<button type="button" class="rx-slist-replace" ' +
                         'style="padding:5px 10px;font-size:11px;border-radius:5px;' +
                         'border:1px solid #ea580c;background:#fff7ed;color:#9a3412;' +
-                        'cursor:pointer;font-weight:600;">Replace</button>' +
+                        'cursor:pointer;font-weight:600;">' + esc(conTr('con.rx.replace')) + '</button>' +
                 '<button type="button" class="rx-slist-delete" ' +
-                        'title="Delete this saved list" ' +
+                        'title="' + esc(conTr('con.rx.deleteListTitle')) + '" ' +
                         'style="padding:5px 9px;font-size:11px;border-radius:5px;' +
                         'border:1px solid #fca5a5;background:#fef2f2;color:#b91c1c;' +
                         'cursor:pointer;">🗑</button>' +
@@ -1931,7 +1946,7 @@ function rxRenderSavedDrugListsModal() {
         });
         row.querySelector('.rx-slist-delete').addEventListener('click', function() {
             var nm = String(lst.name || '').replace(/"/g, "'");
-            if (!confirm('Remove saved drug list "' + nm + '"?')) return;
+            if (!confirm(conTrRepl('con.rx.confirmRemoveList', { NAME: nm }))) return;
             rxDeleteSavedDrugList(lst.id);
         });
 
@@ -1962,27 +1977,34 @@ function initRxSavedComboListsUI() {
 // SAVE FULL PRESCRIPTION → drughistory table
 // ════════════════════════════════════════════════════════════════
 function saveFullPrescription() {
-    if (!conPatientId) { alert('No patient selected.'); return; }
+    if (!conPatientId) { alert(conTr('con.forms.alertSelectPatient')); return; }
     if (!rxLines.length) {
-        alert('Add at least one drug line.'); return;
+        alert(conTr('con.rx.addOneDrugLine')); return;
     }
 
     var badRx = rxFirstInvalidDrugLineIdx();
     if (badRx >= 0) {
-        alert('Row ' + (badRx + 1) + ': select a drug first.');
+        alert(conTrRepl('con.rx.rowSelectDrugRx', { N: badRx + 1 }));
         return;
+    }
+
+    for (var si = 0; si < rxLines.length; si++) {
+        if (typeof rxSyncLineFromDom === 'function') rxSyncLineFromDom(si);
     }
 
     var date    = g('rxDate').value        || todayISO();
     var dentist = g('rxDentistName').value || conActiveDoctorTag || conActiveDoctorName || currentName || '';
 
     var rows = rxLines.map(function(l) {
+        if (typeof rxDrughistoryRowForSave === 'function') {
+            return rxDrughistoryRowForSave(l, date, dentist);
+        }
         return {
             patient_id:      conPatientId,
             patient_no:      conPatientData.patient_no  || null,
             patient_name:    conPatientData.full_name,
             prescribed_date: date,
-            drug_name:       l.drug_name || 'Unknown',
+            drug_name:       l.drug_name || conTr('report.unknown'),
             dosage:          l.dosage    || null,
             frequency:       l.frequency || null,
             duration:        l.duration  || null,
@@ -1996,44 +2018,56 @@ function saveFullPrescription() {
         };
     });
 
-    SB.from('drughistory').insert(rows)
-    .then(function(r) {
-        if (!r.error) {
-            toggleDrugAddPanel(false);
-            loadDrugHistory(conPatientId);
-            alert('✅ Prescription saved — ' + rows.length +
-                  ' drug(s) for ' + conPatientData.full_name);
-            return;
-        }
-        var msg = String(r.error.message || '').toLowerCase();
-        if (msg.indexOf('doctor_tag') >= 0 || msg.indexOf('doctor_id') >= 0 || msg.indexOf('doctor_name') >= 0) {
-            var legacyRows = rows.map(function (x) {
-                return {
-                    patient_id: x.patient_id,
-                    patient_no: x.patient_no,
-                    patient_name: x.patient_name,
-                    prescribed_date: x.prescribed_date,
-                    drug_name: x.drug_name,
-                    dosage: x.dosage,
-                    frequency: x.frequency,
-                    duration: x.duration,
-                    route: x.route,
-                    quantity: x.quantity,
-                    remarks: x.remarks,
-                    dentist_name: x.dentist_name
-                };
-            });
-            SB.from('drughistory').insert(legacyRows)
-            .then(function(r2) {
-                if (r2.error) { alert('Error: ' + r2.error.message); return; }
-                toggleDrugAddPanel(false);
-                loadDrugHistory(conPatientId);
-                alert('✅ Prescription saved — ' + rows.length +
-                      ' drug(s) for ' + conPatientData.full_name);
-            });
-            return;
-        }
-        alert('Error: ' + r.error.message);
+    function insertRxRows(payload, onDone) {
+        SB.from('drughistory').insert(payload).then(function(r) {
+            if (!r.error) {
+                onDone();
+                return;
+            }
+            var msg = String(r.error.message || '').toLowerCase();
+            if (msg.indexOf('_zh') >= 0 && typeof rxStripZhColumns === 'function') {
+                var stripped = payload.map(rxStripZhColumns);
+                SB.from('drughistory').insert(stripped).then(function(r2) {
+                    if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
+                    onDone();
+                });
+                return;
+            }
+            if (msg.indexOf('doctor_tag') >= 0 || msg.indexOf('doctor_id') >= 0 ||
+                msg.indexOf('doctor_name') >= 0) {
+                var legacyRows = payload.map(function(x) {
+                    return {
+                        patient_id: x.patient_id,
+                        patient_no: x.patient_no,
+                        patient_name: x.patient_name,
+                        prescribed_date: x.prescribed_date,
+                        drug_name: x.drug_name,
+                        dosage: x.dosage,
+                        frequency: x.frequency,
+                        duration: x.duration,
+                        route: x.route,
+                        quantity: x.quantity,
+                        remarks: x.remarks,
+                        dentist_name: x.dentist_name
+                    };
+                });
+                SB.from('drughistory').insert(legacyRows).then(function(r2) {
+                    if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
+                    onDone();
+                });
+                return;
+            }
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+        });
+    }
+
+    insertRxRows(rows, function() {
+        toggleDrugAddPanel(false);
+        loadDrugHistory(conPatientId);
+        alert(conTrRepl('con.rx.prescriptionSaved', {
+            N: rows.length,
+            NAME: conPatientData.full_name
+        }));
     });
 }
 
@@ -2044,7 +2078,7 @@ async function loadDrugHistory(patientId) {
     var wrap = g('drugHistoryWrap');
     if (!wrap) return;
     wrap.innerHTML =
-        '<p style="color:#aaa;padding:12px;">Loading...</p>';
+        '<p style="color:#aaa;padding:12px;">' + esc(conTr('con.rx.loadingHistory')) + '</p>';
 
     var result = await SB
         .from('drughistory')
@@ -2058,7 +2092,7 @@ async function loadDrugHistory(patientId) {
     if (error || !data || !data.length) {
         wrap.innerHTML =
             '<p style="color:#aaa;padding:12px;">' +
-            'No prescription history.</p>';
+            esc(conTr('con.rx.noRxHistoryShort')) + '</p>';
         return;
     }
 
@@ -2084,7 +2118,7 @@ async function loadDrugHistory(patientId) {
         try {
             var dt = new Date(dateStr);
             if (!isNaN(dt)) {
-                displayDate = dt.toLocaleDateString('en-GB', {
+                displayDate = dt.toLocaleDateString(conUiLocale(), {
                     day: '2-digit', month: 'short', year: 'numeric'
                 });
             }
@@ -2097,10 +2131,13 @@ async function loadDrugHistory(patientId) {
             return '<div class="rx-history-row"' +
                 ' data-drug-name="'       + esc(r.drug_name       || '') + '"' +
                 ' data-dosage="'          + esc(r.dosage          || '') + '"' +
-                ' data-route="'           + esc(r.route           || '') + '"' +
+                ' data-dosage-zh="'       + esc(r.dosage_zh       || r.dosage || '') + '"' +
                 ' data-frequency="'       + esc(r.frequency       || '') + '"' +
+                ' data-frequency-zh="'    + esc(r.frequency_zh    || r.frequency || '') + '"' +
                 ' data-duration="'        + esc(r.duration        || '') + '"' +
+                ' data-duration-zh="'     + esc(r.duration_zh     || r.duration || '') + '"' +
                 ' data-quantity="'        + esc(r.quantity        || '') + '"' +
+                ' data-quantity-zh="'     + esc(r.quantity_zh     || r.quantity || '') + '"' +
                 ' data-remarks="'         + esc(r.remarks         || '') + '"' +
                 ' data-dentist-name="'    + esc(r.dentist_name    || '') + '"' +
                 ' data-doctor-tag="'      + esc(r.doctor_tag      || r.dentist_name || '') + '"' +
@@ -2110,12 +2147,12 @@ async function loadDrugHistory(patientId) {
                     '<div class="rx-row-main">' +
                         '<span class="rx-row-drug">' +
                             '<strong>' + esc(r.drug_name || '—') + '</strong> ' +
-                            esc(r.dosage || '') + ' ' +
-                            esc(r.route  || '') +
+                            esc(r.dosage || '') +
                         '</span>' +
                         '<span class="rx-row-info">' +
                             esc(r.frequency || '') + ' &bull; ' +
-                            esc(r.duration  || '') + ' &bull; Qty: ' +
+                            esc(r.duration  || '') + ' &bull; ' +
+                            esc(conTr('con.rx.historyQty')) + ' ' +
                             esc(r.quantity  || '') +
                         '</span>' +
                         (r.remarks
@@ -2126,10 +2163,12 @@ async function loadDrugHistory(patientId) {
                     '<div class="rx-row-print-btns">' +
                         '<button class="btn-label-sm-en" ' +
                         'onclick="printHistoryRowLabel(this,\'en\')" ' +
-                        'title="Print Label">🖨 EN</button>' +
+                        'title="' + esc(conTr('con.rx.printLabelEn')) + '">' +
+                        esc(conTr('con.rx.btnPrintEn')) + '</button>' +
                         '<button class="btn-label-sm-zh" ' +
                         'onclick="printHistoryRowLabel(this,\'zh\')" ' +
-                        'title="列印標籤">🖨 中文</button>' +
+                        'title="' + esc(conTr('con.rx.printLabelZh')) + '">' +
+                        esc(conTr('con.rx.btnPrintZh')) + '</button>' +
                     '</div>' +
                 '</div>';
         }).join('');
@@ -2139,31 +2178,33 @@ async function loadDrugHistory(patientId) {
                 '<div class="rx-group-meta">' +
                     '<span class="rx-group-date">📅 ' +
                         displayDate + '</span>' +
-                    '<span class="rx-group-dr">Dr. ' +
+                    '<span class="rx-group-dr">' + esc(conTr('con.rx.historyDrPrefix')) +
                         esc(doctorTag) + '</span>' +
                 '</div>' +
                 '<div class="rx-group-actions">' +
                     '<button class="btn-label-group-en" ' +
                     'onclick="printHistoryGroupLabels(this,\'en\')" ' +
-                    'title="Print All Labels">🖨 All EN</button>' +
+                    'title="' + esc(conTr('con.rx.printLabelEn')) + '">' +
+                    esc(conTr('con.rx.printAllEn')) + '</button>' +
                     '<button class="btn-label-group-zh" ' +
                     'onclick="printHistoryGroupLabels(this,\'zh\')" ' +
-                    'title="列印全部標籤">🖨 All 中文</button>' +
+                    'title="' + esc(conTr('con.rx.printLabelZh')) + '">' +
+                    esc(conTr('con.rx.printAllZh')) + '</button>' +
                     '<button type="button" class="btn-reapply-hist-rx" ' +
-                    'title="Add this prescription to the Rx draft below (appends)"' +
+                    'title="' + esc(conTr('con.rx.reApplyTitle')) + '"' +
                     ' style="padding:5px 9px;font-size:11px;border-radius:5px;' +
                     'border:1px solid #0284c7;background:#e0f2fe;color:#0369a1;' +
-                    'cursor:pointer;font-weight:600;">↻ Re-apply</button>' +
+                    'cursor:pointer;font-weight:600;">' + esc(conTr('con.rx.reApply')) + '</button>' +
                     '<button type="button" class="btn-save-hist-as-list" ' +
-                    'title="Save this prescription bundle as a named reusable list"' +
+                    'title="' + esc(conTr('con.rx.saveAsListHistTitle')) + '"' +
                     ' style="padding:5px 9px;font-size:11px;border-radius:5px;' +
                     'border:1px solid #ca8a04;background:#fefce8;color:#854d0e;' +
-                    'cursor:pointer;font-weight:600;">💾 Save as list</button>' +
+                    'cursor:pointer;font-weight:600;">' + esc(conTr('con.rx.saveAsListBtn')) + '</button>' +
                     '<button class="btn-delete-group" ' +
                     'onclick="deleteRxGroup(this,\'' +
                         esc(dateStr) + '\',\'' +
                         esc(doctorTag) + '\')">' +
-                    '🗑 Delete All</button>' +
+                    esc(conTr('con.rx.deleteAll')) + '</button>' +
                 '</div>' +
             '</div>' +
             '<div class="rx-group-body">' + rowsHtml + '</div>';
@@ -2188,7 +2229,7 @@ async function loadDrugHistory(patientId) {
 // DELETE RX GROUP
 // ════════════════════════════════════════════════════════════════
 function deleteRxGroup(btn, dateStr, doctorTag) {
-    if (!confirm('Delete all prescriptions for this date?')) return;
+    if (!confirm(conTr('con.rx.confirmDeleteGroup'))) return;
     var q = SB.from('drughistory')
         .delete()
         .eq('patient_id',      conPatientId)
@@ -2204,12 +2245,12 @@ function deleteRxGroup(btn, dateStr, doctorTag) {
                 .eq('prescribed_date', dateStr)
                 .eq('dentist_name',    doctorTag)
             .then(function(r2) {
-                if (r2.error) { alert('Error: ' + r2.error.message); return; }
+                if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
                 loadDrugHistory(conPatientId);
             });
             return;
         }
-        if (r.error) { alert('Error: ' + r.error.message); return; }
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         loadDrugHistory(conPatientId);
     });
 }
@@ -2265,11 +2306,50 @@ function buildClinicContactHtmlForDrugLabel(isZh) {
     var e = typeof esc === 'function' ? esc : function(s) { return String(s || ''); };
     var addrShown = addr ? e(addr) : '—';
     var telBody = tel ? e(tel) : '—';
-    var telLine = (isZh ? '電話：' : 'Tel: ') + telBody;
+    var telLine = conLblPrint(isZh, 'tel') + telBody;
     return (
         '<div class="clinic-addr">' + addrShown + '</div>' +
         '<div class="clinic-tel">' + telLine + '</div>'
     );
+}
+
+/** Printable area for drug labels (default 50×60 mm; Config → Print → Drug Label). */
+function drugLabelPrintDimensions() {
+    var w = 50;
+    var h = 60;
+    var ml = 2;
+    var mr = 2;
+    var mt = 2;
+    var mb = 2;
+    var row = null;
+    if (typeof CFG !== 'undefined' && CFG &&
+        typeof CFG.getPrintSettingsForDoc === 'function') {
+        row = CFG.getPrintSettingsForDoc('drug_label');
+    }
+    if (row) {
+        if (row.paper_size === 'Custom' && row.paper_width_mm && row.paper_height_mm) {
+            w = Math.max(20, Number(row.paper_width_mm) || w);
+            h = Math.max(20, Number(row.paper_height_mm) || h);
+        }
+        ml = Number(row.margin_left);
+        if (isNaN(ml)) ml = 2;
+        mr = Number(row.margin_right);
+        if (isNaN(mr)) mr = 2;
+        mt = Number(row.margin_top);
+        if (isNaN(mt)) mt = 2;
+        mb = Number(row.margin_bottom);
+        if (isNaN(mb)) mb = 2;
+    }
+    return {
+        w: w,
+        h: h,
+        ml: ml,
+        mr: mr,
+        mt: mt,
+        mb: mb,
+        innerW: Math.max(10, w - ml - mr),
+        innerH: Math.max(10, h - mt - mb)
+    };
 }
 
 function printDrugLabel(drugs, lang) {
@@ -2278,6 +2358,7 @@ function printDrugLabel(drugs, lang) {
     var clinicName =
         typeof esc === 'function' ? esc(clinicNameRaw) : String(clinicNameRaw || '');
     var clinicContactHtml = buildClinicContactHtmlForDrugLabel(isZh);
+    var dims = drugLabelPrintDimensions();
 
     var fontFamily = isZh
         ? "'Microsoft JhengHei','PingFang TC','Noto Sans TC',Arial,sans-serif"
@@ -2285,31 +2366,38 @@ function printDrugLabel(drugs, lang) {
 
     var labelCSS =
         '* { margin:0; padding:0; box-sizing:border-box; }' +
-        '@page { size:50mm 60mm; margin:1mm; }' +
+        '@page { size:' + dims.w + 'mm ' + dims.h + 'mm; margin:' +
+            dims.mt + 'mm ' + dims.mr + 'mm ' + dims.mb + 'mm ' + dims.ml + 'mm; }' +
+        '@media print { html,body { margin:0; } }' +
         'html,body {' +
             'font-family:' + fontFamily + ';' +
-            'width:48mm;' +
+            'width:' + dims.innerW + 'mm;' +
             'margin:0 auto;' +
             'background:#fff;' +
             'color:#000;' +
         '}' +
-        /* Base scales with JS so dense labels shrink, light layouts stay large */
         '.label {' +
-            'width:100%;' +
-            'height:58mm;' +
-            'max-height:58mm;' +
-            'padding:1mm 1.1mm 1.1mm 1.1mm;' +
+            'width:' + dims.innerW + 'mm;' +
+            'height:' + dims.innerH + 'mm;' +
+            'max-height:' + dims.innerH + 'mm;' +
+            'padding:0.8mm 1mm;' +
             'page-break-after:always;' +
+            'overflow:hidden;' +
+            'position:relative;' +
+        '}' +
+        '.label:last-child { page-break-after:avoid; }' +
+        '.label-inner {' +
+            'width:100%;' +
+            'min-height:0;' +
             'display:flex;' +
             'flex-direction:column;' +
             'justify-content:flex-start;' +
             'align-items:stretch;' +
             'gap:0.45mm;' +
-            'overflow:hidden;' +
             'font-size:7.25pt;' +
             'line-height:1.2;' +
+            'transform-origin:top center;' +
         '}' +
-        '.label:last-child { page-break-after:avoid; }' +
         '.label-top {' +
             'flex:0 0 auto;' +
             'max-height:42%;' +
@@ -2470,7 +2558,6 @@ function printDrugLabel(drugs, lang) {
         var eFn = typeof esc === 'function' ? esc : function(s) { return String(s || ''); };
         var drugName = d.drug_name       || '—';
         var dosage   = d.dosage          || '—';
-        var route    = d.route           || '—';
         var freq     = d.frequency       || '—';
         var duration = d.duration        || '—';
         var qty      = d.quantity        || '—';
@@ -2498,19 +2585,19 @@ function printDrugLabel(drugs, lang) {
 
         var patientBlockZh =
             '<div class="label-patient">' +
-            '<div class="patient-row"><span class="lk">病人編號：</span>' + patNoDisp + '</div>' +
-            '<div class="patient-row patient-name-wrap"><span class="lk">姓名：</span>' +
+            '<div class="patient-row"><span class="lk">' + conLblPrint(true, 'patNo') + '</span>' + patNoDisp + '</div>' +
+            '<div class="patient-row patient-name-wrap"><span class="lk">' + conLblPrint(true, 'name') + '</span>' +
                 '<span class="patient-val">' + patNameDisp + '</span></div>' +
-            '<div class="patient-row"><span class="lk">日期：</span>' + dateStr + '</div>' +
+            '<div class="patient-row"><span class="lk">' + conLblPrint(true, 'date') + '</span>' + dateStr + '</div>' +
             '<hr class="patient-drug-rule">' +
             '</div>';
 
         var patientBlockEn =
             '<div class="label-patient">' +
-            '<div class="patient-row"><span class="lk">No. </span>' + patNoDisp + '</div>' +
-            '<div class="patient-row patient-name-wrap"><span class="lk">Name: </span>' +
+            '<div class="patient-row"><span class="lk">' + conLblPrint(false, 'patNo') + '</span>' + patNoDisp + '</div>' +
+            '<div class="patient-row patient-name-wrap"><span class="lk">' + conLblPrint(false, 'name') + '</span>' +
                 '<span class="patient-val">' + patNameDisp + '</span></div>' +
-            '<div class="patient-row"><span class="lk">Date: </span>' + dateStr + '</div>' +
+            '<div class="patient-row"><span class="lk">' + conLblPrint(false, 'date') + '</span>' + dateStr + '</div>' +
             '<hr class="patient-drug-rule">' +
             '</div>';
 
@@ -2518,13 +2605,13 @@ function printDrugLabel(drugs, lang) {
             ? '<hr class="divider">' +
               '<div class="remarks-block">' +
                   '<span class="lk">' +
-                      (isZh ? '備註：' : 'Remarks: ') +
+                      conLblPrint(isZh, 'remarks') +
                   '</span>' + remarks +
               '</div>'
             : '';
 
         if (isZh) {
-            return '<div class="label">' +
+            return '<div class="label"><div class="label-inner">' +
                 '<div class="label-top">' +
                 '<div class="label-header">' +
                 '<div class="clinic-name">' + clinicName + '</div>' +
@@ -2536,20 +2623,20 @@ function printDrugLabel(drugs, lang) {
                 '<div class="label-mid">' +
                 '<div class="label-mid-inner">' +
                 '<div class="drug-name">' + drugName + '</div>' +
-                '<div class="info-row">' + dosage + ' &nbsp;|&nbsp; ' + route + '</div>' +
-                '<div class="info-row"><span class="lk">服用頻率：</span>' + freq + '</div>' +
-                '<div class="info-row"><span class="lk">療程：</span>' + duration + '</div>' +
-                '<div class="info-row"><span class="lk">數量：</span>' + qty + '</div>' +
+                '<div class="info-row">' + dosage + '</div>' +
+                '<div class="info-row"><span class="lk">' + conLblPrint(true, 'freq') + '</span>' + freq + '</div>' +
+                '<div class="info-row"><span class="lk">' + conLblPrint(true, 'duration') + '</span>' + duration + '</div>' +
+                '<div class="info-row"><span class="lk">' + conLblPrint(true, 'qty') + '</span>' + qty + '</div>' +
                 remarksHtml +
                 '</div>' +
                 '</div>' +
                 '<div class="label-footer">' +
                 '<hr class="divider">' +
-                '<div class="footer-row"><span class="lk">醫生：</span>' + doctor + '</div>' +
+                '<div class="footer-row"><span class="lk">' + conLblPrint(true, 'doctor') + '</span>' + doctor + '</div>' +
                 '</div>' +
-                '</div>';
+                '</div></div>';
         } else {
-            return '<div class="label">' +
+            return '<div class="label"><div class="label-inner">' +
                 '<div class="label-top">' +
                 '<div class="label-header">' +
                 '<div class="clinic-name">' + clinicName + '</div>' +
@@ -2561,18 +2648,18 @@ function printDrugLabel(drugs, lang) {
                 '<div class="label-mid">' +
                 '<div class="label-mid-inner">' +
                 '<div class="drug-name">' + drugName + '</div>' +
-                '<div class="info-row">' + dosage + ' &nbsp;|&nbsp; ' + route + '</div>' +
-                '<div class="info-row"><span class="lk">Freq: </span>' + freq + '</div>' +
-                '<div class="info-row"><span class="lk">Duration: </span>' + duration + '</div>' +
-                '<div class="info-row"><span class="lk">Qty: </span>' + qty + '</div>' +
+                '<div class="info-row">' + dosage + '</div>' +
+                '<div class="info-row"><span class="lk">' + conLblPrint(false, 'freq') + '</span>' + freq + '</div>' +
+                '<div class="info-row"><span class="lk">' + conLblPrint(false, 'duration') + '</span>' + duration + '</div>' +
+                '<div class="info-row"><span class="lk">' + conLblPrint(false, 'qty') + '</span>' + qty + '</div>' +
                 remarksHtml +
                 '</div>' +
                 '</div>' +
                 '<div class="label-footer">' +
                 '<hr class="divider">' +
-                '<div class="footer-row"><span class="lk">Dr. </span>' + doctor + '</div>' +
+                '<div class="footer-row"><span class="lk">' + conLblPrint(false, 'doctor') + '</span>' + doctor + '</div>' +
                 '</div>' +
-                '</div>';
+                '</div></div>';
         }
     }).join('');
 
@@ -2583,8 +2670,7 @@ function printDrugLabel(drugs, lang) {
     );
 
     if (!popup) {
-        alert('⚠️ Please allow popups for this site to print labels.\n' +
-              'Look for the blocked popup icon in your browser address bar.');
+        alert(conTr('con.rx.alertPopupBlocked'));
         return;
     }
 
@@ -2593,7 +2679,7 @@ function printDrugLabel(drugs, lang) {
         '<html lang="' + (isZh ? 'zh-HK' : 'en') + '">' +
         '<head>' +
             '<meta charset="UTF-8">' +
-            '<title>' + (isZh ? '藥物標籤' : 'Drug Label') + '</title>' +
+            '<title>' + conLblPrint(isZh, 'title') + '</title>' +
             '<style>' + labelCSS + '</style>' +
         '</head>' +
         '<body>' +
@@ -2602,14 +2688,23 @@ function printDrugLabel(drugs, lang) {
             '(function(){' +
             'function fitAllDrugLabels(){' +
             'var labels=[].slice.call(document.querySelectorAll(".label"));' +
-            'if(!labels.length)return;' +
-            'var lo=5.15,hi=8.2,step=0.12,tol=1.5;' +
-            'function apply(sz){labels.forEach(function(l){l.style.fontSize=sz+"pt";});}' +
-            'function allFit(sz){apply(sz);void document.body.offsetHeight;' +
-            'return labels.every(function(l){return l.scrollHeight<=l.clientHeight+tol;});}' +
-            'var fs=hi;' +
-            'while(fs>lo&&!allFit(fs))fs-=step;' +
-            'if(!allFit(fs))apply(lo);' +
+            'var minSc=0.3;' +
+            'labels.forEach(function(label){' +
+            'var inner=label.querySelector(".label-inner");' +
+            'if(!inner)return;' +
+            'inner.style.transform="none";' +
+            'void label.offsetHeight;' +
+            'var pad=2;' +
+            'var maxH=Math.max(1,label.clientHeight-pad);' +
+            'var maxW=Math.max(1,label.clientWidth-pad);' +
+            'var needH=Math.max(1,inner.scrollHeight);' +
+            'var needW=Math.max(1,inner.scrollWidth);' +
+            'var sc=Math.min(1,maxH/needH,maxW/needW);' +
+            'if(sc<minSc)sc=minSc;' +
+            'sc=Math.floor(sc*100)/100;' +
+            'inner.style.transform="scale("+sc+")";' +
+            'inner.style.transformOrigin="top center";' +
+            '});' +
             '}' +
             'window.onload=function(){' +
             'try{fitAllDrugLabels();}catch(e){}' +
@@ -2628,35 +2723,37 @@ function printDrugLabel(drugs, lang) {
 }
 
 // ── Get drug data from a live rx-line-card (before save) ─────
-function getDrugFromRxLine(lineEl) {
+function getDrugFromRxLine(lineEl, lang) {
     var today = todayISO();
-    var dosageEl   = lineEl.querySelector('.rx-dosage');
-    var routeEl    = lineEl.querySelector('.rx-route');
-    var freqEl     = lineEl.querySelector('.rx-freq');
-    var durEl      = lineEl.querySelector('.rx-dur');
-    var qtyEl      = lineEl.querySelector('.rx-quantity');
-    var remarksEl  = lineEl.querySelector('.rx-remarks');
-
-    // Get drug name from the rxLines array via card id
-    var cardId  = lineEl.id; // e.g. "rxline-2"
+    var cardId  = lineEl.id;
     var idx     = cardId ? parseInt(cardId.replace('rxline-', ''), 10) : -1;
-    var drugName = (idx >= 0 && rxLines[idx])
-        ? (rxLines[idx].drug_name || '')
-        : '';
-
-    return {
-        drug_name:       drugName,
-        dosage:          dosageEl   ? (dosageEl.value   || '') : '',
-        route:           routeEl    ? (routeEl.value    || '') : '',
-        frequency:       freqEl     ? (freqEl.value     || '') : '',
-        duration:        durEl      ? (durEl.value      || '') : '',
-        quantity:        qtyEl      ? (qtyEl.value      || '') : '',
-        remarks:         remarksEl  ? (remarksEl.value  || '') : '',
+    if (idx >= 0 && typeof rxSyncLineFromDom === 'function') rxSyncLineFromDom(idx);
+    var line = (idx >= 0 && rxLines[idx]) ? rxLines[idx] : {};
+    var meta = {
         dentist_name:    conActiveDoctorName || currentName || '—',
         doctor_tag:      conActiveDoctorTag || conActiveDoctorName || currentName || '',
-        prescribed_date: today,
-        patient_no:      (conPatientData && conPatientData.patient_no) ? String(conPatientData.patient_no) : '',
-        patient_name:    (conPatientData && conPatientData.full_name) ? String(conPatientData.full_name) : ''
+        prescribed_date: (g('rxDate') && g('rxDate').value) || today,
+        patient_no:      (conPatientData && conPatientData.patient_no)
+            ? String(conPatientData.patient_no) : '',
+        patient_name:    (conPatientData && conPatientData.full_name)
+            ? String(conPatientData.full_name) : ''
+    };
+    if (typeof rxLineToPrintDrug === 'function') {
+        return rxLineToPrintDrug(line, lang || 'en', meta);
+    }
+    return {
+        drug_name:       line.drug_name || '',
+        dosage:          line.dosage || '',
+        route:           '',
+        frequency:       line.frequency || '',
+        duration:        line.duration || '',
+        quantity:        line.quantity || '',
+        remarks:         line.remarks || '',
+        dentist_name:    meta.dentist_name,
+        doctor_tag:      meta.doctor_tag,
+        prescribed_date: meta.prescribed_date,
+        patient_no:      meta.patient_no,
+        patient_name:    meta.patient_name
     };
 }
 
@@ -2665,12 +2762,12 @@ function printRxLineLabelEn(btn) {
     var lineEl = btn.closest('.rx-line-card');
     if (!lineEl) return;
     if (!conPatientId || !conPatientData) {
-        alert('Please select a patient first (patient no. and name appear on the label).');
+        alert(conTr('con.rx.alertLabelNeedPatient'));
         return;
     }
-    var drug = getDrugFromRxLine(lineEl);
+    var drug = getDrugFromRxLine(lineEl, 'en');
     if (!drug.drug_name) {
-        alert('Please select a drug first.');
+        alert(conTr('con.rx.alertLabelNeedDrug'));
         return;
     }
     printDrugLabel([drug], 'en');
@@ -2681,12 +2778,12 @@ function printRxLineLabelZh(btn) {
     var lineEl = btn.closest('.rx-line-card');
     if (!lineEl) return;
     if (!conPatientId || !conPatientData) {
-        alert('請先選擇病人（標籤須顯示病人編號及姓名）。');
+        alert(conTr('con.rx.alertLabelNeedPatient'));
         return;
     }
-    var drug = getDrugFromRxLine(lineEl);
+    var drug = getDrugFromRxLine(lineEl, 'zh');
     if (!drug.drug_name) {
-        alert('請先選擇藥物。');
+        alert(conTr('con.rx.alertLabelNeedDrug'));
         return;
     }
     printDrugLabel([drug], 'zh');
@@ -2696,22 +2793,10 @@ function printRxLineLabelZh(btn) {
 function printHistoryRowLabel(btn, lang) {
     var row = btn.closest('.rx-history-row');
     if (!row) return;
-    var drug = {
-        drug_name:       row.dataset.drugName       || '',
-        dosage:          row.dataset.dosage         || '',
-        route:           row.dataset.route          || '',
-        frequency:       row.dataset.frequency      || '',
-        duration:        row.dataset.duration       || '',
-        quantity:        row.dataset.quantity       || '',
-        remarks:         row.dataset.remarks        || '',
-        dentist_name:    row.dataset.dentistName    || '',
-        doctor_tag:      row.dataset.doctorTag      || row.dataset.dentistName || '',
-        prescribed_date: row.dataset.prescribedDate || '',
-        patient_no:      row.dataset.patientNo ||
-            (conPatientData && conPatientData.patient_no ? String(conPatientData.patient_no) : ''),
-        patient_name:    row.dataset.patientName ||
-            (conPatientData && conPatientData.full_name ? String(conPatientData.full_name) : '')
-    };
+    var drug = typeof rxHistoryRowToDrug === 'function'
+        ? rxHistoryRowToDrug(row, lang)
+        : null;
+    if (!drug) return;
     if (!drug.drug_name) return;
     printDrugLabel([drug], lang);
 }
@@ -2735,22 +2820,14 @@ function printHistoryGroupLabels(btn, lang) {
         defName = String(conPatientData.full_name);
     }
     rows.forEach(function(row) {
-        var dn = row.dataset.drugName || '';
-        if (!dn) return;
-        drugs.push({
-            drug_name:       dn,
-            dosage:          row.dataset.dosage         || '',
-            route:           row.dataset.route          || '',
-            frequency:       row.dataset.frequency      || '',
-            duration:        row.dataset.duration       || '',
-            quantity:        row.dataset.quantity       || '',
-            remarks:         row.dataset.remarks        || '',
-            dentist_name:    row.dataset.dentistName    || '',
-            doctor_tag:      row.dataset.doctorTag      || row.dataset.dentistName || '',
-            prescribed_date: row.dataset.prescribedDate || '',
-            patient_no:      row.dataset.patientNo || defNo,
-            patient_name:    row.dataset.patientName || defName
-        });
+        var drug = typeof rxHistoryRowToDrug === 'function'
+            ? rxHistoryRowToDrug(row, lang)
+            : null;
+        if (drug && drug.drug_name) {
+            if (!drug.patient_no) drug.patient_no = defNo;
+            if (!drug.patient_name) drug.patient_name = defName;
+            drugs.push(drug);
+        }
     });
     if (!drugs.length) return;
     printDrugLabel(drugs, lang);
@@ -2761,9 +2838,12 @@ function printHistoryGroupLabels(btn, lang) {
 // ════════════════════════════════════════════════════════════════
 function openDrugListManager() {
     drugEditId = null;
+    if (typeof refreshDrugCategorySelect === 'function') refreshDrugCategorySelect();
     loadDrugListTable();
     resetDrugForm();
     openModal('drugListModal');
+    var mod = g('drugListModal');
+    if (mod && typeof applyI18nInRoot === 'function') applyI18nInRoot(mod);
 }
 
 function loadDrugListTable() {
@@ -2772,7 +2852,7 @@ function loadDrugListTable() {
 
     tb.innerHTML =
         '<tr><td colspan="7" style="text-align:center;' +
-        'color:#aaa;padding:16px;">Loading...</td></tr>';
+        'color:#aaa;padding:16px;">' + esc(conTr('con.rx.drugListLoading')) + '</td></tr>';
 
     SB.from('druglist')
         .select('*')
@@ -2782,7 +2862,7 @@ function loadDrugListTable() {
         if (r.error || !r.data || !r.data.length) {
             tb.innerHTML =
                 '<tr><td colspan="7" style="text-align:center;' +
-                'color:#aaa;padding:16px;">No drugs in list.' +
+                'color:#aaa;padding:16px;">' + esc(conTr('con.rx.drugListEmpty')) +
                 '</td></tr>';
             return;
         }
@@ -2792,12 +2872,12 @@ function loadDrugListTable() {
             if (!d.is_active) tr.style.opacity = '0.5';
             tr.innerHTML =
                 '<td><span class="cat-badge">' +
-                    esc(d.category || 'Other') +
+                    esc(conDrugCatLabel(d.category)) +
                 '</span></td>' +
                 '<td><strong>' + esc(d.drug_name) + '</strong>' +
                     (!d.is_active
                         ? ' <span style="font-size:10px;' +
-                          'color:var(--danger);">[Inactive]</span>'
+                          'color:var(--danger);">[' + esc(conTr('drug.inactive')) + ']</span>'
                         : '') +
                 '</td>' +
                 '<td>' + esc(d.dosage    || '-') + '</td>' +
@@ -2808,10 +2888,10 @@ function loadDrugListTable() {
                     '<div style="display:flex;gap:5px;">' +
                         '<button class="btn-dl-edit btn-sm" ' +
                         'style="background:var(--primary);">' +
-                        'Edit</button>' +
+                        esc(conTr('con.rx.drugListEdit')) + '</button>' +
                         '<button class="btn-dl-del btn-sm" ' +
                         'style="background:var(--danger);">' +
-                        'Del</button>' +
+                        esc(conTr('con.rx.drugListDel')) + '</button>' +
                     '</div>' +
                 '</td>';
             tb.appendChild(tr);
@@ -2831,7 +2911,10 @@ function loadDrugListTable() {
 function resetDrugForm() {
     drugEditId = null;
     var title  = g('dlFormTitle');
-    if (title) title.textContent = '➕ Add New Drug';
+    if (title) {
+        title.setAttribute('data-i18n', 'con.rx.dlFormAddTitle');
+        title.textContent = conTr('con.rx.dlFormAddTitle');
+    }
     var cancel = g('dlCancelEdit');
     if (cancel) cancel.style.display = 'none';
     sv('dlName',      '');
@@ -2846,7 +2929,10 @@ function resetDrugForm() {
 function editDrugItem(d) {
     drugEditId = d.id;
     var title  = g('dlFormTitle');
-    if (title) title.textContent = '✏️ Edit Drug';
+    if (title) {
+        title.removeAttribute('data-i18n');
+        title.textContent = conTr('con.rx.dlFormEditTitle');
+    }
     var cancel = g('dlCancelEdit');
     if (cancel) cancel.style.display = 'inline-block';
     sv('dlName',      d.drug_name  || '');
@@ -2862,7 +2948,7 @@ function editDrugItem(d) {
 
 function saveDrugItem() {
     var name = (g('dlName').value || '').trim();
-    if (!name) { alert('Drug name is required.'); return; }
+    if (!name) { alert(conTr('drug.alertNameRequired')); return; }
 
     var payload = {
         drug_name:  name,
@@ -2879,17 +2965,17 @@ function saveDrugItem() {
         : SB.from('druglist').insert([payload]);
 
     promise.then(function(r) {
-        if (r.error) { alert('Error: ' + r.error.message); return; }
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         resetDrugForm();
         loadDrugListTable();
     });
 }
 
 function deleteDrugItem(id) {
-    if (!confirm('Delete this drug from the master list?')) return;
+    if (!confirm(conTr('con.rx.confirmDeleteMaster'))) return;
     SB.from('druglist').delete().eq('id', id)
     .then(function(r) {
-        if (r.error) { alert('Error: ' + r.error.message); return; }
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         loadDrugListTable();
     });
 }
@@ -2898,53 +2984,11 @@ function deleteDrugItem(id) {
 // MEDICAL HISTORY TAB
 // ════════════════════════════════════════════════════════════════
 function doConPatientSearchMed() {
-    var q  = (g('conPsInputMed').value || '').trim();
-    var dd = g('conPsDropMed');
-    if (!q) { dd.style.display = 'none'; return; }
-
-    var mq = SB.from('patients')
-        .select(
-            'id,patient_no,full_name,dob,' +
-            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
-        )
-        .or(
-            'full_name.ilike.%'    + q + '%,' +
-            'patient_no.ilike.%'   + q + '%,' +
-            'phone_number.ilike.%' + q + '%'
-        )
-        .limit(8);
-    mq = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(mq, 'conPsClinicFilterMed')
-        : mq;
-    mq.then(function(r) {
-        dd.innerHTML = '';
-        if (r.error || !r.data || !r.data.length) {
-            dd.innerHTML =
-                '<div class="ps-item" style="color:#aaa;">' +
-                'No patients found</div>';
-            dd.style.display = 'block';
-            return;
-        }
-        r.data.forEach(function(p) {
-            var item = document.createElement('div');
-            item.className = 'ps-item';
-            item.innerHTML =
-                '<strong>' + esc(p.full_name) + '</strong>' +
-                '<br><small style="color:#aaa;">' +
-                '#' + esc(p.patient_no || '-') +
-                ' &nbsp;|&nbsp; ' +
-                esc(p.phone_number || 'No phone') +
-                '</small>';
-            item.addEventListener('click', function() {
-                dd.style.display = 'none';
-                g('conPsInputMed').value =
-                    p.full_name +
-                    ' (#' + (p.patient_no || '') + ')';
-                selectMedPatient(p);
-            });
-            dd.appendChild(item);
-        });
-        dd.style.display = 'block';
+    runPatientSearchDropdown({
+        inputId: 'conPsInputMed',
+        dropId: 'conPsDropMed',
+        clinicFilterId: 'conPsClinicFilterMed',
+        onSelect: selectMedPatient
     });
 }
 
@@ -2962,7 +3006,7 @@ function selectMedPatient(p) {
         g('conMedBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
     if (g('conMedBannerAlert')) {
-        g('conMedBannerAlert').textContent = p.medical_alerts || 'None';
+        g('conMedBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
         g('conMedBannerAlert').style.color = p.medical_alerts
             ? 'var(--danger)' : '#999';
     }
@@ -2983,7 +3027,7 @@ function loadMedicalHistory() {
         .single()
     .then(function(r) {
         if (r.error) {
-            alert('Error loading medical history: ' + r.error.message);
+            alert(conTrRepl('con.alert.medLoadFail', { MSG: r.error.message }));
             return;
         }
         var d = r.data || {};
@@ -2995,7 +3039,7 @@ function loadMedicalHistory() {
 }
 
 function saveMedicalHistory() {
-    if (!conMedPatientId) { alert('No patient selected.'); return; }
+    if (!conMedPatientId) { alert(conTr('con.alert.noPatientSelected')); return; }
     var payload = {
         medical_history:     (g('fldMedHistory').value  || '').trim(),
         current_medications: (g('fldMedications').value || '').trim(),
@@ -3003,9 +3047,8 @@ function saveMedicalHistory() {
     };
     SB.from('patients').update(payload).eq('id', conMedPatientId)
     .then(function(r) {
-        if (r.error) { alert('Error saving: ' + r.error.message); return; }
-        alert('✅ Medical history saved for ' +
-              conMedPatientData.full_name);
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        alert(conTrRepl('con.alert.medSaved', { NAME: conMedPatientData.full_name }));
     });
 }
 
@@ -3013,53 +3056,11 @@ function saveMedicalHistory() {
 // DENTAL HISTORY TAB
 // ════════════════════════════════════════════════════════════════
 function doConPatientSearchDen() {
-    var q  = (g('conPsInputDen').value || '').trim();
-    var dd = g('conPsDropDen');
-    if (!q) { dd.style.display = 'none'; return; }
-
-    var dq = SB.from('patients')
-        .select(
-            'id,patient_no,full_name,dob,' +
-            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
-        )
-        .or(
-            'full_name.ilike.%'    + q + '%,' +
-            'patient_no.ilike.%'   + q + '%,' +
-            'phone_number.ilike.%' + q + '%'
-        )
-        .limit(8);
-    dq = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(dq, 'conPsClinicFilterDen')
-        : dq;
-    dq.then(function(r) {
-        dd.innerHTML = '';
-        if (r.error || !r.data || !r.data.length) {
-            dd.innerHTML =
-                '<div class="ps-item" style="color:#aaa;">' +
-                'No patients found</div>';
-            dd.style.display = 'block';
-            return;
-        }
-        r.data.forEach(function(p) {
-            var item = document.createElement('div');
-            item.className = 'ps-item';
-            item.innerHTML =
-                '<strong>' + esc(p.full_name) + '</strong>' +
-                '<br><small style="color:#aaa;">' +
-                '#' + esc(p.patient_no || '-') +
-                ' &nbsp;|&nbsp; ' +
-                esc(p.phone_number || 'No phone') +
-                '</small>';
-            item.addEventListener('click', function() {
-                dd.style.display = 'none';
-                g('conPsInputDen').value =
-                    p.full_name +
-                    ' (#' + (p.patient_no || '') + ')';
-                selectDenPatient(p);
-            });
-            dd.appendChild(item);
-        });
-        dd.style.display = 'block';
+    runPatientSearchDropdown({
+        inputId: 'conPsInputDen',
+        dropId: 'conPsDropDen',
+        clinicFilterId: 'conPsClinicFilterDen',
+        onSelect: selectDenPatient
     });
 }
 
@@ -3077,7 +3078,7 @@ function selectDenPatient(p) {
         g('conDenBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
     if (g('conDenBannerAlert')) {
-        g('conDenBannerAlert').textContent = p.medical_alerts || 'None';
+        g('conDenBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
         g('conDenBannerAlert').style.color = p.medical_alerts
             ? 'var(--danger)' : '#999';
     }
@@ -3098,7 +3099,7 @@ function loadDentalHistory() {
         .single()
     .then(function(r) {
         if (r.error) {
-            alert('Error loading dental history: ' + r.error.message);
+            alert(conTrRepl('con.alert.denLoadFail', { MSG: r.error.message }));
             return;
         }
         var d = r.data || {};
@@ -3110,7 +3111,7 @@ function loadDentalHistory() {
 }
 
 function saveDentalHistory() {
-    if (!conDenPatientId) { alert('No patient selected.'); return; }
+    if (!conDenPatientId) { alert(conTr('con.alert.noPatientSelected')); return; }
     var payload = {
         dental_history:        (g('fldDentalHistory').value  || '').trim(),
         parafunctional_habits: (g('fldParafunctional').value || '').trim(),
@@ -3118,8 +3119,95 @@ function saveDentalHistory() {
     };
     SB.from('patients').update(payload).eq('id', conDenPatientId)
     .then(function(r) {
-        if (r.error) { alert('Error saving: ' + r.error.message); return; }
-        alert('✅ Dental history saved for ' +
-              conDenPatientData.full_name);
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        alert(conTrRepl('con.alert.denSaved', { NAME: conDenPatientData.full_name }));
     });
 }
+
+// ════════════════════════════════════════════════════════════════
+// UI LANGUAGE — consultation doctor dropdown when display language changes
+// ════════════════════════════════════════════════════════════════
+function refreshConOpenModalsI18n() {
+    var rxModal = g('rxDrugListsModal');
+    if (rxModal && rxModal.style.display === 'block') {
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(rxModal);
+        if (typeof rxRenderSavedDrugListsModal === 'function') {
+            rxRenderSavedDrugListsModal();
+        }
+    }
+    var dlModal = g('drugListModal');
+    if (dlModal && dlModal.style.display === 'block') {
+        if (typeof refreshDrugCategorySelect === 'function') refreshDrugCategorySelect();
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(dlModal);
+        if (typeof loadDrugListTable === 'function') loadDrugListTable();
+        if (drugEditId) {
+            var titleEl = g('dlFormTitle');
+            if (titleEl) titleEl.textContent = conTr('con.rx.dlFormEditTitle');
+        } else if (typeof resetDrugForm === 'function') {
+            resetDrugForm();
+        }
+    }
+}
+
+document.addEventListener('app-lang-change', function() {
+    refreshConOpenModalsI18n();
+    if (conPatientData) {
+        if (typeof refreshPhotoBannerI18n === 'function') refreshPhotoBannerI18n();
+        if (typeof refreshXrayBannerI18n === 'function') refreshXrayBannerI18n();
+    }
+    if (conFormsPatientData && typeof updateConFormsPatientLabel === 'function') {
+        updateConFormsPatientLabel();
+    }
+    if (conFormsPatientId) {
+        if (typeof refreshConFormsToolbarI18n === 'function') refreshConFormsToolbarI18n();
+        if (typeof refreshConFormsFontSizeSelect === 'function') refreshConFormsFontSizeSelect();
+        var formsEditor = g('conFormsDocEditor');
+        if (formsEditor && formsEditor.dataset.placeholderMode === '1' &&
+            typeof refreshConFormsEditorPlaceholder === 'function') {
+            refreshConFormsEditorPlaceholder();
+        }
+    }
+    if (conPatientId && typeof renderRxLines === 'function' && rxLines && rxLines.length) {
+        renderRxLines();
+    }
+    if (conPatientId && typeof loadDrugHistory === 'function') {
+        loadDrugHistory(conPatientId);
+    }
+    if (conPatientId && typeof loadConNotes === 'function') {
+        loadConNotes(conPatientId);
+    }
+    if (conPatientData && typeof refreshConPatientBannerI18n === 'function') {
+        refreshConPatientBannerI18n(conPatientData);
+        if (typeof applyI18nInRoot === 'function') {
+            ['conMedBanner', 'conDenBanner', 'conPhotoBanner', 'conXrayBanner'].forEach(function(bid) {
+                var banner = g(bid);
+                if (banner) applyI18nInRoot(banner);
+            });
+        }
+    }
+    if (conFormsPatientId && typeof loadConFormsTemplates === 'function') {
+        loadConFormsTemplates();
+    }
+    var formsListEarly = g('conFormsExistingList');
+    if (conFormsPatientId && formsListEarly && formsListEarly.children.length &&
+        typeof searchConFormsDocs === 'function') {
+        searchConFormsDocs();
+    }
+    if (conPatientId || conFormsPatientId) {
+        if (typeof loadConsultationDoctors === 'function') loadConsultationDoctors();
+    }
+
+    if (typeof applyI18nInRoot === 'function' &&
+        (conPatientId || conFormsPatientId || conPatientData)) {
+        ['con-treatment', 'con-medhistory', 'con-denhistory', 'con-xrays',
+            'con-charting', 'con-photos', 'con-forms'].forEach(function(pid) {
+            var pane = g(pid);
+            if (pane) applyI18nInRoot(pane);
+        });
+    }
+    var sec = g('consultationSection');
+    if (sec && (conPatientId || conFormsPatientId) && typeof applyI18nInRoot === 'function') {
+        applyI18nInRoot(sec);
+    }
+    if (!sec || sec.style.display === 'none') return;
+});

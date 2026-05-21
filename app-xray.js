@@ -16,6 +16,93 @@ var xrayView        = 'grid';
 var xrayUploadQueue = [];   // files queued for sequential upload
 var xrayUploadQIdx  = 0;
 var diyLinks        = [];   // custom external-system links
+var xrayLocalPaths  = {};   // per-system desktop paths (localStorage)
+var xrayPendingLocalImportKey = null;
+var xrayBulkLocalImport = false;
+
+var XRAY_LOCAL_PATHS_KEY = 'jsm_xray_local_paths_v1';
+var XRAY_IMAGE_EXT_RE    = /\.(jpe?g|png|bmp|gif|tif?f|webp|dcm)$/i;
+
+function xrayClinicImageRoot() {
+    return (typeof CLINIC_IMAGE_ROOT === 'string' && CLINIC_IMAGE_ROOT)
+        ? CLINIC_IMAGE_ROOT
+        : 'C:\\Image';
+}
+
+function xrayDefaultSubPattern() {
+    return 'Xrays\\{patient_no}';
+}
+
+var XRAY_TYPE_PAIRS = [
+    ['Periapical', 'media.xrayType.periapical'],
+    ['Bitewing', 'media.xrayType.bitewing'],
+    ['Panoramic', 'media.xrayType.panoramic'],
+    ['CBCT', 'media.xrayType.cbct'],
+    ['Cephalometric', 'media.xrayType.cephalometric'],
+    ['Occlusal', 'media.xrayType.occlusal'],
+    ['Other', 'media.categoryOther']
+];
+
+function xrayTypeLabel(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return mediaTr('media.categoryOther');
+    var i;
+    for (i = 0; i < XRAY_TYPE_PAIRS.length; i++) {
+        if (XRAY_TYPE_PAIRS[i][0] === s) return mediaTr(XRAY_TYPE_PAIRS[i][1]);
+    }
+    if (/^other$/i.test(s)) return mediaTr('media.categoryOther');
+    return s;
+}
+
+function refreshXrayTypeSelects() {
+    function fill(selId, includeAll) {
+        var sel = g(selId);
+        if (!sel) return;
+        var prev = sel.value;
+        var html = includeAll
+            ? '<option value="">' + esc(mediaTr('media.allTypes')) + '</option>'
+            : '';
+        XRAY_TYPE_PAIRS.forEach(function(pair) {
+            html += '<option value="' + esc(pair[0]) + '">' + esc(mediaTr(pair[1])) + '</option>';
+        });
+        sel.innerHTML = html;
+        if (prev) sel.value = prev;
+    }
+    fill('xrayFilterType', true);
+    fill('uploadType', false);
+    fill('lbType', false);
+}
+
+function refreshXrayBannerI18n() {
+    var p = xrayPatientData;
+    if (!p) return;
+    var dobEl = g('conXrayBannerDob');
+    if (dobEl) dobEl.textContent = p.dob ? formatDobAge(p.dob) : '-';
+    var alertEl = g('conXrayBannerAlert');
+    if (alertEl) {
+        alertEl.textContent = p.medical_alerts || mediaTr('con.banner.none');
+        alertEl.style.color = p.medical_alerts ? 'var(--danger)' : '#999';
+    }
+}
+
+function mediaTr(key) {
+    return (typeof t === 'function') ? t(key) : key;
+}
+
+function mediaTrRepl(key, pairs) {
+    var s = mediaTr(key);
+    if (!pairs) return s;
+    for (var k in pairs) {
+        if (Object.prototype.hasOwnProperty.call(pairs, k)) {
+            s = s.split('{' + k + '}').join(String(pairs[k]));
+        }
+    }
+    return s;
+}
+
+function mediaErr(msg) {
+    return mediaTrRepl('media.alert.error', { MSG: msg });
+}
 
 // Image transform state — slide view
 var slideTransform = {
@@ -70,14 +157,8 @@ function checkXrayBucket() {
                 if (msg.toLowerCase().includes('bucket not found') ||
                     msg.toLowerCase().includes('not found')) {
                     showXrayError(
-                        '⚠️ Storage bucket missing',
-                        'The bucket <strong>"' + XRAY_BUCKET + '"</strong> does not ' +
-                        'exist in your Supabase project.<br><br>' +
-                        '1. Open <strong>Supabase → Storage</strong><br>' +
-                        '2. Click <strong>New Bucket</strong><br>' +
-                        '3. Name it exactly: <code>' + XRAY_BUCKET + '</code><br>' +
-                        '4. Enable <strong>Public</strong> access<br>' +
-                        '5. Reload and try again.'
+                        mediaTr('media.err.bucketProbeTitle'),
+                        mediaTrRepl('media.err.bucketProbeHtml', { BUCKET: XRAY_BUCKET })
                     );
                 } else {
                     // Non-fatal warning (e.g. policy issue) — log only
@@ -92,47 +173,11 @@ function checkXrayBucket() {
 // PATIENT SEARCH
 // ════════════════════════════════════════════════════════════════
 function doConPatientSearchXray() {
-    var q  = (g('conPsInputXray').value || '').trim();
-    var dd = g('conPsDropXray');
-    if (!q) { dd.style.display = 'none'; return; }
-
-    var xq = SB.from('patients')
-        .select('id,patient_no,full_name,dob,phone_number,medical_alerts,' +
-            PATIENT_CLINIC_TAG_FIELD)
-        .or(
-            'full_name.ilike.%'   + q + '%,' +
-            'patient_no.ilike.%'  + q + '%,' +
-            'phone_number.ilike.%' + q + '%'
-        )
-        .limit(8);
-    xq = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(xq, 'conPsClinicFilterXray')
-        : xq;
-    xq.then(function(r) {
-        dd.innerHTML = '';
-        if (r.error || !r.data || !r.data.length) {
-            dd.innerHTML =
-                '<div class="ps-item" style="color:#aaa;">No patients found</div>';
-            dd.style.display = 'block';
-            return;
-        }
-        r.data.forEach(function(p) {
-            var item = document.createElement('div');
-            item.className = 'ps-item';
-            item.innerHTML =
-                '<strong>' + esc(p.full_name) + '</strong>' +
-                '<br><small style="color:#aaa;">#' +
-                esc(p.patient_no || '-') + ' &nbsp;|&nbsp; ' +
-                esc(p.phone_number || 'No phone') + '</small>';
-            item.addEventListener('click', function() {
-                dd.style.display = 'none';
-                g('conPsInputXray').value =
-                    p.full_name + ' (#' + (p.patient_no || '') + ')';
-                selectXrayPatient(p);
-            });
-            dd.appendChild(item);
-        });
-        dd.style.display = 'block';
+    runPatientSearchDropdown({
+        inputId: 'conPsInputXray',
+        dropId: 'conPsDropXray',
+        clinicFilterId: 'conPsClinicFilterXray',
+        onSelect: selectXrayPatient
     });
 }
 
@@ -174,7 +219,7 @@ function syncXrayPatient(patientId, patientData) {
         
         var alertEl = g('conXrayBannerAlert');
         if (alertEl) {
-            alertEl.textContent = patientData.medical_alerts || 'None';
+            alertEl.textContent = patientData.medical_alerts || mediaTr('con.banner.none');
             alertEl.style.color = patientData.medical_alerts ? 'var(--danger)' : '#999';
         }
     }
@@ -203,7 +248,7 @@ function selectXrayPatient(p) {
 
     var alertEl = g('conXrayBannerAlert');
     if (alertEl) {
-        alertEl.textContent = p.medical_alerts || 'None';
+        alertEl.textContent = p.medical_alerts || mediaTr('con.banner.none');
         alertEl.style.color = p.medical_alerts ? 'var(--danger)' : '#999';
     }
 
@@ -277,7 +322,7 @@ function populateYearFilter() {
         if (x.taken_date) years.add(x.taken_date.slice(0, 4));
     });
     var cur = sel.value;
-    sel.innerHTML = '<option value="">All Years</option>';
+    sel.innerHTML = '<option value="">' + esc(mediaTr('media.allYears')) + '</option>';
     Array.from(years).sort().reverse().forEach(function(y) {
         var o = document.createElement('option');
         o.value = y; o.textContent = y;
@@ -355,7 +400,7 @@ function renderXrayGrid() {
         card.dataset.id = x.id;
 
         var typeBadge = getTypeBadge(x.xray_type);
-        var dateStr   = x.taken_date ? fmtDateLong(x.taken_date) : 'No date';
+        var dateStr   = x.taken_date ? fmtDateLong(x.taken_date) : mediaTr('media.noDate');
         var imgSrc    = xrayDisplayUrl(x);
 
         var noPreviewSVG =
@@ -364,7 +409,7 @@ function renderXrayGrid() {
                 '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150">' +
                 '<rect fill="#1a1a2e"/>' +
                 '<text x="50%" y="50%" fill="#666" text-anchor="middle" ' +
-                'dy=".3em" font-size="14">No Preview</text></svg>'
+                'dy=".3em" font-size="14">' + esc(mediaTr('media.noPreview')) + '</text></svg>'
             );
 
         card.innerHTML =
@@ -376,7 +421,7 @@ function renderXrayGrid() {
                 (imgSrc
                     ? '<img src="' + imgSrc + '" alt="X-Ray" ' +
                       'onerror="this.src=\'' + noPreviewSVG + '\'">'
-                    : '<div class="xray-no-img">🔬<br><small>No Preview</small></div>') +
+                    : '<div class="xray-no-img">🔬<br><small>' + esc(mediaTr('media.noPreview')) + '</small></div>') +
             '</div>' +
             '<div class="xray-card-body">' +
                 '<div class="xray-card-top">' +
@@ -388,7 +433,7 @@ function renderXrayGrid() {
                     : '') +
                 '<div class="xray-card-actions">' +
                     '<button class="xray-cb-open" data-idx="' + idx + '">' +
-                        '🔍 View' +
+                        esc(mediaTr('media.btn.view')) +
                     '</button>' +
                     '<button type="button" class="xray-cb-dl" data-dl="' + idx + '"' +
                         'data-name="' + esc(x.xray_type || 'image') + '">' +
@@ -436,7 +481,7 @@ function getTypeBadge(type) {
     var c = (palette[type] || palette['Other']).split(':');
     return '<span style="background:' + c[0] + ';color:' + c[1] + ';' +
            'font-size:10px;font-weight:700;padding:2px 8px;' +
-           'border-radius:10px;">' + esc(type || 'Other') + '</span>';
+           'border-radius:10px;">' + esc(xrayTypeLabel(type)) + '</span>';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -451,7 +496,7 @@ function renderXraySlide() {
                 'display:flex;align-items:center;justify-content:center;">' +
                 '<div style="text-align:center;color:#666;">' +
                 '<div style="font-size:48px;">🔬</div>' +
-                '<p>No X-Rays</p></div></div>';
+                '<p>' + esc(mediaTr('media.noXrays')) + '</p></div></div>';
         }
         var fs = g('xrayFilmstrip');
         if (fs) fs.innerHTML = '';
@@ -472,10 +517,15 @@ function renderSlideAt(idx) {
     applySlideTransform();
 
     var ctr = g('xraySlideCounter');
-    if (ctr) ctr.textContent = (idx + 1) + ' / ' + xrayFiltered.length;
+    if (ctr) {
+        ctr.textContent = mediaTrRepl('media.slide.counterFmt', {
+            CURRENT: String(idx + 1),
+            TOTAL: String(xrayFiltered.length)
+        });
+    }
 
     var typeEl = g('xraySlideType');
-    if (typeEl) typeEl.textContent = x.xray_type || 'Other';
+    if (typeEl) typeEl.textContent = xrayTypeLabel(x.xray_type);
 
     var dateEl = g('xraySlideDate');
     if (dateEl) dateEl.textContent = x.taken_date ? fmtDateLong(x.taken_date) : '—';
@@ -719,11 +769,13 @@ function openLightbox(idx) {
         }
     }
 
-    sv('lbType',  x.xray_type  || 'Other');
+    sv('lbType',  x.xray_type || '');
     sv('lbDate',  x.taken_date || '');
     sv('lbNotes', x.notes      || '');
 
     openModal('xrayLightbox');
+    var lbModal = g('xrayLightbox');
+    if (lbModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(lbModal);
 }
 
 function closeLightbox() {
@@ -1046,7 +1098,7 @@ function lbCropApply() {
             lbCropRect.x, lbCropRect.y, lbCropRect.w, lbCropRect.h,
             0, 0, tmp.width, tmp.height);
     } catch (err) {
-        alert('Crop failed — image may be cross-origin. Download and re-upload to enable cropping.');
+        alert(mediaTr('media.alert.cropFail'));
         return;
     }
     img.crossOrigin = 'anonymous';
@@ -1075,7 +1127,7 @@ function lbPrint() {
             tmp2.getContext('2d').drawImage(video, 0, 0);
             src = tmp2.toDataURL('image/jpeg', 0.95);
         } else {
-            alert('No video frame available.'); return;
+            alert(mediaTr('media.alert.noVideoFrame')); return;
         }
     } else {
         if (!img || !img.src) return;
@@ -1103,7 +1155,7 @@ function lbPrint() {
     }
 
     var w = window.open('', '_blank', 'width=920,height=720');
-    if (!w) { alert('Pop-up blocked — please allow pop-ups for this page.'); return; }
+    if (!w) { alert(mediaTr('media.alert.popupBlocked')); return; }
     w.document.write(
         '<!DOCTYPE html><html><head>' +
         '<style>body{margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;}' +
@@ -1331,7 +1383,7 @@ function saveLbMeta() {
     function finishOk(msg) {
         closeLightbox();
         loadXrayRecords().then(function() {
-            alert(msg || '✅ Saved.');
+            alert(msg || mediaTr('media.alert.savedDefault'));
         });
     }
 
@@ -1343,8 +1395,8 @@ function saveLbMeta() {
         };
         SB.from('xrays').update(payload).eq('id', lbCurrentId)
             .then(function(r) {
-                if (r.error) { alert('Error: ' + r.error.message); return; }
-                finishOk('✅ X-ray details saved.');
+                if (r.error) { alert(mediaErr(r.error.message)); return; }
+                finishOk(mediaTr('media.alert.xrayDetailsSaved'));
             });
     }
 
@@ -1355,16 +1407,13 @@ function saveLbMeta() {
 
     lbExportEditedJpegForSave(function(blob) {
         if (!blob) {
-            alert(
-                'Could not export the edited image (often CORS with hot-linked ' +
-                'files). Metadata will still be saved.'
-            );
+            alert(mediaTr('media.alert.exportEditFail'));
             saveMetaOnly();
             return;
         }
 
         if (!xrayPatientId) {
-            alert('Patient context missing — cannot upload image. Saving notes only.');
+            alert(mediaTr('media.alert.patientContextMissingNotes'));
             saveMetaOnly();
             return;
         }
@@ -1383,17 +1432,14 @@ function saveLbMeta() {
             })
             .then(function(up) {
                 if (up.error) {
-                    alert('Upload failed: ' + up.error.message + '\nSaving metadata only.');
+                    alert(mediaTrRepl('media.alert.uploadFailedMetaOnly', { MSG: up.error.message }));
                     saveMetaOnly();
                     return null;
                 }
                 var publicUrl = xrayGetPublicUrlForPath(safeName);
 
                 if (!publicUrl) {
-                    alert(
-                        'Upload OK but could not compute public URL. ' +
-                        'Check Storage bucket "' + XRAY_BUCKET + '" is public.'
-                    );
+                    alert(mediaTrRepl('media.alert.publicUrlFail', { BUCKET: XRAY_BUCKET }));
                     saveMetaOnly();
                     return null;
                 }
@@ -1425,21 +1471,17 @@ function saveLbMeta() {
             .then(function(r) {
                 if (!r) return;
                 if (r.error) {
-                    alert(
-                        'Database update failed: ' + r.error.message + '\n\n' +
-                        'If you use Row Level Security, allow UPDATE on file_path, ' +
-                        'file_url, file_size, file_name for your role.'
-                    );
+                    alert(mediaTrRepl('media.alert.dbUpdateFailXray', { MSG: r.error.message }));
                     return;
                 }
-                finishOk('✅ X-ray saved (image + details updated).');
+                finishOk(mediaTr('media.alert.xraySavedFull'));
             });
     });
 }
 
 function deleteLbXray() {
     if (!lbCurrentId) return;
-    if (!confirm('Delete this X-ray? This cannot be undone.')) return;
+    if (!confirm(mediaTr('media.alert.confirmDeleteXray'))) return;
 
     var rec = xrayAllRecords.find(function(x) { return x.id === lbCurrentId; });
     var chain = Promise.resolve();
@@ -1455,7 +1497,7 @@ function deleteLbXray() {
     chain.then(function() {
         return SB.from('xrays').delete().eq('id', lbCurrentId);
     }).then(function(r) {
-        if (r.error) { alert('Error: ' + r.error.message); return; }
+        if (r.error) { alert(mediaErr(r.error.message)); return; }
         closeLightbox();
         loadXrayRecords();
     });
@@ -1472,12 +1514,28 @@ function downloadLbXray() {
 // Wire file input and confirm button after DOM is ready.
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function() {
+    loadXrayLocalPaths();
+    seedXrayLocalPathsFromDesktop();
+
+    var localFi = g('xrayLocalFolderInput');
+    if (localFi) {
+        localFi.addEventListener('change', function() {
+            if (!localFi.files || !localFi.files.length) return;
+            importXrayFilesFromLocalPicker(
+                localFi.files,
+                xrayPendingLocalImportKey || '_general'
+            );
+            localFi.value = '';
+            xrayPendingLocalImportKey = null;
+        });
+    }
+
     // ── File upload ──────────────────────────────────────────
     var fi = g('xrayFileInput');
     if (fi) {
         fi.addEventListener('change', function() {
             if (!xrayPatientId) {
-                alert('Please select a patient first.');
+                alert(mediaTr('con.forms.alertSelectPatient'));
                 fi.value = '';
                 return;
             }
@@ -1558,7 +1616,10 @@ function showUploadModal(file) {
     if (info) {
         var remaining = xrayUploadQueue.length - xrayUploadQIdx;
         info.textContent = remaining > 1
-            ? 'File ' + (xrayUploadQIdx + 1) + ' of ' + xrayUploadQueue.length
+            ? mediaTrRepl('media.upload.fileOf', {
+                N: String(xrayUploadQIdx + 1),
+                TOTAL: String(xrayUploadQueue.length)
+            })
             : '';
     }
 
@@ -1573,11 +1634,17 @@ function confirmUpload() {
     var type  = g('uploadType').value || 'Other';
     var date  = g('uploadDate').value || todayISO();
     var notes = (g('uploadNotes').value || '').trim();
-
     closeModal('xrayUploadModal');
-    showUploadProgress(true, 'Preparing upload…', 5);
+    uploadSingleXrayFile(file, type, date, notes, function() {
+        xrayUploadQIdx++;
+        processNextUpload();
+    });
+}
 
-    // Build a collision-resistant storage path
+function uploadSingleXrayFile(file, type, date, notes, onDone) {
+    if (!file || !xrayPatientId) return;
+    showUploadProgress(true, mediaTr('media.upload.preparing'), 5);
+
     var ext      = (file.name.split('.').pop() || 'jpg').toLowerCase();
     var safeName = xrayPatientId + '/' +
                    Date.now() + '_' +
@@ -1591,9 +1658,8 @@ function confirmUpload() {
     };
     var contentType = file.type || mimeMap[ext] || 'application/octet-stream';
 
-    showUploadProgress(true, 'Uploading to storage…', 20);
+    showUploadProgress(true, mediaTr('media.upload.uploadingStorage'), 20);
 
-    // ── Step 1 : Upload to Supabase Storage ─────────────────
     SB.storage.from(XRAY_BUCKET)
         .upload(safeName, file, {
             cacheControl: '3600',
@@ -1603,29 +1669,19 @@ function confirmUpload() {
     .then(function(r) {
         if (r.error) {
             showUploadProgress(false);
-            var msg = r.error.message || 'Unknown error';
+            var msg = r.error.message || mediaTr('media.err.unknown');
 
             if (msg.toLowerCase().includes('bucket not found')) {
                 showXrayError(
-                    '❌ Bucket not found',
-                    'The storage bucket <strong>"' + XRAY_BUCKET + '"</strong> ' +
-                    'does not exist.<br><br>' +
-                    '1. Supabase → Storage → <strong>New Bucket</strong><br>' +
-                    '2. Name it exactly: <code>' + XRAY_BUCKET + '</code><br>' +
-                    '3. Enable <strong>Public</strong> access → Create<br>' +
-                    '4. Reload this page.'
+                    mediaTr('media.err.bucketNotFoundTitle'),
+                    mediaTrRepl('media.err.bucketNotFoundHtml', { BUCKET: XRAY_BUCKET })
                 );
             } else if (/policy|unauthorized|not allowed/i.test(msg)) {
                 showXrayError(
-                    '❌ Permission denied',
-                    'A storage policy is blocking the upload.<br><br>' +
-                    'Run in <strong>Supabase SQL Editor</strong>:<br>' +
-                    '<code>CREATE POLICY "xrays_upload" ON storage.objects ' +
-                    'FOR INSERT TO authenticated ' +
-                    'WITH CHECK (bucket_id = \'' + XRAY_BUCKET + '\');</code>'
+                    mediaTr('media.err.permissionTitle'),
+                    mediaTrRepl('media.err.permissionHtml', { BUCKET: XRAY_BUCKET })
                 );
             } else if (/duplicate|already exists/i.test(msg)) {
-                // Retry with upsert and a fresh name
                 safeName = xrayPatientId + '/' +
                            Date.now() + '_retry_' +
                            Math.random().toString(36).slice(2) + '.' + ext;
@@ -1636,23 +1692,23 @@ function confirmUpload() {
                         contentType : contentType
                     });
             } else {
-                showXrayError('❌ Upload failed', 'Error: ' + msg);
+                showXrayError(
+                    mediaTr('media.err.uploadFailedTitle'),
+                    esc(mediaTrRepl('media.alert.error', { MSG: msg }))
+                );
             }
             return null;
         }
-        showUploadProgress(true, 'Getting file URL…', 60);
+        showUploadProgress(true, mediaTr('media.upload.gettingUrl'), 60);
         return { ok: true, path: safeName };
     })
-
-    // ── Step 2 : Get public URL ──────────────────────────────
     .then(function(res) {
         if (!res || !res.ok) return null;
 
         var publicUrl = xrayGetPublicUrlForPath(res.path);
 
-        showUploadProgress(true, 'Saving record…', 80);
+        showUploadProgress(true, mediaTr('media.upload.savingRecord'), 80);
 
-        // ── Step 3 : Insert DB record ────────────────────────
         return SB.from('xrays').insert([{
             patient_id  : xrayPatientId,
             patient_no  : (xrayPatientData && xrayPatientData.patient_no)  || null,
@@ -1667,29 +1723,28 @@ function confirmUpload() {
             uploaded_by : (typeof currentName !== 'undefined' ? currentName : null)
         }]);
     })
-
-    // ── Step 4 : Handle DB result ────────────────────────────
     .then(function(r) {
         if (!r) return;
         if (r.error) {
             showUploadProgress(false);
             showXrayError(
-                '❌ Database error',
-                'File uploaded but record save failed:<br>' + r.error.message +
-                '<br><br>Make sure the <code>xrays</code> table exists.'
+                mediaTr('media.err.dbTitle'),
+                mediaTrRepl('media.err.dbHtml', { MSG: r.error.message })
             );
             return;
         }
-        showUploadProgress(true, '✅ Done!', 100);
+        showUploadProgress(true, mediaTr('media.upload.done'), 100);
         setTimeout(function() {
             showUploadProgress(false);
-            xrayUploadQIdx++;
-            processNextUpload();
+            if (onDone) onDone();
         }, 700);
     })
     .catch(function(err) {
         showUploadProgress(false);
-        showXrayError('❌ Unexpected error', err.message || String(err));
+        showXrayError(
+            mediaTr('media.err.unexpectedTitle'),
+            esc(err.message || String(err))
+        );
     });
 }
 
@@ -1740,7 +1795,7 @@ function showXrayError(title, htmlMsg) {
 // ════════════════════════════════════════════════════════════════
 function exportSelectedXrays() {
     if (!xraySelected.size) {
-        alert('Select at least one X-ray to export.');
+        alert(mediaTr('media.alert.selectXrayExport'));
         return;
     }
     var toExport = xrayFiltered.filter(function(x) {
@@ -1755,8 +1810,8 @@ function exportSelectedXrays() {
 }
 
 function exportAllXrays() {
-    if (!xrayFiltered.length) { alert('No X-rays to export.'); return; }
-    if (!confirm('Download all ' + xrayFiltered.length + ' X-ray(s)?')) return;
+    if (!xrayFiltered.length) { alert(mediaTr('media.alert.noXraysExport')); return; }
+    if (!confirm(mediaTrRepl('media.alert.confirmDownloadXrays', { N: String(xrayFiltered.length) }))) return;
     xrayFiltered.forEach(function(x, i) {
         setTimeout(function() {
             downloadFile(xrayDisplayUrl(x),
@@ -1766,7 +1821,7 @@ function exportAllXrays() {
 }
 
 function downloadFile(url, filename) {
-    if (!url) { alert('No file URL available.'); return; }
+    if (!url) { alert(mediaTr('media.alert.noFileUrl')); return; }
 
     fetch(url)
         .then(function(res) {
@@ -1785,7 +1840,7 @@ function downloadFile(url, filename) {
         })
         .catch(function(err) {
             console.warn('[X-Ray] Download error:', err.message);
-            alert('Download failed: ' + err.message);
+            alert(mediaTrRepl('media.alert.downloadFailed', { MSG: err.message }));
         });
 }
 // ════════════════════════════════════════════════════════════════
@@ -1805,30 +1860,664 @@ function toggleSelectAll(checked) {
 function updateSelectedCount() {
     var el = g('xraySelectedCount');
     if (!el) return;
-    el.textContent = xraySelected.size ? xraySelected.size + ' selected' : '';
+    el.textContent = xraySelected.size
+        ? mediaTrRepl('media.selectedCount', { N: String(xraySelected.size) }) : '';
 }
 
 // ════════════════════════════════════════════════════════════════
-// EXTERNAL X-RAY SYSTEMS  (built-in protocol launchers)
+// LOCAL DESKTOP LAUNCHER  (tools/Start X-Ray Launcher.bat on this PC)
+// ════════════════════════════════════════════════════════════════
+var XRAY_LAUNCHER_PORT = 17890;
+var XRAY_LAUNCHER_BASE = 'http://127.0.0.1:' + XRAY_LAUNCHER_PORT;
+
+function xrayLauncherBlockedByPage() {
+    try {
+        return window.location.protocol === 'https:';
+    } catch (eBlock) {
+        return false;
+    }
+}
+
+/** Quick check: is tools/Start X-Ray Launcher.bat running on this PC? */
+function pingXrayLauncher(cb) {
+    if (xrayLauncherBlockedByPage()) {
+        cb({ online: false, blocked: true });
+        return;
+    }
+    var finished = false;
+    var timer = setTimeout(function() {
+        if (!finished) {
+            finished = true;
+            cb({ online: false });
+        }
+    }, 2000);
+    fetch(XRAY_LAUNCHER_BASE + '/status', { method: 'GET', mode: 'cors', cache: 'no-store' })
+        .then(function(r) {
+            if (finished) return null;
+            clearTimeout(timer);
+            if (!r.ok) {
+                finished = true;
+                cb({ online: false });
+                return null;
+            }
+            return r.json().catch(function() { return {}; });
+        })
+        .then(function(body) {
+            if (finished || body === null) return;
+            finished = true;
+            cb({
+                online: !!(body && body.ok),
+                carestream_exists: !!(body && body.carestream_exists),
+                aidental_exists: !!(body && body.aidental_exists)
+            });
+        })
+        .catch(function() {
+            if (!finished) {
+                finished = true;
+                clearTimeout(timer);
+                cb({ online: false });
+            }
+        });
+}
+
+function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, cb) {
+    if (xrayLauncherBlockedByPage()) {
+        cb(false);
+        return;
+    }
+    var patQ = '';
+    if (patient) {
+        var qParts = [];
+        var patNo = String(patient.patient_no || '').trim();
+        var patName = String(patient.full_name || '').trim();
+        if (patNo) {
+            qParts.push('patient_no=' + encodeURIComponent(patNo));
+        }
+        if (patName) {
+            qParts.push('patient_name=' + encodeURIComponent(patName));
+        }
+        if (qParts.length) patQ = '?' + qParts.join('&');
+    }
+    var url = XRAY_LAUNCHER_BASE + '/open/' +
+        encodeURIComponent(launcherKey || 'carestream') + patQ;
+    var finished = false;
+    var timer = setTimeout(function() {
+        if (!finished) {
+            finished = true;
+            cb(false);
+        }
+    }, 2800);
+    fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' })
+        .then(function(r) {
+            if (finished) return null;
+            clearTimeout(timer);
+            if (!r.ok) {
+                finished = true;
+                cb(false);
+                return null;
+            }
+            return r.json().catch(function() { return {}; });
+        })
+        .then(function(body) {
+            if (finished || body === null) return;
+            finished = true;
+            cb(!!(body && body.ok));
+        })
+        .catch(function() {
+            if (!finished) {
+                finished = true;
+                clearTimeout(timer);
+                cb(false);
+            }
+        });
+}
+
+// ════════════════════════════════════════════════════════════════
+// EXTERNAL X-RAY SYSTEMS  (desktop app + local folder paths)
 // ════════════════════════════════════════════════════════════════
 var XRAY_SYSTEMS = {
-    sirona:      { name: 'Sidexis 4 (Sirona/Dentsply)',  url: 'sidexis4://', info: 'Launches Sidexis 4 desktop application' },
-    vatech:      { name: 'EzDent-i (Vatech)',            url: 'ezdenti://',  info: 'Launches EzDent-i application'          },
-    planmeca:    { name: 'Romexis (Planmeca)',           url: 'romexis://',  info: 'Launches Romexis software'              },
-    carestream:  { name: 'CS Imaging (Carestream)',      url: 'csimaging://',info: 'Launches CS Imaging software'           },
-    Trophy:      { name: 'Trophy Imaging / Kodak',       url: 'trophy://',   info: 'Launches Trophy/Kodak imaging system'  }
+    sirona: {
+        nameKey: 'media.sys.sirona',
+        infoKey: 'media.sys.sirona.info',
+        url: 'sidexis4://',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: 'C:\\Program Files\\Sirona Dental\\SIDEXIS\\Sidexis.exe'
+    },
+    vatech: {
+        nameKey: 'media.sys.vatech',
+        infoKey: 'media.sys.vatech.info',
+        url: 'ezdenti://',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: ''
+    },
+    planmeca: {
+        nameKey: 'media.sys.planmeca',
+        infoKey: 'media.sys.planmeca.info',
+        url: 'romexis://',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: ''
+    },
+    carestream: {
+        nameKey: 'media.sys.carestream',
+        infoKey: 'media.sys.carestream.info',
+        url: '',
+        launcherKey: 'carestream',
+        desktopShortcutName: 'CS Imaging Software',
+        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\CS Imaging Software.lnk',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\Patient Browser\\Patient.exe',
+        launchProtocol: false,
+        openMsgKey: 'media.local.carestreamOpen',
+        launchedMsgKey: 'media.local.carestreamLaunched',
+        launcherNeededMsgKey: 'media.local.carestreamLauncherNeeded'
+    },
+    aidental: {
+        nameKey: 'media.sys.aidental',
+        infoKey: 'media.sys.aidental.info',
+        url: '',
+        launcherKey: 'aidental',
+        desktopShortcutName: 'Ai-Dental-Client',
+        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\Ai-Dental-Client.lnk',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: 'C:\\Ai-Dental\\Ai-Dental-Client\\Ai-Dental.exe',
+        launchProtocol: false,
+        openMsgKey: 'media.local.aidentalOpen',
+        launchedMsgKey: 'media.local.aidentalLaunched',
+        launcherNeededMsgKey: 'media.local.aidentalLauncherNeeded'
+    },
+    Trophy: {
+        nameKey: 'media.sys.trophy',
+        infoKey: 'media.sys.trophy.info',
+        url: 'trophy://',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: ''
+    },
+    _general: {
+        nameKey: 'media.local.general',
+        infoKey: 'media.local.generalInfo',
+        url: '',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: ''
+    }
 };
 
-function openXraySystem(key) {
+function xraySystemName(key) {
+    var sys = XRAY_SYSTEMS[key];
+    return sys ? mediaTr(sys.nameKey) : key;
+}
+
+function xraySystemInfo(key) {
+    var sys = XRAY_SYSTEMS[key];
+    return sys ? mediaTr(sys.infoKey) : '';
+}
+
+function loadXrayLocalPaths() {
+    try {
+        var raw = localStorage.getItem(XRAY_LOCAL_PATHS_KEY);
+        xrayLocalPaths = raw ? JSON.parse(raw) : {};
+    } catch (e) {
+        xrayLocalPaths = {};
+    }
+}
+
+function saveXrayLocalPaths() {
+    try {
+        localStorage.setItem(XRAY_LOCAL_PATHS_KEY, JSON.stringify(xrayLocalPaths || {}));
+    } catch (e) {}
+}
+
+function getXrayLocalPathCfg(key) {
+    var sys = XRAY_SYSTEMS[key];
+    var stored = xrayLocalPaths[key] || {};
+    var defSub = (sys && sys.defaultSubPattern) ? sys.defaultSubPattern : xrayDefaultSubPattern();
+    return {
+        dataPath: String(stored.dataPath || '').trim(),
+        subPattern: String(stored.subPattern || defSub).trim() || defSub,
+        appPath: String(stored.appPath || '').trim(),
+        defaultDataPath: sys ? (sys.defaultDataPath || xrayClinicImageRoot()) : xrayClinicImageRoot(),
+        defaultSubPattern: defSub,
+        defaultAppPath: sys ? (sys.defaultAppPath || '') : ''
+    };
+}
+
+/** Stored paths, or built-in defaults for this clinic PC (e.g. Carestream Patient.exe). */
+function getEffectiveXrayLocalPathCfg(key) {
+    var cfg = getXrayLocalPathCfg(key);
+    if (!cfg.dataPath && cfg.defaultDataPath) cfg.dataPath = cfg.defaultDataPath;
+    if (!cfg.appPath && cfg.defaultAppPath) cfg.appPath = cfg.defaultAppPath;
+    return cfg;
+}
+
+/**
+ * Pre-fill local paths: C:\\Image store + Carestream Patient.exe on this PC.
+ */
+function seedXrayLocalPathsFromDesktop() {
+    loadXrayLocalPaths();
+    var root = xrayClinicImageRoot();
+    var sub = xrayDefaultSubPattern();
+    var changed = false;
+
+    function needsImageRoot(path) {
+        if (!path) return true;
+        return /Patient Browser|ProgramData|EzDent|Romexis|SIDEXIS|D:\\XRay/i.test(path);
+    }
+
+    Object.keys(XRAY_SYSTEMS).forEach(function(key) {
+        var sys = XRAY_SYSTEMS[key];
+        var cur = xrayLocalPaths[key] || {};
+        var appDefault = sys.defaultAppPath || '';
+        var patch = false;
+        var next = {
+            dataPath: cur.dataPath,
+            subPattern: cur.subPattern || sub,
+            appPath: cur.appPath || ''
+        };
+        if (needsImageRoot(next.dataPath)) {
+            next.dataPath = root;
+            patch = true;
+        }
+        if (!next.appPath && appDefault) {
+            next.appPath = appDefault;
+            patch = true;
+        }
+        if (!cur.subPattern) {
+            next.subPattern = sub;
+            patch = true;
+        }
+        if (patch) {
+            xrayLocalPaths[key] = next;
+            changed = true;
+        }
+    });
+    if (changed) saveXrayLocalPaths();
+}
+
+function xrayLocalPathTokens(patient) {
+    patient = patient || xrayPatientData || {};
+    var no = String(patient.patient_no || '').trim();
+    var name = String(patient.full_name || '').trim();
+    return {
+        patient_no: no,
+        patient_no_clean: no.replace(/[^a-zA-Z0-9]/g, ''),
+        patient_name: name,
+        patient_name_clean: name.replace(/\s+/g, '')
+    };
+}
+
+/** Clipboard text for imaging software search: "Full Name (patient no.)". */
+function xrayPatientSearchClipboardText(patient) {
+    var tokens = xrayLocalPathTokens(patient);
+    if (tokens.patient_name && tokens.patient_no) {
+        return tokens.patient_name + ' (' + tokens.patient_no + ')';
+    }
+    if (tokens.patient_name) return tokens.patient_name;
+    if (tokens.patient_no) return tokens.patient_no;
+    return '';
+}
+
+function applyXrayLocalPattern(pattern, patient) {
+    var out = String(pattern || '{patient_no}');
+    var tokens = xrayLocalPathTokens(patient);
+    var k;
+    for (k in tokens) {
+        if (Object.prototype.hasOwnProperty.call(tokens, k)) {
+            out = out.split('{' + k + '}').join(tokens[k]);
+        }
+    }
+    return out.replace(/[\\/]+/g, '\\');
+}
+
+function buildLocalPatientFolderPath(key, patient) {
+    return buildLocalPatientFolderPathWithCfg(
+        key, patient, getEffectiveXrayLocalPathCfg(key)
+    );
+}
+
+function buildLocalPatientFolderPathWithCfg(key, patient, cfg) {
+    cfg = cfg || getEffectiveXrayLocalPathCfg(key);
+    if (!cfg.dataPath) return '';
+    var base = cfg.dataPath.replace(/[\\/]+$/, '');
+    var sub = applyXrayLocalPattern(cfg.subPattern, patient);
+    if (!sub) return base;
+    return base + '\\' + sub;
+}
+
+/** Full path for current patient x-rays under C:\\Image\\Xrays\\{patient_no}. */
+function buildClinicXrayFolderForPatient(patient) {
+    patient = patient || xrayPatientData;
+    if (!patient) return '';
+    if (typeof clinicImagePatientDir === 'function') {
+        return clinicImagePatientDir(patient.patient_no, 'xrays');
+    }
+    return buildLocalPatientFolderPath('_general', patient);
+}
+
+function copyTextToClipboard(text, done) {
+    if (!text) {
+        if (done) done(false);
+        return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+            if (done) done(true);
+        }).catch(function() {
+            if (done) done(false);
+        });
+        return;
+    }
+    try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (done) done(true);
+    } catch (e2) {
+        if (done) done(false);
+    }
+}
+
+function copyXrayPatientFolderPath(key) {
+    if (!xrayPatientData) {
+        alert(mediaTr('con.forms.alertSelectPatient'));
+        return;
+    }
+    var path = buildLocalPatientFolderPath(key, xrayPatientData);
+    if (!path) {
+        alert(mediaTr('media.local.noPathConfigured'));
+        return;
+    }
+    copyTextToClipboard(path, function(ok) {
+        alert(mediaTrRepl(ok ? 'media.local.pathCopied' : 'media.local.pathCopyFail', {
+            PATH: path
+        }));
+    });
+}
+
+function isXrayImageFile(file) {
+    if (!file || !file.name) return false;
+    return XRAY_IMAGE_EXT_RE.test(file.name);
+}
+
+function xrayFileMatchesPatient(file, patient) {
+    if (!file) return false;
+    var rel = String(file.webkitRelativePath || file.name || '');
+    var relLower = rel.toLowerCase();
+    var tokens = xrayLocalPathTokens(patient);
+    var hits = [];
+    if (tokens.patient_no && tokens.patient_no.length >= 2) {
+        hits.push(tokens.patient_no.toLowerCase());
+    }
+    if (tokens.patient_no_clean && tokens.patient_no_clean.length >= 2) {
+        hits.push(tokens.patient_no_clean.toLowerCase());
+    }
+    if (tokens.patient_name_clean && tokens.patient_name_clean.length >= 3) {
+        hits.push(tokens.patient_name_clean.toLowerCase());
+    }
+    var i;
+    for (i = 0; i < hits.length; i++) {
+        if (relLower.indexOf(hits[i]) >= 0) return true;
+    }
+    return false;
+}
+
+function pickXrayLocalFolderForImport(systemKey) {
+    if (!xrayPatientId) {
+        alert(mediaTr('con.forms.alertSelectPatient'));
+        return;
+    }
+    xrayPendingLocalImportKey = systemKey || '_general';
+    var inp = g('xrayLocalFolderInput');
+    if (!inp) return;
+    inp.value = '';
+    inp.click();
+}
+
+function importXrayFilesFromLocalPicker(fileList, systemKey) {
+    if (!fileList || !fileList.length || !xrayPatientId) return;
+    var patient = xrayPatientData;
+    var files = Array.from(fileList).filter(isXrayImageFile);
+    if (patient) {
+        files = files.filter(function(f) { return xrayFileMatchesPatient(f, patient); });
+    }
+    if (!files.length) {
+        alert(mediaTr('media.local.noMatchingImages'));
+        return;
+    }
+    if (!confirm(mediaTrRepl('media.local.confirmImport', { N: String(files.length) }))) return;
+
+    xrayBulkLocalImport = true;
+    xrayUploadQueue = files;
+    xrayUploadQIdx = 0;
+    var importNote = mediaTrRepl('media.local.importNote', {
+        SYS: xraySystemName(systemKey) || mediaTr('media.local.general')
+    });
+    processNextLocalBulkUpload(importNote);
+}
+
+function processNextLocalBulkUpload(importNote) {
+    if (xrayUploadQIdx >= xrayUploadQueue.length) {
+        xrayBulkLocalImport = false;
+        loadXrayRecords();
+        return;
+    }
+    var file = xrayUploadQueue[xrayUploadQIdx];
+    var pctLabel = mediaTrRepl('media.local.importing', {
+        N: String(xrayUploadQIdx + 1),
+        TOTAL: String(xrayUploadQueue.length)
+    });
+    uploadSingleXrayFile(file, 'Other', todayISO(), importNote, function() {
+        xrayUploadQIdx++;
+        processNextLocalBulkUpload(importNote);
+    });
+    showUploadProgress(true, pctLabel, Math.round((xrayUploadQIdx / xrayUploadQueue.length) * 100));
+}
+
+function openXrayLocalPathsModal() {
+    loadXrayLocalPaths();
+    var hint = g('xrayLocalRootHint');
+    if (hint) {
+        hint.textContent = mediaTrRepl('media.local.rootHint', { ROOT: xrayClinicImageRoot() });
+    }
+    renderXrayLocalPathsForm();
+    openModal('xrayLocalPathsModal');
+    var modal = g('xrayLocalPathsModal');
+    if (modal && typeof applyI18nInRoot === 'function') applyI18nInRoot(modal);
+}
+
+function renderXrayLocalPathsForm() {
+    var wrap = g('xrayLocalPathsForm');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    Object.keys(XRAY_SYSTEMS).forEach(function(key) {
+        var sys = XRAY_SYSTEMS[key];
+        var cfg = getXrayLocalPathCfg(key);
+        var block = document.createElement('div');
+        block.className = 'xray-local-sys-block';
+        block.innerHTML =
+            '<h4 class="xray-local-sys-title">' + esc(mediaTr(sys.nameKey)) + '</h4>' +
+            '<div class="fg">' +
+                '<label>' + esc(mediaTr('media.local.dataFolder')) + '</label>' +
+                '<input type="text" id="xrayLocalData-' + esc(key) + '" ' +
+                'placeholder="' + esc(cfg.defaultDataPath || mediaTr('media.local.dataFolderPh')) + '" ' +
+                'value="' + esc(cfg.dataPath) + '" ' +
+                'style="width:100%;font-family:Consolas,monospace;font-size:12px;">' +
+            '</div>' +
+            '<div class="fg">' +
+                '<label>' + esc(mediaTr('media.local.subPattern')) + '</label>' +
+                '<input type="text" id="xrayLocalSub-' + esc(key) + '" ' +
+                'value="' + esc(cfg.subPattern) + '" ' +
+                'placeholder="{patient_no}" ' +
+                'style="width:100%;font-family:Consolas,monospace;font-size:12px;">' +
+            '</div>' +
+            '<div class="fg">' +
+                '<label>' + esc(mediaTr('media.local.appPath')) + '</label>' +
+                '<input type="text" id="xrayLocalApp-' + esc(key) + '" ' +
+                'placeholder="' + esc(cfg.defaultAppPath || mediaTr('media.local.appPathPh')) + '" ' +
+                'value="' + esc(cfg.appPath) + '" ' +
+                'style="width:100%;font-family:Consolas,monospace;font-size:12px;">' +
+            '</div>' +
+            '<div class="xray-local-sys-actions">' +
+                '<button type="button" class="btn-sm xray-local-copy" data-key="' + esc(key) + '" ' +
+                'style="background:var(--gray);">' + esc(mediaTr('media.local.copyFolder')) + '</button>' +
+                '<button type="button" class="btn-sm xray-local-import" data-key="' + esc(key) + '" ' +
+                'style="background:var(--primary);">' + esc(mediaTr('media.local.importFolder')) + '</button>' +
+            '</div>';
+        wrap.appendChild(block);
+        block.querySelector('.xray-local-copy').addEventListener('click', function() {
+            saveXrayLocalPathsFromForm();
+            copyXrayPatientFolderPath(key);
+        });
+        block.querySelector('.xray-local-import').addEventListener('click', function() {
+            saveXrayLocalPathsFromForm();
+            pickXrayLocalFolderForImport(key);
+        });
+    });
+}
+
+function saveXrayLocalPathsFromForm() {
+    Object.keys(XRAY_SYSTEMS).forEach(function(key) {
+        var dataEl = g('xrayLocalData-' + key);
+        var subEl  = g('xrayLocalSub-' + key);
+        var appEl  = g('xrayLocalApp-' + key);
+        if (!dataEl && !subEl && !appEl) return;
+        xrayLocalPaths[key] = {
+            dataPath: dataEl ? dataEl.value.trim() : '',
+            subPattern: subEl ? (subEl.value.trim() || '{patient_no}') : '{patient_no}',
+            appPath: appEl ? appEl.value.trim() : ''
+        };
+    });
+    saveXrayLocalPaths();
+}
+
+function saveXrayLocalPathsModal() {
+    saveXrayLocalPathsFromForm();
+    closeModal('xrayLocalPathsModal');
+    alert(mediaTr('media.local.saved'));
+}
+
+function openDesktopXrayApp(key) {
     var sys = XRAY_SYSTEMS[key];
     if (!sys) return;
-    var msg =
-        '🔗 Opening ' + sys.name + '\n\n' +
-        sys.info + '\n\n' +
-        'Protocol: ' + sys.url + '\n\n' +
-        'Make sure the software is installed on this computer.\n' +
-        'The system will attempt to launch the application now.';
+
+    if (!xrayPatientId || !xrayPatientData) {
+        alert(mediaTr('con.forms.alertSelectPatient'));
+        return;
+    }
+
+    var patient = xrayPatientData;
+    var cfg = getEffectiveXrayLocalPathCfg(key);
+    var folderPath = buildLocalPatientFolderPathWithCfg(key, patient, cfg);
+    var appPath = cfg.appPath || sys.defaultAppPath || '';
+    var shortcutName = sys.desktopShortcutName || xraySystemName(key);
+    var openKey = sys.openMsgKey || 'media.local.carestreamOpen';
+    var launchedKey = sys.launchedMsgKey || 'media.local.carestreamLaunched';
+    var neededKey = sys.launcherNeededMsgKey || 'media.local.carestreamLauncherNeeded';
+    var folderHint = (key === 'carestream')
+        ? mediaTr('media.local.carestreamUsePatientBrowser')
+        : mediaTr('media.local.aidentalUseFolder');
+    var launcherKey = sys.launcherKey || key;
+    var searchText = xrayPatientSearchClipboardText(patient) || '—';
+
+    pingXrayLauncher(function(status) {
+        status = status || { online: false };
+        var launcherLine;
+        if (status.blocked) {
+            launcherLine = mediaTr('media.local.launcherHttpsBlocked');
+        } else if (status.online) {
+            launcherLine = mediaTr('media.local.launcherReady');
+        } else {
+            launcherLine = mediaTrRepl('media.local.launcherNotRunning', {
+                BAT: 'tools\\Start X-Ray Launcher.bat'
+            });
+        }
+
+        var msg = mediaTrRepl(openKey, {
+            SHORTCUT: shortcutName,
+            EXE: appPath,
+            PATIENT: searchText,
+            FOLDER: folderPath || folderHint
+        });
+        msg += '\n\n' + launcherLine;
+        if (!confirm(msg)) return;
+
+        copyTextToClipboard(searchText);
+
+        if (status.blocked || !status.online) {
+            alert(mediaTrRepl(neededKey, {
+                SHORTCUT: shortcutName,
+                EXE: appPath,
+                PATIENT: searchText,
+                BAT: 'tools\\Start X-Ray Launcher.bat'
+            }));
+            return;
+        }
+
+        tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, function(launched) {
+            if (launched) {
+                alert(mediaTrRepl(launchedKey, {
+                    SHORTCUT: shortcutName,
+                    PATIENT: searchText
+                }));
+                return;
+            }
+            alert(mediaTrRepl(neededKey, {
+                SHORTCUT: shortcutName,
+                EXE: appPath,
+                PATIENT: searchText,
+                BAT: 'tools\\Start X-Ray Launcher.bat'
+            }));
+        });
+    });
+}
+
+function openCarestreamImaging() {
+    openDesktopXrayApp('carestream');
+}
+
+function openAiDentalClient() {
+    openDesktopXrayApp('aidental');
+}
+
+function openXraySystem(key) {
+    if (key === 'carestream') {
+        openCarestreamImaging();
+        return;
+    }
+    if (key === 'aidental') {
+        openAiDentalClient();
+        return;
+    }
+    var sys = XRAY_SYSTEMS[key];
+    if (!sys || !sys.url) return;
+    var folderPath = xrayPatientData ? buildLocalPatientFolderPath(key, xrayPatientData) : '';
+    var msg = mediaTrRepl('media.alert.openXraySystem', {
+        NAME: xraySystemName(key),
+        INFO: xraySystemInfo(key),
+        URL: sys.url
+    });
+    if (folderPath) {
+        msg += '\n\n' + mediaTr('media.local.folderPath') + ':\n' + folderPath;
+    }
     if (!confirm(msg)) return;
+
+    if (folderPath) {
+        copyTextToClipboard(folderPath);
+    }
+
+    if (sys.launchProtocol === false) {
+        return;
+    }
 
     var patient = xrayPatientData;
     var url = sys.url +
@@ -1836,7 +2525,9 @@ function openXraySystem(key) {
             ? '?patient=' + encodeURIComponent(patient.patient_no || '') +
               '&name='    + encodeURIComponent(patient.full_name  || '')
             : '');
-    window.location.href = url;
+    try {
+        window.location.href = url;
+    } catch (eProto) {}
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1863,6 +2554,8 @@ function openDiySystemModal() {
     loadDiyLinks();
     renderDiyLinks();
     openModal('diySystemModal');
+    var diyModal = g('diySystemModal');
+    if (diyModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(diyModal);
 }
 
 function renderDiyLinks() {
@@ -1873,7 +2566,7 @@ function renderDiyLinks() {
         wrap.innerHTML =
             '<p style="color:#aaa;font-size:13px;' +
             'text-align:center;padding:12px 0;">' +
-            'No custom links yet.</p>';
+            esc(mediaTr('media.diy.noLinks')) + '</p>';
         return;
     }
 
@@ -1893,7 +2586,8 @@ function renderDiyLinks() {
                     esc(lnk.url) + '</div>' +
             '</div>' +
             '<button class="diy-open-btn btn-sm" ' +
-            'style="background:var(--primary);" data-idx="' + idx + '">Open</button>' +
+            'style="background:var(--primary);" data-idx="' + idx + '">' +
+            esc(mediaTr('media.diy.openBtn')) + '</button>' +
             '<button class="diy-del-btn btn-sm"  ' +
             'style="background:var(--danger);"  data-idx="' + idx + '">✕</button>';
 
@@ -1921,7 +2615,7 @@ function openDiyLink(idx) {
         .replace(/\{patient_dob\}/g,  encodeURIComponent(patient.dob         || ''))
         .replace(/\{date\}/g,         encodeURIComponent(todayISO()));
 
-    if (confirm('Open "' + lnk.name + '"?\n' + url)) {
+    if (confirm(mediaTrRepl('media.alert.confirmOpenLink', { NAME: lnk.name, URL: url }))) {
         window.open(url, '_blank');
     }
 }
@@ -1931,8 +2625,8 @@ function saveDiyLink() {
     var url  = (g('diyUrl').value  || '').trim();
     var icon = (g('diyIcon').value || '🔗').trim();
 
-    if (!name) { alert('Please enter a system name.'); return; }
-    if (!url)  { alert('Please enter a URL.');         return; }
+    if (!name) { alert(mediaTr('media.alert.enterSystemName')); return; }
+    if (!url)  { alert(mediaTr('media.alert.enterUrl')); return; }
 
     diyLinks.push({ name: name, url: url, icon: icon });
     saveDiyLinksToStorage();
@@ -1942,3 +2636,55 @@ function saveDiyLink() {
     sv('diyUrl',  '');
     sv('diyIcon', '');
 }
+
+function refreshXrayUiForLangChange() {
+    if (typeof updateSelectedCount === 'function') updateSelectedCount();
+    if (!xrayPatientId || !xrayFiltered.length) return;
+    var slide = g('xraySlideView');
+    if (slide && slide.style.display !== 'none' && typeof renderSlideAt === 'function') {
+        renderSlideAt(xrayCurrentIdx);
+    } else if (xrayView === 'grid' && typeof renderXrayGrid === 'function') {
+        renderXrayGrid();
+    }
+}
+
+document.addEventListener('app-lang-change', function () {
+    refreshXrayTypeSelects();
+    refreshXrayBannerI18n();
+    var uploadModal = g('xrayUploadModal');
+    var lbModal = g('xrayLightbox');
+    var diyModal = g('diySystemModal');
+    var localModal = g('xrayLocalPathsModal');
+    if (typeof applyI18nInRoot === 'function') {
+        if (uploadModal && uploadModal.style.display === 'block') applyI18nInRoot(uploadModal);
+        if (lbModal && lbModal.style.display === 'block') applyI18nInRoot(lbModal);
+        if (diyModal && diyModal.style.display === 'block') {
+            applyI18nInRoot(diyModal);
+            if (typeof renderDiyLinks === 'function') renderDiyLinks();
+        }
+        if (localModal && localModal.style.display === 'block') {
+            applyI18nInRoot(localModal);
+            if (typeof renderXrayLocalPathsForm === 'function') renderXrayLocalPathsForm();
+        }
+    }
+    if (xrayPatientId) {
+        if (xrayAllRecords.length && typeof populateYearFilter === 'function') {
+            populateYearFilter();
+        }
+        if (diyLinks.length && typeof renderDiyLinks === 'function') renderDiyLinks();
+        if (typeof refreshXrayUiForLangChange === 'function') refreshXrayUiForLangChange();
+        if (typeof applyI18nInRoot === 'function') {
+            var xPaneEarly = g('con-xrays');
+            if (xPaneEarly) applyI18nInRoot(xPaneEarly);
+            var xBanner = g('conXrayBanner');
+            if (xBanner) applyI18nInRoot(xBanner);
+        }
+    }
+    var sec = g('consultationSection');
+    if (!sec || sec.style.display === 'none') return;
+    if (xrayPatientId && typeof loadXrayRecords === 'function') loadXrayRecords();
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    refreshXrayTypeSelects();
+});

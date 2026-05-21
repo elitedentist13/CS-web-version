@@ -2,14 +2,18 @@
 // GUARD — ensure Supabase SDK loaded
 // ════════════════════════════════════════════════════════════════
 if (typeof supabase === 'undefined') {
+    if (typeof readStoredAppLang === 'function' && typeof i18nNormalizeLang === 'function') {
+        appUiLang = i18nNormalizeLang(readStoredAppLang() || 'en');
+    }
+    var _sdkT = (typeof t === 'function') ? t : function(k) { return k; };
     document.body.innerHTML =
         '<div style="padding:60px;text-align:center;font-family:sans-serif;">' +
-        '<h2 style="color:#dc3545;">Cannot load Supabase SDK</h2>' +
-        '<p style="color:#666;">Check your internet connection and refresh.</p>' +
+        '<h2 style="color:#dc3545;">' + _sdkT('guard.sdkTitle') + '</h2>' +
+        '<p style="color:#666;">' + _sdkT('guard.sdkHint') + '</p>' +
         '<button onclick="location.reload()" ' +
         'style="padding:10px 24px;background:#0084ff;color:white;' +
         'border:none;border-radius:6px;cursor:pointer;font-size:15px;">' +
-        'Refresh</button></div>';
+        _sdkT('guard.sdkRefresh') + '</button></div>';
     throw new Error('Supabase SDK missing');
 }
 
@@ -37,6 +41,10 @@ var currentDoctorName = null;
 
 var APP_CLINICS = [];
 var APP_DOCTORS = [];
+/** Doctor profile ids with an active doctor/dentist login in Configuration → Users. */
+var APP_DOCTOR_LOGIN_IDS = {};
+/** Login mode for doctor dropdown: default | staff | doctor */
+var loginDoctorSelectMode = 'default';
 
 var PATIENT_CLINIC_TAG_FIELD = 'clinic_tag';
 var APPOINTMENT_CLINIC_TAG_FIELD = 'clinic_tag';
@@ -64,13 +72,56 @@ var CLINIC_TAG_FILTER_SELECT_IDS = [
 // HELPERS
 // ════════════════════════════════════════════════════════════════
 function g(id) { return document.getElementById(id); }
+
+function appTr(key) {
+    return (typeof t === 'function') ? t(key) : key;
+}
+
+function appTrRepl(key, pairs) {
+    var s = appTr(key);
+    if (pairs) {
+        Object.keys(pairs).forEach(function(k) {
+            s = s.split('{' + k + '}').join(String(pairs[k]));
+        });
+    }
+    return s;
+}
 function pad(n) { return String(n).padStart(2, '0'); }
 
 /**
  * Calendar dates use the PC's local timezone (set Windows to Hong Kong for HK clinic).
- * Display uses en-HK locale. Do not redefine todayISO in other script files.
+ * APP_LOCALE follows display language (en-HK / zh-HK / zh-CN). Do not redefine todayISO elsewhere.
  */
 var APP_LOCALE = 'en-HK';
+
+/** Local clinic image store on this PC (x-ray / photo archive). */
+var CLINIC_IMAGE_ROOT = 'C:\\Image';
+
+function clinicImagePatientDir(patientNo, kind) {
+    var root = CLINIC_IMAGE_ROOT.replace(/[\\/]+$/, '');
+    var no = String(patientNo || '').trim() || 'unknown';
+    if (kind === 'xray' || kind === 'xrays') {
+        return root + '\\Xrays\\' + no;
+    }
+    if (kind === 'photo' || kind === 'photos') {
+        return root + '\\Photos\\' + no;
+    }
+    return root + '\\' + no;
+}
+
+function appUiLocale() {
+    if (typeof appUiLang === 'string' && appUiLang.indexOf('Hant') >= 0) return 'zh-HK';
+    if (typeof appUiLang === 'string' && appUiLang.indexOf('CN') >= 0) return 'zh-CN';
+    return 'en-HK';
+}
+
+function syncAppLocaleFromUiLang() {
+    APP_LOCALE = appUiLocale();
+}
+
+function clinicDisplayFallback() {
+    return appTr('common.clinic');
+}
 
 function nowLocal() {
     return new Date();
@@ -104,7 +155,31 @@ function fmt12(t) {
     var p = String(t).split(':');
     var h = parseInt(p[0], 10);
     var m = parseInt(p[1] || '0', 10);
-    return (h % 12 || 12) + ':' + pad(m) + (h >= 12 ? ' PM' : ' AM');
+    if (isNaN(h) || isNaN(m)) return '-';
+    var d = new Date(2000, 0, 1, h, m, 0);
+    return d.toLocaleTimeString(appUiLocale(), {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+    });
+}
+
+/** Localized date + time for timestamps (created_at, etc.). */
+function fmtDateTime(iso) {
+    if (!iso) return '—';
+    try {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return '—';
+        return d.toLocaleString(appUiLocale(), {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        return '—';
+    }
 }
 
 function addMins(t, mins) {
@@ -174,7 +249,11 @@ function patientSexSymbolHtml(sex, opt) {
     var kind = patientSexKind(sex);
     if (kind === 'unknown' && opt.hideUnknown) return '';
     var sym = kind === 'male' ? '\u2642' : kind === 'female' ? '\u2640' : '\u2014';
-    var title = kind === 'male' ? 'Male' : kind === 'female' ? 'Female' : 'Sex not set';
+    var title = kind === 'male'
+        ? appTr('patient.form.sexMale')
+        : kind === 'female'
+            ? appTr('patient.form.sexFemale')
+            : appTr('patient.form.sexNotSet');
     var cls = 'patient-sex-icon patient-sex-icon--' + kind;
     if (opt.banner) cls += ' patient-sex-icon--banner';
     if (opt.size === 'lg') cls += ' patient-sex-icon--lg';
@@ -216,22 +295,99 @@ function doctorsForClinic(clinicId) {
     });
 }
 
-/** Login: all active doctors (identity is not limited by clinic). */
-function refreshLoginDoctorSelect(preselectDoctorId) {
+function rebuildDoctorLoginIdsFromUsers(users) {
+    APP_DOCTOR_LOGIN_IDS = {};
+    (users || []).forEach(function (u) {
+        if (u.is_active === false || !u.doctor_id) return;
+        var role = String(u.role || '').toLowerCase();
+        if (role === 'doctor' || role === 'dentist') {
+            APP_DOCTOR_LOGIN_IDS[String(u.doctor_id)] = true;
+        }
+    });
+}
+
+function isNonDoctorAppRole(role) {
+    role = String(role || '').toLowerCase();
+    return role !== 'doctor' && role !== 'dentist';
+}
+
+function doctorsForLoginDropdown(mode) {
+    var list = (APP_DOCTORS || []).slice();
+    if (mode === 'staff') return list;
+    return list.filter(function (d) {
+        return !!APP_DOCTOR_LOGIN_IDS[String(d.id)];
+    });
+}
+
+function loginDoctorOptionLabel(d) {
+    var shown = String(
+        d.display_name || d.english_name || d.chinese_name || 'Doctor'
+    ).trim();
+    var code = String(d.doctor_code || '').trim();
+    return (code ? '[' + code + '] ' : '') + shown;
+}
+
+/**
+ * Login doctor list:
+ * - default / doctor: only doctors with a login in Configuration (Users → doctor link)
+ * - staff: all active doctors + ALL (non-doctor users)
+ */
+function refreshLoginDoctorSelect(preselectDoctorId, mode) {
     var sel = g('loginDoctor');
     if (!sel) return;
-    var list = (APP_DOCTORS || []).slice();
-    if (!list.length) {
-        sel.innerHTML = '<option value="">(No doctors)</option>';
+    if (mode) loginDoctorSelectMode = mode;
+    var useMode = loginDoctorSelectMode || 'default';
+    var list = doctorsForLoginDropdown(useMode);
+    var hint = g('loginDoctorHint');
+    var label = g('loginDoctorLabel');
+
+    if (label) {
+        label.textContent = useMode === 'staff'
+            ? appTr('login.doctorOptional')
+            : appTr('login.doctorRequired');
+    }
+    if (hint) {
+        hint.textContent = useMode === 'staff'
+            ? appTr('login.hintStaff')
+            : appTr('login.hintDoctor');
+    }
+
+    if (!list.length && useMode !== 'staff') {
+        sel.innerHTML = '<option value="">' + esc(appTr('login.noDoctorLogins')) + '</option>';
         return;
     }
-    sel.innerHTML = '<option value="">-- Select doctor identity --</option>' +
-        list.map(function (d) {
-            var shown = d.display_name || d.english_name || d.chinese_name || 'Doctor';
-            var label = (d.doctor_code ? ('[' + d.doctor_code + '] ') : '') + shown;
-            return '<option value="' + esc(d.id) + '">' + esc(label) + '</option>';
-        }).join('');
-    if (preselectDoctorId) sel.value = preselectDoctorId;
+
+    var html = '';
+    if (useMode === 'staff') {
+        html += '<option value="">' + esc(appTr('login.selectAllOpt')) + '</option>';
+    } else {
+        html += '<option value="">' + esc(appTr('login.selectDoctorOpt')) + '</option>';
+    }
+    html += list.map(function (d) {
+        return '<option value="' + esc(d.id) + '">' + esc(loginDoctorOptionLabel(d)) + '</option>';
+    }).join('');
+    sel.innerHTML = html;
+
+    if (preselectDoctorId) {
+        sel.value = preselectDoctorId;
+        if (sel.value !== preselectDoctorId && useMode === 'staff') {
+            sel.value = '';
+        }
+    }
+}
+
+function setLoginDoctorSelectModeForUser(u) {
+    if (!u) {
+        loginDoctorSelectMode = 'default';
+        refreshLoginDoctorSelect();
+        return;
+    }
+    var role = String(u.role || '').toLowerCase();
+    if (role === 'admin' || isNonDoctorAppRole(role)) {
+        refreshLoginDoctorSelect(u.doctor_id || '', 'staff');
+    } else {
+        refreshLoginDoctorSelect(u.doctor_id || '', 'doctor');
+    }
 }
 
 function applyIdentityFromDoctor(doctorId) {
@@ -249,14 +405,14 @@ function populateReportClinicSelect() {
     var prev = sel.value || currentClinicId || '';
     sel.innerHTML = '';
     if (!APP_CLINICS || !APP_CLINICS.length) {
-        sel.innerHTML = '<option value="">(No clinics)</option>';
+        sel.innerHTML = '<option value="">' + esc(appTr('common.noClinics')) + '</option>';
         return;
     }
     APP_CLINICS.forEach(function (c) {
         var o = document.createElement('option');
         o.value = c.id;
         o.textContent = (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
-            (c.english_name || c.chinese_name || 'Clinic');
+            (c.english_name || c.chinese_name || clinicDisplayFallback());
         sel.appendChild(o);
     });
     var def = typeof defaultWorkingClinicId === 'function'
@@ -299,14 +455,14 @@ function populateWorkingClinicSelect() {
     var prev = sel.value || currentClinicId || '';
     sel.innerHTML = '';
     if (!APP_CLINICS || !APP_CLINICS.length) {
-        sel.innerHTML = '<option value="">(No clinics)</option>';
+        sel.innerHTML = '<option value="">' + esc(appTr('common.noClinics')) + '</option>';
         return;
     }
     APP_CLINICS.forEach(function (c) {
         var o = document.createElement('option');
         o.value = c.id;
         o.textContent = (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
-            (c.english_name || c.chinese_name || 'Clinic');
+            (c.english_name || c.chinese_name || clinicDisplayFallback());
         sel.appendChild(o);
     });
     var has = false;
@@ -381,16 +537,28 @@ function defaultWorkingClinicId() {
 }
 
 function prefetchLoginDoctorForUserId(uid) {
-    if (!uid) return;
+    uid = String(uid || '').trim();
+    if (!uid) {
+        loginDoctorSelectMode = 'default';
+        refreshLoginDoctorSelect();
+        return;
+    }
+    if (uid.toLowerCase() === 'nurse') {
+        refreshLoginDoctorSelect('', 'staff');
+        return;
+    }
     SB.from('app_users')
-        .select('doctor_id,role')
+        .select('doctor_id,role,display_name,is_active')
         .eq('user_id', uid)
         .eq('is_active', true)
         .limit(1)
     .then(function (r) {
-        if (!r.data || !r.data.length) return;
-        var u = r.data[0];
-        if (u.doctor_id) refreshLoginDoctorSelect(u.doctor_id);
+        if (!r.data || !r.data.length) {
+            loginDoctorSelectMode = 'default';
+            refreshLoginDoctorSelect();
+            return;
+        }
+        setLoginDoctorSelectModeForUser(r.data[0]);
     });
 }
 
@@ -450,13 +618,13 @@ function fillClinicTagFilterSelect(selectId, preserveSelection) {
     var sel = selectId ? g(selectId) : null;
     if (!sel) return;
     var prev = preserveSelection !== false ? sel.value : '';
-    sel.innerHTML = '<option value="">ALL</option>';
+    sel.innerHTML = '<option value="">' + esc(appTr('common.all')) + '</option>';
     if (!APP_CLINICS || !APP_CLINICS.length) return;
     APP_CLINICS.forEach(function(c) {
         var code = String(c.clinic_code || '').trim();
         var val = code || String(c.id);
         var label = (code ? '[' + code + '] ' : '') +
-            (c.english_name || c.chinese_name || 'Clinic');
+            (c.english_name || c.chinese_name || clinicDisplayFallback());
         var o = document.createElement('option');
         o.value = val;
         o.textContent = label;
@@ -482,6 +650,260 @@ function applyPatientQueryClinicTag(builder, filterSelectId) {
     var tag = readClinicTagFilter(filterSelectId);
     if (!tag || !builder) return builder;
     return builder.eq(PATIENT_CLINIC_TAG_FIELD, tag);
+}
+
+/** Escape user text for PostgREST ilike patterns inside .or() filters. */
+function escapePostgrestIlike(q) {
+    return String(q || '').trim()
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_')
+        .replace(/,/g, '');
+}
+
+function patientSearchDobFilterParts(q) {
+    var parts = [];
+    var raw = String(q || '').trim();
+    if (!raw) return parts;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        parts.push('dob.eq.' + raw);
+        return parts;
+    }
+    var m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (m) {
+        var d = ('0' + parseInt(m[1], 10)).slice(-2);
+        var mo = ('0' + parseInt(m[2], 10)).slice(-2);
+        parts.push('dob.eq.' + m[3] + '-' + mo + '-' + d);
+    } else if (/^\d{4}$/.test(raw)) {
+        parts.push('dob.gte.' + raw + '-01-01');
+        parts.push('dob.lte.' + raw + '-12-31');
+    }
+    return parts;
+}
+
+/** PostgREST .or() filter across common patient directory columns. */
+function patientSearchOrFilter(q) {
+    var raw = String(q || '').trim();
+    if (!raw) return '';
+    var safe = escapePostgrestIlike(raw);
+    var parts = [
+        'full_name.ilike.%' + safe + '%',
+        'chinese_name.ilike.%' + safe + '%',
+        'patient_no.ilike.%' + safe + '%',
+        'phone_number.ilike.%' + safe + '%',
+        'hkid.ilike.%' + safe + '%',
+        'email.ilike.%' + safe + '%',
+        'address.ilike.%' + safe + '%',
+        'occupation.ilike.%' + safe + '%',
+        'remarks.ilike.%' + safe + '%',
+        'medical_alerts.ilike.%' + safe + '%',
+        'medical_history.ilike.%' + safe + '%',
+        'current_medications.ilike.%' + safe + '%',
+        'allergy.ilike.%' + safe + '%'
+    ];
+    var hk = raw.replace(/\s+/g, '').toUpperCase();
+    if (hk && hk !== safe.toUpperCase()) {
+        parts.push('hkid.ilike.%' + escapePostgrestIlike(hk) + '%');
+    }
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length >= 4 && digits !== raw) {
+        parts.push('phone_number.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('patient_no.ilike.%' + escapePostgrestIlike(digits) + '%');
+    }
+    patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
+    return parts.join(',');
+}
+
+/** Narrower .or() when optional patient columns are absent in Supabase. */
+function patientSearchOrFilterCore(q) {
+    var raw = String(q || '').trim();
+    if (!raw) return '';
+    var safe = escapePostgrestIlike(raw);
+    var parts = [
+        'full_name.ilike.%' + safe + '%',
+        'chinese_name.ilike.%' + safe + '%',
+        'patient_no.ilike.%' + safe + '%',
+        'phone_number.ilike.%' + safe + '%',
+        'hkid.ilike.%' + safe + '%',
+        'email.ilike.%' + safe + '%',
+        'address.ilike.%' + safe + '%',
+        'medical_alerts.ilike.%' + safe + '%'
+    ];
+    var hk = raw.replace(/\s+/g, '').toUpperCase();
+    if (hk && hk !== safe.toUpperCase()) {
+        parts.push('hkid.ilike.%' + escapePostgrestIlike(hk) + '%');
+    }
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length >= 4 && digits !== raw) {
+        parts.push('phone_number.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('patient_no.ilike.%' + escapePostgrestIlike(digits) + '%');
+    }
+    patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
+    return parts.join(',');
+}
+
+var PATIENT_SEARCH_SELECT =
+    'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
+    'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,' +
+    PATIENT_CLINIC_TAG_FIELD;
+
+function patientSearchQueryBuilder(q, extraSelect) {
+    var filter = patientSearchOrFilter(q);
+    if (!filter) return null;
+    var sel = PATIENT_SEARCH_SELECT + (extraSelect ? ',' + extraSelect : '');
+    return SB.from('patients').select(sel).or(filter).limit(8);
+}
+
+function patientSearchInputDisplayValue(p) {
+    if (!p) return '';
+    var name = p.full_name || p.chinese_name || appTr('common.patientFallback');
+    return name + ' (#' + (p.patient_no || '') + ')';
+}
+
+function patientSearchResultHtml(p) {
+    var cn = String(p.chinese_name || '').trim();
+    var title = cn
+        ? esc(p.full_name || cn) + ' <span style="font-weight:600;opacity:.9;">(' +
+          esc(cn) + ')</span>'
+        : esc(p.full_name || '—');
+    var bits = ['#' + esc(p.patient_no || '-')];
+    if (p.phone_number) bits.push(esc(p.phone_number));
+    if (p.hkid) bits.push(esc(p.hkid));
+    if (p.dob) bits.push(esc(p.dob));
+    if (p.email) bits.push(esc(p.email));
+    return title + '<br><small style="color:#aaa;">' +
+        bits.join(' &nbsp;|&nbsp; ') + '</small>';
+}
+
+function refreshPsDropEmptyOrError(dd) {
+    if (!dd || dd.style.display === 'none') return;
+    var items = dd.querySelectorAll('.ps-item');
+    if (items.length !== 1) return;
+    var el = items[0];
+    var st = el.getAttribute('style') || '';
+    if (st.indexOf('#aaa') >= 0) {
+        el.textContent = appTr('common.psNoPatients');
+    } else if (st.indexOf('#c00') >= 0) {
+        el.textContent = appTr('common.psSearchError');
+    }
+}
+
+function refreshVisiblePatientSearchDropdowns() {
+    var specs = [
+        { drop: 'psDrop', input: 'psInput', run: function () {
+            if (typeof doPatientSearch === 'function') doPatientSearch();
+        }},
+        { drop: 'conPsDrop', input: 'conPsInput', run: function () {
+            if (typeof doConPatientSearch === 'function') doConPatientSearch();
+        }},
+        { drop: 'conPsDropMed', input: 'conPsInputMed', run: function () {
+            if (typeof doConPatientSearchMed === 'function') doConPatientSearchMed();
+        }},
+        { drop: 'conPsDropDen', input: 'conPsInputDen', run: function () {
+            if (typeof doConPatientSearchDen === 'function') doConPatientSearchDen();
+        }},
+        { drop: 'conPsDropXray', input: 'conPsInputXray', run: function () {
+            if (typeof doConPatientSearchXray === 'function') doConPatientSearchXray();
+        }},
+        { drop: 'conPsDropPhoto', input: 'conPsInputPhoto', run: function () {
+            if (typeof doConPatientSearchPhoto === 'function') doConPatientSearchPhoto();
+        }},
+        { drop: 'conPsDropChart', input: 'conPsInputChart', run: function () {
+            if (typeof doConPatientSearchChart === 'function') doConPatientSearchChart();
+        }},
+        { drop: 'conFormsPsDrop', input: 'conFormsPsInput', run: function () {
+            if (typeof doConFormsPatientSearch === 'function') doConFormsPatientSearch();
+        }}
+    ];
+    specs.forEach(function (s) {
+        var dd = g(s.drop);
+        if (!dd || dd.style.display === 'none') return;
+        var inp = g(s.input);
+        if (inp && (inp.value || '').trim()) {
+            s.run();
+        } else {
+            refreshPsDropEmptyOrError(dd);
+        }
+    });
+}
+
+function fillPatientSearchDropdown(dd, rows, onSelect) {
+    if (!dd) return;
+    dd.innerHTML = '';
+    if (!rows || !rows.length) {
+        dd.innerHTML =
+            '<div class="ps-item" style="color:#aaa;">' +
+            esc(appTr('common.psNoPatients')) + '</div>';
+        dd.style.display = 'block';
+        return;
+    }
+    rows.forEach(function (p) {
+        var item = document.createElement('div');
+        item.className = 'ps-item';
+        item.innerHTML = patientSearchResultHtml(p);
+        item.addEventListener('click', function () {
+            if (onSelect) onSelect(p);
+        });
+        dd.appendChild(item);
+    });
+    dd.style.display = 'block';
+}
+
+/**
+ * Shared patient search dropdown (consultation module and related tabs).
+ * opts: { inputId, dropId, clinicFilterId?, onSelect(p) }
+ */
+function runPatientSearchDropdown(opts) {
+    opts = opts || {};
+    var inputEl = opts.inputId ? g(opts.inputId) : null;
+    var dd = opts.dropId ? g(opts.dropId) : null;
+    if (!dd) return;
+    var q = inputEl ? (inputEl.value || '').trim() : '';
+    if (!q) {
+        dd.style.display = 'none';
+        return;
+    }
+    var pq = patientSearchQueryBuilder(q);
+    if (!pq) {
+        dd.style.display = 'none';
+        return;
+    }
+    if (opts.clinicFilterId && typeof applyPatientQueryClinicTag === 'function') {
+        pq = applyPatientQueryClinicTag(pq, opts.clinicFilterId);
+    }
+    function finish(r) {
+        if (r.error) {
+            dd.innerHTML =
+                '<div class="ps-item" style="color:#c00;">' +
+                esc(appTr('common.psSearchError')) + '</div>';
+            dd.style.display = 'block';
+            return;
+        }
+        fillPatientSearchDropdown(dd, r.data, function (p) {
+            dd.style.display = 'none';
+            if (inputEl) inputEl.value = patientSearchInputDisplayValue(p);
+            if (opts.onSelect) opts.onSelect(p);
+        });
+    }
+    pq.then(function (r) {
+        if (r.error && (r.error.message || '').indexOf('column') >= 0) {
+            var coreSel =
+                'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
+                'medical_alerts,' + PATIENT_CLINIC_TAG_FIELD;
+            var coreFilter = patientSearchOrFilterCore(q);
+            if (!coreFilter) {
+                finish(r);
+                return;
+            }
+            var coreQ = SB.from('patients').select(coreSel).or(coreFilter).limit(8);
+            if (opts.clinicFilterId && typeof applyPatientQueryClinicTag === 'function') {
+                coreQ = applyPatientQueryClinicTag(coreQ, opts.clinicFilterId);
+            }
+            coreQ.then(finish);
+            return;
+        }
+        finish(r);
+    });
 }
 
 function applyAppointmentQueryClinicTag(builder, filterSelectId) {
@@ -521,12 +943,25 @@ function showOnly(id) {
     syncAppSessionChrome();
 }
 
+function refreshDashboardUserBadge() {
+    var bn = g('badgeName');
+    var br = g('badgeRole');
+    if (bn) bn.textContent = currentName || '-';
+    if (br) {
+        br.textContent = (typeof dispRole === 'function')
+            ? dispRole(currentRole)
+            : (currentRole || '-');
+    }
+}
+
 function refreshAppSessionStripContents() {
     var dateEl = g('appStripDate');
     var dstr = typeof fmtNowDateTimeHK === 'function'
         ? fmtNowDateTimeHK()
         : (typeof fmtTodayLong === 'function' ? fmtTodayLong() : '');
-    if (dateEl) dateEl.textContent = dstr ? 'Today: ' + dstr : '';
+    if (dateEl) dateEl.textContent = dstr
+        ? (appTr('session.todayPrefix') + ' ' + dstr)
+        : '';
 
     var cline = '';
     var rec =
@@ -543,7 +978,7 @@ function refreshAppSessionStripContents() {
     if (currentUserId) populateWorkingClinicSelect();
 
     var identity = currentName || currentDoctorName || currentUserId || '';
-    var shortTitle = 'Joyful Smile Clinic Manager';
+    var shortTitle = appTr('app.title');
     try {
         document.title =
             (identity ? identity + ' · ' : '') +
@@ -561,7 +996,7 @@ function syncAppSessionChrome() {
         strip.style.display = 'none';
         document.body.classList.remove('app-session-active');
         try {
-            document.title = 'Joyful Smile Clinic Manager';
+            document.title = appTr('app.title');
         } catch (e) {}
         return;
     }
@@ -583,6 +1018,7 @@ function showLogin() { showOnly('loginOverlay'); }
 
 function showDashboard() {
     showOnly('dashboardSection');
+    if (typeof applyDashboardI18n === 'function') applyDashboardI18n();
     var cfgSec = g('sectionConfig');
     if (cfgSec) cfgSec.style.display = 'none';
     if (typeof CFG !== 'undefined' && typeof CFG.prefetchPrintSettings === 'function' && currentClinicId) {
@@ -590,10 +1026,7 @@ function showDashboard() {
             CFG.prefetchPrintSettings(currentClinicId);
         });
     }
-    var bn = g('badgeName');
-    var br = g('badgeRole');
-    if (bn) bn.textContent = currentName || '-';
-    if (br) br.textContent = currentRole || '-';
+    refreshDashboardUserBadge();
     if (typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.refreshDashboardStickies === 'function') {
         requestAnimationFrame(function() {
             MEMO_AI.refreshDashboardStickies();
@@ -689,11 +1122,22 @@ function loadClinicsAndDoctorsForLogin() {
         if (currentUserId) refreshAppSessionStripContents();
     });
 
-    SB.from('doctors').select(
-        'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id'
-    ).order('doctor_code')
-    .then(function (r) {
-        APP_DOCTORS = (r.data || []).filter(function (d) { return d.is_active !== false; });
+    Promise.all([
+        SB.from('doctors').select(
+            'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id'
+        ).order('doctor_code'),
+        SB.from('app_users').select('doctor_id,role,is_active,user_id')
+    ]).then(function (all) {
+        var dr = all[0];
+        var ur = all[1];
+        if (dr.error) {
+            APP_DOCTORS = [];
+        } else {
+            APP_DOCTORS = (dr.data || []).filter(function (d) {
+                return d.is_active !== false;
+            });
+        }
+        if (!ur.error) rebuildDoctorLoginIdsFromUsers(ur.data || []);
         refreshLoginDoctorSelect();
     });
 }
@@ -704,6 +1148,9 @@ function finishLoginSession(u, doctorId) {
 
     if (doctorId) {
         applyIdentityFromDoctor(doctorId);
+    } else {
+        currentDoctorId = null;
+        currentDoctorName = null;
     }
     if (u && u.display_name && (!doctorId || !currentDoctorName)) {
         currentName = u.display_name;
@@ -723,18 +1170,18 @@ function doLogin() {
     var doctorId = (g('loginDoctor') && g('loginDoctor').value) ? g('loginDoctor').value : '';
 
     if (!uid || !pw) {
-        setLoginError('Please enter User ID and Password.');
+        setLoginError(appTr('login.errMissingCreds'));
         return;
     }
     setLoginError('');
 
     var btn = g('loginBtn');
     btn.disabled    = true;
-    btn.textContent = 'Logging in…';
+    btn.textContent = appTr('login.loggingIn');
 
     function done(errMsg) {
         btn.disabled = false;
-        btn.textContent = 'Log In';
+        btn.textContent = appTr('login.loginBtn');
         if (errMsg) setLoginError(errMsg);
     }
 
@@ -756,7 +1203,7 @@ function doLogin() {
       .limit(1)
     .then(function (r) {
         if (r.error || !r.data || !r.data.length) {
-            done('Invalid login. Check User ID, password, and doctor identity.');
+            done(appTr('login.errInvalid'));
             return;
         }
 
@@ -774,26 +1221,34 @@ function doLogin() {
             return;
         }
 
-        if (!doctorId) {
-            done('Please select your doctor identity.');
+        var role = String(u.role || '').toLowerCase();
+        var needsDoctor = role === 'doctor' || role === 'dentist';
+
+        if (needsDoctor && !doctorId) {
+            done(appTr('login.errSelectDoctor'));
             return;
         }
 
-        if (u.doctor_id && u.doctor_id !== doctorId) {
-            done('This login is not linked to the selected doctor.');
+        if (needsDoctor && doctorId && !APP_DOCTOR_LOGIN_IDS[String(doctorId)]) {
+            done(appTr('login.errDoctorNotSetup'));
             return;
         }
 
-        if ((u.role === 'doctor' || u.role === 'dentist') && !u.doctor_id) {
-            done('This doctor login is not linked to a doctor profile. Set it in Configuration → Users.');
+        if (u.doctor_id && doctorId && u.doctor_id !== doctorId) {
+            done(appTr('login.errDoctorMismatch'));
+            return;
+        }
+
+        if (needsDoctor && !u.doctor_id) {
+            done(appTr('login.errDoctorUnlinked'));
             return;
         }
 
         done();
-        finishLoginSession(u, doctorId);
+        finishLoginSession(u, doctorId || null);
     })
     .catch(function (e) {
-        done(e.message || 'Login error.');
+        done(e.message || appTr('login.errGeneric'));
     });
 }
 
@@ -801,10 +1256,12 @@ function doLogin() {
 // BOOT
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function() {
+    syncAppLocaleFromUiLang();
 
     showLogin();
     loadClinicsAndDoctorsForLogin();
     refreshAllClinicTagFilterSelects();
+    /* rx_phrase_options: loaded on demand when prescription panel opens */
 
     // restore local session
     if (restoreSession()) {
@@ -873,14 +1330,14 @@ document.addEventListener('DOMContentLoaded', function() {
     if (cfgCard) {
         cfgCard.addEventListener('click', function() {
             if (currentRole !== 'admin') {
-                alert('Configuration is admin-only.');
+                alert(appTr('alert.cfgAdminOnly'));
                 return;
             }
             if (typeof CFG !== 'undefined' && typeof CFG.init === 'function') {
                 showOnly('sectionConfig');
                 CFG.init();
             } else {
-                alert('Configuration module is loading...');
+                alert(appTr('alert.cfgLoading'));
             }
         });
     }
@@ -894,7 +1351,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (typeof REPORT !== 'undefined' && typeof REPORT.init === 'function') {
                 REPORT.init();
             } else {
-                alert('Report module is loading...');
+                alert(appTr('alert.reportLoading'));
             }
         });
     }
@@ -906,7 +1363,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.init === 'function') {
                 AIHELPER.init();
             } else {
-                alert('AI Patient Assistant module is loading...');
+                alert(appTr('alert.aiLoading'));
             }
         });
     }
@@ -918,7 +1375,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.init === 'function') {
                 MEMO_AI.init();
             } else {
-                alert('Memo module is loading...');
+                alert(appTr('alert.memoLoading'));
             }
         });
     }
@@ -929,9 +1386,10 @@ document.addEventListener('DOMContentLoaded', function() {
         var c = g(id);
         if (c) {
             c.addEventListener('click', function() {
-                var label = id.replace('card-', '');
-                label = label.charAt(0).toUpperCase() + label.slice(1);
-                alert(label + ' — coming soon!');
+                var msg = id === 'card-expenses'
+                    ? appTr('toast.expensesSoon')
+                    : appTr('toast.inventorySoon');
+                alert(msg);
             });
         }
     });
@@ -1050,9 +1508,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         updateAddPatientNoAvailabilityUI();
                     }
                 } else {
-                    alert(
-                        'No free patient numbers in range 010000–999999 (shared across all clinics).'
-                    );
+                    alert(appTr('patient.alertNoFreeRange'));
                 }
             });
         });
@@ -1128,23 +1584,8 @@ document.addEventListener('DOMContentLoaded', function() {
         psTimer = setTimeout(doPatientSearch, 280);
     });
 
-    // bill panel
-    g('billPanelClose').addEventListener('click',  closeBillPanel);
-    g('addBillItemBtn').addEventListener('click',  addBillItem);
-    g('bDiscount').addEventListener('input',       recalcTotals);
-    g('bAmtPaid').addEventListener('input',        recalcBalance);
-    g('saveBillBtn').addEventListener('click', function() {
-        saveBill(false);
-    });
-    g('savePrintBillBtn').addEventListener('click', function() {
-        saveBill(true);
-    });
-    g('closeReceiptModal').addEventListener('click', function() {
-        closeModal('receiptModal');
-    });
-    g('closeReceiptModal2').addEventListener('click', function() {
-        closeModal('receiptModal');
-    });
+    // bill panel (handlers live in app-appt.js)
+    if (typeof wireBillPanelControls === 'function') wireBillPanelControls();
 
     // ════════════════════════════════════════════════════════
     // CONSULTATION SECTION WIRING
@@ -1177,7 +1618,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!d) return;
             var open = d.style.display !== 'none';
             d.style.display = open ? 'none' : 'block';
-            aiPitchToggle.textContent = open ? 'Why clinics buy this ↓' : 'Hide ↑';
+            aiPitchToggle.textContent = open
+                ? appTr('ai.pitchToggle')
+                : appTr('ai.pitchHide');
         });
     }
 
@@ -1285,3 +1728,265 @@ document.addEventListener('DOMContentLoaded', function() {
     syncAppSessionChrome();
 
 }); // end DOMContentLoaded
+
+// ════════════════════════════════════════════════════════════════
+// UI LANGUAGE — refresh dynamic labels after display language changes
+// ════════════════════════════════════════════════════════════════
+function refreshAiPitchToggleI18n() {
+    var pitchBtn = g('aiPitchToggle');
+    var pitchDet = g('aiPitchDetail');
+    if (!pitchBtn || !pitchDet) return;
+    pitchBtn.textContent = pitchDet.style.display !== 'none'
+        ? appTr('ai.pitchHide')
+        : appTr('ai.pitchToggle');
+}
+
+function moduleSectionNeedsI18n(sid, el) {
+    if (!el) return false;
+    if (el.style.display !== 'none') return true;
+    if (sid === 'patientSection') {
+        if (typeof patientListCache !== 'undefined' && patientListCache.length > 0) {
+            return true;
+        }
+        if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
+            typeof selPatientId !== 'undefined' && selPatientId) {
+            return true;
+        }
+    }
+    if (sid === 'drugSection') {
+        if (typeof drugMasterList !== 'undefined' && drugMasterList.length) return true;
+        if (typeof drugSelectedId !== 'undefined' && drugSelectedId) return true;
+    }
+    if (sid === 'consultationSection') {
+        if (typeof conPatientData !== 'undefined' && conPatientData) return true;
+        if (typeof chartPatientId !== 'undefined' && chartPatientId) return true;
+        if (typeof photoPatientId !== 'undefined' && photoPatientId) return true;
+        if (typeof xrayPatientId !== 'undefined' && xrayPatientId) return true;
+        return (typeof conPatientId !== 'undefined' && conPatientId) ||
+            (typeof conFormsPatientId !== 'undefined' && conFormsPatientId);
+    }
+    if (sid === 'appointmentSection') {
+        var panel = g('billPanel');
+        if (panel && panel.classList.contains('open')) return true;
+        var apptModal = g('apptModal');
+        if (apptModal && apptModal.style.display === 'block') return true;
+        var apptPop = g('apptPopup');
+        if (apptPop && apptPop.style.display !== 'none' &&
+            typeof _apptPopupCtx !== 'undefined' && _apptPopupCtx) {
+            return true;
+        }
+        var dayPanel = g('dayPanel');
+        if (dayPanel && dayPanel.style.display !== 'none' &&
+            typeof _dayPanelCtx !== 'undefined' && _dayPanelCtx) {
+            return true;
+        }
+        if (typeof todayAppts !== 'undefined' && todayAppts.length) return true;
+        if (typeof arAllData !== 'undefined' && arAllData.length) return true;
+        if (typeof rcDate !== 'undefined' && rcDate) return true;
+        if (typeof rcSendQueue !== 'undefined' && rcSendQueue.length) return true;
+        var qb = g('queueBody');
+        if (qb && qb.querySelector('tr.queue-row-draggable')) return true;
+        var cb = g('calBody');
+        if (cb && cb.children.length) return true;
+        if (typeof calView !== 'undefined' && calView === 'weekly') return true;
+    }
+    if (sid === 'reportSection' && typeof REPORT !== 'undefined' &&
+        typeof REPORT.isInitialized === 'function') {
+        return REPORT.isInitialized();
+    }
+    if (sid === 'memoCardsSection') {
+        var memoList = g('memoCardList');
+        if (memoList && memoList.children.length) return true;
+    }
+    if (sid === 'aiHelperSection') {
+        var birthList = g('aiBirthPatientList');
+        var recallList = g('aiRecallPatientList');
+        if (birthList && birthList.children.length) return true;
+        if (recallList && recallList.children.length) return true;
+    }
+    if (sid === 'dashboardSection') {
+        var dock = g('memoStickyDock');
+        if (dock && dock.children.length) return true;
+    }
+    if (sid === 'sectionConfig') {
+        if (typeof CFG !== 'undefined' && typeof CFG.isInitialized === 'function' && CFG.isInitialized()) {
+            return true;
+        }
+        return !!document.querySelector('.cfg-sidebar .cfg-nav-item.active');
+    }
+    return false;
+}
+
+function applyVisibleModuleSectionI18n() {
+    if (typeof applyI18nInRoot !== 'function') return;
+    var ids = [
+        'dashboardSection',
+        'patientSection', 'reportSection', 'drugSection', 'memoCardsSection',
+        'consultationSection', 'sectionConfig', 'appointmentSection', 'aiHelperSection'
+    ];
+    ids.forEach(function(sid) {
+        var el = g(sid);
+        if (moduleSectionNeedsI18n(sid, el)) applyI18nInRoot(el);
+    });
+    var billPanel = g('billPanel');
+    if (billPanel && billPanel.classList.contains('open')) {
+        applyI18nInRoot(billPanel);
+    }
+    var calLegend = g('calDoctorLegend');
+    if (calLegend && calLegend.children.length &&
+        typeof CalDoctorColors !== 'undefined' &&
+        typeof CalDoctorColors.renderLegend === 'function') {
+        CalDoctorColors.renderLegend();
+    }
+    if (typeof chartPatientId !== 'undefined' && chartPatientId) {
+        var chartPane = g('con-charting');
+        var chartTab = g('chartingTabContent');
+        if (chartPane) applyI18nInRoot(chartPane);
+        if (chartTab) applyI18nInRoot(chartTab);
+    }
+    if (typeof photoPatientId !== 'undefined' && photoPatientId) {
+        var photoPane = g('con-photos');
+        if (photoPane) applyI18nInRoot(photoPane);
+    }
+    if (typeof xrayPatientId !== 'undefined' && xrayPatientId) {
+        var xrayPane = g('con-xrays');
+        if (xrayPane) applyI18nInRoot(xrayPane);
+    }
+}
+
+function applyOpenGlobalModalsI18n() {
+    if (typeof applyI18nInRoot !== 'function') return;
+    if (typeof CFG !== 'undefined' && typeof CFG.refreshOpenModalsI18n === 'function') {
+        CFG.refreshOpenModalsI18n();
+    }
+    var ids = [
+        'apptModal', 'apptPopup', 'queueRemarksModal', 'recallSendModal',
+        'billDetailModal', 'receiptModal', 'addPaymentModal', 'billDeleteModal',
+        'patientDetailsModal', 'addPatientModal', 'editPatientModal',
+        'photoUploadModal', 'photoLightbox',
+        'xrayUploadModal', 'xrayLightbox', 'diySystemModal',
+        'rxDrugListsModal', 'drugListModal'
+    ];
+    ids.forEach(function(mid) {
+        var mod = g(mid);
+        if (mod && mod.style.display === 'block') applyI18nInRoot(mod);
+    });
+    var calColors = g('calDoctorColorsModal');
+    if (calColors && calColors.classList.contains('open')) {
+        applyI18nInRoot(calColors);
+    }
+    var apptPop = g('apptPopup');
+    if (apptPop && apptPop.style.display !== 'none' &&
+        typeof _apptPopupCtx !== 'undefined' && _apptPopupCtx) {
+        applyI18nInRoot(apptPop);
+        if (typeof refreshApptPopupI18n === 'function') refreshApptPopupI18n();
+    }
+    var cfgPrint = g('cfgPrintModal');
+    if (cfgPrint && !cfgPrint.classList.contains('hidden')) {
+        applyI18nInRoot(cfgPrint);
+    }
+    var cfgConfirm = g('cfgConfirmOverlay');
+    if (cfgConfirm && !cfgConfirm.classList.contains('hidden')) {
+        applyI18nInRoot(cfgConfirm);
+    }
+    var cfgUser = g('cfgUserPanel');
+    if (cfgUser && cfgUser.style.display !== 'none') {
+        applyI18nInRoot(cfgUser);
+    }
+    ['clinicPanel', 'docPanel', 'pmPanel', 'txPanel'].forEach(function(pid) {
+        var p = g(pid);
+        if (p && p.style.display !== 'none') applyI18nInRoot(p);
+    });
+    var cfgDynOv = document.getElementById('cfgConfirmOv');
+    if (cfgDynOv && typeof applyI18nInRoot === 'function') applyI18nInRoot(cfgDynOv);
+    if (typeof refreshConOpenModalsI18n === 'function') refreshConOpenModalsI18n();
+    if (typeof CFG !== 'undefined' && typeof CFG.refreshOpenModalsI18n === 'function') {
+        CFG.refreshOpenModalsI18n();
+    }
+    var dayPanel = g('dayPanel');
+    if (dayPanel && dayPanel.style.display !== 'none' &&
+        typeof _dayPanelCtx !== 'undefined' && _dayPanelCtx &&
+        typeof showDayPanel === 'function') {
+        var dayMap = {};
+        dayMap[_dayPanelCtx.iso] = _dayPanelCtx.items;
+        showDayPanel(_dayPanelCtx.iso, dayMap);
+    }
+    if (typeof CalDoctorColors !== 'undefined' &&
+        typeof CalDoctorColors.refreshI18n === 'function') {
+        var calColors = g('calDoctorColorsModal');
+        if (calColors && calColors.classList.contains('open')) CalDoctorColors.refreshI18n();
+    }
+}
+
+document.addEventListener('app-lang-change', function() {
+    syncAppLocaleFromUiLang();
+    if (typeof applyVisibleModuleSectionI18n === 'function') {
+        applyVisibleModuleSectionI18n();
+    }
+    if (typeof applyOpenGlobalModalsI18n === 'function') {
+        applyOpenGlobalModalsI18n();
+    }
+    if (typeof refreshVisiblePatientSearchDropdowns === 'function') {
+        refreshVisiblePatientSearchDropdowns();
+    }
+    var loginOv = g('loginOverlay');
+    if (loginOv && loginOv.style.display === 'flex' && typeof applyI18nInRoot === 'function') {
+        applyI18nInRoot(loginOv);
+    }
+    if (typeof refreshLoginDoctorSelect === 'function') {
+        var ls = g('loginDoctor');
+        refreshLoginDoctorSelect(ls && ls.value ? ls.value : '', loginDoctorSelectMode);
+    }
+    if (typeof refreshAllClinicTagFilterSelects === 'function') {
+        refreshAllClinicTagFilterSelects();
+    }
+    if (typeof populateReportClinicSelect === 'function') {
+        populateReportClinicSelect();
+    }
+    if (typeof populateWorkingClinicSelect === 'function') {
+        populateWorkingClinicSelect();
+    }
+    if (typeof populateApptClinicSelect === 'function') {
+        populateApptClinicSelect();
+    }
+    if (typeof fillAddPatientClinicSelect === 'function') {
+        var addPatModal = g('addPatientModal');
+        if (addPatModal && addPatModal.style.display === 'block') {
+            var prevAddClinic = typeof addPatientSelectedClinicId === 'function'
+                ? addPatientSelectedClinicId() : '';
+            fillAddPatientClinicSelect();
+            if (prevAddClinic) {
+                var addSel = g('addPatientClinicSelect');
+                if (addSel) addSel.value = prevAddClinic;
+            }
+        }
+    }
+    if (typeof refreshEditPatientClinicIfModalOpen === 'function') {
+        refreshEditPatientClinicIfModalOpen();
+    }
+    if (typeof setEditPatientModalForRole === 'function') {
+        var editPatModal = g('editPatientModal');
+        if (editPatModal && editPatModal.style.display === 'block') setEditPatientModalForRole();
+    }
+    if (typeof updateAddPatientNoAvailabilityUI === 'function') {
+        var addPatModal2 = g('addPatientModal');
+        if (addPatModal2 && addPatModal2.style.display === 'block') {
+            updateAddPatientNoAvailabilityUI();
+        }
+    }
+    if (currentUserId && typeof refreshAppSessionStripContents === 'function') {
+        refreshAppSessionStripContents();
+    }
+    if (typeof refreshApptCachedTabsI18n === 'function') refreshApptCachedTabsI18n();
+    if (typeof syncApptTodayDateLabels === 'function') syncApptTodayDateLabels();
+    if (typeof refreshDashboardUserBadge === 'function') refreshDashboardUserBadge();
+    if (typeof refreshApptHeaderI18n === 'function') refreshApptHeaderI18n();
+    if (typeof refreshAiPitchToggleI18n === 'function') refreshAiPitchToggleI18n();
+    if (typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.refreshDashboardStickies === 'function') {
+        MEMO_AI.refreshDashboardStickies();
+    }
+    var dashSec = g('dashboardSection');
+    if (dashSec && dashSec.style.display !== 'none' && typeof applyDashboardI18n === 'function') {
+        applyDashboardI18n();
+    }
+});

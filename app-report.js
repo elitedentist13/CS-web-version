@@ -9,6 +9,7 @@
 var REPORT = (function () {
   // Default landing: Daily Summary (Daily view)
   var _tab = 'dailySummary';
+  var _reportInitialized = false;
   var _rows = [];
   var _chart = null;
   var _dailySummaryView = 'daily'; // 'daily' | 'monthly'
@@ -23,6 +24,11 @@ var REPORT = (function () {
   var _drMonthlyDoctorId = null;
   var _drMonthlyMode = 'simple'; // simple | detail | treatmentStats
   var _reportTabsWired = false;
+  var _auditFilterItem = '';
+  var _auditFilterUser = '';
+  var _auditAllRows = [];
+  var _auditSelectedId = null;
+  var _auditTableMissing = false;
 
   function g(id) { return document.getElementById(id); }
   function esc(s) {
@@ -31,6 +37,55 @@ var REPORT = (function () {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function tr(key) {
+    return typeof t === 'function' ? t(key) : key;
+  }
+
+  function trRepl(key, pairs) {
+    var s = tr(key);
+    if (!pairs) return s;
+    for (var k in pairs) {
+      if (Object.prototype.hasOwnProperty.call(pairs, k)) {
+        s = s.split('{' + k + '}').join(String(pairs[k]));
+      }
+    }
+    return s;
+  }
+
+  function dispPayMethod(m) {
+    if (typeof window.dispPayMethod === 'function') return window.dispPayMethod(m);
+    var v = String(m == null ? '' : m).trim();
+    if (!v || /^unknown$/i.test(v)) return tr('report.unknown');
+    return v;
+  }
+
+  var REPORT_CHART_TYPE_PAIRS = [
+    ['bar', 'report.chartType.bar'],
+    ['line', 'report.chartType.line'],
+    ['pie', 'report.chartType.pie']
+  ];
+
+  function refreshReportChartTypeSelect() {
+    var sel = g('rptChartType');
+    if (!sel) return;
+    var prev = sel.value || 'bar';
+    sel.innerHTML = REPORT_CHART_TYPE_PAIRS.map(function (p) {
+      return '<option value="' + esc(p[0]) + '">' + esc(tr(p[1])) + '</option>';
+    }).join('');
+    var has = false;
+    var i;
+    for (i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === prev) { has = true; break; }
+    }
+    sel.value = has ? prev : 'bar';
+  }
+
+  function reportPayMethodKey(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s || /^unknown$/i.test(s)) return '';
+    return s;
   }
 
   function todayISO() {
@@ -53,7 +108,7 @@ var REPORT = (function () {
         : '';
     var fullHint = hint || '';
     if (clinicLbl) {
-      fullHint = (fullHint ? fullHint + ' · ' : '') + 'Clinic: ' + clinicLbl;
+      fullHint = (fullHint ? fullHint + ' · ' : '') + tr('report.hintClinicPrefix') + ' ' + clinicLbl;
     }
     if (g('rptHint')) g('rptHint').textContent = fullHint || '—';
   }
@@ -204,6 +259,13 @@ var REPORT = (function () {
       return;
     }
 
+    if (tabKey === 'auditTrail') {
+      var firstA = firstDayOfMonth(now);
+      fromEl.value = iso(firstA);
+      toEl.value = iso(now);
+      return;
+    }
+
     if (tabKey === 'drDaily') {
       var td = todayISO();
       setDateInputs(td, td);
@@ -253,7 +315,7 @@ var REPORT = (function () {
     var wrap = g('rptTableWrap');
     if (!wrap) return;
     if (!rows || !rows.length) {
-      wrap.innerHTML = '<div style="padding:12px;color:#888;">No data.</div>';
+      wrap.innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.noData')) + '</div>';
       return;
     }
 
@@ -303,24 +365,24 @@ var REPORT = (function () {
     destroyChart();
 
     if (typeof Chart === 'undefined') {
-      setChartNote('Chart.js not loaded.');
+      setChartNote(tr('report.chart.jsMissing'));
       return;
     }
 
     if (!_rows || !_rows.length) {
-      setChartNote('No data to chart.');
+      setChartNote(tr('report.chart.noDataChart'));
       return;
     }
 
     var type = (g('rptChartType') && g('rptChartType').value) ? g('rptChartType').value : 'bar';
     var labels = _rows.map(function (r) { return String(r[labelKey] || ''); });
     var values = _rows.map(function (r) { return Number(r[valueKey] || 0); });
-    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : 'Report';
+    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.chart.fallbackTitle');
     var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : '';
     var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : '';
     var clinic = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) ? currentClinicLabel : '';
     var doctor = (typeof currentDoctorName !== 'undefined' && currentDoctorName) ? currentDoctorName : '';
-    var genAt = new Date().toLocaleString();
+    var genAt = new Date().toLocaleString(typeof appUiLocale === 'function' ? appUiLocale() : 'en-HK');
 
     _chart = new Chart(canvas, {
       type: type === 'trend line' ? 'line' : type,
@@ -346,10 +408,10 @@ var REPORT = (function () {
             display: true,
             text: [
               title,
-              (from && to) ? ('Date: ' + from + ' → ' + to) : '',
-              clinic ? ('Clinic: ' + clinic) : '',
-              doctor ? ('Doctor: ' + doctor) : '',
-              'Generated: ' + genAt
+              (from && to) ? trRepl('report.chartLine.dateRange', { FROM: from, TO: to }) : '',
+              clinic ? trRepl('report.chartLine.clinic', { X: clinic }) : '',
+              doctor ? trRepl('report.chartLine.doctor', { X: doctor }) : '',
+              trRepl('report.chartLine.generated', { AT: genAt })
             ].filter(Boolean),
             color: '#0d6efd',
             font: { weight: 'bold', size: 12 }
@@ -361,13 +423,13 @@ var REPORT = (function () {
       }
     });
 
-    setChartNote('Graph rendered from table.');
+    setChartNote(tr('report.chart.renderedFromTable'));
   }
 
   function openPrintWindow(title, bodyHtml, extraCss) {
     var w = window.open('', '_blank', 'width=980,height=720,scrollbars=1,resizable=1');
     if (!w) {
-      alert('Please allow popups to print.');
+      alert(tr('report.print.popupBlocked'));
       return null;
     }
     var css =
@@ -391,45 +453,47 @@ var REPORT = (function () {
   function printTable() {
     var wrap = g('rptTableWrap');
     if (!wrap) return;
-    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : 'Report Table';
+    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.fallback.reportTable');
     // Print the current table region (best effort)
     var html =
-      '<h1>' + esc(title) + ' — Table</h1>' +
+      '<h1>' + esc(title) + esc(tr('report.print.emTable')) + '</h1>' +
       '<div>' + wrap.innerHTML + '</div>';
-    openPrintWindow(title + ' - Table', html, 'table{width:100%;border-collapse:collapse;}');
+    openPrintWindow(title + tr('report.print.winTable'), html, 'table{width:100%;border-collapse:collapse;}');
   }
 
   function printChart() {
     var canvas = g('rptChart');
     if (!canvas) return;
-    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : 'Report Chart';
+    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.fallback.reportChart');
     try {
       var dataUrl = canvas.toDataURL('image/png', 1.0);
       var html =
-        '<h1>' + esc(title) + ' — Chart</h1>' +
+        '<h1>' + esc(title) + esc(tr('report.print.emChart')) + '</h1>' +
         '<div style="margin-top:10px;">' +
           '<img src="' + dataUrl + '" style="max-width:100%;height:auto;border:1px solid #eee;border-radius:10px;">' +
         '</div>';
-      openPrintWindow(title + ' - Chart', html);
+      openPrintWindow(title + tr('report.print.winChart'), html);
     } catch (e) {
-      alert('Unable to print chart: ' + e.message);
+      alert(tr('report.print.chartFail') + ' ' + e.message);
     }
   }
 
   function printDailySummary() {
     var body = g('rptDailySummaryBody');
     if (!body) return;
-    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : 'Daily Summary';
+    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.fallback.dailySummary');
     var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
-    var viewLabel = _dailySummaryView === 'monthly' ? ('Monthly (' + monthKeyOf(from) + ')') : ('Daily (' + from + ')');
+    var viewLabel = _dailySummaryView === 'monthly'
+      ? trRepl('report.ds.viewMonthly', { M: monthKeyOf(from) })
+      : trRepl('report.ds.viewDaily', { D: from });
     var clinic = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) ? currentClinicLabel : '';
     var doctor = (typeof currentDoctorName !== 'undefined' && currentDoctorName) ? currentDoctorName : '';
     var header =
       '<h1>' + esc(title) + ' — ' + esc(viewLabel) + '</h1>' +
       '<div style="color:#666;font-size:12px;margin-bottom:12px;">' +
-        (clinic ? ('Clinic: ' + esc(clinic) + ' &nbsp;|&nbsp; ') : '') +
-        (doctor ? ('Doctor: ' + esc(doctor) + ' &nbsp;|&nbsp; ') : '') +
-        'Generated: ' + esc(new Date().toLocaleString()) +
+        (clinic ? (esc(tr('report.hintClinicPrefix')) + ' ' + esc(clinic) + ' &nbsp;|&nbsp; ') : '') +
+        (doctor ? (esc(tr('report.dr.labelDoctor')) + ': ' + esc(doctor) + ' &nbsp;|&nbsp; ') : '') +
+        esc(tr('report.print.genPrefix')) + ' ' + esc(new Date().toLocaleString(typeof appUiLocale === 'function' ? appUiLocale() : 'en-HK')) +
       '</div>';
     var isDetailPrint = !!_dailySummaryDetailMode;
     var printWrap = document.createElement('div');
@@ -471,17 +535,17 @@ var REPORT = (function () {
   function magnifyChart() {
     var canvas = g('rptChart');
     if (!canvas) return;
-    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : 'Report Chart';
+    var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.fallback.reportChart');
     var w = window.open('', '_blank', 'width=1200,height=850,scrollbars=1,resizable=1');
     if (!w) {
-      alert('Please allow popups to view chart.');
+      alert(tr('report.print.popupBlockedView'));
       return;
     }
     var dataUrl = '';
     try {
       dataUrl = canvas.toDataURL('image/png', 1.0);
     } catch (e) {
-      alert('Unable to magnify chart: ' + e.message);
+      alert(tr('report.print.magnifyFail') + ' ' + e.message);
       return;
     }
     w.document.write(
@@ -500,10 +564,10 @@ var REPORT = (function () {
       '</head><body>' +
         '<div class="top">' +
           '<div class="t">🔍 ' + esc(title) + '</div>' +
-          '<button onclick="window.close()">Close</button>' +
+          '<button onclick="window.close()">' + esc(tr('report.btn.close')) + '</button>' +
         '</div>' +
         '<div class="wrap">' +
-          '<img src="' + dataUrl + '" alt="Chart">' +
+          '<img src="' + dataUrl + '" alt="' + esc(tr('report.alt.chart')) + '">' +
         '</div>' +
       '</body></html>'
     );
@@ -540,12 +604,12 @@ var REPORT = (function () {
 
   function exportCSV() {
     if (!_rows || !_rows.length) {
-      alert('No data to export.');
+      alert(tr('report.alert.exportNoData'));
       return;
     }
     var keys = Object.keys(_rows[0] || {});
     if (!keys.length) {
-      alert('No data to export.');
+      alert(tr('report.alert.exportNoData'));
       return;
     }
     var csv = keys.join(',') + '\n' + _rows.map(function (r) {
@@ -646,7 +710,7 @@ var REPORT = (function () {
   function sumByKey(rows, key, valueKey) {
     var map = {};
     rows.forEach(function (r) {
-      var k = r[key] || 'Unknown';
+      var k = reportPayMethodKey(r[key]);
       map[k] = (map[k] || 0) + Number(r[valueKey] || 0);
     });
     return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
@@ -654,7 +718,7 @@ var REPORT = (function () {
 
   function downloadCSV(filename, columns, rows) {
     if (!rows || !rows.length) {
-      alert('No data to export.');
+      alert(tr('report.alert.exportNoData'));
       return;
     }
     var keys = columns.map(function (c) { return c.key; });
@@ -696,8 +760,8 @@ var REPORT = (function () {
 
     var summaryBlocks = totalsByMethod.map(function (x) {
       return '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;min-width:150px;">' +
-        '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(x.key) + '</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#0d6efd;margin-top:4px;">HK$ ' + Number(x.value || 0).toFixed(2) + '</div>' +
+        '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(dispPayMethod(x.key)) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#0d6efd;margin-top:4px;">' + fmtHK(Number(x.value || 0)) + '</div>' +
       '</div>';
     }).join('');
 
@@ -706,8 +770,8 @@ var REPORT = (function () {
         '<td style="' + td + '">' + esc(t.patient_no) + '</td>' +
         '<td style="' + td + '">' + esc(t.patient_chinese) + '</td>' +
         '<td style="' + td + '">' + esc(t.patient_name) + '</td>' +
-        '<td style="' + td + '">' + esc(t.payment_method) + '</td>' +
-        '<td style="' + td + 'text-align:right;font-weight:900;">HK$ ' + esc(t.amount) + '</td>' +
+        '<td style="' + td + '">' + esc(dispPayMethod(t.payment_method)) + '</td>' +
+        '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(Number(t.amount)) + '</td>' +
         '<td style="' + td + '">' + esc(t.remarks) + '</td>' +
       '</tr>';
     }).join('');
@@ -717,12 +781,12 @@ var REPORT = (function () {
         '<div style="overflow:auto;max-height:520px;">' +
           '<table style="width:100%;border-collapse:collapse;min-width:860px;">' +
             '<thead><tr>' +
-              '<th style="' + th + 'width:120px;">Patient No</th>' +
-              '<th style="' + th + 'width:160px;">Chinese</th>' +
-              '<th style="' + th + '">English</th>' +
-              '<th style="' + th + 'width:150px;">Payment</th>' +
-              '<th style="' + th + 'width:120px;text-align:right;">Amount</th>' +
-              '<th style="' + th + 'width:220px;">Remarks</th>' +
+              '<th style="' + th + 'width:120px;">' + esc(tr('report.col.patientNo')) + '</th>' +
+              '<th style="' + th + 'width:160px;">' + esc(tr('report.col.chinese')) + '</th>' +
+              '<th style="' + th + '">' + esc(tr('report.ds.col.english')) + '</th>' +
+              '<th style="' + th + 'width:150px;">' + esc(tr('report.ds.col.payment')) + '</th>' +
+              '<th style="' + th + 'width:120px;text-align:right;">' + esc(tr('report.ds.col.amount')) + '</th>' +
+              '<th style="' + th + 'width:220px;">' + esc(tr('report.col.remarks')) + '</th>' +
             '</tr></thead>' +
             '<tbody>' + rowsHtml + '</tbody>' +
           '</table>' +
@@ -730,8 +794,8 @@ var REPORT = (function () {
       '</div>' +
       '<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">' +
         '<div style="flex:1;min-width:240px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 12px;">' +
-          '<div style="font-size:12px;color:#7c2d12;font-weight:900;">Daily Grand Total</div>' +
-          '<div style="font-size:22px;font-weight:900;color:#c2410c;margin-top:4px;">HK$ ' + Number(grandTotal || 0).toFixed(2) + '</div>' +
+          '<div style="font-size:12px;color:#7c2d12;font-weight:900;">' + esc(tr('report.ds.dailyGrandTotal')) + '</div>' +
+          '<div style="font-size:22px;font-weight:900;color:#c2410c;margin-top:4px;">' + fmtHK(Number(grandTotal || 0)) + '</div>' +
         '</div>' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">' +
           summaryBlocks +
@@ -749,25 +813,25 @@ var REPORT = (function () {
 
     var chips = monthTotalsByMethod.map(function (x) {
       return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 10px;background:#f8fbff;border:1px solid #e5edf8;border-radius:10px;">' +
-        '<div style="font-weight:900;color:#4b5563;font-size:12px;">' + esc(x.key) + '</div>' +
-        '<div style="font-weight:900;color:#0d6efd;font-size:12px;">HK$ ' + Number(x.value || 0).toFixed(2) + '</div>' +
+        '<div style="font-weight:900;color:#4b5563;font-size:12px;">' + esc(dispPayMethod(x.key)) + '</div>' +
+        '<div style="font-weight:900;color:#0d6efd;font-size:12px;">' + fmtHK(Number(x.value || 0)) + '</div>' +
       '</div>';
     }).join('');
 
     if (!chips) {
-      chips = '<div style="padding:10px 0;color:#94a3b8;font-size:12px;">No payment method totals for this month.</div>';
+      chips = '<div style="padding:10px 0;color:#94a3b8;font-size:12px;">' + esc(tr('report.ds.monthly.noMethodTotals')) + '</div>';
     }
 
     var cardsHtml = dayCards.map(function (c) {
       var methodMiniMap = {};
       (c.rows || []).forEach(function (t) {
-        var k = t.payment_method || 'Unknown';
+        var k = reportPayMethodKey(t.payment_method);
         methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(t.amount || 0);
       });
 
       var methodMini = Object.keys(methodMiniMap).sort().map(function (k) {
         return '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef6ff;color:#0d6efd;border:1px solid #d9eaff;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;">' +
-          '<span>' + esc(k) + '</span><span style="color:#1f2937;">HK$ ' + Number(methodMiniMap[k] || 0).toFixed(2) + '</span>' +
+          '<span>' + esc(dispPayMethod(k)) + '</span><span style="color:#1f2937;">' + fmtHK(Number(methodMiniMap[k] || 0)) + '</span>' +
         '</span>';
       }).join('');
 
@@ -778,8 +842,8 @@ var REPORT = (function () {
             '<div style="font-size:13px;font-weight:900;color:#1f2937;line-height:1.35;">' + esc(t.patient_chinese || '') + (t.patient_name ? (' / ' + esc(t.patient_name)) : '') + '</div>' +
             (t.remarks ? '<div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;">' + esc(t.remarks) + '</div>' : '') +
           '</div>' +
-          '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(t.payment_method || 'Unknown') + '</div>' +
-          '<div style="text-align:right;font-weight:900;color:#0f172a;font-size:12px;">HK$ ' + Number(t.amount || 0).toFixed(2) + '</div>' +
+          '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(dispPayMethod(t.payment_method)) + '</div>' +
+          '<div style="text-align:right;font-weight:900;color:#0f172a;font-size:12px;">' + fmtHK(Number(t.amount || 0)) + '</div>' +
         '</div>';
       }).join('');
 
@@ -787,8 +851,8 @@ var REPORT = (function () {
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid #edf2f7;">' +
           '<div style="font-weight:900;color:#0d6efd;font-size:14px;">' + esc(c.date) + '</div>' +
           '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:800;">Transactions: ' + (c.rows || []).length + '</div>' +
-            '<div style="font-size:14px;font-weight:900;color:#0f172a;">HK$ ' + Number(c.total || 0).toFixed(2) + '</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(trRepl('report.ds.monthly.txCount', { N: String((c.rows || []).length) })) + '</div>' +
+            '<div style="font-size:14px;font-weight:900;color:#0f172a;">' + fmtHK(Number(c.total || 0)) + '</div>' +
           '</div>' +
         '</div>' +
         (methodMini ? '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px 0;">' + methodMini + '</div>' : '') +
@@ -797,30 +861,30 @@ var REPORT = (function () {
     }).join('');
 
     if (!cardsHtml) {
-      cardsHtml = '<div style="background:#fff;border:1px dashed #d7e2f0;border-radius:12px;padding:22px;text-align:center;color:#64748b;">No billing transactions found for this month.</div>';
+      cardsHtml = '<div style="background:#fff;border:1px dashed #d7e2f0;border-radius:12px;padding:22px;text-align:center;color:#64748b;">' + esc(tr('report.ds.monthly.noBillingTx')) + '</div>';
     }
 
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
         '<div style="background:linear-gradient(135deg,#0d6efd,#2b8fff);border-radius:14px;padding:12px 14px;color:#fff;margin-bottom:12px;box-shadow:0 5px 14px rgba(13,110,253,.25);">' +
-          '<div style="font-size:12px;font-weight:800;opacity:.9;">Monthly Overview</div>' +
+          '<div style="font-size:12px;font-weight:800;opacity:.9;">' + esc(tr('report.ds.monthly.overviewTitle')) + '</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' +
             '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:130px;">' +
-              '<div style="font-size:11px;font-weight:700;opacity:.9;">Days With Bills</div>' +
+              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.daysWithBills')) + '</div>' +
               '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + dayCount + '</div>' +
             '</div>' +
             '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:130px;">' +
-              '<div style="font-size:11px;font-weight:700;opacity:.9;">Transactions</div>' +
+              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.transactions')) + '</div>' +
               '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + txCount + '</div>' +
             '</div>' +
             '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:180px;">' +
-              '<div style="font-size:11px;font-weight:700;opacity:.9;">Month Grand Total</div>' +
-              '<div style="margin-top:2px;font-size:18px;font-weight:900;">HK$ ' + Number(monthGrandTotal || 0).toFixed(2) + '</div>' +
+              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.monthGrandTotal')) + '</div>' +
+              '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + fmtHK(Number(monthGrandTotal || 0)) + '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
         '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;padding:10px 12px;margin-bottom:12px;">' +
-          '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">Payment Method Totals</div>' +
+          '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">' + esc(tr('report.ds.monthly.paymentTotalsTitle')) + '</div>' +
           '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">' + chips + '</div>' +
         '</div>' +
         cardsHtml +
@@ -832,18 +896,18 @@ var REPORT = (function () {
     if (!items.length) {
       return {
         count: 0,
-        html: '<div style="font-size:11px;color:#94a3b8;">No treatment entries</div>'
+        html: '<div style="font-size:11px;color:#94a3b8;">' + esc(tr('report.treat.emptyLineItems')) + '</div>'
       };
     }
     var html = items.map(function (it, idx) {
-      var desc = String(it && it.desc ? it.desc : 'Treatment');
+      var desc = String(it && it.desc ? it.desc : tr('report.treat.defaultName'));
       var qty = Number(it && it.qty ? it.qty : 0);
       var price = Number(it && it.price ? it.price : 0);
       var lineTotal = qty * price;
       return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:4px 6px;margin-bottom:4px;background:#f8fbff;border:1px solid #e5edf8;border-radius:8px;">' +
         '<div style="min-width:0;font-size:11px;color:#0f172a;line-height:1.35;"><span style="font-weight:900;color:#0d6efd;">#' + (idx + 1) + '</span> ' + esc(desc) + '</div>' +
         '<div style="flex-shrink:0;font-size:11px;color:#475569;font-weight:800;white-space:nowrap;">' +
-          qty + ' x HK$ ' + price.toFixed(2) + ' = HK$ ' + lineTotal.toFixed(2) +
+          i18nRepl(t('common.fmtHkdQtyLine'), { QTY: qty, UNIT: fmtHK(price), TOTAL: fmtHK(lineTotal) }) +
         '</div>' +
       '</div>';
     }).join('');
@@ -862,16 +926,16 @@ var REPORT = (function () {
         '<div style="font-size:12px;color:#0f172a;font-weight:900;line-height:1.35;margin-top:2px;">' + nameLine + '</div>' +
       '</td>' +
       '<td style="width:14%;padding:10px 8px;border-bottom:1px solid #eef2f7;vertical-align:top;word-break:break-word;">' +
-        '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(t.payment_method || 'Unknown') + '</div>' +
+        '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethod(t.payment_method)) + '</div>' +
         (t.remarks ? '<div style="font-size:11px;color:#64748b;line-height:1.35;margin-top:4px;">' + esc(t.remarks) + '</div>' : '') +
       '</td>' +
       '<td style="width:30%;padding:10px 8px;border-bottom:1px solid #eef2f7;vertical-align:top;word-break:break-word;">' +
-        '<div style="font-size:11px;color:#64748b;font-weight:800;margin-bottom:5px;">Treatment Entries: ' + tx.count + '</div>' +
+        '<div style="font-size:11px;color:#64748b;font-weight:800;margin-bottom:5px;">' + esc(trRepl('report.ds.detail.treatmentEntriesCount', { N: String(tx.count) })) + '</div>' +
         tx.html +
       '</td>' +
-      '<td style="width:9%;padding:10px 12px;border-bottom:1px solid #eef2f7;border-left:1px solid #edf2f7;text-align:right;font-size:12px;font-weight:900;vertical-align:top;color:#0f172a;white-space:nowrap;">HK$ ' + Number(t.bill_total || 0).toFixed(2) + '</td>' +
-      '<td style="width:9%;padding:10px 12px;border-bottom:1px solid #eef2f7;border-left:1px solid #edf2f7;text-align:right;font-size:12px;font-weight:900;vertical-align:top;color:#0369a1;white-space:nowrap;">HK$ ' + Number(t.bill_paid || 0).toFixed(2) + '</td>' +
-      '<td style="width:8%;padding:10px 12px;border-bottom:1px solid #eef2f7;border-left:1px solid #edf2f7;text-align:right;font-size:12px;font-weight:900;vertical-align:top;color:' + balColor + ';white-space:nowrap;">HK$ ' + bal.toFixed(2) + '</td>' +
+      '<td style="width:9%;padding:10px 12px;border-bottom:1px solid #eef2f7;border-left:1px solid #edf2f7;text-align:right;font-size:12px;font-weight:900;vertical-align:top;color:#0f172a;white-space:nowrap;">' + fmtHK(Number(t.bill_total || 0)) + '</td>' +
+      '<td style="width:9%;padding:10px 12px;border-bottom:1px solid #eef2f7;border-left:1px solid #edf2f7;text-align:right;font-size:12px;font-weight:900;vertical-align:top;color:#0369a1;white-space:nowrap;">' + fmtHK(Number(t.bill_paid || 0)) + '</td>' +
+      '<td style="width:8%;padding:10px 12px;border-bottom:1px solid #eef2f7;border-left:1px solid #edf2f7;text-align:right;font-size:12px;font-weight:900;vertical-align:top;color:' + balColor + ';white-space:nowrap;">' + fmtHK(bal) + '</td>' +
     '</tr>';
   }
 
@@ -886,32 +950,32 @@ var REPORT = (function () {
     });
     var methodPills = totalsByMethod.map(function (x) {
       return '<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#eef6ff;border:1px solid #d9eaff;border-radius:999px;font-size:11px;font-weight:900;color:#0d6efd;">' +
-        esc(x.key) + ': HK$ ' + Number(x.value || 0).toFixed(2) +
+        esc(dispPayMethod(x.key)) + ': ' + fmtHK(Number(x.value || 0)) +
       '</span>';
     }).join('');
 
     var rowsHtml = transactions.map(function (t) { return detailTxRowHtml(t, false); }).join('');
     if (!rowsHtml) {
-      rowsHtml = '<tr><td colspan="7" style="padding:20px;text-align:center;color:#64748b;">No detailed transactions found.</td></tr>';
+      rowsHtml = '<tr><td colspan="7" style="padding:20px;text-align:center;color:#64748b;">' + esc(tr('report.ds.detail.noDetailedTx')) + '</td></tr>';
     }
 
     body.innerHTML =
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
         '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:150px;">' +
-          '<div style="font-size:11px;color:#64748b;font-weight:800;">Total Bills</div>' +
+          '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.kpiTotalBills')) + '</div>' +
           '<div style="font-size:18px;color:#0d6efd;font-weight:900;margin-top:2px;">' + transactions.length + '</div>' +
         '</div>' +
         '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:150px;">' +
-          '<div style="font-size:11px;color:#64748b;font-weight:800;">Treatment Entries</div>' +
+          '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.kpiTreatmentEntries')) + '</div>' +
           '<div style="font-size:18px;color:#0d6efd;font-weight:900;margin-top:2px;">' + totalTreatments + '</div>' +
         '</div>' +
         '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 12px;min-width:190px;">' +
-          '<div style="font-size:11px;color:#7c2d12;font-weight:800;">Bill Total</div>' +
-          '<div style="font-size:18px;color:#c2410c;font-weight:900;margin-top:2px;">HK$ ' + Number(grandTotal || 0).toFixed(2) + '</div>' +
+          '<div style="font-size:11px;color:#7c2d12;font-weight:800;">' + esc(tr('report.ds.detail.kpiBillTotal')) + '</div>' +
+          '<div style="font-size:18px;color:#c2410c;font-weight:900;margin-top:2px;">' + fmtHK(Number(grandTotal || 0)) + '</div>' +
         '</div>' +
         '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:210px;">' +
-          '<div style="font-size:11px;color:#991b1b;font-weight:800;">Remaining Balance</div>' +
-          '<div style="font-size:18px;color:#dc2626;font-weight:900;margin-top:2px;">HK$ ' + Number(outstanding || 0).toFixed(2) + '</div>' +
+          '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.ds.detail.kpiRemainingBalance')) + '</div>' +
+          '<div style="font-size:18px;color:#dc2626;font-weight:900;margin-top:2px;">' + fmtHK(Number(outstanding || 0)) + '</div>' +
         '</div>' +
       '</div>' +
       (methodPills ? ('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' + methodPills + '</div>') : '') +
@@ -920,13 +984,13 @@ var REPORT = (function () {
           '<table style="width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;">' +
             '<thead>' +
               '<tr>' +
-                '<th style="width:10%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Bill Date</th>' +
-                '<th style="width:20%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Patient</th>' +
-                '<th style="width:14%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Payment / Notes</th>' +
-                '<th style="width:30%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Treatment Details</th>' +
-                '<th style="width:9%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">Bill</th>' +
-                '<th style="width:9%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">Paid</th>' +
-                '<th style="width:8%;position:sticky;top:0;background:#f0f7ff;color:#dc2626;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #fecaca;border-left:1px solid #fecaca;text-align:right;">Remaining</th>' +
+                '<th style="width:10%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thBillDate')) + '</th>' +
+                '<th style="width:20%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPatient')) + '</th>' +
+                '<th style="width:14%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPaymentNotes')) + '</th>' +
+                '<th style="width:30%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thTreatmentDetails')) + '</th>' +
+                '<th style="width:9%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thBill')) + '</th>' +
+                '<th style="width:9%;position:sticky;top:0;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thPaid')) + '</th>' +
+                '<th style="width:8%;position:sticky;top:0;background:#f0f7ff;color:#dc2626;font-size:11px;font-weight:900;padding:10px 12px;border-bottom:2px solid #fecaca;border-left:1px solid #fecaca;text-align:right;">' + esc(tr('report.ds.detail.thRemaining')) + '</th>' +
               '</tr>' +
             '</thead>' +
             '<tbody>' + rowsHtml + '</tbody>' +
@@ -952,38 +1016,38 @@ var REPORT = (function () {
 
     var methodSummary = monthTotalsByMethod.map(function (x) {
       return '<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #eef2f7;">' +
-        '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(x.key) + '</div>' +
-        '<div style="font-size:12px;color:#0d6efd;font-weight:900;">HK$ ' + Number(x.value || 0).toFixed(2) + '</div>' +
+        '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethod(x.key)) + '</div>' +
+        '<div style="font-size:12px;color:#0d6efd;font-weight:900;">' + fmtHK(Number(x.value || 0)) + '</div>' +
       '</div>';
     }).join('');
     if (!methodSummary) {
-      methodSummary = '<div style="font-size:12px;color:#94a3b8;">No payment methods for this month.</div>';
+      methodSummary = '<div style="font-size:12px;color:#94a3b8;">' + esc(tr('report.ds.detail.monthlyNoMethods')) + '</div>';
     }
 
     var sectionsHtml = dayCards.map(function (c) {
       var rowsHtml = (c.rows || []).map(function (t) { return detailTxRowHtml(t, true); }).join('');
       if (!rowsHtml) {
-        rowsHtml = '<tr><td colspan="7" style="padding:14px;color:#64748b;text-align:center;">No detailed rows.</td></tr>';
+        rowsHtml = '<tr><td colspan="7" style="padding:14px;color:#64748b;text-align:center;">' + esc(tr('report.ds.detail.monthlyNoDetailRows')) + '</td></tr>';
       }
       return '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;overflow:hidden;margin-bottom:12px;box-shadow:0 2px 8px rgba(15,23,42,.04);">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#f8fbff;border-bottom:1px solid #e6edf5;">' +
           '<div style="font-size:13px;font-weight:900;color:#0d6efd;">' + esc(c.date) + '</div>' +
           '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:800;">Bills: ' + (c.rows || []).length + '</div>' +
-            '<div style="font-size:13px;color:#0f172a;font-weight:900;">HK$ ' + Number(c.total || 0).toFixed(2) + '</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(trRepl('report.ds.detail.monthlyBillsCount', { N: String((c.rows || []).length) })) + '</div>' +
+            '<div style="font-size:13px;color:#0f172a;font-weight:900;">' + fmtHK(Number(c.total || 0)) + '</div>' +
           '</div>' +
         '</div>' +
         '<div style="overflow:auto;">' +
           '<table style="width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;">' +
             '<thead>' +
               '<tr>' +
-                '<th style="width:10%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Bill Date</th>' +
-                '<th style="width:20%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Patient</th>' +
-                '<th style="width:14%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Payment / Notes</th>' +
-                '<th style="width:30%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">Treatment Details</th>' +
-                '<th style="width:9%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">Bill</th>' +
-                '<th style="width:9%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">Paid</th>' +
-                '<th style="width:8%;background:#f0f7ff;color:#dc2626;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #fecaca;border-left:1px solid #fecaca;text-align:right;">Remaining</th>' +
+                '<th style="width:10%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thBillDate')) + '</th>' +
+                '<th style="width:20%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPatient')) + '</th>' +
+                '<th style="width:14%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thPaymentNotes')) + '</th>' +
+                '<th style="width:30%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 8px;border-bottom:2px solid #dde8f5;text-align:left;">' + esc(tr('report.ds.detail.thTreatmentDetails')) + '</th>' +
+                '<th style="width:9%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thBill')) + '</th>' +
+                '<th style="width:9%;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #dde8f5;border-left:1px solid #dde8f5;text-align:right;">' + esc(tr('report.ds.detail.thPaid')) + '</th>' +
+                '<th style="width:8%;background:#f0f7ff;color:#dc2626;font-size:11px;font-weight:900;padding:9px 12px;border-bottom:2px solid #fecaca;border-left:1px solid #fecaca;text-align:right;">' + esc(tr('report.ds.detail.thRemaining')) + '</th>' +
               '</tr>' +
             '</thead>' +
             '<tbody>' + rowsHtml + '</tbody>' +
@@ -993,35 +1057,35 @@ var REPORT = (function () {
     }).join('');
 
     if (!sectionsHtml) {
-      sectionsHtml = '<div style="background:#fff;border:1px dashed #d7e2f0;border-radius:12px;padding:22px;text-align:center;color:#64748b;">No detailed monthly transactions found.</div>';
+      sectionsHtml = '<div style="background:#fff;border:1px dashed #d7e2f0;border-radius:12px;padding:22px;text-align:center;color:#64748b;">' + esc(tr('report.ds.detail.monthlyEmptySections')) + '</div>';
     }
 
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:140px;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:800;">Days</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiDays')) + '</div>' +
             '<div style="margin-top:2px;font-size:18px;color:#0d6efd;font-weight:900;">' + dayCards.length + '</div>' +
           '</div>' +
           '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:140px;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:800;">Bills</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiBills')) + '</div>' +
             '<div style="margin-top:2px;font-size:18px;color:#0d6efd;font-weight:900;">' + totalBills + '</div>' +
           '</div>' +
           '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:160px;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:800;">Treatment Entries</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiTreatEntries')) + '</div>' +
             '<div style="margin-top:2px;font-size:18px;color:#0d6efd;font-weight:900;">' + totalTreatments + '</div>' +
           '</div>' +
           '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-            '<div style="font-size:11px;color:#7c2d12;font-weight:800;">Month Bill Total</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#c2410c;font-weight:900;">HK$ ' + Number(monthGrandTotal || 0).toFixed(2) + '</div>' +
+            '<div style="font-size:11px;color:#7c2d12;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiBillTotal')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#c2410c;font-weight:900;">' + fmtHK(Number(monthGrandTotal || 0)) + '</div>' +
           '</div>' +
           '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:200px;">' +
-            '<div style="font-size:11px;color:#991b1b;font-weight:800;">Remaining Balance</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">HK$ ' + Number(totalOutstanding || 0).toFixed(2) + '</div>' +
+            '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiRemaining')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(Number(totalOutstanding || 0)) + '</div>' +
           '</div>' +
         '</div>' +
         '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;padding:10px 12px;margin-bottom:12px;">' +
-          '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">Payment Method Totals</div>' +
+          '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">' + esc(tr('report.ds.monthly.paymentTotalsTitle')) + '</div>' +
           '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">' + methodSummary + '</div>' +
         '</div>' +
         sectionsHtml +
@@ -1032,17 +1096,25 @@ var REPORT = (function () {
     return String(isoDate || '').slice(0, 7);
   }
 
+  var MONTH_SHORT_KEYS = [
+    'report.month.jan', 'report.month.feb', 'report.month.mar', 'report.month.apr',
+    'report.month.may', 'report.month.jun', 'report.month.jul', 'report.month.aug',
+    'report.month.sep', 'report.month.oct', 'report.month.nov', 'report.month.dec'
+  ];
+
+  function monthShortLabel(monthIdx) {
+    return tr(MONTH_SHORT_KEYS[monthIdx] || MONTH_SHORT_KEYS[0]);
+  }
+
   function monthOptionsHTML(selectedYYYYMM) {
     var now = new Date();
     var year = now.getFullYear();
-    var months = [
-      'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
-    ];
-    var opts = months.map(function (m, idx) {
+    var opts = MONTH_SHORT_KEYS.map(function (key, idx) {
       var mm = String(idx + 1).padStart(2, '0');
       var v = year + '-' + mm;
       var sel = (v === selectedYYYYMM) ? ' selected' : '';
-      return '<option value="' + esc(v) + '"' + sel + '>' + esc(m + ' ' + year) + '</option>';
+      var label = trRepl('report.month.optionLabel', { M: monthShortLabel(idx), Y: String(year) });
+      return '<option value="' + esc(v) + '"' + sel + '>' + esc(label) + '</option>';
     }).join('');
     return opts;
   }
@@ -1054,12 +1126,12 @@ var REPORT = (function () {
 
   function drOptionsHTML(selectedId) {
     if (!_drDailyDoctors.length) {
-      return '<option value="">(No doctors)</option>';
+      return '<option value="">' + esc(tr('report.dr.noDoctorsOption')) + '</option>';
     }
     return _drDailyDoctors.map(function (d) {
       var id = d.id || '';
       var code = d.doctor_code ? ('[' + d.doctor_code + '] ') : '';
-      var shown = drDisplayName(d) || 'Doctor';
+      var shown = drDisplayName(d) || tr('report.dr.doctorFallback');
       var sel = (id === selectedId) ? ' selected' : '';
       return '<option value="' + esc(id) + '"' + sel + '>' + esc(code + shown) + '</option>';
     }).join('');
@@ -1135,24 +1207,24 @@ var REPORT = (function () {
       '<div style="padding:12px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
-            '<div style="font-size:12px;color:#555;font-weight:900;">Doctor</div>' +
+            '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(tr('report.dr.labelDoctor')) + '</div>' +
             '<select id="drDailyDoctorPick" onchange="REPORT.setDrDailyDoctor(this.value)" ' +
               'style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;min-width:220px;">' +
               drOptionsHTML(_drDailyDoctorId) +
             '</select>' +
             '<span style="width:1px;height:22px;background:#e5e7eb;display:inline-block;"></span>' +
-            '<div style="font-size:12px;color:#555;font-weight:900;">Date</div>' +
+            '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(tr('report.ds.labelDate')) + '</div>' +
             '<input type="date" id="drDailyDayPick" value="' + esc(day) + '" ' +
               'onchange="REPORT.setDrDailyDate(this.value)" ' +
               'style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;">' +
           '</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
-            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drDailyMode === 'simple' ? 'var(--primary)' : '#64748b') + ';" onclick="REPORT.setDrDailyMode(\'simple\')">Simple</button>' +
+            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drDailyMode === 'simple' ? 'var(--primary)' : '#64748b') + ';" onclick="REPORT.setDrDailyMode(\'simple\')">' + esc(tr('report.dr.modeSimple')) + '</button>' +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drDailyMode === 'detail' ? '#0d6efd' : '#64748b') + ';display:inline-flex;align-items:center;gap:8px;" onclick="REPORT.toggleDrDailyDetail()">' +
-              '<span>Detail Transaction</span>' +
-              '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:2px 8px;border-radius:999px;background:' + (_drDailyMode === 'detail' ? '#22c55e' : '#cbd5e1') + ';color:' + (_drDailyMode === 'detail' ? '#052e16' : '#334155') + ';font-size:11px;font-weight:900;">' + (_drDailyMode === 'detail' ? 'ON' : 'OFF') + '</span>' +
+              '<span>' + esc(tr('report.ds.btnDetailTx')) + '</span>' +
+              '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:2px 8px;border-radius:999px;background:' + (_drDailyMode === 'detail' ? '#22c55e' : '#cbd5e1') + ';color:' + (_drDailyMode === 'detail' ? '#052e16' : '#334155') + ';font-size:11px;font-weight:900;">' + esc(_drDailyMode === 'detail' ? tr('report.ds.on') : tr('report.ds.off')) + '</span>' +
             '</button>' +
-            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drDailyMode === 'treatmentStats' ? '#7c3aed' : '#64748b') + ';" onclick="REPORT.setDrDailyMode(\'treatmentStats\')">Treatment Statistics</button>' +
+            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drDailyMode === 'treatmentStats' ? '#7c3aed' : '#64748b') + ';" onclick="REPORT.setDrDailyMode(\'treatmentStats\')">' + esc(tr('report.dr.modeTreatmentStats')) + '</button>' +
           '</div>' +
         '</div>' +
         '<div id="rptDrDailyBody" style="min-height:220px;"></div>' +
@@ -1172,7 +1244,7 @@ var REPORT = (function () {
     var body = g('rptDrDailyBody');
     if (!body) return;
     if (!_drDailyDoctorId) {
-      body.innerHTML = '<div style="padding:14px;color:#64748b;">No doctor available. Please configure doctors in Config.</div>';
+      body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noDoctorMsg')) + '</div>';
       _rows = [];
       return;
     }
@@ -1224,7 +1296,7 @@ var REPORT = (function () {
         patient_no: b.patient_no || (p.patient_no || ''),
         patient_chinese: p.chinese_name || '',
         patient_name: (p.full_name || b.patient_name || ''),
-        payment_method: b.bill_type || 'Unknown',
+        payment_method: reportPayMethodKey(b.bill_type),
         amount: total.toFixed(2),
         bill_total: total,
         bill_paid: paid,
@@ -1258,7 +1330,7 @@ var REPORT = (function () {
         items.forEach(function (it) {
           var qty = Number(it && it.qty ? it.qty : 0);
           var price = Number(it && it.price ? it.price : 0);
-          var name = String(it && it.desc ? it.desc : 'Treatment');
+          var name = String(it && it.desc ? it.desc : tr('report.treat.defaultName'));
           var amt = qty * price;
           if (!byItem[name]) byItem[name] = { item_name: name, frequency: 0, amount_num: 0 };
           byItem[name].frequency += qty;
@@ -1277,7 +1349,7 @@ var REPORT = (function () {
         return Number(b.amount || 0) - Number(a.amount || 0);
       });
       if (!rows.length) {
-        body.innerHTML = '<div style="padding:14px;color:#64748b;">No billed treatment items for selected doctor/day.</div>';
+        body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledDay')) + '</div>';
         return;
       }
       var th = 'padding:10px 10px;background:#f3f0ff;color:#6d28d9;font-size:12px;font-weight:900;border-bottom:2px solid #e9ddff;text-align:left;';
@@ -1286,17 +1358,17 @@ var REPORT = (function () {
         return '<tr>' +
           '<td style="' + td + 'font-weight:900;color:#0f172a;">' + esc(r.item_name) + '</td>' +
           '<td style="' + td + 'text-align:right;">' + esc(String(r.frequency || 0)) + '</td>' +
-          '<td style="' + td + 'text-align:right;font-weight:900;">HK$ ' + esc(r.amount) + '</td>' +
+          '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(Number(r.amount)) + '</td>' +
         '</tr>';
       }).join('');
       body.innerHTML =
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="background:#f3f0ff;border:1px solid #e9ddff;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#6d28d9;font-weight:900;">Today Item Grand Total</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#4c1d95;font-weight:900;">HK$ ' + grandAmt.toFixed(2) + '</div>' +
+            '<div style="font-size:11px;color:#6d28d9;font-weight:900;">' + esc(tr('report.drStats.todayItemGrandTotal')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#4c1d95;font-weight:900;">' + fmtHK(grandAmt) + '</div>' +
           '</div>' +
           '<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:900;">Today Total Frequency</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:900;">' + esc(tr('report.drStats.todayTotalFreq')) + '</div>' +
             '<div style="margin-top:2px;font-size:18px;color:#0f172a;font-weight:900;">' + grandFreq + '</div>' +
           '</div>' +
         '</div>' +
@@ -1304,9 +1376,9 @@ var REPORT = (function () {
           '<div style="overflow:auto;max-height:560px;">' +
             '<table style="width:100%;border-collapse:collapse;table-layout:fixed;">' +
               '<thead><tr>' +
-                '<th style="' + th + '">Treatment Item</th>' +
-                '<th style="' + th + 'width:160px;text-align:right;">Frequency</th>' +
-                '<th style="' + th + 'width:220px;text-align:right;">Total Amount</th>' +
+                '<th style="' + th + '">' + esc(tr('report.drStats.thTreatmentItem')) + '</th>' +
+                '<th style="' + th + 'width:160px;text-align:right;">' + esc(tr('report.drStats.thFrequency')) + '</th>' +
+                '<th style="' + th + 'width:220px;text-align:right;">' + esc(tr('report.drStats.thTotalAmount')) + '</th>' +
               '</tr></thead>' +
               '<tbody>' + rowsHtml + '</tbody>' +
             '</table>' +
@@ -1338,23 +1410,23 @@ var REPORT = (function () {
       '<div style="padding:12px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
-            '<div style="font-size:12px;color:#555;font-weight:900;">Doctor</div>' +
+            '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(tr('report.dr.labelDoctor')) + '</div>' +
             '<select onchange="REPORT.setDrMonthlyDoctor(this.value)" style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;min-width:220px;">' +
               drOptionsHTML(_drMonthlyDoctorId) +
             '</select>' +
             '<span style="width:1px;height:22px;background:#e5e7eb;display:inline-block;"></span>' +
-            '<div style="font-size:12px;color:#555;font-weight:900;">Month</div>' +
+            '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(tr('report.ds.labelMonth')) + '</div>' +
             '<select onchange="REPORT.setDrMonthlyMonth(this.value)" style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;min-width:150px;">' +
               monthOptionsHTML(month) +
             '</select>' +
           '</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
-            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drMonthlyMode === 'simple' ? 'var(--primary)' : '#64748b') + ';" onclick="REPORT.setDrMonthlyMode(\'simple\')">Simple</button>' +
+            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drMonthlyMode === 'simple' ? 'var(--primary)' : '#64748b') + ';" onclick="REPORT.setDrMonthlyMode(\'simple\')">' + esc(tr('report.dr.modeSimple')) + '</button>' +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drMonthlyMode === 'detail' ? '#0d6efd' : '#64748b') + ';display:inline-flex;align-items:center;gap:8px;" onclick="REPORT.toggleDrMonthlyDetail()">' +
-              '<span>Detail Transaction</span>' +
-              '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:2px 8px;border-radius:999px;background:' + (_drMonthlyMode === 'detail' ? '#22c55e' : '#cbd5e1') + ';color:' + (_drMonthlyMode === 'detail' ? '#052e16' : '#334155') + ';font-size:11px;font-weight:900;">' + (_drMonthlyMode === 'detail' ? 'ON' : 'OFF') + '</span>' +
+              '<span>' + esc(tr('report.ds.btnDetailTx')) + '</span>' +
+              '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:2px 8px;border-radius:999px;background:' + (_drMonthlyMode === 'detail' ? '#22c55e' : '#cbd5e1') + ';color:' + (_drMonthlyMode === 'detail' ? '#052e16' : '#334155') + ';font-size:11px;font-weight:900;">' + esc(_drMonthlyMode === 'detail' ? tr('report.ds.on') : tr('report.ds.off')) + '</span>' +
             '</button>' +
-            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drMonthlyMode === 'treatmentStats' ? '#7c3aed' : '#64748b') + ';" onclick="REPORT.setDrMonthlyMode(\'treatmentStats\')">Treatment Statistics</button>' +
+            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_drMonthlyMode === 'treatmentStats' ? '#7c3aed' : '#64748b') + ';" onclick="REPORT.setDrMonthlyMode(\'treatmentStats\')">' + esc(tr('report.dr.modeTreatmentStats')) + '</button>' +
           '</div>' +
         '</div>' +
         '<div id="rptDrMonthlyBody" style="min-height:220px;"></div>' +
@@ -1370,7 +1442,7 @@ var REPORT = (function () {
     var body = g('rptDrMonthlyBody');
     if (!body) return;
     if (!_drMonthlyDoctorId) {
-      body.innerHTML = '<div style="padding:14px;color:#64748b;">No doctor available. Please configure doctors in Config.</div>';
+      body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noDoctorMsg')) + '</div>';
       _rows = [];
       return;
     }
@@ -1385,7 +1457,7 @@ var REPORT = (function () {
     var filtered = bills.filter(function (b) { return billMatchesDoctor(b, dr); });
 
     if (!filtered.length) {
-      body.innerHTML = '<div style="padding:14px;color:#64748b;">No billed records for selected doctor/month.</div>';
+      body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledMonth')) + '</div>';
       _rows = [];
       return;
     }
@@ -1399,7 +1471,7 @@ var REPORT = (function () {
       var grandIncome = 0;
       filtered.forEach(function (b) {
         parseBillItems(b.items).forEach(function (it) {
-          var name = String(it && it.desc ? it.desc : 'Treatment');
+          var name = String(it && it.desc ? it.desc : tr('report.treat.defaultName'));
           var qty = Number(it && it.qty ? it.qty : 0);
           var price = Number(it && it.price ? it.price : 0);
           var amt = qty * price;
@@ -1415,7 +1487,7 @@ var REPORT = (function () {
         .sort(function (a, b) { return b.income - a.income; });
 
       if (!rows.length) {
-        body.innerHTML = '<div style="padding:14px;color:#64748b;">No billed treatment items for selected doctor/month.</div>';
+        body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledTreatmentMonth')) + '</div>';
         _rows = [];
         return;
       }
@@ -1430,18 +1502,18 @@ var REPORT = (function () {
         return '<tr>' +
           '<td style="' + td + 'font-weight:900;color:#0f172a;">' + esc(r.item) + '</td>' +
           '<td style="' + td + 'text-align:right;">' + esc(String(r.frequency || 0)) + '</td>' +
-          '<td style="' + td + 'text-align:right;font-weight:900;color:#6d28d9;">HK$ ' + esc(r.income) + '</td>' +
+          '<td style="' + td + 'text-align:right;font-weight:900;color:#6d28d9;">' + fmtHK(Number(r.income)) + '</td>' +
         '</tr>';
       }).join('');
 
       body.innerHTML =
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="background:#f3f0ff;border:1px solid #e9ddff;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#6d28d9;font-weight:900;">Month Items Grand Total</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#4c1d95;font-weight:900;">HK$ ' + grandIncome.toFixed(2) + '</div>' +
+            '<div style="font-size:11px;color:#6d28d9;font-weight:900;">' + esc(tr('report.drStats.monthItemGrand')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#4c1d95;font-weight:900;">' + fmtHK(grandIncome) + '</div>' +
           '</div>' +
           '<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:900;">Total Item Frequency</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:900;">' + esc(tr('report.drStats.monthTotalFreq')) + '</div>' +
             '<div style="margin-top:2px;font-size:18px;color:#0f172a;font-weight:900;">' + grandItems + '</div>' +
           '</div>' +
         '</div>' +
@@ -1449,9 +1521,9 @@ var REPORT = (function () {
           '<div style="overflow:auto;max-height:560px;">' +
             '<table style="width:100%;border-collapse:collapse;min-width:720px;">' +
               '<thead><tr>' +
-                '<th style="' + th + '">Treatment Item</th>' +
-                '<th style="' + th + 'text-align:right;width:160px;">Frequency</th>' +
-                '<th style="' + th + 'text-align:right;width:200px;">Total Income</th>' +
+                '<th style="' + th + '">' + esc(tr('report.drStats.thTreatmentItem')) + '</th>' +
+                '<th style="' + th + 'text-align:right;width:160px;">' + esc(tr('report.drStats.thFrequency')) + '</th>' +
+                '<th style="' + th + 'text-align:right;width:200px;">' + esc(tr('report.drStats.thTotalIncome')) + '</th>' +
               '</tr></thead>' +
               '<tbody>' + rowsHtml + '</tbody>' +
             '</table>' +
@@ -1478,7 +1550,7 @@ var REPORT = (function () {
           patient_no: b.patient_no || (p.patient_no || ''),
           patient_chinese: p.chinese_name || '',
           patient_name: (p.full_name || b.patient_name || ''),
-          payment_method: b.bill_type || 'Unknown',
+          payment_method: reportPayMethodKey(b.bill_type),
           amount: total.toFixed(2),
           bill_total: total,
           bill_paid: paid,
@@ -1536,35 +1608,35 @@ var REPORT = (function () {
       return '<tr>' +
         '<td style="' + td + '">' + esc(r.date) + '</td>' +
         '<td style="' + td + 'text-align:right;">' + esc(r.bills) + '</td>' +
-        '<td style="' + td + 'text-align:right;font-weight:900;">HK$ ' + esc(r.total) + '</td>' +
-        '<td style="' + td + 'text-align:right;">HK$ ' + esc(r.paid) + '</td>' +
-        '<td style="' + td + 'text-align:right;color:' + (Number(r.balance) > 0 ? '#dc2626' : '#16a34a') + ';">HK$ ' + esc(r.balance) + '</td>' +
+        '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(Number(r.total)) + '</td>' +
+        '<td style="' + td + 'text-align:right;">' + fmtHK(Number(r.paid)) + '</td>' +
+        '<td style="' + td + 'text-align:right;color:' + (Number(r.balance) > 0 ? '#dc2626' : '#16a34a') + ';">' + fmtHK(Number(r.balance)) + '</td>' +
       '</tr>';
     }).join('');
 
     body.innerHTML =
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
         '<div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#155e75;font-weight:800;">Total Billed</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#0e7490;font-weight:900;">HK$ ' + total.toFixed(2) + '</div>' +
+          '<div style="font-size:11px;color:#155e75;font-weight:800;">' + esc(tr('report.drMonthly.kpiTotalBilled')) + '</div>' +
+          '<div style="margin-top:2px;font-size:18px;color:#0e7490;font-weight:900;">' + fmtHK(total) + '</div>' +
         '</div>' +
         '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#166534;font-weight:800;">Total Paid</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#15803d;font-weight:900;">HK$ ' + paid.toFixed(2) + '</div>' +
+          '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.drMonthly.kpiTotalPaid')) + '</div>' +
+          '<div style="margin-top:2px;font-size:18px;color:#15803d;font-weight:900;">' + fmtHK(paid) + '</div>' +
         '</div>' +
         '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#991b1b;font-weight:800;">Outstanding</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">HK$ ' + bal.toFixed(2) + '</div>' +
+          '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.drMonthly.kpiOutstanding')) + '</div>' +
+          '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(bal) + '</div>' +
         '</div>' +
       '</div>' +
       '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
         '<table style="width:100%;border-collapse:collapse;">' +
           '<thead><tr>' +
-            '<th style="' + th + '">Date</th>' +
-            '<th style="' + th + 'text-align:right;">Bill Count</th>' +
-            '<th style="' + th + 'text-align:right;">Billed</th>' +
-            '<th style="' + th + 'text-align:right;">Paid</th>' +
-            '<th style="' + th + 'text-align:right;">Balance</th>' +
+            '<th style="' + th + '">' + esc(tr('report.col.date')) + '</th>' +
+            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.billCount')) + '</th>' +
+            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.billed')) + '</th>' +
+            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.paid')) + '</th>' +
+            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.balance')) + '</th>' +
           '</tr></thead>' +
           '<tbody>' + rowsHtml + '</tbody>' +
         '</table>' +
@@ -1603,7 +1675,7 @@ var REPORT = (function () {
           patient_no: b.patient_no || (p.patient_no || ''),
           patient_chinese: p.chinese_name || '',
           patient_name: (p.full_name || b.patient_name || ''),
-          payment_method: b.bill_type || 'Unknown',
+          payment_method: reportPayMethodKey(b.bill_type),
           amount: total.toFixed(2),
           bill_total: total,
           bill_paid: paid,
@@ -1670,7 +1742,7 @@ var REPORT = (function () {
           patient_no: b.patient_no || (p.patient_no || ''),
           patient_chinese: p.chinese_name || '',
           patient_name: (p.full_name || b.patient_name || ''),
-          payment_method: b.bill_type || 'Unknown',
+          payment_method: reportPayMethodKey(b.bill_type),
           amount: total.toFixed(2),
           bill_total: total,
           bill_paid: paid,
@@ -1711,7 +1783,7 @@ var REPORT = (function () {
     if (_dailySummaryView === 'daily') {
       pickerHtml =
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
-          '<div style="font-size:12px;color:#555;font-weight:900;">Date</div>' +
+          '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(tr('report.ds.labelDate')) + '</div>' +
           '<input type="date" id="dsDayPick" value="' + esc(dailyDate) + '" ' +
             'onchange="REPORT.setDailySummaryDate(this.value)" ' +
             'style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;">' +
@@ -1719,7 +1791,7 @@ var REPORT = (function () {
     } else {
       pickerHtml =
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
-          '<div style="font-size:12px;color:#555;font-weight:900;">Month</div>' +
+          '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(tr('report.ds.labelMonth')) + '</div>' +
           '<select id="dsMonthPick" onchange="REPORT.setDailySummaryMonth(this.value)" ' +
             'style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;">' +
             monthOptionsHTML(curMonth) +
@@ -1732,24 +1804,287 @@ var REPORT = (function () {
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_dailySummaryView === 'daily' ? 'var(--primary)' : 'var(--gray)') + ';" ' +
-              'onclick="REPORT.setDailySummaryView(\'daily\')">Daily</button>' +
+              'onclick="REPORT.setDailySummaryView(\'daily\')">' + esc(tr('report.ds.btnDaily')) + '</button>' +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_dailySummaryView === 'monthly' ? 'var(--primary)' : 'var(--gray)') + ';" ' +
-              'onclick="REPORT.setDailySummaryView(\'monthly\')">Monthly</button>' +
+              'onclick="REPORT.setDailySummaryView(\'monthly\')">' + esc(tr('report.ds.btnMonthly')) + '</button>' +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_dailySummaryDetailMode ? '#0d6efd' : '#64748b') + ';display:inline-flex;align-items:center;gap:8px;" ' +
               'onclick="REPORT.toggleDailySummaryDetail()">' +
-              '<span>Detail Transaction</span>' +
-              '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:2px 8px;border-radius:999px;background:' + (_dailySummaryDetailMode ? '#22c55e' : '#cbd5e1') + ';color:' + (_dailySummaryDetailMode ? '#052e16' : '#334155') + ';font-size:11px;font-weight:900;">' + (_dailySummaryDetailMode ? 'ON' : 'OFF') + '</span>' +
+              '<span>' + esc(tr('report.ds.btnDetailTx')) + '</span>' +
+              '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:2px 8px;border-radius:999px;background:' + (_dailySummaryDetailMode ? '#22c55e' : '#cbd5e1') + ';color:' + (_dailySummaryDetailMode ? '#052e16' : '#334155') + ';font-size:11px;font-weight:900;">' + esc(_dailySummaryDetailMode ? tr('report.ds.on') : tr('report.ds.off')) + '</span>' +
             '</button>' +
             '<span style="width:1px;height:22px;background:#e5e7eb;display:inline-block;"></span>' +
             pickerHtml +
           '</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
-            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#22c55e;" onclick="REPORT.printDailySummary()">🖨️ Print</button>' +
-            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#64748b;" onclick="REPORT.exportDailySummaryExcel()">⬇ Output Excel (CSV)</button>' +
+            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#22c55e;" onclick="REPORT.printDailySummary()">' + esc(tr('report.ds.btnPrint')) + '</button>' +
+            '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#64748b;" onclick="REPORT.exportDailySummaryExcel()">' + esc(tr('report.ds.btnExportCsv')) + '</button>' +
           '</div>' +
         '</div>' +
         '<div id="rptDailySummaryBody" style="min-height:200px;"></div>' +
       '</div>';
+  }
+
+  function auditFmtLocale() {
+    return (typeof appUiLocale === 'function') ? appUiLocale() : 'en-HK';
+  }
+
+  function auditFmtServerDate(isoStr) {
+    if (!isoStr) return '';
+    var d = new Date(isoStr);
+    if (isNaN(d.getTime())) return String(isoStr).slice(0, 10);
+    var y = d.getFullYear();
+    var m = ('0' + (d.getMonth() + 1)).slice(-2);
+    var day = ('0' + d.getDate()).slice(-2);
+    return y + '-' + m + '-' + day;
+  }
+
+  function auditFmtTime(isoStr) {
+    if (!isoStr) return '';
+    var d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString(auditFmtLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  }
+
+  function auditDistinctValues(rows, key) {
+    var seen = {};
+    var out = [];
+    (rows || []).forEach(function(r) {
+      var v = String(r[key] || '').trim();
+      if (!v || seen[v]) return;
+      seen[v] = 1;
+      out.push(v);
+    });
+    out.sort();
+    return out;
+  }
+
+  function renderAuditTrailShell() {
+    var wrap = g('rptTableWrap');
+    if (!wrap) return;
+    wrap.innerHTML =
+      '<div id="rptAuditShell">' +
+        '<div class="rpt-audit-filters" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:10px 12px;background:#f8fafc;border:1px solid #e8eef5;border-radius:10px;margin-bottom:12px;">' +
+          '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.filterItem"></div>' +
+            '<select id="rptAuditItemFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:220px;"></select></div>' +
+          '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.filterUser"></div>' +
+            '<select id="rptAuditUserFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:160px;"></select></div>' +
+          '<div style="margin-left:auto;font-size:11px;color:#64748b;text-align:right;" id="rptAuditFilterSummary">—</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:stretch;">' +
+          '<div id="rptAuditList" style="border:1px solid #eee;border-radius:10px;overflow:hidden;min-height:320px;">' +
+            '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>' +
+          '</div>' +
+          '<div id="rptAuditDetail" style="border:1px solid #eee;border-radius:10px;background:#fafcff;min-height:320px;">' +
+            '<div style="padding:14px;color:#888;font-size:12px;" data-i18n="report.audit.detailPlaceholder"></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    if (typeof applyI18nInRoot === 'function') applyI18nInRoot(wrap);
+    var itemSel = g('rptAuditItemFilter');
+    var userSel = g('rptAuditUserFilter');
+    if (itemSel) {
+      itemSel.onchange = function() {
+        _auditFilterItem = itemSel.value || '';
+        renderAuditTrailList();
+        updateAuditFilterSummary();
+      };
+    }
+    if (userSel) {
+      userSel.onchange = function() {
+        _auditFilterUser = userSel.value || '';
+        renderAuditTrailList();
+        updateAuditFilterSummary();
+      };
+    }
+  }
+
+  function updateAuditFilterSummary() {
+    var el = g('rptAuditFilterSummary');
+    if (!el) return;
+    var clinic = reportClinicTag() || tr('report.audit.allClinics');
+    var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : '';
+    var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : '';
+    var item = _auditFilterItem || tr('report.audit.allItems');
+    var user = _auditFilterUser || tr('report.audit.allUsers');
+    el.innerHTML =
+      esc(clinic) + '<br>' +
+      esc(from) + ' – ' + esc(to) + '<br>' +
+      esc(item) + '<br>' +
+      esc(user);
+  }
+
+  function fillAuditFilterSelects() {
+    var itemSel = g('rptAuditItemFilter');
+    var userSel = g('rptAuditUserFilter');
+    var items = auditDistinctValues(_auditAllRows, 'audit_item');
+    var users = auditDistinctValues(_auditAllRows, 'user_id');
+    if (itemSel) {
+      var ih = '<option value="">' + esc(tr('report.audit.allItems')) + '</option>';
+      items.forEach(function(it) {
+        ih += '<option value="' + esc(it) + '">' + esc(it) + '</option>';
+      });
+      itemSel.innerHTML = ih;
+      itemSel.value = _auditFilterItem || '';
+    }
+    if (userSel) {
+      var uh = '<option value="">' + esc(tr('report.audit.allUsers')) + '</option>';
+      users.forEach(function(uid) {
+        var label = uid;
+        (_auditAllRows || []).some(function(r) {
+          if (r.user_id === uid && r.user_name) {
+            label = r.user_name + ' (' + uid + ')';
+            return true;
+          }
+          return false;
+        });
+        uh += '<option value="' + esc(uid) + '">' + esc(label) + '</option>';
+      });
+      userSel.innerHTML = uh;
+      userSel.value = _auditFilterUser || '';
+    }
+    updateAuditFilterSummary();
+  }
+
+  function filteredAuditRows() {
+    return (_auditAllRows || []).filter(function(r) {
+      if (_auditFilterItem && r.audit_item !== _auditFilterItem) return false;
+      if (_auditFilterUser && r.user_id !== _auditFilterUser) return false;
+      return true;
+    });
+  }
+
+  function renderAuditDetail(row) {
+    var panel = g('rptAuditDetail');
+    if (!panel) return;
+    if (!row) {
+      panel.innerHTML = '<div style="padding:14px;color:#888;font-size:12px;">' + esc(tr('report.audit.detailPlaceholder')) + '</div>';
+      return;
+    }
+    var detail = row.changes_detail || '';
+    if (!detail && row.payload) {
+      try {
+        detail = typeof row.payload === 'string' ? row.payload : JSON.stringify(row.payload, null, 2);
+      } catch (eJson) {
+        detail = String(row.payload);
+      }
+    }
+    panel.innerHTML =
+      '<div style="padding:12px 14px;border-bottom:1px solid #e8eef5;background:#f0f7ff;">' +
+        '<div style="font-size:13px;font-weight:900;color:#0d6efd;">' + esc(row.audit_item || '') + '</div>' +
+        '<div style="font-size:11px;color:#64748b;margin-top:4px;">' +
+          esc(auditFmtServerDate(row.created_at)) + ' ' + esc(auditFmtTime(row.created_at)) +
+          (row.user_name || row.user_id ? ' · ' + esc(row.user_name || row.user_id) : '') +
+        '</div>' +
+      '</div>' +
+      '<pre style="margin:0;padding:12px 14px;font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto;font-family:Consolas,Monaco,monospace;">' +
+        esc(detail || tr('report.audit.noDetail')) +
+      '</pre>';
+  }
+
+  function selectAuditRow(id) {
+    _auditSelectedId = id || null;
+    var row = null;
+    (_auditAllRows || []).some(function(r) {
+      if (r.id === id) {
+        row = r;
+        return true;
+      }
+      return false;
+    });
+    renderAuditTrailList();
+    renderAuditDetail(row);
+  }
+
+  function renderAuditTrailList() {
+    var list = g('rptAuditList');
+    if (!list) return;
+    if (_auditTableMissing) {
+      list.innerHTML = '<div style="padding:16px;color:#b45309;font-size:13px;line-height:1.5;">' +
+        esc(tr('report.audit.tableMissing')) + '</div>';
+      return;
+    }
+    var rows = filteredAuditRows();
+    _rows = rows.map(function(r) {
+      return {
+        id: r.id,
+        audit_date: auditFmtServerDate(r.created_at),
+        audit_time: auditFmtTime(r.created_at),
+        server_date: auditFmtServerDate(r.created_at),
+        computer: r.client_host || '',
+        clinic: r.clinic_tag || '',
+        user: r.user_name || r.user_id || '',
+        audit_item: r.audit_item || ''
+      };
+    });
+    if (!rows.length) {
+      list.innerHTML = '<div style="padding:16px;color:#888;">' + esc(tr('report.noData')) + '</div>';
+      renderAuditDetail(null);
+      return;
+    }
+    var th = 'padding:8px 10px;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;white-space:nowrap;';
+    var td = 'padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;vertical-align:top;';
+    var html = '<div style="overflow:auto;max-height:480px;"><table style="width:100%;border-collapse:collapse;min-width:720px;"><thead><tr>' +
+      '<th style="' + th + '">' + esc(tr('report.audit.col.time')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.audit.col.serverDate')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.audit.col.computer')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.audit.col.clinic')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.audit.col.user')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.audit.col.item')) + '</th>' +
+      '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+      var sel = (_auditSelectedId === r.id);
+      var bg = sel ? '#dbeafe' : '#fff';
+      html += '<tr data-audit-id="' + esc(String(r.id)) + '" style="cursor:pointer;background:' + bg + ';" onclick="REPORT.selectAuditRow(this.getAttribute(\'data-audit-id\'))">' +
+        '<td style="' + td + '">' + esc(auditFmtTime(r.created_at)) + '</td>' +
+        '<td style="' + td + '">' + esc(auditFmtServerDate(r.created_at)) + '</td>' +
+        '<td style="' + td + '">' + esc(r.client_host || '') + '</td>' +
+        '<td style="' + td + '">' + esc(r.clinic_tag || '') + '</td>' +
+        '<td style="' + td + '">' + esc(r.user_name || r.user_id || '') + '</td>' +
+        '<td style="' + td + '">' + esc(r.audit_item || '') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    list.innerHTML = html;
+    if (!_auditSelectedId && rows.length) {
+      selectAuditRow(rows[0].id);
+    } else {
+      var active = null;
+      rows.some(function(r) {
+        if (r.id === _auditSelectedId) {
+          active = r;
+          return true;
+        }
+        return false;
+      });
+      renderAuditDetail(active);
+    }
+  }
+
+  async function loadAuditTrail() {
+    _auditTableMissing = false;
+    _auditAllRows = [];
+    var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
+    var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : todayISO();
+    var clinic = reportClinicTag();
+    var q = SB.from('audit_trail')
+      .select('*')
+      .gte('created_at', from + 'T00:00:00')
+      .lte('created_at', to + 'T23:59:59.999')
+      .order('created_at', { ascending: false })
+      .limit(3000);
+    if (clinic) q = q.eq('clinic_tag', clinic);
+    var res = await q;
+    if (res.error) {
+      var msg = (res.error.message || '').toLowerCase();
+      if (msg.indexOf('does not exist') >= 0 || msg.indexOf('not found') >= 0 || msg.indexOf('404') >= 0) {
+        _auditTableMissing = true;
+        return;
+      }
+      throw new Error(res.error.message || tr('report.error.loadingDataNote'));
+    }
+    _auditAllRows = res.data || [];
+    fillAuditFilterSelects();
+    renderAuditTrailList();
   }
 
   async function refresh() {
@@ -1761,18 +2096,34 @@ var REPORT = (function () {
     _rows = [];
     destroyChart();
     if (g('rptTableWrap')) {
-      g('rptTableWrap').innerHTML = '<div style="padding:12px;color:#888;">Loading…</div>';
+      g('rptTableWrap').innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>';
     }
-    setChartNote('Loading…');
+    setChartNote(tr('report.loading'));
 
     try {
+      if (_tab === 'auditTrail') {
+        setHeader(tr('report.title.auditTrail'), tr('report.hint.auditTrail'));
+        showChartColumn(false);
+        destroyChart();
+        setChartNote(tr('report.chart.disabledAuditTrail'));
+        if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
+        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
+        var gridA = g('rptMainGrid');
+        var colA = g('rptChartCol');
+        if (gridA) gridA.style.gridTemplateColumns = '1fr';
+        if (colA) colA.style.display = 'none';
+        renderAuditTrailShell();
+        await loadAuditTrail();
+        return;
+      }
+
       if (_tab === 'dailySummary') {
-        setHeader('Daily Summary', 'Per-transaction daily view + monthly grouped cards. Uses bills + patients.');
+        setHeader(tr('report.title.dailySummary'), tr('report.hint.dailySummary'));
 
         // Charts not used for this subtab
         showChartColumn(false);
         destroyChart();
-        setChartNote('Charts are disabled for Daily Summary.');
+        setChartNote(tr('report.chart.disabledDailySummary'));
 
         // Hide print buttons (keep Output CSV)
         if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = 'none';
@@ -1786,9 +2137,9 @@ var REPORT = (function () {
       if (_tab === 'patientDir') {
         // Admin-only gate
         if (typeof currentRole !== 'undefined' && currentRole !== 'admin') {
-          setHeader('Patient Directories', 'Admin access required.');
+          setHeader(tr('report.title.patientDir'), tr('report.hint.patientDirAdmin'));
           _rows = [];
-          renderTable([{ key: 'note', label: 'Info' }], [{ note: 'This report is admin-only.' }]);
+          renderTable([{ key: 'note', label: tr('report.col.info') }], [{ note: tr('report.patientDir.adminOnlyNote') }]);
           // Hide chart + print buttons
           if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = 'none';
           if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
@@ -1797,11 +2148,11 @@ var REPORT = (function () {
           if (gridD) gridD.style.gridTemplateColumns = '1fr';
           if (colD) colD.style.display = 'none';
           destroyChart();
-          setChartNote('Charts are disabled for this tab.');
+          setChartNote(tr('report.chart.disabledGenericTab'));
           return;
         }
 
-        setHeader('Patient Directories', 'From patients table (up to 2000 rows).');
+        setHeader(tr('report.title.patientDir'), tr('report.hint.patientDir'));
 
         // Hide print buttons for this tab
         if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = 'none';
@@ -1825,18 +2176,18 @@ var REPORT = (function () {
           };
         });
         renderTable([
-          { key: 'patient_no', label: 'Patient No' },
-          { key: 'full_name', label: 'Name' },
-          { key: 'chinese_name', label: 'Chinese' },
-          { key: 'phone', label: 'Phone' },
-          { key: 'clinic_tag', label: 'Clinic tag' },
-          { key: 'dob', label: 'DOB' },
-          { key: 'hkid', label: 'HKID' },
-          { key: 'email', label: 'Email' },
-          { key: 'sex', label: 'Sex' },
-          { key: 'address', label: 'Address' },
-          { key: 'alerts', label: 'Alerts' },
-          { key: 'remarks', label: 'Remarks' }
+          { key: 'patient_no', label: tr('report.col.patientNo') },
+          { key: 'full_name', label: tr('report.col.name') },
+          { key: 'chinese_name', label: tr('report.col.chinese') },
+          { key: 'phone', label: tr('report.col.phone') },
+          { key: 'clinic_tag', label: tr('report.col.clinicTag') },
+          { key: 'dob', label: tr('report.col.dob') },
+          { key: 'hkid', label: tr('report.col.hkid') },
+          { key: 'email', label: tr('report.col.email') },
+          { key: 'sex', label: tr('report.col.sex') },
+          { key: 'address', label: tr('report.col.address') },
+          { key: 'alerts', label: tr('report.col.alerts') },
+          { key: 'remarks', label: tr('report.col.remarks') }
         ], _rows);
         // Disable charts for patient directory
         var grid = g('rptMainGrid');
@@ -1844,7 +2195,7 @@ var REPORT = (function () {
         if (grid) grid.style.gridTemplateColumns = '1fr';
         if (col) col.style.display = 'none';
         destroyChart();
-        setChartNote('Charts are disabled for patient directories.');
+        setChartNote(tr('report.chart.disabledPatientDir'));
         return;
       }
 
@@ -1861,16 +2212,16 @@ var REPORT = (function () {
       var bills = await loadBills(from, to);
 
       if (_tab === 'dailyIncome') {
-        setHeader('Daily Income', 'Sum of bills.total grouped by bill_date.');
+        setHeader(tr('report.title.dailyIncome'), tr('report.hint.dailyIncome'));
         var grouped = groupSumBy(bills, function (b) { return b.bill_date || ''; }, function (b) { return Number(b.total || 0); });
         _rows = grouped.map(function (g) { return { date: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'date', label: 'Date' }, { key: 'total', label: 'Total (HK$)' }], _rows);
+        renderTable([{ key: 'date', label: tr('report.col.date') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
         renderChartFromRows('date', 'total');
         return;
       }
 
       if (_tab === 'weeklyIncome') {
-        setHeader('Weekly Income', 'Grouped by Fri → Thu (7-day blocks).');
+        setHeader(tr('report.title.weeklyIncome'), tr('report.hint.weeklyIncome'));
         var groupedW = groupSumBy(bills, function (b) {
           var d = parseDateToLocal(b.bill_date || todayISO());
           var day = d.getDay(); // 0 Sun..6 Sat (local)
@@ -1880,36 +2231,36 @@ var REPORT = (function () {
           return iso(d); // block start (Friday)
         }, function (b) { return Number(b.total || 0); });
         _rows = groupedW.map(function (g) { return { week_start: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'week_start', label: 'Week Start' }, { key: 'total', label: 'Total (HK$)' }], _rows);
+        renderTable([{ key: 'week_start', label: tr('report.col.weekStart') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
         renderChartFromRows('week_start', 'total');
         return;
       }
 
       if (_tab === 'monthlyIncome') {
-        setHeader('Monthly Income', 'Grouped by YYYY-MM.');
+        setHeader(tr('report.title.monthlyIncome'), tr('report.hint.monthlyIncome'));
         var groupedM = groupSumBy(bills, function (b) { return String(b.bill_date || '').slice(0, 7); }, function (b) { return Number(b.total || 0); });
         _rows = groupedM.map(function (g) { return { month: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'month', label: 'Month' }, { key: 'total', label: 'Total (HK$)' }], _rows);
+        renderTable([{ key: 'month', label: tr('report.col.month') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
         renderChartFromRows('month', 'total');
         return;
       }
 
       if (_tab === 'payStats') {
-        setHeader('Payment Method Statistics', 'Sum of bills.total grouped by bill_type.');
-        var groupedP = groupSumBy(bills, function (b) { return b.bill_type || 'Unknown'; }, function (b) { return Number(b.total || 0); });
-        _rows = groupedP.map(function (g) { return { method: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'method', label: 'Payment Method' }, { key: 'total', label: 'Total (HK$)' }], _rows);
+        setHeader(tr('report.title.payStats'), tr('report.hint.payStats'));
+        var groupedP = groupSumBy(bills, function (b) { return reportPayMethodKey(b.bill_type); }, function (b) { return Number(b.total || 0); });
+        _rows = groupedP.map(function (g) { return { method: dispPayMethod(g.key), total: g.value.toFixed(2) }; });
+        renderTable([{ key: 'method', label: tr('report.col.paymentMethod') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
         renderChartFromRows('method', 'total');
         return;
       }
 
       if (_tab === 'txStats') {
-        setHeader('Treatment Items Statistics', 'Aggregated from bills.items (desc, qty, price).');
+        setHeader(tr('report.title.txStats'), tr('report.hint.txStats'));
         var items = [];
         bills.forEach(function (b) {
           parseBillItems(b.items).forEach(function (it) {
             items.push({
-              desc: it.desc || 'Unknown',
+              desc: it.desc || tr('report.unknown'),
               qty: Number(it.qty || 0),
               amount: Number(it.qty || 0) * Number(it.price || 0)
             });
@@ -1930,7 +2281,7 @@ var REPORT = (function () {
             return { item: r.item, qty: r.qty, amount: r.amount.toFixed(2) };
           });
         renderTable(
-          [{ key: 'item', label: 'Item' }, { key: 'qty', label: 'Qty' }, { key: 'amount', label: 'Amount (HK$)' }],
+          [{ key: 'item', label: tr('report.col.item') }, { key: 'qty', label: tr('report.col.qty') }, { key: 'amount', label: tr('report.col.amountHkd') }],
           _rows
         );
         renderChartFromRows('item', 'amount');
@@ -1938,10 +2289,10 @@ var REPORT = (function () {
       }
 
       if (_tab === 'drDaily') {
-        setHeader('Drs Daily', 'Choose doctor + day. Simple, Detail Transaction, or Treatment Statistics view.');
+        setHeader(tr('report.title.drDaily'), tr('report.hint.drDaily'));
         showChartColumn(false);
         destroyChart();
-        setChartNote('Charts are disabled for Drs Daily.');
+        setChartNote(tr('report.chart.disabledDrDaily'));
         if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
         if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
         await buildDrDaily();
@@ -1949,10 +2300,10 @@ var REPORT = (function () {
       }
 
       if (_tab === 'drMonthly') {
-        setHeader('Drs Monthly', 'Choose doctor + month. Uses bill Doctor Tag/ID/name.');
+        setHeader(tr('report.title.drMonthly'), tr('report.hint.drMonthly'));
         showChartColumn(false);
         destroyChart();
-        setChartNote('Charts are disabled for Drs Monthly.');
+        setChartNote(tr('report.chart.disabledDrMonthly'));
         if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
         if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
         await buildDrMonthly();
@@ -1960,18 +2311,18 @@ var REPORT = (function () {
       }
 
       // fallback
-      setHeader('Reports', 'Select a tab.');
+      setHeader(tr('report.title.default'), tr('report.hint.default'));
       setChartNote('—');
     } catch (e) {
-      renderTable([{ key: 'err', label: 'Error' }], [{ err: e.message }]);
-      setChartNote('Error loading data.');
+      renderTable([{ key: 'err', label: tr('report.col.error') }], [{ err: e.message }]);
+      setChartNote(tr('report.error.loadingDataNote'));
     }
   }
 
   function switchTab(key) {
     // Admin-only tab gate
     if (key === 'patientDir' && typeof currentRole !== 'undefined' && currentRole !== 'admin') {
-      alert('Patient directory report is admin-only.');
+      alert(tr('report.alert.patientDirAdminOnly'));
       key = 'dailyIncome';
     }
     _tab = key;
@@ -2006,19 +2357,38 @@ var REPORT = (function () {
 
   function init() {
     if (typeof initReportModuleClinic === 'function') initReportModuleClinic();
+    refreshReportChartTypeSelect();
     wireReportTabButtons();
     setDefaultDates();
     switchTab(_tab);
+    _reportInitialized = true;
   }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    refreshReportChartTypeSelect();
+  });
+
+  document.addEventListener('app-lang-change', function () {
+    refreshReportChartTypeSelect();
+    var sec = g('reportSection');
+    if (sec && typeof applyI18nInRoot === 'function') {
+      if (_reportInitialized || sec.style.display !== 'none') {
+        applyI18nInRoot(sec);
+      }
+    }
+    if (_reportInitialized) refresh();
+  });
 
   return {
     init: init,
+    isInitialized: function () { return _reportInitialized; },
     switchTab: switchTab,
     refresh: refresh,
     printTable: printTable,
     printChart: printChart,
     magnifyChart: magnifyChart,
     exportCSV: exportCSV,
+    selectAuditRow: selectAuditRow,
     setDailySummaryView: function (v) {
       _dailySummaryView = (v === 'monthly') ? 'monthly' : 'daily';
       if (_tab === 'dailySummary') refresh();
@@ -2072,16 +2442,16 @@ var REPORT = (function () {
       if (_tab === 'drMonthly') refresh();
     },
     exportDailySummaryExcel: function () {
-      var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : 'DailySummary';
+      var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.fallback.dailySummary');
       var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
       var suffix = (_dailySummaryView === 'monthly') ? ('monthly_' + monthKeyOf(from)) : ('daily_' + from);
       downloadCSV('daily_summary_' + suffix + '.csv', [
-        { key: 'patient_no', label: 'Patient No' },
-        { key: 'patient_chinese', label: 'Patient Chinese Name' },
-        { key: 'patient_name', label: 'Patient English Name' },
-        { key: 'payment_method', label: 'Payment Method' },
-        { key: 'amount', label: 'Amount' },
-        { key: 'remarks', label: 'Remarks' }
+        { key: 'patient_no', label: tr('report.csv.patientNo') },
+        { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
+        { key: 'patient_name', label: tr('report.csv.patientEnglish') },
+        { key: 'payment_method', label: tr('report.csv.paymentMethod') },
+        { key: 'amount', label: tr('report.csv.amount') },
+        { key: 'remarks', label: tr('report.csv.remarks') }
       ], _rows);
     },
     printDailySummary: printDailySummary,
@@ -2092,8 +2462,7 @@ var REPORT = (function () {
       if (_tab === 'monthlyIncome') return renderChartFromRows('month', 'total');
       if (_tab === 'payStats') return renderChartFromRows('method', 'total');
       if (_tab === 'txStats') return renderChartFromRows('item', 'amount');
-      setChartNote('No chart for this tab.');
+      setChartNote(tr('report.chart.noChartThisTab'));
     }
   };
 })();
-

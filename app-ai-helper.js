@@ -19,42 +19,42 @@ var AIHELPER = AIHELPER || {};
     var _checksRecall = Object.create(null);
 
     var DISTRICTS = [
-        { code: '', label: 'Any district', needles: [] },
-        { code: 'central_western', label: 'Central & Western',
+        { code: '', labelKey: 'ai.district.any', needles: [] },
+        { code: 'central_western', labelKey: 'ai.district.centralWestern',
             needles: ['central', 'western', 'sheung wan', 'sai wan'] },
-        { code: 'wanchai', label: 'Wan Chai',
+        { code: 'wanchai', labelKey: 'ai.district.wanchai',
             needles: ['wan chai', 'causeway bay', 'tin hau'] },
-        { code: 'eastern', label: 'Eastern',
+        { code: 'eastern', labelKey: 'ai.district.eastern',
             needles: ['north point', 'eastern', 'quarry bay'] },
-        { code: 'southern', label: 'Southern',
+        { code: 'southern', labelKey: 'ai.district.southern',
             needles: ['aberdeen', 'stanley', 'repulse bay', 'south'] },
-        { code: 'yautsimmong', label: 'Yau Tsim Mong',
+        { code: 'yautsimmong', labelKey: 'ai.district.yauTsimMong',
             needles: ['yau ma tei', 'tsim sha tsui', 'mong kok'] },
-        { code: 'shamshuipo', label: 'Sham Shui Po',
+        { code: 'shamshuipo', labelKey: 'ai.district.shamShuiPo',
             needles: ['sham shui po', 'cheung sha wan', 'yau mai tei'] },
-        { code: 'klncity', label: 'Kowloon City',
+        { code: 'klncity', labelKey: 'ai.district.kowloonCity',
             needles: ['kowloon city', 'hung hom', 'kowloon tong'] },
-        { code: 'wongtaisin', label: 'Wong Tai Sin',
+        { code: 'wongtaisin', labelKey: 'ai.district.wongTaiSin',
             needles: ['wong tai sin', 'lung cheung'] },
-        { code: 'kwuntong', label: 'Kwun Tong',
+        { code: 'kwuntong', labelKey: 'ai.district.kwunTong',
             needles: ['kwun tong', 'ngau tau kok', 'lai chi kok bay'] },
-        { code: 'tuenmun', label: 'Tuen Mun',
+        { code: 'tuenmun', labelKey: 'ai.district.tuenMun',
             needles: ['tuen mun'] },
-        { code: 'yuenlong', label: 'Yuen Long',
+        { code: 'yuenlong', labelKey: 'ai.district.yuenLong',
             needles: ['yuen long'] },
-        { code: 'tsuenwan', label: 'Tsuen Wan',
+        { code: 'tsuenwan', labelKey: 'ai.district.tsuenWan',
             needles: ['tsuen wan'] },
-        { code: 'kwaising', label: 'Kwai Tsing',
+        { code: 'kwaising', labelKey: 'ai.district.kwaiTsing',
             needles: ['kwai chung', 'tsing yi'] },
-        { code: 'north', label: 'North NT',
+        { code: 'north', labelKey: 'ai.district.northNt',
             needles: ['fanling', 'sheung shui', 'north nt'] },
-        { code: 'tupo', label: 'Tai Po',
+        { code: 'tupo', labelKey: 'ai.district.taiPo',
             needles: ['tai po'] },
-        { code: 'shatin', label: 'Sha Tin',
+        { code: 'shatin', labelKey: 'ai.district.shaTin',
             needles: ['sha tin', 'fo tan', 'ma on shan'] },
-        { code: 'saikung', label: 'Sai Kung',
+        { code: 'saikung', labelKey: 'ai.district.saiKung',
             needles: ['sai kung', 'tseung kwan o'] },
-        { code: 'islands', label: 'Islands',
+        { code: 'islands', labelKey: 'ai.district.islands',
             needles: ['lantau', 'lantau island', 'tung chung', 'ching'] }
     ];
 
@@ -72,15 +72,38 @@ var AIHELPER = AIHELPER || {};
         postop_comfort: '{{first}}, wellbeing check recent visit—tell us settles comfortably—we stand by anytime {{clinic}}.'
     };
 
+    var BIRTH_TEMPLATE_SLUGS = [
+        'festive_offerspot', 'sms_short_sweet', 'bilingual_hint', 'long_email'
+    ];
+    var RECALL_TEMPLATE_SLUGS = [
+        'hygiene_standard', 'treatment_followup', 'sms_nudge_narrow', 'postop_comfort'
+    ];
+
+    function aiTemplateLabel(slug, kind) {
+        var key = 'ai.template.' + kind + '.' + slug + '.label';
+        var s = aiTr(key);
+        if (s !== key) return s;
+        return slug.replace(/_/g, ' ').replace(/^./, function(c) {
+            return c.toUpperCase();
+        });
+    }
+
+    function aiTemplateBody(slug, kind, fallbackMap) {
+        var key = 'ai.template.' + kind + '.' + slug + '.body';
+        var s = aiTr(key);
+        if (s !== key) return s;
+        return fallbackMap && fallbackMap[slug] ? fallbackMap[slug] : '';
+    }
+
     function firstName(full) {
         var s = String(full || '').trim();
-        if (!s) return 'there';
-        return s.split(/\s+/)[0] || 'there';
+        if (!s) return aiTr('ai.name.there');
+        return s.split(/\s+/)[0] || aiTr('ai.name.there');
     }
 
     function sexLabel(raw) {
-        if (raw === 'M') return 'Male';
-        if (raw === 'F') return 'Female';
+        if (raw === 'M') return aiTr('ai.sex.male');
+        if (raw === 'F') return aiTr('ai.sex.female');
         return '';
     }
 
@@ -99,12 +122,80 @@ var AIHELPER = AIHELPER || {};
     function clinicTitle() {
         return (typeof currentClinicLabel === 'string' && currentClinicLabel.trim())
             ? currentClinicLabel.trim()
-            : 'Joyful Smile Clinic';
+            : aiTr('ai.clinicFallback');
     }
 
     function pick(elId) {
         var e = typeof g !== 'undefined' ? g(elId) : document.getElementById(elId);
         return e;
+    }
+
+    function aiTr(key) {
+        return typeof t === 'function' ? t(key) : key;
+    }
+
+    function aiTrRepl(key, pairs) {
+        var s = aiTr(key);
+        if (pairs) {
+            Object.keys(pairs).forEach(function(k) {
+                s = s.split('{' + k + '}').join(String(pairs[k]));
+            });
+        }
+        return s;
+    }
+
+    var BIRTH_DEMO_META = {
+        warm_professional: { slug: 'warmProf', count: 3 },
+        festive_light: { slug: 'festive', count: 2 },
+        minimal_modern: { slug: 'minimal', count: 2 }
+    };
+
+    var RECALL_KIND_SLUG = {
+        checkup: 'checkup',
+        incomplete_tx: 'incompleteTx',
+        review_followup: 'reviewFollowup',
+        custom: 'custom'
+    };
+
+    var RECALL_TONE_SLUG = {
+        warm_professional: 'warmProf',
+        gentle_reminder: 'gentle',
+        concise_busy: 'concise'
+    };
+
+    function aiDemoText(key, fallback) {
+        var s = aiTr(key);
+        return s !== key ? s : (fallback || '');
+    }
+
+    function aiDemoBirthLines(tone) {
+        var meta = BIRTH_DEMO_META[tone] || BIRTH_DEMO_META.warm_professional;
+        var out = [];
+        var i;
+        for (i = 0; i < meta.count; i++) {
+            var key = 'ai.demo.birth.' + meta.slug + '.' + i;
+            var fb = BIRTH_LINES[tone] && BIRTH_LINES[tone][i]
+                ? BIRTH_LINES[tone][i] : '';
+            var line = aiDemoText(key, fb);
+            if (line) out.push(line);
+        }
+        return out.length ? out : BIRTH_LINES.warm_professional;
+    }
+
+    function aiDemoRecallParts(recallKind, tone) {
+        var kind = RECALL_KIND_SLUG[recallKind] || 'checkup';
+        var ton = RECALL_TONE_SLUG[tone] || 'warmProf';
+        var bank = RECALL_LINES[recallKind] || RECALL_LINES.checkup;
+        var toneBank = bank[tone] || bank.warm_professional;
+        var parts = [];
+        var j;
+        for (j = 0; j < 2; j++) {
+            var key = 'ai.demo.recall.' + kind + '.' + ton + '.' + j;
+            var fb = toneBank[j] || '';
+            var line = aiDemoText(key, fb);
+            if (line) parts.push(line);
+        }
+        return parts;
     }
 
     function setStatus(which, txt) {
@@ -160,20 +251,25 @@ var AIHELPER = AIHELPER || {};
     }
 
     var _districtInited = false;
-    function initDistrictSelectsOnce() {
-        if (_districtInited) return;
-        _districtInited = true;
+    function refreshDistrictSelects() {
         ['aiBirthDistrict', 'aiRecallDistrict'].forEach(function(id) {
             var s = pick(id);
             if (!s) return;
+            var cur = s.value;
             s.innerHTML = '';
             DISTRICTS.forEach(function(d) {
                 var o = document.createElement('option');
                 o.value = d.code;
-                o.textContent = d.label;
+                o.textContent = aiTr(d.labelKey);
                 s.appendChild(o);
             });
+            s.value = cur;
         });
+    }
+    function initDistrictSelectsOnce() {
+        if (_districtInited) return;
+        _districtInited = true;
+        refreshDistrictSelects();
     }
 
     function fillTemplatesBirth() {
@@ -182,15 +278,12 @@ var AIHELPER = AIHELPER || {};
         sel.innerHTML = '';
         var z = document.createElement('option');
         z.value = '';
-        z.textContent = '— Choose starter template —';
+        z.textContent = aiTr('ai.template.choose');
         sel.appendChild(z);
-        Object.keys(SMART_BIRTH).forEach(function(k) {
-            var lab = k.replace(/_/g, ' ').replace(/^./, function(c) {
-                return c.toUpperCase();
-            });
+        BIRTH_TEMPLATE_SLUGS.forEach(function(k) {
             var o = document.createElement('option');
             o.value = k;
-            o.textContent = lab;
+            o.textContent = aiTemplateLabel(k, 'birth');
             sel.appendChild(o);
         });
         if (sel.options.length > 1) sel.selectedIndex = 1;
@@ -202,15 +295,12 @@ var AIHELPER = AIHELPER || {};
         sel.innerHTML = '';
         var z = document.createElement('option');
         z.value = '';
-        z.textContent = '— Choose starter template —';
+        z.textContent = aiTr('ai.template.choose');
         sel.appendChild(z);
-        Object.keys(SMART_RECALL).forEach(function(k) {
-            var lab = k.replace(/_/g, ' ').replace(/^./, function(c) {
-                return c.toUpperCase();
-            });
+        RECALL_TEMPLATE_SLUGS.forEach(function(k) {
             var o = document.createElement('option');
             o.value = k;
-            o.textContent = lab;
+            o.textContent = aiTemplateLabel(k, 'recall');
             sel.appendChild(o);
         });
         if (sel.options.length > 1) sel.selectedIndex = 1;
@@ -221,7 +311,7 @@ var AIHELPER = AIHELPER || {};
         var ta = pick('aiBirthSmartBody');
         if (!sel || !ta) return;
         var slug = sel.value;
-        ta.value = SMART_BIRTH[slug] ? SMART_BIRTH[slug] : '';
+        ta.value = aiTemplateBody(slug, 'birth', SMART_BIRTH);
         scheduleSendTargetRefresh('birth');
     };
 
@@ -230,7 +320,7 @@ var AIHELPER = AIHELPER || {};
         var ta = pick('aiRecallSmartBody');
         if (!sel || !ta) return;
         var slug = sel.value;
-        ta.value = SMART_RECALL[slug] ? SMART_RECALL[slug] : '';
+        ta.value = aiTemplateBody(slug, 'recall', SMART_RECALL);
         scheduleSendTargetRefresh('recall');
     };
 
@@ -303,26 +393,30 @@ var AIHELPER = AIHELPER || {};
     }
 
     function demoBirthday(first, tone, userPrompt, clinic) {
-        var lines = BIRTH_LINES[tone] || BIRTH_LINES.warm_professional;
+        var lines = aiDemoBirthLines(tone);
         var pickLine = lines[Math.floor(Math.random() * lines.length)];
-        return 'Dear ' + first + ',\n\n' +
-            'Happy Birthday from ' + clinic + '!\n\n' +
+        return aiTrRepl('ai.demo.letter.dear', { NAME: first }) + '\n\n' +
+            aiTrRepl('ai.demo.letter.happyBirth', { CLINIC: clinic }) + '\n\n' +
             pickLine + '\n' +
             weaveExtra(userPrompt) +
-            'With care,\n' +
+            aiTr('ai.demo.letter.withCare') + '\n' +
             clinic;
     }
 
     function demoRecall(first, tone, recallKind, userPrompt, clinic) {
-        var bank = RECALL_LINES[recallKind] || RECALL_LINES.checkup;
-        var toneBank = bank[tone] || bank.warm_professional;
-        var open = toneBank.slice(0).join(' ');
-        if (recallKind === 'custom') open = (toneBank[0] || '') + clinic + '.';
+        var parts = aiDemoRecallParts(recallKind, tone);
+        var open;
+        if (recallKind === 'custom') {
+            open = (parts[0] || '') + clinic + '.';
+        } else {
+            open = parts.join(' ');
+        }
         var closing =
             weaveExtra(userPrompt) +
-            'Kind regards,\n' +
+            aiTr('ai.demo.letter.kindRegards') + '\n' +
             clinic;
-        return 'Dear ' + first + ',\n\n' + open + '\n\n' + closing;
+        return aiTrRepl('ai.demo.letter.dear', { NAME: first }) + '\n\n' +
+            open + '\n\n' + closing;
     }
 
     function patientRowById(pid) {
@@ -380,7 +474,7 @@ var AIHELPER = AIHELPER || {};
         host.innerHTML = '';
         if (!list.length) {
             host.innerHTML =
-                '<div class="ai-empty-note">No patients match these filters.</div>';
+                '<div class="ai-empty-note">' + esc(aiTr('ai.emptyFilter')) + '</div>';
             var mc = pick(which === 'birth'
                 ? 'aiBirthCbMaster'
                 : 'aiRecallCbMaster');
@@ -500,7 +594,7 @@ var AIHELPER = AIHELPER || {};
         ns.onRecallTemplateChange();
 
         if (typeof SB === 'undefined') {
-            setPatientBanner('App data layer missing — reload the page.');
+            setPatientBanner(aiTr('ai.banner.dataMissing'));
             return;
         }
         SB.from('patients').select('*').order('patient_no', { ascending: true })
@@ -509,8 +603,7 @@ var AIHELPER = AIHELPER || {};
                     _patientsCache = [];
                     _listBirth = [];
                     _listRecall = [];
-                    setPatientBanner(
-                        'Roster unavailable — explore guest drafts below.');
+                    setPatientBanner(aiTr('ai.banner.rosterUnavailable'));
                 } else {
                     _patientsCache = r.data || [];
                     var logged =
@@ -518,10 +611,9 @@ var AIHELPER = AIHELPER || {};
                         currentUserId !== null &&
                         String(currentUserId).trim() !== '';
                     if (!_patientsCache.length && logged)
-                        setPatientBanner('No patients recorded for this clinic yet.');
+                        setPatientBanner(aiTr('ai.banner.noPatients'));
                     else if (!_patientsCache.length && !logged)
-                        setPatientBanner(
-                            'Guest preview — sign in to unlock filtered lists or use collapsed guest drafts.');
+                        setPatientBanner(aiTr('ai.banner.guestPreview'));
                     else setPatientBanner('');
                     renderPickList('birth');
                     renderPickList('recall');
@@ -534,6 +626,23 @@ var AIHELPER = AIHELPER || {};
         var bn = pick('aiPatientLoadBanner');
         if (!bn) return;
         bn.textContent = html || '';
+    }
+
+    function refreshAiPatientBannerForLang() {
+        if (typeof SB === 'undefined') {
+            setPatientBanner(aiTr('ai.banner.dataMissing'));
+            return;
+        }
+        if (!_patientsCache.length) {
+            var logged =
+                typeof currentUserId !== 'undefined' &&
+                currentUserId !== null &&
+                String(currentUserId).trim() !== '';
+            if (logged) setPatientBanner(aiTr('ai.banner.noPatients'));
+            else setPatientBanner(aiTr('ai.banner.guestPreview'));
+        } else {
+            setPatientBanner('');
+        }
     }
 
     function syncProxyInputs() {
@@ -553,9 +662,9 @@ var AIHELPER = AIHELPER || {};
         try {
             if (urlEl) localStorage.setItem(LS_PROXY_URL, String(urlEl.value || '').trim());
             if (auEl) sessionStorage.setItem(SS_PROXY_AUTH, String(auEl.value || '').trim());
-            alert('Settings saved locally for this workstation.');
+            alert(aiTr('ai.alert.settingsSaved'));
         } catch (err) {
-            alert('Cannot save browser storage.');
+            alert(aiTr('ai.alert.storageFail'));
         }
     };
 
@@ -647,10 +756,10 @@ var AIHELPER = AIHELPER || {};
 
     function composeStatusBanner(origin) {
         var pc = getProxyConf();
-        if (origin === 'edge') return 'Drafted via Supabase Edge (ai-patient-draft).';
-        if (origin === 'proxy') return 'Drafted via your custom HTTPS proxy.';
-        if (pc.url.length) return 'Demo — Edge or proxy unreachable.';
-        return 'Demo templates — deploy ai-patient-draft (AI module) or add a HTTPS proxy.';
+        if (origin === 'edge') return aiTr('ai.origin.edge');
+        if (origin === 'proxy') return aiTr('ai.origin.proxy');
+        if (pc.url.length) return aiTr('ai.origin.demoProxy');
+        return aiTr('ai.origin.demo');
     }
 
     function runAiChainInner(fullPayload, makeDemoLocal) {
@@ -684,7 +793,7 @@ var AIHELPER = AIHELPER || {};
         toggleAllFiltered('birth', true);
         var chk = pick('aiBirthCbMaster');
         if (chk) chk.checked = true;
-        alert('Filtered to birthdays inside ~60 days and selected everyone in the list.');
+        alert(aiTr('ai.alert.birthFiltered'));
     };
 
     function resolvedGuestBirth() {
@@ -730,7 +839,7 @@ var AIHELPER = AIHELPER || {};
         else targets = checked.slice();
 
         if (!targets.length) {
-            alert('Use filters → Apply roster filter, tick patients, OR fill guest drafts below.');
+            alert(aiTr('ai.alert.needRosterBirth'));
             return;
         }
 
@@ -741,8 +850,8 @@ var AIHELPER = AIHELPER || {};
 
         pick('aiBirthGen').disabled = true;
         setStatus('birth', targets.length > 1
-            ? 'Drafting bulk (' + targets.length + ')…'
-            : 'Drafting…');
+            ? aiTrRepl('ai.status.draftingBulk', { N: targets.length })
+            : aiTr('ai.status.drafting'));
 
         var clinic = clinicTitle();
 
@@ -767,10 +876,10 @@ var AIHELPER = AIHELPER || {};
 
             return runAiChainInner(payload, fb).then(function(r) {
                 lastOriginHold[0] = r.origin;
-                var head = '\n===== PATIENT #' +
-                    esc(String(p.patient_no || '—')) + ' — ' +
-                    esc(String(p.full_name || '')) +
-                    ' =====\n';
+                var head = aiTrRepl('ai.draft.patientHeader', {
+                    NO: String(p.patient_no || '—'),
+                    NAME: String(p.full_name || '')
+                });
                 return head + r.text.trim(); });
         }
 
@@ -786,7 +895,9 @@ var AIHELPER = AIHELPER || {};
                 pick('aiBirthOutput').value = parts.join('\n\n').trim();
                 setStatus('birth',
                     composeStatusBanner(lastO[0]) +
-                    (targets.length > 1 ? ' · ' + targets.length + ' patients.' : ''));
+                    (targets.length > 1
+                        ? aiTrRepl('ai.status.patientsSuffix', { N: targets.length })
+                        : ''));
                 pick('aiBirthGen').disabled = false;
                 scheduleSendTargetRefresh('birth');
             });
@@ -800,7 +911,7 @@ var AIHELPER = AIHELPER || {};
         else targets = checked.slice();
 
         if (!targets.length) {
-            alert('Use filters → Apply roster filter, tick patients, OR guest recall below.');
+            alert(aiTr('ai.alert.needRosterRecall'));
             return;
         }
 
@@ -813,8 +924,8 @@ var AIHELPER = AIHELPER || {};
 
         pick('aiRecallGen').disabled = true;
         setStatus('recall', targets.length > 1
-            ? 'Drafting recalls (' + targets.length + ')…'
-            : 'Drafting…');
+            ? aiTrRepl('ai.status.draftingRecallBulk', { N: targets.length })
+            : aiTr('ai.status.drafting'));
 
         var clinic = clinicTitle();
 
@@ -837,10 +948,10 @@ var AIHELPER = AIHELPER || {};
                 return demoRecall(fn, tone, recallKind, mergedPrompt, clinic); };
             return runAiChainInner(payload, fb).then(function(r) {
                 lastOriginHold[0] = r.origin;
-                var head = '\n===== PATIENT #' +
-                    esc(String(p.patient_no || '—')) + ' — ' +
-                    esc(String(p.full_name || '')) +
-                    ' =====\n';
+                var head = aiTrRepl('ai.draft.patientHeader', {
+                    NO: String(p.patient_no || '—'),
+                    NAME: String(p.full_name || '')
+                });
                 return head + r.text.trim(); });
         }
 
@@ -856,7 +967,9 @@ var AIHELPER = AIHELPER || {};
                 pick('aiRecallOutput').value = parts.join('\n\n').trim();
                 setStatus('recall',
                     composeStatusBanner(lastR[0]) +
-                    (targets.length > 1 ? ' · ' + targets.length + ' patients.' : ''));
+                    (targets.length > 1
+                        ? aiTrRepl('ai.status.patientsSuffix', { N: targets.length })
+                        : ''));
                 pick('aiRecallGen').disabled = false;
                 scheduleSendTargetRefresh('recall');
             });
@@ -866,12 +979,12 @@ var AIHELPER = AIHELPER || {};
         var taId = which === 'birth' ? 'aiBirthOutput' : 'aiRecallOutput';
         var ta = pick(taId);
         if (!ta || !ta.value) {
-            alert('Nothing to copy yet.');
+            alert(aiTr('ai.alert.nothingCopy'));
             return;
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(ta.value).then(function() {
-                alert('Copied to clipboard.');
+                alert(aiTr('ai.alert.copied'));
             }).catch(function() {
                 fallbackCopy(ta.value);
             });
@@ -885,7 +998,7 @@ var AIHELPER = AIHELPER || {};
         x.select();
         document.execCommand('copy');
         document.body.removeChild(x);
-        alert('Copied to clipboard.');
+        alert(aiTr('ai.alert.copied'));
     }
 
     function sliceBlockForPatient(raw, patientNoTrim, patientNameTrim) {
@@ -939,7 +1052,7 @@ var AIHELPER = AIHELPER || {};
         if (!p && gr && gid === gr.id && side === 'recall') p = gr;
 
         if (!p) {
-            alert('Choose patient in Send draft dropdown (after Generate).');
+            alert(aiTr('ai.alert.choosePatient'));
             return;
         }
 
@@ -953,7 +1066,7 @@ var AIHELPER = AIHELPER || {};
         }
         msg = msg.trim();
         if (!msg) {
-            alert('Draft body missing.');
+            alert(aiTr('ai.alert.draftMissing'));
             return;
         }
 
@@ -961,9 +1074,11 @@ var AIHELPER = AIHELPER || {};
         if (ch === 'sms') return openSms(p.phone_number, msg);
         if (ch === 'email')
             return openMail(p.email,
-                side === 'birth' ? 'Birthday greetings' : 'Dental recall reminder',
+                side === 'birth'
+                    ? aiTr('ai.demo.email.subjectBirth')
+                    : aiTr('ai.demo.email.subjectRecall'),
                 msg);
-        alert('Unknown channel.');
+        alert(aiTr('ai.alert.unknownChannel'));
     }
 
     /** debounce refill send-target dropdown */
@@ -1003,8 +1118,9 @@ var AIHELPER = AIHELPER || {};
         if (guest) {
             var g = document.createElement('option');
             g.value = guest.id;
-            g.textContent =
-                '🌐 Guest demo · ' + String(guest.full_name || '').slice(0, 56);
+            g.textContent = aiTrRepl('ai.send.guestDemo', {
+                NAME: String(guest.full_name || '').slice(0, 56)
+            });
             sel.appendChild(g);
         }
 
@@ -1024,7 +1140,7 @@ var AIHELPER = AIHELPER || {};
     function openWa(rawPhone, msg) {
         var d = normalizePhoneWa(rawPhone);
         if (!d) {
-            alert('No usable mobile — widen filters or paste manually.');
+            alert(aiTr('ai.alert.noMobile'));
             return;
         }
         var url =
@@ -1037,7 +1153,7 @@ var AIHELPER = AIHELPER || {};
     function openSms(rawPhone, msg) {
         var d = normalizePhoneWa(rawPhone);
         if (!d) {
-            alert('No usable mobile — widen filters or paste manually.');
+            alert(aiTr('ai.alert.noMobile'));
             return;
         }
         window.location.href =
@@ -1046,7 +1162,7 @@ var AIHELPER = AIHELPER || {};
 
     function openMail(email, subj, body) {
         if (!email || !email.includes('@')) {
-            alert('Email missing — copy text instead.');
+            alert(aiTr('ai.alert.emailMissing'));
             return;
         }
         window.location.href =
@@ -1075,5 +1191,41 @@ var AIHELPER = AIHELPER || {};
         if (tab === 'birthday') scheduleSendTargetRefresh('birth');
         else if (tab === 'recall') scheduleSendTargetRefresh('recall');
     };
+
+    document.addEventListener('app-lang-change', function() {
+        refreshDistrictSelects();
+        var pitchDet = pick('aiPitchDetail');
+        var pitchBtn = pick('aiPitchToggle');
+        if (pitchBtn && pitchDet) {
+            pitchBtn.textContent = pitchDet.style.display !== 'none'
+                ? aiTr('ai.pitchHide')
+                : aiTr('ai.pitchToggle');
+        }
+        if (_patientsCache.length) {
+            renderPickList('birth');
+            renderPickList('recall');
+        }
+        fillTemplatesBirth();
+        fillTemplatesRecall();
+        scheduleSendTargetRefresh('birth');
+        scheduleSendTargetRefresh('recall');
+        refreshAiPatientBannerForLang();
+        var sec = pick('aiHelperSection');
+        if (typeof applyI18nInRoot === 'function') {
+            if (_patientsCache.length) {
+                var birthPanel = pick('aiPanelBirthday');
+                var recallPanel = pick('aiPanelRecall');
+                var settingsPanel = pick('aiPanelSettings');
+                if (birthPanel) applyI18nInRoot(birthPanel);
+                if (recallPanel) applyI18nInRoot(recallPanel);
+                if (settingsPanel) applyI18nInRoot(settingsPanel);
+            }
+            if (sec && (_patientsCache.length || sec.style.display !== 'none')) {
+                applyI18nInRoot(sec);
+            }
+        }
+        ns.onBirthTemplateChange();
+        ns.onRecallTemplateChange();
+    });
 
 })(AIHELPER);

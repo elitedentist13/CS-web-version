@@ -4,6 +4,7 @@
 
 // ── State ─────────────────────────────────────────────────────
 var chartPatientId   = null;
+var _toothTooltipTn  = null;
 var chartPatientName = null;
 var chartDate        = null;
 var chartRecordId    = null;   // current saved record UUID
@@ -17,20 +18,60 @@ var perioState  = {};
 // Active tool for dental charting
 var activeTool  = 'missing';
 
+function chartTr(key) {
+    return (typeof t === 'function') ? t(key) : key;
+}
+
+function chartTrRepl(key, pairs) {
+    var s = chartTr(key);
+    if (pairs) {
+        Object.keys(pairs).forEach(function(k) {
+            s = s.split('{' + k + '}').join(String(pairs[k]));
+        });
+    }
+    return s;
+}
+
+function chartToolLabel(id) {
+    return chartTr('chart.tool.' + id);
+}
+
+function chartToolLegend(id) {
+    var k = 'chart.toolLegend.' + id;
+    var s = chartTr(k);
+    return (s === k) ? id : s;
+}
+
+function refreshChartForLang() {
+    if (!chartPatientId) return;
+    var dn = g('dentalChartNotes');
+    var pn = g('perioChartNotes');
+    if (dn) dentalState.__notes__ = dn.value;
+    if (pn) perioState.__notes__ = pn.value;
+    var tab = 'dental';
+    var stabP = g('stab-perio');
+    if (stabP && stabP.classList.contains('active')) tab = 'perio';
+    var dateIn = g('chartDateInput');
+    if (dateIn && dateIn.value) chartDate = dateIn.value;
+    renderChartShell();
+    switchChartTab(tab);
+    updatePerioSummary();
+}
+
 // ── Tool definitions ─────────────────────────────────────────
 var DENTAL_TOOLS = [
-    { id: 'missing',    label: '✕ Missing',       color: '#e74c3c' },
-    { id: 'caries',     label: '● Caries',         color: '#e67e22' },
-    { id: 'filled',     label: '◼ Filled',         color: '#3498db' },
-    { id: 'crown',      label: '◯ Crown',          color: '#9b59b6' },
-    { id: 'rct',        label: '⊕ RCT',            color: '#1abc9c' },
-    { id: 'implant',    label: '⬡ Implant',        color: '#2ecc71' },
-    { id: 'bridge',     label: '⌒ Bridge',         color: '#f39c12' },
-    { id: 'fractured',  label: '⚡ Fractured',     color: '#e74c3c' },
-    { id: 'watch',      label: '◎ Watch',          color: '#95a5a6' },
-    { id: 'veneer',     label: '▣ Veneer',         color: '#16a085' },
-    { id: 'sealant',    label: '◈ Sealant',        color: '#8e44ad' },
-    { id: 'eraser',     label: '⌫ Eraser',         color: '#7f8c8d' }
+    { id: 'missing',    color: '#e74c3c' },
+    { id: 'caries',     color: '#e67e22' },
+    { id: 'filled',     color: '#3498db' },
+    { id: 'crown',      color: '#9b59b6' },
+    { id: 'rct',        color: '#1abc9c' },
+    { id: 'implant',    color: '#2ecc71' },
+    { id: 'bridge',     color: '#f39c12' },
+    { id: 'fractured',  color: '#e74c3c' },
+    { id: 'watch',      color: '#95a5a6' },
+    { id: 'veneer',     color: '#16a085' },
+    { id: 'sealant',    color: '#8e44ad' },
+    { id: 'eraser',     color: '#7f8c8d' }
 ];
 
 // ── FDI tooth layout ─────────────────────────────────────────
@@ -103,18 +144,18 @@ function renderChartShell() {
                 '<button class="chart-subtab active" ' +
                 'id="stab-dental" ' +
                 'onclick="switchChartTab(\'dental\')">' +
-                    '🦷 Dental Charting' +
+                    chartTr('chart.subtab.dental') +
                 '</button>' +
                 '<button class="chart-subtab" ' +
                 'id="stab-perio" ' +
                 'onclick="switchChartTab(\'perio\')">' +
-                    '📊 Periodontal Charting' +
+                    chartTr('chart.subtab.perio') +
                 '</button>' +
                 '<div style="flex:1;"></div>' +
 
                 // Date selector + Save
                 '<label style="font-size:12px;color:#888;margin-right:6px;">' +
-                'Date</label>' +
+                chartTr('chart.date') + '</label>' +
                 '<input type="date" id="chartDateInput" ' +
                 'value="' + chartDate + '" ' +
                 'style="padding:4px 8px;border:1px solid #ddd;' +
@@ -123,12 +164,12 @@ function renderChartShell() {
                 'style="padding:5px 12px;background:#f0f4ff;' +
                 'border:1px solid var(--primary);color:var(--primary);' +
                 'border-radius:6px;font-size:12px;cursor:pointer;' +
-                'margin-right:6px;">Load</button>' +
+                'margin-right:6px;">' + chartTr('chart.load') + '</button>' +
                 '<button onclick="saveChartRecord()" ' +
                 'style="padding:5px 14px;background:var(--primary);' +
                 'color:white;border:none;border-radius:6px;' +
                 'font-size:12px;font-weight:600;cursor:pointer;">' +
-                '💾 Save</button>' +
+                chartTr('chart.save') + '</button>' +
             '</div>' +
 
             // ── Pane: Dental ───────────────────────────────
@@ -481,7 +522,7 @@ function renderDentalPane() {
     DENTAL_TOOLS.forEach(function(tool) {
         var btn = document.createElement('button');
         btn.className = 'tool-btn' + (tool.id === activeTool ? ' active' : '');
-        btn.textContent = tool.label;
+        btn.textContent = chartToolLabel(tool.id);
         btn.style.color      = tool.color;
         btn.style.borderColor = tool.color;
         if (tool.id === activeTool) btn.style.background = tool.color;
@@ -506,7 +547,7 @@ function renderDentalPane() {
             (tool.id === 'crown' || tool.id === 'watch'
                 ? 'border:2px solid ' + tool.color + ';background:#fff;'
                 : '') +
-            '"></span>' + tool.label.replace(/^[^\s]+ /,'');
+            '"></span>' + esc(chartToolLegend(tool.id));
         legend.appendChild(item);
     });
     pane.appendChild(legend);
@@ -518,7 +559,7 @@ function renderDentalPane() {
     // Upper arch label
     var ul = document.createElement('div');
     ul.className = 'arch-label';
-    ul.textContent = '▲ Upper Arch';
+    ul.textContent = chartTr('chart.upperArch');
     wrap.appendChild(ul);
 
     // Upper row
@@ -534,7 +575,7 @@ function renderDentalPane() {
     var ll = document.createElement('div');
     ll.className = 'arch-label';
     ll.style.marginTop = '4px';
-    ll.textContent = '▼ Lower Arch';
+    ll.textContent = chartTr('chart.lowerArch');
     wrap.appendChild(ll);
 
     pane.appendChild(wrap);
@@ -547,22 +588,19 @@ function renderDentalPane() {
     var psubtitle = document.createElement('div');
     psubtitle.className = 'arch-label';
     psubtitle.style.marginBottom = '6px';
-    psubtitle.innerHTML =
-        '👶 <strong style="color:#455;">Primary dentition</strong> · polygon chart ' +
-        '· letters <strong style="color:#1d4ed8;">A–E</strong> per quadrant ' +
-        '(A = midline)';
+    psubtitle.innerHTML = chartTr('chart.primarySubtitleHtml');
     pwrap.appendChild(psubtitle);
 
     var pud = document.createElement('div');
     pud.className = 'arch-label';
-    pud.textContent = '▲ UR 55→51 · UL 61→65 (FDI deciduous)';
+    pud.textContent = chartTr('chart.primaryUpper');
     pwrap.appendChild(pud);
 
     pwrap.appendChild(
         buildToothRow(PRIMARY_UPPER_RIGHT, PRIMARY_UPPER_LEFT,
             'upper', { primary: true }));
 
-    pwrap.appendChild(buildMidline('— Primary midline —'));
+    pwrap.appendChild(buildMidline(chartTr('chart.primaryMidline')));
 
     pwrap.appendChild(
         buildToothRow(PRIMARY_LOWER_RIGHT, PRIMARY_LOWER_LEFT,
@@ -571,7 +609,7 @@ function renderDentalPane() {
     var plo = document.createElement('div');
     plo.className = 'arch-label';
     plo.style.marginTop = '6px';
-    plo.textContent = '▼ LR 85→81 · LL 71→75';
+    plo.textContent = chartTr('chart.primaryLower');
     pwrap.appendChild(plo);
 
     pane.appendChild(pwrap);
@@ -582,8 +620,9 @@ function renderDentalPane() {
     na.innerHTML =
         '<label style="font-size:12px;font-weight:700;' +
         'color:#555;display:block;margin-bottom:6px;">' +
-        '📝 Clinical Notes</label>' +
-        '<textarea id="dentalChartNotes" placeholder="Enter clinical notes for this date…">' +
+        esc(chartTr('chart.dentalNotes')) + '</label>' +
+        '<textarea id="dentalChartNotes" placeholder="' +
+        esc(chartTr('chart.dentalNotesPh')) + '">' +
         (dentalState.__notes__ || '') +
         '</textarea>';
     pane.appendChild(na);
@@ -677,6 +716,7 @@ function buildToothCell(tn, arch, opts) {
         moveTooltip(e);
     });
     svgWrap.addEventListener('mouseleave', function() {
+        _toothTooltipTn = null;
         var tip = g('toothTooltip');
         if (tip) tip.style.display = 'none';
     });
@@ -894,7 +934,7 @@ function appendRCTBlockLetter(svg, ns) {
         'style',
         'paint-order: stroke fill'
     );
-    t.textContent = 'R';
+    t.textContent = chartTr('chart.symbol.rct');
 
     gRCT.appendChild(t);
     svg.appendChild(gRCT);
@@ -969,7 +1009,7 @@ function buildToothSVG(tn, arch) {
         it.setAttribute('font-size','10');
         it.setAttribute('fill','#2ecc71');
         it.setAttribute('font-weight','bold');
-        it.textContent = 'I';
+        it.textContent = chartTr('chart.symbol.implant');
         svg.appendChild(it);
     } else {
         draw5Surface(svg, ns, tn, state, arch);
@@ -1231,20 +1271,44 @@ function refreshToothSVG(tn) {
 // ════════════════════════════════════════════════════════════════
 // TOOLTIP
 // ════════════════════════════════════════════════════════════════
+function buildToothTooltipHtml(tn) {
+    var state = dentalState[tn] || [];
+    if (!state.length) return '';
+    var lbl = toothIsPrimary(tn)
+        ? '<strong>' + esc(chartTrRepl('chart.tooltip.toothPrimary',
+            { N: String(tn), L: primaryLetter(tn) })) + '</strong>'
+        : '<strong>' + esc(chartTrRepl('chart.tooltip.tooth', { N: String(tn) })) + '</strong>';
+    return lbl + '<br>' + state.map(function (id) {
+        return esc(chartToolLegend(id));
+    }).join(', ');
+}
+
 function showToothTooltip(tn, e) {
     var tip   = g('toothTooltip');
     if (!tip) return;
     var state = dentalState[tn] || [];
     if (!state.length) {
-        tip.style.display = 'none'; return;
+        _toothTooltipTn = null;
+        tip.style.display = 'none';
+        return;
     }
-    var lbl = toothIsPrimary(tn)
-        ? '<strong>Tooth ' + tn + '</strong> (primary&nbsp;' +
-            primaryLetter(tn) + ')'
-        : '<strong>Tooth ' + tn + '</strong>';
-    tip.innerHTML = lbl + '<br>' + state.join(', ');
+    _toothTooltipTn = tn;
+    tip.innerHTML = buildToothTooltipHtml(tn);
     tip.style.display = 'block';
     moveTooltip(e);
+}
+
+function refreshToothTooltipForLang() {
+    if (_toothTooltipTn == null) return;
+    var tip = g('toothTooltip');
+    if (!tip || tip.style.display === 'none') return;
+    var html = buildToothTooltipHtml(_toothTooltipTn);
+    if (!html) {
+        _toothTooltipTn = null;
+        tip.style.display = 'none';
+        return;
+    }
+    tip.innerHTML = html;
 }
 
 function moveTooltip(e) {
@@ -1258,7 +1322,7 @@ function moveTooltip(e) {
 // MIDLINE
 // ════════════════════════════════════════════════════════════════
 function buildMidline(centerLabel) {
-    var label = centerLabel || '— Midline —';
+    var label = centerLabel || chartTr('chart.midline');
     var mid = document.createElement('div');
     mid.className = 'midline';
     mid.innerHTML =
@@ -1282,24 +1346,7 @@ function renderPerioPane() {
         'display:flex;flex-wrap:wrap;gap:8px 20px;font-size:11px;' +
         'color:#555;margin-bottom:12px;padding:8px 12px;' +
         'background:#f8fafc;border:1px solid #e8edf2;border-radius:8px;';
-    legend.innerHTML =
-        '<strong style="margin-right:4px;">Legend:</strong>' +
-        '<span>PD = Probing Depth (mm)</span>' +
-        '<span>|</span>' +
-        '<span>GM = Gingival Margin (mm)</span>' +
-        '<span>|</span>' +
-        '<span>BOP = Bleeding on Probing</span>' +
-        '<span>|</span>' +
-        '<span>MOB = Mobility</span>' +
-        '<span>|</span>' +
-        '<span style="color:#e74c3c;">Red cell = BOP positive</span>' +
-        '<span>|</span>' +
-        '<span style="color:#e67e22;">Orange = deep pocket ≥4mm</span>' +
-        '<span>|</span>' +
-        '<span style="color:#27ae60;">Green = shallow ≤2mm</span>' +
-        '<span>|</span>' +
-        '<span style="background:#e8f0ff;padding:1px 4px;' +
-        'border-radius:3px;">B = Buccal / L = Lingual/Palatal</span>';
+    legend.innerHTML = chartTr('chart.perio.legendHtml');
     pane.appendChild(legend);
 
     // Upper teeth section
@@ -1307,7 +1354,7 @@ function renderPerioPane() {
     upSec.className = 'perio-section';
     var upTitle = document.createElement('div');
     upTitle.className = 'perio-section-title';
-    upTitle.textContent = '▲ Upper Arch (Maxillary)';
+    upTitle.textContent = chartTr('chart.upperMaxillary');
     upSec.appendChild(upTitle);
     upSec.appendChild(buildPerioTable(
         UPPER_RIGHT.concat(UPPER_LEFT), 'upper'));
@@ -1318,7 +1365,7 @@ function renderPerioPane() {
     loSec.className = 'perio-section';
     var loTitle = document.createElement('div');
     loTitle.className = 'perio-section-title';
-    loTitle.textContent = '▼ Lower Arch (Mandibular)';
+    loTitle.textContent = chartTr('chart.lowerMandibular');
     loSec.appendChild(loTitle);
     loSec.appendChild(buildPerioTable(
         LOWER_RIGHT.concat(LOWER_LEFT), 'lower'));
@@ -1333,9 +1380,9 @@ function renderPerioPane() {
     na.innerHTML =
         '<label style="font-size:12px;font-weight:700;' +
         'color:#555;display:block;margin-bottom:6px;">' +
-        '📝 Periodontal Notes</label>' +
+        esc(chartTr('chart.perioNotes')) + '</label>' +
         '<textarea id="perioChartNotes" ' +
-        'placeholder="Enter periodontal notes, diagnosis, treatment plan…">' +
+        'placeholder="' + esc(chartTr('chart.perioNotesPh')) + '">' +
         (perioState.__notes__ || '') +
         '</textarea>';
     pane.appendChild(na);
@@ -1351,25 +1398,25 @@ function buildPerioTable(teeth, arch) {
 
     // Row definitions
     var ROWS = [
-        { id: 'mob',   label: 'Mobility',           surface: null,  type: 'select',
+        { id: 'mob',   labelKey: 'chart.perio.mobility',  surface: null,  type: 'select',
           options: ['0','I','II','III'] },
-        { id: 'frc',   label: 'Furcation',          surface: null,  type: 'select',
+        { id: 'frc',   labelKey: 'chart.perio.furcation', surface: null,  type: 'select',
           options: ['—','I','II','III'] },
-        { id: 'bop_b', label: 'BOP (B)',             surface: 'B',   type: 'bop' },
-        { id: 'pd_b',  label: 'PD Buccal (mm)',      surface: 'B',   type: 'threeval' },
-        { id: 'gm_b',  label: 'GM Buccal (mm)',      surface: 'B',   type: 'threeval' },
-        { id: 'cal_b', label: 'CAL Buccal',          surface: 'B',   type: 'calc',
+        { id: 'bop_b', labelKey: 'chart.perio.bopB',      surface: 'B',   type: 'bop' },
+        { id: 'pd_b',  labelKey: 'chart.perio.pdBuccal',  surface: 'B',   type: 'threeval' },
+        { id: 'gm_b',  labelKey: 'chart.perio.gmBuccal',  surface: 'B',   type: 'threeval' },
+        { id: 'cal_b', labelKey: 'chart.perio.calBuccal', surface: 'B',   type: 'calc',
           a: 'pd_b', b: 'gm_b' },
-        { id: 'gm_l',  label: 'GM Lingual (mm)',     surface: 'L',   type: 'threeval' },
-        { id: 'pd_l',  label: 'PD Lingual (mm)',     surface: 'L',   type: 'threeval' },
-        { id: 'bop_l', label: 'BOP (L)',             surface: 'L',   type: 'bop' },
+        { id: 'gm_l',  labelKey: 'chart.perio.gmLingual', surface: 'L',   type: 'threeval' },
+        { id: 'pd_l',  labelKey: 'chart.perio.pdLingual', surface: 'L',   type: 'threeval' },
+        { id: 'bop_l', labelKey: 'chart.perio.bopL',      surface: 'L',   type: 'bop' },
     ];
 
     // Header row
     var thead = document.createElement('thead');
     var htr   = document.createElement('tr');
     var th0   = document.createElement('th');
-    th0.textContent = 'Measurement';
+    th0.textContent = chartTr('chart.measurement');
     th0.style.textAlign = 'left';
     th0.style.minWidth  = '90px';
     htr.appendChild(th0);
@@ -1412,7 +1459,7 @@ function buildPerioTable(teeth, arch) {
         lbl.className = 'perio-row-label';
         if (row.surface === 'B') lbl.classList.add('perio-surface-b');
         if (row.surface === 'L') lbl.classList.add('perio-surface-l');
-        lbl.textContent = row.label;
+        lbl.textContent = chartTr(row.labelKey);
         tr.appendChild(lbl);
 
         teeth.forEach(function(tn) {
@@ -1538,13 +1585,7 @@ function buildPerioSummary() {
         'display:flex;gap:16px;flex-wrap:wrap;padding:10px 14px;' +
         'background:#f0f4ff;border:1px solid #d0dcf8;' +
         'border-radius:10px;margin:12px 0;font-size:12px;';
-    wrap.innerHTML =
-        '<strong style="color:var(--primary);align-self:center;">' +
-        '📊 Summary</strong>' +
-        '<span>BOP sites: <strong id="summBOP">0</strong></span>' +
-        '<span>Deep pockets (≥4mm): <strong id="summDeep">0</strong></span>' +
-        '<span>Avg PD: <strong id="summAvgPD">—</strong> mm</span>' +
-        '<span>Max PD: <strong id="summMaxPD">—</strong> mm</span>';
+    wrap.innerHTML = chartTr('chart.perio.summaryHtml');
     return wrap;
 }
 
@@ -1585,7 +1626,7 @@ function updatePerioSummary() {
 // SAVE / LOAD  (Supabase)
 // ════════════════════════════════════════════════════════════════
 function saveChartRecord() {
-    if (!chartPatientId) { alert('No patient loaded.'); return; }
+    if (!chartPatientId) { alert(chartTr('chart.alert.noPatient')); return; }
 
     var dateEl = g('chartDateInput');
     var date   = dateEl ? dateEl.value : todayISO();
@@ -1620,13 +1661,13 @@ function saveChartRecord() {
 
     promise.then(function(r) {
         if (r.error) {
-            alert('Save error: ' + r.error.message);
+            alert(chartTrRepl('chart.alert.saveError', { MSG: r.error.message }));
             return;
         }
         if (!chartRecordId && r.data && r.data[0]) {
             chartRecordId = r.data[0].id;
         }
-        showChartToast('✅ Chart saved for ' + date);
+        showChartToast(chartTrRepl('chart.toast.saved', { DATE: date }));
     });
 }
 
@@ -1654,7 +1695,7 @@ function loadChartRecord() {
             chartRecordId = null;
             refreshAllTeeth();
             refreshPerioInputs();
-            showChartToast('ℹ️ No chart for ' + date + ' — blank canvas');
+            showChartToast(chartTrRepl('chart.toast.noRecord', { DATE: date }));
             return;
         }
         var rec = r.data[0];
@@ -1673,7 +1714,7 @@ function loadChartRecord() {
         refreshAllTeeth();
         refreshPerioInputs();
         updatePerioSummary();
-        showChartToast('📂 Chart loaded for ' + date);
+        showChartToast(chartTrRepl('chart.toast.loaded', { DATE: date }));
     });
 }
 
@@ -1713,3 +1754,25 @@ function showChartToast(msg) {
         toast.style.transform = 'translateX(-50%) translateY(20px)';
     }, 2600);
 }
+
+document.addEventListener('app-lang-change', function() {
+    var pane = g('con-charting');
+    var chartContent = g('chartingTabContent');
+    if (typeof applyI18nInRoot === 'function') {
+        if (typeof chartPatientId !== 'undefined' && chartPatientId) {
+            if (pane) applyI18nInRoot(pane);
+            if (chartContent) applyI18nInRoot(chartContent);
+        } else if (pane) {
+            var conSec = g('consultationSection');
+            if (!conSec || conSec.style.display !== 'none') applyI18nInRoot(pane);
+        }
+    }
+    if (typeof chartPatientId !== 'undefined' && chartPatientId &&
+        typeof refreshChartForLang === 'function') {
+        refreshChartForLang();
+    }
+    var tip = g('toothTooltip');
+    if (tip && tip.style.display !== 'none' && typeof refreshToothTooltipForLang === 'function') {
+        refreshToothTooltipForLang();
+    }
+});

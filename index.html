@@ -672,6 +672,7 @@
   <div class="appt-tabs">
     <button class="appt-tab active" data-tab="queue" data-i18n="appt.queueTab"></button>
     <button class="appt-tab" data-tab="today" data-i18n="appt.todayTab"></button>
+    <button class="appt-tab" data-tab="plusappt" data-i18n="appt.plusApptTab"></button>
     <button class="appt-tab" data-tab="calendar" data-i18n="appt.calendarTab"></button>
     <button class="appt-tab" data-tab="records" data-i18n="appt.recordsTab"></button>
     <button class="appt-tab" data-tab="recall" data-i18n="appt.recallTab"></button>
@@ -754,6 +755,84 @@
       </table>
     </div>
     <p style="font-size:12px;color:#aaa;margin-top:8px;" data-i18n-html="appt.walkinHintHtml"></p>
+  </div>
+
+  <!-- ── TAB: + APPOINTMENT (day planner) ───────────────── -->
+  <div id="tab-plusappt" class="tab-pane">
+    <div class="plusappt-header">
+      <div class="plusappt-header-search">
+        <label for="plusApptPsInput" class="plusappt-label" data-i18n="appt.plusAppt.searchPatient"></label>
+        <div class="plusappt-ps-wrap ps-wrap">
+          <input type="text" id="plusApptPsInput" autocomplete="off"
+                 data-i18n-placeholder="appt.plusAppt.searchPatientPh">
+          <div class="ps-drop" id="plusApptPsDrop"></div>
+        </div>
+      </div>
+      <div class="plusappt-header-scope">
+        <div class="plusappt-scope-field">
+          <label for="plusApptClinicSelect" class="plusappt-label" data-i18n="common.clinic"></label>
+          <select id="plusApptClinicSelect" class="plusappt-clinic-select"
+                  data-i18n-title="common.apptClinicTitle"></select>
+        </div>
+        <div class="plusappt-scope-field">
+          <label for="plusApptDoctorSelect" class="plusappt-label" data-i18n="appt.plusAppt.doctor"></label>
+          <select id="plusApptDoctorSelect" class="plusappt-doctor-select"
+                  data-i18n-title="appt.plusAppt.doctorTitle"></select>
+        </div>
+      </div>
+      <div class="plusappt-header-actions">
+        <span id="plusApptDateLabel" class="plusappt-date-label"></span>
+        <button type="button" id="plusApptAddBtn" class="btn-add plusappt-add-btn" disabled
+                data-i18n="appt.plusAppt.addBtn"></button>
+      </div>
+    </div>
+    <p class="plusappt-hint" data-i18n="appt.plusAppt.hint"></p>
+
+    <div class="plusappt-layout">
+      <aside class="plusappt-sidebar">
+        <div id="plusApptClinicBadge" class="plusappt-clinic-badge" aria-live="polite"></div>
+        <div id="plusApptMiniCal" class="plusappt-mini-cal" aria-live="polite"></div>
+      </aside>
+      <div class="plusappt-main">
+        <div id="plusApptTimelineHead" class="plusappt-timeline-head" aria-live="polite"></div>
+        <div id="plusApptSingleView" class="plusappt-single-view">
+          <div class="tbl-wrap plusappt-schedule-wrap">
+            <table class="appt-tbl plusappt-schedule-tbl">
+              <thead>
+                <tr>
+                  <th class="plusappt-th-time" data-i18n="appt.modal.startTime"></th>
+                  <th data-i18n="appt.plusAppt.th.name"></th>
+                  <th data-i18n="appt.modal.remarks"></th>
+                  <th data-i18n="appt.modal.duration"></th>
+                </tr>
+              </thead>
+              <tbody id="plusApptScheduleBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="plusApptAllView" class="plusappt-all-view" style="display:none;" aria-hidden="true">
+          <div id="plusApptAllScroll" class="plusappt-all-scroll"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="plusappt-shortcuts" id="plusApptShortcuts">
+      <span class="plusappt-shortcuts-label" data-i18n="appt.plusAppt.shortcuts"></span>
+      <button type="button" class="plusappt-sc-btn" id="plusApptScEditPatient" disabled
+              data-i18n="appt.plusAppt.scEditPatient"></button>
+      <button type="button" class="plusappt-sc-btn" id="plusApptScNotes" disabled
+              data-i18n="appt.plusAppt.scNotes"></button>
+      <button type="button" class="plusappt-sc-btn" id="plusApptScDrugs" disabled
+              data-i18n="appt.plusAppt.scDrugs"></button>
+      <button type="button" class="plusappt-sc-btn" id="plusApptScBill" disabled
+              data-i18n="appt.plusAppt.scBill"></button>
+      <button type="button" class="plusappt-sc-btn" id="plusApptScHistory" disabled
+              data-i18n="appt.plusAppt.scHistory"></button>
+      <button type="button" class="plusappt-sc-btn" id="plusApptScRemarks" disabled
+              data-i18n="appt.plusAppt.scRemarks"></button>
+      <button type="button" class="plusappt-sc-btn" id="plusApptScEditAppt" disabled
+              data-i18n="appt.plusAppt.scEditAppt"></button>
+    </div>
   </div>
 
   <!-- ── TAB: CALENDAR ──────────────────────────────────── -->

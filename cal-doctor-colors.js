@@ -66,6 +66,7 @@ var CalDoctorColors = (function () {
     function refreshQueueTodayAfterDoctorFilter() {
         if (typeof loadToday === 'function') loadToday();
         if (typeof loadQueue === 'function') loadQueue();
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
     }
 
     function setDoctorVisible(key, visible) {
@@ -94,6 +95,7 @@ var CalDoctorColors = (function () {
         syncLegendCheckboxes();
         refreshQueueTodayAfterDoctorFilter();
         if (typeof renderCal === 'function') renderCal();
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
     }
 
     function hideAllDoctors() {
@@ -257,6 +259,23 @@ var CalDoctorColors = (function () {
         return fallback || key;
     }
 
+    /** Omit redundant "All" legend row (checkbox + colour duplicates bulk All control). */
+    function isRedundantCalLegendKey(key, label) {
+        var kl = String(key || '').trim().toLowerCase();
+        var ll = String(label || '').trim().toLowerCase();
+        if (typeof isLoginPlaceholderDoctorCode === 'function' && isLoginPlaceholderDoctorCode(key)) {
+            return true;
+        }
+        if (kl === 'all' || kl === '_all' || kl === '__all__') return true;
+        if (/^all[_-]/.test(kl)) return true;
+        if (ll === 'all') return true;
+        try {
+            var allLbl = String(calTr('appt.calAll') || '').trim().toLowerCase();
+            if (allLbl && ll === allLbl) return true;
+        } catch (eAll) {}
+        return false;
+    }
+
     function getColor(key) {
         load();
         if (colors[key]) return colors[key];
@@ -334,6 +353,13 @@ var CalDoctorColors = (function () {
             ? doctorsForClinic(clinicId || (typeof currentClinicId !== 'undefined' ? currentClinicId : null))
             : [];
         docs.forEach(function (d) {
+            if (typeof isClinicalDoctorRecord === 'function' && !isClinicalDoctorRecord(d)) {
+                return;
+            }
+            if (typeof isLoginPlaceholderDoctorCode === 'function' &&
+                isLoginPlaceholderDoctorCode(d.doctor_code)) {
+                return;
+            }
             var k = doctorKeyFromDoc(d);
             if (k && !map[k]) {
                 map[k] = typeof doctorDisplayName === 'function'
@@ -348,6 +374,8 @@ var CalDoctorColors = (function () {
         var keys = Object.keys(map).sort();
         return keys.map(function (k) {
             return { key: k, label: labelForKey(k, map[k]) };
+        }).filter(function (item) {
+            return !isRedundantCalLegendKey(item.key, item.label);
         });
     }
 

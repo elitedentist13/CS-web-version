@@ -356,6 +356,22 @@ function getDoctorById(id) {
     return APP_DOCTORS.find(function(d) { return d.id === id; }) || null;
 }
 
+/** Staff login identity codes (ALL, ALL_TKO, …) — not real doctors for scheduling. */
+function isLoginPlaceholderDoctorCode(code) {
+    var c = String(code || '').trim().toLowerCase();
+    if (!c) return false;
+    if (c === 'all') return true;
+    if (/^all[_-]/.test(c)) return true;
+    return false;
+}
+
+/** True when a doctor row is a real clinician (active, has code, not a login placeholder). */
+function isClinicalDoctorRecord(d) {
+    if (!d || d.is_active === false) return false;
+    if (!String(d.doctor_code || '').trim()) return false;
+    return !isLoginPlaceholderDoctorCode(d.doctor_code);
+}
+
 /** Active doctors for one clinic (by doctors.clinic_id). */
 function doctorsForClinic(clinicId) {
     if (!clinicId) return (APP_DOCTORS || []).slice();
@@ -1995,6 +2011,12 @@ document.addEventListener('DOMContentLoaded', function() {
             if (psDrop) psDrop.style.display = 'none';
         }
 
+        var plusPsWrap = document.querySelector('.plusappt-ps-wrap');
+        if (plusPsWrap && !plusPsWrap.contains(e.target)) {
+            var plusDrop = g('plusApptPsDrop');
+            if (plusDrop) plusDrop.style.display = 'none';
+        }
+
         // close consultation patient search dropdown
         var conPsWrap = document.querySelector('.con-search-bar .ps-wrap');
         if (conPsWrap && !conPsWrap.contains(e.target)) {
@@ -2082,6 +2104,9 @@ function moduleSectionNeedsI18n(sid, el) {
             return true;
         }
         if (typeof todayAppts !== 'undefined' && todayAppts.length) return true;
+        if (typeof plusApptDayAppts !== 'undefined' && plusApptDayAppts.length) return true;
+        var plusTb = g('plusApptScheduleBody');
+        if (plusTb && plusTb.querySelector('.plusappt-slot-row')) return true;
         if (typeof arAllData !== 'undefined' && arAllData.length) return true;
         if (typeof rcDate !== 'undefined' && rcDate) return true;
         if (typeof rcSendQueue !== 'undefined' && rcSendQueue.length) return true;

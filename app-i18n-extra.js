@@ -275,6 +275,57 @@
 
         'appt.queueTab': { en: '🏥 Current Queue', 'zh-CN': '🏥 当前队列', 'zh-Hant': '🏥 目前候診' },
         'appt.todayTab': { en: '📋 Today\'s Appointments', 'zh-CN': '📋 今日预约', 'zh-Hant': '📋 今日預約' },
+        'appt.plusApptTab': { en: '➕ Appointment', 'zh-CN': '➕ 预约', 'zh-Hant': '➕ 預約' },
+        'appt.plusAppt.searchPatient': { en: 'Search patient', 'zh-CN': '搜索患者', 'zh-Hant': '搜尋病人' },
+        'appt.plusAppt.searchPatientPh': {
+            en: 'Name, patient no., phone…',
+            'zh-CN': '姓名、患者编号、电话…',
+            'zh-Hant': '姓名、病人編號、電話…'
+        },
+        'appt.plusAppt.addBtn': { en: '+ Appointment', 'zh-CN': '+ 预约', 'zh-Hant': '+ 預約' },
+        'appt.plusAppt.hint': {
+            en: 'Choose clinic and doctor. Select ALL to see two doctor columns at a time (scroll sideways). Pick a date, a time row, then + Appointment.',
+            'zh-CN': '选择诊所和医生。选「全部」可并排查看两位医生时间线（左右滑动）。选日期、时间行后点「+ 预约」。',
+            'zh-Hant': '選擇診所和醫生。選「全部」可並排查看兩位醫生時間線（左右滑動）。選日期、時間列後按「+ 預約」。'
+        },
+        'appt.plusAppt.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'appt.plusAppt.doctorTitle': {
+            en: 'Timeline for this doctor',
+            'zh-CN': '该医生的时间线',
+            'zh-Hant': '該醫生的時間線'
+        },
+        'appt.plusAppt.timelineFor': { en: 'Timeline', 'zh-CN': '时间线', 'zh-Hant': '時間線' },
+        'appt.plusAppt.pickDoctor': {
+            en: 'Select a doctor to view their timeline',
+            'zh-CN': '请选择医生以查看时间线',
+            'zh-Hant': '請選擇醫生以查看時間線'
+        },
+        'appt.plusAppt.pickDoctorFirst': {
+            en: 'Please select a doctor first.',
+            'zh-CN': '请先选择医生。',
+            'zh-Hant': '請先選擇醫生。'
+        },
+        'appt.plusAppt.allTimelines': {
+            en: 'All doctors',
+            'zh-CN': '全部医生',
+            'zh-Hant': '全部醫生'
+        },
+        'appt.plusAppt.allScrollHint': {
+            en: '{N} timelines — scroll sideways (2 visible)',
+            'zh-CN': '共{N}位医生 — 左右滑动（每次显示两列）',
+            'zh-Hant': '共{N}位醫生 — 左右滑動（每次顯示兩列）'
+        },
+        'appt.plusAppt.th.name': { en: 'Patient name', 'zh-CN': '患者姓名', 'zh-Hant': '病人姓名' },
+        'appt.plusAppt.shortcuts': { en: 'Shortcuts', 'zh-CN': '快捷', 'zh-Hant': '快捷' },
+        'appt.plusAppt.scEditPatient': { en: 'Edit patient', 'zh-CN': '编辑患者', 'zh-Hant': '編輯病人' },
+        'appt.plusAppt.scNotes': { en: 'Notes', 'zh-CN': '病历', 'zh-Hant': '病歷' },
+        'appt.plusAppt.scDrugs': { en: 'Drugs / Rx', 'zh-CN': '药物/处方', 'zh-Hant': '藥物/處方' },
+        'appt.plusAppt.scBill': { en: 'Bill', 'zh-CN': '账单', 'zh-Hant': '帳單' },
+        'appt.plusAppt.scHistory': { en: 'Appt history', 'zh-CN': '预约记录', 'zh-Hant': '預約紀錄' },
+        'appt.plusAppt.scRemarks': { en: 'Edit remarks', 'zh-CN': '编辑备注', 'zh-Hant': '編輯備註' },
+        'appt.plusAppt.scEditAppt': { en: 'Edit appointment', 'zh-CN': '编辑预约', 'zh-Hant': '編輯預約' },
+        'appt.plusAppt.moreAtSlot': { en: '+{N} at this time', 'zh-CN': '此时段共{N}个', 'zh-Hant': '此時段共{N}個' },
+        'appt.plusAppt.noSlots': { en: 'No time slots configured.', 'zh-CN': '未配置时段。', 'zh-Hant': '未設定時段。' },
         'appt.calendarTab': { en: '📅 Calendar', 'zh-CN': '📅 日历', 'zh-Hant': '📅 日曆' },
         'appt.recordsTab': { en: '📁 Appointment Records', 'zh-CN': '📁 预约记录', 'zh-Hant': '📁 預約紀錄' },
         'appt.recallTab': { en: '📞 Recall Patient', 'zh-CN': '📞 召回患者', 'zh-Hant': '📞 召回病人' },

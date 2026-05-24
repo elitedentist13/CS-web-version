@@ -7,6 +7,10 @@
 
 var BROADCAST = (function () {
 
+    if (window.__JOYFUL_BC_INST__) {
+        return window.__JOYFUL_BC_INST__;
+    }
+
     var BC_TABLE    = 'broadcast_messages';
     var BC_HISTORY  = 50;    // messages fetched on open
     var BC_MAX_FEED = 150;   // cap before trimming oldest rows
@@ -53,6 +57,12 @@ var BROADCAST = (function () {
     var _ttsResumeIv  = null;    // Chrome: keep synthesis from going silent
     var _skipTtsMsgIds = {};     // message ids sent from this tab (skip echo here only)
     var _pendingOwnSend = null;  // until insert returns, match realtime echo on sender tab
+    var _ttsSpokenIds   = {};    // each message id spoken once per tab
+    var _ttsUtterGen    = 0;     // ignore stale onend/onerror from cancelled utterances
+    var _ttsPinnedVoiceUri = null;
+    var _ttsPinnedKey      = '';   // langTag + tone — re-pick voice when tone changes
+    var _ttsRecentSig   = '';
+    var _ttsRecentAt    = 0;
     var BC_TTS_LS       = 'joyful_bc_tts_v1';
     var BC_TTS_VOICE_LS = 'joyful_bc_tts_voice_v1';
     var BC_TTS_TONE_LS  = 'joyful_bc_tts_tone_v1';
@@ -65,17 +75,29 @@ var BROADCAST = (function () {
         { key: 'cmn',  label: '普通話', langTag: 'zh-CN' }
     ];
 
-    // Character tone presets — pitch (0–2) and rate (0.1–10) via Web Speech API
+    // Character tone presets — rate/volume always apply; pitch works on Google voices only
     var TTS_TONES = [
-        { key: 'normal',  label: 'Normal',  icon: '🎙️', rate: 1.00, pitch: 1.00, vol: 0.92 },
-        { key: 'female',  label: 'Female',  icon: '👩',  rate: 1.05, pitch: 1.55, vol: 0.92 },
-        { key: 'male',    label: 'Male',    icon: '👨',  rate: 0.92, pitch: 0.62, vol: 0.92 },
-        { key: 'elder',   label: 'Elder',   icon: '👴',  rate: 0.75, pitch: 0.80, vol: 0.88 },
-        { key: 'robot',   label: 'Robot',   icon: '🤖',  rate: 0.82, pitch: 0.38, vol: 0.95 },
-        { key: 'cartoon', label: 'Cartoon', icon: '🐭',  rate: 1.45, pitch: 1.92, vol: 0.90 },
-        { key: 'beast',   label: 'Beast',   icon: '👹',  rate: 0.58, pitch: 0.18, vol: 1.00 },
-        { key: 'whisper', label: 'Whisper', icon: '🤫',  rate: 0.88, pitch: 1.15, vol: 0.28 }
+        { key: 'normal',  label: 'Normal',  icon: '🎙️', rate: 1.00, pitch: 1.00, vol: 1.00 },
+        { key: 'female',  label: 'Female',  icon: '👩',  rate: 1.10, pitch: 1.40, vol: 1.00 },
+        { key: 'male',    label: 'Male',    icon: '👨',  rate: 0.86, pitch: 0.72, vol: 1.00 },
+        { key: 'elder',   label: 'Elder',   icon: '👴',  rate: 0.62, pitch: 0.82, vol: 0.90 },
+        { key: 'robot',   label: 'Robot',   icon: '🤖',  rate: 0.74, pitch: 0.42, vol: 1.00 },
+        { key: 'cartoon', label: 'Cartoon', icon: '🐭',  rate: 1.52, pitch: 1.80, vol: 1.00 },
+        { key: 'beast',   label: 'Beast',   icon: '👹',  rate: 0.50, pitch: 0.32, vol: 1.00 },
+        { key: 'whisper', label: 'Whisper', icon: '🤫',  rate: 0.78, pitch: 1.00, vol: 0.16 }
     ];
+
+    // Pick different installed voices per tone (MS voices ignore pitch on Windows)
+    var TONE_VOICE_HINTS = {
+        female:  { prefer: [/female|woman|zira|samantha|karen|aria|jenny|susan|linda|hiugaai|xiaoxiao|xiaoyi|yunjian/i], avoid: [/male|man|david|mark|guy|hiumaan|yunxi|kangkang/i] },
+        male:    { prefer: [/male|man|david|mark|guy|ryan|george|hiumaan|yunxi|kangkang|yunyang/i], avoid: [/female|woman|zira|samantha|hiugaai|xiaoxiao/i] },
+        elder:   { prefer: [/david|mark|guy|george|hiumaan|yunxi/i], avoid: [/child|cartoon|hiugaai/i] },
+        robot:   { prefer: [/david|mark|guy|google/i], avoid: [/zira|samantha|hiugaai/i] },
+        cartoon: { prefer: [/zira|samantha|hiugaai|xiaoxiao|xiaoyi|child|google/i], avoid: [/david|mark|hiumaan|yunxi|kangkang/i] },
+        beast:   { prefer: [/david|mark|guy|hiumaan|yunxi|kangkang|george/i], avoid: [/zira|samantha|hiugaai|xiaoxiao/i] },
+        whisper: { prefer: [/zira|samantha|hiugaai|aria|jenny|xiaoxiao/i], avoid: [/david|mark|hiumaan/i] },
+        normal:  { prefer: [], avoid: [] }
+    };
 
     // ── tiny helpers ───────────────────────────────────────────
     function g(id) { return document.getElementById(id); }
@@ -366,6 +388,85 @@ var BROADCAST = (function () {
         return null;
     }
 
+    // All installed voices matching a language tag (for tone-specific picking)
+    function voicesForLang(langTag) {
+        var voices = ttsVoicesList();
+        var out    = [];
+        var seen   = {};
+        var lo     = langTag.toLowerCase();
+        var prefix = lo.split('-').slice(0, 2).join('-');
+        var langOnly = lo.split('-')[0];
+        var i, vl;
+
+        function add(v) {
+            if (!v || seen[v.voiceURI]) return;
+            seen[v.voiceURI] = true;
+            out.push(v);
+        }
+
+        for (i = 0; i < voices.length; i++) {
+            vl = voices[i].lang.toLowerCase();
+            if (vl === lo || vl.startsWith(prefix) || vl.split('-')[0] === langOnly) {
+                add(voices[i]);
+            }
+        }
+        if (!out.length && prefix === 'zh-hk') {
+            for (i = 0; i < voices.length; i++) {
+                vl = voices[i].lang.toLowerCase();
+                if (vl.startsWith('zh-tw') || vl.startsWith('zh-hant')) add(voices[i]);
+            }
+        }
+        if (!out.length) {
+            var fb = findBestVoice(langTag);
+            if (fb) add(fb);
+        }
+        return out;
+    }
+
+    function scoreVoiceForTone(voice, toneKey) {
+        var hints = TONE_VOICE_HINTS[toneKey] || TONE_VOICE_HINTS.normal;
+        var blob  = (voice.name + ' ' + voice.voiceURI).toLowerCase();
+        var score = 0;
+        var p, a;
+
+        for (p = 0; p < hints.prefer.length; p++) {
+            if (hints.prefer[p].test(blob)) score += 12;
+        }
+        for (a = 0; a < hints.avoid.length; a++) {
+            if (hints.avoid[a].test(blob)) score -= 18;
+        }
+        // Google / Chrome voices honour pitch — prefer for extreme tones
+        if (/google/i.test(blob) && (toneKey === 'cartoon' || toneKey === 'robot' || toneKey === 'beast')) {
+            score += 8;
+        }
+        if (voice.default && toneKey === 'normal') score += 4;
+        return score;
+    }
+
+    function findVoiceForTone(langTag, toneKey) {
+        if (toneKey === 'normal') return findBestVoice(langTag);
+
+        var pool = voicesForLang(langTag);
+        if (!pool.length) return findBestVoice(langTag);
+
+        var best = pool[0];
+        var bestScore = scoreVoiceForTone(best, toneKey);
+        var i, s;
+
+        for (i = 1; i < pool.length; i++) {
+            s = scoreVoiceForTone(pool[i], toneKey);
+            if (s > bestScore) {
+                bestScore = s;
+                best = pool[i];
+            }
+        }
+        return best;
+    }
+
+    function ttsPinCacheKey(langTag) {
+        return langTag + '|' + _ttsToneKey;
+    }
+
     // Strip emoji so the synthesiser doesn't stumble on pictographs
     function ttsStrip(str) {
         return String(str || '')
@@ -373,6 +474,62 @@ var BROADCAST = (function () {
             .replace(/[\u2600-\u27BF]/g, '')
             .replace(/\s{2,}/g, ' ')
             .trim();
+    }
+
+    // Walkie-talkie body only — never prefix sender; strip legacy "Name says:" / "Name講：" in text
+    function ttsMessageText(raw) {
+        var clean = ttsStrip(raw);
+        if (!clean) return '';
+        clean = clean.replace(/^.{1,120}?\s+says\s*[:：]\s*/i, '');
+        clean = clean.replace(/^.{1,120}?講\s*[:：]\s*/, '');
+        return clean.trim();
+    }
+
+    function ttsClearPinnedVoice() {
+        _ttsPinnedVoiceUri = null;
+        _ttsPinnedKey      = '';
+    }
+
+    function ttsGetPinnedVoice(langTag) {
+        var voices = ttsVoicesList();
+        var cacheKey = ttsPinCacheKey(langTag);
+        var i, v;
+
+        if (_ttsPinnedVoiceUri && _ttsPinnedKey === cacheKey && voices.length) {
+            for (i = 0; i < voices.length; i++) {
+                if (voices[i].voiceURI === _ttsPinnedVoiceUri) return voices[i];
+            }
+        }
+
+        v = findVoiceForTone(langTag, _ttsToneKey);
+        if (v) {
+            _ttsPinnedVoiceUri = v.voiceURI;
+            _ttsPinnedKey      = cacheKey;
+        }
+        return v;
+    }
+
+    function ttsMarkSpoken(msg) {
+        if (msg && msg.id) _ttsSpokenIds[msg.id] = Date.now();
+    }
+
+    function ttsAlreadySpoken(msg) {
+        if (msg && msg.id && _ttsSpokenIds[msg.id]) return true;
+        var sig = (msg && msg.id ? msg.id : '') + '|' + ttsMessageText(msg && msg.message);
+        var now = Date.now();
+        if (sig && sig === _ttsRecentSig && (now - _ttsRecentAt) < 4000) return true;
+        _ttsRecentSig = sig;
+        _ttsRecentAt  = now;
+        return false;
+    }
+
+    function ttsPruneSpokenIds() {
+        var keys = Object.keys(_ttsSpokenIds);
+        if (keys.length < 250) return;
+        keys.sort(function (a, b) { return _ttsSpokenIds[a] - _ttsSpokenIds[b]; });
+        for (var i = 0; i < keys.length - 200; i++) {
+            delete _ttsSpokenIds[keys[i]];
+        }
     }
 
     // Resolve current tone preset
@@ -385,7 +542,7 @@ var BROADCAST = (function () {
 
     function ttsApplyUtterance(utt, langTag) {
         var tone = ttsCurrentTone();
-        var foundVoice = findBestVoice(langTag);
+        var foundVoice = ttsGetPinnedVoice(langTag);
         utt.lang = langTag;
         if (foundVoice) utt.voice = foundVoice;
         utt.rate   = tone.rate;
@@ -393,11 +550,19 @@ var BROADCAST = (function () {
         utt.volume = Math.max(0.1, Math.min(1, tone.vol));
     }
 
+    function ttsFinishUtterance(gen) {
+        if (gen !== _ttsUtterGen) return;
+        _ttsSpeaking = false;
+        if (!_ttsQueue.length) ttsStopResumeWatch();
+        setTimeout(ttsFlush, 50);
+    }
+
     // Drain the queue one utterance at a time (sample + incoming messages share this path)
     function ttsFlush() {
         if (_ttsSpeaking || !_ttsQueue.length || !ttsSupported()) return;
         ttsRefreshVoices();
         var item = _ttsQueue.shift();
+        var gen  = ++_ttsUtterGen;
         var utt  = new window.SpeechSynthesisUtterance(item.text);
         ttsApplyUtterance(utt, item.lang);
         _ttsSpeaking = true;
@@ -407,20 +572,17 @@ var BROADCAST = (function () {
                 if (window.speechSynthesis.paused) window.speechSynthesis.resume();
             } catch (e) {}
         };
-        utt.onend = utt.onerror = function () {
-            _ttsSpeaking = false;
-            if (!_ttsQueue.length) ttsStopResumeWatch();
-            setTimeout(ttsFlush, 40);
+        utt.onend = function () {
+            ttsFinishUtterance(gen);
+        };
+        utt.onerror = function () {
+            ttsFinishUtterance(gen);
         };
         try {
-            if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-                window.speechSynthesis.cancel();
-            }
             window.speechSynthesis.resume();
             window.speechSynthesis.speak(utt);
         } catch (e) {
-            _ttsSpeaking = false;
-            ttsStopResumeWatch();
+            ttsFinishUtterance(gen);
         }
     }
 
@@ -437,11 +599,21 @@ var BROADCAST = (function () {
         ttsRefreshVoices();
         var langTag = ttsResolveLangTag();
         var lo = langTag.toLowerCase();
-        var sample = lo.indexOf('zh-hk') === 0 || lo === 'zh-hk'
-            ? '收到。'
-            : lo.indexOf('zh') === 0
-                ? '收到。'
-                : 'Ready.';
+        var sample = lo.indexOf('zh') === 0 ? '收到。' : 'Ready.';
+        ttsEnqueue(sample, langTag);
+    }
+
+    // Preview the active character tone (different voice + rate/volume)
+    function ttsPlayTonePreview() {
+        if (!ttsSupported() || !_ttsOn) return;
+        ttsClearPinnedVoice();
+        ttsRefreshVoices();
+        var tone    = ttsCurrentTone();
+        var langTag = ttsResolveLangTag();
+        var lo      = langTag.toLowerCase();
+        var sample  = lo.indexOf('zh') === 0
+            ? '呢個係' + tone.label + '。'
+            : 'This is ' + tone.label + '.';
         ttsEnqueue(sample, langTag);
     }
 
@@ -454,7 +626,7 @@ var BROADCAST = (function () {
             return false;
         }
         if (String(msg.sender_id || '') !== _pendingOwnSend.senderId) return false;
-        return ttsStrip(msg.message) === ttsStrip(_pendingOwnSend.text);
+        return ttsMessageText(msg.message) === ttsMessageText(_pendingOwnSend.text);
     }
 
     function markPendingOwnSend(text) {
@@ -475,12 +647,15 @@ var BROADCAST = (function () {
         setTimeout(function () { delete _skipTtsMsgIds[id]; }, 60000);
     }
 
-    // Walkie-talkie: speak message text only, in the voice language chosen in the header pill
+    // Walkie-talkie: message body only (no sender name), once per message id
     function ttsSpeak(msg) {
         if (!_ttsOn || !ttsSupported()) return;
         if (shouldSkipOwnTabTts(msg)) return;
-        var clean = ttsStrip(msg.message);
+        if (ttsAlreadySpoken(msg)) return;
+        var clean = ttsMessageText(msg.message);
         if (!clean) return;
+        ttsMarkSpoken(msg);
+        ttsPruneSpokenIds();
         ttsEnqueue(clean, ttsResolveLangTag());
     }
 
@@ -509,17 +684,20 @@ var BROADCAST = (function () {
     // Apply a tone preset choice
     function ttsSetTone(key) {
         _ttsToneKey = key;
+        ttsClearPinnedVoice();
         ttsSave();
         syncTtsControls();
         if (_ttsOn) {
             var tone = ttsCurrentTone();
             appendSystem('🎭 Tone: ' + tone.icon + ' ' + tone.label);
+            ttsPlayTonePreview();
         }
     }
 
     // Apply a voice key choice from the picker
     function ttsSetVoice(key) {
         _ttsVoiceKey = key;
+        ttsClearPinnedVoice();
         ttsSave();
         syncTtsControls();
         closeTtsPopover();
@@ -594,10 +772,19 @@ var BROADCAST = (function () {
     }
 
     // ── Supabase Realtime subscription ────────────────────────
-    function subscribeRealtime() {
-        if (typeof SB === 'undefined' || _channel) return;
+    function unsubscribeRealtime() {
+        if (!_channel || typeof SB === 'undefined') return;
+        try {
+            SB.removeChannel(_channel);
+        } catch (e) {}
+        _channel = null;
+    }
 
-        _channel = SB.channel('bc_feed_' + Date.now())
+    function subscribeRealtime() {
+        if (typeof SB === 'undefined') return;
+        if (_channel) return;
+
+        _channel = SB.channel('joyful_bc_broadcast_feed')
             .on('postgres_changes', {
                 event:  'INSERT',
                 schema: 'public',
@@ -606,7 +793,6 @@ var BROADCAST = (function () {
                 var msg = payload.new;
                 if (!msg) return;
                 var clinicId = myClinicId();
-                // filter: accept global or messages for my clinic
                 if (msg.clinic_id && msg.clinic_id !== clinicId) return;
                 appendMsg(msg, true);
                 ttsSpeak(msg);
@@ -1102,11 +1288,13 @@ var BROADCAST = (function () {
     });
 
     // ── public API ────────────────────────────────────────────
-    return {
+    var _api = {
         open:   openWindow,
         close:  closeWindow,
         toggle: toggleWindow
     };
+    window.__JOYFUL_BC_INST__ = _api;
+    return _api;
 
 })();
 

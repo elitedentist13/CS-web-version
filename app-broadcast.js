@@ -49,6 +49,10 @@ var BROADCAST = (function () {
     var _ttsToneKey   = 'normal';  // character tone preset key
     var _ttsQueue     = [];
     var _ttsSpeaking  = false;
+    var _ttsVoices    = [];      // cached after voiceschanged / warm-up
+    var _ttsResumeIv  = null;    // Chrome: keep synthesis from going silent
+    var _skipTtsMsgIds = {};     // message ids sent from this tab (skip echo here only)
+    var _pendingOwnSend = null;  // until insert returns, match realtime echo on sender tab
     var BC_TTS_LS       = 'joyful_bc_tts_v1';
     var BC_TTS_VOICE_LS = 'joyful_bc_tts_voice_v1';
     var BC_TTS_TONE_LS  = 'joyful_bc_tts_tone_v1';
@@ -252,6 +256,49 @@ var BROADCAST = (function () {
         return !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
     }
 
+    // Refresh installed voice list (getVoices() is empty until voiceschanged on many browsers)
+    function ttsRefreshVoices() {
+        if (!ttsSupported()) return;
+        try {
+            var list = window.speechSynthesis.getVoices();
+            if (list && list.length) _ttsVoices = list;
+        } catch (e) {}
+    }
+
+    function ttsVoicesList() {
+        if (_ttsVoices.length) return _ttsVoices;
+        ttsRefreshVoices();
+        return _ttsVoices;
+    }
+
+    function ttsBindVoices() {
+        if (!ttsSupported() || window._bcTtsVoicesBound) return;
+        window._bcTtsVoicesBound = true;
+        ttsRefreshVoices();
+        window.speechSynthesis.onvoiceschanged = ttsRefreshVoices;
+        // Safari / older Chrome sometimes need a delayed second read
+        setTimeout(ttsRefreshVoices, 120);
+        setTimeout(ttsRefreshVoices, 600);
+    }
+
+    // Chrome pauses the synthesis queue after ~15s; resume while speaking
+    function ttsStartResumeWatch() {
+        if (_ttsResumeIv || !ttsSupported()) return;
+        _ttsResumeIv = setInterval(function () {
+            if (!_ttsSpeaking) return;
+            try {
+                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+            } catch (e) {}
+        }, 250);
+    }
+
+    function ttsStopResumeWatch() {
+        if (_ttsResumeIv) {
+            clearInterval(_ttsResumeIv);
+            _ttsResumeIv = null;
+        }
+    }
+
     // Load saved preferences
     function ttsLoad() {
         try {
@@ -286,10 +333,11 @@ var BROADCAST = (function () {
     // Find the best installed SpeechSynthesisVoice for a given BCP-47 tag
     function findBestVoice(langTag) {
         if (!ttsSupported()) return null;
-        var voices = window.speechSynthesis.getVoices();
+        var voices = ttsVoicesList();
         if (!voices || !voices.length) return null;
         var lo     = langTag.toLowerCase();
         var prefix = lo.split('-').slice(0, 2).join('-');
+        var langOnly = lo.split('-')[0];
         // 1. Exact match
         for (var i = 0; i < voices.length; i++) {
             if (voices[i].lang.toLowerCase() === lo) return voices[i];
@@ -304,6 +352,16 @@ var BROADCAST = (function () {
                 var vl = voices[k].lang.toLowerCase();
                 if (vl.startsWith('zh-tw') || vl.startsWith('zh-hant')) return voices[k];
             }
+        }
+        // Auto only: same language family, then system default (explicit EN/粵語/普通話 stay strict)
+        if (_ttsVoiceKey === 'auto') {
+            for (var m = 0; m < voices.length; m++) {
+                if (voices[m].lang.toLowerCase().split('-')[0] === langOnly) return voices[m];
+            }
+            for (var d = 0; d < voices.length; d++) {
+                if (voices[d].default) return voices[d];
+            }
+            return voices[0];
         }
         return null;
     }
@@ -325,39 +383,105 @@ var BROADCAST = (function () {
         return TTS_TONES[0];
     }
 
-    // Drain the queue one utterance at a time
-    function ttsFlush() {
-        if (_ttsSpeaking || !_ttsQueue.length || !ttsSupported()) return;
-        var item  = _ttsQueue.shift();
-        var tone  = ttsCurrentTone();
-        var utt   = new window.SpeechSynthesisUtterance(item.text);
-        var foundVoice = findBestVoice(item.lang);
+    function ttsApplyUtterance(utt, langTag) {
+        var tone = ttsCurrentTone();
+        var foundVoice = findBestVoice(langTag);
+        utt.lang = langTag;
         if (foundVoice) utt.voice = foundVoice;
-        utt.lang   = item.lang;
         utt.rate   = tone.rate;
-        utt.pitch  = tone.pitch;
-        utt.volume = tone.vol;
-        _ttsSpeaking = true;
-        utt.onend = utt.onerror = function () {
-            _ttsSpeaking = false;
-            ttsFlush();
-        };
-        window.speechSynthesis.speak(utt);
+        utt.pitch  = Math.max(0.1, Math.min(2, tone.pitch));
+        utt.volume = Math.max(0.1, Math.min(1, tone.vol));
     }
 
-    // Enqueue one incoming message for reading
+    // Drain the queue one utterance at a time (sample + incoming messages share this path)
+    function ttsFlush() {
+        if (_ttsSpeaking || !_ttsQueue.length || !ttsSupported()) return;
+        ttsRefreshVoices();
+        var item = _ttsQueue.shift();
+        var utt  = new window.SpeechSynthesisUtterance(item.text);
+        ttsApplyUtterance(utt, item.lang);
+        _ttsSpeaking = true;
+        ttsStartResumeWatch();
+        utt.onstart = function () {
+            try {
+                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+            } catch (e) {}
+        };
+        utt.onend = utt.onerror = function () {
+            _ttsSpeaking = false;
+            if (!_ttsQueue.length) ttsStopResumeWatch();
+            setTimeout(ttsFlush, 40);
+        };
+        try {
+            if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+                window.speechSynthesis.cancel();
+            }
+            window.speechSynthesis.resume();
+            window.speechSynthesis.speak(utt);
+        } catch (e) {
+            _ttsSpeaking = false;
+            ttsStopResumeWatch();
+        }
+    }
+
+    function ttsEnqueue(text, langTag) {
+        if (!text) return;
+        _ttsQueue.push({ text: text, lang: langTag });
+        while (_ttsQueue.length > 6) _ttsQueue.shift();
+        ttsFlush();
+    }
+
+    // Short sample when enabling TTS — same voice/language as incoming messages
+    function ttsPlaySample() {
+        if (!ttsSupported() || !_ttsOn) return;
+        ttsRefreshVoices();
+        var langTag = ttsResolveLangTag();
+        var lo = langTag.toLowerCase();
+        var sample = lo.indexOf('zh-hk') === 0 || lo === 'zh-hk'
+            ? '收到。'
+            : lo.indexOf('zh') === 0
+                ? '收到。'
+                : 'Ready.';
+        ttsEnqueue(sample, langTag);
+    }
+
+    // Skip TTS only for this tab's own send echo, not other devices/tabs with the same login
+    function shouldSkipOwnTabTts(msg) {
+        if (msg.id && _skipTtsMsgIds[msg.id]) return true;
+        if (!_pendingOwnSend) return false;
+        if (Date.now() - _pendingOwnSend.at > 15000) {
+            _pendingOwnSend = null;
+            return false;
+        }
+        if (String(msg.sender_id || '') !== _pendingOwnSend.senderId) return false;
+        return ttsStrip(msg.message) === ttsStrip(_pendingOwnSend.text);
+    }
+
+    function markPendingOwnSend(text) {
+        _pendingOwnSend = {
+            text:     text,
+            senderId: String(myUserId()),
+            at:       Date.now()
+        };
+    }
+
+    function clearPendingOwnSend() {
+        _pendingOwnSend = null;
+    }
+
+    function registerSkipTtsId(id) {
+        if (!id) return;
+        _skipTtsMsgIds[id] = true;
+        setTimeout(function () { delete _skipTtsMsgIds[id]; }, 60000);
+    }
+
+    // Walkie-talkie: speak message text only, in the voice language chosen in the header pill
     function ttsSpeak(msg) {
         if (!_ttsOn || !ttsSupported()) return;
-        if (msg.sender_id && msg.sender_id === String(myUserId())) return;
+        if (shouldSkipOwnTabTts(msg)) return;
         var clean = ttsStrip(msg.message);
         if (!clean) return;
-        var langTag = ttsResolveLangTag();
-        // Use a natural connector in the target language
-        var says = langTag.startsWith('zh') ? '講：' : ' says: ';
-        var text = (ttsStrip(msg.sender_name) || 'Someone') + says + clean;
-        _ttsQueue.push({ text: text, lang: langTag });
-        while (_ttsQueue.length > 4) _ttsQueue.shift();
-        ttsFlush();
+        ttsEnqueue(clean, ttsResolveLangTag());
     }
 
     // Toggle TTS on/off
@@ -369,15 +493,17 @@ var BROADCAST = (function () {
         _ttsOn = !_ttsOn;
         ttsSave();
         if (!_ttsOn) {
-            window.speechSynthesis.cancel();
+            try { window.speechSynthesis.cancel(); } catch (e2) {}
             _ttsQueue    = [];
             _ttsSpeaking = false;
+            ttsStopResumeWatch();
             closeTtsPopover();
         }
         syncTtsControls();
         appendSystem(_ttsOn
             ? '🔊 Voice reading enabled.'
             : '🔇 Voice reading disabled.');
+        if (_ttsOn) ttsPlaySample();
     }
 
     // Apply a tone preset choice
@@ -568,12 +694,17 @@ var BROADCAST = (function () {
 
         var btn = g('bcSendBtn');
         if (btn) btn.disabled = true;
+        markPendingOwnSend(text);
 
-        SB.from(BC_TABLE).insert([payload]).then(function (res) {
+        SB.from(BC_TABLE).insert([payload]).select('id').then(function (res) {
             if (btn) btn.disabled = false;
+            clearPendingOwnSend();
             if (res.error) {
                 appendSystem('⚠ Send failed: ' + res.error.message);
                 return;
+            }
+            if (res.data && res.data[0] && res.data[0].id) {
+                registerSkipTtsId(res.data[0].id);
             }
             inp.value = '';
             inp.style.height = '';
@@ -739,12 +870,12 @@ var BROADCAST = (function () {
                 '<span class="bc-voice-flag">' + (flagMap[vo.key] || '') + '</span>' +
                 '<span class="bc-voice-name">' + vo.label + '</span>' +
                 (vo.key === 'auto'
-                    ? '<span class="bc-voice-hint">follows app language</span>'
+                    ? '<span class="bc-voice-hint">follows app UI language</span>'
                     : vo.key === 'en'
-                        ? '<span class="bc-voice-hint">English</span>'
+                        ? '<span class="bc-voice-hint">English voice only</span>'
                         : vo.key === 'yue'
-                            ? '<span class="bc-voice-hint">廣東話 · zh-HK</span>'
-                            : '<span class="bc-voice-hint">普通話 · zh-CN</span>');
+                            ? '<span class="bc-voice-hint">廣東話 voice only</span>'
+                            : '<span class="bc-voice-hint">普通話 voice only</span>');
             opt.addEventListener('click', function (e) {
                 e.stopPropagation();
                 ttsSetVoice(vo.key);
@@ -955,6 +1086,7 @@ var BROADCAST = (function () {
     // ── init ──────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
         ttsLoad();
+        ttsBindVoices();
         setTimeout(function () {
             buildAll();
             syncTtsControls();

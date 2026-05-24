@@ -325,6 +325,61 @@ body.app-session-active {
     box-shadow: 0 8px 30px rgba(0,0,0,0.2);
 }
 
+/* ── Login banana logo ──────────────────────────────────────── */
+.login-banana-logo {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 14px;
+}
+.login-banana-circle {
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 38%, #fff7c0 0%, #ffe135 55%, #f0b800 100%);
+    box-shadow:
+        0 4px 18px rgba(240, 185, 0, 0.55),
+        0 0 0 4px rgba(255, 225, 53, 0.22);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 38px;
+    line-height: 1;
+    animation: login-banana-float 3s ease-in-out infinite;
+    filter: drop-shadow(0 2px 6px rgba(180,130,0,.25));
+    cursor: default;
+    user-select: none;
+}
+@keyframes login-banana-float {
+    0%   { transform: translateY(0)    rotate(-4deg); }
+    40%  { transform: translateY(-6px) rotate(3deg);  }
+    70%  { transform: translateY(-3px) rotate(-2deg); }
+    100% { transform: translateY(0)    rotate(-4deg); }
+}
+
+/* software name tagline under clinic title */
+.login-software-name {
+    margin: -10px 0 22px;
+    text-align: center;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #92610a;
+}
+.login-software-name .banana-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 12px 3px 9px;
+    background: #fffbea;
+    border: 1.5px solid #fcd34d;
+    border-radius: 999px;
+    color: #92610a;
+    font-weight: 800;
+    font-size: 12.5px;
+    text-shadow: none;
+    letter-spacing: 0.03em;
+}
+
 .login-box h2 {
     margin: 0 0 24px;
     text-align: center;
@@ -2073,6 +2128,20 @@ tr:hover td { background: #fafcff; }
     box-shadow: inset 0 -3px 0 var(--primary);
 }
 
+/* Billed / paid rows stay in queue with tinted background */
+.queue-wrap tr.queue-row-billed td {
+    background: #dbeafe !important;
+}
+.queue-wrap tr.queue-row-billed:hover td {
+    background: #bfdbfe !important;
+}
+.queue-wrap tr.queue-row-paid td {
+    background: #d1fae5 !important;
+}
+.queue-wrap tr.queue-row-paid:hover td {
+    background: #a7f3d0 !important;
+}
+
 /* Current queue — remarks column (~2× prior voucher width) */
 .queue-wrap .appt-tbl.queue-tbl {
     min-width: 920px;
@@ -3332,13 +3401,130 @@ tr:hover td { background: #fafcff; }
 .receipt-meta {
     display: flex;
     justify-content: space-between;
-    font-size: 26px;
+    align-items: flex-start;
+    font-size: 13px;
     margin-bottom: 14px;
     line-height: 1.35;
+    gap: 14px;
+}
+
+.receipt-meta.receipt-meta-rows {
+    flex-wrap: wrap;
+}
+
+@media (min-width: 440px) {
+    .receipt-meta.receipt-meta-rows {
+        flex-wrap: nowrap;
+    }
+    .receipt-meta-left-stack {
+        max-width: 72%;
+    }
 }
 
 .receipt-meta-col strong {
-    font-size: 26px;
+    font-size: 13px;
+}
+
+.receipt-meta-col {
+    min-width: 0;
+}
+
+/* Left: receipt #, doctor, patient #, names, bill type */
+.receipt-meta-left-stack {
+    flex: 1;
+    max-width: 100%;
+    min-width: 200px;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border-left: 3px solid var(--primary);
+    background: #f8fafc;
+}
+
+/* Right column: date only */
+.receipt-meta-date-only {
+    flex: 0 0 auto;
+    text-align: right;
+    align-self: flex-start;
+    padding: 10px 0 0;
+}
+
+.receipt-meta-date-only .receipt-kv-row {
+    justify-content: flex-end;
+}
+
+.receipt-meta-spacer {
+    height: 14px;
+    margin: 4px 0 10px;
+    flex-shrink: 0;
+    border-bottom: none;
+}
+
+.receipt-kv-row.receipt-kv-patient-names .receipt-kv-val {
+    font-weight: 700;
+}
+
+.receipt-patient-en-line {
+    font-weight: 700;
+}
+
+.receipt-patient-zh-line {
+    font-weight: 700;
+}
+
+.receipt-kv-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.receipt-kv-row:last-child {
+    margin-bottom: 0;
+}
+
+.receipt-kv-label {
+    flex-shrink: 0;
+    color: #64748b;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.receipt-kv-val {
+    text-align: right;
+    flex: 1;
+    font-weight: 600;
+    color: #111827;
+    word-break: break-word;
+}
+
+.receipt-meta-left-stack .receipt-kv-val {
+    text-align: left;
+}
+
+.receipt-meta-left-stack .receipt-kv-row {
+    justify-content: flex-start;
+}
+
+.receipt-meta-left-stack .receipt-kv-label {
+    min-width: 7.5em;
+}
+
+.receipt-meta-date-only .receipt-kv-val {
+    text-align: right;
+    flex: 0 1 auto;
+    min-width: 5rem;
+}
+
+.receipt-meta-date-only .receipt-kv-label {
+    margin-left: 0;
+}
+
+.receipt-kv-monospace {
+    font-family: ui-monospace, "Cascadia Code", "Courier New", monospace;
+    letter-spacing: 0.02em;
 }
 
 .receipt-meta-col-right {
@@ -3401,7 +3587,7 @@ tr:hover td { background: #fafcff; }
     margin: 2px auto 10px;
     max-width: 280px;
     text-align: center;
-    padding-top: 12em;
+    padding-top: 48px;
 }
 
 .receipt-sign-line {
@@ -3432,6 +3618,8 @@ tr:hover td { background: #fafcff; }
         height: auto !important;
         background: #fff !important;
         overflow: visible !important;
+        print-color-adjust: economy;
+        -webkit-print-color-adjust: economy;
     }
     #receiptModal .modal-box {
         position: static !important;
@@ -3567,6 +3755,26 @@ tr:hover td { background: #fafcff; }
     align-items: center;
     flex-wrap: wrap;
 }
+.con-banner-banana-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 13px;
+    opacity: 0.95;
+}
+.con-banner-banana-label {
+    font-weight: 600;
+    white-space: nowrap;
+}
+.con-banner-bananas {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    font-size: 15px;
+    line-height: 1;
+    letter-spacing: -1px;
+}
 .con-banner-sex-wrap {
     display: inline-flex;
     align-items: center;
@@ -3579,6 +3787,60 @@ tr:hover td { background: #fafcff; }
     padding: 8px 14px;
     font-size: 13px;
     max-width: 280px;
+}
+.con-banner-balance-wrap strong {
+    font-weight: 700;
+}
+.con-banner-balance-wrap.con-banner-ar-owing strong {
+    color: #fef08a;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* ── AR-owing button inside the patient banner ──────────── */
+.con-banner-balance-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 16px 5px 12px;
+    border-radius: 999px;        /* pill shape */
+    border: 2px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    background: #e11d48;         /* sharp red */
+    box-shadow: 0 2px 8px rgba(225, 29, 72, 0.45);
+    transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+    white-space: nowrap;
+    vertical-align: middle;
+    line-height: 1.3;
+}
+.con-banner-balance-btn:hover,
+.con-banner-balance-btn:focus-visible {
+    background: #be123c;
+    box-shadow: 0 4px 14px rgba(190, 18, 60, 0.55);
+    transform: scale(1.05);
+    outline: none;
+}
+.con-banner-balance-btn:active {
+    transform: scale(0.98);
+}
+.con-banner-balance-btn strong {
+    font-weight: 700;
+    color: #fff;
+    font-size: 13px;
+}
+/* Zero-balance state: subtle ghost, non-interactive */
+.con-banner-balance-btn.con-banner-paid {
+    background: rgba(255, 255, 255, 0.18);
+    box-shadow: none;
+    border-color: rgba(255, 255, 255, 0.35);
+    cursor: default;
+    pointer-events: none;
+}
+.con-banner-balance-btn.con-banner-paid strong {
+    color: rgba(255, 255, 255, 0.85);
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -5963,6 +6225,7 @@ tr:hover td { background: #fafcff; }
     border: 1px solid #e2e8f0; border-radius: 10px;
     overflow: hidden; background: #fff;
     position: relative;
+    z-index: 600;
     box-shadow: 0 2px 8px rgba(0,0,0,.06);
 }
 .gcal-head {
@@ -6120,20 +6383,24 @@ tr:hover td { background: #fafcff; }
     position: absolute;
     left: 0;
     right: 0;
-    height: 9px;
+    height: 12px;
     cursor: ns-resize;
-    z-index: 5;
+    z-index: 8;
+    pointer-events: auto;
+    touch-action: none;
 }
 .gcal-card-resize-bottom {
-    bottom: 0;
-    background: linear-gradient(to top, rgba(30,41,59,.16), rgba(30,41,59,0));
+    bottom: -2px;
+    background: linear-gradient(to top, rgba(30,41,59,.22), rgba(30,41,59,0));
 }
 .gcal-card-resize-top {
-    top: 0;
-    background: linear-gradient(to bottom, rgba(30,41,59,.16), rgba(30,41,59,0));
+    top: -2px;
+    background: linear-gradient(to bottom, rgba(30,41,59,.22), rgba(30,41,59,0));
 }
 .gcal-card.resizing {
     box-shadow: 0 8px 20px rgba(0,0,0,.25);
+    z-index: 12;
+    touch-action: none;
 }
 .gcal-card.gcal-card-locked .gcal-card-resize-handle {
     display: none;
@@ -6166,7 +6433,7 @@ tr:hover td { background: #fafcff; }
 .gcal-now-line {
     position: absolute; left: 0; right: 0;
     height: 2px; background: #ef4444;
-    z-index: 10; pointer-events: none;
+    z-index: 1; pointer-events: none !important;
 }
 .gcal-now-line::before {
     content: ''; position: absolute;
@@ -6456,5 +6723,179 @@ tr:hover td { background: #fafcff; }
   gap: 10px;
   padding: 14px 20px;
   border-top: 1px solid #eee;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   GLOBAL QUICK-LAUNCH DOCK
+════════════════════════════════════════════════════════════════ */
+#appQuickLaunch {
+    position: fixed;
+    bottom: 22px;
+    left: 18px;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    pointer-events: none;
+}
+/* On top while hovered / clicked so the dock stays clickable */
+#appQuickLaunch.ql-elevated {
+    z-index: 10000;
+    pointer-events: auto;
+}
+
+/* ── Toggle pill button ────────────────────────────────────── */
+.ql-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    background: linear-gradient(135deg, #ffe135 0%, #f5c200 60%, #e6a800 100%);
+    color: #5a3e00;
+    border: 2.5px solid #d4a000;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    box-shadow: 0 4px 16px rgba(220, 160, 0, 0.45), 0 1px 0 #fff6 inset;
+    transition: background 0.15s, box-shadow 0.15s, transform 0.15s, padding 0.15s;
+    user-select: none;
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+    pointer-events: auto;
+}
+#appQuickLaunch.ql-elevated .ql-toggle-btn {
+    padding: 7px 18px 7px 12px;
+}
+.ql-toggle-label {
+    display: none;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 0.15s ease, max-width 0.15s ease;
+}
+#appQuickLaunch.ql-elevated .ql-toggle-label {
+    display: inline;
+    max-width: 12rem;
+    opacity: 1;
+}
+.ql-toggle-btn:hover {
+    background: linear-gradient(135deg, #ffe94d 0%, #ffd000 60%, #e69800 100%);
+    box-shadow: 0 6px 22px rgba(220, 150, 0, 0.58), 0 1px 0 #fff6 inset;
+    transform: scale(1.07) rotate(-3deg);
+    border-color: #c89000;
+}
+.ql-toggle-btn:active { transform: scale(0.95) rotate(2deg); }
+.ql-toggle-icon {
+    font-size: 20px;
+    display: inline-block;
+    transition: transform 0.35s cubic-bezier(.34,1.56,.64,1), filter 0.2s;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.18));
+    transform-origin: bottom center;
+}
+#appQuickLaunch.ql-open .ql-toggle-icon {
+    transform: rotate(-20deg) scale(1.15);
+    filter: drop-shadow(0 2px 6px rgba(220,160,0,.5));
+}
+@keyframes ql-banana-wiggle {
+    0%   { transform: rotate(0deg); }
+    20%  { transform: rotate(-12deg) scale(1.1); }
+    40%  { transform: rotate(10deg) scale(1.05); }
+    60%  { transform: rotate(-8deg); }
+    80%  { transform: rotate(6deg); }
+    100% { transform: rotate(0deg); }
+}
+.ql-toggle-btn:hover .ql-toggle-icon {
+    animation: ql-banana-wiggle 0.5s ease;
+}
+
+/* ── Menu list ─────────────────────────────────────────────── */
+.ql-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+}
+#appQuickLaunch.ql-open.ql-elevated .ql-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    pointer-events: all;
+}
+
+/* ── Individual action buttons ─────────────────────────────── */
+.ql-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 14px 8px 11px;
+    background: #fff;
+    color: #1e3a5f;
+    border: 1.5px solid #dbeafe;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(0, 60, 160, 0.12);
+    transition: background 0.12s, border-color 0.12s, transform 0.1s, box-shadow 0.12s;
+    text-align: left;
+    user-select: none;
+}
+.ql-item:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    box-shadow: 0 4px 14px rgba(0, 80, 200, 0.18);
+    transform: translateX(3px);
+}
+.ql-item:active { transform: translateX(1px) scale(0.98); }
+.ql-item-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+}
+.ql-item-label { flex: 1; }
+.ql-item-kbd {
+    font-size: 10px;
+    font-weight: 600;
+    color: #94a3b8;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: Consolas, monospace;
+    flex-shrink: 0;
+    letter-spacing: 0.01em;
+}
+.ql-item.ql-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.ql-separator {
+    height: 1px;
+    background: #e2e8f0;
+    margin: 2px 0;
+    border-radius: 1px;
+}
+body.ql-hidden #appQuickLaunch {
+    display: none !important;
+}
+
+/* ── Banana brand word highlight ───────────────────────────── */
+.banana-brand {
+    color: #ffe135;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    text-shadow: 0 1px 3px rgba(0,0,0,.35), 0 0 8px rgba(255,210,0,.4);
 }
 

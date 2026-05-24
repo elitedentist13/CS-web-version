@@ -216,8 +216,18 @@ function syncApptPlannerDate(iso, opts) {
 function refreshApptPlannerData() {
     if (!apptSectionIsActive()) return;
     if (!plusApptDate) plusApptDate = todayISO();
-    if (typeof loadPlusApptDay === 'function') loadPlusApptDay();
-    if (typeof renderCal === 'function') renderCal();
+    var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
+    if (tab === 'plusappt' && typeof loadPlusApptDay === 'function') {
+        loadPlusApptDay();
+    }
+    if (tab === 'calendar' && typeof renderCal === 'function') {
+        if (typeof GCAL !== 'undefined' && GCAL.isInteractionActive && GCAL.isInteractionActive()) {
+            return;
+        }
+        renderCal();
+    } else if (!tab && typeof renderCal === 'function') {
+        renderCal();
+    }
 }
 
 function reloadApptModuleData() {
@@ -280,7 +290,6 @@ function initAppt() {
     bindQueueRemarksModalOnce();
     bindPlusApptTabOnce();
     switchApptTab('queue');
-    restartApptAutoRefresh();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1349,8 +1358,8 @@ function initPlusApptTab() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// AUTO REFRESH — reception + surgery on same data (no manual refresh)
-// Interval from Configuration → Program Settings → "Queue Refresh (sec)".
+// AUTO REFRESH — disabled (periodic reload disturbed data entry).
+// Manual refresh buttons and tab-switch loads still apply.
 // ════════════════════════════════════════════════════════════════
 var apptAutoRefreshTimer = null;
 var DEFAULT_QUEUE_REFRESH_MS = 30000;
@@ -1406,12 +1415,9 @@ function fetchQueueRefreshIntervalMs(done) {
         });
 }
 
-/** Call from initAppt and after saving Program Settings (Configuration). */
+/** No-op: auto-refresh disabled. Clears any legacy timer if present. */
 function restartApptAutoRefresh() {
     stopApptAutoRefresh();
-    fetchQueueRefreshIntervalMs(function(ms) {
-        apptAutoRefreshTimer = setInterval(apptAutoRefreshTick, ms);
-    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3546,8 +3552,8 @@ function loadQueue() {
         'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
 
     var qq = SB.from('appointments').select('*')
-        .eq('date',        todayISO())
-        .eq('bill_status', 'Queue')
+        .eq('date', todayISO())
+        .not('in_queue', 'is', null)
         .order('in_queue',   {ascending: true})
         .order('start_time', {ascending: true});
     qq = applyApptModuleClinicQuery(qq);
@@ -3598,6 +3604,8 @@ function buildQueueRow(tb, q, seqNo) {
 
     row.dataset.apptId = q.id;
     row.classList.add('queue-row-draggable');
+    if (q.bill_status === 'Billed') row.classList.add('queue-row-billed');
+    else if (q.bill_status === 'Paid') row.classList.add('queue-row-paid');
     row.draggable = true;
     row.title = tr('appt.queue.dragTitle');
 
@@ -4412,6 +4420,8 @@ var GCAL = (function () {
     // ── Drag & Drop (supports cross-day) ────────────────────────
     function attachDrag(card, appt) {
         card.addEventListener('mousedown', function (e) {
+            if (dragState) return;
+            if (typeof window.PointerEvent !== 'undefined') return;
             if (e.button !== 0) return;
             if (e.target.closest && e.target.closest('.gcal-card-lock')) return;
             if (e.target.closest && e.target.closest('.gcal-card-resize-handle')) return;
@@ -4459,6 +4469,57 @@ var GCAL = (function () {
             document.addEventListener('mousemove', onDragMove);
             document.addEventListener('mouseup',   onDragEnd);
         });
+        card.addEventListener('pointerdown', function (e) {
+            if (dragState) return;
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.closest && e.target.closest('.gcal-card-lock')) return;
+            if (e.target.closest && e.target.closest('.gcal-card-resize-handle')) return;
+            if (isApptScheduleLocked(appt)) return;
+            e.preventDefault(); e.stopPropagation();
+
+            var cr = card.getBoundingClientRect();
+
+            var proxy = document.createElement('div');
+            proxy.innerHTML = card.innerHTML;
+            proxy.style.cssText =
+                'position:fixed;z-index:9999;pointer-events:none;margin:0;' +
+                'width:' + cr.width + 'px;height:' + cr.height + 'px;' +
+                'left:' + cr.left + 'px;top:' + cr.top + 'px;' +
+                'opacity:.9;cursor:grabbing;transition:none;' +
+                'box-shadow:0 8px 24px rgba(0,0,0,.28);' +
+                'border-left:3px solid ' + card.style.borderLeftColor + ';' +
+                'background:' + card.style.background + ';' +
+                'border-radius:6px;padding:4px 7px;font-size:11px;' +
+                'line-height:1.4;overflow:hidden;box-sizing:border-box;color:#1e293b;';
+            document.body.appendChild(proxy);
+
+            card.style.opacity = '0.2';
+
+            dragState = {
+                appt:       appt,
+                card:       card,
+                proxy:      proxy,
+                startX:     e.clientX,
+                startY:     e.clientY,
+                origLeft:   cr.left,
+                origTop2:   cr.top,
+                origTop:    parseInt(card.style.top, 10) || 0,
+                origDate:   appt.date,
+                origTime:   appt.start_time,
+                origEnd:    appt.end_time,
+                curDate:    appt.date,
+                curTime:    appt.start_time,
+                curSlotTop: parseInt(card.style.top, 10) || 0,
+                cardH:      cr.height,
+                ghostCol:   null
+            };
+
+            if (card.setPointerCapture && e.pointerId != null) {
+                try { card.setPointerCapture(e.pointerId); } catch (_) {}
+            }
+            document.addEventListener('pointermove', onDragMove);
+            document.addEventListener('pointerup',   onDragEnd);
+        });
     }
 
     function setCardTimeInfo(card, startT, endT) {
@@ -4485,7 +4546,9 @@ var GCAL = (function () {
         var topHandle = ensureHandle('gcal-card-resize-top', 'top');
 
         function onResizeStart(e) {
-            if (e.button !== 0) return;
+            if (resizeState) return;
+            if (e.type === 'mousedown' && typeof window.PointerEvent !== 'undefined') return;
+            if (e.button !== undefined && e.button !== 0) return;
             if (isApptScheduleLocked(appt)) return;
             e.preventDefault();
             e.stopPropagation();
@@ -4505,11 +4568,18 @@ var GCAL = (function () {
                 curEnd: appt.end_time
             };
             card.classList.add('resizing');
+            if (e.currentTarget && e.currentTarget.setPointerCapture && e.pointerId != null) {
+                try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+            }
             document.addEventListener('mousemove', onResizeMove);
             document.addEventListener('mouseup', onResizeEnd);
+            document.addEventListener('pointermove', onResizeMove);
+            document.addEventListener('pointerup', onResizeEnd);
         }
         bottomHandle.addEventListener('mousedown', onResizeStart);
         topHandle.addEventListener('mousedown', onResizeStart);
+        bottomHandle.addEventListener('pointerdown', onResizeStart);
+        topHandle.addEventListener('pointerdown', onResizeStart);
     }
 
     function onResizeMove(e) {
@@ -4560,10 +4630,12 @@ var GCAL = (function () {
         setCardTimeInfo(rs.card, rs.curStart, rs.curEnd);
     }
 
-    function onResizeEnd() {
+    function onResizeEnd(e) {
         if (!resizeState) return;
         document.removeEventListener('mousemove', onResizeMove);
         document.removeEventListener('mouseup', onResizeEnd);
+        document.removeEventListener('pointermove', onResizeMove);
+        document.removeEventListener('pointerup', onResizeEnd);
         var rs = resizeState;
         resizeState = null;
         rs.card.classList.remove('resizing');
@@ -4650,6 +4722,8 @@ var GCAL = (function () {
         if (!dragState) return;
         document.removeEventListener('mousemove', onDragMove);
         document.removeEventListener('mouseup',   onDragEnd);
+        document.removeEventListener('pointermove', onDragMove);
+        document.removeEventListener('pointerup',   onDragEnd);
 
         var ds = dragState;
         dragState = null;
@@ -4705,7 +4779,16 @@ var GCAL = (function () {
         var line = document.createElement('div');
         line.className = 'gcal-now-line';
         line.style.top = ((nowMin - S.startHour * 60) / S.interval * S.slotH) + 'px';
-        col.appendChild(line);
+        line.style.pointerEvents = 'none';
+        line.style.zIndex = '1';
+        line.setAttribute('aria-hidden', 'true');
+        var firstCard = col.querySelector('.gcal-card');
+        if (firstCard) col.insertBefore(line, firstCard);
+        else col.appendChild(line);
+    }
+
+    function isInteractionActive() {
+        return !!(dragState || resizeState);
     }
 
     // ── Settings panel ────────────────────────────────────────────
@@ -5068,6 +5151,7 @@ var GCAL = (function () {
         miniCalNext:            miniCalNext,
         jumpToDate:             jumpToDate,
         goToday:                goToday,
+        isInteractionActive:    isInteractionActive,
         captureGcalPanelState:  captureGcalPanelState,
         restoreGcalPanelState:  restoreGcalPanelState,
         refreshGcalPanelsI18n:  refreshGcalPanelsI18n
@@ -5372,16 +5456,10 @@ function stopBillPendingAutoRefresh() {
 
 function startBillPendingAutoRefresh() {
     stopBillPendingAutoRefresh();
-    fetchBillPendingRefreshIntervalMs(function(ms) {
-        billPendingRefreshTimer = setInterval(function() {
-            refreshBillPanelLists({ manual: false });
-        }, ms);
-    });
 }
 
 function restartBillPendingAutoRefresh() {
-    if (billPanelIsOpen()) startBillPendingAutoRefresh();
-    else stopBillPendingAutoRefresh();
+    stopBillPendingAutoRefresh();
 }
 
 function fetchBillPendingRefreshIntervalMs(done) {
@@ -5420,8 +5498,6 @@ function refreshBillPanelLists(opts) {
     billPendingRefreshState = 'loading';
     renderBillPendingRefreshMeta();
 
-    if (manual) loadBillHistory();
-
     var done = function(ok) {
         if (ok === false) {
             billPendingRefreshBusy = false;
@@ -5433,9 +5509,11 @@ function refreshBillPanelLists(opts) {
     };
 
     if (billStep2IsVisible()) {
+        if (manual) loadBillHistory();
         renderStep2(done);
     } else {
-        loadPendingLists(done);
+        // Step 1: refresh saved bill history only — keep item picker / draft list intact
+        loadBillHistory(done);
     }
 }
 
@@ -6252,6 +6330,7 @@ function saveBill(doPrint) {
         apptChain.then(function() {
             if (billApptId) loadQueue();
             loadBillHistory();
+            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
             if (doPrint)  showReceipt(payload, r.data, null, true);
             if (!doPrint) alert(tr('bill.alert.savedOk'));
         });
@@ -6503,7 +6582,7 @@ function loadBillHistory(cb) {
 
 function refreshBillHistory() {
     if (!billPatId && (!billPatNo || billPatNo === '-') && !billApptId) return;
-    refreshBillPanelNow();
+    loadBillHistory();
 }
 
 function renderBillHistoryRows(wrap, data) {
@@ -6990,6 +7069,7 @@ function confirmAddPayment() {
 
             loadBillPayments(bdCurrentBill.id);
             loadBillHistory();
+            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
         });
     });
 }
@@ -7045,6 +7125,7 @@ function deletePaymentRecord(p) {
 
                 loadBillPayments(p.bill_id);
                 loadBillHistory();
+                try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
             }
         });
     });
@@ -7052,31 +7133,92 @@ function deletePaymentRecord(p) {
 
 var _receiptPrintInProgress = false;
 
-/** CSS embedded in the receipt print popup (one physical page, no fixed positioning). */
-function receiptPrintStyles() {
+/**
+ * Receipt content-only CSS (no @page / sheet chrome). Sheet from CFG.buildPrintSheetStylesCss().
+ * Screen: existing blue accents. @media print: borders + economy color adjustment — tuned for grayscale printers.
+ */
+function receiptContentPrintStyles() {
     return (
-        'html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
-        'body{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;font-size:26px;color:#222;margin:0;background:#fff;}' +
-        '#receiptPrintArea{width:100%;max-width:none;margin:0 auto;min-height:calc(297mm - 20mm);display:flex;flex-direction:column;box-sizing:border-box;}' +
-        '.receipt-header{text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #eee;}' +
-        '.receipt-header h2{margin:0 0 6px;color:#0084ff;font-size:44px;}' +
-        '.receipt-clinic-line{margin:2px 0;color:#555;font-size:28px;line-height:1.45;}' +
-        '.receipt-doc-title{margin:10px 0 0;color:#666;font-size:30px;font-weight:600;}' +
-        '.receipt-meta{display:flex;justify-content:space-between;font-size:30px;margin-bottom:14px;line-height:1.35;}' +
-        '.receipt-meta-col strong{font-size:30px;}' +
-        '.receipt-meta-col-right{text-align:right;}' +
-        '.receipt-table{width:100%;border-collapse:collapse;margin:16px 0;}' +
-        '.receipt-table th{background:#f0f7ff;padding:12px 14px;text-align:left;font-size:28px;color:#0084ff;}' +
-        '.receipt-table td{padding:12px 14px;border-bottom:1px solid #f0f0f0;font-size:30px;}' +
-        '.receipt-totals{background:#f8faff;border-radius:8px;padding:14px 16px;margin-top:12px;}' +
-        '.r-row{display:flex;justify-content:space-between;padding:8px 0;font-size:30px;}' +
-        '.r-grand{border-top:2px solid #0084ff;margin-top:10px;padding-top:12px;font-size:40px;font-weight:700;color:#0084ff;}' +
-        '.receipt-footer{text-align:left;margin-top:auto;padding-top:16px;border-top:1px solid #eee;color:#6b7280;font-size:26px;}' +
-        '.receipt-signature{position:fixed;left:10mm;bottom:10mm;margin:0;max-width:420px;text-align:left;padding-top:0;background:#fff;}' +
-        '.receipt-sign-line{border-bottom:1.5px solid #374151;height:12px;}' +
-        '.receipt-sign-name{margin-top:8px;font-size:28px;font-weight:700;color:#1f2937;line-height:1.25;}' +
-        '.receipt-footer p{margin:4px 0;}' +
-        '@media print{body{margin:0;} #receiptPrintArea{padding:0;min-height:calc(297mm - 20mm);} .receipt-signature{left:10mm;bottom:10mm;} @page{margin:10mm;}}'
+        'body{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;font-size:12px;line-height:1.35;color:#222;margin:0;}' +
+        '#receiptPrintArea{width:100%;max-width:none;margin:0;padding:0;box-sizing:border-box;display:block;}' +
+        '.receipt-header{text-align:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e5e7eb;}' +
+        '.receipt-header h2{margin:0 0 4px;color:#0084ff;font-size:17px;line-height:1.2;font-weight:700;}' +
+        '.receipt-clinic-line{margin:1px 0;color:#555;font-size:11px;line-height:1.35;}' +
+        '.receipt-doc-title{margin:6px 0 0;color:#666;font-size:11px;font-weight:600;}' +
+        '.receipt-meta{display:flex;justify-content:space-between;align-items:flex-start;' +
+            'font-size:12px;margin-bottom:8px;line-height:1.4;gap:10px;flex-wrap:wrap;}' +
+        '.receipt-meta-col{min-width:0;}' +
+        '.receipt-meta-left-stack{flex:1;max-width:72%;text-align:left;padding:6px 8px;' +
+            'border-radius:6px;border-left:3px solid #0084ff;background:#fafafa;}' +
+        '.receipt-meta-date-only{flex:0 0 auto;text-align:right;align-self:flex-start;padding-top:6px;}' +
+        '.receipt-meta-spacer{height:14px;margin:4px 0 8px;}' +
+        '.receipt-kv-row{display:flex;justify-content:space-between;align-items:baseline;' +
+            'gap:10px;margin-bottom:4px;flex-wrap:wrap;}' +
+        '.receipt-kv-row:last-child{margin-bottom:0;}' +
+        '.receipt-kv-row.receipt-kv-patient-names .receipt-kv-val{font-weight:700;}' +
+        '.receipt-meta-col strong,.receipt-kv-label{font-size:11px;font-weight:600;color:#475569;}' +
+        '.receipt-kv-val{font-size:11px;font-weight:600;color:#111827;word-break:break-word;}' +
+        '.receipt-meta-left-stack .receipt-kv-row{justify-content:flex-start;}' +
+        '.receipt-meta-left-stack .receipt-kv-val{text-align:left;flex:1;}' +
+        '.receipt-meta-left-stack .receipt-kv-label{min-width:6.5rem;flex-shrink:0;color:#475569;}' +
+        '.receipt-meta-date-only .receipt-kv-row{justify-content:flex-end;}' +
+        '.receipt-meta-date-only .receipt-kv-val{text-align:right;flex:0 1 auto;min-width:4rem}' +
+        '.receipt-meta-date-only .receipt-kv-label{margin-left:0;color:#475569}' +
+        '.receipt-kv-monospace{font-family:Consolas,"Courier New",monospace;letter-spacing:0.02em;}' +
+        '.receipt-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px;}' +
+        '.receipt-table th{background:#f0f7ff;padding:5px 6px;text-align:left;font-size:11px;font-weight:600;color:#0084ff;border-bottom:1px solid #dbeafe;}' +
+        '.receipt-table td{padding:4px 6px!important;border-bottom:1px solid #f0f0f0;font-size:11px;vertical-align:top;}' +
+        '.receipt-totals{background:#f8faff;border-radius:6px;padding:8px 10px;margin-top:8px;font-size:12px;}' +
+        '.r-row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px;}' +
+        '.r-grand{border-top:1px solid #0084ff;margin-top:6px;padding-top:8px;font-size:14px;font-weight:700;color:#0084ff;}' +
+        '.receipt-footer{text-align:center;margin-top:10px;padding-top:8px;border-top:1px solid #eee;color:#6b7280;font-size:10px;}' +
+        '.receipt-signature{position:static;margin:8px auto 4px;max-width:280px;text-align:center;padding-top:12px;background:#fff;}' +
+        '.receipt-sign-line{border-bottom:1px solid #374151;height:8px;}' +
+        '.receipt-sign-name{margin-top:4px;font-size:11px;font-weight:700;color:#1f2937;line-height:1.25;}' +
+        '.receipt-footer p{margin:3px 0;}' +
+        '#rInstalmentsSection{font-size:11px;}' +
+        '#rInstalmentsSection table{font-size:10px!important;border-collapse:collapse;width:100%;}' +
+        '#rInstalmentsSection th,#rInstalmentsSection td{padding:3px 5px!important;}' +
+        '#rOutstandingRow{font-size:10px!important;margin-top:6px!important;padding:5px 8px!important;}' +
+        '@media print{' +
+        'html,body,#receiptPrintArea,.receipt-signature,.receipt-header,.receipt-meta-left-stack,' +
+        '.receipt-totals,.receipt-table th,.receipt-table td{' +
+        'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
+        'body{margin:0;color:#111!important;}' +
+        '#receiptPrintArea{padding:0;}' +
+        '.receipt-signature{position:static;background:#fff!important;}' +
+        '.receipt-header h2{color:#111!important;}' +
+        '.receipt-meta-left-stack{background:#fff!important;border-left:3px solid #333!important;' +
+            'outline:1px solid #999;outline-offset:-1px;border-radius:2px;}' +
+        '.receipt-table th{background:#fff!important;color:#111!important;' +
+            'border-top:1px solid #666!important;border-bottom:2px solid #111!important;}' +
+        '.receipt-table td{border-bottom:1px solid #ccc!important;}' +
+        '.receipt-totals{background:#fff!important;border:1px solid #666!important;border-radius:2px;}' +
+        '.r-grand{color:#111!important;border-top:2px solid #111!important;}' +
+        'thead{display:table-header-group;}' +
+        'tr{page-break-inside:avoid;}' +
+        '}'
+    );
+}
+
+/** Fallback when CFG sheet helpers unavailable — mirrors bill default A4 + 10mm from app-config PRINT_DOC_TYPES. */
+function receiptPrintSheetFallbackCss() {
+    return (
+        '@page{margin:10mm 10mm 10mm 10mm;size:210mm 297mm;}' +
+        'html{background:#d4d4d4;}' +
+        'body{font-family:"Segoe UI",Arial,sans-serif;margin:0;color:#111;background:#d4d4d4;}' +
+        '.print-sheet-outer{' +
+            'box-sizing:border-box;width:210mm;min-height:297mm;' +
+            'padding:10mm;margin:14px auto;background:#fff;' +
+            'box-shadow:0 4px 28px rgba(0,0,0,.22);}' +
+        '@media print{' +
+            'html,body{background:#fff!important;color:#111!important;' +
+            'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
+            '.print-sheet-outer{' +
+                'width:auto!important;min-height:0!important;margin:0!important;' +
+                'padding:0!important;box-shadow:none!important;background:#fff!important;' +
+                'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
+        '}'
     );
 }
 
@@ -7149,19 +7291,62 @@ function hydrateReceiptDoctorProfile(bill) {
         });
 }
 
-function receiptPatientNameFromRow(row, fallbackName) {
-    if (!row) return fallbackName || '—';
-    var chi = String(row.chinese_name || row.name_zh || '').trim();
-    var eng = String(row.english_name || row.name_en || row.full_name || row.display_name || '').trim();
-    return chi || eng || fallbackName || '—';
+/** English + Chinese patient lines for receipt header (Zh row hidden when no Chinese name). */
+function receiptPatientEnglishChineseParts(row, billFallbackName) {
+    var fb = String(billFallbackName || '').trim();
+    var chi = '';
+    var eng = '';
+    if (row) {
+        chi = String(row.chinese_name || row.name_zh || '').trim();
+        eng = String(row.english_name || row.name_en || '').trim();
+        if (!eng) eng = String(row.full_name || row.display_name || '').trim();
+    }
+    if (!eng && !chi && fb) {
+        eng = fb;
+        chi = '';
+    } else {
+        if (!eng) eng = '';
+        if (!chi) chi = '';
+    }
+    if (chi && eng && chi === eng) chi = '';
+
+    var enDisp = '';
+    var zhDisp = '';
+    var showZhRow = !!chi;
+
+    if (chi) {
+        zhDisp = chi;
+        enDisp = eng || '—';
+    } else if (eng) {
+        zhDisp = '';
+        showZhRow = false;
+        enDisp = eng;
+    } else if (fb) {
+        enDisp = fb;
+        zhDisp = '';
+        showZhRow = false;
+    } else {
+        enDisp = '—';
+        zhDisp = '';
+        showZhRow = false;
+    }
+
+    return { enDisp: enDisp || '—', zhDisp: zhDisp, showZhRow: showZhRow };
 }
 
 function applyReceiptPatientProfile(row, bill) {
-    var name = receiptPatientNameFromRow(row, bill ? bill.patient_name : '');
+    var parts = receiptPatientEnglishChineseParts(row, bill ? bill.patient_name : '');
     var no = '';
     if (row) no = String(row.patient_no || row.patient_code || '').trim();
     if (!no && bill) no = String(bill.patient_no || '').trim();
-    if (g('rPatient')) g('rPatient').textContent = name || '—';
+    var enEl = g('rPatientEn');
+    var zhEl = g('rPatientZh');
+    var zhRow = g('receiptPatientZhRow');
+    if (enEl) enEl.textContent = parts.enDisp;
+    if (zhEl) zhEl.textContent = parts.zhDisp;
+    if (zhRow) {
+        zhRow.style.display = parts.showZhRow ? '' : 'none';
+    }
     if (g('rPatientNo')) g('rPatientNo').textContent = no || '—';
 }
 
@@ -7206,9 +7391,36 @@ function printReceiptDocument() {
     if (!area) return;
     if (_receiptPrintInProgress) return;
     _receiptPrintInProgress = true;
+
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    var sheetCss = '';
+    var popW = 720;
+    var popH = 820;
+    if (typeof CFG !== 'undefined' && CFG) {
+        if (typeof CFG.prefetchPrintSettings === 'function') {
+            CFG.prefetchPrintSettings(cid);
+        }
+        if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss) {
+            var billPrintRow = CFG.getPrintSettingsForDoc('bill', cid);
+            sheetCss = CFG.buildPrintSheetStylesCss(billPrintRow);
+            if (CFG.estimatePrintPopupSizePx) {
+                var wh = CFG.estimatePrintPopupSizePx(billPrintRow);
+                popW = wh.width;
+                popH = wh.height;
+            }
+        }
+    }
+    if (!sheetCss) {
+        sheetCss = receiptPrintSheetFallbackCss();
+    }
+    var printStylesAll = sheetCss +
+        '.print-sheet-outer img,.print-sheet-outer table{max-width:100%;}' +
+        receiptContentPrintStyles();
+
     var popup = window.open(
         '', '_blank',
-        'width=720,height=820,left=80,top=40,toolbar=0,menubar=0,scrollbars=1,resizable=1'
+        'width=' + popW + ',height=' + popH + ',left=80,top=40,toolbar=0,menubar=0,scrollbars=1,resizable=1'
     );
     if (!popup) {
         _receiptPrintInProgress = false;
@@ -7222,9 +7434,19 @@ function printReceiptDocument() {
 
     popup.document.write(
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
-        '<title>' + esc(tr('bill.receipt.printTitle')) + '</title><style>' + receiptPrintStyles() + '</style></head><body>' +
+        '<title>' + esc(tr('bill.receipt.printTitle')) + '</title><style>' + printStylesAll + '</style></head><body>' +
+        '<div class="print-sheet-outer"><div id="receiptPrintArea">' +
         area.innerHTML +
-        '<script>(function(){var printed=false;' +
+        '</div></div>' +
+        '<script>(function(){var printed=false,closing=false;' +
+        'function notifyOpener(){try{' +
+        'var o=window.opener;if(o&&typeof o.closeModal==="function"){o.closeModal("receiptModal");}' +
+        '}catch(_){}' +
+        '}' +
+        'function finalize(){if(closing)return;closing=true;' +
+        'notifyOpener();' +
+        'function tryClose(){try{if(!window.closed)window.close();}catch(_){}}' +
+        'tryClose();setTimeout(tryClose,120);setTimeout(tryClose,450);}' +
         'function fitPageRatio(){' +
         'var de=document.documentElement,bd=document.body;if(!de||!bd)return;' +
         'de.style.zoom="";bd.style.zoom="";' +
@@ -7234,13 +7456,20 @@ function printReceiptDocument() {
         'var needH=Math.max(1,de.scrollHeight||bd.scrollHeight||vh);' +
         'var sc=Math.min(1,vw/needW,vh/needH);' +
         'if(!(sc>0&&sc<=1))sc=1;' +
-        'sc=Math.max(0.5,Math.floor(sc*100)/100);' +
+        'sc=Math.max(0.42,Math.floor(sc*100)/100);' +
         'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
         '}' +
+        'function armCloseHandlers(){' +
+        'function afterPrintSlowClose(){if(closing)return;' +
+        'setTimeout(function(){finalize();},2500);}' +
+        'window.addEventListener("afterprint",afterPrintSlowClose);' +
+        'window.onafterprint=afterPrintSlowClose;' +
+        '}' +
+        'armCloseHandlers();' +
         'function run(){if(printed)return;printed=true;' +
         'try{fitPageRatio();}catch(e0){}' +
-        'try{window.focus();window.print();}catch(e){}}' +
-        'window.onafterprint=function(){try{window.close();}catch(e2){}};' +
+        'try{window.focus();window.print();}catch(e){finalize();}' +
+        '}' +
         'window.onload=function(){setTimeout(run,220);};' +
         'setTimeout(function(){if(!printed)run();},1200);})();<\/script>' +
         '</body></html>'
@@ -7248,7 +7477,22 @@ function printReceiptDocument() {
     popup.document.close();
 
     try { popup.focus(); } catch (eFocus) {}
-    setTimeout(releaseLock, 4000);
+
+    var pollAttempts = 0;
+    var pollMax = Math.ceil(90000 / 400);
+    var pollId = setInterval(function() {
+        pollAttempts++;
+        var dead = false;
+        try {
+            dead = !popup || popup.closed;
+        } catch (_) {
+            dead = true;
+        }
+        if (dead || pollAttempts >= pollMax) {
+            clearInterval(pollId);
+            releaseLock();
+        }
+    }, 400);
 }
 
 function clinicRecordForReceiptByTagOrId(tagOrId) {
@@ -7345,8 +7589,14 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
     g('rType').textContent      = (typeof dispPayMethod === 'function')
         ? dispPayMethod(bill.bill_type)
         : bill.bill_type;
-    g('rPatient').textContent   = bill.patient_name;
-    g('rPatientNo').textContent = bill.patient_no;
+    if (g('rPatientNo')) g('rPatientNo').textContent =
+        (bill && bill.patient_no) ? String(bill.patient_no).trim() : '—';
+    var fallbackParts = receiptPatientEnglishChineseParts(null, bill.patient_name);
+    if (g('rPatientEn')) g('rPatientEn').textContent = fallbackParts.enDisp;
+    if (g('rPatientZh')) g('rPatientZh').textContent = fallbackParts.zhDisp;
+    if (g('receiptPatientZhRow')) {
+        g('receiptPatientZhRow').style.display = fallbackParts.showZhRow ? '' : 'none';
+    }
     var docNames = receiptDoctorNames(bill);
     applyReceiptDoctorSignature(docNames);
     hydrateReceiptDoctorProfile(bill);
@@ -7362,13 +7612,13 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
         var amt  = billItemAmt(it);
         var row = document.createElement('tr');
         row.innerHTML =
-            '<td style="padding:6px 8px;">' + esc(it.desc || '-') + '</td>' +
-            '<td style="padding:6px 8px;text-align:center;">' + (it.qty || 0) + '</td>' +
-            '<td style="padding:6px 8px;text-align:right;">' + fmtHK(it.price) + '</td>' +
-            '<td style="padding:6px 8px;text-align:center;color:' +
+            '<td style="padding:4px 6px;">' + esc(it.desc || '-') + '</td>' +
+            '<td style="padding:4px 6px;text-align:center;">' + (it.qty || 0) + '</td>' +
+            '<td style="padding:4px 6px;text-align:right;">' + fmtHK(it.price) + '</td>' +
+            '<td style="padding:4px 6px;text-align:center;color:' +
                 (disc > 0 ? '#dc2626' : '#aaa') + ';">' +
                 (disc > 0 ? disc + '%' : '—') + '</td>' +
-            '<td style="padding:6px 8px;text-align:right;">' + fmtHK(amt) + '</td>';
+            '<td style="padding:4px 6px;text-align:right;">' + fmtHK(amt) + '</td>';
         rb.appendChild(row);
     });
 

@@ -844,7 +844,7 @@ function patientSearchOrFilterCore(q) {
 
 var PATIENT_SEARCH_SELECT =
     'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
-    'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,' +
+    'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,banana_index,' +
     PATIENT_CLINIC_TAG_FIELD;
 
 function patientSearchQueryBuilder(q, extraSelect) {
@@ -989,7 +989,7 @@ function runPatientSearchDropdown(opts) {
         if (r.error && (r.error.message || '').indexOf('column') >= 0) {
             var coreSel =
                 'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
-                'medical_alerts,' + PATIENT_CLINIC_TAG_FIELD;
+                'medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD;
             var coreFilter = patientSearchOrFilterCore(q);
             if (!coreFilter) {
                 finish(r);
@@ -1320,10 +1320,10 @@ function triggerGlobalRefresh(opts) {
 
     if (sectionVisible('sectionConfig') &&
         typeof CFG !== 'undefined' &&
-        typeof CFG.init === 'function' &&
         typeof CFG.isInitialized === 'function' &&
-        CFG.isInitialized()) {
-        CFG.init();
+        CFG.isInitialized() &&
+        typeof CFG._reloadActiveTab === 'function') {
+        CFG._reloadActiveTab();
     }
 }
 

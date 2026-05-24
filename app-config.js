@@ -200,7 +200,7 @@ var CFG = (function () {
     // ════════════════════════════════════════════════════════
     // NAVIGATION
     // ════════════════════════════════════════════════════════
-        function wireNav() {
+    function wireNav() {
         // sidebar items (using querySelectorAll on the actual nav element)
         var sidebar = document.querySelector('.cfg-sidebar');
         if (!sidebar) return;
@@ -222,7 +222,7 @@ var CFG = (function () {
         });
     }
 
-        function switchTab(key) {
+    function switchTab(key) {
         _tab = key;
 
         // update sidebar highlight
@@ -271,7 +271,7 @@ var CFG = (function () {
     // ════════════════════════════════════════════════════════
     // INIT  (public — called by app.js card click)
     // ════════════════════════════════════════════════════════
-        function init() {
+    function init() {
         if (typeof currentRole !== 'undefined' && currentRole !== 'admin') {
             toast(ctr('cfg.msg.adminRequired'), true);
             return;
@@ -1738,6 +1738,13 @@ var CFG = (function () {
 
         SB.from('program_settings').select('setting_key,setting_value')
         .then(function (r) {
+            if (r.error) {
+                pane.innerHTML = '<p style="color:#dc3545;padding:8px 0;line-height:1.5;">' +
+                    esc(r.error.message) + '</p>';
+                toast(r.error.message, true);
+                return;
+            }
+
             var map = {};
             (r.data || []).forEach(function (row) {
                 map[row.setting_key] = row.setting_value;
@@ -1778,10 +1785,35 @@ var CFG = (function () {
                 '</div>';
 
             pane.innerHTML = html;
+        })
+        .catch(function (err) {
+            pane.innerHTML = '<p style="color:#dc3545;padding:8px 0;line-height:1.5;">' +
+                esc((err && err.message) ? String(err.message) : String(err)) + '</p>';
+            try {
+                toast((err && err.message) ? String(err.message) : String(err), true);
+            } catch (_) {}
         });
     }
 
+    /** PATCH by key, then INSERT if no row matched — avoids bulk upsert/onConflict mismatches vs DB constraints. */
+    function _persistProgramSettingRow(row) {
+        return SB.from('program_settings')
+            .update({ setting_value: row.setting_value })
+            .eq('setting_key', row.setting_key)
+            .select('setting_key')
+            .then(function (up) {
+                if (up.error) return up;
+                if (up.data && up.data.length) return up;
+                return SB.from('program_settings').insert([row])
+                    .then(function (ins) { return ins; });
+            });
+    }
+
     function _saveSettings() {
+        if (!SB || typeof SB.from !== 'function') {
+            toast('Database client is not available.', true);
+            return;
+        }
         var upserts = SETTING_KEYS.map(function (s) {
             var el  = g('set_' + s.key);
             var val = el
@@ -1790,18 +1822,32 @@ var CFG = (function () {
             return { setting_key: s.key, setting_value: val };
         });
 
-        SB.from('program_settings')
-        .upsert(upserts, { onConflict: 'setting_key' })
-        .then(function (r) {
-            if (r.error) { toast(r.error.message, true); return; }
-            toast(ctr('cfg.msg.settingsSaved'));
-            if (typeof restartApptAutoRefresh === 'function') {
-                restartApptAutoRefresh();
-            }
-            if (typeof restartBillPendingAutoRefresh === 'function') {
-                restartBillPendingAutoRefresh();
-            }
-        });
+        Promise.all(upserts.map(function (row) { return _persistProgramSettingRow(row); }))
+            .then(function (results) {
+                var msg = '';
+                for (var i = 0; i < results.length; i++) {
+                    if (results[i] && results[i].error) {
+                        msg = results[i].error.message ? String(results[i].error.message) : String(results[i].error);
+                        break;
+                    }
+                }
+                if (msg) {
+                    toast(msg, true);
+                    return;
+                }
+                toast(ctr('cfg.msg.settingsSaved'));
+                if (typeof restartApptAutoRefresh === 'function') {
+                    restartApptAutoRefresh();
+                }
+                if (typeof restartBillPendingAutoRefresh === 'function') {
+                    restartBillPendingAutoRefresh();
+                }
+            })
+            .catch(function (err) {
+                try {
+                    toast((err && err.message) ? String(err.message) : String(err), true);
+                } catch (_) {}
+            });
     }
 
     // ════════════════════════════════════════════════════════
@@ -2766,7 +2812,7 @@ var CFG = (function () {
     var _printEditDocType = null;
 
     var PRINT_DOC_TYPES = [
-        { key: 'bill',           paper: '80mm roll',   m: { l: 5, r: 5, t: 5, b: 5 } },
+        { key: 'bill',           paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 } },
         { key: 'drug_label',     paper: '50mm x 60mm', m: { l: 2, r: 2, t: 2, b: 2 } },
         { key: 'letters',        paper: 'A4',          m: { l: 15, r: 15, t: 15, b: 15 } },
         { key: 'report',         paper: 'A4',          m: { l: 12, r: 12, t: 12, b: 12 } },
@@ -2923,7 +2969,14 @@ var CFG = (function () {
                 if (callback) callback(true);
                 return;
             }
-            if (callback) callback(true);
+            toast(r.error.message, true);
+            if (callback) callback(false);
+        })
+        .catch(function (err) {
+            try {
+                toast((err && err.message) ? String(err.message) : String(err), true);
+            } catch (_) {}
+            if (callback) callback(false);
         });
     }
 
@@ -3078,7 +3131,8 @@ var CFG = (function () {
                     if (!cid) { toast(ctr('cfg.msg.selectClinicFirst'), true); return; }
                     var rows = _printRowsByClinic[cid];
                     if (!rows) { toast(ctr('cfg.msg.nothingToSave'), true); return; }
-                    savePrintRowsForClinic(cid, rows, function () {
+                    savePrintRowsForClinic(cid, rows, function (ok) {
+                        if (!ok) return;
                         toast(ctr('cfg.msg.printSettingsSaved'));
                     });
                 });
@@ -3361,6 +3415,8 @@ var CFG = (function () {
                 var form = g('cfgPrintForm');
                 if (!form) return;
                 var fd = new FormData(form);
+                var fitEl = form.querySelector('[name="fit_to_page"]');
+                var hdrEl = form.querySelector('[name="show_header"]');
                 var row = {
                     doc_type:       _printEditDocType,
                     printer_name:   getResolvedPrinterNameFromForm(form),
@@ -3375,8 +3431,8 @@ var CFG = (function () {
                     scale_percent:  Number(fd.get('scale_percent')) || 100,
                     copies:         Number(fd.get('copies')) || 1,
                     color_mode:     String(fd.get('color_mode') || 'color'),
-                    fit_to_page:    !!form.querySelector('[name="fit_to_page"]').checked,
-                    show_header:    !!form.querySelector('[name="show_header"]').checked,
+                    fit_to_page:    !!(fitEl && fitEl.checked),
+                    show_header:    hdrEl ? !!hdrEl.checked : true,
                     notes:          String(fd.get('notes') || '').trim()
                 };
                 var rows = _printRowsByClinic[cid] || fullRowsForClinic({});
@@ -3385,7 +3441,8 @@ var CFG = (function () {
                 });
                 var resolvedName = getResolvedPrinterNameFromForm(form);
                 if (resolvedName) addKnownPrinter(resolvedName);
-                savePrintRowsForClinic(cid, next, function () {
+                savePrintRowsForClinic(cid, next, function (ok) {
+                    if (!ok) return;
                     toast(ctr('cfg.msg.printSetupSaved'));
                     closeModal();
                     refreshPrintTable();
@@ -3511,7 +3568,95 @@ var CFG = (function () {
         refreshCfgOverlayPanelI18n('cfgUserPanel');
     }
 
-    /** Used by print modules — returns merged settings for active/login clinic. */
+    function printSheetDimensionsMm(printRow) {
+        if (!printRow) return { w: 210, h: 297 };
+        var sz = String(printRow.paper_size || 'A4').trim();
+        var pw = 210;
+        var ph = 297;
+        if (sz === 'A5') {
+            pw = 148;
+            ph = 210;
+        } else if (sz === 'Letter') {
+            pw = 216;
+            ph = 279;
+        } else if (sz === '80mm roll') {
+            pw = 80;
+            ph = 297;
+        } else if (sz === '50mm x 60mm') {
+            pw = 50;
+            ph = 60;
+        } else if (sz === 'Custom' && printRow.paper_width_mm && printRow.paper_height_mm) {
+            pw = Math.max(20, Number(printRow.paper_width_mm) || pw);
+            ph = Math.max(20, Number(printRow.paper_height_mm) || ph);
+        }
+        var orient = String(printRow.orientation || 'portrait').toLowerCase();
+        if (orient === 'landscape') {
+            var tmp = pw;
+            pw = ph;
+            ph = tmp;
+        }
+        return { w: pw, h: ph };
+    }
+
+    function printMarginsMmFromRow(printRow) {
+        function n(v, fb) {
+            var x = Number(v);
+            return isFinite(x) && x >= 0 ? x : fb;
+        }
+        if (!printRow) {
+            printRow = {};
+        }
+        return {
+            t: n(printRow.margin_top, 15),
+            r: n(printRow.margin_right, 15),
+            b: n(printRow.margin_bottom, 15),
+            l: n(printRow.margin_left, 15)
+        };
+    }
+
+    /**
+     * @page + preview shell (.print-sheet-outer) from a merged clinic_print_settings row.
+     * Screen: centered white “sheet” on neutral gray gutter (readable in monochrome preview).
+     * Print: white page, economy color adjustment — most clinic printers are grayscale; avoids
+     * muddy pale fills when browsers map RGB to halftone gray.
+     */
+    function buildPrintSheetStylesCss(printRow) {
+        var dim = printSheetDimensionsMm(printRow);
+        var m = printMarginsMmFromRow(printRow);
+        return (
+            '@page{margin:' + m.t + 'mm ' + m.r + 'mm ' + m.b + 'mm ' + m.l + 'mm;' +
+                'size:' + dim.w + 'mm ' + dim.h + 'mm;}' +
+            'html{background:#d4d4d4;}' +
+            'body{font-family:"Segoe UI",Arial,sans-serif;margin:0;color:#111;' +
+                'background:#d4d4d4;}' +
+            '.print-sheet-outer{' +
+                'box-sizing:border-box;width:' + dim.w + 'mm;min-height:' + dim.h + 'mm;' +
+                'padding:' + m.t + 'mm ' + m.r + 'mm ' + m.b + 'mm ' + m.l + 'mm;' +
+                'margin:14px auto;background:#fff;' +
+                'box-shadow:0 4px 28px rgba(0,0,0,.22);}' +
+            '@media print{' +
+                'html,body{background:#fff!important;color:#111!important;' +
+                'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
+                '.print-sheet-outer{' +
+                    'width:auto!important;min-height:0!important;margin:0!important;' +
+                    'padding:0!important;box-shadow:none!important;background:#fff!important;' +
+                    'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
+            '}'
+        );
+    }
+
+    function estimatePrintPopupSizePx(printRow) {
+        function mmPx(mmVal) {
+            return Math.round((Number(mmVal) || 0) * 96 / 25.4);
+        }
+        var dim = printSheetDimensionsMm(printRow);
+        return {
+            width: Math.min(1200, mmPx(dim.w) + 48),
+            height: Math.min(1000, mmPx(dim.h) + 120)
+        };
+    }
+
+    /** Used by print modules — merged settings row for active/login clinic. */
     function getPrintSettingsForDoc(docType, clinicIdOpt) {
         var cid = clinicIdOpt ||
             (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
@@ -3522,15 +3667,20 @@ var CFG = (function () {
         }
         var all = readPrintLocalStore();
         return mergePrintRow(docType, (all[cid] || {})[docType]);
-        }
+    }
 
-        return {
+    return {
             init:                   init,
             isInitialized:          function () { return _ready; },
             refreshCfgNavLabels:    refreshCfgNavLabels,
             stripCfgStalePaneBodies: stripCfgStalePaneBodies,
             getPrintSettingsForDoc: getPrintSettingsForDoc,
             prefetchPrintSettings:  prefetchPrintSettings,
+            // Consultation letters + print preview: sheet CSS + popup sizing
+            printSheetDimensionsMm: printSheetDimensionsMm,
+            printMarginsMmFromRow:  printMarginsMmFromRow,
+            buildPrintSheetStylesCss: buildPrintSheetStylesCss,
+            estimatePrintPopupSizePx: estimatePrintPopupSizePx,
             loadPrint:              loadPrint,
             _reloadActiveTab:       function () {
                 refreshCfgNavLabels();

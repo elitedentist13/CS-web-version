@@ -14,7 +14,7 @@
 
 <!-- Slim session bar (date + clinic); decorative window controls mirror OS title-bar look -->
 <div id="appSessionStrip" class="app-session-strip" style="display:none;" role="banner" data-i18n-aria-label="session.bannerAria">
-  <span class="app-session-strip-title" data-i18n="session.stripTitle"></span>
+  <span class="app-session-strip-title" data-i18n-html="session.stripTitle"></span>
   <span class="app-session-strip-meta">
     <span id="appStripDate"></span>
     <span id="appWorkingDateBadge" class="app-working-date-badge" style="display:none;" data-i18n="session.workingDateOn"></span>
@@ -46,7 +46,11 @@
 ════════════════════════════════════════════════════════════ -->
 <div id="loginOverlay">
   <div class="login-box">
+    <div class="login-banana-logo">
+      <div class="login-banana-circle">🍌</div>
+    </div>
     <h2 data-i18n="login.title"></h2>
+    <p class="login-software-name" data-i18n-html="login.softwareName"></p>
     <div id="loginLangToggle" class="lang-toggle lang-toggle--login" role="group"
          style="margin:0 auto 14px;justify-content:center;"
          data-i18n-aria-label="dashboard.langGroup">
@@ -1127,11 +1131,21 @@
                 <span id="conBannerSexWrap" class="con-banner-sex-wrap" style="display:none;"
                       data-i18n-title="con.banner.sexTitle"><span data-i18n="con.banner.sexLabel"></span>&nbsp;</span>
                 <span><span data-i18n="con.banner.dobLabel"></span>&nbsp;<strong id="conBannerDob">—</strong></span>
-                <!-- ADDED: phone -->
-                <span>📞&nbsp;<strong id="conBannerPhone">—</strong></span>
-                <!-- ADDED: today date -->
-                <span>📅&nbsp;<strong id="conBannerToday">—</strong></span>
-                <span>👨‍⚕️&nbsp;<strong id="conBannerDoctor">—</strong></span>
+                <span><span data-i18n="con.banner.phoneLabel"></span>&nbsp;<strong id="conBannerPhone">—</strong></span>
+                <span id="conBannerEmailWrap" style="display:none;"><span data-i18n="con.banner.emailLabel"></span>&nbsp;<strong id="conBannerEmail">—</strong></span>
+                <span id="conBannerHkidWrap" style="display:none;"><span data-i18n="con.banner.hkidLabel"></span>&nbsp;<strong id="conBannerHkid">—</strong></span>
+                <span><span data-i18n="con.banner.todayLabel"></span>&nbsp;<strong id="conBannerToday">—</strong></span>
+                <span><span data-i18n="con.banner.doctorLabel"></span>&nbsp;<strong id="conBannerDoctor">—</strong></span>
+                <button id="conBannerBalanceBtn" class="con-banner-balance-btn"
+                        onclick="conBannerOpenBill()"
+                        data-i18n-title="con.banner.balanceBtnTitle"
+                        style="display:none;">
+                    <span data-i18n="con.banner.balanceLabel"></span>&nbsp;<strong id="conBannerBalance">—</strong>
+                </button>
+            </div>
+            <div class="con-banner-banana-row" id="conBannerBananaWrap" style="display:none;">
+                <span class="con-banner-banana-label" data-i18n="con.banner.bananaIndexLabel"></span>
+                <span class="con-banner-bananas" id="conBannerBananas" aria-hidden="true"></span>
             </div>
         </div>
     </div>
@@ -2761,6 +2775,22 @@
           <input type="text" id="hkid">
         </div>
         <div class="fg">
+          <label data-i18n="patient.form.bananaIndex"></label>
+          <select id="banana_index">
+            <option value="" data-i18n="patient.form.select"></option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+          </select>
+        </div>
+        <div class="fg">
           <label data-i18n="patient.form.insurance"></label>
           <input type="text" id="insuranceNo">
         </div>
@@ -2892,6 +2922,22 @@
         <div class="fg">
           <label data-i18n="patient.form.hkid"></label>
           <input type="text" id="edit_hkid">
+        </div>
+        <div class="fg">
+          <label data-i18n="patient.form.bananaIndex"></label>
+          <select id="edit_banana_index">
+            <option value="" data-i18n="patient.form.select"></option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+          </select>
         </div>
         <div class="fg">
           <label data-i18n="patient.form.insurance"></label>
@@ -3752,23 +3798,40 @@
         <p class="receipt-doc-title" data-i18n="bill.receipt.officialTitle"></p>
       </div>
 
-      <div class="receipt-meta">
-        <div class="receipt-meta-col">
-          <strong data-i18n="bill.receipt.no"></strong>
-          <span id="rNo">—</span><br>
-          <strong data-i18n="bill.receipt.date"></strong>
-          <span id="rDate">—</span><br>
-          <strong data-i18n="bill.receipt.billType"></strong>
-          <span id="rType">—</span>
+      <!-- Left: receipt #, doctor, patient #, spacer, bilingual name, bill type · Right: date only -->
+      <div class="receipt-meta receipt-meta-rows">
+        <div class="receipt-meta-col receipt-meta-left-stack">
+          <div class="receipt-kv-row">
+            <strong class="receipt-kv-label" data-i18n="bill.receipt.no"></strong>
+            <span class="receipt-kv-val receipt-kv-monospace" id="rNo">—</span>
+          </div>
+          <div class="receipt-kv-row">
+            <strong class="receipt-kv-label" data-i18n="bill.receipt.doctor"></strong>
+            <span class="receipt-kv-val" id="rDoctor">—</span>
+          </div>
+          <div class="receipt-kv-row">
+            <strong class="receipt-kv-label" data-i18n="bill.receipt.patientNo"></strong>
+            <span class="receipt-kv-val receipt-kv-monospace" id="rPatientNo">—</span>
+          </div>
+          <div class="receipt-meta-spacer" aria-hidden="true"></div>
+          <div class="receipt-kv-row receipt-kv-patient-names">
+            <strong class="receipt-kv-label" data-i18n="bill.receipt.patientEn"></strong>
+            <span class="receipt-kv-val receipt-patient-en-line" id="rPatientEn">—</span>
+          </div>
+          <div class="receipt-kv-row receipt-kv-patient-names" id="receiptPatientZhRow" style="display:none;">
+            <strong class="receipt-kv-label" data-i18n="bill.receipt.patientZh"></strong>
+            <span class="receipt-kv-val receipt-patient-zh-line" id="rPatientZh"></span>
+          </div>
+          <div class="receipt-kv-row">
+            <strong class="receipt-kv-label" data-i18n="bill.receipt.billType"></strong>
+            <span class="receipt-kv-val" id="rType">—</span>
+          </div>
         </div>
-        <div class="receipt-meta-col receipt-meta-col-right">
-          <strong data-i18n="bill.receipt.patient"></strong>
-          <span id="rPatient">—</span><br>
-          <strong data-i18n="bill.receipt.patientNo"></strong>
-          <span id="rPatientNo">—</span>
-          <br>
-          <strong data-i18n="bill.receipt.doctor"></strong>
-          <span id="rDoctor">—</span>
+        <div class="receipt-meta-col receipt-meta-date-only">
+          <div class="receipt-kv-row">
+            <strong class="receipt-kv-label" data-i18n="bill.receipt.date"></strong>
+            <span class="receipt-kv-val" id="rDate">—</span>
+          </div>
         </div>
       </div>
 
@@ -4252,6 +4315,7 @@
 <script src="app-xray.js?v=20260520f"></script>
 <script src="app-charts.js"></script>
 <script src="app-drugs.js"></script>
+<script src="app-quicklaunch.js"></script>
 
 
 </body>

@@ -11,9 +11,9 @@ var I18N_LOCALES = ['en', 'zh-CN', 'zh-Hant'];
 
 var I18N_STRINGS = {
     'app.title': {
-        en: 'Joyful Smile Clinic Manager',
-        'zh-CN': '乐意诊所管理系统',
-        'zh-Hant': '樂意診所管理系統'
+        en: 'Banana Clinic Manager',
+        'zh-CN': '香蕉診所管理系統',
+        'zh-Hant': '香蕉診所管理系統'
     },
     'dashboard.title': {
         en: '🦷 Joyful Smile Dashboard',

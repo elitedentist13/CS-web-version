@@ -5,7 +5,7 @@
 (function() {
     var MORE = {
         'session.bannerAria': { en: 'Session', 'zh-CN': '会话', 'zh-Hant': '工作階段' },
-        'session.stripTitle': { en: 'Joyful Smile Clinic Manager', 'zh-CN': '乐意诊所管理系统', 'zh-Hant': '樂意診所管理系統' },
+        'session.stripTitle': { en: '<span class="banana-brand">Banana</span> Clinic Manager', 'zh-CN': '<span class="banana-brand">香蕉</span>診所管理系統', 'zh-Hant': '<span class="banana-brand">香蕉</span>診所管理系統' },
         'session.viewClinic': { en: 'View clinic', 'zh-CN': '查看诊所', 'zh-Hant': '查看診所' },
         'session.clinicSelectTitle': {
             en: 'Switch clinic for appointments and records (patients are global)',
@@ -198,6 +198,7 @@
         'patient.form.sexNotSet': { en: 'Sex not set', 'zh-CN': '未设性别', 'zh-Hant': '未設性別' },
         'patient.form.dob': { en: 'Date of Birth', 'zh-CN': '出生日期', 'zh-Hant': '出生日期' },
         'patient.form.hkid': { en: 'HKID No.', 'zh-CN': '香港身份证号码', 'zh-Hant': '香港身份證號碼' },
+        'patient.form.bananaIndex': { en: 'Banana Index', 'zh-CN': '香蕉指数', 'zh-Hant': '香蕉指數' },
         'patient.form.insurance': { en: 'Insurance No.', 'zh-CN': '保险编号', 'zh-Hant': '保險編號' },
         'patient.form.occupation': { en: 'Occupation', 'zh-CN': '职业', 'zh-Hant': '職業' },
         'patient.form.address': { en: 'Address', 'zh-CN': '地址', 'zh-Hant': '地址' },
@@ -517,6 +518,14 @@
         'con.banner.sexLabel': { en: 'Sex:', 'zh-CN': '性别：', 'zh-Hant': '性別：' },
         'con.banner.sexTitle': { en: 'Sex', 'zh-CN': '性别', 'zh-Hant': '性別' },
         'con.banner.dobLabel': { en: 'DOB:', 'zh-CN': '出生日期：', 'zh-Hant': '出生日期：' },
+        'con.banner.phoneLabel': { en: 'Phone:', 'zh-CN': '电话：', 'zh-Hant': '電話：' },
+        'con.banner.emailLabel': { en: 'Email:', 'zh-CN': '电邮：', 'zh-Hant': '電郵：' },
+        'con.banner.hkidLabel': { en: 'HKID:', 'zh-CN': '身份证号：', 'zh-Hant': '身份證號：' },
+        'con.banner.todayLabel': { en: 'Today:', 'zh-CN': '今日：', 'zh-Hant': '今日：' },
+        'con.banner.doctorLabel': { en: 'Dentist:', 'zh-CN': '医生：', 'zh-Hant': '牙醫：' },
+        'con.banner.balanceLabel': { en: 'Due:', 'zh-CN': '尚欠款：', 'zh-Hant': '應付餘款：' },
+        'con.banner.balanceBtnTitle': { en: 'Click to open payment history', 'zh-CN': '点击查看缴费记录', 'zh-Hant': '按此查看付款記錄' },
+        'con.banner.bananaIndexLabel': { en: 'Banana Index:', 'zh-CN': '香蕉指数：', 'zh-Hant': '香蕉指數：' },
         'con.dob.ageFmt': { en: '{DATE} ({AGE} yrs)', 'zh-CN': '{DATE} ({AGE} 岁)', 'zh-Hant': '{DATE} ({AGE} 歲)' },
         'con.treatmentTitle': { en: '📝 Treatment Notes', 'zh-CN': '📝 治疗记录', 'zh-Hant': '📝 治療記錄' },
         'con.notePh': { en: 'Enter clinical findings, treatment done, plans…', 'zh-CN': '输入临床发现、已做治疗、计划…', 'zh-Hant': '輸入臨床所見、已做治療、計劃…' },
@@ -1129,6 +1138,9 @@
         'bill.receipt.date': { en: 'Date:', 'zh-CN': '日期：', 'zh-Hant': '日期：' },
         'bill.receipt.billType': { en: 'Bill Type:', 'zh-CN': '账单类型：', 'zh-Hant': '帳單類型：' },
         'bill.receipt.patient': { en: 'Patient:', 'zh-CN': '患者：', 'zh-Hant': '病人：' },
+        // Receipt meta — bilingual patient labels (below spacer on receipt).
+        'bill.receipt.patientEn': { en: 'Name (English):', 'zh-CN': '姓名（英文）：', 'zh-Hant': '姓名（英文）：' },
+        'bill.receipt.patientZh': { en: 'Name (Chinese):', 'zh-CN': '姓名（中文）：', 'zh-Hant': '姓名（中文）：' },
         'bill.receipt.patientNo': { en: 'Patient No:', 'zh-CN': '患者编号：', 'zh-Hant': '病人編號：' },
         'bill.receipt.doctor': { en: 'Doctor:', 'zh-CN': '医师：', 'zh-Hant': '醫師：' },
         'bill.receipt.instalmentsTitle': { en: 'Payment Instalments', 'zh-CN': '分期付款', 'zh-Hant': '分期付款' },
@@ -2593,7 +2605,26 @@
         'ai.demo.recall.custom.gentle.1': { en: '', 'zh-CN': '', 'zh-Hant': '' },
         'ai.demo.recall.custom.concise.0': { en: 'Note from ', 'zh-CN': '提醒来自 ', 'zh-Hant': '提醒來自 ' },
         'ai.demo.recall.custom.concise.1': { en: '', 'zh-CN': '', 'zh-Hant': '' },
-        'cfg.print.paperCustom': { en: 'Custom', 'zh-CN': '自定义', 'zh-Hant': '自訂' }
+        'cfg.print.paperCustom': { en: 'Custom', 'zh-CN': '自定义', 'zh-Hant': '自訂' },
+
+        // ── Quick-Launch Dock ──────────────────────────────────
+        'ql.toggle':        { en: 'Quick Launch',        'zh-CN': '快速启动',    'zh-Hant': '快速啟動' },
+        'ql.patients':      { en: 'Patients',            'zh-CN': '患者',        'zh-Hant': '病人' },
+        'ql.newAppt':       { en: 'New Appointment',     'zh-CN': '新预约',      'zh-Hant': '新預約' },
+        'ql.apptRecords':   { en: 'Appt Records',        'zh-CN': '预约记录',    'zh-Hant': '預約紀錄' },
+        'ql.consultation':  { en: 'Consultation',        'zh-CN': '诊症',        'zh-Hant': '診症' },
+        'ql.prescriptions': { en: 'Prescriptions',       'zh-CN': '处方',        'zh-Hant': '處方' },
+        'ql.addPayment':    { en: 'Add Payment',         'zh-CN': '付款',        'zh-Hant': '付款' },
+        'ql.needPatient':   {
+            en: 'Please select a patient in Consultation first.',
+            'zh-CN': '请先在诊症页面选择患者。',
+            'zh-Hant': '請先在診症頁面選擇病人。'
+        },
+        'login.softwareName': {
+            en: '<span class="banana-brand">🍌 Banana Clinic Manager</span>',
+            'zh-CN': '<span class="banana-brand">🍌 香蕉診所管理系統</span>',
+            'zh-Hant': '<span class="banana-brand">🍌 香蕉診所管理系統</span>'
+        }
     };
 
     var k;

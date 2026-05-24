@@ -26,6 +26,13 @@ function patTrRepl(key, pairs) {
     return s;
 }
 
+function readBananaIndexField(selectId) {
+    var sel = g(selectId);
+    if (!sel || !sel.value) return null;
+    var n = parseInt(sel.value, 10);
+    return (n >= 1 && n <= 10) ? n : null;
+}
+
 function refreshPatientSexSelects() {
     ['sex', 'edit_sex'].forEach(function(id) {
         var sel = g(id);
@@ -401,7 +408,8 @@ function submitAddPatient(e) {
             occupation:     (g('occupation').value   ||'').trim()||null,
             address:        (g('address').value      ||'').trim()||null,
             medical_alerts: (g('alerts').value       ||'').trim()||null,
-            remarks:        (g('remarks').value      ||'').trim()||null
+            remarks:        (g('remarks').value      ||'').trim()||null,
+            banana_index:   readBananaIndexField('banana_index')
         };
         payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
         SB.from('patients').insert([payload]).select('id,patient_no,full_name,chinese_name')
@@ -583,6 +591,7 @@ function openEditPatient(id) {
         sv('edit_address',     p.address        ||'');
         sv('edit_alerts',      p.medical_alerts ||'');
         sv('edit_remarks',     p.remarks        ||'');
+        sv('edit_banana_index', p.banana_index != null ? String(p.banana_index) : '');
         editPatientLoadedClinicTag = p[PATIENT_CLINIC_TAG_FIELD] || '';
         fillEditPatientClinicSelect(editPatientLoadedClinicTag);
         setEditPatientModalForRole();
@@ -624,7 +633,8 @@ function submitEditPatient(e) {
               occupation:     (g('edit_occupation').value  ||'').trim()||null,
               address:        (g('edit_address').value     ||'').trim()||null,
               medical_alerts: (g('edit_alerts').value      ||'').trim()||null,
-              remarks:        (g('edit_remarks').value     ||'').trim()||null
+              remarks:        (g('edit_remarks').value     ||'').trim()||null,
+              banana_index:   readBananaIndexField('edit_banana_index')
           };
     if (!nurse) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
     SB.from('patients').update(payload).eq('id',editPatientId)

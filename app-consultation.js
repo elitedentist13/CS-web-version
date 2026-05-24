@@ -66,6 +66,20 @@ function conDrugCatLabel(cat) {
     return s || conTr('con.rx.categoryOther');
 }
 
+function updateConBannerBananaIndex(p) {
+    var wrap = g('conBannerBananaWrap');
+    var el = g('conBannerBananas');
+    if (!wrap || !el) return;
+    var n = parseInt(p && p.banana_index, 10);
+    if (!n || n < 1 || n > 10) {
+        wrap.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+    wrap.style.display = 'flex';
+    el.textContent = '\uD83C\uDF4C'.repeat(n);
+}
+
 function refreshConPatientBannerI18n(p) {
     if (!p) return;
 
@@ -110,6 +124,75 @@ function refreshConPatientBannerI18n(p) {
         g('conDenBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
         g('conDenBannerAlert').style.color = p.medical_alerts ? 'var(--danger)' : '#999';
     }
+
+    updateConBannerBananaIndex(p);
+}
+
+/** Total positive balances across all bills for the consultation patient (“AR due”). */
+function refreshConPatientOutstandingBalance() {
+    var balEl = g('conBannerBalance');
+    var btn   = g('conBannerBalanceBtn');
+    if (!balEl) return;
+    function showBtn(owing) {
+        if (!btn) return;
+        btn.style.display = '';
+        btn.classList.toggle('con-banner-paid', !owing);
+    }
+    function hideBtn() {
+        if (!btn) return;
+        btn.style.display = 'none';
+        btn.classList.remove('con-banner-paid');
+    }
+    function clearBalanceDisplay() {
+        balEl.textContent = '—';
+        hideBtn();
+    }
+    if (!SB || typeof SB.from !== 'function') { clearBalanceDisplay(); return; }
+    if (!conPatientId) { clearBalanceDisplay(); return; }
+
+    function applyTotals(rows) {
+        var t = 0;
+        (rows || []).forEach(function(b) {
+            var x = parseFloat(b.balance);
+            if (isFinite(x) && x > 0.005) t += x;
+        });
+        balEl.textContent = typeof fmtHK === 'function' ? fmtHK(t) : ('$' + t.toFixed(2));
+        showBtn(t > 0.005);
+    }
+
+    var pno = (conPatientData && conPatientData.patient_no)
+        ? String(conPatientData.patient_no).trim() : '';
+
+    function fetchByPatientNo() {
+        if (!pno) { applyTotals([]); return; }
+        SB.from('bills').select('balance').eq('patient_no', pno)
+            .then(function(r2) { applyTotals(!r2.error && r2.data ? r2.data : []); })
+            .catch(function() { applyTotals([]); });
+    }
+
+    SB.from('bills').select('balance').eq('patient_id', conPatientId)
+        .then(function(r) {
+            if (r.error) {
+                if (String(r.error.message || '').toLowerCase().indexOf('patient_id') >= 0 && pno)
+                    fetchByPatientNo();
+                else applyTotals([]);
+                return;
+            }
+            applyTotals(r.data || []);
+        })
+        .catch(function() { fetchByPatientNo(); });
+}
+
+/** Opens the bill panel for the current consultation patient — called from the AR banner button. */
+function conBannerOpenBill() {
+    if (!conPatientId || !conPatientData) return;
+    if (typeof openBillPanel !== 'function') return;
+    openBillPanel({
+        id:           null,
+        patient_id:   conPatientId,
+        patient_name: conPatientData.full_name  || '',
+        patient_no:   conPatientData.patient_no || ''
+    });
 }
 
 /** Print label field — EN/ZH keys share same text in every UI locale. */
@@ -137,12 +220,20 @@ function initConsultation() {
     var banner = g('conPatientBanner');
     if (banner) banner.style.display = 'none';
 
+    var emWr = g('conBannerEmailWrap');
+    var hkWr = g('conBannerHkidWrap');
+    if (emWr) emWr.style.display = 'none';
+    if (hkWr) hkWr.style.display = 'none';
+    updateConBannerBananaIndex(null);
+
     var layout = g('conMainLayout');
     if (layout) layout.style.display = 'none';
 
     conPatientId   = null;
     conPatientData = null;
     rxLines        = [];
+
+    refreshConPatientOutstandingBalance();
 
     setConBillBtn(false);
     loadConsultationDoctors();
@@ -300,6 +391,12 @@ function openConForPatient(patientId) {
     var banner = g('conPatientBanner');
     if (banner) banner.style.display = 'none';
 
+    var emWr2 = g('conBannerEmailWrap');
+    var hkWr2 = g('conBannerHkidWrap');
+    if (emWr2) emWr2.style.display = 'none';
+    if (hkWr2) hkWr2.style.display = 'none';
+    updateConBannerBananaIndex(null);
+
     var layout = g('conMainLayout');
     if (layout) layout.style.display = 'none';
 
@@ -307,10 +404,12 @@ function openConForPatient(patientId) {
     conPatientData = null;
     rxLines        = [];
 
+    refreshConPatientOutstandingBalance();
+
     SB.from('patients')
         .select(
             'id,patient_no,full_name,chinese_name,sex,dob,' +
-            'phone_number,medical_alerts,' + PATIENT_CLINIC_TAG_FIELD
+            'phone_number,email,hkid,medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD
         )
         .eq('id', patientId)
         .single()
@@ -457,6 +556,31 @@ function selectConPatient(p) {
     var phoneEl = g('conBannerPhone');
     if (phoneEl) phoneEl.textContent = p.phone_number || '-';
 
+    var emailStr = String(p.email || '').trim();
+    var emWrap = g('conBannerEmailWrap');
+    var emEl = g('conBannerEmail');
+    if (emWrap && emEl) {
+        if (emailStr) {
+            emWrap.style.display = '';
+            emEl.textContent = emailStr;
+        } else {
+            emWrap.style.display = 'none';
+            emEl.textContent = '—';
+        }
+    }
+    var hkStr = String(p.hkid || '').trim();
+    var hkWrap = g('conBannerHkidWrap');
+    var hkEl = g('conBannerHkid');
+    if (hkWrap && hkEl) {
+        if (hkStr) {
+            hkWrap.style.display = '';
+            hkEl.textContent = hkStr;
+        } else {
+            hkWrap.style.display = 'none';
+            hkEl.textContent = '—';
+        }
+    }
+
     var todayEl = g('conBannerToday');
     if (todayEl) todayEl.textContent = todayStr;
 
@@ -471,6 +595,8 @@ function selectConPatient(p) {
         alertEl.style.color = p.medical_alerts
             ? 'var(--danger)' : '#999';
     }
+
+    updateConBannerBananaIndex(p);
 
     var layout = g('conMainLayout');
     if (layout) layout.style.display = 'grid';
@@ -556,6 +682,7 @@ function selectConPatient(p) {
         loadDrugHistory(p.id);
         loadMedicalHistory();
         loadDentalHistory();
+        refreshConPatientOutstandingBalance();
         // forms tab reacts to selected patient too
         updateConFormsPatientLabel();
 
@@ -1229,7 +1356,45 @@ function saveConFormsDoc(andPrint) {
 }
 
 function printConFormsHtml(html) {
-    var popup = window.open('', '_blank', 'width=900,height=700,scrollbars=1,resizable=1');
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+
+    var sheetCss =
+        '@page{margin:15mm 15mm 15mm 15mm;size:210mm 297mm;}' +
+        'html{background:#d4d4d4;}' +
+        'body{font-family:"Segoe UI",Arial,sans-serif;margin:0;color:#111;font-size:13px;line-height:1.45;' +
+            'background:#d4d4d4;}' +
+        '.print-sheet-outer{' +
+            'box-sizing:border-box;width:210mm;min-height:297mm;' +
+            'padding:15mm;margin:14px auto;background:#fff;' +
+            'box-shadow:0 4px 28px rgba(0,0,0,.22);}' +
+        '@media print{' +
+            'html,body{background:#fff!important;color:#111!important;' +
+            'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
+            '.print-sheet-outer{' +
+                'width:auto!important;min-height:0!important;margin:0!important;' +
+                'padding:0!important;box-shadow:none!important;background:#fff!important;' +
+                'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
+        '}';
+    var popW = 900;
+    var popH = 760;
+
+    if (typeof CFG !== 'undefined' && CFG) {
+        if (typeof CFG.prefetchPrintSettings === 'function') {
+            CFG.prefetchPrintSettings(cid);
+        }
+        if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss && CFG.estimatePrintPopupSizePx) {
+            var lettersRow = CFG.getPrintSettingsForDoc('letters', cid);
+            sheetCss = CFG.buildPrintSheetStylesCss(lettersRow);
+            var wh = CFG.estimatePrintPopupSizePx(lettersRow);
+            popW = wh.width;
+            popH = wh.height;
+        }
+    }
+
+    var popup = window.open('', '_blank',
+        'width=' + popW + ',height=' + popH + ',scrollbars=1,resizable=1,toolbar=0,menubar=0'
+    );
     if (!popup) {
         alert(conTr('con.alert.popupBlocked'));
         return;
@@ -1237,9 +1402,13 @@ function printConFormsHtml(html) {
     popup.document.write(
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
         '<title>' + esc(conTr('con.forms.printDocTitle')) + '</title>' +
-        '<style>body{font-family:Arial,sans-serif;padding:28px;color:#111;}@media print{body{padding:0}}</style>' +
+        '<style>' + sheetCss +
+        'body{font-family:"Segoe UI",Arial,sans-serif;}' +
+        '.print-sheet-outer img,.print-sheet-outer table{max-width:100%;}</style>' +
         '</head><body>' +
+        '<div class="print-sheet-outer">' +
         (html || '') +
+        '</div>' +
         '<script>(function(){' +
         'function fitPageRatio(){' +
         'var de=document.documentElement,bd=document.body;if(!de||!bd)return;' +
@@ -1250,7 +1419,7 @@ function printConFormsHtml(html) {
         'var needH=Math.max(1,de.scrollHeight||bd.scrollHeight||vh);' +
         'var sc=Math.min(1,vw/needW,vh/needH);' +
         'if(!(sc>0&&sc<=1))sc=1;' +
-        'sc=Math.max(0.5,Math.floor(sc*100)/100);' +
+        'sc=Math.max(0.42,Math.floor(sc*100)/100);' +
         'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
         '}' +
         'window.onload=function(){' +
@@ -3572,10 +3741,15 @@ document.addEventListener('app-lang-change', function() {
     if (conPatientData && typeof refreshConPatientBannerI18n === 'function') {
         refreshConPatientBannerI18n(conPatientData);
         if (typeof applyI18nInRoot === 'function') {
+            var gb = g('conPatientBanner');
+            if (gb) applyI18nInRoot(gb);
             ['conMedBanner', 'conDenBanner', 'conPhotoBanner', 'conXrayBanner'].forEach(function(bid) {
                 var banner = g(bid);
                 if (banner) applyI18nInRoot(banner);
             });
+        }
+        if (typeof refreshConPatientOutstandingBalance === 'function') {
+            refreshConPatientOutstandingBalance();
         }
     }
     if (conFormsPatientId && typeof loadConFormsTemplates === 'function') {
@@ -3603,6 +3777,12 @@ document.addEventListener('app-lang-change', function() {
         applyI18nInRoot(sec);
     }
     if (!sec || sec.style.display === 'none') return;
+});
+
+document.addEventListener('consultation-ar-refresh', function() {
+    if (typeof refreshConPatientOutstandingBalance === 'function') {
+        refreshConPatientOutstandingBalance();
+    }
 });
 
 document.addEventListener('app-working-date-change', function() {

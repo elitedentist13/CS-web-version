@@ -126,6 +126,18 @@
             }
         },
         {
+            id: 'broadcast',
+            icon: '📢',
+            i18nKey: 'ql.broadcast',
+            shortcut: 'Ctrl+Shift+B',
+            requiresPatient: false,
+            handler: function () {
+                if (typeof BROADCAST !== 'undefined' && BROADCAST.toggle) {
+                    BROADCAST.toggle();
+                }
+            }
+        },
+        {
             id: 'add_payment',
             icon: '💳',
             i18nKey: 'ql.addPayment',

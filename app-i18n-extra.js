@@ -2615,6 +2615,7 @@
         'ql.consultation':  { en: 'Consultation',        'zh-CN': '诊症',        'zh-Hant': '診症' },
         'ql.prescriptions': { en: 'Prescriptions',       'zh-CN': '处方',        'zh-Hant': '處方' },
         'ql.addPayment':    { en: 'Add Payment',         'zh-CN': '付款',        'zh-Hant': '付款' },
+        'ql.broadcast':     { en: 'Broadcast Chat',   'zh-CN': '广播聊天',  'zh-Hant': '廣播聊天' },
         'ql.needPatient':   {
             en: 'Please select a patient in Consultation first.',
             'zh-CN': '请先在诊症页面选择患者。',

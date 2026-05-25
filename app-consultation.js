@@ -37,6 +37,11 @@ var conFormsShellFooterTpl = '';
 var conFormsShellLoaded = false;
 var conFormsShellLoading = false;
 var conFormsShellPreviewOn = false;
+var CON_NOTE_TEMPLATES_KEY = 'con_note_templates_v1';
+var CON_NOTE_TEMPLATES_TABLE = 'con_note_templates';
+var conNoteTemplatesCache = [];
+var conNoteTemplatesLoaded = false;
+var conNoteTemplatesRemoteWarned = false;
 
 var RX_COMBO_LISTS_KEY = 'rx_saved_combo_lists_v1';
 
@@ -78,6 +83,20 @@ function updateConBannerBananaIndex(p) {
     }
     wrap.style.display = 'flex';
     el.textContent = '\uD83C\uDF4C'.repeat(n);
+}
+
+function updateConBannerBananaNotes(p) {
+    var wrap = g('conBannerBananaNotesWrap');
+    var el = g('conBannerBananaNotes');
+    if (!wrap || !el) return;
+    var txt = String((p && p.banana_notes) || '').trim();
+    if (!txt) {
+        wrap.style.display = 'none';
+        el.textContent = '—';
+        return;
+    }
+    wrap.style.display = 'flex';
+    el.textContent = txt;
 }
 
 function refreshConPatientBannerI18n(p) {
@@ -126,6 +145,7 @@ function refreshConPatientBannerI18n(p) {
     }
 
     updateConBannerBananaIndex(p);
+    updateConBannerBananaNotes(p);
 }
 
 /** Total positive balances across all bills for the consultation patient (“AR due”). */
@@ -406,26 +426,36 @@ function openConForPatient(patientId) {
 
     refreshConPatientOutstandingBalance();
 
-    SB.from('patients')
-        .select(
-            'id,patient_no,full_name,chinese_name,sex,dob,' +
-            'phone_number,email,hkid,medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD
-        )
-        .eq('id', patientId)
-        .single()
-    .then(function(r) {
-        if (r.error || !r.data) {
-            alert(conTr('con.alert.loadPatientFail'));
-            return;
-        }
-        var inp = g('conPsInput');
-        if (inp) {
-            inp.value =
-                r.data.full_name +
-                ' (#' + (r.data.patient_no || '') + ')';
-        }
-        selectConPatient(r.data);
-    });
+    function fetchPatient(selCols, retried) {
+        SB.from('patients').select(selCols).eq('id', patientId).single()
+        .then(function(r) {
+            if (r.error || !r.data) {
+                var m = String((r && r.error && r.error.message) || '').toLowerCase();
+                if (!retried && m.indexOf('banana_notes') >= 0) {
+                    fetchPatient(
+                        'id,patient_no,full_name,chinese_name,sex,dob,' +
+                        'phone_number,email,hkid,medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD,
+                        true
+                    );
+                    return;
+                }
+                alert(conTr('con.alert.loadPatientFail'));
+                return;
+            }
+            var inp = g('conPsInput');
+            if (inp) {
+                inp.value =
+                    r.data.full_name +
+                    ' (#' + (r.data.patient_no || '') + ')';
+            }
+            selectConPatient(r.data);
+        });
+    }
+    fetchPatient(
+        'id,patient_no,full_name,chinese_name,sex,dob,' +
+        'phone_number,email,hkid,medical_alerts,banana_index,banana_notes,' + PATIENT_CLINIC_TAG_FIELD,
+        false
+    );
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -597,6 +627,17 @@ function selectConPatient(p) {
     }
 
     updateConBannerBananaIndex(p);
+    updateConBannerBananaNotes(p);
+    // Some callers pass compact patient rows from search; hydrate banana_notes if missing.
+    if (p && p.id && typeof p.banana_notes === 'undefined') {
+        SB.from('patients').select('banana_notes').eq('id', p.id).single()
+        .then(function(r) {
+            if (r.error || !r.data) return;
+            conPatientData = conPatientData || {};
+            conPatientData.banana_notes = r.data.banana_notes || null;
+            updateConBannerBananaNotes(conPatientData);
+        });
+    }
 
     var layout = g('conMainLayout');
     if (layout) layout.style.display = 'grid';
@@ -1744,6 +1785,362 @@ function loadConNotes(pid) {
                        });
                 }
             });
+        });
+    });
+}
+
+function conGetNoteTemplates() {
+    if (conNoteTemplatesLoaded) return conNoteTemplatesCache.slice();
+    try {
+        var raw = localStorage.getItem(CON_NOTE_TEMPLATES_KEY) || '[]';
+        var arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        return arr.filter(function(t) { return t && t.name && t.content; });
+    } catch (e) { return []; }
+}
+
+function conSetNoteTemplates(arr) {
+    try {
+        localStorage.setItem(CON_NOTE_TEMPLATES_KEY, JSON.stringify(arr || []));
+    } catch (e) {}
+    conNoteTemplatesCache = (arr || []).slice();
+    conNoteTemplatesLoaded = true;
+}
+
+function conFindTemplateById(list, id) {
+    list = list || [];
+    id = String(id || '');
+    for (var i = 0; i < list.length; i++) {
+        if (String(list[i].id || String(i)) === id) return list[i];
+    }
+    return null;
+}
+
+function conTemplateClinicTag() {
+    var tag = '';
+    if (typeof currentClinicCodeForTagging === 'function') {
+        tag = String(currentClinicCodeForTagging() || '').trim();
+    }
+    if (!tag && conPatientData && conPatientData[PATIENT_CLINIC_TAG_FIELD]) {
+        tag = String(conPatientData[PATIENT_CLINIC_TAG_FIELD] || '').trim();
+    }
+    return tag;
+}
+
+function conNormalizeTemplateRow(r) {
+    if (!r) return null;
+    var name = String(r.name || r.template_name || '').trim();
+    var content = String(r.content || r.template_text || '').trim();
+    if (!name || !content) return null;
+    return {
+        id: r.id || ('tmp_' + Math.random()),
+        name: name,
+        content: content,
+        clinic_tag: String(r.clinic_tag || '').trim(),
+        updated_at: r.updated_at || r.created_at || null
+    };
+}
+
+function conSortTemplates(list) {
+    list.sort(function(a, b) {
+        return String(a.name || '').localeCompare(String(b.name || ''), conUiLocale());
+    });
+}
+
+function conFetchNoteTemplates(done) {
+    if (!SB || typeof SB.from !== 'function') {
+        var localOnly = conGetNoteTemplates();
+        if (done) done(localOnly, new Error('Supabase not ready'));
+        return;
+    }
+    SB.from(CON_NOTE_TEMPLATES_TABLE).select('*').order('updated_at', { ascending: false })
+    .then(function(r) {
+        if (r.error) {
+            var localFallback = conGetNoteTemplates();
+            if (!conNoteTemplatesRemoteWarned) {
+                conNoteTemplatesRemoteWarned = true;
+                alert('Supabase template table unavailable; using local template cache.');
+            }
+            if (done) done(localFallback, r.error);
+            return;
+        }
+        var rows = r.data || [];
+        var tag = conTemplateClinicTag();
+        var list = rows.map(conNormalizeTemplateRow).filter(function(x) { return !!x; });
+        if (tag) {
+            list = list.filter(function(t) {
+                return !t.clinic_tag || t.clinic_tag === tag;
+            });
+        }
+        conSortTemplates(list);
+        conSetNoteTemplates(list);
+        if (done) done(list, null);
+    })
+    .catch(function(e) {
+        var localFallback = conGetNoteTemplates();
+        if (!conNoteTemplatesRemoteWarned) {
+            conNoteTemplatesRemoteWarned = true;
+            alert('Supabase template table unavailable; using local template cache.');
+        }
+        if (done) done(localFallback, e);
+    });
+}
+
+function conSaveTemplateRemote(tpl, done) {
+    if (!SB || typeof SB.from !== 'function') {
+        if (done) done(new Error('Supabase not ready'), null);
+        return;
+    }
+    var payload = {
+        name: String(tpl.name || '').trim(),
+        content: String(tpl.content || '').trim()
+    };
+    var ctag = conTemplateClinicTag();
+    if (ctag) payload.clinic_tag = ctag;
+    if (!tpl.id && typeof currentUserId !== 'undefined' && currentUserId) {
+        payload.created_by = String(currentUserId);
+    }
+
+    function doWrite(p, retried) {
+        var q = tpl.id
+            ? SB.from(CON_NOTE_TEMPLATES_TABLE).update(p).eq('id', tpl.id).select('*').limit(1)
+            : SB.from(CON_NOTE_TEMPLATES_TABLE).insert([p]).select('*').limit(1);
+        q.then(function(r) {
+            if (!r.error) {
+                var row = (r.data && r.data[0]) ? r.data[0] : Object.assign({ id: tpl.id }, p);
+                if (done) done(null, conNormalizeTemplateRow(row));
+                return;
+            }
+            var msg = String(r.error.message || '').toLowerCase();
+            if (!retried && (msg.indexOf('clinic_tag') >= 0 || msg.indexOf('created_by') >= 0)) {
+                var p2 = Object.assign({}, p);
+                delete p2.clinic_tag;
+                delete p2.created_by;
+                doWrite(p2, true);
+                return;
+            }
+            if (done) done(r.error, null);
+        }).catch(function(e) {
+            if (done) done(e, null);
+        });
+    }
+    doWrite(payload, false);
+}
+
+function conDeleteTemplateRemote(id, done) {
+    if (!SB || typeof SB.from !== 'function') {
+        if (done) done(new Error('Supabase not ready'));
+        return;
+    }
+    SB.from(CON_NOTE_TEMPLATES_TABLE).delete().eq('id', id)
+    .then(function(r) {
+        if (done) done(r.error || null);
+    })
+    .catch(function(e) {
+        if (done) done(e);
+    });
+}
+
+function conSaveNoteAsTemplate() {
+    var inp = g('conNoteInput');
+    if (!inp) return;
+    var txt = String(inp.value || '').trim();
+    if (!txt) {
+        alert(conTr('con.note.alertEnterNote'));
+        return;
+    }
+    var nm = prompt(conTr('con.note.templateNamePrompt'), '');
+    if (nm == null) return;
+    nm = String(nm || '').trim();
+    if (!nm) {
+        alert(conTr('con.note.alertTemplateName'));
+        return;
+    }
+
+    conFetchNoteTemplates(function(list) {
+        list = list || [];
+        var idx = -1;
+        for (var i = 0; i < list.length; i++) {
+            if (String(list[i].name || '').toLowerCase() === nm.toLowerCase()) {
+                idx = i;
+                break;
+            }
+        }
+        var tpl = idx >= 0 ? list[idx] : null;
+        if (tpl && !confirm(conTrRepl('con.note.confirmOverwriteTemplate', { NAME: nm }))) return;
+        conSaveTemplateRemote({
+            id: tpl ? tpl.id : null,
+            name: nm,
+            content: txt
+        }, function(err) {
+            if (err) {
+                alert(trRepl('appt.msg.error', { MSG: err.message || String(err) }));
+                return;
+            }
+            conFetchNoteTemplates(function() {
+                alert(conTrRepl('con.note.templateSaved', { NAME: nm }));
+            });
+        });
+    });
+}
+
+function conRenderNoteTemplateSelect(preferId) {
+    var sel = g('conNoteTemplateSelect');
+    if (!sel) return [];
+    var list = conGetNoteTemplates();
+    if (!list.length) {
+        sel.innerHTML = '<option value="">' + esc(conTr('con.note.noTemplates')) + '</option>';
+        sel.disabled = true;
+        var delBtn0 = g('conNoteTemplateDeleteBtn');
+        var saveBtn0 = g('conNoteTemplateSaveBtn');
+        var applyBtn0 = g('conNoteTemplateApplyBtn');
+        if (delBtn0) delBtn0.disabled = true;
+        if (saveBtn0) saveBtn0.disabled = true;
+        if (applyBtn0) applyBtn0.disabled = true;
+        return list;
+    }
+    sel.disabled = false;
+    sel.innerHTML = list.map(function(t, i) {
+        var when = '';
+        if (t.updated_at) {
+            var d = new Date(t.updated_at);
+            if (!isNaN(d.getTime())) {
+                when = ' · ' + d.toLocaleDateString(conUiLocale(), { day: '2-digit', month: 'short' });
+            }
+        }
+        return '<option value="' + esc(t.id || String(i)) + '">' +
+            esc(t.name + when) + '</option>';
+    }).join('');
+    if (preferId) sel.value = String(preferId);
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+    var delBtn = g('conNoteTemplateDeleteBtn');
+    var saveBtn = g('conNoteTemplateSaveBtn');
+    var applyBtn = g('conNoteTemplateApplyBtn');
+    if (delBtn) delBtn.disabled = false;
+    if (saveBtn) saveBtn.disabled = false;
+    if (applyBtn) applyBtn.disabled = false;
+    return list;
+}
+
+function conLoadTemplateEditorFields() {
+    var sel = g('conNoteTemplateSelect');
+    var nm = g('conNoteTemplateNameInput');
+    var ct = g('conNoteTemplateContentInput');
+    if (!sel || !nm || !ct) return;
+    var list = conGetNoteTemplates();
+    var picked = conFindTemplateById(list, sel.value);
+    if (!picked) {
+        nm.value = '';
+        ct.value = '';
+        return;
+    }
+    nm.value = picked.name || '';
+    ct.value = picked.content || '';
+}
+
+function conOpenTemplatePicker() {
+    conFetchNoteTemplates(function(list) {
+        conRenderNoteTemplateSelect();
+        if (!list || !list.length) {
+            alert(conTr('con.note.noTemplates'));
+            return;
+        }
+        openModal('conNoteTemplateModal');
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(g('conNoteTemplateModal'));
+        conLoadTemplateEditorFields();
+    });
+}
+
+function conApplyTemplateToNote() {
+    var sel = g('conNoteTemplateSelect');
+    var inp = g('conNoteInput');
+    var ct = g('conNoteTemplateContentInput');
+    if (!sel || !inp || !ct) return;
+    var id = String(sel.value || '');
+    if (!id) return;
+    inp.value = String(ct.value || '').trim();
+    inp.focus();
+    closeModal('conNoteTemplateModal');
+}
+
+function conSaveTemplateEdits() {
+    var sel = g('conNoteTemplateSelect');
+    var nm = g('conNoteTemplateNameInput');
+    var ct = g('conNoteTemplateContentInput');
+    if (!sel || !nm || !ct) return;
+    var id = String(sel.value || '');
+    if (!id) return;
+
+    var name = String(nm.value || '').trim();
+    var content = String(ct.value || '').trim();
+    if (!name) {
+        alert(conTr('con.note.alertTemplateName'));
+        nm.focus();
+        return;
+    }
+    if (!content) {
+        alert(conTr('con.note.alertEnterNote'));
+        ct.focus();
+        return;
+    }
+
+    var list = conGetNoteTemplates();
+    var current = conFindTemplateById(list, id);
+    if (!current) return;
+
+    for (var i = 0; i < list.length; i++) {
+        if (String(list[i].id || String(i)) === id) continue;
+        if (String(list[i].name || '').toLowerCase() === name.toLowerCase()) {
+            alert(conTrRepl('con.note.templateNameExists', { NAME: name }));
+            nm.focus();
+            return;
+        }
+    }
+
+    conSaveTemplateRemote({
+        id: current.id,
+        name: name,
+        content: content
+    }, function(err, saved) {
+        if (err) {
+            alert(trRepl('appt.msg.error', { MSG: err.message || String(err) }));
+            return;
+        }
+        conFetchNoteTemplates(function() {
+            conRenderNoteTemplateSelect(saved ? saved.id : current.id);
+            conLoadTemplateEditorFields();
+            alert(conTrRepl('con.note.templateUpdated', { NAME: name }));
+        });
+    });
+}
+
+function conDeleteTemplate() {
+    var sel = g('conNoteTemplateSelect');
+    if (!sel) return;
+    var id = String(sel.value || '');
+    if (!id) return;
+
+    var list = conGetNoteTemplates();
+    var current = conFindTemplateById(list, id);
+    if (!current) return;
+
+    if (!confirm(conTrRepl('con.note.confirmDeleteTemplate', { NAME: current.name || '' }))) return;
+
+    conDeleteTemplateRemote(id, function(err) {
+        if (err) {
+            alert(trRepl('appt.msg.error', { MSG: err.message || String(err) }));
+            return;
+        }
+        conFetchNoteTemplates(function(next) {
+            next = next || [];
+            if (!next.length) {
+                closeModal('conNoteTemplateModal');
+                alert(conTr('con.note.noTemplates'));
+                return;
+            }
+            conRenderNoteTemplateSelect(next[0].id || '');
+            conLoadTemplateEditorFields();
+            alert(conTrRepl('con.note.templateDeleted', { NAME: current.name || '' }));
         });
     });
 }
@@ -3681,6 +4078,12 @@ function saveDentalHistory() {
 // UI LANGUAGE — consultation doctor dropdown when display language changes
 // ════════════════════════════════════════════════════════════════
 function refreshConOpenModalsI18n() {
+    var tplModal = g('conNoteTemplateModal');
+    if (tplModal && tplModal.style.display === 'block') {
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(tplModal);
+        conRenderNoteTemplateSelect();
+        conLoadTemplateEditorFields();
+    }
     var rxModal = g('rxDrugListsModal');
     if (rxModal && rxModal.style.display === 'block') {
         if (typeof applyI18nInRoot === 'function') applyI18nInRoot(rxModal);

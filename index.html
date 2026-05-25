@@ -1147,6 +1147,10 @@
                 <span class="con-banner-banana-label" data-i18n="con.banner.bananaIndexLabel"></span>
                 <span class="con-banner-bananas" id="conBannerBananas" aria-hidden="true"></span>
             </div>
+            <div class="con-banner-banana-notes-row" id="conBannerBananaNotesWrap" style="display:none;">
+                <span class="con-banner-banana-label" data-i18n="con.banner.bananaNotesLabel"></span>
+                <span class="con-banner-banana-notes" id="conBannerBananaNotes">—</span>
+            </div>
         </div>
     </div>
     <div class="con-banner-alert">
@@ -1169,8 +1173,13 @@
           <textarea id="conNoteInput" rows="4"
                     data-i18n-placeholder="con.notePh">
           </textarea>
-          <div style="display:flex;justify-content:flex-end;
-                      margin-top:8px;">
+          <div class="con-note-actions-row" style="margin-top:8px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn-add con-note-template-btn"
+                      id="conNoteSaveTplBtn" data-i18n="con.note.saveTemplate"></button>
+              <button type="button" class="btn-add con-note-template-btn"
+                      id="conNoteFromTplBtn" data-i18n="con.note.fromTemplate"></button>
+            </div>
             <button class="btn-add" id="conNoteSaveBtn" data-i18n="con.saveNote"></button>
           </div>
         </div>
@@ -1275,6 +1284,39 @@
       </div><!-- /con-drug-col -->
     </div><!-- /conMainLayout -->
   </div><!-- /con-treatment -->
+
+  <div id="conNoteTemplateModal" class="modal">
+    <div class="modal-box" style="max-width:460px;">
+      <button class="mclose" data-i18n-aria-label="common.closeAria"
+              onclick="closeModal('conNoteTemplateModal')">×</button>
+      <h3 style="margin-bottom:12px;" data-i18n="con.note.templateModalTitle"></h3>
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px;"
+           data-i18n="con.note.templateModalHint"></div>
+      <select id="conNoteTemplateSelect"
+              style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;">
+      </select>
+      <div style="margin-top:10px;">
+        <input id="conNoteTemplateNameInput" type="text"
+               data-i18n-placeholder="con.note.templateNamePrompt"
+               style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;">
+      </div>
+      <div style="margin-top:10px;">
+        <textarea id="conNoteTemplateContentInput" rows="8"
+                  data-i18n-placeholder="con.notePh"
+                  style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;box-sizing:border-box;resize:vertical;font-family:inherit;"></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+        <button type="button" class="btn-add" style="background:var(--danger);"
+                id="conNoteTemplateDeleteBtn" data-i18n="common.btnDelete"></button>
+        <button type="button" class="btn-add" style="background:#0f766e;"
+                id="conNoteTemplateSaveBtn" data-i18n="common.btnSave"></button>
+        <button type="button" class="btn-add" style="background:var(--gray);"
+                onclick="closeModal('conNoteTemplateModal')" data-i18n="common.btnCancel"></button>
+        <button type="button" class="btn-add" id="conNoteTemplateApplyBtn"
+                data-i18n="con.note.useTemplate"></button>
+      </div>
+    </div>
+  </div>
 
 <!-- ══ PANE: MEDICAL HISTORY ══════════════════════════════ -->
 <div id="con-medhistory" class="con-pane">
@@ -2774,21 +2816,36 @@
           <label data-i18n="patient.form.hkid"></label>
           <input type="text" id="hkid">
         </div>
-        <div class="fg">
-          <label data-i18n="patient.form.bananaIndex"></label>
-          <select id="banana_index">
-            <option value="" data-i18n="patient.form.select"></option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10">10</option>
-          </select>
+        <div class="fg full add-banana-zone">
+          <label class="add-banana-zone-title" data-i18n="patient.form.bananaInfo"></label>
+          <label class="add-banana-enable-row">
+            <input type="checkbox" id="banana_info_enabled">
+            <span data-i18n="patient.form.bananaInfoEnable"></span>
+          </label>
+          <div class="add-banana-help" data-i18n="patient.form.bananaInfoHelp"></div>
+          <div id="addBananaInfoBody" class="add-banana-zone-body">
+            <div class="fg" style="margin:0;">
+              <label data-i18n="patient.form.bananaIndex"></label>
+              <select id="banana_index">
+                <option value="" data-i18n="patient.form.select"></option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+            <div class="fg full" style="margin:0;">
+              <label data-i18n="patient.form.bananaNotes"></label>
+              <textarea id="banana_notes" rows="2"
+                        data-i18n-placeholder="patient.form.bananaNotesPh"></textarea>
+            </div>
+          </div>
         </div>
         <div class="fg">
           <label data-i18n="patient.form.insurance"></label>
@@ -2923,21 +2980,36 @@
           <label data-i18n="patient.form.hkid"></label>
           <input type="text" id="edit_hkid">
         </div>
-        <div class="fg">
-          <label data-i18n="patient.form.bananaIndex"></label>
-          <select id="edit_banana_index">
-            <option value="" data-i18n="patient.form.select"></option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10">10</option>
-          </select>
+        <div class="fg full add-banana-zone">
+          <label class="add-banana-zone-title" data-i18n="patient.form.bananaInfo"></label>
+          <label class="add-banana-enable-row">
+            <input type="checkbox" id="edit_banana_info_enabled">
+            <span data-i18n="patient.form.bananaInfoEnable"></span>
+          </label>
+          <div class="add-banana-help" data-i18n="patient.form.bananaInfoHelp"></div>
+          <div id="editAddBananaInfoBody" class="add-banana-zone-body">
+            <div class="fg" style="margin:0;">
+              <label data-i18n="patient.form.bananaIndex"></label>
+              <select id="edit_banana_index">
+                <option value="" data-i18n="patient.form.select"></option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+            <div class="fg full" style="margin:0;">
+              <label data-i18n="patient.form.bananaNotes"></label>
+              <textarea id="edit_banana_notes" rows="2"
+                        data-i18n-placeholder="patient.form.bananaNotesPh"></textarea>
+            </div>
+          </div>
         </div>
         <div class="fg">
           <label data-i18n="patient.form.insurance"></label>
@@ -2995,12 +3067,15 @@
     <h3 data-i18n="appt.queue.remarksTitle"></h3>
     <p id="queueRemarksApptHint"
        style="margin:8px 0 12px;font-size:13px;color:#64748b;line-height:1.4;"></p>
-    <label for="queueRemarksText" data-i18n="appt.queue.remarksLabel"
+    <label for="queueRemarksEditor" data-i18n="appt.queue.remarksLabel"
            style="display:block;font-size:12px;color:#475569;margin-bottom:6px;"></label>
-    <textarea id="queueRemarksText" rows="10"
-              data-i18n-placeholder="appt.queue.remarksPh"
-              style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;
-                     font-size:14px;line-height:1.45;resize:vertical;box-sizing:border-box;"></textarea>
+    <div class="appt-remarks-rich appt-remarks-rich--tall" id="queueRemarksRich" data-editor-id="queueRemarksEditor">
+      <div class="appt-remarks-rich-toolbar" role="toolbar"
+           data-i18n-aria-label="appt.remarksRich.toolbarAria"></div>
+      <div id="queueRemarksEditor" class="appt-remarks-rich-editor" contenteditable="true"
+           role="textbox" aria-multiline="true" tabindex="0"
+           data-i18n-placeholder="appt.queue.remarksPh"></div>
+    </div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
       <button type="button" id="cancelQueueRemarks"
               data-i18n="cfg.btn.cancel"
@@ -3129,9 +3204,14 @@
       </div>
     </div>
     <div class="fg">
-      <label data-i18n="appt.modal.remarks"></label>
-      <textarea id="fRemarks" rows="2"
-                data-i18n-placeholder="appt.modal.remarksPh"></textarea>
+      <label for="fRemarksEditor" data-i18n="appt.modal.remarks"></label>
+      <div class="appt-remarks-rich" id="fRemarksRich" data-editor-id="fRemarksEditor">
+        <div class="appt-remarks-rich-toolbar" role="toolbar"
+             data-i18n-aria-label="appt.remarksRich.toolbarAria"></div>
+        <div id="fRemarksEditor" class="appt-remarks-rich-editor appt-remarks-rich-editor--compact"
+             contenteditable="true" role="textbox" aria-multiline="true" tabindex="0"
+             data-i18n-placeholder="appt.modal.remarksPh"></div>
+      </div>
     </div>
 
      <button class="btn-add" id="btnSaveAppt" data-i18n="appt.modal.saveAppt"
@@ -4315,7 +4395,7 @@
 <script src="app-xray.js?v=20260520f"></script>
 <script src="app-charts.js"></script>
 <script src="app-drugs.js"></script>
-<script src="app-broadcast.js?v=20260524d"></script>
+<script src="app-broadcast.js?v=20260524c"></script>
 <script src="app-quicklaunch.js"></script>
 
 

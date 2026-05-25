@@ -33,6 +33,45 @@ function readBananaIndexField(selectId) {
     return (n >= 1 && n <= 10) ? n : null;
 }
 
+function readBananaNotesField(inputId) {
+    var el = g(inputId);
+    if (!el) return null;
+    var txt = String(el.value || '').trim();
+    return txt ? txt : null;
+}
+
+function toggleAddBananaInfoZone() {
+    var chk = g('banana_info_enabled');
+    var body = g('addBananaInfoBody');
+    var idx = g('banana_index');
+    var nts = g('banana_notes');
+    var on = !!(chk && chk.checked);
+    if (body) body.classList.toggle('is-disabled', !on);
+    if (idx) idx.disabled = !on;
+    if (nts) nts.disabled = !on;
+    if (!on) {
+        if (idx) idx.value = '';
+        if (nts) nts.value = '';
+    }
+}
+
+function toggleEditBananaInfoZone(forceDisabled) {
+    var chk = g('edit_banana_info_enabled');
+    var body = g('editAddBananaInfoBody');
+    var idx = g('edit_banana_index');
+    var nts = g('edit_banana_notes');
+    var on = !!(chk && chk.checked);
+    var disabled = !!forceDisabled || !on;
+    if (body) body.classList.toggle('is-disabled', disabled);
+    if (chk) chk.disabled = !!forceDisabled;
+    if (idx) idx.disabled = disabled;
+    if (nts) nts.disabled = disabled;
+    if (!on) {
+        if (idx) idx.value = '';
+        if (nts) nts.value = '';
+    }
+}
+
 function refreshPatientSexSelects() {
     ['sex', 'edit_sex'].forEach(function(id) {
         var sel = g(id);
@@ -74,6 +113,7 @@ function refreshPatientDirI18n() {
             var addSel = g('addPatientClinicSelect');
             if (addSel) addSel.value = prevAddClinic;
         }
+        if (typeof toggleAddBananaInfoZone === 'function') toggleAddBananaInfoZone();
         if (typeof updateAddPatientNoAvailabilityUI === 'function') {
             updateAddPatientNoAvailabilityUI();
         }
@@ -81,6 +121,9 @@ function refreshPatientDirI18n() {
     var editModal = g('editPatientModal');
     if (editModal && editModal.style.display === 'block') {
         fillEditPatientClinicSelect(editPatientLoadedClinicTag);
+        if (typeof toggleEditBananaInfoZone === 'function') {
+            toggleEditBananaInfoZone(currentRole === 'nurse');
+        }
         setEditPatientModalForRole();
     }
     if (_patientDetailsPatient && selPatientId) {
@@ -340,6 +383,11 @@ function genPatientNo(cb) {
 function openAddPatient() {
     g('patientForm').reset();
     sv('preview_patientNo','');
+    if (g('banana_info_enabled')) {
+        g('banana_info_enabled').checked = false;
+        g('banana_info_enabled').onchange = toggleAddBananaInfoZone;
+    }
+    toggleAddBananaInfoZone();
     var st = g('addPatientNoStatus');
     if (st) { st.textContent = ''; st.style.color = '#64748b'; }
     fillAddPatientClinicSelect();
@@ -409,12 +457,15 @@ function submitAddPatient(e) {
             address:        (g('address').value      ||'').trim()||null,
             medical_alerts: (g('alerts').value       ||'').trim()||null,
             remarks:        (g('remarks').value      ||'').trim()||null,
-            banana_index:   readBananaIndexField('banana_index')
+            banana_index:   (g('banana_info_enabled') && g('banana_info_enabled').checked)
+                ? readBananaIndexField('banana_index')
+                : null,
+            banana_notes:   (g('banana_info_enabled') && g('banana_info_enabled').checked)
+                ? readBananaNotesField('banana_notes')
+                : null
         };
         payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
-        SB.from('patients').insert([payload]).select('id,patient_no,full_name,chinese_name')
-        .then(function(r) {
-            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        function finishInsert(r) {
             var row = r.data && r.data[0] ? r.data[0] : null;
             var linkedToday = row &&
                 typeof linkTodayApptAfterPatientRegistration === 'function' &&
@@ -425,7 +476,22 @@ function submitAddPatient(e) {
             if (!linkedToday) {
                 alert(patTrRepl('patient.alertRegistered', { NO: no }));
             }
-        });
+        }
+        function doInsert(pl, retried) {
+            SB.from('patients').insert([pl]).select('id,patient_no,full_name,chinese_name')
+            .then(function(r) {
+                if (!r.error) { finishInsert(r); return; }
+                var msg = String(r.error.message || '').toLowerCase();
+                if (!retried && msg.indexOf('banana_notes') >= 0) {
+                    var pl2 = Object.assign({}, pl);
+                    delete pl2.banana_notes;
+                    doInsert(pl2, true);
+                    return;
+                }
+                alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+            });
+        }
+        doInsert(payload, false);
     });
 }
 
@@ -561,10 +627,13 @@ function setEditPatientModalForRole() {
     });
     var sex = g('edit_sex');
     if (sex) sex.disabled = nurse;
-    ['edit_alerts', 'edit_remarks'].forEach(function(fid) {
+    ['edit_alerts', 'edit_remarks', 'edit_banana_notes'].forEach(function(fid) {
         var el = g(fid);
         if (el) el.readOnly = nurse;
     });
+    if (typeof toggleEditBananaInfoZone === 'function') {
+        toggleEditBananaInfoZone(nurse);
+    }
 
     var clin = g('editPatientClinicSelect');
     if (clin) {
@@ -592,6 +661,16 @@ function openEditPatient(id) {
         sv('edit_alerts',      p.medical_alerts ||'');
         sv('edit_remarks',     p.remarks        ||'');
         sv('edit_banana_index', p.banana_index != null ? String(p.banana_index) : '');
+        sv('edit_banana_notes', p.banana_notes || '');
+        var hasBanana = readBananaIndexField('edit_banana_index') != null ||
+            !!readBananaNotesField('edit_banana_notes');
+        if (g('edit_banana_info_enabled')) {
+            g('edit_banana_info_enabled').checked = hasBanana;
+            g('edit_banana_info_enabled').onchange = function() {
+                toggleEditBananaInfoZone(currentRole === 'nurse');
+            };
+        }
+        toggleEditBananaInfoZone(currentRole === 'nurse');
         editPatientLoadedClinicTag = p[PATIENT_CLINIC_TAG_FIELD] || '';
         fillEditPatientClinicSelect(editPatientLoadedClinicTag);
         setEditPatientModalForRole();
@@ -634,19 +713,37 @@ function submitEditPatient(e) {
               address:        (g('edit_address').value     ||'').trim()||null,
               medical_alerts: (g('edit_alerts').value      ||'').trim()||null,
               remarks:        (g('edit_remarks').value     ||'').trim()||null,
-              banana_index:   readBananaIndexField('edit_banana_index')
+              banana_index:   (g('edit_banana_info_enabled') && g('edit_banana_info_enabled').checked)
+                  ? readBananaIndexField('edit_banana_index')
+                  : null,
+              banana_notes:   (g('edit_banana_info_enabled') && g('edit_banana_info_enabled').checked)
+                  ? readBananaNotesField('edit_banana_notes')
+                  : null
           };
     if (!nurse) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
-    SB.from('patients').update(payload).eq('id',editPatientId)
-    .then(function(r) {
-        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+    function doneUpdate() {
         closeModal('editPatientModal');
         fetchPatients();
         if (typeof refreshApptListsAfterPatientEdit === 'function') {
             refreshApptListsAfterPatientEdit();
         }
         alert(nurse ? patTr('patient.alertClinicTagSaved') : patTr('patient.alertUpdated'));
-    });
+    }
+    function doUpdate(pl, retried) {
+        SB.from('patients').update(pl).eq('id',editPatientId)
+        .then(function(r) {
+            if (!r.error) { doneUpdate(); return; }
+            var msg = String(r.error.message || '').toLowerCase();
+            if (!retried && msg.indexOf('banana_notes') >= 0) {
+                var pl2 = Object.assign({}, pl);
+                delete pl2.banana_notes;
+                doUpdate(pl2, true);
+                return;
+            }
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+        });
+    }
+    doUpdate(payload, false);
 }
 
 function deletePatient() {

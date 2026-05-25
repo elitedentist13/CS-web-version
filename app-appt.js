@@ -1,4 +1,4 @@
-// ════════════════════════════════════════════════════════════════
+﻿// ════════════════════════════════════════════════════════════════
 // APPOINTMENT MODULE
 // ════════════════════════════════════════════════════════════════
 
@@ -288,6 +288,7 @@ function initAppt() {
     var qb = g('queueBody');
     if (qb) bindQueueReorderHandlers(qb);
     bindQueueRemarksModalOnce();
+    initApptRemarksRichEditors();
     bindPlusApptTabOnce();
     switchApptTab('queue');
 }
@@ -1662,7 +1663,7 @@ function openNewApptSamePatientFromRecord(appt) {
     if (fd) fd.setAttribute('min', tday);
 
     sv('fTreatment', '');
-    sv('fRemarks',   '');
+    clearApptRemarksEditor('fRemarksEditor');
     sv('npName',   '');
     sv('npPhone',  '');
 
@@ -2347,12 +2348,17 @@ function doPatientSearch() {
 // ════════════════════════════════════════════════════════════════
 // APPOINTMENT REMARKS — strip internal tags before show/save
 // ════════════════════════════════════════════════════════════════
+function remarksStringHasHtml(s) {
+    return /<[a-z][\s\S]*>/i.test(String(s || ''));
+}
+
 function stripDoctorTagsFromRemarks(remarks) {
     var r = String(remarks || '');
     r = r.replace(/\|@dr:[^|]*\|/gi, ' ');
     r = r.replace(/@dr:[^|]+/gi, ' ');
     r = r.replace(/\s*\|\s*/g, ' | ');
     r = r.replace(/^\s*\|\s*|\s*\|\s*$/g, '');
+    if (remarksStringHasHtml(r)) return r.trim();
     return r.replace(/\s+/g, ' ').trim();
 }
 
@@ -2362,18 +2368,18 @@ function extractPhoneFromRemarks(remarks) {
 }
 
 function stripPhoneFromRemarks(remarks) {
-    return String(remarks || '')
+    var r = String(remarks || '')
         .replace(/(?:^|\|)\s*Ph:\s*[^|]+/gi, '')
         .replace(/\s*\|\s*\|/g, ' | ')
-        .replace(/^\s*\|\s*|\s*\|\s*$/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+        .replace(/^\s*\|\s*|\s*\|\s*$/g, '');
+    if (remarksStringHasHtml(r)) return r.trim();
+    return r.replace(/\s+/g, ' ').trim();
 }
 
 function remarksForApptForm(remarks) {
     return stripStaffAuthorFromRemarks(
         stripPhoneFromRemarks(stripDoctorTagsFromRemarks(remarks))
-    );
+    ).trim();
 }
 
 /** Logged-in user is doctor/dentist — no staff author tag on remarks. */
@@ -2422,11 +2428,11 @@ function extractStaffAuthorSpan(remarks) {
 }
 
 function stripStaffAuthorFromRemarks(remarks) {
-    return String(remarks || '')
+    var r = String(remarks || '')
         .replace(/\s*\|\s*<span class="appt-rm-by"[^>]*>[\s\S]*?<\/span>/gi, '')
-        .replace(/<span class="appt-rm-by"[^>]*>[\s\S]*?<\/span>/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+        .replace(/<span class="appt-rm-by"[^>]*>[\s\S]*?<\/span>/gi, '');
+    if (remarksStringHasHtml(r)) return r.trim();
+    return r.replace(/\s+/g, ' ').trim();
 }
 
 function sanitizeStaffAuthorSpan(html) {
@@ -2464,9 +2470,1026 @@ function formatRemarksForDisplay(remarks, opts) {
     var tag = extractStaffAuthorSpan(remarks);
     var text = stripStaffAuthorFromRemarks(remarks);
     if (opts.stripDr) text = stripDoctorTagsFromRemarks(text);
-    var out = esc(text.trim());
+    var trimmed = text.trim();
+    var out = remarksStringHasHtml(trimmed)
+        ? sanitizeRemarksHtml(trimmed)
+        : esc(trimmed);
     if (tag) out += (out ? ' ' : '') + sanitizeStaffAuthorSpan(tag);
     return out || (opts.empty != null ? opts.empty : '');
+}
+
+// ════════════════════════════════════════════════════════════════
+// APPOINTMENT REMARKS — rich editor (size / font / color)
+// ════════════════════════════════════════════════════════════════
+var APPT_REMARKS_RICH_SIZES = [
+    { v: '12px', k: '12' },
+    { v: '14px', k: '14' },
+    { v: '16px', k: '16' },
+    { v: '18px', k: '18' },
+    { v: '20px', k: '20' },
+    { v: '24px', k: '24' }
+];
+var APPT_REMARKS_RICH_FONTS = [
+    { v: 'Arial, Helvetica, "Microsoft JhengHei", "PingFang TC", sans-serif', k: 'Arial / 正黑' },
+    { v: '"Times New Roman", Times, "Songti TC", "SimSun", serif', k: 'Times New Roman' },
+    { v: 'Georgia, "Times New Roman", "Songti TC", "SimSun", serif', k: 'Georgia / 宋体' },
+    { v: '"Courier New", Consolas, "Microsoft JhengHei", monospace', k: 'Courier' },
+    { v: '"Microsoft JhengHei", "PingFang TC", sans-serif', k: '微軟正黑體' },
+    { v: 'SimSun, "Songti TC", "PMingLiU", serif', k: '新細明體' },
+    { v: 'KaiTi, "STKaiti", "KaiTi SC", serif', k: '楷体' }
+];
+var APPT_REMARKS_RICH_COLORS = [
+    '#334155', '#0f172a', '#ef4444', '#f97316', '#eab308', '#22c55e',
+    '#10b981', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#a855f7',
+    '#ec4899', '#f43f5e', '#ffffff', '#000000'
+];
+
+function remarksRichTr(key) {
+    return (typeof tr === 'function') ? tr(key) : key;
+}
+
+function sanitizeRemarksHtml(html) {
+    var allowed = { span: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, br: 1, font: 1, div: 1, p: 1 };
+    var styleOk = {
+        'font-size': 1, 'font-family': 1, color: 1,
+        'font-weight': 1, 'font-style': 1, 'text-decoration': 1
+    };
+    var tmp = document.createElement('div');
+    tmp.innerHTML = String(html || '');
+    remarksRichSanitizeNode(tmp, allowed, styleOk);
+    var out = tmp.innerHTML;
+    out = out.replace(/<div><br><\/div>/gi, '<br>');
+    out = out.replace(/<p><br><\/p>/gi, '<br>');
+    return out.trim();
+}
+
+function remarksRichSanitizeNode(node, allowed, styleOk) {
+    var kids = [];
+    for (var i = 0; i < node.childNodes.length; i++) kids.push(node.childNodes[i]);
+    kids.forEach(function(ch) {
+        if (ch.nodeType === 1) {
+            var tag = ch.tagName.toLowerCase();
+            if (!allowed[tag]) {
+                while (ch.firstChild) node.insertBefore(ch.firstChild, ch);
+                node.removeChild(ch);
+                return;
+            }
+            var attrs = [];
+            for (var a = 0; a < ch.attributes.length; a++) attrs.push(ch.attributes[a]);
+            if (ch.classList) {
+                if (ch.classList.contains('ql-size-small')) ch.style.fontSize = '0.75em';
+                if (ch.classList.contains('ql-size-large')) ch.style.fontSize = '1.5em';
+                if (ch.classList.contains('ql-size-huge')) ch.style.fontSize = '2.5em';
+                if (ch.classList.contains('ql-font-serif')) {
+                    ch.style.fontFamily = 'Georgia, "Times New Roman", "Songti TC", serif';
+                }
+                if (ch.classList.contains('ql-font-monospace')) {
+                    ch.style.fontFamily = '"Courier New", Consolas, monospace';
+                }
+            }
+            attrs.forEach(function(attr) {
+                var n = attr.name.toLowerCase();
+                if (n.indexOf('on') === 0 || n === 'class' || n === 'id') {
+                    ch.removeAttribute(attr.name);
+                }
+            });
+            if (tag === 'font') {
+                var fs = ch.getAttribute('size');
+                var fc = ch.getAttribute('color');
+                var ff = ch.getAttribute('face');
+                var st = [];
+                if (fc) st.push('color:' + fc);
+                if (ff) st.push('font-family:' + ff);
+                if (fs) st.push('font-size:' + fs + 'px');
+                if (st.length) ch.setAttribute('style', st.join(';'));
+                ch.removeAttribute('size');
+                ch.removeAttribute('color');
+                ch.removeAttribute('face');
+            }
+            var styleRaw = ch.getAttribute('style');
+            if (styleRaw) {
+                var clean = remarksRichCleanStyle(styleRaw, styleOk);
+                if (clean) ch.setAttribute('style', clean);
+                else ch.removeAttribute('style');
+            }
+            remarksRichSanitizeNode(ch, allowed, styleOk);
+        }
+    });
+}
+
+function remarksRichCleanStyle(raw, styleOk) {
+    var parts = String(raw || '').split(';');
+    var out = [];
+    parts.forEach(function(p) {
+        var kv = p.split(':');
+        if (kv.length < 2) return;
+        var prop = kv[0].trim().toLowerCase();
+        var val = kv.slice(1).join(':').trim();
+        if (!styleOk[prop] || !val) return;
+        if (/javascript\s*:/i.test(val)) return;
+        out.push(prop + ':' + val);
+    });
+    return out.join(';');
+}
+
+function remarksRichGetEditor(wrap) {
+    if (!wrap) return null;
+    var id = wrap.getAttribute('data-editor-id');
+    return id ? g(id) : null;
+}
+
+/** Per-editor saved text selection (survives color-picker focus loss). */
+var _remarksRichSelByEditor = {};
+
+function remarksRichSaveSelection(editor) {
+    if (!editor) return;
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+    try {
+        _remarksRichSelByEditor[editor.id] = range.cloneRange();
+        _remarksRichSelByEditor[editor.id + '__nc'] = !range.collapsed;
+    } catch (e) {}
+}
+
+/** Save before toolbar click; keep stored highlight if focus would collapse it. */
+function remarksRichSaveSelectionForToolbar(editor) {
+    if (!editor) return;
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+    if (range.collapsed && remarksRichHadStoredRangeSelection(editor)) return;
+    remarksRichSaveSelection(editor);
+}
+
+function remarksRichClearStoredRange(editor) {
+    if (!editor) return;
+    delete _remarksRichSelByEditor[editor.id + '__nc'];
+}
+
+function remarksRichHadStoredRangeSelection(editor) {
+    return !!_remarksRichSelByEditor[editor.id + '__nc'];
+}
+
+function remarksRichIsMarkerOnlySpan(span) {
+    if (!span) return false;
+    var t = String(span.textContent || '').replace(/\u200b/g, '');
+    return !t.trim();
+}
+
+function remarksRichCreateTypingSpan(styleObj) {
+    var span = document.createElement('span');
+    span.className = 'appt-rm-typing';
+    if (styleObj.color) span.style.color = styleObj.color;
+    if (styleObj.fontSize) span.style.fontSize = styleObj.fontSize;
+    if (styleObj.fontFamily) span.style.fontFamily = styleObj.fontFamily;
+    return span;
+}
+
+function remarksRichSetCaretInSpan(span) {
+    if (!span) return;
+    var sel = window.getSelection();
+    if (!sel) return;
+    var nr = document.createRange();
+    nr.setStart(span, 0);
+    nr.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(nr);
+}
+
+function remarksRichFinalizeTypingSpan(span) {
+    if (span && span.classList) span.classList.remove('appt-rm-typing');
+}
+
+function remarksRichSpanHasInlineStyle(span) {
+    if (!span || span.tagName !== 'SPAN') return false;
+    return !!(span.style.color || span.style.fontSize || span.style.fontFamily ||
+        remarksRichGetInlineColorFromElement(span));
+}
+
+function remarksRichSpanMatchesStyle(span, styleObj) {
+    if (!span || !styleObj) return false;
+    if (styleObj.color) {
+        var spanColor = remarksRichGetInlineColorFromElement(span) || span.style.color;
+        if (remarksRichToHexColor(spanColor) !== remarksRichToHexColor(styleObj.color)) {
+            return false;
+        }
+    }
+    if (styleObj.fontFamily && span.style.fontFamily !== styleObj.fontFamily) return false;
+    if (styleObj.fontSize && span.style.fontSize !== styleObj.fontSize) return false;
+    return true;
+}
+
+/** Split a styled span at the caret and open a new sibling span (multi-color per line). */
+function remarksRichSplitHostSpanAtCaret(editor, hostSpan, styleObj) {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    var range = sel.getRangeAt(0);
+    if (!range.collapsed || !editor.contains(range.commonAncestorContainer)) return null;
+    if (!hostSpan || !hostSpan.parentNode) return null;
+
+    remarksRichFinalizeTypingSpan(hostSpan);
+    var parent = hostSpan.parentNode;
+    var newSpan = remarksRichCreateTypingSpan(styleObj);
+    var container = range.startContainer;
+    var offset = range.startOffset;
+
+    if (container.nodeType === 3 && hostSpan.contains(container)) {
+        if (offset === 0) {
+            parent.insertBefore(newSpan, hostSpan);
+        } else if (offset >= container.length) {
+            parent.insertBefore(newSpan, hostSpan.nextSibling);
+        } else {
+            var tail = container.splitText(offset);
+            newSpan.appendChild(tail);
+            parent.insertBefore(newSpan, hostSpan.nextSibling);
+        }
+    } else if (container.nodeType === 1 && hostSpan.contains(container)) {
+        parent.insertBefore(newSpan, hostSpan.nextSibling);
+    } else {
+        parent.insertBefore(newSpan, hostSpan.nextSibling);
+    }
+
+    remarksRichSetCaretInSpan(newSpan);
+    return newSpan;
+}
+
+function remarksRichFindTypingSpanAtCaret(editor) {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !sel.isCollapsed) return null;
+    var node = sel.anchorNode;
+    if (!node || !editor.contains(node)) return null;
+    var el = node.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== editor) {
+        if (el.tagName === 'SPAN' && el.classList.contains('appt-rm-typing')) return el;
+        el = el.parentElement;
+    }
+    return null;
+}
+
+function remarksRichClearColorsInNode(node) {
+    if (!node) return;
+    if (node.nodeType === 1) {
+        if (node.style && node.style.color) node.style.color = '';
+        if (node.tagName === 'FONT') node.removeAttribute('color');
+    }
+    var ch = node.childNodes;
+    for (var i = ch.length - 1; i >= 0; i--) remarksRichClearColorsInNode(ch[i]);
+}
+
+function remarksRichApplyInlineToRange(editor, styleObj) {
+    if (!editor || !styleObj) return false;
+    remarksRichRestoreSelection(editor);
+    editor.focus();
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return false;
+    var range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer) || range.collapsed) return false;
+
+    var frag = range.extractContents();
+    if (styleObj.color) remarksRichClearColorsInNode(frag);
+    var span = document.createElement('span');
+    if (styleObj.color) span.style.color = styleObj.color;
+    if (styleObj.fontSize) span.style.fontSize = styleObj.fontSize;
+    if (styleObj.fontFamily) span.style.fontFamily = styleObj.fontFamily;
+    span.appendChild(frag);
+    range.insertNode(span);
+
+    sel.removeAllRanges();
+    var nr = document.createRange();
+    nr.selectNodeContents(span);
+    nr.collapse(false);
+    sel.addRange(nr);
+
+    if (styleObj.color) editor.dataset.rmTypingColor = styleObj.color;
+    if (styleObj.fontFamily) editor.dataset.rmTypingFont = styleObj.fontFamily;
+    remarksRichClearStoredRange(editor);
+    remarksRichSaveSelection(editor);
+    return true;
+}
+
+function remarksRichApplyColorToRange(editor, hexColor) {
+    return remarksRichApplyInlineToRange(editor, { color: hexColor });
+}
+
+/** Place typing-style span at caret only — does not change text before the caret. */
+function remarksRichPlaceTypingSpanAtCaret(editor, styleObj) {
+    styleObj = styleObj || {};
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    var range = sel.getRangeAt(0);
+    if (!range.collapsed || !editor.contains(range.commonAncestorContainer)) return null;
+
+    var marker = remarksRichFindTypingSpanAtCaret(editor);
+    if (marker && remarksRichIsMarkerOnlySpan(marker)) {
+        if (styleObj.color) marker.style.color = styleObj.color;
+        if (styleObj.fontSize) marker.style.fontSize = styleObj.fontSize;
+        if (styleObj.fontFamily) marker.style.fontFamily = styleObj.fontFamily;
+        remarksRichSetCaretInSpan(marker);
+        return marker;
+    }
+
+    var hostSpan = remarksRichFindStyleSpanAtCaret(editor);
+    if (hostSpan && remarksRichSpanHasInlineStyle(hostSpan) &&
+        !remarksRichSpanMatchesStyle(hostSpan, styleObj)) {
+        return remarksRichSplitHostSpanAtCaret(editor, hostSpan, styleObj);
+    }
+
+    if (hostSpan && remarksRichSpanMatchesStyle(hostSpan, styleObj)) {
+        hostSpan.classList.add('appt-rm-typing');
+        remarksRichSetCaretInSpan(hostSpan);
+        return hostSpan;
+    }
+
+    var span = remarksRichCreateTypingSpan(styleObj);
+    var container = range.startContainer;
+    var offset = range.startOffset;
+    var styledWrap = hostSpan && remarksRichSpanHasInlineStyle(hostSpan) ? hostSpan : null;
+
+    if (container.nodeType === 3) {
+        var tn = container;
+        var parent = tn.parentNode;
+        if (styledWrap && styledWrap.contains(tn) && styleObj.color) {
+            if (offset >= tn.length) {
+                styledWrap.parentNode.insertBefore(span, styledWrap.nextSibling);
+            } else if (offset === 0) {
+                styledWrap.parentNode.insertBefore(span, styledWrap);
+            } else {
+                var tail2 = tn.splitText(offset);
+                span.appendChild(tail2);
+                styledWrap.parentNode.insertBefore(span, styledWrap.nextSibling);
+            }
+        } else if (offset === 0) {
+            parent.insertBefore(span, tn);
+        } else if (offset >= tn.length) {
+            if (tn.nextSibling) parent.insertBefore(span, tn.nextSibling);
+            else parent.appendChild(span);
+        } else {
+            var tail = tn.splitText(offset);
+            span.appendChild(tail);
+            parent.insertBefore(span, tail);
+        }
+    } else if (container.nodeType === 1) {
+        if (styledWrap && styleObj.color) {
+            styledWrap.parentNode.insertBefore(span, styledWrap.nextSibling);
+        } else {
+            var ref = container.childNodes[offset] || null;
+            container.insertBefore(span, ref);
+        }
+    }
+
+    remarksRichSetCaretInSpan(span);
+    return span;
+}
+
+function remarksRichRestoreSelection(editor) {
+    if (!editor) return false;
+    var range = _remarksRichSelByEditor[editor.id];
+    if (!range) return false;
+    try {
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return true;
+    } catch (e2) {
+        return false;
+    }
+}
+
+var APPT_REMARKS_DEFAULT_COLOR = '#334155';
+
+function remarksRichToHexColor(cssColor) {
+    var s = String(cssColor || '').trim();
+    if (!s) return APPT_REMARKS_DEFAULT_COLOR;
+    if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+    if (/^#[0-9a-f]{3}$/i.test(s)) {
+        return ('#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3]).toLowerCase();
+    }
+    var m = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (m) {
+        return '#' + [m[1], m[2], m[3]].map(function(n) {
+            return ('0' + parseInt(n, 10).toString(16)).slice(-2);
+        }).join('');
+    }
+    try {
+        var probe = document.createElement('span');
+        probe.style.color = s;
+        document.body.appendChild(probe);
+        var resolved = window.getComputedStyle(probe).color;
+        document.body.removeChild(probe);
+        if (resolved && resolved !== s) return remarksRichToHexColor(resolved);
+    } catch (eProbe) {}
+    return APPT_REMARKS_DEFAULT_COLOR;
+}
+
+function remarksRichGetInlineColorFromElement(el) {
+    if (!el || el.nodeType !== 1) return '';
+    if (el.tagName === 'FONT') {
+        var fc = el.getAttribute('color');
+        if (fc) return fc;
+    }
+    if (el.style && el.style.color) return el.style.color;
+    var st = el.getAttribute('style') || '';
+    var m = st.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+    return m ? m[1].trim() : '';
+}
+
+/** Color at caret or start of selection (for toolbar picker). */
+function remarksRichGetCaretColor(editor) {
+    if (!editor) return APPT_REMARKS_DEFAULT_COLOR;
+    var sel = window.getSelection();
+    var range = (sel && sel.rangeCount) ? sel.getRangeAt(0) : null;
+    if (!range || !editor.contains(range.commonAncestorContainer)) {
+        var stored = _remarksRichSelByEditor[editor.id];
+        if (stored) {
+            try { range = stored.cloneRange(); } catch (eSt) { range = null; }
+        }
+    }
+    if (!range) return APPT_REMARKS_DEFAULT_COLOR;
+
+    var node = range.startContainer;
+    if (node.nodeType === 1) {
+        var child = node.childNodes[range.startOffset];
+        if (!child && range.startOffset > 0) child = node.childNodes[range.startOffset - 1];
+        if (child) node = child;
+    }
+    if (!node) return APPT_REMARKS_DEFAULT_COLOR;
+
+    var el = node.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== editor) {
+        if (el.tagName === 'SPAN' || el.tagName === 'FONT') {
+            var inline = remarksRichGetInlineColorFromElement(el);
+            if (inline) return remarksRichToHexColor(inline);
+        }
+        el = el.parentElement;
+    }
+
+    el = node.nodeType === 3 ? node.parentElement : node;
+    if (el && el !== editor) {
+        var comp = window.getComputedStyle(el).color;
+        if (comp) return remarksRichToHexColor(comp);
+    }
+    return APPT_REMARKS_DEFAULT_COLOR;
+}
+
+/** Nearest styled span wrapping the caret (for typing color sync). */
+function remarksRichFindStyleSpanAtCaret(editor) {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !sel.isCollapsed) return null;
+    var node = sel.anchorNode;
+    if (!node || !editor.contains(node)) return null;
+    var el = node.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== editor) {
+        if (el.tagName === 'SPAN' && remarksRichSpanHasInlineStyle(el)) return el;
+        el = el.parentElement;
+    }
+    return null;
+}
+
+function remarksRichApplyFormat(editor, styleObj) {
+    if (!editor || !styleObj) return;
+    remarksRichRestoreSelection(editor);
+    editor.focus();
+    if (styleObj.color) editor.dataset.rmTypingColor = styleObj.color;
+    if (styleObj.fontFamily) editor.dataset.rmTypingFont = styleObj.fontFamily;
+
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+
+    if (!range.collapsed) {
+        remarksRichApplyInlineToRange(editor, styleObj);
+    } else {
+        remarksRichPlaceTypingSpanAtCaret(editor, styleObj);
+        remarksRichSaveSelection(editor);
+    }
+    remarksRichSyncColorPickerFromCaret(editor, editor._remarksRichWrap);
+}
+
+function remarksRichInsertTypingSpan(editor, styleObj) {
+    if (styleObj.color || styleObj.fontFamily || styleObj.fontSize) {
+        return remarksRichPlaceTypingSpanAtCaret(editor, styleObj);
+    }
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    var range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer) || !range.collapsed) return null;
+
+    var span = document.createElement('span');
+    span.className = 'appt-rm-typing';
+    if (styleObj.fontSize) span.style.fontSize = styleObj.fontSize;
+    if (styleObj.fontFamily) span.style.fontFamily = styleObj.fontFamily;
+
+    range.insertNode(span);
+    var r = document.createRange();
+    r.setStart(span, 0);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    return span;
+}
+
+function remarksRichApplyColor(editor, hexColor) {
+    if (!editor || !hexColor) return;
+    editor.dataset.rmTypingColor = hexColor;
+    remarksRichApplyFormat(editor, { color: hexColor });
+    var wrap = editor._remarksRichWrap;
+    if (wrap) {
+        remarksRichSetPickerInputValue(wrap, hexColor);
+        remarksRichSetColorChip(wrap, hexColor);
+        remarksRichMarkSwatchSelection(wrap, hexColor);
+    }
+}
+
+function remarksRichSetColorChip(wrap, hex) {
+    if (!wrap || !hex) return;
+    var chip = wrap.querySelector('.appt-remarks-fmt-color-chip');
+    if (chip) chip.style.background = hex;
+}
+
+function remarksRichNormalizeHex(val, fallback) {
+    var s = String(val || '').trim().toLowerCase();
+    if (!s) return (fallback || APPT_REMARKS_DEFAULT_COLOR);
+    if (s[0] !== '#') s = '#' + s;
+    if (/^#[0-9a-f]{3}$/i.test(s)) {
+        return '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
+    }
+    if (/^#[0-9a-f]{6}$/i.test(s)) return s;
+    return (fallback || APPT_REMARKS_DEFAULT_COLOR);
+}
+
+function remarksRichSetPickerInputValue(wrap, hex) {
+    if (!wrap) return;
+    var inp = wrap.querySelector('.appt-remarks-fmt-color-hex');
+    if (inp) inp.value = hex;
+    var nativeInp = wrap.querySelector('.appt-remarks-fmt-color-native');
+    if (nativeInp) nativeInp.value = hex;
+}
+
+function remarksRichMarkSwatchSelection(wrap, hex) {
+    if (!wrap) return;
+    var sw = wrap.querySelectorAll('.appt-remarks-fmt-color-swatch');
+    for (var i = 0; i < sw.length; i++) {
+        var on = (sw[i].getAttribute('data-color') || '').toLowerCase() === String(hex || '').toLowerCase();
+        if (on) sw[i].classList.add('is-selected');
+        else sw[i].classList.remove('is-selected');
+    }
+}
+
+/** Picker: apply to selection or set active typing color; optionally close panel. */
+function remarksRichApplyPickerColor(editor, wrap, hex, closePicker) {
+    if (!editor || !hex) return;
+    hex = remarksRichNormalizeHex(hex, APPT_REMARKS_DEFAULT_COLOR);
+    editor.dataset.rmTypingColor = hex;
+    if (!closePicker) return;
+
+    remarksRichRestoreSelection(editor);
+    editor.focus();
+
+    var sel = window.getSelection();
+    var range = (sel && sel.rangeCount) ? sel.getRangeAt(0) : null;
+    if (range && !range.collapsed && editor.contains(range.commonAncestorContainer)) {
+        remarksRichApplyInlineToRange(editor, { color: hex });
+    } else {
+        remarksRichPlaceTypingSpanAtCaret(editor, { color: hex });
+        remarksRichSaveSelection(editor);
+    }
+
+    remarksRichSetPickerInputValue(wrap, hex);
+    remarksRichSetColorChip(wrap, hex);
+    remarksRichMarkSwatchSelection(wrap, hex);
+    if (closePicker) {
+        setTimeout(function() {
+            editor.focus();
+            remarksRichSaveSelection(editor);
+            remarksRichSyncColorPickerFromCaret(editor, wrap);
+        }, 0);
+    }
+}
+
+function remarksRichSetPendingColor(editor, wrap, hex) {
+    if (!editor) return;
+    hex = remarksRichNormalizeHex(hex, APPT_REMARKS_DEFAULT_COLOR);
+    editor.dataset.rmPendingColor = hex;
+    remarksRichSetPickerInputValue(wrap, hex);
+    remarksRichSetColorChip(wrap, hex);
+    remarksRichMarkSwatchSelection(wrap, hex);
+}
+
+function remarksRichCommitPendingColor(editor, wrap) {
+    if (!editor) return;
+    var hex = editor.dataset.rmPendingColor || '';
+    if (!hex) return;
+    remarksRichApplyPickerColor(editor, wrap, hex, true);
+    delete editor.dataset.rmPendingColor;
+}
+
+function remarksRichSyncColorPickerFromCaret(editor, wrap) {
+    if (!editor || !wrap) return;
+    var colorInp = wrap.querySelector('.appt-remarks-fmt-color-hex');
+    if (colorInp && document.activeElement === colorInp) return;
+    var hex = remarksRichGetCaretColor(editor);
+    editor.dataset.rmTypingColor = hex;
+    remarksRichSetPickerInputValue(wrap, hex);
+    remarksRichSetColorChip(wrap, hex);
+    remarksRichMarkSwatchSelection(wrap, hex);
+}
+
+function remarksRichEnsureTypingColorOnInput(editor) {
+    var hex = editor.dataset.rmTypingColor;
+    var font = editor.dataset.rmTypingFont;
+    if (!hex && !font) return;
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !sel.isCollapsed) return;
+    if (!editor.contains(sel.anchorNode)) return;
+
+    var styleObj = {};
+    if (hex) styleObj.color = hex;
+    if (font) styleObj.fontFamily = font;
+
+    var ty = remarksRichFindTypingSpanAtCaret(editor);
+    if (ty) {
+        if (remarksRichIsMarkerOnlySpan(ty)) {
+            if (hex && remarksRichToHexColor(ty.style.color) !== hex) ty.style.color = hex;
+            if (font && ty.style.fontFamily !== font) ty.style.fontFamily = font;
+            return;
+        }
+        if (remarksRichSpanMatchesStyle(ty, styleObj)) return;
+        remarksRichSplitHostSpanAtCaret(editor, ty, styleObj);
+        return;
+    }
+
+    var hostSpan = remarksRichFindStyleSpanAtCaret(editor);
+    if (hostSpan && remarksRichSpanHasInlineStyle(hostSpan) &&
+        !remarksRichSpanMatchesStyle(hostSpan, styleObj)) {
+        remarksRichSplitHostSpanAtCaret(editor, hostSpan, styleObj);
+        return;
+    }
+
+    remarksRichPlaceTypingSpanAtCaret(editor, styleObj);
+}
+
+function remarksRichCleanupEditorHtml(html) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = String(html || '');
+    var typing = tmp.querySelectorAll('span.appt-rm-typing');
+    for (var i = 0; i < typing.length; i++) {
+        var sp = typing[i];
+        var t = String(sp.textContent || '').replace(/\u200b/g, '');
+        if (!t.trim()) {
+            sp.parentNode.removeChild(sp);
+        } else {
+            sp.classList.remove('appt-rm-typing');
+        }
+    }
+    return tmp.innerHTML.replace(/\u200b/g, '');
+}
+
+function remarksRichBuildToolbar(wrap) {
+    var bar = wrap.querySelector('.appt-remarks-rich-toolbar');
+    if (!bar || bar.dataset.built === '1') return;
+    bar.dataset.built = '1';
+
+    var sizeGrp = document.createElement('div');
+    sizeGrp.className = 'appt-remarks-fmt-group';
+    sizeGrp.innerHTML =
+        '<label><span data-i18n="appt.remarksRich.size"></span> ' +
+        '<select class="appt-remarks-fmt-size" title="' + esc(remarksRichTr('appt.remarksRich.size')) + '">' +
+        '<option value="">' + esc(remarksRichTr('appt.remarksRich.sizeDefault')) + '</option>' +
+        APPT_REMARKS_RICH_SIZES.map(function(s) {
+            return '<option value="' + esc(s.v) + '">' + esc(s.k) + '</option>';
+        }).join('') +
+        '</select></label>';
+    bar.appendChild(sizeGrp);
+
+    var famGrp = document.createElement('div');
+    famGrp.className = 'appt-remarks-fmt-group';
+    famGrp.innerHTML =
+        '<label><span data-i18n="appt.remarksRich.style"></span> ' +
+        '<select class="appt-remarks-fmt-family" title="' + esc(remarksRichTr('appt.remarksRich.style')) + '">' +
+        '<option value="">' + esc(remarksRichTr('appt.remarksRich.styleDefault')) + '</option>' +
+        APPT_REMARKS_RICH_FONTS.map(function(f) {
+            return '<option value="' + esc(f.v) + '" style="font-family:' + esc(f.v) + '">' +
+                esc(f.k) + '</option>';
+        }).join('') +
+        '</select></label>';
+    bar.appendChild(famGrp);
+
+    var colGrp = document.createElement('div');
+    colGrp.className = 'appt-remarks-fmt-group appt-remarks-fmt-color-group';
+    colGrp.innerHTML =
+        '<span data-i18n="appt.remarksRich.color"></span>' +
+        '<button type="button" class="appt-remarks-fmt-color-trigger" title="' +
+            esc(remarksRichTr('appt.remarksRich.color')) + '">' +
+            '<span class="appt-remarks-fmt-color-chip" style="background:' +
+                APPT_REMARKS_DEFAULT_COLOR + ';"></span>' +
+        '</button>' +
+        '<div class="appt-remarks-fmt-color-pop" hidden>' +
+            '<div class="appt-remarks-fmt-color-swatches">' +
+                APPT_REMARKS_RICH_COLORS.map(function(c) {
+                    return '<button type="button" class="appt-remarks-fmt-color-swatch" data-color="' +
+                        c + '" style="background:' + c + ';"></button>';
+                }).join('') +
+            '</div>' +
+            '<div class="appt-remarks-fmt-color-row">' +
+                '<input type="text" class="appt-remarks-fmt-color-hex" value="' + APPT_REMARKS_DEFAULT_COLOR + '"' +
+                    ' maxlength="7" spellcheck="false">' +
+            '</div>' +
+            '<div class="appt-remarks-fmt-color-row">' +
+                '<input type="color" class="appt-remarks-fmt-color-native" value="' + APPT_REMARKS_DEFAULT_COLOR + '">' +
+            '</div>' +
+            '<div class="appt-remarks-fmt-color-actions">' +
+                '<button type="button" class="appt-remarks-fmt-color-ok">OK</button>' +
+                '<button type="button" class="appt-remarks-fmt-color-cancel">Cancel</button>' +
+            '</div>' +
+        '</div>';
+    bar.appendChild(colGrp);
+
+    var boldBtn = document.createElement('button');
+    boldBtn.type = 'button';
+    boldBtn.className = 'appt-remarks-fmt-btn';
+    boldBtn.setAttribute('data-fmt', 'bold');
+    boldBtn.setAttribute('data-i18n', 'appt.remarksRich.bold');
+    boldBtn.textContent = 'B';
+    bar.appendChild(boldBtn);
+
+    var italicBtn = document.createElement('button');
+    italicBtn.type = 'button';
+    italicBtn.className = 'appt-remarks-fmt-btn';
+    italicBtn.setAttribute('data-fmt', 'italic');
+    italicBtn.setAttribute('data-i18n', 'appt.remarksRich.italic');
+    italicBtn.textContent = 'I';
+    bar.appendChild(italicBtn);
+
+    if (typeof applyI18nInRoot === 'function') applyI18nInRoot(bar);
+}
+
+function remarksRichApplyStyle(editor, styleObj) {
+    if (!editor || !styleObj) return;
+    if (styleObj.color || styleObj.fontFamily || styleObj.fontSize) {
+        remarksRichApplyFormat(editor, styleObj);
+        return;
+    }
+    editor.focus();
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+
+    var span = document.createElement('span');
+    if (styleObj.fontWeight) span.style.fontWeight = styleObj.fontWeight;
+    if (styleObj.fontStyle) span.style.fontStyle = styleObj.fontStyle;
+
+    try {
+        range.surroundContents(span);
+    } catch (e2) {
+        var frag = range.extractContents();
+        span.appendChild(frag);
+        range.insertNode(span);
+    }
+    sel.removeAllRanges();
+    var nr = document.createRange();
+    nr.selectNodeContents(span);
+    nr.collapse(false);
+    sel.addRange(nr);
+}
+
+function remarksRichToggleBtn(editor, cmd) {
+    if (!editor) return;
+    editor.focus();
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+    document.execCommand(cmd, false, null);
+}
+
+function remarksRichWireWrap(wrap) {
+    remarksRichBuildToolbar(wrap);
+    var editor = remarksRichGetEditor(wrap);
+    if (!editor || wrap.dataset.wired === '1') return;
+    wrap.dataset.wired = '1';
+
+    var edPh = editor.getAttribute('data-i18n-placeholder');
+    if (edPh && typeof remarksRichTr === 'function') {
+        editor.setAttribute('data-placeholder', remarksRichTr(edPh));
+    }
+
+    editor._remarksRichWrap = wrap;
+
+    function remarksRichOnCaretMove() {
+        remarksRichSaveSelection(editor);
+        var selNow = window.getSelection();
+        if (selNow && selNow.rangeCount && selNow.isCollapsed) {
+            remarksRichClearStoredRange(editor);
+        }
+        remarksRichSyncColorPickerFromCaret(editor, wrap);
+    }
+
+    editor.addEventListener('mouseup', remarksRichOnCaretMove);
+    editor.addEventListener('keyup', remarksRichOnCaretMove);
+    editor.addEventListener('click', remarksRichOnCaretMove);
+    editor.addEventListener('focus', remarksRichOnCaretMove);
+    editor.addEventListener('blur', function() {
+        remarksRichSaveSelection(editor);
+    });
+
+    if (!wrap._remarksSelChangeBound) {
+        wrap._remarksSelChangeBound = true;
+        document.addEventListener('selectionchange', function() {
+            if (!wrap.isConnected || !editor.isConnected) return;
+            var ae = document.activeElement;
+            if (ae && ae.classList && ae.classList.contains('appt-remarks-fmt-color-hex')) return;
+            var sel = window.getSelection();
+            if (!sel || !sel.rangeCount) return;
+            if (!editor.contains(sel.anchorNode) && !editor.contains(sel.focusNode)) return;
+            remarksRichSyncColorPickerFromCaret(editor, wrap);
+        });
+    }
+    editor.addEventListener('input', function() {
+        remarksRichEnsureTypingColorOnInput(editor);
+    });
+    editor.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') return;
+        var hex = editor.dataset.rmTypingColor;
+        var font = editor.dataset.rmTypingFont;
+        var ty = remarksRichFindTypingSpanAtCaret(editor);
+        if (ty) remarksRichFinalizeTypingSpan(ty);
+        var host = remarksRichFindStyleSpanAtCaret(editor);
+        if (host && host !== ty) remarksRichFinalizeTypingSpan(host);
+        if (!hex && !font) return;
+        setTimeout(function() {
+            var styleObj = {};
+            if (hex) styleObj.color = hex;
+            if (font) styleObj.fontFamily = font;
+            remarksRichPlaceTypingSpanAtCaret(editor, styleObj);
+            remarksRichSaveSelection(editor);
+        }, 0);
+    });
+
+    wrap.addEventListener('mousedown', function(e) {
+        var t = e.target;
+        var bar = t.closest ? t.closest('.appt-remarks-rich-toolbar') : null;
+        if (!bar || !wrap.contains(bar)) return;
+        remarksRichSaveSelectionForToolbar(editor);
+    }, true);
+
+    var colorInp = wrap.querySelector('.appt-remarks-fmt-color-hex');
+    var colorNativeInp = wrap.querySelector('.appt-remarks-fmt-color-native');
+    var colorPop = wrap.querySelector('.appt-remarks-fmt-color-pop');
+    var colorTrig = wrap.querySelector('.appt-remarks-fmt-color-trigger');
+    var colorCancelBtn = wrap.querySelector('.appt-remarks-fmt-color-cancel');
+    if (colorInp) {
+        colorInp.addEventListener('focus', function() {
+            remarksRichSaveSelectionForToolbar(editor);
+        });
+        colorInp.addEventListener('input', function() {
+            remarksRichSetPendingColor(editor, wrap, colorInp.value);
+        });
+        colorInp.addEventListener('blur', function() {
+            colorInp.value = remarksRichNormalizeHex(colorInp.value, editor.dataset.rmPendingColor || APPT_REMARKS_DEFAULT_COLOR);
+        });
+    }
+    if (colorNativeInp) {
+        colorNativeInp.addEventListener('input', function() {
+            remarksRichSetPendingColor(editor, wrap, colorNativeInp.value);
+        });
+        colorNativeInp.addEventListener('change', function() {
+            remarksRichSetPendingColor(editor, wrap, colorNativeInp.value);
+        });
+    }
+
+    var colorOkBtn = wrap.querySelector('.appt-remarks-fmt-color-ok');
+    if (colorOkBtn) {
+        colorOkBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            remarksRichCommitPendingColor(editor, wrap);
+            if (colorPop) colorPop.hidden = true;
+        });
+    }
+    if (colorCancelBtn) {
+        colorCancelBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            delete editor.dataset.rmPendingColor;
+            if (colorPop) colorPop.hidden = true;
+            remarksRichSyncColorPickerFromCaret(editor, wrap);
+            editor.focus();
+        });
+    }
+    if (colorPop) {
+        colorPop.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+        });
+        colorPop.addEventListener('click', function(e) {
+            var sw = e.target && e.target.closest ? e.target.closest('.appt-remarks-fmt-color-swatch') : null;
+            if (!sw || !colorPop.contains(sw)) return;
+            e.preventDefault();
+            var c = sw.getAttribute('data-color') || APPT_REMARKS_DEFAULT_COLOR;
+            remarksRichSetPendingColor(editor, wrap, c);
+        });
+    }
+    if (colorTrig && colorPop && colorInp) {
+        colorTrig.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            remarksRichSaveSelectionForToolbar(editor);
+            var hexNow = remarksRichGetCaretColor(editor);
+            remarksRichSetPendingColor(editor, wrap, hexNow);
+            colorPop.hidden = !colorPop.hidden;
+            if (!colorPop.hidden) colorInp.focus();
+        });
+        document.addEventListener('mousedown', function(e) {
+            if (!colorPop || colorPop.hidden) return;
+            if (!wrap.isConnected) return;
+            if (wrap.contains(e.target)) return;
+            delete editor.dataset.rmPendingColor;
+            remarksRichSyncColorPickerFromCaret(editor, wrap);
+            colorPop.hidden = true;
+        });
+    }
+
+    wrap.addEventListener('mousedown', function(e) {
+        var t = e.target;
+        if (t.classList && (
+            t.classList.contains('appt-remarks-fmt-size') ||
+            t.classList.contains('appt-remarks-fmt-family')
+        )) {
+            remarksRichSaveSelectionForToolbar(editor);
+        }
+    });
+
+    wrap.addEventListener('change', function(e) {
+        var t = e.target;
+        if (t.classList && t.classList.contains('appt-remarks-fmt-color-hex')) return;
+        if (t.classList && t.classList.contains('appt-remarks-fmt-size') && t.value) {
+            remarksRichApplyFormat(editor, { fontSize: t.value });
+            t.value = '';
+            return;
+        }
+        if (t.classList && t.classList.contains('appt-remarks-fmt-family') && t.value) {
+            remarksRichApplyFormat(editor, { fontFamily: t.value });
+            t.value = '';
+        }
+    });
+
+    wrap.addEventListener('click', function(e) {
+        var btn = e.target.closest ? e.target.closest('[data-fmt]') : null;
+        if (!btn || !wrap.contains(btn)) return;
+        e.preventDefault();
+        var fmt = btn.getAttribute('data-fmt');
+        if (fmt === 'bold') remarksRichToggleBtn(editor, 'bold');
+        else if (fmt === 'italic') remarksRichToggleBtn(editor, 'italic');
+    });
+}
+
+function initApptRemarksRichEditors() {
+    var wraps = document.querySelectorAll('.appt-remarks-rich');
+    for (var i = 0; i < wraps.length; i++) remarksRichWireWrap(wraps[i]);
+}
+
+function refreshApptRemarksEditorPlaceholders() {
+    ['queueRemarksEditor', 'fRemarksEditor'].forEach(function(id) {
+        var ed = g(id);
+        if (!ed) return;
+        var k = ed.getAttribute('data-i18n-placeholder');
+        if (k) ed.setAttribute('data-placeholder', remarksRichTr(k));
+    });
+}
+
+function setApptRemarksEditorHtml(editorId, rawRemarks) {
+    initApptRemarksRichEditors();
+    var ed = g(editorId);
+    if (!ed) return;
+    var body = remarksForApptForm(rawRemarks);
+    delete ed.dataset.rmTypingColor;
+    if (remarksStringHasHtml(body)) {
+        ed.innerHTML = sanitizeRemarksHtml(body);
+    } else {
+        ed.textContent = body;
+    }
+    var wrap = ed._remarksRichWrap;
+    if (wrap) remarksRichSyncColorPickerFromCaret(ed, wrap);
+}
+
+function clearApptRemarksEditor(editorId) {
+    var ed = g(editorId);
+    if (!ed) return;
+    ed.innerHTML = '';
+}
+
+function getApptRemarksEditorValue(editorId) {
+    var ed = g(editorId);
+    if (!ed) return '';
+    var html = ed.innerHTML || '';
+    if (!html.replace(/<br\s*\/?>/gi, '').replace(/&nbsp;/gi, '').replace(/\u200b/g, '').trim()) {
+        return '';
+    }
+    html = remarksRichCleanupEditorHtml(html);
+    return sanitizeRemarksHtml(html);
+}
+
+function remarksFromEditor(editorId) {
+    return remarksForApptForm(getApptRemarksEditorValue(editorId));
 }
 
 function embedDoctorTagInRemarks(payload, code) {
@@ -2533,7 +3556,7 @@ function openApptModal(prefillDate) {
 
     sv('fDate',      prefillDate || todayISO());
     sv('fTreatment', '');
-    sv('fRemarks',   '');
+    clearApptRemarksEditor('fRemarksEditor');
     sv('npName',   '');
     sv('npPhone',  '');
     sv('hPchinese', '');
@@ -2567,7 +3590,7 @@ function openApptEditModal(appt) {
 
     sv('fDate',      appt.date             || todayISO());
     sv('fTreatment', appt.treatment_items  || '');
-    sv('fRemarks',   remarksForApptForm(appt.remarks));
+    setApptRemarksEditorHtml('fRemarksEditor', appt.remarks);
 
     // If appointment has no patient_id it was a walk-in booking — restore that mode
     if (!appt.patient_id) {
@@ -2650,7 +3673,7 @@ function saveAppt() {
 
     var chineseName = isWalkIn ? '' : ((g('hPchinese') && g('hPchinese').value) || '');
 
-    var rem = remarksForApptForm((g('fRemarks').value || '').trim());
+    var rem = remarksFromEditor('fRemarksEditor');
     if (isWalkIn) {
         var walkPhone = (g('npPhone').value || '').trim();
         if (walkPhone) {
@@ -3293,7 +4316,7 @@ function queueDragBlockedTarget(el) {
 /** Targets where double-click should not open the patient editor (narrower than drag block). */
 function queuePatientEditDblclickBlocked(el) {
     return !!(el && el.closest && el.closest(
-        'button, input, textarea, select, .action-wrap, .action-drop, .queue-remarks-pencil'
+        'button, input, textarea, select, .action-wrap, .action-drop, .queue-remarks-preview-wrap'
     ));
 }
 
@@ -3459,6 +4482,7 @@ function bindQueueRemarksModalOnce() {
     var m = g('queueRemarksModal');
     if (!m) return;
     queueRemarksModalBound = true;
+    initApptRemarksRichEditors();
 
     m.addEventListener('click', function(e) {
         if (e.target === m) {
@@ -3483,9 +4507,7 @@ function bindQueueRemarksModalOnce() {
     if (sv) {
         sv.addEventListener('click', function() {
             if (!queueRemarksEditApptId) return;
-            var clean = g('queueRemarksText')
-                ? remarksForApptForm((g('queueRemarksText').value || '').trim())
-                : '';
+            var clean = remarksFromEditor('queueRemarksEditor');
             var raw = mergeStaffAuthorOnSave(clean, queueRemarksEditPriorRaw);
             SB.from('appointments')
                 .update({ remarks: raw })
@@ -3523,20 +4545,23 @@ function openQueueRemarksEditor(q) {
     queueRemarksEditApptId = q.id;
     _queueRemarksEditAppt = q;
     queueRemarksEditPriorRaw = q.remarks || null;
-    var ta = g('queueRemarksText');
-
-    if (ta) ta.value = remarksForApptForm(q.remarks);
+    setApptRemarksEditorHtml('queueRemarksEditor', q.remarks);
     setQueueRemarksApptHint(q);
 
     openModal('queueRemarksModal');
     var qm = g('queueRemarksModal');
     if (qm && typeof applyI18nInRoot === 'function') applyI18nInRoot(qm);
-    if (ta) {
+    var ed = g('queueRemarksEditor');
+    if (ed) {
         requestAnimationFrame(function() {
-            ta.focus();
-            var L = ta.value.length;
+            ed.focus();
             try {
-                ta.setSelectionRange(L, L);
+                var sel = window.getSelection();
+                var range = document.createRange();
+                range.selectNodeContents(ed);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
             } catch (e) {}
         });
     }
@@ -3787,6 +4812,16 @@ function buildQueueRow(tb, q, seqNo) {
     var pencil = g('qrm-pencil-' + uid);
     if (pencil) {
         pencil.addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            drop.classList.remove('open');
+            openQueueRemarksEditor(q);
+        });
+    }
+
+    var remarksWrap = row.querySelector('.queue-remarks-preview-wrap');
+    if (remarksWrap) {
+        remarksWrap.addEventListener('dblclick', function(e) {
             e.stopPropagation();
             e.preventDefault();
             drop.classList.remove('open');
@@ -7847,9 +8882,15 @@ document.addEventListener('app-lang-change', function () {
     var queueRemarksModal = g('queueRemarksModal');
     if (queueRemarksModal && queueRemarksModal.style.display === 'block') {
         if (typeof applyI18nInRoot === 'function') applyI18nInRoot(queueRemarksModal);
+        if (typeof refreshApptRemarksEditorPlaceholders === 'function') {
+            refreshApptRemarksEditorPlaceholders();
+        }
         if (_queueRemarksEditAppt && typeof setQueueRemarksApptHint === 'function') {
             setQueueRemarksApptHint(_queueRemarksEditAppt);
         }
+    }
+    if (typeof refreshApptRemarksEditorPlaceholders === 'function') {
+        refreshApptRemarksEditorPlaceholders();
     }
     var receiptModal = g('receiptModal');
     if (receiptModal && receiptModal.style.display === 'block') {

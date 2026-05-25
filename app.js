@@ -844,7 +844,7 @@ function patientSearchOrFilterCore(q) {
 
 var PATIENT_SEARCH_SELECT =
     'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
-    'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,banana_index,' +
+    'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,banana_index,banana_notes,' +
     PATIENT_CLINIC_TAG_FIELD;
 
 function patientSearchQueryBuilder(q, extraSelect) {
@@ -1947,6 +1947,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // treatment note save
     g('conNoteSaveBtn').addEventListener('click', saveConNote);
+    if (g('conNoteSaveTplBtn')) g('conNoteSaveTplBtn').addEventListener('click', conSaveNoteAsTemplate);
+    if (g('conNoteFromTplBtn')) g('conNoteFromTplBtn').addEventListener('click', conOpenTemplatePicker);
+    if (g('conNoteTemplateApplyBtn')) g('conNoteTemplateApplyBtn').addEventListener('click', conApplyTemplateToNote);
+    if (g('conNoteTemplateSaveBtn')) g('conNoteTemplateSaveBtn').addEventListener('click', conSaveTemplateEdits);
+    if (g('conNoteTemplateDeleteBtn')) g('conNoteTemplateDeleteBtn').addEventListener('click', conDeleteTemplate);
+    if (g('conNoteTemplateSelect')) g('conNoteTemplateSelect').addEventListener('change', conLoadTemplateEditorFields);
 
     // drug prescription panel
     g('btnAddPrescription').addEventListener('click', function() {
@@ -2191,6 +2197,7 @@ function applyOpenGlobalModalsI18n() {
         'patientDetailsModal', 'addPatientModal', 'editPatientModal',
         'photoUploadModal', 'photoLightbox',
         'xrayUploadModal', 'xrayLightbox', 'diySystemModal',
+        'conNoteTemplateModal',
         'rxDrugListsModal', 'drugListModal'
     ];
     ids.forEach(function(mid) {

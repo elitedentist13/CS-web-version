@@ -86,8 +86,93 @@ function refreshPatientSexSelects() {
     });
 }
 
+/** HK district codes for residential_district (labels reuse ai.district.* i18n). */
+var PATIENT_RES_DISTRICT_CODES = [
+    'central_western', 'wanchai', 'eastern', 'southern',
+    'yautsimmong', 'shamshuipo', 'klncity', 'wongtaisin', 'kwuntong',
+    'tuenmun', 'yuenlong', 'tsuenwan', 'kwaising', 'north', 'tupo',
+    'shatin', 'saikung', 'islands'
+];
+
+var PATIENT_RES_DISTRICT_LABEL_KEYS = {
+    central_western: 'ai.district.centralWestern',
+    wanchai: 'ai.district.wanchai',
+    eastern: 'ai.district.eastern',
+    southern: 'ai.district.southern',
+    yautsimmong: 'ai.district.yauTsimMong',
+    shamshuipo: 'ai.district.shamShuiPo',
+    klncity: 'ai.district.kowloonCity',
+    wongtaisin: 'ai.district.wongTaiSin',
+    kwuntong: 'ai.district.kwunTong',
+    tuenmun: 'ai.district.tuenMun',
+    yuenlong: 'ai.district.yuenLong',
+    tsuenwan: 'ai.district.tsuenWan',
+    kwaising: 'ai.district.kwaiTsing',
+    north: 'ai.district.northNt',
+    tupo: 'ai.district.taiPo',
+    shatin: 'ai.district.shaTin',
+    saikung: 'ai.district.saiKung',
+    islands: 'ai.district.islands'
+};
+
+var _patientResDistrictInited = false;
+
+function patientResDistrictLabel(code) {
+    var key = PATIENT_RES_DISTRICT_LABEL_KEYS[code];
+    return key ? patTr(key) : code;
+}
+
+function initPatientResidentialDistrictSelectsOnce() {
+    if (_patientResDistrictInited) return;
+    _patientResDistrictInited = true;
+    refreshPatientResidentialDistrictSelects();
+}
+
+function refreshPatientResidentialDistrictSelects() {
+    ['residentialDistrict', 'edit_residentialDistrict'].forEach(function(id) {
+        var sel = g(id);
+        if (!sel) return;
+        var cur = sel.value;
+        sel.innerHTML = '';
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = patTr('patient.form.resDistrictSelect');
+        sel.appendChild(blank);
+        PATIENT_RES_DISTRICT_CODES.forEach(function(code) {
+            var o = document.createElement('option');
+            o.value = code;
+            o.textContent = patientResDistrictLabel(code);
+            sel.appendChild(o);
+        });
+        if (cur) {
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === cur) {
+                    sel.value = cur;
+                    break;
+                }
+            }
+        }
+    });
+}
+
+function readPatientExtraFields(isEdit) {
+    var mob = g(isEdit ? 'edit_mobilePhone' : 'mobilePhone');
+    var dist = g(isEdit ? 'edit_residentialDistrict' : 'residentialDistrict');
+    var fam = g(isEdit ? 'edit_familyHistory' : 'familyHistory');
+    var ref = g(isEdit ? 'edit_referredBy' : 'referredBy');
+    return {
+        mobile_phone: mob ? String(mob.value || '').trim() || null : null,
+        residential_district: dist ? String(dist.value || '').trim() || null : null,
+        family_history: fam ? String(fam.value || '').trim() || null : null,
+        referred_by: ref ? String(ref.value || '').trim() || null : null
+    };
+}
+
 function refreshPatientDirI18n() {
     if (typeof refreshPatientSexSelects === 'function') refreshPatientSexSelects();
+    if (typeof refreshPatientResidentialDistrictSelects === 'function') {
+        refreshPatientResidentialDistrictSelects();
+    }
     if (patientListCache.length && typeof renderPatients === 'function') {
         renderPatients(patientListCache);
     }
@@ -394,7 +479,9 @@ function openAddPatient() {
     openModal('addPatientModal');
     var am = g('addPatientModal');
     if (am && typeof applyI18nInRoot === 'function') applyI18nInRoot(am);
+    initPatientResidentialDistrictSelectsOnce();
     refreshPatientSexSelects();
+    refreshPatientResidentialDistrictSelects();
     genPatientNo(function(no) {
         if (no) {
             sv('preview_patientNo', no);
@@ -464,6 +551,11 @@ function submitAddPatient(e) {
                 ? readBananaNotesField('banana_notes')
                 : null
         };
+        var extra = readPatientExtraFields(false);
+        payload.mobile_phone = extra.mobile_phone;
+        payload.residential_district = extra.residential_district;
+        payload.family_history = extra.family_history;
+        payload.referred_by = extra.referred_by;
         payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
         function finishInsert(r) {
             var row = r.data && r.data[0] ? r.data[0] : null;
@@ -615,19 +707,23 @@ function setEditPatientModalForRole() {
         'edit_fullName',
         'edit_chineseName',
         'edit_phone',
+        'edit_mobilePhone',
         'edit_email',
         'edit_dob',
         'edit_hkid',
         'edit_insuranceNo',
         'edit_occupation',
-        'edit_address'
+        'edit_address',
+        'edit_referredBy'
     ].forEach(function(fid) {
         var el = g(fid);
         if (el) el.readOnly = nurse;
     });
     var sex = g('edit_sex');
     if (sex) sex.disabled = nurse;
-    ['edit_alerts', 'edit_remarks', 'edit_banana_notes'].forEach(function(fid) {
+    var resDist = g('edit_residentialDistrict');
+    if (resDist) resDist.disabled = nurse;
+    ['edit_alerts', 'edit_remarks', 'edit_banana_notes', 'edit_familyHistory'].forEach(function(fid) {
         var el = g(fid);
         if (el) el.readOnly = nurse;
     });
@@ -651,6 +747,7 @@ function openEditPatient(id) {
         sv('edit_fullName',    p.full_name      ||'');
         sv('edit_chineseName', p.chinese_name   ||'');
         sv('edit_phone',       p.phone_number   ||'');
+        sv('edit_mobilePhone', p.mobile_phone   ||'');
         sv('edit_email',       p.email          ||'');
         sv('edit_sex',         p.sex            ||'');
         sv('edit_dob',         p.dob            ||'');
@@ -658,6 +755,11 @@ function openEditPatient(id) {
         sv('edit_insuranceNo', p.insurance_no   ||'');
         sv('edit_occupation',  p.occupation     ||'');
         sv('edit_address',     p.address        ||'');
+        initPatientResidentialDistrictSelectsOnce();
+        var resSel = g('edit_residentialDistrict');
+        if (resSel) resSel.value = p.residential_district || '';
+        sv('edit_familyHistory', p.family_history || '');
+        sv('edit_referredBy',    p.referred_by    || '');
         sv('edit_alerts',      p.medical_alerts ||'');
         sv('edit_remarks',     p.remarks        ||'');
         sv('edit_banana_index', p.banana_index != null ? String(p.banana_index) : '');
@@ -678,6 +780,8 @@ function openEditPatient(id) {
         var em = g('editPatientModal');
         if (em && typeof applyI18nInRoot === 'function') applyI18nInRoot(em);
         refreshPatientSexSelects();
+        refreshPatientResidentialDistrictSelects();
+        if (resSel && p.residential_district) resSel.value = p.residential_district;
     });
 }
 
@@ -720,6 +824,13 @@ function submitEditPatient(e) {
                   ? readBananaNotesField('edit_banana_notes')
                   : null
           };
+    if (!nurse) {
+        var extraEdit = readPatientExtraFields(true);
+        payload.mobile_phone = extraEdit.mobile_phone;
+        payload.residential_district = extraEdit.residential_district;
+        payload.family_history = extraEdit.family_history;
+        payload.referred_by = extraEdit.referred_by;
+    }
     if (!nurse) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
     function doneUpdate() {
         closeModal('editPatientModal');
@@ -936,6 +1047,10 @@ function editNote(nid) {
         });
     });
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    initPatientResidentialDistrictSelectsOnce();
+});
 
 document.addEventListener('app-lang-change', function() {
     if (typeof refreshPatientDirI18n === 'function') refreshPatientDirI18n();

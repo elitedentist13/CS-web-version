@@ -173,6 +173,7 @@ function refreshConPatientOutstandingBalance() {
     function applyTotals(rows) {
         var t = 0;
         (rows || []).forEach(function(b) {
+            if (b && b.voided_at) return;
             var x = parseFloat(b.balance);
             if (isFinite(x) && x > 0.005) t += x;
         });
@@ -185,12 +186,12 @@ function refreshConPatientOutstandingBalance() {
 
     function fetchByPatientNo() {
         if (!pno) { applyTotals([]); return; }
-        SB.from('bills').select('balance').eq('patient_no', pno)
+        SB.from('bills').select('balance, voided_at').eq('patient_no', pno)
             .then(function(r2) { applyTotals(!r2.error && r2.data ? r2.data : []); })
             .catch(function() { applyTotals([]); });
     }
 
-    SB.from('bills').select('balance').eq('patient_id', conPatientId)
+    SB.from('bills').select('balance, voided_at').eq('patient_id', conPatientId)
         .then(function(r) {
             if (r.error) {
                 if (String(r.error.message || '').toLowerCase().indexOf('patient_id') >= 0 && pno)
@@ -259,6 +260,8 @@ function initConsultation() {
     loadConsultationDoctors();
     refreshConFormsFontSizeSelect();
     refreshConFormsToolbarI18n();
+    conTreatmentNotesCache = [];
+    updateConTnPrintBtnState();
 }
 
 function setConBillBtn(enabled) {
@@ -710,6 +713,7 @@ function selectConPatient(p) {
     rxLines = [];
 
     setConBillBtn(true);
+    updateConTnPrintBtnState();
 
     if (typeof syncPhotoPatient === 'function') {
         syncPhotoPatient(p.id, p);
@@ -1682,6 +1686,441 @@ function conClinicCodeFromStoredTag(storedTag) {
 // ════════════════════════════════════════════════════════════════
 // TREATMENT NOTES — LEFT PANEL
 // ════════════════════════════════════════════════════════════════
+var conTreatmentNotesCache = [];
+var conTnPrintFromIso = '';
+var conTnPrintToIso = '';
+var conTnPrintFromCalMonth = new Date();
+var conTnPrintToCalMonth = new Date();
+var CON_TN_PRINT_DOC = 'treatment_notes';
+
+function conTnPad2(n) {
+    n = Number(n);
+    if (typeof pad === 'function') return pad(n);
+    return (n < 10 ? '0' : '') + n;
+}
+
+function updateConTnPrintBtnState() {
+    var btn = g('conTnPrintBtn');
+    if (!btn) return;
+    var ok = !!conPatientId;
+    btn.disabled = !ok;
+    btn.style.opacity = ok ? '1' : '0.45';
+    btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+
+function conTnPrintRangeMode() {
+    var picked = document.querySelector('input[name="conTnPrintRange"]:checked');
+    return picked ? picked.value : 'today';
+}
+
+function syncConTnPrintRangeUi() {
+    var wrap = g('conTnPrintDatedWrap');
+    var pop = g('conTnPrintPopover');
+    var mode = conTnPrintRangeMode();
+    if (wrap) wrap.classList.toggle('hidden', mode !== 'dated');
+    if (pop) pop.classList.toggle('con-tn-print-popover--dated', mode === 'dated');
+    if (mode === 'dated') {
+        if (!conTnPrintFromIso && typeof todayISO === 'function') conTnPrintFromIso = todayISO();
+        if (!conTnPrintToIso && typeof todayISO === 'function') conTnPrintToIso = todayISO();
+        renderConTnMiniCal('conTnPrintFromCal', conTnPrintFromCalMonth, conTnPrintFromIso);
+        renderConTnMiniCal('conTnPrintToCal', conTnPrintToCalMonth, conTnPrintToIso);
+        updateConTnPrintDateLabels();
+    }
+    scheduleConTnPrintPopoverPosition();
+}
+
+function updateConTnPrintDateLabels() {
+    var f = g('conTnPrintFromLbl');
+    var t = g('conTnPrintToLbl');
+    if (f) f.textContent = conTnPrintFromIso || '—';
+    if (t) t.textContent = conTnPrintToIso || '—';
+}
+
+var _conTnPrintPositionTimer = null;
+function scheduleConTnPrintPopoverPosition() {
+    if (_conTnPrintPositionTimer) clearTimeout(_conTnPrintPositionTimer);
+    _conTnPrintPositionTimer = setTimeout(function () {
+        _conTnPrintPositionTimer = null;
+        requestAnimationFrame(function () {
+            positionConTnPrintPopover();
+            requestAnimationFrame(positionConTnPrintPopover);
+        });
+    }, 0);
+}
+
+function positionConTnPrintPopover() {
+    var pop = g('conTnPrintPopover');
+    var btn = g('conTnPrintBtn');
+    if (!pop || pop.classList.contains('hidden')) return;
+
+    var margin = 12;
+    var isDated = conTnPrintRangeMode() === 'dated';
+    pop.style.right = 'auto';
+    pop.style.bottom = 'auto';
+    pop.style.transform = 'none';
+    pop.style.maxHeight = Math.max(220, window.innerHeight - margin * 2) + 'px';
+
+    var popW = pop.offsetWidth;
+    var popH = pop.offsetHeight;
+    var left;
+    var top;
+    var viewH = window.innerHeight;
+    var viewW = window.innerWidth;
+
+    if (btn) {
+        var rect = btn.getBoundingClientRect();
+        left = rect.left;
+        if (left + popW > viewW - margin) left = viewW - popW - margin;
+        if (left < margin) left = margin;
+
+        var gap = 8;
+        var belowTop = rect.bottom + gap;
+        var aboveTop = rect.top - popH - gap;
+        var spaceBelow = viewH - margin - belowTop;
+        var spaceAbove = rect.top - gap - margin;
+
+        if (isDated || popH > viewH - margin * 2) {
+            if (spaceAbove >= spaceBelow && aboveTop >= margin) {
+                top = aboveTop;
+            } else if (belowTop + popH <= viewH - margin) {
+                top = belowTop;
+            } else if (aboveTop >= margin) {
+                top = aboveTop;
+            } else {
+                top = Math.max(margin, Math.round((viewH - Math.min(popH, viewH - margin * 2)) / 2));
+            }
+        } else {
+            top = belowTop;
+            if (top + popH > viewH - margin) {
+                if (aboveTop >= margin) top = aboveTop;
+                else top = Math.max(margin, Math.round((viewH - popH) / 2));
+            }
+        }
+        if (top < margin) top = margin;
+        if (top + popH > viewH - margin) {
+            top = Math.max(margin, viewH - margin - popH);
+        }
+    } else {
+        left = Math.max(margin, Math.round((viewW - popW) / 2));
+        top = Math.max(margin, Math.round((viewH - popH) / 2));
+    }
+
+    pop.style.left = Math.round(left) + 'px';
+    pop.style.top = Math.round(top) + 'px';
+}
+
+function conTnPrintClickInsidePopover(e, pop) {
+    if (!pop || !e) return false;
+    if (pop.contains(e.target)) return true;
+    if (typeof e.composedPath === 'function') {
+        var path = e.composedPath();
+        for (var i = 0; i < path.length; i++) {
+            if (path[i] === pop) return true;
+        }
+    }
+    return false;
+}
+
+function conTnApplyPrintDatePick(hostId, iso) {
+    if (hostId === 'conTnPrintFromCal') {
+        conTnPrintFromIso = iso;
+        if (conTnPrintToIso && iso > conTnPrintToIso) conTnPrintToIso = iso;
+    } else if (hostId === 'conTnPrintToCal') {
+        conTnPrintToIso = iso;
+        if (conTnPrintFromIso && iso < conTnPrintFromIso) conTnPrintFromIso = iso;
+    }
+    updateConTnPrintDateLabels();
+    setTimeout(function () { syncConTnPrintRangeUi(); }, 0);
+}
+
+function renderConTnMiniCal(hostId, monthDate, selectedIso) {
+    var host = g(hostId);
+    if (!host) return;
+    var y = monthDate.getFullYear();
+    var mo = monthDate.getMonth();
+    var first = new Date(y, mo, 1);
+    var startPad = first.getDay();
+    var daysIn = new Date(y, mo + 1, 0).getDate();
+    var loc = conUiLocale();
+    var monthLbl = new Date(y, mo, 1).toLocaleDateString(loc, { month: 'long', year: 'numeric' });
+    var wd = (typeof apptCalWeekdayHeaders === 'function')
+        ? apptCalWeekdayHeaders()
+        : ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    var html = '<div class="plusappt-mc-head">' +
+        '<button type="button" class="plusappt-mc-nav" data-act="prev">‹</button>' +
+        '<span class="plusappt-mc-title">' + esc(monthLbl) + '</span>' +
+        '<button type="button" class="plusappt-mc-nav" data-act="next">›</button>' +
+        '</div><div class="plusappt-mc-wd">';
+    wd.forEach(function (d) { html += '<span>' + esc(d) + '</span>'; });
+    html += '</div><div class="plusappt-mc-grid">';
+    var i;
+    for (i = 0; i < startPad; i++) html += '<span class="plusappt-mc-pad"></span>';
+    var today = (typeof todayISO === 'function') ? todayISO() : '';
+    for (var day = 1; day <= daysIn; day++) {
+        var iso = y + '-' + conTnPad2(mo + 1) + '-' + conTnPad2(day);
+        var cs = 'plusappt-mc-day';
+        if (iso === selectedIso) cs += ' plusappt-mc-day--sel';
+        if (iso === today) cs += ' plusappt-mc-day--today';
+        if (conTnPrintFromIso && conTnPrintToIso && iso >= conTnPrintFromIso && iso <= conTnPrintToIso) {
+            cs += ' plusappt-mc-day--range';
+        }
+        if (iso === conTnPrintFromIso || iso === conTnPrintToIso) cs += ' plusappt-mc-day--range-end';
+        html += '<button type="button" class="' + cs + '" data-iso="' + iso + '">' + day + '</button>';
+    }
+    html += '</div>';
+    host.innerHTML = html;
+
+    host.querySelectorAll('[data-iso]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            if (e && e.stopPropagation) e.stopPropagation();
+            var iso = btn.getAttribute('data-iso');
+            conTnApplyPrintDatePick(hostId, iso);
+        });
+    });
+    host.querySelectorAll('[data-act]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            if (e && e.stopPropagation) e.stopPropagation();
+            var act = btn.getAttribute('data-act');
+            if (act === 'prev') {
+                if (hostId === 'conTnPrintFromCal') {
+                    conTnPrintFromCalMonth = new Date(y, mo - 1, 1);
+                } else {
+                    conTnPrintToCalMonth = new Date(y, mo - 1, 1);
+                }
+            } else if (act === 'next') {
+                if (hostId === 'conTnPrintFromCal') {
+                    conTnPrintFromCalMonth = new Date(y, mo + 1, 1);
+                } else {
+                    conTnPrintToCalMonth = new Date(y, mo + 1, 1);
+                }
+            }
+            setTimeout(function () { syncConTnPrintRangeUi(); }, 0);
+        });
+    });
+}
+
+function closeConTnPrintPopover() {
+    var pop = g('conTnPrintPopover');
+    if (pop) pop.classList.add('hidden');
+}
+
+function openConTnPrintPopover() {
+    if (!conPatientId) {
+        alert(conTr('con.tnPrint.alertNoPatient'));
+        return;
+    }
+    var pop = g('conTnPrintPopover');
+    var btn = g('conTnPrintBtn');
+    if (!pop) return;
+    var today = (typeof todayISO === 'function') ? todayISO() : '';
+    conTnPrintFromIso = today;
+    conTnPrintToIso = today;
+    conTnPrintFromCalMonth = new Date();
+    conTnPrintToCalMonth = new Date();
+    var todayRadio = document.querySelector('input[name="conTnPrintRange"][value="today"]');
+    if (todayRadio) todayRadio.checked = true;
+    pop.classList.remove('hidden');
+    if (typeof applyI18nInRoot === 'function') applyI18nInRoot(pop);
+    syncConTnPrintRangeUi();
+}
+
+function conTnFilterNotesForPrint() {
+    var mode = conTnPrintRangeMode();
+    var list = (conTreatmentNotesCache || []).slice();
+    var today = (typeof todayISO === 'function') ? todayISO() : '';
+    if (mode === 'all') {
+        return list.sort(function (a, b) {
+            return new Date(b.created_at) - new Date(a.created_at);
+        });
+    }
+    return list.filter(function (t) {
+        var dk = conDateIsoFromTs(t.created_at);
+        if (mode === 'today') return dk === today;
+        if (mode === 'dated') {
+            if (conTnPrintFromIso && dk < conTnPrintFromIso) return false;
+            if (conTnPrintToIso && dk > conTnPrintToIso) return false;
+            return true;
+        }
+        return true;
+    }).sort(function (a, b) {
+        return new Date(b.created_at) - new Date(a.created_at);
+    });
+}
+
+function conTnPrintRangeLabel() {
+    var mode = conTnPrintRangeMode();
+    if (mode === 'today') return conTr('con.tnPrint.rangeTodayLbl');
+    if (mode === 'all') return conTr('con.tnPrint.rangeAllLbl');
+    var fromLbl = conTnPrintFromIso || '—';
+    var toLbl = conTnPrintToIso || '—';
+    return conTrRepl('con.tnPrint.rangeDatedLbl', { FROM: fromLbl, TO: toLbl });
+}
+
+function buildConTnPrintBodyHtml(notes) {
+    var p = conPatientData || {};
+    var name = p.full_name || '—';
+    var cn = String(p.chinese_name || '').trim();
+    if (cn) name = cn + (p.full_name ? ' / ' + p.full_name : '');
+    var no = p.patient_no || '—';
+    var clinicLbl = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
+        ? currentClinicLabel
+        : (typeof currentClinicId !== 'undefined' ? currentClinicId : '—');
+    var genAt = (typeof fmtNowDateTimeHK === 'function')
+        ? fmtNowDateTimeHK()
+        : new Date().toLocaleString(conUiLocale());
+    var showHdr = true;
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    if (typeof CFG !== 'undefined' && CFG.getPrintSettingsForDoc) {
+        var printRowHdr = CFG.getPrintSettingsForDoc(CON_TN_PRINT_DOC, cid);
+        if (printRowHdr) showHdr = printRowHdr.show_header !== false;
+    }
+
+    var html = '';
+    if (showHdr) {
+        html +=
+            '<div class="tn-print-hdr">' +
+              '<h1>' + esc(conTr('con.tnPrint.docTitle')) + '</h1>' +
+              '<div class="tn-print-meta">' +
+                esc(conTrRepl('con.tnPrint.patientLine', { NAME: name, NO: no })) + '<br>' +
+                esc(conTrRepl('con.tnPrint.clinicLine', { CLINIC: clinicLbl })) + '<br>' +
+                esc(conTr('con.tnPrint.rangeLegend')) + ': ' + esc(conTnPrintRangeLabel()) + '<br>' +
+                esc(conTrRepl('con.tnPrint.generatedLine', { AT: genAt })) +
+              '</div>' +
+            '</div>';
+    }
+
+    var groups = {};
+    var order = [];
+    notes.forEach(function (t) {
+        var dk = conDateIsoFromTs(t.created_at) || '__unknown__';
+        if (!groups[dk]) { groups[dk] = []; order.push(dk); }
+        groups[dk].push(t);
+    });
+
+    order.forEach(function (dk) {
+        var dateLabel = dk;
+        if (dk !== '__unknown__') {
+            var dObj = (typeof parseISODateOnly === 'function')
+                ? parseISODateOnly(dk)
+                : new Date(dk);
+            if (dObj && !isNaN(dObj.getTime())) {
+                dateLabel = dObj.toLocaleDateString(conUiLocale(), {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+                });
+            }
+        }
+        html += '<div class="tn-print-date-sep">' + esc(dateLabel) + '</div>';
+        groups[dk].forEach(function (t) {
+            var timeStr = new Date(t.created_at).toLocaleTimeString(conUiLocale(), {
+                hour: '2-digit', minute: '2-digit'
+            });
+            var meta = timeStr;
+            if (t.dentist_name) meta += ' · ' + t.dentist_name;
+            var tag = t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag || '';
+            var code = conClinicCodeFromStoredTag(tag);
+            if (code) meta += ' · ' + code;
+            html +=
+                '<div class="tn-print-note">' +
+                  '<div class="tn-print-note-meta">' + esc(meta) + '</div>' +
+                  esc(t.notes || '') +
+                '</div>';
+        });
+    });
+    return html;
+}
+
+function openConTnPrintFromPopover() {
+    var mode = conTnPrintRangeMode();
+    if (mode === 'dated' && conTnPrintFromIso && conTnPrintToIso &&
+        conTnPrintFromIso > conTnPrintToIso) {
+        alert(conTr('con.tnPrint.alertBadRange'));
+        return;
+    }
+    var notes = conTnFilterNotesForPrint();
+    if (!notes.length) {
+        alert(conTr('con.tnPrint.alertNoNotes'));
+        return;
+    }
+    closeConTnPrintPopover();
+    executeConTnPrint();
+}
+
+function executeConTnPrint() {
+    var notes = conTnFilterNotesForPrint();
+    if (!notes.length) {
+        alert(conTr('con.tnPrint.alertNoNotes'));
+        return;
+    }
+    var bodyHtml = buildConTnPrintBodyHtml(notes);
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    var printRow = null;
+    if (typeof CFG !== 'undefined' && CFG.getPrintSettingsForDoc) {
+        printRow = CFG.getPrintSettingsForDoc(CON_TN_PRINT_DOC, cid);
+    }
+    if (typeof CFG !== 'undefined' && CFG.prefetchPrintSettings) {
+        CFG.prefetchPrintSettings(cid);
+    }
+    if (typeof CFG !== 'undefined' && CFG.openContentPrintPopup) {
+        var ok = CFG.openContentPrintPopup({
+            title: conTr('con.tnPrint.docTitle'),
+            bodyHtml: bodyHtml,
+            printRow: printRow,
+            docType: CON_TN_PRINT_DOC,
+            clinicId: cid
+        });
+        if (!ok) alert(conTr('con.alert.popupBlocked'));
+    } else {
+        printConFormsHtml('<div class="tn-print-body">' + bodyHtml + '</div>');
+    }
+}
+
+function wireConTnPrintUi() {
+    var printBtn = g('conTnPrintBtn');
+    if (printBtn && !printBtn.dataset.wired) {
+        printBtn.dataset.wired = '1';
+        printBtn.addEventListener('click', function () {
+            if (printBtn.disabled) return;
+            openConTnPrintPopover();
+        });
+    }
+    var popClose = g('conTnPrintPopoverClose');
+    var popCancel = g('conTnPrintPopoverCancel');
+    if (popClose && !popClose.dataset.wired) {
+        popClose.dataset.wired = '1';
+        popClose.addEventListener('click', closeConTnPrintPopover);
+    }
+    if (popCancel && !popCancel.dataset.wired) {
+        popCancel.dataset.wired = '1';
+        popCancel.addEventListener('click', closeConTnPrintPopover);
+    }
+    document.querySelectorAll('input[name="conTnPrintRange"]').forEach(function (el) {
+        if (el.dataset.wired) return;
+        el.dataset.wired = '1';
+        el.addEventListener('change', function () {
+            syncConTnPrintRangeUi();
+        });
+    });
+    var printGo = g('conTnPrintPopoverGo');
+    if (printGo && !printGo.dataset.wired) {
+        printGo.dataset.wired = '1';
+        printGo.addEventListener('click', openConTnPrintFromPopover);
+    }
+    document.addEventListener('click', function (e) {
+        var pop = g('conTnPrintPopover');
+        if (!pop || pop.classList.contains('hidden')) return;
+        if (conTnPrintClickInsidePopover(e, pop)) return;
+        if (printBtn && printBtn.contains(e.target)) return;
+        closeConTnPrintPopover();
+    });
+    updateConTnPrintBtnState();
+    if (!window._conTnPrintResizeBound) {
+        window._conTnPrintResizeBound = true;
+        window.addEventListener('resize', scheduleConTnPrintPopoverPosition);
+    }
+}
+
 function loadConNotes(pid) {
     var tl = g('conTimeline');
     if (!tl) return;
@@ -1695,6 +2134,7 @@ function loadConNotes(pid) {
         .eq('patient_id', pid)
         .order('created_at', { ascending: false })
     .then(function(r) {
+        conTreatmentNotesCache = (r.data && !r.error) ? r.data : [];
         if (r.error || !r.data || !r.data.length) {
             tl.innerHTML =
                 '<p style="color:#aaa;margin:0;padding:16px;">' +
@@ -3311,8 +3751,8 @@ function printDrugLabel(drugs, lang) {
     var dims = drugLabelPrintDimensions();
 
     var fontFamily = isZh
-        ? "'Microsoft JhengHei','PingFang TC','Noto Sans TC',Arial,sans-serif"
-        : "Arial,'Helvetica Neue',sans-serif";
+        ? "'Noto Sans TC','Microsoft JhengHei UI','Microsoft JhengHei','PingFang TC','Source Han Sans TC',sans-serif"
+        : "'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif";
 
     var labelCSS =
         '* { margin:0; padding:0; box-sizing:border-box; }' +
@@ -3325,6 +3765,9 @@ function printDrugLabel(drugs, lang) {
             'margin:0 auto;' +
             'background:#fff;' +
             'color:#000;' +
+            '-webkit-font-smoothing:antialiased;' +
+            '-moz-osx-font-smoothing:grayscale;' +
+            'text-rendering:optimizeLegibility;' +
         '}' +
         '.label {' +
             'width:' + dims.innerW + 'mm;' +
@@ -3344,8 +3787,9 @@ function printDrugLabel(drugs, lang) {
             'justify-content:flex-start;' +
             'align-items:stretch;' +
             'gap:0.45mm;' +
-            'font-size:7.25pt;' +
-            'line-height:1.2;' +
+            'font-size:8pt;' +
+            'line-height:1.24;' +
+            'letter-spacing:0.01em;' +
             'transform-origin:top center;' +
         '}' +
         '.label-top {' +
@@ -3366,10 +3810,10 @@ function printDrugLabel(drugs, lang) {
             'justify-content:flex-start;' +
         '}' +
         '.clinic-name {' +
-            'font-size:0.88em;' +
-            'font-weight:bold;' +
+            'font-size:0.9em;' +
+            'font-weight:700;' +
             'text-align:center;' +
-            'line-height:1.12;' +
+            'line-height:1.14;' +
             'word-break:break-word;' +
             'display:-webkit-box;' +
             '-webkit-box-orient:vertical;' +
@@ -3377,10 +3821,10 @@ function printDrugLabel(drugs, lang) {
             'overflow:hidden;' +
         '}' +
         '.clinic-addr,.clinic-tel {' +
-            'font-size:0.78em;' +
-            'font-weight:normal;' +
+            'font-size:0.8em;' +
+            'font-weight:500;' +
             'text-align:center;' +
-            'line-height:1.1;' +
+            'line-height:1.14;' +
             'word-break:break-word;' +
             'display:-webkit-box;' +
             '-webkit-box-orient:vertical;' +
@@ -3401,8 +3845,8 @@ function printDrugLabel(drugs, lang) {
             'padding:0.15em 0 0 0;' +
         '}' +
         '.patient-row {' +
-            'font-size:0.76em;' +
-            'line-height:1.1;' +
+            'font-size:0.78em;' +
+            'line-height:1.14;' +
             'word-break:break-word;' +
             'width:100%;' +
         '}' +
@@ -3461,9 +3905,9 @@ function printDrugLabel(drugs, lang) {
             'margin:0.12em 0;' +
         '}' +
         '.drug-name {' +
-            'font-size:1.06em;' +
-            'font-weight:bold;' +
-            'line-height:1.12;' +
+            'font-size:1.1em;' +
+            'font-weight:700;' +
+            'line-height:1.16;' +
             'word-break:break-word;' +
             'display:-webkit-box;' +
             '-webkit-box-orient:vertical;' +
@@ -3474,19 +3918,19 @@ function printDrugLabel(drugs, lang) {
             'text-align:left;' +
         '}' +
         '.info-row {' +
-            'font-size:0.9em;' +
-            'line-height:1.18;' +
+            'font-size:0.92em;' +
+            'line-height:1.2;' +
             'word-break:break-word;' +
             'flex-shrink:0;' +
             'width:100%;' +
             'text-align:left;' +
         '}' +
-        '.lk { font-weight:bold; }' +
+        '.lk { font-weight:700; }' +
         '.remarks-block {' +
-            'font-size:0.82em;' +
-            'line-height:1.12;' +
+            'font-size:0.86em;' +
+            'line-height:1.16;' +
             'word-break:break-word;' +
-            'font-style:italic;' +
+            'font-style:normal;' +
             'display:-webkit-box;' +
             '-webkit-box-orient:vertical;' +
             '-webkit-line-clamp:2;' +
@@ -3496,8 +3940,8 @@ function printDrugLabel(drugs, lang) {
             'text-align:left;' +
         '}' +
         '.footer-row {' +
-            'font-size:0.88em;' +
-            'line-height:1.15;' +
+            'font-size:0.9em;' +
+            'line-height:1.18;' +
             'word-break:break-word;' +
             'width:100%;' +
             'text-align:left;' +
@@ -4103,7 +4547,15 @@ function refreshConOpenModalsI18n() {
             resetDrugForm();
         }
     }
+    var tnPop = g('conTnPrintPopover');
+    if (tnPop && !tnPop.classList.contains('hidden') && typeof applyI18nInRoot === 'function') {
+        applyI18nInRoot(tnPop);
+    }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    wireConTnPrintUi();
+});
 
 document.addEventListener('app-lang-change', function() {
     refreshConOpenModalsI18n();

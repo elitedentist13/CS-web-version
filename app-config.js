@@ -223,6 +223,11 @@ var CFG = (function () {
     }
 
     function switchTab(key) {
+        if (!cfgTabVisible(key)) {
+            if (typeof permToastDenied === 'function') permToastDenied();
+            else toast(ctr('cfg.msg.adminRequired'), true);
+            return;
+        }
         _tab = key;
 
         // update sidebar highlight
@@ -268,18 +273,49 @@ var CFG = (function () {
         }
     }
 
+    function cfgTabVisible(key) {
+        if (typeof hasAppPermission !== 'function') return true;
+        if (currentUserPermissions === null) return true;
+        if (key === 'users') return hasAppPermission('config_user_info');
+        if (key === 'program') return hasAppPermission('config_program_setting');
+        return hasAppPermission('config');
+    }
+
+    function applyCfgNavPermissionGuards() {
+        var sidebar = document.querySelector('.cfg-sidebar');
+        if (!sidebar) return;
+        sidebar.querySelectorAll('.cfg-nav-item').forEach(function (item) {
+            var tab = item.getAttribute('data-tab');
+            var show = cfgTabVisible(tab);
+            item.style.display = show ? '' : 'none';
+            item.setAttribute('aria-hidden', show ? 'false' : 'true');
+        });
+    }
+
+    function firstAllowedCfgTab() {
+        for (var i = 0; i < TABS.length; i++) {
+            if (cfgTabVisible(TABS[i].key)) return TABS[i].key;
+        }
+        return 'clinic';
+    }
+
     // ════════════════════════════════════════════════════════
     // INIT  (public — called by app.js card click)
     // ════════════════════════════════════════════════════════
     function init() {
-        if (typeof currentRole !== 'undefined' && currentRole !== 'admin') {
+        if (typeof canAccessConfiguration === 'function') {
+            if (!canAccessConfiguration()) {
+                toast(ctr('cfg.msg.adminRequired'), true);
+                return;
+            }
+        } else if (typeof currentRole !== 'undefined' && currentRole !== 'admin') {
             toast(ctr('cfg.msg.adminRequired'), true);
             return;
         }
-        // Don't rebuild shell - HTML already exists
         _ready = true;
         wireNav();
-        switchTab('clinic');   // default tab
+        applyCfgNavPermissionGuards();
+        switchTab(firstAllowedCfgTab());
     }
 
     // ════════════════════════════════════════════════════════
@@ -979,7 +1015,8 @@ var CFG = (function () {
                         role: 'receptionist',
                         clinic_id: targetClinicId,
                         doctor_id: null,
-                        is_active: u.is_active !== false
+                        is_active: u.is_active !== false,
+                        permissions: u.permissions || collectPermissionsFromUserPanel()
                     };
                     SB.from('app_users').insert([payload])
                     .then(function (ins) {
@@ -1857,6 +1894,101 @@ var CFG = (function () {
     var _usrClinics = [];
     var _usrDoctors = [];
     var CFG_ADMIN_DEFAULT_PW = '1234';
+    var _usrAuthBound = false;
+
+    function userAuthLabelKey(key) {
+        return 'cfg.auth.' + key;
+    }
+
+    function userAuthIndentStyle(parentKey) {
+        if (!parentKey) return '';
+        return 'padding-left:22px;';
+    }
+
+    function renderUserAuthPanelHTML() {
+        var cols = [[], [], []];
+        USER_PERM_REGISTRY.forEach(function (def) {
+            var col = def.col >= 0 && def.col <= 2 ? def.col : 0;
+            cols[col].push(def);
+        });
+        var chkStyle =
+            'display:flex;align-items:flex-start;gap:6px;font-size:12px;' +
+            'color:#333;font-weight:600;margin:4px 0;cursor:pointer;line-height:1.35;';
+        var html =
+            '<div id="usr_auth_section" style="margin-top:14px;padding-top:12px;border-top:1px solid #eef2f7;">' +
+              '<div style="font-size:13px;font-weight:900;color:#0d6efd;margin-bottom:8px;" ' +
+                'data-i18n="cfg.auth.sectionTitle"></div>' +
+              '<div style="font-size:11px;color:#888;margin-bottom:10px;" data-i18n="cfg.auth.sectionHint"></div>' +
+              '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 18px;">';
+        for (var c = 0; c < 3; c++) {
+            html += '<div class="cfg-user-auth-col">';
+            cols[c].forEach(function (def) {
+                var indent = userAuthIndentStyle(def.parent);
+                html +=
+                  '<label style="' + chkStyle + indent + '">' +
+                    '<input type="checkbox" class="cfg-user-auth-chk" data-auth-key="' + esc(def.key) + '" ' +
+                      (def.parent ? 'data-auth-parent="' + esc(def.parent) + '"' : '') +
+                      ' style="margin-top:2px;flex-shrink:0;">' +
+                    '<span data-i18n="' + esc(userAuthLabelKey(def.key)) + '"></span>' +
+                  '</label>';
+            });
+            html += '</div>';
+        }
+        html += '</div></div>';
+        return html;
+    }
+
+    function applyPermissionsToUserPanel(perms) {
+        var merged = mergeUserPermissionsForEdit(perms);
+        var panel = g('cfgUserPanel');
+        if (!panel) return;
+        panel.querySelectorAll('.cfg-user-auth-chk').forEach(function (el) {
+            var key = el.getAttribute('data-auth-key');
+            el.checked = merged[key] !== false;
+        });
+    }
+
+    function collectPermissionsFromUserPanel() {
+        var out = defaultUserPermissionsAllOn();
+        var panel = g('cfgUserPanel');
+        if (!panel) return out;
+        panel.querySelectorAll('.cfg-user-auth-chk').forEach(function (el) {
+            var key = el.getAttribute('data-auth-key');
+            if (key) out[key] = el.checked === true;
+        });
+        return out;
+    }
+
+    function bindUserAuthPanelEvents() {
+        if (_usrAuthBound) return;
+        var panel = g('cfgUserPanel');
+        if (!panel) return;
+        _usrAuthBound = true;
+        panel.addEventListener('change', function (e) {
+            var t = e.target;
+            if (!t || !t.classList || !t.classList.contains('cfg-user-auth-chk')) return;
+            var key = t.getAttribute('data-auth-key');
+            if (!key) return;
+            if (t.checked) {
+                var parentKey = t.getAttribute('data-auth-parent');
+                while (parentKey) {
+                    var pel = panel.querySelector('.cfg-user-auth-chk[data-auth-key="' + parentKey + '"]');
+                    if (pel) pel.checked = true;
+                    var pdef = USER_PERM_REGISTRY.find(function (d) { return d.key === parentKey; });
+                    parentKey = pdef && pdef.parent ? pdef.parent : '';
+                }
+                return;
+            }
+            panel.querySelectorAll('.cfg-user-auth-chk[data-auth-parent="' + key + '"]').forEach(function (child) {
+                child.checked = false;
+                var childKey = child.getAttribute('data-auth-key');
+                if (childKey) {
+                    panel.querySelectorAll('.cfg-user-auth-chk[data-auth-parent="' + childKey + '"]')
+                        .forEach(function (gc) { gc.checked = false; });
+                }
+            });
+        });
+    }
 
     function _cfgUsrField(fid) {
         var panel = g('cfgUserPanel');
@@ -1881,7 +2013,7 @@ var CFG = (function () {
         if (g('cfgUserPanel')) return;
         var mount = document.createElement('div');
         mount.id = 'cfgUserPanelMount';
-        mount.style.cssText = 'margin:12px 0 0;max-width:980px;';
+        mount.style.cssText = 'margin:12px 0 0;max-width:1100px;';
         mount.innerHTML = userPanelHTML();
         var usersPane = g('cfgPane-users');
         if (usersPane && usersPane.parentNode) {
@@ -2059,6 +2191,7 @@ var CFG = (function () {
                   esc(ctr('cfg.btn.ensureNurseLogin')) +
                 '</button>' +
               '</div>' +
+              renderUserAuthPanelHTML() +
             '</div>' +
           '</div>';
     }
@@ -2084,6 +2217,9 @@ var CFG = (function () {
         var act = _cfgUsrField('usr_active');
         if (act) act.checked = true;
         _syncUserRoleFields();
+        applyPermissionsToUserPanel(null);
+        bindUserAuthPanelEvents();
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(panel);
 
         if (!id) return;
 
@@ -2098,6 +2234,7 @@ var CFG = (function () {
             var act2 = _cfgUsrField('usr_active');
             if (act2) act2.checked = u.is_active !== false;
             _syncUserRoleFields();
+            applyPermissionsToUserPanel(u.permissions);
         });
     }
 
@@ -2139,7 +2276,8 @@ var CFG = (function () {
             doctor_id: roleVal === 'admin'
                 ? null
                 : (cfgSvGet('usr_doctor_id') || null),
-            is_active: actEl ? actEl.checked !== false : true
+            is_active: actEl ? actEl.checked !== false : true,
+            permissions: collectPermissionsFromUserPanel()
         };
 
         var op = _usrEditId
@@ -2820,7 +2958,8 @@ var CFG = (function () {
         { key: 'appointment',    paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 } },
         { key: 'today_appt',     paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 } },
         { key: 'prescription',   paper: 'A5',          m: { l: 10, r: 10, t: 10, b: 10 } },
-        { key: 'patient_export', paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 } }
+        { key: 'patient_export', paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 } },
+        { key: 'treatment_notes', paper: 'A4',       m: { l: 12, r: 12, t: 12, b: 12 } }
     ];
 
     function defaultPrintRow(docType) {
@@ -3245,13 +3384,39 @@ var CFG = (function () {
         });
     }
 
-    function rebuildPrinterPickOptions(currentValue) {
-        var sel = g('cfgPrintPrinterSelect');
-        var dl = g('cfgPrintPrinterList');
+    function syncPrinterComboFromValueFor(selId, inpId, val) {
+        var sel = selId ? g(selId) : null;
+        var inp = inpId ? g(inpId) : null;
+        if (!inp) return;
+        var v = String(val || '').trim();
+        inp.value = v;
+        if (!sel) return;
+        var matched = false;
+        for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === v && v) {
+                sel.value = v;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) sel.value = v ? '__custom__' : '';
+    }
+
+    function syncPrinterComboFromValue(val) {
+        syncPrinterComboFromValueFor('cfgPrintPrinterSelect', 'cfgPrintPrinter', val);
+    }
+
+    function rebuildPrinterPickOptionsFor(selId, listId, inpId, currentValue) {
+        var sel = selId ? g(selId) : null;
+        var dl = listId ? g(listId) : null;
         if (!sel) return;
 
         var names = mergedPrinterNameList();
         var cur = String(currentValue || '').trim();
+        if (!cur && inpId) {
+            var inpEl = g(inpId);
+            if (inpEl) cur = String(inpEl.value || '').trim();
+        }
         if (cur && names.indexOf(cur) < 0) names.push(cur);
         names.sort(function (a, b) {
             return a.localeCompare(b, undefined, { sensitivity: 'base' });
@@ -3270,25 +3435,18 @@ var CFG = (function () {
             }).join('');
         }
 
-        syncPrinterComboFromValue(cur);
+        syncPrinterComboFromValueFor(selId, inpId, cur);
     }
 
-    function syncPrinterComboFromValue(val) {
-        var sel = g('cfgPrintPrinterSelect');
-        var inp = g('cfgPrintPrinter');
-        if (!inp) return;
-        var v = String(val || '').trim();
-        inp.value = v;
-        if (!sel) return;
-        var matched = false;
-        for (var i = 0; i < sel.options.length; i++) {
-            if (sel.options[i].value === v && v) {
-                sel.value = v;
-                matched = true;
-                break;
-            }
-        }
-        if (!matched) sel.value = v ? '__custom__' : '';
+    function rebuildPrinterPickOptions(currentValue) {
+        rebuildPrinterPickOptionsFor(
+            'cfgPrintPrinterSelect', 'cfgPrintPrinterList', 'cfgPrintPrinter', currentValue
+        );
+    }
+
+    function rebuildAllPrinterPickOptions() {
+        var curCfg = g('cfgPrintPrinter') ? g('cfgPrintPrinter').value : '';
+        rebuildPrinterPickOptions(curCfg);
     }
 
     function getResolvedPrinterNameFromForm(form) {
@@ -3297,12 +3455,11 @@ var CFG = (function () {
     }
 
     function refreshPrinterLists(showToast) {
-        var inp = g('cfgPrintPrinter');
-        var cur = inp ? inp.value : '';
+        var curCfg = g('cfgPrintPrinter') ? g('cfgPrintPrinter').value : '';
         return enumerateSystemPrintersAsync().then(function (sys) {
             _cachedSystemPrinters = sys || [];
             sys.forEach(function (n) { addKnownPrinter(n); });
-            rebuildPrinterPickOptions(cur);
+            rebuildPrinterPickOptions(curCfg);
             if (showToast) {
                 var n = mergedPrinterNameList().length;
                 if (sys.length) {
@@ -3312,6 +3469,11 @@ var CFG = (function () {
                 }
             }
         });
+    }
+
+    /** Preload system + saved printer names (Configuration + consultation print). */
+    function preloadPrinterLists() {
+        return refreshPrinterLists(false);
     }
 
     function wirePrinterCombo() {
@@ -3669,13 +3831,142 @@ var CFG = (function () {
         return mergePrintRow(docType, (all[cid] || {})[docType]);
     }
 
+    function fillPrintFormElement(form, row) {
+        if (!form || !row) return;
+        function setVal(name, val) {
+            var el = form.querySelector('[name="' + name + '"]');
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!val;
+            else el.value = val === null || val === undefined ? '' : String(val);
+        }
+        setVal('printer_name', row.printer_name);
+        setVal('paper_size', row.paper_size);
+        setVal('paper_width_mm', row.paper_width_mm);
+        setVal('paper_height_mm', row.paper_height_mm);
+        setVal('margin_left', row.margin_left);
+        setVal('margin_right', row.margin_right);
+        setVal('margin_top', row.margin_top);
+        setVal('margin_bottom', row.margin_bottom);
+        setVal('orientation', row.orientation);
+        setVal('scale_percent', row.scale_percent);
+        setVal('copies', row.copies);
+        setVal('color_mode', row.color_mode);
+        setVal('fit_to_page', row.fit_to_page);
+        setVal('show_header', row.show_header);
+        setVal('notes', row.notes);
+        var paperSel = form.querySelector('[name="paper_size"]');
+        var custom = form.querySelector('.cfg-print-custom-size');
+        if (custom && paperSel) {
+            custom.classList.toggle('hidden', paperSel.value !== 'Custom');
+        }
+    }
+
+    function readPrintFormElement(form) {
+        if (!form) return defaultPrintRow('letters');
+        var fd = new FormData(form);
+        var fitEl = form.querySelector('[name="fit_to_page"]');
+        var hdrEl = form.querySelector('[name="show_header"]');
+        var printerInp = form.querySelector('[name="printer_name"]');
+        return {
+            printer_name: printerInp ? String(printerInp.value || '').trim() : '',
+            paper_size: String(fd.get('paper_size') || 'A4'),
+            paper_width_mm: fd.get('paper_width_mm') ? Number(fd.get('paper_width_mm')) : null,
+            paper_height_mm: fd.get('paper_height_mm') ? Number(fd.get('paper_height_mm')) : null,
+            margin_left: Number(fd.get('margin_left')) || 0,
+            margin_right: Number(fd.get('margin_right')) || 0,
+            margin_top: Number(fd.get('margin_top')) || 0,
+            margin_bottom: Number(fd.get('margin_bottom')) || 0,
+            orientation: String(fd.get('orientation') || 'portrait'),
+            scale_percent: Number(fd.get('scale_percent')) || 100,
+            copies: Number(fd.get('copies')) || 1,
+            color_mode: String(fd.get('color_mode') || 'color'),
+            fit_to_page: !!(fitEl && fitEl.checked),
+            show_header: hdrEl ? !!hdrEl.checked : true,
+            notes: String(fd.get('notes') || '').trim()
+        };
+    }
+
+    /**
+     * Open printable preview popup (sheet chrome from printRow).
+     * opts: { title, bodyHtml, printRow, clinicId }
+     */
+    function openContentPrintPopup(opts) {
+        opts = opts || {};
+        var title = opts.title || 'Print';
+        var bodyHtml = opts.bodyHtml || '';
+        var cid = opts.clinicId ||
+            (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+        var printRow = opts.printRow;
+        if (!printRow && opts.docType) {
+            printRow = getPrintSettingsForDoc(opts.docType, cid);
+        }
+        if (!printRow) printRow = defaultPrintRow('letters');
+
+        if (typeof prefetchPrintSettings === 'function' && cid) {
+            prefetchPrintSettings(cid);
+        }
+
+        var sheetCss = buildPrintSheetStylesCss(printRow);
+        var wh = estimatePrintPopupSizePx(printRow);
+        var popup = window.open('', '_blank',
+            'width=' + wh.width + ',height=' + wh.height +
+            ',scrollbars=1,resizable=1,toolbar=0,menubar=0'
+        );
+        if (!popup) return false;
+
+        var contentCss =
+            '.tn-print-hdr{margin-bottom:16px;border-bottom:2px solid #0d6efd;padding-bottom:10px;}' +
+            '.tn-print-hdr h1{margin:0 0 6px;font-size:18px;color:#0d6efd;}' +
+            '.tn-print-meta{font-size:12px;color:#555;line-height:1.5;}' +
+            '.tn-print-date-sep{margin:14px 0 8px;font-weight:800;font-size:12px;color:#0d6efd;' +
+                'border-bottom:1px solid #dde8f5;padding-bottom:4px;}' +
+            '.tn-print-note{margin:0 0 10px;padding:8px 10px;border-left:3px solid #0d6efd;' +
+                'background:#f8fafc;font-size:13px;line-height:1.45;white-space:pre-wrap;}' +
+            '.tn-print-note-meta{font-size:11px;color:#888;margin-bottom:4px;}';
+
+        popup.document.write(
+            '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+            '<title>' + esc(title) + '</title>' +
+            '<style>' + sheetCss + contentCss +
+            '.print-sheet-outer img,.print-sheet-outer table{max-width:100%;}</style>' +
+            '</head><body>' +
+            '<div class="print-sheet-outer">' + (bodyHtml || '') + '</div>' +
+            '<script>(function(){' +
+            'function fitPageRatio(){' +
+            'var de=document.documentElement,bd=document.body;if(!de||!bd)return;' +
+            'de.style.zoom="";bd.style.zoom="";' +
+            'var vw=Math.max(1,window.innerWidth||de.clientWidth||1);' +
+            'var vh=Math.max(1,window.innerHeight||de.clientHeight||1);' +
+            'var needW=Math.max(1,de.scrollWidth||bd.scrollWidth||vw);' +
+            'var needH=Math.max(1,de.scrollHeight||bd.scrollHeight||vh);' +
+            'var sc=Math.min(1,vw/needW,vh/needH);' +
+            'if(!(sc>0&&sc<=1))sc=1;' +
+            'sc=Math.max(0.42,Math.floor(sc*100)/100);' +
+            'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
+            '}' +
+            'window.onload=function(){' +
+            'try{fitPageRatio();}catch(e0){}' +
+            'setTimeout(function(){window.print();},280);' +
+            '};' +
+            '})();<\/script>' +
+            '</body></html>'
+        );
+        popup.document.close();
+        return true;
+    }
+
     return {
             init:                   init,
             isInitialized:          function () { return _ready; },
             refreshCfgNavLabels:    refreshCfgNavLabels,
             stripCfgStalePaneBodies: stripCfgStalePaneBodies,
             getPrintSettingsForDoc: getPrintSettingsForDoc,
+            fillPrintFormElement:   fillPrintFormElement,
+            readPrintFormElement:   readPrintFormElement,
+            openContentPrintPopup:  openContentPrintPopup,
             prefetchPrintSettings:  prefetchPrintSettings,
+            refreshPrinterLists:    refreshPrinterLists,
+            preloadPrinterLists:    preloadPrinterLists,
             // Consultation letters + print preview: sheet CSS + popup sizing
             printSheetDimensionsMm: printSheetDimensionsMm,
             printMarginsMmFromRow:  printMarginsMmFromRow,

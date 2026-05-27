@@ -162,6 +162,10 @@ var REPORT = (function () {
     return out;
   }
 
+  function excludeVoidBills(bills) {
+    return (bills || []).filter(function (b) { return !(b && b.voided_at); });
+  }
+
   async function filterBillsForReportClinic(bills) {
     var tag = reportClinicTag();
     if (!tag || !bills || !bills.length) return bills || [];
@@ -678,12 +682,12 @@ var REPORT = (function () {
   async function loadBills(from, to) {
     // expects global SB
     var res = await SB.from('bills')
-      .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at,patient_id,appointment_id')
+      .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at,patient_id,appointment_id,voided_at')
       .gte('bill_date', from)
       .lte('bill_date', to)
       .order('bill_date', { ascending: true });
     if (res.error) throw new Error(res.error.message);
-    return filterBillsForReportClinic(res.data || []);
+    return filterBillsForReportClinic(excludeVoidBills(res.data || []));
   }
 
   async function loadPatients() {
@@ -737,9 +741,9 @@ var REPORT = (function () {
   }
 
   async function loadBillsLite(from, to) {
-    var selectFull = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at,clinic_tag';
-    var selectNoDoctor = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,clinic_tag';
-    var selectLegacy = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at';
+    var selectFull = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at,clinic_tag,voided_at';
+    var selectNoDoctor = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,clinic_tag,voided_at';
+    var selectLegacy = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,voided_at';
     var res = await SB.from('bills')
       .select(selectFull)
       .gte('bill_date', from)
@@ -768,7 +772,7 @@ var REPORT = (function () {
         }
       } else if (m.indexOf('clinic_tag') >= 0) {
         res = await SB.from('bills')
-          .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at')
+          .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at,voided_at')
           .gte('bill_date', from)
           .lte('bill_date', to)
           .order('bill_date', { ascending: true })
@@ -776,7 +780,7 @@ var REPORT = (function () {
       }
     }
     if (res.error) throw new Error(res.error.message);
-    return filterBillsForReportClinic(res.data || []);
+    return filterBillsForReportClinic(excludeVoidBills(res.data || []));
   }
 
   async function loadPatientsByIds(ids) {

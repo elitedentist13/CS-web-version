@@ -1166,6 +1166,8 @@
       <div class="con-note-col">
         <div class="con-col-header">
           <h3 data-i18n="con.treatmentTitle"></h3>
+          <button type="button" id="conTnPrintBtn" class="btn-add con-tn-print-btn"
+                  data-i18n="con.tnPrint.btn"></button>
         </div>
 
         <!-- add note box -->
@@ -1970,6 +1972,66 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     TREATMENT NOTES — print range popover
+════════════════════════════════════════════════════════════ -->
+<div id="conTnPrintPopover" class="con-tn-print-popover hidden" role="dialog"
+     aria-labelledby="conTnPrintPopoverTitle">
+  <div class="con-tn-print-popover__head">
+    <span id="conTnPrintPopoverTitle" data-i18n="con.tnPrint.filterTitle"></span>
+    <button type="button" class="con-tn-print-popover__close" id="conTnPrintPopoverClose"
+            data-i18n-aria-label="common.closeAria">×</button>
+  </div>
+  <div class="con-tn-print-popover__body">
+    <fieldset class="con-tn-print-range">
+      <legend class="con-tn-print-range__legend" data-i18n="con.tnPrint.rangeLegend"></legend>
+      <label class="con-tn-print-range__opt">
+        <input type="radio" name="conTnPrintRange" value="today" checked>
+        <span data-i18n="con.tnPrint.rangeToday"></span>
+      </label>
+      <label class="con-tn-print-range__opt">
+        <input type="radio" name="conTnPrintRange" value="all">
+        <span data-i18n="con.tnPrint.rangeAll"></span>
+      </label>
+      <label class="con-tn-print-range__opt">
+        <input type="radio" name="conTnPrintRange" value="dated">
+        <span data-i18n="con.tnPrint.rangeDated"></span>
+      </label>
+    </fieldset>
+    <div id="conTnPrintDatedWrap" class="con-tn-print-dated hidden">
+      <p class="con-tn-print-dated__hint" data-i18n="con.tnPrint.datedHint"></p>
+      <div class="con-tn-print-dated__summary">
+        <span class="con-tn-print-dated__picked">
+          <span class="con-tn-print-dated__picked-lbl" data-i18n="con.tnPrint.from"></span>
+          <strong id="conTnPrintFromLbl">—</strong>
+        </span>
+        <span class="con-tn-print-dated__picked">
+          <span class="con-tn-print-dated__picked-lbl" data-i18n="con.tnPrint.to"></span>
+          <strong id="conTnPrintToLbl">—</strong>
+        </span>
+      </div>
+      <div class="con-tn-print-dated__cols">
+        <div class="con-tn-print-dated__col">
+          <div class="con-tn-print-dated__lbl" data-i18n="con.tnPrint.from"></div>
+          <div id="conTnPrintFromCal" class="con-tn-mc plusappt-mini-cal" role="group"
+               data-i18n-aria-label="con.tnPrint.fromCalAria"></div>
+        </div>
+        <div class="con-tn-print-dated__col">
+          <div class="con-tn-print-dated__lbl" data-i18n="con.tnPrint.to"></div>
+          <div id="conTnPrintToCal" class="con-tn-mc plusappt-mini-cal" role="group"
+               data-i18n-aria-label="con.tnPrint.toCalAria"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="con-tn-print-popover__foot">
+    <button type="button" class="btn btn--ghost" id="conTnPrintPopoverCancel"
+            data-i18n="cfg.btn.cancel"></button>
+    <button type="button" class="btn btn--primary" id="conTnPrintPopoverGo"
+            data-i18n="con.tnPrint.printBtn"></button>
   </div>
 </div>
 
@@ -2797,6 +2859,10 @@
           <input type="text" id="phone">
         </div>
         <div class="fg">
+          <label data-i18n="patient.form.mobilePhone"></label>
+          <input type="text" id="mobilePhone" inputmode="tel" autocomplete="tel">
+        </div>
+        <div class="fg">
           <label data-i18n="patient.form.email"></label>
           <input type="email" id="email">
         </div>
@@ -2858,6 +2924,21 @@
         <div class="fg full">
           <label data-i18n="patient.form.address"></label>
           <input type="text" id="address">
+        </div>
+        <div class="fg">
+          <label data-i18n="patient.form.resDistrict"></label>
+          <select id="residentialDistrict">
+            <option value="" data-i18n="patient.form.resDistrictSelect"></option>
+          </select>
+        </div>
+        <div class="fg">
+          <label data-i18n="patient.form.referredBy"></label>
+          <input type="text" id="referredBy">
+        </div>
+        <div class="fg full">
+          <label data-i18n="patient.form.familyHistory"></label>
+          <textarea id="familyHistory" rows="2"
+                    data-i18n-placeholder="patient.form.familyHistoryPh"></textarea>
         </div>
         <div class="fg full">
           <label data-i18n="patient.form.alerts"></label>
@@ -2961,6 +3042,10 @@
           <input type="text" id="edit_phone">
         </div>
         <div class="fg">
+          <label data-i18n="patient.form.mobilePhone"></label>
+          <input type="text" id="edit_mobilePhone" inputmode="tel" autocomplete="tel">
+        </div>
+        <div class="fg">
           <label data-i18n="patient.form.email"></label>
           <input type="email" id="edit_email">
         </div>
@@ -3022,6 +3107,21 @@
         <div class="fg full">
           <label data-i18n="patient.form.address"></label>
           <input type="text" id="edit_address">
+        </div>
+        <div class="fg">
+          <label data-i18n="patient.form.resDistrict"></label>
+          <select id="edit_residentialDistrict">
+            <option value="" data-i18n="patient.form.resDistrictSelect"></option>
+          </select>
+        </div>
+        <div class="fg">
+          <label data-i18n="patient.form.referredBy"></label>
+          <input type="text" id="edit_referredBy">
+        </div>
+        <div class="fg full">
+          <label data-i18n="patient.form.familyHistory"></label>
+          <textarea id="edit_familyHistory" rows="2"
+                    data-i18n-placeholder="patient.form.familyHistoryPh"></textarea>
         </div>
         <div class="fg full">
           <label data-i18n="patient.form.alerts"></label>
@@ -3836,10 +3936,46 @@
                   gap:12px;border-top:2px solid #eee;padding-top:16px;
                   margin-bottom:14px;flex-wrap:wrap;">
         <h3 style="margin:0;font-size:16px;color:#333;" data-i18n="bill.historyTitle"></h3>
-        <button type="button" id="billHistoryRefreshBtn" onclick="refreshBillHistory()"
-                style="background:var(--primary);color:#fff;border:none;padding:6px 14px;
-                       border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;" data-i18n="bill.btnRefresh"></button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" id="billHistoryPrintBtn"
+                  style="background:#fff;color:var(--primary);border:1px solid var(--primary);
+                         padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;"
+                  data-i18n="bill.history.btnPrint"></button>
+          <button type="button" id="billHistoryRefreshBtn" onclick="refreshBillHistory()"
+                  style="background:var(--primary);color:#fff;border:none;padding:6px 14px;
+                         border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;" data-i18n="bill.btnRefresh"></button>
+        </div>
       </div>
+
+      <div class="bill-history-filter">
+        <div class="bill-history-filter-tabs" role="tablist">
+          <label class="bill-history-filter-tab">
+            <input type="radio" name="billHistoryRange" value="all" checked>
+            <span data-i18n="bill.history.filterAll"></span>
+          </label>
+          <label class="bill-history-filter-tab">
+            <input type="radio" name="billHistoryRange" value="today">
+            <span data-i18n="bill.history.filterToday"></span>
+          </label>
+          <label class="bill-history-filter-tab">
+            <input type="radio" name="billHistoryRange" value="dated">
+            <span data-i18n="bill.history.filterByDate"></span>
+          </label>
+        </div>
+        <div id="billHistoryDatedWrap" class="bill-history-dated hidden">
+          <div class="bill-history-dated__row">
+            <label class="bill-history-dated__field">
+              <span class="bill-history-dated__lbl" data-i18n="bill.history.filterFrom"></span>
+              <input type="date" id="billHistoryFrom" class="bill-history-dated__input">
+            </label>
+            <label class="bill-history-dated__field">
+              <span class="bill-history-dated__lbl" data-i18n="bill.history.filterTo"></span>
+              <input type="date" id="billHistoryTo" class="bill-history-dated__input">
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div id="billHistoryList">
         <p style="color:#aaa;font-size:14px;" data-i18n="bill.historyEmpty"></p>
       </div>
@@ -4025,6 +4161,7 @@
       </div>
       <span id="bdStatusBadge" class="status-badge" style="margin-left:auto;font-size:13px;"></span>
     </div>
+    <div id="bdVoidMeta" class="bill-detail-void-meta hidden"></div>
 
     <!-- Info row -->
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
@@ -4126,6 +4263,7 @@
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead>
             <tr style="background:#f1f5f9;">
+              <th style="padding:8px 12px;text-align:left;width:72px;" data-i18n="bill.detail.thStatus"></th>
               <th style="padding:8px 12px;text-align:left;" data-i18n="bill.detail.thDate"></th>
               <th style="padding:8px 12px;text-align:right;" data-i18n="bill.detail.thAmount"></th>
               <th style="padding:8px 12px;text-align:left;" data-i18n="bill.detail.thMethod"></th>
@@ -4135,7 +4273,7 @@
             </tr>
           </thead>
           <tbody id="bdPaymentHistoryBody">
-            <tr><td colspan="5" style="padding:14px;text-align:center;
+            <tr><td colspan="7" style="padding:14px;text-align:center;
                 color:#aaa;" data-i18n="bill.historyLoading"></td></tr>
           </tbody>
         </table>
@@ -4382,6 +4520,7 @@
 <script src="app-i18n-extra.js"></script>
 <script src="app.js"></script>
 <script src="app-audit.js"></script>
+<script src="app-auth.js"></script>
 <script src="app-config.js"></script>
 <script src="app-report.js"></script>
 <script src="app-ai-helper.js"></script>

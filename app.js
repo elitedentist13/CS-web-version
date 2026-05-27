@@ -791,6 +791,7 @@ function patientSearchOrFilter(q) {
         'chinese_name.ilike.%' + safe + '%',
         'patient_no.ilike.%' + safe + '%',
         'phone_number.ilike.%' + safe + '%',
+        'mobile_phone.ilike.%' + safe + '%',
         'hkid.ilike.%' + safe + '%',
         'email.ilike.%' + safe + '%',
         'address.ilike.%' + safe + '%',
@@ -808,6 +809,7 @@ function patientSearchOrFilter(q) {
     var digits = raw.replace(/\D/g, '');
     if (digits.length >= 4 && digits !== raw) {
         parts.push('phone_number.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('mobile_phone.ilike.%' + escapePostgrestIlike(digits) + '%');
         parts.push('patient_no.ilike.%' + escapePostgrestIlike(digits) + '%');
     }
     patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
@@ -824,6 +826,7 @@ function patientSearchOrFilterCore(q) {
         'chinese_name.ilike.%' + safe + '%',
         'patient_no.ilike.%' + safe + '%',
         'phone_number.ilike.%' + safe + '%',
+        'mobile_phone.ilike.%' + safe + '%',
         'hkid.ilike.%' + safe + '%',
         'email.ilike.%' + safe + '%',
         'address.ilike.%' + safe + '%',
@@ -836,6 +839,7 @@ function patientSearchOrFilterCore(q) {
     var digits = raw.replace(/\D/g, '');
     if (digits.length >= 4 && digits !== raw) {
         parts.push('phone_number.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('mobile_phone.ilike.%' + escapePostgrestIlike(digits) + '%');
         parts.push('patient_no.ilike.%' + escapePostgrestIlike(digits) + '%');
     }
     patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
@@ -843,7 +847,8 @@ function patientSearchOrFilterCore(q) {
 }
 
 var PATIENT_SEARCH_SELECT =
-    'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
+    'id,patient_no,full_name,chinese_name,sex,dob,phone_number,mobile_phone,hkid,email,address,' +
+    'residential_district,family_history,referred_by,' +
     'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,banana_index,banana_notes,' +
     PATIENT_CLINIC_TAG_FIELD;
 
@@ -1196,6 +1201,7 @@ function showLogin() { showOnly('loginOverlay'); }
 function showDashboard() {
     showOnly('dashboardSection');
     if (typeof applyDashboardI18n === 'function') applyDashboardI18n();
+    if (typeof applyDashboardPermissionGuards === 'function') applyDashboardPermissionGuards();
     var cfgSec = g('sectionConfig');
     if (cfgSec) cfgSec.style.display = 'none';
     if (typeof CFG !== 'undefined' && typeof CFG.prefetchPrintSettings === 'function' && currentClinicId) {
@@ -1380,7 +1386,8 @@ function persistSession() {
             clinic_id: currentClinicId,
             clinic_label: currentClinicLabel,
             doctor_id: currentDoctorId,
-            doctor_name: currentDoctorName
+            doctor_name: currentDoctorName,
+            permissions: currentUserPermissions
         }));
     } catch (e) {}
 }
@@ -1402,6 +1409,9 @@ function restoreSession() {
         currentClinicLabel = s.clinic_label || null;
         currentDoctorId = s.doctor_id || null;
         currentDoctorName = s.doctor_name || null;
+        if (typeof setCurrentUserPermissions === 'function') {
+            setCurrentUserPermissions(s.permissions);
+        }
         return true;
     } catch (e) {
         return false;
@@ -1449,6 +1459,9 @@ function loadClinicsAndDoctorsForLogin() {
 function finishLoginSession(u, doctorId) {
     currentUserId = u ? u.user_id : currentUserId;
     currentRole = u ? (u.role || 'staff') : currentRole;
+    if (typeof setCurrentUserPermissions === 'function') {
+        setCurrentUserPermissions(u ? u.permissions : null);
+    }
 
     if (doctorId) {
         applyIdentityFromDoctor(doctorId);
@@ -1607,28 +1620,37 @@ document.addEventListener('DOMContentLoaded', function() {
         currentClinicLabel = null;
         currentDoctorId = null;
         currentDoctorName = null;
+        if (typeof setCurrentUserPermissions === 'function') setCurrentUserPermissions(null);
         clearSession();
         showLogin();
     });
 
     // ── Dashboard cards ───────────────────────────────────────
     g('card-patient').addEventListener('click', function() {
+        if (typeof guardModuleByPermission === 'function' &&
+            !guardModuleByPermission('patient')) return;
         showOnly('patientSection');
         fetchPatients();
     });
 
     g('card-appointment').addEventListener('click', function() {
+        if (typeof guardModuleByPermission === 'function' &&
+            !guardModuleByPermission('appointment')) return;
         showOnly('appointmentSection');
         initAppt();
     });
 
     g('card-consultation').addEventListener('click', function() {
+        if (typeof guardModuleByPermission === 'function' &&
+            !guardModuleByPermission('consultation')) return;
         initConsultation();
     });
 
     var drugBookCard = g('card-drugbook');
     if (drugBookCard) {
         drugBookCard.addEventListener('click', function() {
+            if (typeof guardModuleByPermission === 'function' &&
+                !guardModuleByPermission('drug_inventory')) return;
             initDrugs();
         });
     }
@@ -1637,8 +1659,9 @@ document.addEventListener('DOMContentLoaded', function() {
     var cfgCard = g('card-configuration');
     if (cfgCard) {
         cfgCard.addEventListener('click', function() {
-            if (currentRole !== 'admin') {
-                alert(appTr('alert.cfgAdminOnly'));
+            if (typeof canAccessConfiguration === 'function' && !canAccessConfiguration()) {
+                if (typeof permToastDenied === 'function') permToastDenied();
+                else alert(appTr('alert.cfgAdminOnly'));
                 return;
             }
             if (typeof CFG !== 'undefined' && typeof CFG.init === 'function') {
@@ -1654,6 +1677,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var reportCard = g('card-report');
     if (reportCard) {
         reportCard.addEventListener('click', function () {
+            if (typeof guardModuleByPermission === 'function' &&
+                !guardModuleByPermission('report')) return;
             showOnly('reportSection');
             if (typeof initReportModuleClinic === 'function') initReportModuleClinic();
             if (typeof REPORT !== 'undefined' && typeof REPORT.init === 'function') {

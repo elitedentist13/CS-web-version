@@ -14,6 +14,9 @@ var billApptId   = null;
 var billPatId    = null;
 var billPatName  = null;
 var billPatNo    = null;
+var billHistoryCache = [];
+var billHistoryFilterFrom = '';
+var billHistoryFilterTo = '';
 var billItems    = [];
 var billDoctorList = [];
 var treatmentItemsCache = [];
@@ -6433,6 +6436,8 @@ function wireBillPanelControls() {
     bindClickOnce('bdAddPaymentBtn', openAddPaymentModal);
     bindClickOnce('billPendingRefreshBtn', refreshBillPanelNow);
     bindClickOnce('billPayAllBtn', billPayAllAmount);
+    bindClickOnce('billHistoryPrintBtn', printBillHistory);
+    wireBillHistoryFilterUi();
 
     var discEl = g('bDiscount');
     if (discEl && discEl.dataset.billInputBound !== '1') {
@@ -6583,6 +6588,7 @@ function openBillPanel(q) {
             if (ok !== false) noteBillPendingRefreshed();
         });
     });
+    resetBillHistoryFilterUi();
     loadBillHistory();
 
     wireBillPanelControls();
@@ -7538,6 +7544,269 @@ function loadBillTypes() {
 }
 
 // Loads all bills for the current patient (same query shape as Consultation → Bill).
+function billHistoryRangeMode() {
+    var picked = document.querySelector('input[name="billHistoryRange"]:checked');
+    return picked ? picked.value : 'all';
+}
+
+function billBillDateIso(b) {
+    var raw = String(b && b.bill_date ? b.bill_date : '').trim();
+    if (!raw) return '';
+    if (raw.length >= 10 && raw.indexOf('-') >= 0) return raw.slice(0, 10);
+    return raw;
+}
+
+function filterBillHistoryByRange(list) {
+    var mode = billHistoryRangeMode();
+    var today = typeof todayISO === 'function' ? todayISO() : '';
+    var rows = (list || []).slice();
+    if (mode === 'today') {
+        return rows.filter(function(b) { return billBillDateIso(b) === today; });
+    }
+    if (mode === 'dated') {
+        var fromEl = g('billHistoryFrom');
+        var toEl = g('billHistoryTo');
+        var from = (fromEl && fromEl.value) ? fromEl.value : billHistoryFilterFrom;
+        var to = (toEl && toEl.value) ? toEl.value : billHistoryFilterTo;
+        if (from && to && from > to) {
+            var swap = from;
+            from = to;
+            to = swap;
+        }
+        return rows.filter(function(b) {
+            var dk = billBillDateIso(b);
+            if (!dk) return false;
+            if (from && dk < from) return false;
+            if (to && dk > to) return false;
+            return true;
+        });
+    }
+    return rows;
+}
+
+function applyBillHistoryFilter() {
+    var wrap = g('billHistoryList');
+    if (!wrap) return;
+    if (!billHistoryCache.length) {
+        wrap.innerHTML =
+            '<p style="color:#aaa;font-size:14px;">' + esc(tr('bill.historyEmpty')) + '</p>';
+        return;
+    }
+    var filtered = filterBillHistoryByRange(billHistoryCache);
+    if (!filtered.length) {
+        wrap.innerHTML =
+            '<p style="color:#aaa;font-size:14px;">' + esc(tr('bill.history.emptyFilter')) + '</p>';
+        return;
+    }
+    renderBillHistoryRows(wrap, filtered);
+}
+
+function syncBillHistoryRangeUi() {
+    var datedWrap = g('billHistoryDatedWrap');
+    var mode = billHistoryRangeMode();
+    if (datedWrap) datedWrap.classList.toggle('hidden', mode !== 'dated');
+    if (mode === 'dated') {
+        var today = typeof todayISO === 'function' ? todayISO() : '';
+        var fromEl = g('billHistoryFrom');
+        var toEl = g('billHistoryTo');
+        if (fromEl && !fromEl.value) fromEl.value = billHistoryFilterFrom || today;
+        if (toEl && !toEl.value) toEl.value = billHistoryFilterTo || today;
+        if (fromEl && fromEl.value) billHistoryFilterFrom = fromEl.value;
+        if (toEl && toEl.value) billHistoryFilterTo = toEl.value;
+    }
+    applyBillHistoryFilter();
+}
+
+function resetBillHistoryFilterUi() {
+    var today = typeof todayISO === 'function' ? todayISO() : '';
+    billHistoryFilterFrom = today;
+    billHistoryFilterTo = today;
+    var allRadio = document.querySelector('input[name="billHistoryRange"][value="all"]');
+    if (allRadio) allRadio.checked = true;
+    var fromEl = g('billHistoryFrom');
+    var toEl = g('billHistoryTo');
+    if (fromEl) fromEl.value = today;
+    if (toEl) toEl.value = today;
+    var datedWrap = g('billHistoryDatedWrap');
+    if (datedWrap) datedWrap.classList.add('hidden');
+}
+
+function billHistoryPrintScopeText() {
+    var mode = billHistoryRangeMode();
+    if (mode === 'today') return tr('bill.history.filterToday');
+    if (mode === 'dated') {
+        var fromEl = g('billHistoryFrom');
+        var toEl = g('billHistoryTo');
+        var from = (fromEl && fromEl.value) ? fromEl.value : billHistoryFilterFrom;
+        var to = (toEl && toEl.value) ? toEl.value : billHistoryFilterTo;
+        var fromDisp = from;
+        var toDisp = to;
+        if (typeof fmtDateLong === 'function') {
+            if (from) fromDisp = fmtDateLong(from);
+            if (to) toDisp = fmtDateLong(to);
+        }
+        return trRepl('bill.history.printScopeDated', {
+            FROM: fromDisp || '—',
+            TO: toDisp || '—'
+        });
+    }
+    return tr('bill.history.filterAll');
+}
+
+function billHistoryPrintDateDisplay(iso) {
+    if (!iso) return '—';
+    if (typeof fmtDateLong === 'function') {
+        var day = String(iso).indexOf('T') >= 0 ? String(iso).split('T')[0] : String(iso).slice(0, 10);
+        if (day.length >= 10) return fmtDateLong(day);
+    }
+    return String(iso);
+}
+
+function buildBillHistoryPrintHtml(bills) {
+    var scope = billHistoryPrintScopeText();
+    var patName = String(billPatName || '').trim() || '—';
+    var patNo = String(billPatNo || '').trim();
+    var clinicLbl = (typeof currentClinicLabel === 'string' && currentClinicLabel.trim())
+        ? currentClinicLabel.trim() : '';
+    var whenStr = new Date().toLocaleString(
+        typeof apptDateLocale === 'function' ? apptDateLocale() : 'en-HK',
+        { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+    );
+    var sumTotal = 0;
+    var sumPaid = 0;
+    var sumBal = 0;
+    var rowsHtml = '';
+
+    bills.forEach(function(b, idx) {
+        var voided = billRecordIsVoid(b);
+        var ref = b.id ? String(b.id).slice(0, 8).toUpperCase() : '—';
+        var typeLbl = (typeof dispPayMethod === 'function')
+            ? dispPayMethod(b.bill_type)
+            : (b.bill_type || '—');
+        var doctor = b.doctor_tag || b.doctor_name || '—';
+        var total = parseFloat(b.total) || 0;
+        var paid = parseFloat(b.amount_paid) || 0;
+        var bal = parseFloat(b.balance) || 0;
+        if (!voided) {
+            sumTotal += total;
+            sumPaid += paid;
+            sumBal += bal;
+        }
+        var statusTxt = voided
+            ? tr('bill.detail.voidBadge')
+            : dispStatusLabel(b.status || '');
+        var rowStyle = voided
+            ? 'color:#64748b;background:#f1f5f9;'
+            : ((idx % 2 === 1) ? 'background:#f8fafc;' : '');
+        rowsHtml +=
+            '<tr style="' + rowStyle + '">' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' +
+                esc(billHistoryPrintDateDisplay(b.bill_date)) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(ref) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(typeLbl) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(doctor) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
+                (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(total)) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
+                (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(paid)) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
+                (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(bal)) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(statusTxt) + '</td>' +
+            '</tr>';
+    });
+
+    return (
+        '<style>' +
+        '.bh-print-hdr{margin-bottom:14px;border-bottom:2px solid #0d6efd;padding-bottom:10px;}' +
+        '.bh-print-hdr h1{margin:0 0 6px;font-size:18px;color:#0d6efd;}' +
+        '.bh-print-meta{font-size:12px;color:#555;line-height:1.5;}' +
+        '.bh-print-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;}' +
+        '.bh-print-table th{text-align:left;padding:7px 8px;background:#1e3a5f;color:#fff;font-size:10px;}' +
+        '.bh-print-table th.num{text-align:right;}' +
+        '.bh-print-tfoot td{font-weight:700;border-top:2px solid #1e3a5f;padding:8px;}' +
+        '</style>' +
+        '<div class="bh-print-hdr">' +
+        '<h1>' + esc(tr('bill.history.printTitle')) + '</h1>' +
+        '<div class="bh-print-meta">' +
+        (clinicLbl ? ('<div>' + esc(clinicLbl) + '</div>') : '') +
+        '<div><strong>' + esc(patName) + '</strong>' +
+        (patNo && patNo !== '-' ? (' &nbsp;|&nbsp; #' + esc(patNo)) : '') + '</div>' +
+        '<div>' + esc(trRepl('bill.history.printScope', { SCOPE: scope })) + '</div>' +
+        '<div>' + esc(trRepl('bill.history.printCount', { N: String(bills.length) })) + '</div>' +
+        '<div>' + esc(trRepl('bill.history.printPrintedOn', { WHEN: whenStr })) + '</div>' +
+        '</div></div>' +
+        '<table class="bh-print-table"><thead><tr>' +
+        '<th>' + esc(tr('bill.history.printThDate')) + '</th>' +
+        '<th>' + esc(tr('bill.history.printThRef')) + '</th>' +
+        '<th>' + esc(tr('bill.history.printThType')) + '</th>' +
+        '<th>' + esc(tr('bill.history.printThDoctor')) + '</th>' +
+        '<th class="num">' + esc(tr('bill.history.printThTotal')) + '</th>' +
+        '<th class="num">' + esc(tr('bill.history.printThPaid')) + '</th>' +
+        '<th class="num">' + esc(tr('bill.history.printThBalance')) + '</th>' +
+        '<th>' + esc(tr('bill.history.printThStatus')) + '</th>' +
+        '</tr></thead><tbody>' + rowsHtml + '</tbody>' +
+        '<tfoot><tr class="bh-print-tfoot">' +
+        '<td colspan="4" style="text-align:right;">' + esc(tr('bill.history.printTotals')) + '</td>' +
+        '<td style="text-align:right;">' + esc(fmt2(sumTotal)) + '</td>' +
+        '<td style="text-align:right;">' + esc(fmt2(sumPaid)) + '</td>' +
+        '<td style="text-align:right;">' + esc(fmt2(sumBal)) + '</td>' +
+        '<td></td></tr></tfoot></table>'
+    );
+}
+
+function printBillHistory() {
+    var bills = filterBillHistoryByRange(billHistoryCache || []);
+    if (!bills.length) {
+        alert(tr('bill.history.printEmpty'));
+        return;
+    }
+    var bodyHtml = buildBillHistoryPrintHtml(bills);
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    if (typeof CFG !== 'undefined' && CFG && typeof CFG.prefetchPrintSettings === 'function') {
+        CFG.prefetchPrintSettings(cid);
+    }
+    if (typeof CFG !== 'undefined' && CFG && typeof CFG.openContentPrintPopup === 'function') {
+        var ok = CFG.openContentPrintPopup({
+            title: tr('bill.history.printTitle'),
+            bodyHtml: bodyHtml,
+            docType: 'bill',
+            clinicId: cid
+        });
+        if (!ok) alert(tr('bill.receipt.popupBlocked'));
+        return;
+    }
+    var popup = window.open('', '_blank', 'width=820,height=900,scrollbars=1,resizable=1');
+    if (!popup) {
+        alert(tr('bill.receipt.popupBlocked'));
+        return;
+    }
+    popup.document.write(
+        '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
+        esc(tr('bill.history.printTitle')) + '</title></head><body>' + bodyHtml +
+        '<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>'
+    );
+    popup.document.close();
+}
+
+function wireBillHistoryFilterUi() {
+    document.querySelectorAll('input[name="billHistoryRange"]').forEach(function(el) {
+        if (el.dataset.billHistFilterWired) return;
+        el.dataset.billHistFilterWired = '1';
+        el.addEventListener('change', syncBillHistoryRangeUi);
+    });
+    ['billHistoryFrom', 'billHistoryTo'].forEach(function(id) {
+        var el = g(id);
+        if (!el || el.dataset.billHistFilterWired) return;
+        el.dataset.billHistFilterWired = '1';
+        el.addEventListener('change', function() {
+            billHistoryFilterFrom = g('billHistoryFrom') ? g('billHistoryFrom').value : '';
+            billHistoryFilterTo = g('billHistoryTo') ? g('billHistoryTo').value : '';
+            applyBillHistoryFilter();
+        });
+    });
+}
+
 function loadBillHistory(cb) {
     var wrap  = g('billHistoryList');
     var patId = billPatId;
@@ -7548,6 +7817,7 @@ function loadBillHistory(cb) {
     var hasPatNoFallback = !!(patNo && patNo !== '-');
 
     if (!hasPatient && !hasPatNoFallback && !apptFallback) {
+        billHistoryCache = [];
         wrap.innerHTML = '<p style="color:#aaa;font-size:14px;">' + esc(tr('bill.historyEmpty')) + '</p>';
         if (cb) cb(true);
         return;
@@ -7556,17 +7826,19 @@ function loadBillHistory(cb) {
 
     function renderHistory(r) {
         if (r.error) {
+            billHistoryCache = [];
             wrap.innerHTML =
                 '<p style="color:#e11d48;font-size:13px;">⚠️ ' + esc(r.error.message) + '</p>';
             if (cb) cb(false);
             return;
         }
-        if (!r.data || !r.data.length) {
+        billHistoryCache = (r.data && r.data.length) ? r.data : [];
+        if (!billHistoryCache.length) {
             wrap.innerHTML = '<p style="color:#aaa;font-size:14px;">' + esc(tr('bill.historyEmpty')) + '</p>';
             if (cb) cb(true);
             return;
         }
-        renderBillHistoryRows(wrap, r.data);
+        applyBillHistoryFilter();
         if (cb) cb(true);
     }
 
@@ -7620,50 +7892,134 @@ function refreshBillHistory() {
     loadBillHistory();
 }
 
+function billRecordIsVoid(b) {
+    return !!(b && b.voided_at);
+}
+
+function billVoidedAtDisplay(iso) {
+    if (!iso) return '—';
+    var raw = String(iso).trim();
+    if (!raw) return '—';
+    var dt = new Date(raw);
+    if (isNaN(+dt)) return '—';
+    if (typeof fmtDateLong === 'function') {
+        var day = raw.indexOf('T') >= 0 ? raw.split('T')[0] : raw.slice(0, 10);
+        if (day.length >= 10) return fmtDateLong(day);
+    }
+    var loc = typeof apptDateLocale === 'function' ? apptDateLocale() : 'en-HK';
+    return dt.toLocaleDateString(loc, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+}
+
+function billVoidedByLine(record) {
+    var by = String(record && record.voided_by ? record.voided_by : '').trim();
+    if (by) {
+        return trRepl('bill.detail.voidedBy', { NAME: by });
+    }
+    return tr('bill.detail.voidedByUnknown');
+}
+
+function billVoidedDateLine(record) {
+    return trRepl('bill.detail.voidedOn', {
+        DATE: billVoidedAtDisplay(record && record.voided_at)
+    });
+}
+
+function billVoidedMetaHtml(record) {
+    return '<span class="bill-pay-void-by">' + esc(billVoidedByLine(record)) + '</span>' +
+        '<span class="bill-pay-void-date">' + esc(billVoidedDateLine(record)) + '</span>';
+}
+
+function refreshBillDetailVoidMeta(b) {
+    var el = g('bdVoidMeta');
+    if (!el) return;
+    if (!b || !billRecordIsVoid(b)) {
+        el.classList.add('hidden');
+        el.innerHTML = '';
+        return;
+    }
+    el.classList.remove('hidden');
+    el.innerHTML =
+        '<span class="bill-pay-void-badge">' + esc(tr('bill.detail.voidBadge')) + '</span>' +
+        billVoidedMetaHtml(b);
+}
+
+function billPaymentDateCellHtml(p, voided) {
+    if (!voided) {
+        return esc(p.paid_date || '—');
+    }
+    return '<span class="bill-pay-paid-date-struck">' + esc(p.paid_date || '—') + '</span>' +
+        '<span class="bill-pay-void-date">' + esc(billVoidedDateLine(p)) + '</span>';
+}
+
 function renderBillHistoryRows(wrap, data) {
     wrap.innerHTML = '';
     data.forEach(function(b) {
             var drTag   = b.doctor_tag || b.doctor_name || '';
             var isAdmin = String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase() === 'admin';
+            var voided  = billRecordIsVoid(b);
             var div = document.createElement('div');
-            var isPartial = b.status === 'Partial' || (parseFloat(b.balance) > 0);
-            div.style.cssText =
-                'background:' + (isPartial ? '#fffbeb' : '#f9f9f9') + ';' +
-                'border:1px solid ' + (isPartial ? '#fde047' : '#eee') + ';' +
-                'border-radius:8px;padding:12px 14px;margin-bottom:10px;';
+            div.className = voided ? 'bill-history-row bill-history-row--void' : 'bill-history-row';
+            var isPartial = !voided && (b.status === 'Partial' || (parseFloat(b.balance) > 0));
+            if (!voided) {
+                div.style.cssText =
+                    'background:' + (isPartial ? '#fffbeb' : '#f9f9f9') + ';' +
+                    'border:1px solid ' + (isPartial ? '#fde047' : '#eee') + ';' +
+                    'border-radius:8px;padding:12px 14px;margin-bottom:10px;';
+            } else {
+                div.style.cssText =
+                    'border-radius:8px;padding:12px 14px;margin-bottom:10px;border-width:1px;border-style:solid;';
+            }
+            var voidHead = voided
+                ? '<div class="bill-history-void-head">' +
+                    '<span class="bill-pay-void-badge">' + esc(tr('bill.detail.voidBadge')) + '</span>' +
+                    billVoidedMetaHtml(b) +
+                  '</div>'
+                : '';
+            var amtClass = voided ? ' bill-history-amt' : '';
+            var metaClass = voided ? ' bill-history-meta' : '';
+            var statusHtml = voided
+                ? '<span class="bill-history-status-void">' + esc(tr('bill.detail.voidBadge')) + '</span>'
+                : '<span class="status-badge ' + statusClass(b.status) + '">' +
+                    esc(dispStatusLabel(b.status)) + '</span>';
+            var actionHtml =
+                '<button class="bd-detail-btn btn-sm" ' +
+                'style="background:var(--primary);color:#fff;border:none;padding:3px 11px;' +
+                'border-radius:5px;font-size:12px;cursor:pointer;">' +
+                esc(tr('bill.history.btnDetail')) + '</button>' +
+                (isPartial
+                    ? '<button class="bd-pay-btn btn-sm" ' +
+                      'style="background:#16a34a;color:#fff;border:none;padding:3px 11px;' +
+                      'border-radius:5px;font-size:12px;cursor:pointer;font-weight:700;">' +
+                      esc(tr('bill.history.btnPay')) + '</button>'
+                    : '') +
+                (!voided
+                    ? '<button class="bd-del-btn btn-sm" ' +
+                      (isAdmin
+                          ? 'style="background:#dc2626;color:#fff;border:none;padding:3px 11px;' +
+                            'border-radius:5px;font-size:12px;cursor:pointer;"'
+                          : 'disabled style="background:#fca5a5;color:#fff;border:none;padding:3px 11px;' +
+                            'border-radius:5px;font-size:12px;cursor:not-allowed;opacity:.6;"'
+                      ) + '>' + esc(tr('bill.history.btnDelete')) + '</button>'
+                    : '');
             div.innerHTML =
-                '<div style="display:flex;justify-content:space-between;' +
-                'align-items:center;margin-bottom:4px;">' +
-                    '<strong style="font-size:14px;">' +
+                voidHead +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+                    '<strong class="' + amtClass.trim() + '" style="font-size:14px;">' +
                         fmtHK(b.total) +
                     '</strong>' +
-                    '<div style="display:flex;align-items:center;gap:8px;">' +
-                        '<span class="status-badge ' +
-                            statusClass(b.status) + '">' +
-                            esc(dispStatusLabel(b.status)) +
-                        '</span>' +
-                        '<button class="bd-detail-btn btn-sm" ' +
-                        'style="background:var(--primary);color:#fff;' +
-                        'border:none;padding:3px 11px;border-radius:5px;' +
-                        'font-size:12px;cursor:pointer;">' + esc(tr('bill.history.btnDetail')) + '</button>' +
-                        (isPartial
-                            ? '<button class="bd-pay-btn btn-sm" ' +
-                              'style="background:#16a34a;color:#fff;border:none;' +
-                              'padding:3px 11px;border-radius:5px;font-size:12px;' +
-                              'cursor:pointer;font-weight:700;">' + esc(tr('bill.history.btnPay')) + '</button>'
-                            : '') +
-                        '<button class="bd-del-btn btn-sm" ' +
-                        (isAdmin
-                            ? 'style="background:#dc2626;color:#fff;border:none;' +
-                              'padding:3px 11px;border-radius:5px;font-size:12px;cursor:pointer;"'
-                            : 'disabled style="background:#fca5a5;color:#fff;border:none;' +
-                              'padding:3px 11px;border-radius:5px;font-size:12px;cursor:not-allowed;opacity:.6;"'
-                        ) + '>' + esc(tr('bill.history.btnDelete')) + '</button>' +
+                    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">' +
+                        statusHtml +
+                        actionHtml +
                     '</div>' +
                 '</div>' +
-                '<div style="font-size:12px;color:#888;">' +
+                '<div class="' + metaClass.trim() + '" style="font-size:12px;color:#888;">' +
                     esc(b.bill_date) +
-                    ' &nbsp;|&nbsp; ' + esc((typeof dispPayMethod === 'function') ? dispPayMethod(b.bill_type) : b.bill_type) +
+                    ' &nbsp;|&nbsp; ' + esc((typeof dispPayMethod === 'function')
+                        ? dispPayMethod(b.bill_type) : b.bill_type) +
                     (drTag ? (' &nbsp;|&nbsp; ' + esc(drTag)) : '') +
                     ' &nbsp;|&nbsp; ' + esc(trRepl('bill.history.paidBalance', {
                         PAID: fmt2(b.amount_paid),
@@ -7676,12 +8032,13 @@ function renderBillHistoryRows(wrap, data) {
             var payBtn = div.querySelector('.bd-pay-btn');
             if (payBtn) {
                 payBtn.addEventListener('click', function() {
-                    showBillDetail(b);        // open detail first
-                    openAddPaymentModal();    // then immediately open payment form
+                    showBillDetail(b);
+                    openAddPaymentModal();
                 });
             }
-            if (isAdmin) {
-                div.querySelector('.bd-del-btn').addEventListener('click', function() {
+            var delBtn = div.querySelector('.bd-del-btn');
+            if (delBtn && isAdmin) {
+                delBtn.addEventListener('click', function() {
                     confirmDeleteBill(b);
                 });
             }
@@ -7715,6 +8072,7 @@ function refreshBillDeleteModalCopy(b) {
 }
 
 function confirmDeleteBill(b) {
+    if (billRecordIsVoid(b)) return;
     bdDeleteTarget = b;
     refreshBillDeleteModalCopy(b);
     var inp = g('bdDeleteConfirmInput');
@@ -7732,8 +8090,14 @@ function executeBillDelete() {
         return;
     }
     if (!bdDeleteTarget || !bdDeleteTarget.id) return;
+    if (billRecordIsVoid(bdDeleteTarget)) return;
 
-    SB.from('bills').delete().eq('id', bdDeleteTarget.id)
+    var voidPayload = {
+        voided_at: new Date().toISOString(),
+        voided_by: (typeof currentName !== 'undefined' ? currentName : null)
+    };
+
+    SB.from('bills').update(voidPayload).eq('id', bdDeleteTarget.id)
     .then(function(r) {
         if (r.error) {
             var err = g('bdDeleteError');
@@ -7743,6 +8107,7 @@ function executeBillDelete() {
         closeModal('billDeleteModal');
         bdDeleteTarget = null;
         loadBillHistory();
+        try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
     });
 }
 
@@ -7801,7 +8166,7 @@ function printBillDetailReceipt() {
         .order('paid_date',   { ascending: true })
         .order('created_at',  { ascending: true })
     .then(function(r) {
-        var payments = (!r.error && r.data) ? r.data : [];
+        var payments = billPaymentsActiveOnly((!r.error && r.data) ? r.data : []);
         showReceipt(bill, [{ id: bill.id }], payments);
     });
 }
@@ -7827,9 +8192,15 @@ function showBillDetail(b) {
     // Status badge
     var badge = g('bdStatusBadge');
     if (badge) {
-        badge.textContent = dispStatusLabel(b.status) || '—';
-        badge.className   = 'status-badge ' + statusClass(b.status);
+        if (billRecordIsVoid(b)) {
+            badge.textContent = tr('bill.detail.voidBadge');
+            badge.className = 'bill-history-status-void';
+        } else {
+            badge.textContent = dispStatusLabel(b.status) || '—';
+            badge.className = 'status-badge ' + statusClass(b.status);
+        }
     }
+    refreshBillDetailVoidMeta(b);
 
     // Info fields
     bdSet('bdPatient',   b.patient_name || '—');
@@ -7879,12 +8250,13 @@ function showBillDetail(b) {
     g('bdBalance').textContent  = fmtHK(bal);
     g('bdBalance').style.color  = bal > 0 ? 'var(--danger)' : '#16a34a';
 
-    // Outstanding banner + Add Payment button
+    // Outstanding banner + Add Payment button (hidden for voided bills)
+    var voidedBill = billRecordIsVoid(b);
     var banner = g('bdOutstandingBanner');
     var addBtn = g('bdAddPaymentBtn');
-    if (banner) banner.style.display = bal > 0 ? 'block' : 'none';
+    if (banner) banner.style.display = (!voidedBill && bal > 0) ? 'block' : 'none';
     if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(bal);
-    if (addBtn)  addBtn.style.display = bal > 0 ? 'inline-block' : 'none';
+    if (addBtn) addBtn.style.display = (!voidedBill && bal > 0) ? 'inline-block' : 'none';
 
     // Load payment history
     loadBillPayments(b.id);
@@ -7895,11 +8267,76 @@ function showBillDetail(b) {
 // ════════════════════════════════════════════════════════════════
 // PAYMENT HISTORY
 // ════════════════════════════════════════════════════════════════
+function billPaymentIsVoid(p) {
+    return !!(p && p.voided_at);
+}
+
+function billPaymentActiveAmountSum(rows) {
+    return (rows || []).reduce(function(sum, x) {
+        if (billPaymentIsVoid(x)) return sum;
+        return sum + (parseFloat(x.amount) || 0);
+    }, 0);
+}
+
+function billPaymentsActiveOnly(rows) {
+    return (rows || []).filter(function(x) { return !billPaymentIsVoid(x); });
+}
+
+function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
+    var voided = billPaymentIsVoid(p);
+    var row = document.createElement('tr');
+    if (voided) {
+        row.className = 'bill-pay-row--void';
+    } else {
+        row.style.background = rowIndex % 2 === 0 ? '#fff' : '#f8faff';
+    }
+    var statusCell = voided
+        ? '<td style="padding:8px 10px;vertical-align:middle;">' +
+            '<span class="bill-pay-void-badge">' + esc(tr('bill.detail.voidBadge')) + '</span>' +
+            billVoidedMetaHtml(p) +
+          '</td>'
+        : '<td style="padding:8px 10px;color:#cbd5e1;font-size:11px;">—</td>';
+    var amtClass = voided ? 'bill-pay-void-amt' : '';
+    var amtColor = voided ? '' : 'color:#16a34a;';
+    var actionCell = voided
+        ? '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>'
+        : '<td style="padding:8px 10px;text-align:center;">' +
+            '<button class="bp-del-btn" data-id="' + esc(p.id) + '" ' +
+            'title="' + esc(tr('bill.detail.deletePaymentTitle')) + '" ' +
+            'style="background:none;border:none;color:#dc2626;' +
+            'font-size:16px;cursor:pointer;line-height:1;padding:0;">×</button>' +
+          '</td>';
+    var dateTdClass = voided ? ' bill-pay-void-date-col' : '';
+    row.innerHTML =
+        statusCell +
+        '<td class="' + dateTdClass.trim() + '" style="padding:8px 12px;">' +
+            billPaymentDateCellHtml(p, voided) + '</td>' +
+        '<td style="padding:8px 12px;text-align:right;font-weight:700;' + amtColor + '">' +
+            '<span class="' + amtClass + '">' + fmtHK(p.amount) + '</span></td>' +
+        '<td style="padding:8px 12px;">' + esc((typeof dispPayMethod === 'function')
+            ? dispPayMethod(p.method)
+            : (p.method || '—')) + '</td>' +
+        '<td style="padding:8px 12px;color:#888;">' +
+            esc(p.received_by || '—') + '</td>' +
+        '<td style="padding:8px 12px;color:#888;font-size:12px;">' +
+            esc(p.notes || '') + '</td>' +
+        actionCell;
+    if (!voided) {
+        var delBtn = row.querySelector('.bp-del-btn');
+        if (delBtn) {
+            delBtn.addEventListener('click', function() {
+                voidPaymentRecord(p);
+            });
+        }
+    }
+    tbody.appendChild(row);
+}
+
 function loadBillPayments(billId) {
     var tbody = g('bdPaymentHistoryBody');
     if (!tbody) return;
     tbody.innerHTML =
-        '<tr><td colspan="5" style="padding:12px;text-align:center;' +
+        '<tr><td colspan="7" style="padding:12px;text-align:center;' +
         'color:#aaa;font-size:13px;">' + esc(tr('bill.historyLoading')) + '</td></tr>';
 
     SB.from('bill_payments')
@@ -7912,34 +8349,12 @@ function loadBillPayments(billId) {
         var rows = (!r.error && r.data) ? r.data : [];
         if (!rows.length) {
             tbody.innerHTML =
-                '<tr><td colspan="5" style="padding:12px;text-align:center;' +
+                '<tr><td colspan="7" style="padding:12px;text-align:center;' +
                 'color:#aaa;font-size:13px;">' + esc(tr('bill.detail.noPayments')) + '</td></tr>';
             return;
         }
         rows.forEach(function(p, i) {
-            var row = document.createElement('tr');
-            row.style.background = i % 2 === 0 ? '#fff' : '#f8faff';
-            row.innerHTML =
-                '<td style="padding:8px 12px;">' + esc(p.paid_date || '—') + '</td>' +
-                '<td style="padding:8px 12px;text-align:right;font-weight:700;' +
-                    'color:#16a34a;">' + fmtHK(p.amount) + '</td>' +
-                '<td style="padding:8px 12px;">' + esc((typeof dispPayMethod === 'function')
-                    ? dispPayMethod(p.method)
-                    : (p.method || '—')) + '</td>' +
-                '<td style="padding:8px 12px;color:#888;">' +
-                    esc(p.received_by || '—') + '</td>' +
-                '<td style="padding:8px 12px;color:#888;font-size:12px;">' +
-                    esc(p.notes || '') + '</td>' +
-                '<td style="padding:8px 10px;text-align:center;">' +
-                    '<button class="bp-del-btn" data-id="' + esc(p.id) + '" ' +
-                    'title="' + esc(tr('bill.detail.deletePaymentTitle')) + '" ' +
-                    'style="background:none;border:none;color:#dc2626;' +
-                    'font-size:16px;cursor:pointer;line-height:1;padding:0;">×</button>' +
-                '</td>';
-            row.querySelector('.bp-del-btn').addEventListener('click', function() {
-                deletePaymentRecord(p);
-            });
-            tbody.appendChild(row);
+            appendBillPaymentHistoryRow(tbody, p, i);
         });
     });
 }
@@ -8109,26 +8524,40 @@ function confirmAddPayment() {
     });
 }
 
-function deletePaymentRecord(p) {
+function voidPaymentRecord(p) {
+    if (!p || !p.id) return;
+    if (billPaymentIsVoid(p)) return;
+    if (typeof hasAppPermission === 'function' && !hasAppPermission('void_payment')) {
+        alert(tr('bill.alertVoidPaymentDenied'));
+        return;
+    }
     if (!confirm(trRepl('bill.deletePaymentConfirm', {
         AMT: fmt2(p.amount),
         DATE: (p.paid_date || '')
     }))) return;
 
-    SB.from('bill_payments').delete().eq('id', p.id)
-    .then(function(r) {
-        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+    var voidPayload = {
+        voided_at: new Date().toISOString(),
+        voided_by: (typeof currentName !== 'undefined' ? currentName : null)
+    };
 
-        // Recalculate bill totals from remaining payments
+    function applyVoidAndRecalc() {
         return SB.from('bill_payments')
-            .select('amount')
+            .select('amount, voided_at')
             .eq('bill_id', p.bill_id);
+    }
+
+    SB.from('bill_payments').update(voidPayload).eq('id', p.id)
+    .then(function(r) {
+        if (r.error) {
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+            return null;
+        }
+        return applyVoidAndRecalc();
     })
     .then(function(r) {
         if (!r || r.error) return;
-        var newPaid    = (r.data || []).reduce(function(a, x) {
-            return a + (parseFloat(x.amount) || 0);
-        }, 0);
+        var newPaid    = billPaymentActiveAmountSum(r.data || []);
         var billTotal  = parseFloat(bdCurrentBill ? bdCurrentBill.total : 0) || 0;
         var newBalance = Math.max(0, billTotal - newPaid);
         var newStatus  = newBalance <= 0.005 ? 'Paid' : (newPaid > 0 ? 'Partial' : 'Unpaid');
@@ -8825,6 +9254,7 @@ function refreshOpenBillPanelForLang() {
         recalcPendingSubtotal();
     }
     if (typeof loadBillHistory === 'function') loadBillHistory();
+    else if (typeof applyBillHistoryFilter === 'function') applyBillHistoryFilter();
     if (billTypesCache.length && typeof refreshBillPaymentSelectLabels === 'function') {
         refreshBillPaymentSelectLabels();
     } else if (typeof loadBillTypes === 'function') {

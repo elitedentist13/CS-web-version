@@ -40,6 +40,46 @@
             data-i18n="session.dateAdjustClear"></button>
   </div>
 </div>
+<aside id="activePatientDock" class="active-patient-dock" style="display:none;">
+  <div class="active-patient-layout">
+  <div id="activePatientStack" class="active-patient-stack">
+    <div id="activePatientCard0" class="active-patient-card active-patient-card--primary" data-slot="0" draggable="false">
+      <div class="active-patient-card-head">
+        <div class="active-patient-card-title-wrap">
+          <span class="active-patient-badge" aria-hidden="true">👤</span>
+          <div class="active-patient-card-title" data-i18n="activePatient.primaryTitle"></div>
+        </div>
+        <button type="button" class="active-patient-clear-btn" data-act="clear-slot" data-slot="0"
+                data-i18n-aria-label="activePatient.clearPrimaryAria">×</button>
+      </div>
+      <div class="active-patient-line active-patient-line--en" data-field="nameEn">—</div>
+      <div class="active-patient-line active-patient-line--zh" data-field="nameZh">—</div>
+      <div class="active-patient-meta" data-field="no"></div>
+      <div class="active-patient-meta" data-field="phone"></div>
+      <div class="active-patient-hint" data-i18n="activePatient.hintPrimary"></div>
+    </div>
+
+    <div id="activePatientCard1" class="active-patient-card active-patient-card--secondary" data-slot="1" draggable="false">
+      <div class="active-patient-card-head">
+        <div class="active-patient-card-title-wrap">
+          <span class="active-patient-badge" aria-hidden="true">👥</span>
+          <div class="active-patient-card-title" data-i18n="activePatient.secondaryTitle"></div>
+        </div>
+        <button type="button" class="active-patient-clear-btn" data-act="clear-slot" data-slot="1"
+                data-i18n-aria-label="activePatient.clearSecondaryAria">×</button>
+      </div>
+      <div class="active-patient-line active-patient-line--en" data-field="nameEn">—</div>
+      <div class="active-patient-line active-patient-line--zh" data-field="nameZh">—</div>
+      <div class="active-patient-meta" data-field="no"></div>
+      <div class="active-patient-meta" data-field="phone"></div>
+      <div class="active-patient-hint" data-i18n="activePatient.hintSecondary"></div>
+    </div>
+  </div>
+  <button type="button" id="activePatientSwapBtn" class="active-patient-swap-btn"
+          data-i18n-title="activePatient.swapTitle"
+          data-i18n-aria-label="activePatient.swapAria">⇅</button>
+  </div>
+</aside>
 
 <!-- ════════════════════════════════════════════════════════════
      LOGIN OVERLAY
@@ -509,6 +549,26 @@
            data-i18n-placeholder="patient.searchPh">
     <select id="patientDirClinicFilter" class="patient-dir-clinic-select"
             data-i18n-title="common.patientDirFilterTitle"></select>
+  </div>
+
+  <div class="patient-dir-pager">
+    <div id="patientDirPagerInfo" class="patient-dir-pager-info" data-i18n="patient.page.empty"></div>
+    <div class="patient-dir-pager-actions">
+      <label for="patientDirPageSize" class="patient-dir-page-size-label" data-i18n="patient.page.sizeLabel"></label>
+      <select id="patientDirPageSize" class="patient-dir-page-size-select">
+        <option value="50">50</option>
+        <option value="100" selected>100</option>
+        <option value="200">200</option>
+      </select>
+      <button type="button" id="patientDirPrevBtn" class="patient-dir-page-btn" data-i18n="patient.page.prev"></button>
+      <div id="patientDirPageLabel" class="patient-dir-page-label" data-i18n="patient.page.counterDefault"></div>
+      <button type="button" id="patientDirNextBtn" class="patient-dir-page-btn" data-i18n="patient.page.next"></button>
+      <label for="patientDirJumpPageInput" class="patient-dir-jump-label" data-i18n="patient.page.jumpLabel"></label>
+      <input type="number" id="patientDirJumpPageInput" class="patient-dir-jump-input"
+             min="1" step="1" inputmode="numeric">
+      <button type="button" id="patientDirJumpBtn" class="patient-dir-page-btn" data-i18n="patient.page.go"></button>
+      <span id="patientDirJumpHint" class="patient-dir-jump-hint" aria-live="polite"></span>
+    </div>
   </div>
 
   <table>
@@ -3199,6 +3259,10 @@
                 background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
                 font-size:12px;color:#92400e;line-height:1.45;"
          data-i18n="appt.modal.lockNote"></div>
+    <div id="apptScheduleLockActions" style="display:none;margin-bottom:10px;">
+      <button type="button" id="apptScheduleLockToggleBtn" class="appt-lock-toggle-btn"
+              onclick="toggleApptScheduleLockFromModal()"></button>
+    </div>
 
     <!-- ── Patient mode toggle ─────────────────────────── -->
     <div style="display:flex;border:1.5px solid #e5e7eb;border-radius:8px;
@@ -3318,10 +3382,10 @@
              style="width:100%;padding:12px;margin-top:6px;"></button>
     <button 
       id="deleteApptBtn" 
-      class="btn-add" 
+      class="btn-add appt-delete-btn" 
       onclick="deleteAppt()"
       data-i18n="appt.modal.deleteAppt"
-      style="width:100%;padding:12px;margin-top:6px;background:#ef4444;color:white;display:none;"></button>
+      style="width:100%;padding:12px;margin-top:6px;display:none;"></button>
   </div>
 
 </div>

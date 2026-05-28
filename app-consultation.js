@@ -262,6 +262,18 @@ function initConsultation() {
     refreshConFormsToolbarI18n();
     conTreatmentNotesCache = [];
     updateConTnPrintBtnState();
+
+    var activeP = (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient && _patientDetailsPatient.id)
+        ? _patientDetailsPatient
+        : null;
+    if (!activeP && typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
+        activeP = conPatientData;
+    }
+    if (activeP) {
+        setTimeout(function() {
+            selectConPatient(activeP);
+        }, 0);
+    }
 }
 
 function setConBillBtn(enabled) {
@@ -532,6 +544,9 @@ function doConPatientSearchChart() {
 // SELECT PATIENT — populate ALL tabs
 // ════════════════════════════════════════════════════════════════
 function selectConPatient(p) {
+    if (typeof setDirectoryActivePatient === 'function') {
+        setDirectoryActivePatient(p, 'consultation-select');
+    }
     conPatientId      = p.id;
     conPatientData    = p;
     conMedPatientId   = p.id;
@@ -1133,6 +1148,9 @@ function conFormsActiveClinicProfile() {
     if (!rec) {
         var sel = g('appWorkingClinicSelect');
         var selVal = sel ? String(sel.value || '').trim() : '';
+        if (typeof isWorkingClinicAllValue === 'function' && isWorkingClinicAllValue(selVal)) {
+            selVal = '';
+        }
         if (selVal && typeof clinicRecordFromId === 'function') {
             rec = clinicRecordFromId(selVal);
         }
@@ -3640,6 +3658,9 @@ function conResolveActiveClinicRecordForLabels() {
     if (!rec) {
         var sel = g('appWorkingClinicSelect');
         var selVal = sel ? String(sel.value || '').trim() : '';
+        if (typeof isWorkingClinicAllValue === 'function' && isWorkingClinicAllValue(selVal)) {
+            selVal = '';
+        }
         if (selVal && typeof clinicRecordFromId === 'function') {
             rec = clinicRecordFromId(selVal);
         }

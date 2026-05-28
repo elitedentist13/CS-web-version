@@ -80,8 +80,7 @@ function hasAppPermission(key) {
 }
 
 function canAccessConfiguration() {
-    if (String(currentRole || '').toLowerCase() === 'admin') return true;
-    return hasAppPermission('config');
+    return String(currentRole || '').toLowerCase() === 'admin';
 }
 
 function permToastDenied() {
@@ -106,7 +105,9 @@ function applyDashboardPermissionGuards() {
     DASHBOARD_PERM_CARDS.forEach(function (row) {
         var card = g(row.cardId);
         if (!card) return;
-        var allowed = hasAppPermission(row.perm);
+        var allowed = (row.perm === 'config')
+            ? canAccessConfiguration()
+            : hasAppPermission(row.perm);
         card.style.display = allowed ? '' : 'none';
         card.setAttribute('aria-hidden', allowed ? 'false' : 'true');
     });

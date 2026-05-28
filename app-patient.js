@@ -8,6 +8,12 @@ var editPatientLoadedClinicTag = '';
 var selPatientClinicTag = null;
 /** Last fetched patient list (for i18n re-render). */
 var patientListCache = [];
+var PATIENT_DIR_PAGE_SIZE = 100;
+var PATIENT_DIR_PAGE_SIZE_OPTIONS = [50, 100, 200];
+var patientDirPageIndex = 0;
+var patientDirTotalCount = 0;
+var patientDirFetchToken = 0;
+var patientDirSearchTimer = null;
 /** Patient row shown in treatment-history modal (language refresh). */
 var _patientDetailsPatient = null;
 
@@ -176,6 +182,9 @@ function refreshPatientDirI18n() {
     if (patientListCache.length && typeof renderPatients === 'function') {
         renderPatients(patientListCache);
     }
+    if (typeof refreshPatientDirPaginationUI === 'function') {
+        refreshPatientDirPaginationUI(false);
+    }
     var sec = g('patientSection');
     if (sec && typeof applyI18nInRoot === 'function') {
         if (patientListCache.length || sec.style.display !== 'none') {
@@ -219,6 +228,34 @@ function refreshPatientDirI18n() {
     if (detModal && detModal.style.display === 'block' && selPatientId) {
         if (typeof loadTreatments === 'function') loadTreatments(selPatientId);
     }
+}
+
+function setDirectoryActivePatient(p, source) {
+    if (!p || !p.id) return;
+    selPatientId = p.id;
+    _patientDetailsPatient = p;
+    selPatientClinicTag = p[PATIENT_CLINIC_TAG_FIELD] ||
+        (typeof currentClinicCodeForTagging === 'function'
+            ? currentClinicCodeForTagging()
+            : '');
+    if (typeof conPatientId !== 'undefined') conPatientId = p.id;
+    if (typeof conPatientData !== 'undefined') conPatientData = p;
+    updatePatientDirActiveRowHighlight();
+    try {
+        document.dispatchEvent(new CustomEvent('app-active-patient-change', {
+            detail: { patient: p, source: source || 'patient-directory' }
+        }));
+    } catch (_) {}
+}
+
+function updatePatientDirActiveRowHighlight() {
+    var tb = g('patientTableBody');
+    if (!tb) return;
+    var active = selPatientId ? String(selPatientId) : '';
+    tb.querySelectorAll('tr[data-patient-id]').forEach(function(row) {
+        var rid = String(row.getAttribute('data-patient-id') || '');
+        row.classList.toggle('patient-dir-row-active', !!active && rid === active);
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -591,14 +628,75 @@ function submitAddPatient(e) {
 // PATIENT — FETCH + RENDER
 // ════════════════════════════════════════════════════════════════
 function fetchPatients() {
-    var q = SB.from('patients').select('*')
-        .order('patient_no',{ascending:true});
-    q = typeof applyPatientQueryClinicTag === 'function'
-        ? applyPatientQueryClinicTag(q, 'patientDirClinicFilter')
-        : q;
-    q.then(function(r) {
-        if (r.error) { console.error(r.error); return; }
-        renderPatients(r.data||[]);
+    var opts = arguments[0] || {};
+    if (opts.resetPage) patientDirPageIndex = 0;
+    if (patientDirPageIndex < 0) patientDirPageIndex = 0;
+
+    var qText = '';
+    var qEl = g('searchInput');
+    if (qEl) qText = String(qEl.value || '').trim();
+
+    var from = patientDirPageIndex * PATIENT_DIR_PAGE_SIZE;
+    var to = from + PATIENT_DIR_PAGE_SIZE - 1;
+    var token = ++patientDirFetchToken;
+    refreshPatientDirPaginationUI(true);
+
+    function applyDirSearchFilter(builder, q, fallbackCore) {
+        var filter = '';
+        if (fallbackCore && typeof patientSearchOrFilterCore === 'function') {
+            filter = patientSearchOrFilterCore(q);
+        } else if (typeof patientSearchOrFilter === 'function') {
+            filter = patientSearchOrFilter(q);
+        }
+        if (!filter) return builder;
+        return builder.or(filter);
+    }
+
+    function runQuery(useCoreFilterFallback) {
+        var q = SB.from('patients')
+            .select('*', { count: 'exact' })
+            .order('patient_no', { ascending: true });
+        q = typeof applyPatientQueryClinicTag === 'function'
+            ? applyPatientQueryClinicTag(q, 'patientDirClinicFilter')
+            : q;
+        if (qText) q = applyDirSearchFilter(q, qText, useCoreFilterFallback);
+        return q.range(from, to);
+    }
+
+    function onDone(r) {
+        if (token !== patientDirFetchToken) return;
+        if (r.error) {
+            console.error(r.error);
+            patientListCache = [];
+            patientDirTotalCount = 0;
+            renderPatients([]);
+            refreshPatientDirPaginationUI(false);
+            return;
+        }
+        patientListCache = r.data || [];
+        patientDirTotalCount = typeof r.count === 'number'
+            ? r.count
+            : ((patientDirPageIndex * PATIENT_DIR_PAGE_SIZE) + patientListCache.length);
+        if (patientDirPageIndex > 0 && !patientListCache.length && patientDirTotalCount > 0) {
+            patientDirPageIndex = Math.max(0, Math.ceil(patientDirTotalCount / PATIENT_DIR_PAGE_SIZE) - 1);
+            fetchPatients();
+            return;
+        }
+        renderPatients(patientListCache);
+        refreshPatientDirPaginationUI(false);
+    }
+
+    runQuery(false).then(function(r) {
+        if (
+            r.error &&
+            qText &&
+            typeof patientSearchOrFilterCore === 'function' &&
+            String(r.error.message || '').toLowerCase().indexOf('column') >= 0
+        ) {
+            runQuery(true).then(onDone);
+            return;
+        }
+        onDone(r);
     });
 }
 
@@ -644,6 +742,9 @@ function renderPatients(list) {
         }
 
         var tr = document.createElement('tr');
+        tr.setAttribute('data-patient-id', p.id);
+        tr.style.cursor = 'pointer';
+        tr.setAttribute('draggable', 'true');
         tr.innerHTML =
             '<td class="patient-dir-name-cell">' + nameHtml + '</td>' +
             '<td>'+esc(p.phone_number||'--')+'</td>' +
@@ -668,21 +769,153 @@ function renderPatients(list) {
                     '</button>' +
                 '</div>' +
             '</td>';
+        tr.addEventListener('click', function(e) {
+            var tgt = e.target;
+            if (tgt && tgt.closest && tgt.closest('button')) return;
+            setDirectoryActivePatient(p, 'patient-row');
+        });
+        tr.addEventListener('dragstart', function(e) {
+            var payload = typeof serializePatientDragPayload === 'function'
+                ? serializePatientDragPayload(p)
+                : '';
+            if (!payload) return;
+            if (typeof setPatientDragPayloadSession === 'function') {
+                setPatientDragPayloadSession(p);
+            }
+            e.dataTransfer.effectAllowed = 'copyMove';
+            e.dataTransfer.setData('application/x-joyful-patient', payload);
+            e.dataTransfer.setData('text/plain', payload);
+        });
+        tr.addEventListener('dragend', function() {
+            if (typeof clearPatientDragPayloadSession === 'function') {
+                clearPatientDragPayloadSession();
+            }
+        });
         tb.appendChild(tr);
     });
+    updatePatientDirActiveRowHighlight();
     tb.querySelectorAll('.btn-notes').forEach(function(b) {
-        b.addEventListener('click', function(){ viewHistory(b.dataset.id); });
+        b.addEventListener('click', function(e){
+            e.stopPropagation();
+            viewHistory(b.dataset.id);
+        });
     });
     tb.querySelectorAll('.btn-editp').forEach(function(b) {
-        b.addEventListener('click', function(){ openEditPatient(b.dataset.id); });
+        b.addEventListener('click', function(e){
+            e.stopPropagation();
+            openEditPatient(b.dataset.id);
+        });
     });
 }
 
 function filterTable() {
-    var q = (g('searchInput').value||'').toLowerCase();
-    document.querySelectorAll('#patientTableBody tr').forEach(function(r) {
-        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
-    });
+    schedulePatientDirSearch();
+}
+
+function refreshPatientDirPaginationUI(isLoading) {
+    var info = g('patientDirPagerInfo');
+    var prev = g('patientDirPrevBtn');
+    var next = g('patientDirNextBtn');
+    var lbl = g('patientDirPageLabel');
+    var pageSizeSel = g('patientDirPageSize');
+    var jumpInp = g('patientDirJumpPageInput');
+    if (!info || !prev || !next || !lbl) return;
+
+    var total = patientDirTotalCount || 0;
+    var pageCount = Math.max(1, Math.ceil(total / PATIENT_DIR_PAGE_SIZE));
+    var curPage = pageCount ? Math.min(patientDirPageIndex + 1, pageCount) : 1;
+    var from = total ? (patientDirPageIndex * PATIENT_DIR_PAGE_SIZE + 1) : 0;
+    var to = total ? (patientDirPageIndex * PATIENT_DIR_PAGE_SIZE + patientListCache.length) : 0;
+
+    if (isLoading) {
+        info.textContent = patTr('patient.page.loading');
+    } else if (!total) {
+        info.textContent = patTr('patient.page.empty');
+    } else {
+        info.textContent = patTrRepl('patient.page.summary', {
+            FROM: from,
+            TO: to,
+            TOTAL: total
+        });
+    }
+
+    lbl.textContent = patTrRepl('patient.page.counter', { PAGE: curPage, PAGES: pageCount });
+    prev.disabled = !!isLoading || patientDirPageIndex <= 0 || !total;
+    next.disabled = !!isLoading || (patientDirPageIndex + 1) >= pageCount || !total;
+    if (pageSizeSel) pageSizeSel.value = String(PATIENT_DIR_PAGE_SIZE);
+    if (jumpInp) {
+        jumpInp.max = String(pageCount || 1);
+        jumpInp.placeholder = String(curPage);
+    }
+}
+
+function setPatientDirJumpHint(msg) {
+    var el = g('patientDirJumpHint');
+    if (!el) return;
+    el.textContent = msg ? String(msg) : '';
+}
+
+function schedulePatientDirSearch() {
+    clearTimeout(patientDirSearchTimer);
+    patientDirSearchTimer = setTimeout(function() {
+        fetchPatients({ resetPage: true });
+    }, 220);
+}
+
+function patientDirChangePage(delta) {
+    var step = parseInt(delta, 10) || 0;
+    if (!step) return;
+    var target = patientDirPageIndex + step;
+    if (target < 0) target = 0;
+    var max = Math.max(0, Math.ceil((patientDirTotalCount || 0) / PATIENT_DIR_PAGE_SIZE) - 1);
+    if (target > max) target = max;
+    if (target === patientDirPageIndex) return;
+    patientDirPageIndex = target;
+    fetchPatients();
+}
+
+function patientDirApplyPageSize() {
+    var sel = g('patientDirPageSize');
+    if (!sel) return;
+    var n = parseInt(sel.value, 10);
+    if (PATIENT_DIR_PAGE_SIZE_OPTIONS.indexOf(n) < 0) {
+        sel.value = String(PATIENT_DIR_PAGE_SIZE);
+        return;
+    }
+    if (n === PATIENT_DIR_PAGE_SIZE) return;
+    PATIENT_DIR_PAGE_SIZE = n;
+    patientDirPageIndex = 0;
+    setPatientDirJumpHint('');
+    fetchPatients();
+}
+
+function patientDirJumpToPage(rawValue) {
+    var jumpInp = g('patientDirJumpPageInput');
+    var maxPage = Math.max(1, Math.ceil((patientDirTotalCount || 0) / PATIENT_DIR_PAGE_SIZE));
+    var raw = String(rawValue || '').trim();
+    if (!raw) {
+        setPatientDirJumpHint(patTr('patient.page.jumpNeedNumber'));
+        return;
+    }
+    var n = parseInt(raw, 10);
+    if (isNaN(n)) {
+        setPatientDirJumpHint(patTr('patient.page.jumpNeedNumber'));
+        return;
+    }
+    if (n < 1 || n > maxPage) {
+        setPatientDirJumpHint(patTrRepl('patient.page.jumpRange', { MAX: maxPage }));
+        return;
+    }
+    var target = n - 1;
+    setPatientDirJumpHint('');
+    if (target === patientDirPageIndex) return;
+    patientDirPageIndex = target;
+    if (jumpInp) jumpInp.value = '';
+    fetchPatients();
+}
+
+function onPatientDirClinicFilterChange() {
+    fetchPatients({ resetPage: true });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -921,19 +1154,14 @@ function refreshPatientDetailsBulkSection() {
 }
 
 function viewHistory(pid) {
-    selPatientId = pid;
     SB.from('patients').select('*').eq('id',pid).single()
     .then(function(r) {
         if (r.error||!r.data) { alert(patTr('patient.alertCouldNotLoad')); return; }
         var p = r.data;
-        _patientDetailsPatient = p;
-        selPatientClinicTag = p[PATIENT_CLINIC_TAG_FIELD] ||
-            (typeof currentClinicCodeForTagging === 'function'
-                ? currentClinicCodeForTagging()
-                : '');
+        setDirectoryActivePatient(p, 'patient-history');
         refreshPatientDetailsModalHeader(p);
         refreshPatientDetailsBulkSection();
-        loadTreatments(pid);
+        loadTreatments(p.id);
         openModal('patientDetailsModal');
     });
 }

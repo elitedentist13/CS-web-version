@@ -41,6 +41,12 @@
         }, 2500);
     }
 
+    function qlCurrentPatientId() {
+        var pid = (typeof conPatientId !== 'undefined') ? conPatientId : null;
+        if (pid) return pid;
+        return (typeof selPatientId !== 'undefined') ? selPatientId : null;
+    }
+
     // ── state ─────────────────────────────────────────────────
     var _open = false;
 
@@ -100,6 +106,11 @@
             shortcut: 'Ctrl+Shift+4',
             requiresPatient: false,
             handler: function () {
+                var pid = qlCurrentPatientId();
+                if (pid && typeof openConForPatient === 'function') {
+                    openConForPatient(pid);
+                    return;
+                }
                 if (typeof initConsultation === 'function') initConsultation();
             }
         },
@@ -110,13 +121,17 @@
             shortcut: 'Ctrl+Shift+5',
             requiresPatient: true,
             handler: function () {
-                var pid = (typeof conPatientId !== 'undefined') ? conPatientId : null;
+                var pid = qlCurrentPatientId();
                 if (!pid) {
                     qlToast(qlTr('ql.needPatient'));
                     if (typeof initConsultation === 'function') initConsultation();
                     return;
                 }
-                if (typeof showOnly === 'function') showOnly('consultationSection');
+                if (typeof openConForPatient === 'function') {
+                    openConForPatient(pid);
+                } else if (typeof showOnly === 'function') {
+                    showOnly('consultationSection');
+                }
                 setTimeout(function () {
                     if (typeof switchConTab === 'function') switchConTab('treatment');
                     setTimeout(function () {
@@ -144,25 +159,34 @@
             shortcut: 'Ctrl+Shift+6',
             requiresPatient: true,
             handler: function () {
-                var pid = (typeof conPatientId !== 'undefined') ? conPatientId : null;
+                var pid = qlCurrentPatientId();
                 if (!pid) {
                     qlToast(qlTr('ql.needPatient'));
                     if (typeof initConsultation === 'function') initConsultation();
                     return;
                 }
-                if (typeof conBannerOpenBill === 'function') {
-                    conBannerOpenBill();
-                } else if (typeof openBillPanel === 'function' &&
-                           typeof conPatientData !== 'undefined' && conPatientData) {
-                    openBillPanel({
-                        id:           null,
-                        patient_id:   pid,
-                        patient_name: conPatientData.full_name  || '',
-                        patient_no:   conPatientData.patient_no || ''
-                    });
-                } else {
-                    qlToast(qlTr('ql.needPatient'));
+                if (typeof openConForPatient === 'function') {
+                    openConForPatient(pid);
+                } else if (typeof initConsultation === 'function' && !conPatientId) {
+                    initConsultation();
                 }
+                setTimeout(function () {
+                    if (typeof conBannerOpenBill === 'function') {
+                        conBannerOpenBill();
+                        return;
+                    }
+                    if (typeof openBillPanel === 'function' &&
+                               typeof conPatientData !== 'undefined' && conPatientData) {
+                        openBillPanel({
+                            id:           null,
+                            patient_id:   pid,
+                            patient_name: conPatientData.full_name  || '',
+                            patient_no:   conPatientData.patient_no || ''
+                        });
+                    } else {
+                        qlToast(qlTr('ql.needPatient'));
+                    }
+                }, 220);
             }
         }
     ];
@@ -286,7 +310,7 @@
 
     // ── refresh item disabled/enabled states ─────────────────
     function refreshItemStates() {
-        var pid = (typeof conPatientId !== 'undefined') ? conPatientId : null;
+        var pid = qlCurrentPatientId();
         var menu = qlG('qlMenu');
         if (!menu) return;
         QL_ACTIONS.forEach(function (action) {
@@ -335,6 +359,9 @@
     // ── i18n refresh on language change ──────────────────────
     document.addEventListener('app-lang-change', function () {
         refreshLabels();
+    });
+    document.addEventListener('app-active-patient-change', function () {
+        refreshItemStates();
     });
 
     function refreshLabels() {

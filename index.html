@@ -868,6 +868,7 @@
       <aside class="plusappt-sidebar">
         <div id="plusApptClinicBadge" class="plusappt-clinic-badge" aria-live="polite"></div>
         <div id="plusApptMiniCal" class="plusappt-mini-cal" aria-live="polite"></div>
+        <div class="plusappt-mini-hint" data-i18n="appt.plusAppt.transferMiniHint">Tip: Drag appointment row to mini calendar, pick a new date, then drag back to a time slot to transfer.</div>
       </aside>
       <div class="plusappt-main">
         <div id="plusApptTimelineHead" class="plusappt-timeline-head" aria-live="polite"></div>
@@ -929,9 +930,17 @@
                 style="padding:7px 14px;background:#fff;color:var(--primary);
                        border:1.5px solid var(--primary);border-radius:7px;
                        font-size:13px;font-weight:700;cursor:pointer;" data-i18n="appt.calToday"></button>
+        <button id="calMonthMiniBtn" class="cal-month-mini-btn" type="button"
+                title="Mini Calendar" data-i18n-title="appt.cal.miniCalBtnTitle"
+                aria-label="Mini Calendar" data-i18n-aria-label="appt.cal.miniCalBtnTitle"
+                style="display:none;">📅</button>
         <button class="btn-add" id="calAddBtn" data-i18n="appt.addAppt"></button>
       </div>
     </div>
+    <div style="margin:4px 0 10px;padding:7px 10px;border:1px solid #bfdbfe;
+                background:#eff6ff;color:#1d4ed8;border-radius:8px;
+                font-size:12px;font-weight:600;line-height:1.4;"
+         data-i18n="appt.cal.dragMoveHint"></div>
     <div class="cal-doctor-bar" id="calDoctorBar">
       <span class="cal-doctor-bar-label" data-i18n="appt.calShowDoctors"></span>
       <div class="cal-doctor-filter-actions">
@@ -942,6 +951,7 @@
       <div id="calDoctorLegend" class="cal-doctor-legend" aria-live="polite"></div>
       <button type="button" class="cal-doctor-colors-btn" data-i18n-title="appt.calDoctorColoursTitle" onclick="CalDoctorColors.openSettings()" data-i18n="appt.calDoctorColours"></button>
     </div>
+    <div id="calMonthMiniCal" class="cal-month-mini-cal" style="display:none;"></div>
     <div id="calBody"></div>
     <div class="day-panel" id="dayPanel">
       <h4 id="dayPanelTitle">—</h4>

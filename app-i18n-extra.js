@@ -379,6 +379,16 @@
         'appt.plusAppt.transferDragHint': { en: 'Drag this card to target time slot', 'zh-CN': '将此卡拖到目标时段', 'zh-Hant': '將此卡拖到目標時段' },
         'appt.plusAppt.transferFromTo': { en: 'From {FROM} to {TO}', 'zh-CN': '由 {FROM} 转到 {TO}', 'zh-Hant': '由 {FROM} 轉到 {TO}' },
         'appt.plusAppt.transferDoneToast': { en: '{NAME} transferred to {DATE} {TIME}', 'zh-CN': '{NAME} 已转到 {DATE} {TIME}', 'zh-Hant': '{NAME} 已轉到 {DATE} {TIME}' },
+        'appt.plusAppt.transferBulkConfirm': {
+            en: 'Move all {N} appointments from {FROM} to {TO}?',
+            'zh-CN': '将 {FROM} 的全部 {N} 个预约移到 {TO}？',
+            'zh-Hant': '將 {FROM} 的全部 {N} 個預約移到 {TO}？'
+        },
+        'appt.plusAppt.transferMiniHint': {
+            en: 'Tip: Drag appointment row to mini calendar, pick a new date, then drag back to a time slot to transfer.',
+            'zh-CN': '提示：先把预约行拖到左侧小日历，再点目标日期，然后拖回时段完成转期。',
+            'zh-Hant': '提示：先把預約列拖到左側小日曆，再點目標日期，然後拖回時段完成轉期。'
+        },
         'appt.calendarTab': { en: '📅 Calendar', 'zh-CN': '📅 日历', 'zh-Hant': '📅 日曆' },
         'appt.recordsTab': { en: '📁 Appointment Records', 'zh-CN': '📁 预约记录', 'zh-Hant': '📁 預約紀錄' },
         'appt.recallTab': { en: '📞 Recall Patient', 'zh-CN': '📞 召回患者', 'zh-Hant': '📞 召回病人' },
@@ -428,6 +438,11 @@
         'appt.calNone': { en: 'None', 'zh-CN': '无', 'zh-Hant': '無' },
         'appt.calDoctorColours': { en: 'Doctor colours', 'zh-CN': '医生颜色', 'zh-Hant': '醫生顏色' },
         'appt.calDoctorColoursTitle': { en: 'Assign colours to each doctor', 'zh-CN': '为每位医生指定颜色', 'zh-Hant': '為每位醫生指定顏色' },
+        'appt.cal.dragMoveHint': {
+            en: 'Tip: Drag an appointment card to another day/time slot to move it.',
+            'zh-CN': '提示：可将预约卡片拖到其他日期/时段以改期。',
+            'zh-Hant': '提示：可將預約卡片拖到其他日期/時段以改期。'
+        },
         'appt.cal.more': { en: '+{N} more', 'zh-CN': '+{N} 更多', 'zh-Hant': '+{N} 更多' },
         'appt.cal.noApptsDay': { en: 'No appointments', 'zh-CN': '没有预约', 'zh-Hant': '沒有預約' },
         'appt.cal.popupTitle': { en: '📋 Appointment', 'zh-CN': '📋 预约', 'zh-Hant': '📋 預約' },

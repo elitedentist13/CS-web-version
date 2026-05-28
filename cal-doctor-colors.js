@@ -229,6 +229,27 @@ var CalDoctorColors = (function () {
         return out;
     }
 
+    function isKnownDoctorCodeKey(key) {
+        var k = String(key || '').trim();
+        if (!k || k === '__unassigned__') return false;
+        var docs = typeof APP_DOCTORS !== 'undefined' ? APP_DOCTORS : [];
+        for (var i = 0; i < docs.length; i++) {
+            var dc = String(docs[i].doctor_code || '').trim();
+            if (dc && dc === k) return true;
+        }
+        return false;
+    }
+
+    function preferredDoctorKey(keys) {
+        for (var i = 0; i < keys.length; i++) {
+            if (isKnownDoctorCodeKey(keys[i])) return keys[i];
+        }
+        for (var j = 0; j < keys.length; j++) {
+            if (keys[j] !== '__unassigned__') return keys[j];
+        }
+        return '__unassigned__';
+    }
+
     function getSavedColorForKeys(keys) {
         load();
         for (var i = 0; i < keys.length; i++) {
@@ -240,14 +261,7 @@ var CalDoctorColors = (function () {
     /** Key used for saved colours — matches colour panel (doctor code preferred). */
     function resolveDoctorKeyForAppt(a) {
         var keys = possibleKeysForAppt(a);
-        load();
-        for (var i = 0; i < keys.length; i++) {
-            if (colors[keys[i]]) return keys[i];
-        }
-        for (var j = 0; j < keys.length; j++) {
-            if (keys[j] !== '__unassigned__') return keys[j];
-        }
-        return '__unassigned__';
+        return preferredDoctorKey(keys);
     }
 
     function doctorKeyFromAppt(a) {

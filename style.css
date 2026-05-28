@@ -2195,6 +2195,17 @@ tr:hover td { background: #fafcff; }
 .plusappt-mini-cal .plusappt-mc-today:hover {
     background: var(--plusappt-cal-day-hover, #e8f4ff);
 }
+.plusappt-mini-hint {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 1.45;
+    font-weight: 600;
+}
 .plusappt-mc-head {
     display: flex;
     align-items: center;
@@ -7750,6 +7761,35 @@ tr:hover td { background: #fafcff; }
     transition: background .15s, color .15s;
 }
 .gcal-settings-btn:hover { background: #f1f5f9; color: #374151; }
+.cal-month-mini-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    font-size: 16px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+.cal-month-mini-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: #f8fbff;
+}
+.cal-month-mini-cal {
+    width: 220px;
+    margin: 6px 0 10px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.10);
+    padding: 12px;
+}
+.cal-month-mini-cal.open { display: block; }
 .gcal-dr-row {
     display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px;
     margin-bottom: 10px; padding: 8px 10px;
@@ -7768,6 +7808,46 @@ tr:hover td { background: #fafcff; }
     display: none;
 }
 #gcalMiniCal.open { display: block; }
+#gcalMiniCal.gcal-mini-cal--transfer-over {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 3px rgba(239,68,68,.2), 0 0 18px rgba(239,68,68,.35);
+}
+#gcalMiniCal.gcal-mini-cal--transfer-armed {
+    border-color: #dc2626 !important;
+    background: linear-gradient(180deg, #fff5f5 0%, #fff 42%);
+    animation: plusappt-transfer-alert-pulse 2.2s ease-in-out infinite;
+}
+.cal-month-mini-cal.gcal-mini-cal--transfer-over {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 3px rgba(239,68,68,.2), 0 0 18px rgba(239,68,68,.35);
+}
+.cal-month-mini-cal.gcal-mini-cal--transfer-armed {
+    border-color: #dc2626 !important;
+    background: linear-gradient(180deg, #fff5f5 0%, #fff 42%);
+    animation: plusappt-transfer-alert-pulse 2.2s ease-in-out infinite;
+}
+.gcal-month-pill.gcal-month-pill-dragging {
+    opacity: .58;
+}
+.gcal-month-day-move {
+    float: right;
+    font-size: 11px;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    padding: 0 5px;
+    line-height: 1.4;
+    background: #fff;
+    cursor: grab;
+    user-select: none;
+}
+.gcal-month-day-move:hover {
+    border-color: #94a3b8;
+    color: #334155;
+}
+.gcal-month-day-move.is-dragging {
+    opacity: .6;
+}
 
 /* ════════════════════════════════════════════════════════════════
    CONFIG — PRINT SETTINGS TAB

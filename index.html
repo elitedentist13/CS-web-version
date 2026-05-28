@@ -4063,6 +4063,63 @@
 <!-- ════════════════════════════════════════════════════════════
      MODAL — RECEIPT
 ════════════════════════════════════════════════════════════ -->
+<div id="apptImageImportModal" class="modal">
+  <div class="modal-box" style="max-width:780px;">
+    <button class="mclose" id="closeApptImageImportModal" data-i18n-aria-label="common.closeAria">×</button>
+    <h3 style="margin:0 0 10px;">Appointment Image Importer</h3>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:12px;font-weight:700;color:#475569;">Date</label>
+        <input type="date" id="apptImportDate" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:700;color:#475569;">Clinic Tag</label>
+        <input type="text" id="apptImportClinicTag" value="MK" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:700;color:#475569;">Doctor Code</label>
+        <select id="apptImportDoctorCode" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;"></select>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:700;color:#475569;">Doctor Name</label>
+        <input type="text" id="apptImportDoctorName" value="DR. NG PUI CHING" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+      <input type="file" id="apptImportImageFile" accept="image/*">
+      <button type="button" id="apptImportOcrBtn" data-no-click-guard="1" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">OCR detect from image</button>
+      <button type="button" id="apptImportParseBtn" data-no-click-guard="1" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">Normalize lines</button>
+      <button type="button" id="apptImportPreviewBtn" data-no-click-guard="1" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">Preview rows</button>
+      <span id="apptImportStatus" style="font-size:12px;color:#64748b;"></span>
+    </div>
+    <textarea id="apptImportRowsInput" rows="14"
+              style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-family:Consolas,monospace;font-size:12px;"
+              placeholder="Paste OCR text OR pipe lines: start|duration|patient_no|patient_name|remarks"></textarea>
+    <div style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;overflow:auto;max-height:240px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead style="position:sticky;top:0;background:#f8fafc;z-index:1;">
+          <tr>
+            <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;">#</th>
+            <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;">Time</th>
+            <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;">Dur</th>
+            <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;">Patient No</th>
+            <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;">Name</th>
+            <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;">Remarks</th>
+            <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;">Status</th>
+          </tr>
+        </thead>
+        <tbody id="apptImportPreviewBody">
+          <tr><td colspan="7" style="padding:10px;color:#94a3b8;">No preview yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+      <button type="button" id="apptImportCancelBtn" data-no-click-guard="1" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">Cancel</button>
+      <button type="button" id="apptImportRunBtn" data-no-click-guard="1" class="btn-add" style="padding:8px 16px;">Import Appointments</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════════════════════════
      RECALL SEND QUEUE MODAL
 ════════════════════════════════════════════════════════════ -->

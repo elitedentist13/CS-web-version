@@ -51,6 +51,8 @@ var plusApptDragApptId = null;
 var PLUSAPPT_TASK_LS_KEY = 'plusappt_task_state_v1';
 var plusApptTransferState = null;
 var plusApptTransferDragActive = false;
+var apptImportModalBound = false;
+var apptImportPreviewRows = [];
 var PLUSAPPT_CLINIC_THEMES = [
     { bg: '#eff6ff', border: '#3b82f6', sel: '#2563eb', accent: '#1e40af', shadow: 'rgba(37,99,235,0.12)', badge: '#dbeafe' },
     { bg: '#f0fdf4', border: '#22c55e', sel: '#16a34a', accent: '#166534', shadow: 'rgba(34,197,94,0.12)', badge: '#dcfce7' },
@@ -752,6 +754,11 @@ function plusApptNormTime(t) {
     return pad(+p[0] || 0) + ':' + pad(+p[1] || 0);
 }
 
+function plusApptTimeToMin(t) {
+    var p = String(t || '').split(':');
+    return (parseInt(p[0] || '0', 10) * 60) + (parseInt(p[1] || '0', 10) || 0);
+}
+
 function plusApptSlotList() {
     var out = [];
     var h;
@@ -1071,8 +1078,8 @@ function plusApptTransferSnapshot(appt) {
     if (!appt || !appt.id) return null;
     var dur = parseInt(appt.duration || '0', 10);
     if (!dur || dur < 1) {
-        var stM = timeToMin(appt.start_time);
-        var enM = timeToMin(appt.end_time);
+        var stM = plusApptTimeToMin(appt.start_time);
+        var enM = plusApptTimeToMin(appt.end_time);
         dur = (enM > stM) ? (enM - stM) : PLUSAPPT_SLOT_MIN;
     }
     return {
@@ -1353,8 +1360,8 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                 if (!newStart || plusApptNormTime(dragAppt.start_time) === newStart) return;
                 var dur = parseInt(dragAppt.duration || '0', 10);
                 if (!dur || dur < 1) {
-                    var stM = timeToMin(dragAppt.start_time);
-                    var enM = timeToMin(dragAppt.end_time);
+                    var stM = plusApptTimeToMin(dragAppt.start_time);
+                    var enM = plusApptTimeToMin(dragAppt.end_time);
                     dur = (enM > stM) ? (enM - stM) : PLUSAPPT_SLOT_MIN;
                 }
                 var newEnd = addMins(newStart, dur);
@@ -1748,6 +1755,7 @@ function plusApptOpenHistory() {
 function bindPlusApptTabOnce() {
     if (plusApptTabBound) return;
     plusApptTabBound = true;
+    bindApptImportModalOnce();
 
     var addBtn = g('plusApptAddBtn');
     if (addBtn) {
@@ -1798,7 +1806,7 @@ function bindPlusApptTabOnce() {
     var importBtn = g('plusApptImport29Btn');
     if (importBtn) {
         importBtn.addEventListener('click', function() {
-            importApptFromPhoto20260529();
+            openApptImageImportModal();
         });
     }
 
@@ -2072,6 +2080,531 @@ function importApptFromPhoto20260529() {
                 });
             }
 
+            tryInsert(payloads, true, true);
+        });
+    });
+}
+
+function apptImportSetStatus(msg, isErr) {
+    var el = g('apptImportStatus');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.color = isErr ? '#b91c1c' : '#64748b';
+}
+
+function apptImportNormalizePatientNo(v) {
+    var s = String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!s) return '';
+    if (s.indexOf('MK') === 0) return s.slice(2);
+    return s;
+}
+
+function apptImportPatientNoVariants(v) {
+    var base = apptImportNormalizePatientNo(v);
+    if (!base) return [];
+    return [base, 'MK' + base];
+}
+
+function apptImportTo24(hhmm, ampm) {
+    var p = String(hhmm || '').replace('.', ':').split(':');
+    var h = parseInt(p[0], 10);
+    var m = parseInt(p[1] || '0', 10);
+    var ap = String(ampm || '').trim().toUpperCase();
+    if (ap === 'AM' || ap === 'PM') {
+        if (h === 12) h = 0;
+        if (ap === 'PM') h += 12;
+    }
+    if (isNaN(h) || isNaN(m)) return '';
+    return pad(h % 24) + ':' + pad(m % 60);
+}
+
+function apptImportTimeToMin(t) {
+    var p = String(t || '').split(':');
+    return (parseInt(p[0] || '0', 10) * 60) + (parseInt(p[1] || '0', 10) || 0);
+}
+
+function apptImportParseRows(raw, noFallback) {
+    var source = String(raw || '');
+    var lines = source.split(/\r?\n/).map(function(x) { return x.trim(); }).filter(Boolean);
+    var out = [];
+    lines.forEach(function(line) {
+        if (!line) return;
+        if (line.indexOf('|') >= 0) {
+            var c = line.split('|');
+            if (c.length < 4) return;
+            var st = plusApptNormTime(c[0]);
+            var du = parseInt(c[1] || '0', 10);
+            if (!st) return;
+            if (!du || du < 1) du = PLUSAPPT_SLOT_MIN;
+            out.push({
+                start: st,
+                dur: du,
+                patient_no: String(c[2] || '').trim() || '000000',
+                patient_name: String(c[3] || '').trim() || 'NEW PATIENT',
+                remarks: String(c.slice(4).join('|') || '').trim()
+            });
+            return;
+        }
+
+        var l = line
+            .replace(/[–—－]/g, '-')
+            .replace(/[：]/g, ':')
+            .replace(/\t+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        var tm = l.match(/(\d{1,2}[:.]\d{2})\s*(AM|PM)?\s*[-~]\s*(\d{1,2}[:.]\d{2})\s*(AM|PM)?/i);
+        var t1 = l.match(/(^|\s)(\d{1,2}[:.]\d{2})\s*(AM|PM)\b/i);
+        if (!tm && !t1) return;
+        var s = tm
+            ? apptImportTo24(tm[1], tm[2] || tm[4] || '')
+            : apptImportTo24(t1[2], t1[3]);
+        var e = tm
+            ? apptImportTo24(tm[3], tm[4] || tm[2] || '')
+            : '';
+        if (!s) return;
+        var dur = PLUSAPPT_SLOT_MIN;
+        if (s && e) {
+            var dm = apptImportTimeToMin(e) - apptImportTimeToMin(s);
+            if (dm > 0) dur = dm;
+        }
+
+        var rest = tm
+            ? (l.slice(0, tm.index) + ' ' + l.slice(tm.index + tm[0].length)).trim()
+            : l.replace(t1[0], ' ').trim();
+        var dm2 = rest.match(/(\d{1,3})\s*(MIN|MINS|HR|HRS|H)\b/i);
+        if (dm2) {
+            var dv = parseInt(dm2[1], 10);
+            var unit = String(dm2[2] || '').toUpperCase();
+            if (unit.indexOf('H') === 0) dv *= 60;
+            if (dv > 0) dur = dv;
+            rest = (rest.slice(0, dm2.index) + ' ' + rest.slice(dm2.index + dm2[0].length)).trim();
+        }
+
+        var noM = rest.match(/\b([A-Z]{0,3}\d{4,})\b/i);
+        var no = noM ? String(noM[1] || '').toUpperCase() : '000000';
+        var after = noM ? rest.slice(rest.indexOf(noM[0]) + noM[0].length).trim() : rest;
+        var remarkStart = after.search(/\b(OK\)|WST\)|OK\/|INV|RCT|MOS|CONS|FIT|OPG|C\/U|P\+F)\b/i);
+        var nm = '';
+        var rm = '';
+        if (remarkStart >= 0) {
+            nm = after.slice(0, remarkStart).trim();
+            rm = after.slice(remarkStart).trim();
+        } else {
+            var seg = after.split(/\s{2,}/).filter(Boolean);
+            if (seg.length >= 2) {
+                nm = seg[0];
+                rm = seg.slice(1).join(' ');
+            } else {
+                nm = after;
+            }
+        }
+        if (!nm) nm = (no === '000000' ? 'NEW PATIENT' : '');
+        out.push({
+            start: s,
+            dur: dur,
+            patient_no: no || '000000',
+            patient_name: nm || 'NEW PATIENT',
+            remarks: rm || ''
+        });
+    });
+    if (!noFallback && !out.length && source) {
+        var norm = source
+            .replace(/[–—－]/g, '-')
+            .replace(/[：]/g, ':')
+            .replace(/\t+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        var rgx = /(\d{1,2}[:.]\d{2}\s*(?:AM|PM)?\s*[-~]\s*\d{1,2}[:.]\d{2}\s*(?:AM|PM)?)([\s\S]*?)(?=(\d{1,2}[:.]\d{2}\s*(?:AM|PM)?\s*[-~]\s*\d{1,2}[:.]\d{2}\s*(?:AM|PM)?)|$)/gi;
+        var m;
+        while ((m = rgx.exec(norm))) {
+            var line2 = (m[1] + ' ' + (m[2] || '')).trim();
+            var partial = apptImportParseRows(line2.split(/\s{2,}/).join('\n'), true);
+            if (partial && partial.length) out = out.concat(partial);
+            if (out.length > 500) break;
+        }
+    }
+    return out;
+}
+
+function apptImportRowsToPipe(rows) {
+    return (rows || []).map(function(r) {
+        return [r.start, r.dur, r.patient_no || '', r.patient_name || '', r.remarks || ''].join('|');
+    }).join('\n');
+}
+
+function apptImportPreviewStatus(row) {
+    if (!row || !row.start) return 'invalid';
+    var no = String(row.patient_no || '').trim().toUpperCase();
+    if (!no || no === '000000') return 'walk-in';
+    if (no.indexOf('MK') === 0) return 'prefixed';
+    return 'patient-no';
+}
+
+function apptImportRenderPreview(rows) {
+    var tb = g('apptImportPreviewBody');
+    if (!tb) return;
+    apptImportPreviewRows = (rows || []).map(function(r) {
+        return {
+            start: plusApptNormTime(r.start),
+            dur: parseInt(r.dur || '0', 10) || PLUSAPPT_SLOT_MIN,
+            patient_no: String(r.patient_no || '').trim(),
+            patient_name: String(r.patient_name || '').trim(),
+            remarks: String(r.remarks || '').trim()
+        };
+    });
+    if (!rows || !rows.length) {
+        tb.innerHTML = '<tr><td colspan="7" style="padding:10px;color:#94a3b8;">No preview rows detected.</td></tr>';
+        return;
+    }
+    var html = '';
+    apptImportPreviewRows.forEach(function(r, i) {
+        var st = apptImportPreviewStatus(r);
+        var stColor = '#64748b';
+        if (st === 'walk-in') stColor = '#b45309';
+        else if (st === 'invalid') stColor = '#b91c1c';
+        else if (st === 'prefixed') stColor = '#166534';
+        html += '<tr>' +
+            '<td style="padding:6px;border-bottom:1px solid #f1f5f9;">' + (i + 1) + '</td>' +
+            '<td style="padding:6px;border-bottom:1px solid #f1f5f9;"><input data-prev-row="' + i + '" data-prev-col="start" value="' + esc(r.start || '') + '" style="width:82px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;"></td>' +
+            '<td style="padding:6px;border-bottom:1px solid #f1f5f9;"><input data-prev-row="' + i + '" data-prev-col="dur" value="' + esc(String(r.dur || '')) + '" style="width:54px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;"></td>' +
+            '<td style="padding:6px;border-bottom:1px solid #f1f5f9;"><input data-prev-row="' + i + '" data-prev-col="patient_no" value="' + esc(r.patient_no || '') + '" style="width:94px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;"></td>' +
+            '<td style="padding:6px;border-bottom:1px solid #f1f5f9;"><input data-prev-row="' + i + '" data-prev-col="patient_name" value="' + esc(r.patient_name || '') + '" style="width:170px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;"></td>' +
+            '<td style="padding:6px;border-bottom:1px solid #f1f5f9;"><input data-prev-row="' + i + '" data-prev-col="remarks" value="' + esc(r.remarks || '') + '" style="width:260px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;"></td>' +
+            '<td style="padding:6px;border-bottom:1px solid #f1f5f9;color:' + stColor + ';font-weight:700;">' + esc(st) + '</td>' +
+        '</tr>';
+    });
+    tb.innerHTML = html;
+    tb.querySelectorAll('input[data-prev-row]').forEach(function(inp) {
+        inp.addEventListener('input', function() {
+            var i = parseInt(inp.getAttribute('data-prev-row') || '-1', 10);
+            var col = inp.getAttribute('data-prev-col') || '';
+            if (i < 0 || i >= apptImportPreviewRows.length || !col) return;
+            var val = String(inp.value || '');
+            if (col === 'dur') {
+                var dv = parseInt(val || '0', 10);
+                apptImportPreviewRows[i][col] = (dv > 0 ? dv : PLUSAPPT_SLOT_MIN);
+                inp.value = String(apptImportPreviewRows[i][col]);
+            } else if (col === 'start') {
+                apptImportPreviewRows[i][col] = plusApptNormTime(val);
+                inp.value = apptImportPreviewRows[i][col];
+            } else {
+                apptImportPreviewRows[i][col] = val.trim();
+            }
+            var st = apptImportPreviewStatus(apptImportPreviewRows[i]);
+            var td = inp.closest('tr') ? inp.closest('tr').lastElementChild : null;
+            if (td) {
+                td.textContent = st;
+                td.style.color = st === 'walk-in' ? '#b45309' : (st === 'invalid' ? '#b91c1c' : (st === 'prefixed' ? '#166534' : '#64748b'));
+            }
+        });
+    });
+}
+
+function apptImportRowsForInsert() {
+    if (apptImportPreviewRows && apptImportPreviewRows.length) {
+        return apptImportPreviewRows
+            .map(function(r) {
+                return {
+                    start: plusApptNormTime(r.start),
+                    dur: parseInt(r.dur || '0', 10) || PLUSAPPT_SLOT_MIN,
+                    patient_no: String(r.patient_no || '').trim() || '000000',
+                    patient_name: String(r.patient_name || '').trim() || 'NEW PATIENT',
+                    remarks: String(r.remarks || '').trim()
+                };
+            })
+            .filter(function(r) { return !!r.start; });
+    }
+    var ta = g('apptImportRowsInput');
+    return apptImportParseRows(ta ? ta.value : '');
+}
+
+function apptImportPopulateDoctorSelect() {
+    var sel = g('apptImportDoctorCode');
+    if (!sel) return;
+    var html = '<option value="">(auto / none)</option>';
+    (APP_DOCTORS || []).forEach(function(d) {
+        var code = String(d.doctor_code || '').trim();
+        if (!code) return;
+        var nm = (typeof doctorDisplayName === 'function')
+            ? doctorDisplayName(d)
+            : (d.display_name || d.english_name || d.chinese_name || code);
+        html += '<option value="' + esc(code) + '">' + esc(code + ' - ' + nm) + '</option>';
+    });
+    sel.innerHTML = html;
+}
+
+function openApptImageImportModal() {
+    bindApptImportModalOnce();
+    apptImportPopulateDoctorSelect();
+    var d = g('apptImportDate');
+    if (d && !d.value) d.value = plusApptDate || todayISO();
+    var ct = g('apptImportClinicTag');
+    if (ct && !ct.value) {
+        ct.value = (typeof currentClinicCodeForTagging === 'function')
+            ? (currentClinicCodeForTagging() || 'MK')
+            : 'MK';
+    }
+    var ds = g('apptImportDoctorCode');
+    if (ds && plusApptActiveDoctorCode) ds.value = plusApptActiveDoctorCode;
+    apptImportPreviewRows = [];
+    apptImportSetStatus('');
+    apptImportRenderPreview([]);
+    openModal('apptImageImportModal');
+}
+
+function bindApptImportModalOnce() {
+    if (apptImportModalBound) return;
+    apptImportModalBound = true;
+    var closeBtn = g('closeApptImageImportModal');
+    var cancelBtn = g('apptImportCancelBtn');
+    if (closeBtn) closeBtn.addEventListener('click', function() { closeModal('apptImageImportModal'); });
+    if (cancelBtn) cancelBtn.addEventListener('click', function() { closeModal('apptImageImportModal'); });
+
+    var parseBtn = g('apptImportParseBtn');
+    if (parseBtn) {
+        parseBtn.addEventListener('click', function() {
+            try {
+                apptImportSetStatus('Normalizing lines...');
+                var ta = g('apptImportRowsInput');
+                if (!ta) return;
+                var rows = apptImportParseRows(ta.value || '');
+                if (!rows.length) {
+                    apptImportSetStatus('No valid appointment rows detected.', true);
+                    apptImportRenderPreview([]);
+                    return;
+                }
+                ta.value = apptImportRowsToPipe(rows);
+                apptImportRenderPreview(rows);
+                apptImportSetStatus('Normalized ' + rows.length + ' rows.');
+            } catch (e) {
+                apptImportSetStatus('Normalize failed: ' + (e && e.message ? e.message : String(e)), true);
+                apptImportRenderPreview([]);
+            }
+        });
+    }
+
+    var previewBtn = g('apptImportPreviewBtn');
+    if (previewBtn) {
+        previewBtn.addEventListener('click', function() {
+            try {
+                var ta = g('apptImportRowsInput');
+                var rows = apptImportParseRows(ta ? ta.value : '');
+                apptImportRenderPreview(rows);
+                apptImportSetStatus(
+                    rows.length ? ('Preview ready: ' + rows.length + ' rows.') : 'No valid rows to preview.',
+                    !rows.length
+                );
+            } catch (e) {
+                apptImportSetStatus('Preview failed: ' + (e && e.message ? e.message : String(e)), true);
+                apptImportRenderPreview([]);
+            }
+        });
+    }
+
+    var ocrBtn = g('apptImportOcrBtn');
+    if (ocrBtn) {
+        ocrBtn.addEventListener('click', function() {
+            var fi = g('apptImportImageFile');
+            var ta = g('apptImportRowsInput');
+            if (!fi || !fi.files || !fi.files[0] || !ta) {
+                apptImportSetStatus('Please choose an image file first.', true);
+                return;
+            }
+            var file = fi.files[0];
+            ocrBtn.disabled = true;
+            apptImportSetStatus('OCR running... this may take up to 30-60 seconds.');
+            function runOcr() {
+                if (!window.Tesseract || !window.Tesseract.recognize) {
+                    ocrBtn.disabled = false;
+                    apptImportSetStatus('OCR library unavailable.', true);
+                    return;
+                }
+                window.Tesseract.recognize(file, 'eng')
+                    .then(function(res) {
+                        ta.value = ((res && res.data && res.data.text) ? res.data.text : '').trim();
+                        apptImportRenderPreview([]);
+                        apptImportSetStatus('OCR done. Click "Normalize lines" next.');
+                    })
+                    .catch(function(e) {
+                        apptImportSetStatus('OCR failed: ' + (e && e.message ? e.message : String(e)), true);
+                    })
+                    .finally(function() {
+                        ocrBtn.disabled = false;
+                    });
+            }
+            if (window.Tesseract && window.Tesseract.recognize) {
+                runOcr();
+                return;
+            }
+            var sc = document.createElement('script');
+            sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+            sc.onload = runOcr;
+            sc.onerror = function() {
+                ocrBtn.disabled = false;
+                apptImportSetStatus('Could not load OCR library.', true);
+            };
+            document.head.appendChild(sc);
+        });
+    }
+
+    var runBtn = g('apptImportRunBtn');
+    if (runBtn) {
+        runBtn.addEventListener('click', function() {
+            var dateIso = String((g('apptImportDate') && g('apptImportDate').value) || '').trim();
+            var clinicTag = String((g('apptImportClinicTag') && g('apptImportClinicTag').value) || '').trim().toUpperCase();
+            var doctorCode = String((g('apptImportDoctorCode') && g('apptImportDoctorCode').value) || '').trim();
+            var doctorName = String((g('apptImportDoctorName') && g('apptImportDoctorName').value) || '').trim();
+            var rows = apptImportRowsForInsert();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+                apptImportSetStatus('Invalid date format.', true);
+                return;
+            }
+            if (!rows.length) {
+                apptImportSetStatus('No valid rows to import.', true);
+                return;
+            }
+            apptImportSetStatus('Importing ' + rows.length + ' rows...');
+            runBtn.disabled = true;
+            importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCode, rows, function(msg, err) {
+                runBtn.disabled = false;
+                apptImportSetStatus(msg, !!err);
+                if (!err) closeModal('apptImageImportModal');
+            });
+        });
+    }
+}
+
+function importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCodeOverride, rows, done) {
+    var nos = (rows || [])
+        .map(function(r) { return String(r.patient_no || '').trim(); })
+        .filter(function(no) { return no && no !== '000000'; });
+    var uniqNos = Array.from(new Set(nos));
+
+    var docCode = String(doctorCodeOverride || '').trim();
+    if (!docCode && APP_DOCTORS && APP_DOCTORS.length && doctorName) {
+        var hit = APP_DOCTORS.find(function(d) {
+            var dn = String((d.display_name || d.english_name || d.chinese_name || '')).toUpperCase();
+            return dn.indexOf(String(doctorName || '').toUpperCase()) >= 0;
+        });
+        if (hit) docCode = String(hit.doctor_code || '').trim();
+    }
+
+    var queryNos = [];
+    uniqNos.forEach(function(no) {
+        apptImportPatientNoVariants(no).forEach(function(x) {
+            if (queryNos.indexOf(x) < 0) queryNos.push(x);
+        });
+    });
+
+    function finish(msg, err) {
+        if (done) done(msg, err);
+    }
+
+    var q = SB.from('patients').select('id,patient_no,full_name,chinese_name,phone_number');
+    if (clinicTag && typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined') q = q.eq(PATIENT_CLINIC_TAG_FIELD, clinicTag);
+    if (queryNos.length) q = q.in('patient_no', queryNos);
+    q.then(function(pr) {
+        var pMap = {};
+        var pNorm = {};
+        (pr && pr.data ? pr.data : []).forEach(function(p) {
+            var noRaw = String(p.patient_no || '').trim();
+            pMap[noRaw] = p;
+            var nk = apptImportNormalizePatientNo(noRaw);
+            if (nk && !pNorm[nk]) pNorm[nk] = p;
+        });
+
+        SB.from('appointments').select('id,start_time,patient_no,patient_name').eq('date', dateIso).then(function(er) {
+            var ex = {};
+            (er && er.data ? er.data : []).forEach(function(a) {
+                var key = [plusApptNormTime(a.start_time), String(a.patient_no || '').trim(), String(a.patient_name || '').trim().toUpperCase()].join('|');
+                ex[key] = true;
+            });
+            var missing = [];
+            var skipped = 0;
+            var payloads = [];
+            (rows || []).forEach(function(r) {
+                var no = String(r.patient_no || '').trim();
+                var isWalkin = !no || no === '000000';
+                var p = null;
+                if (!isWalkin) {
+                    var vars = apptImportPatientNoVariants(no);
+                    for (var i = 0; i < vars.length; i++) {
+                        if (pMap[vars[i]]) { p = pMap[vars[i]]; break; }
+                    }
+                    if (!p) p = pNorm[apptImportNormalizePatientNo(no)] || null;
+                }
+                if (!isWalkin && !p) {
+                    missing.push(no);
+                    return;
+                }
+                var st = plusApptNormTime(r.start);
+                if (!st) return;
+                var du = parseInt(r.dur || '0', 10);
+                if (!du || du < 1) du = PLUSAPPT_SLOT_MIN;
+                var name = p ? (p.full_name || r.patient_name || '') : (r.patient_name || 'NEW PATIENT');
+                var pno = p ? (p.patient_no || no) : null;
+                var key = [st, String(pno || '').trim(), String(name || '').trim().toUpperCase()].join('|');
+                if (ex[key]) { skipped++; return; }
+                ex[key] = true;
+                var item = {
+                    date: dateIso,
+                    start_time: st,
+                    end_time: addMins(st, du),
+                    duration: du,
+                    patient_id: p ? p.id : null,
+                    patient_no: pno,
+                    patient_name: name || null,
+                    patient_chinese_name: p ? (p.chinese_name || null) : null,
+                    phone: p ? (p.phone_number || null) : null,
+                    remarks: r.remarks || null,
+                    doctor_name: doctorName || null,
+                    bill_status: 'Scheduled'
+                };
+                if (docCode) item.doctor_code = docCode;
+                if (clinicTag) item.clinic_tag = clinicTag;
+                payloads.push(item);
+            });
+
+            if (!payloads.length) {
+                finish('No new rows inserted. Skipped: ' + skipped +
+                    (missing.length ? (' | Missing: ' + Array.from(new Set(missing)).join(', ')) : ''), false);
+                return;
+            }
+
+            function tryInsert(list, allowDoctorFallback, allowClinicFallback) {
+                SB.from('appointments').insert(list).then(function(res) {
+                    if (!res.error) {
+                        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+                        if (typeof loadToday === 'function') loadToday();
+                        if (typeof loadQueue === 'function') loadQueue();
+                        if (typeof loadApptRecords === 'function') loadApptRecords();
+                        finish('Inserted: ' + list.length + ' | Skipped: ' + skipped +
+                            (missing.length ? (' | Missing: ' + Array.from(new Set(missing)).join(', ')) : ''), false);
+                        return;
+                    }
+                    var msg = String(res.error.message || '');
+                    if (allowDoctorFallback && (msg.indexOf('doctor_code') >= 0 || msg.indexOf('doctor_name') >= 0)) {
+                        var noDoctor = list.map(function(x) {
+                            var y = Object.assign({}, x);
+                            delete y.doctor_code;
+                            delete y.doctor_name;
+                            return y;
+                        });
+                        tryInsert(noDoctor, false, allowClinicFallback);
+                        return;
+                    }
+                    if (allowClinicFallback && msg.indexOf('clinic_tag') >= 0) {
+                        var noClinic = list.map(function(x) {
+                            var y = Object.assign({}, x);
+                            delete y.clinic_tag;
+                            return y;
+                        });
+                        tryInsert(noClinic, allowDoctorFallback, false);
+                        return;
+                    }
+                    finish('Import failed: ' + msg, true);
+                });
+            }
             tryInsert(payloads, true, true);
         });
     });

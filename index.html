@@ -756,6 +756,12 @@
         </strong>
         <div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;" data-i18n="appt.queueHint"></div>
       </div>
+      <div class="queue-toolbar-actions">
+        <button type="button" id="queueRefreshBtn" class="queue-refresh-btn"
+                data-i18n="appt.queue.refresh"></button>
+        <span id="queueUpdatedAt" class="queue-refresh-meta"
+              data-i18n="appt.queue.updatedNever"></span>
+      </div>
     </div>
     <div id="queueDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
     <div class="tbl-wrap queue-wrap">
@@ -846,6 +852,12 @@
       </div>
       <div class="plusappt-header-actions">
         <span id="plusApptDateLabel" class="plusappt-date-label"></span>
+        <button type="button" id="plusApptImport29Btn"
+                style="background:#fff;color:#334155;border:1px solid #cbd5e1;
+                       padding:7px 12px;border-radius:8px;font-size:12px;
+                       font-weight:700;cursor:pointer;">
+          Import Photo List
+        </button>
         <button type="button" id="plusApptAddBtn" class="btn-add plusappt-add-btn" disabled
                 data-i18n="appt.plusAppt.addBtn"></button>
       </div>

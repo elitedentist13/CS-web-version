@@ -48,6 +48,9 @@ var plusApptAllActiveDoctorCode = '';
 var PLUSAPPT_DOCTOR_ALL = '__all__';
 var PLUSAPPT_SLOT_MIN = 15;
 var plusApptDragApptId = null;
+var PLUSAPPT_TASK_LS_KEY = 'plusappt_task_state_v1';
+var plusApptTransferState = null;
+var plusApptTransferDragActive = false;
 var PLUSAPPT_CLINIC_THEMES = [
     { bg: '#eff6ff', border: '#3b82f6', sel: '#2563eb', accent: '#1e40af', shadow: 'rgba(37,99,235,0.12)', badge: '#dbeafe' },
     { bg: '#f0fdf4', border: '#22c55e', sel: '#16a34a', accent: '#166534', shadow: 'rgba(34,197,94,0.12)', badge: '#dcfce7' },
@@ -66,6 +69,8 @@ var _queueRemarksEditAppt = null;
 /** Raw remarks before edit (preserve staff author tag when doctor saves). */
 var queueRemarksEditPriorRaw = null;
 var queueRemarksModalBound = false;
+var queueRefreshBtnBound = false;
+var queueLastRefreshAt = null;
 
 /** When true, appointment date must be today or later (records tab: new visit from a past row). */
 var arBookingMinDateToday = false;
@@ -301,9 +306,48 @@ function initAppt() {
     var qb = g('queueBody');
     if (qb) bindQueueReorderHandlers(qb);
     bindQueueRemarksModalOnce();
+    bindQueueRefreshBtnOnce();
     initApptRemarksRichEditors();
     bindPlusApptTabOnce();
     switchApptTab('queue');
+}
+
+function queueRefreshTimeText(ts) {
+    if (!ts) return tr('appt.queue.updatedNever');
+    var d = new Date(ts);
+    var t = d.toLocaleTimeString(apptDateLocale(), { hour: '2-digit', minute: '2-digit' });
+    return trRepl('appt.queue.updatedAt', { T: t });
+}
+
+function setQueueRefreshBusy(busy) {
+    var btn = g('queueRefreshBtn');
+    if (!btn) return;
+    btn.disabled = !!busy;
+}
+
+function setQueueRefreshMeta(opts) {
+    opts = opts || {};
+    if (opts.loading) {
+        setQueueRefreshBusy(true);
+        var metaLoading = g('queueUpdatedAt');
+        if (metaLoading) metaLoading.textContent = tr('common.loadingEllipsis');
+        return;
+    }
+    setQueueRefreshBusy(false);
+    if (opts.stampNow) queueLastRefreshAt = Date.now();
+    var meta = g('queueUpdatedAt');
+    if (meta) meta.textContent = queueRefreshTimeText(queueLastRefreshAt);
+}
+
+function bindQueueRefreshBtnOnce() {
+    if (queueRefreshBtnBound) return;
+    var btn = g('queueRefreshBtn');
+    if (!btn) return;
+    queueRefreshBtnBound = true;
+    btn.addEventListener('click', function() {
+        loadQueue();
+    });
+    setQueueRefreshMeta({ stampNow: false });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -842,6 +886,288 @@ function plusApptFilterAppts(rows, doctorCode) {
     return list;
 }
 
+function plusApptTaskMapRead() {
+    try {
+        var raw = localStorage.getItem(PLUSAPPT_TASK_LS_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function plusApptTaskMapWrite(map) {
+    try { localStorage.setItem(PLUSAPPT_TASK_LS_KEY, JSON.stringify(map || {})); } catch (e) {}
+}
+
+function plusApptNormLabState(v) {
+    var s = String(v || '').toLowerCase();
+    if (s === 'back') return 'back';
+    if (s === 'na' || s === 'n/a') return 'na';
+    return 'pending';
+}
+
+function plusApptNormRecallState(v) {
+    var s = String(v || '').toLowerCase();
+    if (s === 'success' || s === 'cant' || s === 'whatsapp' || s === 'voice') return s;
+    return '';
+}
+
+function plusApptTaskState(appt) {
+    if (!appt || !appt.id) return { lab: 'pending', recall: '' };
+    var map = plusApptTaskMapRead();
+    var row = map[String(appt.id)] || {};
+    var lab = plusApptNormLabState(
+        appt._plusLabState || appt.lab_case_status || row.lab || 'pending'
+    );
+    var recall = plusApptNormRecallState(
+        appt._plusRecallState || appt.recall_followup_status || row.recall || ''
+    );
+    return { lab: lab, recall: recall };
+}
+
+function plusApptApplyTaskStateToList(list) {
+    if (!list || !list.length) return;
+    var map = plusApptTaskMapRead();
+    list.forEach(function(appt) {
+        if (!appt || !appt.id) return;
+        var row = map[String(appt.id)] || {};
+        appt._plusLabState = plusApptNormLabState(appt._plusLabState || appt.lab_case_status || row.lab || 'pending');
+        appt._plusRecallState = plusApptNormRecallState(appt._plusRecallState || appt.recall_followup_status || row.recall || '');
+    });
+}
+
+function plusApptTaskBadgeHtml(kind, value) {
+    var txt = '';
+    var cls = 'plusappt-task-badge';
+    if (kind === 'lab') {
+        cls += (value === 'back') ? ' is-back' : (value === 'na' ? ' is-na' : ' is-pending');
+        txt = value === 'back'
+            ? tr('appt.plusAppt.taskLabBack')
+            : (value === 'na' ? tr('appt.plusAppt.taskLabNA') : tr('appt.plusAppt.taskLabPending'));
+    } else {
+        cls += value ? (' is-' + value) : ' is-empty';
+        if (value === 'success') txt = tr('appt.plusAppt.taskRecallSuccess');
+        else if (value === 'cant') txt = tr('appt.plusAppt.taskRecallCant');
+        else if (value === 'whatsapp') txt = tr('appt.plusAppt.taskRecallWhatsapp');
+        else if (value === 'voice') txt = tr('appt.plusAppt.taskRecallVoice');
+        else txt = tr('appt.plusAppt.taskRecallNone');
+    }
+    return '<span class="' + cls + '">' + esc(txt) + '</span>';
+}
+
+function plusApptTaskControlsHtml(appt, state) {
+    if (!appt || !appt.id) return '';
+    var id = esc(appt.id);
+    return (
+        '<div class="plusappt-task-wrap">' +
+            '<div class="plusappt-task-row">' +
+                '<span class="plusappt-task-label">' + esc(tr('appt.plusAppt.taskLab')) + '</span>' +
+                plusApptTaskBadgeHtml('lab', state.lab) +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="lab" data-task-value="pending">⏳</button>' +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="lab" data-task-value="back">✅</button>' +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="lab" data-task-value="na">N/A</button>' +
+            '</div>' +
+            '<div class="plusappt-task-row">' +
+                '<span class="plusappt-task-label">' + esc(tr('appt.plusAppt.taskRecall')) + '</span>' +
+                plusApptTaskBadgeHtml('recall', state.recall) +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="success">✅</button>' +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="cant">🚫</button>' +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="whatsapp">💬</button>' +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="voice">📞</button>' +
+            '</div>' +
+        '</div>'
+    );
+}
+
+function plusApptSetTaskState(apptId, kind, value) {
+    var id = String(apptId || '').trim();
+    if (!id) return;
+    var map = plusApptTaskMapRead();
+    var row = map[id] || {};
+    if (kind === 'lab') row.lab = plusApptNormLabState(value);
+    if (kind === 'recall') row.recall = plusApptNormRecallState(value);
+    if ((row.lab === 'pending' || !row.lab) && !row.recall) delete map[id];
+    else map[id] = row;
+    plusApptTaskMapWrite(map);
+
+    plusApptDayAppts.forEach(function(a) {
+        if (!a || String(a.id) !== id) return;
+        if (kind === 'lab') a._plusLabState = plusApptNormLabState(value);
+        if (kind === 'recall') a._plusRecallState = plusApptNormRecallState(value);
+    });
+}
+
+function apptTaskSummaryHtml(appt) {
+    if (!appt || !appt.id) return '';
+    var st = plusApptTaskState(appt);
+    var labTxt = tr('appt.plusAppt.taskLab') + ': ' +
+        (st.lab === 'back'
+            ? tr('appt.plusAppt.taskLabBack')
+            : (st.lab === 'na' ? tr('appt.plusAppt.taskLabNA') : tr('appt.plusAppt.taskLabPending')));
+    var recallTxt = tr('appt.plusAppt.taskRecall') + ': ';
+    if (st.recall === 'success') recallTxt += tr('appt.plusAppt.taskRecallSuccess');
+    else if (st.recall === 'cant') recallTxt += tr('appt.plusAppt.taskRecallCant');
+    else if (st.recall === 'whatsapp') recallTxt += tr('appt.plusAppt.taskRecallWhatsapp');
+    else if (st.recall === 'voice') recallTxt += tr('appt.plusAppt.taskRecallVoice');
+    else recallTxt += tr('appt.plusAppt.taskRecallNone');
+
+    return (
+        '<div class="appt-task-summary">' +
+            '<button type="button" class="appt-task-pill appt-task-pill-btn ' + (st.lab === 'back' ? 'is-back' : (st.lab === 'na' ? 'is-na' : 'is-pending')) + '" ' +
+                'data-task-cycle="1" data-appt-id="' + esc(appt.id) + '" data-task-kind="lab" ' +
+                'title="' + esc(tr('appt.plusAppt.taskLab')) + '">' +
+                esc(labTxt) +
+            '</button>' +
+            '<button type="button" class="appt-task-pill appt-task-pill-btn ' + (st.recall ? ('is-' + st.recall) : 'is-empty') + '" ' +
+                'data-task-cycle="1" data-appt-id="' + esc(appt.id) + '" data-task-kind="recall" ' +
+                'title="' + esc(tr('appt.plusAppt.taskRecall')) + '">' +
+                esc(recallTxt) +
+            '</button>' +
+        '</div>'
+    );
+}
+
+function plusApptNextLabState(cur) {
+    var s = plusApptNormLabState(cur);
+    if (s === 'pending') return 'back';
+    if (s === 'back') return 'na';
+    return 'pending';
+}
+
+function plusApptNextRecallState(cur) {
+    var s = plusApptNormRecallState(cur);
+    if (!s) return 'whatsapp';
+    if (s === 'whatsapp') return 'voice';
+    if (s === 'voice') return 'cant';
+    if (s === 'cant') return 'success';
+    return '';
+}
+
+function apptTaskCycleFromSummary(apptId, kind) {
+    var id = String(apptId || '').trim();
+    if (!id) return;
+    var ap = null;
+    if (todayAppts && todayAppts.length) {
+        ap = todayAppts.find(function(a) { return a && String(a.id) === id; }) || ap;
+    }
+    if (!ap && plusApptDayAppts && plusApptDayAppts.length) {
+        ap = plusApptDayAppts.find(function(a) { return a && String(a.id) === id; }) || ap;
+    }
+    var st = plusApptTaskState(ap || { id: id });
+    var next = '';
+    if (kind === 'lab') next = plusApptNextLabState(st.lab);
+    if (kind === 'recall') next = plusApptNextRecallState(st.recall);
+    if (!next) next = '';
+    plusApptSetTaskState(id, kind, next);
+
+    if (typeof loadToday === 'function') loadToday();
+    if (typeof loadQueue === 'function') loadQueue();
+    if (plusApptDate === todayISO() && typeof renderPlusApptSchedule === 'function') {
+        renderPlusApptSchedule();
+    }
+}
+
+function plusApptTransferSnapshot(appt) {
+    if (!appt || !appt.id) return null;
+    var dur = parseInt(appt.duration || '0', 10);
+    if (!dur || dur < 1) {
+        var stM = timeToMin(appt.start_time);
+        var enM = timeToMin(appt.end_time);
+        dur = (enM > stM) ? (enM - stM) : PLUSAPPT_SLOT_MIN;
+    }
+    return {
+        apptId: appt.id,
+        fromDate: plusApptDate || todayISO(),
+        patientName: appt.patient_name || '',
+        patientChineseName: appt.patient_chinese_name || '',
+        startTime: plusApptNormTime(appt.start_time),
+        duration: dur,
+        doctorCode: appt.doctor_code || ''
+    };
+}
+
+function plusApptTransferPatientName(s) {
+    if (!s) return '';
+    var cn = String(s.patientChineseName || '').trim();
+    var en = String(s.patientName || '').trim();
+    if (cn && en) return cn + ' · ' + en;
+    return cn || en || ('#' + String(s.apptId || ''));
+}
+
+function plusApptTransferChipHtml() {
+    if (!plusApptTransferState || !plusApptTransferState.apptId) return '';
+    var s = plusApptTransferState;
+    var fromTxt = typeof fmtDateLong === 'function' ? fmtDateLong(s.fromDate) : s.fromDate;
+    var toTxt = typeof fmtDateLong === 'function' ? fmtDateLong(plusApptDate) : plusApptDate;
+    return (
+        '<div class="plusappt-transfer-alert">' +
+            '<div class="plusappt-transfer-alert-title">' + esc(tr('appt.plusAppt.transferArmed')) + '</div>' +
+            '<button type="button" id="plusApptTransferChip" class="plusappt-transfer-chip" draggable="true">' +
+                '<span class="plusappt-transfer-chip-name">' + esc(plusApptTransferPatientName(s)) + '</span>' +
+                '<span class="plusappt-transfer-chip-meta">' +
+                    esc(trRepl('appt.plusAppt.transferFromTo', { FROM: fromTxt, TO: toTxt })) +
+                '</span>' +
+                '<span class="plusappt-transfer-chip-hint">' + esc(tr('appt.plusAppt.transferDragHint')) + '</span>' +
+            '</button>' +
+            '<button type="button" id="plusApptTransferCancelBtn" class="plusappt-transfer-cancel">×</button>' +
+        '</div>'
+    );
+}
+
+function plusApptBindTransferChip() {
+    var chip = g('plusApptTransferChip');
+    if (chip) {
+        chip.addEventListener('dragstart', function(ev) {
+            if (!plusApptTransferState || !plusApptTransferState.apptId) {
+                ev.preventDefault();
+                return;
+            }
+            plusApptTransferDragActive = true;
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('text/plain', String(plusApptTransferState.apptId));
+            chip.classList.add('is-dragging');
+        });
+        chip.addEventListener('dragend', function() {
+            plusApptTransferDragActive = false;
+            chip.classList.remove('is-dragging');
+        });
+    }
+    var cancel = g('plusApptTransferCancelBtn');
+    if (cancel) {
+        cancel.addEventListener('click', function() {
+            plusApptTransferState = null;
+            plusApptTransferDragActive = false;
+            renderPlusApptMiniCal();
+        });
+    }
+}
+
+function plusApptBindMiniCalTransferDrop(host) {
+    if (!host || host.dataset.transferDropBound === '1') return;
+    host.dataset.transferDropBound = '1';
+    host.addEventListener('dragover', function(ev) {
+        if (!plusApptDragApptId) return;
+        var dragAppt = plusApptDayAppts.find(function(x) { return String(x.id) === String(plusApptDragApptId); });
+        if (!dragAppt || isApptScheduleLocked(dragAppt)) return;
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'move';
+        host.classList.add('plusappt-mini-cal--transfer-over');
+    });
+    host.addEventListener('dragleave', function() {
+        host.classList.remove('plusappt-mini-cal--transfer-over');
+    });
+    host.addEventListener('drop', function(ev) {
+        host.classList.remove('plusappt-mini-cal--transfer-over');
+        if (!plusApptDragApptId) return;
+        ev.preventDefault();
+        var dragAppt = plusApptDayAppts.find(function(x) { return String(x.id) === String(plusApptDragApptId); });
+        if (!dragAppt || isApptScheduleLocked(dragAppt)) return;
+        plusApptTransferState = plusApptTransferSnapshot(dragAppt);
+        plusApptTransferDragActive = false;
+        renderPlusApptMiniCal();
+    });
+}
+
 function fillPlusApptScheduleTbody(tb, doctorCode) {
     if (!tb) return;
     var slots = plusApptSlotList();
@@ -870,6 +1196,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var timeHtml = plusApptTimeCellHtml(slot);
         var nameHtml = '—';
         var remHtml = '—';
+        var taskHtml = '';
         var durHtml = '—';
         var locked = false;
         if (a) {
@@ -887,6 +1214,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                 'data-lock-id="' + esc(a.id) + '" title="' +
                 esc(locked ? tr('appt.cal.lockUnlockTitle') : tr('appt.cal.lockPinTitle')) + '">' +
                 (locked ? '🔒' : '🔓') + '</button>';
+            taskHtml = plusApptTaskControlsHtml(a, plusApptTaskState(a));
             if (appts.length > 1) {
                 nameHtml += ' <span style="font-size:11px;color:#64748b;">(' +
                     esc(trRepl('appt.plusAppt.moreAtSlot', { N: String(appts.length) })) +
@@ -901,7 +1229,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         row.innerHTML =
             '<td class="plusappt-time-cell">' + timeShow + '</td>' +
             '<td>' + nameHtml + '</td>' +
-            '<td style="font-size:12px;color:#64748b;">' + remHtml + '</td>' +
+            '<td style="font-size:12px;color:#64748b;">' + remHtml + taskHtml + '</td>' +
             '<td style="text-align:center;">' + durHtml + '</td>';
 
         if (plusApptIsAllDoctorsMode()) {
@@ -939,6 +1267,12 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             }
         });
         row.addEventListener('dragover', function(ev) {
+            if (plusApptTransferDragActive && plusApptTransferState && plusApptTransferState.apptId) {
+                ev.preventDefault();
+                ev.dataTransfer.dropEffect = 'move';
+                row.classList.add('plusappt-row-drop-anchor');
+                return;
+            }
             if (plusApptDragApptId) {
                 var dragAppt = plusApptDayAppts.find(function(x) { return String(x.id) === String(plusApptDragApptId); });
                 if (!dragAppt || isApptScheduleLocked(dragAppt)) return;
@@ -970,6 +1304,45 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             row.classList.remove('plusappt-row-selected');
         });
         row.addEventListener('drop', function(ev) {
+            if (plusApptTransferDragActive && plusApptTransferState && plusApptTransferState.apptId) {
+                row.classList.remove('plusappt-row-drop-anchor');
+                ev.preventDefault();
+                var snap = plusApptTransferState;
+                var newStartX = slot;
+                if (!newStartX) return;
+                var durX = parseInt(snap.duration || '0', 10);
+                if (!durX || durX < 1) durX = PLUSAPPT_SLOT_MIN;
+                var newEndX = addMins(newStartX, durX);
+                var payload = {
+                    date: plusApptDate || todayISO(),
+                    start_time: newStartX,
+                    end_time: newEndX,
+                    duration: durX
+                };
+                if (colDr) payload.doctor_code = colDr;
+                SB.from('appointments')
+                    .update(payload)
+                    .eq('id', snap.apptId)
+                .then(function(r) {
+                    if (r.error) {
+                        alert(trRepl('appt.cal.couldReschedule', { MSG: r.error.message }));
+                        return;
+                    }
+                    plusApptTransferState = null;
+                    plusApptTransferDragActive = false;
+                    renderPlusApptMiniCal();
+                    apptToast(trRepl('appt.plusAppt.transferDoneToast', {
+                        NAME: plusApptTransferPatientName(snap),
+                        DATE: (typeof fmtDateLong === 'function' ? fmtDateLong(payload.date) : payload.date),
+                        TIME: fmt12(newStartX)
+                    }));
+                    if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+                    if (typeof loadToday === 'function') loadToday();
+                    if (typeof loadQueue === 'function') loadQueue();
+                    if (typeof loadApptRecords === 'function') loadApptRecords();
+                });
+                return;
+            }
             if (plusApptDragApptId) {
                 row.classList.remove('plusappt-row-drop-anchor');
                 ev.preventDefault();
@@ -1037,6 +1410,21 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                 if (!ok) return;
                 if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
             });
+        });
+    });
+    tb.querySelectorAll('.plusappt-task-btn').forEach(function(btn) {
+        btn.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        });
+        btn.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            var aid = btn.getAttribute('data-appt-id');
+            var kind = btn.getAttribute('data-task-kind');
+            var val = btn.getAttribute('data-task-value');
+            if (!aid || !kind) return;
+            plusApptSetTaskState(aid, kind, val);
+            renderPlusApptSchedule();
         });
     });
 }
@@ -1107,6 +1495,7 @@ function renderPlusApptSchedule() {
 function renderPlusApptMiniCal() {
     var host = g('plusApptMiniCal');
     if (!host) return;
+    host.classList.toggle('plusappt-mini-cal--transfer-armed', !!(plusApptTransferState && plusApptTransferState.apptId));
     var y = plusApptMiniCalMonth.getFullYear();
     var mo = plusApptMiniCalMonth.getMonth();
     var first = new Date(y, mo, 1);
@@ -1142,8 +1531,11 @@ function renderPlusApptMiniCal() {
     }
     html += '</div>' +
         '<button type="button" class="plusappt-mc-today" data-act="today">' +
-        esc(tr('appt.calToday')) + '</button>';
+        esc(tr('appt.calToday')) + '</button>' +
+        plusApptTransferChipHtml();
     host.innerHTML = html;
+    plusApptBindMiniCalTransferDrop(host);
+    plusApptBindTransferChip();
 
     host.querySelectorAll('[data-iso]').forEach(function(btn) {
         btn.addEventListener('click', function() {
@@ -1213,6 +1605,7 @@ function loadPlusApptDay() {
         }
         var finish = function(rows) {
             plusApptDayAppts = rows || [];
+            plusApptApplyTaskStateToList(plusApptDayAppts);
             renderPlusApptSchedule();
             plusApptRestoreDoctorSelection();
         };
@@ -1402,6 +1795,12 @@ function bindPlusApptTabOnce() {
             }, 90);
         });
     }
+    var importBtn = g('plusApptImport29Btn');
+    if (importBtn) {
+        importBtn.addEventListener('click', function() {
+            importApptFromPhoto20260529();
+        });
+    }
 
     var psIn = g('plusApptPsInput');
     if (psIn) {
@@ -1476,6 +1875,205 @@ function bindPlusApptTabOnce() {
     Object.keys(scMap).forEach(function(id) {
         var btn = g(id);
         if (btn) btn.addEventListener('click', scMap[id]);
+    });
+}
+
+function importApptFromPhoto20260529() {
+    var dateIso = '2026-05-28';
+    var dateInput = prompt('Target appointment date (YYYY-MM-DD):', dateIso);
+    if (dateInput === null) return;
+    dateIso = String(dateInput || '').trim() || dateIso;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+        alert('Invalid date format. Use YYYY-MM-DD.');
+        return;
+    }
+    var clinicTag = 'MK';
+    var doctorName = 'DR. NG PUI CHING';
+    var rows = [
+        { start: '10:45', dur: 30, patient_no: '006433', patient_name: 'CHENG SI YUN', remarks: 'OK) FA *LIV 1/5' },
+        { start: '11:15', dur: 60, patient_no: '006519', patient_name: 'YANG CHI LAAM JEANNIE', remarks: 'OK) DEBOND ... *LIV 1/5' },
+        { start: '12:15', dur: 15, patient_no: '001523', patient_name: 'CHAN KIT WA', remarks: 'OK) INV#4 *LIV 30/4 13/5 ALI' },
+        { start: '12:30', dur: 30, patient_no: '000000', patient_name: 'NEW PATIENT', remarks: 'OK) C/U +FILLING ...' },
+        { start: '14:30', dur: 60, patient_no: '006710', patient_name: 'YIP PUI GEE', remarks: 'OK) RCT OB, NEXT HOLD12% ...' },
+        { start: '15:30', dur: 30, patient_no: '006539', patient_name: 'TAM KIT LAM', remarks: 'OK) FIT CR *LIV 28/5' },
+        { start: '16:00', dur: 30, patient_no: '006756', patient_name: 'CHUNG HOK YING', remarks: 'OK) (PL) INV SCAN+PHOTO...' },
+        { start: '16:30', dur: 15, patient_no: '001465', patient_name: 'JAVED AQIB', remarks: 'WST) FA *LIV 1/5' },
+        { start: '17:00', dur: 45, patient_no: '000000', patient_name: 'NEW PATIENT', remarks: 'OK) MOS 96670735 ...' },
+        { start: '17:45', dur: 45, patient_no: '000000', patient_name: 'NEW PATIENT', remarks: 'OK) CONS COOL...' },
+        { start: '18:30', dur: 30, patient_no: '006753', patient_name: 'LIANG CHUN HO', remarks: 'OK/TKO) FIRST SCAN+PHOTO...' },
+        { start: '18:30', dur: 15, patient_no: '006755', patient_name: 'LIANG CHING HEI', remarks: 'OK/TKO) OPG+CEPH...' },
+        { start: '19:00', dur: 15, patient_no: '006681', patient_name: 'HO KWAN YAU', remarks: 'OK) 月SEPARATER*1' },
+        { start: '19:15', dur: 15, patient_no: '000000', patient_name: 'NEW PATIENT', remarks: 'OK) 名醫洗牙卡...' },
+        { start: '19:30', dur: 45, patient_no: '006746', patient_name: 'CHUNG YUK CHU', remarks: 'OK) PC+F' },
+        { start: '21:00', dur: 30, patient_no: '006283', patient_name: 'TSUI KA YAN', remarks: '15:30 ...RCT POST *LIV 7/5' }
+    ];
+
+    if (!confirm('Import appointments from photo into ' + dateIso + ' ?')) return;
+
+    var nos = rows
+        .map(function(r) { return String(r.patient_no || '').trim(); })
+        .filter(function(no) { return no && no !== '000000'; });
+    var uniqNos = Array.from(new Set(nos));
+
+    function normalizePatientNo(v) {
+        var s = String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!s) return '';
+        if (s.indexOf('MK') === 0) return s.slice(2);
+        return s;
+    }
+
+    function patientNoVariants(v) {
+        var raw = String(v || '').trim();
+        if (!raw) return [];
+        var base = normalizePatientNo(raw);
+        if (!base) return [];
+        return [base, 'MK' + base];
+    }
+
+    var docCode = '';
+    if (APP_DOCTORS && APP_DOCTORS.length) {
+        var hit = APP_DOCTORS.find(function(d) {
+            var dn = String((d.display_name || d.english_name || d.chinese_name || '')).toUpperCase();
+            return dn.indexOf('NG PUI CHING') >= 0;
+        });
+        if (hit) docCode = String(hit.doctor_code || '').trim();
+    }
+
+    function patientQueryDone(done) {
+        var queryNos = [];
+        uniqNos.forEach(function(no) {
+            patientNoVariants(no).forEach(function(x) {
+                if (queryNos.indexOf(x) < 0) queryNos.push(x);
+            });
+        });
+        var q = SB.from('patients').select('id,patient_no,full_name,chinese_name,phone_number');
+        if (clinicTag && typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined') {
+            q = q.eq(PATIENT_CLINIC_TAG_FIELD, clinicTag);
+        }
+        q = q.in('patient_no', queryNos);
+        q.then(function(r) {
+            done((r && r.data) ? r.data : []);
+        });
+    }
+
+    function existingQueryDone(done) {
+        var q = SB.from('appointments').select('id,start_time,patient_no,patient_name').eq('date', dateIso);
+        q.then(function(r) {
+            done((r && r.data) ? r.data : []);
+        });
+    }
+
+    patientQueryDone(function(patRows) {
+        var pMap = {};
+        var pNormMap = {};
+        (patRows || []).forEach(function(p) {
+            var noRaw = String(p.patient_no || '').trim();
+            pMap[noRaw] = p;
+            var nk = normalizePatientNo(noRaw);
+            if (nk && !pNormMap[nk]) pNormMap[nk] = p;
+        });
+        existingQueryDone(function(existing) {
+            var ex = {};
+            (existing || []).forEach(function(a) {
+                var key = [
+                    plusApptNormTime(a.start_time),
+                    String(a.patient_no || '').trim(),
+                    String(a.patient_name || '').trim().toUpperCase()
+                ].join('|');
+                ex[key] = true;
+            });
+
+            var missingNos = [];
+            var payloads = [];
+            var skipped = 0;
+            rows.forEach(function(r) {
+                var no = String(r.patient_no || '').trim();
+                var isWalkin = !no || no === '000000';
+                var p = null;
+                if (!isWalkin) {
+                    var vars = patientNoVariants(no);
+                    for (var vi = 0; vi < vars.length; vi++) {
+                        if (pMap[vars[vi]]) { p = pMap[vars[vi]]; break; }
+                    }
+                    if (!p) p = pNormMap[normalizePatientNo(no)] || null;
+                }
+                if (!isWalkin && !p) {
+                    missingNos.push(no);
+                    return;
+                }
+                var start = plusApptNormTime(r.start);
+                var dur = parseInt(r.dur || '0', 10);
+                if (!dur || dur < 1) dur = PLUSAPPT_SLOT_MIN;
+                var name = p ? (p.full_name || r.patient_name || '') : (r.patient_name || 'NEW PATIENT');
+                var key = [start, (p ? (p.patient_no || no) : ''), String(name || '').trim().toUpperCase()].join('|');
+                if (ex[key]) {
+                    skipped++;
+                    return;
+                }
+                ex[key] = true;
+                var item = {
+                    date: dateIso,
+                    start_time: start,
+                    end_time: addMins(start, dur),
+                    duration: dur,
+                    patient_id: p ? p.id : null,
+                    patient_no: p ? (p.patient_no || no) : null,
+                    patient_name: name || null,
+                    patient_chinese_name: p ? (p.chinese_name || null) : null,
+                    phone: p ? (p.phone_number || null) : null,
+                    remarks: r.remarks || null,
+                    doctor_name: doctorName,
+                    bill_status: 'Scheduled'
+                };
+                if (docCode) item.doctor_code = docCode;
+                if (clinicTag) item.clinic_tag = clinicTag;
+                payloads.push(item);
+            });
+
+            if (!payloads.length) {
+                alert('Import finished. No new rows inserted.\nSkipped existing: ' + skipped +
+                    (missingNos.length ? ('\nMissing patient_no: ' + Array.from(new Set(missingNos)).join(', ')) : ''));
+                return;
+            }
+
+            function tryInsert(list, allowFallbackDoctor, allowFallbackClinic) {
+                SB.from('appointments').insert(list).then(function(res) {
+                    if (!res.error) {
+                        alert('Import finished.\nInserted: ' + list.length +
+                            '\nSkipped existing: ' + skipped +
+                            (missingNos.length ? ('\nMissing patient_no: ' + Array.from(new Set(missingNos)).join(', ')) : ''));
+                        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+                        if (typeof loadToday === 'function') loadToday();
+                        if (typeof loadQueue === 'function') loadQueue();
+                        if (typeof loadApptRecords === 'function') loadApptRecords();
+                        return;
+                    }
+                    var msg = String(res.error.message || '');
+                    if (allowFallbackDoctor && (msg.indexOf('doctor_code') >= 0 || msg.indexOf('doctor_name') >= 0)) {
+                        var noDoctor = list.map(function(x) {
+                            var y = Object.assign({}, x);
+                            delete y.doctor_code;
+                            delete y.doctor_name;
+                            return y;
+                        });
+                        tryInsert(noDoctor, false, allowFallbackClinic);
+                        return;
+                    }
+                    if (allowFallbackClinic && msg.indexOf('clinic_tag') >= 0) {
+                        var noClinic = list.map(function(x) {
+                            var y = Object.assign({}, x);
+                            delete y.clinic_tag;
+                            return y;
+                        });
+                        tryInsert(noClinic, allowFallbackDoctor, false);
+                        return;
+                    }
+                    alert('Import failed: ' + msg);
+                });
+            }
+
+            tryInsert(payloads, true, true);
+        });
     });
 }
 
@@ -2444,6 +3042,7 @@ function refreshApptHeaderI18n() {
             : (currentRole || '-');
     }
     if (typeof syncApptTodayDateLabels === 'function') syncApptTodayDateLabels();
+    if (typeof setQueueRefreshMeta === 'function') setQueueRefreshMeta({ stampNow: false });
 }
 
 function statusClass(s) {
@@ -4202,6 +4801,7 @@ function loadToday() {
             return;
         }
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
+            plusApptApplyTaskStateToList(rows);
             todayAppts = rows;
             var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                 ? CalDoctorColors.filterAppts(rows) : rows;
@@ -4307,6 +4907,7 @@ function buildTodayRow(tb, a) {
         '<td>' + esc(a.treatment_items || '-') + '</td>' +
         '<td style="font-size:12px;color:#888;">' +
             formatRemarksForDisplay(a.remarks, { empty: '-' }) +
+            apptTaskSummaryHtml(a) +
         '</td>' +
         '<td style="text-align:center;">' +
             esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') +
@@ -4363,6 +4964,19 @@ function buildTodayRow(tb, a) {
             checkInPatient(a);
         });
     }
+    row.querySelectorAll('.appt-task-pill-btn[data-task-cycle="1"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var aid = btn.getAttribute('data-appt-id');
+            var kind = btn.getAttribute('data-task-kind');
+            if (!aid || !kind) return;
+            apptTaskCycleFromSummary(aid, kind);
+        });
+        btn.addEventListener('dblclick', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -4769,6 +5383,7 @@ function openQueueRemarksEditor(q) {
 // ════════════════════════════════════════════════════════════════
 function loadQueue() {
     var tb = g('queueBody');
+    setQueueRefreshMeta({ loading: true });
     tb.innerHTML =
         '<tr><td colspan="8" style="text-align:center;' +
         'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
@@ -4794,10 +5409,12 @@ function loadQueue() {
             var qc = g('queueCount');
             if (qc) qc.textContent = trRepl('appt.queue.count', { N: '0' });
             doStrip([]);
+            setQueueRefreshMeta({ stampNow: true });
             return;
         }
         var qc = g('queueCount');
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
+            plusApptApplyTaskStateToList(rows);
             var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                 ? CalDoctorColors.filterAppts(rows) : rows;
             if (qc) qc.textContent = trRepl('appt.queue.count', { N: String(visible.length) });
@@ -4815,6 +5432,7 @@ function loadQueue() {
                 });
             }
             doStrip(rows);
+            setQueueRefreshMeta({ stampNow: true });
         });
     });
 }
@@ -4871,6 +5489,7 @@ function buildQueueRow(tb, q, seqNo) {
                     : '<div class="queue-remarks-snippet queue-remarks-empty">' +
                       esc(tr('appt.queue.noRemarks')) +
                       '</div>') +
+                apptTaskSummaryHtml(q) +
                 '<button type="button" class="queue-remarks-pencil" ' +
                 'id="qrm-pencil-' + uid + '" ' +
                 'title="' + esc(tr('appt.queue.editRemarksTitle')) + '" aria-label="' + esc(tr('appt.queue.editRemarksAria')) + '">' +
@@ -4958,6 +5577,19 @@ function buildQueueRow(tb, q, seqNo) {
         e.stopPropagation();
         drop.classList.remove('open');
         setTimeout(function() { openBillPanel(q); }, 60);
+    });
+    row.querySelectorAll('.appt-task-pill-btn[data-task-cycle="1"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var aid = btn.getAttribute('data-appt-id');
+            var kind = btn.getAttribute('data-task-kind');
+            if (!aid || !kind) return;
+            apptTaskCycleFromSummary(aid, kind);
+        });
+        btn.addEventListener('dblclick', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        });
     });
 
     g('act-notes-' + uid).addEventListener('click', function(e) {
@@ -9649,4 +10281,7 @@ document.addEventListener('app-lang-change', function () {
         GCAL.refreshGcalPanelsI18n();
     }
     if (typeof refreshApptHeaderI18n === 'function') refreshApptHeaderI18n();
+    if (typeof renderPlusApptMiniCal === 'function' && g('plusApptMiniCal')) {
+        renderPlusApptMiniCal();
+    }
 });

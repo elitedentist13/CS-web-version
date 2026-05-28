@@ -86,6 +86,46 @@ function appTrRepl(key, pairs) {
     }
     return s;
 }
+var uiClickGuardBound = false;
+var UI_CLICK_GUARD_MS = 650;
+
+/**
+ * Prevent accidental double-clicks from triggering duplicate render/data actions.
+ * Opt out per element with data-no-click-guard="1".
+ */
+function bindUiClickGuardOnce() {
+    if (uiClickGuardBound) return;
+    uiClickGuardBound = true;
+
+    function targetBtn(ev) {
+        var t = ev && ev.target;
+        if (!t || !t.closest) return null;
+        return t.closest('button,[data-click-guard="1"]');
+    }
+
+    document.addEventListener('click', function(ev) {
+        var btn = targetBtn(ev);
+        if (!btn) return;
+        if (btn.getAttribute('data-no-click-guard') === '1') return;
+        if (btn.disabled) return;
+        var now = Date.now();
+        var prev = parseInt(btn.getAttribute('data-last-click-ms') || '0', 10) || 0;
+        if (now - prev < UI_CLICK_GUARD_MS) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+        btn.setAttribute('data-last-click-ms', String(now));
+    }, true);
+
+    document.addEventListener('dblclick', function(ev) {
+        var btn = targetBtn(ev);
+        if (!btn) return;
+        if (btn.getAttribute('data-no-click-guard') === '1') return;
+        ev.preventDefault();
+        ev.stopPropagation();
+    }, true);
+}
 function pad(n) { return String(n).padStart(2, '0'); }
 
 function serializePatientDragPayload(p) {
@@ -1919,6 +1959,7 @@ function doLogin() {
 document.addEventListener('DOMContentLoaded', function() {
     appWorkingDateOverride = readWorkingDateOverrideFromStore();
     syncAppLocaleFromUiLang();
+    bindUiClickGuardOnce();
 
     showLogin();
     bindActivePatientCardOnce();

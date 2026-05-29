@@ -906,38 +906,6 @@ function escapePostgrestIlike(q) {
         .replace(/,/g, '');
 }
 
-function patientSearchNoFilterParts(q) {
-    var raw = String(q || '').trim();
-    if (!raw) return [];
-    var compact = raw.replace(/[\s#\-]/g, '').toUpperCase();
-    var digits = compact.replace(/\D/g, '');
-    if (digits.length < 3) return [];
-    var normalized = digits.replace(/^0+/, '');
-    if (!normalized) normalized = '0';
-    var out = [];
-    var seen = {};
-    function addLike(v) {
-        v = String(v || '').trim();
-        if (!v || seen[v]) return;
-        seen[v] = true;
-        out.push('patient_no.ilike.%' + escapePostgrestIlike(v) + '%');
-    }
-    addLike(digits);
-    addLike(normalized);
-    if (normalized.length <= 6) {
-        var pad6 = ('000000' + normalized).slice(-6);
-        addLike(pad6);
-        addLike('MK' + pad6);
-        addLike('MK' + normalized);
-        addLike('#MK' + pad6);
-        addLike('#MK' + normalized);
-    } else {
-        addLike('MK' + normalized);
-        addLike('#MK' + normalized);
-    }
-    return out;
-}
-
 function patientSearchDobFilterParts(q) {
     var parts = [];
     var raw = String(q || '').trim();
@@ -987,8 +955,8 @@ function patientSearchOrFilter(q) {
     if (digits.length >= 4 && digits !== raw) {
         parts.push('phone_number.ilike.%' + escapePostgrestIlike(digits) + '%');
         parts.push('mobile_phone.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('patient_no.ilike.%' + escapePostgrestIlike(digits) + '%');
     }
-    patientSearchNoFilterParts(raw).forEach(function (p) { parts.push(p); });
     patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
     return parts.join(',');
 }
@@ -1017,8 +985,8 @@ function patientSearchOrFilterCore(q) {
     if (digits.length >= 4 && digits !== raw) {
         parts.push('phone_number.ilike.%' + escapePostgrestIlike(digits) + '%');
         parts.push('mobile_phone.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('patient_no.ilike.%' + escapePostgrestIlike(digits) + '%');
     }
-    patientSearchNoFilterParts(raw).forEach(function (p) { parts.push(p); });
     patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
     return parts.join(',');
 }

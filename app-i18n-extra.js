@@ -2820,6 +2820,7 @@
         'ql.toggle':        { en: 'Quick Launch',        'zh-CN': '快速启动',    'zh-Hant': '快速啟動' },
         'ql.patients':      { en: 'Patients',            'zh-CN': '患者',        'zh-Hant': '病人' },
         'ql.newAppt':       { en: 'New Appointment',     'zh-CN': '新预约',      'zh-Hant': '新預約' },
+        'ql.currentQueue':  { en: 'Current Queue',       'zh-CN': '当前队列',    'zh-Hant': '目前隊列' },
         'ql.apptRecords':   { en: 'Appt Records',        'zh-CN': '预约记录',    'zh-Hant': '預約紀錄' },
         'ql.consultation':  { en: 'Consultation',        'zh-CN': '诊症',        'zh-Hant': '診症' },
         'ql.prescriptions': { en: 'Prescriptions',       'zh-CN': '处方',        'zh-Hant': '處方' },

@@ -87,6 +87,19 @@
             }
         },
         {
+            id: 'current_queue',
+            icon: '👥',
+            i18nKey: 'ql.currentQueue',
+            shortcut: 'Ctrl+Shift+Q',
+            requiresPatient: false,
+            handler: function () {
+                if (typeof showOnly === 'function') showOnly('appointmentSection');
+                setTimeout(function () {
+                    if (typeof switchApptTab === 'function') switchApptTab('queue');
+                }, 60);
+            }
+        },
+        {
             id: 'appt_records',
             icon: '📋',
             i18nKey: 'ql.apptRecords',
@@ -340,12 +353,27 @@
         return !(loginEl && loginEl.style.display !== 'none');
     }
 
+    function qlRunActionById(actionId) {
+        var act = QL_ACTIONS.find(function (a) { return a.id === actionId; });
+        if (!act || typeof act.handler !== 'function') return false;
+        closeQuickLaunch();
+        act.handler();
+        return true;
+    }
+
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && _open) {
             closeQuickLaunch();
             return;
         }
         if (!qlShortcutsEnabled()) return;
+        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey &&
+            (e.code === 'KeyQ' || String(e.key).toLowerCase() === 'q')) {
+            e.preventDefault();
+            e.stopPropagation();
+            qlRunActionById('current_queue');
+            return;
+        }
 
         var idx = qlShortcutIndex(e);
         if (idx >= 1 && idx <= QL_ACTIONS.length) {

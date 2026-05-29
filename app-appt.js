@@ -6015,6 +6015,7 @@ function buildQueueRow(tb, q, seqNo) {
     row.classList.add('queue-row-draggable');
     if (q.bill_status === 'Billed') row.classList.add('queue-row-billed');
     else if (q.bill_status === 'Paid') row.classList.add('queue-row-paid');
+    else if (q.bill_status === 'Done' || q.bill_status === 'Finish') row.classList.add('queue-row-finished');
     row.draggable = true;
     row.title = tr('appt.queue.dragTitle');
 
@@ -6132,13 +6133,23 @@ function buildQueueRow(tb, q, seqNo) {
             return;
         }
         var rect  = btn.getBoundingClientRect();
+        // action-drop is position:fixed; keep coordinates in viewport space (no scrollY).
+        var dropW = 200;
         var dropH = 240;
-        var top   = (rect.bottom + dropH > window.innerHeight)
-            ? rect.top - dropH + window.scrollY
-            : rect.bottom    + window.scrollY + 4;
-        var left  = rect.right - 200;
-        drop.style.top  = top  + 'px';
-        drop.style.left = left + 'px';
+        var gap = 4;
+        var edge = 8;
+        var top = rect.bottom + gap;
+        if (top + dropH > window.innerHeight - edge) {
+            top = rect.top - dropH - gap;
+        }
+        if (top < edge) top = edge;
+        var left = rect.right - dropW;
+        if (left + dropW > window.innerWidth - edge) {
+            left = window.innerWidth - dropW - edge;
+        }
+        if (left < edge) left = edge;
+        drop.style.top  = Math.round(top) + 'px';
+        drop.style.left = Math.round(left) + 'px';
         drop.classList.add('open');
     });
 
@@ -6230,9 +6241,6 @@ function buildQueueRow(tb, q, seqNo) {
 
 function updateQueueStatus(apptId, status) {
     var update = { bill_status: status };
-    if (status === 'Done') {
-        update.in_queue = null;
-    }
     SB.from('appointments')
         .update(update)
         .eq('id', apptId)
@@ -10480,62 +10488,65 @@ var _receiptPrintInProgress = false;
  */
 function receiptContentPrintStyles() {
     return (
-        'body{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;font-size:12px;line-height:1.35;color:#222;margin:0;}' +
-        '#receiptPrintArea{width:100%;max-width:none;margin:0;padding:0;box-sizing:border-box;display:block;}' +
-        '.receipt-header{text-align:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e5e7eb;}' +
-        '.receipt-header h2{margin:0 0 4px;color:#0084ff;font-size:17px;line-height:1.2;font-weight:700;}' +
-        '.receipt-clinic-line{margin:1px 0;color:#555;font-size:11px;line-height:1.35;}' +
-        '.receipt-doc-title{margin:6px 0 0;color:#666;font-size:11px;font-weight:600;}' +
+        '@page{size:A4 portrait;margin:14mm 14mm 16mm 14mm;}' +
+        'body{font-family:"Times New Roman","Times","Noto Serif TC","PMingLiU",serif;font-size:15px;line-height:1.35;color:#111;margin:0;}' +
+        '#receiptPrintArea{width:100%;max-width:182mm;min-height:260mm;margin:0 auto;padding:0;box-sizing:border-box;display:flex;flex-direction:column;}' +
+        '.receipt-header{text-align:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #222;}' +
+        '.receipt-header h2{margin:0 0 2px;color:#111;font-size:37px;line-height:1.12;font-weight:700;letter-spacing:0.01em;}' +
+        '.receipt-clinic-line{margin:0;color:#111;font-size:20px;line-height:1.25;}' +
+        '.receipt-doc-title{margin:8px 0 0;padding-top:7px;border-top:1px solid #222;color:#111;font-size:30px;font-weight:400;letter-spacing:0;}' +
         '.receipt-meta{display:flex;justify-content:space-between;align-items:flex-start;' +
-            'font-size:12px;margin-bottom:8px;line-height:1.4;gap:10px;flex-wrap:wrap;}' +
+            'font-size:22px;margin-bottom:12px;line-height:1.35;gap:12px;flex-wrap:nowrap;}' +
         '.receipt-meta-col{min-width:0;}' +
-        '.receipt-meta-left-stack{flex:1;max-width:72%;text-align:left;padding:6px 8px;' +
-            'border-radius:6px;border-left:3px solid #0084ff;background:#fafafa;}' +
-        '.receipt-meta-date-only{flex:0 0 auto;text-align:right;align-self:flex-start;padding-top:6px;}' +
-        '.receipt-meta-spacer{height:14px;margin:4px 0 8px;}' +
+        '.receipt-meta-left-stack{flex:1;max-width:74%;text-align:left;padding:0;border-radius:0;border:none;background:transparent;}' +
+        '.receipt-meta-date-only{flex:0 0 auto;text-align:right;align-self:flex-start;padding-top:0;}' +
+        '.receipt-meta-spacer{height:10px;margin:2px 0 6px;}' +
         '.receipt-kv-row{display:flex;justify-content:space-between;align-items:baseline;' +
-            'gap:10px;margin-bottom:4px;flex-wrap:wrap;}' +
+            'gap:9px;margin-bottom:4px;flex-wrap:nowrap;}' +
         '.receipt-kv-row:last-child{margin-bottom:0;}' +
         '.receipt-kv-row.receipt-kv-patient-names .receipt-kv-val{font-weight:700;}' +
-        '.receipt-meta-col strong,.receipt-kv-label{font-size:11px;font-weight:600;color:#475569;}' +
-        '.receipt-kv-val{font-size:11px;font-weight:600;color:#111827;word-break:break-word;}' +
+        '.receipt-meta-col strong,.receipt-kv-label{font-size:22px;font-weight:400;color:#111;min-width:11.2rem;}' +
+        '.receipt-kv-val{font-size:22px;font-weight:400;color:#111;word-break:break-word;}' +
         '.receipt-meta-left-stack .receipt-kv-row{justify-content:flex-start;}' +
         '.receipt-meta-left-stack .receipt-kv-val{text-align:left;flex:1;}' +
-        '.receipt-meta-left-stack .receipt-kv-label{min-width:6.5rem;flex-shrink:0;color:#475569;}' +
+        '.receipt-meta-left-stack .receipt-kv-label{min-width:11.2rem;flex-shrink:0;color:#111;}' +
         '.receipt-meta-date-only .receipt-kv-row{justify-content:flex-end;}' +
-        '.receipt-meta-date-only .receipt-kv-val{text-align:right;flex:0 1 auto;min-width:4rem}' +
-        '.receipt-meta-date-only .receipt-kv-label{margin-left:0;color:#475569}' +
-        '.receipt-kv-monospace{font-family:Consolas,"Courier New",monospace;letter-spacing:0.02em;}' +
-        '.receipt-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px;}' +
-        '.receipt-table th{background:#f0f7ff;padding:5px 6px;text-align:left;font-size:11px;font-weight:600;color:#0084ff;border-bottom:1px solid #dbeafe;}' +
-        '.receipt-table td{padding:4px 6px!important;border-bottom:1px solid #f0f0f0;font-size:11px;vertical-align:top;}' +
-        '.receipt-totals{background:#f8faff;border-radius:6px;padding:8px 10px;margin-top:8px;font-size:12px;}' +
-        '.r-row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px;}' +
-        '.r-grand{border-top:1px solid #0084ff;margin-top:6px;padding-top:8px;font-size:14px;font-weight:700;color:#0084ff;}' +
-        '.receipt-footer{text-align:center;margin-top:10px;padding-top:8px;border-top:1px solid #eee;color:#6b7280;font-size:10px;}' +
-        '.receipt-signature{position:static;margin:8px auto 4px;max-width:280px;text-align:center;padding-top:12px;background:#fff;}' +
-        '.receipt-sign-line{border-bottom:1px solid #374151;height:8px;}' +
-        '.receipt-sign-name{margin-top:4px;font-size:11px;font-weight:700;color:#1f2937;line-height:1.25;}' +
-        '.receipt-footer p{margin:3px 0;}' +
+        '.receipt-meta-date-only .receipt-kv-val{text-align:right;flex:0 1 auto;min-width:5rem;}' +
+        '.receipt-meta-date-only .receipt-kv-label{margin-left:0;color:#111;min-width:auto;}' +
+        '.receipt-kv-monospace{font-family:"Times New Roman","Times",serif;letter-spacing:0.01em;font-variant-numeric:tabular-nums;}' +
+        '.receipt-table{width:100%;border-collapse:collapse;margin:12px 0 8px;font-size:22px;}' +
+        '.receipt-table th{background:#fff;padding:5px 6px;text-align:left;font-size:22px;font-weight:700;color:#111;border-top:1px solid #222;border-bottom:1px solid #222;}' +
+        '.receipt-table td{padding:3px 6px!important;border-bottom:none;font-size:22px;vertical-align:top;line-height:1.25;font-variant-numeric:tabular-nums;}' +
+        '.receipt-table tbody tr:last-child td{border-bottom:1px solid #222;}' +
+        '.receipt-table th:nth-child(2),.receipt-table th:nth-child(4),.receipt-table td:nth-child(2),.receipt-table td:nth-child(4){text-align:center;}' +
+        '.receipt-table th:nth-child(3),.receipt-table th:nth-child(5),.receipt-table td:nth-child(3),.receipt-table td:nth-child(5){text-align:right;}' +
+        '.receipt-totals{background:transparent;border-radius:0;padding:8px 0 0;margin-top:0;font-size:22px;border-top:1px solid #222;}' +
+        '.r-row{display:flex;justify-content:space-between;padding:2px 0;font-size:22px;font-variant-numeric:tabular-nums;}' +
+        '.r-grand{border-top:1px solid #222;margin-top:6px;padding-top:6px;font-size:25px;font-weight:700;color:#111;}' +
+        '.receipt-footer{text-align:center;margin-top:auto;padding-top:34mm;border-top:none;color:#111;font-size:12px;}' +
+        '.receipt-signatures{display:flex;justify-content:space-between;align-items:flex-end;gap:14mm;}' +
+        '.receipt-signature{position:static;margin:0;max-width:none;flex:0 0 43%;text-align:left;padding-top:0;background:#fff;}' +
+        '.receipt-signature-patient{text-align:right;}' +
+        '.receipt-signature-patient .receipt-sign-name{text-align:right;}' +
+        '.receipt-sign-line{border-bottom:1px solid #222;height:10px;}' +
+        '.receipt-sign-name{margin-top:4px;font-size:18px;font-weight:400;color:#111;line-height:1.25;}' +
+        '#rReceiptFooterThanks,.receipt-footer p[data-i18n="bill.receipt.computerGenerated"]{display:none;}' +
         '#rInstalmentsSection{font-size:11px;}' +
         '#rInstalmentsSection table{font-size:10px!important;border-collapse:collapse;width:100%;}' +
         '#rInstalmentsSection th,#rInstalmentsSection td{padding:3px 5px!important;}' +
         '#rOutstandingRow{font-size:10px!important;margin-top:6px!important;padding:5px 8px!important;}' +
         '@media print{' +
-        'html,body,#receiptPrintArea,.receipt-signature,.receipt-header,.receipt-meta-left-stack,' +
-        '.receipt-totals,.receipt-table th,.receipt-table td{' +
+        'html,body,#receiptPrintArea,.receipt-signature,.receipt-header,.receipt-meta-left-stack,.receipt-totals,.receipt-table th,.receipt-table td{' +
         'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
-        'body{margin:0;color:#111!important;}' +
-        '#receiptPrintArea{padding:0;}' +
+        'body{margin:0;color:#111!important;background:#fff!important;}' +
+        '#receiptPrintArea{padding:0;max-width:100%;}' +
         '.receipt-signature{position:static;background:#fff!important;}' +
-        '.receipt-header h2{color:#111!important;}' +
-        '.receipt-meta-left-stack{background:#fff!important;border-left:3px solid #333!important;' +
-            'outline:1px solid #999;outline-offset:-1px;border-radius:2px;}' +
-        '.receipt-table th{background:#fff!important;color:#111!important;' +
-            'border-top:1px solid #666!important;border-bottom:2px solid #111!important;}' +
-        '.receipt-table td{border-bottom:1px solid #ccc!important;}' +
-        '.receipt-totals{background:#fff!important;border:1px solid #666!important;border-radius:2px;}' +
-        '.r-grand{color:#111!important;border-top:2px solid #111!important;}' +
+        '.receipt-header h2,.receipt-doc-title,.r-grand{color:#111!important;}' +
+        '.receipt-meta-left-stack{background:#fff!important;border:none!important;outline:none!important;border-radius:0;}' +
+        '.receipt-table th{background:#fff!important;color:#111!important;border-color:#111!important;}' +
+        '.receipt-table td{border-color:#111!important;}' +
+        '.receipt-totals{background:#fff!important;border:none!important;border-top:1px solid #111!important;border-radius:0;}' +
+        '.r-grand{border-top:1px solid #111!important;}' +
         'thead{display:table-header-group;}' +
         'tr{page-break-inside:avoid;}' +
         '}'
@@ -10675,6 +10686,14 @@ function receiptPatientEnglishChineseParts(row, billFallbackName) {
     return { enDisp: enDisp || '—', zhDisp: zhDisp, showZhRow: showZhRow };
 }
 
+function applyReceiptPatientSignature(parts) {
+    if (!parts) return;
+    var enSign = parts.enDisp && parts.enDisp !== '—' ? parts.enDisp : '—';
+    var zhSign = parts.zhDisp ? parts.zhDisp : '—';
+    if (g('rPatientSignEng')) g('rPatientSignEng').textContent = enSign;
+    if (g('rPatientSignChi')) g('rPatientSignChi').textContent = zhSign;
+}
+
 function applyReceiptPatientProfile(row, bill) {
     var parts = receiptPatientEnglishChineseParts(row, bill ? bill.patient_name : '');
     var no = '';
@@ -10689,6 +10708,7 @@ function applyReceiptPatientProfile(row, bill) {
         zhRow.style.display = parts.showZhRow ? '' : 'none';
     }
     if (g('rPatientNo')) g('rPatientNo').textContent = no || '—';
+    applyReceiptPatientSignature(parts);
 }
 
 function hydrateReceiptPatientProfile(bill) {
@@ -10938,6 +10958,7 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
     var fallbackParts = receiptPatientEnglishChineseParts(null, bill.patient_name);
     if (g('rPatientEn')) g('rPatientEn').textContent = fallbackParts.enDisp;
     if (g('rPatientZh')) g('rPatientZh').textContent = fallbackParts.zhDisp;
+    applyReceiptPatientSignature(fallbackParts);
     if (g('receiptPatientZhRow')) {
         g('receiptPatientZhRow').style.display = fallbackParts.showZhRow ? '' : 'none';
     }

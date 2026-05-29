@@ -2672,6 +2672,12 @@ tr:hover td { background: #fafcff; }
 .queue-wrap tr.queue-row-paid:hover td {
     background: #a7f3d0 !important;
 }
+.queue-wrap tr.queue-row-finished td {
+    background: #ede9fe !important;
+}
+.queue-wrap tr.queue-row-finished:hover td {
+    background: #ddd6fe !important;
+}
 
 /* Current queue — remarks column (~2× prior voucher width) */
 .queue-wrap .appt-tbl.queue-tbl {
@@ -4269,11 +4275,26 @@ tr:hover td { background: #fafcff; }
     font-size: 13px;
 }
 
+.receipt-signatures {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+}
+
 .receipt-signature {
-    margin: 2px auto 10px;
-    max-width: 280px;
-    text-align: center;
-    padding-top: 48px;
+    margin: 2px 0 10px;
+    max-width: none;
+    flex: 1;
+    text-align: left;
+    padding-top: 38px;
+}
+
+.receipt-signature-patient {
+    text-align: right;
+}
+
+.receipt-signature-patient .receipt-sign-name {
+    text-align: right;
 }
 
 .receipt-sign-line {
@@ -5999,6 +6020,17 @@ tr:hover td { background: #fafcff; }
 }
 
 /* ── Lightbox ─────────────────────────────────────────────── */
+#xrayLightbox,
+#photoLightbox {
+    padding: 56px 0 12px;
+}
+
+#xrayLightbox .xray-lightbox-box,
+#photoLightbox .xray-lightbox-box {
+    margin: 0 auto;
+    max-height: calc(100vh - 72px);
+}
+
 .xray-lightbox-box {
     background: white;
     margin: 1% auto;

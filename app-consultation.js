@@ -8,6 +8,7 @@ var conPatientId   = null;
 var conPatientData = null;
 var conPsTimer     = null;
 var drugEditId     = null;
+var drugEditRow    = null;
 var rxLines        = [];
 var rxComboSearchTimer = null;
 
@@ -1724,6 +1725,18 @@ function updateConTnPrintBtnState() {
     btn.disabled = !ok;
     btn.style.opacity = ok ? '1' : '0.45';
     btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+
+function bindConBackQueueBtnOnce() {
+    var btn = g('conBackQueueBtn');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function() {
+        if (typeof showOnly === 'function') showOnly('appointmentSection');
+        setTimeout(function() {
+            if (typeof switchApptTab === 'function') switchApptTab('queue');
+        }, 40);
+    });
 }
 
 function conTnPrintRangeMode() {
@@ -4323,8 +4336,48 @@ function loadDrugListTable() {
     });
 }
 
+function conLooksLikeUuid(v) {
+    var s = String(v || '').trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+
+function conResolveDrugDentistId(seedName, row) {
+    if (typeof conActiveDoctorId !== 'undefined' && conActiveDoctorId && conLooksLikeUuid(conActiveDoctorId)) {
+        return String(conActiveDoctorId).trim();
+    }
+    if (typeof currentDoctorId !== 'undefined' && currentDoctorId && conLooksLikeUuid(currentDoctorId)) {
+        return String(currentDoctorId).trim();
+    }
+    if (row && row.dentist_id && conLooksLikeUuid(row.dentist_id)) {
+        return String(row.dentist_id).trim();
+    }
+    var docs = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS)) ? APP_DOCTORS : [];
+    var want = String(seedName || '').trim().toLowerCase();
+    var i;
+    for (i = 0; i < docs.length; i++) {
+        var d = docs[i] || {};
+        var id = String(d.id || '').trim();
+        if (!conLooksLikeUuid(id)) continue;
+        var a = String(d.display_name || '').trim().toLowerCase();
+        var b = String(d.english_name || '').trim().toLowerCase();
+        var c = String(d.chinese_name || '').trim().toLowerCase();
+        if (want && (want === a || want === b || want === c)) return id;
+    }
+    for (i = 0; i < docs.length; i++) {
+        var anyId = String((docs[i] || {}).id || '').trim();
+        if (conLooksLikeUuid(anyId)) return anyId;
+    }
+    return '';
+}
+
+function conIsUuidSyntaxError(msg) {
+    var m = String(msg || '').toLowerCase();
+    return m.indexOf('invalid input syntax for type uuid') >= 0;
+}
+
 function resetDrugForm() {
     drugEditId = null;
+    drugEditRow = null;
     var title  = g('dlFormTitle');
     if (title) {
         title.setAttribute('data-i18n', 'con.rx.dlFormAddTitle');
@@ -4343,6 +4396,7 @@ function resetDrugForm() {
 
 function editDrugItem(d) {
     drugEditId = d.id;
+    drugEditRow = d || null;
     var title  = g('dlFormTitle');
     if (title) {
         title.removeAttribute('data-i18n');
@@ -4375,15 +4429,44 @@ function saveDrugItem() {
         remarks:   (g('dlRemarks').value   || '').trim() || null
     };
 
-    var promise = drugEditId
-        ? SB.from('druglist').update(payload).eq('id', drugEditId)
-        : SB.from('druglist').insert([payload]);
+    var dentistName = '';
+    if (typeof conActiveDoctorName === 'string' && conActiveDoctorName.trim()) {
+        dentistName = conActiveDoctorName.trim();
+    } else if (typeof currentName === 'string' && currentName.trim()) {
+        dentistName = currentName.trim();
+    } else if (drugEditRow && drugEditRow.dentist_name) {
+        dentistName = String(drugEditRow.dentist_name).trim();
+    }
+    if (dentistName) payload.dentist_name = dentistName;
+    var dentistId = conResolveDrugDentistId(dentistName, drugEditRow);
+    if (dentistId) payload.dentist_id = dentistId;
 
-    promise.then(function(r) {
-        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-        resetDrugForm();
-        loadDrugListTable();
-    });
+    function runSave(sendPayload, allowUuidRetry) {
+        var p = drugEditId
+            ? SB.from('druglist').update(sendPayload).eq('id', drugEditId)
+            : SB.from('druglist').insert([sendPayload]);
+        p.then(function(r) {
+            if (r.error) {
+                if (allowUuidRetry && conIsUuidSyntaxError(r.error.message)) {
+                    var retryPayload = {};
+                    var k;
+                    for (k in sendPayload) {
+                        if (!Object.prototype.hasOwnProperty.call(sendPayload, k)) continue;
+                        if (k === 'dentist_id' || k === 'dentist_name') continue;
+                        retryPayload[k] = sendPayload[k];
+                    }
+                    runSave(retryPayload, false);
+                    return;
+                }
+                alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+                return;
+            }
+            resetDrugForm();
+            loadDrugListTable();
+        });
+    }
+
+    runSave(payload, true);
 }
 
 function deleteDrugItem(id) {
@@ -4576,6 +4659,7 @@ function refreshConOpenModalsI18n() {
 
 document.addEventListener('DOMContentLoaded', function() {
     wireConTnPrintUi();
+    bindConBackQueueBtnOnce();
 });
 
 document.addEventListener('app-lang-change', function() {

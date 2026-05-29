@@ -53,6 +53,36 @@ function drugTrRepl(key, pairs) {
     return s;
 }
 
+function drugLooksLikeUuid(v) {
+    var s = String(v || '').trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+
+function drugResolveDoctorIdByName(name) {
+    var n = String(name || '').trim().toLowerCase();
+    var docs = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS)) ? APP_DOCTORS : [];
+    var i;
+    for (i = 0; i < docs.length; i++) {
+        var d = docs[i] || {};
+        var id = String(d.id || '').trim();
+        if (!drugLooksLikeUuid(id)) continue;
+        var a = String(d.display_name || '').trim().toLowerCase();
+        var b = String(d.english_name || '').trim().toLowerCase();
+        var c = String(d.chinese_name || '').trim().toLowerCase();
+        if (n && (n === a || n === b || n === c)) return id;
+    }
+    for (i = 0; i < docs.length; i++) {
+        var anyId = String((docs[i] || {}).id || '').trim();
+        if (drugLooksLikeUuid(anyId)) return anyId;
+    }
+    return '';
+}
+
+function drugIsUuidSyntaxError(msg) {
+    var m = String(msg || '').toLowerCase();
+    return m.indexOf('invalid input syntax for type uuid') >= 0;
+}
+
 function drugCatKey(cat) {
     return (cat || DRUG_UNCAT_KEY).trim();
 }
@@ -437,57 +467,81 @@ function saveDrugMaster() {
         is_active:    activeEl ? activeEl.checked : true
     };
 
-    // attach dentist_id from global session if available
-    if (typeof currentUserId !== 'undefined' && currentUserId) {
-        payload.dentist_id = currentUserId;
-    }
+    var isNew = !drugSelectedId;
 
-    var isNew   = !drugSelectedId;
-    var promise = isNew
-        ? SB.from('druglist').insert([payload]).select().single()
-        : SB.from('druglist').update(payload)
-              .eq('id', drugSelectedId).select().single();
+    // dentist_id must be UUID in DB; prefer doctor UUID from session.
+    var dentistId = '';
+    var existing = isNew ? null : (drugMasterList.find(function(x) { return x.id === drugSelectedId; }) || null);
+    if (typeof currentDoctorId !== 'undefined' && currentDoctorId && drugLooksLikeUuid(currentDoctorId)) {
+        dentistId = String(currentDoctorId).trim();
+    } else if (existing && existing.dentist_id && drugLooksLikeUuid(existing.dentist_id)) {
+        dentistId = String(existing.dentist_id).trim();
+    } else if (typeof currentUserId !== 'undefined' && currentUserId && drugLooksLikeUuid(currentUserId)) {
+        dentistId = String(currentUserId).trim();
+    } else {
+        dentistId = drugResolveDoctorIdByName(dentistNameV || currentName || '');
+    }
+    if (dentistId) payload.dentist_id = dentistId;
 
     setSaveBtn(true);
 
-    promise.then(function(r) {
-        setSaveBtn(false);
+    function runSave(sendPayload, allowUuidRetry) {
+        var p = isNew
+            ? SB.from('druglist').insert([sendPayload]).select().single()
+            : SB.from('druglist').update(sendPayload)
+                  .eq('id', drugSelectedId).select().single();
+        p.then(function(r) {
+            if (r.error) {
+                if (allowUuidRetry && drugIsUuidSyntaxError(r.error.message)) {
+                    var retryPayload = {};
+                    var k;
+                    for (k in sendPayload) {
+                        if (!Object.prototype.hasOwnProperty.call(sendPayload, k)) continue;
+                        if (k === 'dentist_id' || k === 'dentist_name') continue;
+                        retryPayload[k] = sendPayload[k];
+                    }
+                    runSave(retryPayload, false);
+                    return;
+                }
+                setSaveBtn(false);
+                alert(drugTrRepl('drug.alertSaveFailed', { MSG: r.error.message }));
+                return;
+            }
 
-        if (r.error) {
-            alert(drugTrRepl('drug.alertSaveFailed', { MSG: r.error.message }));
-            return;
-        }
+            var saved = r.data;
 
-        var saved = r.data;
+            if (isNew) {
+                drugMasterList.push(saved);
+                drugSelectedId = saved.id;
+            } else {
+                var idx = drugMasterList.findIndex(function(x) {
+                    return x.id === drugSelectedId;
+                });
+                if (idx !== -1) drugMasterList[idx] = saved;
+            }
 
-        if (isNew) {
-            drugMasterList.push(saved);
-            drugSelectedId = saved.id;
-        } else {
-            var idx = drugMasterList.findIndex(function(x) {
-                return x.id === drugSelectedId;
-            });
-            if (idx !== -1) drugMasterList[idx] = saved;
-        }
+            // refresh display fields with returned data
+            var createdEl = g('deCreatedAt');
+            if (createdEl && saved.created_at) {
+                createdEl.textContent = fmtDateTime(saved.created_at);
+            }
+            var idEl = g('deDrugId');
+            if (idEl) idEl.textContent = saved.id;
 
-        // refresh display fields with returned data
-        var createdEl = g('deCreatedAt');
-        if (createdEl && saved.created_at) {
-            createdEl.textContent = fmtDateTime(saved.created_at);
-        }
-        var idEl = g('deDrugId');
-        if (idEl) idEl.textContent = saved.id;
+            setDrugDirty(false);
+            updateDrugEditorTitle(saved.drug_name);
+            renderDrugCatFilter();
+            renderDrugList();
 
-        setDrugDirty(false);
-        updateDrugEditorTitle(saved.drug_name);
-        renderDrugCatFilter();
-        renderDrugList();
+            var delBtn = g('btnDrugDelete');
+            if (delBtn) delBtn.style.display = 'inline-block';
 
-        var delBtn = g('btnDrugDelete');
-        if (delBtn) delBtn.style.display = 'inline-block';
+            setSaveBtn(false);
+            showDrugToast(drugTrRepl('drug.toastSaved', { NAME: saved.drug_name }));
+        });
+    }
 
-        showDrugToast(drugTrRepl('drug.toastSaved', { NAME: saved.drug_name }));
-    });
+    runSave(payload, true);
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -2077,11 +2077,51 @@ tr:hover td { background: #fafcff; }
 .plusappt-add-btn:not(:disabled) {
     box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.35);
 }
+.plusappt-add-mini-hint {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.35;
+    max-width: 260px;
+}
 .plusappt-hint {
     font-size: 12px;
     color: #94a3b8;
     margin: 0 0 14px;
     line-height: 1.45;
+}
+.appt-unpaid-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    color: #991b1b;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: 0.01em;
+    vertical-align: middle;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.appt-unpaid-badge--plus {
+    margin-left: 8px;
+}
+.appt-unpaid-badge--cal {
+    margin: 2px 0 1px;
+    font-size: 9px;
+}
+.appt-unpaid-badge--month {
+    margin-left: 4px;
+    font-size: 9px;
+}
+.appt-unpaid-badge--daypanel {
+    margin: 2px 0 4px;
+}
+.appt-unpaid-badge--remarks {
+    margin: 4px 0 2px;
+    display: inline-block;
 }
 .plusappt-layout {
     display: flex;
@@ -2677,6 +2717,59 @@ tr:hover td { background: #fafcff; }
 }
 .queue-wrap tr.queue-row-finished:hover td {
     background: #ddd6fe !important;
+}
+.appt-alert-text {
+    display: inline-block;
+    max-width: 170px;
+    color: #b91c1c;
+    font-weight: 700;
+    font-size: 11px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.appt-alert-empty {
+    color: #9ca3af;
+    font-size: 11px;
+}
+.queue-status-cell {
+    white-space: nowrap;
+}
+.queue-arrived-cell {
+    white-space: nowrap;
+}
+.queue-elapsed-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: .01em;
+    opacity: .82;
+}
+.queue-elapsed-icon {
+    margin-right: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: baseline;
+}
+.queue-elapsed-badge.is-green {
+    color: #065f46;
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+}
+.queue-elapsed-badge.is-amber {
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+}
+.queue-elapsed-badge.is-red {
+    color: #991b1b;
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
 }
 
 /* Current queue — remarks column (~2× prior voucher width) */

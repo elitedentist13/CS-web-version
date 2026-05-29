@@ -771,6 +771,7 @@
             <th data-i18n="appt.queueTh.no"></th>
             <th data-i18n="appt.queueTh.name"></th>
             <th data-i18n="appt.queueTh.treatment"></th>
+            <th data-i18n="appt.queueTh.alert"></th>
             <th data-i18n="appt.queueTh.time"></th>
             <th data-i18n="appt.queueTh.arrived"></th>
             <th class="queue-remarks-col" data-i18n="appt.queueTh.remarks"></th>
@@ -815,6 +816,7 @@
             <th data-i18n="appt.todayTh.patNo"></th>
             <th data-i18n="appt.todayTh.name"></th>
             <th data-i18n="appt.todayTh.treatment"></th>
+            <th data-i18n="appt.todayTh.alert"></th>
             <th data-i18n="appt.todayTh.remarks"></th>
             <th data-i18n="appt.todayTh.duration"></th>
             <th data-i18n="appt.todayTh.status"></th>
@@ -860,6 +862,7 @@
         </button>
         <button type="button" id="plusApptAddBtn" class="btn-add plusappt-add-btn" disabled
                 data-i18n="appt.plusAppt.addBtn"></button>
+        <span class="plusappt-add-mini-hint" data-i18n="appt.plusAppt.addBtnHint"></span>
       </div>
     </div>
     <p class="plusappt-hint" data-i18n="appt.plusAppt.hint"></p>
@@ -1248,8 +1251,12 @@
       <div class="con-note-col">
         <div class="con-col-header">
           <h3 data-i18n="con.treatmentTitle"></h3>
-          <button type="button" id="conTnPrintBtn" class="btn-add con-tn-print-btn"
-                  data-i18n="con.tnPrint.btn"></button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button type="button" id="conBackQueueBtn" class="btn-add con-tn-back-queue-btn"
+                    data-i18n="con.tnBackQueue.btn"></button>
+            <button type="button" id="conTnPrintBtn" class="btn-add con-tn-print-btn"
+                    data-i18n="con.tnPrint.btn"></button>
+          </div>
         </div>
 
         <!-- add note box -->

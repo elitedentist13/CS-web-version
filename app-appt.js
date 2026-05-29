@@ -58,6 +58,9 @@ var plusApptDragApptId = null;
 var PLUSAPPT_TASK_LS_KEY = 'plusappt_task_state_v1';
 var plusApptTransferState = null;
 var plusApptTransferDragActive = false;
+var apptUnpaidByPatientId = {};
+var apptUnpaidByPatientNo = {};
+var apptUnpaidBadgeClickBound = false;
 var apptImportModalBound = false;
 var apptImportPreviewRows = [];
 var PLUSAPPT_CLINIC_THEMES = [
@@ -80,6 +83,8 @@ var queueRemarksEditPriorRaw = null;
 var queueRemarksModalBound = false;
 var queueRefreshBtnBound = false;
 var queueLastRefreshAt = null;
+var queueElapsedClosedAtByApptId = {};
+var queueElapsedTickerId = null;
 
 /** When true, appointment date must be today or later (records tab: new visit from a past row). */
 var arBookingMinDateToday = false;
@@ -188,6 +193,134 @@ function applyApptModuleClinicQuery(builder) {
         ? APPOINTMENT_CLINIC_TAG_FIELD
         : 'clinic_tag';
     return builder.eq(field, tag);
+}
+
+function apptUnpaidPatientId(a) {
+    return a && a.patient_id ? String(a.patient_id).trim() : '';
+}
+
+function apptUnpaidPatientNo(a) {
+    return a && a.patient_no ? String(a.patient_no).trim().toUpperCase() : '';
+}
+
+function apptUnpaidAmountForAppt(a) {
+    var pid = apptUnpaidPatientId(a);
+    var pno = apptUnpaidPatientNo(a);
+    var byId = pid ? (parseFloat(apptUnpaidByPatientId[pid]) || 0) : 0;
+    var byNo = pno ? (parseFloat(apptUnpaidByPatientNo[pno]) || 0) : 0;
+    return Math.max(byId, byNo);
+}
+
+function apptUnpaidBadgeHtml(a, extraClass) {
+    var bal = apptUnpaidAmountForAppt(a);
+    if (!(bal > 0)) return '';
+    var cls = 'appt-unpaid-badge';
+    if (extraClass) cls += ' ' + extraClass;
+    var aid = a && a.id ? String(a.id) : '';
+    var pid = a && a.patient_id ? String(a.patient_id) : '';
+    var pno = a && a.patient_no ? String(a.patient_no) : '';
+    var pnm = a && a.patient_name ? String(a.patient_name) : '';
+    return '<span class="' + cls + '"' +
+        ' data-open-bill="1"' +
+        ' data-appt-id="' + esc(aid) + '"' +
+        ' data-patient-id="' + esc(pid) + '"' +
+        ' data-patient-no="' + esc(pno) + '"' +
+        ' data-patient-name="' + esc(pnm) + '"' +
+        ' title="' + esc(tr('bill.queue.openBill')) + '">' + esc(fmtHK(bal)) + '</span>';
+}
+
+function bindApptUnpaidBadgeClickOnce() {
+    if (apptUnpaidBadgeClickBound) return;
+    apptUnpaidBadgeClickBound = true;
+    document.addEventListener('click', function(ev) {
+        var target = ev.target;
+        var badge = target && target.closest ? target.closest('.appt-unpaid-badge[data-open-bill="1"]') : null;
+        if (!badge) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        var q = {
+            id: badge.getAttribute('data-appt-id') || null,
+            patient_id: badge.getAttribute('data-patient-id') || null,
+            patient_no: badge.getAttribute('data-patient-no') || '',
+            patient_name: badge.getAttribute('data-patient-name') || ''
+        };
+        if (typeof openBillPanel === 'function') openBillPanel(q);
+    }, true);
+}
+
+function hydrateApptUnpaidBalances(appts, done) {
+    var list = appts || [];
+    var pids = [];
+    var pnos = [];
+    var seen = {};
+    var seenNo = {};
+    list.forEach(function(a) {
+        var pid = apptUnpaidPatientId(a);
+        if (!pid || seen[pid]) return;
+        seen[pid] = true;
+        pids.push(pid);
+    });
+    list.forEach(function(a) {
+        var pno = apptUnpaidPatientNo(a);
+        if (!pno || seenNo[pno]) return;
+        seenNo[pno] = true;
+        pnos.push(pno);
+    });
+    if ((!pids.length && !pnos.length) || !SB || typeof SB.from !== 'function') {
+        if (done) done(false);
+        return;
+    }
+
+    function billsQueryBase() {
+        return SB.from('bills').select('id,patient_id,patient_no,balance,voided_at').gt('balance', 0);
+    }
+
+    var qs = [];
+    if (pids.length) qs.push(billsQueryBase().in('patient_id', pids));
+    if (pnos.length) qs.push(billsQueryBase().in('patient_no', pnos));
+
+    Promise.all(qs).then(function(results) {
+        var merged = [];
+        var seenBill = {};
+        results.forEach(function(r) {
+            if (!r || r.error || !r.data) return;
+            r.data.forEach(function(b) {
+                var id = String(b.id || '').trim();
+                if (id && seenBill[id]) return;
+                if (id) seenBill[id] = true;
+                merged.push(b);
+            });
+        });
+
+        var sums = {};
+        var sumsNo = {};
+        pids.forEach(function(pid) { sums[pid] = 0; });
+        pnos.forEach(function(pno) { sumsNo[pno] = 0; });
+        merged.forEach(function(b) {
+            if (!b || b.voided_at) return;
+            var pid = String(b.patient_id || '').trim();
+            var pno = String(b.patient_no || '').trim().toUpperCase();
+            var bal = parseFloat(b.balance) || 0;
+            if (pid) sums[pid] = (sums[pid] || 0) + bal;
+            if (pno) sumsNo[pno] = (sumsNo[pno] || 0) + bal;
+        });
+        var changed = false;
+        pids.forEach(function(pid) {
+            var v = Math.round((sums[pid] || 0) * 100) / 100;
+            var old = Math.round((parseFloat(apptUnpaidByPatientId[pid]) || 0) * 100) / 100;
+            if (v !== old) changed = true;
+            apptUnpaidByPatientId[pid] = v;
+        });
+        pnos.forEach(function(pno) {
+            var v = Math.round((sumsNo[pno] || 0) * 100) / 100;
+            var old = Math.round((parseFloat(apptUnpaidByPatientNo[pno]) || 0) * 100) / 100;
+            if (v !== old) changed = true;
+            apptUnpaidByPatientNo[pno] = v;
+        });
+        if (done) done(changed);
+    }).catch(function() {
+        if (done) done(false);
+    });
 }
 
 function populateApptClinicSelect() {
@@ -1218,6 +1351,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             nameHtml = typeof apptPatientDisplayNameHTML === 'function'
                 ? apptPatientDisplayNameHTML(a, { walkIn: true })
                 : esc(a.patient_name || '—');
+            nameHtml += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus');
             remHtml = typeof formatRemarksForDisplay === 'function'
                 ? formatRemarksForDisplay(a.remarks, { empty: '—' })
                 : esc(a.remarks || '—');
@@ -1623,6 +1757,13 @@ function loadPlusApptDay() {
             plusApptApplyTaskStateToList(plusApptDayAppts);
             renderPlusApptSchedule();
             plusApptRestoreDoctorSelection();
+            hydrateApptUnpaidBalances(plusApptDayAppts, function(changed) {
+                if (!changed) return;
+                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
+                    renderPlusApptSchedule();
+                    plusApptRestoreDoctorSelection();
+                }
+            });
         };
         if (!r.data || !r.data.length) {
             finish([]);
@@ -5252,6 +5393,7 @@ function getApptDisplayChinese(a) {
 function augmentAppointmentsChineseFromPatients(rows, callback) {
     rows = rows || [];
     var pmap = {};
+    var pAlertMap = {};
     var seen = {};
     var ids  = [];
     rows.forEach(function(a) {
@@ -5269,7 +5411,12 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
                 (a.patient_id && pmap[a.patient_id])
                     ? String(pmap[a.patient_id]).trim()
                     : '';
+            var fromAlert =
+                (a.patient_id && pAlertMap[a.patient_id])
+                    ? String(pAlertMap[a.patient_id]).trim()
+                    : '';
             a._merged_chinese_name = fromAppt || fromPat;
+            a._merged_patient_alerts = fromAlert || String(a.medical_alerts || '').trim();
         });
         if (callback) callback(rows);
     }
@@ -5280,12 +5427,13 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
     }
 
     SB.from('patients')
-        .select('id,chinese_name')
+        .select('id,chinese_name,medical_alerts')
         .in('id', ids)
     .then(function(pr) {
         if (!pr.error && pr.data) {
             pr.data.forEach(function(p) {
                 pmap[p.id] = p.chinese_name;
+                pAlertMap[p.id] = p.medical_alerts;
             });
         }
         finalize();
@@ -5293,6 +5441,17 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
     .catch(function() {
         finalize();
     });
+}
+
+function apptMergedAlertText(a) {
+    if (!a) return '';
+    return String(a._merged_patient_alerts || a.medical_alerts || '').trim();
+}
+
+function apptAlertCellHtml(a) {
+    var txt = apptMergedAlertText(a);
+    if (!txt) return '<span class="appt-alert-empty">—</span>';
+    return '<span class="appt-alert-text" title="' + esc(txt) + '">' + esc(txt) + '</span>';
 }
 
 /** @returns {string} HTML (already escaped inner text) */
@@ -5345,7 +5504,7 @@ function loadToday() {
     var tb  = g('todayBody');
     syncApptTodayDateLabels();
     tb.innerHTML =
-        '<tr><td colspan="8" style="text-align:center;' +
+        '<tr><td colspan="9" style="text-align:center;' +
         'color:#aaa;padding:24px;">' + esc(tr('common.loadingEllipsis')) + '</td></tr>';
 
     var tq = SB.from('appointments').select('*')
@@ -5362,7 +5521,7 @@ function loadToday() {
         if (r.error || !r.data || !r.data.length) {
             todayAppts = [];
             tb.innerHTML =
-                '<tr><td colspan="8" style="text-align:center;' +
+                '<tr><td colspan="9" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' + esc(tr('appt.today.noToday')) +
                 '</td></tr>';
             if (cnt) cnt.textContent = trRepl('appt.today.countN', { N: '0' });
@@ -5371,9 +5530,16 @@ function loadToday() {
         }
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
             plusApptApplyTaskStateToList(rows);
-            todayAppts = rows;
+            var todayRows = rows.filter(function(a) {
+                if (!a) return false;
+                if (a.in_queue !== null && a.in_queue !== undefined) return false;
+                var s = String(a.bill_status || '').toLowerCase();
+                if (s === 'queue' || s === 'done' || s === 'finish') return false;
+                return true;
+            });
+            todayAppts = todayRows;
             var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
-                ? CalDoctorColors.filterAppts(rows) : rows;
+                ? CalDoctorColors.filterAppts(todayRows) : todayRows;
             if (cnt) {
                 cnt.textContent = visible.length === 1
                     ? tr('appt.today.countOne')
@@ -5381,16 +5547,22 @@ function loadToday() {
             }
             if (!visible.length) {
                 tb.innerHTML =
-                    '<tr><td colspan="8" style="text-align:center;' +
+                    '<tr><td colspan="9" style="text-align:center;' +
                     'color:#aaa;padding:24px;">' +
-                    esc(rows.length ? tr('appt.today.noFiltered') : tr('appt.today.noToday')) +
+                    esc(todayRows.length ? tr('appt.today.noFiltered') : tr('appt.today.noToday')) +
                     '</td></tr>';
             } else {
                 visible.forEach(function(a) {
                     buildTodayRow(tb, a);
                 });
             }
-            doStrip(rows);
+            doStrip(todayRows);
+            hydrateApptUnpaidBalances(todayRows, function(changed) {
+                if (!changed) return;
+                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'today') {
+                    loadToday();
+                }
+            });
         });
     });
 }
@@ -5474,8 +5646,10 @@ function buildTodayRow(tb, a) {
         '</td>' +
         '<td>' + apptPatientDisplayNameHTML(a, { walkIn: true }) + '</td>' +
         '<td>' + esc(a.treatment_items || '-') + '</td>' +
+        '<td style="font-size:12px;">' + apptAlertCellHtml(a) + '</td>' +
         '<td style="font-size:12px;color:#888;">' +
             formatRemarksForDisplay(a.remarks, { empty: '-' }) +
+            apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--remarks') +
             apptTaskSummaryHtml(a) +
         '</td>' +
         '<td style="text-align:center;">' +
@@ -5950,11 +6124,101 @@ function openQueueRemarksEditor(q) {
 // ════════════════════════════════════════════════════════════════
 // QUEUE
 // ════════════════════════════════════════════════════════════════
+function queueIsClosedStatus(status) {
+    var s = String(status || '').toLowerCase();
+    return s === 'paid' || s === 'done' || s === 'finish' ||
+        s === 'no show' || s === 'noshow' || s === 'cancelled';
+}
+
+function queueParseTimeMs(v) {
+    if (!v) return NaN;
+    var n = Date.parse(String(v));
+    return isNaN(n) ? NaN : n;
+}
+
+function queueFormatElapsedMins(mins) {
+    var m = Math.max(0, parseInt(mins || '0', 10) || 0);
+    if (m < 60) return m + 'm';
+    var h = Math.floor(m / 60);
+    var rm = m % 60;
+    return h + 'h' + (rm ? (' ' + rm + 'm') : '');
+}
+
+function queueElapsedMeta(apptId, arrivalIso, status, updatedAtIso) {
+    var arrMs = queueParseTimeMs(arrivalIso);
+    if (!isFinite(arrMs)) return null;
+    var id = String(apptId || '').trim();
+    var closed = queueIsClosedStatus(status);
+    var stopMs = Date.now();
+    if (closed && id) {
+        if (!queueElapsedClosedAtByApptId[id]) {
+            var updMs = queueParseTimeMs(updatedAtIso);
+            queueElapsedClosedAtByApptId[id] = isFinite(updMs) && updMs >= arrMs ? updMs : stopMs;
+        }
+        stopMs = queueElapsedClosedAtByApptId[id];
+    }
+    var mins = Math.max(0, Math.floor((stopMs - arrMs) / 60000));
+    var cls = mins < 30 ? 'is-green' : (mins < 60 ? 'is-amber' : 'is-red');
+    return {
+        text: queueFormatElapsedMins(mins),
+        toneClass: cls
+    };
+}
+
+function queueElapsedBadgeHtml(apptId, arrivalIso, status, updatedAtIso) {
+    var meta = queueElapsedMeta(apptId, arrivalIso, status, updatedAtIso);
+    if (!meta) return '';
+    return '<span class="queue-elapsed-badge ' + meta.toneClass + '" title="' +
+        esc(tr('appt.queue.elapsedTitle')) + '"><span class="queue-elapsed-icon">⏱</span>' +
+        esc(meta.text) + '</span>';
+}
+
+function queueRefreshElapsedBadges() {
+    var tb = g('queueBody');
+    if (!tb) return;
+    tb.querySelectorAll('tr[data-appt-id]').forEach(function(row) {
+        var host = row.querySelector('.queue-arrived-cell');
+        if (!host) return;
+        var badge = host.querySelector('.queue-elapsed-badge');
+        var html = queueElapsedBadgeHtml(
+            row.dataset.apptId || '',
+            row.dataset.arrivalTime || '',
+            row.dataset.billStatus || '',
+            row.dataset.updatedAt || ''
+        );
+        if (!html) {
+            if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
+            return;
+        }
+        if (!badge) {
+            host.insertAdjacentHTML('beforeend', html);
+            return;
+        }
+        var meta = queueElapsedMeta(
+            row.dataset.apptId || '',
+            row.dataset.arrivalTime || '',
+            row.dataset.billStatus || '',
+            row.dataset.updatedAt || ''
+        );
+        if (!meta) return;
+        badge.textContent = meta.text;
+        badge.className = 'queue-elapsed-badge ' + meta.toneClass;
+    });
+}
+
+function ensureQueueElapsedTicker() {
+    if (queueElapsedTickerId) return;
+    queueElapsedTickerId = setInterval(function() {
+        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'queue') return;
+        queueRefreshElapsedBadges();
+    }, 30000);
+}
+
 function loadQueue() {
     var tb = g('queueBody');
     setQueueRefreshMeta({ loading: true });
     tb.innerHTML =
-        '<tr><td colspan="8" style="text-align:center;' +
+        '<tr><td colspan="9" style="text-align:center;' +
         'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
 
     var qq = SB.from('appointments').select('*')
@@ -5972,7 +6236,7 @@ function loadQueue() {
         };
         if (r.error || !r.data || !r.data.length) {
             tb.innerHTML =
-                '<tr><td colspan="8" style="text-align:center;' +
+                '<tr><td colspan="9" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' +
                 esc(tr('appt.queue.empty')) + '</td></tr>';
             var qc = g('queueCount');
@@ -5989,7 +6253,7 @@ function loadQueue() {
             if (qc) qc.textContent = trRepl('appt.queue.count', { N: String(visible.length) });
             if (!visible.length) {
                 tb.innerHTML =
-                    '<tr><td colspan="8" style="text-align:center;' +
+                    '<tr><td colspan="9" style="text-align:center;' +
                     'color:#aaa;padding:24px;">' +
                     esc(rows.length
                         ? tr('appt.queue.emptyFiltered')
@@ -6002,6 +6266,14 @@ function loadQueue() {
             }
             doStrip(rows);
             setQueueRefreshMeta({ stampNow: true });
+            ensureQueueElapsedTicker();
+            queueRefreshElapsedBadges();
+            hydrateApptUnpaidBalances(rows, function(changed) {
+                if (!changed) return;
+                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
+                    loadQueue();
+                }
+            });
         });
     });
 }
@@ -6012,6 +6284,9 @@ function buildQueueRow(tb, q, seqNo) {
     var uid = q.id.replace(/-/g, '').slice(0, 12);
 
     row.dataset.apptId = q.id;
+    row.dataset.arrivalTime = q.arrival_time || '';
+    row.dataset.billStatus = q.bill_status || '';
+    row.dataset.updatedAt = q.updated_at || '';
     row.classList.add('queue-row-draggable');
     if (q.bill_status === 'Billed') row.classList.add('queue-row-billed');
     else if (q.bill_status === 'Paid') row.classList.add('queue-row-paid');
@@ -6038,10 +6313,11 @@ function buildQueueRow(tb, q, seqNo) {
         '<td style="font-size:13px;">' +
             esc(q.treatment_items || '-') +
         '</td>' +
+        '<td style="font-size:12px;">' + apptAlertCellHtml(q) + '</td>' +
         '<td>' +
             '<strong>' + fmt12(q.start_time) + '</strong>' +
         '</td>' +
-        '<td>' +
+        '<td class="queue-arrived-cell">' +
             (q.arrival_time
                 ? '<span style="color:var(--success);font-weight:600;">' +
                   new Date(q.arrival_time).toLocaleTimeString(apptDateLocale(), {
@@ -6049,6 +6325,7 @@ function buildQueueRow(tb, q, seqNo) {
                       minute: '2-digit'
                   }) + '</span>'
                 : '<span style="color:#aaa;">—</span>') +
+            queueElapsedBadgeHtml(q.id, q.arrival_time, q.bill_status, q.updated_at) +
         '</td>' +
         '<td class="queue-remarks-cell">' +
             '<div class="queue-remarks-preview-wrap">' +
@@ -6059,6 +6336,7 @@ function buildQueueRow(tb, q, seqNo) {
                     : '<div class="queue-remarks-snippet queue-remarks-empty">' +
                       esc(tr('appt.queue.noRemarks')) +
                       '</div>') +
+                apptUnpaidBadgeHtml(q, 'appt-unpaid-badge--remarks') +
                 apptTaskSummaryHtml(q) +
                 '<button type="button" class="queue-remarks-pencil" ' +
                 'id="qrm-pencil-' + uid + '" ' +
@@ -6066,7 +6344,7 @@ function buildQueueRow(tb, q, seqNo) {
                 '✎</button>' +
             '</div>' +
         '</td>' +
-        '<td>' +
+        '<td class="queue-status-cell">' +
             '<span class="status-badge ' +
                 statusClass(q.bill_status) + '">' +
                 esc(dispStatusLabel(q.bill_status || 'Queue')) +
@@ -6505,6 +6783,10 @@ function renderMonthly() {
     mq = applyApptModuleClinicQuery(mq);
     mq.then(function(r) {
         var appts = r.data || [];
+        hydrateApptUnpaidBalances(appts, function(changed) {
+            if (!changed) return;
+            if (calView === 'monthly') renderMonthly();
+        });
         calMonthApptsCache = appts.slice();
         var map   = {};
         appts.forEach(function(a) {
@@ -6556,6 +6838,19 @@ function renderMonthly() {
         }
         html += '</div>';
         cb.innerHTML = html;
+        var monthById = {};
+        appts.forEach(function(a) {
+            if (a && a.id) monthById[String(a.id)] = a;
+        });
+        cb.querySelectorAll('.gcal-month-pill[data-id], .appt-pill[data-id]').forEach(function(pill) {
+            var aid = String(pill.getAttribute('data-id') || '').trim();
+            var ap = monthById[aid];
+            if (!ap) return;
+            if (pill.querySelector('.appt-unpaid-badge')) return;
+            var badge = apptUnpaidBadgeHtml(ap, 'appt-unpaid-badge--month');
+            if (!badge) return;
+            pill.innerHTML += ' ' + badge;
+        });
         if (typeof CalDoctorColors !== 'undefined') {
             CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
         }
@@ -6871,6 +7166,10 @@ var GCAL = (function () {
         wq = applyApptModuleClinicQuery(wq);
         wq.then(function (r) {
             appts = r.data || [];
+            hydrateApptUnpaidBalances(appts, function(changed) {
+                if (!changed) return;
+                if (calView === 'weekly') renderWeekly();
+            });
             mergeScheduleLockedLocal(appts);
             // collect unique doctor / treatment keys for settings panel
             knownKeys = [];
@@ -7170,6 +7469,7 @@ var GCAL = (function () {
                     : '') +
             '</span>' +
             '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
+        html += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--cal');
         if (chineseName && a.patient_name) {
             html += '<span class="card-name">' + esc(a.patient_name) + '</span>';
         }
@@ -8138,6 +8438,7 @@ function showDayPanel(iso, map) {
                 '<div class="dpi-name">' +
                     esc(a.patient_name || '-') +
                 '</div>' +
+                apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--daypanel') +
                 '<div class="dpi-treat">' +
                     esc(a.treatment_items || '-') +
                 '</div>' +
@@ -11138,6 +11439,7 @@ function refreshApptCachedTabsI18n() {
 document.addEventListener('DOMContentLoaded', function () {
     if (typeof refreshApptDurOptions === 'function') refreshApptDurOptions();
     wireBillPanelControls();
+    bindApptUnpaidBadgeClickOnce();
 });
 
 function refreshOpenBillPanelForLang() {

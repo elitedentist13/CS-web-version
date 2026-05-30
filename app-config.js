@@ -599,8 +599,9 @@ var CFG = (function () {
 
         function cfgClinicLabel(c) {
             if (!c) return ctr('cfg.label.clinic');
-            return (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') +
-                (c.english_name || c.chinese_name || ctr('cfg.label.clinic'));
+            return (typeof clinicDisplayName === 'function')
+                ? clinicDisplayName(c)
+                : (c.english_name || c.chinese_name || ctr('cfg.label.clinic'));
         }
 
         function _onDocClinicChange(clinicId) {
@@ -2077,7 +2078,9 @@ var CFG = (function () {
         function doctorLabel(id) {
             var d = _usrDoctors.find(function (x) { return x.id === id; });
             if (!d) return '-';
-            return (d.doctor_code ? ('[' + d.doctor_code + '] ') : '') + (d.english_name || ctr('cfg.label.doctorFallback'));
+            return (typeof doctorDisplayName === 'function')
+                ? (doctorDisplayName(d) || ctr('cfg.label.doctorFallback'))
+                : (d.english_name || d.chinese_name || ctr('cfg.label.doctorFallback'));
         }
 
         var html =
@@ -2131,10 +2134,14 @@ var CFG = (function () {
             }).join('');
         }
         var clinicOpts = opt(_usrClinics, function (c) {
-            return (c.clinic_code ? ('[' + c.clinic_code + '] ') : '') + (c.english_name || ctr('cfg.label.clinic'));
+            return (typeof clinicDisplayName === 'function')
+                ? clinicDisplayName(c)
+                : (c.english_name || c.chinese_name || ctr('cfg.label.clinic'));
         });
         var doctorOpts = opt(_usrDoctors, function (d) {
-            return (d.doctor_code ? ('[' + d.doctor_code + '] ') : '') + (d.english_name || ctr('cfg.label.doctorFallback'));
+            return (typeof doctorDisplayName === 'function')
+                ? (doctorDisplayName(d) || ctr('cfg.label.doctorFallback'))
+                : (d.english_name || d.chinese_name || ctr('cfg.label.doctorFallback'));
         });
 
         return '' +
@@ -3237,8 +3244,9 @@ var CFG = (function () {
 
             var opts = '<option value="">' + esc(ctr('cfg.print.selectClinicPh')) + '</option>';
             _printClinics.forEach(function (c) {
-                var label = (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
-                    (c.english_name || c.chinese_name || ctr('cfg.label.clinic'));
+                var label = (typeof clinicDisplayName === 'function')
+                    ? clinicDisplayName(c)
+                    : (c.english_name || c.chinese_name || ctr('cfg.label.clinic'));
                 var sel = String(c.id) === defaultId ? ' selected' : '';
                 opts += '<option value="' + esc(c.id) + '"' + sel + '>' + esc(label) + '</option>';
             });

@@ -335,6 +335,13 @@ function applyAppI18n() {
     if (typeof refreshXrayTypeSelects === 'function') refreshXrayTypeSelects();
     if (typeof refreshDrugCategorySelect === 'function') refreshDrugCategorySelect();
     if (typeof refreshDrugCategoryDatalist === 'function') refreshDrugCategoryDatalist();
+    if (typeof refreshAllClinicDropdowns === 'function') refreshAllClinicDropdowns();
+    if (typeof refreshLoginDoctorSelect === 'function') {
+        var ls = typeof g === 'function' ? g('loginDoctor') : null;
+        var mode = (typeof loginDoctorSelectMode !== 'undefined') ? loginDoctorSelectMode : 'default';
+        refreshLoginDoctorSelect(ls && ls.value ? ls.value : '', mode);
+    }
+    if (typeof loadConsultationDoctors === 'function') loadConsultationDoctors();
 }
 
 function updateLangToggleButtons() {

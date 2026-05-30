@@ -130,6 +130,7 @@
         'patient.th.clinicTag': { en: 'Clinic tag', 'zh-CN': '诊所标签', 'zh-Hant': '診所標籤' },
         'patient.th.dob': { en: 'DOB', 'zh-CN': '出生日期', 'zh-Hant': '出生日期' },
         'patient.th.hkid': { en: 'HKID', 'zh-CN': '香港身份证', 'zh-Hant': '香港身份證' },
+        'patient.th.insurance': { en: 'Insurance No.', 'zh-CN': '保险编号', 'zh-Hant': '保險編號' },
         'patient.th.alerts': { en: 'Alerts', 'zh-CN': '警示', 'zh-Hant': '警示' },
         'patient.th.actions': { en: 'Actions', 'zh-CN': '操作', 'zh-Hant': '操作' },
         'patient.empty': { en: 'No patients found.', 'zh-CN': '未找到患者。', 'zh-Hant': '未找到病人。' },
@@ -1647,6 +1648,16 @@
         'con.rx.saveAsList': { en: '💾 Save as list', 'zh-CN': '💾 存为清单', 'zh-Hant': '💾 存為清單' },
         'con.rx.saveAsListTitle': { en: 'Remember this combination under a name', 'zh-CN': '以名称保存此组合', 'zh-Hant': '以名稱儲存此組合' },
         'con.rx.savePrescription': { en: '💾 Save Prescription', 'zh-CN': '💾 保存处方', 'zh-Hant': '💾 儲存處方' },
+        'con.rx.savePrescriptionReplace': {
+            en: '💾 Save Prescription (Replace)',
+            'zh-CN': '💾 保存处方（替换）',
+            'zh-Hant': '💾 儲存處方（取代）'
+        },
+        'con.rx.prescriptionReplaced': {
+            en: '✅ Prescription updated — {N} drug(s) for {NAME}',
+            'zh-CN': '✅ 处方已更新 — {N} 种药品，患者 {NAME}',
+            'zh-Hant': '✅ 處方已更新 — {N} 種藥物，病人 {NAME}'
+        },
         'con.rx.noHistory': { en: 'No prescription history yet.', 'zh-CN': '尚无处方记录。', 'zh-Hant': '尚無處方紀錄。' },
         'con.rx.noDrugsYet': { en: 'No drugs added yet. Click "+ Add Drug" below.', 'zh-CN': '尚未添加药品。请点击下方「+ 添加药品」。', 'zh-Hant': '尚未新增藥物。請按下方「+ 新增藥物」。' },
         'con.rx.lineNumFmt': { en: 'Rx {N}', 'zh-CN': '处方 {N}', 'zh-Hant': '處方 {N}' },
@@ -1710,6 +1721,11 @@
         'con.rx.historyDrPrefix': { en: 'Dr. ', 'zh-CN': 'Dr. ', 'zh-Hant': 'Dr. ' },
         'con.rx.reApply': { en: '↻ Re-apply', 'zh-CN': '↻ 重新应用', 'zh-Hant': '↻ 重新套用' },
         'con.rx.reApplyTitle': { en: 'Add this prescription to the Rx draft below (appends)', 'zh-CN': '将此处方追加至下方草稿', 'zh-Hant': '將此處方追加至下方草稿' },
+        'con.rx.editHistClickTitle': {
+            en: 'Click to edit this prescription in the Rx form',
+            'zh-CN': '点击在处方编辑区修改此处方（含全部药品）',
+            'zh-Hant': '按一下在處方編輯區修改此處方（含全部藥物）'
+        },
         'con.rx.saveAsListBtn': { en: '💾 Save as list', 'zh-CN': '💾 存为清单', 'zh-Hant': '💾 存為清單' },
         'con.rx.saveAsListHistTitle': { en: 'Save this prescription bundle as a named reusable list', 'zh-CN': '将此处方组合存为可重用清单', 'zh-Hant': '將此處方組合存為可重用清單' },
         'con.rx.deleteAll': { en: '🗑 Delete All', 'zh-CN': '🗑 全部删除', 'zh-Hant': '🗑 全部刪除' },

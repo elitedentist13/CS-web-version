@@ -568,7 +568,8 @@ function rxLineToPrintDrug(line, lang, meta) {
         doctor_tag:      meta.doctor_tag || '',
         prescribed_date: meta.prescribed_date || '',
         patient_no:      meta.patient_no || '',
-        patient_name:    meta.patient_name || ''
+        patient_name:    meta.patient_name || '',
+        patient_chinese_name: meta.patient_chinese_name || ''
     };
     rxSyncLineLegacyFields(line);
     return out;

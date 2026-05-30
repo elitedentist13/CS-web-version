@@ -201,12 +201,6 @@ function refreshPatientDirI18n() {
     refreshPatientSexSelects();
     var addModal = g('addPatientModal');
     if (addModal && addModal.style.display === 'block') {
-        var prevAddClinic = addPatientSelectedClinicId();
-        fillAddPatientClinicSelect();
-        if (prevAddClinic) {
-            var addSel = g('addPatientClinicSelect');
-            if (addSel) addSel.value = prevAddClinic;
-        }
         if (typeof toggleAddBananaInfoZone === 'function') toggleAddBananaInfoZone();
         if (typeof updateAddPatientNoAvailabilityUI === 'function') {
             updateAddPatientNoAvailabilityUI();
@@ -354,9 +348,9 @@ function fillAddPatientClinicSelect() {
     }
 
     APP_CLINICS.forEach(function(c) {
-        var label =
-            (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
-            (c.english_name || c.chinese_name || (typeof clinicDisplayFallback === 'function'
+        var label = (typeof clinicDisplayName === 'function')
+            ? clinicDisplayName(c)
+            : (c.english_name || c.chinese_name || (typeof clinicDisplayFallback === 'function'
                 ? clinicDisplayFallback()
                 : patTr('common.clinic')));
         var o = document.createElement('option');
@@ -406,9 +400,9 @@ function fillEditPatientClinicSelect(storedClinicTag) {
     }
 
     APP_CLINICS.forEach(function(c) {
-        var label =
-            (c.clinic_code ? '[' + c.clinic_code + '] ' : '') +
-            (c.english_name || c.chinese_name || (typeof clinicDisplayFallback === 'function'
+        var label = (typeof clinicDisplayName === 'function')
+            ? clinicDisplayName(c)
+            : (c.english_name || c.chinese_name || (typeof clinicDisplayFallback === 'function'
                 ? clinicDisplayFallback()
                 : patTr('common.clinic')));
         var o = document.createElement('option');
@@ -705,7 +699,7 @@ function renderPatients(list) {
     var tb = g('patientTableBody');
     if (!list.length) {
         tb.innerHTML =
-            '<tr><td colspan="7" style="text-align:center;' +
+            '<tr><td colspan="8" style="text-align:center;' +
             'padding:30px;color:#999;">' + esc(patTr('patient.empty')) + '</td></tr>';
         return;
     }
@@ -753,6 +747,7 @@ function renderPatients(list) {
             '</td>' +
             '<td style="white-space:nowrap;">'+dob+'</td>' +
             '<td>'+esc(p.hkid||'--')+'</td>' +
+            '<td>'+esc(p.insurance_no||'--')+'</td>' +
             '<td><small style="color:'+(p.medical_alerts?'var(--danger)':'#bbb')+';">' +
                 esc(p.medical_alerts||patTr('patient.alertsNone'))+'</small></td>' +
             '<td>' +

@@ -1266,6 +1266,7 @@ var REPORT = (function () {
 
   function drDisplayName(d) {
     if (!d) return '';
+    if (typeof doctorDisplayName === 'function') return doctorDisplayName(d);
     return d.display_name || d.english_name || d.chinese_name || d.doctor_code || '';
   }
 
@@ -1275,10 +1276,9 @@ var REPORT = (function () {
     }
     return _drDailyDoctors.map(function (d) {
       var id = d.id || '';
-      var code = d.doctor_code ? ('[' + d.doctor_code + '] ') : '';
       var shown = drDisplayName(d) || tr('report.dr.doctorFallback');
       var sel = (id === selectedId) ? ' selected' : '';
-      return '<option value="' + esc(id) + '"' + sel + '>' + esc(code + shown) + '</option>';
+      return '<option value="' + esc(id) + '"' + sel + '>' + esc(shown) + '</option>';
     }).join('');
   }
 
@@ -1305,14 +1305,13 @@ var REPORT = (function () {
 
   function doctorTagOf(d) {
     if (!d) return '';
-    var shown = drDisplayName(d);
-    if (!shown) return '';
-    return d.doctor_code ? ('[' + d.doctor_code + '] ' + shown) : shown;
+    return String(d.doctor_code || '').trim();
   }
 
   function doctorTextVariants(d) {
     var set = {};
-    [d && d.display_name, d && d.english_name, d && d.chinese_name, doctorTagOf(d)].forEach(function (v) {
+    [d && d.display_name, d && d.english_name, d && d.chinese_name, doctorTagOf(d),
+      d && d.doctor_code ? ('[' + d.doctor_code + '] ' + (d.english_name || d.chinese_name || '')) : ''].forEach(function (v) {
       var n = normName(v);
       if (n) set[n] = true;
     });

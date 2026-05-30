@@ -1,0 +1,208 @@
+================================================================================
+JOYFUL SMILE — AI PROVIDER SETUP LOG (future reference)
+================================================================================
+Last updated: 2026-05-30
+
+This file explains how to connect the clinic web app to your AI provider
+(qweapi.com) so staff get real AI drafts — not "demo templates".
+
+--------------------------------------------------------------------------------
+BIG PICTURE (read this first)
+--------------------------------------------------------------------------------
+
+1. Staff open your website link (GitHub Pages or local server).
+2. The website calls Supabase (cloud), function name: ai-patient-draft.
+3. That function calls qweapi.com with your secret API key.
+4. qweapi returns text; staff see birthday/recall drafts in AI Helper.
+
+Your API key NEVER goes in:
+  - GitHub
+  - index.html or app.js
+  - AI Helper "Proxy URL" field (that field is optional fallback only)
+
+Your API key ONLY goes in:
+  - Supabase → Edge Functions → Secrets → name: QWE_API
+
+--------------------------------------------------------------------------------
+YOUR AI PROVIDER (connection string format)
+--------------------------------------------------------------------------------
+
+Provider type: OpenAI-compatible gateway (New API style)
+Base URL:      https://qweapi.com/v1
+               (must include /v1 at the end)
+API key:       starts with sk-...
+Model example: gpt-5.4
+
+If your provider gives you JSON like:
+  {"_type":"newapi_channel_conn","key":"sk-...","url":"https://qweapi.com"}
+
+Use:
+  key  → Supabase secret QWE_API
+  url  → Supabase secret AI_API_BASE = https://qweapi.com/v1  (add /v1)
+
+--------------------------------------------------------------------------------
+PART A — GITHUB PAGES (link you send to users)
+--------------------------------------------------------------------------------
+
+STEP A1 — Upload code to GitHub
+  - Put the whole project on GitHub (public repo is easiest).
+  - Do NOT upload tools\.env (contains your private key).
+
+STEP A2 — Turn on GitHub Pages
+  - GitHub repo → Settings → Pages
+  - Source: branch main (or master)
+  - Folder: / (root)
+  - Save and wait 1–3 minutes.
+  - Copy the URL, e.g. https://YOUR_NAME.github.io/YOUR_REPO/
+
+STEP A3 — Deploy AI on Supabase (required for GitHub Pages)
+  - GitHub Pages cannot run the local proxy.
+  - You MUST complete Part B below.
+
+STEP A4 — Test on the live link
+  - Open the GitHub Pages URL (not file://).
+  - Press Ctrl+F5 to refresh.
+  - Log in → AI Helper → generate a draft.
+  - Good sign: status says Edge / ai-patient-draft (not 示範範本).
+
+--------------------------------------------------------------------------------
+PART B — SUPABASE (links app to qweapi) — MAIN SETUP
+--------------------------------------------------------------------------------
+
+Project used by the app: kprihawipljrltfzpfjd
+(Check app.js — Supabase URL should match this project.)
+
+STEP B1 — Log in to Supabase
+  - Go to https://supabase.com/dashboard
+  - Open project kprihawipljrltfzpfjd
+
+STEP B2 — Add three secrets
+  - Left menu: Edge Functions → Secrets (or Manage secrets)
+  - Add each row:
+
+    Name          | Value
+    --------------+----------------------------------
+    QWE_API       | sk-xxxxxxxx  (your qweapi key)
+    AI_API_BASE   | https://qweapi.com/v1
+    AI_MODEL      | gpt-5.4
+
+  - Save after each one.
+  - If you change a secret later, redeploy the function (Step B4).
+
+STEP B3 — Create Edge Function
+  - Edge Functions → Deploy new function / Create function
+  - Name MUST be exactly: ai-patient-draft
+  - Open file on your PC:
+      supabase\functions\ai-patient-draft\index.ts
+  - Copy ALL code → paste into Supabase editor → Deploy.
+
+STEP B4 — Turn OFF JWT verification
+  - Open function ai-patient-draft → Settings / Details
+  - Find "Verify JWT" or "Enforce JWT" → turn OFF
+  - Save / redeploy if asked.
+  - Reason: clinic app uses custom login + anon key, not Supabase Auth.
+
+STEP B5 — Test inside Supabase
+  - Function ai-patient-draft → Test / Invoke
+  - Method: POST
+  - Body (JSON):
+
+    {
+      "workflow": "birthday",
+      "userPrompt": "Happy birthday test",
+      "clinicName": "Test Clinic",
+      "patientFirstName": "Mary",
+      "tone": "warm_professional"
+    }
+
+  - Run test.
+  - GOOD:  {"message":"...some real text..."}
+  - BAD examples:
+      QWE_API not configured     → redo Step B2
+      upstream_error             → wrong model or qweapi problem (Step B6)
+      404                        → function not deployed or wrong name
+
+STEP B6 — If upstream_error (qweapi problem)
+  - Log in to qweapi.com dashboard.
+  - Check your channel still has model gpt-5.4 (or change AI_MODEL secret).
+  - Check key is active and has quota.
+  - Edge Functions → ai-patient-draft → Logs tab for error details.
+
+STEP B7 — Test from the website
+  - Open GitHub Pages URL OR http://127.0.0.1:3000 if testing locally.
+  - Ctrl+F5 → AI Helper → generate draft.
+  - Status should NOT say demo / 示範範本.
+
+--------------------------------------------------------------------------------
+PART C — LOCAL TEST ON YOUR PC ONLY (optional)
+--------------------------------------------------------------------------------
+
+Use this when developing before GitHub Pages is ready.
+
+STEP C1 — Create tools\.env (never commit to GitHub)
+  - Copy tools\env.example to tools\.env
+  - Edit:
+      QWE_API=sk-your-key
+      AI_API_BASE=https://qweapi.com/v1
+      AI_MODEL=gpt-5.4
+
+STEP C2 — Start services
+  - Double-click START-AI.bat in project folder
+  - OR run manually:
+      Window 1: cd tools → node ai-local-proxy.mjs
+      Window 2: cd tools → node static-server.mjs
+  - Open http://127.0.0.1:3000 (NOT file://)
+
+STEP C3 — Local vs GitHub Pages
+  - On localhost, app may fall back to http://127.0.0.1:8787 if Edge fails.
+  - On GitHub Pages, only Supabase Edge works (no local proxy).
+
+--------------------------------------------------------------------------------
+PART D — COMMAND LINE (if you install Supabase CLI later)
+--------------------------------------------------------------------------------
+
+  supabase login
+  supabase link --project-ref kprihawipljrltfzpfjd
+  supabase secrets set QWE_API=sk-your-key
+  supabase secrets set AI_API_BASE=https://qweapi.com/v1
+  supabase secrets set AI_MODEL=gpt-5.4
+  supabase functions deploy ai-patient-draft --no-verify-jwt
+
+--------------------------------------------------------------------------------
+SECURITY REMINDERS
+--------------------------------------------------------------------------------
+
+  - Rotate (replace) any API key that was pasted in email, chat, or screenshots.
+  - Never commit tools\.env or put sk- keys in GitHub.
+  - Staff GitHub Pages link is safe: they only use the anon key already in app.js.
+  - Only you (admin) can see Supabase secrets.
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING QUICK TABLE
+--------------------------------------------------------------------------------
+
+  Symptom                          | Fix
+  ---------------------------------+------------------------------------------
+  示範範本 / demo templates        | Deploy ai-patient-draft + secrets B2
+  Status ends with no_proxy        | Normal on GitHub Pages if Edge failed;
+                                   | fix Part B, not proxy
+  Edge failed 404                  | Function not deployed or wrong name
+  QWE_API not configured         | Add secret in Supabase B2, redeploy
+  Works on PC, not on GitHub       | Part B not done; Pages needs Edge only
+  CORS error in browser F12        | Redeploy function (CORS * is in index.ts)
+
+--------------------------------------------------------------------------------
+FILES IN THIS PROJECT (related to AI)
+--------------------------------------------------------------------------------
+
+  supabase\functions\ai-patient-draft\index.ts   Edge function source
+  supabase\config.toml                             JWT off for function
+  app-ai-helper.js                                 Calls Edge, then optional proxy
+  tools\ai-local-proxy.mjs                         Local PC proxy only
+  tools\.env                                       Your key (local, gitignored)
+  START-AI.bat                                     Start local proxy + web server
+  DEPLOY_GITHUB_PAGES.md                           Longer markdown guide
+
+--------------------------------------------------------------------------------
+END OF LOG
+================================================================================

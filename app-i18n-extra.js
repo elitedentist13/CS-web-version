@@ -2687,6 +2687,11 @@
         'ai.origin.proxy': { en: 'Drafted via your custom HTTPS proxy.', 'zh-CN': '已通过您的自定义 HTTPS 代理生成。', 'zh-Hant': '已透過您的自訂 HTTPS 代理產生。' },
         'ai.origin.demoProxy': { en: 'Demo — Edge or proxy unreachable.', 'zh-CN': '演示 — Edge 或代理不可达。', 'zh-Hant': '示範 — Edge 或代理不可達。' },
         'ai.origin.demo': { en: 'Demo templates — deploy ai-patient-draft (AI module) or add a HTTPS proxy.', 'zh-CN': '演示模板 — 请部署 ai-patient-draft（AI 模块）或添加 HTTPS 代理。', 'zh-Hant': '示範範本 — 請部署 ai-patient-draft（AI 模組）或添加 HTTPS 代理。' },
+        'ai.err.edgeOnly': {
+            en: 'Edge function failed (see dash). Deploy ai-patient-draft or run tools/ai-local-proxy.mjs and set Proxy URL.',
+            'zh-CN': 'Edge 函数失败。请部署 ai-patient-draft，或运行 tools/ai-local-proxy.mjs 并在设置中填写代理 URL。',
+            'zh-Hant': 'Edge 函式失敗。請部署 ai-patient-draft，或執行 tools/ai-local-proxy.mjs 並在設定填寫代理 URL。'
+        },
         'ai.draft.patientHeader': { en: '\n===== PATIENT #{NO} — {NAME} =====\n', 'zh-CN': '\n===== 患者 #{NO} — {NAME} =====\n', 'zh-Hant': '\n===== 病人 #{NO} — {NAME} =====\n' },
         'ai.send.guestDemo': { en: '🌐 Guest demo · {NAME}', 'zh-CN': '🌐 访客演示 · {NAME}', 'zh-Hant': '🌐 訪客示範 · {NAME}' },
         'memo.untitled': { en: 'Untitled memo', 'zh-CN': '未命名备忘', 'zh-Hant': '未命名備忘' },

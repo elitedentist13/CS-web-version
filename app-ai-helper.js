@@ -8,6 +8,17 @@ var AIHELPER = AIHELPER || {};
 
     var LS_PROXY_URL = 'joyful_ai_proxy_url';
     var SS_PROXY_AUTH = 'joyful_ai_proxy_auth_session';
+    /** Local tools/ai-local-proxy.mjs — dev only (not used on GitHub Pages). */
+    var LOCAL_AI_PROXY_DEFAULT = 'http://127.0.0.1:8787';
+
+    function isLocalDevHost() {
+        try {
+            var h = String(window.location.hostname || '').toLowerCase();
+            return !h || h === 'localhost' || h === '127.0.0.1';
+        } catch (e) {
+            return false;
+        }
+    }
 
     var _patientsCache = [];
 
@@ -618,6 +629,7 @@ var AIHELPER = AIHELPER || {};
                     renderPickList('birth');
                     renderPickList('recall');
                 }
+                ensureLocalProxyDefaultInUi();
                 if (!silentReload) syncProxyInputs();
             });
     };
@@ -688,12 +700,26 @@ var AIHELPER = AIHELPER || {};
         } catch (e) {}
         var uEl = pick('aiProxyUrl');
         if (!url && uEl && uEl.value) url = uEl.value.trim();
+        if (!url && isLocalDevHost()) url = LOCAL_AI_PROXY_DEFAULT;
         var aEl = pick('aiProxyAuth');
         if (!auth && aEl && aEl.value) auth = aEl.value.trim();
         return { url: url, authHeader: auth };
     }
 
+    function ensureLocalProxyDefaultInUi() {
+        if (!isLocalDevHost()) return;
+        try {
+            if (!localStorage.getItem(LS_PROXY_URL)) {
+                localStorage.setItem(LS_PROXY_URL, LOCAL_AI_PROXY_DEFAULT);
+            }
+        } catch (e) {}
+        var u = pick('aiProxyUrl');
+        if (u && !String(u.value || '').trim()) u.value = LOCAL_AI_PROXY_DEFAULT;
+    }
+
     var EDGE_FN = 'ai-patient-draft';
+    /** Last edge/proxy failure (for status banner when falling back to demo). */
+    var _lastAiPipeError = '';
 
     function callerSnippet() {
         var uid =
@@ -718,6 +744,22 @@ var AIHELPER = AIHELPER || {};
         return o;
     }
 
+    function normalizeEdgeData(data) {
+        if (!data) return null;
+        if (typeof data === 'string') {
+            try { return JSON.parse(data); } catch (e) { return null; }
+        }
+        if (typeof data === 'object') return data;
+        return null;
+    }
+
+    function edgeErrorHint(errRes, dataObj) {
+        if (dataObj && dataObj.error) return String(dataObj.error);
+        if (dataObj && dataObj.detail) return String(dataObj.detail).slice(0, 120);
+        if (errRes && errRes.message) return String(errRes.message);
+        return '';
+    }
+
     function invokeSupabaseEdge(fullPayload) {
         if (typeof SB === 'undefined' || !SB.functions ||
             typeof SB.functions.invoke !== 'function') {
@@ -725,11 +767,14 @@ var AIHELPER = AIHELPER || {};
         }
         return SB.functions.invoke(EDGE_FN, { body: fullPayload }).then(function(res) {
             var errRes = res.error;
-            var data = res.data;
-            if (errRes) throw errRes;
-            if (data && typeof data.message === 'string') {
-                var s = data.message.trim();
+            var dataObj = normalizeEdgeData(res.data);
+            if (dataObj && typeof dataObj.message === 'string') {
+                var s = dataObj.message.trim();
                 if (s.length) return s;
+            }
+            if (errRes) {
+                var hint = edgeErrorHint(errRes, dataObj);
+                throw new Error(hint || 'edge_invoke_failed');
             }
             throw new Error('bad_edge_payload');
         });
@@ -758,19 +803,46 @@ var AIHELPER = AIHELPER || {};
         var pc = getProxyConf();
         if (origin === 'edge') return aiTr('ai.origin.edge');
         if (origin === 'proxy') return aiTr('ai.origin.proxy');
-        if (pc.url.length) return aiTr('ai.origin.demoProxy');
-        return aiTr('ai.origin.demo');
+        var errTail = _lastAiPipeError
+            ? (' — ' + String(_lastAiPipeError).slice(0, 160))
+            : '';
+        if (pc.url.length) return aiTr('ai.origin.demoProxy') + errTail;
+        return aiTr('ai.origin.demo') + errTail;
     }
 
     function runAiChainInner(fullPayload, makeDemoLocal) {
+        _lastAiPipeError = '';
+        var edgeErrMsg = '';
         return invokeSupabaseEdge(fullPayload)
             .then(function(txt) {
                 return { text: txt, origin: 'edge' }; })
-            .catch(function() {
+            .catch(function(errEdge) {
+                edgeErrMsg = (errEdge && errEdge.message)
+                    ? String(errEdge.message)
+                    : 'edge_failed';
+                _lastAiPipeError = edgeErrMsg;
+                console.warn('[AI] Edge failed:', errEdge);
+                var pc = getProxyConf();
+                if (!pc.url) {
+                    return Promise.reject(new Error('no_proxy_configured'));
+                }
                 return invokeCustomProxy(fullPayload).then(function(txt) {
-                    return { text: txt, origin: 'proxy' }; }); })
-            .catch(function() {
-                return { text: makeDemoLocal(), origin: 'demo' }; });
+                    return { text: txt, origin: 'proxy' }; });
+            })
+            .catch(function(errProxy) {
+                var pm = (errProxy && errProxy.message)
+                    ? String(errProxy.message)
+                    : '';
+                if (pm === 'no_proxy_configured' || pm === 'no_proxy') {
+                    _lastAiPipeError = edgeErrMsg || aiTr('ai.err.edgeOnly');
+                } else if (pm) {
+                    _lastAiPipeError = edgeErrMsg
+                        ? (edgeErrMsg + ' | proxy: ' + pm)
+                        : pm;
+                }
+                console.warn('[AI] Proxy skipped/failed:', errProxy);
+                return { text: makeDemoLocal(), origin: 'demo' };
+            });
     }
 
     ns.invokeAiPipeline = function(fullPayload, makeDemoLocal) {

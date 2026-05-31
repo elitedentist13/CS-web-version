@@ -581,6 +581,7 @@
         <th data-i18n="patient.th.hkid"></th>
         <th data-i18n="patient.th.insurance"></th>
         <th data-i18n="patient.th.alerts"></th>
+        <th class="patient-dir-banana-th" data-i18n-title="patient.th.bananaIndex" aria-label="Banana Index">🍌</th>
         <th data-i18n="patient.th.actions"></th>
       </tr>
     </thead>
@@ -3087,6 +3088,46 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════
+     MODAL — PATIENT DIRECTORY BANANA INFO (quick edit)
+════════════════════════════════════════════════════════════ -->
+<div id="patientBananaModal" class="modal">
+  <div class="modal-box patient-banana-modal-box">
+    <button class="mclose" id="closePatientBananaModal" data-i18n-aria-label="common.closeAria">×</button>
+    <h2 data-i18n="patient.dirBanana.title"></h2>
+    <p id="patientBananaMeta" class="patient-banana-meta"></p>
+    <div class="form-grid">
+      <div class="fg">
+        <label data-i18n="patient.form.bananaIndex"></label>
+        <select id="patientDir_banana_index">
+          <option value="" data-i18n="patient.form.select"></option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+        </select>
+      </div>
+      <div class="fg full">
+        <label data-i18n="patient.form.bananaNotes"></label>
+        <textarea id="patientDir_banana_notes" rows="3"
+                  data-i18n-placeholder="patient.form.bananaNotesPh"></textarea>
+      </div>
+    </div>
+    <div class="patient-banana-modal-actions">
+      <button type="button" id="patientBananaCancelBtn" class="btn-secondary"
+              data-i18n="patient.history.cancelBtn"></button>
+      <button type="button" id="patientBananaSaveBtn" class="btn-primary"
+              data-i18n="common.btnSave"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
      MODAL — EDIT PATIENT
 ════════════════════════════════════════════════════════════ -->
 <div id="editPatientModal" class="modal">
@@ -3659,82 +3700,195 @@
       </div>
       <div class="cfg-print-modal__body">
         <p id="cfgPrintModalDocLabel" class="cfg-print-modal__doc"></p>
-        <form id="cfgPrintForm" class="cfg-print-form" onsubmit="return false;">
-          <label class="cfg-printer-field" data-i18n="cfg.print.printerLabel">
-            <div class="cfg-printer-row">
-              <div class="cfg-printer-combo">
-              <select id="cfgPrintPrinterSelect" data-i18n-aria-label="cfg.print.printerListAria">
-                <option value="" data-i18n="cfg.print.selectPrinter"></option>
-                <option value="__custom__" data-i18n="cfg.print.customOption"></option>
-              </select>
+        <form id="cfgPrintForm" class="cfg-print-form cfg-print-form--detail" onsubmit="return false;">
+
+          <fieldset class="cfg-print-section">
+            <legend class="cfg-print-section__title" data-i18n="cfg.print.sectionPrinterPaper"></legend>
+            <label class="cfg-printer-field" data-i18n="cfg.print.printerProfileLabel">
               <input name="printer_name" id="cfgPrintPrinter" list="cfgPrintPrinterList"
-                     data-i18n-placeholder="cfg.print.printerPh" autocomplete="off">
+                     data-i18n-placeholder="cfg.print.printerProfilePh" autocomplete="off">
               <datalist id="cfgPrintPrinterList"></datalist>
-              <button type="button" class="btn btn--ghost cfg-printer-refresh" id="cfgPrintRefreshPrinters"
-                      data-i18n-title="cfg.print.refreshTitle" data-i18n="cfg.print.refreshBtn"></button>
+            </label>
+            <label data-i18n="cfg.print.printerDeviceLabel">
+              <div class="cfg-printer-row cfg-printer-row--compact">
+                <div class="cfg-printer-combo">
+                  <select id="cfgPrintPrinterSelect" data-i18n-aria-label="cfg.print.printerListAria">
+                    <option value="" data-i18n="cfg.print.selectPrinter"></option>
+                    <option value="__custom__" data-i18n="cfg.print.customOption"></option>
+                  </select>
+                  <button type="button" class="btn btn--ghost cfg-printer-refresh" id="cfgPrintRefreshPrinters"
+                          data-i18n-title="cfg.print.refreshTitle" data-i18n="cfg.print.refreshBtn"></button>
+                </div>
+                <button type="button" class="cfg-printer-hint-toggle" id="cfgPrintPrinterHintToggle"
+                        aria-expanded="false" aria-controls="cfgPrintPrinterHintPanel">
+                  <span class="cfg-printer-hint-toggle__chev" aria-hidden="true">▸</span>
+                  <span data-i18n="cfg.print.cantFind"></span>
+                </button>
               </div>
-              <button type="button" class="cfg-printer-hint-toggle" id="cfgPrintPrinterHintToggle"
-                      aria-expanded="false" aria-controls="cfgPrintPrinterHintPanel">
-                <span class="cfg-printer-hint-toggle__chev" aria-hidden="true">▸</span>
-                <span data-i18n="cfg.print.cantFind"></span>
-              </button>
+              <div id="cfgPrintPrinterHintPanel" class="cfg-print-hint-panel hidden" role="region"
+                   aria-labelledby="cfgPrintPrinterHintToggle" data-i18n-html="cfg.print.hintHtml"></div>
+            </label>
+            <div class="cfg-print-form__row2">
+              <label data-i18n="cfg.print.paperSize">
+                <select name="paper_size" id="cfgPrintPaper">
+                  <option value="A4"></option>
+                  <option value="A5"></option>
+                  <option value="Letter"></option>
+                  <option value="80mm roll"></option>
+                  <option value="50mm x 60mm"></option>
+                  <option value="Custom"></option>
+                </select>
+              </label>
+              <label data-i18n="cfg.print.copies"><input type="number" name="copies" min="1" max="20" step="1" value="1"></label>
             </div>
-            <div id="cfgPrintPrinterHintPanel" class="cfg-print-hint-panel hidden" role="region"
-                 aria-labelledby="cfgPrintPrinterHintToggle" data-i18n-html="cfg.print.hintHtml"></div>
-          </label>
-          <label data-i18n="cfg.print.paperSize">
-            <select name="paper_size" id="cfgPrintPaper">
-              <option value="A4"></option>
-              <option value="A5"></option>
-              <option value="Letter"></option>
-              <option value="80mm roll"></option>
-              <option value="50mm x 60mm"></option>
-              <option value="Custom"></option>
-            </select>
-          </label>
-          <div id="cfgPrintCustomSize" class="cfg-print-custom-size hidden">
-            <label data-i18n="cfg.print.widthMm"><input type="number" name="paper_width_mm" min="20" max="500" step="1"></label>
-            <label data-i18n="cfg.print.heightMm"><input type="number" name="paper_height_mm" min="20" max="500" step="1"></label>
-          </div>
-          <div class="cfg-print-form__row2">
-            <label data-i18n="cfg.print.marginLeft"><input type="number" name="margin_left" min="0" max="50" step="0.5"></label>
-            <label data-i18n="cfg.print.marginRight"><input type="number" name="margin_right" min="0" max="50" step="0.5"></label>
-          </div>
-          <div class="cfg-print-form__row2">
-            <label data-i18n="cfg.print.marginTop"><input type="number" name="margin_top" min="0" max="50" step="0.5"></label>
-            <label data-i18n="cfg.print.marginBottom"><input type="number" name="margin_bottom" min="0" max="50" step="0.5"></label>
-          </div>
-          <div class="cfg-print-form__row2">
-            <label data-i18n="cfg.print.orientation">
-              <select name="orientation">
-                <option value="portrait" data-i18n="cfg.print.portrait"></option>
-                <option value="landscape" data-i18n="cfg.print.landscape"></option>
-              </select>
+            <div id="cfgPrintDimensions" class="cfg-print-form__row2">
+              <label data-i18n="cfg.print.widthMm"><input type="number" name="paper_width_mm" min="20" max="500" step="0.01"></label>
+              <label data-i18n="cfg.print.heightMm"><input type="number" name="paper_height_mm" min="20" max="500" step="0.01"></label>
+            </div>
+            <div class="cfg-print-form__row4">
+              <label data-i18n="cfg.print.marginLeft"><input type="number" name="margin_left" min="0" max="50" step="0.01"></label>
+              <label data-i18n="cfg.print.marginTop"><input type="number" name="margin_top" min="0" max="50" step="0.01"></label>
+              <label data-i18n="cfg.print.marginRight"><input type="number" name="margin_right" min="0" max="50" step="0.01"></label>
+              <label data-i18n="cfg.print.marginBottom"><input type="number" name="margin_bottom" min="0" max="50" step="0.01"></label>
+            </div>
+            <div class="cfg-print-form__row2">
+              <label data-i18n="cfg.print.orientation">
+                <select name="orientation">
+                  <option value="portrait" data-i18n="cfg.print.portrait"></option>
+                  <option value="landscape" data-i18n="cfg.print.landscape"></option>
+                </select>
+              </label>
+              <label data-i18n="cfg.print.colorMode">
+                <select name="color_mode">
+                  <option value="color" data-i18n="cfg.print.color"></option>
+                  <option value="grayscale" data-i18n="cfg.print.grayscale"></option>
+                  <option value="monochrome" data-i18n="cfg.print.monochrome"></option>
+                </select>
+              </label>
+            </div>
+            <div class="cfg-print-form__row2">
+              <label data-i18n="cfg.print.scale">
+                <input type="number" name="scale_percent" min="50" max="200" step="5" value="100">
+              </label>
+              <label class="cfg-check cfg-check--inline"><input type="checkbox" name="fit_to_page"> <span data-i18n="cfg.print.fitToPage"></span></label>
+            </div>
+          </fieldset>
+
+          <fieldset class="cfg-print-section">
+            <legend class="cfg-print-section__title" data-i18n="cfg.print.sectionLogo"></legend>
+            <label class="cfg-check"><input type="checkbox" name="print_logo" id="cfgPrintLogoEnable"> <span data-i18n="cfg.print.printLogo"></span></label>
+            <div class="cfg-print-logo-row">
+              <div id="cfgPrintLogoPreview" class="cfg-print-logo-preview" aria-hidden="true"></div>
+              <input type="file" id="cfgPrintLogoFile" accept="image/*" class="cfg-print-logo-file">
+              <button type="button" class="btn btn--ghost" id="cfgPrintLogoBrowseBtn" data-i18n="cfg.print.logoBrowse"></button>
+              <input type="hidden" name="logo_data_url" id="cfgPrintLogoData">
+            </div>
+            <div class="cfg-print-form__row4">
+              <label data-i18n="cfg.print.logoLeft"><input type="number" name="logo_left_mm" min="0" max="100" step="0.01" value="0"></label>
+              <label data-i18n="cfg.print.logoTop"><input type="number" name="logo_top_mm" min="0" max="100" step="0.01" value="0"></label>
+              <label data-i18n="cfg.print.logoRight"><input type="number" name="logo_right_mm" min="0" max="100" step="0.01" value="0"></label>
+              <label data-i18n="cfg.print.logoBottom"><input type="number" name="logo_bottom_mm" min="0" max="100" step="0.01" value="0"></label>
+            </div>
+          </fieldset>
+
+          <fieldset class="cfg-print-section">
+            <legend class="cfg-print-section__title" data-i18n="cfg.print.sectionHeader"></legend>
+            <label class="cfg-check"><input type="checkbox" name="show_header" checked> <span data-i18n="cfg.print.printHeader"></span></label>
+            <div class="cfg-print-form__row2">
+              <label data-i18n="cfg.print.headerStyle">
+                <select name="header_style" id="cfgPrintHeaderStyle">
+                  <option value="form_a" data-i18n="cfg.print.headerFormA"></option>
+                  <option value="form_b" data-i18n="cfg.print.headerFormB"></option>
+                  <option value="simple" data-i18n="cfg.print.headerSimple"></option>
+                </select>
+              </label>
+            </div>
+            <div class="cfg-print-header-type">
+              <span class="cfg-print-header-type__label" data-i18n="cfg.print.headerType"></span>
+              <label class="cfg-check cfg-check--inline"><input type="radio" name="header_type" value="clinic" checked> <span data-i18n="cfg.print.headerClinic"></span></label>
+              <label class="cfg-check cfg-check--inline"><input type="radio" name="header_type" value="doctor"> <span data-i18n="cfg.print.headerDoctor"></span></label>
+            </div>
+          </fieldset>
+
+          <fieldset class="cfg-print-section">
+            <legend class="cfg-print-section__title" data-i18n="cfg.print.sectionFonts"></legend>
+            <div class="cfg-print-font-row" data-font-field="font_header">
+              <span class="cfg-print-font-row__label" data-i18n="cfg.print.fontHeader"></span>
+              <button type="button" class="cfg-print-font-btn" data-font-field="font_header" title="Font">F</button>
+              <span class="cfg-print-font-display" id="cfgPrintFontDisp_font_header"></span>
+              <input type="hidden" name="font_header" id="cfgPrintFont_font_header">
+            </div>
+            <div class="cfg-print-font-row" data-font-field="font_qualification">
+              <span class="cfg-print-font-row__label" data-i18n="cfg.print.fontQualification"></span>
+              <button type="button" class="cfg-print-font-btn" data-font-field="font_qualification" title="Font">F</button>
+              <span class="cfg-print-font-display" id="cfgPrintFontDisp_font_qualification"></span>
+              <input type="hidden" name="font_qualification" id="cfgPrintFont_font_qualification">
+            </div>
+            <div class="cfg-print-font-row" data-font-field="font_address">
+              <span class="cfg-print-font-row__label" data-i18n="cfg.print.fontAddress"></span>
+              <button type="button" class="cfg-print-font-btn" data-font-field="font_address" title="Font">F</button>
+              <span class="cfg-print-font-display" id="cfgPrintFontDisp_font_address"></span>
+              <input type="hidden" name="font_address" id="cfgPrintFont_font_address">
+            </div>
+            <div class="cfg-print-font-row" data-font-field="font_doc_title">
+              <span class="cfg-print-font-row__label" data-i18n="cfg.print.fontDocTitle"></span>
+              <button type="button" class="cfg-print-font-btn" data-font-field="font_doc_title" title="Font">F</button>
+              <span class="cfg-print-font-display" id="cfgPrintFontDisp_font_doc_title"></span>
+              <input type="hidden" name="font_doc_title" id="cfgPrintFont_font_doc_title">
+            </div>
+            <div class="cfg-print-font-row" data-font-field="font_content">
+              <span class="cfg-print-font-row__label" data-i18n="cfg.print.fontContent"></span>
+              <button type="button" class="cfg-print-font-btn" data-font-field="font_content" title="Font">F</button>
+              <span class="cfg-print-font-display" id="cfgPrintFontDisp_font_content"></span>
+              <input type="hidden" name="font_content" id="cfgPrintFont_font_content">
+            </div>
+            <div id="cfgPrintFontEditor" class="cfg-print-font-editor hidden">
+              <div class="cfg-print-form__row2">
+                <label data-i18n="cfg.print.fontFamily">
+                  <select id="cfgPrintFontFamily">
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Arial">Arial</option>
+                    <option value="Microsoft JhengHei">Microsoft JhengHei</option>
+                    <option value="PMingLiU">PMingLiU</option>
+                  </select>
+                </label>
+                <label data-i18n="cfg.print.fontSizePt">
+                  <input type="number" id="cfgPrintFontSize" min="6" max="36" step="1" value="12">
+                </label>
+              </div>
+              <label class="cfg-check"><input type="checkbox" id="cfgPrintFontBold"> <span data-i18n="cfg.print.fontBold"></span></label>
+              <div class="cfg-print-font-editor__actions">
+                <button type="button" class="btn btn--primary btn--sm" id="cfgPrintFontApplyBtn" data-i18n="cfg.print.fontApply"></button>
+                <button type="button" class="btn btn--ghost btn--sm" id="cfgPrintFontCancelBtn" data-i18n="cfg.printCancel"></button>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="cfg-print-section">
+            <legend class="cfg-print-section__title" data-i18n="cfg.print.sectionFootnote"></legend>
+            <div class="cfg-print-footnote-toolbar" id="cfgPrintFootnoteToolbar">
+              <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+              <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+              <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+              <span class="cfg-print-footnote-sep"></span>
+              <button type="button" data-cmd="justifyLeft" title="Left">⬅</button>
+              <button type="button" data-cmd="justifyCenter" title="Center">↔</button>
+              <button type="button" data-cmd="justifyRight" title="Right">➡</button>
+              <button type="button" data-cmd="insertUnorderedList" title="List">•</button>
+            </div>
+            <div id="cfgPrintFootnoteEditor" class="cfg-print-footnote-editor" contenteditable="true"
+                 data-i18n-placeholder="cfg.print.footnotePh"></div>
+            <textarea name="footnote_html" id="cfgPrintFootnoteHtml" rows="3" class="hidden" aria-hidden="true"></textarea>
+            <label data-i18n="cfg.print.notesStaff">
+              <textarea name="notes" rows="2" data-i18n-placeholder="cfg.print.notesPh"></textarea>
             </label>
-            <label data-i18n="cfg.print.scale">
-              <input type="number" name="scale_percent" min="50" max="200" step="5" value="100">
-            </label>
-          </div>
-          <div class="cfg-print-form__row2">
-            <label data-i18n="cfg.print.copies"><input type="number" name="copies" min="1" max="20" step="1" value="1"></label>
-            <label data-i18n="cfg.print.colorMode">
-              <select name="color_mode">
-                <option value="color" data-i18n="cfg.print.color"></option>
-                <option value="grayscale" data-i18n="cfg.print.grayscale"></option>
-                <option value="monochrome" data-i18n="cfg.print.monochrome"></option>
-              </select>
-            </label>
-          </div>
-          <label class="cfg-check"><input type="checkbox" name="fit_to_page"> <span data-i18n="cfg.print.fitToPage"></span></label>
-          <label class="cfg-check"><input type="checkbox" name="show_header" checked> <span data-i18n="cfg.print.showHeader"></span></label>
-          <label data-i18n="cfg.print.notesStaff">
-            <textarea name="notes" rows="2" data-i18n-placeholder="cfg.print.notesPh"></textarea>
-          </label>
+          </fieldset>
+
         </form>
       </div>
-      <div class="cfg-print-modal__foot">
-        <button type="button" class="btn btn--ghost" id="cfgPrintModalCancel" data-i18n="cfg.printCancel"></button>
+      <div class="cfg-print-modal__foot cfg-print-modal__foot--split">
         <button type="button" class="btn btn--primary" id="cfgPrintModalSave" data-i18n="cfg.printSave"></button>
+        <button type="button" class="btn btn--ghost" id="cfgPrintModalCancel" data-i18n="cfg.print.returnBtn"></button>
       </div>
     </div>
   </div>
@@ -4152,6 +4306,62 @@
   </div>
 </div>
 
+<div id="receiptPrintOptionsModal" class="modal">
+  <div class="modal-box receipt-print-options-box">
+    <button class="mclose" id="closeReceiptPrintOptionsModal" data-i18n-aria-label="common.closeAria">×</button>
+    <h2 data-i18n="bill.receipt.optionsTitle"></h2>
+    <p class="receipt-print-options-hint" data-i18n="bill.receipt.optionsHint"></p>
+    <div class="receipt-print-options-grid">
+      <label class="receipt-print-opt">
+        <input type="checkbox" id="rpoPrintAddress">
+        <span data-i18n="bill.receipt.optPrintAddress"></span>
+      </label>
+      <label class="receipt-print-opt">
+        <input type="checkbox" id="rpoPatientUndersign" checked>
+        <span data-i18n="bill.receipt.optPatientUndersign"></span>
+      </label>
+      <label class="receipt-print-opt">
+        <input type="checkbox" id="rpoPrintPaymentHistory">
+        <span data-i18n="bill.receipt.optPrintPaymentHistory"></span>
+      </label>
+      <label class="receipt-print-opt">
+        <input type="checkbox" id="rpoPrintPrescription">
+        <span data-i18n="bill.receipt.optPrintPrescription"></span>
+      </label>
+      <label class="receipt-print-opt">
+        <input type="checkbox" id="rpoPrintBillDate">
+        <span data-i18n="bill.receipt.optPrintBillDate"></span>
+      </label>
+      <label class="receipt-print-opt">
+        <input type="checkbox" id="rpoPrintTreatmentNotes">
+        <span data-i18n="bill.receipt.optPrintTreatmentNotes"></span>
+      </label>
+      <label class="receipt-print-opt receipt-print-opt-full">
+        <input type="checkbox" id="rpoPrintDiagnosis">
+        <span data-i18n="bill.receipt.optPrintDiagnosis"></span>
+      </label>
+    </div>
+    <div id="rpoDiagnosisFields" class="receipt-print-diagnosis-fields" style="display:none;">
+      <label class="receipt-print-field">
+        <span class="receipt-print-field-label" data-i18n="bill.receipt.diagnosisInputLabel"></span>
+        <input type="text" id="rpoDiagnosisText" class="receipt-print-field-input"
+               data-i18n-placeholder="bill.receipt.diagnosisInputPh">
+      </label>
+      <label class="receipt-print-field">
+        <span class="receipt-print-field-label" data-i18n="bill.receipt.reasonInputLabel"></span>
+        <input type="text" id="rpoReasonForTreatment" class="receipt-print-field-input"
+               data-i18n-placeholder="bill.receipt.reasonInputPh">
+      </label>
+    </div>
+    <div class="receipt-print-options-actions">
+      <button type="button" id="receiptPrintOptionsCancelBtn" class="btn-secondary"
+              data-i18n="patient.history.cancelBtn"></button>
+      <button type="button" id="receiptPrintOptionsOkBtn" class="btn-primary"
+              data-i18n="bill.receipt.optionsOk"></button>
+    </div>
+  </div>
+</div>
+
 <div id="receiptModal" class="modal">
   <div class="modal-box" style="max-width:560px;">
     <button class="mclose" id="closeReceiptModal" data-i18n-aria-label="common.closeAria">×</button>
@@ -4194,11 +4404,36 @@
             <span class="receipt-kv-val" id="rType">—</span>
           </div>
         </div>
-        <div class="receipt-meta-col receipt-meta-date-only">
+        <div class="receipt-meta-col receipt-meta-date-only" id="receiptBillDateCol">
           <div class="receipt-kv-row">
             <strong class="receipt-kv-label" data-i18n="bill.receipt.date"></strong>
             <span class="receipt-kv-val" id="rDate">—</span>
           </div>
+        </div>
+      </div>
+
+      <div id="rPatientAddrSection" class="receipt-extra-meta" style="display:none;">
+        <div class="receipt-kv-row">
+          <strong class="receipt-kv-label" data-i18n="bill.receipt.patientAddress"></strong>
+          <span class="receipt-kv-val" id="rPatientAddr">—</span>
+        </div>
+      </div>
+
+      <div id="rDiagnosisSection" class="receipt-extra-meta" style="display:none;">
+        <div class="receipt-kv-row">
+          <strong class="receipt-kv-label" data-i18n="bill.receipt.diagnosisLine"></strong>
+          <span class="receipt-kv-val" id="rDiagnosisVal">—</span>
+        </div>
+        <div class="receipt-kv-row">
+          <strong class="receipt-kv-label" data-i18n="bill.receipt.reasonLine"></strong>
+          <span class="receipt-kv-val" id="rTreatmentReasonVal">—</span>
+        </div>
+      </div>
+
+      <div id="rTreatmentNotesSection" class="receipt-extra-meta" style="display:none;">
+        <div class="receipt-kv-row receipt-kv-row-stack">
+          <strong class="receipt-kv-label" data-i18n="bill.receipt.treatmentNotesTitle"></strong>
+          <span class="receipt-kv-val receipt-kv-multiline" id="rTreatmentNotesBody">—</span>
         </div>
       </div>
 
@@ -4238,7 +4473,14 @@
         </div>
       </div>
 
-      <!-- Payment instalments (shown only when > 1 payment or partial) -->
+      <div id="rPrescriptionSection" class="receipt-extra-meta" style="display:none;">
+        <div class="receipt-kv-row receipt-kv-row-stack">
+          <strong class="receipt-kv-label" data-i18n="bill.receipt.prescriptionTitle"></strong>
+          <div class="receipt-kv-val receipt-kv-multiline" id="rPrescriptionBody"></div>
+        </div>
+      </div>
+
+      <!-- Payment instalments -->
       <div id="rInstalmentsSection" class="receipt-instalments-section" style="display:none;">
         <div class="receipt-instalments-title" data-i18n="bill.receipt.instalmentsTitle"></div>
         <table class="receipt-instalments-table">
@@ -4266,7 +4508,7 @@
             <div id="rDoctorSignEng" class="receipt-sign-name">—</div>
             <div id="rDoctorSignChi" class="receipt-sign-name">—</div>
           </div>
-          <div class="receipt-signature receipt-signature-patient">
+          <div class="receipt-signature receipt-signature-patient" id="receiptPatientSignBlock">
             <div class="receipt-sign-line"></div>
             <div id="rPatientSignEng" class="receipt-sign-name">—</div>
             <div id="rPatientSignChi" class="receipt-sign-name">—</div>
@@ -4278,15 +4520,13 @@
 
     </div><!-- /receiptPrintArea -->
 
-    <div style="display:flex;gap:10px;margin-top:20px;">
-      <button type="button" onclick="printReceiptDocument()"
-              style="flex:1;padding:11px;background:var(--primary);
-                     color:white;border:none;border-radius:6px;
-                     cursor:pointer;font-weight:bold;" data-i18n="bill.receipt.btnPrint"></button>
-      <button id="closeReceiptModal2"
-              style="flex:1;padding:11px;background:var(--gray);
-                     color:white;border:none;border-radius:6px;
-                     cursor:pointer;font-weight:bold;" data-i18n="bill.receipt.btnClose"></button>
+    <div class="receipt-modal-actions">
+      <button type="button" id="receiptPrintNowBtn" class="receipt-print-now-btn"
+              data-i18n="bill.receipt.btnPrintNow"></button>
+      <button type="button" id="receiptPrintOptionsBtn" class="receipt-options-btn"
+              data-i18n="bill.receipt.btnOptions"></button>
+      <button type="button" id="closeReceiptModal2" class="receipt-close-btn"
+              data-i18n="bill.receipt.btnClose"></button>
     </div>
 
   </div>
@@ -4673,6 +4913,7 @@
 <script src="app.js"></script>
 <script src="app-audit.js"></script>
 <script src="app-auth.js"></script>
+<script src="treatment-items-catalog.js"></script>
 <script src="app-config.js"></script>
 <script src="app-report.js"></script>
 <script src="app-ai-helper.js"></script>

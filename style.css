@@ -538,6 +538,54 @@ body.app-session-active {
     display: block;
     margin-top: 3px;
 }
+.patient-dir-banana-th {
+    width: 44px;
+    min-width: 44px;
+    text-align: center;
+    font-size: 16px;
+    padding: 8px 4px;
+}
+.patient-dir-banana-cell {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #854d0e;
+    white-space: nowrap;
+    vertical-align: middle;
+    padding: 8px 4px;
+}
+.patient-dir-banana-empty {
+    color: #cbd5e1;
+    font-weight: 600;
+}
+.patient-dir-banana-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 700;
+    color: #2563eb;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.patient-dir-banana-link:hover {
+    color: #1d4ed8;
+}
+.patient-banana-modal-box {
+    max-width: 420px;
+}
+.patient-banana-meta {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0 0 12px;
+}
+.patient-banana-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
 .patient-dir-name-meta {
     display: flex;
     align-items: center;
@@ -3905,6 +3953,10 @@ tr:hover td { background: #fafcff; }
     z-index: 3000;
 }
 
+#receiptPrintOptionsModal {
+    z-index: 3100;
+}
+
 #billPanel {
     position: fixed;
     z-index: 2000;
@@ -4176,27 +4228,105 @@ tr:hover td { background: #fafcff; }
 /* ════════════════════════════════════════════════════════════════
    RECEIPT MODAL
 ════════════════════════════════════════════════════════════════ */
-#receiptModal .modal-box { max-width: 560px; }
+#receiptModal .modal-box { max-width: 620px; }
+
+.receipt-modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 20px;
+    align-items: stretch;
+}
+
+.receipt-print-now-btn {
+    flex: 1 1 100%;
+    padding: 14px 18px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.receipt-print-now-btn:hover {
+    filter: brightness(1.05);
+}
+
+.receipt-options-btn,
+.receipt-close-btn {
+    flex: 1 1 calc(50% - 5px);
+    padding: 11px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.receipt-options-btn {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+
+.receipt-close-btn {
+    background: var(--gray);
+    color: #fff;
+    border: none;
+}
+
+#receiptPrintArea {
+    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    color: #111;
+    font-size: 16px;
+    line-height: 1.35;
+}
 
 .receipt-header {
     text-align: center;
-    margin-bottom: 20px;
-    padding-bottom: 16px;
-    border-bottom: 2px solid #eee;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #222;
 }
 
-.receipt-header h2 { margin: 0 0 6px; color: var(--primary); font-size: 22px; }
-.receipt-header .receipt-clinic-line { margin: 2px 0; color: #555; font-size: 14px; line-height: 1.45; }
-.receipt-header .receipt-doc-title { margin: 10px 0 0; color: #666; font-size: 15px; font-weight: 600; }
+.receipt-header h2 {
+    margin: 0 0 3px;
+    color: #111;
+    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.15;
+}
+
+.receipt-header .receipt-clinic-line {
+    margin: 2px 0;
+    color: #111;
+    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-size: 15px;
+    line-height: 1.35;
+}
+
+.receipt-header .receipt-doc-title {
+    margin: 8px 0 0;
+    padding-top: 6px;
+    border-top: 1px solid #222;
+    color: #111;
+    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-size: 21px;
+    font-weight: 400;
+}
 
 .receipt-meta {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    font-size: 13px;
-    margin-bottom: 14px;
+    font-size: 16px;
+    margin-bottom: 12px;
     line-height: 1.35;
-    gap: 14px;
+    gap: 16px;
+    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    color: #111;
 }
 
 .receipt-meta.receipt-meta-rows {
@@ -4213,7 +4343,7 @@ tr:hover td { background: #fafcff; }
 }
 
 .receipt-meta-col strong {
-    font-size: 13px;
+    font-size: inherit;
 }
 
 .receipt-meta-col {
@@ -4226,10 +4356,10 @@ tr:hover td { background: #fafcff; }
     max-width: 100%;
     min-width: 200px;
     text-align: left;
-    padding: 10px 12px;
-    border-radius: 8px;
-    border-left: 3px solid var(--primary);
-    background: #f8fafc;
+    padding: 0;
+    border-radius: 0;
+    border: none;
+    background: transparent;
 }
 
 /* Right column: date only */
@@ -4237,7 +4367,7 @@ tr:hover td { background: #fafcff; }
     flex: 0 0 auto;
     text-align: right;
     align-self: flex-start;
-    padding: 10px 0 0;
+    padding: 0;
 }
 
 .receipt-meta-date-only .receipt-kv-row {
@@ -4265,11 +4395,11 @@ tr:hover td { background: #fafcff; }
 
 .receipt-kv-row {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: baseline;
-    gap: 12px;
-    margin-bottom: 6px;
-    flex-wrap: wrap;
+    gap: 2px 6px;
+    margin-bottom: 5px;
+    flex-wrap: nowrap;
 }
 
 .receipt-kv-row:last-child {
@@ -4278,17 +4408,18 @@ tr:hover td { background: #fafcff; }
 
 .receipt-kv-label {
     flex-shrink: 0;
-    color: #64748b;
-    font-weight: 600;
-    font-size: 12px;
+    color: #111;
+    font-weight: 400;
+    font-size: 16px;
 }
 
 .receipt-kv-val {
-    text-align: right;
-    flex: 1;
-    font-weight: 600;
-    color: #111827;
+    text-align: left;
+    flex: 0 1 auto;
+    font-weight: 400;
+    color: #111;
     word-break: break-word;
+    font-size: 16px;
 }
 
 .receipt-meta-left-stack .receipt-kv-val {
@@ -4300,7 +4431,17 @@ tr:hover td { background: #fafcff; }
 }
 
 .receipt-meta-left-stack .receipt-kv-label {
-    min-width: 7.5em;
+    min-width: 0;
+}
+
+.receipt-kv-row.receipt-kv-patient-names {
+    margin-top: 8px;
+}
+
+.receipt-kv-row.receipt-kv-patient-names .receipt-kv-label,
+.receipt-kv-row.receipt-kv-patient-names .receipt-kv-val {
+    font-size: 19px;
+    font-weight: 700;
 }
 
 .receipt-meta-date-only .receipt-kv-val {
@@ -4329,40 +4470,46 @@ tr:hover td { background: #fafcff; }
 }
 
 .receipt-table th {
-    background: #f0f7ff;
-    padding: 9px 12px;
+    background: #fff;
+    padding: 6px 8px;
     text-align: left;
-    font-size: 14px;
-    color: var(--primary);
+    font-size: 15px;
+    font-weight: 700;
+    color: #111;
+    border-top: 1px solid #222;
+    border-bottom: 1px solid #222;
 }
 
 .receipt-table td {
-    padding: 9px 12px;
-    border-bottom: 1px solid #f0f0f0;
+    padding: 5px 8px;
+    border-bottom: none;
     font-size: 15px;
+    color: #111;
 }
 
 .receipt-totals {
-    background: #f8faff;
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin-top: 12px;
+    background: transparent;
+    border-radius: 0;
+    padding: 10px 0 0;
+    margin-top: 8px;
+    border-top: 1px solid #222;
 }
 
 .r-row {
     display: flex;
     justify-content: space-between;
-    padding: 5px 0;
+    padding: 3px 0;
     font-size: 15px;
+    color: #111;
 }
 
 .r-grand {
-    border-top: 2px solid var(--primary);
-    margin-top: 8px;
-    padding-top: 10px;
-    font-size: 20px;
+    border-top: 1px solid #222;
+    margin-top: 6px;
+    padding-top: 6px;
+    font-size: 18px;
     font-weight: 700;
-    color: var(--primary);
+    color: #111;
 }
 
 .receipt-footer {
@@ -4385,7 +4532,7 @@ tr:hover td { background: #fafcff; }
     max-width: none;
     flex: 1;
     text-align: left;
-    padding-top: 38px;
+    padding-top: 28px;
 }
 
 .receipt-signature-patient {
@@ -4403,26 +4550,201 @@ tr:hover td { background: #fafcff; }
 
 .receipt-sign-name {
     margin-top: 6px;
-    font-size: 14px;
-    font-weight: 700;
-    color: #1f2937;
+    font-size: 15px;
+    font-weight: 400;
+    color: #111;
     line-height: 1.25;
 }
 
 /* Instalment / partial payment history on receipt */
 .receipt-instalments-section {
-    margin-top: 14px;
+    margin-top: 10px;
     font-size: 15px;
     line-height: 1.35;
     color: #111;
 }
 
-.receipt-instalments-title {
+.receipt-optional-block {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #e2e8f0;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #334155;
+}
+
+.receipt-extra-meta {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed #222;
     font-size: 15px;
+    line-height: 1.45;
+    color: #111;
+    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+}
+
+.receipt-extra-meta .receipt-kv-row {
+    display: flex;
+    align-items: baseline;
+    gap: 2px 6px;
+    margin-bottom: 5px;
+    flex-wrap: nowrap;
+}
+
+.receipt-extra-meta .receipt-kv-row:last-child {
+    margin-bottom: 0;
+}
+
+.receipt-extra-meta .receipt-kv-label {
+    min-width: 0;
+    flex-shrink: 0;
+    color: #111;
+    font-weight: 400;
+    font-size: 15px;
+}
+
+.receipt-extra-meta .receipt-kv-val {
+    flex: 0 1 auto;
+    text-align: left;
+    font-weight: 400;
+    font-size: 15px;
+    color: #111;
+    word-break: break-word;
+}
+
+#rDiagnosisSection .receipt-kv-row {
+    gap: 2px 4px;
+    align-items: baseline;
+    flex-wrap: nowrap;
+}
+
+#rDiagnosisSection .receipt-kv-label {
+    min-width: 0;
+    width: auto;
+    flex-shrink: 0;
+}
+
+#rDiagnosisSection .receipt-kv-val {
+    flex: 0 1 auto;
+}
+
+.receipt-kv-row-stack {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.receipt-kv-multiline {
+    white-space: pre-wrap;
+}
+
+.receipt-optional-label {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+
+.receipt-optional-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.receipt-optional-list {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.receipt-print-options-box {
+    max-width: 520px;
+}
+
+.receipt-print-options-hint {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0 0 14px;
+    line-height: 1.45;
+}
+
+.receipt-print-options-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 16px;
+    margin-bottom: 18px;
+}
+
+.receipt-print-opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    line-height: 1.35;
+}
+
+.receipt-print-opt input {
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.receipt-print-opt-full {
+    grid-column: 1 / -1;
+}
+
+.receipt-print-diagnosis-fields {
+    display: grid;
+    gap: 10px;
+    margin: -4px 0 14px;
+    padding: 12px 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.receipt-print-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.receipt-print-field-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+}
+
+.receipt-print-field-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.receipt-print-options-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+@media (max-width: 520px) {
+    .receipt-print-options-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.receipt-instalments-title {
+    font-size: 16px;
     font-weight: 700;
     letter-spacing: .02em;
-    color: #334155;
-    border-top: 1px dashed #ddd;
+    color: #111;
+    border-top: 1px solid #222;
     padding-top: 10px;
     margin-bottom: 8px;
 }
@@ -4430,7 +4752,7 @@ tr:hover td { background: #fafcff; }
 .receipt-instalments-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 15px;
+    font-size: 16px;
 }
 
 .receipt-instalments-table th {
@@ -4598,7 +4920,7 @@ tr:hover td { background: #fafcff; }
 /* ════════════════════════════════════════════════════════════════
    PRINT
 ════════════════════════════════════════════════════════════════ */
-/* Prefer printReceiptDocument() (popup). If window.print() is used on the main page, avoid
+/* Prefer printReceiptDocument() (hidden iframe). If window.print() is used on the main page, avoid
    position:fixed on the receipt — it repeats the same page on every sheet in Chrome/Edge. */
 @media print {
     body > *:not(#receiptModal) { display: none !important; }
@@ -8166,7 +8488,7 @@ tr:hover td { background: #fafcff; }
   background: #fff;
   border-radius: 12px;
   width: 100%;
-  max-width: 520px;
+  max-width: 880px;
   max-height: 92vh;
   display: flex;
   flex-direction: column;
@@ -8315,6 +8637,190 @@ tr:hover td { background: #fafcff; }
   gap: 10px;
   padding: 14px 20px;
   border-top: 1px solid #eee;
+}
+.cfg-print-modal__foot--split {
+  justify-content: space-between;
+}
+.cfg-print-form--detail {
+  gap: 16px;
+}
+.cfg-print-section {
+  margin: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid #e4e8ef;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+.cfg-print-section__title {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a1f2e;
+}
+.cfg-print-form__row4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.cfg-print-form--detail input[type="number"],
+.cfg-print-form--detail input[type="text"],
+.cfg-print-form--detail select,
+.cfg-print-form--detail textarea {
+  background: #fffef5;
+}
+.cfg-print-logo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 10px;
+}
+.cfg-print-logo-preview {
+  width: 120px;
+  height: 72px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.cfg-print-logo-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.cfg-print-logo-file {
+  display: none;
+}
+.cfg-print-header-type {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 6px;
+}
+.cfg-print-header-type__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+}
+.cfg-print-font-row {
+  display: grid;
+  grid-template-columns: 160px 36px 1fr;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid #e8ecf2;
+}
+.cfg-print-font-row:last-of-type {
+  border-bottom: none;
+}
+.cfg-print-font-row__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+}
+.cfg-print-font-btn {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #fff 0%, #eee 100%);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  color: #333;
+}
+.cfg-print-font-btn:hover {
+  border-color: #888;
+}
+.cfg-print-font-display {
+  font-size: 13px;
+  font-weight: 400;
+  color: #333;
+}
+.cfg-print-font-editor {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #dde8f5;
+  border-radius: 6px;
+  background: #fff;
+}
+.cfg-print-font-editor.hidden {
+  display: none;
+}
+.cfg-print-font-editor__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.cfg-print-footnote-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: #f5f5f5;
+}
+.cfg-print-footnote-toolbar button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+.cfg-print-footnote-toolbar button:hover {
+  background: #eef4ff;
+}
+.cfg-print-footnote-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: #ccc;
+}
+.cfg-print-footnote-editor {
+  min-height: 100px;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 0 0 6px 6px;
+  background: #fffef5;
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+}
+.cfg-print-footnote-editor:empty:before {
+  content: attr(data-placeholder);
+  color: #999;
+}
+.cfg-check {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.cfg-check--inline {
+  flex-direction: row !important;
+}
+@media (max-width: 720px) {
+  .cfg-print-form__row4 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cfg-print-font-row {
+    grid-template-columns: 1fr auto;
+  }
+  .cfg-print-font-display {
+    grid-column: 1 / -1;
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════

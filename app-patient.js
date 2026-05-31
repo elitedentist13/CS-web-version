@@ -46,6 +46,93 @@ function readBananaNotesField(inputId) {
     return txt ? txt : null;
 }
 
+/** Patient id for quick banana edit from directory list. */
+var patientDirBananaEditId = null;
+
+function patientDirBananaIndexValue(p) {
+    if (!p || p.banana_index == null || p.banana_index === '') return null;
+    var n = parseInt(p.banana_index, 10);
+    return (n >= 1 && n <= 10) ? n : null;
+}
+
+function patientDirBananaNotesText(p) {
+    if (!p) return '';
+    return String(p.banana_notes || '').trim();
+}
+
+function patientDirBananaCellHtml(p) {
+    var idx = patientDirBananaIndexValue(p);
+    if (idx == null) {
+        return '<span class="patient-dir-banana-empty">-</span>';
+    }
+    if (patientDirBananaNotesText(p)) {
+        return '<button type="button" class="patient-dir-banana-link" data-id="' +
+            esc(p.id) + '" title="' + esc(patTr('patient.dirBanana.linkTitle')) + '">' +
+            idx + '</button>';
+    }
+    return esc(String(idx));
+}
+
+function openPatientDirBananaPanel(patientId) {
+    var p = (patientListCache || []).find(function(x) {
+        return String(x.id) === String(patientId);
+    });
+    if (!p) return;
+    patientDirBananaEditId = p.id;
+    var idxVal = patientDirBananaIndexValue(p);
+    sv('patientDir_banana_index', idxVal != null ? String(idxVal) : '');
+    sv('patientDir_banana_notes', patientDirBananaNotesText(p));
+    var meta = g('patientBananaMeta');
+    if (meta) {
+        var bits = [];
+        if (p.patient_no) bits.push('# ' + p.patient_no);
+        var nameLine = typeof patientDetailsNameLine === 'function'
+            ? patientDetailsNameLine(p)
+            : (String(p.full_name || '').trim() || '—');
+        bits.push(nameLine);
+        meta.textContent = bits.join(' · ');
+    }
+    openModal('patientBananaModal');
+}
+
+function savePatientDirBananaPanel() {
+    if (!patientDirBananaEditId) return;
+    var idx = readBananaIndexField('patientDir_banana_index');
+    var notes = readBananaNotesField('patientDir_banana_notes');
+    var payload = {
+        banana_index: idx,
+        banana_notes: idx != null ? notes : null
+    };
+    var savedId = patientDirBananaEditId;
+    function doneSave() {
+        closeModal('patientBananaModal');
+        patientDirBananaEditId = null;
+        (patientListCache || []).forEach(function(row) {
+            if (String(row.id) === String(savedId)) {
+                row.banana_index = payload.banana_index;
+                row.banana_notes = payload.banana_notes;
+            }
+        });
+        renderPatients(patientListCache);
+        alert(patTr('patient.dirBanana.saved'));
+    }
+    function doUpdate(pl, retried) {
+        SB.from('patients').update(pl).eq('id', savedId)
+        .then(function(r) {
+            if (!r.error) { doneSave(); return; }
+            var msg = String(r.error.message || '').toLowerCase();
+            if (!retried && msg.indexOf('banana_notes') >= 0) {
+                var pl2 = Object.assign({}, pl);
+                delete pl2.banana_notes;
+                doUpdate(pl2, true);
+                return;
+            }
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+        });
+    }
+    doUpdate(payload, false);
+}
+
 function toggleAddBananaInfoZone() {
     var chk = g('banana_info_enabled');
     var body = g('addBananaInfoBody');
@@ -699,7 +786,7 @@ function renderPatients(list) {
     var tb = g('patientTableBody');
     if (!list.length) {
         tb.innerHTML =
-            '<tr><td colspan="8" style="text-align:center;' +
+            '<tr><td colspan="9" style="text-align:center;' +
             'padding:30px;color:#999;">' + esc(patTr('patient.empty')) + '</td></tr>';
         return;
     }
@@ -750,6 +837,9 @@ function renderPatients(list) {
             '<td>'+esc(p.insurance_no||'--')+'</td>' +
             '<td><small style="color:'+(p.medical_alerts?'var(--danger)':'#bbb')+';">' +
                 esc(p.medical_alerts||patTr('patient.alertsNone'))+'</small></td>' +
+            '<td class="patient-dir-banana-cell">' +
+                (typeof patientDirBananaCellHtml === 'function' ? patientDirBananaCellHtml(p) : '-') +
+            '</td>' +
             '<td>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
                     '<button class="btn-notes" ' +
@@ -766,7 +856,8 @@ function renderPatients(list) {
             '</td>';
         tr.addEventListener('click', function(e) {
             var tgt = e.target;
-            if (tgt && tgt.closest && tgt.closest('button')) return;
+            if (tgt && tgt.closest &&
+                (tgt.closest('button') || tgt.closest('.patient-dir-banana-link'))) return;
             setDirectoryActivePatient(p, 'patient-row');
         });
         tr.addEventListener('dragstart', function(e) {
@@ -799,6 +890,14 @@ function renderPatients(list) {
         b.addEventListener('click', function(e){
             e.stopPropagation();
             openEditPatient(b.dataset.id);
+        });
+    });
+    tb.querySelectorAll('.patient-dir-banana-link').forEach(function(b) {
+        b.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (typeof openPatientDirBananaPanel === 'function') {
+                openPatientDirBananaPanel(b.dataset.id);
+            }
         });
     });
 }

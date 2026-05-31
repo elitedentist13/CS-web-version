@@ -8747,6 +8747,20 @@ function wireBillPanelControls() {
     bindClickOnce('savePrintBillBtn', function() { saveBill(true); });
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
+    bindClickOnce('receiptPrintOptionsBtn', reopenReceiptPrintOptionsFromReceipt);
+    bindClickOnce('receiptPrintNowBtn', function () { printReceiptDocument(); });
+    bindClickOnce('closeReceiptPrintOptionsModal', function() {
+        dismissReceiptPrintOptionsModal(true);
+    });
+    bindClickOnce('receiptPrintOptionsCancelBtn', function() {
+        dismissReceiptPrintOptionsModal(true);
+    });
+    bindClickOnce('receiptPrintOptionsOkBtn', confirmReceiptPrintOptions);
+    var rpoPrintDiagnosis = g('rpoPrintDiagnosis');
+    if (rpoPrintDiagnosis && rpoPrintDiagnosis.dataset.billClickBound !== '1') {
+        rpoPrintDiagnosis.dataset.billClickBound = '1';
+        rpoPrintDiagnosis.addEventListener('change', syncReceiptPrintDiagnosisFieldsVisibility);
+    }
     bindClickOnce('bdAddPaymentBtn', openAddPaymentModal);
     bindClickOnce('billPendingRefreshBtn', refreshBillPanelNow);
     bindClickOnce('billPayAllBtn', billPayAllAmount);
@@ -8931,10 +8945,16 @@ function closeBillPanel() {
 // BILL STEP TABS
 // ════════════════════════════════════════════════════════════════
 function switchBillTab(n) {
+    var wasStep2 = billStep2IsVisible();
     g('billTab1Btn').classList.toggle('active', n === 1);
     g('billTab2Btn').classList.toggle('active', n === 2);
     g('billStep1').style.display = n === 1 ? '' : 'none';
     g('billStep2').style.display = n === 2 ? '' : 'none';
+    if (n === 1 && wasStep2) {
+        loadPendingLists(function(ok) {
+            if (ok !== false) noteBillPendingRefreshed();
+        });
+    }
     if (n === 2) {
         renderStep2(function(ok) {
             if (ok !== false) noteBillPendingRefreshed();
@@ -8976,7 +8996,7 @@ function loadPendingLists(cb) {
             if (typeof pl.items === 'string') {
                 try { pl.items = JSON.parse(pl.items); } catch(e) { pl.items = []; }
             }
-            pl.items = pl.items || [];
+            pl.items = (pl.items || []).map(normalizeBillItem);
         });
         var merged = fetched.map(function(pl) {
             if (pl.id && preserveById[pl.id]) return preserveById[pl.id];
@@ -9034,7 +9054,7 @@ function renderStep1UI() {
 
     g('pendingListLabel').value = pl.label || '';
     billItems = (pl.items || []).map(function(it) {
-        return { desc: it.desc || '', qty: it.qty || 1, price: it.price || 0, disc: it.disc || 0 };
+        return normalizeBillItem(it);
     });
     if (!billItems.length) billItems = [{ desc: '', qty: 1, price: 0, disc: 0 }];
 
@@ -9081,7 +9101,14 @@ function saveCurrentPendingList() {
 
     pl.label    = label;
     pl.items    = billItems.map(function(it) {
-        return { desc: it.desc, qty: it.qty, price: it.price, disc: it.disc || 0 };
+        var n = normalizeBillItem(it);
+        return {
+            desc: n.desc,
+            qty: n.qty,
+            price: n.price,
+            disc: n.disc || 0,
+            others_remark: n.others_remark || ''
+        };
     });
     pl.subtotal = sub;
 
@@ -9144,6 +9171,34 @@ function removeCurrentPendingList() {
     }
 }
 
+/** Drop a paid pending list from Step 1 state and DB; refresh item picker for a new list. */
+function removePaidPendingList(paidId, cb) {
+    payItems = [];
+    payPendingId = null;
+    if (!paidId) {
+        if (cb) cb(true);
+        return;
+    }
+    var removedIdx = pendingLists.findIndex(function(pl) { return pl.id === paidId; });
+    pendingLists = pendingLists.filter(function(pl) { return pl.id !== paidId; });
+    delete pendingServerSnapshotById[paidId];
+    if (!pendingLists.length) {
+        pendingIdx = -1;
+    } else if (removedIdx >= 0 && removedIdx < pendingIdx) {
+        pendingIdx--;
+    } else if (removedIdx === pendingIdx || pendingIdx >= pendingLists.length) {
+        pendingIdx = Math.min(Math.max(0, pendingIdx), pendingLists.length - 1);
+    }
+    renderStep1UI();
+    SB.from('pending_bill_items').delete().eq('id', paidId)
+        .then(function(r) {
+            if (cb) cb(!r.error);
+        })
+        .catch(function() {
+            if (cb) cb(false);
+        });
+}
+
 // ════════════════════════════════════════════════════════════════
 // STEP 2 — PAYMENT (select a pending list, then pay)
 // ════════════════════════════════════════════════════════════════
@@ -9190,7 +9245,7 @@ function renderStep2(cb, opts) {
             if (typeof pl.items === 'string') {
                 try { pl.items = JSON.parse(pl.items); } catch(e) { pl.items = []; }
             }
-            pl.items = pl.items || [];
+            pl.items = (pl.items || []).map(normalizeBillItem);
         });
 
         if (!lists.length) {
@@ -9214,7 +9269,7 @@ function renderStep2(cb, opts) {
                     b.classList.remove('selected');
                 });
                 btn.classList.add('selected');
-                payItems     = pl.items;
+                payItems     = (pl.items || []).map(normalizeBillItem);
                 payPendingId = pl.id;
                 renderPayPreview();
                 recalcTotals();
@@ -9265,6 +9320,14 @@ function renderStep2(cb, opts) {
     });
 }
 
+function refreshPayPreviewFromCurrentPendingList() {
+    if (!payPendingId) return;
+    if (pendingIdx < 0 || !pendingLists[pendingIdx]) return;
+    if (pendingLists[pendingIdx].id !== payPendingId) return;
+    payItems = billItems.map(normalizeBillItem);
+    if (billStep2IsVisible()) renderPayPreview();
+}
+
 function renderPayPreview() {
     var wrap = g('payPreviewWrap');
     var body = g('payPreviewBody');
@@ -9276,7 +9339,7 @@ function renderPayPreview() {
         var amt  = billItemAmt(it);
         row.style.background = i % 2 === 0 ? '#fff' : '#f8faff';
         row.innerHTML =
-            '<td style="padding:7px 12px;">' + esc(it.desc || '—') + '</td>' +
+            '<td style="padding:7px 12px;">' + esc(billItemDisplayDesc(it) || '—') + '</td>' +
             '<td style="padding:7px 12px;text-align:center;">' + (it.qty || 0) + '</td>' +
             '<td style="padding:7px 12px;text-align:right;">' + fmt2(it.price) + '</td>' +
             '<td style="padding:7px 12px;text-align:center;color:' + (disc > 0 ? '#dc2626' : '#aaa') + ';">' +
@@ -9384,7 +9447,14 @@ function addBillItem() {
 function syncBillItemsToPendingList() {
     if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
     pendingLists[pendingIdx].items = billItems.map(function(it) {
-        return { desc: it.desc, qty: it.qty, price: it.price, disc: it.disc || 0 };
+        var n = normalizeBillItem(it);
+        return {
+            desc: n.desc,
+            qty: n.qty,
+            price: n.price,
+            disc: n.disc || 0,
+            others_remark: n.others_remark || ''
+        };
     });
 }
 
@@ -9392,11 +9462,13 @@ function pendingListSignature(pl) {
     var list = pl || {};
     var items = Array.isArray(list.items) ? list.items : [];
     var safeItems = items.map(function(it) {
+        var n = normalizeBillItem(it);
         return {
-            desc: it && it.desc ? String(it.desc) : '',
-            qty: parseFloat(it && it.qty) || 0,
-            price: parseFloat(it && it.price) || 0,
-            disc: parseFloat(it && it.disc) || 0
+            desc: n.desc,
+            qty: parseFloat(n.qty) || 0,
+            price: parseFloat(n.price) || 0,
+            disc: parseFloat(n.disc) || 0,
+            others_remark: n.others_remark || ''
         };
     });
     return JSON.stringify({
@@ -9431,6 +9503,67 @@ function billItemAmt(it) {
     return gross * (1 - disc / 100);
 }
 
+var BILL_OTHERS_ITEM_BASE = 'OTHERS - 其他';
+
+function billItemOthersBaseKey(desc) {
+    var d = String(desc || '').trim();
+    var paren = d.match(/^(.+?)\s*\([^)]*\)\s*$/);
+    if (paren) d = paren[1].trim();
+    var compact = d.replace(/\s+/g, '').toUpperCase();
+    if (compact === 'OTHERS-其他') return BILL_OTHERS_ITEM_BASE;
+    if (d === BILL_OTHERS_ITEM_BASE) return BILL_OTHERS_ITEM_BASE;
+    return null;
+}
+
+function billItemIsOthers(it) {
+    return !!billItemOthersBaseKey(it && it.desc);
+}
+
+function billItemOthersRemark(it) {
+    return String((it && (it.others_remark || it.othersRemark)) || '').trim();
+}
+
+function billItemDisplayDesc(it) {
+    if (!it) return '';
+    var base = billItemOthersBaseKey(it.desc);
+    if (base) {
+        var remark = billItemOthersRemark(it);
+        return remark ? (base + ' (' + remark + ')') : base;
+    }
+    return String(it.desc || '').trim();
+}
+
+function normalizeBillItem(it) {
+    var raw = it || {};
+    var desc = String(raw.desc || '').trim();
+    var othersRemark = String(raw.others_remark || raw.othersRemark || '').trim();
+    var base = billItemOthersBaseKey(desc);
+    if (base) {
+        var m = desc.match(/^(.+?)\s*\(([^)]*)\)\s*$/);
+        if (m && !othersRemark) othersRemark = String(m[2] || '').trim();
+        desc = base;
+    }
+    return {
+        desc: desc,
+        qty: raw.qty || 1,
+        price: raw.price || 0,
+        disc: raw.disc || 0,
+        others_remark: othersRemark
+    };
+}
+
+function billItemsForBillSave(items) {
+    return (items || []).map(function(it) {
+        var n = normalizeBillItem(it);
+        return {
+            desc: billItemDisplayDesc(n),
+            qty: n.qty,
+            price: n.price,
+            disc: n.disc || 0
+        };
+    });
+}
+
 function renderBillItems() {
     var tb = g('billItemsBody');
     if (!tb) return;
@@ -9455,7 +9588,7 @@ function renderBillItems() {
                 'placeholder="' + esc(tr('bill.phCustomDesc')) + '" ' +
                 'style="width:100%;padding:5px 7px;border:1px solid #ddd;' +
                 'border-radius:4px;font-size:12px;box-sizing:border-box;' +
-                'display:' + (item.desc && treatmentItemsCache.findIndex(function(t) { return t.item_name === item.desc; }) === -1 ? 'block' : 'none') + ';">';
+                'display:' + (descBase && treatmentItemsCache.findIndex(function(t) { return t.item_name === descBase; }) === -1 ? 'block' : 'none') + ';">';
         } else {
             // Fallback to simple text input if no items loaded
             descCell +=
@@ -9467,6 +9600,7 @@ function renderBillItems() {
         }
         descCell += '</div></td>';
         
+        var descBase = billItemOthersBaseKey(item.desc) || item.desc;
         var discVal = item.disc !== undefined ? item.disc : 0;
         row.innerHTML = descCell +
             '<td>' +
@@ -9500,6 +9634,20 @@ function renderBillItems() {
             '</td>';
         tb.appendChild(row);
 
+        if (billItemIsOthers(item)) {
+            var remarkRow = document.createElement('tr');
+            remarkRow.className = 'bill-item-others-remark-row';
+            remarkRow.innerHTML =
+                '<td colspan="6" style="padding:2px 8px 10px 8px;background:#fffbeb;border-bottom:1px solid #fde68a;">' +
+                '<input type="text" id="bothers-remark-' + i + '" ' +
+                'value="' + esc(billItemOthersRemark(item)) + '" ' +
+                'placeholder="' + esc(tr('bill.othersRemarkPh')) + '" ' +
+                'style="width:100%;padding:6px 8px;border:1px solid #fde047;border-radius:4px;' +
+                'font-size:12px;box-sizing:border-box;background:#fff;">' +
+                '</td>';
+            tb.appendChild(remarkRow);
+        }
+
         (function(idx) {
             var descSel = g('bdesc-sel-' + idx);
             var descCustom = g('bdesc-custom-' + idx);
@@ -9516,22 +9664,38 @@ function renderBillItems() {
                             descCustom.focus();
                         }
                         billItems[idx].desc = '';
+                        billItems[idx].others_remark = '';
                     } else {
                         // Use selected item
                         billItems[idx].desc = selectedValue;
+                        if (!billItemIsOthers(billItems[idx])) {
+                            billItems[idx].others_remark = '';
+                        }
                         if (descCustom) descCustom.style.display = 'none';
                         
                         // Auto-fill price from selected option
                         var selectedOpt = this.options[this.selectedIndex];
                         var price = parseFloat(selectedOpt.getAttribute('data-price')) || 0;
                         billItems[idx].price = price;
-                        var priceInput = g('bprice-' + idx);
-                        if (priceInput) priceInput.value = price;
-                        var amtEl = g('bamt-' + idx);
-                        if (amtEl) amtEl.textContent = fmtHK(billItemAmt(billItems[idx]));
                         syncBillItemsToPendingList();
+                        renderBillItems();
                         recalcTotals();
+                        refreshPayPreviewFromCurrentPendingList();
+                        return;
                     }
+                    syncBillItemsToPendingList();
+                    renderBillItems();
+                    recalcTotals();
+                    refreshPayPreviewFromCurrentPendingList();
+                });
+            }
+            
+            var othersRemarkEl = g('bothers-remark-' + idx);
+            if (othersRemarkEl) {
+                othersRemarkEl.addEventListener('input', function() {
+                    billItems[idx].others_remark = this.value;
+                    syncBillItemsToPendingList();
+                    refreshPayPreviewFromCurrentPendingList();
                 });
             }
             
@@ -9539,7 +9703,12 @@ function renderBillItems() {
             if (descCustom) {
                 descCustom.addEventListener('input', function() {
                     billItems[idx].desc = this.value;
+                    if (!billItemIsOthers(billItems[idx])) {
+                        billItems[idx].others_remark = '';
+                    }
                     syncBillItemsToPendingList();
+                    renderBillItems();
+                    refreshPayPreviewFromCurrentPendingList();
                 });
             }
             
@@ -9547,7 +9716,12 @@ function renderBillItems() {
             if (descSimple) {
                 descSimple.addEventListener('input', function() {
                     billItems[idx].desc = this.value;
+                    if (!billItemIsOthers(billItems[idx])) {
+                        billItems[idx].others_remark = '';
+                    }
                     syncBillItemsToPendingList();
+                    renderBillItems();
+                    refreshPayPreviewFromCurrentPendingList();
                 });
             }
             
@@ -9642,7 +9816,7 @@ function saveBill(doPrint) {
         patient_no:     billPatNo,
         bill_date:      g('bDate').value  || todayISO(),
         bill_type:      g('bType').value  || 'Cash',
-        items:          JSON.stringify(payItems),
+        items:          JSON.stringify(billItemsForBillSave(payItems)),
         subtotal:       sub,
         discount:       disc,
         total:          total,
@@ -9686,26 +9860,65 @@ function saveBill(doPrint) {
     }
 
     var finishAfterSaved = function(r) {
-        // Remove the pending list that was just paid
-        if (payPendingId) {
-            SB.from('pending_bill_items').delete().eq('id', payPendingId).then(function() {
-                payItems     = [];
-                payPendingId = null;
+        var paidPendingId = payPendingId;
+        var savedBill = (r.data && r.data[0]) ? r.data[0] : null;
+        var savedBillId = savedBill ? savedBill.id : null;
+
+        var continueAfterPending = function() {
+            var apptChain = billApptId
+                ? SB.from('appointments')
+                    .update({ bill_status: bal <= 0 ? 'Paid' : 'Billed' })
+                    .eq('id', billApptId)
+                : Promise.resolve();
+            apptChain.then(function() {
+                if (billApptId) loadQueue();
+                loadBillHistory();
+                try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+                if (billStep2IsVisible()) {
+                    renderStep2(function(ok) {
+                        if (ok !== false) noteBillPendingRefreshed();
+                    }, { resetForm: true });
+                }
+                var receiptBill = savedBill ? Object.assign({}, payload, savedBill) : payload;
+                if (doPrint) {
+                    openReceiptPreviewDirect({
+                        bill: receiptBill,
+                        insertedData: r.data,
+                        payments: null,
+                        autoPrint: true
+                    });
+                } else {
+                    alert(tr('bill.alert.savedOk'));
+                }
             });
-        }
-        // Update appointment status if linked
-        var apptChain = billApptId
-            ? SB.from('appointments')
-                .update({ bill_status: bal <= 0 ? 'Paid' : 'Billed' })
-                .eq('id', billApptId)
-            : Promise.resolve();
-        apptChain.then(function() {
-            if (billApptId) loadQueue();
-            loadBillHistory();
-            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
-            if (doPrint)  showReceipt(payload, r.data, null, true);
-            if (!doPrint) alert(tr('bill.alert.savedOk'));
-        });
+        };
+
+        var afterPendingRemoved = function() {
+            if (!(paid > 0) || !savedBillId) {
+                continueAfterPending();
+                return;
+            }
+            var payRecord = {
+                bill_id:     savedBillId,
+                paid_date:   payload.bill_date,
+                amount:      paid,
+                method:      payload.bill_type,
+                notes:       payload.notes,
+                received_by: (typeof currentName !== 'undefined' ? currentName : null)
+            };
+            var clinicCtx = billPaymentClinicContext();
+            payRecord.clinic_id = clinicCtx.clinic_id;
+            payRecord.clinic_tag = clinicCtx.clinic_tag;
+            payRecord.clinic_code = clinicCtx.clinic_code;
+            insertBillPaymentRecord(payRecord, function(pr) {
+                if (pr.error) {
+                    console.warn('Initial bill payment row not saved:', pr.error.message || pr.error);
+                }
+                continueAfterPending();
+            });
+        };
+
+        removePaidPendingList(paidPendingId, afterPendingRemoved);
     };
 
     function stripOptionalColsByError(src, errMsg) {
@@ -9737,7 +9950,7 @@ function saveBill(doPrint) {
             alert(trRepl('appt.msg.error', { MSG: msgFromError }));
             return;
         }
-        SB.from('bills').insert([stripped.payload])
+        SB.from('bills').insert([stripped.payload]).select()
         .then(function(r2) {
             if (!r2.error) { finishAfterSaved(r2); return; }
             var strippedAgain = stripOptionalColsByError(stripped.payload, r2.error.message);
@@ -9745,7 +9958,7 @@ function saveBill(doPrint) {
                 alert(trRepl('appt.msg.error', { MSG: r2.error.message }));
                 return;
             }
-            SB.from('bills').insert([strippedAgain.payload])
+            SB.from('bills').insert([strippedAgain.payload]).select()
             .then(function(r3) {
                 if (r3.error) { alert(trRepl('appt.msg.error', { MSG: r3.error.message })); return; }
                 finishAfterSaved(r3);
@@ -9753,7 +9966,7 @@ function saveBill(doPrint) {
         });
     }
 
-    SB.from('bills').insert([payload])
+    SB.from('bills').insert([payload]).select()
     .then(function(r) {
         if (!r.error) { finishAfterSaved(r); return; }
         attemptLegacyInsert(r.error.message, payload);
@@ -9783,8 +9996,9 @@ function loadTreatmentItemsForBilling(callback) {
 
 function buildTreatmentItemOptions(selectedDesc) {
     var html = '<option value="">' + esc(tr('bill.treatSelectCustom')) + '</option>';
+    var selectedBase = billItemOthersBaseKey(selectedDesc) || String(selectedDesc || '').trim();
     treatmentItemsCache.forEach(function(item) {
-        var selected = selectedDesc === item.item_name ? ' selected' : '';
+        var selected = selectedBase === item.item_name ? ' selected' : '';
         var label = item.item_name;
         if (item.category) {
             label += ' (' + item.category + ')';
@@ -10016,7 +10230,7 @@ function buildBillHistoryPrintHtml(bills) {
             : (b.bill_type || '—');
         var doctor = b.doctor_tag || b.doctor_name || '—';
         var total = parseFloat(b.total) || 0;
-        var paid = parseFloat(b.amount_paid) || 0;
+        var paid = billHistoryDisplayPaid(b);
         var bal = parseFloat(b.balance) || 0;
         if (!voided) {
             sumTotal += total;
@@ -10286,6 +10500,17 @@ function billPaymentDateCellHtml(p, voided) {
         '<span class="bill-pay-void-date">' + esc(billVoidedDateLine(p)) + '</span>';
 }
 
+function billHistoryDisplayPaid(b) {
+    var paid = parseFloat(b && b.amount_paid);
+    if (!isNaN(paid) && paid > 0) return paid;
+    var total = parseFloat(b && b.total) || 0;
+    var balance = parseFloat(b && b.balance) || 0;
+    if (total > 0 && balance >= 0 && balance < total - 0.005) {
+        return Math.max(0, total - balance);
+    }
+    return isNaN(paid) ? 0 : paid;
+}
+
 function renderBillHistoryRows(wrap, data) {
     wrap.innerHTML = '';
     data.forEach(function(b) {
@@ -10353,7 +10578,7 @@ function renderBillHistoryRows(wrap, data) {
                         ? dispPayMethod(b.bill_type) : b.bill_type) +
                     (drTag ? (' &nbsp;|&nbsp; ' + esc(drTag)) : '') +
                     ' &nbsp;|&nbsp; ' + esc(trRepl('bill.history.paidBalance', {
-                        PAID: fmt2(b.amount_paid),
+                        PAID: fmt2(billHistoryDisplayPaid(b)),
                         BAL: fmt2(b.balance)
                     })) +
                 '</div>';
@@ -10501,7 +10726,13 @@ function printBillDetailReceipt() {
         .order('created_at',  { ascending: true })
     .then(function(r) {
         var payments = billPaymentsActiveOnly((!r.error && r.data) ? r.data : []);
-        showReceipt(bill, [{ id: bill.id }], payments);
+        payments = mergeBillPaymentHistoryWithBill(bill, payments);
+        openReceiptPreviewDirect({
+            bill: bill,
+            insertedData: [{ id: bill.id }],
+            payments: payments,
+            autoPrint: false
+        });
     });
 }
 
@@ -10616,6 +10847,72 @@ function billPaymentsActiveOnly(rows) {
     return (rows || []).filter(function(x) { return !billPaymentIsVoid(x); });
 }
 
+function stripBillPaymentClinicColsByError(src, errMsg) {
+    var out = Object.assign({}, src);
+    var msg = String(errMsg || '').toLowerCase();
+    var touched = false;
+    var mentionsTag = msg.indexOf('clinic_tag') >= 0;
+    var mentionsCode = msg.indexOf('clinic_code') >= 0;
+    var mentionsId = msg.indexOf('clinic_id') >= 0;
+    if (mentionsTag && Object.prototype.hasOwnProperty.call(out, 'clinic_tag')) {
+        delete out.clinic_tag;
+        touched = true;
+    }
+    if (mentionsCode && Object.prototype.hasOwnProperty.call(out, 'clinic_code')) {
+        delete out.clinic_code;
+        touched = true;
+    }
+    if (mentionsId && Object.prototype.hasOwnProperty.call(out, 'clinic_id')) {
+        delete out.clinic_id;
+        touched = true;
+    }
+    return { payload: out, changed: touched };
+}
+
+function insertBillPaymentRecord(payRecord, cb) {
+    SB.from('bill_payments').insert([payRecord]).then(function(ir) {
+        if (!ir.error) {
+            if (cb) cb(ir);
+            return;
+        }
+        var stripped = stripBillPaymentClinicColsByError(payRecord, ir.error.message || '');
+        if (!stripped.changed) {
+            if (cb) cb(ir);
+            return;
+        }
+        SB.from('bill_payments').insert([stripped.payload]).then(function(ir2) {
+            if (cb) cb(ir2);
+        });
+    }).catch(function(err) {
+        if (cb) cb({ error: err });
+    });
+}
+
+/** Bills saved before bill_payments logging may only store the first instalment on the bill row. */
+function mergeBillPaymentHistoryWithBill(bill, rows) {
+    var pmts = (rows || []).slice();
+    if (!bill) return pmts;
+    var paidOnBill = parseFloat(bill.amount_paid) || 0;
+    var sumPmts = billPaymentActiveAmountSum(pmts);
+    var gap = paidOnBill - sumPmts;
+    if (gap <= 0.005) return pmts;
+    pmts.unshift({
+        id: null,
+        bill_id: bill.id,
+        paid_date: bill.bill_date,
+        amount: gap,
+        method: bill.bill_type,
+        notes: bill.notes,
+        received_by: null,
+        _fromBillRecord: true
+    });
+    return pmts;
+}
+
+function normalizeReceiptPayments(bill, payments) {
+    return mergeBillPaymentHistoryWithBill(bill, billPaymentsActiveOnly(payments || []));
+}
+
 function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
     var voided = billPaymentIsVoid(p);
     var row = document.createElement('tr');
@@ -10632,14 +10929,17 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
         : '<td style="padding:8px 10px;color:#cbd5e1;font-size:11px;">—</td>';
     var amtClass = voided ? 'bill-pay-void-amt' : '';
     var amtColor = voided ? '' : 'color:#16a34a;';
+    var canVoidPayment = !voided && p.id && !p._fromBillRecord;
     var actionCell = voided
         ? '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>'
-        : '<td style="padding:8px 10px;text-align:center;">' +
-            '<button class="bp-del-btn" data-id="' + esc(p.id) + '" ' +
-            'title="' + esc(tr('bill.detail.deletePaymentTitle')) + '" ' +
-            'style="background:none;border:none;color:#dc2626;' +
-            'font-size:16px;cursor:pointer;line-height:1;padding:0;">×</button>' +
-          '</td>';
+        : (canVoidPayment
+            ? '<td style="padding:8px 10px;text-align:center;">' +
+                '<button class="bp-del-btn" data-id="' + esc(p.id) + '" ' +
+                'title="' + esc(tr('bill.detail.deletePaymentTitle')) + '" ' +
+                'style="background:none;border:none;color:#dc2626;' +
+                'font-size:16px;cursor:pointer;line-height:1;padding:0;">×</button>' +
+              '</td>'
+            : '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>');
     var dateTdClass = voided ? ' bill-pay-void-date-col' : '';
     row.innerHTML =
         statusCell +
@@ -10681,6 +10981,9 @@ function loadBillPayments(billId) {
     .then(function(r) {
         tbody.innerHTML = '';
         var rows = (!r.error && r.data) ? r.data : [];
+        if (bdCurrentBill && bdCurrentBill.id === billId) {
+            rows = mergeBillPaymentHistoryWithBill(bdCurrentBill, rows);
+        }
         if (!rows.length) {
             tbody.innerHTML =
                 '<tr><td colspan="7" style="padding:12px;text-align:center;' +
@@ -10749,28 +11052,6 @@ function billPaymentClinicContext() {
     };
 }
 
-function stripBillPaymentClinicColsByError(src, errMsg) {
-    var out = Object.assign({}, src);
-    var msg = String(errMsg || '').toLowerCase();
-    var touched = false;
-    var mentionsTag = msg.indexOf('clinic_tag') >= 0;
-    var mentionsCode = msg.indexOf('clinic_code') >= 0;
-    var mentionsId = msg.indexOf('clinic_id') >= 0;
-    if (mentionsTag && Object.prototype.hasOwnProperty.call(out, 'clinic_tag')) {
-        delete out.clinic_tag;
-        touched = true;
-    }
-    if (mentionsCode && Object.prototype.hasOwnProperty.call(out, 'clinic_code')) {
-        delete out.clinic_code;
-        touched = true;
-    }
-    if (mentionsId && Object.prototype.hasOwnProperty.call(out, 'clinic_id')) {
-        delete out.clinic_id;
-        touched = true;
-    }
-    return { payload: out, changed: touched };
-}
-
 // ── Confirm & save a new payment ────────────────────────
 function confirmAddPayment() {
     if (!bdCurrentBill) return;
@@ -10808,16 +11089,7 @@ function confirmAddPayment() {
     payRecord.clinic_tag = clinicCtx.clinic_tag;
     payRecord.clinic_code = clinicCtx.clinic_code;
 
-    function insertBillPayment(payload, done) {
-        SB.from('bill_payments').insert([payload]).then(function(ir) {
-            if (!ir.error) { done(ir); return; }
-            var stripped = stripBillPaymentClinicColsByError(payload, ir.error.message || '');
-            if (!stripped.changed) { done(ir); return; }
-            SB.from('bill_payments').insert([stripped.payload]).then(done);
-        });
-    }
-
-    insertBillPayment(payRecord, function(r) {
+    insertBillPaymentRecord(payRecord, function(r) {
         if (r.error) {
             if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); errEl.style.display = ''; }
             return;
@@ -10933,62 +11205,179 @@ function voidPaymentRecord(p) {
 }
 
 var _receiptPrintInProgress = false;
+var RECEIPT_PRINT_MIN_SCALE_PCT = 80;
+
+/**
+ * Print typography tuned for A4: large enough to read easily, compact enough that a typical
+ * receipt (header + ~8 lines + totals + signatures) fits one page before auto-fit scaling.
+ */
+var RECEIPT_PRINT_TOKENS = {
+    body:       16,
+    clinicH2:   30,
+    clinicLine: 15,
+    docTitle:   22,
+    meta:       17,
+    patientName: 21,
+    table:      16,
+    totals:     16,
+    grand:      20,
+    extra:      16,
+    instal:     15,
+    signName:   14,
+    footerPadMm: 16,
+    lh:         1.35
+};
+
+/** Upper bound for auto-fit (Configuration → Print → Bill → Scale %). Default 130%, max 180%. */
+function receiptPrintMaxScalePercent(printRow) {
+    var pct = 130;
+    if (printRow && printRow.scale_percent != null) {
+        var n = Number(printRow.scale_percent);
+        if (isFinite(n) && n > 0) pct = n;
+    }
+    return Math.min(180, Math.max(100, Math.round(pct)));
+}
+
+function receiptPrintPageHeightPx(billPrintRow) {
+    var pageH = 297;
+    var mTop = 10;
+    var mBottom = 12;
+    if (typeof CFG !== 'undefined' && CFG) {
+        if (CFG.printSheetDimensionsMm && billPrintRow) {
+            var dim = CFG.printSheetDimensionsMm(billPrintRow);
+            if (dim && dim.h) pageH = dim.h;
+        }
+        if (CFG.printMarginsMmFromRow) {
+            var m = CFG.printMarginsMmFromRow(billPrintRow || {});
+            mTop = m.t;
+            mBottom = m.b;
+        }
+    }
+    var printableMm = Math.max(120, pageH - mTop - mBottom);
+    return printableMm * 96 / 25.4;
+}
+
+function receiptMeasureContentHeightPx(doc) {
+    var area = doc.getElementById('receiptPrintArea');
+    if (!area) return 0;
+    area.style.zoom = '1';
+    var root = doc.documentElement;
+    var body = doc.body;
+    var heights = [
+        area.scrollHeight,
+        area.offsetHeight,
+        root ? root.scrollHeight : 0,
+        body ? body.scrollHeight : 0
+    ];
+    return Math.max.apply(null, heights.filter(function (n) { return n > 0; }).concat([0]));
+}
+
+/**
+ * Pick zoom so short receipts use up to max scale; longer ones shrink to one page;
+ * very long receipts stop at min scale and may span multiple pages.
+ */
+function receiptAutoFitScalePercent(doc, billPrintRow) {
+    var maxPct = receiptPrintMaxScalePercent(billPrintRow);
+    var minPct = RECEIPT_PRINT_MIN_SCALE_PCT;
+    var pageH = receiptPrintPageHeightPx(billPrintRow);
+    var contentH = receiptMeasureContentHeightPx(doc);
+    if (!contentH || !pageH) return maxPct;
+
+    var idealPct = Math.floor((pageH / contentH) * 98);
+    if (idealPct >= maxPct) return maxPct;
+    if (idealPct >= minPct) return idealPct;
+    return minPct;
+}
+
+function receiptApplyPrintScale(doc, scalePct) {
+    var sc = (Math.max(50, scalePct) / 100).toFixed(2);
+    var area = doc.getElementById('receiptPrintArea');
+    if (area) area.style.zoom = sc;
+    var existing = doc.getElementById('receiptPrintScaleStyle');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var style = doc.createElement('style');
+    style.id = 'receiptPrintScaleStyle';
+    style.textContent = '@media print{#receiptPrintArea{zoom:' + sc + ' !important;}}';
+    if (doc.head) doc.head.appendChild(style);
+}
 
 /**
  * Receipt content-only CSS (no @page / sheet chrome). Sheet from CFG.buildPrintSheetStylesCss().
- * Screen: existing blue accents. @media print: borders + economy color adjustment — tuned for grayscale printers.
+ * Print zoom is applied after layout via receiptAutoFitScalePercent().
  */
 function receiptContentPrintStyles() {
+    var t = RECEIPT_PRINT_TOKENS;
+    var px = function (n) { return String(n) + 'px'; };
     return (
-        '@page{size:A4 portrait;margin:14mm 14mm 16mm 14mm;}' +
-        'body{font-family:"Times New Roman","Times","Noto Serif TC","PMingLiU",serif;font-size:15px;line-height:1.35;color:#111;margin:0;}' +
-        '#receiptPrintArea{width:100%;max-width:182mm;min-height:260mm;margin:0 auto;padding:0;box-sizing:border-box;display:flex;flex-direction:column;}' +
-        '.receipt-header{text-align:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #222;}' +
-        '.receipt-header h2{margin:0 0 2px;color:#111;font-size:37px;line-height:1.12;font-weight:700;letter-spacing:0.01em;}' +
-        '.receipt-clinic-line{margin:0;color:#111;font-size:20px;line-height:1.25;}' +
-        '.receipt-doc-title{margin:8px 0 0;padding-top:7px;border-top:1px solid #222;color:#111;font-size:30px;font-weight:400;letter-spacing:0;}' +
+        '@page{size:A4 portrait;margin:10mm 10mm 12mm 10mm;}' +
+        'body{font-family:"Times New Roman","Times","Noto Serif TC","PMingLiU",serif;' +
+            'font-size:' + px(t.body) + ';line-height:' + t.lh + ';color:#111;margin:0;}' +
+        '#receiptPrintArea{width:100%;max-width:186mm;min-height:0;margin:0 auto;padding:0;' +
+            'box-sizing:border-box;display:flex;flex-direction:column;}' +
+        '.receipt-header{text-align:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #222;}' +
+        '.receipt-header h2{margin:0 0 3px;color:#111;font-size:' + px(t.clinicH2) +
+            ';line-height:1.12;font-weight:700;letter-spacing:0.01em;}' +
+        '.receipt-clinic-line{margin:0;color:#111;font-size:' + px(t.clinicLine) + ';line-height:1.3;}' +
+        '.receipt-doc-title{margin:8px 0 0;padding-top:6px;border-top:1px solid #222;color:#111;' +
+            'font-size:' + px(t.docTitle) + ';font-weight:400;}' +
         '.receipt-meta{display:flex;justify-content:space-between;align-items:flex-start;' +
-            'font-size:22px;margin-bottom:12px;line-height:1.35;gap:12px;flex-wrap:nowrap;}' +
+            'font-size:' + px(t.meta) + ';margin-bottom:10px;line-height:' + t.lh +
+            ';gap:12px;flex-wrap:nowrap;}' +
         '.receipt-meta-col{min-width:0;}' +
-        '.receipt-meta-left-stack{flex:1;max-width:74%;text-align:left;padding:0;border-radius:0;border:none;background:transparent;}' +
-        '.receipt-meta-date-only{flex:0 0 auto;text-align:right;align-self:flex-start;padding-top:0;}' +
-        '.receipt-meta-spacer{height:10px;margin:2px 0 6px;}' +
-        '.receipt-kv-row{display:flex;justify-content:space-between;align-items:baseline;' +
-            'gap:9px;margin-bottom:4px;flex-wrap:nowrap;}' +
+        '.receipt-meta-left-stack{flex:1;max-width:74%;text-align:left;padding:0;border:none;background:transparent;}' +
+        '.receipt-meta-date-only{flex:0 0 auto;text-align:right;align-self:flex-start;}' +
+        '.receipt-meta-spacer{height:6px;margin:2px 0 4px;}' +
+        '.receipt-kv-row{display:flex;justify-content:flex-start;align-items:baseline;' +
+            'gap:2px 6px;margin-bottom:3px;flex-wrap:nowrap;}' +
         '.receipt-kv-row:last-child{margin-bottom:0;}' +
-        '.receipt-kv-row.receipt-kv-patient-names .receipt-kv-val{font-weight:700;}' +
-        '.receipt-meta-col strong,.receipt-kv-label{font-size:22px;font-weight:400;color:#111;min-width:11.2rem;}' +
-        '.receipt-kv-val{font-size:22px;font-weight:400;color:#111;word-break:break-word;}' +
+        '.receipt-kv-row.receipt-kv-patient-names{margin-top:4px;}' +
+        '.receipt-kv-row.receipt-kv-patient-names .receipt-kv-label,' +
+        '.receipt-kv-row.receipt-kv-patient-names .receipt-kv-val,' +
+        '.receipt-patient-en-line,.receipt-patient-zh-line{font-size:' + px(t.patientName) + ';font-weight:700;}' +
+        '.receipt-meta-col strong,.receipt-kv-label{font-size:' + px(t.meta) +
+            ';font-weight:400;color:#111;min-width:0;}' +
+        '.receipt-kv-val{font-size:' + px(t.meta) + ';font-weight:400;color:#111;word-break:break-word;}' +
         '.receipt-meta-left-stack .receipt-kv-row{justify-content:flex-start;}' +
-        '.receipt-meta-left-stack .receipt-kv-val{text-align:left;flex:1;}' +
-        '.receipt-meta-left-stack .receipt-kv-label{min-width:11.2rem;flex-shrink:0;color:#111;}' +
+        '.receipt-meta-left-stack .receipt-kv-val{text-align:left;flex:0 1 auto;}' +
+        '.receipt-meta-left-stack .receipt-kv-label{min-width:0;flex-shrink:0;color:#111;}' +
         '.receipt-meta-date-only .receipt-kv-row{justify-content:flex-end;}' +
-        '.receipt-meta-date-only .receipt-kv-val{text-align:right;flex:0 1 auto;min-width:5rem;}' +
-        '.receipt-meta-date-only .receipt-kv-label{margin-left:0;color:#111;min-width:auto;}' +
+        '.receipt-meta-date-only .receipt-kv-val{text-align:right;flex:0 1 auto;min-width:4.5rem;}' +
         '.receipt-kv-monospace{font-family:"Times New Roman","Times",serif;letter-spacing:0.01em;font-variant-numeric:tabular-nums;}' +
-        '.receipt-table{width:100%;border-collapse:collapse;margin:12px 0 8px;font-size:22px;}' +
-        '.receipt-table th{background:#fff;padding:5px 6px;text-align:left;font-size:22px;font-weight:700;color:#111;border-top:1px solid #222;border-bottom:1px solid #222;}' +
-        '.receipt-table td{padding:3px 6px!important;border-bottom:none;font-size:22px;vertical-align:top;line-height:1.25;font-variant-numeric:tabular-nums;}' +
+        '.receipt-table{width:100%;border-collapse:collapse;margin:10px 0 8px;font-size:' + px(t.table) + ';}' +
+        '.receipt-table th{background:#fff;padding:4px 6px;text-align:left;font-size:' + px(t.table) +
+            ';font-weight:700;color:#111;border-top:1px solid #222;border-bottom:1px solid #222;}' +
+        '.receipt-table td{padding:3px 6px!important;border-bottom:none;font-size:' + px(t.table) +
+            ';vertical-align:top;line-height:1.25;font-variant-numeric:tabular-nums;}' +
         '.receipt-table tbody tr:last-child td{border-bottom:1px solid #222;}' +
         '.receipt-table th:nth-child(2),.receipt-table th:nth-child(4),.receipt-table td:nth-child(2),.receipt-table td:nth-child(4){text-align:center;}' +
         '.receipt-table th:nth-child(3),.receipt-table th:nth-child(5),.receipt-table td:nth-child(3),.receipt-table td:nth-child(5){text-align:right;}' +
-        '.receipt-totals{background:transparent;border-radius:0;padding:8px 0 0;margin-top:0;font-size:22px;border-top:1px solid #222;}' +
-        '.r-row{display:flex;justify-content:space-between;padding:2px 0;font-size:22px;font-variant-numeric:tabular-nums;}' +
-        '.r-grand{border-top:1px solid #222;margin-top:6px;padding-top:6px;font-size:25px;font-weight:700;color:#111;}' +
-        '.receipt-footer{text-align:center;margin-top:auto;padding-top:34mm;border-top:none;color:#111;font-size:12px;}' +
-        '.receipt-signatures{display:flex;justify-content:space-between;align-items:flex-end;gap:14mm;}' +
+        '.receipt-totals{background:transparent;padding:6px 0 0;margin-top:0;font-size:' + px(t.totals) +
+            ';border-top:1px solid #222;}' +
+        '.r-row{display:flex;justify-content:space-between;padding:2px 0;font-size:' + px(t.totals) +
+            ';font-variant-numeric:tabular-nums;}' +
+        '.r-grand{border-top:1px solid #222;margin-top:6px;padding-top:6px;font-size:' + px(t.grand) +
+            ';font-weight:700;color:#111;}' +
+        '.receipt-footer{text-align:center;margin-top:auto;padding-top:' + t.footerPadMm +
+            'mm;border-top:none;color:#111;font-size:' + px(t.signName) + ';}' +
+        '.receipt-signatures{display:flex;justify-content:space-between;align-items:flex-end;gap:12mm;}' +
         '.receipt-signature{position:static;margin:0;max-width:none;flex:0 0 43%;text-align:left;padding-top:0;background:#fff;}' +
         '.receipt-signature-patient{text-align:right;}' +
-        '.receipt-signature-patient .receipt-sign-name{text-align:right;}' +
-        '.receipt-sign-line{border-bottom:1px solid #222;height:10px;}' +
-        '.receipt-sign-name{margin-top:4px;font-size:18px;font-weight:400;color:#111;line-height:1.25;}' +
+        '.receipt-sign-line{border-bottom:1px solid #222;height:8px;}' +
+        '.receipt-sign-name{margin-top:4px;font-size:' + px(t.signName) +
+            ';font-weight:400;color:#111;line-height:1.25;}' +
         '#rReceiptFooterThanks,.receipt-footer p[data-i18n="bill.receipt.computerGenerated"]{display:none;}' +
-        '#rInstalmentsSection{font-size:22px;margin-top:12px;}' +
-        '#rInstalmentsSection .receipt-instalments-title{font-size:22px;font-weight:700;margin-bottom:6px;}' +
-        '#rInstalmentsSection table{font-size:22px!important;border-collapse:collapse;width:100%;}' +
-        '#rInstalmentsSection th,#rInstalmentsSection td{padding:5px 6px!important;font-size:22px!important;line-height:1.25;}' +
+        '#rInstalmentsSection{font-size:' + px(t.instal) + ';margin-top:10px;}' +
+        '#rInstalmentsSection .receipt-instalments-title{font-size:' + px(t.instal) + ';font-weight:700;margin-bottom:4px;}' +
+        '#rInstalmentsSection table{font-size:' + px(t.instal) + '!important;border-collapse:collapse;width:100%;}' +
+        '#rInstalmentsSection th,#rInstalmentsSection td{padding:4px 6px!important;font-size:' + px(t.instal) +
+            '!important;line-height:1.25;}' +
         '#rInstalmentsSection th{background:#fff;font-weight:700;border-top:1px solid #222;border-bottom:1px solid #222;}' +
-        '#rOutstandingRow{font-size:22px!important;margin-top:8px!important;padding:6px 10px!important;}' +
+        '#rOutstandingRow{font-size:' + px(t.instal) + '!important;margin-top:6px!important;padding:4px 8px!important;}' +
+        '.receipt-extra-meta{margin-top:8px;padding-top:6px;border-top:1px dashed #222;font-size:' + px(t.extra) +
+            ';line-height:' + t.lh + ';}' +
+        '.receipt-extra-meta .receipt-kv-label,.receipt-extra-meta .receipt-kv-val{font-size:' + px(t.extra) +
+            ';font-weight:400;color:#111;}' +
+        '#rDiagnosisSection .receipt-kv-row,#rPatientAddrSection .receipt-kv-row{gap:2px 6px;flex-wrap:nowrap;}' +
         '@media print{' +
         'html,body,#receiptPrintArea,.receipt-signature,.receipt-header,.receipt-meta-left-stack,.receipt-totals,.receipt-table th,.receipt-table td{' +
         'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
@@ -10996,10 +11385,10 @@ function receiptContentPrintStyles() {
         '#receiptPrintArea{padding:0;max-width:100%;}' +
         '.receipt-signature{position:static;background:#fff!important;}' +
         '.receipt-header h2,.receipt-doc-title,.r-grand{color:#111!important;}' +
-        '.receipt-meta-left-stack{background:#fff!important;border:none!important;outline:none!important;border-radius:0;}' +
+        '.receipt-meta-left-stack{background:#fff!important;border:none!important;}' +
         '.receipt-table th{background:#fff!important;color:#111!important;border-color:#111!important;}' +
         '.receipt-table td{border-color:#111!important;}' +
-        '.receipt-totals{background:#fff!important;border:none!important;border-top:1px solid #111!important;border-radius:0;}' +
+        '.receipt-totals{background:#fff!important;border-top:1px solid #111!important;}' +
         '.r-grand{border-top:1px solid #111!important;}' +
         'thead{display:table-header-group;}' +
         'tr{page-break-inside:avoid;}' +
@@ -11209,8 +11598,7 @@ function hydrateReceiptPatientProfile(bill) {
 }
 
 /**
- * Print receipt in a dedicated popup so the bill appears once (avoids duplicate pages from
- * position:fixed + visibility print CSS on the main app window).
+ * Print receipt via hidden iframe (one click from preview). Auto-fit zoom to one A4 page when possible.
  */
 function printReceiptDocument() {
     var area = g('receiptPrintArea');
@@ -11220,105 +11608,96 @@ function printReceiptDocument() {
 
     var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
         ? String(currentClinicId) : '';
-    var sheetCss = '';
-    var popW = 720;
-    var popH = 820;
+    var billPrintRow = null;
+    var sheetCss = receiptPrintSheetFallbackCss();
     if (typeof CFG !== 'undefined' && CFG) {
         if (typeof CFG.prefetchPrintSettings === 'function') {
             CFG.prefetchPrintSettings(cid);
         }
         if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss) {
-            var billPrintRow = CFG.getPrintSettingsForDoc('bill', cid);
+            billPrintRow = CFG.getPrintSettingsForDoc('bill', cid);
             sheetCss = CFG.buildPrintSheetStylesCss(billPrintRow);
-            if (CFG.estimatePrintPopupSizePx) {
-                var wh = CFG.estimatePrintPopupSizePx(billPrintRow);
-                popW = wh.width;
-                popH = wh.height;
-            }
         }
-    }
-    if (!sheetCss) {
-        sheetCss = receiptPrintSheetFallbackCss();
     }
     var printStylesAll = sheetCss +
         '.print-sheet-outer img,.print-sheet-outer table{max-width:100%;}' +
         receiptContentPrintStyles();
 
-    var popup = window.open(
-        '', '_blank',
-        'width=' + popW + ',height=' + popH + ',left=80,top=40,toolbar=0,menubar=0,scrollbars=1,resizable=1'
-    );
-    if (!popup) {
+    var iframe = g('receiptPrintFrame');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'receiptPrintFrame';
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.title = 'Receipt print';
+        document.body.appendChild(iframe);
+    }
+    iframe.style.cssText =
+        'position:fixed;left:-10000px;top:0;width:794px;height:1123px;' +
+        'border:0;visibility:hidden;opacity:0;pointer-events:none;';
+
+    var releaseLock = function () {
         _receiptPrintInProgress = false;
+        if (iframe) {
+            iframe.style.cssText =
+                'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+        }
+    };
+
+    var doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+    if (!doc) {
+        releaseLock();
         alert(tr('bill.receipt.popupBlocked'));
         return;
     }
 
-    var releaseLock = function () {
-        _receiptPrintInProgress = false;
-    };
-
-    popup.document.write(
+    doc.open();
+    doc.write(
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
         '<title>' + esc(tr('bill.receipt.printTitle')) + '</title><style>' + printStylesAll + '</style></head><body>' +
         '<div class="print-sheet-outer"><div id="receiptPrintArea">' +
         area.innerHTML +
-        '</div></div>' +
-        '<script>(function(){var printed=false,closing=false;' +
-        'function notifyOpener(){try{' +
-        'var o=window.opener;if(o&&typeof o.closeModal==="function"){o.closeModal("receiptModal");}' +
-        '}catch(_){}' +
-        '}' +
-        'function finalize(){if(closing)return;closing=true;' +
-        'notifyOpener();' +
-        'function tryClose(){try{if(!window.closed)window.close();}catch(_){}}' +
-        'tryClose();setTimeout(tryClose,120);setTimeout(tryClose,450);}' +
-        'function fitPageRatio(){' +
-        'var de=document.documentElement,bd=document.body;if(!de||!bd)return;' +
-        'de.style.zoom="";bd.style.zoom="";' +
-        'var vw=Math.max(1,window.innerWidth||de.clientWidth||1);' +
-        'var vh=Math.max(1,window.innerHeight||de.clientHeight||1);' +
-        'var needW=Math.max(1,de.scrollWidth||bd.scrollWidth||vw);' +
-        'var needH=Math.max(1,de.scrollHeight||bd.scrollHeight||vh);' +
-        'var sc=Math.min(1,vw/needW,vh/needH);' +
-        'if(!(sc>0&&sc<=1))sc=1;' +
-        'sc=Math.max(0.42,Math.floor(sc*100)/100);' +
-        'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
-        '}' +
-        'function armCloseHandlers(){' +
-        'function afterPrintSlowClose(){if(closing)return;' +
-        'setTimeout(function(){finalize();},2500);}' +
-        'window.addEventListener("afterprint",afterPrintSlowClose);' +
-        'window.onafterprint=afterPrintSlowClose;' +
-        '}' +
-        'armCloseHandlers();' +
-        'function run(){if(printed)return;printed=true;' +
-        'try{fitPageRatio();}catch(e0){}' +
-        'try{window.focus();window.print();}catch(e){finalize();}' +
-        '}' +
-        'window.onload=function(){setTimeout(run,220);};' +
-        'setTimeout(function(){if(!printed)run();},1200);})();<\/script>' +
-        '</body></html>'
+        '</div></div></body></html>'
     );
-    popup.document.close();
+    doc.close();
 
-    try { popup.focus(); } catch (eFocus) {}
+    var win = iframe.contentWindow;
+    if (!win) {
+        releaseLock();
+        return;
+    }
 
-    var pollAttempts = 0;
-    var pollMax = Math.ceil(90000 / 400);
-    var pollId = setInterval(function() {
-        pollAttempts++;
-        var dead = false;
+    var done = false;
+    function finish() {
+        if (done) return;
+        done = true;
+        releaseLock();
+    }
+
+    try {
+        win.addEventListener('afterprint', function () { setTimeout(finish, 300); });
+    } catch (_) {}
+
+    setTimeout(function () {
+        var scalePct;
         try {
-            dead = !popup || popup.closed;
-        } catch (_) {
-            dead = true;
+            scalePct = receiptAutoFitScalePercent(doc, billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
+        } catch (eFit) {
+            scalePct = receiptPrintMaxScalePercent(billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
         }
-        if (dead || pollAttempts >= pollMax) {
-            clearInterval(pollId);
-            releaseLock();
-        }
-    }, 400);
+        setTimeout(function () {
+            try {
+                win.focus();
+                win.print();
+            } catch (ePrint) {
+                finish();
+                alert(tr('bill.receipt.popupBlocked'));
+                return;
+            }
+            setTimeout(finish, 8000);
+        }, 60);
+    }, 140);
 }
 
 function clinicRecordForReceiptByTagOrId(tagOrId) {
@@ -11399,13 +11778,350 @@ function applyReceiptClinicHeader(bill) {
     }
 }
 
+var RECEIPT_PRINT_OPTS_KEY = 'receipt_print_options_v1';
+var _receiptPrintPending = null;
+var _receiptOptionsReturnToPreview = false;
+
+function defaultReceiptPrintOptions() {
+    return {
+        printAddress: false,
+        printPaymentHistory: false,
+        printBillDate: false,
+        printDiagnosis: false,
+        diagnosisText: '',
+        reasonForTreatment: '',
+        printTreatmentNotes: false,
+        patientUndersign: true,
+        printPrescription: false
+    };
+}
+
+function loadReceiptPrintOptions() {
+    var defs = defaultReceiptPrintOptions();
+    try {
+        var raw = localStorage.getItem(RECEIPT_PRINT_OPTS_KEY);
+        if (!raw) return defs;
+        var parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return defs;
+        Object.keys(defs).forEach(function(k) {
+            if (typeof parsed[k] === 'boolean') defs[k] = parsed[k];
+        });
+    } catch (_) {}
+    return defs;
+}
+
+function saveReceiptPrintOptions(opts) {
+    var persist = defaultReceiptPrintOptions();
+    Object.keys(persist).forEach(function(k) {
+        if (typeof opts[k] === 'boolean') persist[k] = opts[k];
+    });
+    try {
+        localStorage.setItem(RECEIPT_PRINT_OPTS_KEY, JSON.stringify(persist));
+    } catch (_) {}
+}
+
+function readReceiptPrintOptionsFromForm() {
+    var opts = defaultReceiptPrintOptions();
+    opts.printAddress = !!(g('rpoPrintAddress') && g('rpoPrintAddress').checked);
+    opts.printPaymentHistory = !!(g('rpoPrintPaymentHistory') && g('rpoPrintPaymentHistory').checked);
+    opts.printBillDate = !!(g('rpoPrintBillDate') && g('rpoPrintBillDate').checked);
+    opts.printDiagnosis = !!(g('rpoPrintDiagnosis') && g('rpoPrintDiagnosis').checked);
+    opts.printTreatmentNotes = !!(g('rpoPrintTreatmentNotes') && g('rpoPrintTreatmentNotes').checked);
+    opts.patientUndersign = !!(g('rpoPatientUndersign') && g('rpoPatientUndersign').checked);
+    opts.printPrescription = !!(g('rpoPrintPrescription') && g('rpoPrintPrescription').checked);
+    opts.diagnosisText = g('rpoDiagnosisText')
+        ? String(g('rpoDiagnosisText').value || '').trim()
+        : '';
+    opts.reasonForTreatment = g('rpoReasonForTreatment')
+        ? String(g('rpoReasonForTreatment').value || '').trim()
+        : '';
+    return opts;
+}
+
+function syncReceiptPrintDiagnosisFieldsVisibility() {
+    var chk = g('rpoPrintDiagnosis');
+    var fields = g('rpoDiagnosisFields');
+    if (fields) fields.style.display = (chk && chk.checked) ? '' : 'none';
+}
+
+function applyReceiptPrintOptionsToForm(opts) {
+    opts = opts || loadReceiptPrintOptions();
+    if (g('rpoPrintAddress')) g('rpoPrintAddress').checked = !!opts.printAddress;
+    if (g('rpoPrintPaymentHistory')) g('rpoPrintPaymentHistory').checked = !!opts.printPaymentHistory;
+    if (g('rpoPrintBillDate')) g('rpoPrintBillDate').checked = !!opts.printBillDate;
+    if (g('rpoPrintDiagnosis')) g('rpoPrintDiagnosis').checked = !!opts.printDiagnosis;
+    if (g('rpoPrintTreatmentNotes')) g('rpoPrintTreatmentNotes').checked = !!opts.printTreatmentNotes;
+    if (g('rpoPatientUndersign')) g('rpoPatientUndersign').checked = opts.patientUndersign !== false;
+    if (g('rpoPrintPrescription')) g('rpoPrintPrescription').checked = !!opts.printPrescription;
+    if (g('rpoDiagnosisText')) g('rpoDiagnosisText').value = opts.diagnosisText || '';
+    if (g('rpoReasonForTreatment')) g('rpoReasonForTreatment').value = opts.reasonForTreatment || '';
+    syncReceiptPrintDiagnosisFieldsVisibility();
+}
+
+function receiptDateIsoFromTs(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+}
+
+function receiptFormatPrescriptionLine(row) {
+    var bits = [String(row.drug_name || '').trim()];
+    var detail = [
+        row.dosage, row.frequency, row.duration, row.route,
+        row.quantity ? ('×' + row.quantity) : ''
+    ].filter(function(x) { return String(x || '').trim(); }).join(', ');
+    if (detail) bits.push(detail);
+    if (row.remarks) bits.push(String(row.remarks).trim());
+    return bits.filter(Boolean).join(' — ');
+}
+
+function fetchReceiptSupplementData(bill, cb) {
+    var result = {
+        patientAddress: '',
+        treatmentNotesText: '',
+        prescriptions: []
+    };
+    if (!bill || !SB || typeof SB.from !== 'function') {
+        if (cb) cb(result);
+        return;
+    }
+
+    var billDate = String(bill.bill_date || '').trim();
+    var patientId = bill.patient_id ? String(bill.patient_id) : '';
+    var patientNo = String(bill.patient_no || '').trim();
+    var pending = 0;
+
+    function finishAll() {
+        if (cb) cb(result);
+    }
+
+    function done() {
+        pending--;
+        if (pending <= 0) finishAll();
+    }
+
+    function start() { pending++; }
+
+    function applyPatientRow(row) {
+        if (row) result.patientAddress = String(row.address || '').trim();
+    }
+
+    start();
+    function queryPatientByNo() {
+        if (!patientNo) { done(); return; }
+        SB.from('patients').select('address').eq('patient_no', patientNo).limit(1)
+            .then(function(r2) {
+                if (!r2.error && r2.data && r2.data.length) applyPatientRow(r2.data[0]);
+                done();
+            });
+    }
+    if (patientId) {
+        SB.from('patients').select('address').eq('id', patientId).limit(1)
+            .then(function(r) {
+                if (!r.error && r.data && r.data.length) {
+                    applyPatientRow(r.data[0]);
+                    done();
+                    return;
+                }
+                queryPatientByNo();
+            });
+    } else {
+        queryPatientByNo();
+    }
+
+    if (patientId && billDate) {
+        start();
+        SB.from('treatments').select('notes,created_at')
+            .eq('patient_id', patientId)
+            .order('created_at', { ascending: true })
+            .then(function(r) {
+                if (!r.error && r.data && r.data.length) {
+                    var notes = [];
+                    r.data.forEach(function(t) {
+                        var dk = receiptDateIsoFromTs(t.created_at);
+                        if (dk !== billDate) return;
+                        var txt = String(t.notes || '').trim();
+                        if (txt) notes.push(txt);
+                    });
+                    result.treatmentNotesText = notes.join('\n\n');
+                }
+                done();
+            });
+    }
+
+    if (patientId && billDate) {
+        start();
+        SB.from('drughistory').select('*')
+            .eq('patient_id', patientId)
+            .eq('prescribed_date', billDate)
+            .order('drug_name', { ascending: true })
+            .then(function(r) {
+                if (!r.error && r.data && r.data.length) {
+                    result.prescriptions = r.data.slice();
+                }
+                done();
+            });
+    }
+}
+
+function dismissReceiptPrintOptionsModal(restorePreview) {
+    _receiptPrintPending = null;
+    closeModal('receiptPrintOptionsModal');
+    if (restorePreview && _receiptOptionsReturnToPreview && _receiptRefreshState) {
+        _receiptOptionsReturnToPreview = false;
+        openModal('receiptModal');
+        return;
+    }
+    _receiptOptionsReturnToPreview = false;
+}
+
+function openReceiptPreviewDirect(pending) {
+    pending = pending || {};
+    var opts = loadReceiptPrintOptions();
+    if (pending.printOpts && typeof pending.printOpts === 'object') {
+        opts = Object.assign({}, opts, pending.printOpts);
+    }
+    if (!pending.bill) return;
+    fetchReceiptSupplementData(pending.bill, function (supplement) {
+        showReceipt(
+            pending.bill,
+            pending.insertedData,
+            pending.payments,
+            !!pending.autoPrint,
+            opts,
+            supplement
+        );
+    });
+}
+
+function openReceiptPrintOptionsModal(pending) {
+    _receiptPrintPending = pending || null;
+    var opts = loadReceiptPrintOptions();
+    if (_receiptRefreshState && _receiptRefreshState.printOpts && pending && pending.bill &&
+        _receiptRefreshState.bill) {
+        var sameBill = String(_receiptRefreshState.bill.id || '') === String(pending.bill.id || '');
+        if (sameBill) {
+            opts = Object.assign({}, opts, _receiptRefreshState.printOpts);
+        }
+    }
+    applyReceiptPrintOptionsToForm(opts);
+    openModal('receiptPrintOptionsModal');
+}
+
+function confirmReceiptPrintOptions() {
+    var opts = readReceiptPrintOptionsFromForm();
+    saveReceiptPrintOptions(opts);
+    var pending = _receiptPrintPending;
+    _receiptPrintPending = null;
+    _receiptOptionsReturnToPreview = false;
+    closeModal('receiptPrintOptionsModal');
+    if (!pending || !pending.bill) return;
+    fetchReceiptSupplementData(pending.bill, function(supplement) {
+        showReceipt(
+            pending.bill,
+            pending.insertedData,
+            pending.payments,
+            !!pending.autoPrint,
+            opts,
+            supplement
+        );
+    });
+}
+
+function reopenReceiptPrintOptionsFromReceipt() {
+    if (!_receiptRefreshState || !_receiptRefreshState.bill) return;
+    _receiptOptionsReturnToPreview = true;
+    closeModal('receiptModal');
+    openReceiptPrintOptionsModal({
+        bill: _receiptRefreshState.bill,
+        insertedData: _receiptRefreshState.insertedData,
+        payments: _receiptRefreshState.payments,
+        autoPrint: false
+    });
+}
+
+function applyReceiptPrintOptions(opts, supplement, bill, pmts) {
+    opts = opts || loadReceiptPrintOptions();
+    supplement = supplement || {};
+
+    var addrSec = g('rPatientAddrSection');
+    var addrEl = g('rPatientAddr');
+    var showAddr = !!opts.printAddress && String(supplement.patientAddress || '').trim();
+    if (addrSec) addrSec.style.display = showAddr ? '' : 'none';
+    if (addrEl && showAddr) addrEl.textContent = supplement.patientAddress;
+
+    var dateCol = g('receiptBillDateCol');
+    if (dateCol) dateCol.style.display = opts.printBillDate ? '' : 'none';
+
+    var diagSec = g('rDiagnosisSection');
+    if (opts.printDiagnosis) {
+        var diagVal = String(opts.diagnosisText || '').trim() || '—';
+        var reasonVal = String(opts.reasonForTreatment || '').trim() || '—';
+        if (diagSec) diagSec.style.display = '';
+        if (g('rDiagnosisVal')) g('rDiagnosisVal').textContent = diagVal;
+        if (g('rTreatmentReasonVal')) g('rTreatmentReasonVal').textContent = reasonVal;
+    } else if (diagSec) {
+        diagSec.style.display = 'none';
+    }
+
+    var tnSec = g('rTreatmentNotesSection');
+    var tnEl = g('rTreatmentNotesBody');
+    if (opts.printTreatmentNotes) {
+        var tnTxt = String(supplement.treatmentNotesText || '').trim() || '—';
+        if (tnSec) tnSec.style.display = '';
+        if (tnEl) tnEl.textContent = tnTxt;
+    } else if (tnSec) {
+        tnSec.style.display = 'none';
+    }
+
+    var rxSec = g('rPrescriptionSection');
+    var rxEl = g('rPrescriptionBody');
+    if (opts.printPrescription) {
+        var rxRows = supplement.prescriptions || [];
+        if (rxSec) rxSec.style.display = '';
+        if (rxEl) {
+            if (!rxRows.length) {
+                rxEl.textContent = '—';
+            } else {
+                rxEl.innerHTML = rxRows.map(function(row) {
+                    return esc(receiptFormatPrescriptionLine(row));
+                }).join('<br>');
+            }
+        }
+    } else if (rxSec) {
+        rxSec.style.display = 'none';
+    }
+
+    var patSign = g('receiptPatientSignBlock');
+    if (patSign) patSign.style.display = opts.patientUndersign !== false ? '' : 'none';
+
+    var bal = parseFloat(bill && bill.balance) || 0;
+    var showPmts = false;
+    if (opts.printPaymentHistory) {
+        showPmts = (pmts || []).length >= 1;
+    }
+    var secEl = g('rInstalmentsSection');
+    if (secEl && !opts.printPaymentHistory) {
+        secEl.style.display = 'none';
+    }
+    return showPmts;
+}
+
 var _receiptRefreshState = null;
 
-function showReceipt(bill, insertedData, payments, autoPrint) {
+function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplement) {
+    printOpts = printOpts || loadReceiptPrintOptions();
+    supplement = supplement || {};
     _receiptRefreshState = {
         bill: bill,
         insertedData: insertedData,
-        payments: payments
+        payments: payments,
+        printOpts: printOpts,
+        supplement: supplement
     };
     applyReceiptClinicHeader(bill);
 
@@ -11461,9 +12177,9 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
     g('rBalance').textContent  = fmtHK(bill.balance);
 
     // ── Instalment payments section ──────────────────────
-    var pmts      = payments || [];
+    var pmts      = normalizeReceiptPayments(bill, payments);
     var bal       = parseFloat(bill.balance) || 0;
-    var showPmts  = pmts.length > 1 || (pmts.length === 1 && bal > 0);
+    var showPmts  = applyReceiptPrintOptions(printOpts, supplement, bill, pmts);
     var secEl     = g('rInstalmentsSection');
     var bodyEl    = g('rInstalmentsBody');
     var outRow    = g('rOutstandingRow');
@@ -11492,6 +12208,10 @@ function showReceipt(bill, insertedData, payments, autoPrint) {
     if (outAmt)  outAmt.textContent    = fmtHK(bal);
 
     openModal('receiptModal');
+    if (typeof applyI18nInRoot === 'function') {
+        var rm = g('receiptModal');
+        if (rm) applyI18nInRoot(rm);
+    }
     if (autoPrint) {
         setTimeout(function () { printReceiptDocument(); }, 400);
     }
@@ -11699,7 +12419,9 @@ document.addEventListener('app-lang-change', function () {
                 _receiptRefreshState.bill,
                 _receiptRefreshState.insertedData,
                 _receiptRefreshState.payments,
-                false
+                false,
+                _receiptRefreshState.printOpts,
+                _receiptRefreshState.supplement
             );
         }
     }

@@ -2011,6 +2011,10 @@ function closeModal(id) {
     // reset module-level state when specific modals close
     if (id === 'patientDetailsModal')  selPatientId  = null;
     if (id === 'editPatientModal')     editPatientId = null;
+    if (id === 'patientBananaModal' &&
+        typeof patientDirBananaEditId !== 'undefined') {
+        patientDirBananaEditId = null;
+    }
     if (id === 'apptModal') {
         if (typeof resetApptBookingGuards === 'function') resetApptBookingGuards();
         apptEditId = null;
@@ -2507,6 +2511,26 @@ document.addEventListener('DOMContentLoaded', function() {
     g('cancelEditBtn').addEventListener('click', function() {
         closeModal('editPatientModal');
     });
+    var closePatientBananaModal = g('closePatientBananaModal');
+    if (closePatientBananaModal) {
+        closePatientBananaModal.addEventListener('click', function() {
+            closeModal('patientBananaModal');
+        });
+    }
+    var patientBananaCancelBtn = g('patientBananaCancelBtn');
+    if (patientBananaCancelBtn) {
+        patientBananaCancelBtn.addEventListener('click', function() {
+            closeModal('patientBananaModal');
+        });
+    }
+    var patientBananaSaveBtn = g('patientBananaSaveBtn');
+    if (patientBananaSaveBtn) {
+        patientBananaSaveBtn.addEventListener('click', function() {
+            if (typeof savePatientDirBananaPanel === 'function') {
+                savePatientDirBananaPanel();
+            }
+        });
+    }
     g('edit_deleteBtn').addEventListener('click', deletePatient);
     g('noteSaveBtn').addEventListener('click',    saveNote);
     g('patientForm').addEventListener('submit',   submitAddPatient);
@@ -2917,8 +2941,8 @@ function applyOpenGlobalModalsI18n() {
     }
     var ids = [
         'apptModal', 'apptPopup', 'queueRemarksModal', 'recallSendModal',
-        'billDetailModal', 'receiptModal', 'addPaymentModal', 'billDeleteModal',
-        'patientDetailsModal', 'addPatientModal', 'editPatientModal',
+        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'addPaymentModal', 'billDeleteModal',
+        'patientDetailsModal', 'addPatientModal', 'editPatientModal', 'patientBananaModal',
         'photoUploadModal', 'photoLightbox',
         'xrayUploadModal', 'xrayLightbox', 'diySystemModal',
         'conNoteTemplateModal',

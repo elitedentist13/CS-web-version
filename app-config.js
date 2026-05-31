@@ -1592,17 +1592,24 @@ var CFG = (function () {
         if (!pane) return;
         pane.innerHTML = '<p style="color:#888;">' + esc(ctr('common.loadingEllipsis')) + '</p>';
 
-        SB.from('treatment_items').select('*').order('item_code')
+        SB.from('treatment_items').select('*').eq('is_active', true).order('item_name')
         .then(function (r) {
-            var rows = r.data || [];
+            var rows = (r.data || []).slice().sort(function(a, b) {
+                return String(a.item_name || '').localeCompare(String(b.item_name || ''), 'en', { sensitivity: 'base' });
+            });
             var html =
                 '<div style="display:flex;justify-content:space-between;' +
-                'align-items:center;margin-bottom:20px;">' +
+                'align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;">' +
                 '<h2 style="margin:0;font-size:20px;">' + esc(ctr('cfg.header.treatment')) + '</h2>' +
+                '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+                '<button onclick="CFG._renewTreatmentCatalog()" style="' +
+                'padding:9px 16px;background:#6f42c1;color:#fff;' +
+                'border:none;border-radius:6px;cursor:pointer;' +
+                'font-size:13px;">' + esc(ctr('cfg.btn.renewTreatmentCatalog')) + '</button>' +
                 '<button onclick="CFG._openTxPanel()" style="' +
                 'padding:9px 20px;background:#0d6efd;color:#fff;' +
                 'border:none;border-radius:6px;cursor:pointer;' +
-                'font-size:13px;">' + esc(ctr('cfg.btn.addItem')) + '</button></div>' +
+                'font-size:13px;">' + esc(ctr('cfg.btn.addItem')) + '</button></div></div>' +
                 '<div id="txList">' + renderTxCards(rows) + '</div>' +
                 txPanelHTML();
             pane.innerHTML = html;
@@ -1739,6 +1746,35 @@ var CFG = (function () {
                 if (r.error) { toast(r.error.message, true); return; }
                 toast(ctr('cfg.msg.itemDeleted'));
                 loadTreatment();
+            });
+        });
+    }
+
+    /**
+     * Replace active treatment picker list with TREATMENT_ITEMS_CATALOG.
+     * Old rows are kept in DB as inactive so historical bill line text is untouched.
+     */
+    function _renewTreatmentCatalog() {
+        if (typeof buildTreatmentItemSeedRows !== 'function') {
+            toast(ctr('cfg.msg.treatmentCatalogMissing'), true);
+            return;
+        }
+        var seedRows = buildTreatmentItemSeedRows();
+        confirm(ctrRepl('cfg.confirm.renewTreatmentCatalog', { N: String(seedRows.length) }), function () {
+            toast(ctr('cfg.msg.renewTreatmentWorking'));
+            SB.from('treatment_items').update({ is_active: false }).eq('is_active', true)
+            .then(function(deact) {
+                if (deact.error) { toast(deact.error.message, true); return null; }
+                return SB.from('treatment_items').insert(seedRows);
+            })
+            .then(function(ins) {
+                if (!ins) return;
+                if (ins.error) { toast(ins.error.message, true); return; }
+                toast(ctrRepl('cfg.msg.renewTreatmentDone', { N: String(seedRows.length) }));
+                loadTreatment();
+            })
+            .catch(function(e) {
+                toast(String(e && e.message ? e.message : e), true);
             });
         });
     }
@@ -2957,7 +2993,7 @@ var CFG = (function () {
     var _printEditDocType = null;
 
     var PRINT_DOC_TYPES = [
-        { key: 'bill',           paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 } },
+        { key: 'bill',           paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 }, scale_percent: 130 },
         { key: 'drug_label',     paper: '50mm x 60mm', m: { l: 2, r: 2, t: 2, b: 2 } },
         { key: 'letters',        paper: 'A4',          m: { l: 15, r: 15, t: 15, b: 15 } },
         { key: 'report',         paper: 'A4',          m: { l: 12, r: 12, t: 12, b: 12 } },
@@ -2968,6 +3004,275 @@ var CFG = (function () {
         { key: 'patient_export', paper: 'A4',          m: { l: 10, r: 10, t: 10, b: 10 } },
         { key: 'treatment_notes', paper: 'A4',       m: { l: 12, r: 12, t: 12, b: 12 } }
     ];
+
+    var PRINT_PAPER_DIMS_MM = {
+        'A4': [210, 297],
+        'A5': [148, 210],
+        'Letter': [216, 279],
+        '80mm roll': [80, 297],
+        '50mm x 60mm': [50, 60]
+    };
+
+    function defaultPrintExtras() {
+        return {
+            print_logo: false,
+            logo_data_url: '',
+            logo_left_mm: 0,
+            logo_top_mm: 0,
+            logo_right_mm: 0,
+            logo_bottom_mm: 0,
+            header_style: 'form_a',
+            header_type: 'clinic',
+            font_header: 'Times New Roman|bold|14',
+            font_qualification: 'Times New Roman|normal|12',
+            font_address: 'Times New Roman|normal|12',
+            font_doc_title: 'Times New Roman|normal|12',
+            font_content: 'Times New Roman|normal|12',
+            footnote_html: ''
+        };
+    }
+
+    function mergePrintExtras(stored) {
+        var base = defaultPrintExtras();
+        if (!stored || typeof stored !== 'object') return base;
+        Object.keys(base).forEach(function (k) {
+            if (stored[k] !== undefined && stored[k] !== null) base[k] = stored[k];
+        });
+        return base;
+    }
+
+    function parsePrintFontToken(raw) {
+        var s = String(raw || '').trim();
+        if (!s) return { family: 'Times New Roman', bold: false, size: 12 };
+        var pts = s.split('|');
+        return {
+            family: pts[0] || 'Times New Roman',
+            bold: String(pts[1] || '').toLowerCase() === 'bold',
+            size: Math.max(6, parseInt(pts[2], 10) || 12)
+        };
+    }
+
+    function formatPrintFontToken(family, bold, size) {
+        return String(family || 'Times New Roman').trim() + '|' +
+            (bold ? 'bold' : 'normal') + '|' +
+            String(Math.max(6, parseInt(size, 10) || 12));
+    }
+
+    function displayPrintFontToken(raw) {
+        var f = parsePrintFontToken(raw);
+        return f.family + ', ' + (f.bold ? 'Bold' : 'Regular') + ' (' + f.size + ' pt)';
+    }
+
+    function syncPrintFontDisplays(form) {
+        if (!form) return;
+        ['font_header', 'font_qualification', 'font_address', 'font_doc_title', 'font_content']
+            .forEach(function (key) {
+                var inp = form.querySelector('[name="' + key + '"]');
+                var disp = g('cfgPrintFontDisp_' + key);
+                if (inp && disp) disp.textContent = displayPrintFontToken(inp.value);
+            });
+    }
+
+    function syncPrintPaperDimensions(form) {
+        if (!form) return;
+        var sel = form.querySelector('[name="paper_size"]') || g('cfgPrintPaper');
+        var wEl = form.querySelector('[name="paper_width_mm"]');
+        var hEl = form.querySelector('[name="paper_height_mm"]');
+        if (!sel || !wEl || !hEl) return;
+        var sz = String(sel.value || 'A4');
+        var custom = sz === 'Custom';
+        wEl.readOnly = !custom;
+        hEl.readOnly = !custom;
+        if (!custom && PRINT_PAPER_DIMS_MM[sz]) {
+            wEl.value = PRINT_PAPER_DIMS_MM[sz][0].toFixed(2);
+            hEl.value = PRINT_PAPER_DIMS_MM[sz][1].toFixed(2);
+        }
+    }
+
+    function updatePrintLogoPreview(dataUrl) {
+        var box = g('cfgPrintLogoPreview');
+        var hidden = g('cfgPrintLogoData');
+        if (hidden) hidden.value = dataUrl || '';
+        if (!box) return;
+        if (dataUrl) {
+            box.innerHTML = '';
+            var img = document.createElement('img');
+            img.src = dataUrl;
+            img.alt = '';
+            box.appendChild(img);
+            box.classList.add('has-image');
+        } else {
+            box.innerHTML = '';
+            box.classList.remove('has-image');
+        }
+    }
+
+    function readPrintExtrasFromForm(form) {
+        if (!form) return defaultPrintExtras();
+        function num(name, fb) {
+            var el = form.querySelector('[name="' + name + '"]');
+            var n = el ? parseFloat(el.value) : NaN;
+            return isFinite(n) ? n : fb;
+        }
+        function chk(name) {
+            var el = form.querySelector('[name="' + name + '"]');
+            return !!(el && el.checked);
+        }
+        function val(name, fb) {
+            var el = form.querySelector('[name="' + name + '"]');
+            return el ? String(el.value || '').trim() : (fb || '');
+        }
+        var headerType = 'clinic';
+        form.querySelectorAll('[name="header_type"]').forEach(function (r) {
+            if (r.checked) headerType = r.value;
+        });
+        var footEl = g('cfgPrintFootnoteHtml');
+        return {
+            print_logo: chk('print_logo'),
+            logo_data_url: val('logo_data_url', ''),
+            logo_left_mm: num('logo_left_mm', 0),
+            logo_top_mm: num('logo_top_mm', 0),
+            logo_right_mm: num('logo_right_mm', 0),
+            logo_bottom_mm: num('logo_bottom_mm', 0),
+            header_style: val('header_style', 'form_a') || 'form_a',
+            header_type: headerType === 'doctor' ? 'doctor' : 'clinic',
+            font_header: val('font_header', defaultPrintExtras().font_header),
+            font_qualification: val('font_qualification', defaultPrintExtras().font_qualification),
+            font_address: val('font_address', defaultPrintExtras().font_address),
+            font_doc_title: val('font_doc_title', defaultPrintExtras().font_doc_title),
+            font_content: val('font_content', defaultPrintExtras().font_content),
+            footnote_html: footEl ? footEl.value : val('footnote_html', '')
+        };
+    }
+
+    function fillPrintExtrasForm(form, extras) {
+        if (!form) return;
+        extras = mergePrintExtras(extras);
+        function setVal(name, val) {
+            var el = form.querySelector('[name="' + name + '"]');
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!val;
+            else if (el.type === 'radio') el.checked = String(el.value) === String(val);
+            else el.value = val === null || val === undefined ? '' : String(val);
+        }
+        setVal('print_logo', extras.print_logo);
+        setVal('logo_left_mm', extras.logo_left_mm);
+        setVal('logo_top_mm', extras.logo_top_mm);
+        setVal('logo_right_mm', extras.logo_right_mm);
+        setVal('logo_bottom_mm', extras.logo_bottom_mm);
+        setVal('header_style', extras.header_style);
+        form.querySelectorAll('[name="header_type"]').forEach(function (r) {
+            r.checked = String(r.value) === String(extras.header_type || 'clinic');
+        });
+        setVal('font_header', extras.font_header);
+        setVal('font_qualification', extras.font_qualification);
+        setVal('font_address', extras.font_address);
+        setVal('font_doc_title', extras.font_doc_title);
+        setVal('font_content', extras.font_content);
+        updatePrintLogoPreview(extras.logo_data_url);
+        var footHidden = g('cfgPrintFootnoteHtml');
+        var footEdit = g('cfgPrintFootnoteEditor');
+        if (footHidden) footHidden.value = extras.footnote_html || '';
+        if (footEdit) footEdit.innerHTML = extras.footnote_html || '';
+        syncPrintFontDisplays(form);
+    }
+
+    var _printFontEditField = null;
+
+    function wirePrintDetailExtras(form) {
+        if (!form || form.dataset.printExtrasWired === '1') return;
+        form.dataset.printExtrasWired = '1';
+
+        var paperSel = g('cfgPrintPaper');
+        if (paperSel) {
+            paperSel.addEventListener('change', function () {
+                syncPrintPaperDimensions(form);
+            });
+        }
+
+        var logoBrowse = g('cfgPrintLogoBrowseBtn');
+        var logoFile = g('cfgPrintLogoFile');
+        if (logoBrowse && logoFile) {
+            logoBrowse.addEventListener('click', function () { logoFile.click(); });
+            logoFile.addEventListener('change', function () {
+                var f = logoFile.files && logoFile.files[0];
+                if (!f) return;
+                var reader = new FileReader();
+                reader.onload = function () {
+                    updatePrintLogoPreview(String(reader.result || ''));
+                    var chk = g('cfgPrintLogoEnable');
+                    if (chk) chk.checked = true;
+                };
+                reader.readAsDataURL(f);
+            });
+        }
+
+        form.querySelectorAll('.cfg-print-font-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                _printFontEditField = btn.getAttribute('data-font-field');
+                var editor = g('cfgPrintFontEditor');
+                var inp = form.querySelector('[name="' + _printFontEditField + '"]');
+                if (!editor || !inp) return;
+                var tok = parsePrintFontToken(inp.value);
+                var fam = g('cfgPrintFontFamily');
+                var sz = g('cfgPrintFontSize');
+                var bld = g('cfgPrintFontBold');
+                if (fam) fam.value = tok.family;
+                if (sz) sz.value = tok.size;
+                if (bld) bld.checked = tok.bold;
+                editor.classList.remove('hidden');
+            });
+        });
+
+        var fontApply = g('cfgPrintFontApplyBtn');
+        if (fontApply) {
+            fontApply.addEventListener('click', function () {
+                if (!_printFontEditField) return;
+                var inp = form.querySelector('[name="' + _printFontEditField + '"]');
+                var fam = g('cfgPrintFontFamily');
+                var sz = g('cfgPrintFontSize');
+                var bld = g('cfgPrintFontBold');
+                if (inp) {
+                    inp.value = formatPrintFontToken(
+                        fam ? fam.value : 'Times New Roman',
+                        !!(bld && bld.checked),
+                        sz ? sz.value : 12
+                    );
+                }
+                syncPrintFontDisplays(form);
+                var editor = g('cfgPrintFontEditor');
+                if (editor) editor.classList.add('hidden');
+                _printFontEditField = null;
+            });
+        }
+        var fontCancel = g('cfgPrintFontCancelBtn');
+        if (fontCancel) {
+            fontCancel.addEventListener('click', function () {
+                var editor = g('cfgPrintFontEditor');
+                if (editor) editor.classList.add('hidden');
+                _printFontEditField = null;
+            });
+        }
+
+        var toolbar = g('cfgPrintFootnoteToolbar');
+        var footEdit = g('cfgPrintFootnoteEditor');
+        var footHidden = g('cfgPrintFootnoteHtml');
+        if (toolbar && footEdit) {
+            toolbar.querySelectorAll('button[data-cmd]').forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    footEdit.focus();
+                    try {
+                        document.execCommand(btn.getAttribute('data-cmd'), false, null);
+                    } catch (_) {}
+                    if (footHidden) footHidden.value = footEdit.innerHTML;
+                });
+            });
+            footEdit.addEventListener('input', function () {
+                if (footHidden) footHidden.value = footEdit.innerHTML;
+            });
+        }
+    }
 
     function defaultPrintRow(docType) {
         var def = PRINT_DOC_TYPES.find(function (d) { return d.key === docType; });
@@ -2983,18 +3288,20 @@ var CFG = (function () {
             margin_top:     m.t,
             margin_bottom:  m.b,
             orientation:    'portrait',
-            scale_percent:  100,
+            scale_percent:  def && def.scale_percent != null ? Number(def.scale_percent) : 100,
             copies:         1,
             color_mode:     'color',
             fit_to_page:    true,
             show_header:    true,
-            notes:          ''
+            notes:          '',
+            extras:         defaultPrintExtras()
         };
     }
 
     function mergePrintRow(docType, stored) {
         var base = defaultPrintRow(docType);
         if (!stored) return base;
+        var extras = mergePrintExtras(stored.extras || stored);
         return {
             doc_type:       docType,
             printer_name:   stored.printer_name != null ? String(stored.printer_name) : base.printer_name,
@@ -3011,7 +3318,8 @@ var CFG = (function () {
             color_mode:     stored.color_mode || base.color_mode,
             fit_to_page:    stored.fit_to_page !== false,
             show_header:    stored.show_header !== false,
-            notes:          stored.notes != null ? String(stored.notes) : ''
+            notes:          stored.notes != null ? String(stored.notes) : '',
+            extras:         extras
         };
     }
 
@@ -3053,18 +3361,28 @@ var CFG = (function () {
             .select('*')
             .eq('clinic_id', clinicId)
         .then(function (r) {
-            if (!r.error && r.data) {
-                var map = rowsMapFromDbList(r.data);
-                _printRowsByClinic[clinicId] = fullRowsForClinic(map);
-                var all = readPrintLocalStore();
-                all[clinicId] = map;
-                writePrintLocalStore(all);
-                callback(_printRowsByClinic[clinicId]);
-                return;
-            }
             var all = readPrintLocalStore();
             var localMap = all[clinicId] || {};
-            _printRowsByClinic[clinicId] = fullRowsForClinic(localMap);
+            var mergedMap = {};
+            if (!r.error && r.data) {
+                var dbMap = rowsMapFromDbList(r.data);
+                PRINT_DOC_TYPES.forEach(function (d) {
+                    mergedMap[d.key] = mergePrintRow(
+                        d.key,
+                        Object.assign({}, localMap[d.key], dbMap[d.key])
+                    );
+                });
+            } else {
+                PRINT_DOC_TYPES.forEach(function (d) {
+                    mergedMap[d.key] = mergePrintRow(d.key, localMap[d.key]);
+                });
+            }
+            _printRowsByClinic[clinicId] = fullRowsForClinic(mergedMap);
+            all[clinicId] = {};
+            _printRowsByClinic[clinicId].forEach(function (row) {
+                all[clinicId][row.doc_type] = row;
+            });
+            writePrintLocalStore(all);
             callback(_printRowsByClinic[clinicId]);
         });
     }
@@ -3572,11 +3890,13 @@ var CFG = (function () {
         if (paperSel && !paperSel.dataset.wired) {
             paperSel.dataset.wired = '1';
             paperSel.addEventListener('change', function () {
-                var custom = g('cfgPrintCustomSize');
-                if (custom) custom.classList.toggle('hidden', paperSel.value !== 'Custom');
+                var form = g('cfgPrintForm');
+                if (form) syncPrintPaperDimensions(form);
             });
         }
         wirePrinterCombo();
+        var formEl = g('cfgPrintForm');
+        if (formEl) wirePrintDetailExtras(formEl);
         if (saveBtn && !saveBtn.dataset.wired) {
             saveBtn.dataset.wired = '1';
             saveBtn.addEventListener('click', function () {
@@ -3584,6 +3904,9 @@ var CFG = (function () {
                 if (!cid || !_printEditDocType) { closeModal(); return; }
                 var form = g('cfgPrintForm');
                 if (!form) return;
+                var footEdit = g('cfgPrintFootnoteEditor');
+                var footHidden = g('cfgPrintFootnoteHtml');
+                if (footEdit && footHidden) footHidden.value = footEdit.innerHTML;
                 var fd = new FormData(form);
                 var fitEl = form.querySelector('[name="fit_to_page"]');
                 var hdrEl = form.querySelector('[name="show_header"]');
@@ -3603,7 +3926,8 @@ var CFG = (function () {
                     color_mode:     String(fd.get('color_mode') || 'color'),
                     fit_to_page:    !!(fitEl && fitEl.checked),
                     show_header:    hdrEl ? !!hdrEl.checked : true,
-                    notes:          String(fd.get('notes') || '').trim()
+                    notes:          String(fd.get('notes') || '').trim(),
+                    extras:         readPrintExtrasFromForm(form)
                 };
                 var rows = _printRowsByClinic[cid] || fullRowsForClinic({});
                 var next = rows.map(function (r) {
@@ -3632,6 +3956,12 @@ var CFG = (function () {
         var docLbl = g('cfgPrintModalDocLabel');
         if (title) title.textContent = ctrRepl('cfg.print.setupTitleDoc', { DOC: printDocLabel(docType) });
         if (docLbl) docLbl.textContent = ctrRepl('cfg.print.documentDoc', { DOC: printDocLabel(docType) });
+
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(modal);
+        var footEdit = g('cfgPrintFootnoteEditor');
+        if (footEdit) {
+            footEdit.setAttribute('data-placeholder', ctr('cfg.print.footnotePh'));
+        }
 
         function setVal(name, val) {
             var el = form.querySelector('[name="' + name + '"]');
@@ -3664,12 +3994,12 @@ var CFG = (function () {
         setVal('fit_to_page', row.fit_to_page);
         setVal('show_header', row.show_header);
         setVal('notes', row.notes);
+        fillPrintExtrasForm(form, row.extras);
+        syncPrintPaperDimensions(form);
 
-        var custom = g('cfgPrintCustomSize');
-        var paperSel = g('cfgPrintPaper');
-        if (custom && paperSel) {
-            custom.classList.toggle('hidden', paperSel.value !== 'Custom');
-        }
+        var editor = g('cfgPrintFontEditor');
+        if (editor) editor.classList.add('hidden');
+        _printFontEditField = null;
 
         modal.classList.remove('hidden');
     }
@@ -3702,6 +4032,12 @@ var CFG = (function () {
             docLbl.textContent = ctrRepl('cfg.print.documentDoc', {
                 DOC: printDocLabel(_printEditDocType)
             });
+        }
+        var form = g('cfgPrintForm');
+        if (form) syncPrintFontDisplays(form);
+        var footEdit = g('cfgPrintFootnoteEditor');
+        if (footEdit) {
+            footEdit.setAttribute('data-placeholder', ctr('cfg.print.footnotePh'));
         }
     }
 
@@ -3862,15 +4198,15 @@ var CFG = (function () {
         setVal('fit_to_page', row.fit_to_page);
         setVal('show_header', row.show_header);
         setVal('notes', row.notes);
-        var paperSel = form.querySelector('[name="paper_size"]');
-        var custom = form.querySelector('.cfg-print-custom-size');
-        if (custom && paperSel) {
-            custom.classList.toggle('hidden', paperSel.value !== 'Custom');
-        }
+        fillPrintExtrasForm(form, row.extras);
+        syncPrintPaperDimensions(form);
     }
 
     function readPrintFormElement(form) {
         if (!form) return defaultPrintRow('letters');
+        var footEdit = g('cfgPrintFootnoteEditor');
+        var footHidden = g('cfgPrintFootnoteHtml');
+        if (footEdit && footHidden) footHidden.value = footEdit.innerHTML;
         var fd = new FormData(form);
         var fitEl = form.querySelector('[name="fit_to_page"]');
         var hdrEl = form.querySelector('[name="show_header"]');
@@ -3890,7 +4226,8 @@ var CFG = (function () {
             color_mode: String(fd.get('color_mode') || 'color'),
             fit_to_page: !!(fitEl && fitEl.checked),
             show_header: hdrEl ? !!hdrEl.checked : true,
-            notes: String(fd.get('notes') || '').trim()
+            notes: String(fd.get('notes') || '').trim(),
+            extras: readPrintExtrasFromForm(form)
         };
     }
 
@@ -4029,6 +4366,7 @@ var CFG = (function () {
         _closeTxPanel:  _closeTxPanel,
         _saveTx:        _saveTx,
         _deleteTx:      _deleteTx,
+        _renewTreatmentCatalog: _renewTreatmentCatalog,
         // settings
         _saveSettings:  _saveSettings,
         // templates

@@ -305,8 +305,8 @@ function renderDrugList() {
                 (!d.is_active ? ' inactive' : '');
             item.dataset.id = d.id;
 
-            // meta line: dosage · frequency · route
-            var meta = [d.dosage, d.frequency, d.route]
+            // meta line: dosage · frequency · default days
+            var meta = [d.dosage, d.frequency, d.duration]
                 .filter(Boolean).join(' · ');
 
             // dentist badge if present

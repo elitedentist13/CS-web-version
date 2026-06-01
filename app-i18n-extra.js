@@ -749,8 +749,15 @@
         'drug.ph.dosage': { en: 'e.g. 500 mg', 'zh-CN': '例如 500 mg', 'zh-Hant': '例如 500 mg' },
         'drug.label.frequency': { en: 'Frequency', 'zh-CN': '频次', 'zh-Hant': '次數' },
         'drug.ph.frequency': { en: 'e.g. TID', 'zh-CN': '例如每日三次', 'zh-Hant': '例如 TID' },
-        'drug.label.duration': { en: 'Duration', 'zh-CN': '疗程', 'zh-Hant': '療程' },
+        'drug.label.duration': { en: 'Default days', 'zh-CN': '默认天数', 'zh-Hant': '預設天數' },
         'drug.ph.duration': { en: 'e.g. 5 days', 'zh-CN': '例如 5 天', 'zh-Hant': '例如 5 天' },
+        'drug.ph.durationDefault': { en: 'e.g. 7 days (suggested when prescribing)', 'zh-CN': '例如 7 天（开处方时建议）', 'zh-Hant': '例如 7 天（開處方時建議）' },
+        'drug.sectionDefaultRx': { en: 'Default prescription (auto-filled)', 'zh-CN': '默认处方（自动填入）', 'zh-Hant': '預設處方（自動填入）' },
+        'drug.sectionDefaultRxHint': {
+            en: 'When prescribing, only days need to be chosen — these defaults apply automatically.',
+            'zh-CN': '开处方时只需选择天数 — 以下默认值将自动应用。',
+            'zh-Hant': '開處方時只需選擇天數 — 以下預設值將自動套用。'
+        },
         'drug.label.addedBy': { en: 'Added By (Dentist)', 'zh-CN': '添加者（牙医）', 'zh-Hant': '新增者（牙醫）' },
         'drug.ph.dentist': { en: 'Dentist name', 'zh-CN': '牙医姓名', 'zh-Hant': '牙醫姓名' },
         'drug.label.remarks': { en: 'Remarks / Notes', 'zh-CN': '备注', 'zh-Hant': '備註' },
@@ -1721,7 +1728,11 @@
         'appt.ar.editTitle': { en: 'Book a new visit / edit upcoming', 'zh-CN': '预约新诊 / 编辑即将到来', 'zh-Hant': '預約新診 / 編輯即將到來' },
         'appt.badge.newWalkin': { en: 'NEW', 'zh-CN': '新', 'zh-Hant': '新' },
 
-        'con.rx.addDrugHint': { en: 'Click "Add Drug" to add a drug line.', 'zh-CN': '点击「添加药品」以新增一行。', 'zh-Hant': '按「新增藥物」以新增一行。' },
+        'con.rx.addDrugHint': {
+            en: 'Select a drug, then choose how many days — dosage and frequency load automatically.',
+            'zh-CN': '选择药品后，只需选择天数 — 剂量和频次将自动填入。',
+            'zh-Hant': '選擇藥物後，只需選擇天數 — 劑量及次數將自動填入。'
+        },
         'con.rx.btnAddDrugLine': { en: '+ Add Drug', 'zh-CN': '+ 添加药品', 'zh-Hant': '+ 新增藥物' },
         'con.rx.savedLists': { en: '📋 Saved lists', 'zh-CN': '📋 已存清单', 'zh-Hant': '📋 已存清單' },
         'con.rx.savedListsTitle': { en: 'Pick a saved multi-drug list', 'zh-CN': '选择已保存的多药清单', 'zh-Hant': '選擇已儲存的多藥清單' },
@@ -1739,7 +1750,20 @@
             'zh-Hant': '✅ 處方已更新 — {N} 種藥物，病人 {NAME}'
         },
         'con.rx.noHistory': { en: 'No prescription history yet.', 'zh-CN': '尚无处方记录。', 'zh-Hant': '尚無處方紀錄。' },
-        'con.rx.noDrugsYet': { en: 'No drugs added yet. Click "+ Add Drug" below.', 'zh-CN': '尚未添加药品。请点击下方「+ 添加药品」。', 'zh-Hant': '尚未新增藥物。請按下方「+ 新增藥物」。' },
+        'con.rx.noDrugsYet': {
+            en: 'No drugs added yet. Click "+ Add Drug", pick a drug, then select days.',
+            'zh-CN': '尚未添加药品。点击「+ 添加药品」，选择药品后选择天数。',
+            'zh-Hant': '尚未新增藥物。按「+ 新增藥物」，選擇藥物後選擇天數。'
+        },
+        'con.rx.labelDays': { en: 'Days *', 'zh-CN': '天数 *', 'zh-Hant': '天數 *' },
+        'con.rx.selectDays': { en: '— Select days —', 'zh-CN': '— 选择天数 —', 'zh-Hant': '— 選擇天數 —' },
+        'con.rx.daysCustom': { en: 'Custom days…', 'zh-CN': '自定义天数…', 'zh-Hant': '自訂天數…' },
+        'con.rx.promptCustomDays': { en: 'How many days?', 'zh-CN': '多少天？', 'zh-Hant': '多少天？' },
+        'con.rx.invalidDays': { en: 'Please enter a valid number of days.', 'zh-CN': '请输入有效天数。', 'zh-Hant': '請輸入有效天數。' },
+        'con.rx.autoLoadedTitle': { en: 'Auto:', 'zh-CN': '自动：', 'zh-Hant': '自動：' },
+        'con.rx.autoSelectDrug': { en: 'Select a drug — dosage and frequency will load from the drug list.', 'zh-CN': '请选择药品 — 剂量和频次将从药品清单自动载入。', 'zh-Hant': '請選擇藥物 — 劑量及次數將從藥物清單自動載入。' },
+        'con.rx.autoPickDays': { en: 'Pick days to complete this line.', 'zh-CN': '请选择天数以完成此行。', 'zh-Hant': '請選擇天數以完成此列。' },
+        'con.rx.advancedDetails': { en: 'Edit dosage / frequency / quantity', 'zh-CN': '编辑剂量 / 频次 / 数量', 'zh-Hant': '編輯劑量 / 次數 / 數量' },
         'con.rx.lineNumFmt': { en: 'Rx {N}', 'zh-CN': '处方 {N}', 'zh-Hant': '處方 {N}' },
         'con.rx.btnPrintEn': { en: '🖨 EN', 'zh-CN': '🖨 英文', 'zh-Hant': '🖨 英文' },
         'con.rx.btnPrintZh': { en: '🖨 中文', 'zh-CN': '🖨 中文', 'zh-Hant': '🖨 中文' },
@@ -1792,6 +1816,7 @@
         'con.rx.confirmRemoveList': { en: 'Remove saved drug list "{NAME}"?', 'zh-CN': '删除已存药品清单「{NAME}」？', 'zh-Hant': '刪除已存藥物清單「{NAME}」？' },
         'con.rx.addOneDrugLine': { en: 'Add at least one drug line.', 'zh-CN': '请至少添加一行药品。', 'zh-Hant': '請至少新增一行藥物。' },
         'con.rx.rowSelectDrugRx': { en: 'Row {N}: select a drug first.', 'zh-CN': '第 {N} 行：请先选择药品。', 'zh-Hant': '第 {N} 行：請先選擇藥物。' },
+        'con.rx.rowSelectDaysRx': { en: 'Row {N}: select how many days.', 'zh-CN': '第 {N} 行：请选择天数。', 'zh-Hant': '第 {N} 行：請選擇天數。' },
         'con.rx.prescriptionSaved': { en: '✅ Prescription saved — {N} drug(s) for {NAME}', 'zh-CN': '✅ 处方已保存 — {N} 种药品，患者 {NAME}', 'zh-Hant': '✅ 處方已儲存 — {N} 種藥物，病人 {NAME}' },
         'con.rx.loadingHistory': { en: 'Loading...', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
         'con.rx.noRxHistoryShort': { en: 'No prescription history.', 'zh-CN': '无处方记录。', 'zh-Hant': '無處方紀錄。' },

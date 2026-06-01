@@ -2815,13 +2815,19 @@ function editConNote(nid, rawText) {
 // DRUG PANEL — TOGGLE
 // ════════════════════════════════════════════════════════════════
 
-/** Index of first line missing both drug name and dosage (−1 = all OK). */
+/** Index of first line missing drug name or days (−1 = all OK). */
 function rxFirstInvalidDrugLineIdx() {
     for (var i = 0; i < rxLines.length; i++) {
         var l = rxLines[i];
+        if (typeof rxNormalizeLine === 'function') l = rxNormalizeLine(l);
         var hasName = !!(l.drug_name && String(l.drug_name).trim());
-        var hasDos  = !!(l.dosage    && String(l.dosage).trim());
-        if (!hasName && !hasDos) return i;
+        if (!hasName) return i;
+        var hasDays = !!(
+            String(l.duration_code || '').trim() ||
+            String(l.duration_custom || '').trim() ||
+            String(l.duration || '').trim()
+        );
+        if (!hasDays) return i;
     }
     return -1;
 }
@@ -2920,41 +2926,40 @@ function renderRxLines() {
                     'onclick="removeRxLine(' + idx + ')">✕</button>' +
                 '</div>' +
             '</div>' +
-            '<div class="rx-fields">' +
-                // Row 1: drug select (full width)
-                '<div style="grid-column:1/-1;">' +
-                    '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">' + esc(conTr('con.rx.labelDrug')) + '</label>' +
-                    '<select id="rxSel-' + idx + '" ' +
-                    'style="width:100%;padding:6px 8px;' +
-                    'border:1px solid #d1d5db;border-radius:5px;' +
-                    'font-size:13px;">' +
+            '<div class="rx-fields rx-fields--quick">' +
+                '<div class="rx-field-drug">' +
+                    '<label class="rx-phrase-label">' + esc(conTr('con.rx.labelDrug')) + '</label>' +
+                    '<select id="rxSel-' + idx + '" class="rx-drug-sel">' +
                     '<option value="">' + esc(conTr('con.rx.selectDrug')) + '</option>' +
                     '</select>' +
                 '</div>' +
-                (typeof rxPhraseFieldMarkup === 'function'
-                    ? rxPhraseFieldMarkup('dosage', idx, line, conTr('con.rx.labelDosage'))
+                (typeof rxDaysFieldMarkup === 'function'
+                    ? rxDaysFieldMarkup(idx, line)
                     : '') +
-                (typeof rxPhraseFieldMarkup === 'function'
-                    ? rxPhraseFieldMarkup('frequency', idx, line, conTr('con.rx.labelFrequency'))
+                (typeof rxAutoLoadedSummaryMarkup === 'function'
+                    ? rxAutoLoadedSummaryMarkup(idx, line)
                     : '') +
-                (typeof rxPhraseFieldMarkup === 'function'
-                    ? rxPhraseFieldMarkup('duration', idx, line, conTr('con.rx.labelDuration'))
-                    : '') +
-                (typeof rxPhraseFieldMarkup === 'function'
-                    ? rxPhraseFieldMarkup('quantity', idx, line, conTr('con.rx.labelQty'))
-                    : '') +
-                '<div class="rx-phrase-preview" style="grid-column:1/-1;"></div>' +
-                '<div>' +
-                    '<label style="font-size:11px;color:#888;' +
-                    'display:block;margin-bottom:3px;">' + esc(conTr('con.rx.labelRemarks')) + '</label>' +
+                '<details class="rx-advanced-details">' +
+                    '<summary>' + esc(conTr('con.rx.advancedDetails')) + '</summary>' +
+                    '<div class="rx-advanced-grid">' +
+                        (typeof rxPhraseFieldMarkup === 'function'
+                            ? rxPhraseFieldMarkup('dosage', idx, line, conTr('con.rx.labelDosage'))
+                            : '') +
+                        (typeof rxPhraseFieldMarkup === 'function'
+                            ? rxPhraseFieldMarkup('frequency', idx, line, conTr('con.rx.labelFrequency'))
+                            : '') +
+                        (typeof rxPhraseFieldMarkup === 'function'
+                            ? rxPhraseFieldMarkup('quantity', idx, line, conTr('con.rx.labelQty'))
+                            : '') +
+                    '</div>' +
+                '</details>' +
+                '<div class="rx-remarks-cell">' +
+                    '<label class="rx-phrase-label">' + esc(conTr('con.rx.labelRemarks')) + '</label>' +
                     '<input class="rx-remarks" placeholder="' + esc(conTr('con.rx.remarksPh')) + '" ' +
                     'value="' + esc(line.remarks || '') + '" ' +
-                    'oninput="rxLines[' + idx + '].remarks=this.value" ' +
-                    'style="width:100%;padding:6px 8px;' +
-                    'border:1px solid #d1d5db;border-radius:5px;' +
-                    'font-size:13px;box-sizing:border-box;">' +
+                    'oninput="rxLines[' + idx + '].remarks=this.value">' +
                 '</div>' +
+                '<div class="rx-phrase-preview"></div>' +
             '</div>';
 
         wrap.appendChild(card);
@@ -3055,7 +3060,13 @@ function populateDrugSelect(idx) {
             rxLines[idx].drug_name = opt.dataset.name;
             rxLines[idx].remarks   = opt.dataset.remarks;
 
-            if (typeof rxApplyCatalogTextToLine === 'function') {
+            if (typeof rxApplyCatalogDefaultsToLine === 'function') {
+                rxApplyCatalogDefaultsToLine(idx, {
+                    dosage:    opt.dataset.dosage,
+                    frequency: opt.dataset.frequency,
+                    duration:  opt.dataset.duration
+                });
+            } else if (typeof rxApplyCatalogTextToLine === 'function') {
                 rxApplyCatalogTextToLine(idx, {
                     dosage:    opt.dataset.dosage,
                     frequency: opt.dataset.frequency,
@@ -3067,9 +3078,13 @@ function populateDrugSelect(idx) {
                 rxLines[idx].frequency = opt.dataset.frequency;
                 rxLines[idx].duration  = opt.dataset.duration;
             }
-            rxLines[idx].route = '';
+            rxLines[idx].route = opt.dataset.route || '';
 
             renderRxLines();
+            var daysSel = g('rx-days-sel-' + idx);
+            if (daysSel) {
+                try { daysSel.focus(); } catch (_) {}
+            }
         };
     }
 
@@ -3591,7 +3606,12 @@ function saveFullPrescription() {
 
     var badRx = rxFirstInvalidDrugLineIdx();
     if (badRx >= 0) {
-        alert(conTrRepl('con.rx.rowSelectDrugRx', { N: badRx + 1 }));
+        var badLine = rxLines[badRx] || {};
+        if (!(badLine.drug_name && String(badLine.drug_name).trim())) {
+            alert(conTrRepl('con.rx.rowSelectDrugRx', { N: badRx + 1 }));
+        } else {
+            alert(conTrRepl('con.rx.rowSelectDaysRx', { N: badRx + 1 }));
+        }
         return;
     }
 

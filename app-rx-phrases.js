@@ -457,7 +457,12 @@ function rxOnPhraseSelectChange(fieldType, idx) {
     var sel = g('rx-' + fieldType + '-sel-' + idx);
     if (!sel || !rxLines[idx]) return;
     rxApplyComboTextToLine(rxLines[idx], fieldType, sel.value || '');
+    if (fieldType === 'dosage' || fieldType === 'frequency') {
+        var qty = rxComputeQuantityFromLine(rxLines[idx]);
+        if (qty) rxApplyComboTextToLine(rxLines[idx], 'quantity', qty);
+    }
     if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(rxLines[idx]);
+    if (typeof rxRefreshAutoLoadedSummary === 'function') rxRefreshAutoLoadedSummary(idx);
     rxUpdatePhrasePreview(idx);
 }
 
@@ -465,7 +470,12 @@ function rxOnPhraseCustomInput(fieldType, idx) {
     var inp = g('rx-' + fieldType + '-custom-' + idx);
     if (!inp || !rxLines[idx]) return;
     rxApplyComboTextToLine(rxLines[idx], fieldType, inp.value || '');
+    if (fieldType === 'dosage' || fieldType === 'frequency') {
+        var qty = rxComputeQuantityFromLine(rxLines[idx]);
+        if (qty) rxApplyComboTextToLine(rxLines[idx], 'quantity', qty);
+    }
     if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(rxLines[idx]);
+    if (typeof rxRefreshAutoLoadedSummary === 'function') rxRefreshAutoLoadedSummary(idx);
     rxUpdatePhrasePreview(idx);
 }
 
@@ -491,6 +501,10 @@ function rxUpdatePhrasePreview(idx) {
 function rxSyncLineFromDom(idx) {
     var line = rxLines[idx];
     if (!line) return;
+    var daysSel = g('rx-days-sel-' + idx);
+    if (daysSel && daysSel.value && daysSel.value !== '__custom__') {
+        rxApplyDaysToLine(idx, daysSel.value);
+    }
     RX_PHRASE_FIELDS.forEach(function(ft) {
         var sel = g('rx-' + ft + '-sel-' + idx);
         var inp = g('rx-' + ft + '-custom-' + idx);
@@ -516,6 +530,198 @@ function rxApplyCatalogTextToLine(idx, fields) {
         if (!txt) return;
         rxApplyComboTextToLine(rxLines[idx], ft, txt);
     });
+}
+
+/** Parse "7 days", "5 days", "14" etc. from drug catalog default duration. */
+function rxParseDaysFromCatalogText(text) {
+    var t = String(text || '').trim();
+    if (!t) return '';
+    if (/^\d+$/.test(t)) return t;
+    var m = t.match(/(\d+)\s*days?/i) || t.match(/(\d+)\s*日/);
+    if (m) return m[1];
+    var code = rxMatchCodeFromText('duration', t) || rxMatchCodeFromLabelText('duration', t);
+    if (code && /^\d+$/.test(String(code))) return String(code);
+    return '';
+}
+
+function rxFrequencyTimesPerDay(code) {
+    var c = String(code || '').trim().toUpperCase();
+    if (!c) return null;
+    if (/^\d+$/.test(c)) return parseInt(c, 10);
+    var map = { OD: 1, BD: 2, TDS: 3, QID: 4, QHS: 1, STAT: 1, PRN: null };
+    if (Object.prototype.hasOwnProperty.call(map, c)) return map[c];
+    return null;
+}
+
+/** Auto qty from tablets/dose × frequency × days when calculable. */
+function rxComputeQuantityFromLine(line) {
+    if (!line) return '';
+    line = rxNormalizeLine(line);
+    var days = parseInt(line.duration_code, 10);
+    if (!isFinite(days) || days <= 0) {
+        var dc = String(line.duration_custom || line.duration || '').trim();
+        var parsed = rxParseDaysFromCatalogText(dc);
+        days = parsed ? parseInt(parsed, 10) : NaN;
+    }
+    if (!isFinite(days) || days <= 0) return '';
+
+    var freq = rxFrequencyTimesPerDay(line.frequency_code);
+    if (!freq) {
+        var fc = String(line.frequency_custom || line.frequency || '').trim();
+        freq = rxFrequencyTimesPerDay(rxMatchCodeFromText('frequency', fc));
+    }
+    if (!freq) return '';
+
+    var tab = rxParseDosageTabletCount(line.dosage_code);
+    if (tab && tab.n) return String(tab.n * freq * days);
+    if (tab && tab.half) return String(Math.ceil(0.5 * freq * days));
+
+    return '';
+}
+
+function rxApplyDaysToLine(idx, daysCode) {
+    if (!rxLines[idx]) return;
+    var d = String(daysCode || '').trim();
+    if (!d) return;
+    rxApplyComboTextToLine(rxLines[idx], 'duration', d);
+    var qty = rxComputeQuantityFromLine(rxLines[idx]);
+    if (qty) {
+        rxApplyComboTextToLine(rxLines[idx], 'quantity', qty);
+    }
+    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(rxLines[idx]);
+}
+
+function rxNormalizeCatalogFrequency(text) {
+    var t = String(text || '').trim();
+    if (!t) return '';
+    var head = t.split(/[–\-]/)[0].trim().toUpperCase();
+    var alias = { TID: 'TDS', OD: '1' };
+    if (alias[head]) head = alias[head];
+    var code = rxMatchCodeFromText('frequency', head) ||
+        rxMatchCodeFromLabelText('frequency', t) ||
+        rxMatchCodeFromText('frequency', t);
+    return code || t;
+}
+
+function rxNormalizeCatalogDosage(text) {
+    var t = String(text || '').trim();
+    if (!t) return '';
+    var code = rxMatchCodeFromText('dosage', t) || rxMatchCodeFromLabelText('dosage', t);
+    if (code) return code;
+    var mg = t.match(/^(\d+(?:\.\d+)?)\s*mg$/i);
+    if (mg) return mg[1] + 'mg';
+    return t;
+}
+
+/** Load dosage + frequency from drug catalog; optional default days from catalog duration. */
+function rxApplyCatalogDefaultsToLine(idx, fields) {
+    if (!rxLines[idx]) return;
+    fields = fields || {};
+    var dosageTxt = rxNormalizeCatalogDosage(fields.dosage);
+    var freqTxt = rxNormalizeCatalogFrequency(fields.frequency);
+    if (dosageTxt) rxApplyComboTextToLine(rxLines[idx], 'dosage', dosageTxt);
+    if (freqTxt) rxApplyComboTextToLine(rxLines[idx], 'frequency', freqTxt);
+    var defaultDays = rxParseDaysFromCatalogText(fields.duration);
+    if (defaultDays) {
+        rxApplyDaysToLine(idx, defaultDays);
+    } else {
+        rxLines[idx].duration_code = '';
+        rxLines[idx].duration_custom = '';
+        rxLines[idx].quantity_code = '';
+        rxLines[idx].quantity_custom = '';
+    }
+    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(rxLines[idx]);
+}
+
+function rxDaysFieldMarkup(idx, line) {
+    line = rxNormalizeLine(line);
+    var code = String(line.duration_code || '').trim();
+    var opts = rxGetPhraseOptions('duration');
+    var uiLang = rxUiPhraseLang();
+    var optHtml = '<option value="">' + esc(rxTr('con.rx.selectDays')) + '</option>';
+    opts.forEach(function (o) {
+        var k = String(o.option_key);
+        optHtml +=
+            '<option value="' + esc(k) + '"' +
+            (k === code ? ' selected' : '') + '>' +
+            esc(rxPhraseLabel('duration', k, uiLang) || k) + '</option>';
+    });
+    optHtml += '<option value="__custom__">' + esc(rxTr('con.rx.daysCustom')) + '</option>';
+    return (
+        '<div class="rx-days-cell">' +
+        '<label class="rx-phrase-label">' + esc(rxTr('con.rx.labelDays')) + '</label>' +
+        '<select id="rx-days-sel-' + idx + '" class="rx-days-sel" ' +
+        'onchange="rxOnDaysSelectChange(' + idx + ')">' +
+        optHtml +
+        '</select>' +
+        '</div>'
+    );
+}
+
+function rxAutoLoadedSummaryMarkup(idx, line) {
+    if (!line || !String(line.drug_name || '').trim()) {
+        return (
+            '<div class="rx-auto-summary rx-auto-summary--empty" id="rx-auto-' + idx + '">' +
+            esc(rxTr('con.rx.autoSelectDrug')) +
+            '</div>'
+        );
+    }
+    line = rxNormalizeLine(line);
+    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(line);
+    var lang = rxUiPhraseLang();
+    var dosage = rxPhraseDisplay(line, 'dosage', lang);
+    var freq = rxPhraseDisplay(line, 'frequency', lang);
+    var days = rxPhraseDisplay(line, 'duration', lang);
+    var qty = rxPhraseDisplay(line, 'quantity', lang);
+    var parts = [];
+    if (dosage && dosage !== '—') parts.push(esc(rxTr('con.rx.labelDosage')) + ' ' + esc(dosage));
+    if (freq && freq !== '—') parts.push(esc(rxTr('con.rx.labelFrequency')) + ' ' + esc(freq));
+    if (days && days !== '—') parts.push(esc(rxTr('con.rx.labelDuration')) + ' ' + esc(days));
+    if (qty && qty !== '—') parts.push(esc(rxTr('con.rx.labelQty')) + ' ' + esc(qty));
+    return (
+        '<div class="rx-auto-summary" id="rx-auto-' + idx + '">' +
+        '<span class="rx-auto-summary__title">' + esc(rxTr('con.rx.autoLoadedTitle')) + '</span> ' +
+        (parts.length ? parts.join(' · ') : esc(rxTr('con.rx.autoPickDays'))) +
+        '</div>'
+    );
+}
+
+function rxRefreshAutoLoadedSummary(idx) {
+    var el = g('rx-auto-' + idx);
+    if (!el || !rxLines[idx]) return;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = rxAutoLoadedSummaryMarkup(idx, rxLines[idx]);
+    var inner = tmp.firstElementChild;
+    if (inner) {
+        el.className = inner.className;
+        el.innerHTML = inner.innerHTML;
+    }
+}
+
+function rxOnDaysSelectChange(idx) {
+    var sel = g('rx-days-sel-' + idx);
+    if (!sel || !rxLines[idx]) return;
+    var val = String(sel.value || '').trim();
+    if (!val) return;
+    if (val === '__custom__') {
+        var def = rxParseDaysFromCatalogText(rxLines[idx].duration) || '7';
+        var custom = window.prompt(rxTr('con.rx.promptCustomDays'), def);
+        if (!custom) {
+            sel.value = rxLines[idx].duration_code || '';
+            return;
+        }
+        var n = parseInt(String(custom).replace(/\D/g, ''), 10);
+        if (!n || n < 1) {
+            alert(rxTr('con.rx.invalidDays'));
+            sel.value = rxLines[idx].duration_code || '';
+            return;
+        }
+        rxApplyDaysToLine(idx, String(n));
+    } else {
+        rxApplyDaysToLine(idx, val);
+    }
+    rxRefreshAutoLoadedSummary(idx);
+    if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
 }
 
 function rxPhraseFieldMarkup(fieldType, idx, line, labelText) {

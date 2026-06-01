@@ -3567,6 +3567,11 @@
             </datalist>
           </div>
 
+          <fieldset class="drug-fieldset drug-field--full">
+            <legend data-i18n="drug.sectionDefaultRx"></legend>
+            <p class="drug-field-hint" data-i18n="drug.sectionDefaultRxHint"></p>
+            <div class="drug-form-grid drug-form-grid--nested">
+
           <!-- dosage -->
           <div class="drug-field">
             <label for="deDosage" data-i18n="drug.label.dosage"></label>
@@ -3599,7 +3604,7 @@
             <input id="deDuration"
                    type="text"
                    list="drugDurList"
-                   data-i18n-placeholder="drug.ph.duration" />
+                   data-i18n-placeholder="drug.ph.durationDefault" />
             <datalist id="drugDurList">
               <option value="3 days">
               <option value="5 days">
@@ -3610,6 +3615,9 @@
               <option value="Until finished">
             </datalist>
           </div>
+
+            </div>
+          </fieldset>
 
           <!-- dentist_name -->
           <div class="drug-field">

@@ -1680,13 +1680,7 @@ function startAppSessionStripClock() {
 }
 
 function openAppHelpPage() {
-    var url = 'docs/prelaunch-manual/help.pdf';
-    try {
-        var href = String(window.location.href || '').split('#')[0];
-        var q = href.indexOf('?');
-        if (q >= 0) href = href.slice(0, q);
-        url = href.replace(/[^/]+$/, '') + 'docs/prelaunch-manual/help.pdf';
-    } catch (_) {}
+    var url = 'https://drive.google.com/file/d/1j-7mFvhwD2ZTifGB38ZWJyUiRhNzVkPw/view?usp=sharing';
     window.open(url, '_blank', 'noopener,noreferrer');
 }
 

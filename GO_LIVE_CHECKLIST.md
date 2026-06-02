@@ -2,7 +2,7 @@
 
 Use this list in order. Mark each item complete before opening for normal operations.
 
-**Staff help (in app):** Dashboard → **❓ Help** → opens `docs/prelaunch-manual/help.pdf`. Rebuild with `scripts/build-help-html.ps1` after updating screenshots.
+**Staff help (in app):** Dashboard → **❓ Help** → opens `help.pdf` locally, or `help.html` on GitHub Pages (photos embedded). Rebuild with `scripts/build-help-html.ps1`, then **commit and push** `help.html` (and `help.pdf` if you use it locally).
 
 **Staff user manual source:** Edit `docs/prelaunch-manual/help-source.html`, then run `scripts/build-help-html.ps1`. Add PNGs per `docs/prelaunch-manual/CAPTURE_SCREENSHOTS.md`.
 

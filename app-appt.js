@@ -28,6 +28,10 @@ var billPendingLastRefreshAt = null;
 var DEFAULT_BILL_PENDING_REFRESH_MS = 10000;
 
 var todayAppts   = [];   // last-fetched list for the Today tab (used by print)
+var queueApptsCache = [];
+/** Selected appointment row id on Today / Queue tabs (for highlight + active patient). */
+var apptListSelectedApptId = null;
+var apptListSelectedTab = '';
 /** Today's walk-in appointment id awaiting patient registration before check-in. */
 var todayApptPendingPatientRegId = null;
 var calMonthApptsCache = [];
@@ -36,7 +40,7 @@ var calWeekApptsCache = [];
 function findApptInCalendarCaches(apptId) {
     var id = String(apptId || '').trim();
     if (!id) return null;
-    var lists = [calMonthApptsCache, calWeekApptsCache, plusApptDayAppts];
+    var lists = [calMonthApptsCache, calWeekApptsCache, plusApptDayAppts, todayAppts, queueApptsCache];
     for (var li = 0; li < lists.length; li++) {
         var list = lists[li];
         if (!list || !list.length) continue;
@@ -58,6 +62,72 @@ window.resolvePatientDragPayloadFromPlain = function(raw) {
     if (!appt || typeof patientDragPayloadFromAppt !== 'function') return null;
     return patientDragPayloadFromAppt(appt);
 };
+
+function apptSetActivePatientFromAppt(a, source) {
+    if (!a || typeof patientDragPayloadFromAppt !== 'function') return false;
+    var p = patientDragPayloadFromAppt(a);
+    if (!p || !p.id) return false;
+    if (typeof setActivePatientFromPayload === 'function') {
+        setActivePatientFromPayload(p, source || 'appt-row-select');
+        return true;
+    }
+    if (typeof setActivePatientSlot === 'function') {
+        setActivePatientSlot(0, p, source || 'appt-row-select', true);
+        return true;
+    }
+    return false;
+}
+
+function apptListRowClickBlocked(el) {
+    return !!(el && el.closest && el.closest(
+        'input, button, textarea, select, .action-wrap, .action-drop, ' +
+        '.queue-remarks-preview-wrap, .queue-remarks-pencil, .appt-unpaid-badge, ' +
+        '.appt-task-pill-btn, a'
+    ));
+}
+
+function apptMarkListRowSelected(row, apptId) {
+    var tb = row && row.parentNode ? row.parentNode : null;
+    if (tb) {
+        tb.querySelectorAll('.appt-list-row-selected').forEach(function(r) {
+            r.classList.remove('appt-list-row-selected');
+        });
+    }
+    apptListSelectedApptId = apptId ? String(apptId) : null;
+    if (row && apptId) row.classList.add('appt-list-row-selected');
+}
+
+function apptSelectListRow(a, row, tabKey) {
+    if (!a || !row) return;
+    apptListSelectedTab = tabKey || '';
+    apptMarkListRowSelected(row, a.id);
+    apptSetActivePatientFromAppt(a, 'appt-' + (tabKey || 'list') + '-row-select');
+}
+
+function apptRestoreListRowSelection(tb, tabKey) {
+    if (!tb || !apptListSelectedApptId || apptListSelectedTab !== tabKey) return;
+    var row = tb.querySelector('tr[data-appt-id="' + apptListSelectedApptId + '"]');
+    if (row) row.classList.add('appt-list-row-selected');
+}
+
+function apptBindListRowPatientDrag(row, a) {
+    if (!row || !a || !a.patient_id) return;
+    row.setAttribute('draggable', 'true');
+    row.addEventListener('dragstart', function(ev) {
+        if (apptListRowClickBlocked(ev.target)) {
+            ev.preventDefault();
+            return;
+        }
+        if (typeof beginApptPatientDragTransfer === 'function') {
+            beginApptPatientDragTransfer(ev, a);
+        }
+    });
+    row.addEventListener('dragend', function() {
+        if (typeof clearPatientDragPayloadSession === 'function') {
+            clearPatientDragPayloadSession();
+        }
+    });
+}
 var calMonthTransferDragApptId = null;
 var calMonthTransferState = null;
 var calMonthBulkTransferDragDate = '';
@@ -86,6 +156,9 @@ var plusApptDragApptId = null;
 var PLUSAPPT_TASK_LS_KEY = 'plusappt_task_state_v1';
 var plusApptTransferState = null;
 var plusApptTransferDragActive = false;
+/** After save/edit: select this appointment row once day data reloads. */
+var plusApptPendingSelectApptId = null;
+var plusApptDayLoadSeq = 0;
 var apptUnpaidByPatientId = {};
 var apptUnpaidByPatientNo = {};
 var apptUnpaidBadgeClickBound = false;
@@ -425,11 +498,12 @@ function syncApptPlannerDate(iso, opts) {
 }
 
 /** Reload day planner (+ Appointment) and calendar from Supabase (same clinic scope). */
-function refreshApptPlannerData() {
-    if (!apptSectionIsActive()) return;
+function refreshApptPlannerData(opts) {
+    opts = opts || {};
+    if (!opts.force && !apptSectionIsActive()) return;
     if (!plusApptDate) plusApptDate = todayISO();
     var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
-    if (tab === 'plusappt' && typeof loadPlusApptDay === 'function') {
+    if ((tab === 'plusappt' || opts.forcePlusAppt) && typeof loadPlusApptDay === 'function') {
         loadPlusApptDay();
     }
     if (tab === 'calendar' && typeof renderCal === 'function') {
@@ -440,6 +514,101 @@ function refreshApptPlannerData() {
     } else if (!tab && typeof renderCal === 'function') {
         renderCal();
     }
+}
+
+/**
+ * Refresh + Appointment timeline after create/edit (clinic/doctor scope + row highlight).
+ */
+function plusApptNotifyAppointmentSaved(meta) {
+    meta = meta || {};
+    if (meta.date && typeof syncApptPlannerDate === 'function') {
+        syncApptPlannerDate(meta.date, { syncCal: true });
+    }
+    var cid = (typeof currentClinicId !== 'undefined' ? currentClinicId : '') ||
+        plusApptActiveClinicId;
+    if (cid) {
+        var plusSel = g('plusApptClinicSelect');
+        if (plusSel && plusSel.value !== cid) {
+            plusApptClinicSyncing = true;
+            plusSel.value = cid;
+            plusApptClinicSyncing = false;
+        }
+        var apptSel = g('apptClinicSelect');
+        if (apptSel && apptSel.value !== cid) {
+            plusApptClinicSyncing = true;
+            apptSel.value = cid;
+            plusApptClinicSyncing = false;
+        }
+        plusApptActiveClinicId = cid;
+    }
+    if (meta.doctorCode) {
+        var drSel = g('plusApptDoctorSelect');
+        var drCode = String(meta.doctorCode).trim();
+        if (drSel && drCode) {
+            var hasOpt = false;
+            for (var oi = 0; oi < drSel.options.length; oi++) {
+                if (drSel.options[oi].value === drCode) {
+                    hasOpt = true;
+                    break;
+                }
+            }
+            if (hasOpt && drSel.value !== PLUSAPPT_DOCTOR_ALL) {
+                drSel.value = drCode;
+                plusApptActiveDoctorCode = drCode;
+            } else if (plusApptIsAllDoctorsMode()) {
+                plusApptAllActiveDoctorCode = drCode;
+            }
+        }
+    }
+    if (meta.apptId) plusApptPendingSelectApptId = String(meta.apptId);
+    if (meta.savedRow && typeof plusApptMergeSavedRow === 'function') {
+        plusApptMergeSavedRow(meta.savedRow);
+    }
+    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
+        if (typeof loadPlusApptDay === 'function') loadPlusApptDay();
+    } else if (typeof refreshApptPlannerData === 'function') {
+        refreshApptPlannerData({ forcePlusAppt: true });
+    }
+}
+
+function plusApptMergeSavedRow(row) {
+    if (!row || !row.id) return;
+    var d = String(row.date || '').slice(0, 10);
+    if (plusApptDate && d && d !== plusApptDate) return;
+    var id = String(row.id);
+    var idx = -1;
+    for (var i = 0; i < plusApptDayAppts.length; i++) {
+        if (plusApptDayAppts[i] && String(plusApptDayAppts[i].id) === id) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx >= 0) plusApptDayAppts[idx] = Object.assign({}, plusApptDayAppts[idx], row);
+    else plusApptDayAppts.push(row);
+    plusApptDayAppts.sort(function(a, b) {
+        return String(a.start_time || '').localeCompare(String(b.start_time || ''));
+    });
+    plusApptApplyTaskStateToList(plusApptDayAppts);
+    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
+        renderPlusApptSchedule();
+        if (plusApptPendingSelectApptId) {
+            var hit = plusApptFindApptById(plusApptPendingSelectApptId);
+            if (hit) plusApptSelectApptRow(hit, true);
+        }
+    }
+}
+
+function plusApptFinishDayLoadSelection() {
+    if (plusApptPendingSelectApptId) {
+        var picked = plusApptFindApptById(plusApptPendingSelectApptId);
+        plusApptPendingSelectApptId = null;
+        if (picked) {
+            plusApptSelectApptRow(picked, true);
+            plusApptSaveUiState();
+            return;
+        }
+    }
+    plusApptRestoreDoctorSelection();
 }
 
 function reloadApptModuleData() {
@@ -558,7 +727,7 @@ function switchApptTab(tab) {
     if (tab === 'today')    loadToday();
     if (tab === 'plusappt') showPlusApptTab();
     if (tab === 'calendar') showCalendarTab();
-    if (tab === 'records')  loadApptRecords();
+    if (tab === 'records') loadApptRecords();
     if (tab === 'recall')   initRecallTab();
 }
 
@@ -1370,6 +1539,30 @@ function plusApptBindMiniCalTransferDrop(host) {
     });
 }
 
+function bindPlusApptTreatmentInline(row, apptRow) {
+    if (!row || !apptRow || !apptRow.id) return;
+    var tInp = row.querySelector('.appt-treat-inline');
+    if (!tInp || tInp.dataset.bound === '1') return;
+    tInp.dataset.bound = '1';
+    tInp.addEventListener('click', function(e) { e.stopPropagation(); });
+    tInp.addEventListener('dblclick', function(e) { e.stopPropagation(); });
+    tInp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            try { tInp.blur(); } catch (_) {}
+        }
+    });
+    tInp.addEventListener('blur', function() {
+        apptInlineSaveTreatment(tInp.getAttribute('data-appt-id'), tInp.value, function(saved) {
+            apptRow.treatment_items = saved;
+            tInp.value = saved || '';
+            var cached = plusApptFindApptById(apptRow.id);
+            if (cached) cached.treatment_items = saved;
+        });
+    });
+}
+
 function fillPlusApptScheduleTbody(tb, doctorCode) {
     if (!tb) return;
     var slots = plusApptSlotList();
@@ -1397,6 +1590,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
 
         var timeHtml = plusApptTimeCellHtml(slot);
         var nameHtml = '—';
+        var treatHtml = '—';
         var remHtml = '—';
         var taskHtml = '';
         var durHtml = '—';
@@ -1423,6 +1617,11 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                     esc(trRepl('appt.plusAppt.moreAtSlot', { N: String(appts.length) })) +
                     ')</span>';
             }
+            treatHtml =
+                '<input class="appt-treat-inline appt-treat-inline--plusappt" type="text" ' +
+                'value="' + esc(a.treatment_items || '') + '" ' +
+                'placeholder="' + esc(tr('appt.modal.treatmentPh')) + '" ' +
+                'data-appt-id="' + esc(a.id) + '">';
         }
 
         var timeShow = a
@@ -1432,6 +1631,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         row.innerHTML =
             '<td class="plusappt-time-cell">' + timeShow + '</td>' +
             '<td>' + nameHtml + '</td>' +
+            '<td class="plusappt-treat-cell">' + treatHtml + '</td>' +
             '<td style="font-size:12px;color:#64748b;">' + remHtml + taskHtml + '</td>' +
             '<td style="text-align:center;">' + durHtml + '</td>';
 
@@ -1454,12 +1654,15 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                 ev.preventDefault();
                 return;
             }
+            if (ev.target && ev.target.closest && ev.target.closest('.plusappt-patient-drag-handle')) {
+                return;
+            }
             plusApptDragApptId = a.id;
             row.classList.add('plusappt-row-dragging');
-            ev.dataTransfer.effectAllowed = 'move';
             if (typeof beginApptPatientDragTransfer === 'function') {
                 beginApptPatientDragTransfer(ev, a);
             } else {
+                ev.dataTransfer.effectAllowed = 'move';
                 ev.dataTransfer.setData('text/plain', String(a.id));
             }
         });
@@ -1600,12 +1803,35 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             if (a) openApptEditModal(a);
         });
 
+        if (a && a.patient_id) {
+            var nameTd = row.cells && row.cells[1] ? row.cells[1] : null;
+            if (nameTd) {
+                nameTd.classList.add('plusappt-patient-drag-handle');
+                nameTd.setAttribute('draggable', 'true');
+                nameTd.title = typeof tr === 'function' ? tr('activePatient.dragFromApptTitle') : '';
+                nameTd.addEventListener('dragstart', function(ev) {
+                    ev.stopPropagation();
+                    plusApptDragApptId = null;
+                    if (typeof beginApptPatientDragTransfer === 'function') {
+                        beginApptPatientDragTransfer(ev, a);
+                    }
+                });
+                nameTd.addEventListener('dragend', function(ev) {
+                    ev.stopPropagation();
+                    if (typeof clearPatientDragPayloadSession === 'function') {
+                        clearPatientDragPayloadSession();
+                    }
+                });
+            }
+        }
+
         tb.appendChild(row);
+        if (a) bindPlusApptTreatmentInline(row, a);
     });
 
     if (!slots.length) {
         tb.innerHTML =
-            '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:24px;">' +
+            '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px;">' +
             esc(tr('appt.plusAppt.noSlots')) + '</td></tr>';
     }
     tb.querySelectorAll('.plusappt-lock-btn').forEach(function(btn) {
@@ -1678,6 +1904,7 @@ function renderPlusApptAllDoctorsBoard() {
             '<thead><tr>' +
             '<th class="plusappt-th-time">' + esc(tr('appt.modal.startTime')) + '</th>' +
             '<th>' + esc(tr('appt.plusAppt.th.name')) + '</th>' +
+            '<th>' + esc(tr('appt.plusAppt.th.treatment')) + '</th>' +
             '<th>' + esc(tr('appt.modal.remarks')) + '</th>' +
             '<th>' + esc(tr('appt.modal.duration')) + '</th>' +
             '</tr></thead>';
@@ -1778,13 +2005,14 @@ function plusApptSetDate(iso) {
 
 function loadPlusApptDay() {
     if (!plusApptDate) plusApptDate = todayISO();
+    var loadSeq = ++plusApptDayLoadSeq;
     plusApptSyncDateLabel();
     var tb = g('plusApptScheduleBody');
     var scroll = g('plusApptAllScroll');
     var allMode = typeof plusApptIsAllDoctorsMode === 'function' && plusApptIsAllDoctorsMode();
     if (!tb && !(allMode && scroll)) return;
     var loadingHtml =
-        '<tr><td colspan="4" style="text-align:center;color:#aaa;padding:24px;">' +
+        '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px;">' +
         esc(tr('common.loadingEllipsis')) + '</td></tr>';
     if (allMode && scroll) {
         scroll.innerHTML =
@@ -1799,10 +2027,11 @@ function loadPlusApptDay() {
         .order('start_time', { ascending: true });
     q = applyPlusApptClinicQuery(q);
     q.then(function(r) {
+        if (loadSeq !== plusApptDayLoadSeq) return;
         if (r.error) {
             plusApptDayAppts = [];
             var errHtml =
-                '<tr><td colspan="4" style="text-align:center;color:#c00;padding:24px;">' +
+                '<tr><td colspan="5" style="text-align:center;color:#c00;padding:24px;">' +
                 esc(trRepl('appt.msg.error', { MSG: r.error.message })) + '</td></tr>';
             if (allMode && scroll) {
                 scroll.innerHTML =
@@ -1814,15 +2043,17 @@ function loadPlusApptDay() {
             return;
         }
         var finish = function(rows) {
+            if (loadSeq !== plusApptDayLoadSeq) return;
             plusApptDayAppts = rows || [];
             plusApptApplyTaskStateToList(plusApptDayAppts);
             renderPlusApptSchedule();
-            plusApptRestoreDoctorSelection();
+            plusApptFinishDayLoadSelection();
             hydrateApptUnpaidBalances(plusApptDayAppts, function(changed) {
                 if (!changed) return;
+                if (loadSeq !== plusApptDayLoadSeq) return;
                 if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
                     renderPlusApptSchedule();
-                    plusApptRestoreDoctorSelection();
+                    plusApptFinishDayLoadSelection();
                 }
             });
         };
@@ -1897,19 +2128,12 @@ function doPlusApptPatientSearch() {
         return;
     }
 
-    var pq = SB.from('patients')
-        .select('id,patient_no,full_name,chinese_name,phone_number')
-        .or(
-            'full_name.ilike.%' + q + '%,' +
-            'patient_no.ilike.%' + q + '%,' +
-            'chinese_name.ilike.%' + q + '%'
-        )
-        .limit(8);
-    var tag = typeof currentClinicCodeForTagging === 'function'
-        ? currentClinicCodeForTagging()
-        : '';
-    if (tag && typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined') {
-        pq = pq.eq(PATIENT_CLINIC_TAG_FIELD, tag);
+    var pq = typeof patientSearchQueryBuilder === 'function'
+        ? patientSearchQueryBuilder(q)
+        : null;
+    if (!pq) {
+        dd.style.display = 'none';
+        return;
     }
     pq.then(function(r) {
         dd.innerHTML = '';
@@ -3289,8 +3513,12 @@ var apptAutoRefreshTimer = null;
 var DEFAULT_QUEUE_REFRESH_MS = 30000;
 
 function apptSectionIsActive() {
+    if (typeof sectionVisible === 'function') {
+        return sectionVisible('appointmentSection');
+    }
     var sec = g('appointmentSection');
     if (!sec) return false;
+    if (sec.offsetParent !== null) return true;
     var d = sec.style.display;
     return d !== 'none' && d !== '';
 }
@@ -3371,6 +3599,11 @@ function arSearchDebounce() {
     }, 220);
 }
 
+/** Records tab: patient search spans all clinics (no clinic dropdown filter). */
+function applyApptRecordsClinicQuery(builder) {
+    return builder;
+}
+
 function loadApptRecords() {
     var tbody = g('arBody');
     if (!tbody) return;
@@ -3383,7 +3616,7 @@ function loadApptRecords() {
         .order('date', { ascending: false })
         .order('start_time', { ascending: false })
         .limit(500);
-    aq = applyApptModuleClinicQuery(aq);
+    aq = applyApptRecordsClinicQuery(aq);
     aq
     .then(function(r) {
         if (r.error) {
@@ -4247,19 +4480,23 @@ function prefillApptModalFromActivePatient() {
 }
 
 function doPatientSearch() {
+    if (typeof runPatientSearchDropdown === 'function') {
+        runPatientSearchDropdown({
+            inputId: 'psInput',
+            dropId: 'psDrop',
+            onSelect: function(p) {
+                if (typeof apptSetSelectedPatient === 'function') apptSetSelectedPatient(p);
+            }
+        });
+        return;
+    }
     var q  = (g('psInput').value || '').trim();
     var dd = g('psDrop');
     if (!q) { dd.style.display = 'none'; return; }
-
-    var pq = SB.from('patients')
-        .select('id,patient_no,full_name,chinese_name,phone_number')
-        .or(
-            'full_name.ilike.%' + q + '%,' +
-            'patient_no.ilike.%' + q + '%,' +
-            'chinese_name.ilike.%' + q + '%'
-        )
-        .limit(8);
-    /* Patients are global; appointment clinic only scopes saved visits. */
+    var pq = typeof patientSearchQueryBuilder === 'function'
+        ? patientSearchQueryBuilder(q)
+        : null;
+    if (!pq) { dd.style.display = 'none'; return; }
     pq.then(function(r) {
         dd.innerHTML = '';
         if (r.error || !r.data || !r.data.length) {
@@ -5679,25 +5916,36 @@ function saveAppt() {
         if (payload[k] === undefined) delete payload[k];
     });
 
-    var finishSave = function () {
+    var finishSave = function (savedRow) {
         closeModal('apptModal');
+        var savedId = (savedRow && savedRow.id) ? savedRow.id : apptEditId;
         apptEditId = null;
         apptEditLockRef = null;
         setApptScheduleLockFormUI(false);
-        if (typeof syncApptPlannerDate === 'function' && date) {
-            syncApptPlannerDate(date, { syncCal: true });
-        }
         loadToday();
         loadQueue();
         loadApptRecords();
-        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+        if (typeof plusApptNotifyAppointmentSaved === 'function') {
+            plusApptNotifyAppointmentSaved({
+                date: date,
+                start: start,
+                doctorCode: drCode,
+                apptId: savedId,
+                savedRow: savedRow || null
+            });
+        } else if (typeof refreshApptPlannerData === 'function') {
+            if (typeof syncApptPlannerDate === 'function' && date) {
+                syncApptPlannerDate(date, { syncCal: true });
+            }
+            refreshApptPlannerData();
+        }
     };
 
     var tryPayload = function (p, opts) {
         opts = opts || {};
         var prom = apptEditId
-            ? SB.from('appointments').update(p).eq('id', apptEditId)
-            : SB.from('appointments').insert([p]);
+            ? SB.from('appointments').update(p).eq('id', apptEditId).select()
+            : SB.from('appointments').insert([p]).select();
         prom.then(function (r) {
             if (r.error) {
                 var msg = r.error.message || '';
@@ -5724,7 +5972,8 @@ function saveAppt() {
                 }
                 return;
             }
-            finishSave();
+            var savedRow = (r.data && r.data.length) ? r.data[0] : null;
+            finishSave(savedRow);
         });
     };
     tryPayload(payload, {});
@@ -5749,6 +5998,7 @@ function deleteAppt() {
         loadToday();
         loadQueue();
         loadApptRecords();
+        plusApptPendingSelectApptId = null;
         if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
     });
 }
@@ -6018,6 +6268,7 @@ function loadToday() {
                 });
             }
             doStrip(todayRows);
+            apptRestoreListRowSelection(tb, 'today');
             hydrateApptUnpaidBalances(todayRows, function(changed) {
                 if (!changed) return;
                 if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'today') {
@@ -6082,6 +6333,7 @@ function linkTodayApptAfterPatientRegistration(patient) {
 
 function buildTodayRow(tb, a) {
     var row = document.createElement('tr');
+    row.dataset.apptId = a.id;
     row.style.cursor = 'pointer';
     var needsReg = todayApptNeedsPatientReg(a);
     var actionBtn = '';
@@ -6205,6 +6457,12 @@ function buildTodayRow(tb, a) {
             e.stopPropagation();
         });
     });
+
+    row.addEventListener('click', function(e) {
+        if (apptListRowClickBlocked(e.target)) return;
+        apptSelectListRow(a, row, 'today');
+    });
+    apptBindListRowPatientDrag(row, a);
 }
 
 function apptInlineSaveTreatment(apptId, raw, onDone) {
@@ -6745,12 +7003,14 @@ function loadQueue() {
             var qc = g('queueCount');
             if (qc) qc.textContent = trRepl('appt.queue.count', { N: '0' });
             doStrip([]);
+            queueApptsCache = [];
             setQueueRefreshMeta({ stampNow: true });
             return;
         }
         var qc = g('queueCount');
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
             plusApptApplyTaskStateToList(rows);
+            queueApptsCache = rows || [];
             var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                 ? CalDoctorColors.filterAppts(rows) : rows;
             if (qc) qc.textContent = trRepl('appt.queue.count', { N: String(visible.length) });
@@ -6768,6 +7028,7 @@ function loadQueue() {
                 });
             }
             doStrip(rows);
+            apptRestoreListRowSelection(tb, 'queue');
             setQueueRefreshMeta({ stampNow: true });
             ensureQueueElapsedTicker();
             queueRefreshElapsedBadges();
@@ -6907,12 +7168,24 @@ function buildQueueRow(tb, q, seqNo) {
             e.preventDefault();
             return;
         }
-        e.dataTransfer.setData('text/plain', q.id);
+        if (typeof beginApptPatientDragTransfer === 'function') {
+            beginApptPatientDragTransfer(e, q);
+        } else {
+            e.dataTransfer.setData('text/plain', q.id);
+        }
         e.dataTransfer.effectAllowed = 'move';
         row.classList.add('queue-row-dragging');
     });
     row.addEventListener('dragend', function() {
         row.classList.remove('queue-row-dragging');
+        if (typeof clearPatientDragPayloadSession === 'function') {
+            clearPatientDragPayloadSession();
+        }
+    });
+
+    row.addEventListener('click', function(e) {
+        if (apptListRowClickBlocked(e.target)) return;
+        apptSelectListRow(q, row, 'queue');
     });
 
     row.addEventListener('dblclick', function (e) {
@@ -7424,10 +7697,10 @@ function renderMonthly() {
                 }
                 calMonthTransferDragApptId = a.id;
                 pill.classList.add('gcal-month-pill-dragging');
-                e.dataTransfer.effectAllowed = 'move';
                 if (typeof beginApptPatientDragTransfer === 'function') {
                     beginApptPatientDragTransfer(e, a);
                 } else {
+                    e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', String(a.id));
                 }
             });
@@ -8043,6 +8316,7 @@ var GCAL = (function () {
         if (!head) return;
         head.classList.add('gcal-patient-drag');
         head.setAttribute('draggable', 'true');
+        head.title = typeof tr === 'function' ? tr('activePatient.dragFromApptTitle') : '';
         head.addEventListener('dragstart', function(e) {
             e.stopPropagation();
             if (typeof beginApptPatientDragTransfer === 'function') {
@@ -8054,6 +8328,23 @@ var GCAL = (function () {
                 clearPatientDragPayloadSession();
             }
         });
+        var nameEl = card.querySelector('.card-name');
+        if (nameEl) {
+            nameEl.classList.add('gcal-patient-drag');
+            nameEl.setAttribute('draggable', 'true');
+            nameEl.title = head.title;
+            nameEl.addEventListener('dragstart', function(e) {
+                e.stopPropagation();
+                if (typeof beginApptPatientDragTransfer === 'function') {
+                    beginApptPatientDragTransfer(e, appt);
+                }
+            });
+            nameEl.addEventListener('dragend', function() {
+                if (typeof clearPatientDragPayloadSession === 'function') {
+                    clearPatientDragPayloadSession();
+                }
+            });
+        }
     }
 
     // ── Drag & Drop (supports cross-day) ────────────────────────

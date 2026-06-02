@@ -193,8 +193,172 @@ body {
     position: fixed;
     left: 14px;
     top: 92px;
-    z-index: 10;
+    z-index: 120;
     width: 228px;
+    pointer-events: auto;
+}
+
+.active-patient-dock-toggle {
+    position: absolute;
+    top: 6px;
+    right: -13px;
+    z-index: 2;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+}
+
+.active-patient-dock-toggle:hover {
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+
+.active-patient-collapsed-tab {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 42px;
+    padding: 10px 6px;
+    border: 1px solid #dbe3ef;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
+    cursor: pointer;
+}
+
+.active-patient-collapsed-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.active-patient-collapsed-name {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 11px;
+    font-weight: 800;
+    color: #1e3a8a;
+    max-height: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.active-patient-dock.is-collapsed {
+    width: 42px;
+}
+
+.active-patient-dock.is-collapsed #activePatientDockBody {
+    display: none;
+}
+
+.active-patient-dock.is-collapsed .active-patient-collapsed-tab {
+    display: flex;
+}
+
+.active-patient-dock.is-collapsed .active-patient-dock-toggle {
+    top: auto;
+    bottom: -12px;
+    right: 50%;
+    transform: translateX(50%);
+}
+
+.active-patient-dock.is-collapsed.is-drag-over .active-patient-collapsed-tab {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.24);
+}
+
+/* Auto-compact for 1280×1024 and similar (≤1320px wide) */
+@media (max-width: 1320px) {
+    .active-patient-dock:not(.is-collapsed) {
+        width: 172px;
+        left: 8px;
+        top: 48px;
+    }
+
+    .active-patient-card {
+        padding: 8px 9px 7px;
+        border-radius: 12px;
+    }
+
+    .active-patient-hint {
+        display: none;
+    }
+
+    .active-patient-line--en {
+        font-size: 12px;
+    }
+
+    .active-patient-line--zh {
+        font-size: 13px;
+    }
+
+    .active-patient-meta {
+        margin-top: 4px;
+        font-size: 10px;
+        padding: 3px 6px;
+    }
+
+    .active-patient-card-title {
+        font-size: 10px;
+        margin-bottom: 6px;
+    }
+
+    .active-patient-badge {
+        width: 18px;
+        height: 18px;
+        font-size: 10px;
+    }
+
+    .active-patient-layout {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .active-patient-swap-btn {
+        width: 100%;
+        height: 28px;
+        border-radius: 8px;
+    }
+
+    .active-patient-stack {
+        gap: 6px;
+    }
+
+    body.app-session-active {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+}
+
+@media (max-width: 1150px) {
+    .active-patient-dock:not(.is-collapsed) {
+        width: 156px;
+    }
+
+    .active-patient-dock:not(.is-collapsed) .active-patient-card--secondary:not(.is-filled) {
+        display: none;
+    }
+
+    .active-patient-dock:not(.is-collapsed) .active-patient-meta[data-field="phone"] {
+        display: none;
+    }
+}
+
+@media (max-height: 860px) {
+    .active-patient-dock:not(.is-collapsed) .active-patient-hint {
+        display: none;
+    }
 }
 
 .active-patient-stack {
@@ -1745,6 +1909,20 @@ body.app-session-active {
     font-weight: bold;
 }
 
+.btn-help {
+    background: #0ea5e9;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.btn-help:hover { background: #0284c7; }
+
 .btn-logout:hover { background: #c82333; }
 
 .back-btn {
@@ -2030,6 +2208,36 @@ tr:hover td { background: #fafcff; }
     flex: 1;
     min-width: 220px;
 }
+.plusappt-header-search .plusappt-ps-wrap {
+    flex: 1;
+    min-width: 200px;
+    max-width: 420px;
+}
+.plusappt-header-search .plusappt-ps-wrap input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+.ar-records-search-wrap {
+    flex: 0 1 auto;
+    min-width: 200px;
+    max-width: 320px;
+}
+.ar-records-search-input {
+    width: 100%;
+    padding: 7px 12px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 20px;
+    font-size: 12px;
+    box-sizing: border-box;
+    outline: none;
+}
+.ar-records-search-input:focus {
+    border-color: var(--primary, #0084ff);
+}
 .plusappt-header-scope {
     display: flex;
     flex-wrap: wrap;
@@ -2095,16 +2303,7 @@ tr:hover td { background: #fafcff; }
     width: 100%;
 }
 .plusappt-ps-wrap {
-    flex: 1;
-    min-width: 200px;
-    max-width: 320px;
-}
-.plusappt-clinic-filter {
-    padding: 10px 12px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    min-width: 130px;
-    font-size: 13px;
+    position: relative;
 }
 .plusappt-header-actions {
     display: flex;
@@ -2755,6 +2954,18 @@ tr:hover td { background: #fafcff; }
 .appt-treat-inline--queue{
   font-size: 13px;
 }
+.appt-treat-inline--plusappt{
+  font-size: 12px;
+  min-width: 100px;
+}
+.plusappt-treat-cell{
+  min-width: 120px;
+  max-width: 200px;
+  vertical-align: middle;
+}
+.plusappt-schedule-tbl .plusappt-treat-cell{
+  padding: 4px 6px;
+}
 
 .queue-row-draggable { cursor: grab; }
 .queue-row-draggable.queue-row-dragging { cursor: grabbing; }
@@ -2785,6 +2996,18 @@ tr:hover td { background: #fafcff; }
 .queue-wrap tr.queue-row-finished:hover td {
     background: #ddd6fe !important;
 }
+
+.appt-list-row-selected td {
+    background: #e8f4ff !important;
+    box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.queue-wrap tr.appt-list-row-selected.queue-row-billed td,
+.queue-wrap tr.appt-list-row-selected.queue-row-paid td,
+.queue-wrap tr.appt-list-row-selected.queue-row-finished td {
+    filter: brightness(0.97);
+}
+
 .appt-alert-text {
     display: inline-block;
     max-width: 170px;
@@ -5404,6 +5627,8 @@ tr:hover td { background: #fafcff; }
     box-sizing: border-box;
     resize: vertical;
     font-family: inherit;
+    text-align: left;
+    text-indent: 0;
 }
 .con-note-actions-row {
     display: flex;
@@ -8340,6 +8565,12 @@ tr:hover td { background: #fafcff; }
     cursor: grab;
     padding: 2px 0;
     margin: -2px 0;
+}
+.plusappt-patient-drag-handle {
+    cursor: grab;
+}
+.plusappt-patient-drag-handle:active {
+    cursor: grabbing;
 }
 .gcal-card .card-headline.gcal-patient-drag:active {
     cursor: grabbing;

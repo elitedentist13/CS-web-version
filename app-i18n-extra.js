@@ -56,6 +56,11 @@
         'common.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
         'common.staffFallback': { en: 'Staff', 'zh-CN': '员工', 'zh-Hant': '職員' },
         'common.all': { en: 'ALL', 'zh-CN': '全部', 'zh-Hant': '全部' },
+        'appt.psClinic.current': {
+            en: 'Current clinic',
+            'zh-CN': '当前诊所',
+            'zh-Hant': '目前診所'
+        },
         'common.noClinics': { en: '(No clinics)', 'zh-CN': '（无诊所）', 'zh-Hant': '（無診所）' },
         'common.loadingDoctors': { en: 'Loading doctors...', 'zh-CN': '正在加载医生...', 'zh-Hant': '正在載入醫生...' },
         'common.from': { en: 'From', 'zh-CN': '从', 'zh-Hant': '由' },
@@ -82,7 +87,7 @@
         'common.reportClinicTitle': { en: 'All report tabs show data for the selected clinic only', 'zh-CN': '所有报表标签仅显示所选诊所数据', 'zh-Hant': '所有報表分頁僅顯示所選診所資料' },
         'common.closeAria': { en: 'Close', 'zh-CN': '关闭', 'zh-Hant': '關閉' },
         'common.patientDirFilterTitle': { en: 'Show patients for one clinic tag only', 'zh-CN': '仅按一个诊所标签筛选患者', 'zh-Hant': '僅按一個診所標籤篩選病人' },
-        'common.arRecordsClinicTitle': { en: 'Synced from appointment clinic bar', 'zh-CN': '与预约栏诊所同步', 'zh-Hant': '與預約欄診所同步' },
+        'common.arRecordsClinicTitle': { en: 'Filter records by clinic', 'zh-CN': '按诊所筛选记录', 'zh-Hant': '按診所篩選紀錄' },
         'common.conPsClinicTitle': { en: 'Limit patient search by clinic tag', 'zh-CN': '按诊所标签限制病人搜索', 'zh-Hant': '按診所標籤限制病人搜尋' },
 
         'alert.cfgLoading': { en: 'Configuration module is loading...', 'zh-CN': '设置模块加载中...', 'zh-Hant': '設定模組載入中...' },
@@ -125,6 +130,31 @@
         'activePatient.metaNo': { en: 'No: {NO}', 'zh-CN': '编号：{NO}', 'zh-Hant': '編號：{NO}' },
         'activePatient.metaPhone': { en: 'Phone: {PHONE}', 'zh-CN': '电话：{PHONE}', 'zh-Hant': '電話：{PHONE}' },
         'activePatient.metaEmpty': { en: '—', 'zh-CN': '—', 'zh-Hant': '—' },
+        'activePatient.setToast': {
+            en: 'Active patient: {NAME}',
+            'zh-CN': '当前患者：{NAME}',
+            'zh-Hant': '目前病人：{NAME}'
+        },
+        'activePatient.dragFromApptTitle': {
+            en: 'Drag to active patient card (left)',
+            'zh-CN': '拖到左侧当前患者卡',
+            'zh-Hant': '拖到左側目前病人卡'
+        },
+        'activePatient.collapseDock': {
+            en: 'Hide active patient panel',
+            'zh-CN': '隐藏当前患者栏',
+            'zh-Hant': '隱藏目前病人欄'
+        },
+        'activePatient.expandDock': {
+            en: 'Show active patient panel',
+            'zh-CN': '显示当前患者栏',
+            'zh-Hant': '顯示目前病人欄'
+        },
+        'activePatient.collapsedLabel': {
+            en: 'Active patient',
+            'zh-CN': '当前患者',
+            'zh-Hant': '目前病人'
+        },
         'patient.th.patientNoName': { en: 'Patient No. / Name', 'zh-CN': '患者编号 / 姓名', 'zh-Hant': '病人編號 / 姓名' },
         'patient.th.phone': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
         'patient.th.clinicTag': { en: 'Clinic tag', 'zh-CN': '诊所标签', 'zh-Hant': '診所標籤' },
@@ -365,6 +395,7 @@
             'zh-Hant': '共{N}位醫生 — 左右滑動（每次顯示兩列）'
         },
         'appt.plusAppt.th.name': { en: 'Patient name', 'zh-CN': '患者姓名', 'zh-Hant': '病人姓名' },
+        'appt.plusAppt.th.treatment': { en: 'Treatment', 'zh-CN': '治疗项目', 'zh-Hant': '治療項目' },
         'appt.plusAppt.shortcuts': { en: 'Shortcuts', 'zh-CN': '快捷', 'zh-Hant': '快捷' },
         'appt.plusAppt.scEditPatient': { en: 'Edit patient', 'zh-CN': '编辑患者', 'zh-Hant': '編輯病人' },
         'appt.plusAppt.scNotes': { en: 'Notes', 'zh-CN': '病历', 'zh-Hant': '病歷' },

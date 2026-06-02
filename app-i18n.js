@@ -25,6 +25,16 @@ var I18N_STRINGS = {
         'zh-CN': '🚪 退出登录',
         'zh-Hant': '🚪 登出'
     },
+    'dashboard.help': {
+        en: '❓ Help',
+        'zh-CN': '❓ 帮助',
+        'zh-Hant': '❓ 說明'
+    },
+    'dashboard.helpTitle': {
+        en: 'Open user guide in a new window',
+        'zh-CN': '在新窗口打开用户指南',
+        'zh-Hant': '在新視窗開啟使用說明'
+    },
     'dashboard.langGroup': {
         en: 'Display language',
         'zh-CN': '显示语言',

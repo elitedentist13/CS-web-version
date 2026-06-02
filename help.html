@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clinic Management System — Help</title>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --accent: #006fd6;
+      --accent-soft: #e8f4ff;
+      --ok: #166534;
+      --warn: #b45309;
+      --page: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      background: var(--page);
+      line-height: 1.45;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 24px 20px 80px; }
+    .cover {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 32px 28px;
+      margin-bottom: 28px;
+    }
+    .cover h1 { margin: 0 0 8px; font-size: 28px; }
+    .cover .sub { color: var(--muted); font-size: 15px; margin-bottom: 16px; }
+    .badge-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .badge {
+      font-size: 11px; font-weight: 700; letter-spacing: .04em;
+      text-transform: uppercase; padding: 5px 10px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .toc {
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      padding: 18px 22px; margin-bottom: 32px;
+    }
+    .toc h2 { margin: 0 0 12px; font-size: 16px; }
+    .toc ol { margin: 0; padding-left: 20px; }
+    .toc a { color: var(--accent); text-decoration: none; font-weight: 600; }
+    .toc a:hover { text-decoration: underline; }
+
+    section {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 22px 22px 26px;
+      margin-bottom: 22px;
+      scroll-margin-top: 16px;
+    }
+    section h2 {
+      margin: 0 0 4px;
+      font-size: 20px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    section h2 .num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; border-radius: 8px;
+      background: var(--accent); color: #fff; font-size: 14px;
+    }
+    .goal {
+      color: var(--muted); font-size: 13px; margin: 0 0 14px;
+      border-left: 3px solid var(--accent); padding-left: 10px;
+    }
+
+    .bilingual { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    @media (max-width: 700px) { .bilingual { grid-template-columns: 1fr; } }
+    .lang { font-size: 14px; }
+    .lang strong { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .05em; }
+
+    .steps { margin: 0; padding: 0; list-style: none; counter-reset: step; }
+    .steps > li {
+      counter-increment: step;
+      position: relative;
+      padding: 10px 0 10px 42px;
+      border-bottom: 1px dashed var(--line);
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .steps > li:last-child { border-bottom: none; }
+    .steps > li::before {
+      content: counter(step);
+      position: absolute; left: 0; top: 8px;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--ink); color: #fff;
+      font-size: 13px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .steps .hint {
+      display: block; font-weight: 400; font-size: 13px; color: var(--muted); margin-top: 3px;
+    }
+    .steps code, .ui {
+      background: #f1f5f9; padding: 1px 6px; border-radius: 4px;
+      font-size: 13px; font-weight: 700; color: var(--accent);
+    }
+
+    .shot {
+      margin-top: 14px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 2px solid var(--line);
+      background: #f1f5f9;
+      min-height: 200px;
+      position: relative;
+    }
+    .shot img {
+      width: 100%; display: block;
+    }
+    .shot .placeholder {
+      padding: 48px 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .shot .placeholder b { display: block; color: var(--ink); font-size: 14px; margin-bottom: 6px; }
+    .shot figcaption {
+      font-size: 11px; color: var(--muted);
+      padding: 8px 12px; background: #fff;
+      border-top: 1px solid var(--line);
+    }
+
+    .callouts {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;
+    }
+    .callout {
+      font-size: 12px; font-weight: 700;
+      padding: 6px 10px; border-radius: 6px;
+      background: #fef3c7; color: #92400e;
+    }
+    .callout.ok { background: #dcfce7; color: var(--ok); }
+    .callout.info { background: var(--accent-soft); color: var(--accent); }
+
+    .flow {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      margin: 12px 0; font-size: 13px; font-weight: 700;
+    }
+    .flow span {
+      padding: 6px 12px; background: var(--accent-soft);
+      border-radius: 8px; color: var(--accent);
+    }
+    .flow .arrow { color: var(--muted); font-weight: 400; }
+
+    .warn-box {
+      margin-top: 12px; padding: 12px 14px;
+      background: #fff7ed; border: 1px solid #fed7aa;
+      border-radius: 8px; font-size: 13px;
+    }
+    .warn-box strong { color: var(--warn); }
+
+    @media print {
+      body { background: #fff; }
+      section { break-inside: avoid; page-break-inside: avoid; }
+      .shot { min-height: 0; }
+      .shot .placeholder { display: none; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="cover">
+    <h1>Banana Clinic Manager</h1>
+    <p class="sub">Help & user guide · Photo guide · EN + 繁體中文</p>
+    <div class="badge-row">
+      <span class="badge">Help</span>
+      <span class="badge">Front desk + Doctor</span>
+      <span class="badge">Daily workflow</span>
+    </div>
+    <p class="no-print" style="margin-top:16px;font-size:13px;color:var(--muted);">
+      Open from the dashboard <strong>Help</strong> button, or bookmark this page. You can print to PDF for tablets.
+    </p>
+  </header>
+
+  <nav class="toc">
+    <h2>Contents / 目錄</h2>
+    <ol>
+      <li><a href="#s0">Start here / 開始</a></li>
+      <li><a href="#s1">Make appointment / 新增預約</a></li>
+      <li><a href="#s2">Change booking / 更改預約</a></li>
+      <li><a href="#s3">Check in → Queue / 簽到 → 候診</a></li>
+      <li><a href="#s4">Queue actions / 候診操作</a></li>
+      <li><a href="#s5">Finish patient / 完成病人</a></li>
+      <li><a href="#s6">Doctor: notes / 醫生：病歷記錄</a></li>
+      <li><a href="#s7">Doctor: prescribe / 醫生：開處方</a></li>
+      <li><a href="#s8">Upload X-ray (cloud) / 上載 X 光</a></li>
+      <li><a href="#s9">Billing / 收費帳單</a></li>
+      <li><a href="#s10">If stuck / 遇到問題</a></li>
+    </ol>
+  </nav>
+
+  <!-- 0 -->
+  <section id="s0">
+    <h2><span class="num">0</span> Start here</h2>
+    <p class="goal">Log in → pick module from dashboard → choose clinic at top of Appointment screen.</p>
+    <div class="bilingual">
+      <div class="lang"><strong>English</strong>Sign in with your clinic account. On the dashboard, tap <span class="ui">📅 Appointment</span> for front-desk work, or <span class="ui">🩺 Consultation</span> for clinical notes, drugs, and X-rays.</div>
+      <div class="lang"><strong>繁體中文</strong>使用診所帳號登入。主頁按 <span class="ui">📅 Appointment（預約）</span> 做前台；按 <span class="ui">🩺 Consultation（診症）</span> 寫病歷、開藥、上載 X 光。</div>
+    </div>
+    <div class="flow">
+      <span>Login</span><span class="arrow">→</span>
+      <span>Dashboard</span><span class="arrow">→</span>
+      <span>Appointment / Consultation</span>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/00-dashboard.png" alt="Dashboard"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 00 — Dashboard</b>
+        All module cards visible (Appointment, Consultation, Patient…)
+      </div>
+      <figcaption>Fig 0 · Dashboard — tap the card you need</figcaption>
+    </figure>
+  </section>
+
+  <!-- 1 -->
+  <section id="s1">
+    <h2><span class="num">1</span> Make appointment</h2>
+    <p class="goal">Book a new slot: patient + doctor + time.</p>
+    <div class="bilingual">
+      <div class="lang"><strong>English</strong></div>
+      <div class="lang"><strong>繁體中文</strong></div>
+    </div>
+    <ol class="steps">
+      <li>Dashboard → <span class="ui">📅 Appointment</span>
+        <span class="hint">主頁 → 預約</span></li>
+      <li>Top bar: select <span class="ui">Clinic</span> (correct branch)
+        <span class="hint">選擇診所</span></li>
+      <li>Tab: <span class="ui">➕ Appointment</span>
+        <span class="hint">「➕ 預約」分頁</span></li>
+      <li>Search patient → pick from list
+        <span class="hint">搜尋病人 → 點選</span></li>
+      <li>Choose <span class="ui">Doctor</span> — timeline appears
+        <span class="hint">選醫生 → 顯示時間線</span></li>
+      <li>Tap an <strong>empty slot</strong> on the timeline → fill date/time/details → Save
+        <span class="hint">點空白時段 → 填資料 → 儲存</span></li>
+    </ol>
+    <div class="callouts">
+      <span class="callout info">Walk-in with no record? Register in Patient module first.</span>
+      <span class="callout">無病人檔？先在 Patient 登記。</span>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/01-plus-appointment.png" alt="Plus appointment"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 01 — ➕ Appointment tab</b>
+        Patient search, doctor selector, timeline with empty slot highlighted
+      </div>
+      <figcaption>Fig 1 · New booking on doctor timeline</figcaption>
+    </figure>
+  </section>
+
+  <!-- 2 -->
+  <section id="s2">
+    <h2><span class="num">2</span> Change / reschedule booking</h2>
+    <p class="goal">Move time, edit details, or cancel — without losing the patient link.</p>
+    <ol class="steps">
+      <li><span class="ui">➕ Appointment</span> → find the patient’s card on the timeline
+        <span class="hint">在時間線找到預約卡</span></li>
+      <li><strong>Drag</strong> the card to a new slot <em>or</em> double-click → <span class="ui">Edit appointment</span>
+        <span class="hint">拖曳改時段 · 或雙擊編輯</span></li>
+      <li>Change date, time, doctor, remarks → <strong>Save</strong>
+        <span class="hint">改日期/時間/醫生/備註 → 儲存</span></li>
+      <li>Optional: use <span class="ui">Calendar</span> tab for month view
+        <span class="hint">可用「月曆」分頁總覽</span></li>
+    </ol>
+    <div class="callouts">
+      <span class="callout ok">Drag = fastest reschedule</span>
+      <span class="callout">拖曳 = 最快改期</span>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/02-reschedule.png" alt="Reschedule"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 02 — Reschedule</b>
+        Appointment card being dragged OR edit modal open
+      </div>
+      <figcaption>Fig 2 · Drag on timeline or Edit appointment modal</figcaption>
+    </figure>
+  </section>
+
+  <!-- 3 -->
+  <section id="s3">
+    <h2><span class="num">3</span> Check in → put patient in queue</h2>
+    <p class="goal">Today’s list → Check In → patient appears in Current Queue.</p>
+    <div class="flow">
+      <span>Today tab</span><span class="arrow">→</span>
+      <span>Check In</span><span class="arrow">→</span>
+      <span>Current Queue</span>
+    </div>
+    <ol class="steps">
+      <li><span class="ui">📅 Appointment</span> → tab <span class="ui">Today</span>
+        <span class="hint">預約 →「今日」</span></li>
+      <li>Find the patient row → click <span class="ui">Check In</span> → confirm
+        <span class="hint">按「簽到」→ 確認</span></li>
+      <li>Switch to tab <span class="ui">Current Queue</span> — patient is listed
+        <span class="hint">「候診」分頁 — 病人已入隊</span></li>
+      <li>Type in <span class="ui">Treatment</span> column if needed (auto-saves when you leave the field)
+        <span class="hint">「治療」欄可輸入，離開欄位自動儲存</span></li>
+    </ol>
+    <div class="callouts">
+      <span class="callout warn">Walk-in: use New Patient on Today tab, then Check In.</span>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/03-checkin-today.png" alt="Check in"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 03 — Today + Check In</b>
+        Today list with Check In button; optional second shot of Queue tab
+      </div>
+      <figcaption>Fig 3 · Today → Check In → appears in Current Queue</figcaption>
+    </figure>
+  </section>
+
+  <!-- 4 -->
+  <section id="s4">
+    <h2><span class="num">4</span> Queue — while patient is waiting</h2>
+    <p class="goal">Reorder, open notes, bill, or send doctor to consultation.</p>
+    <ol class="steps">
+      <li>Tab <span class="ui">Current Queue</span> — filter doctors if needed
+        <span class="hint">「候診」— 可按醫生篩選</span></li>
+      <li><strong>Drag</strong> rows to change order (saved automatically)
+        <span class="hint">拖曳改順序（自動儲存）</span></li>
+      <li><span class="ui">Actions ▾</span> menu per row:
+        <span class="hint">每行「操作 ▾」：</span>
+        <span class="hint">· <span class="ui">Clinical Notes</span> → Consultation<br>
+        · <span class="ui">Open Bill</span> → Billing<br>
+        · <span class="ui">Edit remarks</span> (📝 icon)</span></li>
+      <li>Double-click row → quick patient / appointment actions
+        <span class="hint">雙擊列 → 快捷功能</span></li>
+    </ol>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/04-queue-actions.png" alt="Queue actions"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 04 — Current Queue</b>
+        Actions dropdown open; Treatment column visible
+      </div>
+      <figcaption>Fig 4 · Queue row + Actions menu</figcaption>
+    </figure>
+  </section>
+
+  <!-- 5 -->
+  <section id="s5">
+    <h2><span class="num">5</span> Finish patient (visit complete)</h2>
+    <p class="goal">After treatment and billing — remove from active queue.</p>
+    <ol class="steps">
+      <li>In <span class="ui">Current Queue</span> → <span class="ui">Actions ▾</span>
+        <span class="hint">候診 → 操作</span></li>
+      <li>Choose <span class="ui">Mark Done</span>
+        <span class="hint">選「標記完成」</span></li>
+      <li>Patient leaves the queue (history stays in Today / Records)
+        <span class="hint">離開候診（紀錄仍在今日/紀錄）</span></li>
+    </ol>
+    <div class="callouts">
+      <span class="callout">Did not arrive? Use <span class="ui">No Show</span> instead.</span>
+      <span class="callout">未到？用「標記未到」。</span>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/05-mark-done.png" alt="Mark done"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 05 — Mark Done</b>
+        Actions menu with Mark Done highlighted
+      </div>
+      <figcaption>Fig 5 · Mark Done when visit is finished</figcaption>
+    </figure>
+  </section>
+
+  <!-- 6 -->
+  <section id="s6">
+    <h2><span class="num">6</span> Doctor — treatment notes</h2>
+    <p class="goal">Write and save clinical notes for the active patient.</p>
+    <ol class="steps">
+      <li>Dashboard → <span class="ui">🩺 Consultation</span>
+        <span class="hint">主頁 → 診症</span></li>
+      <li>Search patient name / number → select
+        <span class="hint">搜尋病人 → 選取</span></li>
+      <li>Left panel: <span class="ui">Treatment</span> tab (default)
+        <span class="hint">左側「治療」分頁</span></li>
+      <li>Type in the note box → <span class="ui">💾 Save Note</span>
+        <span class="hint">輸入內容 →「💾 儲存記錄」</span></li>
+      <li>Notes appear in the timeline below (newest on top)
+        <span class="hint">記錄顯示於下方時間軸</span></li>
+    </ol>
+    <div class="callouts">
+      <span class="callout info">Templates: Save template / From template buttons above the box.</span>
+      <span class="callout ok">From queue: Actions → Clinical Notes opens same screen.</span>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/06-consultation-notes.png" alt="Notes"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 06 — Consultation notes</b>
+        Patient banner, note textarea, Save Note, timeline
+      </div>
+      <figcaption>Fig 6 · Treatment notes (Consultation)</figcaption>
+    </figure>
+  </section>
+
+  <!-- 7 -->
+  <section id="s7">
+    <h2><span class="num">7</span> Doctor — prescribe drugs</h2>
+    <p class="goal">Build prescription line by line; quantity fills after you pick days.</p>
+    <ol class="steps">
+      <li>Same patient in <span class="ui">Consultation</span> → right panel
+        <span class="hint">診症 → 右側藥物欄</span></li>
+      <li>Click <span class="ui">+ Add Drug</span>
+        <span class="hint">「+ 新增藥物」</span></li>
+      <li><span class="ui">-- Select Drug --</span> — dose &amp; frequency load from Drug Book
+        <span class="hint">選藥物 — 劑量/次數從藥物手冊載入</span></li>
+      <li>Choose <span class="ui">Days *</span> — quantity calculates automatically
+        <span class="hint">選「天數 *」— 數量自動計算</span></li>
+      <li>Click <span class="ui">✓ Add to list</span> on the line (repeat for more drugs)
+        <span class="hint">按「✓ 加入清單」— 可加多種藥</span></li>
+      <li>When finished → <span class="ui">💾 Save Prescription</span>
+        <span class="hint">完成 →「💾 儲存處方」</span></li>
+      <li>Print labels: <span class="ui">🖨 EN</span> or <span class="ui">🖨 中文</span> on saved Rx
+        <span class="hint">列印標籤：英文 / 中文</span></li>
+    </ol>
+    <div class="warn-box">
+      <strong>Quantity shows “—”?</strong> Select <em>Days</em> first, then Add to list. If still wrong, tell admin the drug name (dose text in Drug Book).
+      <br><strong>數量顯示「—」？</strong> 先選天數，再加入清單。
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/07-prescription.png" alt="Prescription"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 07 — Prescription panel</b>
+        Drug selected, Days chosen, staged list with Qty, Save Prescription
+      </div>
+      <figcaption>Fig 7 · Prescribe: drug → days → Add to list → Save Prescription</figcaption>
+    </figure>
+  </section>
+
+  <!-- 8 -->
+  <section id="s8">
+    <h2><span class="num">8</span> Upload X-ray to cloud (Supabase)</h2>
+    <p class="goal">Store images in the clinic cloud bucket — linked to the patient record.</p>
+    <ol class="steps">
+      <li><span class="ui">Consultation</span> → search &amp; select patient
+        <span class="hint">診症 → 選病人</span></li>
+      <li>Sub-tab: <span class="ui">X-Rays</span>
+        <span class="hint">「X 光」分頁</span></li>
+      <li>Click <span class="ui">📤 Upload X-Ray</span> → choose file(s) (JPG, PNG, DICOM…)
+        <span class="hint">「📤 上載 X 光片」→ 選檔</span></li>
+      <li>If prompted: set type, date, notes → confirm
+        <span class="hint">填類型/日期/備註 → 確認</span></li>
+      <li>Wait for progress bar → <strong>Done</strong> — thumbnail appears in gallery
+        <span class="hint">等候上載完成 → 圖片出現在畫廊</span></li>
+    </ol>
+    <div class="bilingual" style="margin-top:10px;">
+      <div class="lang"><strong>English</strong>Files are stored securely in the cloud (Supabase storage). Only staff logged into the clinic system can upload. Do not share patient images outside the app.</div>
+      <div class="lang"><strong>繁體中文</strong>檔案儲存於雲端（Supabase）。只有登入系統的職員可上載。請勿把病人影像傳到系統以外。</div>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/08-xray-upload.png" alt="X-ray upload"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 08 — X-Ray tab</b>
+        Upload button, progress bar, gallery with new image
+      </div>
+      <figcaption>Fig 8 · X-Rays → Upload → cloud gallery</figcaption>
+    </figure>
+  </section>
+
+  <!-- 9 -->
+  <section id="s9">
+    <h2><span class="num">9</span> Billing</h2>
+    <p class="goal">Open bill from queue or consultation; save and print receipt.</p>
+    <ol class="steps">
+      <li><strong>From queue:</strong> <span class="ui">Actions ▾</span> → <span class="ui">Open Bill</span>
+        <span class="hint">候診 → 操作 →「開啟帳單」</span></li>
+      <li><strong>From consultation:</strong> top <span class="ui">Bill</span> button (after patient selected)
+        <span class="hint">診症頂部「帳單」按鈕</span></li>
+      <li>Add items / adjust amounts → <strong>Save bill</strong>
+        <span class="hint">加入項目 / 改金額 → 儲存帳單</span></li>
+      <li>Record payment → print receipt if needed
+        <span class="hint">記錄付款 → 列印收據</span></li>
+    </ol>
+    <div class="callouts">
+      <span class="callout info">Outstanding balance may show on the patient banner in Consultation.</span>
+    </div>
+    <figure class="shot">
+      <img src="docs/prelaunch-manual/screenshots/09-billing.png" alt="Billing"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+      <div class="placeholder" style="display:none;">
+        <b>Photo 09 — Bill screen</b>
+        Line items, save, payment / receipt area
+      </div>
+      <figcaption>Fig 9 · Billing from queue or consultation</figcaption>
+    </figure>
+  </section>
+
+  <!-- 10 -->
+  <section id="s10">
+    <h2><span class="num">!</span> If something goes wrong</h2>
+    <div class="bilingual">
+      <div class="lang">
+        <strong>English</strong>
+        <ul style="margin:8px 0 0;padding-left:18px;font-size:14px;font-weight:400;">
+          <li>Press <strong>F5</strong> (refresh) once.</li>
+          <li>Re-open the patient or appointment screen.</li>
+          <li>Report: your user ID, patient number, time, screenshot.</li>
+        </ul>
+      </div>
+      <div class="lang">
+        <strong>繁體中文</strong>
+        <ul style="margin:8px 0 0;padding-left:18px;font-size:14px;font-weight:400;">
+          <li>先按 <strong>F5</strong> 重新整理一次。</li>
+          <li>重新開啟病人或預約畫面。</li>
+          <li>回報：帳號、病人編號、時間、截圖。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="warn-box" style="margin-top:14px;">
+      <strong>Not available in pre-test:</strong> Expenses, Inventory (disabled). Configuration = admin only.
+      <br><strong>預試未開放：</strong> Expenses、Inventory。Configuration 僅管理員。
+    </div>
+  </section>
+
+  <p style="text-align:center;color:var(--muted);font-size:12px;margin-top:24px;">
+    Clinic Management System · Help · EN + 繁體中文
+  </p>
+</div>
+</body>
+</html>

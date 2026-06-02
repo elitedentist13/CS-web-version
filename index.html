@@ -41,7 +41,15 @@
   </div>
 </div>
 <aside id="activePatientDock" class="active-patient-dock" style="display:none;">
-  <div class="active-patient-layout">
+  <button type="button" id="activePatientDockToggle" class="active-patient-dock-toggle"
+          data-i18n-title="activePatient.collapseDock"
+          data-i18n-aria-label="activePatient.collapseDock"
+          aria-expanded="true">«</button>
+  <div id="activePatientCollapsedTab" class="active-patient-collapsed-tab">
+    <span class="active-patient-collapsed-icon" aria-hidden="true">👤</span>
+    <span id="activePatientCollapsedName" class="active-patient-collapsed-name">—</span>
+  </div>
+  <div id="activePatientDockBody" class="active-patient-layout">
   <div id="activePatientStack" class="active-patient-stack">
     <div id="activePatientCard0" class="active-patient-card active-patient-card--primary" data-slot="0" draggable="false">
       <div class="active-patient-card-head">
@@ -140,6 +148,9 @@
         <span id="badgeName">—</span>
         <span class="role-tag" id="badgeRole">—</span>
       </div>
+      <button type="button" class="btn-help" id="dashboardHelpBtn"
+              data-i18n="dashboard.help"
+              data-i18n-title="dashboard.helpTitle"></button>
       <button class="btn-logout" id="logoutBtn" data-i18n="dashboard.logout"></button>
     </div>
   </div>
@@ -884,6 +895,7 @@
                 <tr>
                   <th class="plusappt-th-time" data-i18n="appt.modal.startTime"></th>
                   <th data-i18n="appt.plusAppt.th.name"></th>
+                  <th data-i18n="appt.plusAppt.th.treatment"></th>
                   <th data-i18n="appt.modal.remarks"></th>
                   <th data-i18n="appt.modal.duration"></th>
                 </tr>
@@ -988,16 +1000,10 @@
                 style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
                        background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;" data-i18n="appt.arFilterNoshow"></button>
       </div>
-      <!-- Patient search + clinic tag -->
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex:1;min-width:220px;">
-        <div style="flex:1;min-width:160px;max-width:280px;position:relative;">
-          <input id="arSearchInput" type="text" data-i18n-placeholder="appt.arSearchPh"
-                 oninput="arSearchDebounce()"
-                 style="width:100%;padding:7px 12px;border:1.5px solid #e5e7eb;
-                        border-radius:20px;font-size:12px;box-sizing:border-box;outline:none;">
-        </div>
-        <select id="arRecordsClinicFilter" hidden aria-hidden="true"
-                data-i18n-title="common.arRecordsClinicTitle"></select>
+      <div class="ar-records-search-wrap">
+        <input id="arSearchInput" type="text" class="ar-records-search-input"
+               data-i18n-placeholder="appt.arSearchPh"
+               oninput="arSearchDebounce()">
       </div>
       <!-- Result count -->
       <span id="arCount"
@@ -1263,9 +1269,7 @@
 
         <!-- add note box -->
         <div class="con-add-note-box">
-          <textarea id="conNoteInput" rows="4"
-                    data-i18n-placeholder="con.notePh">
-          </textarea>
+          <textarea id="conNoteInput" rows="4" data-i18n-placeholder="con.notePh"></textarea>
           <div class="con-note-actions-row" style="margin-top:8px;">
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button type="button" class="btn-add con-note-template-btn"
@@ -3358,16 +3362,11 @@
     <!-- ── Existing patient search ─────────────────────── -->
     <div id="psSectionExist" class="fg">
       <label data-i18n="appt.modal.searchPatient"></label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
-        <div class="ps-wrap" style="flex:1;min-width:220px;">
-          <input type="text" id="psInput"
-                 data-i18n-placeholder="appt.modal.searchPatientPh"
-                 autocomplete="off">
-          <div class="ps-drop" id="psDrop"></div>
-        </div>
-        <select id="apptPsClinicFilter" data-i18n-title="appt.modal.limitClinicTitle"
-                title="Limit search by clinic tag"
-                style="padding:10px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
+      <div class="ps-wrap">
+        <input type="text" id="psInput"
+               data-i18n-placeholder="appt.modal.searchPatientPh"
+               autocomplete="off">
+        <div class="ps-drop" id="psDrop"></div>
       </div>
       <input type="hidden" id="hPid">
       <input type="hidden" id="hPno">

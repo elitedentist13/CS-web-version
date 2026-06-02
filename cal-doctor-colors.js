@@ -51,6 +51,7 @@ var CalDoctorColors = (function () {
         loadFilter();
         var cid = clinicFilterId();
         if (!filterByClinic[cid]) filterByClinic[cid] = {};
+        migrateFilterMapForClinic(cid);
         return filterByClinic[cid];
     }
 
@@ -60,6 +61,7 @@ var CalDoctorColors = (function () {
 
     function isDoctorVisible(key) {
         var map = getFilterMap();
+        key = normalizeStoredDoctorKey(key);
         return map[key] !== false;
     }
 
@@ -71,6 +73,7 @@ var CalDoctorColors = (function () {
 
     function setDoctorVisible(key, visible) {
         var map = getFilterMap();
+        key = normalizeStoredDoctorKey(key);
         if (visible) delete map[key];
         else map[key] = false;
         saveFilter();
@@ -186,8 +189,124 @@ var CalDoctorColors = (function () {
         if (!doc) return '';
         var code = String(doc.doctor_code || '').trim();
         if (code) return code;
+        var id = String(doc.id || '').trim();
+        if (id) return id;
         return String(typeof doctorDisplayName === 'function'
             ? doctorDisplayName(doc) : (doc.english_name || doc.chinese_name || '')).trim();
+    }
+
+    function activeClinicIdForKeys(clinicId) {
+        if (clinicId != null && clinicId !== '') return clinicId;
+        if (cachedClinicId != null && cachedClinicId !== '') return cachedClinicId;
+        if (typeof currentClinicId !== 'undefined' && currentClinicId != null && currentClinicId !== '') {
+            return currentClinicId;
+        }
+        return null;
+    }
+
+    function getClinicalDoctorsForClinic(clinicId) {
+        var list = typeof doctorsForClinic === 'function'
+            ? doctorsForClinic(activeClinicIdForKeys(clinicId))
+            : (typeof APP_DOCTORS !== 'undefined' ? APP_DOCTORS : []);
+        var out = [];
+        var seen = {};
+        (list || []).forEach(function (d) {
+            if (!d) return;
+            if (typeof isClinicalDoctorRecord === 'function' && !isClinicalDoctorRecord(d)) return;
+            if (typeof isLoginPlaceholderDoctorCode === 'function' &&
+                isLoginPlaceholderDoctorCode(d.doctor_code)) {
+                return;
+            }
+            var k = doctorKeyFromDoc(d);
+            if (!k || seen[k]) return;
+            seen[k] = true;
+            out.push(d);
+        });
+        return out;
+    }
+
+  /** Match appointment row to one clinical doctor record (code / EN / 中文 / remarks tag). */
+    function findClinicalDoctorForAppt(a, clinicId) {
+        if (!a) return null;
+        var docs = getClinicalDoctorsForClinic(clinicId);
+        if (!docs.length) return null;
+
+        var code = String(a.doctor_code || '').trim();
+        var tag = parseDoctorTagFromRemarks(a.remarks);
+        var name = String(a.doctor_name || '').trim();
+        var nameLc = name.toLowerCase();
+        var i;
+        var d;
+        var dc;
+        var id;
+        var dn;
+        var en;
+        var cn;
+
+        function matchByCode(probe) {
+            if (!probe) return null;
+            for (i = 0; i < docs.length; i++) {
+                d = docs[i];
+                dc = String(d.doctor_code || '').trim();
+                id = String(d.id || '').trim();
+                if (probe === dc || probe === id) return d;
+            }
+            return null;
+        }
+
+        var hit = matchByCode(code) || matchByCode(tag);
+        if (hit) return hit;
+
+        if (name) {
+            for (i = 0; i < docs.length; i++) {
+                d = docs[i];
+                dn = String(typeof doctorDisplayName === 'function'
+                    ? doctorDisplayName(d) : '').trim().toLowerCase();
+                en = String(d.english_name || '').trim().toLowerCase();
+                cn = String(d.chinese_name || '').trim().toLowerCase();
+                if (nameLc === dn || nameLc === en || nameLc === cn) return d;
+            }
+        }
+        return null;
+    }
+
+    function labelForDoctorRecord(d, fallback) {
+        if (!d) return fallback || '';
+        return typeof doctorDisplayName === 'function'
+            ? doctorDisplayName(d)
+            : (d.english_name || d.chinese_name || fallback || doctorKeyFromDoc(d));
+    }
+
+    /** Map legacy legend keys (stored name strings) to canonical doctor_code. */
+    function normalizeStoredDoctorKey(key) {
+        var k = String(key || '').trim();
+        if (!k || k === '__unassigned__') return k;
+        if (isKnownDoctorCodeKey(k)) return k;
+        var kl = k.toLowerCase();
+        var docs = getClinicalDoctorsForClinic(null);
+        for (var i = 0; i < docs.length; i++) {
+            var d = docs[i];
+            var canon = doctorKeyFromDoc(d);
+            var dn = String(typeof doctorDisplayName === 'function'
+                ? doctorDisplayName(d) : '').trim().toLowerCase();
+            var en = String(d.english_name || '').trim().toLowerCase();
+            var cn = String(d.chinese_name || '').trim().toLowerCase();
+            if (kl === String(canon).toLowerCase() || kl === dn || kl === en || kl === cn) {
+                return canon;
+            }
+        }
+        return k;
+    }
+
+    function migrateFilterMapForClinic(cid) {
+        var map = filterByClinic[cid];
+        if (!map || typeof map !== 'object') return;
+        var next = {};
+        Object.keys(map).forEach(function (rawKey) {
+            var canon = normalizeStoredDoctorKey(rawKey);
+            if (map[rawKey] === false) next[canon] = false;
+        });
+        filterByClinic[cid] = next;
     }
 
     /** Hidden tag in remarks when DB has no doctor columns yet: |@dr:CODE| */
@@ -258,8 +377,10 @@ var CalDoctorColors = (function () {
         return null;
     }
 
-    /** Key used for saved colours — matches colour panel (doctor code preferred). */
-    function resolveDoctorKeyForAppt(a) {
+    /** Key used for saved colours — one canonical key per clinical doctor. */
+    function resolveDoctorKeyForAppt(a, clinicId) {
+        var matched = findClinicalDoctorForAppt(a, activeClinicIdForKeys(clinicId));
+        if (matched) return doctorKeyFromDoc(matched);
         var keys = possibleKeysForAppt(a);
         return preferredDoctorKey(keys);
     }
@@ -292,17 +413,20 @@ var CalDoctorColors = (function () {
 
     function getColor(key) {
         load();
+        var canon = normalizeStoredDoctorKey(key);
+        if (colors[canon]) return colors[canon];
         if (colors[key]) return colors[key];
-        if (key === '__unassigned__') return '#94a3b8';
-        return colorHash(key);
+        if (canon === '__unassigned__' || key === '__unassigned__') return '#94a3b8';
+        return colorHash(canon || key);
     }
 
     function setColor(key, hex) {
         load();
         if (!key || !hex) return;
+        key = normalizeStoredDoctorKey(key);
         hex = normalizeHex(hex);
         colors[key] = hex;
-        var docs = typeof APP_DOCTORS !== 'undefined' ? APP_DOCTORS : [];
+        var docs = getClinicalDoctorsForClinic(null);
         docs.forEach(function (d) {
             var k = doctorKeyFromDoc(d);
             var id = String(d.id || '').trim();
@@ -310,11 +434,15 @@ var CalDoctorColors = (function () {
             var dn = typeof doctorDisplayName === 'function'
                 ? doctorDisplayName(d)
                 : (d.english_name || d.chinese_name || '');
-            if (key === k || key === id || key === dc || key === dn) {
+            var en = String(d.english_name || '').trim();
+            var cn = String(d.chinese_name || '').trim();
+            if (key === k || key === id || key === dc || key === dn || key === en || key === cn) {
                 if (k) colors[k] = hex;
                 if (dc) colors[dc] = hex;
                 if (id) colors[id] = hex;
                 if (dn) colors[dn] = hex;
+                if (en) colors[en] = hex;
+                if (cn) colors[cn] = hex;
             }
         });
         save();
@@ -333,11 +461,9 @@ var CalDoctorColors = (function () {
 
     function getStyleForAppt(a) {
         var keys = possibleKeysForAppt(a);
-        var saved = getSavedColorForKeys(keys);
-        var key = keys[0] || '__unassigned__';
-        for (var j = 0; j < keys.length; j++) {
-            if (keys[j] !== '__unassigned__') { key = keys[j]; break; }
-        }
+        var canon = resolveDoctorKeyForAppt(a);
+        var saved = getSavedColorForKeys(keys) || (canon ? getColor(canon) : null);
+        var key = canon || keys[0] || '__unassigned__';
         var color = saved || (key === '__unassigned__' ? '#94a3b8' : colorHash(key));
         color = normalizeHex(color);
         var rgb = hexToRgb(color);
@@ -362,28 +488,24 @@ var CalDoctorColors = (function () {
 
     function collectKeys(appts, clinicId) {
         load();
+        var cid = activeClinicIdForKeys(clinicId);
         var map = {};
-        var docs = typeof doctorsForClinic === 'function'
-            ? doctorsForClinic(clinicId || (typeof currentClinicId !== 'undefined' ? currentClinicId : null))
-            : [];
+        var docs = getClinicalDoctorsForClinic(cid);
         docs.forEach(function (d) {
-            if (typeof isClinicalDoctorRecord === 'function' && !isClinicalDoctorRecord(d)) {
-                return;
-            }
-            if (typeof isLoginPlaceholderDoctorCode === 'function' &&
-                isLoginPlaceholderDoctorCode(d.doctor_code)) {
-                return;
-            }
             var k = doctorKeyFromDoc(d);
-            if (k && !map[k]) {
-                map[k] = typeof doctorDisplayName === 'function'
-                    ? doctorDisplayName(d)
-                    : k;
-            }
+            if (k && !map[k]) map[k] = labelForDoctorRecord(d, k);
         });
         (appts || []).forEach(function (a) {
-            var k = doctorKeyFromAppt(a);
-            if (k && !map[k]) map[k] = a.doctor_name || k;
+            var matched = findClinicalDoctorForAppt(a, cid);
+            if (matched) {
+                var k = doctorKeyFromDoc(matched);
+                if (k && !map[k]) map[k] = labelForDoctorRecord(matched, k);
+                return;
+            }
+            var k = resolveDoctorKeyForAppt(a, cid);
+            if (k && k !== '__unassigned__' && !map[k]) {
+                map[k] = labelForKey(k, a.doctor_name || k);
+            }
         });
         var keys = Object.keys(map).sort();
         return keys.map(function (k) {

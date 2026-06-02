@@ -2,6 +2,12 @@
 
 Use this list in order. Mark each item complete before opening for normal operations.
 
+**Staff help (in app):** Dashboard → **❓ Help** (opens `help.html` in a new browser tab).
+
+**Staff user manual source:** `docs/prelaunch-manual/USER_PRELAUNCH_MANUAL.html` — same content as `help.html`; update both when editing workflows. Add screenshots per `docs/prelaunch-manual/CAPTURE_SCREENSHOTS.md` (paths under `docs/prelaunch-manual/screenshots/`).
+
+**A4 quick card (1 page):** `docs/prelaunch-manual/QUICK_REFERENCE_A4.html` — print and laminate for front desk / treatment room.
+
 ## A. Access and module controls
 
 - [ ] Non-admin login cannot open **Configuration** from dashboard.

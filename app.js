@@ -53,9 +53,7 @@ var TREATMENT_CLINIC_TAG_FIELD = 'clinic_tag';
 /** Populated after DOM exists; refreshed when clinics load. */
 var CLINIC_TAG_FILTER_SELECT_IDS = [
     'patientDirClinicFilter',
-    'arRecordsClinicFilter',
     'recallClinicFilter',
-    'apptPsClinicFilter',
     'conPsClinicFilter',
     'conPsClinicFilterMed',
     'conPsClinicFilterDen',
@@ -175,6 +173,24 @@ function clearPatientDragPayloadSession() {
     } catch (_) {}
 }
 
+function markScheduleApptPatientDrag(ev) {
+    try {
+        window.__JOYFUL_PATIENT_DRAG_SOURCE = 'schedule-appt';
+    } catch (_) {}
+    if (!ev || !ev.dataTransfer) return;
+    try {
+        ev.dataTransfer.setData('text/x-joyful-drag-source', 'schedule-appt');
+    } catch (_) {}
+}
+
+function isScheduleApptPatientDragActive() {
+    try {
+        return window.__JOYFUL_PATIENT_DRAG_SOURCE === 'schedule-appt';
+    } catch (_) {
+        return false;
+    }
+}
+
 function isActivePatientCardDragActive() {
     try {
         return window.__JOYFUL_PATIENT_DRAG_SOURCE === 'active-card';
@@ -206,16 +222,45 @@ function hasPatientDragPayload(ev) {
     try {
         if (window.__JOYFUL_APPT_DRAG_APPT_ID) return true;
     } catch (_) {}
+    if (isScheduleApptPatientDragActive()) return true;
     if (!ev || !ev.dataTransfer || !ev.dataTransfer.types) return false;
     var types = ev.dataTransfer.types;
     for (var i = 0; i < types.length; i++) {
         if (types[i] === 'application/x-joyful-patient' ||
             types[i] === 'text/x-joyful-appt-id' ||
+            types[i] === 'text/x-joyful-drag-source' ||
             types[i] === 'text/plain') {
             return true;
         }
     }
     return false;
+}
+
+/** Resolve patient payload when dropping onto active patient cards (directory, +Appt, calendar). */
+function resolvePatientPayloadForDrop(ev) {
+    var p = readPatientDragPayloadFromEvent(ev);
+    if (p && p.id) return p;
+    p = readPatientDragPayloadSession();
+    if (p && p.id) return p;
+    var apptId = '';
+    try {
+        apptId = window.__JOYFUL_APPT_DRAG_APPT_ID || '';
+    } catch (_) {}
+    if (!apptId && ev && ev.dataTransfer) {
+        try {
+            apptId = ev.dataTransfer.getData('text/x-joyful-appt-id') || '';
+        } catch (_) {}
+        if (!apptId) {
+            var plain = '';
+            try { plain = ev.dataTransfer.getData('text/plain') || ''; } catch (_) {}
+            if (plain && plain.indexOf('{') !== 0) apptId = plain;
+        }
+    }
+    if (apptId && typeof window.resolvePatientDragPayloadFromPlain === 'function') {
+        p = window.resolvePatientDragPayloadFromPlain(apptId);
+        if (p && p.id) return p;
+    }
+    return null;
 }
 
 function readPatientDragPayloadFromEvent(ev) {
@@ -254,7 +299,7 @@ function patientDragPayloadFromAppt(a) {
         id: a.patient_id,
         patient_no: a.patient_no || '',
         full_name: a.patient_name || '',
-        chinese_name: a.patient_chinese_name || '',
+        chinese_name: a.patient_chinese_name || a._merged_chinese_name || '',
         phone_number: a.patient_phone || a.phone_number || ''
     });
 }
@@ -276,6 +321,7 @@ function beginPatientDragTransfer(ev, p) {
 /** Attach patient payload alongside appointment-id drags (schedule rows, calendar pills). */
 function beginApptPatientDragTransfer(ev, a) {
     if (!ev || !ev.dataTransfer || !a) return false;
+    markScheduleApptPatientDrag(ev);
     var ok = false;
     var p = patientDragPayloadFromAppt(a);
     if (p) ok = beginPatientDragTransfer(ev, p) || ok;
@@ -287,6 +333,13 @@ function beginApptPatientDragTransfer(ev, a) {
         } catch (_) {}
     }
     return ok;
+}
+
+function activePatientDropLabel(p) {
+    if (!p) return '';
+    var zh = String(p.chinese_name || '').trim();
+    var en = String(p.full_name || '').trim();
+    return zh && en ? (zh + ' ' + en) : (zh || en || String(p.patient_no || ''));
 }
 
 /**
@@ -303,9 +356,7 @@ var appWorkingDateOverride = '';
 /** Per-filter follow policy for header working-clinic changes. */
 var CLINIC_FILTER_FOLLOW_HEADER = {
     patientDirClinicFilter: false,
-    arRecordsClinicFilter: true,
     recallClinicFilter: true,
-    apptPsClinicFilter: true,
     conPsClinicFilter: false,
     conPsClinicFilterMed: false,
     conPsClinicFilterDen: false,
@@ -320,9 +371,7 @@ var CLINIC_FILTER_FOLLOW_HEADER = {
 var WORKING_CLINIC_FOLLOW_LS_KEY = 'joyful_working_clinic_follow_v1';
 var WORKING_CLINIC_FOLLOW_DEFAULTS = {
     patientDirClinicFilter: true,
-    arRecordsClinicFilter: true,
     recallClinicFilter: true,
-    apptPsClinicFilter: true,
     reportPatientDirClinicFilter: true
 };
 
@@ -1048,8 +1097,12 @@ function fillClinicTagFilterSelect(selectId, preserveSelection) {
     var sel = selectId ? g(selectId) : null;
     if (!sel) return;
     var prev = preserveSelection !== false ? sel.value : '';
-    sel.innerHTML = '<option value="">' + esc(appTr('common.all')) + '</option>';
-    if (!APP_CLINICS || !APP_CLINICS.length) return;
+    sel.innerHTML =
+        '<option value="" selected>' + esc(appTr('common.all')) + '</option>';
+    if (!APP_CLINICS || !APP_CLINICS.length) {
+        sel.value = '';
+        return;
+    }
     APP_CLINICS.forEach(function(c) {
         var code = String(c.clinic_code || '').trim();
         var val = code || String(c.id);
@@ -1060,13 +1113,16 @@ function fillClinicTagFilterSelect(selectId, preserveSelection) {
         sel.appendChild(o);
     });
     var hasPrev = false;
-    for (var i = 0; i < sel.options.length; i++) {
-        if (sel.options[i].value === prev) {
-            hasPrev = true;
-            break;
+    if (prev) {
+        for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === prev) {
+                hasPrev = true;
+                break;
+            }
         }
     }
     sel.value = hasPrev ? prev : '';
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
 }
 
 function refreshAllClinicTagFilterSelects() {
@@ -1611,6 +1667,7 @@ function syncAppSessionChrome() {
     strip.style.display = 'flex';
     if (dock) dock.style.display = '';
     document.body.classList.add('app-session-active');
+    if (typeof syncActivePatientDockLayout === 'function') syncActivePatientDockLayout();
     refreshAppSessionStripContents();
 }
 
@@ -1620,6 +1677,17 @@ function startAppSessionStripClock() {
     appSessionStripTimer = setInterval(function() {
         if (currentUserId) refreshAppSessionStripContents();
     }, 60000);
+}
+
+function openAppHelpPage() {
+    var url = 'help.html';
+    try {
+        var href = String(window.location.href || '').split('#')[0];
+        var q = href.indexOf('?');
+        if (q >= 0) href = href.slice(0, q);
+        url = href.replace(/[^/]+$/, '') + 'help.html';
+    } catch (_) {}
+    window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 function showLogin() { showOnly('loginOverlay'); }
@@ -1694,6 +1762,81 @@ function showClinicRefreshToast(clinicId, isAll) {
 
 var activePatientSlots = [null, null];
 var activePatientSwapAnimTimer = null;
+var ACTIVE_PATIENT_COMPACT_MAX_W = 1320;
+var ACTIVE_PATIENT_COLLAPSE_LS = 'active_patient_dock_collapsed_v1';
+
+function isActivePatientDockCollapsed() {
+    try {
+        return localStorage.getItem(ACTIVE_PATIENT_COLLAPSE_LS) === '1';
+    } catch (_) {
+        return false;
+    }
+}
+
+function activePatientDockCollapsedName(p) {
+    if (!p) return '—';
+    var zh = String(p.chinese_name || '').trim();
+    var en = String(p.full_name || '').trim();
+    return zh || en || String(p.patient_no || '—');
+}
+
+function renderActivePatientCollapsedTab() {
+    var tab = g('activePatientCollapsedName');
+    if (!tab) return;
+    var p = activePatientSlots[0];
+    tab.textContent = activePatientDockCollapsedName(p);
+    tab.title = activePatientDropLabel(p);
+}
+
+function setActivePatientDockCollapsed(collapsed, persist) {
+    var dock = g('activePatientDock');
+    if (!dock) return;
+    dock.classList.toggle('is-collapsed', !!collapsed);
+    var btn = g('activePatientDockToggle');
+    if (btn) {
+        btn.textContent = collapsed ? '»' : '«';
+        btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        var titleKey = collapsed ? 'activePatient.expandDock' : 'activePatient.collapseDock';
+        var title = typeof appTr === 'function' ? appTr(titleKey) : titleKey;
+        btn.title = title;
+        btn.setAttribute('aria-label', title);
+    }
+    renderActivePatientCollapsedTab();
+    if (persist !== false) {
+        try {
+            localStorage.setItem(ACTIVE_PATIENT_COLLAPSE_LS, collapsed ? '1' : '0');
+        } catch (_) {}
+    }
+}
+
+function syncActivePatientDockLayout() {
+    var dock = g('activePatientDock');
+    if (!dock) return;
+    var w = window.innerWidth || 0;
+    dock.classList.toggle('active-patient-dock--compact', w > 0 && w <= ACTIVE_PATIENT_COMPACT_MAX_W);
+}
+
+function bindActivePatientDockLayoutOnce() {
+    if (window.__activePatientDockLayoutBound) return;
+    window.__activePatientDockLayoutBound = true;
+    setActivePatientDockCollapsed(isActivePatientDockCollapsed(), false);
+    syncActivePatientDockLayout();
+    var toggle = g('activePatientDockToggle');
+    if (toggle) {
+        toggle.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            setActivePatientDockCollapsed(!isActivePatientDockCollapsed(), true);
+        });
+    }
+    var collapsedTab = g('activePatientCollapsedTab');
+    if (collapsedTab) {
+        collapsedTab.addEventListener('click', function() {
+            setActivePatientDockCollapsed(false, true);
+        });
+        bindActivePatientCardDropTarget(collapsedTab, 0);
+    }
+    window.addEventListener('resize', syncActivePatientDockLayout);
+}
 
 function activePatientSnapshotFromGlobals() {
     if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
@@ -1757,6 +1900,7 @@ function renderActivePatientSlots() {
     renderActivePatientSlot(1, activePatientSlots[1]);
     var swapBtn = g('activePatientSwapBtn');
     if (swapBtn) swapBtn.disabled = !(activePatientSlots[0] && activePatientSlots[1]);
+    renderActivePatientCollapsedTab();
 }
 
 function syncPrimaryPatientContext(source) {
@@ -1843,8 +1987,46 @@ function clearActivePatientContext(source) {
     clearActivePatientSlot(0, source || 'active-card-clear');
 }
 
+function bindActivePatientCardDropTarget(el, slotIdx) {
+    if (!el) return;
+    el.addEventListener('dragover', function(ev) {
+        if (!hasPatientDragPayload(ev)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        try {
+            ev.dataTransfer.dropEffect = 'copy';
+        } catch (_) {}
+        el.classList.add('is-drag-over');
+    });
+    el.addEventListener('dragleave', function(ev) {
+        var rect = el.getBoundingClientRect();
+        var inside = ev.clientX >= rect.left && ev.clientX <= rect.right &&
+            ev.clientY >= rect.top && ev.clientY <= rect.bottom;
+        if (!inside) el.classList.remove('is-drag-over');
+    });
+    el.addEventListener('drop', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        el.classList.remove('is-drag-over');
+        var p = resolvePatientPayloadForDrop(ev);
+        if (!p || !p.id) return;
+        if (typeof isActivePatientDockCollapsed === 'function' && isActivePatientDockCollapsed()) {
+            setActivePatientDockCollapsed(false, true);
+        }
+        setActivePatientSlot(slotIdx, p, 'active-card-drop', slotIdx === 0);
+        clearPatientDragPayloadSession();
+        if (slotIdx === 0 && typeof showAppGlobalToast === 'function') {
+            var msg = typeof appTrRepl === 'function'
+                ? appTrRepl('activePatient.setToast', { NAME: activePatientDropLabel(p) })
+                : activePatientDropLabel(p);
+            if (msg) showAppGlobalToast(msg);
+        }
+    });
+}
+
 function bindActivePatientCardOnce() {
     var stack = g('activePatientStack');
+    var dock = g('activePatientDock');
     var swapBtn = g('activePatientSwapBtn');
     if (!stack || stack.dataset.bound) return;
     stack.dataset.bound = '1';
@@ -1855,26 +2037,17 @@ function bindActivePatientCardOnce() {
         });
     }
 
-    stack.querySelectorAll('.active-patient-card').forEach(function(card) {
-        var slotIdx = parseInt(card.getAttribute('data-slot') || '0', 10) || 0;
-        card.addEventListener('dragover', function(ev) {
+    if (dock && !dock.dataset.dropBound) {
+        dock.dataset.dropBound = '1';
+        dock.addEventListener('dragover', function(ev) {
             if (!hasPatientDragPayload(ev)) return;
             ev.preventDefault();
-            ev.dataTransfer.dropEffect = 'copy';
-            card.classList.add('is-drag-over');
         });
-        card.addEventListener('dragleave', function() {
-            card.classList.remove('is-drag-over');
-        });
-        card.addEventListener('drop', function(ev) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            var p = readPatientDragPayloadFromEvent(ev);
-            card.classList.remove('is-drag-over');
-            if (!p) return;
-            setActivePatientSlot(slotIdx, p, 'active-card-drop', slotIdx === 0);
-            clearPatientDragPayloadSession();
-        });
+    }
+
+    stack.querySelectorAll('.active-patient-card').forEach(function(card) {
+        var slotIdx = parseInt(card.getAttribute('data-slot') || '0', 10) || 0;
+        bindActivePatientCardDropTarget(card, slotIdx);
         card.addEventListener('dragstart', function(ev) {
             var payload = card.getAttribute('data-payload') || '';
             if (!payload) {
@@ -1918,6 +2091,7 @@ function bindActivePatientCardOnce() {
     var bootP = activePatientSnapshotFromGlobals();
     if (bootP) activePatientSlots[0] = normalizeActivePatientPayload(bootP);
     renderActivePatientSlots();
+    bindActivePatientDockLayoutOnce();
 }
 
 function triggerGlobalRefresh(opts) {
@@ -2284,6 +2458,11 @@ document.addEventListener('DOMContentLoaded', function() {
         showLogin();
     });
 
+    var dashboardHelpBtn = g('dashboardHelpBtn');
+    if (dashboardHelpBtn) {
+        dashboardHelpBtn.addEventListener('click', openAppHelpPage);
+    }
+
     // ── Dashboard cards ───────────────────────────────────────
     g('card-patient').addEventListener('click', function() {
         if (typeof guardModuleByPermission === 'function' &&
@@ -2454,29 +2633,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    var arCf = g('arRecordsClinicFilter');
-    if (arCf) {
-        arCf.addEventListener('change', function() {
-            if (typeof loadApptRecords === 'function') loadApptRecords();
-        });
-    }
-
     var recallCf = g('recallClinicFilter');
     if (recallCf) {
         recallCf.addEventListener('change', function() {
             if (typeof loadRecallPatients === 'function' &&
                 typeof rcDate !== 'undefined' && rcDate) {
                 loadRecallPatients(rcDate);
-            }
-        });
-    }
-
-    var apptPsCf = g('apptPsClinicFilter');
-    if (apptPsCf) {
-        apptPsCf.addEventListener('change', function() {
-            var inp = g('psInput');
-            if (inp && (inp.value || '').trim() && typeof doPatientSearch === 'function') {
-                doPatientSearch();
             }
         });
     }
@@ -2694,6 +2856,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // treatment note save
+    var conNoteInp = g('conNoteInput');
+    if (conNoteInp && /^\s*$/.test(conNoteInp.value || '')) conNoteInp.value = '';
     g('conNoteSaveBtn').addEventListener('click', saveConNote);
     if (g('conNoteSaveTplBtn')) g('conNoteSaveTplBtn').addEventListener('click', conSaveNoteAsTemplate);
     if (g('conNoteFromTplBtn')) g('conNoteFromTplBtn').addEventListener('click', conOpenTemplatePicker);

@@ -1336,6 +1336,11 @@
                       padding:6px 0;" data-i18n="con.rx.addDrugHint"></p>
           </div>
 
+          <div id="rxStagedWrap" class="rx-staged-wrap" style="display:none;">
+            <div class="rx-staged-head" data-i18n="con.rx.stagedListTitle"></div>
+            <div id="rxStagedList" class="rx-staged-list"></div>
+          </div>
+
           <div style="display:flex;gap:8px;margin-top:8px;
                       flex-wrap:wrap;align-items:center;">
             <button id="btnAddDrugLine"
@@ -3569,51 +3574,41 @@
 
           <fieldset class="drug-fieldset drug-field--full">
             <legend data-i18n="drug.sectionDefaultRx"></legend>
+            <p class="drug-field-hint" data-i18n="drug.bilingualHint"></p>
             <p class="drug-field-hint" data-i18n="drug.sectionDefaultRxHint"></p>
             <div class="drug-form-grid drug-form-grid--nested">
 
           <!-- dosage -->
           <div class="drug-field">
-            <label for="deDosage" data-i18n="drug.label.dosage"></label>
-            <input id="deDosage"
-                   type="text"
-                   data-i18n-placeholder="drug.ph.dosage" />
+            <label for="deDosageSel" data-i18n="drug.label.dosage"></label>
+            <div class="drug-phrase-row">
+              <select id="deDosageSel" class="drug-phrase-sel"></select>
+              <input id="deDosageCustom" type="text" class="drug-phrase-custom"
+                     data-i18n-placeholder="drug.ph.dosageCustom" />
+            </div>
+            <div id="deDosagePreview" class="drug-bilingual-preview"></div>
           </div>
 
           <!-- frequency -->
           <div class="drug-field">
-            <label for="deFrequency" data-i18n="drug.label.frequency"></label>
-            <input id="deFrequency"
-                   type="text"
-                   list="drugFreqList"
-                   data-i18n-placeholder="drug.ph.frequency" />
-            <datalist id="drugFreqList">
-              <option value="OD – Once daily">
-              <option value="BD – Twice daily">
-              <option value="TID – Three times daily">
-              <option value="QID – Four times daily">
-              <option value="PRN – As needed">
-              <option value="STAT – Immediately">
-              <option value="OW – Once weekly">
-            </datalist>
+            <label for="deFrequencySel" data-i18n="drug.label.frequency"></label>
+            <div class="drug-phrase-row">
+              <select id="deFrequencySel" class="drug-phrase-sel"></select>
+              <input id="deFrequencyCustom" type="text" class="drug-phrase-custom"
+                     data-i18n-placeholder="drug.ph.frequencyCustom" />
+            </div>
+            <div id="deFrequencyPreview" class="drug-bilingual-preview"></div>
           </div>
 
-          <!-- duration -->
+          <!-- duration (days) -->
           <div class="drug-field">
-            <label for="deDuration" data-i18n="drug.label.duration"></label>
-            <input id="deDuration"
-                   type="text"
-                   list="drugDurList"
-                   data-i18n-placeholder="drug.ph.durationDefault" />
-            <datalist id="drugDurList">
-              <option value="3 days">
-              <option value="5 days">
-              <option value="7 days">
-              <option value="10 days">
-              <option value="14 days">
-              <option value="1 month">
-              <option value="Until finished">
-            </datalist>
+            <label for="deDurationSel" data-i18n="drug.label.duration"></label>
+            <div class="drug-phrase-row">
+              <select id="deDurationSel" class="drug-phrase-sel"></select>
+              <input id="deDurationCustom" type="text" class="drug-phrase-custom"
+                     data-i18n-placeholder="drug.ph.durationDefault" />
+            </div>
+            <div id="deDurationPreview" class="drug-bilingual-preview"></div>
           </div>
 
             </div>
@@ -3627,13 +3622,61 @@
                    data-i18n-placeholder="drug.ph.dentist" />
           </div>
 
-          <!-- remarks  (full-width textarea) -->
-          <div class="drug-field drug-field--full">
-            <label for="deRemarks" data-i18n="drug.label.remarks"></label>
-            <textarea id="deRemarks"
-                      rows="3"
-                      data-i18n-placeholder="drug.ph.remarks">
-            </textarea>
+          <!-- Intake caution + General caution (bilingual EN / 中) -->
+          <div class="drug-field drug-field--full drug-remark-block">
+            <label data-i18n="drug.label.intakeCaution"></label>
+            <div class="drug-bilingual-row">
+              <div class="drug-bilingual-col">
+                <span class="drug-bilingual-tag">EN</span>
+                <div class="drug-remark-row">
+                  <select id="deIntakeCautionSel" class="drug-remark-sel"></select>
+                  <input id="deIntakeCaution" type="text" class="drug-remark-input"
+                         data-i18n-placeholder="drug.ph.intakeCaution" />
+                  <button type="button" id="deIntakePresetAdd" class="drug-remark-pbtn" title="+">+</button>
+                  <button type="button" id="deIntakePresetDel" class="drug-remark-pbtn" title="−">−</button>
+                </div>
+                <datalist id="deIntakeCautionList"></datalist>
+              </div>
+              <div class="drug-bilingual-col">
+                <span class="drug-bilingual-tag">中</span>
+                <div class="drug-remark-row">
+                  <select id="deIntakeCautionZhSel" class="drug-remark-sel"></select>
+                  <input id="deIntakeCautionZh" type="text" class="drug-remark-input"
+                         data-i18n-placeholder="drug.ph.intakeCautionZh" />
+                  <button type="button" id="deIntakePresetAddZh" class="drug-remark-pbtn" title="+">+</button>
+                  <button type="button" id="deIntakePresetDelZh" class="drug-remark-pbtn" title="−">−</button>
+                </div>
+                <datalist id="deIntakeCautionZhList"></datalist>
+              </div>
+            </div>
+          </div>
+
+          <div class="drug-field drug-field--full drug-remark-block">
+            <label data-i18n="drug.label.generalCaution"></label>
+            <div class="drug-bilingual-row">
+              <div class="drug-bilingual-col">
+                <span class="drug-bilingual-tag">EN</span>
+                <div class="drug-remark-row">
+                  <select id="deGeneralRemarksSel" class="drug-remark-sel"></select>
+                  <input id="deGeneralRemarks" type="text" class="drug-remark-input"
+                         data-i18n-placeholder="drug.ph.generalCaution" />
+                  <button type="button" id="deGeneralPresetAdd" class="drug-remark-pbtn" title="+">+</button>
+                  <button type="button" id="deGeneralPresetDel" class="drug-remark-pbtn" title="−">−</button>
+                </div>
+                <datalist id="deGeneralRemarksList"></datalist>
+              </div>
+              <div class="drug-bilingual-col">
+                <span class="drug-bilingual-tag">中</span>
+                <div class="drug-remark-row">
+                  <select id="deGeneralRemarksZhSel" class="drug-remark-sel"></select>
+                  <input id="deGeneralRemarksZh" type="text" class="drug-remark-input"
+                         data-i18n-placeholder="drug.ph.generalCautionZh" />
+                  <button type="button" id="deGeneralPresetAddZh" class="drug-remark-pbtn" title="+">+</button>
+                  <button type="button" id="deGeneralPresetDelZh" class="drug-remark-pbtn" title="−">−</button>
+                </div>
+                <datalist id="deGeneralRemarksZhList"></datalist>
+              </div>
+            </div>
           </div>
 
           <!-- is_active toggle -->
@@ -4889,10 +4932,47 @@
           <input type="text" id="dlRoute"
                  data-i18n-placeholder="con.rx.dlPhRoute">
         </div>
-        <div class="fg">
-          <label data-i18n="drug.label.remarks"></label>
-          <textarea id="dlRemarks" rows="2"
-                    data-i18n-placeholder="con.rx.dlPhRemarks"></textarea>
+        <div class="fg drug-remark-block">
+          <label data-i18n="drug.label.intakeCaution"></label>
+          <div class="drug-bilingual-row drug-bilingual-row--compact">
+            <div class="drug-bilingual-col">
+              <span class="drug-bilingual-tag">EN</span>
+              <div class="drug-remark-row">
+                <select id="dlIntakeCautionSel" class="drug-remark-sel"></select>
+                <input id="dlIntakeCaution" type="text" class="drug-remark-input"
+                       data-i18n-placeholder="drug.ph.intakeCaution" />
+              </div>
+            </div>
+            <div class="drug-bilingual-col">
+              <span class="drug-bilingual-tag">中</span>
+              <div class="drug-remark-row">
+                <select id="dlIntakeCautionZhSel" class="drug-remark-sel"></select>
+                <input id="dlIntakeCautionZh" type="text" class="drug-remark-input"
+                       data-i18n-placeholder="drug.ph.intakeCautionZh" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="fg drug-remark-block">
+          <label data-i18n="drug.label.generalCaution"></label>
+          <div class="drug-bilingual-row drug-bilingual-row--compact">
+            <div class="drug-bilingual-col">
+              <span class="drug-bilingual-tag">EN</span>
+              <div class="drug-remark-row">
+                <select id="dlGeneralRemarksSel" class="drug-remark-sel"></select>
+                <input id="dlGeneralRemarks" type="text" class="drug-remark-input"
+                       data-i18n-placeholder="drug.ph.generalCaution" />
+              </div>
+            </div>
+            <div class="drug-bilingual-col">
+              <span class="drug-bilingual-tag">中</span>
+              <div class="drug-remark-row">
+                <select id="dlGeneralRemarksZhSel" class="drug-remark-sel"></select>
+                <input id="dlGeneralRemarksZh" type="text" class="drug-remark-input"
+                       data-i18n-placeholder="drug.ph.generalCautionZh" />
+              </div>
+            </div>
+          </div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-add" id="btnSaveDrugItem"

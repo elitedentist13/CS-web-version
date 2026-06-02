@@ -10,6 +10,8 @@ var conPsTimer     = null;
 var drugEditId     = null;
 var drugEditRow    = null;
 var rxLines        = [];
+/** Confirmed drug lines (Add to list) shown in the prescription list zone. */
+var rxStagedLines  = [];
 var rxComboSearchTimer = null;
 /** When set, Save Prescription replaces these drughistory rows instead of appending. */
 var rxEditingHistoryGroup = null;
@@ -2853,6 +2855,14 @@ function toggleDrugAddPanel(show, opts) {
 
         if (!opts.keepRxLines) {
             rxLines = [];
+            rxStagedLines = [];
+        }
+        if (!rxLines.length) {
+            rxLines.push(typeof rxEmptyLine === 'function' ? rxEmptyLine() : {
+                drug_id: '', drug_name: '', dosage: '',
+                frequency: '', duration: '', route: '',
+                quantity: '', remarks: ''
+            });
         }
 
         if (!opts.keepRxLines || wasHidden ||
@@ -2862,14 +2872,19 @@ function toggleDrugAddPanel(show, opts) {
         }
 
         if (typeof ensureRxPhrasesLoaded === 'function') {
-            ensureRxPhrasesLoaded(function() { renderRxLines(); });
+            ensureRxPhrasesLoaded(function() {
+                renderRxLines();
+                renderRxStagedList();
+            });
         } else {
             renderRxLines();
+            renderRxStagedList();
         }
     } else {
         panel.style.display = 'none';
         btn.style.display   = 'inline-block';
         rxLines = [];
+        rxStagedLines = [];
         rxClearEditingHistoryGroup();
     }
 }
@@ -2889,6 +2904,104 @@ function addDrugLine() {
 function removeRxLine(idx) {
     rxLines.splice(idx, 1);
     renderRxLines();
+}
+
+function rxRemoveStagedLine(idx) {
+    if (idx < 0 || idx >= rxStagedLines.length) return;
+    rxStagedLines.splice(idx, 1);
+    renderRxStagedList();
+}
+
+function rxLineDisplayMeta(line) {
+    line = line || {};
+    if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line);
+    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(line);
+    var lang = typeof rxUiPhraseLang === 'function' ? rxUiPhraseLang() : 'en';
+    var dosage = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, 'dosage', 'en') : (line.dosage || '');
+    var dosageZh = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, 'dosage', 'zh') : '';
+    var freq = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, 'frequency', 'en') : (line.frequency || '');
+    var freqZh = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, 'frequency', 'zh') : '';
+    var days = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, 'duration', 'en') : (line.duration || '');
+    var daysZh = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, 'duration', 'zh') : '';
+    var qty = typeof rxLineQuantityText === 'function'
+        ? rxLineQuantityText(line) : (line.quantity || '');
+    return {
+        dosage: typeof drugFormatBilingualDisplay === 'function'
+            ? drugFormatBilingualDisplay(dosage, dosageZh, lang) : dosage,
+        frequency: typeof drugFormatBilingualDisplay === 'function'
+            ? drugFormatBilingualDisplay(freq, freqZh, lang) : freq,
+        duration: typeof drugFormatBilingualDisplay === 'function'
+            ? drugFormatBilingualDisplay(days, daysZh, lang) : days,
+        quantity: qty
+    };
+}
+
+function renderRxStagedList() {
+    var wrap = g('rxStagedWrap');
+    var list = g('rxStagedList');
+    if (!wrap || !list) return;
+
+    if (!rxStagedLines.length) {
+        wrap.style.display = 'none';
+        list.innerHTML = '';
+        return;
+    }
+
+    wrap.style.display = 'block';
+    list.innerHTML = rxStagedLines.map(function(line, idx) {
+        var meta = rxLineDisplayMeta(line);
+        return (
+            '<div class="rx-staged-row">' +
+            '<div class="rx-staged-main">' +
+            '<strong class="rx-staged-drug">' + esc(line.drug_name || '—') + '</strong>' +
+            '<span class="rx-staged-meta">' +
+            esc(meta.dosage) +
+            (meta.frequency ? ' · ' + esc(meta.frequency) : '') +
+            (meta.duration ? ' · ' + esc(meta.duration) : '') +
+            '</span>' +
+            '</div>' +
+            '<div class="rx-staged-qty">' +
+            '<span class="rx-staged-qty-label">' + esc(conTr('con.rx.labelQty')) + '</span> ' +
+            '<strong>' + esc(meta.quantity || '—') + '</strong>' +
+            '</div>' +
+            '<button type="button" class="rx-staged-remove" ' +
+            'onclick="rxRemoveStagedLine(' + idx + ')" title="' +
+            esc(conTr('common.btnDelete')) + '">✕</button>' +
+            '</div>'
+        );
+    }).join('');
+}
+
+function rxAllDraftLinesForSave() {
+    var out = [];
+    var i;
+    for (i = 0; i < rxStagedLines.length; i++) {
+        out.push(rxCloneSavedLine(rxStagedLines[i]));
+    }
+    for (i = 0; i < rxLines.length; i++) {
+        if (typeof rxSyncLineFromDom === 'function') rxSyncLineFromDom(i);
+        var l = rxLines[i];
+        if (typeof rxNormalizeLine === 'function') l = rxNormalizeLine(l);
+        var hasName = !!(l.drug_name && String(l.drug_name).trim());
+        var hasDays = !!(
+            String(l.duration_code || '').trim() ||
+            String(l.duration_custom || l.duration || '').trim()
+        );
+        if (!hasName || !hasDays) continue;
+        var qty = typeof rxComputeQuantityFromLine === 'function'
+            ? rxComputeQuantityFromLine(l) : '';
+        if (qty) rxApplyComboTextToLine(l, 'quantity', qty);
+        if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(l);
+        rxLines[i] = l;
+        out.push(rxCloneSavedLine(l));
+    }
+    return out;
 }
 
 function renderRxLines() {
@@ -2915,6 +3028,9 @@ function renderRxLines() {
             '<div class="rx-line-header">' +
                 '<span class="rx-line-num">' + esc(conTrRepl('con.rx.lineNumFmt', { N: String(idx + 1) })) + '</span>' +
                 '<div class="rx-line-actions">' +
+                    (typeof rxAddToListBtnMarkup === 'function'
+                        ? rxAddToListBtnMarkup(idx, line)
+                        : '') +
                     '<button class="btn-label-en" ' +
                     'onclick="printRxLineLabelEn(this)" ' +
                     'title="' + esc(conTr('con.rx.printLabelEn')) + '">' + esc(conTr('con.rx.btnPrintEn')) + '</button>' +
@@ -2953,11 +3069,10 @@ function renderRxLines() {
                             : '') +
                     '</div>' +
                 '</details>' +
-                '<div class="rx-remarks-cell">' +
-                    '<label class="rx-phrase-label">' + esc(conTr('con.rx.labelRemarks')) + '</label>' +
-                    '<input class="rx-remarks" placeholder="' + esc(conTr('con.rx.remarksPh')) + '" ' +
-                    'value="' + esc(line.remarks || '') + '" ' +
-                    'oninput="rxLines[' + idx + '].remarks=this.value">' +
+                '<div class="rx-caution-notes-wrap">' +
+                    (typeof rxDrugCautionNotesMarkup === 'function'
+                        ? rxDrugCautionNotesMarkup(idx, line)
+                        : '') +
                 '</div>' +
                 '<div class="rx-phrase-preview"></div>' +
             '</div>';
@@ -3003,15 +3118,30 @@ function populateDrugSelect(idx) {
             cats[catKey].items.forEach(function(d) {
                 var o = document.createElement('option');
                 o.value = d.id;
-                o.textContent =
-                    d.drug_name +
-                    (d.dosage ? ' (' + d.dosage + ')' : '');
                 o.dataset.name      = d.drug_name  || '';
                 o.dataset.dosage    = d.dosage    || '';
                 o.dataset.frequency = d.frequency || '';
                 o.dataset.duration  = d.duration  || '';
                 o.dataset.route     = d.route     || '';
-                o.dataset.remarks   = d.remarks   || '';
+                var dRem = (typeof drugUnpackRemarks === 'function')
+                    ? drugUnpackRemarks(d)
+                    : { intakeEn: '', intakeZh: '', generalEn: d.remarks || '', generalZh: '' };
+                o.dataset.intakeRemarks = typeof drugPackBilingualText === 'function'
+                    ? drugPackBilingualText(dRem.intakeEn, dRem.intakeZh)
+                    : (dRem.intakeEn || dRem.intakeZh || '');
+                o.dataset.remarks = typeof drugPackBilingualText === 'function'
+                    ? drugPackBilingualText(dRem.generalEn, dRem.generalZh)
+                    : (dRem.generalEn || dRem.generalZh || '');
+                var dosePair = typeof drugCatalogFieldPair === 'function'
+                    ? drugCatalogFieldPair(d, 'dosage')
+                    : { en: d.dosage || '', zh: '' };
+                var doseLbl = typeof drugFormatBilingualDisplay === 'function'
+                    ? drugFormatBilingualDisplay(dosePair.en, dosePair.zh,
+                        typeof rxUiPhraseLang === 'function' ? rxUiPhraseLang() : 'en')
+                    : (d.dosage || '');
+                o.textContent =
+                    d.drug_name +
+                    (doseLbl ? ' (' + doseLbl + ')' : '');
 
                 var idHit =
                     !!(wantId && rxLines[idx] && String(d.id) === String(wantId));
@@ -3023,6 +3153,17 @@ function populateDrugSelect(idx) {
                 if (idHit) {
                     o.selected    = true;
                     pickedCatalog = true;
+                    rxLines[idx].intake_remarks = o.dataset.intakeRemarks || '';
+                    rxLines[idx].remarks   = o.dataset.remarks || '';
+                    if (typeof rxApplyCatalogDefaultsToLine === 'function') {
+                        rxApplyCatalogDefaultsToLine(idx, {
+                            dosage:    o.dataset.dosage,
+                            frequency: o.dataset.frequency,
+                            duration:  o.dataset.duration,
+                            intake_remarks: o.dataset.intakeRemarks || '',
+                            remarks: o.dataset.remarks || ''
+                        });
+                    }
                 } else if (nameHit && !matchedByName &&
                     rxLines[idx] && !pickedCatalog) {
                     o.selected         = true;
@@ -3031,6 +3172,17 @@ function populateDrugSelect(idx) {
                     rxLines[idx].drug_id   = String(d.id);
                     rxLines[idx].drug_name =
                         d.drug_name || rxLines[idx].drug_name || '';
+                    rxLines[idx].intake_remarks = o.dataset.intakeRemarks || '';
+                    rxLines[idx].remarks   = o.dataset.remarks || '';
+                    if (typeof rxApplyCatalogDefaultsToLine === 'function') {
+                        rxApplyCatalogDefaultsToLine(idx, {
+                            dosage:    o.dataset.dosage,
+                            frequency: o.dataset.frequency,
+                            duration:  o.dataset.duration,
+                            intake_remarks: o.dataset.intakeRemarks || '',
+                            remarks: o.dataset.remarks || ''
+                        });
+                    }
                 }
 
                 og.appendChild(o);
@@ -3058,13 +3210,16 @@ function populateDrugSelect(idx) {
 
             rxLines[idx].drug_id   = opt.value;
             rxLines[idx].drug_name = opt.dataset.name;
-            rxLines[idx].remarks   = opt.dataset.remarks;
+            rxLines[idx].intake_remarks = opt.dataset.intakeRemarks || '';
+            rxLines[idx].remarks   = opt.dataset.remarks || '';
 
             if (typeof rxApplyCatalogDefaultsToLine === 'function') {
                 rxApplyCatalogDefaultsToLine(idx, {
                     dosage:    opt.dataset.dosage,
                     frequency: opt.dataset.frequency,
-                    duration:  opt.dataset.duration
+                    duration:  opt.dataset.duration,
+                    intake_remarks: opt.dataset.intakeRemarks || '',
+                    remarks: opt.dataset.remarks || ''
                 });
             } else if (typeof rxApplyCatalogTextToLine === 'function') {
                 rxApplyCatalogTextToLine(idx, {
@@ -3088,22 +3243,42 @@ function populateDrugSelect(idx) {
         };
     }
 
-    SB.from('druglist')
-        .select('id,drug_name,category,dosage,frequency,duration,route,remarks')
-        .eq('is_active', true)
-        .order('category',      { ascending: true })
-        .order('drug_name',       { ascending: true })
-    .then(function(r) {
-        if (!r.error && r.data && r.data.length) {
-            fillFromDrugData(r);
-            return;
-        }
+    function loadDrugRows(selectCols, onDone) {
         SB.from('druglist')
-            .select('id,drug_name,category,dosage,frequency,duration,route,remarks')
-            .order('category',   { ascending: true })
+            .select(selectCols)
+            .eq('is_active', true)
+            .order('category', { ascending: true })
             .order('drug_name', { ascending: true })
-        .then(fillFromDrugData);
-    });
+        .then(function(r) {
+            if (!r.error && r.data && r.data.length) {
+                onDone(r);
+                return;
+            }
+            if (selectCols.indexOf('intake_caution') >= 0) {
+                loadDrugRows(
+                    'id,drug_name,category,dosage,frequency,duration,route,remarks',
+                    onDone
+                );
+                return;
+            }
+            onDone(r);
+        });
+    }
+
+    loadDrugRows(
+        'id,drug_name,category,dosage,frequency,duration,route,remarks,intake_caution',
+        function(r) {
+            if (!r.error && r.data && r.data.length) {
+                fillFromDrugData(r);
+                return;
+            }
+            SB.from('druglist')
+                .select('id,drug_name,category,dosage,frequency,duration,route,remarks')
+                .order('category', { ascending: true })
+                .order('drug_name', { ascending: true })
+            .then(fillFromDrugData);
+        }
+    );
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3144,6 +3319,7 @@ function rxCloneSavedLine(src) {
         duration:   String(l.duration  || ''),
         route:      String(l.route     || ''),
         quantity:   String(l.quantity  || ''),
+        intake_remarks: String(l.intake_remarks || ''),
         remarks:    String(l.remarks   || ''),
         dosage_code: String(l.dosage_code || ''),
         dosage_custom: String(l.dosage_custom || ''),
@@ -3170,6 +3346,7 @@ function rxSnapshotFromDrughistoryRecords(records) {
             duration:  r.duration,
             route:     r.route,
             quantity:  r.quantity,
+            intake_remarks: r.intake_remarks,
             remarks:   r.remarks
         });
     });
@@ -3242,13 +3419,13 @@ function rxSaveCurrentAsComboList() {
         return;
     }
 
-    var bad = rxFirstInvalidDrugLineIdx();
-    if (bad >= 0) {
-        alert(conTrRepl('con.rx.rowSelectDrug', { N: bad + 1 }));
+    var draft = rxAllDraftLinesForSave();
+    if (!draft.length) {
+        alert(conTr('con.rx.addLinesFirst'));
         return;
     }
 
-    rxPersistNamedComboList(rxLines.map(rxCloneSavedLine));
+    rxPersistNamedComboList(draft);
 }
 
 function rxSaveComboListFromHistoryRecords(records) {
@@ -3335,6 +3512,7 @@ function rxLoadHistoryGroupIntoDraft(records, opts) {
 
     function done() {
         renderRxLines();
+        renderRxStagedList();
         if (opts.scrollToPanel) {
             var panel = g('drugAddPanel');
             if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -3459,16 +3637,20 @@ function rxApplySavedDrugList(listId, mode) {
     var label  = String(lst.name || conTr('con.rx.untitled')).replace(/"/g, "'");
 
     if (mode === 'replace') {
-        if (rxLines.length &&
-            !confirm(conTrRepl('con.rx.confirmReplaceDraft', { N: rxLines.length, NAME: label })))
+        if ((rxLines.length || rxStagedLines.length) &&
+            !confirm(conTrRepl('con.rx.confirmReplaceDraft', {
+                N: rxStagedLines.length + rxLines.length, NAME: label
+            })))
             return;
         rxLines = [];
+        rxStagedLines = [];
         rxClearEditingHistoryGroup();
     }
 
     copies.forEach(function(line) {
-        rxLines.push(line);
+        rxStagedLines.push(line);
     });
+    renderRxStagedList();
     renderRxLines();
     closeModal('rxDrugListsModal');
 }
@@ -3600,13 +3782,24 @@ function initRxSavedComboListsUI() {
 // ════════════════════════════════════════════════════════════════
 function saveFullPrescription() {
     if (!conPatientId) { alert(conTr('con.forms.alertSelectPatient')); return; }
-    if (!rxLines.length) {
+
+    var draftLines = rxAllDraftLinesForSave();
+    if (!draftLines.length) {
         alert(conTr('con.rx.addOneDrugLine')); return;
     }
 
-    var badRx = rxFirstInvalidDrugLineIdx();
+    var badRx = -1;
+    for (var bi = 0; bi < draftLines.length; bi++) {
+        var bl = draftLines[bi];
+        if (!(bl.drug_name && String(bl.drug_name).trim())) { badRx = bi; break; }
+        var hasDays = !!(
+            String(bl.duration_code || '').trim() ||
+            String(bl.duration_custom || bl.duration || '').trim()
+        );
+        if (!hasDays) { badRx = bi; break; }
+    }
     if (badRx >= 0) {
-        var badLine = rxLines[badRx] || {};
+        var badLine = draftLines[badRx] || {};
         if (!(badLine.drug_name && String(badLine.drug_name).trim())) {
             alert(conTrRepl('con.rx.rowSelectDrugRx', { N: badRx + 1 }));
         } else {
@@ -3615,14 +3808,10 @@ function saveFullPrescription() {
         return;
     }
 
-    for (var si = 0; si < rxLines.length; si++) {
-        if (typeof rxSyncLineFromDom === 'function') rxSyncLineFromDom(si);
-    }
-
     var date    = g('rxDate').value        || todayISO();
     var dentist = g('rxDentistName').value || conActiveDoctorName || currentName || '';
 
-    var rows = rxLines.map(function(l) {
+    var rows = draftLines.map(function(l) {
         if (typeof rxDrughistoryRowForSave === 'function') {
             return rxDrughistoryRowForSave(l, date, dentist);
         }
@@ -3637,6 +3826,7 @@ function saveFullPrescription() {
             duration:        l.duration  || null,
             route:           l.route     || null,
             quantity:        l.quantity  || null,
+            intake_remarks:  l.intake_remarks || null,
             remarks:         l.remarks   || null,
             dentist_name:    dentist,
             doctor_id:       conActiveDoctorId || null,
@@ -3660,9 +3850,25 @@ function saveFullPrescription() {
                 });
                 return;
             }
+            if (msg.indexOf('intake_remarks') >= 0 || msg.indexOf('intake') >= 0) {
+                var noIntake = payload.map(function(x) {
+                    var o = Object.assign({}, x);
+                    if (o.intake_remarks && typeof drugPackRemarksForLegacyColumn === 'function') {
+                        o.remarks = drugPackRemarksForLegacyColumn(o.intake_remarks, o.remarks);
+                    }
+                    delete o.intake_remarks;
+                    return o;
+                });
+                insertRxRows(noIntake, onDone);
+                return;
+            }
             if (msg.indexOf('doctor_tag') >= 0 || msg.indexOf('doctor_id') >= 0 ||
                 msg.indexOf('doctor_name') >= 0) {
                 var legacyRows = payload.map(function(x) {
+                    var rem = x.remarks;
+                    if (x.intake_remarks && typeof drugPackRemarksForLegacyColumn === 'function') {
+                        rem = drugPackRemarksForLegacyColumn(x.intake_remarks, rem);
+                    }
                     return {
                         patient_id: x.patient_id,
                         patient_no: x.patient_no,
@@ -3674,7 +3880,7 @@ function saveFullPrescription() {
                         duration: x.duration,
                         route: x.route,
                         quantity: x.quantity,
-                        remarks: x.remarks,
+                        remarks: rem,
                         dentist_name: x.dentist_name
                     };
                 });
@@ -3694,6 +3900,9 @@ function saveFullPrescription() {
 
     function afterSave() {
         rxClearEditingHistoryGroup();
+        rxStagedLines = [];
+        rxLines = [];
+        renderRxStagedList();
         toggleDrugAddPanel(false);
         loadDrugHistory(conPatientId);
         alert(conTrRepl(isReplace ? 'con.rx.prescriptionReplaced' : 'con.rx.prescriptionSaved', {
@@ -3770,6 +3979,22 @@ async function loadDrugHistory(patientId) {
         groupDiv.className = 'rx-group-card';
 
         var rowsHtml = rows.map(function(r) {
+            var histLine = typeof rxNormalizeLine === 'function'
+                ? rxNormalizeLine({
+                    drug_name: r.drug_name,
+                    dosage: r.dosage,
+                    frequency: r.frequency,
+                    duration: r.duration,
+                    quantity: r.quantity,
+                    dosage_code: '', frequency_code: '', duration_code: '', quantity_code: '',
+                    dosage_custom: r.dosage || '', frequency_custom: r.frequency || '',
+                    duration_custom: r.duration || '', quantity_custom: r.quantity || ''
+                })
+                : null;
+            var qtyDisp = String(r.quantity || '').trim();
+            if (!qtyDisp && histLine && typeof rxLineQuantityText === 'function') {
+                qtyDisp = rxLineQuantityText(histLine);
+            }
             return '<div class="rx-history-row"' +
                 ' data-drug-name="'       + esc(r.drug_name       || '') + '"' +
                 ' data-dosage="'          + esc(r.dosage          || '') + '"' +
@@ -3780,6 +4005,7 @@ async function loadDrugHistory(patientId) {
                 ' data-duration-zh="'     + esc(r.duration_zh     || r.duration || '') + '"' +
                 ' data-quantity="'        + esc(r.quantity        || '') + '"' +
                 ' data-quantity-zh="'     + esc(r.quantity_zh     || r.quantity || '') + '"' +
+                ' data-intake-remarks="'  + esc(r.intake_remarks  || '') + '"' +
                 ' data-remarks="'         + esc(r.remarks         || '') + '"' +
                 ' data-dentist-name="'    + esc(r.dentist_name    || '') + '"' +
                 ' data-doctor-tag="'      + esc(r.doctor_tag      || r.dentist_name || '') + '"' +
@@ -3795,7 +4021,7 @@ async function loadDrugHistory(patientId) {
                             esc(r.frequency || '') + ' &bull; ' +
                             esc(r.duration  || '') + ' &bull; ' +
                             esc(conTr('con.rx.historyQty')) + ' ' +
-                            esc(r.quantity  || '') +
+                            esc(qtyDisp || r.quantity || '') +
                         '</span>' +
                         (r.remarks
                             ? '<span class="rx-row-remarks">' +
@@ -4253,7 +4479,12 @@ function printDrugLabel(drugs, lang) {
         var freq     = d.frequency       || '—';
         var duration = d.duration        || '—';
         var qty      = d.quantity        || '—';
-        var remarks  = d.remarks         || '';
+        var intakeRm = typeof drugTextForLang === 'function'
+            ? drugTextForLang(d.intake_remarks || '', isZh ? 'zh' : 'en')
+            : (d.intake_remarks || '');
+        var remarks  = typeof drugTextForLang === 'function'
+            ? drugTextForLang(d.remarks || '', isZh ? 'zh' : 'en')
+            : (d.remarks || '');
         var doctor = (typeof printDoctorDisplayName === 'function')
             ? printDoctorDisplayName({
                 doctor_id: d.doctor_id,
@@ -4298,11 +4529,18 @@ function printDrugLabel(drugs, lang) {
             '<div class="patient-row"><span class="lk">' + conLblPrint(false, 'date') + '</span>' + dateStr + '</div>' +
             '</div>';
 
+        var intakeHtml = intakeRm
+            ? '<div class="remarks-block">' +
+                  '<span class="lk">' +
+                      conLblPrint(isZh, 'intake') +
+                  '</span>' + eFn(intakeRm) +
+              '</div>'
+            : '';
         var remarksHtml = remarks
             ? '<div class="remarks-block">' +
                   '<span class="lk">' +
                       conLblPrint(isZh, 'remarks') +
-                  '</span>' + remarks +
+                  '</span>' + eFn(remarks) +
               '</div>'
             : '';
 
@@ -4322,7 +4560,7 @@ function printDrugLabel(drugs, lang) {
                 '<div class="info-row"><span class="lk">' + conLblPrint(true, 'freq') + '</span>' + freq + '</div>' +
                 '<div class="info-row"><span class="lk">' + conLblPrint(true, 'duration') + '</span>' + duration + '</div>' +
                 '<div class="info-row"><span class="lk">' + conLblPrint(true, 'qty') + '</span>' + qty + '</div>' +
-                remarksHtml +
+                intakeHtml + remarksHtml +
                 '</div>' +
                 '</div>' +
                 '<div class="label-footer">' +
@@ -4345,7 +4583,7 @@ function printDrugLabel(drugs, lang) {
                 '<div class="info-row"><span class="lk">' + conLblPrint(false, 'freq') + '</span>' + freq + '</div>' +
                 '<div class="info-row"><span class="lk">' + conLblPrint(false, 'duration') + '</span>' + duration + '</div>' +
                 '<div class="info-row"><span class="lk">' + conLblPrint(false, 'qty') + '</span>' + qty + '</div>' +
-                remarksHtml +
+                intakeHtml + remarksHtml +
                 '</div>' +
                 '</div>' +
                 '<div class="label-footer">' +
@@ -4442,6 +4680,7 @@ function getDrugFromRxLine(lineEl, lang) {
         frequency:       line.frequency || '',
         duration:        line.duration || '',
         quantity:        line.quantity || '',
+        intake_remarks:  line.intake_remarks || '',
         remarks:         line.remarks || '',
         dentist_name:    meta.dentist_name,
         doctor_tag:      meta.doctor_tag,
@@ -4538,6 +4777,8 @@ function printHistoryGroupLabels(btn, lang) {
 function openDrugListManager() {
     drugEditId = null;
     if (typeof refreshDrugCategorySelect === 'function') refreshDrugCategorySelect();
+    if (typeof drugRefreshRemarkPresetDatalists === 'function') drugRefreshRemarkPresetDatalists();
+    if (typeof drugBindRemarkPresetControls === 'function') drugBindRemarkPresetControls();
     loadDrugListTable();
     resetDrugForm();
     openModal('drugListModal');
@@ -4662,7 +4903,18 @@ function resetDrugForm() {
     sv('dlFrequency', '');
     sv('dlDuration',  '');
     sv('dlRoute',     '');
-    sv('dlRemarks',   '');
+    sv('dlIntakeCaution', '');
+    sv('dlIntakeCautionZh', '');
+    sv('dlGeneralRemarks', '');
+    sv('dlGeneralRemarksZh', '');
+    var dlISel = g('dlIntakeCautionSel');
+    var dlGSel = g('dlGeneralRemarksSel');
+    var dlIZhSel = g('dlIntakeCautionZhSel');
+    var dlGZhSel = g('dlGeneralRemarksZhSel');
+    if (dlISel) dlISel.value = '';
+    if (dlGSel) dlGSel.value = '';
+    if (dlIZhSel) dlIZhSel.value = '';
+    if (dlGZhSel) dlGZhSel.value = '';
 }
 
 function editDrugItem(d) {
@@ -4681,7 +4933,13 @@ function editDrugItem(d) {
     sv('dlFrequency', d.frequency  || '');
     sv('dlDuration',  d.duration   || '');
     sv('dlRoute',     d.route      || '');
-    sv('dlRemarks',   d.remarks    || '');
+    var packed = (typeof drugUnpackRemarks === 'function')
+        ? drugUnpackRemarks(d)
+        : { intake: '', general: String(d.remarks || '').trim() };
+    sv('dlIntakeCaution', packed.intakeEn);
+    sv('dlIntakeCautionZh', packed.intakeZh);
+    sv('dlGeneralRemarks', packed.generalEn);
+    sv('dlGeneralRemarksZh', packed.generalZh);
     var nameEl = g('dlName');
     if (nameEl) nameEl.focus();
 }
@@ -4690,6 +4948,16 @@ function saveDrugItem() {
     var name = (g('dlName').value || '').trim();
     if (!name) { alert(conTr('drug.alertNameRequired')); return; }
 
+    var intakeEn = (g('dlIntakeCaution') ? g('dlIntakeCaution').value : '').trim();
+    var intakeZh = (g('dlIntakeCautionZh') ? g('dlIntakeCautionZh').value : '').trim();
+    var generalEn = (g('dlGeneralRemarks') ? g('dlGeneralRemarks').value : '').trim();
+    var generalZh = (g('dlGeneralRemarksZh') ? g('dlGeneralRemarksZh').value : '').trim();
+    var intakeV = typeof drugPackBilingualText === 'function'
+        ? drugPackBilingualText(intakeEn, intakeZh)
+        : (intakeEn || intakeZh);
+    var generalV = typeof drugPackBilingualText === 'function'
+        ? drugPackBilingualText(generalEn, generalZh)
+        : (generalEn || generalZh);
     var payload = {
         drug_name:  name,
         category:  (g('dlCategory').value  || '').trim() || null,
@@ -4697,7 +4965,8 @@ function saveDrugItem() {
         frequency: (g('dlFrequency').value || '').trim() || null,
         duration:  (g('dlDuration').value  || '').trim() || null,
         route:     (g('dlRoute').value     || '').trim() || null,
-        remarks:   (g('dlRemarks').value   || '').trim() || null
+        intake_caution: intakeV || null,
+        remarks:   generalV || null
     };
 
     var dentistName = '';
@@ -4712,7 +4981,7 @@ function saveDrugItem() {
     var dentistId = conResolveDrugDentistId(dentistName, drugEditRow);
     if (dentistId) payload.dentist_id = dentistId;
 
-    function runSave(sendPayload, allowUuidRetry) {
+    function runSave(sendPayload, allowUuidRetry, allowColumnFallback) {
         var p = drugEditId
             ? SB.from('druglist').update(sendPayload).eq('id', drugEditId)
             : SB.from('druglist').insert([sendPayload]);
@@ -4726,8 +4995,25 @@ function saveDrugItem() {
                         if (k === 'dentist_id' || k === 'dentist_name') continue;
                         retryPayload[k] = sendPayload[k];
                     }
-                    runSave(retryPayload, false);
+                    runSave(retryPayload, false, allowColumnFallback);
                     return;
+                }
+                if (allowColumnFallback && typeof drugColumnMissing === 'function' &&
+                    typeof drugPackRemarksForLegacyColumn === 'function') {
+                    var fb = Object.assign({}, sendPayload);
+                    var merged = false;
+                    if (fb.intake_caution !== undefined &&
+                        drugColumnMissing(r.error.message, 'intake_caution')) {
+                        fb.remarks = drugPackRemarksForLegacyColumn(
+                            fb.intake_caution, fb.remarks
+                        );
+                        delete fb.intake_caution;
+                        merged = true;
+                    }
+                    if (merged) {
+                        runSave(fb, allowUuidRetry, false);
+                        return;
+                    }
                 }
                 alert(trRepl('appt.msg.error', { MSG: r.error.message }));
                 return;
@@ -4737,7 +5023,7 @@ function saveDrugItem() {
         });
     }
 
-    runSave(payload, true);
+    runSave(payload, true, true);
 }
 
 function deleteDrugItem(id) {
@@ -4972,6 +5258,9 @@ document.addEventListener('app-lang-change', function() {
     }
     if (conPatientId && typeof renderRxLines === 'function' && rxLines && rxLines.length) {
         renderRxLines();
+    }
+    if (typeof renderRxStagedList === 'function') {
+        renderRxStagedList();
     }
     if (conPatientId && typeof loadDrugHistory === 'function') {
         loadDrugHistory(conPatientId);

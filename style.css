@@ -2737,6 +2737,25 @@ tr:hover td { background: #fafcff; }
 .queue-wrap tr         { position: relative; }
 .queue-wrap td         { overflow: visible; }
 
+.appt-treat-inline{
+  width: 100%;
+  min-width: 120px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  box-sizing: border-box;
+}
+.appt-treat-inline:focus{
+  outline: none;
+  border-color: var(--primary, #2d7dd2);
+  box-shadow: 0 0 0 2px rgba(45,125,210,.15);
+}
+.appt-treat-inline--queue{
+  font-size: 13px;
+}
+
 .queue-row-draggable { cursor: grab; }
 .queue-row-draggable.queue-row-dragging { cursor: grabbing; }
 .queue-row-dragging td {
@@ -7153,6 +7172,204 @@ tr:hover td { background: #fafcff; }
   gap: .75rem;
 }
 
+.drug-remark-block label {
+  font-size: .85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.drug-remark-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.drug-remark-sel {
+  min-width: 140px;
+  flex: 0 1 180px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: .88rem;
+}
+
+.drug-remark-input {
+  flex: 1 1 200px;
+  min-width: 120px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: .88rem;
+}
+
+.drug-remark-pbtn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.drug-remark-pbtn:hover {
+  background: #f1f5f9;
+}
+
+.drug-phrase-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.drug-phrase-sel {
+  min-width: 160px;
+  flex: 1 1 200px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: .88rem;
+}
+
+.drug-phrase-custom {
+  flex: 1 1 120px;
+  min-width: 100px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: .88rem;
+}
+
+.drug-bilingual-preview {
+  margin-top: 4px;
+  font-size: .78rem;
+  color: #64748b;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.drug-bilingual-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.drug-bilingual-row--compact {
+  gap: 8px;
+}
+
+.drug-bilingual-col {
+  min-width: 0;
+}
+
+.drug-bilingual-tag {
+  display: inline-block;
+  font-size: .72rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-bottom: 4px;
+  letter-spacing: .04em;
+}
+
+.rx-remark-cell--bilingual {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .drug-bilingual-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rx-remarks-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.rx-caution-notes-wrap {
+  margin-top: 8px;
+}
+
+.rx-caution-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rx-caution-notes--empty {
+  display: none;
+}
+
+.rx-caution-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.rx-caution-note--intake {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #78350f;
+}
+
+.rx-caution-note--general {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0c4a6e;
+}
+
+.rx-caution-note__label {
+  font-weight: 600;
+  font-size: 11px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.rx-caution-note__text {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .rx-remarks-split { grid-template-columns: 1fr; }
+}
+
+.rx-days-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.rx-days-add-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary, #2d7dd2);
+  color: #fff;
+  cursor: pointer;
+}
+
+.rx-days-add-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
 /* Toggle */
 .drug-field--toggle { flex-direction: row; align-items: center; }
 .toggle-label {
@@ -7259,6 +7476,114 @@ tr:hover td { background: #fafcff; }
   display: flex;
   gap: 5px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rx-header-add-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  background: #16a34a;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rx-header-add-btn:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.rx-header-add-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  background: #94a3b8;
+}
+
+.rx-staged-wrap {
+  margin: 8px 0 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.rx-staged-head {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e40af;
+  background: #eff6ff;
+  border-bottom: 1px solid #dbeafe;
+}
+
+.rx-staged-list {
+  padding: 6px 8px;
+}
+
+.rx-staged-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.rx-staged-row:last-child {
+  margin-bottom: 0;
+}
+
+.rx-staged-main {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.rx-staged-drug {
+  display: block;
+  font-size: 13px;
+  color: #111827;
+}
+
+.rx-staged-meta {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.rx-staged-qty {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.rx-staged-qty-label {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.rx-staged-remove {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #b91c1c;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rx-staged-remove:hover {
+  background: #fee2e2;
 }
 
 .rx-fields {

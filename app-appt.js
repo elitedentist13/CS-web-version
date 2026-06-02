@@ -226,6 +226,26 @@ function applyApptModuleClinicQuery(builder) {
     return builder.eq(field, tag);
 }
 
+/** + Appointment day planner: strict clinic scope (no cross-clinic bleed). */
+function applyPlusApptClinicQuery(builder) {
+    if (!builder) return builder;
+    var tag = '';
+    var cid = plusApptActiveClinicId ||
+        (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+    if (cid && typeof clinicRecordFromId === 'function') {
+        var rec = clinicRecordFromId(cid);
+        if (rec) tag = String(rec.clinic_code || '').trim();
+    }
+    if (!tag && typeof currentClinicCodeForTagging === 'function') {
+        tag = currentClinicCodeForTagging();
+    }
+    if (!tag) return builder;
+    var field = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? APPOINTMENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+    return builder.eq(field, tag);
+}
+
 function apptUnpaidPatientId(a) {
     return a && a.patient_id ? String(a.patient_id).trim() : '';
 }
@@ -1777,7 +1797,7 @@ function loadPlusApptDay() {
     var q = SB.from('appointments').select('*')
         .eq('date', plusApptDate)
         .order('start_time', { ascending: true });
-    q = applyApptModuleClinicQuery(q);
+    q = applyPlusApptClinicQuery(q);
     q.then(function(r) {
         if (r.error) {
             plusApptDayAppts = [];
@@ -2293,17 +2313,298 @@ function apptImportSetStatus(msg, isErr) {
     el.style.color = isErr ? '#b91c1c' : '#64748b';
 }
 
-function apptImportNormalizePatientNo(v) {
-    var s = String(v || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!s) return '';
-    if (s.indexOf('MK') === 0) return s.slice(2);
-    return s;
+function apptImportKnownClinicCodes() {
+    var codes = [];
+    (APP_CLINICS || []).forEach(function(c) {
+        var code = String(c.clinic_code || '').trim().toUpperCase();
+        if (code && codes.indexOf(code) < 0) codes.push(code);
+    });
+    return codes.sort(function(a, b) { return b.length - a.length; });
 }
 
-function apptImportPatientNoVariants(v) {
-    var base = apptImportNormalizePatientNo(v);
-    if (!base) return [];
-    return [base, 'MK' + base];
+function apptImportPatientClinicTag(p) {
+    if (!p) return '';
+    var field = typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? PATIENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+    return String(p[field] || p.clinic_tag || '').trim().toUpperCase();
+}
+
+/** Split OCR/registry token into clinic prefix + 6-digit registry (when digits present). */
+function apptImportParsePatientNoToken(raw, defaultClinicTag) {
+    var original = String(raw || '').trim();
+    var s = original.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!s) {
+        return { digits: '', clinic: '', raw: original, explicitClinic: false, compact: '' };
+    }
+    var clinic = '';
+    var explicitClinic = false;
+    var codes = apptImportKnownClinicCodes();
+    var i;
+    for (i = 0; i < codes.length; i++) {
+        var code = codes[i];
+        if (s.indexOf(code) === 0 && s.length > code.length) {
+            clinic = code;
+            explicitClinic = true;
+            s = s.slice(code.length);
+            break;
+        }
+    }
+    var digits = s.replace(/\D/g, '');
+    if (digits && /^\d+$/.test(digits)) {
+        digits = String(parseInt(digits, 10)).padStart(6, '0');
+    } else {
+        digits = '';
+    }
+    if (!clinic) {
+        clinic = String(defaultClinicTag || '').trim().toUpperCase();
+    }
+    return {
+        digits: digits,
+        clinic: clinic,
+        raw: original,
+        explicitClinic: explicitClinic,
+        compact: original.toUpperCase().replace(/[^A-Z0-9]/g, '')
+    };
+}
+
+function apptImportNormalizePatientNo(v, defaultClinicTag) {
+    var parsed = apptImportParsePatientNoToken(v, defaultClinicTag);
+    return parsed.digits || parsed.compact;
+}
+
+function apptImportPatientNoVariants(v, defaultClinicTag) {
+    var token = apptImportParsePatientNoToken(v, defaultClinicTag);
+    var out = [];
+    function add(x) {
+        x = String(x || '').trim();
+        if (x && out.indexOf(x) < 0) out.push(x);
+    }
+    add(token.raw);
+    add(token.compact);
+    if (token.digits) {
+        add(token.digits);
+        if (token.clinic) add(token.clinic + token.digits);
+    }
+    return out;
+}
+
+function apptImportDedupePatientNo(no, defaultClinicTag) {
+    var parsed = apptImportParsePatientNoToken(no, defaultClinicTag);
+    if (parsed.digits) return parsed.digits;
+    return parsed.compact;
+}
+
+function apptImportApptDedupeKey(start, patientNo, patientName, useName, clinicTag) {
+    var parts = [plusApptNormTime(start), apptImportDedupePatientNo(patientNo, clinicTag)];
+    if (useName !== false) {
+        parts.push(String(patientName || '').trim().toUpperCase());
+    }
+    return parts.join('|');
+}
+
+function apptImportBuildPatientQueryNos(uniqNos, importClinicTag) {
+    var queryNos = [];
+    (uniqNos || []).forEach(function(no) {
+        apptImportPatientNoVariants(no, importClinicTag).forEach(function(x) {
+            if (queryNos.indexOf(x) < 0) queryNos.push(x);
+        });
+    });
+    return queryNos;
+}
+
+function apptImportIndexPush(map, key, patient) {
+    if (!key || !patient) return;
+    if (!map[key]) map[key] = [];
+    if (!map[key].some(function(x) { return String(x.id) === String(patient.id); })) {
+        map[key].push(patient);
+    }
+}
+
+function apptImportIndexPatients(patRows) {
+    var byExactNo = {};
+    var byClinicDigits = {};
+    var byDigits = {};
+    (patRows || []).forEach(function(p) {
+        var noRaw = String(p.patient_no || '').trim();
+        var noUp = noRaw.toUpperCase();
+        apptImportIndexPush(byExactNo, noUp, p);
+        if (noRaw) apptImportIndexPush(byExactNo, noRaw, p);
+
+        var pClinic = apptImportPatientClinicTag(p);
+        var parsed = apptImportParsePatientNoToken(noRaw, pClinic);
+        if (parsed.digits) {
+            apptImportIndexPush(byDigits, parsed.digits, p);
+            if (pClinic) apptImportIndexPush(byClinicDigits, pClinic + '|' + parsed.digits, p);
+            if (parsed.explicitClinic && parsed.clinic) {
+                apptImportIndexPush(byClinicDigits, parsed.clinic + '|' + parsed.digits, p);
+            }
+        }
+    });
+    return { byExactNo: byExactNo, byClinicDigits: byClinicDigits, byDigits: byDigits };
+}
+
+function apptImportNameScore(importName, patient) {
+    var want = String(importName || '').trim().toUpperCase()
+        .replace(/[^A-Z0-9\s\u4e00-\u9fff]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!want) return 0;
+    var names = [patient.full_name, patient.chinese_name].map(function(n) {
+        return String(n || '').trim().toUpperCase()
+            .replace(/[^A-Z0-9\s\u4e00-\u9fff]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    });
+    var best = 0;
+    names.forEach(function(n) {
+        if (!n) return;
+        if (n === want) {
+            best = Math.max(best, 100);
+            return;
+        }
+        if (n.indexOf(want) >= 0 || want.indexOf(n) >= 0) {
+            best = Math.max(best, 75);
+            return;
+        }
+        var wt = want.split(' ').filter(Boolean);
+        var nt = n.split(' ').filter(Boolean);
+        if (!wt.length) return;
+        var hit = 0;
+        wt.forEach(function(w) {
+            if (nt.some(function(t) { return t === w || t.indexOf(w) >= 0 || w.indexOf(t) >= 0; })) {
+                hit++;
+            }
+        });
+        best = Math.max(best, Math.round(60 * hit / wt.length));
+    });
+    return best;
+}
+
+function apptImportPickBestCandidate(candidates, importName, importClinicTag) {
+    if (!candidates || !candidates.length) {
+        return { patient: null, reason: 'missing' };
+    }
+    if (candidates.length === 1) {
+        return { patient: candidates[0], reason: 'unique' };
+    }
+    var clinic = String(importClinicTag || '').trim().toUpperCase();
+    var clinicPool = candidates.filter(function(p) {
+        var pt = apptImportPatientClinicTag(p);
+        return !clinic || !pt || pt === clinic;
+    });
+    var pool = clinicPool.length ? clinicPool : candidates;
+    if (pool.length === 1) {
+        return { patient: pool[0], reason: 'clinic' };
+    }
+    var scored = pool.map(function(p) {
+        return { p: p, score: apptImportNameScore(importName, p) };
+    }).sort(function(a, b) { return b.score - a.score; });
+    if (scored[0].score >= 70 && (!scored[1] || scored[0].score - scored[1].score >= 12)) {
+        return { patient: scored[0].p, reason: 'name' };
+    }
+    return { patient: null, reason: 'ambiguous', count: pool.length };
+}
+
+function apptImportClinicHintFromRemarks(remarks) {
+    var s = String(remarks || '').trim().toUpperCase();
+    var m = s.match(/\b(?:OK|WST)\/([A-Z]{2,5})\)/);
+    if (m) return String(m[1] || '').trim().toUpperCase();
+    var codes = apptImportKnownClinicCodes();
+    var i;
+    for (i = 0; i < codes.length; i++) {
+        var code = codes[i];
+        if (s.indexOf('/' + code) >= 0 || s.indexOf(code + ')') >= 0) return code;
+    }
+    return '';
+}
+
+function apptImportEffectiveClinicForRow(no, importClinicTag, remarks) {
+    var token = apptImportParsePatientNoToken(no, importClinicTag);
+    if (token.explicitClinic) return token.clinic;
+    var hint = apptImportClinicHintFromRemarks(remarks);
+    if (hint) return hint;
+    return String(importClinicTag || '').trim().toUpperCase();
+}
+
+function apptImportResolvePatient(no, importName, importClinicTag, index, remarks) {
+    if (!no) return { patient: null, reason: 'missing' };
+    var clinic = apptImportEffectiveClinicForRow(no, importClinicTag, remarks);
+    var token = apptImportParsePatientNoToken(no, clinic);
+    if (!token.digits && !token.compact) return { patient: null, reason: 'missing' };
+    var rawKeys = [String(no || '').trim(), String(no || '').trim().toUpperCase(), token.compact];
+    var ki;
+    for (ki = 0; ki < rawKeys.length; ki++) {
+        if (index.byExactNo[rawKeys[ki]]) {
+            var exactPick = apptImportPickBestCandidate(
+                index.byExactNo[rawKeys[ki]], importName, clinic
+            );
+            if (exactPick.patient) return exactPick;
+            if (exactPick.reason === 'ambiguous') return exactPick;
+        }
+    }
+
+    if (token.digits && clinic && index.byClinicDigits[clinic + '|' + token.digits]) {
+        var clinicPick = apptImportPickBestCandidate(
+            index.byClinicDigits[clinic + '|' + token.digits], importName, clinic
+        );
+        if (clinicPick.patient) return clinicPick;
+        if (clinicPick.reason === 'ambiguous') return clinicPick;
+    }
+
+    if (token.digits && index.byDigits[token.digits]) {
+        var digitPool = index.byDigits[token.digits];
+        if (clinic) {
+            var scoped = digitPool.filter(function(p) {
+                var pt = apptImportPatientClinicTag(p);
+                return !pt || pt === clinic;
+            });
+            if (scoped.length) {
+                var scopedPick = apptImportPickBestCandidate(scoped, importName, clinic);
+                if (scopedPick.patient) return scopedPick;
+                if (scopedPick.reason === 'ambiguous') return scopedPick;
+            }
+        }
+        if (digitPool.length === 1) {
+            return { patient: digitPool[0], reason: 'digits' };
+        }
+        var namePick = apptImportPickBestCandidate(digitPool, importName, clinic);
+        if (namePick.patient && namePick.reason === 'name') return namePick;
+        return { patient: null, reason: 'ambiguous', count: digitPool.length };
+    }
+
+    return { patient: null, reason: 'missing' };
+}
+
+function apptImportAppointmentInClinic(appt, clinicTag) {
+    var tag = String(clinicTag || '').trim().toUpperCase();
+    if (!tag) return true;
+    var field = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? APPOINTMENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+    var at = String(appt[field] || appt.clinic_tag || '').trim().toUpperCase();
+    return !at || at === tag;
+}
+
+function apptImportSummarySuffix(missing, ambiguous, skipped) {
+    var parts = [];
+    if (skipped) parts.push('Skipped existing: ' + skipped);
+    if (missing && missing.length) {
+        parts.push('Missing: ' + Array.from(new Set(missing)).join(', '));
+    }
+    if (ambiguous && ambiguous.length) {
+        parts.push('Ambiguous: ' + Array.from(new Set(ambiguous)).join(', '));
+    }
+    return parts.length ? (' | ' + parts.join(' | ')) : '';
+}
+
+function apptImportClinicIdFromTag(clinicTag) {
+    var tag = String(clinicTag || '').trim().toUpperCase();
+    if (!tag || !APP_CLINICS || !APP_CLINICS.length) return '';
+    var hit = APP_CLINICS.find(function(c) {
+        return String(c.clinic_code || '').trim().toUpperCase() === tag;
+    });
+    return hit ? String(hit.id) : '';
 }
 
 function apptImportTo24(hhmm, ampm) {
@@ -2427,24 +2728,58 @@ function apptImportParseRows(raw, noFallback) {
     return out;
 }
 
+function apptImportCurrentClinicTag() {
+    return String((g('apptImportClinicTag') && g('apptImportClinicTag').value) || '').trim().toUpperCase();
+}
+
+/** Prefix bare scanned digits with the import modal clinic tag (e.g. PY + 000243 → PY000243). */
+function apptImportApplyClinicPrefixToNo(no, clinicTag) {
+    var raw = String(no || '').trim();
+    if (!raw || raw === '000000') return raw;
+    var tag = String(clinicTag || '').trim().toUpperCase();
+    if (!tag) return raw;
+    var token = apptImportParsePatientNoToken(raw, tag);
+    if (!token.digits) return raw;
+    return tag + token.digits;
+}
+
+function apptImportApplyClinicPrefixToRows(rows, clinicTag) {
+    var tag = String(clinicTag || '').trim().toUpperCase();
+    return (rows || []).map(function(r) {
+        return {
+            start: r.start,
+            dur: r.dur,
+            patient_no: apptImportApplyClinicPrefixToNo(r.patient_no, tag),
+            patient_name: r.patient_name,
+            remarks: r.remarks
+        };
+    });
+}
+
 function apptImportRowsToPipe(rows) {
     return (rows || []).map(function(r) {
         return [r.start, r.dur, r.patient_no || '', r.patient_name || '', r.remarks || ''].join('|');
     }).join('\n');
 }
 
-function apptImportPreviewStatus(row) {
+function apptImportPreviewStatus(row, importClinicTag) {
     if (!row || !row.start) return 'invalid';
     var no = String(row.patient_no || '').trim().toUpperCase();
     if (!no || no === '000000') return 'walk-in';
-    if (no.indexOf('MK') === 0) return 'prefixed';
-    return 'patient-no';
+    var tag = String(importClinicTag || '').trim().toUpperCase();
+    var token = apptImportParsePatientNoToken(no, tag);
+    if (token.explicitClinic || (tag && no.indexOf(tag) === 0 && token.digits)) {
+        return 'prefixed-' + (token.explicitClinic ? token.clinic : tag);
+    }
+    if (token.digits) return 'patient-no';
+    return 'invalid-no';
 }
 
-function apptImportRenderPreview(rows) {
+function apptImportRenderPreview(rows, importClinicTag) {
     var tb = g('apptImportPreviewBody');
     if (!tb) return;
-    apptImportPreviewRows = (rows || []).map(function(r) {
+    var clinicTag = importClinicTag || apptImportCurrentClinicTag();
+    apptImportPreviewRows = apptImportApplyClinicPrefixToRows((rows || []).map(function(r) {
         return {
             start: plusApptNormTime(r.start),
             dur: parseInt(r.dur || '0', 10) || PLUSAPPT_SLOT_MIN,
@@ -2452,18 +2787,18 @@ function apptImportRenderPreview(rows) {
             patient_name: String(r.patient_name || '').trim(),
             remarks: String(r.remarks || '').trim()
         };
-    });
+    }), clinicTag);
     if (!rows || !rows.length) {
         tb.innerHTML = '<tr><td colspan="7" style="padding:10px;color:#94a3b8;">No preview rows detected.</td></tr>';
         return;
     }
     var html = '';
     apptImportPreviewRows.forEach(function(r, i) {
-        var st = apptImportPreviewStatus(r);
+        var st = apptImportPreviewStatus(r, clinicTag);
         var stColor = '#64748b';
         if (st === 'walk-in') stColor = '#b45309';
-        else if (st === 'invalid') stColor = '#b91c1c';
-        else if (st === 'prefixed') stColor = '#166534';
+        else if (st.indexOf('invalid') === 0) stColor = '#b91c1c';
+        else if (st.indexOf('prefixed-') === 0) stColor = '#166534';
         html += '<tr>' +
             '<td style="padding:6px;border-bottom:1px solid #f1f5f9;">' + (i + 1) + '</td>' +
             '<td style="padding:6px;border-bottom:1px solid #f1f5f9;"><input data-prev-row="' + i + '" data-prev-col="start" value="' + esc(r.start || '') + '" style="width:82px;padding:4px;border:1px solid #cbd5e1;border-radius:6px;"></td>' +
@@ -2488,23 +2823,29 @@ function apptImportRenderPreview(rows) {
             } else if (col === 'start') {
                 apptImportPreviewRows[i][col] = plusApptNormTime(val);
                 inp.value = apptImportPreviewRows[i][col];
+            } else if (col === 'patient_no') {
+                apptImportPreviewRows[i][col] = apptImportApplyClinicPrefixToNo(val.trim(), clinicTag);
+                inp.value = apptImportPreviewRows[i][col];
             } else {
                 apptImportPreviewRows[i][col] = val.trim();
             }
-            var st = apptImportPreviewStatus(apptImportPreviewRows[i]);
+            var st2 = apptImportPreviewStatus(apptImportPreviewRows[i], clinicTag);
             var td = inp.closest('tr') ? inp.closest('tr').lastElementChild : null;
             if (td) {
-                td.textContent = st;
-                td.style.color = st === 'walk-in' ? '#b45309' : (st === 'invalid' ? '#b91c1c' : (st === 'prefixed' ? '#166534' : '#64748b'));
+                td.textContent = st2;
+                td.style.color = st2 === 'walk-in' ? '#b45309'
+                    : (st2.indexOf('invalid') === 0 ? '#b91c1c'
+                        : (st2.indexOf('prefixed-') === 0 ? '#166534' : '#64748b'));
             }
         });
     });
 }
 
 function apptImportRowsForInsert() {
+    var clinicTag = apptImportCurrentClinicTag();
     if (apptImportPreviewRows && apptImportPreviewRows.length) {
-        return apptImportPreviewRows
-            .map(function(r) {
+        return apptImportApplyClinicPrefixToRows(
+            apptImportPreviewRows.map(function(r) {
                 return {
                     start: plusApptNormTime(r.start),
                     dur: parseInt(r.dur || '0', 10) || PLUSAPPT_SLOT_MIN,
@@ -2512,11 +2853,15 @@ function apptImportRowsForInsert() {
                     patient_name: String(r.patient_name || '').trim() || 'NEW PATIENT',
                     remarks: String(r.remarks || '').trim()
                 };
-            })
-            .filter(function(r) { return !!r.start; });
+            }),
+            clinicTag
+        ).filter(function(r) { return !!r.start; });
     }
     var ta = g('apptImportRowsInput');
-    return apptImportParseRows(ta ? ta.value : '');
+    return apptImportApplyClinicPrefixToRows(
+        apptImportParseRows(ta ? ta.value : ''),
+        apptImportCurrentClinicTag()
+    );
 }
 
 function apptImportPopulateDoctorSelect() {
@@ -2541,9 +2886,19 @@ function openApptImageImportModal() {
     if (d && !d.value) d.value = plusApptDate || todayISO();
     var ct = g('apptImportClinicTag');
     if (ct && !ct.value) {
-        ct.value = (typeof currentClinicCodeForTagging === 'function')
-            ? (currentClinicCodeForTagging() || 'MK')
-            : 'MK';
+        var cid = plusApptActiveClinicId ||
+            (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+        var rec = (cid && typeof clinicRecordFromId === 'function')
+            ? clinicRecordFromId(cid)
+            : null;
+        ct.value = rec
+            ? (String(rec.clinic_code || '').trim() ||
+                (typeof currentClinicCodeForTagging === 'function'
+                    ? (currentClinicCodeForTagging() || 'MK')
+                    : 'MK'))
+            : ((typeof currentClinicCodeForTagging === 'function')
+                ? (currentClinicCodeForTagging() || 'MK')
+                : 'MK');
     }
     var ds = g('apptImportDoctorCode');
     if (ds && plusApptActiveDoctorCode) ds.value = plusApptActiveDoctorCode;
@@ -2561,6 +2916,19 @@ function bindApptImportModalOnce() {
     if (closeBtn) closeBtn.addEventListener('click', function() { closeModal('apptImageImportModal'); });
     if (cancelBtn) cancelBtn.addEventListener('click', function() { closeModal('apptImageImportModal'); });
 
+    var clinicTagInput = g('apptImportClinicTag');
+    if (clinicTagInput && !clinicTagInput.dataset.apptImportBound) {
+        clinicTagInput.dataset.apptImportBound = '1';
+        clinicTagInput.addEventListener('input', function() {
+            if (!apptImportPreviewRows || !apptImportPreviewRows.length) return;
+            var tag = apptImportCurrentClinicTag();
+            apptImportPreviewRows = apptImportApplyClinicPrefixToRows(apptImportPreviewRows, tag);
+            apptImportRenderPreview(apptImportPreviewRows, tag);
+            var ta = g('apptImportRowsInput');
+            if (ta) ta.value = apptImportRowsToPipe(apptImportPreviewRows);
+        });
+    }
+
     var parseBtn = g('apptImportParseBtn');
     if (parseBtn) {
         parseBtn.addEventListener('click', function() {
@@ -2568,15 +2936,20 @@ function bindApptImportModalOnce() {
                 apptImportSetStatus('Normalizing lines...');
                 var ta = g('apptImportRowsInput');
                 if (!ta) return;
-                var rows = apptImportParseRows(ta.value || '');
+                var clinicTag = apptImportCurrentClinicTag();
+                var rows = apptImportApplyClinicPrefixToRows(
+                    apptImportParseRows(ta.value || ''),
+                    clinicTag
+                );
                 if (!rows.length) {
                     apptImportSetStatus('No valid appointment rows detected.', true);
                     apptImportRenderPreview([]);
                     return;
                 }
                 ta.value = apptImportRowsToPipe(rows);
-                apptImportRenderPreview(rows);
-                apptImportSetStatus('Normalized ' + rows.length + ' rows.');
+                apptImportRenderPreview(rows, clinicTag);
+                apptImportSetStatus('Normalized ' + rows.length + ' rows.' +
+                    (clinicTag ? (' Clinic prefix: ' + clinicTag + '.') : ''));
             } catch (e) {
                 apptImportSetStatus('Normalize failed: ' + (e && e.message ? e.message : String(e)), true);
                 apptImportRenderPreview([]);
@@ -2589,8 +2962,13 @@ function bindApptImportModalOnce() {
         previewBtn.addEventListener('click', function() {
             try {
                 var ta = g('apptImportRowsInput');
-                var rows = apptImportParseRows(ta ? ta.value : '');
-                apptImportRenderPreview(rows);
+                var clinicTag = apptImportCurrentClinicTag();
+                var rows = apptImportApplyClinicPrefixToRows(
+                    apptImportParseRows(ta ? ta.value : ''),
+                    clinicTag
+                );
+                if (ta && rows.length) ta.value = apptImportRowsToPipe(rows);
+                apptImportRenderPreview(rows, clinicTag);
                 apptImportSetStatus(
                     rows.length ? ('Preview ready: ' + rows.length + ' rows.') : 'No valid rows to preview.',
                     !rows.length
@@ -2690,38 +3068,41 @@ function importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCodeOverrid
         if (hit) docCode = String(hit.doctor_code || '').trim();
     }
 
-    var queryNos = [];
-    uniqNos.forEach(function(no) {
-        apptImportPatientNoVariants(no).forEach(function(x) {
-            if (queryNos.indexOf(x) < 0) queryNos.push(x);
-        });
-    });
-
     function finish(msg, err) {
         if (done) done(msg, err);
     }
 
-    function afterImportRefresh(insertDateIso, preferDoctorCode) {
+    function afterImportRefresh(insertDateIso, importClinicTag, preferDoctorCode) {
         if (typeof syncApptPlannerDate === 'function') {
             syncApptPlannerDate(insertDateIso, { syncCal: true });
+        }
+        var clinicId = apptImportClinicIdFromTag(importClinicTag);
+        if (clinicId) {
+            var plusSel = g('plusApptClinicSelect');
+            if (plusSel && plusSel.value !== clinicId) {
+                plusApptClinicSyncing = true;
+                plusSel.value = clinicId;
+                plusApptClinicSyncing = false;
+            }
+            plusApptActiveClinicId = clinicId;
+            if (typeof setWorkingClinic === 'function') {
+                setWorkingClinic(clinicId, { syncFilters: true, reloadAppt: false });
+            }
         }
         plusApptPatientFilterQ = '';
         var psIn = g('plusApptPsInput');
         if (psIn) psIn.value = '';
         if (typeof plusApptClearSelection === 'function') plusApptClearSelection(true);
 
+        // Show all doctors so newly imported and pre-existing rows appear together.
+        var target = PLUSAPPT_DOCTOR_ALL;
         var drSel = g('plusApptDoctorSelect');
         if (drSel) {
-            var target = preferDoctorCode || PLUSAPPT_DOCTOR_ALL;
-            var has = false;
-            for (var i = 0; i < drSel.options.length; i++) {
-                if (drSel.options[i].value === target) { has = true; break; }
-            }
-            if (!has && target !== PLUSAPPT_DOCTOR_ALL) target = PLUSAPPT_DOCTOR_ALL;
             drSel.value = target;
             plusApptActiveDoctorCode = target;
-        } else if (!preferDoctorCode) {
-            plusApptActiveDoctorCode = PLUSAPPT_DOCTOR_ALL;
+            if (preferDoctorCode) plusApptAllActiveDoctorCode = preferDoctorCode;
+        } else {
+            plusApptActiveDoctorCode = target;
         }
         if (typeof plusApptToggleScheduleViews === 'function') plusApptToggleScheduleViews();
         if (typeof loadPlusApptDay === 'function') loadPlusApptDay();
@@ -2731,41 +3112,45 @@ function importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCodeOverrid
         if (typeof loadApptRecords === 'function') loadApptRecords();
     }
 
-    var q = SB.from('patients').select('id,patient_no,full_name,chinese_name,phone_number');
-    if (clinicTag && typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined') q = q.eq(PATIENT_CLINIC_TAG_FIELD, clinicTag);
+    var queryNos = apptImportBuildPatientQueryNos(uniqNos, clinicTag);
+    var patientTagField = typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? PATIENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+
+    var q = SB.from('patients').select(
+        'id,patient_no,full_name,chinese_name,phone_number,' + patientTagField
+    );
     if (queryNos.length) q = q.in('patient_no', queryNos);
     q.then(function(pr) {
-        var pMap = {};
-        var pNorm = {};
-        (pr && pr.data ? pr.data : []).forEach(function(p) {
-            var noRaw = String(p.patient_no || '').trim();
-            pMap[noRaw] = p;
-            var nk = apptImportNormalizePatientNo(noRaw);
-            if (nk && !pNorm[nk]) pNorm[nk] = p;
-        });
+        var index = apptImportIndexPatients(pr && pr.data ? pr.data : []);
 
-        SB.from('appointments').select('id,start_time,patient_no,patient_name').eq('date', dateIso).then(function(er) {
+        SB.from('appointments')
+            .select('id,start_time,patient_no,patient_name,clinic_tag')
+            .eq('date', dateIso)
+        .then(function(er) {
             var ex = {};
             (er && er.data ? er.data : []).forEach(function(a) {
-                var key = [plusApptNormTime(a.start_time), String(a.patient_no || '').trim(), String(a.patient_name || '').trim().toUpperCase()].join('|');
-                ex[key] = true;
+                if (!apptImportAppointmentInClinic(a, clinicTag)) return;
+                var st = plusApptNormTime(a.start_time);
+                ex[apptImportApptDedupeKey(st, a.patient_no, a.patient_name, true, clinicTag)] = true;
+                if (apptImportDedupePatientNo(a.patient_no, clinicTag)) {
+                    ex[apptImportApptDedupeKey(st, a.patient_no, '', false, clinicTag)] = true;
+                }
             });
             var missing = [];
+            var ambiguous = [];
             var skipped = 0;
             var payloads = [];
             (rows || []).forEach(function(r) {
                 var no = String(r.patient_no || '').trim();
                 var isWalkin = !no || no === '000000';
-                var p = null;
-                if (!isWalkin) {
-                    var vars = apptImportPatientNoVariants(no);
-                    for (var i = 0; i < vars.length; i++) {
-                        if (pMap[vars[i]]) { p = pMap[vars[i]]; break; }
-                    }
-                    if (!p) p = pNorm[apptImportNormalizePatientNo(no)] || null;
-                }
+                var resolved = isWalkin
+                    ? { patient: null, reason: 'walk-in' }
+                    : apptImportResolvePatient(no, r.patient_name, clinicTag, index, r.remarks);
+                var p = resolved.patient;
                 if (!isWalkin && !p) {
-                    missing.push(no);
+                    if (resolved.reason === 'ambiguous') ambiguous.push(no);
+                    else missing.push(no);
                     return;
                 }
                 var st = plusApptNormTime(r.start);
@@ -2774,9 +3159,15 @@ function importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCodeOverrid
                 if (!du || du < 1) du = PLUSAPPT_SLOT_MIN;
                 var name = p ? (p.full_name || r.patient_name || '') : (r.patient_name || 'NEW PATIENT');
                 var pno = p ? (p.patient_no || no) : null;
-                var key = [st, String(pno || '').trim(), String(name || '').trim().toUpperCase()].join('|');
-                if (ex[key]) { skipped++; return; }
+                var dedupeNo = pno || no;
+                var key = apptImportApptDedupeKey(st, dedupeNo, name, true, clinicTag);
+                var keyStrict = apptImportApptDedupeKey(st, dedupeNo, '', false, clinicTag);
+                if (ex[key] || ex[keyStrict]) { skipped++; return; }
                 ex[key] = true;
+                if (apptImportDedupePatientNo(dedupeNo, clinicTag)) ex[keyStrict] = true;
+                var rowClinicTag = isWalkin
+                    ? clinicTag
+                    : apptImportEffectiveClinicForRow(no, clinicTag, r.remarks);
                 var item = {
                     date: dateIso,
                     start_time: st,
@@ -2792,23 +3183,22 @@ function importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCodeOverrid
                     bill_status: 'Scheduled'
                 };
                 if (docCode) item.doctor_code = docCode;
-                if (clinicTag) item.clinic_tag = clinicTag;
+                if (rowClinicTag) item.clinic_tag = rowClinicTag;
+                else if (clinicTag) item.clinic_tag = clinicTag;
                 payloads.push(item);
             });
 
             if (!payloads.length) {
-                afterImportRefresh(dateIso, docCode);
-                finish('No new rows inserted. Skipped: ' + skipped +
-                    (missing.length ? (' | Missing: ' + Array.from(new Set(missing)).join(', ')) : ''), false);
+                afterImportRefresh(dateIso, clinicTag, docCode);
+                finish('No new rows inserted.' + apptImportSummarySuffix(missing, ambiguous, skipped), false);
                 return;
             }
 
             function tryInsert(list, allowDoctorFallback, allowClinicFallback) {
                 SB.from('appointments').insert(list).then(function(res) {
                     if (!res.error) {
-                        afterImportRefresh(dateIso, docCode);
-                        finish('Inserted: ' + list.length + ' | Skipped: ' + skipped +
-                            (missing.length ? (' | Missing: ' + Array.from(new Set(missing)).join(', ')) : ''), false);
+                        afterImportRefresh(dateIso, clinicTag, docCode);
+                        finish('Inserted: ' + list.length + apptImportSummarySuffix(missing, ambiguous, skipped), false);
                         return;
                     }
                     var msg = String(res.error.message || '');
@@ -5716,7 +6106,12 @@ function buildTodayRow(tb, a) {
             esc(a.patient_no || '-') +
         '</td>' +
         '<td>' + apptPatientDisplayNameHTML(a, { walkIn: true }) + '</td>' +
-        '<td>' + esc(a.treatment_items || '-') + '</td>' +
+        '<td>' +
+            '<input class="appt-treat-inline" type="text" ' +
+            'value="' + esc(a.treatment_items || '') + '" ' +
+            'placeholder="' + esc(tr('appt.modal.treatmentPh')) + '" ' +
+            'data-appt-id="' + esc(a.id) + '">' +
+        '</td>' +
         '<td style="font-size:12px;">' + apptAlertCellHtml(a) + '</td>' +
         '<td style="font-size:12px;color:#888;">' +
             formatRemarksForDisplay(a.remarks, { empty: '-' }) +
@@ -5741,6 +6136,25 @@ function buildTodayRow(tb, a) {
         '</td>';
 
     tb.appendChild(row);
+
+    var tInp = row.querySelector('.appt-treat-inline');
+    if (tInp && !tInp.dataset.bound) {
+        tInp.dataset.bound = '1';
+        tInp.addEventListener('click', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('dblclick', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                try { tInp.blur(); } catch (_) {}
+            }
+        });
+        tInp.addEventListener('blur', function() {
+            apptInlineSaveTreatment(tInp.getAttribute('data-appt-id'), tInp.value, function(saved) {
+                a.treatment_items = saved;
+                tInp.value = saved;
+            });
+        });
+    }
 
     row.addEventListener('dblclick', function () {
         if (a.bill_status === 'Queue' || a.bill_status === 'Done') {
@@ -5790,6 +6204,24 @@ function buildTodayRow(tb, a) {
             e.preventDefault();
             e.stopPropagation();
         });
+    });
+}
+
+function apptInlineSaveTreatment(apptId, raw, onDone) {
+    var id = String(apptId || '').trim();
+    if (!id) return;
+    var v = String(raw || '').trim();
+    var payload = { treatment_items: v || null };
+    SB.from('appointments')
+        .update(payload)
+        .eq('id', id)
+    .then(function(r) {
+        if (r && r.error) {
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+            if (onDone) onDone(String(raw || '').trim());
+            return;
+        }
+        if (onDone) onDone(v);
     });
 }
 
@@ -6382,7 +6814,10 @@ function buildQueueRow(tb, q, seqNo) {
                 : '') +
         '</td>' +
         '<td style="font-size:13px;">' +
-            esc(q.treatment_items || '-') +
+            '<input class="appt-treat-inline appt-treat-inline--queue" type="text" ' +
+            'value="' + esc(q.treatment_items || '') + '" ' +
+            'placeholder="' + esc(tr('appt.modal.treatmentPh')) + '" ' +
+            'data-appt-id="' + esc(q.id) + '">' +
         '</td>' +
         '<td style="font-size:12px;">' + apptAlertCellHtml(q) + '</td>' +
         '<td>' +
@@ -6447,6 +6882,25 @@ function buildQueueRow(tb, q, seqNo) {
         '</td>';
 
     tb.appendChild(row);
+
+    var tInp = row.querySelector('.appt-treat-inline');
+    if (tInp && !tInp.dataset.bound) {
+        tInp.dataset.bound = '1';
+        tInp.addEventListener('click', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('dblclick', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                try { tInp.blur(); } catch (_) {}
+            }
+        });
+        tInp.addEventListener('blur', function() {
+            apptInlineSaveTreatment(tInp.getAttribute('data-appt-id'), tInp.value, function(saved) {
+                q.treatment_items = saved;
+                tInp.value = saved;
+            });
+        });
+    }
 
     row.addEventListener('dragstart', function(e) {
         if (queueDragBlockedTarget(e.target)) {

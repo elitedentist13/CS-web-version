@@ -2,10 +2,34 @@
 // APP-DRUGS.JS  —  Standalone Drug Masterlist Editor
 // Dashboard card "Drug Book" → full-screen drugSection
 // Data source: druglist table
-// Schema: id, drug_name, category, dosage, frequency, duration,
-//         route, remarks, dentist_name, dentist_id, is_active,
-//         created_at
+    // Schema: id, drug_name, category, dosage, frequency, duration,
+    //         route, intake_caution, remarks,
+//         dentist_name, dentist_id, is_active, created_at
 // ════════════════════════════════════════════════════════════════
+
+var DRUG_REMARKS_LEGACY_SEP = '\u27E6|\u27E7'; /* intake | general when one column */
+var DRUG_INTAKE_PRESET_LS = 'joyful_drug_intake_presets_v1';
+var DRUG_GENERAL_PRESET_LS = 'joyful_drug_general_presets_v1';
+
+var DRUG_INTAKE_PRESET_SEED = [
+    'Take after meal',
+    'Take before meal',
+    'Take with plenty of water',
+    'Do not take on empty stomach',
+    '飯後服用',
+    '飯前服用',
+    '用開水送服'
+];
+
+var DRUG_GENERAL_PRESET_SEED = [
+    'For pain',
+    'As directed',
+    'Complete the course',
+    'Store in cool dry place',
+    '止痛',
+    '按醫生指示',
+    '完成整個療程'
+];
 
 // ── Module state ─────────────────────────────────────────────
 var drugMasterList  = [];   // local cache of all drugs
@@ -99,6 +123,336 @@ function drugCategoryLabel(cat) {
     return s;
 }
 
+function drugReadPresetList(lsKey, seed) {
+    try {
+        var raw = localStorage.getItem(lsKey);
+        if (raw) {
+            var a = JSON.parse(raw);
+            if (Array.isArray(a) && a.length) return a;
+        }
+    } catch (e) {}
+    return seed.slice();
+}
+
+function drugWritePresetList(lsKey, list) {
+    try {
+        localStorage.setItem(lsKey, JSON.stringify(list || []));
+    } catch (e) {}
+}
+
+function drugUiLang() {
+    return typeof rxUiPhraseLang === 'function' ? rxUiPhraseLang() : 'en';
+}
+
+function drugUnpackRemarks(row) {
+    row = row || {};
+    var intakeRaw = String(row.intake_caution || '').trim();
+    var generalRaw = String(row.remarks || '').trim();
+    if (!intakeRaw && generalRaw.indexOf(DRUG_REMARKS_LEGACY_SEP) >= 0) {
+        var sep = generalRaw.indexOf(DRUG_REMARKS_LEGACY_SEP);
+        intakeRaw = generalRaw.slice(0, sep).trim();
+        generalRaw = generalRaw.slice(sep + DRUG_REMARKS_LEGACY_SEP.length).trim();
+    }
+    var intake = typeof drugUnpackBilingualText === 'function'
+        ? drugUnpackBilingualText(intakeRaw)
+        : { en: intakeRaw, zh: '' };
+    var general = typeof drugUnpackBilingualText === 'function'
+        ? drugUnpackBilingualText(generalRaw)
+        : { en: generalRaw, zh: '' };
+    var uiLang = drugUiLang();
+    return {
+        intakeEn: intake.en,
+        intakeZh: intake.zh,
+        generalEn: general.en,
+        generalZh: general.zh,
+        intake: typeof drugFormatBilingualDisplay === 'function'
+            ? drugFormatBilingualDisplay(intake.en, intake.zh, uiLang)
+            : (intake.en || intake.zh),
+        general: typeof drugFormatBilingualDisplay === 'function'
+            ? drugFormatBilingualDisplay(general.en, general.zh, uiLang)
+            : (general.en || general.zh)
+    };
+}
+
+function drugPackRemarksForLegacyColumn(intake, general) {
+    var i = String(intake || '').trim();
+    var g = String(general || '').trim();
+    if (i && g) return i + DRUG_REMARKS_LEGACY_SEP + g;
+    return g || i || null;
+}
+
+function drugColumnMissing(msg, col) {
+    var m = String(msg || '').toLowerCase();
+    var c = String(col || '').toLowerCase();
+    return m.indexOf(c) >= 0 && (m.indexOf('column') >= 0 || m.indexOf('schema') >= 0);
+}
+
+function drugEditorRecalcDefaultQty() {
+    if (typeof rxComputeQuantityFromLine !== 'function') return;
+    var line = drugReadEditorRxLine();
+    if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line);
+    var qty = rxComputeQuantityFromLine(line);
+    // quantity is computed during prescribing (days selection), not stored in catalog
+}
+
+function drugReadEditorRxLine() {
+    var line = typeof rxEmptyLine === 'function' ? rxEmptyLine() : {};
+    line.dosage_code = (g('deDosageSel') && g('deDosageSel').value) || '';
+    line.dosage_custom = (g('deDosageCustom') && g('deDosageCustom').value) || '';
+    line.frequency_code = (g('deFrequencySel') && g('deFrequencySel').value) || '';
+    line.frequency_custom = (g('deFrequencyCustom') && g('deFrequencyCustom').value) || '';
+    line.duration_code = (g('deDurationSel') && g('deDurationSel').value) || '';
+    line.duration_custom = (g('deDurationCustom') && g('deDurationCustom').value) || '';
+    return line;
+}
+
+function drugPopulatePhraseSelect(fieldType, selId) {
+    var sel = g(selId);
+    if (!sel || typeof rxGetPhraseOptions !== 'function') return;
+    var prev = sel.value;
+    var uiLang = drugUiLang();
+    var opts = rxGetPhraseOptions(fieldType);
+    sel.innerHTML = '<option value="">' + esc(drugTr('drug.phrasePick')) + '</option>';
+    opts.forEach(function(o) {
+        var k = String(o.option_key);
+        var label = typeof rxPhraseOptionBilingualLabel === 'function'
+            ? (rxPhraseOptionBilingualLabel(fieldType, k, uiLang) || k)
+            : k;
+        var opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = label;
+        sel.appendChild(opt);
+    });
+    if (prev) sel.value = prev;
+}
+
+function drugRefreshPhraseSelects() {
+    drugPopulatePhraseSelect('dosage', 'deDosageSel');
+    drugPopulatePhraseSelect('frequency', 'deFrequencySel');
+    drugPopulatePhraseSelect('duration', 'deDurationSel');
+    drugUpdateAllPhrasePreviews();
+}
+
+function drugUpdatePhrasePreview(fieldType) {
+    var previewId = 'de' + fieldType.charAt(0).toUpperCase() + fieldType.slice(1) + 'Preview';
+    var el = g(previewId);
+    if (!el) return;
+    var line = drugReadEditorRxLine();
+    if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line);
+    var en = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, fieldType, 'en') : '';
+    var zh = typeof rxPhraseDisplay === 'function'
+        ? rxPhraseDisplay(line, fieldType, 'zh') : '';
+    if (en === '—') en = '';
+    if (zh === '—') zh = '';
+    el.textContent = typeof drugFormatBilingualDisplay === 'function'
+        ? drugFormatBilingualDisplay(en, zh, drugUiLang())
+        : (en || zh);
+}
+
+function drugUpdateAllPhrasePreviews() {
+    ['dosage', 'frequency', 'duration'].forEach(drugUpdatePhrasePreview);
+}
+
+function drugFillPhraseFields(d) {
+    d = d || {};
+    var line = typeof rxNormalizeLine === 'function'
+        ? rxNormalizeLine({
+            dosage: d.dosage || '',
+            frequency: d.frequency || '',
+            duration: d.duration || ''
+        })
+        : {};
+    if (g('deDosageSel')) g('deDosageSel').value = line.dosage_code || '';
+    if (g('deDosageCustom')) g('deDosageCustom').value = line.dosage_custom || '';
+    if (g('deFrequencySel')) g('deFrequencySel').value = line.frequency_code || '';
+    if (g('deFrequencyCustom')) g('deFrequencyCustom').value = line.frequency_custom || '';
+    if (g('deDurationSel')) g('deDurationSel').value = line.duration_code || '';
+    if (g('deDurationCustom')) g('deDurationCustom').value = line.duration_custom || '';
+    drugUpdateAllPhrasePreviews();
+}
+
+function drugReadPhraseValueForSave(fieldType) {
+    var line = drugReadEditorRxLine();
+    if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line);
+    if (typeof rxSyncLineLegacyFields === 'function') {
+        var tmp = Object.assign({}, line);
+        rxSyncLineLegacyFields(tmp);
+        return tmp[fieldType] || null;
+    }
+    var code = line[fieldType + '_code'];
+    var custom = line[fieldType + '_custom'];
+    return (code || custom || '').trim() || null;
+}
+
+function drugOnPhraseSelectChange(fieldType) {
+    var sel = g('de' + fieldType.charAt(0).toUpperCase() + fieldType.slice(1) + 'Sel');
+    var custom = g('de' + fieldType.charAt(0).toUpperCase() + fieldType.slice(1) + 'Custom');
+    if (sel && sel.value && custom) custom.value = '';
+    drugUpdatePhrasePreview(fieldType);
+    drugEditorRecalcDefaultQty();
+    setDrugDirty(true);
+}
+
+function drugOnPhraseCustomInput(fieldType) {
+    var sel = g('de' + fieldType.charAt(0).toUpperCase() + fieldType.slice(1) + 'Sel');
+    if (sel && sel.value) sel.value = '';
+    drugUpdatePhrasePreview(fieldType);
+    drugEditorRecalcDefaultQty();
+    setDrugDirty(true);
+}
+
+function drugPresetListForLang(list, lang) {
+    list = list || [];
+    var filtered = list.filter(function(t) {
+        var isCjk = /[\u4e00-\u9fff\u3400-\u4dbf]/.test(t);
+        return lang === 'zh' ? isCjk : !isCjk;
+    });
+    return filtered.length ? filtered : list.slice();
+}
+
+function drugPopulateRemarkPresetSelect(selId, list) {
+    var sel = g(selId);
+    if (!sel) return;
+    var prev = sel.value;
+    sel.innerHTML = '<option value="">' + esc(drugTr('drug.remarkPresetPick')) + '</option>';
+    (list || []).forEach(function(txt) {
+        var o = document.createElement('option');
+        o.value = txt;
+        o.textContent = txt;
+        sel.appendChild(o);
+    });
+    if (prev) sel.value = prev;
+}
+
+function drugRefreshRemarkPresetDatalists() {
+    var intakeList = drugReadPresetList(DRUG_INTAKE_PRESET_LS, DRUG_INTAKE_PRESET_SEED);
+    var generalList = drugReadPresetList(DRUG_GENERAL_PRESET_LS, DRUG_GENERAL_PRESET_SEED);
+    drugPopulateRemarkPresetSelect('deIntakeCautionSel', drugPresetListForLang(intakeList, 'en'));
+    drugPopulateRemarkPresetSelect('deIntakeCautionZhSel', drugPresetListForLang(intakeList, 'zh'));
+    drugPopulateRemarkPresetSelect('deGeneralRemarksSel', drugPresetListForLang(generalList, 'en'));
+    drugPopulateRemarkPresetSelect('deGeneralRemarksZhSel', drugPresetListForLang(generalList, 'zh'));
+    drugPopulateRemarkPresetSelect('dlIntakeCautionSel', drugPresetListForLang(intakeList, 'en'));
+    drugPopulateRemarkPresetSelect('dlIntakeCautionZhSel', drugPresetListForLang(intakeList, 'zh'));
+    drugPopulateRemarkPresetSelect('dlGeneralRemarksSel', drugPresetListForLang(generalList, 'en'));
+    drugPopulateRemarkPresetSelect('dlGeneralRemarksZhSel', drugPresetListForLang(generalList, 'zh'));
+    var pairs = [
+        ['deIntakeCautionList', drugPresetListForLang(intakeList, 'en')],
+        ['deIntakeCautionZhList', drugPresetListForLang(intakeList, 'zh')],
+        ['deGeneralRemarksList', drugPresetListForLang(generalList, 'en')],
+        ['deGeneralRemarksZhList', drugPresetListForLang(generalList, 'zh')],
+        ['dlIntakeCautionList', drugPresetListForLang(intakeList, 'en')],
+        ['dlIntakeCautionZhList', drugPresetListForLang(intakeList, 'zh')],
+        ['dlGeneralRemarksList', drugPresetListForLang(generalList, 'en')],
+        ['dlGeneralRemarksZhList', drugPresetListForLang(generalList, 'zh')]
+    ];
+    pairs.forEach(function(pair) {
+        var dl = g(pair[0]);
+        if (!dl) return;
+        dl.innerHTML = pair[1].map(function(t) {
+            return '<option value="' + esc(t) + '">';
+        }).join('');
+    });
+}
+
+function drugBindRemarkPresetControls() {
+    function bindSel(selId, inputId) {
+        var sel = g(selId);
+        var inp = g(inputId);
+        if (!sel || sel.dataset.drugRemarkBound) return;
+        sel.dataset.drugRemarkBound = '1';
+        sel.addEventListener('change', function() {
+            if (!sel.value || !inp) return;
+            inp.value = sel.value;
+            setDrugDirty(true);
+        });
+    }
+    bindSel('deIntakeCautionSel', 'deIntakeCaution');
+    bindSel('deIntakeCautionZhSel', 'deIntakeCautionZh');
+    bindSel('deGeneralRemarksSel', 'deGeneralRemarks');
+    bindSel('deGeneralRemarksZhSel', 'deGeneralRemarksZh');
+    bindSel('dlIntakeCautionSel', 'dlIntakeCaution');
+    bindSel('dlIntakeCautionZhSel', 'dlIntakeCautionZh');
+    bindSel('dlGeneralRemarksSel', 'dlGeneralRemarks');
+    bindSel('dlGeneralRemarksZhSel', 'dlGeneralRemarksZh');
+
+    function bindAdd(btnId, inputId, lsKey, seed) {
+        var btn = g(btnId);
+        if (!btn || btn.dataset.drugRemarkBound) return;
+        btn.dataset.drugRemarkBound = '1';
+        btn.addEventListener('click', function() {
+            var inp = g(inputId);
+            var v = (inp && inp.value || '').trim();
+            if (!v) return;
+            var list = drugReadPresetList(lsKey, seed);
+            if (list.indexOf(v) < 0) {
+                list.push(v);
+                drugWritePresetList(lsKey, list);
+                drugRefreshRemarkPresetDatalists();
+            }
+            setDrugDirty(true);
+        });
+    }
+
+    function bindDel(btnId, selId, lsKey, seed) {
+        var btn = g(btnId);
+        if (!btn || btn.dataset.drugRemarkBound) return;
+        btn.dataset.drugRemarkBound = '1';
+        btn.addEventListener('click', function() {
+            var sel = g(selId);
+            if (!sel || !sel.value) return;
+            var list = drugReadPresetList(lsKey, seed).filter(function(x) {
+                return x !== sel.value;
+            });
+            drugWritePresetList(lsKey, list);
+            drugRefreshRemarkPresetDatalists();
+            sel.value = '';
+            setDrugDirty(true);
+        });
+    }
+
+    bindAdd('deIntakePresetAdd', 'deIntakeCaution', DRUG_INTAKE_PRESET_LS, DRUG_INTAKE_PRESET_SEED);
+    bindAdd('deIntakePresetAddZh', 'deIntakeCautionZh', DRUG_INTAKE_PRESET_LS, DRUG_INTAKE_PRESET_SEED);
+    bindAdd('deGeneralPresetAdd', 'deGeneralRemarks', DRUG_GENERAL_PRESET_LS, DRUG_GENERAL_PRESET_SEED);
+    bindAdd('deGeneralPresetAddZh', 'deGeneralRemarksZh', DRUG_GENERAL_PRESET_LS, DRUG_GENERAL_PRESET_SEED);
+    bindDel('deIntakePresetDel', 'deIntakeCautionSel', DRUG_INTAKE_PRESET_LS, DRUG_INTAKE_PRESET_SEED);
+    bindDel('deIntakePresetDelZh', 'deIntakeCautionZhSel', DRUG_INTAKE_PRESET_LS, DRUG_INTAKE_PRESET_SEED);
+    bindDel('deGeneralPresetDel', 'deGeneralRemarksSel', DRUG_GENERAL_PRESET_LS, DRUG_GENERAL_PRESET_SEED);
+    bindDel('deGeneralPresetDelZh', 'deGeneralRemarksZhSel', DRUG_GENERAL_PRESET_LS, DRUG_GENERAL_PRESET_SEED);
+}
+
+function drugFillRemarkFields(d) {
+    var packed = drugUnpackRemarks(d || {});
+    sv('deIntakeCaution', packed.intakeEn);
+    sv('deIntakeCautionZh', packed.intakeZh);
+    sv('deGeneralRemarks', packed.generalEn);
+    sv('deGeneralRemarksZh', packed.generalZh);
+}
+
+function drugBindPhraseEditorControls() {
+    var fields = [
+        { type: 'dosage', sel: 'deDosageSel', custom: 'deDosageCustom' },
+        { type: 'frequency', sel: 'deFrequencySel', custom: 'deFrequencyCustom' },
+        { type: 'duration', sel: 'deDurationSel', custom: 'deDurationCustom' }
+    ];
+    fields.forEach(function(f) {
+        var sel = g(f.sel);
+        var custom = g(f.custom);
+        if (sel && !sel.dataset.drugPhraseBound) {
+            sel.dataset.drugPhraseBound = '1';
+            sel.addEventListener('change', function() {
+                drugOnPhraseSelectChange(f.type);
+            });
+        }
+        if (custom && !custom.dataset.drugPhraseBound) {
+            custom.dataset.drugPhraseBound = '1';
+            custom.addEventListener('input', function() {
+                drugOnPhraseCustomInput(f.type);
+            });
+        }
+    });
+}
+
 function refreshDrugCategoryDatalist() {
     var dl = g('drugCategoryList');
     if (!dl) return;
@@ -136,6 +490,8 @@ function refreshDrugBookI18n() {
         var d = drugMasterList.find(function(x) { return x.id === drugSelectedId; });
         if (d) {
             updateDrugEditorTitle(d.drug_name);
+            drugFillPhraseFields(d);
+            drugUpdateAllPhrasePreviews();
             var createdEl = g('deCreatedAt');
             if (createdEl) {
                 createdEl.textContent = d.created_at ? fmtDateTime(d.created_at) : '—';
@@ -150,6 +506,7 @@ function refreshDrugBookI18n() {
         renderDrugCatFilter();
         renderDrugList();
     }
+    drugRefreshPhraseSelects();
     if (!visible) return;
     setSaveBtn(false);
 }
@@ -167,6 +524,10 @@ function initDrugs() {
     var si = document.getElementById('drugSearchInput');
     if (si) si.value = '';
 
+    drugRefreshRemarkPresetDatalists();
+    drugBindRemarkPresetControls();
+    drugBindPhraseEditorControls();
+    drugRefreshPhraseSelects();
     resetDrugEditor();
     loadDrugMaster();
 
@@ -305,9 +666,10 @@ function renderDrugList() {
                 (!d.is_active ? ' inactive' : '');
             item.dataset.id = d.id;
 
-            // meta line: dosage · frequency · default days
-            var meta = [d.dosage, d.frequency, d.duration]
-                .filter(Boolean).join(' · ');
+            // meta line: bilingual dosage · frequency · days
+            var meta = typeof drugDefaultRxMetaBilingual === 'function'
+                ? drugDefaultRxMetaBilingual(d)
+                : [d.dosage, d.frequency, d.duration].filter(Boolean).join(' · ');
 
             // dentist badge if present
             var dentistBadge = d.dentist_name
@@ -357,11 +719,9 @@ function selectDrugItem(id) {
     // ── populate all fields ──────────────────────────────────
     sv('deDrugName',    d.drug_name    || '');
     sv('deCategory',    d.category     || '');
-    sv('deDosage',      d.dosage       || '');
-    sv('deFrequency',   d.frequency    || '');
-    sv('deDuration',    d.duration     || '');
+    drugFillPhraseFields(d);
     sv('deRoute',       d.route        || '');
-    sv('deRemarks',     d.remarks      || '');
+    drugFillRemarkFields(d);
     sv('deDentistName', d.dentist_name || '');
 
     // read-only / display fields
@@ -409,11 +769,9 @@ function newDrugItem() {
     // clear all editable fields
     sv('deDrugName',    '');
     sv('deCategory',    '');
-    sv('deDosage',      '');
-    sv('deFrequency',   '');
-    sv('deDuration',    '');
+    drugFillPhraseFields({});
     sv('deRoute',       '');
-    sv('deRemarks',     '');
+    drugFillRemarkFields({});
     sv('deDentistName', currentName || ''); // pre-fill with logged-in user
 
     // clear read-only display fields
@@ -455,14 +813,26 @@ function saveDrugMaster() {
     var activeEl     = g('deIsActive');
     var dentistNameV = (g('deDentistName') ? g('deDentistName').value : '').trim();
 
+    var intakeEn = (g('deIntakeCaution') ? g('deIntakeCaution').value : '').trim();
+    var intakeZh = (g('deIntakeCautionZh') ? g('deIntakeCautionZh').value : '').trim();
+    var generalEn = (g('deGeneralRemarks') ? g('deGeneralRemarks').value : '').trim();
+    var generalZh = (g('deGeneralRemarksZh') ? g('deGeneralRemarksZh').value : '').trim();
+    var intakeV = typeof drugPackBilingualText === 'function'
+        ? drugPackBilingualText(intakeEn, intakeZh)
+        : (intakeEn || intakeZh);
+    var generalV = typeof drugPackBilingualText === 'function'
+        ? drugPackBilingualText(generalEn, generalZh)
+        : (generalEn || generalZh);
+
     var payload = {
         drug_name:    name,
         category:     (g('deCategory')  ? g('deCategory').value.trim()  : '') || null,
-        dosage:       (g('deDosage')    ? g('deDosage').value.trim()    : '') || null,
-        frequency:    (g('deFrequency') ? g('deFrequency').value.trim() : '') || null,
-        duration:     (g('deDuration')  ? g('deDuration').value.trim()  : '') || null,
+        dosage:       drugReadPhraseValueForSave('dosage'),
+        frequency:    drugReadPhraseValueForSave('frequency'),
+        duration:     drugReadPhraseValueForSave('duration'),
         route:        (g('deRoute')     ? g('deRoute').value.trim()     : '') || null,
-        remarks:      (g('deRemarks')   ? g('deRemarks').value.trim()   : '') || null,
+        intake_caution: intakeV || null,
+        remarks:      generalV || null,
         dentist_name: dentistNameV || null,
         is_active:    activeEl ? activeEl.checked : true
     };
@@ -485,7 +855,7 @@ function saveDrugMaster() {
 
     setSaveBtn(true);
 
-    function runSave(sendPayload, allowUuidRetry) {
+    function runSave(sendPayload, allowUuidRetry, allowColumnFallback) {
         var p = isNew
             ? SB.from('druglist').insert([sendPayload]).select().single()
             : SB.from('druglist').update(sendPayload)
@@ -500,8 +870,24 @@ function saveDrugMaster() {
                         if (k === 'dentist_id' || k === 'dentist_name') continue;
                         retryPayload[k] = sendPayload[k];
                     }
-                    runSave(retryPayload, false);
+                    runSave(retryPayload, false, allowColumnFallback);
                     return;
+                }
+                if (allowColumnFallback) {
+                    var fb = Object.assign({}, sendPayload);
+                    var merged = false;
+                    if (fb.intake_caution !== undefined &&
+                        drugColumnMissing(r.error.message, 'intake_caution')) {
+                        fb.remarks = drugPackRemarksForLegacyColumn(
+                            fb.intake_caution, fb.remarks
+                        );
+                        delete fb.intake_caution;
+                        merged = true;
+                    }
+                    if (merged) {
+                        runSave(fb, allowUuidRetry, false);
+                        return;
+                    }
                 }
                 setSaveBtn(false);
                 alert(drugTrRepl('drug.alertSaveFailed', { MSG: r.error.message }));
@@ -541,7 +927,7 @@ function saveDrugMaster() {
         });
     }
 
-    runSave(payload, true);
+    runSave(payload, true, true);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -625,12 +1011,17 @@ function exportDrugCSV() {
 
     var headers = [
         'drug_name', 'category', 'dosage', 'frequency',
-        'duration', 'route', 'remarks', 'dentist_name', 'is_active', 'created_at'
+        'duration', 'route',
+        'intake_caution', 'remarks', 'dentist_name', 'is_active', 'created_at'
     ];
 
     var rows = drugMasterList.map(function(d) {
+        var packed = drugUnpackRemarks(d);
         return headers.map(function(h) {
-            var v = d[h];
+            var v;
+            if (h === 'intake_caution') v = packed.intake;
+            else if (h === 'remarks') v = packed.general;
+            else v = d[h];
             if (v === null || v === undefined) v = '';
             v = String(v).replace(/"/g, '""');
             return '"' + v + '"';
@@ -721,9 +1112,10 @@ function showDrugToast(msg) {
 // ════════════════════════════════════════════════════════════════
 function initDrugEditorListeners() {
     var fields = [
-        'deDrugName', 'deCategory', 'deDosage',
-        'deFrequency', 'deDuration', 'deRoute',
-        'deRemarks', 'deDentistName'
+        'deDrugName', 'deCategory', 'deDosageCustom', 'deFrequencyCustom', 'deDurationCustom',
+        'deRoute',
+        'deIntakeCaution', 'deIntakeCautionZh', 'deGeneralRemarks', 'deGeneralRemarksZh',
+        'deDentistName'
     ];
 
     fields.forEach(function(fid) {
@@ -732,6 +1124,11 @@ function initDrugEditorListeners() {
             el.addEventListener('input', function() { setDrugDirty(true); });
         }
     });
+
+    drugBindPhraseEditorControls();
+    drugBindRemarkPresetControls();
+    drugRefreshRemarkPresetDatalists();
+    drugRefreshPhraseSelects();
 
     var tog = g('deIsActive');
     if (tog) {

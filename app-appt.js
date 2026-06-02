@@ -564,8 +564,13 @@ function plusApptNotifyAppointmentSaved(meta) {
     if (meta.savedRow && typeof plusApptMergeSavedRow === 'function') {
         plusApptMergeSavedRow(meta.savedRow);
     }
-    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
-        if (typeof loadPlusApptDay === 'function') loadPlusApptDay();
+    var onPlusAppt = typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt';
+    if (onPlusAppt && typeof loadPlusApptDay === 'function') {
+        if (meta.savedRow) {
+            loadPlusApptDay({ soft: true, keepPendingSelect: true });
+        } else {
+            loadPlusApptDay();
+        }
     } else if (typeof refreshApptPlannerData === 'function') {
         refreshApptPlannerData({ forcePlusAppt: true });
     }
@@ -574,7 +579,9 @@ function plusApptNotifyAppointmentSaved(meta) {
 function plusApptMergeSavedRow(row) {
     if (!row || !row.id) return;
     var d = String(row.date || '').slice(0, 10);
-    if (plusApptDate && d && d !== plusApptDate) return;
+    if (d && plusApptDate && d !== plusApptDate && typeof syncApptPlannerDate === 'function') {
+        syncApptPlannerDate(d, { syncCal: false });
+    }
     var id = String(row.id);
     var idx = -1;
     for (var i = 0; i < plusApptDayAppts.length; i++) {
@@ -596,6 +603,22 @@ function plusApptMergeSavedRow(row) {
             if (hit) plusApptSelectApptRow(hit, true);
         }
     }
+}
+
+function plusApptReconcilePendingRowIntoList(rows) {
+    rows = rows ? rows.slice() : [];
+    var pendingId = plusApptPendingSelectApptId ? String(plusApptPendingSelectApptId) : '';
+    if (!pendingId) return rows;
+    var inRows = rows.some(function(a) { return a && String(a.id) === pendingId; });
+    if (inRows) return rows;
+    var local = plusApptFindApptById(pendingId);
+    if (local) {
+        rows.push(local);
+        rows.sort(function(a, b) {
+            return String(a.start_time || '').localeCompare(String(b.start_time || ''));
+        });
+    }
+    return rows;
 }
 
 function plusApptFinishDayLoadSelection() {
@@ -2003,7 +2026,8 @@ function plusApptSetDate(iso) {
     refreshApptPlannerData();
 }
 
-function loadPlusApptDay() {
+function loadPlusApptDay(opts) {
+    opts = opts || {};
     if (!plusApptDate) plusApptDate = todayISO();
     var loadSeq = ++plusApptDayLoadSeq;
     plusApptSyncDateLabel();
@@ -2014,12 +2038,14 @@ function loadPlusApptDay() {
     var loadingHtml =
         '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px;">' +
         esc(tr('common.loadingEllipsis')) + '</td></tr>';
-    if (allMode && scroll) {
-        scroll.innerHTML =
-            '<p style="text-align:center;color:#aaa;padding:24px;">' +
-            esc(tr('common.loadingEllipsis')) + '</p>';
-    } else if (tb) {
-        tb.innerHTML = loadingHtml;
+    if (!opts.soft) {
+        if (allMode && scroll) {
+            scroll.innerHTML =
+                '<p style="text-align:center;color:#aaa;padding:24px;">' +
+                esc(tr('common.loadingEllipsis')) + '</p>';
+        } else if (tb) {
+            tb.innerHTML = loadingHtml;
+        }
     }
 
     var q = SB.from('appointments').select('*')
@@ -2029,22 +2055,25 @@ function loadPlusApptDay() {
     q.then(function(r) {
         if (loadSeq !== plusApptDayLoadSeq) return;
         if (r.error) {
-            plusApptDayAppts = [];
-            var errHtml =
-                '<tr><td colspan="5" style="text-align:center;color:#c00;padding:24px;">' +
-                esc(trRepl('appt.msg.error', { MSG: r.error.message })) + '</td></tr>';
-            if (allMode && scroll) {
-                scroll.innerHTML =
-                    '<p style="text-align:center;color:#c00;padding:24px;">' +
-                    esc(trRepl('appt.msg.error', { MSG: r.error.message })) + '</p>';
-            } else if (tb) {
-                tb.innerHTML = errHtml;
+            if (!opts.soft) {
+                plusApptDayAppts = [];
+                var errHtml =
+                    '<tr><td colspan="5" style="text-align:center;color:#c00;padding:24px;">' +
+                    esc(trRepl('appt.msg.error', { MSG: r.error.message })) + '</td></tr>';
+                if (allMode && scroll) {
+                    scroll.innerHTML =
+                        '<p style="text-align:center;color:#c00;padding:24px;">' +
+                        esc(trRepl('appt.msg.error', { MSG: r.error.message })) + '</p>';
+                } else if (tb) {
+                    tb.innerHTML = errHtml;
+                }
             }
             return;
         }
         var finish = function(rows) {
             if (loadSeq !== plusApptDayLoadSeq) return;
-            plusApptDayAppts = rows || [];
+            rows = plusApptReconcilePendingRowIntoList(rows || []);
+            plusApptDayAppts = rows;
             plusApptApplyTaskStateToList(plusApptDayAppts);
             renderPlusApptSchedule();
             plusApptFinishDayLoadSelection();
@@ -5919,6 +5948,11 @@ function saveAppt() {
     var finishSave = function (savedRow) {
         closeModal('apptModal');
         var savedId = (savedRow && savedRow.id) ? savedRow.id : apptEditId;
+        if (!savedRow && savedId) {
+            savedRow = Object.assign({}, payload, { id: savedId });
+        } else if (savedRow && savedId) {
+            savedRow = Object.assign({}, payload, savedRow);
+        }
         apptEditId = null;
         apptEditLockRef = null;
         setApptScheduleLockFormUI(false);

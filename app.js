@@ -1680,12 +1680,12 @@ function startAppSessionStripClock() {
 }
 
 function openAppHelpPage() {
-    var url = 'help.html';
+    var url = 'docs/prelaunch-manual/help.pdf';
     try {
         var href = String(window.location.href || '').split('#')[0];
         var q = href.indexOf('?');
         if (q >= 0) href = href.slice(0, q);
-        url = href.replace(/[^/]+$/, '') + 'help.html';
+        url = href.replace(/[^/]+$/, '') + 'docs/prelaunch-manual/help.pdf';
     } catch (_) {}
     window.open(url, '_blank', 'noopener,noreferrer');
 }

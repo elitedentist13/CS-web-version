@@ -2,9 +2,9 @@
 
 Use this list in order. Mark each item complete before opening for normal operations.
 
-**Staff help (in app):** Dashboard → **❓ Help** (opens `help.html` in a new browser tab).
+**Staff help (in app):** Dashboard → **❓ Help** → opens `docs/prelaunch-manual/help.pdf`. Rebuild with `scripts/build-help-html.ps1` after updating screenshots.
 
-**Staff user manual source:** `docs/prelaunch-manual/USER_PRELAUNCH_MANUAL.html` — same content as `help.html`; update both when editing workflows. Add screenshots per `docs/prelaunch-manual/CAPTURE_SCREENSHOTS.md` (paths under `docs/prelaunch-manual/screenshots/`).
+**Staff user manual source:** Edit `docs/prelaunch-manual/help-source.html`, then run `scripts/build-help-html.ps1`. Add PNGs per `docs/prelaunch-manual/CAPTURE_SCREENSHOTS.md`.
 
 **A4 quick card (1 page):** `docs/prelaunch-manual/QUICK_REFERENCE_A4.html` — print and laminate for front desk / treatment room.
 

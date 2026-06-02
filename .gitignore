@@ -1,1 +1,12 @@
+# Secrets — never commit
 tools/.env
+.env
+.env.*
+
+# OS / editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Windows shortcuts (local paths)
+*.lnk

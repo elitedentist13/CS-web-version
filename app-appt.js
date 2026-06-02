@@ -142,7 +142,6 @@ var plusApptDayAppts = [];
 var plusApptSelectedSlot = null;
 var plusApptSelectedAppt = null;
 var plusApptHeaderPatient = null;
-var plusApptPatientFilterQ = '';
 var plusApptPsTimer = null;
 var plusApptTabBound = false;
 var plusApptActiveClinicId = '';
@@ -300,8 +299,7 @@ function applyApptModuleClinicQuery(builder) {
 }
 
 /** + Appointment day planner: strict clinic scope (no cross-clinic bleed). */
-function applyPlusApptClinicQuery(builder) {
-    if (!builder) return builder;
+function plusApptClinicTagForScope() {
     var tag = '';
     var cid = plusApptActiveClinicId ||
         (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
@@ -312,11 +310,18 @@ function applyPlusApptClinicQuery(builder) {
     if (!tag && typeof currentClinicCodeForTagging === 'function') {
         tag = currentClinicCodeForTagging();
     }
+    return tag;
+}
+
+function applyPlusApptClinicQuery(builder) {
+    if (!builder) return builder;
+    var tag = plusApptClinicTagForScope();
     if (!tag) return builder;
     var field = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
         ? APPOINTMENT_CLINIC_TAG_FIELD
         : 'clinic_tag';
-    return builder.eq(field, tag);
+    // Include legacy rows saved without clinic_tag so new bookings still appear after refresh.
+    return builder.or(field + '.eq.' + tag + ',' + field + '.is.null');
 }
 
 function apptUnpaidPatientId(a) {
@@ -565,13 +570,9 @@ function plusApptNotifyAppointmentSaved(meta) {
         plusApptMergeSavedRow(meta.savedRow);
     }
     var onPlusAppt = typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt';
-    if (onPlusAppt && typeof loadPlusApptDay === 'function') {
-        if (meta.savedRow) {
-            loadPlusApptDay({ soft: true, keepPendingSelect: true });
-        } else {
-            loadPlusApptDay();
-        }
-    } else if (typeof refreshApptPlannerData === 'function') {
+    if (onPlusAppt && typeof loadPlusApptDay === 'function' && !meta.savedRow) {
+        loadPlusApptDay();
+    } else if (!onPlusAppt && typeof refreshApptPlannerData === 'function') {
         refreshApptPlannerData({ forcePlusAppt: true });
     }
 }
@@ -609,9 +610,18 @@ function plusApptReconcilePendingRowIntoList(rows) {
     rows = rows ? rows.slice() : [];
     var pendingId = plusApptPendingSelectApptId ? String(plusApptPendingSelectApptId) : '';
     if (!pendingId) return rows;
-    var inRows = rows.some(function(a) { return a && String(a.id) === pendingId; });
-    if (inRows) return rows;
     var local = plusApptFindApptById(pendingId);
+    var idx = -1;
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i] && String(rows[i].id) === pendingId) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx >= 0) {
+        if (local) rows[idx] = Object.assign({}, rows[idx], local);
+        return rows;
+    }
     if (local) {
         rows.push(local);
         rows.sort(function(a, b) {
@@ -969,6 +979,11 @@ function plusApptApptMatchesDoctor(a, code) {
     if (dc && dc === c) return true;
     var dn = String(a.doctor_name || '').trim().toLowerCase();
     if (dn && dn === c) return true;
+    var fromRem = '';
+    if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.parseDoctorTagFromRemarks) {
+        fromRem = String(CalDoctorColors.parseDoctorTagFromRemarks(a.remarks) || '').trim().toLowerCase();
+    }
+    if (fromRem && fromRem === c) return true;
     return false;
 }
 
@@ -1266,14 +1281,6 @@ function plusApptFilterAppts(rows, doctorCode) {
     if (dr && dr !== PLUSAPPT_DOCTOR_ALL) {
         list = list.filter(function(a) {
             return plusApptApptMatchesDoctor(a, dr);
-        });
-    }
-    if (plusApptPatientFilterQ) {
-        var q = plusApptPatientFilterQ.toLowerCase();
-        list = list.filter(function(a) {
-            var nm = (a.patient_name || '') + ' ' + (a.patient_chinese_name || '');
-            var no = a.patient_no || '';
-            return nm.toLowerCase().indexOf(q) >= 0 || no.toLowerCase().indexOf(q) >= 0;
         });
     }
     return list;
@@ -2149,11 +2156,9 @@ function doPlusApptPatientSearch() {
     var dd = g('plusApptPsDrop');
     if (!inp || !dd) return;
     var q = (inp.value || '').trim();
-    plusApptPatientFilterQ = q;
     if (!q) {
         plusApptHeaderPatient = null;
         dd.style.display = 'none';
-        renderPlusApptSchedule();
         return;
     }
 
@@ -2171,7 +2176,6 @@ function doPlusApptPatientSearch() {
                 '<div class="ps-item" style="color:#aaa;">' +
                 esc(tr('common.psNoPatients')) + '</div>';
             dd.style.display = 'block';
-            renderPlusApptSchedule();
             return;
         }
         r.data.forEach(function(p) {
@@ -2190,9 +2194,7 @@ function doPlusApptPatientSearch() {
                 inp.value =
                     (p.chinese_name ? p.chinese_name + ' ' : '') +
                     p.full_name + ' (#' + (p.patient_no || '') + ')';
-                plusApptPatientFilterQ = inp.value.trim();
                 dd.style.display = 'none';
-                renderPlusApptSchedule();
             });
             item.addEventListener('dragstart', function(ev) {
                 if (typeof beginPatientDragTransfer === 'function') {
@@ -2207,7 +2209,6 @@ function doPlusApptPatientSearch() {
             dd.appendChild(item);
         });
         dd.style.display = 'block';
-        renderPlusApptSchedule();
     });
 }
 
@@ -3342,7 +3343,6 @@ function importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCodeOverrid
                 setWorkingClinic(clinicId, { syncFilters: true, reloadAppt: false });
             }
         }
-        plusApptPatientFilterQ = '';
         var psIn = g('plusApptPsInput');
         if (psIn) psIn.value = '';
         if (typeof plusApptClearSelection === 'function') plusApptClearSelection(true);
@@ -5936,22 +5936,37 @@ function saveAppt() {
         payload.doctor_name = drName;
     }
 
-    var apCt = typeof currentClinicCodeForTagging === 'function'
-        ? currentClinicCodeForTagging()
-        : '';
+    var apCt = plusApptActiveClinicId
+        ? plusApptClinicTagForScope()
+        : (typeof currentClinicCodeForTagging === 'function'
+            ? currentClinicCodeForTagging()
+            : '');
     if (apCt) payload[APPOINTMENT_CLINIC_TAG_FIELD] = apCt;
 
     Object.keys(payload).forEach(function(k) {
         if (payload[k] === undefined) delete payload[k];
     });
 
+    var btnSave = g('btnSaveAppt');
+    var setSaveBusy = function(busy) {
+        if (btnSave) btnSave.disabled = !!busy;
+    };
+
     var finishSave = function (savedRow) {
+        setSaveBusy(false);
         closeModal('apptModal');
         var savedId = (savedRow && savedRow.id) ? savedRow.id : apptEditId;
         if (!savedRow && savedId) {
             savedRow = Object.assign({}, payload, { id: savedId });
         } else if (savedRow && savedId) {
             savedRow = Object.assign({}, payload, savedRow);
+        }
+        if (savedRow) {
+            if (drCode) {
+                savedRow.doctor_code = drCode;
+                savedRow.doctor_name = drName;
+            }
+            if (apCt) savedRow[APPOINTMENT_CLINIC_TAG_FIELD] = apCt;
         }
         apptEditId = null;
         apptEditLockRef = null;
@@ -5996,12 +6011,14 @@ function saveAppt() {
                         tryPayload(p2, { doctorRemarksFallback: true });
                         return;
                     }
+                    setSaveBusy(false);
                     alert(tr('bill.alert.doctorColumns'));
                 } else if (msg.indexOf('clinic_tag') >= 0) {
                     var p3 = Object.assign({}, p);
                     delete p3[APPOINTMENT_CLINIC_TAG_FIELD];
                     tryPayload(p3, opts);
                 } else {
+                    setSaveBusy(false);
                     alert(trRepl('appt.msg.error', { MSG: msg }));
                 }
                 return;
@@ -6010,6 +6027,7 @@ function saveAppt() {
             finishSave(savedRow);
         });
     };
+    setSaveBusy(true);
     tryPayload(payload, {});
 }
 function deleteAppt() {

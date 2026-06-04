@@ -1135,6 +1135,7 @@ function onConFormsTemplateChange() {
 function applyConFormsPlaceholders(html) {
     var p = conFormsPatientData || {};
     var d = conFormsDoctorData || {};
+    var clinic = conFormsActiveClinicProfile();
     var now = new Date();
     var map = {
         patient_no: p.patient_no || '',
@@ -1153,7 +1154,11 @@ function applyConFormsPlaceholders(html) {
             }, printUiLangIsChinese() ? 'zh' : 'en', d)
             : (conActiveDoctorName || d.english_name || currentName || ''),
         doctor_code: d.doctor_code || '',
-        clinic_name: (conFormsSelectedTemplate && conFormsSelectedTemplate.clinic_name) || '',
+        clinic_name: clinic.name || '',
+        clinic_address: clinic.address === '—' ? '' : clinic.address,
+        clinic_tel: clinic.tel === '—' ? '' : clinic.tel,
+        receipt_no: '',
+        total_amount: '',
         date: todayISO(),
         time: now.toLocaleTimeString(conUiLocale(), { hour: '2-digit', minute: '2-digit' })
     };

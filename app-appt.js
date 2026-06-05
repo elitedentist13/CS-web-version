@@ -9986,6 +9986,33 @@ function refreshBillPanelNow() {
     refreshBillPanelLists({ manual: true });
 }
 
+/** Re-sync bill panel when header working date changes (pending lists + bill/payment dates). */
+function refreshBillPanelForWorkingDate() {
+    var panel = g('billPanel');
+    if (!panel || !panel.classList.contains('open') || !billPatId) return;
+
+    sv('bDate', todayISO());
+    var apModal = g('addPaymentModal');
+    if (apModal && apModal.style.display === 'block' && g('apDate')) {
+        sv('apDate', todayISO());
+    }
+
+    loadPendingLists(function (ok) {
+        if (ok !== false && typeof noteBillPendingRefreshed === 'function') {
+            noteBillPendingRefreshed();
+        }
+    });
+
+    var step2 = g('billStep2');
+    if (step2 && step2.style.display !== 'none') {
+        renderStep2(function (ok2) {
+            if (ok2 !== false && typeof noteBillPendingRefreshed === 'function') {
+                noteBillPendingRefreshed();
+            }
+        }, { resetForm: false });
+    }
+}
+
 function openBillPanel(q) {
     billApptId  = q.id;
     billPatId   = q.patient_id;

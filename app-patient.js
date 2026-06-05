@@ -1399,9 +1399,3 @@ document.addEventListener('app-lang-change', function() {
     if (typeof refreshPatientDirI18n === 'function') refreshPatientDirI18n();
 });
 
-document.addEventListener('app-working-date-change', function() {
-    var detModal = g('patientDetailsModal');
-    if (!detModal || detModal.style.display !== 'block') return;
-    if (!selPatientId) return;
-    if (typeof loadTreatments === 'function') loadTreatments(selPatientId);
-});

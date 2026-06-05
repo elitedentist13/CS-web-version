@@ -1430,6 +1430,18 @@ function conFormsInitSickLeaveDefaults() {
     if (!conFormsSickLeaveTo) conFormsSickLeaveTo = conFormsSickLeaveFrom;
 }
 
+/** When header working date changes, align sick-leave pickers to that date. */
+function conFormsApplyWorkingDateToSickLeave() {
+    if (!conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) return;
+    var today = typeof todayISO === 'function' ? todayISO() : '';
+    if (!today) return;
+    conFormsSickLeaveFrom = today;
+    conFormsSickLeaveTo = today;
+    if (typeof conFormsSyncSickLeaveDatePanel === 'function') {
+        conFormsSyncSickLeaveDatePanel();
+    }
+}
+
 /** Append doctor qualification placeholders to older sick-leave signature blocks. */
 function conFormsEnsureSickLeaveSignatureQualPlaceholders(raw) {
     var s = String(raw || '').trim();
@@ -6554,14 +6566,3 @@ document.addEventListener('consultation-ar-refresh', function() {
     }
 });
 
-document.addEventListener('app-working-date-change', function() {
-    var sec = g('consultationSection');
-    if (!sec || sec.style.display === 'none') return;
-    if (!conPatientId) return;
-    if (typeof loadConNotes === 'function') {
-        loadConNotes(conPatientId);
-    }
-    if (typeof loadDrugHistory === 'function') {
-        loadDrugHistory(conPatientId);
-    }
-});

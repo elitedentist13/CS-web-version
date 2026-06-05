@@ -90,9 +90,17 @@ var REPORT = (function () {
   }
 
   function todayISO() {
+    if (typeof window.todayISO === 'function') return window.todayISO();
     var d = new Date();
     var pad = function (n) { return String(n).padStart(2, '0'); };
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  function refreshForWorkingDate() {
+    var sec = g('reportSection');
+    if (!sec || sec.style.display === 'none') return;
+    if (!_reportInitialized) return;
+    refresh();
   }
 
   function addDays(iso, delta) {
@@ -2548,6 +2556,7 @@ var REPORT = (function () {
     isInitialized: function () { return _reportInitialized; },
     switchTab: switchTab,
     refresh: refresh,
+    refreshForWorkingDate: refreshForWorkingDate,
     printTable: printTable,
     printChart: printChart,
     magnifyChart: magnifyChart,

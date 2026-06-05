@@ -546,9 +546,76 @@ function setWorkingDateOverride(isoDate) {
         writeWorkingDateOverrideToStore(iso);
     }
     refreshAppSessionStripContents();
+    refreshAppSectionsForWorkingDate();
     document.dispatchEvent(new CustomEvent('app-working-date-change', {
         detail: { date: appWorkingDateOverride || '' }
     }));
+}
+
+/**
+ * After header working-date change: reload panels that key off todayISO() / nowLocal().
+ */
+function refreshAppSectionsForWorkingDate() {
+    var workIso = todayISO();
+
+    if (typeof syncApptPlannerDate === 'function') {
+        syncApptPlannerDate(workIso, { syncCal: true });
+    }
+    if (typeof refreshApptPlannerData === 'function') {
+        refreshApptPlannerData({ force: true, forcePlusAppt: true });
+    }
+    if (typeof loadToday === 'function') loadToday();
+    if (typeof loadQueue === 'function') loadQueue();
+
+    if (typeof rcDate !== 'undefined' && typeof loadRecallPatients === 'function') {
+        var recallPane = g('tab-recall');
+        if (recallPane && recallPane.classList.contains('active')) {
+            rcDate = workIso;
+            var rd = parseISODateOnly(workIso);
+            if (rd && !isNaN(rd.getTime())) {
+                rcMonthD = new Date(rd.getFullYear(), rd.getMonth(), 1);
+            }
+            if (typeof renderRcal === 'function') renderRcal();
+            loadRecallPatients(rcDate);
+        }
+    }
+
+    var todayLbl = g('conBannerToday');
+    if (todayLbl && typeof fmtNowDateTimeHK === 'function') {
+        todayLbl.textContent = fmtNowDateTimeHK();
+    }
+    if (typeof conPatientId !== 'undefined' && conPatientId) {
+        if (typeof loadConNotes === 'function') loadConNotes(conPatientId);
+        if (typeof loadConPatientTimeline === 'function') loadConPatientTimeline(conPatientId);
+        if (typeof loadDrugHistory === 'function') loadDrugHistory(conPatientId);
+    }
+    if (typeof conFormsApplyWorkingDateToSickLeave === 'function') {
+        conFormsApplyWorkingDateToSickLeave();
+    } else if (typeof conFormsInitSickLeaveDefaults === 'function') {
+        conFormsInitSickLeaveDefaults();
+    }
+    if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+    if (typeof conFormsScheduleSickLeaveRender === 'function') conFormsScheduleSickLeaveRender();
+    if (typeof conFormsRefreshPlaceholdersInEditor === 'function') {
+        conFormsRefreshPlaceholdersInEditor();
+    }
+    if (g('rxDate')) sv('rxDate', workIso);
+
+    if (typeof refreshBillPanelForWorkingDate === 'function') {
+        refreshBillPanelForWorkingDate();
+    }
+
+    if (typeof selPatientId !== 'undefined' && selPatientId &&
+        typeof loadTreatments === 'function') {
+        var detModal = g('patientDetailsModal');
+        if (detModal && detModal.style.display === 'block') {
+            loadTreatments(selPatientId);
+        }
+    }
+
+    if (typeof REPORT !== 'undefined' && REPORT && typeof REPORT.refreshForWorkingDate === 'function') {
+        REPORT.refreshForWorkingDate();
+    }
 }
 
 function clearWorkingDateOverride() {
@@ -1751,15 +1818,21 @@ function wireAppDateAdjustControls() {
         positionAppDateAdjustPopover();
     });
 
+    function applyAppDateFromInput() {
+        var inp = g('appDateAdjustInput');
+        var iso = inp ? String(inp.value || '').trim() : '';
+        if (!iso) return;
+        setWorkingDateOverride(iso);
+        toggleAppDateAdjustPopover(false);
+    }
+
     var applyBtn = g('appDateAdjustApplyBtn');
     if (applyBtn) {
-        applyBtn.addEventListener('click', function() {
-            var inp = g('appDateAdjustInput');
-            var iso = inp ? String(inp.value || '').trim() : '';
-            if (!iso) return;
-            setWorkingDateOverride(iso);
-            toggleAppDateAdjustPopover(false);
-        });
+        applyBtn.addEventListener('click', applyAppDateFromInput);
+    }
+    var dateInp = g('appDateAdjustInput');
+    if (dateInp) {
+        dateInp.addEventListener('change', applyAppDateFromInput);
     }
     var todayBtn = g('appDateAdjustTodayBtn');
     if (todayBtn) {
@@ -2562,6 +2635,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (restoreSession()) {
         populateWorkingClinicSelect();
         showDashboard();
+        if (hasEffectiveWorkingDateOverride()) {
+            setTimeout(function () {
+                refreshAppSectionsForWorkingDate();
+            }, 400);
+        }
     }
 
     var workClinicSel = g('appWorkingClinicSelect');

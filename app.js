@@ -673,6 +673,18 @@ function todayISO() {
     return d2iso(nowLocal());
 }
 
+/** Timestamp for DB inserts — working calendar date + current local clock time. */
+function workingTimestampISO() {
+    return nowLocal().toISOString();
+}
+
+/** Attach working-date-aware created_at for treatment note rows. */
+function withWorkingCreatedAt(row) {
+    var out = Object.assign({}, row || {});
+    out.created_at = workingTimestampISO();
+    return out;
+}
+
 /** Calendar date from YYYY-MM-DD (local midnight — matches DB date columns). */
 function parseISODateOnly(iso) {
     if (!iso) return null;

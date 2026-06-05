@@ -1293,10 +1293,15 @@ function loadTreatments(pid) {
                 '<p style="color:#999;margin:0;">' + esc(patTr('patient.history.empty')) + '</p>';
             return;
         }
-        var todayStr = new Date().toDateString();
+        var todayIso = typeof todayISO === 'function' ? todayISO() : '';
         tl.innerHTML = '';
         r.data.forEach(function(t) {
-            var isToday = new Date(t.created_at).toDateString()===todayStr;
+            var dk = '';
+            if (t.created_at && typeof d2iso === 'function') {
+                var nd = new Date(t.created_at);
+                if (!isNaN(nd.getTime())) dk = d2iso(nd);
+            }
+            var isToday = todayIso && dk === todayIso;
             var canEdit = isToday && currentRole!=='nurse';
             var div = document.createElement('div');
             div.className = 'note-card';
@@ -1337,7 +1342,7 @@ function saveNote() {
             : '');
     if (tagIns) ins[TREATMENT_CLINIC_TAG_FIELD] = tagIns;
     SB.from('treatments')
-        .insert([ins])
+        .insert([typeof withWorkingCreatedAt === 'function' ? withWorkingCreatedAt(ins) : ins])
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         inp.value = '';

@@ -3947,18 +3947,19 @@ function saveConNote() {
             : '');
     if (ctNote) row[TREATMENT_CLINIC_TAG_FIELD] = ctNote;
 
-    SB.from('treatments').insert([row])
+    SB.from('treatments').insert([withWorkingCreatedAt(row)])
     .then(function(r) {
         if (!r.error) {
             inp.value = '';
             loadConNotes(conPatientId);
+            conSchedulePatientTimelineRefresh(conPatientId);
             return;
         }
         var msg = String(r.error.message || '').toLowerCase();
         if (msg.indexOf('clinic_tag') >= 0 && row[TREATMENT_CLINIC_TAG_FIELD]) {
             var rowCt = Object.assign({}, row);
             delete rowCt[TREATMENT_CLINIC_TAG_FIELD];
-            SB.from('treatments').insert([rowCt])
+            SB.from('treatments').insert([withWorkingCreatedAt(rowCt)])
             .then(function(rc) {
                 if (!rc.error) {
                     inp.value = '';
@@ -3973,7 +3974,7 @@ function saveConNote() {
                         dentist_name: rowCt.dentist_name,
                         notes: rowCt.notes
                     };
-                    SB.from('treatments').insert([legacyRow])
+                    SB.from('treatments').insert([withWorkingCreatedAt(legacyRow)])
                     .then(function(r2) {
                         if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
                         inp.value = '';
@@ -3991,7 +3992,7 @@ function saveConNote() {
                 dentist_name: row.dentist_name,
                 notes: row.notes
             };
-            SB.from('treatments').insert([legacyRow])
+            SB.from('treatments').insert([withWorkingCreatedAt(legacyRow)])
             .then(function(r2) {
                 if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
                 inp.value = '';

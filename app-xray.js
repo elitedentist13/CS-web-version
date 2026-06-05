@@ -1114,6 +1114,7 @@ function lbCropApply() {
 // LIGHTBOX — PRINT
 // ════════════════════════════════════════════════════════════════
 function lbPrint() {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
     var img    = g('xrayLbImg');
     var canvas = g('xrayLbCanvas');
     var video  = g('xrayLbVideo');

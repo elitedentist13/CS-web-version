@@ -677,12 +677,17 @@ function submitAddPatient(e) {
         payload[PATIENT_CLINIC_TAG_FIELD] = ctAdd;
         function finishInsert(r) {
             var row = r.data && r.data[0] ? r.data[0] : null;
+
+            function afterSaveUi() {
+                closeModal('addPatientModal');
+                g('patientForm').reset();
+                fetchPatients();
+            }
+
             var linkedToday = row &&
                 typeof linkTodayApptAfterPatientRegistration === 'function' &&
                 linkTodayApptAfterPatientRegistration(row);
-            closeModal('addPatientModal');
-            g('patientForm').reset();
-            fetchPatients();
+            afterSaveUi();
             if (!linkedToday) {
                 alert(patTrRepl('patient.alertRegistered', { NO: no }));
             }
@@ -846,6 +851,10 @@ function renderPatients(list) {
                     'style="background:#f0f0f0;border:1px solid #ccc;' +
                     'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
                     'data-id="'+p.id+'">' + esc(patTr('patient.btnNotes')) + '</button>' +
+                    '<button class="btn-checkin-p" ' +
+                    'style="background:var(--success);color:white;border:none;' +
+                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
+                    'data-id="'+p.id+'">' + esc(patTr('patient.btnCheckIn')) + '</button>' +
                     '<button class="btn-editp" ' +
                     'style="background:var(--primary);color:white;border:none;' +
                     'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
@@ -884,6 +893,18 @@ function renderPatients(list) {
         b.addEventListener('click', function(e){
             e.stopPropagation();
             viewHistory(b.dataset.id);
+        });
+    });
+    tb.querySelectorAll('.btn-checkin-p').forEach(function (b) {
+        b.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var pid = b.dataset.id;
+            var row = (patientListCache || []).find(function (x) {
+                return x && String(x.id) === String(pid);
+            });
+            if (row && typeof checkInPatientFromRecord === 'function') {
+                checkInPatientFromRecord(row);
+            }
         });
     });
     tb.querySelectorAll('.btn-editp').forEach(function(b) {

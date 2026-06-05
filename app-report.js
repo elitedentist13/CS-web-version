@@ -531,6 +531,7 @@ var REPORT = (function () {
   }
 
   function openPrintWindow(title, bodyHtml, extraCss) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return null;
     var w = window.open('', '_blank', 'width=980,height=720,scrollbars=1,resizable=1');
     if (!w) {
       alert(tr('report.print.popupBlocked'));

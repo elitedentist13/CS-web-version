@@ -100,6 +100,56 @@
             }
         },
         {
+            id: 'check_in',
+            icon: '✅',
+            i18nKey: 'ql.checkIn',
+            shortcut: 'Ctrl+Shift+7',
+            requiresPatient: true,
+            handler: function () {
+                var pid = qlCurrentPatientId();
+                if (!pid) {
+                    qlToast(qlTr('ql.needPatient'));
+                    return;
+                }
+                function runCheckIn(p) {
+                    if (!p || !p.id) {
+                        qlToast(qlTr('ql.needPatient'));
+                        return;
+                    }
+                    if (typeof checkInPatientFromRecord === 'function') {
+                        checkInPatientFromRecord(p);
+                    }
+                }
+                var cached = null;
+                if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
+                    cached = patientListCache.find(function (x) { return x && x.id === pid; }) || null;
+                }
+                if (!cached && typeof conPatientId !== 'undefined' && conPatientId === pid &&
+                    typeof conPatientData !== 'undefined' && conPatientData) {
+                    cached = conPatientData;
+                }
+                if (cached) {
+                    runCheckIn(cached);
+                    return;
+                }
+                if (typeof SB === 'undefined' || !SB || !SB.from) {
+                    qlToast(qlTr('ql.needPatient'));
+                    return;
+                }
+                SB.from('patients')
+                    .select('id,patient_no,full_name,chinese_name')
+                    .eq('id', pid)
+                    .limit(1)
+                .then(function (r) {
+                    if (r.error || !r.data || !r.data.length) {
+                        qlToast(qlTr('ql.needPatient'));
+                        return;
+                    }
+                    runCheckIn(r.data[0]);
+                });
+            }
+        },
+        {
             id: 'appt_records',
             icon: '📋',
             i18nKey: 'ql.apptRecords',
@@ -340,11 +390,11 @@
     // ── keyboard shortcuts ────────────────────────────────────
     function qlShortcutIndex(e) {
         if (!e || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return -1;
-        var m = /^Digit([1-6])$/.exec(e.code || '');
+        var m = /^Digit([1-9])$/.exec(e.code || '');
         if (m) return parseInt(m[1], 10);
-        m = /^Numpad([1-6])$/.exec(e.code || '');
+        m = /^Numpad([1-9])$/.exec(e.code || '');
         if (m) return parseInt(m[1], 10);
-        if (e.key >= '1' && e.key <= '6') return parseInt(e.key, 10);
+        if (e.key >= '1' && e.key <= '9') return parseInt(e.key, 10);
         return -1;
     }
 

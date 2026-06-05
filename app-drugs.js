@@ -7,7 +7,12 @@
 //         dentist_name, dentist_id, is_active, created_at
 // ════════════════════════════════════════════════════════════════
 
-var DRUG_REMARKS_LEGACY_SEP = '\u27E6|\u27E7'; /* intake | general when one column */
+/** Bilingual EN|ZH within one caution field (same as RX_BILINGUAL_SEP). */
+var DRUG_BILINGUAL_SEP = '\u27E6|\u27E7';
+/** Intake vs general when both were stored in remarks only (must not equal DRUG_BILINGUAL_SEP). */
+var DRUG_FIELD_LEGACY_SEP = '\u27E6§\u27E7';
+/** @deprecated Old saves merged intake|general using the bilingual separator — still parsed on read. */
+var DRUG_REMARKS_LEGACY_SEP = DRUG_BILINGUAL_SEP;
 var DRUG_INTAKE_PRESET_LS = 'joyful_drug_intake_presets_v1';
 var DRUG_GENERAL_PRESET_LS = 'joyful_drug_general_presets_v1';
 
@@ -144,14 +149,82 @@ function drugUiLang() {
     return typeof rxUiPhraseLang === 'function' ? rxUiPhraseLang() : 'en';
 }
 
+/**
+ * Split combined remarks column into intake + general raw strings.
+ * Handles new field separator, legacy ambiguous separator, and corrupted 4-part blobs.
+ */
+function drugSplitCombinedRemarksColumn(remarks) {
+    var raw = String(remarks || '').trim();
+    if (!raw) return { intakeRaw: '', generalRaw: '' };
+
+    var biSep = DRUG_BILINGUAL_SEP;
+    var fieldIdx = raw.indexOf(DRUG_FIELD_LEGACY_SEP);
+    if (fieldIdx >= 0) {
+        return {
+            intakeRaw: raw.slice(0, fieldIdx).trim(),
+            generalRaw: raw.slice(fieldIdx + DRUG_FIELD_LEGACY_SEP.length).trim()
+        };
+    }
+
+    var parts = raw.split(biSep);
+    if (parts.length === 4) {
+        return {
+            intakeRaw: parts[0].trim() + biSep + parts[1].trim(),
+            generalRaw: parts[2].trim() + biSep + parts[3].trim()
+        };
+    }
+    if (parts.length === 3) {
+        return {
+            intakeRaw: parts[0].trim() + biSep + parts[1].trim(),
+            generalRaw: parts[2].trim()
+        };
+    }
+    if (parts.length === 2) {
+        var a = parts[0].trim();
+        var b = parts[1].trim();
+        var aCjk = /[\u4e00-\u9fff\u3400-\u4dbf]/.test(a);
+        var bCjk = /[\u4e00-\u9fff\u3400-\u4dbf]/.test(b);
+        if (aCjk !== bCjk) {
+            return {
+                intakeRaw: (aCjk ? b : a) + biSep + (aCjk ? a : b),
+                generalRaw: ''
+            };
+        }
+        return { intakeRaw: a, generalRaw: b };
+    }
+    return { intakeRaw: '', generalRaw: raw };
+}
+
+/** When intake_caution exists but remarks still holds an old merged blob, keep general only. */
+function drugSanitizeGeneralRemarksWhenIntakeSet(intakeRaw, generalRaw) {
+    var intake = String(intakeRaw || '').trim();
+    var general = String(generalRaw || '').trim();
+    if (!intake || !general) return general;
+    var biSep = DRUG_BILINGUAL_SEP;
+    if (general.indexOf(DRUG_FIELD_LEGACY_SEP) >= 0) {
+        var split = drugSplitCombinedRemarksColumn(general);
+        return split.generalRaw || general;
+    }
+    var parts = general.split(biSep);
+    if (parts.length === 4) {
+        return parts[2].trim() + biSep + parts[3].trim();
+    }
+    if (parts.length === 3) {
+        return parts[2].trim();
+    }
+    return general;
+}
+
 function drugUnpackRemarks(row) {
     row = row || {};
     var intakeRaw = String(row.intake_caution || '').trim();
     var generalRaw = String(row.remarks || '').trim();
-    if (!intakeRaw && generalRaw.indexOf(DRUG_REMARKS_LEGACY_SEP) >= 0) {
-        var sep = generalRaw.indexOf(DRUG_REMARKS_LEGACY_SEP);
-        intakeRaw = generalRaw.slice(0, sep).trim();
-        generalRaw = generalRaw.slice(sep + DRUG_REMARKS_LEGACY_SEP.length).trim();
+    if (!intakeRaw && generalRaw) {
+        var combined = drugSplitCombinedRemarksColumn(generalRaw);
+        intakeRaw = combined.intakeRaw;
+        generalRaw = combined.generalRaw;
+    } else if (intakeRaw) {
+        generalRaw = drugSanitizeGeneralRemarksWhenIntakeSet(intakeRaw, generalRaw);
     }
     var intake = typeof drugUnpackBilingualText === 'function'
         ? drugUnpackBilingualText(intakeRaw)
@@ -176,9 +249,9 @@ function drugUnpackRemarks(row) {
 
 function drugPackRemarksForLegacyColumn(intake, general) {
     var i = String(intake || '').trim();
-    var g = String(general || '').trim();
-    if (i && g) return i + DRUG_REMARKS_LEGACY_SEP + g;
-    return g || i || null;
+    var gRem = String(general || '').trim();
+    if (i && gRem) return i + DRUG_FIELD_LEGACY_SEP + gRem;
+    return gRem || i || null;
 }
 
 function drugColumnMissing(msg, col) {

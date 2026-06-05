@@ -42,6 +42,20 @@ var conFormsShellFooterTpl = '';
 var conFormsShellLoaded = false;
 var conFormsShellLoading = false;
 var conFormsShellPreviewOn = false;
+var conFormsShellWaiters = [];
+/** Sick leave template: inclusive date range (YYYY-MM-DD); diagnosis typed at {diagnosis} in body. */
+var conFormsSickLeaveFrom = '';
+var conFormsSickLeaveTo = '';
+var conFormsSickLeaveDxInner = '';
+var conFormsSickLeaveRenderTimer = null;
+/** Treatment pane subtab: notes | timeline */
+var conTnActiveSubtab = 'notes';
+var conPtlFilterKey = 'all';
+var conPatientTimelineEvents = [];
+var conPatientTimelineHadErrors = false;
+var conPtlRefreshTimer = null;
+var conFormsEditingDocId = null;
+var conFormsToolbarReady = false;
 var CON_NOTE_TEMPLATES_KEY = 'con_note_templates_v1';
 var CON_NOTE_TEMPLATES_TABLE = 'con_note_templates';
 var conNoteTemplatesCache = [];
@@ -368,7 +382,9 @@ function loadConsultationDoctors() {
         return;
     }
 
-    SB.from('doctors').select('id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id').order('doctor_code')
+    SB.from('doctors').select(
+        'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id,qualification,qualification_chinese'
+    ).order('doctor_code')
     .then(function (r) {
         useDocs(r.data || []);
     });
@@ -410,7 +426,18 @@ function conSetActiveDoctor(doctorId) {
         currentName = conActiveDoctorName;
     }
 
+    conFormsDoctorData = null;
     updateConsultationDoctorUI();
+
+    var formsTabActive = document.querySelector('.con-tab.active');
+    if (formsTabActive && formsTabActive.dataset.tab === 'forms' &&
+        typeof loadConFormsDoctor === 'function') {
+        loadConFormsDoctor(function () {
+            if (typeof conFormsRefreshPlaceholdersInEditor === 'function') {
+                conFormsRefreshPlaceholdersInEditor();
+            }
+        }, true);
+    }
 }
 
 function updateConsultationDoctorUI() {
@@ -469,7 +496,7 @@ function openConForPatient(patientId) {
                 if (!retried && m.indexOf('banana_notes') >= 0) {
                     fetchPatient(
                         'id,patient_no,full_name,chinese_name,sex,dob,' +
-                        'phone_number,email,hkid,medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD,
+                        'phone_number,email,hkid,address,medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD,
                         true
                     );
                     return;
@@ -488,7 +515,7 @@ function openConForPatient(patientId) {
     }
     fetchPatient(
         'id,patient_no,full_name,chinese_name,sex,dob,' +
-        'phone_number,email,hkid,medical_alerts,banana_index,banana_notes,' + PATIENT_CLINIC_TAG_FIELD,
+        'phone_number,email,hkid,address,medical_alerts,banana_index,banana_notes,' + PATIENT_CLINIC_TAG_FIELD,
         false
     );
 }
@@ -779,52 +806,143 @@ function selectConPatient(p) {
 // ════════════════════════════════════════════════════════════════
 
 function initConForms() {
-    // show card only if patient selected
     var card = g('conFormsTplCard');
     if (card) card.style.display = conFormsPatientId ? 'block' : 'none';
+    conFormsShowHistCard(!!conFormsPatientId);
+
+    var docSel = g('conDoctorSelect');
+    if (docSel && docSel.value && typeof conSetActiveDoctor === 'function') {
+        conSetActiveDoctor(docSel.value);
+    }
 
     updateConFormsPatientLabel();
+    conFormsEnsureRichEditor();
 
-    // load templates once per session
-    if (!conFormsTemplates || !conFormsTemplates.length) {
-        loadConFormsTemplates();
-    }
-
-    // try load doctor data (best-effort)
-    loadConFormsDoctor();
-    conFormsBindShellSettingsUIOnce();
+    loadConFormsTemplates();
+    loadConFormsDoctor(null, true);
     loadConFormsShellSettings();
 
-    // preserve selection for toolbar interactions (once)
-    var editor = g('conFormsDocEditor');
-    if (editor && !editor.dataset.selWired) {
-        editor.dataset.selWired = '1';
-        ['mouseup', 'keyup', 'touchend'].forEach(function (ev) {
-            editor.addEventListener(ev, conFormsSaveSelection);
-        });
-        editor.addEventListener('focus', conFormsSaveSelection);
+    if (conFormsPatientId) {
+        searchConFormsDocs();
+        if (conFormsSelectedTemplate) {
+            var editorWrap = g('conFormsEditorWrap');
+            if (editorWrap) editorWrap.style.display = 'block';
+            conFormsWhenReadyForPlaceholders(function () {
+                conFormsRenderDocumentInEditor(conFormsSelectedTemplate.content || '');
+            });
+        }
     }
+}
 
-    refreshConFormsToolbarI18n();
-    refreshConFormsEditorPlaceholder();
+function conFormsShowHistCard(show) {
+    var c = g('conFormsHistCard');
+    if (c) c.style.display = show ? 'block' : 'none';
+}
+
+function conFormsEnsureRichEditor() {
+    if (conFormsToolbarReady || typeof DocEditor === 'undefined') return;
+    var mount = g('conFormsToolbarMount');
+    if (!mount) return;
+    mount.innerHTML = DocEditor.toolbarHtml('conForms', {});
+    DocEditor.init('conFormsDocEditor', {
+        toolbarPrefix: 'conForms',
+        placeholderText: conTr('con.forms.selectTemplatePh')
+    });
+    DocEditor.refreshFontSizeLabels('conForms', function (k) { return conTr(k); });
+    conFormsToolbarReady = true;
+}
+
+function conFormsUpdateEditingBadge() {
+    var badge = g('conFormsEditingBadge');
+    if (!badge) return;
+    if (conFormsEditingDocId) badge.classList.add('is-on');
+    else badge.classList.remove('is-on');
+}
+
+function conFormsStartNewDoc() {
+    conFormsEditingDocId = null;
+    conFormsUpdateEditingBadge();
+    if (g('conFormsDocName')) g('conFormsDocName').value = '';
+    if (g('conFormsTemplateSel')) g('conFormsTemplateSel').value = '';
+    conFormsSelectedTemplate = null;
+    conFormsSickLeaveFrom = '';
+    conFormsSickLeaveTo = '';
+    conFormsSickLeaveDxInner = '';
+    clearTimeout(conFormsSickLeaveRenderTimer);
+    conFormsSickLeaveRenderTimer = null;
+    if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+    var wrap = g('conFormsEditorWrap');
+    if (wrap) wrap.style.display = 'none';
+    if (typeof DocEditor !== 'undefined') {
+        DocEditor.setPlaceholder('conFormsDocEditor', conTr('con.forms.selectTemplatePh'));
+    } else if (g('conFormsDocEditor')) {
+        g('conFormsDocEditor').dataset.placeholderMode = '1';
+        refreshConFormsEditorPlaceholder();
+    }
+}
+
+function conFormsShellPlaceholderMap(c, d, opts) {
+    opts = opts || {};
+    var map = conFormsPlaceholderMap(opts);
+    c = c || conFormsActiveClinicProfile();
+    if (opts.forPrint && typeof conFormsActiveDoctorProfileForPrint === 'function') {
+        d = conFormsActiveDoctorProfileForPrint();
+    } else {
+        d = d || conFormsActiveDoctorProfile();
+    }
+    map.clinic_name = c.nameEn;
+    map.clinic_name_chi = c.nameChi;
+    map.clinic_address = c.address;
+    map.clinic_address_chi = c.addressChi;
+    map.clinic_tel = c.tel;
+    map.clinic_fax = c.fax;
+    map.doctor_eng = d.eng;
+    map.doctor_chi = d.chi;
+    var dRow = conFormsEffectiveDoctorRow();
+    if (typeof doctorQualEnglishHtml === 'function') {
+        var qEn = doctorQualEnglishHtml(dRow);
+        if (qEn) map.doctor_qualification = qEn;
+    }
+    if (typeof doctorQualChineseHtml === 'function') {
+        var qChi = doctorQualChineseHtml(dRow);
+        if (qChi) map.doctor_qualification_chi = qChi;
+    }
+    return map;
 }
 
 function conFormsDefaultHeaderTemplate() {
     return '' +
         '<div data-conforms-default-header="1" style="text-align:center;border-bottom:2px solid #dbe4f0;padding:10px 0 12px;margin-bottom:16px;">' +
             '<div style="font-size:24px;font-weight:800;color:#0f172a;line-height:1.2;">{clinic_name}</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#0f172a;line-height:1.25;font-family:PMingLiU,MingLiU,serif;">{clinic_name_chi}</div>' +
             '<div style="font-size:14px;color:#334155;margin-top:4px;line-height:1.4;">{clinic_address}</div>' +
+            '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;font-family:PMingLiU,MingLiU,serif;">{clinic_address_chi}</div>' +
             '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;">Tel: {clinic_tel}</div>' +
+            '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;">Fax: {clinic_fax}</div>' +
         '</div>';
+}
+
+/** Older saved footers may lack qualification placeholders — append at runtime. */
+function conFormsNormalizeFooterTemplate(tpl) {
+    var s = String(tpl || '').trim();
+    if (!s || /\{doctor_qualification_chi\}/i.test(s)) return s;
+    var addon = '';
+    if (!/\{doctor_qualification\}/i.test(s)) {
+        addon += '<div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;line-height:1.35;">{doctor_qualification}</div>';
+    }
+    addon += '<div style="margin-top:4px;font-size:13px;font-family:PMingLiU,MingLiU,serif;line-height:1.35;">{doctor_qualification_chi}</div>';
+    return s + addon;
 }
 
 function conFormsDefaultFooterTemplate() {
     return '' +
         '<div data-conforms-default-footer="1" style="margin-top:30px;padding-top:8px;">' +
-            '<div style="max-width:320px;">' +
+            '<div style="max-width:400px;">' +
                 '<div style="border-bottom:1.5px solid #334155;height:22px;"></div>' +
                 '<div style="margin-top:8px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;">{doctor_eng}</div>' +
-                '<div style="margin-top:3px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;">{doctor_chi}</div>' +
+                '<div style="margin-top:3px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;font-family:PMingLiU,MingLiU,serif;">{doctor_chi}</div>' +
+                '<div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;line-height:1.35;">{doctor_qualification}</div>' +
+                '<div style="margin-top:4px;font-size:13px;font-family:PMingLiU,MingLiU,serif;line-height:1.35;">{doctor_qualification_chi}</div>' +
             '</div>' +
         '</div>';
 }
@@ -863,9 +981,27 @@ function conFormsSyncShellSettingsUI() {
     if (f) f.value = conFormsShellFooterTpl || conFormsDefaultFooterTemplate();
 }
 
-function loadConFormsShellSettings() {
-    if (conFormsShellLoaded || conFormsShellLoading || !SB || typeof SB.from !== 'function') {
-        if (conFormsShellLoaded) conFormsSyncShellSettingsUI();
+function conFormsFlushShellWaiters() {
+    var list = conFormsShellWaiters.slice();
+    conFormsShellWaiters = [];
+    list.forEach(function (fn) {
+        try { if (typeof fn === 'function') fn(); } catch (e) {}
+    });
+}
+
+function loadConFormsShellSettings(done) {
+    if (typeof done === 'function') conFormsShellWaiters.push(done);
+
+    if (conFormsShellLoaded) {
+        conFormsSyncShellSettingsUI();
+        conFormsFlushShellWaiters();
+        return;
+    }
+    if (conFormsShellLoading || !SB || typeof SB.from !== 'function') {
+        if (!SB || typeof SB.from !== 'function') {
+            conFormsShellLoaded = true;
+            conFormsFlushShellWaiters();
+        }
         return;
     }
     conFormsShellLoading = true;
@@ -878,15 +1014,17 @@ function loadConFormsShellSettings() {
             var map = {};
             (r.data || []).forEach(function(row) { map[row.setting_key] = row.setting_value || ''; });
             conFormsShellHeaderTpl = String(map.con_forms_header_html || '').trim();
-            conFormsShellFooterTpl = String(map.con_forms_footer_html || '').trim();
+            conFormsShellFooterTpl = conFormsNormalizeFooterTemplate(map.con_forms_footer_html || '');
         }
         conFormsShellLoaded = true;
         conFormsSyncShellSettingsUI();
+        conFormsFlushShellWaiters();
     })
     .catch(function() {
         conFormsShellLoading = false;
         conFormsShellLoaded = true;
         conFormsSyncShellSettingsUI();
+        conFormsFlushShellWaiters();
     });
 }
 
@@ -906,14 +1044,26 @@ function conFormsSaveShellSettings() {
         alert(conTr('con.forms.shell.savedLocalOnly'));
         return;
     }
-    SB.from('program_settings')
-      .upsert([
-          { setting_key: 'con_forms_header_html', setting_value: headerTpl },
-          { setting_key: 'con_forms_footer_html', setting_value: footerTpl }
-      ], { onConflict: 'setting_key' })
-    .then(function(r) {
-        if (r.error) {
-            alert(conTrRepl('con.forms.shell.saveFailed', { MSG: r.error.message }));
+    var persist = (typeof persistProgramSettingRow === 'function')
+        ? persistProgramSettingRow
+        : null;
+    if (!persist) {
+        alert(conTrRepl('con.forms.shell.saveFailed', { MSG: 'Database client is not available.' }));
+        return;
+    }
+    Promise.all([
+        persist({ setting_key: 'con_forms_header_html', setting_value: headerTpl }),
+        persist({ setting_key: 'con_forms_footer_html', setting_value: footerTpl })
+    ]).then(function (results) {
+        var err = '';
+        for (var i = 0; i < results.length; i++) {
+            if (results[i] && results[i].error) {
+                err = results[i].error.message ? String(results[i].error.message) : String(results[i].error);
+                break;
+            }
+        }
+        if (err) {
+            alert(conTrRepl('con.forms.shell.saveFailed', { MSG: err }));
             return;
         }
         alert(conTr('con.forms.shell.saved'));
@@ -940,14 +1090,26 @@ function conFormsResetShellSettings() {
         alert(conTr('con.forms.shell.resetDoneLocal'));
         return;
     }
-    SB.from('program_settings')
-      .upsert([
-          { setting_key: 'con_forms_header_html', setting_value: conFormsShellHeaderTpl },
-          { setting_key: 'con_forms_footer_html', setting_value: conFormsShellFooterTpl }
-      ], { onConflict: 'setting_key' })
-    .then(function(r) {
-        if (r.error) {
-            alert(conTrRepl('con.forms.shell.saveFailed', { MSG: r.error.message }));
+    var persist = (typeof persistProgramSettingRow === 'function')
+        ? persistProgramSettingRow
+        : null;
+    if (!persist) {
+        alert(conTrRepl('con.forms.shell.saveFailed', { MSG: 'Database client is not available.' }));
+        return;
+    }
+    Promise.all([
+        persist({ setting_key: 'con_forms_header_html', setting_value: conFormsShellHeaderTpl }),
+        persist({ setting_key: 'con_forms_footer_html', setting_value: conFormsShellFooterTpl })
+    ]).then(function (results) {
+        var err = '';
+        for (var i = 0; i < results.length; i++) {
+            if (results[i] && results[i].error) {
+                err = results[i].error.message ? String(results[i].error.message) : String(results[i].error);
+                break;
+            }
+        }
+        if (err) {
+            alert(conTrRepl('con.forms.shell.saveFailed', { MSG: err }));
             return;
         }
         alert(conTr('con.forms.shell.resetDone'));
@@ -962,20 +1124,9 @@ function conFormsRenderShellPreview() {
     var f = g('conFormsShellFooterTpl');
     var headerTpl = String(h ? h.value : '').trim() || conFormsDefaultHeaderTemplate();
     var footerTpl = String(f ? f.value : '').trim() || conFormsDefaultFooterTemplate();
-    var headerHtml = conFormsRenderShellTemplate(headerTpl, {
-        clinic_name: conFormsActiveClinicProfile().name,
-        clinic_address: conFormsActiveClinicProfile().address,
-        clinic_tel: conFormsActiveClinicProfile().tel,
-        doctor_eng: conFormsActiveDoctorProfile().eng,
-        doctor_chi: conFormsActiveDoctorProfile().chi
-    });
-    var footerHtml = conFormsRenderShellTemplate(footerTpl, {
-        clinic_name: conFormsActiveClinicProfile().name,
-        clinic_address: conFormsActiveClinicProfile().address,
-        clinic_tel: conFormsActiveClinicProfile().tel,
-        doctor_eng: conFormsActiveDoctorProfile().eng,
-        doctor_chi: conFormsActiveDoctorProfile().chi
-    });
+    var shellMap = conFormsShellPlaceholderMap(null, null, {});
+    var headerHtml = conFormsRenderShellTemplate(headerTpl, shellMap);
+    var footerHtml = conFormsRenderShellTemplate(footerTpl, shellMap);
     area.innerHTML =
         '<div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:6px;">' + esc(conTr('con.forms.shell.previewHeader')) + '</div>' +
         headerHtml +
@@ -1055,7 +1206,12 @@ function loadConFormsTemplates() {
             if (sel) sel.innerHTML = '<option value="">' + esc(conTr('con.forms.errTemplates')) + '</option>';
             return;
         }
-        conFormsTemplates = (r.data || []).filter(function(t) { return t.is_active !== false; });
+        conFormsTemplates = (r.data || []).filter(function (t) { return t.is_active !== false; }).map(function (t) {
+            if (!conFormsIsSickLeaveTemplate(t)) return t;
+            var copy = Object.assign({}, t);
+            copy.content = conFormsNormalizeSickLeaveTemplateContent(t.content || '');
+            return copy;
+        });
         if (!sel) return;
 
         if (!conFormsTemplates.length) {
@@ -1064,81 +1220,652 @@ function loadConFormsTemplates() {
         }
         sel.innerHTML = '<option value="">' + esc(conTr('con.forms.selectTemplateOpt')) + '</option>' +
             conFormsTemplates.map(function(t) {
+                var typeLbl = conDispTplType(t.template_type);
                 var label = (t.template_name || t.template_code || conTr('con.forms.fieldTemplate')) +
-                    (t.template_type ? ' · ' + t.template_type : '');
+                    (typeLbl ? ' · ' + typeLbl : '');
                 return '<option value="' + esc(t.id) + '">' + esc(label) + '</option>';
             }).join('');
     });
 }
 
-function loadConFormsDoctor() {
-    // best-effort matching active doctor -> doctors row
-    conFormsDoctorData = null;
-    if (conActiveDoctorId) {
-        SB.from('doctors').select('*').eq('id', conActiveDoctorId).single()
+var CON_FORMS_DOCTOR_SELECT_BASE =
+    'id,doctor_code,english_name,chinese_name,display_name,qualification,is_active,clinic_id';
+var CON_FORMS_DOCTOR_SELECT_FULL =
+    CON_FORMS_DOCTOR_SELECT_BASE + ',qualification_chinese';
+
+/** Fix common typo 醫學學士 → 醫學士 (extra 學 before 士). */
+function conFormsNormalizeQualificationChi(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return '';
+    s = s.replace(/學學士/g, '學士');
+    s = s.replace(/醫學學士/g, '醫學士');
+    return s;
+}
+
+function conFormsDoctorQualChi(d) {
+    d = d || {};
+    if (typeof doctorQualChineseDisplay === 'function') {
+        return doctorQualChineseDisplay(d);
+    }
+    return conFormsNormalizeQualificationChi(d.qualification_chinese || d.qualification_chi || '');
+}
+
+/** True when a doctor row was fetched with qualification_chinese (even if empty). */
+function conFormsDoctorRowQualFieldsLoaded(row) {
+    if (!row || typeof row !== 'object') return false;
+    return Object.prototype.hasOwnProperty.call(row, 'qualification_chinese') ||
+        Object.prototype.hasOwnProperty.call(row, 'qualification_chi');
+}
+
+/** Fill missing qualification fields from APP_DOCTORS / consultation cache. */
+function conFormsEnrichDoctorRowFromAppCaches(row) {
+    if (!row || !row.id) return row || null;
+    var out = Object.assign({}, row);
+    var id = String(row.id);
+    var pick = null;
+    if (typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS && APP_DOCTORS.length) {
+        for (var i = 0; i < APP_DOCTORS.length; i++) {
+            if (String(APP_DOCTORS[i].id) === id) {
+                pick = APP_DOCTORS[i];
+                break;
+            }
+        }
+    }
+    if (!pick && conDoctorsById[id]) pick = conDoctorsById[id];
+    if (pick) {
+        if (!String(out.qualification || '').trim() && pick.qualification) {
+            out.qualification = pick.qualification;
+        }
+        var chi = pick.qualification_chinese || pick.qualification_chi;
+        if (!String(out.qualification_chinese || '').trim() && chi) {
+            out.qualification_chinese = chi;
+        }
+    }
+    return out;
+}
+
+function conFormsDoctorQualEn(d) {
+    d = d || {};
+    if (typeof doctorQualEnglishHtml === 'function') {
+        return doctorQualEnglishHtml(d).replace(/<br\s*\/?>/gi, '\n');
+    }
+    var lines = (typeof doctorQualEnglishList === 'function')
+        ? doctorQualEnglishList(d)
+        : [String(d.qualification || '').trim()].filter(Boolean);
+    return lines.map(function (l) { return l.toUpperCase(); }).join('\n');
+}
+
+function conFormsResolveActiveDoctorId() {
+    if (conActiveDoctorId) return conActiveDoctorId;
+    if (typeof currentDoctorId !== 'undefined' && currentDoctorId) return currentDoctorId;
+    var sel = g('conDoctorSelect');
+    if (sel && sel.value) return sel.value;
+    return null;
+}
+
+/** Best doctor row for placeholders (loaded profile + consultation cache). */
+function conFormsEffectiveDoctorRow() {
+    var d = conFormsDoctorData ? Object.assign({}, conFormsDoctorData) : null;
+    var id = conFormsResolveActiveDoctorId();
+    if (id && conDoctorsById[id]) {
+        d = Object.assign({}, conDoctorsById[id], d || {});
+    }
+    if (id && typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS && APP_DOCTORS.length) {
+        for (var i = 0; i < APP_DOCTORS.length; i++) {
+            if (String(APP_DOCTORS[i].id) === String(id)) {
+                d = Object.assign({}, APP_DOCTORS[i], d || {});
+                break;
+            }
+        }
+    }
+    return conFormsEnrichDoctorRowFromAppCaches(d || {}) || {};
+}
+
+function loadConFormsDoctor(done, forceReload) {
+    function finish() {
+        updateConsultationDoctorUI();
+        if (typeof done === 'function') {
+            done();
+            return;
+        }
+        if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate) &&
+            conFormsSickLeaveDatesReady()) {
+            conFormsRenderDocumentInEditor();
+        } else {
+            conFormsRefreshPlaceholdersInEditor();
+        }
+    }
+
+    function applyRow(row) {
+        conFormsDoctorData = conFormsEnrichDoctorRowFromAppCaches(row);
+        finish();
+    }
+
+    function fetchDoctorById(doctorId, useFullSelect) {
+        if (!doctorId) {
+            applyRow(null);
+            return;
+        }
+        var selCols = useFullSelect ? CON_FORMS_DOCTOR_SELECT_FULL : CON_FORMS_DOCTOR_SELECT_BASE;
+        SB.from('doctors').select(selCols).eq('id', doctorId).single()
         .then(function (r) {
-            if (r.error || !r.data) return;
-            conFormsDoctorData = r.data;
-            updateConsultationDoctorUI();
+            if (r.error && useFullSelect &&
+                /qualification_chinese/i.test(String(r.error.message || ''))) {
+                fetchDoctorById(doctorId, false);
+                return;
+            }
+            if (!r.error && r.data) {
+                applyRow(r.data);
+                return;
+            }
+            applyRow(conDoctorsById[doctorId] || null);
+        })
+        .catch(function () {
+            applyRow(conDoctorsById[doctorId] || null);
         });
+    }
+
+    if (!forceReload && conFormsDoctorData && conFormsDoctorData.id) {
+        var idMatch = String(conFormsDoctorData.id) === String(conFormsResolveActiveDoctorId() || '');
+        if (idMatch && conFormsDoctorRowQualFieldsLoaded(conFormsDoctorData)) {
+            conFormsDoctorData = conFormsEnrichDoctorRowFromAppCaches(conFormsDoctorData);
+            finish();
+            return;
+        }
+    }
+
+    var doctorId = conFormsResolveActiveDoctorId();
+    if (doctorId) {
+        fetchDoctorById(doctorId, true);
         return;
     }
 
-    if (!currentName) return;
+    if (!currentName) {
+        applyRow(null);
+        return;
+    }
 
-    SB.from('doctors')
-      .select('*')
+    SB.from('doctors').select(CON_FORMS_DOCTOR_SELECT_FULL)
       .eq('english_name', currentName)
       .limit(1)
-    .then(function(r) {
-        if (r.error || !r.data || !r.data.length) return;
-        conFormsDoctorData = r.data[0];
-        updateConsultationDoctorUI();
+    .then(function (r) {
+        if (r.error && /qualification_chinese/i.test(String(r.error.message || ''))) {
+            SB.from('doctors').select(CON_FORMS_DOCTOR_SELECT_BASE)
+              .eq('english_name', currentName)
+              .limit(1)
+            .then(function (r2) {
+                if (!r2.error && r2.data && r2.data.length) applyRow(r2.data[0]);
+                else applyRow(null);
+            })
+            .catch(function () { applyRow(null); });
+            return;
+        }
+        if (!r.error && r.data && r.data.length) applyRow(r.data[0]);
+        else applyRow(null);
+    })
+    .catch(function () { applyRow(null); });
+}
+
+function conFormsWhenReadyForPlaceholders(cb) {
+    var n = 0;
+    function tick() {
+        n++;
+        if (n >= 2 && typeof cb === 'function') cb();
+    }
+    loadConFormsShellSettings(tick);
+    loadConFormsDoctor(tick, true);
+}
+
+function conFormsSickLeaveDatesReady() {
+    conFormsReadSickLeaveFieldsFromUI();
+    return !!(conFormsSickLeaveFrom && conFormsSickLeaveTo);
+}
+
+/** Default sick-leave from/to to today when opening the template. */
+function conFormsInitSickLeaveDefaults() {
+    if (!conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) return;
+    var today = typeof todayISO === 'function' ? todayISO() : '';
+    if (!today) return;
+    if (!conFormsSickLeaveFrom) conFormsSickLeaveFrom = today;
+    if (!conFormsSickLeaveTo) conFormsSickLeaveTo = conFormsSickLeaveFrom;
+}
+
+/** Append doctor qualification placeholders to older sick-leave signature blocks. */
+function conFormsEnsureSickLeaveSignatureQualPlaceholders(raw) {
+    var s = String(raw || '').trim();
+    if (!s || /\{doctor_qualification_chi\}/i.test(s)) return s;
+    var addon = '';
+    if (!/\{doctor_qualification\}/i.test(s)) {
+        addon += '<div data-conforms-sick-qual-en="1" style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div>';
+    }
+    addon += '<div data-conforms-sick-qual-chi="1" style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div>';
+    if (/\{doctor_chi\}/i.test(s)) {
+        return s.replace(/(\{doctor_chi\}[\s\S]*?<\/div>)/i, '$1' + addon);
+    }
+    return s + addon;
+}
+
+/** Normalize sick-leave template body from DB (ensures {diagnosis} + doctor qual placeholders). */
+function conFormsNormalizeSickLeaveTemplateContent(content) {
+    var raw = String(content || '').trim();
+    if (raw) raw = raw.replace(/\{sick_leave_diagnosis\}/gi, '{diagnosis}');
+    if (!raw || !/\{diagnosis\}/i.test(raw)) {
+        return conFormsSickLeaveTemplateBodyHtml();
+    }
+    if (!/\{doctor_qualification_chi\}/i.test(raw)) {
+        return conFormsEnsureSickLeaveSignatureQualPlaceholders(raw);
+    }
+    return raw;
+}
+
+/** Use canonical sick-leave HTML when DB template is missing placeholders. */
+function conFormsResolveSickLeaveTemplateBody() {
+    var tpl = conFormsSelectedTemplate;
+    if (!conFormsIsSickLeaveTemplate(tpl)) {
+        return String(tpl && tpl.content || '').trim();
+    }
+    return conFormsNormalizeSickLeaveTemplateContent(tpl && tpl.content);
+}
+
+/** New sick-leave certs: preview after from/to dates are set. */
+function conFormsShouldGateSickLeaveRender() {
+    return conFormsIsSickLeaveTemplate(conFormsSelectedTemplate) && !conFormsEditingDocId;
+}
+
+function conFormsScheduleSickLeaveRender() {
+    clearTimeout(conFormsSickLeaveRenderTimer);
+    conFormsSickLeaveRenderTimer = setTimeout(function () {
+        conFormsSickLeaveRenderTimer = null;
+        if (!conFormsSelectedTemplate) return;
+        if (!conFormsShouldGateSickLeaveRender()) {
+            conFormsRefreshPlaceholdersInEditor();
+            return;
+        }
+        if (!conFormsSickLeaveDatesReady()) {
+            conFormsSickLeaveShowPendingInEditor();
+            return;
+        }
+        function renderSickLeaveDoc() {
+            if (!conFormsSelectedTemplate) return;
+            var doctorId = conFormsResolveActiveDoctorId();
+            if (doctorId && !conFormsDoctorRowQualFieldsLoaded(conFormsEffectiveDoctorRow())) {
+                loadConFormsDoctor(renderSickLeaveDoc, true);
+                return;
+            }
+            conFormsRenderDocumentInEditor();
+        }
+        renderSickLeaveDoc();
+    }, 100);
+}
+
+function conFormsSickLeaveShowPendingInEditor() {
+    conFormsEnsureRichEditor();
+    var msg = conTr('con.forms.sickLeavePendingPh');
+    if (typeof DocEditor !== 'undefined') {
+        DocEditor.setHtml('conFormsDocEditor', '');
+        DocEditor.setPlaceholder('conFormsDocEditor', msg);
+    } else if (g('conFormsDocEditor')) {
+        g('conFormsDocEditor').dataset.placeholderMode = '1';
+        g('conFormsDocEditor').innerHTML =
+            '<span style="color:#64748b;">' + esc(msg) + '</span>';
+    }
+}
+
+function conFormsIsoFromDdMm(ddmm) {
+    var s = String(ddmm || '').trim();
+    var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return '';
+    var pad2 = function (n) {
+        n = parseInt(n, 10);
+        return (n < 10 ? '0' : '') + n;
+    };
+    return m[3] + '-' + pad2(m[2]) + '-' + pad2(m[1]);
+}
+
+/** When reopening a saved sick-leave document, restore panel fields from rendered HTML. */
+function conFormsHydrateSickLeaveFieldsFromHtml(html) {
+    if (!html || !conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) return;
+    var fromM = html.match(/from\s*<strong[^>]*>(\d{1,2}\/\d{1,2}\/\d{4})<\/strong>/i);
+    var toM = html.match(/to\s*<strong[^>]*>(\d{1,2}\/\d{1,2}\/\d{4})<\/strong>\s*inclusive/i);
+    if (fromM) conFormsSickLeaveFrom = conFormsIsoFromDdMm(fromM[1]);
+    if (toM) conFormsSickLeaveTo = conFormsIsoFromDdMm(toM[1]);
+    if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+}
+
+function conFormsRenderDocumentInEditor(bodyHtml) {
+    if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
+        conFormsRememberSickLeaveDxFromEditor();
+        bodyHtml = conFormsResolveSickLeaveTemplateBody();
+    }
+    if (conFormsShouldGateSickLeaveRender() && !conFormsSickLeaveDatesReady()) {
+        conFormsSickLeaveShowPendingInEditor();
+        return;
+    }
+    conFormsEnsureRichEditor();
+    var body = applyConFormsPlaceholders(bodyHtml || '');
+    if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
+        body = conFormsRestoreSickLeaveDxInHtml(body);
+    }
+    var html = conFormsEnsureDefaultShell(body, true);
+    html = applyConFormsPlaceholders(html);
+    if (typeof DocEditor !== 'undefined') {
+        DocEditor.setHtml('conFormsDocEditor', html || '');
+        if (!html) DocEditor.setPlaceholder('conFormsDocEditor', conTr('con.forms.selectTemplatePh'));
+    } else if (g('conFormsDocEditor')) {
+        g('conFormsDocEditor').dataset.placeholderMode = html ? '' : '1';
+        g('conFormsDocEditor').innerHTML = html || '<span style="color:#aaa;">' + esc(conTr('con.forms.selectTemplatePh')) + '</span>';
+    }
+}
+
+/** Re-fill header/footer/body placeholders (e.g. after doctor or shell settings load). */
+function conFormsRefreshPlaceholdersInEditor() {
+    var editorWrap = g('conFormsEditorWrap');
+    if (!editorWrap || editorWrap.style.display === 'none') return;
+
+    if (conFormsSelectedTemplate) {
+        if (conFormsShouldGateSickLeaveRender() && !conFormsSickLeaveDatesReady()) {
+            conFormsSickLeaveShowPendingInEditor();
+            return;
+        }
+        conFormsRenderDocumentInEditor();
+        return;
+    }
+
+    var editor = g('conFormsDocEditor');
+    if (!editor || editor.dataset.placeholderMode === '1') return;
+    var raw = (typeof DocEditor !== 'undefined')
+        ? DocEditor.getHtml('conFormsDocEditor')
+        : editor.innerHTML;
+    if (!String(raw || '').trim()) return;
+
+    var root = document.createElement('div');
+    root.innerHTML = raw;
+    conFormsStripShellBlocks(root);
+    var bodyInner = root.innerHTML;
+    var html = conFormsEnsureDefaultShell(bodyInner, true);
+    html = applyConFormsPlaceholders(html);
+    if (typeof DocEditor !== 'undefined') DocEditor.setHtml('conFormsDocEditor', html);
+    else editor.innerHTML = html;
+}
+
+function conFormsIsSickLeaveTemplate(tpl) {
+    if (!tpl) return false;
+    var code = String(tpl.template_code || '').trim().toUpperCase();
+    if (code === 'SICK_LEAVE' || code === 'SICKLEAVE') return true;
+    var name = String(tpl.template_name || '').toLowerCase();
+    return name.indexOf('sick leave') >= 0 ||
+        name.indexOf('sick-leave') >= 0 ||
+        name.indexOf('病假') >= 0;
+}
+
+function conFormsDateLongZh(iso) {
+    if (!iso || typeof parseISODateOnly !== 'function') return '';
+    var d = parseISODateOnly(iso);
+    if (!d || isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('zh-HK', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
     });
+}
+
+function conFormsFormatDateDdMm(iso) {
+    if (!iso || typeof parseISODateOnly !== 'function') return '';
+    var d = parseISODateOnly(iso);
+    if (!d || isNaN(d.getTime())) return '';
+    var pad2 = function (n) {
+        n = parseInt(n, 10);
+        return (n < 10 ? '0' : '') + n;
+    };
+    return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+
+/** Spaced CJK name: 陳慧儀 → 陳 慧 儀 (reference letter style). */
+function conFormsChineseNameSpaced(name) {
+    var s = String(name || '').trim();
+    if (!s) return '';
+    var out = [];
+    var i;
+    for (i = 0; i < s.length; i++) {
+        var ch = s.charAt(i);
+        if (ch.trim()) out.push(ch);
+    }
+    return out.join(' ');
+}
+
+function conFormsReadSickLeaveFieldsFromUI() {
+    var f = g('conFormsSickLeaveFrom');
+    var t = g('conFormsSickLeaveTo');
+    conFormsSickLeaveFrom = f ? String(f.value || '').trim() : '';
+    conFormsSickLeaveTo = t ? String(t.value || '').trim() : '';
+    if (conFormsSickLeaveFrom && conFormsSickLeaveTo && conFormsSickLeaveTo < conFormsSickLeaveFrom) {
+        conFormsSickLeaveTo = conFormsSickLeaveFrom;
+        if (t) t.value = conFormsSickLeaveTo;
+    }
+}
+
+/** Preserve centred diagnosis line when sick-leave dates trigger a re-render. */
+function conFormsCaptureSickLeaveDxInnerFromEditor() {
+    var raw = '';
+    if (typeof DocEditor !== 'undefined') {
+        raw = DocEditor.getHtml('conFormsDocEditor');
+    } else if (g('conFormsDocEditor')) {
+        raw = g('conFormsDocEditor').innerHTML;
+    }
+    if (!String(raw || '').trim()) return '';
+    var root = document.createElement('div');
+    root.innerHTML = raw;
+    var el = root.querySelector('[data-conforms-sick-dx]');
+    if (!el) return '';
+    var inner = String(el.innerHTML || '').trim();
+    var t = String(el.textContent || '').replace(/\u00a0/g, ' ').trim();
+    if (!t || t === '<DIAGNOSIS>') return '';
+    if (/^\{diagnosis\}$/i.test(t) || /^\{sick_leave_diagnosis\}$/i.test(t)) return '';
+    return inner;
+}
+
+function conFormsRememberSickLeaveDxFromEditor() {
+    var inner = conFormsCaptureSickLeaveDxInnerFromEditor();
+    if (inner) conFormsSickLeaveDxInner = inner;
+}
+
+function conFormsRestoreSickLeaveDxInHtml(html) {
+    if (!conFormsSickLeaveDxInner) return html;
+    var root = document.createElement('div');
+    root.innerHTML = html;
+    var el = root.querySelector('[data-conforms-sick-dx]');
+    if (el) el.innerHTML = conFormsSickLeaveDxInner;
+    return root.innerHTML;
+}
+
+function conFormsSickLeaveTemplateBodyHtml() {
+    return '<div data-conforms-sick-leave="1" data-conforms-skip-footer="1" class="con-sick-leave-doc" ' +
+        'style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;">' +
+        '<div style="text-align:right;margin:16px 0 20px;">{date_long}</div>' +
+        '<p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p>' +
+        '<p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p>' +
+        '<p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p>' +
+        '<p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p>' +
+        '<p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p>' +
+        '<p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p>' +
+        '<p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p>' +
+        '<p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p>' +
+        '<div style="margin-top:72px;max-width:400px;">' +
+        '<div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div>' +
+        '<div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div>' +
+        '<div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div>' +
+        '<div data-conforms-sick-qual-en="1" style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div>' +
+        '<div data-conforms-sick-qual-chi="1" style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div>' +
+        '</div></div>';
+}
+
+function conFormsSickLeavePlaceholderFields() {
+    var from = conFormsSickLeaveFrom;
+    var to = conFormsSickLeaveTo || from;
+    if (to < from) to = from;
+    var dFrom = typeof parseISODateOnly === 'function' ? parseISODateOnly(from) : null;
+    var dTo = typeof parseISODateOnly === 'function' ? parseISODateOnly(to) : null;
+    var days = 1;
+    if (dFrom && dTo) {
+        days = Math.round((dTo.getTime() - dFrom.getTime()) / 86400000) + 1;
+        if (days < 1) days = 1;
+    }
+    var fromLong = dFrom ? conFormsDateLongEn(dFrom) : '';
+    var toLong = dTo ? conFormsDateLongEn(dTo) : '';
+    var fromDdmm = conFormsFormatDateDdMm(from);
+    var toDdmm = conFormsFormatDateDdMm(to);
+    var periodEn = from === to
+        ? 'on ' + fromLong
+        : 'from ' + fromLong + ' to ' + toLong + ' (inclusive)';
+    var periodChi = from === to
+        ? ('於' + conFormsDateLongZh(from))
+        : ('由' + conFormsDateLongZh(from) + '至' + conFormsDateLongZh(to) + '（包含首尾兩日）');
+    var p = conFormsPatientData || {};
+    var chiName = String(p.chinese_name || '').trim() || String(p.full_name || '').trim();
+    return {
+        sick_leave_from: from,
+        sick_leave_to: to,
+        sick_leave_from_long: fromLong,
+        sick_leave_to_long: toLong,
+        sick_leave_from_ddmm: fromDdmm,
+        sick_leave_to_ddmm: toDdmm,
+        sick_leave_days: String(days),
+        sick_leave_period_en: periodEn,
+        sick_leave_period_chi: periodChi,
+        patient_chinese_name_spaced: conFormsChineseNameSpaced(chiName)
+    };
+}
+
+function conFormsSyncSickLeaveDatePanel() {
+    var panel = g('conFormsSickLeaveDates');
+    if (!panel) return;
+    var show = conFormsIsSickLeaveTemplate(conFormsSelectedTemplate);
+    panel.style.display = show ? 'grid' : 'none';
+    panel.setAttribute('aria-hidden', show ? 'false' : 'true');
+    if (!show) return;
+    conFormsInitSickLeaveDefaults();
+    var fromEl = g('conFormsSickLeaveFrom');
+    var toEl = g('conFormsSickLeaveTo');
+    if (fromEl) fromEl.value = conFormsSickLeaveFrom || '';
+    if (toEl) toEl.value = conFormsSickLeaveTo || '';
+}
+
+function conFormsOnSickLeaveDateChange() {
+    conFormsReadSickLeaveFieldsFromUI();
+    conFormsScheduleSickLeaveRender();
 }
 
 function onConFormsTemplateChange() {
     var sel = g('conFormsTemplateSel');
     var editorWrap = g('conFormsEditorWrap');
-    var editor = g('conFormsDocEditor');
-    if (!sel || !editorWrap || !editor) return;
+    if (!sel || !editorWrap) return;
 
     var id = sel.value || '';
     if (!id) {
         editorWrap.style.display = 'none';
         conFormsSelectedTemplate = null;
+        if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
         return;
     }
+    conFormsEditingDocId = null;
+    conFormsUpdateEditingBadge();
+
     conFormsSelectedTemplate = conFormsTemplates.find(function(t) { return t.id === id; }) || null;
     if (!conFormsSelectedTemplate) {
         editorWrap.style.display = 'none';
+        if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
         return;
     }
 
-    // default doc name
     if (g('conFormsDocName') && !g('conFormsDocName').value) {
         g('conFormsDocName').value = conFormsSelectedTemplate.template_name || '';
     }
 
-    var seeded = conFormsSelectedTemplate.content || '';
-    editor.dataset.placeholderMode = '';
-    editor.innerHTML = conFormsEnsureDefaultShell(applyConFormsPlaceholders(seeded) || '', true);
-    if (!editor.innerHTML.trim()) {
-        editor.dataset.placeholderMode = '1';
-        editor.innerHTML = '<span style="color:#aaa;">' + esc(conTr('con.forms.selectTemplatePh')) + '</span>';
+    if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
+        conFormsInitSickLeaveDefaults();
     }
+
+    if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+
     editorWrap.style.display = 'block';
-    conFormsInitEditorEvents();
-    setTimeout(function () { editor.focus(); }, 0);
+    conFormsWhenReadyForPlaceholders(function () {
+        if (!conFormsSelectedTemplate) return;
+        if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
+            conFormsScheduleSickLeaveRender();
+        } else {
+            conFormsRenderDocumentInEditor(conFormsSelectedTemplate.content || '');
+        }
+        setTimeout(function () {
+            if (typeof DocEditor !== 'undefined') DocEditor.focusEditor('conFormsDocEditor');
+            else if (g('conFormsDocEditor')) g('conFormsDocEditor').focus();
+        }, 0);
+    });
 }
 
-function applyConFormsPlaceholders(html) {
+var CON_TPL_TYPE_PAIRS = [
+    ['receipt', 'cfg.tpl.typeReceipt'],
+    ['prescription', 'cfg.tpl.typePrescription'],
+    ['consent', 'cfg.tpl.typeConsent'],
+    ['report', 'cfg.tpl.typeReport']
+];
+
+function conDispTplType(raw) {
+    var s = String(raw || '').trim().toLowerCase();
+    if (!s) return '';
+    var i;
+    for (i = 0; i < CON_TPL_TYPE_PAIRS.length; i++) {
+        if (CON_TPL_TYPE_PAIRS[i][0] === s) return conTr(CON_TPL_TYPE_PAIRS[i][1]);
+    }
+    return String(raw || '').trim();
+}
+
+function conFormsDateLongEn(d) {
+    d = d || (typeof nowLocal === 'function' ? nowLocal() : new Date());
+    if (!d || isNaN(d.getTime())) return '';
+    var day = d.getDate();
+    var mon = d.toLocaleDateString('en-GB', { month: 'long' });
+    var yr = d.getFullYear();
+    return day + ' ' + mon + ', ' + yr;
+}
+
+function conFormsTimeOfDayPair(d) {
+    d = d || (typeof nowLocal === 'function' ? nowLocal() : new Date());
+    var h = d.getHours();
+    if (h < 12) return { en: 'morning', chi: '上午' };
+    if (h < 18) return { en: 'afternoon', chi: '下午' };
+    return { en: 'evening', chi: '晚上' };
+}
+
+function conFormsPlaceholderMap(opts) {
+    opts = opts || {};
     var p = conFormsPatientData || {};
-    var d = conFormsDoctorData || {};
-    var now = new Date();
+    var d = conFormsEffectiveDoctorRow();
+    var clinic = conFormsActiveClinicProfile();
+    var docProf = (opts.forPrint && typeof conFormsActiveDoctorProfileForPrint === 'function')
+        ? conFormsActiveDoctorProfileForPrint()
+        : conFormsActiveDoctorProfile();
+    var now = typeof nowLocal === 'function' ? nowLocal() : new Date();
+    var tod = conFormsTimeOfDayPair(now);
+    var qualEnLines = (typeof doctorQualEnglishList === 'function')
+        ? doctorQualEnglishList(d)
+        : [String(d.qualification || '').trim()].filter(Boolean);
+    var qualEnHtml = (typeof doctorQualEnglishHtml === 'function')
+        ? doctorQualEnglishHtml(d)
+        : qualEnLines.map(function (l) {
+            return (typeof esc === 'function' ? esc(l) : l).toUpperCase();
+        }).join('<br>');
+    var qualChiHtml = (typeof doctorQualChineseHtml === 'function')
+        ? doctorQualChineseHtml(d)
+        : (function () {
+            var t = conFormsDoctorQualChi(d);
+            if (!t) return '';
+            return (typeof esc === 'function' ? esc(t) : t).replace(/\n/g, '<br>');
+        })();
+    var qualChi = conFormsDoctorQualChi(d);
     var map = {
         patient_no: p.patient_no || '',
         patient_name: p.full_name || '',
+        patient_name_upper: String(p.full_name || '').trim().toUpperCase(),
         patient_chinese_name: p.chinese_name || '',
         patient_phone: p.phone_number || '',
         patient_hkid: p.hkid || '',
@@ -1153,17 +1880,42 @@ function applyConFormsPlaceholders(html) {
             }, printUiLangIsChinese() ? 'zh' : 'en', d)
             : (conActiveDoctorName || d.english_name || currentName || ''),
         doctor_code: d.doctor_code || '',
-        clinic_name: (conFormsSelectedTemplate && conFormsSelectedTemplate.clinic_name) || '',
-        date: todayISO(),
-        time: now.toLocaleTimeString(conUiLocale(), { hour: '2-digit', minute: '2-digit' })
+        doctor_eng: docProf.eng,
+        doctor_chi: docProf.chi,
+        doctor_qualification: qualEnHtml,
+        doctor_qualification_chi: qualChiHtml,
+        clinic_name: clinic.nameEn,
+        clinic_name_chi: clinic.nameChi,
+        clinic_address: clinic.address,
+        clinic_address_chi: clinic.addressChi,
+        clinic_tel: clinic.tel,
+        clinic_fax: clinic.fax,
+        date: typeof todayISO === 'function' ? todayISO() : '',
+        date_long: conFormsDateLongEn(now),
+        time: now.toLocaleTimeString(conUiLocale(), { hour: '2-digit', minute: '2-digit' }),
+        time_of_day_en: tod.en,
+        time_of_day_chi: tod.chi,
+        receipt_no: '',
+        total_amount: ''
     };
+    if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
+        var sl = conFormsSickLeavePlaceholderFields();
+        var sk;
+        for (sk in sl) {
+            if (Object.prototype.hasOwnProperty.call(sl, sk)) map[sk] = sl[sk];
+        }
+    }
+    return map;
+}
 
-    var out = String(html || '');
-    Object.keys(map).forEach(function(k) {
-        var re = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\}', 'g');
-        out = out.replace(re, esc(map[k]));
-    });
-    return out;
+function applyConFormsPlaceholders(html, opts) {
+    return conFormsRenderShellTemplate(html, conFormsPlaceholderMap(opts));
+}
+
+/** Shell + any remaining tags filled for print (header/footer letterhead). */
+function conFormsPreparePrintHtml(html, refreshDefaults) {
+    html = conFormsEnsureDefaultShell(html || '', !!refreshDefaults, { forPrint: true });
+    return applyConFormsPlaceholders(html, { forPrint: true });
 }
 
 function conFormsActiveClinicProfile() {
@@ -1196,19 +1948,36 @@ function conFormsActiveClinicProfile() {
             }
         }
     }
-    var name = '';
+    var nameEn = '';
+    var nameChi = '';
     var addr = '';
+    var addrChi = '';
     var tel = '';
+    var fax = '';
     if (rec) {
-        name = (typeof clinicDisplayName === 'function')
-            ? String(clinicDisplayName(rec) || '').trim()
-            : String(rec.english_name || rec.chinese_name || '').trim();
+        nameEn = String(rec.english_name || '').trim();
+        nameChi = String(rec.chinese_name || '').trim();
+        if (!nameEn && !nameChi) {
+            nameEn = String(rec.clinic_code || '').trim();
+        }
         addr = String(rec.address || '').trim();
+        addrChi = String(rec.address_chinese || rec.chinese_address || '').trim();
         tel = String(rec.tel || '').trim();
+        fax = String(rec.fax || '').trim();
     }
-    if (!name && typeof currentClinicLabel === 'string') name = String(currentClinicLabel).trim();
-    if (!name) name = 'Clinic';
-    return { name: name, address: addr || '—', tel: tel || '—' };
+    if (!nameEn && !nameChi && typeof currentClinicLabel === 'string') {
+        nameEn = String(currentClinicLabel).trim();
+    }
+    if (!nameEn && !nameChi) nameEn = 'Clinic';
+    return {
+        name: nameEn,
+        nameEn: nameEn,
+        nameChi: nameChi || nameEn,
+        address: addr || '—',
+        addressChi: addrChi || '—',
+        tel: tel || '—',
+        fax: fax || '—'
+    };
 }
 
 function conFormsActiveDoctorProfile() {
@@ -1253,36 +2022,57 @@ function conFormsDefaultHeaderHtml(opts) {
     opts = opts || {};
     var c = conFormsActiveClinicProfile();
     var d = opts.forPrint ? conFormsActiveDoctorProfileForPrint() : conFormsActiveDoctorProfile();
-    return conFormsRenderShellTemplate(conFormsShellHeaderTpl || conFormsDefaultHeaderTemplate(), {
-        clinic_name: c.name,
-        clinic_address: c.address,
-        clinic_tel: c.tel,
-        doctor_eng: d.eng,
-        doctor_chi: d.chi
-    });
+    return conFormsRenderShellTemplate(
+        conFormsShellHeaderTpl || conFormsDefaultHeaderTemplate(),
+        conFormsShellPlaceholderMap(c, d, opts)
+    );
 }
 
 function conFormsDefaultFooterHtml(opts) {
     opts = opts || {};
     var d = opts.forPrint ? conFormsActiveDoctorProfileForPrint() : conFormsActiveDoctorProfile();
     var c = conFormsActiveClinicProfile();
-    return conFormsRenderShellTemplate(conFormsShellFooterTpl || conFormsDefaultFooterTemplate(), {
-        clinic_name: c.name,
-        clinic_address: c.address,
-        clinic_tel: c.tel,
-        doctor_eng: d.eng,
-        doctor_chi: d.chi
-    });
+    return conFormsRenderShellTemplate(
+        conFormsShellFooterTpl || conFormsDefaultFooterTemplate(),
+        conFormsShellPlaceholderMap(c, d, opts)
+    );
 }
 
+var CON_FORMS_RAW_HTML_PLACEHOLDERS = {
+    doctor_qualification: true,
+    doctor_qualification_chi: true
+};
+
 function conFormsRenderShellTemplate(tpl, map) {
+    if (typeof replaceDocumentPlaceholders === 'function') {
+        return replaceDocumentPlaceholders(tpl, map);
+    }
     var out = String(tpl || '');
     var data = map || {};
-    Object.keys(data).forEach(function(k) {
-        var re = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\}', 'g');
-        out = out.replace(re, esc(data[k] || ''));
+    var keys = Object.keys(data).sort(function (a, b) {
+        return b.length - a.length;
+    });
+    keys.forEach(function (k) {
+        var re = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\}', 'gi');
+        var val = data[k] == null ? '' : data[k];
+        if (!CON_FORMS_RAW_HTML_PLACEHOLDERS[k] && typeof esc === 'function') {
+            val = esc(val);
+        }
+        out = out.replace(re, function () { return String(val); });
     });
     return out;
+}
+
+function conFormsWrapShellPart(kind, innerHtml) {
+    return '<div data-conforms-shell-' + kind + '="1">' + (innerHtml || '') + '</div>';
+}
+
+function conFormsStripShellBlocks(root) {
+    if (!root) return;
+    ['header', 'footer'].forEach(function (kind) {
+        root.querySelectorAll('[data-conforms-shell-' + kind + ']').forEach(function (n) { n.remove(); });
+        root.querySelectorAll('[data-conforms-default-' + kind + ']').forEach(function (n) { n.remove(); });
+    });
 }
 
 function conFormsEnsureDefaultShell(html, refreshDefaults, opts) {
@@ -1290,43 +2080,32 @@ function conFormsEnsureDefaultShell(html, refreshDefaults, opts) {
     var root = document.createElement('div');
     root.innerHTML = String(html || '');
     if (refreshDefaults) {
-        root.querySelectorAll('[data-conforms-default-header]').forEach(function(n) { n.remove(); });
-        root.querySelectorAll('[data-conforms-default-footer]').forEach(function(n) { n.remove(); });
+        conFormsStripShellBlocks(root);
     }
-    if (!root.querySelector('[data-conforms-default-header]')) {
-        root.insertAdjacentHTML('afterbegin', conFormsDefaultHeaderHtml(opts));
+    if (!root.querySelector('[data-conforms-shell-header]') &&
+        !root.querySelector('[data-conforms-default-header]')) {
+        root.insertAdjacentHTML('afterbegin', conFormsWrapShellPart('header', conFormsDefaultHeaderHtml(opts)));
     }
-    if (!root.querySelector('[data-conforms-default-footer]')) {
-        root.insertAdjacentHTML('beforeend', conFormsDefaultFooterHtml(opts));
+    if (!root.querySelector('[data-conforms-shell-footer]') &&
+        !root.querySelector('[data-conforms-default-footer]') &&
+        !root.querySelector('[data-conforms-skip-footer]')) {
+        root.insertAdjacentHTML('beforeend', conFormsWrapShellPart('footer', conFormsDefaultFooterHtml(opts)));
     }
     return root.innerHTML;
 }
 
 function conFormsCmd(cmd) {
-    var editor = g('conFormsDocEditor');
-    if (!editor) return;
-    conFormsClearPlaceholderIfNeeded(editor);
-    editor.focus();
-    conFormsRestoreSelection();
-    try {
-        document.execCommand(cmd, false, null);
-    } catch (e) {}
-    conFormsSaveSelection();
+    if (typeof DocEditor !== 'undefined') DocEditor.exec('conFormsDocEditor', cmd);
 }
 
 function conFormsFontName(name) {
-    var editor = g('conFormsDocEditor');
-    if (!editor) return;
-    conFormsClearPlaceholderIfNeeded(editor);
-    editor.focus();
-    conFormsRestoreSelection();
-    try { document.execCommand('fontName', false, name); } catch (e) {}
-    conFormsSaveSelection();
+    if (typeof DocEditor !== 'undefined') DocEditor.exec('conFormsDocEditor', 'fontName', name);
 }
 
 function refreshConFormsToolbarI18n() {
-    var toolbar = g('conFormsToolbar');
-    if (toolbar && typeof applyI18nInRoot === 'function') applyI18nInRoot(toolbar);
+    if (typeof DocEditor !== 'undefined') {
+        DocEditor.refreshFontSizeLabels('conForms', function (k) { return conTr(k); });
+    }
 }
 
 function refreshConFormsEditorPlaceholder() {
@@ -1379,46 +2158,15 @@ function refreshConFormsFontSizeSelect() {
 }
 
 function conFormsFontSize(size) {
-    var editor = g('conFormsDocEditor');
-    if (!editor) return;
-    conFormsClearPlaceholderIfNeeded(editor);
-    editor.focus();
-    conFormsRestoreSelection();
-    try { document.execCommand('fontSize', false, String(size)); } catch (e) {}
-    conFormsSaveSelection();
+    if (typeof DocEditor !== 'undefined') DocEditor.exec('conFormsDocEditor', 'fontSize', String(size));
 }
 
 function conFormsForeColor(color) {
-    var editor = g('conFormsDocEditor');
-    if (!editor) return;
-    conFormsClearPlaceholderIfNeeded(editor);
-    // Color picker steals focus; restore the selection the user highlighted.
-    conFormsRestoreSelection();
-    editor.focus();
-    try { document.execCommand('foreColor', false, color); } catch (e) {}
-    conFormsSaveSelection();
+    if (typeof DocEditor !== 'undefined') DocEditor.exec('conFormsDocEditor', 'foreColor', color);
 }
 
 function conFormsInsertTag(tag) {
-    var editor = g('conFormsDocEditor');
-    if (!editor) return;
-    conFormsClearPlaceholderIfNeeded(editor);
-    editor.focus();
-    conFormsRestoreSelection();
-    try {
-        document.execCommand('insertText', false, tag);
-    } catch (e) {
-        // fallback
-        var sel = window.getSelection ? window.getSelection() : null;
-        if (!sel || !sel.rangeCount) return;
-        var range = sel.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(document.createTextNode(tag));
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-    }
-    conFormsSaveSelection();
+    if (typeof DocEditor !== 'undefined') DocEditor.insertText('conFormsDocEditor', tag);
 }
 
 function saveConFormsDoc(andPrint) {
@@ -1438,16 +2186,24 @@ function saveConFormsDoc(andPrint) {
         return;
     }
 
-    var html = (g('conFormsDocEditor') ? g('conFormsDocEditor').innerHTML : '').trim();
+    if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate) && !conFormsSickLeaveDatesReady()) {
+        alert(conTr('con.forms.alertSickLeaveDates'));
+        return;
+    }
+
+    var html = (typeof DocEditor !== 'undefined')
+        ? DocEditor.getHtml('conFormsDocEditor')
+        : (g('conFormsDocEditor') ? g('conFormsDocEditor').innerHTML : '').trim();
     if (!html) {
         alert(conTr('con.forms.alertEmpty'));
         return;
     }
     html = conFormsEnsureDefaultShell(html, true);
-    if (g('conFormsDocEditor')) g('conFormsDocEditor').innerHTML = html;
+    if (typeof DocEditor !== 'undefined') DocEditor.setHtml('conFormsDocEditor', html);
+    else if (g('conFormsDocEditor')) g('conFormsDocEditor').innerHTML = html;
 
     var t = conFormsSelectedTemplate || {};
-    var row = {
+    var payload = {
         patient_id: conFormsPatientId,
         patient_no: conFormsPatientData.patient_no || null,
         patient_name: conFormsPatientData.full_name || null,
@@ -1461,22 +2217,31 @@ function saveConFormsDoc(andPrint) {
         content_html: html
     };
 
-    // NOTE: this table must exist in Supabase:
-    // patient_documents(patient_id, template_id, document_name, document_date, content_html, ...)
-    SB.from('patient_documents').insert([row])
-    .then(function(r) {
+    var wasEdit = !!conFormsEditingDocId;
+    var op = wasEdit
+        ? SB.from('patient_documents').update(payload).eq('id', conFormsEditingDocId)
+        : SB.from('patient_documents').insert([payload]).select('id');
+
+    op.then(function(r) {
         if (r.error) {
             alert(conTrRepl('con.forms.alertSaveFailed', { MSG: r.error.message }));
             return;
         }
-        alert(conTr('con.forms.savedOk'));
+        alert(conTr(wasEdit ? 'con.forms.updatedOk' : 'con.forms.savedOk'));
+        if (!wasEdit && r.data && r.data[0] && r.data[0].id) {
+            conFormsEditingDocId = r.data[0].id;
+        }
+        conFormsUpdateEditingBadge();
+        searchConFormsDocs();
+        conSchedulePatientTimelineRefresh(conPatientId);
         if (andPrint) {
-            printConFormsHtml(conFormsEnsureDefaultShell(html, false, { forPrint: true }));
+            printConFormsHtml(conFormsPreparePrintHtml(html, false));
         }
     });
 }
 
 function printConFormsHtml(html) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
     var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
         ? String(currentClinicId) : '';
 
@@ -1555,12 +2320,10 @@ function printConFormsHtml(html) {
 
 function searchConFormsDocs() {
     if (!conFormsPatientId) {
-        alert(conTr('con.forms.alertSelectPatient'));
         return;
     }
-    var wrap = g('conFormsSearchWrap');
     var list = g('conFormsExistingList');
-    if (wrap) wrap.style.display = 'block';
+    conFormsShowHistCard(true);
     if (list) list.innerHTML = '<div style="color:#aaa;padding:10px;">' + esc(conTr('con.forms.loadingDocs')) + '</div>';
 
     conFormsSelectedDocIds = [];
@@ -1590,13 +2353,18 @@ function searchConFormsDocs() {
         rows.forEach(function (d) { conFormsDocsCache[d.id] = d; });
 
         list.innerHTML = rows.map(function(d) {
-            var meta = (d.template_name || '-') + (d.template_type ? ' · ' + d.template_type : '');
+            var meta = (d.template_name || '-') + (d.template_type ? ' · ' + conDispTplType(d.template_type) : '');
             var safeId = esc(d.id);
+            var editing = conFormsEditingDocId === d.id;
             return '<div style="display:flex;justify-content:space-between;gap:10px;' +
-                'padding:10px 12px;border-bottom:1px solid #f0f0f0;align-items:center;">' +
-                '<div style="display:flex;align-items:center;gap:10px;min-width:0;">' +
+                'padding:10px 12px;border-bottom:1px solid #f0f0f0;align-items:center;' +
+                (editing ? 'background:#f0f7ff;' : '') + '" ' +
+                'ondblclick="openConFormsDoc(\'' + safeId + '\')">' +
+                '<div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;cursor:pointer;" ' +
+                'onclick="openConFormsDoc(\'' + safeId + '\')">' +
                   '<input type="checkbox" class="conFormsHistCb" data-id="' + safeId + '" ' +
-                         'onchange="conFormsToggleSelect(\'' + safeId + '\', this.checked)">' +
+                         'onchange="event.stopPropagation();conFormsToggleSelect(\'' + safeId + '\', this.checked)" ' +
+                         'onclick="event.stopPropagation()">' +
                 '<div style="min-width:0;">' +
                   '<div style="font-weight:900;color:#0d6efd;">' + esc(d.document_name || '-') + '</div>' +
                   '<div style="font-size:12px;color:#888;margin-top:2px;">' +
@@ -1605,8 +2373,10 @@ function searchConFormsDocs() {
                 '</div>' +
                 '</div>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-                  '<button class="btn-add" style="padding:6px 10px;font-size:12px;" ' +
-                  'onclick="openConFormsDoc(\'' + safeId + '\')">' + esc(conTr('con.forms.btnOpen')) + '</button>' +
+                  '<button type="button" class="btn-add" style="padding:6px 10px;font-size:12px;" ' +
+                  'onclick="event.stopPropagation();openConFormsDoc(\'' + safeId + '\')">' + esc(conTr('con.forms.btnOpen')) + '</button>' +
+                  '<button type="button" class="btn-add" style="padding:6px 10px;font-size:12px;background:#22c55e;" ' +
+                  'onclick="event.stopPropagation();conFormsPrintOneDoc(\'' + safeId + '\')">' + esc(conTr('con.forms.btnPrintOne')) + '</button>' +
                 '</div>' +
               '</div>';
         }).join('');
@@ -1685,7 +2455,7 @@ function conFormsPrintSelectedDocs() {
             if (r.error) { alert(conTrRepl('con.alert.printFailed', { MSG: r.error.message })); return; }
             var rows = r.data || [];
             var html = rows.map(function (d) {
-                return conFormsEnsureDefaultShell(d.content_html || '', true, { forPrint: true });
+                return conFormsPreparePrintHtml(d.content_html || '', true);
             }).join(
                 '<div style="page-break-after:always;"></div>'
             );
@@ -1695,10 +2465,23 @@ function conFormsPrintSelectedDocs() {
     }
 
     var htmlJoined = docs
-        .map(function (d) { return conFormsEnsureDefaultShell(d.content_html || '', true, { forPrint: true }); })
+        .map(function (d) { return conFormsPreparePrintHtml(d.content_html || '', true); })
         .join('<div style="page-break-after:always;"></div>');
 
     printConFormsHtml(htmlJoined);
+}
+
+function conFormsPrintOneDoc(id) {
+    var d = conFormsDocsCache[id];
+    if (d && d.content_html) {
+        printConFormsHtml(conFormsPreparePrintHtml(d.content_html, true));
+        return;
+    }
+    SB.from('patient_documents').select('content_html').eq('id', id).single()
+    .then(function (r) {
+        if (r.error || !r.data) { alert(conTr('con.alert.loadDocFail')); return; }
+        printConFormsHtml(conFormsPreparePrintHtml(r.data.content_html || '', true));
+    });
 }
 
 function openConFormsDoc(id) {
@@ -1709,13 +2492,39 @@ function openConFormsDoc(id) {
     .then(function(r) {
         if (r.error || !r.data) { alert(conTr('con.alert.loadDocFail')); return; }
         var d = r.data;
+        conFormsEditingDocId = d.id;
+        conFormsUpdateEditingBadge();
+        conFormsDocsCache[d.id] = d;
+
         if (g('conFormsDocName')) g('conFormsDocName').value = d.document_name || '';
-        if (g('conFormsDocEditor')) {
-            g('conFormsDocEditor').dataset.placeholderMode = '';
-            g('conFormsDocEditor').innerHTML = conFormsEnsureDefaultShell(d.content_html || '', true);
+        if (d.template_id && g('conFormsTemplateSel')) {
+            g('conFormsTemplateSel').value = d.template_id;
+            conFormsSelectedTemplate = conFormsTemplates.find(function (t) { return t.id === d.template_id; }) || null;
         }
+        if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+        if (typeof conFormsHydrateSickLeaveFieldsFromHtml === 'function') {
+            conFormsHydrateSickLeaveFieldsFromHtml(d.content_html || '');
+        }
+
+        conFormsEnsureRichEditor();
         if (g('conFormsEditorWrap')) g('conFormsEditorWrap').style.display = 'block';
-        setTimeout(function () { if (g('conFormsDocEditor')) g('conFormsDocEditor').focus(); }, 0);
+        conFormsWhenReadyForPlaceholders(function () {
+            var root = document.createElement('div');
+            root.innerHTML = d.content_html || '';
+            conFormsStripShellBlocks(root);
+            var html = conFormsEnsureDefaultShell(root.innerHTML, true);
+            html = applyConFormsPlaceholders(html);
+            if (typeof DocEditor !== 'undefined') DocEditor.setHtml('conFormsDocEditor', html);
+            else if (g('conFormsDocEditor')) {
+                g('conFormsDocEditor').dataset.placeholderMode = '';
+                g('conFormsDocEditor').innerHTML = html;
+            }
+        });
+        searchConFormsDocs();
+        setTimeout(function () {
+            if (typeof DocEditor !== 'undefined') DocEditor.focusEditor('conFormsDocEditor');
+            else if (g('conFormsDocEditor')) g('conFormsDocEditor').focus();
+        }, 0);
     });
 }
 
@@ -1780,10 +2589,419 @@ function conTnPad2(n) {
 function updateConTnPrintBtnState() {
     var btn = g('conTnPrintBtn');
     if (!btn) return;
-    var ok = !!conPatientId;
+    var ok = !!conPatientId && conTnActiveSubtab === 'notes';
     btn.disabled = !ok;
+    btn.style.display = ok || !conPatientId ? '' : 'none';
     btn.style.opacity = ok ? '1' : '0.45';
     btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+
+function switchConTnSubtab(sub) {
+    conTnActiveSubtab = sub === 'timeline' ? 'timeline' : 'notes';
+    document.querySelectorAll('.con-tn-subtab').forEach(function (btn) {
+        var on = btn.dataset.subtab === conTnActiveSubtab;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    var notesPane = g('conTnSubpane-notes');
+    var tlPane = g('conTnSubpane-timeline');
+    if (notesPane) {
+        notesPane.classList.toggle('active', conTnActiveSubtab === 'notes');
+        notesPane.hidden = conTnActiveSubtab !== 'notes';
+    }
+    if (tlPane) {
+        tlPane.classList.toggle('active', conTnActiveSubtab === 'timeline');
+        tlPane.hidden = conTnActiveSubtab !== 'timeline';
+    }
+    updateConTnPrintBtnState();
+    if (conTnActiveSubtab === 'timeline' && conPatientId) {
+        if (!conPatientTimelineEvents.length) loadConPatientTimeline(conPatientId);
+        else renderConPatientTimeline();
+    }
+}
+
+function conPtlTruncate(text, maxLen) {
+    var s = String(text || '').trim();
+    if (!s) return '';
+    maxLen = maxLen || 220;
+    if (s.length <= maxLen) return s;
+    return s.slice(0, maxLen - 1) + '\u2026';
+}
+
+function conPtlTsFromIsoDateTime(dateIso, timeStr) {
+    if (!dateIso) return 0;
+    var t = String(timeStr || '12:00').trim().slice(0, 5);
+    if (t.length < 4) t = '12:00';
+    var d = new Date(dateIso + 'T' + t + ':00');
+    var ms = d.getTime();
+    return isNaN(ms) ? 0 : ms;
+}
+
+function conPtlTsFromAny(ts, dateFallback) {
+    if (ts) {
+        var d = new Date(ts);
+        if (!isNaN(d.getTime())) return d.getTime();
+    }
+    if (dateFallback) return conPtlTsFromIsoDateTime(dateFallback, '12:00');
+    return 0;
+}
+
+function conPtlFormatTime(ms) {
+    if (!ms) return '';
+    return new Date(ms).toLocaleTimeString(conUiLocale(), { hour: '2-digit', minute: '2-digit' });
+}
+
+function conPtlFormatDay(ms) {
+    if (!ms) return '—';
+    return new Date(ms).toLocaleDateString(conUiLocale(), {
+        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+    });
+}
+
+function conPtlSafeRows(promise) {
+    return promise.then(function (r) {
+        if (r && r.error) {
+            conPatientTimelineHadErrors = true;
+            return [];
+        }
+        return (r && r.data) ? r.data : [];
+    }).catch(function () {
+        conPatientTimelineHadErrors = true;
+        return [];
+    });
+}
+
+function conPtlBuildFilterBar() {
+    var host = g('conPtlFilters');
+    if (!host) return;
+    var defs = [
+        { key: 'all', labelKey: 'con.ptl.filter.all' },
+        { key: 'note', labelKey: 'con.ptl.filter.note' },
+        { key: 'rx', labelKey: 'con.ptl.filter.rx' },
+        { key: 'visit', labelKey: 'con.ptl.filter.visit' },
+        { key: 'bill', labelKey: 'con.ptl.filter.bill' },
+        { key: 'doc', labelKey: 'con.ptl.filter.doc' },
+        { key: 'xray', labelKey: 'con.ptl.filter.xray' }
+    ];
+    host.innerHTML = defs.map(function (d) {
+        var on = conPtlFilterKey === d.key;
+        return '<button type="button" class="con-ptl-filter' + (on ? ' active' : '') + '" data-filter="' +
+            esc(d.key) + '">' + esc(conTr(d.labelKey)) + '</button>';
+    }).join('');
+    if (!host.dataset.wired) {
+        host.dataset.wired = '1';
+        host.addEventListener('click', function (e) {
+            var btn = e.target && e.target.closest ? e.target.closest('[data-filter]') : null;
+            if (!btn || !host.contains(btn)) return;
+            conPtlFilterKey = btn.getAttribute('data-filter') || 'all';
+            conPtlBuildFilterBar();
+            renderConPatientTimeline();
+        });
+    }
+}
+
+function conPtlEventsFromNotes(rows) {
+    return (rows || []).map(function (t) {
+        var ms = conPtlTsFromAny(t.created_at, null);
+        return {
+            kind: 'note',
+            ts: ms,
+            title: conTr('con.ptl.type.note'),
+            body: conPtlTruncate(t.notes, 280),
+            meta: [t.dentist_name, conClinicCodeFromStoredTag(t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag)]
+                .filter(Boolean).join(' · '),
+            action: 'notes',
+            refId: t.id
+        };
+    });
+}
+
+function conPtlEventsFromRx(rows) {
+    var groups = {};
+    var order = [];
+    (rows || []).forEach(function (r) {
+        var dk = r.prescribed_date || conDateIsoFromTs(r.created_at) || '__unknown__';
+        var doc = r.doctor_tag || r.dentist_name || '';
+        var key = dk + '||' + doc;
+        if (!groups[key]) { groups[key] = []; order.push(key); }
+        groups[key].push(r);
+    });
+    var out = [];
+    order.forEach(function (key) {
+        var parts = key.split('||');
+        var dk = parts[0];
+        var doc = parts[1] || '';
+        var list = groups[key];
+        var ms = conPtlTsFromIsoDateTime(dk === '__unknown__' ? '' : dk, '12:00') ||
+            conPtlTsFromAny(list[0] && list[0].created_at, null);
+        var names = list.map(function (r) { return r.drug_name; }).filter(Boolean);
+        var body = names.slice(0, 6).join(', ');
+        if (names.length > 6) body += '…';
+        out.push({
+            kind: 'rx',
+            ts: ms,
+            title: conTr('con.ptl.type.rx'),
+            body: body || '—',
+            meta: (doc ? doc + ' · ' : '') +
+                conTrRepl('con.ptl.rxSummary', { N: String(names.length) }),
+            action: 'rx',
+            refId: dk
+        });
+    });
+    return out;
+}
+
+function conPtlEventsFromVisits(rows) {
+    return (rows || []).map(function (a) {
+        var ms = conPtlTsFromIsoDateTime(a.date, a.start_time) ||
+            conPtlTsFromAny(a.created_at, a.date);
+        var status = (typeof dispStatusLabel === 'function')
+            ? dispStatusLabel(a.bill_status || 'Scheduled')
+            : (a.bill_status || 'Scheduled');
+        var timeLbl = a.start_time ? String(a.start_time).slice(0, 5) : '';
+        return {
+            kind: 'visit',
+            ts: ms,
+            title: conTr('con.ptl.type.visit'),
+            body: conPtlTruncate(a.treatment_items || a.remarks, 200) ||
+                conTr('con.ptl.visitScheduled'),
+            meta: [a.date, timeLbl, status, a.dentist_name || a.doctor_name].filter(Boolean).join(' · '),
+            action: 'visit',
+            refId: a.id
+        };
+    });
+}
+
+function conPtlEventsFromBills(rows) {
+    return (rows || []).map(function (b) {
+        var ms = conPtlTsFromAny(b.created_at, null);
+        var total = (typeof fmt2 === 'function') ? fmt2(b.total) : String(b.total || '0');
+        var bal = (typeof fmt2 === 'function') ? fmt2(b.balance) : String(b.balance || '0');
+        var voided = b.voided_at ? (' ' + conTr('con.ptl.billVoided')) : '';
+        return {
+            kind: 'bill',
+            ts: ms,
+            title: conTr('con.ptl.type.bill') + voided,
+            body: conTrRepl('con.ptl.billSummary', { TOTAL: total, BAL: bal }),
+            meta: b.id ? ('#' + String(b.id).slice(0, 8).toUpperCase()) : '',
+            action: 'bill',
+            refId: b.id,
+            payload: b
+        };
+    });
+}
+
+function conPtlEventsFromDocs(rows) {
+    return (rows || []).map(function (d) {
+        var ms = conPtlTsFromAny(d.created_at, d.document_date);
+        return {
+            kind: 'doc',
+            ts: ms,
+            title: conTr('con.ptl.type.doc'),
+            body: d.document_name || d.template_name || '—',
+            meta: [d.document_date, d.template_name, d.template_type].filter(Boolean).join(' · '),
+            action: 'doc',
+            refId: d.id
+        };
+    });
+}
+
+function conPtlEventsFromXrays(rows) {
+    return (rows || []).map(function (x) {
+        var ms = conPtlTsFromAny(x.created_at, x.taken_date) ||
+            conPtlTsFromIsoDateTime(x.taken_date, '12:00');
+        var typeLbl = x.xray_type || x.file_name || '';
+        return {
+            kind: 'xray',
+            ts: ms,
+            title: conTr('con.ptl.type.xray'),
+            body: typeLbl || '—',
+            meta: conPtlTruncate(x.notes, 120),
+            action: 'xray',
+            refId: x.id
+        };
+    });
+}
+
+function conPtlMergeEvents(lists) {
+    var all = [];
+    lists.forEach(function (arr) {
+        if (arr && arr.length) all = all.concat(arr);
+    });
+    all.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+    return all;
+}
+
+function loadConPatientTimeline(patientId) {
+    var host = g('conPatientTimeline');
+    if (!host) return;
+    if (!patientId) {
+        conPatientTimelineEvents = [];
+        host.innerHTML = '<p class="con-ptl-placeholder">' + esc(conTr('con.ptl.selectPatient')) + '</p>';
+        return;
+    }
+    conPatientTimelineHadErrors = false;
+    host.innerHTML = '<p class="con-ptl-placeholder">' + esc(conTr('con.ptl.loading')) + '</p>';
+    conPtlBuildFilterBar();
+
+    var pid = patientId;
+    var pno = (conPatientData && conPatientData.patient_no)
+        ? String(conPatientData.patient_no).trim()
+        : '';
+
+    var qNotes = SB.from('treatments').select('*').eq('patient_id', pid)
+        .order('created_at', { ascending: false }).limit(200);
+    var qRx = SB.from('drughistory').select('*').eq('patient_id', pid)
+        .order('prescribed_date', { ascending: false }).limit(300);
+    var qAppt = SB.from('appointments').select(
+        'id,date,start_time,end_time,bill_status,treatment_items,remarks,dentist_name,doctor_name,created_at'
+    ).eq('patient_id', pid).order('date', { ascending: false }).limit(150);
+    var qDocs = SB.from('patient_documents').select(
+        'id,document_name,document_date,template_name,template_type,created_at'
+    ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
+    var qXray = SB.from('xrays').select('id,xray_type,taken_date,notes,file_name,created_at')
+        .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
+
+    var qBill = SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
+        .eq('patient_id', pid).order('created_at', { ascending: false }).limit(120);
+
+    Promise.all([
+        conPtlSafeRows(qNotes),
+        conPtlSafeRows(qRx),
+        conPtlSafeRows(qAppt),
+        conPtlSafeRows(qBill),
+        conPtlSafeRows(qDocs),
+        conPtlSafeRows(qXray)
+    ]).then(function (parts) {
+        var bills = parts[3];
+        if (!bills.length && pno) {
+            return conPtlSafeRows(
+                SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
+                    .eq('patient_no', pno).order('created_at', { ascending: false }).limit(120)
+            ).then(function (b2) {
+                parts[3] = b2;
+                return parts;
+            });
+        }
+        return parts;
+    }).then(function (parts) {
+        conPatientTimelineEvents = conPtlMergeEvents([
+            conPtlEventsFromNotes(parts[0]),
+            conPtlEventsFromRx(parts[1]),
+            conPtlEventsFromVisits(parts[2]),
+            conPtlEventsFromBills(parts[3]),
+            conPtlEventsFromDocs(parts[4]),
+            conPtlEventsFromXrays(parts[5])
+        ]);
+        renderConPatientTimeline();
+    });
+}
+
+function renderConPatientTimeline() {
+    var host = g('conPatientTimeline');
+    if (!host) return;
+    conPtlBuildFilterBar();
+    var list = conPatientTimelineEvents || [];
+    if (conPtlFilterKey && conPtlFilterKey !== 'all') {
+        list = list.filter(function (ev) { return ev.kind === conPtlFilterKey; });
+    }
+    if (!list.length) {
+        var emptyMsg = conTr('con.ptl.selectPatient');
+        if (conPatientId) {
+            emptyMsg = (conPatientTimelineEvents.length && conPtlFilterKey !== 'all')
+                ? conTr('con.ptl.emptyFilter')
+                : conTr('con.ptl.empty');
+        }
+        host.innerHTML = '<p class="con-ptl-placeholder">' + esc(emptyMsg) + '</p>';
+        if (conPatientTimelineHadErrors && conPatientId) {
+            host.innerHTML += '<p class="con-ptl-placeholder" style="color:#b45309;">' +
+                esc(conTr('con.ptl.errLoad')) + '</p>';
+        }
+        return;
+    }
+    var html = '';
+    var lastDay = '';
+    if (conPatientTimelineHadErrors) {
+        html += '<p class="con-ptl-placeholder" style="color:#b45309;margin-bottom:8px;">' +
+            esc(conTr('con.ptl.errLoad')) + '</p>';
+    }
+    list.forEach(function (ev, idx) {
+        var day = conPtlFormatDay(ev.ts);
+        if (day !== lastDay) {
+            if (lastDay) html += '</ul>';
+            lastDay = day;
+            html += '<div class="con-ptl-day">' + esc(day) + '</div><ul class="con-ptl-list">';
+        }
+        html +=
+            '<li class="con-ptl-event con-ptl-event--' + esc(ev.kind) + '" data-ptl-idx="' + idx + '">' +
+            '<div class="con-ptl-event-head">' +
+            '<span class="con-ptl-event-type">' + esc(ev.title || '') + '</span>' +
+            '<span class="con-ptl-event-time">' + esc(conPtlFormatTime(ev.ts)) + '</span>' +
+            '</div>' +
+            '<div class="con-ptl-event-body">' + esc(ev.body || '') + '</div>' +
+            (ev.meta
+                ? '<div class="con-ptl-event-meta">' + esc(ev.meta) + ' · ' + esc(conTr('con.ptl.jumpHint')) + '</div>'
+                : '<div class="con-ptl-event-meta">' + esc(conTr('con.ptl.jumpHint')) + '</div>') +
+            '</li>';
+    });
+    if (lastDay) html += '</ul>';
+    host.innerHTML = html;
+    host.querySelectorAll('.con-ptl-event').forEach(function (el) {
+        el.addEventListener('click', function () {
+            var idx = parseInt(el.getAttribute('data-ptl-idx'), 10);
+            if (!isNaN(idx) && list[idx]) conPtlOpenEvent(list[idx]);
+        });
+    });
+}
+
+function conPtlOpenEvent(ev) {
+    if (!ev) return;
+    if (ev.action === 'notes') {
+        switchConTnSubtab('notes');
+        return;
+    }
+    if (ev.action === 'rx') {
+        switchConTnSubtab('notes');
+        var wrap = g('drugHistoryWrap');
+        if (wrap && wrap.scrollIntoView) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+    }
+    if (ev.action === 'doc') {
+        switchConTab('forms');
+        if (ev.refId && typeof openConFormsDoc === 'function') {
+            setTimeout(function () { openConFormsDoc(ev.refId); }, 120);
+        }
+        return;
+    }
+    if (ev.action === 'xray') {
+        switchConTab('xrays');
+        return;
+    }
+    if (ev.action === 'bill') {
+        if (ev.payload && typeof showBillDetail === 'function') {
+            showBillDetail(ev.payload);
+            return;
+        }
+        if (ev.refId) {
+            SB.from('bills').select('*').eq('id', ev.refId).single()
+            .then(function (r) {
+                if (!r.error && r.data && typeof showBillDetail === 'function') {
+                    showBillDetail(r.data);
+                } else if (typeof openBillFromConsultation === 'function') {
+                    openBillFromConsultation();
+                }
+            });
+            return;
+        }
+        if (typeof openBillFromConsultation === 'function') openBillFromConsultation();
+        return;
+    }
+    if (ev.action === 'visit') {
+        if (typeof showOnly === 'function') showOnly('appointmentSection');
+        setTimeout(function () {
+            if (typeof switchApptTab === 'function') switchApptTab('today');
+        }, 40);
+    }
 }
 
 function bindConBackQueueBtnOnce() {
@@ -2219,6 +3437,15 @@ function wireConTnPrintUi() {
     }
 }
 
+function conSchedulePatientTimelineRefresh(pid) {
+    if (!pid || pid !== conPatientId) return;
+    clearTimeout(conPtlRefreshTimer);
+    conPtlRefreshTimer = setTimeout(function () {
+        conPtlRefreshTimer = null;
+        loadConPatientTimeline(pid);
+    }, 60);
+}
+
 function loadConNotes(pid) {
     var tl = g('conTimeline');
     if (!tl) return;
@@ -2238,6 +3465,7 @@ function loadConNotes(pid) {
                 '<p style="color:#aaa;margin:0;padding:16px;">' +
                 esc(conTr('con.noTreatmentNotes')) +
                 '</p>';
+            conSchedulePatientTimelineRefresh(pid);
             return;
         }
 
@@ -2324,6 +3552,7 @@ function loadConNotes(pid) {
                 }
             });
         });
+        conSchedulePatientTimelineRefresh(pid);
     });
 }
 
@@ -3905,6 +5134,7 @@ function saveFullPrescription() {
         renderRxStagedList();
         toggleDrugAddPanel(false);
         loadDrugHistory(conPatientId);
+        conSchedulePatientTimelineRefresh(conPatientId);
         alert(conTrRepl(isReplace ? 'con.rx.prescriptionReplaced' : 'con.rx.prescriptionSaved', {
             N: rows.length,
             NAME: conPatientData.full_name
@@ -4283,6 +5513,7 @@ function drugLabelPrintDimensions() {
 }
 
 function printDrugLabel(drugs, lang) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
     var isZh = (lang === 'zh');
     var clinicNameRaw = currentActiveClinicLabelForPrinting(isZh);
     var clinicName =
@@ -4935,7 +6166,10 @@ function editDrugItem(d) {
     sv('dlRoute',     d.route      || '');
     var packed = (typeof drugUnpackRemarks === 'function')
         ? drugUnpackRemarks(d)
-        : { intake: '', general: String(d.remarks || '').trim() };
+        : {
+            intakeEn: '', intakeZh: '',
+            generalEn: String(d.remarks || '').trim(), generalZh: ''
+        };
     sv('dlIntakeCaution', packed.intakeEn);
     sv('dlIntakeCautionZh', packed.intakeZh);
     sv('dlGeneralRemarks', packed.generalEn);
@@ -5217,6 +6451,8 @@ function refreshConOpenModalsI18n() {
 document.addEventListener('DOMContentLoaded', function() {
     wireConTnPrintUi();
     bindConBackQueueBtnOnce();
+    conPtlBuildFilterBar();
+    updateConTnPrintBtnState();
 });
 
 document.addEventListener('app-lang-change', function() {
@@ -5267,6 +6503,9 @@ document.addEventListener('app-lang-change', function() {
     }
     if (conPatientId && typeof loadConNotes === 'function') {
         loadConNotes(conPatientId);
+    }
+    if (conPatientId && conPatientTimelineEvents.length && typeof renderConPatientTimeline === 'function') {
+        renderConPatientTimeline();
     }
     if (conPatientData && typeof refreshConPatientBannerI18n === 'function') {
         refreshConPatientBannerI18n(conPatientData);

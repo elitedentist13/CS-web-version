@@ -28,6 +28,118 @@ var SB = supabase.createClient(
     'fHbfVQOmIMOTbjBTG6iy2yrgmo-iZXEe-wNLlAlVtM4'
 );
 
+/** Parse doctors.qualification / qualification_chinese (plain text, newlines, or JSON array). */
+function parseDoctorQualList(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return [];
+    if (s.charAt(0) === '[') {
+        try {
+            var parsed = JSON.parse(s);
+            if (Array.isArray(parsed)) {
+                return parsed.map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+            }
+        } catch (e) { /* legacy */ }
+    }
+    if (s.indexOf('\n') >= 0) {
+        return s.split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean);
+    }
+    return [s];
+}
+
+/** Store qualification list: one line = plain string; multiple = JSON array. */
+function serializeDoctorQualList(list) {
+    var out = (list || []).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+    if (!out.length) return '';
+    if (out.length === 1) return out[0];
+    return JSON.stringify(out);
+}
+
+function doctorQualEnglishList(d) {
+    return parseDoctorQualList(d && d.qualification);
+}
+
+function doctorQualChineseList(d) {
+    return parseDoctorQualList(d && (d.qualification_chinese || d.qualification_chi));
+}
+
+function doctorQualEnglishDisplay(d) {
+    return doctorQualEnglishList(d).join('\n');
+}
+
+function doctorQualChineseDisplay(d) {
+    var norm = (typeof conFormsNormalizeQualificationChi === 'function')
+        ? conFormsNormalizeQualificationChi
+        : function (x) {
+            return String(x || '').trim().replace(/學學士/g, '學士').replace(/醫學學士/g, '醫學士');
+        };
+    return doctorQualChineseList(d).map(norm).filter(Boolean).join('\n');
+}
+
+/** HTML for document templates (one line per qualification). */
+function doctorQualEnglishHtml(d) {
+    return doctorQualEnglishList(d).map(function (line) {
+        var t = String(line || '').trim().toUpperCase();
+        return (typeof esc === 'function') ? esc(t) : t;
+    }).join('<br>');
+}
+
+function doctorQualChineseHtml(d) {
+    var norm = (typeof conFormsNormalizeQualificationChi === 'function')
+        ? conFormsNormalizeQualificationChi
+        : function (x) { return String(x || '').trim(); };
+    return doctorQualChineseList(d).map(function (line) {
+        var t = norm(line);
+        return (typeof esc === 'function') ? esc(t) : t;
+    }).join('<br>');
+}
+
+/** Placeholders whose values are pre-built HTML (must not be double-escaped). */
+var DOC_RAW_HTML_PLACEHOLDERS = {
+    doctor_qualification: true,
+    doctor_qualification_chi: true
+};
+
+/** Unwrap rich-editor markup inside {placeholder} tokens so replacement still works. */
+function normalizeTplPlaceholderMarkup(html) {
+    var s = String(html || '');
+    s = s.replace(/&#123;/gi, '{').replace(/&#125;/gi, '}');
+    s = s.replace(/\{([^}]*)\}/g, function (m, inner) {
+        var plain = String(inner || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim();
+        if (!plain) return m;
+        return '{' + plain + '}';
+    });
+    return s;
+}
+
+function replaceDocumentPlaceholders(html, map) {
+    var out = normalizeTplPlaceholderMarkup(html);
+    var data = map || {};
+    var keys = Object.keys(data).sort(function (a, b) { return b.length - a.length; });
+    keys.forEach(function (k) {
+        var re = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\}', 'gi');
+        var val = data[k] == null ? '' : data[k];
+        if (!DOC_RAW_HTML_PLACEHOLDERS[k] && typeof esc === 'function') val = esc(val);
+        out = out.replace(re, function () { return String(val); });
+    });
+    return out;
+}
+
+/** Update program_settings by key; insert if missing (avoids upsert/onConflict DB mismatches). */
+function persistProgramSettingRow(row) {
+    if (!SB || typeof SB.from !== 'function') {
+        return Promise.resolve({ error: { message: 'Database client is not available.' } });
+    }
+    return SB.from('program_settings')
+        .update({ setting_value: row.setting_value })
+        .eq('setting_key', row.setting_key)
+        .select('setting_key')
+        .then(function (up) {
+            if (up.error) return up;
+            if (up.data && up.data.length) return up;
+            return SB.from('program_settings').insert([row]);
+        });
+}
+
 // ════════════════════════════════════════════════════════════════
 // GLOBAL STATE
 // ════════════════════════════════════════════════════════════════
@@ -646,6 +758,24 @@ function doctorTagFromDoc(doc) {
 /** True when UI/print locale should prefer Chinese doctor names on documents. */
 function printUiLangIsChinese() {
     return typeof appUiLang === 'string' && appUiLang.indexOf('zh') >= 0;
+}
+
+/**
+ * Confirm before any print: remind user about zoom scale and hidden print dialogs.
+ * @returns {boolean} true when user chose to continue
+ */
+function confirmPrintReminder() {
+    var msg =
+        '列印前請留意：\n\n' +
+        '1) 請記得調整縮放比例，以免字體太細。\n\n' +
+        '2) 未回應的列印視窗可能會躲在後方，令介面不能按鍵。\n\n' +
+        '是否繼續列印？';
+    if (typeof tr === 'function') {
+        msg = tr('common.printReminderMsg');
+    } else if (typeof conTr === 'function') {
+        msg = conTr('common.printReminderMsg');
+    }
+    return window.confirm(msg);
 }
 
 function stripDoctorTagPrefix(text) {
@@ -2173,6 +2303,13 @@ function openModal(id) {
     if (m) m.style.display = 'block';
 }
 
+/** Patient add/edit: do not dismiss when clicking the dimmed area outside the form. */
+function modalAllowsBackdropClose(modalEl) {
+    if (!modalEl) return true;
+    return modalEl.getAttribute('data-no-backdrop-close') !== '1' &&
+        !modalEl.classList.contains('modal-no-backdrop-close');
+}
+
 function closeModal(id) {
     var m = g(id);
     if (m) m.style.display = 'none';
@@ -2245,7 +2382,7 @@ function restoreSession() {
 
 function loadClinicsAndDoctorsForLogin() {
     SB.from('clinics')
-      .select('id,clinic_code,english_name,chinese_name,address,tel')
+      .select('id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax')
       .order('clinic_code')
     .then(function (r) {
         APP_CLINICS = r.data || [];
@@ -2261,20 +2398,33 @@ function loadClinicsAndDoctorsForLogin() {
         if (currentUserId) refreshAppSessionStripContents();
     });
 
+    function finishDoctorList(rows) {
+        APP_DOCTORS = (rows || []).filter(function (d) { return d.is_active !== false; });
+    }
+
     Promise.all([
         SB.from('doctors').select(
-            'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id'
+            'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id,qualification,qualification_chinese'
         ).order('doctor_code'),
         SB.from('app_users').select('doctor_id,role,is_active,user_id')
     ]).then(function (all) {
         var dr = all[0];
         var ur = all[1];
+        if (dr.error && /qualification_chinese/i.test(String(dr.error.message || ''))) {
+            SB.from('doctors').select(
+                'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id,qualification'
+            ).order('doctor_code')
+            .then(function (r2) {
+                finishDoctorList(r2.error ? [] : (r2.data || []));
+                if (!ur.error) rebuildDoctorLoginIdsFromUsers(ur.data || []);
+                refreshLoginDoctorSelect();
+            });
+            return;
+        }
         if (dr.error) {
             APP_DOCTORS = [];
         } else {
-            APP_DOCTORS = (dr.data || []).filter(function (d) {
-                return d.is_active !== false;
-            });
+            finishDoctorList(dr.data || []);
         }
         if (!ur.error) rebuildDoctorLoginIdsFromUsers(ur.data || []);
         refreshLoginDoctorSelect();
@@ -2952,10 +3102,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // modal backdrop click to close
+    // modal backdrop click to close (skipped for modals with data-no-backdrop-close)
     document.querySelectorAll('.modal').forEach(function(m) {
         m.addEventListener('click', function(e) {
-            if (e.target === m) m.style.display = 'none';
+            if (e.target !== m) return;
+            if (!modalAllowsBackdropClose(m)) return;
+            if (m.id) closeModal(m.id);
+            else m.style.display = 'none';
         });
     });
 

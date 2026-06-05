@@ -1267,23 +1267,37 @@
           </div>
         </div>
 
-        <!-- add note box -->
-        <div class="con-add-note-box">
-          <textarea id="conNoteInput" rows="4" data-i18n-placeholder="con.notePh"></textarea>
-          <div class="con-note-actions-row" style="margin-top:8px;">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button type="button" class="btn-add con-note-template-btn"
-                      id="conNoteSaveTplBtn" data-i18n="con.note.saveTemplate"></button>
-              <button type="button" class="btn-add con-note-template-btn"
-                      id="conNoteFromTplBtn" data-i18n="con.note.fromTemplate"></button>
+        <div class="con-tn-subtabs" role="tablist" aria-label="Treatment notes views">
+          <button type="button" class="con-tn-subtab active" data-subtab="notes" role="tab" aria-selected="true"
+                  onclick="switchConTnSubtab('notes')" data-i18n="con.tnSub.notes"></button>
+          <button type="button" class="con-tn-subtab" data-subtab="timeline" role="tab" aria-selected="false"
+                  onclick="switchConTnSubtab('timeline')" data-i18n="con.tnSub.timeline"></button>
+        </div>
+
+        <div id="conTnSubpane-notes" class="con-tn-subpane active" role="tabpanel">
+          <div class="con-add-note-box">
+            <textarea id="conNoteInput" rows="4" data-i18n-placeholder="con.notePh"></textarea>
+            <div class="con-note-actions-row" style="margin-top:8px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn-add con-note-template-btn"
+                        id="conNoteSaveTplBtn" data-i18n="con.note.saveTemplate"></button>
+                <button type="button" class="btn-add con-note-template-btn"
+                        id="conNoteFromTplBtn" data-i18n="con.note.fromTemplate"></button>
+              </div>
+              <button class="btn-add" id="conNoteSaveBtn" data-i18n="con.saveNote"></button>
             </div>
-            <button class="btn-add" id="conNoteSaveBtn" data-i18n="con.saveNote"></button>
+          </div>
+          <div id="conTimeline" class="con-timeline">
+            <p style="color:#aaa;margin:0;padding:16px;" data-i18n="con.noNotes"></p>
           </div>
         </div>
 
-        <!-- notes timeline -->
-        <div id="conTimeline" class="con-timeline">
-          <p style="color:#aaa;margin:0;padding:16px;" data-i18n="con.noNotes"></p>
+        <div id="conTnSubpane-timeline" class="con-tn-subpane" role="tabpanel" hidden>
+          <p class="con-ptl-hint" data-i18n="con.ptl.hint"></p>
+          <div id="conPtlFilters" class="con-ptl-filters" role="toolbar"></div>
+          <div id="conPatientTimeline" class="con-patient-timeline">
+            <p class="con-ptl-placeholder" data-i18n="con.ptl.selectPatient"></p>
+          </div>
         </div>
       </div>
 
@@ -1916,157 +1930,67 @@
           </div>
         </div>
 
-        <div id="conFormsShellCard"
-             style="margin-top:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px 12px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-            <strong style="color:#334155;" data-i18n="con.forms.shell.title"></strong>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <button class="btn-add" type="button" id="conFormsShellPreviewBtn"
-                      style="padding:6px 10px;font-size:12px;background:#16a34a;"
-                      data-i18n="con.forms.shell.previewBtn"></button>
-              <button class="btn-add" type="button" id="conFormsShellResetBtn"
-                      style="padding:6px 10px;font-size:12px;background:#64748b;"
-                      data-i18n="con.forms.shell.resetBtn"></button>
-              <button class="btn-add" type="button" id="conFormsShellSaveBtn"
-                      style="padding:6px 10px;font-size:12px;background:#0d6efd;"
-                      data-i18n="con.forms.shell.saveBtn"></button>
-            </div>
+        <div id="conFormsSickLeaveDates" class="con-forms-sick-dates" style="display:none;" aria-hidden="true">
+          <div class="history-field">
+            <label class="history-label" for="conFormsSickLeaveFrom">
+              <span class="history-label-icon">📅</span>
+              <span data-i18n="con.forms.sickLeaveFrom"></span>
+            </label>
+            <input type="date" id="conFormsSickLeaveFrom" required
+                   onchange="conFormsOnSickLeaveDateChange()"
+                   style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;">
           </div>
-          <div style="font-size:12px;color:#64748b;margin-top:6px;" data-i18n="con.forms.shell.hint"></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
-            <div>
-              <label style="display:block;font-size:12px;color:#475569;font-weight:700;margin-bottom:4px;"
-                     data-i18n="con.forms.shell.headerLabel"></label>
-              <textarea id="conFormsShellHeaderTpl" rows="6"
-                        style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;
-                               font-family:Consolas,monospace;font-size:12px;"></textarea>
-            </div>
-            <div>
-              <label style="display:block;font-size:12px;color:#475569;font-weight:700;margin-bottom:4px;"
-                     data-i18n="con.forms.shell.footerLabel"></label>
-              <textarea id="conFormsShellFooterTpl" rows="6"
-                        style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;
-                               font-family:Consolas,monospace;font-size:12px;"></textarea>
-            </div>
+          <div class="history-field">
+            <label class="history-label" for="conFormsSickLeaveTo">
+              <span class="history-label-icon">📅</span>
+              <span data-i18n="con.forms.sickLeaveTo"></span>
+            </label>
+            <input type="date" id="conFormsSickLeaveTo" required
+                   onchange="conFormsOnSickLeaveDateChange()"
+                   style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;">
           </div>
-          <div id="conFormsShellPreviewArea"
-               style="display:none;margin-top:10px;padding:10px;border:1px dashed #93c5fd;border-radius:10px;background:#fff;"></div>
+          <p class="con-forms-sick-dates-hint" data-i18n="con.forms.sickLeaveHint"></p>
         </div>
 
+        <!-- Letterhead configured in Configuration → Document Templates (not shown here) -->
+        <div id="conFormsShellCard" class="con-forms-shell-hidden" aria-hidden="true"></div>
+
         <div id="conFormsEditorWrap" style="display:none;margin-top:12px;">
-          <!-- Basic formatting toolbar -->
-          <div id="conFormsToolbar"
-               style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;
-                      padding:10px;border:1px solid #e5e7eb;border-radius:12px;
-                      background:#f8fafc;margin-bottom:10px;">
+          <div style="font-size:12px;color:#64748b;margin-bottom:8px;" data-i18n="con.forms.editorHint"></div>
+          <div id="conFormsToolbarMount"></div>
+          <div id="conFormsDocEditor" class="doc-rt-editor" contenteditable="true"
+               data-placeholder-mode="1" style="min-height:420px;border-radius:0 0 12px 12px;"></div>
 
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsCmd('bold')" data-i18n-title="con.forms.toolBoldTitle"><b>B</b></button>
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsCmd('underline')" data-i18n-title="con.forms.toolUnderlineTitle"><u>U</u></button>
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsCmd('italic')" data-i18n-title="con.forms.toolItalicTitle"><i>I</i></button>
-
-            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
-
-            <select id="conFormsFontName" onchange="conFormsFontName(this.value)"
-                    style="padding:6px 10px;border:1px solid #ddd;border-radius:10px;">
-              <option value="Arial" selected>Arial</option>
-              <option value="Times New Roman">Times New Roman</option>
-              <option value="Calibri">Calibri</option>
-              <option value="Georgia">Georgia</option>
-              <option value="Tahoma">Tahoma</option>
-              <option value="Courier New">Courier New</option>
-            </select>
-
-            <select id="conFormsFontSize" onchange="conFormsFontSize(this.value)"
-                    style="padding:6px 10px;border:1px solid #ddd;border-radius:10px;">
-              <option value="2"></option>
-              <option value="3" selected></option>
-              <option value="4"></option>
-              <option value="5"></option>
-            </select>
-
-            <input id="conFormsFontColor" type="color" value="#111111"
-                   onchange="conFormsForeColor(this.value)"
-                   style="width:42px;height:34px;border:1px solid #ddd;border-radius:10px;padding:2px;background:#fff;">
-
-            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
-
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsCmd('justifyLeft')" data-i18n-title="con.forms.toolAlignLeft">⟸</button>
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsCmd('justifyCenter')" data-i18n-title="con.forms.toolAlignCenter">≡</button>
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsCmd('justifyRight')" data-i18n-title="con.forms.toolAlignRight">⟹</button>
-
-            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
-
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsCmd('insertUnorderedList')" data-i18n="con.forms.toolBulletList"></button>
-
-            <span style="width:1px;height:22px;background:#e5e7eb;"></span>
-
-            <!-- Placeholder insertion -->
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsInsertTag('{patient_name}')"
-                    data-i18n="con.forms.tagPatientName"
-                    data-i18n-title="con.forms.tagPatientNameHint"></button>
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsInsertTag('{patient_no}')"
-                    data-i18n="con.forms.tagPatientNo"
-                    data-i18n-title="con.forms.tagPatientNoHint"></button>
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsInsertTag('{doctor_name}')"
-                    data-i18n="con.forms.tagDoctorName"
-                    data-i18n-title="con.forms.tagDoctorNameHint"></button>
-            <button class="btn-add" style="padding:6px 10px;font-size:12px;background:var(--gray);"
-                    onclick="conFormsInsertTag('{date}')"
-                    data-i18n="con.forms.tagDate"
-                    data-i18n-title="con.forms.tagDateHint"></button>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;align-items:center;">
+            <span id="conFormsEditingBadge" class="con-forms-editing-badge" data-i18n="con.forms.editingExisting"></span>
+            <button class="btn-add" type="button" onclick="saveConFormsDoc(false)" data-i18n="con.forms.btnSaveOnly"></button>
+            <button class="btn-add" type="button" style="background:var(--primary);" onclick="saveConFormsDoc(true)" data-i18n="con.forms.btnSavePrint"></button>
+            <button class="btn-add" type="button" style="background:#64748b;" onclick="conFormsStartNewDoc()" data-i18n="con.forms.btnNewDoc"></button>
           </div>
+        </div>
 
-          <!-- Rich text editor -->
-          <div id="conFormsDocEditor"
-               contenteditable="true"
-               data-placeholder-mode="1"
-               style="min-height:420px;padding:14px;border:1px solid #ddd;border-radius:12px;
-                      background:#fff;overflow:auto;line-height:1.5;"></div>
-
-          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
-            <button class="btn-add" onclick="saveConFormsDoc(false)" data-i18n="con.forms.btnSaveOnly"></button>
-            <button class="btn-add" style="background:var(--primary);" onclick="saveConFormsDoc(true)" data-i18n="con.forms.btnSavePrint"></button>
-            <button class="btn-add" style="background:var(--gray);" onclick="searchConFormsDocs()" data-i18n="con.forms.btnSearchExisting"></button>
+        <div id="conFormsHistCard" class="con-forms-hist-card" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="font-weight:900;color:#334155;" data-i18n="con.forms.existingTitle"></div>
+              <label style="font-size:12px;color:#666;font-weight:800;display:flex;align-items:center;gap:6px;">
+                <input id="conFormsHistSelectAll" type="checkbox"
+                       onchange="conFormsToggleSelectAll(this.checked)">
+                <span data-i18n="con.forms.selectAll"></span>
+              </label>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button id="conFormsHistPrintBtn" type="button" class="btn-add"
+                      style="padding:7px 12px;font-size:12px;background:#9ca3af;cursor:not-allowed;"
+                      disabled onclick="conFormsPrintSelectedDocs()" data-i18n="con.forms.btnPrint"></button>
+              <button id="conFormsHistDeleteBtn" type="button" class="btn-add"
+                      style="padding:7px 12px;font-size:12px;background:#9ca3af;cursor:not-allowed;"
+                      disabled onclick="conFormsDeleteSelectedDocs()" data-i18n="con.forms.btnDelete"></button>
+            </div>
           </div>
-
-          <div id="conFormsSearchWrap" style="display:none;margin-top:14px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <div style="font-weight:900;color:#555;" data-i18n="con.forms.existingTitle"></div>
-                <label style="font-size:12px;color:#666;font-weight:800;display:flex;align-items:center;gap:6px;">
-                  <input id="conFormsHistSelectAll" type="checkbox"
-                         onchange="conFormsToggleSelectAll(this.checked)">
-                  <span data-i18n="con.forms.selectAll"></span>
-                </label>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button id="conFormsHistPrintBtn"
-                        class="btn-add"
-                        style="padding:7px 12px;font-size:12px;background:#9ca3af;cursor:not-allowed;"
-                        disabled
-                        onclick="conFormsPrintSelectedDocs()" data-i18n="con.forms.btnPrint"></button>
-                <button id="conFormsHistDeleteBtn"
-                        class="btn-add"
-                        style="padding:7px 12px;font-size:12px;background:#9ca3af;cursor:not-allowed;"
-                        disabled
-                        onclick="conFormsDeleteSelectedDocs()" data-i18n="con.forms.btnDelete"></button>
-              </div>
-            </div>
-
-            <div id="conFormsExistingList"
-                 style="background:#fff;border:1px solid #eee;border-radius:12px;overflow:hidden;">
-              <div style="padding:10px;color:#888;">—</div>
-            </div>
+          <div id="conFormsExistingList"
+               style="background:#fff;border:1px solid #eee;border-radius:12px;overflow:hidden;max-height:280px;overflow-y:auto;">
+            <div style="padding:10px;color:#888;">—</div>
           </div>
         </div>
       </div>
@@ -2905,7 +2829,7 @@
 <!-- ════════════════════════════════════════════════════════════
      MODAL — ADD PATIENT
 ════════════════════════════════════════════════════════════ -->
-<div id="addPatientModal" class="modal">
+<div id="addPatientModal" class="modal modal-no-backdrop-close" data-no-backdrop-close="1">
   <div class="modal-box">
     <button class="mclose" id="closeAddPatient" data-i18n-aria-label="common.closeAria">×</button>
     <h2 data-i18n="patient.add.title"></h2>
@@ -3052,9 +2976,11 @@
 
       </div>
 
-      <button type="submit" class="btn-add"
-              style="width:100%;margin-top:18px;padding:12px;"
-              data-i18n="patient.add.registerBtn"></button>
+      <div style="margin-top:18px;">
+        <button type="submit" class="btn-add"
+                style="width:100%;padding:12px;"
+                data-i18n="patient.add.registerBtn"></button>
+      </div>
     </form>
   </div>
 </div>
@@ -3139,7 +3065,7 @@
 <!-- ════════════════════════════════════════════════════════════
      MODAL — EDIT PATIENT
 ════════════════════════════════════════════════════════════ -->
-<div id="editPatientModal" class="modal">
+<div id="editPatientModal" class="modal modal-no-backdrop-close" data-no-backdrop-close="1">
   <div class="modal-box">
     <button class="mclose" id="closeEditPatient" data-i18n-aria-label="common.closeAria">×</button>
     <h2 id="editPatientModalTitle"></h2>
@@ -4309,7 +4235,7 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
       <input type="file" id="apptImportImageFile" accept="image/*">
-      <button type="button" id="apptImportOcrBtn" data-no-click-guard="1" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">OCR detect from image</button>
+      <button type="button" id="apptImportOcrBtn" data-no-click-guard="1" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">OCR (English + 繁體中文)</button>
       <button type="button" id="apptImportParseBtn" data-no-click-guard="1" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">Normalize lines</button>
       <button type="button" id="apptImportPreviewBtn" data-no-click-guard="1" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">Preview rows</button>
       <span id="apptImportStatus" style="font-size:12px;color:#64748b;"></span>
@@ -4998,6 +4924,7 @@
 <script src="app-i18n.js"></script>
 <script src="app-i18n-extra.js"></script>
 <script src="app.js"></script>
+<script src="app-doc-editor.js"></script>
 <script src="app-audit.js"></script>
 <script src="app-auth.js"></script>
 <script src="treatment-items-catalog.js"></script>

@@ -389,6 +389,9 @@ var CFG = (function () {
             'text-transform:uppercase;letter-spacing:0.5px;">' + esc(ctr('cfg.th.address')) + '</th>' +
             '<th style="padding:12px 14px;text-align:left;font-size:12px;' +
             'font-weight:700;color:#0d6efd;border-bottom:2px solid #dde8f5;' +
+            'text-transform:uppercase;letter-spacing:0.5px;">' + esc(ctr('cfg.th.addressChinese')) + '</th>' +
+            '<th style="padding:12px 14px;text-align:left;font-size:12px;' +
+            'font-weight:700;color:#0d6efd;border-bottom:2px solid #dde8f5;' +
             'text-transform:uppercase;letter-spacing:0.5px;">' + esc(ctr('cfg.th.tel')) + '</th>' +
             '<th style="padding:12px 14px;text-align:left;font-size:12px;' +
             'font-weight:700;color:#0d6efd;border-bottom:2px solid #dde8f5;' +
@@ -444,6 +447,10 @@ var CFG = (function () {
                 'max-width:200px;vertical-align:top;cursor:pointer;" ' +
                 'onclick="CFG._openClinicPanel(\'' + c.id + '\')">' +
                 esc(c.address || '-') + '</td>' +
+                '<td style="padding:12px 14px;font-size:12px;color:#555;' +
+                'max-width:200px;vertical-align:top;cursor:pointer;" ' +
+                'onclick="CFG._openClinicPanel(\'' + c.id + '\')">' +
+                esc(clinicAddressChinese(c) || '-') + '</td>' +
                 '<td style="padding:12px 14px;font-size:12px;vertical-align:top;' +
                 'white-space:nowrap;cursor:pointer;" ' +
                 'onclick="CFG._openClinicPanel(\'' + c.id + '\')">' +
@@ -495,6 +502,10 @@ var CFG = (function () {
             '<label style="display:block;font-size:13px;color:#555;margin-bottom:4px;">' + esc(ctr('cfg.form.address')) + '</label>' +
             '<textarea id="cl_addr" rows="3" style="' + inputStyle() + '"></textarea>' +
             '</div>' +
+            '<div style="margin-bottom:14px;">' +
+            '<label style="display:block;font-size:13px;color:#555;margin-bottom:4px;">' + esc(ctr('cfg.form.addressChinese')) + '</label>' +
+            '<textarea id="cl_addr_chi" rows="3" style="' + inputStyle() + '"></textarea>' +
+            '</div>' +
             fld('cfg.form.tel',                  'cl_tel')    +
             fld('cfg.form.fax',                  'cl_fax')    +
             fld('cfg.form.openAt',              'cl_open',  'time') +
@@ -515,7 +526,7 @@ var CFG = (function () {
         g('clinicPanelTitle').textContent = id ? ctr('cfg.panel.editClinic') : ctr('cfg.panel.addClinic');
 
         // clear
-        ['cl_code','cl_ename','cl_cname','cl_qual','cl_addr','cl_tel',
+        ['cl_code','cl_ename','cl_cname','cl_qual','cl_addr','cl_addr_chi','cl_tel',
          'cl_fax','cl_open','cl_close','cl_interval']
         .forEach(function (fid) { var e = g(fid); if (e) e.value = ''; });
 
@@ -528,6 +539,9 @@ var CFG = (function () {
                 if (g('cl_cname'))    g('cl_cname').value    = d.chinese_name  || '';
                 if (g('cl_qual'))     g('cl_qual').value     = d.qualification || '';
                 if (g('cl_addr'))     g('cl_addr').value     = d.address       || '';
+                if (g('cl_addr_chi')) {
+                    g('cl_addr_chi').value = d.address_chinese || d.chinese_address || '';
+                }
                 if (g('cl_tel'))      g('cl_tel').value      = d.tel           || '';
                 if (g('cl_fax'))      g('cl_fax').value      = d.fax           || '';
                 if (g('cl_open'))     g('cl_open').value     = d.open_at       || '';
@@ -553,7 +567,8 @@ var CFG = (function () {
             english_name:  (g('cl_ename')    || {}).value.trim(),
             chinese_name:  (g('cl_cname')    || {}).value.trim(),
             qualification: (g('cl_qual')     || {}).value.trim(),
-            address:       (g('cl_addr')     || {}).value.trim(),
+            address:          (g('cl_addr')      || {}).value.trim(),
+            address_chinese:  (g('cl_addr_chi')  || {}).value.trim(),
             tel:           (g('cl_tel')      || {}).value.trim(),
             fax:           (g('cl_fax')      || {}).value.trim(),
             open_at:       (g('cl_open')     || {}).value || null,
@@ -566,10 +581,19 @@ var CFG = (function () {
             : SB.from('clinics').insert(payload);
 
         op.then(function (r) {
-            if (r.error) { toast(r.error.message, true); return; }
+            if (r.error) {
+                var msg = r.error.message || '';
+                if (/address_chinese/i.test(msg)) {
+                    toast(ctr('cfg.msg.clinicAddrZhColumn'), true);
+                } else {
+                    toast(msg, true);
+                }
+                return;
+            }
             toast(_clinicEditId ? ctr('cfg.msg.clinicUpdated') : ctr('cfg.msg.clinicAdded'));
             _closeClinicPanel();
             loadClinic();
+            if (typeof loadClinicsAndDoctorsForLogin === 'function') loadClinicsAndDoctorsForLogin();
         });
     }
 
@@ -948,6 +972,7 @@ var CFG = (function () {
                         english_name:  d.english_name,
                         chinese_name:  d.chinese_name,
                         qualification: d.qualification,
+                        qualification_chinese: d.qualification_chinese || d.qualification_chi || '',
                         tel:           d.tel,
                         email:         d.email,
                         color:         d.color || '#4A90D9',
@@ -1090,7 +1115,8 @@ var CFG = (function () {
             '<th style="' + TH + '">' + esc(ctr('cfg.th.doctorCode')) + '</th>' +
             '<th style="' + TH + '">' + esc(ctr('cfg.th.englishName')) + '</th>' +
             '<th style="' + TH + '">' + esc(ctr('cfg.th.chineseName')) + '</th>' +
-            '<th style="' + TH + '">' + esc(ctr('cfg.th.qualification')) + '</th>' +
+            '<th style="' + TH + '">' + esc(ctr('cfg.th.qualificationEn')) + '</th>' +
+            '<th style="' + TH + '">' + esc(ctr('cfg.th.qualificationZh')) + '</th>' +
             '<th style="' + TH + '">' + esc(ctr('cfg.th.tel')) + '</th>' +
             '<th style="' + TH_C + 'width:60px;">' + esc(ctr('cfg.th.color')) + '</th>' +
             '<th style="' + TH_C + 'width:80px;">' + esc(ctr('cfg.th.status')) + '</th>' +
@@ -1121,8 +1147,10 @@ var CFG = (function () {
                     esc(d.english_name || '-') + '</td>' +
                 '<td style="' + TD + '" onclick="CFG._openDocPanel(\'' + d.id + '\')">' +
                     esc(d.chinese_name || '-') + '</td>' +
-                '<td style="' + TD + 'color:#555;" onclick="CFG._openDocPanel(\'' + d.id + '\')">' +
-                    esc(d.qualification || '-') + '</td>' +
+                '<td style="' + TD + 'color:#555;font-size:12px;" onclick="CFG._openDocPanel(\'' + d.id + '\')">' +
+                    doctorQualListCellHtml(d, 'en') + '</td>' +
+                '<td style="' + TD + 'color:#555;font-size:12px;" onclick="CFG._openDocPanel(\'' + d.id + '\')">' +
+                    doctorQualListCellHtml(d, 'zh') + '</td>' +
                 '<td style="' + TD + 'white-space:nowrap;" onclick="CFG._openDocPanel(\'' + d.id + '\')">' +
                     esc(d.tel || '-') + '</td>' +
                 '<td style="' + TD_C + '">' +
@@ -1165,7 +1193,7 @@ var CFG = (function () {
             fld('cfg.form.doctorCode', 'dp_code')   +
             fld('cfg.form.englishName',  'dp_ename')  +
             fld('cfg.form.chineseName',  'dp_cname')  +
-            fld('cfg.form.qualification', 'dp_qual')   +
+            doctorQualFieldsHTML() +
             fld('cfg.form.tel',           'dp_tel')    +
             fld('cfg.form.email',         'dp_email', 'email') +
             '<div style="margin-bottom:14px;">' +
@@ -1230,6 +1258,123 @@ var CFG = (function () {
             if (CFG_TPL_TYPE_PAIRS[i][0] === s) return ctr(CFG_TPL_TYPE_PAIRS[i][1]);
         }
         return String(raw || '').trim() || '—';
+    }
+
+    function doctorQualEnglish(d) {
+        if (typeof doctorQualEnglishDisplay === 'function') {
+            return doctorQualEnglishDisplay(d);
+        }
+        d = d || {};
+        return String(d.qualification || '').trim();
+    }
+
+    function doctorQualTraditionalChinese(d) {
+        if (typeof doctorQualChineseDisplay === 'function') {
+            return doctorQualChineseDisplay(d);
+        }
+        d = d || {};
+        var s = String(d.qualification_chinese || d.qualification_chi || '').trim();
+        return s.replace(/學學士/g, '學士').replace(/醫學學士/g, '醫學士');
+    }
+
+    function doctorQualListCellHtml(d, lang) {
+        var lines = (lang === 'zh')
+            ? ((typeof doctorQualChineseList === 'function')
+                ? doctorQualChineseList(d)
+                : [doctorQualTraditionalChinese(d)].filter(Boolean))
+            : ((typeof doctorQualEnglishList === 'function')
+                ? doctorQualEnglishList(d)
+                : [doctorQualEnglish(d)].filter(Boolean));
+        if (!lines.length) return '—';
+        return lines.map(function (line) {
+            return '<div style="line-height:1.35;">' + esc(line) + '</div>';
+        }).join('');
+    }
+
+    function doctorQualFieldsHTML() {
+        return '' +
+            '<div class="cfg-qual-section" style="margin-bottom:14px;">' +
+              '<label style="display:block;font-size:13px;color:#555;font-weight:700;margin-bottom:4px;">' +
+                esc(ctr('cfg.form.qualification')) + '</label>' +
+              '<p style="margin:0 0 8px;font-size:11px;color:#94a3b8;">' + esc(ctr('cfg.form.qualRowsHint')) + '</p>' +
+              '<div id="dp_qual_rows_en" class="cfg-qual-rows" data-qual-lang="en"></div>' +
+              '<button type="button" class="cfg-qual-add-btn" onclick="CFG._addDoctorQualRow(\'en\')">' +
+                esc(ctr('cfg.form.qualAddRow')) + '</button>' +
+            '</div>' +
+            '<div class="cfg-qual-section" style="margin-bottom:14px;">' +
+              '<label style="display:block;font-size:13px;color:#555;font-weight:700;margin-bottom:4px;">' +
+                esc(ctr('cfg.form.qualificationChinese')) + '</label>' +
+              '<div id="dp_qual_rows_zh" class="cfg-qual-rows" data-qual-lang="zh"></div>' +
+              '<button type="button" class="cfg-qual-add-btn" onclick="CFG._addDoctorQualRow(\'zh\')">' +
+                esc(ctr('cfg.form.qualAddRow')) + '</button>' +
+            '</div>';
+    }
+
+    function _doctorQualRowHtml(lang, value) {
+        var ph = lang === 'zh' ? ctr('cfg.form.ph.qualificationZh') : ctr('cfg.form.ph.qualificationEn');
+        return '<div class="cfg-qual-row">' +
+            '<input type="text" class="cfg-qual-input" data-qual-lang="' + esc(lang) + '" ' +
+            'value="' + esc(value || '').replace(/"/g, '&quot;') + '" ' +
+            'placeholder="' + esc(ph).replace(/"/g, '&quot;') + '" style="' + inputStyle() + 'flex:1;">' +
+            '<button type="button" class="cfg-qual-rm-btn" onclick="CFG._removeDoctorQualRow(this)" ' +
+            'title="' + esc(ctr('cfg.form.qualRemoveRow')).replace(/"/g, '&quot;') + '">&times;</button>' +
+            '</div>';
+    }
+
+    function _renderDoctorQualRows(lang, lines) {
+        var mount = g(lang === 'zh' ? 'dp_qual_rows_zh' : 'dp_qual_rows_en');
+        if (!mount) return;
+        lines = lines || [];
+        if (!lines.length) lines = [''];
+        mount.innerHTML = lines.map(function (line) {
+            return _doctorQualRowHtml(lang, line);
+        }).join('');
+    }
+
+    function _collectDoctorQualRows(lang) {
+        var mount = g(lang === 'zh' ? 'dp_qual_rows_zh' : 'dp_qual_rows_en');
+        if (!mount) return [];
+        var out = [];
+        mount.querySelectorAll('.cfg-qual-input[data-qual-lang="' + lang + '"]').forEach(function (inp) {
+            var v = String(inp.value || '').trim();
+            if (v) out.push(v);
+        });
+        return out;
+    }
+
+    function _addDoctorQualRow(lang) {
+        var mount = g(lang === 'zh' ? 'dp_qual_rows_zh' : 'dp_qual_rows_en');
+        if (!mount) return;
+        mount.insertAdjacentHTML('beforeend', _doctorQualRowHtml(lang, ''));
+        var inputs = mount.querySelectorAll('.cfg-qual-input[data-qual-lang="' + lang + '"]');
+        if (inputs.length) inputs[inputs.length - 1].focus();
+    }
+
+    function _removeDoctorQualRow(btn) {
+        var row = btn && btn.closest ? btn.closest('.cfg-qual-row') : null;
+        if (!row) return;
+        var mount = row.parentElement;
+        row.remove();
+        if (mount && !mount.querySelector('.cfg-qual-row')) {
+            var lang = mount.getAttribute('data-qual-lang') || 'en';
+            mount.insertAdjacentHTML('beforeend', _doctorQualRowHtml(lang, ''));
+        }
+    }
+
+    function _loadDoctorQualIntoForm(d) {
+        var en = (typeof doctorQualEnglishList === 'function')
+            ? doctorQualEnglishList(d || {})
+            : [String((d && d.qualification) || '').trim()].filter(Boolean);
+        var zh = (typeof doctorQualChineseList === 'function')
+            ? doctorQualChineseList(d || {})
+            : [doctorQualTraditionalChinese(d || {})].filter(Boolean);
+        _renderDoctorQualRows('en', en);
+        _renderDoctorQualRows('zh', zh);
+    }
+
+    function clinicAddressChinese(c) {
+        c = c || {};
+        return String(c.address_chinese || c.chinese_address || '').trim();
     }
 
     function dispCfgUserRole(raw) {
@@ -1325,8 +1470,10 @@ var CFG = (function () {
         g('docPanelTitle').textContent = id ? ctr('cfg.panel.editDoctor') : ctr('cfg.panel.addDoctor');
 
         // clear
-        ['dp_code','dp_ename','dp_cname','dp_qual','dp_tel','dp_email']
+        ['dp_code','dp_ename','dp_cname','dp_tel','dp_email']
         .forEach(function (fid) { var e = g(fid); if (e) e.value = ''; });
+        _renderDoctorQualRows('en', ['']);
+        _renderDoctorQualRows('zh', ['']);
         var dc = g('dp_color');   if (dc) dc.value   = '#4A90D9';
         var da = g('dp_active');  if (da) da.checked = true;
 
@@ -1337,7 +1484,7 @@ var CFG = (function () {
                 if (g('dp_code'))  g('dp_code').value  = d.doctor_code   || '';
                 if (g('dp_ename')) g('dp_ename').value = d.english_name  || '';
                 if (g('dp_cname')) g('dp_cname').value = d.chinese_name  || '';
-                if (g('dp_qual'))  g('dp_qual').value  = d.qualification || '';
+                _loadDoctorQualIntoForm(d);
                 if (g('dp_tel'))   g('dp_tel').value   = d.tel           || '';
                 if (g('dp_email')) g('dp_email').value = d.email         || '';
                 if (g('dp_color')) g('dp_color').value = d.color         || '#4A90D9';
@@ -1365,7 +1512,12 @@ var CFG = (function () {
             doctor_code:   code,
             english_name:  (g('dp_ename')  || {}).value.trim(),
             chinese_name:  (g('dp_cname')  || {}).value.trim(),
-            qualification: (g('dp_qual')   || {}).value.trim(),
+            qualification: (typeof serializeDoctorQualList === 'function')
+                ? serializeDoctorQualList(_collectDoctorQualRows('en'))
+                : '',
+            qualification_chinese: (typeof serializeDoctorQualList === 'function')
+                ? serializeDoctorQualList(_collectDoctorQualRows('zh'))
+                : '',
             tel:           (g('dp_tel')    || {}).value.trim(),
             email:         (g('dp_email')  || {}).value.trim(),
             color:         (g('dp_color')  || {}).value,
@@ -1380,7 +1532,15 @@ var CFG = (function () {
             : SB.from('doctors').insert(payload);
 
         op.then(function (r) {
-            if (r.error) { toast(r.error.message, true); return; }
+            if (r.error) {
+                var msg = r.error.message || '';
+                if (/qualification_chinese/i.test(msg)) {
+                    toast(ctr('cfg.msg.doctorQualZhColumn'), true);
+                } else {
+                    toast(msg, true);
+                }
+                return;
+            }
             toast(_docEditId ? ctr('cfg.msg.doctorUpdated') : ctr('cfg.msg.doctorAdded'));
             _closeDocPanel();
             loadDoctors();
@@ -1871,6 +2031,9 @@ var CFG = (function () {
 
     /** PATCH by key, then INSERT if no row matched — avoids bulk upsert/onConflict mismatches vs DB constraints. */
     function _persistProgramSettingRow(row) {
+        if (typeof persistProgramSettingRow === 'function') {
+            return persistProgramSettingRow(row);
+        }
         return SB.from('program_settings')
             .update({ setting_value: row.setting_value })
             .eq('setting_key', row.setting_key)
@@ -2370,20 +2533,205 @@ var CFG = (function () {
     // ════════════════════════════════════════════════════════
     var _tplEditId = null;
     var _tplRowsCache = [];
+    /** Last focused rich editor on Templates tab (template body or letterhead). */
+    var _cfgLastInsertEditorId = null;
 
-    var TEMPLATE_PLACEHOLDERS = [
-        { labelKey: 'cfg.tpl.ph.patientNo', tag: '{patient_no}' },
-        { labelKey: 'cfg.tpl.ph.patientName', tag: '{patient_name}' },
-        { labelKey: 'cfg.tpl.ph.patientPhone', tag: '{patient_phone}' },
-        { labelKey: 'cfg.tpl.ph.patientHkid', tag: '{patient_hkid}' },
-        { labelKey: 'cfg.tpl.ph.patientDob', tag: '{patient_dob}' },
-        { labelKey: 'cfg.tpl.ph.doctor', tag: '{doctor_name}' },
-        { labelKey: 'cfg.tpl.ph.clinic', tag: '{clinic_name}' },
-        { labelKey: 'cfg.tpl.ph.date', tag: '{date}' },
-        { labelKey: 'cfg.tpl.ph.time', tag: '{time}' },
-        { labelKey: 'cfg.tpl.ph.receiptNo', tag: '{receipt_no}' },
-        { labelKey: 'cfg.tpl.ph.total', tag: '{total_amount}' }
+    var TEMPLATE_PLACEHOLDER_GROUPS = [
+        {
+            groupKey: 'cfg.tpl.phGroup.patient',
+            items: [
+                { labelKey: 'cfg.tpl.ph.patientNo', tag: '{patient_no}' },
+                { labelKey: 'cfg.tpl.ph.patientName', tag: '{patient_name}' },
+                { labelKey: 'cfg.tpl.ph.patientNameUpper', tag: '{patient_name_upper}' },
+                { labelKey: 'cfg.tpl.ph.patientChineseName', tag: '{patient_chinese_name}' },
+                { labelKey: 'cfg.tpl.ph.patientPhone', tag: '{patient_phone}' },
+                { labelKey: 'cfg.tpl.ph.patientHkid', tag: '{patient_hkid}' },
+                { labelKey: 'cfg.tpl.ph.patientDob', tag: '{patient_dob}' },
+                { labelKey: 'cfg.tpl.ph.patientEmail', tag: '{patient_email}' },
+                { labelKey: 'cfg.tpl.ph.patientAddress', tag: '{patient_address}' }
+            ]
+        },
+        {
+            groupKey: 'cfg.tpl.phGroup.doctor',
+            items: [
+                { labelKey: 'cfg.tpl.ph.doctor', tag: '{doctor_name}' },
+                { labelKey: 'cfg.tpl.ph.doctorCode', tag: '{doctor_code}' },
+                { labelKey: 'cfg.tpl.ph.doctorEng', tag: '{doctor_eng}' },
+                { labelKey: 'cfg.tpl.ph.doctorChi', tag: '{doctor_chi}' },
+                { labelKey: 'cfg.tpl.ph.doctorQual', tag: '{doctor_qualification}' },
+                { labelKey: 'cfg.tpl.ph.doctorQualChi', tag: '{doctor_qualification_chi}' }
+            ]
+        },
+        {
+            groupKey: 'cfg.tpl.phGroup.clinic',
+            items: [
+                { labelKey: 'cfg.tpl.ph.clinic', tag: '{clinic_name}' },
+                { labelKey: 'cfg.tpl.ph.clinicNameChi', tag: '{clinic_name_chi}' },
+                { labelKey: 'cfg.tpl.ph.clinicAddress', tag: '{clinic_address}' },
+                { labelKey: 'cfg.tpl.ph.clinicAddressChi', tag: '{clinic_address_chi}' },
+                { labelKey: 'cfg.tpl.ph.clinicTel', tag: '{clinic_tel}' },
+                { labelKey: 'cfg.tpl.ph.clinicFax', tag: '{clinic_fax}' }
+            ]
+        },
+        {
+            groupKey: 'cfg.tpl.phGroup.dateTime',
+            items: [
+                { labelKey: 'cfg.tpl.ph.date', tag: '{date}' },
+                { labelKey: 'cfg.tpl.ph.dateLong', tag: '{date_long}' },
+                { labelKey: 'cfg.tpl.ph.time', tag: '{time}' },
+                { labelKey: 'cfg.tpl.ph.timeOfDayEn', tag: '{time_of_day_en}' },
+                { labelKey: 'cfg.tpl.ph.timeOfDayChi', tag: '{time_of_day_chi}' }
+            ]
+        },
+        {
+            groupKey: 'cfg.tpl.phGroup.billing',
+            items: [
+                { labelKey: 'cfg.tpl.ph.receiptNo', tag: '{receipt_no}' },
+                { labelKey: 'cfg.tpl.ph.total', tag: '{total_amount}' }
+            ]
+        },
+        {
+            groupKey: 'cfg.tpl.phGroup.sickLeave',
+            noteKey: 'cfg.tpl.phGroup.sickLeaveNote',
+            items: [
+                { labelKey: 'cfg.tpl.ph.sickLeaveFrom', tag: '{sick_leave_from}' },
+                { labelKey: 'cfg.tpl.ph.sickLeaveTo', tag: '{sick_leave_to}' },
+                { labelKey: 'cfg.tpl.ph.sickLeaveFromLong', tag: '{sick_leave_from_long}' },
+                { labelKey: 'cfg.tpl.ph.sickLeaveToLong', tag: '{sick_leave_to_long}' },
+                { labelKey: 'cfg.tpl.ph.sickLeaveDays', tag: '{sick_leave_days}' },
+                { labelKey: 'cfg.tpl.ph.sickLeavePeriodEn', tag: '{sick_leave_period_en}' },
+                { labelKey: 'cfg.tpl.ph.sickLeavePeriodChi', tag: '{sick_leave_period_chi}' },
+                { labelKey: 'cfg.tpl.ph.sickLeaveFromDdmm', tag: '{sick_leave_from_ddmm}' },
+                { labelKey: 'cfg.tpl.ph.sickLeaveToDdmm', tag: '{sick_leave_to_ddmm}' },
+                { labelKey: 'cfg.tpl.ph.sickLeaveDiagnosis', tag: '{diagnosis}' },
+                { labelKey: 'cfg.tpl.ph.patientChineseNameSpaced', tag: '{patient_chinese_name_spaced}' }
+            ]
+        },
+        {
+            groupKey: 'cfg.tpl.phGroup.letterhead',
+            noteKey: 'cfg.tpl.phGroup.letterheadNote',
+            items: [
+                { labelKey: 'cfg.tpl.ph.clinic', tag: '{clinic_name}' },
+                { labelKey: 'cfg.tpl.ph.clinicNameChi', tag: '{clinic_name_chi}' },
+                { labelKey: 'cfg.tpl.ph.clinicAddress', tag: '{clinic_address}' },
+                { labelKey: 'cfg.tpl.ph.clinicAddressChi', tag: '{clinic_address_chi}' },
+                { labelKey: 'cfg.tpl.ph.clinicTel', tag: '{clinic_tel}' },
+                { labelKey: 'cfg.tpl.ph.clinicFax', tag: '{clinic_fax}' },
+                { labelKey: 'cfg.tpl.ph.doctorEng', tag: '{doctor_eng}' },
+                { labelKey: 'cfg.tpl.ph.doctorChi', tag: '{doctor_chi}' }
+            ]
+        }
     ];
+
+    function allTemplatePlaceholders() {
+        var out = [];
+        TEMPLATE_PLACEHOLDER_GROUPS.forEach(function (grp) {
+            (grp.items || []).forEach(function (p) { out.push(p); });
+        });
+        return out;
+    }
+
+    function tplPlaceholderChipHtml(p) {
+        var tip = ctr(p.labelKey);
+        var tagLit = String(p.tag || '').replace(/'/g, "\\'");
+        return '<button type="button" class="cfg-tpl-ph-chip" onclick="CFG._insertTplTag(\'' + tagLit + '\')" ' +
+            'title="' + esc(tip) + '">' +
+            '<code class="cfg-tpl-ph-tag">' + esc(p.tag) + '</code>' +
+            '<span class="cfg-tpl-ph-lbl">' + esc(tip) + '</span></button>';
+    }
+
+    function tplPlaceholderGroupsHtml(opts) {
+        opts = opts || {};
+        var clickToInsert = opts.clickToInsert !== false;
+        var groupKeys = opts.groupKeys;
+        var groups = TEMPLATE_PLACEHOLDER_GROUPS;
+        if (groupKeys && groupKeys.length) {
+            groups = groups.filter(function (grp) {
+                return groupKeys.indexOf(grp.groupKey) >= 0;
+            });
+        }
+        return groups.map(function (grp) {
+            var chips = (grp.items || []).map(function (p) {
+                if (!clickToInsert) {
+                    return '<div class="cfg-tpl-ph-chip cfg-tpl-ph-chip--readonly" title="' + esc(ctr(p.labelKey)) + '">' +
+                        '<code class="cfg-tpl-ph-tag">' + esc(p.tag) + '</code>' +
+                        '<span class="cfg-tpl-ph-lbl">' + esc(ctr(p.labelKey)) + '</span></div>';
+                }
+                return tplPlaceholderChipHtml(p);
+            }).join('');
+            var note = grp.noteKey
+                ? '<div class="cfg-tpl-ph-group-note">' + esc(ctr(grp.noteKey)) + '</div>'
+                : '';
+            return '<div class="cfg-tpl-ph-group">' +
+                '<div class="cfg-tpl-ph-group-title">' + esc(ctr(grp.groupKey)) + '</div>' +
+                note +
+                '<div class="cfg-tpl-ph-group-items">' + chips + '</div>' +
+                '</div>';
+        }).join('');
+    }
+
+    function tplPlaceholderReferenceHTML() {
+        return '' +
+            '<div id="cfgTplPlaceholderRef" class="cfg-tpl-ph-ref">' +
+              '<h3 class="cfg-tpl-ph-ref-title">' + esc(ctr('cfg.tpl.placeholderRefTitle')) + '</h3>' +
+              '<p class="cfg-tpl-ph-ref-hint">' + esc(ctr('cfg.tpl.placeholderRefHint')) + '</p>' +
+              '<div class="cfg-tpl-ph-ref-grid">' + tplPlaceholderGroupsHtml({ clickToInsert: true }) + '</div>' +
+              '<p class="cfg-tpl-ph-ref-foot">' + esc(ctr('cfg.tpl.placeholderRefFoot')) + '</p>' +
+            '</div>';
+    }
+
+    function tplPreviewSampleMap() {
+        return {
+            patient_no: ctr('cfg.tpl.sample.patientNo'),
+            patient_name: ctr('cfg.tpl.sample.patientName'),
+            patient_chinese_name: ctr('cfg.tpl.sample.patientChineseName'),
+            patient_phone: ctr('cfg.tpl.sample.patientPhone'),
+            patient_hkid: ctr('cfg.tpl.sample.patientHkid'),
+            patient_dob: ctr('cfg.tpl.sample.patientDob'),
+            patient_email: ctr('cfg.tpl.sample.patientEmail'),
+            patient_address: ctr('cfg.tpl.sample.patientAddress'),
+            doctor_name: ctr('cfg.tpl.sample.doctorName'),
+            doctor_code: ctr('cfg.tpl.sample.doctorCode'),
+            doctor_eng: ctr('cfg.tpl.sample.doctorEng'),
+            doctor_chi: ctr('cfg.tpl.sample.doctorChi'),
+            clinic_name: ctr('cfg.tpl.sample.clinicName'),
+            clinic_name_chi: ctr('cfg.tpl.sample.clinicNameChi'),
+            clinic_address: ctr('cfg.tpl.sample.clinicAddress'),
+            clinic_address_chi: ctr('cfg.tpl.sample.clinicAddressChi'),
+            clinic_tel: ctr('cfg.tpl.sample.clinicTel'),
+            clinic_fax: ctr('cfg.tpl.sample.clinicFax'),
+            date: typeof todayISO === 'function' ? todayISO() : '2026-01-15',
+            date_long: ctr('cfg.tpl.sample.dateLong'),
+            time: '10:30',
+            time_of_day_en: ctr('cfg.tpl.sample.timeOfDayEn'),
+            time_of_day_chi: ctr('cfg.tpl.sample.timeOfDayChi'),
+            patient_name_upper: ctr('cfg.tpl.sample.patientNameUpper'),
+            doctor_qualification: ctr('cfg.tpl.sample.doctorQual'),
+            doctor_qualification_chi: ctr('cfg.tpl.sample.doctorQualChi'),
+            receipt_no: ctr('cfg.tpl.sample.receiptNo'),
+            total_amount: ctr('cfg.tpl.sample.totalAmount')
+        };
+    }
+
+    function renderTplPlaceholders(html, map) {
+        if (typeof replaceDocumentPlaceholders === 'function') {
+            return replaceDocumentPlaceholders(html, map);
+        }
+        var out = String(html || '');
+        var data = map || {};
+        Object.keys(data).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) {
+            var re = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\}', 'gi');
+            out = out.replace(re, esc(data[k] || ''));
+        });
+        return out;
+    }
+
+    function _cfgNormalizeLetterheadFooter(tpl) {
+        if (typeof conFormsNormalizeFooterTemplate === 'function') {
+            return conFormsNormalizeFooterTemplate(tpl);
+        }
+        return String(tpl || '').trim();
+    }
 
     var SEED_TEMPLATES = [
         {
@@ -2400,6 +2748,18 @@ var CFG = (function () {
             nameKey: 'cfg.tpl.seed.consentStarter',
             contentKey: 'cfg.tpl.seed.consentStarterHtml',
             type: 'consent'
+        },
+        {
+            nameKey: 'cfg.tpl.seed.letterOfAttendance',
+            contentKey: 'cfg.tpl.seed.letterOfAttendanceHtml',
+            type: 'report',
+            code: 'LOA'
+        },
+        {
+            nameKey: 'cfg.tpl.seed.sickLeave',
+            contentKey: 'cfg.tpl.seed.sickLeaveHtml',
+            type: 'report',
+            code: 'SICK_LEAVE'
         }
     ];
 
@@ -2408,10 +2768,34 @@ var CFG = (function () {
         if (!pane) return;
         pane.innerHTML = '<p style="color:#888;">' + esc(ctr('common.loadingEllipsis')) + '</p>';
 
-        SB.from('doc_templates').select('*').order('template_code')
-        .then(function (r) {
+        var lhKeys = ['con_forms_header_html', 'con_forms_footer_html'];
+        Promise.all([
+            SB.from('doc_templates').select('*').order('template_code'),
+            SB.from('program_settings').select('setting_key,setting_value').in('setting_key', lhKeys)
+        ]).then(function (all) {
+            var r = all[0];
+            var lhR = all[1];
+            if (r.error) {
+                pane.innerHTML = '<p style="color:#dc3545;padding:8px 0;">' + esc(r.error.message) + '</p>';
+                return;
+            }
             var rows = r.data || [];
             _tplRowsCache = rows;
+            var lhMap = {};
+            if (!lhR.error && lhR.data) {
+                (lhR.data || []).forEach(function (row) {
+                    lhMap[row.setting_key] = row.setting_value || '';
+                });
+            }
+            var lhHdr = String(lhMap.con_forms_header_html || '').trim();
+            var lhFtr = String(lhMap.con_forms_footer_html || '').trim();
+            if (!lhHdr && typeof conFormsDefaultHeaderTemplate === 'function') {
+                lhHdr = conFormsDefaultHeaderTemplate();
+            }
+            if (!lhFtr && typeof conFormsDefaultFooterTemplate === 'function') {
+                lhFtr = conFormsDefaultFooterTemplate();
+            }
+            lhFtr = _cfgNormalizeLetterheadFooter(lhFtr);
             var html =
                 '<div style="display:flex;justify-content:space-between;' +
                 'align-items:center;margin:0 0 12px;">' +
@@ -2432,11 +2816,238 @@ var CFG = (function () {
                   'font-size:13px;font-weight:700;">' + esc(ctr('cfg.btn.addTemplate')) + '</button>' +
                 '</div>' +
                 '</div>' +
+                tplPlaceholderReferenceHTML() +
                 tplEditorHTML() +
                 '<div id="tplListRegion" style="margin-top:14px;">' +
                   renderTplTable(rows) +
-                '</div>';
+                '</div>' +
+                cfgLetterheadSectionHTML();
             pane.innerHTML = html;
+            _initCfgLetterheadEditors(lhHdr, lhFtr);
+            var tplMount = g('tpl_rt_toolbar_mount');
+            var tplPh = g('tpl_ph_panel_mount');
+            if (tplMount) tplMount.dataset.wired = '';
+            if (tplPh) tplPh.innerHTML = '';
+            _initTplRichEditor();
+        });
+    }
+
+    function cfgLetterheadSectionHTML() {
+        if (typeof DocEditor === 'undefined') return '';
+        return '' +
+            '<div id="cfgLetterheadCard" style="margin-top:28px;padding:18px;background:#fff;border-radius:12px;' +
+            'border:1px solid #eef2f7;box-shadow:0 1px 4px rgba(0,0,0,.06);">' +
+              '<h3 style="margin:0 0 6px;font-size:17px;color:#0d6efd;">' + esc(ctr('cfg.tpl.letterheadTitle')) + '</h3>' +
+              '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' + esc(ctr('cfg.tpl.letterheadHint')) + '</p>' +
+              '<p style="margin:0 0 10px;font-size:11px;color:#94a3b8;">' + esc(ctr('cfg.tpl.letterheadPhHint')) + '</p>' +
+              '<div class="cfg-tpl-ph-ref-grid cfg-tpl-ph-ref-grid--letterhead" style="margin-bottom:14px;">' +
+                tplPlaceholderGroupsHtml({
+                    clickToInsert: true,
+                    groupKeys: [
+                        'cfg.tpl.phGroup.clinic',
+                        'cfg.tpl.phGroup.letterhead',
+                        'cfg.tpl.phGroup.doctor'
+                    ]
+                }) +
+              '</div>' +
+              '<div style="margin-bottom:16px;">' +
+                '<div style="font-size:12px;font-weight:800;color:#475569;margin-bottom:6px;">' + esc(ctr('cfg.tpl.letterheadHeader')) + '</div>' +
+                '<div id="cfgLhH_toolbar_mount"></div>' +
+                DocEditor.editorHtml('cfgLhH_editor', { minHeight: 100 }) +
+                '<div class="cfg-lh-preview-wrap">' +
+                  '<div class="cfg-lh-preview-label">' + esc(ctr('cfg.tpl.letterheadPreview')) + '</div>' +
+                  '<div id="cfgLhH_preview" class="cfg-lh-preview"></div>' +
+                '</div>' +
+              '</div>' +
+              '<div style="margin-bottom:14px;">' +
+                '<div style="font-size:12px;font-weight:800;color:#475569;margin-bottom:6px;">' + esc(ctr('cfg.tpl.letterheadFooter')) + '</div>' +
+                '<div id="cfgLhF_toolbar_mount"></div>' +
+                DocEditor.editorHtml('cfgLhF_editor', { minHeight: 80 }) +
+                '<div class="cfg-lh-preview-wrap">' +
+                  '<div class="cfg-lh-preview-label">' + esc(ctr('cfg.tpl.letterheadPreview')) + '</div>' +
+                  '<div id="cfgLhF_preview" class="cfg-lh-preview"></div>' +
+                '</div>' +
+              '</div>' +
+              '<button type="button" onclick="CFG._saveLetterhead()" style="padding:9px 16px;background:#0d6efd;color:#fff;' +
+              'border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:800;">' + esc(ctr('cfg.tpl.letterheadSave')) + '</button>' +
+            '</div>';
+    }
+
+    function _cfgLetterheadPreviewMap() {
+        var map = tplPreviewSampleMap();
+        if (typeof clinicRecordFromId === 'function' && typeof currentClinicId !== 'undefined' && currentClinicId) {
+            var c = clinicRecordFromId(currentClinicId);
+            if (c) {
+                map.clinic_name = String(c.english_name || c.clinic_code || map.clinic_name).trim();
+                map.clinic_name_chi = String(c.chinese_name || map.clinic_name_chi).trim();
+                map.clinic_address = String(c.address || map.clinic_address).trim();
+                map.clinic_address_chi = String(c.address_chinese || c.chinese_address || map.clinic_address_chi).trim();
+                map.clinic_tel = String(c.tel || map.clinic_tel).trim();
+                map.clinic_fax = String(c.fax || map.clinic_fax).trim();
+            }
+        }
+        if (typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS && APP_DOCTORS.length) {
+            var dr = null;
+            if (typeof currentDoctorId !== 'undefined' && currentDoctorId) {
+                dr = APP_DOCTORS.find(function (d) { return String(d.id) === String(currentDoctorId); }) || null;
+            }
+            if (!dr) dr = APP_DOCTORS[0];
+            if (dr) {
+                if (typeof conFormsEnrichDoctorRowFromAppCaches === 'function') {
+                    dr = conFormsEnrichDoctorRowFromAppCaches(dr) || dr;
+                }
+                map.doctor_code = String(dr.doctor_code || map.doctor_code).trim();
+                map.doctor_eng = String(dr.english_name || dr.display_name || map.doctor_eng).trim();
+                map.doctor_chi = String(dr.chinese_name || map.doctor_chi).trim();
+                var qualEn = (typeof doctorQualEnglishHtml === 'function')
+                    ? doctorQualEnglishHtml(dr)
+                    : '';
+                var qualChi = (typeof doctorQualChineseHtml === 'function')
+                    ? doctorQualChineseHtml(dr)
+                    : '';
+                if (qualEn) map.doctor_qualification = qualEn;
+                if (qualChi) map.doctor_qualification_chi = qualChi;
+            }
+        }
+        return map;
+    }
+
+    var _cfgLhPreviewTimer = null;
+
+    function _refreshCfgLetterheadPreviews() {
+        var hPrev = g('cfgLhH_preview');
+        var fPrev = g('cfgLhF_preview');
+        if (!hPrev && !fPrev) return;
+        var map = _cfgLetterheadPreviewMap();
+        var hdrTpl = (typeof DocEditor !== 'undefined') ? DocEditor.getHtml('cfgLhH_editor') : '';
+        var ftrTpl = (typeof DocEditor !== 'undefined') ? DocEditor.getHtml('cfgLhF_editor') : '';
+        ftrTpl = _cfgNormalizeLetterheadFooter(ftrTpl);
+        if (hPrev) hPrev.innerHTML = renderTplPlaceholders(hdrTpl, map);
+        if (fPrev) fPrev.innerHTML = renderTplPlaceholders(ftrTpl, map);
+    }
+
+    function _scheduleCfgLetterheadPreviewRefresh() {
+        if (_cfgLhPreviewTimer) clearTimeout(_cfgLhPreviewTimer);
+        _cfgLhPreviewTimer = setTimeout(_refreshCfgLetterheadPreviews, 280);
+    }
+
+    function _bindCfgLetterheadPreviewRefresh(editorId) {
+        var ed = g(editorId);
+        if (!ed || ed.dataset.cfgLhPreviewBound === '1') return;
+        ed.dataset.cfgLhPreviewBound = '1';
+        ['input', 'keyup', 'mouseup', 'focus'].forEach(function (ev) {
+            ed.addEventListener(ev, _scheduleCfgLetterheadPreviewRefresh);
+        });
+    }
+
+    function _bindCfgInsertEditorFocus(editorId) {
+        var ed = g(editorId);
+        if (!ed || ed.dataset.cfgInsertFocus === '1') return;
+        ed.dataset.cfgInsertFocus = '1';
+        function mark() { _cfgLastInsertEditorId = editorId; }
+        ed.addEventListener('focus', mark);
+        ed.addEventListener('click', mark);
+        ed.addEventListener('mouseup', mark);
+    }
+
+    function _resolveCfgInsertEditorId() {
+        var ids = ['tpl_content_editor', 'cfgLhH_editor', 'cfgLhF_editor'];
+        var active = document.activeElement;
+        var i, ed;
+        for (i = 0; i < ids.length; i++) {
+            ed = g(ids[i]);
+            if (ed && (active === ed || (ed.contains && ed.contains(active)))) return ids[i];
+        }
+        if (_cfgLastInsertEditorId && g(_cfgLastInsertEditorId)) return _cfgLastInsertEditorId;
+        var wrap = g('tplEditorWrap');
+        if (wrap && wrap.style.display !== 'none') return 'tpl_content_editor';
+        if (g('cfgLhH_editor')) return 'cfgLhH_editor';
+        return null;
+    }
+
+    function _initCfgLetterheadEditors(initialHdr, initialFtr) {
+        if (typeof DocEditor === 'undefined') return;
+        var hMount = g('cfgLhH_toolbar_mount');
+        var fMount = g('cfgLhF_toolbar_mount');
+        if (!hMount || hMount.dataset.wired === '1') return;
+        hMount.innerHTML = DocEditor.toolbarHtml('cfgLhH', {});
+        fMount.innerHTML = DocEditor.toolbarHtml('cfgLhF', {});
+        DocEditor.init('cfgLhH_editor', { toolbarPrefix: 'cfgLhH' });
+        DocEditor.init('cfgLhF_editor', { toolbarPrefix: 'cfgLhF' });
+        _bindCfgInsertEditorFocus('cfgLhH_editor');
+        _bindCfgInsertEditorFocus('cfgLhF_editor');
+        _bindCfgLetterheadPreviewRefresh('cfgLhH_editor');
+        _bindCfgLetterheadPreviewRefresh('cfgLhF_editor');
+        if (!_cfgLastInsertEditorId) _cfgLastInsertEditorId = 'cfgLhH_editor';
+        hMount.dataset.wired = '1';
+        if (initialHdr !== undefined && initialFtr !== undefined) {
+            DocEditor.setHtml('cfgLhH_editor', initialHdr || '');
+            DocEditor.setHtml('cfgLhF_editor', initialFtr || '');
+            _refreshCfgLetterheadPreviews();
+        } else {
+            _loadLetterheadEditors();
+        }
+    }
+
+    function _loadLetterheadEditors() {
+        if (!SB || typeof SB.from !== 'function') return;
+        SB.from('program_settings')
+          .select('setting_key,setting_value')
+          .in('setting_key', ['con_forms_header_html', 'con_forms_footer_html'])
+        .then(function (r) {
+            var map = {};
+            if (!r.error && r.data) {
+                (r.data || []).forEach(function (row) { map[row.setting_key] = row.setting_value || ''; });
+            }
+            var hdr = String(map.con_forms_header_html || '').trim();
+            var ftr = String(map.con_forms_footer_html || '').trim();
+            if (!hdr && typeof conFormsDefaultHeaderTemplate === 'function') {
+                hdr = conFormsDefaultHeaderTemplate();
+            }
+            if (!ftr && typeof conFormsDefaultFooterTemplate === 'function') {
+                ftr = conFormsDefaultFooterTemplate();
+            }
+            ftr = _cfgNormalizeLetterheadFooter(ftr);
+            if (typeof DocEditor !== 'undefined') {
+                DocEditor.setHtml('cfgLhH_editor', hdr);
+                DocEditor.setHtml('cfgLhF_editor', ftr);
+                _refreshCfgLetterheadPreviews();
+            }
+        });
+    }
+
+    function _saveLetterhead() {
+        if (typeof DocEditor === 'undefined') return;
+        var hdr = DocEditor.getHtml('cfgLhH_editor');
+        var ftr = _cfgNormalizeLetterheadFooter(DocEditor.getHtml('cfgLhF_editor'));
+        if (!SB || typeof SB.from !== 'function') {
+            toast('Database client is not available.', true);
+            return;
+        }
+        Promise.all([
+            _persistProgramSettingRow({ setting_key: 'con_forms_header_html', setting_value: hdr }),
+            _persistProgramSettingRow({ setting_key: 'con_forms_footer_html', setting_value: ftr })
+        ]).then(function (results) {
+            var err = '';
+            for (var i = 0; i < results.length; i++) {
+                if (results[i] && results[i].error) {
+                    err = results[i].error.message ? String(results[i].error.message) : String(results[i].error);
+                    break;
+                }
+            }
+            if (err) { toast(err, true); return; }
+            toast(ctr('cfg.tpl.letterheadSaved'));
+            _refreshCfgLetterheadPreviews();
+            if (typeof conFormsShellLoaded !== 'undefined') {
+                conFormsShellLoaded = false;
+                if (typeof loadConFormsShellSettings === 'function') {
+                    loadConFormsShellSettings(function () {
+                        if (typeof conFormsRefreshPlaceholdersInEditor === 'function') {
+                            conFormsRefreshPlaceholdersInEditor();
+                        }
+                    });
+                }
+            }
         });
     }
 
@@ -2499,15 +3110,6 @@ var CFG = (function () {
     }
 
     function tplEditorHTML() {
-        var phBtns = TEMPLATE_PLACEHOLDERS.map(function (p) {
-            var tip = ctr(p.labelKey);
-            return '<button type="button" onclick="CFG._insertTplTag(\'' + esc(p.tag) + '\')" ' +
-                'title="' + esc(tip) + '" ' +
-                'style="padding:6px 10px;border:1px solid #d6e7ff;background:#f0f7ff;' +
-                'color:#0d6efd;border-radius:999px;cursor:pointer;font-size:12px;font-weight:800;">' +
-                esc(p.tag) + '</button>';
-        }).join(' ');
-
         var seedBtns = SEED_TEMPLATES.map(function (s, idx) {
             return '<button type="button" onclick="CFG._applySeedTemplate(' + idx + ')" ' +
                 'style="padding:7px 10px;border:1px solid #eee;background:#fff;' +
@@ -2560,22 +3162,51 @@ var CFG = (function () {
                   '</div>' +
 
                   '<div style="margin-top:12px;">' +
-                    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">' +
-                      '<div style="font-size:12px;color:#555;font-weight:800;">' + esc(ctr('cfg.tpl.placeholders')) + '</div>' +
-                      '<button type="button" onclick="CFG._insertTplTag(\'{ }\')" ' +
-                        'style="padding:6px 10px;border:1px solid #eee;background:#fff;border-radius:8px;' +
-                        'cursor:pointer;font-size:12px;font-weight:800;">' + esc(ctr('cfg.tpl.insertCustom')) + '</button>' +
-                    '</div>' +
-                    '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">' + phBtns + '</div>' +
-                  '</div>' +
-
-                  '<div style="margin-top:12px;">' +
-                    '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:6px;">' + esc(ctr('cfg.tpl.documentHtml')) + '</label>' +
-                    '<textarea id="tpl_content" rows="12" style="' + inputStyle() + 'font-family:ui-monospace,Consolas,monospace;"></textarea>' +
+                    '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:6px;">' +
+                      esc(ctr('cfg.tpl.placeholders')) + '</label>' +
+                    '<div id="tpl_ph_panel_mount" class="cfg-tpl-ph-editor-panel"></div>' +
+                    '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin:12px 0 6px;">' +
+                      esc(ctr('cfg.tpl.documentBody')) + '</label>' +
+                    '<div id="tpl_rt_toolbar_mount"></div>' +
+                    (typeof DocEditor !== 'undefined'
+                        ? DocEditor.editorHtml('tpl_content_editor', { minHeight: 360 })
+                        : '<textarea id="tpl_content" rows="12" style="' + inputStyle() + '"></textarea>') +
                   '</div>' +
                 '</div>' +
               '</div>' +
             '</div>';
+    }
+
+    function _initTplRichEditor() {
+        if (typeof DocEditor === 'undefined') return;
+        var mount = g('tpl_rt_toolbar_mount');
+        var phPanel = g('tpl_ph_panel_mount');
+        if (!mount || mount.dataset.wired === '1') return;
+
+        if (phPanel) {
+            phPanel.innerHTML =
+                '<div class="cfg-tpl-ph-ref-grid cfg-tpl-ph-ref-grid--editor">' +
+                tplPlaceholderGroupsHtml({ clickToInsert: true }) +
+                '</div>' +
+                '<div style="margin-top:8px;">' +
+                '<button type="button" class="cfg-tpl-ph-custom" onclick="CFG._insertTplTag(\'{ }\')">' +
+                esc(ctr('cfg.tpl.insertCustom')) + '</button></div>';
+        }
+
+        mount.innerHTML = DocEditor.toolbarHtml('tplRt', {});
+        DocEditor.init('tpl_content_editor', { toolbarPrefix: 'tplRt' });
+        _bindCfgInsertEditorFocus('tpl_content_editor');
+        mount.dataset.wired = '1';
+    }
+
+    function _tplSetContent(html) {
+        if (typeof DocEditor !== 'undefined') DocEditor.setHtml('tpl_content_editor', html || '');
+        else if (g('tpl_content')) g('tpl_content').value = html || '';
+    }
+
+    function _tplGetContent() {
+        if (typeof DocEditor !== 'undefined') return DocEditor.getHtml('tpl_content_editor');
+        return (g('tpl_content') || {}).value || '';
     }
 
     function _openTplEditor(id) {
@@ -2584,19 +3215,19 @@ var CFG = (function () {
         var wrap = g('tplEditorWrap');
         if (!wrap) return;
         wrap.style.display = 'block';
+        _initTplRichEditor();
+        _cfgLastInsertEditorId = 'tpl_content_editor';
 
         var title = g('tplEditorTitle');
         if (title) title.textContent = id ? ctr('cfg.tpl.editTemplate') : ctr('cfg.tpl.newTemplate');
 
-        // reset
         if (g('tpl_code')) g('tpl_code').value = '';
         if (g('tpl_name')) g('tpl_name').value = '';
         if (g('tpl_type')) g('tpl_type').value = 'receipt';
-        if (g('tpl_content')) g('tpl_content').value = '';
+        _tplSetContent('');
         if (g('tpl_active')) g('tpl_active').checked = true;
 
         if (!id) {
-            // focus first field for new templates
             setTimeout(function () { if (g('tpl_code')) g('tpl_code').focus(); }, 0);
             return;
         }
@@ -2607,9 +3238,11 @@ var CFG = (function () {
             if (g('tpl_code'))    g('tpl_code').value    = d.template_code || '';
             if (g('tpl_name'))    g('tpl_name').value    = d.template_name || '';
             if (g('tpl_type'))    g('tpl_type').value    = d.template_type || 'receipt';
-            if (g('tpl_content')) g('tpl_content').value = d.content       || '';
+            _tplSetContent(d.content || '');
             if (g('tpl_active'))  g('tpl_active').checked = d.is_active !== false;
-            setTimeout(function () { if (g('tpl_content')) g('tpl_content').focus(); }, 0);
+            setTimeout(function () {
+                if (typeof DocEditor !== 'undefined') DocEditor.focusEditor('tpl_content_editor');
+            }, 0);
         });
     }
 
@@ -2617,6 +3250,7 @@ var CFG = (function () {
         var w = g('tplEditorWrap');
         if (w) w.style.display = 'none';
         _tplEditId = null;
+        if (g('cfgLhH_editor')) _cfgLastInsertEditorId = 'cfgLhH_editor';
     }
 
     function _saveTpl() {
@@ -2628,7 +3262,7 @@ var CFG = (function () {
             template_code: code,
             template_name: name,
             template_type: (g('tpl_type')    || {}).value.trim(),
-            content:       (g('tpl_content') || {}).value,
+            content:       _tplGetContent(),
             is_active:     (g('tpl_active')  || {}).checked !== false
         };
 
@@ -2656,18 +3290,25 @@ var CFG = (function () {
     }
 
     function _insertTplTag(tag) {
-        var ta = g('tpl_content');
-        if (!ta) return;
-        ta.focus();
-        try {
-            var start = ta.selectionStart || 0;
-            var end   = ta.selectionEnd || 0;
-            var v = ta.value || '';
-            ta.value = v.slice(0, start) + tag + v.slice(end);
-            var pos = start + tag.length;
-            ta.selectionStart = ta.selectionEnd = pos;
-        } catch (e) {
+        var editorId = _resolveCfgInsertEditorId();
+        if (!editorId) {
+            toast(ctr('cfg.tpl.openEditorToInsert'), true);
+            return;
+        }
+        if (typeof DocEditor !== 'undefined') {
+            DocEditor.focusEditor(editorId);
+            DocEditor.insertText(editorId, tag);
+            _cfgLastInsertEditorId = editorId;
+            return;
+        }
+        if (editorId === 'tpl_content_editor') {
+            var ta = g('tpl_content');
+            if (!ta) {
+                toast(ctr('cfg.tpl.openEditorToInsert'), true);
+                return;
+            }
             ta.value = (ta.value || '') + tag;
+            ta.focus();
         }
     }
 
@@ -2675,10 +3316,19 @@ var CFG = (function () {
         var s = SEED_TEMPLATES[idx];
         if (!s) return;
         if (g('tpl_type')) g('tpl_type').value = s.type || 'receipt';
-        if (g('tpl_content')) {
-            g('tpl_content').value = s.contentKey ? ctr(s.contentKey) : (s.content || '');
+        if (s.code && g('tpl_code') && !(g('tpl_code').value || '').trim()) {
+            g('tpl_code').value = s.code;
         }
-        if (g('tpl_content')) g('tpl_content').focus();
+        if (s.nameKey && g('tpl_name') && !(g('tpl_name').value || '').trim()) {
+            g('tpl_name').value = ctr(s.nameKey);
+        }
+        var seedHtml = s.contentKey ? ctr(s.contentKey) : (s.content || '');
+        if (s.contentKey === 'cfg.tpl.seed.sickLeaveHtml' &&
+            typeof conFormsSickLeaveTemplateBodyHtml === 'function') {
+            seedHtml = conFormsSickLeaveTemplateBodyHtml();
+        }
+        _tplSetContent(seedHtml);
+        if (typeof DocEditor !== 'undefined') DocEditor.focusEditor('tpl_content_editor');
         toast(ctr('cfg.msg.seedInserted'));
     }
 
@@ -2787,6 +3437,7 @@ var CFG = (function () {
         }
 
         function _printSelectedDoctors() {
+            if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
             if (!_selectedDoctorIds.length) {
                 toast(ctr('cfg.msg.selectDoctorPrint'), true);
                 return;
@@ -2820,7 +3471,8 @@ var CFG = (function () {
                         '<tr><td class="lbl">' + esc(cfgRptLbl('doctorCode')) + '</td><td>'   + esc(d.doctor_code   || '-') + '</td></tr>' +
                         '<tr><td class="lbl">' + esc(cfgRptLbl('englishName')) + '</td><td>'  + esc(d.english_name  || '-') + '</td></tr>' +
                         '<tr><td class="lbl">' + esc(cfgRptLbl('chineseName')) + '</td><td>'  + esc(d.chinese_name  || '-') + '</td></tr>' +
-                        '<tr><td class="lbl">' + esc(cfgRptLbl('qualification')) + '</td><td>' + esc(d.qualification || '-') + '</td></tr>' +
+                        '<tr><td class="lbl">' + esc(cfgRptLbl('qualificationEn')) + '</td><td>' + esc(doctorQualEnglish(d) || '-') + '</td></tr>' +
+                        '<tr><td class="lbl">' + esc(cfgRptLbl('qualificationZh')) + '</td><td>' + esc(doctorQualTraditionalChinese(d) || '-') + '</td></tr>' +
                         '<tr><td class="lbl">' + esc(cfgRptLbl('telephone')) + '</td><td>'     + esc(d.tel           || '-') + '</td></tr>' +
                         '<tr><td class="lbl">' + esc(cfgRptLbl('email')) + '</td><td>'         + esc(d.email         || '-') + '</td></tr>' +
                         '<tr><td class="lbl">' + esc(cfgRptLbl('calendarColor')) + '</td><td>' +
@@ -2914,6 +3566,7 @@ var CFG = (function () {
         }
 
         function _printSelectedClinics() {
+            if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
             if (!_selectedClinicIds.length) {
                 toast(ctr('cfg.msg.selectClinicPrint'), true);
                 return;
@@ -2957,6 +3610,7 @@ var CFG = (function () {
                         '<tr><td class="label">' + esc(cfgRptLbl('chineseName')) + '</td><td>' + esc(c.chinese_name || '-') + '</td></tr>' +
                         '<tr><td class="label">' + esc(cfgRptLbl('qualification')) + '</td><td>' + esc(c.qualification || '-') + '</td></tr>' +
                         '<tr><td class="label">' + esc(cfgRptLbl('address')) + '</td><td>' + esc(c.address || '-') + '</td></tr>' +
+                        '<tr><td class="label">' + esc(cfgRptLbl('addressChinese')) + '</td><td>' + esc(c.address_chinese || c.chinese_address || '-') + '</td></tr>' +
                         '<tr><td class="label">' + esc(cfgRptLbl('telephone')) + '</td><td>' + esc(c.tel || '-') + '</td></tr>' +
                         '<tr><td class="label">' + esc(cfgRptLbl('fax')) + '</td><td>' + esc(c.fax || '-') + '</td></tr>' +
                         '<tr><td class="label">' + esc(cfgRptLbl('openingHours')) + '</td><td>' +
@@ -4236,6 +4890,7 @@ var CFG = (function () {
      * opts: { title, bodyHtml, printRow, clinicId }
      */
     function openContentPrintPopup(opts) {
+        if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return false;
         opts = opts || {};
         var title = opts.title || 'Print';
         var bodyHtml = opts.bodyHtml || '';
@@ -4355,6 +5010,8 @@ var CFG = (function () {
             _openDocPanel:         _openDocPanel,
             _closeDocPanel:        _closeDocPanel,
             _saveDoc:              _saveDoc,
+            _addDoctorQualRow:     _addDoctorQualRow,
+            _removeDoctorQualRow:  _removeDoctorQualRow,
             _deleteDoc:            _deleteDoc,
         // payment
         _openPmPanel:   _openPmPanel,
@@ -4377,6 +5034,7 @@ var CFG = (function () {
         _insertTplTag:  _insertTplTag,
         _applySeedTemplate: _applySeedTemplate,
         _filterTemplates: _filterTemplates,
+        _saveLetterhead: _saveLetterhead,
         // users
         _openUserPanel: _openUserPanel,
         _openAdminUserPanel: _openAdminUserPanel,

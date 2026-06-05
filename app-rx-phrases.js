@@ -37,6 +37,7 @@ var RX_PHRASE_DEFAULTS = {
         { option_key: '1', sort_order: 10, label_en: '1 day', label_zh: '1日' },
         { option_key: '3', sort_order: 20, label_en: '3 days', label_zh: '3日' },
         { option_key: '5', sort_order: 30, label_en: '5 days', label_zh: '5日' },
+        { option_key: '6', sort_order: 35, label_en: '6 days', label_zh: '6日' },
         { option_key: '7', sort_order: 40, label_en: '7 days (1 week)', label_zh: '7日（1星期）' },
         { option_key: '10', sort_order: 50, label_en: '10 days', label_zh: '10日' },
         { option_key: '14', sort_order: 60, label_en: '14 days (2 weeks)', label_zh: '14日（2星期）' }
@@ -209,6 +210,30 @@ function rxGetPhraseOptions(fieldType) {
         return rxPhraseCache[fieldType];
     }
     return (RX_PHRASE_DEFAULTS[fieldType] || []).slice();
+}
+
+function rxPhraseFieldHasPreset(fieldType, code) {
+    var c = String(code || '').trim();
+    if (!c) return false;
+    return rxGetPhraseOptions(fieldType).some(function(o) {
+        return String(o.option_key) === c;
+    });
+}
+
+/** Map line state → dropdown value + custom input text (preset code or __custom__). */
+function rxResolvePhraseSelectValue(fieldType, line) {
+    if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line || {});
+    var code = String(line[fieldType + '_code'] || '').trim();
+    var custom = String(line[fieldType + '_custom'] || '').trim();
+    if (code && rxPhraseFieldHasPreset(fieldType, code)) {
+        return { sel: code, custom: custom };
+    }
+    var val = custom || code;
+    return { sel: val ? '__custom__' : '', custom: val };
+}
+
+function rxResolveDaysSelectValue(line) {
+    return rxResolvePhraseSelectValue('duration', line);
 }
 
 function loadRxPhraseOptions(force) {
@@ -568,6 +593,23 @@ function rxApplyComboTextToLine(line, fieldType, rawText) {
 function rxOnPhraseSelectChange(fieldType, idx) {
     var sel = g('rx-' + fieldType + '-sel-' + idx);
     if (!sel || !rxLines[idx]) return;
+    if (sel.value === '__custom__') {
+        var inp = g('rx-' + fieldType + '-custom-' + idx);
+        if (inp) {
+            inp.focus();
+            if (inp.value.trim()) {
+                rxApplyComboTextToLine(rxLines[idx], fieldType, inp.value);
+            }
+        }
+        if (typeof rxSyncLineLegacyFields === 'function') {
+            rxSyncLineLegacyFields(rxLines[idx]);
+        }
+        if (typeof rxRefreshAutoLoadedSummary === 'function') {
+            rxRefreshAutoLoadedSummary(idx);
+        }
+        rxUpdatePhrasePreview(idx);
+        return;
+    }
     rxApplyComboTextToLine(rxLines[idx], fieldType, sel.value || '');
     if (fieldType === 'dosage' || fieldType === 'frequency') {
         var qty = rxComputeQuantityFromLine(rxLines[idx]);
@@ -581,6 +623,8 @@ function rxOnPhraseSelectChange(fieldType, idx) {
 function rxOnPhraseCustomInput(fieldType, idx) {
     var inp = g('rx-' + fieldType + '-custom-' + idx);
     if (!inp || !rxLines[idx]) return;
+    var sel = g('rx-' + fieldType + '-sel-' + idx);
+    if (sel) sel.value = '__custom__';
     rxApplyComboTextToLine(rxLines[idx], fieldType, inp.value || '');
     if (fieldType === 'dosage' || fieldType === 'frequency') {
         var qty = rxComputeQuantityFromLine(rxLines[idx]);
@@ -610,21 +654,40 @@ function rxUpdatePhrasePreview(idx) {
         '</span>';
 }
 
+function rxSyncPhraseFieldFromDom(idx, fieldType) {
+    var line = rxLines[idx];
+    if (!line) return;
+    var sel = g('rx-' + fieldType + '-sel-' + idx);
+    var inp = g('rx-' + fieldType + '-custom-' + idx);
+    if (sel && sel.value === '__custom__') {
+        rxApplyComboTextToLine(line, fieldType, inp ? inp.value : '');
+        return;
+    }
+    if (sel && sel.value) {
+        rxApplyComboTextToLine(line, fieldType, sel.value);
+        return;
+    }
+    if (inp && String(inp.value || '').trim()) {
+        rxApplyComboTextToLine(line, fieldType, inp.value);
+    }
+}
+
 function rxSyncLineFromDom(idx) {
     var line = rxLines[idx];
     if (!line) return;
     var daysSel = g('rx-days-sel-' + idx);
-    if (daysSel && daysSel.value && daysSel.value !== '__custom__') {
+    var daysInp = g('rx-days-custom-' + idx);
+    if (daysSel && daysSel.value === '__custom__') {
+        if (daysInp && String(daysInp.value || '').trim()) {
+            rxApplyDaysToLine(idx, daysInp.value.trim());
+        }
+    } else if (daysSel && daysSel.value) {
         rxApplyDaysToLine(idx, daysSel.value);
+    } else if (daysInp && String(daysInp.value || '').trim()) {
+        rxApplyDaysToLine(idx, daysInp.value.trim());
     }
     RX_PHRASE_FIELDS.forEach(function(ft) {
-        var sel = g('rx-' + ft + '-sel-' + idx);
-        var inp = g('rx-' + ft + '-custom-' + idx);
-        if (sel && sel.value) {
-            rxApplyComboTextToLine(line, ft, sel.value);
-        } else if (inp) {
-            rxApplyComboTextToLine(line, ft, inp.value);
-        }
+        rxSyncPhraseFieldFromDom(idx, ft);
     });
     var rem = g('rxline-' + idx);
     if (rem) {
@@ -760,21 +823,36 @@ function rxRefreshHeaderAddBtn(idx) {
     btn.disabled = !rxCanConfirmLine(rxLines[idx]);
 }
 
-function rxRefreshQuantityField(idx) {
+function rxRefreshPhraseField(idx, fieldType) {
     var line = rxLines[idx];
     if (!line) return;
     if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line);
-    var qtyVal = String(line.quantity_custom || line.quantity || '').trim();
-    var qtyCustom = g('rx-quantity-custom-' + idx);
-    var qtySel = g('rx-quantity-sel-' + idx);
-    if (qtyCustom) qtyCustom.value = qtyVal;
-    if (qtySel) {
-        qtySel.value = line.quantity_code || (qtyVal ? '__custom__' : '');
-    }
+    var resolved = rxResolvePhraseSelectValue(fieldType, line);
+    var sel = g('rx-' + fieldType + '-sel-' + idx);
+    var inp = g('rx-' + fieldType + '-custom-' + idx);
+    if (inp) inp.value = resolved.custom;
+    if (sel) sel.value = resolved.sel;
+}
+
+function rxRefreshDaysField(idx) {
+    var line = rxLines[idx];
+    if (!line) return;
+    if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line);
+    var resolved = rxResolveDaysSelectValue(line);
+    var sel = g('rx-days-sel-' + idx);
+    var inp = g('rx-days-custom-' + idx);
+    if (inp) inp.value = resolved.custom;
+    if (sel) sel.value = resolved.sel;
+    rxRefreshPhraseField(idx, 'duration');
+}
+
+function rxRefreshQuantityField(idx) {
+    rxRefreshPhraseField(idx, 'quantity');
 }
 
 function rxRefreshLineQuickUi(idx) {
     rxRefreshAutoLoadedSummary(idx);
+    rxRefreshDaysField(idx);
     rxRefreshQuantityField(idx);
     rxRefreshHeaderAddBtn(idx);
 }
@@ -829,7 +907,7 @@ function rxApplyCatalogDefaultsToLine(idx, fields) {
 
 function rxDaysFieldMarkup(idx, line) {
     line = rxNormalizeLine(line);
-    var code = String(line.duration_code || '').trim();
+    var resolved = rxResolveDaysSelectValue(line);
     var opts = rxGetPhraseOptions('duration');
     var uiLang = rxUiPhraseLang();
     var optHtml = '<option value="">' + esc(rxTr('con.rx.selectDays')) + '</option>';
@@ -837,17 +915,25 @@ function rxDaysFieldMarkup(idx, line) {
         var k = String(o.option_key);
         optHtml +=
             '<option value="' + esc(k) + '"' +
-            (k === code ? ' selected' : '') + '>' +
+            (k === resolved.sel ? ' selected' : '') + '>' +
             esc(rxPhraseOptionBilingualLabel('duration', k, uiLang) || k) + '</option>';
     });
-    optHtml += '<option value="__custom__">' + esc(rxTr('con.rx.daysCustom')) + '</option>';
+    optHtml +=
+        '<option value="__custom__"' +
+        (resolved.sel === '__custom__' ? ' selected' : '') + '>' +
+        esc(rxTr('con.rx.daysCustom')) + '</option>';
     return (
         '<div class="rx-days-cell">' +
         '<label class="rx-phrase-label">' + esc(rxTr('con.rx.labelDays')) + '</label>' +
+        '<div class="rx-phrase-row">' +
         '<select id="rx-days-sel-' + idx + '" class="rx-days-sel" ' +
         'onchange="rxOnDaysSelectChange(' + idx + ')">' +
         optHtml +
         '</select>' +
+        '<input id="rx-days-custom-' + idx + '" class="rx-days-custom" type="text" ' +
+        'placeholder="' + esc(rxTr('con.rx.daysCustomPh')) + '" value="' + esc(resolved.custom) + '" ' +
+        'oninput="rxOnDaysCustomInput(' + idx + ')">' +
+        '</div>' +
         '</div>'
     );
 }
@@ -1069,28 +1155,45 @@ function rxOnRemarkPresetPick(sel) {
     }
 }
 
+function rxOnDaysCustomInput(idx) {
+    var inp = g('rx-days-custom-' + idx);
+    var sel = g('rx-days-sel-' + idx);
+    if (!inp || !rxLines[idx]) return;
+    if (sel) sel.value = '__custom__';
+    var v = String(inp.value || '').trim();
+    if (v) {
+        rxApplyDaysToLine(idx, v);
+    } else {
+        rxLines[idx].duration_code = '';
+        rxLines[idx].duration_custom = '';
+        if (typeof rxSyncLineLegacyFields === 'function') {
+            rxSyncLineLegacyFields(rxLines[idx]);
+        }
+    }
+    rxRefreshLineQuickUi(idx);
+    if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
+}
+
 function rxOnDaysSelectChange(idx) {
     var sel = g('rx-days-sel-' + idx);
     if (!sel || !rxLines[idx]) return;
     var val = String(sel.value || '').trim();
     if (!val) return;
     if (val === '__custom__') {
-        var def = rxParseDaysFromCatalogText(rxLines[idx].duration) || '7';
-        var custom = window.prompt(rxTr('con.rx.promptCustomDays'), def);
-        if (!custom) {
-            sel.value = rxLines[idx].duration_code || '';
-            return;
+        var inp = g('rx-days-custom-' + idx);
+        if (inp) {
+            inp.focus();
+            if (inp.value.trim()) {
+                rxApplyDaysToLine(idx, inp.value.trim());
+                rxRefreshLineQuickUi(idx);
+                if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
+            }
         }
-        var n = parseInt(String(custom).replace(/\D/g, ''), 10);
-        if (!n || n < 1) {
-            alert(rxTr('con.rx.invalidDays'));
-            sel.value = rxLines[idx].duration_code || '';
-            return;
-        }
-        rxApplyDaysToLine(idx, String(n));
-    } else {
-        rxApplyDaysToLine(idx, val);
+        return;
     }
+    rxApplyDaysToLine(idx, val);
+    var daysInp = g('rx-days-custom-' + idx);
+    if (daysInp) daysInp.value = '';
     rxRefreshLineQuickUi(idx);
     if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
 }
@@ -1098,8 +1201,7 @@ function rxOnDaysSelectChange(idx) {
 function rxPhraseFieldMarkup(fieldType, idx, line, labelText) {
     line = rxNormalizeLine(line);
     var opts = rxGetPhraseOptions(fieldType);
-    var code = line[fieldType + '_code'] || '';
-    var custom = line[fieldType + '_custom'] || '';
+    var resolved = rxResolvePhraseSelectValue(fieldType, line);
     var selId = 'rx-' + fieldType + '-sel-' + idx;
     var customId = 'rx-' + fieldType + '-custom-' + idx;
 
@@ -1110,9 +1212,13 @@ function rxPhraseFieldMarkup(fieldType, idx, line, labelText) {
         var dispLbl = rxPhraseOptionBilingualLabel(fieldType, k, uiLang) || k;
         optHtml +=
             '<option value="' + esc(k) + '"' +
-            (k === String(code) ? ' selected' : '') + '>' +
+            (k === resolved.sel ? ' selected' : '') + '>' +
             esc(dispLbl) + '</option>';
     });
+    optHtml +=
+        '<option value="__custom__"' +
+        (resolved.sel === '__custom__' ? ' selected' : '') + '>' +
+        esc(rxTr('con.rx.phraseCustomOption')) + '</option>';
 
     return (
         '<div class="rx-phrase-cell">' +
@@ -1123,7 +1229,7 @@ function rxPhraseFieldMarkup(fieldType, idx, line, labelText) {
         optHtml +
         '</select>' +
         '<input id="' + customId + '" class="rx-phrase-custom" type="text" ' +
-        'placeholder="' + esc(rxTr('con.rx.phraseCustom')) + '" value="' + esc(custom) + '" ' +
+        'placeholder="' + esc(rxTr('con.rx.phraseCustom')) + '" value="' + esc(resolved.custom) + '" ' +
         'oninput="rxOnPhraseCustomInput(\'' + fieldType + '\',' + idx + ')">' +
         '</div>' +
         '</div>'

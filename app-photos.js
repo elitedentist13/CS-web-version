@@ -1190,6 +1190,7 @@ function photoLbCropApply() {
 }
 
 function photoLbPrint() {
+  if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
   var img    = g('photoLbImg');
   var canvas = g('photoLbCanvas');
   var video  = g('photoLbVideo');

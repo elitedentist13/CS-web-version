@@ -89,6 +89,27 @@ var REPORT = (function () {
     return s;
   }
 
+  /** Unpaid / unsettled bill types — omit from Daily Summary payment-method totals. */
+  function reportPayMethodIsUnsettled(key) {
+    var s = String(key == null ? '' : key).trim().toLowerCase();
+    return !s || s === 'pending' || s === 'n/a' || s === 'na' || s === 'unknown';
+  }
+
+  function dispPayMethodSummary(key) {
+    if (reportPayMethodIsUnsettled(key)) return '—';
+    return dispPayMethod(key);
+  }
+
+  function sumByKeyPaidMethods(rows, key, valueKey) {
+    var map = {};
+    (rows || []).forEach(function (r) {
+      var k = reportPayMethodKey(r[key]);
+      if (reportPayMethodIsUnsettled(k)) return;
+      map[k] = (map[k] || 0) + Number(r[valueKey] || 0);
+    });
+    return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
+  }
+
   function todayISO() {
     if (typeof window.todayISO === 'function') return window.todayISO();
     var d = new Date();
@@ -853,6 +874,29 @@ var REPORT = (function () {
     return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
   }
 
+  /** Bill / due / paid aggregates for Daily Summary (Paid Total = Bill Total − Due). */
+  function dailySummaryAggFromTx(tx) {
+    var billTotal = 0;
+    var dueTotal = 0;
+    (tx || []).forEach(function (r) {
+      billTotal += Number(r.bill_total != null ? r.bill_total : (r.amount || 0));
+      dueTotal += Number(r.bill_balance != null ? r.bill_balance : 0);
+    });
+    return {
+      billTotal: billTotal,
+      dueTotal: dueTotal,
+      paidTotal: billTotal - dueTotal
+    };
+  }
+
+  function dailySummaryAggFromDayCards(dayCards) {
+    var all = [];
+    (dayCards || []).forEach(function (c) {
+      (c.rows || []).forEach(function (r) { all.push(r); });
+    });
+    return dailySummaryAggFromTx(all);
+  }
+
   function downloadCSV(filename, columns, rows) {
     if (!rows || !rows.length) {
       alert(tr('report.alert.exportNoData'));
@@ -888,14 +932,15 @@ var REPORT = (function () {
     }
   }
 
-  function renderDailySummaryDaily(transactions, totalsByMethod, grandTotal) {
+  function renderDailySummaryDaily(transactions, totalsByMethodPaid) {
     var body = g('rptDailySummaryBody');
     if (!body) return;
+    var agg = dailySummaryAggFromTx(transactions);
 
     var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;';
     var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
 
-    var summaryBlocks = totalsByMethod.map(function (x) {
+    var summaryBlocks = totalsByMethodPaid.map(function (x) {
       return '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;min-width:150px;">' +
         '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(dispPayMethod(x.key)) + '</div>' +
         '<div style="font-size:16px;font-weight:900;color:#0d6efd;margin-top:4px;">' + fmtHK(Number(x.value || 0)) + '</div>' +
@@ -909,8 +954,8 @@ var REPORT = (function () {
         '<td style="' + td + '">' + esc(t.patient_chinese) + '</td>' +
         '<td style="' + td + '">' + esc(t.patient_name) + '</td>' +
         (showClinicCol ? ('<td style="' + td + '">' + esc(t.clinic_tag || '') + '</td>') : '') +
-        '<td style="' + td + '">' + esc(dispPayMethod(t.payment_method)) + '</td>' +
-        '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(Number(t.amount)) + '</td>' +
+        '<td style="' + td + '">' + esc(dispPayMethodSummary(t.payment_method)) + '</td>' +
+        '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(t.bill_paid || 0)) + '</td>' +
         '<td style="' + td + '">' + esc(t.remarks) + '</td>' +
       '</tr>';
     }).join('');
@@ -925,7 +970,7 @@ var REPORT = (function () {
               '<th style="' + th + '">' + esc(tr('report.ds.col.english')) + '</th>' +
               (showClinicCol ? ('<th style="' + th + 'width:130px;">' + esc(tr('report.col.clinicTag')) + '</th>') : '') +
               '<th style="' + th + 'width:150px;">' + esc(tr('report.ds.col.payment')) + '</th>' +
-              '<th style="' + th + 'width:120px;text-align:right;">' + esc(tr('report.ds.col.amount')) + '</th>' +
+              '<th style="' + th + 'width:120px;text-align:right;">' + esc(tr('report.ds.col.paid')) + '</th>' +
               '<th style="' + th + 'width:220px;">' + esc(tr('report.col.remarks')) + '</th>' +
             '</tr></thead>' +
             '<tbody>' + rowsHtml + '</tbody>' +
@@ -933,9 +978,9 @@ var REPORT = (function () {
         '</div>' +
       '</div>' +
       '<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">' +
-        '<div style="flex:1;min-width:240px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 12px;">' +
-          '<div style="font-size:12px;color:#7c2d12;font-weight:900;">' + esc(tr('report.ds.dailyGrandTotal')) + '</div>' +
-          '<div style="font-size:22px;font-weight:900;color:#c2410c;margin-top:4px;">' + fmtHK(Number(grandTotal || 0)) + '</div>' +
+        '<div style="flex:1;min-width:200px;background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;">' +
+          '<div style="font-size:12px;color:#166534;font-weight:900;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
+          '<div style="font-size:22px;font-weight:900;color:#15803d;margin-top:4px;">' + fmtHK(agg.paidTotal) + '</div>' +
         '</div>' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">' +
           summaryBlocks +
@@ -943,15 +988,16 @@ var REPORT = (function () {
       '</div>';
   }
 
-  function renderDailySummaryMonthly(dayCards, monthTotalsByMethod, monthGrandTotal) {
+  function renderDailySummaryMonthly(dayCards, monthTotalsByMethodPaid) {
     var body = g('rptDailySummaryBody');
     if (!body) return;
 
     var dayCount = dayCards.length;
     var txCount = 0;
     dayCards.forEach(function (c) { txCount += (c.rows || []).length; });
+    var agg = dailySummaryAggFromDayCards(dayCards);
 
-    var chips = monthTotalsByMethod.map(function (x) {
+    var chips = monthTotalsByMethodPaid.map(function (x) {
       return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 10px;background:#f8fbff;border:1px solid #e5edf8;border-radius:10px;">' +
         '<div style="font-weight:900;color:#4b5563;font-size:12px;">' + esc(dispPayMethod(x.key)) + '</div>' +
         '<div style="font-weight:900;color:#0d6efd;font-size:12px;">' + fmtHK(Number(x.value || 0)) + '</div>' +
@@ -966,7 +1012,8 @@ var REPORT = (function () {
       var methodMiniMap = {};
       (c.rows || []).forEach(function (t) {
         var k = reportPayMethodKey(t.payment_method);
-        methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(t.amount || 0);
+        if (reportPayMethodIsUnsettled(k)) return;
+        methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(t.bill_paid || 0);
       });
 
       var methodMini = Object.keys(methodMiniMap).sort().map(function (k) {
@@ -987,8 +1034,8 @@ var REPORT = (function () {
             (t.remarks ? '<div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;">' + esc(t.remarks) + '</div>' : '') +
           '</div>' +
           (showClinicCol ? ('<div style="color:#334155;font-weight:900;font-size:12px;">' + esc(t.clinic_tag || '') + '</div>') : '') +
-          '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(dispPayMethod(t.payment_method)) + '</div>' +
-          '<div style="text-align:right;font-weight:900;color:#0f172a;font-size:12px;">' + fmtHK(Number(t.amount || 0)) + '</div>' +
+          '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(dispPayMethodSummary(t.payment_method)) + '</div>' +
+          '<div style="text-align:right;font-weight:900;color:#15803d;font-size:12px;">' + fmtHK(Number(t.bill_paid || 0)) + '</div>' +
         '</div>';
       }).join('');
 
@@ -997,7 +1044,7 @@ var REPORT = (function () {
           '<div style="font-weight:900;color:#0d6efd;font-size:14px;">' + esc(c.date) + '</div>' +
           '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
             '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(trRepl('report.ds.monthly.txCount', { N: String((c.rows || []).length) })) + '</div>' +
-            '<div style="font-size:14px;font-weight:900;color:#0f172a;">' + fmtHK(Number(c.total || 0)) + '</div>' +
+            '<div style="font-size:14px;font-weight:900;color:#15803d;">' + fmtHK(Number(c.paidTotal || 0)) + '</div>' +
           '</div>' +
         '</div>' +
         (methodMini ? '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px 0;">' + methodMini + '</div>' : '') +
@@ -1023,8 +1070,8 @@ var REPORT = (function () {
               '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + txCount + '</div>' +
             '</div>' +
             '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:180px;">' +
-              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.monthGrandTotal')) + '</div>' +
-              '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + fmtHK(Number(monthGrandTotal || 0)) + '</div>' +
+              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
+              '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + fmtHK(agg.paidTotal) + '</div>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -1089,16 +1136,15 @@ var REPORT = (function () {
     '</tr>';
   }
 
-  function renderDailySummaryDetailDaily(transactions, totalsByMethod, grandTotal) {
+  function renderDailySummaryDetailDaily(transactions, totalsByMethodPaid) {
     var body = g('rptDailySummaryBody');
     if (!body) return;
+    var agg = dailySummaryAggFromTx(transactions);
     var totalTreatments = 0;
-    var outstanding = 0;
     transactions.forEach(function (t) {
       totalTreatments += treatmentEntriesHtml(t.treatment_items).count;
-      outstanding += Number(t.bill_balance || 0);
     });
-    var methodPills = totalsByMethod.map(function (x) {
+    var methodPills = totalsByMethodPaid.map(function (x) {
       return '<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#eef6ff;border:1px solid #d9eaff;border-radius:999px;font-size:11px;font-weight:900;color:#0d6efd;">' +
         esc(dispPayMethod(x.key)) + ': ' + fmtHK(Number(x.value || 0)) +
       '</span>';
@@ -1122,11 +1168,15 @@ var REPORT = (function () {
         '</div>' +
         '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 12px;min-width:190px;">' +
           '<div style="font-size:11px;color:#7c2d12;font-weight:800;">' + esc(tr('report.ds.detail.kpiBillTotal')) + '</div>' +
-          '<div style="font-size:18px;color:#c2410c;font-weight:900;margin-top:2px;">' + fmtHK(Number(grandTotal || 0)) + '</div>' +
+          '<div style="font-size:18px;color:#c2410c;font-weight:900;margin-top:2px;">' + fmtHK(agg.billTotal) + '</div>' +
+        '</div>' +
+        '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;min-width:190px;">' +
+          '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
+          '<div style="font-size:18px;color:#15803d;font-weight:900;margin-top:2px;">' + fmtHK(agg.paidTotal) + '</div>' +
         '</div>' +
         '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:210px;">' +
-          '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.ds.detail.kpiRemainingBalance')) + '</div>' +
-          '<div style="font-size:18px;color:#dc2626;font-weight:900;margin-top:2px;">' + fmtHK(Number(outstanding || 0)) + '</div>' +
+          '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.ds.dailyDueAmount')) + '</div>' +
+          '<div style="font-size:18px;color:#dc2626;font-weight:900;margin-top:2px;">' + fmtHK(agg.dueTotal) + '</div>' +
         '</div>' +
       '</div>' +
       (methodPills ? ('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' + methodPills + '</div>') : '') +
@@ -1151,23 +1201,22 @@ var REPORT = (function () {
       '</div>';
   }
 
-  function renderDailySummaryDetailMonthly(dayCards, monthTotalsByMethod, monthGrandTotal) {
+  function renderDailySummaryDetailMonthly(dayCards, monthTotalsByMethodPaid) {
     var body = g('rptDailySummaryBody');
     if (!body) return;
     var showClinicCol = isReportAllClinicsSelected();
+    var agg = dailySummaryAggFromDayCards(dayCards);
 
     var totalBills = 0;
     var totalTreatments = 0;
-    var totalOutstanding = 0;
     dayCards.forEach(function (c) {
       (c.rows || []).forEach(function (t) {
         totalBills += 1;
-        totalOutstanding += Number(t.bill_balance || 0);
         totalTreatments += treatmentEntriesHtml(t.treatment_items).count;
       });
     });
 
-    var methodSummary = monthTotalsByMethod.map(function (x) {
+    var methodSummary = monthTotalsByMethodPaid.map(function (x) {
       return '<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #eef2f7;">' +
         '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethod(x.key)) + '</div>' +
         '<div style="font-size:12px;color:#0d6efd;font-weight:900;">' + fmtHK(Number(x.value || 0)) + '</div>' +
@@ -1231,11 +1280,15 @@ var REPORT = (function () {
           '</div>' +
           '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 12px;min-width:180px;">' +
             '<div style="font-size:11px;color:#7c2d12;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiBillTotal')) + '</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#c2410c;font-weight:900;">' + fmtHK(Number(monthGrandTotal || 0)) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#c2410c;font-weight:900;">' + fmtHK(agg.billTotal) + '</div>' +
+          '</div>' +
+          '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;min-width:180px;">' +
+            '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#15803d;font-weight:900;">' + fmtHK(agg.paidTotal) + '</div>' +
           '</div>' +
           '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:200px;">' +
-            '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiRemaining')) + '</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(Number(totalOutstanding || 0)) + '</div>' +
+            '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.ds.dailyDueAmount')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(agg.dueTotal) + '</div>' +
           '</div>' +
         '</div>' +
         '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;padding:10px 12px;margin-bottom:12px;">' +
@@ -1462,15 +1515,14 @@ var REPORT = (function () {
     });
 
     _rows = tx;
-    var totals = sumByKey(tx, 'payment_method', 'amount');
-    var grand = tx.reduce(function (acc, r) { return acc + Number(r.amount || 0); }, 0);
+    var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
     if (_drDailyMode === 'detail') {
       body.innerHTML = '';
       var temp = document.createElement('div');
       temp.id = 'rptDailySummaryBody';
       body.appendChild(temp);
-      renderDailySummaryDetailDaily(tx, totals, grand);
+      renderDailySummaryDetailDaily(tx, totalsPaid);
       return;
     }
 
@@ -1545,7 +1597,7 @@ var REPORT = (function () {
     var temp2 = document.createElement('div');
     temp2.id = 'rptDailySummaryBody';
     body.appendChild(temp2);
-    renderDailySummaryDaily(tx, totals, grand);
+    renderDailySummaryDaily(tx, totalsPaid);
   }
 
   function renderDrMonthlyShell() {
@@ -1714,14 +1766,13 @@ var REPORT = (function () {
       });
 
       _rows = tx;
-      var totals = sumByKey(tx, 'payment_method', 'amount');
-      var grand = tx.reduce(function (acc, r) { return acc + Number(r.amount || 0); }, 0);
+      var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
       body.innerHTML = '';
       var temp = document.createElement('div');
       temp.id = 'rptDailySummaryBody';
       body.appendChild(temp);
-      renderDailySummaryDetailDaily(tx, totals, grand);
+      renderDailySummaryDetailDaily(tx, totalsPaid);
       return;
     }
 
@@ -1844,15 +1895,14 @@ var REPORT = (function () {
         };
       });
 
-      var totals = sumByKey(tx, 'payment_method', 'amount');
-      var grand = tx.reduce(function (acc, r) { return acc + Number(r.amount || 0); }, 0);
+      var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
       // expose for exportCSV
       _rows = tx;
       if (_dailySummaryDetailMode) {
-        renderDailySummaryDetailDaily(tx, totals, grand);
+        renderDailySummaryDetailDaily(tx, totalsPaid);
       } else {
-        renderDailySummaryDaily(tx, totals, grand);
+        renderDailySummaryDaily(tx, totalsPaid);
       }
       return;
     }
@@ -1918,18 +1968,18 @@ var REPORT = (function () {
         monthAllTx.push(txRow);
         return txRow;
       });
-      var total = rows.reduce(function (acc, r) { return acc + Number(r.amount || 0); }, 0);
-      return { date: d, total: total, rows: rows };
+      var billTotal = rows.reduce(function (acc, r) { return acc + Number(r.bill_total || 0); }, 0);
+      var paidTotal = rows.reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+      return { date: d, total: billTotal, paidTotal: paidTotal, rows: rows };
     });
 
-    var totalsByMethodM = sumByKey(monthAllTx, 'payment_method', 'amount');
-    var grandM = monthAllTx.reduce(function (acc, r) { return acc + Number(r.amount || 0); }, 0);
+    var totalsByMethodPaidM = sumByKeyPaidMethods(monthAllTx, 'payment_method', 'bill_paid');
 
     _rows = monthAllTx;
     if (_dailySummaryDetailMode) {
-      renderDailySummaryDetailMonthly(dayCards, totalsByMethodM, grandM);
+      renderDailySummaryDetailMonthly(dayCards, totalsByMethodPaidM);
     } else {
-      renderDailySummaryMonthly(dayCards, totalsByMethodM, grandM);
+      renderDailySummaryMonthly(dayCards, totalsByMethodPaidM);
     }
   }
 

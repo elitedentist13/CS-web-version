@@ -185,12 +185,103 @@ var queueRefreshBtnBound = false;
 var queueLastRefreshAt = null;
 var queueElapsedClosedAtByApptId = {};
 var queueElapsedTickerId = null;
+/** Bumps on each loadQueue(); stale augment callbacks must not append rows. */
+var queueLoadSeq = 0;
 
 /** When true, appointment date must be today or later (records tab: new visit from a past row). */
 var arBookingMinDateToday = false;
 
 // ── Pending bill item lists (Step 1 / Step 2) ─────────
 var pendingLists = [];   // array fetched from pending_bill_items table
+
+/** Bill saved with no payment — use Pending / N/A, not Cash/Card. */
+var BILL_PAY_TYPE_PENDING = 'Pending';
+var BILL_PAY_TYPE_NA = 'N/A';
+
+function billPendingPayTypeCandidates() {
+    return [BILL_PAY_TYPE_PENDING, BILL_PAY_TYPE_NA, 'NA', 'Unknown'];
+}
+
+function billPendingPayTypeValue(sel) {
+    sel = sel || g('bType');
+    var candidates = billPendingPayTypeCandidates();
+    if (sel && sel.options && sel.options.length) {
+        for (var i = 0; i < candidates.length; i++) {
+            var c = candidates[i];
+            var found = Array.prototype.some.call(sel.options, function (o) {
+                return o.value === c;
+            });
+            if (found) return c;
+        }
+    }
+    if (billTypesCache && billTypesCache.length) {
+        for (var j = 0; j < candidates.length; j++) {
+            var want = candidates[j];
+            for (var k = 0; k < billTypesCache.length; k++) {
+                var bt = billTypesCache[k];
+                var n = String(bt.name || bt.type_code || '').trim();
+                if (n === want) return n;
+            }
+        }
+    }
+    return BILL_PAY_TYPE_PENDING;
+}
+
+function ensurePendingBillTypeOption(sel) {
+    if (!sel) return;
+    var val = billPendingPayTypeValue(sel);
+    var has = Array.prototype.some.call(sel.options || [], function (o) {
+        return o.value === val;
+    });
+    if (has) return;
+    var o = document.createElement('option');
+    o.value = val;
+    o.textContent = (typeof dispPayMethod === 'function') ? dispPayMethod(val) : val;
+    if (sel.firstChild) sel.insertBefore(o, sel.firstChild);
+    else sel.appendChild(o);
+}
+
+function billIsFullyUnpaidSave(paid, balance, total) {
+    return total > 0.005 && paid <= 0.005 && balance > 0.005;
+}
+
+function billResolvePayTypeForSave(paid, balance, total, selectedType) {
+    if (billIsFullyUnpaidSave(paid, balance, total)) {
+        return billPendingPayTypeValue();
+    }
+    var s = String(selectedType || '').trim();
+    var pendingVals = billPendingPayTypeCandidates();
+    if (paid > 0.005 && pendingVals.indexOf(s) >= 0) {
+        return 'Cash';
+    }
+    return s || 'Cash';
+}
+
+function syncBillPayTypeForBalance(total, paid, balance) {
+    var bType = g('bType');
+    if (!bType) return;
+    var unpaid = billIsFullyUnpaidSave(paid, balance, total);
+    if (unpaid) {
+        if (!bType.dataset.billTypeHold) {
+            var cur = String(bType.value || '').trim();
+            if (cur && billPendingPayTypeCandidates().indexOf(cur) < 0) {
+                bType.dataset.billTypeHold = cur;
+            }
+        }
+        ensurePendingBillTypeOption(bType);
+        bType.value = billPendingPayTypeValue(bType);
+        bType.disabled = true;
+        return;
+    }
+    bType.disabled = false;
+    var hold = bType.dataset.billTypeHold;
+    if (hold) {
+        delete bType.dataset.billTypeHold;
+        if (Array.prototype.some.call(bType.options || [], function (o) { return o.value === hold; })) {
+            bType.value = hold;
+        }
+    }
+}
 
 function tr(key) {
     return typeof t === 'function' ? t(key) : key;
@@ -762,6 +853,43 @@ function switchApptTab(tab) {
     if (tab === 'calendar') showCalendarTab();
     if (tab === 'records') loadApptRecords();
     if (tab === 'recall')   initRecallTab();
+}
+
+/**
+ * Jump from consultation timeline visit card → + Appointment day planner on that date.
+ * Highlights the appointment row when refId is known.
+ */
+function openApptFromTimelineVisit(meta) {
+    meta = meta || {};
+
+    function navigate(row) {
+        row = row || meta;
+        var dateIso = String(row.date || '').trim();
+        var apptId = row.id || meta.id || meta.apptId || null;
+
+        if (typeof showOnly === 'function') showOnly('appointmentSection');
+
+        if (dateIso && typeof syncApptPlannerDate === 'function') {
+            syncApptPlannerDate(dateIso, { syncCal: true });
+        }
+        if (apptId) plusApptPendingSelectApptId = String(apptId);
+
+        setTimeout(function () {
+            if (typeof switchApptTab === 'function') switchApptTab('plusappt');
+        }, 40);
+    }
+
+    var dateIso = String(meta.date || '').trim();
+    var apptId = meta.id || meta.apptId || null;
+    if (!dateIso && apptId) {
+        SB.from('appointments').select('id,date,doctor_code,start_time')
+            .eq('id', apptId).single()
+            .then(function (r) {
+                navigate((!r.error && r.data) ? r.data : meta);
+            });
+        return;
+    }
+    navigate(meta);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -6968,7 +7096,6 @@ function checkInPatient(a) {
         .then(function(res) {
             if (res.error) { alert(trRepl('appt.msg.error', { MSG: res.error.message })); return; }
             loadToday();
-            loadQueue();
             switchApptTab('queue');
         });
     });
@@ -7044,6 +7171,29 @@ function queueFindRowByApptId(tbody, apptId) {
         if (rows[i].dataset.apptId === apptId) return rows[i];
     }
     return null;
+}
+
+/** Resolve dragged appointment id on queue drop (reorder uses plain id, not patient JSON). */
+function queueDragApptIdFromEvent(e) {
+    if (!e || !e.dataTransfer) return '';
+    var id = '';
+    try {
+        id = e.dataTransfer.getData('text/x-joyful-appt-id') || '';
+    } catch (_) {}
+    if (!id) {
+        try {
+            var plain = e.dataTransfer.getData('text/plain') || '';
+            if (plain && plain.indexOf('{') !== 0 && plain.indexOf('[') !== 0) {
+                id = plain;
+            }
+        } catch (_) {}
+    }
+    if (!id) {
+        try {
+            id = window.__JOYFUL_APPT_DRAG_APPT_ID || '';
+        } catch (_) {}
+    }
+    return String(id || '').trim();
 }
 
 function queueReorderInDom(tbody, draggedId, anchorTr, clientY) {
@@ -7131,7 +7281,7 @@ function bindQueueReorderHandlers(tbody) {
         clearQueueDropTargetClasses(tbody);
         if (!anchor) return;
         e.preventDefault();
-        var dragId = e.dataTransfer.getData('text/plain');
+        var dragId = queueDragApptIdFromEvent(e);
         if (!dragId || dragId === anchor.dataset.apptId) return;
         if (!queueReorderInDom(tbody, dragId, anchor, e.clientY)) return;
         persistQueueOrder(tbody, function(err) {
@@ -7329,6 +7479,8 @@ function ensureQueueElapsedTicker() {
 
 function loadQueue() {
     var tb = g('queueBody');
+    if (!tb) return;
+    var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
     tb.innerHTML =
         '<tr><td colspan="9" style="text-align:center;' +
@@ -7341,6 +7493,7 @@ function loadQueue() {
         .order('start_time', {ascending: true});
     qq = applyApptModuleClinicQuery(qq);
     qq.then(function(r) {
+        if (loadSeq !== queueLoadSeq) return;
         tb.innerHTML = '';
         var doStrip = function (apptRows) {
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
@@ -7361,6 +7514,8 @@ function loadQueue() {
         }
         var qc = g('queueCount');
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
+            if (loadSeq !== queueLoadSeq) return;
+            tb.innerHTML = '';
             plusApptApplyTaskStateToList(rows);
             queueApptsCache = rows || [];
             var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
@@ -7386,6 +7541,7 @@ function loadQueue() {
             queueRefreshElapsedBadges();
             hydrateApptUnpaidBalances(rows, function(changed) {
                 if (!changed) return;
+                if (loadSeq !== queueLoadSeq) return;
                 if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
                     loadQueue();
                 }
@@ -7522,9 +7678,11 @@ function buildQueueRow(tb, q, seqNo) {
         }
         if (typeof beginApptPatientDragTransfer === 'function') {
             beginApptPatientDragTransfer(e, q);
-        } else {
-            e.dataTransfer.setData('text/plain', q.id);
         }
+        try {
+            e.dataTransfer.setData('text/plain', String(q.id));
+            e.dataTransfer.setData('text/x-joyful-appt-id', String(q.id));
+        } catch (_) {}
         e.dataTransfer.effectAllowed = 'move';
         row.classList.add('queue-row-dragging');
     });
@@ -10346,6 +10504,11 @@ function renderStep2(cb, opts) {
         sv('bNotes',    '');
         payItems     = [];
         payPendingId = null;
+        var bTypeReset = g('bType');
+        if (bTypeReset) {
+            bTypeReset.disabled = false;
+            delete bTypeReset.dataset.billTypeHold;
+        }
     }
     g('payPreviewWrap').style.display   = 'none';
     if (resetForm) {
@@ -10916,6 +11079,7 @@ function recalcBalance() {
     g('bBalance').textContent  = fmtHK(balance);
     g('bBalance').style.color  =
         balance > 0 ? 'var(--danger)' : 'var(--success)';
+    syncBillPayTypeForBalance(total, paid, balance);
 }
 
 function billPayAllAmount() {
@@ -10933,13 +11097,19 @@ function saveBill(doPrint) {
     var paid  = parseFloat(g('bAmtPaid').value)         || 0;
     var bal   = total - paid;
 
+    syncBillPayTypeForBalance(total, paid, bal);
+    var billType = billResolvePayTypeForSave(
+        paid, bal, total, g('bType') ? g('bType').value : ''
+    );
+    if (g('bType')) g('bType').value = billType;
+
     var payload = {
         appointment_id: billApptId,
         patient_id:     billPatId,
         patient_name:   billPatName,
         patient_no:     billPatNo,
         bill_date:      g('bDate').value  || todayISO(),
-        bill_type:      g('bType').value  || 'Cash',
+        bill_type:      billType,
         items:          JSON.stringify(billItemsForBillSave(payItems)),
         subtotal:       sub,
         discount:       disc,
@@ -11138,8 +11308,8 @@ function buildTreatmentItemOptions(selectedDesc) {
 var billTypesCache = [];   // shared across both dropdowns
 
 function applyBillTypeOptions(sel, markDefault) {
-    var FALLBACK = ['Cash','Visa','Mastercard','EPS','HKBC','Cheque',
-                    'Bank Transfer','Insurance','Waived','Other'];
+    var FALLBACK = ['Pending', 'N/A', 'Cash', 'Visa', 'Mastercard', 'EPS', 'HKBC', 'Cheque',
+                    'Bank Transfer', 'Insurance', 'Waived', 'Other'];
     sel.innerHTML = '';
     var list = billTypesCache.length ? billTypesCache : null;
     if (!list) {
@@ -11149,6 +11319,7 @@ function applyBillTypeOptions(sel, markDefault) {
             o.textContent = (typeof dispPayMethod === 'function') ? dispPayMethod(v) : v;
             sel.appendChild(o);
         });
+        ensurePendingBillTypeOption(sel);
         return;
     }
     var defaultFound = false;
@@ -11168,6 +11339,7 @@ function applyBillTypeOptions(sel, markDefault) {
     if (markDefault && !defaultFound && sel.options.length) {
         sel.options[0].selected = true;
     }
+    ensurePendingBillTypeOption(sel);
 }
 
 function refreshBillPaymentSelectLabels() {
@@ -13378,7 +13550,6 @@ function checkInFromToday(apptId) {
         .then(function(u) {
             if (u.error) { alert(trRepl('appt.msg.error', { MSG: u.error.message })); return; }
             loadToday();
-            loadQueue();
             switchApptTab('queue');
         });
     });

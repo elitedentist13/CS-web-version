@@ -2763,23 +2763,127 @@ function conPtlEventsFromRx(rows) {
     return out;
 }
 
+function conPtlIsApptFuture(a) {
+    var d = String(a && a.date || '').trim();
+    if (!d) return false;
+    var today = (typeof todayISO === 'function') ? todayISO() : '';
+    return !!today && d >= today;
+}
+
+function conPtlResolveApptDoctorLabel(a) {
+    a = a || {};
+    var code = String(a.doctor_code || '').trim();
+    var docs = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS)) ? APP_DOCTORS : [];
+    if (code) {
+        var hit = docs.find(function (d) {
+            return String(d.doctor_code || '').trim().toLowerCase() === code.toLowerCase();
+        });
+        if (hit && typeof doctorDisplayName === 'function') {
+            return doctorDisplayName(hit) || code;
+        }
+        if (hit) {
+            return String(hit.english_name || hit.chinese_name || hit.display_name || code).trim();
+        }
+    }
+    var raw = String(a.dentist_name || a.doctor_name || '').trim();
+    if (raw && typeof stripDoctorTagPrefix === 'function') {
+        raw = stripDoctorTagPrefix(raw);
+    }
+    return raw.replace(/^\[[^\]]+\]\s*/, '').trim();
+}
+
+function conPtlFormatApptTimeRange(a) {
+    a = a || {};
+    var st = a.start_time ? String(a.start_time).slice(0, 5) : '';
+    var en = a.end_time ? String(a.end_time).slice(0, 5) : '';
+    if (st && en && en !== st) return st + ' – ' + en;
+    return st;
+}
+
+function conPtlPlainRemarks(remarks) {
+    var s = String(remarks || '').trim();
+    if (!s) return '';
+    if (typeof stripStaffAuthorFromRemarks === 'function') {
+        s = stripStaffAuthorFromRemarks(s);
+    }
+    if (typeof stripDoctorTagsFromRemarks === 'function') {
+        s = stripDoctorTagsFromRemarks(s);
+    }
+    return s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function conPtlApptStatusLabel(a) {
+    var raw = (a && a.bill_status) ? a.bill_status : 'Scheduled';
+    if (typeof dispStatusLabel === 'function') return dispStatusLabel(raw);
+    if (typeof dispApptStatus === 'function') return dispApptStatus(raw);
+    return raw;
+}
+
 function conPtlEventsFromVisits(rows) {
     return (rows || []).map(function (a) {
         var ms = conPtlTsFromIsoDateTime(a.date, a.start_time) ||
             conPtlTsFromAny(a.created_at, a.date);
-        var status = (typeof dispStatusLabel === 'function')
-            ? dispStatusLabel(a.bill_status || 'Scheduled')
-            : (a.bill_status || 'Scheduled');
-        var timeLbl = a.start_time ? String(a.start_time).slice(0, 5) : '';
+        var statusLabel = conPtlApptStatusLabel(a);
+        var statusRaw = String(a.bill_status || 'Scheduled');
+        var isFuture = conPtlIsApptFuture(a);
+        var isUpcoming = isFuture &&
+            (!statusRaw || /^scheduled$/i.test(String(statusRaw).trim()));
+
+        var dr = conPtlResolveApptDoctorLabel(a);
+        var timeRange = conPtlFormatApptTimeRange(a);
+        var treatment = String(a.treatment_items || '').trim();
+        var remarksPlain = conPtlPlainRemarks(a.remarks);
+
+        var headline = '';
+        var body = '';
+        var metaParts = [];
+
+        if (isUpcoming) {
+            if (dr && timeRange) {
+                headline = dr + ' · ' + timeRange;
+            } else if (dr) {
+                headline = dr;
+            } else if (timeRange) {
+                headline = timeRange;
+            } else {
+                headline = conTr('con.ptl.visitScheduled');
+            }
+            if (remarksPlain) body = conPtlTruncate(remarksPlain, 180);
+            if (treatment && treatment.toLowerCase() !== String(a.doctor_code || '').trim().toLowerCase()) {
+                metaParts.push(conTrRepl('con.ptl.treatmentLine', { ITEMS: treatment }));
+            }
+        } else {
+            if (remarksPlain) {
+                headline = conPtlTruncate(remarksPlain, 200);
+            } else if (treatment) {
+                headline = conPtlTruncate(treatment, 200);
+            } else if (dr) {
+                headline = dr;
+            } else {
+                headline = conTr('con.ptl.visitScheduled');
+            }
+            if (dr && (remarksPlain || treatment)) metaParts.push(dr);
+            else if (dr && !remarksPlain && !treatment) metaParts.push(dr);
+        }
+
         return {
             kind: 'visit',
             ts: ms,
             title: conTr('con.ptl.type.visit'),
-            body: conPtlTruncate(a.treatment_items || a.remarks, 200) ||
-                conTr('con.ptl.visitScheduled'),
-            meta: [a.date, timeLbl, status, a.dentist_name || a.doctor_name].filter(Boolean).join(' · '),
+            headline: headline,
+            body: body,
+            meta: metaParts.filter(Boolean).join(' · '),
+            upcoming: isUpcoming,
+            statusLabel: statusLabel,
             action: 'visit',
-            refId: a.id
+            refId: a.id,
+            payload: {
+                id: a.id,
+                date: a.date,
+                start_time: a.start_time,
+                doctor_code: a.doctor_code,
+                bill_status: a.bill_status
+            }
         };
     });
 }
@@ -2866,7 +2970,8 @@ function loadConPatientTimeline(patientId) {
     var qRx = SB.from('drughistory').select('*').eq('patient_id', pid)
         .order('prescribed_date', { ascending: false }).limit(300);
     var qAppt = SB.from('appointments').select(
-        'id,date,start_time,end_time,bill_status,treatment_items,remarks,dentist_name,doctor_name,created_at'
+        'id,date,start_time,end_time,bill_status,treatment_items,remarks,' +
+        'dentist_name,doctor_name,doctor_code,created_at'
     ).eq('patient_id', pid).order('date', { ascending: false }).limit(150);
     var qDocs = SB.from('patient_documents').select(
         'id,document_name,document_date,template_name,template_type,created_at'
@@ -2944,16 +3049,34 @@ function renderConPatientTimeline() {
             lastDay = day;
             html += '<div class="con-ptl-day">' + esc(day) + '</div><ul class="con-ptl-list">';
         }
+        var evCls = 'con-ptl-event con-ptl-event--' + esc(ev.kind);
+        if (ev.upcoming) evCls += ' con-ptl-event--upcoming';
+        var badgeHtml = '';
+        if (ev.upcoming) {
+            badgeHtml = '<span class="con-ptl-badge con-ptl-badge--upcoming">' +
+                esc(conTr('con.ptl.upcoming')) + '</span>';
+        } else if (ev.statusLabel && ev.kind === 'visit') {
+            badgeHtml = '<span class="con-ptl-badge con-ptl-badge--status">' +
+                esc(ev.statusLabel) + '</span>';
+        }
+        var headline = ev.headline || '';
+        var detail = ev.body || '';
         html +=
-            '<li class="con-ptl-event con-ptl-event--' + esc(ev.kind) + '" data-ptl-idx="' + idx + '">' +
+            '<li class="' + evCls + '" data-ptl-idx="' + idx + '">' +
             '<div class="con-ptl-event-head">' +
-            '<span class="con-ptl-event-type">' + esc(ev.title || '') + '</span>' +
+            '<span class="con-ptl-event-type">' + esc(ev.title || '') + badgeHtml + '</span>' +
             '<span class="con-ptl-event-time">' + esc(conPtlFormatTime(ev.ts)) + '</span>' +
             '</div>' +
-            '<div class="con-ptl-event-body">' + esc(ev.body || '') + '</div>' +
-            (ev.meta
-                ? '<div class="con-ptl-event-meta">' + esc(ev.meta) + ' · ' + esc(conTr('con.ptl.jumpHint')) + '</div>'
-                : '<div class="con-ptl-event-meta">' + esc(conTr('con.ptl.jumpHint')) + '</div>') +
+            (headline
+                ? '<div class="con-ptl-event-title">' + esc(headline) + '</div>'
+                : '') +
+            (detail
+                ? '<div class="con-ptl-event-body">' + esc(detail) + '</div>'
+                : '') +
+            '<div class="con-ptl-event-meta">' +
+            (ev.meta ? '<span class="con-ptl-event-meta-text">' + esc(ev.meta) + '</span>' : '') +
+            '<span class="con-ptl-event-jump">' + esc(conTr('con.ptl.jumpHint')) + '</span>' +
+            '</div>' +
             '</li>';
     });
     if (lastDay) html += '</ul>';
@@ -3009,10 +3132,15 @@ function conPtlOpenEvent(ev) {
         return;
     }
     if (ev.action === 'visit') {
-        if (typeof showOnly === 'function') showOnly('appointmentSection');
-        setTimeout(function () {
-            if (typeof switchApptTab === 'function') switchApptTab('today');
-        }, 40);
+        if (typeof openApptFromTimelineVisit === 'function') {
+            openApptFromTimelineVisit(ev.payload || { id: ev.refId });
+        } else if (typeof showOnly === 'function') {
+            showOnly('appointmentSection');
+            setTimeout(function () {
+                if (typeof switchApptTab === 'function') switchApptTab('plusappt');
+            }, 40);
+        }
+        return;
     }
 }
 

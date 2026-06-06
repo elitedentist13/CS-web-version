@@ -114,6 +114,10 @@ function savePatientDirBananaPanel() {
             }
         });
         renderPatients(patientListCache);
+        var savedP = (patientListCache || []).find(function (row) {
+            return String(row.id) === String(savedId);
+        });
+        if (typeof patientViewOnActiveChange === 'function') patientViewOnActiveChange(savedP);
         alert(patTr('patient.dirBanana.saved'));
     }
     function doUpdate(pl, retried) {
@@ -305,6 +309,7 @@ function refreshPatientDirI18n() {
         refreshPatientDetailsModalHeader(_patientDetailsPatient);
         refreshPatientDetailsBulkSection();
     }
+    if (typeof refreshPatientViewsI18n === 'function') refreshPatientViewsI18n();
     var detModal = g('patientDetailsModal');
     if (detModal && detModal.style.display === 'block' && selPatientId) {
         if (typeof loadTreatments === 'function') loadTreatments(selPatientId);
@@ -327,6 +332,9 @@ function setDirectoryActivePatient(p, source) {
             detail: { patient: p, source: source || 'patient-directory' }
         }));
     } catch (_) {}
+    if (typeof patientViewOnActiveChange === 'function') {
+        patientViewOnActiveChange(p);
+    }
 }
 
 function updatePatientDirActiveRowHighlight() {
@@ -682,6 +690,9 @@ function submitAddPatient(e) {
                 closeModal('addPatientModal');
                 g('patientForm').reset();
                 fetchPatients();
+                if (row && row.id && typeof setDirectoryActivePatient === 'function') {
+                    setDirectoryActivePatient(row, 'new-patient');
+                }
             }
 
             var linkedToday = row &&
@@ -1185,6 +1196,9 @@ function submitEditPatient(e) {
         fetchPatients();
         if (typeof refreshApptListsAfterPatientEdit === 'function') {
             refreshApptListsAfterPatientEdit();
+        }
+        if (typeof patientViewOnActiveChange === 'function') {
+            patientViewOnActiveChange();
         }
         alert(nurse ? patTr('patient.alertClinicTagSaved') : patTr('patient.alertUpdated'));
     }

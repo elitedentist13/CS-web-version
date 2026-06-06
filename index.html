@@ -547,14 +547,21 @@
 <!-- ════════════════════════════════════════════════════════════
      PATIENT SECTION
 ════════════════════════════════════════════════════════════ -->
-<div id="patientSection" class="container" style="display:none;">
+<div id="patientSection" class="container patient-module-shell" style="display:none;">
   <button class="back-btn" id="patientBack" data-i18n="common.backDashboard"></button>
 
-  <div class="sec-header">
+  <div class="patient-sec-header">
     <h2 data-i18n="patient.title"></h2>
+    <div class="patient-view-toggle" role="tablist" aria-label="Patient module views">
+      <button type="button" class="patient-view-btn active" data-pview="directory" role="tab" aria-selected="true"
+              data-i18n="patient.view.directory"></button>
+      <button type="button" class="patient-view-btn" data-pview="dashboard" role="tab" aria-selected="false"
+              data-i18n="patient.view.dashboard"></button>
+    </div>
     <button class="btn-add" id="mainAddBtn" data-i18n="patient.newBtn"></button>
   </div>
 
+  <div id="patientViewDirectory" class="patient-view-pane active" role="tabpanel">
   <div class="patient-dir-toolbar">
     <input type="text" id="searchInput" class="patient-dir-search-input"
            data-i18n-placeholder="patient.searchPh">
@@ -598,6 +605,11 @@
     </thead>
     <tbody id="patientTableBody"></tbody>
   </table>
+  </div><!-- /patientViewDirectory -->
+
+  <div id="patientViewDashboard" class="patient-view-pane" role="tabpanel" hidden>
+    <div id="patientDashboardHost" class="patient-dashboard-host"></div>
+  </div>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════
@@ -4934,6 +4946,7 @@
 <script src="app-memo-ai.js"></script>
 <script src="app-photos.js"></script>
 <script src="app-patient.js"></script>
+<script src="app-patient-views.js"></script>
 <script src="cal-doctor-colors.js"></script>
 <script src="app-appt.js"></script>
 <script src="app-rx-phrases.js?v=20260520b"></script>

@@ -30,6 +30,7 @@ var REPORT = (function () {
   var _auditSelectedId = null;
   var _auditTableMissing = false;
   var _patientDirToolsWired = false;
+  var REPORT_ALL_DOCTORS_ID = '__ALL_DOCTORS__';
 
   function g(id) { return document.getElementById(id); }
   function esc(s) {
@@ -200,18 +201,33 @@ var REPORT = (function () {
   async function loadBillsByIds(billIds) {
     billIds = uniqIds((billIds || []).filter(Boolean));
     if (!billIds.length) return [];
+    var selectFull = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at,clinic_tag,voided_at';
+    var selectNoDoctor = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,clinic_tag,voided_at';
+    var selectLegacy = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,voided_at';
     var out = [];
     var CHUNK = 80;
     for (var i = 0; i < billIds.length; i += CHUNK) {
       var chunk = billIds.slice(i, i + CHUNK);
       var res = await SB.from('bills')
-        .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,clinic_tag,voided_at')
+        .select(selectFull)
         .in('id', chunk);
       if (res.error) {
         var m = String(res.error.message || '').toLowerCase();
-        if (m.indexOf('clinic_tag') >= 0) {
+        if (m.indexOf('doctor_id') >= 0 || m.indexOf('doctor_name') >= 0 || m.indexOf('doctor_tag') >= 0) {
           res = await SB.from('bills')
-            .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,appointment_id,created_at,voided_at')
+            .select(selectNoDoctor)
+            .in('id', chunk);
+          if (res.error) {
+            var m2 = String(res.error.message || '').toLowerCase();
+            if (m2.indexOf('clinic_tag') >= 0) {
+              res = await SB.from('bills')
+                .select(selectLegacy)
+                .in('id', chunk);
+            }
+          }
+        } else if (m.indexOf('clinic_tag') >= 0) {
+          res = await SB.from('bills')
+            .select('id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at,voided_at')
             .in('id', chunk);
         }
       }
@@ -472,6 +488,8 @@ var REPORT = (function () {
     }
 
     return bills.filter(function (b) {
+      var bTag = clinicCodeFromStoredTag(b && (b.clinic_tag || b.clinic_code));
+      if (bTag) return bTag === tag;
       if (b.patient_id && pmap[b.patient_id] !== undefined) {
         return pmap[b.patient_id] === tag;
       }
@@ -960,10 +978,30 @@ var REPORT = (function () {
   async function loadBills(from, to) {
     // expects global SB
     var res = await SB.from('bills')
-      .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at,patient_id,appointment_id,voided_at')
+      .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at,patient_id,appointment_id,clinic_tag,clinic_code,voided_at')
       .gte('bill_date', from)
       .lte('bill_date', to)
       .order('bill_date', { ascending: true });
+    if (res.error) {
+      var m = String(res.error.message || '').toLowerCase();
+      if (m.indexOf('clinic_code') >= 0) {
+        res = await SB.from('bills')
+          .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at,patient_id,appointment_id,clinic_tag,voided_at')
+          .gte('bill_date', from)
+          .lte('bill_date', to)
+          .order('bill_date', { ascending: true });
+      }
+    }
+    if (res.error) {
+      var m2 = String(res.error.message || '').toLowerCase();
+      if (m2.indexOf('clinic_tag') >= 0) {
+        res = await SB.from('bills')
+          .select('id,bill_date,bill_type,total,amount_paid,balance,items,status,created_at,patient_id,appointment_id,voided_at')
+          .gte('bill_date', from)
+          .lte('bill_date', to)
+          .order('bill_date', { ascending: true });
+      }
+    }
     if (res.error) throw new Error(res.error.message);
     return filterBillsForReportClinic(excludeVoidBills(res.data || []));
   }
@@ -1074,13 +1112,86 @@ var REPORT = (function () {
     return res.data || [];
   }
 
+  async function loadAppointmentsForDailySummary(from, to, bills) {
+    bills = bills || [];
+    var apptIds = uniqIds(bills.map(function (b) { return b && b.appointment_id; }));
+    var patientIds = uniqIds(bills.map(function (b) { return b && b.patient_id; }));
+    var byId = {};
+    var byPatientDate = {};
+    var CHUNK = 80;
+
+    function ingestAppt(a) {
+      if (!a || !a.id) return;
+      byId[a.id] = a;
+      var d = String(a.date || '').slice(0, 10);
+      var pid = a.patient_id || '';
+      if (!d || !pid) return;
+      var key = d + '|' + pid;
+      if (!byPatientDate[key]) {
+        byPatientDate[key] = a;
+        return;
+      }
+      var curMin = dailySummaryApptTimeToMin(byPatientDate[key].start_time);
+      var nextMin = dailySummaryApptTimeToMin(a.start_time);
+      if (nextMin < curMin) byPatientDate[key] = a;
+    }
+
+    for (var i = 0; i < apptIds.length; i += CHUNK) {
+      var idChunk = apptIds.slice(i, i + CHUNK);
+      var res = await SB.from('appointments')
+        .select('id,date,start_time,patient_id,doctor_code')
+        .in('id', idChunk);
+      if (res.error) throw new Error(res.error.message);
+      (res.data || []).forEach(ingestAppt);
+    }
+
+    if (patientIds.length && from && to) {
+      for (var j = 0; j < patientIds.length; j += CHUNK) {
+        var patientChunk = patientIds.slice(j, j + CHUNK);
+        var res2 = await SB.from('appointments')
+          .select('id,date,start_time,patient_id,doctor_code')
+          .gte('date', from)
+          .lte('date', to)
+          .in('patient_id', patientChunk)
+          .order('date', { ascending: true })
+          .order('start_time', { ascending: true });
+        if (res2.error) throw new Error(res2.error.message);
+        (res2.data || []).forEach(ingestAppt);
+      }
+    }
+
+    return { byId: byId, byPatientDate: byPatientDate };
+  }
+
   async function loadDoctorsForReport() {
     var res = await SB.from('doctors')
       .select('id,doctor_code,english_name,chinese_name,is_active')
       .eq('is_active', true)
       .order('doctor_code', { ascending: true });
     if (res.error) throw new Error(res.error.message);
-    return res.data || [];
+    var rows = res.data || [];
+    var seen = {};
+    var out = [];
+    rows.forEach(function (d) {
+      var id = String(d && d.id != null ? d.id : '').trim();
+      var code = String(d && d.doctor_code != null ? d.doctor_code : '').trim();
+      var en = String(d && d.english_name != null ? d.english_name : '').trim();
+      var zh = String(d && d.chinese_name != null ? d.chinese_name : '').trim();
+      if (!id && !code && !en && !zh) return;
+      var sigCore = [code.toLowerCase(), en.toLowerCase(), zh.toLowerCase()].join('|');
+      var sig = sigCore.replace(/\|/g, '') ? sigCore : ('id:' + id.toLowerCase());
+      if (seen[sig]) return;
+      seen[sig] = true;
+      out.push(d);
+    });
+    out.sort(function (a, b) {
+      var an = String((a && (a.display_name || a.english_name || a.chinese_name || a.doctor_code)) || '').toLowerCase();
+      var bn = String((b && (b.display_name || b.english_name || b.chinese_name || b.doctor_code)) || '').toLowerCase();
+      if (an < bn) return -1;
+      if (an > bn) return 1;
+      return 0;
+    });
+    return out;
   }
 
   async function loadTreatmentsByDay(dayIso) {
@@ -1145,6 +1256,221 @@ var REPORT = (function () {
       (c.rows || []).forEach(function (r) { all.push(r); });
     });
     return dailySummaryAggFromTx(all);
+  }
+
+  function dailySummaryApptTimeToMin(t) {
+    var p = String(t || '').split(':');
+    return (parseInt(p[0] || '0', 10) * 60) + (parseInt(p[1] || '0', 10) || 0);
+  }
+
+  function dailySummaryApptSortMinutes(b, appt) {
+    if (appt && appt.start_time) return dailySummaryApptTimeToMin(appt.start_time);
+    if (b && b.created_at) {
+      var created = new Date(b.created_at);
+      if (!isNaN(created.getTime())) {
+        return created.getHours() * 60 + created.getMinutes();
+      }
+    }
+    return 99999;
+  }
+
+  function resolveBillAppointmentFields(b, apptCtx, paymentDate) {
+    apptCtx = apptCtx || { byId: {}, byPatientDate: {} };
+    var appt = null;
+    if (b && b.appointment_id && apptCtx.byId[b.appointment_id]) {
+      appt = apptCtx.byId[b.appointment_id];
+    } else if (b && b.patient_id && paymentDate) {
+      var key = String(paymentDate).slice(0, 10) + '|' + b.patient_id;
+      appt = apptCtx.byPatientDate[key] || null;
+    }
+    var startTime = appt ? String(appt.start_time || '').trim() : '';
+    return {
+      appointment_id: (b && b.appointment_id) || (appt && appt.id) || '',
+      appointment_time: startTime ? startTime.slice(0, 5) : '',
+      appointment_sort_date: String((appt && appt.date) || paymentDate || (b && b.bill_date) || '').slice(0, 10),
+      appointment_sort_min: dailySummaryApptSortMinutes(b, appt)
+    };
+  }
+
+  function resolveBillDoctorFields(b, doctors) {
+    var doctor_id = b && b.doctor_id ? String(b.doctor_id) : '';
+    var doctor_tag = String(b && b.doctor_tag != null ? b.doctor_tag : '').trim();
+    var doctor_name = String(b && b.doctor_name != null ? b.doctor_name : '').trim();
+    var doctor_display = doctor_name || doctor_tag || '';
+    var matched = null;
+    if (doctor_id && doctors && doctors.length) {
+      matched = doctors.find(function (d) { return String(d.id) === doctor_id; }) || null;
+    }
+    if (!matched && doctors && doctors.length) {
+      matched = doctors.find(function (d) { return billMatchesDoctor(b, d); }) || null;
+    }
+    if (matched) {
+      doctor_id = String(matched.id || doctor_id || '');
+      doctor_display = drDisplayName(matched) || doctor_display;
+      doctor_tag = doctor_tag || doctorTagOf(matched);
+      doctor_name = doctor_name || drDisplayName(matched);
+    }
+    if (!doctor_display) doctor_display = tr('report.ds.unknownDoctor');
+    var doctor_key = doctor_id || normName(doctor_tag) || normName(doctor_name) || '__unknown__';
+    return {
+      doctor_id: doctor_id,
+      doctor_name: doctor_name,
+      doctor_tag: doctor_tag,
+      doctor_display: doctor_display,
+      doctor_key: doctor_key
+    };
+  }
+
+  function dailySummaryTxSortCompare(a, b) {
+    var dateCmp = String(a && a.appointment_sort_date ? a.appointment_sort_date : '')
+      .localeCompare(String(b && b.appointment_sort_date ? b.appointment_sort_date : ''));
+    if (dateCmp !== 0) return dateCmp;
+    var am = Number(a && a.appointment_sort_min != null ? a.appointment_sort_min : 99999);
+    var bm = Number(b && b.appointment_sort_min != null ? b.appointment_sort_min : 99999);
+    if (am !== bm) return am - bm;
+    var adr = String(a && a.doctor_display ? a.doctor_display : '').toLowerCase();
+    var bdr = String(b && b.doctor_display ? b.doctor_display : '').toLowerCase();
+    if (adr !== bdr) return adr < bdr ? -1 : 1;
+    return String(a && a.patient_no ? a.patient_no : '').localeCompare(String(b && b.patient_no ? b.patient_no : ''));
+  }
+
+  function dailySummaryGroupEarliestSortMin(rows) {
+    var min = 99999;
+    (rows || []).forEach(function (r) {
+      var v = Number(r && r.appointment_sort_min != null ? r.appointment_sort_min : 99999);
+      if (v < min) min = v;
+    });
+    return min;
+  }
+
+  function dailySummaryGroupTxByDoctor(transactions) {
+    var map = {};
+    var order = [];
+    (transactions || []).forEach(function (t) {
+      var k = t.doctor_key || '__unknown__';
+      if (!map[k]) {
+        map[k] = { key: k, label: t.doctor_display || tr('report.ds.unknownDoctor'), rows: [] };
+        order.push(k);
+      }
+      map[k].rows.push(t);
+    });
+    return order.map(function (k) {
+      var g = map[k];
+      g.rows = (g.rows || []).slice().sort(dailySummaryTxSortCompare);
+      return g;
+    }).sort(function (a, b) {
+      var aMin = dailySummaryGroupEarliestSortMin(a.rows);
+      var bMin = dailySummaryGroupEarliestSortMin(b.rows);
+      if (aMin !== bMin) return aMin - bMin;
+      var al = String(a.label || '').toLowerCase();
+      var bl = String(b.label || '').toLowerCase();
+      if (al < bl) return -1;
+      if (al > bl) return 1;
+      return 0;
+    });
+  }
+
+  function dailySummaryUniqueDoctorCount(transactions) {
+    var seen = {};
+    (transactions || []).forEach(function (t) {
+      seen[t.doctor_key || '__unknown__'] = true;
+    });
+    return Object.keys(seen).length;
+  }
+
+  function dailySummaryMethodMiniPillsFromRows(rows) {
+    var methodMiniMap = {};
+    (rows || []).forEach(function (t) {
+      var allocs = t.payment_allocations || [];
+      if (allocs.length) {
+        allocs.forEach(function (a) {
+          var k = reportPayMethodCanonicalKey(a.method);
+          if (reportPayMethodIsUnsettled(k)) return;
+          methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(a.amount || 0);
+        });
+        return;
+      }
+      var k = reportPayMethodCanonicalKey(t.payment_method);
+      if (reportPayMethodIsUnsettled(k)) return;
+      methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(t.bill_paid || 0);
+    });
+    return Object.keys(methodMiniMap).sort().map(function (k) {
+      return '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef6ff;color:#0d6efd;border:1px solid #d9eaff;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;">' +
+        '<span>' + esc(dispPayMethod(k)) + '</span><span style="color:#1f2937;">' + fmtHK(Number(methodMiniMap[k] || 0)) + '</span>' +
+      '</span>';
+    }).join('');
+  }
+
+  function dailySummaryDoctorBreakdownHtml(transactions) {
+    var groups = dailySummaryGroupTxByDoctor(transactions);
+    if (groups.length < 2) return '';
+    var cards = groups.map(function (g) {
+      var paid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+      var pills = dailySummaryMethodMiniPillsFromRows(g.rows);
+      return '<div style="background:#fff;border:1px solid #dbeafe;border-radius:12px;padding:10px 12px;min-width:200px;flex:1 1 220px;max-width:360px;box-shadow:0 2px 8px rgba(15,23,42,.04);">' +
+        '<div style="font-size:12px;font-weight:900;color:#1e40af;line-height:1.35;">' + esc(g.label) + '</div>' +
+        '<div style="font-size:16px;font-weight:900;color:#15803d;margin-top:4px;">' + fmtHK(paid) + '</div>' +
+        '<div style="font-size:11px;color:#64748b;font-weight:800;margin-top:4px;">' +
+          esc(trRepl('report.ds.monthly.txCount', { N: String((g.rows || []).length) })) +
+        '</div>' +
+        (pills ? '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">' + pills + '</div>' : '') +
+      '</div>';
+    }).join('');
+    return '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;padding:10px 12px;margin-bottom:12px;' +
+      'box-shadow:0 2px 8px rgba(15,23,42,.04);">' +
+      '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">' +
+        esc(tr('report.ds.doctorTotalsTitle')) +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;">' + cards + '</div>' +
+    '</div>';
+  }
+
+  function dailySummarySimpleRowHtml(t, td, showClinicCol) {
+    return '<tr>' +
+      '<td style="' + td + '">' + esc(t.patient_no) + '</td>' +
+      '<td style="' + td + '">' + esc(t.patient_chinese) + '</td>' +
+      '<td style="' + td + '">' + esc(t.patient_name) + '</td>' +
+      (showClinicCol ? ('<td style="' + td + '">' + esc(t.clinic_tag || '') + '</td>') : '') +
+      '<td style="' + td + '">' + esc(dispPayMethodTxSummary(t)) + '</td>' +
+      '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(t.bill_paid || 0)) + '</td>' +
+      '<td style="' + td + '">' + esc(t.remarks) + '</td>' +
+    '</tr>';
+  }
+
+  function dailySummarySimpleBodyHtml(transactions, td, showClinicCol) {
+    var multiDr = dailySummaryUniqueDoctorCount(transactions) > 1;
+    if (!multiDr) {
+      return (transactions || []).map(function (t) {
+        return dailySummarySimpleRowHtml(t, td, showClinicCol);
+      }).join('');
+    }
+    var colSpan = showClinicCol ? 7 : 6;
+    return dailySummaryGroupTxByDoctor(transactions).map(function (g) {
+      var paid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+      var pills = dailySummaryMethodMiniPillsFromRows(g.rows);
+      var header =
+        '<tr>' +
+          '<td colspan="' + colSpan + '" style="padding:10px 12px;background:#f0f7ff;border-bottom:1px solid #dbeafe;vertical-align:middle;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">' +
+              '<div>' +
+                '<div style="font-size:13px;font-weight:900;color:#1e40af;">' + esc(g.label) + '</div>' +
+                '<div style="font-size:11px;color:#64748b;font-weight:800;margin-top:2px;">' +
+                  esc(trRepl('report.ds.monthly.txCount', { N: String((g.rows || []).length) })) +
+                '</div>' +
+              '</div>' +
+              '<div style="text-align:right;">' +
+                '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
+                '<div style="font-size:15px;font-weight:900;color:#15803d;">' + fmtHK(paid) + '</div>' +
+              '</div>' +
+            '</div>' +
+            (pills ? '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">' + pills + '</div>' : '') +
+          '</td>' +
+        '</tr>';
+      var rows = (g.rows || []).map(function (t) {
+        return dailySummarySimpleRowHtml(t, td, showClinicCol);
+      }).join('');
+      return header + rows;
+    }).join('');
   }
 
   var REPORT_DS_PAY_METHOD_DEFAULTS = ['Cash', 'Visa', 'Mastercard', 'EPS', 'Octopus'];
@@ -1269,20 +1595,11 @@ var REPORT = (function () {
     var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
 
     var showClinicCol = isReportAllClinicsSelected();
-    var rowsHtml = transactions.map(function (t) {
-      return '<tr>' +
-        '<td style="' + td + '">' + esc(t.patient_no) + '</td>' +
-        '<td style="' + td + '">' + esc(t.patient_chinese) + '</td>' +
-        '<td style="' + td + '">' + esc(t.patient_name) + '</td>' +
-        (showClinicCol ? ('<td style="' + td + '">' + esc(t.clinic_tag || '') + '</td>') : '') +
-        '<td style="' + td + '">' + esc(dispPayMethodTxSummary(t)) + '</td>' +
-        '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(t.bill_paid || 0)) + '</td>' +
-        '<td style="' + td + '">' + esc(t.remarks) + '</td>' +
-      '</tr>';
-    }).join('');
+    var rowsHtml = dailySummarySimpleBodyHtml(transactions, td, showClinicCol);
 
     body.innerHTML =
       dailySummaryHeaderZoneHtml(totalsByMethodPaid, agg.paidTotal, 'report.ds.dailyOverviewTitle') +
+      dailySummaryDoctorBreakdownHtml(transactions) +
       '<div style="border:1px solid #eee;border-radius:12px;overflow:hidden;background:#fff;">' +
         '<div style="overflow:auto;max-height:520px;">' +
           '<table style="width:100%;border-collapse:collapse;min-width:860px;">' +
@@ -1323,44 +1640,61 @@ var REPORT = (function () {
       '</div>';
 
     var cardsHtml = dayCards.map(function (c) {
-      var methodMiniMap = {};
-      (c.rows || []).forEach(function (t) {
-        var allocs = t.payment_allocations || [];
-        if (allocs.length) {
-          allocs.forEach(function (a) {
-            var k = reportPayMethodCanonicalKey(a.method);
-            if (reportPayMethodIsUnsettled(k)) return;
-            methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(a.amount || 0);
-          });
-          return;
-        }
-        var k = reportPayMethodCanonicalKey(t.payment_method);
-        if (reportPayMethodIsUnsettled(k)) return;
-        methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(t.bill_paid || 0);
-      });
-
-      var methodMini = Object.keys(methodMiniMap).sort().map(function (k) {
-        return '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef6ff;color:#0d6efd;border:1px solid #d9eaff;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;">' +
-          '<span>' + esc(dispPayMethod(k)) + '</span><span style="color:#1f2937;">' + fmtHK(Number(methodMiniMap[k] || 0)) + '</span>' +
-        '</span>';
-      }).join('');
+      var methodMini = dailySummaryMethodMiniPillsFromRows(c.rows);
 
       var showClinicCol = isReportAllClinicsSelected();
+      var multiDrDay = dailySummaryUniqueDoctorCount(c.rows) > 1;
       var gridCols = showClinicCol
-        ? 'minmax(90px,110px) minmax(200px,1fr) minmax(110px,130px) minmax(120px,140px) minmax(100px,120px)'
-        : 'minmax(90px,110px) minmax(220px,1fr) minmax(120px,140px) minmax(100px,120px)';
-      var rows = c.rows.map(function (t) {
+        ? (multiDrDay
+          ? 'minmax(90px,110px) minmax(180px,1fr) minmax(100px,120px) minmax(110px,130px) minmax(110px,130px) minmax(100px,120px)'
+          : 'minmax(90px,110px) minmax(200px,1fr) minmax(110px,130px) minmax(120px,140px) minmax(100px,120px)')
+        : (multiDrDay
+          ? 'minmax(90px,110px) minmax(200px,1fr) minmax(110px,130px) minmax(110px,130px) minmax(100px,120px)'
+          : 'minmax(90px,110px) minmax(220px,1fr) minmax(120px,140px) minmax(100px,120px)');
+
+      function monthlyDayRowHtml(t) {
         return '<div style="display:grid;grid-template-columns:' + gridCols + ';gap:10px;align-items:start;padding:10px 0;border-bottom:1px dashed #e6edf5;">' +
           '<div style="font-weight:900;color:#0d6efd;font-size:12px;">' + esc(t.patient_no || '-') + '</div>' +
           '<div style="min-width:0;">' +
             '<div style="font-size:13px;font-weight:900;color:#1f2937;line-height:1.35;">' + esc(t.patient_chinese || '') + (t.patient_name ? (' / ' + esc(t.patient_name)) : '') + '</div>' +
             (t.remarks ? '<div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;">' + esc(t.remarks) + '</div>' : '') +
           '</div>' +
+          (multiDrDay ? ('<div style="color:#1e40af;font-weight:900;font-size:12px;">' + esc(t.doctor_display || '') + '</div>') : '') +
           (showClinicCol ? ('<div style="color:#334155;font-weight:900;font-size:12px;">' + esc(t.clinic_tag || '') + '</div>') : '') +
           '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(dispPayMethodTxSummary(t)) + '</div>' +
           '<div style="text-align:right;font-weight:900;color:#15803d;font-size:12px;">' + fmtHK(Number(t.bill_paid || 0)) + '</div>' +
         '</div>';
-      }).join('');
+      }
+
+      var rows = '';
+      if (multiDrDay) {
+        rows = dailySummaryGroupTxByDoctor(c.rows).map(function (g) {
+          var drPaid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+          var drPills = dailySummaryMethodMiniPillsFromRows(g.rows);
+          var sectionHeader =
+            '<div style="padding:8px 0 6px 0;margin-top:6px;border-top:1px solid #edf2f7;">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                '<div style="font-size:12px;font-weight:900;color:#1e40af;">' + esc(g.label) + '</div>' +
+                '<div style="font-size:12px;font-weight:900;color:#15803d;">' + fmtHK(drPaid) + '</div>' +
+              '</div>' +
+              (drPills ? '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;">' + drPills + '</div>' : '') +
+            '</div>';
+          var sectionRows = (g.rows || []).map(monthlyDayRowHtml).join('');
+          return sectionHeader + sectionRows;
+        }).join('');
+      } else {
+        rows = (c.rows || []).map(monthlyDayRowHtml).join('');
+      }
+
+      var doctorMini = '';
+      if (multiDrDay) {
+        doctorMini = dailySummaryGroupTxByDoctor(c.rows).map(function (g) {
+          var drPaid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+          return '<span style="display:inline-flex;align-items:center;gap:6px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;">' +
+            '<span>' + esc(g.label) + '</span><span style="color:#15803d;">' + fmtHK(drPaid) + '</span>' +
+          '</span>';
+        }).join('');
+      }
 
       return '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:14px;padding:12px 14px;margin-bottom:12px;box-shadow:0 3px 10px rgba(15,23,42,.04);">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid #edf2f7;">' +
@@ -1370,6 +1704,7 @@ var REPORT = (function () {
             '<div style="font-size:14px;font-weight:900;color:#15803d;">' + fmtHK(Number(c.paidTotal || 0)) + '</div>' +
           '</div>' +
         '</div>' +
+        (doctorMini ? '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 2px 0;">' + doctorMini + '</div>' : '') +
         (methodMini ? '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px 0;">' + methodMini + '</div>' : '') +
         '<div style="margin-top:2px;">' + rows + '</div>' +
       '</div>';
@@ -1379,9 +1714,15 @@ var REPORT = (function () {
       cardsHtml = '<div style="background:#fff;border:1px dashed #d7e2f0;border-radius:12px;padding:22px;text-align:center;color:#64748b;">' + esc(tr('report.ds.monthly.noBillingTx')) + '</div>';
     }
 
+    var monthAllRows = [];
+    dayCards.forEach(function (c) {
+      (c.rows || []).forEach(function (r) { monthAllRows.push(r); });
+    });
+
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
         dailySummaryHeaderZoneHtml(monthTotalsByMethodPaid, agg.paidTotal, 'report.ds.monthly.overviewTitle', monthlyExtraOverview) +
+        dailySummaryDoctorBreakdownHtml(monthAllRows) +
         cardsHtml +
       '</div>';
   }
@@ -1414,11 +1755,15 @@ var REPORT = (function () {
     var bal = Number(t.bill_balance || 0);
     var balColor = bal > 0 ? '#dc2626' : '#16a34a';
     var nameLine = esc(t.patient_chinese || '') + (t.patient_name ? (' / ' + esc(t.patient_name)) : '');
+    var doctorLine = t.doctor_display
+      ? ('<div style="font-size:11px;color:#1e40af;font-weight:800;margin-top:4px;line-height:1.35;">' + esc(tr('report.dr.labelDoctor')) + ': ' + esc(t.doctor_display) + '</div>')
+      : '';
     return '<tr>' +
       '<td style="width:10%;padding:10px 8px;border-bottom:1px solid #eef2f7;font-size:12px;color:#334155;vertical-align:top;word-break:break-word;">' + esc(t.bill_date || '') + '</td>' +
       '<td style="width:20%;padding:10px 8px;border-bottom:1px solid #eef2f7;vertical-align:top;word-break:break-word;">' +
         '<div style="font-size:12px;color:#0d6efd;font-weight:900;">' + esc(t.patient_no || '-') + '</div>' +
         '<div style="font-size:12px;color:#0f172a;font-weight:900;line-height:1.35;margin-top:2px;">' + nameLine + '</div>' +
+        doctorLine +
       '</td>' +
       '<td style="width:14%;padding:10px 8px;border-bottom:1px solid #eef2f7;vertical-align:top;word-break:break-word;">' +
         '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethodTxSummary(t)) + '</div>' +
@@ -1456,6 +1801,7 @@ var REPORT = (function () {
 
     body.innerHTML =
       dailySummaryHeaderZoneHtml(totalsByMethodPaid, agg.paidTotal, 'report.ds.dailyOverviewTitle') +
+      dailySummaryDoctorBreakdownHtml(transactions) +
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
         '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:150px;">' +
           '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.kpiTotalBills')) + '</div>' +
@@ -1555,9 +1901,15 @@ var REPORT = (function () {
       sectionsHtml = '<div style="background:#fff;border:1px dashed #d7e2f0;border-radius:12px;padding:22px;text-align:center;color:#64748b;">' + esc(tr('report.ds.detail.monthlyEmptySections')) + '</div>';
     }
 
+    var monthAllRows = [];
+    dayCards.forEach(function (c) {
+      (c.rows || []).forEach(function (r) { monthAllRows.push(r); });
+    });
+
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
         dailySummaryHeaderZoneHtml(monthTotalsByMethodPaid, agg.paidTotal, 'report.ds.monthly.overviewTitle') +
+        dailySummaryDoctorBreakdownHtml(monthAllRows) +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:140px;">' +
             '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiDays')) + '</div>' +
@@ -1621,16 +1973,49 @@ var REPORT = (function () {
     return d.display_name || d.english_name || d.chinese_name || d.doctor_code || '';
   }
 
-  function drOptionsHTML(selectedId) {
-    if (!_drDailyDoctors.length) {
-      return '<option value="">' + esc(tr('report.dr.noDoctorsOption')) + '</option>';
+  async function ensureDrDoctorsLoaded() {
+    if (_drDailyDoctors.length) return _drDailyDoctors;
+    try {
+      _drDailyDoctors = await loadDoctorsForReport();
+    } catch (e) {
+      console.warn('loadDoctorsForReport failed:', e && e.message ? e.message : e);
+      _drDailyDoctors = [];
     }
-    return _drDailyDoctors.map(function (d) {
-      var id = d.id || '';
+    return _drDailyDoctors;
+  }
+
+  function drOptionsHTML(selectedId) {
+    var seenNames = {};
+    var docs = [];
+    (_drDailyDoctors || []).slice().sort(function (a, b) {
+      var an = String(drDisplayName(a) || '').toLowerCase();
+      var bn = String(drDisplayName(b) || '').toLowerCase();
+      if (an < bn) return -1;
+      if (an > bn) return 1;
+      return 0;
+    }).forEach(function (d) {
+      var label = String(drDisplayName(d) || '').trim().toLowerCase();
+      if (!label) label = 'id:' + String(d && d.id != null ? d.id : '');
+      if (seenNames[label]) return;
+      seenNames[label] = true;
+      docs.push(d);
+    });
+    var allOpt = '<option value="' + REPORT_ALL_DOCTORS_ID + '"' +
+      ((selectedId === REPORT_ALL_DOCTORS_ID) ? ' selected' : '') + '>' +
+      esc(tr('report.dr.allDoctors')) + '</option>';
+    if (!docs.length) {
+      return allOpt;
+    }
+    return allOpt + docs.map(function (d) {
+      var id = String(d.id != null ? d.id : '');
       var shown = drDisplayName(d) || tr('report.dr.doctorFallback');
-      var sel = (id === selectedId) ? ' selected' : '';
+      var sel = (String(selectedId) === id) ? ' selected' : '';
       return '<option value="' + esc(id) + '"' + sel + '>' + esc(shown) + '</option>';
     }).join('');
+  }
+
+  function isAllDoctorsChoice(doctorId) {
+    return String(doctorId || '') === REPORT_ALL_DOCTORS_ID;
   }
 
   function normName(v) {
@@ -1694,9 +2079,7 @@ var REPORT = (function () {
     var day = _drDailyDate || (g('rptFrom') && g('rptFrom').value) || todayISO();
     _drDailyDate = day;
 
-    if (!_drDailyDoctorId && _drDailyDoctors.length) {
-      _drDailyDoctorId = _drDailyDoctors[0].id;
-    }
+    if (!_drDailyDoctorId) _drDailyDoctorId = REPORT_ALL_DOCTORS_ID;
 
     wrap.innerHTML =
       '<div style="padding:12px;">' +
@@ -1727,32 +2110,34 @@ var REPORT = (function () {
   }
 
   async function buildDrDaily() {
-    if (!_drDailyDoctors.length) {
-      _drDailyDoctors = await loadDoctorsForReport();
-    }
-    if (!_drDailyDoctorId && _drDailyDoctors.length) {
-      _drDailyDoctorId = _drDailyDoctors[0].id;
+    await ensureDrDoctorsLoaded();
+    if (!_drDailyDoctorId) _drDailyDoctorId = REPORT_ALL_DOCTORS_ID;
+    if (!isAllDoctorsChoice(_drDailyDoctorId) && !_drDailyDoctors.some(function (d) { return String(d.id) === String(_drDailyDoctorId); })) {
+      _drDailyDoctorId = REPORT_ALL_DOCTORS_ID;
     }
 
     renderDrDailyShell();
 
     var body = g('rptDrDailyBody');
     if (!body) return;
-    if (!_drDailyDoctorId) {
+    body.innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>';
+
+    try {
+    var day = _drDailyDate || todayISO();
+    setDateInputs(day, day);
+
+    var allDoctors = isAllDoctorsChoice(_drDailyDoctorId);
+    var dr = allDoctors ? null : (_drDailyDoctors.find(function (d) { return String(d.id) === String(_drDailyDoctorId); }) || null);
+    if (!allDoctors && !dr) {
       body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noDoctorMsg')) + '</div>';
       _rows = [];
       return;
     }
 
-    var day = _drDailyDate || todayISO();
-    setDateInputs(day, day);
-
-    var dr = _drDailyDoctors.find(function (d) { return d.id === _drDailyDoctorId; }) || null;
-
     var bills = await loadBillsLite(day, day);
     var treatments = await loadTreatmentsByDay(day);
 
-    var treatmentsMatched = treatments.filter(function (t) {
+    var treatmentsMatched = allDoctors ? treatments.slice() : treatments.filter(function (t) {
       return treatmentMatchesDoctor(t, dr);
     });
 
@@ -1764,8 +2149,8 @@ var REPORT = (function () {
       tByPatient[k].push(t);
     });
 
-    var directBills = bills.filter(function (b) { return billMatchesDoctor(b, dr); });
-    var legacyBills = bills.filter(function (b) {
+    var directBills = allDoctors ? bills.slice() : bills.filter(function (b) { return billMatchesDoctor(b, dr); });
+    var legacyBills = allDoctors ? [] : bills.filter(function (b) {
       if (billMatchesDoctor(b, dr)) return false;
       return !!tByPatient[b.patient_id];
     });
@@ -1787,7 +2172,7 @@ var REPORT = (function () {
       var p = pmap[b.patient_id] || {};
       return buildDailySummaryTxRow(b, p, paymentsByBillId, {
         bill_date: b.bill_date || day,
-        doctor_tag: b.doctor_tag || b.doctor_name || doctorTagOf(dr) || '',
+        doctor_tag: b.doctor_tag || b.doctor_name || (dr ? doctorTagOf(dr) : '') || '',
         dr_treatments: tByPatient[b.patient_id] || []
       });
     });
@@ -1876,6 +2261,10 @@ var REPORT = (function () {
     temp2.id = 'rptDailySummaryBody';
     body.appendChild(temp2);
     renderDailySummaryDaily(tx, totalsPaid);
+    } catch (e) {
+      body.innerHTML = '<div style="padding:14px;color:#dc2626;">' + esc(e.message || tr('report.error.loadingDataNote')) + '</div>';
+      _rows = [];
+    }
   }
 
   function renderDrMonthlyShell() {
@@ -1883,12 +2272,8 @@ var REPORT = (function () {
     if (!wrap) return;
     var month = _drMonthlyMonth || monthKeyOf(todayISO());
     _drMonthlyMonth = month;
-    if (!_drMonthlyDoctorId && _drDailyDoctorId) {
-      _drMonthlyDoctorId = _drDailyDoctorId;
-    }
-    if (!_drMonthlyDoctorId && _drDailyDoctors.length) {
-      _drMonthlyDoctorId = _drDailyDoctors[0].id;
-    }
+    if (!_drMonthlyDoctorId && _drDailyDoctorId) _drMonthlyDoctorId = _drDailyDoctorId;
+    if (!_drMonthlyDoctorId) _drMonthlyDoctorId = REPORT_ALL_DOCTORS_ID;
     wrap.innerHTML =
       '<div style="padding:12px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
@@ -1917,27 +2302,32 @@ var REPORT = (function () {
   }
 
   async function buildDrMonthly() {
-    if (!_drDailyDoctors.length) {
-      _drDailyDoctors = await loadDoctorsForReport();
+    await ensureDrDoctorsLoaded();
+    if (!_drMonthlyDoctorId) _drMonthlyDoctorId = REPORT_ALL_DOCTORS_ID;
+    if (!isAllDoctorsChoice(_drMonthlyDoctorId) && !_drDailyDoctors.some(function (d) { return String(d.id) === String(_drMonthlyDoctorId); })) {
+      _drMonthlyDoctorId = REPORT_ALL_DOCTORS_ID;
     }
     renderDrMonthlyShell();
 
     var body = g('rptDrMonthlyBody');
     if (!body) return;
-    if (!_drMonthlyDoctorId) {
-      body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noDoctorMsg')) + '</div>';
-      _rows = [];
-      return;
-    }
+    body.innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>';
 
+    try {
     var month = _drMonthlyMonth || monthKeyOf(todayISO());
     var from = month + '-01';
     var to = monthEndISO(month);
     setDateInputs(from, to);
 
-    var dr = _drDailyDoctors.find(function (d) { return d.id === _drMonthlyDoctorId; }) || null;
+    var allDoctors = isAllDoctorsChoice(_drMonthlyDoctorId);
+    var dr = allDoctors ? null : (_drDailyDoctors.find(function (d) { return d.id === _drMonthlyDoctorId; }) || null);
+    if (!allDoctors && !dr) {
+      body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noDoctorMsg')) + '</div>';
+      _rows = [];
+      return;
+    }
     var bills = await loadBillsLite(from, to);
-    var filtered = bills.filter(function (b) { return billMatchesDoctor(b, dr); });
+    var filtered = allDoctors ? bills.slice() : bills.filter(function (b) { return billMatchesDoctor(b, dr); });
 
     if (!filtered.length) {
       body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledMonth')) + '</div>';
@@ -2101,11 +2491,16 @@ var REPORT = (function () {
           '<tbody>' + rowsHtml + '</tbody>' +
         '</table>' +
       '</div>';
+    } catch (e) {
+      body.innerHTML = '<div style="padding:14px;color:#dc2626;">' + esc(e.message || tr('report.error.loadingDataNote')) + '</div>';
+      _rows = [];
+    }
   }
 
   async function buildDailySummary() {
     var from = g('rptFrom') ? g('rptFrom').value : todayISO();
     var to = g('rptTo') ? g('rptTo').value : todayISO();
+    var doctors = await ensureDrDoctorsLoaded();
 
     // Daily view uses a single selected date (from)
     if (_dailySummaryView === 'daily') {
@@ -2146,6 +2541,9 @@ var REPORT = (function () {
       var pts = await loadPatientsByIds(patientIds);
       var pmap = {};
       pts.forEach(function (p) { pmap[p.id] = p; });
+      var apptCtx = await loadAppointmentsForDailySummary(day, day, Object.keys(paidBillMap).map(function (bid) {
+        return paidBillMap[bid];
+      }));
 
       var tx = txBillIds.map(function (bid) {
         var b = paidBillMap[bid] || {};
@@ -2162,16 +2560,14 @@ var REPORT = (function () {
           ? PATIENT_CLINIC_TAG_FIELD
           : 'clinic_tag';
         var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
-        return buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, {
+        return buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
           bill_ref: ref,
           bill_date: day,
           payment_date: day,
           clinic_tag: clinicTag,
           clinic_code: clinicCodeFromStoredTag(clinicTag)
-        });
-      }).sort(function (a, b) {
-        return String(a.patient_no || '').localeCompare(String(b.patient_no || ''));
-      });
+        }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, day)));
+      }).sort(dailySummaryTxSortCompare);
 
       var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
@@ -2237,6 +2633,9 @@ var REPORT = (function () {
     var ptsM = await loadPatientsByIds(patientIdsM);
     var pmapM = {};
     ptsM.forEach(function (p) { pmapM[p.id] = p; });
+    var apptCtxM = await loadAppointmentsForDailySummary(fromM, toM, Object.keys(monthBillMap).map(function (bid) {
+      return monthBillMap[bid];
+    }));
 
     var seenBillMeta = {};
     var monthAllTx = [];
@@ -2260,19 +2659,17 @@ var REPORT = (function () {
         var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
         var includeBillMeta = !seenBillMeta[bid];
         seenBillMeta[bid] = true;
-        var txRow = buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, {
+        var txRow = buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
           bill_ref: ref,
           bill_date: d,
           payment_date: d,
           clinic_tag: clinicTag,
           clinic_code: clinicCodeFromStoredTag(clinicTag),
           include_bill_meta: includeBillMeta
-        });
+        }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtxM, d)));
         monthAllTx.push(txRow);
         return txRow;
-      }).sort(function (a, b) {
-        return String(a.patient_no || '').localeCompare(String(b.patient_no || ''));
-      });
+      }).sort(dailySummaryTxSortCompare);
       var paidTotal = rows.reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
       return { date: d, paidTotal: paidTotal, rows: rows };
     });
@@ -2655,6 +3052,30 @@ var REPORT = (function () {
         return;
       }
 
+      if (_tab === 'drDaily') {
+        showPatientDirTools(false);
+        setHeader(tr('report.title.drDaily'), tr('report.hint.drDaily'));
+        showChartColumn(false);
+        destroyChart();
+        setChartNote(tr('report.chart.disabledDrDaily'));
+        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
+        if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
+        await buildDrDaily();
+        return;
+      }
+
+      if (_tab === 'drMonthly') {
+        showPatientDirTools(false);
+        setHeader(tr('report.title.drMonthly'), tr('report.hint.drMonthly'));
+        showChartColumn(false);
+        destroyChart();
+        setChartNote(tr('report.chart.disabledDrMonthly'));
+        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
+        if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
+        await buildDrMonthly();
+        return;
+      }
+
       if (_tab === 'patientDir') {
         wirePatientDirToolsOnce();
         showPatientDirTools(true);
@@ -2816,32 +3237,28 @@ var REPORT = (function () {
         return;
       }
 
-      if (_tab === 'drDaily') {
-        setHeader(tr('report.title.drDaily'), tr('report.hint.drDaily'));
-        showChartColumn(false);
-        destroyChart();
-        setChartNote(tr('report.chart.disabledDrDaily'));
-        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
-        if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
-        await buildDrDaily();
-        return;
-      }
-
-      if (_tab === 'drMonthly') {
-        setHeader(tr('report.title.drMonthly'), tr('report.hint.drMonthly'));
-        showChartColumn(false);
-        destroyChart();
-        setChartNote(tr('report.chart.disabledDrMonthly'));
-        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
-        if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
-        await buildDrMonthly();
-        return;
-      }
-
       // fallback
       setHeader(tr('report.title.default'), tr('report.hint.default'));
       setChartNote('—');
     } catch (e) {
+      if (_tab === 'drDaily') {
+        try { await ensureDrDoctorsLoaded(); renderDrDailyShell(); } catch (_) {}
+        var drBody = g('rptDrDailyBody');
+        if (drBody) {
+          drBody.innerHTML = '<div style="padding:14px;color:#dc2626;">' + esc(e.message || tr('report.error.loadingDataNote')) + '</div>';
+        }
+        setChartNote(tr('report.error.loadingDataNote'));
+        return;
+      }
+      if (_tab === 'drMonthly') {
+        try { await ensureDrDoctorsLoaded(); renderDrMonthlyShell(); } catch (_) {}
+        var drMoBody = g('rptDrMonthlyBody');
+        if (drMoBody) {
+          drMoBody.innerHTML = '<div style="padding:14px;color:#dc2626;">' + esc(e.message || tr('report.error.loadingDataNote')) + '</div>';
+        }
+        setChartNote(tr('report.error.loadingDataNote'));
+        return;
+      }
       renderTable([{ key: 'err', label: tr('report.col.error') }], [{ err: e.message }]);
       setChartNote(tr('report.error.loadingDataNote'));
     }
@@ -2939,7 +3356,7 @@ var REPORT = (function () {
       if (_tab === 'dailySummary') refresh();
     },
     setDrDailyDoctor: function (doctorId) {
-      _drDailyDoctorId = doctorId || null;
+      _drDailyDoctorId = doctorId ? String(doctorId) : REPORT_ALL_DOCTORS_ID;
       if (_tab === 'drDaily') refresh();
     },
     setDrDailyDate: function (dayIso) {
@@ -2963,7 +3380,7 @@ var REPORT = (function () {
       if (_tab === 'drMonthly') refresh();
     },
     setDrMonthlyDoctor: function (doctorId) {
-      _drMonthlyDoctorId = doctorId || null;
+      _drMonthlyDoctorId = doctorId ? String(doctorId) : REPORT_ALL_DOCTORS_ID;
       if (_tab === 'drMonthly') refresh();
     },
     setDrMonthlyMonth: function (yyyyMm) {
@@ -2979,6 +3396,7 @@ var REPORT = (function () {
           { key: 'patient_no', label: tr('report.csv.patientNo') },
           { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
           { key: 'patient_name', label: tr('report.csv.patientEnglish') },
+          { key: 'doctor_display', label: tr('report.csv.doctor') },
           { key: 'payment_method', label: tr('report.csv.paymentMethod') },
           { key: 'bill_total', label: tr('report.csv.billAmount') },
           { key: 'bill_paid', label: tr('report.csv.paid') },
@@ -2997,6 +3415,7 @@ var REPORT = (function () {
         { key: 'patient_no', label: tr('report.csv.patientNo') },
         { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
         { key: 'patient_name', label: tr('report.csv.patientEnglish') },
+        { key: 'doctor_display', label: tr('report.csv.doctor') },
         { key: 'payment_method', label: tr('report.csv.paymentMethod') },
         { key: 'bill_paid', label: tr('report.csv.paid') },
         { key: 'remarks', label: tr('report.csv.remarks') }

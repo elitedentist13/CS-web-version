@@ -442,7 +442,10 @@ function fillAddPatientClinicSelect() {
         return;
     }
 
-    APP_CLINICS.forEach(function(c) {
+    var clinicOpts = (typeof clinicsForWorkingSession === 'function')
+        ? clinicsForWorkingSession()
+        : APP_CLINICS;
+    clinicOpts.forEach(function(c) {
         var label = (typeof clinicDisplayName === 'function')
             ? clinicDisplayName(c)
             : (c.english_name || c.chinese_name || (typeof clinicDisplayFallback === 'function'
@@ -459,7 +462,7 @@ function fillAddPatientClinicSelect() {
         Array.from(sel.options).some(function(opt) {
             return opt.value === defaultId;
         });
-    sel.value = match ? defaultId : String(APP_CLINICS[0].id || '');
+    sel.value = match ? defaultId : String((clinicOpts[0] && clinicOpts[0].id) || '');
 }
 
 function editPatientSelectedClinicId() {

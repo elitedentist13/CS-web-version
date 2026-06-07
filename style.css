@@ -2389,14 +2389,39 @@ tr:hover td { background: #fafcff; }
     box-shadow: 0 2px 10px var(--plusappt-cal-shadow, rgba(0, 0, 0, 0.04));
     transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
+.plusappt-sidebar.plusappt-sidebar--transfer-over .plusappt-mini-cal,
 .plusappt-mini-cal.plusappt-mini-cal--transfer-over {
-    border-color: #ef4444 !important;
-    box-shadow: 0 0 0 3px rgba(239,68,68,.2), 0 0 18px rgba(239,68,68,.35);
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,.18), 0 0 14px rgba(59,130,246,.22);
+}
+.plusappt-patient-drag-handle {
+    cursor: grab;
 }
 .plusappt-mini-cal.plusappt-mini-cal--transfer-armed {
-    border-color: #dc2626 !important;
-    background: linear-gradient(180deg, #fff5f5 0%, #fff 42%);
-    animation: plusappt-transfer-alert-pulse 2.2s ease-in-out infinite;
+    border-color: #cbd5e1 !important;
+    background: #f8fafc;
+    box-shadow: 0 1px 6px rgba(15, 23, 42, 0.06);
+    opacity: 0.82;
+    filter: saturate(0.88);
+}
+.plusappt-mini-cal.plusappt-mini-cal--transfer-armed .plusappt-mc-grid .plusappt-mc-day:not(.plusappt-mc-day--sel) {
+    opacity: 0.58;
+}
+.plusappt-mini-cal.plusappt-mini-cal--transfer-armed .plusappt-mc-day--sel {
+    opacity: 1;
+    filter: none;
+}
+.plusappt-transfer-dock {
+    min-height: 0;
+}
+.plusappt-transfer-dock--active {
+    margin-top: 8px;
+}
+.plusappt-transfer-dock .plusappt-transfer-alert {
+    margin-top: 0;
+}
+.plusappt-mini-card {
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 @keyframes plusappt-transfer-alert-pulse {
     0%   { box-shadow: 0 0 0 0 rgba(239,68,68,.20), 0 2px 10px rgba(220,38,38,.15); }
@@ -9120,9 +9145,29 @@ tr:hover td { background: #fafcff; }
 }
 
 .plusappt-slot-row.plusappt-row-drop-anchor {
+    position: relative;
     outline: 2px dashed #2563eb;
     outline-offset: -2px;
-    background: rgba(37,99,235,.08);
+    background: rgba(37,99,235,.10);
+    box-shadow: inset 4px 0 0 #2563eb;
+}
+.plusappt-slot-row.plusappt-row-drop-anchor::after {
+    content: attr(data-snap-label);
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    pointer-events: none;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    color: #1e40af;
+    background: #dbeafe;
+    border: 1px solid #93c5fd;
+    box-shadow: 0 1px 4px rgba(37, 99, 235, 0.18);
 }
 
 .plusappt-slot-row.plusappt-row-dragging {

@@ -952,6 +952,135 @@ function isClinicalDoctorRecord(d) {
     return !isLoginPlaceholderDoctorCode(d.doctor_code);
 }
 
+/** Normalize doctor name for duplicate checks. */
+function normalizeDoctorNameKey(v) {
+    return String(v || '').trim().toLowerCase()
+        .replace(/^dr\.?\s+/i, '')
+        .replace(/\s+/g, ' ');
+}
+
+/** Plain admin label "NG Pui Ching" (no Dr prefix) — not the clinical boss identity. */
+function isAdminNgPuiChingLabel(v) {
+    var s = String(v || '').trim().replace(/\s+/g, ' ');
+    if (!s) return false;
+    if (/^dr\.?\s+/i.test(s)) return false;
+    return /^ng\s+pui\s+ching$/i.test(s);
+}
+
+/** Clinical label "Dr NG PUI CHING" — keep on bill doctor picker. */
+function isClinicalNgPuiChingLabel(v) {
+    var s = String(v || '').trim().replace(/\s+/g, ' ');
+    return /^dr\.?\s+ng\s+pui\s+ching$/i.test(s);
+}
+
+/** Normalized names hidden from bill payment doctor picker (UI only; DB unchanged). */
+var BILL_DROPDOWN_EXCLUDED_NAME_KEYS = {
+    'tam jee yan jamilla': true,
+    'wong ming': true
+};
+
+function isBillDropdownExcludedNameKey(key) {
+    return !!(key && BILL_DROPDOWN_EXCLUDED_NAME_KEYS[key]);
+}
+
+function billDoctorRecordNameKeys(d) {
+    var seen = {};
+    [d && d.display_name, d && d.english_name, d && d.chinese_name].forEach(function (v) {
+        var k = normalizeDoctorNameKey(v);
+        if (k) seen[k] = true;
+    });
+    if (typeof billDoctorDropdownLabel === 'function') {
+        var shown = normalizeDoctorNameKey(billDoctorDropdownLabel(d));
+        if (shown) seen[shown] = true;
+    } else if (typeof doctorDisplayName === 'function') {
+        var fallback = normalizeDoctorNameKey(doctorDisplayName(d));
+        if (fallback) seen[fallback] = true;
+    }
+    return Object.keys(seen);
+}
+
+/** Non-clinical identities hidden from bill payment doctor picker (UI only). */
+function isBillDropdownExcludedDoctor(d) {
+    if (!d) return true;
+    if (!isClinicalDoctorRecord(d)) return true;
+    var fields = [d.display_name, d.english_name, d.chinese_name];
+    for (var i = 0; i < fields.length; i++) {
+        if (isClinicalNgPuiChingLabel(fields[i])) return false;
+    }
+    for (var j = 0; j < fields.length; j++) {
+        if (isAdminNgPuiChingLabel(fields[j])) return true;
+    }
+    var nameKeys = billDoctorRecordNameKeys(d);
+    for (var k = 0; k < nameKeys.length; k++) {
+        if (isBillDropdownExcludedNameKey(nameKeys[k])) return true;
+    }
+    var shown = typeof doctorDisplayName === 'function' ? doctorDisplayName(d) : '';
+    if (isClinicalNgPuiChingLabel(shown)) return false;
+    if (isAdminNgPuiChingLabel(shown)) return true;
+    return false;
+}
+
+/** Label shown in bill payment doctor dropdown. */
+function billDoctorDropdownLabel(d) {
+    if (!d) return '';
+    var disp = String(d.display_name || '').trim();
+    if (disp && /^dr\.?\s+/i.test(disp)) return disp;
+    if (typeof doctorDisplayName === 'function') {
+        var shown = doctorDisplayName(d);
+        if (shown) return shown;
+    }
+    return d.english_name || d.chinese_name || disp || String(d.doctor_code || '').trim();
+}
+
+/** Stable dedupe key — normalized picker label first (collapses casing / duplicate rows). */
+function billDoctorDropdownDedupeKey(d) {
+    if (!d) return '';
+    var labelKey = normalizeDoctorNameKey(billDoctorDropdownLabel(d));
+    if (labelKey) return 'name:' + labelKey;
+    var code = String(d.doctor_code || '').trim().toLowerCase();
+    if (code && !isLoginPlaceholderDoctorCode(code)) return 'code:' + code;
+    return 'id:' + String(d.id != null ? d.id : '');
+}
+
+function billDoctorDropdownPickBest(candidates) {
+    return (candidates || []).slice().sort(function (a, b) {
+        var aDisp = String(a.display_name || '').trim();
+        var bDisp = String(b.display_name || '').trim();
+        var aDr = /^dr\.?\s+/i.test(aDisp) ? 0 : 1;
+        var bDr = /^dr\.?\s+/i.test(bDisp) ? 0 : 1;
+        if (aDr !== bDr) return aDr - bDr;
+        if (aDisp.length !== bDisp.length) return bDisp.length - aDisp.length;
+        var ac = String(a.doctor_code || '').trim();
+        var bc = String(b.doctor_code || '').trim();
+        if (ac !== bc) return ac < bc ? -1 : 1;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+    })[0] || null;
+}
+
+/** Active clinical doctors for bill payment dropdown — deduped by code or normalized label. */
+function doctorsForBillDoctorDropdown(sourceList) {
+    var list = (sourceList || []).filter(function (d) {
+        return d && d.is_active !== false && !isBillDropdownExcludedDoctor(d);
+    });
+    var groups = {};
+    list.forEach(function (d) {
+        var key = billDoctorDropdownDedupeKey(d);
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(d);
+    });
+    var out = Object.keys(groups).map(function (key) {
+        return billDoctorDropdownPickBest(groups[key]);
+    }).filter(Boolean);
+    out.sort(function (a, b) {
+        var al = String(billDoctorDropdownLabel(a) || '').toLowerCase();
+        var bl = String(billDoctorDropdownLabel(b) || '').toLowerCase();
+        if (al < bl) return -1;
+        if (al > bl) return 1;
+        return 0;
+    });
+    return out;
+}
+
 /** Active doctors for one clinic (by doctors.clinic_id). */
 function doctorsForClinic(clinicId) {
     if (!clinicId) return (APP_DOCTORS || []).slice();
@@ -1071,7 +1200,7 @@ function populateReportClinicSelect() {
     allOpt.value = '';
     allOpt.textContent = appTr('common.all');
     sel.appendChild(allOpt);
-    APP_CLINICS.forEach(function (c) {
+    clinicsForWorkingSession().forEach(function (c) {
         var o = document.createElement('option');
         o.value = c.id;
         o.textContent = clinicDisplayName(c);
@@ -1079,7 +1208,7 @@ function populateReportClinicSelect() {
     });
     var def = typeof defaultWorkingClinicId === 'function'
         ? defaultWorkingClinicId()
-        : (APP_CLINICS[0] ? APP_CLINICS[0].id : '');
+        : '';
     var has = false;
     for (var i = 0; i < sel.options.length; i++) {
         if (sel.options[i].value === prev) { has = true; break; }
@@ -1127,17 +1256,20 @@ function populateWorkingClinicSelect() {
         sel.innerHTML = '<option value="">' + esc(appTr('common.noClinics')) + '</option>';
         return;
     }
-    APP_CLINICS.forEach(function (c) {
+    clinicsForWorkingSession().forEach(function (c) {
         var o = document.createElement('option');
         o.value = c.id;
         o.textContent = clinicDisplayName(c);
         sel.appendChild(o);
     });
+    var def = typeof defaultWorkingClinicId === 'function'
+        ? defaultWorkingClinicId()
+        : '';
     var has = false;
     for (var i = 0; i < sel.options.length; i++) {
         if (sel.options[i].value === prev) { has = true; break; }
     }
-    sel.value = has ? prev : (APP_CLINICS[0] ? APP_CLINICS[0].id : '');
+    sel.value = has ? prev : def;
 }
 
 function shouldClinicFilterFollowHeader(filterId) {
@@ -1166,6 +1298,16 @@ function syncClinicTagFiltersFromWorkingClinic(tag) {
 
 function isWorkingClinicAllValue(v) {
     return String(v || '').trim() === '__all__';
+}
+
+/** Clinic still in operation (Configuration → Clinic Profile Active). Multiple may be on. */
+function isClinicOperational(c) {
+    return !!(c && c.is_active !== false);
+}
+
+/** Clinics offered in login / header working-clinic pickers. */
+function clinicsForWorkingSession(list) {
+    return (list || APP_CLINICS || []).filter(isClinicOperational);
 }
 
 /** Working clinic for appointments/print — not tied to login. */
@@ -1220,7 +1362,10 @@ function setWorkingClinic(clinicId, options) {
 }
 
 function defaultWorkingClinicId() {
-    if (currentClinicId && clinicRecordFromId(currentClinicId)) return currentClinicId;
+    var cur = currentClinicId ? clinicRecordFromId(currentClinicId) : null;
+    if (cur && isClinicOperational(cur)) return currentClinicId;
+    var ops = clinicsForWorkingSession();
+    if (ops.length) return ops[0].id;
     return APP_CLINICS.length ? APP_CLINICS[0].id : null;
 }
 
@@ -2466,11 +2611,8 @@ function restoreSession() {
 }
 
 function loadClinicsAndDoctorsForLogin() {
-    SB.from('clinics')
-      .select('id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax')
-      .order('clinic_code')
-    .then(function (r) {
-        APP_CLINICS = r.data || [];
+    function finishClinicRows(rows) {
+        APP_CLINICS = rows || [];
         refreshAllClinicTagFilterSelects();
         populateWorkingClinicSelect();
         if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
@@ -2481,6 +2623,29 @@ function loadClinicsAndDoctorsForLogin() {
             refreshEditPatientClinicIfModalOpen();
         }
         if (currentUserId) refreshAppSessionStripContents();
+        if (currentClinicId && !isClinicOperational(clinicRecordFromId(currentClinicId))) {
+            var nextId = defaultWorkingClinicId();
+            if (nextId && typeof setWorkingClinic === 'function') {
+                setWorkingClinic(nextId, { syncFilters: true, reloadAppt: false });
+            }
+        }
+    }
+    var clinicSelectFull = 'id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax,is_active';
+    var clinicSelectLegacy = 'id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax';
+    SB.from('clinics')
+      .select(clinicSelectFull)
+      .order('clinic_code')
+    .then(function (r) {
+        if (r.error && /is_active/i.test(String(r.error.message || ''))) {
+            SB.from('clinics')
+              .select(clinicSelectLegacy)
+              .order('clinic_code')
+            .then(function (r2) {
+                finishClinicRows(r2.error ? [] : (r2.data || []));
+            });
+            return;
+        }
+        finishClinicRows(r.error ? [] : (r.data || []));
     });
 
     function finishDoctorList(rows) {

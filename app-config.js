@@ -322,7 +322,6 @@ var CFG = (function () {
     // ── TAB: CLINIC PROFILE ──────────────────────────────────
     // ════════════════════════════════════════════════════════
     var _clinicEditId = null;
-  var _activeClinicId = null;
   var _selectedClinicIds = [];
 
     function loadClinic() {
@@ -374,7 +373,8 @@ var CFG = (function () {
             'style="cursor:pointer;"></th>' +
             '<th style="padding:12px 10px;text-align:center;font-size:12px;' +
             'font-weight:700;color:#0d6efd;border-bottom:2px solid #dde8f5;' +
-            'width:80px;text-transform:uppercase;letter-spacing:0.5px;">' + esc(ctr('cfg.label.active')) + '</th>' +
+            'width:80px;text-transform:uppercase;letter-spacing:0.5px;" ' +
+            'title="' + esc(ctr('cfg.label.clinicActiveHint')) + '">' + esc(ctr('cfg.label.active')) + '</th>' +
             '<th style="padding:12px 14px;text-align:left;font-size:12px;' +
             'font-weight:700;color:#0d6efd;border-bottom:2px solid #dde8f5;' +
             'text-transform:uppercase;letter-spacing:0.5px;">' + esc(ctr('cfg.th.clinicCode')) + '</th>' +
@@ -404,7 +404,7 @@ var CFG = (function () {
             '<tbody>';
       
         rows.forEach(function (c) {
-            var isActive = (_activeClinicId === c.id);
+            var isActive = c.is_active !== false;
             var isChecked = (_selectedClinicIds.indexOf(c.id) !== -1);
           
             html += '<tr style="border-bottom:1px solid #f0f0f0;" ' +
@@ -573,7 +573,8 @@ var CFG = (function () {
             fax:           (g('cl_fax')      || {}).value.trim(),
             open_at:       (g('cl_open')     || {}).value || null,
             close_at:      (g('cl_close')    || {}).value || null,
-            appt_interval: parseInt((g('cl_interval') || {}).value) || 30
+            appt_interval: parseInt((g('cl_interval') || {}).value) || 30,
+            is_active: true
         };
 
         var op = _clinicEditId
@@ -585,9 +586,21 @@ var CFG = (function () {
                 var msg = r.error.message || '';
                 if (/address_chinese/i.test(msg)) {
                     toast(ctr('cfg.msg.clinicAddrZhColumn'), true);
-                } else {
-                    toast(msg, true);
+                    return;
                 }
+                if (/is_active/i.test(msg) && !_clinicEditId && payload.is_active !== undefined) {
+                    var payload2 = Object.assign({}, payload);
+                    delete payload2.is_active;
+                    SB.from('clinics').insert(payload2).then(function (r2) {
+                        if (r2.error) { toast(r2.error.message || msg, true); return; }
+                        toast(ctr('cfg.msg.clinicAdded'));
+                        _closeClinicPanel();
+                        loadClinic();
+                        if (typeof loadClinicsAndDoctorsForLogin === 'function') loadClinicsAndDoctorsForLogin();
+                    });
+                    return;
+                }
+                toast(msg, true);
                 return;
             }
             toast(_clinicEditId ? ctr('cfg.msg.clinicUpdated') : ctr('cfg.msg.clinicAdded'));
@@ -3537,32 +3550,39 @@ var CFG = (function () {
             }
         }
 
+        function _updateClinicActiveToggleUi(id, isActive) {
+            var checkboxes = document.querySelectorAll('.switch input[type="checkbox"]');
+            checkboxes.forEach(function (cb) {
+                var row = cb.closest('tr');
+                if (!row) return;
+                var rowCb = row.querySelector('.clinic-checkbox');
+                if (!rowCb || String(rowCb.dataset.id) !== String(id)) return;
+                cb.checked = !!isActive;
+                var slider = cb.parentElement && cb.parentElement.querySelector('.slider');
+                if (!slider) return;
+                slider.style.backgroundColor = isActive ? '#28a745' : '#ccc';
+                var knob = slider.querySelector('span');
+                if (knob) knob.style.left = isActive ? '23px' : '3px';
+            });
+        }
+
         function _setActiveClinic(id, checked) {
-            if (checked) {
-                _activeClinicId = id;
-                // Update all sliders
-                var sliders = document.querySelectorAll('.slider');
-                var checkboxes = document.querySelectorAll('.switch input[type="checkbox"]');
-                checkboxes.forEach(function(cb, idx) {
-                    var parentTd = cb.closest('td');
-                    var row = parentTd.closest('tr');
-                    var rowId = row.querySelector('.clinic-checkbox').dataset.id;
-                    if (rowId === id) {
-                        cb.checked = true;
-                        sliders[idx].style.backgroundColor = '#28a745';
-                        sliders[idx].querySelector('span').style.left = '23px';
+            var isActive = checked !== false;
+            SB.from('clinics').update({ is_active: isActive }).eq('id', id)
+            .then(function (r) {
+                if (r.error) {
+                    if (/is_active/i.test(String(r.error.message || ''))) {
+                        toast(ctr('cfg.msg.clinicIsActiveColumn'), true);
                     } else {
-                        cb.checked = false;
-                        sliders[idx].style.backgroundColor = '#ccc';
-                        sliders[idx].querySelector('span').style.left = '3px';
+                        toast(r.error.message || ctr('cfg.msg.errorLoadClinic'), true);
                     }
-                });
-                toast(ctrRepl('cfg.msg.activeClinicUpdated', { ID: id }));
-            } else {
-                // Don't allow unchecking without selecting another
-                toast(ctr('cfg.msg.selectActiveClinicFirst'), true);
-                loadClinic(); // Refresh to reset the toggle
-            }
+                    loadClinic();
+                    return;
+                }
+                toast(isActive ? ctr('cfg.msg.clinicMarkedOperational') : ctr('cfg.msg.clinicMarkedInactive'));
+                _updateClinicActiveToggleUi(id, isActive);
+                if (typeof loadClinicsAndDoctorsForLogin === 'function') loadClinicsAndDoctorsForLogin();
+            });
         }
 
         function _printSelectedClinics() {

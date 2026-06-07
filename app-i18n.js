@@ -145,21 +145,24 @@ function i18nRepl(str, pairs) {
     return out;
 }
 
-/** Format amount with locale-aware HK$ prefix (UI display only; DB values unchanged). */
+/** Format amount with locale-aware currency prefix (UI display only; DB values unchanged). */
 function fmtHK(amount) {
     var amt = typeof fmt2 === 'function' ? fmt2(amount) : parseFloat(amount || 0).toFixed(2);
-    return i18nRepl(t('common.fmtHkd'), { AMT: amt });
+    var sym = (typeof getCurrencySymbol === 'function') ? getCurrencySymbol() : t('common.currencyPrefix');
+    return sym + ' ' + amt;
 }
 
 function fmtHKNeg(amount) {
     var amt = typeof fmt2 === 'function' ? fmt2(amount) : parseFloat(amount || 0).toFixed(2);
-    return i18nRepl(t('common.fmtHkdNeg'), { AMT: amt });
+    var sym = (typeof getCurrencySymbol === 'function') ? getCurrencySymbol() : t('common.currencyPrefix');
+    return '- ' + sym + ' ' + amt;
 }
 
 /** fmtHK for HTML snippets (non-breaking space after symbol). */
 function fmtHKHtml(amount) {
     var amt = typeof fmt2 === 'function' ? fmt2(amount) : parseFloat(amount || 0).toFixed(2);
-    return i18nRepl(t('common.fmtHkdHtml'), { AMT: amt });
+    var sym = (typeof getCurrencySymbol === 'function') ? getCurrencySymbol() : t('common.currencyPrefix');
+    return sym + '&nbsp;' + amt;
 }
 
 /** Display label for appointment / queue status stored in English in the DB. */

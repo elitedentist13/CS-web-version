@@ -298,6 +298,8 @@ function initConsultation() {
             selectConPatient(activeP);
         }, 0);
     }
+    if (typeof applyAddMedicalTermProgramUi === 'function') applyAddMedicalTermProgramUi();
+    if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
 }
 
 function setConBillBtn(enabled) {
@@ -3849,6 +3851,10 @@ function conDeleteTemplateRemote(id, done) {
 }
 
 function conSaveNoteAsTemplate() {
+    if (typeof programSettingBool === 'function' && !programSettingBool('add_medical_term', true)) {
+        alert(conTr('con.note.addTermDisabled'));
+        return;
+    }
     var inp = g('conNoteInput');
     if (!inp) return;
     var txt = String(inp.value || '').trim();
@@ -3971,6 +3977,10 @@ function conApplyTemplateToNote() {
 }
 
 function conSaveTemplateEdits() {
+    if (typeof programSettingBool === 'function' && !programSettingBool('add_medical_term', true)) {
+        alert(conTr('con.note.addTermDisabled'));
+        return;
+    }
     var sel = g('conNoteTemplateSelect');
     var nm = g('conNoteTemplateNameInput');
     var ct = g('conNoteTemplateContentInput');
@@ -4022,6 +4032,10 @@ function conSaveTemplateEdits() {
 }
 
 function conDeleteTemplate() {
+    if (typeof programSettingBool === 'function' && !programSettingBool('add_medical_term', true)) {
+        alert(conTr('con.note.addTermDisabled'));
+        return;
+    }
     var sel = g('conNoteTemplateSelect');
     if (!sel) return;
     var id = String(sel.value || '');
@@ -6465,11 +6479,16 @@ function loadMedicalHistory() {
         sv('fldMedications', d.current_medications || '');
         sv('fldAllergy',     d.allergy             || '');
         if (form) form.style.display = 'block';
+        if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
     });
 }
 
 function saveMedicalHistory() {
     if (!conMedPatientId) { alert(conTr('con.alert.noPatientSelected')); return; }
+    if (typeof medicalNotesEditingAllowed === 'function' && !medicalNotesEditingAllowed()) {
+        alert(conTr('con.alert.medReadOnly'));
+        return;
+    }
     var payload = {
         medical_history:     (g('fldMedHistory').value  || '').trim(),
         current_medications: (g('fldMedications').value || '').trim(),

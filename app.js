@@ -256,7 +256,9 @@ function serializePatientDragPayload(p) {
         patient_no: p.patient_no || '',
         full_name: p.full_name || '',
         chinese_name: p.chinese_name || '',
-        phone_number: p.phone_number || ''
+        phone_number: (typeof activePatientPhoneFromRecord === 'function')
+            ? activePatientPhoneFromRecord(p)
+            : (p.phone_number || p.mobile_phone || '')
     });
 }
 
@@ -412,7 +414,8 @@ function patientDragPayloadFromAppt(a) {
         patient_no: a.patient_no || '',
         full_name: a.patient_name || '',
         chinese_name: a.patient_chinese_name || a._merged_chinese_name || '',
-        phone_number: a.patient_phone || a.phone_number || ''
+        phone_number: a.patient_phone || a._merged_phone || a.phone_number || '',
+        mobile_phone: a.patient_mobile || a.mobile_phone || ''
     });
 }
 
@@ -2048,6 +2051,7 @@ function showLogin() { showOnly('loginOverlay'); }
 
 function showDashboard() {
     showOnly('dashboardSection');
+    if (typeof stopApptAutoRefresh === 'function') stopApptAutoRefresh();
     if (typeof applyDashboardI18n === 'function') applyDashboardI18n();
     if (typeof applyDashboardPermissionGuards === 'function') applyDashboardPermissionGuards();
     var cfgSec = g('sectionConfig');
@@ -2202,6 +2206,11 @@ function activePatientSnapshotFromGlobals() {
     return null;
 }
 
+function activePatientPhoneFromRecord(p) {
+    if (!p) return '';
+    return String(p.phone_number || p.mobile_phone || p.phone || '').trim();
+}
+
 function normalizeActivePatientPayload(p) {
     if (!p || !p.id) return null;
     return {
@@ -2209,7 +2218,7 @@ function normalizeActivePatientPayload(p) {
         patient_no: p.patient_no || '',
         full_name: p.full_name || '',
         chinese_name: p.chinese_name || '',
-        phone_number: p.phone_number || ''
+        phone_number: activePatientPhoneFromRecord(p)
     };
 }
 
@@ -2252,9 +2261,28 @@ function renderActivePatientSlot(idx, p) {
 function renderActivePatientSlots() {
     renderActivePatientSlot(0, activePatientSlots[0]);
     renderActivePatientSlot(1, activePatientSlots[1]);
+    hydrateActivePatientPhoneIfNeeded(0);
+    hydrateActivePatientPhoneIfNeeded(1);
     var swapBtn = g('activePatientSwapBtn');
     if (swapBtn) swapBtn.disabled = !(activePatientSlots[0] && activePatientSlots[1]);
     renderActivePatientCollapsedTab();
+}
+
+function hydrateActivePatientPhoneIfNeeded(slotIdx) {
+    var p = activePatientSlots[slotIdx];
+    if (!p || !p.id || p.phone_number || p.__phoneHydrateDone) return;
+    if (typeof SB === 'undefined' || !SB.from) return;
+    p.__phoneHydrateDone = true;
+    SB.from('patients').select('phone_number,mobile_phone').eq('id', p.id).limit(1)
+    .then(function(r) {
+        if (!r.data || !r.data[0]) return;
+        var phone = activePatientPhoneFromRecord(r.data[0]);
+        if (!phone || !activePatientSlots[slotIdx] ||
+            String(activePatientSlots[slotIdx].id) !== String(p.id)) return;
+        activePatientSlots[slotIdx].phone_number = phone;
+        renderActivePatientSlot(slotIdx, activePatientSlots[slotIdx]);
+    })
+    .catch(function() {});
 }
 
 function syncPrimaryPatientContext(source) {
@@ -2297,11 +2325,39 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
     if (norm && slotIdx === 0 && activePatientSlots[1] && String(activePatientSlots[1].id) === String(norm.id)) {
         activePatientSlots[1] = null;
     }
-    activePatientSlots[slotIdx] = norm;
-    renderActivePatientSlots();
-    if (syncPrimary !== false && slotIdx === 0) {
-        syncPrimaryPatientContext(source || 'active-slot-set');
+
+    function commit(patient) {
+        activePatientSlots[slotIdx] = patient;
+        renderActivePatientSlots();
+        if (syncPrimary !== false && slotIdx === 0) {
+            syncPrimaryPatientContext(source || 'active-slot-set');
+        }
     }
+
+    if (!norm) {
+        activePatientSlots[slotIdx] = null;
+        renderActivePatientSlots();
+        if (syncPrimary !== false && slotIdx === 0) {
+            syncPrimaryPatientContext(source || 'active-slot-set');
+        }
+        return;
+    }
+
+    if (norm.phone_number || typeof SB === 'undefined' || !SB.from) {
+        commit(norm);
+        return;
+    }
+
+    SB.from('patients').select('phone_number,mobile_phone').eq('id', norm.id).limit(1)
+    .then(function(r) {
+        if (r.data && r.data[0]) {
+            norm.phone_number = activePatientPhoneFromRecord(r.data[0]);
+        }
+        commit(norm);
+    })
+    .catch(function() {
+        commit(norm);
+    });
 }
 
 function setActivePatientFromPayload(p, source) {
@@ -2362,6 +2418,23 @@ function bindActivePatientCardDropTarget(el, slotIdx) {
         ev.preventDefault();
         ev.stopPropagation();
         el.classList.remove('is-drag-over');
+        if (typeof window.activePatientApplyDropFromEvent === 'function') {
+            if (window.activePatientApplyDropFromEvent(ev, slotIdx, 'active-card-drop')) {
+                if (typeof isActivePatientDockCollapsed === 'function' && isActivePatientDockCollapsed()) {
+                    setActivePatientDockCollapsed(false, true);
+                }
+                if (slotIdx === 0 && typeof showAppGlobalToast === 'function') {
+                    var p0 = activePatientSlots[0];
+                    if (p0) {
+                        var msg0 = typeof appTrRepl === 'function'
+                            ? appTrRepl('activePatient.setToast', { NAME: activePatientDropLabel(p0) })
+                            : activePatientDropLabel(p0);
+                        if (msg0) showAppGlobalToast(msg0);
+                    }
+                }
+                return;
+            }
+        }
         var p = resolvePatientPayloadForDrop(ev);
         if (!p || !p.id) return;
         if (typeof isActivePatientDockCollapsed === 'function' && isActivePatientDockCollapsed()) {
@@ -2586,6 +2659,7 @@ function persistSession() {
 
 function clearSession() {
     try { localStorage.removeItem('jsm_session'); } catch (e) {}
+    if (typeof plusApptTransferHistoryClear === 'function') plusApptTransferHistoryClear();
 }
 
 function restoreSession() {
@@ -2704,6 +2778,8 @@ function finishLoginSession(u, doctorId) {
     else persistSession();
 
     showDashboard();
+    if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
+    if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();
 }
 
 function doLogin() {
@@ -2812,6 +2888,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (restoreSession()) {
         populateWorkingClinicSelect();
         showDashboard();
+        if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
+        if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();
         if (hasEffectiveWorkingDateOverride()) {
             setTimeout(function () {
                 refreshAppSectionsForWorkingDate();

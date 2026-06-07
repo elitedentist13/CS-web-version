@@ -86,6 +86,7 @@
   <button type="button" id="activePatientSwapBtn" class="active-patient-swap-btn"
           data-i18n-title="activePatient.swapTitle"
           data-i18n-aria-label="activePatient.swapAria">⇅</button>
+  <div id="activePatientTransferDock" class="plusappt-transfer-dock active-patient-transfer-dock" aria-live="polite" hidden aria-hidden="true"></div>
   </div>
 </aside>
 
@@ -896,7 +897,7 @@
       <aside class="plusappt-sidebar">
         <div id="plusApptClinicBadge" class="plusappt-clinic-badge" aria-live="polite"></div>
         <div id="plusApptMiniCal" class="plusappt-mini-cal" aria-live="polite"></div>
-        <div id="plusApptTransferDock" class="plusappt-transfer-dock" aria-live="polite"></div>
+        <div id="plusApptTransferLog" class="plusappt-transfer-log" aria-live="polite" hidden aria-hidden="true"></div>
         <div class="plusappt-mini-hint" data-i18n="appt.plusAppt.transferMiniHint">Tip: Drag appointment row to mini calendar, pick a new date, then drag back to a time slot to transfer.</div>
       </aside>
       <div class="plusappt-main">
@@ -4938,6 +4939,7 @@
 <script src="app-i18n-extra.js"></script>
 <script src="app.js"></script>
 <script src="app-doc-editor.js"></script>
+<script src="app-program-settings.js"></script>
 <script src="app-audit.js"></script>
 <script src="app-auth.js"></script>
 <script src="treatment-items-catalog.js"></script>

@@ -385,6 +385,12 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
+}
+
+.active-patient-transfer-dock {
+    flex: 1 1 100%;
+    margin-top: 2px;
 }
 
 .active-patient-card {
@@ -2411,8 +2417,88 @@ tr:hover td { background: #fafcff; }
     opacity: 1;
     filter: none;
 }
+.plusappt-transfer-log {
+    margin-top: 8px;
+    display: block;
+}
+.plusappt-transfer-log[hidden],
+.plusappt-transfer-log:not(.plusappt-transfer-log--open) {
+    display: none !important;
+}
+.plusappt-transfer-log.plusappt-transfer-log--open {
+    display: block !important;
+}
+.plusappt-transfer-log-card {
+    border: 1px solid #93c5fd;
+    background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+    border-radius: 10px;
+    padding: 8px 28px 8px 10px;
+    position: relative;
+    font-size: 11px;
+    box-shadow: 0 1px 4px rgba(30, 64, 175, 0.08);
+}
+.plusappt-transfer-log-title {
+    font-weight: 800;
+    color: #1d4ed8;
+    margin-bottom: 4px;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+.plusappt-transfer-log-name {
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 3px;
+    font-size: 12px;
+}
+.plusappt-transfer-log-meta {
+    color: #475569;
+    line-height: 1.35;
+}
+.plusappt-transfer-log-hint {
+    color: #64748b;
+    margin-top: 5px;
+    font-size: 10px;
+    line-height: 1.35;
+}
+.plusappt-transfer-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.plusappt-transfer-log-item {
+    border-top: 1px solid #dbeafe;
+    padding-top: 6px;
+}
+.plusappt-transfer-log-item:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+.plusappt-transfer-log-close {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    border: 1px solid #bfdbfe;
+    background: #fff;
+    color: #1e40af;
+    border-radius: 6px;
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    line-height: 1;
+    font-size: 14px;
+    padding: 0;
+}
+.plusappt-transfer-log-close:hover {
+    background: #dbeafe;
+}
 .plusappt-transfer-dock {
     min-height: 0;
+}
+.plusappt-transfer-dock[hidden] {
+    display: none !important;
 }
 .plusappt-transfer-dock--active {
     margin-top: 8px;
@@ -2992,7 +3078,20 @@ tr:hover td { background: #fafcff; }
   padding: 4px 6px;
 }
 
-.queue-row-draggable { cursor: grab; }
+.appt-row-transfer-cut-pending[hidden] {
+    display: none !important;
+}
+
+body.appt-transfer-cut-active .active-patient-transfer-dock .plusappt-transfer-alert-title {
+    color: #b45309;
+}
+
+body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-filled {
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.45);
+}
+
+.queue-patient-drag-handle { cursor: grab; }
+.queue-patient-drag-handle.queue-patient-dragging { cursor: grabbing; opacity: 0.82; }
 .queue-row-draggable.queue-row-dragging { cursor: grabbing; }
 .queue-row-dragging td {
     opacity: 0.55;

@@ -2086,6 +2086,9 @@ var CFG = (function () {
                     return;
                 }
                 toast(ctr('cfg.msg.settingsSaved'));
+                if (typeof refreshProgramSettingsCache === 'function') {
+                    refreshProgramSettingsCache();
+                }
                 if (typeof restartApptAutoRefresh === 'function') {
                     restartApptAutoRefresh();
                 }

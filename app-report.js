@@ -198,7 +198,7 @@ var REPORT = (function () {
     return out;
   }
 
-  async function loadBillsByIds(billIds) {
+  async function fetchBillsByIds(billIds) {
     billIds = uniqIds((billIds || []).filter(Boolean));
     if (!billIds.length) return [];
     var selectFull = 'id,bill_date,bill_type,total,amount_paid,balance,items,notes,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,created_at,clinic_tag,voided_at';
@@ -234,7 +234,15 @@ var REPORT = (function () {
       if (res.error) throw new Error(res.error.message);
       out = out.concat(res.data || []);
     }
-    return filterBillsForReportClinic(excludeVoidBills(out));
+    return excludeVoidBills(out);
+  }
+
+  async function loadBillsByIds(billIds) {
+    return filterBillsForReportClinic(await fetchBillsByIds(billIds));
+  }
+
+  async function loadBillsByIdsRaw(billIds) {
+    return fetchBillsByIds(billIds);
   }
 
   async function loadBillPaymentsByPaidDate(from, to) {
@@ -456,48 +464,160 @@ var REPORT = (function () {
     return (bills || []).filter(function (b) { return !(b && b.voided_at); });
   }
 
+  async function loadPatientClinicMap(patientIds) {
+    patientIds = uniqIds((patientIds || []).filter(Boolean));
+    var pmap = {};
+    if (!patientIds.length) return pmap;
+    var field = typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined'
+      ? PATIENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    var pr = await SB.from('patients').select('id,' + field).in('id', patientIds);
+    if (pr.error) throw new Error(pr.error.message);
+    (pr.data || []).forEach(function (p) {
+      pmap[p.id] = String(p[field] || '').trim();
+    });
+    return pmap;
+  }
+
+  async function loadAppointmentClinicMap(apptIds) {
+    apptIds = uniqIds((apptIds || []).filter(Boolean));
+    var amap = {};
+    if (!apptIds.length) return amap;
+    var af = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+      ? APPOINTMENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    var ar = await SB.from('appointments').select('id,' + af).in('id', apptIds);
+    if (ar.error) throw new Error(ar.error.message);
+    (ar.data || []).forEach(function (a) {
+      amap[a.id] = String(a[af] || '').trim();
+    });
+    return amap;
+  }
+
+  /** Match a payment row (+ parent bill) to the report clinic filter. */
+  function sliceMatchesReportClinic(payment, bill, patientClinicMap, appointmentClinicMap) {
+    var tag = reportClinicTag();
+    if (!tag) return true;
+    if (!bill) return false;
+    var pTag = clinicCodeFromStoredTag(payment && (payment.clinic_tag || payment.clinic_code));
+    if (pTag) return pTag === tag;
+    var bTag = clinicCodeFromStoredTag(bill.clinic_tag || bill.clinic_code);
+    if (bTag) return bTag === tag;
+    patientClinicMap = patientClinicMap || {};
+    appointmentClinicMap = appointmentClinicMap || {};
+    if (bill.patient_id && patientClinicMap[bill.patient_id] !== undefined) {
+      var pt = clinicCodeFromStoredTag(patientClinicMap[bill.patient_id]);
+      if (pt) return pt === tag;
+    }
+    if (bill.appointment_id && appointmentClinicMap[bill.appointment_id] !== undefined) {
+      var at = clinicCodeFromStoredTag(appointmentClinicMap[bill.appointment_id]);
+      if (at) return at === tag;
+    }
+    return true;
+  }
+
+  function billMatchesReportClinic(bill, patientClinicMap, appointmentClinicMap) {
+    return sliceMatchesReportClinic(null, bill, patientClinicMap, appointmentClinicMap);
+  }
+
   async function filterBillsForReportClinic(bills) {
     var tag = reportClinicTag();
     if (!tag || !bills || !bills.length) return bills || [];
 
     var patientIds = uniqIds(bills.map(function (b) { return b.patient_id; }));
     var apptIds = uniqIds(bills.map(function (b) { return b.appointment_id; }));
-
-    var pmap = {};
-    if (patientIds.length) {
-      var field = typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined'
-        ? PATIENT_CLINIC_TAG_FIELD
-        : 'clinic_tag';
-      var pr = await SB.from('patients').select('id,' + field).in('id', patientIds);
-      if (pr.error) throw new Error(pr.error.message);
-      (pr.data || []).forEach(function (p) {
-        pmap[p.id] = String(p[field] || '').trim();
-      });
-    }
-
-    var amap = {};
-    if (apptIds.length) {
-      var af = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
-        ? APPOINTMENT_CLINIC_TAG_FIELD
-        : 'clinic_tag';
-      var ar = await SB.from('appointments').select('id,' + af).in('id', apptIds);
-      if (ar.error) throw new Error(ar.error.message);
-      (ar.data || []).forEach(function (a) {
-        amap[a.id] = String(a[af] || '').trim();
-      });
-    }
+    var pmap = await loadPatientClinicMap(patientIds);
+    var amap = await loadAppointmentClinicMap(apptIds);
 
     return bills.filter(function (b) {
-      var bTag = clinicCodeFromStoredTag(b && (b.clinic_tag || b.clinic_code));
-      if (bTag) return bTag === tag;
-      if (b.patient_id && pmap[b.patient_id] !== undefined) {
-        return pmap[b.patient_id] === tag;
-      }
-      if (b.appointment_id && amap[b.appointment_id] !== undefined) {
-        return amap[b.appointment_id] === tag;
-      }
-      return false;
+      return billMatchesReportClinic(b, pmap, amap);
     });
+  }
+
+  /**
+   * Income / summary source of truth: bill_payments.paid_date + amount.
+   * Falls back to bills.amount_paid when no payment rows exist (legacy saves).
+   */
+  async function loadReportPaymentSlices(from, to) {
+    var payments = await loadBillPaymentsByPaidDate(from, to);
+    var billIds = uniqIds(payments.map(function (p) { return p.bill_id; }));
+    var bills = await loadBillsByIdsRaw(billIds);
+    var billMap = {};
+    bills.forEach(function (b) { if (b && b.id) billMap[b.id] = b; });
+
+    var patientClinicMap = await loadPatientClinicMap(
+      uniqIds(bills.map(function (b) { return b.patient_id; }))
+    );
+    var appointmentClinicMap = await loadAppointmentClinicMap(
+      uniqIds(bills.map(function (b) { return b.appointment_id; }))
+    );
+
+    var slices = [];
+    var seenBillDay = {};
+
+    payments.forEach(function (p) {
+      if (!p || p.voided_at) return;
+      var b = billMap[p.bill_id];
+      if (!b) return;
+      if (!sliceMatchesReportClinic(p, b, patientClinicMap, appointmentClinicMap)) return;
+      var paidDate = paymentDateKey(p.paid_date);
+      if (!paidDate || paidDate < from || paidDate > to) return;
+      var amt = Number(p.amount || 0);
+      if (amt <= 0.005) return;
+      var method = reportPayMethodCanonicalKey(p.method);
+      if (reportPayMethodIsUnsettled(method)) return;
+      seenBillDay[p.bill_id + '|' + paidDate] = true;
+      slices.push({
+        payment: p,
+        bill: b,
+        paid_date: paidDate,
+        amount: amt,
+        method: method
+      });
+    });
+
+    var legacyBills = await loadBillsLite(from, to);
+    var legacyPaymentsByBill = indexPaymentsByBillId(
+      await loadBillPaymentsForBillIds(legacyBills.map(function (b) { return b.id; }).filter(Boolean))
+    );
+    legacyBills.forEach(function (b) {
+      if (!b || !b.id) return;
+      if ((legacyPaymentsByBill[b.id] || []).length) return;
+      var paid = reportBillPaidValue(b);
+      if (paid <= 0.005) return;
+      var d = paymentDateKey(b.bill_date);
+      if (!d || d < from || d > to) return;
+      if (seenBillDay[b.id + '|' + d]) return;
+      var method = reportPayMethodCanonicalKey(b.bill_type);
+      if (reportPayMethodIsUnsettled(method)) return;
+      slices.push({
+        payment: { method: b.bill_type, amount: paid, paid_date: d, _synthetic: true },
+        bill: b,
+        paid_date: d,
+        amount: paid,
+        method: method
+      });
+    });
+
+    return slices;
+  }
+
+  function groupPaymentSlicesBy(slices, keyFn) {
+    var map = {};
+    (slices || []).forEach(function (s) {
+      var k = keyFn(s);
+      if (!k) return;
+      map[k] = (map[k] || 0) + Number(s.amount || 0);
+    });
+    return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
+  }
+
+  function weekStartFridayIso(isoDate) {
+    var d = parseDateToLocal(isoDate || todayISO());
+    var day = d.getDay();
+    var diffToFri = (day - 5 + 7) % 7;
+    d.setDate(d.getDate() - diffToFri);
+    return iso(d);
   }
 
   function setDefaultDates() {
@@ -2505,33 +2625,17 @@ var REPORT = (function () {
     // Daily view uses a single selected date (from)
     if (_dailySummaryView === 'daily') {
       var day = _dailySummaryDate || from || todayISO();
-      // Keep inputs aligned
       setDateInputs(day, day);
-      var dayPayments = await loadBillPaymentsByPaidDate(day, day);
-      var paidBillIds = uniqIds(dayPayments.map(function (p) { return p.bill_id; }));
-      var paidBills = await loadBillsByIds(paidBillIds);
-      var paidBillMap = {};
-      paidBills.forEach(function (b) { if (b && b.id) paidBillMap[b.id] = b; });
-      dayPayments = dayPayments.filter(function (p) { return !!paidBillMap[p.bill_id]; });
+      var daySlices = await loadReportPaymentSlices(day, day);
 
       var groupedByBill = {};
-      dayPayments.forEach(function (p) {
-        var bid = p.bill_id;
+      var paidBillMap = {};
+      daySlices.forEach(function (s) {
+        var bid = s.bill && s.bill.id;
         if (!bid) return;
+        paidBillMap[bid] = s.bill;
         if (!groupedByBill[bid]) groupedByBill[bid] = [];
-        groupedByBill[bid].push(p);
-      });
-
-      var legacyBills = await loadBillsLite(day, day);
-      var legacyAllPayments = indexPaymentsByBillId(
-        await loadBillPaymentsForBillIds(legacyBills.map(function (b) { return b.id; }).filter(Boolean))
-      );
-      legacyBills.forEach(function (b) {
-        if (!b || !b.id || groupedByBill[b.id]) return;
-        if (reportBillPaidValue(b) <= 0.005) return;
-        if ((legacyAllPayments[b.id] || []).length) return;
-        groupedByBill[b.id] = [{ method: b.bill_type, amount: reportBillPaidValue(b), paid_date: day, _synthetic: true }];
-        paidBillMap[b.id] = b;
+        groupedByBill[bid].push(s.payment);
       });
 
       var txBillIds = Object.keys(groupedByBill);
@@ -2590,50 +2694,33 @@ var REPORT = (function () {
     var toM = iso(last);
     setDateInputs(fromM, toM);
 
-    var monthPayments = await loadBillPaymentsByPaidDate(fromM, toM);
-    var monthBillIds = uniqIds(monthPayments.map(function (p) { return p.bill_id; }));
-    var monthBills = await loadBillsByIds(monthBillIds);
-    var monthBillMap = {};
-    monthBills.forEach(function (b) { if (b && b.id) monthBillMap[b.id] = b; });
-    monthPayments = monthPayments.filter(function (p) { return !!monthBillMap[p.bill_id]; });
-
+    var monthSlices = await loadReportPaymentSlices(fromM, toM);
     var groups = {};
     var order = [];
-    monthPayments.forEach(function (p) {
-      var d = paymentDateKey(p.paid_date);
+    monthSlices.forEach(function (s) {
+      var d = s.paid_date;
       if (!d) return;
       if (!groups[d]) { groups[d] = {}; order.push(d); }
-      var bid = p.bill_id;
+      var bid = s.bill && s.bill.id;
       if (!bid) return;
       if (!groups[d][bid]) groups[d][bid] = [];
-      groups[d][bid].push(p);
-    });
-
-    var monthLegacyBills = await loadBillsLite(fromM, toM);
-    var monthLegacyPayments = indexPaymentsByBillId(
-      await loadBillPaymentsForBillIds(monthLegacyBills.map(function (b) { return b.id; }).filter(Boolean))
-    );
-    monthLegacyBills.forEach(function (b) {
-      if (!b || !b.id) return;
-      if (reportBillPaidValue(b) <= 0.005) return;
-      if ((monthLegacyPayments[b.id] || []).length) return;
-      var d = paymentDateKey(b.bill_date);
-      if (!d || d < fromM || d > toM) return;
-      if (!groups[d]) { groups[d] = {}; order.push(d); }
-      if (!groups[d][b.id]) groups[d][b.id] = [];
-      groups[d][b.id].push({ method: b.bill_type, amount: reportBillPaidValue(b), paid_date: d, _synthetic: true });
-      monthBillMap[b.id] = b;
+      groups[d][bid].push(s.payment);
     });
     order.sort();
 
-    var allBillIds = uniqIds(Object.keys(monthBillMap).concat(monthLegacyBills.map(function (b) { return b && b.id; })));
+    var monthBillMap = {};
+    monthSlices.forEach(function (s) {
+      if (s.bill && s.bill.id) monthBillMap[s.bill.id] = s.bill;
+    });
+
+    var allBillIds = Object.keys(monthBillMap);
     var patientIdsM = allBillIds.map(function (id) {
       return monthBillMap[id] ? monthBillMap[id].patient_id : '';
     }).filter(Boolean);
     var ptsM = await loadPatientsByIds(patientIdsM);
     var pmapM = {};
     ptsM.forEach(function (p) { pmapM[p.id] = p; });
-    var apptCtxM = await loadAppointmentsForDailySummary(fromM, toM, Object.keys(monthBillMap).map(function (bid) {
+    var apptCtxM = await loadAppointmentsForDailySummary(fromM, toM, allBillIds.map(function (bid) {
       return monthBillMap[bid];
     }));
 
@@ -3156,11 +3243,11 @@ var REPORT = (function () {
       if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
       if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = '';
 
-      var bills = await loadBills(from, to);
+      var paymentSlices = await loadReportPaymentSlices(from, to);
 
       if (_tab === 'dailyIncome') {
         setHeader(tr('report.title.dailyIncome'), tr('report.hint.dailyIncome'));
-        var grouped = groupSumBy(bills, function (b) { return b.bill_date || ''; }, reportPaidForIncomeStats);
+        var grouped = groupPaymentSlicesBy(paymentSlices, function (s) { return s.paid_date; });
         _rows = grouped.map(function (g) { return { date: g.key, total: g.value.toFixed(2) }; });
         renderTable([{ key: 'date', label: tr('report.col.date') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('date', 'total');
@@ -3169,14 +3256,9 @@ var REPORT = (function () {
 
       if (_tab === 'weeklyIncome') {
         setHeader(tr('report.title.weeklyIncome'), tr('report.hint.weeklyIncome'));
-        var groupedW = groupSumBy(bills, function (b) {
-          var d = parseDateToLocal(b.bill_date || todayISO());
-          var day = d.getDay(); // 0 Sun..6 Sat (local)
-          var diffToFri = (day - 5 + 7) % 7; // days since Friday
-          d.setDate(d.getDate() - diffToFri);
-          // Use local YYYY-MM-DD to avoid timezone shifting (Fri -> Thu in UTC)
-          return iso(d); // block start (Friday)
-        }, reportPaidForIncomeStats);
+        var groupedW = groupPaymentSlicesBy(paymentSlices, function (s) {
+          return weekStartFridayIso(s.paid_date);
+        });
         _rows = groupedW.map(function (g) { return { week_start: g.key, total: g.value.toFixed(2) }; });
         renderTable([{ key: 'week_start', label: tr('report.col.weekStart') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('week_start', 'total');
@@ -3185,7 +3267,9 @@ var REPORT = (function () {
 
       if (_tab === 'monthlyIncome') {
         setHeader(tr('report.title.monthlyIncome'), tr('report.hint.monthlyIncome'));
-        var groupedM = groupSumBy(bills, function (b) { return String(b.bill_date || '').slice(0, 7); }, reportPaidForIncomeStats);
+        var groupedM = groupPaymentSlicesBy(paymentSlices, function (s) {
+          return String(s.paid_date || '').slice(0, 7);
+        });
         _rows = groupedM.map(function (g) { return { month: g.key, total: g.value.toFixed(2) }; });
         renderTable([{ key: 'month', label: tr('report.col.month') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('month', 'total');
@@ -3194,7 +3278,7 @@ var REPORT = (function () {
 
       if (_tab === 'payStats') {
         setHeader(tr('report.title.payStats'), tr('report.hint.payStats'));
-        var groupedP = groupSumBy(bills, function (b) { return reportPayMethodKey(b.bill_type); }, reportPaidForIncomeStats);
+        var groupedP = groupPaymentSlicesBy(paymentSlices, function (s) { return s.method; });
         _rows = groupedP.filter(function (g) { return !reportPayMethodIsUnsettled(g.key); }).map(function (g) {
           return { method: dispPayMethod(g.key), total: g.value.toFixed(2) };
         });
@@ -3202,6 +3286,9 @@ var REPORT = (function () {
         renderChartFromRows('method', 'total');
         return;
       }
+
+      // legacy bill-based tabs below (txStats etc.)
+      var bills = await loadBills(from, to);
 
       if (_tab === 'txStats') {
         setHeader(tr('report.title.txStats'), tr('report.hint.txStats'));

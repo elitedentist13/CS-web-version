@@ -50,6 +50,10 @@ var AUDIT_DESKTOP_AGENT_BASE = 'http://127.0.0.1:17890';
 var _auditWorkstationLabel = null;
 var _auditWorkstationFetchDone = false;
 
+function setAuditLoggingFromProgramSetting(enabled) {
+    _auditLoggingEnabled = enabled !== false;
+}
+
 function auditTrailEnabled() {
     return _auditLoggingEnabled && typeof SB !== 'undefined' && SB && typeof SB.from === 'function';
 }

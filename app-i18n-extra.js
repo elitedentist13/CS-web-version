@@ -470,6 +470,31 @@
         'appt.plusAppt.taskRecallWhatsapp': { en: 'WhatsApp', 'zh-CN': 'WhatsApp', 'zh-Hant': 'WhatsApp' },
         'appt.plusAppt.taskRecallVoice': { en: 'Voice msg', 'zh-CN': '语音留言', 'zh-Hant': '語音留言' },
         'appt.plusAppt.transferArmed': { en: 'Transfer mode armed', 'zh-CN': '已启动转移模式', 'zh-Hant': '已啟動轉移模式' },
+        'appt.plusAppt.transferLogTitle': {
+            en: 'Transfer history',
+            'zh-CN': '转期记录',
+            'zh-Hant': '轉期記錄'
+        },
+        'appt.plusAppt.transferLogTimeRange': {
+            en: 'Time · {FROM} → {TO}',
+            'zh-CN': '时段 · {FROM} → {TO}',
+            'zh-Hant': '時段 · {FROM} → {TO}'
+        },
+        'appt.plusAppt.transferLogClose': {
+            en: 'Close log',
+            'zh-CN': '关闭记录',
+            'zh-Hant': '關閉記錄'
+        },
+        'appt.plusAppt.transferCutPending': {
+            en: 'Patient ready to move — pick a date, then drop or click a +Appointment slot',
+            'zh-CN': '患者已就绪 — 选择日期后，拖放或点击 +预约 时段完成转期',
+            'zh-Hant': '病人已就緒 — 選擇日期後，拖放或點擊 +預約 時段完成轉期'
+        },
+        'appt.plusAppt.transferCancelled': {
+            en: 'Transfer cancelled — appointment restored',
+            'zh-CN': '已取消转移 — 预约已恢复',
+            'zh-Hant': '已取消轉移 — 預約已恢復'
+        },
         'appt.plusAppt.transferDragHint': { en: 'Drag this card to target time slot', 'zh-CN': '将此卡拖到目标时段', 'zh-Hant': '將此卡拖到目標時段' },
         'appt.plusAppt.transferFromTo': { en: 'From {FROM} to {TO}', 'zh-CN': '由 {FROM} 转到 {TO}', 'zh-Hant': '由 {FROM} 轉到 {TO}' },
         'appt.plusAppt.transferDoneToast': { en: '{NAME} transferred to {DATE} {TIME}', 'zh-CN': '{NAME} 已转到 {DATE} {TIME}', 'zh-Hant': '{NAME} 已轉到 {DATE} {TIME}' },
@@ -479,9 +504,9 @@
             'zh-Hant': '將 {FROM} 的全部 {N} 個預約移到 {TO}？'
         },
         'appt.plusAppt.transferMiniHint': {
-            en: 'Tip: Drag appointment row to mini calendar, pick a new date, then drag back to a time slot to transfer.',
-            'zh-CN': '提示：先把预约行拖到左侧小日历，再点目标日期，然后拖回时段完成转期。',
-            'zh-Hant': '提示：先把預約列拖到左側小日曆，再點目標日期，然後拖回時段完成轉期。'
+            en: 'Tip: Drag appointment to active patient card, pick a new date, then drop or click a time slot to transfer.',
+            'zh-CN': '提示：将预约拖到左侧活跃患者卡，选择新日期，再拖放或点击时段完成转期。',
+            'zh-Hant': '提示：將預約拖到左側活躍病人卡，選擇新日期，再拖放或點擊時段完成轉期。'
         },
         'appt.plusAppt.transferSnapSlot': {
             en: 'Drop · {TIME}',
@@ -2360,6 +2385,8 @@
         'con.rx.drugListEdit': { en: 'Edit', 'zh-CN': '编辑', 'zh-Hant': '編輯' },
         'con.rx.drugListDel': { en: 'Del', 'zh-CN': '删', 'zh-Hant': '刪' },
         'con.alert.medLoadFail': { en: 'Error loading medical history: {MSG}', 'zh-CN': '加载病史失败：{MSG}', 'zh-Hant': '載入病史失敗：{MSG}' },
+        'con.alert.medReadOnly': { en: 'Medical history is locked by program settings.', 'zh-CN': '病史已被程序设置锁定。', 'zh-Hant': '病史已被程式設定鎖定。' },
+        'con.note.addTermDisabled': { en: 'Adding or editing note templates is disabled in Program Settings.', 'zh-CN': '程序设置已禁止添加或编辑笔记模板。', 'zh-Hant': '程式設定已禁止新增或編輯筆記範本。' },
         'con.alert.denLoadFail': { en: 'Error loading dental history: {MSG}', 'zh-CN': '加载牙科病史失败：{MSG}', 'zh-Hant': '載入牙科病史失敗：{MSG}' },
         'con.alert.noPatientSelected': { en: 'No patient selected.', 'zh-CN': '未选择患者。', 'zh-Hant': '未選擇病人。' },
         'con.alert.medSaved': { en: '✅ Medical history saved for {NAME}', 'zh-CN': '✅ 病史已保存 — {NAME}', 'zh-Hant': '✅ 病史已儲存 — {NAME}' },

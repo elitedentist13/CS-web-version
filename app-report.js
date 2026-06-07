@@ -89,6 +89,35 @@ var REPORT = (function () {
     return s;
   }
 
+  var REPORT_PAY_METHOD_ALIASES = {
+    'master': 'Mastercard',
+    'master card': 'Mastercard',
+    'mastercard': 'Mastercard',
+    'visa': 'Visa',
+    'visa card': 'Visa',
+    'cash': 'Cash',
+    'eps': 'EPS',
+    'octopus': 'Octopus',
+    'alipay': 'Alipay',
+    'wechat pay': 'WeChat Pay',
+    'wechat': 'WeChat Pay',
+    'hkbc': 'HKBC',
+    'cheque': 'Cheque',
+    'bank transfer': 'Bank Transfer',
+    'insurance': 'Insurance',
+    'waived': 'Waived',
+    'other': 'Other'
+  };
+
+  /** Normalize stored payment labels to bill_types names for grouping. */
+  function reportPayMethodCanonicalKey(v) {
+    var s = reportPayMethodKey(v);
+    if (!s) return '';
+    var lk = s.toLowerCase().replace(/\s+/g, ' ');
+    if (REPORT_PAY_METHOD_ALIASES[lk]) return REPORT_PAY_METHOD_ALIASES[lk];
+    return s;
+  }
+
   /** Unpaid / unsettled bill types — omit from Daily Summary payment-method totals. */
   function reportPayMethodIsUnsettled(key) {
     var s = String(key == null ? '' : key).trim().toLowerCase();
@@ -100,14 +129,132 @@ var REPORT = (function () {
     return dispPayMethod(key);
   }
 
+  function dispPayMethodTxSummary(row) {
+    var allocs = row && row.payment_allocations;
+    if (allocs && allocs.length) {
+      if (allocs.length === 1) return dispPayMethodSummary(allocs[0].method);
+      return allocs.map(function (a) { return dispPayMethod(a.method); }).join(', ');
+    }
+    return dispPayMethodSummary(row && row.payment_method);
+  }
+
   function sumByKeyPaidMethods(rows, key, valueKey) {
     var map = {};
     (rows || []).forEach(function (r) {
-      var k = reportPayMethodKey(r[key]);
+      var allocs = r.payment_allocations;
+      if (allocs && allocs.length) {
+        allocs.forEach(function (a) {
+          var k = reportPayMethodCanonicalKey(a.method);
+          if (reportPayMethodIsUnsettled(k)) return;
+          map[k] = (map[k] || 0) + Number(a.amount || 0);
+        });
+        return;
+      }
+      var k = reportPayMethodCanonicalKey(r[key]);
       if (reportPayMethodIsUnsettled(k)) return;
       map[k] = (map[k] || 0) + Number(r[valueKey] || 0);
     });
     return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
+  }
+
+  /** Per-bill paid amounts by method (bill_payments + gap on bill row). */
+  function reportPaymentAllocationsForBill(bill, paymentRows) {
+    var paidOnBill = reportBillPaidValue(bill);
+    if (paidOnBill <= 0.005) return [];
+    var pmts = (paymentRows || []).filter(function (p) { return !(p && p.voided_at); });
+    var sumPmts = pmts.reduce(function (s, p) { return s + Number(p.amount || 0); }, 0);
+    var gap = paidOnBill - sumPmts;
+    if (gap > 0.005) {
+      pmts = [{ method: bill.bill_type, amount: gap }].concat(pmts);
+    }
+    return pmts.map(function (p) {
+      return {
+        method: reportPayMethodCanonicalKey(p.method),
+        amount: Number(p.amount || 0)
+      };
+    }).filter(function (a) {
+      return !reportPayMethodIsUnsettled(a.method) && a.amount > 0.005;
+    });
+  }
+
+  async function loadBillPaymentsForBillIds(billIds) {
+    billIds = (billIds || []).filter(Boolean);
+    if (!billIds.length) return [];
+    var out = [];
+    var CHUNK = 80;
+    for (var i = 0; i < billIds.length; i += CHUNK) {
+      var chunk = billIds.slice(i, i + CHUNK);
+      var res = await SB.from('bill_payments')
+        .select('id,bill_id,paid_date,amount,method,voided_at')
+        .in('bill_id', chunk);
+      if (res.error) {
+        var msg = String(res.error.message || '').toLowerCase();
+        if (msg.indexOf('bill_payments') >= 0 || msg.indexOf('relation') >= 0) return [];
+        throw new Error(res.error.message);
+      }
+      out = out.concat(res.data || []);
+    }
+    return out;
+  }
+
+  function indexPaymentsByBillId(payments) {
+    var map = {};
+    (payments || []).forEach(function (p) {
+      if (p && p.voided_at) return;
+      var bid = p.bill_id;
+      if (!bid) return;
+      if (!map[bid]) map[bid] = [];
+      map[bid].push(p);
+    });
+    return map;
+  }
+
+  function buildDailySummaryTxRow(b, p, paymentsByBillId, extra) {
+    var paid = reportBillPaidValue(b);
+    var total = reportBillTotalValue(b);
+    var bal = reportBillBalanceValue(b);
+    var allocs = reportPaymentAllocationsForBill(b, (paymentsByBillId && b.id) ? paymentsByBillId[b.id] : []);
+    var primaryMethod = allocs.length === 1
+      ? allocs[0].method
+      : (allocs.length ? allocs[0].method : reportPayMethodCanonicalKey(b.bill_type));
+    var row = {
+      bill_id: b.id || '',
+      bill_date: b.bill_date || '',
+      patient_no: b.patient_no || (p.patient_no || ''),
+      patient_chinese: p.chinese_name || '',
+      patient_name: (p.full_name || b.patient_name || ''),
+      payment_method: primaryMethod,
+      payment_allocations: allocs,
+      amount: paid.toFixed(2),
+      bill_total: total,
+      bill_paid: paid,
+      bill_balance: bal,
+      treatment_items: b.items || '[]',
+      remarks: b.notes || ''
+    };
+    if (extra) Object.assign(row, extra);
+    return row;
+  }
+
+  function reportBillPaidValue(b) {
+    return Number(b && b.amount_paid != null ? b.amount_paid : 0);
+  }
+
+  function reportBillTotalValue(b) {
+    return Number(b && b.total != null ? b.total : 0);
+  }
+
+  function reportBillBalanceValue(b) {
+    var total = reportBillTotalValue(b);
+    var paid = reportBillPaidValue(b);
+    if (!b || b.balance === null || b.balance === undefined) return total - paid;
+    return Number(b.balance || 0);
+  }
+
+  /** Paid amount for income / payment statistics (excludes Pending / unsettled). */
+  function reportPaidForIncomeStats(b) {
+    if (reportPayMethodIsUnsettled(reportPayMethodKey(b && b.bill_type))) return 0;
+    return reportBillPaidValue(b);
   }
 
   function todayISO() {
@@ -874,18 +1021,20 @@ var REPORT = (function () {
     return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
   }
 
-  /** Bill / due / paid aggregates for Daily Summary (Paid Total = Bill Total − Due). */
+  /** Bill / due / paid aggregates for Daily Summary detail KPIs. */
   function dailySummaryAggFromTx(tx) {
     var billTotal = 0;
+    var paidTotal = 0;
     var dueTotal = 0;
     (tx || []).forEach(function (r) {
-      billTotal += Number(r.bill_total != null ? r.bill_total : (r.amount || 0));
+      billTotal += Number(r.bill_total != null ? r.bill_total : 0);
+      paidTotal += Number(r.bill_paid != null ? r.bill_paid : (r.amount != null ? r.amount : 0));
       dueTotal += Number(r.bill_balance != null ? r.bill_balance : 0);
     });
     return {
       billTotal: billTotal,
       dueTotal: dueTotal,
-      paidTotal: billTotal - dueTotal
+      paidTotal: paidTotal
     };
   }
 
@@ -895,6 +1044,84 @@ var REPORT = (function () {
       (c.rows || []).forEach(function (r) { all.push(r); });
     });
     return dailySummaryAggFromTx(all);
+  }
+
+  var REPORT_DS_PAY_METHOD_DEFAULTS = ['Cash', 'Visa', 'Mastercard', 'EPS', 'Octopus'];
+
+  var REPORT_DS_PAY_METHOD_STYLE = {
+    Cash:      { bg: '#ecfdf5', border: '#86efac', label: '#166534', val: '#15803d' },
+    Visa:      { bg: '#eff6ff', border: '#93c5fd', label: '#1e40af', val: '#1d4ed8' },
+    Mastercard:{ bg: '#fff7ed', border: '#fdba74', label: '#9a3412', val: '#c2410c' },
+    Master:    { bg: '#fff7ed', border: '#fdba74', label: '#9a3412', val: '#c2410c' },
+    EPS:       { bg: '#f5f3ff', border: '#c4b5fd', label: '#5b21b6', val: '#6d28d9' },
+    Octopus:   { bg: '#fdf2f8', border: '#f9a8d4', label: '#9d174d', val: '#db2777' }
+  };
+
+  var REPORT_DS_PAY_METHOD_FALLBACK = {
+    bg: '#f8fafc', border: '#e2e8f0', label: '#475569', val: '#0d6efd'
+  };
+
+  function dailySummaryPayMethodKeysOrdered(totalsByMethodPaid) {
+    var paidMap = {};
+    (totalsByMethodPaid || []).forEach(function (x) {
+      var k = reportPayMethodCanonicalKey(x.key);
+      if (!k || reportPayMethodIsUnsettled(k)) return;
+      paidMap[k] = Number(x.value || 0);
+    });
+    var out = [];
+    REPORT_DS_PAY_METHOD_DEFAULTS.forEach(function (k) {
+      if (out.indexOf(k) < 0) out.push(k);
+    });
+    Object.keys(paidMap).sort().forEach(function (k) {
+      if (out.indexOf(k) < 0) out.push(k);
+    });
+    return out.map(function (k) { return { key: k, value: paidMap[k] || 0 }; });
+  }
+
+  function dailySummaryPayMethodCardHtml(item) {
+    var st = REPORT_DS_PAY_METHOD_STYLE[item.key] || REPORT_DS_PAY_METHOD_FALLBACK;
+    return '<div style="background:' + st.bg + ';border:1px solid ' + st.border + ';border-radius:12px;' +
+      'padding:10px 12px;min-width:118px;flex:1 1 118px;max-width:220px;' +
+      'box-shadow:0 2px 8px rgba(15,23,42,.06);">' +
+      '<div style="font-size:11px;font-weight:900;color:' + st.label + ';letter-spacing:.02em;">' +
+        esc(dispPayMethod(item.key)) +
+      '</div>' +
+      '<div style="font-size:17px;font-weight:900;color:' + st.val + ';margin-top:4px;">' +
+        fmtHK(Number(item.value || 0)) +
+      '</div>' +
+    '</div>';
+  }
+
+  /** Header zone: paid total + highlighted payment-method cards (Daily Summary). */
+  function dailySummaryHeaderZoneHtml(totalsByMethodPaid, paidTotal, overviewTitleKey, extraOverviewHtml) {
+    var items = dailySummaryPayMethodKeysOrdered(totalsByMethodPaid);
+    var cards = items.map(dailySummaryPayMethodCardHtml).join('');
+    if (!cards) {
+      cards = '<div style="padding:6px 0;color:#64748b;font-size:12px;">' +
+        esc(tr('report.ds.monthly.noMethodTotals')) + '</div>';
+    }
+    var titleKey = overviewTitleKey || 'report.ds.dailyOverviewTitle';
+    return '<div style="background:linear-gradient(135deg,#0d6efd,#2b8fff);border-radius:14px;padding:12px 14px;' +
+      'color:#fff;margin-bottom:12px;box-shadow:0 5px 14px rgba(13,110,253,.22);">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">' +
+        '<div style="min-width:160px;">' +
+          '<div style="font-size:12px;font-weight:800;opacity:.92;">' + esc(tr(titleKey)) + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.24);border-radius:12px;' +
+          'padding:8px 12px;min-width:150px;">' +
+          '<div style="font-size:11px;font-weight:700;opacity:.92;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
+          '<div style="font-size:20px;font-weight:900;margin-top:2px;">' + fmtHK(Number(paidTotal || 0)) + '</div>' +
+        '</div>' +
+      '</div>' +
+      (extraOverviewHtml || '') +
+    '</div>' +
+    '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;padding:10px 12px;margin-bottom:12px;' +
+      'box-shadow:0 2px 8px rgba(15,23,42,.04);">' +
+      '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">' +
+        esc(tr('report.ds.monthly.paymentTotalsTitle')) +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;">' + cards + '</div>' +
+    '</div>';
   }
 
   function downloadCSV(filename, columns, rows) {
@@ -940,13 +1167,6 @@ var REPORT = (function () {
     var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;';
     var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
 
-    var summaryBlocks = totalsByMethodPaid.map(function (x) {
-      return '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;min-width:150px;">' +
-        '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(dispPayMethod(x.key)) + '</div>' +
-        '<div style="font-size:16px;font-weight:900;color:#0d6efd;margin-top:4px;">' + fmtHK(Number(x.value || 0)) + '</div>' +
-      '</div>';
-    }).join('');
-
     var showClinicCol = isReportAllClinicsSelected();
     var rowsHtml = transactions.map(function (t) {
       return '<tr>' +
@@ -954,13 +1174,14 @@ var REPORT = (function () {
         '<td style="' + td + '">' + esc(t.patient_chinese) + '</td>' +
         '<td style="' + td + '">' + esc(t.patient_name) + '</td>' +
         (showClinicCol ? ('<td style="' + td + '">' + esc(t.clinic_tag || '') + '</td>') : '') +
-        '<td style="' + td + '">' + esc(dispPayMethodSummary(t.payment_method)) + '</td>' +
+        '<td style="' + td + '">' + esc(dispPayMethodTxSummary(t)) + '</td>' +
         '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(t.bill_paid || 0)) + '</td>' +
         '<td style="' + td + '">' + esc(t.remarks) + '</td>' +
       '</tr>';
     }).join('');
 
     body.innerHTML =
+      dailySummaryHeaderZoneHtml(totalsByMethodPaid, agg.paidTotal, 'report.ds.dailyOverviewTitle') +
       '<div style="border:1px solid #eee;border-radius:12px;overflow:hidden;background:#fff;">' +
         '<div style="overflow:auto;max-height:520px;">' +
           '<table style="width:100%;border-collapse:collapse;min-width:860px;">' +
@@ -976,15 +1197,6 @@ var REPORT = (function () {
             '<tbody>' + rowsHtml + '</tbody>' +
           '</table>' +
         '</div>' +
-      '</div>' +
-      '<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">' +
-        '<div style="flex:1;min-width:200px;background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;">' +
-          '<div style="font-size:12px;color:#166534;font-weight:900;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
-          '<div style="font-size:22px;font-weight:900;color:#15803d;margin-top:4px;">' + fmtHK(agg.paidTotal) + '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;">' +
-          summaryBlocks +
-        '</div>' +
       '</div>';
   }
 
@@ -997,21 +1209,31 @@ var REPORT = (function () {
     dayCards.forEach(function (c) { txCount += (c.rows || []).length; });
     var agg = dailySummaryAggFromDayCards(dayCards);
 
-    var chips = monthTotalsByMethodPaid.map(function (x) {
-      return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 10px;background:#f8fbff;border:1px solid #e5edf8;border-radius:10px;">' +
-        '<div style="font-weight:900;color:#4b5563;font-size:12px;">' + esc(dispPayMethod(x.key)) + '</div>' +
-        '<div style="font-weight:900;color:#0d6efd;font-size:12px;">' + fmtHK(Number(x.value || 0)) + '</div>' +
+    var monthlyExtraOverview =
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;width:100%;">' +
+        '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:130px;">' +
+          '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.daysWithBills')) + '</div>' +
+          '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + dayCount + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:130px;">' +
+          '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.transactions')) + '</div>' +
+          '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + txCount + '</div>' +
+        '</div>' +
       '</div>';
-    }).join('');
-
-    if (!chips) {
-      chips = '<div style="padding:10px 0;color:#94a3b8;font-size:12px;">' + esc(tr('report.ds.monthly.noMethodTotals')) + '</div>';
-    }
 
     var cardsHtml = dayCards.map(function (c) {
       var methodMiniMap = {};
       (c.rows || []).forEach(function (t) {
-        var k = reportPayMethodKey(t.payment_method);
+        var allocs = t.payment_allocations || [];
+        if (allocs.length) {
+          allocs.forEach(function (a) {
+            var k = reportPayMethodCanonicalKey(a.method);
+            if (reportPayMethodIsUnsettled(k)) return;
+            methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(a.amount || 0);
+          });
+          return;
+        }
+        var k = reportPayMethodCanonicalKey(t.payment_method);
         if (reportPayMethodIsUnsettled(k)) return;
         methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(t.bill_paid || 0);
       });
@@ -1034,7 +1256,7 @@ var REPORT = (function () {
             (t.remarks ? '<div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;">' + esc(t.remarks) + '</div>' : '') +
           '</div>' +
           (showClinicCol ? ('<div style="color:#334155;font-weight:900;font-size:12px;">' + esc(t.clinic_tag || '') + '</div>') : '') +
-          '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(dispPayMethodSummary(t.payment_method)) + '</div>' +
+          '<div style="color:#475569;font-weight:900;font-size:12px;">' + esc(dispPayMethodTxSummary(t)) + '</div>' +
           '<div style="text-align:right;font-weight:900;color:#15803d;font-size:12px;">' + fmtHK(Number(t.bill_paid || 0)) + '</div>' +
         '</div>';
       }).join('');
@@ -1058,27 +1280,7 @@ var REPORT = (function () {
 
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
-        '<div style="background:linear-gradient(135deg,#0d6efd,#2b8fff);border-radius:14px;padding:12px 14px;color:#fff;margin-bottom:12px;box-shadow:0 5px 14px rgba(13,110,253,.25);">' +
-          '<div style="font-size:12px;font-weight:800;opacity:.9;">' + esc(tr('report.ds.monthly.overviewTitle')) + '</div>' +
-          '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' +
-            '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:130px;">' +
-              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.daysWithBills')) + '</div>' +
-              '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + dayCount + '</div>' +
-            '</div>' +
-            '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:130px;">' +
-              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.monthly.transactions')) + '</div>' +
-              '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + txCount + '</div>' +
-            '</div>' +
-            '<div style="background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:8px 10px;min-width:180px;">' +
-              '<div style="font-size:11px;font-weight:700;opacity:.9;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
-              '<div style="margin-top:2px;font-size:18px;font-weight:900;">' + fmtHK(agg.paidTotal) + '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;padding:10px 12px;margin-bottom:12px;">' +
-          '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">' + esc(tr('report.ds.monthly.paymentTotalsTitle')) + '</div>' +
-          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">' + chips + '</div>' +
-        '</div>' +
+        dailySummaryHeaderZoneHtml(monthTotalsByMethodPaid, agg.paidTotal, 'report.ds.monthly.overviewTitle', monthlyExtraOverview) +
         cardsHtml +
       '</div>';
   }
@@ -1118,7 +1320,7 @@ var REPORT = (function () {
         '<div style="font-size:12px;color:#0f172a;font-weight:900;line-height:1.35;margin-top:2px;">' + nameLine + '</div>' +
       '</td>' +
       '<td style="width:14%;padding:10px 8px;border-bottom:1px solid #eef2f7;vertical-align:top;word-break:break-word;">' +
-        '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethod(t.payment_method)) + '</div>' +
+        '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethodTxSummary(t)) + '</div>' +
         (t.remarks ? '<div style="font-size:11px;color:#64748b;line-height:1.35;margin-top:4px;">' + esc(t.remarks) + '</div>' : '') +
       '</td>' +
       (showClinicCol
@@ -1144,11 +1346,6 @@ var REPORT = (function () {
     transactions.forEach(function (t) {
       totalTreatments += treatmentEntriesHtml(t.treatment_items).count;
     });
-    var methodPills = totalsByMethodPaid.map(function (x) {
-      return '<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#eef6ff;border:1px solid #d9eaff;border-radius:999px;font-size:11px;font-weight:900;color:#0d6efd;">' +
-        esc(dispPayMethod(x.key)) + ': ' + fmtHK(Number(x.value || 0)) +
-      '</span>';
-    }).join('');
 
     var showClinicCol = isReportAllClinicsSelected();
     var rowsHtml = transactions.map(function (t) { return detailTxRowHtml(t, false, showClinicCol); }).join('');
@@ -1157,6 +1354,7 @@ var REPORT = (function () {
     }
 
     body.innerHTML =
+      dailySummaryHeaderZoneHtml(totalsByMethodPaid, agg.paidTotal, 'report.ds.dailyOverviewTitle') +
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
         '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:150px;">' +
           '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.kpiTotalBills')) + '</div>' +
@@ -1179,7 +1377,6 @@ var REPORT = (function () {
           '<div style="font-size:18px;color:#dc2626;font-weight:900;margin-top:2px;">' + fmtHK(agg.dueTotal) + '</div>' +
         '</div>' +
       '</div>' +
-      (methodPills ? ('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' + methodPills + '</div>') : '') +
       '<div style="border:1px solid #dfe9f5;border-radius:12px;overflow:hidden;background:#fff;">' +
         '<div style="overflow:auto;max-height:560px;">' +
           '<table style="width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;">' +
@@ -1216,17 +1413,10 @@ var REPORT = (function () {
       });
     });
 
-    var methodSummary = monthTotalsByMethodPaid.map(function (x) {
-      return '<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #eef2f7;">' +
-        '<div style="font-size:12px;color:#475569;font-weight:900;">' + esc(dispPayMethod(x.key)) + '</div>' +
-        '<div style="font-size:12px;color:#0d6efd;font-weight:900;">' + fmtHK(Number(x.value || 0)) + '</div>' +
-      '</div>';
-    }).join('');
-    if (!methodSummary) {
-      methodSummary = '<div style="font-size:12px;color:#94a3b8;">' + esc(tr('report.ds.detail.monthlyNoMethods')) + '</div>';
-    }
-
     var sectionsHtml = dayCards.map(function (c) {
+      var dayBillTotal = (c.rows || []).reduce(function (acc, r) {
+        return acc + Number(r.bill_total || 0);
+      }, 0);
       var rowsHtml = (c.rows || []).map(function (t) { return detailTxRowHtml(t, true, showClinicCol); }).join('');
       if (!rowsHtml) {
         rowsHtml = '<tr><td colspan="' + (showClinicCol ? '8' : '7') + '" style="padding:14px;color:#64748b;text-align:center;">' + esc(tr('report.ds.detail.monthlyNoDetailRows')) + '</td></tr>';
@@ -1236,7 +1426,8 @@ var REPORT = (function () {
           '<div style="font-size:13px;font-weight:900;color:#0d6efd;">' + esc(c.date) + '</div>' +
           '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
             '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(trRepl('report.ds.detail.monthlyBillsCount', { N: String((c.rows || []).length) })) + '</div>' +
-            '<div style="font-size:13px;color:#0f172a;font-weight:900;">' + fmtHK(Number(c.total || 0)) + '</div>' +
+            '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.ds.dailyPaidTotal')) + ' ' + fmtHK(Number(c.paidTotal || 0)) + '</div>' +
+            '<div style="font-size:11px;color:#7c2d12;font-weight:800;">' + esc(tr('report.ds.detail.kpiBillTotal')) + ' ' + fmtHK(dayBillTotal) + '</div>' +
           '</div>' +
         '</div>' +
         '<div style="overflow:auto;">' +
@@ -1265,6 +1456,7 @@ var REPORT = (function () {
 
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
+        dailySummaryHeaderZoneHtml(monthTotalsByMethodPaid, agg.paidTotal, 'report.ds.monthly.overviewTitle') +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:140px;">' +
             '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiDays')) + '</div>' +
@@ -1290,10 +1482,6 @@ var REPORT = (function () {
             '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.ds.dailyDueAmount')) + '</div>' +
             '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(agg.dueTotal) + '</div>' +
           '</div>' +
-        '</div>' +
-        '<div style="background:#fff;border:1px solid #dfe9f5;border-radius:12px;padding:10px 12px;margin-bottom:12px;">' +
-          '<div style="font-size:12px;font-weight:900;color:#0d6efd;margin-bottom:8px;">' + esc(tr('report.ds.monthly.paymentTotalsTitle')) + '</div>' +
-          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">' + methodSummary + '</div>' +
         '</div>' +
         sectionsHtml +
       '</div>';
@@ -1490,28 +1678,17 @@ var REPORT = (function () {
     var pts = await loadPatientsByIds(patientIds);
     var pmap = {};
     pts.forEach(function (p) { pmap[p.id] = p; });
+    var paymentsByBillId = indexPaymentsByBillId(
+      await loadBillPaymentsForBillIds(filteredBills.map(function (b) { return b.id; }).filter(Boolean))
+    );
 
     var tx = filteredBills.map(function (b) {
-      var paid = Number(b.amount_paid || 0);
-      var total = Number(b.total || 0);
-      var bal = (b.balance === null || b.balance === undefined) ? (total - paid) : Number(b.balance || 0);
       var p = pmap[b.patient_id] || {};
-      return {
-        bill_id: b.id || '',
+      return buildDailySummaryTxRow(b, p, paymentsByBillId, {
         bill_date: b.bill_date || day,
-        patient_no: b.patient_no || (p.patient_no || ''),
-        patient_chinese: p.chinese_name || '',
-        patient_name: (p.full_name || b.patient_name || ''),
-        payment_method: reportPayMethodKey(b.bill_type),
-        amount: total.toFixed(2),
-        bill_total: total,
-        bill_paid: paid,
-        bill_balance: bal,
-        treatment_items: b.items || '[]',
-        remarks: b.notes || '',
         doctor_tag: b.doctor_tag || b.doctor_name || doctorTagOf(dr) || '',
         dr_treatments: tByPatient[b.patient_id] || []
-      };
+      });
     });
 
     _rows = tx;
@@ -1743,26 +1920,15 @@ var REPORT = (function () {
       var pts = await loadPatientsByIds(patientIds);
       var pmap = {};
       pts.forEach(function (p) { pmap[p.id] = p; });
+      var paymentsByBillId = indexPaymentsByBillId(
+        await loadBillPaymentsForBillIds(filtered.map(function (b) { return b.id; }).filter(Boolean))
+      );
 
       var tx = filtered.map(function (b) {
-        var paid = Number(b.amount_paid || 0);
-        var total = Number(b.total || 0);
-        var bal = (b.balance === null || b.balance === undefined) ? (total - paid) : Number(b.balance || 0);
         var p = pmap[b.patient_id] || {};
-        return {
-          bill_id: b.id || '',
-          bill_date: b.bill_date || '',
-          patient_no: b.patient_no || (p.patient_no || ''),
-          patient_chinese: p.chinese_name || '',
-          patient_name: (p.full_name || b.patient_name || ''),
-          payment_method: reportPayMethodKey(b.bill_type),
-          amount: total.toFixed(2),
-          bill_total: total,
-          bill_paid: paid,
-          bill_balance: bal,
-          treatment_items: b.items || '[]',
-          remarks: b.notes || ''
-        };
+        return buildDailySummaryTxRow(b, p, paymentsByBillId, {
+          bill_date: b.bill_date || ''
+        });
       });
 
       _rows = tx;
@@ -1777,20 +1943,16 @@ var REPORT = (function () {
     }
 
     var byDay = {};
-    var total = 0;
     var paid = 0;
     var bal = 0;
     filtered.forEach(function (b) {
       var day = b.bill_date || from;
-      var t = Number(b.total || 0);
-      var p = Number(b.amount_paid || 0);
-      var r = (b.balance === null || b.balance === undefined) ? (t - p) : Number(b.balance || 0);
-      if (!byDay[day]) byDay[day] = { date: day, bills: 0, total: 0, paid: 0, balance: 0 };
+      var p = reportBillPaidValue(b);
+      var r = reportBillBalanceValue(b);
+      if (!byDay[day]) byDay[day] = { date: day, bills: 0, paid: 0, balance: 0 };
       byDay[day].bills += 1;
-      byDay[day].total += t;
       byDay[day].paid += p;
       byDay[day].balance += r;
-      total += t;
       paid += p;
       bal += r;
     });
@@ -1800,7 +1962,6 @@ var REPORT = (function () {
       return {
         date: r.date,
         bills: String(r.bills),
-        total: r.total.toFixed(2),
         paid: r.paid.toFixed(2),
         balance: r.balance.toFixed(2)
       };
@@ -1812,18 +1973,13 @@ var REPORT = (function () {
       return '<tr>' +
         '<td style="' + td + '">' + esc(r.date) + '</td>' +
         '<td style="' + td + 'text-align:right;">' + esc(r.bills) + '</td>' +
-        '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(Number(r.total)) + '</td>' +
-        '<td style="' + td + 'text-align:right;">' + fmtHK(Number(r.paid)) + '</td>' +
+        '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(r.paid)) + '</td>' +
         '<td style="' + td + 'text-align:right;color:' + (Number(r.balance) > 0 ? '#dc2626' : '#16a34a') + ';">' + fmtHK(Number(r.balance)) + '</td>' +
       '</tr>';
     }).join('');
 
     body.innerHTML =
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
-        '<div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#155e75;font-weight:800;">' + esc(tr('report.drMonthly.kpiTotalBilled')) + '</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#0e7490;font-weight:900;">' + fmtHK(total) + '</div>' +
-        '</div>' +
         '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;min-width:180px;">' +
           '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.drMonthly.kpiTotalPaid')) + '</div>' +
           '<div style="margin-top:2px;font-size:18px;color:#15803d;font-weight:900;">' + fmtHK(paid) + '</div>' +
@@ -1838,7 +1994,6 @@ var REPORT = (function () {
           '<thead><tr>' +
             '<th style="' + th + '">' + esc(tr('report.col.date')) + '</th>' +
             '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.billCount')) + '</th>' +
-            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.billed')) + '</th>' +
             '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.paid')) + '</th>' +
             '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.balance')) + '</th>' +
           '</tr></thead>' +
@@ -1861,11 +2016,11 @@ var REPORT = (function () {
       var pts = await loadPatientsByIds(patientIds);
       var pmap = {};
       pts.forEach(function (p) { pmap[p.id] = p; });
+      var paymentsByBillId = indexPaymentsByBillId(
+        await loadBillPaymentsForBillIds(bills.map(function (b) { return b.id; }).filter(Boolean))
+      );
 
       var tx = bills.map(function (b) {
-        var paid = Number(b.amount_paid || 0);
-        var total = Number(b.total || 0);
-        var bal = (b.balance === null || b.balance === undefined) ? (total - paid) : Number(b.balance || 0);
         var ref = String(b.id || '').trim();
         if (!ref) {
           var ct = String(b.created_at || '').replace(/\D/g, '');
@@ -1876,23 +2031,12 @@ var REPORT = (function () {
           ? PATIENT_CLINIC_TAG_FIELD
           : 'clinic_tag';
         var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
-        return {
-          bill_id: b.id || '',
+        return buildDailySummaryTxRow(b, p, paymentsByBillId, {
           bill_ref: ref,
           bill_date: b.bill_date || day,
-          patient_no: b.patient_no || (p.patient_no || ''),
-          patient_chinese: p.chinese_name || '',
-          patient_name: (p.full_name || b.patient_name || ''),
-          payment_method: reportPayMethodKey(b.bill_type),
-          amount: total.toFixed(2),
-          bill_total: total,
-          bill_paid: paid,
-          bill_balance: bal,
           clinic_tag: clinicTag,
-          clinic_code: clinicCodeFromStoredTag(clinicTag),
-          treatment_items: b.items || '[]',
-          remarks: b.notes || ''
-        };
+          clinic_code: clinicCodeFromStoredTag(clinicTag)
+        });
       });
 
       var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
@@ -1921,6 +2065,9 @@ var REPORT = (function () {
     var ptsM = await loadPatientsByIds(patientIdsM);
     var pmapM = {};
     ptsM.forEach(function (p) { pmapM[p.id] = p; });
+    var paymentsByBillIdM = indexPaymentsByBillId(
+      await loadBillPaymentsForBillIds(billsM.map(function (b) { return b.id; }).filter(Boolean))
+    );
 
     // group by bill_date
     var groups = {};
@@ -1935,9 +2082,6 @@ var REPORT = (function () {
     var monthAllTx = [];
     var dayCards = order.map(function (d) {
       var rows = (groups[d] || []).map(function (b) {
-        var paid = Number(b.amount_paid || 0);
-        var total = Number(b.total || 0);
-        var bal = (b.balance === null || b.balance === undefined) ? (total - paid) : Number(b.balance || 0);
         var ref = String(b.id || '').trim();
         if (!ref) {
           var ct = String(b.created_at || '').replace(/\D/g, '');
@@ -1948,29 +2092,17 @@ var REPORT = (function () {
           ? PATIENT_CLINIC_TAG_FIELD
           : 'clinic_tag';
         var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
-        var txRow = {
-          bill_id: b.id || '',
+        var txRow = buildDailySummaryTxRow(b, p, paymentsByBillIdM, {
           bill_ref: ref,
           bill_date: b.bill_date || d,
-          patient_no: b.patient_no || (p.patient_no || ''),
-          patient_chinese: p.chinese_name || '',
-          patient_name: (p.full_name || b.patient_name || ''),
-          payment_method: reportPayMethodKey(b.bill_type),
-          amount: total.toFixed(2),
-          bill_total: total,
-          bill_paid: paid,
-          bill_balance: bal,
           clinic_tag: clinicTag,
-          clinic_code: clinicCodeFromStoredTag(clinicTag),
-          treatment_items: b.items || '[]',
-          remarks: b.notes || ''
-        };
+          clinic_code: clinicCodeFromStoredTag(clinicTag)
+        });
         monthAllTx.push(txRow);
         return txRow;
       });
-      var billTotal = rows.reduce(function (acc, r) { return acc + Number(r.bill_total || 0); }, 0);
       var paidTotal = rows.reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
-      return { date: d, total: billTotal, paidTotal: paidTotal, rows: rows };
+      return { date: d, paidTotal: paidTotal, rows: rows };
     });
 
     var totalsByMethodPaidM = sumByKeyPaidMethods(monthAllTx, 'payment_method', 'bill_paid');
@@ -2435,9 +2567,9 @@ var REPORT = (function () {
 
       if (_tab === 'dailyIncome') {
         setHeader(tr('report.title.dailyIncome'), tr('report.hint.dailyIncome'));
-        var grouped = groupSumBy(bills, function (b) { return b.bill_date || ''; }, function (b) { return Number(b.total || 0); });
+        var grouped = groupSumBy(bills, function (b) { return b.bill_date || ''; }, reportPaidForIncomeStats);
         _rows = grouped.map(function (g) { return { date: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'date', label: tr('report.col.date') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
+        renderTable([{ key: 'date', label: tr('report.col.date') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('date', 'total');
         return;
       }
@@ -2451,27 +2583,29 @@ var REPORT = (function () {
           d.setDate(d.getDate() - diffToFri);
           // Use local YYYY-MM-DD to avoid timezone shifting (Fri -> Thu in UTC)
           return iso(d); // block start (Friday)
-        }, function (b) { return Number(b.total || 0); });
+        }, reportPaidForIncomeStats);
         _rows = groupedW.map(function (g) { return { week_start: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'week_start', label: tr('report.col.weekStart') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
+        renderTable([{ key: 'week_start', label: tr('report.col.weekStart') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('week_start', 'total');
         return;
       }
 
       if (_tab === 'monthlyIncome') {
         setHeader(tr('report.title.monthlyIncome'), tr('report.hint.monthlyIncome'));
-        var groupedM = groupSumBy(bills, function (b) { return String(b.bill_date || '').slice(0, 7); }, function (b) { return Number(b.total || 0); });
+        var groupedM = groupSumBy(bills, function (b) { return String(b.bill_date || '').slice(0, 7); }, reportPaidForIncomeStats);
         _rows = groupedM.map(function (g) { return { month: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'month', label: tr('report.col.month') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
+        renderTable([{ key: 'month', label: tr('report.col.month') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('month', 'total');
         return;
       }
 
       if (_tab === 'payStats') {
         setHeader(tr('report.title.payStats'), tr('report.hint.payStats'));
-        var groupedP = groupSumBy(bills, function (b) { return reportPayMethodKey(b.bill_type); }, function (b) { return Number(b.total || 0); });
-        _rows = groupedP.map(function (g) { return { method: dispPayMethod(g.key), total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'method', label: tr('report.col.paymentMethod') }, { key: 'total', label: tr('report.col.totalHkd') }], _rows);
+        var groupedP = groupSumBy(bills, function (b) { return reportPayMethodKey(b.bill_type); }, reportPaidForIncomeStats);
+        _rows = groupedP.filter(function (g) { return !reportPayMethodIsUnsettled(g.key); }).map(function (g) {
+          return { method: dispPayMethod(g.key), total: g.value.toFixed(2) };
+        });
+        renderTable([{ key: 'method', label: tr('report.col.paymentMethod') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('method', 'total');
         return;
       }
@@ -2668,14 +2802,37 @@ var REPORT = (function () {
       var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.fallback.dailySummary');
       var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
       var suffix = (_dailySummaryView === 'monthly') ? ('monthly_' + monthKeyOf(from)) : ('daily_' + from);
+      if (_dailySummaryDetailMode) {
+        downloadCSV('daily_summary_' + suffix + '.csv', [
+          { key: 'patient_no', label: tr('report.csv.patientNo') },
+          { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
+          { key: 'patient_name', label: tr('report.csv.patientEnglish') },
+          { key: 'payment_method', label: tr('report.csv.paymentMethod') },
+          { key: 'bill_total', label: tr('report.csv.billAmount') },
+          { key: 'bill_paid', label: tr('report.csv.paid') },
+          { key: 'bill_balance', label: tr('report.csv.balance') },
+          { key: 'remarks', label: tr('report.csv.remarks') }
+        ], (_rows || []).map(function (r) {
+          return Object.assign({}, r, {
+            bill_total: Number(r.bill_total || 0).toFixed(2),
+            bill_paid: Number(r.bill_paid != null ? r.bill_paid : r.amount || 0).toFixed(2),
+            bill_balance: Number(r.bill_balance || 0).toFixed(2)
+          });
+        }));
+        return;
+      }
       downloadCSV('daily_summary_' + suffix + '.csv', [
         { key: 'patient_no', label: tr('report.csv.patientNo') },
         { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
         { key: 'patient_name', label: tr('report.csv.patientEnglish') },
         { key: 'payment_method', label: tr('report.csv.paymentMethod') },
-        { key: 'amount', label: tr('report.csv.amount') },
+        { key: 'bill_paid', label: tr('report.csv.paid') },
         { key: 'remarks', label: tr('report.csv.remarks') }
-      ], _rows);
+      ], (_rows || []).map(function (r) {
+        return Object.assign({}, r, {
+          bill_paid: Number(r.bill_paid != null ? r.bill_paid : r.amount || 0).toFixed(2)
+        });
+      }));
     },
     printDailySummary: printDailySummary,
     renderChart: function () {

@@ -10609,7 +10609,7 @@ function saveCurrentPendingList() {
             desc: n.desc,
             qty: n.qty,
             price: n.price,
-            disc: n.disc || 0,
+            disc: roundBillDiscPct(n.disc || 0),
             others_remark: n.others_remark || ''
         };
     });
@@ -10900,7 +10900,7 @@ function renderPayPreview() {
             '<td style="padding:7px 12px;text-align:center;">' + (it.qty || 0) + '</td>' +
             '<td style="padding:7px 12px;text-align:right;">' + fmt2(it.price) + '</td>' +
             '<td style="padding:7px 12px;text-align:center;color:' + (disc > 0 ? '#dc2626' : '#aaa') + ';">' +
-                (disc > 0 ? disc + '%' : '—') +
+                (disc > 0 ? formatBillDiscPctDisplay(disc) + '%' : '—') +
             '</td>' +
             '<td style="padding:7px 12px;text-align:right;font-weight:600;">' + fmt2(amt) + '</td>';
         body.appendChild(row);
@@ -11009,7 +11009,7 @@ function syncBillItemsToPendingList() {
             desc: n.desc,
             qty: n.qty,
             price: n.price,
-            disc: n.disc || 0,
+            disc: roundBillDiscPct(n.disc || 0),
             others_remark: n.others_remark || ''
         };
     });
@@ -11024,7 +11024,7 @@ function pendingListSignature(pl) {
             desc: n.desc,
             qty: parseFloat(n.qty) || 0,
             price: parseFloat(n.price) || 0,
-            disc: parseFloat(n.disc) || 0,
+            disc: roundBillDiscPct(n.disc || 0),
             others_remark: n.others_remark || ''
         };
     });
@@ -11056,7 +11056,7 @@ function syncPendingDraftFromInputs() {
 
 function billItemAmt(it) {
     var gross = billItemGross(it);
-    var disc  = Math.min(100, Math.max(0, parseFloat(it.disc) || 0));
+    var disc  = roundBillDiscPct(it.disc);
     return gross * (1 - disc / 100);
 }
 
@@ -11071,18 +11071,31 @@ function parseBillAmountInput(raw) {
     return isNaN(n) ? 0 : n;
 }
 
-/** Derive line discount % when user edits the net amount directly. */
+/** Stable discount % storage (avoids 15.000000000000002-style float drift). */
+function roundBillDiscPct(disc) {
+    var n = Math.min(100, Math.max(0, parseFloat(disc) || 0));
+    return Math.round(n * 10000) / 10000;
+}
+
+/** Human-readable discount % for inputs, previews, and receipts. */
+function formatBillDiscPctDisplay(disc) {
+    var n = roundBillDiscPct(disc);
+    return n.toFixed(4).replace(/\.?0+$/, '') || '0';
+}
+
+function formatBillDiscPctInput(disc) {
+    return formatBillDiscPctDisplay(disc);
+}
+
+/** Derive line discount % when user edits the net amount directly (cent-safe). */
 function billItemDiscPctFromNet(it, netAmount) {
     var gross = billItemGross(it);
     if (!(gross > 0)) return 0;
     var net = Math.max(0, Math.min(gross, parseBillAmountInput(netAmount)));
-    return Math.min(100, Math.max(0, (1 - net / gross) * 100));
-}
-
-function formatBillDiscPctInput(disc) {
-    var n = Math.min(100, Math.max(0, parseFloat(disc) || 0));
-    var r = Math.round(n * 100) / 100;
-    return String(r);
+    var grossCents = Math.round(gross * 100);
+    var netCents = Math.round(net * 100);
+    if (grossCents <= 0) return 0;
+    return roundBillDiscPct((1 - netCents / grossCents) * 100);
 }
 
 function syncBillItemAmountInput(idx) {
@@ -11143,7 +11156,7 @@ function normalizeBillItem(it) {
         desc: desc,
         qty: raw.qty || 1,
         price: raw.price || 0,
-        disc: raw.disc || 0,
+        disc: roundBillDiscPct(raw.disc || 0),
         others_remark: othersRemark
     };
 }
@@ -11155,7 +11168,7 @@ function billItemsForBillSave(items) {
             desc: billItemDisplayDesc(n),
             qty: n.qty,
             price: n.price,
-            disc: n.disc || 0
+            disc: roundBillDiscPct(n.disc || 0)
         };
     });
 }
@@ -11348,7 +11361,7 @@ function renderBillItems() {
             }
             if (discEl) {
                 discEl.addEventListener('input', function() {
-                    billItems[idx].disc = parseFloat(this.value) || 0;
+                    billItems[idx].disc = roundBillDiscPct(parseFloat(this.value) || 0);
                     syncBillItemAmountInput(idx);
                     syncBillItemsToPendingList();
                     recalcTotals();
@@ -12362,7 +12375,7 @@ function showBillDetail(b) {
             '<td style="padding:9px 14px;text-align:center;">' + (it.qty || 0) + '</td>' +
             '<td style="padding:9px 14px;text-align:right;">' + fmt2(it.price) + '</td>' +
             '<td style="padding:9px 14px;text-align:center;color:' + (disc > 0 ? '#dc2626' : '#aaa') + ';">' +
-                (disc > 0 ? disc + '%' : '—') +
+                (disc > 0 ? formatBillDiscPctDisplay(disc) + '%' : '—') +
             '</td>' +
             '<td style="padding:9px 14px;text-align:right;font-weight:600;">' + fmt2(amt) + '</td>';
         tbody.appendChild(row);
@@ -13734,7 +13747,7 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
             '<td style="padding:4px 6px;text-align:right;">' + fmtHK(it.price) + '</td>' +
             '<td style="padding:4px 6px;text-align:center;color:' +
                 (disc > 0 ? '#dc2626' : '#aaa') + ';">' +
-                (disc > 0 ? disc + '%' : '—') + '</td>' +
+                (disc > 0 ? formatBillDiscPctDisplay(disc) + '%' : '—') + '</td>' +
             '<td style="padding:4px 6px;text-align:right;">' + fmtHK(amt) + '</td>';
         rb.appendChild(row);
     });

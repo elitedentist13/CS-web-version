@@ -676,6 +676,17 @@ function todayISO() {
     return d2iso(nowLocal());
 }
 
+/** Download CSV as UTF-8 with BOM so Excel displays CJK text correctly. */
+function downloadCsvUtf8(filename, csv) {
+    var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
 /** Timestamp for DB inserts — working calendar date + current local clock time. */
 function workingTimestampISO() {
     return nowLocal().toISOString();

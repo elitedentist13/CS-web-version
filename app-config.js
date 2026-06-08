@@ -3404,13 +3404,7 @@ var CFG = (function () {
                     }).join(',');
                 }).join('\n');
 
-            var blob = new Blob([csv], { type: 'text/csv' });
-            var url  = URL.createObjectURL(blob);
-            var a    = document.createElement('a');
-            a.href     = url;
-            a.download = table + '_' + (typeof todayISO === 'function' ? todayISO() : '') + '.csv';
-            a.click();
-            URL.revokeObjectURL(url);
+            downloadCsvUtf8(table + '_' + (typeof todayISO === 'function' ? todayISO() : '') + '.csv', csv);
             toast(ctrRepl('cfg.msg.exported', { LABEL: label }));
         });
     }

@@ -1158,13 +1158,7 @@ var REPORT = (function () {
         return '"' + String(v).replace(/"/g, '""') + '"';
       }).join(',');
     }).join('\n');
-    var blob = new Blob([csv], { type: 'text/csv' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = (_tab || 'report') + '_' + todayISO() + '.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsvUtf8((_tab || 'report') + '_' + todayISO() + '.csv', csv);
   }
 
   function groupSumBy(rows, keyFn, valueFn) {
@@ -1684,13 +1678,7 @@ var REPORT = (function () {
         return '"' + String(v).replace(/"/g, '""') + '"';
       }).join(',');
     }).join('\n');
-    var blob = new Blob([csv], { type: 'text/csv' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsvUtf8(filename, csv);
   }
 
   function showChartColumn(show) {

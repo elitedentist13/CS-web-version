@@ -1101,14 +1101,8 @@ function exportDrugCSV() {
         }).join(',');
     });
 
-    var csv  = headers.join(',') + '\n' + rows.join('\n');
-    var blob = new Blob([csv], { type: 'text/csv' });
-    var url  = URL.createObjectURL(blob);
-    var a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'druglist_' + todayISO() + '.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    var csv = headers.join(',') + '\n' + rows.join('\n');
+    downloadCsvUtf8('druglist_' + todayISO() + '.csv', csv);
 }
 
 // ════════════════════════════════════════════════════════════════

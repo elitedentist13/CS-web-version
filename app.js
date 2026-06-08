@@ -1117,7 +1117,10 @@ function doctorsForLoginDropdown(mode) {
 }
 
 function loginDoctorOptionLabel(d) {
-    return doctorDisplayName(d) || 'Doctor';
+    if (!d) return 'Doctor';
+    var code = String(d.doctor_code || '').trim();
+    var name = doctorDisplayName(d) || 'Doctor';
+    return code ? (name + ' [' + code + ']') : name;
 }
 
 /**
@@ -1882,6 +1885,9 @@ function showOnly(id) {
     if (target) {
         target.style.display = (id === 'loginOverlay') ? 'flex' : 'block';
         target.removeAttribute('aria-hidden');
+    }
+    if (id === 'patientSection' && typeof patViewSetMode === 'function') {
+        patViewSetMode('directory', { skipScroll: true });
     }
     syncAppSessionChrome();
 }
@@ -3196,15 +3202,21 @@ document.addEventListener('DOMContentLoaded', function() {
         suggestNoBtn.addEventListener('click', function(ev) {
             ev.preventDefault();
             if (typeof genPatientNo !== 'function') return;
-            genPatientNo(function(no) {
+            genPatientNo(function(no, err) {
                 if (no) {
                     sv('preview_patientNo', no);
                     if (typeof updateAddPatientNoAvailabilityUI === 'function') {
                         updateAddPatientNoAvailabilityUI();
                     }
-                } else {
-                    alert(appTr('patient.alertNoFreeRange'));
+                    return;
                 }
+                if (err) {
+                    alert(appTrRepl('patient.alertVerifyNoFail', {
+                        MSG: (err && err.message) ? err.message : String(err)
+                    }));
+                    return;
+                }
+                alert(appTr('patient.alertNoFreeRange'));
             });
         });
     }

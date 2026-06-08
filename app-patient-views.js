@@ -141,6 +141,8 @@ function patViewEmptyHtml(msgKey) {
 function patViewActionsHtml(p) {
     var id = p && p.id ? esc(p.id) : '';
     return '<div class="pat-view-actions">' +
+        '<button type="button" class="btn-add pat-view-act" data-act="plusappt" data-id="' + id + '">' +
+        esc(patViewTr('appt.plusAppt.addBtn')) + '</button>' +
         '<button type="button" class="btn-add pat-view-act" data-act="consult" data-id="' + id + '">' +
         esc(patViewTr('patient.view.openConsult')) + '</button>' +
         '<button type="button" class="btn-add pat-view-act" data-act="notes" data-id="' + id + '">' +
@@ -150,6 +152,34 @@ function patViewActionsHtml(p) {
         '<button type="button" class="btn-add pat-view-act" data-act="edit" data-id="' + id + '">' +
         esc(currentRole === 'nurse' ? patViewTr('patient.btnClinicTag') : patViewTr('patient.btnEdit')) +
         '</button></div>';
+}
+
+function patViewResolveActivePatient() {
+    if (patientViewFullRecord && patientViewFullRecord.id) return patientViewFullRecord;
+    if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient && _patientDetailsPatient.id) {
+        return _patientDetailsPatient;
+    }
+    if (typeof selPatientId !== 'undefined' && selPatientId) {
+        return (patientListCache || []).find(function (x) {
+            return x && String(x.id) === String(selPatientId);
+        }) || null;
+    }
+    return null;
+}
+
+function patViewOpenPlusAppt(patientRecord) {
+    if (typeof guardModuleByPermission === 'function' &&
+        !guardModuleByPermission('appointment')) return;
+    var p = patientRecord || patViewResolveActivePatient();
+    if (typeof openPlusApptForPatient === 'function') {
+        openPlusApptForPatient(p);
+        return;
+    }
+    if (typeof showOnly === 'function') showOnly('appointmentSection');
+    if (typeof initAppt === 'function') initAppt();
+    setTimeout(function () {
+        if (typeof switchApptTab === 'function') switchApptTab('plusappt');
+    }, 60);
 }
 
 function patViewBananaPanelHtml(p) {
@@ -515,6 +545,13 @@ function patViewWireHostActions(host) {
             patViewSetMode('directory');
             return;
         }
+        if (act === 'plusappt') {
+            var plusRow = (patientListCache || []).find(function (x) {
+                return x && String(x.id) === String(id);
+            }) || patientViewFullRecord;
+            patViewOpenPlusAppt(plusRow);
+            return;
+        }
         if (act === 'consult' && id && typeof openConForPatient === 'function') {
             openConForPatient(id);
             return;
@@ -561,6 +598,13 @@ function initPatientViews() {
     });
     var dashHost = g('patientDashboardHost');
     if (dashHost) patViewWireHostActions(dashHost);
+    var plusApptBtn = g('patientPlusApptBtn');
+    if (plusApptBtn && plusApptBtn.dataset.patPlusApptBound !== '1') {
+        plusApptBtn.dataset.patPlusApptBound = '1';
+        plusApptBtn.addEventListener('click', function () {
+            patViewOpenPlusAppt();
+        });
+    }
     patViewSetMode(patientViewMode, { skipScroll: true });
 }
 

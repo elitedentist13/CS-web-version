@@ -365,21 +365,28 @@ function collectAllPatientNumbersThen(cb) {
 
     function page(from) {
         var to = from + PATIENT_NO_PAGE_SIZE - 1;
-        SB.from('patients').select('patient_no').range(from, to).then(function(r) {
-            if (r.error) {
-                if (typeof cb === 'function') cb(null, r.error);
-                return;
-            }
-            var rows = r.data || [];
-            rows.forEach(function(row) {
-                if (row && row.patient_no != null) acc.push(row.patient_no);
+        SB.from('patients')
+            .select('patient_no')
+            .order('patient_no', { ascending: true })
+            .range(from, to)
+            .then(function(r) {
+                if (r.error) {
+                    if (typeof cb === 'function') cb(null, r.error);
+                    return;
+                }
+                var rows = r.data || [];
+                rows.forEach(function(row) {
+                    if (row && row.patient_no != null) acc.push(row.patient_no);
+                });
+                if (rows.length < PATIENT_NO_PAGE_SIZE) {
+                    if (typeof cb === 'function') cb(acc, null);
+                    return;
+                }
+                page(to + 1);
+            })
+            .catch(function(e) {
+                if (typeof cb === 'function') cb(null, e || new Error('patient_no fetch failed'));
             });
-            if (rows.length < PATIENT_NO_PAGE_SIZE) {
-                if (typeof cb === 'function') cb(acc, null);
-                return;
-            }
-            page(to + 1);
-        });
     }
 
     page(0);
@@ -388,8 +395,8 @@ function collectAllPatientNumbersThen(cb) {
 /** Returns normalized numeric core or null if invalid/out of range. */
 function normalizePatientNoInput(raw) {
     var digits = (typeof patientNoDigitWidth === 'function') ? patientNoDigitWidth() : 6;
-    var minReg = Math.pow(10, digits - 1);
-    var maxReg = Math.pow(10, digits) - 1;
+    var minReg = (typeof patientNoMinReg === 'function') ? patientNoMinReg() : MIN_PATIENT_REG_NO;
+    var maxReg = (typeof patientNoMaxReg === 'function') ? patientNoMaxReg() : MAX_PATIENT_REG_NO;
     var core = (typeof stripPatientNoPrefix === 'function')
         ? stripPatientNoPrefix(raw)
         : String(raw || '').trim();
@@ -580,25 +587,39 @@ function updateAddPatientNoAvailabilityUI() {
 function genPatientNo(cb) {
     collectAllPatientNumbersThen(function(list, err) {
         if (err) {
-            if (typeof cb === 'function') cb(null);
+            if (typeof cb === 'function') cb(null, err);
             return;
         }
+        var minReg = (typeof patientNoMinReg === 'function') ? patientNoMinReg() : MIN_PATIENT_REG_NO;
+        var maxReg = (typeof patientNoMaxReg === 'function') ? patientNoMaxReg() : MAX_PATIENT_REG_NO;
         var digits = (typeof patientNoDigitWidth === 'function') ? patientNoDigitWidth() : 6;
-        var minReg = Math.pow(10, digits - 1);
-        var maxReg = Math.pow(10, digits) - 1;
-        var nums = list.map(function(no) {
-            var core = (typeof stripPatientNoPrefix === 'function')
-                ? stripPatientNoPrefix(no)
-                : String(no || '');
-            return parseInt(String(core).replace(/\D/g, ''), 10);
-        }).filter(function(n) { return !isNaN(n); });
-        var highs = nums.filter(function(n) { return n >= minReg; });
+        var used = {};
+        (list || []).forEach(function(no) {
+            var n = (typeof parsePatientNoCore === 'function')
+                ? parsePatientNoCore(no)
+                : null;
+            if (n != null) used[n] = true;
+        });
 
-        var nextNum;
-        if (!highs.length) nextNum = minReg;
-        else nextNum = Math.max.apply(null, highs) + 1;
+        var nextNum = null;
+        var usedNums = Object.keys(used).map(function(k) { return parseInt(k, 10); });
+        if (usedNums.length) {
+            var candidate = Math.max.apply(null, usedNums) + 1;
+            if (candidate <= maxReg && !used[candidate]) nextNum = candidate;
+        } else {
+            nextNum = minReg;
+        }
 
-        if (nextNum > maxReg) {
+        if (nextNum == null) {
+            for (var n = minReg; n <= maxReg; n++) {
+                if (!used[n]) {
+                    nextNum = n;
+                    break;
+                }
+            }
+        }
+
+        if (nextNum == null) {
             if (typeof cb === 'function') cb(null);
             return;
         }
@@ -632,17 +653,22 @@ function openAddPatient() {
     }
     var autoGen = (typeof programSettingBool !== 'function') || programSettingBool('auto_generate_patient_code', true);
     if (!autoGen) return;
-    genPatientNo(function(no) {
+    genPatientNo(function(no, err) {
         if (no) {
             sv('preview_patientNo', no);
             updateAddPatientNoAvailabilityUI();
-        } else {
-            sv('preview_patientNo', '');
-            if (st) {
-                st.textContent = patTr('patient.noStatusExhausted');
-                st.style.color = 'var(--danger)';
-            }
+            return;
         }
+        sv('preview_patientNo', '');
+        if (!st) return;
+        if (err) {
+            st.textContent = patTrRepl('patient.alertVerifyNoFail', {
+                MSG: (err && err.message) ? err.message : String(err)
+            });
+        } else {
+            st.textContent = patTr('patient.noStatusExhausted');
+        }
+        st.style.color = 'var(--danger)';
     });
 }
 

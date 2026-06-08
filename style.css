@@ -10962,6 +10962,14 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     margin-bottom: 14px;
 }
 .patient-sec-header h2 { margin: 0; flex: 1 1 180px; }
+.patient-sec-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-left: auto;
+}
+.patient-quick-btn { white-space: nowrap; }
 .patient-view-toggle {
     display: inline-flex;
     gap: 4px;

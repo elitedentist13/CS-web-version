@@ -60,6 +60,28 @@ function stripPatientNoPrefix(raw) {
     return s;
 }
 
+/** Lowest numeric core for the configured width (6 digits → 010000 = 10000). */
+function patientNoMinReg() {
+    var digits = patientNoDigitWidth();
+    return Math.pow(10, Math.max(1, digits - 2));
+}
+
+/** Highest numeric core (6 digits → 999999). */
+function patientNoMaxReg() {
+    return Math.pow(10, patientNoDigitWidth()) - 1;
+}
+
+/** Parse stored patient_no to numeric core, or null if out of range / invalid. */
+function parsePatientNoCore(raw) {
+    var core = stripPatientNoPrefix(raw);
+    var digits = patientNoDigitWidth();
+    var s = String(core || '').trim().replace(/\D/g, '');
+    if (!s.length || s.length > digits) return null;
+    var n = parseInt(s, 10);
+    if (isNaN(n) || n < patientNoMinReg() || n > patientNoMaxReg()) return null;
+    return n;
+}
+
 function applyProgramSettingsSideEffects() {
     if (typeof setAuditLoggingFromProgramSetting === 'function') {
         setAuditLoggingFromProgramSetting(programSettingBool('audit_trail', true));

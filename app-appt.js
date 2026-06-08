@@ -3240,6 +3240,33 @@ function plusApptPrefillModalPatient() {
     if (typeof apptSetSelectedPatient === 'function') apptSetSelectedPatient(p);
 }
 
+function plusApptApplyHeaderPatient(p) {
+    if (!p || !p.id) return;
+    plusApptHeaderPatient = p;
+    var inp = g('plusApptPsInput');
+    if (inp) {
+        inp.value =
+            (p.chinese_name ? p.chinese_name + ' ' : '') +
+            (p.full_name || p.patient_name || '') +
+            ' (#' + (p.patient_no || '') + ')';
+    }
+    var dd = g('plusApptPsDrop');
+    if (dd) dd.style.display = 'none';
+}
+
+/** Open + Appointment tab; optionally prefill patient from patient module. */
+function openPlusApptForPatient(p) {
+    if (p && p.id && typeof setActivePatientSlot === 'function') {
+        setActivePatientSlot(0, p, 'patient-plus-appt', true);
+    }
+    if (typeof showOnly === 'function') showOnly('appointmentSection');
+    if (typeof initAppt === 'function') initAppt();
+    setTimeout(function () {
+        if (p && p.id) plusApptApplyHeaderPatient(p);
+        if (typeof switchApptTab === 'function') switchApptTab('plusappt');
+    }, 60);
+}
+
 function openPlusApptCreateModal() {
     if (!plusApptDate || !plusApptSelectedSlot || plusApptSelectedAppt) return;
     var drCode = plusApptEffectiveDoctorCode();

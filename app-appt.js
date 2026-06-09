@@ -2108,7 +2108,10 @@ function apptTransferHideSourceRowTemporarily(apptId) {
     document.querySelectorAll(
         '#queueBody tr[data-appt-id="' + oid + '"], ' +
         '#todayBody tr[data-appt-id="' + oid + '"], ' +
-        '.day-panel-item[data-appt-id="' + oid + '"]'
+        '.day-panel-item[data-appt-id="' + oid + '"], ' +
+        '.gcal-card[data-id="' + oid + '"], ' +
+        '.gcal-month-pill[data-id="' + oid + '"], ' +
+        '.appt-pill[data-id="' + oid + '"]'
     ).forEach(function(el) {
         el.classList.add('appt-row-transfer-cut-pending');
         el.setAttribute('hidden', 'hidden');
@@ -2432,6 +2435,13 @@ function apptPurgeTransferredSourceFromUi(oldId) {
         if (row.dataset && row.dataset.apptId === oid) {
             row.classList.remove('appt-list-row-selected');
         }
+    });
+    document.querySelectorAll(
+        '.gcal-card[data-id="' + oid + '"], ' +
+        '.gcal-month-pill[data-id="' + oid + '"], ' +
+        '.appt-pill[data-id="' + oid + '"]'
+    ).forEach(function(el) {
+        el.remove();
     });
     var qc = g('queueCount');
     if (qc) {
@@ -9886,7 +9896,9 @@ var GCAL = (function () {
             }
 
             // Appointment cards (side-by-side when overlapping — Google Calendar style)
-            var dayAppts = appts.filter(function (a) { return a.date === iso; });
+            var dayAppts = appts.filter(function (a) {
+                return a.date === iso && !apptTransferIsCutPending(a.id);
+            });
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts) {
                 dayAppts = CalDoctorColors.filterAppts(dayAppts);
             }
@@ -9922,13 +9934,33 @@ var GCAL = (function () {
             function hidePatientDropGhost() {
                 ghost.style.display = 'none';
             }
+            function completePendingTransferAtSlot(slotIso, slotTime) {
+                if (!apptTransferCutIsActive()) return false;
+                var snap = plusApptTransferLogSnapshot();
+                if (!snap || !snap.apptId) return false;
+                var dur = parseInt(snap.duration || '0', 10);
+                if (!dur || dur < 1) dur = PLUSAPPT_SLOT_MIN;
+                var endTime = minToTimeStr(timeToMin(slotTime) + dur);
+                document.querySelectorAll('.gcal-card[data-id="' + String(snap.apptId) + '"]').forEach(function(card) {
+                    card.classList.add('appt-row-transfer-cut-pending');
+                    card.setAttribute('hidden', 'hidden');
+                    card.style.display = 'none';
+                });
+                plusApptFinishTransferCutPaste(snap, {
+                    date: slotIso,
+                    start_time: slotTime,
+                    end_time: endTime,
+                    duration: dur
+                });
+                return true;
+            }
             col.addEventListener('dragover', function(ev) {
                 if (typeof isActivePatientCardDragActive === 'function' && !isActivePatientCardDragActive()) {
                     hidePatientDropGhost();
                     return;
                 }
                 ev.preventDefault();
-                ev.dataTransfer.dropEffect = 'copy';
+                ev.dataTransfer.dropEffect = apptTransferCutIsActive() ? 'move' : 'copy';
                 showPatientDropGhost(ev.clientY);
             });
             col.addEventListener('dragleave', function(ev) {
@@ -9946,14 +9978,19 @@ var GCAL = (function () {
                     ? readPatientDragPayloadFromEvent(ev)
                     : null;
                 hidePatientDropGhost();
-                if (!p) return;
                 ev.preventDefault();
                 var relY = ev.clientY - col.getBoundingClientRect().top;
                 var slotIdx = Math.max(0, Math.round(relY / S.slotH));
                 var maxSlot = Math.floor((totalH() - S.slotH) / S.slotH);
                 slotIdx = Math.max(0, Math.min(slotIdx, maxSlot));
                 var totalMin = Math.min(S.startHour * 60 + slotIdx * S.interval, (S.endHour - 1) * 60);
-                openApptModalWithPatient(iso, minToTimeStr(totalMin), p);
+                var slotTime = minToTimeStr(totalMin);
+                if (completePendingTransferAtSlot(iso, slotTime)) {
+                    hidePatientDropGhost();
+                    return;
+                }
+                if (!p) return;
+                openApptModalWithPatient(iso, slotTime, p);
                 hidePatientDropGhost();
             });
 
@@ -10087,11 +10124,16 @@ var GCAL = (function () {
         head.title = typeof tr === 'function' ? tr('activePatient.dragFromApptTitle') : '';
         head.addEventListener('dragstart', function(e) {
             e.stopPropagation();
+            if (typeof plusApptMarkRowDragTransfer === 'function') {
+                plusApptMarkRowDragTransfer(e, appt);
+            }
             if (typeof beginApptPatientDragTransfer === 'function') {
                 beginApptPatientDragTransfer(e, appt);
             }
         });
         head.addEventListener('dragend', function() {
+            plusApptDragApptId = null;
+            plusApptSetMiniCalDragOver(false);
             if (typeof clearPatientDragPayloadSession === 'function') {
                 clearPatientDragPayloadSession();
             }
@@ -10412,6 +10454,58 @@ var GCAL = (function () {
         if (el) el.style.display = 'none';
     }
 
+    function calendarActivePatientDropTargetAt(clientX, clientY) {
+        var under = document.elementFromPoint(clientX, clientY);
+        if (!under || !under.closest) return null;
+        var target = under.closest('.active-patient-card, #activePatientCollapsedTab');
+        if (!target) return null;
+        var slot = target.id === 'activePatientCard1' ? 1 : 0;
+        return { el: target, slot: slot };
+    }
+
+    function calendarApplyActivePatientCutDrop(ds, ev) {
+        if (!ds || !ds.appt || !ev || ev.clientX == null || ev.clientY == null) return false;
+        var target = calendarActivePatientDropTargetAt(ev.clientX, ev.clientY);
+        if (!target) return false;
+        var appt = ds.appt;
+        if (isApptScheduleLocked(appt) || typeof setActivePatientSlot !== 'function') return false;
+        suppressCardClickUntil = Date.now() + 700;
+
+        function hideCalendarSourceCard() {
+            if (ds.card) {
+                ds.card.classList.add('appt-row-transfer-cut-pending');
+                ds.card.setAttribute('hidden', 'hidden');
+                ds.card.style.display = 'none';
+            }
+            document.querySelectorAll('.gcal-card[data-id="' + String(appt.id) + '"]').forEach(function(card) {
+                card.classList.add('appt-row-transfer-cut-pending');
+                card.setAttribute('hidden', 'hidden');
+                card.style.display = 'none';
+            });
+        }
+
+        function applyPayload() {
+            if (typeof patientDragPayloadFromAppt !== 'function') return false;
+            var p = patientDragPayloadFromAppt(appt);
+            if (!p || !p.id) return false;
+            if (!apptTransferBeginPendingCut(appt)) return false;
+            hideCalendarSourceCard();
+            setActivePatientSlot(target.slot, p, 'calendar-card-transfer-cut', target.slot === 0);
+            if (typeof isActivePatientDockCollapsed === 'function' && isActivePatientDockCollapsed()) {
+                setActivePatientDockCollapsed(false, true);
+            }
+            return true;
+        }
+
+        if (applyPayload()) return true;
+        if (appt.patient_no && typeof resolveQueueRowPatientId === 'function') {
+            hideCalendarSourceCard();
+            resolveQueueRowPatientId(appt, applyPayload);
+            return true;
+        }
+        return false;
+    }
+
     function onDragMove(e) {
         if (!dragState) return;
         var ds = dragState;
@@ -10451,7 +10545,7 @@ var GCAL = (function () {
         ds.ghostCol = targetCol;
     }
 
-    function onDragEnd() {
+    function onDragEnd(e) {
         if (!dragState) return;
         document.removeEventListener('mousemove', onDragMove);
         document.removeEventListener('mouseup',   onDragEnd);
@@ -10467,6 +10561,10 @@ var GCAL = (function () {
         ds.card.style.opacity = '';
 
         if (isApptScheduleLocked(ds.appt)) return;
+        if (calendarApplyActivePatientCutDrop(ds, e || window.event)) {
+            suppressCardClickUntil = Date.now() + 700;
+            return;
+        }
 
         var dateChanged = ds.curDate && ds.curDate !== ds.origDate;
         var timeChanged = ds.curTime !== ds.origTime;

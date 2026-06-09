@@ -2421,7 +2421,7 @@ function bindActivePatientCardDropTarget(el, slotIdx) {
         ev.preventDefault();
         ev.stopPropagation();
         try {
-            ev.dataTransfer.dropEffect = 'copy';
+            ev.dataTransfer.dropEffect = isScheduleApptPatientDragActive() ? 'move' : 'copy';
         } catch (_) {}
         el.classList.add('is-drag-over');
     });

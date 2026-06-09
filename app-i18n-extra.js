@@ -2654,6 +2654,17 @@
             'zh-CN': '本机 Ai-Dental-Client 小片软件',
             'zh-Hant': '本機 Ai-Dental-Client 小片軟件'
         },
+        'media.sys.nntnewtom': { en: 'NNT / NEWTOM', 'zh-CN': 'NNT / NEWTOM', 'zh-Hant': 'NNT / NEWTOM' },
+        'media.sys.nntnewtom.info': {
+            en: 'Opens NNT / NEWTOM CBCT imaging software on this PC',
+            'zh-CN': '打开本机 NNT / NEWTOM CBCT 影像软件',
+            'zh-Hant': '開啟本機 NNT / NEWTOM CBCT 影像軟件'
+        },
+        'media.sys.nntnewtom.desktopHint': {
+            en: 'NNT / NEWTOM CBCT software on this PC',
+            'zh-CN': '本机 NNT / NEWTOM CBCT 软件',
+            'zh-Hant': '本機 NNT / NEWTOM CBCT 軟件'
+        },
         'media.local.aidentalOpen': {
             en: 'Open Ai-Dental-Client (small film) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Local folder: {FOLDER}\n\nRequires "Start X-Ray Launcher.bat" running, or open the shortcut manually.',
             'zh-CN': '在本机打开 Ai-Dental-Client（小片）？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 本地文件夹：{FOLDER}\n\n需运行「Start X-Ray Launcher.bat」，或手动打开快捷方式。',
@@ -2673,6 +2684,21 @@
             en: '(Search by patient name or no. in Ai-Dental-Client)',
             'zh-CN': '（在 Ai-Dental-Client 中按患者姓名或编号搜索）',
             'zh-Hant': '（在 Ai-Dental-Client 中按病人姓名或編號搜尋）'
+        },
+        'media.local.nntnewtomOpen': {
+            en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT/NEWTOM normally opens its own patient database — search by the copied patient name or patient no.',
+            'zh-CN': '在本机打开 NNT / NEWTOM？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\nNNT/NEWTOM 通常打开其自身患者数据库 — 请用已复制的患者姓名或编号搜索。',
+            'zh-Hant': '在本機開啟 NNT / NEWTOM？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 可選本機資料夾：{FOLDER}\n\nNNT/NEWTOM 通常開啟其自身病人資料庫 — 請用已複製的病人姓名或編號搜尋。'
+        },
+        'media.local.nntnewtomLaunched': {
+            en: 'NNT / NEWTOM is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
+            'zh-CN': '正在启动 NNT / NEWTOM。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
+            'zh-Hant': '正在啟動 NNT / NEWTOM。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
+        },
+        'media.local.nntnewtomLauncherNeeded': {
+            en: 'Could not start NNT / NEWTOM from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click NNT / NEWTOM again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 NNT / NEWTOM。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 NNT / NEWTOM\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 NNT / NEWTOM。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 NNT / NEWTOM\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
@@ -2708,6 +2734,11 @@
             en: '(Carestream Patient Browser — search by patient name or no. in the app)',
             'zh-CN': '（Carestream 患者浏览器 — 在软件内按患者姓名或编号搜索）',
             'zh-Hant': '（Carestream 患者瀏覽器 — 在軟件內按病人姓名或編號搜尋）'
+        },
+        'media.local.desktopUsePatientSearch': {
+            en: '(Open the desktop app, then search by copied patient name or no.)',
+            'zh-CN': '（打开桌面程序后，按已复制的患者姓名或编号搜索）',
+            'zh-Hant': '（開啟桌面程式後，按已複製的病人姓名或編號搜尋）'
         },
         'media.sys.trophy.info': {
             en: 'Launches Trophy/Kodak imaging system',

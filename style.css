@@ -6725,6 +6725,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .xray-sys-planmeca  { border-color: #4caf50; color: #4caf50; }
 .xray-sys-carestream{ border-color: #ff9800; color: #ff9800; }
 .xray-sys-aidental   { border-color: #7c3aed; color: #7c3aed; }
+.xray-sys-nntnewtom { border-color: #0f766e; color: #0f766e; }
 .xray-sys-Trophy    { border-color: #9c27b0; color: #9c27b0; }
 .xray-sys-diy       {
     border-color: #374151;
@@ -6738,6 +6739,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .xray-sys-planmeca:hover   { background: #4caf50; color: white; }
 .xray-sys-carestream:hover { background: #ff9800; color: white; }
 .xray-sys-aidental:hover    { background: #7c3aed; color: white; }
+.xray-sys-nntnewtom:hover  { background: #0f766e; color: white; }
 .xray-sys-Trophy:hover     { background: #9c27b0; color: white; }
 .xray-sys-diy:hover        { background: #374151; color: white; }
 .xray-sys-local {

@@ -1521,7 +1521,11 @@ var REPORT = (function () {
       doctor_name = doctor_name || drDisplayName(matched);
     }
     if (!doctor_display) doctor_display = tr('report.ds.unknownDoctor');
-    var doctor_key = doctor_id || normName(doctor_tag) || normName(doctor_name) || '__unknown__';
+    var doctor_key = normName(doctor_display) ||
+      normName(doctor_tag) ||
+      normName(doctor_name) ||
+      doctor_id ||
+      '__unknown__';
     return {
       doctor_id: doctor_id,
       doctor_name: doctor_name,
@@ -1553,11 +1557,20 @@ var REPORT = (function () {
     return min;
   }
 
+  function dailySummaryDoctorGroupKey(t) {
+    if (!t) return '__unknown__';
+    return String(t.doctor_key || '').trim() ||
+      normName(t.doctor_display) ||
+      normName(t.doctor_tag) ||
+      normName(t.doctor_name) ||
+      '__unknown__';
+  }
+
   function dailySummaryGroupTxByDoctor(transactions) {
     var map = {};
     var order = [];
     (transactions || []).forEach(function (t) {
-      var k = t.doctor_key || '__unknown__';
+      var k = dailySummaryDoctorGroupKey(t);
       if (!map[k]) {
         map[k] = { key: k, label: t.doctor_display || tr('report.ds.unknownDoctor'), rows: [] };
         order.push(k);
@@ -1583,7 +1596,7 @@ var REPORT = (function () {
   function dailySummaryUniqueDoctorCount(transactions) {
     var seen = {};
     (transactions || []).forEach(function (t) {
-      seen[t.doctor_key || '__unknown__'] = true;
+      seen[dailySummaryDoctorGroupKey(t)] = true;
     });
     return Object.keys(seen).length;
   }

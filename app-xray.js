@@ -1872,11 +1872,9 @@ var XRAY_LAUNCHER_PORT = 17890;
 var XRAY_LAUNCHER_BASE = 'http://127.0.0.1:' + XRAY_LAUNCHER_PORT;
 
 function xrayLauncherBlockedByPage() {
-    try {
-        return window.location.protocol === 'https:';
-    } catch (eBlock) {
-        return false;
-    }
+    // Browser vendors allow loopback bridges like 127.0.0.1 from secure pages
+    // with CORS/PNA preflight. Keep GitHub Pages able to reach the local launcher.
+    return false;
 }
 
 /** Quick check: is tools/Start X-Ray Launcher.bat running on this PC? */
@@ -1909,7 +1907,8 @@ function pingXrayLauncher(cb) {
             cb({
                 online: !!(body && body.ok),
                 carestream_exists: !!(body && body.carestream_exists),
-                aidental_exists: !!(body && body.aidental_exists)
+                aidental_exists: !!(body && body.aidental_exists),
+                nntnewtom_exists: !!(body && body.nntnewtom_exists)
             });
         })
         .catch(function() {
@@ -1921,24 +1920,23 @@ function pingXrayLauncher(cb) {
         });
 }
 
-function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, cb) {
+function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
+    if (typeof opts === 'function') {
+        cb = opts;
+        opts = {};
+    }
+    opts = opts || {};
     if (xrayLauncherBlockedByPage()) {
         cb(false);
         return;
     }
     var patQ = '';
-    if (patient) {
-        var qParts = [];
-        var patNo = String(patient.patient_no || '').trim();
-        var patName = String(patient.full_name || '').trim();
-        if (patNo) {
-            qParts.push('patient_no=' + encodeURIComponent(patNo));
-        }
-        if (patName) {
-            qParts.push('patient_name=' + encodeURIComponent(patName));
-        }
-        if (qParts.length) patQ = '?' + qParts.join('&');
+    var qParts = [];
+    if (patient) appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '');
+    if (opts.appPath) {
+        qParts.push('app_path=' + encodeURIComponent(opts.appPath));
     }
+    if (qParts.length) patQ = '?' + qParts.join('&');
     var url = XRAY_LAUNCHER_BASE + '/open/' +
         encodeURIComponent(launcherKey || 'carestream') + patQ;
     var finished = false;
@@ -2030,6 +2028,21 @@ var XRAY_SYSTEMS = {
         openMsgKey: 'media.local.aidentalOpen',
         launchedMsgKey: 'media.local.aidentalLaunched',
         launcherNeededMsgKey: 'media.local.aidentalLauncherNeeded'
+    },
+    nntnewtom: {
+        nameKey: 'media.sys.nntnewtom',
+        infoKey: 'media.sys.nntnewtom.info',
+        url: '',
+        launcherKey: 'nntnewtom',
+        desktopShortcutName: 'NNT / NEWTOM',
+        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\NNT.lnk',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: 'C:\\NNT\\NNT.exe',
+        launchProtocol: false,
+        openMsgKey: 'media.local.nntnewtomOpen',
+        launchedMsgKey: 'media.local.nntnewtomLaunched',
+        launcherNeededMsgKey: 'media.local.nntnewtomLauncherNeeded'
     },
     Trophy: {
         nameKey: 'media.sys.trophy',
@@ -2161,6 +2174,33 @@ function xrayPatientSearchClipboardText(patient) {
     if (tokens.patient_name) return tokens.patient_name;
     if (tokens.patient_no) return tokens.patient_no;
     return '';
+}
+
+function xrayBridgePatientPayload(patient, folderPath) {
+    patient = patient || {};
+    return {
+        patient_id: patient.id || '',
+        patient_no: patient.patient_no || '',
+        patient_name: patient.full_name || '',
+        chinese_name: patient.chinese_name || '',
+        dob: patient.dob || '',
+        sex: patient.sex || '',
+        phone: patient.phone_number || patient.phone || '',
+        mobile_phone: patient.mobile_phone || '',
+        hkid: patient.hkid || '',
+        email: patient.email || '',
+        address: patient.address || '',
+        medical_alerts: patient.medical_alerts || '',
+        folder_path: folderPath || ''
+    };
+}
+
+function appendXrayBridgePatientParams(qParts, patient, folderPath) {
+    var payload = xrayBridgePatientPayload(patient, folderPath);
+    Object.keys(payload).forEach(function(key) {
+        var val = String(payload[key] == null ? '' : payload[key]).trim();
+        if (val) qParts.push(key + '=' + encodeURIComponent(val));
+    });
 }
 
 function applyXrayLocalPattern(pattern, patient) {
@@ -2424,9 +2464,11 @@ function openDesktopXrayApp(key) {
     var openKey = sys.openMsgKey || 'media.local.carestreamOpen';
     var launchedKey = sys.launchedMsgKey || 'media.local.carestreamLaunched';
     var neededKey = sys.launcherNeededMsgKey || 'media.local.carestreamLauncherNeeded';
-    var folderHint = (key === 'carestream')
-        ? mediaTr('media.local.carestreamUsePatientBrowser')
-        : mediaTr('media.local.aidentalUseFolder');
+    var folderHint = sys.folderHintKey
+        ? mediaTr(sys.folderHintKey)
+        : ((key === 'carestream')
+            ? mediaTr('media.local.carestreamUsePatientBrowser')
+            : mediaTr('media.local.desktopUsePatientSearch'));
     var launcherKey = sys.launcherKey || key;
     var searchText = xrayPatientSearchClipboardText(patient) || '—';
 
@@ -2464,7 +2506,10 @@ function openDesktopXrayApp(key) {
             return;
         }
 
-        tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, function(launched) {
+        tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, {
+            appPath: appPath,
+            folderPath: folderPath
+        }, function(launched) {
             if (launched) {
                 alert(mediaTrRepl(launchedKey, {
                     SHORTCUT: shortcutName,
@@ -2490,16 +2535,16 @@ function openAiDentalClient() {
     openDesktopXrayApp('aidental');
 }
 
+function openNntNewtom() {
+    openDesktopXrayApp('nntnewtom');
+}
+
 function openXraySystem(key) {
-    if (key === 'carestream') {
-        openCarestreamImaging();
-        return;
-    }
-    if (key === 'aidental') {
-        openAiDentalClient();
-        return;
-    }
     var sys = XRAY_SYSTEMS[key];
+    if (sys && sys.launcherKey) {
+        openDesktopXrayApp(key);
+        return;
+    }
     if (!sys || !sys.url) return;
     var folderPath = xrayPatientData ? buildLocalPatientFolderPath(key, xrayPatientData) : '';
     var msg = mediaTrRepl('media.alert.openXraySystem', {

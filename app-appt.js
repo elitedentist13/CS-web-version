@@ -4928,9 +4928,9 @@ function arSearchDebounce() {
     }, 220);
 }
 
-/** Records tab: patient search spans all clinics (no clinic dropdown filter). */
+/** Records tab: same clinic scope as queue/today (apptClinicSelect → clinic_tag). */
 function applyApptRecordsClinicQuery(builder) {
-    return builder;
+    return applyApptModuleClinicQuery(builder);
 }
 
 function loadApptRecords() {
@@ -9853,9 +9853,13 @@ var GCAL = (function () {
         var dr           = a.doctor_code || a.doctor_name || '';
         var isWalkIn     = !a.patient_id;
         var chineseName  = a.patient_chinese_name || '';
+        var engName      = a.patient_name || (isWalkIn ? tr('appt.cal.cardWalkin') : '—');
+        var treatment    = String(a.treatment_items || '').trim();
+        var remarksTxt   = a.remarks
+            ? formatRemarksForDisplay(a.remarks, { stripDr: true })
+            : '';
         var locked       = isApptScheduleLocked(a);
 
-        var headName = chineseName || a.patient_name || (isWalkIn ? tr('appt.cal.cardWalkin') : '—');
         var lockTitle = locked ? tr('appt.cal.lockUnlockTitle') : tr('appt.cal.lockPinTitle');
         var lockAria = locked ? tr('appt.cal.lockAriaUnlock') : tr('appt.cal.lockAriaLock');
         var html =
@@ -9864,25 +9868,29 @@ var GCAL = (function () {
                 'aria-label="' + esc(lockAria) + '">' +
                 (locked ? '🔒' : '🔓') +
             '</button>' +
-            '<span class="card-headline">' +
+            '<span class="card-line card-line--1 card-headline">' +
                 (isWalkIn ? '<span class="card-new-badge">' + esc(tr('appt.badge.newWalkin')) + '</span>' : '') +
-                '<span class="card-chinese">' + esc(headName) + '</span>' +
+                '<span class="card-chinese">' + esc(chineseName || engName) + '</span>' +
+                (treatment
+                    ? '<span class="card-treatment">' + esc(treatment) + '</span>'
+                    : '') +
+            '</span>' +
+            '<span class="card-line card-line--2">' +
+                (chineseName && a.patient_name
+                    ? '<span class="card-name">' + esc(a.patient_name) + '</span>'
+                    : '') +
                 (a.patient_no
                     ? '<span class="card-pno">#' + esc(a.patient_no) + '</span>'
                     : '') +
-            '</span>' +
-            '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
-        html += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--cal');
-        if (chineseName && a.patient_name) {
-            html += '<span class="card-name">' + esc(a.patient_name) + '</span>';
+            '</span>';
+        if (remarksTxt) {
+            html += '<span class="card-line card-line--3 card-remarks">' + esc(remarksTxt) + '</span>';
         }
-        if (a.treatment_items)
-            html += '<span class="card-sub" style="font-weight:600;">' + esc(a.treatment_items) + '</span>';
-        if (dr && height >= S.slotH * 2)
+        html += '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
+        html += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--cal');
+        if (dr && height >= S.slotH * 3) {
             html += '<span class="card-dr" style="color:' + color + ';">● ' + esc(dr) + '</span>';
-        if (a.remarks && height >= S.slotH * 2)
-            html += '<span class="card-sub" style="font-style:italic;opacity:.7;">' +
-                formatRemarksForDisplay(a.remarks, { stripDr: true }) + '</span>';
+        }
         card.innerHTML = html;
         if (locked) card.classList.add('gcal-card-locked');
 
@@ -9911,7 +9919,7 @@ var GCAL = (function () {
 
     function attachGcalPatientDrag(card, appt) {
         if (!card || !appt || !appt.patient_id) return;
-        var head = card.querySelector('.card-headline');
+        var head = card.querySelector('.card-line--1');
         if (!head) return;
         head.classList.add('gcal-patient-drag');
         head.setAttribute('draggable', 'true');
@@ -9927,23 +9935,6 @@ var GCAL = (function () {
                 clearPatientDragPayloadSession();
             }
         });
-        var nameEl = card.querySelector('.card-name');
-        if (nameEl) {
-            nameEl.classList.add('gcal-patient-drag');
-            nameEl.setAttribute('draggable', 'true');
-            nameEl.title = head.title;
-            nameEl.addEventListener('dragstart', function(e) {
-                e.stopPropagation();
-                if (typeof beginApptPatientDragTransfer === 'function') {
-                    beginApptPatientDragTransfer(e, appt);
-                }
-            });
-            nameEl.addEventListener('dragend', function() {
-                if (typeof clearPatientDragPayloadSession === 'function') {
-                    clearPatientDragPayloadSession();
-                }
-            });
-        }
     }
 
     // ── Drag & Drop (supports cross-day) ────────────────────────
@@ -10215,6 +10206,51 @@ var GCAL = (function () {
         col.appendChild(gh);
     }
 
+    function _ensureDragTimeGuide() {
+        var el = document.getElementById('gcalDragTimeGuide');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'gcalDragTimeGuide';
+            el.className = 'gcal-drag-time-guide';
+            el.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(el);
+        }
+        return el;
+    }
+
+    /** Faint dotted line from time gutter to day column at slot start (top edge). */
+    function _updateDragTimeGuide(ds, ghostTop, targetCol) {
+        var guide = _ensureDragTimeGuide();
+        if (!ds || !targetCol) {
+            guide.style.display = 'none';
+            return;
+        }
+        var body = document.getElementById('gcalScrollBody');
+        var timeCol = body ? body.querySelector('.gcal-time-col') : null;
+        if (!timeCol) {
+            guide.style.display = 'none';
+            return;
+        }
+        var tcR = timeCol.getBoundingClientRect();
+        var colR = targetCol.getBoundingClientRect();
+        var y = colR.top + ghostTop;
+        var left = tcR.left + 6;
+        var width = Math.max(0, colR.left - left - 4);
+        if (width < 8) {
+            guide.style.display = 'none';
+            return;
+        }
+        guide.style.display = 'block';
+        guide.style.left = left + 'px';
+        guide.style.top = y + 'px';
+        guide.style.width = width + 'px';
+    }
+
+    function _clearDragTimeGuide() {
+        var el = document.getElementById('gcalDragTimeGuide');
+        if (el) el.style.display = 'none';
+    }
+
     function onDragMove(e) {
         if (!dragState) return;
         var ds = dragState;
@@ -10232,7 +10268,11 @@ var GCAL = (function () {
         while (targetCol && !targetCol.classList.contains('gcal-day-col')) {
             targetCol = targetCol.parentElement;
         }
-        if (!targetCol) { _clearDragGhost(ds.ghostCol); return; }
+        if (!targetCol) {
+            _clearDragGhost(ds.ghostCol);
+            _clearDragTimeGuide();
+            return;
+        }
 
         // Vertical snap inside target column
         var colRect  = targetCol.getBoundingClientRect();
@@ -10246,6 +10286,7 @@ var GCAL = (function () {
 
         if (ds.ghostCol && ds.ghostCol !== targetCol) _clearDragGhost(ds.ghostCol);
         _showDragGhost(targetCol, ghostTop, ds.cardH);
+        _updateDragTimeGuide(ds, ghostTop, targetCol);
         ds.ghostCol = targetCol;
     }
 
@@ -10260,6 +10301,7 @@ var GCAL = (function () {
         dragState = null;
 
         _clearDragGhost(ds.ghostCol);
+        _clearDragTimeGuide();
         if (ds.proxy && ds.proxy.parentNode) ds.proxy.parentNode.removeChild(ds.proxy);
         ds.card.style.opacity = '';
 

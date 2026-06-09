@@ -8896,18 +8896,36 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     box-shadow: 0 8px 24px rgba(0,0,0,.22);
     transition: none;
 }
-.gcal-card .card-headline {
+.gcal-card .card-headline,
+.gcal-card .card-line {
     display: block;
     line-height: 1.25;
-    margin-bottom: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.gcal-card .card-headline.gcal-patient-drag {
+.gcal-card .card-line--1 {
+    font-weight: 800;
+    font-size: 12px;
+    margin-bottom: 1px;
+}
+.gcal-card .card-line--2 {
+    font-size: 10px;
+    font-weight: 600;
+    opacity: .9;
+    margin-bottom: 1px;
+}
+.gcal-card .card-line--3.card-remarks {
+    font-size: 10px;
+    font-style: italic;
+    opacity: .72;
+    margin-bottom: 1px;
+}
+.gcal-card .card-headline.gcal-patient-drag,
+.gcal-card .card-line--1.gcal-patient-drag {
     cursor: grab;
     padding: 2px 0;
-    margin: -2px 0;
+    margin: -2px 0 1px;
 }
 .plusappt-patient-drag-handle {
     cursor: grab;
@@ -8915,21 +8933,39 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .plusappt-patient-drag-handle:active {
     cursor: grabbing;
 }
-.gcal-card .card-headline.gcal-patient-drag:active {
+.gcal-card .card-headline.gcal-patient-drag:active,
+.gcal-card .card-line--1.gcal-patient-drag:active {
     cursor: grabbing;
 }
 .gcal-month-pill[draggable="true"],
 .appt-pill[draggable="true"] {
     cursor: grab;
 }
+.gcal-card .card-name {
+    display: inline;
+    font-weight: 600;
+    font-size: 10px;
+}
+.gcal-card .card-treatment {
+    display: inline;
+    font-weight: 600;
+    font-size: 10px;
+    opacity: .88;
+    margin-left: 5px;
+}
+.gcal-card .card-treatment::before {
+    content: '·';
+    margin-right: 4px;
+    opacity: .55;
+}
 .gcal-card .card-chinese {
     display: inline;
     font-family: 'PingFang HK','PingFang TC','Microsoft JhengHei UI',
                  'Microsoft JhengHei','Noto Sans HK','Noto Sans CJK TC',
                  sans-serif;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 900;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.4px;
     color: inherit;
     -webkit-font-smoothing: antialiased;
 }
@@ -8953,10 +8989,29 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     vertical-align: middle;
     letter-spacing: .3px;
 }
-.gcal-card .card-name  { display:block; font-weight:600; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.85; }
 .gcal-card .card-sub   { display:block; font-size:10px; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .gcal-card .card-dr    { display:block; font-size:10px; font-weight:700; margin-top:2px; }
-.gcal-card .card-time  { display:block; font-size:10px; font-weight:700; opacity:.78; margin-top:1px; }
+.gcal-card .card-time  { display:block; font-size:10px; font-weight:700; opacity:.65; margin-top:1px; }
+.gcal-drag-time-guide {
+    position: fixed;
+    height: 0;
+    border-top: 2px dotted rgba(0, 132, 255, 0.42);
+    pointer-events: none;
+    z-index: 9998;
+    box-sizing: border-box;
+}
+.gcal-drag-time-guide::before,
+.gcal-drag-time-guide::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(0, 132, 255, 0.35);
+}
+.gcal-drag-time-guide::before { left: -1px; }
+.gcal-drag-time-guide::after  { right: -1px; }
 .gcal-card-resize-handle {
     position: absolute;
     left: 0;

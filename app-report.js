@@ -373,6 +373,102 @@ var REPORT = (function () {
     return Number(b.balance || 0);
   }
 
+  /** Step-1 saved bill (Pending / N/A) with no payment yet — full total counts toward Bill Total. */
+  function reportIsPendingUnpaidBill(b) {
+    if (!b || b.voided_at) return false;
+    if (reportBillTotalValue(b) <= 0.005) return false;
+    if (reportBillPaidValue(b) > 0.005) return false;
+    return reportPayMethodIsUnsettled(reportPayMethodKey(b.bill_type));
+  }
+
+  function dailySummaryBillDayKey(b) {
+    return paymentDateKey(b && b.bill_date);
+  }
+
+  function indexDailySummaryTxByBillId(tx) {
+    var map = {};
+    (tx || []).forEach(function (r) {
+      if (r && r.bill_id) map[String(r.bill_id)] = true;
+    });
+    return map;
+  }
+
+  async function mergePatientsForBills(bills, pmap) {
+    pmap = pmap || {};
+    var need = [];
+    (bills || []).forEach(function (b) {
+      if (b && b.patient_id && !pmap[b.patient_id]) need.push(b.patient_id);
+    });
+    if (!need.length) return pmap;
+    var pts = await loadPatientsByIds(uniqIds(need));
+    pts.forEach(function (p) { pmap[p.id] = p; });
+    return pmap;
+  }
+
+  function buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day) {
+    var ref = String(b.id || '').trim();
+    if (!ref) {
+      var ct = String(b.created_at || '').replace(/\D/g, '');
+      ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
+    }
+    var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+      ? PATIENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
+    return buildDailySummaryTxRow(b, p, {}, Object.assign({
+      bill_ref: ref,
+      bill_date: day,
+      payment_date: day,
+      clinic_tag: clinicTag,
+      clinic_code: clinicCodeFromStoredTag(clinicTag)
+    }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, day)));
+  }
+
+  async function appendPendingUnpaidBillsToDailySummaryTx(from, to, tx, pmap, doctors, apptCtx) {
+    var bills = await loadBillsLite(from, to);
+    var pending = (bills || []).filter(reportIsPendingUnpaidBill);
+    if (!pending.length) return tx || [];
+
+    pmap = await mergePatientsForBills(pending, pmap);
+    var seen = indexDailySummaryTxByBillId(tx);
+    var out = tx || [];
+
+    pending.forEach(function (b) {
+      if (!b || !b.id || seen[b.id]) return;
+      var day = dailySummaryBillDayKey(b);
+      if (!day || day < from || day > to) return;
+      var p = pmap[b.patient_id] || {};
+      out.push(buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day));
+      seen[b.id] = true;
+    });
+
+    return out.sort(dailySummaryTxSortCompare);
+  }
+
+  function appendPendingRowsToDayCards(dayCards, pendingRows) {
+    var cards = dayCards || [];
+    var cardByDate = {};
+    cards.forEach(function (c) {
+      if (c && c.date) cardByDate[c.date] = c;
+    });
+    (pendingRows || []).forEach(function (row) {
+      var d = row.bill_date || row.payment_date;
+      if (!d) return;
+      var card = cardByDate[d];
+      if (!card) {
+        card = { date: d, paidTotal: 0, rows: [] };
+        cardByDate[d] = card;
+        cards.push(card);
+      }
+      card.rows.push(row);
+      card.rows.sort(dailySummaryTxSortCompare);
+    });
+    cards.sort(function (a, b) {
+      return String(a.date).localeCompare(String(b.date));
+    });
+    return cards;
+  }
+
   /** Paid amount for income / payment statistics (excludes Pending / unsettled). */
   function reportPaidForIncomeStats(b) {
     if (reportPayMethodIsUnsettled(reportPayMethodKey(b && b.bill_type))) return 0;
@@ -2633,9 +2729,15 @@ var REPORT = (function () {
       var pts = await loadPatientsByIds(patientIds);
       var pmap = {};
       pts.forEach(function (p) { pmap[p.id] = p; });
-      var apptCtx = await loadAppointmentsForDailySummary(day, day, Object.keys(paidBillMap).map(function (bid) {
+
+      var pendingDayBills = (await loadBillsLite(day, day)).filter(reportIsPendingUnpaidBill);
+      var billsForAppt = Object.keys(paidBillMap).map(function (bid) {
         return paidBillMap[bid];
-      }));
+      });
+      pendingDayBills.forEach(function (b) {
+        if (b && b.id && !paidBillMap[b.id]) billsForAppt.push(b);
+      });
+      var apptCtx = await loadAppointmentsForDailySummary(day, day, billsForAppt);
 
       var tx = txBillIds.map(function (bid) {
         var b = paidBillMap[bid] || {};
@@ -2660,6 +2762,8 @@ var REPORT = (function () {
           clinic_code: clinicCodeFromStoredTag(clinicTag)
         }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, day)));
       }).sort(dailySummaryTxSortCompare);
+
+      tx = await appendPendingUnpaidBillsToDailySummaryTx(day, day, tx, pmap, doctors, apptCtx);
 
       var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
@@ -2748,6 +2852,24 @@ var REPORT = (function () {
       var paidTotal = rows.reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
       return { date: d, paidTotal: paidTotal, rows: rows };
     });
+
+    var seenBillIdsInMonthTx = indexDailySummaryTxByBillId(monthAllTx);
+    var pendingMonthBills = (await loadBillsLite(fromM, toM)).filter(reportIsPendingUnpaidBill);
+    pmapM = await mergePatientsForBills(pendingMonthBills, pmapM);
+    var pendingMonthRows = [];
+    pendingMonthBills.forEach(function (b) {
+      if (!b || !b.id || seenBillIdsInMonthTx[b.id]) return;
+      var billDay = dailySummaryBillDayKey(b);
+      if (!billDay || billDay < fromM || billDay > toM) return;
+      var p = pmapM[b.patient_id] || {};
+      var txRow = buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtxM, billDay);
+      pendingMonthRows.push(txRow);
+      monthAllTx.push(txRow);
+      seenBillIdsInMonthTx[b.id] = true;
+    });
+    if (pendingMonthRows.length) {
+      dayCards = appendPendingRowsToDayCards(dayCards, pendingMonthRows);
+    }
 
     var totalsByMethodPaidM = sumByKeyPaidMethods(monthAllTx, 'payment_method', 'bill_paid');
 

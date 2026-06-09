@@ -11,6 +11,9 @@ var psTimer      = null;
 var calDate      = new Date();
 var calView      = 'weekly';
 var billApptId   = null;
+/** Default doctor when creating a list from an appointment row (resolved to doctors.id). */
+var billApptDefaultDoctorId = null;
+var billApptDoctorCode = null;
 var billPatId    = null;
 var billPatName  = null;
 var billPatChineseName = null;
@@ -320,9 +323,10 @@ function billClinicFieldsForSave() {
     };
 }
 
-function billDoctorFieldsForSave(pickedId) {
+function billDoctorFieldsForSave(pickedId, opts) {
+    opts = opts || {};
     var picked = pickedId
-        ? (billDoctorList || []).find(function (d) { return d.id === pickedId; })
+        ? (billDoctorList || []).find(function (d) { return String(d.id) === String(pickedId); })
         : null;
     if (picked) {
         return {
@@ -333,6 +337,7 @@ function billDoctorFieldsForSave(pickedId) {
             doctor_tag: billDoctorTag(picked) || null
         };
     }
+    if (opts.noFallback) return {};
     var drCtx = (typeof getActiveDoctorContext === 'function')
         ? getActiveDoctorContext()
         : null;
@@ -580,7 +585,7 @@ function buildUnpaidBillPayloadFromPendingList(pl, sub) {
         status:         sub > 0.005 ? 'Partial' : 'Paid'
     };
     Object.assign(payload, billClinicFieldsForSave());
-    Object.assign(payload, billDoctorFieldsForSave(null));
+    Object.assign(payload, billDoctorFieldsForSave(pl.doctor_id || null, { noFallback: true }));
     return payload;
 }
 
@@ -11294,6 +11299,15 @@ function wireBillPanelControls() {
     bindClickOnce('billHistoryPrintBtn', printBillHistory);
     wireBillHistoryFilterUi();
 
+    var pendingDrSel = g('pendingListDoctor');
+    if (pendingDrSel && pendingDrSel.dataset.billInputBound !== '1') {
+        pendingDrSel.dataset.billInputBound = '1';
+        pendingDrSel.addEventListener('change', function () {
+            syncPendingListDoctorFromUi();
+            updateBillStep2DoctorSummary();
+        });
+    }
+
     var discEl = g('bDiscount');
     if (discEl && discEl.dataset.billInputBound !== '1') {
         discEl.dataset.billInputBound = '1';
@@ -11451,8 +11465,24 @@ function refreshBillPanelForWorkingDate() {
     }
 }
 
+function billDoctorIdFromApptRow(q) {
+    if (!q) return '';
+    if (q.doctor_id) return String(q.doctor_id);
+    var code = String(q.doctor_code || '').trim();
+    if (!code) return '';
+    var list = (billDoctorList && billDoctorList.length)
+        ? billDoctorList
+        : ((typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS) ? APP_DOCTORS : []);
+    var hit = list.find(function (d) {
+        return d && String(d.doctor_code || '').trim() === code;
+    });
+    return hit && hit.id ? String(hit.id) : '';
+}
+
 function openBillPanel(q) {
     billApptId  = q.id;
+    billApptDoctorCode = String(q && q.doctor_code ? q.doctor_code : '').trim() || null;
+    billApptDefaultDoctorId = billDoctorIdFromApptRow(q) || null;
     billPatId   = q.patient_id;
     billPatName = q.patient_name || '-';
     billPatNo   = q.patient_no   || '-';
@@ -11484,6 +11514,7 @@ function openBillPanel(q) {
     });
     resetBillHistoryFilterUi();
     loadBillHistory();
+    loadBillDoctors();
 
     wireBillPanelControls();
     startBillPendingAutoRefresh();
@@ -11494,6 +11525,8 @@ function closeBillPanel() {
     stopBillPendingAutoRefresh();
     g('billPanel').classList.remove('open');
     billApptId   = null;
+    billApptDefaultDoctorId = null;
+    billApptDoctorCode = null;
     billPatId    = null;
     billPatChineseName = null;
     billItems    = [];
@@ -11564,6 +11597,7 @@ function loadPendingLists(cb) {
             if (pl.id && preserveById[pl.id]) {
                 var local = preserveById[pl.id];
                 if (pl.bill_id) local.bill_id = pl.bill_id;
+                if (pl.doctor_id && !local.doctor_id) local.doctor_id = pl.doctor_id;
                 return local;
             }
             return pl;
@@ -11598,12 +11632,39 @@ function loadPendingLists(cb) {
         } else if (pendingIdx < 0 || pendingIdx >= pendingLists.length) {
             pendingIdx = 0;
         }
-        renderStep1UI();
-        if (cb) cb(!r.error);
+        enrichPendingListsDoctorFromBills(pendingLists, function () {
+            renderStep1UI();
+            if (cb) cb(!r.error);
+        });
     })
     .catch(function() {
         if (cb) cb(false);
     });
+}
+
+function enrichPendingListsDoctorFromBills(lists, done) {
+    var need = (lists || []).filter(function (pl) {
+        return pl && pl.bill_id && !pl.doctor_id;
+    });
+    if (!need.length || !SB || typeof SB.from !== 'function') {
+        if (done) done();
+        return;
+    }
+    var ids = need.map(function (pl) { return pl.bill_id; }).filter(Boolean);
+    SB.from('bills')
+        .select('id,doctor_id')
+        .in('id', ids)
+        .then(function (r) {
+            var map = {};
+            (r.data || []).forEach(function (b) {
+                if (b && b.id && b.doctor_id) map[b.id] = b.doctor_id;
+            });
+            need.forEach(function (pl) {
+                if (pl.bill_id && map[pl.bill_id]) pl.doctor_id = map[pl.bill_id];
+            });
+            if (done) done();
+        })
+        .catch(function () { if (done) done(); });
 }
 
 function renderStep1UI() {
@@ -11631,6 +11692,7 @@ function renderStep1UI() {
 
     renderBillItems();
     recalcPendingSubtotal();
+    syncPendingListDoctorSelectFromCurrentList();
 
     var statusEl = g('pendingListStatus');
     if (statusEl) {
@@ -11652,13 +11714,21 @@ function recalcPendingSubtotal() {
 
 function navPendingList(dir) {
     if (!pendingLists.length) return;
+    syncPendingDraftFromInputs();
     pendingIdx = (pendingIdx + dir + pendingLists.length) % pendingLists.length;
     renderStep1UI();
 }
 
 function addNewPendingList() {
     var label = trRepl('bill.list.defaultLabel', { N: String(pendingLists.length + 1) });
-    pendingLists.push({ id: null, label: label, items: [], subtotal: 0 });
+    var defDr = defaultBillDoctorIdForPendingList();
+    pendingLists.push({
+        id: null,
+        label: label,
+        items: [],
+        subtotal: 0,
+        doctor_id: defDr || null
+    });
     pendingIdx = pendingLists.length - 1;
     billItems  = [{ desc: '', qty: 1, price: 0, disc: 0 }];
     renderStep1UI();
@@ -11672,10 +11742,19 @@ function saveCurrentPendingList() {
     var pl    = pendingLists[pendingIdx];
     var lockKey = pl.id || ('idx-' + pendingIdx);
     if (_pendingListSaveBusyKey === lockKey) return;
-    _pendingListSaveBusyKey = lockKey;
 
+    syncPendingListDoctorFromUi();
     var label = (g('pendingListLabel').value || '').trim() || trRepl('bill.list.defaultLabel', { N: String(pendingIdx + 1) });
     var sub   = pendingListSubtotalFromItems(billItems);
+
+    if (sub > 0.005 && !pl.doctor_id) {
+        alert(tr('bill.alert.selectDoctorForList'));
+        var drSel = g('pendingListDoctor');
+        if (drSel) drSel.focus();
+        return;
+    }
+
+    _pendingListSaveBusyKey = lockKey;
 
     pl.label    = label;
     pl.items    = billItems.map(function(it) {
@@ -11701,6 +11780,7 @@ function saveCurrentPendingList() {
         created_by:   (typeof currentName !== 'undefined' ? currentName : null)
     };
     if (pl.bill_id) payload.bill_id = pl.bill_id;
+    if (pl.doctor_id) payload.doctor_id = pl.doctor_id;
 
     var statusEl = g('pendingListStatus');
     if (statusEl) { statusEl.textContent = tr('bill.status.saving'); statusEl.style.color = '#888'; }
@@ -11753,13 +11833,24 @@ function saveCurrentPendingList() {
     }
 
     query.then(function(r) {
-        if (r.error && payload.bill_id) {
-            delete payload.bill_id;
-            var retry = pl.id
-                ? SB.from('pending_bill_items').update(payload).eq('id', pl.id)
-                : SB.from('pending_bill_items').insert([payload]).select();
-            retry.then(afterPendingListSaved);
-            return;
+        if (r.error && (payload.bill_id || payload.doctor_id)) {
+            var retryPayload = Object.assign({}, payload);
+            if (r.error && payload.bill_id) {
+                var mBill = String(r.error.message || '').toLowerCase();
+                if (mBill.indexOf('bill_id') >= 0) delete retryPayload.bill_id;
+            }
+            if (r.error && payload.doctor_id) {
+                var mDr = String(r.error.message || '').toLowerCase();
+                if (mDr.indexOf('doctor_id') >= 0) delete retryPayload.doctor_id;
+            }
+            if (retryPayload.bill_id !== payload.bill_id ||
+                retryPayload.doctor_id !== payload.doctor_id) {
+                var retry = pl.id
+                    ? SB.from('pending_bill_items').update(retryPayload).eq('id', pl.id)
+                    : SB.from('pending_bill_items').insert([retryPayload]).select();
+                retry.then(afterPendingListSaved);
+                return;
+            }
         }
         afterPendingListSaved(r);
     }).catch(function (e) {
@@ -11832,7 +11923,6 @@ function renderStep2(cb, opts) {
     opts = opts || {};
     var resetForm = opts.resetForm === true;
     var prevType = g('bType') ? g('bType').value : '';
-    var prevDoctor = g('bDoctor') ? g('bDoctor').value : '';
     var prevDiscount = g('bDiscount') ? g('bDiscount').value : '';
     var prevPaid = g('bAmtPaid') ? g('bAmtPaid').value : '';
     var prevNotes = g('bNotes') ? g('bNotes').value : '';
@@ -11840,7 +11930,6 @@ function renderStep2(cb, opts) {
     var prevPendingId = resetForm ? null : payPendingId;
 
     loadBillTypes();
-    loadBillDoctors();
     if (resetForm) {
         sv('bDate',     todayISO());
         sv('bDiscount', '0');
@@ -11881,6 +11970,7 @@ function renderStep2(cb, opts) {
                 for (var li = 0; li < pendingLists.length; li++) {
                     if (pendingLists[li] && pendingLists[li].id === pl.id) {
                         if (pl.bill_id) pendingLists[li].bill_id = pl.bill_id;
+                        if (pl.doctor_id) pendingLists[li].doctor_id = pl.doctor_id;
                         break;
                     }
                 }
@@ -11917,6 +12007,7 @@ function renderStep2(cb, opts) {
                 payPendingId = pl.id;
                 renderPayPreview();
                 recalcTotals();
+                updateBillStep2DoctorSummary(pl);
             });
             cards.appendChild(btn);
         });
@@ -11954,9 +12045,9 @@ function renderStep2(cb, opts) {
             if (prevPaid) sv('bAmtPaid', prevPaid);
             if (prevNotes) sv('bNotes', prevNotes);
             if (prevType && g('bType')) g('bType').value = prevType;
-            if (prevDoctor && g('bDoctor')) g('bDoctor').value = prevDoctor;
             recalcTotals();
         }
+        updateBillStep2DoctorSummary();
         if (cb) cb(!r.error);
     })
     .catch(function() {
@@ -12014,8 +12105,8 @@ function billDoctorTag(d) {
         '';
 }
 
-function renderBillDoctorOptions(selectedId) {
-    var sel = g('bDoctor');
+function renderBillDoctorOptions(selectedId, selectId) {
+    var sel = g(selectId || 'pendingListDoctor');
     if (!sel) return;
     var docs = (typeof doctorsForBillDoctorDropdown === 'function')
         ? doctorsForBillDoctorDropdown(billDoctorList || [])
@@ -12034,6 +12125,74 @@ function renderBillDoctorOptions(selectedId) {
     if (selectedId && sel.value !== String(selectedId)) {
         sel.value = '';
     }
+}
+
+function pendingListDoctorIdFromUi() {
+    var sel = g('pendingListDoctor');
+    return sel ? String(sel.value || '').trim() : '';
+}
+
+function syncPendingListDoctorFromUi() {
+    if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
+    var id = pendingListDoctorIdFromUi();
+    pendingLists[pendingIdx].doctor_id = id || null;
+}
+
+function syncPendingListDoctorSelectFromCurrentList() {
+    var sel = g('pendingListDoctor');
+    if (!sel) return;
+    var pl = (pendingLists.length && pendingIdx >= 0 && pendingIdx < pendingLists.length)
+        ? pendingLists[pendingIdx]
+        : null;
+    var want = pl ? (pl.doctor_id || defaultBillDoctorIdForPendingList() || '') : '';
+    if (!sel.options.length || sel.options.length <= 1) {
+        renderBillDoctorOptions(want, 'pendingListDoctor');
+        return;
+    }
+    if (want && Array.prototype.some.call(sel.options, function (o) { return o.value === String(want); })) {
+        sel.value = String(want);
+    } else {
+        renderBillDoctorOptions(want, 'pendingListDoctor');
+    }
+    if (pl && want && !pl.doctor_id) pl.doctor_id = want;
+}
+
+function pendingListDoctorLabelById(doctorId) {
+    if (!doctorId) return '—';
+    var picked = (billDoctorList || []).find(function (d) {
+        return d && String(d.id) === String(doctorId);
+    });
+    return picked ? billDoctorLabel(picked) : '—';
+}
+
+function updateBillStep2DoctorSummary(pl) {
+    var wrap = g('billStep2DoctorSummary');
+    var labelEl = g('billStep2DoctorLabel');
+    if (!wrap || !labelEl) return;
+    if (!pl && payPendingId) {
+        pl = pendingListByPayId(payPendingId);
+    }
+    if (!pl || !pl.doctor_id) {
+        wrap.style.display = 'none';
+        labelEl.textContent = '—';
+        return;
+    }
+    wrap.style.display = '';
+    labelEl.textContent = pendingListDoctorLabelById(pl.doctor_id);
+}
+
+function defaultBillDoctorIdForPendingList() {
+    if (billApptDefaultDoctorId) return billApptDefaultDoctorId;
+    return defaultBillDoctorId();
+}
+
+function pendingListDoctorIdForPayment(pl) {
+    if (pl && pl.doctor_id) return pl.doctor_id;
+    if (payPendingId) {
+        var linked = pendingListByPayId(payPendingId);
+        if (linked && linked.doctor_id) return linked.doctor_id;
+    }
+    return pendingListDoctorIdFromUi() || '';
 }
 
 function defaultBillDoctorId() {
@@ -12059,16 +12218,23 @@ function defaultBillDoctorId() {
 }
 
 function loadBillDoctors() {
-    var sel = g('bDoctor');
+    var sel = g('pendingListDoctor');
     if (!sel) return;
     sel.innerHTML = '<option value="">' + esc(tr('bill.loadingDoctors')) + '</option>';
+
+    function applyDoctorOptions() {
+        var def = defaultBillDoctorIdForPendingList();
+        renderBillDoctorOptions(def, 'pendingListDoctor');
+        syncPendingListDoctorSelectFromCurrentList();
+        updateBillStep2DoctorSummary();
+    }
 
     var fromGlobal = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS))
         ? APP_DOCTORS.filter(function (d) { return d && d.is_active !== false; })
         : [];
     if (fromGlobal.length) {
         billDoctorList = fromGlobal.slice();
-        renderBillDoctorOptions(defaultBillDoctorId());
+        applyDoctorOptions();
         return;
     }
 
@@ -12087,7 +12253,10 @@ function loadBillDoctors() {
             return;
         }
         billDoctorList = r.data || [];
-        renderBillDoctorOptions(defaultBillDoctorId());
+        if (!billApptDefaultDoctorId && billApptDoctorCode) {
+            billApptDefaultDoctorId = billDoctorIdFromApptRow({ doctor_code: billApptDoctorCode }) || null;
+        }
+        applyDoctorOptions();
     })
     .catch(function(e) {
         sel.innerHTML = '<option value="">' + esc(tr('bill.loadDoctorsFailed')) + '</option>';
@@ -12135,6 +12304,7 @@ function pendingListSignature(pl) {
     return JSON.stringify({
         label: list.label || '',
         subtotal: parseFloat(list.subtotal) || 0,
+        doctor_id: list.doctor_id || '',
         items: safeItems
     });
 }
@@ -12152,10 +12322,9 @@ function syncPendingDraftFromInputs() {
     if (!pl) return;
     var labelEl = g('pendingListLabel');
     if (labelEl) pl.label = (labelEl.value || '').trim();
+    syncPendingListDoctorFromUi();
     syncBillItemsToPendingList();
-    pl.subtotal = billItems.reduce(function(a, it) {
-        return a + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0));
-    }, 0);
+    pl.subtotal = pendingListSubtotalFromItems(billItems);
 }
 
 function billItemAmt(it) {
@@ -12543,6 +12712,13 @@ function saveBill(doPrint) {
 
     var linkedPl = pendingListByPayId(payPendingId);
     var existingBillId = linkedPl && linkedPl.bill_id ? linkedPl.bill_id : null;
+    var doctorIdForSave = pendingListDoctorIdForPayment(linkedPl);
+
+    if (!doctorIdForSave) {
+        alert(tr('bill.alert.selectDoctorForList'));
+        switchBillTab(1);
+        return;
+    }
     var allowZeroAr = (typeof programSettingBool === 'function') &&
         programSettingBool('zero_ar', false);
 
@@ -12594,9 +12770,7 @@ function saveBill(doPrint) {
         status:         bal <= 0 ? 'Paid' : 'Partial'
     };
     Object.assign(payload, billClinicFieldsForSave());
-    Object.assign(payload, billDoctorFieldsForSave(
-        (g('bDoctor') && g('bDoctor').value) ? g('bDoctor').value : ''
-    ));
+    Object.assign(payload, billDoctorFieldsForSave(doctorIdForSave, { noFallback: true }));
 
     var finishAfterSaved = function(r) {
         var paidPendingId = payPendingId;

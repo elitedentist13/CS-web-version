@@ -4012,6 +4012,14 @@
                    style="font-size:13px;">
           </div>
 
+          <div class="fg" style="margin-bottom:12px;">
+            <label data-i18n="bill.labelDoctor"></label>
+            <select id="pendingListDoctor" class="bill-pending-doctor-select">
+              <option value="" data-i18n="bill.loadingDoctors"></option>
+            </select>
+            <p class="bill-list-doctor-hint" data-i18n="bill.hintListDoctor"></p>
+          </div>
+
           <!-- Items -->
           <div style="display:flex;justify-content:space-between;
                       align-items:center;margin-bottom:8px;">
@@ -4107,11 +4115,11 @@
               <option value="" data-i18n="bill.loadingTypes"></option>
             </select>
           </div>
-          <div class="fg">
+          <div class="fg" id="billStep2DoctorSummary" style="display:none;">
             <label data-i18n="bill.labelDoctor"></label>
-            <select id="bDoctor">
-              <option value="" data-i18n="bill.loadingDoctors"></option>
-            </select>
+            <div id="billStep2DoctorLabel"
+                 class="bill-step2-doctor-readonly">—</div>
+            <p class="bill-list-doctor-hint" data-i18n="bill.hintStep2DoctorFromList"></p>
           </div>
         </div>
 

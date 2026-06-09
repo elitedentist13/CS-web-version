@@ -4452,6 +4452,31 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     background: #fff;
 }
 
+.bill-pending-doctor-select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    font-size: 13px;
+    box-sizing: border-box;
+    background: #fff;
+}
+.bill-list-doctor-hint {
+    font-size: 11px;
+    color: #64748b;
+    margin: 6px 0 0;
+    line-height: 1.4;
+}
+.bill-step2-doctor-readonly {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e3a5f;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+}
+
 /* ── Bill nav arrows ────────────────────────────────── */
 .bill-nav-btn {
     background: #e5e7eb;

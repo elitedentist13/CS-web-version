@@ -1409,6 +1409,21 @@
         'bill.doctorFallback': { en: 'Doctor', 'zh-CN': '医师', 'zh-Hant': '醫師' },
         'bill.noDoctorsOption': { en: '(No doctors)', 'zh-CN': '（无医师）', 'zh-Hant': '（無醫師）' },
         'bill.selectDoctor': { en: '-- Select Doctor --', 'zh-CN': '-- 选择医师 --', 'zh-Hant': '-- 選擇醫師 --' },
+        'bill.hintListDoctor': {
+            en: 'Required before Save List — this doctor appears on reports and receipts.',
+            'zh-CN': '保存清单前必选 — 此医师将显示于报表及收据。',
+            'zh-Hant': '儲存清單前必選 — 此醫師將顯示於報表及收據。'
+        },
+        'bill.hintStep2DoctorFromList': {
+            en: 'Set in Step 1 when creating the list. To change, return to Step 1.',
+            'zh-CN': '于步骤 1 建立清单时设定。如需更改请返回步骤 1。',
+            'zh-Hant': '於步驟 1 建立清單時設定。如需更改請返回步驟 1。'
+        },
+        'bill.alert.selectDoctorForList': {
+            en: 'Please select a doctor for this bill list before saving.',
+            'zh-CN': '保存清单前请选择医师。',
+            'zh-Hant': '儲存清單前請選擇醫師。'
+        },
         'bill.loadingDoctors': { en: 'Loading doctors...', 'zh-CN': '加载医师中…', 'zh-Hant': '載入醫師中…' },
         'bill.supabaseNotReady': { en: '(Supabase not ready)', 'zh-CN': '（Supabase 未就绪）', 'zh-Hant': '（Supabase 未就緒）' },
         'bill.loadingTypes': { en: 'Loading...', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },

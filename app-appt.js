@@ -376,7 +376,9 @@ function persistBillRecord(payload, existingBillId, cb) {
             : SB.from('bills').insert([body]).select();
         query.then(function (r) {
             if (!r.error) {
-                cb(null, (r.data && r.data[0]) ? r.data[0] : null);
+                var row = (r.data && r.data[0]) ? r.data[0] : null;
+                if (!row && billId) row = { id: billId };
+                cb(null, row);
                 return;
             }
             if (depth >= 2) {
@@ -402,6 +404,164 @@ function pendingListSubtotalFromItems(items) {
     }, 0);
 }
 
+function pendingListBillLinkNote(pl) {
+    if (!pl || !pl.id) return null;
+    return PENDING_LIST_BILL_NOTE_PREFIX + pl.id;
+}
+
+function pendingBillIdLocalStoreKey(pl) {
+    if (!billPatId || !pl) return '';
+    return String(billPatId) + ':' + String(pl.id || pl.label || pendingIdx);
+}
+
+function readPendingBillIdFromLocalStore(pl) {
+    var slot = pendingBillIdLocalStoreKey(pl);
+    if (!slot) return null;
+    try {
+        var map = JSON.parse(localStorage.getItem(PENDING_BILL_ID_LS_KEY) || '{}');
+        return map[slot] || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writePendingBillIdToLocalStore(pl, billId) {
+    var slot = pendingBillIdLocalStoreKey(pl);
+    if (!slot || !billId) return;
+    try {
+        var map = JSON.parse(localStorage.getItem(PENDING_BILL_ID_LS_KEY) || '{}');
+        map[slot] = billId;
+        localStorage.setItem(PENDING_BILL_ID_LS_KEY, JSON.stringify(map));
+    } catch (_) { /* ignore */ }
+}
+
+function clearPendingBillIdLocalStore(pl) {
+    var slot = pendingBillIdLocalStoreKey(pl);
+    if (!slot) return;
+    try {
+        var map = JSON.parse(localStorage.getItem(PENDING_BILL_ID_LS_KEY) || '{}');
+        if (Object.prototype.hasOwnProperty.call(map, slot)) {
+            delete map[slot];
+            localStorage.setItem(PENDING_BILL_ID_LS_KEY, JSON.stringify(map));
+        }
+    } catch (_) { /* ignore */ }
+}
+
+function fetchBillRowForPendingList(billId, cb) {
+    if (!billId) {
+        if (cb) cb(null);
+        return;
+    }
+    SB.from('bills')
+        .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
+        .eq('id', billId)
+        .single()
+        .then(function (r) {
+            var row = (!r.error && r.data) ? r.data : null;
+            if (row && row.voided_at) row = null;
+            if (cb) cb(row);
+        })
+        .catch(function () {
+            if (cb) cb(null);
+        });
+}
+
+/** Resolve the single unpaid bill tied to this pending list (replace, never duplicate). */
+function findBillRowForPendingList(pl, cb) {
+    if (!pl) {
+        if (cb) cb(null);
+        return;
+    }
+
+    function finish(row) {
+        if (row && row.id) {
+            pl.bill_id = row.id;
+            writePendingBillIdToLocalStore(pl, row.id);
+        }
+        if (cb) cb(row);
+    }
+
+    function tryNotesMarker(next) {
+        var note = pendingListBillLinkNote(pl);
+        if (!note || !billPatId) {
+            next();
+            return;
+        }
+        SB.from('bills')
+            .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
+            .eq('patient_id', billPatId)
+            .eq('notes', note)
+            .is('voided_at', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .then(function (r) {
+                var row = (r.data && r.data[0]) ? r.data[0] : null;
+                if (row) finish(row);
+                else next();
+            })
+            .catch(next);
+    }
+
+    function tryPendingRow(next) {
+        if (!pl.id) {
+            next();
+            return;
+        }
+        SB.from('pending_bill_items')
+            .select('bill_id')
+            .eq('id', pl.id)
+            .single()
+            .then(function (r) {
+                var bid = (!r.error && r.data) ? r.data.bill_id : null;
+                if (!bid) {
+                    next();
+                    return;
+                }
+                fetchBillRowForPendingList(bid, function (row) {
+                    if (row) finish(row);
+                    else next();
+                });
+            })
+            .catch(next);
+    }
+
+    function tryLocalStore(next) {
+        var bid = readPendingBillIdFromLocalStore(pl);
+        if (!bid) {
+            next();
+            return;
+        }
+        fetchBillRowForPendingList(bid, function (row) {
+            if (row) finish(row);
+            else next();
+        });
+    }
+
+    function tryMemoryLink(next) {
+        if (!pl.bill_id) {
+            next();
+            return;
+        }
+        fetchBillRowForPendingList(pl.bill_id, function (row) {
+            if (row) finish(row);
+            else {
+                pl.bill_id = null;
+                next();
+            }
+        });
+    }
+
+    tryMemoryLink(function () {
+        tryPendingRow(function () {
+            tryNotesMarker(function () {
+                tryLocalStore(function () {
+                    finish(null);
+                });
+            });
+        });
+    });
+}
+
 function buildUnpaidBillPayloadFromPendingList(pl, sub) {
     var payload = {
         appointment_id: billApptId,
@@ -416,7 +576,7 @@ function buildUnpaidBillPayloadFromPendingList(pl, sub) {
         total:          sub,
         amount_paid:    0,
         balance:        sub,
-        notes:          null,
+        notes:          pendingListBillLinkNote(pl),
         status:         sub > 0.005 ? 'Partial' : 'Paid'
     };
     Object.assign(payload, billClinicFieldsForSave());
@@ -430,6 +590,7 @@ function persistPendingListBillIdRow(pl, billId, cb) {
         return;
     }
     pl.bill_id = billId;
+    writePendingBillIdToLocalStore(pl, billId);
     if (!pl.id) {
         if (cb) cb(true);
         return;
@@ -481,17 +642,7 @@ function syncUnpaidBillFromPendingList(pl, sub, done) {
         });
     }
 
-    if (!pl.bill_id) {
-        applyBillSave(null);
-        return;
-    }
-    SB.from('bills').select('id,amount_paid,balance,total,bill_type').eq('id', pl.bill_id).single()
-        .then(function (r) {
-            applyBillSave((!r.error && r.data) ? r.data : null);
-        })
-        .catch(function () {
-            applyBillSave(null);
-        });
+    findBillRowForPendingList(pl, applyBillSave);
 }
 
 function deleteUnpaidBillForPendingList(pl, cb) {
@@ -512,6 +663,7 @@ function deleteUnpaidBillForPendingList(pl, cb) {
                 return;
             }
             SB.from('bills').delete().eq('id', pl.bill_id).then(function () {
+                clearPendingBillIdLocalStore(pl);
                 if (cb) cb(true);
             }).catch(function () {
                 if (cb) cb(true);
@@ -620,6 +772,10 @@ var pendingIdx   = -1;   // which list is open in Step 1
 var payItems     = [];   // items from the list selected in Step 2
 var payPendingId = null; // DB id of the list selected for payment
 var pendingServerSnapshotById = {};
+/** Prevents overlapping Save List → duplicate unpaid bills. */
+var _pendingListSaveBusyKey = null;
+var PENDING_LIST_BILL_NOTE_PREFIX = 'JSM_PENDING:';
+var PENDING_BILL_ID_LS_KEY = 'jsm_pending_bill_ids_v1';
 
 // ════════════════════════════════════════════════════════════════
 // CLINIC SCOPE (all appointment subtabs share one clinic)
@@ -11407,7 +11563,7 @@ function loadPendingLists(cb) {
         var merged = fetched.map(function(pl) {
             if (pl.id && preserveById[pl.id]) {
                 var local = preserveById[pl.id];
-                if (pl.bill_id && !local.bill_id) local.bill_id = pl.bill_id;
+                if (pl.bill_id) local.bill_id = pl.bill_id;
                 return local;
             }
             return pl;
@@ -11418,6 +11574,11 @@ function loadPendingLists(cb) {
         });
         localUnsaved.forEach(function(pl) {
             merged.push(pl);
+        });
+        merged.forEach(function (pl) {
+            if (!pl || pl.bill_id) return;
+            var localBid = readPendingBillIdFromLocalStore(pl);
+            if (localBid) pl.bill_id = localBid;
         });
         pendingLists = merged;
         fetched.forEach(function(pl) {
@@ -11509,6 +11670,10 @@ function addNewPendingList() {
 function saveCurrentPendingList() {
     if (!pendingLists.length || pendingIdx < 0) return;
     var pl    = pendingLists[pendingIdx];
+    var lockKey = pl.id || ('idx-' + pendingIdx);
+    if (_pendingListSaveBusyKey === lockKey) return;
+    _pendingListSaveBusyKey = lockKey;
+
     var label = (g('pendingListLabel').value || '').trim() || trRepl('bill.list.defaultLabel', { N: String(pendingIdx + 1) });
     var sub   = pendingListSubtotalFromItems(billItems);
 
@@ -11540,12 +11705,17 @@ function saveCurrentPendingList() {
     var statusEl = g('pendingListStatus');
     if (statusEl) { statusEl.textContent = tr('bill.status.saving'); statusEl.style.color = '#888'; }
 
+    function releaseSaveLock() {
+        if (_pendingListSaveBusyKey === lockKey) _pendingListSaveBusyKey = null;
+    }
+
     var query = pl.id
         ? SB.from('pending_bill_items').update(payload).eq('id', pl.id)
         : SB.from('pending_bill_items').insert([payload]).select();
 
     function afterPendingListSaved(r) {
         if (r.error) {
+            releaseSaveLock();
             if (statusEl) {
                 statusEl.textContent = trRepl('bill.status.saveFailed', { MSG: r.error.message });
                 statusEl.style.color = '#dc2626';
@@ -11557,6 +11727,7 @@ function saveCurrentPendingList() {
         var t = new Date().toLocaleTimeString(apptDateLocale(), { hour: '2-digit', minute: '2-digit' });
 
         function finishListSaved(billErr, savedBill) {
+            releaseSaveLock();
             if (billErr && statusEl) {
                 statusEl.textContent = trRepl('bill.status.billSaveFailed', { MSG: billErr.message || String(billErr) });
                 statusEl.style.color = '#dc2626';
@@ -11591,6 +11762,12 @@ function saveCurrentPendingList() {
             return;
         }
         afterPendingListSaved(r);
+    }).catch(function (e) {
+        releaseSaveLock();
+        if (statusEl) {
+            statusEl.textContent = trRepl('bill.status.saveFailed', { MSG: e.message || String(e) });
+            statusEl.style.color = '#dc2626';
+        }
     });
 }
 

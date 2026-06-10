@@ -2443,8 +2443,9 @@ function apptPurgeTransferredSourceFromUi(oldId) {
             var emptyMsg = bodyId === 'queueBody'
                 ? tr('appt.queue.empty')
                 : tr('appt.today.noToday');
+            var emptyCols = bodyId === 'queueBody' ? 10 : 9;
             tb.innerHTML =
-                '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px;">' +
+                '<tr><td colspan="' + emptyCols + '" style="text-align:center;color:#aaa;padding:24px;">' +
                 esc(emptyMsg) + '</td></tr>';
         }
     });
@@ -5927,6 +5928,25 @@ function calcEnd() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// APPOINTMENT DURATION DISPLAY
+// ════════════════════════════════════════════════════════════════
+function apptDurationMinutes(appt) {
+    if (!appt) return 0;
+    var d = parseInt(appt.duration, 10);
+    if (d > 0) return d;
+    if (appt.start_time && appt.end_time && typeof plusApptTimeToMin === 'function') {
+        var mins = plusApptTimeToMin(appt.end_time) - plusApptTimeToMin(appt.start_time);
+        if (mins > 0) return mins;
+    }
+    return 0;
+}
+
+function apptDurationDisplay(appt) {
+    var mins = apptDurationMinutes(appt);
+    return mins > 0 ? trRepl('appt.modal.durMin', { N: mins }) : '-';
+}
+
+// ════════════════════════════════════════════════════════════════
 // STATUS BADGE CLASS
 // ════════════════════════════════════════════════════════════════
 function dispStatusLabel(raw) {
@@ -7947,7 +7967,7 @@ function buildTodayRow(tb, a) {
             apptTaskSummaryHtml(a) +
         '</td>' +
         '<td style="text-align:center;">' +
-            esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') +
+            esc(apptDurationDisplay(a)) +
         '</td>' +
         '<td>' +
             '<span class="status-badge ' +
@@ -8112,7 +8132,7 @@ function printTodayList() {
                 '<td>' + esc(a.treatment_items || '-') + '</td>' +
                 '<td>' + formatRemarksForDisplay(a.remarks, { empty: '-' }) + '</td>' +
                 '<td style="text-align:center;">' +
-                    esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') + '</td>' +
+                    esc(apptDurationDisplay(a)) + '</td>' +
                 '<td>' + esc(dispStatusLabel(status)) + '</td>' +
                 '</tr>';
         });
@@ -8759,7 +8779,7 @@ function loadQueue() {
     var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
     tb.innerHTML =
-        '<tr><td colspan="9" style="text-align:center;' +
+        '<tr><td colspan="10" style="text-align:center;' +
         'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
 
     var qq = SB.from('appointments').select('*')
@@ -8778,7 +8798,7 @@ function loadQueue() {
         };
         if (r.error || !r.data || !r.data.length) {
             tb.innerHTML =
-                '<tr><td colspan="9" style="text-align:center;' +
+                '<tr><td colspan="10" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' +
                 esc(tr('appt.queue.empty')) + '</td></tr>';
             var qc = g('queueCount');
@@ -8805,7 +8825,7 @@ function loadQueue() {
             if (qc) qc.textContent = trRepl('appt.queue.count', { N: String(visible.length) });
             if (!visible.length) {
                 tb.innerHTML =
-                    '<tr><td colspan="9" style="text-align:center;' +
+                    '<tr><td colspan="10" style="text-align:center;' +
                     'color:#aaa;padding:24px;">' +
                     esc(activeRows.length
                         ? tr('appt.queue.emptyFiltered')
@@ -8874,6 +8894,9 @@ function buildQueueRow(tb, q, seqNo) {
         '<td style="font-size:12px;">' + apptAlertCellHtml(q) + '</td>' +
         '<td>' +
             '<strong>' + fmt12(q.start_time) + '</strong>' +
+        '</td>' +
+        '<td style="text-align:center;font-size:13px;">' +
+            esc(apptDurationDisplay(q)) +
         '</td>' +
         '<td class="queue-arrived-cell">' +
             (q.arrival_time

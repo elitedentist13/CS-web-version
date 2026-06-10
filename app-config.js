@@ -1738,6 +1738,8 @@ var CFG = (function () {
 
         op.then(function (r) {
             if (r.error) { toast(r.error.message, true); return; }
+            if (typeof invalidateBillTypesCache === 'function') invalidateBillTypesCache();
+            if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
             toast(_pmEditId ? ctr('cfg.msg.paymentUpdated') : ctr('cfg.msg.paymentAdded'));
             _closePmPanel();
             loadPayment();
@@ -1749,6 +1751,8 @@ var CFG = (function () {
             SB.from('bill_types').delete().eq('id', id)
             .then(function (r) {
                 if (r.error) { toast(r.error.message, true); return; }
+                if (typeof invalidateBillTypesCache === 'function') invalidateBillTypesCache();
+                if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
                 toast(ctr('cfg.msg.paymentDeleted'));
                 loadPayment();
             });

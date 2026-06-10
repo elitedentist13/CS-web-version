@@ -2796,6 +2796,7 @@ function finishLoginSession(u, doctorId) {
 
     showDashboard();
     if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
+    if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
     if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();
 }
 
@@ -2906,6 +2907,7 @@ document.addEventListener('DOMContentLoaded', function() {
         populateWorkingClinicSelect();
         showDashboard();
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
+        if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
         if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();
         if (hasEffectiveWorkingDateOverride()) {
             setTimeout(function () {

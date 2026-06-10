@@ -281,13 +281,30 @@ function billIsFullyUnpaidSave(paid, balance, total) {
     return total > 0.005 && paid <= 0.005 && balance > 0.005;
 }
 
+function billDefaultPayTypeValue() {
+    if (billTypesCache && billTypesCache.length) {
+        var i;
+        for (i = 0; i < billTypesCache.length; i++) {
+            if (billTypesCache[i].is_default && billTypeRowIsPayable(billTypesCache[i])) {
+                return billTypeOptionValue(billTypesCache[i]);
+            }
+        }
+        for (i = 0; i < billTypesCache.length; i++) {
+            if (billTypeRowIsPayable(billTypesCache[i])) {
+                return billTypeOptionValue(billTypesCache[i]);
+            }
+        }
+    }
+    return 'Cash';
+}
+
 function billResolvePayTypeForSave(paid, balance, total, selectedType) {
     var s = String(selectedType || '').trim();
     var pendingVals = billPendingPayTypeCandidates();
     if (paid > 0.005 && pendingVals.indexOf(s) >= 0) {
-        return 'Cash';
+        return billDefaultPayTypeValue();
     }
-    if (paid > 0.005) return s || 'Cash';
+    if (paid > 0.005) return s || billDefaultPayTypeValue();
     return billPendingPayTypeValue();
 }
 
@@ -11616,6 +11633,7 @@ function openBillPanel(q) {
 
     wireBillPanelControls();
     startBillPendingAutoRefresh();
+    if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
     g('billPanel').classList.add('open');
 }
 
@@ -12979,84 +12997,248 @@ function buildTreatmentItemOptions(selectedDesc) {
     return html;
 }
 
-var billTypesCache = [];   // shared across both dropdowns
+var billTypesCache = [];          // active rows from bill_types (Configuration → Payment Methods)
+var billTypesLoadPromise = null;
+var billTypesFetchOk = false;
 
-function applyBillTypeOptions(sel, markDefault) {
-    var FALLBACK = ['Pending', 'N/A', 'Cash', 'Visa', 'Mastercard', 'EPS', 'HKBC', 'Cheque',
-                    'Bank Transfer', 'Insurance', 'Waived', 'Other'];
-    sel.innerHTML = '';
-    var list = billTypesCache.length ? billTypesCache : null;
-    if (!list) {
-        FALLBACK.forEach(function(v) {
-            var o = document.createElement('option');
-            o.value = v;
-            o.textContent = (typeof dispPayMethod === 'function') ? dispPayMethod(v) : v;
-            sel.appendChild(o);
-        });
-        ensurePendingBillTypeOption(sel);
-        return;
+var BILL_TYPE_FALLBACK_PAY_METHODS = [
+    'Cash', 'Visa', 'Mastercard', 'EPS', 'HKBC', 'Cheque',
+    'Bank Transfer', 'Insurance', 'Waived', 'Other'
+];
+
+function invalidateBillTypesCache() {
+    billTypesCache = [];
+    billTypesLoadPromise = null;
+    billTypesFetchOk = false;
+}
+
+function billTypeOptionValue(bt) {
+    return String((bt && (bt.name || bt.type_code)) || '').trim();
+}
+
+function billTypeRowIsActive(bt) {
+    return bt && bt.is_active !== false;
+}
+
+function billTypeRowIsUnsettled(bt) {
+    var v = billTypeOptionValue(bt);
+    if (!v) return true;
+    var lk = v.toLowerCase();
+    return billPendingPayTypeCandidates().some(function (c) {
+        return String(c || '').trim().toLowerCase() === lk;
+    });
+}
+
+function billTypeRowIsPayable(bt) {
+    return billTypeRowIsActive(bt) && !billTypeRowIsUnsettled(bt);
+}
+
+function findBillTypeRow(value) {
+    var v = String(value || '').trim().toLowerCase();
+    if (!v || !billTypesCache.length) return null;
+    for (var i = 0; i < billTypesCache.length; i++) {
+        var bt = billTypesCache[i];
+        var name = String(bt.name || '').trim().toLowerCase();
+        var code = String(bt.type_code || '').trim().toLowerCase();
+        if (name === v || code === v) return bt;
     }
+    return null;
+}
+
+function billTypeDisplayLabel(btOrValue, fromRow) {
+    if (btOrValue && typeof btOrValue === 'object') {
+        var bt = btOrValue;
+        var val = billTypeOptionValue(bt);
+        var lang = (typeof appUiLang !== 'undefined') ? appUiLang : 'en';
+        if ((lang === 'zh-CN' || lang === 'zh-Hant') && bt.type_name && String(bt.type_name).trim()) {
+            return String(bt.type_name).trim();
+        }
+        return (typeof dispPayMethod === 'function') ? dispPayMethod(val, true) : val;
+    }
+    if (!fromRow) {
+        var hit = findBillTypeRow(btOrValue);
+        if (hit) return billTypeDisplayLabel(hit, true);
+    }
+    var s = String(btOrValue || '').trim();
+    return (typeof dispPayMethod === 'function') ? dispPayMethod(s, true) : s;
+}
+
+function billTypesForSelect(opts) {
+    opts = opts || {};
+    var rows = billTypesCache.length ? billTypesCache.slice() : [];
+    if (opts.forPayment) {
+        return rows.filter(billTypeRowIsPayable);
+    }
+    return rows.filter(billTypeRowIsActive);
+}
+
+function ensureBillTypeOptionExists(sel, value) {
+    if (!sel || !sel.appendChild) return;
+    var v = String(value || '').trim();
+    if (!v) return;
+    var has = Array.prototype.some.call(sel.options || [], function (o) { return o.value === v; });
+    if (has) return;
+    var o = document.createElement('option');
+    o.value = v;
+    o.textContent = billTypeDisplayLabel(v);
+    sel.appendChild(o);
+}
+
+function normalizeBillTypesRows(rows) {
+    return (rows || []).filter(billTypeRowIsActive).map(function (bt) {
+        if (!bt) return bt;
+        if (!bt.name && bt.type_code) bt.name = bt.type_code;
+        if (!bt.type_code && bt.name) bt.type_code = bt.name;
+        return bt;
+    });
+}
+
+function fetchBillTypesFromDb(force) {
+    if (force) invalidateBillTypesCache();
+    if (billTypesLoadPromise) return billTypesLoadPromise;
+
+    function finishFromResponse(r) {
+        billTypesFetchOk = !r.error;
+        if (r.error) {
+            console.error('bill_types load failed:', r.error);
+            billTypesCache = [];
+            return billTypesCache;
+        }
+        billTypesCache = normalizeBillTypesRows(r.data);
+        return billTypesCache;
+    }
+
+    billTypesLoadPromise = SB.from('bill_types')
+        .select('*')
+        .order('sort_order', { ascending: true })
+        .then(function (r) {
+            if (r.error && /sort_order/i.test(String(r.error.message || ''))) {
+                return SB.from('bill_types').select('*').then(finishFromResponse);
+            }
+            return finishFromResponse(r);
+        })
+        .catch(function (e) {
+            billTypesFetchOk = false;
+            console.error('bill_types load error:', e);
+            billTypesCache = [];
+            return billTypesCache;
+        });
+    return billTypesLoadPromise;
+}
+
+function ensureBillTypesLoaded(cb, force) {
+    return fetchBillTypesFromDb(!!force)
+        .then(function (rows) {
+            if (typeof cb === 'function') cb(rows);
+            return rows;
+        })
+        .catch(function (e) {
+            console.error('ensureBillTypesLoaded failed:', e);
+            if (typeof cb === 'function') cb([]);
+            return [];
+        });
+}
+
+function prefetchBillTypes() {
+    return ensureBillTypesLoaded(null, false);
+}
+
+function populateAllBillPaymentSelects(opts) {
+    opts = opts || {};
+    var bType = g('bType');
+    if (bType) {
+        var prevType = bType.value;
+        applyBillTypeOptions(bType, !!opts.markDefault, { includePending: true, extraValues: opts.extraValues });
+        if (prevType) {
+            ensureBillTypeOptionExists(bType, prevType);
+            bType.value = prevType;
+        }
+    }
+    var apSel = g('apMethod');
+    if (apSel) {
+        var prevAp = apSel.value;
+        applyBillTypeOptions(apSel, !!opts.markApDefault, { forPayment: true, extraValues: opts.extraValues });
+        if (prevAp) {
+            ensureBillTypeOptionExists(apSel, prevAp);
+            apSel.value = prevAp;
+        }
+    }
+}
+
+function appendBillTypeFallbackOptions(sel) {
+    BILL_TYPE_FALLBACK_PAY_METHODS.forEach(function (v) {
+        ensureBillTypeOptionExists(sel, v);
+    });
+}
+
+function applyBillTypeOptions(sel, markDefault, opts) {
+    opts = opts || {};
+    if (!sel || !sel.appendChild) return;
+
+    var includePending = opts.forPayment ? false : (opts.includePending !== false);
+    var list = billTypesForSelect(opts);
+    sel.innerHTML = '';
+
     var defaultFound = false;
-    list.forEach(function(bt) {
+    list.forEach(function (bt) {
+        var val = billTypeOptionValue(bt);
+        if (!val) return;
         var opt = document.createElement('option');
-        opt.value = bt.name || bt.type_code;
-        opt.textContent = (typeof dispPayMethod === 'function')
-            ? dispPayMethod(opt.value)
-            : (bt.name || bt.type_code);
-        if (bt.type_name) opt.textContent += ' (' + bt.type_name + ')';
+        opt.value = val;
+        opt.textContent = billTypeDisplayLabel(bt, true);
+        if (bt.color_hex) opt.style.color = bt.color_hex;
         if (markDefault && bt.is_default && !defaultFound) {
             opt.selected = true;
             defaultFound = true;
         }
         sel.appendChild(opt);
     });
-    if (markDefault && !defaultFound && sel.options.length) {
+
+    if (!sel.options.length) {
+        appendBillTypeFallbackOptions(sel);
+        if (markDefault && sel.options.length) {
+            sel.options[0].selected = true;
+        }
+    } else if (markDefault && !defaultFound) {
         sel.options[0].selected = true;
     }
-    ensurePendingBillTypeOption(sel);
+
+    (opts.extraValues || []).forEach(function (v) {
+        ensureBillTypeOptionExists(sel, v);
+    });
+
+    if (includePending) ensurePendingBillTypeOption(sel);
 }
 
 function refreshBillPaymentSelectLabels() {
-    var bType = g('bType');
-    if (bType && bType.options.length) {
-        var prevType = bType.value;
-        applyBillTypeOptions(bType, false);
-        if (prevType) bType.value = prevType;
+    populateAllBillPaymentSelects({ markDefault: false });
+}
+
+function loadBillTypes(opts) {
+    opts = opts || {};
+    var sel = g('bType');
+    if (sel) {
+        sel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
     }
     var apSel = g('apMethod');
-    if (apSel && apSel.options.length) {
-        var prevAp = apSel.value;
-        applyBillTypeOptions(apSel, false);
-        if (prevAp) apSel.value = prevAp;
-    }
-}
-
-function loadBillTypes() {
-    var sel = g('bType');
-    if (!sel) return;
-    sel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
-
-    if (billTypesCache.length) {
-        applyBillTypeOptions(sel, true);
-        applyBillTypeOptions(g('apMethod') || { innerHTML: '' }, false);
-        return;
+    if (apSel && !sel) {
+        apSel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
     }
 
-    SB.from('bill_types')
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order', {ascending: true})
-    .then(function(r) {
-        billTypesCache = (!r.error && r.data && r.data.length) ? r.data : [];
-        applyBillTypeOptions(sel, true);
-        var apSel = g('apMethod');
-        if (apSel) applyBillTypeOptions(apSel, false);
-    })
-    .catch(function(e) {
-        console.error('Error loading bill types:', e);
-        applyBillTypeOptions(sel, true);
-    });
+    return ensureBillTypesLoaded(function () {
+        populateAllBillPaymentSelects({
+            markDefault: true,
+            markApDefault: true,
+            extraValues: opts.extraValues
+        });
+    }, opts.force === true);
 }
+
+window.invalidateBillTypesCache = invalidateBillTypesCache;
+window.prefetchBillTypes = prefetchBillTypes;
+window.ensureBillTypesLoaded = ensureBillTypesLoaded;
+window.findBillTypeRow = findBillTypeRow;
+window.billTypeDisplayLabel = billTypeDisplayLabel;
 
 // Loads all bills for the current patient (same query shape as Consultation → Bill).
 function billHistoryRangeMode() {
@@ -13986,16 +14168,25 @@ function openAddPaymentModal() {
     sv('apDate',   todayISO());
     sv('apAmount', fmt2(bal));   // default = full remaining balance
     sv('apNotes',  '');
+
     var methodSel = g('apMethod');
     if (methodSel) {
-        applyBillTypeOptions(methodSel, false);
-        methodSel.selectedIndex = 0;
+        methodSel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
     }
 
     var errEl = g('apError');
     if (errEl) errEl.style.display = 'none';
 
-    openModal('addPaymentModal');
+    var legacyMethod = bdCurrentBill.bill_type || '';
+    ensureBillTypesLoaded(function () {
+        if (methodSel) {
+            applyBillTypeOptions(methodSel, true, {
+                forPayment: true,
+                extraValues: legacyMethod ? [legacyMethod] : []
+            });
+        }
+        openModal('addPaymentModal');
+    });
 }
 
 function billPaymentClinicContext() {
@@ -14047,11 +14238,17 @@ function confirmAddPayment() {
     var newBalance = Math.max(0, (parseFloat(bdCurrentBill.total) || 0) - newPaid);
     var newStatus  = newBalance <= 0.005 ? 'Paid' : 'Partial';
 
+    var payMethod = g('apMethod') ? String(g('apMethod').value || '').trim() : '';
+    if (!payMethod) {
+        if (errEl) { errEl.textContent = tr('bill.alert.selectPaymentMethod'); errEl.style.display = ''; }
+        return;
+    }
+
     var payRecord = {
         bill_id:     bdCurrentBill.id,
         paid_date:   g('apDate').value || todayISO(),
         amount:      amount,
-        method:      g('apMethod').value || 'Cash',
+        method:      payMethod,
         notes:       g('apNotes').value  || null,
         received_by: (typeof currentName !== 'undefined' ? currentName : null)
     };
@@ -15316,10 +15513,10 @@ function refreshOpenBillPanelForLang() {
     }
     if (typeof loadBillHistory === 'function') loadBillHistory();
     else if (typeof applyBillHistoryFilter === 'function') applyBillHistoryFilter();
-    if (billTypesCache.length && typeof refreshBillPaymentSelectLabels === 'function') {
+    if (typeof loadBillTypes === 'function') {
+        loadBillTypes({ force: false });
+    } else if (typeof refreshBillPaymentSelectLabels === 'function') {
         refreshBillPaymentSelectLabels();
-    } else if (typeof loadBillTypes === 'function') {
-        loadBillTypes();
     }
     if (typeof renderBillDoctorOptions === 'function') {
         renderBillDoctorOptions(typeof defaultBillDoctorId === 'function' ? defaultBillDoctorId() : '');
@@ -15407,11 +15604,18 @@ document.addEventListener('app-lang-change', function () {
     var addPayModal = g('addPaymentModal');
     if (addPayModal && addPayModal.style.display === 'block') {
         if (typeof applyI18nInRoot === 'function') applyI18nInRoot(addPayModal);
-        var apSel = g('apMethod');
-        if (apSel && typeof applyBillTypeOptions === 'function') {
-            var apPrev = apSel.value;
-            applyBillTypeOptions(apSel, false);
-            if (apPrev) apSel.value = apPrev;
+        if (typeof ensureBillTypesLoaded === 'function') {
+            ensureBillTypesLoaded(function () {
+                var apSel = g('apMethod');
+                if (apSel && typeof applyBillTypeOptions === 'function') {
+                    var apPrev = apSel.value;
+                    applyBillTypeOptions(apSel, false, { forPayment: true });
+                    if (apPrev) {
+                        ensureBillTypeOptionExists(apSel, apPrev);
+                        apSel.value = apPrev;
+                    }
+                }
+            });
         }
         if (bdCurrentBill) {
             var apBal = parseFloat(bdCurrentBill.balance) || 0;

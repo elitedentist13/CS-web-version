@@ -3,8 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title></title>
-<link rel="stylesheet" href="style.css">
+<script>
+(function () {
+  var bust = '';
+  try {
+    var q = new URLSearchParams(window.location.search);
+    if (q.get('_lr')) {
+      bust = q.get('_lr');
+      localStorage.setItem('jsm_asset_cache_bust_v1', bust);
+    } else {
+      bust = localStorage.getItem('jsm_asset_cache_bust_v1') || '';
+    }
+  } catch (e) {}
+  window.__JSM_ASSET_BUST_TS = bust || '';
+  function withBust(path) {
+    if (!window.__JSM_ASSET_BUST_TS) return path;
+    return path + (path.indexOf('?') >= 0 ? '&' : '?') +
+      'v=' + encodeURIComponent(window.__JSM_ASSET_BUST_TS);
+  }
+  window.__JSM_WITH_BUST = withBust;
+  document.write('<link rel="stylesheet" href="' + withBust('style.css') + '">');
+})();
+</script>
 <style>
   /* Prevent configuration sidebar flash before app.js runs */
   #sectionConfig { display: none; }
@@ -796,6 +820,18 @@
     <div id="queueDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
     <div class="tbl-wrap queue-wrap">
       <table class="appt-tbl queue-tbl">
+        <colgroup>
+          <col class="queue-col-no">
+          <col class="queue-col-name">
+          <col class="queue-col-treatment">
+          <col class="queue-col-alert">
+          <col class="queue-col-time">
+          <col class="queue-col-duration">
+          <col class="queue-col-arrived">
+          <col class="queue-col-remarks">
+          <col class="queue-col-status">
+          <col class="queue-col-actions">
+        </colgroup>
         <thead>
           <tr>
             <th data-i18n="appt.queueTh.no"></th>
@@ -803,6 +839,7 @@
             <th data-i18n="appt.queueTh.treatment"></th>
             <th data-i18n="appt.queueTh.alert"></th>
             <th data-i18n="appt.queueTh.time"></th>
+            <th class="queue-duration-col" data-i18n="appt.queueTh.duration"></th>
             <th data-i18n="appt.queueTh.arrived"></th>
             <th class="queue-remarks-col" data-i18n="appt.queueTh.remarks"></th>
             <th data-i18n="appt.queueTh.billStatus"></th>
@@ -1018,6 +1055,13 @@
                 style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
                        background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;" data-i18n="appt.arFilterNoshow"></button>
       </div>
+      <label for="arDoctorSelect" class="appt-clinic-label"
+             style="font-size:12px;margin:0;white-space:nowrap;"
+             data-i18n="appt.ar.doctorLabel"></label>
+      <select id="arDoctorSelect" class="appt-clinic-select ar-doctor-select"
+              style="min-width:160px;max-width:240px;font-size:12px;"
+              data-i18n-title="appt.ar.doctorTitle"
+              onchange="setArDoctorFilter(this.value)"></select>
       <div class="ar-records-search-wrap">
         <input id="arSearchInput" type="text" class="ar-records-search-input"
                data-i18n-placeholder="appt.arSearchPh"
@@ -1035,6 +1079,7 @@
           <tr>
             <th style="width:90px;" data-i18n="appt.arTh.date"></th>
             <th style="width:70px;" data-i18n="appt.arTh.time"></th>
+            <th style="width:70px;" data-i18n="appt.arTh.duration"></th>
             <th style="width:70px;" data-i18n="appt.arTh.patNo"></th>
             <th data-i18n="appt.arTh.name"></th>
             <th data-i18n="appt.arTh.treatment"></th>
@@ -4040,11 +4085,12 @@
             <table class="bill-items-table">
               <thead>
                 <tr>
-                  <th style="width:34%;" data-i18n="bill.th.description"></th>
-                  <th style="width:10%;" data-i18n="bill.th.qty"></th>
-                  <th style="width:19%;" data-i18n="bill.th.unitPrice"></th>
-                  <th style="width:14%;text-align:center;" data-i18n="bill.th.discPct"></th>
-                  <th style="width:18%;text-align:right;" data-i18n="bill.th.amount"></th>
+                  <th style="width:30%;" data-i18n="bill.th.description"></th>
+                  <th style="width:8%;text-align:center;" data-i18n="bill.th.toothNo"></th>
+                  <th class="bill-qty-col" data-i18n="bill.th.qty"></th>
+                  <th style="width:17%;" data-i18n="bill.th.unitPrice"></th>
+                  <th style="width:12%;text-align:center;" data-i18n="bill.th.discPct"></th>
+                  <th style="width:16%;text-align:right;" data-i18n="bill.th.amount"></th>
                   <th style="width:5%;"></th>
                 </tr>
               </thead>
@@ -4194,7 +4240,7 @@
                   margin-bottom:14px;flex-wrap:wrap;">
         <h3 style="margin:0;font-size:16px;color:#333;" data-i18n="bill.historyTitle"></h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" id="billHistoryPrintBtn"
+          <button type="button" id="billHistoryPrintBtn" onclick="printBillHistory()"
                   style="background:#fff;color:var(--primary);border:1px solid var(--primary);
                          padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;"
                   data-i18n="bill.history.btnPrint"></button>
@@ -4371,6 +4417,78 @@
   </div>
 </div>
 
+<div id="billHistoryPrintModal" class="modal">
+  <div class="modal-box bh-print-modal-box">
+    <button class="mclose" id="closeBillHistoryPrintModal" data-i18n-aria-label="common.closeAria">×</button>
+    <h2 data-i18n="bill.history.printOptionsTitle"></h2>
+    <p class="bh-print-modal-hint" data-i18n="bill.history.printOptionsHint"></p>
+
+    <div class="bh-print-modal-layout">
+      <div class="bh-print-modal-settings">
+        <h3 class="bh-print-section-title" data-i18n="bill.history.printTypography"></h3>
+        <div class="bh-print-typo-grid">
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printFontFamily"></span>
+            <select id="bhpFontFamily" class="bh-print-field-input">
+              <option value="system" data-i18n="bill.history.printFontSystem"></option>
+              <option value="arial" data-i18n="bill.history.printFontArial"></option>
+              <option value="times" data-i18n="bill.history.printFontTimes"></option>
+              <option value="ming" data-i18n="bill.history.printFontMing"></option>
+              <option value="yahei" data-i18n="bill.history.printFontYahei"></option>
+            </select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printTitleSize"></span>
+            <select id="bhpTitleSize" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printBodySize"></span>
+            <select id="bhpBodySize" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printThSize"></span>
+            <select id="bhpThSize" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printScale"></span>
+            <select id="bhpScalePercent" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-opt">
+            <input type="checkbox" id="bhpBoldText">
+            <span data-i18n="bill.history.printBold"></span>
+          </label>
+        </div>
+
+        <div class="bh-print-bills-head">
+          <h3 class="bh-print-section-title" data-i18n="bill.history.printSelectBills"></h3>
+          <div class="bh-print-select-actions">
+            <button type="button" id="bhpSelectAllBtn" class="bh-print-link-btn"
+                    data-i18n="bill.history.printSelectAll"></button>
+            <span aria-hidden="true">·</span>
+            <button type="button" id="bhpSelectNoneBtn" class="bh-print-link-btn"
+                    data-i18n="bill.history.printSelectNone"></button>
+          </div>
+        </div>
+        <div id="bhpBillList" class="bh-print-bill-list" role="list"></div>
+      </div>
+
+      <div class="bh-print-modal-preview-wrap">
+        <h3 class="bh-print-section-title" data-i18n="bill.history.printPreview"></h3>
+        <div id="bhpPreviewScroll" class="bh-print-preview-scroll">
+          <div id="bhpPreview" class="bh-print-preview"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bh-print-modal-actions">
+      <button type="button" id="billHistoryPrintCancelBtn" class="btn-secondary"
+              data-i18n="patient.history.cancelBtn"></button>
+      <button type="button" id="billHistoryPrintOkBtn" class="btn-primary"
+              data-i18n="bill.history.printOptionsOk"></button>
+    </div>
+  </div>
+</div>
+
 <div id="receiptModal" class="modal">
   <div class="modal-box" style="max-width:560px;">
     <button class="mclose" id="closeReceiptModal" data-i18n-aria-label="common.closeAria">×</button>
@@ -4486,6 +4604,13 @@
         <div class="receipt-kv-row receipt-kv-row-stack">
           <strong class="receipt-kv-label" data-i18n="bill.receipt.prescriptionTitle"></strong>
           <div class="receipt-kv-val receipt-kv-multiline" id="rPrescriptionBody"></div>
+        </div>
+      </div>
+
+      <div id="rBillNotesSection" class="receipt-extra-meta" style="display:none;">
+        <div class="receipt-kv-row receipt-kv-row-stack">
+          <strong class="receipt-kv-label" data-i18n="bill.receipt.paymentNotesTitle"></strong>
+          <span class="receipt-kv-val receipt-kv-multiline" id="rBillNotesBody">—</span>
         </div>
       </div>
 
@@ -4952,32 +5077,38 @@
 <!-- ════════════════════════════════════════════════════════════
      SCRIPTS  (load order matters)
 ════════════════════════════════════════════════════════════ -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="app-i18n.js"></script>
-<script src="app-i18n-extra.js"></script>
-<script src="app.js"></script>
-<script src="app-doc-editor.js"></script>
-<script src="app-program-settings.js"></script>
-<script src="app-audit.js"></script>
-<script src="app-auth.js"></script>
-<script src="treatment-items-catalog.js"></script>
-<script src="app-config.js"></script>
-<script src="app-report.js"></script>
-<script src="app-ai-helper.js"></script>
-<script src="app-memo-ai.js"></script>
-<script src="app-photos.js"></script>
-<script src="app-patient.js"></script>
-<script src="app-patient-views.js"></script>
-<script src="cal-doctor-colors.js"></script>
-<script src="app-appt.js"></script>
-<script src="app-rx-phrases.js?v=20260520b"></script>
-<script src="app-consultation.js"></script>
-<script src="app-xray.js?v=20260520f"></script>
-<script src="app-charts.js"></script>
-<script src="app-drugs.js"></script>
-<script src="app-broadcast.js?v=20260524c"></script>
-<script src="app-quicklaunch.js"></script>
+<script>
+(function () {
+  var wb = window.__JSM_WITH_BUST || function (p) { return p; };
+  function w(src) { document.write('<script src="' + src + '"><\/script>'); }
+  w('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+  w('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js');
+  w(wb('app-i18n.js'));
+  w(wb('app-i18n-extra.js'));
+  w(wb('app.js'));
+  w(wb('app-doc-editor.js'));
+  w(wb('app-program-settings.js'));
+  w(wb('app-audit.js'));
+  w(wb('app-auth.js'));
+  w(wb('treatment-items-catalog.js'));
+  w(wb('app-config.js'));
+  w(wb('app-report.js'));
+  w(wb('app-ai-helper.js'));
+  w(wb('app-memo-ai.js'));
+  w(wb('app-photos.js'));
+  w(wb('app-patient.js'));
+  w(wb('app-patient-views.js'));
+  w(wb('cal-doctor-colors.js'));
+  w(wb('app-appt.js'));
+  w(wb('app-rx-phrases.js?v=20260520b'));
+  w(wb('app-consultation.js'));
+  w(wb('app-xray.js?v=20260520f'));
+  w(wb('app-charts.js'));
+  w(wb('app-drugs.js'));
+  w(wb('app-broadcast.js?v=20260524c'));
+  w(wb('app-quicklaunch.js'));
+})();
+</script>
 
 
 </body>

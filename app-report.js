@@ -405,16 +405,16 @@ var REPORT = (function () {
     return pmap;
   }
 
-  function buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day) {
+  function buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day, appointmentResolver) {
     var ref = String(b.id || '').trim();
     if (!ref) {
       var ct = String(b.created_at || '').replace(/\D/g, '');
       ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
     }
-    var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
-      ? PATIENT_CLINIC_TAG_FIELD
-      : 'clinic_tag';
-    var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
+    var pmapOne = {};
+    if (p && p.id) pmapOne[p.id] = p;
+    var patientClinicMap = patientClinicMapFromPmap(pmapOne);
+    var clinicTag = dailySummaryClinicTagForBill(b, p, null, patientClinicMap, appointmentResolver || null);
     return buildDailySummaryTxRow(b, p, {}, Object.assign({
       bill_ref: ref,
       bill_date: day,
@@ -424,12 +424,15 @@ var REPORT = (function () {
     }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, day)));
   }
 
-  async function appendPendingUnpaidBillsToDailySummaryTx(from, to, tx, pmap, doctors, apptCtx) {
+  async function appendPendingUnpaidBillsToDailySummaryTx(from, to, tx, pmap, doctors, apptCtx, appointmentResolver) {
     var bills = await loadBillsLite(from, to);
     var pending = (bills || []).filter(reportIsPendingUnpaidBill);
     if (!pending.length) return tx || [];
 
     pmap = await mergePatientsForBills(pending, pmap);
+    if (!appointmentResolver) {
+      appointmentResolver = await buildAppointmentClinicResolver(from, to, pending);
+    }
     var seen = indexDailySummaryTxByBillId(tx);
     var out = tx || [];
 
@@ -438,7 +441,7 @@ var REPORT = (function () {
       var day = dailySummaryBillDayKey(b);
       if (!day || day < from || day > to) return;
       var p = pmap[b.patient_id] || {};
-      out.push(buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day));
+      out.push(buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day, appointmentResolver));
       seen[b.id] = true;
     });
 
@@ -545,6 +548,427 @@ var REPORT = (function () {
     return t;
   }
 
+  function clinicCanonicalKey(tagOrId) {
+    var code = clinicCodeFromStoredTag(tagOrId);
+    var up = String(code || '').trim().toUpperCase();
+    if (!up) return '';
+    if (typeof APP_CLINICS !== 'undefined' && APP_CLINICS.length) {
+      for (var i = 0; i < APP_CLINICS.length; i++) {
+        var c = APP_CLINICS[i];
+        if (!c) continue;
+        var cid = String(c.id || '').trim().toUpperCase();
+        var cc = String(c.clinic_code || '').trim().toUpperCase();
+        if (cid && (cid === up || String(tagOrId || '').trim().toUpperCase() === cid)) {
+          return cc || cid;
+        }
+        if (cc && cc === up) return cc;
+      }
+    }
+    return up;
+  }
+
+  function clinicCodesMatch(a, b) {
+    var x = clinicCanonicalKey(a);
+    var y = clinicCanonicalKey(b);
+    return !!(x && y && x === y);
+  }
+
+  function clinicCodeFromDoctorCode(doctorCode) {
+    var code = String(doctorCode || '').trim();
+    if (!code || typeof APP_DOCTORS === 'undefined' || !APP_DOCTORS.length) return '';
+    var codeUp = code.toUpperCase();
+    for (var i = 0; i < APP_DOCTORS.length; i++) {
+      var d = APP_DOCTORS[i];
+      if (String(d.doctor_code || '').trim().toUpperCase() !== codeUp) continue;
+      if (d.clinic_id && typeof clinicRecordFromId === 'function') {
+        var rec = clinicRecordFromId(d.clinic_id);
+        if (rec) return clinicCodeFromStoredTag(rec.clinic_code || rec.id);
+      }
+    }
+    return '';
+  }
+
+  function billDoctorCodeCandidates(bill) {
+    var out = [];
+    var seen = {};
+    function add(raw) {
+      var s = String(raw || '').trim();
+      if (!s) return;
+      var up = s.toUpperCase();
+      if (seen[up]) return;
+      seen[up] = true;
+      out.push(s);
+    }
+    if (!bill) return out;
+    add(bill.doctor_code);
+    add(bill.doctor_tag);
+    if (typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS.length) {
+      var nTag = typeof normName === 'function' ? normName(bill.doctor_tag) : '';
+      var nName = typeof normName === 'function' ? normName(bill.doctor_name) : '';
+      APP_DOCTORS.forEach(function (d) {
+        if (!d) return;
+        if (bill.doctor_id && d.id && String(bill.doctor_id) === String(d.id)) {
+          add(d.doctor_code);
+          return;
+        }
+        if (typeof doctorTextVariants === 'function') {
+          var vars = doctorTextVariants(d);
+          if ((nTag && vars[nTag]) || (nName && vars[nName])) add(d.doctor_code);
+        }
+      });
+    }
+    return out;
+  }
+
+  function doctorsShareCode(codeA, codeB) {
+    var a = String(codeA || '').trim().toUpperCase();
+    var b = String(codeB || '').trim().toUpperCase();
+    return !!(a && b && a === b);
+  }
+
+  function billDoctorMatchesAppt(bill, appt) {
+    if (!bill || !appt) return false;
+    var apptCode = String(appt.doctor_code || '').trim();
+    if (!apptCode) return false;
+    var candidates = billDoctorCodeCandidates(bill);
+    for (var i = 0; i < candidates.length; i++) {
+      if (doctorsShareCode(candidates[i], apptCode)) return true;
+    }
+    return false;
+  }
+
+  function appointmentRowClinicCode(appt, af, ctx) {
+    if (!appt) return '';
+    var tag = clinicCodeFromStoredTag(appt[af] || appt.clinic_tag || appt.clinic_code);
+    if (tag) return tag;
+    if (ctx && typeof ctx.inferClinicForUntaggedAppt === 'function') {
+      return ctx.inferClinicForUntaggedAppt(appt) || '';
+    }
+    return clinicCodeFromDoctorCode(appt.doctor_code);
+  }
+
+  function normalizePatientNo(v) {
+    return String(v || '').trim().toUpperCase();
+  }
+
+  function appointmentDayKey(appt) {
+    return String(appt && appt.date ? appt.date : '').slice(0, 10);
+  }
+
+  function billLookupDates(bill, payment) {
+    var dates = [];
+    var seen = {};
+    function add(raw) {
+      var d = paymentDateKey(raw);
+      if (!d || seen[d]) return;
+      seen[d] = true;
+      dates.push(d);
+    }
+    if (payment && payment.paid_date) add(payment.paid_date);
+    if (bill && bill.bill_date) add(bill.bill_date);
+    return dates;
+  }
+
+  function billDateRangeFromBills(bills) {
+    var min = '';
+    var max = '';
+    (bills || []).forEach(function (b) {
+      var d = paymentDateKey(b && b.bill_date);
+      if (!d) return;
+      if (!min || d < min) min = d;
+      if (!max || d > max) max = d;
+    });
+    var t = todayISO();
+    return { from: min || t, to: max || t };
+  }
+
+  /**
+   * Trace bills back to appointments by id, patient_id+date, patient_no+date,
+   * and doctor+date. Loads the full day schedule when possible so cross-clinic
+   * visits are not lost when bills carry the wrong working-clinic tag.
+   */
+  async function buildAppointmentClinicResolver(from, to, bills) {
+    bills = bills || [];
+    var af = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+      ? APPOINTMENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    var reportTag = reportClinicTag();
+    var apptIds = uniqIds(bills.map(function (b) { return b && b.appointment_id; }));
+    var patientIds = uniqIds(bills.map(function (b) { return b && b.patient_id; }));
+    var patientNos = uniqIds(bills.map(function (b) { return normalizePatientNo(b && b.patient_no); }));
+    var byId = {};
+    var byPatientDate = {};
+    var byPatientNoDate = {};
+    var allOnDay = [];
+    var doctorsByClinicDay = {};
+    var CHUNK = 80;
+
+    function pickBetterAppt(cur, next) {
+      if (!cur) return next;
+      if (!next) return cur;
+      var curMin = dailySummaryApptTimeToMin(cur.start_time);
+      var nextMin = dailySummaryApptTimeToMin(next.start_time);
+      return nextMin < curMin ? next : cur;
+    }
+
+    function ingestAppt(a) {
+      if (!a || !a.id) return;
+      byId[a.id] = a;
+      var d = appointmentDayKey(a);
+      if (!d) return;
+      var pid = a.patient_id || '';
+      var pno = normalizePatientNo(a.patient_no);
+      if (pid) {
+        var key = d + '|' + pid;
+        byPatientDate[key] = pickBetterAppt(byPatientDate[key], a);
+      }
+      if (pno) {
+        var keyNo = d + '|' + pno;
+        byPatientNoDate[keyNo] = pickBetterAppt(byPatientNoDate[keyNo], a);
+      }
+      var clinicCode = clinicCodeFromStoredTag(a[af] || a.clinic_tag || a.clinic_code);
+      if (clinicCode) {
+        var docCode = String(a.doctor_code || '').trim().toUpperCase();
+        if (docCode) {
+          var ck = d + '|' + clinicCanonicalKey(clinicCode);
+          if (!doctorsByClinicDay[ck]) doctorsByClinicDay[ck] = {};
+          doctorsByClinicDay[ck][docCode] = true;
+        }
+      }
+    }
+
+    async function queryAppts(selectCols, builder) {
+      var res = await builder(SB.from('appointments').select(selectCols));
+      if (res.error && /clinic_tag|clinic_code|patient_no/i.test(String(res.error.message || ''))) {
+        res = await builder(SB.from('appointments').select(
+          'id,date,start_time,patient_id,patient_no,doctor_code,clinic_tag'
+        ));
+      }
+      if (res.error) throw new Error(res.error.message);
+      (res.data || []).forEach(function (a) {
+        ingestAppt(a);
+        allOnDay.push(a);
+      });
+    }
+
+    var selectCols = 'id,date,start_time,patient_id,patient_no,doctor_code,' + af;
+
+    for (var i = 0; i < apptIds.length; i += CHUNK) {
+      var idChunk = apptIds.slice(i, i + CHUNK);
+      await queryAppts(selectCols, function (q) { return q.in('id', idChunk); });
+    }
+
+    if (from && to) {
+      await queryAppts(selectCols, function (q) {
+        return q.gte('date', from).lte('date', to)
+          .order('date', { ascending: true })
+          .order('start_time', { ascending: true });
+      });
+    }
+
+    if (patientIds.length && from && to) {
+      for (var j = 0; j < patientIds.length; j += CHUNK) {
+        var patientChunk = patientIds.slice(j, j + CHUNK);
+        await queryAppts(selectCols, function (q) {
+          return q.gte('date', from).lte('date', to).in('patient_id', patientChunk)
+            .order('date', { ascending: true })
+            .order('start_time', { ascending: true });
+        });
+      }
+    }
+
+    if (patientNos.length && from && to) {
+      for (var n = 0; n < patientNos.length; n += CHUNK) {
+        var noChunk = patientNos.slice(n, n + CHUNK);
+        await queryAppts(selectCols, function (q) {
+          return q.gte('date', from).lte('date', to).in('patient_no', noChunk)
+            .order('date', { ascending: true })
+            .order('start_time', { ascending: true });
+        });
+      }
+    }
+
+    function apptsForPatientOnDay(bill, day) {
+      var matches = [];
+      var seenAppt = {};
+      function push(a) {
+        if (!a || !a.id || seenAppt[a.id]) return;
+        seenAppt[a.id] = true;
+        matches.push(a);
+      }
+      if (bill && bill.appointment_id && byId[bill.appointment_id]) {
+        push(byId[bill.appointment_id]);
+      }
+      if (bill && bill.patient_id) {
+        push(byPatientDate[day + '|' + bill.patient_id]);
+      }
+      var pno = normalizePatientNo(bill && bill.patient_no);
+      if (pno) {
+        push(byPatientNoDate[day + '|' + pno]);
+      }
+      return matches;
+    }
+
+    function findAppointmentForBill(bill, payment) {
+      if (!bill) return null;
+      var dates = billLookupDates(bill, payment);
+      var candidates = [];
+      var seen = {};
+      dates.forEach(function (day) {
+        apptsForPatientOnDay(bill, day).forEach(function (a) {
+          if (!a || !a.id || seen[a.id]) return;
+          seen[a.id] = true;
+          candidates.push(a);
+        });
+      });
+      if (!candidates.length) return null;
+      if (candidates.length === 1) return candidates[0];
+
+      var doctorMatched = candidates.filter(function (a) {
+        return billDoctorMatchesAppt(bill, a);
+      });
+      if (doctorMatched.length === 1) return doctorMatched[0];
+      if (doctorMatched.length > 1) {
+        doctorMatched.sort(function (a, b) {
+          return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
+        });
+        return doctorMatched[0];
+      }
+
+      if (reportTag) {
+        var tagged = candidates.filter(function (a) {
+          return clinicCodesMatch(appointmentRowClinicCode(a, af), reportTag);
+        });
+        if (tagged.length === 1) return tagged[0];
+        if (tagged.length > 1) {
+          tagged.sort(function (a, b) {
+            return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
+          });
+          return tagged[0];
+        }
+      }
+
+      candidates.sort(function (a, b) {
+        return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
+      });
+      return candidates[0];
+    }
+
+    function inferClinicForUntaggedAppt(appt, bill) {
+      if (!appt) return '';
+      var day = appointmentDayKey(appt);
+      if (!day) return '';
+
+      var taggedClinics = {};
+      allOnDay.forEach(function (a) {
+        if (appointmentDayKey(a) !== day) return;
+        var samePatient = false;
+        if (appt.patient_id && a.patient_id && String(appt.patient_id) === String(a.patient_id)) {
+          samePatient = true;
+        }
+        var apptNo = normalizePatientNo(appt.patient_no);
+        var aNo = normalizePatientNo(a.patient_no);
+        if (apptNo && aNo && apptNo === aNo) samePatient = true;
+        if (!samePatient) return;
+        var c = clinicCodeFromStoredTag(a[af] || a.clinic_tag || a.clinic_code);
+        if (c) taggedClinics[c.toUpperCase()] = c;
+      });
+      var clinicKeys = Object.keys(taggedClinics);
+      if (clinicKeys.length === 1) return taggedClinics[clinicKeys[0]];
+
+      if (reportTag) {
+        var schedKey = day + '|' + clinicCanonicalKey(reportTag);
+        var schedDocs = doctorsByClinicDay[schedKey] || {};
+        var apptDoc = String(appt.doctor_code || '').trim().toUpperCase();
+        if (apptDoc && schedDocs[apptDoc]) return clinicCodeFromStoredTag(reportTag);
+        var billMatchedSched = false;
+        billDoctorCodeCandidates(bill).forEach(function (code) {
+          if (schedDocs[String(code || '').trim().toUpperCase()]) billMatchedSched = true;
+        });
+        if (billMatchedSched) return clinicCodeFromStoredTag(reportTag);
+
+        var reportCanon = clinicCanonicalKey(reportTag);
+        for (var ti = 0; ti < clinicKeys.length; ti++) {
+          if (clinicCanonicalKey(taggedClinics[clinicKeys[ti]]) === reportCanon) {
+            return taggedClinics[clinicKeys[ti]];
+          }
+        }
+      }
+      return '';
+    }
+
+    var ctx = {
+      inferClinicForUntaggedAppt: function (appt) {
+        return inferClinicForUntaggedAppt(appt, null);
+      }
+    };
+
+    function clinicForBill(bill, payment) {
+      if (!bill) return '';
+      var appt = findAppointmentForBill(bill, payment);
+      if (!appt) return '';
+      var ctxBill = {
+        inferClinicForUntaggedAppt: function (a) {
+          return inferClinicForUntaggedAppt(a, bill);
+        }
+      };
+      return appointmentRowClinicCode(appt, af, ctxBill);
+    }
+
+    return {
+      clinicForBill: clinicForBill,
+      findAppointmentForBill: findAppointmentForBill,
+      byId: byId,
+      byPatientDate: byPatientDate,
+      byPatientNoDate: byPatientNoDate
+    };
+  }
+
+  /**
+   * Resolve which clinic a bill/payment belongs to for reporting.
+   * Appointment (visit site) is first — bills/payments often carry the staff
+   * working-clinic tag (e.g. KT) even when the visit was at TKO.
+   * Priority: appointment → bill → payment → patient home clinic.
+   */
+  function resolveTransactionClinicCode(bill, payment, patientClinicMap, appointmentResolver) {
+    patientClinicMap = patientClinicMap || {};
+    var apptCode = '';
+    if (appointmentResolver && typeof appointmentResolver.clinicForBill === 'function') {
+      apptCode = appointmentResolver.clinicForBill(bill, payment);
+    }
+    if (apptCode) return apptCode;
+    var billTag = clinicCodeFromStoredTag(bill && (bill.clinic_tag || bill.clinic_code));
+    if (billTag) return billTag;
+    var payTag = clinicCodeFromStoredTag(payment && (payment.clinic_tag || payment.clinic_code));
+    if (payTag) return payTag;
+    if (bill && bill.patient_id && patientClinicMap[bill.patient_id] !== undefined) {
+      var patientTag = clinicCodeFromStoredTag(patientClinicMap[bill.patient_id]);
+      if (patientTag) return patientTag;
+    }
+    return '';
+  }
+
+  function patientClinicMapFromPmap(pmap) {
+    var out = {};
+    var field = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+      ? PATIENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    Object.keys(pmap || {}).forEach(function (id) {
+      var p = pmap[id];
+      if (p) out[id] = String(p[field] || '').trim();
+    });
+    return out;
+  }
+
+  function dailySummaryClinicTagForBill(bill, patient, payment, patientClinicMap, appointmentResolver) {
+    var code = resolveTransactionClinicCode(bill, payment, patientClinicMap, appointmentResolver);
+    if (code) return code;
+    var field = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+      ? PATIENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    return String((bill && bill.clinic_tag) || (patient && patient[field]) || '').trim();
+  }
+
   function uniqIds(arr) {
     var seen = {};
     var out = [];
@@ -591,42 +1015,30 @@ var REPORT = (function () {
   }
 
   /** Match a payment row (+ parent bill) to the report clinic filter. */
-  function sliceMatchesReportClinic(payment, bill, patientClinicMap, appointmentClinicMap) {
+  function sliceMatchesReportClinic(payment, bill, patientClinicMap, appointmentResolver) {
     var tag = reportClinicTag();
     if (!tag) return true;
     if (!bill) return false;
-    var pTag = clinicCodeFromStoredTag(payment && (payment.clinic_tag || payment.clinic_code));
-    if (pTag) return pTag === tag;
-    var bTag = clinicCodeFromStoredTag(bill.clinic_tag || bill.clinic_code);
-    if (bTag) return bTag === tag;
-    patientClinicMap = patientClinicMap || {};
-    appointmentClinicMap = appointmentClinicMap || {};
-    if (bill.patient_id && patientClinicMap[bill.patient_id] !== undefined) {
-      var pt = clinicCodeFromStoredTag(patientClinicMap[bill.patient_id]);
-      if (pt) return pt === tag;
-    }
-    if (bill.appointment_id && appointmentClinicMap[bill.appointment_id] !== undefined) {
-      var at = clinicCodeFromStoredTag(appointmentClinicMap[bill.appointment_id]);
-      if (at) return at === tag;
-    }
-    return true;
+    var code = resolveTransactionClinicCode(bill, payment, patientClinicMap, appointmentResolver);
+    if (!code) return false;
+    return clinicCodesMatch(code, tag);
   }
 
-  function billMatchesReportClinic(bill, patientClinicMap, appointmentClinicMap) {
-    return sliceMatchesReportClinic(null, bill, patientClinicMap, appointmentClinicMap);
+  function billMatchesReportClinic(bill, patientClinicMap, appointmentResolver) {
+    return sliceMatchesReportClinic(null, bill, patientClinicMap, appointmentResolver);
   }
 
-  async function filterBillsForReportClinic(bills) {
+  async function filterBillsForReportClinic(bills, from, to) {
     var tag = reportClinicTag();
     if (!tag || !bills || !bills.length) return bills || [];
 
+    var range = (from && to) ? { from: from, to: to } : billDateRangeFromBills(bills);
     var patientIds = uniqIds(bills.map(function (b) { return b.patient_id; }));
-    var apptIds = uniqIds(bills.map(function (b) { return b.appointment_id; }));
     var pmap = await loadPatientClinicMap(patientIds);
-    var amap = await loadAppointmentClinicMap(apptIds);
+    var appointmentResolver = await buildAppointmentClinicResolver(range.from, range.to, bills);
 
     return bills.filter(function (b) {
-      return billMatchesReportClinic(b, pmap, amap);
+      return billMatchesReportClinic(b, pmap, appointmentResolver);
     });
   }
 
@@ -644,9 +1056,7 @@ var REPORT = (function () {
     var patientClinicMap = await loadPatientClinicMap(
       uniqIds(bills.map(function (b) { return b.patient_id; }))
     );
-    var appointmentClinicMap = await loadAppointmentClinicMap(
-      uniqIds(bills.map(function (b) { return b.appointment_id; }))
-    );
+    var appointmentResolver = await buildAppointmentClinicResolver(from, to, bills);
 
     var slices = [];
     var seenBillDay = {};
@@ -655,7 +1065,7 @@ var REPORT = (function () {
       if (!p || p.voided_at) return;
       var b = billMap[p.bill_id];
       if (!b) return;
-      if (!sliceMatchesReportClinic(p, b, patientClinicMap, appointmentClinicMap)) return;
+      if (!sliceMatchesReportClinic(p, b, patientClinicMap, appointmentResolver)) return;
       var paidDate = paymentDateKey(p.paid_date);
       if (!paidDate || paidDate < from || paidDate > to) return;
       var amt = Number(p.amount || 0);
@@ -676,9 +1086,14 @@ var REPORT = (function () {
     var legacyPaymentsByBill = indexPaymentsByBillId(
       await loadBillPaymentsForBillIds(legacyBills.map(function (b) { return b.id; }).filter(Boolean))
     );
+    var legacyPatientMap = await loadPatientClinicMap(
+      uniqIds(legacyBills.map(function (b) { return b.patient_id; }))
+    );
+    var legacyApptResolver = await buildAppointmentClinicResolver(from, to, legacyBills);
     legacyBills.forEach(function (b) {
       if (!b || !b.id) return;
       if ((legacyPaymentsByBill[b.id] || []).length) return;
+      if (!sliceMatchesReportClinic(null, b, legacyPatientMap, legacyApptResolver)) return;
       var paid = reportBillPaidValue(b);
       if (paid <= 0.005) return;
       var d = paymentDateKey(b.bill_date);
@@ -1219,7 +1634,7 @@ var REPORT = (function () {
       }
     }
     if (res.error) throw new Error(res.error.message);
-    return filterBillsForReportClinic(excludeVoidBills(res.data || []));
+    return filterBillsForReportClinic(excludeVoidBills(res.data || []), from, to);
   }
 
   async function loadPatients() {
@@ -1306,7 +1721,7 @@ var REPORT = (function () {
       }
     }
     if (res.error) throw new Error(res.error.message);
-    return filterBillsForReportClinic(excludeVoidBills(res.data || []));
+    return filterBillsForReportClinic(excludeVoidBills(res.data || []), from, to);
   }
 
   async function loadPatientsByIds(ids) {
@@ -2751,6 +3166,8 @@ var REPORT = (function () {
         if (b && b.id && !paidBillMap[b.id]) billsForAppt.push(b);
       });
       var apptCtx = await loadAppointmentsForDailySummary(day, day, billsForAppt);
+      var appointmentResolver = await buildAppointmentClinicResolver(day, day, billsForAppt);
+      var patientClinicMap = patientClinicMapFromPmap(pmap);
 
       var tx = txBillIds.map(function (bid) {
         var b = paidBillMap[bid] || {};
@@ -2763,10 +3180,7 @@ var REPORT = (function () {
           var ct = String(b.created_at || '').replace(/\D/g, '');
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
-        var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
-          ? PATIENT_CLINIC_TAG_FIELD
-          : 'clinic_tag';
-        var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
+        var clinicTag = dailySummaryClinicTagForBill(b, p, rows[0] || null, patientClinicMap, appointmentResolver);
         return buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
           bill_ref: ref,
           bill_date: day,
@@ -2776,7 +3190,7 @@ var REPORT = (function () {
         }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, day)));
       }).sort(dailySummaryTxSortCompare);
 
-      tx = await appendPendingUnpaidBillsToDailySummaryTx(day, day, tx, pmap, doctors, apptCtx);
+      tx = await appendPendingUnpaidBillsToDailySummaryTx(day, day, tx, pmap, doctors, apptCtx, appointmentResolver);
 
       var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
@@ -2828,6 +3242,10 @@ var REPORT = (function () {
     var apptCtxM = await loadAppointmentsForDailySummary(fromM, toM, allBillIds.map(function (bid) {
       return monthBillMap[bid];
     }));
+    var appointmentResolverM = await buildAppointmentClinicResolver(fromM, toM, allBillIds.map(function (bid) {
+      return monthBillMap[bid];
+    }));
+    var patientClinicMapM = patientClinicMapFromPmap(pmapM);
 
     var seenBillMeta = {};
     var monthAllTx = [];
@@ -2845,10 +3263,7 @@ var REPORT = (function () {
           var ct = String(b.created_at || '').replace(/\D/g, '');
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
-        var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
-          ? PATIENT_CLINIC_TAG_FIELD
-          : 'clinic_tag';
-        var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
+        var clinicTag = dailySummaryClinicTagForBill(b, p, payRows[0] || null, patientClinicMapM, appointmentResolverM);
         var includeBillMeta = !seenBillMeta[bid];
         seenBillMeta[bid] = true;
         var txRow = buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
@@ -2875,7 +3290,7 @@ var REPORT = (function () {
       var billDay = dailySummaryBillDayKey(b);
       if (!billDay || billDay < fromM || billDay > toM) return;
       var p = pmapM[b.patient_id] || {};
-      var txRow = buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtxM, billDay);
+      var txRow = buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtxM, billDay, appointmentResolverM);
       pendingMonthRows.push(txRow);
       monthAllTx.push(txRow);
       seenBillIdsInMonthTx[b.id] = true;

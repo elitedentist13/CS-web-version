@@ -559,6 +559,57 @@ function findBillRowForPendingList(pl, cb) {
         });
     }
 
+    /** Same patient + same bill date → reuse existing history row (never duplicate). */
+    function trySameDayPatientBill(next) {
+        var billDate = todayISO();
+        var hasPatId = !!billPatId;
+        var hasPatNo = !!(billPatNo && billPatNo !== '-');
+        if (!hasPatId && !hasPatNo) {
+            next();
+            return;
+        }
+
+        function queryByPatientNo() {
+            if (!hasPatNo) {
+                next();
+                return;
+            }
+            SB.from('bills')
+                .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
+                .eq('patient_no', billPatNo)
+                .eq('bill_date', billDate)
+                .is('voided_at', null)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .then(function (r) {
+                    var row = (r.data && r.data[0]) ? r.data[0] : null;
+                    if (row) finish(row);
+                    else next();
+                })
+                .catch(next);
+        }
+
+        if (hasPatId) {
+            SB.from('bills')
+                .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
+                .eq('patient_id', billPatId)
+                .eq('bill_date', billDate)
+                .is('voided_at', null)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .then(function (r) {
+                    var row = (r.data && r.data[0]) ? r.data[0] : null;
+                    if (row) finish(row);
+                    else queryByPatientNo();
+                })
+                .catch(function () {
+                    queryByPatientNo();
+                });
+            return;
+        }
+        queryByPatientNo();
+    }
+
     function tryMemoryLink(next) {
         if (!pl.bill_id) {
             next();
@@ -577,7 +628,9 @@ function findBillRowForPendingList(pl, cb) {
         tryPendingRow(function () {
             tryNotesMarker(function () {
                 tryLocalStore(function () {
-                    finish(null);
+                    trySameDayPatientBill(function () {
+                        finish(null);
+                    });
                 });
             });
         });
@@ -637,6 +690,8 @@ function syncUnpaidBillFromPendingList(pl, sub, done) {
             payload.bill_type = existingBill.bill_type;
         }
         payload.status = payload.balance <= 0.005 ? 'Paid' : 'Partial';
+        var existingUserNotes = billUserNotesText(existingBill && existingBill.notes);
+        if (existingUserNotes) payload.notes = existingUserNotes;
         var billId = pl.bill_id || (existingBill && existingBill.id) || null;
 
         persistBillRecord(payload, billId, function (err, saved) {
@@ -798,6 +853,37 @@ var pendingServerSnapshotById = {};
 var _pendingListSaveBusyKey = null;
 var PENDING_LIST_BILL_NOTE_PREFIX = 'JSM_PENDING:';
 var PENDING_BILL_ID_LS_KEY = 'jsm_pending_bill_ids_v1';
+
+function billIsPendingLinkNote(raw) {
+    return String(raw || '').trim().indexOf(PENDING_LIST_BILL_NOTE_PREFIX) === 0;
+}
+
+/** Step 2 payment notes — excludes internal pending-list link marker stored in bills.notes. */
+function billUserNotesText(raw) {
+    var s = String(raw || '').trim();
+    if (!s || billIsPendingLinkNote(s)) return '';
+    return s;
+}
+
+function loadBillStep2NotesFromLinkedBill(pl) {
+    var el = g('bNotes');
+    if (!el) return;
+    if (!pl || !pl.bill_id) {
+        el.value = '';
+        return;
+    }
+    fetchBillRowForPendingList(pl.bill_id, function(row) {
+        if (g('bNotes')) g('bNotes').value = billUserNotesText(row && row.notes) || '';
+    });
+}
+
+function receiptBillWithSavedNotes(payload, savedBill) {
+    var bill = savedBill ? Object.assign({}, payload, savedBill) : Object.assign({}, payload);
+    var notes = String(payload && payload.notes ? payload.notes : '').trim();
+    if (!notes) notes = billUserNotesText(bill.notes);
+    bill.notes = notes || null;
+    return bill;
+}
 
 // ════════════════════════════════════════════════════════════════
 // CLINIC SCOPE (all appointment subtabs share one clinic)
@@ -2443,9 +2529,9 @@ function apptPurgeTransferredSourceFromUi(oldId) {
             var emptyMsg = bodyId === 'queueBody'
                 ? tr('appt.queue.empty')
                 : tr('appt.today.noToday');
-            var emptyCols = bodyId === 'queueBody' ? 10 : 9;
             tb.innerHTML =
-                '<tr><td colspan="' + emptyCols + '" style="text-align:center;color:#aaa;padding:24px;">' +
+                '<tr><td colspan="' + (bodyId === 'queueBody' ? '10' : '9') + '" ' +
+                'style="text-align:center;color:#aaa;padding:24px;">' +
                 esc(emptyMsg) + '</td></tr>';
         }
     });
@@ -5097,6 +5183,91 @@ var arFilter      = 'all';   // 'all' | 'upcoming' | 'past' | 'noshow'
 var arSearchTerm  = '';
 var arAllData     = [];      // cached from last fetch
 var arSearchTimer = null;
+var AR_DOCTOR_ALL = '__ALL__';
+var arDoctorFilter = AR_DOCTOR_ALL;
+
+function arDoctorsForClinic() {
+    var clinicSel = g('apptClinicSelect');
+    var cid = clinicSel && clinicSel.value
+        ? clinicSel.value
+        : (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+    var list = typeof doctorsForClinic === 'function'
+        ? doctorsForClinic(cid)
+        : (APP_DOCTORS || []).filter(function (d) {
+            return !cid || d.clinic_id === cid;
+        });
+    return (list || []).filter(function (d) {
+        return d && d.is_active !== false && String(d.doctor_code || '').trim();
+    });
+}
+
+function populateArDoctorSelect() {
+    var sel = g('arDoctorSelect');
+    if (!sel) return;
+    var prev = sel.value || arDoctorFilter || AR_DOCTOR_ALL;
+    sel.innerHTML = '';
+    var allOpt = document.createElement('option');
+    allOpt.value = AR_DOCTOR_ALL;
+    allOpt.textContent = tr('appt.ar.doctorAll');
+    sel.appendChild(allOpt);
+    arDoctorsForClinic().forEach(function (d) {
+        var code = String(d.doctor_code || '').trim();
+        if (!code) return;
+        var opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = (typeof doctorDisplayName === 'function'
+            ? doctorDisplayName(d)
+            : (d.english_name || d.chinese_name || code)) + ' [' + code + ']';
+        sel.appendChild(opt);
+    });
+    var has = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === prev) { has = true; break; }
+    }
+    sel.value = has ? prev : AR_DOCTOR_ALL;
+    arDoctorFilter = sel.value;
+}
+
+function setArDoctorFilter(code) {
+    arDoctorFilter = code || AR_DOCTOR_ALL;
+    var sel = g('arDoctorSelect');
+    if (sel && sel.value !== arDoctorFilter) sel.value = arDoctorFilter;
+    arRender();
+}
+
+function arApptMatchesDoctorFilter(a) {
+    if (!arDoctorFilter || arDoctorFilter === AR_DOCTOR_ALL) return true;
+    if (typeof plusApptApptMatchesDoctor === 'function') {
+        return plusApptApptMatchesDoctor(a, arDoctorFilter);
+    }
+    var c = String(arDoctorFilter).trim().toLowerCase();
+    var dc = String(a && a.doctor_code ? a.doctor_code : '').trim().toLowerCase();
+    return !!(dc && dc === c);
+}
+
+/** No-show / cancelled — excluded from upcoming & past buckets. */
+function arApptIsNoshow(a) {
+    return /no.?show|failed|cancel/i.test(String(a && a.bill_status ? a.bill_status : ''));
+}
+
+/** Visit already started or completed (same signals as Today tab). */
+function arApptIsFinishedVisit(a) {
+    if (!a) return false;
+    if (a.in_queue !== null && a.in_queue !== undefined) return true;
+    var s = String(a.bill_status || '').trim().toLowerCase();
+    if (!s || s === 'scheduled') return false;
+    if (s === 'queue' || s === 'done' || s === 'finish' || s === 'arrived') return true;
+    if (s === 'billed' || s === 'paid' || s === 'partial') return true;
+    return false;
+}
+
+function arRecordFilterBucket(a, today) {
+    today = today || todayISO();
+    if (arApptIsNoshow(a)) return 'noshow';
+    if (a.date < today || (a.date === today && arApptIsFinishedVisit(a))) return 'past';
+    if (a.date >= today) return 'upcoming';
+    return 'past';
+}
 
 function setArFilter(f) {
     arFilter = f;
@@ -5125,8 +5296,9 @@ function applyApptRecordsClinicQuery(builder) {
 function loadApptRecords() {
     var tbody = g('arBody');
     if (!tbody) return;
+    populateArDoctorSelect();
     tbody.innerHTML =
-        '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:30px;">' +
+        '<tr><td colspan="10" style="text-align:center;color:#aaa;padding:30px;">' +
         esc(tr('common.loadingEllipsis')) + '</td></tr>';
 
     var aq = SB.from('appointments')
@@ -5139,7 +5311,7 @@ function loadApptRecords() {
     .then(function(r) {
         if (r.error) {
             tbody.innerHTML =
-                '<tr><td colspan="9" style="color:red;padding:20px;">' +
+                '<tr><td colspan="10" style="color:red;padding:20px;">' +
                 esc(r.error.message) + '</td></tr>';
             return;
         }
@@ -5154,15 +5326,12 @@ function arRender() {
     var term  = arSearchTerm;
 
     var rows = arAllData.filter(function(a) {
-        // Status filter
-        var isPast     = a.date < today;
-        var isFuture   = a.date >= today;
-        var isNoshow   = /no.?show|failed|cancel/i.test(a.bill_status || '');
-        var isDone     = /done|queue|arrived/i.test(a.bill_status || '') || isPast;
+        if (arFilter !== 'all') {
+            var bucket = arRecordFilterBucket(a, today);
+            if (arFilter !== bucket) return false;
+        }
 
-        if (arFilter === 'upcoming' && !(isFuture && !isNoshow)) return false;
-        if (arFilter === 'past'     && !(isPast  && !isNoshow))   return false;
-        if (arFilter === 'noshow'   && !isNoshow)                 return false;
+        if (!arApptMatchesDoctorFilter(a)) return false;
 
         // Search filter
         if (term) {
@@ -5198,11 +5367,14 @@ function arRender() {
     if (emptyMsg) emptyMsg.style.display = 'none';
 
     // Group: upcoming first (asc), then past (already desc from server)
-    var future = rows.filter(function(a) { return a.date >= today; })
+    var future = rows.filter(function(a) { return arRecordFilterBucket(a, today) === 'upcoming'; })
                      .sort(function(x, y) {
                          return (x.date + x.start_time).localeCompare(y.date + y.start_time);
                      });
-    var older  = rows.filter(function(a) { return a.date < today; });
+    var older  = rows.filter(function(a) {
+        var b = arRecordFilterBucket(a, today);
+        return b === 'past' || b === 'noshow';
+    });
     var sorted = future.concat(older);
 
     var html = '';
@@ -5221,9 +5393,27 @@ function arRender() {
 }
 
 function arSectionHeader(label, bg, color) {
-    return '<tr><td colspan="9" style="background:' + bg + ';color:' + color + ';' +
+    return '<tr><td colspan="10" style="background:' + bg + ';color:' + color + ';' +
            'font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.5px;">' +
            label + '</td></tr>';
+}
+
+function arApptDurationMinutes(a) {
+    if (!a) return 0;
+    var dur = parseInt(a.duration || '0', 10);
+    if (dur > 0) return dur;
+    if (typeof plusApptTimeToMin === 'function') {
+        var stM = plusApptTimeToMin(a.start_time);
+        var enM = plusApptTimeToMin(a.end_time);
+        if (enM > stM) return enM - stM;
+    }
+    return 0;
+}
+
+function arDurationDisplay(a) {
+    var dur = arApptDurationMinutes(a);
+    if (!dur) return '—';
+    return trRepl('appt.modal.durMin', { N: String(dur) });
 }
 
 function arRow(a, today) {
@@ -5254,6 +5444,8 @@ function arRow(a, today) {
            'ondblclick="arOpenEdit(\'' + a.id + '\')">' +
            '<td style="white-space:nowrap;font-weight:600;">' + esc(a.date || '') + '</td>' +
            '<td style="white-space:nowrap;">' + fmt12(a.start_time) + '</td>' +
+           '<td style="white-space:nowrap;font-size:12px;color:#64748b;">' +
+               esc(arDurationDisplay(a)) + '</td>' +
            '<td style="color:#64748b;">' + esc(a.patient_no || '—') + '</td>' +
            '<td>' + chinesePart +
                '<span style="font-size:12px;">' + esc(a.patient_name || '—') + walkInBadge + '</span>' +
@@ -5925,25 +6117,6 @@ function calcEnd() {
     var e = g('fEnd');
     if (!s || !d || !e) return;
     e.value = fmt12(addMins(s.value, d.value));
-}
-
-// ════════════════════════════════════════════════════════════════
-// APPOINTMENT DURATION DISPLAY
-// ════════════════════════════════════════════════════════════════
-function apptDurationMinutes(appt) {
-    if (!appt) return 0;
-    var d = parseInt(appt.duration, 10);
-    if (d > 0) return d;
-    if (appt.start_time && appt.end_time && typeof plusApptTimeToMin === 'function') {
-        var mins = plusApptTimeToMin(appt.end_time) - plusApptTimeToMin(appt.start_time);
-        if (mins > 0) return mins;
-    }
-    return 0;
-}
-
-function apptDurationDisplay(appt) {
-    var mins = apptDurationMinutes(appt);
-    return mins > 0 ? trRepl('appt.modal.durMin', { N: mins }) : '-';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -7967,7 +8140,7 @@ function buildTodayRow(tb, a) {
             apptTaskSummaryHtml(a) +
         '</td>' +
         '<td style="text-align:center;">' +
-            esc(apptDurationDisplay(a)) +
+            esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') +
         '</td>' +
         '<td>' +
             '<span class="status-badge ' +
@@ -8132,7 +8305,7 @@ function printTodayList() {
                 '<td>' + esc(a.treatment_items || '-') + '</td>' +
                 '<td>' + formatRemarksForDisplay(a.remarks, { empty: '-' }) + '</td>' +
                 '<td style="text-align:center;">' +
-                    esc(apptDurationDisplay(a)) + '</td>' +
+                    esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') + '</td>' +
                 '<td>' + esc(dispStatusLabel(status)) + '</td>' +
                 '</tr>';
         });
@@ -8738,7 +8911,8 @@ function queueRefreshElapsedBadges() {
     tb.querySelectorAll('tr[data-appt-id]').forEach(function(row) {
         var host = row.querySelector('.queue-arrived-cell');
         if (!host) return;
-        var badge = host.querySelector('.queue-elapsed-badge');
+        var stack = host.querySelector('.queue-arrived-stack') || host;
+        var badge = stack.querySelector('.queue-elapsed-badge');
         var html = queueElapsedBadgeHtml(
             row.dataset.apptId || '',
             row.dataset.arrivalTime || '',
@@ -8750,7 +8924,7 @@ function queueRefreshElapsedBadges() {
             return;
         }
         if (!badge) {
-            host.insertAdjacentHTML('beforeend', html);
+            stack.insertAdjacentHTML('beforeend', html);
             return;
         }
         var meta = queueElapsedMeta(
@@ -8760,8 +8934,8 @@ function queueRefreshElapsedBadges() {
             row.dataset.updatedAt || ''
         );
         if (!meta) return;
-        badge.textContent = meta.text;
         badge.className = 'queue-elapsed-badge ' + meta.toneClass;
+        badge.innerHTML = '<span class="queue-elapsed-icon">⏱</span>' + esc(meta.text);
     });
 }
 
@@ -8895,18 +9069,22 @@ function buildQueueRow(tb, q, seqNo) {
         '<td>' +
             '<strong>' + fmt12(q.start_time) + '</strong>' +
         '</td>' +
-        '<td style="text-align:center;font-size:13px;">' +
-            esc(apptDurationDisplay(q)) +
+        '<td class="queue-duration-cell">' +
+            esc(arDurationDisplay(q)) +
         '</td>' +
         '<td class="queue-arrived-cell">' +
-            (q.arrival_time
-                ? '<span style="color:var(--success);font-weight:600;">' +
-                  new Date(q.arrival_time).toLocaleTimeString(apptDateLocale(), {
-                      hour:   '2-digit',
-                      minute: '2-digit'
-                  }) + '</span>'
-                : '<span style="color:#aaa;">—</span>') +
-            queueElapsedBadgeHtml(q.id, q.arrival_time, q.bill_status, q.updated_at) +
+            '<div class="queue-arrived-stack">' +
+                '<div class="queue-arrived-time">' +
+                    (q.arrival_time
+                        ? '<span class="queue-arrived-time-val">' +
+                          new Date(q.arrival_time).toLocaleTimeString(apptDateLocale(), {
+                              hour:   '2-digit',
+                              minute: '2-digit'
+                          }) + '</span>'
+                        : '<span class="queue-arrived-time-empty">—</span>') +
+                '</div>' +
+                queueElapsedBadgeHtml(q.id, q.arrival_time, q.bill_status, q.updated_at) +
+            '</div>' +
         '</td>' +
         '<td class="queue-remarks-cell">' +
             '<div class="queue-remarks-preview-wrap">' +
@@ -11434,7 +11612,12 @@ function wireBillPanelControls() {
     bindClickOnce('bdAddPaymentBtn', openAddPaymentModal);
     bindClickOnce('billPendingRefreshBtn', refreshBillPanelNow);
     bindClickOnce('billPayAllBtn', billPayAllAmount);
-    bindClickOnce('billHistoryPrintBtn', printBillHistory);
+    bindClickOnce('closeBillHistoryPrintModal', dismissBillHistoryPrintModal);
+    bindClickOnce('billHistoryPrintCancelBtn', dismissBillHistoryPrintModal);
+    bindClickOnce('billHistoryPrintOkBtn', confirmBillHistoryPrint);
+    bindClickOnce('bhpSelectAllBtn', function() { setAllBillHistoryPrintChecks(true); });
+    bindClickOnce('bhpSelectNoneBtn', function() { setAllBillHistoryPrintChecks(false); });
+    wireBillHistoryPrintOptionInputs();
     wireBillHistoryFilterUi();
 
     var pendingDrSel = g('pendingListDoctor');
@@ -11827,7 +12010,7 @@ function renderStep1UI() {
     billItems = (pl.items || []).map(function(it) {
         return normalizeBillItem(it);
     });
-    if (!billItems.length) billItems = [{ desc: '', qty: 1, price: 0, disc: 0 }];
+    if (!billItems.length) billItems = [{ desc: '', qty: 1, price: 0, disc: 0, tooth_no: '-' }];
 
     renderBillItems();
     recalcPendingSubtotal();
@@ -11869,7 +12052,7 @@ function addNewPendingList() {
         doctor_id: defDr || null
     });
     pendingIdx = pendingLists.length - 1;
-    billItems  = [{ desc: '', qty: 1, price: 0, disc: 0 }];
+    billItems  = [{ desc: '', qty: 1, price: 0, disc: 0, tooth_no: '-' }];
     renderStep1UI();
     var statusEl = g('pendingListStatus');
     if (statusEl) { statusEl.textContent = tr('bill.status.notSaved'); statusEl.style.color = '#f59e0b'; }
@@ -11903,7 +12086,8 @@ function saveCurrentPendingList() {
             qty: n.qty,
             price: n.price,
             disc: roundBillDiscPct(n.disc || 0),
-            others_remark: n.others_remark || ''
+            others_remark: n.others_remark || '',
+            tooth_no: n.tooth_no || '-'
         };
     });
     pl.subtotal = sub;
@@ -12147,6 +12331,7 @@ function renderStep2(cb, opts) {
                 renderPayPreview();
                 recalcTotals();
                 updateBillStep2DoctorSummary(pl);
+                loadBillStep2NotesFromLinkedBill(pl);
             });
             cards.appendChild(btn);
         });
@@ -12407,7 +12592,7 @@ function addBillItem() {
     if (!pendingLists.length) {
         addNewPendingList();
     }
-    billItems.push({ desc: '', qty: 1, price: 0, disc: 0 });
+    billItems.push({ desc: '', qty: 1, price: 0, disc: 0, tooth_no: '-' });
     syncBillItemsToPendingList();
     renderBillItems();
     recalcTotals();
@@ -12422,7 +12607,8 @@ function syncBillItemsToPendingList() {
             qty: n.qty,
             price: n.price,
             disc: roundBillDiscPct(n.disc || 0),
-            others_remark: n.others_remark || ''
+            others_remark: n.others_remark || '',
+            tooth_no: n.tooth_no || '-'
         };
     });
 }
@@ -12437,7 +12623,8 @@ function pendingListSignature(pl) {
             qty: parseFloat(n.qty) || 0,
             price: parseFloat(n.price) || 0,
             disc: roundBillDiscPct(n.disc || 0),
-            others_remark: n.others_remark || ''
+            others_remark: n.others_remark || '',
+            tooth_no: n.tooth_no || '-'
         };
     });
     return JSON.stringify({
@@ -12544,6 +12731,34 @@ function billItemOthersRemark(it) {
     return String((it && (it.others_remark || it.othersRemark)) || '').trim();
 }
 
+function billItemToothNo(it) {
+    return String((it && (it.tooth_no || it.toothNo)) || '').trim();
+}
+
+function billItemToothInputValue(it) {
+    var t = billItemToothNo(it);
+    return (t && t !== '-') ? t : '-';
+}
+
+function billItemParseToothFromDesc(desc) {
+    var d = String(desc || '').trim();
+    if (!d) return { base: '', tooth: '' };
+    if (billItemOthersBaseKey(d)) {
+        return { base: billItemOthersBaseKey(d), tooth: '' };
+    }
+    var m = d.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+    if (m) {
+        return { base: m[1].trim(), tooth: m[2].trim() };
+    }
+    return { base: d, tooth: '' };
+}
+
+function billItemDescBase(desc) {
+    var others = billItemOthersBaseKey(desc);
+    if (others) return others;
+    return billItemParseToothFromDesc(desc).base;
+}
+
 function billItemDisplayDesc(it) {
     if (!it) return '';
     var base = billItemOthersBaseKey(it.desc);
@@ -12551,25 +12766,40 @@ function billItemDisplayDesc(it) {
         var remark = billItemOthersRemark(it);
         return remark ? (base + ' (' + remark + ')') : base;
     }
-    return String(it.desc || '').trim();
+    var name = String(it.desc || '').trim();
+    var tooth = billItemToothNo(it);
+    if (tooth && tooth !== '-') {
+        return name + ' (' + tooth + ')';
+    }
+    return name;
 }
 
 function normalizeBillItem(it) {
     var raw = it || {};
     var desc = String(raw.desc || '').trim();
     var othersRemark = String(raw.others_remark || raw.othersRemark || '').trim();
+    var toothNo = billItemToothNo(raw);
     var base = billItemOthersBaseKey(desc);
     if (base) {
         var m = desc.match(/^(.+?)\s*\(([^)]*)\)\s*$/);
         if (m && !othersRemark) othersRemark = String(m[2] || '').trim();
         desc = base;
+        toothNo = '-';
+    } else {
+        var parsed = billItemParseToothFromDesc(desc);
+        desc = parsed.base;
+        if (!toothNo || toothNo === '-') {
+            toothNo = parsed.tooth || '-';
+        }
+        if (!toothNo) toothNo = '-';
     }
     return {
         desc: desc,
         qty: raw.qty || 1,
         price: raw.price || 0,
         disc: roundBillDiscPct(raw.disc || 0),
-        others_remark: othersRemark
+        others_remark: othersRemark,
+        tooth_no: toothNo
     };
 }
 
@@ -12591,11 +12821,14 @@ function renderBillItems() {
     tb.innerHTML = '';
     billItems.forEach(function(item, i) {
         var row = document.createElement('tr');
-        
+        var descBase = billItemDescBase(item.desc) || item.desc;
+        var discVal = item.disc !== undefined ? item.disc : 0;
+        var isOthers = billItemIsOthers(item);
+
         // Build description cell with dropdown + custom input
         var descCell = '<td>' +
             '<div style="display:flex;flex-direction:column;gap:4px;">';
-        
+
         // If we have treatment items cached, show dropdown
         if (treatmentItemsCache.length > 0) {
             descCell +=
@@ -12620,15 +12853,21 @@ function renderBillItems() {
                 'border-radius:4px;font-size:13px;box-sizing:border-box;">';
         }
         descCell += '</div></td>';
-        
-        var descBase = billItemOthersBaseKey(item.desc) || item.desc;
-        var discVal = item.disc !== undefined ? item.disc : 0;
-        row.innerHTML = descCell +
-            '<td>' +
-                '<input type="number" id="bqty-' + i + '" ' +
-                'value="' + item.qty + '" min="1" step="1" ' +
-                'style="width:100%;padding:5px 7px;border:1px solid #ddd;' +
-                'border-radius:4px;font-size:13px;box-sizing:border-box;">' +
+
+        var toothCell = isOthers
+            ? '<td class="bill-tooth-cell bill-tooth-cell--na">—</td>'
+            : '<td class="bill-tooth-cell">' +
+                '<input type="text" id="btooth-' + i + '" ' +
+                'value="' + esc(billItemToothInputValue(item)) + '" ' +
+                'placeholder="' + esc(tr('bill.ph.toothNo')) + '" ' +
+                'title="' + esc(tr('bill.toothNoTitle')) + '" ' +
+                'maxlength="24" autocomplete="off">' +
+              '</td>';
+
+        row.innerHTML = descCell + toothCell +
+            '<td class="bill-qty-cell">' +
+                '<input type="number" id="bqty-' + i + '" class="bill-qty-input" ' +
+                'value="' + item.qty + '" min="1" step="1">' +
             '</td>' +
             '<td>' +
                 '<input type="number" id="bprice-' + i + '" ' +
@@ -12664,7 +12903,7 @@ function renderBillItems() {
             var remarkRow = document.createElement('tr');
             remarkRow.className = 'bill-item-others-remark-row';
             remarkRow.innerHTML =
-                '<td colspan="6" style="padding:2px 8px 10px 8px;background:#fffbeb;border-bottom:1px solid #fde68a;">' +
+                '<td colspan="7" style="padding:2px 8px 10px 8px;background:#fffbeb;border-bottom:1px solid #fde68a;">' +
                 '<input type="text" id="bothers-remark-' + i + '" ' +
                 'value="' + esc(billItemOthersRemark(item)) + '" ' +
                 'placeholder="' + esc(tr('bill.othersRemarkPh')) + '" ' +
@@ -12691,10 +12930,13 @@ function renderBillItems() {
                         }
                         billItems[idx].desc = '';
                         billItems[idx].others_remark = '';
+                        billItems[idx].tooth_no = '-';
                     } else {
                         // Use selected item
                         billItems[idx].desc = selectedValue;
-                        if (!billItemIsOthers(billItems[idx])) {
+                        if (billItemIsOthers(billItems[idx])) {
+                            billItems[idx].tooth_no = '-';
+                        } else {
                             billItems[idx].others_remark = '';
                         }
                         if (descCustom) descCustom.style.display = 'none';
@@ -12731,10 +12973,31 @@ function renderBillItems() {
                     billItems[idx].desc = this.value;
                     if (!billItemIsOthers(billItems[idx])) {
                         billItems[idx].others_remark = '';
+                    } else {
+                        billItems[idx].tooth_no = '-';
                     }
                     syncBillItemsToPendingList();
                     renderBillItems();
                     refreshPayPreviewFromCurrentPendingList();
+                });
+            }
+
+            var toothEl = g('btooth-' + idx);
+            if (toothEl) {
+                toothEl.addEventListener('input', function() {
+                    var v = String(this.value || '').trim();
+                    billItems[idx].tooth_no = v || '-';
+                    syncBillItemsToPendingList();
+                    refreshPayPreviewFromCurrentPendingList();
+                });
+                toothEl.addEventListener('blur', function() {
+                    var v = String(this.value || '').trim();
+                    if (!v || v === '-') {
+                        this.value = '-';
+                        billItems[idx].tooth_no = '-';
+                        syncBillItemsToPendingList();
+                        refreshPayPreviewFromCurrentPendingList();
+                    }
                 });
             }
             
@@ -12744,6 +13007,8 @@ function renderBillItems() {
                     billItems[idx].desc = this.value;
                     if (!billItemIsOthers(billItems[idx])) {
                         billItems[idx].others_remark = '';
+                    } else {
+                        billItems[idx].tooth_no = '-';
                     }
                     syncBillItemsToPendingList();
                     renderBillItems();
@@ -12905,7 +13170,7 @@ function saveBill(doPrint) {
         total:          total,
         amount_paid:    paid,
         balance:        bal,
-        notes:          g('bNotes').value || null,
+        notes:          String(g('bNotes').value || '').trim() || null,
         status:         bal <= 0 ? 'Paid' : 'Partial'
     };
     Object.assign(payload, billClinicFieldsForSave());
@@ -12926,21 +13191,20 @@ function saveBill(doPrint) {
                 if (billApptId) loadQueue();
                 loadBillHistory();
                 try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
-                if (billStep2IsVisible()) {
-                    renderStep2(function(ok) {
-                        if (ok !== false) noteBillPendingRefreshed();
-                    }, { resetForm: true });
-                }
-                var receiptBill = savedBill ? Object.assign({}, payload, savedBill) : payload;
                 if (doPrint) {
                     openReceiptPreviewDirect({
-                        bill: receiptBill,
+                        bill: receiptBillWithSavedNotes(payload, savedBill),
                         insertedData: savedBill ? [savedBill] : [],
                         payments: null,
                         autoPrint: true
                     });
                 } else {
                     alert(tr('bill.alert.savedOk'));
+                }
+                if (billStep2IsVisible()) {
+                    renderStep2(function(ok) {
+                        if (ok !== false) noteBillPendingRefreshed();
+                    }, { resetForm: true });
                 }
             });
         };
@@ -13005,7 +13269,7 @@ function loadTreatmentItemsForBilling(callback) {
 
 function buildTreatmentItemOptions(selectedDesc) {
     var html = '<option value="">' + esc(tr('bill.treatSelectCustom')) + '</option>';
-    var selectedBase = billItemOthersBaseKey(selectedDesc) || String(selectedDesc || '').trim();
+    var selectedBase = billItemDescBase(selectedDesc) || String(selectedDesc || '').trim();
     treatmentItemsCache.forEach(function(item) {
         var selected = selectedBase === item.item_name ? ' selected' : '';
         var label = item.item_name;
@@ -13382,7 +13646,309 @@ function billHistoryPrintDateDisplay(iso) {
     return String(iso);
 }
 
-function buildBillHistoryPrintHtml(bills) {
+function billHistoryPrintFontFamilyCss(key) {
+    var map = {
+        system: '"Segoe UI", Arial, Helvetica, sans-serif',
+        arial: 'Arial, Helvetica, sans-serif',
+        times: '"Times New Roman", Times, serif',
+        ming: '"PMingLiU", "MingLiU", "SimSun", serif',
+        yahei: '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif'
+    };
+    return map[key] || map.system;
+}
+
+var BILL_HISTORY_PRINT_OPTS_KEY = 'bill_history_print_options_v1';
+var _billHistoryPrintPendingBills = null;
+var _bhpPreviewTimer = null;
+
+function defaultBillHistoryPrintOptions() {
+    return {
+        fontFamily: 'system',
+        bodyFontSize: 14,
+        titleFontSize: 22,
+        thFontSize: 12,
+        boldText: false,
+        scalePercent: 100
+    };
+}
+
+function loadBillHistoryPrintOptions() {
+    var defs = defaultBillHistoryPrintOptions();
+    try {
+        var raw = localStorage.getItem(BILL_HISTORY_PRINT_OPTS_KEY);
+        if (!raw) return defs;
+        var parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return defs;
+        Object.keys(defs).forEach(function(k) {
+            if (parsed[k] !== undefined && typeof parsed[k] === typeof defs[k]) {
+                defs[k] = parsed[k];
+            }
+        });
+    } catch (_) {}
+    return defs;
+}
+
+function saveBillHistoryPrintOptions(opts) {
+    var persist = defaultBillHistoryPrintOptions();
+    Object.keys(persist).forEach(function(k) {
+        if (opts[k] !== undefined && typeof opts[k] === typeof persist[k]) {
+            persist[k] = opts[k];
+        }
+    });
+    try {
+        localStorage.setItem(BILL_HISTORY_PRINT_OPTS_KEY, JSON.stringify(persist));
+    } catch (_) {}
+}
+
+function populateBillHistoryPrintSizeSelect(el, values, suffix) {
+    if (!el || el.dataset.bhpPopulated === '1') return;
+    el.dataset.bhpPopulated = '1';
+    values.forEach(function(n) {
+        var o = document.createElement('option');
+        o.value = String(n);
+        o.textContent = String(n) + (suffix || '');
+        el.appendChild(o);
+    });
+}
+
+function populateBillHistoryPrintSizeSelects() {
+    populateBillHistoryPrintSizeSelect(g('bhpBodySize'),
+        [10, 11, 12, 13, 14, 15, 16, 18, 20], ' pt');
+    populateBillHistoryPrintSizeSelect(g('bhpTitleSize'),
+        [16, 18, 20, 22, 24, 26, 28], ' pt');
+    populateBillHistoryPrintSizeSelect(g('bhpThSize'),
+        [10, 11, 12, 13, 14, 15, 16], ' pt');
+    populateBillHistoryPrintSizeSelect(g('bhpScalePercent'),
+        [80, 90, 100, 110, 120, 130, 140, 150], '%');
+}
+
+function readBillHistoryPrintOptionsFromForm() {
+    var opts = defaultBillHistoryPrintOptions();
+    var fam = g('bhpFontFamily');
+    if (fam && fam.value) opts.fontFamily = fam.value;
+    opts.bodyFontSize = parseInt(g('bhpBodySize') && g('bhpBodySize').value, 10) ||
+        opts.bodyFontSize;
+    opts.titleFontSize = parseInt(g('bhpTitleSize') && g('bhpTitleSize').value, 10) ||
+        opts.titleFontSize;
+    opts.thFontSize = parseInt(g('bhpThSize') && g('bhpThSize').value, 10) ||
+        opts.thFontSize;
+    opts.scalePercent = parseInt(g('bhpScalePercent') && g('bhpScalePercent').value, 10) ||
+        opts.scalePercent;
+    opts.boldText = !!(g('bhpBoldText') && g('bhpBoldText').checked);
+    return opts;
+}
+
+function applyBillHistoryPrintOptionsToForm(opts) {
+    opts = opts || loadBillHistoryPrintOptions();
+    if (g('bhpFontFamily')) g('bhpFontFamily').value = opts.fontFamily || 'system';
+    if (g('bhpBodySize')) g('bhpBodySize').value = String(opts.bodyFontSize || 14);
+    if (g('bhpTitleSize')) g('bhpTitleSize').value = String(opts.titleFontSize || 22);
+    if (g('bhpThSize')) g('bhpThSize').value = String(opts.thFontSize || 12);
+    if (g('bhpScalePercent')) g('bhpScalePercent').value = String(opts.scalePercent || 100);
+    if (g('bhpBoldText')) g('bhpBoldText').checked = !!opts.boldText;
+}
+
+function billHistoryPrintRowLabel(b) {
+    var voided = billRecordIsVoid(b);
+    var typeLbl = (typeof dispPayMethod === 'function')
+        ? dispPayMethod(b.bill_type)
+        : (b.bill_type || '—');
+    var doctor = b.doctor_tag || b.doctor_name || '';
+    var dateDisp = billHistoryPrintDateDisplay(b.bill_date);
+    var statusTxt = voided
+        ? tr('bill.detail.voidBadge')
+        : dispStatusLabel(b.status || '');
+    var main = fmtHK(b.total) + ' · ' + dateDisp;
+    var meta = typeLbl +
+        (doctor ? (' · ' + doctor) : '') +
+        ' · ' + statusTxt;
+    return { main: main, meta: meta, voided: voided };
+}
+
+function billHistoryPrintBillKey(b, idx) {
+    return b && b.id ? String(b.id) : ('idx-' + idx);
+}
+
+function renderBillHistoryPrintBillList(bills) {
+    var list = g('bhpBillList');
+    if (!list) return;
+    list.innerHTML = '';
+    (bills || []).forEach(function(b, idx) {
+        var key = billHistoryPrintBillKey(b, idx);
+        var lbl = billHistoryPrintRowLabel(b);
+        var row = document.createElement('label');
+        row.className = 'bh-print-bill-item' +
+            (lbl.voided ? ' bh-print-bill-item--void' : '');
+        row.innerHTML =
+            '<input type="checkbox" class="bhp-bill-cb" value="' + esc(key) + '" checked>' +
+            '<div><div class="bh-print-bill-item-main">' + esc(lbl.main) + '</div>' +
+            '<div class="bh-print-bill-item-meta">' + esc(lbl.meta) + '</div></div>';
+        list.appendChild(row);
+    });
+}
+
+function getBillHistoryPrintSelectedBills() {
+    var out = [];
+    var list = g('bhpBillList');
+    if (!list || !_billHistoryPrintPendingBills) return out;
+    list.querySelectorAll('.bhp-bill-cb:checked').forEach(function(cb) {
+        var val = cb.value;
+        _billHistoryPrintPendingBills.forEach(function(b, idx) {
+            if (billHistoryPrintBillKey(b, idx) === val) out.push(b);
+        });
+    });
+    return out;
+}
+
+function setAllBillHistoryPrintChecks(checked) {
+    var list = g('bhpBillList');
+    if (!list) return;
+    list.querySelectorAll('.bhp-bill-cb').forEach(function(cb) {
+        cb.checked = !!checked;
+    });
+    scheduleBillHistoryPrintPreview();
+}
+
+function scheduleBillHistoryPrintPreview() {
+    clearTimeout(_bhpPreviewTimer);
+    _bhpPreviewTimer = setTimeout(refreshBillHistoryPrintPreview, 120);
+}
+
+function refreshBillHistoryPrintPreview() {
+    var preview = g('bhpPreview');
+    var scroll = g('bhpPreviewScroll');
+    if (!preview) return;
+    var bills = getBillHistoryPrintSelectedBills();
+    if (!bills.length) {
+        preview.style.transform = '';
+        preview.style.width = '';
+        preview.innerHTML =
+            '<p style="padding:24px;color:#888;text-align:center;font-size:14px;">' +
+            esc(tr('bill.history.printNoneSelected')) + '</p>';
+        return;
+    }
+    var opts = readBillHistoryPrintOptionsFromForm();
+    preview.innerHTML = buildBillHistoryPrintHtml(bills, opts);
+    preview.style.transform = '';
+    preview.style.width = '100%';
+    if (!scroll) return;
+    requestAnimationFrame(function() {
+        var sw = Math.max(1, scroll.clientWidth - 24);
+        var pw = preview.scrollWidth;
+        if (pw > sw) {
+            var sc = sw / pw;
+            preview.style.transform = 'scale(' + sc + ')';
+            preview.style.width = (100 / sc) + '%';
+        }
+    });
+}
+
+function wireBillHistoryPrintOptionInputs() {
+    ['bhpFontFamily', 'bhpTitleSize', 'bhpBodySize', 'bhpThSize', 'bhpScalePercent'].forEach(function(id) {
+        var el = g(id);
+        if (!el || el.dataset.bhpInputWired === '1') return;
+        el.dataset.bhpInputWired = '1';
+        el.addEventListener('change', scheduleBillHistoryPrintPreview);
+    });
+    var bold = g('bhpBoldText');
+    if (bold && bold.dataset.bhpInputWired !== '1') {
+        bold.dataset.bhpInputWired = '1';
+        bold.addEventListener('change', scheduleBillHistoryPrintPreview);
+    }
+    var list = g('bhpBillList');
+    if (list && list.dataset.bhpInputWired !== '1') {
+        list.dataset.bhpInputWired = '1';
+        list.addEventListener('change', scheduleBillHistoryPrintPreview);
+    }
+}
+
+function openBillHistoryPrintModal(bills) {
+    _billHistoryPrintPendingBills = (bills || []).slice();
+    populateBillHistoryPrintSizeSelects();
+    applyBillHistoryPrintOptionsToForm(loadBillHistoryPrintOptions());
+    renderBillHistoryPrintBillList(_billHistoryPrintPendingBills);
+    var modal = g('billHistoryPrintModal');
+    if (modal) {
+        modal.classList.add('bh-print-modal-visible');
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(modal);
+    }
+    scheduleBillHistoryPrintPreview();
+    openModal('billHistoryPrintModal');
+}
+
+function dismissBillHistoryPrintModal() {
+    _billHistoryPrintPendingBills = null;
+    var modal = g('billHistoryPrintModal');
+    if (modal) modal.classList.remove('bh-print-modal-visible');
+    closeModal('billHistoryPrintModal');
+}
+
+function executeBillHistoryPrint(bills, opts) {
+    if (!bills || !bills.length) return;
+    var bodyHtml = buildBillHistoryPrintHtml(bills, opts);
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    if (typeof CFG !== 'undefined' && CFG && typeof CFG.prefetchPrintSettings === 'function') {
+        CFG.prefetchPrintSettings(cid);
+    }
+    var printRow = null;
+    if (typeof CFG !== 'undefined' && CFG && typeof CFG.getPrintSettingsForDoc === 'function') {
+        printRow = CFG.getPrintSettingsForDoc('bill', cid);
+        if (printRow) {
+            printRow = Object.assign({}, printRow, {
+                scale_percent: opts.scalePercent || 100
+            });
+        }
+    }
+    if (typeof CFG !== 'undefined' && CFG && typeof CFG.openContentPrintPopup === 'function') {
+        var ok = CFG.openContentPrintPopup({
+            title: tr('bill.history.printTitle'),
+            bodyHtml: bodyHtml,
+            docType: 'bill',
+            clinicId: cid,
+            printRow: printRow,
+            skipConfirm: true
+        });
+        if (!ok) alert(tr('bill.receipt.popupBlocked'));
+        return;
+    }
+    var popup = window.open('', '_blank', 'width=820,height=900,scrollbars=1,resizable=1');
+    if (!popup) {
+        alert(tr('bill.receipt.popupBlocked'));
+        return;
+    }
+    popup.document.write(
+        '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
+        esc(tr('bill.history.printTitle')) + '</title></head><body>' + bodyHtml +
+        '<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>'
+    );
+    popup.document.close();
+}
+
+function confirmBillHistoryPrint() {
+    var bills = getBillHistoryPrintSelectedBills();
+    if (!bills.length) {
+        alert(tr('bill.history.printNoneSelected'));
+        return;
+    }
+    var opts = readBillHistoryPrintOptionsFromForm();
+    saveBillHistoryPrintOptions(opts);
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    dismissBillHistoryPrintModal();
+    executeBillHistoryPrint(bills, opts);
+}
+
+function buildBillHistoryPrintHtml(bills, opts) {
+    opts = opts || defaultBillHistoryPrintOptions();
+    var bodyPt = Math.max(9, parseInt(opts.bodyFontSize, 10) || 14);
+    var titlePt = Math.max(12, parseInt(opts.titleFontSize, 10) || 22);
+    var thPt = Math.max(9, parseInt(opts.thFontSize, 10) || 12);
+    var metaPt = Math.max(9, bodyPt - 1);
+    var fontFamily = billHistoryPrintFontFamilyCss(opts.fontFamily);
+    var bodyWeight = opts.boldText ? '600' : '400';
+    var thWeight = opts.boldText ? '800' : '700';
+    var cellPad = Math.max(5, Math.round(bodyPt * 0.45)) + 'px ' +
+        Math.max(6, Math.round(bodyPt * 0.55)) + 'px';
     var scope = billHistoryPrintScopeText();
     var patName = String(billPatName || '').trim() || '—';
     var patNo = String(billPatNo || '').trim();
@@ -13420,31 +13986,36 @@ function buildBillHistoryPrintHtml(bills) {
             : ((idx % 2 === 1) ? 'background:#f8fafc;' : '');
         rowsHtml +=
             '<tr style="' + rowStyle + '">' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' +
                 esc(billHistoryPrintDateDisplay(b.bill_date)) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(ref) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(typeLbl) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(doctor) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(ref) + '</td>' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(typeLbl) + '</td>' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(doctor) + '</td>' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;text-align:right;' +
                 (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(total)) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;text-align:right;' +
                 (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(paid)) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;text-align:right;' +
                 (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(bal)) + '</td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(statusTxt) + '</td>' +
+            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(statusTxt) + '</td>' +
             '</tr>';
     });
 
     return (
         '<style>' +
+        '.bh-print-root{font-family:' + fontFamily + ';color:#111;}' +
         '.bh-print-hdr{margin-bottom:14px;border-bottom:2px solid #0d6efd;padding-bottom:10px;}' +
-        '.bh-print-hdr h1{margin:0 0 6px;font-size:18px;color:#0d6efd;}' +
-        '.bh-print-meta{font-size:12px;color:#555;line-height:1.5;}' +
-        '.bh-print-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;}' +
-        '.bh-print-table th{text-align:left;padding:7px 8px;background:#1e3a5f;color:#fff;font-size:10px;}' +
+        '.bh-print-hdr h1{margin:0 0 6px;font-size:' + titlePt + 'pt;font-weight:' + thWeight +
+            ';color:#0d6efd;font-family:' + fontFamily + ';}' +
+        '.bh-print-meta{font-size:' + metaPt + 'pt;color:#555;line-height:1.5;font-weight:' + bodyWeight + ';}' +
+        '.bh-print-table{width:100%;border-collapse:collapse;font-size:' + bodyPt + 'pt;margin-top:8px;' +
+            'font-family:' + fontFamily + ';font-weight:' + bodyWeight + ';}' +
+        '.bh-print-table th{text-align:left;padding:' + cellPad +
+            ';background:#1e3a5f;color:#fff;font-size:' + thPt + 'pt;font-weight:' + thWeight + ';}' +
         '.bh-print-table th.num{text-align:right;}' +
-        '.bh-print-tfoot td{font-weight:700;border-top:2px solid #1e3a5f;padding:8px;}' +
+        '.bh-print-tfoot td{font-weight:' + thWeight + ';border-top:2px solid #1e3a5f;padding:' + cellPad + ';}' +
         '</style>' +
+        '<div class="bh-print-root">' +
         '<div class="bh-print-hdr">' +
         '<h1>' + esc(tr('bill.history.printTitle')) + '</h1>' +
         '<div class="bh-print-meta">' +
@@ -13470,45 +14041,30 @@ function buildBillHistoryPrintHtml(bills) {
         '<td style="text-align:right;">' + esc(fmt2(sumTotal)) + '</td>' +
         '<td style="text-align:right;">' + esc(fmt2(sumPaid)) + '</td>' +
         '<td style="text-align:right;">' + esc(fmt2(sumBal)) + '</td>' +
-        '<td></td></tr></tfoot></table>'
+        '<td></td></tr></tfoot></table></div>'
     );
 }
 
 function printBillHistory() {
-    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
-    var bills = filterBillHistoryByRange(billHistoryCache || []);
-    if (!bills.length) {
-        alert(tr('bill.history.printEmpty'));
-        return;
+    try {
+        if (billHistoryRangeMode() === 'dated') {
+            var fromEl = g('billHistoryFrom');
+            var toEl = g('billHistoryTo');
+            if (fromEl && fromEl.value) billHistoryFilterFrom = fromEl.value;
+            if (toEl && toEl.value) billHistoryFilterTo = toEl.value;
+        }
+        var bills = filterBillHistoryByRange(billHistoryCache || []);
+        if (!bills.length) {
+            alert(tr('bill.history.printEmpty'));
+            return;
+        }
+        openBillHistoryPrintModal(bills);
+    } catch (err) {
+        console.error('printBillHistory', err);
+        alert('Print failed: ' + (err && err.message ? err.message : String(err)));
     }
-    var bodyHtml = buildBillHistoryPrintHtml(bills);
-    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
-        ? String(currentClinicId) : '';
-    if (typeof CFG !== 'undefined' && CFG && typeof CFG.prefetchPrintSettings === 'function') {
-        CFG.prefetchPrintSettings(cid);
-    }
-    if (typeof CFG !== 'undefined' && CFG && typeof CFG.openContentPrintPopup === 'function') {
-        var ok = CFG.openContentPrintPopup({
-            title: tr('bill.history.printTitle'),
-            bodyHtml: bodyHtml,
-            docType: 'bill',
-            clinicId: cid
-        });
-        if (!ok) alert(tr('bill.receipt.popupBlocked'));
-        return;
-    }
-    var popup = window.open('', '_blank', 'width=820,height=900,scrollbars=1,resizable=1');
-    if (!popup) {
-        alert(tr('bill.receipt.popupBlocked'));
-        return;
-    }
-    popup.document.write(
-        '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
-        esc(tr('bill.history.printTitle')) + '</title></head><body>' + bodyHtml +
-        '<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>'
-    );
-    popup.document.close();
 }
+window.printBillHistory = printBillHistory;
 
 function wireBillHistoryFilterUi() {
     document.querySelectorAll('input[name="billHistoryRange"]').forEach(function(el) {
@@ -13952,7 +14508,10 @@ function showBillDetail(b) {
     bdSet('bdType',      (typeof dispPayMethod === 'function') ? dispPayMethod(b.bill_type) : (b.bill_type || '—'));
 
     var notesEl = g('bdNotes');
-    if (notesEl) notesEl.textContent = b.notes || '—';
+    if (notesEl) {
+        var userNotes = billUserNotesText(b.notes);
+        notesEl.textContent = userNotes || '—';
+    }
 
     // Items table — zebra rows
     var items = [];
@@ -15287,6 +15846,12 @@ function applyReceiptPrintOptions(opts, supplement, bill, pmts) {
     } else if (rxSec) {
         rxSec.style.display = 'none';
     }
+
+    var billNotesSec = g('rBillNotesSection');
+    var billNotesEl = g('rBillNotesBody');
+    var billNotesTxt = billUserNotesText(bill && bill.notes);
+    if (billNotesSec) billNotesSec.style.display = billNotesTxt ? '' : 'none';
+    if (billNotesEl) billNotesEl.textContent = billNotesTxt || '—';
 
     var patSign = g('receiptPatientSignBlock');
     if (patSign) patSign.style.display = opts.patientUndersign !== false ? '' : 'none';

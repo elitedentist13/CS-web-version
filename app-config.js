@@ -4911,8 +4911,10 @@ var CFG = (function () {
      * opts: { title, bodyHtml, printRow, clinicId }
      */
     function openContentPrintPopup(opts) {
-        if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return false;
         opts = opts || {};
+        if (!opts.skipConfirm &&
+            typeof confirmPrintReminder === 'function' &&
+            !confirmPrintReminder()) return false;
         var title = opts.title || 'Print';
         var bodyHtml = opts.bodyHtml || '';
         var cid = opts.clinicId ||

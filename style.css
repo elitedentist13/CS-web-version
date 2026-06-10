@@ -3154,11 +3154,29 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     white-space: nowrap;
 }
 .queue-arrived-cell {
+    vertical-align: middle;
+}
+.queue-arrived-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    line-height: 1.2;
+}
+.queue-arrived-time {
     white-space: nowrap;
+    font-size: 12px;
+}
+.queue-arrived-time-val {
+    color: var(--success);
+    font-weight: 600;
+}
+.queue-arrived-time-empty {
+    color: #aaa;
 }
 .queue-elapsed-badge {
     display: inline-block;
-    margin-left: 6px;
+    margin: 0;
     padding: 1px 6px;
     border-radius: 999px;
     font-size: 10px;
@@ -3166,6 +3184,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     line-height: 1.25;
     letter-spacing: .01em;
     opacity: .82;
+    white-space: nowrap;
 }
 .queue-elapsed-icon {
     margin-right: 4px;
@@ -3189,21 +3208,93 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     border: 1px solid #fca5a5;
 }
 
-/* Current queue — remarks column (~2× prior voucher width) */
+/* Current queue — column widths & readable spacing */
 .queue-wrap .appt-tbl.queue-tbl {
-    min-width: 920px;
-    table-layout: auto;
+    min-width: 980px;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.queue-wrap .appt-tbl.queue-tbl th,
+.queue-wrap .appt-tbl.queue-tbl td {
+    padding: 10px 11px;
+}
+
+.queue-wrap .appt-tbl.queue-tbl .queue-col-no          { width: 46px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-name        { width: 13%; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-treatment   { width: 14%; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-alert       { width: 92px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-time        { width: 82px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-duration    { width: 68px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-arrived     { width: 76px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-remarks     { width: auto; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-status      { width: 92px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-actions     { width: 96px; }
+
+.queue-wrap .appt-tbl.queue-tbl th:first-child,
+.queue-wrap .appt-tbl.queue-tbl td:first-child {
+    padding-left: 10px;
+    padding-right: 8px;
+    text-align: center;
+}
+
+.queue-wrap .appt-tbl.queue-tbl th.queue-duration-col {
+    text-align: left;
+}
+
+.queue-wrap .appt-tbl.queue-tbl td.queue-duration-cell {
+    text-align: center;
+    font-size: 12px;
+    color: #64748b;
+    white-space: nowrap;
+    vertical-align: middle;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+.queue-wrap .appt-tbl.queue-tbl td:nth-child(5) {
+    white-space: nowrap;
+    font-size: 13px;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.queue-wrap .appt-tbl.queue-tbl td.queue-arrived-cell {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.queue-wrap .appt-tbl.queue-tbl td:nth-child(4) {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.queue-wrap .appt-tbl.queue-tbl .appt-treat-inline--queue {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .queue-wrap .appt-tbl.queue-tbl th.queue-remarks-col,
 .queue-wrap .appt-tbl.queue-tbl td.queue-remarks-cell {
-    min-width: 276px;
-    width: 28%;
-    max-width: 420px;
+    min-width: 200px;
 }
 
 .queue-wrap .appt-tbl.queue-tbl td.queue-remarks-cell {
     vertical-align: top;
+    padding-right: 10px;
+}
+
+.queue-wrap .appt-tbl.queue-tbl td.queue-status-cell,
+.queue-wrap .appt-tbl.queue-tbl th:nth-child(9) {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.queue-wrap .appt-tbl.queue-tbl td:last-child,
+.queue-wrap .appt-tbl.queue-tbl th:last-child {
+    padding-left: 8px;
+    padding-right: 10px;
 }
 
 .queue-remarks-preview-wrap {
@@ -4576,6 +4667,55 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     border-color: var(--primary);
 }
 
+.bill-items-table th.bill-tooth-col,
+.bill-items-table td.bill-tooth-cell {
+    text-align: center;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+.bill-items-table td.bill-tooth-cell input {
+    text-align: center;
+    font-size: 12px;
+    padding: 5px 4px;
+}
+
+.bill-items-table td.bill-tooth-cell--na {
+    color: #aaa;
+    font-size: 13px;
+}
+
+.bill-items-table th.bill-qty-col,
+.bill-items-table td.bill-qty-cell {
+    width: 76px;
+    min-width: 76px;
+    max-width: 76px;
+    text-align: center;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+
+.bill-items-table td.bill-qty-cell .bill-qty-input {
+    width: 58px;
+    min-width: 58px;
+    max-width: 58px;
+    margin: 0 auto;
+    display: inline-block;
+    text-align: center;
+    padding: 5px 4px;
+    box-sizing: border-box;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    -moz-appearance: auto;
+    appearance: auto;
+}
+
+.bill-items-table td.bill-qty-cell .bill-qty-input::-webkit-outer-spin-button,
+.bill-items-table td.bill-qty-cell .bill-qty-input::-webkit-inner-spin-button {
+    opacity: 1;
+    margin: 0;
+}
+
 .totals-box {
     background: #f8faff;
     border: 1px solid #dde8f5;
@@ -5130,6 +5270,197 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 @media (max-width: 520px) {
     .receipt-print-options-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Bill history print options modal — sits left of open bill panel (680px) */
+#billHistoryPrintModal {
+    z-index: 2100;
+}
+#billHistoryPrintModal.bh-print-modal-visible {
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 16px;
+    padding-right: calc(680px + 20px);
+    box-sizing: border-box;
+}
+#billHistoryPrintModal.bh-print-modal-visible .bh-print-modal-box {
+    margin: 0;
+    width: 100%;
+    max-width: none;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.bh-print-modal-box {
+    max-width: 920px;
+    width: min(920px, 96vw);
+}
+.bh-print-modal-hint {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0 0 14px;
+    line-height: 1.45;
+}
+.bh-print-modal-layout {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) 1fr;
+    gap: 18px;
+    align-items: start;
+    margin-bottom: 16px;
+}
+.bh-print-section-title {
+    margin: 0 0 10px;
+    font-size: 13px;
+    font-weight: 800;
+    color: #1e3a5f;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+.bh-print-typo-grid {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.bh-print-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.bh-print-field-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+}
+.bh-print-field-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    background: #fff;
+}
+.bh-print-opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+}
+.bh-print-bills-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.bh-print-select-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #64748b;
+}
+.bh-print-link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: underline;
+}
+.bh-print-link-btn:hover {
+    color: #005bb5;
+}
+.bh-print-bill-list {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 6px;
+}
+.bh-print-bill-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 1.35;
+}
+.bh-print-bill-item:hover {
+    background: #eef2ff;
+}
+.bh-print-bill-item input {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+.bh-print-bill-item-main {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1e293b;
+}
+.bh-print-bill-item-meta {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+}
+.bh-print-bill-item--void .bh-print-bill-item-main {
+    color: #64748b;
+    text-decoration: line-through;
+}
+.bh-print-modal-preview-wrap {
+    min-width: 0;
+}
+.bh-print-preview-scroll {
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #d4d4d4;
+    max-height: 420px;
+    overflow: auto;
+    padding: 12px;
+}
+.bh-print-preview {
+    background: #fff;
+    box-shadow: 0 4px 20px rgba(0,0,0,.15);
+    transform-origin: top left;
+}
+.bh-print-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 14px;
+}
+@media (max-width: 1324px) {
+    .bh-print-modal-layout {
+        grid-template-columns: 1fr;
+    }
+}
+@media (max-width: 900px) {
+    #billHistoryPrintModal.bh-print-modal-visible {
+        padding: 12px;
+        padding-right: 12px;
+        justify-content: center;
+    }
+    #billHistoryPrintModal.bh-print-modal-visible .bh-print-modal-box {
+        max-width: 96vw;
+    }
+}
+@media (max-width: 760px) {
+    .bh-print-modal-layout {
+        grid-template-columns: 1fr;
+    }
+    .bh-print-preview-scroll {
+        max-height: 280px;
     }
 }
 

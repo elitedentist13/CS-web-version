@@ -2535,6 +2535,9 @@ function bindActivePatientCardOnce() {
     var bootP = activePatientSnapshotFromGlobals();
     if (bootP) activePatientSlots[0] = normalizeActivePatientPayload(bootP);
     renderActivePatientSlots();
+    if (activePatientSlots[0]) {
+        syncPrimaryPatientContext('active-slot-boot');
+    }
     bindActivePatientDockLayoutOnce();
 }
 
@@ -2667,7 +2670,10 @@ function jsmLocalStoragePreserveKeys() {
         jsm_session: true,
         joyful_ui_lang_v1: true,
         joyful_working_date_override_v1: true,
-        joyful_working_clinic_follow_v1: true
+        joyful_working_clinic_follow_v1: true,
+        cal_doctor_colors_v1: true,
+        cal_doctor_visible_v1: true,
+        gcal_settings_v2: true
     };
     keys[JSM_POST_LOGIN_REFRESH_LS] = true;
     keys[JSM_ASSET_CACHE_BUST_LS] = true;
@@ -2821,6 +2827,9 @@ function loadClinicsAndDoctorsForLogin() {
 
     function finishDoctorList(rows) {
         APP_DOCTORS = (rows || []).filter(function (d) { return d.is_active !== false; });
+        if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.onDoctorsLoaded === 'function') {
+            CalDoctorColors.onDoctorsLoaded();
+        }
     }
 
     Promise.all([

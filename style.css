@@ -2398,6 +2398,46 @@ tr:hover td { background: #fafcff; }
     flex: 0 0 220px;
     max-width: 220px;
 }
+.plusappt-sidebar-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: center;
+    padding: 4px 0 8px;
+}
+.plusappt-side-panel {
+    display: none;
+    margin-bottom: 8px;
+}
+.plusappt-side-panel.open {
+    display: block;
+}
+#plusApptSettingsPanel.appt-planner-settings-panel {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .14);
+    padding: 16px;
+    max-height: 420px;
+    overflow-y: auto;
+}
+.appt-planner-settings-panel label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    display: block;
+    margin-bottom: 4px;
+}
+.appt-planner-settings-panel select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid #d1d5db;
+    border-radius: 7px;
+    font-size: 13px;
+    background: #fff;
+}
 .plusappt-mini-cal {
     background: var(--plusappt-cal-bg, #fff);
     border: 2px solid var(--plusappt-cal-border, #e2e8f0);
@@ -3098,16 +3138,29 @@ tr:hover td { background: #fafcff; }
   border: 1px solid #d1d5db;
   border-radius: 6px;
   font-size: 13px;
+  line-height: 1.38;
   background: #fff;
   box-sizing: border-box;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  vertical-align: top;
 }
 .appt-treat-inline:focus{
   outline: none;
   border-color: var(--primary, #2d7dd2);
   box-shadow: 0 0 0 2px rgba(45,125,210,.15);
 }
-.appt-treat-inline--queue{
+.appt-treat-inline--queue,
+.appt-treat-inline--today {
   font-size: 13px;
+}
+.today-treatment-cell,
+.queue-treatment-cell {
+  vertical-align: top;
+  min-width: 180px;
 }
 .appt-treat-inline--plusappt{
   font-size: 12px;
@@ -3179,20 +3232,27 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     filter: brightness(0.97);
 }
 
-.appt-alert-text {
-    display: inline-block;
-    max-width: 170px;
+.appt-alert-scroll {
+    display: block;
+    max-height: calc(1.38em * 4);
+    overflow-y: auto;
+    overflow-x: hidden;
+    white-space: pre-wrap;
+    word-break: break-word;
     color: #b91c1c;
     font-weight: 700;
     font-size: 11px;
-    line-height: 1.25;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.38;
 }
 .appt-alert-empty {
     color: #9ca3af;
     font-size: 11px;
+}
+.appt-alert-cell {
+    vertical-align: top;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    font-size: 12px;
 }
 .queue-status-cell {
     white-space: nowrap;
@@ -3265,9 +3325,9 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 
 .queue-wrap .appt-tbl.queue-tbl .queue-col-no          { width: 46px; }
-.queue-wrap .appt-tbl.queue-tbl .queue-col-name        { width: 13%; }
-.queue-wrap .appt-tbl.queue-tbl .queue-col-treatment   { width: 14%; }
-.queue-wrap .appt-tbl.queue-tbl .queue-col-alert       { width: 92px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-name        { width: 11%; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-treatment   { width: 20%; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-alert       { width: 80px; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-time        { width: 82px; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-duration    { width: 68px; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-arrived     { width: 76px; }
@@ -3313,10 +3373,38 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     padding-right: 8px;
 }
 
+.queue-wrap .appt-tbl.queue-tbl .queue-treatment-cell {
+    min-width: 200px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
 .queue-wrap .appt-tbl.queue-tbl .appt-treat-inline--queue {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
+}
+
+.today-wrap .appt-tbl.today-tbl {
+    table-layout: fixed;
+    min-width: 960px;
+    width: 100%;
+}
+
+.today-wrap .appt-tbl.today-tbl .today-col-time      { width: 108px; }
+.today-wrap .appt-tbl.today-tbl .today-col-patno     { width: 72px; }
+.today-wrap .appt-tbl.today-tbl .today-col-name      { width: 14%; }
+.today-wrap .appt-tbl.today-tbl .today-col-treatment { width: 22%; }
+.today-wrap .appt-tbl.today-tbl .today-col-alert     { width: 80px; }
+.today-wrap .appt-tbl.today-tbl .today-col-remarks   { width: auto; }
+.today-wrap .appt-tbl.today-tbl .today-col-duration  { width: 64px; }
+.today-wrap .appt-tbl.today-tbl .today-col-status    { width: 88px; }
+.today-wrap .appt-tbl.today-tbl .today-col-action    { width: 148px; }
+
+.today-wrap .appt-tbl.today-tbl .today-treatment-cell {
+    min-width: 200px;
+    padding-top: 8px;
+    padding-bottom: 8px;
 }
 
 .queue-wrap .appt-tbl.queue-tbl th.queue-remarks-col,
@@ -4015,8 +4103,43 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     line-height: 1.45;
 }
 
-.cal-colors-done {
+.cal-colors-modal-foot {
     margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.cal-colors-reset,
+.cal-dr-colors-reset-btn {
+    width: 100%;
+    padding: 9px 12px;
+    background: #fff;
+    color: #b45309;
+    border: 1px solid #fcd34d;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.cal-colors-reset:hover,
+.cal-dr-colors-reset-btn:hover {
+    background: #fffbeb;
+    border-color: #f59e0b;
+}
+.cal-colors-reset-hint,
+.cal-dr-colors-reset-hint {
+    display: block;
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.4;
+}
+.cal-dr-colors-reset-row {
+    margin: 10px 0 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.cal-colors-done {
     width: 100%;
     padding: 10px;
     background: var(--primary);
@@ -4105,6 +4228,35 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     color: #64748b;
     margin-top: 4px;
     font-weight: 600;
+}
+
+/* Today / Queue — read-only doctor colour dot (multi-doctor days) */
+.appt-row-name-wrap {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+}
+
+.appt-row-name-stack {
+    min-width: 0;
+    flex: 1;
+}
+
+.appt-row-dr-dot {
+    width: 10px;
+    height: 10px;
+    margin-top: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.14);
+    pointer-events: none;
+    user-select: none;
+}
+
+.today-name-cell .appt-row-dr-dot,
+.queue-name-cell .appt-row-dr-dot {
+    margin-top: 6px;
 }
 
 /* ════════════════════════════════════════════════════════════════

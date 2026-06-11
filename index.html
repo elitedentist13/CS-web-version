@@ -875,8 +875,19 @@
       </div>
     </div>
     <div id="todayDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
-    <div class="tbl-wrap">
-      <table class="appt-tbl">
+    <div class="tbl-wrap today-wrap">
+      <table class="appt-tbl today-tbl">
+        <colgroup>
+          <col class="today-col-time">
+          <col class="today-col-patno">
+          <col class="today-col-name">
+          <col class="today-col-treatment">
+          <col class="today-col-alert">
+          <col class="today-col-remarks">
+          <col class="today-col-duration">
+          <col class="today-col-status">
+          <col class="today-col-action">
+        </colgroup>
         <thead>
           <tr>
             <th data-i18n="appt.todayTh.time"></th>
@@ -937,7 +948,14 @@
     <div class="plusappt-layout">
       <aside class="plusappt-sidebar">
         <div id="plusApptClinicBadge" class="plusappt-clinic-badge" aria-live="polite"></div>
-        <div id="plusApptMiniCal" class="plusappt-mini-cal" aria-live="polite"></div>
+        <div class="plusappt-sidebar-tools">
+          <button type="button" id="plusApptSettingsBtn" class="gcal-settings-btn" data-i18n-title="appt.cal.settingsBtnTitle">⚙</button>
+          <button type="button" id="plusApptMiniCalBtn" class="gcal-settings-btn" data-i18n-title="appt.cal.miniCalBtnTitle">📅</button>
+        </div>
+        <div id="plusApptSettingsPanel" class="plusappt-side-panel appt-planner-settings-panel" aria-hidden="true"></div>
+        <div id="plusApptMiniCalWrap" class="plusappt-side-panel open">
+          <div id="plusApptMiniCal" class="plusappt-mini-cal" aria-live="polite"></div>
+        </div>
         <div id="plusApptTransferLog" class="plusappt-transfer-log" aria-live="polite" hidden aria-hidden="true"></div>
         <div class="plusappt-mini-hint" data-i18n="appt.plusAppt.transferMiniHint">Tip: Drag appointment row to mini calendar, pick a new date, then drag back to a time slot to transfer.</div>
       </aside>

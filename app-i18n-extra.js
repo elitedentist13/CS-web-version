@@ -688,7 +688,7 @@
         'appt.cal.rowHeight': { en: 'Row Height', 'zh-CN': '行高', 'zh-Hant': '行高' },
         'appt.cal.drColoursLabel': { en: 'Doctor colours (weekly & monthly views)', 'zh-CN': '医生颜色（周/月视图）', 'zh-Hant': '醫生顏色（週/月檢視）' },
         'appt.cal.drColoursHint': { en: 'Pick a colour per doctor so multiple doctors on the same day are easy to spot. Click a preset or use the colour wheel.', 'zh-CN': '为每位医生选择颜色，便于在同日区分。可点预设或使用调色盘。', 'zh-Hant': '為每位醫生選擇顏色，便於在同日區分。可點預設或使用調色盤。' },
-        'appt.cal.applyRefresh': { en: 'Apply & Refresh', 'zh-CN': '应用并刷新', 'zh-Hant': '套用並重新整理' },
+        'appt.cal.applyRefresh': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
         'appt.cal.endAfterStart': { en: 'End time must be after start time.', 'zh-CN': '结束时间须晚于开始时间。', 'zh-Hant': '結束時間須晚於開始時間。' },
         'appt.cal.noDoctorsHint': { en: 'Add doctors in Configuration, or book appointments with a doctor assigned.', 'zh-CN': '请在配置中添加医生，或预约时指定医生。', 'zh-Hant': '請在設定中新增醫生，或預約時指定醫生。' },
         'appt.cal.intervalMin': { en: '{N} min', 'zh-CN': '{N} 分钟', 'zh-Hant': '{N} 分鐘' },
@@ -708,10 +708,14 @@
         'cal.doctor.filterListTitle': { en: 'Show or hide {NAME} on this list', 'zh-CN': '在此列表显示或隐藏 {NAME}', 'zh-Hant': '在此清單顯示或隱藏 {NAME}' },
         'cal.doctor.filterShowAria': { en: 'Show {NAME}', 'zh-CN': '显示 {NAME}', 'zh-Hant': '顯示 {NAME}' },
         'cal.doctor.changeColourTitle': { en: 'Change colour for {NAME}', 'zh-CN': '更改 {NAME} 的颜色', 'zh-Hant': '更改 {NAME} 的顏色' },
+        'cal.doctor.rowDotAria': { en: 'Doctor: {NAME}', 'zh-CN': '医生：{NAME}', 'zh-Hant': '醫生：{NAME}' },
         'cal.doctor.colorsEmpty': { en: 'Configure doctors under Configuration, or assign a doctor when booking.', 'zh-CN': '请在配置中添加医生，或在预约时指定医生。', 'zh-Hant': '請在設定中新增醫生，或在預約時指定醫生。' },
         'cal.doctor.modalTitle': { en: 'Doctor colours', 'zh-CN': '医生颜色', 'zh-Hant': '醫生顏色' },
-        'cal.doctor.modalHint': { en: 'Each doctor gets a colour on the weekly and monthly calendars (like Google Calendar).', 'zh-CN': '每位医生在周历和月历上有专属颜色（类似 Google Calendar）。', 'zh-Hant': '每位醫生在週曆和月曆上有專屬顏色（類似 Google Calendar）。' },
-        'cal.doctor.done': { en: 'Done', 'zh-CN': '完成', 'zh-Hant': '完成' },
+        'cal.doctor.modalHint': { en: 'Each doctor gets a colour on the weekly and monthly calendars (like Google Calendar). Your choices are saved for the clinic and restored after re-login.', 'zh-CN': '每位医生在周历和月历上有专属颜色（类似 Google Calendar）。所选颜色会保存并在重新登录后恢复。', 'zh-Hant': '每位醫生在週曆和月曆上有專屬顏色（類似 Google Calendar）。所選顏色會儲存並在重新登入後恢復。' },
+        'cal.doctor.done': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
+        'cal.doctor.resetBtn': { en: 'Reset doctor colours', 'zh-CN': '重置医生颜色', 'zh-Hant': '重設醫生顏色' },
+        'cal.doctor.resetHint': { en: 'Clears saved picks and restores default preview colours.', 'zh-CN': '清除已保存的颜色，恢复默认预览色。', 'zh-Hant': '清除已儲存的顏色，恢復預設預覽色。' },
+        'cal.doctor.resetConfirm': { en: 'Reset all saved doctor colours? You can assign new colours afterward.', 'zh-CN': '确定重置所有已保存的医生颜色？之后可重新指定。', 'zh-Hant': '確定重設所有已儲存的醫生顏色？之後可重新指定。' },
 
         'appt.today.btnNewPatient': { en: 'New Patient', 'zh-CN': '新建患者', 'zh-Hant': '新增病人' },
         'appt.today.btnCheckIn': { en: 'Check In', 'zh-CN': '签到', 'zh-Hant': '簽到' },
@@ -2372,6 +2376,11 @@
         'appt.modal.endTimeAuto': { en: 'End Time (auto)', 'zh-CN': '结束时间（自动）', 'zh-Hant': '結束時間（自動）' },
         'appt.modal.treatmentItems': { en: 'Treatment Items', 'zh-CN': '治疗项目', 'zh-Hant': '治療項目' },
         'appt.modal.treatmentPh': { en: 'e.g. Scaling, Filling…', 'zh-CN': '例如：洗牙、补牙…', 'zh-Hant': '例如：洗牙、補牙…' },
+        'appt.treatInline.saveHint': {
+            en: 'Enter for new line. Ctrl+Enter to save.',
+            'zh-CN': 'Enter 换行，Ctrl+Enter 保存。',
+            'zh-Hant': 'Enter 換行，Ctrl+Enter 儲存。'
+        },
         'appt.modal.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
         'appt.modal.selectDoctor': { en: '— Select doctor —', 'zh-CN': '— 选择医生 —', 'zh-Hant': '— 選擇醫生 —' },
         'appt.modal.calendarColour': { en: 'Calendar colour', 'zh-CN': '日历颜色', 'zh-Hant': '日曆顏色' },
@@ -2782,9 +2791,9 @@
         },
         'media.sys.aidental': { en: 'Ai-Dental (small film)', 'zh-CN': 'Ai-Dental（小片）', 'zh-Hant': 'Ai-Dental（小片）' },
         'media.sys.aidental.info': {
-            en: 'Opens Ai-Dental-Client — small-film imaging (desktop shortcut on this PC)',
-            'zh-CN': '打开 Ai-Dental-Client — 小片影像（本机桌面快捷方式）',
-            'zh-Hant': '開啟 Ai-Dental-Client — 小片影像（本機桌面捷徑）'
+            en: 'Fill Woodpecker Create Patient — Name, Birthday, Gender from active patient (Woodpecker opened manually)',
+            'zh-CN': '填入 Woodpecker Create Patient — 从当前患者带入 Name、Birthday、Gender（需手动打开 Woodpecker）',
+            'zh-Hant': '填入 Woodpecker Create Patient — 從目前病人帶入 Name、Birthday、Gender（需手動開啟 Woodpecker）'
         },
         'media.sys.aidental.desktopHint': {
             en: 'Ai-Dental-Client small-film software on this PC',
@@ -2802,15 +2811,45 @@
             'zh-CN': '本机 NNT / NEWTOM CBCT 软件',
             'zh-Hant': '本機 NNT / NEWTOM CBCT 軟件'
         },
+        'media.local.aidentalFillOpen': {
+            en: 'Fill Woodpecker Create Patient from active patient?\n\n1. Open Woodpecker Ai-Dental manually (Patient page)\n2. Click "Create Patient" in Woodpecker\n3. Confirm here — fields will be filled:\n   • Name (English)\n   • Birthday\n   • Gender (Male/Female)\n\nActive patient: {PATIENT}\n\nRequires "Start X-Ray Launcher.bat" running on this PC.',
+            'zh-CN': '从当前患者填入 Woodpecker「Create Patient」？\n\n1. 请手动打开 Woodpecker Ai-Dental（Patient 页面）\n2. 在 Woodpecker 中点击「Create Patient」\n3. 在此确认 — 将自动填入：\n   • Name（英文姓名）\n   • Birthday（出生日期）\n   • Gender（男/女）\n\n当前患者：{PATIENT}\n\n需在本机运行「Start X-Ray Launcher.bat」。',
+            'zh-Hant': '從目前病人填入 Woodpecker「Create Patient」？\n\n1. 請手動開啟 Woodpecker Ai-Dental（Patient 頁面）\n2. 在 Woodpecker 中按「Create Patient」\n3. 在此確認 — 將自動填入：\n   • Name（英文姓名）\n   • Birthday（出生日期）\n   • Gender（男/女）\n\n目前病人：{PATIENT}\n\n需在本機執行「Start X-Ray Launcher.bat」。'
+        },
+        'media.local.aidentalNotRunning': {
+            en: 'Woodpecker Ai-Dental is not open on this PC.\n\n1. Open Woodpecker manually\n2. Go to the Patient page\n3. Click Create Patient\n4. Try again\n\nPatient: {PATIENT}\n\nAlso check: {BAT} is running.',
+            'zh-CN': '本机未检测到 Woodpecker Ai-Dental。\n\n1. 请手动打开 Woodpecker\n2. 进入 Patient 页面\n3. 点击 Create Patient\n4. 再试一次\n\n患者：{PATIENT}\n\n并确认已运行：{BAT}',
+            'zh-Hant': '本機未偵測到 Woodpecker Ai-Dental。\n\n1. 請手動開啟 Woodpecker\n2. 進入 Patient 頁面\n3. 按 Create Patient\n4. 再試一次\n\n病人：{PATIENT}\n\n並確認已執行：{BAT}'
+        },
+        'media.local.aidentalCreatePatientNeeded': {
+            en: 'Woodpecker is open.\n\nCould not fill the form yet.\n\n• Click "Create Patient" in Woodpecker\n• Click Ai-Dental in the web app again\n\nOr paste manually from clipboard:\n{SUMMARY}\n\nDebug: {DEBUG}',
+            'zh-CN': 'Woodpecker 已打开。\n\n暂未填入表单。\n\n• 请在 Woodpecker 点击「Create Patient」\n• 再点一次网页上的 Ai-Dental\n\n或从剪贴板手动粘贴：\n{SUMMARY}\n\n调试：{DEBUG}',
+            'zh-Hant': 'Woodpecker 已開啟。\n\n暫未填入表單。\n\n• 請在 Woodpecker 按「Create Patient」\n• 再按一次網頁上的 Ai-Dental\n\n或從剪貼簿手動貼上：\n{SUMMARY}\n\n除錯：{DEBUG}'
+        },
         'media.local.aidentalOpen': {
-            en: 'Open Ai-Dental-Client (small film) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Local folder: {FOLDER}\n\nRequires "Start X-Ray Launcher.bat" running, or open the shortcut manually.',
-            'zh-CN': '在本机打开 Ai-Dental-Client（小片）？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 本地文件夹：{FOLDER}\n\n需运行「Start X-Ray Launcher.bat」，或手动打开快捷方式。',
-            'zh-Hant': '在本機開啟 Ai-Dental-Client（小片）？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 本機資料夾：{FOLDER}\n\n需執行「Start X-Ray Launcher.bat」，或手動開啟捷徑。'
+            en: 'Open Woodpecker Ai-Dental on this computer?\n\n• Patient: {PATIENT}\n• Will fill Create Patient: Name (English), Birthday, Gender\n• Optional: Chart No. from patient no.\n• Program: {EXE}\n\nRequires "Start X-Ray Launcher.bat" running.',
+            'zh-CN': '在本机打开 Woodpecker Ai-Dental？\n\n• 患者：{PATIENT}\n• 将填入「Create Patient」：Name（英文）、Birthday、Gender\n• 可选：Chart No.（患者编号）\n• 程序：{EXE}\n\n需运行「Start X-Ray Launcher.bat」。',
+            'zh-Hant': '在本機開啟 Woodpecker Ai-Dental？\n\n• 病人：{PATIENT}\n• 將填入「Create Patient」：Name（英文）、Birthday、Gender\n• 可選：Chart No.（病人編號）\n• 程式：{EXE}\n\n需執行「Start X-Ray Launcher.bat」。'
         },
         'media.local.aidentalLaunched': {
             en: 'Ai-Dental-Client is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
             'zh-CN': '正在启动 Ai-Dental-Client。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
             'zh-Hant': '正在啟動 Ai-Dental-Client。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
+        },
+        'media.local.aidentalSearchPasted': {
+            en: 'Ai-Dental-Client is open.\n\nPatient search: {PATIENT}\nFull demographics are on the clipboard ({SUMMARY}).\nIf the patient is not listed, click New / 新增 in Ai-Dental — or press Ctrl+V in each field.',
+            'zh-CN': 'Ai-Dental-Client 已打开。\n\n已搜索患者：{PATIENT}\n完整资料已复制到剪贴板（{SUMMARY}）。\n若列表中无此患者，请在 Ai-Dental 点击「新增」，或在各字段按 Ctrl+V 粘贴。',
+            'zh-Hant': 'Ai-Dental-Client 已開啟。\n\n已搜尋病人：{PATIENT}\n完整資料已複製到剪貼簿（{SUMMARY}）。\n若清單中無此病人，請在 Ai-Dental 按「新增」，或在各欄位按 Ctrl+V 貼上。'
+        },
+        'media.local.aidentalNewPatientPrepared': {
+            en: 'Woodpecker Create Patient form filled.\n\n• Name: {PATIENT}\n• Fields filled: {FIELDS}\n\nReview Birthday and Gender, then click Add. Cancel if patient already exists.',
+            'zh-CN': '已填入 Woodpecker「Create Patient」表单。\n\n• Name：{PATIENT}\n• 已填字段：{FIELDS}\n\n请核对 Birthday、Gender 后点击 Add。若患者已存在请 Cancel。',
+            'zh-Hant': '已填入 Woodpecker「Create Patient」表單。\n\n• Name：{PATIENT}\n• 已填欄位：{FIELDS}\n\n請核對 Birthday、Gender 後按 Add。若病人已存在請 Cancel。'
+        },
+        'media.local.aidentalClipboardOnly': {
+            en: 'Ai-Dental-Client is open.\n\nCould not auto-open the new-patient panel.\n\n1. In Ai-Dental, click New / 新增患者 manually\n2. Click the Ai-Dental button in the web app again (fields will paste one by one)\n\nOr paste from clipboard batch:\n{SUMMARY}\n\nDebug: {DEBUG}',
+            'zh-CN': 'Ai-Dental-Client 已打开。\n\n未能自动打开「新增患者」面板。\n\n1. 在 Ai-Dental 手动点击「新增 / 新增患者」\n2. 再点一次网页上的 Ai-Dental 按钮（会逐字段粘贴）\n\n或逐字段粘贴剪贴板完整资料：\n{SUMMARY}\n\n调试：{DEBUG}',
+            'zh-Hant': 'Ai-Dental-Client 已開啟。\n\n未能自動開啟「新增病人」面板。\n\n1. 在 Ai-Dental 手動按「新增 / 新增病人」\n2. 再按一次網頁上的 Ai-Dental 按鈕（會逐欄貼上）\n\n或逐欄貼上剪貼簿完整資料：\n{SUMMARY}\n\n除錯：{DEBUG}'
         },
         'media.local.aidentalLauncherNeeded': {
             en: 'Could not start Ai-Dental-Client from the browser.\n\n1. Run: current work\\{BAT}\n2. Leave the launcher window open\n3. Click Ai-Dental again\n\nOr double-click "{SHORTCUT}" on the desktop.\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',

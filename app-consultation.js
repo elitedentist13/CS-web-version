@@ -5599,7 +5599,9 @@ function currentActiveClinicLabelForPrinting(isZh) {
  */
 function buildClinicContactHtmlForDrugLabel(isZh) {
     var rec = conResolveActiveClinicRecordForLabels();
-    var addr = rec ? String(rec.address || '').trim() : '';
+    var addrEn = rec ? String(rec.address || '').trim() : '';
+    var addrZh = rec ? String(rec.address_chinese || rec.chinese_address || '').trim() : '';
+    var addr = isZh ? (addrZh || addrEn) : (addrEn || addrZh);
     var tel = rec ? String(rec.tel || '').trim() : '';
     var e = typeof esc === 'function' ? esc : function(s) { return String(s || ''); };
     var addrShown = addr ? e(addr) : '—';
@@ -5712,9 +5714,9 @@ function printDrugLabel(drugs, lang) {
             'flex-direction:column;' +
             'justify-content:flex-start;' +
             'align-items:stretch;' +
-            'gap:0.45mm;' +
-            'font-size:8pt;' +
-            'line-height:1.24;' +
+            'gap:0.4mm;' +
+            'font-size:10pt;' +
+            'line-height:1.22;' +
             'letter-spacing:0.01em;' +
             'transform-origin:top center;' +
         '}' +
@@ -5734,6 +5736,9 @@ function printDrugLabel(drugs, lang) {
             'display:flex;' +
             'flex-direction:column;' +
             'justify-content:flex-start;' +
+            'padding-bottom:0.35mm;' +
+            'margin-bottom:0.3mm;' +
+            'border-bottom:0.15mm solid #000;' +
         '}' +
         '.clinic-name {' +
             'font-size:0.9em;' +
@@ -5762,10 +5767,10 @@ function printDrugLabel(drugs, lang) {
             'flex:0 0 auto;' +
             'min-height:0;' +
             'overflow:hidden;' +
-            'padding:0.15em 0 0 0;' +
+            'padding:0.2em 0 0 0;' +
         '}' +
         '.patient-row {' +
-            'font-size:0.78em;' +
+            'font-size:0.84em;' +
             'line-height:1.14;' +
             'word-break:break-word;' +
             'width:100%;' +
@@ -5815,7 +5820,7 @@ function printDrugLabel(drugs, lang) {
             'width:100%;' +
         '}' +
         '.drug-name {' +
-            'font-size:1.1em;' +
+            'font-size:1.15em;' +
             'font-weight:400;' +
             'line-height:1.16;' +
             'word-break:break-word;' +
@@ -5828,7 +5833,7 @@ function printDrugLabel(drugs, lang) {
             'text-align:left;' +
         '}' +
         '.info-row {' +
-            'font-size:0.92em;' +
+            'font-size:0.96em;' +
             'line-height:1.2;' +
             'word-break:break-word;' +
             'flex-shrink:0;' +

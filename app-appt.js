@@ -1963,6 +1963,44 @@ function plusApptApptsByStart(appts) {
     return map;
 }
 
+/** Minutes for a planner row; prefers duration column, else start/end delta. */
+function plusApptApptDurationMins(appt) {
+    if (!appt) return 0;
+    var dur = parseInt(appt.duration || '0', 10);
+    if (dur > 0) return dur;
+    var stM = plusApptTimeToMin(appt.start_time);
+    var enM = plusApptTimeToMin(appt.end_time);
+    return (enM > stM) ? (enM - stM) : PLUSAPPT_SLOT_MIN;
+}
+
+/**
+ * Slots covered by each appointment (any duration).
+ * role: 'start' = first row (full highlight); 'span' = continuation (time column only).
+ */
+function plusApptSpanBySlot(appts) {
+    var map = {};
+    (appts || []).forEach(function(a) {
+        if (!a || (typeof apptTransferIsCutPending === 'function' && apptTransferIsCutPending(a.id))) {
+            return;
+        }
+        var dur = plusApptApptDurationMins(a);
+        if (dur < 1) return;
+        var startKey = plusApptNormTime(a.start_time);
+        if (!startKey) return;
+        var startMin = plusApptTimeToMin(startKey);
+        var endMin = startMin + dur;
+        plusApptSlotList().forEach(function(slot) {
+            var sm = plusApptTimeToMin(slot);
+            if (sm < startMin || sm >= endMin) return;
+            var role = slot === startKey ? 'start' : 'span';
+            if (!map[slot] || role === 'start') {
+                map[slot] = { appt: a, role: role, startSlot: startKey };
+            }
+        });
+    });
+    return map;
+}
+
 function plusApptFilterAppts(rows, doctorCode) {
     var list = rows || [];
     var dr = doctorCode != null ? doctorCode : plusApptActiveDoctorCode;
@@ -3023,7 +3061,9 @@ function bindPlusApptTreatmentInline(row, apptRow) {
 function fillPlusApptScheduleTbody(tb, doctorCode) {
     if (!tb) return;
     var slots = plusApptSlotList();
-    var byStart = plusApptApptsByStart(plusApptFilterAppts(plusApptDayAppts, doctorCode));
+    var filteredAppts = plusApptFilterAppts(plusApptDayAppts, doctorCode);
+    var byStart = plusApptApptsByStart(filteredAppts);
+    var spanBySlot = plusApptSpanBySlot(filteredAppts);
     var selSlot = plusApptSelectedSlot;
     var selId = plusApptSelectedAppt ? plusApptSelectedAppt.id : null;
     var colDr = doctorCode || plusApptEffectiveDoctorCode();
@@ -3034,14 +3074,23 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var appts = byStart[slot] || [];
         var a = appts.length ? appts[0] : null;
         if (a && apptTransferIsCutPending(a.id)) a = null;
+        var spanInfo = (!a && spanBySlot[slot]) ? spanBySlot[slot] : null;
         var row = document.createElement('tr');
-        row.className = 'plusappt-slot-row' + (a ? ' plusappt-row-booked' : '');
+        var rowCls = ['plusappt-slot-row'];
+        if (a) {
+            rowCls.push('plusappt-row-booked-long');
+        } else if (spanInfo && spanInfo.role === 'span') {
+            rowCls.push('plusappt-row-long-span');
+        }
+        row.className = rowCls.join(' ');
         row.dataset.slotTime = slot;
         if (colDr) row.dataset.doctorCode = colDr;
         if (a) {
             row.dataset.apptId = a.id;
             var drCol = plusApptDoctorColor(a.doctor_code || colDr);
             row.style.borderLeft = '4px solid ' + drCol;
+        } else if (spanInfo && spanInfo.appt) {
+            row.style.borderLeft = '4px solid ' + plusApptDoctorColor(spanInfo.appt.doctor_code || colDr);
         } else {
             row.style.borderLeft = '';
         }
@@ -3086,9 +3135,13 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var timeShow = a
             ? '<strong>' + fmt12(a.start_time) + '</strong> – ' + fmt12(a.end_time)
             : timeHtml;
+        var timeCellCls = 'plusappt-time-cell';
+        if (spanInfo && spanInfo.role === 'span') {
+            timeCellCls += ' plusappt-time-cell--occupied';
+        }
 
         row.innerHTML =
-            '<td class="plusappt-time-cell">' + timeShow + '</td>' +
+            '<td class="' + timeCellCls + '">' + timeShow + '</td>' +
             '<td>' + nameHtml + '</td>' +
             '<td class="plusappt-treat-cell">' + treatHtml + '</td>' +
             '<td style="font-size:12px;color:#64748b;">' + remHtml + taskHtml + '</td>' +
@@ -8013,7 +8066,7 @@ function loadToday() {
                 if (a.in_queue !== null && a.in_queue !== undefined) return false;
                 var s = String(a.bill_status || '').toLowerCase();
                 if (s === 'queue' || s === 'done' || s === 'finish') return false;
-                if (/cancel|no.?show|failed/.test(s)) return false;
+                if (/cancel/.test(s)) return false;
                 return true;
             });
             todayAppts = todayRows;
@@ -8047,9 +8100,14 @@ function loadToday() {
     });
 }
 
+function todayApptIsNoshow(a) {
+    return /no.?show|failed/i.test(String(a && a.bill_status ? a.bill_status : ''));
+}
+
 function todayApptNeedsPatientReg(a) {
     if (!a) return false;
     if (a.bill_status === 'Queue' || a.bill_status === 'Done') return false;
+    if (todayApptIsNoshow(a)) return false;
     return !a.patient_id;
 }
 
@@ -8104,9 +8162,12 @@ function buildTodayRow(tb, a) {
     var row = document.createElement('tr');
     row.dataset.apptId = a.id;
     row.style.cursor = 'pointer';
+    var isNoshow = todayApptIsNoshow(a);
+    if (isNoshow) row.classList.add('today-row-noshow');
     var needsReg = todayApptNeedsPatientReg(a);
     var actionBtn = '';
-    if (a.bill_status !== 'Queue' && a.bill_status !== 'Done') {
+    var canMarkVisit = a.bill_status !== 'Queue' && a.bill_status !== 'Done' && !isNoshow;
+    if (canMarkVisit) {
         if (needsReg) {
             actionBtn =
                 '<button type="button" class="btn-today-newpatient btn-sm" ' +
@@ -8116,6 +8177,9 @@ function buildTodayRow(tb, a) {
                 '<button type="button" class="btn-today-checkin btn-sm" ' +
                 'style="background:var(--success);">' + esc(tr('appt.today.btnCheckIn')) + '</button>';
         }
+        actionBtn +=
+            '<button type="button" class="btn-today-noshow btn-sm" ' +
+            'style="background:#dc2626;">' + esc(tr('appt.today.btnNoShow')) + '</button>';
     }
 
     row.innerHTML =
@@ -8178,7 +8242,7 @@ function buildTodayRow(tb, a) {
     }
 
     row.addEventListener('dblclick', function () {
-        if (a.bill_status === 'Queue' || a.bill_status === 'Done') {
+        if (isNoshow || a.bill_status === 'Queue' || a.bill_status === 'Done') {
             openApptEditModal(a);
             return;
         }
@@ -8213,6 +8277,15 @@ function buildTodayRow(tb, a) {
             checkInPatient(a);
         });
     }
+
+    var ns = row.querySelector('.btn-today-noshow');
+    if (ns) {
+        ns.addEventListener('click', function (e) {
+            e.stopPropagation();
+            updateApptBillStatus(a.id, 'No Show');
+        });
+    }
+
     row.querySelectorAll('.appt-task-pill-btn[data-task-cycle="1"]').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -9337,15 +9410,24 @@ function buildQueueRow(tb, q, seqNo) {
     }
 }
 
-function updateQueueStatus(apptId, status) {
-    var update = { bill_status: status };
+function updateApptBillStatus(apptId, status) {
     SB.from('appointments')
-        .update(update)
+        .update({ bill_status: status })
         .eq('id', apptId)
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-        loadQueue();
+        if (typeof arAllData !== 'undefined' && arAllData && arAllData.length) {
+            var cached = arAllData.find(function(x) { return String(x.id) === String(apptId); });
+            if (cached) cached.bill_status = status;
+            if (typeof arRender === 'function') arRender();
+        }
+        if (typeof loadQueue === 'function') loadQueue();
+        if (typeof loadToday === 'function') loadToday();
     });
+}
+
+function updateQueueStatus(apptId, status) {
+    updateApptBillStatus(apptId, status);
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -628,6 +628,7 @@
         'appt.today.btnNewPatient': { en: 'New Patient', 'zh-CN': '新建患者', 'zh-Hant': '新增病人' },
         'appt.today.btnCheckIn': { en: 'Check In', 'zh-CN': '签到', 'zh-Hant': '簽到' },
         'appt.today.btnEdit': { en: 'Edit', 'zh-CN': '编辑', 'zh-Hant': '編輯' },
+        'appt.today.btnNoShow': { en: 'No Show', 'zh-CN': '爽约', 'zh-Hant': '失約' },
         'appt.today.confirmCheckIn': { en: 'Check in {NAME} now?', 'zh-CN': '现在为 {NAME} 签到？', 'zh-Hant': '現在為 {NAME} 簽到？' },
         'appt.today.thisPatient': { en: 'this patient', 'zh-CN': '此患者', 'zh-Hant': '此病人' },
         'appt.today.regNotAvailable': { en: 'Patient registration is not available.', 'zh-CN': '患者登记功能不可用。', 'zh-Hant': '病人登記功能不可用。' },

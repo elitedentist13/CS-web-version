@@ -2135,6 +2135,18 @@ tr:hover td { background: #fafcff; }
 .badge-queue     { background: #fff3cd; color: #856404; }
 .badge-done      { background: #d4edda; color: #155724; }
 .badge-noshow    { background: #f8d7da; color: #721c24; }
+
+/* Today's Appointments — no-show row stays visible */
+#todayBody tr.today-row-noshow td {
+    background: rgba(220, 38, 38, 0.12);
+}
+#todayBody tr.today-row-noshow:hover td {
+    background: rgba(220, 38, 38, 0.18);
+}
+#todayBody tr.today-row-noshow.appt-list-row-selected td {
+    background: rgba(220, 38, 38, 0.22) !important;
+    box-shadow: inset 3px 0 0 #dc2626;
+}
 .badge-cancelled { background: #f8d7da; color: #721c24; }
 .badge-billed    { background: #cce5ff; color: #004085; }
 .badge-paid      { background: #d4edda; color: #155724; }
@@ -2766,7 +2778,13 @@ tr:hover td { background: #fafcff; }
     cursor: pointer;
     transition: background 0.12s;
 }
+.plusappt-schedule-tbl .plusappt-slot-row td {
+    background: #fffef5;
+}
 .plusappt-slot-row:hover {
+    background: #f0f7ff;
+}
+.plusappt-slot-row:hover td {
     background: #f0f7ff;
 }
 .plusappt-slot-row.plusappt-row-selected {
@@ -2774,11 +2792,37 @@ tr:hover td { background: #fafcff; }
     outline: 2px solid var(--primary);
     outline-offset: -2px;
 }
-.plusappt-slot-row.plusappt-row-booked {
-    background: #fafafa;
+.plusappt-slot-row.plusappt-row-selected td {
+    background: #dbeafe !important;
 }
-.plusappt-slot-row.plusappt-row-booked.plusappt-row-selected {
+.plusappt-slot-row.plusappt-row-booked-long td {
+    background: #dcfce7;
+}
+.plusappt-slot-row.plusappt-row-booked-long:hover td {
+    background: #bbf7d0;
+}
+.plusappt-slot-row.plusappt-row-booked-long.plusappt-row-selected td {
     background: #e0f2fe !important;
+}
+/* Booking continuation slots — time column only, inner cells bookable */
+.plusappt-slot-row.plusappt-row-long-span td:not(.plusappt-time-cell) {
+    background: #fffef5;
+}
+.plusappt-slot-row.plusappt-row-long-span .plusappt-time-cell--occupied {
+    background: #dcfce7;
+    font-weight: 600;
+}
+.plusappt-slot-row.plusappt-row-long-span:hover td:not(.plusappt-time-cell) {
+    background: #fffef5;
+}
+.plusappt-slot-row.plusappt-row-long-span:hover .plusappt-time-cell--occupied {
+    background: #bbf7d0;
+}
+.plusappt-slot-row.plusappt-row-long-span.plusappt-row-selected td:not(.plusappt-time-cell) {
+    background: #dbeafe !important;
+}
+.plusappt-slot-row.plusappt-row-long-span.plusappt-row-selected .plusappt-time-cell--occupied {
+    background: #dbeafe !important;
 }
 .plusappt-task-wrap {
     margin-top: 6px;

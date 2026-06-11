@@ -37,6 +37,7 @@ var apptListSelectedApptId = null;
 var apptListSelectedTab = '';
 /** Today's walk-in appointment id awaiting patient registration before check-in. */
 var todayApptPendingPatientRegId = null;
+var TODAY_NOSHOW_DISMISS_LS = 'joyful_today_noshow_dismiss_v1';
 var calMonthApptsCache = [];
 var calWeekApptsCache = [];
 
@@ -8067,6 +8068,7 @@ function loadToday() {
                 var s = String(a.bill_status || '').toLowerCase();
                 if (s === 'queue' || s === 'done' || s === 'finish') return false;
                 if (/cancel/.test(s)) return false;
+                if (todayApptIsNoshow(a) && todayNoshowIsDismissed(a.id)) return false;
                 return true;
             });
             todayAppts = todayRows;
@@ -8102,6 +8104,49 @@ function loadToday() {
 
 function todayApptIsNoshow(a) {
     return /no.?show|failed/i.test(String(a && a.bill_status ? a.bill_status : ''));
+}
+
+function todayNoshowDismissStore() {
+    try {
+        var raw = localStorage.getItem(TODAY_NOSHOW_DISMISS_LS);
+        var map = raw ? JSON.parse(raw) : {};
+        return (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function todayNoshowIsDismissed(apptId, dateIso) {
+    return todayNoshowDismissStore()[String(apptId)] === (dateIso || todayISO());
+}
+
+function dismissTodayNoshowRow(apptId) {
+    var map = todayNoshowDismissStore();
+    var iso = todayISO();
+    Object.keys(map).forEach(function(k) {
+        if (map[k] !== iso) delete map[k];
+    });
+    map[String(apptId)] = iso;
+    try {
+        localStorage.setItem(TODAY_NOSHOW_DISMISS_LS, JSON.stringify(map));
+    } catch (e) { /* ignore */ }
+}
+
+function hideTodayNoshowRow(apptId, row) {
+    dismissTodayNoshowRow(apptId);
+    todayAppts = (todayAppts || []).filter(function(a) {
+        return String(a.id) !== String(apptId);
+    });
+    if (row && row.parentNode) row.parentNode.removeChild(row);
+    var tb = g('todayBody');
+    if (tb && !tb.querySelector('tr[data-appt-id]')) {
+        tb.innerHTML =
+            '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px;">' +
+            esc(tr('appt.today.noFiltered')) + '</td></tr>';
+    }
+    if (typeof apptTransferRefreshVisibleListCounts === 'function') {
+        apptTransferRefreshVisibleListCounts();
+    }
 }
 
 function todayApptNeedsPatientReg(a) {
@@ -8180,6 +8225,10 @@ function buildTodayRow(tb, a) {
         actionBtn +=
             '<button type="button" class="btn-today-noshow btn-sm" ' +
             'style="background:#dc2626;">' + esc(tr('appt.today.btnNoShow')) + '</button>';
+    } else if (isNoshow) {
+        actionBtn =
+            '<button type="button" class="btn-today-remove btn-sm" ' +
+            'style="background:#64748b;">' + esc(tr('appt.today.btnRemove')) + '</button>';
     }
 
     row.innerHTML =
@@ -8283,6 +8332,17 @@ function buildTodayRow(tb, a) {
         ns.addEventListener('click', function (e) {
             e.stopPropagation();
             updateApptBillStatus(a.id, 'No Show');
+        });
+    }
+
+    var rm = row.querySelector('.btn-today-remove');
+    if (rm) {
+        rm.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!confirm(trRepl('appt.queue.confirmRemove', {
+                NAME: a.patient_name || tr('appt.today.thisPatient')
+            }))) return;
+            hideTodayNoshowRow(a.id, row);
         });
     }
 
@@ -14329,7 +14389,7 @@ function renderBillHistoryRows(wrap, data) {
     wrap.innerHTML = '';
     data.forEach(function(b) {
             var drTag   = b.doctor_tag || b.doctor_name || '';
-            var isAdmin = String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase() === 'admin';
+            var canVoidBill = canModifyBill();
             var voided  = billRecordIsVoid(b);
             var div = document.createElement('div');
             div.className = voided ? 'bill-history-row bill-history-row--void' : 'bill-history-row';
@@ -14368,7 +14428,7 @@ function renderBillHistoryRows(wrap, data) {
                     : '') +
                 (!voided
                     ? '<button class="bd-del-btn btn-sm" ' +
-                      (isAdmin
+                      (canVoidBill
                           ? 'style="background:#dc2626;color:#fff;border:none;padding:3px 11px;' +
                             'border-radius:5px;font-size:12px;cursor:pointer;"'
                           : 'disabled style="background:#fca5a5;color:#fff;border:none;padding:3px 11px;' +
@@ -14407,7 +14467,7 @@ function renderBillHistoryRows(wrap, data) {
                 });
             }
             var delBtn = div.querySelector('.bd-del-btn');
-            if (delBtn && isAdmin) {
+            if (delBtn && canVoidBill) {
                 delBtn.addEventListener('click', function() {
                     confirmDeleteBill(b);
                 });
@@ -14443,6 +14503,11 @@ function refreshBillDeleteModalCopy(b) {
 
 function confirmDeleteBill(b) {
     if (billRecordIsVoid(b)) return;
+    if (!canModifyBill()) {
+        if (typeof permToastDenied === 'function') permToastDenied();
+        else alert(tr('bill.alertVoidBillDenied'));
+        return;
+    }
     bdDeleteTarget = b;
     refreshBillDeleteModalCopy(b);
     var inp = g('bdDeleteConfirmInput');
@@ -14453,6 +14518,11 @@ function confirmDeleteBill(b) {
 }
 
 function executeBillDelete() {
+    if (!canModifyBill()) {
+        if (typeof permToastDenied === 'function') permToastDenied();
+        else alert(tr('bill.alertVoidBillDenied'));
+        return;
+    }
     var inp = g('bdDeleteConfirmInput');
     if (!inp || inp.value.trim().toUpperCase() !== 'DELETE') {
         var err = g('bdDeleteError');
@@ -14649,6 +14719,14 @@ function showBillDetail(b) {
 // ════════════════════════════════════════════════════════════════
 // PAYMENT HISTORY
 // ════════════════════════════════════════════════════════════════
+function canVoidBillPayment() {
+    return (typeof hasAppPermission !== 'function') || hasAppPermission('void_payment');
+}
+
+function canModifyBill() {
+    return (typeof hasAppPermission !== 'function') || hasAppPermission('modify_bill');
+}
+
 function billPaymentIsVoid(p) {
     return !!(p && p.voided_at);
 }
@@ -14746,7 +14824,7 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
         : '<td style="padding:8px 10px;color:#cbd5e1;font-size:11px;">—</td>';
     var amtClass = voided ? 'bill-pay-void-amt' : '';
     var amtColor = voided ? '' : 'color:#16a34a;';
-    var canVoidPayment = !voided && p.id && !p._fromBillRecord;
+    var canVoidPayment = !voided && p.id && !p._fromBillRecord && canVoidBillPayment();
     var actionCell = voided
         ? '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>'
         : (canVoidPayment
@@ -14968,8 +15046,9 @@ function confirmAddPayment() {
 function voidPaymentRecord(p) {
     if (!p || !p.id) return;
     if (billPaymentIsVoid(p)) return;
-    if (typeof hasAppPermission === 'function' && !hasAppPermission('void_payment')) {
-        alert(tr('bill.alertVoidPaymentDenied'));
+    if (!canVoidBillPayment()) {
+        if (typeof permToastDenied === 'function') permToastDenied();
+        else alert(tr('bill.alertVoidPaymentDenied'));
         return;
     }
     if (!confirm(trRepl('bill.deletePaymentConfirm', {

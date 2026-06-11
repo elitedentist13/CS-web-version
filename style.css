@@ -11800,3 +11800,145 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     color: #94a3b8;
 }
 
+/* Reports — Void Bills Manager (Audit Trail sub-tab) */
+.rpt-void-dock-head {
+    padding: 10px 12px 8px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #fff7ed 0%, #fff 100%);
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+}
+.rpt-void-dock-title {
+    font-size: 14px;
+    font-weight: 900;
+    color: #9a3412;
+}
+.rpt-void-dock-hint {
+    font-size: 11px;
+    color: #c2410c;
+    margin-top: 4px;
+    line-height: 1.45;
+}
+.rpt-void-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    padding: 10px 12px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
+.rpt-void-search-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 160px;
+    flex: 1 1 160px;
+}
+.rpt-void-search-field label {
+    font-size: 11px;
+    font-weight: 800;
+    color: #9a3412;
+}
+.rpt-void-search-field input {
+    padding: 7px 10px;
+    border: 1px solid #fdba74;
+    border-radius: 8px;
+    font-size: 12px;
+    background: #fff;
+}
+.rpt-void-filter-summary {
+    margin-left: auto;
+    font-size: 11px;
+    color: #9a3412;
+    text-align: right;
+    min-width: 140px;
+}
+.rpt-void-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 12px;
+    align-items: stretch;
+}
+.rpt-void-list,
+.rpt-void-detail {
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    overflow: hidden;
+    min-height: 320px;
+    background: #fff;
+}
+.rpt-void-detail {
+    background: #fffafb;
+}
+.rpt-void-detail-head {
+    padding: 12px 14px;
+    border-bottom: 1px solid #fecaca;
+    background: #fef2f2;
+}
+.rpt-void-detail-title {
+    font-size: 13px;
+    font-weight: 900;
+    color: #b91c1c;
+}
+.rpt-void-detail-sub {
+    font-size: 11px;
+    color: #9f1239;
+    margin-top: 4px;
+}
+.rpt-void-detail-body {
+    padding: 8px 0 12px;
+    max-height: 440px;
+    overflow: auto;
+}
+.rpt-void-detail-section {
+    padding: 8px 14px 4px;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9f1239;
+}
+.rpt-void-detail-row {
+    display: grid;
+    grid-template-columns: 130px minmax(0, 1fr);
+    gap: 8px;
+    padding: 5px 14px;
+    font-size: 12px;
+    border-bottom: 1px solid #fff1f2;
+}
+.rpt-void-detail-label {
+    color: #64748b;
+    font-weight: 700;
+}
+.rpt-void-detail-value {
+    color: #1e293b;
+    word-break: break-word;
+}
+.rpt-void-audit-pre {
+    margin: 4px 14px 0;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #fff;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    font-family: Consolas, Monaco, monospace;
+    max-height: 160px;
+    overflow: auto;
+}
+.rpt-void-pager {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #fff7ed;
+    border-top: 1px solid #fed7aa;
+    border-radius: 0 0 10px 10px;
+}
+.rpt-void-list .patient-dir-pager-info {
+    color: #9a3412;
+}
+

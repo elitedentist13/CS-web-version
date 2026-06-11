@@ -14555,6 +14555,119 @@ function executeBillDelete() {
 // BILL DETAIL POPUP
 // ════════════════════════════════════════════════════════════════
 var bdCurrentBill = null;
+var bdNotesEditing = false;
+var bdNotesEditWired = false;
+
+function canEditBillDetailNotes(b) {
+    return !!(b && b.id && !billRecordIsVoid(b));
+}
+
+function billNotesPayloadFromUserEdit(userText, existingRaw) {
+    var u = String(userText || '').trim();
+    var existing = String(existingRaw || '').trim();
+    if (billIsPendingLinkNote(existing) && !u) return existing;
+    return u || null;
+}
+
+function refreshBillDetailNotesUI(b) {
+    var viewEl = g('bdNotes');
+    var inpEl = g('bdNotesInput');
+    var editBtn = g('bdNotesEditBtn');
+    var editBar = g('bdNotesEditBar');
+    var errEl = g('bdNotesEditErr');
+    if (!viewEl) return;
+    var canEdit = canEditBillDetailNotes(b);
+    var userNotes = b ? billUserNotesText(b.notes) : '';
+
+    if (editBtn) {
+        editBtn.classList.toggle('hidden', !canEdit || bdNotesEditing);
+        if (typeof applyI18nInRoot === 'function') {
+            applyI18nInRoot(editBtn.parentElement || editBtn);
+        }
+    }
+    if (bdNotesEditing) {
+        viewEl.classList.add('hidden');
+        if (inpEl) {
+            inpEl.classList.remove('hidden');
+            inpEl.value = userNotes;
+            if (typeof applyI18nInRoot === 'function') applyI18nInRoot(inpEl.parentElement || inpEl);
+        }
+        if (editBar) editBar.classList.remove('hidden');
+    } else {
+        viewEl.classList.remove('hidden');
+        viewEl.textContent = userNotes || '—';
+        if (inpEl) inpEl.classList.add('hidden');
+        if (editBar) editBar.classList.add('hidden');
+        if (errEl) {
+            errEl.classList.add('hidden');
+            errEl.textContent = '';
+        }
+    }
+}
+
+function wireBillDetailNotesEditOnce() {
+    if (bdNotesEditWired) return;
+    bdNotesEditWired = true;
+    var editBtn = g('bdNotesEditBtn');
+    var saveBtn = g('bdNotesSaveBtn');
+    var cancelBtn = g('bdNotesCancelBtn');
+    var inp = g('bdNotesInput');
+    if (editBtn) {
+        editBtn.addEventListener('click', function () {
+            if (!canEditBillDetailNotes(bdCurrentBill)) return;
+            bdNotesEditing = true;
+            refreshBillDetailNotesUI(bdCurrentBill);
+            var el = g('bdNotesInput');
+            if (el) {
+                try { el.focus(); } catch (_) {}
+            }
+        });
+    }
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function () {
+            if (!bdCurrentBill || !bdCurrentBill.id) return;
+            if (!canEditBillDetailNotes(bdCurrentBill)) return;
+            var inpEl = g('bdNotesInput');
+            var errEl = g('bdNotesEditErr');
+            var userText = inpEl ? inpEl.value : '';
+            var notesPayload = billNotesPayloadFromUserEdit(userText, bdCurrentBill.notes);
+            saveBtn.disabled = true;
+            if (errEl) {
+                errEl.classList.add('hidden');
+                errEl.textContent = '';
+            }
+            SB.from('bills').update({ notes: notesPayload }).eq('id', bdCurrentBill.id)
+            .then(function (r) {
+                saveBtn.disabled = false;
+                if (r.error) {
+                    if (errEl) {
+                        errEl.textContent = r.error.message || tr('bill.detail.notesSaveFailed');
+                        errEl.classList.remove('hidden');
+                    }
+                    return;
+                }
+                bdCurrentBill.notes = notesPayload;
+                bdNotesEditing = false;
+                refreshBillDetailNotesUI(bdCurrentBill);
+                loadBillHistory();
+            });
+        });
+    }
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', function () {
+            bdNotesEditing = false;
+            refreshBillDetailNotesUI(bdCurrentBill);
+        });
+    }
+    if (inp) {
+        inp.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                bdNotesEditing = false;
+                refreshBillDetailNotesUI(bdCurrentBill);
+            }
+        });
+    }
+}
 
 function bdSet(id, val) {
     var e = g(id);
@@ -14622,6 +14735,8 @@ function printBillDetailReceipt() {
 
 function showBillDetail(b) {
     bdCurrentBill = b;
+    bdNotesEditing = false;
+    wireBillDetailNotesEditOnce();
     // Reference number
     var ref = b.id ? b.id.slice(0, 8).toUpperCase() : '—';
     bdSet('bdRef', ref);
@@ -14659,11 +14774,9 @@ function showBillDetail(b) {
     bdSet('bdClinicCode', billDetailClinicCode(b) || '—');
     bdSet('bdType',      (typeof dispPayMethod === 'function') ? dispPayMethod(b.bill_type) : (b.bill_type || '—'));
 
-    var notesEl = g('bdNotes');
-    if (notesEl) {
-        var userNotes = billUserNotesText(b.notes);
-        notesEl.textContent = userNotes || '—';
-    }
+    refreshBillDetailNotesUI(b);
+    var notesWrap = document.querySelector('.bd-notes-wrap');
+    if (notesWrap && typeof applyI18nInRoot === 'function') applyI18nInRoot(notesWrap);
 
     // Items table — zebra rows
     var items = [];

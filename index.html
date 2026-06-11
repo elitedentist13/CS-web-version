@@ -4722,13 +4722,25 @@
     <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:start;">
 
       <!-- Notes -->
-      <div>
-        <div style="font-size:12px;font-weight:700;color:#555;
-                    text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;" data-i18n="bill.detail.notesTitle"></div>
-        <div id="bdNotes"
+      <div class="bd-notes-wrap">
+        <div class="bd-notes-head">
+          <div style="font-size:12px;font-weight:700;color:#555;
+                      text-transform:uppercase;letter-spacing:.5px;" data-i18n="bill.detail.notesTitle"></div>
+          <button type="button" id="bdNotesEditBtn" class="bd-notes-pencil hidden"
+                  data-i18n-title="bill.detail.notesEditTitle"
+                  data-i18n-aria-label="bill.detail.notesEditAria">✎</button>
+        </div>
+        <div id="bdNotes" class="bd-notes-view"
              style="background:#fafafa;border:1px solid #eee;border-radius:6px;
                     padding:10px 12px;font-size:13px;color:#555;min-height:60px;
                     white-space:pre-wrap;"></div>
+        <textarea id="bdNotesInput" class="bd-notes-input hidden" rows="4"
+                  data-i18n-placeholder="bill.detail.notesEditPh"></textarea>
+        <div id="bdNotesEditBar" class="bd-notes-edit-bar hidden">
+          <button type="button" id="bdNotesSaveBtn" class="bd-notes-save-btn" data-i18n="bill.detail.notesSaveBtn"></button>
+          <button type="button" id="bdNotesCancelBtn" class="bd-notes-cancel-btn" data-i18n="bill.detail.notesCancelBtn"></button>
+        </div>
+        <div id="bdNotesEditErr" class="bd-notes-edit-err hidden"></div>
       </div>
 
       <!-- Totals -->

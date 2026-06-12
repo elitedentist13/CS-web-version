@@ -309,12 +309,21 @@ function billResolvePayTypeForSave(paid, balance, total, selectedType) {
     return billPendingPayTypeValue();
 }
 
-/** Step 2: keep payment method selectable; pending bills are created in Step 1. */
+/** Step 2: zero paid → Pending; restore held method when user enters a payment. */
 function syncBillPayTypeForBalance(total, paid, balance) {
     var bType = g('bType');
     if (!bType) return;
     bType.disabled = false;
-    if (paid > 0.005 && bType.dataset.billTypeHold) {
+    if (paid <= 0.005) {
+        if (!bType.dataset.billTypeHold && bType.value &&
+            billPendingPayTypeCandidates().indexOf(bType.value) < 0) {
+            bType.dataset.billTypeHold = bType.value;
+        }
+        ensurePendingBillTypeOption(bType);
+        bType.value = billPendingPayTypeValue(bType);
+        return;
+    }
+    if (bType.dataset.billTypeHold) {
         var hold = bType.dataset.billTypeHold;
         delete bType.dataset.billTypeHold;
         if (Array.prototype.some.call(bType.options || [], function (o) { return o.value === hold; })) {
@@ -13593,21 +13602,6 @@ function saveBill(doPrint) {
         switchBillTab(1);
         return;
     }
-    var allowZeroAr = (typeof programSettingBool === 'function') &&
-        programSettingBool('zero_ar', false);
-
-    if (paid <= 0.005) {
-        if (existingBillId) {
-            alert(tr('bill.alert.pendingAlreadySaved'));
-            if (typeof loadBillHistory === 'function') loadBillHistory();
-            return;
-        }
-        if (!allowZeroAr) {
-            alert(tr('bill.alert.enterPaymentAmount'));
-            return;
-        }
-    }
-
     var selectedType = g('bType') ? g('bType').value : '';
     if (paid > 0.005 && !String(selectedType || '').trim()) {
         alert(tr('bill.alert.selectPaymentMethod'));
@@ -13615,7 +13609,8 @@ function saveBill(doPrint) {
     }
 
     var billType;
-    if (paid <= 0.005 && allowZeroAr) {
+    if (paid <= 0.005) {
+        ensurePendingBillTypeOption(g('bType'));
         billType = billPendingPayTypeValue();
         if (g('bType')) g('bType').value = billType;
     } else {
@@ -13641,7 +13636,7 @@ function saveBill(doPrint) {
         amount_paid:    paid,
         balance:        bal,
         notes:          String(g('bNotes').value || '').trim() || null,
-        status:         bal <= 0 ? 'Paid' : 'Partial'
+        status:         bal <= 0.005 ? 'Paid' : 'Partial'
     };
     Object.assign(payload, billClinicFieldsForSave());
     Object.assign(payload, billDoctorFieldsForSave(doctorIdForSave, { noFallback: true }));
@@ -14014,11 +14009,9 @@ function billBillDateIso(b) {
 function billEligibleForPatientHistory(b) {
     if (!b || !b.id) return false;
     if (billRecordIsVoid(b)) return true;
-    var paid = billHistoryDisplayPaid(b);
-    if (paid > 0.005) return true;
     var total = parseFloat(b.total) || 0;
-    if (total > 0.005) return false;
-    return true;
+    if (total > 0.005) return true;
+    return billHistoryDisplayPaid(b) > 0.005;
 }
 
 function filterBillHistoryEligible(list) {

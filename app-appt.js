@@ -1854,12 +1854,56 @@ function plusApptTimeToMin(t) {
     return (parseInt(p[0] || '0', 10) * 60) + (parseInt(p[1] || '0', 10) || 0);
 }
 
+var GCAL_TIMELINE_DEFAULTS_VER = 3;
+var GCAL_LEGACY_TIMELINE_PAIRS = [
+    [8, 20], [9, 20], [10, 20],
+    [8, 22], [9, 22], [10, 22],
+    [10, 24]
+];
+
+function gcalNormalizeTimelineSettings(cfg) {
+    cfg = cfg || {};
+    var ver = parseInt(cfg.timelineDefaultsVer, 10);
+    if (ver >= GCAL_TIMELINE_DEFAULTS_VER) return cfg;
+
+    var start = parseInt(cfg.startHour, 10);
+    var end = parseInt(cfg.endHour, 10);
+    var isLegacy = false;
+    GCAL_LEGACY_TIMELINE_PAIRS.forEach(function (pair) {
+        if (start === pair[0] && end === pair[1]) isLegacy = true;
+    });
+    if (isLegacy) {
+        cfg.startHour = 9;
+        cfg.endHour = 24;
+    }
+    cfg.timelineDefaultsVer = GCAL_TIMELINE_DEFAULTS_VER;
+    return cfg;
+}
+
+function gcalPersistSettingsIfChanged(before, after) {
+    if (!after) return;
+    if (before.startHour === after.startHour &&
+        before.endHour === after.endHour &&
+        before.timelineDefaultsVer === after.timelineDefaultsVer) {
+        return;
+    }
+    try { localStorage.setItem('gcal_settings_v2', JSON.stringify(after)); } catch (e) {}
+}
+
 function plusApptReadGcalSettings() {
     var defaults = { interval: PLUSAPPT_SLOT_MIN, startHour: 9, endHour: 24, slotH: 24, doctorColors: {} };
     try {
         var stored = localStorage.getItem('gcal_settings_v2');
         if (!stored) return Object.assign({}, defaults);
-        return Object.assign({}, defaults, JSON.parse(stored));
+        var merged = Object.assign({}, defaults, JSON.parse(stored));
+        var before = {
+            startHour: merged.startHour,
+            endHour: merged.endHour,
+            timelineDefaultsVer: merged.timelineDefaultsVer
+        };
+        var normalized = gcalNormalizeTimelineSettings(merged);
+        gcalPersistSettingsIfChanged(before, normalized);
+        return normalized;
     } catch (e) {
         return Object.assign({}, defaults);
     }
@@ -6359,22 +6403,31 @@ function formatPhoneForWA(phone) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// TIME SLOT BUILDER  (08:00 – 20:00 in 15-min steps)
+// TIME SLOT BUILDER  (matches planner timeline: 09:00 – 00:00 midnight)
 // ════════════════════════════════════════════════════════════════
 function buildTimeSlots() {
     var sel = g('fStart');
     if (!sel) return;
+    var cfg = plusApptReadGcalSettings();
+    var startH = parseInt(cfg.startHour, 10);
+    var endH = parseInt(cfg.endHour, 10);
+    var interval = Math.max(5, parseInt(cfg.interval, 10) || PLUSAPPT_SLOT_MIN);
+    if (isNaN(startH)) startH = 9;
+    if (isNaN(endH)) endH = 24;
+    if (endH <= startH) endH = startH + 1;
     sel.innerHTML = '';
-    for (var h = 8; h <= 20; h++) {
-        [0, 15, 30, 45].forEach(function(m) {
-            if (h === 20 && m > 0) return;
-            var val  = pad(h) + ':' + pad(m);
+    var h;
+    var m;
+    for (h = startH; h <= endH; h++) {
+        for (m = 0; m < 60; m += interval) {
+            if (h === endH && m > 0) break;
+            var val = pad(h) + ':' + pad(m);
             var disp = fmt12(val);
-            var o    = document.createElement('option');
-            o.value       = val;
+            var o = document.createElement('option');
+            o.value = val;
             o.textContent = disp;
             sel.appendChild(o);
-        });
+        }
     }
     sel.value = '09:00';
     calcEnd();
@@ -10301,7 +10354,18 @@ var GCAL = (function () {
     function loadSettings() {
         try {
             var stored = localStorage.getItem('gcal_settings_v2');
-            S = stored ? Object.assign({}, DEFAULTS, JSON.parse(stored)) : Object.assign({}, DEFAULTS);
+            if (!stored) {
+                S = Object.assign({}, DEFAULTS);
+            } else {
+                var merged = Object.assign({}, DEFAULTS, JSON.parse(stored));
+                var before = {
+                    startHour: merged.startHour,
+                    endHour: merged.endHour,
+                    timelineDefaultsVer: merged.timelineDefaultsVer
+                };
+                S = gcalNormalizeTimelineSettings(merged);
+                gcalPersistSettingsIfChanged(before, S);
+            }
         } catch (e) { S = Object.assign({}, DEFAULTS); }
         if (!S.doctorColors) S.doctorColors = {};
     }
@@ -10547,7 +10611,9 @@ var GCAL = (function () {
                 var lbl = document.createElement('div');
                 lbl.className    = 'gcal-time-label' + (isHr ? ' hour' : '');
                 lbl.style.top    = (s * S.slotH) + 'px';
-                lbl.textContent  = isHr ? (pad(hh) + ':00') : (pad(hh) + ':' + pad(mm));
+                lbl.textContent  = isHr
+                    ? ((hh === 24) ? '00:00' : (pad(hh) + ':00'))
+                    : (pad(hh) + ':' + pad(mm));
                 tc.appendChild(lbl);
             }
         }

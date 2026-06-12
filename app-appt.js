@@ -12598,6 +12598,17 @@ function wireBillPanelControls() {
     }
 
     bindClickOnce('billPanelClose', closeBillPanel);
+    var billBackdrop = g('billPanelBackdrop');
+    if (billBackdrop && billBackdrop.dataset.billClickBound !== '1') {
+        billBackdrop.dataset.billClickBound = '1';
+        billBackdrop.addEventListener('click', closeBillPanel);
+    }
+    if (!window._billPanelResizeBound) {
+        window._billPanelResizeBound = true;
+        window.addEventListener('resize', function () {
+            if (typeof syncBillPanelBackdrop === 'function') syncBillPanelBackdrop();
+        });
+    }
     bindClickOnce('addBillItemBtn', addBillItem);
     bindClickOnce('createBillBtn', createBillFromCurrentList);
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
@@ -12656,6 +12667,23 @@ function wireBillPanelControls() {
 function billPanelIsOpen() {
     var panel = g('billPanel');
     return !!(panel && panel.classList.contains('open'));
+}
+
+function billPanelUsesMobileLayout() {
+    return window.matchMedia('(max-width: 900px)').matches;
+}
+
+function syncBillPanelBackdrop() {
+    var panel = g('billPanel');
+    var backdrop = g('billPanelBackdrop');
+    var open = !!(panel && panel.classList.contains('open'));
+    var mobile = billPanelUsesMobileLayout();
+
+    if (backdrop) {
+        backdrop.classList.toggle('visible', open && mobile);
+        backdrop.setAttribute('aria-hidden', open && mobile ? 'false' : 'true');
+    }
+    document.body.classList.toggle('bill-panel-mobile-open', open && mobile);
 }
 
 function billStep2IsVisible() {
@@ -12842,11 +12870,13 @@ function openBillPanel(q) {
     startBillPendingAutoRefresh();
     if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
     g('billPanel').classList.add('open');
+    syncBillPanelBackdrop();
 }
 
 function closeBillPanel() {
     stopBillPendingAutoRefresh();
     g('billPanel').classList.remove('open');
+    syncBillPanelBackdrop();
     billApptId   = null;
     billApptDefaultDoctorId = null;
     billApptDoctorCode = null;

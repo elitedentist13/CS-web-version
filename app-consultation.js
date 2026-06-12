@@ -823,6 +823,7 @@ function initConForms() {
     loadConFormsTemplates();
     loadConFormsDoctor(null, true);
     loadConFormsShellSettings();
+    if (typeof conFormsSyncReferralHintPanel === 'function') conFormsSyncReferralHintPanel();
 
     if (conFormsPatientId) {
         searchConFormsDocs();
@@ -1195,11 +1196,163 @@ function doConFormsPatientSearch() {
     });
 }
 
+function conFormsPatientGenderLabel(sex) {
+    var kind = typeof patientSexKind === 'function' ? patientSexKind(sex) : '';
+    if (kind === 'male') return conTr('patient.form.sexMale');
+    if (kind === 'female') return conTr('patient.form.sexFemale');
+    return '';
+}
+
+function conFormsPatientAgeShort(dob) {
+    var age = typeof patientAgeYears === 'function'
+        ? patientAgeYears(dob)
+        : null;
+    return age == null ? '' : String(age) + 'Y';
+}
+
+function conFormsReferralLetterTemplateBodyHtml() {
+    if (typeof conTr === 'function') {
+        var fromI18n = conTr('cfg.tpl.seed.referralLetterHtml');
+        if (fromI18n && fromI18n !== 'cfg.tpl.seed.referralLetterHtml') return fromI18n;
+    }
+    return '<div data-conforms-referral="1" data-conforms-referral-v="2" class="con-referral-letter-doc" ' +
+        'style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;">' +
+        '<p style="margin:0 0 24px;text-align:right;">Date: {date_long}</p>' +
+        '<p style="margin:0 0 20px;">Dear {referred_to} ,</p>' +
+        '<p style="margin:0 0 20px;">Re: {patient_name_upper} ({patient_chinese_name}), {patient_gender} / {patient_age}</p>' +
+        '<p style="margin:0 0 20px;">Please kindly see the above named patient who is suffering from {diagnosis} .</p>' +
+        '<p style="margin:0 0 28px;">Please kindly give your expert management.</p>' +
+        '<p style="margin:0 0 8px;">Remarks:</p>' +
+        '<p data-conforms-ref-remarks="1" style="margin:0 0 28px;min-height:72px;white-space:pre-wrap;"><br><br><br>{remarks}</p>' +
+        '<p style="margin:0;">Regards,</p>' +
+        '</div>';
+}
+
+function conFormsReferralTemplateNeedsRenewal(html) {
+    var s = String(html || '');
+    if (!/data-conforms-referral/i.test(s)) return true;
+    if (!/data-conforms-referral-v="2"/i.test(s)) return true;
+    if (conFormsReferralTemplateIsLegacyBox(s)) return true;
+    return false;
+}
+
+function conFormsReferralTemplateIsLegacyBox(html) {
+    var s = String(html || '');
+    return /background:\s*#fffef0/i.test(s) ||
+        /border:\s*1px solid/i.test(s) ||
+        /font-family:\s*Arial/i.test(s);
+}
+
+/** Remove embedded doctor signature block; letterhead footer supplies {doctor_eng}, etc. */
+function conFormsStripReferralInlineSignature(html) {
+    var s = String(html || '').replace(/\s*data-conforms-skip-footer="1"/gi, '');
+    if (!/\{doctor_eng\}/i.test(s) &&
+        s.indexOf('max-width:420px') < 0 &&
+        s.indexOf('max-width:400px') < 0) {
+        return s;
+    }
+    var m = s.match(/([\s\S]*<p[^>]*>Regards,<\/p>)/i);
+    if (m && /data-conforms-referral/i.test(s)) {
+        return m[1] + '</div>';
+    }
+    return s;
+}
+
+function conFormsNormalizeReferralTemplateContent(content) {
+    var raw = String(content || '').trim();
+    if (!raw) return conFormsReferralLetterTemplateBodyHtml();
+    if (!/data-conforms-referral/i.test(raw)) {
+        return conFormsReferralLetterTemplateBodyHtml();
+    }
+    raw = conFormsStripReferralInlineSignature(raw);
+    if (conFormsReferralTemplateNeedsRenewal(raw)) {
+        return conFormsReferralLetterTemplateBodyHtml();
+    }
+    return raw;
+}
+
+function conFormsIsReferralTemplate(tpl) {
+    if (!tpl) return false;
+    var code = String(tpl.template_code || '').trim().toUpperCase();
+    if (code === 'REFERRAL_LETTER' || code === 'REFERRAL') return true;
+    var name = String(tpl.template_name || '').toLowerCase();
+    return name.indexOf('referral') >= 0 || name.indexOf('轉介') >= 0 || name.indexOf('转介') >= 0;
+}
+
+function conFormsBuiltinTemplateDefs() {
+    return [{
+        template_code: 'REFERRAL_LETTER',
+        template_name: 'Referral Letter',
+        template_type: 'report',
+        content: conFormsReferralLetterTemplateBodyHtml()
+    }];
+}
+
+function conFormsEnsureBuiltinTemplates(cb) {
+    if (typeof SB === 'undefined' || !SB || !SB.from) {
+        if (cb) cb();
+        return;
+    }
+    var defs = conFormsBuiltinTemplateDefs();
+    Promise.all([
+        SB.from('doc_templates').select('template_code'),
+        SB.from('doc_templates').select('id,template_code,content').eq('template_code', 'REFERRAL_LETTER').limit(1)
+    ])
+        .then(function (all) {
+            var r = all[0];
+            var refR = all[1];
+            if (r.error) {
+                if (cb) cb();
+                return;
+            }
+            var have = {};
+            (r.data || []).forEach(function (row) {
+                have[String(row.template_code || '').trim().toUpperCase()] = true;
+            });
+            var tasks = [];
+            var refRow = (refR.data && refR.data[0]) ? refR.data[0] : null;
+            if (refRow && refRow.id) {
+                var norm = conFormsNormalizeReferralTemplateContent(refRow.content || '');
+                if (norm !== String(refRow.content || '').trim()) {
+                    tasks.push(
+                        SB.from('doc_templates').update({ content: norm }).eq('id', refRow.id)
+                    );
+                }
+            }
+            var missing = defs.filter(function (d) {
+                return !have[String(d.template_code || '').toUpperCase()];
+            });
+            if (missing.length) {
+                var rows = missing.map(function (d) {
+                    return {
+                        template_code: d.template_code,
+                        template_name: d.template_name,
+                        template_type: d.template_type,
+                        content: d.content,
+                        is_active: true
+                    };
+                });
+                tasks.push(SB.from('doc_templates').insert(rows));
+            }
+            if (!tasks.length) {
+                if (cb) cb();
+                return;
+            }
+            return Promise.all(tasks).then(function () {
+                if (cb) cb();
+            });
+        })
+        .catch(function () {
+            if (cb) cb();
+        });
+}
+
 function loadConFormsTemplates() {
     refreshConFormsFontSizeSelect();
     var sel = g('conFormsTemplateSel');
     if (sel) sel.innerHTML = '<option value="">' + esc(conTr('con.forms.loadingTemplates')) + '</option>';
 
+    conFormsEnsureBuiltinTemplates(function () {
     SB.from('doc_templates')
       .select('id,template_code,template_name,template_type,content,is_active')
       .order('template_code')
@@ -1209,10 +1362,17 @@ function loadConFormsTemplates() {
             return;
         }
         conFormsTemplates = (r.data || []).filter(function (t) { return t.is_active !== false; }).map(function (t) {
-            if (!conFormsIsSickLeaveTemplate(t)) return t;
-            var copy = Object.assign({}, t);
-            copy.content = conFormsNormalizeSickLeaveTemplateContent(t.content || '');
-            return copy;
+            if (conFormsIsSickLeaveTemplate(t)) {
+                var copySl = Object.assign({}, t);
+                copySl.content = conFormsNormalizeSickLeaveTemplateContent(t.content || '');
+                return copySl;
+            }
+            if (conFormsIsReferralTemplate(t)) {
+                var copyRf = Object.assign({}, t);
+                copyRf.content = conFormsNormalizeReferralTemplateContent(t.content || '');
+                return copyRf;
+            }
+            return t;
         });
         if (!sel) return;
 
@@ -1227,6 +1387,7 @@ function loadConFormsTemplates() {
                     (typeLbl ? ' · ' + typeLbl : '');
                 return '<option value="' + esc(t.id) + '">' + esc(label) + '</option>';
             }).join('');
+    });
     });
 }
 
@@ -1550,6 +1711,10 @@ function conFormsRenderDocumentInEditor(bodyHtml) {
     if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
         conFormsRememberSickLeaveDxFromEditor();
         bodyHtml = conFormsResolveSickLeaveTemplateBody();
+    } else if (conFormsIsReferralTemplate(conFormsSelectedTemplate)) {
+        bodyHtml = conFormsNormalizeReferralTemplateContent(
+            bodyHtml || (conFormsSelectedTemplate && conFormsSelectedTemplate.content) || ''
+        );
     }
     if (conFormsShouldGateSickLeaveRender() && !conFormsSickLeaveDatesReady()) {
         conFormsSickLeaveShowPendingInEditor();
@@ -1764,6 +1929,14 @@ function conFormsSyncSickLeaveDatePanel() {
     if (toEl) toEl.value = conFormsSickLeaveTo || '';
 }
 
+function conFormsSyncReferralHintPanel() {
+    var hint = g('conFormsReferralHint');
+    if (!hint) return;
+    var show = conFormsIsReferralTemplate(conFormsSelectedTemplate);
+    hint.style.display = show ? 'block' : 'none';
+    hint.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
 function conFormsOnSickLeaveDateChange() {
     conFormsReadSickLeaveFieldsFromUI();
     conFormsScheduleSickLeaveRender();
@@ -1779,6 +1952,7 @@ function onConFormsTemplateChange() {
         editorWrap.style.display = 'none';
         conFormsSelectedTemplate = null;
         if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+        if (typeof conFormsSyncReferralHintPanel === 'function') conFormsSyncReferralHintPanel();
         return;
     }
     conFormsEditingDocId = null;
@@ -1788,6 +1962,7 @@ function onConFormsTemplateChange() {
     if (!conFormsSelectedTemplate) {
         editorWrap.style.display = 'none';
         if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+        if (typeof conFormsSyncReferralHintPanel === 'function') conFormsSyncReferralHintPanel();
         return;
     }
 
@@ -1800,6 +1975,7 @@ function onConFormsTemplateChange() {
     }
 
     if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+    if (typeof conFormsSyncReferralHintPanel === 'function') conFormsSyncReferralHintPanel();
 
     editorWrap.style.display = 'block';
     conFormsWhenReadyForPlaceholders(function () {
@@ -1886,6 +2062,8 @@ function conFormsPlaceholderMap(opts) {
         patient_dob: p.dob || '',
         patient_email: p.email || '',
         patient_address: p.address || '',
+        patient_gender: conFormsPatientGenderLabel(p.sex),
+        patient_age: conFormsPatientAgeShort(p.dob),
         doctor_name: (typeof printDoctorDisplayName === 'function')
             ? printDoctorDisplayName({
                 doctor_id: conActiveDoctorId,
@@ -2322,14 +2500,18 @@ function printConFormsHtml(html) {
         'sc=Math.max(0.42,Math.floor(sc*100)/100);' +
         'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
         '}' +
+        (typeof printPopupAutoCloseInlineScript === 'function'
+            ? printPopupAutoCloseInlineScript()
+            : '') +
         'window.onload=function(){' +
         'try{fitPageRatio();}catch(e0){}' +
-        'setTimeout(function(){window.print();},260);' +
+        'setTimeout(function(){try{window.print();}catch(e2){if(typeof __ppClose==="function")__ppClose();}},260);' +
         '};' +
         '})();<\/script>' +
         '</body></html>'
     );
     popup.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
 }
 
 function searchConFormsDocs() {
@@ -2516,6 +2698,7 @@ function openConFormsDoc(id) {
             conFormsSelectedTemplate = conFormsTemplates.find(function (t) { return t.id === d.template_id; }) || null;
         }
         if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+        if (typeof conFormsSyncReferralHintPanel === 'function') conFormsSyncReferralHintPanel();
         if (typeof conFormsHydrateSickLeaveFieldsFromHtml === 'function') {
             conFormsHydrateSickLeaveFieldsFromHtml(d.content_html || '');
         }
@@ -2526,7 +2709,11 @@ function openConFormsDoc(id) {
             var root = document.createElement('div');
             root.innerHTML = d.content_html || '';
             conFormsStripShellBlocks(root);
-            var html = conFormsEnsureDefaultShell(root.innerHTML, true);
+            var bodyInner = root.innerHTML;
+            if (conFormsIsReferralTemplate(conFormsSelectedTemplate)) {
+                bodyInner = conFormsNormalizeReferralTemplateContent(bodyInner);
+            }
+            var html = conFormsEnsureDefaultShell(bodyInner, true);
             html = applyConFormsPlaceholders(html);
             if (typeof DocEditor !== 'undefined') DocEditor.setHtml('conFormsDocEditor', html);
             else if (g('conFormsDocEditor')) {
@@ -2545,19 +2732,6 @@ function openConFormsDoc(id) {
 // ════════════════════════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════════════════════════
-function formatDobAge(dob) {
-    var pts = String(dob || '').split('-');
-    var d = typeof parseISODateOnly === 'function'
-        ? parseISODateOnly(dob)
-        : new Date(+pts[0], +pts[1] - 1, +pts[2]);
-    if (!d || isNaN(d.getTime())) return '—';
-    var age = Math.floor(
-        (nowLocal() - d) / (365.25 * 24 * 3600 * 1000)
-    );
-    var dateStr = pts[2] + '/' + pts[1] + '/' + pts[0];
-    return conTrRepl('con.dob.ageFmt', { DATE: dateStr, AGE: String(age) });
-}
-
 function conDateIsoFromTs(ts) {
     var d = new Date(ts);
     if (!d || isNaN(d.getTime())) return '';
@@ -6027,10 +6201,13 @@ function printDrugLabel(drugs, lang) {
             'inner.style.transformOrigin="top center";' +
             '});' +
             '}' +
+            (typeof printPopupAutoCloseInlineScript === 'function'
+                ? printPopupAutoCloseInlineScript()
+                : '') +
             'window.onload=function(){' +
             'try{fitAllDrugLabels();}catch(e){}' +
             'try{window.focus();}catch(e2){}' +
-            'setTimeout(function(){window.print();},480);' +
+            'setTimeout(function(){try{window.print();}catch(e3){if(typeof __ppClose==="function")__ppClose();}},480);' +
             '};' +
             '})();' +
             '<\/script>' +
@@ -6038,6 +6215,7 @@ function printDrugLabel(drugs, lang) {
         '</html>'
     );
     popup.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
     try {
         popup.focus();
     } catch (ePrintFocus) {}

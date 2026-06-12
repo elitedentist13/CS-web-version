@@ -796,9 +796,20 @@
     <button class="appt-tab" data-tab="recall" data-i18n="appt.recallTab"></button>
   </div>
 
+  <div id="apptMemoBarPool" hidden aria-hidden="true"></div>
+  <div id="apptSharedMemoBar" class="appt-shared-memo-bar appt-shared-memo-bar--inline" hidden aria-hidden="true">
+    <div class="appt-shared-memo-head">
+      <label for="apptSharedMemo" class="appt-shared-memo-label" data-i18n="appt.sharedMemo.label"></label>
+      <span id="apptSharedMemoDateLbl" class="appt-shared-memo-date"></span>
+    </div>
+    <textarea id="apptSharedMemo" class="appt-shared-memo-input" rows="2"
+              data-i18n-placeholder="appt.sharedMemo.placeholder"
+              spellcheck="true"></textarea>
+  </div>
+
   <!-- ── TAB: QUEUE ─────────────────────────────────────── -->
   <div id="tab-queue" class="tab-pane active">
-    <div class="toolbar">
+    <div class="toolbar appt-toolbar-with-memo">
       <div>
         <strong style="font-size:15px;color:#333;">
           <span data-i18n="appt.queueHead"></span>
@@ -810,6 +821,7 @@
         </strong>
         <div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;" data-i18n="appt.queueHint"></div>
       </div>
+      <div id="apptMemoHost-queue" class="appt-memo-host"></div>
       <div class="queue-toolbar-actions">
         <button type="button" id="queueRefreshBtn" class="queue-refresh-btn"
                 data-i18n="appt.queue.refresh"></button>
@@ -853,7 +865,7 @@
 
   <!-- ── TAB: TODAY ──────────────────────────────────────── -->
   <div id="tab-today" class="tab-pane">
-    <div class="toolbar">
+    <div class="toolbar appt-toolbar-with-memo">
       <div>
         <strong style="font-size:15px;color:#333;">
           <span data-i18n="appt.todayFor"></span>
@@ -866,7 +878,8 @@
                      padding:2px 8px;border-radius:10px;
                      margin-left:6px;"></span>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div id="apptMemoHost-today" class="appt-memo-host"></div>
+      <div class="appt-toolbar-actions">
         <button class="btn-add" id="addApptBtn" data-i18n="appt.addAppt"></button>
         <button onclick="printTodayList()"
                 style="background:#fff;color:#333;border:1px solid #ccc;
@@ -938,6 +951,7 @@
                        font-weight:700;cursor:pointer;">
           Import Photo List
         </button>
+        <div id="apptMemoHost-plusappt" class="appt-memo-host appt-memo-host--plusappt"></div>
         <button type="button" id="plusApptAddBtn" class="btn-add plusappt-add-btn" disabled
                 data-i18n="appt.plusAppt.addBtn"></button>
         <span class="plusappt-add-mini-hint" data-i18n="appt.plusAppt.addBtnHint"></span>
@@ -1010,8 +1024,7 @@
         <div class="cal-title" id="calTitle">—</div>
         <button id="calNext" data-i18n-aria-label="appt.rcal.nextAria">&#8250;</button>
       </div>
-      <div style="display:flex;gap:10px;align-items:center;
-                  flex-wrap:wrap;">
+      <div class="cal-toolbar-actions">
         <div class="toggle-wrap">
           <button class="toggle-btn active" id="btnWeek" data-i18n="appt.calWeekly"></button>
           <button class="toggle-btn" id="btnMonth" data-i18n="appt.calMonthly"></button>
@@ -1024,6 +1037,7 @@
                 title="Mini Calendar" data-i18n-title="appt.cal.miniCalBtnTitle"
                 aria-label="Mini Calendar" data-i18n-aria-label="appt.cal.miniCalBtnTitle"
                 style="display:none;">📅</button>
+        <div id="apptMemoHost-calendar" class="appt-memo-host appt-memo-host--calendar"></div>
         <button class="btn-add" id="calAddBtn" data-i18n="appt.addAppt"></button>
       </div>
     </div>
@@ -2039,6 +2053,10 @@
           </div>
           <p class="con-forms-sick-dates-hint" data-i18n="con.forms.sickLeaveHint"></p>
         </div>
+
+        <p id="conFormsReferralHint" class="con-forms-referral-hint"
+           style="display:none;margin:10px 0 0;font-size:12px;color:#64748b;line-height:1.5;"
+           data-i18n="con.forms.referralHint"></p>
 
         <!-- Letterhead configured in Configuration → Document Templates (not shown here) -->
         <div id="conFormsShellCard" class="con-forms-shell-hidden" aria-hidden="true"></div>
@@ -3392,6 +3410,7 @@
                   display:none;">
         ✅ <span id="psSelName"></span>
         (<span id="psSelNo"></span>)
+        <span id="psSelDob" style="font-weight:500;color:#64748b;"></span>
       </div>
     </div>
 
@@ -3424,18 +3443,7 @@
       <div class="fg">
         <label data-i18n="appt.modal.duration"></label>
         <select id="fDur">
-          <option value="15"></option>
-          <option value="30" selected></option>
-          <option value="45"></option>
-          <option value="60"></option>
-          <option value="75"></option>
-          <option value="90"></option>
-          <option value="105"></option>
-          <option value="120"></option>
-          <option value="135"></option>
-          <option value="150"></option>
-          <option value="165"></option>
-          <option value="180"></option>
+          <option value="30" selected>30 MIN</option>
         </select>
       </div>
       <div class="fg">
@@ -4035,16 +4043,10 @@
 
     <div id="billFormSection">
 
-      <!-- ── STEP TABS ────────────────────────────────── -->
-      <div class="bill-step-tabs">
-        <button class="bill-step-tab active" id="billTab1Btn"
-                onclick="switchBillTab(1)" data-i18n="bill.tabStep1"></button>
-        <button class="bill-step-tab" id="billTab2Btn"
-                onclick="switchBillTab(2)" data-i18n="bill.tabStep2"></button>
-      </div>
-
-      <!-- ══ STEP 1 : Bill Items ═══════════════════════ -->
+      <!-- ══ New bill — items & create ═══════════════════ -->
       <div id="billStep1">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:12px;"
+             data-i18n="bill.sectionNewBill"></div>
 
         <!-- Navigator row -->
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;">
@@ -4128,12 +4130,12 @@
             <span data-i18n="bill.subtotalLabel"></span>&nbsp;<strong><span data-i18n="common.currencyPrefix"></span> <span id="pendingSubtotal">0.00</span></strong>
           </div>
 
-          <!-- Save list + status -->
-          <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
-            <button onclick="saveCurrentPendingList()"
+          <!-- Create bill + status -->
+          <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap;">
+            <button type="button" id="createBillBtn"
                     style="background:#16a34a;color:#fff;border:none;
                            padding:8px 20px;border-radius:7px;font-size:13px;
-                           font-weight:700;cursor:pointer;" data-i18n="bill.btnSaveList"></button>
+                           font-weight:700;cursor:pointer;" data-i18n="bill.btnCreateBill"></button>
             <span id="pendingListStatus"
                   style="font-size:12px;color:#888;">—</span>
           </div>
@@ -4142,8 +4144,8 @@
 
       </div><!-- /billStep1 -->
 
-      <!-- ══ STEP 2 : Payment ══════════════════════════ -->
-      <div id="billStep2" style="display:none;">
+      <!-- Legacy Step 2 (removed from workflow; kept for DOM refs) -->
+      <div id="billStep2" class="hidden" aria-hidden="true" style="display:none !important;">
 
         <!-- Pending list selector -->
         <div style="margin-bottom:14px;">

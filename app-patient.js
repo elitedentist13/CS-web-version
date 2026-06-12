@@ -946,8 +946,9 @@ function renderPatients(list) {
     list.forEach(function(p) {
         var dob = '--';
         if (p.dob) {
-            var pts = p.dob.split('-');
-            dob = pts[2]+'/'+pts[1]+'/'+pts[0];
+            dob = typeof formatDobAge === 'function'
+                ? formatDobAge(p.dob)
+                : p.dob;
         }
         var cn = String(p.chinese_name || '').trim();
         var en = String(p.full_name || '').trim();

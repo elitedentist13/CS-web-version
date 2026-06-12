@@ -23,6 +23,7 @@ function patViewTrRepl(key, pairs) {
 
 function patViewFmtDob(dob) {
     if (!dob) return '—';
+    if (typeof formatDobAge === 'function') return formatDobAge(dob);
     var pts = String(dob).split('-');
     if (pts.length === 3) return pts[2] + '/' + pts[1] + '/' + pts[0];
     return dob;
@@ -529,7 +530,6 @@ function patViewOpenBills(p) {
             patient_chinese_name: p.chinese_name || '',
             patient_no: p.patient_no || ''
         });
-        if (typeof switchBillTab === 'function') switchBillTab(2);
     }, 80);
 }
 

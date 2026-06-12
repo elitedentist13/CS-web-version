@@ -488,6 +488,12 @@
         'report.chartType.pie': { en: 'Pie', 'zh-CN': '饼图', 'zh-Hant': '餅圖' },
 
         'appt.queueTab': { en: '🏥 Current Queue', 'zh-CN': '🏥 当前队列', 'zh-Hant': '🏥 目前候診' },
+        'appt.sharedMemo.label': { en: 'Daily memo', 'zh-CN': '当日备忘', 'zh-Hant': '當日備忘' },
+        'appt.sharedMemo.placeholder': {
+            en: 'Notes for this clinic and date (shared across queue, today, planner, calendar)…',
+            'zh-CN': '本诊所当日备忘（候诊、今日预约、预约与日历共用）…',
+            'zh-Hant': '本診所當日備忘（候診、今日預約、預約與日曆共用）…'
+        },
         'appt.todayTab': { en: '📋 Today\'s Appointments', 'zh-CN': '📋 今日预约', 'zh-Hant': '📋 今日預約' },
         'appt.plusApptTab': { en: '➕ Appointment', 'zh-CN': '➕ 预约', 'zh-Hant': '➕ 預約' },
         'appt.plusAppt.searchPatient': { en: 'Search patient', 'zh-CN': '搜索患者', 'zh-Hant': '搜尋病人' },
@@ -665,6 +671,7 @@
         'appt.cal.popupWalkin': { en: '✨ Walk-in / New Patient — not yet linked to a record', 'zh-CN': '✨ 即场 / 新患者 — 尚未关联档案', 'zh-Hant': '✨ 即場 / 新病人 — 尚未關聯檔案' },
         'appt.cal.popupPatient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '病人' },
         'appt.cal.popupNo': { en: 'No.', 'zh-CN': '编号', 'zh-Hant': '編號' },
+        'appt.cal.popupDob': { en: 'DOB', 'zh-CN': '出生日期', 'zh-Hant': '出生日期' },
         'appt.cal.popupDate': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'appt.cal.popupTime': { en: 'Time', 'zh-CN': '时间', 'zh-Hant': '時間' },
         'appt.cal.popupTreatment': { en: 'Treatment', 'zh-CN': '治疗', 'zh-Hant': '治療' },
@@ -1415,6 +1422,11 @@
         'bill.panelTitle': { en: '🧾 Patient Bill', 'zh-CN': '🧾 患者账单', 'zh-Hant': '🧾 病人帳單' },
         'bill.tabStep1': { en: '📋 Step 1 · Bill Items', 'zh-CN': '📋 步骤 1 · 账单项目', 'zh-Hant': '📋 步驟 1 · 帳單項目' },
         'bill.tabStep2': { en: '💳 Step 2 · Payment', 'zh-CN': '💳 步骤 2 · 付款', 'zh-Hant': '💳 步驟 2 · 付款' },
+        'bill.sectionNewBill': { en: 'New bill', 'zh-CN': '新建账单', 'zh-Hant': '新建帳單' },
+        'bill.btnCreateBill': { en: '✓ Create bill', 'zh-CN': '✓ 创建账单', 'zh-Hant': '✓ 建立帳單' },
+        'bill.alert.createListFirst': { en: 'Create a bill list first (+ New List).', 'zh-CN': '请先创建账单清单（+ 新建清单）。', 'zh-Hant': '請先建立帳單清單（+ 新增清單）。' },
+        'bill.alert.addItemsFirst': { en: 'Add at least one bill item with an amount before creating the bill.', 'zh-CN': '创建账单前请至少添加一项有金额的账单项目。', 'zh-Hant': '建立帳單前請至少新增一項有金額的帳單項目。' },
+        'bill.status.creatingBill': { en: 'Creating bill…', 'zh-CN': '正在创建账单…', 'zh-Hant': '正在建立帳單…' },
         'bill.btnNewList': { en: '+ New List', 'zh-CN': '+ 新建清单', 'zh-Hant': '+ 新增清單' },
         'bill.btnRemoveListTitle': { en: 'Remove this list', 'zh-CN': '删除此清单', 'zh-Hant': '移除此清單' },
         'bill.btnRemoveRowTitle': { en: 'Remove this item', 'zh-CN': '删除此项目', 'zh-Hant': '移除此項目' },
@@ -1582,9 +1594,9 @@
         'bill.phCustomDesc': { en: 'Or type custom description', 'zh-CN': '或输入自定义描述', 'zh-Hant': '或輸入自訂描述' },
         'bill.phDescription': { en: 'Description', 'zh-CN': '描述', 'zh-Hant': '描述' },
         'bill.othersRemarkPh': { en: 'Specify other item (shown as OTHERS - 其他 (…))', 'zh-CN': '请注明其他项目（显示为 OTHERS - 其他（…））', 'zh-Hant': '請註明其他項目（顯示為 OTHERS - 其他（…））' },
-        'bill.alert.selectListFirst': { en: 'Please select a bill item list in Step 2 first.', 'zh-CN': '请先在步骤 2 选择账单项目清单。', 'zh-Hant': '請先在步驟 2 選擇帳單項目清單。' },
-        'bill.alert.enterPaymentAmount': { en: 'Enter a payment amount in Step 2, or save the list in Step 1 to record an unpaid bill.', 'zh-CN': '请在步骤 2 输入付款金额；或在步骤 1 保存清单以记录未付账单。', 'zh-Hant': '請在步驟 2 輸入付款金額；或在步驟 1 儲存清單以記錄未付帳單。' },
-        'bill.alert.pendingAlreadySaved': { en: 'This bill is already saved as pending (no payment). Go to Step 2 when the patient pays — choose payment method and amount.', 'zh-CN': '此账单已保存为待付款。患者付款时请前往步骤 2，选择付款方式并输入金额。', 'zh-Hant': '此帳單已儲存為待付款。患者付款時請前往步驟 2，選擇付款方式並輸入金額。' },
+        'bill.alert.selectListFirst': { en: 'Add bill items and create a bill first.', 'zh-CN': '请先添加账单项目并创建账单。', 'zh-Hant': '請先新增帳單項目並建立帳單。' },
+        'bill.alert.enterPaymentAmount': { en: 'Use Pay in Bill History to record payment.', 'zh-CN': '请在账单历史中使用“付款”记录付款。', 'zh-Hant': '請在帳單紀錄中使用「付款」記錄付款。' },
+        'bill.alert.pendingAlreadySaved': { en: 'This bill is already saved as pending. Use Pay in Bill History when the patient pays.', 'zh-CN': '此账单已保存为待付款。患者付款请在账单历史中使用“付款”。', 'zh-Hant': '此帳單已儲存為待付款。患者付款請在帳單紀錄中使用「付款」。' },
         'bill.alert.selectPaymentMethod': { en: 'Please select a payment method.', 'zh-CN': '请选择付款方式。', 'zh-Hant': '請選擇付款方式。' },
         'bill.step2.billSavedPending': { en: 'Bill saved · pending payment', 'zh-CN': '账单已保存 · 待付款', 'zh-Hant': '帳單已儲存 · 待付款' },
         'bill.alert.savedOk': { en: 'Bill saved successfully.', 'zh-CN': '账单保存成功。', 'zh-Hant': '帳單儲存成功。' },
@@ -2048,6 +2060,8 @@
         'cfg.tpl.ph.patientDob': { en: 'Patient DOB', 'zh-CN': '患者出生日期', 'zh-Hant': '病人出生日期' },
         'cfg.tpl.ph.patientEmail': { en: 'Patient Email', 'zh-CN': '患者电邮', 'zh-Hant': '病人電郵' },
         'cfg.tpl.ph.patientAddress': { en: 'Patient Address', 'zh-CN': '患者地址', 'zh-Hant': '病人地址' },
+        'cfg.tpl.ph.patientGender': { en: 'Patient sex (Female / Male)', 'zh-CN': '患者性别（女 / 男）', 'zh-Hant': '病人性別（女 / 男）' },
+        'cfg.tpl.ph.patientAge': { en: 'Patient age (e.g. 34Y)', 'zh-CN': '患者年龄（如 34Y）', 'zh-Hant': '病人年齡（如 34Y）' },
         'cfg.tpl.ph.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
         'cfg.tpl.ph.doctorCode': { en: 'Doctor Code', 'zh-CN': '医生代码', 'zh-Hant': '醫生代碼' },
         'cfg.tpl.ph.doctorEng': { en: 'Doctor (English line)', 'zh-CN': '医生（英文行）', 'zh-Hant': '醫生（英文行）' },
@@ -2091,6 +2105,15 @@
         'cfg.tpl.ph.sickLeaveToDdmm': { en: 'Sick leave to (DD/MM/YYYY)', 'zh-CN': '病假结束（日/月/年）', 'zh-Hant': '病假結束（日/月/年）' },
         'cfg.tpl.ph.sickLeaveDiagnosis': { en: 'Diagnosis ({diagnosis} in body)', 'zh-CN': '诊断（证书内 {diagnosis}）', 'zh-Hant': '診斷（證書內 {diagnosis}）' },
         'cfg.tpl.ph.patientChineseNameSpaced': { en: 'Patient Chinese name (spaced)', 'zh-CN': '患者中文名（逐字间隔）', 'zh-Hant': '病人中文名（逐字間隔）' },
+        'cfg.tpl.phGroup.referral': { en: 'Referral letter (type in document)', 'zh-CN': '转介信（在文档内填写）', 'zh-Hant': '轉介信（在文件內填寫）' },
+        'cfg.tpl.phGroup.referralNote': {
+            en: 'Edit {referred_to}, {diagnosis}, and {remarks} in the letter body. Doctor signature lines use the letterhead footer ({doctor_eng}, {doctor_chi}, {doctor_qualification}, {doctor_qualification_chi}).',
+            'zh-CN': '在信件正文中编辑 {referred_to}、{diagnosis} 和 {remarks}。医生签署栏使用信头页脚（{doctor_eng}、{doctor_chi}、{doctor_qualification}、{doctor_qualification_chi}）。',
+            'zh-Hant': '在信件正文中編輯 {referred_to}、{diagnosis} 和 {remarks}。醫生簽署欄使用信頭頁腳（{doctor_eng}、{doctor_chi}、{doctor_qualification}、{doctor_qualification_chi}）。'
+        },
+        'cfg.tpl.ph.referredTo': { en: 'Referred-to doctor / recipient', 'zh-CN': '转介医生 / 收件人', 'zh-Hant': '轉介醫生 / 收件人' },
+        'cfg.tpl.ph.referralDiagnosis': { en: 'Diagnosis ({diagnosis} in body)', 'zh-CN': '诊断（正文 {diagnosis}）', 'zh-Hant': '診斷（正文 {diagnosis}）' },
+        'cfg.tpl.ph.referralRemarks': { en: 'Remarks ({remarks} in body)', 'zh-CN': '备注（正文 {remarks}）', 'zh-Hant': '備註（正文 {remarks}）' },
         'cfg.tpl.phGroup.letterhead': { en: 'Letterhead (header/footer)', 'zh-CN': '信头（页眉/页脚）', 'zh-Hant': '信頭（頁首/頁尾）' },
         'cfg.tpl.phGroup.letterheadNote': {
             en: 'Use in Clinic letterhead section below. Same tags can appear in document body.',
@@ -2135,6 +2158,7 @@
         'cfg.tpl.seed.simpleReceipt': { en: 'Simple Receipt', 'zh-CN': '简易收据', 'zh-Hant': '簡易收據' },
         'cfg.tpl.seed.letterOfAttendance': { en: 'Letter of Attendance', 'zh-CN': '到诊证明信', 'zh-Hant': '到診證明信' },
         'cfg.tpl.seed.sickLeave': { en: 'Sick Leave Certificate', 'zh-CN': '病假证明书', 'zh-Hant': '病假證明書' },
+        'cfg.tpl.seed.referralLetter': { en: 'Referral Letter', 'zh-CN': '转介信', 'zh-Hant': '轉介信' },
         'cfg.tpl.seed.prescriptionHeader': { en: 'Prescription Header', 'zh-CN': '处方页眉', 'zh-Hant': '處方頁首' },
         'cfg.tpl.seed.consentStarter': { en: 'Consent Form Starter', 'zh-CN': '同意书模板', 'zh-Hant': '同意書範本' },
         'cfg.tpl.seed.simpleReceiptHtml': {
@@ -2161,6 +2185,11 @@
             en: '<div data-conforms-sick-leave="1" data-conforms-skip-footer="1" class="con-sick-leave-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><div style="text-align:right;margin:16px 0 20px;">{date_long}</div><p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p><p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p><p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p><p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p><p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p><p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p><div style="margin-top:72px;max-width:400px;"><div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div><div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div><div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div><div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div><div style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div></div></div>',
             'zh-CN': '<div data-conforms-sick-leave="1" data-conforms-skip-footer="1" class="con-sick-leave-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><div style="text-align:right;margin:16px 0 20px;">{date_long}</div><p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p><p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p><p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p><p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p><p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p><p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p><div style="margin-top:72px;max-width:400px;"><div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div><div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div><div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div><div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div><div style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div></div></div>',
             'zh-Hant': '<div data-conforms-sick-leave="1" data-conforms-skip-footer="1" class="con-sick-leave-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><div style="text-align:right;margin:16px 0 20px;">{date_long}</div><p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p><p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p><p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p><p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p><p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p><p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p><div style="margin-top:72px;max-width:400px;"><div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div><div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div><div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div><div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div><div style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div></div></div>'
+        },
+        'cfg.tpl.seed.referralLetterHtml': {
+            en: '<div data-conforms-referral="1" data-conforms-referral-v="2" class="con-referral-letter-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><p style="margin:0 0 24px;text-align:right;">Date: {date_long}</p><p style="margin:0 0 20px;">Dear {referred_to} ,</p><p style="margin:0 0 20px;">Re: {patient_name_upper} ({patient_chinese_name}), {patient_gender} / {patient_age}</p><p style="margin:0 0 20px;">Please kindly see the above named patient who is suffering from {diagnosis} .</p><p style="margin:0 0 28px;">Please kindly give your expert management.</p><p style="margin:0 0 8px;">Remarks:</p><p data-conforms-ref-remarks="1" style="margin:0 0 28px;min-height:72px;white-space:pre-wrap;"><br><br><br>{remarks}</p><p style="margin:0;">Regards,</p></div>',
+            'zh-CN': '<div data-conforms-referral="1" data-conforms-referral-v="2" class="con-referral-letter-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><p style="margin:0 0 24px;text-align:right;">Date: {date_long}</p><p style="margin:0 0 20px;">Dear {referred_to} ,</p><p style="margin:0 0 20px;">Re: {patient_name_upper} ({patient_chinese_name}), {patient_gender} / {patient_age}</p><p style="margin:0 0 20px;">Please kindly see the above named patient who is suffering from {diagnosis} .</p><p style="margin:0 0 28px;">Please kindly give your expert management.</p><p style="margin:0 0 8px;">Remarks:</p><p data-conforms-ref-remarks="1" style="margin:0 0 28px;min-height:72px;white-space:pre-wrap;"><br><br><br>{remarks}</p><p style="margin:0;">Regards,</p></div>',
+            'zh-Hant': '<div data-conforms-referral="1" data-conforms-referral-v="2" class="con-referral-letter-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><p style="margin:0 0 24px;text-align:right;">Date: {date_long}</p><p style="margin:0 0 20px;">Dear {referred_to} ,</p><p style="margin:0 0 20px;">Re: {patient_name_upper} ({patient_chinese_name}), {patient_gender} / {patient_age}</p><p style="margin:0 0 20px;">Please kindly see the above named patient who is suffering from {diagnosis} .</p><p style="margin:0 0 28px;">Please kindly give your expert management.</p><p style="margin:0 0 8px;">Remarks:</p><p data-conforms-ref-remarks="1" style="margin:0 0 28px;min-height:72px;white-space:pre-wrap;"><br><br><br>{remarks}</p><p style="margin:0;">Regards,</p></div>'
         },
         'cfg.tpl.typeReceipt': { en: 'Receipt', 'zh-CN': '收据', 'zh-Hant': '收據' },
         'cfg.tpl.typePrescription': { en: 'Prescription', 'zh-CN': '处方', 'zh-Hant': '處方' },
@@ -2445,6 +2474,11 @@
             en: 'Sick-leave dates default to today; the preview updates when you change them. Type the diagnosis on the certificate at the centred {diagnosis} line. Clinic letterhead on top; doctor signature at the bottom.',
             'zh-CN': '病假日期默认为今天；更改日期会更新预览。请在证书居中行的 {diagnosis} 处输入诊断。上方为诊所信头；下方为医生签署栏。',
             'zh-Hant': '病假日期預設為今天；更改日期會更新預覽。請在證書置中行的 {diagnosis} 處輸入診斷。上方為診所信頭；下方為醫生簽署欄。'
+        },
+        'con.forms.referralHint': {
+            en: 'Patient, date, and doctor details fill in automatically. Replace {referred_to}, {diagnosis}, and {remarks} in the letter body. Doctor name and qualifications appear in the letterhead footer below (Configuration → Document Templates).',
+            'zh-CN': '患者、日期与医生资料会自动填入。请在正文中填写 {referred_to}、{diagnosis} 和 {remarks}。医生姓名与资格显示在下方信头页脚（配置 → 文档模板）。',
+            'zh-Hant': '病人、日期與醫生資料會自動填入。請在正文中填寫 {referred_to}、{diagnosis} 和 {remarks}。醫生姓名與資格顯示在下方信頭頁腳（配置 → 文件範本）。'
         },
         'con.forms.sickLeavePendingPh': {
             en: 'Select sick-leave from and to dates above to generate the certificate preview.',

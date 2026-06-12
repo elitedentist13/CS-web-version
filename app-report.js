@@ -1486,10 +1486,14 @@ var REPORT = (function () {
       '<style>' + css + '</style>' +
       '</head><body>' +
       bodyHtml +
-      '<script>window.onload=function(){setTimeout(function(){window.print();},200);};<\/script>' +
+      '<script>' +
+      (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
+      'window.onload=function(){setTimeout(function(){try{window.print();}catch(e){if(typeof __ppClose==="function")__ppClose();}},200);};' +
+      '<\/script>' +
       '</body></html>'
     );
     w.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(w);
     return w;
   }
 

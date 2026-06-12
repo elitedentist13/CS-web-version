@@ -711,6 +711,36 @@ function parseISODateOnly(iso) {
     return new Date(y, m, day);
 }
 
+/** Whole years since date of birth (local calendar, birthday-aware). */
+function patientAgeYears(dob) {
+    var d = parseISODateOnly(dob);
+    if (!d || isNaN(d.getTime())) return null;
+    var today = nowLocal();
+    var age = today.getFullYear() - d.getFullYear();
+    var m = today.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+    return age >= 0 ? age : null;
+}
+
+/** DD/MM/YYYY from YYYY-MM-DD (or passthrough). */
+function formatDobDisplay(dob) {
+    if (!dob) return '—';
+    var pts = String(dob).trim().split('-');
+    if (pts.length === 3 && pts[0].length === 4) {
+        return pts[2] + '/' + pts[1] + '/' + pts[0];
+    }
+    return String(dob);
+}
+
+/** DOB with calculated age for patient info banners and lists. */
+function formatDobAge(dob) {
+    if (!dob) return '—';
+    var dateStr = formatDobDisplay(dob);
+    var age = patientAgeYears(dob);
+    if (age == null) return dateStr;
+    return appTrRepl('con.dob.ageFmt', { DATE: dateStr, AGE: String(age) });
+}
+
 function fmt12(t) {
     if (!t) return '-';
     var p = String(t).split(':');
@@ -869,6 +899,42 @@ function confirmPrintReminder() {
         msg = conTr('common.printReminderMsg');
     }
     return window.confirm(msg);
+}
+
+/** Inline script for print popup documents — close window after print dialog finishes. */
+function printPopupAutoCloseInlineScript() {
+    return 'var __ppDone=false;' +
+        'function __ppClose(){if(__ppDone)return;__ppDone=true;' +
+        'setTimeout(function(){try{window.close();}catch(e){}},300);}' +
+        'window.addEventListener("afterprint",__ppClose);' +
+        'try{var __ppMq=window.matchMedia&&window.matchMedia("print");' +
+        'if(__ppMq){var __ppCh=function(e){if(!e.matches)__ppClose();};' +
+        '__ppMq.addEventListener?__ppMq.addEventListener("change",__ppCh):' +
+        '__ppMq.addListener&&__ppMq.addListener(__ppCh);}}catch(e1){}';
+}
+
+/** Wire an opened print popup (parent context) to auto-close after printing. */
+function wirePrintPopupAutoClose(win) {
+    if (!win) return;
+    var done = false;
+    function closeAfterPrint() {
+        if (done) return;
+        done = true;
+        setTimeout(function () {
+            try { win.close(); } catch (e) {}
+        }, 300);
+    }
+    try { win.addEventListener('afterprint', closeAfterPrint); } catch (e0) {}
+    try {
+        var mq = win.matchMedia && win.matchMedia('print');
+        if (mq) {
+            var onChange = function (ev) {
+                if (!ev.matches) closeAfterPrint();
+            };
+            if (mq.addEventListener) mq.addEventListener('change', onChange);
+            else if (mq.addListener) mq.addListener(onChange);
+        }
+    } catch (e1) {}
 }
 
 function stripDoctorTagPrefix(text) {
@@ -1716,7 +1782,7 @@ function patientSearchResultHtml(p) {
     var bits = ['#' + esc(p.patient_no || '-')];
     if (p.phone_number) bits.push(esc(p.phone_number));
     if (p.hkid) bits.push(esc(p.hkid));
-    if (p.dob) bits.push(esc(p.dob));
+    if (p.dob) bits.push(esc(formatDobAge(p.dob)));
     if (p.email) bits.push(esc(p.email));
     return title + '<br><small style="color:#aaa;">' +
         bits.join(' &nbsp;|&nbsp; ') + '</small>';
@@ -3375,6 +3441,10 @@ document.addEventListener('DOMContentLoaded', function() {
         else
             calDate = new Date(calDate.getFullYear(), calDate.getMonth() - 1, 1);
         renderCal();
+        if (typeof apptMemoOnScopeChange === 'function' && typeof apptActiveTabKey === 'function' &&
+            apptActiveTabKey() === 'calendar') {
+            apptMemoOnScopeChange('calendar');
+        }
     });
     g('calNext').addEventListener('click', function() {
         if (calView === 'weekly')
@@ -3382,10 +3452,18 @@ document.addEventListener('DOMContentLoaded', function() {
         else
             calDate = new Date(calDate.getFullYear(), calDate.getMonth() + 1, 1);
         renderCal();
+        if (typeof apptMemoOnScopeChange === 'function' && typeof apptActiveTabKey === 'function' &&
+            apptActiveTabKey() === 'calendar') {
+            apptMemoOnScopeChange('calendar');
+        }
     });
     g('calTodayBtn').addEventListener('click', function() {
         if (calView === 'weekly') GCAL.goToday();
         else { calDate = new Date(); renderCal(); }
+        if (typeof apptMemoOnScopeChange === 'function' && typeof apptActiveTabKey === 'function' &&
+            apptActiveTabKey() === 'calendar') {
+            apptMemoOnScopeChange('calendar');
+        }
     });
 
     // appointment modal — duration auto-calc

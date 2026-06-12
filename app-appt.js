@@ -93,6 +93,15 @@ function apptSetActivePatientFromAppt(a, source) {
     return false;
 }
 
+function apptSnapActivePatientFromCalendarAppt(a, source) {
+    if (!a || typeof apptSetActivePatientFromAppt !== 'function') return;
+    if (!a.patient_id && !String(a.patient_no || '').trim()) return;
+    apptSetActivePatientFromAppt(a, source || 'calendar-appt-select');
+    if (typeof setActivePatientDockCollapsed === 'function') {
+        setActivePatientDockCollapsed(false, true);
+    }
+}
+
 function apptFindListRowAppt(apptId, tabKey) {
     var id = String(apptId || '');
     if (!id) return null;
@@ -314,13 +323,19 @@ function syncBillPayTypeForBalance(total, paid, balance) {
     var bType = g('bType');
     if (!bType) return;
     bType.disabled = false;
+    var pendingVals = billPendingPayTypeCandidates();
     if (paid <= 0.005) {
         if (!bType.dataset.billTypeHold && bType.value &&
-            billPendingPayTypeCandidates().indexOf(bType.value) < 0) {
+            pendingVals.indexOf(bType.value) < 0) {
             bType.dataset.billTypeHold = bType.value;
         }
         ensurePendingBillTypeOption(bType);
         bType.value = billPendingPayTypeValue(bType);
+        return;
+    }
+    var cur = String(bType.value || '').trim();
+    if (cur && pendingVals.indexOf(cur) < 0) {
+        delete bType.dataset.billTypeHold;
         return;
     }
     if (bType.dataset.billTypeHold) {
@@ -329,6 +344,20 @@ function syncBillPayTypeForBalance(total, paid, balance) {
         if (Array.prototype.some.call(bType.options || [], function (o) { return o.value === hold; })) {
             bType.value = hold;
         }
+    }
+}
+
+/** Keep billTypeHold aligned when user picks a method before entering paid amount. */
+function billSyncPaymentMethodHoldFromUi() {
+    var bType = g('bType');
+    if (!bType) return;
+    var paidEl = g('bAmtPaid');
+    var paid = paidEl ? (parseFloat(paidEl.value) || 0) : 0;
+    if (paid > 0.005) return;
+    var cur = String(bType.value || '').trim();
+    var pendingVals = billPendingPayTypeCandidates();
+    if (cur && pendingVals.indexOf(cur) < 0) {
+        bType.dataset.billTypeHold = cur;
     }
 }
 
@@ -569,8 +598,12 @@ function findBillRowForPendingList(pl, cb) {
         });
     }
 
-    /** Same patient + same bill date → reuse existing history row (never duplicate). */
+    /** Same patient + same bill date → reuse only when list has no stable id yet. */
     function trySameDayPatientBill(next) {
+        if (pl.id) {
+            next();
+            return;
+        }
         var billDate = todayISO();
         var hasPatId = !!billPatId;
         var hasPatNo = !!(billPatNo && billPatNo !== '-');
@@ -701,7 +734,11 @@ function syncUnpaidBillFromPendingList(pl, sub, done) {
         }
         payload.status = payload.balance <= 0.005 ? 'Paid' : 'Partial';
         var existingUserNotes = billUserNotesText(existingBill && existingBill.notes);
-        if (existingUserNotes) payload.notes = existingUserNotes;
+        if (existingUserNotes) {
+            payload.notes = existingUserNotes;
+        } else if (pl.id) {
+            payload.notes = pendingListBillLinkNote(pl);
+        }
         var billId = pl.bill_id || (existingBill && existingBill.id) || null;
 
         persistBillRecord(payload, billId, function (err, saved) {
@@ -793,13 +830,67 @@ function apptToast(msg) {
     }
 }
 
-function refreshApptDurOptions() {
+function apptDurationScaleMinutesList() {
+    var out = [];
+    var m;
+    for (m = 0; m <= 240; m += 15) out.push(m);
+    return out;
+}
+
+/** Duration dropdown label: 0–45 → "N MIN"; whole hours → "N HRS"; else "HH:MM". */
+function apptDurationScaleLabel(minutes) {
+    var m = parseInt(minutes, 10);
+    if (isNaN(m) || m < 0) return '—';
+    if (m <= 45) return String(m) + ' MIN';
+    if (m % 60 === 0) return String(m / 60) + ' HRS';
+    var h = Math.floor(m / 60);
+    var min = m % 60;
+    return (h < 10 ? '0' : '') + String(h) + ':' + (min < 10 ? '0' : '') + String(min);
+}
+
+function apptDurationDisplay(minutes) {
+    return apptDurationScaleLabel(minutes);
+}
+
+function populateApptDurSelect() {
     var sel = g('fDur');
     if (!sel) return;
-    for (var i = 0; i < sel.options.length; i++) {
-        var v = sel.options[i].value;
-        sel.options[i].textContent = trRepl('appt.modal.durMin', { N: v });
+    var prev = sel.value;
+    var mins = apptDurationScaleMinutesList();
+    var prevN = parseInt(prev, 10);
+    if (!isNaN(prevN) && mins.indexOf(prevN) < 0) {
+        mins = mins.concat([prevN]).sort(function (a, b) { return a - b; });
     }
+    sel.innerHTML = mins.map(function (m) {
+        return '<option value="' + m + '">' + apptDurationScaleLabel(m) + '</option>';
+    }).join('');
+    if (prev && Array.prototype.some.call(sel.options, function (o) { return o.value === prev; })) {
+        sel.value = prev;
+    } else if (Array.prototype.some.call(sel.options, function (o) { return o.value === '30'; })) {
+        sel.value = '30';
+    } else if (sel.options.length) {
+        sel.selectedIndex = 0;
+    }
+}
+
+function ensureApptDurSelectValue(minutes) {
+    var sel = g('fDur');
+    if (!sel) return;
+    var m = parseInt(minutes, 10);
+    if (isNaN(m)) return;
+    var str = String(m);
+    var found = Array.prototype.some.call(sel.options, function (o) { return o.value === str; });
+    if (!found) {
+        var opt = document.createElement('option');
+        opt.value = str;
+        opt.textContent = apptDurationScaleLabel(m);
+        sel.appendChild(opt);
+    }
+    sel.value = str;
+}
+
+function refreshApptDurOptions() {
+    populateApptDurSelect();
 }
 
 function refreshApptModalTitle() {
@@ -1115,6 +1206,10 @@ function syncApptPlannerDate(iso, opts) {
     }
     if (typeof plusApptSyncDateLabel === 'function') plusApptSyncDateLabel();
     if (typeof plusApptSyncTimelineHead === 'function') plusApptSyncTimelineHead();
+    if (typeof apptSectionIsActive === 'function' && apptSectionIsActive() &&
+        typeof apptMemoOnScopeChange === 'function') {
+        apptMemoOnScopeChange();
+    }
 }
 
 /** Reload day planner (+ Appointment) and calendar from Supabase (same clinic scope). */
@@ -1285,6 +1380,7 @@ function onApptClinicChange() {
         plusApptActiveClinicId = sel.value;
         plusApptClinicSyncing = false;
     }
+    if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange();
     if (apptActiveTabKey() === 'plusappt' && typeof onPlusApptClinicChange === 'function') {
         onPlusApptClinicChange();
         return;
@@ -1321,6 +1417,8 @@ function initAppt() {
     bindQueueRefreshBtnOnce();
     initApptRemarksRichEditors();
     bindPlusApptTabOnce();
+    bindApptSharedMemoOnce();
+    refreshApptSharedMemoI18n();
     switchApptTab('queue');
     if (typeof startApptAutoRefresh === 'function') startApptAutoRefresh();
 }
@@ -1364,6 +1462,263 @@ function bindQueueRefreshBtnOnce() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// SHARED MEMO — per clinic + date (appointment_daily_memos table)
+// ════════════════════════════════════════════════════════════════
+var APPT_MEMO_TABLE = 'appointment_daily_memos';
+var APPT_SHARED_MEMO_TABS = { queue: 1, today: 1, plusappt: 1, calendar: 1 };
+var APPT_MEMO_HOST_IDS = {
+    queue: 'apptMemoHost-queue',
+    today: 'apptMemoHost-today',
+    plusappt: 'apptMemoHost-plusappt',
+    calendar: 'apptMemoHost-calendar'
+};
+var _apptMemoSaveTimer = null;
+var _apptMemoHydrating = false;
+var _apptMemoLastSaved = null;
+var _apptMemoScopeKey = null;
+var _apptMemoLoadedScopeKey = null;
+var _apptMemoScopeBusy = false;
+
+function apptMemoClinicId() {
+    var sel = g('apptClinicSelect');
+    if (sel && sel.value) return String(sel.value);
+    var plusSel = g('plusApptClinicSelect');
+    if (plusSel && plusSel.value) return String(plusSel.value);
+    if (typeof plusApptActiveClinicId !== 'undefined' && plusApptActiveClinicId) {
+        return String(plusApptActiveClinicId);
+    }
+    if (typeof currentClinicId !== 'undefined' && currentClinicId) {
+        return String(currentClinicId);
+    }
+    return '';
+}
+
+function apptMemoDateIso(tab) {
+    tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : 'queue');
+    if (tab === 'plusappt') {
+        return plusApptDate || (typeof todayISO === 'function' ? todayISO() : '');
+    }
+    if (tab === 'calendar') {
+        if (typeof calDate !== 'undefined' && calDate && typeof d2iso === 'function') {
+            return d2iso(calDate);
+        }
+        if (plusApptDate) return plusApptDate;
+        return typeof todayISO === 'function' ? todayISO() : '';
+    }
+    return typeof todayISO === 'function' ? todayISO() : '';
+}
+
+function apptMemoScopeKey(tab) {
+    return apptMemoClinicId() + '|' + apptMemoDateIso(tab);
+}
+
+function apptMemoProgramKey(clinicId, dateIso) {
+    return 'appt_daily_memo:' + clinicId + ':' + dateIso;
+}
+
+function apptMemoTableMissing(err) {
+    var msg = String((err && err.message) || err || '');
+    return /appointment_daily_memos|relation|does not exist|schema cache/i.test(msg);
+}
+
+function parseApptMemoScopeKey(key) {
+    var parts = String(key || '').split('|');
+    return { clinicId: parts[0] || '', dateIso: parts[1] || '' };
+}
+
+function updateApptSharedMemoDateLabel(tab) {
+    var el = g('apptSharedMemoDateLbl');
+    if (!el) return;
+    var iso = apptMemoDateIso(tab);
+    if (!iso) {
+        el.textContent = '';
+        return;
+    }
+    el.textContent = (typeof fmtDateLong === 'function')
+        ? fmtDateLong(iso, { long: false })
+        : iso;
+}
+
+function mountApptSharedMemo(tab) {
+    var bar = g('apptSharedMemoBar');
+    if (!bar) return;
+    var host = null;
+    if (tab && APPT_SHARED_MEMO_TABS[tab]) {
+        var hostId = APPT_MEMO_HOST_IDS[tab];
+        host = hostId ? g(hostId) : null;
+    }
+    if (!host) host = g('apptMemoBarPool');
+    if (!host) return;
+    host.appendChild(bar);
+    var show = !!(tab && APPT_SHARED_MEMO_TABS[tab]);
+    bar.hidden = !show;
+    bar.setAttribute('aria-hidden', show ? 'false' : 'true');
+    updateApptSharedMemoDateLabel(tab);
+}
+
+function applyApptSharedMemoToField(text, scopeKey) {
+    var ta = g('apptSharedMemo');
+    if (!ta) return;
+    _apptMemoHydrating = true;
+    ta.value = text == null ? '' : String(text);
+    _apptMemoLastSaved = ta.value;
+    _apptMemoLoadedScopeKey = scopeKey || apptMemoScopeKey();
+    _apptMemoHydrating = false;
+}
+
+function fetchApptDailyMemo(clinicId, dateIso) {
+    if (!clinicId || !dateIso) return Promise.resolve('');
+    if (!SB || typeof SB.from !== 'function') return Promise.resolve('');
+    return SB.from(APPT_MEMO_TABLE)
+        .select('memo_text')
+        .eq('clinic_id', clinicId)
+        .eq('memo_date', dateIso)
+        .limit(1)
+        .then(function (r) {
+            if (!r.error && r.data && r.data.length) {
+                return r.data[0].memo_text || '';
+            }
+            if (r.error && apptMemoTableMissing(r.error)) {
+                var pk = apptMemoProgramKey(clinicId, dateIso);
+                if (typeof getProgramSetting === 'function') {
+                    return getProgramSetting(pk, '');
+                }
+                return SB.from('program_settings')
+                    .select('setting_value')
+                    .eq('setting_key', pk)
+                    .limit(1)
+                    .then(function (pr) {
+                        if (!pr.error && pr.data && pr.data.length) {
+                            return pr.data[0].setting_value || '';
+                        }
+                        return '';
+                    });
+            }
+            return '';
+        })
+        .catch(function () { return ''; });
+}
+
+function persistApptDailyMemo(clinicId, dateIso, text) {
+    if (!clinicId || !dateIso) return Promise.resolve();
+    if (!SB || typeof SB.from !== 'function') return Promise.resolve();
+    var payload = {
+        clinic_id: clinicId,
+        memo_date: dateIso,
+        memo_text: text
+    };
+    return SB.from(APPT_MEMO_TABLE)
+        .select('id')
+        .eq('clinic_id', clinicId)
+        .eq('memo_date', dateIso)
+        .limit(1)
+        .then(function (sel) {
+            if (sel.error && apptMemoTableMissing(sel.error)) {
+                if (typeof persistProgramSettingRow !== 'function') return sel;
+                return persistProgramSettingRow({
+                    setting_key: apptMemoProgramKey(clinicId, dateIso),
+                    setting_value: text
+                });
+            }
+            if (sel.error) return sel;
+            if (sel.data && sel.data.length) {
+                return SB.from(APPT_MEMO_TABLE)
+                    .update({ memo_text: text })
+                    .eq('id', sel.data[0].id);
+            }
+            return SB.from(APPT_MEMO_TABLE).insert(payload);
+        });
+}
+
+function loadApptSharedMemo(tab) {
+    tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : 'queue');
+    var scopeKey = apptMemoScopeKey(tab);
+    _apptMemoScopeKey = scopeKey;
+    var parts = parseApptMemoScopeKey(scopeKey);
+    if (!parts.clinicId) {
+        applyApptSharedMemoToField('', scopeKey);
+        return Promise.resolve();
+    }
+    return fetchApptDailyMemo(parts.clinicId, parts.dateIso).then(function (text) {
+        applyApptSharedMemoToField(text, scopeKey);
+    });
+}
+
+function saveApptSharedMemoForScope(scopeKey, textOverride) {
+    if (_apptMemoSaveTimer) {
+        clearTimeout(_apptMemoSaveTimer);
+        _apptMemoSaveTimer = null;
+    }
+    var ta = g('apptSharedMemo');
+    if (!ta) return Promise.resolve();
+    var text = textOverride != null ? String(textOverride) : String(ta.value || '');
+    var parts = parseApptMemoScopeKey(scopeKey);
+    if (!parts.clinicId || !parts.dateIso) return Promise.resolve();
+    if (_apptMemoLastSaved === text && _apptMemoLoadedScopeKey === scopeKey) {
+        return Promise.resolve();
+    }
+    return persistApptDailyMemo(parts.clinicId, parts.dateIso, text).then(function (r) {
+        if (r && r.error) return;
+        if (_apptMemoLoadedScopeKey === scopeKey || scopeKey === apptMemoScopeKey()) {
+            _apptMemoLastSaved = text;
+            _apptMemoLoadedScopeKey = scopeKey;
+        }
+    });
+}
+
+function saveApptSharedMemoNow() {
+    var scopeKey = _apptMemoScopeKey || apptMemoScopeKey();
+    return saveApptSharedMemoForScope(scopeKey);
+}
+
+function scheduleApptSharedMemoSave() {
+    if (_apptMemoHydrating) return;
+    if (_apptMemoSaveTimer) clearTimeout(_apptMemoSaveTimer);
+    _apptMemoSaveTimer = setTimeout(function () {
+        _apptMemoSaveTimer = null;
+        saveApptSharedMemoNow();
+    }, 700);
+}
+
+function apptMemoOnScopeChange(tab) {
+    if (_apptMemoScopeBusy) return Promise.resolve();
+    tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : 'queue');
+    var oldKey = _apptMemoScopeKey;
+    var newKey = apptMemoScopeKey(tab);
+    _apptMemoScopeBusy = true;
+    var chain = Promise.resolve();
+    if (oldKey && oldKey !== newKey) {
+        var ta = g('apptSharedMemo');
+        var txt = ta ? ta.value : '';
+        chain = saveApptSharedMemoForScope(oldKey, txt);
+    }
+    return chain.then(function () {
+        _apptMemoScopeKey = newKey;
+        mountApptSharedMemo(tab);
+        return loadApptSharedMemo(tab);
+    }).finally(function () {
+        _apptMemoScopeBusy = false;
+    });
+}
+
+function bindApptSharedMemoOnce() {
+    var ta = g('apptSharedMemo');
+    if (!ta || ta.dataset.bound === '1') return;
+    ta.dataset.bound = '1';
+    ta.addEventListener('input', scheduleApptSharedMemoSave);
+    ta.addEventListener('blur', function () { saveApptSharedMemoNow(); });
+    var pool = g('apptMemoBarPool');
+    var bar = g('apptSharedMemoBar');
+    if (pool && bar && bar.parentNode !== pool) pool.appendChild(bar);
+}
+
+function refreshApptSharedMemoI18n() {
+    var bar = g('apptSharedMemoBar');
+    if (bar && typeof applyI18nInRoot === 'function') applyI18nInRoot(bar);
+    updateApptSharedMemoDateLabel();
+}
+
+// ════════════════════════════════════════════════════════════════
 // TAB SWITCHING
 // ════════════════════════════════════════════════════════════════
 function switchApptTab(tab) {
@@ -1373,6 +1728,11 @@ function switchApptTab(tab) {
     document.querySelectorAll('.tab-pane').forEach(function(p) {
         p.classList.toggle('active', p.id === 'tab-' + tab);
     });
+    if (APPT_SHARED_MEMO_TABS[tab] && typeof apptMemoOnScopeChange === 'function') {
+        apptMemoOnScopeChange(tab);
+    } else {
+        mountApptSharedMemo(null);
+    }
     if (tab === 'queue')    loadQueue();
     if (tab === 'today')    loadToday();
     if (tab === 'plusappt') showPlusApptTab();
@@ -1819,6 +2179,7 @@ function onPlusApptClinicChange() {
     plusApptSyncTimelineHead();
     renderPlusApptMiniCal();
     refreshApptPlannerData();
+    if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange('plusappt');
 }
 
 function onPlusApptDoctorChange() {
@@ -3363,8 +3724,8 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             remHtml = typeof formatRemarksForDisplay === 'function'
                 ? formatRemarksForDisplay(a.remarks, { empty: '—' })
                 : esc(a.remarks || '—');
-            durHtml = a.duration
-                ? esc(trRepl('appt.modal.durMin', { N: a.duration }))
+            durHtml = (a.duration != null && a.duration !== '')
+                ? esc(apptDurationDisplay(a.duration))
                 : '—';
             locked = isApptScheduleLocked(a);
             durHtml += ' <button type="button" class="plusappt-lock-btn' + (locked ? ' is-locked' : '') + '" ' +
@@ -5725,8 +6086,8 @@ function arApptDurationMinutes(a) {
 
 function arDurationDisplay(a) {
     var dur = arApptDurationMinutes(a);
-    if (!dur) return '—';
-    return trRepl('appt.modal.durMin', { N: String(dur) });
+    if (!dur && dur !== 0) return '—';
+    return apptDurationDisplay(dur);
 }
 
 function arRow(a, today) {
@@ -5835,6 +6196,7 @@ function openNewApptSamePatientFromRecord(appt) {
     g('psSelName').textContent    = appt.patient_name || '-';
     g('psSelNo').textContent      = appt.patient_no   || '-';
     g('psSelected').style.display = 'block';
+    apptRefreshSelectedPatientDob(appt.patient_id || '');
 
     var tday = todayISO();
     sv('fDate', tday);
@@ -6460,6 +6822,7 @@ function refreshApptHeaderI18n() {
     }
     if (typeof syncApptTodayDateLabels === 'function') syncApptTodayDateLabels();
     if (typeof setQueueRefreshMeta === 'function') setQueueRefreshMeta({ stampNow: false });
+    if (typeof refreshApptSharedMemoI18n === 'function') refreshApptSharedMemoI18n();
 }
 
 function statusClass(s) {
@@ -6478,6 +6841,53 @@ function statusClass(s) {
 // ════════════════════════════════════════════════════════════════
 // PATIENT SEARCH  (appointment modal)
 // ════════════════════════════════════════════════════════════════
+function apptPatientDobLookup(patientId) {
+    if (!patientId) return '';
+    if (typeof conPatientData !== 'undefined' && conPatientData &&
+        conPatientData.id === patientId && conPatientData.dob) {
+        return conPatientData.dob;
+    }
+    if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
+        _patientDetailsPatient.id === patientId && _patientDetailsPatient.dob) {
+        return _patientDetailsPatient.dob;
+    }
+    if (typeof patientListCache !== 'undefined' && patientListCache.length) {
+        var row = patientListCache.find(function (x) {
+            return x && x.id === patientId;
+        });
+        if (row && row.dob) return row.dob;
+    }
+    return '';
+}
+
+function apptUpdatePsSelDob(dob) {
+    var dobEl = g('psSelDob');
+    if (!dobEl) return;
+    if (dob && typeof formatDobAge === 'function') {
+        dobEl.textContent = ' · ' + formatDobAge(dob);
+        dobEl.style.display = '';
+    } else {
+        dobEl.textContent = '';
+        dobEl.style.display = 'none';
+    }
+}
+
+function apptRefreshSelectedPatientDob(patientId, dobHint) {
+    var dob = String(dobHint || '').trim() || apptPatientDobLookup(patientId);
+    if (dob) {
+        apptUpdatePsSelDob(dob);
+        return;
+    }
+    apptUpdatePsSelDob('');
+    if (!patientId || typeof SB === 'undefined') return;
+    SB.from('patients').select('dob').eq('id', patientId).maybeSingle()
+        .then(function (r) {
+            if (r.error || !r.data || !r.data.dob) return;
+            if (String(g('hPid').value || '').trim() !== String(patientId)) return;
+            apptUpdatePsSelDob(r.data.dob);
+        });
+}
+
 function apptSetSelectedPatient(p) {
     if (!p || !p.id) return;
     g('hPid').value      = p.id;
@@ -6491,6 +6901,7 @@ function apptSetSelectedPatient(p) {
     g('psSelName').textContent = p.full_name || '-';
     g('psSelNo').textContent   = p.patient_no || '-';
     g('psSelected').style.display = 'block';
+    apptRefreshSelectedPatientDob(p.id, p.dob);
     if (typeof switchApptPatientMode === 'function') switchApptPatientMode('exist');
 }
 
@@ -7784,6 +8195,7 @@ function openApptModal(prefillDate) {
     sv('hPno',     '');
     sv('hPname',   '');
     g('psSelected').style.display = 'none';
+    apptUpdatePsSelDob('');
     var dd = g('psDrop');
     if (dd) dd.style.display = 'none';
     var db = g('deleteApptBtn');
@@ -7804,12 +8216,8 @@ function openApptModal(prefillDate) {
         ? getProgramSettingInt('appt_default_duration', 30)
         : 30;
     var durSel = g('fDur');
-    if (durSel && defDur) {
-        var durStr = String(defDur);
-        var hasDur = Array.prototype.some.call(durSel.options || [], function(o) {
-            return String(o.value) === durStr;
-        });
-        if (hasDur) durSel.value = durStr;
+    if (durSel && defDur != null) {
+        ensureApptDurSelectValue(defDur);
     }
     refreshApptModalI18n();
     openModal('apptModal');
@@ -7834,6 +8242,7 @@ function openApptEditModal(appt) {
     g('psSelName').textContent    = appt.patient_name || '-';
     g('psSelNo').textContent      = appt.patient_no   || '-';
     g('psSelected').style.display = 'block';
+    apptRefreshSelectedPatientDob(appt.patient_id || '');
 
     sv('fDate',      appt.date             || todayISO());
     sv('fTreatment', appt.treatment_items  || '');
@@ -7858,7 +8267,7 @@ function openApptEditModal(appt) {
         var sm = +sp[0]*60 + +sp[1];
         var em = +ep[0]*60 + +ep[1];
         var df = g('fDur');
-        if (df) df.value = String(em - sm);
+        if (df) ensureApptDurSelectValue(em - sm);
     }
     calcEnd();
     refreshApptModalI18n();
@@ -8560,7 +8969,8 @@ function buildTodayRow(tb, a, dotCtx) {
             apptTaskSummaryHtml(a) +
         '</td>' +
         '<td style="text-align:center;">' +
-            esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') +
+            esc(a.duration != null && a.duration !== ''
+                ? apptDurationDisplay(a.duration) : '-') +
         '</td>' +
         '<td>' +
             '<span class="status-badge ' +
@@ -8776,7 +9186,8 @@ function printTodayList() {
                 '<td>' + esc(a.treatment_items || '-') + '</td>' +
                 '<td>' + formatRemarksForDisplay(a.remarks, { empty: '-' }) + '</td>' +
                 '<td style="text-align:center;">' +
-                    esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') + '</td>' +
+                    esc(a.duration != null && a.duration !== ''
+                ? apptDurationDisplay(a.duration) : '-') + '</td>' +
                 '<td>' + esc(dispStatusLabel(status)) + '</td>' +
                 '</tr>';
         });
@@ -8817,13 +9228,17 @@ function printTodayList() {
             WHEN: new Date().toLocaleString(apptDateLocale())
         })) + '</td></tr></tfoot>' +
         '</table>' +
-        '<script>window.onload=function(){window.print();}<\/script>' +
+        '<script>' +
+        (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
+        'window.onload=function(){setTimeout(function(){try{window.print();}catch(e){if(typeof __ppClose==="function")__ppClose();}},200);};' +
+        '<\/script>' +
         '</body></html>';
 
     var w = window.open('', '_blank', 'width=900,height=650');
     if (!w) { alert(tr('appt.today.popupBlocked')); return; }
     w.document.write(html);
     w.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(w);
 }
 
 /**
@@ -10192,7 +10607,10 @@ function renderMonthly() {
             });
             pill.addEventListener('click', function(e) {
                 e.stopPropagation();
-                if (a) showApptPopup(a, pill);
+                if (a) {
+                    apptSnapActivePatientFromCalendarAppt(a, 'calendar-monthly-pill-select');
+                    showApptPopup(a, pill);
+                }
             });
         });
         bindCalMonthMiniTransferDrop();
@@ -10858,6 +11276,7 @@ var GCAL = (function () {
             if (e.target.closest && e.target.closest('.gcal-card-lock')) return;
             if (e.target.closest && e.target.closest('.gcal-card-resize-handle')) return;
             e.stopPropagation();
+            apptSnapActivePatientFromCalendarAppt(a, 'calendar-weekly-card-select');
             showApptPopup(a, card);
         });
         attachGcalPatientDrag(card, a);
@@ -12039,6 +12458,20 @@ function showApptPopup(a, anchor) {
           esc(a.patient_chinese_name) + '</td></tr>'
         : '';
 
+    var popDobRaw = a.patient_id ? apptPatientDobLookup(a.patient_id) : '';
+    var popDobRow = '';
+    if (a.patient_id) {
+        var popDobTxt = popDobRaw && typeof formatDobAge === 'function'
+            ? formatDobAge(popDobRaw)
+            : (popDobRaw || '');
+        popDobRow =
+            '<tr id="apptPopDobRow"' +
+            (popDobTxt ? '' : ' style="display:none;"') + '>' +
+            '<td style="color:#888;padding:3px 8px 3px 0;">' +
+            esc(tr('appt.cal.popupDob')) + '</td>' +
+            '<td id="apptPopDobVal">' + esc(popDobTxt || '—') + '</td></tr>';
+    }
+
     content.innerHTML =
         lockBanner +
         walkInBanner +
@@ -12052,6 +12485,7 @@ function showApptPopup(a, anchor) {
             (!a.patient_id ? '' :
             '<tr><td style="color:#888;padding:3px 8px 3px 0;">' + esc(tr('appt.cal.popupNo')) + '</td>' +
             '<td>' + esc(a.patient_no || '-') + '</td></tr>') +
+            popDobRow +
             '<tr><td style="color:#888;padding:3px 8px 3px 0;">' + esc(tr('appt.cal.popupDate')) + '</td>' +
             '<td>' + fmtDateLong(a.date) + '</td></tr>' +
             '<tr><td style="color:#888;padding:3px 8px 3px 0;">' + esc(tr('appt.cal.popupTime')) + '</td>' +
@@ -12091,6 +12525,24 @@ function showApptPopup(a, anchor) {
                   'cursor:pointer;font-weight:600;">' + esc(tr('appt.cal.popupCheckIn')) + '</button>'
                 : '') +
         '</div>';
+
+    if (a.patient_id && !popDobRaw && typeof SB !== 'undefined') {
+        var popApptId = a.id;
+        var popPatientId = a.patient_id;
+        SB.from('patients').select('dob').eq('id', popPatientId).maybeSingle()
+            .then(function (r) {
+                if (!_apptPopupCtx || !_apptPopupCtx.appt ||
+                    _apptPopupCtx.appt.id !== popApptId) return;
+                if (r.error || !r.data || !r.data.dob) return;
+                var row = g('apptPopDobRow');
+                var val = g('apptPopDobVal');
+                if (!row || !val) return;
+                val.textContent = typeof formatDobAge === 'function'
+                    ? formatDobAge(r.data.dob)
+                    : r.data.dob;
+                row.style.display = '';
+            });
+    }
 
     var rect    = anchor.getBoundingClientRect();
     var PW      = 310;
@@ -12147,8 +12599,7 @@ function wireBillPanelControls() {
 
     bindClickOnce('billPanelClose', closeBillPanel);
     bindClickOnce('addBillItemBtn', addBillItem);
-    bindClickOnce('saveBillBtn', function() { saveBill(false); });
-    bindClickOnce('savePrintBillBtn', function() { saveBill(true); });
+    bindClickOnce('createBillBtn', createBillFromCurrentList);
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
     bindClickOnce('receiptPrintOptionsBtn', reopenReceiptPrintOptionsFromReceipt);
@@ -12194,6 +12645,11 @@ function wireBillPanelControls() {
     if (paidEl && paidEl.dataset.billInputBound !== '1') {
         paidEl.dataset.billInputBound = '1';
         paidEl.addEventListener('input', recalcBalance);
+    }
+    var bTypeEl = g('bType');
+    if (bTypeEl && bTypeEl.dataset.billInputBound !== '1') {
+        bTypeEl.dataset.billInputBound = '1';
+        bTypeEl.addEventListener('change', billSyncPaymentMethodHoldFromUi);
     }
 }
 
@@ -12306,7 +12762,6 @@ function refreshBillPanelLists(opts) {
         if (manual) loadBillHistory();
         renderStep2(done);
     } else {
-        // Step 1: refresh saved bill history only — keep item picker / draft list intact
         loadBillHistory(done);
     }
 }
@@ -12331,15 +12786,6 @@ function refreshBillPanelForWorkingDate() {
             noteBillPendingRefreshed();
         }
     });
-
-    var step2 = g('billStep2');
-    if (step2 && step2.style.display !== 'none') {
-        renderStep2(function (ok2) {
-            if (ok2 !== false && typeof noteBillPendingRefreshed === 'function') {
-                noteBillPendingRefreshed();
-            }
-        }, { resetForm: false });
-    }
 }
 
 function billDoctorIdFromApptRow(q) {
@@ -12382,8 +12828,7 @@ function openBillPanel(q) {
     billPendingLastRefreshAt = null;
     renderBillPendingRefreshMeta();
 
-    // Start on Step 1; load treatment item dropdown cache then pending lists
-    switchBillTab(1);
+    // Load treatment item dropdown cache then pending lists
     loadTreatmentItemsForBilling(function() {
         loadPendingLists(function(ok) {
             if (ok !== false) noteBillPendingRefreshed();
@@ -12418,17 +12863,14 @@ function closeBillPanel() {
 // BILL STEP TABS
 // ════════════════════════════════════════════════════════════════
 function switchBillTab(n) {
-    var wasStep2 = billStep2IsVisible();
-    g('billTab1Btn').classList.toggle('active', n === 1);
-    g('billTab2Btn').classList.toggle('active', n === 2);
-    g('billStep1').style.display = n === 1 ? '' : 'none';
-    g('billStep2').style.display = n === 2 ? '' : 'none';
-    if (n === 1 && wasStep2) {
-        loadPendingLists(function(ok) {
-            if (ok !== false) noteBillPendingRefreshed();
-        });
+    var step1 = g('billStep1');
+    if (step1) step1.style.display = '';
+    var step2 = g('billStep2');
+    if (step2) {
+        step2.style.display = 'none';
+        step2.classList.add('hidden');
     }
-    if (n === 2) {
+    if (n === 2 && typeof renderStep2 === 'function') {
         renderStep2(function(ok) {
             if (ok !== false) noteBillPendingRefreshed();
         }, { resetForm: true });
@@ -12615,7 +13057,32 @@ function addNewPendingList() {
     if (g('pendingListLabel')) g('pendingListLabel').focus();
 }
 
-function saveCurrentPendingList() {
+function createBillFromCurrentList() {
+    if (!pendingLists.length || pendingIdx < 0) {
+        alert(tr('bill.alert.createListFirst'));
+        return;
+    }
+    syncPendingDraftFromInputs();
+    syncPendingListDoctorFromUi();
+    var pl = pendingLists[pendingIdx];
+    var sub = pendingListSubtotalFromItems(billItems);
+
+    if (sub <= 0.005) {
+        alert(tr('bill.alert.addItemsFirst'));
+        return;
+    }
+    if (!pl.doctor_id && !pendingListDoctorIdFromUi()) {
+        alert(tr('bill.alert.selectDoctorForList'));
+        var drSel = g('pendingListDoctor');
+        if (drSel) drSel.focus();
+        return;
+    }
+
+    saveCurrentPendingList({ createBill: true });
+}
+
+function saveCurrentPendingList(opts) {
+    opts = opts || {};
     if (!pendingLists.length || pendingIdx < 0) return;
     var pl    = pendingLists[pendingIdx];
     var lockKey = pl.id || ('idx-' + pendingIdx);
@@ -12686,6 +13153,34 @@ function saveCurrentPendingList() {
         var t = new Date().toLocaleTimeString(apptDateLocale(), { hour: '2-digit', minute: '2-digit' });
 
         function finishListSaved() {
+            if (opts.createBill && sub > 0.005) {
+                if (statusEl) {
+                    statusEl.textContent = tr('bill.status.creatingBill');
+                    statusEl.style.color = '#888';
+                }
+                syncUnpaidBillFromPendingList(pl, sub, function (err) {
+                    releaseSaveLock();
+                    if (err) {
+                        if (statusEl) {
+                            statusEl.textContent = trRepl('bill.status.billSaveFailed', {
+                                MSG: err.message || String(err)
+                            });
+                            statusEl.style.color = '#dc2626';
+                        }
+                        return;
+                    }
+                    if (statusEl) {
+                        statusEl.textContent = trRepl('bill.status.savedBillAt', { T: t });
+                        statusEl.style.color = '#2563eb';
+                    }
+                    if (pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
+                    renderStep1UI();
+                    noteBillPendingRefreshed();
+                    loadBillHistory();
+                    try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+                });
+                return;
+            }
             releaseSaveLock();
             if (statusEl) {
                 statusEl.textContent = trRepl('bill.status.savedAt', { T: t });
@@ -12753,6 +13248,41 @@ function removeCurrentPendingList() {
         });
     } else {
         doRemove();
+    }
+}
+
+/** After a bill is fully paid, return to a fresh new-list workspace. */
+function resetBillCreationAfterPayment(billId) {
+    if (typeof closeModal === 'function') {
+        closeModal('billDetailModal');
+        closeModal('addPaymentModal');
+    }
+    bdCurrentBill = null;
+
+    var linkedId = null;
+    if (billId && pendingLists.length) {
+        for (var i = 0; i < pendingLists.length; i++) {
+            if (pendingLists[i] && pendingLists[i].bill_id === billId) {
+                linkedId = pendingLists[i].id || null;
+                break;
+            }
+        }
+    }
+
+    function startFreshList() {
+        addNewPendingList();
+        var formSec = g('billFormSection');
+        if (formSec && formSec.scrollIntoView) {
+            try { formSec.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {
+                formSec.scrollIntoView(true);
+            }
+        }
+    }
+
+    if (linkedId) {
+        removePaidPendingList(linkedId, startFreshList);
+    } else {
+        startFreshList();
     }
 }
 
@@ -14071,7 +14601,7 @@ function billBillDateIso(b) {
     return raw;
 }
 
-/** Bill History panel — show only after Step 2 records payment (or voided / legacy paid rows). */
+/** Bill History panel — bills with line items, payments, or voided rows. */
 function billEligibleForPatientHistory(b) {
     if (!b || !b.id) return false;
     if (billRecordIsVoid(b)) return true;
@@ -14464,9 +14994,13 @@ function executeBillHistoryPrint(bills, opts) {
     popup.document.write(
         '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
         esc(tr('bill.history.printTitle')) + '</title></head><body>' + bodyHtml +
-        '<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>'
+        '<script>' +
+        (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
+        'window.onload=function(){setTimeout(function(){try{window.print();}catch(e){if(typeof __ppClose==="function")__ppClose();}},300);};' +
+        '<\/script></body></html>'
     );
     popup.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
 }
 
 function confirmBillHistoryPrint() {
@@ -14795,7 +15329,11 @@ function renderBillHistoryRows(wrap, data) {
             var voided  = billRecordIsVoid(b);
             var div = document.createElement('div');
             div.className = voided ? 'bill-history-row bill-history-row--void' : 'bill-history-row';
-            var isPartial = !voided && (b.status === 'Partial' || (parseFloat(b.balance) > 0));
+            var isPartial = !voided && (
+                b.status === 'Partial' ||
+                b.status === 'Pending' ||
+                (parseFloat(b.balance) > 0.005)
+            );
             if (!voided) {
                 div.style.cssText =
                     'background:' + (isPartial ? '#fffbeb' : '#f9f9f9') + ';' +
@@ -15554,6 +16092,11 @@ function confirmAddPayment() {
             loadBillPayments(bdCurrentBill.id);
             loadBillHistory();
             try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+
+            if (newBalance <= 0.005) {
+                var paidBillId = bdCurrentBill.id;
+                resetBillCreationAfterPayment(paidBillId);
+            }
         });
     });
 }
@@ -16098,6 +16641,7 @@ function printReceiptDocument() {
         if (done) return;
         done = true;
         releaseLock();
+        if (typeof closeModal === 'function') closeModal('receiptModal');
     }
 
     try {
@@ -16767,14 +17311,9 @@ function refreshOpenBillPanelForLang() {
     if (typeof applyI18nInRoot === 'function') applyI18nInRoot(panel);
     renderBillPendingRefreshMeta();
     if (typeof applyReceiptClinicHeader === 'function') applyReceiptClinicHeader();
-    var step2Visible = g('billStep2') && g('billStep2').style.display !== 'none';
-    if (step2Visible) {
-        renderStep2();
-    } else {
-        renderStep1UI();
-        renderBillItems();
-        recalcPendingSubtotal();
-    }
+    renderStep1UI();
+    renderBillItems();
+    recalcPendingSubtotal();
     if (typeof loadBillHistory === 'function') loadBillHistory();
     else if (typeof applyBillHistoryFilter === 'function') applyBillHistoryFilter();
     if (typeof loadBillTypes === 'function') {

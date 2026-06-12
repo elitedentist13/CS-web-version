@@ -2568,7 +2568,9 @@ var CFG = (function () {
                 { labelKey: 'cfg.tpl.ph.patientHkid', tag: '{patient_hkid}' },
                 { labelKey: 'cfg.tpl.ph.patientDob', tag: '{patient_dob}' },
                 { labelKey: 'cfg.tpl.ph.patientEmail', tag: '{patient_email}' },
-                { labelKey: 'cfg.tpl.ph.patientAddress', tag: '{patient_address}' }
+                { labelKey: 'cfg.tpl.ph.patientAddress', tag: '{patient_address}' },
+                { labelKey: 'cfg.tpl.ph.patientGender', tag: '{patient_gender}' },
+                { labelKey: 'cfg.tpl.ph.patientAge', tag: '{patient_age}' }
             ]
         },
         {
@@ -2625,6 +2627,15 @@ var CFG = (function () {
                 { labelKey: 'cfg.tpl.ph.sickLeaveToDdmm', tag: '{sick_leave_to_ddmm}' },
                 { labelKey: 'cfg.tpl.ph.sickLeaveDiagnosis', tag: '{diagnosis}' },
                 { labelKey: 'cfg.tpl.ph.patientChineseNameSpaced', tag: '{patient_chinese_name_spaced}' }
+            ]
+        },
+        {
+            groupKey: 'cfg.tpl.phGroup.referral',
+            noteKey: 'cfg.tpl.phGroup.referralNote',
+            items: [
+                { labelKey: 'cfg.tpl.ph.referredTo', tag: '{referred_to}' },
+                { labelKey: 'cfg.tpl.ph.referralDiagnosis', tag: '{diagnosis}' },
+                { labelKey: 'cfg.tpl.ph.referralRemarks', tag: '{remarks}' }
             ]
         },
         {
@@ -2710,6 +2721,8 @@ var CFG = (function () {
             patient_dob: ctr('cfg.tpl.sample.patientDob'),
             patient_email: ctr('cfg.tpl.sample.patientEmail'),
             patient_address: ctr('cfg.tpl.sample.patientAddress'),
+            patient_gender: ctr('patient.form.sexFemale'),
+            patient_age: '34Y',
             doctor_name: ctr('cfg.tpl.sample.doctorName'),
             doctor_code: ctr('cfg.tpl.sample.doctorCode'),
             doctor_eng: ctr('cfg.tpl.sample.doctorEng'),
@@ -2780,6 +2793,12 @@ var CFG = (function () {
             contentKey: 'cfg.tpl.seed.sickLeaveHtml',
             type: 'report',
             code: 'SICK_LEAVE'
+        },
+        {
+            nameKey: 'cfg.tpl.seed.referralLetter',
+            contentKey: 'cfg.tpl.seed.referralLetterHtml',
+            type: 'report',
+            code: 'REFERRAL_LETTER'
         }
     ];
 
@@ -3347,6 +3366,10 @@ var CFG = (function () {
             typeof conFormsSickLeaveTemplateBodyHtml === 'function') {
             seedHtml = conFormsSickLeaveTemplateBodyHtml();
         }
+        if (s.contentKey === 'cfg.tpl.seed.referralLetterHtml' &&
+            typeof conFormsReferralLetterTemplateBodyHtml === 'function') {
+            seedHtml = conFormsReferralLetterTemplateBodyHtml();
+        }
         _tplSetContent(seedHtml);
         if (typeof DocEditor !== 'undefined') DocEditor.focusEditor('tpl_content_editor');
         toast(ctr('cfg.msg.seedInserted'));
@@ -3508,6 +3531,7 @@ var CFG = (function () {
                     body + '</body></html>'
                 );
                 win.document.close();
+                if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(win);
                 setTimeout(function () { win.focus(); win.print(); }, 300);
             });
         }
@@ -3650,6 +3674,7 @@ var CFG = (function () {
                 }
                 printWindow.document.write(printContent);
                 printWindow.document.close();
+                if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(printWindow);
                 printWindow.focus();
                 setTimeout(function() {
                     printWindow.print();
@@ -4967,14 +4992,18 @@ var CFG = (function () {
             'sc=Math.max(0.42,Math.floor(sc*100)/100);' +
             'if(sc<1){de.style.zoom=String(sc);bd.style.zoom=String(sc);}' +
             '}' +
+            (typeof printPopupAutoCloseInlineScript === 'function'
+                ? printPopupAutoCloseInlineScript()
+                : '') +
             'window.onload=function(){' +
             'try{fitPageRatio();}catch(e0){}' +
-            'setTimeout(function(){window.print();},280);' +
+            'setTimeout(function(){try{window.print();}catch(e2){if(typeof __ppClose==="function")__ppClose();}},280);' +
             '};' +
             '})();<\/script>' +
             '</body></html>'
         );
         popup.document.close();
+        if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
         return true;
     }
 

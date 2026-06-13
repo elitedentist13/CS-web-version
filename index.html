@@ -948,6 +948,10 @@
                        font-weight:700;cursor:pointer;">
           Import Photo List
         </button>
+        <button type="button" id="plusApptClearModeBtn" class="plusappt-clear-mode-btn"
+                aria-pressed="false" data-i18n-title="appt.plusAppt.clearModeTitle">
+          <span data-i18n="appt.plusAppt.clearMode"></span>
+        </button>
         <div id="apptMemoHost-plusappt" class="appt-memo-host appt-memo-host--plusappt"></div>
         <div id="apptPatientCount-plusappt" class="appt-patient-count" aria-live="polite"></div>
         <button type="button" id="plusApptAddBtn" class="btn-add plusappt-add-btn" disabled
@@ -958,7 +962,7 @@
     <p class="plusappt-hint" data-i18n="appt.plusAppt.hint"></p>
 
     <div class="plusappt-layout">
-      <aside class="plusappt-sidebar">
+      <aside id="plusApptSidebarRegion" class="plusappt-sidebar">
         <div id="plusApptClinicBadge" class="plusappt-clinic-badge" aria-live="polite"></div>
         <div class="plusappt-sidebar-tools">
           <button type="button" id="plusApptSettingsBtn" class="gcal-settings-btn" data-i18n-title="appt.cal.settingsBtnTitle">⚙</button>
@@ -971,6 +975,8 @@
         <div id="plusApptTransferLog" class="plusappt-transfer-log" aria-live="polite" hidden aria-hidden="true"></div>
         <div class="plusappt-mini-hint" data-i18n="appt.plusAppt.transferMiniHint">Tip: Drag appointment row to mini calendar, pick a new date, then drag back to a time slot to transfer.</div>
       </aside>
+      <button type="button" id="plusApptSidebarToggle" class="plusappt-sidebar-toggle-btn"
+              aria-expanded="true" aria-controls="plusApptSidebarRegion">◀</button>
       <div class="plusappt-main">
         <div id="plusApptTimelineHead" class="plusappt-timeline-head" aria-live="polite"></div>
         <div id="plusApptSingleView" class="plusappt-single-view">
@@ -1550,6 +1556,26 @@
         <select id="conPsClinicFilterMed" data-i18n-title="common.conPsClinicTitle"
                 style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
         <span class="history-search-hint" data-i18n="con.med.searchHint"></span>
+      </div>
+    </div>
+
+    <!-- Alert column display settings -->
+    <div class="history-alert-display-card">
+      <div class="history-alert-display-title" data-i18n="con.med.alertDisplayTitle"></div>
+      <p class="history-alert-display-hint" data-i18n="con.med.alertDisplayHint"></p>
+      <div class="history-alert-display-checks">
+        <label class="history-alert-display-check">
+          <input type="checkbox" id="conMedAlertShowHistory">
+          <span data-i18n="con.med.alertShowHistory"></span>
+        </label>
+        <label class="history-alert-display-check">
+          <input type="checkbox" id="conMedAlertShowMeds">
+          <span data-i18n="con.med.alertShowMeds"></span>
+        </label>
+        <label class="history-alert-display-check">
+          <input type="checkbox" id="conMedAlertShowAllergy">
+          <span data-i18n="con.med.alertShowAllergy"></span>
+        </label>
       </div>
     </div>
 
@@ -3217,12 +3243,8 @@
           <input type="text" id="edit_phone">
         </div>
         <div class="fg">
-          <label data-i18n="patient.form.mobilePhone"></label>
+          <label data-i18n="patient.form.otherPhones"></label>
           <input type="text" id="edit_mobilePhone" inputmode="tel" autocomplete="tel">
-        </div>
-        <div class="fg">
-          <label data-i18n="patient.form.email"></label>
-          <input type="email" id="edit_email">
         </div>
         <div class="fg">
           <label data-i18n="patient.form.sex"></label>
@@ -3231,6 +3253,10 @@
             <option value="M" data-i18n="patient.form.sexMale"></option>
             <option value="F" data-i18n="patient.form.sexFemale"></option>
           </select>
+        </div>
+        <div class="fg">
+          <label data-i18n="patient.form.email"></label>
+          <input type="email" id="edit_email">
         </div>
         <div class="fg">
           <label data-i18n="patient.form.dob"></label>

@@ -167,6 +167,9 @@
         'patient.th.hkid': { en: 'HKID', 'zh-CN': '香港身份证', 'zh-Hant': '香港身份證' },
         'patient.th.insurance': { en: 'Insurance No.', 'zh-CN': '保险编号', 'zh-Hant': '保險編號' },
         'patient.th.alerts': { en: 'Alerts', 'zh-CN': '警示', 'zh-Hant': '警示' },
+        'patient.alertCol.history': { en: 'Hx', 'zh-CN': '病史', 'zh-Hant': '病史' },
+        'patient.alertCol.meds': { en: 'Meds', 'zh-CN': '药物', 'zh-Hant': '藥物' },
+        'patient.alertCol.allergy': { en: 'Allergy', 'zh-CN': '过敏', 'zh-Hant': '過敏' },
         'patient.th.bananaIndex': { en: 'Banana Index', 'zh-CN': '香蕉指数', 'zh-Hant': '香蕉指數' },
         'patient.th.actions': { en: 'Actions', 'zh-CN': '操作', 'zh-Hant': '操作' },
         'patient.dirBanana.title': { en: 'Banana Info', 'zh-CN': '香蕉信息', 'zh-Hant': '香蕉資訊' },
@@ -301,6 +304,7 @@
         'patient.form.phone': { en: 'Phone Number', 'zh-CN': '电话号码', 'zh-Hant': '電話號碼' },
         'patient.form.phoneShort': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
         'patient.form.mobilePhone': { en: 'Mobile Phone', 'zh-CN': '手机号码', 'zh-Hant': '手機號碼' },
+        'patient.form.otherPhones': { en: 'Other Phone Numbers', 'zh-CN': '其他电话', 'zh-Hant': '其他電話' },
         'patient.form.email': { en: 'Email', 'zh-CN': '邮箱', 'zh-Hant': '電郵' },
         'patient.form.sex': { en: 'Sex', 'zh-CN': '性别', 'zh-Hant': '性別' },
         'patient.form.select': { en: '-- Select --', 'zh-CN': '-- 请选择 --', 'zh-Hant': '-- 請選擇 --' },
@@ -542,6 +546,47 @@
         },
         'appt.plusAppt.th.name': { en: 'Patient name', 'zh-CN': '患者姓名', 'zh-Hant': '病人姓名' },
         'appt.plusAppt.th.treatment': { en: 'Treatment', 'zh-CN': '治疗项目', 'zh-Hant': '治療項目' },
+        'appt.plusAppt.clearMode': { en: 'Clear mode', 'zh-CN': '简洁模式', 'zh-Hant': '簡潔模式' },
+        'appt.plusAppt.clearModeTitle': {
+            en: 'Compact rows — text only, no badges or action buttons',
+            'zh-CN': '紧凑行 — 仅显示基本文字，隐藏徽章与操作按钮',
+            'zh-Hant': '緊湊列 — 僅顯示基本文字，隱藏徽章與操作按鈕'
+        },
+        'appt.plusAppt.clearModeSetting': {
+            en: 'Clear mode (compact text rows)',
+            'zh-CN': '简洁模式（紧凑文字行）',
+            'zh-Hant': '簡潔模式（緊湊文字列）'
+        },
+        'appt.plusAppt.sidebarHideTitle': {
+            en: 'Hide sidebar — more room for schedule columns',
+            'zh-CN': '隐藏侧栏 — 为排程列腾出更多空间',
+            'zh-Hant': '隱藏側欄 — 為排程欄騰出更多空間'
+        },
+        'appt.plusAppt.sidebarShowTitle': {
+            en: 'Show sidebar — calendar and settings',
+            'zh-CN': '显示侧栏 — 日历与设置',
+            'zh-Hant': '顯示側欄 — 日曆與設定'
+        },
+        'appt.plusAppt.remarksDblClickHint': {
+            en: 'Double-click to edit remarks',
+            'zh-CN': '双击编辑备注',
+            'zh-Hant': '雙擊編輯備註'
+        },
+        'appt.plusAppt.remarksLineUp': {
+            en: 'Previous remarks line',
+            'zh-CN': '上一条备注',
+            'zh-Hant': '上一條備註'
+        },
+        'appt.plusAppt.remarksLineDown': {
+            en: 'Next remarks line',
+            'zh-CN': '下一条备注',
+            'zh-Hant': '下一條備註'
+        },
+        'appt.plusAppt.treatmentDblClickHint': {
+            en: 'Double-click to edit treatment',
+            'zh-CN': '双击编辑治疗项目',
+            'zh-Hant': '雙擊編輯治療項目'
+        },
         'appt.plusAppt.shortcuts': { en: 'Shortcuts', 'zh-CN': '快捷', 'zh-Hant': '快捷' },
         'appt.plusAppt.scEditPatient': { en: 'Edit patient', 'zh-CN': '编辑患者', 'zh-Hant': '編輯病人' },
         'appt.plusAppt.scNotes': { en: 'Notes', 'zh-CN': '病历', 'zh-Hant': '病歷' },
@@ -2451,6 +2496,15 @@
         'con.med.phAllergy': { en: 'Drug allergies, latex, food allergies…', 'zh-CN': '药物过敏、乳胶、食物过敏…', 'zh-Hant': '藥物過敏、乳膠、食物過敏…' },
         'con.med.saveHint': { en: 'Changes are saved to the patient record', 'zh-CN': '更改将保存至患者档案', 'zh-Hant': '更改將儲存至病人檔案' },
         'con.med.saveBtn': { en: '💾 Save Medical History', 'zh-CN': '💾 保存病史', 'zh-Hant': '💾 儲存病史' },
+        'con.med.alertDisplayTitle': { en: 'Show in patient Alert column', 'zh-CN': '显示于患者警示栏', 'zh-Hant': '顯示於病人警示欄' },
+        'con.med.alertDisplayHint': {
+            en: 'Selected fields appear in the Alert column on appointment rows and the patient directory. Medical Alerts (from patient profile) is always included when set.',
+            'zh-CN': '所选字段会显示在预约列表与患者名册的警示栏。患者档案中的「医疗警示」如有内容会始终显示。',
+            'zh-Hant': '所選欄位會顯示在預約列表與病人名冊的警示欄。病人檔案中的「醫療警示」如有內容會始終顯示。'
+        },
+        'con.med.alertShowHistory': { en: 'Medical history', 'zh-CN': '病史', 'zh-Hant': '病史' },
+        'con.med.alertShowMeds': { en: 'Current medications', 'zh-CN': '现正服用药物', 'zh-Hant': '現正服用藥物' },
+        'con.med.alertShowAllergy': { en: 'Allergies', 'zh-CN': '过敏', 'zh-Hant': '過敏' },
         'con.den.title': { en: '🦷 Dental History', 'zh-CN': '🦷 牙科病史', 'zh-Hant': '🦷 牙科病史' },
         'con.den.searchHint': { en: 'Select a patient to view or edit dental history', 'zh-CN': '选择患者以查看或编辑牙科病史', 'zh-Hant': '選擇病人以查看或編輯牙科病史' },
         'con.den.formTitle': { en: 'Dental Information', 'zh-CN': '牙科资料', 'zh-Hant': '牙科資料' },

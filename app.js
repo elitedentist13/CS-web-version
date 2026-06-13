@@ -1754,6 +1754,89 @@ function patientSearchOrFilterCore(q) {
     return parts.join(',');
 }
 
+// ════════════════════════════════════════════════════════════════
+// PATIENT ALERT COLUMN — optional medical history / meds / allergy
+// ════════════════════════════════════════════════════════════════
+var PATIENT_ALERT_DISPLAY_LS = 'joyful_patient_alert_display_v1';
+var patientAlertDisplayPrefs = {
+    showHistory: false,
+    showMedications: false,
+    showAllergies: false
+};
+
+function loadPatientAlertDisplayPrefs() {
+    try {
+        var raw = localStorage.getItem(PATIENT_ALERT_DISPLAY_LS);
+        if (!raw) return;
+        var o = JSON.parse(raw);
+        if (!o || typeof o !== 'object') return;
+        if (typeof o.showHistory === 'boolean') patientAlertDisplayPrefs.showHistory = o.showHistory;
+        if (typeof o.showMedications === 'boolean') {
+            patientAlertDisplayPrefs.showMedications = o.showMedications;
+        }
+        if (typeof o.showAllergies === 'boolean') patientAlertDisplayPrefs.showAllergies = o.showAllergies;
+    } catch (e) {}
+}
+
+function savePatientAlertDisplayPrefs() {
+    try {
+        localStorage.setItem(PATIENT_ALERT_DISPLAY_LS, JSON.stringify(patientAlertDisplayPrefs));
+    } catch (e) {}
+}
+
+function patientAlertDisplayNeedsExtraFields() {
+    return !!(patientAlertDisplayPrefs.showHistory ||
+        patientAlertDisplayPrefs.showMedications ||
+        patientAlertDisplayPrefs.showAllergies);
+}
+
+function patientAlertFieldLabel(key) {
+    if (typeof tr !== 'function') return key;
+    if (key === 'medical_history') return tr('patient.alertCol.history');
+    if (key === 'current_medications') return tr('patient.alertCol.meds');
+    if (key === 'allergy') return tr('patient.alertCol.allergy');
+    return '';
+}
+
+function buildPatientAlertDisplayText(source) {
+    source = source || {};
+    var parts = [];
+    var base = String(source.medical_alerts || source._merged_patient_alerts || '').trim();
+    if (base) parts.push(base);
+
+    if (patientAlertDisplayPrefs.showHistory) {
+        var hx = String(source.medical_history || source._merged_medical_history || '').trim();
+        if (hx) parts.push(patientAlertFieldLabel('medical_history') + ': ' + hx);
+    }
+    if (patientAlertDisplayPrefs.showMedications) {
+        var meds = String(source.current_medications || source._merged_current_medications || '').trim();
+        if (meds) parts.push(patientAlertFieldLabel('current_medications') + ': ' + meds);
+    }
+    if (patientAlertDisplayPrefs.showAllergies) {
+        var alg = String(source.allergy || source._merged_allergy || '').trim();
+        if (alg) parts.push(patientAlertFieldLabel('allergy') + ': ' + alg);
+    }
+    return parts.join(' · ');
+}
+
+function refreshPatientAlertDisplayViews() {
+    if (typeof apptSectionIsActive === 'function' && apptSectionIsActive()) {
+        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
+        if (tab === 'queue' && typeof loadQueue === 'function') loadQueue();
+        else if (tab === 'today' && typeof loadToday === 'function') loadToday();
+        else if (tab === 'records' && typeof loadApptRecords === 'function') loadApptRecords();
+        else if (tab === 'plusappt' && typeof loadPlusApptDay === 'function') {
+            loadPlusApptDay({ soft: true });
+        } else if (tab === 'calendar' && typeof renderCal === 'function') renderCal();
+    }
+    var patSec = g('patientSection');
+    if (patSec && patSec.style.display !== 'none' && typeof fetchPatients === 'function') {
+        fetchPatients();
+    }
+}
+
+loadPatientAlertDisplayPrefs();
+
 var PATIENT_SEARCH_SELECT =
     'id,patient_no,full_name,chinese_name,sex,dob,phone_number,mobile_phone,hkid,email,address,' +
     'residential_district,family_history,referred_by,' +

@@ -976,6 +976,10 @@ function renderPatients(list) {
             nameHtml += '<span class="patient-dir-name-en">—</span>';
         }
 
+        var alertTxt = typeof buildPatientAlertDisplayText === 'function'
+            ? buildPatientAlertDisplayText(p)
+            : String(p.medical_alerts || '').trim();
+
         var tr = document.createElement('tr');
         tr.setAttribute('data-patient-id', p.id);
         tr.style.cursor = 'pointer';
@@ -989,8 +993,9 @@ function renderPatients(list) {
             '<td style="white-space:nowrap;">'+dob+'</td>' +
             '<td>'+esc(p.hkid||'--')+'</td>' +
             '<td>'+esc(p.insurance_no||'--')+'</td>' +
-            '<td><small style="color:'+(p.medical_alerts?'var(--danger)':'#bbb')+';">' +
-                esc(p.medical_alerts||patTr('patient.alertsNone'))+'</small></td>' +
+            '<td><small style="color:' + (alertTxt ? 'var(--danger)' : '#bbb') + ';">' +
+                esc(alertTxt || patTr('patient.alertsNone')) +
+            '</small></td>' +
             '<td class="patient-dir-banana-cell">' +
                 (typeof patientDirBananaCellHtml === 'function' ? patientDirBananaCellHtml(p) : '-') +
             '</td>' +

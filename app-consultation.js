@@ -282,6 +282,7 @@ function initConsultation() {
         refreshAllClinicTagFilterSelects();
     }
     loadConsultationDoctors();
+    initMedAlertDisplayPrefs();
     refreshConFormsFontSizeSelect();
     refreshConFormsToolbarI18n();
     conTreatmentNotesCache = [];
@@ -6681,6 +6682,44 @@ function saveMedicalHistory() {
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         alert(conTrRepl('con.alert.medSaved', { NAME: conMedPatientData.full_name }));
+        if (typeof refreshPatientAlertDisplayViews === 'function') {
+            refreshPatientAlertDisplayViews();
+        }
+    });
+}
+
+var conMedAlertDisplayBound = false;
+
+function syncMedAlertDisplayCheckboxes() {
+    if (typeof loadPatientAlertDisplayPrefs === 'function') loadPatientAlertDisplayPrefs();
+    var prefs = typeof patientAlertDisplayPrefs !== 'undefined' ? patientAlertDisplayPrefs : {};
+    var h = g('conMedAlertShowHistory');
+    var m = g('conMedAlertShowMeds');
+    var a = g('conMedAlertShowAllergy');
+    if (h) h.checked = !!prefs.showHistory;
+    if (m) m.checked = !!prefs.showMedications;
+    if (a) a.checked = !!prefs.showAllergies;
+}
+
+function onMedAlertDisplayPrefChange() {
+    if (typeof patientAlertDisplayPrefs === 'undefined') return;
+    var h = g('conMedAlertShowHistory');
+    var m = g('conMedAlertShowMeds');
+    var a = g('conMedAlertShowAllergy');
+    patientAlertDisplayPrefs.showHistory = !!(h && h.checked);
+    patientAlertDisplayPrefs.showMedications = !!(m && m.checked);
+    patientAlertDisplayPrefs.showAllergies = !!(a && a.checked);
+    if (typeof savePatientAlertDisplayPrefs === 'function') savePatientAlertDisplayPrefs();
+    if (typeof refreshPatientAlertDisplayViews === 'function') refreshPatientAlertDisplayViews();
+}
+
+function initMedAlertDisplayPrefs() {
+    syncMedAlertDisplayCheckboxes();
+    if (conMedAlertDisplayBound) return;
+    conMedAlertDisplayBound = true;
+    ['conMedAlertShowHistory', 'conMedAlertShowMeds', 'conMedAlertShowAllergy'].forEach(function(id) {
+        var el = g(id);
+        if (el) el.addEventListener('change', onMedAlertDisplayPrefChange);
     });
 }
 

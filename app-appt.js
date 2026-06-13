@@ -1316,7 +1316,7 @@ function plusApptMergeSavedRow(row) {
     });
     plusApptApplyTaskStateToList(plusApptDayAppts);
     if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
-        renderPlusApptSchedule();
+        renderPlusApptSchedule(true);
         if (plusApptPendingSelectApptId) {
             var hit = plusApptFindApptById(plusApptPendingSelectApptId);
             if (hit) plusApptSelectApptRow(hit, true);
@@ -2210,7 +2210,7 @@ function onPlusApptDoctorChange() {
     plusApptClearSelection(true);
     plusApptToggleScheduleViews();
     plusApptSyncTimelineHead();
-    renderPlusApptSchedule();
+    renderPlusApptSchedule(true);
     plusApptRestoreDoctorSelection();
 }
 
@@ -2298,7 +2298,7 @@ function plusApptSetClearMode(on) {
     try { localStorage.setItem(PLUSAPPT_CLEAR_MODE_LS, on ? '1' : '0'); } catch (e) {}
     plusApptSyncClearModeUi();
     plusApptApplyClearModeLayout();
-    if (typeof renderPlusApptSchedule === 'function') renderPlusApptSchedule();
+    if (typeof renderPlusApptSchedule === 'function') renderPlusApptSchedule(true);
 }
 
 function plusApptToggleClearMode() {
@@ -2349,6 +2349,83 @@ function plusApptSyncSidebarToggleUi() {
 function plusApptApplySidebarLayout() {
     var tab = g('tab-plusappt');
     if (tab) tab.classList.toggle('plusappt-sidebar-hidden', plusApptIsSidebarHidden());
+}
+
+var plusApptRefreshDeferred = false;
+var plusApptEditEndTimer = null;
+var plusApptEditPauseBound = false;
+
+function plusApptModalIsOpen(id) {
+    var el = g(id);
+    return !!(el && el.style.display === 'block');
+}
+
+function plusApptScheduleEditPaused() {
+    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'plusappt') return false;
+    if (plusApptModalIsOpen('apptModal')) return true;
+    if (plusApptModalIsOpen('queueRemarksModal')) return true;
+    if (plusApptModalIsOpen('apptImageImportModal')) return true;
+    if (plusApptTransferDragActive) return true;
+    if (apptTransferPendingCut) return true;
+
+    var tab = g('tab-plusappt');
+    if (!tab) return false;
+    var ae = document.activeElement;
+    if (!ae || ae === document.body || ae === document.documentElement) return false;
+    if (!tab.contains(ae)) return false;
+
+    var tag = (ae.tagName || '').toUpperCase();
+    if (tag === 'TEXTAREA') return true;
+    if (tag === 'SELECT') return true;
+    if (tag === 'INPUT') {
+        var typ = (ae.type || '').toLowerCase();
+        if (typ !== 'button' && typ !== 'submit' && typ !== 'checkbox' &&
+            typ !== 'radio' && typ !== 'hidden' && typ !== 'file') {
+            return true;
+        }
+    }
+    if (ae.isContentEditable) return true;
+    return false;
+}
+
+function plusApptMarkRefreshDeferred() {
+    plusApptRefreshDeferred = true;
+}
+
+function plusApptScheduleRefreshAfterEdit() {
+    if (plusApptEditEndTimer) clearTimeout(plusApptEditEndTimer);
+    plusApptEditEndTimer = setTimeout(function() {
+        plusApptEditEndTimer = null;
+        if (plusApptScheduleEditPaused()) return;
+        if (!plusApptRefreshDeferred) return;
+        plusApptRefreshDeferred = false;
+        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'plusappt') return;
+        if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+    }, 150);
+}
+
+function plusApptBindEditPauseOnce() {
+    if (plusApptEditPauseBound) return;
+    plusApptEditPauseBound = true;
+    var tab = g('tab-plusappt');
+    if (tab) {
+        tab.addEventListener('focusin', function() {
+            if (plusApptEditEndTimer) {
+                clearTimeout(plusApptEditEndTimer);
+                plusApptEditEndTimer = null;
+            }
+        }, true);
+        tab.addEventListener('focusout', function() {
+            plusApptScheduleRefreshAfterEdit();
+        }, true);
+    }
+    ['queueRemarksModal', 'apptModal', 'apptImageImportModal'].forEach(function(mid) {
+        var modal = g(mid);
+        if (!modal) return;
+        modal.addEventListener('focusout', function() {
+            plusApptScheduleRefreshAfterEdit();
+        }, true);
+    });
 }
 
 function plusApptClearModeNameHtml(a) {
@@ -3021,7 +3098,7 @@ function apptTaskCycleFromSummary(apptId, kind) {
     if (typeof loadToday === 'function') loadToday();
     if (typeof loadQueue === 'function') loadQueue();
     if (plusApptDate === todayISO() && typeof renderPlusApptSchedule === 'function') {
-        renderPlusApptSchedule();
+        renderPlusApptSchedule(true);
     }
 }
 
@@ -3091,7 +3168,7 @@ function apptTransferHideSourceRowTemporarily(apptId) {
     document.body.classList.add('appt-transfer-cut-active');
     apptTransferRefreshVisibleListCounts();
     if (typeof renderPlusApptSchedule === 'function') {
-        renderPlusApptSchedule();
+        renderPlusApptSchedule(true);
     }
 }
 
@@ -3130,11 +3207,11 @@ function apptTransferRestorePendingCut() {
     apptTransferDismissAll();
     if (tab === 'queue' && typeof loadQueue === 'function') loadQueue();
     else if (tab === 'today' && typeof loadToday === 'function') loadToday();
-    else if (tab === 'plusappt' && typeof renderPlusApptSchedule === 'function') renderPlusApptSchedule();
+    else if (tab === 'plusappt' && typeof renderPlusApptSchedule === 'function') renderPlusApptSchedule(true);
     else {
         if (typeof loadQueue === 'function') loadQueue();
         if (typeof loadToday === 'function') loadToday();
-        if (typeof renderPlusApptSchedule === 'function') renderPlusApptSchedule();
+        if (typeof renderPlusApptSchedule === 'function') renderPlusApptSchedule(true);
     }
     if (typeof apptToast === 'function') {
         apptToast(tr('appt.plusAppt.transferCancelled'));
@@ -4362,7 +4439,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             var val = btn.getAttribute('data-task-value');
             if (!aid || !kind) return;
             plusApptSetTaskState(aid, kind, val);
-            renderPlusApptSchedule();
+            renderPlusApptSchedule(true);
         });
     });
 }
@@ -4420,7 +4497,11 @@ function renderPlusApptAllDoctorsBoard() {
     });
 }
 
-function renderPlusApptSchedule() {
+function renderPlusApptSchedule(force) {
+    if (!force && plusApptScheduleEditPaused()) {
+        plusApptMarkRefreshDeferred();
+        return;
+    }
     plusApptToggleScheduleViews();
     if (plusApptIsAllDoctorsMode()) {
         renderPlusApptAllDoctorsBoard();
@@ -4506,6 +4587,10 @@ function plusApptSetDate(iso) {
 
 function loadPlusApptDay(opts) {
     opts = opts || {};
+    if (!opts.force && plusApptScheduleEditPaused()) {
+        plusApptMarkRefreshDeferred();
+        opts.soft = true;
+    }
     if (!plusApptDate) plusApptDate = todayISO();
     var loadSeq = ++plusApptDayLoadSeq;
     plusApptSyncDateLabel();
@@ -4744,6 +4829,7 @@ function bindPlusApptTabOnce() {
     if (clearBtn) clearBtn.addEventListener('click', plusApptToggleClearMode);
     plusApptSyncClearModeUi();
     plusApptApplyClearModeLayout();
+    plusApptBindEditPauseOnce();
 
     var addBtn = g('plusApptAddBtn');
     if (addBtn) {
@@ -6186,8 +6272,8 @@ function initPlusApptTab() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// AUTO REFRESH — disabled (periodic reload disturbed data entry).
-// Manual refresh buttons and tab-switch loads still apply.
+// AUTO REFRESH — + Appointment schedule re-render is paused while the user is typing
+// (inline treatment, patient search, remarks modal, etc.); deferred refresh runs on blur.
 // ════════════════════════════════════════════════════════════════
 var apptAutoRefreshTimer = null;
 var DEFAULT_QUEUE_REFRESH_MS = 30000;
@@ -10350,6 +10436,7 @@ function bindQueueRemarksModalOnce() {
         queueRemarksEditApptId = null;
         _queueRemarksEditAppt = null;
         queueRemarksEditPriorRaw = null;
+        plusApptScheduleRefreshAfterEdit();
     }
 
     var c1 = g('closeQueueRemarks');

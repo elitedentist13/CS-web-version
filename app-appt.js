@@ -211,6 +211,7 @@ var plusApptTransferHistoryCacheKey = '';
 /** After save/edit: select this appointment row once day data reloads. */
 var plusApptPendingSelectApptId = null;
 var plusApptDayLoadSeq = 0;
+var todayLoadSeq = 0;
 var plusApptRemarksLinesCache = {};
 var apptUnpaidByPatientId = {};
 var apptUnpaidByPatientNo = {};
@@ -1230,9 +1231,6 @@ function refreshApptPlannerData(opts) {
         loadPlusApptDay();
     }
     if (tab === 'calendar' && typeof renderCal === 'function') {
-        if (typeof GCAL !== 'undefined' && GCAL.isInteractionActive && GCAL.isInteractionActive()) {
-            return;
-        }
         renderCal();
     } else if (!tab && typeof renderCal === 'function') {
         renderCal();
@@ -1427,6 +1425,7 @@ function initAppt() {
     bindPlusApptTabOnce();
     bindApptSharedMemoOnce();
     refreshApptSharedMemoI18n();
+    apptModuleBindEditPauseOnce();
     switchApptTab('queue');
     if (typeof startApptAutoRefresh === 'function') startApptAutoRefresh();
 }
@@ -2351,81 +2350,131 @@ function plusApptApplySidebarLayout() {
     if (tab) tab.classList.toggle('plusappt-sidebar-hidden', plusApptIsSidebarHidden());
 }
 
-var plusApptRefreshDeferred = false;
-var plusApptEditEndTimer = null;
-var plusApptEditPauseBound = false;
+var apptRefreshDeferred = { plusappt: false, today: false, calendar: false };
+var apptEditEndTimer = null;
+var apptEditPauseBound = false;
+var APPT_EDIT_PAUSE_TABS = { plusappt: 1, today: 1, calendar: 1 };
 
-function plusApptModalIsOpen(id) {
+function apptModuleTabEl(tabKey) {
+    return tabKey ? g('tab-' + tabKey) : null;
+}
+
+function apptModalIsOpen(id) {
     var el = g(id);
     return !!(el && el.style.display === 'block');
 }
 
-function plusApptScheduleEditPaused() {
-    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'plusappt') return false;
-    if (plusApptModalIsOpen('apptModal')) return true;
-    if (plusApptModalIsOpen('queueRemarksModal')) return true;
-    if (plusApptModalIsOpen('apptImageImportModal')) return true;
-    if (plusApptTransferDragActive) return true;
-    if (apptTransferPendingCut) return true;
-
-    var tab = g('tab-plusappt');
-    if (!tab) return false;
-    var ae = document.activeElement;
-    if (!ae || ae === document.body || ae === document.documentElement) return false;
-    if (!tab.contains(ae)) return false;
-
-    var tag = (ae.tagName || '').toUpperCase();
+function apptElementIsTextEditing(el) {
+    if (!el) return false;
+    var tag = (el.tagName || '').toUpperCase();
     if (tag === 'TEXTAREA') return true;
     if (tag === 'SELECT') return true;
     if (tag === 'INPUT') {
-        var typ = (ae.type || '').toLowerCase();
+        var typ = (el.type || '').toLowerCase();
         if (typ !== 'button' && typ !== 'submit' && typ !== 'checkbox' &&
             typ !== 'radio' && typ !== 'hidden' && typ !== 'file') {
             return true;
         }
     }
-    if (ae.isContentEditable) return true;
+    if (el.isContentEditable) return true;
     return false;
 }
 
-function plusApptMarkRefreshDeferred() {
-    plusApptRefreshDeferred = true;
+function apptModuleEditPaused(forTab) {
+    var tab = forTab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null);
+    if (!tab || !APPT_EDIT_PAUSE_TABS[tab]) return false;
+
+    if (apptModalIsOpen('apptModal')) return true;
+    if (apptModalIsOpen('queueRemarksModal')) return true;
+    if (apptModalIsOpen('apptImageImportModal')) return true;
+
+    if (plusApptTransferDragActive || apptTransferPendingCut) return true;
+
+    if (tab === 'calendar') {
+        if (typeof GCAL !== 'undefined' && GCAL.isInteractionActive && GCAL.isInteractionActive()) {
+            return true;
+        }
+        if (calMonthTransferDragApptId || calMonthTransferState) return true;
+        if (calMonthBulkTransferDragDate || calMonthBulkTransferState) return true;
+    }
+
+    var tabEl = apptModuleTabEl(tab);
+    if (!tabEl) return false;
+    var ae = document.activeElement;
+    if (!ae || ae === document.body || ae === document.documentElement) return false;
+    if (!tabEl.contains(ae)) return false;
+    return apptElementIsTextEditing(ae);
 }
 
-function plusApptScheduleRefreshAfterEdit() {
-    if (plusApptEditEndTimer) clearTimeout(plusApptEditEndTimer);
-    plusApptEditEndTimer = setTimeout(function() {
-        plusApptEditEndTimer = null;
-        if (plusApptScheduleEditPaused()) return;
-        if (!plusApptRefreshDeferred) return;
-        plusApptRefreshDeferred = false;
-        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'plusappt') return;
-        if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+function apptModuleMarkRefreshDeferred(tab) {
+    tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null);
+    if (tab && Object.prototype.hasOwnProperty.call(apptRefreshDeferred, tab)) {
+        apptRefreshDeferred[tab] = true;
+    }
+}
+
+function apptModuleRefreshAfterEdit() {
+    if (apptEditEndTimer) clearTimeout(apptEditEndTimer);
+    apptEditEndTimer = setTimeout(function() {
+        apptEditEndTimer = null;
+        if (apptModuleEditPaused()) return;
+        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
+        if (tab === 'plusappt' && apptRefreshDeferred.plusappt) {
+            apptRefreshDeferred.plusappt = false;
+            if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+        } else if (tab === 'today' && apptRefreshDeferred.today) {
+            apptRefreshDeferred.today = false;
+            if (typeof loadToday === 'function') loadToday({ soft: true });
+        } else if (tab === 'calendar' && apptRefreshDeferred.calendar) {
+            apptRefreshDeferred.calendar = false;
+            if (typeof renderCal === 'function') renderCal({ soft: true });
+        }
     }, 150);
 }
 
-function plusApptBindEditPauseOnce() {
-    if (plusApptEditPauseBound) return;
-    plusApptEditPauseBound = true;
-    var tab = g('tab-plusappt');
-    if (tab) {
+function apptModuleBindEditPauseOnce() {
+    if (apptEditPauseBound) return;
+    apptEditPauseBound = true;
+    ['plusappt', 'today', 'calendar'].forEach(function(tabKey) {
+        var tab = apptModuleTabEl(tabKey);
+        if (!tab) return;
         tab.addEventListener('focusin', function() {
-            if (plusApptEditEndTimer) {
-                clearTimeout(plusApptEditEndTimer);
-                plusApptEditEndTimer = null;
+            if (apptEditEndTimer) {
+                clearTimeout(apptEditEndTimer);
+                apptEditEndTimer = null;
             }
         }, true);
         tab.addEventListener('focusout', function() {
-            plusApptScheduleRefreshAfterEdit();
+            apptModuleRefreshAfterEdit();
         }, true);
-    }
+    });
     ['queueRemarksModal', 'apptModal', 'apptImageImportModal'].forEach(function(mid) {
         var modal = g(mid);
         if (!modal) return;
         modal.addEventListener('focusout', function() {
-            plusApptScheduleRefreshAfterEdit();
+            apptModuleRefreshAfterEdit();
         }, true);
     });
+}
+
+function plusApptModalIsOpen(id) {
+    return apptModalIsOpen(id);
+}
+
+function plusApptScheduleEditPaused() {
+    return apptModuleEditPaused('plusappt');
+}
+
+function plusApptMarkRefreshDeferred() {
+    apptModuleMarkRefreshDeferred('plusappt');
+}
+
+function plusApptScheduleRefreshAfterEdit() {
+    apptModuleRefreshAfterEdit();
+}
+
+function plusApptBindEditPauseOnce() {
+    apptModuleBindEditPauseOnce();
 }
 
 function plusApptClearModeNameHtml(a) {
@@ -4498,8 +4547,8 @@ function renderPlusApptAllDoctorsBoard() {
 }
 
 function renderPlusApptSchedule(force) {
-    if (!force && plusApptScheduleEditPaused()) {
-        plusApptMarkRefreshDeferred();
+    if (!force && apptModuleEditPaused('plusappt')) {
+        apptModuleMarkRefreshDeferred('plusappt');
         return;
     }
     plusApptToggleScheduleViews();
@@ -4587,8 +4636,8 @@ function plusApptSetDate(iso) {
 
 function loadPlusApptDay(opts) {
     opts = opts || {};
-    if (!opts.force && plusApptScheduleEditPaused()) {
-        plusApptMarkRefreshDeferred();
+    if (!opts.force && apptModuleEditPaused('plusappt')) {
+        apptModuleMarkRefreshDeferred('plusappt');
         opts.soft = true;
     }
     if (!plusApptDate) plusApptDate = todayISO();
@@ -4829,7 +4878,6 @@ function bindPlusApptTabOnce() {
     if (clearBtn) clearBtn.addEventListener('click', plusApptToggleClearMode);
     plusApptSyncClearModeUi();
     plusApptApplyClearModeLayout();
-    plusApptBindEditPauseOnce();
 
     var addBtn = g('plusApptAddBtn');
     if (addBtn) {
@@ -6272,8 +6320,8 @@ function initPlusApptTab() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// AUTO REFRESH — + Appointment schedule re-render is paused while the user is typing
-// (inline treatment, patient search, remarks modal, etc.); deferred refresh runs on blur.
+// AUTO REFRESH — schedule re-render is paused while the user is typing on
+// + Appointment, Today, or Calendar; deferred refresh runs on blur / modal close.
 // ════════════════════════════════════════════════════════════════
 var apptAutoRefreshTimer = null;
 var DEFAULT_QUEUE_REFRESH_MS = 30000;
@@ -9514,19 +9562,28 @@ function syncApptTodayDateLabels() {
     }
 }
 
-function loadToday() {
+function loadToday(opts) {
+    opts = opts || {};
+    if (!opts.force && apptModuleEditPaused('today')) {
+        apptModuleMarkRefreshDeferred('today');
+        opts.soft = true;
+    }
     var tb  = g('todayBody');
+    if (!tb) return;
+    var loadSeq = ++todayLoadSeq;
     syncApptTodayDateLabels();
-    tb.innerHTML =
-        '<tr><td colspan="9" style="text-align:center;' +
-        'color:#aaa;padding:24px;">' + esc(tr('common.loadingEllipsis')) + '</td></tr>';
+    if (!opts.soft) {
+        tb.innerHTML =
+            '<tr><td colspan="9" style="text-align:center;' +
+            'color:#aaa;padding:24px;">' + esc(tr('common.loadingEllipsis')) + '</td></tr>';
+    }
 
     var tq = SB.from('appointments').select('*')
         .eq('date', todayISO())
         .order('start_time', {ascending: true});
     tq = applyApptModuleClinicQuery(tq);
     tq.then(function(r) {
-        tb.innerHTML = '';
+        if (loadSeq !== todayLoadSeq) return;
         var doStrip = function (apptRows) {
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
                 CalDoctorColors.renderDoctorFilterStrip('todayDoctorFilterBar', apptRows || []);
@@ -9534,6 +9591,13 @@ function loadToday() {
         };
         if (r.error || !r.data || !r.data.length) {
             todayAppts = [];
+            if (!opts.force && apptModuleEditPaused('today')) {
+                apptModuleMarkRefreshDeferred('today');
+                apptRefreshPatientCountBadge('today');
+                doStrip([]);
+                return;
+            }
+            tb.innerHTML = '';
             tb.innerHTML =
                 '<tr><td colspan="9" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' + esc(tr('appt.today.noToday')) +
@@ -9543,6 +9607,7 @@ function loadToday() {
             return;
         }
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
+            if (loadSeq !== todayLoadSeq) return;
             plusApptApplyTaskStateToList(rows);
             var todayRows = rows.filter(function(a) {
                 if (!a) return false;
@@ -9555,6 +9620,13 @@ function loadToday() {
                 return true;
             });
             todayAppts = todayRows;
+            if (!opts.force && apptModuleEditPaused('today')) {
+                apptModuleMarkRefreshDeferred('today');
+                apptRefreshPatientCountBadge('today');
+                doStrip(todayRows);
+                return;
+            }
+            tb.innerHTML = '';
             var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                 ? CalDoctorColors.filterAppts(todayRows) : todayRows;
             apptRefreshPatientCountBadge('today');
@@ -9574,6 +9646,7 @@ function loadToday() {
             apptRestoreListRowSelection(tb, 'today');
             hydrateApptUnpaidBalances(todayRows, function(changed) {
                 if (!changed) return;
+                if (loadSeq !== todayLoadSeq) return;
                 if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'today') {
                     loadToday();
                 }
@@ -11003,7 +11076,12 @@ function updateQueueStatus(apptId, status) {
 // ════════════════════════════════════════════════════════════════
 // CALENDAR
 // ════════════════════════════════════════════════════════════════
-function renderCal() {
+function renderCal(opts) {
+    opts = opts || {};
+    if (!opts.force && apptModuleEditPaused('calendar')) {
+        apptModuleMarkRefreshDeferred('calendar');
+        opts = Object.assign({}, opts, { soft: true });
+    }
     var miniBtn = g('calMonthMiniBtn');
     if (miniBtn) miniBtn.style.display = (calView === 'monthly') ? 'inline-flex' : 'none';
     if (calView !== 'monthly') {
@@ -11018,8 +11096,8 @@ function renderCal() {
             miniHostHide.classList.remove('open', 'gcal-mini-cal--transfer-over', 'gcal-mini-cal--transfer-armed');
         }
     }
-    if (calView === 'weekly') renderWeekly();
-    else                       renderMonthly();
+    if (calView === 'weekly') renderWeekly(opts);
+    else                       renderMonthly(opts);
 }
 
 // ── Monthly ───────────────────────────────────────────────────
@@ -11219,7 +11297,8 @@ function repaintCalMonthPills() {
     });
 }
 
-function renderMonthly() {
+function renderMonthly(opts) {
+    opts = opts || {};
     bindCalMonthMiniToolbarBtn();
     var y  = calDate.getFullYear();
     var m  = calDate.getMonth();
@@ -11246,6 +11325,10 @@ function renderMonthly() {
             if (calView === 'monthly') renderMonthly();
         });
         calMonthApptsCache = appts.slice();
+        if (!opts.force && apptModuleEditPaused('calendar')) {
+            apptModuleMarkRefreshDeferred('calendar');
+            return;
+        }
         var map   = {};
         appts.forEach(function(a) {
             if (!map[a.date]) map[a.date] = [];
@@ -11617,11 +11700,18 @@ var GCAL = (function () {
     }
 
     // ── Main render ──────────────────────────────────────────────
-    function render() {
+    function render(opts) {
+        opts = opts || {};
         loadSettings();
         var ct = g('calTitle');
         var cb = g('calBody');
         if (!cb) return;
+        var paused = !opts.force &&
+            typeof apptModuleEditPaused === 'function' &&
+            apptModuleEditPaused('calendar');
+        if (paused && typeof apptModuleMarkRefreshDeferred === 'function') {
+            apptModuleMarkRefreshDeferred('calendar');
+        }
 
         // Always recompute calDate as today when first entering weekly view
         // (prevents stale date if tab was loaded yesterday)
@@ -11653,6 +11743,7 @@ var GCAL = (function () {
                 if (calView === 'weekly') renderWeekly();
             });
             mergeScheduleLockedLocal(appts);
+            if (paused) return;
             // collect unique doctor / treatment keys for settings panel
             knownKeys = [];
             var kSet = {};
@@ -13070,8 +13161,8 @@ var GCAL = (function () {
 }());
 
 // ── Weekly ────────────────────────────────────────────────────
-function renderWeekly() {
-    GCAL.render();
+function renderWeekly(opts) {
+    GCAL.render(opts);
 }
 
 // ── Open appointment modal pre-filled with date + time ─────────

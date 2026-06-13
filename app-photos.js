@@ -1241,14 +1241,10 @@ function photoLbPrint() {
     '<!DOCTYPE html><html><head>' +
     '<style>body{margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;}' +
     'img{max-width:100%;max-height:100vh;}</style></head><body>' +
-    '<script>' +
-    (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
-    '<\/script>' +
-    '<img src="' + src + '" onload="try{window.print();}catch(e){if(typeof __ppClose===\'function\')__ppClose();}">' +
+    '<img src="' + src + '" onload="window.print();">' +
     '</body></html>'
   );
   w.document.close();
-  if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(w);
 }
 
 function photoLbVidStart() {

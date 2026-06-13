@@ -184,74 +184,6 @@ function doConPatientSearchXray() {
 // ════════════════════════════════════════════════════════════════
 // SYNC FUNCTION — called from consultation module
 // ════════════════════════════════════════════════════════════════
-function xrayPatientBannerName(patientData) {
-    if (!patientData) return '—';
-    var en = String(patientData.full_name || '').trim();
-    var cn = String(patientData.chinese_name || '').trim();
-    return en || cn || '—';
-}
-
-function xrayPatientSearchLabel(patientData) {
-    if (!patientData) return '';
-    if (typeof xrayPatientSearchClipboardText === 'function') {
-        return xrayPatientSearchClipboardText(patientData);
-    }
-    var name = xrayPatientBannerName(patientData);
-    var no = String(patientData.patient_no || '').trim();
-    if (name && name !== '—' && no) return name + ' (#' + no + ')';
-    if (name && name !== '—') return name;
-    return no ? ('#' + no) : '';
-}
-
-function xrayMergePatientRecord(base, extra) {
-    if (!extra || !extra.id) return base || null;
-    if (!base || !base.id || String(base.id) !== String(extra.id)) {
-        return Object.assign({}, extra);
-    }
-    return Object.assign({}, base, extra);
-}
-
-function xrayResolveCurrentPatient() {
-    if (xrayPatientId && xrayPatientData) return xrayPatientData;
-    if (typeof activePatientSlots !== 'undefined' && activePatientSlots[0] &&
-        activePatientSlots[0].id) {
-        return activePatientSlots[0];
-    }
-    if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
-        return conPatientData;
-    }
-    if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
-        _patientDetailsPatient.id) {
-        return _patientDetailsPatient;
-    }
-    return null;
-}
-
-function xrayHydratePatientRecord(patientId, onDone) {
-    if (!patientId || typeof SB === 'undefined' || !SB.from) {
-        if (onDone) onDone(null);
-        return;
-    }
-    SB.from('patients').select('*').eq('id', patientId).limit(1)
-        .then(function(r) {
-            if (onDone) onDone((r.data && r.data[0]) ? r.data[0] : null);
-        })
-        .catch(function() {
-            if (onDone) onDone(null);
-        });
-}
-
-function xraySyncFromActivePatientPayload(p, source) {
-    if (!p || !p.id) return;
-    if (source && (source.indexOf('xray') >= 0 || source === 'patient-row')) return;
-    var merged = xrayMergePatientRecord(p, xrayResolveCurrentPatient());
-    syncXrayPatient(merged.id, merged);
-    xrayHydratePatientRecord(merged.id, function(full) {
-        if (!full || String(xrayPatientId) !== String(full.id)) return;
-        syncXrayPatient(full.id, full);
-    });
-}
-
 function syncXrayPatient(patientId, patientData) {
     // This is called when a patient is selected in ANY consultation tab
     // It pre-populates the X-ray tab so it's ready when clicked
@@ -261,7 +193,8 @@ function syncXrayPatient(patientId, patientData) {
     // Populate the search input
     var searchInput = g('conPsInputXray');
     if (searchInput && patientData) {
-        searchInput.value = xrayPatientSearchLabel(patientData);
+        searchInput.value = patientData.full_name + 
+            ' (#' + (patientData.patient_no || '') + ')';
     }
     
     // Close dropdown if open
@@ -274,7 +207,7 @@ function syncXrayPatient(patientId, patientData) {
     
     if (patientData) {
         var nameEl = g('conXrayBannerName');
-        if (nameEl) nameEl.textContent = xrayPatientBannerName(patientData);
+        if (nameEl) nameEl.textContent = patientData.full_name;
         
         var noEl = g('conXrayBannerNo');
         if (noEl) noEl.textContent = patientData.patient_no || '-';
@@ -1228,14 +1161,10 @@ function lbPrint() {
         '<!DOCTYPE html><html><head>' +
         '<style>body{margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;}' +
         'img{max-width:100%;max-height:100vh;}</style></head><body>' +
-        '<script>' +
-        (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
-        '<\/script>' +
-        '<img src="' + src + '" onload="try{window.print();}catch(e){if(typeof __ppClose===\'function\')__ppClose();}">' +
+        '<img src="' + src + '" onload="window.print();">' +
         '</body></html>'
     );
     w.document.close();
-    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(w);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1943,9 +1872,11 @@ var XRAY_LAUNCHER_PORT = 17890;
 var XRAY_LAUNCHER_BASE = 'http://127.0.0.1:' + XRAY_LAUNCHER_PORT;
 
 function xrayLauncherBlockedByPage() {
-    // Browser vendors allow loopback bridges like 127.0.0.1 from secure pages
-    // with CORS/PNA preflight. Keep GitHub Pages able to reach the local launcher.
-    return false;
+    try {
+        return window.location.protocol === 'https:';
+    } catch (eBlock) {
+        return false;
+    }
 }
 
 /** Quick check: is tools/Start X-Ray Launcher.bat running on this PC? */
@@ -1978,8 +1909,7 @@ function pingXrayLauncher(cb) {
             cb({
                 online: !!(body && body.ok),
                 carestream_exists: !!(body && body.carestream_exists),
-                aidental_exists: !!(body && body.aidental_exists),
-                nntnewtom_exists: !!(body && body.nntnewtom_exists)
+                aidental_exists: !!(body && body.aidental_exists)
             });
         })
         .catch(function() {
@@ -1991,66 +1921,54 @@ function pingXrayLauncher(cb) {
         });
 }
 
-function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
-    if (typeof opts === 'function') {
-        cb = opts;
-        opts = {};
-    }
-    opts = opts || {};
+function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, cb) {
     if (xrayLauncherBlockedByPage()) {
         cb(false);
         return;
     }
     var patQ = '';
-    var qParts = [];
-    if (patient) appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '');
-    if (opts.appPath) {
-        qParts.push('app_path=' + encodeURIComponent(opts.appPath));
+    if (patient) {
+        var qParts = [];
+        var patNo = String(patient.patient_no || '').trim();
+        var patName = String(patient.full_name || '').trim();
+        if (patNo) {
+            qParts.push('patient_no=' + encodeURIComponent(patNo));
+        }
+        if (patName) {
+            qParts.push('patient_name=' + encodeURIComponent(patName));
+        }
+        if (qParts.length) patQ = '?' + qParts.join('&');
     }
-    var searchText = opts.searchText ||
-        (patient && typeof xrayPatientSearchTextForLauncher === 'function'
-            ? xrayPatientSearchTextForLauncher(patient, launcherKey)
-            : '');
-    if (searchText) {
-        qParts.push('search_text=' + encodeURIComponent(searchText));
-    }
-    if (launcherKey === 'aidental') {
-        qParts.push('aidental_mode=' + encodeURIComponent(opts.aidentalMode || 'auto'));
-    }
-    if (qParts.length) patQ = '?' + qParts.join('&');
     var url = XRAY_LAUNCHER_BASE + '/open/' +
         encodeURIComponent(launcherKey || 'carestream') + patQ;
     var finished = false;
-    var bridgeTimeout = (launcherKey === 'aidental') ? 90000 : 2800;
     var timer = setTimeout(function() {
         if (!finished) {
             finished = true;
-            cb(false, {});
+            cb(false);
         }
-    }, bridgeTimeout);
+    }, 2800);
     fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' })
         .then(function(r) {
             if (finished) return null;
             clearTimeout(timer);
-            return r.json().catch(function() { return {}; }).then(function(body) {
-                return { httpOk: r.ok, body: body || {} };
-            });
-        })
-        .then(function(res) {
-            if (finished || res === null) return;
-            finished = true;
-            var body = res.body || {};
-            var bridgeOk = !!(body.ok || body.aidental_running || res.httpOk);
-            if (launcherKey === 'aidental') {
-                bridgeOk = !!body.aidental_running;
+            if (!r.ok) {
+                finished = true;
+                cb(false);
+                return null;
             }
-            cb(bridgeOk, body);
+            return r.json().catch(function() { return {}; });
+        })
+        .then(function(body) {
+            if (finished || body === null) return;
+            finished = true;
+            cb(!!(body && body.ok));
         })
         .catch(function() {
             if (!finished) {
                 finished = true;
                 clearTimeout(timer);
-                cb(false, {});
+                cb(false);
             }
         });
 }
@@ -2109,25 +2027,9 @@ var XRAY_SYSTEMS = {
         defaultSubPattern: 'Xrays\\{patient_no}',
         defaultAppPath: 'C:\\Ai-Dental\\Ai-Dental-Client\\Ai-Dental.exe',
         launchProtocol: false,
-        folderHintKey: 'media.local.aidentalUseFolder',
         openMsgKey: 'media.local.aidentalOpen',
         launchedMsgKey: 'media.local.aidentalLaunched',
         launcherNeededMsgKey: 'media.local.aidentalLauncherNeeded'
-    },
-    nntnewtom: {
-        nameKey: 'media.sys.nntnewtom',
-        infoKey: 'media.sys.nntnewtom.info',
-        url: '',
-        launcherKey: 'nntnewtom',
-        desktopShortcutName: 'NNT / NEWTOM',
-        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\NNT.lnk',
-        defaultDataPath: 'C:\\Image',
-        defaultSubPattern: 'Xrays\\{patient_no}',
-        defaultAppPath: 'C:\\NNT\\NNT.exe',
-        launchProtocol: false,
-        openMsgKey: 'media.local.nntnewtomOpen',
-        launchedMsgKey: 'media.local.nntnewtomLaunched',
-        launcherNeededMsgKey: 'media.local.nntnewtomLauncherNeeded'
     },
     Trophy: {
         nameKey: 'media.sys.trophy',
@@ -2241,31 +2143,13 @@ function seedXrayLocalPathsFromDesktop() {
 function xrayLocalPathTokens(patient) {
     patient = patient || xrayPatientData || {};
     var no = String(patient.patient_no || '').trim();
-    var cn = String(patient.chinese_name || '').trim();
-    var en = String(patient.full_name || '').trim();
-    var name = en || cn;
+    var name = String(patient.full_name || '').trim();
     return {
         patient_no: no,
         patient_no_clean: no.replace(/[^a-zA-Z0-9]/g, ''),
         patient_name: name,
-        patient_name_clean: name.replace(/\s+/g, ''),
-        chinese_name: cn
+        patient_name_clean: name.replace(/\s+/g, '')
     };
-}
-
-/** Search string sent to the local launcher (varies by imaging software). */
-function xrayPatientSearchTextForLauncher(patient, launcherKey) {
-    if (!patient) return '';
-    var no = String(patient.patient_no || '').trim();
-    var cn = String(patient.chinese_name || '').trim();
-    var en = String(patient.full_name || '').trim();
-    if (launcherKey === 'aidental') {
-        if (en) return en;
-        if (cn) return cn;
-        if (no) return no;
-        return '';
-    }
-    return xrayPatientSearchClipboardText(patient);
 }
 
 /** Clipboard text for imaging software search: "Full Name (patient no.)". */
@@ -2277,124 +2161,6 @@ function xrayPatientSearchClipboardText(patient) {
     if (tokens.patient_name) return tokens.patient_name;
     if (tokens.patient_no) return tokens.patient_no;
     return '';
-}
-
-function xrayPatientNeedsHydration(patient) {
-    if (!patient || !patient.id) return false;
-    return !String(patient.dob || '').trim() ||
-        !String(patient.sex || '').trim() ||
-        !String(patient.hkid || '').trim();
-}
-
-function xrayEnsurePatientForBridge(patient, cb) {
-    if (!patient || !patient.id || typeof cb !== 'function') {
-        if (cb) cb(patient);
-        return;
-    }
-    if (!xrayPatientNeedsHydration(patient)) {
-        cb(patient);
-        return;
-    }
-    xrayHydratePatientRecord(patient.id, function(full) {
-        cb(full ? Object.assign({}, patient, full) : patient);
-    });
-}
-
-/** Multi-line summary copied for Ai-Dental new-patient entry. */
-function xrayPatientBridgeClipboardText(patient) {
-    patient = patient || {};
-    var lines = [];
-    var no = String(patient.patient_no || '').trim();
-    var cn = String(patient.chinese_name || '').trim();
-    var en = String(patient.full_name || '').trim();
-    var dob = String(patient.dob || '').trim();
-    var sex = String(patient.sex || '').trim();
-    var hkid = String(patient.hkid || '').trim();
-    var phone = String(patient.phone_number || patient.phone || patient.mobile_phone || '').trim();
-    if (no) lines.push('Patient No: ' + no);
-    if (cn) lines.push('Chinese Name: ' + cn);
-    if (en) lines.push('Name: ' + en);
-    if (dob) lines.push('DOB: ' + dob);
-    if (sex) lines.push('Sex: ' + sex);
-    if (hkid) lines.push('ID: ' + hkid);
-    if (phone) lines.push('Phone: ' + phone);
-    return lines.join('\n');
-}
-
-function xrayPatientBridgeSummaryLine(patient) {
-    patient = patient || {};
-    var parts = [];
-    if (patient.patient_no) parts.push('#' + patient.patient_no);
-    if (patient.chinese_name) parts.push(patient.chinese_name);
-    if (patient.full_name) parts.push(patient.full_name);
-    if (patient.dob) parts.push(patient.dob);
-    if (patient.sex) parts.push(patient.sex);
-    if (patient.hkid) parts.push(patient.hkid);
-    return parts.join(' · ') || '—';
-}
-
-function xrayAiDentalLaunchMessageKey(bridgeBody) {
-    if (!bridgeBody) return 'media.local.aidentalCreatePatientNeeded';
-    if (bridgeBody.new_patient_prepared) return 'media.local.aidentalNewPatientPrepared';
-    return 'media.local.aidentalCreatePatientNeeded';
-}
-
-function xrayBridgeDebugLabel(bridgeBody) {
-    var debug = bridgeBody && bridgeBody.debug;
-    if (!debug || !debug.length) return '—';
-    return debug.join(' → ');
-}
-
-function xrayWoodpeckerPatientSummary(patient) {
-    patient = patient || {};
-    var parts = [];
-    if (patient.full_name) parts.push(patient.full_name);
-    if (patient.dob) parts.push(patient.dob);
-    if (patient.sex) parts.push(patient.sex);
-    if (patient.patient_no) parts.push('#' + patient.patient_no);
-    return parts.join(' · ') || xrayPatientBridgeSummaryLine(patient);
-}
-
-function xrayBridgeFieldsFilledLabel(bridgeBody) {
-    var filled = bridgeBody && bridgeBody.fields_filled;
-    if (!filled || !filled.length) return '';
-    var labels = {
-        patient_no: 'Chart No.',
-        patient_name: 'Name',
-        chinese_name: 'Chinese name',
-        dob: 'Birthday',
-        sex: 'Gender',
-        hkid: 'ID',
-        phone: 'Phone'
-    };
-    return filled.map(function(k) { return labels[k] || k; }).join(', ');
-}
-
-function xrayBridgePatientPayload(patient, folderPath) {
-    patient = patient || {};
-    return {
-        patient_id: patient.id || '',
-        patient_no: patient.patient_no || '',
-        patient_name: patient.full_name || '',
-        chinese_name: patient.chinese_name || '',
-        dob: patient.dob || '',
-        sex: patient.sex || '',
-        phone: patient.phone_number || patient.phone || '',
-        mobile_phone: patient.mobile_phone || '',
-        hkid: patient.hkid || '',
-        email: patient.email || '',
-        address: patient.address || '',
-        medical_alerts: patient.medical_alerts || '',
-        folder_path: folderPath || ''
-    };
-}
-
-function appendXrayBridgePatientParams(qParts, patient, folderPath) {
-    var payload = xrayBridgePatientPayload(patient, folderPath);
-    Object.keys(payload).forEach(function(key) {
-        var val = String(payload[key] == null ? '' : payload[key]).trim();
-        if (val) qParts.push(key + '=' + encodeURIComponent(val));
-    });
 }
 
 function applyXrayLocalPattern(pattern, patient) {
@@ -2646,38 +2412,11 @@ function openDesktopXrayApp(key) {
     if (!sys) return;
 
     if (!xrayPatientId || !xrayPatientData) {
-        var fallback = xrayResolveCurrentPatient();
-        if (fallback && fallback.id) {
-            syncXrayPatient(fallback.id, fallback);
-        }
-    }
-    if (!xrayPatientId || !xrayPatientData) {
         alert(mediaTr('con.forms.alertSelectPatient'));
         return;
     }
 
     var patient = xrayPatientData;
-    if (!String(patient.patient_no || '').trim() && !String(patient.chinese_name || '').trim() &&
-        !String(patient.full_name || '').trim()) {
-        var activeFallback = xrayResolveCurrentPatient();
-        if (activeFallback && activeFallback.id &&
-            String(activeFallback.id) === String(patient.id)) {
-            patient = Object.assign({}, patient, activeFallback);
-            syncXrayPatient(patient.id, patient);
-        }
-    }
-
-    xrayEnsurePatientForBridge(patient, function(hydrated) {
-        patient = hydrated;
-        syncXrayPatient(patient.id, patient);
-        openDesktopXrayAppWithPatient(key, sys, patient);
-    });
-}
-
-function openDesktopXrayAppWithPatient(key, sys, patient) {
-    sys = sys || XRAY_SYSTEMS[key];
-    if (!sys || !patient) return;
-
     var cfg = getEffectiveXrayLocalPathCfg(key);
     var folderPath = buildLocalPatientFolderPathWithCfg(key, patient, cfg);
     var appPath = cfg.appPath || sys.defaultAppPath || '';
@@ -2685,22 +2424,11 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
     var openKey = sys.openMsgKey || 'media.local.carestreamOpen';
     var launchedKey = sys.launchedMsgKey || 'media.local.carestreamLaunched';
     var neededKey = sys.launcherNeededMsgKey || 'media.local.carestreamLauncherNeeded';
-    var folderHint = sys.folderHintKey
-        ? mediaTr(sys.folderHintKey)
-        : ((key === 'carestream')
-            ? mediaTr('media.local.carestreamUsePatientBrowser')
-            : mediaTr('media.local.desktopUsePatientSearch'));
+    var folderHint = (key === 'carestream')
+        ? mediaTr('media.local.carestreamUsePatientBrowser')
+        : mediaTr('media.local.aidentalUseFolder');
     var launcherKey = sys.launcherKey || key;
-    var searchText = (launcherKey === 'aidental')
-        ? (xrayPatientSearchTextForLauncher(patient, launcherKey) ||
-            xrayPatientSearchClipboardText(patient) || '—')
-        : (xrayPatientSearchClipboardText(patient) || '—');
-    var patientSummary = (launcherKey === 'aidental')
-        ? xrayWoodpeckerPatientSummary(patient)
-        : searchText;
-    var clipboardText = (launcherKey === 'aidental')
-        ? (xrayPatientBridgeClipboardText(patient) || searchText)
-        : searchText;
+    var searchText = xrayPatientSearchClipboardText(patient) || '—';
 
     pingXrayLauncher(function(status) {
         status = status || { online: false };
@@ -2715,71 +2443,39 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             });
         }
 
-        var msg;
-        if (launcherKey === 'aidental') {
-            msg = mediaTrRepl('media.local.aidentalFillOpen', {
-                PATIENT: patientSummary
-            });
-        } else {
-            msg = mediaTrRepl(openKey, {
-                SHORTCUT: shortcutName,
-                EXE: appPath,
-                PATIENT: patientSummary,
-                FOLDER: folderPath || folderHint
-            });
-        }
+        var msg = mediaTrRepl(openKey, {
+            SHORTCUT: shortcutName,
+            EXE: appPath,
+            PATIENT: searchText,
+            FOLDER: folderPath || folderHint
+        });
         msg += '\n\n' + launcherLine;
         if (!confirm(msg)) return;
 
-        copyTextToClipboard(clipboardText);
+        copyTextToClipboard(searchText);
 
         if (status.blocked || !status.online) {
-            var neededMsgKey = (launcherKey === 'aidental')
-                ? 'media.local.aidentalLauncherNeeded'
-                : neededKey;
-            alert(mediaTrRepl(neededMsgKey, {
+            alert(mediaTrRepl(neededKey, {
                 SHORTCUT: shortcutName,
                 EXE: appPath,
-                PATIENT: patientSummary,
+                PATIENT: searchText,
                 BAT: 'tools\\Start X-Ray Launcher.bat'
             }));
             return;
         }
 
-        tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, {
-            appPath: appPath,
-            folderPath: folderPath,
-            searchText: xrayPatientSearchTextForLauncher(patient, launcherKey),
-            aidentalMode: 'fill'
-        }, function(attached, bridgeBody) {
-            bridgeBody = bridgeBody || {};
-            if (launcherKey === 'aidental') {
-                if (!bridgeBody.aidental_running) {
-                    alert(mediaTrRepl('media.local.aidentalNotRunning', {
-                        PATIENT: patientSummary,
-                        BAT: 'tools\\Start X-Ray Launcher.bat'
-                    }));
-                    return;
-                }
-                alert(mediaTrRepl(xrayAiDentalLaunchMessageKey(bridgeBody), {
-                    PATIENT: patientSummary,
-                    SUMMARY: patientSummary,
-                    FIELDS: xrayBridgeFieldsFilledLabel(bridgeBody),
-                    DEBUG: xrayBridgeDebugLabel(bridgeBody)
-                }));
-                return;
-            }
-            if (attached) {
+        tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, function(launched) {
+            if (launched) {
                 alert(mediaTrRepl(launchedKey, {
                     SHORTCUT: shortcutName,
-                    PATIENT: bridgeBody.search_text || searchText
+                    PATIENT: searchText
                 }));
                 return;
             }
             alert(mediaTrRepl(neededKey, {
                 SHORTCUT: shortcutName,
                 EXE: appPath,
-                PATIENT: patientSummary,
+                PATIENT: searchText,
                 BAT: 'tools\\Start X-Ray Launcher.bat'
             }));
         });
@@ -2794,16 +2490,16 @@ function openAiDentalClient() {
     openDesktopXrayApp('aidental');
 }
 
-function openNntNewtom() {
-    openDesktopXrayApp('nntnewtom');
-}
-
 function openXraySystem(key) {
-    var sys = XRAY_SYSTEMS[key];
-    if (sys && sys.launcherKey) {
-        openDesktopXrayApp(key);
+    if (key === 'carestream') {
+        openCarestreamImaging();
         return;
     }
+    if (key === 'aidental') {
+        openAiDentalClient();
+        return;
+    }
+    var sys = XRAY_SYSTEMS[key];
     if (!sys || !sys.url) return;
     var folderPath = xrayPatientData ? buildLocalPatientFolderPath(key, xrayPatientData) : '';
     var msg = mediaTrRepl('media.alert.openXraySystem', {
@@ -2990,17 +2686,6 @@ document.addEventListener('app-lang-change', function () {
     if (xrayPatientId && typeof loadXrayRecords === 'function') loadXrayRecords();
 });
 
-document.addEventListener('app-active-patient-change', function(ev) {
-    var detail = ev && ev.detail ? ev.detail : {};
-    if (detail.patient && detail.patient.id) {
-        xraySyncFromActivePatientPayload(detail.patient, detail.source || '');
-    }
-});
-
 document.addEventListener('DOMContentLoaded', function () {
     refreshXrayTypeSelects();
-    if (typeof activePatientSlots !== 'undefined' && activePatientSlots[0] &&
-        activePatientSlots[0].id) {
-        xraySyncFromActivePatientPayload(activePatientSlots[0], 'active-slot-boot');
-    }
 });

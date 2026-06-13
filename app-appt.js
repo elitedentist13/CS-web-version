@@ -11,9 +11,6 @@ var psTimer      = null;
 var calDate      = new Date();
 var calView      = 'weekly';
 var billApptId   = null;
-/** Default doctor when creating a list from an appointment row (resolved to doctors.id). */
-var billApptDefaultDoctorId = null;
-var billApptDoctorCode = null;
 var billPatId    = null;
 var billPatName  = null;
 var billPatChineseName = null;
@@ -37,7 +34,6 @@ var apptListSelectedApptId = null;
 var apptListSelectedTab = '';
 /** Today's walk-in appointment id awaiting patient registration before check-in. */
 var todayApptPendingPatientRegId = null;
-var TODAY_NOSHOW_DISMISS_LS = 'joyful_today_noshow_dismiss_v1';
 var calMonthApptsCache = [];
 var calWeekApptsCache = [];
 
@@ -91,15 +87,6 @@ function apptSetActivePatientFromAppt(a, source) {
         return true;
     }
     return false;
-}
-
-function apptSnapActivePatientFromCalendarAppt(a, source) {
-    if (!a || typeof apptSetActivePatientFromAppt !== 'function') return;
-    if (!a.patient_id && !String(a.patient_no || '').trim()) return;
-    apptSetActivePatientFromAppt(a, source || 'calendar-appt-select');
-    if (typeof setActivePatientDockCollapsed === 'function') {
-        setActivePatientDockCollapsed(false, true);
-    }
 }
 
 function apptFindListRowAppt(apptId, tabKey) {
@@ -291,73 +278,27 @@ function billIsFullyUnpaidSave(paid, balance, total) {
     return total > 0.005 && paid <= 0.005 && balance > 0.005;
 }
 
-function billDefaultPayTypeValue() {
-    if (billTypesCache && billTypesCache.length) {
-        var i;
-        for (i = 0; i < billTypesCache.length; i++) {
-            if (billTypesCache[i].is_default && billTypeRowIsPayable(billTypesCache[i])) {
-                return billTypeOptionValue(billTypesCache[i]);
-            }
-        }
-        for (i = 0; i < billTypesCache.length; i++) {
-            if (billTypeRowIsPayable(billTypesCache[i])) {
-                return billTypeOptionValue(billTypesCache[i]);
-            }
-        }
-    }
-    return 'Cash';
-}
-
 function billResolvePayTypeForSave(paid, balance, total, selectedType) {
     var s = String(selectedType || '').trim();
     var pendingVals = billPendingPayTypeCandidates();
     if (paid > 0.005 && pendingVals.indexOf(s) >= 0) {
-        return billDefaultPayTypeValue();
+        return 'Cash';
     }
-    if (paid > 0.005) return s || billDefaultPayTypeValue();
+    if (paid > 0.005) return s || 'Cash';
     return billPendingPayTypeValue();
 }
 
-/** Step 2: zero paid → Pending; restore held method when user enters a payment. */
+/** Step 2: keep payment method selectable; pending bills are created in Step 1. */
 function syncBillPayTypeForBalance(total, paid, balance) {
     var bType = g('bType');
     if (!bType) return;
     bType.disabled = false;
-    var pendingVals = billPendingPayTypeCandidates();
-    if (paid <= 0.005) {
-        if (!bType.dataset.billTypeHold && bType.value &&
-            pendingVals.indexOf(bType.value) < 0) {
-            bType.dataset.billTypeHold = bType.value;
-        }
-        ensurePendingBillTypeOption(bType);
-        bType.value = billPendingPayTypeValue(bType);
-        return;
-    }
-    var cur = String(bType.value || '').trim();
-    if (cur && pendingVals.indexOf(cur) < 0) {
-        delete bType.dataset.billTypeHold;
-        return;
-    }
-    if (bType.dataset.billTypeHold) {
+    if (paid > 0.005 && bType.dataset.billTypeHold) {
         var hold = bType.dataset.billTypeHold;
         delete bType.dataset.billTypeHold;
         if (Array.prototype.some.call(bType.options || [], function (o) { return o.value === hold; })) {
             bType.value = hold;
         }
-    }
-}
-
-/** Keep billTypeHold aligned when user picks a method before entering paid amount. */
-function billSyncPaymentMethodHoldFromUi() {
-    var bType = g('bType');
-    if (!bType) return;
-    var paidEl = g('bAmtPaid');
-    var paid = paidEl ? (parseFloat(paidEl.value) || 0) : 0;
-    if (paid > 0.005) return;
-    var cur = String(bType.value || '').trim();
-    var pendingVals = billPendingPayTypeCandidates();
-    if (cur && pendingVals.indexOf(cur) < 0) {
-        bType.dataset.billTypeHold = cur;
     }
 }
 
@@ -379,10 +320,9 @@ function billClinicFieldsForSave() {
     };
 }
 
-function billDoctorFieldsForSave(pickedId, opts) {
-    opts = opts || {};
+function billDoctorFieldsForSave(pickedId) {
     var picked = pickedId
-        ? (billDoctorList || []).find(function (d) { return String(d.id) === String(pickedId); })
+        ? (billDoctorList || []).find(function (d) { return d.id === pickedId; })
         : null;
     if (picked) {
         return {
@@ -393,7 +333,6 @@ function billDoctorFieldsForSave(pickedId, opts) {
             doctor_tag: billDoctorTag(picked) || null
         };
     }
-    if (opts.noFallback) return {};
     var drCtx = (typeof getActiveDoctorContext === 'function')
         ? getActiveDoctorContext()
         : null;
@@ -437,9 +376,7 @@ function persistBillRecord(payload, existingBillId, cb) {
             : SB.from('bills').insert([body]).select();
         query.then(function (r) {
             if (!r.error) {
-                var row = (r.data && r.data[0]) ? r.data[0] : null;
-                if (!row && billId) row = { id: billId };
-                cb(null, row);
+                cb(null, (r.data && r.data[0]) ? r.data[0] : null);
                 return;
             }
             if (depth >= 2) {
@@ -465,221 +402,6 @@ function pendingListSubtotalFromItems(items) {
     }, 0);
 }
 
-function pendingListBillLinkNote(pl) {
-    if (!pl || !pl.id) return null;
-    return PENDING_LIST_BILL_NOTE_PREFIX + pl.id;
-}
-
-function pendingBillIdLocalStoreKey(pl) {
-    if (!billPatId || !pl) return '';
-    return String(billPatId) + ':' + String(pl.id || pl.label || pendingIdx);
-}
-
-function readPendingBillIdFromLocalStore(pl) {
-    var slot = pendingBillIdLocalStoreKey(pl);
-    if (!slot) return null;
-    try {
-        var map = JSON.parse(localStorage.getItem(PENDING_BILL_ID_LS_KEY) || '{}');
-        return map[slot] || null;
-    } catch (_) {
-        return null;
-    }
-}
-
-function writePendingBillIdToLocalStore(pl, billId) {
-    var slot = pendingBillIdLocalStoreKey(pl);
-    if (!slot || !billId) return;
-    try {
-        var map = JSON.parse(localStorage.getItem(PENDING_BILL_ID_LS_KEY) || '{}');
-        map[slot] = billId;
-        localStorage.setItem(PENDING_BILL_ID_LS_KEY, JSON.stringify(map));
-    } catch (_) { /* ignore */ }
-}
-
-function clearPendingBillIdLocalStore(pl) {
-    var slot = pendingBillIdLocalStoreKey(pl);
-    if (!slot) return;
-    try {
-        var map = JSON.parse(localStorage.getItem(PENDING_BILL_ID_LS_KEY) || '{}');
-        if (Object.prototype.hasOwnProperty.call(map, slot)) {
-            delete map[slot];
-            localStorage.setItem(PENDING_BILL_ID_LS_KEY, JSON.stringify(map));
-        }
-    } catch (_) { /* ignore */ }
-}
-
-function fetchBillRowForPendingList(billId, cb) {
-    if (!billId) {
-        if (cb) cb(null);
-        return;
-    }
-    SB.from('bills')
-        .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
-        .eq('id', billId)
-        .single()
-        .then(function (r) {
-            var row = (!r.error && r.data) ? r.data : null;
-            if (row && row.voided_at) row = null;
-            if (cb) cb(row);
-        })
-        .catch(function () {
-            if (cb) cb(null);
-        });
-}
-
-/** Resolve the single unpaid bill tied to this pending list (replace, never duplicate). */
-function findBillRowForPendingList(pl, cb) {
-    if (!pl) {
-        if (cb) cb(null);
-        return;
-    }
-
-    function finish(row) {
-        if (row && row.id) {
-            pl.bill_id = row.id;
-            writePendingBillIdToLocalStore(pl, row.id);
-        }
-        if (cb) cb(row);
-    }
-
-    function tryNotesMarker(next) {
-        var note = pendingListBillLinkNote(pl);
-        if (!note || !billPatId) {
-            next();
-            return;
-        }
-        SB.from('bills')
-            .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
-            .eq('patient_id', billPatId)
-            .eq('notes', note)
-            .is('voided_at', null)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .then(function (r) {
-                var row = (r.data && r.data[0]) ? r.data[0] : null;
-                if (row) finish(row);
-                else next();
-            })
-            .catch(next);
-    }
-
-    function tryPendingRow(next) {
-        if (!pl.id) {
-            next();
-            return;
-        }
-        SB.from('pending_bill_items')
-            .select('bill_id')
-            .eq('id', pl.id)
-            .single()
-            .then(function (r) {
-                var bid = (!r.error && r.data) ? r.data.bill_id : null;
-                if (!bid) {
-                    next();
-                    return;
-                }
-                fetchBillRowForPendingList(bid, function (row) {
-                    if (row) finish(row);
-                    else next();
-                });
-            })
-            .catch(next);
-    }
-
-    function tryLocalStore(next) {
-        var bid = readPendingBillIdFromLocalStore(pl);
-        if (!bid) {
-            next();
-            return;
-        }
-        fetchBillRowForPendingList(bid, function (row) {
-            if (row) finish(row);
-            else next();
-        });
-    }
-
-    /** Same patient + same bill date → reuse only when list has no stable id yet. */
-    function trySameDayPatientBill(next) {
-        if (pl.id) {
-            next();
-            return;
-        }
-        var billDate = todayISO();
-        var hasPatId = !!billPatId;
-        var hasPatNo = !!(billPatNo && billPatNo !== '-');
-        if (!hasPatId && !hasPatNo) {
-            next();
-            return;
-        }
-
-        function queryByPatientNo() {
-            if (!hasPatNo) {
-                next();
-                return;
-            }
-            SB.from('bills')
-                .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
-                .eq('patient_no', billPatNo)
-                .eq('bill_date', billDate)
-                .is('voided_at', null)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .then(function (r) {
-                    var row = (r.data && r.data[0]) ? r.data[0] : null;
-                    if (row) finish(row);
-                    else next();
-                })
-                .catch(next);
-        }
-
-        if (hasPatId) {
-            SB.from('bills')
-                .select('id,amount_paid,balance,total,bill_type,voided_at,notes')
-                .eq('patient_id', billPatId)
-                .eq('bill_date', billDate)
-                .is('voided_at', null)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .then(function (r) {
-                    var row = (r.data && r.data[0]) ? r.data[0] : null;
-                    if (row) finish(row);
-                    else queryByPatientNo();
-                })
-                .catch(function () {
-                    queryByPatientNo();
-                });
-            return;
-        }
-        queryByPatientNo();
-    }
-
-    function tryMemoryLink(next) {
-        if (!pl.bill_id) {
-            next();
-            return;
-        }
-        fetchBillRowForPendingList(pl.bill_id, function (row) {
-            if (row) finish(row);
-            else {
-                pl.bill_id = null;
-                next();
-            }
-        });
-    }
-
-    tryMemoryLink(function () {
-        tryPendingRow(function () {
-            tryNotesMarker(function () {
-                tryLocalStore(function () {
-                    trySameDayPatientBill(function () {
-                        finish(null);
-                    });
-                });
-            });
-        });
-    });
-}
-
 function buildUnpaidBillPayloadFromPendingList(pl, sub) {
     var payload = {
         appointment_id: billApptId,
@@ -694,11 +416,11 @@ function buildUnpaidBillPayloadFromPendingList(pl, sub) {
         total:          sub,
         amount_paid:    0,
         balance:        sub,
-        notes:          pendingListBillLinkNote(pl),
+        notes:          null,
         status:         sub > 0.005 ? 'Partial' : 'Paid'
     };
     Object.assign(payload, billClinicFieldsForSave());
-    Object.assign(payload, billDoctorFieldsForSave(pl.doctor_id || null, { noFallback: true }));
+    Object.assign(payload, billDoctorFieldsForSave(null));
     return payload;
 }
 
@@ -708,7 +430,6 @@ function persistPendingListBillIdRow(pl, billId, cb) {
         return;
     }
     pl.bill_id = billId;
-    writePendingBillIdToLocalStore(pl, billId);
     if (!pl.id) {
         if (cb) cb(true);
         return;
@@ -733,12 +454,6 @@ function syncUnpaidBillFromPendingList(pl, sub, done) {
             payload.bill_type = existingBill.bill_type;
         }
         payload.status = payload.balance <= 0.005 ? 'Paid' : 'Partial';
-        var existingUserNotes = billUserNotesText(existingBill && existingBill.notes);
-        if (existingUserNotes) {
-            payload.notes = existingUserNotes;
-        } else if (pl.id) {
-            payload.notes = pendingListBillLinkNote(pl);
-        }
         var billId = pl.bill_id || (existingBill && existingBill.id) || null;
 
         persistBillRecord(payload, billId, function (err, saved) {
@@ -766,7 +481,17 @@ function syncUnpaidBillFromPendingList(pl, sub, done) {
         });
     }
 
-    findBillRowForPendingList(pl, applyBillSave);
+    if (!pl.bill_id) {
+        applyBillSave(null);
+        return;
+    }
+    SB.from('bills').select('id,amount_paid,balance,total,bill_type').eq('id', pl.bill_id).single()
+        .then(function (r) {
+            applyBillSave((!r.error && r.data) ? r.data : null);
+        })
+        .catch(function () {
+            applyBillSave(null);
+        });
 }
 
 function deleteUnpaidBillForPendingList(pl, cb) {
@@ -787,7 +512,6 @@ function deleteUnpaidBillForPendingList(pl, cb) {
                 return;
             }
             SB.from('bills').delete().eq('id', pl.bill_id).then(function () {
-                clearPendingBillIdLocalStore(pl);
                 if (cb) cb(true);
             }).catch(function () {
                 if (cb) cb(true);
@@ -830,67 +554,13 @@ function apptToast(msg) {
     }
 }
 
-function apptDurationScaleMinutesList() {
-    var out = [];
-    var m;
-    for (m = 0; m <= 240; m += 15) out.push(m);
-    return out;
-}
-
-/** Duration dropdown label: 0–45 → "N MIN"; whole hours → "N HRS"; else "HH:MM". */
-function apptDurationScaleLabel(minutes) {
-    var m = parseInt(minutes, 10);
-    if (isNaN(m) || m < 0) return '—';
-    if (m <= 45) return String(m) + ' MIN';
-    if (m % 60 === 0) return String(m / 60) + ' HRS';
-    var h = Math.floor(m / 60);
-    var min = m % 60;
-    return (h < 10 ? '0' : '') + String(h) + ':' + (min < 10 ? '0' : '') + String(min);
-}
-
-function apptDurationDisplay(minutes) {
-    return apptDurationScaleLabel(minutes);
-}
-
-function populateApptDurSelect() {
-    var sel = g('fDur');
-    if (!sel) return;
-    var prev = sel.value;
-    var mins = apptDurationScaleMinutesList();
-    var prevN = parseInt(prev, 10);
-    if (!isNaN(prevN) && mins.indexOf(prevN) < 0) {
-        mins = mins.concat([prevN]).sort(function (a, b) { return a - b; });
-    }
-    sel.innerHTML = mins.map(function (m) {
-        return '<option value="' + m + '">' + apptDurationScaleLabel(m) + '</option>';
-    }).join('');
-    if (prev && Array.prototype.some.call(sel.options, function (o) { return o.value === prev; })) {
-        sel.value = prev;
-    } else if (Array.prototype.some.call(sel.options, function (o) { return o.value === '30'; })) {
-        sel.value = '30';
-    } else if (sel.options.length) {
-        sel.selectedIndex = 0;
-    }
-}
-
-function ensureApptDurSelectValue(minutes) {
-    var sel = g('fDur');
-    if (!sel) return;
-    var m = parseInt(minutes, 10);
-    if (isNaN(m)) return;
-    var str = String(m);
-    var found = Array.prototype.some.call(sel.options, function (o) { return o.value === str; });
-    if (!found) {
-        var opt = document.createElement('option');
-        opt.value = str;
-        opt.textContent = apptDurationScaleLabel(m);
-        sel.appendChild(opt);
-    }
-    sel.value = str;
-}
-
 function refreshApptDurOptions() {
-    populateApptDurSelect();
+    var sel = g('fDur');
+    if (!sel) return;
+    for (var i = 0; i < sel.options.length; i++) {
+        var v = sel.options[i].value;
+        sel.options[i].textContent = trRepl('appt.modal.durMin', { N: v });
+    }
 }
 
 function refreshApptModalTitle() {
@@ -950,41 +620,6 @@ var pendingIdx   = -1;   // which list is open in Step 1
 var payItems     = [];   // items from the list selected in Step 2
 var payPendingId = null; // DB id of the list selected for payment
 var pendingServerSnapshotById = {};
-/** Prevents overlapping Save List → duplicate unpaid bills. */
-var _pendingListSaveBusyKey = null;
-var PENDING_LIST_BILL_NOTE_PREFIX = 'JSM_PENDING:';
-var PENDING_BILL_ID_LS_KEY = 'jsm_pending_bill_ids_v1';
-
-function billIsPendingLinkNote(raw) {
-    return String(raw || '').trim().indexOf(PENDING_LIST_BILL_NOTE_PREFIX) === 0;
-}
-
-/** Step 2 payment notes — excludes internal pending-list link marker stored in bills.notes. */
-function billUserNotesText(raw) {
-    var s = String(raw || '').trim();
-    if (!s || billIsPendingLinkNote(s)) return '';
-    return s;
-}
-
-function loadBillStep2NotesFromLinkedBill(pl) {
-    var el = g('bNotes');
-    if (!el) return;
-    if (!pl || !pl.bill_id) {
-        el.value = '';
-        return;
-    }
-    fetchBillRowForPendingList(pl.bill_id, function(row) {
-        if (g('bNotes')) g('bNotes').value = billUserNotesText(row && row.notes) || '';
-    });
-}
-
-function receiptBillWithSavedNotes(payload, savedBill) {
-    var bill = savedBill ? Object.assign({}, payload, savedBill) : Object.assign({}, payload);
-    var notes = String(payload && payload.notes ? payload.notes : '').trim();
-    if (!notes) notes = billUserNotesText(bill.notes);
-    bill.notes = notes || null;
-    return bill;
-}
 
 // ════════════════════════════════════════════════════════════════
 // CLINIC SCOPE (all appointment subtabs share one clinic)
@@ -1206,10 +841,6 @@ function syncApptPlannerDate(iso, opts) {
     }
     if (typeof plusApptSyncDateLabel === 'function') plusApptSyncDateLabel();
     if (typeof plusApptSyncTimelineHead === 'function') plusApptSyncTimelineHead();
-    if (typeof apptSectionIsActive === 'function' && apptSectionIsActive() &&
-        typeof apptMemoOnScopeChange === 'function') {
-        apptMemoOnScopeChange();
-    }
 }
 
 /** Reload day planner (+ Appointment) and calendar from Supabase (same clinic scope). */
@@ -1380,7 +1011,6 @@ function onApptClinicChange() {
         plusApptActiveClinicId = sel.value;
         plusApptClinicSyncing = false;
     }
-    if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange();
     if (apptActiveTabKey() === 'plusappt' && typeof onPlusApptClinicChange === 'function') {
         onPlusApptClinicChange();
         return;
@@ -1417,8 +1047,6 @@ function initAppt() {
     bindQueueRefreshBtnOnce();
     initApptRemarksRichEditors();
     bindPlusApptTabOnce();
-    bindApptSharedMemoOnce();
-    refreshApptSharedMemoI18n();
     switchApptTab('queue');
     if (typeof startApptAutoRefresh === 'function') startApptAutoRefresh();
 }
@@ -1462,263 +1090,6 @@ function bindQueueRefreshBtnOnce() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// SHARED MEMO — per clinic + date (appointment_daily_memos table)
-// ════════════════════════════════════════════════════════════════
-var APPT_MEMO_TABLE = 'appointment_daily_memos';
-var APPT_SHARED_MEMO_TABS = { queue: 1, today: 1, plusappt: 1, calendar: 1 };
-var APPT_MEMO_HOST_IDS = {
-    queue: 'apptMemoHost-queue',
-    today: 'apptMemoHost-today',
-    plusappt: 'apptMemoHost-plusappt',
-    calendar: 'apptMemoHost-calendar'
-};
-var _apptMemoSaveTimer = null;
-var _apptMemoHydrating = false;
-var _apptMemoLastSaved = null;
-var _apptMemoScopeKey = null;
-var _apptMemoLoadedScopeKey = null;
-var _apptMemoScopeBusy = false;
-
-function apptMemoClinicId() {
-    var sel = g('apptClinicSelect');
-    if (sel && sel.value) return String(sel.value);
-    var plusSel = g('plusApptClinicSelect');
-    if (plusSel && plusSel.value) return String(plusSel.value);
-    if (typeof plusApptActiveClinicId !== 'undefined' && plusApptActiveClinicId) {
-        return String(plusApptActiveClinicId);
-    }
-    if (typeof currentClinicId !== 'undefined' && currentClinicId) {
-        return String(currentClinicId);
-    }
-    return '';
-}
-
-function apptMemoDateIso(tab) {
-    tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : 'queue');
-    if (tab === 'plusappt') {
-        return plusApptDate || (typeof todayISO === 'function' ? todayISO() : '');
-    }
-    if (tab === 'calendar') {
-        if (typeof calDate !== 'undefined' && calDate && typeof d2iso === 'function') {
-            return d2iso(calDate);
-        }
-        if (plusApptDate) return plusApptDate;
-        return typeof todayISO === 'function' ? todayISO() : '';
-    }
-    return typeof todayISO === 'function' ? todayISO() : '';
-}
-
-function apptMemoScopeKey(tab) {
-    return apptMemoClinicId() + '|' + apptMemoDateIso(tab);
-}
-
-function apptMemoProgramKey(clinicId, dateIso) {
-    return 'appt_daily_memo:' + clinicId + ':' + dateIso;
-}
-
-function apptMemoTableMissing(err) {
-    var msg = String((err && err.message) || err || '');
-    return /appointment_daily_memos|relation|does not exist|schema cache/i.test(msg);
-}
-
-function parseApptMemoScopeKey(key) {
-    var parts = String(key || '').split('|');
-    return { clinicId: parts[0] || '', dateIso: parts[1] || '' };
-}
-
-function updateApptSharedMemoDateLabel(tab) {
-    var el = g('apptSharedMemoDateLbl');
-    if (!el) return;
-    var iso = apptMemoDateIso(tab);
-    if (!iso) {
-        el.textContent = '';
-        return;
-    }
-    el.textContent = (typeof fmtDateLong === 'function')
-        ? fmtDateLong(iso, { long: false })
-        : iso;
-}
-
-function mountApptSharedMemo(tab) {
-    var bar = g('apptSharedMemoBar');
-    if (!bar) return;
-    var host = null;
-    if (tab && APPT_SHARED_MEMO_TABS[tab]) {
-        var hostId = APPT_MEMO_HOST_IDS[tab];
-        host = hostId ? g(hostId) : null;
-    }
-    if (!host) host = g('apptMemoBarPool');
-    if (!host) return;
-    host.appendChild(bar);
-    var show = !!(tab && APPT_SHARED_MEMO_TABS[tab]);
-    bar.hidden = !show;
-    bar.setAttribute('aria-hidden', show ? 'false' : 'true');
-    updateApptSharedMemoDateLabel(tab);
-}
-
-function applyApptSharedMemoToField(text, scopeKey) {
-    var ta = g('apptSharedMemo');
-    if (!ta) return;
-    _apptMemoHydrating = true;
-    ta.value = text == null ? '' : String(text);
-    _apptMemoLastSaved = ta.value;
-    _apptMemoLoadedScopeKey = scopeKey || apptMemoScopeKey();
-    _apptMemoHydrating = false;
-}
-
-function fetchApptDailyMemo(clinicId, dateIso) {
-    if (!clinicId || !dateIso) return Promise.resolve('');
-    if (!SB || typeof SB.from !== 'function') return Promise.resolve('');
-    return SB.from(APPT_MEMO_TABLE)
-        .select('memo_text')
-        .eq('clinic_id', clinicId)
-        .eq('memo_date', dateIso)
-        .limit(1)
-        .then(function (r) {
-            if (!r.error && r.data && r.data.length) {
-                return r.data[0].memo_text || '';
-            }
-            if (r.error && apptMemoTableMissing(r.error)) {
-                var pk = apptMemoProgramKey(clinicId, dateIso);
-                if (typeof getProgramSetting === 'function') {
-                    return getProgramSetting(pk, '');
-                }
-                return SB.from('program_settings')
-                    .select('setting_value')
-                    .eq('setting_key', pk)
-                    .limit(1)
-                    .then(function (pr) {
-                        if (!pr.error && pr.data && pr.data.length) {
-                            return pr.data[0].setting_value || '';
-                        }
-                        return '';
-                    });
-            }
-            return '';
-        })
-        .catch(function () { return ''; });
-}
-
-function persistApptDailyMemo(clinicId, dateIso, text) {
-    if (!clinicId || !dateIso) return Promise.resolve();
-    if (!SB || typeof SB.from !== 'function') return Promise.resolve();
-    var payload = {
-        clinic_id: clinicId,
-        memo_date: dateIso,
-        memo_text: text
-    };
-    return SB.from(APPT_MEMO_TABLE)
-        .select('id')
-        .eq('clinic_id', clinicId)
-        .eq('memo_date', dateIso)
-        .limit(1)
-        .then(function (sel) {
-            if (sel.error && apptMemoTableMissing(sel.error)) {
-                if (typeof persistProgramSettingRow !== 'function') return sel;
-                return persistProgramSettingRow({
-                    setting_key: apptMemoProgramKey(clinicId, dateIso),
-                    setting_value: text
-                });
-            }
-            if (sel.error) return sel;
-            if (sel.data && sel.data.length) {
-                return SB.from(APPT_MEMO_TABLE)
-                    .update({ memo_text: text })
-                    .eq('id', sel.data[0].id);
-            }
-            return SB.from(APPT_MEMO_TABLE).insert(payload);
-        });
-}
-
-function loadApptSharedMemo(tab) {
-    tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : 'queue');
-    var scopeKey = apptMemoScopeKey(tab);
-    _apptMemoScopeKey = scopeKey;
-    var parts = parseApptMemoScopeKey(scopeKey);
-    if (!parts.clinicId) {
-        applyApptSharedMemoToField('', scopeKey);
-        return Promise.resolve();
-    }
-    return fetchApptDailyMemo(parts.clinicId, parts.dateIso).then(function (text) {
-        applyApptSharedMemoToField(text, scopeKey);
-    });
-}
-
-function saveApptSharedMemoForScope(scopeKey, textOverride) {
-    if (_apptMemoSaveTimer) {
-        clearTimeout(_apptMemoSaveTimer);
-        _apptMemoSaveTimer = null;
-    }
-    var ta = g('apptSharedMemo');
-    if (!ta) return Promise.resolve();
-    var text = textOverride != null ? String(textOverride) : String(ta.value || '');
-    var parts = parseApptMemoScopeKey(scopeKey);
-    if (!parts.clinicId || !parts.dateIso) return Promise.resolve();
-    if (_apptMemoLastSaved === text && _apptMemoLoadedScopeKey === scopeKey) {
-        return Promise.resolve();
-    }
-    return persistApptDailyMemo(parts.clinicId, parts.dateIso, text).then(function (r) {
-        if (r && r.error) return;
-        if (_apptMemoLoadedScopeKey === scopeKey || scopeKey === apptMemoScopeKey()) {
-            _apptMemoLastSaved = text;
-            _apptMemoLoadedScopeKey = scopeKey;
-        }
-    });
-}
-
-function saveApptSharedMemoNow() {
-    var scopeKey = _apptMemoScopeKey || apptMemoScopeKey();
-    return saveApptSharedMemoForScope(scopeKey);
-}
-
-function scheduleApptSharedMemoSave() {
-    if (_apptMemoHydrating) return;
-    if (_apptMemoSaveTimer) clearTimeout(_apptMemoSaveTimer);
-    _apptMemoSaveTimer = setTimeout(function () {
-        _apptMemoSaveTimer = null;
-        saveApptSharedMemoNow();
-    }, 700);
-}
-
-function apptMemoOnScopeChange(tab) {
-    if (_apptMemoScopeBusy) return Promise.resolve();
-    tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : 'queue');
-    var oldKey = _apptMemoScopeKey;
-    var newKey = apptMemoScopeKey(tab);
-    _apptMemoScopeBusy = true;
-    var chain = Promise.resolve();
-    if (oldKey && oldKey !== newKey) {
-        var ta = g('apptSharedMemo');
-        var txt = ta ? ta.value : '';
-        chain = saveApptSharedMemoForScope(oldKey, txt);
-    }
-    return chain.then(function () {
-        _apptMemoScopeKey = newKey;
-        mountApptSharedMemo(tab);
-        return loadApptSharedMemo(tab);
-    }).finally(function () {
-        _apptMemoScopeBusy = false;
-    });
-}
-
-function bindApptSharedMemoOnce() {
-    var ta = g('apptSharedMemo');
-    if (!ta || ta.dataset.bound === '1') return;
-    ta.dataset.bound = '1';
-    ta.addEventListener('input', scheduleApptSharedMemoSave);
-    ta.addEventListener('blur', function () { saveApptSharedMemoNow(); });
-    var pool = g('apptMemoBarPool');
-    var bar = g('apptSharedMemoBar');
-    if (pool && bar && bar.parentNode !== pool) pool.appendChild(bar);
-}
-
-function refreshApptSharedMemoI18n() {
-    var bar = g('apptSharedMemoBar');
-    if (bar && typeof applyI18nInRoot === 'function') applyI18nInRoot(bar);
-    updateApptSharedMemoDateLabel();
-}
-
-// ════════════════════════════════════════════════════════════════
 // TAB SWITCHING
 // ════════════════════════════════════════════════════════════════
 function switchApptTab(tab) {
@@ -1728,11 +1099,6 @@ function switchApptTab(tab) {
     document.querySelectorAll('.tab-pane').forEach(function(p) {
         p.classList.toggle('active', p.id === 'tab-' + tab);
     });
-    if (APPT_SHARED_MEMO_TABS[tab] && typeof apptMemoOnScopeChange === 'function') {
-        apptMemoOnScopeChange(tab);
-    } else {
-        mountApptSharedMemo(null);
-    }
     if (tab === 'queue')    loadQueue();
     if (tab === 'today')    loadToday();
     if (tab === 'plusappt') showPlusApptTab();
@@ -2179,7 +1545,6 @@ function onPlusApptClinicChange() {
     plusApptSyncTimelineHead();
     renderPlusApptMiniCal();
     refreshApptPlannerData();
-    if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange('plusappt');
 }
 
 function onPlusApptDoctorChange() {
@@ -2215,261 +1580,18 @@ function plusApptTimeToMin(t) {
     return (parseInt(p[0] || '0', 10) * 60) + (parseInt(p[1] || '0', 10) || 0);
 }
 
-var GCAL_TIMELINE_DEFAULTS_VER = 3;
-var GCAL_LEGACY_TIMELINE_PAIRS = [
-    [8, 20], [9, 20], [10, 20],
-    [8, 22], [9, 22], [10, 22],
-    [10, 24]
-];
-
-function gcalNormalizeTimelineSettings(cfg) {
-    cfg = cfg || {};
-    var ver = parseInt(cfg.timelineDefaultsVer, 10);
-    if (ver >= GCAL_TIMELINE_DEFAULTS_VER) return cfg;
-
-    var start = parseInt(cfg.startHour, 10);
-    var end = parseInt(cfg.endHour, 10);
-    var isLegacy = false;
-    GCAL_LEGACY_TIMELINE_PAIRS.forEach(function (pair) {
-        if (start === pair[0] && end === pair[1]) isLegacy = true;
-    });
-    if (isLegacy) {
-        cfg.startHour = 9;
-        cfg.endHour = 24;
-    }
-    cfg.timelineDefaultsVer = GCAL_TIMELINE_DEFAULTS_VER;
-    return cfg;
-}
-
-function gcalPersistSettingsIfChanged(before, after) {
-    if (!after) return;
-    if (before.startHour === after.startHour &&
-        before.endHour === after.endHour &&
-        before.timelineDefaultsVer === after.timelineDefaultsVer) {
-        return;
-    }
-    try { localStorage.setItem('gcal_settings_v2', JSON.stringify(after)); } catch (e) {}
-}
-
-function plusApptReadGcalSettings() {
-    var defaults = { interval: PLUSAPPT_SLOT_MIN, startHour: 9, endHour: 24, slotH: 24, doctorColors: {} };
-    try {
-        var stored = localStorage.getItem('gcal_settings_v2');
-        if (!stored) return Object.assign({}, defaults);
-        var merged = Object.assign({}, defaults, JSON.parse(stored));
-        var before = {
-            startHour: merged.startHour,
-            endHour: merged.endHour,
-            timelineDefaultsVer: merged.timelineDefaultsVer
-        };
-        var normalized = gcalNormalizeTimelineSettings(merged);
-        gcalPersistSettingsIfChanged(before, normalized);
-        return normalized;
-    } catch (e) {
-        return Object.assign({}, defaults);
-    }
-}
-
-function plusApptSaveGcalSettings(cfg) {
-    try {
-        var cur = plusApptReadGcalSettings();
-        localStorage.setItem('gcal_settings_v2', JSON.stringify(Object.assign(cur, cfg)));
-    } catch (e) {}
-}
-
-function gcalEndHourOptionsHtml(curEndHour) {
-    var html = '';
-    var h;
-    for (h = 0; h < 24; h++) {
-        var hStr = pad(h) + ':00';
-        html += '<option value="' + h + '"' + (curEndHour === h ? ' selected' : '') + '>' + hStr + '</option>';
-    }
-    html += '<option value="24"' + (curEndHour === 24 ? ' selected' : '') + '>00:00</option>';
-    return html;
-}
-
 function plusApptSlotList() {
-    var cfg = plusApptReadGcalSettings();
-    var interval = Math.max(5, parseInt(cfg.interval, 10) || PLUSAPPT_SLOT_MIN);
-    var startH = parseInt(cfg.startHour, 10);
-    var endH = parseInt(cfg.endHour, 10);
-    if (isNaN(startH)) startH = 9;
-    if (isNaN(endH)) endH = 24;
-    if (endH <= startH) endH = startH + 1;
     var out = [];
     var h;
     var m;
-    for (h = startH; h <= endH; h++) {
-        for (m = 0; m < 60; m += interval) {
-            if (h === endH && m > 0) break;
+    for (h = 8; h <= 20; h++) {
+        for (m = 0; m < 60; m += PLUSAPPT_SLOT_MIN) {
+            if (h === 20 && m > 0) break;
             out.push(pad(h) + ':' + pad(m));
         }
     }
     return out;
 }
-
-function plusApptWireDrColorPanel() {
-    if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.wireColorPanel) {
-        var box = g('plusApptDrColorsBox');
-        if (box) {
-            box._calColorPanelWired = false;
-            CalDoctorColors.wireColorPanel(box);
-        }
-    }
-}
-
-function plusApptFillSettingsPanel() {
-    var p = g('plusApptSettingsPanel');
-    if (!p) return;
-    var S = plusApptReadGcalSettings();
-    var mkOpts = function(arr, cur) {
-        return arr.map(function(o) {
-            return '<option value="' + o.v + '"' + (cur === o.v ? ' selected' : '') + '>' + esc(o.l) + '</option>';
-        }).join('');
-    };
-    var intOpts = mkOpts([10, 15, 20, 30, 60].map(function(v) {
-        return { v: v, l: trRepl('appt.cal.intervalMin', { N: v }) };
-    }), S.interval);
-    var startOpts = '';
-    var endOpts = '';
-    var h;
-    for (h = 0; h < 24; h++) {
-        var hStr = pad(h) + ':00';
-        startOpts += '<option value="' + h + '"' + (S.startHour === h ? ' selected' : '') + '>' + hStr + '</option>';
-    }
-    endOpts = gcalEndHourOptionsHtml(S.endHour);
-    var sHOpts = mkOpts([
-        { v: 16, l: tr('appt.cal.slotCompact') },
-        { v: 20, l: tr('appt.cal.slotNormal') },
-        { v: 24, l: tr('appt.cal.slotComfortable') },
-        { v: 32, l: tr('appt.cal.slotSpacious') }
-    ], S.slotH);
-    var drRows = '';
-    var colorKeys = typeof CalDoctorColors !== 'undefined'
-        ? CalDoctorColors.collectKeys(plusApptDayAppts, typeof currentClinicId !== 'undefined' ? currentClinicId : null)
-        : [];
-    colorKeys.forEach(function(item) {
-        var k = item.key;
-        var col = typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.getColor(k) : '#0084ff';
-        drRows +=
-            '<div class="gcal-dr-row">' +
-            '<input type="color" class="gcal-dr-color-inp" data-key="' + encodeURIComponent(k) + '" value="' + col + '" ' +
-            'style="width:32px;height:32px;border:2px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:0;flex-shrink:0;">' +
-            '<span style="font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;">' + esc(item.label) + '</span>' +
-            (typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.presetSwatchesHtml(k, col) : '') +
-            '</div>';
-    });
-    if (!colorKeys.length) {
-        drRows = '<p style="color:#aaa;font-size:11px;margin:0;">' + esc(tr('appt.cal.noDoctorsHint')) + '</p>';
-    }
-    p.innerHTML =
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
-            '<strong style="font-size:13px;color:#1e293b;">' + esc(tr('appt.cal.settingsTitle')) + '</strong>' +
-            '<button type="button" onclick="plusApptToggleSettings()" style="background:none;border:none;cursor:pointer;font-size:18px;color:#94a3b8;line-height:1;padding:2px 6px;">×</button>' +
-        '</div>' +
-        '<label>' + esc(tr('appt.cal.timeInterval')) + '</label>' +
-        '<select id="plusApptGcalInterval" style="margin-bottom:12px;">' + intOpts + '</select>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
-            '<div><label>' + esc(tr('appt.cal.startTimeLabel')) + '</label><select id="plusApptGcalStart">' + startOpts + '</select></div>' +
-            '<div><label>' + esc(tr('appt.cal.endTimeLabel')) + '</label><select id="plusApptGcalEnd">' + endOpts + '</select></div>' +
-        '</div>' +
-        '<label>' + esc(tr('appt.cal.rowHeight')) + '</label>' +
-        '<select id="plusApptGcalSlotH" style="margin-bottom:14px;">' + sHOpts + '</select>' +
-        '<label style="margin-bottom:8px;">' + esc(tr('appt.cal.drColoursLabel')) + '</label>' +
-        '<p style="font-size:11px;color:#64748b;margin:0 0 10px;line-height:1.4;">' + esc(tr('appt.cal.drColoursHint')) + '</p>' +
-        '<div id="plusApptDrColorsBox">' + drRows + '</div>' +
-        (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.resetControlHtml
-            ? CalDoctorColors.resetControlHtml() : '') +
-        '<button type="button" onclick="plusApptApplyPlannerSettings()" ' +
-        'style="margin-top:14px;width:100%;padding:10px;background:#0084ff;color:#fff;' +
-        'border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">' +
-        esc(tr('appt.cal.applyRefresh')) + '</button>';
-    plusApptWireDrColorPanel();
-}
-
-function plusApptRefreshSidebarToolTitles() {
-    var setBtn = g('plusApptSettingsBtn');
-    var calBtn = g('plusApptMiniCalBtn');
-    if (setBtn) setBtn.title = tr('appt.cal.settingsBtnTitle');
-    if (calBtn) calBtn.title = tr('appt.cal.miniCalBtnTitle');
-}
-
-function plusApptToggleSettings() {
-    var sp = g('plusApptSettingsPanel');
-    var wrap = g('plusApptMiniCalWrap');
-    if (!sp) return;
-    var opening = !sp.classList.contains('open');
-    if (opening) {
-        plusApptFillSettingsPanel();
-        sp.classList.add('open');
-        sp.setAttribute('aria-hidden', 'false');
-        if (wrap) wrap.classList.remove('open');
-    } else {
-        sp.classList.remove('open');
-        sp.setAttribute('aria-hidden', 'true');
-    }
-}
-
-function plusApptToggleMiniCal() {
-    var wrap = g('plusApptMiniCalWrap');
-    var sp = g('plusApptSettingsPanel');
-    if (!wrap) return;
-    if (sp) {
-        sp.classList.remove('open');
-        sp.setAttribute('aria-hidden', 'true');
-    }
-    var opening = !wrap.classList.contains('open');
-    if (opening) {
-        renderPlusApptMiniCal();
-        wrap.classList.add('open');
-    } else {
-        wrap.classList.remove('open');
-    }
-}
-
-function plusApptApplyPlannerSettings() {
-    var iEl = g('plusApptGcalInterval');
-    var sEl = g('plusApptGcalStart');
-    var eEl = g('plusApptGcalEnd');
-    var hEl = g('plusApptGcalSlotH');
-    var cfg = plusApptReadGcalSettings();
-    if (iEl) cfg.interval = parseInt(iEl.value, 10);
-    if (sEl) cfg.startHour = parseInt(sEl.value, 10);
-    if (eEl) cfg.endHour = parseInt(eEl.value, 10);
-    if (hEl) cfg.slotH = parseInt(hEl.value, 10);
-    if (cfg.endHour <= cfg.startHour) {
-        alert(tr('appt.cal.endAfterStart'));
-        return;
-    }
-    if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.exportColorsMap === 'function') {
-        cfg.doctorColors = CalDoctorColors.exportColorsMap();
-    } else {
-        document.querySelectorAll('#plusApptDrColorsBox .gcal-dr-color-inp').forEach(function(inp) {
-            var dk = inp.dataset.key;
-            try { dk = decodeURIComponent(dk); } catch (e) {}
-            if (!cfg.doctorColors) cfg.doctorColors = {};
-            cfg.doctorColors[dk] = inp.value;
-        });
-    }
-    plusApptSaveGcalSettings(cfg);
-    if (typeof GCAL !== 'undefined' && typeof GCAL.reloadSettingsFromStorage === 'function') {
-        GCAL.reloadSettingsFromStorage();
-    }
-    var sp = g('plusApptSettingsPanel');
-    if (sp) sp.classList.remove('open');
-    if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
-    if (typeof renderWeekly === 'function') renderWeekly();
-}
-
-function plusApptRefreshSettingsPanelI18n() {
-    var sp = g('plusApptSettingsPanel');
-    if (sp && sp.classList.contains('open')) plusApptFillSettingsPanel();
-    plusApptRefreshSidebarToolTitles();
-}
-
-window.plusApptToggleSettings = plusApptToggleSettings;
-window.plusApptToggleMiniCal = plusApptToggleMiniCal;
-window.plusApptApplyPlannerSettings = plusApptApplyPlannerSettings;
 
 function plusApptTimeCellHtml(slot) {
     var parts = slot.split(':');
@@ -2573,44 +1695,6 @@ function plusApptApptsByStart(appts) {
         if (!key) return;
         if (!map[key]) map[key] = [];
         map[key].push(a);
-    });
-    return map;
-}
-
-/** Minutes for a planner row; prefers duration column, else start/end delta. */
-function plusApptApptDurationMins(appt) {
-    if (!appt) return 0;
-    var dur = parseInt(appt.duration || '0', 10);
-    if (dur > 0) return dur;
-    var stM = plusApptTimeToMin(appt.start_time);
-    var enM = plusApptTimeToMin(appt.end_time);
-    return (enM > stM) ? (enM - stM) : PLUSAPPT_SLOT_MIN;
-}
-
-/**
- * Slots covered by each appointment (any duration).
- * role: 'start' = first row (full highlight); 'span' = continuation (time column only).
- */
-function plusApptSpanBySlot(appts) {
-    var map = {};
-    (appts || []).forEach(function(a) {
-        if (!a || (typeof apptTransferIsCutPending === 'function' && apptTransferIsCutPending(a.id))) {
-            return;
-        }
-        var dur = plusApptApptDurationMins(a);
-        if (dur < 1) return;
-        var startKey = plusApptNormTime(a.start_time);
-        if (!startKey) return;
-        var startMin = plusApptTimeToMin(startKey);
-        var endMin = startMin + dur;
-        plusApptSlotList().forEach(function(slot) {
-            var sm = plusApptTimeToMin(slot);
-            if (sm < startMin || sm >= endMin) return;
-            var role = slot === startKey ? 'start' : 'span';
-            if (!map[slot] || role === 'start') {
-                map[slot] = { appt: a, role: role, startSlot: startKey };
-            }
-        });
     });
     return map;
 }
@@ -2863,10 +1947,7 @@ function apptTransferHideSourceRowTemporarily(apptId) {
     document.querySelectorAll(
         '#queueBody tr[data-appt-id="' + oid + '"], ' +
         '#todayBody tr[data-appt-id="' + oid + '"], ' +
-        '.day-panel-item[data-appt-id="' + oid + '"], ' +
-        '.gcal-card[data-id="' + oid + '"], ' +
-        '.gcal-month-pill[data-id="' + oid + '"], ' +
-        '.appt-pill[data-id="' + oid + '"]'
+        '.day-panel-item[data-appt-id="' + oid + '"]'
     ).forEach(function(el) {
         el.classList.add('appt-row-transfer-cut-pending');
         el.setAttribute('hidden', 'hidden');
@@ -3120,7 +2201,7 @@ window.plusApptTransferHistoryClear = plusApptTransferHistoryClear;
 function plusApptEnsureTransferLogHost() {
     var logEl = g('plusApptTransferLog');
     if (logEl) return logEl;
-    var anchor = g('plusApptMiniCalWrap') || g('plusApptMiniCal');
+    var miniCal = g('plusApptMiniCal');
     var sidebar = document.querySelector('#tab-plusappt .plusappt-sidebar');
     if (!sidebar) return null;
     logEl = document.createElement('div');
@@ -3129,8 +2210,8 @@ function plusApptEnsureTransferLogHost() {
     logEl.setAttribute('aria-live', 'polite');
     logEl.hidden = true;
     logEl.setAttribute('aria-hidden', 'true');
-    if (anchor && anchor.parentNode === sidebar) {
-        anchor.insertAdjacentElement('afterend', logEl);
+    if (miniCal && miniCal.parentNode === sidebar) {
+        miniCal.insertAdjacentElement('afterend', logEl);
     } else {
         sidebar.appendChild(logEl);
     }
@@ -3182,8 +2263,7 @@ function apptPurgeTransferredSourceFromUi(oldId) {
                 ? tr('appt.queue.empty')
                 : tr('appt.today.noToday');
             tb.innerHTML =
-                '<tr><td colspan="' + (bodyId === 'queueBody' ? '10' : '9') + '" ' +
-                'style="text-align:center;color:#aaa;padding:24px;">' +
+                '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px;">' +
                 esc(emptyMsg) + '</td></tr>';
         }
     });
@@ -3191,13 +2271,6 @@ function apptPurgeTransferredSourceFromUi(oldId) {
         if (row.dataset && row.dataset.apptId === oid) {
             row.classList.remove('appt-list-row-selected');
         }
-    });
-    document.querySelectorAll(
-        '.gcal-card[data-id="' + oid + '"], ' +
-        '.gcal-month-pill[data-id="' + oid + '"], ' +
-        '.appt-pill[data-id="' + oid + '"]'
-    ).forEach(function(el) {
-        el.remove();
     });
     var qc = g('queueCount');
     if (qc) {
@@ -3675,9 +2748,7 @@ function bindPlusApptTreatmentInline(row, apptRow) {
 function fillPlusApptScheduleTbody(tb, doctorCode) {
     if (!tb) return;
     var slots = plusApptSlotList();
-    var filteredAppts = plusApptFilterAppts(plusApptDayAppts, doctorCode);
-    var byStart = plusApptApptsByStart(filteredAppts);
-    var spanBySlot = plusApptSpanBySlot(filteredAppts);
+    var byStart = plusApptApptsByStart(plusApptFilterAppts(plusApptDayAppts, doctorCode));
     var selSlot = plusApptSelectedSlot;
     var selId = plusApptSelectedAppt ? plusApptSelectedAppt.id : null;
     var colDr = doctorCode || plusApptEffectiveDoctorCode();
@@ -3688,23 +2759,14 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var appts = byStart[slot] || [];
         var a = appts.length ? appts[0] : null;
         if (a && apptTransferIsCutPending(a.id)) a = null;
-        var spanInfo = (!a && spanBySlot[slot]) ? spanBySlot[slot] : null;
         var row = document.createElement('tr');
-        var rowCls = ['plusappt-slot-row'];
-        if (a) {
-            rowCls.push('plusappt-row-booked-long');
-        } else if (spanInfo && spanInfo.role === 'span') {
-            rowCls.push('plusappt-row-long-span');
-        }
-        row.className = rowCls.join(' ');
+        row.className = 'plusappt-slot-row' + (a ? ' plusappt-row-booked' : '');
         row.dataset.slotTime = slot;
         if (colDr) row.dataset.doctorCode = colDr;
         if (a) {
             row.dataset.apptId = a.id;
             var drCol = plusApptDoctorColor(a.doctor_code || colDr);
             row.style.borderLeft = '4px solid ' + drCol;
-        } else if (spanInfo && spanInfo.appt) {
-            row.style.borderLeft = '4px solid ' + plusApptDoctorColor(spanInfo.appt.doctor_code || colDr);
         } else {
             row.style.borderLeft = '';
         }
@@ -3724,8 +2786,8 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             remHtml = typeof formatRemarksForDisplay === 'function'
                 ? formatRemarksForDisplay(a.remarks, { empty: '—' })
                 : esc(a.remarks || '—');
-            durHtml = (a.duration != null && a.duration !== '')
-                ? esc(apptDurationDisplay(a.duration))
+            durHtml = a.duration
+                ? esc(trRepl('appt.modal.durMin', { N: a.duration }))
                 : '—';
             locked = isApptScheduleLocked(a);
             durHtml += ' <button type="button" class="plusappt-lock-btn' + (locked ? ' is-locked' : '') + '" ' +
@@ -3749,13 +2811,9 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var timeShow = a
             ? '<strong>' + fmt12(a.start_time) + '</strong> – ' + fmt12(a.end_time)
             : timeHtml;
-        var timeCellCls = 'plusappt-time-cell';
-        if (spanInfo && spanInfo.role === 'span') {
-            timeCellCls += ' plusappt-time-cell--occupied';
-        }
 
         row.innerHTML =
-            '<td class="' + timeCellCls + '">' + timeShow + '</td>' +
+            '<td class="plusappt-time-cell">' + timeShow + '</td>' +
             '<td>' + nameHtml + '</td>' +
             '<td class="plusappt-treat-cell">' + treatHtml + '</td>' +
             '<td style="font-size:12px;color:#64748b;">' + remHtml + taskHtml + '</td>' +
@@ -4330,12 +3388,6 @@ function bindPlusApptTabOnce() {
     plusApptTabBound = true;
     bindApptImportModalOnce();
     plusApptBindTransferDropZones();
-
-    var setBtn = g('plusApptSettingsBtn');
-    var calBtn = g('plusApptMiniCalBtn');
-    if (setBtn) setBtn.addEventListener('click', plusApptToggleSettings);
-    if (calBtn) calBtn.addEventListener('click', plusApptToggleMiniCal);
-    plusApptRefreshSidebarToolTitles();
 
     var addBtn = g('plusApptAddBtn');
     if (addBtn) {
@@ -5747,7 +4799,6 @@ function showPlusApptTab() {
     renderPlusApptMiniCal();
     refreshApptPlannerData();
     plusApptRenderTransferLog();
-    plusApptRefreshSidebarToolTitles();
     if (typeof applyI18nInRoot === 'function') {
         var tab = g('tab-plusappt');
         if (tab) applyI18nInRoot(tab);
@@ -5857,91 +4908,6 @@ var arFilter      = 'all';   // 'all' | 'upcoming' | 'past' | 'noshow'
 var arSearchTerm  = '';
 var arAllData     = [];      // cached from last fetch
 var arSearchTimer = null;
-var AR_DOCTOR_ALL = '__ALL__';
-var arDoctorFilter = AR_DOCTOR_ALL;
-
-function arDoctorsForClinic() {
-    var clinicSel = g('apptClinicSelect');
-    var cid = clinicSel && clinicSel.value
-        ? clinicSel.value
-        : (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
-    var list = typeof doctorsForClinic === 'function'
-        ? doctorsForClinic(cid)
-        : (APP_DOCTORS || []).filter(function (d) {
-            return !cid || d.clinic_id === cid;
-        });
-    return (list || []).filter(function (d) {
-        return d && d.is_active !== false && String(d.doctor_code || '').trim();
-    });
-}
-
-function populateArDoctorSelect() {
-    var sel = g('arDoctorSelect');
-    if (!sel) return;
-    var prev = sel.value || arDoctorFilter || AR_DOCTOR_ALL;
-    sel.innerHTML = '';
-    var allOpt = document.createElement('option');
-    allOpt.value = AR_DOCTOR_ALL;
-    allOpt.textContent = tr('appt.ar.doctorAll');
-    sel.appendChild(allOpt);
-    arDoctorsForClinic().forEach(function (d) {
-        var code = String(d.doctor_code || '').trim();
-        if (!code) return;
-        var opt = document.createElement('option');
-        opt.value = code;
-        opt.textContent = (typeof doctorDisplayName === 'function'
-            ? doctorDisplayName(d)
-            : (d.english_name || d.chinese_name || code)) + ' [' + code + ']';
-        sel.appendChild(opt);
-    });
-    var has = false;
-    for (var i = 0; i < sel.options.length; i++) {
-        if (sel.options[i].value === prev) { has = true; break; }
-    }
-    sel.value = has ? prev : AR_DOCTOR_ALL;
-    arDoctorFilter = sel.value;
-}
-
-function setArDoctorFilter(code) {
-    arDoctorFilter = code || AR_DOCTOR_ALL;
-    var sel = g('arDoctorSelect');
-    if (sel && sel.value !== arDoctorFilter) sel.value = arDoctorFilter;
-    arRender();
-}
-
-function arApptMatchesDoctorFilter(a) {
-    if (!arDoctorFilter || arDoctorFilter === AR_DOCTOR_ALL) return true;
-    if (typeof plusApptApptMatchesDoctor === 'function') {
-        return plusApptApptMatchesDoctor(a, arDoctorFilter);
-    }
-    var c = String(arDoctorFilter).trim().toLowerCase();
-    var dc = String(a && a.doctor_code ? a.doctor_code : '').trim().toLowerCase();
-    return !!(dc && dc === c);
-}
-
-/** No-show / cancelled — excluded from upcoming & past buckets. */
-function arApptIsNoshow(a) {
-    return /no.?show|failed|cancel/i.test(String(a && a.bill_status ? a.bill_status : ''));
-}
-
-/** Visit already started or completed (same signals as Today tab). */
-function arApptIsFinishedVisit(a) {
-    if (!a) return false;
-    if (a.in_queue !== null && a.in_queue !== undefined) return true;
-    var s = String(a.bill_status || '').trim().toLowerCase();
-    if (!s || s === 'scheduled') return false;
-    if (s === 'queue' || s === 'done' || s === 'finish' || s === 'arrived') return true;
-    if (s === 'billed' || s === 'paid' || s === 'partial') return true;
-    return false;
-}
-
-function arRecordFilterBucket(a, today) {
-    today = today || todayISO();
-    if (arApptIsNoshow(a)) return 'noshow';
-    if (a.date < today || (a.date === today && arApptIsFinishedVisit(a))) return 'past';
-    if (a.date >= today) return 'upcoming';
-    return 'past';
-}
 
 function setArFilter(f) {
     arFilter = f;
@@ -5962,17 +4928,16 @@ function arSearchDebounce() {
     }, 220);
 }
 
-/** Records tab: same clinic scope as queue/today (apptClinicSelect → clinic_tag). */
+/** Records tab: patient search spans all clinics (no clinic dropdown filter). */
 function applyApptRecordsClinicQuery(builder) {
-    return applyApptModuleClinicQuery(builder);
+    return builder;
 }
 
 function loadApptRecords() {
     var tbody = g('arBody');
     if (!tbody) return;
-    populateArDoctorSelect();
     tbody.innerHTML =
-        '<tr><td colspan="10" style="text-align:center;color:#aaa;padding:30px;">' +
+        '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:30px;">' +
         esc(tr('common.loadingEllipsis')) + '</td></tr>';
 
     var aq = SB.from('appointments')
@@ -5985,7 +4950,7 @@ function loadApptRecords() {
     .then(function(r) {
         if (r.error) {
             tbody.innerHTML =
-                '<tr><td colspan="10" style="color:red;padding:20px;">' +
+                '<tr><td colspan="9" style="color:red;padding:20px;">' +
                 esc(r.error.message) + '</td></tr>';
             return;
         }
@@ -6000,12 +4965,15 @@ function arRender() {
     var term  = arSearchTerm;
 
     var rows = arAllData.filter(function(a) {
-        if (arFilter !== 'all') {
-            var bucket = arRecordFilterBucket(a, today);
-            if (arFilter !== bucket) return false;
-        }
+        // Status filter
+        var isPast     = a.date < today;
+        var isFuture   = a.date >= today;
+        var isNoshow   = /no.?show|failed|cancel/i.test(a.bill_status || '');
+        var isDone     = /done|queue|arrived/i.test(a.bill_status || '') || isPast;
 
-        if (!arApptMatchesDoctorFilter(a)) return false;
+        if (arFilter === 'upcoming' && !(isFuture && !isNoshow)) return false;
+        if (arFilter === 'past'     && !(isPast  && !isNoshow))   return false;
+        if (arFilter === 'noshow'   && !isNoshow)                 return false;
 
         // Search filter
         if (term) {
@@ -6041,14 +5009,11 @@ function arRender() {
     if (emptyMsg) emptyMsg.style.display = 'none';
 
     // Group: upcoming first (asc), then past (already desc from server)
-    var future = rows.filter(function(a) { return arRecordFilterBucket(a, today) === 'upcoming'; })
+    var future = rows.filter(function(a) { return a.date >= today; })
                      .sort(function(x, y) {
                          return (x.date + x.start_time).localeCompare(y.date + y.start_time);
                      });
-    var older  = rows.filter(function(a) {
-        var b = arRecordFilterBucket(a, today);
-        return b === 'past' || b === 'noshow';
-    });
+    var older  = rows.filter(function(a) { return a.date < today; });
     var sorted = future.concat(older);
 
     var html = '';
@@ -6067,27 +5032,9 @@ function arRender() {
 }
 
 function arSectionHeader(label, bg, color) {
-    return '<tr><td colspan="10" style="background:' + bg + ';color:' + color + ';' +
+    return '<tr><td colspan="9" style="background:' + bg + ';color:' + color + ';' +
            'font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.5px;">' +
            label + '</td></tr>';
-}
-
-function arApptDurationMinutes(a) {
-    if (!a) return 0;
-    var dur = parseInt(a.duration || '0', 10);
-    if (dur > 0) return dur;
-    if (typeof plusApptTimeToMin === 'function') {
-        var stM = plusApptTimeToMin(a.start_time);
-        var enM = plusApptTimeToMin(a.end_time);
-        if (enM > stM) return enM - stM;
-    }
-    return 0;
-}
-
-function arDurationDisplay(a) {
-    var dur = arApptDurationMinutes(a);
-    if (!dur && dur !== 0) return '—';
-    return apptDurationDisplay(dur);
 }
 
 function arRow(a, today) {
@@ -6118,8 +5065,6 @@ function arRow(a, today) {
            'ondblclick="arOpenEdit(\'' + a.id + '\')">' +
            '<td style="white-space:nowrap;font-weight:600;">' + esc(a.date || '') + '</td>' +
            '<td style="white-space:nowrap;">' + fmt12(a.start_time) + '</td>' +
-           '<td style="white-space:nowrap;font-size:12px;color:#64748b;">' +
-               esc(arDurationDisplay(a)) + '</td>' +
            '<td style="color:#64748b;">' + esc(a.patient_no || '—') + '</td>' +
            '<td>' + chinesePart +
                '<span style="font-size:12px;">' + esc(a.patient_name || '—') + walkInBadge + '</span>' +
@@ -6196,7 +5141,6 @@ function openNewApptSamePatientFromRecord(appt) {
     g('psSelName').textContent    = appt.patient_name || '-';
     g('psSelNo').textContent      = appt.patient_no   || '-';
     g('psSelected').style.display = 'block';
-    apptRefreshSelectedPatientDob(appt.patient_id || '');
 
     var tday = todayISO();
     sv('fDate', tday);
@@ -6765,31 +5709,22 @@ function formatPhoneForWA(phone) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// TIME SLOT BUILDER  (matches planner timeline: 09:00 – 00:00 midnight)
+// TIME SLOT BUILDER  (08:00 – 20:00 in 15-min steps)
 // ════════════════════════════════════════════════════════════════
 function buildTimeSlots() {
     var sel = g('fStart');
     if (!sel) return;
-    var cfg = plusApptReadGcalSettings();
-    var startH = parseInt(cfg.startHour, 10);
-    var endH = parseInt(cfg.endHour, 10);
-    var interval = Math.max(5, parseInt(cfg.interval, 10) || PLUSAPPT_SLOT_MIN);
-    if (isNaN(startH)) startH = 9;
-    if (isNaN(endH)) endH = 24;
-    if (endH <= startH) endH = startH + 1;
     sel.innerHTML = '';
-    var h;
-    var m;
-    for (h = startH; h <= endH; h++) {
-        for (m = 0; m < 60; m += interval) {
-            if (h === endH && m > 0) break;
-            var val = pad(h) + ':' + pad(m);
+    for (var h = 8; h <= 20; h++) {
+        [0, 15, 30, 45].forEach(function(m) {
+            if (h === 20 && m > 0) return;
+            var val  = pad(h) + ':' + pad(m);
             var disp = fmt12(val);
-            var o = document.createElement('option');
-            o.value = val;
+            var o    = document.createElement('option');
+            o.value       = val;
             o.textContent = disp;
             sel.appendChild(o);
-        }
+        });
     }
     sel.value = '09:00';
     calcEnd();
@@ -6822,7 +5757,6 @@ function refreshApptHeaderI18n() {
     }
     if (typeof syncApptTodayDateLabels === 'function') syncApptTodayDateLabels();
     if (typeof setQueueRefreshMeta === 'function') setQueueRefreshMeta({ stampNow: false });
-    if (typeof refreshApptSharedMemoI18n === 'function') refreshApptSharedMemoI18n();
 }
 
 function statusClass(s) {
@@ -6841,53 +5775,6 @@ function statusClass(s) {
 // ════════════════════════════════════════════════════════════════
 // PATIENT SEARCH  (appointment modal)
 // ════════════════════════════════════════════════════════════════
-function apptPatientDobLookup(patientId) {
-    if (!patientId) return '';
-    if (typeof conPatientData !== 'undefined' && conPatientData &&
-        conPatientData.id === patientId && conPatientData.dob) {
-        return conPatientData.dob;
-    }
-    if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
-        _patientDetailsPatient.id === patientId && _patientDetailsPatient.dob) {
-        return _patientDetailsPatient.dob;
-    }
-    if (typeof patientListCache !== 'undefined' && patientListCache.length) {
-        var row = patientListCache.find(function (x) {
-            return x && x.id === patientId;
-        });
-        if (row && row.dob) return row.dob;
-    }
-    return '';
-}
-
-function apptUpdatePsSelDob(dob) {
-    var dobEl = g('psSelDob');
-    if (!dobEl) return;
-    if (dob && typeof formatDobAge === 'function') {
-        dobEl.textContent = ' · ' + formatDobAge(dob);
-        dobEl.style.display = '';
-    } else {
-        dobEl.textContent = '';
-        dobEl.style.display = 'none';
-    }
-}
-
-function apptRefreshSelectedPatientDob(patientId, dobHint) {
-    var dob = String(dobHint || '').trim() || apptPatientDobLookup(patientId);
-    if (dob) {
-        apptUpdatePsSelDob(dob);
-        return;
-    }
-    apptUpdatePsSelDob('');
-    if (!patientId || typeof SB === 'undefined') return;
-    SB.from('patients').select('dob').eq('id', patientId).maybeSingle()
-        .then(function (r) {
-            if (r.error || !r.data || !r.data.dob) return;
-            if (String(g('hPid').value || '').trim() !== String(patientId)) return;
-            apptUpdatePsSelDob(r.data.dob);
-        });
-}
-
 function apptSetSelectedPatient(p) {
     if (!p || !p.id) return;
     g('hPid').value      = p.id;
@@ -6901,7 +5788,6 @@ function apptSetSelectedPatient(p) {
     g('psSelName').textContent = p.full_name || '-';
     g('psSelNo').textContent   = p.patient_no || '-';
     g('psSelected').style.display = 'block';
-    apptRefreshSelectedPatientDob(p.id, p.dob);
     if (typeof switchApptPatientMode === 'function') switchApptPatientMode('exist');
 }
 
@@ -8195,7 +7081,6 @@ function openApptModal(prefillDate) {
     sv('hPno',     '');
     sv('hPname',   '');
     g('psSelected').style.display = 'none';
-    apptUpdatePsSelDob('');
     var dd = g('psDrop');
     if (dd) dd.style.display = 'none';
     var db = g('deleteApptBtn');
@@ -8216,8 +7101,12 @@ function openApptModal(prefillDate) {
         ? getProgramSettingInt('appt_default_duration', 30)
         : 30;
     var durSel = g('fDur');
-    if (durSel && defDur != null) {
-        ensureApptDurSelectValue(defDur);
+    if (durSel && defDur) {
+        var durStr = String(defDur);
+        var hasDur = Array.prototype.some.call(durSel.options || [], function(o) {
+            return String(o.value) === durStr;
+        });
+        if (hasDur) durSel.value = durStr;
     }
     refreshApptModalI18n();
     openModal('apptModal');
@@ -8242,7 +7131,6 @@ function openApptEditModal(appt) {
     g('psSelName').textContent    = appt.patient_name || '-';
     g('psSelNo').textContent      = appt.patient_no   || '-';
     g('psSelected').style.display = 'block';
-    apptRefreshSelectedPatientDob(appt.patient_id || '');
 
     sv('fDate',      appt.date             || todayISO());
     sv('fTreatment', appt.treatment_items  || '');
@@ -8267,7 +7155,7 @@ function openApptEditModal(appt) {
         var sm = +sp[0]*60 + +sp[1];
         var em = +ep[0]*60 + +ep[1];
         var df = g('fDur');
-        if (df) ensureApptDurSelectValue(em - sm);
+        if (df) df.value = String(em - sm);
     }
     calcEnd();
     refreshApptModalI18n();
@@ -8659,7 +7547,7 @@ function apptMergedAlertText(a) {
 function apptAlertCellHtml(a) {
     var txt = apptMergedAlertText(a);
     if (!txt) return '<span class="appt-alert-empty">—</span>';
-    return '<div class="appt-alert-scroll" title="' + esc(txt) + '">' + esc(txt) + '</div>';
+    return '<span class="appt-alert-text" title="' + esc(txt) + '">' + esc(txt) + '</span>';
 }
 
 /** @returns {string} HTML (already escaped inner text) */
@@ -8690,41 +7578,6 @@ function apptPatientDisplayNameHTML(a, opt) {
     }
 
     return '<div class="appt-patient-name-field">' + out + '</div>';
-}
-
-function apptListDoctorDotCtx(apptRows) {
-    var rows = apptRows || [];
-    var cid = typeof currentClinicId !== 'undefined' ? currentClinicId : null;
-    var hasMultipleDoctors = typeof CalDoctorColors !== 'undefined' &&
-        typeof CalDoctorColors.listHasMultipleDoctors === 'function'
-        ? CalDoctorColors.listHasMultipleDoctors(rows, cid)
-        : false;
-    return {
-        clinicId: cid,
-        hasMultipleDoctors: hasMultipleDoctors,
-        multiDoctorOnly: true
-    };
-}
-
-function apptRowDoctorDotHtml(a, ctx) {
-    if (typeof CalDoctorColors === 'undefined' || !CalDoctorColors.rowDoctorDotHtml) return '';
-    return CalDoctorColors.rowDoctorDotHtml(a, ctx || {});
-}
-
-function apptRepaintListRowDoctorDots() {
-    if (typeof CalDoctorColors === 'undefined' || !CalDoctorColors.getStyleForAppt) return;
-    ['todayBody', 'queueBody'].forEach(function (bodyId) {
-        var tb = g(bodyId);
-        if (!tb) return;
-        tb.querySelectorAll('tr[data-appt-id] .appt-row-dr-dot').forEach(function (dot) {
-            var row = dot.closest('tr');
-            if (!row || !row.dataset.apptId) return;
-            var ap = findApptInCalendarCaches(row.dataset.apptId);
-            if (!ap) return;
-            var sty = CalDoctorColors.getStyleForAppt(ap);
-            dot.style.background = sty.dot;
-        });
-    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -8779,8 +7632,7 @@ function loadToday() {
                 if (a.in_queue !== null && a.in_queue !== undefined) return false;
                 var s = String(a.bill_status || '').toLowerCase();
                 if (s === 'queue' || s === 'done' || s === 'finish') return false;
-                if (/cancel/.test(s)) return false;
-                if (todayApptIsNoshow(a) && todayNoshowIsDismissed(a.id)) return false;
+                if (/cancel|no.?show|failed/.test(s)) return false;
                 return true;
             });
             todayAppts = todayRows;
@@ -8791,7 +7643,6 @@ function loadToday() {
                     ? tr('appt.today.countOne')
                     : trRepl('appt.today.countN', { N: String(visible.length) });
             }
-            var dotCtx = apptListDoctorDotCtx(todayRows);
             if (!visible.length) {
                 tb.innerHTML =
                     '<tr><td colspan="9" style="text-align:center;' +
@@ -8800,7 +7651,7 @@ function loadToday() {
                     '</td></tr>';
             } else {
                 visible.forEach(function(a) {
-                    buildTodayRow(tb, a, dotCtx);
+                    buildTodayRow(tb, a);
                 });
             }
             doStrip(todayRows);
@@ -8815,57 +7666,9 @@ function loadToday() {
     });
 }
 
-function todayApptIsNoshow(a) {
-    return /no.?show|failed/i.test(String(a && a.bill_status ? a.bill_status : ''));
-}
-
-function todayNoshowDismissStore() {
-    try {
-        var raw = localStorage.getItem(TODAY_NOSHOW_DISMISS_LS);
-        var map = raw ? JSON.parse(raw) : {};
-        return (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
-    } catch (e) {
-        return {};
-    }
-}
-
-function todayNoshowIsDismissed(apptId, dateIso) {
-    return todayNoshowDismissStore()[String(apptId)] === (dateIso || todayISO());
-}
-
-function dismissTodayNoshowRow(apptId) {
-    var map = todayNoshowDismissStore();
-    var iso = todayISO();
-    Object.keys(map).forEach(function(k) {
-        if (map[k] !== iso) delete map[k];
-    });
-    map[String(apptId)] = iso;
-    try {
-        localStorage.setItem(TODAY_NOSHOW_DISMISS_LS, JSON.stringify(map));
-    } catch (e) { /* ignore */ }
-}
-
-function hideTodayNoshowRow(apptId, row) {
-    dismissTodayNoshowRow(apptId);
-    todayAppts = (todayAppts || []).filter(function(a) {
-        return String(a.id) !== String(apptId);
-    });
-    if (row && row.parentNode) row.parentNode.removeChild(row);
-    var tb = g('todayBody');
-    if (tb && !tb.querySelector('tr[data-appt-id]')) {
-        tb.innerHTML =
-            '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:24px;">' +
-            esc(tr('appt.today.noFiltered')) + '</td></tr>';
-    }
-    if (typeof apptTransferRefreshVisibleListCounts === 'function') {
-        apptTransferRefreshVisibleListCounts();
-    }
-}
-
 function todayApptNeedsPatientReg(a) {
     if (!a) return false;
     if (a.bill_status === 'Queue' || a.bill_status === 'Done') return false;
-    if (todayApptIsNoshow(a)) return false;
     return !a.patient_id;
 }
 
@@ -8915,18 +7718,14 @@ function linkTodayApptAfterPatientRegistration(patient) {
     return true;
 }
 
-function buildTodayRow(tb, a, dotCtx) {
+function buildTodayRow(tb, a) {
     if (apptTransferIsCutPending(a.id)) return;
     var row = document.createElement('tr');
     row.dataset.apptId = a.id;
     row.style.cursor = 'pointer';
-    var drDot = apptRowDoctorDotHtml(a, dotCtx);
-    var isNoshow = todayApptIsNoshow(a);
-    if (isNoshow) row.classList.add('today-row-noshow');
     var needsReg = todayApptNeedsPatientReg(a);
     var actionBtn = '';
-    var canMarkVisit = a.bill_status !== 'Queue' && a.bill_status !== 'Done' && !isNoshow;
-    if (canMarkVisit) {
+    if (a.bill_status !== 'Queue' && a.bill_status !== 'Done') {
         if (needsReg) {
             actionBtn =
                 '<button type="button" class="btn-today-newpatient btn-sm" ' +
@@ -8936,13 +7735,6 @@ function buildTodayRow(tb, a, dotCtx) {
                 '<button type="button" class="btn-today-checkin btn-sm" ' +
                 'style="background:var(--success);">' + esc(tr('appt.today.btnCheckIn')) + '</button>';
         }
-        actionBtn +=
-            '<button type="button" class="btn-today-noshow btn-sm" ' +
-            'style="background:#dc2626;">' + esc(tr('appt.today.btnNoShow')) + '</button>';
-    } else if (isNoshow) {
-        actionBtn =
-            '<button type="button" class="btn-today-remove btn-sm" ' +
-            'style="background:#64748b;">' + esc(tr('appt.today.btnRemove')) + '</button>';
     }
 
     row.innerHTML =
@@ -8953,24 +7745,21 @@ function buildTodayRow(tb, a, dotCtx) {
         '<td style="font-size:12px;color:#888;">' +
             esc(a.patient_no || '-') +
         '</td>' +
-        '<td class="today-name-cell">' +
-            '<span class="appt-row-name-wrap">' +
-                drDot +
-                apptPatientDisplayNameHTML(a, { walkIn: true }) +
-            '</span>' +
+        '<td>' + apptPatientDisplayNameHTML(a, { walkIn: true }) + '</td>' +
+        '<td>' +
+            '<input class="appt-treat-inline" type="text" ' +
+            'value="' + esc(a.treatment_items || '') + '" ' +
+            'placeholder="' + esc(tr('appt.modal.treatmentPh')) + '" ' +
+            'data-appt-id="' + esc(a.id) + '">' +
         '</td>' +
-        '<td class="today-treatment-cell">' +
-            apptTreatInlineTextareaHtml(a.treatment_items, a.id, 'appt-treat-inline--today') +
-        '</td>' +
-        '<td class="appt-alert-cell">' + apptAlertCellHtml(a) + '</td>' +
+        '<td style="font-size:12px;">' + apptAlertCellHtml(a) + '</td>' +
         '<td style="font-size:12px;color:#888;">' +
             formatRemarksForDisplay(a.remarks, { empty: '-' }) +
             apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--remarks') +
             apptTaskSummaryHtml(a) +
         '</td>' +
         '<td style="text-align:center;">' +
-            esc(a.duration != null && a.duration !== ''
-                ? apptDurationDisplay(a.duration) : '-') +
+            esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') +
         '</td>' +
         '<td>' +
             '<span class="status-badge ' +
@@ -8988,12 +7777,27 @@ function buildTodayRow(tb, a, dotCtx) {
 
     tb.appendChild(row);
 
-    apptBindTreatInlineField(row.querySelector('.appt-treat-inline'), function (saved) {
-        a.treatment_items = saved;
-    });
+    var tInp = row.querySelector('.appt-treat-inline');
+    if (tInp && !tInp.dataset.bound) {
+        tInp.dataset.bound = '1';
+        tInp.addEventListener('click', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('dblclick', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                try { tInp.blur(); } catch (_) {}
+            }
+        });
+        tInp.addEventListener('blur', function() {
+            apptInlineSaveTreatment(tInp.getAttribute('data-appt-id'), tInp.value, function(saved) {
+                a.treatment_items = saved;
+                tInp.value = saved;
+            });
+        });
+    }
 
     row.addEventListener('dblclick', function () {
-        if (isNoshow || a.bill_status === 'Queue' || a.bill_status === 'Done') {
+        if (a.bill_status === 'Queue' || a.bill_status === 'Done') {
             openApptEditModal(a);
             return;
         }
@@ -9028,26 +7832,6 @@ function buildTodayRow(tb, a, dotCtx) {
             checkInPatient(a);
         });
     }
-
-    var ns = row.querySelector('.btn-today-noshow');
-    if (ns) {
-        ns.addEventListener('click', function (e) {
-            e.stopPropagation();
-            updateApptBillStatus(a.id, 'No Show');
-        });
-    }
-
-    var rm = row.querySelector('.btn-today-remove');
-    if (rm) {
-        rm.addEventListener('click', function (e) {
-            e.stopPropagation();
-            if (!confirm(trRepl('appt.queue.confirmRemove', {
-                NAME: a.patient_name || tr('appt.today.thisPatient')
-            }))) return;
-            hideTodayNoshowRow(a.id, row);
-        });
-    }
-
     row.querySelectorAll('.appt-task-pill-btn[data-task-cycle="1"]').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -9067,52 +7851,6 @@ function buildTodayRow(tb, a, dotCtx) {
         apptSelectListRow(a, row, 'today');
     });
     apptBindListRowPatientDrag(row, a);
-}
-
-function apptTreatInlineResize(el) {
-    if (!el) return;
-    el.style.height = 'auto';
-    var maxRows = parseInt(el.getAttribute('data-max-rows') || '4', 10) || 4;
-    var linePx = 19;
-    var padPx = 14;
-    var minPx = 34;
-    var maxPx = (maxRows * linePx) + padPx;
-    var scrollH = el.scrollHeight;
-    var nextH = Math.min(Math.max(scrollH, minPx), maxPx);
-    el.style.height = nextH + 'px';
-    el.style.overflowY = scrollH > maxPx ? 'auto' : 'hidden';
-}
-
-function apptBindTreatInlineField(el, onSaved) {
-    if (!el || el.dataset.bound === '1') return;
-    el.dataset.bound = '1';
-    el.addEventListener('click', function (e) { e.stopPropagation(); });
-    el.addEventListener('dblclick', function (e) { e.stopPropagation(); });
-    el.addEventListener('input', function () { apptTreatInlineResize(el); });
-    el.addEventListener('focus', function () { apptTreatInlineResize(el); });
-    el.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            try { el.blur(); } catch (_) {}
-        }
-    });
-    el.addEventListener('blur', function () {
-        apptInlineSaveTreatment(el.getAttribute('data-appt-id'), el.value, function (saved) {
-            if (onSaved) onSaved(saved);
-            el.value = saved || '';
-            apptTreatInlineResize(el);
-        });
-    });
-    apptTreatInlineResize(el);
-}
-
-function apptTreatInlineTextareaHtml(value, apptId, extraClass) {
-    var cls = 'appt-treat-inline' + (extraClass ? (' ' + extraClass) : '');
-    return '<textarea class="' + cls + '" rows="1" data-max-rows="4" ' +
-        'data-appt-id="' + esc(apptId) + '" ' +
-        'placeholder="' + esc(tr('appt.modal.treatmentPh')) + '" ' +
-        'title="' + esc(tr('appt.treatInline.saveHint')) + '">' +
-        esc(value || '') + '</textarea>';
 }
 
 function apptInlineSaveTreatment(apptId, raw, onDone) {
@@ -9186,8 +7924,7 @@ function printTodayList() {
                 '<td>' + esc(a.treatment_items || '-') + '</td>' +
                 '<td>' + formatRemarksForDisplay(a.remarks, { empty: '-' }) + '</td>' +
                 '<td style="text-align:center;">' +
-                    esc(a.duration != null && a.duration !== ''
-                ? apptDurationDisplay(a.duration) : '-') + '</td>' +
+                    esc(a.duration ? trRepl('appt.modal.durMin', { N: a.duration }) : '-') + '</td>' +
                 '<td>' + esc(dispStatusLabel(status)) + '</td>' +
                 '</tr>';
         });
@@ -9228,17 +7965,13 @@ function printTodayList() {
             WHEN: new Date().toLocaleString(apptDateLocale())
         })) + '</td></tr></tfoot>' +
         '</table>' +
-        '<script>' +
-        (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
-        'window.onload=function(){setTimeout(function(){try{window.print();}catch(e){if(typeof __ppClose==="function")__ppClose();}},200);};' +
-        '<\/script>' +
+        '<script>window.onload=function(){window.print();}<\/script>' +
         '</body></html>';
 
     var w = window.open('', '_blank', 'width=900,height=650');
     if (!w) { alert(tr('appt.today.popupBlocked')); return; }
     w.document.write(html);
     w.document.close();
-    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(w);
 }
 
 /**
@@ -9797,8 +8530,7 @@ function queueRefreshElapsedBadges() {
     tb.querySelectorAll('tr[data-appt-id]').forEach(function(row) {
         var host = row.querySelector('.queue-arrived-cell');
         if (!host) return;
-        var stack = host.querySelector('.queue-arrived-stack') || host;
-        var badge = stack.querySelector('.queue-elapsed-badge');
+        var badge = host.querySelector('.queue-elapsed-badge');
         var html = queueElapsedBadgeHtml(
             row.dataset.apptId || '',
             row.dataset.arrivalTime || '',
@@ -9810,7 +8542,7 @@ function queueRefreshElapsedBadges() {
             return;
         }
         if (!badge) {
-            stack.insertAdjacentHTML('beforeend', html);
+            host.insertAdjacentHTML('beforeend', html);
             return;
         }
         var meta = queueElapsedMeta(
@@ -9820,8 +8552,8 @@ function queueRefreshElapsedBadges() {
             row.dataset.updatedAt || ''
         );
         if (!meta) return;
+        badge.textContent = meta.text;
         badge.className = 'queue-elapsed-badge ' + meta.toneClass;
-        badge.innerHTML = '<span class="queue-elapsed-icon">⏱</span>' + esc(meta.text);
     });
 }
 
@@ -9839,7 +8571,7 @@ function loadQueue() {
     var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
     tb.innerHTML =
-        '<tr><td colspan="10" style="text-align:center;' +
+        '<tr><td colspan="9" style="text-align:center;' +
         'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
 
     var qq = SB.from('appointments').select('*')
@@ -9858,7 +8590,7 @@ function loadQueue() {
         };
         if (r.error || !r.data || !r.data.length) {
             tb.innerHTML =
-                '<tr><td colspan="10" style="text-align:center;' +
+                '<tr><td colspan="9" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' +
                 esc(tr('appt.queue.empty')) + '</td></tr>';
             var qc = g('queueCount');
@@ -9885,16 +8617,15 @@ function loadQueue() {
             if (qc) qc.textContent = trRepl('appt.queue.count', { N: String(visible.length) });
             if (!visible.length) {
                 tb.innerHTML =
-                    '<tr><td colspan="10" style="text-align:center;' +
+                    '<tr><td colspan="9" style="text-align:center;' +
                     'color:#aaa;padding:24px;">' +
                     esc(activeRows.length
                         ? tr('appt.queue.emptyFiltered')
                         : tr('appt.queue.empty')) +
                     '</td></tr>';
             } else {
-                var dotCtx = apptListDoctorDotCtx(activeRows);
                 visible.forEach(function(q, idx) {
-                    buildQueueRow(tb, q, idx + 1, dotCtx);
+                    buildQueueRow(tb, q, idx + 1);
                 });
             }
             doStrip(activeRows);
@@ -9914,11 +8645,10 @@ function loadQueue() {
 }
 
 // seqNo: 1-based consultation order (top of list = first to see the doctor).
-function buildQueueRow(tb, q, seqNo, dotCtx) {
+function buildQueueRow(tb, q, seqNo) {
     if (apptTransferIsCutPending(q.id)) return;
     var row = document.createElement('tr');
     var uid = q.id.replace(/-/g, '').slice(0, 12);
-    var drDot = apptRowDoctorDotHtml(q, dotCtx);
 
     row.dataset.apptId = q.id;
     row.dataset.arrivalTime = q.arrival_time || '';
@@ -9939,42 +8669,33 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
                 esc(String(seqNo)) +
             '</span>' +
         '</td>' +
-        '<td class="queue-name-cell">' +
-            '<span class="appt-row-name-wrap">' +
-                drDot +
-                '<span class="appt-row-name-stack">' +
-                    apptPatientDisplayNameHTML(q, { walkIn: true }) +
-                    (q.patient_no
-                        ? '<div class="appt-name-subno">' +
-                          esc(q.patient_no) +
-                          '</div>'
-                        : '') +
-                '</span>' +
-            '</span>' +
+        '<td>' +
+            apptPatientDisplayNameHTML(q, { walkIn: true }) +
+            (q.patient_no
+                ? '<div class="appt-name-subno">' +
+                  esc(q.patient_no) +
+                  '</div>'
+                : '') +
         '</td>' +
-        '<td class="queue-treatment-cell">' +
-            apptTreatInlineTextareaHtml(q.treatment_items, q.id, 'appt-treat-inline--queue') +
+        '<td style="font-size:13px;">' +
+            '<input class="appt-treat-inline appt-treat-inline--queue" type="text" ' +
+            'value="' + esc(q.treatment_items || '') + '" ' +
+            'placeholder="' + esc(tr('appt.modal.treatmentPh')) + '" ' +
+            'data-appt-id="' + esc(q.id) + '">' +
         '</td>' +
-        '<td class="appt-alert-cell">' + apptAlertCellHtml(q) + '</td>' +
+        '<td style="font-size:12px;">' + apptAlertCellHtml(q) + '</td>' +
         '<td>' +
             '<strong>' + fmt12(q.start_time) + '</strong>' +
         '</td>' +
-        '<td class="queue-duration-cell">' +
-            esc(arDurationDisplay(q)) +
-        '</td>' +
         '<td class="queue-arrived-cell">' +
-            '<div class="queue-arrived-stack">' +
-                '<div class="queue-arrived-time">' +
-                    (q.arrival_time
-                        ? '<span class="queue-arrived-time-val">' +
-                          new Date(q.arrival_time).toLocaleTimeString(apptDateLocale(), {
-                              hour:   '2-digit',
-                              minute: '2-digit'
-                          }) + '</span>'
-                        : '<span class="queue-arrived-time-empty">—</span>') +
-                '</div>' +
-                queueElapsedBadgeHtml(q.id, q.arrival_time, q.bill_status, q.updated_at) +
-            '</div>' +
+            (q.arrival_time
+                ? '<span style="color:var(--success);font-weight:600;">' +
+                  new Date(q.arrival_time).toLocaleTimeString(apptDateLocale(), {
+                      hour:   '2-digit',
+                      minute: '2-digit'
+                  }) + '</span>'
+                : '<span style="color:#aaa;">—</span>') +
+            queueElapsedBadgeHtml(q.id, q.arrival_time, q.bill_status, q.updated_at) +
         '</td>' +
         '<td class="queue-remarks-cell">' +
             '<div class="queue-remarks-preview-wrap">' +
@@ -10026,9 +8747,24 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
 
     tb.appendChild(row);
 
-    apptBindTreatInlineField(row.querySelector('.appt-treat-inline'), function (saved) {
-        q.treatment_items = saved;
-    });
+    var tInp = row.querySelector('.appt-treat-inline');
+    if (tInp && !tInp.dataset.bound) {
+        tInp.dataset.bound = '1';
+        tInp.addEventListener('click', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('dblclick', function(e) { e.stopPropagation(); });
+        tInp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                try { tInp.blur(); } catch (_) {}
+            }
+        });
+        tInp.addEventListener('blur', function() {
+            apptInlineSaveTreatment(tInp.getAttribute('data-appt-id'), tInp.value, function(saved) {
+                q.treatment_items = saved;
+                tInp.value = saved;
+            });
+        });
+    }
 
     row.addEventListener('dragstart', function(e) {
         if (queueDragBlockedTarget(e.target)) {
@@ -10212,24 +8948,15 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
     }
 }
 
-function updateApptBillStatus(apptId, status) {
+function updateQueueStatus(apptId, status) {
+    var update = { bill_status: status };
     SB.from('appointments')
-        .update({ bill_status: status })
+        .update(update)
         .eq('id', apptId)
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-        if (typeof arAllData !== 'undefined' && arAllData && arAllData.length) {
-            var cached = arAllData.find(function(x) { return String(x.id) === String(apptId); });
-            if (cached) cached.bill_status = status;
-            if (typeof arRender === 'function') arRender();
-        }
-        if (typeof loadQueue === 'function') loadQueue();
-        if (typeof loadToday === 'function') loadToday();
+        loadQueue();
     });
-}
-
-function updateQueueStatus(apptId, status) {
-    updateApptBillStatus(apptId, status);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -10431,26 +9158,6 @@ function bindCalMonthMiniTransferDrop() {
     });
 }
 
-function repaintCalMonthPills() {
-    if (typeof calView !== 'undefined' && calView !== 'monthly') return;
-    var cb = g('calBody');
-    if (!cb || typeof CalDoctorColors === 'undefined' || !CalDoctorColors.getStyleForAppt) return;
-    var monthById = {};
-    (calMonthApptsCache || []).forEach(function (a) {
-        if (a && a.id) monthById[String(a.id)] = a;
-    });
-    cb.querySelectorAll('.gcal-month-pill[data-id]').forEach(function (pill) {
-        var ap = monthById[String(pill.getAttribute('data-id') || '')];
-        if (!ap) return;
-        var sty = CalDoctorColors.getStyleForAppt(ap);
-        pill.style.setProperty('border-left', '4px solid ' + sty.borderColor, 'important');
-        pill.style.setProperty('background', sty.background, 'important');
-        pill.dataset.drColor = sty.color;
-        var drEl = pill.querySelector('.gcal-month-pill-dr');
-        if (drEl) drEl.style.color = sty.color;
-    });
-}
-
 function renderMonthly() {
     bindCalMonthMiniToolbarBtn();
     var y  = calDate.getFullYear();
@@ -10607,10 +9314,7 @@ function renderMonthly() {
             });
             pill.addEventListener('click', function(e) {
                 e.stopPropagation();
-                if (a) {
-                    apptSnapActivePatientFromCalendarAppt(a, 'calendar-monthly-pill-select');
-                    showApptPopup(a, pill);
-                }
+                if (a) showApptPopup(a, pill);
             });
         });
         bindCalMonthMiniTransferDrop();
@@ -10754,7 +9458,7 @@ function persistApptScheduleLock(appt, locked, done) {
 // ════════════════════════════════════════════════════════════════
 var GCAL = (function () {
 
-    var DEFAULTS = { interval: 15, startHour: 9, endHour: 24, slotH: 24, doctorColors: {} };
+    var DEFAULTS = { interval: 15, startHour: 8, endHour: 20, slotH: 24, doctorColors: {} };
     var PALETTE  = ['#0ea5e9','#10b981','#f59e0b','#ef4444',
                     '#8b5cf6','#ec4899','#14b8a6','#f97316',
                     '#6366f1','#84cc16','#06b6d4','#a855f7'];
@@ -10772,18 +9476,7 @@ var GCAL = (function () {
     function loadSettings() {
         try {
             var stored = localStorage.getItem('gcal_settings_v2');
-            if (!stored) {
-                S = Object.assign({}, DEFAULTS);
-            } else {
-                var merged = Object.assign({}, DEFAULTS, JSON.parse(stored));
-                var before = {
-                    startHour: merged.startHour,
-                    endHour: merged.endHour,
-                    timelineDefaultsVer: merged.timelineDefaultsVer
-                };
-                S = gcalNormalizeTimelineSettings(merged);
-                gcalPersistSettingsIfChanged(before, S);
-            }
+            S = stored ? Object.assign({}, DEFAULTS, JSON.parse(stored)) : Object.assign({}, DEFAULTS);
         } catch (e) { S = Object.assign({}, DEFAULTS); }
         if (!S.doctorColors) S.doctorColors = {};
     }
@@ -10891,11 +9584,7 @@ var GCAL = (function () {
                 var k = a.doctor_code || a.doctor_name || a.treatment_items || '';
                 if (k && !kSet[k]) { kSet[k] = true; knownKeys.push(k); }
             });
-            var panelSt = captureGcalPanelState();
-            var scrollBody = document.getElementById('gcalScrollBody');
-            var savedScrollTop = scrollBody ? scrollBody.scrollTop : 0;
-            buildDOM(cb, { preserveScroll: panelSt.settingsOpen, scrollTop: savedScrollTop });
-            restoreGcalPanelState(panelSt);
+            buildDOM(cb);
             if (typeof CalDoctorColors !== 'undefined') {
                 CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
             }
@@ -10949,31 +9638,8 @@ var GCAL = (function () {
         return out;
     }
 
-    function repaintCards() {
-        document.querySelectorAll('.gcal-card[data-id]').forEach(function (card) {
-            var id = String(card.dataset.id || '');
-            if (!id) return;
-            var a = null;
-            for (var i = 0; i < appts.length; i++) {
-                if (appts[i] && String(appts[i].id) === id) {
-                    a = appts[i];
-                    break;
-                }
-            }
-            if (!a) return;
-            if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.paintElement) {
-                CalDoctorColors.paintElement(card, a);
-            } else {
-                var sty = getCardStyle(a);
-                card.style.borderLeft = '4px solid ' + sty.borderColor;
-                card.style.background = sty.background;
-            }
-        });
-    }
-
     // ── Build entire calendar DOM ────────────────────────────────
-    function buildDOM(cb, opts) {
-        opts = opts || {};
+    function buildDOM(cb) {
         var todayStr = todayISO();
         var th       = totalH();
         var slots    = (S.endHour - S.startHour) * 60 / S.interval;
@@ -11029,9 +9695,7 @@ var GCAL = (function () {
                 var lbl = document.createElement('div');
                 lbl.className    = 'gcal-time-label' + (isHr ? ' hour' : '');
                 lbl.style.top    = (s * S.slotH) + 'px';
-                lbl.textContent  = isHr
-                    ? ((hh === 24) ? '00:00' : (pad(hh) + ':00'))
-                    : (pad(hh) + ':' + pad(mm));
+                lbl.textContent  = isHr ? (pad(hh) + ':00') : (pad(hh) + ':' + pad(mm));
                 tc.appendChild(lbl);
             }
         }
@@ -11061,9 +9725,7 @@ var GCAL = (function () {
             }
 
             // Appointment cards (side-by-side when overlapping — Google Calendar style)
-            var dayAppts = appts.filter(function (a) {
-                return a.date === iso && !apptTransferIsCutPending(a.id);
-            });
+            var dayAppts = appts.filter(function (a) { return a.date === iso; });
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts) {
                 dayAppts = CalDoctorColors.filterAppts(dayAppts);
             }
@@ -11099,33 +9761,13 @@ var GCAL = (function () {
             function hidePatientDropGhost() {
                 ghost.style.display = 'none';
             }
-            function completePendingTransferAtSlot(slotIso, slotTime) {
-                if (!apptTransferCutIsActive()) return false;
-                var snap = plusApptTransferLogSnapshot();
-                if (!snap || !snap.apptId) return false;
-                var dur = parseInt(snap.duration || '0', 10);
-                if (!dur || dur < 1) dur = PLUSAPPT_SLOT_MIN;
-                var endTime = minToTimeStr(timeToMin(slotTime) + dur);
-                document.querySelectorAll('.gcal-card[data-id="' + String(snap.apptId) + '"]').forEach(function(card) {
-                    card.classList.add('appt-row-transfer-cut-pending');
-                    card.setAttribute('hidden', 'hidden');
-                    card.style.display = 'none';
-                });
-                plusApptFinishTransferCutPaste(snap, {
-                    date: slotIso,
-                    start_time: slotTime,
-                    end_time: endTime,
-                    duration: dur
-                });
-                return true;
-            }
             col.addEventListener('dragover', function(ev) {
                 if (typeof isActivePatientCardDragActive === 'function' && !isActivePatientCardDragActive()) {
                     hidePatientDropGhost();
                     return;
                 }
                 ev.preventDefault();
-                ev.dataTransfer.dropEffect = apptTransferCutIsActive() ? 'move' : 'copy';
+                ev.dataTransfer.dropEffect = 'copy';
                 showPatientDropGhost(ev.clientY);
             });
             col.addEventListener('dragleave', function(ev) {
@@ -11143,19 +9785,14 @@ var GCAL = (function () {
                     ? readPatientDragPayloadFromEvent(ev)
                     : null;
                 hidePatientDropGhost();
+                if (!p) return;
                 ev.preventDefault();
                 var relY = ev.clientY - col.getBoundingClientRect().top;
                 var slotIdx = Math.max(0, Math.round(relY / S.slotH));
                 var maxSlot = Math.floor((totalH() - S.slotH) / S.slotH);
                 slotIdx = Math.max(0, Math.min(slotIdx, maxSlot));
                 var totalMin = Math.min(S.startHour * 60 + slotIdx * S.interval, (S.endHour - 1) * 60);
-                var slotTime = minToTimeStr(totalMin);
-                if (completePendingTransferAtSlot(iso, slotTime)) {
-                    hidePatientDropGhost();
-                    return;
-                }
-                if (!p) return;
-                openApptModalWithPatient(iso, slotTime, p);
+                openApptModalWithPatient(iso, minToTimeStr(totalMin), p);
                 hidePatientDropGhost();
             });
 
@@ -11173,12 +9810,8 @@ var GCAL = (function () {
         if (nowTimer) clearInterval(nowTimer);
         nowTimer = setInterval(function () { renderNowLine(body); }, 60000);
 
-        // Scroll to 1 hour past startHour (skip when refreshing with settings panel open)
+        // Scroll to 1 hour past startHour
         requestAnimationFrame(function () {
-            if (opts.preserveScroll && opts.scrollTop != null) {
-                body.scrollTop = opts.scrollTop;
-                return;
-            }
             body.scrollTop = Math.max(0, (1 * 60 / S.interval) * S.slotH - 10);
         });
     }
@@ -11220,13 +9853,9 @@ var GCAL = (function () {
         var dr           = a.doctor_code || a.doctor_name || '';
         var isWalkIn     = !a.patient_id;
         var chineseName  = a.patient_chinese_name || '';
-        var engName      = a.patient_name || (isWalkIn ? tr('appt.cal.cardWalkin') : '—');
-        var treatment    = String(a.treatment_items || '').trim();
-        var remarksTxt   = a.remarks
-            ? formatRemarksForDisplay(a.remarks, { stripDr: true })
-            : '';
         var locked       = isApptScheduleLocked(a);
 
+        var headName = chineseName || a.patient_name || (isWalkIn ? tr('appt.cal.cardWalkin') : '—');
         var lockTitle = locked ? tr('appt.cal.lockUnlockTitle') : tr('appt.cal.lockPinTitle');
         var lockAria = locked ? tr('appt.cal.lockAriaUnlock') : tr('appt.cal.lockAriaLock');
         var html =
@@ -11235,29 +9864,25 @@ var GCAL = (function () {
                 'aria-label="' + esc(lockAria) + '">' +
                 (locked ? '🔒' : '🔓') +
             '</button>' +
-            '<span class="card-line card-line--1 card-headline">' +
+            '<span class="card-headline">' +
                 (isWalkIn ? '<span class="card-new-badge">' + esc(tr('appt.badge.newWalkin')) + '</span>' : '') +
-                '<span class="card-chinese">' + esc(chineseName || engName) + '</span>' +
-                (treatment
-                    ? '<span class="card-treatment">' + esc(treatment) + '</span>'
-                    : '') +
-            '</span>' +
-            '<span class="card-line card-line--2">' +
-                (chineseName && a.patient_name
-                    ? '<span class="card-name">' + esc(a.patient_name) + '</span>'
-                    : '') +
+                '<span class="card-chinese">' + esc(headName) + '</span>' +
                 (a.patient_no
                     ? '<span class="card-pno">#' + esc(a.patient_no) + '</span>'
                     : '') +
-            '</span>';
-        if (remarksTxt) {
-            html += '<span class="card-line card-line--3 card-remarks">' + esc(remarksTxt) + '</span>';
-        }
-        html += '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
+            '</span>' +
+            '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
         html += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--cal');
-        if (dr && height >= S.slotH * 3) {
-            html += '<span class="card-dr" style="color:' + color + ';">● ' + esc(dr) + '</span>';
+        if (chineseName && a.patient_name) {
+            html += '<span class="card-name">' + esc(a.patient_name) + '</span>';
         }
+        if (a.treatment_items)
+            html += '<span class="card-sub" style="font-weight:600;">' + esc(a.treatment_items) + '</span>';
+        if (dr && height >= S.slotH * 2)
+            html += '<span class="card-dr" style="color:' + color + ';">● ' + esc(dr) + '</span>';
+        if (a.remarks && height >= S.slotH * 2)
+            html += '<span class="card-sub" style="font-style:italic;opacity:.7;">' +
+                formatRemarksForDisplay(a.remarks, { stripDr: true }) + '</span>';
         card.innerHTML = html;
         if (locked) card.classList.add('gcal-card-locked');
 
@@ -11276,7 +9901,6 @@ var GCAL = (function () {
             if (e.target.closest && e.target.closest('.gcal-card-lock')) return;
             if (e.target.closest && e.target.closest('.gcal-card-resize-handle')) return;
             e.stopPropagation();
-            apptSnapActivePatientFromCalendarAppt(a, 'calendar-weekly-card-select');
             showApptPopup(a, card);
         });
         attachGcalPatientDrag(card, a);
@@ -11287,27 +9911,39 @@ var GCAL = (function () {
 
     function attachGcalPatientDrag(card, appt) {
         if (!card || !appt || !appt.patient_id) return;
-        var head = card.querySelector('.card-line--1');
+        var head = card.querySelector('.card-headline');
         if (!head) return;
         head.classList.add('gcal-patient-drag');
         head.setAttribute('draggable', 'true');
         head.title = typeof tr === 'function' ? tr('activePatient.dragFromApptTitle') : '';
         head.addEventListener('dragstart', function(e) {
             e.stopPropagation();
-            if (typeof plusApptMarkRowDragTransfer === 'function') {
-                plusApptMarkRowDragTransfer(e, appt);
-            }
             if (typeof beginApptPatientDragTransfer === 'function') {
                 beginApptPatientDragTransfer(e, appt);
             }
         });
         head.addEventListener('dragend', function() {
-            plusApptDragApptId = null;
-            plusApptSetMiniCalDragOver(false);
             if (typeof clearPatientDragPayloadSession === 'function') {
                 clearPatientDragPayloadSession();
             }
         });
+        var nameEl = card.querySelector('.card-name');
+        if (nameEl) {
+            nameEl.classList.add('gcal-patient-drag');
+            nameEl.setAttribute('draggable', 'true');
+            nameEl.title = head.title;
+            nameEl.addEventListener('dragstart', function(e) {
+                e.stopPropagation();
+                if (typeof beginApptPatientDragTransfer === 'function') {
+                    beginApptPatientDragTransfer(e, appt);
+                }
+            });
+            nameEl.addEventListener('dragend', function() {
+                if (typeof clearPatientDragPayloadSession === 'function') {
+                    clearPatientDragPayloadSession();
+                }
+            });
+        }
     }
 
     // ── Drag & Drop (supports cross-day) ────────────────────────
@@ -11579,103 +10215,6 @@ var GCAL = (function () {
         col.appendChild(gh);
     }
 
-    function _ensureDragTimeGuide() {
-        var el = document.getElementById('gcalDragTimeGuide');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'gcalDragTimeGuide';
-            el.className = 'gcal-drag-time-guide';
-            el.setAttribute('aria-hidden', 'true');
-            document.body.appendChild(el);
-        }
-        return el;
-    }
-
-    /** Faint dotted line from time gutter to day column at slot start (top edge). */
-    function _updateDragTimeGuide(ds, ghostTop, targetCol) {
-        var guide = _ensureDragTimeGuide();
-        if (!ds || !targetCol) {
-            guide.style.display = 'none';
-            return;
-        }
-        var body = document.getElementById('gcalScrollBody');
-        var timeCol = body ? body.querySelector('.gcal-time-col') : null;
-        if (!timeCol) {
-            guide.style.display = 'none';
-            return;
-        }
-        var tcR = timeCol.getBoundingClientRect();
-        var colR = targetCol.getBoundingClientRect();
-        var y = colR.top + ghostTop;
-        var left = tcR.left + 6;
-        var width = Math.max(0, colR.left - left - 4);
-        if (width < 8) {
-            guide.style.display = 'none';
-            return;
-        }
-        guide.style.display = 'block';
-        guide.style.left = left + 'px';
-        guide.style.top = y + 'px';
-        guide.style.width = width + 'px';
-    }
-
-    function _clearDragTimeGuide() {
-        var el = document.getElementById('gcalDragTimeGuide');
-        if (el) el.style.display = 'none';
-    }
-
-    function calendarActivePatientDropTargetAt(clientX, clientY) {
-        var under = document.elementFromPoint(clientX, clientY);
-        if (!under || !under.closest) return null;
-        var target = under.closest('.active-patient-card, #activePatientCollapsedTab');
-        if (!target) return null;
-        var slot = target.id === 'activePatientCard1' ? 1 : 0;
-        return { el: target, slot: slot };
-    }
-
-    function calendarApplyActivePatientCutDrop(ds, ev) {
-        if (!ds || !ds.appt || !ev || ev.clientX == null || ev.clientY == null) return false;
-        var target = calendarActivePatientDropTargetAt(ev.clientX, ev.clientY);
-        if (!target) return false;
-        var appt = ds.appt;
-        if (isApptScheduleLocked(appt) || typeof setActivePatientSlot !== 'function') return false;
-        suppressCardClickUntil = Date.now() + 700;
-
-        function hideCalendarSourceCard() {
-            if (ds.card) {
-                ds.card.classList.add('appt-row-transfer-cut-pending');
-                ds.card.setAttribute('hidden', 'hidden');
-                ds.card.style.display = 'none';
-            }
-            document.querySelectorAll('.gcal-card[data-id="' + String(appt.id) + '"]').forEach(function(card) {
-                card.classList.add('appt-row-transfer-cut-pending');
-                card.setAttribute('hidden', 'hidden');
-                card.style.display = 'none';
-            });
-        }
-
-        function applyPayload() {
-            if (typeof patientDragPayloadFromAppt !== 'function') return false;
-            var p = patientDragPayloadFromAppt(appt);
-            if (!p || !p.id) return false;
-            if (!apptTransferBeginPendingCut(appt)) return false;
-            hideCalendarSourceCard();
-            setActivePatientSlot(target.slot, p, 'calendar-card-transfer-cut', target.slot === 0);
-            if (typeof isActivePatientDockCollapsed === 'function' && isActivePatientDockCollapsed()) {
-                setActivePatientDockCollapsed(false, true);
-            }
-            return true;
-        }
-
-        if (applyPayload()) return true;
-        if (appt.patient_no && typeof resolveQueueRowPatientId === 'function') {
-            hideCalendarSourceCard();
-            resolveQueueRowPatientId(appt, applyPayload);
-            return true;
-        }
-        return false;
-    }
-
     function onDragMove(e) {
         if (!dragState) return;
         var ds = dragState;
@@ -11693,11 +10232,7 @@ var GCAL = (function () {
         while (targetCol && !targetCol.classList.contains('gcal-day-col')) {
             targetCol = targetCol.parentElement;
         }
-        if (!targetCol) {
-            _clearDragGhost(ds.ghostCol);
-            _clearDragTimeGuide();
-            return;
-        }
+        if (!targetCol) { _clearDragGhost(ds.ghostCol); return; }
 
         // Vertical snap inside target column
         var colRect  = targetCol.getBoundingClientRect();
@@ -11711,11 +10246,10 @@ var GCAL = (function () {
 
         if (ds.ghostCol && ds.ghostCol !== targetCol) _clearDragGhost(ds.ghostCol);
         _showDragGhost(targetCol, ghostTop, ds.cardH);
-        _updateDragTimeGuide(ds, ghostTop, targetCol);
         ds.ghostCol = targetCol;
     }
 
-    function onDragEnd(e) {
+    function onDragEnd() {
         if (!dragState) return;
         document.removeEventListener('mousemove', onDragMove);
         document.removeEventListener('mouseup',   onDragEnd);
@@ -11726,15 +10260,10 @@ var GCAL = (function () {
         dragState = null;
 
         _clearDragGhost(ds.ghostCol);
-        _clearDragTimeGuide();
         if (ds.proxy && ds.proxy.parentNode) ds.proxy.parentNode.removeChild(ds.proxy);
         ds.card.style.opacity = '';
 
         if (isApptScheduleLocked(ds.appt)) return;
-        if (calendarApplyActivePatientCutDrop(ds, e || window.event)) {
-            suppressCardClickUntil = Date.now() + 700;
-            return;
-        }
 
         var dateChanged = ds.curDate && ds.curDate !== ds.origDate;
         var timeChanged = ds.curTime !== ds.origTime;
@@ -11790,12 +10319,7 @@ var GCAL = (function () {
     }
 
     function isInteractionActive() {
-        if (dragState || resizeState) return true;
-        var sp = document.getElementById('gcalSettingsPanel');
-        if (sp && sp.classList.contains('open')) return true;
-        var modal = document.getElementById('calDoctorColorsModal');
-        if (modal && modal.classList.contains('open')) return true;
-        return false;
+        return !!(dragState || resizeState);
     }
 
     // ── Settings panel ────────────────────────────────────────────
@@ -11841,8 +10365,8 @@ var GCAL = (function () {
         for (var h = 0; h < 24; h++) {
             var hStr = pad(h)+':00';
             startOpts += '<option value="'+h+'"'+(S.startHour===h?' selected':'')+'>'+hStr+'</option>';
+            endOpts   += '<option value="'+h+'"'+(S.endHour===h?' selected':'')+'>'+hStr+'</option>';
         }
-        endOpts = gcalEndHourOptionsHtml(S.endHour);
         var sHOpts = mkOpts([
             {v:16, l: tr('appt.cal.slotCompact')},
             {v:20, l: tr('appt.cal.slotNormal')},
@@ -11884,21 +10408,11 @@ var GCAL = (function () {
             '<label style="margin-bottom:8px;">' + esc(tr('appt.cal.drColoursLabel')) + '</label>' +
             '<p style="font-size:11px;color:#64748b;margin:0 0 10px;line-height:1.4;">' + esc(tr('appt.cal.drColoursHint')) + '</p>' +
             '<div id="gcalDrColorsBox">' + drRows + '</div>' +
-            (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.resetControlHtml
-                ? CalDoctorColors.resetControlHtml() : '') +
             '<button onclick="GCAL.applySettings()" ' +
             'style="margin-top:14px;width:100%;padding:10px;background:#0084ff;color:#fff;' +
             'border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">' +
             esc(tr('appt.cal.applyRefresh')) + '</button>';
         wireGcalDrColorPanel();
-    }
-
-    function refreshSettingsPanelIfOpen() {
-        var sp = document.getElementById('gcalSettingsPanel');
-        if (!sp || !sp.classList.contains('open')) return;
-        var st = captureGcalPanelState();
-        fillSettingsPanel(sp);
-        restoreGcalPanelState(st);
     }
 
     function buildSettingsPanel() {
@@ -12002,19 +10516,14 @@ var GCAL = (function () {
         if (eEl) S.endHour   = parseInt(eEl.value, 10);
         if (hEl) S.slotH     = parseInt(hEl.value, 10);
         if (S.endHour <= S.startHour) { alert(tr('appt.cal.endAfterStart')); return; }
-        if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.exportColorsMap === 'function') {
-            S.doctorColors = CalDoctorColors.exportColorsMap();
-        } else {
-            document.querySelectorAll('#gcalDrColorsBox .gcal-dr-color-inp').forEach(function (inp) {
-                var dk = inp.dataset.key;
-                try { dk = decodeURIComponent(dk); } catch (e) {}
-                if (!S.doctorColors) S.doctorColors = {};
-                S.doctorColors[dk] = inp.value;
-            });
-        }
+        document.querySelectorAll('#gcalDrColorsBox .gcal-dr-color-inp').forEach(function (inp) {
+            var dk = inp.dataset.key;
+            try { dk = decodeURIComponent(dk); } catch (e) {}
+            if (typeof CalDoctorColors !== 'undefined') CalDoctorColors.setColor(dk, inp.value);
+            else S.doctorColors[dk] = inp.value;
+        });
         saveSettings();
-        var sp = document.getElementById('gcalSettingsPanel');
-        if (sp) sp.classList.remove('open');
+        toggleSettings();
         renderWeekly();
     }
 
@@ -12277,11 +10786,9 @@ var GCAL = (function () {
 
     return {
         render:                 render,
-        repaintCards:           repaintCards,
         toggleSettings:         toggleSettings,
         openDoctorColors:       openDoctorColors,
         applySettings:          applySettings,
-        reloadSettingsFromStorage: loadSettings,
         toggleMiniCal:          toggleMiniCal,
         miniCalPrev:            miniCalPrev,
         miniCalNext:            miniCalNext,
@@ -12292,7 +10799,6 @@ var GCAL = (function () {
         captureGcalPanelState:  captureGcalPanelState,
         restoreGcalPanelState:  restoreGcalPanelState,
         refreshGcalPanelsI18n:  refreshGcalPanelsI18n,
-        refreshSettingsPanelIfOpen: refreshSettingsPanelIfOpen,
         refreshMiniCalPanel:    function () { _renderMiniCalContent(null); }
     };
 }());
@@ -12458,20 +10964,6 @@ function showApptPopup(a, anchor) {
           esc(a.patient_chinese_name) + '</td></tr>'
         : '';
 
-    var popDobRaw = a.patient_id ? apptPatientDobLookup(a.patient_id) : '';
-    var popDobRow = '';
-    if (a.patient_id) {
-        var popDobTxt = popDobRaw && typeof formatDobAge === 'function'
-            ? formatDobAge(popDobRaw)
-            : (popDobRaw || '');
-        popDobRow =
-            '<tr id="apptPopDobRow"' +
-            (popDobTxt ? '' : ' style="display:none;"') + '>' +
-            '<td style="color:#888;padding:3px 8px 3px 0;">' +
-            esc(tr('appt.cal.popupDob')) + '</td>' +
-            '<td id="apptPopDobVal">' + esc(popDobTxt || '—') + '</td></tr>';
-    }
-
     content.innerHTML =
         lockBanner +
         walkInBanner +
@@ -12485,7 +10977,6 @@ function showApptPopup(a, anchor) {
             (!a.patient_id ? '' :
             '<tr><td style="color:#888;padding:3px 8px 3px 0;">' + esc(tr('appt.cal.popupNo')) + '</td>' +
             '<td>' + esc(a.patient_no || '-') + '</td></tr>') +
-            popDobRow +
             '<tr><td style="color:#888;padding:3px 8px 3px 0;">' + esc(tr('appt.cal.popupDate')) + '</td>' +
             '<td>' + fmtDateLong(a.date) + '</td></tr>' +
             '<tr><td style="color:#888;padding:3px 8px 3px 0;">' + esc(tr('appt.cal.popupTime')) + '</td>' +
@@ -12525,24 +11016,6 @@ function showApptPopup(a, anchor) {
                   'cursor:pointer;font-weight:600;">' + esc(tr('appt.cal.popupCheckIn')) + '</button>'
                 : '') +
         '</div>';
-
-    if (a.patient_id && !popDobRaw && typeof SB !== 'undefined') {
-        var popApptId = a.id;
-        var popPatientId = a.patient_id;
-        SB.from('patients').select('dob').eq('id', popPatientId).maybeSingle()
-            .then(function (r) {
-                if (!_apptPopupCtx || !_apptPopupCtx.appt ||
-                    _apptPopupCtx.appt.id !== popApptId) return;
-                if (r.error || !r.data || !r.data.dob) return;
-                var row = g('apptPopDobRow');
-                var val = g('apptPopDobVal');
-                if (!row || !val) return;
-                val.textContent = typeof formatDobAge === 'function'
-                    ? formatDobAge(r.data.dob)
-                    : r.data.dob;
-                row.style.display = '';
-            });
-    }
 
     var rect    = anchor.getBoundingClientRect();
     var PW      = 310;
@@ -12598,19 +11071,9 @@ function wireBillPanelControls() {
     }
 
     bindClickOnce('billPanelClose', closeBillPanel);
-    var billBackdrop = g('billPanelBackdrop');
-    if (billBackdrop && billBackdrop.dataset.billClickBound !== '1') {
-        billBackdrop.dataset.billClickBound = '1';
-        billBackdrop.addEventListener('click', closeBillPanel);
-    }
-    if (!window._billPanelResizeBound) {
-        window._billPanelResizeBound = true;
-        window.addEventListener('resize', function () {
-            if (typeof syncBillPanelBackdrop === 'function') syncBillPanelBackdrop();
-        });
-    }
     bindClickOnce('addBillItemBtn', addBillItem);
-    bindClickOnce('createBillBtn', createBillFromCurrentList);
+    bindClickOnce('saveBillBtn', function() { saveBill(false); });
+    bindClickOnce('savePrintBillBtn', function() { saveBill(true); });
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
     bindClickOnce('receiptPrintOptionsBtn', reopenReceiptPrintOptionsFromReceipt);
@@ -12630,22 +11093,8 @@ function wireBillPanelControls() {
     bindClickOnce('bdAddPaymentBtn', openAddPaymentModal);
     bindClickOnce('billPendingRefreshBtn', refreshBillPanelNow);
     bindClickOnce('billPayAllBtn', billPayAllAmount);
-    bindClickOnce('closeBillHistoryPrintModal', dismissBillHistoryPrintModal);
-    bindClickOnce('billHistoryPrintCancelBtn', dismissBillHistoryPrintModal);
-    bindClickOnce('billHistoryPrintOkBtn', confirmBillHistoryPrint);
-    bindClickOnce('bhpSelectAllBtn', function() { setAllBillHistoryPrintChecks(true); });
-    bindClickOnce('bhpSelectNoneBtn', function() { setAllBillHistoryPrintChecks(false); });
-    wireBillHistoryPrintOptionInputs();
+    bindClickOnce('billHistoryPrintBtn', printBillHistory);
     wireBillHistoryFilterUi();
-
-    var pendingDrSel = g('pendingListDoctor');
-    if (pendingDrSel && pendingDrSel.dataset.billInputBound !== '1') {
-        pendingDrSel.dataset.billInputBound = '1';
-        pendingDrSel.addEventListener('change', function () {
-            syncPendingListDoctorFromUi();
-            updateBillStep2DoctorSummary();
-        });
-    }
 
     var discEl = g('bDiscount');
     if (discEl && discEl.dataset.billInputBound !== '1') {
@@ -12657,33 +11106,11 @@ function wireBillPanelControls() {
         paidEl.dataset.billInputBound = '1';
         paidEl.addEventListener('input', recalcBalance);
     }
-    var bTypeEl = g('bType');
-    if (bTypeEl && bTypeEl.dataset.billInputBound !== '1') {
-        bTypeEl.dataset.billInputBound = '1';
-        bTypeEl.addEventListener('change', billSyncPaymentMethodHoldFromUi);
-    }
 }
 
 function billPanelIsOpen() {
     var panel = g('billPanel');
     return !!(panel && panel.classList.contains('open'));
-}
-
-function billPanelUsesMobileLayout() {
-    return window.matchMedia('(max-width: 900px)').matches;
-}
-
-function syncBillPanelBackdrop() {
-    var panel = g('billPanel');
-    var backdrop = g('billPanelBackdrop');
-    var open = !!(panel && panel.classList.contains('open'));
-    var mobile = billPanelUsesMobileLayout();
-
-    if (backdrop) {
-        backdrop.classList.toggle('visible', open && mobile);
-        backdrop.setAttribute('aria-hidden', open && mobile ? 'false' : 'true');
-    }
-    document.body.classList.toggle('bill-panel-mobile-open', open && mobile);
 }
 
 function billStep2IsVisible() {
@@ -12790,6 +11217,7 @@ function refreshBillPanelLists(opts) {
         if (manual) loadBillHistory();
         renderStep2(done);
     } else {
+        // Step 1: refresh saved bill history only — keep item picker / draft list intact
         loadBillHistory(done);
     }
 }
@@ -12814,26 +11242,19 @@ function refreshBillPanelForWorkingDate() {
             noteBillPendingRefreshed();
         }
     });
-}
 
-function billDoctorIdFromApptRow(q) {
-    if (!q) return '';
-    if (q.doctor_id) return String(q.doctor_id);
-    var code = String(q.doctor_code || '').trim();
-    if (!code) return '';
-    var list = (billDoctorList && billDoctorList.length)
-        ? billDoctorList
-        : ((typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS) ? APP_DOCTORS : []);
-    var hit = list.find(function (d) {
-        return d && String(d.doctor_code || '').trim() === code;
-    });
-    return hit && hit.id ? String(hit.id) : '';
+    var step2 = g('billStep2');
+    if (step2 && step2.style.display !== 'none') {
+        renderStep2(function (ok2) {
+            if (ok2 !== false && typeof noteBillPendingRefreshed === 'function') {
+                noteBillPendingRefreshed();
+            }
+        }, { resetForm: false });
+    }
 }
 
 function openBillPanel(q) {
     billApptId  = q.id;
-    billApptDoctorCode = String(q && q.doctor_code ? q.doctor_code : '').trim() || null;
-    billApptDefaultDoctorId = billDoctorIdFromApptRow(q) || null;
     billPatId   = q.patient_id;
     billPatName = q.patient_name || '-';
     billPatNo   = q.patient_no   || '-';
@@ -12856,7 +11277,8 @@ function openBillPanel(q) {
     billPendingLastRefreshAt = null;
     renderBillPendingRefreshMeta();
 
-    // Load treatment item dropdown cache then pending lists
+    // Start on Step 1; load treatment item dropdown cache then pending lists
+    switchBillTab(1);
     loadTreatmentItemsForBilling(function() {
         loadPendingLists(function(ok) {
             if (ok !== false) noteBillPendingRefreshed();
@@ -12864,22 +11286,16 @@ function openBillPanel(q) {
     });
     resetBillHistoryFilterUi();
     loadBillHistory();
-    loadBillDoctors();
 
     wireBillPanelControls();
     startBillPendingAutoRefresh();
-    if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
     g('billPanel').classList.add('open');
-    syncBillPanelBackdrop();
 }
 
 function closeBillPanel() {
     stopBillPendingAutoRefresh();
     g('billPanel').classList.remove('open');
-    syncBillPanelBackdrop();
     billApptId   = null;
-    billApptDefaultDoctorId = null;
-    billApptDoctorCode = null;
     billPatId    = null;
     billPatChineseName = null;
     billItems    = [];
@@ -12893,14 +11309,17 @@ function closeBillPanel() {
 // BILL STEP TABS
 // ════════════════════════════════════════════════════════════════
 function switchBillTab(n) {
-    var step1 = g('billStep1');
-    if (step1) step1.style.display = '';
-    var step2 = g('billStep2');
-    if (step2) {
-        step2.style.display = 'none';
-        step2.classList.add('hidden');
+    var wasStep2 = billStep2IsVisible();
+    g('billTab1Btn').classList.toggle('active', n === 1);
+    g('billTab2Btn').classList.toggle('active', n === 2);
+    g('billStep1').style.display = n === 1 ? '' : 'none';
+    g('billStep2').style.display = n === 2 ? '' : 'none';
+    if (n === 1 && wasStep2) {
+        loadPendingLists(function(ok) {
+            if (ok !== false) noteBillPendingRefreshed();
+        });
     }
-    if (n === 2 && typeof renderStep2 === 'function') {
+    if (n === 2) {
         renderStep2(function(ok) {
             if (ok !== false) noteBillPendingRefreshed();
         }, { resetForm: true });
@@ -12946,8 +11365,7 @@ function loadPendingLists(cb) {
         var merged = fetched.map(function(pl) {
             if (pl.id && preserveById[pl.id]) {
                 var local = preserveById[pl.id];
-                if (pl.bill_id) local.bill_id = pl.bill_id;
-                if (pl.doctor_id && !local.doctor_id) local.doctor_id = pl.doctor_id;
+                if (pl.bill_id && !local.bill_id) local.bill_id = pl.bill_id;
                 return local;
             }
             return pl;
@@ -12958,11 +11376,6 @@ function loadPendingLists(cb) {
         });
         localUnsaved.forEach(function(pl) {
             merged.push(pl);
-        });
-        merged.forEach(function (pl) {
-            if (!pl || pl.bill_id) return;
-            var localBid = readPendingBillIdFromLocalStore(pl);
-            if (localBid) pl.bill_id = localBid;
         });
         pendingLists = merged;
         fetched.forEach(function(pl) {
@@ -12982,39 +11395,12 @@ function loadPendingLists(cb) {
         } else if (pendingIdx < 0 || pendingIdx >= pendingLists.length) {
             pendingIdx = 0;
         }
-        enrichPendingListsDoctorFromBills(pendingLists, function () {
-            renderStep1UI();
-            if (cb) cb(!r.error);
-        });
+        renderStep1UI();
+        if (cb) cb(!r.error);
     })
     .catch(function() {
         if (cb) cb(false);
     });
-}
-
-function enrichPendingListsDoctorFromBills(lists, done) {
-    var need = (lists || []).filter(function (pl) {
-        return pl && pl.bill_id && !pl.doctor_id;
-    });
-    if (!need.length || !SB || typeof SB.from !== 'function') {
-        if (done) done();
-        return;
-    }
-    var ids = need.map(function (pl) { return pl.bill_id; }).filter(Boolean);
-    SB.from('bills')
-        .select('id,doctor_id')
-        .in('id', ids)
-        .then(function (r) {
-            var map = {};
-            (r.data || []).forEach(function (b) {
-                if (b && b.id && b.doctor_id) map[b.id] = b.doctor_id;
-            });
-            need.forEach(function (pl) {
-                if (pl.bill_id && map[pl.bill_id]) pl.doctor_id = map[pl.bill_id];
-            });
-            if (done) done();
-        })
-        .catch(function () { if (done) done(); });
 }
 
 function renderStep1UI() {
@@ -13038,11 +11424,10 @@ function renderStep1UI() {
     billItems = (pl.items || []).map(function(it) {
         return normalizeBillItem(it);
     });
-    if (!billItems.length) billItems = [{ desc: '', qty: 1, price: 0, disc: 0, tooth_no: '-' }];
+    if (!billItems.length) billItems = [{ desc: '', qty: 1, price: 0, disc: 0 }];
 
     renderBillItems();
     recalcPendingSubtotal();
-    syncPendingListDoctorSelectFromCurrentList();
 
     var statusEl = g('pendingListStatus');
     if (statusEl) {
@@ -13064,72 +11449,26 @@ function recalcPendingSubtotal() {
 
 function navPendingList(dir) {
     if (!pendingLists.length) return;
-    syncPendingDraftFromInputs();
     pendingIdx = (pendingIdx + dir + pendingLists.length) % pendingLists.length;
     renderStep1UI();
 }
 
 function addNewPendingList() {
     var label = trRepl('bill.list.defaultLabel', { N: String(pendingLists.length + 1) });
-    var defDr = defaultBillDoctorIdForPendingList();
-    pendingLists.push({
-        id: null,
-        label: label,
-        items: [],
-        subtotal: 0,
-        doctor_id: defDr || null
-    });
+    pendingLists.push({ id: null, label: label, items: [], subtotal: 0 });
     pendingIdx = pendingLists.length - 1;
-    billItems  = [{ desc: '', qty: 1, price: 0, disc: 0, tooth_no: '-' }];
+    billItems  = [{ desc: '', qty: 1, price: 0, disc: 0 }];
     renderStep1UI();
     var statusEl = g('pendingListStatus');
     if (statusEl) { statusEl.textContent = tr('bill.status.notSaved'); statusEl.style.color = '#f59e0b'; }
     if (g('pendingListLabel')) g('pendingListLabel').focus();
 }
 
-function createBillFromCurrentList() {
-    if (!pendingLists.length || pendingIdx < 0) {
-        alert(tr('bill.alert.createListFirst'));
-        return;
-    }
-    syncPendingDraftFromInputs();
-    syncPendingListDoctorFromUi();
-    var pl = pendingLists[pendingIdx];
-    var sub = pendingListSubtotalFromItems(billItems);
-
-    if (sub <= 0.005) {
-        alert(tr('bill.alert.addItemsFirst'));
-        return;
-    }
-    if (!pl.doctor_id && !pendingListDoctorIdFromUi()) {
-        alert(tr('bill.alert.selectDoctorForList'));
-        var drSel = g('pendingListDoctor');
-        if (drSel) drSel.focus();
-        return;
-    }
-
-    saveCurrentPendingList({ createBill: true });
-}
-
-function saveCurrentPendingList(opts) {
-    opts = opts || {};
+function saveCurrentPendingList() {
     if (!pendingLists.length || pendingIdx < 0) return;
     var pl    = pendingLists[pendingIdx];
-    var lockKey = pl.id || ('idx-' + pendingIdx);
-    if (_pendingListSaveBusyKey === lockKey) return;
-
-    syncPendingListDoctorFromUi();
     var label = (g('pendingListLabel').value || '').trim() || trRepl('bill.list.defaultLabel', { N: String(pendingIdx + 1) });
     var sub   = pendingListSubtotalFromItems(billItems);
-
-    if (sub > 0.005 && !pl.doctor_id) {
-        alert(tr('bill.alert.selectDoctorForList'));
-        var drSel = g('pendingListDoctor');
-        if (drSel) drSel.focus();
-        return;
-    }
-
-    _pendingListSaveBusyKey = lockKey;
 
     pl.label    = label;
     pl.items    = billItems.map(function(it) {
@@ -13139,8 +11478,7 @@ function saveCurrentPendingList(opts) {
             qty: n.qty,
             price: n.price,
             disc: roundBillDiscPct(n.disc || 0),
-            others_remark: n.others_remark || '',
-            tooth_no: n.tooth_no || '-'
+            others_remark: n.others_remark || ''
         };
     });
     pl.subtotal = sub;
@@ -13156,14 +11494,9 @@ function saveCurrentPendingList(opts) {
         created_by:   (typeof currentName !== 'undefined' ? currentName : null)
     };
     if (pl.bill_id) payload.bill_id = pl.bill_id;
-    if (pl.doctor_id) payload.doctor_id = pl.doctor_id;
 
     var statusEl = g('pendingListStatus');
     if (statusEl) { statusEl.textContent = tr('bill.status.saving'); statusEl.style.color = '#888'; }
-
-    function releaseSaveLock() {
-        if (_pendingListSaveBusyKey === lockKey) _pendingListSaveBusyKey = null;
-    }
 
     var query = pl.id
         ? SB.from('pending_bill_items').update(payload).eq('id', pl.id)
@@ -13171,7 +11504,6 @@ function saveCurrentPendingList(opts) {
 
     function afterPendingListSaved(r) {
         if (r.error) {
-            releaseSaveLock();
             if (statusEl) {
                 statusEl.textContent = trRepl('bill.status.saveFailed', { MSG: r.error.message });
                 statusEl.style.color = '#dc2626';
@@ -13182,39 +11514,17 @@ function saveCurrentPendingList(opts) {
         g('removePendingBtn').disabled = false;
         var t = new Date().toLocaleTimeString(apptDateLocale(), { hour: '2-digit', minute: '2-digit' });
 
-        function finishListSaved() {
-            if (opts.createBill && sub > 0.005) {
-                if (statusEl) {
-                    statusEl.textContent = tr('bill.status.creatingBill');
-                    statusEl.style.color = '#888';
+        function finishListSaved(billErr, savedBill) {
+            if (billErr && statusEl) {
+                statusEl.textContent = trRepl('bill.status.billSaveFailed', { MSG: billErr.message || String(billErr) });
+                statusEl.style.color = '#dc2626';
+            } else if (statusEl) {
+                if (sub > 0.005 && (savedBill || pl.bill_id)) {
+                    statusEl.textContent = trRepl('bill.status.savedBillAt', { T: t });
+                } else {
+                    statusEl.textContent = trRepl('bill.status.savedAt', { T: t });
                 }
-                syncUnpaidBillFromPendingList(pl, sub, function (err) {
-                    releaseSaveLock();
-                    if (err) {
-                        if (statusEl) {
-                            statusEl.textContent = trRepl('bill.status.billSaveFailed', {
-                                MSG: err.message || String(err)
-                            });
-                            statusEl.style.color = '#dc2626';
-                        }
-                        return;
-                    }
-                    if (statusEl) {
-                        statusEl.textContent = trRepl('bill.status.savedBillAt', { T: t });
-                        statusEl.style.color = '#2563eb';
-                    }
-                    if (pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
-                    renderStep1UI();
-                    noteBillPendingRefreshed();
-                    loadBillHistory();
-                    try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
-                });
-                return;
-            }
-            releaseSaveLock();
-            if (statusEl) {
-                statusEl.textContent = trRepl('bill.status.savedAt', { T: t });
-                statusEl.style.color = '#16a34a';
+                statusEl.style.color = sub > 0.005 && (savedBill || pl.bill_id) ? '#2563eb' : '#16a34a';
             }
             if (pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
             noteBillPendingRefreshed();
@@ -13222,36 +11532,23 @@ function saveCurrentPendingList(opts) {
             try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
         }
 
-        finishListSaved();
+        if (sub > 0.005) {
+            syncUnpaidBillFromPendingList(pl, sub, finishListSaved);
+        } else {
+            finishListSaved(null, null);
+        }
     }
 
     query.then(function(r) {
-        if (r.error && (payload.bill_id || payload.doctor_id)) {
-            var retryPayload = Object.assign({}, payload);
-            if (r.error && payload.bill_id) {
-                var mBill = String(r.error.message || '').toLowerCase();
-                if (mBill.indexOf('bill_id') >= 0) delete retryPayload.bill_id;
-            }
-            if (r.error && payload.doctor_id) {
-                var mDr = String(r.error.message || '').toLowerCase();
-                if (mDr.indexOf('doctor_id') >= 0) delete retryPayload.doctor_id;
-            }
-            if (retryPayload.bill_id !== payload.bill_id ||
-                retryPayload.doctor_id !== payload.doctor_id) {
-                var retry = pl.id
-                    ? SB.from('pending_bill_items').update(retryPayload).eq('id', pl.id)
-                    : SB.from('pending_bill_items').insert([retryPayload]).select();
-                retry.then(afterPendingListSaved);
-                return;
-            }
+        if (r.error && payload.bill_id) {
+            delete payload.bill_id;
+            var retry = pl.id
+                ? SB.from('pending_bill_items').update(payload).eq('id', pl.id)
+                : SB.from('pending_bill_items').insert([payload]).select();
+            retry.then(afterPendingListSaved);
+            return;
         }
         afterPendingListSaved(r);
-    }).catch(function (e) {
-        releaseSaveLock();
-        if (statusEl) {
-            statusEl.textContent = trRepl('bill.status.saveFailed', { MSG: e.message || String(e) });
-            statusEl.style.color = '#dc2626';
-        }
     });
 }
 
@@ -13278,41 +11575,6 @@ function removeCurrentPendingList() {
         });
     } else {
         doRemove();
-    }
-}
-
-/** After a bill is fully paid, return to a fresh new-list workspace. */
-function resetBillCreationAfterPayment(billId) {
-    if (typeof closeModal === 'function') {
-        closeModal('billDetailModal');
-        closeModal('addPaymentModal');
-    }
-    bdCurrentBill = null;
-
-    var linkedId = null;
-    if (billId && pendingLists.length) {
-        for (var i = 0; i < pendingLists.length; i++) {
-            if (pendingLists[i] && pendingLists[i].bill_id === billId) {
-                linkedId = pendingLists[i].id || null;
-                break;
-            }
-        }
-    }
-
-    function startFreshList() {
-        addNewPendingList();
-        var formSec = g('billFormSection');
-        if (formSec && formSec.scrollIntoView) {
-            try { formSec.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {
-                formSec.scrollIntoView(true);
-            }
-        }
-    }
-
-    if (linkedId) {
-        removePaidPendingList(linkedId, startFreshList);
-    } else {
-        startFreshList();
     }
 }
 
@@ -13351,6 +11613,7 @@ function renderStep2(cb, opts) {
     opts = opts || {};
     var resetForm = opts.resetForm === true;
     var prevType = g('bType') ? g('bType').value : '';
+    var prevDoctor = g('bDoctor') ? g('bDoctor').value : '';
     var prevDiscount = g('bDiscount') ? g('bDiscount').value : '';
     var prevPaid = g('bAmtPaid') ? g('bAmtPaid').value : '';
     var prevNotes = g('bNotes') ? g('bNotes').value : '';
@@ -13358,6 +11621,7 @@ function renderStep2(cb, opts) {
     var prevPendingId = resetForm ? null : payPendingId;
 
     loadBillTypes();
+    loadBillDoctors();
     if (resetForm) {
         sv('bDate',     todayISO());
         sv('bDiscount', '0');
@@ -13398,7 +11662,6 @@ function renderStep2(cb, opts) {
                 for (var li = 0; li < pendingLists.length; li++) {
                     if (pendingLists[li] && pendingLists[li].id === pl.id) {
                         if (pl.bill_id) pendingLists[li].bill_id = pl.bill_id;
-                        if (pl.doctor_id) pendingLists[li].doctor_id = pl.doctor_id;
                         break;
                     }
                 }
@@ -13435,8 +11698,6 @@ function renderStep2(cb, opts) {
                 payPendingId = pl.id;
                 renderPayPreview();
                 recalcTotals();
-                updateBillStep2DoctorSummary(pl);
-                loadBillStep2NotesFromLinkedBill(pl);
             });
             cards.appendChild(btn);
         });
@@ -13474,9 +11735,9 @@ function renderStep2(cb, opts) {
             if (prevPaid) sv('bAmtPaid', prevPaid);
             if (prevNotes) sv('bNotes', prevNotes);
             if (prevType && g('bType')) g('bType').value = prevType;
+            if (prevDoctor && g('bDoctor')) g('bDoctor').value = prevDoctor;
             recalcTotals();
         }
-        updateBillStep2DoctorSummary();
         if (cb) cb(!r.error);
     })
     .catch(function() {
@@ -13534,8 +11795,8 @@ function billDoctorTag(d) {
         '';
 }
 
-function renderBillDoctorOptions(selectedId, selectId) {
-    var sel = g(selectId || 'pendingListDoctor');
+function renderBillDoctorOptions(selectedId) {
+    var sel = g('bDoctor');
     if (!sel) return;
     var docs = (typeof doctorsForBillDoctorDropdown === 'function')
         ? doctorsForBillDoctorDropdown(billDoctorList || [])
@@ -13554,74 +11815,6 @@ function renderBillDoctorOptions(selectedId, selectId) {
     if (selectedId && sel.value !== String(selectedId)) {
         sel.value = '';
     }
-}
-
-function pendingListDoctorIdFromUi() {
-    var sel = g('pendingListDoctor');
-    return sel ? String(sel.value || '').trim() : '';
-}
-
-function syncPendingListDoctorFromUi() {
-    if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
-    var id = pendingListDoctorIdFromUi();
-    pendingLists[pendingIdx].doctor_id = id || null;
-}
-
-function syncPendingListDoctorSelectFromCurrentList() {
-    var sel = g('pendingListDoctor');
-    if (!sel) return;
-    var pl = (pendingLists.length && pendingIdx >= 0 && pendingIdx < pendingLists.length)
-        ? pendingLists[pendingIdx]
-        : null;
-    var want = pl ? (pl.doctor_id || defaultBillDoctorIdForPendingList() || '') : '';
-    if (!sel.options.length || sel.options.length <= 1) {
-        renderBillDoctorOptions(want, 'pendingListDoctor');
-        return;
-    }
-    if (want && Array.prototype.some.call(sel.options, function (o) { return o.value === String(want); })) {
-        sel.value = String(want);
-    } else {
-        renderBillDoctorOptions(want, 'pendingListDoctor');
-    }
-    if (pl && want && !pl.doctor_id) pl.doctor_id = want;
-}
-
-function pendingListDoctorLabelById(doctorId) {
-    if (!doctorId) return '—';
-    var picked = (billDoctorList || []).find(function (d) {
-        return d && String(d.id) === String(doctorId);
-    });
-    return picked ? billDoctorLabel(picked) : '—';
-}
-
-function updateBillStep2DoctorSummary(pl) {
-    var wrap = g('billStep2DoctorSummary');
-    var labelEl = g('billStep2DoctorLabel');
-    if (!wrap || !labelEl) return;
-    if (!pl && payPendingId) {
-        pl = pendingListByPayId(payPendingId);
-    }
-    if (!pl || !pl.doctor_id) {
-        wrap.style.display = 'none';
-        labelEl.textContent = '—';
-        return;
-    }
-    wrap.style.display = '';
-    labelEl.textContent = pendingListDoctorLabelById(pl.doctor_id);
-}
-
-function defaultBillDoctorIdForPendingList() {
-    if (billApptDefaultDoctorId) return billApptDefaultDoctorId;
-    return defaultBillDoctorId();
-}
-
-function pendingListDoctorIdForPayment(pl) {
-    if (pl && pl.doctor_id) return pl.doctor_id;
-    if (payPendingId) {
-        var linked = pendingListByPayId(payPendingId);
-        if (linked && linked.doctor_id) return linked.doctor_id;
-    }
-    return pendingListDoctorIdFromUi() || '';
 }
 
 function defaultBillDoctorId() {
@@ -13647,23 +11840,16 @@ function defaultBillDoctorId() {
 }
 
 function loadBillDoctors() {
-    var sel = g('pendingListDoctor');
+    var sel = g('bDoctor');
     if (!sel) return;
     sel.innerHTML = '<option value="">' + esc(tr('bill.loadingDoctors')) + '</option>';
-
-    function applyDoctorOptions() {
-        var def = defaultBillDoctorIdForPendingList();
-        renderBillDoctorOptions(def, 'pendingListDoctor');
-        syncPendingListDoctorSelectFromCurrentList();
-        updateBillStep2DoctorSummary();
-    }
 
     var fromGlobal = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS))
         ? APP_DOCTORS.filter(function (d) { return d && d.is_active !== false; })
         : [];
     if (fromGlobal.length) {
         billDoctorList = fromGlobal.slice();
-        applyDoctorOptions();
+        renderBillDoctorOptions(defaultBillDoctorId());
         return;
     }
 
@@ -13682,10 +11868,7 @@ function loadBillDoctors() {
             return;
         }
         billDoctorList = r.data || [];
-        if (!billApptDefaultDoctorId && billApptDoctorCode) {
-            billApptDefaultDoctorId = billDoctorIdFromApptRow({ doctor_code: billApptDoctorCode }) || null;
-        }
-        applyDoctorOptions();
+        renderBillDoctorOptions(defaultBillDoctorId());
     })
     .catch(function(e) {
         sel.innerHTML = '<option value="">' + esc(tr('bill.loadDoctorsFailed')) + '</option>';
@@ -13697,7 +11880,7 @@ function addBillItem() {
     if (!pendingLists.length) {
         addNewPendingList();
     }
-    billItems.push({ desc: '', qty: 1, price: 0, disc: 0, tooth_no: '-' });
+    billItems.push({ desc: '', qty: 1, price: 0, disc: 0 });
     syncBillItemsToPendingList();
     renderBillItems();
     recalcTotals();
@@ -13712,8 +11895,7 @@ function syncBillItemsToPendingList() {
             qty: n.qty,
             price: n.price,
             disc: roundBillDiscPct(n.disc || 0),
-            others_remark: n.others_remark || '',
-            tooth_no: n.tooth_no || '-'
+            others_remark: n.others_remark || ''
         };
     });
 }
@@ -13728,14 +11910,12 @@ function pendingListSignature(pl) {
             qty: parseFloat(n.qty) || 0,
             price: parseFloat(n.price) || 0,
             disc: roundBillDiscPct(n.disc || 0),
-            others_remark: n.others_remark || '',
-            tooth_no: n.tooth_no || '-'
+            others_remark: n.others_remark || ''
         };
     });
     return JSON.stringify({
         label: list.label || '',
         subtotal: parseFloat(list.subtotal) || 0,
-        doctor_id: list.doctor_id || '',
         items: safeItems
     });
 }
@@ -13753,9 +11933,10 @@ function syncPendingDraftFromInputs() {
     if (!pl) return;
     var labelEl = g('pendingListLabel');
     if (labelEl) pl.label = (labelEl.value || '').trim();
-    syncPendingListDoctorFromUi();
     syncBillItemsToPendingList();
-    pl.subtotal = pendingListSubtotalFromItems(billItems);
+    pl.subtotal = billItems.reduce(function(a, it) {
+        return a + ((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0));
+    }, 0);
 }
 
 function billItemAmt(it) {
@@ -13836,34 +12017,6 @@ function billItemOthersRemark(it) {
     return String((it && (it.others_remark || it.othersRemark)) || '').trim();
 }
 
-function billItemToothNo(it) {
-    return String((it && (it.tooth_no || it.toothNo)) || '').trim();
-}
-
-function billItemToothInputValue(it) {
-    var t = billItemToothNo(it);
-    return (t && t !== '-') ? t : '-';
-}
-
-function billItemParseToothFromDesc(desc) {
-    var d = String(desc || '').trim();
-    if (!d) return { base: '', tooth: '' };
-    if (billItemOthersBaseKey(d)) {
-        return { base: billItemOthersBaseKey(d), tooth: '' };
-    }
-    var m = d.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
-    if (m) {
-        return { base: m[1].trim(), tooth: m[2].trim() };
-    }
-    return { base: d, tooth: '' };
-}
-
-function billItemDescBase(desc) {
-    var others = billItemOthersBaseKey(desc);
-    if (others) return others;
-    return billItemParseToothFromDesc(desc).base;
-}
-
 function billItemDisplayDesc(it) {
     if (!it) return '';
     var base = billItemOthersBaseKey(it.desc);
@@ -13871,40 +12024,25 @@ function billItemDisplayDesc(it) {
         var remark = billItemOthersRemark(it);
         return remark ? (base + ' (' + remark + ')') : base;
     }
-    var name = String(it.desc || '').trim();
-    var tooth = billItemToothNo(it);
-    if (tooth && tooth !== '-') {
-        return name + ' (' + tooth + ')';
-    }
-    return name;
+    return String(it.desc || '').trim();
 }
 
 function normalizeBillItem(it) {
     var raw = it || {};
     var desc = String(raw.desc || '').trim();
     var othersRemark = String(raw.others_remark || raw.othersRemark || '').trim();
-    var toothNo = billItemToothNo(raw);
     var base = billItemOthersBaseKey(desc);
     if (base) {
         var m = desc.match(/^(.+?)\s*\(([^)]*)\)\s*$/);
         if (m && !othersRemark) othersRemark = String(m[2] || '').trim();
         desc = base;
-        toothNo = '-';
-    } else {
-        var parsed = billItemParseToothFromDesc(desc);
-        desc = parsed.base;
-        if (!toothNo || toothNo === '-') {
-            toothNo = parsed.tooth || '-';
-        }
-        if (!toothNo) toothNo = '-';
     }
     return {
         desc: desc,
         qty: raw.qty || 1,
         price: raw.price || 0,
         disc: roundBillDiscPct(raw.disc || 0),
-        others_remark: othersRemark,
-        tooth_no: toothNo
+        others_remark: othersRemark
     };
 }
 
@@ -13926,14 +12064,11 @@ function renderBillItems() {
     tb.innerHTML = '';
     billItems.forEach(function(item, i) {
         var row = document.createElement('tr');
-        var descBase = billItemDescBase(item.desc) || item.desc;
-        var discVal = item.disc !== undefined ? item.disc : 0;
-        var isOthers = billItemIsOthers(item);
-
+        
         // Build description cell with dropdown + custom input
         var descCell = '<td>' +
             '<div style="display:flex;flex-direction:column;gap:4px;">';
-
+        
         // If we have treatment items cached, show dropdown
         if (treatmentItemsCache.length > 0) {
             descCell +=
@@ -13958,21 +12093,15 @@ function renderBillItems() {
                 'border-radius:4px;font-size:13px;box-sizing:border-box;">';
         }
         descCell += '</div></td>';
-
-        var toothCell = isOthers
-            ? '<td class="bill-tooth-cell bill-tooth-cell--na">—</td>'
-            : '<td class="bill-tooth-cell">' +
-                '<input type="text" id="btooth-' + i + '" ' +
-                'value="' + esc(billItemToothInputValue(item)) + '" ' +
-                'placeholder="' + esc(tr('bill.ph.toothNo')) + '" ' +
-                'title="' + esc(tr('bill.toothNoTitle')) + '" ' +
-                'maxlength="24" autocomplete="off">' +
-              '</td>';
-
-        row.innerHTML = descCell + toothCell +
-            '<td class="bill-qty-cell">' +
-                '<input type="number" id="bqty-' + i + '" class="bill-qty-input" ' +
-                'value="' + item.qty + '" min="1" step="1">' +
+        
+        var descBase = billItemOthersBaseKey(item.desc) || item.desc;
+        var discVal = item.disc !== undefined ? item.disc : 0;
+        row.innerHTML = descCell +
+            '<td>' +
+                '<input type="number" id="bqty-' + i + '" ' +
+                'value="' + item.qty + '" min="1" step="1" ' +
+                'style="width:100%;padding:5px 7px;border:1px solid #ddd;' +
+                'border-radius:4px;font-size:13px;box-sizing:border-box;">' +
             '</td>' +
             '<td>' +
                 '<input type="number" id="bprice-' + i + '" ' +
@@ -14008,7 +12137,7 @@ function renderBillItems() {
             var remarkRow = document.createElement('tr');
             remarkRow.className = 'bill-item-others-remark-row';
             remarkRow.innerHTML =
-                '<td colspan="7" style="padding:2px 8px 10px 8px;background:#fffbeb;border-bottom:1px solid #fde68a;">' +
+                '<td colspan="6" style="padding:2px 8px 10px 8px;background:#fffbeb;border-bottom:1px solid #fde68a;">' +
                 '<input type="text" id="bothers-remark-' + i + '" ' +
                 'value="' + esc(billItemOthersRemark(item)) + '" ' +
                 'placeholder="' + esc(tr('bill.othersRemarkPh')) + '" ' +
@@ -14035,13 +12164,10 @@ function renderBillItems() {
                         }
                         billItems[idx].desc = '';
                         billItems[idx].others_remark = '';
-                        billItems[idx].tooth_no = '-';
                     } else {
                         // Use selected item
                         billItems[idx].desc = selectedValue;
-                        if (billItemIsOthers(billItems[idx])) {
-                            billItems[idx].tooth_no = '-';
-                        } else {
+                        if (!billItemIsOthers(billItems[idx])) {
                             billItems[idx].others_remark = '';
                         }
                         if (descCustom) descCustom.style.display = 'none';
@@ -14078,31 +12204,10 @@ function renderBillItems() {
                     billItems[idx].desc = this.value;
                     if (!billItemIsOthers(billItems[idx])) {
                         billItems[idx].others_remark = '';
-                    } else {
-                        billItems[idx].tooth_no = '-';
                     }
                     syncBillItemsToPendingList();
                     renderBillItems();
                     refreshPayPreviewFromCurrentPendingList();
-                });
-            }
-
-            var toothEl = g('btooth-' + idx);
-            if (toothEl) {
-                toothEl.addEventListener('input', function() {
-                    var v = String(this.value || '').trim();
-                    billItems[idx].tooth_no = v || '-';
-                    syncBillItemsToPendingList();
-                    refreshPayPreviewFromCurrentPendingList();
-                });
-                toothEl.addEventListener('blur', function() {
-                    var v = String(this.value || '').trim();
-                    if (!v || v === '-') {
-                        this.value = '-';
-                        billItems[idx].tooth_no = '-';
-                        syncBillItemsToPendingList();
-                        refreshPayPreviewFromCurrentPendingList();
-                    }
                 });
             }
             
@@ -14112,8 +12217,6 @@ function renderBillItems() {
                     billItems[idx].desc = this.value;
                     if (!billItemIsOthers(billItems[idx])) {
                         billItems[idx].others_remark = '';
-                    } else {
-                        billItems[idx].tooth_no = '-';
                     }
                     syncBillItemsToPendingList();
                     renderBillItems();
@@ -14221,13 +12324,21 @@ function saveBill(doPrint) {
 
     var linkedPl = pendingListByPayId(payPendingId);
     var existingBillId = linkedPl && linkedPl.bill_id ? linkedPl.bill_id : null;
-    var doctorIdForSave = pendingListDoctorIdForPayment(linkedPl);
+    var allowZeroAr = (typeof programSettingBool === 'function') &&
+        programSettingBool('zero_ar', false);
 
-    if (!doctorIdForSave) {
-        alert(tr('bill.alert.selectDoctorForList'));
-        switchBillTab(1);
-        return;
+    if (paid <= 0.005) {
+        if (existingBillId) {
+            alert(tr('bill.alert.pendingAlreadySaved'));
+            if (typeof loadBillHistory === 'function') loadBillHistory();
+            return;
+        }
+        if (!allowZeroAr) {
+            alert(tr('bill.alert.enterPaymentAmount'));
+            return;
+        }
     }
+
     var selectedType = g('bType') ? g('bType').value : '';
     if (paid > 0.005 && !String(selectedType || '').trim()) {
         alert(tr('bill.alert.selectPaymentMethod'));
@@ -14235,8 +12346,7 @@ function saveBill(doPrint) {
     }
 
     var billType;
-    if (paid <= 0.005) {
-        ensurePendingBillTypeOption(g('bType'));
+    if (paid <= 0.005 && allowZeroAr) {
         billType = billPendingPayTypeValue();
         if (g('bType')) g('bType').value = billType;
     } else {
@@ -14261,11 +12371,13 @@ function saveBill(doPrint) {
         total:          total,
         amount_paid:    paid,
         balance:        bal,
-        notes:          String(g('bNotes').value || '').trim() || null,
-        status:         bal <= 0.005 ? 'Paid' : 'Partial'
+        notes:          g('bNotes').value || null,
+        status:         bal <= 0 ? 'Paid' : 'Partial'
     };
     Object.assign(payload, billClinicFieldsForSave());
-    Object.assign(payload, billDoctorFieldsForSave(doctorIdForSave, { noFallback: true }));
+    Object.assign(payload, billDoctorFieldsForSave(
+        (g('bDoctor') && g('bDoctor').value) ? g('bDoctor').value : ''
+    ));
 
     var finishAfterSaved = function(r) {
         var paidPendingId = payPendingId;
@@ -14282,20 +12394,21 @@ function saveBill(doPrint) {
                 if (billApptId) loadQueue();
                 loadBillHistory();
                 try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+                if (billStep2IsVisible()) {
+                    renderStep2(function(ok) {
+                        if (ok !== false) noteBillPendingRefreshed();
+                    }, { resetForm: true });
+                }
+                var receiptBill = savedBill ? Object.assign({}, payload, savedBill) : payload;
                 if (doPrint) {
                     openReceiptPreviewDirect({
-                        bill: receiptBillWithSavedNotes(payload, savedBill),
+                        bill: receiptBill,
                         insertedData: savedBill ? [savedBill] : [],
                         payments: null,
                         autoPrint: true
                     });
                 } else {
                     alert(tr('bill.alert.savedOk'));
-                }
-                if (billStep2IsVisible()) {
-                    renderStep2(function(ok) {
-                        if (ok !== false) noteBillPendingRefreshed();
-                    }, { resetForm: true });
                 }
             });
         };
@@ -14360,7 +12473,7 @@ function loadTreatmentItemsForBilling(callback) {
 
 function buildTreatmentItemOptions(selectedDesc) {
     var html = '<option value="">' + esc(tr('bill.treatSelectCustom')) + '</option>';
-    var selectedBase = billItemDescBase(selectedDesc) || String(selectedDesc || '').trim();
+    var selectedBase = billItemOthersBaseKey(selectedDesc) || String(selectedDesc || '').trim();
     treatmentItemsCache.forEach(function(item) {
         var selected = selectedBase === item.item_name ? ' selected' : '';
         var label = item.item_name;
@@ -14375,248 +12488,84 @@ function buildTreatmentItemOptions(selectedDesc) {
     return html;
 }
 
-var billTypesCache = [];          // active rows from bill_types (Configuration → Payment Methods)
-var billTypesLoadPromise = null;
-var billTypesFetchOk = false;
+var billTypesCache = [];   // shared across both dropdowns
 
-var BILL_TYPE_FALLBACK_PAY_METHODS = [
-    'Cash', 'Visa', 'Mastercard', 'EPS', 'HKBC', 'Cheque',
-    'Bank Transfer', 'Insurance', 'Waived', 'Other'
-];
-
-function invalidateBillTypesCache() {
-    billTypesCache = [];
-    billTypesLoadPromise = null;
-    billTypesFetchOk = false;
-}
-
-function billTypeOptionValue(bt) {
-    return String((bt && (bt.name || bt.type_code)) || '').trim();
-}
-
-function billTypeRowIsActive(bt) {
-    return bt && bt.is_active !== false;
-}
-
-function billTypeRowIsUnsettled(bt) {
-    var v = billTypeOptionValue(bt);
-    if (!v) return true;
-    var lk = v.toLowerCase();
-    return billPendingPayTypeCandidates().some(function (c) {
-        return String(c || '').trim().toLowerCase() === lk;
-    });
-}
-
-function billTypeRowIsPayable(bt) {
-    return billTypeRowIsActive(bt) && !billTypeRowIsUnsettled(bt);
-}
-
-function findBillTypeRow(value) {
-    var v = String(value || '').trim().toLowerCase();
-    if (!v || !billTypesCache.length) return null;
-    for (var i = 0; i < billTypesCache.length; i++) {
-        var bt = billTypesCache[i];
-        var name = String(bt.name || '').trim().toLowerCase();
-        var code = String(bt.type_code || '').trim().toLowerCase();
-        if (name === v || code === v) return bt;
-    }
-    return null;
-}
-
-function billTypeDisplayLabel(btOrValue, fromRow) {
-    if (btOrValue && typeof btOrValue === 'object') {
-        var bt = btOrValue;
-        var val = billTypeOptionValue(bt);
-        var lang = (typeof appUiLang !== 'undefined') ? appUiLang : 'en';
-        if ((lang === 'zh-CN' || lang === 'zh-Hant') && bt.type_name && String(bt.type_name).trim()) {
-            return String(bt.type_name).trim();
-        }
-        return (typeof dispPayMethod === 'function') ? dispPayMethod(val, true) : val;
-    }
-    if (!fromRow) {
-        var hit = findBillTypeRow(btOrValue);
-        if (hit) return billTypeDisplayLabel(hit, true);
-    }
-    var s = String(btOrValue || '').trim();
-    return (typeof dispPayMethod === 'function') ? dispPayMethod(s, true) : s;
-}
-
-function billTypesForSelect(opts) {
-    opts = opts || {};
-    var rows = billTypesCache.length ? billTypesCache.slice() : [];
-    if (opts.forPayment) {
-        return rows.filter(billTypeRowIsPayable);
-    }
-    return rows.filter(billTypeRowIsActive);
-}
-
-function ensureBillTypeOptionExists(sel, value) {
-    if (!sel || !sel.appendChild) return;
-    var v = String(value || '').trim();
-    if (!v) return;
-    var has = Array.prototype.some.call(sel.options || [], function (o) { return o.value === v; });
-    if (has) return;
-    var o = document.createElement('option');
-    o.value = v;
-    o.textContent = billTypeDisplayLabel(v);
-    sel.appendChild(o);
-}
-
-function normalizeBillTypesRows(rows) {
-    return (rows || []).filter(billTypeRowIsActive).map(function (bt) {
-        if (!bt) return bt;
-        if (!bt.name && bt.type_code) bt.name = bt.type_code;
-        if (!bt.type_code && bt.name) bt.type_code = bt.name;
-        return bt;
-    });
-}
-
-function fetchBillTypesFromDb(force) {
-    if (force) invalidateBillTypesCache();
-    if (billTypesLoadPromise) return billTypesLoadPromise;
-
-    function finishFromResponse(r) {
-        billTypesFetchOk = !r.error;
-        if (r.error) {
-            console.error('bill_types load failed:', r.error);
-            billTypesCache = [];
-            return billTypesCache;
-        }
-        billTypesCache = normalizeBillTypesRows(r.data);
-        return billTypesCache;
-    }
-
-    billTypesLoadPromise = SB.from('bill_types')
-        .select('*')
-        .order('sort_order', { ascending: true })
-        .then(function (r) {
-            if (r.error && /sort_order/i.test(String(r.error.message || ''))) {
-                return SB.from('bill_types').select('*').then(finishFromResponse);
-            }
-            return finishFromResponse(r);
-        })
-        .catch(function (e) {
-            billTypesFetchOk = false;
-            console.error('bill_types load error:', e);
-            billTypesCache = [];
-            return billTypesCache;
-        });
-    return billTypesLoadPromise;
-}
-
-function ensureBillTypesLoaded(cb, force) {
-    return fetchBillTypesFromDb(!!force)
-        .then(function (rows) {
-            if (typeof cb === 'function') cb(rows);
-            return rows;
-        })
-        .catch(function (e) {
-            console.error('ensureBillTypesLoaded failed:', e);
-            if (typeof cb === 'function') cb([]);
-            return [];
-        });
-}
-
-function prefetchBillTypes() {
-    return ensureBillTypesLoaded(null, false);
-}
-
-function populateAllBillPaymentSelects(opts) {
-    opts = opts || {};
-    var bType = g('bType');
-    if (bType) {
-        var prevType = bType.value;
-        applyBillTypeOptions(bType, !!opts.markDefault, { includePending: true, extraValues: opts.extraValues });
-        if (prevType) {
-            ensureBillTypeOptionExists(bType, prevType);
-            bType.value = prevType;
-        }
-    }
-    var apSel = g('apMethod');
-    if (apSel) {
-        var prevAp = apSel.value;
-        applyBillTypeOptions(apSel, !!opts.markApDefault, { forPayment: true, extraValues: opts.extraValues });
-        if (prevAp) {
-            ensureBillTypeOptionExists(apSel, prevAp);
-            apSel.value = prevAp;
-        }
-    }
-}
-
-function appendBillTypeFallbackOptions(sel) {
-    BILL_TYPE_FALLBACK_PAY_METHODS.forEach(function (v) {
-        ensureBillTypeOptionExists(sel, v);
-    });
-}
-
-function applyBillTypeOptions(sel, markDefault, opts) {
-    opts = opts || {};
-    if (!sel || !sel.appendChild) return;
-
-    var includePending = opts.forPayment ? false : (opts.includePending !== false);
-    var list = billTypesForSelect(opts);
+function applyBillTypeOptions(sel, markDefault) {
+    var FALLBACK = ['Pending', 'N/A', 'Cash', 'Visa', 'Mastercard', 'EPS', 'HKBC', 'Cheque',
+                    'Bank Transfer', 'Insurance', 'Waived', 'Other'];
     sel.innerHTML = '';
-
+    var list = billTypesCache.length ? billTypesCache : null;
+    if (!list) {
+        FALLBACK.forEach(function(v) {
+            var o = document.createElement('option');
+            o.value = v;
+            o.textContent = (typeof dispPayMethod === 'function') ? dispPayMethod(v) : v;
+            sel.appendChild(o);
+        });
+        ensurePendingBillTypeOption(sel);
+        return;
+    }
     var defaultFound = false;
-    list.forEach(function (bt) {
-        var val = billTypeOptionValue(bt);
-        if (!val) return;
+    list.forEach(function(bt) {
         var opt = document.createElement('option');
-        opt.value = val;
-        opt.textContent = billTypeDisplayLabel(bt, true);
-        if (bt.color_hex) opt.style.color = bt.color_hex;
+        opt.value = bt.name || bt.type_code;
+        opt.textContent = (typeof dispPayMethod === 'function')
+            ? dispPayMethod(opt.value)
+            : (bt.name || bt.type_code);
+        if (bt.type_name) opt.textContent += ' (' + bt.type_name + ')';
         if (markDefault && bt.is_default && !defaultFound) {
             opt.selected = true;
             defaultFound = true;
         }
         sel.appendChild(opt);
     });
-
-    if (!sel.options.length) {
-        appendBillTypeFallbackOptions(sel);
-        if (markDefault && sel.options.length) {
-            sel.options[0].selected = true;
-        }
-    } else if (markDefault && !defaultFound) {
+    if (markDefault && !defaultFound && sel.options.length) {
         sel.options[0].selected = true;
     }
-
-    (opts.extraValues || []).forEach(function (v) {
-        ensureBillTypeOptionExists(sel, v);
-    });
-
-    if (includePending) ensurePendingBillTypeOption(sel);
+    ensurePendingBillTypeOption(sel);
 }
 
 function refreshBillPaymentSelectLabels() {
-    populateAllBillPaymentSelects({ markDefault: false });
-}
-
-function loadBillTypes(opts) {
-    opts = opts || {};
-    var sel = g('bType');
-    if (sel) {
-        sel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
+    var bType = g('bType');
+    if (bType && bType.options.length) {
+        var prevType = bType.value;
+        applyBillTypeOptions(bType, false);
+        if (prevType) bType.value = prevType;
     }
     var apSel = g('apMethod');
-    if (apSel && !sel) {
-        apSel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
+    if (apSel && apSel.options.length) {
+        var prevAp = apSel.value;
+        applyBillTypeOptions(apSel, false);
+        if (prevAp) apSel.value = prevAp;
     }
-
-    return ensureBillTypesLoaded(function () {
-        populateAllBillPaymentSelects({
-            markDefault: true,
-            markApDefault: true,
-            extraValues: opts.extraValues
-        });
-    }, opts.force === true);
 }
 
-window.invalidateBillTypesCache = invalidateBillTypesCache;
-window.prefetchBillTypes = prefetchBillTypes;
-window.ensureBillTypesLoaded = ensureBillTypesLoaded;
-window.findBillTypeRow = findBillTypeRow;
-window.billTypeDisplayLabel = billTypeDisplayLabel;
+function loadBillTypes() {
+    var sel = g('bType');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
+
+    if (billTypesCache.length) {
+        applyBillTypeOptions(sel, true);
+        applyBillTypeOptions(g('apMethod') || { innerHTML: '' }, false);
+        return;
+    }
+
+    SB.from('bill_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', {ascending: true})
+    .then(function(r) {
+        billTypesCache = (!r.error && r.data && r.data.length) ? r.data : [];
+        applyBillTypeOptions(sel, true);
+        var apSel = g('apMethod');
+        if (apSel) applyBillTypeOptions(apSel, false);
+    })
+    .catch(function(e) {
+        console.error('Error loading bill types:', e);
+        applyBillTypeOptions(sel, true);
+    });
+}
 
 // Loads all bills for the current patient (same query shape as Consultation → Bill).
 function billHistoryRangeMode() {
@@ -14629,19 +12578,6 @@ function billBillDateIso(b) {
     if (!raw) return '';
     if (raw.length >= 10 && raw.indexOf('-') >= 0) return raw.slice(0, 10);
     return raw;
-}
-
-/** Bill History panel — bills with line items, payments, or voided rows. */
-function billEligibleForPatientHistory(b) {
-    if (!b || !b.id) return false;
-    if (billRecordIsVoid(b)) return true;
-    var total = parseFloat(b.total) || 0;
-    if (total > 0.005) return true;
-    return billHistoryDisplayPaid(b) > 0.005;
-}
-
-function filterBillHistoryEligible(list) {
-    return (list || []).filter(billEligibleForPatientHistory);
 }
 
 function filterBillHistoryByRange(list) {
@@ -14750,313 +12686,7 @@ function billHistoryPrintDateDisplay(iso) {
     return String(iso);
 }
 
-function billHistoryPrintFontFamilyCss(key) {
-    var map = {
-        system: '"Segoe UI", Arial, Helvetica, sans-serif',
-        arial: 'Arial, Helvetica, sans-serif',
-        times: '"Times New Roman", Times, serif',
-        ming: '"PMingLiU", "MingLiU", "SimSun", serif',
-        yahei: '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif'
-    };
-    return map[key] || map.system;
-}
-
-var BILL_HISTORY_PRINT_OPTS_KEY = 'bill_history_print_options_v1';
-var _billHistoryPrintPendingBills = null;
-var _bhpPreviewTimer = null;
-
-function defaultBillHistoryPrintOptions() {
-    return {
-        fontFamily: 'system',
-        bodyFontSize: 14,
-        titleFontSize: 22,
-        thFontSize: 12,
-        boldText: false,
-        scalePercent: 100
-    };
-}
-
-function loadBillHistoryPrintOptions() {
-    var defs = defaultBillHistoryPrintOptions();
-    try {
-        var raw = localStorage.getItem(BILL_HISTORY_PRINT_OPTS_KEY);
-        if (!raw) return defs;
-        var parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return defs;
-        Object.keys(defs).forEach(function(k) {
-            if (parsed[k] !== undefined && typeof parsed[k] === typeof defs[k]) {
-                defs[k] = parsed[k];
-            }
-        });
-    } catch (_) {}
-    return defs;
-}
-
-function saveBillHistoryPrintOptions(opts) {
-    var persist = defaultBillHistoryPrintOptions();
-    Object.keys(persist).forEach(function(k) {
-        if (opts[k] !== undefined && typeof opts[k] === typeof persist[k]) {
-            persist[k] = opts[k];
-        }
-    });
-    try {
-        localStorage.setItem(BILL_HISTORY_PRINT_OPTS_KEY, JSON.stringify(persist));
-    } catch (_) {}
-}
-
-function populateBillHistoryPrintSizeSelect(el, values, suffix) {
-    if (!el || el.dataset.bhpPopulated === '1') return;
-    el.dataset.bhpPopulated = '1';
-    values.forEach(function(n) {
-        var o = document.createElement('option');
-        o.value = String(n);
-        o.textContent = String(n) + (suffix || '');
-        el.appendChild(o);
-    });
-}
-
-function populateBillHistoryPrintSizeSelects() {
-    populateBillHistoryPrintSizeSelect(g('bhpBodySize'),
-        [10, 11, 12, 13, 14, 15, 16, 18, 20], ' pt');
-    populateBillHistoryPrintSizeSelect(g('bhpTitleSize'),
-        [16, 18, 20, 22, 24, 26, 28], ' pt');
-    populateBillHistoryPrintSizeSelect(g('bhpThSize'),
-        [10, 11, 12, 13, 14, 15, 16], ' pt');
-    populateBillHistoryPrintSizeSelect(g('bhpScalePercent'),
-        [80, 90, 100, 110, 120, 130, 140, 150], '%');
-}
-
-function readBillHistoryPrintOptionsFromForm() {
-    var opts = defaultBillHistoryPrintOptions();
-    var fam = g('bhpFontFamily');
-    if (fam && fam.value) opts.fontFamily = fam.value;
-    opts.bodyFontSize = parseInt(g('bhpBodySize') && g('bhpBodySize').value, 10) ||
-        opts.bodyFontSize;
-    opts.titleFontSize = parseInt(g('bhpTitleSize') && g('bhpTitleSize').value, 10) ||
-        opts.titleFontSize;
-    opts.thFontSize = parseInt(g('bhpThSize') && g('bhpThSize').value, 10) ||
-        opts.thFontSize;
-    opts.scalePercent = parseInt(g('bhpScalePercent') && g('bhpScalePercent').value, 10) ||
-        opts.scalePercent;
-    opts.boldText = !!(g('bhpBoldText') && g('bhpBoldText').checked);
-    return opts;
-}
-
-function applyBillHistoryPrintOptionsToForm(opts) {
-    opts = opts || loadBillHistoryPrintOptions();
-    if (g('bhpFontFamily')) g('bhpFontFamily').value = opts.fontFamily || 'system';
-    if (g('bhpBodySize')) g('bhpBodySize').value = String(opts.bodyFontSize || 14);
-    if (g('bhpTitleSize')) g('bhpTitleSize').value = String(opts.titleFontSize || 22);
-    if (g('bhpThSize')) g('bhpThSize').value = String(opts.thFontSize || 12);
-    if (g('bhpScalePercent')) g('bhpScalePercent').value = String(opts.scalePercent || 100);
-    if (g('bhpBoldText')) g('bhpBoldText').checked = !!opts.boldText;
-}
-
-function billHistoryPrintRowLabel(b) {
-    var voided = billRecordIsVoid(b);
-    var typeLbl = (typeof dispPayMethod === 'function')
-        ? dispPayMethod(b.bill_type)
-        : (b.bill_type || '—');
-    var doctor = b.doctor_tag || b.doctor_name || '';
-    var dateDisp = billHistoryPrintDateDisplay(b.bill_date);
-    var statusTxt = voided
-        ? tr('bill.detail.voidBadge')
-        : dispStatusLabel(b.status || '');
-    var main = fmtHK(b.total) + ' · ' + dateDisp;
-    var meta = typeLbl +
-        (doctor ? (' · ' + doctor) : '') +
-        ' · ' + statusTxt;
-    return { main: main, meta: meta, voided: voided };
-}
-
-function billHistoryPrintBillKey(b, idx) {
-    return b && b.id ? String(b.id) : ('idx-' + idx);
-}
-
-function renderBillHistoryPrintBillList(bills) {
-    var list = g('bhpBillList');
-    if (!list) return;
-    list.innerHTML = '';
-    (bills || []).forEach(function(b, idx) {
-        var key = billHistoryPrintBillKey(b, idx);
-        var lbl = billHistoryPrintRowLabel(b);
-        var row = document.createElement('label');
-        row.className = 'bh-print-bill-item' +
-            (lbl.voided ? ' bh-print-bill-item--void' : '');
-        row.innerHTML =
-            '<input type="checkbox" class="bhp-bill-cb" value="' + esc(key) + '" checked>' +
-            '<div><div class="bh-print-bill-item-main">' + esc(lbl.main) + '</div>' +
-            '<div class="bh-print-bill-item-meta">' + esc(lbl.meta) + '</div></div>';
-        list.appendChild(row);
-    });
-}
-
-function getBillHistoryPrintSelectedBills() {
-    var out = [];
-    var list = g('bhpBillList');
-    if (!list || !_billHistoryPrintPendingBills) return out;
-    list.querySelectorAll('.bhp-bill-cb:checked').forEach(function(cb) {
-        var val = cb.value;
-        _billHistoryPrintPendingBills.forEach(function(b, idx) {
-            if (billHistoryPrintBillKey(b, idx) === val) out.push(b);
-        });
-    });
-    return out;
-}
-
-function setAllBillHistoryPrintChecks(checked) {
-    var list = g('bhpBillList');
-    if (!list) return;
-    list.querySelectorAll('.bhp-bill-cb').forEach(function(cb) {
-        cb.checked = !!checked;
-    });
-    scheduleBillHistoryPrintPreview();
-}
-
-function scheduleBillHistoryPrintPreview() {
-    clearTimeout(_bhpPreviewTimer);
-    _bhpPreviewTimer = setTimeout(refreshBillHistoryPrintPreview, 120);
-}
-
-function refreshBillHistoryPrintPreview() {
-    var preview = g('bhpPreview');
-    var scroll = g('bhpPreviewScroll');
-    if (!preview) return;
-    var bills = getBillHistoryPrintSelectedBills();
-    if (!bills.length) {
-        preview.style.transform = '';
-        preview.style.width = '';
-        preview.innerHTML =
-            '<p style="padding:24px;color:#888;text-align:center;font-size:14px;">' +
-            esc(tr('bill.history.printNoneSelected')) + '</p>';
-        return;
-    }
-    var opts = readBillHistoryPrintOptionsFromForm();
-    preview.innerHTML = buildBillHistoryPrintHtml(bills, opts);
-    preview.style.transform = '';
-    preview.style.width = '100%';
-    if (!scroll) return;
-    requestAnimationFrame(function() {
-        var sw = Math.max(1, scroll.clientWidth - 24);
-        var pw = preview.scrollWidth;
-        if (pw > sw) {
-            var sc = sw / pw;
-            preview.style.transform = 'scale(' + sc + ')';
-            preview.style.width = (100 / sc) + '%';
-        }
-    });
-}
-
-function wireBillHistoryPrintOptionInputs() {
-    ['bhpFontFamily', 'bhpTitleSize', 'bhpBodySize', 'bhpThSize', 'bhpScalePercent'].forEach(function(id) {
-        var el = g(id);
-        if (!el || el.dataset.bhpInputWired === '1') return;
-        el.dataset.bhpInputWired = '1';
-        el.addEventListener('change', scheduleBillHistoryPrintPreview);
-    });
-    var bold = g('bhpBoldText');
-    if (bold && bold.dataset.bhpInputWired !== '1') {
-        bold.dataset.bhpInputWired = '1';
-        bold.addEventListener('change', scheduleBillHistoryPrintPreview);
-    }
-    var list = g('bhpBillList');
-    if (list && list.dataset.bhpInputWired !== '1') {
-        list.dataset.bhpInputWired = '1';
-        list.addEventListener('change', scheduleBillHistoryPrintPreview);
-    }
-}
-
-function openBillHistoryPrintModal(bills) {
-    _billHistoryPrintPendingBills = (bills || []).slice();
-    populateBillHistoryPrintSizeSelects();
-    applyBillHistoryPrintOptionsToForm(loadBillHistoryPrintOptions());
-    renderBillHistoryPrintBillList(_billHistoryPrintPendingBills);
-    var modal = g('billHistoryPrintModal');
-    if (modal) {
-        modal.classList.add('bh-print-modal-visible');
-        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(modal);
-    }
-    scheduleBillHistoryPrintPreview();
-    openModal('billHistoryPrintModal');
-}
-
-function dismissBillHistoryPrintModal() {
-    _billHistoryPrintPendingBills = null;
-    var modal = g('billHistoryPrintModal');
-    if (modal) modal.classList.remove('bh-print-modal-visible');
-    closeModal('billHistoryPrintModal');
-}
-
-function executeBillHistoryPrint(bills, opts) {
-    if (!bills || !bills.length) return;
-    var bodyHtml = buildBillHistoryPrintHtml(bills, opts);
-    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
-        ? String(currentClinicId) : '';
-    if (typeof CFG !== 'undefined' && CFG && typeof CFG.prefetchPrintSettings === 'function') {
-        CFG.prefetchPrintSettings(cid);
-    }
-    var printRow = null;
-    if (typeof CFG !== 'undefined' && CFG && typeof CFG.getPrintSettingsForDoc === 'function') {
-        printRow = CFG.getPrintSettingsForDoc('bill', cid);
-        if (printRow) {
-            printRow = Object.assign({}, printRow, {
-                scale_percent: opts.scalePercent || 100
-            });
-        }
-    }
-    if (typeof CFG !== 'undefined' && CFG && typeof CFG.openContentPrintPopup === 'function') {
-        var ok = CFG.openContentPrintPopup({
-            title: tr('bill.history.printTitle'),
-            bodyHtml: bodyHtml,
-            docType: 'bill',
-            clinicId: cid,
-            printRow: printRow,
-            skipConfirm: true
-        });
-        if (!ok) alert(tr('bill.receipt.popupBlocked'));
-        return;
-    }
-    var popup = window.open('', '_blank', 'width=820,height=900,scrollbars=1,resizable=1');
-    if (!popup) {
-        alert(tr('bill.receipt.popupBlocked'));
-        return;
-    }
-    popup.document.write(
-        '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
-        esc(tr('bill.history.printTitle')) + '</title></head><body>' + bodyHtml +
-        '<script>' +
-        (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
-        'window.onload=function(){setTimeout(function(){try{window.print();}catch(e){if(typeof __ppClose==="function")__ppClose();}},300);};' +
-        '<\/script></body></html>'
-    );
-    popup.document.close();
-    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
-}
-
-function confirmBillHistoryPrint() {
-    var bills = getBillHistoryPrintSelectedBills();
-    if (!bills.length) {
-        alert(tr('bill.history.printNoneSelected'));
-        return;
-    }
-    var opts = readBillHistoryPrintOptionsFromForm();
-    saveBillHistoryPrintOptions(opts);
-    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
-    dismissBillHistoryPrintModal();
-    executeBillHistoryPrint(bills, opts);
-}
-
-function buildBillHistoryPrintHtml(bills, opts) {
-    opts = opts || defaultBillHistoryPrintOptions();
-    var bodyPt = Math.max(9, parseInt(opts.bodyFontSize, 10) || 14);
-    var titlePt = Math.max(12, parseInt(opts.titleFontSize, 10) || 22);
-    var thPt = Math.max(9, parseInt(opts.thFontSize, 10) || 12);
-    var metaPt = Math.max(9, bodyPt - 1);
-    var fontFamily = billHistoryPrintFontFamilyCss(opts.fontFamily);
-    var bodyWeight = opts.boldText ? '600' : '400';
-    var thWeight = opts.boldText ? '800' : '700';
-    var cellPad = Math.max(5, Math.round(bodyPt * 0.45)) + 'px ' +
-        Math.max(6, Math.round(bodyPt * 0.55)) + 'px';
+function buildBillHistoryPrintHtml(bills) {
     var scope = billHistoryPrintScopeText();
     var patName = String(billPatName || '').trim() || '—';
     var patNo = String(billPatNo || '').trim();
@@ -15094,36 +12724,31 @@ function buildBillHistoryPrintHtml(bills, opts) {
             : ((idx % 2 === 1) ? 'background:#f8fafc;' : '');
         rowsHtml +=
             '<tr style="' + rowStyle + '">' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' +
                 esc(billHistoryPrintDateDisplay(b.bill_date)) + '</td>' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(ref) + '</td>' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(typeLbl) + '</td>' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(doctor) + '</td>' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;text-align:right;' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(ref) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(typeLbl) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(doctor) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
                 (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(total)) + '</td>' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;text-align:right;' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
                 (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(paid)) + '</td>' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;text-align:right;' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;' +
                 (voided ? 'text-decoration:line-through;' : '') + '">' + esc(fmt2(bal)) + '</td>' +
-            '<td style="padding:' + cellPad + ';border-bottom:1px solid #e2e8f0;">' + esc(statusTxt) + '</td>' +
+            '<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;">' + esc(statusTxt) + '</td>' +
             '</tr>';
     });
 
     return (
         '<style>' +
-        '.bh-print-root{font-family:' + fontFamily + ';color:#111;}' +
         '.bh-print-hdr{margin-bottom:14px;border-bottom:2px solid #0d6efd;padding-bottom:10px;}' +
-        '.bh-print-hdr h1{margin:0 0 6px;font-size:' + titlePt + 'pt;font-weight:' + thWeight +
-            ';color:#0d6efd;font-family:' + fontFamily + ';}' +
-        '.bh-print-meta{font-size:' + metaPt + 'pt;color:#555;line-height:1.5;font-weight:' + bodyWeight + ';}' +
-        '.bh-print-table{width:100%;border-collapse:collapse;font-size:' + bodyPt + 'pt;margin-top:8px;' +
-            'font-family:' + fontFamily + ';font-weight:' + bodyWeight + ';}' +
-        '.bh-print-table th{text-align:left;padding:' + cellPad +
-            ';background:#1e3a5f;color:#fff;font-size:' + thPt + 'pt;font-weight:' + thWeight + ';}' +
+        '.bh-print-hdr h1{margin:0 0 6px;font-size:18px;color:#0d6efd;}' +
+        '.bh-print-meta{font-size:12px;color:#555;line-height:1.5;}' +
+        '.bh-print-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;}' +
+        '.bh-print-table th{text-align:left;padding:7px 8px;background:#1e3a5f;color:#fff;font-size:10px;}' +
         '.bh-print-table th.num{text-align:right;}' +
-        '.bh-print-tfoot td{font-weight:' + thWeight + ';border-top:2px solid #1e3a5f;padding:' + cellPad + ';}' +
+        '.bh-print-tfoot td{font-weight:700;border-top:2px solid #1e3a5f;padding:8px;}' +
         '</style>' +
-        '<div class="bh-print-root">' +
         '<div class="bh-print-hdr">' +
         '<h1>' + esc(tr('bill.history.printTitle')) + '</h1>' +
         '<div class="bh-print-meta">' +
@@ -15149,30 +12774,45 @@ function buildBillHistoryPrintHtml(bills, opts) {
         '<td style="text-align:right;">' + esc(fmt2(sumTotal)) + '</td>' +
         '<td style="text-align:right;">' + esc(fmt2(sumPaid)) + '</td>' +
         '<td style="text-align:right;">' + esc(fmt2(sumBal)) + '</td>' +
-        '<td></td></tr></tfoot></table></div>'
+        '<td></td></tr></tfoot></table>'
     );
 }
 
 function printBillHistory() {
-    try {
-        if (billHistoryRangeMode() === 'dated') {
-            var fromEl = g('billHistoryFrom');
-            var toEl = g('billHistoryTo');
-            if (fromEl && fromEl.value) billHistoryFilterFrom = fromEl.value;
-            if (toEl && toEl.value) billHistoryFilterTo = toEl.value;
-        }
-        var bills = filterBillHistoryByRange(billHistoryCache || []);
-        if (!bills.length) {
-            alert(tr('bill.history.printEmpty'));
-            return;
-        }
-        openBillHistoryPrintModal(bills);
-    } catch (err) {
-        console.error('printBillHistory', err);
-        alert('Print failed: ' + (err && err.message ? err.message : String(err)));
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    var bills = filterBillHistoryByRange(billHistoryCache || []);
+    if (!bills.length) {
+        alert(tr('bill.history.printEmpty'));
+        return;
     }
+    var bodyHtml = buildBillHistoryPrintHtml(bills);
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    if (typeof CFG !== 'undefined' && CFG && typeof CFG.prefetchPrintSettings === 'function') {
+        CFG.prefetchPrintSettings(cid);
+    }
+    if (typeof CFG !== 'undefined' && CFG && typeof CFG.openContentPrintPopup === 'function') {
+        var ok = CFG.openContentPrintPopup({
+            title: tr('bill.history.printTitle'),
+            bodyHtml: bodyHtml,
+            docType: 'bill',
+            clinicId: cid
+        });
+        if (!ok) alert(tr('bill.receipt.popupBlocked'));
+        return;
+    }
+    var popup = window.open('', '_blank', 'width=820,height=900,scrollbars=1,resizable=1');
+    if (!popup) {
+        alert(tr('bill.receipt.popupBlocked'));
+        return;
+    }
+    popup.document.write(
+        '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
+        esc(tr('bill.history.printTitle')) + '</title></head><body>' + bodyHtml +
+        '<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>'
+    );
+    popup.document.close();
 }
-window.printBillHistory = printBillHistory;
 
 function wireBillHistoryFilterUi() {
     document.querySelectorAll('input[name="billHistoryRange"]').forEach(function(el) {
@@ -15217,7 +12857,7 @@ function loadBillHistory(cb) {
             if (cb) cb(false);
             return;
         }
-        billHistoryCache = filterBillHistoryEligible((r.data && r.data.length) ? r.data : []);
+        billHistoryCache = (r.data && r.data.length) ? r.data : [];
         if (!billHistoryCache.length) {
             wrap.innerHTML = '<p style="color:#aaa;font-size:14px;">' + esc(tr('bill.historyEmpty')) + '</p>';
             if (cb) cb(true);
@@ -15355,15 +12995,11 @@ function renderBillHistoryRows(wrap, data) {
     wrap.innerHTML = '';
     data.forEach(function(b) {
             var drTag   = b.doctor_tag || b.doctor_name || '';
-            var canVoidBill = canModifyBill();
+            var isAdmin = String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase() === 'admin';
             var voided  = billRecordIsVoid(b);
             var div = document.createElement('div');
             div.className = voided ? 'bill-history-row bill-history-row--void' : 'bill-history-row';
-            var isPartial = !voided && (
-                b.status === 'Partial' ||
-                b.status === 'Pending' ||
-                (parseFloat(b.balance) > 0.005)
-            );
+            var isPartial = !voided && (b.status === 'Partial' || (parseFloat(b.balance) > 0));
             if (!voided) {
                 div.style.cssText =
                     'background:' + (isPartial ? '#fffbeb' : '#f9f9f9') + ';' +
@@ -15398,7 +13034,7 @@ function renderBillHistoryRows(wrap, data) {
                     : '') +
                 (!voided
                     ? '<button class="bd-del-btn btn-sm" ' +
-                      (canVoidBill
+                      (isAdmin
                           ? 'style="background:#dc2626;color:#fff;border:none;padding:3px 11px;' +
                             'border-radius:5px;font-size:12px;cursor:pointer;"'
                           : 'disabled style="background:#fca5a5;color:#fff;border:none;padding:3px 11px;' +
@@ -15437,7 +13073,7 @@ function renderBillHistoryRows(wrap, data) {
                 });
             }
             var delBtn = div.querySelector('.bd-del-btn');
-            if (delBtn && canVoidBill) {
+            if (delBtn && isAdmin) {
                 delBtn.addEventListener('click', function() {
                     confirmDeleteBill(b);
                 });
@@ -15473,11 +13109,6 @@ function refreshBillDeleteModalCopy(b) {
 
 function confirmDeleteBill(b) {
     if (billRecordIsVoid(b)) return;
-    if (!canModifyBill()) {
-        if (typeof permToastDenied === 'function') permToastDenied();
-        else alert(tr('bill.alertVoidBillDenied'));
-        return;
-    }
     bdDeleteTarget = b;
     refreshBillDeleteModalCopy(b);
     var inp = g('bdDeleteConfirmInput');
@@ -15488,11 +13119,6 @@ function confirmDeleteBill(b) {
 }
 
 function executeBillDelete() {
-    if (!canModifyBill()) {
-        if (typeof permToastDenied === 'function') permToastDenied();
-        else alert(tr('bill.alertVoidBillDenied'));
-        return;
-    }
     var inp = g('bdDeleteConfirmInput');
     if (!inp || inp.value.trim().toUpperCase() !== 'DELETE') {
         var err = g('bdDeleteError');
@@ -15525,119 +13151,6 @@ function executeBillDelete() {
 // BILL DETAIL POPUP
 // ════════════════════════════════════════════════════════════════
 var bdCurrentBill = null;
-var bdNotesEditing = false;
-var bdNotesEditWired = false;
-
-function canEditBillDetailNotes(b) {
-    return !!(b && b.id && !billRecordIsVoid(b));
-}
-
-function billNotesPayloadFromUserEdit(userText, existingRaw) {
-    var u = String(userText || '').trim();
-    var existing = String(existingRaw || '').trim();
-    if (billIsPendingLinkNote(existing) && !u) return existing;
-    return u || null;
-}
-
-function refreshBillDetailNotesUI(b) {
-    var viewEl = g('bdNotes');
-    var inpEl = g('bdNotesInput');
-    var editBtn = g('bdNotesEditBtn');
-    var editBar = g('bdNotesEditBar');
-    var errEl = g('bdNotesEditErr');
-    if (!viewEl) return;
-    var canEdit = canEditBillDetailNotes(b);
-    var userNotes = b ? billUserNotesText(b.notes) : '';
-
-    if (editBtn) {
-        editBtn.classList.toggle('hidden', !canEdit || bdNotesEditing);
-        if (typeof applyI18nInRoot === 'function') {
-            applyI18nInRoot(editBtn.parentElement || editBtn);
-        }
-    }
-    if (bdNotesEditing) {
-        viewEl.classList.add('hidden');
-        if (inpEl) {
-            inpEl.classList.remove('hidden');
-            inpEl.value = userNotes;
-            if (typeof applyI18nInRoot === 'function') applyI18nInRoot(inpEl.parentElement || inpEl);
-        }
-        if (editBar) editBar.classList.remove('hidden');
-    } else {
-        viewEl.classList.remove('hidden');
-        viewEl.textContent = userNotes || '—';
-        if (inpEl) inpEl.classList.add('hidden');
-        if (editBar) editBar.classList.add('hidden');
-        if (errEl) {
-            errEl.classList.add('hidden');
-            errEl.textContent = '';
-        }
-    }
-}
-
-function wireBillDetailNotesEditOnce() {
-    if (bdNotesEditWired) return;
-    bdNotesEditWired = true;
-    var editBtn = g('bdNotesEditBtn');
-    var saveBtn = g('bdNotesSaveBtn');
-    var cancelBtn = g('bdNotesCancelBtn');
-    var inp = g('bdNotesInput');
-    if (editBtn) {
-        editBtn.addEventListener('click', function () {
-            if (!canEditBillDetailNotes(bdCurrentBill)) return;
-            bdNotesEditing = true;
-            refreshBillDetailNotesUI(bdCurrentBill);
-            var el = g('bdNotesInput');
-            if (el) {
-                try { el.focus(); } catch (_) {}
-            }
-        });
-    }
-    if (saveBtn) {
-        saveBtn.addEventListener('click', function () {
-            if (!bdCurrentBill || !bdCurrentBill.id) return;
-            if (!canEditBillDetailNotes(bdCurrentBill)) return;
-            var inpEl = g('bdNotesInput');
-            var errEl = g('bdNotesEditErr');
-            var userText = inpEl ? inpEl.value : '';
-            var notesPayload = billNotesPayloadFromUserEdit(userText, bdCurrentBill.notes);
-            saveBtn.disabled = true;
-            if (errEl) {
-                errEl.classList.add('hidden');
-                errEl.textContent = '';
-            }
-            SB.from('bills').update({ notes: notesPayload }).eq('id', bdCurrentBill.id)
-            .then(function (r) {
-                saveBtn.disabled = false;
-                if (r.error) {
-                    if (errEl) {
-                        errEl.textContent = r.error.message || tr('bill.detail.notesSaveFailed');
-                        errEl.classList.remove('hidden');
-                    }
-                    return;
-                }
-                bdCurrentBill.notes = notesPayload;
-                bdNotesEditing = false;
-                refreshBillDetailNotesUI(bdCurrentBill);
-                loadBillHistory();
-            });
-        });
-    }
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', function () {
-            bdNotesEditing = false;
-            refreshBillDetailNotesUI(bdCurrentBill);
-        });
-    }
-    if (inp) {
-        inp.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') {
-                bdNotesEditing = false;
-                refreshBillDetailNotesUI(bdCurrentBill);
-            }
-        });
-    }
-}
 
 function bdSet(id, val) {
     var e = g(id);
@@ -15705,8 +13218,6 @@ function printBillDetailReceipt() {
 
 function showBillDetail(b) {
     bdCurrentBill = b;
-    bdNotesEditing = false;
-    wireBillDetailNotesEditOnce();
     // Reference number
     var ref = b.id ? b.id.slice(0, 8).toUpperCase() : '—';
     bdSet('bdRef', ref);
@@ -15744,9 +13255,8 @@ function showBillDetail(b) {
     bdSet('bdClinicCode', billDetailClinicCode(b) || '—');
     bdSet('bdType',      (typeof dispPayMethod === 'function') ? dispPayMethod(b.bill_type) : (b.bill_type || '—'));
 
-    refreshBillDetailNotesUI(b);
-    var notesWrap = document.querySelector('.bd-notes-wrap');
-    if (notesWrap && typeof applyI18nInRoot === 'function') applyI18nInRoot(notesWrap);
+    var notesEl = g('bdNotes');
+    if (notesEl) notesEl.textContent = b.notes || '—';
 
     // Items table — zebra rows
     var items = [];
@@ -15802,14 +13312,6 @@ function showBillDetail(b) {
 // ════════════════════════════════════════════════════════════════
 // PAYMENT HISTORY
 // ════════════════════════════════════════════════════════════════
-function canVoidBillPayment() {
-    return (typeof hasAppPermission !== 'function') || hasAppPermission('void_payment');
-}
-
-function canModifyBill() {
-    return (typeof hasAppPermission !== 'function') || hasAppPermission('modify_bill');
-}
-
 function billPaymentIsVoid(p) {
     return !!(p && p.voided_at);
 }
@@ -15907,7 +13409,7 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
         : '<td style="padding:8px 10px;color:#cbd5e1;font-size:11px;">—</td>';
     var amtClass = voided ? 'bill-pay-void-amt' : '';
     var amtColor = voided ? '' : 'color:#16a34a;';
-    var canVoidPayment = !voided && p.id && !p._fromBillRecord && canVoidBillPayment();
+    var canVoidPayment = !voided && p.id && !p._fromBillRecord;
     var actionCell = voided
         ? '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>'
         : (canVoidPayment
@@ -15993,25 +13495,16 @@ function openAddPaymentModal() {
     sv('apDate',   todayISO());
     sv('apAmount', fmt2(bal));   // default = full remaining balance
     sv('apNotes',  '');
-
     var methodSel = g('apMethod');
     if (methodSel) {
-        methodSel.innerHTML = '<option value="">' + esc(tr('bill.loadingTypes')) + '</option>';
+        applyBillTypeOptions(methodSel, false);
+        methodSel.selectedIndex = 0;
     }
 
     var errEl = g('apError');
     if (errEl) errEl.style.display = 'none';
 
-    var legacyMethod = bdCurrentBill.bill_type || '';
-    ensureBillTypesLoaded(function () {
-        if (methodSel) {
-            applyBillTypeOptions(methodSel, true, {
-                forPayment: true,
-                extraValues: legacyMethod ? [legacyMethod] : []
-            });
-        }
-        openModal('addPaymentModal');
-    });
+    openModal('addPaymentModal');
 }
 
 function billPaymentClinicContext() {
@@ -16063,17 +13556,11 @@ function confirmAddPayment() {
     var newBalance = Math.max(0, (parseFloat(bdCurrentBill.total) || 0) - newPaid);
     var newStatus  = newBalance <= 0.005 ? 'Paid' : 'Partial';
 
-    var payMethod = g('apMethod') ? String(g('apMethod').value || '').trim() : '';
-    if (!payMethod) {
-        if (errEl) { errEl.textContent = tr('bill.alert.selectPaymentMethod'); errEl.style.display = ''; }
-        return;
-    }
-
     var payRecord = {
         bill_id:     bdCurrentBill.id,
         paid_date:   g('apDate').value || todayISO(),
         amount:      amount,
-        method:      payMethod,
+        method:      g('apMethod').value || 'Cash',
         notes:       g('apNotes').value  || null,
         received_by: (typeof currentName !== 'undefined' ? currentName : null)
     };
@@ -16122,11 +13609,6 @@ function confirmAddPayment() {
             loadBillPayments(bdCurrentBill.id);
             loadBillHistory();
             try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
-
-            if (newBalance <= 0.005) {
-                var paidBillId = bdCurrentBill.id;
-                resetBillCreationAfterPayment(paidBillId);
-            }
         });
     });
 }
@@ -16134,9 +13616,8 @@ function confirmAddPayment() {
 function voidPaymentRecord(p) {
     if (!p || !p.id) return;
     if (billPaymentIsVoid(p)) return;
-    if (!canVoidBillPayment()) {
-        if (typeof permToastDenied === 'function') permToastDenied();
-        else alert(tr('bill.alertVoidPaymentDenied'));
+    if (typeof hasAppPermission === 'function' && !hasAppPermission('void_payment')) {
+        alert(tr('bill.alertVoidPaymentDenied'));
         return;
     }
     if (!confirm(trRepl('bill.deletePaymentConfirm', {
@@ -16671,7 +14152,6 @@ function printReceiptDocument() {
         if (done) return;
         done = true;
         releaseLock();
-        if (typeof closeModal === 'function') closeModal('receiptModal');
     }
 
     try {
@@ -17097,12 +14577,6 @@ function applyReceiptPrintOptions(opts, supplement, bill, pmts) {
         rxSec.style.display = 'none';
     }
 
-    var billNotesSec = g('rBillNotesSection');
-    var billNotesEl = g('rBillNotesBody');
-    var billNotesTxt = billUserNotesText(bill && bill.notes);
-    if (billNotesSec) billNotesSec.style.display = billNotesTxt ? '' : 'none';
-    if (billNotesEl) billNotesEl.textContent = billNotesTxt || '—';
-
     var patSign = g('receiptPatientSignBlock');
     if (patSign) patSign.style.display = opts.patientUndersign !== false ? '' : 'none';
 
@@ -17341,15 +14815,20 @@ function refreshOpenBillPanelForLang() {
     if (typeof applyI18nInRoot === 'function') applyI18nInRoot(panel);
     renderBillPendingRefreshMeta();
     if (typeof applyReceiptClinicHeader === 'function') applyReceiptClinicHeader();
-    renderStep1UI();
-    renderBillItems();
-    recalcPendingSubtotal();
+    var step2Visible = g('billStep2') && g('billStep2').style.display !== 'none';
+    if (step2Visible) {
+        renderStep2();
+    } else {
+        renderStep1UI();
+        renderBillItems();
+        recalcPendingSubtotal();
+    }
     if (typeof loadBillHistory === 'function') loadBillHistory();
     else if (typeof applyBillHistoryFilter === 'function') applyBillHistoryFilter();
-    if (typeof loadBillTypes === 'function') {
-        loadBillTypes({ force: false });
-    } else if (typeof refreshBillPaymentSelectLabels === 'function') {
+    if (billTypesCache.length && typeof refreshBillPaymentSelectLabels === 'function') {
         refreshBillPaymentSelectLabels();
+    } else if (typeof loadBillTypes === 'function') {
+        loadBillTypes();
     }
     if (typeof renderBillDoctorOptions === 'function') {
         renderBillDoctorOptions(typeof defaultBillDoctorId === 'function' ? defaultBillDoctorId() : '');
@@ -17437,18 +14916,11 @@ document.addEventListener('app-lang-change', function () {
     var addPayModal = g('addPaymentModal');
     if (addPayModal && addPayModal.style.display === 'block') {
         if (typeof applyI18nInRoot === 'function') applyI18nInRoot(addPayModal);
-        if (typeof ensureBillTypesLoaded === 'function') {
-            ensureBillTypesLoaded(function () {
-                var apSel = g('apMethod');
-                if (apSel && typeof applyBillTypeOptions === 'function') {
-                    var apPrev = apSel.value;
-                    applyBillTypeOptions(apSel, false, { forPayment: true });
-                    if (apPrev) {
-                        ensureBillTypeOptionExists(apSel, apPrev);
-                        apSel.value = apPrev;
-                    }
-                }
-            });
+        var apSel = g('apMethod');
+        if (apSel && typeof applyBillTypeOptions === 'function') {
+            var apPrev = apSel.value;
+            applyBillTypeOptions(apSel, false);
+            if (apPrev) apSel.value = apPrev;
         }
         if (bdCurrentBill) {
             var apBal = parseFloat(bdCurrentBill.balance) || 0;
@@ -17479,5 +14951,4 @@ document.addEventListener('app-lang-change', function () {
     if (typeof renderPlusApptMiniCal === 'function' && g('plusApptMiniCal')) {
         renderPlusApptMiniCal();
     }
-    if (typeof plusApptRefreshSettingsPanelI18n === 'function') plusApptRefreshSettingsPanelI18n();
 });

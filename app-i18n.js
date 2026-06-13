@@ -211,14 +211,9 @@ function dispRole(raw) {
 }
 
 /** Display label for bill payment method / type_group stored in English in the DB. */
-function dispPayMethod(raw, noCfgLookup) {
+function dispPayMethod(raw) {
     var s = String(raw == null ? '' : raw).trim();
     if (!s || /^unknown$/i.test(s)) return t('report.unknown');
-    if (!noCfgLookup && typeof window.findBillTypeRow === 'function' &&
-        typeof window.billTypeDisplayLabel === 'function') {
-        var cfgRow = window.findBillTypeRow(s);
-        if (cfgRow) return window.billTypeDisplayLabel(cfgRow, true);
-    }
     var lk = s.toLowerCase().replace(/\s+/g, ' ');
     var keyMap = {
         'cash': 'bill.pay.cash',

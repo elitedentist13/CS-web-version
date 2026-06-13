@@ -4030,6 +4030,21 @@ function bindPlusApptRemarksDblclick(row, apptRow) {
     });
 }
 
+function bindTodayRemarksDblclick(row, apptRow) {
+    if (!row || !apptRow || !apptRow.id) return;
+    var wrap = row.querySelector('.today-remarks-preview-wrap');
+    if (!wrap || wrap.dataset.remarksBound === '1') return;
+    wrap.dataset.remarksBound = '1';
+    if (typeof tr === 'function') {
+        wrap.title = tr('appt.today.remarksDblClickHint');
+    }
+    wrap.addEventListener('dblclick', function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        if (typeof openQueueRemarksEditor === 'function') openQueueRemarksEditor(apptRow);
+    });
+}
+
 var PLUSAPPT_REMARKS_LINE_MAX = 52;
 
 function plusApptRemarksPlainText(remarks) {
@@ -9803,10 +9818,14 @@ function buildTodayRow(tb, a, dotCtx) {
             apptTreatInlineTextareaHtml(a.treatment_items, a.id, 'appt-treat-inline--today') +
         '</td>' +
         '<td class="appt-alert-cell">' + apptAlertCellHtml(a) + '</td>' +
-        '<td style="font-size:12px;color:#888;">' +
-            formatRemarksForDisplay(a.remarks, { empty: '-' }) +
-            apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--remarks') +
-            apptTaskSummaryHtml(a) +
+        '<td class="today-remarks-cell">' +
+            '<div class="today-remarks-preview-wrap">' +
+                '<div class="today-remarks-snippet">' +
+                    formatRemarksForDisplay(a.remarks, { empty: '-', stripDr: true }) +
+                '</div>' +
+                apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--remarks') +
+                apptTaskSummaryHtml(a) +
+            '</div>' +
         '</td>' +
         '<td style="text-align:center;">' +
             esc(a.duration != null && a.duration !== ''
@@ -9831,6 +9850,7 @@ function buildTodayRow(tb, a, dotCtx) {
     apptBindTreatInlineField(row.querySelector('.appt-treat-inline'), function (saved) {
         a.treatment_items = saved;
     });
+    bindTodayRemarksDblclick(row, a);
 
     row.addEventListener('dblclick', function () {
         if (isNoshow || a.bill_status === 'Queue' || a.bill_status === 'Done') {

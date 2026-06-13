@@ -3867,6 +3867,39 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .today-wrap .appt-tbl.today-tbl .today-col-treatment { width: 22%; }
 .today-wrap .appt-tbl.today-tbl .today-col-alert     { width: 80px; }
 .today-wrap .appt-tbl.today-tbl .today-col-remarks   { width: auto; }
+.today-wrap .appt-tbl.today-tbl td.today-remarks-cell {
+    min-width: 140px;
+    max-width: 300px;
+    vertical-align: top;
+    font-size: 12px;
+}
+.today-remarks-preview-wrap {
+    position: relative;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+.today-remarks-preview-wrap:hover {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+}
+.today-remarks-snippet {
+    font-size: 12px;
+    line-height: 1.4;
+    color: #334155;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: block;
+    max-height: 5.8em;
+}
+.today-remarks-snippet .appt-rm-by {
+    font-size: 11px;
+}
 .today-wrap .appt-tbl.today-tbl .today-col-duration  { width: 64px; }
 .today-wrap .appt-tbl.today-tbl .today-col-status    { width: 88px; }
 .today-wrap .appt-tbl.today-tbl .today-col-action    { width: 148px; }

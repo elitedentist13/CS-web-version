@@ -781,6 +781,11 @@
         'appt.today.btnNewPatient': { en: 'New Patient', 'zh-CN': '新建患者', 'zh-Hant': '新增病人' },
         'appt.today.btnCheckIn': { en: 'Check In', 'zh-CN': '签到', 'zh-Hant': '簽到' },
         'appt.today.btnEdit': { en: 'Edit', 'zh-CN': '编辑', 'zh-Hant': '編輯' },
+        'appt.today.remarksDblClickHint': {
+            en: 'Double-click to edit remarks',
+            'zh-CN': '双击编辑备注',
+            'zh-Hant': '雙擊編輯備註'
+        },
         'appt.today.btnNoShow': { en: 'No Show', 'zh-CN': '爽约', 'zh-Hant': '失約' },
         'appt.today.btnRemove': { en: 'Remove', 'zh-CN': '移除', 'zh-Hant': '移除' },
         'appt.today.confirmCheckIn': { en: 'Check in {NAME} now?', 'zh-CN': '现在为 {NAME} 签到？', 'zh-Hant': '現在為 {NAME} 簽到？' },

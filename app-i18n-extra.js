@@ -385,6 +385,94 @@
         'report.audit.col.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
         'report.audit.col.user': { en: 'User', 'zh-CN': '用户', 'zh-Hant': '使用者' },
         'report.audit.col.item': { en: 'Audit item', 'zh-CN': '审计项目', 'zh-Hant': '審計項目' },
+        'report.audit.subTab.log': { en: 'Full Audit Log', 'zh-CN': '完整审计记录', 'zh-Hant': '完整審計記錄' },
+        'report.audit.subTab.voidBills': { en: 'Void Bills Manager', 'zh-CN': '作废账单管理', 'zh-Hant': '作廢帳單管理' },
+        'report.hint.voidBills': {
+            en: 'Monitor whole-bill void actions by date range and clinic. Search by patient, user, doctor, or clinic. Click a row for void time, location, and bill detail.',
+            'zh-CN': '按日期范围与诊所监控整单作废操作。可按患者、用户、医生或诊所搜索。点击行查看作废时间、位置与账单明细。',
+            'zh-Hant': '按日期範圍與診所監控整單作廢操作。可按病人、使用者、醫生或診所搜尋。點擊列查看作廢時間、位置與帳單明細。'
+        },
+        'report.voidBills.dockTitle': { en: 'Void Bills Monitor', 'zh-CN': '作废账单监控', 'zh-Hant': '作廢帳單監控' },
+        'report.voidBills.dockHint': {
+            en: 'All voided bills load automatically (newest first). Use date range, clinic selector, and search boxes to narrow results.',
+            'zh-CN': '所有作废账单自动加载（最新在前）。可用日期范围、诊所选择器与搜索框缩小结果。',
+            'zh-Hant': '所有作廢帳單自動載入（最新在前）。可用日期範圍、診所選擇器與搜尋框縮小結果。'
+        },
+        'report.voidBills.searchPatient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '病人' },
+        'report.voidBills.searchPatientPh': { en: 'No. or name…', 'zh-CN': '编号或姓名…', 'zh-Hant': '編號或姓名…' },
+        'report.voidBills.searchUser': { en: 'User', 'zh-CN': '用户', 'zh-Hant': '使用者' },
+        'report.voidBills.searchUserPh': { en: 'Name or ID…', 'zh-CN': '姓名或 ID…', 'zh-Hant': '姓名或 ID…' },
+        'report.voidBills.searchDoctor': { en: 'Doctor / clinic Dr', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'report.voidBills.searchDoctorPh': { en: 'Tag or name…', 'zh-CN': '代号或姓名…', 'zh-Hant': '代號或姓名…' },
+        'report.voidBills.searchClinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'report.voidBills.searchClinicPh': { en: 'Clinic code…', 'zh-CN': '诊所代号…', 'zh-Hant': '診所代號…' },
+        'report.voidBills.summaryCount': {
+            en: 'Showing {SHOWN} of {TOTAL} loaded (newest first)',
+            'zh-CN': '显示 {SHOWN} / {TOTAL} 笔已加载（最新在前）',
+            'zh-Hant': '顯示 {SHOWN} / {TOTAL} 筆已載入（最新在前）'
+        },
+        'report.voidBills.noMatchFilters': {
+            en: 'No voided bills match the current date range, clinic, or search filters. Widen the date range or clear search boxes.',
+            'zh-CN': '没有符合当前日期范围、诊所或搜索条件的作废账单。请扩大日期范围或清空搜索框。',
+            'zh-Hant': '沒有符合目前日期範圍、診所或搜尋條件的作廢帳單。請擴大日期範圍或清空搜尋框。'
+        },
+        'report.voidBills.noVoidBills': {
+            en: 'No voided bills found on the server yet.',
+            'zh-CN': '服务器上尚无作废账单记录。',
+            'zh-Hant': '伺服器上尚無作廢帳單記錄。'
+        },
+        'report.voidBills.detailPlaceholder': {
+            en: 'Select a voided bill to view action detail, location, and bill fields.',
+            'zh-CN': '选择一笔作废账单以查看操作明细、位置与账单字段。',
+            'zh-Hant': '選擇一筆作廢帳單以查看操作明細、位置與帳單欄位。'
+        },
+        'report.voidBills.detailTitle': { en: 'Voided bill', 'zh-CN': '已作废账单', 'zh-Hant': '已作廢帳單' },
+        'report.voidBills.sectionVoidAction': { en: 'Void action', 'zh-CN': '作废操作', 'zh-Hant': '作廢操作' },
+        'report.voidBills.sectionPatient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '病人' },
+        'report.voidBills.sectionDoctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'report.voidBills.sectionBill': { en: 'Bill detail', 'zh-CN': '账单明细', 'zh-Hant': '帳單明細' },
+        'report.voidBills.sectionAudit': { en: 'Audit trail excerpt', 'zh-CN': '审计记录摘录', 'zh-Hant': '審計記錄摘錄' },
+        'report.voidBills.field.voidDateTime': { en: 'Void date & time', 'zh-CN': '作废日期时间', 'zh-Hant': '作廢日期時間' },
+        'report.voidBills.field.location': { en: 'Location / computer', 'zh-CN': '位置 / 电脑', 'zh-Hant': '位置 / 電腦' },
+        'report.voidBills.field.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'report.voidBills.field.user': { en: 'User who voided', 'zh-CN': '作废用户', 'zh-Hant': '作廢使用者' },
+        'report.voidBills.field.patientNo': { en: 'Patient no.', 'zh-CN': '患者编号', 'zh-Hant': '病人編號' },
+        'report.voidBills.field.patientName': { en: 'Patient name', 'zh-CN': '患者姓名', 'zh-Hant': '病人姓名' },
+        'report.voidBills.field.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'report.voidBills.field.doctorTag': { en: 'Doctor tag', 'zh-CN': '医生代号', 'zh-Hant': '醫生代號' },
+        'report.voidBills.field.billId': { en: 'Bill ref', 'zh-CN': '账单参考', 'zh-Hant': '帳單參考' },
+        'report.voidBills.field.billDate': { en: 'Bill date', 'zh-CN': '账单日期', 'zh-Hant': '帳單日期' },
+        'report.voidBills.field.billType': { en: 'Bill type', 'zh-CN': '账单类型', 'zh-Hant': '帳單類型' },
+        'report.voidBills.field.total': { en: 'Total', 'zh-CN': '总额', 'zh-Hant': '總額' },
+        'report.voidBills.field.paid': { en: 'Paid', 'zh-CN': '已付', 'zh-Hant': '已付' },
+        'report.voidBills.field.balance': { en: 'Balance', 'zh-CN': '余额', 'zh-Hant': '餘額' },
+        'report.voidBills.field.status': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
+        'report.voidBills.field.notes': { en: 'Notes', 'zh-CN': '备注', 'zh-Hant': '備註' },
+        'report.voidBills.locationUnknown': { en: '(Not recorded)', 'zh-CN': '（未记录）', 'zh-Hant': '（未記錄）' },
+        'report.voidBills.col.voidTime': { en: 'Void time', 'zh-CN': '作废时间', 'zh-Hant': '作廢時間' },
+        'report.voidBills.col.patient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '病人' },
+        'report.voidBills.col.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'report.voidBills.col.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'report.voidBills.col.user': { en: 'User', 'zh-CN': '用户', 'zh-Hant': '使用者' },
+        'report.voidBills.col.location': { en: 'Location', 'zh-CN': '位置', 'zh-Hant': '位置' },
+        'report.voidBills.col.bill': { en: 'Bill', 'zh-CN': '账单', 'zh-Hant': '帳單' },
+        'report.voidBills.page.summary': {
+            en: 'Showing {FROM}–{TO} of {TOTAL} (newest first)',
+            'zh-CN': '显示第 {FROM}–{TO} 条，共 {TOTAL} 条（最新在前）',
+            'zh-Hant': '顯示第 {FROM}–{TO} 筆，共 {TOTAL} 筆（最新在前）'
+        },
+        'report.voidBills.page.counter': { en: 'Page {PAGE}/{PAGES}', 'zh-CN': '第 {PAGE}/{PAGES} 页', 'zh-Hant': '第 {PAGE}/{PAGES} 頁' },
+        'report.voidBills.page.prev': { en: '◀ Prev', 'zh-CN': '◀ 上一页', 'zh-Hant': '◀ 上一頁' },
+        'report.voidBills.page.next': { en: 'Next ▶', 'zh-CN': '下一页 ▶', 'zh-Hant': '下一頁 ▶' },
+        'report.voidBills.page.sizeLabel': { en: 'Per page:', 'zh-CN': '每页：', 'zh-Hant': '每頁：' },
+        'report.voidBills.page.jumpLabel': { en: 'Jump:', 'zh-CN': '跳转：', 'zh-Hant': '跳至：' },
+        'report.voidBills.page.go': { en: 'Go', 'zh-CN': '前往', 'zh-Hant': '前往' },
+        'report.voidBills.page.jumpNeedNumber': { en: 'Enter a page number.', 'zh-CN': '请输入页码。', 'zh-Hant': '請輸入頁碼。' },
+        'report.voidBills.page.jumpRange': {
+            en: 'Use a number from 1 to {MAX}.',
+            'zh-CN': '请输入 1 到 {MAX} 的页码。',
+            'zh-Hant': '請輸入 1 到 {MAX} 的頁碼。'
+        },
         'report.chart.disabledAuditTrail': {
             en: 'Chart disabled for audit trail.',
             'zh-CN': '审计追踪不使用图表。',
@@ -400,6 +488,12 @@
         'report.chartType.pie': { en: 'Pie', 'zh-CN': '饼图', 'zh-Hant': '餅圖' },
 
         'appt.queueTab': { en: '🏥 Current Queue', 'zh-CN': '🏥 当前队列', 'zh-Hant': '🏥 目前候診' },
+        'appt.sharedMemo.label': { en: 'Daily memo', 'zh-CN': '当日备忘', 'zh-Hant': '當日備忘' },
+        'appt.sharedMemo.placeholder': {
+            en: 'Notes for this clinic and date (shared across queue, today, planner, calendar)…',
+            'zh-CN': '本诊所当日备忘（候诊、今日预约、预约与日历共用）…',
+            'zh-Hant': '本診所當日備忘（候診、今日預約、預約與日曆共用）…'
+        },
         'appt.todayTab': { en: '📋 Today\'s Appointments', 'zh-CN': '📋 今日预约', 'zh-Hant': '📋 今日預約' },
         'appt.plusApptTab': { en: '➕ Appointment', 'zh-CN': '➕ 预约', 'zh-Hant': '➕ 預約' },
         'appt.plusAppt.searchPatient': { en: 'Search patient', 'zh-CN': '搜索患者', 'zh-Hant': '搜尋病人' },
@@ -457,6 +551,15 @@
         'appt.plusAppt.scRemarks': { en: 'Edit remarks', 'zh-CN': '编辑备注', 'zh-Hant': '編輯備註' },
         'appt.plusAppt.scEditAppt': { en: 'Edit appointment', 'zh-CN': '编辑预约', 'zh-Hant': '編輯預約' },
         'appt.plusAppt.moreAtSlot': { en: '+{N} at this time', 'zh-CN': '此时段共{N}个', 'zh-Hant': '此時段共{N}個' },
+        'appt.patientCount.label': { en: 'Patients', 'zh-CN': '患者', 'zh-Hant': '病人' },
+        'appt.patientCount.am': { en: 'AM', 'zh-CN': '上午', 'zh-Hant': '上午' },
+        'appt.patientCount.pm': { en: 'PM', 'zh-CN': '下午', 'zh-Hant': '下午' },
+        'appt.patientCount.total': { en: 'Total', 'zh-CN': '合计', 'zh-Hant': '合計' },
+        'appt.patientCount.title': {
+            en: 'Patient count · AM {AM} · PM {PM} · Total {TOTAL}',
+            'zh-CN': '患者人数 · 上午 {AM} · 下午 {PM} · 合计 {TOTAL}',
+            'zh-Hant': '病人人數 · 上午 {AM} · 下午 {PM} · 合計 {TOTAL}'
+        },
         'appt.unpaidBadge': { en: 'Unpaid {AMT}', 'zh-CN': '欠款 {AMT}', 'zh-Hant': '欠款 {AMT}' },
         'appt.plusAppt.noSlots': { en: 'No time slots configured.', 'zh-CN': '未配置时段。', 'zh-Hant': '未設定時段。' },
         'appt.plusAppt.taskLab': { en: 'Lab', 'zh-CN': '工场', 'zh-Hant': '工場' },
@@ -530,6 +633,7 @@
         'appt.queueTh.treatment': { en: 'Treatment', 'zh-CN': '治疗', 'zh-Hant': '治療' },
         'appt.queueTh.alert': { en: 'Alert', 'zh-CN': '警示', 'zh-Hant': '警示' },
         'appt.queueTh.time': { en: 'Appt Time', 'zh-CN': '预约时间', 'zh-Hant': '預約時間' },
+        'appt.queueTh.duration': { en: 'Duration', 'zh-CN': '时长', 'zh-Hant': '時長' },
         'appt.queueTh.arrived': { en: 'Arrived', 'zh-CN': '到达', 'zh-Hant': '到達' },
         'appt.queueTh.remarks': { en: 'Remarks', 'zh-CN': '备注', 'zh-Hant': '備註' },
         'appt.queueTh.billStatus': { en: 'Bill Status', 'zh-CN': '账单状态', 'zh-Hant': '帳單狀態' },
@@ -576,6 +680,7 @@
         'appt.cal.popupWalkin': { en: '✨ Walk-in / New Patient — not yet linked to a record', 'zh-CN': '✨ 即场 / 新患者 — 尚未关联档案', 'zh-Hant': '✨ 即場 / 新病人 — 尚未關聯檔案' },
         'appt.cal.popupPatient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '病人' },
         'appt.cal.popupNo': { en: 'No.', 'zh-CN': '编号', 'zh-Hant': '編號' },
+        'appt.cal.popupDob': { en: 'DOB', 'zh-CN': '出生日期', 'zh-Hant': '出生日期' },
         'appt.cal.popupDate': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'appt.cal.popupTime': { en: 'Time', 'zh-CN': '时间', 'zh-Hant': '時間' },
         'appt.cal.popupTreatment': { en: 'Treatment', 'zh-CN': '治疗', 'zh-Hant': '治療' },
@@ -599,7 +704,7 @@
         'appt.cal.rowHeight': { en: 'Row Height', 'zh-CN': '行高', 'zh-Hant': '行高' },
         'appt.cal.drColoursLabel': { en: 'Doctor colours (weekly & monthly views)', 'zh-CN': '医生颜色（周/月视图）', 'zh-Hant': '醫生顏色（週/月檢視）' },
         'appt.cal.drColoursHint': { en: 'Pick a colour per doctor so multiple doctors on the same day are easy to spot. Click a preset or use the colour wheel.', 'zh-CN': '为每位医生选择颜色，便于在同日区分。可点预设或使用调色盘。', 'zh-Hant': '為每位醫生選擇顏色，便於在同日區分。可點預設或使用調色盤。' },
-        'appt.cal.applyRefresh': { en: 'Apply & Refresh', 'zh-CN': '应用并刷新', 'zh-Hant': '套用並重新整理' },
+        'appt.cal.applyRefresh': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
         'appt.cal.endAfterStart': { en: 'End time must be after start time.', 'zh-CN': '结束时间须晚于开始时间。', 'zh-Hant': '結束時間須晚於開始時間。' },
         'appt.cal.noDoctorsHint': { en: 'Add doctors in Configuration, or book appointments with a doctor assigned.', 'zh-CN': '请在配置中添加医生，或预约时指定医生。', 'zh-Hant': '請在設定中新增醫生，或預約時指定醫生。' },
         'appt.cal.intervalMin': { en: '{N} min', 'zh-CN': '{N} 分钟', 'zh-Hant': '{N} 分鐘' },
@@ -619,14 +724,20 @@
         'cal.doctor.filterListTitle': { en: 'Show or hide {NAME} on this list', 'zh-CN': '在此列表显示或隐藏 {NAME}', 'zh-Hant': '在此清單顯示或隱藏 {NAME}' },
         'cal.doctor.filterShowAria': { en: 'Show {NAME}', 'zh-CN': '显示 {NAME}', 'zh-Hant': '顯示 {NAME}' },
         'cal.doctor.changeColourTitle': { en: 'Change colour for {NAME}', 'zh-CN': '更改 {NAME} 的颜色', 'zh-Hant': '更改 {NAME} 的顏色' },
+        'cal.doctor.rowDotAria': { en: 'Doctor: {NAME}', 'zh-CN': '医生：{NAME}', 'zh-Hant': '醫生：{NAME}' },
         'cal.doctor.colorsEmpty': { en: 'Configure doctors under Configuration, or assign a doctor when booking.', 'zh-CN': '请在配置中添加医生，或在预约时指定医生。', 'zh-Hant': '請在設定中新增醫生，或在預約時指定醫生。' },
         'cal.doctor.modalTitle': { en: 'Doctor colours', 'zh-CN': '医生颜色', 'zh-Hant': '醫生顏色' },
-        'cal.doctor.modalHint': { en: 'Each doctor gets a colour on the weekly and monthly calendars (like Google Calendar).', 'zh-CN': '每位医生在周历和月历上有专属颜色（类似 Google Calendar）。', 'zh-Hant': '每位醫生在週曆和月曆上有專屬顏色（類似 Google Calendar）。' },
-        'cal.doctor.done': { en: 'Done', 'zh-CN': '完成', 'zh-Hant': '完成' },
+        'cal.doctor.modalHint': { en: 'Each doctor gets a colour on the weekly and monthly calendars (like Google Calendar). Your choices are saved for the clinic and restored after re-login.', 'zh-CN': '每位医生在周历和月历上有专属颜色（类似 Google Calendar）。所选颜色会保存并在重新登录后恢复。', 'zh-Hant': '每位醫生在週曆和月曆上有專屬顏色（類似 Google Calendar）。所選顏色會儲存並在重新登入後恢復。' },
+        'cal.doctor.done': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
+        'cal.doctor.resetBtn': { en: 'Reset doctor colours', 'zh-CN': '重置医生颜色', 'zh-Hant': '重設醫生顏色' },
+        'cal.doctor.resetHint': { en: 'Clears saved picks and restores default preview colours.', 'zh-CN': '清除已保存的颜色，恢复默认预览色。', 'zh-Hant': '清除已儲存的顏色，恢復預設預覽色。' },
+        'cal.doctor.resetConfirm': { en: 'Reset all saved doctor colours? You can assign new colours afterward.', 'zh-CN': '确定重置所有已保存的医生颜色？之后可重新指定。', 'zh-Hant': '確定重設所有已儲存的醫生顏色？之後可重新指定。' },
 
         'appt.today.btnNewPatient': { en: 'New Patient', 'zh-CN': '新建患者', 'zh-Hant': '新增病人' },
         'appt.today.btnCheckIn': { en: 'Check In', 'zh-CN': '签到', 'zh-Hant': '簽到' },
         'appt.today.btnEdit': { en: 'Edit', 'zh-CN': '编辑', 'zh-Hant': '編輯' },
+        'appt.today.btnNoShow': { en: 'No Show', 'zh-CN': '爽约', 'zh-Hant': '失約' },
+        'appt.today.btnRemove': { en: 'Remove', 'zh-CN': '移除', 'zh-Hant': '移除' },
         'appt.today.confirmCheckIn': { en: 'Check in {NAME} now?', 'zh-CN': '现在为 {NAME} 签到？', 'zh-Hant': '現在為 {NAME} 簽到？' },
         'appt.today.thisPatient': { en: 'this patient', 'zh-CN': '此患者', 'zh-Hant': '此病人' },
         'appt.today.regNotAvailable': { en: 'Patient registration is not available.', 'zh-CN': '患者登记功能不可用。', 'zh-Hant': '病人登記功能不可用。' },
@@ -660,9 +771,16 @@
         'appt.arFilterUpcoming': { en: '🗓 Upcoming', 'zh-CN': '🗓 即将到来', 'zh-Hant': '🗓 即將到來' },
         'appt.arFilterPast': { en: '✅ Past / Done', 'zh-CN': '✅ 过去 / 已完成', 'zh-Hant': '✅ 過去 / 已完成' },
         'appt.arFilterNoshow': { en: '⚠️ No-show / Failed', 'zh-CN': '⚠️ 爽约 / 失败', 'zh-Hant': '⚠️ 失約 / 失敗' },
+        'appt.ar.doctorLabel': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'appt.ar.doctorTitle': { en: 'Show appointments for this doctor only', 'zh-CN': '仅显示该医生的预约', 'zh-Hant': '僅顯示該醫生的預約' },
+        'appt.ar.doctorAll': { en: 'All doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
+        'appt.ar.clinicAll': { en: 'All clinics', 'zh-CN': '全部诊所', 'zh-Hant': '全部診所' },
+        'appt.ar.dateAll': { en: 'All dates', 'zh-CN': '全部日期', 'zh-Hant': '全部日期' },
+        'appt.ar.dateFiltered': { en: 'Date: {DATE}', 'zh-CN': '日期：{DATE}', 'zh-Hant': '日期：{DATE}' },
         'appt.arSearchPh': { en: '🔍  Search patient name or no…', 'zh-CN': '🔍  搜索患者姓名或编号…', 'zh-Hant': '🔍  搜尋病人姓名或編號…' },
         'appt.arTh.date': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'appt.arTh.time': { en: 'Time', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'appt.arTh.duration': { en: 'Duration', 'zh-CN': '时长', 'zh-Hant': '時長' },
         'appt.arTh.patNo': { en: 'Pat. No.', 'zh-CN': '患者编号', 'zh-Hant': '病人編號' },
         'appt.arTh.name': { en: 'Name', 'zh-CN': '姓名', 'zh-Hant': '姓名' },
         'appt.arTh.treatment': { en: 'Treatment', 'zh-CN': '治疗', 'zh-Hant': '治療' },
@@ -1316,6 +1434,11 @@
         'bill.panelTitle': { en: '🧾 Patient Bill', 'zh-CN': '🧾 患者账单', 'zh-Hant': '🧾 病人帳單' },
         'bill.tabStep1': { en: '📋 Step 1 · Bill Items', 'zh-CN': '📋 步骤 1 · 账单项目', 'zh-Hant': '📋 步驟 1 · 帳單項目' },
         'bill.tabStep2': { en: '💳 Step 2 · Payment', 'zh-CN': '💳 步骤 2 · 付款', 'zh-Hant': '💳 步驟 2 · 付款' },
+        'bill.sectionNewBill': { en: 'New bill', 'zh-CN': '新建账单', 'zh-Hant': '新建帳單' },
+        'bill.btnCreateBill': { en: '✓ Create bill', 'zh-CN': '✓ 创建账单', 'zh-Hant': '✓ 建立帳單' },
+        'bill.alert.createListFirst': { en: 'Create a bill list first (+ New List).', 'zh-CN': '请先创建账单清单（+ 新建清单）。', 'zh-Hant': '請先建立帳單清單（+ 新增清單）。' },
+        'bill.alert.addItemsFirst': { en: 'Add at least one bill item with an amount before creating the bill.', 'zh-CN': '创建账单前请至少添加一项有金额的账单项目。', 'zh-Hant': '建立帳單前請至少新增一項有金額的帳單項目。' },
+        'bill.status.creatingBill': { en: 'Creating bill…', 'zh-CN': '正在创建账单…', 'zh-Hant': '正在建立帳單…' },
         'bill.btnNewList': { en: '+ New List', 'zh-CN': '+ 新建清单', 'zh-Hant': '+ 新增清單' },
         'bill.btnRemoveListTitle': { en: 'Remove this list', 'zh-CN': '删除此清单', 'zh-Hant': '移除此清單' },
         'bill.btnRemoveRowTitle': { en: 'Remove this item', 'zh-CN': '删除此项目', 'zh-Hant': '移除此項目' },
@@ -1329,6 +1452,13 @@
         'bill.labelItems': { en: 'Items', 'zh-CN': '项目', 'zh-Hant': '項目' },
         'bill.btnAddItem': { en: '+ Add Item', 'zh-CN': '+ 添加项目', 'zh-Hant': '+ 新增項目' },
         'bill.th.description': { en: 'Description', 'zh-CN': '描述', 'zh-Hant': '描述' },
+        'bill.th.toothNo': { en: 'Tooth No.', 'zh-CN': '牙位', 'zh-Hant': '牙位' },
+        'bill.ph.toothNo': { en: '-', 'zh-CN': '-', 'zh-Hant': '-' },
+        'bill.toothNoTitle': {
+            en: 'Optional tooth number for insurance (shown after item name in parentheses)',
+            'zh-CN': '可选牙位（用于保险，显示在项目名称后的括号内）',
+            'zh-Hant': '可選牙位（用於保險，顯示在項目名稱後的括號內）'
+        },
         'bill.th.qty': { en: 'Qty', 'zh-CN': '数量', 'zh-Hant': '數量' },
         'bill.th.unitPrice': { en: 'Unit Price (HK$)', 'zh-CN': '单价（港币）', 'zh-Hant': '單價（港幣）' },
         'bill.th.discPct': { en: 'Disc %', 'zh-CN': '折扣 %', 'zh-Hant': '折扣 %' },
@@ -1393,6 +1523,34 @@
         'bill.history.printThBalance': { en: 'Balance (HK$)', 'zh-CN': '结余（港币）', 'zh-Hant': '結餘（港幣）' },
         'bill.history.printThStatus': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
         'bill.history.printTotals': { en: 'Totals (active bills)', 'zh-CN': '合计（有效账单）', 'zh-Hant': '合計（有效帳單）' },
+        'bill.history.printOptionsTitle': { en: 'Bill History Print', 'zh-CN': '账单历史打印', 'zh-Hant': '帳單紀錄列印' },
+        'bill.history.printOptionsHint': {
+            en: 'Adjust font size and style, choose which bills to include, then preview before printing.',
+            'zh-CN': '调整字体大小和样式，选择要打印的账单，预览后再打印。',
+            'zh-Hant': '調整字體大小及樣式，選擇要列印的帳單，預覽後再列印。'
+        },
+        'bill.history.printOptionsOk': { en: 'Print', 'zh-CN': '打印', 'zh-Hant': '列印' },
+        'bill.history.printTypography': { en: 'Typography', 'zh-CN': '字体', 'zh-Hant': '字體' },
+        'bill.history.printFontFamily': { en: 'Font', 'zh-CN': '字体', 'zh-Hant': '字體' },
+        'bill.history.printFontSystem': { en: 'System (Segoe UI)', 'zh-CN': '系统（Segoe UI）', 'zh-Hant': '系統（Segoe UI）' },
+        'bill.history.printFontArial': { en: 'Arial', 'zh-CN': 'Arial', 'zh-Hant': 'Arial' },
+        'bill.history.printFontTimes': { en: 'Times New Roman', 'zh-CN': 'Times New Roman', 'zh-Hant': 'Times New Roman' },
+        'bill.history.printFontMing': { en: 'Ming / PMingLiU (Chinese)', 'zh-CN': '明体 / 新细明体', 'zh-Hant': '明體 / 新細明體' },
+        'bill.history.printFontYahei': { en: 'Microsoft YaHei', 'zh-CN': '微软雅黑', 'zh-Hant': '微軟雅黑' },
+        'bill.history.printTitleSize': { en: 'Title size', 'zh-CN': '标题字号', 'zh-Hant': '標題字號' },
+        'bill.history.printBodySize': { en: 'Table text size', 'zh-CN': '表格字号', 'zh-Hant': '表格字號' },
+        'bill.history.printThSize': { en: 'Header row size', 'zh-CN': '表头字号', 'zh-Hant': '表頭字號' },
+        'bill.history.printScale': { en: 'Print scale', 'zh-CN': '打印缩放', 'zh-Hant': '列印縮放' },
+        'bill.history.printBold': { en: 'Bold text', 'zh-CN': '粗体', 'zh-Hant': '粗體' },
+        'bill.history.printSelectBills': { en: 'Bills to print', 'zh-CN': '选择账单', 'zh-Hant': '選擇帳單' },
+        'bill.history.printSelectAll': { en: 'Select all', 'zh-CN': '全选', 'zh-Hant': '全選' },
+        'bill.history.printSelectNone': { en: 'Select none', 'zh-CN': '全不选', 'zh-Hant': '全不選' },
+        'bill.history.printPreview': { en: 'Preview', 'zh-CN': '预览', 'zh-Hant': '預覽' },
+        'bill.history.printNoneSelected': {
+            en: 'Select at least one bill to print.',
+            'zh-CN': '请至少选择一张账单。',
+            'zh-Hant': '請至少選擇一張帳單。'
+        },
         'bill.list.defaultLabel': { en: 'List {N}', 'zh-CN': '清单 {N}', 'zh-Hant': '清單 {N}' },
         'bill.list.thisList': { en: 'this list', 'zh-CN': '此清单', 'zh-Hant': '此清單' },
         'bill.status.saved': { en: '✅ Saved', 'zh-CN': '✅ 已保存', 'zh-Hant': '✅ 已儲存' },
@@ -1409,6 +1567,21 @@
         'bill.doctorFallback': { en: 'Doctor', 'zh-CN': '医师', 'zh-Hant': '醫師' },
         'bill.noDoctorsOption': { en: '(No doctors)', 'zh-CN': '（无医师）', 'zh-Hant': '（無醫師）' },
         'bill.selectDoctor': { en: '-- Select Doctor --', 'zh-CN': '-- 选择医师 --', 'zh-Hant': '-- 選擇醫師 --' },
+        'bill.hintListDoctor': {
+            en: 'Required before Save List — this doctor appears on reports and receipts.',
+            'zh-CN': '保存清单前必选 — 此医师将显示于报表及收据。',
+            'zh-Hant': '儲存清單前必選 — 此醫師將顯示於報表及收據。'
+        },
+        'bill.hintStep2DoctorFromList': {
+            en: 'Set in Step 1 when creating the list. To change, return to Step 1.',
+            'zh-CN': '于步骤 1 建立清单时设定。如需更改请返回步骤 1。',
+            'zh-Hant': '於步驟 1 建立清單時設定。如需更改請返回步驟 1。'
+        },
+        'bill.alert.selectDoctorForList': {
+            en: 'Please select a doctor for this bill list before saving.',
+            'zh-CN': '保存清单前请选择医师。',
+            'zh-Hant': '儲存清單前請選擇醫師。'
+        },
         'bill.loadingDoctors': { en: 'Loading doctors...', 'zh-CN': '加载医师中…', 'zh-Hant': '載入醫師中…' },
         'bill.supabaseNotReady': { en: '(Supabase not ready)', 'zh-CN': '（Supabase 未就绪）', 'zh-Hant': '（Supabase 未就緒）' },
         'bill.loadingTypes': { en: 'Loading...', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
@@ -1433,9 +1606,9 @@
         'bill.phCustomDesc': { en: 'Or type custom description', 'zh-CN': '或输入自定义描述', 'zh-Hant': '或輸入自訂描述' },
         'bill.phDescription': { en: 'Description', 'zh-CN': '描述', 'zh-Hant': '描述' },
         'bill.othersRemarkPh': { en: 'Specify other item (shown as OTHERS - 其他 (…))', 'zh-CN': '请注明其他项目（显示为 OTHERS - 其他（…））', 'zh-Hant': '請註明其他項目（顯示為 OTHERS - 其他（…））' },
-        'bill.alert.selectListFirst': { en: 'Please select a bill item list in Step 2 first.', 'zh-CN': '请先在步骤 2 选择账单项目清单。', 'zh-Hant': '請先在步驟 2 選擇帳單項目清單。' },
-        'bill.alert.enterPaymentAmount': { en: 'Enter a payment amount in Step 2, or save the list in Step 1 to record an unpaid bill.', 'zh-CN': '请在步骤 2 输入付款金额；或在步骤 1 保存清单以记录未付账单。', 'zh-Hant': '請在步驟 2 輸入付款金額；或在步驟 1 儲存清單以記錄未付帳單。' },
-        'bill.alert.pendingAlreadySaved': { en: 'This bill is already saved as pending (no payment). Go to Step 2 when the patient pays — choose payment method and amount.', 'zh-CN': '此账单已保存为待付款。患者付款时请前往步骤 2，选择付款方式并输入金额。', 'zh-Hant': '此帳單已儲存為待付款。患者付款時請前往步驟 2，選擇付款方式並輸入金額。' },
+        'bill.alert.selectListFirst': { en: 'Add bill items and create a bill first.', 'zh-CN': '请先添加账单项目并创建账单。', 'zh-Hant': '請先新增帳單項目並建立帳單。' },
+        'bill.alert.enterPaymentAmount': { en: 'Use Pay in Bill History to record payment.', 'zh-CN': '请在账单历史中使用“付款”记录付款。', 'zh-Hant': '請在帳單紀錄中使用「付款」記錄付款。' },
+        'bill.alert.pendingAlreadySaved': { en: 'This bill is already saved as pending. Use Pay in Bill History when the patient pays.', 'zh-CN': '此账单已保存为待付款。患者付款请在账单历史中使用“付款”。', 'zh-Hant': '此帳單已儲存為待付款。患者付款請在帳單紀錄中使用「付款」。' },
         'bill.alert.selectPaymentMethod': { en: 'Please select a payment method.', 'zh-CN': '请选择付款方式。', 'zh-Hant': '請選擇付款方式。' },
         'bill.step2.billSavedPending': { en: 'Bill saved · pending payment', 'zh-CN': '账单已保存 · 待付款', 'zh-Hant': '帳單已儲存 · 待付款' },
         'bill.alert.savedOk': { en: 'Bill saved successfully.', 'zh-CN': '账单保存成功。', 'zh-Hant': '帳單儲存成功。' },
@@ -1454,6 +1627,12 @@
         'bill.detail.labelClinicCode': { en: 'Clinic Code', 'zh-CN': '诊所代码', 'zh-Hant': '診所代碼' },
         'bill.detail.labelPaymentMethod': { en: 'Payment Method', 'zh-CN': '付款方式', 'zh-Hant': '付款方式' },
         'bill.detail.notesTitle': { en: 'Notes', 'zh-CN': '备注', 'zh-Hant': '備註' },
+        'bill.detail.notesEditTitle': { en: 'Edit notes', 'zh-CN': '编辑备注', 'zh-Hant': '編輯備註' },
+        'bill.detail.notesEditAria': { en: 'Edit bill notes', 'zh-CN': '编辑账单备注', 'zh-Hant': '編輯帳單備註' },
+        'bill.detail.notesEditPh': { en: 'Bill notes…', 'zh-CN': '账单备注…', 'zh-Hant': '帳單備註…' },
+        'bill.detail.notesSaveBtn': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
+        'bill.detail.notesCancelBtn': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
+        'bill.detail.notesSaveFailed': { en: 'Could not save notes.', 'zh-CN': '无法保存备注。', 'zh-Hant': '無法儲存備註。' },
         'bill.detail.noItems': { en: 'No items recorded.', 'zh-CN': '没有记录项目。', 'zh-Hant': '沒有紀錄項目。' },
         'bill.detail.paymentHistory': { en: '💰 Payment History', 'zh-CN': '💰 付款记录', 'zh-Hant': '💰 付款紀錄' },
         'bill.detail.btnAddPayment': { en: '+ Add Payment', 'zh-CN': '+ 添加付款', 'zh-Hant': '+ 新增付款' },
@@ -1572,6 +1751,7 @@
         'bill.receipt.patientAddress': { en: 'Patient Address', 'zh-CN': '患者地址', 'zh-Hant': '病人地址' },
         'bill.receipt.diagnosisTitle': { en: 'Diagnosis', 'zh-CN': '病因 / 诊断', 'zh-Hant': '病因 / 診斷' },
         'bill.receipt.prescriptionTitle': { en: 'Prescription', 'zh-CN': '处方', 'zh-Hant': '處方' },
+        'bill.receipt.paymentNotesTitle': { en: 'Notes', 'zh-CN': '备注', 'zh-Hant': '備註' },
         'bill.receipt.laboratoryTitle': { en: 'Laboratory', 'zh-CN': '化验 / 技工', 'zh-Hant': '化驗 / 技工' },
         'bill.receipt.labStatusPrefix': { en: 'Lab case:', 'zh-CN': '技工状态：', 'zh-Hant': '技工狀態：' },
         'bill.receipt.labItemsPrefix': { en: 'Lab-related items:', 'zh-CN': '化验相关项目：', 'zh-Hant': '化驗相關項目：' },
@@ -1892,6 +2072,8 @@
         'cfg.tpl.ph.patientDob': { en: 'Patient DOB', 'zh-CN': '患者出生日期', 'zh-Hant': '病人出生日期' },
         'cfg.tpl.ph.patientEmail': { en: 'Patient Email', 'zh-CN': '患者电邮', 'zh-Hant': '病人電郵' },
         'cfg.tpl.ph.patientAddress': { en: 'Patient Address', 'zh-CN': '患者地址', 'zh-Hant': '病人地址' },
+        'cfg.tpl.ph.patientGender': { en: 'Patient sex (Female / Male)', 'zh-CN': '患者性别（女 / 男）', 'zh-Hant': '病人性別（女 / 男）' },
+        'cfg.tpl.ph.patientAge': { en: 'Patient age (e.g. 34Y)', 'zh-CN': '患者年龄（如 34Y）', 'zh-Hant': '病人年齡（如 34Y）' },
         'cfg.tpl.ph.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
         'cfg.tpl.ph.doctorCode': { en: 'Doctor Code', 'zh-CN': '医生代码', 'zh-Hant': '醫生代碼' },
         'cfg.tpl.ph.doctorEng': { en: 'Doctor (English line)', 'zh-CN': '医生（英文行）', 'zh-Hant': '醫生（英文行）' },
@@ -1935,6 +2117,15 @@
         'cfg.tpl.ph.sickLeaveToDdmm': { en: 'Sick leave to (DD/MM/YYYY)', 'zh-CN': '病假结束（日/月/年）', 'zh-Hant': '病假結束（日/月/年）' },
         'cfg.tpl.ph.sickLeaveDiagnosis': { en: 'Diagnosis ({diagnosis} in body)', 'zh-CN': '诊断（证书内 {diagnosis}）', 'zh-Hant': '診斷（證書內 {diagnosis}）' },
         'cfg.tpl.ph.patientChineseNameSpaced': { en: 'Patient Chinese name (spaced)', 'zh-CN': '患者中文名（逐字间隔）', 'zh-Hant': '病人中文名（逐字間隔）' },
+        'cfg.tpl.phGroup.referral': { en: 'Referral letter (type in document)', 'zh-CN': '转介信（在文档内填写）', 'zh-Hant': '轉介信（在文件內填寫）' },
+        'cfg.tpl.phGroup.referralNote': {
+            en: 'Edit {referred_to}, {diagnosis}, and {remarks} in the letter body. Doctor signature lines use the letterhead footer ({doctor_eng}, {doctor_chi}, {doctor_qualification}, {doctor_qualification_chi}).',
+            'zh-CN': '在信件正文中编辑 {referred_to}、{diagnosis} 和 {remarks}。医生签署栏使用信头页脚（{doctor_eng}、{doctor_chi}、{doctor_qualification}、{doctor_qualification_chi}）。',
+            'zh-Hant': '在信件正文中編輯 {referred_to}、{diagnosis} 和 {remarks}。醫生簽署欄使用信頭頁腳（{doctor_eng}、{doctor_chi}、{doctor_qualification}、{doctor_qualification_chi}）。'
+        },
+        'cfg.tpl.ph.referredTo': { en: 'Referred-to doctor / recipient', 'zh-CN': '转介医生 / 收件人', 'zh-Hant': '轉介醫生 / 收件人' },
+        'cfg.tpl.ph.referralDiagnosis': { en: 'Diagnosis ({diagnosis} in body)', 'zh-CN': '诊断（正文 {diagnosis}）', 'zh-Hant': '診斷（正文 {diagnosis}）' },
+        'cfg.tpl.ph.referralRemarks': { en: 'Remarks ({remarks} in body)', 'zh-CN': '备注（正文 {remarks}）', 'zh-Hant': '備註（正文 {remarks}）' },
         'cfg.tpl.phGroup.letterhead': { en: 'Letterhead (header/footer)', 'zh-CN': '信头（页眉/页脚）', 'zh-Hant': '信頭（頁首/頁尾）' },
         'cfg.tpl.phGroup.letterheadNote': {
             en: 'Use in Clinic letterhead section below. Same tags can appear in document body.',
@@ -1979,6 +2170,7 @@
         'cfg.tpl.seed.simpleReceipt': { en: 'Simple Receipt', 'zh-CN': '简易收据', 'zh-Hant': '簡易收據' },
         'cfg.tpl.seed.letterOfAttendance': { en: 'Letter of Attendance', 'zh-CN': '到诊证明信', 'zh-Hant': '到診證明信' },
         'cfg.tpl.seed.sickLeave': { en: 'Sick Leave Certificate', 'zh-CN': '病假证明书', 'zh-Hant': '病假證明書' },
+        'cfg.tpl.seed.referralLetter': { en: 'Referral Letter', 'zh-CN': '转介信', 'zh-Hant': '轉介信' },
         'cfg.tpl.seed.prescriptionHeader': { en: 'Prescription Header', 'zh-CN': '处方页眉', 'zh-Hant': '處方頁首' },
         'cfg.tpl.seed.consentStarter': { en: 'Consent Form Starter', 'zh-CN': '同意书模板', 'zh-Hant': '同意書範本' },
         'cfg.tpl.seed.simpleReceiptHtml': {
@@ -2005,6 +2197,11 @@
             en: '<div data-conforms-sick-leave="1" data-conforms-skip-footer="1" class="con-sick-leave-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><div style="text-align:right;margin:16px 0 20px;">{date_long}</div><p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p><p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p><p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p><p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p><p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p><p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p><div style="margin-top:72px;max-width:400px;"><div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div><div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div><div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div><div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div><div style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div></div></div>',
             'zh-CN': '<div data-conforms-sick-leave="1" data-conforms-skip-footer="1" class="con-sick-leave-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><div style="text-align:right;margin:16px 0 20px;">{date_long}</div><p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p><p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p><p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p><p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p><p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p><p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p><div style="margin-top:72px;max-width:400px;"><div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div><div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div><div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div><div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div><div style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div></div></div>',
             'zh-Hant': '<div data-conforms-sick-leave="1" data-conforms-skip-footer="1" class="con-sick-leave-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><div style="text-align:right;margin:16px 0 20px;">{date_long}</div><p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p><p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p><p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p><p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p><p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p><p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p><p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p><div style="margin-top:72px;max-width:400px;"><div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div><div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div><div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div><div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div><div style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div></div></div>'
+        },
+        'cfg.tpl.seed.referralLetterHtml': {
+            en: '<div data-conforms-referral="1" data-conforms-referral-v="2" class="con-referral-letter-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><p style="margin:0 0 24px;text-align:right;">Date: {date_long}</p><p style="margin:0 0 20px;">Dear {referred_to} ,</p><p style="margin:0 0 20px;">Re: {patient_name_upper} ({patient_chinese_name}), {patient_gender} / {patient_age}</p><p style="margin:0 0 20px;">Please kindly see the above named patient who is suffering from {diagnosis} .</p><p style="margin:0 0 28px;">Please kindly give your expert management.</p><p style="margin:0 0 8px;">Remarks:</p><p data-conforms-ref-remarks="1" style="margin:0 0 28px;min-height:72px;white-space:pre-wrap;"><br><br><br>{remarks}</p><p style="margin:0;">Regards,</p></div>',
+            'zh-CN': '<div data-conforms-referral="1" data-conforms-referral-v="2" class="con-referral-letter-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><p style="margin:0 0 24px;text-align:right;">Date: {date_long}</p><p style="margin:0 0 20px;">Dear {referred_to} ,</p><p style="margin:0 0 20px;">Re: {patient_name_upper} ({patient_chinese_name}), {patient_gender} / {patient_age}</p><p style="margin:0 0 20px;">Please kindly see the above named patient who is suffering from {diagnosis} .</p><p style="margin:0 0 28px;">Please kindly give your expert management.</p><p style="margin:0 0 8px;">Remarks:</p><p data-conforms-ref-remarks="1" style="margin:0 0 28px;min-height:72px;white-space:pre-wrap;"><br><br><br>{remarks}</p><p style="margin:0;">Regards,</p></div>',
+            'zh-Hant': '<div data-conforms-referral="1" data-conforms-referral-v="2" class="con-referral-letter-doc" style="font-family:Georgia,\'Times New Roman\',Times,serif;color:#1a1a1a;font-size:15px;line-height:1.65;"><p style="margin:0 0 24px;text-align:right;">Date: {date_long}</p><p style="margin:0 0 20px;">Dear {referred_to} ,</p><p style="margin:0 0 20px;">Re: {patient_name_upper} ({patient_chinese_name}), {patient_gender} / {patient_age}</p><p style="margin:0 0 20px;">Please kindly see the above named patient who is suffering from {diagnosis} .</p><p style="margin:0 0 28px;">Please kindly give your expert management.</p><p style="margin:0 0 8px;">Remarks:</p><p data-conforms-ref-remarks="1" style="margin:0 0 28px;min-height:72px;white-space:pre-wrap;"><br><br><br>{remarks}</p><p style="margin:0;">Regards,</p></div>'
         },
         'cfg.tpl.typeReceipt': { en: 'Receipt', 'zh-CN': '收据', 'zh-Hant': '收據' },
         'cfg.tpl.typePrescription': { en: 'Prescription', 'zh-CN': '处方', 'zh-Hant': '處方' },
@@ -2220,6 +2417,11 @@
         'appt.modal.endTimeAuto': { en: 'End Time (auto)', 'zh-CN': '结束时间（自动）', 'zh-Hant': '結束時間（自動）' },
         'appt.modal.treatmentItems': { en: 'Treatment Items', 'zh-CN': '治疗项目', 'zh-Hant': '治療項目' },
         'appt.modal.treatmentPh': { en: 'e.g. Scaling, Filling…', 'zh-CN': '例如：洗牙、补牙…', 'zh-Hant': '例如：洗牙、補牙…' },
+        'appt.treatInline.saveHint': {
+            en: 'Enter for new line. Ctrl+Enter to save.',
+            'zh-CN': 'Enter 换行，Ctrl+Enter 保存。',
+            'zh-Hant': 'Enter 換行，Ctrl+Enter 儲存。'
+        },
         'appt.modal.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
         'appt.modal.selectDoctor': { en: '— Select doctor —', 'zh-CN': '— 选择医生 —', 'zh-Hant': '— 選擇醫生 —' },
         'appt.modal.calendarColour': { en: 'Calendar colour', 'zh-CN': '日历颜色', 'zh-Hant': '日曆顏色' },
@@ -2284,6 +2486,11 @@
             en: 'Sick-leave dates default to today; the preview updates when you change them. Type the diagnosis on the certificate at the centred {diagnosis} line. Clinic letterhead on top; doctor signature at the bottom.',
             'zh-CN': '病假日期默认为今天；更改日期会更新预览。请在证书居中行的 {diagnosis} 处输入诊断。上方为诊所信头；下方为医生签署栏。',
             'zh-Hant': '病假日期預設為今天；更改日期會更新預覽。請在證書置中行的 {diagnosis} 處輸入診斷。上方為診所信頭；下方為醫生簽署欄。'
+        },
+        'con.forms.referralHint': {
+            en: 'Patient, date, and doctor details fill in automatically. Replace {referred_to}, {diagnosis}, and {remarks} in the letter body. Doctor name and qualifications appear in the letterhead footer below (Configuration → Document Templates).',
+            'zh-CN': '患者、日期与医生资料会自动填入。请在正文中填写 {referred_to}、{diagnosis} 和 {remarks}。医生姓名与资格显示在下方信头页脚（配置 → 文档模板）。',
+            'zh-Hant': '病人、日期與醫生資料會自動填入。請在正文中填寫 {referred_to}、{diagnosis} 和 {remarks}。醫生姓名與資格顯示在下方信頭頁腳（配置 → 文件範本）。'
         },
         'con.forms.sickLeavePendingPh': {
             en: 'Select sick-leave from and to dates above to generate the certificate preview.',
@@ -2630,24 +2837,65 @@
         },
         'media.sys.aidental': { en: 'Ai-Dental (small film)', 'zh-CN': 'Ai-Dental（小片）', 'zh-Hant': 'Ai-Dental（小片）' },
         'media.sys.aidental.info': {
-            en: 'Opens Ai-Dental-Client — small-film imaging (desktop shortcut on this PC)',
-            'zh-CN': '打开 Ai-Dental-Client — 小片影像（本机桌面快捷方式）',
-            'zh-Hant': '開啟 Ai-Dental-Client — 小片影像（本機桌面捷徑）'
+            en: 'Fill Woodpecker Create Patient — Name, Birthday, Gender from active patient (Woodpecker opened manually)',
+            'zh-CN': '填入 Woodpecker Create Patient — 从当前患者带入 Name、Birthday、Gender（需手动打开 Woodpecker）',
+            'zh-Hant': '填入 Woodpecker Create Patient — 從目前病人帶入 Name、Birthday、Gender（需手動開啟 Woodpecker）'
         },
         'media.sys.aidental.desktopHint': {
             en: 'Ai-Dental-Client small-film software on this PC',
             'zh-CN': '本机 Ai-Dental-Client 小片软件',
             'zh-Hant': '本機 Ai-Dental-Client 小片軟件'
         },
+        'media.sys.nntnewtom': { en: 'NNT / NEWTOM', 'zh-CN': 'NNT / NEWTOM', 'zh-Hant': 'NNT / NEWTOM' },
+        'media.sys.nntnewtom.info': {
+            en: 'Opens NNT / NEWTOM CBCT imaging software on this PC',
+            'zh-CN': '打开本机 NNT / NEWTOM CBCT 影像软件',
+            'zh-Hant': '開啟本機 NNT / NEWTOM CBCT 影像軟件'
+        },
+        'media.sys.nntnewtom.desktopHint': {
+            en: 'NNT / NEWTOM CBCT software on this PC',
+            'zh-CN': '本机 NNT / NEWTOM CBCT 软件',
+            'zh-Hant': '本機 NNT / NEWTOM CBCT 軟件'
+        },
+        'media.local.aidentalFillOpen': {
+            en: 'Fill Woodpecker Create Patient from active patient?\n\n1. Open Woodpecker Ai-Dental manually (Patient page)\n2. Click "Create Patient" in Woodpecker\n3. Confirm here — fields will be filled:\n   • Name (English)\n   • Birthday\n   • Gender (Male/Female)\n\nActive patient: {PATIENT}\n\nRequires "Start X-Ray Launcher.bat" running on this PC.',
+            'zh-CN': '从当前患者填入 Woodpecker「Create Patient」？\n\n1. 请手动打开 Woodpecker Ai-Dental（Patient 页面）\n2. 在 Woodpecker 中点击「Create Patient」\n3. 在此确认 — 将自动填入：\n   • Name（英文姓名）\n   • Birthday（出生日期）\n   • Gender（男/女）\n\n当前患者：{PATIENT}\n\n需在本机运行「Start X-Ray Launcher.bat」。',
+            'zh-Hant': '從目前病人填入 Woodpecker「Create Patient」？\n\n1. 請手動開啟 Woodpecker Ai-Dental（Patient 頁面）\n2. 在 Woodpecker 中按「Create Patient」\n3. 在此確認 — 將自動填入：\n   • Name（英文姓名）\n   • Birthday（出生日期）\n   • Gender（男/女）\n\n目前病人：{PATIENT}\n\n需在本機執行「Start X-Ray Launcher.bat」。'
+        },
+        'media.local.aidentalNotRunning': {
+            en: 'Woodpecker Ai-Dental is not open on this PC.\n\n1. Open Woodpecker manually\n2. Go to the Patient page\n3. Click Create Patient\n4. Try again\n\nPatient: {PATIENT}\n\nAlso check: {BAT} is running.',
+            'zh-CN': '本机未检测到 Woodpecker Ai-Dental。\n\n1. 请手动打开 Woodpecker\n2. 进入 Patient 页面\n3. 点击 Create Patient\n4. 再试一次\n\n患者：{PATIENT}\n\n并确认已运行：{BAT}',
+            'zh-Hant': '本機未偵測到 Woodpecker Ai-Dental。\n\n1. 請手動開啟 Woodpecker\n2. 進入 Patient 頁面\n3. 按 Create Patient\n4. 再試一次\n\n病人：{PATIENT}\n\n並確認已執行：{BAT}'
+        },
+        'media.local.aidentalCreatePatientNeeded': {
+            en: 'Woodpecker is open.\n\nCould not fill the form yet.\n\n• Click "Create Patient" in Woodpecker\n• Click Ai-Dental in the web app again\n\nOr paste manually from clipboard:\n{SUMMARY}\n\nDebug: {DEBUG}',
+            'zh-CN': 'Woodpecker 已打开。\n\n暂未填入表单。\n\n• 请在 Woodpecker 点击「Create Patient」\n• 再点一次网页上的 Ai-Dental\n\n或从剪贴板手动粘贴：\n{SUMMARY}\n\n调试：{DEBUG}',
+            'zh-Hant': 'Woodpecker 已開啟。\n\n暫未填入表單。\n\n• 請在 Woodpecker 按「Create Patient」\n• 再按一次網頁上的 Ai-Dental\n\n或從剪貼簿手動貼上：\n{SUMMARY}\n\n除錯：{DEBUG}'
+        },
         'media.local.aidentalOpen': {
-            en: 'Open Ai-Dental-Client (small film) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Local folder: {FOLDER}\n\nRequires "Start X-Ray Launcher.bat" running, or open the shortcut manually.',
-            'zh-CN': '在本机打开 Ai-Dental-Client（小片）？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 本地文件夹：{FOLDER}\n\n需运行「Start X-Ray Launcher.bat」，或手动打开快捷方式。',
-            'zh-Hant': '在本機開啟 Ai-Dental-Client（小片）？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 本機資料夾：{FOLDER}\n\n需執行「Start X-Ray Launcher.bat」，或手動開啟捷徑。'
+            en: 'Open Woodpecker Ai-Dental on this computer?\n\n• Patient: {PATIENT}\n• Will fill Create Patient: Name (English), Birthday, Gender\n• Optional: Chart No. from patient no.\n• Program: {EXE}\n\nRequires "Start X-Ray Launcher.bat" running.',
+            'zh-CN': '在本机打开 Woodpecker Ai-Dental？\n\n• 患者：{PATIENT}\n• 将填入「Create Patient」：Name（英文）、Birthday、Gender\n• 可选：Chart No.（患者编号）\n• 程序：{EXE}\n\n需运行「Start X-Ray Launcher.bat」。',
+            'zh-Hant': '在本機開啟 Woodpecker Ai-Dental？\n\n• 病人：{PATIENT}\n• 將填入「Create Patient」：Name（英文）、Birthday、Gender\n• 可選：Chart No.（病人編號）\n• 程式：{EXE}\n\n需執行「Start X-Ray Launcher.bat」。'
         },
         'media.local.aidentalLaunched': {
             en: 'Ai-Dental-Client is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
             'zh-CN': '正在启动 Ai-Dental-Client。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
             'zh-Hant': '正在啟動 Ai-Dental-Client。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
+        },
+        'media.local.aidentalSearchPasted': {
+            en: 'Ai-Dental-Client is open.\n\nPatient search: {PATIENT}\nFull demographics are on the clipboard ({SUMMARY}).\nIf the patient is not listed, click New / 新增 in Ai-Dental — or press Ctrl+V in each field.',
+            'zh-CN': 'Ai-Dental-Client 已打开。\n\n已搜索患者：{PATIENT}\n完整资料已复制到剪贴板（{SUMMARY}）。\n若列表中无此患者，请在 Ai-Dental 点击「新增」，或在各字段按 Ctrl+V 粘贴。',
+            'zh-Hant': 'Ai-Dental-Client 已開啟。\n\n已搜尋病人：{PATIENT}\n完整資料已複製到剪貼簿（{SUMMARY}）。\n若清單中無此病人，請在 Ai-Dental 按「新增」，或在各欄位按 Ctrl+V 貼上。'
+        },
+        'media.local.aidentalNewPatientPrepared': {
+            en: 'Woodpecker Create Patient form filled.\n\n• Name: {PATIENT}\n• Fields filled: {FIELDS}\n\nReview Birthday and Gender, then click Add. Cancel if patient already exists.',
+            'zh-CN': '已填入 Woodpecker「Create Patient」表单。\n\n• Name：{PATIENT}\n• 已填字段：{FIELDS}\n\n请核对 Birthday、Gender 后点击 Add。若患者已存在请 Cancel。',
+            'zh-Hant': '已填入 Woodpecker「Create Patient」表單。\n\n• Name：{PATIENT}\n• 已填欄位：{FIELDS}\n\n請核對 Birthday、Gender 後按 Add。若病人已存在請 Cancel。'
+        },
+        'media.local.aidentalClipboardOnly': {
+            en: 'Ai-Dental-Client is open.\n\nCould not auto-open the new-patient panel.\n\n1. In Ai-Dental, click New / 新增患者 manually\n2. Click the Ai-Dental button in the web app again (fields will paste one by one)\n\nOr paste from clipboard batch:\n{SUMMARY}\n\nDebug: {DEBUG}',
+            'zh-CN': 'Ai-Dental-Client 已打开。\n\n未能自动打开「新增患者」面板。\n\n1. 在 Ai-Dental 手动点击「新增 / 新增患者」\n2. 再点一次网页上的 Ai-Dental 按钮（会逐字段粘贴）\n\n或逐字段粘贴剪贴板完整资料：\n{SUMMARY}\n\n调试：{DEBUG}',
+            'zh-Hant': 'Ai-Dental-Client 已開啟。\n\n未能自動開啟「新增病人」面板。\n\n1. 在 Ai-Dental 手動按「新增 / 新增病人」\n2. 再按一次網頁上的 Ai-Dental 按鈕（會逐欄貼上）\n\n或逐欄貼上剪貼簿完整資料：\n{SUMMARY}\n\n除錯：{DEBUG}'
         },
         'media.local.aidentalLauncherNeeded': {
             en: 'Could not start Ai-Dental-Client from the browser.\n\n1. Run: current work\\{BAT}\n2. Leave the launcher window open\n3. Click Ai-Dental again\n\nOr double-click "{SHORTCUT}" on the desktop.\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
@@ -2658,6 +2906,21 @@
             en: '(Search by patient name or no. in Ai-Dental-Client)',
             'zh-CN': '（在 Ai-Dental-Client 中按患者姓名或编号搜索）',
             'zh-Hant': '（在 Ai-Dental-Client 中按病人姓名或編號搜尋）'
+        },
+        'media.local.nntnewtomOpen': {
+            en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT/NEWTOM normally opens its own patient database — search by the copied patient name or patient no.',
+            'zh-CN': '在本机打开 NNT / NEWTOM？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\nNNT/NEWTOM 通常打开其自身患者数据库 — 请用已复制的患者姓名或编号搜索。',
+            'zh-Hant': '在本機開啟 NNT / NEWTOM？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 可選本機資料夾：{FOLDER}\n\nNNT/NEWTOM 通常開啟其自身病人資料庫 — 請用已複製的病人姓名或編號搜尋。'
+        },
+        'media.local.nntnewtomLaunched': {
+            en: 'NNT / NEWTOM is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
+            'zh-CN': '正在启动 NNT / NEWTOM。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
+            'zh-Hant': '正在啟動 NNT / NEWTOM。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
+        },
+        'media.local.nntnewtomLauncherNeeded': {
+            en: 'Could not start NNT / NEWTOM from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click NNT / NEWTOM again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 NNT / NEWTOM。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 NNT / NEWTOM\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 NNT / NEWTOM。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 NNT / NEWTOM\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
@@ -2693,6 +2956,11 @@
             en: '(Carestream Patient Browser — search by patient name or no. in the app)',
             'zh-CN': '（Carestream 患者浏览器 — 在软件内按患者姓名或编号搜索）',
             'zh-Hant': '（Carestream 患者瀏覽器 — 在軟件內按病人姓名或編號搜尋）'
+        },
+        'media.local.desktopUsePatientSearch': {
+            en: '(Open the desktop app, then search by copied patient name or no.)',
+            'zh-CN': '（打开桌面程序后，按已复制的患者姓名或编号搜索）',
+            'zh-Hant': '（開啟桌面程式後，按已複製的病人姓名或編號搜尋）'
         },
         'media.sys.trophy.info': {
             en: 'Launches Trophy/Kodak imaging system',

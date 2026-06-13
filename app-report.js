@@ -29,6 +29,17 @@ var REPORT = (function () {
   var _auditAllRows = [];
   var _auditSelectedId = null;
   var _auditTableMissing = false;
+  var _auditTrailDataLoaded = false;
+  var _auditSubTab = 'voidBills'; // 'log' | 'voidBills'
+  var _voidBillRows = [];
+  var _voidBillSelectedId = null;
+  var _voidBillSearchPatient = '';
+  var _voidBillSearchUser = '';
+  var _voidBillSearchDoctor = '';
+  var _voidBillSearchClinic = '';
+  var VOID_BILL_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+  var _voidBillPageIndex = 0;
+  var _voidBillPageSize = 25;
   var _patientDirToolsWired = false;
   var REPORT_ALL_DOCTORS_ID = '__ALL_DOCTORS__';
 
@@ -373,6 +384,105 @@ var REPORT = (function () {
     return Number(b.balance || 0);
   }
 
+  /** Step-1 saved bill (Pending / N/A) with no payment yet — full total counts toward Bill Total. */
+  function reportIsPendingUnpaidBill(b) {
+    if (!b || b.voided_at) return false;
+    if (reportBillTotalValue(b) <= 0.005) return false;
+    if (reportBillPaidValue(b) > 0.005) return false;
+    return reportPayMethodIsUnsettled(reportPayMethodKey(b.bill_type));
+  }
+
+  function dailySummaryBillDayKey(b) {
+    return paymentDateKey(b && b.bill_date);
+  }
+
+  function indexDailySummaryTxByBillId(tx) {
+    var map = {};
+    (tx || []).forEach(function (r) {
+      if (r && r.bill_id) map[String(r.bill_id)] = true;
+    });
+    return map;
+  }
+
+  async function mergePatientsForBills(bills, pmap) {
+    pmap = pmap || {};
+    var need = [];
+    (bills || []).forEach(function (b) {
+      if (b && b.patient_id && !pmap[b.patient_id]) need.push(b.patient_id);
+    });
+    if (!need.length) return pmap;
+    var pts = await loadPatientsByIds(uniqIds(need));
+    pts.forEach(function (p) { pmap[p.id] = p; });
+    return pmap;
+  }
+
+  function buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day, appointmentResolver) {
+    var ref = String(b.id || '').trim();
+    if (!ref) {
+      var ct = String(b.created_at || '').replace(/\D/g, '');
+      ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
+    }
+    var pmapOne = {};
+    if (p && p.id) pmapOne[p.id] = p;
+    var patientClinicMap = patientClinicMapFromPmap(pmapOne);
+    var clinicTag = dailySummaryClinicTagForBill(b, p, null, patientClinicMap, appointmentResolver || null);
+    return buildDailySummaryTxRow(b, p, {}, Object.assign({
+      bill_ref: ref,
+      bill_date: day,
+      payment_date: day,
+      clinic_tag: clinicTag,
+      clinic_code: clinicCodeFromStoredTag(clinicTag)
+    }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, day)));
+  }
+
+  async function appendPendingUnpaidBillsToDailySummaryTx(from, to, tx, pmap, doctors, apptCtx, appointmentResolver) {
+    var bills = await loadBillsLite(from, to);
+    var pending = (bills || []).filter(reportIsPendingUnpaidBill);
+    if (!pending.length) return tx || [];
+
+    pmap = await mergePatientsForBills(pending, pmap);
+    if (!appointmentResolver) {
+      appointmentResolver = await buildAppointmentClinicResolver(from, to, pending);
+    }
+    var seen = indexDailySummaryTxByBillId(tx);
+    var out = tx || [];
+
+    pending.forEach(function (b) {
+      if (!b || !b.id || seen[b.id]) return;
+      var day = dailySummaryBillDayKey(b);
+      if (!day || day < from || day > to) return;
+      var p = pmap[b.patient_id] || {};
+      out.push(buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtx, day, appointmentResolver));
+      seen[b.id] = true;
+    });
+
+    return out.sort(dailySummaryTxSortCompare);
+  }
+
+  function appendPendingRowsToDayCards(dayCards, pendingRows) {
+    var cards = dayCards || [];
+    var cardByDate = {};
+    cards.forEach(function (c) {
+      if (c && c.date) cardByDate[c.date] = c;
+    });
+    (pendingRows || []).forEach(function (row) {
+      var d = row.bill_date || row.payment_date;
+      if (!d) return;
+      var card = cardByDate[d];
+      if (!card) {
+        card = { date: d, paidTotal: 0, rows: [] };
+        cardByDate[d] = card;
+        cards.push(card);
+      }
+      card.rows.push(row);
+      card.rows.sort(dailySummaryTxSortCompare);
+    });
+    cards.sort(function (a, b) {
+      return String(a.date).localeCompare(String(b.date));
+    });
+    return cards;
+  }
+
   /** Paid amount for income / payment statistics (excludes Pending / unsettled). */
   function reportPaidForIncomeStats(b) {
     if (reportPayMethodIsUnsettled(reportPayMethodKey(b && b.bill_type))) return 0;
@@ -449,6 +559,427 @@ var REPORT = (function () {
     return t;
   }
 
+  function clinicCanonicalKey(tagOrId) {
+    var code = clinicCodeFromStoredTag(tagOrId);
+    var up = String(code || '').trim().toUpperCase();
+    if (!up) return '';
+    if (typeof APP_CLINICS !== 'undefined' && APP_CLINICS.length) {
+      for (var i = 0; i < APP_CLINICS.length; i++) {
+        var c = APP_CLINICS[i];
+        if (!c) continue;
+        var cid = String(c.id || '').trim().toUpperCase();
+        var cc = String(c.clinic_code || '').trim().toUpperCase();
+        if (cid && (cid === up || String(tagOrId || '').trim().toUpperCase() === cid)) {
+          return cc || cid;
+        }
+        if (cc && cc === up) return cc;
+      }
+    }
+    return up;
+  }
+
+  function clinicCodesMatch(a, b) {
+    var x = clinicCanonicalKey(a);
+    var y = clinicCanonicalKey(b);
+    return !!(x && y && x === y);
+  }
+
+  function clinicCodeFromDoctorCode(doctorCode) {
+    var code = String(doctorCode || '').trim();
+    if (!code || typeof APP_DOCTORS === 'undefined' || !APP_DOCTORS.length) return '';
+    var codeUp = code.toUpperCase();
+    for (var i = 0; i < APP_DOCTORS.length; i++) {
+      var d = APP_DOCTORS[i];
+      if (String(d.doctor_code || '').trim().toUpperCase() !== codeUp) continue;
+      if (d.clinic_id && typeof clinicRecordFromId === 'function') {
+        var rec = clinicRecordFromId(d.clinic_id);
+        if (rec) return clinicCodeFromStoredTag(rec.clinic_code || rec.id);
+      }
+    }
+    return '';
+  }
+
+  function billDoctorCodeCandidates(bill) {
+    var out = [];
+    var seen = {};
+    function add(raw) {
+      var s = String(raw || '').trim();
+      if (!s) return;
+      var up = s.toUpperCase();
+      if (seen[up]) return;
+      seen[up] = true;
+      out.push(s);
+    }
+    if (!bill) return out;
+    add(bill.doctor_code);
+    add(bill.doctor_tag);
+    if (typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS.length) {
+      var nTag = typeof normName === 'function' ? normName(bill.doctor_tag) : '';
+      var nName = typeof normName === 'function' ? normName(bill.doctor_name) : '';
+      APP_DOCTORS.forEach(function (d) {
+        if (!d) return;
+        if (bill.doctor_id && d.id && String(bill.doctor_id) === String(d.id)) {
+          add(d.doctor_code);
+          return;
+        }
+        if (typeof doctorTextVariants === 'function') {
+          var vars = doctorTextVariants(d);
+          if ((nTag && vars[nTag]) || (nName && vars[nName])) add(d.doctor_code);
+        }
+      });
+    }
+    return out;
+  }
+
+  function doctorsShareCode(codeA, codeB) {
+    var a = String(codeA || '').trim().toUpperCase();
+    var b = String(codeB || '').trim().toUpperCase();
+    return !!(a && b && a === b);
+  }
+
+  function billDoctorMatchesAppt(bill, appt) {
+    if (!bill || !appt) return false;
+    var apptCode = String(appt.doctor_code || '').trim();
+    if (!apptCode) return false;
+    var candidates = billDoctorCodeCandidates(bill);
+    for (var i = 0; i < candidates.length; i++) {
+      if (doctorsShareCode(candidates[i], apptCode)) return true;
+    }
+    return false;
+  }
+
+  function appointmentRowClinicCode(appt, af, ctx) {
+    if (!appt) return '';
+    var tag = clinicCodeFromStoredTag(appt[af] || appt.clinic_tag || appt.clinic_code);
+    if (tag) return tag;
+    if (ctx && typeof ctx.inferClinicForUntaggedAppt === 'function') {
+      return ctx.inferClinicForUntaggedAppt(appt) || '';
+    }
+    return clinicCodeFromDoctorCode(appt.doctor_code);
+  }
+
+  function normalizePatientNo(v) {
+    return String(v || '').trim().toUpperCase();
+  }
+
+  function appointmentDayKey(appt) {
+    return String(appt && appt.date ? appt.date : '').slice(0, 10);
+  }
+
+  function billLookupDates(bill, payment) {
+    var dates = [];
+    var seen = {};
+    function add(raw) {
+      var d = paymentDateKey(raw);
+      if (!d || seen[d]) return;
+      seen[d] = true;
+      dates.push(d);
+    }
+    if (payment && payment.paid_date) add(payment.paid_date);
+    if (bill && bill.bill_date) add(bill.bill_date);
+    return dates;
+  }
+
+  function billDateRangeFromBills(bills) {
+    var min = '';
+    var max = '';
+    (bills || []).forEach(function (b) {
+      var d = paymentDateKey(b && b.bill_date);
+      if (!d) return;
+      if (!min || d < min) min = d;
+      if (!max || d > max) max = d;
+    });
+    var t = todayISO();
+    return { from: min || t, to: max || t };
+  }
+
+  /**
+   * Trace bills back to appointments by id, patient_id+date, patient_no+date,
+   * and doctor+date. Loads the full day schedule when possible so cross-clinic
+   * visits are not lost when bills carry the wrong working-clinic tag.
+   */
+  async function buildAppointmentClinicResolver(from, to, bills) {
+    bills = bills || [];
+    var af = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+      ? APPOINTMENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    var reportTag = reportClinicTag();
+    var apptIds = uniqIds(bills.map(function (b) { return b && b.appointment_id; }));
+    var patientIds = uniqIds(bills.map(function (b) { return b && b.patient_id; }));
+    var patientNos = uniqIds(bills.map(function (b) { return normalizePatientNo(b && b.patient_no); }));
+    var byId = {};
+    var byPatientDate = {};
+    var byPatientNoDate = {};
+    var allOnDay = [];
+    var doctorsByClinicDay = {};
+    var CHUNK = 80;
+
+    function pickBetterAppt(cur, next) {
+      if (!cur) return next;
+      if (!next) return cur;
+      var curMin = dailySummaryApptTimeToMin(cur.start_time);
+      var nextMin = dailySummaryApptTimeToMin(next.start_time);
+      return nextMin < curMin ? next : cur;
+    }
+
+    function ingestAppt(a) {
+      if (!a || !a.id) return;
+      byId[a.id] = a;
+      var d = appointmentDayKey(a);
+      if (!d) return;
+      var pid = a.patient_id || '';
+      var pno = normalizePatientNo(a.patient_no);
+      if (pid) {
+        var key = d + '|' + pid;
+        byPatientDate[key] = pickBetterAppt(byPatientDate[key], a);
+      }
+      if (pno) {
+        var keyNo = d + '|' + pno;
+        byPatientNoDate[keyNo] = pickBetterAppt(byPatientNoDate[keyNo], a);
+      }
+      var clinicCode = clinicCodeFromStoredTag(a[af] || a.clinic_tag || a.clinic_code);
+      if (clinicCode) {
+        var docCode = String(a.doctor_code || '').trim().toUpperCase();
+        if (docCode) {
+          var ck = d + '|' + clinicCanonicalKey(clinicCode);
+          if (!doctorsByClinicDay[ck]) doctorsByClinicDay[ck] = {};
+          doctorsByClinicDay[ck][docCode] = true;
+        }
+      }
+    }
+
+    async function queryAppts(selectCols, builder) {
+      var res = await builder(SB.from('appointments').select(selectCols));
+      if (res.error && /clinic_tag|clinic_code|patient_no/i.test(String(res.error.message || ''))) {
+        res = await builder(SB.from('appointments').select(
+          'id,date,start_time,patient_id,patient_no,doctor_code,clinic_tag'
+        ));
+      }
+      if (res.error) throw new Error(res.error.message);
+      (res.data || []).forEach(function (a) {
+        ingestAppt(a);
+        allOnDay.push(a);
+      });
+    }
+
+    var selectCols = 'id,date,start_time,patient_id,patient_no,doctor_code,' + af;
+
+    for (var i = 0; i < apptIds.length; i += CHUNK) {
+      var idChunk = apptIds.slice(i, i + CHUNK);
+      await queryAppts(selectCols, function (q) { return q.in('id', idChunk); });
+    }
+
+    if (from && to) {
+      await queryAppts(selectCols, function (q) {
+        return q.gte('date', from).lte('date', to)
+          .order('date', { ascending: true })
+          .order('start_time', { ascending: true });
+      });
+    }
+
+    if (patientIds.length && from && to) {
+      for (var j = 0; j < patientIds.length; j += CHUNK) {
+        var patientChunk = patientIds.slice(j, j + CHUNK);
+        await queryAppts(selectCols, function (q) {
+          return q.gte('date', from).lte('date', to).in('patient_id', patientChunk)
+            .order('date', { ascending: true })
+            .order('start_time', { ascending: true });
+        });
+      }
+    }
+
+    if (patientNos.length && from && to) {
+      for (var n = 0; n < patientNos.length; n += CHUNK) {
+        var noChunk = patientNos.slice(n, n + CHUNK);
+        await queryAppts(selectCols, function (q) {
+          return q.gte('date', from).lte('date', to).in('patient_no', noChunk)
+            .order('date', { ascending: true })
+            .order('start_time', { ascending: true });
+        });
+      }
+    }
+
+    function apptsForPatientOnDay(bill, day) {
+      var matches = [];
+      var seenAppt = {};
+      function push(a) {
+        if (!a || !a.id || seenAppt[a.id]) return;
+        seenAppt[a.id] = true;
+        matches.push(a);
+      }
+      if (bill && bill.appointment_id && byId[bill.appointment_id]) {
+        push(byId[bill.appointment_id]);
+      }
+      if (bill && bill.patient_id) {
+        push(byPatientDate[day + '|' + bill.patient_id]);
+      }
+      var pno = normalizePatientNo(bill && bill.patient_no);
+      if (pno) {
+        push(byPatientNoDate[day + '|' + pno]);
+      }
+      return matches;
+    }
+
+    function findAppointmentForBill(bill, payment) {
+      if (!bill) return null;
+      var dates = billLookupDates(bill, payment);
+      var candidates = [];
+      var seen = {};
+      dates.forEach(function (day) {
+        apptsForPatientOnDay(bill, day).forEach(function (a) {
+          if (!a || !a.id || seen[a.id]) return;
+          seen[a.id] = true;
+          candidates.push(a);
+        });
+      });
+      if (!candidates.length) return null;
+      if (candidates.length === 1) return candidates[0];
+
+      var doctorMatched = candidates.filter(function (a) {
+        return billDoctorMatchesAppt(bill, a);
+      });
+      if (doctorMatched.length === 1) return doctorMatched[0];
+      if (doctorMatched.length > 1) {
+        doctorMatched.sort(function (a, b) {
+          return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
+        });
+        return doctorMatched[0];
+      }
+
+      if (reportTag) {
+        var tagged = candidates.filter(function (a) {
+          return clinicCodesMatch(appointmentRowClinicCode(a, af), reportTag);
+        });
+        if (tagged.length === 1) return tagged[0];
+        if (tagged.length > 1) {
+          tagged.sort(function (a, b) {
+            return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
+          });
+          return tagged[0];
+        }
+      }
+
+      candidates.sort(function (a, b) {
+        return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
+      });
+      return candidates[0];
+    }
+
+    function inferClinicForUntaggedAppt(appt, bill) {
+      if (!appt) return '';
+      var day = appointmentDayKey(appt);
+      if (!day) return '';
+
+      var taggedClinics = {};
+      allOnDay.forEach(function (a) {
+        if (appointmentDayKey(a) !== day) return;
+        var samePatient = false;
+        if (appt.patient_id && a.patient_id && String(appt.patient_id) === String(a.patient_id)) {
+          samePatient = true;
+        }
+        var apptNo = normalizePatientNo(appt.patient_no);
+        var aNo = normalizePatientNo(a.patient_no);
+        if (apptNo && aNo && apptNo === aNo) samePatient = true;
+        if (!samePatient) return;
+        var c = clinicCodeFromStoredTag(a[af] || a.clinic_tag || a.clinic_code);
+        if (c) taggedClinics[c.toUpperCase()] = c;
+      });
+      var clinicKeys = Object.keys(taggedClinics);
+      if (clinicKeys.length === 1) return taggedClinics[clinicKeys[0]];
+
+      if (reportTag) {
+        var schedKey = day + '|' + clinicCanonicalKey(reportTag);
+        var schedDocs = doctorsByClinicDay[schedKey] || {};
+        var apptDoc = String(appt.doctor_code || '').trim().toUpperCase();
+        if (apptDoc && schedDocs[apptDoc]) return clinicCodeFromStoredTag(reportTag);
+        var billMatchedSched = false;
+        billDoctorCodeCandidates(bill).forEach(function (code) {
+          if (schedDocs[String(code || '').trim().toUpperCase()]) billMatchedSched = true;
+        });
+        if (billMatchedSched) return clinicCodeFromStoredTag(reportTag);
+
+        var reportCanon = clinicCanonicalKey(reportTag);
+        for (var ti = 0; ti < clinicKeys.length; ti++) {
+          if (clinicCanonicalKey(taggedClinics[clinicKeys[ti]]) === reportCanon) {
+            return taggedClinics[clinicKeys[ti]];
+          }
+        }
+      }
+      return '';
+    }
+
+    var ctx = {
+      inferClinicForUntaggedAppt: function (appt) {
+        return inferClinicForUntaggedAppt(appt, null);
+      }
+    };
+
+    function clinicForBill(bill, payment) {
+      if (!bill) return '';
+      var appt = findAppointmentForBill(bill, payment);
+      if (!appt) return '';
+      var ctxBill = {
+        inferClinicForUntaggedAppt: function (a) {
+          return inferClinicForUntaggedAppt(a, bill);
+        }
+      };
+      return appointmentRowClinicCode(appt, af, ctxBill);
+    }
+
+    return {
+      clinicForBill: clinicForBill,
+      findAppointmentForBill: findAppointmentForBill,
+      byId: byId,
+      byPatientDate: byPatientDate,
+      byPatientNoDate: byPatientNoDate
+    };
+  }
+
+  /**
+   * Resolve which clinic a bill/payment belongs to for reporting.
+   * Appointment (visit site) is first — bills/payments often carry the staff
+   * working-clinic tag (e.g. KT) even when the visit was at TKO.
+   * Priority: appointment → bill → payment → patient home clinic.
+   */
+  function resolveTransactionClinicCode(bill, payment, patientClinicMap, appointmentResolver) {
+    patientClinicMap = patientClinicMap || {};
+    var apptCode = '';
+    if (appointmentResolver && typeof appointmentResolver.clinicForBill === 'function') {
+      apptCode = appointmentResolver.clinicForBill(bill, payment);
+    }
+    if (apptCode) return apptCode;
+    var billTag = clinicCodeFromStoredTag(bill && (bill.clinic_tag || bill.clinic_code));
+    if (billTag) return billTag;
+    var payTag = clinicCodeFromStoredTag(payment && (payment.clinic_tag || payment.clinic_code));
+    if (payTag) return payTag;
+    if (bill && bill.patient_id && patientClinicMap[bill.patient_id] !== undefined) {
+      var patientTag = clinicCodeFromStoredTag(patientClinicMap[bill.patient_id]);
+      if (patientTag) return patientTag;
+    }
+    return '';
+  }
+
+  function patientClinicMapFromPmap(pmap) {
+    var out = {};
+    var field = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+      ? PATIENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    Object.keys(pmap || {}).forEach(function (id) {
+      var p = pmap[id];
+      if (p) out[id] = String(p[field] || '').trim();
+    });
+    return out;
+  }
+
+  function dailySummaryClinicTagForBill(bill, patient, payment, patientClinicMap, appointmentResolver) {
+    var code = resolveTransactionClinicCode(bill, payment, patientClinicMap, appointmentResolver);
+    if (code) return code;
+    var field = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
+      ? PATIENT_CLINIC_TAG_FIELD
+      : 'clinic_tag';
+    return String((bill && bill.clinic_tag) || (patient && patient[field]) || '').trim();
+  }
+
   function uniqIds(arr) {
     var seen = {};
     var out = [];
@@ -495,42 +1026,30 @@ var REPORT = (function () {
   }
 
   /** Match a payment row (+ parent bill) to the report clinic filter. */
-  function sliceMatchesReportClinic(payment, bill, patientClinicMap, appointmentClinicMap) {
+  function sliceMatchesReportClinic(payment, bill, patientClinicMap, appointmentResolver) {
     var tag = reportClinicTag();
     if (!tag) return true;
     if (!bill) return false;
-    var pTag = clinicCodeFromStoredTag(payment && (payment.clinic_tag || payment.clinic_code));
-    if (pTag) return pTag === tag;
-    var bTag = clinicCodeFromStoredTag(bill.clinic_tag || bill.clinic_code);
-    if (bTag) return bTag === tag;
-    patientClinicMap = patientClinicMap || {};
-    appointmentClinicMap = appointmentClinicMap || {};
-    if (bill.patient_id && patientClinicMap[bill.patient_id] !== undefined) {
-      var pt = clinicCodeFromStoredTag(patientClinicMap[bill.patient_id]);
-      if (pt) return pt === tag;
-    }
-    if (bill.appointment_id && appointmentClinicMap[bill.appointment_id] !== undefined) {
-      var at = clinicCodeFromStoredTag(appointmentClinicMap[bill.appointment_id]);
-      if (at) return at === tag;
-    }
-    return true;
+    var code = resolveTransactionClinicCode(bill, payment, patientClinicMap, appointmentResolver);
+    if (!code) return false;
+    return clinicCodesMatch(code, tag);
   }
 
-  function billMatchesReportClinic(bill, patientClinicMap, appointmentClinicMap) {
-    return sliceMatchesReportClinic(null, bill, patientClinicMap, appointmentClinicMap);
+  function billMatchesReportClinic(bill, patientClinicMap, appointmentResolver) {
+    return sliceMatchesReportClinic(null, bill, patientClinicMap, appointmentResolver);
   }
 
-  async function filterBillsForReportClinic(bills) {
+  async function filterBillsForReportClinic(bills, from, to) {
     var tag = reportClinicTag();
     if (!tag || !bills || !bills.length) return bills || [];
 
+    var range = (from && to) ? { from: from, to: to } : billDateRangeFromBills(bills);
     var patientIds = uniqIds(bills.map(function (b) { return b.patient_id; }));
-    var apptIds = uniqIds(bills.map(function (b) { return b.appointment_id; }));
     var pmap = await loadPatientClinicMap(patientIds);
-    var amap = await loadAppointmentClinicMap(apptIds);
+    var appointmentResolver = await buildAppointmentClinicResolver(range.from, range.to, bills);
 
     return bills.filter(function (b) {
-      return billMatchesReportClinic(b, pmap, amap);
+      return billMatchesReportClinic(b, pmap, appointmentResolver);
     });
   }
 
@@ -548,9 +1067,7 @@ var REPORT = (function () {
     var patientClinicMap = await loadPatientClinicMap(
       uniqIds(bills.map(function (b) { return b.patient_id; }))
     );
-    var appointmentClinicMap = await loadAppointmentClinicMap(
-      uniqIds(bills.map(function (b) { return b.appointment_id; }))
-    );
+    var appointmentResolver = await buildAppointmentClinicResolver(from, to, bills);
 
     var slices = [];
     var seenBillDay = {};
@@ -559,7 +1076,7 @@ var REPORT = (function () {
       if (!p || p.voided_at) return;
       var b = billMap[p.bill_id];
       if (!b) return;
-      if (!sliceMatchesReportClinic(p, b, patientClinicMap, appointmentClinicMap)) return;
+      if (!sliceMatchesReportClinic(p, b, patientClinicMap, appointmentResolver)) return;
       var paidDate = paymentDateKey(p.paid_date);
       if (!paidDate || paidDate < from || paidDate > to) return;
       var amt = Number(p.amount || 0);
@@ -580,9 +1097,14 @@ var REPORT = (function () {
     var legacyPaymentsByBill = indexPaymentsByBillId(
       await loadBillPaymentsForBillIds(legacyBills.map(function (b) { return b.id; }).filter(Boolean))
     );
+    var legacyPatientMap = await loadPatientClinicMap(
+      uniqIds(legacyBills.map(function (b) { return b.patient_id; }))
+    );
+    var legacyApptResolver = await buildAppointmentClinicResolver(from, to, legacyBills);
     legacyBills.forEach(function (b) {
       if (!b || !b.id) return;
       if ((legacyPaymentsByBill[b.id] || []).length) return;
+      if (!sliceMatchesReportClinic(null, b, legacyPatientMap, legacyApptResolver)) return;
       var paid = reportBillPaidValue(b);
       if (paid <= 0.005) return;
       var d = paymentDateKey(b.bill_date);
@@ -779,8 +1301,9 @@ var REPORT = (function () {
     }
 
     if (tabKey === 'auditTrail') {
-      var firstA = firstDayOfMonth(now);
-      fromEl.value = iso(firstA);
+      // Wide default window so void-bill history is visible; date pickers narrow the list.
+      var yearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+      fromEl.value = iso(yearAgo);
       toEl.value = iso(now);
       return;
     }
@@ -963,10 +1486,14 @@ var REPORT = (function () {
       '<style>' + css + '</style>' +
       '</head><body>' +
       bodyHtml +
-      '<script>window.onload=function(){setTimeout(function(){window.print();},200);};<\/script>' +
+      '<script>' +
+      (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
+      'window.onload=function(){setTimeout(function(){try{window.print();}catch(e){if(typeof __ppClose==="function")__ppClose();}},200);};' +
+      '<\/script>' +
       '</body></html>'
     );
     w.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(w);
     return w;
   }
 
@@ -1123,7 +1650,7 @@ var REPORT = (function () {
       }
     }
     if (res.error) throw new Error(res.error.message);
-    return filterBillsForReportClinic(excludeVoidBills(res.data || []));
+    return filterBillsForReportClinic(excludeVoidBills(res.data || []), from, to);
   }
 
   async function loadPatients() {
@@ -1210,7 +1737,7 @@ var REPORT = (function () {
       }
     }
     if (res.error) throw new Error(res.error.message);
-    return filterBillsForReportClinic(excludeVoidBills(res.data || []));
+    return filterBillsForReportClinic(excludeVoidBills(res.data || []), from, to);
   }
 
   async function loadPatientsByIds(ids) {
@@ -1425,7 +1952,11 @@ var REPORT = (function () {
       doctor_name = doctor_name || drDisplayName(matched);
     }
     if (!doctor_display) doctor_display = tr('report.ds.unknownDoctor');
-    var doctor_key = doctor_id || normName(doctor_tag) || normName(doctor_name) || '__unknown__';
+    var doctor_key = normName(doctor_display) ||
+      normName(doctor_tag) ||
+      normName(doctor_name) ||
+      doctor_id ||
+      '__unknown__';
     return {
       doctor_id: doctor_id,
       doctor_name: doctor_name,
@@ -1457,11 +1988,20 @@ var REPORT = (function () {
     return min;
   }
 
+  function dailySummaryDoctorGroupKey(t) {
+    if (!t) return '__unknown__';
+    return String(t.doctor_key || '').trim() ||
+      normName(t.doctor_display) ||
+      normName(t.doctor_tag) ||
+      normName(t.doctor_name) ||
+      '__unknown__';
+  }
+
   function dailySummaryGroupTxByDoctor(transactions) {
     var map = {};
     var order = [];
     (transactions || []).forEach(function (t) {
-      var k = t.doctor_key || '__unknown__';
+      var k = dailySummaryDoctorGroupKey(t);
       if (!map[k]) {
         map[k] = { key: k, label: t.doctor_display || tr('report.ds.unknownDoctor'), rows: [] };
         order.push(k);
@@ -1487,7 +2027,7 @@ var REPORT = (function () {
   function dailySummaryUniqueDoctorCount(transactions) {
     var seen = {};
     (transactions || []).forEach(function (t) {
-      seen[t.doctor_key || '__unknown__'] = true;
+      seen[dailySummaryDoctorGroupKey(t)] = true;
     });
     return Object.keys(seen).length;
   }
@@ -2633,9 +3173,17 @@ var REPORT = (function () {
       var pts = await loadPatientsByIds(patientIds);
       var pmap = {};
       pts.forEach(function (p) { pmap[p.id] = p; });
-      var apptCtx = await loadAppointmentsForDailySummary(day, day, Object.keys(paidBillMap).map(function (bid) {
+
+      var pendingDayBills = (await loadBillsLite(day, day)).filter(reportIsPendingUnpaidBill);
+      var billsForAppt = Object.keys(paidBillMap).map(function (bid) {
         return paidBillMap[bid];
-      }));
+      });
+      pendingDayBills.forEach(function (b) {
+        if (b && b.id && !paidBillMap[b.id]) billsForAppt.push(b);
+      });
+      var apptCtx = await loadAppointmentsForDailySummary(day, day, billsForAppt);
+      var appointmentResolver = await buildAppointmentClinicResolver(day, day, billsForAppt);
+      var patientClinicMap = patientClinicMapFromPmap(pmap);
 
       var tx = txBillIds.map(function (bid) {
         var b = paidBillMap[bid] || {};
@@ -2648,10 +3196,7 @@ var REPORT = (function () {
           var ct = String(b.created_at || '').replace(/\D/g, '');
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
-        var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
-          ? PATIENT_CLINIC_TAG_FIELD
-          : 'clinic_tag';
-        var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
+        var clinicTag = dailySummaryClinicTagForBill(b, p, rows[0] || null, patientClinicMap, appointmentResolver);
         return buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
           bill_ref: ref,
           bill_date: day,
@@ -2660,6 +3205,8 @@ var REPORT = (function () {
           clinic_code: clinicCodeFromStoredTag(clinicTag)
         }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, day)));
       }).sort(dailySummaryTxSortCompare);
+
+      tx = await appendPendingUnpaidBillsToDailySummaryTx(day, day, tx, pmap, doctors, apptCtx, appointmentResolver);
 
       var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
@@ -2711,6 +3258,10 @@ var REPORT = (function () {
     var apptCtxM = await loadAppointmentsForDailySummary(fromM, toM, allBillIds.map(function (bid) {
       return monthBillMap[bid];
     }));
+    var appointmentResolverM = await buildAppointmentClinicResolver(fromM, toM, allBillIds.map(function (bid) {
+      return monthBillMap[bid];
+    }));
+    var patientClinicMapM = patientClinicMapFromPmap(pmapM);
 
     var seenBillMeta = {};
     var monthAllTx = [];
@@ -2728,10 +3279,7 @@ var REPORT = (function () {
           var ct = String(b.created_at || '').replace(/\D/g, '');
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
-        var pClinicField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
-          ? PATIENT_CLINIC_TAG_FIELD
-          : 'clinic_tag';
-        var clinicTag = String(b.clinic_tag || p[pClinicField] || '').trim();
+        var clinicTag = dailySummaryClinicTagForBill(b, p, payRows[0] || null, patientClinicMapM, appointmentResolverM);
         var includeBillMeta = !seenBillMeta[bid];
         seenBillMeta[bid] = true;
         var txRow = buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
@@ -2748,6 +3296,24 @@ var REPORT = (function () {
       var paidTotal = rows.reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
       return { date: d, paidTotal: paidTotal, rows: rows };
     });
+
+    var seenBillIdsInMonthTx = indexDailySummaryTxByBillId(monthAllTx);
+    var pendingMonthBills = (await loadBillsLite(fromM, toM)).filter(reportIsPendingUnpaidBill);
+    pmapM = await mergePatientsForBills(pendingMonthBills, pmapM);
+    var pendingMonthRows = [];
+    pendingMonthBills.forEach(function (b) {
+      if (!b || !b.id || seenBillIdsInMonthTx[b.id]) return;
+      var billDay = dailySummaryBillDayKey(b);
+      if (!billDay || billDay < fromM || billDay > toM) return;
+      var p = pmapM[b.patient_id] || {};
+      var txRow = buildDailySummaryPendingBillTxRow(b, p, doctors, apptCtxM, billDay, appointmentResolverM);
+      pendingMonthRows.push(txRow);
+      monthAllTx.push(txRow);
+      seenBillIdsInMonthTx[b.id] = true;
+    });
+    if (pendingMonthRows.length) {
+      dayCards = appendPendingRowsToDayCards(dayCards, pendingMonthRows);
+    }
 
     var totalsByMethodPaidM = sumByKeyPaidMethods(monthAllTx, 'payment_method', 'bill_paid');
 
@@ -2849,28 +3415,682 @@ var REPORT = (function () {
     return out;
   }
 
+  function auditSubTabBtnStyle(active) {
+    return 'padding:8px 14px;font-size:12px;font-weight:800;border-radius:8px;border:1px solid ' +
+      (active ? '#0d6efd' : '#cbd5e1') + ';background:' + (active ? 'var(--primary)' : '#fff') +
+      ';color:' + (active ? '#fff' : '#334155') + ';cursor:pointer;';
+  }
+
+  function updateAuditSubTabUi() {
+    var logBtn = g('rptAuditSubTabLog');
+    var voidBtn = g('rptAuditSubTabVoid');
+    var logPanel = g('rptAuditLogPanel');
+    var voidPanel = g('rptAuditVoidPanel');
+    var isVoid = _auditSubTab === 'voidBills';
+    if (logBtn) logBtn.style.cssText = auditSubTabBtnStyle(!isVoid);
+    if (voidBtn) voidBtn.style.cssText = auditSubTabBtnStyle(isVoid);
+    if (logPanel) logPanel.style.display = isVoid ? 'none' : '';
+    if (voidPanel) voidPanel.style.display = isVoid ? '' : 'none';
+  }
+
+  function switchAuditSubTab(key) {
+    _auditSubTab = (key === 'voidBills') ? 'voidBills' : 'log';
+    updateAuditSubTabUi();
+    if (_tab !== 'auditTrail') return;
+    if (_auditSubTab === 'voidBills') {
+      setHeader(tr('report.title.auditTrail'), tr('report.hint.voidBills'));
+      if (!_voidBillRows.length) {
+        loadVoidBillsManager();
+      } else {
+        renderVoidBillsList();
+      }
+      return;
+    }
+    setHeader(tr('report.title.auditTrail'), tr('report.hint.auditTrail'));
+    if (!_auditTrailDataLoaded) {
+      loadAuditTrail();
+    } else {
+      renderAuditTrailList();
+    }
+  }
+
+  function voidBillFmtMoney(n) {
+    var v = Number(n || 0);
+    if (typeof fmtHK === 'function') return fmtHK(v);
+    return '$' + v.toFixed(2);
+  }
+
+  function auditRowIsBillVoid(a) {
+    if (!a || a.table_name !== 'bills') return false;
+    var detail = String(a.changes_detail || '').toUpperCase();
+    if (detail.indexOf('VOIDED_AT') >= 0 || detail.indexOf('VOIDED_BY') >= 0) return true;
+    var pl = a.payload;
+    if (pl && typeof pl === 'object') {
+      var data = pl.data;
+      if (data && !Array.isArray(data) && data.voided_at) return true;
+      if (Array.isArray(data) && data.length && data[0] && data[0].voided_at) return true;
+    }
+    return false;
+  }
+
+  function buildVoidBillAuditMap(auditRows, bills) {
+    var map = {};
+    (bills || []).forEach(function (b) {
+      if (!b || !b.id) return;
+      var best = null;
+      var bestDiff = Infinity;
+      var voidTs = b.voided_at ? new Date(b.voided_at).getTime() : NaN;
+      (auditRows || []).forEach(function (a) {
+        if (String(a.record_id || '') !== String(b.id)) return;
+        if (!auditRowIsBillVoid(a)) return;
+        var ats = a.created_at ? new Date(a.created_at).getTime() : NaN;
+        var diff = (isNaN(voidTs) || isNaN(ats)) ? 0 : Math.abs(ats - voidTs);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = a;
+        }
+      });
+      if (best) map[b.id] = best;
+    });
+    return map;
+  }
+
+  function enrichVoidBillRow(bill, audit) {
+    var clinic = '';
+    if (audit && audit.clinic_tag) clinic = String(audit.clinic_tag);
+    else if (bill.clinic_tag) clinic = String(bill.clinic_tag);
+    else if (bill.clinic_code) clinic = String(bill.clinic_code);
+    return {
+      id: bill.id,
+      bill: bill,
+      audit: audit || null,
+      voided_at: bill.voided_at,
+      voided_by: bill.voided_by || '',
+      client_host: audit ? (audit.client_host || '') : '',
+      clinic: clinic,
+      user_id: audit ? (audit.user_id || '') : '',
+      user_name: audit ? (audit.user_name || '') : (bill.voided_by || ''),
+      patient_no: bill.patient_no || '',
+      patient_name: bill.patient_name || '',
+      doctor_tag: bill.doctor_tag || '',
+      doctor_name: bill.doctor_name || ''
+    };
+  }
+
+  function voidBillVoidDateKey(isoStr) {
+    if (!isoStr) return '';
+    var raw = String(isoStr).trim();
+    if (raw.indexOf('T') >= 0) return raw.split('T')[0].slice(0, 10);
+    return raw.slice(0, 10);
+  }
+
+  function voidBillMatchesReportClinicFilter(row) {
+    var tag = reportClinicTag();
+    if (!tag) return true;
+    var code = row.clinic ||
+      (row.bill && (row.bill.clinic_tag || row.bill.clinic_code)) ||
+      (row.audit && row.audit.clinic_tag) ||
+      '';
+    if (!code) return true;
+    return clinicCodesMatch(code, tag);
+  }
+
+  function filteredVoidBillRows() {
+    var pQ = String(_voidBillSearchPatient || '').trim().toLowerCase();
+    var uQ = String(_voidBillSearchUser || '').trim().toLowerCase();
+    var dQ = String(_voidBillSearchDoctor || '').trim().toLowerCase();
+    var cQ = String(_voidBillSearchClinic || '').trim().toLowerCase();
+    var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : '';
+    var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : '';
+    var rows = (_voidBillRows || []).filter(function (row) {
+      if (from || to) {
+        var vd = voidBillVoidDateKey(row.voided_at);
+        if (!vd) return false;
+        if (from && vd < from) return false;
+        if (to && vd > to) return false;
+      }
+      if (!voidBillMatchesReportClinicFilter(row)) return false;
+      if (pQ) {
+        var ph = (String(row.patient_no || '') + ' ' + String(row.patient_name || '')).toLowerCase();
+        if (ph.indexOf(pQ) < 0) return false;
+      }
+      if (uQ) {
+        var uh = (String(row.voided_by || '') + ' ' + String(row.user_name || '') + ' ' + String(row.user_id || '')).toLowerCase();
+        if (uh.indexOf(uQ) < 0) return false;
+      }
+      if (dQ) {
+        var dh = (String(row.doctor_tag || '') + ' ' + String(row.doctor_name || '')).toLowerCase();
+        if (dh.indexOf(dQ) < 0) return false;
+      }
+      if (cQ) {
+        var ch = String(row.clinic || '').toLowerCase();
+        if (ch.indexOf(cQ) < 0) return false;
+      }
+      return true;
+    });
+    rows.sort(function (a, b) {
+      var ta = a.voided_at ? new Date(a.voided_at).getTime() : 0;
+      var tb = b.voided_at ? new Date(b.voided_at).getTime() : 0;
+      return tb - ta;
+    });
+    return rows;
+  }
+
+  function updateVoidBillFilterSummary() {
+    var el = g('rptVoidBillFilterSummary');
+    if (!el) return;
+    var clinic = reportClinicTag() || tr('report.audit.allClinics');
+    var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : '';
+    var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : '';
+    var shown = filteredVoidBillRows().length;
+    var total = (_voidBillRows || []).length;
+    el.innerHTML =
+      esc(clinic) + '<br>' +
+      esc(from) + ' – ' + esc(to) + '<br>' +
+      esc(trRepl('report.voidBills.summaryCount', { SHOWN: String(shown), TOTAL: String(total) }));
+  }
+
+  function voidBillDetailRow(label, value) {
+    return '<div class="rpt-void-detail-row">' +
+      '<div class="rpt-void-detail-label">' + esc(label) + '</div>' +
+      '<div class="rpt-void-detail-value">' + esc(value || '—') + '</div>' +
+      '</div>';
+  }
+
+  function renderVoidBillDetail(row) {
+    var panel = g('rptVoidBillDetail');
+    if (!panel) return;
+    if (!row || !row.bill) {
+      panel.innerHTML = '<div style="padding:14px;color:#888;font-size:12px;">' + esc(tr('report.voidBills.detailPlaceholder')) + '</div>';
+      return;
+    }
+    var b = row.bill;
+    var auditDetail = '';
+    if (row.audit) {
+      auditDetail = row.audit.changes_detail || '';
+      if (!auditDetail && row.audit.payload) {
+        try {
+          auditDetail = typeof row.audit.payload === 'string'
+            ? row.audit.payload
+            : JSON.stringify(row.audit.payload, null, 2);
+        } catch (eJson) {
+          auditDetail = String(row.audit.payload);
+        }
+      }
+    }
+    var voidWhen = auditFmtServerDate(row.voided_at) + ' ' + auditFmtTime(row.voided_at);
+    var userDisp = row.user_name || row.voided_by || row.user_id || '—';
+    if (row.user_id && row.user_name && row.user_name !== row.user_id) {
+      userDisp = row.user_name + ' (' + row.user_id + ')';
+    }
+    panel.innerHTML =
+      '<div class="rpt-void-detail-head">' +
+        '<div class="rpt-void-detail-title">' + esc(tr('report.voidBills.detailTitle')) + '</div>' +
+        '<div class="rpt-void-detail-sub">' + esc(voidWhen) + '</div>' +
+      '</div>' +
+      '<div class="rpt-void-detail-body">' +
+        '<div class="rpt-void-detail-section">' + esc(tr('report.voidBills.sectionVoidAction')) + '</div>' +
+        voidBillDetailRow(tr('report.voidBills.field.voidDateTime'), voidWhen) +
+        voidBillDetailRow(tr('report.voidBills.field.location'), row.client_host || tr('report.voidBills.locationUnknown')) +
+        voidBillDetailRow(tr('report.voidBills.field.clinic'), row.clinic) +
+        voidBillDetailRow(tr('report.voidBills.field.user'), userDisp) +
+        '<div class="rpt-void-detail-section">' + esc(tr('report.voidBills.sectionPatient')) + '</div>' +
+        voidBillDetailRow(tr('report.voidBills.field.patientNo'), row.patient_no) +
+        voidBillDetailRow(tr('report.voidBills.field.patientName'), row.patient_name) +
+        '<div class="rpt-void-detail-section">' + esc(tr('report.voidBills.sectionDoctor')) + '</div>' +
+        voidBillDetailRow(tr('report.voidBills.field.doctor'), (row.doctor_name || row.doctor_tag || '')) +
+        voidBillDetailRow(tr('report.voidBills.field.doctorTag'), row.doctor_tag) +
+        '<div class="rpt-void-detail-section">' + esc(tr('report.voidBills.sectionBill')) + '</div>' +
+        voidBillDetailRow(tr('report.voidBills.field.billId'), String(b.id || '').slice(0, 8)) +
+        voidBillDetailRow(tr('report.voidBills.field.billDate'), b.bill_date || '') +
+        voidBillDetailRow(tr('report.voidBills.field.billType'), b.bill_type || '') +
+        voidBillDetailRow(tr('report.voidBills.field.total'), voidBillFmtMoney(b.total)) +
+        voidBillDetailRow(tr('report.voidBills.field.paid'), voidBillFmtMoney(b.amount_paid)) +
+        voidBillDetailRow(tr('report.voidBills.field.balance'), voidBillFmtMoney(b.balance)) +
+        voidBillDetailRow(tr('report.voidBills.field.status'), b.status || '') +
+        voidBillDetailRow(tr('report.voidBills.field.notes'), b.notes || '') +
+        (auditDetail
+          ? ('<div class="rpt-void-detail-section">' + esc(tr('report.voidBills.sectionAudit')) + '</div>' +
+            '<pre class="rpt-void-audit-pre">' + esc(auditDetail) + '</pre>')
+          : '') +
+      '</div>';
+  }
+
+  function voidBillPageCount(total) {
+    var n = Number(total || 0);
+    if (n <= 0) return 1;
+    return Math.max(1, Math.ceil(n / _voidBillPageSize));
+  }
+
+  function voidBillClampPageIndex(total) {
+    var pageCount = voidBillPageCount(total);
+    if (_voidBillPageIndex >= pageCount) _voidBillPageIndex = pageCount - 1;
+    if (_voidBillPageIndex < 0) _voidBillPageIndex = 0;
+  }
+
+  function voidBillChangePage(delta) {
+    var total = filteredVoidBillRows().length;
+    if (!total) return;
+    var pageCount = voidBillPageCount(total);
+    var step = parseInt(delta, 10) || 0;
+    if (!step) return;
+    var target = _voidBillPageIndex + step;
+    if (target < 0) target = 0;
+    if (target >= pageCount) target = pageCount - 1;
+    if (target === _voidBillPageIndex) return;
+    _voidBillPageIndex = target;
+    renderVoidBillsList();
+  }
+
+  function voidBillJumpToPage(rawValue) {
+    var hint = g('rptVoidBillJumpHint');
+    var total = filteredVoidBillRows().length;
+    if (!total) return;
+    var pageCount = voidBillPageCount(total);
+    var raw = String(rawValue || '').trim();
+    if (!raw) {
+      if (hint) hint.textContent = tr('report.voidBills.page.jumpNeedNumber');
+      return;
+    }
+    var n = parseInt(raw, 10);
+    if (isNaN(n)) {
+      if (hint) hint.textContent = tr('report.voidBills.page.jumpNeedNumber');
+      return;
+    }
+    if (n < 1 || n > pageCount) {
+      if (hint) hint.textContent = trRepl('report.voidBills.page.jumpRange', { MAX: String(pageCount) });
+      return;
+    }
+    if (hint) hint.textContent = '';
+    _voidBillPageIndex = n - 1;
+    renderVoidBillsList();
+  }
+
+  function voidBillApplyPageSize() {
+    var sel = g('rptVoidBillPageSize');
+    if (!sel) return;
+    var n = parseInt(sel.value, 10);
+    if (VOID_BILL_PAGE_SIZE_OPTIONS.indexOf(n) < 0) {
+      sel.value = String(_voidBillPageSize);
+      return;
+    }
+    if (n === _voidBillPageSize) return;
+    _voidBillPageSize = n;
+    _voidBillPageIndex = 0;
+    var hint = g('rptVoidBillJumpHint');
+    if (hint) hint.textContent = '';
+    renderVoidBillsList();
+  }
+
+  function voidBillPagerHtml(total, pageRows) {
+    var pageCount = voidBillPageCount(total);
+    var curPage = Math.min(_voidBillPageIndex + 1, pageCount);
+    var from = total ? (_voidBillPageIndex * _voidBillPageSize + 1) : 0;
+    var to = total ? (_voidBillPageIndex * _voidBillPageSize + (pageRows ? pageRows.length : 0)) : 0;
+    var infoText = total
+      ? trRepl('report.voidBills.page.summary', { FROM: String(from), TO: String(to), TOTAL: String(total) })
+      : tr('report.voidBills.noVoidBills');
+    var pageLabel = trRepl('report.voidBills.page.counter', { PAGE: String(curPage), PAGES: String(pageCount) });
+    var sizeOpts = '';
+    VOID_BILL_PAGE_SIZE_OPTIONS.forEach(function (n) {
+      sizeOpts += '<option value="' + n + '"' + (n === _voidBillPageSize ? ' selected' : '') + '>' + n + '</option>';
+    });
+    return '<div class="patient-dir-pager rpt-void-pager">' +
+      '<div id="rptVoidBillPagerInfo" class="patient-dir-pager-info">' + esc(infoText) + '</div>' +
+      '<div class="patient-dir-pager-actions">' +
+        '<label for="rptVoidBillPageSize" class="patient-dir-page-size-label">' + esc(tr('report.voidBills.page.sizeLabel')) + '</label>' +
+        '<select id="rptVoidBillPageSize" class="patient-dir-page-size-select">' + sizeOpts + '</select>' +
+        '<button type="button" id="rptVoidBillPrevBtn" class="patient-dir-page-btn" title="' + esc(tr('report.voidBills.page.prev')) + '"' +
+          (_voidBillPageIndex <= 0 ? ' disabled' : '') + '>' + esc(tr('report.voidBills.page.prev')) + '</button>' +
+        '<div id="rptVoidBillPageLabel" class="patient-dir-page-label">' + esc(pageLabel) + '</div>' +
+        '<button type="button" id="rptVoidBillNextBtn" class="patient-dir-page-btn" title="' + esc(tr('report.voidBills.page.next')) + '"' +
+          ((_voidBillPageIndex + 1) >= pageCount ? ' disabled' : '') + '>' + esc(tr('report.voidBills.page.next')) + '</button>' +
+        '<label for="rptVoidBillJumpInput" class="patient-dir-jump-label">' + esc(tr('report.voidBills.page.jumpLabel')) + '</label>' +
+        '<input type="number" id="rptVoidBillJumpInput" class="patient-dir-jump-input" min="1" max="' + pageCount + '" step="1" inputmode="numeric" placeholder="' + curPage + '">' +
+        '<button type="button" id="rptVoidBillJumpBtn" class="patient-dir-page-btn">' + esc(tr('report.voidBills.page.go')) + '</button>' +
+        '<span id="rptVoidBillJumpHint" class="patient-dir-jump-hint" aria-live="polite"></span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function wireVoidBillPager() {
+    var prev = g('rptVoidBillPrevBtn');
+    var next = g('rptVoidBillNextBtn');
+    var jumpBtn = g('rptVoidBillJumpBtn');
+    var jumpInp = g('rptVoidBillJumpInput');
+    var pageSizeSel = g('rptVoidBillPageSize');
+    if (prev) prev.onclick = function () { voidBillChangePage(-1); };
+    if (next) next.onclick = function () { voidBillChangePage(1); };
+    if (jumpBtn) {
+      jumpBtn.onclick = function () {
+        voidBillJumpToPage(jumpInp ? jumpInp.value : '');
+      };
+    }
+    if (jumpInp) {
+      jumpInp.onkeydown = function (e) {
+        if (e.key === 'Enter') voidBillJumpToPage(jumpInp.value);
+      };
+    }
+    if (pageSizeSel) pageSizeSel.onchange = voidBillApplyPageSize;
+  }
+
+  function selectVoidBillRow(id) {
+    _voidBillSelectedId = id || null;
+    var row = null;
+    filteredVoidBillRows().some(function (r) {
+      if (r.id === id) {
+        row = r;
+        return true;
+      }
+      return false;
+    });
+    if (!row) {
+      (_voidBillRows || []).some(function (r) {
+        if (r.id === id) {
+          row = r;
+          return true;
+        }
+        return false;
+      });
+    }
+    renderVoidBillsList();
+    renderVoidBillDetail(row);
+  }
+
+  function renderVoidBillsList() {
+    var list = g('rptVoidBillList');
+    if (!list) return;
+    var rows = filteredVoidBillRows();
+    updateVoidBillFilterSummary();
+    if (!rows.length) {
+      var emptyMsg = (_voidBillRows || []).length
+        ? tr('report.voidBills.noMatchFilters')
+        : tr('report.voidBills.noVoidBills');
+      list.innerHTML = '<div style="padding:16px;color:#888;line-height:1.5;">' + esc(emptyMsg) + '</div>';
+      renderVoidBillDetail(null);
+      return;
+    }
+    voidBillClampPageIndex(rows.length);
+    var start = _voidBillPageIndex * _voidBillPageSize;
+    var pageRows = rows.slice(start, start + _voidBillPageSize);
+    var th = 'padding:8px 10px;background:#fef2f2;color:#b91c1c;font-size:11px;font-weight:900;border-bottom:2px solid #fecaca;text-align:left;white-space:nowrap;';
+    var td = 'padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;vertical-align:top;';
+    var html = '<div style="overflow:auto;max-height:420px;"><table style="width:100%;border-collapse:collapse;min-width:860px;"><thead><tr>' +
+      '<th style="' + th + '">' + esc(tr('report.voidBills.col.voidTime')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.voidBills.col.patient')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.voidBills.col.doctor')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.voidBills.col.clinic')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.voidBills.col.user')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.voidBills.col.location')) + '</th>' +
+      '<th style="' + th + '">' + esc(tr('report.voidBills.col.bill')) + '</th>' +
+      '</tr></thead><tbody>';
+    pageRows.forEach(function (r) {
+      var sel = (_voidBillSelectedId === r.id);
+      var bg = sel ? '#fee2e2' : '#fff';
+      var pat = (r.patient_name || '—') + (r.patient_no ? ' #' + r.patient_no : '');
+      var dr = r.doctor_name || r.doctor_tag || '—';
+      var usr = r.user_name || r.voided_by || r.user_id || '—';
+      var billLbl = (r.bill && r.bill.bill_date ? r.bill.bill_date + ' ' : '') +
+        voidBillFmtMoney(r.bill && r.bill.total);
+      html += '<tr data-void-bill-id="' + esc(String(r.id)) + '" style="cursor:pointer;background:' + bg + ';" onclick="REPORT.selectVoidBillRow(this.getAttribute(\'data-void-bill-id\'))">' +
+        '<td style="' + td + '">' + esc(auditFmtServerDate(r.voided_at)) + ' ' + esc(auditFmtTime(r.voided_at)) + '</td>' +
+        '<td style="' + td + '">' + esc(pat) + '</td>' +
+        '<td style="' + td + '">' + esc(dr) + '</td>' +
+        '<td style="' + td + '">' + esc(r.clinic || '') + '</td>' +
+        '<td style="' + td + '">' + esc(usr) + '</td>' +
+        '<td style="' + td + '">' + esc(r.client_host || '') + '</td>' +
+        '<td style="' + td + '">' + esc(billLbl) + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>' + voidBillPagerHtml(rows.length, pageRows);
+    list.innerHTML = html;
+    wireVoidBillPager();
+    if (!_voidBillSelectedId && pageRows.length) {
+      selectVoidBillRow(pageRows[0].id);
+    } else {
+      var active = null;
+      rows.some(function (r) {
+        if (r.id === _voidBillSelectedId) {
+          active = r;
+          return true;
+        }
+        return false;
+      });
+      renderVoidBillDetail(active);
+    }
+  }
+
+  function wireVoidBillSearchInputs() {
+    function bind(id, key) {
+      var el = g(id);
+      if (!el) return;
+      el.oninput = function () {
+        if (key === 'patient') _voidBillSearchPatient = el.value || '';
+        else if (key === 'user') _voidBillSearchUser = el.value || '';
+        else if (key === 'doctor') _voidBillSearchDoctor = el.value || '';
+        else if (key === 'clinic') _voidBillSearchClinic = el.value || '';
+        _voidBillPageIndex = 0;
+        renderVoidBillsList();
+      };
+    }
+    bind('rptVoidSearchPatient', 'patient');
+    bind('rptVoidSearchUser', 'user');
+    bind('rptVoidSearchDoctor', 'doctor');
+    bind('rptVoidSearchClinic', 'clinic');
+  }
+
+  async function fetchBillsByIdsKeepVoid(billIds) {
+    billIds = uniqIds((billIds || []).filter(Boolean));
+    if (!billIds.length) return [];
+    var selectFull =
+      'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,' +
+      'patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,' +
+      'appointment_id,clinic_tag,clinic_code,created_at,voided_at,voided_by';
+    var selectNoVoidedBy = selectFull.replace(',voided_by', '');
+    var selectNoDoctor =
+      'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,' +
+      'patient_id,patient_no,patient_name,appointment_id,clinic_tag,created_at,voided_at';
+    var selectLegacy =
+      'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,' +
+      'patient_id,patient_no,patient_name,appointment_id,created_at,voided_at';
+    var out = [];
+    var CHUNK = 80;
+    for (var i = 0; i < billIds.length; i += CHUNK) {
+      var chunk = billIds.slice(i, i + CHUNK);
+      var res = await SB.from('bills').select(selectFull).in('id', chunk);
+      if (res.error) {
+        var m = String(res.error.message || '').toLowerCase();
+        if (m.indexOf('voided_by') >= 0) {
+          res = await SB.from('bills').select(selectNoVoidedBy).in('id', chunk);
+        }
+        if (res.error) {
+          m = String(res.error.message || '').toLowerCase();
+          if (m.indexOf('doctor_id') >= 0 || m.indexOf('doctor_name') >= 0 || m.indexOf('doctor_tag') >= 0 ||
+              m.indexOf('clinic_code') >= 0) {
+            res = await SB.from('bills').select(selectNoDoctor).in('id', chunk);
+          }
+        }
+        if (res.error) {
+          m = String(res.error.message || '').toLowerCase();
+          if (m.indexOf('clinic_tag') >= 0) {
+            res = await SB.from('bills').select(selectLegacy).in('id', chunk);
+          }
+        }
+      }
+      if (res.error) throw new Error(res.error.message);
+      out = out.concat(res.data || []);
+    }
+    return out;
+  }
+
+  async function fetchVoidedBillsFromDb() {
+    var selects = [
+      'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,clinic_tag,clinic_code,created_at,voided_at,voided_by',
+      'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,patient_id,patient_no,patient_name,doctor_id,doctor_name,doctor_tag,appointment_id,clinic_tag,created_at,voided_at',
+      'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,patient_id,patient_no,patient_name,appointment_id,clinic_tag,created_at,voided_at',
+      'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,patient_id,patient_no,patient_name,appointment_id,created_at,voided_at'
+    ];
+    var si;
+    for (si = 0; si < selects.length; si++) {
+      var res = await SB.from('bills')
+        .select(selects[si])
+        .not('voided_at', 'is', null)
+        .order('voided_at', { ascending: false })
+        .limit(1500);
+      if (!res.error) return res.data || [];
+      var msg = String(res.error.message || '').toLowerCase();
+      if (msg.indexOf('voided_at') >= 0) return [];
+    }
+    return [];
+  }
+
+  async function fetchVoidBillAuditRows() {
+    var res = await SB.from('audit_trail')
+      .select('*')
+      .eq('table_name', 'bills')
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    if (res.error) return [];
+    return (res.data || []).filter(auditRowIsBillVoid);
+  }
+
+  async function enrichVoidBillPatientNames(rows) {
+    var needIds = [];
+    (rows || []).forEach(function (row) {
+      if (!row || !row.bill || !row.bill.patient_id) return;
+      if (!row.patient_name || !row.patient_no) needIds.push(row.bill.patient_id);
+    });
+    needIds = uniqIds(needIds);
+    if (!needIds.length) return;
+    var pr = await SB.from('patients')
+      .select('id,patient_no,full_name,chinese_name')
+      .in('id', needIds);
+    if (pr.error) return;
+    var pmap = {};
+    (pr.data || []).forEach(function (p) {
+      if (p && p.id) pmap[p.id] = p;
+    });
+    rows.forEach(function (row) {
+      if (!row || !row.bill || !row.bill.patient_id) return;
+      var p = pmap[row.bill.patient_id];
+      if (!p) return;
+      if (!row.patient_no) row.patient_no = p.patient_no || '';
+      if (!row.patient_name) row.patient_name = p.full_name || p.chinese_name || '';
+    });
+  }
+
+  async function loadVoidBillsManager() {
+    _voidBillRows = [];
+    _voidBillPageIndex = 0;
+    var list = g('rptVoidBillList');
+    if (list) list.innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>';
+
+    var auditRows = await fetchVoidBillAuditRows();
+    var bills = await fetchVoidedBillsFromDb();
+    var billMap = {};
+    bills.forEach(function (b) {
+      if (b && b.id) billMap[b.id] = b;
+    });
+
+    var auditOnlyIds = [];
+    auditRows.forEach(function (a) {
+      var rid = String(a.record_id || '').trim();
+      if (!rid || billMap[rid]) return;
+      auditOnlyIds.push(rid);
+    });
+    if (auditOnlyIds.length) {
+      var extra = await fetchBillsByIdsKeepVoid(uniqIds(auditOnlyIds));
+      extra.forEach(function (b) {
+        if (!b || !b.id || billMap[b.id]) return;
+        billMap[b.id] = b;
+        bills.push(b);
+      });
+    }
+
+    var auditMap = buildVoidBillAuditMap(auditRows, bills);
+    bills.forEach(function (b) {
+      if (!b || !b.id || b.voided_at) return;
+      var a = auditMap[b.id];
+      if (a && a.created_at) b.voided_at = a.created_at;
+    });
+
+    bills.sort(function (a, b) {
+      var ta = a.voided_at ? new Date(a.voided_at).getTime() : 0;
+      var tb = b.voided_at ? new Date(b.voided_at).getTime() : 0;
+      return tb - ta;
+    });
+
+    _voidBillRows = bills.map(function (b) {
+      return enrichVoidBillRow(b, auditMap[b.id]);
+    });
+    await enrichVoidBillPatientNames(_voidBillRows);
+    renderVoidBillsList();
+  }
+
   function renderAuditTrailShell() {
     var wrap = g('rptTableWrap');
     if (!wrap) return;
     wrap.innerHTML =
       '<div id="rptAuditShell">' +
-        '<div class="rpt-audit-filters" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:10px 12px;background:#f8fafc;border:1px solid #e8eef5;border-radius:10px;margin-bottom:12px;">' +
-          '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.filterItem"></div>' +
-            '<select id="rptAuditItemFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:220px;"></select></div>' +
-          '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.filterUser"></div>' +
-            '<select id="rptAuditUserFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:160px;"></select></div>' +
-          '<div style="margin-left:auto;font-size:11px;color:#64748b;text-align:right;" id="rptAuditFilterSummary">—</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' +
+          '<button type="button" id="rptAuditSubTabVoid" style="' + auditSubTabBtnStyle(_auditSubTab === 'voidBills') + '" ' +
+            'onclick="REPORT.switchAuditSubTab(\'voidBills\')">' + esc(tr('report.audit.subTab.voidBills')) + '</button>' +
+          '<button type="button" id="rptAuditSubTabLog" style="' + auditSubTabBtnStyle(_auditSubTab !== 'voidBills') + '" ' +
+            'onclick="REPORT.switchAuditSubTab(\'log\')">' + esc(tr('report.audit.subTab.log')) + '</button>' +
         '</div>' +
-        '<div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:stretch;">' +
-          '<div id="rptAuditList" style="border:1px solid #eee;border-radius:10px;overflow:hidden;min-height:320px;">' +
-            '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>' +
+        '<div id="rptAuditLogPanel">' +
+          '<div class="rpt-audit-filters" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:10px 12px;background:#f8fafc;border:1px solid #e8eef5;border-radius:10px;margin-bottom:12px;">' +
+            '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.filterItem"></div>' +
+              '<select id="rptAuditItemFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:220px;"></select></div>' +
+            '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.filterUser"></div>' +
+              '<select id="rptAuditUserFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:160px;"></select></div>' +
+            '<div style="margin-left:auto;font-size:11px;color:#64748b;text-align:right;" id="rptAuditFilterSummary">—</div>' +
           '</div>' +
-          '<div id="rptAuditDetail" style="border:1px solid #eee;border-radius:10px;background:#fafcff;min-height:320px;">' +
-            '<div style="padding:14px;color:#888;font-size:12px;" data-i18n="report.audit.detailPlaceholder"></div>' +
+          '<div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:stretch;">' +
+            '<div id="rptAuditList" style="border:1px solid #eee;border-radius:10px;overflow:hidden;min-height:320px;">' +
+              '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>' +
+            '</div>' +
+            '<div id="rptAuditDetail" style="border:1px solid #eee;border-radius:10px;background:#fafcff;min-height:320px;">' +
+              '<div style="padding:14px;color:#888;font-size:12px;" data-i18n="report.audit.detailPlaceholder"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div id="rptAuditVoidPanel" style="display:none;">' +
+          '<div class="rpt-void-dock-head">' +
+            '<div class="rpt-void-dock-title" data-i18n="report.voidBills.dockTitle"></div>' +
+            '<div class="rpt-void-dock-hint" data-i18n="report.voidBills.dockHint"></div>' +
+          '</div>' +
+          '<div class="rpt-void-filters">' +
+            '<div class="rpt-void-search-field">' +
+              '<label data-i18n="report.voidBills.searchPatient"></label>' +
+              '<input type="search" id="rptVoidSearchPatient" placeholder="" data-i18n-placeholder="report.voidBills.searchPatientPh">' +
+            '</div>' +
+            '<div class="rpt-void-search-field">' +
+              '<label data-i18n="report.voidBills.searchUser"></label>' +
+              '<input type="search" id="rptVoidSearchUser" placeholder="" data-i18n-placeholder="report.voidBills.searchUserPh">' +
+            '</div>' +
+            '<div class="rpt-void-search-field">' +
+              '<label data-i18n="report.voidBills.searchDoctor"></label>' +
+              '<input type="search" id="rptVoidSearchDoctor" placeholder="" data-i18n-placeholder="report.voidBills.searchDoctorPh">' +
+            '</div>' +
+            '<div class="rpt-void-search-field">' +
+              '<label data-i18n="report.voidBills.searchClinic"></label>' +
+              '<input type="search" id="rptVoidSearchClinic" placeholder="" data-i18n-placeholder="report.voidBills.searchClinicPh">' +
+            '</div>' +
+            '<div class="rpt-void-filter-summary" id="rptVoidBillFilterSummary">—</div>' +
+          '</div>' +
+          '<div class="rpt-void-grid">' +
+            '<div id="rptVoidBillList" class="rpt-void-list">' +
+              '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>' +
+            '</div>' +
+            '<div id="rptVoidBillDetail" class="rpt-void-detail">' +
+              '<div style="padding:14px;color:#888;font-size:12px;" data-i18n="report.voidBills.detailPlaceholder"></div>' +
+            '</div>' +
           '</div>' +
         '</div>' +
       '</div>';
     if (typeof applyI18nInRoot === 'function') applyI18nInRoot(wrap);
+    updateAuditSubTabUi();
     var itemSel = g('rptAuditItemFilter');
     var userSel = g('rptAuditUserFilter');
     if (itemSel) {
@@ -2887,6 +4107,15 @@ var REPORT = (function () {
         updateAuditFilterSummary();
       };
     }
+    var vp = g('rptVoidSearchPatient');
+    var vu = g('rptVoidSearchUser');
+    var vd = g('rptVoidSearchDoctor');
+    var vc = g('rptVoidSearchClinic');
+    if (vp) vp.value = _voidBillSearchPatient || '';
+    if (vu) vu.value = _voidBillSearchUser || '';
+    if (vd) vd.value = _voidBillSearchDoctor || '';
+    if (vc) vc.value = _voidBillSearchClinic || '';
+    wireVoidBillSearchInputs();
   }
 
   function updateAuditFilterSummary() {
@@ -3053,7 +4282,12 @@ var REPORT = (function () {
 
   async function loadAuditTrail() {
     _auditTableMissing = false;
+    _auditTrailDataLoaded = false;
     _auditAllRows = [];
+    var list = g('rptAuditList');
+    if (list && _auditSubTab === 'log') {
+      list.innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>';
+    }
     var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
     var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : todayISO();
     var clinic = reportClinicTag();
@@ -3069,13 +4303,16 @@ var REPORT = (function () {
       var msg = (res.error.message || '').toLowerCase();
       if (msg.indexOf('does not exist') >= 0 || msg.indexOf('not found') >= 0 || msg.indexOf('404') >= 0) {
         _auditTableMissing = true;
+        _auditTrailDataLoaded = true;
+        if (_auditSubTab === 'log') renderAuditTrailList();
         return;
       }
       throw new Error(res.error.message || tr('report.error.loadingDataNote'));
     }
     _auditAllRows = res.data || [];
+    _auditTrailDataLoaded = true;
     fillAuditFilterSelects();
-    renderAuditTrailList();
+    if (_auditSubTab === 'log') renderAuditTrailList();
   }
 
   async function refresh() {
@@ -3094,7 +4331,10 @@ var REPORT = (function () {
     try {
       if (_tab === 'auditTrail') {
         showPatientDirTools(false);
-        setHeader(tr('report.title.auditTrail'), tr('report.hint.auditTrail'));
+        var auditHint = (_auditSubTab === 'voidBills')
+          ? tr('report.hint.voidBills')
+          : tr('report.hint.auditTrail');
+        setHeader(tr('report.title.auditTrail'), auditHint);
         showChartColumn(false);
         destroyChart();
         setChartNote(tr('report.chart.disabledAuditTrail'));
@@ -3105,7 +4345,10 @@ var REPORT = (function () {
         if (gridA) gridA.style.gridTemplateColumns = '1fr';
         if (colA) colA.style.display = 'none';
         renderAuditTrailShell();
-        await loadAuditTrail();
+        await Promise.all([
+          loadAuditTrail(),
+          loadVoidBillsManager()
+        ]);
         return;
       }
 
@@ -3345,6 +4588,7 @@ var REPORT = (function () {
       alert(tr('report.alert.patientDirAdminOnly'));
       key = 'dailyIncome';
     }
+    if (key === 'auditTrail' && _tab !== 'auditTrail') _auditSubTab = 'voidBills';
     _tab = key;
     if (key === 'drDaily') _drDailyMode = 'simple';
     if (key === 'drMonthly') _drMonthlyMode = 'simple';
@@ -3410,6 +4654,10 @@ var REPORT = (function () {
     magnifyChart: magnifyChart,
     exportCSV: exportCSV,
     selectAuditRow: selectAuditRow,
+    switchAuditSubTab: switchAuditSubTab,
+    selectVoidBillRow: selectVoidBillRow,
+    voidBillChangePage: voidBillChangePage,
+    voidBillJumpToPage: voidBillJumpToPage,
     setDailySummaryView: function (v) {
       _dailySummaryView = (v === 'monthly') ? 'monthly' : 'daily';
       if (_tab === 'dailySummary') refresh();

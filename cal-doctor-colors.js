@@ -3,6 +3,8 @@ var CalDoctorColors = (function () {
     var STORAGE = 'cal_doctor_colors_v1';
     var STORAGE_LEGACY = 'gcal_settings_v2';
     var FILTER_STORAGE = 'cal_doctor_visible_v1';
+    var SERVER_SETTING_KEY = 'cal_doctor_colors_v1';
+    var serverSaveTimer = null;
     /* Google Calendar–like palette */
     var PALETTE = [
         '#7986cb', '#33b679', '#8e24aa', '#e67c73', '#f6bf26', '#f4511e',
@@ -132,28 +134,277 @@ var CalDoctorColors = (function () {
         });
     }
 
-    function load() {
+    function loadFromStorage() {
         colors = {};
         try {
             var raw = localStorage.getItem(STORAGE);
             if (raw) colors = JSON.parse(raw) || {};
         } catch (e) { colors = {}; }
-        try {
-            var leg = localStorage.getItem(STORAGE_LEGACY);
-            if (leg) {
-                var s = JSON.parse(leg);
-                if (s && s.doctorColors) {
-                    Object.keys(s.doctorColors).forEach(function (k) {
-                        if (!colors[k]) colors[k] = s.doctorColors[k];
-                    });
-                }
-            }
-        } catch (e2) {}
         if (!colors || typeof colors !== 'object') colors = {};
+        var hasPrimary = Object.keys(colors).length > 0;
+        if (!hasPrimary) {
+            try {
+                var leg = localStorage.getItem(STORAGE_LEGACY);
+                if (leg) {
+                    var s = JSON.parse(leg);
+                    if (s && s.doctorColors) {
+                        Object.keys(s.doctorColors).forEach(function (k) {
+                            if (!colors[k]) colors[k] = s.doctorColors[k];
+                        });
+                    }
+                }
+            } catch (e2) {}
+        }
+    }
+
+    function syncLegacyGcalDoctorColors() {
+        try {
+            var legRaw = localStorage.getItem(STORAGE_LEGACY);
+            var s = legRaw ? JSON.parse(legRaw) : {};
+            if (!s || typeof s !== 'object') s = {};
+            s.doctorColors = Object.assign({}, colors);
+            localStorage.setItem(STORAGE_LEGACY, JSON.stringify(s));
+        } catch (e) {}
+    }
+
+    function canUseServerSync() {
+        return typeof SB !== 'undefined' && SB && typeof SB.from === 'function' &&
+            typeof persistProgramSettingRow === 'function';
+    }
+
+    function parseServerColorsPayload(raw) {
+        if (raw == null || raw === '') return null;
+        try {
+            var parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+            if (parsed.colors && typeof parsed.colors === 'object') return parsed.colors;
+            return parsed;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function scheduleServerSave() {
+        if (!canUseServerSync()) return;
+        if (serverSaveTimer) clearTimeout(serverSaveTimer);
+        serverSaveTimer = setTimeout(function () {
+            serverSaveTimer = null;
+            saveColorsToServer();
+        }, 700);
+    }
+
+    function saveColorsToServer() {
+        if (!canUseServerSync()) return;
+        var payload = JSON.stringify(Object.assign({}, colors));
+        persistProgramSettingRow({
+            setting_key: SERVER_SETTING_KEY,
+            setting_value: payload
+        }).then(function (r) {
+            if (r && r.error) {
+                console.warn('Doctor colours server save:', r.error.message || r.error);
+                return;
+            }
+            if (typeof PROGRAM_SETTINGS !== 'undefined') {
+                PROGRAM_SETTINGS[SERVER_SETTING_KEY] = payload;
+            }
+        }).catch(function () {});
+    }
+
+    function hydrateFromProgramSettings() {
+        var raw = typeof getProgramSetting === 'function'
+            ? getProgramSetting(SERVER_SETTING_KEY, '')
+            : '';
+        var fromServer = parseServerColorsPayload(raw);
+        if (!fromServer || !Object.keys(fromServer).length) return false;
+
+        loadFromStorage();
+        var next = Object.assign({}, colors);
+        var changed = false;
+        Object.keys(fromServer).forEach(function (k) {
+            var v = normalizeHex(fromServer[k]);
+            if (!v) return;
+            if (next[k] !== v) {
+                next[k] = v;
+                changed = true;
+            }
+        });
+        if (!changed) return false;
+
+        colors = next;
+        consolidateStoredColors();
+        try { localStorage.setItem(STORAGE, JSON.stringify(colors)); } catch (e) {}
+        syncLegacyGcalDoctorColors();
+        return true;
+    }
+
+    function refreshColorViews() {
+        renderLegend(cachedAppts, cachedClinicId);
+        var cid;
+        for (cid in filterStripCache) {
+            if (!Object.prototype.hasOwnProperty.call(filterStripCache, cid)) continue;
+            var bar = typeof g === 'function' ? g(cid) : null;
+            if (bar && !bar.hasAttribute('hidden')) {
+                renderDoctorFilterStrip(cid, filterStripCache[cid]);
+            }
+        }
+        refreshOpenColorPanels();
+        var settingsOpen = false;
+        if (typeof document !== 'undefined') {
+            var gcalSp = document.getElementById('gcalSettingsPanel');
+            var plusSp = typeof g === 'function' ? g('plusApptSettingsPanel') : null;
+            var modal = document.getElementById('calDoctorColorsModal');
+            settingsOpen = !!(
+                (gcalSp && gcalSp.classList.contains('open')) ||
+                (plusSp && plusSp.classList.contains('open')) ||
+                (modal && modal.classList.contains('open'))
+            );
+        }
+        if (settingsOpen) {
+            repaintVisibleAppointmentColors();
+        } else if (typeof renderCal === 'function') {
+            renderCal();
+        }
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+        if (typeof renderApptDoctorColorPreview === 'function') renderApptDoctorColorPreview();
+    }
+
+    function hydrateFromServer(opts) {
+        opts = opts || {};
+        var changed = hydrateFromProgramSettings();
+        if (changed && opts.refresh !== false) refreshColorViews();
+        return changed;
+    }
+
+    /** Push browser-cached colours to server when DB row is still empty (upgrade path). */
+    function migrateLocalColorsToServerIfNeeded() {
+        if (!canUseServerSync()) return;
+        var raw = typeof getProgramSetting === 'function'
+            ? getProgramSetting(SERVER_SETTING_KEY, '')
+            : '';
+        if (parseServerColorsPayload(raw)) return;
+        loadFromStorage();
+        if (!Object.keys(colors).length) return;
+        saveColorsToServer();
+    }
+
+    function persistColors() {
+        try { localStorage.setItem(STORAGE, JSON.stringify(colors)); } catch (e) {}
+        syncLegacyGcalDoctorColors();
+        scheduleServerSave();
     }
 
     function save() {
-        try { localStorage.setItem(STORAGE, JSON.stringify(colors)); } catch (e) {}
+        persistColors();
+    }
+
+    function findClinicalDoctorByAnyKey(key) {
+        var k = String(key || '').trim();
+        if (!k || k === '__unassigned__') return null;
+        var kl = k.toLowerCase();
+        var docs = getClinicalDoctorsForClinic(null);
+        var i;
+        var d;
+        var canon;
+        var dn;
+        var en;
+        var cn;
+        var id;
+        var dc;
+        for (i = 0; i < docs.length; i++) {
+            d = docs[i];
+            canon = doctorKeyFromDoc(d);
+            dn = String(typeof doctorDisplayName === 'function'
+                ? doctorDisplayName(d) : '').trim();
+            en = String(d.english_name || '').trim();
+            cn = String(d.chinese_name || '').trim();
+            id = String(d.id || '').trim();
+            dc = String(d.doctor_code || '').trim();
+            if (k === canon || k === id || k === dc || k === dn || k === en || k === cn) return d;
+            if (kl === String(canon).toLowerCase() || kl === dn.toLowerCase() ||
+                kl === en.toLowerCase() || kl === cn.toLowerCase()) {
+                return d;
+            }
+        }
+        return null;
+    }
+
+    function aliasKeysForDoctorRecord(d, extraKey) {
+        var out = [];
+        function add(k) {
+            k = String(k || '').trim();
+            if (k && out.indexOf(k) < 0) out.push(k);
+        }
+        if (extraKey) add(extraKey);
+        if (!d) return out;
+        add(doctorKeyFromDoc(d));
+        add(d.id);
+        add(d.doctor_code);
+        add(typeof doctorDisplayName === 'function' ? doctorDisplayName(d) : '');
+        add(d.english_name);
+        add(d.chinese_name);
+        return out;
+    }
+
+    /** Collapse alias keys to one canonical doctor_code entry per clinical doctor. */
+    function consolidateStoredColors() {
+        var docs = getClinicalDoctorsForClinic(null);
+        var next = Object.assign({}, colors);
+        var changed = false;
+        docs.forEach(function (d) {
+            var aliases = aliasKeysForDoctorRecord(d);
+            var picked = null;
+            var i;
+            for (i = 0; i < aliases.length; i++) {
+                if (colors[aliases[i]]) {
+                    picked = normalizeHex(colors[aliases[i]]);
+                    break;
+                }
+            }
+            if (!picked) return;
+            var canon = doctorKeyFromDoc(d);
+            if (canon && next[canon] !== picked) {
+                next[canon] = picked;
+                changed = true;
+            }
+            aliases.forEach(function (a) {
+                if (a && a !== canon && Object.prototype.hasOwnProperty.call(next, a)) {
+                    delete next[a];
+                    changed = true;
+                }
+            });
+        });
+        if (changed) {
+            colors = next;
+            persistColors();
+        }
+        return changed;
+    }
+
+    function lookupStoredColor(key) {
+        var k = String(key || '').trim();
+        if (!k || k === '__unassigned__') return null;
+        var matched = findClinicalDoctorByAnyKey(k);
+        var canon = matched ? doctorKeyFromDoc(matched) : normalizeStoredDoctorKey(k);
+        if (canon && colors[canon]) return normalizeHex(colors[canon]);
+        if (colors[k]) return normalizeHex(colors[k]);
+        return null;
+    }
+
+    function load() {
+        loadFromStorage();
+        consolidateStoredColors();
+    }
+
+    function exportColorsMap() {
+        load();
+        return Object.assign({}, colors);
+    }
+
+    function onDoctorsLoaded() {
+        load();
+        renderLegend(cachedAppts, cachedClinicId);
+        if (typeof renderCal === 'function') renderCal();
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
     }
 
     function normalizeHex(hex) {
@@ -372,7 +623,8 @@ var CalDoctorColors = (function () {
     function getSavedColorForKeys(keys) {
         load();
         for (var i = 0; i < keys.length; i++) {
-            if (colors[keys[i]]) return normalizeHex(colors[keys[i]]);
+            var hit = lookupStoredColor(keys[i]);
+            if (hit) return hit;
         }
         return null;
     }
@@ -411,41 +663,39 @@ var CalDoctorColors = (function () {
         return false;
     }
 
-    function getColor(key) {
-        load();
+    function getPreviewColor(key) {
         var canon = normalizeStoredDoctorKey(key);
-        if (colors[canon]) return colors[canon];
-        if (colors[key]) return colors[key];
         if (canon === '__unassigned__' || key === '__unassigned__') return '#94a3b8';
         return colorHash(canon || key);
     }
 
-    function setColor(key, hex) {
+    function getSavedColor(key) {
         load();
+        return lookupStoredColor(key);
+    }
+
+    function getColor(key) {
+        return getSavedColor(key) || getPreviewColor(key);
+    }
+
+    function setColor(key, hex) {
+        loadFromStorage();
+        consolidateStoredColors();
         if (!key || !hex) return;
-        key = normalizeStoredDoctorKey(key);
         hex = normalizeHex(hex);
-        colors[key] = hex;
-        var docs = getClinicalDoctorsForClinic(null);
-        docs.forEach(function (d) {
-            var k = doctorKeyFromDoc(d);
-            var id = String(d.id || '').trim();
-            var dc = String(d.doctor_code || '').trim();
-            var dn = typeof doctorDisplayName === 'function'
-                ? doctorDisplayName(d)
-                : (d.english_name || d.chinese_name || '');
-            var en = String(d.english_name || '').trim();
-            var cn = String(d.chinese_name || '').trim();
-            if (key === k || key === id || key === dc || key === dn || key === en || key === cn) {
-                if (k) colors[k] = hex;
-                if (dc) colors[dc] = hex;
-                if (id) colors[id] = hex;
-                if (dn) colors[dn] = hex;
-                if (en) colors[en] = hex;
-                if (cn) colors[cn] = hex;
-            }
-        });
-        save();
+        if (!hex) return;
+        var matched = findClinicalDoctorByAnyKey(key);
+        var canon = matched ? doctorKeyFromDoc(matched) : normalizeStoredDoctorKey(key);
+        if (!canon || canon === '__unassigned__') return;
+        colors[canon] = hex;
+        if (matched) {
+            aliasKeysForDoctorRecord(matched).forEach(function (a) {
+                if (a && a !== canon && Object.prototype.hasOwnProperty.call(colors, a)) {
+                    delete colors[a];
+                }
+            });
+        }
+        persistColors();
     }
 
     function getStyle(key) {
@@ -462,9 +712,10 @@ var CalDoctorColors = (function () {
     function getStyleForAppt(a) {
         var keys = possibleKeysForAppt(a);
         var canon = resolveDoctorKeyForAppt(a);
-        var saved = getSavedColorForKeys(keys) || (canon ? getColor(canon) : null);
+        var saved = getSavedColorForKeys(keys);
+        if (!saved && canon) saved = getSavedColor(canon);
         var key = canon || keys[0] || '__unassigned__';
-        var color = saved || (key === '__unassigned__' ? '#94a3b8' : colorHash(key));
+        var color = saved || getPreviewColor(key);
         color = normalizeHex(color);
         var rgb = hexToRgb(color);
         return {
@@ -513,6 +764,50 @@ var CalDoctorColors = (function () {
         }).filter(function (item) {
             return !isRedundantCalLegendKey(item.key, item.label);
         });
+    }
+
+    function listHasMultipleDoctors(appts, clinicId) {
+        var seen = {};
+        var count = 0;
+        (appts || []).forEach(function (a) {
+            if (!a) return;
+            var k = resolveDoctorKeyForAppt(a, clinicId);
+            if (!k || k === '__unassigned__') return;
+            if (seen[k]) return;
+            seen[k] = true;
+            count++;
+        });
+        return count > 1;
+    }
+
+    function rowDoctorLabelForAppt(a, clinicId) {
+        if (!a) return '';
+        var matched = findClinicalDoctorForAppt(a, clinicId);
+        if (matched) return labelForDoctorRecord(matched, '');
+        var code = String(a.doctor_code || '').trim();
+        var name = String(a.doctor_name || '').trim();
+        if (name) return name;
+        if (code) return code;
+        var k = resolveDoctorKeyForAppt(a, clinicId);
+        return (k && k !== '__unassigned__') ? k : '';
+    }
+
+    /** Display-only colour dot for Today / Queue rows (no click handlers). */
+    function rowDoctorDotHtml(a, opts) {
+        opts = opts || {};
+        if (!a) return '';
+        if (opts.multiDoctorOnly && !opts.hasMultipleDoctors) return '';
+        var cid = opts.clinicId != null
+            ? opts.clinicId
+            : (typeof currentClinicId !== 'undefined' ? currentClinicId : null);
+        var key = resolveDoctorKeyForAppt(a, cid);
+        if (!key || key === '__unassigned__') return '';
+        var sty = getStyleForAppt(a);
+        var label = rowDoctorLabelForAppt(a, cid) || key;
+        return '<span class="appt-row-dr-dot" role="img" ' +
+            'style="background:' + esc(sty.dot) + ';" ' +
+            'title="' + esc(label) + '" ' +
+            'aria-label="' + esc(calTrRepl('cal.doctor.rowDotAria', { NAME: label })) + '"></span>';
     }
 
     function renderDoctorFilterStrip(containerId, appts) {
@@ -656,7 +951,25 @@ var CalDoctorColors = (function () {
         return null;
     }
 
+    function isDeferredCalendarColorPanel(container) {
+        if (!container || !container.id) return false;
+        return container.id === 'gcalDrColorsBox' ||
+            container.id === 'plusApptDrColorsBox' ||
+            container.id === 'calDoctorColorsModalBody';
+    }
+
+    function repaintVisibleAppointmentColors() {
+        renderLegend(cachedAppts, cachedClinicId);
+        if (typeof GCAL !== 'undefined' && typeof GCAL.repaintCards === 'function') {
+            GCAL.repaintCards();
+        }
+        if (typeof repaintCalMonthPills === 'function') repaintCalMonthPills();
+        if (typeof renderApptDoctorColorPreview === 'function') renderApptDoctorColorPreview();
+        if (typeof apptRepaintListRowDoctorDots === 'function') apptRepaintListRowDoctorDots();
+    }
+
     function applyColorPick(container, key, col) {
+        if (container && container.dataset.calColorsHydrating === '1') return;
         key = decodeDataKey(key);
         if (!key || !col) return;
         setColor(key, col);
@@ -669,6 +982,14 @@ var CalDoctorColors = (function () {
                 b.classList.toggle('gcal-swatch-on', on);
             });
         }
+        if (isDeferredCalendarColorPanel(container)) {
+            repaintVisibleAppointmentColors();
+            if (container.id === 'plusApptDrColorsBox' &&
+                typeof refreshApptPlannerData === 'function') {
+                refreshApptPlannerData();
+            }
+            return;
+        }
         renderLegend(cachedAppts, cachedClinicId);
         if (typeof renderApptDoctorColorPreview === 'function') renderApptDoctorColorPreview();
         if (typeof renderCal === 'function') renderCal();
@@ -678,6 +999,12 @@ var CalDoctorColors = (function () {
     function wireColorPanel(container) {
         if (!container || container._calColorPanelWired) return;
         container._calColorPanelWired = true;
+        container.dataset.calColorsHydrating = '1';
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                if (container) delete container.dataset.calColorsHydrating;
+            });
+        });
 
         container.addEventListener('click', function (ev) {
             var btn = ev.target.closest('.gcal-swatch');
@@ -719,12 +1046,63 @@ var CalDoctorColors = (function () {
         return html;
     }
 
+    function resetControlHtml() {
+        return '<div class="cal-dr-colors-reset-row">' +
+            '<button type="button" class="cal-dr-colors-reset-btn" onclick="CalDoctorColors.resetAll()">' +
+                esc(calTr('cal.doctor.resetBtn')) +
+            '</button>' +
+            '<span class="cal-dr-colors-reset-hint">' + esc(calTr('cal.doctor.resetHint')) + '</span>' +
+            '</div>';
+    }
+
+    function refreshOpenColorPanels() {
+        var modal = document.getElementById('calDoctorColorsModal');
+        var body = document.getElementById('calDoctorColorsModalBody');
+        if (modal && modal.classList.contains('open') && body) {
+            body.innerHTML = buildColorRowsHtml();
+            body._calColorPanelWired = false;
+            wireColorPanel(body);
+        }
+        if (typeof GCAL !== 'undefined' && typeof GCAL.refreshSettingsPanelIfOpen === 'function') {
+            GCAL.refreshSettingsPanelIfOpen();
+        }
+        if (typeof plusApptFillSettingsPanel === 'function') {
+            var psp = typeof g === 'function' ? g('plusApptSettingsPanel') : null;
+            if (psp && psp.classList.contains('open')) plusApptFillSettingsPanel();
+        }
+    }
+
+    function resetAll() {
+        if (!confirm(calTr('cal.doctor.resetConfirm'))) return;
+        colors = {};
+        try { localStorage.setItem(STORAGE, JSON.stringify({})); } catch (e) {}
+        syncLegacyGcalDoctorColors();
+        if (canUseServerSync()) {
+            persistProgramSettingRow({
+                setting_key: SERVER_SETTING_KEY,
+                setting_value: '{}'
+            }).then(function (r) {
+                if (r && r.error) {
+                    console.warn('Doctor colours server reset:', r.error.message || r.error);
+                }
+            }).catch(function () {});
+            if (typeof PROGRAM_SETTINGS !== 'undefined') {
+                PROGRAM_SETTINGS[SERVER_SETTING_KEY] = '{}';
+            }
+        }
+        refreshColorViews();
+    }
+
     function syncColorModalCopy(modal) {
         if (!modal) return;
         var head = modal.querySelector('.cal-colors-modal-head strong');
         if (head) head.textContent = calTr('cal.doctor.modalTitle');
         var hint = modal.querySelector('.cal-colors-hint');
         if (hint) hint.textContent = calTr('cal.doctor.modalHint');
+        var resetBtn = modal.querySelector('.cal-colors-reset');
+        if (resetBtn) resetBtn.textContent = calTr('cal.doctor.resetBtn');
+        var resetHint = modal.querySelector('.cal-colors-reset-hint');
+        if (resetHint) resetHint.textContent = calTr('cal.doctor.resetHint');
         var doneBtn = modal.querySelector('.cal-colors-done');
         if (doneBtn) doneBtn.textContent = calTr('cal.doctor.done');
         var closeBtn = modal.querySelector('.cal-colors-close');
@@ -748,9 +1126,13 @@ var CalDoctorColors = (function () {
                 '</div>' +
                 '<p class="cal-colors-hint">' + esc(calTr('cal.doctor.modalHint')) + '</p>' +
                 '<div id="calDoctorColorsModalBody"></div>' +
+                '<div class="cal-colors-modal-foot">' +
+                '<button type="button" class="cal-colors-reset" onclick="CalDoctorColors.resetAll()">' +
+                    esc(calTr('cal.doctor.resetBtn')) + '</button>' +
+                '<span class="cal-colors-reset-hint">' + esc(calTr('cal.doctor.resetHint')) + '</span>' +
                 '<button type="button" class="cal-colors-done" onclick="CalDoctorColors.closeColorModal()">' +
                     esc(calTr('cal.doctor.done')) + '</button>' +
-                '</div>';
+                '</div></div>';
             document.body.appendChild(modal);
             modal = document.getElementById('calDoctorColorsModal');
         }
@@ -820,14 +1202,25 @@ var CalDoctorColors = (function () {
         refreshCalDoctorColorsI18n();
     });
 
+    try { load(); } catch (bootErr) {}
+    if (typeof getProgramSetting === 'function' && getProgramSetting(SERVER_SETTING_KEY, '')) {
+        try { hydrateFromServer({ refresh: false }); } catch (hydrateErr) {}
+    }
+
     return {
         load: load,
         save: save,
+        exportColorsMap: exportColorsMap,
+        hydrateFromServer: hydrateFromServer,
+        migrateLocalColorsToServerIfNeeded: migrateLocalColorsToServerIfNeeded,
+        onDoctorsLoaded: onDoctorsLoaded,
         PALETTE: PALETTE,
         doctorKeyFromAppt: doctorKeyFromAppt,
         doctorKeyFromDoc: doctorKeyFromDoc,
         resolveDoctorKeyForAppt: resolveDoctorKeyForAppt,
         getColor: getColor,
+        getSavedColor: getSavedColor,
+        getPreviewColor: getPreviewColor,
         setColor: setColor,
         getStyle: getStyle,
         getStyleForAppt: getStyleForAppt,
@@ -841,13 +1234,19 @@ var CalDoctorColors = (function () {
         showAllDoctors: showAllDoctors,
         hideAllDoctors: hideAllDoctors,
         renderDoctorFilterStrip: renderDoctorFilterStrip,
+        listHasMultipleDoctors: listHasMultipleDoctors,
+        rowDoctorDotHtml: rowDoctorDotHtml,
+        rowDoctorLabelForAppt: rowDoctorLabelForAppt,
         renderLegend: renderLegend,
         presetSwatchesHtml: presetSwatchesHtml,
         wireColorPanel: wireColorPanel,
         openSettings: openSettings,
         openColorModal: openColorModal,
         closeColorModal: closeColorModal,
+        resetAll: resetAll,
+        resetControlHtml: resetControlHtml,
         monthPillHtml: monthPillHtml,
-        refreshI18n: refreshCalDoctorColorsI18n
+        refreshI18n: refreshCalDoctorColorsI18n,
+        repaintVisibleColors: repaintVisibleAppointmentColors
     };
 })();

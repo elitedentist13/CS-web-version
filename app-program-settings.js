@@ -91,6 +91,13 @@ function applyProgramSettingsSideEffects() {
     if (typeof applyAddMedicalTermProgramUi === 'function') applyAddMedicalTermProgramUi();
     if (typeof restartApptAutoRefresh === 'function') restartApptAutoRefresh();
     if (typeof restartBillPendingAutoRefresh === 'function') restartBillPendingAutoRefresh();
+    if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.hydrateFromServer === 'function') {
+        CalDoctorColors.hydrateFromServer({ refresh: true });
+    }
+    if (typeof CalDoctorColors !== 'undefined' &&
+        typeof CalDoctorColors.migrateLocalColorsToServerIfNeeded === 'function') {
+        CalDoctorColors.migrateLocalColorsToServerIfNeeded();
+    }
 }
 
 function loadProgramSettings(force) {

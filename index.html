@@ -3,8 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title></title>
-<link rel="stylesheet" href="style.css">
+<!-- Tab icon: gold circle + banana (matches login). Alternates: favicon-flat.svg, favicon-bold.svg -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%20%3Cdefs%3E%20%3CradialGradient%20id%3D%22gold%22%20cx%3D%2238%25%22%20cy%3D%2238%25%22%20r%3D%2265%25%22%3E%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23fff7c0%22%2F%3E%20%3Cstop%20offset%3D%2255%25%22%20stop-color%3D%22%23ffe135%22%2F%3E%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%23f0b800%22%2F%3E%20%3C%2FradialGradient%3E%20%3C%2Fdefs%3E%20%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2215%22%20fill%3D%22url(%23gold)%22%20stroke%3D%22%23E6A800%22%20stroke-width%3D%220.8%22%2F%3E%20%3Ctext%20x%3D%2216%22%20y%3D%2221.5%22%20font-size%3D%2219%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20font-family%3D%22Segoe%20UI%20Emoji%2C%20Apple%20Color%20Emoji%2C%20Noto%20Color%20Emoji%2C%20sans-serif%22%3E%26%23127820%3B%3C%2Ftext%3E%20%3C%2Fsvg%3E">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="shortcut icon" href="favicon.svg">
+<link rel="apple-touch-icon" href="favicon.svg">
+<script>
+(function () {
+  var bust = '';
+  try {
+    var q = new URLSearchParams(window.location.search);
+    if (q.get('_lr')) {
+      bust = q.get('_lr');
+      localStorage.setItem('jsm_asset_cache_bust_v1', bust);
+    } else {
+      bust = localStorage.getItem('jsm_asset_cache_bust_v1') || '';
+    }
+  } catch (e) {}
+  window.__JSM_ASSET_BUST_TS = bust || '';
+  function withBust(path) {
+    if (!window.__JSM_ASSET_BUST_TS) return path;
+    return path + (path.indexOf('?') >= 0 ? '&' : '?') +
+      'v=' + encodeURIComponent(window.__JSM_ASSET_BUST_TS);
+  }
+  window.__JSM_WITH_BUST = withBust;
+  document.write('<link rel="stylesheet" href="' + withBust('style.css') + '">');
+})();
+</script>
 <style>
   /* Prevent configuration sidebar flash before app.js runs */
   #sectionConfig { display: none; }
@@ -772,21 +801,29 @@
     <button class="appt-tab" data-tab="recall" data-i18n="appt.recallTab"></button>
   </div>
 
+  <div id="apptMemoBarPool" hidden aria-hidden="true"></div>
+  <div id="apptSharedMemoBar" class="appt-shared-memo-bar appt-shared-memo-bar--inline" hidden aria-hidden="true">
+    <div class="appt-shared-memo-head">
+      <label for="apptSharedMemo" class="appt-shared-memo-label" data-i18n="appt.sharedMemo.label"></label>
+      <span id="apptSharedMemoDateLbl" class="appt-shared-memo-date"></span>
+    </div>
+    <textarea id="apptSharedMemo" class="appt-shared-memo-input" rows="2"
+              data-i18n-placeholder="appt.sharedMemo.placeholder"
+              spellcheck="true"></textarea>
+  </div>
+
   <!-- ── TAB: QUEUE ─────────────────────────────────────── -->
   <div id="tab-queue" class="tab-pane active">
-    <div class="toolbar">
+    <div class="toolbar appt-toolbar-with-memo">
       <div>
         <strong style="font-size:15px;color:#333;">
           <span data-i18n="appt.queueHead"></span>
-          <span id="queueCount"
-                style="background:#fff3cd;color:#856404;
-                       font-size:12px;font-weight:700;
-                       padding:2px 8px;border-radius:10px;
-                       margin-left:6px;"></span>
         </strong>
         <div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35;" data-i18n="appt.queueHint"></div>
       </div>
+      <div id="apptMemoHost-queue" class="appt-memo-host"></div>
       <div class="queue-toolbar-actions">
+        <div id="apptPatientCount-queue" class="appt-patient-count" aria-live="polite"></div>
         <button type="button" id="queueRefreshBtn" class="queue-refresh-btn"
                 data-i18n="appt.queue.refresh"></button>
         <span id="queueUpdatedAt" class="queue-refresh-meta"
@@ -796,6 +833,18 @@
     <div id="queueDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
     <div class="tbl-wrap queue-wrap">
       <table class="appt-tbl queue-tbl">
+        <colgroup>
+          <col class="queue-col-no">
+          <col class="queue-col-name">
+          <col class="queue-col-treatment">
+          <col class="queue-col-alert">
+          <col class="queue-col-time">
+          <col class="queue-col-duration">
+          <col class="queue-col-arrived">
+          <col class="queue-col-remarks">
+          <col class="queue-col-status">
+          <col class="queue-col-actions">
+        </colgroup>
         <thead>
           <tr>
             <th data-i18n="appt.queueTh.no"></th>
@@ -803,6 +852,7 @@
             <th data-i18n="appt.queueTh.treatment"></th>
             <th data-i18n="appt.queueTh.alert"></th>
             <th data-i18n="appt.queueTh.time"></th>
+            <th class="queue-duration-col" data-i18n="appt.queueTh.duration"></th>
             <th data-i18n="appt.queueTh.arrived"></th>
             <th class="queue-remarks-col" data-i18n="appt.queueTh.remarks"></th>
             <th data-i18n="appt.queueTh.billStatus"></th>
@@ -816,20 +866,17 @@
 
   <!-- ── TAB: TODAY ──────────────────────────────────────── -->
   <div id="tab-today" class="tab-pane">
-    <div class="toolbar">
+    <div class="toolbar appt-toolbar-with-memo">
       <div>
         <strong style="font-size:15px;color:#333;">
           <span data-i18n="appt.todayFor"></span>
           <span id="todayLabel"
                 style="color:var(--primary);"></span>
         </strong>
-        <span id="todayCount"
-              style="background:#e8f4ff;color:var(--primary);
-                     font-size:12px;font-weight:700;
-                     padding:2px 8px;border-radius:10px;
-                     margin-left:6px;"></span>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div id="apptMemoHost-today" class="appt-memo-host"></div>
+      <div class="appt-toolbar-actions">
+        <div id="apptPatientCount-today" class="appt-patient-count" aria-live="polite"></div>
         <button class="btn-add" id="addApptBtn" data-i18n="appt.addAppt"></button>
         <button onclick="printTodayList()"
                 style="background:#fff;color:#333;border:1px solid #ccc;
@@ -838,8 +885,19 @@
       </div>
     </div>
     <div id="todayDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
-    <div class="tbl-wrap">
-      <table class="appt-tbl">
+    <div class="tbl-wrap today-wrap">
+      <table class="appt-tbl today-tbl">
+        <colgroup>
+          <col class="today-col-time">
+          <col class="today-col-patno">
+          <col class="today-col-name">
+          <col class="today-col-treatment">
+          <col class="today-col-alert">
+          <col class="today-col-remarks">
+          <col class="today-col-duration">
+          <col class="today-col-status">
+          <col class="today-col-action">
+        </colgroup>
         <thead>
           <tr>
             <th data-i18n="appt.todayTh.time"></th>
@@ -890,6 +948,8 @@
                        font-weight:700;cursor:pointer;">
           Import Photo List
         </button>
+        <div id="apptMemoHost-plusappt" class="appt-memo-host appt-memo-host--plusappt"></div>
+        <div id="apptPatientCount-plusappt" class="appt-patient-count" aria-live="polite"></div>
         <button type="button" id="plusApptAddBtn" class="btn-add plusappt-add-btn" disabled
                 data-i18n="appt.plusAppt.addBtn"></button>
         <span class="plusappt-add-mini-hint" data-i18n="appt.plusAppt.addBtnHint"></span>
@@ -900,7 +960,14 @@
     <div class="plusappt-layout">
       <aside class="plusappt-sidebar">
         <div id="plusApptClinicBadge" class="plusappt-clinic-badge" aria-live="polite"></div>
-        <div id="plusApptMiniCal" class="plusappt-mini-cal" aria-live="polite"></div>
+        <div class="plusappt-sidebar-tools">
+          <button type="button" id="plusApptSettingsBtn" class="gcal-settings-btn" data-i18n-title="appt.cal.settingsBtnTitle">⚙</button>
+          <button type="button" id="plusApptMiniCalBtn" class="gcal-settings-btn" data-i18n-title="appt.cal.miniCalBtnTitle">📅</button>
+        </div>
+        <div id="plusApptSettingsPanel" class="plusappt-side-panel appt-planner-settings-panel" aria-hidden="true"></div>
+        <div id="plusApptMiniCalWrap" class="plusappt-side-panel open">
+          <div id="plusApptMiniCal" class="plusappt-mini-cal" aria-live="polite"></div>
+        </div>
         <div id="plusApptTransferLog" class="plusappt-transfer-log" aria-live="polite" hidden aria-hidden="true"></div>
         <div class="plusappt-mini-hint" data-i18n="appt.plusAppt.transferMiniHint">Tip: Drag appointment row to mini calendar, pick a new date, then drag back to a time slot to transfer.</div>
       </aside>
@@ -955,8 +1022,7 @@
         <div class="cal-title" id="calTitle">—</div>
         <button id="calNext" data-i18n-aria-label="appt.rcal.nextAria">&#8250;</button>
       </div>
-      <div style="display:flex;gap:10px;align-items:center;
-                  flex-wrap:wrap;">
+      <div class="cal-toolbar-actions">
         <div class="toggle-wrap">
           <button class="toggle-btn active" id="btnWeek" data-i18n="appt.calWeekly"></button>
           <button class="toggle-btn" id="btnMonth" data-i18n="appt.calMonthly"></button>
@@ -969,6 +1035,8 @@
                 title="Mini Calendar" data-i18n-title="appt.cal.miniCalBtnTitle"
                 aria-label="Mini Calendar" data-i18n-aria-label="appt.cal.miniCalBtnTitle"
                 style="display:none;">📅</button>
+        <div id="apptMemoHost-calendar" class="appt-memo-host appt-memo-host--calendar"></div>
+        <div id="apptPatientCount-calendar" class="appt-patient-count" aria-live="polite"></div>
         <button class="btn-add" id="calAddBtn" data-i18n="appt.addAppt"></button>
       </div>
     </div>
@@ -996,60 +1064,72 @@
 
   <!-- ── TAB: APPOINTMENT RECORDS ───────────────────────────── -->
   <div id="tab-records" class="tab-pane">
-    <!-- Filter bar -->
-    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;
-                padding:12px 0 10px;border-bottom:1px solid #e5e7eb;margin-bottom:12px;">
-      <!-- Status filter pills -->
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="ar-filter-btn active" data-filter="all"
-                onclick="setArFilter('all')"
-                style="padding:5px 14px;border-radius:20px;border:1.5px solid #0084ff;
-                       background:#0084ff;color:#fff;font-size:12px;font-weight:700;cursor:pointer;" data-i18n="appt.arFilterAll"></button>
-        <button class="ar-filter-btn" data-filter="upcoming"
-                onclick="setArFilter('upcoming')"
-                style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
-                       background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;" data-i18n="appt.arFilterUpcoming"></button>
-        <button class="ar-filter-btn" data-filter="past"
-                onclick="setArFilter('past')"
-                style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
-                       background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;" data-i18n="appt.arFilterPast"></button>
-        <button class="ar-filter-btn" data-filter="noshow"
-                onclick="setArFilter('noshow')"
-                style="padding:5px 14px;border-radius:20px;border:1.5px solid #e5e7eb;
-                       background:#fff;color:#374151;font-size:12px;font-weight:700;cursor:pointer;" data-i18n="appt.arFilterNoshow"></button>
-      </div>
-      <div class="ar-records-search-wrap">
-        <input id="arSearchInput" type="text" class="ar-records-search-input"
-               data-i18n-placeholder="appt.arSearchPh"
-               oninput="arSearchDebounce()">
-      </div>
-      <!-- Result count -->
-      <span id="arCount"
-            style="font-size:12px;color:#888;font-weight:600;white-space:nowrap;"></span>
-    </div>
+    <div class="ar-records-layout">
+      <!-- Mini calendar sidebar -->
+      <aside class="ar-records-sidebar">
+        <div id="arMiniCal" class="plusappt-mini-cal ar-mini-cal" aria-live="polite"></div>
+        <button type="button" id="arDateClearBtn" class="plusappt-mc-today ar-date-clear-btn"
+                onclick="setArDateFilter('')" data-i18n="appt.ar.dateAll"></button>
+      </aside>
 
-    <!-- Records table -->
-    <div class="tbl-wrap" style="max-height:calc(100vh - 340px);overflow-y:auto;">
-      <table class="appt-tbl" id="arTable">
-        <thead>
-          <tr>
-            <th style="width:90px;" data-i18n="appt.arTh.date"></th>
-            <th style="width:70px;" data-i18n="appt.arTh.time"></th>
-            <th style="width:70px;" data-i18n="appt.arTh.patNo"></th>
-            <th data-i18n="appt.arTh.name"></th>
-            <th data-i18n="appt.arTh.treatment"></th>
-            <th style="width:70px;" data-i18n="appt.arTh.doctor"></th>
-            <th style="width:90px;" data-i18n="appt.arTh.status"></th>
-            <th data-i18n="appt.arTh.remarks"></th>
-            <th style="width:50px;"></th>
-          </tr>
-        </thead>
-        <tbody id="arBody"></tbody>
-      </table>
+      <div class="ar-records-main">
+        <!-- Filter bar -->
+        <div class="ar-records-filter-bar">
+          <!-- Status filter pills -->
+          <div class="ar-records-status-pills">
+            <button class="ar-filter-btn active" data-filter="all"
+                    onclick="setArFilter('all')" data-i18n="appt.arFilterAll"></button>
+            <button class="ar-filter-btn" data-filter="upcoming"
+                    onclick="setArFilter('upcoming')" data-i18n="appt.arFilterUpcoming"></button>
+            <button class="ar-filter-btn" data-filter="past"
+                    onclick="setArFilter('past')" data-i18n="appt.arFilterPast"></button>
+            <button class="ar-filter-btn" data-filter="noshow"
+                    onclick="setArFilter('noshow')" data-i18n="appt.arFilterNoshow"></button>
+          </div>
+          <div class="ar-records-clinic-doctor-row">
+            <label for="arClinicSelect" class="appt-clinic-label ar-records-filter-label"
+                   data-i18n="common.clinic"></label>
+            <select id="arClinicSelect" class="appt-clinic-select ar-clinic-select"
+                    data-i18n-title="common.arRecordsClinicTitle"
+                    onchange="setArClinicFilter(this.value)"></select>
+            <label for="arDoctorSelect" class="appt-clinic-label ar-records-filter-label"
+                   data-i18n="appt.ar.doctorLabel"></label>
+            <select id="arDoctorSelect" class="appt-clinic-select ar-doctor-select"
+                    data-i18n-title="appt.ar.doctorTitle"
+                    onchange="setArDoctorFilter(this.value)"></select>
+          </div>
+          <div class="ar-records-search-wrap">
+            <input id="arSearchInput" type="text" class="ar-records-search-input"
+                   data-i18n-placeholder="appt.arSearchPh"
+                   oninput="arSearchDebounce()">
+          </div>
+          <span id="arDateLbl" class="ar-records-date-lbl"></span>
+          <span id="arCount" class="ar-records-count"></span>
+        </div>
+
+        <!-- Records table -->
+        <div class="tbl-wrap ar-records-table-wrap">
+          <table class="appt-tbl" id="arTable">
+            <thead>
+              <tr>
+                <th style="width:90px;" data-i18n="appt.arTh.date"></th>
+                <th style="width:70px;" data-i18n="appt.arTh.time"></th>
+                <th style="width:70px;" data-i18n="appt.arTh.duration"></th>
+                <th style="width:70px;" data-i18n="appt.arTh.patNo"></th>
+                <th data-i18n="appt.arTh.name"></th>
+                <th data-i18n="appt.arTh.treatment"></th>
+                <th style="width:70px;" data-i18n="appt.arTh.doctor"></th>
+                <th style="width:90px;" data-i18n="appt.arTh.status"></th>
+                <th data-i18n="appt.arTh.remarks"></th>
+                <th style="width:50px;"></th>
+              </tr>
+            </thead>
+            <tbody id="arBody"></tbody>
+          </table>
+        </div>
+        <p id="arEmptyMsg" class="ar-records-empty" data-i18n="appt.arEmpty"></p>
+      </div>
     </div>
-    <p id="arEmptyMsg"
-       style="display:none;text-align:center;color:#aaa;
-              padding:40px 0;font-size:14px;" data-i18n="appt.arEmpty"></p>
   </div>
 
   <!-- ── TAB: RECALL PATIENT ───────────────────────────────── -->
@@ -1758,6 +1838,13 @@
           <span data-i18n="media.sys.aidental"></span>
         </button>
 
+        <button class="xray-sys-btn xray-sys-nntnewtom"
+                onclick="openXraySystem('nntnewtom')"
+                data-i18n-title="media.sys.nntnewtom.desktopHint">
+          <span class="sys-icon">🦷</span>
+          <span data-i18n="media.sys.nntnewtom"></span>
+        </button>
+
         <button class="xray-sys-btn xray-sys-Trophy"
                 onclick="openXraySystem('Trophy')">
           <span class="sys-icon">🏆</span>
@@ -1969,6 +2056,10 @@
           </div>
           <p class="con-forms-sick-dates-hint" data-i18n="con.forms.sickLeaveHint"></p>
         </div>
+
+        <p id="conFormsReferralHint" class="con-forms-referral-hint"
+           style="display:none;margin:10px 0 0;font-size:12px;color:#64748b;line-height:1.5;"
+           data-i18n="con.forms.referralHint"></p>
 
         <!-- Letterhead configured in Configuration → Document Templates (not shown here) -->
         <div id="conFormsShellCard" class="con-forms-shell-hidden" aria-hidden="true"></div>
@@ -3275,7 +3366,7 @@
 <!-- ════════════════════════════════════════════════════════════
      MODAL — ADD / EDIT APPOINTMENT
 ════════════════════════════════════════════════════════════ -->
-<div id="apptModal" class="modal">
+<div id="apptModal" class="modal modal-no-backdrop-close" data-no-backdrop-close="1">
   <div class="modal-box" style="max-width:520px;">
     <button class="mclose" id="closeApptModal" data-i18n-aria-label="common.closeAria">×</button>
     <h3 id="apptModalTitle"></h3>
@@ -3322,6 +3413,7 @@
                   display:none;">
         ✅ <span id="psSelName"></span>
         (<span id="psSelNo"></span>)
+        <span id="psSelDob" style="font-weight:500;color:#64748b;"></span>
       </div>
     </div>
 
@@ -3354,12 +3446,7 @@
       <div class="fg">
         <label data-i18n="appt.modal.duration"></label>
         <select id="fDur">
-          <option value="15"></option>
-          <option value="30" selected></option>
-          <option value="45"></option>
-          <option value="60"></option>
-          <option value="90"></option>
-          <option value="120"></option>
+          <option value="30" selected>30 MIN</option>
         </select>
       </div>
       <div class="fg">
@@ -3931,6 +4018,7 @@
 <!-- ════════════════════════════════════════════════════════════
      BILL PANEL  (slide-in right)
 ════════════════════════════════════════════════════════════ -->
+<div id="billPanelBackdrop" aria-hidden="true"></div>
 <div id="billPanel">
 
   <div class="bill-header">
@@ -3959,16 +4047,10 @@
 
     <div id="billFormSection">
 
-      <!-- ── STEP TABS ────────────────────────────────── -->
-      <div class="bill-step-tabs">
-        <button class="bill-step-tab active" id="billTab1Btn"
-                onclick="switchBillTab(1)" data-i18n="bill.tabStep1"></button>
-        <button class="bill-step-tab" id="billTab2Btn"
-                onclick="switchBillTab(2)" data-i18n="bill.tabStep2"></button>
-      </div>
-
-      <!-- ══ STEP 1 : Bill Items ═══════════════════════ -->
+      <!-- ══ New bill — items & create ═══════════════════ -->
       <div id="billStep1">
+        <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:12px;"
+             data-i18n="bill.sectionNewBill"></div>
 
         <!-- Navigator row -->
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;">
@@ -4012,6 +4094,14 @@
                    style="font-size:13px;">
           </div>
 
+          <div class="fg" style="margin-bottom:12px;">
+            <label data-i18n="bill.labelDoctor"></label>
+            <select id="pendingListDoctor" class="bill-pending-doctor-select">
+              <option value="" data-i18n="bill.loadingDoctors"></option>
+            </select>
+            <p class="bill-list-doctor-hint" data-i18n="bill.hintListDoctor"></p>
+          </div>
+
           <!-- Items -->
           <div style="display:flex;justify-content:space-between;
                       align-items:center;margin-bottom:8px;">
@@ -4025,11 +4115,12 @@
             <table class="bill-items-table">
               <thead>
                 <tr>
-                  <th style="width:34%;" data-i18n="bill.th.description"></th>
-                  <th style="width:10%;" data-i18n="bill.th.qty"></th>
-                  <th style="width:19%;" data-i18n="bill.th.unitPrice"></th>
-                  <th style="width:14%;text-align:center;" data-i18n="bill.th.discPct"></th>
-                  <th style="width:18%;text-align:right;" data-i18n="bill.th.amount"></th>
+                  <th style="width:30%;" data-i18n="bill.th.description"></th>
+                  <th style="width:8%;text-align:center;" data-i18n="bill.th.toothNo"></th>
+                  <th class="bill-qty-col" data-i18n="bill.th.qty"></th>
+                  <th style="width:17%;" data-i18n="bill.th.unitPrice"></th>
+                  <th style="width:12%;text-align:center;" data-i18n="bill.th.discPct"></th>
+                  <th style="width:16%;text-align:right;" data-i18n="bill.th.amount"></th>
                   <th style="width:5%;"></th>
                 </tr>
               </thead>
@@ -4043,12 +4134,12 @@
             <span data-i18n="bill.subtotalLabel"></span>&nbsp;<strong><span data-i18n="common.currencyPrefix"></span> <span id="pendingSubtotal">0.00</span></strong>
           </div>
 
-          <!-- Save list + status -->
-          <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
-            <button onclick="saveCurrentPendingList()"
+          <!-- Create bill + status -->
+          <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap;">
+            <button type="button" id="createBillBtn"
                     style="background:#16a34a;color:#fff;border:none;
                            padding:8px 20px;border-radius:7px;font-size:13px;
-                           font-weight:700;cursor:pointer;" data-i18n="bill.btnSaveList"></button>
+                           font-weight:700;cursor:pointer;" data-i18n="bill.btnCreateBill"></button>
             <span id="pendingListStatus"
                   style="font-size:12px;color:#888;">—</span>
           </div>
@@ -4057,8 +4148,8 @@
 
       </div><!-- /billStep1 -->
 
-      <!-- ══ STEP 2 : Payment ══════════════════════════ -->
-      <div id="billStep2" style="display:none;">
+      <!-- Legacy Step 2 (removed from workflow; kept for DOM refs) -->
+      <div id="billStep2" class="hidden" aria-hidden="true" style="display:none !important;">
 
         <!-- Pending list selector -->
         <div style="margin-bottom:14px;">
@@ -4107,11 +4198,11 @@
               <option value="" data-i18n="bill.loadingTypes"></option>
             </select>
           </div>
-          <div class="fg">
+          <div class="fg" id="billStep2DoctorSummary" style="display:none;">
             <label data-i18n="bill.labelDoctor"></label>
-            <select id="bDoctor">
-              <option value="" data-i18n="bill.loadingDoctors"></option>
-            </select>
+            <div id="billStep2DoctorLabel"
+                 class="bill-step2-doctor-readonly">—</div>
+            <p class="bill-list-doctor-hint" data-i18n="bill.hintStep2DoctorFromList"></p>
           </div>
         </div>
 
@@ -4179,7 +4270,7 @@
                   margin-bottom:14px;flex-wrap:wrap;">
         <h3 style="margin:0;font-size:16px;color:#333;" data-i18n="bill.historyTitle"></h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button type="button" id="billHistoryPrintBtn"
+          <button type="button" id="billHistoryPrintBtn" onclick="printBillHistory()"
                   style="background:#fff;color:var(--primary);border:1px solid var(--primary);
                          padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;"
                   data-i18n="bill.history.btnPrint"></button>
@@ -4356,6 +4447,78 @@
   </div>
 </div>
 
+<div id="billHistoryPrintModal" class="modal">
+  <div class="modal-box bh-print-modal-box">
+    <button class="mclose" id="closeBillHistoryPrintModal" data-i18n-aria-label="common.closeAria">×</button>
+    <h2 data-i18n="bill.history.printOptionsTitle"></h2>
+    <p class="bh-print-modal-hint" data-i18n="bill.history.printOptionsHint"></p>
+
+    <div class="bh-print-modal-layout">
+      <div class="bh-print-modal-settings">
+        <h3 class="bh-print-section-title" data-i18n="bill.history.printTypography"></h3>
+        <div class="bh-print-typo-grid">
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printFontFamily"></span>
+            <select id="bhpFontFamily" class="bh-print-field-input">
+              <option value="system" data-i18n="bill.history.printFontSystem"></option>
+              <option value="arial" data-i18n="bill.history.printFontArial"></option>
+              <option value="times" data-i18n="bill.history.printFontTimes"></option>
+              <option value="ming" data-i18n="bill.history.printFontMing"></option>
+              <option value="yahei" data-i18n="bill.history.printFontYahei"></option>
+            </select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printTitleSize"></span>
+            <select id="bhpTitleSize" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printBodySize"></span>
+            <select id="bhpBodySize" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printThSize"></span>
+            <select id="bhpThSize" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-field">
+            <span class="bh-print-field-label" data-i18n="bill.history.printScale"></span>
+            <select id="bhpScalePercent" class="bh-print-field-input"></select>
+          </label>
+          <label class="bh-print-opt">
+            <input type="checkbox" id="bhpBoldText">
+            <span data-i18n="bill.history.printBold"></span>
+          </label>
+        </div>
+
+        <div class="bh-print-bills-head">
+          <h3 class="bh-print-section-title" data-i18n="bill.history.printSelectBills"></h3>
+          <div class="bh-print-select-actions">
+            <button type="button" id="bhpSelectAllBtn" class="bh-print-link-btn"
+                    data-i18n="bill.history.printSelectAll"></button>
+            <span aria-hidden="true">·</span>
+            <button type="button" id="bhpSelectNoneBtn" class="bh-print-link-btn"
+                    data-i18n="bill.history.printSelectNone"></button>
+          </div>
+        </div>
+        <div id="bhpBillList" class="bh-print-bill-list" role="list"></div>
+      </div>
+
+      <div class="bh-print-modal-preview-wrap">
+        <h3 class="bh-print-section-title" data-i18n="bill.history.printPreview"></h3>
+        <div id="bhpPreviewScroll" class="bh-print-preview-scroll">
+          <div id="bhpPreview" class="bh-print-preview"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bh-print-modal-actions">
+      <button type="button" id="billHistoryPrintCancelBtn" class="btn-secondary"
+              data-i18n="patient.history.cancelBtn"></button>
+      <button type="button" id="billHistoryPrintOkBtn" class="btn-primary"
+              data-i18n="bill.history.printOptionsOk"></button>
+    </div>
+  </div>
+</div>
+
 <div id="receiptModal" class="modal">
   <div class="modal-box" style="max-width:560px;">
     <button class="mclose" id="closeReceiptModal" data-i18n-aria-label="common.closeAria">×</button>
@@ -4474,6 +4637,13 @@
         </div>
       </div>
 
+      <div id="rBillNotesSection" class="receipt-extra-meta" style="display:none;">
+        <div class="receipt-kv-row receipt-kv-row-stack">
+          <strong class="receipt-kv-label" data-i18n="bill.receipt.paymentNotesTitle"></strong>
+          <span class="receipt-kv-val receipt-kv-multiline" id="rBillNotesBody">—</span>
+        </div>
+      </div>
+
       <!-- Payment instalments -->
       <div id="rInstalmentsSection" class="receipt-instalments-section" style="display:none;">
         <div class="receipt-instalments-title" data-i18n="bill.receipt.instalmentsTitle"></div>
@@ -4582,13 +4752,25 @@
     <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:start;">
 
       <!-- Notes -->
-      <div>
-        <div style="font-size:12px;font-weight:700;color:#555;
-                    text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;" data-i18n="bill.detail.notesTitle"></div>
-        <div id="bdNotes"
+      <div class="bd-notes-wrap">
+        <div class="bd-notes-head">
+          <div style="font-size:12px;font-weight:700;color:#555;
+                      text-transform:uppercase;letter-spacing:.5px;" data-i18n="bill.detail.notesTitle"></div>
+          <button type="button" id="bdNotesEditBtn" class="bd-notes-pencil hidden"
+                  data-i18n-title="bill.detail.notesEditTitle"
+                  data-i18n-aria-label="bill.detail.notesEditAria">✎</button>
+        </div>
+        <div id="bdNotes" class="bd-notes-view"
              style="background:#fafafa;border:1px solid #eee;border-radius:6px;
                     padding:10px 12px;font-size:13px;color:#555;min-height:60px;
                     white-space:pre-wrap;"></div>
+        <textarea id="bdNotesInput" class="bd-notes-input hidden" rows="4"
+                  data-i18n-placeholder="bill.detail.notesEditPh"></textarea>
+        <div id="bdNotesEditBar" class="bd-notes-edit-bar hidden">
+          <button type="button" id="bdNotesSaveBtn" class="bd-notes-save-btn" data-i18n="bill.detail.notesSaveBtn"></button>
+          <button type="button" id="bdNotesCancelBtn" class="bd-notes-cancel-btn" data-i18n="bill.detail.notesCancelBtn"></button>
+        </div>
+        <div id="bdNotesEditErr" class="bd-notes-edit-err hidden"></div>
       </div>
 
       <!-- Totals -->
@@ -4937,32 +5119,38 @@
 <!-- ════════════════════════════════════════════════════════════
      SCRIPTS  (load order matters)
 ════════════════════════════════════════════════════════════ -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="app-i18n.js"></script>
-<script src="app-i18n-extra.js"></script>
-<script src="app.js"></script>
-<script src="app-doc-editor.js"></script>
-<script src="app-program-settings.js"></script>
-<script src="app-audit.js"></script>
-<script src="app-auth.js"></script>
-<script src="treatment-items-catalog.js"></script>
-<script src="app-config.js"></script>
-<script src="app-report.js"></script>
-<script src="app-ai-helper.js"></script>
-<script src="app-memo-ai.js"></script>
-<script src="app-photos.js"></script>
-<script src="app-patient.js"></script>
-<script src="app-patient-views.js"></script>
-<script src="cal-doctor-colors.js"></script>
-<script src="app-appt.js"></script>
-<script src="app-rx-phrases.js?v=20260520b"></script>
-<script src="app-consultation.js"></script>
-<script src="app-xray.js?v=20260520f"></script>
-<script src="app-charts.js"></script>
-<script src="app-drugs.js"></script>
-<script src="app-broadcast.js?v=20260524c"></script>
-<script src="app-quicklaunch.js"></script>
+<script>
+(function () {
+  var wb = window.__JSM_WITH_BUST || function (p) { return p; };
+  function w(src) { document.write('<script src="' + src + '"><\/script>'); }
+  w('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+  w('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js');
+  w(wb('app-i18n.js'));
+  w(wb('app-i18n-extra.js'));
+  w(wb('app.js'));
+  w(wb('app-doc-editor.js'));
+  w(wb('app-program-settings.js'));
+  w(wb('app-audit.js'));
+  w(wb('app-auth.js'));
+  w(wb('treatment-items-catalog.js'));
+  w(wb('app-config.js'));
+  w(wb('app-report.js'));
+  w(wb('app-ai-helper.js'));
+  w(wb('app-memo-ai.js'));
+  w(wb('app-photos.js'));
+  w(wb('app-patient.js'));
+  w(wb('app-patient-views.js'));
+  w(wb('cal-doctor-colors.js'));
+  w(wb('app-appt.js'));
+  w(wb('app-rx-phrases.js?v=20260520b'));
+  w(wb('app-consultation.js'));
+  w(wb('app-xray.js?v=20260520f'));
+  w(wb('app-charts.js'));
+  w(wb('app-drugs.js'));
+  w(wb('app-broadcast.js?v=20260524c'));
+  w(wb('app-quicklaunch.js'));
+})();
+</script>
 
 
 </body>

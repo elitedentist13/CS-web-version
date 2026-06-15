@@ -160,6 +160,33 @@
             'zh-CN': '当前患者',
             'zh-Hant': '目前病人'
         },
+        'activePatient.badgeSexMale': { en: 'Male', 'zh-CN': '男性', 'zh-Hant': '男性' },
+        'activePatient.badgeSexFemale': { en: 'Female', 'zh-CN': '女性', 'zh-Hant': '女性' },
+        'activePatient.copyPhoneTitle': {
+            en: 'Copy mobile number',
+            'zh-CN': '复制手机号码',
+            'zh-Hant': '複製手機號碼'
+        },
+        'activePatient.copyPhoneToast': {
+            en: 'Mobile number copied',
+            'zh-CN': '手机号码已复制',
+            'zh-Hant': '手機號碼已複製'
+        },
+        'activePatient.copyAllTitle': {
+            en: 'Copy all patient info (except date)',
+            'zh-CN': '复制全部患者信息（不含日期）',
+            'zh-Hant': '複製全部病人資料（不含日期）'
+        },
+        'activePatient.copyAllToast': {
+            en: 'Patient info copied',
+            'zh-CN': '患者信息已复制',
+            'zh-Hant': '病人資料已複製'
+        },
+        'activePatient.copyFailToast': {
+            en: 'Could not copy to clipboard',
+            'zh-CN': '无法复制到剪贴板',
+            'zh-Hant': '無法複製到剪貼簿'
+        },
         'patient.th.patientNoName': { en: 'Patient No. / Name', 'zh-CN': '患者编号 / 姓名', 'zh-Hant': '病人編號 / 姓名' },
         'patient.th.phone': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
         'patient.th.clinicTag': { en: 'Clinic tag', 'zh-CN': '诊所标签', 'zh-Hant': '診所標籤' },
@@ -567,6 +594,16 @@
             'zh-CN': '显示侧栏 — 日历与设置',
             'zh-Hant': '顯示側欄 — 日曆與設定'
         },
+        'appt.ar.sidebarHideTitle': {
+            en: 'Hide sidebar — more room for records table',
+            'zh-CN': '隐藏侧栏 — 为记录表腾出更多空间',
+            'zh-Hant': '隱藏側欄 — 為紀錄表騰出更多空間'
+        },
+        'appt.ar.sidebarShowTitle': {
+            en: 'Show sidebar — mini calendar',
+            'zh-CN': '显示侧栏 — 迷你日历',
+            'zh-Hant': '顯示側欄 — 迷你日曆'
+        },
         'appt.plusAppt.remarksDblClickHint': {
             en: 'Double-click to edit remarks',
             'zh-CN': '双击编辑备注',
@@ -747,12 +784,28 @@
         'appt.cal.startTimeLabel': { en: 'Start Time', 'zh-CN': '开始时间', 'zh-Hant': '開始時間' },
         'appt.cal.endTimeLabel': { en: 'End Time', 'zh-CN': '结束时间', 'zh-Hant': '結束時間' },
         'appt.cal.rowHeight': { en: 'Row Height', 'zh-CN': '行高', 'zh-Hant': '行高' },
+        'appt.cal.rowFontScale': { en: 'Row Font Scale', 'zh-CN': '行字体缩放', 'zh-Hant': '行字體縮放' },
+        'appt.cal.rowFontColor': { en: 'Row Font Color', 'zh-CN': '行字体颜色', 'zh-Hant': '行字體顏色' },
+        'appt.cal.rowFontScale75': { en: '75% — extra small', 'zh-CN': '75% — 特小', 'zh-Hant': '75% — 特小' },
+        'appt.cal.rowFontScale85': { en: '85% — small', 'zh-CN': '85% — 小', 'zh-Hant': '85% — 小' },
+        'appt.cal.rowFontScale100': { en: '100% — default', 'zh-CN': '100% — 默认', 'zh-Hant': '100% — 預設' },
+        'appt.cal.rowFontScale110': { en: '110% — large', 'zh-CN': '110% — 大', 'zh-Hant': '110% — 大' },
+        'appt.cal.rowFontScale120': { en: '120% — extra large', 'zh-CN': '120% — 特大', 'zh-Hant': '120% — 特大' },
+        'appt.cal.rowFontScale135': { en: '135% — maximum', 'zh-CN': '135% — 最大', 'zh-Hant': '135% — 最大' },
+        'appt.cal.rowFontColorDefault': { en: 'Default (theme colors)', 'zh-CN': '默认（主题色）', 'zh-Hant': '預設（主題色）' },
+        'appt.cal.rowFontColorDeepBluePurple': { en: 'Deep blue-purple', 'zh-CN': '深藍紫色', 'zh-Hant': '深藍紫色' },
+        'appt.cal.rowFontColorNavy': { en: 'Navy blue', 'zh-CN': '海军蓝', 'zh-Hant': '海軍藍' },
+        'appt.cal.rowFontColorBlack': { en: 'Near black', 'zh-CN': '近黑色', 'zh-Hant': '近黑色' },
+        'appt.cal.rowFontColorForest': { en: 'Forest green', 'zh-CN': '墨绿色', 'zh-Hant': '墨綠色' },
+        'appt.cal.rowFontColorBurgundy': { en: 'Burgundy', 'zh-CN': '酒红色', 'zh-Hant': '酒紅色' },
         'appt.cal.drColoursLabel': { en: 'Doctor colours (weekly & monthly views)', 'zh-CN': '医生颜色（周/月视图）', 'zh-Hant': '醫生顏色（週/月檢視）' },
         'appt.cal.drColoursHint': { en: 'Pick a colour per doctor so multiple doctors on the same day are easy to spot. Click a preset or use the colour wheel.', 'zh-CN': '为每位医生选择颜色，便于在同日区分。可点预设或使用调色盘。', 'zh-Hant': '為每位醫生選擇顏色，便於在同日區分。可點預設或使用調色盤。' },
         'appt.cal.applyRefresh': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
         'appt.cal.endAfterStart': { en: 'End time must be after start time.', 'zh-CN': '结束时间须晚于开始时间。', 'zh-Hant': '結束時間須晚於開始時間。' },
         'appt.cal.noDoctorsHint': { en: 'Add doctors in Configuration, or book appointments with a doctor assigned.', 'zh-CN': '请在配置中添加医生，或预约时指定医生。', 'zh-Hant': '請在設定中新增醫生，或預約時指定醫生。' },
         'appt.cal.intervalMin': { en: '{N} min', 'zh-CN': '{N} 分钟', 'zh-Hant': '{N} 分鐘' },
+        'appt.cal.slotExtraCompact': { en: 'Extra-compact (12 px)', 'zh-CN': '超紧凑 (12 px)', 'zh-Hant': '超緊湊 (12 px)' },
+        'appt.cal.slotMoreCompact': { en: 'More compact (14 px)', 'zh-CN': '更紧凑 (14 px)', 'zh-Hant': '更緊湊 (14 px)' },
         'appt.cal.slotCompact': { en: 'Compact (16 px)', 'zh-CN': '紧凑 (16 px)', 'zh-Hant': '緊湊 (16 px)' },
         'appt.cal.slotNormal': { en: 'Normal (20 px)', 'zh-CN': '标准 (20 px)', 'zh-Hant': '標準 (20 px)' },
         'appt.cal.slotComfortable': { en: 'Comfortable (24 px)', 'zh-CN': '舒适 (24 px)', 'zh-Hant': '舒適 (24 px)' },

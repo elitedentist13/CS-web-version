@@ -80,36 +80,44 @@
   </div>
   <div id="activePatientDockBody" class="active-patient-layout">
   <div id="activePatientStack" class="active-patient-stack">
-    <div id="activePatientCard0" class="active-patient-card active-patient-card--primary" data-slot="0" draggable="false">
-      <div class="active-patient-card-head">
-        <div class="active-patient-card-title-wrap">
-          <span class="active-patient-badge" aria-hidden="true">👤</span>
-          <div class="active-patient-card-title" data-i18n="activePatient.primaryTitle"></div>
-        </div>
+    <div id="activePatientCard0" class="active-patient-card active-patient-card--primary active-patient-info-badge" data-slot="0" draggable="false">
+      <div class="active-patient-card-head active-patient-badge-dragzone">
+        <div class="active-patient-badge-slot-label" data-i18n="activePatient.primaryTitle"></div>
         <button type="button" class="active-patient-clear-btn" data-act="clear-slot" data-slot="0"
                 data-i18n-aria-label="activePatient.clearPrimaryAria">×</button>
       </div>
-      <div class="active-patient-line active-patient-line--en" data-field="nameEn">—</div>
-      <div class="active-patient-line active-patient-line--zh" data-field="nameZh">—</div>
-      <div class="active-patient-meta" data-field="no"></div>
-      <div class="active-patient-meta" data-field="phone"></div>
-      <div class="active-patient-hint" data-i18n="activePatient.hintPrimary"></div>
+      <textarea class="active-patient-badge-textbox" data-field="textContent" readonly
+                aria-readonly="true" tabindex="0" rows="7" spellcheck="false"></textarea>
+      <div class="active-patient-badge-phone-row active-patient-badge-dragzone">
+        <span class="active-patient-badge-phone-text" data-field="phoneText">—</span>
+        <button type="button" class="active-patient-phone-copy-btn" data-act="copy-phone"
+                data-i18n-title="activePatient.copyPhoneTitle"
+                data-i18n-aria-label="activePatient.copyPhoneTitle" aria-label="Copy phone">📱</button>
+      </div>
+      <div class="active-patient-badge-date active-patient-badge-dragzone" data-field="stampDate"></div>
+      <button type="button" class="active-patient-copy-all-btn" data-act="copy-all"
+              data-i18n-title="activePatient.copyAllTitle"
+              data-i18n-aria-label="activePatient.copyAllTitle" aria-label="Copy patient info">📋</button>
     </div>
 
-    <div id="activePatientCard1" class="active-patient-card active-patient-card--secondary" data-slot="1" draggable="false">
-      <div class="active-patient-card-head">
-        <div class="active-patient-card-title-wrap">
-          <span class="active-patient-badge" aria-hidden="true">👥</span>
-          <div class="active-patient-card-title" data-i18n="activePatient.secondaryTitle"></div>
-        </div>
+    <div id="activePatientCard1" class="active-patient-card active-patient-card--secondary active-patient-info-badge" data-slot="1" draggable="false">
+      <div class="active-patient-card-head active-patient-badge-dragzone">
+        <div class="active-patient-badge-slot-label" data-i18n="activePatient.secondaryTitle"></div>
         <button type="button" class="active-patient-clear-btn" data-act="clear-slot" data-slot="1"
                 data-i18n-aria-label="activePatient.clearSecondaryAria">×</button>
       </div>
-      <div class="active-patient-line active-patient-line--en" data-field="nameEn">—</div>
-      <div class="active-patient-line active-patient-line--zh" data-field="nameZh">—</div>
-      <div class="active-patient-meta" data-field="no"></div>
-      <div class="active-patient-meta" data-field="phone"></div>
-      <div class="active-patient-hint" data-i18n="activePatient.hintSecondary"></div>
+      <textarea class="active-patient-badge-textbox" data-field="textContent" readonly
+                aria-readonly="true" tabindex="0" rows="7" spellcheck="false"></textarea>
+      <div class="active-patient-badge-phone-row active-patient-badge-dragzone">
+        <span class="active-patient-badge-phone-text" data-field="phoneText">—</span>
+        <button type="button" class="active-patient-phone-copy-btn" data-act="copy-phone"
+                data-i18n-title="activePatient.copyPhoneTitle"
+                data-i18n-aria-label="activePatient.copyPhoneTitle" aria-label="Copy phone">📱</button>
+      </div>
+      <div class="active-patient-badge-date active-patient-badge-dragzone" data-field="stampDate"></div>
+      <button type="button" class="active-patient-copy-all-btn" data-act="copy-all"
+              data-i18n-title="activePatient.copyAllTitle"
+              data-i18n-aria-label="activePatient.copyAllTitle" aria-label="Copy patient info">📋</button>
     </div>
   </div>
   <button type="button" id="activePatientSwapBtn" class="active-patient-swap-btn"
@@ -824,6 +832,16 @@
       <div id="apptMemoHost-queue" class="appt-memo-host"></div>
       <div class="queue-toolbar-actions">
         <div id="apptPatientCount-queue" class="appt-patient-count" aria-live="polite"></div>
+        <div class="queue-settings-anchor">
+          <button type="button" id="queueSettingsBtn" class="gcal-settings-btn"
+                  data-i18n-title="appt.cal.settingsBtnTitle">⚙</button>
+          <div id="queueSettingsPanel" class="queue-settings-panel appt-planner-settings-panel"
+               aria-hidden="true"></div>
+        </div>
+        <button type="button" id="queueClearModeBtn" class="plusappt-clear-mode-btn"
+                aria-pressed="false" data-i18n-title="appt.plusAppt.clearModeTitle">
+          <span data-i18n="appt.plusAppt.clearMode"></span>
+        </button>
         <button type="button" id="queueRefreshBtn" class="queue-refresh-btn"
                 data-i18n="appt.queue.refresh"></button>
         <span id="queueUpdatedAt" class="queue-refresh-meta"
@@ -985,7 +1003,7 @@
               <thead>
                 <tr>
                   <th class="plusappt-th-time" data-i18n="appt.modal.startTime"></th>
-                  <th data-i18n="appt.plusAppt.th.name"></th>
+                  <th class="plusappt-th-name" data-i18n="appt.plusAppt.th.name"></th>
                   <th data-i18n="appt.plusAppt.th.treatment"></th>
                   <th data-i18n="appt.modal.remarks"></th>
                   <th data-i18n="appt.modal.duration"></th>
@@ -1072,11 +1090,13 @@
   <div id="tab-records" class="tab-pane">
     <div class="ar-records-layout">
       <!-- Mini calendar sidebar -->
-      <aside class="ar-records-sidebar">
+      <aside id="arRecordsSidebarRegion" class="ar-records-sidebar">
         <div id="arMiniCal" class="plusappt-mini-cal ar-mini-cal" aria-live="polite"></div>
         <button type="button" id="arDateClearBtn" class="plusappt-mc-today ar-date-clear-btn"
                 onclick="setArDateFilter('')" data-i18n="appt.ar.dateAll"></button>
       </aside>
+      <button type="button" id="arRecordsSidebarToggle" class="plusappt-sidebar-toggle-btn ar-records-sidebar-toggle-btn"
+              aria-expanded="true" aria-controls="arRecordsSidebarRegion">◀</button>
 
       <div class="ar-records-main">
         <!-- Filter bar -->

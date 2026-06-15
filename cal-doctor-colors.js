@@ -952,10 +952,11 @@ var CalDoctorColors = (function () {
     }
 
     function isDeferredCalendarColorPanel(container) {
-        if (!container || !container.id) return false;
-        return container.id === 'gcalDrColorsBox' ||
+        if (!container) return false;
+        if (container.id === 'gcalDrColorsBox' ||
             container.id === 'plusApptDrColorsBox' ||
-            container.id === 'calDoctorColorsModalBody';
+            container.id === 'calDoctorColorsModalBody') return true;
+        return container.getAttribute && container.getAttribute('data-appt-field') === 'drColorsBox';
     }
 
     function repaintVisibleAppointmentColors() {
@@ -984,9 +985,14 @@ var CalDoctorColors = (function () {
         }
         if (isDeferredCalendarColorPanel(container)) {
             repaintVisibleAppointmentColors();
-            if (container.id === 'plusApptDrColorsBox' &&
+            if ((container.id === 'plusApptDrColorsBox' ||
+                    (container.getAttribute && container.getAttribute('data-appt-field') === 'drColorsBox')) &&
                 typeof refreshApptPlannerData === 'function') {
                 refreshApptPlannerData();
+            }
+            if (container.getAttribute && container.getAttribute('data-appt-field') === 'drColorsBox' &&
+                typeof loadQueue === 'function') {
+                loadQueue();
             }
             return;
         }
@@ -1069,6 +1075,10 @@ var CalDoctorColors = (function () {
         if (typeof plusApptFillSettingsPanel === 'function') {
             var psp = typeof g === 'function' ? g('plusApptSettingsPanel') : null;
             if (psp && psp.classList.contains('open')) plusApptFillSettingsPanel();
+        }
+        if (typeof queueFillSettingsPanel === 'function') {
+            var qsp = typeof g === 'function' ? g('queueSettingsPanel') : null;
+            if (qsp && qsp.classList.contains('open')) queueFillSettingsPanel();
         }
     }
 

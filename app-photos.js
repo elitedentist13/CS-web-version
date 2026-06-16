@@ -1588,6 +1588,12 @@ function deletePhotoLb() {
     if (r.error) { alert(mediaErr(r.error.message)); return; }
     closePhotoLightbox();
     loadPhotoRecords();
+    if (typeof conPatientId !== 'undefined' && conPatientId &&
+        typeof photoPatientId !== 'undefined' && photoPatientId &&
+        String(conPatientId) === String(photoPatientId) &&
+        typeof loadConPatientTimeline === 'function') {
+      loadConPatientTimeline(conPatientId);
+    }
   });
 }
 

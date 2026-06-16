@@ -1617,6 +1617,12 @@ function deleteLbXray() {
         if (r.error) { alert(mediaErr(r.error.message)); return; }
         closeLightbox();
         loadXrayRecords();
+        if (typeof conPatientId !== 'undefined' && conPatientId &&
+            typeof xrayPatientId !== 'undefined' && xrayPatientId &&
+            String(conPatientId) === String(xrayPatientId) &&
+            typeof loadConPatientTimeline === 'function') {
+            loadConPatientTimeline(conPatientId);
+        }
     });
 }
 

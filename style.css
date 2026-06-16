@@ -7724,6 +7724,25 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
   flex-shrink: 0;
 }
 
+.con-rx-refresh-btn {
+  min-width: 34px;
+  padding: 5px 10px !important;
+  font-size: 16px;
+  line-height: 1;
+  background: var(--primary);
+}
+
+.con-rx-refresh-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+  animation: con-rx-spin 0.85s linear infinite;
+}
+
+@keyframes con-rx-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Treatment notes — print range popover */
 .con-tn-print-popover {
   position: fixed;

@@ -35,3 +35,5 @@ begin
         end if;
     end loop;
 end $$;
+
+-- See realtime_replica_identity.sql — run that next so DELETE events include patient_id.

@@ -137,6 +137,62 @@ var REALTIME_SYNC = (function() {
         return rtPatientInActiveApptLists(pid);
     }
 
+    function rtShouldRefreshXrayView() {
+        if (typeof sectionVisible !== 'function' || !sectionVisible('consultationSection')) return false;
+        if (typeof activeConsultationTabKey === 'function' && activeConsultationTabKey() === 'xrays') {
+            return true;
+        }
+        if (typeof xrayPatientId !== 'undefined' && xrayPatientId &&
+            typeof conPatientId !== 'undefined' && conPatientId &&
+            String(xrayPatientId) === String(conPatientId)) {
+            var main = g('xrayMainContent');
+            return !!(main && main.style.display !== 'none');
+        }
+        return false;
+    }
+
+    function rtShouldRefreshPhotoView() {
+        if (typeof sectionVisible !== 'function' || !sectionVisible('consultationSection')) return false;
+        if (typeof activeConsultationTabKey === 'function' && activeConsultationTabKey() === 'photos') {
+            return true;
+        }
+        if (typeof photoPatientId !== 'undefined' && photoPatientId &&
+            typeof conPatientId !== 'undefined' && conPatientId &&
+            String(photoPatientId) === String(conPatientId)) {
+            var main = g('photoMainContent');
+            return !!(main && main.style.display !== 'none');
+        }
+        return false;
+    }
+
+    /** Postgres DELETE often ships only primary key unless REPLICA IDENTITY FULL is set. */
+    function rtPatientMediaRelevant(payload, kind) {
+        var row = rtPayloadRow(payload);
+        if (row && row.patient_id && rtTreatmentRelevant(row)) return true;
+
+        var ev = payload && payload.eventType;
+        if (ev === 'DELETE' || (ev === 'UPDATE' && row && !row.patient_id)) {
+            if (kind === 'xray') return rtShouldRefreshXrayView();
+            if (kind === 'photo') return rtShouldRefreshPhotoView();
+            if (kind === 'doc') {
+                return typeof activeConsultationTabKey === 'function' &&
+                    activeConsultationTabKey() === 'forms' &&
+                    typeof conPatientId !== 'undefined' && !!conPatientId;
+            }
+            if (kind === 'chart') {
+                return typeof activeConsultationTabKey === 'function' &&
+                    activeConsultationTabKey() === 'charting' &&
+                    typeof conPatientId !== 'undefined' && !!conPatientId;
+            }
+            if ((kind === 'notes' || kind === 'rx') &&
+                typeof conPatientId !== 'undefined' && conPatientId &&
+                typeof sectionVisible === 'function' && sectionVisible('consultationSection')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function rtPendingRelevant(row) {
         if (!row) return false;
         if (typeof billPanelIsOpen === 'function' && billPanelIsOpen() &&
@@ -404,30 +460,30 @@ var REALTIME_SYNC = (function() {
             }
             return;
         }
-        if (typeof conPatientId === 'undefined' || !conPatientId) return;
-        var tab = typeof activeConsultationTabKey === 'function' ? activeConsultationTabKey() : '';
-
         if (kind === 'photo') {
             if (rtPhotoEditPaused()) {
                 _pending.photo = true;
-            } else if (tab === 'photos' && typeof refreshPhotos === 'function') {
+            } else if (typeof refreshPhotos === 'function' && rtShouldRefreshPhotoView()) {
                 refreshPhotos();
             }
         } else if (kind === 'xray') {
             if (rtXrayEditPaused()) {
                 _pending.xray = true;
-            } else if (tab === 'xrays' && typeof refreshXrays === 'function') {
+            } else if (typeof refreshXrays === 'function' && rtShouldRefreshXrayView()) {
                 refreshXrays();
             }
         } else if (kind === 'doc') {
             if (rtDocEditPaused()) {
                 _pending.doc = true;
-            } else if (tab === 'forms' && typeof refreshConFormsDocs === 'function') {
+            } else if (typeof activeConsultationTabKey === 'function' &&
+                activeConsultationTabKey() === 'forms' &&
+                typeof refreshConFormsDocs === 'function') {
                 refreshConFormsDocs();
             }
         }
 
-        if (typeof loadConPatientTimeline === 'function') {
+        if (typeof conPatientId !== 'undefined' && conPatientId &&
+            typeof loadConPatientTimeline === 'function') {
             loadConPatientTimeline(conPatientId);
         }
         if (typeof sectionVisible === 'function' && sectionVisible('patientSection') &&
@@ -711,15 +767,33 @@ var REALTIME_SYNC = (function() {
         scheduleRefresh('patient');
     }
 
+    function onPhotoChange(payload) {
+        if (!rtPatientMediaRelevant(payload, 'photo')) return;
+        scheduleRefresh('photo');
+    }
+
+    function onXrayChange(payload) {
+        if (!rtPatientMediaRelevant(payload, 'xray')) return;
+        scheduleRefresh('xray');
+    }
+
+    function onPatientDocumentChange(payload) {
+        if (!rtPatientMediaRelevant(payload, 'doc')) return;
+        scheduleRefresh('doc');
+    }
+
+    function onDentalChartChange(payload) {
+        if (!rtPatientMediaRelevant(payload, 'chart')) return;
+        scheduleRefresh('chart');
+    }
+
     function onTreatmentChange(payload) {
-        var row = rtPayloadRow(payload);
-        if (row && !rtTreatmentRelevant(row)) return;
+        if (!rtPatientMediaRelevant(payload, 'notes') && !rtTreatmentRelevant(rtPayloadRow(payload))) return;
         scheduleRefresh('notes');
     }
 
     function onDrughistoryChange(payload) {
-        var row = rtPayloadRow(payload);
-        if (row && !rtTreatmentRelevant(row)) return;
+        if (!rtPatientMediaRelevant(payload, 'rx') && !rtTreatmentRelevant(rtPayloadRow(payload))) return;
         scheduleRefresh('rx');
     }
 
@@ -727,30 +801,6 @@ var REALTIME_SYNC = (function() {
         var row = rtPayloadRow(payload);
         if (row && !rtPendingRelevant(row)) return;
         scheduleRefresh('pending');
-    }
-
-    function onPhotoChange(payload) {
-        var row = rtPayloadRow(payload);
-        if (row && !rtTreatmentRelevant(row)) return;
-        scheduleRefresh('photo');
-    }
-
-    function onXrayChange(payload) {
-        var row = rtPayloadRow(payload);
-        if (row && !rtTreatmentRelevant(row)) return;
-        scheduleRefresh('xray');
-    }
-
-    function onPatientDocumentChange(payload) {
-        var row = rtPayloadRow(payload);
-        if (row && !rtTreatmentRelevant(row)) return;
-        scheduleRefresh('doc');
-    }
-
-    function onDentalChartChange(payload) {
-        var row = rtPayloadRow(payload);
-        if (row && !rtTreatmentRelevant(row)) return;
-        scheduleRefresh('chart');
     }
 
     function unsubscribe() {

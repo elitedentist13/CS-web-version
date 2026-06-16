@@ -157,6 +157,7 @@ var APP_DOCTORS = [];
 var APP_DOCTOR_LOGIN_IDS = {};
 /** Login mode for doctor dropdown: default | staff | doctor */
 var loginDoctorSelectMode = 'default';
+var loginDoctorAllowedIds = null;
 
 var PATIENT_CLINIC_TAG_FIELD = 'clinic_tag';
 var APPOINTMENT_CLINIC_TAG_FIELD = 'clinic_tag';
@@ -1180,13 +1181,37 @@ function selectedLoginClinicId() {
     return sel ? String(sel.value || '').trim() : '';
 }
 
+function userLoginDoctorIds(u) {
+    var out = [];
+    function add(id) {
+        id = String(id || '').trim();
+        if (id && out.indexOf(id) < 0) out.push(id);
+    }
+    if (!u) return out;
+    add(u.doctor_id);
+    var perms = u.permissions || {};
+    if (typeof perms === 'string') {
+        try { perms = JSON.parse(perms); } catch (_) { perms = {}; }
+    }
+    var extra = perms.login_doctor_ids || perms.doctor_ids || [];
+    if (typeof extra === 'string') {
+        extra = extra.split(',');
+    }
+    if (Array.isArray(extra)) {
+        extra.forEach(add);
+    }
+    return out;
+}
+
 function rebuildDoctorLoginIdsFromUsers(users) {
     APP_DOCTOR_LOGIN_IDS = {};
     (users || []).forEach(function (u) {
-        if (u.is_active === false || !u.doctor_id) return;
+        if (u.is_active === false) return;
         var role = String(u.role || '').toLowerCase();
         if (role === 'doctor' || role === 'dentist') {
-            APP_DOCTOR_LOGIN_IDS[String(u.doctor_id)] = true;
+            userLoginDoctorIds(u).forEach(function (id) {
+                APP_DOCTOR_LOGIN_IDS[String(id)] = true;
+            });
         }
     });
 }
@@ -1199,9 +1224,15 @@ function isNonDoctorAppRole(role) {
 function doctorsForLoginDropdown(mode, clinicId) {
     var list = doctorsForClinic(clinicId);
     if (mode === 'staff') return list;
-    return list.filter(function (d) {
+    list = list.filter(function (d) {
         return !!APP_DOCTOR_LOGIN_IDS[String(d.id)];
     });
+    if (Array.isArray(loginDoctorAllowedIds) && loginDoctorAllowedIds.length) {
+        list = list.filter(function (d) {
+            return loginDoctorAllowedIds.indexOf(String(d.id)) >= 0;
+        });
+    }
+    return list;
 }
 
 function loginDoctorOptionLabel(d) {
@@ -1309,14 +1340,19 @@ function refreshLoginDoctorSelect(preselectDoctorId, mode) {
 function setLoginDoctorSelectModeForUser(u) {
     if (!u) {
         loginDoctorSelectMode = 'default';
+        loginDoctorAllowedIds = null;
         refreshLoginDoctorSelect();
         return;
     }
     var role = String(u.role || '').toLowerCase();
+    var ids = userLoginDoctorIds(u);
+    var preselect = ids.length ? ids[0] : '';
     if (role === 'admin' || isNonDoctorAppRole(role)) {
-        refreshLoginDoctorSelect(u.doctor_id || '', 'staff');
+        loginDoctorAllowedIds = null;
+        refreshLoginDoctorSelect(preselect, 'staff');
     } else {
-        refreshLoginDoctorSelect(u.doctor_id || '', 'doctor');
+        loginDoctorAllowedIds = ids;
+        refreshLoginDoctorSelect(preselect, 'doctor');
     }
 }
 
@@ -1412,6 +1448,128 @@ function populateWorkingClinicSelect() {
     sel.value = has ? prev : def;
 }
 
+function dashboardDoctorsForClinic(clinicId) {
+    var list = (typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS) ? APP_DOCTORS : [];
+    if (clinicId) {
+        if (typeof doctorsForClinic === 'function') {
+            list = doctorsForClinic(clinicId);
+        } else {
+            list = list.filter(function (d) { return d && d.clinic_id === clinicId; });
+        }
+    }
+    return (list || []).filter(function (d) {
+        return typeof isClinicalDoctorRecord === 'function'
+            ? isClinicalDoctorRecord(d)
+            : (d && d.is_active !== false && String(d.doctor_code || '').trim());
+    });
+}
+
+function dashboardDoctorOptionLabel(d) {
+    if (!d) return '';
+    var code = String(d.doctor_code || '').trim();
+    var name = (typeof doctorDisplayName === 'function')
+        ? doctorDisplayName(d)
+        : (d.display_name || d.english_name || d.chinese_name || code);
+    return code ? (name + ' [' + code + ']') : name;
+}
+
+function populateDashboardClinicSelect() {
+    var sel = g('dashClinicSelect');
+    if (!sel) return;
+    var prev = sel.value || currentClinicId || '';
+    sel.innerHTML = '';
+    if (!APP_CLINICS || !APP_CLINICS.length) {
+        sel.innerHTML = '<option value="">' + esc(appTr('common.noClinics')) + '</option>';
+        return;
+    }
+    clinicsForWorkingSession().forEach(function (c) {
+        var o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = clinicDisplayName(c);
+        sel.appendChild(o);
+    });
+    var def = typeof defaultWorkingClinicId === 'function' ? defaultWorkingClinicId() : '';
+    var has = Array.prototype.some.call(sel.options || [], function (o) {
+        return o.value === prev;
+    });
+    sel.value = has ? prev : def;
+}
+
+function populateDashboardDoctorSelect(preselectId) {
+    var sel = g('dashDoctorSelect');
+    if (!sel) return;
+    var clinicSel = g('dashClinicSelect');
+    var clinicId = clinicSel ? clinicSel.value : currentClinicId;
+    var prev = preselectId != null ? preselectId : (sel.value || currentDoctorId || '');
+    var docs = dashboardDoctorsForClinic(clinicId);
+    sel.innerHTML = '';
+    var all = document.createElement('option');
+    all.value = '';
+    all.textContent = appTr('common.all');
+    sel.appendChild(all);
+    docs.forEach(function (d) {
+        var o = document.createElement('option');
+        o.value = d.id;
+        o.textContent = dashboardDoctorOptionLabel(d);
+        sel.appendChild(o);
+    });
+    var has = Array.prototype.some.call(sel.options || [], function (o) {
+        return o.value === prev;
+    });
+    sel.value = has ? prev : '';
+}
+
+function applyDashboardDoctorSelection(doctorId) {
+    if (doctorId) {
+        applyIdentityFromDoctor(doctorId);
+    } else {
+        currentDoctorId = null;
+        currentDoctorName = null;
+        currentName = currentUserId || currentName;
+    }
+    persistSession();
+    refreshDashboardUserBadge();
+    refreshAppSessionStripContents();
+    if (typeof updateConsultationDoctorUI === 'function') updateConsultationDoctorUI();
+    if (typeof refreshApptHeaderI18n === 'function') refreshApptHeaderI18n();
+}
+
+function onDashboardClinicChange() {
+    var sel = g('dashClinicSelect');
+    if (!sel) return;
+    if (sel.value && typeof setWorkingClinic === 'function') {
+        setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: true, refreshVisible: true });
+        showClinicRefreshToast(sel.value, false);
+    }
+    populateDashboardDoctorSelect('');
+    applyDashboardDoctorSelection('');
+}
+
+function onDashboardDoctorChange() {
+    var sel = g('dashDoctorSelect');
+    if (!sel) return;
+    applyDashboardDoctorSelection(sel.value || '');
+}
+
+function bindDashboardContextControlsOnce() {
+    var csel = g('dashClinicSelect');
+    if (csel && csel.dataset.bound !== '1') {
+        csel.dataset.bound = '1';
+        csel.addEventListener('change', onDashboardClinicChange);
+    }
+    var dsel = g('dashDoctorSelect');
+    if (dsel && dsel.dataset.bound !== '1') {
+        dsel.dataset.bound = '1';
+        dsel.addEventListener('change', onDashboardDoctorChange);
+    }
+}
+
+function refreshDashboardContextControls() {
+    populateDashboardClinicSelect();
+    populateDashboardDoctorSelect(currentDoctorId || '');
+    bindDashboardContextControlsOnce();
+}
+
 function shouldClinicFilterFollowHeader(filterId) {
     if (!Object.prototype.hasOwnProperty.call(CLINIC_FILTER_FOLLOW_HEADER, filterId)) {
         return false;
@@ -1461,6 +1619,8 @@ function setWorkingClinic(clinicId, options) {
         : null;
     var wsel = g('appWorkingClinicSelect');
     if (wsel && wsel.value !== clinicId) wsel.value = clinicId;
+    var dashClinicSel = g('dashClinicSelect');
+    if (dashClinicSel && dashClinicSel.value !== clinicId) dashClinicSel.value = clinicId;
     var apSel = g('apptClinicSelect');
     if (apSel && apSel.value !== clinicId) apSel.value = clinicId;
     var rptSel = g('reportClinicSelect');
@@ -1473,6 +1633,7 @@ function setWorkingClinic(clinicId, options) {
 
     persistSession();
     refreshAppSessionStripContents();
+    populateDashboardDoctorSelect(currentDoctorId || '');
 
     if (options.reloadAppt) {
         var apptSec = g('appointmentSection');
@@ -1513,21 +1674,24 @@ function prefetchLoginDoctorForUserId(uid) {
     uid = String(uid || '').trim();
     if (!uid) {
         loginDoctorSelectMode = 'default';
+        loginDoctorAllowedIds = null;
         refreshLoginDoctorSelect();
         return;
     }
     if (uid.toLowerCase() === 'nurse') {
+        loginDoctorAllowedIds = null;
         refreshLoginDoctorSelect('', 'staff');
         return;
     }
     SB.from('app_users')
-        .select('doctor_id,role,display_name,is_active')
+        .select('doctor_id,role,display_name,is_active,permissions')
         .eq('user_id', uid)
         .eq('is_active', true)
         .limit(1)
     .then(function (r) {
         if (!r.data || !r.data.length) {
             loginDoctorSelectMode = 'default';
+            loginDoctorAllowedIds = null;
             refreshLoginDoctorSelect();
             return;
         }
@@ -2120,6 +2284,7 @@ function refreshDashboardUserBadge() {
             ? dispRole(currentRole)
             : (currentRole || '-');
     }
+    if (currentUserId) refreshDashboardContextControls();
 }
 
 function refreshAppSessionStripContents() {
@@ -2278,6 +2443,8 @@ function showDashboard() {
     showOnly('dashboardSection');
     if (typeof stopApptAutoRefresh === 'function') stopApptAutoRefresh();
     if (typeof applyDashboardI18n === 'function') applyDashboardI18n();
+    refreshDashboardContextControls();
+    refreshDashboardUserBadge();
     if (typeof applyDashboardPermissionGuards === 'function') applyDashboardPermissionGuards();
     var cfgSec = g('sectionConfig');
     if (cfgSec) cfgSec.style.display = 'none';
@@ -3239,6 +3406,7 @@ function loadClinicsAndDoctorsForLogin() {
         refreshAllClinicTagFilterSelects();
         populateLoginClinicSelect();
         populateWorkingClinicSelect();
+        refreshDashboardContextControls();
         if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
         if (typeof fillAddPatientClinicSelect === 'function') {
             fillAddPatientClinicSelect();
@@ -3277,13 +3445,14 @@ function loadClinicsAndDoctorsForLogin() {
         if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.onDoctorsLoaded === 'function') {
             CalDoctorColors.onDoctorsLoaded();
         }
+        refreshDashboardContextControls();
     }
 
     Promise.all([
         SB.from('doctors').select(
             'id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id,qualification,qualification_chinese'
         ).order('doctor_code'),
-        SB.from('app_users').select('doctor_id,role,is_active,user_id')
+        SB.from('app_users').select('doctor_id,role,is_active,user_id,permissions')
     ]).then(function (all) {
         var dr = all[0];
         var ur = all[1];
@@ -3404,12 +3573,13 @@ function doLogin() {
             return;
         }
 
-        if (u.doctor_id && doctorId && u.doctor_id !== doctorId) {
+        var allowedDoctorIds = userLoginDoctorIds(u);
+        if (doctorId && allowedDoctorIds.length && allowedDoctorIds.indexOf(String(doctorId)) < 0) {
             done(appTr('login.errDoctorMismatch'));
             return;
         }
 
-        if (needsDoctor && !u.doctor_id) {
+        if (needsDoctor && !allowedDoctorIds.length) {
             done(appTr('login.errDoctorUnlinked'));
             return;
         }
@@ -3492,6 +3662,7 @@ document.addEventListener('DOMContentLoaded', function() {
         currentClinicLabel = null;
         currentDoctorId = null;
         currentDoctorName = null;
+        loginDoctorAllowedIds = null;
         if (typeof setCurrentUserPermissions === 'function') setCurrentUserPermissions(null);
         clearSession();
         showLogin();
@@ -4269,5 +4440,9 @@ document.addEventListener('app-lang-change', function() {
     var dashSec = g('dashboardSection');
     if (dashSec && dashSec.style.display !== 'none' && typeof applyDashboardI18n === 'function') {
         applyDashboardI18n();
+    }
+    if (dashSec && dashSec.style.display !== 'none' &&
+        typeof refreshDashboardContextControls === 'function') {
+        refreshDashboardContextControls();
     }
 });

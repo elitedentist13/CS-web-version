@@ -782,7 +782,7 @@ var CFG = (function () {
             if (!id) {
                 cfgSv('usr_role', 'admin');
                 cfgSv('usr_clinic_id', '');
-                cfgSv('usr_doctor_id', '');
+                cfgSetUserDoctorIds([]);
                 cfgSv('usr_password', CFG_ADMIN_DEFAULT_PW);
             }
             _syncUserRoleFields();
@@ -803,7 +803,7 @@ var CFG = (function () {
             var isAdmin = role === 'admin';
             var doctorWrap = _cfgUsrField('usr_doctor_wrap') || g('usr_doctor_wrap');
             if (doctorWrap) doctorWrap.style.display = isAdmin ? 'none' : 'block';
-            if (isAdmin) cfgSv('usr_doctor_id', '');
+            if (isAdmin) cfgSetUserDoctorIds([]);
         }
 
         var _copyPickerKind = null;
@@ -2176,6 +2176,7 @@ var CFG = (function () {
             var key = el.getAttribute('data-auth-key');
             if (key) out[key] = el.checked === true;
         });
+        out.login_doctor_ids = cfgSelectedUserDoctorIds();
         return out;
     }
 
@@ -2227,6 +2228,53 @@ var CFG = (function () {
     function cfgSvGet(fid) {
         var el = _cfgUsrField(fid);
         return el ? el.value : '';
+    }
+
+    function cfgParsePermissionsJson(perms) {
+        if (!perms) return {};
+        if (typeof perms === 'string') {
+            try { return JSON.parse(perms) || {}; } catch (_) { return {}; }
+        }
+        return perms || {};
+    }
+
+    function cfgUserDoctorIdsFromPermissions(perms) {
+        perms = cfgParsePermissionsJson(perms);
+        var raw = perms.login_doctor_ids || perms.doctor_ids || [];
+        if (typeof raw === 'string') raw = raw.split(',');
+        if (!Array.isArray(raw)) return [];
+        var out = [];
+        raw.forEach(function (id) {
+            id = String(id || '').trim();
+            if (id && out.indexOf(id) < 0) out.push(id);
+        });
+        return out;
+    }
+
+    function cfgUserDoctorIdsFromUser(u) {
+        var out = cfgUserDoctorIdsFromPermissions(u && u.permissions);
+        var primary = String((u && u.doctor_id) || '').trim();
+        if (primary && out.indexOf(primary) < 0) out.unshift(primary);
+        return out;
+    }
+
+    function cfgSetUserDoctorIds(ids) {
+        var sel = _cfgUsrField('usr_doctor_id');
+        if (!sel) return;
+        ids = (ids || []).map(function (id) { return String(id || '').trim(); }).filter(Boolean);
+        Array.prototype.forEach.call(sel.options || [], function (o) {
+            o.selected = ids.indexOf(String(o.value || '')) >= 0;
+        });
+    }
+
+    function cfgSelectedUserDoctorIds() {
+        var sel = _cfgUsrField('usr_doctor_id');
+        if (!sel) return [];
+        return Array.prototype.filter.call(sel.options || [], function (o) {
+            return o.selected && String(o.value || '').trim();
+        }).map(function (o) {
+            return String(o.value || '').trim();
+        });
     }
 
     function mountCfgUserPanel() {
@@ -2303,10 +2351,13 @@ var CFG = (function () {
             'letter-spacing:.4px;white-space:nowrap;';
         var TD = 'padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
 
-        function doctorLabel(id) {
-            var d = _usrDoctors.find(function (x) { return x.id === id; });
-            if (!d) return '-';
-            return userDoctorIdentityLabel(d);
+        function doctorLabel(u) {
+            var ids = cfgUserDoctorIdsFromUser(u);
+            if (!ids.length) return '-';
+            return ids.map(function (id) {
+                var d = _usrDoctors.find(function (x) { return String(x.id) === String(id); });
+                return d ? userDoctorIdentityLabel(d) : String(id);
+            }).join(', ');
         }
 
         var html =
@@ -2334,7 +2385,7 @@ var CFG = (function () {
                   'style="width:96px;padding:5px 8px;border:1px solid #ccc;border-radius:5px;font-size:12px;font-family:monospace;">' +
                 '</td>' +
                 '<td style="' + TD + '">' + esc(dispCfgUserRole(u.role)) + '</td>' +
-                '<td style="' + TD + '">' + esc(doctorLabel(u.doctor_id)) + '</td>' +
+                '<td style="' + TD + '">' + esc(doctorLabel(u)) + '</td>' +
                 '<td style="' + TD + 'text-align:center;">' +
                   (active
                     ? '<span style="display:inline-block;padding:3px 10px;border-radius:999px;background:#d4edda;color:#155724;font-size:11px;font-weight:800;">' + esc(ctr('cfg.tpl.yes')) + '</span>'
@@ -2364,7 +2415,9 @@ var CFG = (function () {
                 ? clinicDisplayName(c)
                 : (c.english_name || c.chinese_name || ctr('cfg.label.clinic'));
         });
-        var doctorOpts = opt(_usrDoctors, userDoctorIdentityLabel);
+        var doctorOpts = _usrDoctors.map(function (d) {
+            return '<option value="' + esc(d.id) + '">' + esc(userDoctorIdentityLabel(d)) + '</option>';
+        }).join('');
 
         return '' +
           '<div id="cfgUserPanel" style="display:none;">' +
@@ -2405,9 +2458,10 @@ var CFG = (function () {
                 '</div>' +
                 '<div id="usr_doctor_wrap">' +
                   '<label style="display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:4px;">' + esc(ctr('cfg.form.doctorIdentityLogin')) + '</label>' +
-                  '<select id="usr_doctor_id" style="' + inputStyle() + '">' +
+                  '<select id="usr_doctor_id" multiple size="7" style="' + inputStyle() + 'height:auto;min-height:156px;">' +
                     doctorOpts +
                   '</select>' +
+                  '<div style="font-size:11px;color:#888;margin-top:4px;">' + esc(ctr('cfg.form.doctorIdentityLoginHint')) + '</div>' +
                 '</div>' +
               '</div>' +
 
@@ -2442,7 +2496,7 @@ var CFG = (function () {
         cfgSv('usr_password', '');
         cfgSv('usr_display_name', '');
         cfgSv('usr_role', 'staff');
-        cfgSv('usr_doctor_id', '');
+        cfgSetUserDoctorIds([]);
         var act = _cfgUsrField('usr_active');
         if (act) act.checked = true;
         _syncUserRoleFields();
@@ -2459,7 +2513,7 @@ var CFG = (function () {
             cfgSv('usr_password', u.password || '');
             cfgSv('usr_display_name', u.display_name || '');
             cfgSv('usr_role', u.role || 'staff');
-            cfgSv('usr_doctor_id', u.doctor_id || '');
+            cfgSetUserDoctorIds(cfgUserDoctorIdsFromUser(u));
             var act2 = _cfgUsrField('usr_active');
             if (act2) act2.checked = u.is_active !== false;
             _syncUserRoleFields();
@@ -2496,6 +2550,9 @@ var CFG = (function () {
 
         var roleVal = cfgSvGet('usr_role') || 'staff';
         var actEl = _cfgUsrField('usr_active');
+        var selectedDoctorIds = roleVal === 'admin' ? [] : cfgSelectedUserDoctorIds();
+        var selectedPermissions = collectPermissionsFromUserPanel();
+        selectedPermissions.login_doctor_ids = selectedDoctorIds;
         var payload = {
             user_id: userId,
             password: pw,
@@ -2504,9 +2561,9 @@ var CFG = (function () {
             clinic_id: null,
             doctor_id: roleVal === 'admin'
                 ? null
-                : (cfgSvGet('usr_doctor_id') || null),
+                : (selectedDoctorIds[0] || null),
             is_active: actEl ? actEl.checked !== false : true,
-            permissions: collectPermissionsFromUserPanel()
+            permissions: selectedPermissions
         };
 
         var op = _usrEditId
@@ -2518,6 +2575,7 @@ var CFG = (function () {
             toast(_usrEditId ? ctr('cfg.msg.userUpdated') : ctr('cfg.msg.userAdded'));
             _closeUserPanel();
             loadUsers();
+            if (typeof loadClinicsAndDoctorsForLogin === 'function') loadClinicsAndDoctorsForLogin();
             if (_docSelectedClinicId) loadDoctors();
         });
     }
@@ -2529,6 +2587,7 @@ var CFG = (function () {
                 if (r.error) { toast(r.error.message, true); return; }
                 toast(ctr('cfg.msg.userDeleted'));
                 loadUsers();
+                if (typeof loadClinicsAndDoctorsForLogin === 'function') loadClinicsAndDoctorsForLogin();
                 if (_docSelectedClinicId) loadDoctors();
             });
         });
@@ -2548,6 +2607,7 @@ var CFG = (function () {
             if (r.error) { toast(r.error.message, true); return; }
             toast(ctr('cfg.msg.nurseLoginEnsured'));
             loadUsers();
+          if (typeof loadClinicsAndDoctorsForLogin === 'function') loadClinicsAndDoctorsForLogin();
         });
     }
 

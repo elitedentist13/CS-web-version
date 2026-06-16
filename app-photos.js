@@ -134,6 +134,22 @@ function syncPhotoPatient(pid, pdata) {
   }
 }
 
+function photoResolveCurrentPatient() {
+  if (photoPatientId && photoPatientData) return photoPatientData;
+  if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
+    return conPatientData;
+  }
+  if (typeof activePatientSlots !== 'undefined' && activePatientSlots[0] &&
+      activePatientSlots[0].id) {
+    return activePatientSlots[0];
+  }
+  if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
+      _patientDetailsPatient.id) {
+    return _patientDetailsPatient;
+  }
+  return null;
+}
+
 function selectPhotoPatient(p) {
   photoPatientId   = p.id;
   photoPatientData = p;
@@ -1902,7 +1918,19 @@ function bulkDeletePhotos() {
    ========================================================= */
 
 function refreshPhotos() {
-  if (!photoPatientId) return;
+  if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id &&
+      String(conPatientData.id) !== String(photoPatientId || '')) {
+    selectPhotoPatient(conPatientData);
+    return;
+  }
+  if (!photoPatientId) {
+    var current = photoResolveCurrentPatient();
+    if (current && current.id) {
+      selectPhotoPatient(current);
+      return;
+    }
+    return;
+  }
   loadPhotoRecords();
 }
 

@@ -238,10 +238,12 @@ var queueRemarksEditPriorRaw = null;
 var queueRemarksModalBound = false;
 var queueRefreshBtnBound = false;
 var queueClearModeBtnBound = false;
+var todayClearModeBtnBound = false;
 var queueReorderDragApptId = '';
 var queueCompactFitBound = false;
 var queueCompactFitTimer = null;
 var queueSettingsBtnBound = false;
+var todaySettingsBtnBound = false;
 var queueLastRefreshAt = null;
 var queueElapsedClosedAtByApptId = {};
 var queueElapsedTickerId = null;
@@ -1427,8 +1429,10 @@ function initAppt() {
     bindQueueRemarksModalOnce();
     bindQueueRefreshBtnOnce();
     bindQueueClearModeBtnOnce();
+    bindTodayClearModeBtnOnce();
     queueBindCompactFitOnce();
     bindQueueSettingsBtnOnce();
+    bindTodaySettingsBtnOnce();
     initApptRemarksRichEditors();
     bindPlusApptTabOnce();
     bindApptSharedMemoOnce();
@@ -1481,6 +1485,14 @@ function bindQueueClearModeBtnOnce() {
     var btn = g('queueClearModeBtn');
     if (!btn) return;
     queueClearModeBtnBound = true;
+    btn.addEventListener('click', plusApptToggleClearMode);
+}
+
+function bindTodayClearModeBtnOnce() {
+    if (todayClearModeBtnBound) return;
+    var btn = g('todayClearModeBtn');
+    if (!btn) return;
+    todayClearModeBtnBound = true;
     btn.addEventListener('click', plusApptToggleClearMode);
 }
 
@@ -2470,6 +2482,7 @@ function plusApptSetClearMode(on) {
     plusApptApplyClearModeLayout();
     if (typeof renderPlusApptSchedule === 'function') renderPlusApptSchedule(true);
     if (typeof loadQueue === 'function') loadQueue();
+    if (typeof loadToday === 'function') loadToday();
 }
 
 function plusApptToggleClearMode() {
@@ -2479,6 +2492,7 @@ function plusApptToggleClearMode() {
 function plusApptSyncClearModeUi() {
     var btn = g('plusApptClearModeBtn');
     var qBtn = g('queueClearModeBtn');
+    var tBtn = g('todayClearModeBtn');
     var on = plusApptIsClearMode();
     if (btn) {
         btn.classList.toggle('plusappt-clear-mode-btn--on', on);
@@ -2487,6 +2501,10 @@ function plusApptSyncClearModeUi() {
     if (qBtn) {
         qBtn.classList.toggle('plusappt-clear-mode-btn--on', on);
         qBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    if (tBtn) {
+        tBtn.classList.toggle('plusappt-clear-mode-btn--on', on);
+        tBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
     document.querySelectorAll('[data-appt-field="clearMode"]').forEach(function(chk) {
         chk.checked = on;
@@ -2497,9 +2515,12 @@ function plusApptApplyClearModeLayout() {
     var on = plusApptIsClearMode();
     var plusTab = g('tab-plusappt');
     var queueTab = g('tab-queue');
+    var todayTab = g('tab-today');
     if (plusTab) plusTab.classList.toggle('plusappt-clear-mode', on);
     if (queueTab) queueTab.classList.toggle('plusappt-clear-mode', on);
+    if (todayTab) todayTab.classList.toggle('plusappt-clear-mode', on);
     queueApplyClearModeCompactLayout();
+    todayApplyClearModeCompactLayout();
 }
 
 /** Mirror + Appointment row-height / font settings onto queue when clear mode is on. */
@@ -2544,6 +2565,45 @@ function queueApplyClearModeCompactLayout() {
         tab.style.removeProperty('--plusappt-row-text-color');
     }
     if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
+}
+
+function todayApplyClearModeCompactLayout() {
+    var tab = g('tab-today');
+    if (!tab) return;
+    if (!plusApptIsClearMode()) {
+        tab.classList.remove(
+            'plusappt-row-extra-compact',
+            'plusappt-row-more-compact',
+            'plusappt-row-compact',
+            'plusappt-custom-row-color'
+        );
+        tab.style.removeProperty('--plusappt-row-min-h');
+        tab.style.removeProperty('--plusappt-font-scale');
+        tab.style.removeProperty('--plusappt-row-text-color');
+        return;
+    }
+    var cfg = plusApptReadGcalSettings();
+    var slotH = parseInt(cfg.slotH, 10);
+    if (isNaN(slotH)) slotH = 16;
+    slotH = Math.min(Math.max(slotH, 16), 18);
+    var layout = plusApptScheduleLayoutFromSlotH(slotH);
+    tab.style.setProperty('--plusappt-row-min-h', Math.max(layout.rowMin + 6, 28) + 'px');
+    tab.classList.toggle('plusappt-row-extra-compact', slotH <= 12);
+    tab.classList.toggle('plusappt-row-more-compact', slotH === 14);
+    tab.classList.add('plusappt-row-compact');
+
+    var scale = parseFloat(cfg.rowFontScale);
+    if (isNaN(scale) || scale <= 0) scale = 1;
+    tab.style.setProperty('--plusappt-font-scale', String(scale));
+
+    var colorKey = String(cfg.rowFontColor || 'default');
+    var preset = plusApptRowFontColorPreset(colorKey);
+    tab.classList.toggle('plusappt-custom-row-color', !!preset.hex);
+    if (preset.hex) {
+        tab.style.setProperty('--plusappt-row-text-color', preset.hex);
+    } else {
+        tab.style.removeProperty('--plusappt-row-text-color');
+    }
 }
 
 var PLUSAPPT_SIDEBAR_HIDDEN_LS = 'plusappt_sidebar_hidden_v1';
@@ -2934,6 +2994,15 @@ function queueFillSettingsPanel() {
     });
 }
 
+function todayFillSettingsPanel() {
+    fillApptPlannerSettingsPanel(g('todaySettingsPanel'), {
+        showPlannerTimes: false,
+        apptsForDoctors: typeof todayAppts !== 'undefined' ? todayAppts : [],
+        closeFn: 'todayToggleSettings()',
+        applyFn: 'todayApplyPlannerSettings()'
+    });
+}
+
 function plusApptRefreshSidebarToolTitles() {
     var setBtn = g('plusApptSettingsBtn');
     var calBtn = g('plusApptMiniCalBtn');
@@ -3034,12 +3103,31 @@ function queueApplyPlannerSettings() {
     applyApptPlannerSettingsFromPanel(g('queueSettingsPanel'));
 }
 
+function todayApplyPlannerSettings() {
+    applyApptPlannerSettingsFromPanel(g('todaySettingsPanel'));
+    if (typeof loadToday === 'function') loadToday();
+}
+
 function queueToggleSettings() {
     var sp = g('queueSettingsPanel');
     if (!sp) return;
     var opening = !sp.classList.contains('open');
     if (opening) {
         queueFillSettingsPanel();
+        sp.classList.add('open');
+        sp.setAttribute('aria-hidden', 'false');
+    } else {
+        sp.classList.remove('open');
+        sp.setAttribute('aria-hidden', 'true');
+    }
+}
+
+function todayToggleSettings() {
+    var sp = g('todaySettingsPanel');
+    if (!sp) return;
+    var opening = !sp.classList.contains('open');
+    if (opening) {
+        todayFillSettingsPanel();
         sp.classList.add('open');
         sp.setAttribute('aria-hidden', 'false');
     } else {
@@ -3067,14 +3155,37 @@ function bindQueueSettingsBtnOnce() {
     });
 }
 
+function bindTodaySettingsBtnOnce() {
+    if (todaySettingsBtnBound) return;
+    var btn = g('todaySettingsBtn');
+    if (!btn) return;
+    todaySettingsBtnBound = true;
+    btn.title = typeof tr === 'function' ? tr('appt.cal.settingsBtnTitle') : '';
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        todayToggleSettings();
+    });
+    document.addEventListener('click', function(e) {
+        var panel = g('todaySettingsPanel');
+        if (!panel || !panel.classList.contains('open')) return;
+        if (e.target && e.target.closest && e.target.closest('.today-settings-anchor')) return;
+        panel.classList.remove('open');
+        panel.setAttribute('aria-hidden', 'true');
+    });
+}
+
 function plusApptRefreshSettingsPanelI18n() {
     var sp = g('plusApptSettingsPanel');
     if (sp && sp.classList.contains('open')) plusApptFillSettingsPanel();
     var qsp = g('queueSettingsPanel');
     if (qsp && qsp.classList.contains('open')) queueFillSettingsPanel();
+    var tsp = g('todaySettingsPanel');
+    if (tsp && tsp.classList.contains('open')) todayFillSettingsPanel();
     plusApptRefreshSidebarToolTitles();
     var qBtn = g('queueSettingsBtn');
     if (qBtn && typeof tr === 'function') qBtn.title = tr('appt.cal.settingsBtnTitle');
+    var tBtn = g('todaySettingsBtn');
+    if (tBtn && typeof tr === 'function') tBtn.title = tr('appt.cal.settingsBtnTitle');
 }
 
 window.plusApptToggleSettings = plusApptToggleSettings;
@@ -3082,6 +3193,8 @@ window.plusApptToggleMiniCal = plusApptToggleMiniCal;
 window.plusApptApplyPlannerSettings = plusApptApplyPlannerSettings;
 window.queueToggleSettings = queueToggleSettings;
 window.queueApplyPlannerSettings = queueApplyPlannerSettings;
+window.todayToggleSettings = todayToggleSettings;
+window.todayApplyPlannerSettings = todayApplyPlannerSettings;
 
 function plusApptTimeCellHtml(slot) {
     var parts = slot.split(':');
@@ -10210,8 +10323,10 @@ function buildTodayRow(tb, a, dotCtx) {
     row.dataset.apptId = a.id;
     row.style.cursor = 'pointer';
     var drDot = apptRowDoctorDotHtml(a, dotCtx);
+    var clearMode = plusApptIsClearMode();
     var isNoshow = todayApptIsNoshow(a);
     if (isNoshow) row.classList.add('today-row-noshow');
+    if (clearMode) row.classList.add('today-clear-row');
     var needsReg = todayApptNeedsPatientReg(a);
     var actionBtn = '';
     var canMarkVisit = a.bill_status !== 'Queue' && a.bill_status !== 'Done' && !isNoshow;
@@ -10234,56 +10349,101 @@ function buildTodayRow(tb, a, dotCtx) {
             'style="background:#64748b;">' + esc(tr('appt.today.btnRemove')) + '</button>';
     }
 
-    row.innerHTML =
-        '<td>' +
-            '<strong>' + fmt12(a.start_time) + '</strong>' +
-            ' – ' + fmt12(a.end_time) +
-        '</td>' +
-        '<td style="font-size:12px;color:#888;">' +
-            esc(a.patient_no || '-') +
-        '</td>' +
-        '<td class="today-name-cell">' +
-            '<span class="appt-row-name-wrap">' +
-                drDot +
-                apptPatientDisplayNameHTML(a, { walkIn: true }) +
-            '</span>' +
-        '</td>' +
-        '<td class="today-treatment-cell">' +
-            apptTreatInlineTextareaHtml(a.treatment_items, a.id, 'appt-treat-inline--today') +
-        '</td>' +
-        '<td class="appt-alert-cell">' + apptAlertCellHtml(a) + '</td>' +
-        '<td class="today-remarks-cell">' +
-            '<div class="today-remarks-preview-wrap">' +
-                '<div class="today-remarks-snippet">' +
-                    formatRemarksForDisplay(a.remarks, { empty: '-', stripDr: true }) +
+    if (clearMode) {
+        row.innerHTML =
+            '<td class="today-time-cell plusappt-row-data-cell--clear plusappt-clear-time">' +
+                '<strong>' + fmt12(a.start_time) + '</strong>' +
+            '</td>' +
+            '<td class="today-patno-cell plusappt-row-data-cell--clear">' +
+                esc(a.patient_no || '-') +
+            '</td>' +
+            '<td class="today-name-cell plusappt-name-cell plusappt-row-data-cell--clear">' +
+                queueClearModeNameHtml(a) +
+            '</td>' +
+            '<td class="today-treatment-cell plusappt-treat-cell plusappt-row-data-cell--clear">' +
+                plusApptTreatmentInlineHtml(a, true) +
+            '</td>' +
+            '<td class="appt-alert-cell plusappt-row-data-cell--clear">' + apptAlertCellHtml(a) + '</td>' +
+            '<td class="today-remarks-cell plusappt-remarks-cell-wrap plusappt-row-data-cell--clear">' +
+                '<div class="plusappt-remarks-preview-wrap today-clear-remarks-inline">' +
+                    apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--remarks queue-clear-unpaid-badge') +
+                    '<span class="queue-clear-remarks-body">' +
+                        plusApptRemarksScrollerHtml(a.remarks, a.id, { hideStaffAuthor: true }) +
+                    '</span>' +
                 '</div>' +
-                apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--remarks') +
-                apptTaskSummaryHtml(a) +
-            '</div>' +
-        '</td>' +
-        '<td style="text-align:center;">' +
-            esc(a.duration != null && a.duration !== ''
-                ? apptDurationDisplay(a.duration) : '-') +
-        '</td>' +
-        '<td>' +
-            '<span class="status-badge ' +
-                statusClass(a.bill_status) + '">' +
-                esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
-            '</span>' +
-        '</td>' +
-        '<td>' +
-            '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
-                '<button type="button" class="btn-today-edit btn-sm" ' +
-                'style="background:var(--primary);">' + esc(tr('appt.today.btnEdit')) + '</button>' +
-                actionBtn +
-            '</div>' +
-        '</td>';
+            '</td>' +
+            '<td class="today-duration-cell plusappt-row-data-cell--clear">' +
+                esc(a.duration != null && a.duration !== '' ? apptDurationDisplay(a.duration) : '-') +
+            '</td>' +
+            '<td class="today-status-cell plusappt-row-data-cell--clear">' +
+                '<span class="status-badge ' + statusClass(a.bill_status) + '">' +
+                    esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
+                '</span>' +
+            '</td>' +
+            '<td class="today-action-cell plusappt-row-data-cell--clear">' +
+                '<div class="action-wrap" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;">' +
+                    '<button type="button" class="btn-today-edit btn-sm" ' +
+                    'style="background:var(--primary);">' + esc(tr('appt.today.btnEdit')) + '</button>' +
+                    actionBtn +
+                '</div>' +
+            '</td>';
+    } else {
+        row.innerHTML =
+            '<td>' +
+                '<strong>' + fmt12(a.start_time) + '</strong>' +
+                ' – ' + fmt12(a.end_time) +
+            '</td>' +
+            '<td style="font-size:12px;color:#888;">' +
+                esc(a.patient_no || '-') +
+            '</td>' +
+            '<td class="today-name-cell">' +
+                '<span class="appt-row-name-wrap">' +
+                    drDot +
+                    apptPatientDisplayNameHTML(a, { walkIn: true }) +
+                '</span>' +
+            '</td>' +
+            '<td class="today-treatment-cell">' +
+                apptTreatInlineTextareaHtml(a.treatment_items, a.id, 'appt-treat-inline--today') +
+            '</td>' +
+            '<td class="appt-alert-cell">' + apptAlertCellHtml(a) + '</td>' +
+            '<td class="today-remarks-cell">' +
+                '<div class="today-remarks-preview-wrap">' +
+                    '<div class="today-remarks-snippet">' +
+                        formatRemarksForDisplay(a.remarks, { empty: '-', stripDr: true }) +
+                    '</div>' +
+                    apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--remarks') +
+                    apptTaskSummaryHtml(a) +
+                '</div>' +
+            '</td>' +
+            '<td style="text-align:center;">' +
+                esc(a.duration != null && a.duration !== ''
+                    ? apptDurationDisplay(a.duration) : '-') +
+            '</td>' +
+            '<td>' +
+                '<span class="status-badge ' +
+                    statusClass(a.bill_status) + '">' +
+                    esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
+                '</span>' +
+            '</td>' +
+            '<td>' +
+                '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
+                    '<button type="button" class="btn-today-edit btn-sm" ' +
+                    'style="background:var(--primary);">' + esc(tr('appt.today.btnEdit')) + '</button>' +
+                    actionBtn +
+                '</div>' +
+            '</td>';
+    }
 
     tb.appendChild(row);
 
-    apptBindTreatInlineField(row.querySelector('.appt-treat-inline'), function (saved) {
-        a.treatment_items = saved;
-    });
+    if (clearMode) {
+        bindPlusApptTreatmentInline(row, a, { clearMode: true });
+        bindPlusApptRemarksScroller(row, a.id);
+    } else {
+        apptBindTreatInlineField(row.querySelector('.appt-treat-inline'), function (saved) {
+            a.treatment_items = saved;
+        });
+    }
     bindTodayRemarksDblclick(row, a);
 
     row.addEventListener('dblclick', function () {
@@ -11292,6 +11452,16 @@ function loadQueue() {
     });
 }
 
+function apptConsultationDoctorContext(appt) {
+    appt = appt || {};
+    var ctx = {
+        doctor_id: appt.doctor_id || appt.doctorId || null,
+        doctor_code: String(appt.doctor_code || '').trim(),
+        doctor_name: String(appt.doctor_name || '').trim()
+    };
+    return (ctx.doctor_id || ctx.doctor_code || ctx.doctor_name) ? ctx : null;
+}
+
 // seqNo: 1-based consultation order (top of list = first to see the doctor).
 function buildQueueRow(tb, q, seqNo, dotCtx) {
     if (apptTransferIsCutPending(q.id)) return;
@@ -11600,7 +11770,9 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
             alert(tr('appt.queue.noPatientLinked'));
             return;
         }
-        setTimeout(function() { openConForPatient(pid); }, 80);
+        setTimeout(function() {
+            openConForPatient(pid, { doctorContext: apptConsultationDoctorContext(q) });
+        }, 80);
     });
 
     g('act-done-' + uid).addEventListener('click', function(e) {
@@ -14106,6 +14278,7 @@ function wireBillPanelControls() {
         rpoPrintDiagnosis.addEventListener('change', syncReceiptPrintDiagnosisFieldsVisibility);
     }
     bindClickOnce('bdAddPaymentBtn', openAddPaymentModal);
+    bindClickOnce('bdRefreshPaymentsBtn', refreshBillDetailPayments);
     bindClickOnce('billPendingRefreshBtn', refreshBillPanelNow);
     bindClickOnce('billPayAllBtn', billPayAllAmount);
     bindClickOnce('closeBillHistoryPrintModal', dismissBillHistoryPrintModal);
@@ -17440,6 +17613,11 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
         }
     }
     tbody.appendChild(row);
+}
+
+function refreshBillDetailPayments() {
+    if (!bdCurrentBill || !bdCurrentBill.id) return;
+    loadBillPayments(bdCurrentBill.id);
 }
 
 function loadBillPayments(billId) {

@@ -198,6 +198,18 @@
     </div>
   </div>
 
+  <div class="dashboard-context-bar" aria-label="Dashboard working doctor">
+    <div class="dashboard-context-field">
+      <label for="dashClinicSelect" data-i18n="dashboard.context.clinic"></label>
+      <select id="dashClinicSelect"></select>
+    </div>
+    <div class="dashboard-context-field dashboard-context-field--doctor">
+      <label for="dashDoctorSelect" data-i18n="dashboard.context.doctor"></label>
+      <select id="dashDoctorSelect"></select>
+    </div>
+    <div class="dashboard-context-hint" data-i18n="dashboard.context.hint"></div>
+  </div>
+
   <div class="dashboard-float-shell">
   <div class="dashboard-grid">
     <div class="dash-card" id="card-appointment">
@@ -900,6 +912,16 @@
       <div id="apptMemoHost-today" class="appt-memo-host"></div>
       <div class="appt-toolbar-actions">
         <div id="apptPatientCount-today" class="appt-patient-count" aria-live="polite"></div>
+        <div class="queue-settings-anchor today-settings-anchor">
+          <button type="button" id="todaySettingsBtn" class="gcal-settings-btn"
+                  data-i18n-title="appt.cal.settingsBtnTitle">⚙</button>
+          <div id="todaySettingsPanel" class="queue-settings-panel appt-planner-settings-panel"
+               aria-hidden="true"></div>
+        </div>
+        <button type="button" id="todayClearModeBtn" class="plusappt-clear-mode-btn"
+                aria-pressed="false" data-i18n-title="appt.plusAppt.clearModeTitle">
+          <span data-i18n="appt.plusAppt.clearMode"></span>
+        </button>
         <button class="btn-add" id="addApptBtn" data-i18n="appt.addAppt"></button>
         <button onclick="printTodayList()"
                 style="background:#fff;color:#333;border:1px solid #ccc;
@@ -2146,6 +2168,9 @@
               <button id="conFormsHistDeleteBtn" type="button" class="btn-add"
                       style="padding:7px 12px;font-size:12px;background:#9ca3af;cursor:not-allowed;"
                       disabled onclick="conFormsDeleteSelectedDocs()" data-i18n="con.forms.btnDelete"></button>
+              <button id="conFormsHistRefreshBtn" type="button" class="btn-add"
+                      style="padding:7px 12px;font-size:12px;background:var(--primary);"
+                      onclick="refreshConFormsDocs()" data-i18n="media.refresh"></button>
             </div>
           </div>
           <div id="conFormsExistingList"
@@ -4861,11 +4886,18 @@
                   margin-bottom:10px;">
         <div style="font-size:12px;font-weight:700;color:#555;
                     text-transform:uppercase;letter-spacing:.5px;" data-i18n="bill.detail.paymentHistory"></div>
-        <button type="button" id="bdAddPaymentBtn"
-                onclick="openAddPaymentModal()"
-                style="display:none;background:#16a34a;color:#fff;border:none;
-                       padding:6px 16px;border-radius:7px;font-size:13px;
-                       font-weight:700;cursor:pointer;" data-i18n="bill.detail.btnAddPayment"></button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button type="button" id="bdRefreshPaymentsBtn"
+                  onclick="refreshBillDetailPayments()"
+                  style="background:var(--primary);color:#fff;border:none;
+                         padding:6px 14px;border-radius:7px;font-size:13px;
+                         font-weight:700;cursor:pointer;" data-i18n="bill.btnRefresh"></button>
+          <button type="button" id="bdAddPaymentBtn"
+                  onclick="openAddPaymentModal()"
+                  style="display:none;background:#16a34a;color:#fff;border:none;
+                         padding:6px 16px;border-radius:7px;font-size:13px;
+                         font-weight:700;cursor:pointer;" data-i18n="bill.detail.btnAddPayment"></button>
+        </div>
       </div>
 
       <!-- Outstanding balance banner (shown when balance > 0) -->

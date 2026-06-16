@@ -27,6 +27,7 @@ var conActiveDoctorId = null;
 var conActiveDoctorName = null;
 var conActiveDoctorTag = null;
 var conDoctorsById = {};
+var conPendingDoctorContext = null;
 
 // Forms / Letters state
 var conFormsPatientId = null;
@@ -363,18 +364,22 @@ function loadConsultationDoctors() {
                 return '<option value="' + esc(d.id) + '">' + esc(label) + '</option>';
             }).join('');
 
-        // default selection: currentDoctorId if set, else match currentName
+        var pendingId = conResolveDoctorIdFromContext(conPendingDoctorContext, docs);
+
+        // default selection: queued appointment doctor, currentDoctorId, else match currentName
         var defaultId = (typeof currentDoctorId !== 'undefined' && currentDoctorId) ? currentDoctorId : '';
         if (!defaultId && typeof currentName !== 'undefined' && currentName) {
             var m = docs.find(function (d) { return d.english_name === currentName; });
             defaultId = m ? m.id : '';
         }
-        var pick = preserveId && docs.some(function (d) { return String(d.id) === String(preserveId); })
-            ? preserveId
-            : defaultId;
+        var pick = pendingId ||
+            (preserveId && docs.some(function (d) { return String(d.id) === String(preserveId); })
+                ? preserveId
+                : defaultId);
         if (pick) {
             sel.value = pick;
             conSetActiveDoctor(pick);
+            if (pendingId && String(pick) === String(pendingId)) conPendingDoctorContext = null;
         } else {
             conSetActiveDoctor('');
         }
@@ -391,6 +396,48 @@ function loadConsultationDoctors() {
     .then(function (r) {
         useDocs(r.data || []);
     });
+}
+
+function conNormalizeDoctorContext(ctx) {
+    ctx = ctx || {};
+    var out = {
+        doctor_id: ctx.doctor_id || ctx.doctorId || null,
+        doctor_code: String(ctx.doctor_code || ctx.doctorCode || '').trim(),
+        doctor_name: String(ctx.doctor_name || ctx.doctorName || '').trim()
+    };
+    return (out.doctor_id || out.doctor_code || out.doctor_name) ? out : null;
+}
+
+function conResolveDoctorIdFromContext(ctx, docs) {
+    ctx = conNormalizeDoctorContext(ctx);
+    if (!ctx) return '';
+    docs = docs || Object.keys(conDoctorsById || {}).map(function (id) { return conDoctorsById[id]; });
+    if (ctx.doctor_id) {
+        var byId = docs.find(function (d) { return d && String(d.id) === String(ctx.doctor_id); });
+        if (byId) return byId.id;
+    }
+    var code = String(ctx.doctor_code || '').trim().toLowerCase();
+    if (code) {
+        var byCode = docs.find(function (d) {
+            return d && String(d.doctor_code || '').trim().toLowerCase() === code;
+        });
+        if (byCode) return byCode.id;
+    }
+    var name = String(ctx.doctor_name || '').trim().toLowerCase();
+    if (name) {
+        var byName = docs.find(function (d) {
+            if (!d) return false;
+            var labels = [
+                d.english_name,
+                d.display_name,
+                d.chinese_name,
+                (typeof doctorDisplayName === 'function' ? doctorDisplayName(d) : '')
+            ].map(function (v) { return String(v || '').trim().toLowerCase(); });
+            return labels.indexOf(name) >= 0;
+        });
+        if (byName) return byName.id;
+    }
+    return '';
 }
 
 function conSetActiveDoctor(doctorId) {
@@ -458,11 +505,19 @@ function updateConsultationDoctorUI() {
 // ════════════════════════════════════════════════════════════════
 // OPEN FOR SPECIFIC PATIENT (from queue)
 // ════════════════════════════════════════════════════════════════
-function openConForPatient(patientId) {
+function openConForPatient(patientId, opts) {
+    opts = opts || {};
+    var doctorCtx = conNormalizeDoctorContext(opts.doctorContext || opts);
+    if (doctorCtx) {
+        conPendingDoctorContext = doctorCtx;
+    }
     showOnly('consultationSection');
     switchConTab('treatment');
     if (typeof refreshConsultationClinicFilterSelects === 'function') {
         refreshConsultationClinicFilterSelects();
+    }
+    if (doctorCtx) {
+        loadConsultationDoctors();
     }
 
     sv('conPsInput', '');
@@ -2578,6 +2633,27 @@ function searchConFormsDocs() {
               '</div>';
         }).join('');
     });
+}
+
+function refreshConFormsDocs() {
+    if (conPatientId && conPatientData &&
+        String(conPatientId) !== String(conFormsPatientId || '')) {
+        conFormsPatientId = conPatientId;
+        conFormsPatientData = conPatientData;
+        updateConFormsPatientLabel();
+        conFormsShowHistCard(true);
+    }
+    if (!conFormsPatientId) {
+        if (conPatientId && conPatientData) {
+            conFormsPatientId = conPatientId;
+            conFormsPatientData = conPatientData;
+            updateConFormsPatientLabel();
+            conFormsShowHistCard(true);
+        } else {
+            return;
+        }
+    }
+    searchConFormsDocs();
 }
 
 function conFormsToggleSelect(id, checked) {

@@ -1244,6 +1244,58 @@ body.app-session-active {
     margin-top: 0;
 }
 
+.dashboard-context-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 10px 12px;
+    margin: 4px 0 14px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.dashboard-context-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 170px;
+}
+
+.dashboard-context-field--doctor {
+    min-width: 260px;
+    flex: 1 1 260px;
+}
+
+.dashboard-context-field label {
+    font-size: 11px;
+    font-weight: 800;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.dashboard-context-field select {
+    height: 34px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 6px 10px;
+    background: #fff;
+    color: #1e293b;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.dashboard-context-hint {
+    flex: 1 1 260px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.35;
+    padding-bottom: 5px;
+}
+
 /* Dashboard memo stickies — overlay sized by JS from shell box (fixes Chrome 0-height inset bug) */
 .memo-sticky-dock {
     position: absolute;
@@ -3102,6 +3154,132 @@ tr:hover td { background: #fafcff; }
 #tab-queue.plusappt-clear-mode.plusappt-custom-row-color .queue-clear-row .appt-treat-inline--clear {
     color: var(--plusappt-row-text-color) !important;
 }
+
+/* Today clear mode uses the same compact display criteria as Current Queue. */
+#tab-today.plusappt-clear-mode .today-wrap {
+    overflow-x: hidden;
+}
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl {
+    min-width: 0 !important;
+    width: 100%;
+    table-layout: fixed;
+}
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-time      { width: 6.5%; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-patno     { width: 7%; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-name      { width: 28%; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-treatment { width: 14%; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-alert     { width: 10ch; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-remarks   { width: 20ch; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-duration  { width: 5.5%; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-status    { width: 8ch; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl col.today-col-action    { width: 9ch; }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl th,
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl td {
+    padding: 3px 6px;
+    vertical-align: middle;
+    font-size: calc(11px * var(--plusappt-font-scale, 1));
+}
+#tab-today.plusappt-clear-mode.plusappt-row-extra-compact .today-wrap .appt-tbl.today-tbl th,
+#tab-today.plusappt-clear-mode.plusappt-row-extra-compact .today-wrap .appt-tbl.today-tbl td {
+    padding-top: 1px;
+    padding-bottom: 1px;
+    line-height: 1.12;
+}
+#tab-today.plusappt-clear-mode.plusappt-row-more-compact .today-wrap .appt-tbl.today-tbl th,
+#tab-today.plusappt-clear-mode.plusappt-row-more-compact .today-wrap .appt-tbl.today-tbl td {
+    padding-top: 1px;
+    padding-bottom: 1px;
+    line-height: 1.14;
+}
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td {
+    height: var(--plusappt-row-min-h, 24px);
+    max-height: var(--plusappt-row-min-h, 24px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 0;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .queue-clear-name-wrap {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 2px;
+    max-width: 100%;
+    overflow: visible;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .queue-clear-pno-full,
+#tab-today.plusappt-clear-mode .today-clear-row .queue-clear-cn-full {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .queue-clear-en-prefer {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .today-patno-cell,
+#tab-today.plusappt-clear-mode .today-clear-row .today-status-cell,
+#tab-today.plusappt-clear-mode .today-clear-row .today-action-cell {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .appt-alert-cell .appt-alert-scroll,
+#tab-today.plusappt-clear-mode .today-clear-row .appt-alert-cell .appt-alert-empty {
+    white-space: nowrap;
+    display: block;
+    max-width: 10ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .appt-task-summary {
+    display: none !important;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .today-clear-remarks-inline {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .queue-clear-remarks-body {
+    display: inline-flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 2px;
+    overflow: hidden;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .plusappt-remarks-line-view {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+    line-height: inherit;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .status-badge {
+    font-size: calc(9px * var(--plusappt-font-scale, 1));
+    padding: 1px 3px;
+    line-height: 1.2;
+    border-radius: 6px;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .btn-sm {
+    padding: 1px 4px;
+    font-size: calc(10px * var(--plusappt-font-scale, 1));
+    line-height: 1.2;
+    border-radius: 6px;
+    min-width: 0;
+}
+#tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-clear-pno,
+#tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-clear-cn,
+#tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-clear-en,
+#tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-clear-time,
+#tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-remarks-line-view,
+#tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .appt-treat-inline--clear {
+    color: var(--plusappt-row-text-color) !important;
+}
 .plusappt-hint {
     font-size: 12px;
     color: #94a3b8;
@@ -3209,7 +3387,8 @@ tr:hover td { background: #fafcff; }
     display: block;
 }
 #plusApptSettingsPanel.appt-planner-settings-panel,
-#queueSettingsPanel.queue-settings-panel {
+#queueSettingsPanel.queue-settings-panel,
+#todaySettingsPanel.queue-settings-panel {
     background: #fff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
@@ -3223,7 +3402,8 @@ tr:hover td { background: #fafcff; }
     display: inline-flex;
     align-items: center;
 }
-#queueSettingsPanel.queue-settings-panel {
+#queueSettingsPanel.queue-settings-panel,
+#todaySettingsPanel.queue-settings-panel {
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
@@ -3231,7 +3411,8 @@ tr:hover td { background: #fafcff; }
     width: min(320px, 88vw);
     display: none;
 }
-#queueSettingsPanel.queue-settings-panel.open {
+#queueSettingsPanel.queue-settings-panel.open,
+#todaySettingsPanel.queue-settings-panel.open {
     display: block;
 }
 .plusappt-font-color-swatch {

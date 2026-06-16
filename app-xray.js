@@ -335,7 +335,19 @@ function selectXrayPatient(p) {
 // REFRESH  — wired to the ↻ Refresh button in the action bar
 // ════════════════════════════════════════════════════════════════
 function refreshXrays() {
-    if (!xrayPatientId) return;
+    if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id &&
+        String(conPatientData.id) !== String(xrayPatientId || '')) {
+        syncXrayPatient(conPatientData.id, conPatientData);
+        return;
+    }
+    if (!xrayPatientId) {
+        var current = xrayResolveCurrentPatient();
+        if (current && current.id) {
+            syncXrayPatient(current.id, current);
+            return;
+        }
+        return;
+    }
     loadXrayRecords();
 }
 

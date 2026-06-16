@@ -1335,21 +1335,42 @@ function submitEditPatient(e) {
         payload.referred_by = extraEdit.referred_by;
     }
     if (!nurse) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
-    function doneUpdate() {
+    function doneUpdate(savedPatient) {
+        var savedId = (savedPatient && savedPatient.id) || editPatientId;
         closeModal('editPatientModal');
         fetchPatients();
         if (typeof refreshApptListsAfterPatientEdit === 'function') {
-            refreshApptListsAfterPatientEdit();
+            refreshApptListsAfterPatientEdit(savedPatient || Object.assign({ id: savedId }, payload, {
+                patient_no: (g('edit_patientNo') && g('edit_patientNo').value) || ''
+            }));
+        }
+        if (savedPatient && typeof activePatientSlots !== 'undefined' &&
+            typeof activePatientNormalize === 'function') {
+            for (var si = 0; si < activePatientSlots.length; si++) {
+                if (activePatientSlots[si] && String(activePatientSlots[si].id) === String(savedPatient.id)) {
+                    activePatientSlots[si] = activePatientNormalize(savedPatient);
+                }
+            }
+            if (typeof renderActivePatientDock === 'function') renderActivePatientDock();
         }
         if (typeof patientViewOnActiveChange === 'function') {
-            patientViewOnActiveChange();
+            patientViewOnActiveChange(savedPatient);
         }
         alert(nurse ? patTr('patient.alertClinicTagSaved') : patTr('patient.alertUpdated'));
     }
     function doUpdate(pl, retried) {
         SB.from('patients').update(pl).eq('id',editPatientId)
         .then(function(r) {
-            if (!r.error) { doneUpdate(); return; }
+            if (!r.error) {
+                SB.from('patients').select('*').eq('id', editPatientId).single()
+                .then(function(sr) {
+                    doneUpdate(sr && !sr.error ? sr.data : null);
+                })
+                .catch(function() {
+                    doneUpdate(null);
+                });
+                return;
+            }
             var msg = String(r.error.message || '').toLowerCase();
             if (!retried && msg.indexOf('banana_notes') >= 0) {
                 var pl2 = Object.assign({}, pl);

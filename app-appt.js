@@ -200,6 +200,8 @@ var plusApptDragApptId = null;
 /** Mini-calendar staging — survives patient-drag payload on text/plain. */
 var PLUSAPPT_ROW_DRAG_TYPE = 'text/x-plusappt-row-id';
 var PLUSAPPT_TASK_LS_KEY = 'plusappt_task_state_v1';
+var PLUSAPPT_TASK_TABLE = 'appointment_task_states';
+var plusApptTaskTableUnavailable = false;
 var plusApptTransferState = null;
 var plusApptTransferDragActive = false;
 /** Cut pending: source row hidden in UI until paste confirms or cancel restores. */
@@ -3472,6 +3474,13 @@ function plusApptTaskMapWrite(map) {
     try { localStorage.setItem(PLUSAPPT_TASK_LS_KEY, JSON.stringify(map || {})); } catch (e) {}
 }
 
+function plusApptTaskTableErrorIsMissing(err) {
+    var msg = String((err && (err.message || err.details || err.hint)) || '').toLowerCase();
+    var code = String(err && err.code || '').toLowerCase();
+    return code === '42p01' || msg.indexOf('appointment_task_states') >= 0 ||
+        msg.indexOf('relation') >= 0 && msg.indexOf('does not exist') >= 0;
+}
+
 function plusApptNormLabState(v) {
     var s = String(v || '').toLowerCase();
     if (s === 'back') return 'back';
@@ -3508,6 +3517,124 @@ function plusApptApplyTaskStateToList(list) {
         appt._plusLabState = plusApptNormLabState(appt._plusLabState || appt.lab_case_status || row.lab || 'na');
         appt._plusRecallState = plusApptNormRecallState(appt._plusRecallState || appt.recall_followup_status || row.recall || '');
     });
+}
+
+function plusApptMergeTaskRows(rows, list) {
+    if (!rows || !rows.length) return;
+    var map = plusApptTaskMapRead();
+    var byId = {};
+    rows.forEach(function(row) {
+        if (!row || !row.appointment_id) return;
+        var id = String(row.appointment_id);
+        var lab = plusApptNormLabState(row.lab_status || row.lab);
+        var recall = plusApptNormRecallState(row.recall_status || row.recall);
+        if ((lab === 'na' || !lab) && !recall) delete map[id];
+        else map[id] = { lab: lab, recall: recall };
+        byId[id] = map[id] || { lab: 'na', recall: '' };
+    });
+    plusApptTaskMapWrite(map);
+    (list || []).forEach(function(appt) {
+        if (!appt || !appt.id) return;
+        var st = byId[String(appt.id)];
+        if (!st) return;
+        appt._plusLabState = plusApptNormLabState(st.lab || 'na');
+        appt._plusRecallState = plusApptNormRecallState(st.recall || '');
+    });
+}
+
+function plusApptBackfillLocalTaskRows(list, remoteRows) {
+    if (!list || !list.length || plusApptTaskTableUnavailable) return;
+    var remoteSeen = {};
+    (remoteRows || []).forEach(function(row) {
+        if (row && row.appointment_id) remoteSeen[String(row.appointment_id)] = true;
+    });
+    var map = plusApptTaskMapRead();
+    (list || []).forEach(function(appt) {
+        var id = appt && appt.id ? String(appt.id) : '';
+        if (!id || remoteSeen[id]) return;
+        var row = map[id];
+        if (!row) return;
+        var lab = plusApptNormLabState(row.lab);
+        var recall = plusApptNormRecallState(row.recall);
+        if ((lab === 'na' || !lab) && !recall) return;
+        plusApptPersistTaskState(id, { lab: lab, recall: recall });
+    });
+}
+
+function plusApptHydrateTaskStateForList(list, done) {
+    plusApptApplyTaskStateToList(list);
+    if (!list || !list.length || plusApptTaskTableUnavailable ||
+        typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        if (typeof done === 'function') done(list || []);
+        return;
+    }
+    var seen = {};
+    var ids = [];
+    list.forEach(function(appt) {
+        var id = appt && appt.id ? String(appt.id) : '';
+        if (!id || seen[id]) return;
+        seen[id] = true;
+        ids.push(id);
+    });
+    if (!ids.length) {
+        if (typeof done === 'function') done(list || []);
+        return;
+    }
+    SB.from(PLUSAPPT_TASK_TABLE)
+        .select('appointment_id,lab_status,recall_status')
+        .in('appointment_id', ids)
+        .then(function(res) {
+            if (res && res.error) {
+                if (plusApptTaskTableErrorIsMissing(res.error)) {
+                    plusApptTaskTableUnavailable = true;
+                } else {
+                    try { console.warn('appointment task state load failed', res.error); } catch (_) {}
+                }
+            } else {
+                var taskRows = res && res.data ? res.data : [];
+                plusApptMergeTaskRows(taskRows, list);
+                plusApptBackfillLocalTaskRows(list, taskRows);
+            }
+            if (typeof done === 'function') done(list || []);
+        })
+        .catch(function(err) {
+            if (plusApptTaskTableErrorIsMissing(err)) plusApptTaskTableUnavailable = true;
+            else {
+                try { console.warn('appointment task state load failed', err); } catch (_) {}
+            }
+            if (typeof done === 'function') done(list || []);
+        });
+}
+
+function plusApptPersistTaskState(apptId, row) {
+    if (!apptId || plusApptTaskTableUnavailable ||
+        typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        return;
+    }
+    var lab = plusApptNormLabState(row && row.lab);
+    var recall = plusApptNormRecallState(row && row.recall);
+    var payload = {
+        appointment_id: String(apptId),
+        lab_status: lab,
+        recall_status: recall,
+        updated_at: new Date().toISOString()
+    };
+    SB.from(PLUSAPPT_TASK_TABLE)
+        .upsert(payload, { onConflict: 'appointment_id' })
+        .then(function(res) {
+            if (res && res.error) {
+                if (plusApptTaskTableErrorIsMissing(res.error)) plusApptTaskTableUnavailable = true;
+                else {
+                    try { console.warn('appointment task state save failed', res.error); } catch (_) {}
+                }
+            }
+        })
+        .catch(function(err) {
+            if (plusApptTaskTableErrorIsMissing(err)) plusApptTaskTableUnavailable = true;
+            else {
+                try { console.warn('appointment task state save failed', err); } catch (_) {}
+            }
+        });
 }
 
 function plusApptTaskBadgeHtml(kind, value) {
@@ -3563,6 +3690,7 @@ function plusApptSetTaskState(apptId, kind, value) {
     if ((row.lab === 'na' || !row.lab) && !row.recall) delete map[id];
     else map[id] = row;
     plusApptTaskMapWrite(map);
+    plusApptPersistTaskState(id, row);
 
     plusApptDayAppts.forEach(function(a) {
         if (!a || String(a.id) !== id) return;
@@ -5210,16 +5338,18 @@ function loadPlusApptDay(opts) {
             if (loadSeq !== plusApptDayLoadSeq) return;
             rows = plusApptReconcilePendingRowIntoList(rows || []);
             plusApptDayAppts = rows;
-            plusApptApplyTaskStateToList(plusApptDayAppts);
-            renderPlusApptSchedule();
-            plusApptFinishDayLoadSelection();
-            hydrateApptUnpaidBalances(plusApptDayAppts, function(changed) {
-                if (!changed) return;
+            plusApptHydrateTaskStateForList(plusApptDayAppts, function() {
                 if (loadSeq !== plusApptDayLoadSeq) return;
-                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
-                    renderPlusApptSchedule();
-                    plusApptFinishDayLoadSelection();
-                }
+                renderPlusApptSchedule();
+                plusApptFinishDayLoadSelection();
+                hydrateApptUnpaidBalances(plusApptDayAppts, function(changed) {
+                    if (!changed) return;
+                    if (loadSeq !== plusApptDayLoadSeq) return;
+                    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
+                        renderPlusApptSchedule();
+                        plusApptFinishDayLoadSelection();
+                    }
+                });
             });
         };
         if (!r.data || !r.data.length) {
@@ -7316,9 +7446,11 @@ function loadApptRecords() {
                 esc(r.error.message) + '</td></tr>';
             return;
         }
-        arAllData = r.data || [];
-        mergeScheduleLockedLocal(arAllData);
-        arRender();
+        augmentAppointmentsChineseFromPatients(r.data || [], function(rows) {
+            arAllData = rows || [];
+            mergeScheduleLockedLocal(arAllData);
+            arRender();
+        });
     });
 }
 
@@ -9957,6 +10089,8 @@ function getApptDisplayChinese(a) {
 function augmentAppointmentsChineseFromPatients(rows, callback) {
     rows = rows || [];
     var pmap = {};
+    var pNameMap = {};
+    var pNoMap = {};
     var pAlertMap = {};
     var pHistoryMap = {};
     var pMedsMap = {};
@@ -9984,6 +10118,12 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
                     ? String(pAlertMap[a.patient_id]).trim()
                     : '';
             a._merged_chinese_name = fromAppt || fromPat;
+            if (a.patient_id && pNameMap[a.patient_id]) {
+                a.patient_name = pNameMap[a.patient_id];
+            }
+            if (a.patient_id && pNoMap[a.patient_id]) {
+                a.patient_no = pNoMap[a.patient_id];
+            }
             a._merged_patient_alerts = fromAlert || String(a.medical_alerts || '').trim();
             if (a.patient_id && typeof patientAlertDisplayNeedsExtraFields === 'function' &&
                 patientAlertDisplayNeedsExtraFields()) {
@@ -10006,14 +10146,16 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
     SB.from('patients')
         .select(
             patientAlertDisplayNeedsExtraFields()
-                ? 'id,chinese_name,medical_alerts,medical_history,current_medications,allergy,phone_number,mobile_phone'
-                : 'id,chinese_name,medical_alerts,phone_number,mobile_phone'
+                ? 'id,patient_no,full_name,chinese_name,medical_alerts,medical_history,current_medications,allergy,phone_number,mobile_phone'
+                : 'id,patient_no,full_name,chinese_name,medical_alerts,phone_number,mobile_phone'
         )
         .in('id', ids)
     .then(function(pr) {
         if (!pr.error && pr.data) {
             pr.data.forEach(function(p) {
                 pmap[p.id] = p.chinese_name;
+                pNameMap[p.id] = String(p.full_name || '').trim();
+                pNoMap[p.id] = String(p.patient_no || '').trim();
                 pAlertMap[p.id] = p.medical_alerts;
                 if (patientAlertDisplayNeedsExtraFields()) {
                     pHistoryMap[p.id] = p.medical_history;
@@ -10170,48 +10312,50 @@ function loadToday(opts) {
         }
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
             if (loadSeq !== todayLoadSeq) return;
-            plusApptApplyTaskStateToList(rows);
-            var todayRows = rows.filter(function(a) {
-                if (!a) return false;
-                if (apptTransferIsCutPending(a.id)) return false;
-                if (a.in_queue !== null && a.in_queue !== undefined) return false;
-                var s = String(a.bill_status || '').toLowerCase();
-                if (s === 'queue' || s === 'done' || s === 'finish') return false;
-                if (/cancel/.test(s)) return false;
-                if (todayApptIsNoshow(a) && todayNoshowIsDismissed(a.id)) return false;
-                return true;
-            });
-            todayAppts = todayRows;
-            if (!opts.force && apptModuleEditPaused('today')) {
-                apptModuleMarkRefreshDeferred('today');
-                apptRefreshPatientCountBadge('today');
-                doStrip(todayRows);
-                return;
-            }
-            tb.innerHTML = '';
-            var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
-                ? CalDoctorColors.filterAppts(todayRows) : todayRows;
-            apptRefreshPatientCountBadge('today');
-            var dotCtx = apptListDoctorDotCtx(todayRows);
-            if (!visible.length) {
-                tb.innerHTML =
-                    '<tr><td colspan="9" style="text-align:center;' +
-                    'color:#aaa;padding:24px;">' +
-                    esc(todayRows.length ? tr('appt.today.noFiltered') : tr('appt.today.noToday')) +
-                    '</td></tr>';
-            } else {
-                visible.forEach(function(a) {
-                    buildTodayRow(tb, a, dotCtx);
-                });
-            }
-            doStrip(todayRows);
-            apptRestoreListRowSelection(tb, 'today');
-            hydrateApptUnpaidBalances(todayRows, function(changed) {
-                if (!changed) return;
+            plusApptHydrateTaskStateForList(rows, function(hydratedRows) {
                 if (loadSeq !== todayLoadSeq) return;
-                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'today') {
-                    loadToday();
+                var todayRows = (hydratedRows || []).filter(function(a) {
+                    if (!a) return false;
+                    if (apptTransferIsCutPending(a.id)) return false;
+                    if (a.in_queue !== null && a.in_queue !== undefined) return false;
+                    var s = String(a.bill_status || '').toLowerCase();
+                    if (s === 'queue' || s === 'done' || s === 'finish') return false;
+                    if (/cancel/.test(s)) return false;
+                    if (todayApptIsNoshow(a) && todayNoshowIsDismissed(a.id)) return false;
+                    return true;
+                });
+                todayAppts = todayRows;
+                if (!opts.force && apptModuleEditPaused('today')) {
+                    apptModuleMarkRefreshDeferred('today');
+                    apptRefreshPatientCountBadge('today');
+                    doStrip(todayRows);
+                    return;
                 }
+                tb.innerHTML = '';
+                var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
+                    ? CalDoctorColors.filterAppts(todayRows) : todayRows;
+                apptRefreshPatientCountBadge('today');
+                var dotCtx = apptListDoctorDotCtx(todayRows);
+                if (!visible.length) {
+                    tb.innerHTML =
+                        '<tr><td colspan="9" style="text-align:center;' +
+                        'color:#aaa;padding:24px;">' +
+                        esc(todayRows.length ? tr('appt.today.noFiltered') : tr('appt.today.noToday')) +
+                        '</td></tr>';
+                } else {
+                    visible.forEach(function(a) {
+                        buildTodayRow(tb, a, dotCtx);
+                    });
+                }
+                doStrip(todayRows);
+                apptRestoreListRowSelection(tb, 'today');
+                hydrateApptUnpaidBalances(todayRows, function(changed) {
+                    if (!changed) return;
+                    if (loadSeq !== todayLoadSeq) return;
+                    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'today') {
+                        loadToday();
+                    }
+                });
             });
         });
     });
@@ -10912,10 +11056,39 @@ function queuePatientEditDblclickBlocked(el) {
     ));
 }
 
-/** Refresh appointment lists after patient details change from queue / today. */
-function refreshApptListsAfterPatientEdit() {
+function apptPatchCachedPatientRows(patient) {
+    if (!patient || !patient.id) return;
+    var pid = String(patient.id);
+    var lists = [todayAppts, queueApptsCache, plusApptDayAppts, calMonthApptsCache, calWeekApptsCache];
+    lists.forEach(function(list) {
+        (list || []).forEach(function(a) {
+            if (!a || String(a.patient_id || '') !== pid) return;
+            if (patient.patient_no) a.patient_no = patient.patient_no;
+            if (patient.full_name) a.patient_name = patient.full_name;
+            if (typeof patient.chinese_name !== 'undefined') {
+                a.patient_chinese_name = patient.chinese_name || '';
+                a._merged_chinese_name = patient.chinese_name || '';
+            }
+            if (typeof patient.medical_alerts !== 'undefined') {
+                a._merged_patient_alerts = patient.medical_alerts || '';
+            }
+            var ph = String(patient.phone_number || patient.mobile_phone || '').trim();
+            if (ph) a._merged_phone = ph;
+        });
+    });
+}
+
+/** Refresh appointment subtabs after patient details change. */
+function refreshApptListsAfterPatientEdit(patient) {
+    apptPatchCachedPatientRows(patient);
     if (typeof loadQueue === 'function') loadQueue();
     if (typeof loadToday === 'function') loadToday();
+    if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ force: true });
+    if (typeof renderCal === 'function') renderCal({ force: true });
+    if (typeof loadApptRecords === 'function' && typeof apptActiveTabKey === 'function' &&
+        apptActiveTabKey() === 'records') {
+        loadApptRecords();
+    }
 }
 
 function resolveQueueRowPatientId(q, done) {
@@ -11410,43 +11583,45 @@ function loadQueue() {
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
             if (loadSeq !== queueLoadSeq) return;
             tb.innerHTML = '';
-            plusApptApplyTaskStateToList(rows);
-            var activeRows = (rows || []).filter(function(q) {
-                if (!q) return false;
-                if (apptTransferIsCutPending(q.id)) return false;
-                var s = String(q.bill_status || '').toLowerCase();
-                return s !== 'cancelled';
-            });
-            queueApptsCache = activeRows;
-            var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
-                ? CalDoctorColors.filterAppts(activeRows) : activeRows;
-            apptRefreshPatientCountBadge('queue');
-            if (!visible.length) {
-                tb.innerHTML =
-                    '<tr><td colspan="10" style="text-align:center;' +
-                    'color:#aaa;padding:24px;">' +
-                    esc(activeRows.length
-                        ? tr('appt.queue.emptyFiltered')
-                        : tr('appt.queue.empty')) +
-                    '</td></tr>';
-            } else {
-                var dotCtx = apptListDoctorDotCtx(activeRows);
-                visible.forEach(function(q, idx) {
-                    buildQueueRow(tb, q, idx + 1, dotCtx);
-                });
-            }
-            doStrip(activeRows);
-            apptRestoreListRowSelection(tb, 'queue');
-            setQueueRefreshMeta({ stampNow: true });
-            ensureQueueElapsedTicker();
-            queueRefreshElapsedBadges();
-            queueScheduleCompactFit();
-            hydrateApptUnpaidBalances(rows, function(changed) {
-                if (!changed) return;
+            plusApptHydrateTaskStateForList(rows, function(hydratedRows) {
                 if (loadSeq !== queueLoadSeq) return;
-                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
-                    loadQueue();
+                var activeRows = (hydratedRows || []).filter(function(q) {
+                    if (!q) return false;
+                    if (apptTransferIsCutPending(q.id)) return false;
+                    var s = String(q.bill_status || '').toLowerCase();
+                    return s !== 'cancelled';
+                });
+                queueApptsCache = activeRows;
+                var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
+                    ? CalDoctorColors.filterAppts(activeRows) : activeRows;
+                apptRefreshPatientCountBadge('queue');
+                if (!visible.length) {
+                    tb.innerHTML =
+                        '<tr><td colspan="10" style="text-align:center;' +
+                        'color:#aaa;padding:24px;">' +
+                        esc(activeRows.length
+                            ? tr('appt.queue.emptyFiltered')
+                            : tr('appt.queue.empty')) +
+                        '</td></tr>';
+                } else {
+                    var dotCtx = apptListDoctorDotCtx(activeRows);
+                    visible.forEach(function(q, idx) {
+                        buildQueueRow(tb, q, idx + 1, dotCtx);
+                    });
                 }
+                doStrip(activeRows);
+                apptRestoreListRowSelection(tb, 'queue');
+                setQueueRefreshMeta({ stampNow: true });
+                ensureQueueElapsedTicker();
+                queueRefreshElapsedBadges();
+                queueScheduleCompactFit();
+                hydrateApptUnpaidBalances(hydratedRows, function(changed) {
+                    if (!changed) return;
+                    if (loadSeq !== queueLoadSeq) return;
+                    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
+                        loadQueue();
+                    }
+                });
             });
         });
     });
@@ -12097,21 +12272,22 @@ function renderMonthly(opts) {
         .order('start_time', {ascending: true});
     mq = applyApptModuleClinicQuery(mq);
     mq.then(function(r) {
-        var appts = r.data || [];
-        hydrateApptUnpaidBalances(appts, function(changed) {
-            if (!changed) return;
-            if (calView === 'monthly') renderMonthly();
-        });
-        calMonthApptsCache = appts.slice();
-        if (!opts.force && apptModuleEditPaused('calendar')) {
-            apptModuleMarkRefreshDeferred('calendar');
-            return;
-        }
-        var map   = {};
-        appts.forEach(function(a) {
-            if (!map[a.date]) map[a.date] = [];
-            map[a.date].push(a);
-        });
+        augmentAppointmentsChineseFromPatients(r.data || [], function(appts) {
+            appts = appts || [];
+            hydrateApptUnpaidBalances(appts, function(changed) {
+                if (!changed) return;
+                if (calView === 'monthly') renderMonthly();
+            });
+            calMonthApptsCache = appts.slice();
+            if (!opts.force && apptModuleEditPaused('calendar')) {
+                apptModuleMarkRefreshDeferred('calendar');
+                return;
+            }
+            var map   = {};
+            appts.forEach(function(a) {
+                if (!map[a.date]) map[a.date] = [];
+                map[a.date].push(a);
+            });
 
         var html = '<div class="cal-grid gcal-month-grid">';
         apptCalWeekdayHeaders().forEach(function(d) {
@@ -12170,17 +12346,17 @@ function renderMonthly(opts) {
             if (!badge) return;
             pill.innerHTML += ' ' + badge;
         });
-        if (typeof CalDoctorColors !== 'undefined') {
-            CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
-        }
+            if (typeof CalDoctorColors !== 'undefined') {
+                CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
+            }
 
-        cb.querySelectorAll('.cal-cell[data-date]').forEach(function(cell) {
-            cell.addEventListener('click', function(e) {
-                if (e.target.closest && e.target.closest('.appt-pill, .gcal-month-pill, .gcal-month-day-move')) return;
-                showDayPanel(cell.dataset.date, map);
+            cb.querySelectorAll('.cal-cell[data-date]').forEach(function(cell) {
+                cell.addEventListener('click', function(e) {
+                    if (e.target.closest && e.target.closest('.appt-pill, .gcal-month-pill, .gcal-month-day-move')) return;
+                    showDayPanel(cell.dataset.date, map);
+                });
             });
-        });
-        bindMonthlyCalActivePatientDrop(cb);
+            bindMonthlyCalActivePatientDrop(cb);
 
         cb.querySelectorAll('.gcal-month-day-move').forEach(function(handle) {
             handle.addEventListener('click', function(e) {
@@ -12248,6 +12424,7 @@ function renderMonthly(opts) {
         }
         renderCalMonthMini();
         apptRefreshPatientCountBadge('calendar');
+        });
     });
 }
 
@@ -12520,32 +12697,34 @@ var GCAL = (function () {
             .order('start_time', {ascending: true});
         wq = applyApptModuleClinicQuery(wq);
         wq.then(function (r) {
-            appts = r.data || [];
-            calWeekApptsCache = appts.slice();
-            hydrateApptUnpaidBalances(appts, function(changed) {
-                if (!changed) return;
-                if (calView === 'weekly') renderWeekly();
+            augmentAppointmentsChineseFromPatients(r.data || [], function(rows) {
+                appts = rows || [];
+                calWeekApptsCache = appts.slice();
+                hydrateApptUnpaidBalances(appts, function(changed) {
+                    if (!changed) return;
+                    if (calView === 'weekly') renderWeekly();
+                });
+                mergeScheduleLockedLocal(appts);
+                if (paused) return;
+                // collect unique doctor / treatment keys for settings panel
+                knownKeys = [];
+                var kSet = {};
+                appts.forEach(function (a) {
+                    var k = a.doctor_code || a.doctor_name || a.treatment_items || '';
+                    if (k && !kSet[k]) { kSet[k] = true; knownKeys.push(k); }
+                });
+                var panelSt = captureGcalPanelState();
+                var scrollBody = document.getElementById('gcalScrollBody');
+                var savedScrollTop = scrollBody ? scrollBody.scrollTop : 0;
+                buildDOM(cb, { preserveScroll: panelSt.settingsOpen, scrollTop: savedScrollTop });
+                restoreGcalPanelState(panelSt);
+                if (typeof CalDoctorColors !== 'undefined') {
+                    CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
+                }
+                if (typeof apptRefreshPatientCountBadge === 'function') {
+                    apptRefreshPatientCountBadge('calendar');
+                }
             });
-            mergeScheduleLockedLocal(appts);
-            if (paused) return;
-            // collect unique doctor / treatment keys for settings panel
-            knownKeys = [];
-            var kSet = {};
-            appts.forEach(function (a) {
-                var k = a.doctor_code || a.doctor_name || a.treatment_items || '';
-                if (k && !kSet[k]) { kSet[k] = true; knownKeys.push(k); }
-            });
-            var panelSt = captureGcalPanelState();
-            var scrollBody = document.getElementById('gcalScrollBody');
-            var savedScrollTop = scrollBody ? scrollBody.scrollTop : 0;
-            buildDOM(cb, { preserveScroll: panelSt.settingsOpen, scrollTop: savedScrollTop });
-            restoreGcalPanelState(panelSt);
-            if (typeof CalDoctorColors !== 'undefined') {
-                CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
-            }
-            if (typeof apptRefreshPatientCountBadge === 'function') {
-                apptRefreshPatientCountBadge('calendar');
-            }
         });
     }
 

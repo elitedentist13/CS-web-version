@@ -8787,6 +8787,22 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     gap: 3px;
 }
 
+.xray-notes-toggle {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: var(--primary);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.xray-notes-toggle:hover {
+    background: #dbeafe;
+}
+
 .xray-vtoggle {
     padding: 6px 14px;
     border: none;
@@ -8918,6 +8934,125 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     font-size: 12px;
     color: #6b7280;
     text-align: center;
+}
+
+.xray-workbench {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(320px, 0.9fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.xray-workbench--notes-hidden {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.xray-workbench--notes-hidden .xray-notes-side {
+    display: none;
+}
+
+.xray-media-col {
+    min-width: 0;
+}
+
+.xray-notes-side {
+    position: sticky;
+    top: 72px;
+    align-self: start;
+    max-height: calc(100vh - 96px);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: #fff;
+    border: 1px solid #dde8f5;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.xray-notes-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px solid #eef2f7;
+    padding-bottom: 8px;
+}
+
+.xray-notes-head h3 {
+    margin: 0;
+    color: #1e293b;
+    font-size: 15px;
+}
+
+.xray-notes-head p {
+    margin: 3px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.xray-notes-refresh {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: var(--primary);
+    border-radius: 8px;
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.xray-note-add {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.xray-note-add textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: 9px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 76px;
+}
+
+.xray-note-add .btn-add {
+    align-self: flex-end;
+    padding: 7px 14px;
+    font-size: 12px;
+}
+
+.xray-con-timeline {
+    overflow-y: auto;
+    min-height: 160px;
+    padding-right: 2px;
+}
+
+.xray-con-timeline .note-card {
+    padding: 9px 10px;
+}
+
+.xray-con-timeline .note-body {
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+@media (max-width: 1100px) {
+    .xray-workbench {
+        grid-template-columns: 1fr;
+    }
+    .xray-notes-side {
+        position: static;
+        max-height: none;
+    }
+    .xray-con-timeline {
+        max-height: 420px;
+    }
 }
 
 /* ── Filter Bar ───────────────────────────────────────────── */

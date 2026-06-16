@@ -294,6 +294,11 @@ function syncXrayPatient(patientId, patientData) {
     // Reveal main content
     var main = g('xrayMainContent');
     if (main) main.style.display = 'block';
+    syncXrayNotesToggleLabel();
+
+    if (typeof conPatientId !== 'undefined') conPatientId = patientId;
+    if (typeof conPatientData !== 'undefined') conPatientData = patientData || conPatientData;
+    if (typeof loadConNotes === 'function') loadConNotes(patientId);
     
     // Pre-load x-ray records so they're ready
     loadXrayRecords();
@@ -322,6 +327,11 @@ function selectXrayPatient(p) {
     // Reveal the main X-ray content area
     var main = g('xrayMainContent');
     if (main) main.style.display = 'block';
+    syncXrayNotesToggleLabel();
+
+    if (typeof conPatientId !== 'undefined') conPatientId = p.id;
+    if (typeof conPatientData !== 'undefined') conPatientData = p;
+    if (typeof loadConNotes === 'function') loadConNotes(p.id);
 
     // Probe bucket once so we surface config problems early
     checkXrayBucket();
@@ -349,6 +359,29 @@ function refreshXrays() {
         return;
     }
     loadXrayRecords();
+}
+
+function xrayNotesPanelHidden() {
+    var wb = g('xrayWorkbench');
+    return !!(wb && wb.classList.contains('xray-workbench--notes-hidden'));
+}
+
+function syncXrayNotesToggleLabel() {
+    var btn = g('xrayNotesToggleBtn');
+    if (!btn) return;
+    var hidden = xrayNotesPanelHidden();
+    btn.textContent = mediaTr(hidden ? 'con.xray.showNotes' : 'con.xray.hideNotes');
+    btn.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+}
+
+function toggleXrayNotesPanel(forceHidden) {
+    var wb = g('xrayWorkbench');
+    if (!wb) return;
+    var hidden = typeof forceHidden === 'boolean'
+        ? forceHidden
+        : !wb.classList.contains('xray-workbench--notes-hidden');
+    wb.classList.toggle('xray-workbench--notes-hidden', hidden);
+    syncXrayNotesToggleLabel();
 }
 
 // Plain DB URL (no cache-bust params)

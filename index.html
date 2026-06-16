@@ -1873,6 +1873,10 @@
                   onclick="setXrayView('slide')" data-i18n="media.slide"></button>
         </div>
 
+        <button type="button" class="xray-notes-toggle" id="xrayNotesToggleBtn"
+                aria-pressed="false" onclick="toggleXrayNotesPanel()"
+                data-i18n="con.xray.hideNotes"></button>
+
       </div>
 
       <!-- ── External System Links ────────────────────── -->
@@ -1955,6 +1959,8 @@
       </div>
 
       <!-- ── Filter / Sort Bar ────────────────────────── -->
+      <div class="xray-workbench" id="xrayWorkbench">
+        <div class="xray-media-col">
       <div class="xray-filter-bar">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <select id="xrayFilterType" onchange="filterXrays()"
@@ -2046,6 +2052,27 @@
 
         </div>
       </div>
+
+        </div><!-- /xray-media-col -->
+
+        <aside class="xray-notes-side">
+          <div class="xray-notes-head">
+            <div>
+              <h3 data-i18n="con.treatmentTitle"></h3>
+              <p data-i18n="con.xray.notesHint"></p>
+            </div>
+            <button type="button" class="xray-notes-refresh"
+                    onclick="refreshXrayTreatmentNotes()" data-i18n="media.refresh"></button>
+          </div>
+          <div class="xray-note-add">
+            <textarea id="xrayConNoteInput" rows="3" data-i18n-placeholder="con.notePh"></textarea>
+            <button type="button" class="btn-add" onclick="saveXrayConNote()" data-i18n="con.saveNote"></button>
+          </div>
+          <div id="xrayConTimeline" class="con-timeline xray-con-timeline">
+            <p style="color:#aaa;margin:0;padding:16px;" data-i18n="con.noNotes"></p>
+          </div>
+        </aside>
+      </div><!-- /xray-workbench -->
 
     </div><!-- /xrayMainContent -->
 

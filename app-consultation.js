@@ -3839,112 +3839,128 @@ function conSchedulePatientTimelineRefresh(pid) {
     }, 60);
 }
 
-function loadConNotes(pid) {
-    var tl = g('conTimeline');
+function renderConNotesIntoHost(hostId, rows, opts) {
+    opts = opts || {};
+    var tl = g(hostId);
     if (!tl) return;
+    rows = rows || [];
+    if (!rows.length) {
+        tl.innerHTML =
+            '<p style="color:#aaa;margin:0;padding:16px;">' +
+            esc(conTr('con.noTreatmentNotes')) +
+            '</p>';
+        return;
+    }
 
-    tl.innerHTML =
-        '<p style="color:#aaa;margin:0;padding:16px;">' +
-        esc(conTr('common.loadingEllipsis')) +
-        '</p>';
+    tl.innerHTML = '';
+    var todayIso = (typeof todayISO === 'function')
+        ? todayISO()
+        : conDateIsoFromTs((typeof nowLocal === 'function' ? nowLocal() : new Date()));
+    var idPrefix = opts.idPrefix || 'cnt';
+    var allowEdit = opts.allowEdit !== false;
+
+    var groups = {};
+    var order  = [];
+    rows.forEach(function(t) {
+        var dk = conDateIsoFromTs(t.created_at);
+        if (!dk) dk = '__unknown__';
+        if (!groups[dk]) { groups[dk] = []; order.push(dk); }
+        groups[dk].push(t);
+    });
+
+    order.forEach(function(dk) {
+        var sep = document.createElement('div');
+        sep.className = 'note-date-sep';
+        var dateLabel = '—';
+        if (dk !== '__unknown__') {
+            var dObj = (typeof parseISODateOnly === 'function')
+                ? parseISODateOnly(dk)
+                : new Date(dk);
+            if (dObj && !isNaN(dObj.getTime())) {
+                dateLabel = dObj.toLocaleDateString(conUiLocale(), {
+                    weekday: 'short', day: 'numeric',
+                    month: 'short',   year: 'numeric'
+                });
+            }
+        }
+        sep.innerHTML =
+            '<span class="note-date-label">' +
+                dateLabel +
+            '</span>';
+        tl.appendChild(sep);
+
+        groups[dk].forEach(function(t) {
+            var isToday = dk === todayIso;
+            var canEdit = allowEdit && isToday && currentRole !== 'nurse';
+            var storedClinicTag = t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag || '';
+            var clinicCode = conClinicCodeFromStoredTag(storedClinicTag);
+            var clinicMiniTag = clinicCode
+                ? '<small class="con-note-clinic-tag" title="' + esc(conTr('common.clinic')) + '">' +
+                  esc(clinicCode) + '</small>'
+                : '';
+            var doctorMiniTag = t.dentist_name
+                ? '<small style="color:#888;font-size:11px;">👨‍⚕️ ' + esc(t.dentist_name) + '</small>'
+                : '';
+
+            var div = document.createElement('div');
+            div.className = 'note-card';
+            div.innerHTML =
+                '<div class="note-card-header">' +
+                    '<div style="display:flex;flex-direction:column;gap:2px;">' +
+                        '<small class="note-time">' +
+                            new Date(t.created_at)
+                                .toLocaleTimeString(conUiLocale(), {
+                                    hour: '2-digit', minute: '2-digit'
+                                }) +
+                        '</small>' +
+                        '<div class="con-note-meta-row">' +
+                            doctorMiniTag +
+                            clinicMiniTag +
+                        '</div>' +
+                    '</div>' +
+                    (canEdit
+                        ? '<button class="btn-edit-note btn-sm" ' +
+                          'style="background:var(--primary);">' +
+                          esc(conTr('con.note.edit')) + '</button>'
+                        : '') +
+                '</div>' +
+                '<div id="' + idPrefix + '-' + t.id + '" class="note-body">' +
+                    esc(t.notes) +
+                '</div>';
+            tl.appendChild(div);
+
+            if (canEdit) {
+                div.querySelector('.btn-edit-note')
+                   .addEventListener('click', function() {
+                       editConNote(t.id, t.notes);
+                   });
+            }
+        });
+    });
+}
+
+function renderConNotesEverywhere(rows) {
+    renderConNotesIntoHost('conTimeline', rows, { idPrefix: 'cnt', allowEdit: true });
+    renderConNotesIntoHost('xrayConTimeline', rows, { idPrefix: 'xray-cnt', allowEdit: false });
+}
+
+function loadConNotes(pid) {
+    ['conTimeline', 'xrayConTimeline'].forEach(function(hostId) {
+        var tl = g(hostId);
+        if (tl) {
+            tl.innerHTML =
+                '<p style="color:#aaa;margin:0;padding:16px;">' +
+                esc(conTr('common.loadingEllipsis')) +
+                '</p>';
+        }
+    });
 
     SB.from('treatments').select('*')
         .eq('patient_id', pid)
         .order('created_at', { ascending: false })
     .then(function(r) {
         conTreatmentNotesCache = (r.data && !r.error) ? r.data : [];
-        if (r.error || !r.data || !r.data.length) {
-            tl.innerHTML =
-                '<p style="color:#aaa;margin:0;padding:16px;">' +
-                esc(conTr('con.noTreatmentNotes')) +
-                '</p>';
-            conSchedulePatientTimelineRefresh(pid);
-            return;
-        }
-
-        tl.innerHTML = '';
-        var todayIso = (typeof todayISO === 'function')
-            ? todayISO()
-            : conDateIsoFromTs((typeof nowLocal === 'function' ? nowLocal() : new Date()));
-
-        var groups = {};
-        var order  = [];
-        r.data.forEach(function(t) {
-            var dk = conDateIsoFromTs(t.created_at);
-            if (!dk) dk = '__unknown__';
-            if (!groups[dk]) { groups[dk] = []; order.push(dk); }
-            groups[dk].push(t);
-        });
-
-        order.forEach(function(dk) {
-            var sep = document.createElement('div');
-            sep.className = 'note-date-sep';
-            var dateLabel = '—';
-            if (dk !== '__unknown__') {
-                var dObj = (typeof parseISODateOnly === 'function')
-                    ? parseISODateOnly(dk)
-                    : new Date(dk);
-                if (dObj && !isNaN(dObj.getTime())) {
-                    dateLabel = dObj.toLocaleDateString(conUiLocale(), {
-                        weekday: 'short', day: 'numeric',
-                        month: 'short',   year: 'numeric'
-                    });
-                }
-            }
-            sep.innerHTML =
-                '<span class="note-date-label">' +
-                    dateLabel +
-                '</span>';
-            tl.appendChild(sep);
-
-            groups[dk].forEach(function(t) {
-                var isToday = dk === todayIso;
-                var canEdit = isToday && currentRole !== 'nurse';
-                var storedClinicTag = t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag || '';
-                var clinicCode = conClinicCodeFromStoredTag(storedClinicTag);
-                var clinicMiniTag = clinicCode
-                    ? '<small class="con-note-clinic-tag" title="' + esc(conTr('common.clinic')) + '">' +
-                      esc(clinicCode) + '</small>'
-                    : '';
-                var doctorMiniTag = t.dentist_name
-                    ? '<small style="color:#888;font-size:11px;">👨‍⚕️ ' + esc(t.dentist_name) + '</small>'
-                    : '';
-
-                var div = document.createElement('div');
-                div.className = 'note-card';
-                div.innerHTML =
-                    '<div class="note-card-header">' +
-                        '<div style="display:flex;flex-direction:column;gap:2px;">' +
-                            '<small class="note-time">' +
-                                new Date(t.created_at)
-                                    .toLocaleTimeString(conUiLocale(), {
-                                        hour: '2-digit', minute: '2-digit'
-                                    }) +
-                            '</small>' +
-                            '<div class="con-note-meta-row">' +
-                                doctorMiniTag +
-                                clinicMiniTag +
-                            '</div>' +
-                        '</div>' +
-                        (canEdit
-                            ? '<button class="btn-edit-note btn-sm" ' +
-                              'style="background:var(--primary);">' +
-                              esc(conTr('con.note.edit')) + '</button>'
-                            : '') +
-                    '</div>' +
-                    '<div id="cnt-' + t.id + '" class="note-body">' +
-                        esc(t.notes) +
-                    '</div>';
-                tl.appendChild(div);
-
-                if (canEdit) {
-                    div.querySelector('.btn-edit-note')
-                       .addEventListener('click', function() {
-                           editConNote(t.id, t.notes);
-                       });
-                }
-            });
-        });
+        renderConNotesEverywhere(conTreatmentNotesCache);
         conSchedulePatientTimelineRefresh(pid);
     });
 }
@@ -4317,9 +4333,10 @@ function conDeleteTemplate() {
     });
 }
 
-function saveConNote() {
+function saveConNoteFromInput(inputId) {
     if (!conPatientId) { alert(conTr('con.note.alertSelectPatient')); return; }
-    var inp  = g('conNoteInput');
+    var inp  = g(inputId || 'conNoteInput');
+    if (!inp) return;
     var note = (inp.value || '').trim();
     if (!note) { alert(conTr('con.note.alertEnterNote')); return; }
 
@@ -4395,6 +4412,26 @@ function saveConNote() {
         }
         alert(trRepl('appt.msg.error', { MSG: r.error.message }));
     });
+}
+
+function saveConNote() {
+    saveConNoteFromInput('conNoteInput');
+}
+
+function saveXrayConNote() {
+    var xpId = (typeof xrayPatientId !== 'undefined') ? xrayPatientId : null;
+    if (xpId && (!conPatientId || String(conPatientId) !== String(xpId))) {
+        conPatientId = xpId;
+        conPatientData = (typeof xrayPatientData !== 'undefined' && xrayPatientData)
+            ? xrayPatientData
+            : conPatientData;
+    }
+    saveConNoteFromInput('xrayConNoteInput');
+}
+
+function refreshXrayTreatmentNotes() {
+    var pid = (typeof xrayPatientId !== 'undefined' && xrayPatientId) ? xrayPatientId : conPatientId;
+    if (pid) loadConNotes(pid);
 }
 
 function editConNote(nid, rawText) {
@@ -5107,6 +5144,7 @@ function rxLoadHistoryGroupIntoDraft(records, opts) {
         alert(conTr('con.forms.alertSelectPatient'));
         return false;
     }
+    var activeRxDate = String((g('rxDate') && g('rxDate').value) || '').trim() || todayISO();
     var snap = rxSnapshotFromDrughistoryRecords(records);
     if (!snap.length) {
         alert(conTr('con.rx.historyNoLines'));
@@ -5139,7 +5177,10 @@ function rxLoadHistoryGroupIntoDraft(records, opts) {
 
     var first = records[0];
     if (first) {
-        sv('rxDate', String(first.prescribed_date || '').trim() || todayISO());
+        var nextDate = opts.editingHistory
+            ? (String(first.prescribed_date || '').trim() || activeRxDate)
+            : activeRxDate;
+        sv('rxDate', nextDate);
         var histDr = String(first.dentist_name || first.doctor_name || first.doctor_tag || '').trim();
         if (typeof stripDoctorTagPrefix === 'function') histDr = stripDoctorTagPrefix(histDr);
         sv('rxDentistName', histDr || conActiveDoctorName || currentName || '');

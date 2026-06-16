@@ -5872,6 +5872,26 @@ function saveFullPrescription() {
 // ════════════════════════════════════════════════════════════════
 // DRUG HISTORY — grouped by date + print buttons
 // ════════════════════════════════════════════════════════════════
+function refreshDrugPrescriptionPanel() {
+    if (!conPatientId) {
+        alert(conTr('con.forms.alertSelectPatient'));
+        return;
+    }
+    var btn = g('rxHistoryRefreshBtn');
+    if (btn) btn.disabled = true;
+    var done = function() {
+        if (btn) btn.disabled = false;
+    };
+    if (typeof loadDrugHistory === 'function') {
+        loadDrugHistory(conPatientId).then(done).catch(done);
+    } else {
+        done();
+    }
+    if (typeof loadConPatientTimeline === 'function') {
+        loadConPatientTimeline(conPatientId);
+    }
+}
+
 async function loadDrugHistory(patientId) {
     var wrap = g('drugHistoryWrap');
     if (!wrap) return;

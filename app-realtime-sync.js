@@ -1,4 +1,4 @@
-// app-realtime-sync.js — Live cross-PC sync (queue, payments, lab/recall, patients, notes)
+// app-realtime-sync.js — Live cross-PC sync (queue, bills, patients, notes, Rx, media, charts)
 // Requires: SB (app.js), currentUserId, currentClinicId, currentClinicCodeForTagging
 // ════════════════════════════════════════════════════════════════
 
@@ -22,7 +22,13 @@ var REALTIME_SYNC = (function() {
         bill: false,
         payment: false,
         patient: false,
-        notes: false
+        notes: false,
+        rx: false,
+        pending: false,
+        photo: false,
+        xray: false,
+        doc: false,
+        chart: false
     };
     var _syncState = 'off'; // off | connecting | live | error
     var _lastSyncAt = null;
@@ -131,6 +137,62 @@ var REALTIME_SYNC = (function() {
         return rtPatientInActiveApptLists(pid);
     }
 
+    function rtPendingRelevant(row) {
+        if (!row) return false;
+        if (typeof billPanelIsOpen === 'function' && billPanelIsOpen() &&
+            typeof billPatId !== 'undefined' && billPatId &&
+            row.patient_id && String(row.patient_id) === String(billPatId)) {
+            return true;
+        }
+        return rtTreatmentRelevant(row);
+    }
+
+    function rtPendingEditPaused() {
+        if (typeof billPanelIsOpen !== 'function' || !billPanelIsOpen()) return false;
+        if (typeof isPendingListDirty === 'function' &&
+            typeof pendingLists !== 'undefined' && typeof pendingIdx !== 'undefined') {
+            var pl = pendingLists[pendingIdx];
+            if (pl && isPendingListDirty(pl)) return true;
+        }
+        var ae = document.activeElement;
+        if (ae && ae.closest && ae.closest('#pendingItemsBody')) return true;
+        return false;
+    }
+
+    function rtPhotoEditPaused() {
+        if (typeof photoUploadQueue !== 'undefined' && photoUploadQueue.length) return true;
+        var modal = g('photoUploadModal');
+        if (modal && modal.style.display !== 'none' && modal.style.display !== '') return true;
+        return false;
+    }
+
+    function rtXrayEditPaused() {
+        if (typeof xrayUploadQueue !== 'undefined' && xrayUploadQueue.length) return true;
+        var modal = g('xrayUploadModal');
+        if (modal && modal.style.display !== 'none' && modal.style.display !== '') return true;
+        return false;
+    }
+
+    function rtDocEditPaused() {
+        if (typeof conFormsEditingDocId !== 'undefined' && conFormsEditingDocId) return true;
+        var ae = document.activeElement;
+        if (ae && ae.closest) {
+            if (ae.closest('#conFormsShellCard') || ae.closest('.doc-editor-host') ||
+                ae.closest('#conFormsTplCard')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function rtChartEditPaused() {
+        var ae = document.activeElement;
+        if (!ae) return false;
+        if (ae.id === 'dentalChartNotes' || ae.id === 'perioChartNotes') return true;
+        if (ae.closest && ae.closest('.perio-input')) return true;
+        return false;
+    }
+
     function rtNotesEditPaused() {
         var ids = ['conNoteInput', 'xrayConNoteInput'];
         for (var i = 0; i < ids.length; i++) {
@@ -140,6 +202,19 @@ var REALTIME_SYNC = (function() {
         var ae = document.activeElement;
         if (ae && ae.closest) {
             if (ae.closest('.con-note-edit-input') || ae.closest('.con-note-editing')) return true;
+        }
+        return false;
+    }
+
+    function rtRxEditPaused() {
+        var ae = document.activeElement;
+        if (!ae) return false;
+        if (ae.id === 'rxDate' || ae.id === 'rxDentistName') return true;
+        if (ae.closest) {
+            if (ae.closest('#rxLinesWrap') || ae.closest('#addRxPanel') ||
+                ae.closest('.rx-line-row') || ae.closest('#rxDrugListsModal')) {
+                return true;
+            }
         }
         return false;
     }
@@ -245,9 +320,146 @@ var REALTIME_SYNC = (function() {
                 refreshBillDetailPayments();
             }
         }
+        refreshApptUnpaidFromRealtime();
         try {
             document.dispatchEvent(new CustomEvent('consultation-ar-refresh'));
         } catch (_) {}
+    }
+
+    function refreshApptUnpaidFromRealtime() {
+        if (typeof apptSectionIsActive !== 'function' || !apptSectionIsActive()) return;
+        if (typeof hydrateApptUnpaidBalances !== 'function') return;
+
+        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
+        var list = null;
+        if (tab === 'queue' && typeof queueApptsCache !== 'undefined') list = queueApptsCache;
+        else if (tab === 'today' && typeof todayAppts !== 'undefined') list = todayAppts;
+        else if (tab === 'plusappt' && typeof plusApptDayAppts !== 'undefined') list = plusApptDayAppts;
+        else if (tab === 'calendar') {
+            var panel = g('dayPanel');
+            if (panel && panel.style.display !== 'none' && typeof _dayPanelCtx !== 'undefined' &&
+                _dayPanelCtx && _dayPanelCtx.items) {
+                list = _dayPanelCtx.items;
+            } else if (typeof calView !== 'undefined') {
+                var iso = typeof apptMemoDateIso === 'function'
+                    ? apptMemoDateIso('calendar')
+                    : (typeof todayISO === 'function' ? todayISO() : '');
+                var cache = calView === 'monthly'
+                    ? (typeof calMonthApptsCache !== 'undefined' ? calMonthApptsCache : [])
+                    : (typeof calWeekApptsCache !== 'undefined' ? calWeekApptsCache : []);
+                list = (cache || []).filter(function(a) {
+                    return a && String(a.date || '') === String(iso || '');
+                });
+            }
+        }
+        if (!list || !list.length) return;
+
+        hydrateApptUnpaidBalances(list, function(changed) {
+            if (!changed) return;
+            if (tab === 'queue') {
+                if (!rtQueueRefreshAllowed()) {
+                    scheduleRetry();
+                    return;
+                }
+                if (typeof loadQueue === 'function') loadQueue();
+            } else if (tab === 'today') {
+                if (typeof apptModuleEditPaused === 'function' && apptModuleEditPaused('today')) {
+                    if (typeof apptModuleMarkRefreshDeferred === 'function') {
+                        apptModuleMarkRefreshDeferred('today');
+                    }
+                    return;
+                }
+                if (typeof loadToday === 'function') loadToday({ force: true });
+            } else if (tab === 'plusappt' || tab === 'calendar') {
+                if (typeof apptModuleEditPaused === 'function' && apptModuleEditPaused(tab)) {
+                    if (typeof apptModuleMarkRefreshDeferred === 'function') {
+                        apptModuleMarkRefreshDeferred(tab);
+                    }
+                    return;
+                }
+                if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+            }
+        });
+    }
+
+    function refreshPendingFromRealtime() {
+        if (typeof billPanelIsOpen === 'function' && billPanelIsOpen()) {
+            if (rtPendingEditPaused()) {
+                _pending.pending = true;
+            } else if (typeof refreshBillPanelLists === 'function') {
+                refreshBillPanelLists();
+            } else if (typeof loadPendingLists === 'function') {
+                loadPendingLists();
+            }
+        }
+        refreshApptUnpaidFromRealtime();
+    }
+
+    function refreshPatientMediaFromRealtime(kind) {
+        if (typeof sectionVisible !== 'function' || !sectionVisible('consultationSection')) {
+            if (typeof sectionVisible === 'function' && sectionVisible('patientSection') &&
+                typeof selPatientId !== 'undefined' && selPatientId &&
+                typeof patViewLoadDashboard === 'function') {
+                patViewLoadDashboard();
+            }
+            return;
+        }
+        if (typeof conPatientId === 'undefined' || !conPatientId) return;
+        var tab = typeof activeConsultationTabKey === 'function' ? activeConsultationTabKey() : '';
+
+        if (kind === 'photo') {
+            if (rtPhotoEditPaused()) {
+                _pending.photo = true;
+            } else if (tab === 'photos' && typeof refreshPhotos === 'function') {
+                refreshPhotos();
+            }
+        } else if (kind === 'xray') {
+            if (rtXrayEditPaused()) {
+                _pending.xray = true;
+            } else if (tab === 'xrays' && typeof refreshXrays === 'function') {
+                refreshXrays();
+            }
+        } else if (kind === 'doc') {
+            if (rtDocEditPaused()) {
+                _pending.doc = true;
+            } else if (tab === 'forms' && typeof refreshConFormsDocs === 'function') {
+                refreshConFormsDocs();
+            }
+        }
+
+        if (typeof loadConPatientTimeline === 'function') {
+            loadConPatientTimeline(conPatientId);
+        }
+        if (typeof sectionVisible === 'function' && sectionVisible('patientSection') &&
+            typeof patViewLoadDashboard === 'function') {
+            patViewLoadDashboard();
+        }
+    }
+
+    function refreshChartFromRealtime() {
+        if (typeof sectionVisible === 'function' && sectionVisible('patientSection') &&
+            typeof selPatientId !== 'undefined' && selPatientId &&
+            typeof patViewLoadDashboard === 'function') {
+            patViewLoadDashboard();
+        }
+        if (typeof sectionVisible !== 'function' || !sectionVisible('consultationSection')) return;
+        if (typeof conPatientId === 'undefined' || !conPatientId) return;
+
+        var onChartTab = typeof activeConsultationTabKey === 'function' &&
+            activeConsultationTabKey() === 'charting';
+        var chartMatches = typeof chartPatientId !== 'undefined' && chartPatientId &&
+            String(chartPatientId) === String(conPatientId);
+
+        if (onChartTab && chartMatches) {
+            if (rtChartEditPaused()) {
+                _pending.chart = true;
+                return;
+            }
+            if (typeof loadChartRecord === 'function') loadChartRecord();
+        }
+        if (typeof loadConPatientTimeline === 'function') {
+            loadConPatientTimeline(conPatientId);
+        }
     }
 
     function refreshConsultationFromRealtime(includeNotes) {
@@ -305,6 +517,28 @@ var REALTIME_SYNC = (function() {
         if (typeof loadConPatientTimeline === 'function') loadConPatientTimeline(conPatientId);
     }
 
+    function refreshRxFromRealtime() {
+        var pid = null;
+        if (typeof conPatientId !== 'undefined' && conPatientId) pid = String(conPatientId);
+        else if (typeof selPatientId !== 'undefined' && selPatientId) pid = String(selPatientId);
+
+        if (typeof sectionVisible === 'function' && sectionVisible('consultationSection') && pid) {
+            if (rtRxEditPaused()) {
+                _pending.rx = true;
+                return;
+            }
+            if (typeof loadDrugHistory === 'function') loadDrugHistory(pid);
+            if (typeof loadConPatientTimeline === 'function') loadConPatientTimeline(pid);
+            return;
+        }
+
+        if (typeof sectionVisible === 'function' && sectionVisible('patientSection') &&
+            typeof selPatientId !== 'undefined' && selPatientId &&
+            typeof patViewLoadDashboard === 'function') {
+            patViewLoadDashboard();
+        }
+    }
+
     function refreshDashboardFromRealtime() {
         if (typeof sectionVisible !== 'function' || !sectionVisible('dashboardSection')) return;
         if (typeof refreshDashboardUserBadge === 'function') refreshDashboardUserBadge();
@@ -324,7 +558,13 @@ var REALTIME_SYNC = (function() {
             bill: _pending.bill,
             payment: _pending.payment,
             patient: _pending.patient,
-            notes: _pending.notes
+            notes: _pending.notes,
+            rx: _pending.rx,
+            pending: _pending.pending,
+            photo: _pending.photo,
+            xray: _pending.xray,
+            doc: _pending.doc,
+            chart: _pending.chart
         };
         _pending = {
             appt: false,
@@ -332,20 +572,34 @@ var REALTIME_SYNC = (function() {
             bill: false,
             payment: false,
             patient: false,
-            notes: false
+            notes: false,
+            rx: false,
+            pending: false,
+            photo: false,
+            xray: false,
+            doc: false,
+            chart: false
         };
 
         var anyAppt = flags.appt || flags.task || flags.patient;
-        var anyBill = flags.bill || flags.payment;
+        var anyBill = flags.bill || flags.payment || flags.pending;
         var anyNotes = flags.notes;
-        if (!anyAppt && !anyBill && !anyNotes) return;
+        var anyRx = flags.rx;
+        var anyMedia = flags.photo || flags.xray || flags.doc || flags.chart;
+        if (!anyAppt && !anyBill && !anyNotes && !anyRx && !anyMedia) return;
 
         if (flags.patient) refreshPatientFromRealtime();
         else if (anyAppt) refreshApptFromRealtime();
-        if (anyBill) refreshBillFromRealtime();
+        if (flags.pending) refreshPendingFromRealtime();
+        if (flags.bill || flags.payment) refreshBillFromRealtime();
         if (anyNotes) refreshNotesFromRealtime();
+        if (anyRx) refreshRxFromRealtime();
         else if (anyAppt || flags.task) refreshConsultationFromRealtime(false);
-        if (anyAppt || anyBill || anyNotes) refreshDashboardFromRealtime();
+        if (flags.photo) refreshPatientMediaFromRealtime('photo');
+        if (flags.xray) refreshPatientMediaFromRealtime('xray');
+        if (flags.doc) refreshPatientMediaFromRealtime('doc');
+        if (flags.chart) refreshChartFromRealtime();
+        if (anyAppt || anyBill || anyNotes || anyRx || anyMedia) refreshDashboardFromRealtime();
 
         markLastSynced();
         pulseSyncIndicator();
@@ -463,6 +717,42 @@ var REALTIME_SYNC = (function() {
         scheduleRefresh('notes');
     }
 
+    function onDrughistoryChange(payload) {
+        var row = rtPayloadRow(payload);
+        if (row && !rtTreatmentRelevant(row)) return;
+        scheduleRefresh('rx');
+    }
+
+    function onPendingBillChange(payload) {
+        var row = rtPayloadRow(payload);
+        if (row && !rtPendingRelevant(row)) return;
+        scheduleRefresh('pending');
+    }
+
+    function onPhotoChange(payload) {
+        var row = rtPayloadRow(payload);
+        if (row && !rtTreatmentRelevant(row)) return;
+        scheduleRefresh('photo');
+    }
+
+    function onXrayChange(payload) {
+        var row = rtPayloadRow(payload);
+        if (row && !rtTreatmentRelevant(row)) return;
+        scheduleRefresh('xray');
+    }
+
+    function onPatientDocumentChange(payload) {
+        var row = rtPayloadRow(payload);
+        if (row && !rtTreatmentRelevant(row)) return;
+        scheduleRefresh('doc');
+    }
+
+    function onDentalChartChange(payload) {
+        var row = rtPayloadRow(payload);
+        if (row && !rtTreatmentRelevant(row)) return;
+        scheduleRefresh('chart');
+    }
+
     function unsubscribe() {
         if (!_channel || typeof SB === 'undefined') {
             _channel = null;
@@ -510,6 +800,36 @@ var REALTIME_SYNC = (function() {
                 schema: 'public',
                 table: 'treatments'
             }, onTreatmentChange)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'drughistory'
+            }, onDrughistoryChange)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'pending_bill_items'
+            }, onPendingBillChange)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'photos'
+            }, onPhotoChange)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'xrays'
+            }, onXrayChange)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'patient_documents'
+            }, onPatientDocumentChange)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'dental_charts'
+            }, onDentalChartChange)
             .subscribe(function(status) {
                 if (status === 'SUBSCRIBED') setSyncState('live');
                 else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setSyncState('error');
@@ -536,7 +856,13 @@ var REALTIME_SYNC = (function() {
             bill: false,
             payment: false,
             patient: false,
-            notes: false
+            notes: false,
+            rx: false,
+            pending: false,
+            photo: false,
+            xray: false,
+            doc: false,
+            chart: false
         };
         _lastSyncAt = null;
         _remotePatientRow = null;
@@ -568,11 +894,27 @@ var REALTIME_SYNC = (function() {
     });
 
     document.addEventListener('focusout', function(ev) {
-        if (!_pending.notes) return;
         var target = ev.target;
-        if (!target || !target.id) return;
-        if (target.id === 'conNoteInput' || target.id === 'xrayConNoteInput') {
+        if (!target) return;
+        if (_pending.notes && target.id &&
+            (target.id === 'conNoteInput' || target.id === 'xrayConNoteInput')) {
             scheduleRefresh('notes');
+        }
+        if (_pending.rx && (target.id === 'rxDate' || target.id === 'rxDentistName' ||
+            (target.closest && (target.closest('#rxLinesWrap') || target.closest('#addRxPanel'))))) {
+            scheduleRefresh('rx');
+        }
+        if (_pending.pending && target.closest && target.closest('#pendingItemsBody')) {
+            scheduleRefresh('pending');
+        }
+        if (_pending.chart && (target.id === 'dentalChartNotes' || target.id === 'perioChartNotes' ||
+            (target.closest && target.closest('.perio-input')))) {
+            scheduleRefresh('chart');
+        }
+        if (_pending.doc && target.closest &&
+            (target.closest('#conFormsShellCard') || target.closest('.doc-editor-host') ||
+             target.closest('#conFormsTplCard'))) {
+            scheduleRefresh('doc');
         }
     }, true);
 

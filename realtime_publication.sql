@@ -12,7 +12,13 @@ begin
         'bills',
         'bill_payments',
         'patients',
-        'treatments'
+        'treatments',
+        'drughistory',
+        'pending_bill_items',
+        'photos',
+        'xrays',
+        'patient_documents',
+        'dental_charts'
     ]
     loop
         if not exists (

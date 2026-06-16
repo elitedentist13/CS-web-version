@@ -85,7 +85,11 @@
 
         'realtime.status.off': { en: 'Live sync off', 'zh-CN': '实时同步未连接', 'zh-Hant': '即時同步未連線' },
         'realtime.status.connecting': { en: 'Connecting live sync…', 'zh-CN': '正在连接实时同步…', 'zh-Hant': '正在連線即時同步…' },
-        'realtime.status.live': { en: 'Live sync active — queue, payments, and lab/recall update across PCs', 'zh-CN': '实时同步已启用 — 队列、付款及 Lab/Recall 会在各电脑间同步', 'zh-Hant': '即時同步已啟用 — 隊列、付款及 Lab/Recall 會在各電腦間同步' },
+        'realtime.status.live': {
+            en: 'Live sync active — queue, billing, notes, Rx, photos, X-rays, documents, and charts update across PCs',
+            'zh-CN': '实时同步已启用 — 队列、账单、笔记、处方、照片、X光、文档及图表会在各电脑间同步',
+            'zh-Hant': '即時同步已啟用 — 隊列、帳單、筆記、處方、相片、X光、文件及圖表會在各電腦間同步'
+        },
         'realtime.status.error': { en: 'Live sync connection error — data may be stale until refresh', 'zh-CN': '实时同步连接异常 — 请手动刷新以确保数据最新', 'zh-Hant': '即時同步連線異常 — 請手動重新整理以確保資料最新' },
         'realtime.lastSync.never': { en: '—', 'zh-CN': '—', 'zh-Hant': '—' },
         'realtime.lastSync.waiting': { en: '…', 'zh-CN': '…', 'zh-Hant': '…' },
@@ -2415,6 +2419,11 @@
             'zh-Hant': '✅ 處方已更新 — {N} 種藥物，病人 {NAME}'
         },
         'con.rx.noHistory': { en: 'No prescription history yet.', 'zh-CN': '尚无处方记录。', 'zh-Hant': '尚無處方紀錄。' },
+        'con.rx.refreshTitle': {
+            en: 'Reload prescription history from the database',
+            'zh-CN': '从数据库重新加载处方记录',
+            'zh-Hant': '從資料庫重新載入處方紀錄'
+        },
         'con.rx.noDrugsYet': {
             en: 'No drugs added yet. Click "+ Add Drug", pick a drug, then select days.',
             'zh-CN': '尚未添加药品。点击「+ 添加药品」，选择药品后选择天数。',

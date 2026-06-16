@@ -31,7 +31,10 @@
       'v=' + encodeURIComponent(window.__JSM_ASSET_BUST_TS);
   }
   window.__JSM_WITH_BUST = withBust;
-  document.write('<link rel="stylesheet" href="' + withBust('style.css') + '">');
+  var link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = withBust('style.css');
+  document.head.appendChild(link);
 })();
 </script>
 <style>
@@ -5235,39 +5238,43 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════
-     SCRIPTS  (load order matters)
+     SCRIPTS  (load order matters — use static tags for CDN; no document.write)
 ════════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 (function () {
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
-  function w(src) { document.write('<script src="' + src + '"><\/script>'); }
-  w('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
-  w('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js');
-  w(wb('app-i18n.js'));
-  w(wb('app-i18n-extra.js'));
-  w(wb('app.js'));
-  w(wb('app-doc-editor.js'));
-  w(wb('app-program-settings.js'));
-  w(wb('app-audit.js'));
-  w(wb('app-auth.js'));
-  w(wb('treatment-items-catalog.js'));
-  w(wb('app-config.js'));
-  w(wb('app-report.js'));
-  w(wb('app-ai-helper.js'));
-  w(wb('app-memo-ai.js'));
-  w(wb('app-photos.js'));
-  w(wb('app-patient.js'));
-  w(wb('app-patient-views.js'));
-  w(wb('cal-doctor-colors.js'));
-  w(wb('app-appt.js'));
-  w(wb('app-realtime-sync.js'));
-  w(wb('app-rx-phrases.js?v=20260520b'));
-  w(wb('app-consultation.js'));
-  w(wb('app-xray.js?v=20260520f'));
-  w(wb('app-charts.js'));
-  w(wb('app-drugs.js'));
-  w(wb('app-broadcast.js?v=20260524c'));
-  w(wb('app-quicklaunch.js'));
+  var files = [
+    'app-i18n.js',
+    'app-i18n-extra.js',
+    'app.js',
+    'app-doc-editor.js',
+    'app-program-settings.js',
+    'app-audit.js',
+    'app-auth.js',
+    'treatment-items-catalog.js',
+    'app-config.js',
+    'app-report.js',
+    'app-ai-helper.js',
+    'app-memo-ai.js',
+    'app-photos.js',
+    'app-patient.js',
+    'app-patient-views.js',
+    'cal-doctor-colors.js',
+    'app-appt.js',
+    'app-realtime-sync.js',
+    'app-rx-phrases.js?v=20260520b',
+    'app-consultation.js',
+    'app-xray.js?v=20260520f',
+    'app-charts.js',
+    'app-drugs.js',
+    'app-broadcast.js?v=20260524c',
+    'app-quicklaunch.js'
+  ];
+  for (var i = 0; i < files.length; i++) {
+    document.write('<script src="' + wb(files[i]) + '"><\/script>');
+  }
 })();
 </script>
 

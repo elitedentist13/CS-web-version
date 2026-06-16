@@ -65,6 +65,11 @@ var I18N_STRINGS = {
         'zh-CN': '诊疗',
         'zh-Hant': '診療'
     },
+    'status.inConsultation': {
+        en: 'Consult',
+        'zh-CN': '诊疗',
+        'zh-Hant': '診療'
+    },
     'dashboard.card.drugbook': {
         en: 'Drug Book',
         'zh-CN': '药册',
@@ -173,6 +178,9 @@ function dispApptStatus(raw) {
     var keyMap = {
         'scheduled': 'status.scheduled',
         'queue': 'status.queue',
+        'in consultation': 'status.inConsultation',
+        'consultation': 'status.inConsultation',
+        'consult': 'status.inConsultation',
         'done': 'status.done',
         'no show': 'status.noShow',
         'noshow': 'status.noShow',
@@ -187,6 +195,7 @@ function dispApptStatus(raw) {
     if (/no.?show/i.test(s)) return t('status.noShow');
     if (/cancel/i.test(s)) return t('status.cancelled');
     if (/^done$/i.test(s)) return t('status.done');
+    if (/consult/i.test(s)) return t('status.inConsultation');
     if (/queue|arrived/i.test(s)) return t('status.queue');
     if (/partial/i.test(s)) return t('status.partial');
     if (/^paid$/i.test(s)) return t('status.paid');

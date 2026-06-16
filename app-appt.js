@@ -10492,6 +10492,11 @@ function buildTodayRow(tb, a, dotCtx) {
             '<button type="button" class="btn-today-remove btn-sm" ' +
             'style="background:#64748b;">' + esc(tr('appt.today.btnRemove')) + '</button>';
     }
+    if (!isNoshow && (a.patient_id || apptPatientPhoneForWhatsApp(a))) {
+        actionBtn +=
+            '<button type="button" class="btn-today-wa btn-sm" ' +
+            'style="background:#25d366;">' + esc(tr('whatsapp.action.short')) + '</button>';
+    }
 
     if (clearMode) {
         row.innerHTML =
@@ -10624,6 +10629,14 @@ function buildTodayRow(tb, a, dotCtx) {
         ci.addEventListener('click', function (e) {
             e.stopPropagation();
             checkInPatient(a);
+        });
+    }
+
+    var wa = row.querySelector('.btn-today-wa');
+    if (wa) {
+        wa.addEventListener('click', function(e) {
+            e.stopPropagation();
+            openAppointmentWhatsApp(a, 'appointmentReminder');
         });
     }
 
@@ -11637,6 +11650,82 @@ function apptConsultationDoctorContext(appt) {
     return (ctx.doctor_id || ctx.doctor_code || ctx.doctor_name) ? ctx : null;
 }
 
+function apptPatientPhoneForWhatsApp(a) {
+    return String((a && (a._merged_phone || a.phone || a.phone_number || a.mobile_phone || a.patient_phone)) || '').trim();
+}
+
+function apptPatientNameForWhatsApp(a) {
+    a = a || {};
+    return String(a.patient_chinese_name || a._merged_chinese_name || a.patient_name || tr('appt.today.thisPatient')).trim();
+}
+
+function apptDoctorNameForWhatsApp(a) {
+    a = a || {};
+    var dr = String(a.doctor_name || a.dentist_name || '').trim();
+    if (!dr && a.doctor_code && typeof APP_DOCTORS !== 'undefined') {
+        var code = String(a.doctor_code || '').trim().toLowerCase();
+        var hit = (APP_DOCTORS || []).find(function(d) {
+            return String(d.doctor_code || '').trim().toLowerCase() === code;
+        });
+        if (hit) dr = hit.display_name || hit.english_name || hit.chinese_name || a.doctor_code;
+    }
+    if (typeof stripDoctorTagPrefix === 'function') dr = stripDoctorTagPrefix(dr);
+    return dr || String(a.doctor_code || '').trim() || '-';
+}
+
+function apptClinicNameForWhatsApp() {
+    if (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) return currentClinicLabel;
+    if (typeof currentClinicId !== 'undefined' && currentClinicId &&
+        typeof clinicRecordFromId === 'function') {
+        var rec = clinicRecordFromId(currentClinicId);
+        if (rec && typeof clinicDisplayName === 'function') return clinicDisplayName(rec);
+    }
+    return 'Joyful Smile';
+}
+
+function apptWhatsAppMessage(a, kind) {
+    a = a || {};
+    var key = kind === 'runningLate'
+        ? 'whatsapp.msg.runningLate'
+        : (kind === 'labReady'
+            ? 'whatsapp.msg.labReady'
+            : 'whatsapp.msg.appointmentReminder');
+    return trRepl(key, {
+        NAME: apptPatientNameForWhatsApp(a),
+        CLINIC: apptClinicNameForWhatsApp(),
+        DATE: a.date || (typeof todayISO === 'function' ? todayISO() : ''),
+        TIME: a.start_time ? fmt12(a.start_time) : '',
+        DOCTOR: apptDoctorNameForWhatsApp(a),
+        TREATMENT: String(a.treatment_items || '').trim() || '-'
+    });
+}
+
+function openAppointmentWhatsApp(a, kind) {
+    if (!a) return;
+    function openWith(row) {
+        if (typeof openWhatsAppPrefill !== 'function') return;
+        openWhatsAppPrefill(apptPatientPhoneForWhatsApp(row), apptWhatsAppMessage(row, kind), {
+            source: 'appointment'
+        });
+    }
+    if (apptPatientPhoneForWhatsApp(a) || !a.patient_id) {
+        openWith(a);
+        return;
+    }
+    SB.from('patients')
+        .select('full_name,chinese_name,phone_number,mobile_phone')
+        .eq('id', a.patient_id)
+        .single()
+    .then(function(r) {
+        if (!r.error && r.data) {
+            a.patient_name = a.patient_name || r.data.full_name || '';
+            a.patient_chinese_name = a.patient_chinese_name || r.data.chinese_name || '';
+            a._merged_phone = r.data.mobile_phone || r.data.phone_number || '';
+        }
+        openWith(a);
+    });
+}
+
 // seqNo: 1-based consultation order (top of list = first to see the doctor).
 function buildQueueRow(tb, q, seqNo, dotCtx) {
     if (apptTransferIsCutPending(q.id)) return;
@@ -11782,6 +11871,9 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
                     esc(tr('appt.queue.actions')) +
                 '</button>' +
                 '<div class="action-drop" id="ad-' + uid + '">' +
+                    '<div class="action-item action-item--whatsapp" id="act-wa-' + uid + '">' +
+                        '<span class="ai-icon">💬</span>' + esc(tr('whatsapp.action.reminder')) +
+                    '</div>' +
                     '<div class="action-item" id="act-bill-'   + uid + '">' +
                         '<span class="ai-icon">🧾</span>' + esc(tr('bill.queue.openBill')) +
                     '</div>' +
@@ -11922,6 +12014,11 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         e.stopPropagation();
         drop.classList.remove('open');
         setTimeout(function() { openBillPanel(q); }, 60);
+    });
+    g('act-wa-' + uid).addEventListener('click', function(e) {
+        e.stopPropagation();
+        drop.classList.remove('open');
+        setTimeout(function() { openAppointmentWhatsApp(q, 'appointmentReminder'); }, 40);
     });
     row.querySelectorAll('.appt-task-pill-btn[data-task-cycle="1"]').forEach(function(btn) {
         btn.addEventListener('click', function(e) {

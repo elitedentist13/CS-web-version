@@ -52,6 +52,7 @@ var conFormsSickLeaveRenderTimer = null;
 /** Treatment pane subtab: notes | timeline */
 var conTnActiveSubtab = 'notes';
 var conPtlFilterKey = 'all';
+var conPtlSearchTerm = '';
 var conPatientTimelineEvents = [];
 var conPatientTimelineHadErrors = false;
 var conPtlRefreshTimer = null;
@@ -119,6 +120,31 @@ function updateConBannerBananaNotes(p) {
     el.textContent = txt;
 }
 
+function conPatientAlertText(p) {
+    p = p || {};
+    var txt = '';
+    if (typeof buildPatientAlertDisplayText === 'function') {
+        txt = String(buildPatientAlertDisplayText(p) || '').trim();
+    }
+    if (!txt) txt = String(p.medical_alerts || '').trim();
+    return txt;
+}
+
+function setConBannerAlert(elId, p) {
+    var el = g(elId);
+    if (!el) return;
+    var txt = conPatientAlertText(p);
+    el.textContent = txt || conTr('con.banner.none');
+    el.style.color = txt ? 'var(--danger)' : '#999';
+}
+
+function refreshConPatientAlertBanners(p) {
+    p = p || conPatientData || conMedPatientData || conDenPatientData;
+    setConBannerAlert('conBannerAlert', p);
+    setConBannerAlert('conMedBannerAlert', p);
+    setConBannerAlert('conDenBannerAlert', p);
+}
+
 function refreshConPatientBannerI18n(p) {
     if (!p) return;
 
@@ -128,10 +154,7 @@ function refreshConPatientBannerI18n(p) {
     if (g('conBannerDob')) {
         g('conBannerDob').textContent = p.dob ? formatDobAge(p.dob) : '-';
     }
-    if (g('conBannerAlert')) {
-        g('conBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
-        g('conBannerAlert').style.color = p.medical_alerts ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conBannerAlert', p);
 
     var sexWrap = g('conBannerSexWrap');
     if (sexWrap && typeof patientSexSymbolHtml === 'function') {
@@ -151,18 +174,12 @@ function refreshConPatientBannerI18n(p) {
     if (g('conMedBannerDob')) {
         g('conMedBannerDob').textContent = p.dob ? formatDobAge(p.dob) : '-';
     }
-    if (g('conMedBannerAlert')) {
-        g('conMedBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
-        g('conMedBannerAlert').style.color = p.medical_alerts ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conMedBannerAlert', p);
 
     if (g('conDenBannerDob')) {
         g('conDenBannerDob').textContent = p.dob ? formatDobAge(p.dob) : '-';
     }
-    if (g('conDenBannerAlert')) {
-        g('conDenBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
-        g('conDenBannerAlert').style.color = p.medical_alerts ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conDenBannerAlert', p);
 
     updateConBannerBananaIndex(p);
     updateConBannerBananaNotes(p);
@@ -233,6 +250,48 @@ function conBannerOpenBill() {
         patient_id:   conPatientId,
         patient_name: conPatientData.full_name  || '',
         patient_no:   conPatientData.patient_no || ''
+    });
+}
+
+function conBannerWhatsAppMessage(p) {
+    p = p || {};
+    var name = String(p.chinese_name || p.full_name || conTr('appt.today.thisPatient')).trim();
+    var clinic = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
+        ? currentClinicLabel
+        : 'Joyful Smile';
+    return conTrRepl('whatsapp.msg.consultationHello', {
+        NAME: name,
+        CLINIC: clinic
+    });
+}
+
+function conBannerOpenWhatsApp() {
+    if (!conPatientData) return;
+    var phone = String(conPatientData.mobile_phone || conPatientData.phone_number || '').trim();
+    if (phone || !conPatientId) {
+        if (typeof openWhatsAppPrefill === 'function') {
+            openWhatsAppPrefill(phone, conBannerWhatsAppMessage(conPatientData), { source: 'consultation' });
+        }
+        return;
+    }
+    SB.from('patients')
+        .select('phone_number,mobile_phone,full_name,chinese_name')
+        .eq('id', conPatientId)
+        .single()
+    .then(function(r) {
+        if (!r.error && r.data) {
+            conPatientData.phone_number = r.data.phone_number || conPatientData.phone_number || '';
+            conPatientData.mobile_phone = r.data.mobile_phone || conPatientData.mobile_phone || '';
+            conPatientData.full_name = conPatientData.full_name || r.data.full_name || '';
+            conPatientData.chinese_name = conPatientData.chinese_name || r.data.chinese_name || '';
+        }
+        if (typeof openWhatsAppPrefill === 'function') {
+            openWhatsAppPrefill(
+                String(conPatientData.mobile_phone || conPatientData.phone_number || '').trim(),
+                conBannerWhatsAppMessage(conPatientData),
+                { source: 'consultation' }
+            );
+        }
     });
 }
 
@@ -554,7 +613,7 @@ function openConForPatient(patientId, opts) {
                 if (!retried && m.indexOf('banana_notes') >= 0) {
                     fetchPatient(
                         'id,patient_no,full_name,chinese_name,sex,dob,' +
-                        'phone_number,email,hkid,address,medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD,
+                        'phone_number,mobile_phone,email,hkid,address,medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD,
                         true
                     );
                     return;
@@ -573,7 +632,7 @@ function openConForPatient(patientId, opts) {
     }
     fetchPatient(
         'id,patient_no,full_name,chinese_name,sex,dob,' +
-        'phone_number,email,hkid,address,medical_alerts,banana_index,banana_notes,' + PATIENT_CLINIC_TAG_FIELD,
+        'phone_number,mobile_phone,email,hkid,address,medical_alerts,banana_index,banana_notes,' + PATIENT_CLINIC_TAG_FIELD,
         false
     );
 }
@@ -707,7 +766,7 @@ function selectConPatient(p) {
     if (dobEl) dobEl.textContent = p.dob ? formatDobAge(p.dob) : '-';
 
     var phoneEl = g('conBannerPhone');
-    if (phoneEl) phoneEl.textContent = p.phone_number || '-';
+    if (phoneEl) phoneEl.textContent = p.mobile_phone || p.phone_number || '-';
 
     var emailStr = String(p.email || '').trim();
     var emWrap = g('conBannerEmailWrap');
@@ -742,12 +801,7 @@ function selectConPatient(p) {
         g('conBannerDoctor').textContent = conActiveDoctorName || currentName || '—';
     }
 
-    var alertEl = g('conBannerAlert');
-    if (alertEl) {
-        alertEl.textContent = p.medical_alerts || conTr('con.banner.none');
-        alertEl.style.color = p.medical_alerts
-            ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conBannerAlert', p);
 
     updateConBannerBananaIndex(p);
     updateConBannerBananaNotes(p);
@@ -783,11 +837,7 @@ function selectConPatient(p) {
     if (g('conMedBannerDob'))
         g('conMedBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
-    if (g('conMedBannerAlert')) {
-        g('conMedBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
-        g('conMedBannerAlert').style.color = p.medical_alerts
-            ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conMedBannerAlert', p);
     if (g('conMedFormPatientName')) {
         g('conMedFormPatientName').textContent =
             p.full_name + '  (#' + (p.patient_no || '-') + ')';
@@ -819,11 +869,7 @@ function selectConPatient(p) {
     if (g('conDenBannerDob'))
         g('conDenBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
-    if (g('conDenBannerAlert')) {
-        g('conDenBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
-        g('conDenBannerAlert').style.color = p.medical_alerts
-            ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conDenBannerAlert', p);
     if (g('conDenFormPatientName')) {
         g('conDenFormPatientName').textContent =
             p.full_name + '  (#' + (p.patient_no || '-') + ')';
@@ -2936,6 +2982,23 @@ function conPtlSafeRows(promise) {
     });
 }
 
+function conPtlSafeOptionalRows(promise, optionalName) {
+    return promise.then(function (r) {
+        if (r && r.error) {
+            var msg = String(r.error.message || r.error.details || '').toLowerCase();
+            if (optionalName && msg.indexOf(String(optionalName).toLowerCase()) >= 0) return [];
+            conPatientTimelineHadErrors = true;
+            return [];
+        }
+        return (r && r.data) ? r.data : [];
+    }).catch(function (err) {
+        var msg = String((err && (err.message || err.details)) || '').toLowerCase();
+        if (optionalName && msg.indexOf(String(optionalName).toLowerCase()) >= 0) return [];
+        conPatientTimelineHadErrors = true;
+        return [];
+    });
+}
+
 function conPtlBuildFilterBar() {
     var host = g('conPtlFilters');
     if (!host) return;
@@ -2945,21 +3008,42 @@ function conPtlBuildFilterBar() {
         { key: 'rx', labelKey: 'con.ptl.filter.rx' },
         { key: 'visit', labelKey: 'con.ptl.filter.visit' },
         { key: 'bill', labelKey: 'con.ptl.filter.bill' },
+        { key: 'payment', labelKey: 'con.ptl.filter.payment' },
         { key: 'doc', labelKey: 'con.ptl.filter.doc' },
-        { key: 'xray', labelKey: 'con.ptl.filter.xray' }
+        { key: 'xray', labelKey: 'con.ptl.filter.xray' },
+        { key: 'photo', labelKey: 'con.ptl.filter.photo' },
+        { key: 'task', labelKey: 'con.ptl.filter.task' }
     ];
-    host.innerHTML = defs.map(function (d) {
+    var filterHtml = defs.map(function (d) {
         var on = conPtlFilterKey === d.key;
         return '<button type="button" class="con-ptl-filter' + (on ? ' active' : '') + '" data-filter="' +
             esc(d.key) + '">' + esc(conTr(d.labelKey)) + '</button>';
     }).join('');
+    host.innerHTML =
+        '<div class="con-ptl-filter-row">' + filterHtml + '</div>' +
+        '<div class="con-ptl-search-row">' +
+            '<input id="conPtlSearchInput" class="con-ptl-search" type="search" value="' +
+                esc(conPtlSearchTerm) + '" placeholder="' + esc(conTr('con.ptl.searchPh')) + '">' +
+            '<button type="button" class="con-ptl-refresh" data-ptl-refresh="1">' +
+                esc(conTr('con.ptl.refresh')) + '</button>' +
+        '</div>';
     if (!host.dataset.wired) {
         host.dataset.wired = '1';
         host.addEventListener('click', function (e) {
+            var refreshBtn = e.target && e.target.closest ? e.target.closest('[data-ptl-refresh]') : null;
+            if (refreshBtn && host.contains(refreshBtn)) {
+                if (conPatientId) loadConPatientTimeline(conPatientId);
+                return;
+            }
             var btn = e.target && e.target.closest ? e.target.closest('[data-filter]') : null;
             if (!btn || !host.contains(btn)) return;
             conPtlFilterKey = btn.getAttribute('data-filter') || 'all';
             conPtlBuildFilterBar();
+            renderConPatientTimeline();
+        });
+        host.addEventListener('input', function (e) {
+            if (!e.target || e.target.id !== 'conPtlSearchInput') return;
+            conPtlSearchTerm = String(e.target.value || '').trim().toLowerCase();
             renderConPatientTimeline();
         });
     }
@@ -3160,6 +3244,31 @@ function conPtlEventsFromBills(rows) {
     });
 }
 
+function conPtlEventsFromPayments(rows, billMap) {
+    billMap = billMap || {};
+    return (rows || []).map(function (p) {
+        var ms = conPtlTsFromAny(p.created_at, p.paid_date) ||
+            conPtlTsFromIsoDateTime(p.paid_date, '12:00');
+        var amt = (typeof fmt2 === 'function') ? fmt2(p.amount) : String(p.amount || '0');
+        var method = p.method || '';
+        var bill = billMap[String(p.bill_id || '')] || null;
+        var voided = p.voided_at ? (' ' + conTr('con.ptl.paymentVoided')) : '';
+        return {
+            kind: 'payment',
+            ts: ms,
+            title: conTr('con.ptl.type.payment') + voided,
+            body: conTrRepl('con.ptl.paymentSummary', { AMT: amt, METHOD: method || '—' }),
+            meta: [
+                p.paid_date || '',
+                bill && bill.id ? ('Bill #' + String(bill.id).slice(0, 8).toUpperCase()) : ''
+            ].filter(Boolean).join(' · '),
+            action: 'bill',
+            refId: p.bill_id,
+            payload: bill || { id: p.bill_id }
+        };
+    });
+}
+
 function conPtlEventsFromDocs(rows) {
     return (rows || []).map(function (d) {
         var ms = conPtlTsFromAny(d.created_at, d.document_date);
@@ -3171,6 +3280,22 @@ function conPtlEventsFromDocs(rows) {
             meta: [d.document_date, d.template_name, d.template_type].filter(Boolean).join(' · '),
             action: 'doc',
             refId: d.id
+        };
+    });
+}
+
+function conPtlEventsFromPhotos(rows) {
+    return (rows || []).map(function (p) {
+        var ms = conPtlTsFromAny(p.created_at, p.taken_date) ||
+            conPtlTsFromIsoDateTime(p.taken_date, '12:00');
+        return {
+            kind: 'photo',
+            ts: ms,
+            title: conTr('con.ptl.type.photo'),
+            body: p.category || '—',
+            meta: [p.taken_date, conPtlTruncate(p.caption, 120)].filter(Boolean).join(' · '),
+            action: 'photo',
+            refId: p.id
         };
     });
 }
@@ -3192,6 +3317,53 @@ function conPtlEventsFromXrays(rows) {
     });
 }
 
+function conPtlTaskLabel(kind, value) {
+    if (kind === 'lab') {
+        if (value === 'pending') return conTr('con.ptl.taskLabPending');
+        if (value === 'back') return conTr('con.ptl.taskLabBack');
+        return '';
+    }
+    if (kind === 'recall') {
+        if (value === 'success') return conTr('con.ptl.taskRecallSuccess');
+        if (value === 'cant') return conTr('con.ptl.taskRecallCant');
+        if (value === 'whatsapp') return conTr('con.ptl.taskRecallWhatsapp');
+        if (value === 'voice') return conTr('con.ptl.taskRecallVoice');
+    }
+    return '';
+}
+
+function conPtlEventsFromTasks(rows, apptMap) {
+    apptMap = apptMap || {};
+    var out = [];
+    (rows || []).forEach(function (row) {
+        if (!row || !row.appointment_id) return;
+        var ap = apptMap[String(row.appointment_id)] || {};
+        var ts = conPtlTsFromAny(row.updated_at || row.created_at, ap.date) ||
+            conPtlTsFromIsoDateTime(ap.date, ap.start_time || '12:00');
+        var lab = conPtlTaskLabel('lab', row.lab_status);
+        var recall = conPtlTaskLabel('recall', row.recall_status);
+        var parts = [lab, recall].filter(Boolean);
+        if (!parts.length) return;
+        out.push({
+            kind: 'task',
+            ts: ts,
+            title: conTr('con.ptl.type.task'),
+            body: parts.join(' · '),
+            meta: [ap.date, conPtlFormatApptTimeRange(ap), conPtlResolveApptDoctorLabel(ap)].filter(Boolean).join(' · '),
+            action: 'visit',
+            refId: row.appointment_id,
+            payload: {
+                id: row.appointment_id,
+                date: ap.date,
+                start_time: ap.start_time,
+                doctor_code: ap.doctor_code,
+                bill_status: ap.bill_status
+            }
+        });
+    });
+    return out;
+}
+
 function conPtlMergeEvents(lists) {
     var all = [];
     lists.forEach(function (arr) {
@@ -3199,6 +3371,45 @@ function conPtlMergeEvents(lists) {
     });
     all.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
     return all;
+}
+
+function conPtlSearchText(ev) {
+    ev = ev || {};
+    return [
+        ev.title, ev.headline, ev.body, ev.meta, ev.statusLabel, ev.kind
+    ].join(' ').toLowerCase();
+}
+
+function conPtlFilteredEvents() {
+    var list = conPatientTimelineEvents || [];
+    if (conPtlFilterKey && conPtlFilterKey !== 'all') {
+        list = list.filter(function (ev) { return ev.kind === conPtlFilterKey; });
+    }
+    if (conPtlSearchTerm) {
+        list = list.filter(function (ev) {
+            return conPtlSearchText(ev).indexOf(conPtlSearchTerm) >= 0;
+        });
+    }
+    return list;
+}
+
+function conPtlSummaryHtml(list) {
+    var all = conPatientTimelineEvents || [];
+    var counts = {};
+    all.forEach(function (ev) { counts[ev.kind] = (counts[ev.kind] || 0) + 1; });
+    var unpaid = all.filter(function (ev) {
+        return ev.kind === 'bill' && ev.payload && parseFloat(ev.payload.balance) > 0.005 && !ev.payload.voided_at;
+    }).length;
+    var upcoming = all.filter(function (ev) { return !!ev.upcoming; }).length;
+    var pieces = [
+        conTrRepl('con.ptl.summaryTotal', { N: String(all.length) }),
+        conTrRepl('con.ptl.summaryShown', { N: String((list || []).length) })
+    ];
+    if (upcoming) pieces.push(conTrRepl('con.ptl.summaryUpcoming', { N: String(upcoming) }));
+    if (unpaid) pieces.push(conTrRepl('con.ptl.summaryUnpaid', { N: String(unpaid) }));
+    return '<div class="con-ptl-summary">' + pieces.map(function (p) {
+        return '<span>' + esc(p) + '</span>';
+    }).join('') + '</div>';
 }
 
 function loadConPatientTimeline(patientId) {
@@ -3231,6 +3442,8 @@ function loadConPatientTimeline(patientId) {
     ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
     var qXray = SB.from('xrays').select('id,xray_type,taken_date,notes,file_name,created_at')
         .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
+    var qPhoto = SB.from('photos').select('id,category,caption,taken_date,created_at')
+        .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
 
     var qBill = SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
         .eq('patient_id', pid).order('created_at', { ascending: false }).limit(120);
@@ -3241,7 +3454,8 @@ function loadConPatientTimeline(patientId) {
         conPtlSafeRows(qAppt),
         conPtlSafeRows(qBill),
         conPtlSafeRows(qDocs),
-        conPtlSafeRows(qXray)
+        conPtlSafeRows(qXray),
+        conPtlSafeRows(qPhoto)
     ]).then(function (parts) {
         var bills = parts[3];
         if (!bills.length && pno) {
@@ -3255,13 +3469,44 @@ function loadConPatientTimeline(patientId) {
         }
         return parts;
     }).then(function (parts) {
+        var bills2 = parts[3] || [];
+        var appts2 = parts[2] || [];
+        var billIds = bills2.map(function (b) { return b && b.id; }).filter(Boolean);
+        var apptIds = appts2.map(function (a) { return a && a.id; }).filter(Boolean);
+        var qPayments = billIds.length
+            ? conPtlSafeRows(
+                SB.from('bill_payments').select('*').in('bill_id', billIds)
+                    .order('paid_date', { ascending: false })
+                    .order('created_at', { ascending: false }).limit(200)
+            )
+            : Promise.resolve([]);
+        var qTasks = apptIds.length
+            ? conPtlSafeOptionalRows(
+                SB.from('appointment_task_states')
+                    .select('appointment_id,lab_status,recall_status,created_at,updated_at')
+                    .in('appointment_id', apptIds),
+                'appointment_task_states'
+            )
+            : Promise.resolve([]);
+        return Promise.all([Promise.resolve(parts), qPayments, qTasks]);
+    }).then(function (bundle) {
+        var parts = bundle[0];
+        var payments = bundle[1] || [];
+        var tasks = bundle[2] || [];
+        var billMap = {};
+        (parts[3] || []).forEach(function (b) { if (b && b.id) billMap[String(b.id)] = b; });
+        var apptMap = {};
+        (parts[2] || []).forEach(function (a) { if (a && a.id) apptMap[String(a.id)] = a; });
         conPatientTimelineEvents = conPtlMergeEvents([
             conPtlEventsFromNotes(parts[0]),
             conPtlEventsFromRx(parts[1]),
             conPtlEventsFromVisits(parts[2]),
             conPtlEventsFromBills(parts[3]),
             conPtlEventsFromDocs(parts[4]),
-            conPtlEventsFromXrays(parts[5])
+            conPtlEventsFromXrays(parts[5]),
+            conPtlEventsFromPhotos(parts[6]),
+            conPtlEventsFromPayments(payments, billMap),
+            conPtlEventsFromTasks(tasks, apptMap)
         ]);
         renderConPatientTimeline();
     });
@@ -3270,26 +3515,23 @@ function loadConPatientTimeline(patientId) {
 function renderConPatientTimeline() {
     var host = g('conPatientTimeline');
     if (!host) return;
-    conPtlBuildFilterBar();
-    var list = conPatientTimelineEvents || [];
-    if (conPtlFilterKey && conPtlFilterKey !== 'all') {
-        list = list.filter(function (ev) { return ev.kind === conPtlFilterKey; });
-    }
+    var list = conPtlFilteredEvents();
     if (!list.length) {
         var emptyMsg = conTr('con.ptl.selectPatient');
         if (conPatientId) {
-            emptyMsg = (conPatientTimelineEvents.length && conPtlFilterKey !== 'all')
+            emptyMsg = (conPatientTimelineEvents.length && (conPtlFilterKey !== 'all' || conPtlSearchTerm))
                 ? conTr('con.ptl.emptyFilter')
                 : conTr('con.ptl.empty');
         }
-        host.innerHTML = '<p class="con-ptl-placeholder">' + esc(emptyMsg) + '</p>';
+        host.innerHTML = conPatientId ? conPtlSummaryHtml(list) : '';
+        host.innerHTML += '<p class="con-ptl-placeholder">' + esc(emptyMsg) + '</p>';
         if (conPatientTimelineHadErrors && conPatientId) {
             host.innerHTML += '<p class="con-ptl-placeholder" style="color:#b45309;">' +
                 esc(conTr('con.ptl.errLoad')) + '</p>';
         }
         return;
     }
-    var html = '';
+    var html = conPtlSummaryHtml(list);
     var lastDay = '';
     if (conPatientTimelineHadErrors) {
         html += '<p class="con-ptl-placeholder" style="color:#b45309;margin-bottom:8px;">' +
@@ -3314,6 +3556,17 @@ function renderConPatientTimeline() {
         }
         var headline = ev.headline || '';
         var detail = ev.body || '';
+        var actionLabel = ev.action === 'visit'
+            ? conTr('con.ptl.actionVisit')
+            : (ev.action === 'bill'
+                ? conTr('con.ptl.actionBill')
+                : (ev.action === 'rx'
+                    ? conTr('con.ptl.actionRx')
+                    : (ev.action === 'photo'
+                        ? conTr('con.ptl.actionPhoto')
+                        : (ev.action === 'xray'
+                            ? conTr('con.ptl.actionXray')
+                            : (ev.action === 'doc' ? conTr('con.ptl.actionDoc') : conTr('con.ptl.actionOpen'))))));
         html +=
             '<li class="' + evCls + '" data-ptl-idx="' + idx + '">' +
             '<div class="con-ptl-event-head">' +
@@ -3328,15 +3581,25 @@ function renderConPatientTimeline() {
                 : '') +
             '<div class="con-ptl-event-meta">' +
             (ev.meta ? '<span class="con-ptl-event-meta-text">' + esc(ev.meta) + '</span>' : '') +
-            '<span class="con-ptl-event-jump">' + esc(conTr('con.ptl.jumpHint')) + '</span>' +
+            '<button type="button" class="con-ptl-event-jump" data-ptl-open="' + idx + '">' +
+                esc(actionLabel) + '</button>' +
             '</div>' +
             '</li>';
     });
     if (lastDay) html += '</ul>';
     host.innerHTML = html;
     host.querySelectorAll('.con-ptl-event').forEach(function (el) {
-        el.addEventListener('click', function () {
+        el.addEventListener('click', function (e) {
+            if (e.target && e.target.closest && e.target.closest('button')) return;
             var idx = parseInt(el.getAttribute('data-ptl-idx'), 10);
+            if (!isNaN(idx) && list[idx]) conPtlOpenEvent(list[idx]);
+        });
+    });
+    host.querySelectorAll('[data-ptl-open]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var idx = parseInt(btn.getAttribute('data-ptl-open'), 10);
             if (!isNaN(idx) && list[idx]) conPtlOpenEvent(list[idx]);
         });
     });
@@ -3365,8 +3628,15 @@ function conPtlOpenEvent(ev) {
         switchConTab('xrays');
         return;
     }
+    if (ev.action === 'photo') {
+        switchConTab('photos');
+        setTimeout(function () {
+            if (typeof refreshPhotos === 'function') refreshPhotos();
+        }, 80);
+        return;
+    }
     if (ev.action === 'bill') {
-        if (ev.payload && typeof showBillDetail === 'function') {
+        if (ev.payload && ev.payload.items && typeof showBillDetail === 'function') {
             showBillDetail(ev.payload);
             return;
         }
@@ -6750,11 +7020,7 @@ function selectMedPatient(p) {
     if (g('conMedBannerDob'))
         g('conMedBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
-    if (g('conMedBannerAlert')) {
-        g('conMedBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
-        g('conMedBannerAlert').style.color = p.medical_alerts
-            ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conMedBannerAlert', p);
     if (g('conMedFormPatientName')) {
         g('conMedFormPatientName').textContent =
             p.full_name + '  (#' + (p.patient_no || '-') + ')';
@@ -6776,12 +7042,28 @@ function loadMedicalHistory() {
             return;
         }
         var d = r.data || {};
+        syncConMedicalFieldsToPatientData(d);
         sv('fldMedHistory',  d.medical_history     || '');
         sv('fldMedications', d.current_medications || '');
         sv('fldAllergy',     d.allergy             || '');
+        refreshConPatientAlertBanners();
         if (form) form.style.display = 'block';
         if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
     });
+}
+
+function syncConMedicalFieldsToPatientData(fields) {
+    fields = fields || {};
+    [conPatientData, conMedPatientData, conDenPatientData, conFormsPatientData].forEach(function(p) {
+        if (!p || !p.id || String(p.id) !== String(conMedPatientId || conPatientId || p.id)) return;
+        if (typeof fields.medical_history !== 'undefined') p.medical_history = fields.medical_history || '';
+        if (typeof fields.current_medications !== 'undefined') p.current_medications = fields.current_medications || '';
+        if (typeof fields.allergy !== 'undefined') p.allergy = fields.allergy || '';
+        if (typeof fields.medical_alerts !== 'undefined') p.medical_alerts = fields.medical_alerts || '';
+    });
+    if (typeof setDirectoryActivePatient === 'function' && conPatientData && conPatientData.id) {
+        setDirectoryActivePatient(conPatientData, 'consultation-medical-history-save');
+    }
 }
 
 function saveMedicalHistory() {
@@ -6798,6 +7080,8 @@ function saveMedicalHistory() {
     SB.from('patients').update(payload).eq('id', conMedPatientId)
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        syncConMedicalFieldsToPatientData(payload);
+        refreshConPatientAlertBanners(conMedPatientData || conPatientData);
         alert(conTrRepl('con.alert.medSaved', { NAME: conMedPatientData.full_name }));
         if (typeof refreshPatientAlertDisplayViews === 'function') {
             refreshPatientAlertDisplayViews();
@@ -6827,6 +7111,7 @@ function onMedAlertDisplayPrefChange() {
     patientAlertDisplayPrefs.showMedications = !!(m && m.checked);
     patientAlertDisplayPrefs.showAllergies = !!(a && a.checked);
     if (typeof savePatientAlertDisplayPrefs === 'function') savePatientAlertDisplayPrefs();
+    refreshConPatientAlertBanners();
     if (typeof refreshPatientAlertDisplayViews === 'function') refreshPatientAlertDisplayViews();
 }
 
@@ -6865,11 +7150,7 @@ function selectDenPatient(p) {
     if (g('conDenBannerDob'))
         g('conDenBannerDob').textContent =
             p.dob ? formatDobAge(p.dob) : '-';
-    if (g('conDenBannerAlert')) {
-        g('conDenBannerAlert').textContent = p.medical_alerts || conTr('con.banner.none');
-        g('conDenBannerAlert').style.color = p.medical_alerts
-            ? 'var(--danger)' : '#999';
-    }
+    setConBannerAlert('conDenBannerAlert', p);
     if (g('conDenFormPatientName')) {
         g('conDenFormPatientName').textContent =
             p.full_name + '  (#' + (p.patient_no || '-') + ')';

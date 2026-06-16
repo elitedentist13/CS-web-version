@@ -1634,6 +1634,7 @@ function setWorkingClinic(clinicId, options) {
     persistSession();
     refreshAppSessionStripContents();
     populateDashboardDoctorSelect(currentDoctorId || '');
+    if (typeof restartRealtimeSync === 'function') restartRealtimeSync();
 
     if (options.reloadAppt) {
         var apptSec = g('appointmentSection');
@@ -2718,6 +2719,45 @@ function activePatientCopyTextToClipboard(text, done) {
     }
 }
 
+function whatsappFormatPhone(raw) {
+    var digits = String(raw || '').replace(/[^\d]/g, '');
+    if (!digits) return '';
+    if (digits.length === 8 && /^[569]/.test(digits)) return '852' + digits;
+    if (digits.slice(0, 5) === '00852') return digits.slice(2);
+    if (digits.slice(0, 4) === '8520' && digits.length >= 11) return '852' + digits.slice(4);
+    return digits;
+}
+
+function whatsappPrefillUrl(phone, message) {
+    var digits = whatsappFormatPhone(phone);
+    if (!digits || digits.length < 8) return '';
+    var body = String(message || '').trim();
+    if (body.length > 1500) body = body.slice(0, 1499) + '...';
+    var enc = encodeURIComponent(body);
+    var mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
+        .test(navigator.userAgent || '');
+    if (mobile) return 'https://wa.me/' + digits + '?text=' + enc;
+    return 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(digits) + '&text=' + enc;
+}
+
+function openWhatsAppPrefill(phone, message, opts) {
+    opts = opts || {};
+    var url = whatsappPrefillUrl(phone, message);
+    if (!url) {
+        alert(appTr('whatsapp.alert.noPhone'));
+        return false;
+    }
+    var w = window.open(url, '_blank', 'noopener,noreferrer');
+    var blocked = !w || w.closed || typeof w.closed === 'undefined';
+    if (!blocked) return true;
+    activePatientCopyTextToClipboard(url, function(ok) {
+        if (ok) alert(appTr('whatsapp.alert.linkCopied'));
+        else if (typeof prompt === 'function') prompt(appTr('whatsapp.alert.popupBlockedPrompt'), url);
+        else alert(url);
+    });
+    return false;
+}
+
 function activePatientCopyToast(key) {
     if (typeof showAppGlobalToast !== 'function') return;
     var msg = typeof appTr === 'function' ? appTr(key) : key;
@@ -3619,6 +3659,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
         if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
         if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();
+        if (typeof startRealtimeSync === 'function') startRealtimeSync();
+        try {
+            document.dispatchEvent(new CustomEvent('app-session-sync'));
+        } catch (eSync) {}
         if (hasEffectiveWorkingDateOverride()) {
             setTimeout(function () {
                 refreshAppSectionsForWorkingDate();
@@ -3655,6 +3699,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('keydown', onGlobalRefreshHotkey);
 
     g('logoutBtn').addEventListener('click', function() {
+        if (typeof stopRealtimeSync === 'function') stopRealtimeSync();
         currentRole = null;
         currentName = null;
         currentUserId = null;
@@ -3666,6 +3711,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof setCurrentUserPermissions === 'function') setCurrentUserPermissions(null);
         clearSession();
         showLogin();
+        try {
+            document.dispatchEvent(new CustomEvent('app-session-sync'));
+        } catch (eSync) {}
     });
 
     var dashboardHelpBtn = g('dashboardHelpBtn');

@@ -38,6 +38,49 @@ body {
     user-select: none;
 }
 
+.app-realtime-sync-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 8px 0 2px;
+    flex-shrink: 0;
+    max-width: 140px;
+}
+.app-realtime-sync-time {
+    font-size: 10px;
+    line-height: 1;
+    color: #94a3b8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: .01em;
+}
+.app-realtime-sync-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: #64748b;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.12);
+    vertical-align: middle;
+    transition: background .25s ease, box-shadow .25s ease;
+}
+.app-realtime-sync-dot--off { background: #64748b; }
+.app-realtime-sync-dot--connecting {
+    background: #fbbf24;
+    animation: rtSyncPulse 1s ease-in-out infinite;
+}
+.app-realtime-sync-dot--live { background: #22c55e; }
+.app-realtime-sync-dot--error { background: #ef4444; }
+.app-realtime-sync-dot--pulse {
+    box-shadow: 0 0 0 3px rgba(34,197,94,.35);
+}
+@keyframes rtSyncPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .45; }
+}
+
 .app-session-strip-title {
     font-weight: 700;
     letter-spacing: .02em;
@@ -5203,6 +5246,14 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     background: #f0f7ff;
     color: var(--primary);
 }
+.action-item--whatsapp {
+    color: #15803d;
+    font-weight: 800;
+}
+.action-item--whatsapp:hover {
+    background: #ecfdf5;
+    color: #15803d;
+}
 
 .action-item .ai-icon {
     font-size: 17px;
@@ -7565,6 +7616,23 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     font-size: 13px;
     max-width: 280px;
 }
+.con-banner-wa-btn {
+    margin-left: 5px;
+    border: 1px solid rgba(255,255,255,.42);
+    border-radius: 999px;
+    background: #25d366;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    padding: 3px 7px;
+    cursor: pointer;
+    vertical-align: middle;
+    box-shadow: 0 1px 4px rgba(0,0,0,.18);
+}
+.con-banner-wa-btn:hover {
+    background: #16a34a;
+}
 .con-banner-balance-wrap strong {
     font-weight: 700;
 }
@@ -7926,10 +7994,14 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     line-height: 1.45;
 }
 .con-ptl-filters {
+    display: block;
+    margin-bottom: 12px;
+}
+.con-ptl-filter-row {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 .con-ptl-filter {
     padding: 5px 11px;
@@ -7947,10 +8019,58 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     border-color: var(--primary, #2563eb);
     color: #fff;
 }
+.con-ptl-search-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.con-ptl-search {
+    flex: 1;
+    min-width: 180px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #1e293b;
+    background: #fff;
+}
+.con-ptl-search:focus {
+    outline: none;
+    border-color: var(--primary, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+}
+.con-ptl-refresh {
+    border: 1px solid var(--primary, #2563eb);
+    background: #eff6ff;
+    color: var(--primary, #2563eb);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+.con-ptl-refresh:hover { background: #dbeafe; }
 .con-patient-timeline {
     max-height: 480px;
     overflow-y: auto;
     padding: 4px 2px 8px 0;
+}
+.con-ptl-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 10px;
+}
+.con-ptl-summary span {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
 }
 .con-ptl-placeholder {
     color: #94a3b8;
@@ -8048,9 +8168,15 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 .con-ptl-event-jump {
     flex-shrink: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
     font-weight: 700;
+    font-size: 11px;
     color: var(--primary, #2563eb);
+    cursor: pointer;
 }
+.con-ptl-event-jump:hover { text-decoration: underline; }
 .con-ptl-badge {
     display: inline-block;
     padding: 1px 7px;
@@ -8082,8 +8208,11 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .con-ptl-event--rx { --ptl-dot: #7c3aed; --ptl-type: #6d28d9; }
 .con-ptl-event--visit { --ptl-dot: #059669; --ptl-type: #047857; }
 .con-ptl-event--bill { --ptl-dot: #d97706; --ptl-type: #b45309; }
+.con-ptl-event--payment { --ptl-dot: #16a34a; --ptl-type: #15803d; }
 .con-ptl-event--doc { --ptl-dot: #0891b2; --ptl-type: #0e7490; }
 .con-ptl-event--xray { --ptl-dot: #4f46e5; --ptl-type: #4338ca; }
+.con-ptl-event--photo { --ptl-dot: #db2777; --ptl-type: #be185d; }
+.con-ptl-event--task { --ptl-dot: #ea580c; --ptl-type: #c2410c; }
 
 .note-date-sep {
     display: flex;

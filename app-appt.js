@@ -17303,6 +17303,26 @@ function billPaymentsActiveOnly(rows) {
     return (rows || []).filter(function(x) { return !billPaymentIsVoid(x); });
 }
 
+function billPendingMethodForHeader() {
+    if (typeof billPendingPayTypeValue === 'function') return billPendingPayTypeValue();
+    return 'Pending';
+}
+
+function billCurrentPaymentMethodFromRows(bill, rows) {
+    var active = billPaymentsActiveOnly(rows || []);
+    if (active.length) {
+        return active[active.length - 1].method || (bill && bill.bill_type) || billPendingMethodForHeader();
+    }
+    if (bill && (parseFloat(bill.amount_paid) || 0) > 0.005 && bill.bill_type) {
+        return bill.bill_type;
+    }
+    return billPendingMethodForHeader();
+}
+
+function refreshBillDetailPaymentMethod(method) {
+    bdSet('bdType', (typeof dispPayMethod === 'function') ? dispPayMethod(method) : (method || '—'));
+}
+
 function stripBillPaymentClinicColsByError(src, errMsg) {
     var out = Object.assign({}, src);
     var msg = String(errMsg || '').toLowerCase();
@@ -17439,6 +17459,9 @@ function loadBillPayments(billId) {
         var rows = (!r.error && r.data) ? r.data : [];
         if (bdCurrentBill && bdCurrentBill.id === billId) {
             rows = mergeBillPaymentHistoryWithBill(bdCurrentBill, rows);
+            var currentMethod = billCurrentPaymentMethodFromRows(bdCurrentBill, rows);
+            bdCurrentBill.bill_type = currentMethod;
+            refreshBillDetailPaymentMethod(currentMethod);
         }
         if (!rows.length) {
             tbody.innerHTML =
@@ -17569,7 +17592,8 @@ function confirmAddPayment() {
         return SB.from('bills').update({
             amount_paid: newPaid,
             balance:     newBalance,
-            status:      newStatus
+            status:      newStatus,
+            bill_type:   payMethod
         }).eq('id', bdCurrentBill.id)
         .then(function(u) {
             if (u.error) {
@@ -17580,6 +17604,7 @@ function confirmAddPayment() {
             bdCurrentBill.amount_paid = newPaid;
             bdCurrentBill.balance     = newBalance;
             bdCurrentBill.status      = newStatus;
+            bdCurrentBill.bill_type   = payMethod;
 
             closeModal('addPaymentModal');
 
@@ -17587,6 +17612,7 @@ function confirmAddPayment() {
             g('bdPaid').textContent    = fmtHK(newPaid);
             g('bdBalance').textContent = fmtHK(newBalance);
             g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
+            refreshBillDetailPaymentMethod(payMethod);
 
             var badge = g('bdStatusBadge');
             if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
@@ -17629,8 +17655,10 @@ function voidPaymentRecord(p) {
 
     function applyVoidAndRecalc() {
         return SB.from('bill_payments')
-            .select('amount, voided_at')
-            .eq('bill_id', p.bill_id);
+            .select('amount, method, paid_date, created_at, voided_at')
+            .eq('bill_id', p.bill_id)
+            .order('paid_date', { ascending: true })
+            .order('created_at', { ascending: true });
     }
 
     SB.from('bill_payments').update(voidPayload).eq('id', p.id)
@@ -17647,11 +17675,15 @@ function voidPaymentRecord(p) {
         var billTotal  = parseFloat(bdCurrentBill ? bdCurrentBill.total : 0) || 0;
         var newBalance = Math.max(0, billTotal - newPaid);
         var newStatus  = newBalance <= 0.005 ? 'Paid' : (newPaid > 0 ? 'Partial' : 'Unpaid');
+        var nextBillType = newPaid > 0.005
+            ? billCurrentPaymentMethodFromRows(bdCurrentBill, r.data || [])
+            : billPendingMethodForHeader();
 
         return SB.from('bills').update({
             amount_paid: newPaid,
             balance:     newBalance,
-            status:      newStatus
+            status:      newStatus,
+            bill_type:   nextBillType
         }).eq('id', p.bill_id)
         .then(function(u) {
             if (u.error) return;
@@ -17659,10 +17691,12 @@ function voidPaymentRecord(p) {
                 bdCurrentBill.amount_paid = newPaid;
                 bdCurrentBill.balance     = newBalance;
                 bdCurrentBill.status      = newStatus;
+                bdCurrentBill.bill_type   = nextBillType;
 
                 g('bdPaid').textContent    = fmtHK(newPaid);
                 g('bdBalance').textContent = fmtHK(newBalance);
                 g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
+                refreshBillDetailPaymentMethod(nextBillType);
 
                 var badge = g('bdStatusBadge');
                 if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }

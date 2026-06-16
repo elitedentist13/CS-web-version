@@ -26,26 +26,28 @@
         'login.userIdPh': { en: 'e.g. admin / drchan / nurse', 'zh-CN': '例如 admin / drchan / nurse', 'zh-Hant': '例如 admin / drchan / nurse' },
         'login.password': { en: 'Password', 'zh-CN': '密码', 'zh-Hant': '密碼' },
         'login.passwordPh': { en: '••••••••', 'zh-CN': '••••••••', 'zh-Hant': '••••••••' },
+        'login.clinicLabel': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'login.loadingClinics': { en: 'Loading clinics…', 'zh-CN': '正在加载诊所…', 'zh-Hant': '正在載入診所…' },
         'login.doctorLabel': { en: 'Doctor identity *', 'zh-CN': '医生身份 *', 'zh-Hant': '醫生身份 *' },
         'login.loadingDoctors': { en: 'Loading doctors…', 'zh-CN': '正在加载医生…', 'zh-Hant': '正在載入醫生…' },
         'login.hintDefault': {
-            en: 'User ID and password must match the selected doctor. Clinic is chosen after login.',
-            'zh-CN': '用户 ID 与密码须与所选医生一致。登录后再选择诊所。',
-            'zh-Hant': '使用者 ID 與密碼須與所選醫生一致。登入後再選擇診所。'
+            en: 'Choose a clinic to filter doctors, or ALL to show every doctor.',
+            'zh-CN': '选择诊所以筛选医生，或选择「全部」显示所有医生。',
+            'zh-Hant': '選擇診所以篩選醫生，或選擇「全部」顯示所有醫生。'
         },
         'login.loginBtn': { en: 'Log In', 'zh-CN': '登录', 'zh-Hant': '登入' },
         'login.tryAi': { en: '✨ Try AI Patient Assistant — no login', 'zh-CN': '✨ 试用 AI 患者助手 — 免登录', 'zh-Hant': '✨ 試用 AI 患者助手 — 免登入' },
         'login.doctorOptional': { en: 'Doctor identity (optional)', 'zh-CN': '医生身份（可选）', 'zh-Hant': '醫生身份（可選）' },
         'login.doctorRequired': { en: 'Doctor identity *', 'zh-CN': '医生身份 *', 'zh-Hant': '醫生身份 *' },
         'login.hintStaff': {
-            en: 'Staff may choose ALL or a specific doctor. Clinic is chosen after login.',
-            'zh-CN': '员工可选择 ALL 或指定医生。登录后再选择诊所。',
-            'zh-Hant': '員工可選擇 ALL 或指定醫生。登入後再選擇診所。'
+            en: 'Staff may choose ALL or a specific doctor. Clinic filters the doctor list.',
+            'zh-CN': '员工可选择全部或指定医生。诊所会筛选医生列表。',
+            'zh-Hant': '職員可選擇全部或指定醫生。診所會篩選醫生列表。'
         },
         'login.hintDoctor': {
-            en: 'User ID and password must match a doctor with a login in Configuration. Clinic is chosen after login.',
-            'zh-CN': '用户 ID 与密码须与「设置」中已开通登录的医生一致。登录后再选择诊所。',
-            'zh-Hant': '使用者 ID 與密碼須與「設定」中已開通登入的醫生一致。登入後再選擇診所。'
+            en: 'User ID and password must match a doctor with a login in Configuration. Clinic filters this list.',
+            'zh-CN': '用户 ID 与密码须与「设置」中已开通登录的医生一致。诊所会筛选此列表。',
+            'zh-Hant': '使用者 ID 與密碼須與「設定」中已開通登入的醫生一致。診所會篩選此列表。'
         },
         'login.noDoctorLogins': { en: '(No doctor logins configured)', 'zh-CN': '（未配置医生登录）', 'zh-Hant': '（未設定醫生登入）' },
         'login.selectAllOpt': { en: 'ALL', 'zh-CN': '全部', 'zh-Hant': '全部' },

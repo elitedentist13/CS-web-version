@@ -1175,6 +1175,11 @@ function doctorsForClinic(clinicId) {
     });
 }
 
+function selectedLoginClinicId() {
+    var sel = g('loginClinic');
+    return sel ? String(sel.value || '').trim() : '';
+}
+
 function rebuildDoctorLoginIdsFromUsers(users) {
     APP_DOCTOR_LOGIN_IDS = {};
     (users || []).forEach(function (u) {
@@ -1191,8 +1196,8 @@ function isNonDoctorAppRole(role) {
     return role !== 'doctor' && role !== 'dentist';
 }
 
-function doctorsForLoginDropdown(mode) {
-    var list = (APP_DOCTORS || []).slice();
+function doctorsForLoginDropdown(mode, clinicId) {
+    var list = doctorsForClinic(clinicId);
     if (mode === 'staff') return list;
     return list.filter(function (d) {
         return !!APP_DOCTOR_LOGIN_IDS[String(d.id)];
@@ -1206,6 +1211,52 @@ function loginDoctorOptionLabel(d) {
     return code ? (name + ' [' + code + ']') : name;
 }
 
+function populateLoginClinicSelect(preselectClinicId) {
+    var sel = g('loginClinic');
+    if (!sel) return;
+    var prev = (preselectClinicId !== undefined && preselectClinicId !== null)
+        ? String(preselectClinicId || '')
+        : String(sel.value || '');
+    sel.innerHTML = '';
+
+    var allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = appTr('common.all');
+    sel.appendChild(allOpt);
+
+    var clinics = clinicsForWorkingSession();
+    if (!clinics.length) {
+        allOpt.textContent = appTr('common.noClinics');
+        return;
+    }
+
+    clinics.forEach(function (c) {
+        var o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = clinicDisplayName(c);
+        sel.appendChild(o);
+    });
+
+    var hasPrev = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === prev) {
+            hasPrev = true;
+            break;
+        }
+    }
+    sel.value = hasPrev ? prev : '';
+}
+
+function bindLoginClinicSelectOnce() {
+    var sel = g('loginClinic');
+    if (!sel || sel.dataset.bound) return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', function () {
+        var drSel = g('loginDoctor');
+        refreshLoginDoctorSelect(drSel && drSel.value ? drSel.value : '', loginDoctorSelectMode);
+    });
+}
+
 /**
  * Login doctor list:
  * - default / doctor: only doctors with a login in Configuration (Users → doctor link)
@@ -1216,7 +1267,7 @@ function refreshLoginDoctorSelect(preselectDoctorId, mode) {
     if (!sel) return;
     if (mode) loginDoctorSelectMode = mode;
     var useMode = loginDoctorSelectMode || 'default';
-    var list = doctorsForLoginDropdown(useMode);
+    var list = doctorsForLoginDropdown(useMode, selectedLoginClinicId());
     var hint = g('loginDoctorHint');
     var label = g('loginDoctorLabel');
 
@@ -1634,6 +1685,8 @@ function refreshAllClinicDropdowns() {
     }
 
     relabelOrPopulate('appWorkingClinicSelect', populateWorkingClinicSelect);
+    relabelOrPopulate('loginClinic', populateLoginClinicSelect,
+        { matchBy: 'id', allOptionKey: 'common.all' });
     relabelOrPopulate('reportClinicSelect', populateReportClinicSelect,
         { matchBy: 'id', allOptionKey: 'common.all' });
     relabelOrPopulate('apptClinicSelect', populateApptClinicSelect);
@@ -3184,6 +3237,7 @@ function loadClinicsAndDoctorsForLogin() {
     function finishClinicRows(rows) {
         APP_CLINICS = rows || [];
         refreshAllClinicTagFilterSelects();
+        populateLoginClinicSelect();
         populateWorkingClinicSelect();
         if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
         if (typeof fillAddPatientClinicSelect === 'function') {
@@ -3272,7 +3326,8 @@ function finishLoginSession(u, doctorId) {
     }
     if (!currentName) currentName = currentUserId;
 
-    var wc = defaultWorkingClinicId();
+    var loginClinicId = selectedLoginClinicId();
+    var wc = loginClinicId || defaultWorkingClinicId();
     if (wc) setWorkingClinic(wc, { syncFilters: true, reloadAppt: false });
     else persistSession();
 
@@ -3411,6 +3466,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showClinicRefreshToast(workClinicSel.value, false);
         });
     }
+    bindLoginClinicSelectOnce();
     wireAppDateAdjustControls();
 
     var loginUid = g('loginUserId');

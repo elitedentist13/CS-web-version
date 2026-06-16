@@ -2248,7 +2248,7 @@ var CFG = (function () {
 
         Promise.all([
             SB.from('clinics').select('id,clinic_code,english_name').order('clinic_code'),
-            SB.from('doctors').select('id,doctor_code,english_name,is_active').order('doctor_code'),
+            SB.from('doctors').select('id,doctor_code,english_name,chinese_name,display_name,is_active').order('doctor_code'),
             SB.from('app_users').select('*').order('user_id')
         ]).then(function (all) {
             _usrClinics = (all[0] && all[0].data) ? all[0].data : [];
@@ -2283,6 +2283,15 @@ var CFG = (function () {
         });
     }
 
+    function userDoctorIdentityLabel(d) {
+        if (!d) return ctr('cfg.label.doctorFallback');
+        var name = (typeof doctorDisplayName === 'function')
+            ? (doctorDisplayName(d) || ctr('cfg.label.doctorFallback'))
+            : (d.english_name || d.chinese_name || d.display_name || ctr('cfg.label.doctorFallback'));
+        var code = String(d.doctor_code || '').trim();
+        return code ? (name + ' [' + code + ']') : name;
+    }
+
     function renderUsersTable(rows) {
         if (!rows.length) {
             return '<div style="background:#fff;border:1px dashed #d7d7d7;border-radius:10px;' +
@@ -2297,9 +2306,7 @@ var CFG = (function () {
         function doctorLabel(id) {
             var d = _usrDoctors.find(function (x) { return x.id === id; });
             if (!d) return '-';
-            return (typeof doctorDisplayName === 'function')
-                ? (doctorDisplayName(d) || ctr('cfg.label.doctorFallback'))
-                : (d.english_name || d.chinese_name || ctr('cfg.label.doctorFallback'));
+            return userDoctorIdentityLabel(d);
         }
 
         var html =
@@ -2357,11 +2364,7 @@ var CFG = (function () {
                 ? clinicDisplayName(c)
                 : (c.english_name || c.chinese_name || ctr('cfg.label.clinic'));
         });
-        var doctorOpts = opt(_usrDoctors, function (d) {
-            return (typeof doctorDisplayName === 'function')
-                ? (doctorDisplayName(d) || ctr('cfg.label.doctorFallback'))
-                : (d.english_name || d.chinese_name || ctr('cfg.label.doctorFallback'));
-        });
+        var doctorOpts = opt(_usrDoctors, userDoctorIdentityLabel);
 
         return '' +
           '<div id="cfgUserPanel" style="display:none;">' +

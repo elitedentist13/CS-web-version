@@ -618,6 +618,7 @@
             'zh-CN': '共{N}位医生 — 左右滑动（每次显示两列）',
             'zh-Hant': '共{N}位醫生 — 左右滑動（每次顯示兩列）'
         },
+        'appt.plusAppt.th.patNo': { en: 'Patient No.', 'zh-CN': '患者编号', 'zh-Hant': '病人編號' },
         'appt.plusAppt.th.name': { en: 'Patient name', 'zh-CN': '患者姓名', 'zh-Hant': '病人姓名' },
         'appt.plusAppt.th.treatment': { en: 'Treatment', 'zh-CN': '治疗项目', 'zh-Hant': '治療項目' },
         'appt.plusAppt.clearMode': { en: 'Clear mode', 'zh-CN': '简洁模式', 'zh-Hant': '簡潔模式' },
@@ -758,6 +759,7 @@
         'appt.queue.updatedAt': { en: 'Updated {T}', 'zh-CN': '已更新 {T}', 'zh-Hant': '已更新 {T}' },
         'appt.queue.updatedNever': { en: 'Not refreshed yet', 'zh-CN': '尚未刷新', 'zh-Hant': '尚未重新整理' },
         'appt.queueTh.no': { en: 'No.', 'zh-CN': '序号', 'zh-Hant': '序號' },
+        'appt.queueTh.patNo': { en: 'Patient No.', 'zh-CN': '患者编号', 'zh-Hant': '病人編號' },
         'appt.queueTh.name': { en: 'Name', 'zh-CN': '姓名', 'zh-Hant': '姓名' },
         'appt.queueTh.treatment': { en: 'Treatment', 'zh-CN': '治疗', 'zh-Hant': '治療' },
         'appt.queueTh.alert': { en: 'Alert', 'zh-CN': '警示', 'zh-Hant': '警示' },

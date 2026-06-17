@@ -2829,6 +2829,8 @@ tr:hover td { background: #fafcff; }
     white-space: nowrap;
     font-size: calc(13px * var(--plusappt-font-scale, 1));
 }
+#tab-plusappt.plusappt-clear-mode .plusappt-patno-cell,
+#tab-queue.plusappt-clear-mode .queue-patno-cell,
 #tab-plusappt.plusappt-clear-mode .plusappt-clear-pno,
 #tab-queue.plusappt-clear-mode .plusappt-clear-pno {
     color: #64748b;
@@ -2867,7 +2869,8 @@ tr:hover td { background: #fafcff; }
     table-layout: fixed;
 }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-no          { width: 3%; }
-#tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-name        { width: 28%; }
+#tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-patno     { width: 7%; }
+#tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-name        { width: 24%; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-treatment   { width: 13%; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-alert       { width: 10ch; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-time        { width: 6%; }
@@ -2987,7 +2990,12 @@ tr:hover td { background: #fafcff; }
     vertical-align: middle;
     overflow: visible;
 }
-#tab-queue.plusappt-clear-mode .queue-clear-pno-full,
+#tab-queue.plusappt-clear-mode .queue-clear-row .queue-patno-cell {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+}
 #tab-queue.plusappt-clear-mode .queue-clear-row .queue-name-cell .plusappt-clear-pno {
     flex: 0 0 auto;
     white-space: nowrap;
@@ -3189,7 +3197,7 @@ tr:hover td { background: #fafcff; }
     padding-top: 0;
     padding-bottom: 0;
 }
-#tab-queue.plusappt-clear-mode.plusappt-custom-row-color .queue-clear-row .plusappt-clear-pno,
+#tab-queue.plusappt-clear-mode.plusappt-custom-row-color .queue-clear-row .queue-patno-cell,
 #tab-queue.plusappt-clear-mode.plusappt-custom-row-color .queue-clear-row .plusappt-clear-cn,
 #tab-queue.plusappt-clear-mode.plusappt-custom-row-color .queue-clear-row .plusappt-clear-en,
 #tab-queue.plusappt-clear-mode.plusappt-custom-row-color .queue-clear-row .plusappt-clear-time,
@@ -3860,6 +3868,21 @@ tr:hover td { background: #fafcff; }
     width: 108px;
     white-space: nowrap;
 }
+.plusappt-schedule-tbl .plusappt-th-patno {
+    width: 72px;
+    min-width: 72px;
+    max-width: 88px;
+    white-space: nowrap;
+}
+.plusappt-schedule-tbl .plusappt-patno-cell {
+    width: 72px;
+    min-width: 72px;
+    max-width: 88px;
+    white-space: nowrap;
+    font-size: 12px;
+    color: #888;
+    vertical-align: middle;
+}
 .plusappt-schedule-tbl .plusappt-th-name,
 .plusappt-schedule-tbl .plusappt-name-cell {
     min-width: var(--plusappt-name-col-min-w, 200px);
@@ -3953,16 +3976,18 @@ tr:hover td { background: #fafcff; }
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .appt-name-cn,
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .appt-name-en,
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .appt-name-sep,
-#tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .plusappt-clear-pno,
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .plusappt-clear-cn,
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .plusappt-clear-en,
-#tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .plusappt-stack-pno,
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-name-cell .appt-walkin-badge {
     display: inline;
     white-space: nowrap;
     font-size: inherit;
     line-height: inherit;
     vertical-align: baseline;
+}
+#tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-patno-cell {
+    font-size: calc(10px * var(--plusappt-font-scale, 1));
+    line-height: 1.15;
 }
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-treat-cell .appt-treat-inline--plusappt,
 #tab-plusappt.plusappt-row-compact .plusappt-schedule-tbl .plusappt-treat-cell .appt-treat-inline--clear {
@@ -4021,14 +4046,13 @@ tr:hover td { background: #fafcff; }
     vertical-align: middle;
 }
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row td,
-#tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-clear-pno,
+#tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-patno-cell,
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-clear-cn,
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-clear-en,
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-time-hour,
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-time-interval,
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-remarks-line-view,
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .appt-treat-inline--plusappt,
-#tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row .plusappt-stack-pno,
 #tab-plusappt.plusappt-custom-row-color .plusappt-schedule-tbl .plusappt-slot-row strong {
     color: var(--plusappt-row-text-color) !important;
 }
@@ -4759,6 +4783,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 
 .queue-wrap .appt-tbl.queue-tbl .queue-col-no          { width: 46px; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-patno       { width: 72px; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-name        { width: 11%; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-treatment   { width: 20%; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-alert       { width: 80px; }

@@ -2765,14 +2765,15 @@ function plusApptBindEditPauseOnce() {
     apptModuleBindEditPauseOnce();
 }
 
-function plusApptClearModeNameHtml(a) {
+function plusApptClearModeNameHtml(a, opts) {
+    opts = opts || {};
     if (!a) return '—';
     var cn = typeof getApptDisplayChinese === 'function'
         ? String(getApptDisplayChinese(a) || '').trim()
         : String(a.patient_chinese_name || '').trim();
     var en = String(a.patient_name || '').trim();
     var html = '';
-    if (a.patient_no) {
+    if (!opts.skipPatNo && a.patient_no) {
         html += '<span class="plusappt-clear-pno">' + esc(a.patient_no) + '</span> ';
     }
     if (cn) {
@@ -2787,20 +2788,21 @@ function plusApptClearModeNameHtml(a) {
 }
 
 /** Queue clear mode: patient no + Chinese always full; English uses leftover width. */
-function queueClearModeNameHtml(a) {
+function queueClearModeNameHtml(a, opts) {
+    opts = opts || {};
     if (!a) return '—';
     var cn = typeof getApptDisplayChinese === 'function'
         ? String(getApptDisplayChinese(a) || '').trim()
         : String(a.patient_chinese_name || '').trim();
     var en = String(a.patient_name || '').trim();
     var titleParts = [];
-    if (a.patient_no) titleParts.push(String(a.patient_no));
+    if (!opts.skipPatNo && a.patient_no) titleParts.push(String(a.patient_no));
     if (cn) titleParts.push(cn);
     if (en) titleParts.push(en);
     var title = titleParts.join(' · ');
     var html = '<span class="queue-clear-name-wrap"' +
         (title ? ' title="' + esc(title) + '"' : '') + '>';
-    if (a.patient_no) {
+    if (!opts.skipPatNo && a.patient_no) {
         html += '<span class="plusappt-clear-pno queue-clear-pno-full">' +
             esc(a.patient_no) + '</span> ';
     }
@@ -2811,7 +2813,7 @@ function queueClearModeNameHtml(a) {
     if (en) {
         html += '<span class="plusappt-clear-en queue-clear-en-prefer">' + esc(en) + '</span>';
     }
-    if (!cn && !en && !a.patient_no) html += '—';
+    if (!cn && !en && (opts.skipPatNo || !a.patient_no)) html += '—';
     html += '</span>';
     return html;
 }
@@ -4122,7 +4124,7 @@ function apptPurgeTransferredSourceFromUi(oldId) {
                 ? tr('appt.queue.empty')
                 : tr('appt.today.noToday');
             tb.innerHTML =
-                '<tr><td colspan="' + (bodyId === 'queueBody' ? '10' : '9') + '" ' +
+                '<tr><td colspan="' + (bodyId === 'queueBody' ? '11' : '9') + '" ' +
                 'style="text-align:center;color:#aaa;padding:24px;">' +
                 esc(emptyMsg) + '</td></tr>';
         }
@@ -4866,6 +4868,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         }
 
         var timeHtml = plusApptTimeCellHtml(slot);
+        var patNoHtml = '—';
         var nameHtml = '—';
         var treatHtml = '—';
         var remHtml = '—';
@@ -4873,8 +4876,9 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var durHtml = '—';
         var locked = false;
         if (a) {
+            patNoHtml = esc(apptPatientNoDisplayText(a));
             if (clearMode) {
-                nameHtml = plusApptClearModeNameHtml(a);
+                nameHtml = plusApptClearModeNameHtml(a, { skipPatNo: true });
                 treatHtml = plusApptTreatmentInlineHtml(a, true);
                 remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
                 durHtml = (a.duration != null && a.duration !== '')
@@ -4882,10 +4886,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                     : '—';
                 locked = isApptScheduleLocked(a);
             } else {
-            var pnoPrefix = a.patient_no
-                ? '<span class="plusappt-stack-pno">' + esc(a.patient_no) + '</span> '
-                : '';
-            nameHtml = pnoPrefix + (typeof apptPatientDisplayNameHTML === 'function'
+            nameHtml = (typeof apptPatientDisplayNameHTML === 'function'
                 ? apptPatientDisplayNameHTML(a, { walkIn: true })
                 : esc(a.patient_name || '—'));
             nameHtml += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus');
@@ -4928,6 +4929,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
 
         row.innerHTML =
             '<td class="' + timeCellCls + ' plusappt-row-data-cell' + (clearMode ? ' plusappt-row-data-cell--clear' : '') + '">' + timeShow + '</td>' +
+            '<td class="plusappt-patno-cell ' + rowDataCls + '">' + patNoHtml + '</td>' +
             '<td class="plusappt-name-cell ' + rowDataCls + '">' + nameHtml + '</td>' +
             '<td class="plusappt-treat-cell ' + rowDataCls + '">' + treatHtml + '</td>' +
             '<td class="plusappt-remarks-cell-wrap ' + rowDataCls + '">' + remHtml + taskHtml + '</td>' +
@@ -5182,6 +5184,7 @@ function renderPlusApptAllDoctorsBoard() {
         tbl.innerHTML =
             '<thead><tr>' +
             '<th class="plusappt-th-time">' + esc(tr('appt.modal.startTime')) + '</th>' +
+            '<th class="plusappt-th-patno">' + esc(tr('appt.plusAppt.th.patNo')) + '</th>' +
             '<th class="plusappt-th-name">' + esc(tr('appt.plusAppt.th.name')) + '</th>' +
             '<th>' + esc(tr('appt.plusAppt.th.treatment')) + '</th>' +
             '<th>' + esc(tr('appt.modal.remarks')) + '</th>' +
@@ -10187,6 +10190,20 @@ function apptAlertCellHtml(a) {
 }
 
 /** @returns {string} HTML (already escaped inner text) */
+function apptPatientNoDisplayText(a) {
+    var no = a && a.patient_no != null && String(a.patient_no).trim() !== ''
+        ? String(a.patient_no).trim()
+        : '';
+    return no || '-';
+}
+
+function apptQueuePatNoCellHtml(a, clearMode) {
+    var cls = 'queue-patno-cell' + (clearMode ? ' plusappt-row-data-cell--clear' : '');
+    return '<td class="' + cls + '"' +
+        (clearMode ? '' : ' style="font-size:12px;color:#888;white-space:nowrap;"') +
+        '>' + esc(apptPatientNoDisplayText(a)) + '</td>';
+}
+
 function apptPatientDisplayNameHTML(a, opt) {
     opt = opt || {};
     var cn = getApptDisplayChinese(a);
@@ -10507,7 +10524,7 @@ function buildTodayRow(tb, a, dotCtx) {
                 esc(a.patient_no || '-') +
             '</td>' +
             '<td class="today-name-cell plusappt-name-cell plusappt-row-data-cell--clear">' +
-                queueClearModeNameHtml(a) +
+                queueClearModeNameHtml(a, { skipPatNo: true }) +
             '</td>' +
             '<td class="today-treatment-cell plusappt-treat-cell plusappt-row-data-cell--clear">' +
                 plusApptTreatmentInlineHtml(a, true) +
@@ -11564,7 +11581,7 @@ function loadQueue() {
     var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
     tb.innerHTML =
-        '<tr><td colspan="10" style="text-align:center;' +
+        '<tr><td colspan="11" style="text-align:center;' +
         'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
 
     var qq = SB.from('appointments').select('*')
@@ -11583,7 +11600,7 @@ function loadQueue() {
         };
         if (r.error || !r.data || !r.data.length) {
             tb.innerHTML =
-                '<tr><td colspan="10" style="text-align:center;' +
+                '<tr><td colspan="11" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' +
                 esc(tr('appt.queue.empty')) + '</td></tr>';
             apptRefreshPatientCountBadge('queue');
@@ -11610,7 +11627,7 @@ function loadQueue() {
                 apptRefreshPatientCountBadge('queue');
                 if (!visible.length) {
                     tb.innerHTML =
-                        '<tr><td colspan="10" style="text-align:center;' +
+                        '<tr><td colspan="11" style="text-align:center;' +
                         'color:#aaa;padding:24px;">' +
                         esc(activeRows.length
                             ? tr('appt.queue.emptyFiltered')
@@ -11756,7 +11773,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
     if (clearMode) {
         nameCellHtml =
             '<td class="queue-name-cell plusappt-name-cell plusappt-row-data-cell--clear">' +
-                queueClearModeNameHtml(q) +
+                queueClearModeNameHtml(q, { skipPatNo: true }) +
             '</td>';
         treatCellHtml =
             '<td class="queue-treatment-cell plusappt-treat-cell plusappt-row-data-cell--clear">' +
@@ -11787,11 +11804,6 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
                     drDot +
                     '<span class="appt-row-name-stack">' +
                         apptPatientDisplayNameHTML(q, { walkIn: true }) +
-                        (q.patient_no
-                            ? '<div class="appt-name-subno">' +
-                              esc(q.patient_no) +
-                              '</div>'
-                            : '') +
                     '</span>' +
                 '</span>' +
             '</td>';
@@ -11850,6 +11862,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
 
     row.innerHTML =
         seqCellHtml +
+        apptQueuePatNoCellHtml(q, clearMode) +
         nameCellHtml +
         treatCellHtml +
         '<td class="appt-alert-cell' + dataCls + '">' + apptAlertCellHtml(q) + '</td>' +

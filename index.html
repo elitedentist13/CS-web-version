@@ -40,6 +40,27 @@
 <style>
   /* Prevent configuration sidebar flash before app.js runs */
   #sectionConfig { display: none; }
+
+  /* Critical boot shell — hide page until app.js finishes first paint setup */
+  html:not(.app-ready) body {
+    visibility: hidden;
+    overflow: hidden;
+  }
+  html.app-ready body {
+    visibility: visible;
+    overflow: auto;
+  }
+
+  /* Pre-stylesheet: keep overlay, modals, and slide panels hidden */
+  #loginOverlay { display: none; }
+  #billPanel,
+  #billPanelBackdrop {
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+  .modal { display: none !important; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
 </style>
 </head>
 <body>

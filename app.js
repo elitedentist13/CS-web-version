@@ -2440,6 +2440,21 @@ function openAppHelpPage() {
 
 function showLogin() { showOnly('loginOverlay'); }
 
+function markAppReady() {
+    if (document.documentElement.classList.contains('app-ready')) return;
+    document.documentElement.classList.add('app-ready');
+}
+
+function scheduleMarkAppReady() {
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function () {
+            requestAnimationFrame(markAppReady);
+        });
+        return;
+    }
+    markAppReady();
+}
+
 function showDashboard() {
     showOnly('dashboardSection');
     if (typeof stopApptAutoRefresh === 'function') stopApptAutoRefresh();
@@ -3646,14 +3661,8 @@ document.addEventListener('DOMContentLoaded', function() {
     syncAppLocaleFromUiLang();
     bindUiClickGuardOnce();
 
-    showLogin();
-    bindActivePatientCardOnce();
-    loadClinicsAndDoctorsForLogin();
-    refreshAllClinicTagFilterSelects();
-    /* rx_phrase_options: loaded on demand when prescription panel opens */
-
-    // restore local session
-    if (restoreSession()) {
+    var hasSession = restoreSession();
+    if (hasSession) {
         populateWorkingClinicSelect();
         showDashboard();
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
@@ -3668,9 +3677,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 refreshAppSectionsForWorkingDate();
             }, 400);
         }
-    } else if (postLoginRefresh) {
-        setLoginError(appTr('login.errGeneric'));
+    } else {
+        showLogin();
+        if (postLoginRefresh) {
+            setLoginError(appTr('login.errGeneric'));
+        }
     }
+    bindActivePatientCardOnce();
+    loadClinicsAndDoctorsForLogin();
+    refreshAllClinicTagFilterSelects();
+    /* rx_phrase_options: loaded on demand when prescription panel opens */
 
     var workClinicSel = g('appWorkingClinicSelect');
     if (workClinicSel && !workClinicSel.dataset.bound) {
@@ -4246,6 +4262,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     startAppSessionStripClock();
     syncAppSessionChrome();
+
+    scheduleMarkAppReady();
 
 }); // end DOMContentLoaded
 

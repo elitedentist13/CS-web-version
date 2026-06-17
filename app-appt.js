@@ -1426,7 +1426,14 @@ function initAppt() {
         setWorkingClinic(apSel.value, { syncFilters: true, reloadAppt: false });
     }
     var qb = g('queueBody');
-    if (qb) bindQueueReorderHandlers(qb);
+    if (qb) {
+        if (!qb.querySelector('tr')) {
+            qb.innerHTML =
+                '<tr><td colspan="11" style="text-align:center;' +
+                'color:#aaa;padding:24px;">' + esc(tr('common.loadingEllipsis')) + '</td></tr>';
+        }
+        bindQueueReorderHandlers(qb);
+    }
     if (typeof plusApptBindTransferDropZones === 'function') plusApptBindTransferDropZones();
     bindQueueRemarksModalOnce();
     bindQueueRefreshBtnOnce();
@@ -5112,7 +5119,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
 
     if (!slots.length) {
         tb.innerHTML =
-            '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px;">' +
+            '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:24px;">' +
             esc(tr('appt.plusAppt.noSlots')) + '</td></tr>';
     }
     tb.querySelectorAll('.plusappt-lock-btn').forEach(function(btn) {
@@ -5303,7 +5310,7 @@ function loadPlusApptDay(opts) {
     var allMode = typeof plusApptIsAllDoctorsMode === 'function' && plusApptIsAllDoctorsMode();
     if (!tb && !(allMode && scroll)) return;
     var loadingHtml =
-        '<tr><td colspan="5" style="text-align:center;color:#aaa;padding:24px;">' +
+        '<tr><td colspan="6" style="text-align:center;color:#aaa;padding:24px;">' +
         esc(tr('common.loadingEllipsis')) + '</td></tr>';
     if (!opts.soft) {
         if (allMode && scroll) {
@@ -5325,7 +5332,7 @@ function loadPlusApptDay(opts) {
             if (!opts.soft) {
                 plusApptDayAppts = [];
                 var errHtml =
-                    '<tr><td colspan="5" style="text-align:center;color:#c00;padding:24px;">' +
+                    '<tr><td colspan="6" style="text-align:center;color:#c00;padding:24px;">' +
                     esc(trRepl('appt.msg.error', { MSG: r.error.message })) + '</td></tr>';
                 if (allMode && scroll) {
                     scroll.innerHTML =

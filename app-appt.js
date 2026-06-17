@@ -11118,6 +11118,9 @@ function apptPatchCachedPatientRows(patient) {
 /** Refresh appointment subtabs after patient details change. */
 function refreshApptListsAfterPatientEdit(patient) {
     apptPatchCachedPatientRows(patient);
+    if (typeof refreshBillPanelPatientInfo === 'function') {
+        refreshBillPanelPatientInfo(patient);
+    }
     if (typeof loadQueue === 'function') loadQueue();
     if (typeof loadToday === 'function') loadToday();
     if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ force: true });
@@ -14616,6 +14619,78 @@ function billPanelIsOpen() {
     return !!(panel && panel.classList.contains('open'));
 }
 
+function billPatientInfoHtmlFromFields(name, chineseName, patientNo) {
+    var en = String(name || '').trim() || '—';
+    var cn = String(chineseName || '').trim();
+    var no = String(patientNo || '').trim() || '—';
+    var html = '<strong>' + esc(en) + '</strong>';
+    if (cn) {
+        html += ' <span style="font-weight:700;">' + esc(cn) + '</span>';
+    }
+    html += ' &nbsp;|&nbsp; #' + esc(no);
+    return html;
+}
+
+function updateBillPanelPatientInfoDom() {
+    var el = g('billPatientInfo');
+    if (!el) return;
+    el.innerHTML = billPatientInfoHtmlFromFields(billPatName, billPatChineseName, billPatNo);
+}
+
+function billPatientMatchesOpenPanel(patient) {
+    if (!patient) return false;
+    if (billPatId && patient.id && String(billPatId) === String(patient.id)) return true;
+    var pno = String(patient.patient_no || '').trim();
+    if (pno && billPatNo && billPatNo !== '-' && String(billPatNo) === pno) return true;
+    return false;
+}
+
+function applyBillPanelPatientRecord(patient) {
+    if (!patient || !billPatientMatchesOpenPanel(patient)) return false;
+    if (patient.id) billPatId = patient.id;
+    if (patient.patient_no) billPatNo = patient.patient_no;
+    var en = String(patient.full_name || patient.patient_name || '').trim();
+    if (en) billPatName = en;
+    if (typeof patient.chinese_name !== 'undefined') {
+        billPatChineseName = String(patient.chinese_name || '').trim();
+    }
+    updateBillPanelPatientInfoDom();
+    return true;
+}
+
+/** Sync bill panel header patient line from saved record or DB (when panel is open). */
+function refreshBillPanelPatientInfo(patient, cb) {
+    if (!billPanelIsOpen()) {
+        if (cb) cb(false);
+        return;
+    }
+    if (patient && applyBillPanelPatientRecord(patient)) {
+        if (cb) cb(true);
+        return;
+    }
+    if (!billPatId) {
+        updateBillPanelPatientInfoDom();
+        if (cb) cb(true);
+        return;
+    }
+    SB.from('patients')
+        .select('id,patient_no,full_name,chinese_name')
+        .eq('id', billPatId)
+        .single()
+        .then(function (r) {
+            if (!r.error && r.data) {
+                applyBillPanelPatientRecord(r.data);
+            } else {
+                updateBillPanelPatientInfoDom();
+            }
+            if (cb) cb(true);
+        })
+        .catch(function () {
+            updateBillPanelPatientInfoDom();
+            if (cb) cb(false);
+        });
+}
+
 function billPanelUsesMobileLayout() {
     return window.matchMedia('(max-width: 900px)').matches;
 }
@@ -14733,12 +14808,18 @@ function refreshBillPanelLists(opts) {
         noteBillPendingRefreshed();
     };
 
-    if (billStep2IsVisible()) {
-        if (manual) loadBillHistory();
-        renderStep2(done);
-    } else {
-        loadBillHistory(done);
-    }
+    var runRefresh = function () {
+        if (billStep2IsVisible()) {
+            if (manual) loadBillHistory();
+            renderStep2(done);
+        } else {
+            loadBillHistory(done);
+        }
+    };
+
+    refreshBillPanelPatientInfo(null, function () {
+        runRefresh();
+    });
 }
 
 function refreshBillPanelNow() {
@@ -14786,12 +14867,7 @@ function openBillPanel(q) {
     billPatNo   = q.patient_no   || '-';
     billPatChineseName = String(q.patient_chinese_name || '').trim();
 
-    var billInfoHtml = '<strong>' + esc(billPatName) + '</strong>';
-    if (billPatChineseName) {
-        billInfoHtml += ' <span style="font-weight:700;">' + esc(billPatChineseName) + '</span>';
-    }
-    billInfoHtml += ' &nbsp;|&nbsp; #' + esc(billPatNo);
-    g('billPatientInfo').innerHTML = billInfoHtml;
+    updateBillPanelPatientInfoDom();
 
     billItems    = [];
     pendingLists = [];
@@ -17221,7 +17297,9 @@ function loadBillHistory(cb) {
 
 function refreshBillHistory() {
     if (!billPatId && (!billPatNo || billPatNo === '-') && !billApptId) return;
-    loadBillHistory();
+    refreshBillPanelPatientInfo(null, function () {
+        loadBillHistory();
+    });
 }
 
 function billRecordIsVoid(b) {

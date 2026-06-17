@@ -51,16 +51,8 @@
     overflow: auto;
   }
 
-  /* Pre-stylesheet: keep overlay, modals, and slide panels hidden */
+  /* Pre-stylesheet: login starts hidden until app.js calls showLogin/showDashboard */
   #loginOverlay { display: none; }
-  #billPanel,
-  #billPanelBackdrop {
-    visibility: hidden !important;
-    pointer-events: none !important;
-  }
-  .modal { display: none !important; }
-  .tab-pane { display: none; }
-  .tab-pane.active { display: block; }
 </style>
 </head>
 <body>

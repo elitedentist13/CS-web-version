@@ -118,6 +118,9 @@ var phLbLayoutBaseW = 0;
 var phLbLayoutBaseH = 0;
 var phLbScrollDragging = false;
 var phLbScrollLast     = { x: 0, y: 0 };
+var photoLbChromeMaximized = false;
+var photoLbChromeMetaVisible = true;
+var photoLbChromeScaleBeforeMax = 1;
 
 const PHOTO_CATEGORIES = [
   'Intraoral', 'Extraoral', 'Before/After',
@@ -693,6 +696,136 @@ function photoLbScrollHostUp() {
   photoLbUpdateScrollHostCursor();
 }
 
+function photoLbResetLightboxChrome() {
+  photoLbChromeMaximized = false;
+  photoLbChromeMetaVisible = true;
+  photoLbChromeScaleBeforeMax = 1;
+  photoLbSyncLightboxChrome();
+}
+
+function photoLbFitToScrollHost() {
+  if (!phLbLayoutBaseW || !phLbLayoutBaseH) return;
+  var host = g('photoLbScrollHost');
+  if (!host || host.style.display === 'none') return;
+
+  var pad = 20;
+  var vpW = Math.max(1, host.clientWidth - pad * 2);
+  var vpH = Math.max(1, host.clientHeight - pad * 2);
+
+  var prevScale = phLbTransform.scale;
+  phLbTransform.scale = 1;
+  var d = photoLbScrollOuterDims();
+  phLbTransform.scale = prevScale;
+
+  if (!d.bw || !d.bh) return;
+  var fit = Math.min(vpW / d.bw, vpH / d.bh);
+  if (!isFinite(fit) || fit <= 0) return;
+
+  phLbTransform.scale = Math.max(0.12, Math.min(14, fit));
+  photoLbResetScrollHost();
+  photoLbSyncLightboxScrollShell();
+}
+
+function photoLbSyncLightboxChrome(options) {
+  options = options || {};
+  var modal = g('photoLightbox');
+  var main = g('photoLbMain');
+  var maxBtn = g('photoLbToggleMaxBtn');
+  var metaBtn = g('photoLbToggleMetaBtn');
+  var restoreBtn = g('photoLbRestoreMaxBtn');
+
+  if (modal) {
+    modal.classList.toggle('xray-lb-maximized', photoLbChromeMaximized);
+  }
+  if (main) {
+    main.classList.toggle('xray-lb-meta-hidden', !photoLbChromeMetaVisible);
+  }
+  if (maxBtn) {
+    maxBtn.classList.toggle('lb-chrome-active', photoLbChromeMaximized);
+    maxBtn.textContent = photoLbChromeMaximized ? '⤢' : '⛶';
+    maxBtn.setAttribute('title', mediaTr(photoLbChromeMaximized ? 'media.lb.restore' : 'media.lb.maximize'));
+    maxBtn.setAttribute('aria-pressed', photoLbChromeMaximized ? 'true' : 'false');
+  }
+  if (metaBtn) {
+    metaBtn.classList.toggle('lb-chrome-active', !photoLbChromeMetaVisible);
+    metaBtn.textContent = photoLbChromeMetaVisible ? '◧' : '◨';
+    metaBtn.setAttribute('title', mediaTr(photoLbChromeMetaVisible ? 'media.lb.hideInfo' : 'media.lb.showInfo'));
+    metaBtn.setAttribute('aria-pressed', photoLbChromeMetaVisible ? 'true' : 'false');
+  }
+  var edgeBtn = g('photoLbMetaEdgeBtn');
+  if (edgeBtn) {
+    var edgeTri = edgeBtn.querySelector('.xray-lb-meta-edge-tri');
+    if (edgeTri) edgeTri.textContent = photoLbChromeMetaVisible ? '▶' : '◀';
+    edgeBtn.setAttribute('title', mediaTr(photoLbChromeMetaVisible ? 'media.lb.hideInfo' : 'media.lb.showInfo'));
+    edgeBtn.setAttribute('aria-label', mediaTr(photoLbChromeMetaVisible ? 'media.lb.hideInfo' : 'media.lb.showInfo'));
+    edgeBtn.setAttribute('aria-pressed', photoLbChromeMetaVisible ? 'false' : 'true');
+  }
+  if (restoreBtn) {
+    restoreBtn.setAttribute('aria-hidden', photoLbChromeMaximized ? 'false' : 'true');
+  }
+
+  requestAnimationFrame(function () {
+    photoLbSyncLightboxScrollShell();
+    if (!photoLbChromeMaximized) {
+      photoLbResetScrollHost();
+      photoLbSyncLightboxScrollShell();
+    } else if (options.refitMax) {
+      requestAnimationFrame(function () {
+        photoLbFitToScrollHost();
+      });
+    }
+  });
+}
+
+function photoLbToggleMaximize() {
+  if (!photoLbChromeMaximized) {
+    photoLbChromeScaleBeforeMax = phLbTransform.scale;
+    photoLbChromeMaximized = true;
+    photoLbSyncLightboxChrome({ refitMax: true });
+  } else {
+    photoLbChromeMaximized = false;
+    phLbTransform.scale = photoLbChromeScaleBeforeMax;
+    photoLbSyncLightboxChrome();
+  }
+}
+
+function photoLbToggleMetaPanel() {
+  photoLbChromeMetaVisible = !photoLbChromeMetaVisible;
+  photoLbSyncLightboxChrome({ refitMax: photoLbChromeMaximized });
+}
+
+if (!window.__photoLbMaxResizeBound) {
+  window.__photoLbMaxResizeBound = true;
+  window.addEventListener('resize', function () {
+    var modal = g('photoLightbox');
+    if (!photoLbChromeMaximized || !modal || modal.style.display !== 'block') return;
+    photoLbFitToScrollHost();
+  });
+}
+
+/* Auto-fit the photo whenever the lightbox panel changes size
+   (manual drag-resize via the corner grip, or maximize/restore). */
+function photoLbInitBoxResizeObserver() {
+  if (window.__photoLbBoxRO || typeof ResizeObserver === 'undefined') return;
+  var box = document.querySelector('#photoLightbox .xray-lightbox-box');
+  if (!box) return;
+  window.__photoLbBoxRO = new ResizeObserver(function () {
+    var modal = g('photoLightbox');
+    if (!modal || modal.style.display !== 'block') return;
+    if (!photoLbChromeMaximized && !box.style.width && !box.style.height) return;
+    if (window.__photoLbBoxROraf) cancelAnimationFrame(window.__photoLbBoxROraf);
+    window.__photoLbBoxROraf = requestAnimationFrame(function () {
+      photoLbFitToScrollHost();
+    });
+  });
+  window.__photoLbBoxRO.observe(box);
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', photoLbInitBoxResizeObserver);
+} else {
+  photoLbInitBoxResizeObserver();
+}
+
 function openPhotoLightbox(idx) {
   var x = photoFiltered[idx];
   if (!x) return;
@@ -712,6 +845,7 @@ function openPhotoLightbox(idx) {
   phLbIsDrawing = false;
   phLbScrollDragging = false;
   photoLbResetScrollHost();
+  photoLbResetLightboxChrome();
 
   var bs = g('photoLbBrightSlider');
   if (bs) bs.value = 100;
@@ -764,6 +898,7 @@ function openPhotoLightbox(idx) {
     openModal('photoLightbox');
     var plbModal = g('photoLightbox');
     if (plbModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(plbModal);
+    if (typeof photoLbSyncLightboxChrome === 'function') photoLbSyncLightboxChrome();
     return;
   }
 
@@ -828,6 +963,7 @@ function openPhotoLightbox(idx) {
   openModal('photoLightbox');
   var plbModal2 = g('photoLightbox');
   if (plbModal2 && typeof applyI18nInRoot === 'function') applyI18nInRoot(plbModal2);
+  if (typeof photoLbSyncLightboxChrome === 'function') photoLbSyncLightboxChrome();
 }
 
 function closePhotoLightbox() {
@@ -835,6 +971,13 @@ function closePhotoLightbox() {
   if (video && !video.paused) video.pause();
   closeModal('photoLightbox');
   photoLbCurrentId = null;
+  photoLbChromeMaximized = false;
+  photoLbChromeMetaVisible = true;
+  photoLbChromeScaleBeforeMax = 1;
+  var modal = g('photoLightbox');
+  if (modal) modal.classList.remove('xray-lb-maximized');
+  var main = g('photoLbMain');
+  if (main) main.classList.remove('xray-lb-meta-hidden');
 }
 
 function photoLbApplyTransform() {
@@ -1964,7 +2107,10 @@ document.addEventListener('app-lang-change', function () {
   var lbModal = g('photoLightbox');
   if (typeof applyI18nInRoot === 'function') {
     if (uploadModal && uploadModal.style.display === 'block') applyI18nInRoot(uploadModal);
-    if (lbModal && lbModal.style.display === 'block') applyI18nInRoot(lbModal);
+    if (lbModal && lbModal.style.display === 'block') {
+      applyI18nInRoot(lbModal);
+      if (typeof photoLbSyncLightboxChrome === 'function') photoLbSyncLightboxChrome();
+    }
   }
   if (photoPatientId) {
     if (photoAllRecords.length && typeof populatePhotoYearFilter === 'function') {

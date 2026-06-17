@@ -9552,6 +9552,117 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     max-height: calc(100vh - 72px);
 }
 
+/* ── Maximize mode ─────────────────────────────────────────
+ * The lightbox box is ALREADY a working two-zone flex column:
+ *   zone 1 = .xray-lb-toolbar  (flex-shrink:0, fixed height)
+ *   zone 2 = .xray-lb-main     (flex:1, grows — image + meta)
+ * Maximize ONLY enlarges the box to fill the viewport. We do
+ * NOT touch the toolbar/main rules, so the toolbar that shows
+ * fine in normal mode keeps showing — the image zone simply
+ * gets more room. This is the whole trick.                    */
+#xrayLightbox.xray-lb-maximized,
+#photoLightbox.xray-lb-maximized {
+    padding: 0 !important;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lightbox-box,
+#photoLightbox.xray-lb-maximized .xray-lightbox-box {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    resize: none !important;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-restore-max-btn,
+#photoLightbox.xray-lb-maximized .xray-lb-restore-max-btn {
+    display: inline-flex;
+}
+
+.xray-lb-main.xray-lb-meta-hidden {
+    grid-template-columns: 1fr;
+}
+
+.xray-lb-main.xray-lb-meta-hidden .xray-lb-meta {
+    display: none;
+}
+
+.xray-lb-restore-max-btn {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    z-index: 25;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 28px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-radius: 999px;
+    background: rgba(12, 18, 32, 0.88);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.xray-lb-restore-max-btn:hover {
+    background: rgba(26, 115, 232, 0.92);
+    border-color: rgba(255, 255, 255, 0.55);
+    box-shadow: 0 10px 32px rgba(26, 115, 232, 0.35);
+}
+
+.xray-lb-restore-max-btn:active {
+    transform: translateX(-50%) scale(0.98);
+}
+
+.xray-lb-restore-max-icon {
+    font-size: 22px;
+    line-height: 1;
+}
+
+.xray-lb-chrome-btn.lb-chrome-active {
+    background: #1a73e8 !important;
+    color: #fff !important;
+}
+
+/* ── Info-panel edge toggle (triangular tab) ───────────────── */
+.xray-lb-meta-edge-btn {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    z-index: 22;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 72px;
+    padding: 0;
+    border: none;
+    border-radius: 9px 0 0 9px;
+    background: rgba(18, 26, 44, 0.9);
+    color: #cfe0ff;
+    cursor: pointer;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.4);
+    transition: background 0.15s, color 0.15s, width 0.15s;
+}
+.xray-lb-meta-edge-btn:hover {
+    background: #1a73e8;
+    color: #fff;
+    width: 26px;
+}
+.xray-lb-meta-edge-tri {
+    font-size: 13px;
+    line-height: 1;
+    pointer-events: none;
+}
+
 .xray-lightbox-box {
     background: white;
     margin: 1% auto;
@@ -9563,6 +9674,15 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    /* Freely resizable window — drag the bottom-right grip */
+    resize: both;
+    min-width: 520px;
+    min-height: 400px;
+}
+
+/* Larger, more visible resize grip in the corner */
+.xray-lightbox-box::-webkit-resizer {
+    background: linear-gradient(135deg, transparent 45%, #1a73e8 45%, #1a73e8 60%, transparent 60%, transparent 70%, #1a73e8 70%, #1a73e8 85%, transparent 85%);
 }
 
 /* ── Toolbar strip ─────────────────────────────────────────── */
@@ -9648,9 +9768,11 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .xray-lb-main {
     display: grid;
     grid-template-columns: 1fr 300px;
+    grid-template-rows: minmax(0, 1fr);
     flex: 1;
     overflow: hidden;
     min-height: 480px;
+    min-width: 0;
 }
 
 .xray-lb-viewer {
@@ -9662,13 +9784,14 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     position: relative;
     padding: 12px;
     min-height: 0;
+    min-width: 0;
 }
 
 /* Scroll viewport — horizontal + vertical bars when zoomed content exceeds area */
 .xray-lb-scroll-host {
     flex: 1;
     min-height: 200px;
-    max-height: 58vh;
+    max-height: none;
     width: 100%;
     overflow: auto;
     overflow-x: auto;
@@ -9772,6 +9895,8 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     flex-direction: column;
     gap: 0;
     overflow-y: auto;
+    min-height: 0;
+    min-width: 0;
 }
 
 .xray-lb-meta-row {

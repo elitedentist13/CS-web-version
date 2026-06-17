@@ -14,6 +14,8 @@
 <link rel="apple-touch-icon" href="favicon.svg">
 <script>
 (function () {
+  /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
+  var BUILD = '20260617-lightbox-edge-toggle-1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -25,10 +27,14 @@
     }
   } catch (e) {}
   window.__JSM_ASSET_BUST_TS = bust || '';
+  window.__JSM_BUILD = BUILD;
   function withBust(path) {
-    if (!window.__JSM_ASSET_BUST_TS) return path;
-    return path + (path.indexOf('?') >= 0 ? '&' : '?') +
-      'v=' + encodeURIComponent(window.__JSM_ASSET_BUST_TS);
+    var sep = path.indexOf('?') >= 0 ? '&' : '?';
+    var qs = 'b=' + encodeURIComponent(BUILD);
+    if (window.__JSM_ASSET_BUST_TS) {
+      qs += '&v=' + encodeURIComponent(window.__JSM_ASSET_BUST_TS);
+    }
+    return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
   var link = document.createElement('link');
@@ -2318,6 +2324,10 @@
         <button data-i18n="media.lb.resetBtn" data-i18n-title="media.lb.resetBtn" onclick="lbReset()"></button>
         <button data-i18n-title="media.lb.print"     onclick="lbPrint()">🖨️</button>
         <button data-i18n-title="media.lb.download"  onclick="downloadLbXray()">💾</button>
+        <button type="button" id="lbToggleMetaBtn" class="xray-lb-chrome-btn"
+                data-i18n-title="media.lb.hideInfo" onclick="lbToggleMetaPanel()">◧</button>
+        <button type="button" id="lbToggleMaxBtn" class="xray-lb-chrome-btn"
+                data-i18n-title="media.lb.maximize" onclick="lbToggleMaximize()">⛶</button>
       </div>
 
       <!-- Transform -->
@@ -2402,7 +2412,7 @@
     </div><!-- /.xray-lb-toolbar -->
 
     <!-- ══ CONTENT ══════════════════════════════════════════════ -->
-    <div class="xray-lb-main">
+    <div class="xray-lb-main" id="xrayLbMain">
 
       <div class="xray-lb-viewer" id="xrayLbViewerDiv">
         <div id="xrayLbScrollHost" class="xray-lb-scroll-host">
@@ -2421,9 +2431,19 @@
                        background:#1a73e8;color:#fff;border:none;
                        border-radius:6px;padding:8px 20px;
                        font-weight:700;cursor:pointer;font-size:13px;"></button>
+        <button type="button" id="lbRestoreMaxBtn" class="xray-lb-restore-max-btn"
+                onclick="lbToggleMaximize()" aria-hidden="true">
+          <span class="xray-lb-restore-max-icon" aria-hidden="true">⤢</span>
+          <span class="xray-lb-restore-max-label" data-i18n="media.lb.restore"></span>
+        </button>
+        <button type="button" id="lbMetaEdgeBtn" class="xray-lb-meta-edge-btn"
+                onclick="lbToggleMetaPanel()" data-i18n-title="media.lb.hideInfo"
+                data-i18n-aria-label="media.lb.hideInfo">
+          <span class="xray-lb-meta-edge-tri" aria-hidden="true">▶</span>
+        </button>
       </div>
 
-      <div class="xray-lb-meta">
+      <div class="xray-lb-meta" id="xrayLbMeta">
         <div class="xray-lb-meta-row">
           <span class="xlm-label" data-i18n="media.lb.type"></span>
           <select id="lbType" class="xlm-input" style="width:160px;"></select>
@@ -2824,6 +2844,10 @@
         <button type="button" data-i18n="media.lb.resetBtn" data-i18n-title="media.lb.resetBtn" onclick="photoLbReset()"></button>
         <button type="button" data-i18n-title="media.lb.print"     onclick="photoLbPrint()">🖨️</button>
         <button type="button" data-i18n-title="media.lb.download"  onclick="downloadPhotoLb()">💾</button>
+        <button type="button" id="photoLbToggleMetaBtn" class="xray-lb-chrome-btn"
+                data-i18n-title="media.lb.hideInfo" onclick="photoLbToggleMetaPanel()">◧</button>
+        <button type="button" id="photoLbToggleMaxBtn" class="xray-lb-chrome-btn"
+                data-i18n-title="media.lb.maximize" onclick="photoLbToggleMaximize()">⛶</button>
       </div>
 
       <!-- Raster-only tools (hidden for PDF) -->
@@ -2917,7 +2941,7 @@
       </div><!-- /photoLbRasterStrip -->
     </div><!-- /.toolbar -->
 
-    <div class="xray-lb-main">
+    <div class="xray-lb-main" id="photoLbMain">
       <div class="xray-lb-viewer" id="photoLbViewerDiv">
         <!-- PDF fallback (inside viewer, above scroll zone) -->
         <div id="photoLbPdf"
@@ -2948,9 +2972,19 @@
                        background:#1a73e8;color:#fff;border:none;
                        border-radius:6px;padding:8px 20px;
                        font-weight:700;cursor:pointer;font-size:13px;"></button>
+        <button type="button" id="photoLbRestoreMaxBtn" class="xray-lb-restore-max-btn"
+                onclick="photoLbToggleMaximize()" aria-hidden="true">
+          <span class="xray-lb-restore-max-icon" aria-hidden="true">⤢</span>
+          <span class="xray-lb-restore-max-label" data-i18n="media.lb.restore"></span>
+        </button>
+        <button type="button" id="photoLbMetaEdgeBtn" class="xray-lb-meta-edge-btn"
+                onclick="photoLbToggleMetaPanel()" data-i18n-title="media.lb.hideInfo"
+                data-i18n-aria-label="media.lb.hideInfo">
+          <span class="xray-lb-meta-edge-tri" aria-hidden="true">▶</span>
+        </button>
       </div>
 
-      <div class="xray-lb-meta">
+      <div class="xray-lb-meta" id="photoLbMeta">
         <div class="xray-lb-meta-row">
           <span class="xlm-label" data-i18n="media.lb.category"></span>
           <select id="photoLbCat" class="xlm-input" style="width:160px;"></select>

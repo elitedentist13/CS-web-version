@@ -7,15 +7,41 @@
     --danger:  #dc3545;
     --warning: #ffc107;
     --gray:    #6c757d;
+    /* Bundled Noto (fonts/cjk-fonts.css) — unique names; no system CJK fonts (they show □ for rare chars) */
+    --font-latin: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    --font-cjk-sans: 'Joyful CJK Rare', 'Joyful CJK Sans', sans-serif;
+    --font-cjk-serif: 'Joyful CJK Rare Serif', 'Joyful CJK Serif', serif;
+    --font-ui: var(--font-latin), var(--font-cjk-sans);
 }
 
 * { box-sizing: border-box; }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--font-ui);
     background: #f4f7f6;
     margin: 0;
     padding: 20px;
+}
+
+/* Form controls + Chinese name fields — Noto before system fonts that mask rare glyphs */
+input,
+textarea,
+select,
+option {
+    font-family: var(--font-ui);
+}
+
+#chineseName,
+#edit_chineseName,
+.patient-dir-name-cn,
+.appt-name-cn,
+.con-banner-chinese,
+.pat-view-name-cn,
+.plusappt-clear-cn,
+.rcal-chinese,
+.gcal-card .card-chinese {
+    font-family: var(--font-cjk-sans);
+    font-synthesis: none;
 }
 
 /* Slim title-style strip: date + clinic (decorative — □ × for familiar window chrome) */
@@ -911,10 +937,7 @@ body.app-session-active {
     vertical-align: middle;
 }
 .patient-dir-name-cn {
-    font-family:
-        "PingFang HK","PingFang SC","PingFang TC",
-        "Microsoft JhengHei","Microsoft YaHei",
-        "Noto Sans TC","Source Han Sans TC",sans-serif;
+    font-family: var(--font-cjk-sans);
     font-size: 16px;
     font-weight: 800;
     color: #111827;
@@ -2839,7 +2862,7 @@ tr:hover td { background: #fafcff; }
 }
 #tab-plusappt.plusappt-clear-mode .plusappt-clear-cn,
 #tab-queue.plusappt-clear-mode .plusappt-clear-cn {
-    font-family: 'PingFang HK', 'Microsoft JhengHei', sans-serif;
+    font-family: var(--font-cjk-sans);
     font-size: calc(14px * var(--plusappt-font-scale, 1));
     font-weight: 800;
 }
@@ -5078,11 +5101,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     box-shadow: inset 3px 0 0 #2563eb;
 }
 .appt-name-cn {
-    font-family:
-        "PingFang HK","PingFang SC","PingFang TC",
-        "Microsoft JhengHei","Microsoft YaHei",
-        "Noto Sans TC","Source Han Sans TC",
-        "Hiragino Sans GB","Heiti TC","STHeiti",sans-serif;
+    font-family: var(--font-cjk-sans);
     font-weight: 800;
     font-size: 15px;
     letter-spacing: 0.02em;
@@ -5178,8 +5197,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 #recallTable tbody tr:hover td           { background: #f0fdf4 !important; }
 #recallTable .rc-chk { width: 16px; height: 16px; cursor: pointer; accent-color: #0084ff; }
 .rcal-chinese {
-    font-family: 'PingFang HK','PingFang TC','Microsoft JhengHei UI',
-                 'Microsoft JhengHei','Noto Sans HK', sans-serif;
+    font-family: var(--font-cjk-sans);
     font-size: 13px; font-weight: 800;
     letter-spacing: .5px; display: block; line-height: 1.2;
 }
@@ -6535,7 +6553,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 
 #receiptPrintArea {
-    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-family: "Times New Roman", "Times", var(--font-cjk-serif);
     color: #111;
     font-size: 16px;
     line-height: 1.35;
@@ -6551,7 +6569,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .receipt-header h2 {
     margin: 0 0 3px;
     color: #111;
-    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-family: "Times New Roman", "Times", var(--font-cjk-serif);
     font-size: 28px;
     font-weight: 700;
     line-height: 1.15;
@@ -6560,7 +6578,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .receipt-header .receipt-clinic-line {
     margin: 2px 0;
     color: #111;
-    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-family: "Times New Roman", "Times", var(--font-cjk-serif);
     font-size: 15px;
     line-height: 1.35;
 }
@@ -6570,7 +6588,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     padding-top: 6px;
     border-top: 1px solid #222;
     color: #111;
-    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-family: "Times New Roman", "Times", var(--font-cjk-serif);
     font-size: 21px;
     font-weight: 400;
 }
@@ -6583,7 +6601,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     margin-bottom: 12px;
     line-height: 1.35;
     gap: 16px;
-    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-family: "Times New Roman", "Times", var(--font-cjk-serif);
     color: #111;
 }
 
@@ -6838,7 +6856,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     font-size: 15px;
     line-height: 1.45;
     color: #111;
-    font-family: "Times New Roman", "Times", "Noto Serif TC", "PMingLiU", serif;
+    font-family: "Times New Roman", "Times", var(--font-cjk-serif);
 }
 
 .receipt-extra-meta .receipt-kv-row {
@@ -7555,10 +7573,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 /* Chinese name — primary line on blue banner (Treatment Notes, etc.) */
 .con-patient-banner .con-banner-chinese {
-    font-family:
-        "PingFang HK","PingFang SC","PingFang TC",
-        "Microsoft JhengHei","Microsoft YaHei",
-        "Noto Sans TC","Source Han Sans TC",sans-serif;
+    font-family: var(--font-cjk-sans);
     font-size: 24px;
     font-weight: 800;
     line-height: 1.3;
@@ -11541,9 +11556,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 .gcal-card .card-chinese {
     display: inline;
-    font-family: 'PingFang HK','PingFang TC','Microsoft JhengHei UI',
-                 'Microsoft JhengHei','Noto Sans HK','Noto Sans CJK TC',
-                 sans-serif;
+    font-family: var(--font-cjk-sans);
     font-size: 13px;
     font-weight: 900;
     letter-spacing: 0.4px;
@@ -13653,6 +13666,7 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     margin-right: 6px;
 }
 .pat-view-name-cn {
+    font-family: var(--font-cjk-sans);
     font-size: 22px;
     font-weight: 800;
     color: #111827;

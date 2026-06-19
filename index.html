@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260617-lightbox-edge-toggle-1';
+  var BUILD = '20260618-cjk-font-fix-4';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -37,10 +37,12 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  var link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = withBust('style.css');
-  document.head.appendChild(link);
+  ['fonts/cjk-fonts.css', 'style.css'].forEach(function (path) {
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = withBust(path);
+    document.head.appendChild(link);
+  });
 })();
 </script>
 <style>

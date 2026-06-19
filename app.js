@@ -833,6 +833,14 @@ function esc(s) {
         .replace(/"/g,  '&quot;');
 }
 
+/** Bundled CJK font CSS for popup/iframe print HTML. */
+function appCjkFontLinkHtml() {
+    var bust = (typeof window.__JSM_WITH_BUST === 'function')
+        ? window.__JSM_WITH_BUST('fonts/cjk-fonts.css')
+        : 'fonts/cjk-fonts.css';
+    return '<link rel="stylesheet" href="' + bust + '">';
+}
+
 /** M / F / unknown from patients.sex */
 function patientSexKind(sex) {
     var s = String(sex || '').trim().toUpperCase();

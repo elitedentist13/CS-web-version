@@ -1019,9 +1019,9 @@ function conFormsDefaultHeaderTemplate() {
     return '' +
         '<div data-conforms-default-header="1" style="text-align:center;border-bottom:2px solid #dbe4f0;padding:10px 0 12px;margin-bottom:16px;">' +
             '<div style="font-size:24px;font-weight:800;color:#0f172a;line-height:1.2;">{clinic_name}</div>' +
-            '<div style="font-size:20px;font-weight:700;color:#0f172a;line-height:1.25;font-family:PMingLiU,MingLiU,serif;">{clinic_name_chi}</div>' +
+            '<div style="font-size:20px;font-weight:700;color:#0f172a;line-height:1.25;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">{clinic_name_chi}</div>' +
             '<div style="font-size:14px;color:#334155;margin-top:4px;line-height:1.4;">{clinic_address}</div>' +
-            '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;font-family:PMingLiU,MingLiU,serif;">{clinic_address_chi}</div>' +
+            '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">{clinic_address_chi}</div>' +
             '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;">Tel: {clinic_tel}</div>' +
             '<div style="font-size:14px;color:#334155;margin-top:2px;line-height:1.4;">Fax: {clinic_fax}</div>' +
         '</div>';
@@ -1035,7 +1035,7 @@ function conFormsNormalizeFooterTemplate(tpl) {
     if (!/\{doctor_qualification\}/i.test(s)) {
         addon += '<div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;line-height:1.35;">{doctor_qualification}</div>';
     }
-    addon += '<div style="margin-top:4px;font-size:13px;font-family:PMingLiU,MingLiU,serif;line-height:1.35;">{doctor_qualification_chi}</div>';
+    addon += '<div style="margin-top:4px;font-size:13px;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;line-height:1.35;">{doctor_qualification_chi}</div>';
     return s + addon;
 }
 
@@ -1045,9 +1045,9 @@ function conFormsDefaultFooterTemplate() {
             '<div style="max-width:400px;">' +
                 '<div style="border-bottom:1.5px solid #334155;height:22px;"></div>' +
                 '<div style="margin-top:8px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;">{doctor_eng}</div>' +
-                '<div style="margin-top:3px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;font-family:PMingLiU,MingLiU,serif;">{doctor_chi}</div>' +
+                '<div style="margin-top:3px;font-size:16px;font-weight:700;color:#0f172a;line-height:1.25;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">{doctor_chi}</div>' +
                 '<div style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;line-height:1.35;">{doctor_qualification}</div>' +
-                '<div style="margin-top:4px;font-size:13px;font-family:PMingLiU,MingLiU,serif;line-height:1.35;">{doctor_qualification_chi}</div>' +
+                '<div style="margin-top:4px;font-size:13px;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;line-height:1.35;">{doctor_qualification_chi}</div>' +
             '</div>' +
         '</div>';
 }
@@ -1715,7 +1715,7 @@ function conFormsEnsureSickLeaveSignatureQualPlaceholders(raw) {
     if (!/\{doctor_qualification\}/i.test(s)) {
         addon += '<div data-conforms-sick-qual-en="1" style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div>';
     }
-    addon += '<div data-conforms-sick-qual-chi="1" style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div>';
+    addon += '<div data-conforms-sick-qual-chi="1" style="margin-top:4px;font-size:13px;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">{doctor_qualification_chi}</div>';
     if (/\{doctor_chi\}/i.test(s)) {
         return s.replace(/(\{doctor_chi\}[\s\S]*?<\/div>)/i, '$1' + addon);
     }
@@ -1965,18 +1965,18 @@ function conFormsSickLeaveTemplateBodyHtml() {
         '<div style="text-align:right;margin:16px 0 20px;">{date_long}</div>' +
         '<p style="margin:0 0 14px;"><em><strong>To Whom It May Concern</strong></em></p>' +
         '<p style="margin:0 0 6px;">This is to certify that <strong>{patient_name_upper}</strong> is suffering from</p>' +
-        '<p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p>' +
+        '<p style="margin:0 0 6px;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">茲　證　明　{patient_chinese_name_spaced}　因　患　上</p>' +
         '<p data-conforms-sick-dx="1" style="margin:14px 0;text-align:center;font-style:italic;font-size:15px;">{diagnosis}</p>' +
         '<p style="margin:0 0 6px;">is unfit for work and is recommended <strong>{sick_leave_days}</strong> day(s) sick leave</p>' +
-        '<p style="margin:0 0 6px;font-family:\'PMingLiU\',\'MingLiU\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p>' +
+        '<p style="margin:0 0 6px;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">故　不　宜　工　作　及　需　要　病　假　休　息　<strong>{sick_leave_days}</strong>　天</p>' +
         '<p style="margin:0 0 6px;">from <strong>{sick_leave_from_ddmm}</strong> to <strong>{sick_leave_to_ddmm}</strong> inclusive.</p>' +
-        '<p style="margin:0 0 20px;font-family:\'PMingLiU\',\'MingLiU\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p>' +
+        '<p style="margin:0 0 20px;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">由　<strong>{sick_leave_from_ddmm}</strong>　至　<strong>{sick_leave_to_ddmm}</strong>　止。</p>' +
         '<div style="margin-top:72px;max-width:400px;">' +
         '<div style="border-bottom:1.5px solid #334155;height:24px;margin-bottom:10px;"></div>' +
         '<div style="font-size:16px;font-weight:700;line-height:1.3;">{doctor_eng}</div>' +
-        '<div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_chi}</div>' +
+        '<div style="margin-top:4px;font-size:16px;font-weight:700;line-height:1.3;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">{doctor_chi}</div>' +
         '<div data-conforms-sick-qual-en="1" style="margin-top:8px;font-size:13px;font-weight:700;letter-spacing:.2px;">{doctor_qualification}</div>' +
-        '<div data-conforms-sick-qual-chi="1" style="margin-top:4px;font-size:13px;font-family:\'PMingLiU\',\'MingLiU\',serif;">{doctor_qualification_chi}</div>' +
+        '<div data-conforms-sick-qual-chi="1" style="margin-top:4px;font-size:13px;font-family:\'Joyful CJK Rare Serif\',\'Joyful CJK Serif\',serif;">{doctor_qualification_chi}</div>' +
         '</div></div>';
 }
 
@@ -2581,6 +2581,7 @@ function printConFormsHtml(html) {
     }
     popup.document.write(
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
         '<title>' + esc(conTr('con.forms.printDocTitle')) + '</title>' +
         '<style>' + sheetCss +
         'body{font-family:"Segoe UI",Arial,sans-serif;}' +
@@ -6261,7 +6262,7 @@ function printDrugLabel(drugs, lang) {
     var dims = drugLabelPrintDimensions();
 
     var fontFamily = isZh
-        ? "'Noto Sans TC','Microsoft JhengHei UI','Microsoft JhengHei','PingFang TC','Source Han Sans TC',sans-serif"
+        ? "'Joyful CJK Rare','Joyful CJK Sans',sans-serif"
         : "'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif";
 
     var labelCSS =
@@ -6582,6 +6583,7 @@ function printDrugLabel(drugs, lang) {
         '<html lang="' + (isZh ? 'zh-HK' : 'en') + '">' +
         '<head>' +
             '<meta charset="UTF-8">' +
+            (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
             '<title>' + conLblPrint(isZh, 'title') + '</title>' +
             '<style>' + labelCSS + '</style>' +
         '</head>' +

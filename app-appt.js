@@ -5479,7 +5479,7 @@ function doPlusApptPatientSearch() {
             item.className = 'ps-item';
             item.innerHTML =
                 (p.chinese_name
-                    ? '<span style="font-family:\'PingFang HK\',\'Microsoft JhengHei\',sans-serif;font-weight:700;">' +
+                    ? '<span style="font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\',sans-serif;font-weight:700;">' +
                       esc(p.chinese_name) + '</span> '
                     : '') +
                 '<strong>' + esc(p.full_name) + '</strong>' +
@@ -7604,7 +7604,7 @@ function arRow(a, today) {
     var statusBadge = arStatusBadge(a.bill_status, isUpcoming, a.date, today);
 
     var chinesePart = a.patient_chinese_name
-        ? '<span style="font-family:\'PingFang HK\',\'Microsoft JhengHei\',sans-serif;' +
+        ? '<span style="font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\',sans-serif;' +
           'font-size:13px;font-weight:800;display:block;line-height:1.2;">' +
           esc(a.patient_chinese_name) + '</span>'
         : '';
@@ -8087,7 +8087,7 @@ function showRcSendModal() {
         TOTAL: rcSendQueue.length
     });
     var chinesePart = a.patient_chinese_name
-        ? '<span style="font-family:\'PingFang HK\',\'Microsoft JhengHei\',sans-serif;' +
+        ? '<span style="font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\',sans-serif;' +
           'font-size:18px;font-weight:900;display:block;margin-bottom:3px;' +
           '-webkit-font-smoothing:antialiased;">' + esc(a.patient_chinese_name) + '</span>'
         : '';
@@ -8455,7 +8455,7 @@ function doPatientSearch() {
             item.className = 'ps-item';
             item.innerHTML =
                 (p.chinese_name
-                    ? '<span style="font-family:\'PingFang HK\',\'Microsoft JhengHei\',sans-serif;' +
+                    ? '<span style="font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\',sans-serif;' +
                       'font-weight:700;font-size:14px;">' + esc(p.chinese_name) + '</span> '
                     : '') +
                 '<strong>' + esc(p.full_name) + '</strong>' +
@@ -10796,7 +10796,7 @@ function printTodayList() {
             if (cnRaw && enRaw) {
                 nmPrint =
                     '<span style="font-weight:800;font-size:13px;' +
-                    'font-family:\'PingFang HK\',\'Microsoft JhengHei\',\'Noto Sans TC\'' +
+                    'font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\'' +
                     ',sans-serif;">' + esc(cnRaw) + '</span>' +
                     ' <span style="color:#9ca3af;font-weight:bold;">·</span> ' +
                     '<strong style="font-size:13px;color:#334155;">' +
@@ -10804,7 +10804,7 @@ function printTodayList() {
             } else if (cnRaw) {
                 nmPrint =
                     '<strong style="font-weight:800;font-size:13px;' +
-                    'font-family:\'PingFang HK\',\'Microsoft JhengHei\',\'Noto Sans TC\'' +
+                    'font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\'' +
                     ',sans-serif;">' + esc(cnRaw) + '</strong>';
             } else {
                 nmPrint = '<strong style="font-size:13px;color:#334155;">' +
@@ -10831,6 +10831,7 @@ function printTodayList() {
     var html =
         '<!DOCTYPE html><html><head>' +
         '<meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
         '<title>' + esc(trRepl('appt.today.printDocTitle', { DATE: dateStr })) + '</title>' +
         '<style>' +
             'body{font-family:Arial,sans-serif;font-size:13px;color:#222;margin:24px;}' +
@@ -14402,7 +14403,7 @@ function showApptPopup(a, anchor) {
 
     var chineseRow = a.patient_chinese_name
         ? '<tr><td style="color:#888;padding:3px 8px 3px 0;white-space:nowrap;"></td>' +
-          '<td style="font-family:\'PingFang HK\',\'Microsoft JhengHei\',sans-serif;' +
+          '<td style="font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\',sans-serif;' +
           'font-size:16px;font-weight:900;letter-spacing:0.5px;-webkit-font-smoothing:antialiased;">' +
           esc(a.patient_chinese_name) + '</td></tr>'
         : '';
@@ -16778,7 +16779,7 @@ function billHistoryPrintFontFamilyCss(key) {
         system: '"Segoe UI", Arial, Helvetica, sans-serif',
         arial: 'Arial, Helvetica, sans-serif',
         times: '"Times New Roman", Times, serif',
-        ming: '"PMingLiU", "MingLiU", "SimSun", serif',
+        ming: '"Joyful CJK Rare Serif", "Joyful CJK Serif", serif',
         yahei: '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif'
     };
     return map[key] || map.system;
@@ -17045,7 +17046,9 @@ function executeBillHistoryPrint(bills, opts) {
         return;
     }
     popup.document.write(
-        '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
+        '<title>' +
         esc(tr('bill.history.printTitle')) + '</title></head><body>' + bodyHtml +
         '<script>' +
         (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
@@ -18373,7 +18376,7 @@ function receiptContentPrintStyles() {
     var px = function (n) { return String(n) + 'px'; };
     return (
         '@page{size:A4 portrait;margin:10mm 10mm 12mm 10mm;}' +
-        'body{font-family:"Times New Roman","Times","Noto Serif TC","PMingLiU",serif;' +
+        'body{font-family:"Times New Roman","Times","Joyful CJK Rare Serif","Joyful CJK Serif",serif;' +
             'font-size:' + px(t.body) + ';line-height:' + t.lh + ';color:#111;margin:0;}' +
         '#receiptPrintArea{width:100%;max-width:186mm;min-height:0;margin:0 auto;padding:0;' +
             'box-sizing:border-box;display:flex;flex-direction:column;}' +
@@ -18717,6 +18720,7 @@ function printReceiptDocument() {
     doc.open();
     doc.write(
         '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
         '<title>' + esc(tr('bill.receipt.printTitle')) + '</title><style>' + printStylesAll + '</style></head><body>' +
         '<div class="print-sheet-outer"><div id="receiptPrintArea">' +
         area.innerHTML +

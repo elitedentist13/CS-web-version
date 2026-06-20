@@ -4779,7 +4779,7 @@
           <span><span data-i18n="common.currencyPrefix"></span> <span id="rSubtotal">0.00</span></span>
         </div>
         <div class="r-row">
-          <span data-i18n="bill.labelDiscount"></span>
+          <span data-i18n="bill.detail.labelExtraDiscount"></span>
           <span><span data-i18n="common.currencyPrefix"></span> <span id="rDiscount">0.00</span></span>
         </div>
         <div class="r-row r-grand">
@@ -4950,6 +4950,24 @@
                     font-size:13px;border-bottom:1px solid #eee;">
           <span style="color:#555;" data-i18n="bill.labelDiscount"></span>
           <span id="bdDiscount" style="color:var(--danger);">0.00</span>
+        </div>
+        <div id="bdExtraDiscountRow" style="display:flex;justify-content:space-between;align-items:center;
+                    gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid #eee;">
+          <span style="color:#555;">
+            <span data-i18n="bill.detail.labelExtraDiscount"></span>
+            <span id="bdExtraDiscountLocked" style="display:none;color:#94a3b8;font-size:11px;font-style:italic;margin-left:4px;"
+                  data-i18n="bill.detail.extraDiscLocked"></span>
+          </span>
+          <span style="display:flex;align-items:center;gap:6px;">
+            <select id="bdExtraDiscountSelect" onchange="onBillDetailExtraDiscountChange()"
+                    style="font-size:12px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:6px;
+                           background:#fff;cursor:pointer;"></select>
+            <input type="number" id="bdExtraDiscountCustom" class="hidden" min="0" max="100" step="1"
+                   onchange="onBillDetailExtraDiscountCustomEnter()"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();onBillDetailExtraDiscountCustomEnter();}"
+                   style="width:62px;font-size:12px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:6px;"
+                   placeholder="%">
+          </span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:7px 0;
                     font-size:15px;font-weight:700;border-bottom:2px solid #1e3a5f;">

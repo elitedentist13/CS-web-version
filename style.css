@@ -4109,6 +4109,30 @@ tr:hover td { background: #fafcff; }
 .plusappt-slot-row.plusappt-row-booked-long.plusappt-row-selected td {
     background: #e0f2fe !important;
 }
+/* No-show appointments — red tint to mirror Today tab */
+.plusappt-slot-row.plusappt-row-noshow td,
+.plusappt-slot-row.plusappt-row-booked-long.plusappt-row-noshow td {
+    background: rgba(220, 38, 38, 0.12);
+}
+.plusappt-slot-row.plusappt-row-noshow:hover td,
+.plusappt-slot-row.plusappt-row-booked-long.plusappt-row-noshow:hover td {
+    background: rgba(220, 38, 38, 0.18);
+}
+.plusappt-slot-row.plusappt-row-noshow.plusappt-row-selected td,
+.plusappt-slot-row.plusappt-row-booked-long.plusappt-row-noshow.plusappt-row-selected td {
+    background: rgba(220, 38, 38, 0.22) !important;
+}
+/* Bookable empty row stacked under a no-show appointment (same time slot) */
+.plusappt-slot-row.plusappt-row-noshow-follow td {
+    background: #ffffff;
+    border-top: 1px dashed #fca5a5;
+}
+.plusappt-slot-row.plusappt-row-noshow-follow:hover td {
+    background: #eff6ff;
+}
+.plusappt-slot-row.plusappt-row-noshow-follow.plusappt-row-selected td {
+    background: #dbeafe !important;
+}
 /* Booking continuation slots — time column only, inner cells bookable */
 .plusappt-slot-row.plusappt-row-long-span td:not(.plusappt-time-cell) {
     background: #fffef5;
@@ -4601,6 +4625,12 @@ tr:hover td { background: #fafcff; }
     text-overflow: ellipsis;
     line-height: 1.35;
 }
+.plusappt-remarks-bullet {
+    display: inline-block;
+    margin-right: 6px;
+    color: #64748b;
+    font-weight: 700;
+}
 .plusappt-remarks-nav {
     flex-shrink: 0;
     width: 18px;
@@ -4968,6 +4998,21 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 .queue-remarks-snippet.queue-remarks-empty {
     color: #94a3b8;
+}
+.queue-remarks-snippet ul,
+.today-remarks-snippet ul,
+.queue-remarks-snippet ol,
+.today-remarks-snippet ol {
+    margin: 2px 0;
+    padding-left: 20px;
+}
+.queue-remarks-snippet ul,
+.today-remarks-snippet ul { list-style: disc outside; }
+.queue-remarks-snippet ol,
+.today-remarks-snippet ol { list-style: decimal outside; }
+.queue-remarks-snippet li,
+.today-remarks-snippet li {
+    margin: 3px 0;
 }
 
 .appt-task-summary {
@@ -11861,6 +11906,14 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     pointer-events: none;
     display: block;
 }
+.appt-remarks-rich-editor ul,
+.appt-remarks-rich-editor ol {
+    margin: 4px 0;
+    padding-left: 22px;
+}
+.appt-remarks-rich-editor ul { list-style: disc outside; }
+.appt-remarks-rich-editor ol { list-style: decimal outside; }
+.appt-remarks-rich-editor li { margin: 2px 0; }
 
 #deleteApptBtn.appt-delete-btn {
     background: #dc2626 !important;

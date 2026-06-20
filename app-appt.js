@@ -4641,16 +4641,19 @@ function bindPlusApptTreatmentInline(row, apptRow, opts) {
 
 function bindPlusApptRemarksDblclick(row, apptRow) {
     if (!row || !apptRow || !apptRow.id) return;
-    var remTd = row.cells && row.cells[3] ? row.cells[3] : null;
+    var remTd = row.querySelector('.plusappt-remarks-cell-wrap') ||
+        (row.cells && row.cells[4] ? row.cells[4] : null);
     if (!remTd || remTd.dataset.remarksBound === '1') return;
     remTd.dataset.remarksBound = '1';
     remTd.classList.add('plusappt-remarks-cell', 'plusappt-remarks-preview-wrap');
-    var lineView = remTd.querySelector('.plusappt-remarks-line-view');
-    var hit = lineView || remTd;
     if (typeof tr === 'function') {
-        hit.title = tr('appt.plusAppt.remarksDblClickHint');
+        remTd.title = tr('appt.plusAppt.remarksDblClickHint');
     }
-    hit.addEventListener('dblclick', function(e) {
+    remTd.addEventListener('dblclick', function(e) {
+        if (e.target && e.target.closest &&
+            e.target.closest('.plusappt-remarks-nav, .plusappt-task-btn, button')) {
+            return;
+        }
         e.stopPropagation();
         e.preventDefault();
         if (typeof openQueueRemarksEditor === 'function') openQueueRemarksEditor(apptRow);
@@ -4711,38 +4714,97 @@ function plusApptRemarksPlainText(remarks) {
     return String(raw || '').trim();
 }
 
-function plusApptRemarksDisplayLines(remarks) {
-    var plain = plusApptRemarksPlainText(remarks);
-    if (!plain) return [];
-    var parts = plain.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-    if (!parts.length) parts = [plain];
-    var out = [];
-    var maxLen = PLUSAPPT_REMARKS_LINE_MAX;
-    parts.forEach(function(line) {
-        if (line.length <= maxLen) {
-            out.push(line);
-            return;
+/** Plain text (no markup) for a single rendered line segment. */
+function plusApptRemarksSegPlain(html) {
+    var d = document.createElement('div');
+    d.innerHTML = String(html || '');
+    return String(d.textContent || d.innerText || '').trim();
+}
+
+/**
+ * Split remarks into display line segments while preserving inline formatting
+ * (font color / size / style). Each list item becomes its own bulleted line so
+ * bullets are not jammed together in the row preview.
+ * Returns array of { html, bullet }.
+ */
+function plusApptRemarksLineSegments(remarks) {
+    var raw = typeof stripStaffAuthorFromRemarks === 'function'
+        ? stripStaffAuthorFromRemarks(remarks || '')
+        : String(remarks || '');
+    if (typeof stripDoctorTagsFromRemarks === 'function') {
+        raw = stripDoctorTagsFromRemarks(raw);
+    }
+    raw = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    var hasHtml = typeof remarksStringHasHtml === 'function' && remarksStringHasHtml(raw);
+    if (!hasHtml) {
+        return raw.split('\n')
+            .map(function(l) { return l.trim(); })
+            .filter(Boolean)
+            .map(function(l) { return { html: esc(l), bullet: false }; });
+    }
+
+    var clean = typeof sanitizeRemarksHtml === 'function' ? sanitizeRemarksHtml(raw) : raw;
+    var root = document.createElement('div');
+    root.innerHTML = clean;
+
+    var segs = [];
+    var current = null;
+
+    function flush() {
+        if (current === null) return;
+        if (current.bullet || plusApptRemarksSegPlain(current.html)) segs.push(current);
+        current = null;
+    }
+    function startLine(bullet) {
+        flush();
+        current = { html: '', bullet: !!bullet };
+    }
+    function appendInline(html) {
+        if (current === null) current = { html: '', bullet: false };
+        current.html += html;
+    }
+
+    function walk(node) {
+        var kids = node.childNodes;
+        for (var i = 0; i < kids.length; i++) {
+            var ch = kids[i];
+            if (ch.nodeType === 3) {
+                if (ch.nodeValue) appendInline(esc(ch.nodeValue));
+            } else if (ch.nodeType === 1) {
+                var tag = ch.tagName.toLowerCase();
+                if (tag === 'br') {
+                    flush();
+                } else if (tag === 'ul' || tag === 'ol') {
+                    flush();
+                    walk(ch);
+                    flush();
+                } else if (tag === 'li') {
+                    startLine(true);
+                    walk(ch);
+                    flush();
+                } else if (tag === 'div' || tag === 'p') {
+                    flush();
+                    walk(ch);
+                    flush();
+                } else if (ch.querySelector && ch.querySelector('br, div, p, ul, ol, li')) {
+                    walk(ch);
+                } else {
+                    appendInline(ch.outerHTML);
+                }
+            }
         }
-        var rest = line;
-        while (rest.length > maxLen) {
-            var chunk = rest.slice(0, maxLen);
-            var sp = chunk.lastIndexOf(' ');
-            if (sp > Math.floor(maxLen * 0.35)) chunk = rest.slice(0, sp);
-            else chunk = rest.slice(0, maxLen);
-            chunk = chunk.trim();
-            if (!chunk) break;
-            out.push(chunk);
-            rest = rest.slice(chunk.length).trim();
-        }
-        if (rest) out.push(rest);
-    });
-    return out;
+    }
+
+    walk(root);
+    flush();
+    return segs;
 }
 
 function plusApptRemarksScrollerHtml(remarks, apptId, opts) {
     opts = opts || {};
-    var lines = plusApptRemarksDisplayLines(remarks);
-    if (!lines.length) return '—';
+    var segs = plusApptRemarksLineSegments(remarks);
+    if (!segs.length) return '—';
     var tagHtml = '';
     if (!opts.hideStaffAuthor) {
         var tag = typeof extractStaffAuthorSpan === 'function' ? extractStaffAuthorSpan(remarks) : '';
@@ -4752,19 +4814,23 @@ function plusApptRemarksScrollerHtml(remarks, apptId, opts) {
     }
     if (apptId) {
         plusApptRemarksLinesCache[String(apptId)] = {
-            lines: lines.slice(),
+            segs: segs.slice(),
             tagHtml: tagHtml
         };
     }
 
     function lineHtml(idx) {
-        var html = esc(lines[idx]);
-        if (tagHtml && idx === lines.length - 1) html += ' ' + tagHtml;
+        var s = segs[idx];
+        var html = (s.bullet ? '<span class="plusappt-remarks-bullet">•</span>' : '') + s.html;
+        if (tagHtml && idx === segs.length - 1) html += ' ' + tagHtml;
         return html;
     }
 
-    var fullTitle = lines.join(' · ');
-    if (lines.length === 1) {
+    var fullTitle = segs.map(function(s) {
+        return (s.bullet ? '• ' : '') + plusApptRemarksSegPlain(s.html);
+    }).join(' · ');
+
+    if (segs.length === 1) {
         return '<div class="plusappt-remarks-scroller plusappt-remarks-scroller--single" title="' +
             esc(fullTitle) + '">' +
             '<div class="plusappt-remarks-line-view">' + lineHtml(0) + '</div></div>';
@@ -4772,7 +4838,7 @@ function plusApptRemarksScrollerHtml(remarks, apptId, opts) {
 
     return '<div class="plusappt-remarks-scroller" data-appt-id="' + esc(apptId) + '" data-line-idx="0">' +
         '<div class="plusappt-remarks-line-view" title="' + esc(fullTitle) + '">' + lineHtml(0) + '</div>' +
-        '<span class="plusappt-remarks-line-meta">1/' + lines.length + '</span>' +
+        '<span class="plusappt-remarks-line-meta">1/' + segs.length + '</span>' +
         '<div class="plusappt-remarks-nav-group">' +
             '<button type="button" class="plusappt-remarks-nav plusappt-remarks-up" aria-label="' +
                 esc(tr('appt.plusAppt.remarksLineUp')) + '">▲</button>' +
@@ -4786,9 +4852,9 @@ function bindPlusApptRemarksScroller(row, apptId) {
     var scroller = row.querySelector('.plusappt-remarks-scroller:not(.plusappt-remarks-scroller--single)');
     if (!scroller) return;
     var cache = plusApptRemarksLinesCache[String(apptId)] || {};
-    var lines = cache.lines || [];
+    var segs = cache.segs || [];
     var tagHtml = cache.tagHtml || '';
-    if (!lines || lines.length <= 1) return;
+    if (!segs || segs.length <= 1) return;
     var view = scroller.querySelector('.plusappt-remarks-line-view');
     var meta = scroller.querySelector('.plusappt-remarks-line-meta');
     var up = scroller.querySelector('.plusappt-remarks-up');
@@ -4796,14 +4862,15 @@ function bindPlusApptRemarksScroller(row, apptId) {
     var idx = parseInt(scroller.getAttribute('data-line-idx') || '0', 10) || 0;
 
     function showLine(i) {
-        idx = ((i % lines.length) + lines.length) % lines.length;
+        idx = ((i % segs.length) + segs.length) % segs.length;
         scroller.setAttribute('data-line-idx', String(idx));
         if (view) {
-            var html = esc(lines[idx]);
-            if (tagHtml && idx === lines.length - 1) html += ' ' + tagHtml;
+            var s = segs[idx];
+            var html = (s.bullet ? '<span class="plusappt-remarks-bullet">•</span>' : '') + s.html;
+            if (tagHtml && idx === segs.length - 1) html += ' ' + tagHtml;
             view.innerHTML = html;
         }
-        if (meta) meta.textContent = (idx + 1) + '/' + lines.length;
+        if (meta) meta.textContent = (idx + 1) + '/' + segs.length;
     }
 
     if (up) {
@@ -4838,16 +4905,34 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var startAppts = (byStart[slot] || []).filter(function(x) {
             return x && !apptTransferIsCutPending(x.id);
         });
-        var rowPlans = startAppts.length
-            ? startAppts.map(function(ap, idx) {
-                return { a: ap, stackIdx: idx, stackTotal: startAppts.length };
-            })
-            : [{ a: null, stackIdx: 0, stackTotal: 0 }];
+        var rowPlans;
+        if (startAppts.length) {
+            // When every appointment starting at this slot is a no-show, keep the slot
+            // bookable by appending an empty selectable row stacked directly underneath.
+            var slotAllNoshow = startAppts.every(function(ap) {
+                return typeof todayApptIsNoshow === 'function' && todayApptIsNoshow(ap);
+            });
+            var slotStackTotal = startAppts.length + (slotAllNoshow ? 1 : 0);
+            rowPlans = startAppts.map(function(ap, idx) {
+                return { a: ap, stackIdx: idx, stackTotal: slotStackTotal };
+            });
+            if (slotAllNoshow) {
+                rowPlans.push({
+                    a: null,
+                    stackIdx: startAppts.length,
+                    stackTotal: slotStackTotal,
+                    stackFollow: true
+                });
+            }
+        } else {
+            rowPlans = [{ a: null, stackIdx: 0, stackTotal: 0 }];
+        }
 
         rowPlans.forEach(function(plan) {
         var a = plan.a;
         var stackIdx = plan.stackIdx;
         var stackTotal = plan.stackTotal;
+        var stackFollow = !!plan.stackFollow;
         var spanInfo = (!a && !startAppts.length && spanBySlot[slot]) ? spanBySlot[slot] : null;
         var row = document.createElement('tr');
         var rowCls = ['plusappt-slot-row'];
@@ -4860,6 +4945,10 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             rowCls.push('plusappt-row-long-span');
         }
         if (a && clearMode) rowCls.push('plusappt-clear-row');
+        if (a && typeof todayApptIsNoshow === 'function' && todayApptIsNoshow(a)) {
+            rowCls.push('plusappt-row-noshow');
+        }
+        if (stackFollow) rowCls.push('plusappt-row-noshow-follow');
         row.className = rowCls.join(' ');
         row.dataset.slotTime = slot;
         if (colDr) row.dataset.doctorCode = colDr;
@@ -4912,7 +5001,9 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         }
 
         var timeShow;
-        if (a && stackTotal > 1 && stackIdx === 0) {
+        if (stackFollow) {
+            timeShow = '';
+        } else if (a && stackTotal > 1 && stackIdx === 0) {
             timeShow = timeHtml;
         } else if (a && stackTotal > 1 && stackIdx > 0) {
             timeShow = '';
@@ -4924,7 +5015,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             timeShow = timeHtml;
         }
         var timeCellCls = 'plusappt-time-cell';
-        if ((spanInfo && spanInfo.role === 'span') || (a && stackTotal > 1 && stackIdx > 0)) {
+        if ((spanInfo && spanInfo.role === 'span') || (a && stackTotal > 1 && stackIdx > 0) || stackFollow) {
             timeCellCls += ' plusappt-time-cell--occupied';
         }
         if (a && stackTotal > 1 && stackIdx === 0) {
@@ -5113,7 +5204,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         tb.appendChild(row);
         if (a) bindPlusApptTreatmentInline(row, a, { clearMode: clearMode });
         if (a) bindPlusApptRemarksScroller(row, a.id);
-        if (a && clearMode) bindPlusApptRemarksDblclick(row, a);
+        if (a) bindPlusApptRemarksDblclick(row, a);
         }); // rowPlans
     });
 
@@ -8637,7 +8728,7 @@ function remarksRichTr(key) {
 }
 
 function sanitizeRemarksHtml(html) {
-    var allowed = { span: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, br: 1, font: 1, div: 1, p: 1 };
+    var allowed = { span: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, br: 1, font: 1, div: 1, p: 1, ul: 1, ol: 1, li: 1 };
     var styleOk = {
         'font-size': 1, 'font-family': 1, color: 1,
         'font-weight': 1, 'font-style': 1, 'text-decoration': 1
@@ -9352,6 +9443,15 @@ function remarksRichBuildToolbar(wrap) {
     italicBtn.textContent = 'I';
     bar.appendChild(italicBtn);
 
+    var bulletBtn = document.createElement('button');
+    bulletBtn.type = 'button';
+    bulletBtn.className = 'appt-remarks-fmt-btn appt-remarks-fmt-btn--bullets';
+    bulletBtn.setAttribute('data-fmt', 'bullets');
+    bulletBtn.setAttribute('data-i18n-title', 'appt.remarksRich.bullets');
+    bulletBtn.title = remarksRichTr('appt.remarksRich.bullets');
+    bulletBtn.textContent = '• ☰';
+    bar.appendChild(bulletBtn);
+
     if (typeof applyI18nInRoot === 'function') applyI18nInRoot(bar);
 }
 
@@ -9567,6 +9667,7 @@ function remarksRichWireWrap(wrap) {
         var fmt = btn.getAttribute('data-fmt');
         if (fmt === 'bold') remarksRichToggleBtn(editor, 'bold');
         else if (fmt === 'italic') remarksRichToggleBtn(editor, 'italic');
+        else if (fmt === 'bullets') remarksRichToggleBtn(editor, 'insertUnorderedList');
     });
 }
 
@@ -17555,6 +17656,160 @@ function executeBillDelete() {
 var bdCurrentBill = null;
 var bdNotesEditing = false;
 var bdNotesEditWired = false;
+var BD_EXTRA_DISCOUNT_STEPS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
+
+function billRound2(n) {
+    return Math.round(((parseFloat(n) || 0) + Number.EPSILON) * 100) / 100;
+}
+
+/** Extra discount % currently stored on a bill (derived from discount / subtotal). */
+function billExtraDiscountPct(b) {
+    if (!b) return 0;
+    var sub = parseFloat(b.subtotal) || 0;
+    var disc = parseFloat(b.discount) || 0;
+    if (sub <= 0 || disc <= 0) return 0;
+    var pct = (disc / sub) * 100;
+    return Math.round(pct * 100) / 100;
+}
+
+function buildBillDetailExtraDiscountOptions() {
+    var sel = g('bdExtraDiscountSelect');
+    if (!sel) return;
+    var html = '<option value="0">' + esc(tr('bill.detail.extraDiscNone')) + '</option>';
+    BD_EXTRA_DISCOUNT_STEPS.forEach(function(p) {
+        html += '<option value="' + p + '">' +
+            esc(trRepl('bill.detail.extraDiscPctOff', { PCT: p })) + '</option>';
+    });
+    html += '<option value="custom">' + esc(tr('bill.detail.extraDiscCustom')) + '</option>';
+    sel.innerHTML = html;
+}
+
+/** Reflect the bill's current extra discount in the dropdown + custom input. */
+function syncBillDetailExtraDiscount(b) {
+    var row = g('bdExtraDiscountRow');
+    var sel = g('bdExtraDiscountSelect');
+    var custom = g('bdExtraDiscountCustom');
+    if (!row || !sel) return;
+
+    buildBillDetailExtraDiscountOptions();
+
+    var editable = b && !billRecordIsVoid(b) && canModifyBill();
+    row.style.display = editable ? 'flex' : 'none';
+    if (!editable) return;
+
+    // Once any payment has been made the discount % is locked (no edits allowed).
+    var paid = parseFloat(b.amount_paid) || 0;
+    var locked = paid > 0.005;
+    sel.disabled = locked;
+
+    var pct = billExtraDiscountPct(b);
+    var isPreset = BD_EXTRA_DISCOUNT_STEPS.indexOf(pct) !== -1 || pct === 0;
+    if (isPreset) {
+        sel.value = String(pct);
+        if (custom) {
+            custom.classList.add('hidden');
+            custom.value = '';
+            custom.disabled = locked;
+        }
+    } else {
+        sel.value = 'custom';
+        if (custom) {
+            custom.classList.remove('hidden');
+            custom.value = pct;
+            custom.disabled = locked;
+        }
+    }
+
+    var note = g('bdExtraDiscountLocked');
+    if (note) note.style.display = locked ? 'inline' : 'none';
+}
+
+function onBillDetailExtraDiscountChange() {
+    var sel = g('bdExtraDiscountSelect');
+    var custom = g('bdExtraDiscountCustom');
+    if (!sel) return;
+    if (sel.value === 'custom') {
+        if (custom) {
+            custom.classList.remove('hidden');
+            try { custom.focus(); custom.select(); } catch (_) {}
+        }
+        return;
+    }
+    if (custom) {
+        custom.classList.add('hidden');
+        custom.value = '';
+    }
+    applyBillDetailExtraDiscount(parseFloat(sel.value) || 0);
+}
+
+function onBillDetailExtraDiscountCustomEnter() {
+    var custom = g('bdExtraDiscountCustom');
+    if (!custom) return;
+    var pct = parseFloat(custom.value);
+    if (isNaN(pct) || pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    custom.value = pct;
+    applyBillDetailExtraDiscount(pct);
+}
+
+/** Apply a whole-bill extra discount (% off subtotal); recompute + persist. */
+function applyBillDetailExtraDiscount(pct) {
+    var b = bdCurrentBill;
+    if (!b || !b.id) return;
+    if (billRecordIsVoid(b) || !canModifyBill()) return;
+    // Block once payment has begun (partial or full).
+    if ((parseFloat(b.amount_paid) || 0) > 0.005) {
+        syncBillDetailExtraDiscount(b);
+        return;
+    }
+
+    pct = parseFloat(pct) || 0;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+
+    var sub = parseFloat(b.subtotal) || 0;
+    var paid = parseFloat(b.amount_paid) || 0;
+    var discountAmt = billRound2(sub * pct / 100);
+    var total = billRound2(sub - discountAmt);
+    var balance = billRound2(total - paid);
+    var newStatus = balance <= 0.005
+        ? 'Paid'
+        : (paid > 0.005 ? 'Partial' : (b.status || 'Pending'));
+
+    var sel = g('bdExtraDiscountSelect');
+    if (sel) sel.disabled = true;
+
+    SB.from('bills')
+        .update({ discount: discountAmt, total: total, balance: balance, status: newStatus })
+        .eq('id', b.id)
+    .then(function(r) {
+        if (sel) sel.disabled = false;
+        if (r.error) {
+            alert(r.error.message || tr('bill.detail.extraDiscSaveFailed'));
+            syncBillDetailExtraDiscount(b);
+            return;
+        }
+        b.discount = discountAmt;
+        b.total = total;
+        b.balance = balance;
+        b.status = newStatus;
+
+        g('bdDiscount').textContent = fmtHKNeg(discountAmt);
+        g('bdTotal').textContent = fmtHK(total);
+        g('bdBalance').textContent = fmtHK(balance);
+        g('bdBalance').style.color = balance > 0 ? 'var(--danger)' : '#16a34a';
+
+        var voidedBill = billRecordIsVoid(b);
+        var banner = g('bdOutstandingBanner');
+        var addBtn = g('bdAddPaymentBtn');
+        if (banner) banner.style.display = (!voidedBill && balance > 0) ? 'block' : 'none';
+        if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(balance);
+        if (addBtn) addBtn.style.display = (!voidedBill && balance > 0) ? 'inline-block' : 'none';
+
+        if (typeof loadBillHistory === 'function') loadBillHistory();
+        try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+    });
+}
 
 function canEditBillDetailNotes(b) {
     return !!(b && b.id && !billRecordIsVoid(b));
@@ -17812,6 +18067,9 @@ function showBillDetail(b) {
     g('bdPaid').textContent     = fmtHK(b.amount_paid);
     g('bdBalance').textContent  = fmtHK(bal);
     g('bdBalance').style.color  = bal > 0 ? 'var(--danger)' : '#16a34a';
+
+    // Extra discount dropdown (post-creation % off the bill subtotal)
+    syncBillDetailExtraDiscount(b);
 
     // Outstanding banner + Add Payment button (hidden for voided bills)
     var voidedBill = billRecordIsVoid(b);
@@ -18855,7 +19113,7 @@ function defaultReceiptPrintOptions() {
     return {
         printAddress: false,
         printPaymentHistory: false,
-        printBillDate: false,
+        printBillDate: true,
         printDiagnosis: false,
         diagnosisText: '',
         reasonForTreatment: '',

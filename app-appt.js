@@ -11195,6 +11195,119 @@ function queuePatientEditDblclickBlocked(el) {
     ));
 }
 
+var QUEUE_ACTION_DROP_Z = 100200;
+var queueActionDropCloseBound = false;
+
+function queueStopRowEvent(e, preventDefault) {
+    if (!e) return;
+    if (preventDefault) e.preventDefault();
+    e.stopPropagation();
+}
+
+function queueBindActionWrapGuards(wrap) {
+    if (!wrap || wrap.dataset.queueActionWrapBound === '1') return;
+    wrap.dataset.queueActionWrapBound = '1';
+    wrap.addEventListener('dblclick', function(e) {
+        queueStopRowEvent(e, true);
+    });
+    wrap.addEventListener('dragstart', function(e) {
+        queueStopRowEvent(e, true);
+    });
+}
+
+function queueRememberActionDropWrap(drop) {
+    if (!drop) return null;
+    if (drop.__queueActionWrap && document.body.contains(drop.__queueActionWrap)) {
+        return drop.__queueActionWrap;
+    }
+    var wrap = drop.closest ? drop.closest('.action-wrap') : null;
+    if (wrap) drop.__queueActionWrap = wrap;
+    return wrap || null;
+}
+
+function queuePositionActionDrop(drop, btn) {
+    if (!drop || !btn) return;
+    var rect  = btn.getBoundingClientRect();
+    // action-drop is position:fixed; keep coordinates in viewport space (no scrollY).
+    var dropW = 200;
+    var dropH = 240;
+    var gap = 4;
+    var edge = 8;
+    var top = rect.bottom + gap;
+    if (top + dropH > window.innerHeight - edge) {
+        top = rect.top - dropH - gap;
+    }
+    if (top < edge) top = edge;
+    var left = rect.right - dropW;
+    if (left + dropW > window.innerWidth - edge) {
+        left = window.innerWidth - dropW - edge;
+    }
+    if (left < edge) left = edge;
+    drop.style.top  = Math.round(top) + 'px';
+    drop.style.left = Math.round(left) + 'px';
+    drop.style.zIndex = String(QUEUE_ACTION_DROP_Z);
+}
+
+function queueRestoreActionDropHome(drop) {
+    if (!drop) return;
+    var wrap = queueRememberActionDropWrap(drop);
+    if (wrap && drop.parentNode === document.body) {
+        wrap.appendChild(drop);
+    }
+}
+
+function queueCloseActionDrop(drop) {
+    if (!drop) return;
+    drop.classList.remove('open');
+    drop.classList.remove('action-drop--portal');
+    queueRestoreActionDropHome(drop);
+}
+
+function queueCloseAllActionDrops(exceptDrop) {
+    document.querySelectorAll('.action-drop.open').forEach(function(d) {
+        if (exceptDrop && d === exceptDrop) return;
+        queueCloseActionDrop(d);
+    });
+}
+
+function queueOpenActionDrop(drop, btn) {
+    if (!drop || !btn || !document.body.contains(btn)) return;
+    queueCloseAllActionDrops(drop);
+    queueRememberActionDropWrap(drop);
+    if (drop.parentNode !== document.body) {
+        document.body.appendChild(drop);
+    }
+    drop.classList.add('action-drop--portal');
+    queuePositionActionDrop(drop, btn);
+    drop.classList.add('open');
+}
+
+function queueToggleActionDrop(drop, btn) {
+    if (!drop || !btn) return;
+    if (drop.classList.contains('open')) {
+        queueCloseActionDrop(drop);
+        return;
+    }
+    queueOpenActionDrop(drop, btn);
+}
+
+function queueActionDropClickInside(e) {
+    return !!(e && e.target && e.target.closest &&
+        e.target.closest('.action-btn, .action-drop, .action-item'));
+}
+
+function bindQueueActionDropGlobalCloseOnce() {
+    if (queueActionDropCloseBound) return;
+    queueActionDropCloseBound = true;
+    document.addEventListener('click', function(e) {
+        if (queueActionDropClickInside(e)) return;
+        queueCloseAllActionDrops(null);
+    });
+}
+
+window.queueCloseAllActionDrops = queueCloseAllActionDrops;
+bindQueueActionDropGlobalCloseOnce();
+
 function apptPatchCachedPatientRows(patient) {
     if (!patient || !patient.id) return;
     var pid = String(patient.id);
@@ -11261,9 +11374,7 @@ function resolveQueueRowPatientId(q, done) {
 
 function openEditPatientFromQueueRow(q) {
     if (!q) return;
-    document.querySelectorAll('.action-drop.open').forEach(function (d) {
-        d.classList.remove('open');
-    });
+    queueCloseAllActionDrops(null);
     resolveQueueRowPatientId(q, function (pid) {
         if (pid && typeof openEditPatient === 'function') {
             openEditPatient(pid);
@@ -11690,6 +11801,7 @@ function ensureQueueElapsedTicker() {
 function loadQueue() {
     var tb = g('queueBody');
     if (!tb) return;
+    queueCloseAllActionDrops(null);
     var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
     tb.innerHTML =
@@ -11992,7 +12104,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         '</td>' +
         '<td class="queue-actions-cell' + dataCls + '">' +
             '<div class="action-wrap" id="aw-' + uid + '">' +
-                '<button class="action-btn" id="ab-' + uid + '">' +
+                '<button type="button" class="action-btn" id="ab-' + uid + '" data-no-click-guard="1">' +
                     esc(tr('appt.queue.actions')) +
                 '</button>' +
                 '<div class="action-drop" id="ad-' + uid + '">' +
@@ -12101,48 +12213,30 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         openEditPatientFromQueueRow(q);
     });
 
+    var wrap = g('aw-' + uid);
     var drop = g('ad-' + uid);
     var btn  = g('ab-' + uid);
+    if (drop && wrap) {
+        drop.__queueActionWrap = wrap;
+    }
+    queueBindActionWrapGuards(wrap);
 
-    btn.addEventListener('click', function(e) {
+    btn.addEventListener('mousedown', function(e) {
         e.stopPropagation();
-        document.querySelectorAll('.action-drop.open')
-            .forEach(function(d) {
-                if (d !== drop) d.classList.remove('open');
-            });
-        if (drop.classList.contains('open')) {
-            drop.classList.remove('open');
-            return;
-        }
-        var rect  = btn.getBoundingClientRect();
-        // action-drop is position:fixed; keep coordinates in viewport space (no scrollY).
-        var dropW = 200;
-        var dropH = 240;
-        var gap = 4;
-        var edge = 8;
-        var top = rect.bottom + gap;
-        if (top + dropH > window.innerHeight - edge) {
-            top = rect.top - dropH - gap;
-        }
-        if (top < edge) top = edge;
-        var left = rect.right - dropW;
-        if (left + dropW > window.innerWidth - edge) {
-            left = window.innerWidth - dropW - edge;
-        }
-        if (left < edge) left = edge;
-        drop.style.top  = Math.round(top) + 'px';
-        drop.style.left = Math.round(left) + 'px';
-        drop.classList.add('open');
+    });
+    btn.addEventListener('click', function(e) {
+        queueStopRowEvent(e, true);
+        queueToggleActionDrop(drop, btn);
     });
 
     g('act-bill-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { openBillPanel(q); }, 60);
     });
     g('act-wa-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { openAppointmentWhatsApp(q, 'appointmentReminder'); }, 40);
     });
     row.querySelectorAll('.appt-task-pill-btn[data-task-cycle="1"]').forEach(function(btn) {
@@ -12160,8 +12254,8 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
     });
 
     g('act-notes-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         var pid = q.patient_id;
         if (!pid) {
             alert(tr('appt.queue.noPatientLinked'));
@@ -12173,20 +12267,20 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
     });
 
     g('act-done-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { updateQueueStatus(q.id, 'Done'); }, 60);
     });
 
     g('act-noshow-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { updateQueueStatus(q.id, 'No Show'); }, 60);
     });
 
     g('act-remove-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() {
             if (!confirm(trRepl('appt.queue.confirmRemove', {
                 NAME: q.patient_name || tr('appt.today.thisPatient')
@@ -12212,7 +12306,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         pencil.addEventListener('click', function(e) {
             e.stopPropagation();
             e.preventDefault();
-            drop.classList.remove('open');
+            queueCloseActionDrop(drop);
             openQueueRemarksEditor(q);
         });
     }
@@ -12222,7 +12316,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         remarksWrap.addEventListener('dblclick', function(e) {
             e.stopPropagation();
             e.preventDefault();
-            drop.classList.remove('open');
+            queueCloseActionDrop(drop);
             openQueueRemarksEditor(q);
         });
     }

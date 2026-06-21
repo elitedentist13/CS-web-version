@@ -4214,13 +4214,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        // close action dropdowns (queue table)
-        document.querySelectorAll('.action-drop.open').forEach(function(dd) {
-            var wrap = dd.closest('.action-wrap');
-            if (wrap && !wrap.contains(e.target)) {
-                dd.classList.remove('open');
-            }
-        });
+        // action dropdown close is handled in app-appt.js (bindQueueActionDropGlobalCloseOnce)
 
         // close appointment patient search dropdown
         var psWrap = document.querySelector('#apptModal .ps-wrap');

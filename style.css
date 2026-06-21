@@ -5303,7 +5303,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 .action-drop {
     position: fixed;
-    z-index: 99999;
+    z-index: 100200;
     background: white;
     border: 1px solid #e0e0e0;
     border-radius: 8px;
@@ -5313,7 +5313,21 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     overflow: hidden;
 }
 
-.action-drop.open { display: block; }
+.action-drop.open,
+.action-drop.action-drop--portal {
+    display: block;
+    z-index: 100200;
+}
+
+.queue-wrap tr.appt-list-row-selected td.queue-actions-cell {
+    position: relative;
+    z-index: 3;
+}
+
+.queue-wrap tr.appt-list-row-selected td.queue-actions-cell .action-wrap {
+    position: relative;
+    z-index: 4;
+}
 
 .action-item {
     display: flex;

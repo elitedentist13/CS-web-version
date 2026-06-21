@@ -2442,6 +2442,9 @@ tr:hover td { background: #fafcff; }
 }
 #todayBody tr.today-row-noshow.appt-list-row-selected td {
     background: rgba(220, 38, 38, 0.22) !important;
+}
+/* Single left accent — not per cell (avoids red lines between columns). */
+#todayBody tr.today-row-noshow.appt-list-row-selected > td:first-child {
     box-shadow: inset 3px 0 0 #dc2626;
 }
 .badge-cancelled { background: #f8d7da; color: #721c24; }
@@ -2854,21 +2857,30 @@ tr:hover td { background: #fafcff; }
 }
 #tab-plusappt.plusappt-clear-mode .plusappt-patno-cell,
 #tab-queue.plusappt-clear-mode .queue-patno-cell,
+#tab-today.plusappt-clear-mode .today-patno-cell,
 #tab-plusappt.plusappt-clear-mode .plusappt-clear-pno,
 #tab-queue.plusappt-clear-mode .plusappt-clear-pno {
     color: #64748b;
     font-size: calc(13px * var(--plusappt-font-scale, 1));
     font-weight: 600;
 }
-#tab-plusappt.plusappt-clear-mode .plusappt-clear-cn,
-#tab-queue.plusappt-clear-mode .plusappt-clear-cn {
+#tab-plusappt.plusappt-clear-mode .plusappt-clear-cn {
     font-family: var(--font-cjk-sans);
     font-size: calc(14px * var(--plusappt-font-scale, 1));
     font-weight: 800;
 }
-#tab-plusappt.plusappt-clear-mode .plusappt-clear-en,
-#tab-queue.plusappt-clear-mode .plusappt-clear-en {
+#tab-queue.plusappt-clear-mode .plusappt-clear-cn,
+#tab-today.plusappt-clear-mode .plusappt-clear-cn {
+    font-family: var(--font-cjk-sans);
+    font-size: calc(15px * var(--plusappt-font-scale, 1));
+    font-weight: 800;
+}
+#tab-plusappt.plusappt-clear-mode .plusappt-clear-en {
     font-size: calc(13px * var(--plusappt-font-scale, 1));
+}
+#tab-queue.plusappt-clear-mode .plusappt-clear-en,
+#tab-today.plusappt-clear-mode .plusappt-clear-en {
+    font-size: calc(14px * var(--plusappt-font-scale, 1));
 }
 #tab-plusappt.plusappt-clear-mode .plusappt-remarks-preview-wrap,
 #tab-queue.plusappt-clear-mode .plusappt-remarks-preview-wrap {
@@ -2897,7 +2909,7 @@ tr:hover td { background: #fafcff; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-treatment   { width: 13%; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-alert       { width: 10ch; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-time        { width: 6%; }
-#tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-duration    { width: 4%; }
+#tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-duration    { width: 10ch; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-arrived     { width: 8%; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-remarks     { width: 20ch; }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl col.queue-col-status      { width: 7.5ch; }
@@ -2907,6 +2919,10 @@ tr:hover td { background: #fafcff; }
     padding: calc(4px * var(--queue-fit-scale, 1)) calc(6px * var(--queue-fit-scale, 1));
     vertical-align: middle;
     font-size: calc(11px * var(--plusappt-font-scale, 1) * var(--queue-fit-scale, 1));
+}
+#tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl .queue-clear-row td {
+    min-height: var(--plusappt-row-min-h, 24px);
+    box-sizing: border-box;
 }
 #tab-queue.plusappt-clear-mode.plusappt-row-extra-compact .queue-wrap .appt-tbl.queue-tbl th,
 #tab-queue.plusappt-clear-mode.plusappt-row-extra-compact .queue-wrap .appt-tbl.queue-tbl td {
@@ -2931,6 +2947,7 @@ tr:hover td { background: #fafcff; }
 }
 #tab-queue.plusappt-clear-mode.plusappt-row-compact .queue-wrap .appt-tbl.queue-tbl .queue-clear-row td.queue-clear-seq-cell,
 #tab-queue.plusappt-clear-mode.plusappt-row-compact .queue-wrap .appt-tbl.queue-tbl .queue-clear-row td.queue-name-cell,
+#tab-queue.plusappt-clear-mode.plusappt-row-compact .queue-wrap .appt-tbl.queue-tbl .queue-clear-row td.queue-duration-cell,
 #tab-queue.plusappt-clear-mode.plusappt-row-compact .queue-wrap .appt-tbl.queue-tbl .queue-clear-row td.queue-status-cell,
 #tab-queue.plusappt-clear-mode.plusappt-row-compact .queue-wrap .appt-tbl.queue-tbl .queue-clear-row td.queue-actions-cell {
     max-width: none;
@@ -2951,6 +2968,7 @@ tr:hover td { background: #fafcff; }
 }
 #tab-queue.plusappt-clear-mode .queue-clear-row td.queue-clear-seq-cell,
 #tab-queue.plusappt-clear-mode .queue-clear-row td.queue-name-cell,
+#tab-queue.plusappt-clear-mode .queue-clear-row td.queue-duration-cell,
 #tab-queue.plusappt-clear-mode .queue-clear-row td.queue-actions-cell,
 #tab-queue.plusappt-clear-mode .queue-clear-row td.queue-status-cell {
     max-width: none;
@@ -2976,11 +2994,12 @@ tr:hover td { background: #fafcff; }
     text-align: center;
 }
 #tab-queue.plusappt-clear-mode .queue-clear-row td.queue-remarks-cell {
+    position: relative;
     max-width: 20ch;
     width: 20ch;
     padding-left: 3px;
     padding-right: 3px;
-    overflow: hidden;
+    overflow: visible;
 }
 #tab-queue.plusappt-clear-mode .queue-clear-row .appt-task-summary {
     display: none !important;
@@ -3116,7 +3135,7 @@ tr:hover td { background: #fafcff; }
     overflow: hidden;
 }
 #tab-queue.plusappt-clear-mode .queue-clear-remarks-inline {
-    position: static;
+    position: relative;
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
@@ -3125,7 +3144,7 @@ tr:hover td { background: #fafcff; }
     min-width: 0;
     width: 100%;
     max-width: 20ch;
-    padding: 0;
+    padding: 0 calc(20px * var(--queue-fit-scale, 1)) 0 0;
     border: none;
     border-radius: 0;
     background: transparent;
@@ -3174,15 +3193,21 @@ tr:hover td { background: #fafcff; }
     order: 0;
 }
 #tab-queue.plusappt-clear-mode .queue-remarks-pencil--inline {
-    position: static;
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 4;
     display: inline-flex;
     width: calc(18px * var(--queue-fit-scale, 1));
     height: calc(16px * var(--queue-fit-scale, 1));
-    margin-left: 2px;
+    margin-left: 0;
     padding: 0;
     font-size: calc(11px * var(--queue-fit-scale, 1));
     vertical-align: middle;
     flex-shrink: 0;
+    background: #fff;
+    box-shadow: -5px 0 6px rgba(255, 255, 255, 0.92);
 }
 #tab-queue.plusappt-clear-mode .queue-clear-row .status-badge {
     font-size: calc(9px * var(--plusappt-font-scale, 1) * var(--queue-fit-scale, 1));
@@ -3210,9 +3235,26 @@ tr:hover td { background: #fafcff; }
     justify-content: center;
     max-width: 100%;
 }
-#tab-queue.plusappt-clear-mode .queue-clear-row .queue-duration-cell {
+#tab-queue.plusappt-clear-mode .queue-clear-row td.queue-duration-cell {
+    width: 10ch;
+    min-width: 10ch;
+    max-width: 10ch;
+    padding-left: 2px;
+    padding-right: 2px;
     text-align: center;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
     font-size: calc(10px * var(--plusappt-font-scale, 1) * var(--queue-fit-scale, 1));
+}
+#tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl th.queue-duration-col {
+    width: 10ch;
+    min-width: 10ch;
+    max-width: 10ch;
+    padding-left: 2px;
+    padding-right: 2px;
+    text-align: center;
+    white-space: nowrap;
 }
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl td.queue-remarks-cell,
 #tab-queue.plusappt-clear-mode .queue-wrap .appt-tbl.queue-tbl td.queue-treatment-cell {
@@ -3253,6 +3295,10 @@ tr:hover td { background: #fafcff; }
     vertical-align: middle;
     font-size: calc(11px * var(--plusappt-font-scale, 1));
 }
+#tab-today.plusappt-clear-mode .today-wrap .appt-tbl.today-tbl .today-clear-row td {
+    min-height: var(--plusappt-row-min-h, 24px);
+    box-sizing: border-box;
+}
 #tab-today.plusappt-clear-mode.plusappt-row-extra-compact .today-wrap .appt-tbl.today-tbl th,
 #tab-today.plusappt-clear-mode.plusappt-row-extra-compact .today-wrap .appt-tbl.today-tbl td {
     padding-top: 1px;
@@ -3272,6 +3318,40 @@ tr:hover td { background: #fafcff; }
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 0;
+}
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td.today-time-cell,
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td.today-name-cell,
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td.today-duration-cell,
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td.today-treatment-cell,
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td.today-status-cell {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+}
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td.today-action-cell {
+    max-width: none;
+    overflow: hidden;
+    text-overflow: clip;
+}
+#tab-today.plusappt-clear-mode.plusappt-row-compact .today-clear-row td.today-remarks-cell {
+    max-width: 20ch;
+    width: 20ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#tab-today.plusappt-clear-mode .today-clear-row td.today-time-cell,
+#tab-today.plusappt-clear-mode .today-clear-row td.today-name-cell,
+#tab-today.plusappt-clear-mode .today-clear-row td.today-duration-cell,
+#tab-today.plusappt-clear-mode .today-clear-row td.today-patno-cell,
+#tab-today.plusappt-clear-mode .today-clear-row td.today-status-cell {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+}
+#tab-today.plusappt-clear-mode .today-clear-row td.today-action-cell {
+    max-width: none;
+    overflow: hidden;
+    text-overflow: clip;
 }
 #tab-today.plusappt-clear-mode .today-clear-row .queue-clear-name-wrap {
     display: inline-flex;
@@ -3294,11 +3374,45 @@ tr:hover td { background: #fafcff; }
     text-overflow: ellipsis;
 }
 #tab-today.plusappt-clear-mode .today-clear-row .today-patno-cell,
-#tab-today.plusappt-clear-mode .today-clear-row .today-status-cell,
-#tab-today.plusappt-clear-mode .today-clear-row .today-action-cell {
+#tab-today.plusappt-clear-mode .today-clear-row .today-status-cell {
     max-width: none;
     overflow: visible;
     text-overflow: clip;
+}
+/* Today — horizontal scroll for action buttons when column is narrow */
+#tab-today .today-action-cell {
+    overflow: hidden;
+    vertical-align: middle;
+    padding-left: 2px;
+    padding-right: 2px;
+}
+#tab-today.plusappt-clear-mode .today-clear-row .today-action-cell {
+    width: 9ch;
+    max-width: 9ch;
+}
+#tab-today .today-action-cell .today-action-wrap {
+    display: flex;
+    gap: 2px;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+#tab-today .today-action-cell .today-action-wrap .btn-sm {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+#tab-today .today-action-cell .today-action-wrap::-webkit-scrollbar {
+    height: 3px;
+}
+#tab-today .today-action-cell .today-action-wrap::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
 }
 #tab-today.plusappt-clear-mode .today-clear-row .appt-alert-cell .appt-alert-scroll,
 #tab-today.plusappt-clear-mode .today-clear-row .appt-alert-cell .appt-alert-empty {
@@ -3346,6 +3460,7 @@ tr:hover td { background: #fafcff; }
     border-radius: 6px;
     min-width: 0;
 }
+#tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .today-patno-cell,
 #tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-clear-pno,
 #tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-clear-cn,
 #tab-today.plusappt-clear-mode.plusappt-custom-row-color .today-clear-row .plusappt-clear-en,
@@ -5088,6 +5203,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     position: absolute;
     top: 4px;
     right: 4px;
+    z-index: 2;
     width: 28px;
     height: 26px;
     padding: 0;
@@ -5158,6 +5274,15 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     font-weight: 650;
     font-size: 14px;
     color: #334155;
+}
+/* Queue / Today — slightly larger default name (standard layout) */
+#tab-queue .queue-name-cell .appt-name-cn,
+#tab-today .today-name-cell .appt-name-cn {
+    font-size: 16px;
+}
+#tab-queue .queue-name-cell .appt-name-en,
+#tab-today .today-name-cell .appt-name-en {
+    font-size: 15px;
 }
 .appt-name-missing {
     font-weight: 600;
@@ -12656,6 +12781,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     flex-direction: column;
     gap: 6px;
     margin-bottom: 10px;
+    min-width: 268px;
     opacity: 0;
     visibility: hidden;
     transform: translateY(12px);
@@ -12671,9 +12797,11 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 /* ── Individual action buttons ─────────────────────────────── */
 .ql-item {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 9px;
+    width: 100%;
+    box-sizing: border-box;
     padding: 8px 14px 8px 11px;
     background: #fff;
     color: #1e3a5f;
@@ -12702,7 +12830,10 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     width: 20px;
     text-align: center;
 }
-.ql-item-label { flex: 1; }
+.ql-item-label {
+    flex: 1;
+    min-width: 0;
+}
 .ql-item-kbd {
     font-size: 10px;
     font-weight: 600;
@@ -12710,10 +12841,13 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     background: #f1f5f9;
     border: 1px solid #cbd5e1;
     border-radius: 4px;
-    padding: 1px 5px;
+    padding: 1px 6px;
     font-family: Consolas, monospace;
     flex-shrink: 0;
     letter-spacing: 0.01em;
+    min-width: 96px;
+    text-align: center;
+    white-space: nowrap;
 }
 .ql-item.ql-disabled {
     opacity: 0.45;

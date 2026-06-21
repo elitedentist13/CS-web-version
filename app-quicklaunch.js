@@ -62,6 +62,7 @@
 
     // ── action definitions ────────────────────────────────────
     // requiresPatient: if true and no conPatientId, show a toast instead of crashing
+    // Menu order matches shortcut numbers (1–7), then letter keys Q / B.
     var QL_ACTIONS = [
         {
             id: 'patients',
@@ -97,56 +98,6 @@
                 setTimeout(function () {
                     if (typeof switchApptTab === 'function') switchApptTab('queue');
                 }, 60);
-            }
-        },
-        {
-            id: 'check_in',
-            icon: '✅',
-            i18nKey: 'ql.checkIn',
-            shortcut: 'Ctrl+Shift+7',
-            requiresPatient: true,
-            handler: function () {
-                var pid = qlCurrentPatientId();
-                if (!pid) {
-                    qlToast(qlTr('ql.needPatient'));
-                    return;
-                }
-                function runCheckIn(p) {
-                    if (!p || !p.id) {
-                        qlToast(qlTr('ql.needPatient'));
-                        return;
-                    }
-                    if (typeof checkInPatientFromRecord === 'function') {
-                        checkInPatientFromRecord(p);
-                    }
-                }
-                var cached = null;
-                if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
-                    cached = patientListCache.find(function (x) { return x && x.id === pid; }) || null;
-                }
-                if (!cached && typeof conPatientId !== 'undefined' && conPatientId === pid &&
-                    typeof conPatientData !== 'undefined' && conPatientData) {
-                    cached = conPatientData;
-                }
-                if (cached) {
-                    runCheckIn(cached);
-                    return;
-                }
-                if (typeof SB === 'undefined' || !SB || !SB.from) {
-                    qlToast(qlTr('ql.needPatient'));
-                    return;
-                }
-                SB.from('patients')
-                    .select('id,patient_no,full_name,chinese_name')
-                    .eq('id', pid)
-                    .limit(1)
-                .then(function (r) {
-                    if (r.error || !r.data || !r.data.length) {
-                        qlToast(qlTr('ql.needPatient'));
-                        return;
-                    }
-                    runCheckIn(r.data[0]);
-                });
             }
         },
         {
@@ -204,18 +155,6 @@
             }
         },
         {
-            id: 'broadcast',
-            icon: '📢',
-            i18nKey: 'ql.broadcast',
-            shortcut: 'Ctrl+Shift+B',
-            requiresPatient: false,
-            handler: function () {
-                if (typeof BROADCAST !== 'undefined' && BROADCAST.toggle) {
-                    BROADCAST.toggle();
-                }
-            }
-        },
-        {
             id: 'add_payment',
             icon: '💳',
             i18nKey: 'ql.addPayment',
@@ -250,6 +189,68 @@
                         qlToast(qlTr('ql.needPatient'));
                     }
                 }, 220);
+            }
+        },
+        {
+            id: 'check_in',
+            icon: '✅',
+            i18nKey: 'ql.checkIn',
+            shortcut: 'Ctrl+Shift+7',
+            requiresPatient: true,
+            handler: function () {
+                var pid = qlCurrentPatientId();
+                if (!pid) {
+                    qlToast(qlTr('ql.needPatient'));
+                    return;
+                }
+                function runCheckIn(p) {
+                    if (!p || !p.id) {
+                        qlToast(qlTr('ql.needPatient'));
+                        return;
+                    }
+                    if (typeof checkInPatientFromRecord === 'function') {
+                        checkInPatientFromRecord(p);
+                    }
+                }
+                var cached = null;
+                if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
+                    cached = patientListCache.find(function (x) { return x && x.id === pid; }) || null;
+                }
+                if (!cached && typeof conPatientId !== 'undefined' && conPatientId === pid &&
+                    typeof conPatientData !== 'undefined' && conPatientData) {
+                    cached = conPatientData;
+                }
+                if (cached) {
+                    runCheckIn(cached);
+                    return;
+                }
+                if (typeof SB === 'undefined' || !SB || !SB.from) {
+                    qlToast(qlTr('ql.needPatient'));
+                    return;
+                }
+                SB.from('patients')
+                    .select('id,patient_no,full_name,chinese_name')
+                    .eq('id', pid)
+                    .limit(1)
+                .then(function (r) {
+                    if (r.error || !r.data || !r.data.length) {
+                        qlToast(qlTr('ql.needPatient'));
+                        return;
+                    }
+                    runCheckIn(r.data[0]);
+                });
+            }
+        },
+        {
+            id: 'broadcast',
+            icon: '📢',
+            i18nKey: 'ql.broadcast',
+            shortcut: 'Ctrl+Shift+B',
+            requiresPatient: false,
+            handler: function () {
+                if (typeof BROADCAST !== 'undefined' && BROADCAST.toggle) {
+                    BROADCAST.toggle();
+                }
             }
         }
     ];
@@ -328,11 +329,11 @@
             menu.appendChild(btn);
         });
 
-        var sep = menu.children[3];
-        if (sep) {
+        var sepBtn = menu.querySelector('[data-ql-id="appt_records"]');
+        if (sepBtn) {
             var divider = document.createElement('div');
             divider.className = 'ql-separator';
-            menu.insertBefore(divider, sep);
+            menu.insertBefore(divider, sepBtn);
         }
 
         root.insertBefore(menu, toggleBtn);
@@ -388,19 +389,42 @@
     }
 
     // ── keyboard shortcuts ────────────────────────────────────
-    function qlShortcutIndex(e) {
-        if (!e || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return -1;
-        var m = /^Digit([1-9])$/.exec(e.code || '');
-        if (m) return parseInt(m[1], 10);
-        m = /^Numpad([1-9])$/.exec(e.code || '');
-        if (m) return parseInt(m[1], 10);
-        if (e.key >= '1' && e.key <= '9') return parseInt(e.key, 10);
-        return -1;
+    function qlShortcutTailKey(shortcut) {
+        var parts = String(shortcut || '').split('+');
+        return parts[parts.length - 1].trim().toLowerCase();
     }
 
-    function qlShortcutsEnabled() {
+    function qlShortcutModifiersMatch(e) {
+        return !!(e && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey);
+    }
+
+    function qlEventMatchesShortcut(e, shortcut) {
+        if (!qlShortcutModifiersMatch(e)) return false;
+        var tail = qlShortcutTailKey(shortcut);
+        if (!tail) return false;
+        if (/^[1-9]$/.test(tail)) {
+            return e.code === 'Digit' + tail ||
+                e.code === 'Numpad' + tail ||
+                e.key === tail;
+        }
+        if (/^[a-z]$/.test(tail)) {
+            return e.code === 'Key' + tail.toUpperCase() ||
+                String(e.key).toLowerCase() === tail;
+        }
+        return false;
+    }
+
+    function qlTypingTarget(e) {
+        var el = e && e.target;
+        if (!el || !el.closest) return null;
+        return el.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]');
+    }
+
+    function qlShortcutsEnabled(e) {
         var loginEl = qlG('loginOverlay');
-        return !(loginEl && loginEl.style.display !== 'none');
+        if (loginEl && loginEl.style.display !== 'none') return false;
+        if (qlTypingTarget(e)) return false;
+        return true;
     }
 
     function qlRunActionById(actionId) {
@@ -416,21 +440,15 @@
             closeQuickLaunch();
             return;
         }
-        if (!qlShortcutsEnabled()) return;
-        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey &&
-            (e.code === 'KeyQ' || String(e.key).toLowerCase() === 'q')) {
-            e.preventDefault();
-            e.stopPropagation();
-            qlRunActionById('current_queue');
-            return;
-        }
+        if (!qlShortcutsEnabled(e)) return;
+        if (!qlShortcutModifiersMatch(e)) return;
 
-        var idx = qlShortcutIndex(e);
-        if (idx >= 1 && idx <= QL_ACTIONS.length) {
+        for (var i = 0; i < QL_ACTIONS.length; i++) {
+            if (!qlEventMatchesShortcut(e, QL_ACTIONS[i].shortcut)) continue;
             e.preventDefault();
             e.stopPropagation();
-            closeQuickLaunch();
-            QL_ACTIONS[idx - 1].handler();
+            qlRunActionById(QL_ACTIONS[i].id);
+            return;
         }
     }, true);
 
@@ -448,8 +466,13 @@
         var menu = qlG('qlMenu');
         if (!menu) return;
         QL_ACTIONS.forEach(function (action) {
+            var btn = menu.querySelector('[data-ql-id="' + action.id + '"]');
             var lbl = menu.querySelector('[data-ql-label="' + action.id + '"]');
             if (lbl) lbl.textContent = qlTr(action.i18nKey);
+            if (btn) {
+                var kbd = btn.querySelector('.ql-item-kbd');
+                if (kbd) kbd.textContent = action.shortcut;
+            }
         });
     }
 

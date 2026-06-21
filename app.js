@@ -1986,6 +1986,57 @@ function patientSearchOrFilterCore(q) {
     return parts.join(',');
 }
 
+/** Client-side match (appointment records filter, etc.) mirroring patientSearchOrFilter fields. */
+function patientSearchLocalMatches(q, texts) {
+    var raw = String(q || '').trim();
+    if (!raw) return true;
+    var list = (texts || []).map(function (t) { return String(t || ''); });
+    var hay = list.join(' ').toLowerCase();
+    var needle = raw.toLowerCase();
+    if (hay.indexOf(needle) >= 0) return true;
+
+    var hk = raw.replace(/\s+/g, '').toUpperCase();
+    if (hk.length >= 2) {
+        var hkHay = list.map(function (t) {
+            return String(t || '').replace(/\s+/g, '').toUpperCase();
+        }).join(' ');
+        if (hkHay.indexOf(hk) >= 0) return true;
+    }
+
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length >= 4) {
+        var digitHay = list.map(function (t) {
+            return String(t || '').replace(/\D/g, '');
+        }).join(' ');
+        if (digitHay.indexOf(digits) >= 0) return true;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw) && hay.indexOf(raw) >= 0) return true;
+    var m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (m) {
+        var iso = m[3] + '-' + ('0' + parseInt(m[2], 10)).slice(-2) + '-' +
+            ('0' + parseInt(m[1], 10)).slice(-2);
+        if (list.some(function (t) { return String(t || '').indexOf(iso) >= 0; })) return true;
+    }
+    if (/^\d{4}$/.test(raw)) {
+        if (list.some(function (t) {
+            var s = String(t || '');
+            return s.indexOf(raw + '-') === 0 || s.indexOf('-' + raw) >= 0;
+        })) return true;
+    }
+    return false;
+}
+
+function patientSearchBlobFromRecord(p) {
+    if (!p) return '';
+    return [
+        p.full_name, p.chinese_name, p.patient_no,
+        p.phone_number, p.mobile_phone, p.hkid, p.email,
+        p.address, p.occupation, p.remarks, p.dob,
+        p.medical_alerts, p.medical_history, p.current_medications, p.allergy
+    ].filter(function (v) { return v != null && String(v).trim() !== ''; }).join(' ');
+}
+
 // ════════════════════════════════════════════════════════════════
 // PATIENT ALERT COLUMN — optional medical history / meds / allergy
 // ════════════════════════════════════════════════════════════════
@@ -2256,7 +2307,8 @@ var SCREENS = [
     'sectionConfig'           // ← added
 ];
 
-function showOnly(id) {
+function showOnly(id, opts) {
+    opts = opts || {};
     if (id === 'sectionConfig') {
         var allowCfg = (typeof canAccessConfiguration === 'function')
             ? canAccessConfiguration()
@@ -2278,10 +2330,13 @@ function showOnly(id) {
         target.style.display = (id === 'loginOverlay') ? 'flex' : 'block';
         target.removeAttribute('aria-hidden');
     }
-    if (id === 'patientSection' && typeof patViewSetMode === 'function') {
+    if (id === 'patientSection' && !opts.skipPatientViewReset && typeof patViewSetMode === 'function') {
         patViewSetMode('directory', { skipScroll: true });
     }
     syncAppSessionChrome();
+    if (id !== 'loginOverlay' && currentUserId && typeof persistAppScrollRestoreState === 'function') {
+        requestAnimationFrame(function() { persistAppScrollRestoreState(); });
+    }
 }
 
 function refreshDashboardUserBadge() {
@@ -2497,6 +2552,286 @@ function sectionVisible(id) {
 function activeConsultationTabKey() {
     var t = document.querySelector('#consultationSection .con-tab.active');
     return t && t.dataset ? t.dataset.tab : '';
+}
+
+// ── Scroll + navigation restore (F2 refresh + browser reload) ──
+var APP_SCROLL_RESTORE_SS = 'joyful_app_scroll_restore_v1';
+var APP_SCROLL_SELECTORS = [
+    '.queue-wrap',
+    '.today-wrap',
+    '#plusApptAllScroll',
+    '.plusappt-schedule-wrap',
+    '.ar-records-table-wrap',
+    '#rptTableWrap',
+    '#drugHistoryWrap',
+    '#drugListWrap',
+    '#gcalScrollBody',
+    '#patientViewDashboard',
+    '.history-pane-wrap'
+];
+var _appScrollPersistTimer = null;
+var _appScrollRestoreToken = 0;
+var _appScrollPersistBound = false;
+var _appScrollApplying = false;
+
+function visibleAppScreenId() {
+    for (var i = 0; i < SCREENS.length; i++) {
+        var sid = SCREENS[i];
+        if (sid === 'loginOverlay') continue;
+        if (sectionVisible(sid)) return sid;
+    }
+    return null;
+}
+
+function appScrollElementsForSelector(sel) {
+    if (sel.charAt(0) === '#') {
+        var byId = g(sel.slice(1));
+        return byId ? [byId] : [];
+    }
+    return Array.prototype.slice.call(document.querySelectorAll(sel));
+}
+
+function appScrollStateKey(sel, idx, count) {
+    return count > 1 ? (sel + ':' + idx) : sel;
+}
+
+function captureAppScrollState() {
+    var state = { winY: window.scrollY || 0, els: {} };
+    APP_SCROLL_SELECTORS.forEach(function(sel) {
+        var nodes = appScrollElementsForSelector(sel);
+        nodes.forEach(function(el, idx) {
+            state.els[appScrollStateKey(sel, idx, nodes.length)] = {
+                top: el.scrollTop || 0,
+                left: el.scrollLeft || 0
+            };
+        });
+    });
+    return state;
+}
+
+function applyAppScrollState(state) {
+    if (!state) return;
+    _appScrollApplying = true;
+    try {
+        if (state.winY != null) window.scrollTo(0, state.winY);
+        if (!state.els) return;
+        Object.keys(state.els).forEach(function(key) {
+            var pos = state.els[key];
+            if (!pos) return;
+            var sel = key.indexOf(':') >= 0 ? key.replace(/:\d+$/, '') : key;
+            var idx = 0;
+            var m = key.match(/:(\d+)$/);
+            if (m) idx = parseInt(m[1], 10) || 0;
+            var nodes = appScrollElementsForSelector(sel);
+            var el = nodes[idx];
+            if (!el) return;
+            el.scrollTop = pos.top || 0;
+            el.scrollLeft = pos.left || 0;
+        });
+    } finally {
+        _appScrollApplying = false;
+    }
+}
+
+function captureAppNavState() {
+    var screen = visibleAppScreenId() || 'dashboardSection';
+    var nav = { screen: screen };
+    if (screen === 'appointmentSection' && typeof apptActiveTabKey === 'function') {
+        nav.apptTab = apptActiveTabKey() || 'queue';
+    }
+    if (screen === 'consultationSection') {
+        nav.conTab = activeConsultationTabKey() || 'treatment';
+    }
+    if (screen === 'patientSection') {
+        if (typeof patientViewMode !== 'undefined') nav.patientView = patientViewMode;
+        if (typeof patientDirPageIndex !== 'undefined') nav.patientDirPage = patientDirPageIndex;
+    }
+    return nav;
+}
+
+function readAppScrollRestorePayload() {
+    try {
+        var raw = sessionStorage.getItem(APP_SCROLL_RESTORE_SS);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (e) {
+        return null;
+    }
+}
+
+function persistAppScrollRestoreState() {
+    if (!currentUserId) return;
+    try {
+        sessionStorage.setItem(APP_SCROLL_RESTORE_SS, JSON.stringify({
+            nav: captureAppNavState(),
+            scroll: captureAppScrollState(),
+            ts: Date.now()
+        }));
+    } catch (e) {}
+}
+
+function scheduleAppScrollRestore(scrollState, opts) {
+    opts = opts || {};
+    if (!scrollState) return;
+    var token = ++_appScrollRestoreToken;
+    var delays = opts.delays || [0, 50, 150, 350, 700, 1200];
+    delays.forEach(function(ms) {
+        setTimeout(function() {
+            if (token !== _appScrollRestoreToken) return;
+            applyAppScrollState(scrollState);
+        }, ms);
+    });
+}
+
+function cancelAppScrollRestore() {
+    ++_appScrollRestoreToken;
+    releaseAppScrollLock(false);
+}
+
+var _appScrollLock = null;
+var _appScrollLockSeq = 0;
+
+/** Briefly re-apply scroll while list DOM height changes (auto-refresh only). */
+function lockAppScroll(state) {
+    releaseAppScrollLock(false);
+    if (!state) return;
+    var token = ++_appScrollLockSeq;
+    var maxFrames = 4;
+    var frames = 0;
+    _appScrollLock = { state: state, token: token, raf: 0 };
+    function tick() {
+        if (!_appScrollLock || _appScrollLock.token !== token) return;
+        applyAppScrollState(state);
+        frames++;
+        if (frames < maxFrames) {
+            _appScrollLock.raf = requestAnimationFrame(tick);
+        } else {
+            _appScrollLock = null;
+        }
+    }
+    applyAppScrollState(state);
+    _appScrollLock.raf = requestAnimationFrame(tick);
+}
+
+function releaseAppScrollLock(doFinalRestore) {
+    var st = _appScrollLock;
+    if (st) st.token = -1;
+    _appScrollLock = null;
+    if (st && st.raf) cancelAnimationFrame(st.raf);
+    if (doFinalRestore && st && st.state) {
+        scheduleAppScrollRestore(st.state, { delays: [0, 120, 400] });
+    }
+}
+
+function screenModulePermKey(screenId) {
+    var map = {
+        patientSection: 'patient',
+        appointmentSection: 'appointment',
+        consultationSection: 'consultation',
+        drugSection: 'drug_inventory',
+        reportSection: 'report'
+    };
+    return map[screenId] || null;
+}
+
+function canRestoreAppScreen(screenId) {
+    if (!screenId || screenId === 'loginOverlay') return false;
+    if (SCREENS.indexOf(screenId) < 0) return false;
+    if (screenId === 'sectionConfig') {
+        return (typeof canAccessConfiguration === 'function')
+            ? canAccessConfiguration()
+            : (String(currentRole || '').toLowerCase() === 'admin');
+    }
+    var perm = screenModulePermKey(screenId);
+    if (perm && typeof hasAppPermission === 'function') return hasAppPermission(perm);
+    return true;
+}
+
+function openRestoredAppScreen(screen, nav) {
+    nav = nav || {};
+    switch (screen) {
+    case 'dashboardSection':
+        showDashboard();
+        break;
+    case 'patientSection':
+        showOnly('patientSection', { skipPatientViewReset: true });
+        if (nav.patientView && typeof patViewSetMode === 'function') {
+            patViewSetMode(nav.patientView, { skipScroll: true });
+        }
+        if (typeof patientDirPageIndex !== 'undefined' && nav.patientDirPage != null) {
+            patientDirPageIndex = Math.max(0, parseInt(nav.patientDirPage, 10) || 0);
+        }
+        if (typeof fetchPatients === 'function') fetchPatients();
+        break;
+    case 'appointmentSection':
+        showOnly('appointmentSection');
+        if (typeof initAppt === 'function') initAppt({ initialTab: nav.apptTab || 'queue' });
+        break;
+    case 'consultationSection':
+        showOnly('consultationSection');
+        if (typeof refreshConsultationClinicFilterSelects === 'function') {
+            refreshConsultationClinicFilterSelects();
+        } else if (typeof refreshAllClinicTagFilterSelects === 'function') {
+            refreshAllClinicTagFilterSelects();
+        }
+        if (typeof loadConsultationDoctors === 'function') loadConsultationDoctors();
+        if (nav.conTab && typeof switchConTab === 'function') switchConTab(nav.conTab);
+        break;
+    case 'drugSection':
+        if (typeof initDrugs === 'function') initDrugs();
+        break;
+    case 'reportSection':
+        showOnly('reportSection');
+        if (typeof initReportModuleClinic === 'function') initReportModuleClinic();
+        if (typeof REPORT !== 'undefined' && typeof REPORT.init === 'function') REPORT.init();
+        break;
+    case 'aiHelperSection':
+        showOnly('aiHelperSection');
+        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.init === 'function') AIHELPER.init();
+        break;
+    case 'memoCardsSection':
+        showOnly('memoCardsSection');
+        if (typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.init === 'function') MEMO_AI.init();
+        break;
+    case 'sectionConfig':
+        if (typeof CFG !== 'undefined' && typeof CFG.init === 'function') {
+            showOnly('sectionConfig');
+            CFG.init();
+        } else {
+            showDashboard();
+        }
+        break;
+    default:
+        showDashboard();
+    }
+}
+
+function restoreAppSessionView() {
+    var payload = readAppScrollRestorePayload();
+    if (!payload || !payload.nav || !payload.nav.screen) return false;
+    if (!canRestoreAppScreen(payload.nav.screen)) return false;
+    openRestoredAppScreen(payload.nav.screen, payload.nav);
+    scheduleAppScrollRestore(payload.scroll, { delays: [0, 100, 300, 600, 1000, 1600] });
+    return true;
+}
+
+function bindAppScrollPersistOnce() {
+    if (_appScrollPersistBound) return;
+    _appScrollPersistBound = true;
+    window.addEventListener('scroll', function() {
+        clearTimeout(_appScrollPersistTimer);
+        _appScrollPersistTimer = setTimeout(persistAppScrollRestoreState, 250);
+    }, true);
+    window.addEventListener('beforeunload', persistAppScrollRestoreState);
+    window.addEventListener('wheel', cancelAppScrollRestore, { passive: true, capture: true });
+    window.addEventListener('touchmove', cancelAppScrollRestore, { passive: true, capture: true });
+    window.addEventListener('keydown', function(e) {
+        var k = e.key;
+        if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'PageUp' || k === 'PageDown' ||
+            k === 'Home' || k === 'End' || k === ' ') {
+            cancelAppScrollRestore();
+        }
+    }, true);
 }
 
 var appGlobalToastTimer = null;
@@ -3204,6 +3539,7 @@ function bindActivePatientCardOnce() {
 
 function triggerGlobalRefresh(opts) {
     opts = opts || {};
+    var savedScroll = captureAppScrollState();
     if (currentUserId && typeof refreshAppSessionStripContents === 'function') {
         refreshAppSessionStripContents();
     }
@@ -3266,6 +3602,8 @@ function triggerGlobalRefresh(opts) {
         typeof CFG._reloadActiveTab === 'function') {
         CFG._reloadActiveTab();
     }
+    scheduleAppScrollRestore(savedScroll);
+    persistAppScrollRestoreState();
 }
 
 function onGlobalRefreshHotkey(e) {
@@ -3438,6 +3776,7 @@ function persistSession() {
 
 function clearSession() {
     try { localStorage.removeItem('jsm_session'); } catch (e) {}
+    try { sessionStorage.removeItem(APP_SCROLL_RESTORE_SS); } catch (e2) {}
     if (typeof plusApptTransferHistoryClear === 'function') plusApptTransferHistoryClear();
 }
 
@@ -3672,7 +4011,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var hasSession = restoreSession();
     if (hasSession) {
         populateWorkingClinicSelect();
-        showDashboard();
+        bindAppScrollPersistOnce();
+        if (!restoreAppSessionView()) showDashboard();
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
         if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
         if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();

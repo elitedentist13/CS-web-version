@@ -340,7 +340,7 @@ var REALTIME_SYNC = (function() {
                 scheduleRetry();
                 return;
             }
-            if (typeof loadQueue === 'function') loadQueue();
+            if (typeof loadQueue === 'function') loadQueue({ soft: true });
             return;
         }
         if (tab === 'today') {
@@ -350,7 +350,7 @@ var REALTIME_SYNC = (function() {
                 }
                 return;
             }
-            if (typeof loadToday === 'function') loadToday();
+            if (typeof loadToday === 'function') loadToday({ soft: true });
             return;
         }
         if (tab === 'plusappt' || tab === 'calendar') {
@@ -360,7 +360,7 @@ var REALTIME_SYNC = (function() {
                 }
                 return;
             }
-            if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+            if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData({ soft: true });
             return;
         }
         if (tab === 'records' && typeof loadApptRecords === 'function') {

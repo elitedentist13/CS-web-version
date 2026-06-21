@@ -14,6 +14,7 @@ var REPORT = (function () {
   var _chart = null;
   var _dailySummaryView = 'daily'; // 'daily' | 'monthly'
   var _dailySummaryDetailMode = false; // normal | detail transaction
+  var _dailySummaryAllClinicsLayout = 'byDoctor'; // 'byDoctor' | 'altogether' (ALL clinics only)
   var _dailySummaryDate = null; // YYYY-MM-DD
   var _dailySummaryMonth = null; // YYYY-MM
   var _drDailyDate = null; // YYYY-MM-DD
@@ -544,6 +545,35 @@ var REPORT = (function () {
 
   function isReportAllClinicsSelected() {
     return !reportClinicId();
+  }
+
+  function dailySummaryGroupByDoctorEnabled() {
+    if (isReportAllClinicsSelected() && _dailySummaryAllClinicsLayout === 'altogether') return false;
+    return true;
+  }
+
+  function dailySummaryMonthlyDayGrouped(rows) {
+    if (!dailySummaryGroupByDoctorEnabled()) return false;
+    if (isReportAllClinicsSelected()) return true;
+    return dailySummaryUniqueDoctorCount(rows) > 1;
+  }
+
+  function dailySummaryDoctorBreakdownHtmlIfEnabled(transactions) {
+    if (!dailySummaryGroupByDoctorEnabled()) return '';
+    return dailySummaryDoctorBreakdownHtml(transactions);
+  }
+
+  function dailySummaryAllClinicsLayoutToggleHtml() {
+    if (!isReportAllClinicsSelected()) return '';
+    var byDr = _dailySummaryAllClinicsLayout !== 'altogether';
+    return '<span style="width:1px;height:22px;background:#e5e7eb;display:inline-block;"></span>' +
+      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+        '<div style="font-size:12px;color:#555;font-weight:900;">' + esc(tr('report.ds.allClinicsLayoutLabel')) + '</div>' +
+        '<button type="button" class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (byDr ? 'var(--primary)' : 'var(--gray)') + ';" ' +
+          'onclick="REPORT.setDailySummaryAllClinicsLayout(\'byDoctor\')">' + esc(tr('report.ds.layoutByDoctors')) + '</button>' +
+        '<button type="button" class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (!byDr ? 'var(--primary)' : 'var(--gray)') + ';" ' +
+          'onclick="REPORT.setDailySummaryAllClinicsLayout(\'altogether\')">' + esc(tr('report.ds.layoutAltogether')) + '</button>' +
+      '</div>';
   }
 
   function clinicCodeFromStoredTag(tagOrId) {
@@ -2091,35 +2121,39 @@ var REPORT = (function () {
     '</tr>';
   }
 
+  function dailySummarySimpleDoctorGroupHeaderHtml(g, colSpan) {
+    var paid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+    var pills = dailySummaryMethodMiniPillsFromRows(g.rows);
+    return '<tr>' +
+      '<td colspan="' + colSpan + '" style="padding:10px 12px;background:#f0f7ff;border-bottom:1px solid #dbeafe;vertical-align:middle;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:900;color:#1e40af;">' + esc(g.label) + '</div>' +
+            '<div style="font-size:11px;color:#64748b;font-weight:800;margin-top:2px;">' +
+              esc(trRepl('report.ds.monthly.txCount', { N: String((g.rows || []).length) })) +
+            '</div>' +
+          '</div>' +
+          '<div style="text-align:right;">' +
+            '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
+            '<div style="font-size:15px;font-weight:900;color:#15803d;">' + fmtHK(paid) + '</div>' +
+          '</div>' +
+        '</div>' +
+        (pills ? '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">' + pills + '</div>' : '') +
+      '</td>' +
+    '</tr>';
+  }
+
   function dailySummarySimpleBodyHtml(transactions, td, showClinicCol) {
-    var multiDr = dailySummaryUniqueDoctorCount(transactions) > 1;
-    if (!multiDr) {
-      return (transactions || []).map(function (t) {
+    var tx = transactions || [];
+    if (!tx.length) return '';
+    if (!dailySummaryGroupByDoctorEnabled()) {
+      return tx.map(function (t) {
         return dailySummarySimpleRowHtml(t, td, showClinicCol);
       }).join('');
     }
     var colSpan = showClinicCol ? 7 : 6;
-    return dailySummaryGroupTxByDoctor(transactions).map(function (g) {
-      var paid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
-      var pills = dailySummaryMethodMiniPillsFromRows(g.rows);
-      var header =
-        '<tr>' +
-          '<td colspan="' + colSpan + '" style="padding:10px 12px;background:#f0f7ff;border-bottom:1px solid #dbeafe;vertical-align:middle;">' +
-            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">' +
-              '<div>' +
-                '<div style="font-size:13px;font-weight:900;color:#1e40af;">' + esc(g.label) + '</div>' +
-                '<div style="font-size:11px;color:#64748b;font-weight:800;margin-top:2px;">' +
-                  esc(trRepl('report.ds.monthly.txCount', { N: String((g.rows || []).length) })) +
-                '</div>' +
-              '</div>' +
-              '<div style="text-align:right;">' +
-                '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.dailyPaidTotal')) + '</div>' +
-                '<div style="font-size:15px;font-weight:900;color:#15803d;">' + fmtHK(paid) + '</div>' +
-              '</div>' +
-            '</div>' +
-            (pills ? '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">' + pills + '</div>' : '') +
-          '</td>' +
-        '</tr>';
+    return dailySummaryGroupTxByDoctor(tx).map(function (g) {
+      var header = dailySummarySimpleDoctorGroupHeaderHtml(g, colSpan);
       var rows = (g.rows || []).map(function (t) {
         return dailySummarySimpleRowHtml(t, td, showClinicCol);
       }).join('');
@@ -2247,7 +2281,7 @@ var REPORT = (function () {
 
     body.innerHTML =
       dailySummaryHeaderZoneHtml(totalsByMethodPaid, agg.paidTotal, 'report.ds.dailyOverviewTitle') +
-      dailySummaryDoctorBreakdownHtml(transactions) +
+      dailySummaryDoctorBreakdownHtmlIfEnabled(transactions) +
       '<div style="border:1px solid #eee;border-radius:12px;overflow:hidden;background:#fff;">' +
         '<div style="overflow:auto;max-height:520px;">' +
           '<table style="width:100%;border-collapse:collapse;min-width:860px;">' +
@@ -2291,7 +2325,7 @@ var REPORT = (function () {
       var methodMini = dailySummaryMethodMiniPillsFromRows(c.rows);
 
       var showClinicCol = isReportAllClinicsSelected();
-      var multiDrDay = dailySummaryUniqueDoctorCount(c.rows) > 1;
+      var multiDrDay = dailySummaryMonthlyDayGrouped(c.rows);
       var gridCols = showClinicCol
         ? (multiDrDay
           ? 'minmax(90px,110px) minmax(180px,1fr) minmax(100px,120px) minmax(110px,130px) minmax(110px,130px) minmax(100px,120px)'
@@ -2370,7 +2404,7 @@ var REPORT = (function () {
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
         dailySummaryHeaderZoneHtml(monthTotalsByMethodPaid, agg.paidTotal, 'report.ds.monthly.overviewTitle', monthlyExtraOverview) +
-        dailySummaryDoctorBreakdownHtml(monthAllRows) +
+        dailySummaryDoctorBreakdownHtmlIfEnabled(monthAllRows) +
         cardsHtml +
       '</div>';
   }
@@ -2449,7 +2483,7 @@ var REPORT = (function () {
 
     body.innerHTML =
       dailySummaryHeaderZoneHtml(totalsByMethodPaid, agg.paidTotal, 'report.ds.dailyOverviewTitle') +
-      dailySummaryDoctorBreakdownHtml(transactions) +
+      dailySummaryDoctorBreakdownHtmlIfEnabled(transactions) +
       '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
         '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:150px;">' +
           '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.kpiTotalBills')) + '</div>' +
@@ -2557,7 +2591,7 @@ var REPORT = (function () {
     body.innerHTML =
       '<div style="max-height:640px;overflow:auto;padding-right:2px;">' +
         dailySummaryHeaderZoneHtml(monthTotalsByMethodPaid, agg.paidTotal, 'report.ds.monthly.overviewTitle') +
-        dailySummaryDoctorBreakdownHtml(monthAllRows) +
+        dailySummaryDoctorBreakdownHtmlIfEnabled(monthAllRows) +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="background:#f8fbff;border:1px solid #d9eaff;border-radius:12px;padding:10px 12px;min-width:140px;">' +
             '<div style="font-size:11px;color:#64748b;font-weight:800;">' + esc(tr('report.ds.detail.monthlyKpiDays')) + '</div>' +
@@ -3371,6 +3405,7 @@ var REPORT = (function () {
             '</button>' +
             '<span style="width:1px;height:22px;background:#e5e7eb;display:inline-block;"></span>' +
             pickerHtml +
+            dailySummaryAllClinicsLayoutToggleHtml() +
           '</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#22c55e;" onclick="REPORT.printDailySummary()">' + esc(tr('report.ds.btnPrint')) + '</button>' +
@@ -4676,6 +4711,10 @@ var REPORT = (function () {
     },
     setDailySummaryMonth: function (yyyyMm) {
       _dailySummaryMonth = String(yyyyMm || '').slice(0, 7) || monthKeyOf(todayISO());
+      if (_tab === 'dailySummary') refresh();
+    },
+    setDailySummaryAllClinicsLayout: function (mode) {
+      _dailySummaryAllClinicsLayout = (mode === 'altogether') ? 'altogether' : 'byDoctor';
       if (_tab === 'dailySummary') refresh();
     },
     setDrDailyDoctor: function (doctorId) {

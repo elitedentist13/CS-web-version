@@ -1750,6 +1750,9 @@ function currentClinicCodeForTagging() {
         var code = String(rec.clinic_code || '').trim();
         if (code) return code;
     }
+    // Before APP_CLINICS loads (F5 boot), do not guess a tag from the raw UUID — that
+    // filters queries with the wrong value and returns empty lists until manual refresh.
+    if (!APP_CLINICS || !APP_CLINICS.length) return '';
     return currentClinicId ? String(currentClinicId) : '';
 }
 
@@ -2778,6 +2781,7 @@ function openRestoredAppScreen(screen, nav) {
         if (nav.conTab && typeof switchConTab === 'function') switchConTab(nav.conTab);
         break;
     case 'drugSection':
+        showOnly('drugSection');
         if (typeof initDrugs === 'function') initDrugs();
         break;
     case 'reportSection':
@@ -3802,6 +3806,82 @@ function restoreSession() {
     }
 }
 
+var _bootNavPayload = null;
+var _bootClinicsReady = false;
+var _bootDoctorsReady = false;
+var _bootRefCallbacks = [];
+
+function whenBootReferenceDataReady(fn) {
+    if (typeof fn !== 'function') return;
+    if (_bootClinicsReady && _bootDoctorsReady) {
+        try { fn(); } catch (e) {}
+        return;
+    }
+    _bootRefCallbacks.push(fn);
+}
+
+function _flushBootReferenceCallbacks() {
+    if (!_bootClinicsReady || !_bootDoctorsReady) return;
+    var list = _bootRefCallbacks.slice();
+    _bootRefCallbacks = [];
+    list.forEach(function (fn) {
+        try { fn(); } catch (e) {}
+    });
+}
+
+function _markBootClinicsReady() {
+    _bootClinicsReady = true;
+    _flushBootReferenceCallbacks();
+}
+
+function _markBootDoctorsReady() {
+    _bootDoctorsReady = true;
+    _flushBootReferenceCallbacks();
+}
+
+/** After clinics + doctors load: restore screen (F5) and load module data with correct clinic tags. */
+function completeBootAfterReferenceData() {
+    if (!currentUserId || window.__joyfulBootSessionDone) return;
+    window.__joyfulBootSessionDone = true;
+
+    populateWorkingClinicSelect();
+    refreshDashboardContextControls();
+
+    var wc = currentClinicId;
+    if (typeof defaultWorkingClinicId === 'function') {
+        wc = wc || defaultWorkingClinicId();
+    }
+    if (wc && typeof setWorkingClinic === 'function') {
+        setWorkingClinic(wc, { syncFilters: true, reloadAppt: false, refreshVisible: false });
+    }
+
+    var restored = false;
+    var payload = _bootNavPayload;
+    _bootNavPayload = null;
+    if (payload && payload.nav && payload.nav.screen &&
+        typeof canRestoreAppScreen === 'function' &&
+        canRestoreAppScreen(payload.nav.screen)) {
+        openRestoredAppScreen(payload.nav.screen, payload.nav);
+        if (payload.scroll) {
+            scheduleAppScrollRestore(payload.scroll, {
+                delays: [0, 100, 300, 600, 1000, 1600]
+            });
+        }
+        restored = true;
+    }
+    if (!restored) showDashboard();
+
+    syncAppSessionChrome();
+
+    if (typeof hasEffectiveWorkingDateOverride === 'function' && hasEffectiveWorkingDateOverride()) {
+        setTimeout(function () {
+            if (typeof refreshAppSectionsForWorkingDate === 'function') {
+                refreshAppSectionsForWorkingDate();
+            }
+        }, 400);
+    }
+}
+
 function loadClinicsAndDoctorsForLogin() {
     function finishClinicRows(rows) {
         APP_CLINICS = rows || [];
@@ -3823,6 +3903,7 @@ function loadClinicsAndDoctorsForLogin() {
                 setWorkingClinic(nextId, { syncFilters: true, reloadAppt: false });
             }
         }
+        _markBootClinicsReady();
     }
     var clinicSelectFull = 'id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax,is_active';
     var clinicSelectLegacy = 'id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax';
@@ -3840,6 +3921,8 @@ function loadClinicsAndDoctorsForLogin() {
             return;
         }
         finishClinicRows(r.error ? [] : (r.data || []));
+    }).catch(function () {
+        finishClinicRows([]);
     });
 
     function finishDoctorList(rows) {
@@ -3848,6 +3931,7 @@ function loadClinicsAndDoctorsForLogin() {
             CalDoctorColors.onDoctorsLoaded();
         }
         refreshDashboardContextControls();
+        _markBootDoctorsReady();
     }
 
     Promise.all([
@@ -3866,15 +3950,21 @@ function loadClinicsAndDoctorsForLogin() {
                 finishDoctorList(r2.error ? [] : (r2.data || []));
                 if (!ur.error) rebuildDoctorLoginIdsFromUsers(ur.data || []);
                 refreshLoginDoctorSelect();
+            }).catch(function () {
+                finishDoctorList([]);
+                refreshLoginDoctorSelect();
             });
             return;
         }
         if (dr.error) {
-            APP_DOCTORS = [];
+            finishDoctorList([]);
         } else {
             finishDoctorList(dr.data || []);
         }
         if (!ur.error) rebuildDoctorLoginIdsFromUsers(ur.data || []);
+        refreshLoginDoctorSelect();
+    }).catch(function () {
+        finishDoctorList([]);
         refreshLoginDoctorSelect();
     });
 }
@@ -4010,9 +4100,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var hasSession = restoreSession();
     if (hasSession) {
-        populateWorkingClinicSelect();
         bindAppScrollPersistOnce();
-        if (!restoreAppSessionView()) showDashboard();
+        _bootNavPayload = readAppScrollRestorePayload();
+        syncAppSessionChrome();
+        whenBootReferenceDataReady(completeBootAfterReferenceData);
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
         if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
         if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();
@@ -4020,11 +4111,6 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             document.dispatchEvent(new CustomEvent('app-session-sync'));
         } catch (eSync) {}
-        if (hasEffectiveWorkingDateOverride()) {
-            setTimeout(function () {
-                refreshAppSectionsForWorkingDate();
-            }, 400);
-        }
     } else {
         showLogin();
         if (postLoginRefresh) {

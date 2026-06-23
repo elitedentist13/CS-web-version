@@ -47,6 +47,13 @@
         return (typeof selPatientId !== 'undefined') ? selPatientId : null;
     }
 
+    function qlHasQueueRowSelection() {
+        return !!(
+            typeof apptListSelectedApptId !== 'undefined' && apptListSelectedApptId &&
+            typeof apptListSelectedTab !== 'undefined' && apptListSelectedTab === 'queue'
+        );
+    }
+
     // ── state ─────────────────────────────────────────────────
     var _open = false;
 
@@ -98,6 +105,24 @@
                 setTimeout(function () {
                     if (typeof switchApptTab === 'function') switchApptTab('queue');
                 }, 60);
+            }
+        },
+        {
+            id: 'queue_actions',
+            icon: '▾',
+            i18nKey: 'ql.queueActions',
+            shortcut: 'Ctrl+Shift+A',
+            requiresQueueSelection: true,
+            handler: function () {
+                if (!qlHasQueueRowSelection()) {
+                    qlToast(qlTr('ql.needQueueSelection'));
+                    return;
+                }
+                if (typeof openQueueSelectedRowAction === 'function') {
+                    openQueueSelectedRowAction();
+                    return;
+                }
+                qlToast(qlTr('ql.needQueueSelection'));
             }
         },
         {
@@ -380,7 +405,9 @@
         QL_ACTIONS.forEach(function (action) {
             var btn = menu.querySelector('[data-ql-id="' + action.id + '"]');
             if (!btn) return;
-            if (action.requiresPatient && !pid) {
+            if (action.requiresQueueSelection && !qlHasQueueRowSelection()) {
+                btn.classList.add('ql-disabled');
+            } else if (action.requiresPatient && !pid) {
                 btn.classList.add('ql-disabled');
             } else {
                 btn.classList.remove('ql-disabled');
@@ -457,6 +484,9 @@
         refreshLabels();
     });
     document.addEventListener('app-active-patient-change', function () {
+        refreshItemStates();
+    });
+    document.addEventListener('app-appt-list-selection-change', function () {
         refreshItemStates();
     });
 

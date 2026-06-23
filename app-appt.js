@@ -145,6 +145,9 @@ function apptSelectListRow(a, row, tabKey) {
     apptListSelectedTab = tabKey || '';
     apptMarkListRowSelected(row, a.id);
     apptSetActivePatientFromAppt(a, 'appt-' + (tabKey || 'list') + '-row-select');
+    try {
+        document.dispatchEvent(new CustomEvent('app-appt-list-selection-change'));
+    } catch (eSel) {}
 }
 
 function apptRestoreListRowSelection(tb, tabKey) {
@@ -11351,8 +11354,13 @@ function queuePositionActionDrop(drop, btn) {
 function queueRestoreActionDropHome(drop) {
     if (!drop) return;
     var wrap = queueRememberActionDropWrap(drop);
-    if (wrap && drop.parentNode === document.body) {
+    if (wrap && document.body.contains(wrap) && drop.parentNode === document.body) {
+        // Home wrap is alive — move drop back into it
         wrap.appendChild(drop);
+    } else if (drop.parentNode === document.body && (!wrap || !document.body.contains(wrap))) {
+        // Home wrap is gone (row was removed) — remove the orphaned drop from body
+        // to prevent duplicate-ID collisions when the queue rebuilds its rows.
+        document.body.removeChild(drop);
     }
 }
 
@@ -11368,10 +11376,34 @@ function queueCloseAllActionDrops(exceptDrop) {
         if (exceptDrop && d === exceptDrop) return;
         queueCloseActionDrop(d);
     });
+    // Also sweep drops portaled to body whose home wrap is gone — these can
+    // linger without .open when the queue refreshed mid-animation, causing
+    // duplicate-ID collisions that break the next rebuild.
+    document.querySelectorAll('.action-drop.action-drop--portal').forEach(function(d) {
+        if (exceptDrop && d === exceptDrop) return;
+        var wrap = d.__queueActionWrap;
+        if (!wrap || !document.body.contains(wrap)) {
+            if (d.parentNode) d.parentNode.removeChild(d);
+        }
+    });
 }
 
 function queueOpenActionDrop(drop, btn) {
-    if (!drop || !btn || !document.body.contains(btn)) return;
+    if (!drop) return;
+    // If the btn reference is stale (detached from DOM), attempt to recover it
+    // from the drop's home wrap before giving up. This covers the edge case where
+    // a soft-refresh rebuilds rows between mousedown and click.
+    if (btn && !document.body.contains(btn)) {
+        var homeWrap = queueRememberActionDropWrap(drop) ||
+                       (drop.closest ? drop.closest('.action-wrap') : null);
+        var freshBtn = homeWrap ? homeWrap.querySelector('.action-btn') : null;
+        if (freshBtn && document.body.contains(freshBtn)) {
+            btn = freshBtn;
+        } else {
+            return;
+        }
+    }
+    if (!btn) return;
     queueCloseAllActionDrops(drop);
     queueRememberActionDropWrap(drop);
     if (drop.parentNode !== document.body) {
@@ -11407,6 +11439,47 @@ function bindQueueActionDropGlobalCloseOnce() {
 
 window.queueCloseAllActionDrops = queueCloseAllActionDrops;
 bindQueueActionDropGlobalCloseOnce();
+
+/** Open the Actions ▾ menu for the selected queue row (apptListSelectedApptId on queue tab). */
+function openQueueSelectedRowAction() {
+    var apptId = apptListSelectedApptId;
+    if (!apptId || apptListSelectedTab !== 'queue') return false;
+
+    function openForSelectedRow() {
+        var tb = g('queueBody');
+        if (!tb) return false;
+        var row = tb.querySelector('tr[data-appt-id="' + apptId + '"]');
+        if (!row) return false;
+        var btn = row.querySelector('.action-btn');
+        var drop = row.querySelector('.action-drop');
+        if (!btn || !drop) return false;
+        try {
+            row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        } catch (eScroll) {
+            try { row.scrollIntoView(false); } catch (eScroll2) {}
+        }
+        queueOpenActionDrop(drop, btn);
+        return true;
+    }
+
+    var onQueueTab = typeof apptSectionIsActive === 'function' && apptSectionIsActive() &&
+        typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue';
+
+    if (onQueueTab && openForSelectedRow()) return true;
+
+    if (typeof showOnly === 'function') showOnly('appointmentSection');
+    if (typeof switchApptTab === 'function') switchApptTab('queue');
+
+    var attempt = 0;
+    (function poll() {
+        attempt++;
+        if (openForSelectedRow()) return;
+        if (attempt < 25) setTimeout(poll, 80);
+    })();
+    return true;
+}
+
+window.openQueueSelectedRowAction = openQueueSelectedRowAction;
 
 function apptPatchCachedPatientRows(patient) {
     if (!patient || !patient.id) return;
@@ -11953,6 +12026,17 @@ function apptSavedScrollSnapshot(opts) {
 }
 
 function apptSwapTbodyContent(tb, fillFn) {
+    // Before destroying current rows, close any action-drops that have been
+    // portaled to document.body — their home wrap is about to be removed, so
+    // queueRestoreActionDropHome must run while tb still contains the wrap.
+    if (tb) {
+        document.querySelectorAll('.action-drop.action-drop--portal, .action-drop.open').forEach(function(d) {
+            var hw = d.__queueActionWrap;
+            if (hw && tb.contains(hw)) {
+                if (typeof queueCloseActionDrop === 'function') queueCloseActionDrop(d);
+            }
+        });
+    }
     var frag = document.createDocumentFragment();
     fillFn(frag);
     while (tb.firstChild) tb.removeChild(tb.firstChild);
@@ -12409,9 +12493,14 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         openEditPatientFromQueueRow(q);
     });
 
-    var wrap = g('aw-' + uid);
-    var drop = g('ad-' + uid);
-    var btn  = g('ab-' + uid);
+    // ── IMPORTANT: look up all action elements from within `row` itself using
+    // querySelector, NOT via g()/getElementById. During soft-refresh the row is
+    // built inside a disconnected DocumentFragment while old rows are still live
+    // in queueBody. g() would find the old (about-to-be-detached) elements and
+    // all click-handler closures would capture stale references.
+    var wrap = row.querySelector('.action-wrap');
+    var drop = row.querySelector('.action-drop');
+    var btn  = row.querySelector('.action-btn');
     if (drop && wrap) {
         drop.__queueActionWrap = wrap;
     }
@@ -12423,17 +12512,23 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         });
         btn.addEventListener('click', function(e) {
             queueStopRowEvent(e, true);
-            queueToggleActionDrop(drop, btn);
+            // Re-resolve from the live DOM at click time for extra safety.
+            // The drop may have been portaled to document.body; if so, the
+            // __queueActionWrap back-reference still points to this wrap.
+            var liveWrap = this.closest ? this.closest('.action-wrap') : wrap;
+            var liveDrop = (liveWrap && liveWrap.querySelector('.action-drop')) || drop;
+            if (!liveDrop && drop && drop.__queueActionWrap === liveWrap) liveDrop = drop;
+            queueToggleActionDrop(liveDrop || drop, this);
         });
     }
 
-    var actBill = g('act-bill-' + uid);
+    var actBill = row.querySelector('[id="act-bill-' + uid + '"]');
     if (actBill) actBill.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);
         setTimeout(function() { openBillPanel(q); }, 60);
     });
-    var actWa = g('act-wa-' + uid);
+    var actWa = row.querySelector('[id="act-wa-' + uid + '"]');
     if (actWa) actWa.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);
@@ -12453,7 +12548,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         });
     });
 
-    var actNotes = g('act-notes-' + uid);
+    var actNotes = row.querySelector('[id="act-notes-' + uid + '"]');
     if (actNotes) actNotes.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);
@@ -12467,21 +12562,21 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         }, 80);
     });
 
-    var actDone = g('act-done-' + uid);
+    var actDone = row.querySelector('[id="act-done-' + uid + '"]');
     if (actDone) actDone.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);
         setTimeout(function() { updateQueueStatus(q.id, 'Done'); }, 60);
     });
 
-    var actNoshow = g('act-noshow-' + uid);
+    var actNoshow = row.querySelector('[id="act-noshow-' + uid + '"]');
     if (actNoshow) actNoshow.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);
         setTimeout(function() { updateQueueStatus(q.id, 'No Show'); }, 60);
     });
 
-    var actRemove = g('act-remove-' + uid);
+    var actRemove = row.querySelector('[id="act-remove-' + uid + '"]');
     if (actRemove) actRemove.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);

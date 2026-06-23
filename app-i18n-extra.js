@@ -3820,6 +3820,12 @@
         'ql.patients':      { en: 'Patients',            'zh-CN': '患者',        'zh-Hant': '病人' },
         'ql.newAppt':       { en: 'New Appointment',     'zh-CN': '新预约',      'zh-Hant': '新預約' },
         'ql.currentQueue':  { en: 'Current Queue',       'zh-CN': '当前队列',    'zh-Hant': '目前隊列' },
+        'ql.queueActions':  { en: 'Queue Actions',       'zh-CN': '队列操作',    'zh-Hant': '隊列操作' },
+        'ql.needQueueSelection': {
+            en: 'Select a row in the Appointment queue first.',
+            'zh-CN': '请先在预约模块的队列中选择一行。',
+            'zh-Hant': '請先在預約模組的隊列中選擇一行。'
+        },
         'ql.checkIn':       { en: 'Check In',            'zh-CN': '签到',        'zh-Hant': '簽到' },
         'ql.apptRecords':   { en: 'Appt Records',        'zh-CN': '预约记录',    'zh-Hant': '預約紀錄' },
         'ql.consultation':  { en: 'Consultation',        'zh-CN': '诊症',        'zh-Hant': '診症' },

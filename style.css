@@ -12130,6 +12130,24 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     background: #fff7ed;
     color: #92400e;
 }
+
+/* ── +Appointment: active-patient quick-book hint ────────────── */
+/* When an active patient is on the card, empty slots become     */
+/* directly clickable to create an appointment immediately.      */
+#tab-plusappt.plusappt-has-active-patient
+    .plusappt-slot-row:not([data-appt-id]):not(.plusappt-row-long-span) {
+    cursor: pointer;
+}
+#tab-plusappt.plusappt-has-active-patient
+    .plusappt-slot-row:not([data-appt-id]):not(.plusappt-row-long-span):hover td {
+    background: rgba(37, 99, 235, 0.06) !important;
+}
+#tab-plusappt.plusappt-has-active-patient
+    .plusappt-slot-row:not([data-appt-id]):not(.plusappt-row-long-span):hover .plusappt-time-cell {
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
 .queue-remarks-snippet [style] {
     line-height: inherit;
 }

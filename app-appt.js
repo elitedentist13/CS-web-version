@@ -5047,10 +5047,26 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
 
         row.addEventListener('click', function(ev) {
             if (apptListRowClickBlocked(ev.target)) return;
-            if (a) plusApptSelectApptRow(a);
-            else if (apptTransferCutIsActive() && plusApptTryCompleteTransferDrop(null, slot, colDr)) {
+            if (a) {
+                plusApptSelectApptRow(a);
+            } else if (apptTransferCutIsActive() && plusApptTryCompleteTransferDrop(null, slot, colDr)) {
                 ev.preventDefault();
-            } else plusApptSelectEmptySlot(slot, false, colDr);
+            } else {
+                // Span rows occupy a slot already used by a long appointment — never
+                // open the create modal from them; just select as normal.
+                var isSpan = !!(spanInfo && spanInfo.role === 'span');
+                var activeP = (!isSpan &&
+                               typeof activePatientSlots !== 'undefined' &&
+                               activePatientSlots[0] && activePatientSlots[0].id)
+                    ? activePatientSlots[0] : null;
+                if (activeP) {
+                    var drCode = colDr || (typeof plusApptEffectiveDoctorCode === 'function'
+                        ? plusApptEffectiveDoctorCode() : '');
+                    plusApptOpenCreateForDroppedPatient(activeP, slot, drCode);
+                } else {
+                    plusApptSelectEmptySlot(slot, false, colDr);
+                }
+            }
         });
         if (a && !locked) row.setAttribute('draggable', 'true');
         row.addEventListener('dragstart', function(ev) {
@@ -5620,9 +5636,18 @@ function plusApptOpenHistory() {
     }, 120);
 }
 
+function plusApptSyncActivePatientClass() {
+    var tab = g('tab-plusappt');
+    if (!tab) return;
+    var hasActive = !!(typeof activePatientSlots !== 'undefined' &&
+                       activePatientSlots[0] && activePatientSlots[0].id);
+    tab.classList.toggle('plusappt-has-active-patient', hasActive);
+}
+
 function bindPlusApptTabOnce() {
     if (plusApptTabBound) return;
     plusApptTabBound = true;
+    document.addEventListener('app-active-patient-change', plusApptSyncActivePatientClass);
     bindApptImportModalOnce();
     plusApptBindTransferDropZones();
 
@@ -7062,6 +7087,7 @@ function showPlusApptTab() {
         if (tab) applyI18nInRoot(tab);
     }
     plusApptSyncSidebarToggleUi();
+    plusApptSyncActivePatientClass();
 }
 
 function showCalendarTab() {
@@ -8573,6 +8599,10 @@ function apptSetSelectedPatient(p) {
 }
 
 function apptActivePatientSnapshot() {
+    // Active patient dock (primary slot) takes highest priority
+    if (typeof activePatientSlots !== 'undefined' && activePatientSlots[0] && activePatientSlots[0].id) {
+        return activePatientSlots[0];
+    }
     if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
         return conPatientData;
     }

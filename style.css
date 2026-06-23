@@ -1362,6 +1362,91 @@ body.app-session-active {
     padding-bottom: 5px;
 }
 
+/* ── Dashboard keyboard refresh hint ─────────────────────────── */
+.dash-kb-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin: 0 0 10px;
+}
+.dash-kb-hint-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+    padding: 4px 11px;
+    font-size: 12px;
+    color: #64748b;
+    cursor: pointer;
+    transition: background 0.14s, color 0.14s, border-color 0.14s;
+    line-height: 1.5;
+}
+.dash-kb-hint-toggle:hover {
+    background: #f1f5f9;
+    color: #334155;
+    border-color: #cbd5e1;
+}
+.dash-kb-hint-toggle[aria-expanded="true"] {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+.dash-kb-hint-toggle-icon {
+    font-size: 14px;
+    line-height: 1;
+}
+.dash-kb-hint-body {
+    margin-top: 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    padding: 10px 16px 12px;
+    min-width: 300px;
+    max-width: 560px;
+}
+.dash-kb-hint-body[hidden] { display: none; }
+.dash-kb-hint-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+.dash-kb-hint-table tr + tr td {
+    padding-top: 7px;
+}
+.dash-kb-hint-table td:first-child {
+    white-space: nowrap;
+    padding-right: 18px;
+    vertical-align: top;
+    padding-top: 1px;
+}
+.dash-kb-hint-table td:last-child {
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.45;
+}
+.dash-kb-hint-note {
+    margin: 9px 0 0;
+    font-size: 11px;
+    color: #94a3b8;
+    font-style: italic;
+}
+/* kbd — keycap style (scoped-first, shared globally if not already defined) */
+kbd {
+    display: inline-block;
+    border: 1px solid #cbd5e1;
+    border-bottom: 2px solid #b0bec5;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #1e293b;
+    font-family: ui-monospace, 'SFMono-Regular', 'Consolas', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    padding: 0 5px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
 /* Dashboard memo stickies — overlay sized by JS from shell box (fixes Chrome 0-height inset bug) */
 .memo-sticky-dock {
     position: absolute;
@@ -2867,13 +2952,13 @@ tr:hover td { background: #fafcff; }
 #tab-plusappt.plusappt-clear-mode .plusappt-clear-cn {
     font-family: var(--font-cjk-sans);
     font-size: calc(14px * var(--plusappt-font-scale, 1));
-    font-weight: 800;
+    font-weight: 400;
 }
 #tab-queue.plusappt-clear-mode .plusappt-clear-cn,
 #tab-today.plusappt-clear-mode .plusappt-clear-cn {
     font-family: var(--font-cjk-sans);
     font-size: calc(15px * var(--plusappt-font-scale, 1));
-    font-weight: 800;
+    font-weight: 400;
 }
 #tab-plusappt.plusappt-clear-mode .plusappt-clear-en {
     font-size: calc(13px * var(--plusappt-font-scale, 1));
@@ -5263,7 +5348,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 .appt-name-cn {
     font-family: var(--font-cjk-sans);
-    font-weight: 800;
+    font-weight: 400;
     font-size: 15px;
     letter-spacing: 0.02em;
     color: #111827;

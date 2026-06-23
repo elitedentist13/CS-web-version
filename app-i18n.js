@@ -114,6 +114,38 @@ var I18N_STRINGS = {
         en: '📌 New stickies sit along the bottom by default — tiles stay clear; empty areas still click through · Double‑click opens Memo Cards + AI · Drag anytime',
         'zh-CN': '📌 新便签默认排在底部 — 卡片区域保持清晰；空白处仍可点击 · 双击打开「备忘卡片 + AI」· 可随时拖动',
         'zh-Hant': '📌 新便簽預設排在底部 — 卡片區域保持清晰；空白處仍可點擊 · 雙擊開啟「備忘卡片 + AI」· 可隨時拖動'
+    },
+
+    // ── Keyboard refresh hint (dashboard) ──────────────────────
+    'dashboard.kbHint.toggleLabel': {
+        en: 'Keyboard Refresh Guide',
+        'zh-CN': '键盘刷新快捷键说明',
+        'zh-Hant': '鍵盤重新整理說明'
+    },
+    'dashboard.kbHint.f2': {
+        en: 'App soft refresh — re-fetches live data for the current screen without reloading the page. Scroll position is preserved.',
+        'zh-CN': '应用内刷新 — 仅重新获取当前界面的最新数据，不重载页面，滚动位置不变。',
+        'zh-Hant': '應用內重整 — 僅重新取得目前畫面最新資料，不重載頁面，捲動位置不變。'
+    },
+    'dashboard.kbHint.f5': {
+        en: 'Browser soft reload — reloads the page; HTML and assets may be served from the browser cache. Session and clinic context are restored automatically.',
+        'zh-CN': '浏览器软重载 — 重新加载页面；HTML 及资源可能来自浏览器缓存。登录状态和诊所设置自动恢复。',
+        'zh-Hant': '瀏覽器軟重載 — 重新載入頁面；HTML 及資源可能來自瀏覽器快取。登入狀態與診所設定自動恢復。'
+    },
+    'dashboard.kbHint.ctrlF5': {
+        en: 'Browser hard reload — forces a fresh download of all HTML, JavaScript and CSS, bypassing the browser cache. Use this when the app appears outdated after an update.',
+        'zh-CN': '浏览器强制刷新 — 强制重新下载全部 HTML、JavaScript 及 CSS，绕过浏览器缓存。更新后界面未更新时使用。',
+        'zh-Hant': '瀏覽器強制重整 — 強制重新下載所有 HTML、JavaScript 及 CSS，跳過瀏覽器快取。更新後介面未更新時使用。'
+    },
+    'dashboard.kbHint.ctrlShiftR': {
+        en: 'Browser hard reload (alternate) — identical effect to Ctrl+F5, supported in Chrome, Firefox and Edge on Windows / Linux.',
+        'zh-CN': '浏览器强制刷新（备用键）— 效果与 Ctrl+F5 完全相同，适用于 Windows / Linux 上的 Chrome、Firefox 和 Edge。',
+        'zh-Hant': '瀏覽器強制重整（備用鍵）— 效果與 Ctrl+F5 完全相同，適用於 Windows / Linux 的 Chrome、Firefox 和 Edge。'
+    },
+    'dashboard.kbHint.macNote': {
+        en: 'macOS equivalents: ⌘ R = soft reload · ⌘ Shift R = hard reload (Chrome/Firefox/Edge)',
+        'zh-CN': 'macOS 对应快捷键：⌘ R = 软重载 · ⌘ Shift R = 强制刷新（Chrome/Firefox/Edge）',
+        'zh-Hant': 'macOS 對應捷徑：⌘ R = 軟重載 · ⌘ Shift R = 強制重整（Chrome/Firefox/Edge）'
     }
 };
 

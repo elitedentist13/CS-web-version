@@ -234,6 +234,38 @@
     <div class="dashboard-context-hint" data-i18n="dashboard.context.hint"></div>
   </div>
 
+  <!-- ── Keyboard Refresh Guide ─────────────────────────────── -->
+  <div class="dash-kb-hint" id="dashKbHint">
+    <button type="button" class="dash-kb-hint-toggle" id="dashKbHintToggle"
+            aria-expanded="false" aria-controls="dashKbHintBody">
+      <span class="dash-kb-hint-toggle-icon">⌨</span>
+      <span data-i18n="dashboard.kbHint.toggleLabel"></span>
+    </button>
+    <div class="dash-kb-hint-body" id="dashKbHintBody" hidden>
+      <table class="dash-kb-hint-table">
+        <tbody>
+          <tr>
+            <td><kbd>F2</kbd></td>
+            <td data-i18n="dashboard.kbHint.f2"></td>
+          </tr>
+          <tr>
+            <td><kbd>F5</kbd></td>
+            <td data-i18n="dashboard.kbHint.f5"></td>
+          </tr>
+          <tr>
+            <td><kbd>Ctrl</kbd>&thinsp;+&thinsp;<kbd>F5</kbd></td>
+            <td data-i18n="dashboard.kbHint.ctrlF5"></td>
+          </tr>
+          <tr>
+            <td><kbd>Ctrl</kbd>&thinsp;+&thinsp;<kbd>Shift</kbd>&thinsp;+&thinsp;<kbd>R</kbd></td>
+            <td data-i18n="dashboard.kbHint.ctrlShiftR"></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="dash-kb-hint-note" data-i18n="dashboard.kbHint.macNote"></p>
+    </div>
+  </div>
+
   <div class="dashboard-float-shell">
   <div class="dashboard-grid">
     <div class="dash-card" id="card-appointment">

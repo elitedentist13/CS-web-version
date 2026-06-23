@@ -1572,6 +1572,20 @@ function bindDashboardContextControlsOnce() {
     }
 }
 
+var _dashKbHintBound = false;
+function bindDashboardKbHintOnce() {
+    if (_dashKbHintBound) return;
+    var toggle = g('dashKbHintToggle');
+    var body   = g('dashKbHintBody');
+    if (!toggle || !body) return;
+    _dashKbHintBound = true;
+    toggle.addEventListener('click', function() {
+        var open = body.hidden;
+        body.hidden = !open;
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+}
+
 function refreshDashboardContextControls() {
     populateDashboardClinicSelect();
     populateDashboardDoctorSelect(currentDoctorId || '');
@@ -2526,6 +2540,7 @@ function showDashboard() {
     if (typeof stopApptAutoRefresh === 'function') stopApptAutoRefresh();
     if (typeof applyDashboardI18n === 'function') applyDashboardI18n();
     refreshDashboardContextControls();
+    bindDashboardKbHintOnce();
     refreshDashboardUserBadge();
     if (typeof applyDashboardPermissionGuards === 'function') applyDashboardPermissionGuards();
     var cfgSec = g('sectionConfig');

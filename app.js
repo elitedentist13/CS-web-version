@@ -2321,7 +2321,8 @@ var SCREENS = [
     'reportSection',
     'aiHelperSection',
     'memoCardsSection',
-    'sectionConfig'           // ← added
+    'entertainmentSection',
+    'sectionConfig'
 ];
 
 function showOnly(id, opts) {
@@ -2533,6 +2534,54 @@ function scheduleMarkAppReady() {
         return;
     }
     markAppReady();
+}
+
+// ════════════════════════════════════════════════════════════════
+// UNSAVED-CHANGES OVERLAY
+// Shared by X-ray lightbox, Photo lightbox, and Forms editor.
+// Injects a small confirmation card into `containerId`.
+// ════════════════════════════════════════════════════════════════
+function showMediaUnsavedOverlay(containerId, onSave, onDiscard, opts) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    if (container.querySelector('.media-unsaved-overlay')) return; // already showing
+
+    opts = opts || {};
+    var tKey  = opts.messageKey  || 'media.unsaved.message';
+    var sKey  = opts.saveKey     || 'media.unsaved.save';
+    var dKey  = opts.discardKey  || 'media.unsaved.discard';
+    var cKey  = opts.cancelKey   || 'media.unsaved.cancel';
+    var tFn   = (typeof t === 'function') ? t : function(k){ return k; };
+
+    var overlay = document.createElement('div');
+    overlay.className = 'media-unsaved-overlay';
+
+    var card = document.createElement('div');
+    card.className = 'media-unsaved-card';
+    card.innerHTML =
+        '<div class="media-unsaved-icon">⚠️</div>' +
+        '<div class="media-unsaved-msg">' + tFn(tKey) + '</div>';
+
+    function makeBtn(cls, labelKey, handler) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'media-unsaved-btn ' + cls;
+        btn.textContent = tFn(labelKey);
+        btn.addEventListener('click', function() {
+            overlay.remove();
+            handler();
+        });
+        return btn;
+    }
+
+    var row = document.createElement('div');
+    row.className = 'media-unsaved-btns';
+    row.appendChild(makeBtn('media-unsaved-save',    sKey, onSave));
+    row.appendChild(makeBtn('media-unsaved-discard', dKey, onDiscard));
+    row.appendChild(makeBtn('media-unsaved-cancel',  cKey, function() {}));
+    card.appendChild(row);
+    overlay.appendChild(card);
+    container.appendChild(overlay);
 }
 
 function showDashboard() {
@@ -4297,6 +4346,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    var entCard = g('card-entertainment');
+    if (entCard) {
+        entCard.addEventListener('click', function() {
+            if (typeof showEntertainment === 'function') showEntertainment();
+        });
+    }
+
     // placeholder cards (temporarily inactive)
     ['card-expenses', 'card-inventory']
     .forEach(function(id) {
@@ -4572,7 +4628,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // ════════════════════════════════════════════════════════
     // CONSULTATION SECTION WIRING
     // ════════════════════════════════════════════════════════
-    g('conBack').addEventListener('click', showDashboard);
+    g('conBack').addEventListener('click', function() {
+        if (typeof _conFormsDirty !== 'undefined' && _conFormsDirty &&
+                typeof _conFormsCheckUnsavedThen === 'function') {
+            _conFormsCheckUnsavedThen(showDashboard);
+        } else {
+            showDashboard();
+        }
+    });
 
     var memoBackBtn = g('memoBackBtn');
     if (memoBackBtn) {

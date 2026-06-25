@@ -15082,7 +15082,10 @@ function wireBillPanelControls() {
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
     bindClickOnce('receiptPrintOptionsBtn', reopenReceiptPrintOptionsFromReceipt);
-    bindClickOnce('receiptPrintNowBtn', function () { printReceiptDocument(); });
+    bindClickOnce('receiptPrintNowBtn',     function () { printReceiptDocument(); });
+    bindClickOnce('receiptPrintEnBtn',      function () { printReceiptForLang('en'); });
+    bindClickOnce('receiptPrintZhHantBtn',  function () { printReceiptForLang('zh-Hant'); });
+    bindClickOnce('receiptPrintZhCNBtn',    function () { printReceiptForLang('zh-CN'); });
     bindClickOnce('closeReceiptPrintOptionsModal', function() {
         dismissReceiptPrintOptionsModal(true);
     });
@@ -15177,8 +15180,8 @@ function applyBillPanelPatientRecord(patient) {
         billPatChineseName = String(patient.chinese_name || '').trim();
     }
     updateBillPanelPatientInfoDom();
-    // Keep the bill detail modal in sync when it is open for a bill belonging to this patient
-    if (bdCurrentBill) {
+    // Keep the bill detail modal in sync only when the open bill belongs to this patient.
+    if (bdCurrentBill && bdCurrentBill.patient_id === patient.id) {
         if (en) bdCurrentBill.patient_name = en;
         if (patient.patient_no) bdCurrentBill.patient_no = patient.patient_no;
         var bdModalEl = g('billDetailModal');
@@ -15400,6 +15403,19 @@ function openBillPanel(q) {
     billPatChineseName = String(q.patient_chinese_name || '').trim();
 
     updateBillPanelPatientInfoDom();
+
+    // Background-fetch the live patient record so the header always shows the
+    // current name even when the appointment cache carried a stale denormalized value.
+    if (billPatId) {
+        SB.from('patients')
+            .select('id,patient_no,full_name,chinese_name')
+            .eq('id', billPatId)
+            .single()
+            .then(function(r) {
+                if (!r.error && r.data) applyBillPanelPatientRecord(r.data);
+            })
+            .catch(function() {});
+    }
 
     billItems    = [];
     pendingLists = [];
@@ -18523,9 +18539,13 @@ function showBillDetail(b) {
     }
     refreshBillDetailVoidMeta(b);
 
-    // Info fields
-    bdSet('bdPatient',   b.patient_name || '—');
-    bdSet('bdPatientNo', b.patient_no   || '—');
+    // Info fields — prefer the live billPatName so the header always reflects
+    // the most recent patient edit, even when the bill record carries a stale
+    // denormalized name from the time the bill was created.
+    var _bdDisplayName = (billPatName && billPatName !== '-') ? billPatName : (b.patient_name || '—');
+    var _bdDisplayNo   = (billPatNo   && billPatNo   !== '-') ? billPatNo   : (b.patient_no   || '—');
+    bdSet('bdPatient',   _bdDisplayName);
+    bdSet('bdPatientNo', _bdDisplayNo);
     bdSet('bdDate',      b.bill_date    || '—');
     bdSet('bdDoctor',    b.doctor_tag   || b.doctor_name || '—');
     bdSet('bdClinicCode', billDetailClinicCode(b) || '—');
@@ -19073,6 +19093,8 @@ function voidPaymentRecord(p) {
 }
 
 var _receiptPrintInProgress = false;
+var _receiptClinicNameForFooter = '';
+var _receiptClinicTelForFooter  = '';
 var RECEIPT_PRINT_MIN_SCALE_PCT = 80;
 
 /**
@@ -19571,6 +19593,148 @@ function printReceiptDocument() {
     }, 140);
 }
 
+// ════════════════════════════════════════════════════════════════
+// LANGUAGE-SPECIFIC RECEIPT PRINT
+// Each of the three language buttons (EN / 繁體 / 简体) calls
+// printReceiptForLang(lang) which builds a single-page receipt
+// translated entirely into the chosen language, independent of
+// the current UI language setting.
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Clone `area` and re-apply all data-i18n labels for `lang`.
+ * Also reconstructs the clinic-specific tel / thanks footer lines
+ * that are set dynamically (not covered by data-i18n alone).
+ */
+function buildReceiptPageForLang(area, lang) {
+    var wrap = document.createElement('div');
+    wrap.innerHTML = area.innerHTML;
+
+    // Re-translate every data-i18n label for this language
+    var els = wrap.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        var key = el.getAttribute('data-i18n');
+        if (key && typeof t === 'function') el.textContent = t(key, lang);
+    }
+
+    // Re-apply tel line (set dynamically by applyReceiptClinicHeaderFromRecord)
+    var telEl = wrap.querySelector('#rClinicTelLine');
+    if (telEl && typeof t === 'function') {
+        var telStr = t('bill.receipt.telPrefix', lang);
+        telEl.textContent = telStr.replace('{TEL}', _receiptClinicTelForFooter || '—');
+    }
+
+    // Re-apply clinic-specific footer thanks line
+    var footEl = wrap.querySelector('#rReceiptFooterThanks');
+    if (footEl && typeof t === 'function') {
+        var thanksStr = t('bill.receipt.thanksVisit', lang);
+        footEl.textContent = thanksStr.replace('{NAME}', _receiptClinicNameForFooter || '');
+    }
+
+    return wrap.innerHTML;
+}
+
+/**
+ * Print a single receipt translated entirely into `lang`
+ * ('en', 'zh-Hant', or 'zh-CN'), regardless of the UI language.
+ */
+function printReceiptForLang(lang) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    var area = g('receiptPrintArea');
+    if (!area) return;
+    if (_receiptPrintInProgress) return;
+    _receiptPrintInProgress = true;
+
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    var billPrintRow = null;
+    var sheetCss = receiptPrintSheetFallbackCss();
+    if (typeof CFG !== 'undefined' && CFG) {
+        if (typeof CFG.prefetchPrintSettings === 'function') CFG.prefetchPrintSettings(cid);
+        if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss) {
+            billPrintRow = CFG.getPrintSettingsForDoc('bill', cid);
+            sheetCss = CFG.buildPrintSheetStylesCss(billPrintRow);
+        }
+    }
+
+    var printStylesAll = sheetCss +
+        '.print-sheet-outer img,.print-sheet-outer table{max-width:100%;}' +
+        receiptContentPrintStyles();
+
+    var translatedHtml = buildReceiptPageForLang(area, lang);
+
+    var iframe = g('receiptPrintFrame');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'receiptPrintFrame';
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.title = 'Receipt print';
+        document.body.appendChild(iframe);
+    }
+    iframe.style.cssText =
+        'position:fixed;left:-10000px;top:0;width:794px;height:1123px;' +
+        'border:0;visibility:hidden;opacity:0;pointer-events:none;';
+
+    var releaseLock = function () {
+        _receiptPrintInProgress = false;
+        if (iframe) {
+            iframe.style.cssText =
+                'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+        }
+    };
+
+    var doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+    if (!doc) { releaseLock(); alert(tr('bill.receipt.popupBlocked')); return; }
+
+    doc.open();
+    doc.write(
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
+        '<title>' + esc(t('bill.receipt.printTitle', lang)) + '</title>' +
+        '<style>' + printStylesAll + '</style></head><body>' +
+        '<div class="print-sheet-outer"><div id="receiptPrintArea">' +
+        translatedHtml +
+        '</div></div></body></html>'
+    );
+    doc.close();
+
+    var win = iframe.contentWindow;
+    if (!win) { releaseLock(); return; }
+
+    var done = false;
+    function finish() {
+        if (done) return;
+        done = true;
+        releaseLock();
+        if (typeof closeModal === 'function') closeModal('receiptModal');
+    }
+
+    try { win.addEventListener('afterprint', function () { setTimeout(finish, 300); }); } catch (_) {}
+
+    setTimeout(function () {
+        var scalePct;
+        try {
+            scalePct = receiptAutoFitScalePercent(doc, billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
+        } catch (eFit) {
+            scalePct = receiptPrintMaxScalePercent(billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
+        }
+        setTimeout(function () {
+            try {
+                win.focus();
+                win.print();
+            } catch (ePrint) {
+                finish();
+                alert(tr('bill.receipt.popupBlocked'));
+                return;
+            }
+            setTimeout(finish, 8000);
+        }, 60);
+    }, 140);
+}
+
 function clinicRecordForReceiptByTagOrId(tagOrId) {
     if (!tagOrId || !APP_CLINICS || !APP_CLINICS.length) return null;
     var t = String(tagOrId).trim();
@@ -19623,6 +19787,10 @@ function applyReceiptClinicHeaderFromRecord(rec) {
     }
     if (!name && currentClinicLabel) name = String(currentClinicLabel).trim();
     if (!name) name = tr('ai.clinicFallback');
+
+    // Save for trilingual print re-use
+    _receiptClinicNameForFooter = name;
+    _receiptClinicTelForFooter  = tel;
 
     if (nmEl) nmEl.textContent = name;
     if (addrEl) addrEl.textContent = addr || '—';
@@ -20070,6 +20238,8 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
             var row = document.createElement('tr');
             row.className = 'receipt-inst-row';
             if (i % 2 === 1) row.className += ' receipt-inst-row--alt';
+            var clinicLabel = (typeof billPaymentReceivingClinicDisplay === 'function')
+                ? billPaymentReceivingClinicDisplay(p, bill) : '';
             row.innerHTML =
                 '<td class="receipt-inst-td receipt-inst-td--num">' + (i + 1) + '</td>' +
                 '<td class="receipt-inst-td">' + esc(p.paid_date || '—') + '</td>' +
@@ -20077,6 +20247,7 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
                 '<td class="receipt-inst-td">' + esc((typeof dispPayMethod === 'function')
                     ? dispPayMethod(p.method)
                     : (p.method || '—')) + '</td>' +
+                '<td class="receipt-inst-td receipt-inst-td--clinic">' + esc(clinicLabel) + '</td>' +
                 '<td class="receipt-inst-td receipt-inst-td--notes">' +
                     esc(p.notes || '') + '</td>';
             bodyEl.appendChild(row);

@@ -37,7 +37,7 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  ['fonts/cjk-fonts.css', 'style.css', 'style-mobile.css'].forEach(function (path) {
+  ['fonts/cjk-fonts.css', 'style.css', 'style-mobile.css', 'style-entertainment.css'].forEach(function (path) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = withBust(path);
@@ -299,6 +299,9 @@
     </div>
     <div class="dash-card" id="card-configuration">
       <div>⚙️</div><h3 data-i18n="dashboard.card.configuration"></h3>
+    </div>
+    <div class="dash-card" id="card-entertainment">
+      <div>🎮</div><h3 data-i18n="dashboard.card.entertainment"></h3>
     </div>
   </div>
 
@@ -4852,6 +4855,7 @@
               <th data-i18n="bill.receipt.thInstDate"></th>
               <th class="receipt-inst-th-amt" data-i18n="bill.receipt.thInstAmount"></th>
               <th data-i18n="bill.receipt.thInstMethod"></th>
+              <th data-i18n="bill.detail.thClinic"></th>
               <th data-i18n="bill.receipt.thInstNotes"></th>
             </tr>
           </thead>
@@ -4883,7 +4887,17 @@
     </div><!-- /receiptPrintArea -->
 
     <div class="receipt-modal-actions">
-      <button type="button" id="receiptPrintNowBtn" class="receipt-print-now-btn"
+      <!-- Three language print buttons -->
+      <div class="receipt-print-lang-row">
+        <button type="button" id="receiptPrintEnBtn"   class="receipt-print-lang-btn receipt-print-lang-btn--en"
+                data-i18n="bill.receipt.btnPrintEn"></button>
+        <button type="button" id="receiptPrintZhHantBtn" class="receipt-print-lang-btn receipt-print-lang-btn--zh-hant"
+                data-i18n="bill.receipt.btnPrintZhHant"></button>
+        <button type="button" id="receiptPrintZhCNBtn"  class="receipt-print-lang-btn receipt-print-lang-btn--zh-cn"
+                data-i18n="bill.receipt.btnPrintZhCN"></button>
+      </div>
+      <!-- Legacy "print now" button kept for backward-compat (hidden visually, wired as before) -->
+      <button type="button" id="receiptPrintNowBtn" class="receipt-print-now-btn" style="display:none;"
               data-i18n="bill.receipt.btnPrintNow"></button>
       <button type="button" id="receiptPrintOptionsBtn" class="receipt-options-btn"
               data-i18n="bill.receipt.btnOptions"></button>
@@ -5387,6 +5401,110 @@
 <!-- ════════════════════════════════════════════════════════════
      SCRIPTS  (load order matters — use static tags for CDN; no document.write)
 ════════════════════════════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════════════════════
+     ENTERTAINMENT HUB  (Games: Chess, Chinese Chess, Connect Four, Gomoku)
+════════════════════════════════════════════════════════════ -->
+<section id="entertainmentSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="entertainmentBack" data-i18n="ent.back"></button>
+    <h1 data-i18n="ent.title"></h1>
+  </div>
+
+  <!-- ── LOBBY: game selection ─────────────────────────────── -->
+  <div id="entLobby" class="ent-panel">
+    <p class="ent-subtitle" data-i18n="ent.subtitle"></p>
+    <div class="ent-records-bar">
+      <label class="ent-record-toggle">
+        <input type="checkbox" id="entAllowRecordChk" checked>
+        <span data-i18n="ent.records.allow"></span>
+      </label>
+      <button type="button" class="ent-records-btn" id="entViewRecordsBtn" data-i18n="ent.records.view"></button>
+    </div>
+    <div class="ent-game-grid">
+      <div class="ent-game-card" data-game="c4">
+        <div class="ent-game-icon">🔴</div>
+        <div class="ent-game-name" data-i18n="ent.game.c4"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.c4Desc"></div>
+      </div>
+      <div class="ent-game-card" data-game="chess">
+        <div class="ent-game-icon">♟️</div>
+        <div class="ent-game-name" data-i18n="ent.game.chess"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.chessDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="xiangqi">
+        <div class="ent-game-icon">🀄</div>
+        <div class="ent-game-name" data-i18n="ent.game.xiangqi"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.xiangqiDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="gomoku">
+        <div class="ent-game-icon">⚫</div>
+        <div class="ent-game-name" data-i18n="ent.game.gomoku"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.gomokuDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="reversi">
+        <div class="ent-game-icon">⬛</div>
+        <div class="ent-game-name" data-i18n="ent.game.reversi"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.reversiDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="2048">
+        <div class="ent-game-icon">🔢</div>
+        <div class="ent-game-name" data-i18n="ent.game.2048"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.2048Desc"></div>
+      </div>
+      <div class="ent-game-card" data-game="minesweeper">
+        <div class="ent-game-icon">💣</div>
+        <div class="ent-game-name" data-i18n="ent.game.minesweeper"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.minesweeperDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="snake">
+        <div class="ent-game-icon">🐍</div>
+        <div class="ent-game-name" data-i18n="ent.game.snake"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.snakeDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="sudoku">
+        <div class="ent-game-icon">🔢</div>
+        <div class="ent-game-name" data-i18n="ent.game.sudoku"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.sudokuDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="mahjong">
+        <div class="ent-game-icon">🀄</div>
+        <div class="ent-game-name" data-i18n="ent.game.mahjong"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.mahjongDesc"></div>
+      </div>
+      <div class="ent-game-card" data-game="typing">
+        <div class="ent-game-icon">🐱</div>
+        <div class="ent-game-name" data-i18n="ent.game.typing"></div>
+        <div class="ent-game-desc" data-i18n="ent.game.typingDesc"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODE SELECTION ─────────────────────────────────────── -->
+  <div id="entModeSelect" class="ent-panel" style="display:none;">
+    <div id="entModeSelectInner"></div>
+  </div>
+
+  <!-- ── ONLINE ROOM ────────────────────────────────────────── -->
+  <div id="entOnlineRoom" class="ent-panel" style="display:none;">
+    <div id="entOnlineRoomInner"></div>
+  </div>
+
+  <!-- ── GAME AREA ──────────────────────────────────────────── -->
+  <div id="entGameArea" class="ent-panel ent-game-area" style="display:none;">
+    <div class="ent-game-header">
+      <div id="entGameTitle"  class="ent-game-title"></div>
+      <div id="entGameStatus" class="ent-game-status"></div>
+    </div>
+    <div id="entBoardWrap" class="ent-board-wrap"></div>
+    <div class="ent-game-controls">
+      <button type="button" id="entRestartBtn" class="ent-ctrl-btn"
+              data-i18n="ent.restart"></button>
+      <button type="button" id="entExitBtn"    class="ent-ctrl-btn ent-ctrl-btn--exit"
+              data-i18n="ent.exit"></button>
+    </div>
+  </div>
+</section>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
@@ -5417,8 +5535,11 @@
     'app-charts.js',
     'app-drugs.js',
     'app-broadcast.js?v=20260524c',
-    'app-quicklaunch.js'
+    'app-quicklaunch.js',
+    'app-engines.js',
+    'app-entertainment.js'
   ];
+  /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {
     document.write('<script src="' + wb(files[i]) + '"><\/script>');
   }

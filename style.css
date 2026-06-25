@@ -6803,6 +6803,41 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     filter: brightness(1.05);
 }
 
+/* ── Three language print buttons ── */
+.receipt-print-lang-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.receipt-print-lang-btn {
+    flex: 1 1 0;
+    padding: 12px 6px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 13px;
+    color: #fff;
+    letter-spacing: 0.01em;
+    transition: filter 0.15s;
+    white-space: nowrap;
+}
+
+.receipt-print-lang-btn:hover { filter: brightness(1.1); }
+
+.receipt-print-lang-btn--en {
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
+}
+
+.receipt-print-lang-btn--zh-hant {
+    background: linear-gradient(135deg, #0f766e, #0d9488);
+}
+
+.receipt-print-lang-btn--zh-cn {
+    background: linear-gradient(135deg, #b45309, #d97706);
+}
+
 .receipt-options-btn,
 .receipt-close-btn {
     flex: 1 1 calc(50% - 5px);
@@ -14441,5 +14476,84 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 }
 .rpt-void-list .patient-dir-pager-info {
     color: #9a3412;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   UNSAVED-CHANGES OVERLAY
+   Shown inside lightbox modals (xray, photo) and the
+   consultation section when forms tab has unsaved content.
+════════════════════════════════════════════════════════════════ */
+.media-unsaved-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    border-radius: inherit;
+}
+
+.media-unsaved-card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 24px 28px 20px;
+    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.32);
+    max-width: 320px;
+    width: 90%;
+    text-align: center;
+    animation: mediaUnsavedIn 0.18s ease;
+}
+
+@keyframes mediaUnsavedIn {
+    from { opacity: 0; transform: scale(0.9) translateY(8px); }
+    to   { opacity: 1; transform: scale(1)   translateY(0);   }
+}
+
+.media-unsaved-icon {
+    font-size: 36px;
+    margin-bottom: 10px;
+    line-height: 1;
+}
+
+.media-unsaved-msg {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    line-height: 1.5;
+    margin-bottom: 18px;
+}
+
+.media-unsaved-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.media-unsaved-btn {
+    width: 100%;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter 0.15s;
+}
+.media-unsaved-btn:hover { filter: brightness(1.08); }
+
+.media-unsaved-save {
+    background: #0084ff;
+    color: #fff;
+}
+.media-unsaved-discard {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+.media-unsaved-cancel {
+    background: #f1f5f9;
+    color: #475569;
 }
 

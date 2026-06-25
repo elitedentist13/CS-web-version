@@ -3175,24 +3175,23 @@ function bindActivePatientBadgeCursor(card) {
             card.style.cursor = '';
             return;
         }
-        if (ev.target.closest('.active-patient-clear-btn')) {
-            card.style.cursor = 'pointer';
-            return;
-        }
-        if (ev.target.closest('.active-patient-phone-copy-btn') ||
+        if (ev.target.closest('.active-patient-clear-btn') ||
+            ev.target.closest('.active-patient-phone-copy-btn') ||
             ev.target.closest('.active-patient-copy-all-btn')) {
             card.style.cursor = 'pointer';
             return;
         }
-        if (ev.target.closest('.active-patient-badge-phone-text')) {
+        if (ev.target.closest('.active-patient-badge-textbox') ||
+            ev.target.closest('.active-patient-badge-phone-text')) {
             card.style.cursor = 'text';
             return;
         }
-        if (ev.target.closest('.active-patient-badge-textbox')) {
-            card.style.cursor = 'text';
+        if (ev.target.closest('.active-patient-badge-dragzone')) {
+            card.style.cursor = 'grab';
             return;
         }
-        card.style.cursor = 'grab';
+        // Let CSS default handle everything else (no forced grab on card body)
+        card.style.cursor = '';
     });
     card.addEventListener('mouseleave', function() {
         card.style.cursor = '';
@@ -3200,6 +3199,7 @@ function bindActivePatientBadgeCursor(card) {
     var box = card.querySelector('.active-patient-badge-textbox');
     if (box) {
         box.addEventListener('mousedown', function(ev) {
+            // prevent card-level handlers from interfering with text selection
             ev.stopPropagation();
         });
         box.addEventListener('dragstart', function(ev) {
@@ -3237,7 +3237,7 @@ function renderActivePatientSlot(idx, p) {
     card.setAttribute('data-copy-phone', activePatientBadgePhoneCopyRaw(p));
     var phoneBtn = card.querySelector('.active-patient-phone-copy-btn');
     if (phoneBtn) phoneBtn.disabled = !activePatientBadgePhoneCopyRaw(p);
-    card.setAttribute('draggable', 'true');
+    card.setAttribute('draggable', 'false');
     card.setAttribute('data-patient-id', p.id);
     card.setAttribute('data-payload', serializePatientDragPayload(p));
     card.classList.add('is-filled');
@@ -3503,14 +3503,36 @@ function bindActivePatientCardOnce() {
         var slotIdx = parseInt(card.getAttribute('data-slot') || '0', 10) || 0;
         bindActivePatientCardDropTarget(card, slotIdx);
         bindActivePatientBadgeCursor(card);
+
+        // ── Drag only arms from designated handle zones ──────────
+        // This keeps the card draggable=false so text inside the
+        // textarea is always freely selectable.  A mousedown on any
+        // dragzone (header, phone row, date strip) briefly arms the
+        // card so the browser's native drag sequence can fire.
+        card.querySelectorAll('.active-patient-badge-dragzone').forEach(function(zone) {
+            zone.addEventListener('mousedown', function() {
+                if (card.classList.contains('is-filled')) {
+                    card.setAttribute('draggable', 'true');
+                }
+            });
+        });
+        card.addEventListener('mouseup', function() {
+            card.setAttribute('draggable', 'false');
+        });
+        card.addEventListener('mouseleave', function() {
+            card.setAttribute('draggable', 'false');
+        });
+
         card.addEventListener('dragstart', function(ev) {
             if (activePatientBadgeDragBlockedTarget(ev.target)) {
                 ev.preventDefault();
+                card.setAttribute('draggable', 'false');
                 return;
             }
             var payload = card.getAttribute('data-payload') || '';
             if (!payload) {
                 ev.preventDefault();
+                card.setAttribute('draggable', 'false');
                 return;
             }
             setPatientDragPayloadSession(parsePatientDragPayload(payload));
@@ -3520,6 +3542,7 @@ function bindActivePatientCardOnce() {
             ev.dataTransfer.setData('text/plain', payload);
         });
         card.addEventListener('dragend', function() {
+            card.setAttribute('draggable', 'false');
             clearPatientDragPayloadSession();
         });
     });
@@ -4845,7 +4868,7 @@ function applyOpenGlobalModalsI18n() {
     }
     var ids = [
         'apptModal', 'apptPopup', 'queueRemarksModal', 'recallSendModal',
-        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'billDeleteModal',
+        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'billPaymentClinicConfirmModal', 'billDeleteModal',
         'patientDetailsModal', 'addPatientModal', 'editPatientModal', 'patientBananaModal',
         'photoUploadModal', 'photoLightbox',
         'xrayUploadModal', 'xrayLightbox', 'diySystemModal',

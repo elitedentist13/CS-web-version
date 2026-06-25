@@ -492,7 +492,7 @@ option {
 }
 
 .active-patient-info-badge.is-filled {
-    cursor: grab;
+    cursor: auto;
 }
 
 .active-patient-badge-textbox {
@@ -6394,6 +6394,10 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 #addPaymentModal,
 #receiptModal {
     z-index: 3000;
+}
+
+#billPaymentClinicConfirmModal {
+    z-index: 3050;
 }
 
 #receiptPrintOptionsModal {

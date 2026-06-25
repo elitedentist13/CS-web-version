@@ -1807,7 +1807,7 @@
         'bill.detail.labelPatientNo': { en: 'Patient No.', 'zh-CN': '患者编号', 'zh-Hant': '病人編號' },
         'bill.detail.labelBillDate': { en: 'Bill Date', 'zh-CN': '账单日期', 'zh-Hant': '帳單日期' },
         'bill.detail.labelDoctor': { en: 'Doctor', 'zh-CN': '医师', 'zh-Hant': '醫師' },
-        'bill.detail.labelClinicCode': { en: 'Clinic Code', 'zh-CN': '诊所代码', 'zh-Hant': '診所代碼' },
+        'bill.detail.labelClinicCode': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
         'bill.detail.labelPaymentMethod': { en: 'Payment Method', 'zh-CN': '付款方式', 'zh-Hant': '付款方式' },
         'bill.detail.labelExtraDiscount': { en: 'Extra Discount', 'zh-CN': '额外折扣', 'zh-Hant': '額外折扣' },
         'bill.detail.extraDiscNone': { en: 'None', 'zh-CN': '无', 'zh-Hant': '無' },
@@ -1830,6 +1830,7 @@
         'bill.detail.thDate': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'bill.detail.thAmount': { en: 'Amount (HK$)', 'zh-CN': '金额（港币）', 'zh-Hant': '金額（港幣）' },
         'bill.detail.thMethod': { en: 'Method', 'zh-CN': '方式', 'zh-Hant': '方式' },
+        'bill.detail.thClinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
         'bill.detail.thReceivedBy': { en: 'Received By', 'zh-CN': '收款人', 'zh-Hant': '收款人' },
         'bill.detail.noPayments': { en: 'No payment records yet.', 'zh-CN': '还没有付款记录。', 'zh-Hant': '還沒有付款紀錄。' },
         'bill.detail.btnPrintReceipt': { en: '🖨️ Print Receipt', 'zh-CN': '🖨️ 打印收据', 'zh-Hant': '🖨️ 列印收據' },
@@ -1856,6 +1857,16 @@
         'bill.addPayment.summary': { en: 'Bill Ref: {REF} · {DATE} · Total: HK$ {TOTAL}', 'zh-CN': '账单参考：{REF} · {DATE} · 合计：HK$ {TOTAL}', 'zh-Hant': '帳單參考：{REF} · {DATE} · 合計：HK$ {TOTAL}' },
         'bill.addPayment.errInvalidAmount': { en: 'Please enter a valid amount.', 'zh-CN': '请输入有效金额。', 'zh-Hant': '請輸入有效金額。' },
         'bill.addPayment.errExceedsBalance': { en: 'Amount exceeds outstanding balance (HK$ {BAL}).', 'zh-CN': '金额超过尚欠余额（HK$ {BAL}）。', 'zh-Hant': '金額超過尚欠餘額（HK$ {BAL}）。' },
+        'bill.addPayment.clinicConfirmTitle': { en: 'Different receiving clinic', 'zh-CN': '收款诊所不同', 'zh-Hant': '收款診所不同' },
+        'bill.addPayment.clinicConfirmBody': {
+            en: 'This payment will be recorded at a different clinic from the previous payment on this bill.',
+            'zh-CN': '此笔付款的收款诊所与该账单上一笔付款不同。',
+            'zh-Hant': '此筆付款的收款診所與此帳單上一筆付款不同。'
+        },
+        'bill.addPayment.clinicConfirmPrev': { en: 'Previous payment clinic', 'zh-CN': '上一笔付款诊所', 'zh-Hant': '上一筆付款診所' },
+        'bill.addPayment.clinicConfirmCurr': { en: 'This payment clinic', 'zh-CN': '本次付款诊所', 'zh-Hant': '本次付款診所' },
+        'bill.addPayment.clinicConfirmYes': { en: 'Yes, record payment', 'zh-CN': '是，记录付款', 'zh-Hant': '是，記錄付款' },
+        'bill.addPayment.clinicConfirmNo': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
         'bill.delete.title': { en: 'Void Bill', 'zh-CN': '作废账单', 'zh-Hant': '作廢帳單' },
         'bill.delete.warnHtml': {
             en: 'This marks the bill as <strong>VOID</strong> in history (with your name). It will no longer count toward balances or reports.',

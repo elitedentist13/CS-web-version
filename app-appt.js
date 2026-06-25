@@ -15106,6 +15106,9 @@ function wireBillPanelControls() {
     bindClickOnce('bhpSelectNoneBtn', function() { setAllBillHistoryPrintChecks(false); });
     wireBillHistoryPrintOptionInputs();
     wireBillHistoryFilterUi();
+    ensureModalNoBackdropClose('billPaymentClinicConfirmModal');
+    bindClickOnce('bpcConfirmYesBtn', confirmBillPaymentClinicMismatch);
+    bindClickOnce('bpcConfirmNoBtn', dismissBillPaymentClinicConfirm);
 
     var pendingDrSel = g('pendingListDoctor');
     if (pendingDrSel && pendingDrSel.dataset.billInputBound !== '1') {
@@ -18344,30 +18347,22 @@ function bdSet(id, val) {
     if (e) e.textContent = (val === null || val === undefined) ? '—' : String(val);
 }
 
+/** Bill detail header + receipt default — current active working clinic only. */
 function billDetailClinicCode(b) {
-    var active = '';
-    if (typeof currentClinicCodeForTagging === 'function') {
-        active = String(currentClinicCodeForTagging() || '').trim();
-    }
-    if (!active) {
-        var sel = g('appWorkingClinicSelect');
-        var cid = sel && sel.value ? String(sel.value).trim() : '';
-        if (typeof isWorkingClinicAllValue === 'function' && isWorkingClinicAllValue(cid)) {
-            cid = '';
-        }
-        if (!cid && typeof currentClinicId !== 'undefined' && currentClinicId) {
-            cid = String(currentClinicId).trim();
-        }
-        if (cid && typeof clinicRecordFromId === 'function') {
-            var recActive = clinicRecordFromId(cid);
-            if (recActive) active = String(recActive.clinic_code || recActive.id || '').trim();
-        }
-    }
-    if (active) return active;
+    var ctx = billPaymentClinicContext();
+    var code = String(ctx.clinic_code || '').trim();
+    return code || '—';
+}
 
-    if (!b) return '';
-    var raw = String((b.clinic_tag || b.clinic_id || '')).trim();
-    if (!raw) return '';
+function billPaymentReceivingClinicDisplay(p, bill) {
+    var raw = '';
+    if (p) {
+        raw = String(p.clinic_tag || p.clinic_code || p.clinic_id || '').trim();
+    }
+    if (!raw && bill) {
+        raw = String(bill.clinic_tag || bill.clinic_id || '').trim();
+    }
+    if (!raw) return '—';
     var rec = null;
     if (typeof clinicRecordForReceiptByTagOrId === 'function') {
         rec = clinicRecordForReceiptByTagOrId(raw);
@@ -18376,9 +18371,80 @@ function billDetailClinicCode(b) {
         rec = clinicRecordFromId(raw);
     }
     if (rec) {
-        return String(rec.clinic_code || rec.id || raw).trim();
+        return String(rec.clinic_code || rec.id || raw).trim() || '—';
     }
     return raw;
+}
+
+function billPaymentClinicCompareKey(p, bill) {
+    var label = billPaymentReceivingClinicDisplay(p, bill);
+    if (!label || label === '—') return '';
+    return String(label).trim().toUpperCase();
+}
+
+function activePaymentClinicDisplay() {
+    var ctx = billPaymentClinicContext();
+    return billPaymentReceivingClinicDisplay({
+        clinic_tag: ctx.clinic_tag,
+        clinic_code: ctx.clinic_code,
+        clinic_id: ctx.clinic_id
+    }, null);
+}
+
+function fetchPreviousPaymentClinicForBill(bill, cb) {
+    if (!bill || !bill.id || !SB || typeof SB.from !== 'function') {
+        if (cb) cb({ key: '', label: '—' });
+        return;
+    }
+    SB.from('bill_payments')
+        .select('*')
+        .eq('bill_id', bill.id)
+        .order('paid_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .then(function(r) {
+            var rows = (!r.error && r.data) ? r.data : [];
+            rows = mergeBillPaymentHistoryWithBill(bill, rows);
+            var active = billPaymentsActiveOnly(rows);
+            if (!active.length) {
+                if (cb) cb({ key: '', label: '—' });
+                return;
+            }
+            var last = active[active.length - 1];
+            var label = billPaymentReceivingClinicDisplay(last, bill);
+            var key = billPaymentClinicCompareKey(last, bill);
+            if (cb) cb({ key: key, label: label });
+        })
+        .catch(function() {
+            if (cb) cb({ key: '', label: '—' });
+        });
+}
+
+var _pendingAddPaymentSaveCtx = null;
+
+function dismissBillPaymentClinicConfirm() {
+    _pendingAddPaymentSaveCtx = null;
+    closeModal('billPaymentClinicConfirmModal');
+}
+
+function showBillPaymentClinicConfirmModal(prevLabel, currLabel, saveCtx) {
+    _pendingAddPaymentSaveCtx = saveCtx || null;
+    var prevEl = g('bpcPrevClinic');
+    var currEl = g('bpcCurrClinic');
+    if (prevEl) prevEl.textContent = prevLabel || '—';
+    if (currEl) currEl.textContent = currLabel || '—';
+    openModal('billPaymentClinicConfirmModal');
+    if (typeof applyI18nInRoot === 'function') {
+        var modal = g('billPaymentClinicConfirmModal');
+        if (modal) applyI18nInRoot(modal);
+    }
+}
+
+function confirmBillPaymentClinicMismatch() {
+    var ctx = _pendingAddPaymentSaveCtx;
+    _pendingAddPaymentSaveCtx = null;
+    closeModal('billPaymentClinicConfirmModal');
+    if (!ctx) return;
+    executeAddPaymentSave(ctx);
 }
 
 function printBillDetailReceipt() {
@@ -18605,6 +18671,9 @@ function mergeBillPaymentHistoryWithBill(bill, rows) {
         method: bill.bill_type,
         notes: bill.notes,
         received_by: null,
+        clinic_id: bill.clinic_id || null,
+        clinic_tag: bill.clinic_tag || null,
+        clinic_code: bill.clinic_tag || null,
         _fromBillRecord: true
     });
     return pmts;
@@ -18614,7 +18683,7 @@ function normalizeReceiptPayments(bill, payments) {
     return mergeBillPaymentHistoryWithBill(bill, billPaymentsActiveOnly(payments || []));
 }
 
-function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
+function appendBillPaymentHistoryRow(tbody, p, rowIndex, bill) {
     var voided = billPaymentIsVoid(p);
     var row = document.createElement('tr');
     if (voided) {
@@ -18642,6 +18711,7 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
               '</td>'
             : '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>');
     var dateTdClass = voided ? ' bill-pay-void-date-col' : '';
+    var clinicLabel = billPaymentReceivingClinicDisplay(p, bill);
     row.innerHTML =
         statusCell +
         '<td class="' + dateTdClass.trim() + '" style="padding:8px 12px;">' +
@@ -18651,6 +18721,8 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
         '<td style="padding:8px 12px;">' + esc((typeof dispPayMethod === 'function')
             ? dispPayMethod(p.method)
             : (p.method || '—')) + '</td>' +
+        '<td style="padding:8px 12px;color:#888;">' +
+            esc(clinicLabel) + '</td>' +
         '<td style="padding:8px 12px;color:#888;">' +
             esc(p.received_by || '—') + '</td>' +
         '<td style="padding:8px 12px;color:#888;font-size:12px;">' +
@@ -18676,7 +18748,7 @@ function loadBillPayments(billId) {
     var tbody = g('bdPaymentHistoryBody');
     if (!tbody) return;
     tbody.innerHTML =
-        '<tr><td colspan="7" style="padding:12px;text-align:center;' +
+        '<tr><td colspan="8" style="padding:12px;text-align:center;' +
         'color:#aaa;font-size:13px;">' + esc(tr('bill.historyLoading')) + '</td></tr>';
 
     SB.from('bill_payments')
@@ -18687,20 +18759,21 @@ function loadBillPayments(billId) {
     .then(function(r) {
         tbody.innerHTML = '';
         var rows = (!r.error && r.data) ? r.data : [];
-        if (bdCurrentBill && bdCurrentBill.id === billId) {
-            rows = mergeBillPaymentHistoryWithBill(bdCurrentBill, rows);
-            var currentMethod = billCurrentPaymentMethodFromRows(bdCurrentBill, rows);
-            bdCurrentBill.bill_type = currentMethod;
+        var billForRows = (bdCurrentBill && bdCurrentBill.id === billId) ? bdCurrentBill : null;
+        if (billForRows) {
+            rows = mergeBillPaymentHistoryWithBill(billForRows, rows);
+            var currentMethod = billCurrentPaymentMethodFromRows(billForRows, rows);
+            billForRows.bill_type = currentMethod;
             refreshBillDetailPaymentMethod(currentMethod);
         }
         if (!rows.length) {
             tbody.innerHTML =
-                '<tr><td colspan="7" style="padding:12px;text-align:center;' +
+                '<tr><td colspan="8" style="padding:12px;text-align:center;' +
                 'color:#aaa;font-size:13px;">' + esc(tr('bill.detail.noPayments')) + '</td></tr>';
             return;
         }
         rows.forEach(function(p, i) {
-            appendBillPaymentHistoryRow(tbody, p, i);
+            appendBillPaymentHistoryRow(tbody, p, i, billForRows);
         });
     });
 }
@@ -18771,47 +18844,14 @@ function billPaymentClinicContext() {
 }
 
 // ── Confirm & save a new payment ────────────────────────
-function confirmAddPayment() {
-    if (!bdCurrentBill) return;
-    var amount = parseFloat(g('apAmount').value) || 0;
-    var errEl  = g('apError');
-
-    if (amount <= 0) {
-        if (errEl) { errEl.textContent = tr('bill.addPayment.errInvalidAmount'); errEl.style.display = ''; }
-        return;
-    }
-    var bal = parseFloat(bdCurrentBill.balance) || 0;
-    if (amount > bal + 0.005) {
-        if (errEl) {
-            errEl.textContent = trRepl('bill.addPayment.errExceedsBalance', { BAL: fmt2(bal) });
-            errEl.style.display = '';
-        }
-        return;
-    }
-    if (errEl) errEl.style.display = 'none';
-
-    var newPaid    = (parseFloat(bdCurrentBill.amount_paid) || 0) + amount;
-    var newBalance = Math.max(0, (parseFloat(bdCurrentBill.total) || 0) - newPaid);
-    var newStatus  = newBalance <= 0.005 ? 'Paid' : 'Partial';
-
-    var payMethod = g('apMethod') ? String(g('apMethod').value || '').trim() : '';
-    if (!payMethod) {
-        if (errEl) { errEl.textContent = tr('bill.alert.selectPaymentMethod'); errEl.style.display = ''; }
-        return;
-    }
-
-    var payRecord = {
-        bill_id:     bdCurrentBill.id,
-        paid_date:   g('apDate').value || todayISO(),
-        amount:      amount,
-        method:      payMethod,
-        notes:       g('apNotes').value  || null,
-        received_by: (typeof currentName !== 'undefined' ? currentName : null)
-    };
-    var clinicCtx = billPaymentClinicContext();
-    payRecord.clinic_id = clinicCtx.clinic_id;
-    payRecord.clinic_tag = clinicCtx.clinic_tag;
-    payRecord.clinic_code = clinicCtx.clinic_code;
+function executeAddPaymentSave(ctx) {
+    if (!ctx || !ctx.payRecord || !bdCurrentBill) return;
+    var payRecord = ctx.payRecord;
+    var newPaid = ctx.newPaid;
+    var newBalance = ctx.newBalance;
+    var newStatus = ctx.newStatus;
+    var payMethod = ctx.payMethod;
+    var errEl = g('apError');
 
     insertBillPaymentRecord(payRecord, function(r) {
         if (r.error) {
@@ -18862,6 +18902,72 @@ function confirmAddPayment() {
                 resetBillCreationAfterPayment(paidBillId);
             }
         });
+    });
+}
+
+function confirmAddPayment() {
+    if (!bdCurrentBill) return;
+    var amount = parseFloat(g('apAmount').value) || 0;
+    var errEl  = g('apError');
+
+    if (amount <= 0) {
+        if (errEl) { errEl.textContent = tr('bill.addPayment.errInvalidAmount'); errEl.style.display = ''; }
+        return;
+    }
+    var bal = parseFloat(bdCurrentBill.balance) || 0;
+    if (amount > bal + 0.005) {
+        if (errEl) {
+            errEl.textContent = trRepl('bill.addPayment.errExceedsBalance', { BAL: fmt2(bal) });
+            errEl.style.display = '';
+        }
+        return;
+    }
+    if (errEl) errEl.style.display = 'none';
+
+    var newPaid    = (parseFloat(bdCurrentBill.amount_paid) || 0) + amount;
+    var newBalance = Math.max(0, (parseFloat(bdCurrentBill.total) || 0) - newPaid);
+    var newStatus  = newBalance <= 0.005 ? 'Paid' : 'Partial';
+
+    var payMethod = g('apMethod') ? String(g('apMethod').value || '').trim() : '';
+    if (!payMethod) {
+        if (errEl) { errEl.textContent = tr('bill.alert.selectPaymentMethod'); errEl.style.display = ''; }
+        return;
+    }
+
+    var payRecord = {
+        bill_id:     bdCurrentBill.id,
+        paid_date:   g('apDate').value || todayISO(),
+        amount:      amount,
+        method:      payMethod,
+        notes:       g('apNotes').value  || null,
+        received_by: (typeof currentName !== 'undefined' ? currentName : null)
+    };
+    var clinicCtx = billPaymentClinicContext();
+    payRecord.clinic_id = clinicCtx.clinic_id;
+    payRecord.clinic_tag = clinicCtx.clinic_tag;
+    payRecord.clinic_code = clinicCtx.clinic_code;
+
+    var saveCtx = {
+        payRecord: payRecord,
+        newPaid: newPaid,
+        newBalance: newBalance,
+        newStatus: newStatus,
+        payMethod: payMethod
+    };
+
+    var currLabel = activePaymentClinicDisplay();
+    var currKey = billPaymentClinicCompareKey({
+        clinic_tag: clinicCtx.clinic_tag,
+        clinic_code: clinicCtx.clinic_code,
+        clinic_id: clinicCtx.clinic_id
+    }, null);
+
+    fetchPreviousPaymentClinicForBill(bdCurrentBill, function(prev) {
+        if (!prev.key || !currKey || prev.key === currKey) {
+            executeAddPaymentSave(saveCtx);
+            return;
+        }
+        showBillPaymentClinicConfirmModal(prev.label, currLabel, saveCtx);
     });
 }
 

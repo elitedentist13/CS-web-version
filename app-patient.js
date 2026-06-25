@@ -1046,7 +1046,12 @@ function renderPatients(list) {
     tb.querySelectorAll('.btn-notes').forEach(function(b) {
         b.addEventListener('click', function(e){
             e.stopPropagation();
-            viewHistory(b.dataset.id);
+            var pid = b.dataset.id;
+            if (typeof openConForPatient === 'function') {
+                openConForPatient(pid);
+            } else {
+                viewHistory(pid);
+            }
         });
     });
     tb.querySelectorAll('.btn-checkin-p').forEach(function (b) {

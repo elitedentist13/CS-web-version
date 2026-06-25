@@ -61,6 +61,12 @@
     font-size: 13px;
   }
 
+  /* ── Quick launch button — lift above container (body padding is 0 on tablet too) ── */
+  #appQuickLaunch {
+    z-index: 250;
+    pointer-events: auto;
+  }
+
   /* ── Active patient dock — auto-compact ── */
   .active-patient-dock:not(.is-collapsed) {
     width: 168px;
@@ -103,6 +109,14 @@
   body {
     padding: 0;
     background: #f4f7f6;
+  }
+
+  /* ── Quick launch button — lift above container, clear dock ── */
+  #appQuickLaunch {
+    z-index: 250;
+    bottom: 60px; /* above the bottom dock strip */
+    left: 14px;
+    pointer-events: auto;
   }
   body.app-session-active {
     padding-top: 44px;

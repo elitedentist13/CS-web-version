@@ -1,0 +1,542 @@
+/* ════════════════════════════════════════════════════════════════
+   MOBILE / TABLET RESPONSIVE OVERRIDES
+   ----------------------------------------------------------------
+   This file ONLY activates on touch / narrow-viewport devices.
+   Desktop layout (> 1024 px) is completely untouched.
+
+   Breakpoints
+     Tablet  : max-width 1024 px  (iPad landscape / small laptop)
+     Phone   : max-width  767 px  (phones, iPad portrait)
+     Phone S : max-width  480 px  (small phones)
+════════════════════════════════════════════════════════════════ */
+
+
+/* ────────────────────────────────────────────────────────────────
+   TABLET  (≤ 1024 px)
+──────────────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+
+  /* ── Body & Page ── */
+  body {
+    padding: 10px;
+  }
+  body.app-session-active {
+    padding-top: 46px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  /* ── Main container ── */
+  .container {
+    padding: 20px 16px;
+    max-width: 100%;
+    border-radius: 10px;
+  }
+
+  /* ── Session strip ── */
+  .app-session-strip {
+    min-height: 44px;
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .app-strip-clinic-select {
+    max-width: 200px;
+    font-size: 11px;
+  }
+  .app-session-strip-title {
+    max-width: 32vw;
+    font-size: 11px;
+  }
+
+  /* ── Dashboard grid → 3 columns ── */
+  .dashboard-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .dash-card {
+    padding: 22px 8px;
+    font-size: 26px;
+  }
+  .dash-card h3 {
+    font-size: 13px;
+  }
+
+  /* ── Active patient dock — auto-compact ── */
+  .active-patient-dock:not(.is-collapsed) {
+    width: 168px;
+    left: 6px;
+    top: 50px;
+  }
+
+  /* ── Config layout ── */
+  .cfg-sidebar {
+    width: 180px;
+  }
+
+  /* ── Tables — horizontal scroll ── */
+  .container table,
+  .tab-pane table,
+  .cfg-pane table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Top-bar — allow smaller wrap ── */
+  .top-bar h1 {
+    font-size: 20px;
+  }
+
+  /* ── Modals — slightly narrower margin ── */
+  .modal-dialog {
+    margin: 12px auto;
+  }
+}
+
+
+/* ────────────────────────────────────────────────────────────────
+   PHONE  (≤ 767 px)
+──────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+
+  /* ── Body & Page ── */
+  body {
+    padding: 0;
+    background: #f4f7f6;
+  }
+  body.app-session-active {
+    padding-top: 44px;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* ── Main container ── */
+  .container {
+    padding: 12px 10px;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0;
+  }
+
+  /* ── Session strip ── */
+  .app-session-strip {
+    flex-wrap: nowrap;
+    min-height: 44px;
+    padding: 5px 8px;
+    gap: 6px;
+    font-size: 10px;
+  }
+  .app-session-strip-title {
+    max-width: 24vw;
+    font-size: 10px;
+  }
+  .app-session-strip-meta {
+    display: none; /* hide centre meta on tiny screens */
+  }
+  .app-strip-clinic-label {
+    display: none;
+  }
+  .app-strip-clinic-select {
+    max-width: 130px;
+    font-size: 10px;
+    padding: 2px 18px 2px 6px;
+  }
+  .app-working-date-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+  }
+  .app-realtime-sync-time {
+    display: none;
+  }
+
+  /* ── Top bar ── */
+  .top-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .top-bar h1 {
+    font-size: 18px;
+  }
+  .top-bar-right {
+    width: 100%;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  #userBadge {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+  .lang-toggle-btn {
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  /* ── Dashboard grid → 2 columns ── */
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .dashboard-float-shell {
+    margin-top: 14px;
+  }
+  .dash-card {
+    padding: 18px 6px;
+    font-size: 28px;
+    border-radius: 10px;
+  }
+  .dash-card h3 {
+    font-size: 12px;
+    margin-top: 6px;
+  }
+
+  /* ── Active patient dock — pin to bottom strip on phone ── */
+  .active-patient-dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    width: 100% !important;
+    z-index: 200;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: row;
+    gap: 0;
+    padding: 0;
+    background: transparent;
+  }
+  /* Collapsed: show as a slim bar */
+  .active-patient-dock.is-collapsed {
+    width: 100% !important;
+    bottom: 0;
+  }
+  .active-patient-dock:not(.is-collapsed) #activePatientDockBody {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    width: 100%;
+    padding: 4px 8px;
+    background: rgba(255,255,255,0.97);
+    border-top: 2px solid #c8cadc;
+    box-shadow: 0 -3px 14px rgba(15,23,42,0.14);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .active-patient-info-badge {
+    min-width: 160px;
+    max-width: 200px;
+    flex-shrink: 0;
+  }
+  .active-patient-dock-toggle {
+    position: fixed;
+    bottom: 6px;
+    right: 8px;
+    top: auto;
+    left: auto;
+    transform: none;
+    z-index: 210;
+  }
+  .active-patient-collapsed-tab {
+    writing-mode: horizontal-tb;
+    flex-direction: row;
+    width: 100%;
+    padding: 6px 12px;
+    border-radius: 0;
+    border-top: 2px solid #c8cadc;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    justify-content: flex-start;
+  }
+  .active-patient-collapsed-name {
+    writing-mode: horizontal-tb;
+    max-height: none;
+    max-width: 60vw;
+  }
+  /* Body padding so content doesn't hide behind dock */
+  body.app-session-active:has(.active-patient-dock:not(.is-collapsed)) {
+    padding-bottom: 140px;
+  }
+  body.app-session-active:has(.active-patient-dock.is-collapsed) {
+    padding-bottom: 48px;
+  }
+
+  /* ── Appointment tabs — horizontal scroll ── */
+  .appt-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    gap: 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 2px;
+  }
+  .appt-tabs::-webkit-scrollbar { display: none; }
+  .appt-tab {
+    padding: 8px 14px;
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* ── Config sidebar → compact top tabs ── */
+  .cfg-layout {
+    flex-direction: column;
+    height: auto;
+    overflow: visible;
+  }
+  .cfg-sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0;
+    gap: 0;
+    background: #1a1f2e;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .cfg-sidebar::-webkit-scrollbar { display: none; }
+  .cfg-sidebar__title {
+    display: none;
+  }
+  .cfg-nav-item {
+    padding: 10px 14px;
+    white-space: nowrap;
+    font-size: 12px;
+    flex-shrink: 0;
+    border-radius: 0;
+    border-bottom: 3px solid transparent;
+  }
+  .cfg-nav-item.active {
+    border-left: none;
+    border-bottom: 3px solid #0084ff;
+  }
+  .cfg-content {
+    overflow: visible;
+  }
+  .cfg-pane {
+    height: auto;
+    overflow-y: visible;
+    padding: 16px 12px;
+  }
+
+  /* ── Tables ── */
+  table {
+    font-size: 13px;
+  }
+  .container table,
+  .tab-pane table,
+  .cfg-pane table,
+  .bill-detail-body table,
+  .report-table-wrap table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    min-width: 0;
+  }
+  th, td {
+    padding: 6px 8px;
+    white-space: nowrap;
+  }
+
+  /* ── Modals — full width ── */
+  .modal-dialog {
+    margin: 8px;
+    max-width: calc(100vw - 16px) !important;
+    width: calc(100vw - 16px) !important;
+  }
+  .modal-content {
+    border-radius: 12px;
+  }
+  .modal-body {
+    padding: 12px 14px;
+  }
+  .modal-header,
+  .modal-footer {
+    padding: 10px 14px;
+  }
+  /* Make modal button rows wrap nicely */
+  .modal-footer {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .modal-footer .btn {
+    flex: 1 1 auto;
+    min-width: 80px;
+  }
+
+  /* ── Forms — full-width inputs ── */
+  .form-group,
+  .form-row {
+    flex-wrap: wrap;
+  }
+  .form-control,
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="password"],
+  select,
+  textarea {
+    width: 100%;
+    min-height: 40px;
+    font-size: 16px; /* prevents iOS auto-zoom on focus */
+  }
+
+  /* ── Buttons — larger touch targets ── */
+  .btn,
+  button:not(.lang-toggle-btn):not(.active-patient-dock-toggle) {
+    min-height: 40px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .btn-sm {
+    min-height: 34px;
+    font-size: 12px;
+  }
+
+  /* ── AI hero panel ── */
+  .ai-hero-panel {
+    grid-template-columns: 1fr;
+  }
+
+  /* ── Patient section ── */
+  .patient-dir-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .patient-dir-search-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .patient-dir-search-row input {
+    flex: 1 1 160px;
+  }
+
+  /* ── Dashboard context bar ── */
+  .dashboard-context-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  /* ── Appointment queue toolbar ── */
+  .appt-toolbar,
+  .appt-queue-toolbar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ── Bill detail ── */
+  .bill-detail-row,
+  .bill-header-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* ── Consultation banner ── */
+  .con-banner {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .con-banner > * {
+    flex: 1 1 auto;
+  }
+
+  /* ── Report controls ── */
+  .rpt-controls,
+  .rpt-filter-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* ── Login box ── */
+  .login-box {
+    padding: 24px 20px;
+    max-width: 340px;
+    margin: 0 16px;
+  }
+
+  /* ── Drug / Rx section ── */
+  .drug-table-wrap,
+  .rx-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Memo cards grid ── */
+  .memo-cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* ── Popover date picker ── */
+  .app-date-popover {
+    width: calc(100vw - 16px);
+    left: 8px;
+    right: 8px;
+    top: 48px;
+  }
+}
+
+
+/* ────────────────────────────────────────────────────────────────
+   SMALL PHONE  (≤ 480 px)
+──────────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+
+  /* ── Dashboard → keep 2 cols, make more compact ── */
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .dash-card {
+    padding: 14px 4px;
+    font-size: 24px;
+    border-radius: 8px;
+  }
+  .dash-card h3 {
+    font-size: 11px;
+  }
+
+  /* ── Container ── */
+  .container {
+    padding: 10px 8px;
+  }
+
+  /* ── Top bar title ── */
+  .top-bar h1 {
+    font-size: 16px;
+  }
+
+  /* ── Appt tabs even more compact ── */
+  .appt-tab {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  /* ── Config nav items ── */
+  .cfg-nav-item {
+    padding: 9px 10px;
+    font-size: 11px;
+  }
+
+  /* ── Modals ── */
+  .modal-dialog {
+    margin: 4px;
+    max-width: calc(100vw - 8px) !important;
+    width: calc(100vw - 8px) !important;
+  }
+
+  /* ── Session strip ultra-compact ── */
+  .app-session-strip {
+    padding: 4px 6px;
+  }
+  .app-strip-clinic-select {
+    max-width: 110px;
+    font-size: 9px;
+  }
+}

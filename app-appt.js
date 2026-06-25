@@ -15177,6 +15177,16 @@ function applyBillPanelPatientRecord(patient) {
         billPatChineseName = String(patient.chinese_name || '').trim();
     }
     updateBillPanelPatientInfoDom();
+    // Keep the bill detail modal in sync when it is open for a bill belonging to this patient
+    if (bdCurrentBill) {
+        if (en) bdCurrentBill.patient_name = en;
+        if (patient.patient_no) bdCurrentBill.patient_no = patient.patient_no;
+        var bdModalEl = g('billDetailModal');
+        if (bdModalEl && bdModalEl.style.display === 'block') {
+            if (en) bdSet('bdPatient', en);
+            if (patient.patient_no) bdSet('bdPatientNo', patient.patient_no);
+        }
+    }
     return true;
 }
 
@@ -18056,6 +18066,7 @@ function executeBillDelete() {
         voided_by: (typeof currentName !== 'undefined' ? currentName : null)
     };
 
+    var _voidTargetId = bdDeleteTarget.id;
     SB.from('bills').update(voidPayload).eq('id', bdDeleteTarget.id)
     .then(function(r) {
         if (r.error) {
@@ -18066,6 +18077,16 @@ function executeBillDelete() {
         closeModal('billDeleteModal');
         bdDeleteTarget = null;
         loadBillHistory();
+        // If the detail modal is open showing the bill that was just voided, patch
+        // bdCurrentBill with the void fields and re-render the modal header live.
+        if (bdCurrentBill && bdCurrentBill.id === _voidTargetId) {
+            bdCurrentBill.voided_at = voidPayload.voided_at;
+            bdCurrentBill.voided_by = voidPayload.voided_by;
+            var bdModalEl = g('billDetailModal');
+            if (bdModalEl && bdModalEl.style.display === 'block') {
+                if (typeof showBillDetail === 'function') showBillDetail(bdCurrentBill);
+            }
+        }
         try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
     });
 }

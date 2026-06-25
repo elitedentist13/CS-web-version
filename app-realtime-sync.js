@@ -371,10 +371,13 @@ var REALTIME_SYNC = (function() {
     function refreshBillFromRealtime() {
         if (typeof billPanelIsOpen === 'function' && billPanelIsOpen()) {
             if (typeof refreshBillPanelLists === 'function') refreshBillPanelLists();
-            if (typeof billStep2IsVisible === 'function' && billStep2IsVisible() &&
+        }
+        // Refresh payment history table whenever the detail modal is open,
+        // regardless of the legacy billStep2IsVisible() gate (always false in current UI).
+        var billDetailModalEl = document.getElementById('billDetailModal');
+        if (billDetailModalEl && billDetailModalEl.style.display === 'block' &&
                 typeof refreshBillDetailPayments === 'function') {
-                refreshBillDetailPayments();
-            }
+            refreshBillDetailPayments();
         }
         refreshApptUnpaidFromRealtime();
         try {

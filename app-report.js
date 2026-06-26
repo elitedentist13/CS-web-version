@@ -1150,7 +1150,8 @@ var REPORT = (function () {
         bill: b,
         paid_date: paidDate,
         amount: amt,
-        method: method
+        method: method,
+        clinic_code: resolveTransactionClinicCode(b, p, patientClinicMap, appointmentResolver) || ''
       });
     });
 
@@ -1179,7 +1180,8 @@ var REPORT = (function () {
         bill: b,
         paid_date: d,
         amount: paid,
-        method: method
+        method: method,
+        clinic_code: resolveTransactionClinicCode(b, null, legacyPatientMap, legacyApptResolver) || ''
       });
     });
 
@@ -1194,6 +1196,70 @@ var REPORT = (function () {
       map[k] = (map[k] || 0) + Number(s.amount || 0);
     });
     return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
+  }
+
+  // Human-readable clinic name for a stored clinic code/tag (falls back to the code).
+  function reportClinicLabelFromCode(code) {
+    var c = String(code || '').trim();
+    if (!c) return tr('report.unknown');
+    if (typeof APP_CLINICS !== 'undefined' && APP_CLINICS && APP_CLINICS.length) {
+      for (var i = 0; i < APP_CLINICS.length; i++) {
+        var rec = APP_CLINICS[i];
+        if (!rec) continue;
+        var cc = String(rec.clinic_code || '').trim();
+        var id = String(rec.id || '').trim();
+        if ((cc && clinicCodesMatch(cc, c)) || (id && id === c)) {
+          return (typeof clinicDisplayName === 'function') ? clinicDisplayName(rec) : (cc || c);
+        }
+      }
+    }
+    return c;
+  }
+
+  // Pivot payment slices into period rows × clinic columns (used by the income
+  // tabs when "All clinics" is selected so every clinic's amounts stay visible).
+  function pivotSlicesByPeriodAndClinic(slices, periodKeyFn) {
+    var periods = {};
+    var order = [];
+    var clinicTotals = {};
+    (slices || []).forEach(function (s) {
+      var pk = periodKeyFn(s);
+      if (!pk) return;
+      var code = clinicCanonicalKey(s.clinic_code) || '';   // '' → untagged / unknown
+      var amt = Number(s.amount || 0);
+      if (!periods[pk]) { periods[pk] = { period: pk, byClinic: {}, total: 0 }; order.push(pk); }
+      periods[pk].byClinic[code] = (periods[pk].byClinic[code] || 0) + amt;
+      periods[pk].total += amt;
+      clinicTotals[code] = (clinicTotals[code] || 0) + amt;
+    });
+    var codes = Object.keys(clinicTotals).sort(function (a, b) {
+      if (a === '' && b !== '') return 1;            // unknown bucket last
+      if (b === '' && a !== '') return -1;
+      return clinicTotals[b] - clinicTotals[a];      // biggest clinic first
+    });
+    order.sort();
+    return { codes: codes, rows: order.map(function (k) { return periods[k]; }) };
+  }
+
+  // Render an income tab broken down per clinic: Period | <clinic…> | Total.
+  function renderIncomeByClinic(slices, periodKeyFn, periodKey, periodLabel) {
+    var piv = pivotSlicesByPeriodAndClinic(slices, periodKeyFn);
+    var columns = [{ key: periodKey, label: periodLabel }];
+    piv.codes.forEach(function (code) {
+      columns.push({ key: 'c_' + code, label: reportClinicLabelFromCode(code) });
+    });
+    columns.push({ key: 'total', label: tr('report.col.totalHkd') });
+    _rows = piv.rows.map(function (r) {
+      var row = {};
+      row[periodKey] = r.period;
+      piv.codes.forEach(function (code) {
+        row['c_' + code] = Number(r.byClinic[code] || 0).toFixed(2);
+      });
+      row.total = Number(r.total || 0).toFixed(2);
+      return row;
+    });
+    renderTable(columns, _rows);
+    renderChartFromRows(periodKey, 'total');
   }
 
   function weekStartFridayIso(isoDate) {
@@ -2962,13 +3028,30 @@ var REPORT = (function () {
     pts.forEach(function (p) { pmap[p.id] = p; });
     var paymentsByBillId = indexPaymentsByBillId(_drDailyPar2[1]);
 
+    // When "All clinics" is selected, resolve each bill's clinic so the
+    // per-clinic breakdown (badges + clinic column) renders like Daily Summary.
+    var drDailyAllClinics = isReportAllClinicsSelected();
+    var drDailyPatientClinicMap = drDailyAllClinics ? patientClinicMapFromPmap(pmap) : null;
+    var drDailyApptResolver = drDailyAllClinics
+      ? await buildAppointmentClinicResolver(day, day, filteredBills)
+      : null;
+
     var tx = filteredBills.map(function (b) {
       var p = pmap[b.patient_id] || {};
-      return buildDailySummaryTxRow(b, p, paymentsByBillId, {
+      var extra = {
         bill_date: b.bill_date || day,
         doctor_tag: b.doctor_tag || b.doctor_name || (dr ? doctorTagOf(dr) : '') || '',
         dr_treatments: tByPatient[b.patient_id] || []
-      });
+      };
+      if (drDailyAllClinics) {
+        var clinicTag = dailySummaryClinicTagForBill(
+          b, p, (paymentsByBillId[b.id] || [])[0] || null,
+          drDailyPatientClinicMap, drDailyApptResolver
+        );
+        extra.clinic_tag = clinicTag;
+        extra.clinic_code = clinicCodeFromStoredTag(clinicTag);
+      }
+      return buildDailySummaryTxRow(b, p, paymentsByBillId, extra);
     });
 
     _rows = tx;
@@ -3211,11 +3294,24 @@ var REPORT = (function () {
       pts.forEach(function (p) { pmap[p.id] = p; });
       var paymentsByBillId = indexPaymentsByBillId(_drMoPar[1]);
 
+      var drMoAllClinics = isReportAllClinicsSelected();
+      var drMoPatientClinicMap = drMoAllClinics ? patientClinicMapFromPmap(pmap) : null;
+      var drMoApptResolver = drMoAllClinics
+        ? await buildAppointmentClinicResolver(from, to, filtered)
+        : null;
+
       var tx = filtered.map(function (b) {
         var p = pmap[b.patient_id] || {};
-        return buildDailySummaryTxRow(b, p, paymentsByBillId, {
-          bill_date: b.bill_date || ''
-        });
+        var extra = { bill_date: b.bill_date || '' };
+        if (drMoAllClinics) {
+          var clinicTag = dailySummaryClinicTagForBill(
+            b, p, (paymentsByBillId[b.id] || [])[0] || null,
+            drMoPatientClinicMap, drMoApptResolver
+          );
+          extra.clinic_tag = clinicTag;
+          extra.clinic_code = clinicCodeFromStoredTag(clinicTag);
+        }
+        return buildDailySummaryTxRow(b, p, paymentsByBillId, extra);
       });
 
       _rows = tx;
@@ -3229,20 +3325,106 @@ var REPORT = (function () {
       return;
     }
 
+    // "All clinics" → resolve each bill's clinic so paid amounts can be split
+    // into one column per clinic (otherwise just a single combined column).
+    var drMoSimpleAll = isReportAllClinicsSelected();
+    var drMoSimpleClinicMap = null, drMoSimpleApptResolver = null, drMoSimplePmap = null;
+    if (drMoSimpleAll) {
+      var simpleParts = await Promise.all([
+        loadPatientsByIds(filtered.map(function (b) { return b.patient_id; }).filter(Boolean)),
+        buildAppointmentClinicResolver(from, to, filtered)
+      ]);
+      drMoSimplePmap = {};
+      simpleParts[0].forEach(function (p) { drMoSimplePmap[p.id] = p; });
+      drMoSimpleClinicMap = patientClinicMapFromPmap(drMoSimplePmap);
+      drMoSimpleApptResolver = simpleParts[1];
+    }
+    function drMoSimpleBillClinic(b) {
+      if (!drMoSimpleAll) return '';
+      var p = drMoSimplePmap[b.patient_id] || {};
+      return clinicCanonicalKey(dailySummaryClinicTagForBill(b, p, null, drMoSimpleClinicMap, drMoSimpleApptResolver)) || '';
+    }
+
     var byDay = {};
     var paid = 0;
     var bal = 0;
+    var drMoClinicTotals = {};
     filtered.forEach(function (b) {
       var day = b.bill_date || from;
       var p = reportBillPaidValue(b);
       var r = reportBillBalanceValue(b);
-      if (!byDay[day]) byDay[day] = { date: day, bills: 0, paid: 0, balance: 0 };
+      if (!byDay[day]) byDay[day] = { date: day, bills: 0, paid: 0, balance: 0, byClinic: {} };
       byDay[day].bills += 1;
       byDay[day].paid += p;
       byDay[day].balance += r;
       paid += p;
       bal += r;
+      if (drMoSimpleAll) {
+        var ck = drMoSimpleBillClinic(b);
+        byDay[day].byClinic[ck] = (byDay[day].byClinic[ck] || 0) + p;
+        drMoClinicTotals[ck] = (drMoClinicTotals[ck] || 0) + p;
+      }
     });
+
+    var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;';
+    var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:top;';
+
+    var kpiHtml =
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
+        '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;min-width:180px;">' +
+          '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.drMonthly.kpiTotalPaid')) + '</div>' +
+          '<div style="margin-top:2px;font-size:18px;color:#15803d;font-weight:900;">' + fmtHK(paid) + '</div>' +
+        '</div>' +
+        '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:180px;">' +
+          '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.drMonthly.kpiOutstanding')) + '</div>' +
+          '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(bal) + '</div>' +
+        '</div>' +
+      '</div>';
+
+    if (drMoSimpleAll) {
+      var drMoCodes = Object.keys(drMoClinicTotals).sort(function (a, b) {
+        if (a === '' && b !== '') return 1;
+        if (b === '' && a !== '') return -1;
+        return drMoClinicTotals[b] - drMoClinicTotals[a];
+      });
+      _rows = Object.keys(byDay).sort().map(function (k) {
+        var r = byDay[k];
+        var row = { date: r.date, bills: String(r.bills) };
+        drMoCodes.forEach(function (code) { row['c_' + code] = Number(r.byClinic[code] || 0).toFixed(2); });
+        row.paid = r.paid.toFixed(2);
+        row.balance = r.balance.toFixed(2);
+        return row;
+      });
+      var clinicHead = drMoCodes.map(function (code) {
+        return '<th style="' + th + 'text-align:right;">' + esc(reportClinicLabelFromCode(code)) + '</th>';
+      }).join('');
+      var clinicRowsHtml = _rows.map(function (r) {
+        var cells = drMoCodes.map(function (code) {
+          return '<td style="' + td + 'text-align:right;">' + fmtHK(Number(r['c_' + code] || 0)) + '</td>';
+        }).join('');
+        return '<tr>' +
+          '<td style="' + td + '">' + esc(r.date) + '</td>' +
+          '<td style="' + td + 'text-align:right;">' + esc(r.bills) + '</td>' +
+          cells +
+          '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(r.paid)) + '</td>' +
+          '<td style="' + td + 'text-align:right;color:' + (Number(r.balance) > 0 ? '#dc2626' : '#16a34a') + ';">' + fmtHK(Number(r.balance)) + '</td>' +
+        '</tr>';
+      }).join('');
+      body.innerHTML = kpiHtml +
+        '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
+          '<table style="width:100%;border-collapse:collapse;min-width:640px;">' +
+            '<thead><tr>' +
+              '<th style="' + th + '">' + esc(tr('report.col.date')) + '</th>' +
+              '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.billCount')) + '</th>' +
+              clinicHead +
+              '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.paid')) + '</th>' +
+              '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.balance')) + '</th>' +
+            '</tr></thead>' +
+            '<tbody>' + clinicRowsHtml + '</tbody>' +
+          '</table>' +
+        '</div>';
+      return;
+    }
 
     _rows = Object.keys(byDay).sort().map(function (k) {
       var r = byDay[k];
@@ -3254,8 +3436,6 @@ var REPORT = (function () {
       };
     });
 
-    var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;';
-    var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:top;';
     var rowsHtml = _rows.map(function (r) {
       return '<tr>' +
         '<td style="' + td + '">' + esc(r.date) + '</td>' +
@@ -3265,17 +3445,7 @@ var REPORT = (function () {
       '</tr>';
     }).join('');
 
-    body.innerHTML =
-      '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
-        '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.drMonthly.kpiTotalPaid')) + '</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#15803d;font-weight:900;">' + fmtHK(paid) + '</div>' +
-        '</div>' +
-        '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.drMonthly.kpiOutstanding')) + '</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(bal) + '</div>' +
-        '</div>' +
-      '</div>' +
+    body.innerHTML = kpiHtml +
       '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
         '<table style="width:100%;border-collapse:collapse;">' +
           '<thead><tr>' +
@@ -4692,7 +4862,12 @@ var REPORT = (function () {
 
       if (_tab === 'dailyIncome') {
         setHeader(tr('report.title.dailyIncome'), tr('report.hint.dailyIncome'));
-        var grouped = groupPaymentSlicesBy(paymentSlices, function (s) { return s.paid_date; });
+        var dailyKeyFn = function (s) { return s.paid_date; };
+        if (isReportAllClinicsSelected()) {
+          renderIncomeByClinic(paymentSlices, dailyKeyFn, 'date', tr('report.col.date'));
+          return;
+        }
+        var grouped = groupPaymentSlicesBy(paymentSlices, dailyKeyFn);
         _rows = grouped.map(function (g) { return { date: g.key, total: g.value.toFixed(2) }; });
         renderTable([{ key: 'date', label: tr('report.col.date') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('date', 'total');
@@ -4701,9 +4876,12 @@ var REPORT = (function () {
 
       if (_tab === 'weeklyIncome') {
         setHeader(tr('report.title.weeklyIncome'), tr('report.hint.weeklyIncome'));
-        var groupedW = groupPaymentSlicesBy(paymentSlices, function (s) {
-          return weekStartFridayIso(s.paid_date);
-        });
+        var weeklyKeyFn = function (s) { return weekStartFridayIso(s.paid_date); };
+        if (isReportAllClinicsSelected()) {
+          renderIncomeByClinic(paymentSlices, weeklyKeyFn, 'week_start', tr('report.col.weekStart'));
+          return;
+        }
+        var groupedW = groupPaymentSlicesBy(paymentSlices, weeklyKeyFn);
         _rows = groupedW.map(function (g) { return { week_start: g.key, total: g.value.toFixed(2) }; });
         renderTable([{ key: 'week_start', label: tr('report.col.weekStart') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('week_start', 'total');
@@ -4712,9 +4890,12 @@ var REPORT = (function () {
 
       if (_tab === 'monthlyIncome') {
         setHeader(tr('report.title.monthlyIncome'), tr('report.hint.monthlyIncome'));
-        var groupedM = groupPaymentSlicesBy(paymentSlices, function (s) {
-          return String(s.paid_date || '').slice(0, 7);
-        });
+        var monthlyKeyFn = function (s) { return String(s.paid_date || '').slice(0, 7); };
+        if (isReportAllClinicsSelected()) {
+          renderIncomeByClinic(paymentSlices, monthlyKeyFn, 'month', tr('report.col.month'));
+          return;
+        }
+        var groupedM = groupPaymentSlicesBy(paymentSlices, monthlyKeyFn);
         _rows = groupedM.map(function (g) { return { month: g.key, total: g.value.toFixed(2) }; });
         renderTable([{ key: 'month', label: tr('report.col.month') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
         renderChartFromRows('month', 'total');

@@ -145,6 +145,8 @@ var I18N_STRINGS = {
     'ent.game.mahjongDesc':    { en: '4-player — draw, discard, win', 'zh-CN': '四人麻将：摸牌出牌胡牌', 'zh-Hant': '四人麻將：摸牌出牌胡牌' },
     'ent.game.typing':         { en: 'Typing of the Cats 打字貓', 'zh-CN': '打字猫',     'zh-Hant': '打字貓'     },
     'ent.game.typingDesc':     { en: 'Type pinyin to blast evolved cat monsters!', 'zh-CN': '输入拼音，消灭进化喵星怪！', 'zh-Hant': '輸入拼音，消滅進化喵星怪！' },
+    'ent.game.ime':            { en: 'IME Practice 中文輸入法練習', 'zh-CN': '中文输入法练习', 'zh-Hant': '中文輸入法練習' },
+    'ent.game.imeDesc':        { en: 'Clear falling characters with any Chinese IME!', 'zh-CN': '用任何中文输入法打掉落下的字！', 'zh-Hant': '用任何中文輸入法打掉落下的字！' },
     'ent.records.allow':       { en: 'Save my best scores',     'zh-CN': '记录我的最佳成绩', 'zh-Hant': '記錄我的最佳成績' },
     'ent.records.view':        { en: '🏆 Hall of Fame',         'zh-CN': '🏆 排行榜',  'zh-Hant': '🏆 排行榜'  },
     'ent.records.title':       { en: '🏆 Hall of Fame — Top 3', 'zh-CN': '🏆 排行榜 — 前三名', 'zh-Hant': '🏆 排行榜 — 前三名' },

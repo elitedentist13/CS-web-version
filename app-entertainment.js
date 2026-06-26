@@ -38,11 +38,12 @@
         snake:       'Snake',
         sudoku:      'Sudoku',
         mahjong:     'Mahjong 麻將',
-        typing:      'Typing of the Cats 打字貓'
+        typing:      'Typing of the Cats 打字貓',
+        ime:         '中文輸入法練習 IME Practice'
     };
 
     // Games with no multiplayer — show difficulty / just start directly
-    var SOLO_GAMES = { '2048': true, minesweeper: true, snake: true, sudoku: true, typing: true };
+    var SOLO_GAMES = { '2048': true, minesweeper: true, snake: true, sudoku: true, typing: true, ime: true };
 
     // Solo loop handles (cleared on exit/restart)
     var _snakeInterval = null;
@@ -54,6 +55,7 @@
         if (_snakeInterval) { clearInterval(_snakeInterval); _snakeInterval = null; }
         if (_msTimer)       { clearInterval(_msTimer);       _msTimer = null; }
         if (typeof tyStopLoop === 'function') tyStopLoop();
+        if (typeof imStopLoop === 'function') imStopLoop();
         if (MJ && MJ.claimTimer) { clearTimeout(MJ.claimTimer); MJ.claimTimer = null; }
         if (MJ && MJ.turnTimer)  { clearTimeout(MJ.turnTimer);  MJ.turnTimer  = null; }
     }
@@ -178,6 +180,12 @@
                 {id:'medium',    label:'😼 Medium (chars + words)'},
                 {id:'difficult', label:'🙀 Difficult (words + phrases)'},
                 {id:'master',    label:'😾 Master (fast phrase swarm)'}
+            ],
+            ime: [
+                {id:'easy',      label:'🚶 慢速 Slow  (walk)'},
+                {id:'medium',    label:'🚲 普通 Normal (bike)'},
+                {id:'difficult', label:'🚗 快速 Fast  (car)'},
+                {id:'master',    label:'✈️ 極速 Insane (plane)'}
             ]
         };
         var diffs = DIFFS[game] || [];
@@ -354,6 +362,7 @@
         else if (game === 'snake')       { initSnake(diff); renderSnake(); startSnakeLoop();   }
         else if (game === 'sudoku')      { initSudoku(diff);               renderSudoku();      }
         else if (game === 'typing')      { initTyping(diff);              startTypingLoop();    }
+        else if (game === 'ime')         { initIme(diff);                 startImeLoop();       }
         else if (game === 'mahjong')     { mjStart(opts);                                       }
 
         var restartBtn = g('entRestartBtn');
@@ -3764,15 +3773,632 @@
     }
 
     // ════════════════════════════════════════════════════════════════
+    //  ⑩b 中文輸入法練習 — classic Microsoft "IME Practice" game
+    //  Chinese characters drift down from the top; clear each one before it
+    //  lands by typing it with ANY desktop input method (or the pinyin shown).
+    //  Faithful Win95-style window chrome, live speed toolbar, score + lives.
+    // ════════════════════════════════════════════════════════════════
+    var IM = null;
+    var _imLoop = null, _imKeyHandler = null, _imFocusArea = null, _imComposing = false;
+
+    // ── Traditional-Chinese seeding pool (500+ words) ────────────────
+    // Each entry: { w: 繁體 word, p: toneless pinyin (typed as a fallback) }.
+    // The IME path matches the actual characters; pinyin is the no-IME backup
+    // (ü is written as "v", the form keyboard users actually type).
+    var IM_DENTAL = [
+        {w:'洗牙',p:'xiya'},{w:'補牙',p:'buya'},{w:'假牙',p:'jiaya'},{w:'牙根',p:'yagen'},
+        {w:'牙齒',p:'yachi'},{w:'牙醫',p:'yayi'},{w:'牙科',p:'yake'},{w:'牙周',p:'yazhou'},
+        {w:'牙垢',p:'yagou'},{w:'牙籤',p:'yaqian'},{w:'牙膏',p:'yagao'},{w:'牙刷',p:'yashua'},
+        {w:'牙線',p:'yaxian'},{w:'牙痛',p:'yatong'},{w:'牙齦',p:'yayin'},{w:'牙橋',p:'yaqiao'},
+        {w:'牙冠',p:'yaguan'},{w:'牙套',p:'yatao'},{w:'牙肉',p:'yarou'},{w:'蛀牙',p:'zhuya'},
+        {w:'拔牙',p:'baya'},{w:'鑲牙',p:'xiangya'},{w:'植牙',p:'zhiya'},{w:'智齒',p:'zhichi'},
+        {w:'臼齒',p:'jiuchi'},{w:'門牙',p:'menya'},{w:'犬齒',p:'quanchi'},{w:'乳牙',p:'ruya'},
+        {w:'恆牙',p:'hengya'},{w:'齲齒',p:'quchi'},{w:'根管',p:'genguan'},{w:'潔牙',p:'jieya'},
+        {w:'口腔',p:'kouqiang'},{w:'舌頭',p:'shetou'},{w:'嘴唇',p:'zuichun'},{w:'咬合',p:'yaohe'},
+        {w:'麻醉',p:'mazui'},{w:'漱口',p:'shukou'},{w:'結石',p:'jieshi'},{w:'齒列',p:'chilie'},
+        {w:'矯正',p:'jiaozheng'},{w:'琺瑯',p:'falang'},{w:'蛀蝕',p:'zhushi'},{w:'補綴',p:'buzhui'},
+        {w:'根管治療',p:'genguanzhiliao'},{w:'牙結石',p:'yajieshi'},{w:'洗牙機',p:'xiyaji'},{w:'漱口水',p:'shukoushui'}
+    ];
+    var IM_WORDS = [
+        // animals
+        {w:'貓咪',p:'maomi'},{w:'小狗',p:'xiaogou'},{w:'老虎',p:'laohu'},{w:'獅子',p:'shizi'},
+        {w:'大象',p:'daxiang'},{w:'熊貓',p:'xiongmao'},{w:'兔子',p:'tuzi'},{w:'猴子',p:'houzi'},
+        {w:'老鼠',p:'laoshu'},{w:'蝴蝶',p:'hudie'},{w:'螞蟻',p:'mayi'},{w:'蜜蜂',p:'mifeng'},
+        {w:'青蛙',p:'qingwa'},{w:'烏龜',p:'wugui'},{w:'金魚',p:'jinyu'},{w:'鯊魚',p:'shayu'},
+        {w:'鯨魚',p:'jingyu'},{w:'海豚',p:'haitun'},{w:'老鷹',p:'laoying'},{w:'麻雀',p:'maque'},
+        {w:'鴿子',p:'gezi'},{w:'鸚鵡',p:'yingwu'},{w:'孔雀',p:'kongque'},{w:'駱駝',p:'luotuo'},
+        {w:'斑馬',p:'banma'},{w:'長頸鹿',p:'changjinglu'},{w:'鱷魚',p:'eyu'},{w:'蜘蛛',p:'zhizhu'},
+        {w:'蟑螂',p:'zhanglang'},{w:'蚊子',p:'wenzi'},{w:'刺蝟',p:'ciwei'},{w:'松鼠',p:'songshu'},
+        // food & drink
+        {w:'米飯',p:'mifan'},{w:'麵包',p:'mianbao'},{w:'饅頭',p:'mantou'},{w:'餃子',p:'jiaozi'},
+        {w:'包子',p:'baozi'},{w:'麵條',p:'miantiao'},{w:'炒飯',p:'chaofan'},{w:'蛋糕',p:'dangao'},
+        {w:'餅乾',p:'binggan'},{w:'巧克力',p:'qiaokeli'},{w:'糖果',p:'tangguo'},{w:'冰淇淋',p:'bingqilin'},
+        {w:'牛奶',p:'niunai'},{w:'豆漿',p:'doujiang'},{w:'咖啡',p:'kafei'},{w:'紅茶',p:'hongcha'},
+        {w:'綠茶',p:'lvcha'},{w:'果汁',p:'guozhi'},{w:'蘋果',p:'pingguo'},{w:'香蕉',p:'xiangjiao'},
+        {w:'橘子',p:'juzi'},{w:'葡萄',p:'putao'},{w:'西瓜',p:'xigua'},{w:'草莓',p:'caomei'},
+        {w:'鳳梨',p:'fengli'},{w:'芒果',p:'mangguo'},{w:'番茄',p:'fanqie'},{w:'黃瓜',p:'huanggua'},
+        {w:'青菜',p:'qingcai'},{w:'蘿蔔',p:'luobo'},{w:'馬鈴薯',p:'malingshu'},{w:'雞蛋',p:'jidan'},
+        {w:'豬肉',p:'zhurou'},{w:'牛肉',p:'niurou'},{w:'雞肉',p:'jirou'},{w:'海鮮',p:'haixian'},
+        {w:'火鍋',p:'huoguo'},{w:'便當',p:'biandang'},{w:'壽司',p:'shousi'},{w:'披薩',p:'pisa'},
+        // nature & weather
+        {w:'天空',p:'tiankong'},{w:'太陽',p:'taiyang'},{w:'月亮',p:'yueliang'},{w:'星星',p:'xingxing'},
+        {w:'白雲',p:'baiyun'},{w:'彩虹',p:'caihong'},{w:'閃電',p:'shandian'},{w:'打雷',p:'dalei'},
+        {w:'下雨',p:'xiayu'},{w:'颱風',p:'taifeng'},{w:'雪花',p:'xuehua'},{w:'露水',p:'lushui'},
+        {w:'海洋',p:'haiyang'},{w:'河流',p:'heliu'},{w:'湖泊',p:'hubo'},{w:'瀑布',p:'pubu'},
+        {w:'高山',p:'gaoshan'},{w:'森林',p:'senlin'},{w:'沙漠',p:'shamo'},{w:'草原',p:'caoyuan'},
+        {w:'花朵',p:'huaduo'},{w:'樹木',p:'shumu'},{w:'葉子',p:'yezi'},{w:'種子',p:'zhongzi'},
+        {w:'石頭',p:'shitou'},{w:'泥土',p:'nitu'},{w:'火山',p:'huoshan'},{w:'地震',p:'dizhen'},
+        {w:'海嘯',p:'haixiao'},{w:'朝陽',p:'zhaoyang'},{w:'夕陽',p:'xiyang'},{w:'黎明',p:'liming'},
+        {w:'黃昏',p:'huanghun'},{w:'霧氣',p:'wuqi'},{w:'冰霜',p:'bingshuang'},{w:'冰雹',p:'bingbao'},
+        {w:'雷雨',p:'leiyu'},{w:'晴天',p:'qingtian'},{w:'陰天',p:'yintian'},{w:'微風',p:'weifeng'},
+        // body & health
+        {w:'頭髮',p:'toufa'},{w:'眼睛',p:'yanjing'},{w:'鼻子',p:'bizi'},{w:'耳朵',p:'erduo'},
+        {w:'嘴巴',p:'zuiba'},{w:'脖子',p:'bozi'},{w:'肩膀',p:'jianbang'},{w:'手臂',p:'shoubi'},
+        {w:'手指',p:'shouzhi'},{w:'手掌',p:'shouzhang'},{w:'膝蓋',p:'xigai'},{w:'腳趾',p:'jiaozhi'},
+        {w:'心臟',p:'xinzang'},{w:'肺部',p:'feibu'},{w:'胃部',p:'weibu'},{w:'肝臟',p:'ganzang'},
+        {w:'腎臟',p:'shenzang'},{w:'骨頭',p:'gutou'},{w:'肌肉',p:'jirou'},{w:'血液',p:'xueye'},
+        {w:'皮膚',p:'pifu'},{w:'感冒',p:'ganmao'},{w:'發燒',p:'fashao'},{w:'咳嗽',p:'kesou'},
+        {w:'頭痛',p:'toutong'},{w:'醫生',p:'yisheng'},{w:'護士',p:'hushi'},{w:'醫院',p:'yiyuan'},
+        {w:'藥物',p:'yaowu'},{w:'健康',p:'jiankang'},
+        // family & people
+        {w:'爸爸',p:'baba'},{w:'媽媽',p:'mama'},{w:'哥哥',p:'gege'},{w:'姐姐',p:'jiejie'},
+        {w:'弟弟',p:'didi'},{w:'妹妹',p:'meimei'},{w:'爺爺',p:'yeye'},{w:'奶奶',p:'nainai'},
+        {w:'外公',p:'waigong'},{w:'外婆',p:'waipo'},{w:'叔叔',p:'shushu'},{w:'阿姨',p:'ayi'},
+        {w:'舅舅',p:'jiujiu'},{w:'表哥',p:'biaoge'},{w:'朋友',p:'pengyou'},{w:'同學',p:'tongxue'},
+        {w:'老師',p:'laoshi'},{w:'學生',p:'xuesheng'},{w:'鄰居',p:'linju'},{w:'客人',p:'keren'},
+        {w:'老闆',p:'laoban'},{w:'員工',p:'yuangong'},{w:'顧客',p:'guke'},{w:'警察',p:'jingcha'},
+        {w:'司機',p:'siji'},{w:'廚師',p:'chushi'},{w:'農夫',p:'nongfu'},{w:'工人',p:'gongren'},
+        // home objects
+        {w:'桌子',p:'zhuozi'},{w:'椅子',p:'yizi'},{w:'沙發',p:'shafa'},{w:'床鋪',p:'chuangpu'},
+        {w:'衣櫃',p:'yigui'},{w:'鏡子',p:'jingzi'},{w:'時鐘',p:'shizhong'},{w:'電視',p:'dianshi'},
+        {w:'電腦',p:'diannao'},{w:'手機',p:'shouji'},{w:'冰箱',p:'bingxiang'},{w:'洗衣機',p:'xiyiji'},
+        {w:'電燈',p:'diandeng'},{w:'雨傘',p:'yusan'},{w:'鑰匙',p:'yaoshi'},{w:'錢包',p:'qianbao'},
+        {w:'眼鏡',p:'yanjing'},{w:'書包',p:'shubao'},{w:'鉛筆',p:'qianbi'},{w:'橡皮',p:'xiangpi'},
+        {w:'尺子',p:'chizi'},{w:'剪刀',p:'jiandao'},{w:'膠水',p:'jiaoshui'},{w:'紙張',p:'zhizhang'},
+        {w:'信封',p:'xinfeng'},{w:'郵票',p:'youpiao'},{w:'報紙',p:'baozhi'},{w:'雜誌',p:'zazhi'},
+        {w:'字典',p:'zidian'},{w:'課本',p:'keben'},{w:'鋼琴',p:'gangqin'},{w:'吉他',p:'jita'},
+        {w:'帽子',p:'maozi'},{w:'鞋子',p:'xiezi'},{w:'襪子',p:'wazi'},{w:'手錶',p:'shoubiao'},
+        {w:'項鍊',p:'xianglian'},{w:'戒指',p:'jiezhi'},{w:'雨衣',p:'yuyi'},{w:'枕頭',p:'zhentou'},
+        // places
+        {w:'學校',p:'xuexiao'},{w:'公園',p:'gongyuan'},{w:'診所',p:'zhensuo'},{w:'商店',p:'shangdian'},
+        {w:'市場',p:'shichang'},{w:'餐廳',p:'canting'},{w:'銀行',p:'yinhang'},{w:'郵局',p:'youju'},
+        {w:'圖書館',p:'tushuguan'},{w:'博物館',p:'bowuguan'},{w:'電影院',p:'dianyingyuan'},{w:'火車站',p:'huochezhan'},
+        {w:'機場',p:'jichang'},{w:'港口',p:'gangkou'},{w:'工廠',p:'gongchang'},{w:'辦公室',p:'bangongshi'},
+        {w:'教室',p:'jiaoshi'},{w:'操場',p:'caochang'},{w:'廁所',p:'cesuo'},{w:'廚房',p:'chufang'},
+        {w:'客廳',p:'keting'},{w:'臥室',p:'woshi'},{w:'陽台',p:'yangtai'},{w:'樓梯',p:'louti'},
+        {w:'電梯',p:'dianti'},{w:'城市',p:'chengshi'},{w:'鄉村',p:'xiangcun'},{w:'街道',p:'jiedao'},
+        {w:'馬路',p:'malu'},{w:'橋樑',p:'qiaoliang'},
+        // transport
+        {w:'汽車',p:'qiche'},{w:'火車',p:'huoche'},{w:'飛機',p:'feiji'},{w:'輪船',p:'lunchuan'},
+        {w:'腳踏車',p:'jiaotache'},{w:'機車',p:'jiche'},{w:'公車',p:'gongche'},{w:'計程車',p:'jichengche'},
+        {w:'捷運',p:'jieyun'},{w:'地鐵',p:'ditie'},{w:'卡車',p:'kache'},{w:'救護車',p:'jiuhuche'},
+        {w:'消防車',p:'xiaofangche'},{w:'警車',p:'jingche'},{w:'太空船',p:'taikongchuan'},{w:'熱氣球',p:'reqiqiu'},
+        // time
+        {w:'今天',p:'jintian'},{w:'明天',p:'mingtian'},{w:'昨天',p:'zuotian'},{w:'早上',p:'zaoshang'},
+        {w:'中午',p:'zhongwu'},{w:'下午',p:'xiawu'},{w:'晚上',p:'wanshang'},{w:'春天',p:'chuntian'},
+        {w:'夏天',p:'xiatian'},{w:'秋天',p:'qiutian'},{w:'冬天',p:'dongtian'},{w:'星期',p:'xingqi'},
+        {w:'月份',p:'yuefen'},{w:'年份',p:'nianfen'},{w:'假日',p:'jiari'},{w:'生日',p:'shengri'},
+        {w:'節日',p:'jieri'},{w:'分鐘',p:'fenzhong'},{w:'秒鐘',p:'miaozhong'},{w:'瞬間',p:'shunjian'},
+        // actions
+        {w:'跑步',p:'paobu'},{w:'走路',p:'zoulu'},{w:'跳躍',p:'tiaoyue'},{w:'游泳',p:'youyong'},
+        {w:'飛翔',p:'feixiang'},{w:'唱歌',p:'changge'},{w:'跳舞',p:'tiaowu'},{w:'畫畫',p:'huahua'},
+        {w:'寫字',p:'xiezi'},{w:'閱讀',p:'yuedu'},{w:'思考',p:'sikao'},{w:'學習',p:'xuexi'},
+        {w:'工作',p:'gongzuo'},{w:'休息',p:'xiuxi'},{w:'睡覺',p:'shuijiao'},{w:'吃飯',p:'chifan'},
+        {w:'喝水',p:'heshui'},{w:'微笑',p:'weixiao'},{w:'大哭',p:'daku'},{w:'生氣',p:'shengqi'},
+        {w:'害怕',p:'haipa'},{w:'開心',p:'kaixin'},{w:'難過',p:'nanguo'},{w:'驚訝',p:'jingya'},
+        {w:'緊張',p:'jinzhang'},{w:'放鬆',p:'fangsong'},{w:'努力',p:'nuli'},{w:'加油',p:'jiayou'},
+        {w:'幫忙',p:'bangmang'},{w:'分享',p:'fenxiang'},{w:'合作',p:'hezuo'},{w:'競爭',p:'jingzheng'},
+        {w:'旅行',p:'lvxing'},{w:'探險',p:'tanxian'},{w:'購物',p:'gouwu'},{w:'烹飪',p:'pengren'},
+        {w:'種植',p:'zhongzhi'},{w:'打掃',p:'dasao'},{w:'整理',p:'zhengli'},{w:'修理',p:'xiuli'},
+        // qualities & feelings
+        {w:'快樂',p:'kuaile'},{w:'幸福',p:'xingfu'},{w:'美麗',p:'meili'},{w:'聰明',p:'congming'},
+        {w:'勇敢',p:'yonggan'},{w:'善良',p:'shanliang'},{w:'誠實',p:'chengshi'},{w:'友善',p:'youshan'},
+        {w:'勤勞',p:'qinlao'},{w:'認真',p:'renzhen'},{w:'活潑',p:'huopo'},{w:'安靜',p:'anjing'},
+        {w:'溫柔',p:'wenrou'},{w:'堅強',p:'jianqiang'},{w:'自由',p:'ziyou'},{w:'和平',p:'heping'},
+        {w:'希望',p:'xiwang'},{w:'夢想',p:'mengxiang'},{w:'成功',p:'chenggong'},{w:'失敗',p:'shibai'},
+        {w:'危險',p:'weixian'},{w:'安全',p:'anquan'},{w:'重要',p:'zhongyao'},{w:'簡單',p:'jiandan'},
+        {w:'複雜',p:'fuza'},{w:'新鮮',p:'xinxian'},{w:'美味',p:'meiwei'},{w:'漂亮',p:'piaoliang'},
+        {w:'可愛',p:'keai'},{w:'巨大',p:'juda'},{w:'渺小',p:'miaoxiao'},{w:'明亮',p:'mingliang'},
+        {w:'黑暗',p:'heian'},{w:'溫暖',p:'wennuan'},{w:'寒冷',p:'hanleng'},{w:'炎熱',p:'yanre'},
+        {w:'涼爽',p:'liangshuang'},{w:'感動',p:'gandong'},{w:'滿足',p:'manzu'},{w:'期待',p:'qidai'},
+        {w:'思念',p:'sinian'},{w:'後悔',p:'houhui'},{w:'寂寞',p:'jimo'},{w:'孤單',p:'gudan'},
+        {w:'興奮',p:'xingfen'},{w:'感謝',p:'ganxie'},
+        // colors
+        {w:'紅色',p:'hongse'},{w:'橙色',p:'chengse'},{w:'黃色',p:'huangse'},{w:'綠色',p:'lvse'},
+        {w:'藍色',p:'lanse'},{w:'紫色',p:'zise'},{w:'黑色',p:'heise'},{w:'白色',p:'baise'},
+        {w:'灰色',p:'huise'},{w:'粉紅',p:'fenhong'},{w:'金色',p:'jinse'},{w:'銀色',p:'yinse'},
+        {w:'棕色',p:'zongse'},
+        // tech & media
+        {w:'網路',p:'wanglu'},{w:'程式',p:'chengshi'},{w:'軟體',p:'ruanti'},{w:'硬體',p:'yingti'},
+        {w:'鍵盤',p:'jianpan'},{w:'滑鼠',p:'huashu'},{w:'螢幕',p:'yingmu'},{w:'耳機',p:'erji'},
+        {w:'喇叭',p:'laba'},{w:'相機',p:'xiangji'},{w:'充電',p:'chongdian'},{w:'訊號',p:'xinhao'},
+        {w:'密碼',p:'mima'},{w:'帳號',p:'zhanghao'},{w:'檔案',p:'dangan'},{w:'資料',p:'ziliao'},
+        {w:'遊戲',p:'youxi'},{w:'影片',p:'yingpian'},{w:'音樂',p:'yinyue'},{w:'照片',p:'zhaopian'},
+        {w:'簡訊',p:'jianxun'},{w:'直播',p:'zhibo'},
+        // play & sport
+        {w:'風箏',p:'fengzheng'},{w:'氣球',p:'qiqiu'},{w:'玩具',p:'wanju'},{w:'積木',p:'jimu'},
+        {w:'拼圖',p:'pintu'},{w:'撲克',p:'puke'},{w:'棋子',p:'qizi'},{w:'骰子',p:'shaizi'},
+        {w:'籃球',p:'lanqiu'},{w:'足球',p:'zuqiu'},{w:'棒球',p:'bangqiu'},{w:'網球',p:'wangqiu'},
+        {w:'桌球',p:'zhuoqiu'},{w:'羽球',p:'yuqiu'},{w:'跳繩',p:'tiaosheng'},{w:'溜冰',p:'liubing'},
+        {w:'滑板',p:'huaban'},{w:'釣魚',p:'diaoyu'},{w:'露營',p:'luying'},{w:'登山',p:'dengshan'},
+        {w:'烤肉',p:'kaorou'},
+        // plants
+        {w:'玫瑰',p:'meigui'},{w:'茉莉',p:'moli'},{w:'蘭花',p:'lanhua'},{w:'菊花',p:'juhua'},
+        {w:'荷花',p:'hehua'},{w:'向日葵',p:'xiangrikui'},{w:'鬱金香',p:'yujinxiang'},{w:'仙人掌',p:'xianrenzhang'},
+        {w:'竹子',p:'zhuzi'},{w:'松樹',p:'songshu'},{w:'柳樹',p:'liushu'},{w:'楓葉',p:'fengye'},
+        {w:'銀杏',p:'yinxing'},{w:'小草',p:'xiaocao'},{w:'樹苗',p:'shumiao'}
+    ];
+    var IM_SINGLES = [
+        {w:'的',p:'de'},{w:'是',p:'shi'},{w:'你',p:'ni'},{w:'我',p:'wo'},{w:'他',p:'ta'},
+        {w:'們',p:'men'},{w:'好',p:'hao'},{w:'愛',p:'ai'},{w:'家',p:'jia'},{w:'國',p:'guo'},
+        {w:'學',p:'xue'},{w:'書',p:'shu'},{w:'寫',p:'xie'},{w:'讀',p:'du'},{w:'字',p:'zi'},
+        {w:'山',p:'shan'},{w:'水',p:'shui'},{w:'火',p:'huo'},{w:'風',p:'feng'},{w:'雲',p:'yun'},
+        {w:'雨',p:'yu'},{w:'雪',p:'xue'},{w:'花',p:'hua'},{w:'草',p:'cao'},{w:'樹',p:'shu'},
+        {w:'鳥',p:'niao'},{w:'魚',p:'yu'},{w:'貓',p:'mao'},{w:'狗',p:'gou'},{w:'龍',p:'long'},
+        {w:'馬',p:'ma'},{w:'羊',p:'yang'},{w:'牛',p:'niu'},{w:'虎',p:'hu'},{w:'龜',p:'gui'},
+        {w:'心',p:'xin'},{w:'手',p:'shou'},{w:'口',p:'kou'},{w:'目',p:'mu'},{w:'耳',p:'er'},
+        {w:'門',p:'men'},{w:'車',p:'che'},{w:'船',p:'chuan'},{w:'飛',p:'fei'},{w:'跑',p:'pao'}
+    ];
+    var IM_BANK = IM_DENTAL.concat(IM_WORDS).concat(IM_SINGLES);
+
+    // walk / bike / car / plane → spawn interval (ms), fall speed (rows/tick),
+    // and max simultaneously-FALLING tiles. Tiles that reach the floor stack up
+    // Tetris-style; the game ends when any column piles to the top.
+    var IM_PARAMS = {
+        easy:      { spawn: 2200, speed: 0.026, max: 3 },
+        medium:    { spawn: 1750, speed: 0.036, max: 4 },
+        difficult: { spawn: 1350, speed: 0.050, max: 5 },
+        master:    { spawn: 1000, speed: 0.068, max: 6 }
+    };
+    var IM_SPEED_LABEL = { easy:'🚶 慢速 Slow', medium:'🚲 普通 Normal', difficult:'🚗 快速 Fast', master:'✈️ 極速 Insane' };
+
+    function initIme(diff) {
+        imStopLoop();
+        var d = diff || 'easy';
+        var P = IM_PARAMS[d] || IM_PARAMS.easy;
+        IM = {
+            diff: d, params: P,
+            score: 0, cleared: 0, errors: 0,
+            combo: 0, bestCombo: 0, target: null,
+            chars: [], stacks: [], cols: 6, rows: 7, rowH: 54,
+            nextId: 1, spawnAcc: 0, started: Date.now()
+        };
+        imBuildScene();
+        imMeasure();
+        imSyncToolbar();
+        imUpdateHud();
+        var st = g('entGameStatus');
+        if (st) st.textContent = '打出落下的字！沒打到會堆疊，疊到頂就結束。 Clear the words — misses stack up, fill to the top and it is over!';
+    }
+
+    // size the column/row grid to the actual field so tiles line up & stack
+    function imMeasure() {
+        var fld = g('imField');
+        var W = (fld && fld.clientWidth)  || 520;
+        var H = (fld && fld.clientHeight) || 380;
+        IM.cols = Math.max(4, Math.min(8, Math.round(W / 96)));
+        IM.rows = Math.max(5, Math.min(9, Math.floor(H / 54)));
+        IM.rowH = H / IM.rows;
+        IM.stacks = [];
+        for (var c = 0; c < IM.cols; c++) IM.stacks.push([]);
+    }
+
+    function imLandingRow(col) { return IM.rows - 1 - IM.stacks[col].length; }
+
+    function imBuildScene() {
+        var wrap = g('entBoardWrap'); if (!wrap) return;
+        wrap.innerHTML =
+            '<div class="im-game">' +
+                '<div class="im-window">' +
+                    '<div class="im-titlebar">' +
+                        '<span class="im-title">⌨️ 中文輸入法練習 － 輸入法</span>' +
+                        '<span class="im-tbtns"><i>_</i><i>□</i><i>×</i></span>' +
+                    '</div>' +
+                    '<div class="im-menubar"><span>遊戲(<u>G</u>)</span><span>選項(<u>O</u>)</span><span>說明(<u>H</u>)</span></div>' +
+                    '<div class="im-toolbar" id="imToolbar">' +
+                        '<button type="button" class="im-tool" data-speed="easy"      title="慢速 (走路)">🚶</button>' +
+                        '<button type="button" class="im-tool" data-speed="medium"    title="普通 (腳踏車)">🚲</button>' +
+                        '<button type="button" class="im-tool" data-speed="difficult" title="快速 (汽車)">🚗</button>' +
+                        '<button type="button" class="im-tool" data-speed="master"    title="極速 (飛機)">✈️</button>' +
+                        '<span class="im-tool-sep"></span>' +
+                        '<span class="im-speed-tag" id="imSpeedTag"></span>' +
+                    '</div>' +
+                    '<div class="im-field" id="imField">' +
+                        '<div class="im-scan"></div>' +
+                        '<div class="im-vignette"></div>' +
+                        '<div class="im-baseline" id="imBaseline"></div>' +
+                        '<div class="im-combo-pop" id="imComboPop"></div>' +
+                    '</div>' +
+                    '<div class="im-statusbar">' +
+                        '<span class="im-status-cell" id="imStatusText">就緒</span>' +
+                        '<span class="im-status-cell im-combo" id="imCombo"></span>' +
+                        '<span class="im-status-cell im-score">分數：<b id="imScore">0</b></span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="im-console">' +
+                    '<span class="im-console-icon">⌨️</span>' +
+                    '<input id="imInput" class="im-input" type="text" autocomplete="off" ' +
+                        'autocorrect="off" autocapitalize="off" spellcheck="false" ' +
+                        'placeholder="用任何輸入法打出落下的字（或輸入拼音）…  Type the falling characters with any IME (or pinyin)…">' +
+                '</div>' +
+                '<div class="im-hint">字會從上方落下，沒打到的會像俄羅斯方塊一樣<b>堆疊</b>起來，疊到頂端就結束！ ' +
+                    'Miss a word and it stacks up Tetris-style; fill a column to the top and the game ends. ' +
+                    'Use <b>any Chinese IME</b> or the <b>pinyin</b> hint · <b>Enter/Space</b> commits · <b>Esc</b> clears.</div>' +
+            '</div>';
+        var tb = g('imToolbar');
+        if (tb) tb.querySelectorAll('.im-tool[data-speed]').forEach(function (b) {
+            b.addEventListener('click', function () { imSetSpeed(b.dataset.speed); imFocusInput(); });
+        });
+    }
+
+    function imSetSpeed(d) {
+        if (!IM || !IM_PARAMS[d]) return;
+        IM.diff = d; IM.params = IM_PARAMS[d];
+        imSyncToolbar();
+        var st = g('imStatusText'); if (st) st.textContent = '速度：' + (IM_SPEED_LABEL[d] || d);
+    }
+
+    function imSyncToolbar() {
+        var tb = g('imToolbar'); if (!tb) return;
+        tb.querySelectorAll('.im-tool[data-speed]').forEach(function (b) {
+            b.classList.toggle('im-tool-on', IM && b.dataset.speed === IM.diff);
+        });
+        var tag = g('imSpeedTag'); if (tag && IM) tag.textContent = IM_SPEED_LABEL[IM.diff] || '';
+    }
+
+    function imUpdateHud() {
+        if (!IM) return;
+        var sc = g('imScore'); if (sc) sc.textContent = IM.score;
+        var cb = g('imCombo');
+        if (cb) {
+            cb.innerHTML = IM.combo >= 2 ? '連擊 <b>x' + IM.combo + '</b>' : '';
+            cb.classList.toggle('im-combo-on', IM.combo >= 2);
+        }
+    }
+
+    // ── visual-effect helpers (layered over the CRT field) ───────────
+    function imCharTop(m) { return IM.rows ? (m.row / IM.rows) * 100 : 50; }
+
+    function imFloatScore(m, text, big) {
+        var fld = g('imField'); if (!fld) return;
+        var f = document.createElement('div');
+        f.className = 'im-float' + (big ? ' im-float-big' : '');
+        f.textContent = text;
+        f.style.left = m.x + '%';
+        f.style.top  = imCharTop(m) + '%';
+        fld.appendChild(f);
+        setTimeout(function () { if (f.parentNode) f.parentNode.removeChild(f); }, 760);
+    }
+
+    function imShatter(m) {
+        var fld = g('imField'); if (!fld) return;
+        var top = imCharTop(m), n = 8;
+        for (var i = 0; i < n; i++) {
+            var s = document.createElement('div');
+            s.className = 'im-shard';
+            var ang = (Math.PI * 2 * i) / n + Math.random() * 0.5;
+            var dist = 26 + Math.random() * 30;
+            s.style.left = m.x + '%';
+            s.style.top  = top + '%';
+            s.style.setProperty('--dx', (Math.cos(ang) * dist).toFixed(0) + 'px');
+            s.style.setProperty('--dy', (Math.sin(ang) * dist).toFixed(0) + 'px');
+            fld.appendChild(s);
+            (function (el) { setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 520); })(s);
+        }
+    }
+
+    function imComboPop(n) {
+        var el = g('imComboPop'); if (!el) return;
+        el.textContent = 'COMBO x' + n + '!';
+        el.classList.remove('im-combo-show'); void el.offsetWidth;   // restart animation
+        el.classList.add('im-combo-show');
+    }
+
+    function imScorePop() {
+        var sc = g('imScore'); if (!sc) return;
+        sc.classList.remove('im-score-pop'); void sc.offsetWidth;
+        sc.classList.add('im-score-pop');
+    }
+
+    function imUpdateLocking(token) {
+        for (var i = 0; i < IM.chars.length; i++) {
+            var m = IM.chars[i];
+            if (!m.el) continue;
+            var on = !!token && !m.dead && m.p.indexOf(token) === 0;
+            m.el.classList.toggle('im-locking', on);
+        }
+    }
+
+    function imSpawn() {
+        // cap concurrently-falling tiles (stacked ones don't count)
+        var falling = 0, c, i, hasFalling = {};
+        for (i = 0; i < IM.chars.length; i++) {
+            var t = IM.chars[i];
+            if (!t.dead && !t.stacked) { falling++; hasFalling[t.col] = true; }
+        }
+        if (falling >= IM.params.max) return;
+        // prefer an empty-ish column with no tile currently dropping in it
+        var open = [], any = [];
+        for (c = 0; c < IM.cols; c++) {
+            if (IM.stacks[c].length >= IM.rows) continue;     // column already full
+            any.push(c);
+            if (!hasFalling[c]) open.push(c);
+        }
+        var pool = open.length ? open : any;
+        if (!pool.length) return;                              // everything full
+        var col = pool[Math.floor(Math.random() * pool.length)];
+        var e = IM_BANK[Math.floor(Math.random() * IM_BANK.length)];
+        var m = {
+            id: IM.nextId++, w: e.w,
+            p: e.p.toLowerCase().replace(/[^a-z]/g, ''), cnTyped: 0,
+            col: col, x: ((col + 0.5) / IM.cols) * 100, row: 0, stacked: false,
+            speed: IM.params.speed * (0.85 + Math.random() * 0.3),
+            dead: false, el: null
+        };
+        IM.chars.push(m);
+        imCreateEl(m);
+    }
+
+    function imCreateEl(m) {
+        var fld = g('imField'); if (!fld) return;
+        var d = document.createElement('div');
+        d.className = 'im-char';
+        d.dataset.id = m.id;
+        var hed = '';
+        for (var i = 0; i < m.w.length; i++) hed += '<span class="im-hchar">' + entEsc(m.w[i]) + '</span>';
+        d.innerHTML = '<span class="im-han">' + hed + '</span>' +
+                      '<span class="im-py">' + entEsc(m.p) + '</span>';
+        m.el = d;
+        fld.appendChild(d);
+        imPositionEl(m);
+    }
+
+    function imPositionEl(m) {
+        if (!m.el) return;
+        m.el.style.left = m.x + '%';
+        m.el.style.top  = (m.row * IM.rowH) + 'px';
+        // warn when a stack is climbing into the top rows
+        m.el.classList.toggle('im-danger', m.stacked && m.row <= 1);
+    }
+
+    function imFind(pred) {
+        // prefer the lowest / most-settled match (clearing it collapses a column)
+        var best = null;
+        for (var i = 0; i < IM.chars.length; i++) {
+            var m = IM.chars[i];
+            if (!m.dead && pred(m) && (!best || m.row > best.row)) best = m;
+        }
+        return best;
+    }
+
+    function imHasPrefix(token) {
+        for (var i = 0; i < IM.chars.length; i++) {
+            var m = IM.chars[i];
+            if (!m.dead && m.p.indexOf(token) === 0) return true;
+        }
+        return false;
+    }
+
+    function imFindById(id) {
+        for (var i = 0; i < IM.chars.length; i++) if (IM.chars[i].id === id) return IM.chars[i];
+        return null;
+    }
+
+    // repaint per-character progress (done / current) on the targeted word
+    function imRenderWord(m) {
+        if (!m || !m.el) return;
+        var spans = m.el.querySelectorAll('.im-hchar');
+        var targeted = IM.target === m.id;
+        for (var i = 0; i < spans.length; i++) {
+            spans[i].classList.toggle('im-hdone', targeted && i < m.cnTyped);
+            spans[i].classList.toggle('im-hcur',  targeted && i === m.cnTyped);
+        }
+    }
+
+    function imDropTarget(m) {
+        if (!m) return;
+        m.cnTyped = 0;
+        if (m.el) m.el.classList.remove('im-target');
+        imRenderWord(m);
+    }
+
+    // one committed Chinese character → advance the locked word (or lock a new
+    // one). Supports multi-character words typed char-by-char OR all at once.
+    function imHandleHan(ch) {
+        var tm = (IM.target != null) ? imFindById(IM.target) : null;
+        if (tm && tm.dead) tm = null;
+        // if the locked word can't continue with this char, release it
+        if (tm && ch !== tm.w[tm.cnTyped]) { imDropTarget(tm); tm = null; IM.target = null; }
+        if (!tm) {
+            tm = imFind(function (m) { return m.w[0] === ch; });   // nearest word starting with ch
+            if (!tm) { imError(); return; }
+            IM.target = tm.id; tm.cnTyped = 0;
+            if (tm.el) tm.el.classList.add('im-target');
+        }
+        tm.cnTyped++;
+        if (tm.cnTyped >= tm.w.length) { IM.target = null; imClearChar(tm, true); }
+        else imRenderWord(tm);
+    }
+
+    function imClearChar(m, viaHan) {
+        if (!m || m.dead) return;
+        m.dead = true;
+        if (IM.target === m.id) IM.target = null;
+        IM.cleared++;
+        IM.combo++; if (IM.combo > IM.bestCombo) IM.bestCombo = IM.combo;
+        var base = 10 + (m.w.length - 1) * 5;          // longer glyphs worth a touch more
+        var bonus = Math.min(IM.combo - 1, 10) * 2;    // escalating combo bonus (cap +20)
+        var gained = base + bonus;
+        IM.score += gained;
+        if (m.el) {
+            m.el.classList.remove('im-stacked', 'im-danger', 'im-target', 'im-locking');
+            m.el.classList.add('im-cleared');
+            var el = m.el;
+            setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 280);
+        }
+        imShatter(m);
+        imFloatScore(m, '+' + gained, IM.combo >= 5);
+        if (IM.combo >= 3) imComboPop(IM.combo);
+        imScorePop();
+        for (var i = IM.chars.length - 1; i >= 0; i--) if (IM.chars[i] === m) { IM.chars.splice(i, 1); break; }
+        if (m.stacked) imRemoveFromStack(m);   // collapse the column above it
+        imUpdateHud();
+    }
+
+    // pull a stacked tile out of its column; everything above settles down a row
+    function imRemoveFromStack(m) {
+        var col = IM.stacks[m.col]; if (!col) return;
+        var idx = col.indexOf(m); if (idx < 0) return;
+        col.splice(idx, 1);
+        for (var i = idx; i < col.length; i++) {
+            col[i].row = IM.rows - 1 - i;
+            imPositionEl(col[i]);
+        }
+    }
+
+    function imError() {
+        if (!IM) return;
+        IM.errors++; IM.combo = 0;
+        var inp = g('imInput');
+        if (inp) { inp.classList.add('im-input-wrong'); setTimeout(function () { if (inp) inp.classList.remove('im-input-wrong'); }, 160); }
+        imUpdateHud();
+    }
+
+    // a falling tile reaches the stack top → lock it in place (Tetris-style)
+    function imLockTile(m, landRow) {
+        if (!m || m.dead || m.stacked) return;
+        m.stacked = true;
+        m.row = (landRow < 0) ? 0 : landRow;
+        IM.stacks[m.col].push(m);
+        if (m.el) m.el.classList.add('im-stacked');
+        imPositionEl(m);
+        // little "thunk" — floor flash only when it actually hits the ground
+        if (IM.stacks[m.col].length === 1) {
+            var bl = g('imBaseline');
+            if (bl) {
+                bl.style.setProperty('--hitx', m.x + '%');
+                bl.classList.add('im-baseline-hit');
+                setTimeout(function () { if (bl) bl.classList.remove('im-baseline-hit'); }, 360);
+            }
+        }
+        // reached the very top → game over
+        if (IM.stacks[m.col].length >= IM.rows) {
+            if (m.el) m.el.classList.add('im-overflow');
+            var fld = g('imField');
+            if (fld) { fld.classList.add('im-field-hit'); setTimeout(function () { if (fld) fld.classList.remove('im-field-hit'); }, 260); }
+            imGameOver();
+        }
+    }
+
+    // process whatever is in the input field (IME commit, paste, or pinyin)
+    function imProcessField(commit) {
+        var inp = g('imInput'); if (!inp || !IM || entGameOver || entGame !== 'ime') return;
+        var v = inp.value;
+        if (!v) { imUpdateLocking(''); return; }
+        // 1) any committed Chinese characters → advance / clear matching words
+        var hadHan = false, ch, m;
+        for (var i = 0; i < v.length; i++) {
+            ch = v[i];
+            var isHan = (ch >= '\u4e00' && ch <= '\u9fff') || (ch >= '\u3400' && ch <= '\u4dbf');
+            if (isHan) { hadHan = true; imHandleHan(ch); }
+        }
+        if (hadHan) { inp.value = ''; imUpdateLocking(''); return; }
+        // 2) pinyin fallback — exact whole-syllable match against the hint
+        var token = v.toLowerCase().replace(/[^a-z]/g, '');
+        if (!token) { if (commit) inp.value = ''; imUpdateLocking(''); return; }
+        m = imFind(function (mm) { return mm.p === token; });
+        if (m) { imClearChar(m, false); inp.value = ''; imUpdateLocking(''); return; }
+        // no exact match: if the token can't lead anywhere (or user pressed
+        // Enter/Space), it's a miss-type — reset so the player can retry.
+        if (commit || !imHasPrefix(token)) { imError(); inp.value = ''; imUpdateLocking(''); return; }
+        // partial but valid prefix → light up the candidate glyph(s) you're aiming at
+        imUpdateLocking(token);
+    }
+
+    function imFocusInput() {
+        var inp = g('imInput');
+        if (inp && document.activeElement !== inp && !entGameOver) inp.focus();
+    }
+
+    function imTick() {
+        if (!IM || entGameOver || entGame !== 'ime') { imStopLoop(); return; }
+        IM.spawnAcc += 60;
+        if (IM.spawnAcc >= IM.params.spawn) { IM.spawnAcc = 0; imSpawn(); }
+        // move only the falling tiles; lowest first so columns stack cleanly
+        var falling = [];
+        for (var i = 0; i < IM.chars.length; i++) {
+            var m = IM.chars[i];
+            if (!m.dead && !m.stacked) falling.push(m);
+        }
+        falling.sort(function (a, b) { return b.row - a.row; });
+        for (var j = 0; j < falling.length; j++) {
+            var t = falling[j];
+            t.row += t.speed;
+            var land = imLandingRow(t.col);
+            if (t.row >= land) { imLockTile(t, land); if (entGameOver) return; }
+            else imPositionEl(t);
+        }
+    }
+
+    function imGameOver() {
+        imStopLoop();
+        var total = IM.cleared + IM.errors;
+        var acc = total ? Math.round(IM.cleared / total * 100) : 100;
+        var secs = Math.max(1, (Date.now() - IM.started) / 1000);
+        var cpm = Math.round(IM.cleared / secs * 60);
+        setGameOver('🧱 疊到頂了！ Stacked to the top · 分數 ' + IM.score + ' · ' + IM.cleared +
+                    ' 字 cleared · ' + cpm + ' CPM · ' + acc + '% accuracy · best combo x' + IM.bestCombo);
+        entRecordAndToast('ime', IM.score, IM.score + ' pts · ' + IM.cleared + ' chars');
+    }
+
+    function startImeLoop() {
+        imStopLoop();
+        var inp = g('imInput');
+        if (inp) {
+            inp.addEventListener('compositionstart', function () { _imComposing = true; });
+            inp.addEventListener('compositionend', function () { _imComposing = false; imProcessField(false); });
+            inp.addEventListener('input', function (e) {
+                if (_imComposing || e.isComposing) return;   // mid-IME composition
+                imProcessField(false);
+            });
+            inp.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') { e.preventDefault(); inp.value = ''; imUpdateLocking(''); }
+                else if (e.key === 'Enter' || e.key === ' ') {
+                    if (_imComposing || e.isComposing) return;
+                    e.preventDefault(); imProcessField(true);
+                }
+            });
+        }
+        var area = g('entGameArea');
+        _imKeyHandler = function (e) {
+            if (entGame !== 'ime' || entGameOver) return;
+            var t = e.target;
+            if (t && (t.id === 'entRestartBtn' || t.id === 'entExitBtn')) return;
+            if (t && t.classList && t.classList.contains('im-tool')) return;  // let toolbar clicks through
+            imFocusInput();
+        };
+        if (area) area.addEventListener('click', _imKeyHandler);
+        _imFocusArea = area;
+        setTimeout(imFocusInput, 30);
+        _imLoop = setInterval(imTick, 60);
+    }
+
+    function imStopLoop() {
+        if (_imLoop) { clearInterval(_imLoop); _imLoop = null; }
+        if (_imKeyHandler && _imFocusArea) { _imFocusArea.removeEventListener('click', _imKeyHandler); }
+        _imKeyHandler = null; _imFocusArea = null; _imComposing = false;
+    }
+
+    // ════════════════════════════════════════════════════════════════
     //  ⑪ HALL OF FAME — per-game top-3 records (localStorage)
     // ════════════════════════════════════════════════════════════════
     var ENT_REC_KEY   = 'entHallOfFame_v1';
     var ENT_ALLOW_KEY = 'entAllowRecord_v1';
     var ENT_DIFF_RANK = { easy:1, medium:2, difficult:3, master:4 };
     var ENT_DIFF_NAME = { 1:'Easy', 2:'Medium', 3:'Difficult', 4:'Master' };
-    var ENT_REC_GAMES = ['2048','snake','minesweeper','sudoku','reversi','c4','gomoku','chess','xiangqi','mahjong','typing'];
+    var ENT_REC_GAMES = ['2048','snake','minesweeper','sudoku','reversi','c4','gomoku','chess','xiangqi','mahjong','typing','ime'];
     var ENT_REC_ICON  = { '2048':'🔢', snake:'🐍', minesweeper:'💣', sudoku:'🔢', reversi:'⬛',
-                          c4:'🔴', gomoku:'⚫', chess:'♟️', xiangqi:'🀄', mahjong:'🀄', typing:'🐱' };
+                          c4:'🔴', gomoku:'⚫', chess:'♟️', xiangqi:'🀄', mahjong:'🀄', typing:'🐱', ime:'⌨️' };
 
     function entEsc(s) {
         return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {

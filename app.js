@@ -2322,6 +2322,12 @@ var SCREENS = [
     'aiHelperSection',
     'memoCardsSection',
     'entertainmentSection',
+    'toolsSection',
+    'medCalcSection',
+    'qrToolSection',
+    'pdfUtilSection',
+    'certGenSection',
+    'docToolsSection',
     'sectionConfig'
 ];
 
@@ -4352,6 +4358,44 @@ document.addEventListener('DOMContentLoaded', function() {
             if (typeof showEntertainment === 'function') showEntertainment();
         });
     }
+
+    var toolsCard = g('card-tools');
+    if (toolsCard) {
+        toolsCard.addEventListener('click', function() {
+            showOnly('toolsSection');
+        });
+    }
+
+    var toolsBack = g('toolsBack');
+    if (toolsBack) toolsBack.addEventListener('click', showDashboard);
+
+    function wireToolCard(tool, fn) {
+        var card = document.querySelector('#toolsSection [data-tool="' + tool + '"]');
+        if (card) card.addEventListener('click', fn);
+    }
+    wireToolCard('doc-converter', function() {
+        if (typeof DOCTOOLS !== 'undefined' && typeof DOCTOOLS.open === 'function') DOCTOOLS.open();
+        else alert(appTr('alert.docToolsLoading'));
+    });
+    wireToolCard('medcalc', function() {
+        if (typeof MEDCALC !== 'undefined' && typeof MEDCALC.open === 'function') MEDCALC.open();
+    });
+    wireToolCard('qrcode', function() {
+        if (typeof QRTOOL !== 'undefined' && typeof QRTOOL.open === 'function') QRTOOL.open();
+    });
+    wireToolCard('pdfutils', function() {
+        if (typeof PDFUTIL !== 'undefined' && typeof PDFUTIL.open === 'function') PDFUTIL.open();
+    });
+    wireToolCard('certgen', function() {
+        if (typeof CERTGEN !== 'undefined' && typeof CERTGEN.open === 'function') CERTGEN.open();
+    });
+
+    [['medCalcBack', 'medCalcSection'], ['qrToolBack', 'qrToolSection'],
+     ['pdfUtilBack', 'pdfUtilSection'], ['certGenBack', 'certGenSection']]
+    .forEach(function(pair) {
+        var b = g(pair[0]);
+        if (b) b.addEventListener('click', function() { showOnly('toolsSection'); });
+    });
 
     // placeholder cards (temporarily inactive)
     ['card-expenses', 'card-inventory']

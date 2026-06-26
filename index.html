@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260618-cjk-font-fix-4';
+  var BUILD = '20260627-tools-backup-2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -37,7 +37,7 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  ['fonts/cjk-fonts.css', 'style.css', 'style-mobile.css', 'style-entertainment.css'].forEach(function (path) {
+  ['fonts/cjk-fonts.css', 'style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = withBust(path);
@@ -302,6 +302,9 @@
     </div>
     <div class="dash-card" id="card-entertainment">
       <div>🎮</div><h3 data-i18n="dashboard.card.entertainment"></h3>
+    </div>
+    <div class="dash-card" id="card-tools">
+      <div>🧰</div><h3 data-i18n="dashboard.card.tools"></h3>
     </div>
   </div>
 
@@ -5510,6 +5513,93 @@
   </div>
 </section>
 
+<!-- ════════════════════════════════════════════════════════════
+     DOCUMENT CONVERTER  (Word↔PDF, PDF→JPG, image formats — all client-side)
+════════════════════════════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════════════════════
+     TOOLS HUB (utilities such as the document converter)
+════════════════════════════════════════════════════════════ -->
+<section id="toolsSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="toolsBack" data-i18n="common.backDashboard"></button>
+    <h1 data-i18n="tools.title"></h1>
+  </div>
+  <div class="ent-panel">
+    <p class="ent-subtitle" data-i18n="tools.subtitle"></p>
+    <div class="ent-game-grid">
+      <div class="ent-game-card" data-tool="doc-converter">
+        <div class="ent-game-icon">🔄</div>
+        <div class="ent-game-name" data-i18n="tools.docConverter"></div>
+        <div class="ent-game-desc" data-i18n="tools.docConverterDesc"></div>
+      </div>
+      <div class="ent-game-card" data-tool="medcalc">
+        <div class="ent-game-icon">🩺</div>
+        <div class="ent-game-name" data-i18n="tools.medCalc"></div>
+        <div class="ent-game-desc" data-i18n="tools.medCalcDesc"></div>
+      </div>
+      <div class="ent-game-card" data-tool="qrcode">
+        <div class="ent-game-icon">🔳</div>
+        <div class="ent-game-name" data-i18n="tools.qr"></div>
+        <div class="ent-game-desc" data-i18n="tools.qrDesc"></div>
+      </div>
+      <div class="ent-game-card" data-tool="pdfutils">
+        <div class="ent-game-icon">📑</div>
+        <div class="ent-game-name" data-i18n="tools.pdf"></div>
+        <div class="ent-game-desc" data-i18n="tools.pdfDesc"></div>
+      </div>
+      <div class="ent-game-card" data-tool="certgen">
+        <div class="ent-game-icon">📜</div>
+        <div class="ent-game-name" data-i18n="tools.cert"></div>
+        <div class="ent-game-desc" data-i18n="tools.certDesc"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Medical calculators ── -->
+<section id="medCalcSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="medCalcBack" data-i18n="tools.back"></button>
+    <h1 data-i18n="tools.medCalc"></h1>
+  </div>
+  <div id="medCalcApp"></div>
+</section>
+
+<!-- ── QR code generator ── -->
+<section id="qrToolSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="qrToolBack" data-i18n="tools.back"></button>
+    <h1 data-i18n="tools.qr"></h1>
+  </div>
+  <div id="qrToolApp"></div>
+</section>
+
+<!-- ── PDF utilities ── -->
+<section id="pdfUtilSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="pdfUtilBack" data-i18n="tools.back"></button>
+    <h1 data-i18n="tools.pdf"></h1>
+  </div>
+  <div id="pdfUtilApp"></div>
+</section>
+
+<!-- ── Certificate / receipt / label ── -->
+<section id="certGenSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="certGenBack" data-i18n="tools.back"></button>
+    <h1 data-i18n="tools.cert"></h1>
+  </div>
+  <div id="certGenApp"></div>
+</section>
+
+<section id="docToolsSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="docToolsBack" data-i18n="common.backDashboard"></button>
+    <h1 id="docToolsTitleH1" data-i18n="doctools.title"></h1>
+  </div>
+  <div id="docToolsApp" class="doctools-shell"></div>
+</section>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
@@ -5542,7 +5632,9 @@
     'app-broadcast.js?v=20260524c',
     'app-quicklaunch.js',
     'app-engines.js',
-    'app-entertainment.js'
+    'app-entertainment.js',
+    'app-doc-tools.js',
+    'app-tools.js'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

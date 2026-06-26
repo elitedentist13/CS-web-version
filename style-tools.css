@@ -1,0 +1,260 @@
+/* ════════════════════════════════════════════════════════════════
+   style-tools.css — Clinic / office utilities
+   (Medical calculators · QR generator · PDF utilities · Cert/Receipt/Label)
+════════════════════════════════════════════════════════════════ */
+
+#medCalcSection, #qrToolSection, #pdfUtilSection, #certGenSection {
+    min-height: 100vh;
+    background: #f7f8fc;
+}
+
+.ct-intro {
+    color: #5b6275;
+    font-size: 14px;
+    margin: 4px 0 18px;
+}
+.ct-note {
+    color: #8a8f9c;
+    font-size: 12px;
+    margin: 8px 0 0;
+    line-height: 1.5;
+}
+
+/* ── shared form controls ─────────────────────────────────────── */
+.ct-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #3a4055;
+}
+.ct-field > span { font-weight: 600; }
+.ct-field input,
+.ct-field textarea,
+.ct-select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 11px;
+    border: 1px solid #d4d8e3;
+    border-radius: 9px;
+    font-size: 14px;
+    background: #fff;
+    color: #1a1f33;
+    font-family: inherit;
+}
+.ct-field input[type="color"] { padding: 4px; height: 40px; cursor: pointer; }
+.ct-field input[type="range"] { padding: 0; }
+.ct-field input:focus,
+.ct-field textarea:focus,
+.ct-select:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
+}
+.ct-input-wrap { position: relative; display: flex; align-items: center; }
+.ct-input-wrap input { padding-right: 54px; }
+.ct-unit {
+    position: absolute; right: 10px;
+    font-style: normal; font-size: 12px; color: #9aa0b0;
+    pointer-events: none;
+}
+
+.ct-btn {
+    appearance: none;
+    border: 1px solid #d4d8e3;
+    background: #fff;
+    color: #2a2f45;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .08s ease, box-shadow .15s ease, background .15s ease;
+}
+.ct-btn:hover { box-shadow: 0 4px 14px rgba(30, 35, 70, .1); transform: translateY(-1px); }
+.ct-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
+.ct-btn-primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-color: transparent;
+    color: #fff;
+}
+
+/* ── segmented control / tabs ─────────────────────────────────── */
+.ct-seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.ct-seg-btn {
+    appearance: none;
+    border: 1px solid #d9dceb;
+    background: #fff;
+    color: #4a5066;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+.ct-seg-btn:hover { border-color: #b9bed4; }
+.ct-seg-btn.active {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-color: transparent;
+    color: #fff;
+}
+
+.ct-panel-box {
+    background: #fff;
+    border: 1px solid #e7e9f2;
+    border-radius: 14px;
+    padding: 18px;
+    max-width: 560px;
+}
+.ct-panel-box .ct-btn { margin-top: 6px; }
+
+/* ── status / spinner ─────────────────────────────────────────── */
+.ct-status {
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    background: #eef0f8;
+    color: #3a4055;
+    max-width: 560px;
+}
+.ct-tone-ok   { background: #e7f6ec; color: #1c7a3f; }
+.ct-tone-warn { background: #fdf3e2; color: #9a6b15; }
+.ct-tone-bad  { background: #fbe9e9; color: #a12d2d; }
+.ct-tone-work { background: #eef0fb; color: #41499a; }
+.ct-spin {
+    display: inline-block;
+    width: 13px; height: 13px;
+    border: 2px solid rgba(80, 90, 200, .3);
+    border-top-color: #5560e6;
+    border-radius: 50%;
+    animation: ctSpin .7s linear infinite;
+    vertical-align: -2px;
+}
+@keyframes ctSpin { to { transform: rotate(360deg); } }
+
+/* ── medical calculators ──────────────────────────────────────── */
+.ct-calc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+}
+.ct-calc-card {
+    background: #fff;
+    border: 1px solid #e7e9f2;
+    border-radius: 14px;
+    padding: 16px 16px 14px;
+    box-shadow: 0 2px 10px rgba(40, 45, 90, .04);
+}
+.ct-calc-card h3 {
+    margin: 0 0 12px;
+    font-size: 15px;
+    color: #2a2f45;
+}
+.ct-calc-result {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #f3f4fb;
+    color: #3a4055;
+    font-size: 15px;
+    min-height: 20px;
+}
+.ct-calc-result b { font-size: 18px; color: #1a1f33; }
+.ct-calc-result.ct-tone-ok   { background: #e7f6ec; color: #1c7a3f; }
+.ct-calc-result.ct-tone-warn { background: #fdf3e2; color: #9a6b15; }
+.ct-calc-result.ct-tone-bad  { background: #fbe9e9; color: #a12d2d; }
+.ct-calc-result.ct-tone-ok b,
+.ct-calc-result.ct-tone-warn b,
+.ct-calc-result.ct-tone-bad b { color: inherit; }
+
+/* ── QR generator ─────────────────────────────────────────────── */
+.ct-qr-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(260px, 360px);
+    gap: 22px;
+    align-items: start;
+}
+.ct-qr-form, .ct-qr-preview {
+    background: #fff;
+    border: 1px solid #e7e9f2;
+    border-radius: 14px;
+    padding: 18px;
+}
+.ct-qr-opts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 8px;
+}
+.ct-qr-opts .ct-field:first-child { grid-column: 1 / -1; }
+.ct-qr-preview { text-align: center; }
+.ct-qr-box {
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fafbff;
+    border: 1px dashed #d4d8e3;
+    border-radius: 12px;
+    margin-bottom: 14px;
+    padding: 14px;
+}
+.ct-qr-box canvas, .ct-qr-box img { max-width: 100%; height: auto; }
+.ct-qr-empty { color: #9aa0b0; font-size: 13px; }
+
+/* ── certificate / receipt / label ────────────────────────────── */
+.ct-cg-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 380px) 1fr;
+    gap: 22px;
+    align-items: start;
+}
+.ct-cg-form {
+    background: #fff;
+    border: 1px solid #e7e9f2;
+    border-radius: 14px;
+    padding: 18px;
+}
+.ct-cg-preview-wrap { position: sticky; top: 16px; }
+.ct-cg-preview {
+    background: #fff;
+    border: 1px solid #e7e9f2;
+    border-radius: 14px;
+    padding: 26px;
+    min-height: 300px;
+    box-shadow: 0 4px 18px rgba(40, 45, 90, .06);
+}
+.ct-cg-actions { display: flex; gap: 10px; margin-top: 12px; }
+
+.cg-doc { color: #1a1a1a; font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif; }
+.cg-clinic { text-align: center; margin: 0 0 4px; font-size: 18px; }
+.cg-title { text-align: center; letter-spacing: 2px; font-size: 20px; margin: 0 0 22px; }
+.cg-line { font-size: 14px; line-height: 1.9; margin: 8px 0; }
+.cg-meta { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 12px; }
+.cg-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+.cg-table th, .cg-table td { border-bottom: 1px solid #e0e0e0; padding: 7px 8px; text-align: left; }
+.cg-table tfoot td { border-top: 2px solid #999; border-bottom: none; padding-top: 10px; }
+.cg-amt { text-align: right; }
+.cg-sign { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; }
+.cg-sign-line { border-top: 1px solid #333; padding-top: 6px; min-width: 150px; text-align: center; font-size: 12px; }
+.cg-sign-line span { display: block; color: #888; font-size: 10px; margin-top: 2px; }
+
+.cg-label { border: 2px dashed #888; border-radius: 8px; padding: 16px; max-width: 360px; margin: 0 auto; }
+.cg-label-clinic { font-weight: 700; text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 6px; margin-bottom: 8px; }
+.cg-label-row { display: flex; justify-content: space-between; font-size: 13px; }
+.cg-label-drug { font-size: 17px; font-weight: 700; margin: 8px 0; }
+.cg-label-dir { font-size: 14px; line-height: 1.6; }
+
+/* ── responsive ───────────────────────────────────────────────── */
+@media (max-width: 760px) {
+    .ct-qr-layout, .ct-cg-layout { grid-template-columns: 1fr; }
+    .ct-cg-preview-wrap { position: static; }
+}

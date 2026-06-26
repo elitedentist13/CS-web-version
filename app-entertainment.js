@@ -133,6 +133,10 @@
 
     function showAiDiffSelect(game) {
         var el = g('entModeSelectInner'); if (!el) return;
+        // Chess (Stockfish) and Chinese Chess (Pikafish) get a fine-grained 1–20
+        // engine-strength scale instead of the 4-step ladder, matching each
+        // engine's 0–20 skill levels.
+        if (game === 'xiangqi' || game === 'chess') { showEngineLevelSelect(game); return; }
         var hints = AI_DIFF_HINTS[game] || AI_DIFF_HINTS.chess;
         var DIFFS = [
             { id:'easy',      icon:'🟢', label:'Easy' },
@@ -155,6 +159,55 @@
             });
         });
         g('entDiffSelBack').onclick = function() { selectGame(game); };
+    }
+
+    // Descriptive band for a 1–20 engine level (shared by Chess & Chinese Chess).
+    function entLevelLabel(L) {
+        if (L <= 3)  return '🐣 Beginner';
+        if (L <= 6)  return '🙂 Casual';
+        if (L <= 9)  return '♟️ Club player';
+        if (L <= 12) return '💪 Strong';
+        if (L <= 15) return '🔥 Expert';
+        if (L <= 18) return '🧠 Master';
+        return '👑 Grandmaster';
+    }
+
+    // 1–20 engine-strength picker for the engine-backed board games.
+    function showEngineLevelSelect(game) {
+        var el = g('entModeSelectInner'); if (!el) return;
+        var isChess = (game === 'chess');
+        var engineName = isChess ? 'Stockfish' : 'Pikafish';
+        var optsFor = isChess ? chEngineOptsFor : xqEngineOptsFor;
+        var clamp = isChess ? chClampLevel : xqClampLevel;
+        var cur = clamp(isChess ? chDifficulty : xqDifficulty);
+        el.innerHTML =
+            '<h2 class="ent-mode-title">🎯 ' + (GAME_NAMES[game] || game) + ' — Engine Level</h2>' +
+            '<div class="ent-xq-level">' +
+                '<div class="ent-xq-level-readout"><span id="entXqLevelNum">' + cur + '</span>' +
+                    '<span class="ent-xq-level-max">/ 20</span></div>' +
+                '<div class="ent-xq-level-tag" id="entXqLevelTag">' + entLevelLabel(cur) + '</div>' +
+                '<input type="range" min="1" max="20" step="1" value="' + cur + '" id="entXqLevelRange" class="ent-xq-range">' +
+                '<div class="ent-xq-level-scale"><span>1 · Weak</span><span>Strong · 20</span></div>' +
+                '<div class="ent-xq-level-note" id="entXqLevelNote"></div>' +
+            '</div>' +
+            '<div class="ent-mode-btns" style="margin-top:14px;">' +
+                '<button class="ent-mode-btn" id="entXqLevelStart"></button>' +
+            '</div>' +
+            '<button class="ent-back-btn" id="entXqLevelBack">← Back</button>';
+        var range = g('entXqLevelRange'), num = g('entXqLevelNum'),
+            tag = g('entXqLevelTag'), note = g('entXqLevelNote'), start = g('entXqLevelStart');
+        function sync() {
+            var L = clamp(range.value);
+            var o = optsFor(L);
+            num.textContent = L;
+            tag.textContent = entLevelLabel(L);
+            note.textContent = engineName + ' skill ' + o.skill + ' · ' + o.movetime + ' ms / move';
+            start.textContent = '▶ Start at Level ' + L + ' / 20';
+        }
+        range.addEventListener('input', sync);
+        sync();
+        start.onclick = function () { startGame(game, 'ai', { difficulty: clamp(range.value) }); };
+        g('entXqLevelBack').onclick = function () { selectGame(game); };
     }
 
     function showDifficultySelect(game) {
@@ -416,7 +469,12 @@
             var curD = (entGame==='chess') ? chDifficulty : (entGame==='xiangqi') ? xqDifficulty :
                        (entGame==='c4') ? c4Difficulty : (entGame==='gomoku') ? gmDifficulty :
                        (entGame==='reversi') ? rvDifficulty : null;
-            var diffTag = curD ? ' [' + curD.charAt(0).toUpperCase() + curD.slice(1) + ']' : '';
+            var diffTag = '';
+            if (curD != null && curD !== '') {
+                diffTag = (entGame==='xiangqi' || entGame==='chess')
+                    ? ' [Lv ' + curD + '/20]'
+                    : ' [' + (''+curD).charAt(0).toUpperCase() + (''+curD).slice(1) + ']';
+            }
             var engTag = '';
             if (entGame === 'chess' && chUsingEngine) engTag = ' · 🧠 Stockfish';
             else if (entGame === 'xiangqi' && xqUsingEngine) engTag = ' · 🧠 Pikafish';
@@ -639,7 +697,14 @@
     var CH_SYM = { wK:'♔',wQ:'♕',wR:'♖',wB:'♗',wN:'♘',wP:'♙',
                    bK:'♚',bQ:'♛',bR:'♜',bB:'♝',bN:'♞',bP:'♟' };
     var CH_VAL = { P:1, N:3, B:3, R:5, Q:9, K:0 };
-    var chDifficulty = 'medium';
+    var chDifficulty = 8;   // 1–20 engine-strength scale (Stockfish skill levels)
+
+    // Clamp any incoming value to an integer level in 1–20 (default 8).
+    function chClampLevel(v){
+        var n = parseInt(v,10);
+        if(isNaN(n)) return 8;
+        return Math.max(1, Math.min(20, n));
+    }
 
     // ── Piece-square tables (white perspective; row 0 = rank 8) ──
     var CH_PST = {
@@ -751,7 +816,7 @@
     }
 
     function chessInit(diff) {
-        if (diff) chDifficulty = diff;
+        if (diff!=null&&diff!=='') chDifficulty = chClampLevel(diff);
         chUsingEngine = false;
         chBoard  = CH_INIT.map(function (r) { return r.slice(); });
         chTurn   = 'w';  chSel = null;  chMoves = [];
@@ -818,7 +883,7 @@
         if(!hasLegal){
             if(inCheck){
                 setGameOver('Checkmate! '+(chTurn==='w'?'⬛ Black':'⬜ White')+' wins! 🎉');
-                if(entMode==='ai'&&chTurn==='b'){var dr=ENT_DIFF_RANK[chDifficulty]||1;entRecordAndToast('chess',dr,'Beat '+(ENT_DIFF_NAME[dr]||'AI'));}
+                if(entMode==='ai'&&chTurn==='b'){var lv=chClampLevel(chDifficulty);entRecordAndToast('chess',lv,'Beat Lv '+lv+'/20');}
             }
             else        setGameOver('Stalemate — draw! 🤝');
         } else {
@@ -926,17 +991,22 @@
         if(u[4]){ promo=chTurn+u[4].toUpperCase(); }
         return {fr:fr,ff:ff,tr:tr,tf:tf,promo:promo};
     }
-    function chEngineOpts(){
-        if(chDifficulty==='master')    return {skill:20, movetime:1100};
-        if(chDifficulty==='difficult') return {skill:12, movetime:650};
-        return {skill:3, movetime:300};   // medium
+    // Map a 1–20 level → Stockfish options. Stockfish "Skill Level" spans 0–20,
+    // and we also scale thinking time so higher levels search deeper/longer.
+    function chEngineOptsFor(L){
+        L = chClampLevel(L);
+        var skill = Math.max(0, Math.min(20, L));
+        var movetime = 150 + Math.round((L-1)/19 * 1450);   // 150ms → ~1600ms
+        return { skill: skill, movetime: movetime };
     }
+    function chEngineOpts(){ return chEngineOptsFor(chDifficulty); }
 
     function chessAiMove(){
         if(entGameOver) return;
         var moves=chAllLegal(chTurn); if(!moves.length) return;
-        // Try the real engine (Stockfish) for medium+; fall back to built-in AI.
-        if(chDifficulty!=='easy' && window.GameEngine){
+        // Use the real engine (Stockfish) at every level so strength tracks the
+        // selected 1–20 skill; fall back to the built-in AI if it's unavailable.
+        if(window.GameEngine){
             GameEngine.bestMove('chess', chToFen(), chEngineOpts()).then(function(uci){
                 if(entGameOver||entGame!=='chess'||chTurn!=='b') return;
                 var mv=chParseUci(uci);
@@ -953,12 +1023,13 @@
     function chessAiMoveLocal(moves){
         if(entGameOver) return;
         chUsingEngine=false;
+        var L=chClampLevel(chDifficulty);
         var best, depth;
-        if (chDifficulty==='easy') {
+        if (L<=3) {
             // purely random — any legal move
             best=moves[Math.floor(Math.random()*moves.length)];
         } else {
-            depth = chDifficulty==='master' ? 4 : chDifficulty==='difficult' ? 3 : 1;
+            depth = L<=7 ? 1 : L<=12 ? 2 : L<=16 ? 3 : 4;
             var aiColor=chTurn, bestScore=-Infinity;
             chSortLegal(moves);
             for(var i=0;i<moves.length;i++){
@@ -1031,10 +1102,17 @@
         bK:'将',bA:'士',bE:'象',bH:'马',bR:'車',bC:'砲',bS:'卒'
     };
 
-    var xqDifficulty='medium';
+    var xqDifficulty=8;   // 1–20 engine-strength scale (Pikafish skill levels)
+
+    // Clamp any incoming value to an integer level in 1–20 (default 8).
+    function xqClampLevel(v){
+        var n = parseInt(v,10);
+        if(isNaN(n)) return 8;
+        return Math.max(1, Math.min(20, n));
+    }
 
     function xqInit(diff){
-        if(diff) xqDifficulty=diff;
+        if(diff!=null&&diff!=='') xqDifficulty=xqClampLevel(diff);
         xqUsingEngine=false;
         xqBoard=XQ_INIT.map(function(r){return r.slice();});
         xqTurn='r'; xqSel=null; xqMoves=[];
@@ -1066,7 +1144,7 @@
         xqTurn=xqTurn==='r'?'b':'r'; entTurn=xqTurn;
         if(cap&&cap[1]==='K'){
             setGameOver((piece[0]==='r'?'🔴 Red':'⚫ Black')+' wins! 🎉');
-            if(entMode==='ai'&&piece[0]==='r'){var dr=ENT_DIFF_RANK[xqDifficulty]||1;entRecordAndToast('xiangqi',dr,'Beat '+(ENT_DIFF_NAME[dr]||'AI'));}
+            if(entMode==='ai'&&piece[0]==='r'){var lv=xqClampLevel(xqDifficulty);entRecordAndToast('xiangqi',lv,'Beat Lv '+lv+'/20');}
         }
         else if(!xqHasAnyLegal(xqTurn)){setGameOver((xqTurn==='r'?'⚫ Black':'🔴 Red')+' wins! 🎉');}
         else updateTurnStatus();
@@ -1280,18 +1358,23 @@
         if(fr<0||fr>9||tr<0||tr>9||fc<0||fc>8||tc<0||tc>8) return null;
         return {fr:fr,fc:fc,tr:tr,tc:tc};
     }
-    function xqEngineOpts(){
-        if(xqDifficulty==='master')    return {skill:20, movetime:1100};
-        if(xqDifficulty==='difficult') return {skill:12, movetime:650};
-        return {skill:3, movetime:300};   // medium
+    // Map a 1–20 level → Pikafish options. Pikafish "Skill Level" spans 0–20,
+    // and we also scale thinking time so higher levels search deeper/longer.
+    function xqEngineOptsFor(L){
+        L = xqClampLevel(L);
+        var skill = Math.max(0, Math.min(20, L));
+        var movetime = 150 + Math.round((L-1)/19 * 1450);   // 150ms → ~1600ms
+        return { skill: skill, movetime: movetime };
     }
+    function xqEngineOpts(){ return xqEngineOptsFor(xqDifficulty); }
 
     function xqAiMove(){
         if(entGameOver) return;
         var moves=xqGenAll(xqBoard,xqTurn);
         if(!moves.length) return;
-        // Try the real engine (Pikafish) for medium+; fall back to built-in AI.
-        if(xqDifficulty!=='easy' && window.GameEngine){
+        // Use the real engine (Pikafish) at every level so strength tracks the
+        // selected 1–20 skill; fall back to the built-in AI if it's unavailable.
+        if(window.GameEngine){
             GameEngine.bestMove('xiangqi', xqToFen(), xqEngineOpts()).then(function(uci){
                 if(entGameOver||entGame!=='xiangqi'||xqTurn!=='b') return;
                 var mv=xqParseUci(uci);
@@ -1308,12 +1391,13 @@
     function xqAiMoveLocal(moves){
         if(entGameOver) return;
         xqUsingEngine=false;
+        var L=xqClampLevel(xqDifficulty);
         var best;
 
-        if(xqDifficulty==='easy'){
+        if(L<=3){
             best=moves[Math.floor(Math.random()*moves.length)];
         } else {
-            var depth = xqDifficulty==='master' ? 4 : xqDifficulty==='difficult' ? 3 : 1;
+            var depth = L<=7 ? 1 : L<=12 ? 2 : L<=16 ? 3 : 4;
             var forColor=xqTurn, opp=xqTurn==='r'?'b':'r', bestScore=-Infinity;
             moves.sort(function(a,b){
                 return (XQ_VAL[(xqBoard[b.tr][b.tc]||' ')[1]]||0) - (XQ_VAL[(xqBoard[a.tr][a.tc]||' ')[1]]||0);

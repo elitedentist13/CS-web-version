@@ -115,6 +115,86 @@ var I18N_STRINGS = {
         'zh-CN': 'AI 小游戏',
         'zh-Hant': 'AI 小遊戲'
     },
+    'dashboard.card.docTools': {
+        en: 'Document Converter',
+        'zh-CN': '文件格式转换',
+        'zh-Hant': '文件格式轉換'
+    },
+    'dashboard.card.tools': {
+        en: 'Tools',
+        'zh-CN': '工具',
+        'zh-Hant': '工具'
+    },
+    'tools.title': {
+        en: '🧰 Tools',
+        'zh-CN': '🧰 工具',
+        'zh-Hant': '🧰 工具'
+    },
+    'tools.subtitle': {
+        en: 'Handy utilities for everyday clinic work',
+        'zh-CN': '日常诊所工作的实用小工具',
+        'zh-Hant': '日常診所工作的實用小工具'
+    },
+    'tools.back': {
+        en: '← Back to Tools',
+        'zh-CN': '← 返回工具',
+        'zh-Hant': '← 返回工具'
+    },
+    'tools.docConverter': {
+        en: 'Document Converter',
+        'zh-CN': '文件格式转换',
+        'zh-Hant': '文件格式轉換'
+    },
+    'tools.docConverterDesc': {
+        en: 'Convert Word, PDF & images (PDF→Word, Word→PDF, PDF→JPG…)',
+        'zh-CN': '转换 Word、PDF 与图片（PDF→Word、Word→PDF、PDF→JPG…）',
+        'zh-Hant': '轉換 Word、PDF 與圖片（PDF→Word、Word→PDF、PDF→JPG…）'
+    },
+    'tools.medCalc': {
+        en: 'Medical Calculators',
+        'zh-CN': '医学计算器',
+        'zh-Hant': '醫學計算機'
+    },
+    'tools.medCalcDesc': {
+        en: 'BMI, BSA, paediatric dose, EDD, eGFR, age',
+        'zh-CN': 'BMI、体表面积、儿童剂量、预产期、eGFR、年龄',
+        'zh-Hant': 'BMI、體表面積、兒童劑量、預產期、eGFR、年齡'
+    },
+    'tools.qr': {
+        en: 'QR Code Generator',
+        'zh-CN': '二维码生成器',
+        'zh-Hant': 'QR 碼產生器'
+    },
+    'tools.qrDesc': {
+        en: 'Make QR codes for links, Wi-Fi, phone, email',
+        'zh-CN': '为链接、Wi-Fi、电话、邮箱生成二维码',
+        'zh-Hant': '為連結、Wi-Fi、電話、電郵產生 QR 碼'
+    },
+    'tools.pdf': {
+        en: 'PDF Utilities',
+        'zh-CN': 'PDF 工具',
+        'zh-Hant': 'PDF 工具'
+    },
+    'tools.pdfDesc': {
+        en: 'Merge, extract, rotate, watermark & compress PDFs',
+        'zh-CN': '合并、提取、旋转、加水印及压缩 PDF',
+        'zh-Hant': '合併、提取、旋轉、加浮水印及壓縮 PDF'
+    },
+    'tools.cert': {
+        en: 'Certificate / Receipt / Label',
+        'zh-CN': '证明 / 收据 / 标签',
+        'zh-Hant': '證明 / 收據 / 標籤'
+    },
+    'tools.certDesc': {
+        en: 'Generate sick-leave certs, receipts & medicine labels',
+        'zh-CN': '生成病假证明、收据与药物标签',
+        'zh-Hant': '產生病假證明、收據與藥物標籤'
+    },
+    'doctools.title': {
+        en: '🔄 Document Converter',
+        'zh-CN': '🔄 文件格式转换',
+        'zh-Hant': '🔄 文件格式轉換'
+    },
 
     // ── Entertainment Hub ──────────────────────────────────────
     'ent.back':     { en: '← Back', 'zh-CN': '← 返回', 'zh-Hant': '← 返回' },

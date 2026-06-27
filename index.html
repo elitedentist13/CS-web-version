@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260627-tools-backup-3';
+  var BUILD = '20260618-cjk-font-fix-4';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -37,7 +37,7 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  ['fonts/cjk-fonts.css', 'style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
+  ['fonts/cjk-fonts.css', 'style.css'].forEach(function (path) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = withBust(path);
@@ -234,38 +234,6 @@
     <div class="dashboard-context-hint" data-i18n="dashboard.context.hint"></div>
   </div>
 
-  <!-- ── Keyboard Refresh Guide ─────────────────────────────── -->
-  <div class="dash-kb-hint" id="dashKbHint">
-    <button type="button" class="dash-kb-hint-toggle" id="dashKbHintToggle"
-            aria-expanded="false" aria-controls="dashKbHintBody">
-      <span class="dash-kb-hint-toggle-icon">⌨</span>
-      <span data-i18n="dashboard.kbHint.toggleLabel"></span>
-    </button>
-    <div class="dash-kb-hint-body" id="dashKbHintBody" hidden>
-      <table class="dash-kb-hint-table">
-        <tbody>
-          <tr>
-            <td><kbd>F2</kbd></td>
-            <td data-i18n="dashboard.kbHint.f2"></td>
-          </tr>
-          <tr>
-            <td><kbd>F5</kbd></td>
-            <td data-i18n="dashboard.kbHint.f5"></td>
-          </tr>
-          <tr>
-            <td><kbd>Ctrl</kbd>&thinsp;+&thinsp;<kbd>F5</kbd></td>
-            <td data-i18n="dashboard.kbHint.ctrlF5"></td>
-          </tr>
-          <tr>
-            <td><kbd>Ctrl</kbd>&thinsp;+&thinsp;<kbd>Shift</kbd>&thinsp;+&thinsp;<kbd>R</kbd></td>
-            <td data-i18n="dashboard.kbHint.ctrlShiftR"></td>
-          </tr>
-        </tbody>
-      </table>
-      <p class="dash-kb-hint-note" data-i18n="dashboard.kbHint.macNote"></p>
-    </div>
-  </div>
-
   <div class="dashboard-float-shell">
   <div class="dashboard-grid">
     <div class="dash-card" id="card-appointment">
@@ -299,12 +267,6 @@
     </div>
     <div class="dash-card" id="card-configuration">
       <div>⚙️</div><h3 data-i18n="dashboard.card.configuration"></h3>
-    </div>
-    <div class="dash-card" id="card-entertainment">
-      <div>🎮</div><h3 data-i18n="dashboard.card.entertainment"></h3>
-    </div>
-    <div class="dash-card" id="card-tools">
-      <div>🧰</div><h3 data-i18n="dashboard.card.tools"></h3>
     </div>
   </div>
 
@@ -4858,7 +4820,6 @@
               <th data-i18n="bill.receipt.thInstDate"></th>
               <th class="receipt-inst-th-amt" data-i18n="bill.receipt.thInstAmount"></th>
               <th data-i18n="bill.receipt.thInstMethod"></th>
-              <th data-i18n="bill.detail.thClinic"></th>
               <th data-i18n="bill.receipt.thInstNotes"></th>
             </tr>
           </thead>
@@ -4890,17 +4851,7 @@
     </div><!-- /receiptPrintArea -->
 
     <div class="receipt-modal-actions">
-      <!-- Three language print buttons -->
-      <div class="receipt-print-lang-row">
-        <button type="button" id="receiptPrintEnBtn"   class="receipt-print-lang-btn receipt-print-lang-btn--en"
-                data-i18n="bill.receipt.btnPrintEn"></button>
-        <button type="button" id="receiptPrintZhHantBtn" class="receipt-print-lang-btn receipt-print-lang-btn--zh-hant"
-                data-i18n="bill.receipt.btnPrintZhHant"></button>
-        <button type="button" id="receiptPrintZhCNBtn"  class="receipt-print-lang-btn receipt-print-lang-btn--zh-cn"
-                data-i18n="bill.receipt.btnPrintZhCN"></button>
-      </div>
-      <!-- Legacy "print now" button kept for backward-compat (hidden visually, wired as before) -->
-      <button type="button" id="receiptPrintNowBtn" class="receipt-print-now-btn" style="display:none;"
+      <button type="button" id="receiptPrintNowBtn" class="receipt-print-now-btn"
               data-i18n="bill.receipt.btnPrintNow"></button>
       <button type="button" id="receiptPrintOptionsBtn" class="receipt-options-btn"
               data-i18n="bill.receipt.btnOptions"></button>
@@ -5075,14 +5026,13 @@
               <th style="padding:8px 12px;text-align:left;" data-i18n="bill.detail.thDate"></th>
               <th style="padding:8px 12px;text-align:right;" data-i18n="bill.detail.thAmount"></th>
               <th style="padding:8px 12px;text-align:left;" data-i18n="bill.detail.thMethod"></th>
-              <th style="padding:8px 12px;text-align:left;" data-i18n="bill.detail.thClinic"></th>
               <th style="padding:8px 12px;text-align:left;" data-i18n="bill.detail.thReceivedBy"></th>
               <th style="padding:8px 12px;text-align:left;" data-i18n="bill.labelNotes"></th>
               <th style="padding:8px 10px;width:32px;"></th>
             </tr>
           </thead>
           <tbody id="bdPaymentHistoryBody">
-            <tr><td colspan="8" style="padding:14px;text-align:center;
+            <tr><td colspan="7" style="padding:14px;text-align:center;
                 color:#aaa;" data-i18n="bill.historyLoading"></td></tr>
           </tbody>
         </table>
@@ -5155,50 +5105,6 @@
               style="flex:1;padding:11px;background:var(--gray);color:#fff;
                      border:none;border-radius:7px;font-size:14px;
                      cursor:pointer;" data-i18n="bill.addPayment.btnCancel"></button>
-    </div>
-  </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════════
-     MODAL — PAYMENT CLINIC MISMATCH CONFIRM
-════════════════════════════════════════════════════════════ -->
-<div id="billPaymentClinicConfirmModal" class="modal modal-no-backdrop-close" data-no-backdrop-close="1">
-  <div class="modal-box" style="max-width:460px;">
-    <button class="mclose" data-i18n-aria-label="common.closeAria"
-            onclick="dismissBillPaymentClinicConfirm()">×</button>
-
-    <div style="text-align:center;margin-bottom:16px;">
-      <div style="font-size:44px;line-height:1;">🏥</div>
-      <h2 style="color:#b45309;margin:10px 0 6px;" data-i18n="bill.addPayment.clinicConfirmTitle"></h2>
-      <p style="color:#555;font-size:13px;margin:0;line-height:1.5;" data-i18n="bill.addPayment.clinicConfirmBody"></p>
-    </div>
-
-    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
-                padding:12px 14px;font-size:13px;color:#78350f;margin-bottom:18px;">
-      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;">
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#92400e;"
-               data-i18n="bill.addPayment.clinicConfirmPrev"></div>
-          <strong id="bpcPrevClinic" style="font-size:15px;">—</strong>
-        </div>
-        <div style="font-size:20px;color:#d97706;" aria-hidden="true">→</div>
-        <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#92400e;"
-               data-i18n="bill.addPayment.clinicConfirmCurr"></div>
-          <strong id="bpcCurrClinic" style="font-size:15px;">—</strong>
-        </div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:10px;">
-      <button id="bpcConfirmYesBtn"
-              style="flex:1;padding:10px;background:#16a34a;color:#fff;
-                     border:none;border-radius:7px;font-size:14px;
-                     font-weight:700;cursor:pointer;" data-i18n="bill.addPayment.clinicConfirmYes"></button>
-      <button id="bpcConfirmNoBtn"
-              style="flex:1;padding:10px;background:var(--gray);color:#fff;
-                     border:none;border-radius:7px;font-size:14px;
-                     font-weight:600;cursor:pointer;" data-i18n="bill.addPayment.clinicConfirmNo"></button>
     </div>
   </div>
 </div>
@@ -5404,202 +5310,6 @@
 <!-- ════════════════════════════════════════════════════════════
      SCRIPTS  (load order matters — use static tags for CDN; no document.write)
 ════════════════════════════════════════════════════════════ -->
-<!-- ════════════════════════════════════════════════════════════
-     ENTERTAINMENT HUB  (Games: Chess, Chinese Chess, Connect Four, Gomoku)
-════════════════════════════════════════════════════════════ -->
-<section id="entertainmentSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="entertainmentBack" data-i18n="ent.back"></button>
-    <h1 data-i18n="ent.title"></h1>
-  </div>
-
-  <!-- ── LOBBY: game selection ─────────────────────────────── -->
-  <div id="entLobby" class="ent-panel">
-    <p class="ent-subtitle" data-i18n="ent.subtitle"></p>
-    <div class="ent-records-bar">
-      <label class="ent-record-toggle">
-        <input type="checkbox" id="entAllowRecordChk" checked>
-        <span data-i18n="ent.records.allow"></span>
-      </label>
-      <button type="button" class="ent-records-btn" id="entViewRecordsBtn" data-i18n="ent.records.view"></button>
-    </div>
-    <div class="ent-game-grid">
-      <div class="ent-game-card" data-game="c4">
-        <div class="ent-game-icon">🔴</div>
-        <div class="ent-game-name" data-i18n="ent.game.c4"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.c4Desc"></div>
-      </div>
-      <div class="ent-game-card" data-game="chess">
-        <div class="ent-game-icon">♟️</div>
-        <div class="ent-game-name" data-i18n="ent.game.chess"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.chessDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="xiangqi">
-        <div class="ent-game-icon">🀄</div>
-        <div class="ent-game-name" data-i18n="ent.game.xiangqi"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.xiangqiDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="gomoku">
-        <div class="ent-game-icon">⚫</div>
-        <div class="ent-game-name" data-i18n="ent.game.gomoku"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.gomokuDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="reversi">
-        <div class="ent-game-icon">⬛</div>
-        <div class="ent-game-name" data-i18n="ent.game.reversi"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.reversiDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="2048">
-        <div class="ent-game-icon">🔢</div>
-        <div class="ent-game-name" data-i18n="ent.game.2048"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.2048Desc"></div>
-      </div>
-      <div class="ent-game-card" data-game="minesweeper">
-        <div class="ent-game-icon">💣</div>
-        <div class="ent-game-name" data-i18n="ent.game.minesweeper"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.minesweeperDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="snake">
-        <div class="ent-game-icon">🐍</div>
-        <div class="ent-game-name" data-i18n="ent.game.snake"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.snakeDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="sudoku">
-        <div class="ent-game-icon">🔢</div>
-        <div class="ent-game-name" data-i18n="ent.game.sudoku"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.sudokuDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="mahjong">
-        <div class="ent-game-icon">🀄</div>
-        <div class="ent-game-name" data-i18n="ent.game.mahjong"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.mahjongDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="typing">
-        <div class="ent-game-icon">🐱</div>
-        <div class="ent-game-name" data-i18n="ent.game.typing"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.typingDesc"></div>
-      </div>
-      <div class="ent-game-card" data-game="ime">
-        <div class="ent-game-icon">⌨️</div>
-        <div class="ent-game-name" data-i18n="ent.game.ime"></div>
-        <div class="ent-game-desc" data-i18n="ent.game.imeDesc"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── MODE SELECTION ─────────────────────────────────────── -->
-  <div id="entModeSelect" class="ent-panel" style="display:none;">
-    <div id="entModeSelectInner"></div>
-  </div>
-
-  <!-- ── ONLINE ROOM ────────────────────────────────────────── -->
-  <div id="entOnlineRoom" class="ent-panel" style="display:none;">
-    <div id="entOnlineRoomInner"></div>
-  </div>
-
-  <!-- ── GAME AREA ──────────────────────────────────────────── -->
-  <div id="entGameArea" class="ent-panel ent-game-area" style="display:none;">
-    <div class="ent-game-header">
-      <div id="entGameTitle"  class="ent-game-title"></div>
-      <div id="entGameStatus" class="ent-game-status"></div>
-    </div>
-    <div id="entBoardWrap" class="ent-board-wrap"></div>
-    <div class="ent-game-controls">
-      <button type="button" id="entRestartBtn" class="ent-ctrl-btn"
-              data-i18n="ent.restart"></button>
-      <button type="button" id="entExitBtn"    class="ent-ctrl-btn ent-ctrl-btn--exit"
-              data-i18n="ent.exit"></button>
-    </div>
-  </div>
-</section>
-
-<!-- ════════════════════════════════════════════════════════════
-     DOCUMENT CONVERTER  (Word↔PDF, PDF→JPG, image formats — all client-side)
-════════════════════════════════════════════════════════════ -->
-<!-- ════════════════════════════════════════════════════════════
-     TOOLS HUB (utilities such as the document converter)
-════════════════════════════════════════════════════════════ -->
-<section id="toolsSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="toolsBack" data-i18n="common.backDashboard"></button>
-    <h1 data-i18n="tools.title"></h1>
-  </div>
-  <div class="ent-panel">
-    <p class="ent-subtitle" data-i18n="tools.subtitle"></p>
-    <div class="ent-game-grid">
-      <div class="ent-game-card" data-tool="doc-converter">
-        <div class="ent-game-icon">🔄</div>
-        <div class="ent-game-name" data-i18n="tools.docConverter"></div>
-        <div class="ent-game-desc" data-i18n="tools.docConverterDesc"></div>
-      </div>
-      <div class="ent-game-card" data-tool="medcalc">
-        <div class="ent-game-icon">🩺</div>
-        <div class="ent-game-name" data-i18n="tools.medCalc"></div>
-        <div class="ent-game-desc" data-i18n="tools.medCalcDesc"></div>
-      </div>
-      <div class="ent-game-card" data-tool="qrcode">
-        <div class="ent-game-icon">🔳</div>
-        <div class="ent-game-name" data-i18n="tools.qr"></div>
-        <div class="ent-game-desc" data-i18n="tools.qrDesc"></div>
-      </div>
-      <div class="ent-game-card" data-tool="pdfutils">
-        <div class="ent-game-icon">📑</div>
-        <div class="ent-game-name" data-i18n="tools.pdf"></div>
-        <div class="ent-game-desc" data-i18n="tools.pdfDesc"></div>
-      </div>
-      <div class="ent-game-card" data-tool="certgen">
-        <div class="ent-game-icon">📜</div>
-        <div class="ent-game-name" data-i18n="tools.cert"></div>
-        <div class="ent-game-desc" data-i18n="tools.certDesc"></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ── Medical calculators ── -->
-<section id="medCalcSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="medCalcBack" data-i18n="tools.back"></button>
-    <h1 data-i18n="tools.medCalc"></h1>
-  </div>
-  <div id="medCalcApp"></div>
-</section>
-
-<!-- ── QR code generator ── -->
-<section id="qrToolSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="qrToolBack" data-i18n="tools.back"></button>
-    <h1 data-i18n="tools.qr"></h1>
-  </div>
-  <div id="qrToolApp"></div>
-</section>
-
-<!-- ── PDF utilities ── -->
-<section id="pdfUtilSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="pdfUtilBack" data-i18n="tools.back"></button>
-    <h1 data-i18n="tools.pdf"></h1>
-  </div>
-  <div id="pdfUtilApp"></div>
-</section>
-
-<!-- ── Certificate / receipt / label ── -->
-<section id="certGenSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="certGenBack" data-i18n="tools.back"></button>
-    <h1 data-i18n="tools.cert"></h1>
-  </div>
-  <div id="certGenApp"></div>
-</section>
-
-<section id="docToolsSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="docToolsBack" data-i18n="common.backDashboard"></button>
-    <h1 id="docToolsTitleH1" data-i18n="doctools.title"></h1>
-  </div>
-  <div id="docToolsApp" class="doctools-shell"></div>
-</section>
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
@@ -5630,13 +5340,8 @@
     'app-charts.js',
     'app-drugs.js',
     'app-broadcast.js?v=20260524c',
-    'app-quicklaunch.js',
-    'app-engines.js',
-    'app-entertainment.js',
-    'app-doc-tools.js',
-    'app-tools.js'
+    'app-quicklaunch.js'
   ];
-  /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {
     document.write('<script src="' + wb(files[i]) + '"><\/script>');
   }

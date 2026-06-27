@@ -556,12 +556,8 @@ function patViewWireHostActions(host) {
             openConForPatient(id);
             return;
         }
-        if (act === 'notes' && id) {
-            if (typeof openConForPatient === 'function') {
-                openConForPatient(id);
-            } else if (typeof viewHistory === 'function') {
-                viewHistory(id);
-            }
+        if (act === 'notes' && id && typeof viewHistory === 'function') {
+            viewHistory(id);
             return;
         }
         if (act === 'checkin' && id) {

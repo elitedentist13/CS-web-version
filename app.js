@@ -1572,20 +1572,6 @@ function bindDashboardContextControlsOnce() {
     }
 }
 
-var _dashKbHintBound = false;
-function bindDashboardKbHintOnce() {
-    if (_dashKbHintBound) return;
-    var toggle = g('dashKbHintToggle');
-    var body   = g('dashKbHintBody');
-    if (!toggle || !body) return;
-    _dashKbHintBound = true;
-    toggle.addEventListener('click', function() {
-        var open = body.hidden;
-        body.hidden = !open;
-        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    });
-}
-
 function refreshDashboardContextControls() {
     populateDashboardClinicSelect();
     populateDashboardDoctorSelect(currentDoctorId || '');
@@ -1764,9 +1750,6 @@ function currentClinicCodeForTagging() {
         var code = String(rec.clinic_code || '').trim();
         if (code) return code;
     }
-    // Before APP_CLINICS loads (F5 boot), do not guess a tag from the raw UUID — that
-    // filters queries with the wrong value and returns empty lists until manual refresh.
-    if (!APP_CLINICS || !APP_CLINICS.length) return '';
     return currentClinicId ? String(currentClinicId) : '';
 }
 
@@ -2001,57 +1984,6 @@ function patientSearchOrFilterCore(q) {
     }
     patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
     return parts.join(',');
-}
-
-/** Client-side match (appointment records filter, etc.) mirroring patientSearchOrFilter fields. */
-function patientSearchLocalMatches(q, texts) {
-    var raw = String(q || '').trim();
-    if (!raw) return true;
-    var list = (texts || []).map(function (t) { return String(t || ''); });
-    var hay = list.join(' ').toLowerCase();
-    var needle = raw.toLowerCase();
-    if (hay.indexOf(needle) >= 0) return true;
-
-    var hk = raw.replace(/\s+/g, '').toUpperCase();
-    if (hk.length >= 2) {
-        var hkHay = list.map(function (t) {
-            return String(t || '').replace(/\s+/g, '').toUpperCase();
-        }).join(' ');
-        if (hkHay.indexOf(hk) >= 0) return true;
-    }
-
-    var digits = raw.replace(/\D/g, '');
-    if (digits.length >= 4) {
-        var digitHay = list.map(function (t) {
-            return String(t || '').replace(/\D/g, '');
-        }).join(' ');
-        if (digitHay.indexOf(digits) >= 0) return true;
-    }
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw) && hay.indexOf(raw) >= 0) return true;
-    var m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-    if (m) {
-        var iso = m[3] + '-' + ('0' + parseInt(m[2], 10)).slice(-2) + '-' +
-            ('0' + parseInt(m[1], 10)).slice(-2);
-        if (list.some(function (t) { return String(t || '').indexOf(iso) >= 0; })) return true;
-    }
-    if (/^\d{4}$/.test(raw)) {
-        if (list.some(function (t) {
-            var s = String(t || '');
-            return s.indexOf(raw + '-') === 0 || s.indexOf('-' + raw) >= 0;
-        })) return true;
-    }
-    return false;
-}
-
-function patientSearchBlobFromRecord(p) {
-    if (!p) return '';
-    return [
-        p.full_name, p.chinese_name, p.patient_no,
-        p.phone_number, p.mobile_phone, p.hkid, p.email,
-        p.address, p.occupation, p.remarks, p.dob,
-        p.medical_alerts, p.medical_history, p.current_medications, p.allergy
-    ].filter(function (v) { return v != null && String(v).trim() !== ''; }).join(' ');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2321,18 +2253,10 @@ var SCREENS = [
     'reportSection',
     'aiHelperSection',
     'memoCardsSection',
-    'entertainmentSection',
-    'toolsSection',
-    'medCalcSection',
-    'qrToolSection',
-    'pdfUtilSection',
-    'certGenSection',
-    'docToolsSection',
-    'sectionConfig'
+    'sectionConfig'           // ← added
 ];
 
-function showOnly(id, opts) {
-    opts = opts || {};
+function showOnly(id) {
     if (id === 'sectionConfig') {
         var allowCfg = (typeof canAccessConfiguration === 'function')
             ? canAccessConfiguration()
@@ -2354,13 +2278,10 @@ function showOnly(id, opts) {
         target.style.display = (id === 'loginOverlay') ? 'flex' : 'block';
         target.removeAttribute('aria-hidden');
     }
-    if (id === 'patientSection' && !opts.skipPatientViewReset && typeof patViewSetMode === 'function') {
+    if (id === 'patientSection' && typeof patViewSetMode === 'function') {
         patViewSetMode('directory', { skipScroll: true });
     }
     syncAppSessionChrome();
-    if (id !== 'loginOverlay' && currentUserId && typeof persistAppScrollRestoreState === 'function') {
-        requestAnimationFrame(function() { persistAppScrollRestoreState(); });
-    }
 }
 
 function refreshDashboardUserBadge() {
@@ -2542,60 +2463,11 @@ function scheduleMarkAppReady() {
     markAppReady();
 }
 
-// ════════════════════════════════════════════════════════════════
-// UNSAVED-CHANGES OVERLAY
-// Shared by X-ray lightbox, Photo lightbox, and Forms editor.
-// Injects a small confirmation card into `containerId`.
-// ════════════════════════════════════════════════════════════════
-function showMediaUnsavedOverlay(containerId, onSave, onDiscard, opts) {
-    var container = document.getElementById(containerId);
-    if (!container) return;
-    if (container.querySelector('.media-unsaved-overlay')) return; // already showing
-
-    opts = opts || {};
-    var tKey  = opts.messageKey  || 'media.unsaved.message';
-    var sKey  = opts.saveKey     || 'media.unsaved.save';
-    var dKey  = opts.discardKey  || 'media.unsaved.discard';
-    var cKey  = opts.cancelKey   || 'media.unsaved.cancel';
-    var tFn   = (typeof t === 'function') ? t : function(k){ return k; };
-
-    var overlay = document.createElement('div');
-    overlay.className = 'media-unsaved-overlay';
-
-    var card = document.createElement('div');
-    card.className = 'media-unsaved-card';
-    card.innerHTML =
-        '<div class="media-unsaved-icon">⚠️</div>' +
-        '<div class="media-unsaved-msg">' + tFn(tKey) + '</div>';
-
-    function makeBtn(cls, labelKey, handler) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'media-unsaved-btn ' + cls;
-        btn.textContent = tFn(labelKey);
-        btn.addEventListener('click', function() {
-            overlay.remove();
-            handler();
-        });
-        return btn;
-    }
-
-    var row = document.createElement('div');
-    row.className = 'media-unsaved-btns';
-    row.appendChild(makeBtn('media-unsaved-save',    sKey, onSave));
-    row.appendChild(makeBtn('media-unsaved-discard', dKey, onDiscard));
-    row.appendChild(makeBtn('media-unsaved-cancel',  cKey, function() {}));
-    card.appendChild(row);
-    overlay.appendChild(card);
-    container.appendChild(overlay);
-}
-
 function showDashboard() {
     showOnly('dashboardSection');
     if (typeof stopApptAutoRefresh === 'function') stopApptAutoRefresh();
     if (typeof applyDashboardI18n === 'function') applyDashboardI18n();
     refreshDashboardContextControls();
-    bindDashboardKbHintOnce();
     refreshDashboardUserBadge();
     if (typeof applyDashboardPermissionGuards === 'function') applyDashboardPermissionGuards();
     var cfgSec = g('sectionConfig');
@@ -2625,287 +2497,6 @@ function sectionVisible(id) {
 function activeConsultationTabKey() {
     var t = document.querySelector('#consultationSection .con-tab.active');
     return t && t.dataset ? t.dataset.tab : '';
-}
-
-// ── Scroll + navigation restore (F2 refresh + browser reload) ──
-var APP_SCROLL_RESTORE_SS = 'joyful_app_scroll_restore_v1';
-var APP_SCROLL_SELECTORS = [
-    '.queue-wrap',
-    '.today-wrap',
-    '#plusApptAllScroll',
-    '.plusappt-schedule-wrap',
-    '.ar-records-table-wrap',
-    '#rptTableWrap',
-    '#drugHistoryWrap',
-    '#drugListWrap',
-    '#gcalScrollBody',
-    '#patientViewDashboard',
-    '.history-pane-wrap'
-];
-var _appScrollPersistTimer = null;
-var _appScrollRestoreToken = 0;
-var _appScrollPersistBound = false;
-var _appScrollApplying = false;
-
-function visibleAppScreenId() {
-    for (var i = 0; i < SCREENS.length; i++) {
-        var sid = SCREENS[i];
-        if (sid === 'loginOverlay') continue;
-        if (sectionVisible(sid)) return sid;
-    }
-    return null;
-}
-
-function appScrollElementsForSelector(sel) {
-    if (sel.charAt(0) === '#') {
-        var byId = g(sel.slice(1));
-        return byId ? [byId] : [];
-    }
-    return Array.prototype.slice.call(document.querySelectorAll(sel));
-}
-
-function appScrollStateKey(sel, idx, count) {
-    return count > 1 ? (sel + ':' + idx) : sel;
-}
-
-function captureAppScrollState() {
-    var state = { winY: window.scrollY || 0, els: {} };
-    APP_SCROLL_SELECTORS.forEach(function(sel) {
-        var nodes = appScrollElementsForSelector(sel);
-        nodes.forEach(function(el, idx) {
-            state.els[appScrollStateKey(sel, idx, nodes.length)] = {
-                top: el.scrollTop || 0,
-                left: el.scrollLeft || 0
-            };
-        });
-    });
-    return state;
-}
-
-function applyAppScrollState(state) {
-    if (!state) return;
-    _appScrollApplying = true;
-    try {
-        if (state.winY != null) window.scrollTo(0, state.winY);
-        if (!state.els) return;
-        Object.keys(state.els).forEach(function(key) {
-            var pos = state.els[key];
-            if (!pos) return;
-            var sel = key.indexOf(':') >= 0 ? key.replace(/:\d+$/, '') : key;
-            var idx = 0;
-            var m = key.match(/:(\d+)$/);
-            if (m) idx = parseInt(m[1], 10) || 0;
-            var nodes = appScrollElementsForSelector(sel);
-            var el = nodes[idx];
-            if (!el) return;
-            el.scrollTop = pos.top || 0;
-            el.scrollLeft = pos.left || 0;
-        });
-    } finally {
-        _appScrollApplying = false;
-    }
-}
-
-function captureAppNavState() {
-    var screen = visibleAppScreenId() || 'dashboardSection';
-    var nav = { screen: screen };
-    if (screen === 'appointmentSection' && typeof apptActiveTabKey === 'function') {
-        nav.apptTab = apptActiveTabKey() || 'queue';
-    }
-    if (screen === 'consultationSection') {
-        nav.conTab = activeConsultationTabKey() || 'treatment';
-    }
-    if (screen === 'patientSection') {
-        if (typeof patientViewMode !== 'undefined') nav.patientView = patientViewMode;
-        if (typeof patientDirPageIndex !== 'undefined') nav.patientDirPage = patientDirPageIndex;
-    }
-    return nav;
-}
-
-function readAppScrollRestorePayload() {
-    try {
-        var raw = sessionStorage.getItem(APP_SCROLL_RESTORE_SS);
-        if (!raw) return null;
-        return JSON.parse(raw);
-    } catch (e) {
-        return null;
-    }
-}
-
-function persistAppScrollRestoreState() {
-    if (!currentUserId) return;
-    try {
-        sessionStorage.setItem(APP_SCROLL_RESTORE_SS, JSON.stringify({
-            nav: captureAppNavState(),
-            scroll: captureAppScrollState(),
-            ts: Date.now()
-        }));
-    } catch (e) {}
-}
-
-function scheduleAppScrollRestore(scrollState, opts) {
-    opts = opts || {};
-    if (!scrollState) return;
-    var token = ++_appScrollRestoreToken;
-    var delays = opts.delays || [0, 50, 150, 350, 700, 1200];
-    delays.forEach(function(ms) {
-        setTimeout(function() {
-            if (token !== _appScrollRestoreToken) return;
-            applyAppScrollState(scrollState);
-        }, ms);
-    });
-}
-
-function cancelAppScrollRestore() {
-    ++_appScrollRestoreToken;
-    releaseAppScrollLock(false);
-}
-
-var _appScrollLock = null;
-var _appScrollLockSeq = 0;
-
-/** Briefly re-apply scroll while list DOM height changes (auto-refresh only). */
-function lockAppScroll(state) {
-    releaseAppScrollLock(false);
-    if (!state) return;
-    var token = ++_appScrollLockSeq;
-    var maxFrames = 4;
-    var frames = 0;
-    _appScrollLock = { state: state, token: token, raf: 0 };
-    function tick() {
-        if (!_appScrollLock || _appScrollLock.token !== token) return;
-        applyAppScrollState(state);
-        frames++;
-        if (frames < maxFrames) {
-            _appScrollLock.raf = requestAnimationFrame(tick);
-        } else {
-            _appScrollLock = null;
-        }
-    }
-    applyAppScrollState(state);
-    _appScrollLock.raf = requestAnimationFrame(tick);
-}
-
-function releaseAppScrollLock(doFinalRestore) {
-    var st = _appScrollLock;
-    if (st) st.token = -1;
-    _appScrollLock = null;
-    if (st && st.raf) cancelAnimationFrame(st.raf);
-    if (doFinalRestore && st && st.state) {
-        scheduleAppScrollRestore(st.state, { delays: [0, 120, 400] });
-    }
-}
-
-function screenModulePermKey(screenId) {
-    var map = {
-        patientSection: 'patient',
-        appointmentSection: 'appointment',
-        consultationSection: 'consultation',
-        drugSection: 'drug_inventory',
-        reportSection: 'report'
-    };
-    return map[screenId] || null;
-}
-
-function canRestoreAppScreen(screenId) {
-    if (!screenId || screenId === 'loginOverlay') return false;
-    if (SCREENS.indexOf(screenId) < 0) return false;
-    if (screenId === 'sectionConfig') {
-        return (typeof canAccessConfiguration === 'function')
-            ? canAccessConfiguration()
-            : (String(currentRole || '').toLowerCase() === 'admin');
-    }
-    var perm = screenModulePermKey(screenId);
-    if (perm && typeof hasAppPermission === 'function') return hasAppPermission(perm);
-    return true;
-}
-
-function openRestoredAppScreen(screen, nav) {
-    nav = nav || {};
-    switch (screen) {
-    case 'dashboardSection':
-        showDashboard();
-        break;
-    case 'patientSection':
-        showOnly('patientSection', { skipPatientViewReset: true });
-        if (nav.patientView && typeof patViewSetMode === 'function') {
-            patViewSetMode(nav.patientView, { skipScroll: true });
-        }
-        if (typeof patientDirPageIndex !== 'undefined' && nav.patientDirPage != null) {
-            patientDirPageIndex = Math.max(0, parseInt(nav.patientDirPage, 10) || 0);
-        }
-        if (typeof fetchPatients === 'function') fetchPatients();
-        break;
-    case 'appointmentSection':
-        showOnly('appointmentSection');
-        if (typeof initAppt === 'function') initAppt({ initialTab: nav.apptTab || 'queue' });
-        break;
-    case 'consultationSection':
-        showOnly('consultationSection');
-        if (typeof refreshConsultationClinicFilterSelects === 'function') {
-            refreshConsultationClinicFilterSelects();
-        } else if (typeof refreshAllClinicTagFilterSelects === 'function') {
-            refreshAllClinicTagFilterSelects();
-        }
-        if (typeof loadConsultationDoctors === 'function') loadConsultationDoctors();
-        if (nav.conTab && typeof switchConTab === 'function') switchConTab(nav.conTab);
-        break;
-    case 'drugSection':
-        showOnly('drugSection');
-        if (typeof initDrugs === 'function') initDrugs();
-        break;
-    case 'reportSection':
-        showOnly('reportSection');
-        if (typeof initReportModuleClinic === 'function') initReportModuleClinic();
-        if (typeof REPORT !== 'undefined' && typeof REPORT.init === 'function') REPORT.init();
-        break;
-    case 'aiHelperSection':
-        showOnly('aiHelperSection');
-        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.init === 'function') AIHELPER.init();
-        break;
-    case 'memoCardsSection':
-        showOnly('memoCardsSection');
-        if (typeof MEMO_AI !== 'undefined' && typeof MEMO_AI.init === 'function') MEMO_AI.init();
-        break;
-    case 'sectionConfig':
-        if (typeof CFG !== 'undefined' && typeof CFG.init === 'function') {
-            showOnly('sectionConfig');
-            CFG.init();
-        } else {
-            showDashboard();
-        }
-        break;
-    default:
-        showDashboard();
-    }
-}
-
-function restoreAppSessionView() {
-    var payload = readAppScrollRestorePayload();
-    if (!payload || !payload.nav || !payload.nav.screen) return false;
-    if (!canRestoreAppScreen(payload.nav.screen)) return false;
-    openRestoredAppScreen(payload.nav.screen, payload.nav);
-    scheduleAppScrollRestore(payload.scroll, { delays: [0, 100, 300, 600, 1000, 1600] });
-    return true;
-}
-
-function bindAppScrollPersistOnce() {
-    if (_appScrollPersistBound) return;
-    _appScrollPersistBound = true;
-    window.addEventListener('scroll', function() {
-        clearTimeout(_appScrollPersistTimer);
-        _appScrollPersistTimer = setTimeout(persistAppScrollRestoreState, 250);
-    }, true);
-    window.addEventListener('beforeunload', persistAppScrollRestoreState);
-    window.addEventListener('wheel', cancelAppScrollRestore, { passive: true, capture: true });
-    window.addEventListener('touchmove', cancelAppScrollRestore, { passive: true, capture: true });
-    window.addEventListener('keydown', function(e) {
-        var k = e.key;
-        if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'PageUp' || k === 'PageDown' ||
-            k === 'Home' || k === 'End' || k === ' ') {
-            cancelAppScrollRestore();
-        }
-    }, true);
 }
 
 var appGlobalToastTimer = null;
@@ -3230,23 +2821,24 @@ function bindActivePatientBadgeCursor(card) {
             card.style.cursor = '';
             return;
         }
-        if (ev.target.closest('.active-patient-clear-btn') ||
-            ev.target.closest('.active-patient-phone-copy-btn') ||
+        if (ev.target.closest('.active-patient-clear-btn')) {
+            card.style.cursor = 'pointer';
+            return;
+        }
+        if (ev.target.closest('.active-patient-phone-copy-btn') ||
             ev.target.closest('.active-patient-copy-all-btn')) {
             card.style.cursor = 'pointer';
             return;
         }
-        if (ev.target.closest('.active-patient-badge-textbox') ||
-            ev.target.closest('.active-patient-badge-phone-text')) {
+        if (ev.target.closest('.active-patient-badge-phone-text')) {
             card.style.cursor = 'text';
             return;
         }
-        if (ev.target.closest('.active-patient-badge-dragzone')) {
-            card.style.cursor = 'grab';
+        if (ev.target.closest('.active-patient-badge-textbox')) {
+            card.style.cursor = 'text';
             return;
         }
-        // Let CSS default handle everything else (no forced grab on card body)
-        card.style.cursor = '';
+        card.style.cursor = 'grab';
     });
     card.addEventListener('mouseleave', function() {
         card.style.cursor = '';
@@ -3254,7 +2846,6 @@ function bindActivePatientBadgeCursor(card) {
     var box = card.querySelector('.active-patient-badge-textbox');
     if (box) {
         box.addEventListener('mousedown', function(ev) {
-            // prevent card-level handlers from interfering with text selection
             ev.stopPropagation();
         });
         box.addEventListener('dragstart', function(ev) {
@@ -3292,7 +2883,7 @@ function renderActivePatientSlot(idx, p) {
     card.setAttribute('data-copy-phone', activePatientBadgePhoneCopyRaw(p));
     var phoneBtn = card.querySelector('.active-patient-phone-copy-btn');
     if (phoneBtn) phoneBtn.disabled = !activePatientBadgePhoneCopyRaw(p);
-    card.setAttribute('draggable', 'false');
+    card.setAttribute('draggable', 'true');
     card.setAttribute('data-patient-id', p.id);
     card.setAttribute('data-payload', serializePatientDragPayload(p));
     card.classList.add('is-filled');
@@ -3558,36 +3149,14 @@ function bindActivePatientCardOnce() {
         var slotIdx = parseInt(card.getAttribute('data-slot') || '0', 10) || 0;
         bindActivePatientCardDropTarget(card, slotIdx);
         bindActivePatientBadgeCursor(card);
-
-        // ── Drag only arms from designated handle zones ──────────
-        // This keeps the card draggable=false so text inside the
-        // textarea is always freely selectable.  A mousedown on any
-        // dragzone (header, phone row, date strip) briefly arms the
-        // card so the browser's native drag sequence can fire.
-        card.querySelectorAll('.active-patient-badge-dragzone').forEach(function(zone) {
-            zone.addEventListener('mousedown', function() {
-                if (card.classList.contains('is-filled')) {
-                    card.setAttribute('draggable', 'true');
-                }
-            });
-        });
-        card.addEventListener('mouseup', function() {
-            card.setAttribute('draggable', 'false');
-        });
-        card.addEventListener('mouseleave', function() {
-            card.setAttribute('draggable', 'false');
-        });
-
         card.addEventListener('dragstart', function(ev) {
             if (activePatientBadgeDragBlockedTarget(ev.target)) {
                 ev.preventDefault();
-                card.setAttribute('draggable', 'false');
                 return;
             }
             var payload = card.getAttribute('data-payload') || '';
             if (!payload) {
                 ev.preventDefault();
-                card.setAttribute('draggable', 'false');
                 return;
             }
             setPatientDragPayloadSession(parsePatientDragPayload(payload));
@@ -3597,7 +3166,6 @@ function bindActivePatientCardOnce() {
             ev.dataTransfer.setData('text/plain', payload);
         });
         card.addEventListener('dragend', function() {
-            card.setAttribute('draggable', 'false');
             clearPatientDragPayloadSession();
         });
     });
@@ -3636,7 +3204,6 @@ function bindActivePatientCardOnce() {
 
 function triggerGlobalRefresh(opts) {
     opts = opts || {};
-    var savedScroll = captureAppScrollState();
     if (currentUserId && typeof refreshAppSessionStripContents === 'function') {
         refreshAppSessionStripContents();
     }
@@ -3699,8 +3266,6 @@ function triggerGlobalRefresh(opts) {
         typeof CFG._reloadActiveTab === 'function') {
         CFG._reloadActiveTab();
     }
-    scheduleAppScrollRestore(savedScroll);
-    persistAppScrollRestoreState();
 }
 
 function onGlobalRefreshHotkey(e) {
@@ -3873,7 +3438,6 @@ function persistSession() {
 
 function clearSession() {
     try { localStorage.removeItem('jsm_session'); } catch (e) {}
-    try { sessionStorage.removeItem(APP_SCROLL_RESTORE_SS); } catch (e2) {}
     if (typeof plusApptTransferHistoryClear === 'function') plusApptTransferHistoryClear();
 }
 
@@ -3899,82 +3463,6 @@ function restoreSession() {
     }
 }
 
-var _bootNavPayload = null;
-var _bootClinicsReady = false;
-var _bootDoctorsReady = false;
-var _bootRefCallbacks = [];
-
-function whenBootReferenceDataReady(fn) {
-    if (typeof fn !== 'function') return;
-    if (_bootClinicsReady && _bootDoctorsReady) {
-        try { fn(); } catch (e) {}
-        return;
-    }
-    _bootRefCallbacks.push(fn);
-}
-
-function _flushBootReferenceCallbacks() {
-    if (!_bootClinicsReady || !_bootDoctorsReady) return;
-    var list = _bootRefCallbacks.slice();
-    _bootRefCallbacks = [];
-    list.forEach(function (fn) {
-        try { fn(); } catch (e) {}
-    });
-}
-
-function _markBootClinicsReady() {
-    _bootClinicsReady = true;
-    _flushBootReferenceCallbacks();
-}
-
-function _markBootDoctorsReady() {
-    _bootDoctorsReady = true;
-    _flushBootReferenceCallbacks();
-}
-
-/** After clinics + doctors load: restore screen (F5) and load module data with correct clinic tags. */
-function completeBootAfterReferenceData() {
-    if (!currentUserId || window.__joyfulBootSessionDone) return;
-    window.__joyfulBootSessionDone = true;
-
-    populateWorkingClinicSelect();
-    refreshDashboardContextControls();
-
-    var wc = currentClinicId;
-    if (typeof defaultWorkingClinicId === 'function') {
-        wc = wc || defaultWorkingClinicId();
-    }
-    if (wc && typeof setWorkingClinic === 'function') {
-        setWorkingClinic(wc, { syncFilters: true, reloadAppt: false, refreshVisible: false });
-    }
-
-    var restored = false;
-    var payload = _bootNavPayload;
-    _bootNavPayload = null;
-    if (payload && payload.nav && payload.nav.screen &&
-        typeof canRestoreAppScreen === 'function' &&
-        canRestoreAppScreen(payload.nav.screen)) {
-        openRestoredAppScreen(payload.nav.screen, payload.nav);
-        if (payload.scroll) {
-            scheduleAppScrollRestore(payload.scroll, {
-                delays: [0, 100, 300, 600, 1000, 1600]
-            });
-        }
-        restored = true;
-    }
-    if (!restored) showDashboard();
-
-    syncAppSessionChrome();
-
-    if (typeof hasEffectiveWorkingDateOverride === 'function' && hasEffectiveWorkingDateOverride()) {
-        setTimeout(function () {
-            if (typeof refreshAppSectionsForWorkingDate === 'function') {
-                refreshAppSectionsForWorkingDate();
-            }
-        }, 400);
-    }
-}
-
 function loadClinicsAndDoctorsForLogin() {
     function finishClinicRows(rows) {
         APP_CLINICS = rows || [];
@@ -3996,7 +3484,6 @@ function loadClinicsAndDoctorsForLogin() {
                 setWorkingClinic(nextId, { syncFilters: true, reloadAppt: false });
             }
         }
-        _markBootClinicsReady();
     }
     var clinicSelectFull = 'id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax,is_active';
     var clinicSelectLegacy = 'id,clinic_code,english_name,chinese_name,address,address_chinese,tel,fax';
@@ -4014,8 +3501,6 @@ function loadClinicsAndDoctorsForLogin() {
             return;
         }
         finishClinicRows(r.error ? [] : (r.data || []));
-    }).catch(function () {
-        finishClinicRows([]);
     });
 
     function finishDoctorList(rows) {
@@ -4024,7 +3509,6 @@ function loadClinicsAndDoctorsForLogin() {
             CalDoctorColors.onDoctorsLoaded();
         }
         refreshDashboardContextControls();
-        _markBootDoctorsReady();
     }
 
     Promise.all([
@@ -4043,21 +3527,15 @@ function loadClinicsAndDoctorsForLogin() {
                 finishDoctorList(r2.error ? [] : (r2.data || []));
                 if (!ur.error) rebuildDoctorLoginIdsFromUsers(ur.data || []);
                 refreshLoginDoctorSelect();
-            }).catch(function () {
-                finishDoctorList([]);
-                refreshLoginDoctorSelect();
             });
             return;
         }
         if (dr.error) {
-            finishDoctorList([]);
+            APP_DOCTORS = [];
         } else {
             finishDoctorList(dr.data || []);
         }
         if (!ur.error) rebuildDoctorLoginIdsFromUsers(ur.data || []);
-        refreshLoginDoctorSelect();
-    }).catch(function () {
-        finishDoctorList([]);
         refreshLoginDoctorSelect();
     });
 }
@@ -4193,10 +3671,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var hasSession = restoreSession();
     if (hasSession) {
-        bindAppScrollPersistOnce();
-        _bootNavPayload = readAppScrollRestorePayload();
-        syncAppSessionChrome();
-        whenBootReferenceDataReady(completeBootAfterReferenceData);
+        populateWorkingClinicSelect();
+        showDashboard();
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
         if (typeof prefetchBillTypes === 'function') prefetchBillTypes();
         if (typeof restartLoginIdleTimeout === 'function') restartLoginIdleTimeout();
@@ -4204,6 +3680,11 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             document.dispatchEvent(new CustomEvent('app-session-sync'));
         } catch (eSync) {}
+        if (hasEffectiveWorkingDateOverride()) {
+            setTimeout(function () {
+                refreshAppSectionsForWorkingDate();
+            }, 400);
+        }
     } else {
         showLogin();
         if (postLoginRefresh) {
@@ -4351,51 +3832,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-
-    var entCard = g('card-entertainment');
-    if (entCard) {
-        entCard.addEventListener('click', function() {
-            if (typeof showEntertainment === 'function') showEntertainment();
-        });
-    }
-
-    var toolsCard = g('card-tools');
-    if (toolsCard) {
-        toolsCard.addEventListener('click', function() {
-            showOnly('toolsSection');
-        });
-    }
-
-    var toolsBack = g('toolsBack');
-    if (toolsBack) toolsBack.addEventListener('click', showDashboard);
-
-    function wireToolCard(tool, fn) {
-        var card = document.querySelector('#toolsSection [data-tool="' + tool + '"]');
-        if (card) card.addEventListener('click', fn);
-    }
-    wireToolCard('doc-converter', function() {
-        if (typeof DOCTOOLS !== 'undefined' && typeof DOCTOOLS.open === 'function') DOCTOOLS.open();
-        else alert(appTr('alert.docToolsLoading'));
-    });
-    wireToolCard('medcalc', function() {
-        if (typeof MEDCALC !== 'undefined' && typeof MEDCALC.open === 'function') MEDCALC.open();
-    });
-    wireToolCard('qrcode', function() {
-        if (typeof QRTOOL !== 'undefined' && typeof QRTOOL.open === 'function') QRTOOL.open();
-    });
-    wireToolCard('pdfutils', function() {
-        if (typeof PDFUTIL !== 'undefined' && typeof PDFUTIL.open === 'function') PDFUTIL.open();
-    });
-    wireToolCard('certgen', function() {
-        if (typeof CERTGEN !== 'undefined' && typeof CERTGEN.open === 'function') CERTGEN.open();
-    });
-
-    [['medCalcBack', 'medCalcSection'], ['qrToolBack', 'qrToolSection'],
-     ['pdfUtilBack', 'pdfUtilSection'], ['certGenBack', 'certGenSection']]
-    .forEach(function(pair) {
-        var b = g(pair[0]);
-        if (b) b.addEventListener('click', function() { showOnly('toolsSection'); });
-    });
 
     // placeholder cards (temporarily inactive)
     ['card-expenses', 'card-inventory']
@@ -4672,14 +4108,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ════════════════════════════════════════════════════════
     // CONSULTATION SECTION WIRING
     // ════════════════════════════════════════════════════════
-    g('conBack').addEventListener('click', function() {
-        if (typeof _conFormsDirty !== 'undefined' && _conFormsDirty &&
-                typeof _conFormsCheckUnsavedThen === 'function') {
-            _conFormsCheckUnsavedThen(showDashboard);
-        } else {
-            showDashboard();
-        }
-    });
+    g('conBack').addEventListener('click', showDashboard);
 
     var memoBackBtn = g('memoBackBtn');
     if (memoBackBtn) {
@@ -4785,7 +4214,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        // action dropdown close is handled in app-appt.js (bindQueueActionDropGlobalCloseOnce)
+        // close action dropdowns (queue table)
+        document.querySelectorAll('.action-drop.open').forEach(function(dd) {
+            var wrap = dd.closest('.action-wrap');
+            if (wrap && !wrap.contains(e.target)) {
+                dd.classList.remove('open');
+            }
+        });
 
         // close appointment patient search dropdown
         var psWrap = document.querySelector('#apptModal .ps-wrap');
@@ -4975,7 +4410,7 @@ function applyOpenGlobalModalsI18n() {
     }
     var ids = [
         'apptModal', 'apptPopup', 'queueRemarksModal', 'recallSendModal',
-        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'billPaymentClinicConfirmModal', 'billDeleteModal',
+        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'billDeleteModal',
         'patientDetailsModal', 'addPatientModal', 'editPatientModal', 'patientBananaModal',
         'photoUploadModal', 'photoLightbox',
         'xrayUploadModal', 'xrayLightbox', 'diySystemModal',

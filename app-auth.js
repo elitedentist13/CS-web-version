@@ -80,16 +80,7 @@ function hasAppPermission(key) {
 }
 
 function canAccessConfiguration() {
-    // Admins always have access.
-    if (String(currentRole || '').toLowerCase() === 'admin') return true;
-    // Quick lock (Users tab): when ON (default), Configuration is admin-only
-    // and hidden from everyone else.
-    if (typeof programSettingBool === 'function' && programSettingBool('config_admin_only', true)) {
-        return false;
-    }
-    // Otherwise fall back to the per-user 'config' permission.
-    if (typeof hasAppPermission === 'function') return hasAppPermission('config');
-    return false;
+    return String(currentRole || '').toLowerCase() === 'admin';
 }
 
 function permToastDenied() {

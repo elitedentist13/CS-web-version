@@ -47,13 +47,6 @@
         return (typeof selPatientId !== 'undefined') ? selPatientId : null;
     }
 
-    function qlHasQueueRowSelection() {
-        return !!(
-            typeof apptListSelectedApptId !== 'undefined' && apptListSelectedApptId &&
-            typeof apptListSelectedTab !== 'undefined' && apptListSelectedTab === 'queue'
-        );
-    }
-
     // ── state ─────────────────────────────────────────────────
     var _open = false;
 
@@ -69,7 +62,6 @@
 
     // ── action definitions ────────────────────────────────────
     // requiresPatient: if true and no conPatientId, show a toast instead of crashing
-    // Menu order matches shortcut numbers (1–7), then letter keys Q / B.
     var QL_ACTIONS = [
         {
             id: 'patients',
@@ -108,21 +100,53 @@
             }
         },
         {
-            id: 'queue_actions',
-            icon: '▾',
-            i18nKey: 'ql.queueActions',
-            shortcut: 'Ctrl+Shift+A',
-            requiresQueueSelection: true,
+            id: 'check_in',
+            icon: '✅',
+            i18nKey: 'ql.checkIn',
+            shortcut: 'Ctrl+Shift+7',
+            requiresPatient: true,
             handler: function () {
-                if (!qlHasQueueRowSelection()) {
-                    qlToast(qlTr('ql.needQueueSelection'));
+                var pid = qlCurrentPatientId();
+                if (!pid) {
+                    qlToast(qlTr('ql.needPatient'));
                     return;
                 }
-                if (typeof openQueueSelectedRowAction === 'function') {
-                    openQueueSelectedRowAction();
+                function runCheckIn(p) {
+                    if (!p || !p.id) {
+                        qlToast(qlTr('ql.needPatient'));
+                        return;
+                    }
+                    if (typeof checkInPatientFromRecord === 'function') {
+                        checkInPatientFromRecord(p);
+                    }
+                }
+                var cached = null;
+                if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
+                    cached = patientListCache.find(function (x) { return x && x.id === pid; }) || null;
+                }
+                if (!cached && typeof conPatientId !== 'undefined' && conPatientId === pid &&
+                    typeof conPatientData !== 'undefined' && conPatientData) {
+                    cached = conPatientData;
+                }
+                if (cached) {
+                    runCheckIn(cached);
                     return;
                 }
-                qlToast(qlTr('ql.needQueueSelection'));
+                if (typeof SB === 'undefined' || !SB || !SB.from) {
+                    qlToast(qlTr('ql.needPatient'));
+                    return;
+                }
+                SB.from('patients')
+                    .select('id,patient_no,full_name,chinese_name')
+                    .eq('id', pid)
+                    .limit(1)
+                .then(function (r) {
+                    if (r.error || !r.data || !r.data.length) {
+                        qlToast(qlTr('ql.needPatient'));
+                        return;
+                    }
+                    runCheckIn(r.data[0]);
+                });
             }
         },
         {
@@ -180,6 +204,18 @@
             }
         },
         {
+            id: 'broadcast',
+            icon: '📢',
+            i18nKey: 'ql.broadcast',
+            shortcut: 'Ctrl+Shift+B',
+            requiresPatient: false,
+            handler: function () {
+                if (typeof BROADCAST !== 'undefined' && BROADCAST.toggle) {
+                    BROADCAST.toggle();
+                }
+            }
+        },
+        {
             id: 'add_payment',
             icon: '💳',
             i18nKey: 'ql.addPayment',
@@ -214,68 +250,6 @@
                         qlToast(qlTr('ql.needPatient'));
                     }
                 }, 220);
-            }
-        },
-        {
-            id: 'check_in',
-            icon: '✅',
-            i18nKey: 'ql.checkIn',
-            shortcut: 'Ctrl+Shift+7',
-            requiresPatient: true,
-            handler: function () {
-                var pid = qlCurrentPatientId();
-                if (!pid) {
-                    qlToast(qlTr('ql.needPatient'));
-                    return;
-                }
-                function runCheckIn(p) {
-                    if (!p || !p.id) {
-                        qlToast(qlTr('ql.needPatient'));
-                        return;
-                    }
-                    if (typeof checkInPatientFromRecord === 'function') {
-                        checkInPatientFromRecord(p);
-                    }
-                }
-                var cached = null;
-                if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
-                    cached = patientListCache.find(function (x) { return x && x.id === pid; }) || null;
-                }
-                if (!cached && typeof conPatientId !== 'undefined' && conPatientId === pid &&
-                    typeof conPatientData !== 'undefined' && conPatientData) {
-                    cached = conPatientData;
-                }
-                if (cached) {
-                    runCheckIn(cached);
-                    return;
-                }
-                if (typeof SB === 'undefined' || !SB || !SB.from) {
-                    qlToast(qlTr('ql.needPatient'));
-                    return;
-                }
-                SB.from('patients')
-                    .select('id,patient_no,full_name,chinese_name')
-                    .eq('id', pid)
-                    .limit(1)
-                .then(function (r) {
-                    if (r.error || !r.data || !r.data.length) {
-                        qlToast(qlTr('ql.needPatient'));
-                        return;
-                    }
-                    runCheckIn(r.data[0]);
-                });
-            }
-        },
-        {
-            id: 'broadcast',
-            icon: '📢',
-            i18nKey: 'ql.broadcast',
-            shortcut: 'Ctrl+Shift+B',
-            requiresPatient: false,
-            handler: function () {
-                if (typeof BROADCAST !== 'undefined' && BROADCAST.toggle) {
-                    BROADCAST.toggle();
-                }
             }
         }
     ];
@@ -354,11 +328,11 @@
             menu.appendChild(btn);
         });
 
-        var sepBtn = menu.querySelector('[data-ql-id="appt_records"]');
-        if (sepBtn) {
+        var sep = menu.children[3];
+        if (sep) {
             var divider = document.createElement('div');
             divider.className = 'ql-separator';
-            menu.insertBefore(divider, sepBtn);
+            menu.insertBefore(divider, sep);
         }
 
         root.insertBefore(menu, toggleBtn);
@@ -405,9 +379,7 @@
         QL_ACTIONS.forEach(function (action) {
             var btn = menu.querySelector('[data-ql-id="' + action.id + '"]');
             if (!btn) return;
-            if (action.requiresQueueSelection && !qlHasQueueRowSelection()) {
-                btn.classList.add('ql-disabled');
-            } else if (action.requiresPatient && !pid) {
+            if (action.requiresPatient && !pid) {
                 btn.classList.add('ql-disabled');
             } else {
                 btn.classList.remove('ql-disabled');
@@ -416,42 +388,19 @@
     }
 
     // ── keyboard shortcuts ────────────────────────────────────
-    function qlShortcutTailKey(shortcut) {
-        var parts = String(shortcut || '').split('+');
-        return parts[parts.length - 1].trim().toLowerCase();
+    function qlShortcutIndex(e) {
+        if (!e || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return -1;
+        var m = /^Digit([1-9])$/.exec(e.code || '');
+        if (m) return parseInt(m[1], 10);
+        m = /^Numpad([1-9])$/.exec(e.code || '');
+        if (m) return parseInt(m[1], 10);
+        if (e.key >= '1' && e.key <= '9') return parseInt(e.key, 10);
+        return -1;
     }
 
-    function qlShortcutModifiersMatch(e) {
-        return !!(e && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey);
-    }
-
-    function qlEventMatchesShortcut(e, shortcut) {
-        if (!qlShortcutModifiersMatch(e)) return false;
-        var tail = qlShortcutTailKey(shortcut);
-        if (!tail) return false;
-        if (/^[1-9]$/.test(tail)) {
-            return e.code === 'Digit' + tail ||
-                e.code === 'Numpad' + tail ||
-                e.key === tail;
-        }
-        if (/^[a-z]$/.test(tail)) {
-            return e.code === 'Key' + tail.toUpperCase() ||
-                String(e.key).toLowerCase() === tail;
-        }
-        return false;
-    }
-
-    function qlTypingTarget(e) {
-        var el = e && e.target;
-        if (!el || !el.closest) return null;
-        return el.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]');
-    }
-
-    function qlShortcutsEnabled(e) {
+    function qlShortcutsEnabled() {
         var loginEl = qlG('loginOverlay');
-        if (loginEl && loginEl.style.display !== 'none') return false;
-        if (qlTypingTarget(e)) return false;
-        return true;
+        return !(loginEl && loginEl.style.display !== 'none');
     }
 
     function qlRunActionById(actionId) {
@@ -467,15 +416,21 @@
             closeQuickLaunch();
             return;
         }
-        if (!qlShortcutsEnabled(e)) return;
-        if (!qlShortcutModifiersMatch(e)) return;
-
-        for (var i = 0; i < QL_ACTIONS.length; i++) {
-            if (!qlEventMatchesShortcut(e, QL_ACTIONS[i].shortcut)) continue;
+        if (!qlShortcutsEnabled()) return;
+        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey &&
+            (e.code === 'KeyQ' || String(e.key).toLowerCase() === 'q')) {
             e.preventDefault();
             e.stopPropagation();
-            qlRunActionById(QL_ACTIONS[i].id);
+            qlRunActionById('current_queue');
             return;
+        }
+
+        var idx = qlShortcutIndex(e);
+        if (idx >= 1 && idx <= QL_ACTIONS.length) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeQuickLaunch();
+            QL_ACTIONS[idx - 1].handler();
         }
     }, true);
 
@@ -486,9 +441,6 @@
     document.addEventListener('app-active-patient-change', function () {
         refreshItemStates();
     });
-    document.addEventListener('app-appt-list-selection-change', function () {
-        refreshItemStates();
-    });
 
     function refreshLabels() {
         var toggleLbl = document.querySelector('[data-ql-label="toggle"]');
@@ -496,13 +448,8 @@
         var menu = qlG('qlMenu');
         if (!menu) return;
         QL_ACTIONS.forEach(function (action) {
-            var btn = menu.querySelector('[data-ql-id="' + action.id + '"]');
             var lbl = menu.querySelector('[data-ql-label="' + action.id + '"]');
             if (lbl) lbl.textContent = qlTr(action.i18nKey);
-            if (btn) {
-                var kbd = btn.querySelector('.ql-item-kbd');
-                if (kbd) kbd.textContent = action.shortcut;
-            }
         });
     }
 

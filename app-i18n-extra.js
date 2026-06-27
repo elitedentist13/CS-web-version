@@ -2975,6 +2975,10 @@
 
         'cfg.header.users': { en: 'Users', 'zh-CN': '用户', 'zh-Hant': '使用者' },
         'cfg.users.hint': { en: 'Link each login to one or more doctor identities across clinics. Patients are global. Pick clinic after login. Nurse: nurse / nurse.', 'zh-CN': '每个登录可关联一个或多个跨诊所医生身份。患者资料为全局。登录后选择诊所。护士：nurse / nurse。', 'zh-Hant': '每個登入可關聯一個或多個跨診所醫生身份。病人資料為全局。登入後選擇診所。護士：nurse / nurse。' },
+        'cfg.users.adminOnlyLabel': { en: 'Restrict Configuration to Admin users only', 'zh-CN': '仅限管理员访问「设置」模块', 'zh-Hant': '僅限管理員存取「設定」模組' },
+        'cfg.users.adminOnlyHint': { en: 'When checked, the Configuration module is hidden and blocked for every non-admin user, regardless of their individual permissions.', 'zh-CN': '勾选后，无论个别权限如何，所有非管理员用户都将无法看到或进入「设置」模块。', 'zh-Hant': '勾選後，無論個別權限如何，所有非管理員使用者都將無法看到或進入「設定」模組。' },
+        'cfg.users.adminOnlyOn': { en: 'Configuration is now Admin-only.', 'zh-CN': '「设置」模块现仅限管理员。', 'zh-Hant': '「設定」模組現僅限管理員。' },
+        'cfg.users.adminOnlyOff': { en: 'Configuration now follows each user\u2019s permissions.', 'zh-CN': '「设置」模块现按每位用户的权限控制。', 'zh-Hant': '「設定」模組現按每位使用者的權限控制。' },
         'cfg.users.panelHint': { en: 'User ID, password, and linked doctor identities across clinics.', 'zh-CN': '用户 ID、密码及跨诊所关联医生身份。', 'zh-Hant': '使用者 ID、密碼及跨診所關聯醫生身份。' },
         'cfg.auth.sectionTitle': { en: 'Authorization', 'zh-CN': '权限', 'zh-Hant': '授權' },
         'cfg.auth.sectionHint': { en: 'Check modules this user may access. Unchecking a parent disables its sub-options.', 'zh-CN': '勾选此用户可使用的模块。取消父项将同时取消其子项。', 'zh-Hant': '勾選此使用者可使用的模組。取消父項將同時取消其子項。' },

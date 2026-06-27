@@ -2305,6 +2305,9 @@ var CFG = (function () {
             var allRows = usersRes.data || [];
             var rows = allRows;
 
+            var adminOnly = (typeof programSettingBool === 'function')
+                ? programSettingBool('config_admin_only', true) : true;
+
             var html =
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
                   '<div>' +
@@ -2320,6 +2323,16 @@ var CFG = (function () {
                     esc(ctr('cfg.btn.addUser')) +
                   '</button>' +
                 '</div>' +
+                '<label style="display:flex;align-items:flex-start;gap:10px;background:#fff7ec;' +
+                  'border:1px solid #f0dcb8;border-radius:10px;padding:12px 14px;margin-bottom:16px;' +
+                  'cursor:pointer;max-width:680px;">' +
+                  '<input type="checkbox" id="cfgConfigAdminOnly" ' + (adminOnly ? 'checked' : '') + ' ' +
+                    'onchange="CFG._toggleConfigAdminOnly(this)" style="margin-top:2px;transform:scale(1.2);">' +
+                  '<span style="font-size:13px;color:#6b5320;line-height:1.5;">' +
+                    '<b>' + esc(ctr('cfg.users.adminOnlyLabel')) + '</b><br>' +
+                    '<span style="color:#8a6d3b;">' + esc(ctr('cfg.users.adminOnlyHint')) + '</span>' +
+                  '</span>' +
+                '</label>' +
                 '<div style="margin-top:12px;">' +
                   renderUsersTable(rows) +
                 '</div>';
@@ -2328,6 +2341,28 @@ var CFG = (function () {
             mountCfgUserPanel();
         }).catch(function (e) {
             pane.innerHTML = '<p style="color:#dc3545;">' + esc(ctrRepl('appt.msg.error', { MSG: e.message })) + '</p>';
+        });
+    }
+
+    // Quick lock: restrict the whole Configuration module to admin users.
+    function _toggleConfigAdminOnly(cb) {
+        var on = !!(cb && cb.checked);
+        if (cb) cb.disabled = true;
+        _persistProgramSettingRow({
+            setting_key: 'config_admin_only',
+            setting_value: String(on)
+        }).then(function (r) {
+            if (r && r.error) { throw new Error(r.error.message); }
+            if (typeof PROGRAM_SETTINGS === 'object' && PROGRAM_SETTINGS) {
+                PROGRAM_SETTINGS.config_admin_only = String(on);
+            }
+            if (typeof applyDashboardPermissionGuards === 'function') applyDashboardPermissionGuards();
+            toast(ctr(on ? 'cfg.users.adminOnlyOn' : 'cfg.users.adminOnlyOff'));
+        }).catch(function (e) {
+            if (cb) cb.checked = !on;
+            toast((e && e.message) || String(e), true);
+        }).then(function () {
+            if (cb) cb.disabled = false;
         });
     }
 
@@ -5472,6 +5507,7 @@ var CFG = (function () {
         _saveUserPassword: _saveUserPassword,
         _deleteUser: _deleteUser,
         _ensureNurseLogin: _ensureNurseLogin,
+        _toggleConfigAdminOnly: _toggleConfigAdminOnly,
         // data
         _exportCSV:     _exportCSV,
         _exportAllJson: _exportAllJson,

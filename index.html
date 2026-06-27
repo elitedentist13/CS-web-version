@@ -1151,6 +1151,13 @@
                 title="Mini Calendar" data-i18n-title="appt.cal.miniCalBtnTitle"
                 aria-label="Mini Calendar" data-i18n-aria-label="appt.cal.miniCalBtnTitle"
                 style="display:none;">📅</button>
+        <div class="cal-month-settings-anchor">
+          <button id="calMonthSettingsBtn" class="gcal-settings-btn" type="button"
+                  title="Monthly View Settings" data-i18n-title="appt.cal.settingsBtnTitle"
+                  aria-label="Monthly View Settings"
+                  style="display:none;" onclick="toggleMonthSettings()">⚙</button>
+          <div id="calMonthSettingsPanel" class="cal-month-settings-panel" aria-hidden="true"></div>
+        </div>
         <div id="apptMemoHost-calendar" class="appt-memo-host appt-memo-host--calendar"></div>
         <div id="apptPatientCount-calendar" class="appt-patient-count" aria-live="polite"></div>
         <button class="btn-add" id="calAddBtn" data-i18n="appt.addAppt"></button>
@@ -5557,11 +5564,6 @@
         <div class="ent-game-name" data-i18n="tools.pdf"></div>
         <div class="ent-game-desc" data-i18n="tools.pdfDesc"></div>
       </div>
-      <div class="ent-game-card" data-tool="certgen">
-        <div class="ent-game-icon">📜</div>
-        <div class="ent-game-name" data-i18n="tools.cert"></div>
-        <div class="ent-game-desc" data-i18n="tools.certDesc"></div>
-      </div>
     </div>
   </div>
 </section>
@@ -5593,14 +5595,7 @@
   <div id="pdfUtilApp"></div>
 </section>
 
-<!-- ── Certificate / receipt / label ── -->
-<section id="certGenSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="certGenBack" data-i18n="tools.back"></button>
-    <h1 data-i18n="tools.cert"></h1>
-  </div>
-  <div id="certGenApp"></div>
-</section>
+<!-- ── Certificate / receipt / label ── (removed) -->
 
 <section id="docToolsSection" class="container" style="display:none;" aria-hidden="true">
   <div class="top-bar">

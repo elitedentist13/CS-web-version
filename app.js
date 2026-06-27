@@ -4386,12 +4386,9 @@ document.addEventListener('DOMContentLoaded', function() {
     wireToolCard('pdfutils', function() {
         if (typeof PDFUTIL !== 'undefined' && typeof PDFUTIL.open === 'function') PDFUTIL.open();
     });
-    wireToolCard('certgen', function() {
-        if (typeof CERTGEN !== 'undefined' && typeof CERTGEN.open === 'function') CERTGEN.open();
-    });
 
     [['medCalcBack', 'medCalcSection'], ['qrToolBack', 'qrToolSection'],
-     ['pdfUtilBack', 'pdfUtilSection'], ['certGenBack', 'certGenSection']]
+     ['pdfUtilBack', 'pdfUtilSection']]
     .forEach(function(pair) {
         var b = g(pair[0]);
         if (b) b.addEventListener('click', function() { showOnly('toolsSection'); });

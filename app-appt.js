@@ -2449,6 +2449,174 @@ function plusApptSaveGcalSettings(cfg) {
     } catch (e) {}
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MONTHLY VIEW PREFERENCES
+// ═══════════════════════════════════════════════════════════════
+var MONTH_PREF_KEY = 'gcal_month_pref_v1';
+var MONTH_PREF_DEFAULTS = {
+    fontSize:   12,
+    fontWeight: 'normal',
+    fontColor:  'default',
+    cellMinH:   116
+};
+
+function readMonthPrefs() {
+    try {
+        var raw = localStorage.getItem(MONTH_PREF_KEY);
+        return Object.assign({}, MONTH_PREF_DEFAULTS, raw ? JSON.parse(raw) : {});
+    } catch (e) {
+        return Object.assign({}, MONTH_PREF_DEFAULTS);
+    }
+}
+
+function saveMonthPrefs(patch) {
+    try {
+        localStorage.setItem(MONTH_PREF_KEY, JSON.stringify(Object.assign(readMonthPrefs(), patch)));
+    } catch (e) {}
+}
+
+function applyMonthPrefs() {
+    var cb = g('calBody');
+    if (!cb) return;
+    var p = readMonthPrefs();
+    var fs = Math.max(8, Math.min(20, parseInt(p.fontSize, 10) || 12));
+    cb.style.setProperty('--month-pill-fs', fs + 'px');
+    var fw = p.fontWeight === 'bold' ? '700' : (p.fontWeight === 'light' ? '300' : '400');
+    cb.style.setProperty('--month-pill-fw', fw);
+    var col = (p.fontColor && p.fontColor !== 'default') ? p.fontColor : 'inherit';
+    cb.style.setProperty('--month-pill-color', col);
+    var ch = Math.max(60, Math.min(300, parseInt(p.cellMinH, 10) || 116));
+    cb.style.setProperty('--month-cell-min-h', ch + 'px');
+}
+
+function fillMonthSettingsPanel(panel) {
+    if (!panel) return;
+    var p = readMonthPrefs();
+
+    var fsSizes = [9, 10, 11, 12, 13, 14, 16];
+    var fsOpts  = fsSizes.map(function(v) {
+        return '<option value="' + v + '"' + ((parseInt(p.fontSize,10)||12) === v ? ' selected' : '') + '>' + v + 'px</option>';
+    }).join('');
+
+    var fwList = [
+        { v: 'normal', l: tr('appt.cal.month.fontNormal') || 'Normal' },
+        { v: 'bold',   l: tr('appt.cal.month.fontBold')   || 'Bold'   },
+        { v: 'light',  l: tr('appt.cal.month.fontLight')  || 'Light'  }
+    ];
+    var fwOpts = fwList.map(function(o) {
+        return '<option value="' + esc(o.v) + '"' + ((p.fontWeight||'normal') === o.v ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+    }).join('');
+
+    var fcList = [
+        { key: 'default', l: tr('appt.cal.rowFontColorDefault') || 'Default (inherit)' },
+        { key: '#0f172a', l: 'Black'       },
+        { key: '#1e40af', l: 'Dark Blue'   },
+        { key: '#15803d', l: 'Dark Green'  },
+        { key: '#7e22ce', l: 'Purple'      },
+        { key: '#b45309', l: 'Amber'       },
+        { key: '#9f1239', l: 'Crimson'     }
+    ];
+    var fcOpts = fcList.map(function(o) {
+        return '<option value="' + esc(o.key) + '"' + ((p.fontColor||'default') === o.key ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+    }).join('');
+
+    var chList = [80, 100, 116, 130, 150, 180, 220];
+    var chOpts = chList.map(function(v) {
+        return '<option value="' + v + '"' + ((parseInt(p.cellMinH,10)||116) === v ? ' selected' : '') + '>' + v + 'px</option>';
+    }).join('');
+
+    // Doctor-colour rows (reuse CalDoctorColors machinery)
+    var drRows = '';
+    var colorKeys = typeof CalDoctorColors !== 'undefined'
+        ? CalDoctorColors.collectKeys(
+            typeof calMonthApptsCache !== 'undefined' ? calMonthApptsCache : [],
+            typeof currentClinicId !== 'undefined' ? currentClinicId : null)
+        : [];
+    colorKeys.forEach(function(item) {
+        var k   = item.key;
+        var col = typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.getColor(k) : '#0084ff';
+        drRows +=
+            '<div class="gcal-dr-row">' +
+            '<input type="color" class="gcal-dr-color-inp" data-key="' + encodeURIComponent(k) + '" value="' + col + '" ' +
+            'style="width:32px;height:32px;border:2px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:0;flex-shrink:0;">' +
+            '<span style="font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;">' + esc(item.label) + '</span>' +
+            (typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.presetSwatchesHtml(k, col) : '') +
+            '</div>';
+    });
+    if (!colorKeys.length) {
+        drRows = '<p style="color:#aaa;font-size:11px;margin:0;">' + esc(tr('appt.cal.noDoctorsHint')) + '</p>';
+    }
+
+    panel.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+            '<strong style="font-size:13px;color:#1e293b;">' +
+                esc(tr('appt.cal.month.settingsTitle') || 'Monthly View Settings') +
+            '</strong>' +
+            '<button type="button" onclick="toggleMonthSettings()" ' +
+            'style="background:none;border:none;cursor:pointer;font-size:18px;color:#94a3b8;line-height:1;padding:2px 6px;">\u00d7</button>' +
+        '</div>' +
+        '<label>' + esc(tr('appt.cal.month.fontSize') || 'Card Font Size') + '</label>' +
+        '<select id="monthPrefFontSize">' + fsOpts + '</select>' +
+        '<label>' + esc(tr('appt.cal.month.fontStyle') || 'Font Style (Weight)') + '</label>' +
+        '<select id="monthPrefFontWeight">' + fwOpts + '</select>' +
+        '<label>' + esc(tr('appt.cal.month.fontColor') || 'Font Colour') + '</label>' +
+        '<select id="monthPrefFontColor">' + fcOpts + '</select>' +
+        '<label>' + esc(tr('appt.cal.month.cellHeight') || 'Day Cell Min-Height') + '</label>' +
+        '<select id="monthPrefCellH">' + chOpts + '</select>' +
+        '<label style="margin-top:14px;">' + esc(tr('appt.cal.drColoursLabel') || 'Doctor Colours') + '</label>' +
+        '<p style="font-size:10px;color:#94a3b8;margin:0 0 6px;line-height:1.4;">' +
+            esc(tr('appt.cal.drColoursHint') || 'Click colour swatch to change.') + '</p>' +
+        '<div id="monthPrefDrColorsBox">' + drRows + '</div>' +
+        (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.resetControlHtml
+            ? CalDoctorColors.resetControlHtml() : '') +
+        '<button type="button" onclick="applyMonthSettingsSave()" ' +
+        'style="margin-top:16px;width:100%;padding:10px;background:#0084ff;color:#fff;' +
+        'border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">' +
+        esc(tr('appt.cal.applyRefresh') || 'Apply & Refresh') + '</button>';
+
+    var box = panel.querySelector('#monthPrefDrColorsBox');
+    if (box && typeof CalDoctorColors !== 'undefined' && CalDoctorColors.wireColorPanel) {
+        box._calColorPanelWired = false;
+        CalDoctorColors.wireColorPanel(box);
+    }
+}
+
+function toggleMonthSettings() {
+    var sp = g('calMonthSettingsPanel');
+    if (!sp) return;
+    var opening = !sp.classList.contains('open');
+    if (opening) {
+        fillMonthSettingsPanel(sp);
+        sp.classList.add('open');
+        sp.setAttribute('aria-hidden', 'false');
+    } else {
+        sp.classList.remove('open');
+        sp.setAttribute('aria-hidden', 'true');
+    }
+}
+
+function applyMonthSettingsSave() {
+    var sp  = g('calMonthSettingsPanel');
+    var fsEl = sp && sp.querySelector('#monthPrefFontSize');
+    var fwEl = sp && sp.querySelector('#monthPrefFontWeight');
+    var fcEl = sp && sp.querySelector('#monthPrefFontColor');
+    var chEl = sp && sp.querySelector('#monthPrefCellH');
+    var patch = {};
+    if (fsEl) patch.fontSize   = parseInt(fsEl.value, 10) || 12;
+    if (fwEl) patch.fontWeight = fwEl.value || 'normal';
+    if (fcEl) patch.fontColor  = fcEl.value || 'default';
+    if (chEl) patch.cellMinH   = parseInt(chEl.value, 10) || 116;
+    saveMonthPrefs(patch);
+    applyMonthPrefs();
+    if (typeof calView !== 'undefined' && calView === 'monthly' && typeof renderCal === 'function') {
+        renderCal();
+    }
+    toggleMonthSettings();
+}
+
+window.toggleMonthSettings     = toggleMonthSettings;
+window.applyMonthSettingsSave  = applyMonthSettingsSave;
+
 /** Map row-height preset → + Appointment table row / patient-column sizing. */
 function plusApptScheduleLayoutFromSlotH(slotH) {
     var h = parseInt(slotH, 10);
@@ -3779,6 +3947,8 @@ function plusApptNextRecallState(cur) {
 }
 
 function apptTaskCycleFromSummary(apptId, kind) {
+    // Legacy cycle function — kept for any direct callers, but the row UI now
+    // uses apptTaskShowPicker() instead of this function.
     var id = String(apptId || '').trim();
     if (!id) return;
     var ap = null;
@@ -3799,6 +3969,119 @@ function apptTaskCycleFromSummary(apptId, kind) {
     if (typeof loadQueue === 'function') loadQueue();
     if (plusApptDate === todayISO() && typeof renderPlusApptSchedule === 'function') {
         renderPlusApptSchedule(true);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TASK-PILL DROPDOWN PICKER
+// Replaces one-at-a-time cycling with a floating dropdown so the
+// user picks the desired value directly, triggering only one refresh.
+// ─────────────────────────────────────────────────────────────────
+function apptTaskShowPicker(triggerBtn, apptId, kind) {
+    var id = String(apptId || '').trim();
+    if (!id || !kind) return;
+
+    // Resolve current state
+    var ap = null;
+    var lists = [todayAppts, plusApptDayAppts,
+                 typeof queueApptsCache !== 'undefined' ? queueApptsCache : []];
+    for (var li = 0; li < lists.length && !ap; li++) {
+        var lst = lists[li];
+        if (lst && lst.length) {
+            ap = lst.find(function(a) { return a && String(a.id) === id; }) || null;
+        }
+    }
+    var st = plusApptTaskState(ap || { id: id });
+    var curVal = kind === 'lab' ? (st.lab || 'na') : (st.recall || '');
+
+    // Option definitions
+    var options;
+    if (kind === 'lab') {
+        options = [
+            { v: 'na',      icon: '—',  cls: 'is-na',      l: tr('appt.plusAppt.taskLabNA')      || 'N/A'            },
+            { v: 'pending', icon: '⏳', cls: 'is-pending',  l: tr('appt.plusAppt.taskLabPending') || 'Pending'        },
+            { v: 'back',    icon: '✅', cls: 'is-back',     l: tr('appt.plusAppt.taskLabBack')    || 'Returned / Back' }
+        ];
+    } else {
+        options = [
+            { v: '',         icon: '—',  cls: 'is-empty',    l: tr('appt.plusAppt.taskRecallNone')     || 'None'            },
+            { v: 'whatsapp', icon: '💬', cls: 'is-whatsapp', l: tr('appt.plusAppt.taskRecallWhatsapp') || 'WhatsApp'        },
+            { v: 'voice',    icon: '📞', cls: 'is-voice',    l: tr('appt.plusAppt.taskRecallVoice')    || 'Voice Call'      },
+            { v: 'cant',     icon: '🚫', cls: 'is-cant',     l: tr('appt.plusAppt.taskRecallCant')     || "Can't Contact"   },
+            { v: 'success',  icon: '✅', cls: 'is-success',  l: tr('appt.plusAppt.taskRecallSuccess')  || 'Success'         }
+        ];
+    }
+
+    // Create or reuse the shared picker element
+    var picker = document.getElementById('apptTaskPicker');
+    if (!picker) {
+        picker = document.createElement('div');
+        picker.id = 'apptTaskPicker';
+        document.body.appendChild(picker);
+    }
+
+    // Build HTML
+    var titleKey = kind === 'lab' ? 'appt.plusAppt.taskLab' : 'appt.plusAppt.taskRecall';
+    var html = '<div class="appt-task-picker-title">' + esc(tr(titleKey) || kind) + '</div>';
+    options.forEach(function(o) {
+        var sel = String(o.v) === String(curVal);
+        html +=
+            '<button type="button" class="appt-task-picker-opt appt-task-pill ' +
+                o.cls + (sel ? ' is-selected' : '') + '" ' +
+                'data-pick-appt="' + esc(id) + '" ' +
+                'data-pick-kind="' + esc(kind) + '" ' +
+                'data-pick-val="'  + esc(o.v)  + '">' +
+            '<span class="appt-task-picker-icon">' + o.icon + '</span>' +
+            '<span>' + esc(o.l) + '</span>' +
+            (sel ? '<span class="appt-task-picker-check">✓</span>' : '') +
+            '</button>';
+    });
+    picker.innerHTML = html;
+
+    // Position below the trigger button (flip up if near bottom)
+    var rect = triggerBtn.getBoundingClientRect();
+    var pickerW = 180;
+    var left = Math.min(rect.left, window.innerWidth - pickerW - 8);
+    if (left < 4) left = 4;
+    var top = rect.bottom + 4;
+    if (top + 220 > window.innerHeight - 8) top = Math.max(4, rect.top - 224);
+    picker.style.cssText = 'left:' + left + 'px;top:' + top + 'px;display:block;';
+
+    // Wire option clicks
+    picker.querySelectorAll('.appt-task-picker-opt').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            picker.style.display = 'none';
+            _apptTaskPickerDismiss();
+            var aid = btn.getAttribute('data-pick-appt');
+            var k   = btn.getAttribute('data-pick-kind');
+            var v   = btn.getAttribute('data-pick-val');
+            plusApptSetTaskState(aid, k, v);
+            if (typeof loadToday === 'function') loadToday({ soft: true });
+            if (typeof loadQueue === 'function') loadQueue({ soft: true });
+            if (plusApptDate === todayISO() && typeof renderPlusApptSchedule === 'function') {
+                renderPlusApptSchedule({ soft: true });
+            }
+        });
+    });
+
+    // Close on outside click
+    _apptTaskPickerDismiss();    // remove any previous listener
+    picker._dismiss = function(e) {
+        if (e.target === triggerBtn || picker.contains(e.target)) return;
+        picker.style.display = 'none';
+        _apptTaskPickerDismiss();
+    };
+    setTimeout(function() {
+        document.addEventListener('click', picker._dismiss, true);
+    }, 0);
+}
+
+function _apptTaskPickerDismiss() {
+    var picker = document.getElementById('apptTaskPicker');
+    if (picker && picker._dismiss) {
+        document.removeEventListener('click', picker._dismiss, true);
+        picker._dismiss = null;
     }
 }
 
@@ -10972,7 +11255,7 @@ function buildTodayRow(tb, a, dotCtx) {
             var aid = btn.getAttribute('data-appt-id');
             var kind = btn.getAttribute('data-task-kind');
             if (!aid || !kind) return;
-            apptTaskCycleFromSummary(aid, kind);
+            apptTaskShowPicker(btn, aid, kind);
         });
         btn.addEventListener('dblclick', function(e) {
             e.preventDefault();
@@ -12075,7 +12358,11 @@ function ensureQueueElapsedTicker() {
 }
 
 function apptShouldPreserveScroll(opts) {
-    return !!(opts && opts.soft);
+    if (opts && opts.soft) return true;
+    // Also preserve scroll for any background refresh while the section is visible
+    // (realtime sync, task updates, bill changes, etc.) — avoids jump-to-top.
+    if (typeof apptSectionIsActive === 'function' && apptSectionIsActive()) return true;
+    return false;
 }
 
 var _apptLiveScrollState = null;
@@ -12619,7 +12906,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
             var aid = btn.getAttribute('data-appt-id');
             var kind = btn.getAttribute('data-task-kind');
             if (!aid || !kind) return;
-            apptTaskCycleFromSummary(aid, kind);
+            apptTaskShowPicker(btn, aid, kind);
         });
         btn.addEventListener('dblclick', function(e) {
             e.preventDefault();
@@ -12725,6 +13012,13 @@ function renderCal(opts) {
     }
     var miniBtn = g('calMonthMiniBtn');
     if (miniBtn) miniBtn.style.display = (calView === 'monthly') ? 'inline-flex' : 'none';
+    var monthSetBtn = g('calMonthSettingsBtn');
+    if (monthSetBtn) monthSetBtn.style.display = (calView === 'monthly') ? 'inline-flex' : 'none';
+    // Close settings panel when switching away from monthly
+    if (calView !== 'monthly') {
+        var msp = g('calMonthSettingsPanel');
+        if (msp) { msp.classList.remove('open'); msp.setAttribute('aria-hidden', 'true'); }
+    }
     if (calView !== 'monthly') {
         calMonthTransferDragApptId = null;
         calMonthTransferState = null;
@@ -12941,6 +13235,7 @@ function repaintCalMonthPills() {
 function renderMonthly(opts) {
     opts = opts || {};
     bindCalMonthMiniToolbarBtn();
+    applyMonthPrefs();
     var y  = calDate.getFullYear();
     var m  = calDate.getMonth();
     var ct = g('calTitle');
@@ -13765,7 +14060,8 @@ var GCAL = (function () {
                     : '') +
             '</span>';
         if (remarksTxt) {
-            html += '<span class="card-line card-line--3 card-remarks">' + esc(remarksTxt) + '</span>';
+            // remarksTxt is already safe HTML from formatRemarksForDisplay — do NOT re-escape
+            html += '<span class="card-line card-line--3 card-remarks">' + remarksTxt + '</span>';
         }
         html += '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
         html += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--cal');
@@ -14868,6 +15164,54 @@ function bindMonthlyCalActivePatientDrop(cb) {
 // ── Day panel ─────────────────────────────────────────────────
 var _dayPanelCtx = null;
 
+// Navigate to the patient module and select the patient from an appointment row.
+function openDayPanelPatientPage(a) {
+    if (!a || !a.patient_id) return;
+    if (typeof showOnly === 'function') showOnly('patientSection');
+    if (typeof fetchPatients === 'function') fetchPatients();
+    var mini = {
+        id: a.patient_id,
+        full_name: a.patient_name || '',
+        patient_no: a.patient_no || '',
+        chinese_name: a.patient_chinese_name || ''
+    };
+    if (typeof setDirectoryActivePatient === 'function') {
+        setDirectoryActivePatient(mini, 'cal-day-panel');
+    }
+}
+
+// Open the consultation module pre-loaded with the patient from an appointment row.
+function openDayPanelConsultation(a) {
+    if (!a || !a.patient_id) return;
+    if (typeof openConForPatient === 'function') {
+        openConForPatient(a.patient_id);
+    }
+}
+
+// Delete an appointment directly from the day panel (with confirmation).
+function deleteDayPanelAppt(a, cardEl) {
+    if (!a || !a.id) return;
+    if (isApptScheduleLocked(a)) {
+        alert(tr('appt.msg.lockedDelete'));
+        return;
+    }
+    if (!confirm(tr('appt.confirm.deleteAppt'))) return;
+    if (cardEl) cardEl.style.opacity = '0.4';
+    SB.from('appointments').delete().eq('id', a.id).then(function(r) {
+        if (r.error) {
+            if (cardEl) cardEl.style.opacity = '';
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+            return;
+        }
+        if (cardEl && cardEl.parentNode) cardEl.parentNode.removeChild(cardEl);
+        loadToday();
+        loadQueue();
+        loadApptRecords();
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+        if (typeof renderMonthly === 'function') renderMonthly();
+    });
+}
+
 function showDayPanel(iso, map) {
     var panel = g('dayPanel');
     var title = g('dayPanelTitle');
@@ -14893,36 +15237,116 @@ function showDayPanel(iso, map) {
         list.innerHTML = '';
         items.forEach(function(a) {
             var div = document.createElement('div');
-            div.className = 'day-panel-item';
+            div.className = 'day-panel-item dpi-rich';
             div.dataset.apptId = a.id;
+
             var dpiSty = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.getStyleForAppt
                 ? CalDoctorColors.getStyleForAppt(a)
                 : null;
-            if (dpiSty) {
-                div.style.borderLeft = '4px solid ' + dpiSty.borderColor;
-                div.style.background = dpiSty.background;
-            }
-            var drLbl = a.doctor_code || a.doctor_name || '';
+            div.style.borderLeft = '4px solid ' + (dpiSty ? dpiSty.borderColor : 'var(--primary)');
+            div.style.background = dpiSty ? dpiSty.background : '';
+
+            var drLbl  = a.doctor_code || a.doctor_name || '';
+            var drColor = dpiSty ? dpiSty.color : '#64748b';
+            var cn     = String(a.patient_chinese_name || '').trim();
+
+            // DOB / age from cache
+            var dobRaw = a.patient_id ? apptPatientDobLookup(a.patient_id) : '';
+            var ageTxt = dobRaw && typeof formatDobAge === 'function' ? formatDobAge(dobRaw) : '';
+            var subParts = [];
+            if (a.patient_no) subParts.push('#' + a.patient_no);
+            if (ageTxt) subParts.push(ageTxt);
+
+            // Remarks preview (strip HTML tags for plain text display)
+            var remarksRaw = a.remarks || '';
+            var remarksPlain = remarksRaw.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+            var hasRemarks = remarksPlain.length > 0;
+
             div.innerHTML =
-                '<div class="dpi-time">' +
-                    fmt12(a.start_time) + ' – ' + fmt12(a.end_time) +
+                // ── header: time · doctor · status ──
+                '<div class="dpi-header">' +
+                    '<span class="dpi-time">' + esc(fmt12(a.start_time) + ' – ' + fmt12(a.end_time)) + '</span>' +
+                    (drLbl ? '<span class="dpi-dr-badge" style="color:' + esc(drColor) + ';">● ' + esc(drLbl) + '</span>' : '') +
+                    '<span class="status-badge ' + statusClass(a.bill_status) + '">' +
+                        esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
+                    '</span>' +
                 '</div>' +
-                (drLbl ? '<div class="dpi-dr" style="color:' + (dpiSty ? dpiSty.color : '#64748b') + ';">● ' + esc(drLbl) + '</div>' : '') +
-                '<div class="dpi-name">' +
-                    esc(a.patient_name || '-') +
+
+                // ── patient name block ──
+                '<div class="dpi-patient-block">' +
+                    '<span class="dpi-name">' + esc(a.patient_name || '—') + '</span>' +
+                    (cn ? '<span class="dpi-cn">' + esc(cn) + '</span>' : '') +
+                    (subParts.length ? '<div class="dpi-sub">' + esc(subParts.join(' · ')) + '</div>' : '') +
                 '</div>' +
+
+                // ── unpaid badge + treatment ──
                 apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--daypanel') +
-                '<div class="dpi-treat">' +
-                    esc(a.treatment_items || '-') +
+                (a.treatment_items
+                    ? '<div class="dpi-treat">🏥 ' + esc(a.treatment_items) + '</div>'
+                    : '') +
+
+                // ── remarks row ──
+                '<div class="dpi-remarks-row">' +
+                    '<span class="dpi-remarks-preview' + (hasRemarks ? '' : ' dpi-remarks-empty') + '">' +
+                        (hasRemarks ? esc(remarksPlain) : esc(tr('appt.cal.noRemarks') || 'No remarks')) +
+                    '</span>' +
+                    '<button type="button" class="dpi-remarks-btn" title="' + esc(tr('appt.cal.editRemarks') || 'Edit remarks') + '">✎</button>' +
                 '</div>' +
-                '<span class="status-badge ' +
-                    statusClass(a.bill_status) + '">' +
-                    esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
-                '</span>';
-            div.style.cursor = 'pointer';
-            div.addEventListener('click', function() {
-                showApptPopup(a, div);
+
+                // ── action buttons (icon thumbnails) ──
+                '<div class="dpi-actions">' +
+                    (a.patient_id
+                        ? '<button type="button" class="dpi-btn dpi-btn-patient" title="' + esc(tr('appt.cal.dpiPatientBtn') || 'Patient File') + '">👤</button>'
+                        : '') +
+                    (a.patient_id
+                        ? '<button type="button" class="dpi-btn dpi-btn-consult" title="' + esc(tr('appt.cal.dpiConsultBtn') || 'Consultation') + '">📋</button>'
+                        : '') +
+                    '<button type="button" class="dpi-btn dpi-btn-bill" title="' + esc(tr('appt.cal.dpiBillBtn') || 'Billing') + '">💲</button>' +
+                    '<button type="button" class="dpi-btn dpi-btn-delete" title="' + esc(tr('appt.cal.dpiDeleteBtn') || 'Delete appointment') + '">✕</button>' +
+                '</div>';
+
+            // Wire remarks edit button
+            div.querySelector('.dpi-remarks-btn').addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (typeof openQueueRemarksEditor === 'function') openQueueRemarksEditor(a);
             });
+
+            // Wire Patient File button
+            var patBtn = div.querySelector('.dpi-btn-patient');
+            if (patBtn) {
+                patBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    openDayPanelPatientPage(a);
+                });
+            }
+
+            // Wire Consultation button
+            var conBtn = div.querySelector('.dpi-btn-consult');
+            if (conBtn) {
+                conBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    openDayPanelConsultation(a);
+                });
+            }
+
+            // Wire Bill button
+            var billBtn = div.querySelector('.dpi-btn-bill');
+            if (billBtn) {
+                billBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (typeof openBillPanel === 'function') openBillPanel(a);
+                });
+            }
+
+            // Wire Delete button
+            var delBtn = div.querySelector('.dpi-btn-delete');
+            if (delBtn) {
+                delBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    deleteDayPanelAppt(a, div);
+                });
+            }
+
             list.appendChild(div);
         });
     }

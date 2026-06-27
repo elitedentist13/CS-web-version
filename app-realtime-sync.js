@@ -340,7 +340,7 @@ var REALTIME_SYNC = (function() {
                 scheduleRetry();
                 return;
             }
-            if (typeof loadQueue === 'function') loadQueue();
+            if (typeof loadQueue === 'function') loadQueue({ soft: true });
             return;
         }
         if (tab === 'today') {
@@ -350,7 +350,7 @@ var REALTIME_SYNC = (function() {
                 }
                 return;
             }
-            if (typeof loadToday === 'function') loadToday();
+            if (typeof loadToday === 'function') loadToday({ soft: true });
             return;
         }
         if (tab === 'plusappt' || tab === 'calendar') {
@@ -360,7 +360,7 @@ var REALTIME_SYNC = (function() {
                 }
                 return;
             }
-            if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+            if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData({ soft: true });
             return;
         }
         if (tab === 'records' && typeof loadApptRecords === 'function') {
@@ -371,10 +371,13 @@ var REALTIME_SYNC = (function() {
     function refreshBillFromRealtime() {
         if (typeof billPanelIsOpen === 'function' && billPanelIsOpen()) {
             if (typeof refreshBillPanelLists === 'function') refreshBillPanelLists();
-            if (typeof billStep2IsVisible === 'function' && billStep2IsVisible() &&
+        }
+        // Refresh payment history table whenever the detail modal is open,
+        // regardless of the legacy billStep2IsVisible() gate (always false in current UI).
+        var billDetailModalEl = document.getElementById('billDetailModal');
+        if (billDetailModalEl && billDetailModalEl.style.display === 'block' &&
                 typeof refreshBillDetailPayments === 'function') {
-                refreshBillDetailPayments();
-            }
+            refreshBillDetailPayments();
         }
         refreshApptUnpaidFromRealtime();
         try {

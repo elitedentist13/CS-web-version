@@ -2305,6 +2305,9 @@ var CFG = (function () {
             var allRows = usersRes.data || [];
             var rows = allRows;
 
+            var adminOnly = (typeof programSettingBool === 'function')
+                ? programSettingBool('config_admin_only', true) : true;
+
             var html =
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
                   '<div>' +
@@ -2320,6 +2323,16 @@ var CFG = (function () {
                     esc(ctr('cfg.btn.addUser')) +
                   '</button>' +
                 '</div>' +
+                '<label style="display:flex;align-items:flex-start;gap:10px;background:#fff7ec;' +
+                  'border:1px solid #f0dcb8;border-radius:10px;padding:12px 14px;margin-bottom:16px;' +
+                  'cursor:pointer;max-width:680px;">' +
+                  '<input type="checkbox" id="cfgConfigAdminOnly" ' + (adminOnly ? 'checked' : '') + ' ' +
+                    'onchange="CFG._toggleConfigAdminOnly(this)" style="margin-top:2px;transform:scale(1.2);">' +
+                  '<span style="font-size:13px;color:#6b5320;line-height:1.5;">' +
+                    '<b>' + esc(ctr('cfg.users.adminOnlyLabel')) + '</b><br>' +
+                    '<span style="color:#8a6d3b;">' + esc(ctr('cfg.users.adminOnlyHint')) + '</span>' +
+                  '</span>' +
+                '</label>' +
                 '<div style="margin-top:12px;">' +
                   renderUsersTable(rows) +
                 '</div>';
@@ -2328,6 +2341,28 @@ var CFG = (function () {
             mountCfgUserPanel();
         }).catch(function (e) {
             pane.innerHTML = '<p style="color:#dc3545;">' + esc(ctrRepl('appt.msg.error', { MSG: e.message })) + '</p>';
+        });
+    }
+
+    // Quick lock: restrict the whole Configuration module to admin users.
+    function _toggleConfigAdminOnly(cb) {
+        var on = !!(cb && cb.checked);
+        if (cb) cb.disabled = true;
+        _persistProgramSettingRow({
+            setting_key: 'config_admin_only',
+            setting_value: String(on)
+        }).then(function (r) {
+            if (r && r.error) { throw new Error(r.error.message); }
+            if (typeof PROGRAM_SETTINGS === 'object' && PROGRAM_SETTINGS) {
+                PROGRAM_SETTINGS.config_admin_only = String(on);
+            }
+            if (typeof applyDashboardPermissionGuards === 'function') applyDashboardPermissionGuards();
+            toast(ctr(on ? 'cfg.users.adminOnlyOn' : 'cfg.users.adminOnlyOff'));
+        }).catch(function (e) {
+            if (cb) cb.checked = !on;
+            toast((e && e.message) || String(e), true);
+        }).then(function () {
+            if (cb) cb.disabled = false;
         });
     }
 
@@ -3454,48 +3489,361 @@ var CFG = (function () {
     // ════════════════════════════════════════════════════════
     // ── TAB: DATA / BACKUP ───────────────────────────────────
     // ════════════════════════════════════════════════════════
+    // Export groups — kept in sync with the current Supabase data model.
+    // Each entry: [ i18nLabelKey, tableName ].
+    var EXPORT_GROUPS = [
+        ['cfg.data.groupReference', [
+            ['cfg.export.clinics',         'clinics'],
+            ['cfg.export.doctors',         'doctors'],
+            ['cfg.export.paymentMethods',  'bill_types'],
+            ['cfg.export.treatmentItems',  'treatment_items'],
+            ['cfg.export.templates',       'doc_templates'],
+            ['cfg.export.drugList',        'druglist'],
+            ['cfg.export.rxPhrases',       'rx_phrase_options'],
+            ['cfg.export.programSettings', 'program_settings'],
+            ['cfg.export.printSettings',   'clinic_print_settings'],
+            ['cfg.export.users',           'app_users']
+        ]],
+        ['cfg.data.groupPatients', [
+            ['cfg.export.patients',        'patients'],
+            ['cfg.export.consultations',   'treatments'],
+            ['cfg.export.prescriptions',   'drughistory'],
+            ['cfg.export.dentalCharts',    'dental_charts'],
+            ['cfg.export.patientDocs',     'patient_documents']
+        ]],
+        ['cfg.data.groupBilling', [
+            ['cfg.export.appointments',    'appointments'],
+            ['cfg.export.bills',           'bills'],
+            ['cfg.export.payments',        'bill_payments'],
+            ['cfg.export.pendingItems',    'pending_bill_items']
+        ]],
+        ['cfg.data.groupMedia', [
+            ['cfg.export.photos',          'photos'],
+            ['cfg.export.xrays',           'xrays']
+        ]],
+        ['cfg.data.groupOps', [
+            ['cfg.export.auditTrail',      'audit_trail'],
+            ['cfg.export.taskStates',      'appointment_task_states']
+        ]]
+    ];
+
+    // Tables included in the one-click full JSON backup (flattened from the
+    // groups above).
+    function backupTableList() {
+        var out = [];
+        EXPORT_GROUPS.forEach(function (grp) {
+            grp[1].forEach(function (it) { out.push(it[1]); });
+        });
+        return out;
+    }
+
+    // Columns stripped out of any export (CSV or JSON). Login credentials must
+    // never leave the database in a downloaded file.
+    var SENSITIVE_COLS = {
+        app_users: ['password', 'pw', 'pin', 'password_hash', 'passwd']
+    };
+    function _sanitizeRows(table, rows) {
+        var omit = SENSITIVE_COLS[table];
+        if (!omit || !omit.length || !rows || !rows.length) return rows;
+        return rows.map(function (row) {
+            var clean = {};
+            Object.keys(row).forEach(function (k) {
+                if (omit.indexOf(k) === -1) clean[k] = row[k];
+            });
+            return clean;
+        });
+    }
+
     function loadData() {
         var pane = g('cfgPane-data');
         if (!pane) return;
 
-        pane.innerHTML =
-            '<h2 style="margin:0 0 24px;font-size:20px;">' + esc(ctr('cfg.header.dataBackup')) + '</h2>' +
-            '<p style="color:#555;margin-bottom:24px;">' + esc(ctr('cfg.data.exportHint')) + '</p>' +
-            '<div style="display:flex;flex-wrap:wrap;gap:12px;">' +
-            exportBtn(ctr('cfg.export.clinics'),         'clinics')          +
-            exportBtn(ctr('cfg.export.doctors'),         'doctors')          +
-            exportBtn(ctr('cfg.export.paymentMethods'), 'bill_types')       +
-            exportBtn(ctr('cfg.export.treatmentItems'), 'treatment_items')  +
-            exportBtn(ctr('cfg.export.patients'),        'patients')         +
-            exportBtn(ctr('cfg.export.templates'),       'doc_templates')    +
+        var html =
+            '<h2 style="margin:0 0 16px;font-size:20px;">' + esc(ctr('cfg.header.dataBackup')) + '</h2>' +
+            '<p style="color:#555;margin-bottom:20px;">' + esc(ctr('cfg.data.exportHint')) + '</p>' +
+            '<div style="background:#f0f7f0;border:1px solid #cfe3cf;border-radius:10px;' +
+                'padding:16px 18px;margin-bottom:26px;max-width:640px;">' +
+                '<div style="font-weight:600;font-size:15px;margin-bottom:4px;">' +
+                    esc(ctr('cfg.data.fullBackup')) + '</div>' +
+                '<p style="color:#557055;font-size:13px;margin:0 0 12px;">' +
+                    esc(ctr('cfg.data.fullBackupHint')) + '</p>' +
+                '<button id="cfgFullBackupBtn" onclick="CFG._exportAllJson(this)" style="padding:11px 22px;background:#198754;' +
+                    'color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">' +
+                    esc(ctr('cfg.btn.fullBackup')) + '</button>' +
             '</div>';
+
+        EXPORT_GROUPS.forEach(function (grp) {
+            html += '<h3 style="margin:0 0 10px;font-size:14px;color:#444;' +
+                'border-bottom:1px solid #eee;padding-bottom:6px;">' + esc(ctr(grp[0])) + '</h3>' +
+                '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:22px;">' +
+                grp[1].map(function (it) { return exportBtn(ctr(it[0]), it[1]); }).join('') +
+                '</div>';
+        });
+
+        // ── Restore from backup ──
+        html +=
+            '<h3 style="margin:28px 0 10px;font-size:14px;color:#444;' +
+                'border-bottom:1px solid #eee;padding-bottom:6px;">' + esc(ctr('cfg.restore.title')) + '</h3>' +
+            '<div style="background:#fff7ec;border:1px solid #f0dcb8;border-radius:10px;' +
+                'padding:16px 18px;max-width:640px;">' +
+                '<p style="color:#8a6d3b;font-size:13px;margin:0 0 12px;">' +
+                    esc(ctr('cfg.restore.hint')) + '</p>' +
+                '<input type="file" id="cfgRestoreFile" accept=".json,application/json" ' +
+                    'onchange="CFG._onRestoreFile(this)" ' +
+                    'style="display:block;margin-bottom:12px;font-size:13px;">' +
+                '<div id="cfgRestoreSummary" style="font-size:13px;color:#444;margin-bottom:12px;"></div>' +
+                '<button id="cfgRestoreBtn" onclick="CFG._runRestore(this)" disabled ' +
+                    'style="padding:11px 22px;background:#b8860b;color:#fff;border:none;' +
+                    'border-radius:6px;cursor:pointer;font-size:13px;opacity:.55;">' +
+                    esc(ctr('cfg.restore.btn')) + '</button>' +
+                '<div id="cfgRestoreStatus" style="font-size:13px;margin-top:14px;"></div>' +
+            '</div>';
+
+        pane.innerHTML = html;
     }
 
     function exportBtn(label, table) {
         var safeLabel = String(label).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        return '<button onclick="CFG._exportCSV(\'' + table + '\',\'' + safeLabel + '\')" style="padding:11px 22px;background:#0d6efd;' +
+        return '<button onclick="CFG._exportCSV(\'' + table + '\',\'' + safeLabel + '\')" style="padding:10px 18px;background:#0d6efd;' +
             'color:#fff;border:none;border-radius:6px;cursor:pointer;' +
             'font-size:13px;">' + esc(ctrRepl('cfg.btn.exportCsv', { LABEL: label })) + '</button>';
     }
 
+    // Fetch every row from a table, paging past Supabase's 1000-row cap.
+    function _fetchAllRows(table) {
+        return new Promise(function (resolve, reject) {
+            var all = [], size = 1000;
+            function page(from) {
+                SB.from(table).select('*').range(from, from + size - 1).then(function (r) {
+                    if (r.error) { reject(r.error); return; }
+                    var rows = r.data || [];
+                    all = all.concat(rows);
+                    if (rows.length < size) resolve(all);
+                    else page(from + size);
+                }, function (e) { reject(e); });
+            }
+            page(0);
+        });
+    }
+
+    function _csvCell(v) {
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'object') { try { v = JSON.stringify(v); } catch (e) { v = String(v); } }
+        return '"' + String(v).replace(/"/g, '""') + '"';
+    }
+
+    // Build CSV using the union of keys across all rows (so columns that are
+    // null in the first record are not dropped).
+    function _rowsToCsv(rows) {
+        var seen = {}, keys = [];
+        rows.forEach(function (row) {
+            Object.keys(row).forEach(function (k) { if (!seen[k]) { seen[k] = 1; keys.push(k); } });
+        });
+        return keys.join(',') + '\n' +
+            rows.map(function (row) {
+                return keys.map(function (k) { return _csvCell(row[k]); }).join(',');
+            }).join('\n');
+    }
+
     function _exportCSV(table, label) {
-        SB.from(table).select('*')
-        .then(function (r) {
-            if (r.error) { toast(r.error.message, true); return; }
-            var rows = r.data || [];
+        _fetchAllRows(table).then(function (rows) {
             if (!rows.length) { toast(ctr('cfg.msg.noDataExport'), true); return; }
-
-            var keys = Object.keys(rows[0]);
-            var csv  = keys.join(',') + '\n' +
-                rows.map(function (row) {
-                    return keys.map(function (k) {
-                        var v = row[k] === null || row[k] === undefined ? '' : row[k];
-                        return '"' + String(v).replace(/"/g, '""') + '"';
-                    }).join(',');
-                }).join('\n');
-
+            rows = _sanitizeRows(table, rows);
+            var csv = _rowsToCsv(rows);
             downloadCsvUtf8(table + '_' + (typeof todayISO === 'function' ? todayISO() : '') + '.csv', csv);
             toast(ctrRepl('cfg.msg.exported', { LABEL: label }));
+        }).catch(function (e) {
+            toast((e && e.message) || String(e), true);
+        });
+    }
+
+    function _downloadJson(filename, obj) {
+        var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);   // required by Firefox; also keeps download alive
+        a.click();
+        setTimeout(function () {
+            try { document.body.removeChild(a); } catch (e) {}
+            URL.revokeObjectURL(url);
+        }, 1500);
+    }
+
+    // One-click full backup: every data table into a single JSON file.
+    // `btn` (optional) is the clicked button — used for live progress so the
+    // user gets immediate feedback while the (multi-second) fetch runs.
+    function _exportAllJson(btn) {
+        var tables = backupTableList();
+        var out = {
+            _meta: {
+                app: 'clinic-web',
+                exported_at: new Date().toISOString(),
+                schema_version: 1,
+                row_counts: {}
+            },
+            data: {}
+        };
+        var i = 0, total = tables.length;
+        var origText = btn ? btn.textContent : '';
+        if (btn) btn.disabled = true;
+        toast(ctr('cfg.msg.backupStart'));
+
+        function finish(err) {
+            if (btn) { btn.disabled = false; btn.textContent = origText; }
+            if (err) toast((err && err.message) || String(err), true);
+        }
+
+        function next() {
+            if (i >= total) {
+                try {
+                    var name = 'clinic_backup_' + (typeof todayISO === 'function' ? todayISO() : '') + '.json';
+                    _downloadJson(name, out);
+                    toast(ctrRepl('cfg.msg.backupDone', { N: total }));
+                } catch (e) {
+                    finish(e); return;
+                }
+                finish();
+                return;
+            }
+            var tname = tables[i++];
+            if (btn) btn.textContent = '⏳ ' + i + '/' + total + ' · ' + tname;
+            _fetchAllRows(tname).then(function (rows) {
+                rows = _sanitizeRows(tname, rows);
+                out.data[tname] = rows;
+                out._meta.row_counts[tname] = rows.length;
+                next();
+            }).catch(function (e) {
+                out.data[tname] = [];
+                out._meta.row_counts[tname] = { error: (e && e.message) || String(e) };
+                next();
+            });
+        }
+
+        try { next(); } catch (e) { finish(e); }
+    }
+
+    // ── RESTORE FROM BACKUP ───────────────────────────────────
+    // Parsed backup awaiting restore (set by _onRestoreFile).
+    var _restoreData = null;
+
+    // `app_users` is never restored — its passwords are stripped from backups,
+    // so re-importing would wipe credentials and lock users out.
+    var RESTORE_SKIP = { app_users: 1 };
+
+    // Restore order = export/group order (parents before children) so foreign
+    // keys resolve as rows are upserted with their original ids.
+    function _restoreTableOrder() {
+        return backupTableList().filter(function (t) { return !RESTORE_SKIP[t]; });
+    }
+
+    function _onRestoreFile(input) {
+        var btn = g('cfgRestoreBtn');
+        var sum = g('cfgRestoreSummary');
+        var statusBox = g('cfgRestoreStatus');
+        if (statusBox) statusBox.innerHTML = '';
+        _restoreData = null;
+        if (btn) { btn.disabled = true; btn.style.opacity = '.55'; }
+
+        var file = input && input.files && input.files[0];
+        if (!file) { if (sum) sum.innerHTML = ''; return; }
+
+        var fr = new FileReader();
+        fr.onload = function () {
+            var parsed;
+            try { parsed = JSON.parse(fr.result); } catch (e) { parsed = null; }
+            if (!parsed || typeof parsed !== 'object' || !parsed.data || typeof parsed.data !== 'object') {
+                if (sum) sum.innerHTML = '<span style="color:#a12d2d;">' + esc(ctr('cfg.restore.parseError')) + '</span>';
+                return;
+            }
+            _restoreData = parsed;
+            var order = _restoreTableOrder();
+            var tableCount = 0, rowCount = 0, lines = [];
+            order.forEach(function (tname) {
+                var rows = parsed.data[tname];
+                if (Array.isArray(rows) && rows.length) {
+                    tableCount++; rowCount += rows.length;
+                    lines.push('• ' + esc(tname) + ' — ' + rows.length);
+                }
+            });
+            var skipped = (parsed.data.app_users && parsed.data.app_users.length)
+                ? '<div style="color:#8a6d3b;margin-top:6px;">' + esc(ctr('cfg.restore.skipUsers')) + '</div>' : '';
+            if (sum) {
+                sum.innerHTML =
+                    '<b>' + esc(ctrRepl('cfg.restore.fileSummary', { T: tableCount, R: rowCount })) + '</b>' +
+                    '<div style="margin-top:6px;color:#666;line-height:1.7;">' + lines.join('<br>') + '</div>' +
+                    skipped;
+            }
+            if (btn && tableCount > 0) { btn.disabled = false; btn.style.opacity = '1'; }
+        };
+        fr.onerror = function () {
+            if (sum) sum.innerHTML = '<span style="color:#a12d2d;">' + esc(ctr('cfg.restore.parseError')) + '</span>';
+        };
+        fr.readAsText(file);
+    }
+
+    // Upsert rows in chunks (by primary key); resolves with {count, errors}.
+    function _upsertChunks(table, rows) {
+        return new Promise(function (resolve) {
+            var size = 400, idx = 0, errors = [], ok = 0;
+            function step() {
+                if (idx >= rows.length) { resolve({ count: ok, errors: errors }); return; }
+                var chunk = rows.slice(idx, idx + size);
+                SB.from(table).upsert(chunk).then(function (r) {
+                    if (r.error) errors.push(r.error.message);
+                    else ok += chunk.length;
+                    idx += size; step();
+                }, function (e) {
+                    errors.push((e && e.message) || String(e));
+                    idx += size; step();
+                });
+            }
+            step();
+        });
+    }
+
+    function _runRestore(btn) {
+        if (!_restoreData || !_restoreData.data) { toast(ctr('cfg.restore.noFile'), true); return; }
+        confirm(ctr('cfg.restore.confirm'), function () {
+            var data = _restoreData.data;
+            var tables = _restoreTableOrder().filter(function (t) {
+                return Array.isArray(data[t]) && data[t].length;
+            });
+            var i = 0, total = tables.length, summary = [];
+            var origText = btn ? btn.textContent : '';
+            if (btn) btn.disabled = true;
+            var statusBox = g('cfgRestoreStatus');
+            if (statusBox) statusBox.innerHTML = '';
+            toast(ctr('cfg.restore.start'));
+
+            function done() {
+                if (btn) { btn.disabled = false; btn.textContent = origText; }
+                var totalOk = 0, totalErr = 0;
+                var rowsHtml = summary.map(function (s) {
+                    totalOk += s.count; totalErr += s.errors.length;
+                    var color = s.errors.length ? '#a12d2d' : '#1c7a3f';
+                    var note = s.errors.length ? ' ⚠ ' + esc(s.errors[0]) : ' ✓';
+                    return '<div style="color:' + color + ';">• ' + esc(s.table) + ' — ' + s.count + note + '</div>';
+                }).join('');
+                if (statusBox) {
+                    statusBox.innerHTML =
+                        '<b>' + esc(ctrRepl('cfg.restore.done', { N: total })) + '</b>' +
+                        '<div style="margin-top:6px;line-height:1.7;">' + rowsHtml + '</div>';
+                }
+                toast(ctrRepl('cfg.restore.doneToast', { OK: totalOk, ERR: totalErr }),
+                    totalErr > 0);
+            }
+            function next() {
+                if (i >= total) { done(); return; }
+                var t = tables[i++];
+                if (btn) btn.textContent = '⏳ ' + i + '/' + total + ' · ' + t;
+                _upsertChunks(t, data[t]).then(function (res) {
+                    summary.push({ table: t, count: res.count, errors: res.errors });
+                    next();
+                });
+            }
+            next();
         });
     }
 
@@ -5159,8 +5507,12 @@ var CFG = (function () {
         _saveUserPassword: _saveUserPassword,
         _deleteUser: _deleteUser,
         _ensureNurseLogin: _ensureNurseLogin,
+        _toggleConfigAdminOnly: _toggleConfigAdminOnly,
         // data
-        _exportCSV:     _exportCSV
+        _exportCSV:     _exportCSV,
+        _exportAllJson: _exportAllJson,
+        _onRestoreFile: _onRestoreFile,
+        _runRestore:    _runRestore
     };
 
 })();

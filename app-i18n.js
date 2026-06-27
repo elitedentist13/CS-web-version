@@ -110,10 +110,166 @@ var I18N_STRINGS = {
         'zh-CN': '设置',
         'zh-Hant': '設定'
     },
+    'dashboard.card.entertainment': {
+        en: 'AI Mini Games',
+        'zh-CN': 'AI 小游戏',
+        'zh-Hant': 'AI 小遊戲'
+    },
+    'dashboard.card.docTools': {
+        en: 'Document Converter',
+        'zh-CN': '文件格式转换',
+        'zh-Hant': '文件格式轉換'
+    },
+    'dashboard.card.tools': {
+        en: 'Tools',
+        'zh-CN': '工具',
+        'zh-Hant': '工具'
+    },
+    'tools.title': {
+        en: '🧰 Tools',
+        'zh-CN': '🧰 工具',
+        'zh-Hant': '🧰 工具'
+    },
+    'tools.subtitle': {
+        en: 'Handy utilities for everyday clinic work',
+        'zh-CN': '日常诊所工作的实用小工具',
+        'zh-Hant': '日常診所工作的實用小工具'
+    },
+    'tools.back': {
+        en: '← Back to Tools',
+        'zh-CN': '← 返回工具',
+        'zh-Hant': '← 返回工具'
+    },
+    'tools.docConverter': {
+        en: 'Document Converter',
+        'zh-CN': '文件格式转换',
+        'zh-Hant': '文件格式轉換'
+    },
+    'tools.docConverterDesc': {
+        en: 'Convert Word, PDF & images (PDF→Word, Word→PDF, PDF→JPG…)',
+        'zh-CN': '转换 Word、PDF 与图片（PDF→Word、Word→PDF、PDF→JPG…）',
+        'zh-Hant': '轉換 Word、PDF 與圖片（PDF→Word、Word→PDF、PDF→JPG…）'
+    },
+    'tools.medCalc': {
+        en: 'Medical Calculators',
+        'zh-CN': '医学计算器',
+        'zh-Hant': '醫學計算機'
+    },
+    'tools.medCalcDesc': {
+        en: 'BMI, BSA, paediatric dose, EDD, eGFR, age',
+        'zh-CN': 'BMI、体表面积、儿童剂量、预产期、eGFR、年龄',
+        'zh-Hant': 'BMI、體表面積、兒童劑量、預產期、eGFR、年齡'
+    },
+    'tools.qr': {
+        en: 'QR Code Generator',
+        'zh-CN': '二维码生成器',
+        'zh-Hant': 'QR 碼產生器'
+    },
+    'tools.qrDesc': {
+        en: 'Make QR codes for links, Wi-Fi, phone, email',
+        'zh-CN': '为链接、Wi-Fi、电话、邮箱生成二维码',
+        'zh-Hant': '為連結、Wi-Fi、電話、電郵產生 QR 碼'
+    },
+    'tools.pdf': {
+        en: 'PDF Utilities',
+        'zh-CN': 'PDF 工具',
+        'zh-Hant': 'PDF 工具'
+    },
+    'tools.pdfDesc': {
+        en: 'Merge, extract, rotate, watermark & compress PDFs',
+        'zh-CN': '合并、提取、旋转、加水印及压缩 PDF',
+        'zh-Hant': '合併、提取、旋轉、加浮水印及壓縮 PDF'
+    },
+    'tools.cert': {
+        en: 'Certificate / Receipt / Label',
+        'zh-CN': '证明 / 收据 / 标签',
+        'zh-Hant': '證明 / 收據 / 標籤'
+    },
+    'tools.certDesc': {
+        en: 'Generate sick-leave certs, receipts & medicine labels',
+        'zh-CN': '生成病假证明、收据与药物标签',
+        'zh-Hant': '產生病假證明、收據與藥物標籤'
+    },
+    'doctools.title': {
+        en: '🔄 Document Converter',
+        'zh-CN': '🔄 文件格式转换',
+        'zh-Hant': '🔄 文件格式轉換'
+    },
+
+    // ── Entertainment Hub ──────────────────────────────────────
+    'ent.back':     { en: '← Back', 'zh-CN': '← 返回', 'zh-Hant': '← 返回' },
+    'ent.title':    { en: '🎮 AI Mini Games', 'zh-CN': '🎮 AI 小游戏', 'zh-Hant': '🎮 AI 小遊戲' },
+    'ent.subtitle': { en: 'Choose a game to play', 'zh-CN': '选择游戏', 'zh-Hant': '選擇遊戲' },
+    'ent.restart':  { en: '🔄 Restart', 'zh-CN': '🔄 重来', 'zh-Hant': '🔄 重來' },
+    'ent.exit':     { en: '🚪 Exit',    'zh-CN': '🚪 退出', 'zh-Hant': '🚪 退出' },
+
+    'ent.game.c4':       { en: 'Four in a Row',         'zh-CN': '四子棋',     'zh-Hant': '四子棋'     },
+    'ent.game.c4Desc':   { en: 'Drop pieces, 4 in a line wins', 'zh-CN': '落子连四即胜', 'zh-Hant': '落子連四即勝' },
+    'ent.game.chess':    { en: 'Chess',                  'zh-CN': '国际象棋',   'zh-Hant': '國際象棋'   },
+    'ent.game.chessDesc':{ en: 'Classic Western chess',  'zh-CN': '经典西洋棋', 'zh-Hant': '經典西洋棋' },
+    'ent.game.xiangqi':  { en: 'Chinese Chess (象棋)',   'zh-CN': '中国象棋',   'zh-Hant': '中國象棋'   },
+    'ent.game.xiangqiDesc':{ en: 'Traditional board game', 'zh-CN': '传统棋盘游戏', 'zh-Hant': '傳統棋盤遊戲' },
+    'ent.game.gomoku':         { en: 'Gomoku (五子棋)',         'zh-CN': '五子棋',     'zh-Hant': '五子棋'     },
+    'ent.game.gomokuDesc':     { en: 'Get 5 in a row to win',  'zh-CN': '连五即胜',   'zh-Hant': '連五即勝'   },
+    'ent.game.reversi':        { en: 'Reversi (Othello)',       'zh-CN': '黑白棋',     'zh-Hant': '黑白棋'     },
+    'ent.game.reversiDesc':    { en: 'Flip discs, most wins',   'zh-CN': '翻转棋盘，多者胜', 'zh-Hant': '翻轉棋盤，多者勝' },
+    'ent.game.2048':           { en: '2048',                    'zh-CN': '2048',       'zh-Hant': '2048'       },
+    'ent.game.2048Desc':       { en: 'Slide & merge tiles',     'zh-CN': '滑动合并方块', 'zh-Hant': '滑動合併方塊' },
+    'ent.game.minesweeper':    { en: 'Minesweeper',             'zh-CN': '扫雷',       'zh-Hant': '踩地雷'     },
+    'ent.game.minesweeperDesc':{ en: 'Clear mines without exploding', 'zh-CN': '排雷不踩雷', 'zh-Hant': '排雷不踩雷' },
+    'ent.game.snake':          { en: 'Snake',                   'zh-CN': '贪吃蛇',     'zh-Hant': '貪吃蛇'     },
+    'ent.game.snakeDesc':      { en: 'Eat and grow — don\'t crash', 'zh-CN': '吃食物变长，别撞墙', 'zh-Hant': '吃食物變長，別撞牆' },
+    'ent.game.sudoku':         { en: 'Sudoku',                  'zh-CN': '数独',       'zh-Hant': '數獨'       },
+    'ent.game.sudokuDesc':     { en: '9×9 number puzzle',       'zh-CN': '9×9数字谜题', 'zh-Hant': '9×9數字謎題' },
+    'ent.game.mahjong':        { en: 'Mahjong 麻將',            'zh-CN': '麻将',       'zh-Hant': '麻將'       },
+    'ent.game.mahjongDesc':    { en: '4-player — draw, discard, win', 'zh-CN': '四人麻将：摸牌出牌胡牌', 'zh-Hant': '四人麻將：摸牌出牌胡牌' },
+    'ent.game.typing':         { en: 'Typing of the Cats 打字貓', 'zh-CN': '打字猫',     'zh-Hant': '打字貓'     },
+    'ent.game.typingDesc':     { en: 'Type pinyin to blast evolved cat monsters!', 'zh-CN': '输入拼音，消灭进化喵星怪！', 'zh-Hant': '輸入拼音，消滅進化喵星怪！' },
+    'ent.game.ime':            { en: 'IME Practice 中文輸入法練習', 'zh-CN': '中文输入法练习', 'zh-Hant': '中文輸入法練習' },
+    'ent.game.imeDesc':        { en: 'Clear falling characters with any Chinese IME!', 'zh-CN': '用任何中文输入法打掉落下的字！', 'zh-Hant': '用任何中文輸入法打掉落下的字！' },
+    'ent.records.allow':       { en: 'Save my best scores',     'zh-CN': '记录我的最佳成绩', 'zh-Hant': '記錄我的最佳成績' },
+    'ent.records.view':        { en: '🏆 Hall of Fame',         'zh-CN': '🏆 排行榜',  'zh-Hant': '🏆 排行榜'  },
+    'ent.records.title':       { en: '🏆 Hall of Fame — Top 3', 'zh-CN': '🏆 排行榜 — 前三名', 'zh-Hant': '🏆 排行榜 — 前三名' },
+    'ent.records.empty':       { en: 'No records yet — be the first!', 'zh-CN': '暂无记录 — 快来争第一！', 'zh-Hant': '暫無記錄 — 快來爭第一！' },
+    'ent.records.clear':       { en: 'Clear all records',       'zh-CN': '清除所有记录', 'zh-Hant': '清除所有記錄' },
+    'ent.records.close':       { en: 'Close',                   'zh-CN': '关闭',       'zh-Hant': '關閉'       },
+    'ent.records.newbest':     { en: '🎉 New record!',          'zh-CN': '🎉 新纪录！', 'zh-Hant': '🎉 新紀錄！' },
     'dashboard.memoHint': {
         en: '📌 New stickies sit along the bottom by default — tiles stay clear; empty areas still click through · Double‑click opens Memo Cards + AI · Drag anytime',
         'zh-CN': '📌 新便签默认排在底部 — 卡片区域保持清晰；空白处仍可点击 · 双击打开「备忘卡片 + AI」· 可随时拖动',
         'zh-Hant': '📌 新便簽預設排在底部 — 卡片區域保持清晰；空白處仍可點擊 · 雙擊開啟「備忘卡片 + AI」· 可隨時拖動'
+    },
+
+    // ── Keyboard refresh hint (dashboard) ──────────────────────
+    'dashboard.kbHint.toggleLabel': {
+        en: 'Keyboard Refresh Guide',
+        'zh-CN': '键盘刷新快捷键说明',
+        'zh-Hant': '鍵盤重新整理說明'
+    },
+    'dashboard.kbHint.f2': {
+        en: 'App soft refresh — re-fetches live data for the current screen without reloading the page. Scroll position is preserved.',
+        'zh-CN': '应用内刷新 — 仅重新获取当前界面的最新数据，不重载页面，滚动位置不变。',
+        'zh-Hant': '應用內重整 — 僅重新取得目前畫面最新資料，不重載頁面，捲動位置不變。'
+    },
+    'dashboard.kbHint.f5': {
+        en: 'Browser soft reload — reloads the page; HTML and assets may be served from the browser cache. Session and clinic context are restored automatically.',
+        'zh-CN': '浏览器软重载 — 重新加载页面；HTML 及资源可能来自浏览器缓存。登录状态和诊所设置自动恢复。',
+        'zh-Hant': '瀏覽器軟重載 — 重新載入頁面；HTML 及資源可能來自瀏覽器快取。登入狀態與診所設定自動恢復。'
+    },
+    'dashboard.kbHint.ctrlF5': {
+        en: 'Browser hard reload — forces a fresh download of all HTML, JavaScript and CSS, bypassing the browser cache. Use this when the app appears outdated after an update.',
+        'zh-CN': '浏览器强制刷新 — 强制重新下载全部 HTML、JavaScript 及 CSS，绕过浏览器缓存。更新后界面未更新时使用。',
+        'zh-Hant': '瀏覽器強制重整 — 強制重新下載所有 HTML、JavaScript 及 CSS，跳過瀏覽器快取。更新後介面未更新時使用。'
+    },
+    'dashboard.kbHint.ctrlShiftR': {
+        en: 'Browser hard reload (alternate) — identical effect to Ctrl+F5, supported in Chrome, Firefox and Edge on Windows / Linux.',
+        'zh-CN': '浏览器强制刷新（备用键）— 效果与 Ctrl+F5 完全相同，适用于 Windows / Linux 上的 Chrome、Firefox 和 Edge。',
+        'zh-Hant': '瀏覽器強制重整（備用鍵）— 效果與 Ctrl+F5 完全相同，適用於 Windows / Linux 的 Chrome、Firefox 和 Edge。'
+    },
+    'dashboard.kbHint.macNote': {
+        en: 'macOS equivalents: ⌘ R = soft reload · ⌘ Shift R = hard reload (Chrome/Firefox/Edge)',
+        'zh-CN': 'macOS 对应快捷键：⌘ R = 软重载 · ⌘ Shift R = 强制刷新（Chrome/Firefox/Edge）',
+        'zh-Hant': 'macOS 對應捷徑：⌘ R = 軟重載 · ⌘ Shift R = 強制重整（Chrome/Firefox/Edge）'
     }
 };
 

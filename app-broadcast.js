@@ -1146,18 +1146,7 @@ var BROADCAST = (function () {
         if (isLogin && _open) closeWindow();
     }
 
-    // ── keyboard shortcut Ctrl+Shift+B ────────────────────────
-    document.addEventListener('keydown', function (e) {
-        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
-            if (e.key === 'B' || e.key === 'b') {
-                var loginEl = g('loginOverlay');
-                if (loginEl && loginEl.style.display !== 'none') return;
-                e.preventDefault();
-                e.stopPropagation();
-                toggleWindow();
-            }
-        }
-    }, true);
+    // Ctrl+Shift+B is handled by app-quicklaunch.js (ql.broadcast action).
 
     // ── init ──────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {

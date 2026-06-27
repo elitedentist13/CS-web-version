@@ -145,6 +145,9 @@ function apptSelectListRow(a, row, tabKey) {
     apptListSelectedTab = tabKey || '';
     apptMarkListRowSelected(row, a.id);
     apptSetActivePatientFromAppt(a, 'appt-' + (tabKey || 'list') + '-row-select');
+    try {
+        document.dispatchEvent(new CustomEvent('app-appt-list-selection-change'));
+    } catch (eSel) {}
 }
 
 function apptRestoreListRowSelection(tb, tabKey) {
@@ -238,6 +241,7 @@ var _queueRemarksEditAppt = null;
 /** Raw remarks before edit (preserve staff author tag when doctor saves). */
 var queueRemarksEditPriorRaw = null;
 var queueRemarksModalBound = false;
+var queueRemarksPencilBound = false;
 var queueRefreshBtnBound = false;
 var queueClearModeBtnBound = false;
 var todayClearModeBtnBound = false;
@@ -744,6 +748,31 @@ function syncUnpaidBillFromPendingList(pl, sub, done) {
 
     function applyBillSave(existingBill) {
         var paidSoFar = existingBill ? (parseFloat(existingBill.amount_paid) || 0) : 0;
+
+        // LOCK GUARD (deep safety net): once any payment is recorded the bill's
+        // items, subtotal, and total must not be overwritten — even if the UI
+        // guard was somehow bypassed.  Only appointment-link housekeeping runs.
+        if (paidSoFar > 0.005 && existingBill) {
+            var billId = pl.bill_id || existingBill.id || null;
+            var afterLinked = function () {
+                if (billApptId) {
+                    SB.from('appointments')
+                        .update({ bill_status: parseFloat(existingBill.balance) <= 0.005 ? 'Paid' : 'Billed' })
+                        .eq('id', billApptId)
+                        .then(function () { if (done) done(null, existingBill); })
+                        .catch(function () { if (done) done(null, existingBill); });
+                    return;
+                }
+                if (done) done(null, existingBill);
+            };
+            if (billId) {
+                persistPendingListBillIdRow(pl, billId, afterLinked);
+            } else {
+                afterLinked();
+            }
+            return;
+        }
+
         var payload = buildUnpaidBillPayloadFromPendingList(pl, sub);
         payload.amount_paid = paidSoFar;
         payload.balance = Math.max(0, sub - paidSoFar);
@@ -1237,12 +1266,12 @@ function refreshApptPlannerData(opts) {
     if (!plusApptDate) plusApptDate = todayISO();
     var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
     if ((tab === 'plusappt' || opts.forcePlusAppt) && typeof loadPlusApptDay === 'function') {
-        loadPlusApptDay({ force: !!opts.force });
+        loadPlusApptDay({ force: !!opts.force, soft: !!opts.soft });
     }
     if (tab === 'calendar' && typeof renderCal === 'function') {
-        renderCal();
+        renderCal({ soft: !!opts.soft });
     } else if (!tab && typeof renderCal === 'function') {
-        renderCal();
+        renderCal({ soft: !!opts.soft });
     }
 }
 
@@ -1413,7 +1442,8 @@ function bindApptClinicSelectOnce() {
 // ════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════
-function initAppt() {
+function initAppt(opts) {
+    opts = opts || {};
     var un = g('apptUserName');
     var ur = g('apptUserRole');
     var ud = g('apptTodayDate');
@@ -1436,6 +1466,7 @@ function initAppt() {
     }
     if (typeof plusApptBindTransferDropZones === 'function') plusApptBindTransferDropZones();
     bindQueueRemarksModalOnce();
+    bindQueueRemarksPencilOnce();
     bindQueueRefreshBtnOnce();
     bindQueueClearModeBtnOnce();
     bindTodayClearModeBtnOnce();
@@ -1447,7 +1478,8 @@ function initAppt() {
     bindApptSharedMemoOnce();
     refreshApptSharedMemoI18n();
     apptModuleBindEditPauseOnce();
-    switchApptTab('queue');
+    apptBindLiveScrollTrackOnce();
+    switchApptTab(opts.initialTab || 'queue');
     if (typeof startApptAutoRefresh === 'function') startApptAutoRefresh();
 }
 
@@ -1511,11 +1543,12 @@ function queueBindCompactFitOnce() {
     window.addEventListener('resize', queueScheduleCompactFit);
 }
 
-function queueScheduleCompactFit() {
+function queueScheduleCompactFit(afterFn) {
     if (queueCompactFitTimer) clearTimeout(queueCompactFitTimer);
     queueCompactFitTimer = setTimeout(function() {
         queueCompactFitTimer = null;
         queueApplyCompactFitScale();
+        if (typeof afterFn === 'function') afterFn();
     }, 80);
 }
 
@@ -1816,7 +1849,12 @@ function switchApptTab(tab) {
         mountApptSharedMemo(null);
     }
     if (tab === 'queue')    loadQueue();
-    if (tab === 'today')    loadToday();
+    if (tab === 'today') {
+        loadToday();
+        if (typeof todayApplyClearModeCompactLayout === 'function') {
+            todayApplyClearModeCompactLayout();
+        }
+    }
     if (tab === 'plusappt') showPlusApptTab();
     if (tab === 'calendar') showCalendarTab();
     if (tab === 'records') loadApptRecords();
@@ -2477,6 +2515,9 @@ function plusApptApplyScheduleLayout() {
     if (typeof queueApplyClearModeCompactLayout === 'function') {
         queueApplyClearModeCompactLayout();
     }
+    if (typeof todayApplyClearModeCompactLayout === 'function') {
+        todayApplyClearModeCompactLayout();
+    }
 }
 
 var PLUSAPPT_CLEAR_MODE_LS = 'plusappt_clear_mode_v1';
@@ -2532,87 +2573,70 @@ function plusApptApplyClearModeLayout() {
     todayApplyClearModeCompactLayout();
 }
 
+/** Reset clear-mode row layout classes/vars on a tab pane. */
+function apptClearModeLayoutOff(tab, onClear) {
+    if (!tab) return;
+    tab.classList.remove(
+        'plusappt-row-extra-compact',
+        'plusappt-row-more-compact',
+        'plusappt-row-compact',
+        'plusappt-custom-row-color'
+    );
+    tab.style.removeProperty('--plusappt-row-min-h');
+    tab.style.removeProperty('--plusappt-font-scale');
+    tab.style.removeProperty('--plusappt-row-text-color');
+    if (typeof onClear === 'function') onClear();
+}
+
+/** Apply shared row-height / font settings to queue or today tab (clear mode). */
+function apptApplyClearModeTabLayout(tab, opts) {
+    opts = opts || {};
+    if (!tab) return;
+    if (!plusApptIsClearMode()) {
+        apptClearModeLayoutOff(tab, opts.onClear);
+        return;
+    }
+    var cfg = plusApptReadGcalSettings();
+    var slotH = parseInt(cfg.slotH, 10);
+    if (isNaN(slotH)) slotH = 16;
+    if (slotH < 12) slotH = 12;
+    var layout = plusApptScheduleLayoutFromSlotH(slotH);
+    tab.style.setProperty('--plusappt-row-min-h', layout.rowMin + 'px');
+    tab.classList.toggle('plusappt-row-extra-compact', slotH <= 12);
+    tab.classList.toggle('plusappt-row-more-compact', slotH === 14);
+    tab.classList.toggle('plusappt-row-compact', slotH <= 16);
+
+    var scale = parseFloat(cfg.rowFontScale);
+    if (isNaN(scale) || scale <= 0) scale = 1;
+    tab.style.setProperty('--plusappt-font-scale', String(scale));
+
+    var colorKey = String(cfg.rowFontColor || 'default');
+    var preset = plusApptRowFontColorPreset(colorKey);
+    tab.classList.toggle('plusappt-custom-row-color', !!preset.hex);
+    if (preset.hex) {
+        tab.style.setProperty('--plusappt-row-text-color', preset.hex);
+    } else {
+        tab.style.removeProperty('--plusappt-row-text-color');
+    }
+    if (typeof opts.onApplied === 'function') opts.onApplied(slotH, layout);
+}
+
 /** Mirror + Appointment row-height / font settings onto queue when clear mode is on. */
 function queueApplyClearModeCompactLayout() {
     var tab = g('tab-queue');
-    if (!tab) return;
-    if (!plusApptIsClearMode()) {
-        tab.classList.remove(
-            'plusappt-row-extra-compact',
-            'plusappt-row-more-compact',
-            'plusappt-row-compact',
-            'plusappt-custom-row-color'
-        );
-        tab.style.removeProperty('--plusappt-row-min-h');
-        tab.style.removeProperty('--plusappt-font-scale');
-        tab.style.removeProperty('--plusappt-row-text-color');
-        var wrapOff = tab.querySelector('.queue-wrap');
-        if (wrapOff) wrapOff.style.removeProperty('--queue-fit-scale');
-        return;
-    }
-    var cfg = plusApptReadGcalSettings();
-    var slotH = parseInt(cfg.slotH, 10);
-    if (isNaN(slotH)) slotH = 16;
-    slotH = Math.min(Math.max(slotH, 16), 18);
-    var layout = plusApptScheduleLayoutFromSlotH(slotH);
-    var queueRowMin = Math.max(layout.rowMin + 6, 28);
-    tab.style.setProperty('--plusappt-row-min-h', queueRowMin + 'px');
-    tab.classList.toggle('plusappt-row-extra-compact', slotH <= 12);
-    tab.classList.toggle('plusappt-row-more-compact', slotH === 14);
-    tab.classList.add('plusappt-row-compact');
-
-    var scale = parseFloat(cfg.rowFontScale);
-    if (isNaN(scale) || scale <= 0) scale = 1;
-    tab.style.setProperty('--plusappt-font-scale', String(scale));
-
-    var colorKey = String(cfg.rowFontColor || 'default');
-    var preset = plusApptRowFontColorPreset(colorKey);
-    tab.classList.toggle('plusappt-custom-row-color', !!preset.hex);
-    if (preset.hex) {
-        tab.style.setProperty('--plusappt-row-text-color', preset.hex);
-    } else {
-        tab.style.removeProperty('--plusappt-row-text-color');
-    }
-    if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
+    apptApplyClearModeTabLayout(tab, {
+        onClear: function() {
+            var wrap = tab && tab.querySelector('.queue-wrap');
+            if (wrap) wrap.style.removeProperty('--queue-fit-scale');
+        },
+        onApplied: function() {
+            if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
+        }
+    });
 }
 
 function todayApplyClearModeCompactLayout() {
-    var tab = g('tab-today');
-    if (!tab) return;
-    if (!plusApptIsClearMode()) {
-        tab.classList.remove(
-            'plusappt-row-extra-compact',
-            'plusappt-row-more-compact',
-            'plusappt-row-compact',
-            'plusappt-custom-row-color'
-        );
-        tab.style.removeProperty('--plusappt-row-min-h');
-        tab.style.removeProperty('--plusappt-font-scale');
-        tab.style.removeProperty('--plusappt-row-text-color');
-        return;
-    }
-    var cfg = plusApptReadGcalSettings();
-    var slotH = parseInt(cfg.slotH, 10);
-    if (isNaN(slotH)) slotH = 16;
-    slotH = Math.min(Math.max(slotH, 16), 18);
-    var layout = plusApptScheduleLayoutFromSlotH(slotH);
-    tab.style.setProperty('--plusappt-row-min-h', Math.max(layout.rowMin + 6, 28) + 'px');
-    tab.classList.toggle('plusappt-row-extra-compact', slotH <= 12);
-    tab.classList.toggle('plusappt-row-more-compact', slotH === 14);
-    tab.classList.add('plusappt-row-compact');
-
-    var scale = parseFloat(cfg.rowFontScale);
-    if (isNaN(scale) || scale <= 0) scale = 1;
-    tab.style.setProperty('--plusappt-font-scale', String(scale));
-
-    var colorKey = String(cfg.rowFontColor || 'default');
-    var preset = plusApptRowFontColorPreset(colorKey);
-    tab.classList.toggle('plusappt-custom-row-color', !!preset.hex);
-    if (preset.hex) {
-        tab.style.setProperty('--plusappt-row-text-color', preset.hex);
-    } else {
-        tab.style.removeProperty('--plusappt-row-text-color');
-    }
+    apptApplyClearModeTabLayout(g('tab-today'));
 }
 
 var PLUSAPPT_SIDEBAR_HIDDEN_LS = 'plusappt_sidebar_hidden_v1';
@@ -4673,6 +4697,10 @@ function bindQueueClearRemarksDblclick(row, apptRow) {
         hit.title = tr('appt.plusAppt.remarksDblClickHint');
     }
     hit.addEventListener('dblclick', function(e) {
+        if (e.target && e.target.closest &&
+            e.target.closest('.queue-remarks-pencil, .plusappt-remarks-nav, .plusappt-task-btn, button')) {
+            return;
+        }
         e.stopPropagation();
         e.preventDefault();
         if (typeof openQueueRemarksEditor === 'function') openQueueRemarksEditor(apptRow);
@@ -5044,10 +5072,26 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
 
         row.addEventListener('click', function(ev) {
             if (apptListRowClickBlocked(ev.target)) return;
-            if (a) plusApptSelectApptRow(a);
-            else if (apptTransferCutIsActive() && plusApptTryCompleteTransferDrop(null, slot, colDr)) {
+            if (a) {
+                plusApptSelectApptRow(a);
+            } else if (apptTransferCutIsActive() && plusApptTryCompleteTransferDrop(null, slot, colDr)) {
                 ev.preventDefault();
-            } else plusApptSelectEmptySlot(slot, false, colDr);
+            } else {
+                // Span rows occupy a slot already used by a long appointment — never
+                // open the create modal from them; just select as normal.
+                var isSpan = !!(spanInfo && spanInfo.role === 'span');
+                var activeP = (!isSpan &&
+                               typeof activePatientSlots !== 'undefined' &&
+                               activePatientSlots[0] && activePatientSlots[0].id)
+                    ? activePatientSlots[0] : null;
+                if (activeP) {
+                    var drCode = colDr || (typeof plusApptEffectiveDoctorCode === 'function'
+                        ? plusApptEffectiveDoctorCode() : '');
+                    plusApptOpenCreateForDroppedPatient(activeP, slot, drCode);
+                } else {
+                    plusApptSelectEmptySlot(slot, false, colDr);
+                }
+            }
         });
         if (a && !locked) row.setAttribute('draggable', 'true');
         row.addEventListener('dragstart', function(ev) {
@@ -5394,6 +5438,7 @@ function loadPlusApptDay(opts) {
         opts.soft = true;
     }
     if (!plusApptDate) plusApptDate = todayISO();
+    var savedScroll = apptSavedScrollSnapshot(opts);
     var loadSeq = ++plusApptDayLoadSeq;
     plusApptSyncDateLabel();
     var tb = g('plusApptScheduleBody');
@@ -5433,6 +5478,7 @@ function loadPlusApptDay(opts) {
                     tb.innerHTML = errHtml;
                 }
             }
+            apptFinishScrollPreserve(opts, savedScroll);
             return;
         }
         var finish = function(rows) {
@@ -5443,6 +5489,7 @@ function loadPlusApptDay(opts) {
                 if (loadSeq !== plusApptDayLoadSeq) return;
                 renderPlusApptSchedule();
                 plusApptFinishDayLoadSelection();
+                apptFinishScrollPreserve(opts, savedScroll);
                 hydrateApptUnpaidBalances(plusApptDayAppts, function(changed) {
                     if (!changed) return;
                     if (loadSeq !== plusApptDayLoadSeq) return;
@@ -5614,9 +5661,18 @@ function plusApptOpenHistory() {
     }, 120);
 }
 
+function plusApptSyncActivePatientClass() {
+    var tab = g('tab-plusappt');
+    if (!tab) return;
+    var hasActive = !!(typeof activePatientSlots !== 'undefined' &&
+                       activePatientSlots[0] && activePatientSlots[0].id);
+    tab.classList.toggle('plusappt-has-active-patient', hasActive);
+}
+
 function bindPlusApptTabOnce() {
     if (plusApptTabBound) return;
     plusApptTabBound = true;
+    document.addEventListener('app-active-patient-change', plusApptSyncActivePatientClass);
     bindApptImportModalOnce();
     plusApptBindTransferDropZones();
 
@@ -7056,6 +7112,7 @@ function showPlusApptTab() {
         if (tab) applyI18nInRoot(tab);
     }
     plusApptSyncSidebarToggleUi();
+    plusApptSyncActivePatientClass();
 }
 
 function showCalendarTab() {
@@ -7103,9 +7160,10 @@ function apptAutoRefreshTick() {
     if (typeof document !== 'undefined' && document.hidden) return;
     if (!apptSectionIsActive()) return;
     var tab = apptActiveTabKey();
-    if (tab === 'queue') loadQueue();
-    else if (tab === 'today') loadToday();
-    else if (tab === 'plusappt' || tab === 'calendar') refreshApptPlannerData();
+    var soft = { soft: true };
+    if (tab === 'queue') loadQueue(soft);
+    else if (tab === 'today') loadToday(soft);
+    else if (tab === 'plusappt' || tab === 'calendar') refreshApptPlannerData(soft);
 }
 
 function stopApptAutoRefresh() {
@@ -7488,9 +7546,67 @@ function setArFilter(f) {
 function arSearchDebounce() {
     clearTimeout(arSearchTimer);
     arSearchTimer = setTimeout(function() {
-        arSearchTerm = (g('arSearchInput').value || '').trim().toLowerCase();
-        arRender();
+        arSearchTerm = (g('arSearchInput').value || '').trim();
+        if (arSearchTerm.length >= 2) loadApptRecords();
+        else arRender();
     }, 220);
+}
+
+function arApptSearchTexts(a) {
+    if (!a) return [];
+    return [
+        a.patient_name,
+        a.patient_chinese_name,
+        a._merged_chinese_name,
+        a.patient_no,
+        a.treatment_items,
+        a.doctor_code,
+        a.doctor_name,
+        a.dentist_name,
+        a.remarks,
+        a.bill_status,
+        a.date,
+        a.start_time,
+        a._merged_phone,
+        a._merged_mobile_phone,
+        a._merged_patient_search
+    ];
+}
+
+function arApptMatchesSearch(a, term) {
+    if (!term) return true;
+    if (typeof patientSearchLocalMatches === 'function') {
+        return patientSearchLocalMatches(term, arApptSearchTexts(a));
+    }
+    var haystack = arApptSearchTexts(a).join(' ').toLowerCase();
+    return haystack.indexOf(String(term).toLowerCase()) >= 0;
+}
+
+function arFetchPatientIdsForSearch(q, done) {
+    if (!q || q.length < 2 || typeof patientSearchOrFilter !== 'function') {
+        if (done) done([]);
+        return;
+    }
+    var filter = patientSearchOrFilter(q);
+    if (!filter) {
+        if (done) done([]);
+        return;
+    }
+    SB.from('patients').select('id').or(filter).limit(250)
+        .then(function (r) {
+            if (r.error || !r.data) {
+                if (done) done([]);
+                return;
+            }
+            var ids = [];
+            r.data.forEach(function (p) {
+                if (p && p.id) ids.push(p.id);
+            });
+            if (done) done(ids);
+        })
+        .catch(function () {
+            if (done) done([]);
+        });
 }
 
 /** Records tab: clinic scope from arClinicSelect (or all session clinics). */
@@ -7518,6 +7634,8 @@ function applyApptRecordsClinicQuery(builder) {
 function loadApptRecords() {
     var tbody = g('arBody');
     if (!tbody) return;
+    var inp = g('arSearchInput');
+    if (inp) arSearchTerm = (inp.value || '').trim();
     bindArRecordsRowsOnce();
     arRecordsSyncSidebarToggleUi();
     arRecordsApplySidebarLayout();
@@ -7529,30 +7647,48 @@ function loadApptRecords() {
         '<tr><td colspan="10" style="text-align:center;color:#aaa;padding:30px;">' +
         esc(tr('common.loadingEllipsis')) + '</td></tr>';
 
-    var aq = SB.from('appointments').select('*');
-    if (arDateFilter) {
-        aq = aq.eq('date', arDateFilter)
-            .order('start_time', { ascending: false });
-    } else {
-        aq = aq.order('date', { ascending: false })
-            .order('start_time', { ascending: false })
-            .limit(500);
-    }
-    aq = applyApptRecordsClinicQuery(aq);
-    aq
-    .then(function(r) {
-        if (r.error) {
-            tbody.innerHTML =
-                '<tr><td colspan="10" style="color:red;padding:20px;">' +
-                esc(r.error.message) + '</td></tr>';
-            return;
-        }
-        augmentAppointmentsChineseFromPatients(r.data || [], function(rows) {
-            arAllData = rows || [];
+    function finishLoad(rows) {
+        augmentAppointmentsChineseFromPatients(rows || [], function(merged) {
+            arAllData = merged || [];
             mergeScheduleLockedLocal(arAllData);
             arRender();
         });
-    });
+    }
+
+    function runAppointmentQuery(patientIds) {
+        var aq = SB.from('appointments').select('*');
+        if (arDateFilter) {
+            aq = aq.eq('date', arDateFilter)
+                .order('start_time', { ascending: false });
+        } else if (patientIds && patientIds.length) {
+            aq = aq.in('patient_id', patientIds)
+                .order('date', { ascending: false })
+                .order('start_time', { ascending: false })
+                .limit(500);
+        } else {
+            aq = aq.order('date', { ascending: false })
+                .order('start_time', { ascending: false })
+                .limit(500);
+        }
+        aq = applyApptRecordsClinicQuery(aq);
+        aq.then(function(r) {
+            if (r.error) {
+                tbody.innerHTML =
+                    '<tr><td colspan="10" style="color:red;padding:20px;">' +
+                    esc(r.error.message) + '</td></tr>';
+                return;
+            }
+            finishLoad(r.data || []);
+        });
+    }
+
+    if (arSearchTerm.length >= 2 && !arDateFilter) {
+        arFetchPatientIdsForSearch(arSearchTerm, function(patientIds) {
+            runAppointmentQuery(patientIds);
+        });
+        return;
+    }
+    runAppointmentQuery(null);
 }
 
 function arRender() {
@@ -7569,18 +7705,8 @@ function arRender() {
         if (!arApptMatchesDoctorFilter(a)) return false;
         if (arDateFilter && a.date !== arDateFilter) return false;
 
-        // Search filter
-        if (term) {
-            var haystack = [
-                a.patient_name         || '',
-                a.patient_chinese_name || '',
-                a.patient_no           || '',
-                a.treatment_items      || '',
-                a.doctor_code          || '',
-                a.remarks              || ''
-            ].join(' ').toLowerCase();
-            if (haystack.indexOf(term) < 0) return false;
-        }
+        // Search filter (name, no., phone, HKID, email, treatment, doctor, etc.)
+        if (term && !arApptMatchesSearch(a, term)) return false;
         return true;
     });
 
@@ -8498,6 +8624,10 @@ function apptSetSelectedPatient(p) {
 }
 
 function apptActivePatientSnapshot() {
+    // Active patient dock (primary slot) takes highest priority
+    if (typeof activePatientSlots !== 'undefined' && activePatientSlots[0] && activePatientSlots[0].id) {
+        return activePatientSlots[0];
+    }
     if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
         return conPatientData;
     }
@@ -8628,8 +8758,22 @@ function staffAuthorRemarksHtml(author) {
     nameRaw = stripRolePrefixFromStaffName(nameRaw, roleRaw);
     var name = esc(nameRaw);
     var role = esc(roleRaw);
-    var inner = role && role !== name ? role + ' · ' + name : name;
+    var displayRole = esc(abbreviateRoleForDisplay(roleRaw));
+    var inner = displayRole && displayRole !== name ? displayRole + ' · ' + name : name;
     return '<span class="appt-rm-by" data-uid="' + uid + '" data-role="' + role + '">' + inner + '</span>';
+}
+
+function abbreviateRoleForDisplay(role) {
+    var r = String(role || '').trim().toLowerCase();
+    var map = {
+        receptionist: 'Recep',
+        admin: 'Admin',
+        staff: 'Staff',
+        nurse: 'Nurse',
+        dentist: 'Dr',
+        doctor: 'Dr'
+    };
+    return Object.prototype.hasOwnProperty.call(map, r) ? map[r] : role;
 }
 
 function stripRolePrefixFromStaffName(name, role) {
@@ -8638,7 +8782,17 @@ function stripRolePrefixFromStaffName(name, role) {
     if (!n || !r) return n;
     var escRole = r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     var rx = new RegExp('^\\s*' + escRole + '\\s*(?:[·\\-:：]\\s*)+', 'i');
-    return n.replace(rx, '').trim() || n;
+    var result = n.replace(rx, '').trim();
+    if (result !== n) return result || n;
+    // Also strip the abbreviated display form (e.g. "Recep ·" for "receptionist")
+    var abbrev = abbreviateRoleForDisplay(r);
+    if (abbrev && abbrev.toLowerCase() !== r) {
+        var escAbbrev = abbrev.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var rxAbbrev = new RegExp('^\\s*' + escAbbrev + '\\s*(?:[·\\-:：]\\s*)+', 'i');
+        var result2 = n.replace(rxAbbrev, '').trim();
+        if (result2 !== n) return result2 || n;
+    }
+    return n;
 }
 
 function extractStaffAuthorSpan(remarks) {
@@ -10207,6 +10361,8 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
     var pMedsMap = {};
     var pAllergyMap = {};
     var pPhoneMap = {};
+    var pMobileMap = {};
+    var pSearchMap = {};
     var seen = {};
     var ids  = [];
     rows.forEach(function(a) {
@@ -10245,6 +10401,12 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
             if (a.patient_id && pPhoneMap[a.patient_id]) {
                 a._merged_phone = pPhoneMap[a.patient_id];
             }
+            if (a.patient_id && pMobileMap[a.patient_id]) {
+                a._merged_mobile_phone = pMobileMap[a.patient_id];
+            }
+            if (a.patient_id && pSearchMap[a.patient_id]) {
+                a._merged_patient_search = pSearchMap[a.patient_id];
+            }
         });
         if (callback) callback(rows);
     }
@@ -10254,12 +10416,15 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
         return;
     }
 
+    var augmentPatientSelect =
+        'id,patient_no,full_name,chinese_name,medical_alerts,phone_number,mobile_phone,hkid,email,address,dob,occupation,remarks';
+    if (typeof patientAlertDisplayNeedsExtraFields === 'function' &&
+        patientAlertDisplayNeedsExtraFields()) {
+        augmentPatientSelect += ',medical_history,current_medications,allergy';
+    }
+
     SB.from('patients')
-        .select(
-            patientAlertDisplayNeedsExtraFields()
-                ? 'id,patient_no,full_name,chinese_name,medical_alerts,medical_history,current_medications,allergy,phone_number,mobile_phone'
-                : 'id,patient_no,full_name,chinese_name,medical_alerts,phone_number,mobile_phone'
-        )
+        .select(augmentPatientSelect)
         .in('id', ids)
     .then(function(pr) {
         if (!pr.error && pr.data) {
@@ -10274,6 +10439,10 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
                     pAllergyMap[p.id] = p.allergy;
                 }
                 pPhoneMap[p.id] = String(p.phone_number || p.mobile_phone || '').trim();
+                pMobileMap[p.id] = String(p.mobile_phone || '').trim();
+                if (typeof patientSearchBlobFromRecord === 'function') {
+                    pSearchMap[p.id] = patientSearchBlobFromRecord(p);
+                }
             });
         }
         finalize();
@@ -10399,6 +10568,7 @@ function loadToday(opts) {
     }
     var tb  = g('todayBody');
     if (!tb) return;
+    var savedScroll = apptSavedScrollSnapshot(opts);
     var loadSeq = ++todayLoadSeq;
     syncApptTodayDateLabels();
     if (!opts.soft) {
@@ -10424,15 +10594,16 @@ function loadToday(opts) {
                 apptModuleMarkRefreshDeferred('today');
                 apptRefreshPatientCountBadge('today');
                 doStrip([]);
+                apptFinishScrollPreserve(opts, savedScroll);
                 return;
             }
-            tb.innerHTML = '';
-            tb.innerHTML =
+            apptSetTbodyHtml(tb,
                 '<tr><td colspan="9" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' + esc(tr('appt.today.noToday')) +
-                '</td></tr>';
+                '</td></tr>', opts);
             apptRefreshPatientCountBadge('today');
             doStrip([]);
+            apptFinishScrollPreserve(opts, savedScroll);
             return;
         }
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
@@ -10454,31 +10625,42 @@ function loadToday(opts) {
                     apptModuleMarkRefreshDeferred('today');
                     apptRefreshPatientCountBadge('today');
                     doStrip(todayRows);
+                    apptFinishScrollPreserve(opts, savedScroll);
                     return;
                 }
-                tb.innerHTML = '';
                 var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                     ? CalDoctorColors.filterAppts(todayRows) : todayRows;
                 apptRefreshPatientCountBadge('today');
                 var dotCtx = apptListDoctorDotCtx(todayRows);
                 if (!visible.length) {
-                    tb.innerHTML =
+                    apptSetTbodyHtml(tb,
                         '<tr><td colspan="9" style="text-align:center;' +
                         'color:#aaa;padding:24px;">' +
                         esc(todayRows.length ? tr('appt.today.noFiltered') : tr('appt.today.noToday')) +
-                        '</td></tr>';
+                        '</td></tr>', opts);
+                } else if (opts.soft) {
+                    apptSwapTbodyContent(tb, function(frag) {
+                        visible.forEach(function(a) {
+                            buildTodayRow(frag, a, dotCtx);
+                        });
+                    });
                 } else {
+                    tb.innerHTML = '';
                     visible.forEach(function(a) {
                         buildTodayRow(tb, a, dotCtx);
                     });
                 }
                 doStrip(todayRows);
                 apptRestoreListRowSelection(tb, 'today');
+                if (typeof todayApplyClearModeCompactLayout === 'function') {
+                    todayApplyClearModeCompactLayout();
+                }
+                apptFinishScrollPreserve(opts, savedScroll);
                 hydrateApptUnpaidBalances(todayRows, function(changed) {
                     if (!changed) return;
                     if (loadSeq !== todayLoadSeq) return;
                     if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'today') {
-                        loadToday();
+                        loadToday({ soft: true });
                     }
                 });
             });
@@ -10655,7 +10837,7 @@ function buildTodayRow(tb, a, dotCtx) {
                 '</span>' +
             '</td>' +
             '<td class="today-action-cell plusappt-row-data-cell--clear">' +
-                '<div class="action-wrap" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;">' +
+                '<div class="action-wrap today-action-wrap">' +
                     '<button type="button" class="btn-today-edit btn-sm" ' +
                     'style="background:var(--primary);">' + esc(tr('appt.today.btnEdit')) + '</button>' +
                     actionBtn +
@@ -10699,8 +10881,8 @@ function buildTodayRow(tb, a, dotCtx) {
                     esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
                 '</span>' +
             '</td>' +
-            '<td>' +
-                '<div style="display:flex;gap:5px;flex-wrap:wrap;">' +
+            '<td class="today-action-cell">' +
+                '<div class="action-wrap today-action-wrap">' +
                     '<button type="button" class="btn-today-edit btn-sm" ' +
                     'style="background:var(--primary);">' + esc(tr('appt.today.btnEdit')) + '</button>' +
                     actionBtn +
@@ -11195,6 +11377,189 @@ function queuePatientEditDblclickBlocked(el) {
     ));
 }
 
+var QUEUE_ACTION_DROP_Z = 100200;
+var queueActionDropCloseBound = false;
+
+function queueStopRowEvent(e, preventDefault) {
+    if (!e) return;
+    if (preventDefault) e.preventDefault();
+    e.stopPropagation();
+}
+
+function queueBindActionWrapGuards(wrap) {
+    if (!wrap || wrap.dataset.queueActionWrapBound === '1') return;
+    wrap.dataset.queueActionWrapBound = '1';
+    wrap.addEventListener('dblclick', function(e) {
+        queueStopRowEvent(e, true);
+    });
+    wrap.addEventListener('dragstart', function(e) {
+        queueStopRowEvent(e, true);
+    });
+}
+
+function queueRememberActionDropWrap(drop) {
+    if (!drop) return null;
+    if (drop.__queueActionWrap && document.body.contains(drop.__queueActionWrap)) {
+        return drop.__queueActionWrap;
+    }
+    var wrap = drop.closest ? drop.closest('.action-wrap') : null;
+    if (wrap) drop.__queueActionWrap = wrap;
+    return wrap || null;
+}
+
+function queuePositionActionDrop(drop, btn) {
+    if (!drop || !btn) return;
+    var rect  = btn.getBoundingClientRect();
+    // action-drop is position:fixed; keep coordinates in viewport space (no scrollY).
+    var dropW = 200;
+    var dropH = 240;
+    var gap = 4;
+    var edge = 8;
+    var top = rect.bottom + gap;
+    if (top + dropH > window.innerHeight - edge) {
+        top = rect.top - dropH - gap;
+    }
+    if (top < edge) top = edge;
+    var left = rect.right - dropW;
+    if (left + dropW > window.innerWidth - edge) {
+        left = window.innerWidth - dropW - edge;
+    }
+    if (left < edge) left = edge;
+    drop.style.top  = Math.round(top) + 'px';
+    drop.style.left = Math.round(left) + 'px';
+    drop.style.zIndex = String(QUEUE_ACTION_DROP_Z);
+}
+
+function queueRestoreActionDropHome(drop) {
+    if (!drop) return;
+    var wrap = queueRememberActionDropWrap(drop);
+    if (wrap && document.body.contains(wrap) && drop.parentNode === document.body) {
+        // Home wrap is alive — move drop back into it
+        wrap.appendChild(drop);
+    } else if (drop.parentNode === document.body && (!wrap || !document.body.contains(wrap))) {
+        // Home wrap is gone (row was removed) — remove the orphaned drop from body
+        // to prevent duplicate-ID collisions when the queue rebuilds its rows.
+        document.body.removeChild(drop);
+    }
+}
+
+function queueCloseActionDrop(drop) {
+    if (!drop) return;
+    drop.classList.remove('open');
+    drop.classList.remove('action-drop--portal');
+    queueRestoreActionDropHome(drop);
+}
+
+function queueCloseAllActionDrops(exceptDrop) {
+    document.querySelectorAll('.action-drop.open').forEach(function(d) {
+        if (exceptDrop && d === exceptDrop) return;
+        queueCloseActionDrop(d);
+    });
+    // Also sweep drops portaled to body whose home wrap is gone — these can
+    // linger without .open when the queue refreshed mid-animation, causing
+    // duplicate-ID collisions that break the next rebuild.
+    document.querySelectorAll('.action-drop.action-drop--portal').forEach(function(d) {
+        if (exceptDrop && d === exceptDrop) return;
+        var wrap = d.__queueActionWrap;
+        if (!wrap || !document.body.contains(wrap)) {
+            if (d.parentNode) d.parentNode.removeChild(d);
+        }
+    });
+}
+
+function queueOpenActionDrop(drop, btn) {
+    if (!drop) return;
+    // If the btn reference is stale (detached from DOM), attempt to recover it
+    // from the drop's home wrap before giving up. This covers the edge case where
+    // a soft-refresh rebuilds rows between mousedown and click.
+    if (btn && !document.body.contains(btn)) {
+        var homeWrap = queueRememberActionDropWrap(drop) ||
+                       (drop.closest ? drop.closest('.action-wrap') : null);
+        var freshBtn = homeWrap ? homeWrap.querySelector('.action-btn') : null;
+        if (freshBtn && document.body.contains(freshBtn)) {
+            btn = freshBtn;
+        } else {
+            return;
+        }
+    }
+    if (!btn) return;
+    queueCloseAllActionDrops(drop);
+    queueRememberActionDropWrap(drop);
+    if (drop.parentNode !== document.body) {
+        document.body.appendChild(drop);
+    }
+    drop.classList.add('action-drop--portal');
+    queuePositionActionDrop(drop, btn);
+    drop.classList.add('open');
+}
+
+function queueToggleActionDrop(drop, btn) {
+    if (!drop || !btn) return;
+    if (drop.classList.contains('open')) {
+        queueCloseActionDrop(drop);
+        return;
+    }
+    queueOpenActionDrop(drop, btn);
+}
+
+function queueActionDropClickInside(e) {
+    return !!(e && e.target && e.target.closest &&
+        e.target.closest('.action-btn, .action-drop, .action-item'));
+}
+
+function bindQueueActionDropGlobalCloseOnce() {
+    if (queueActionDropCloseBound) return;
+    queueActionDropCloseBound = true;
+    document.addEventListener('click', function(e) {
+        if (queueActionDropClickInside(e)) return;
+        queueCloseAllActionDrops(null);
+    });
+}
+
+window.queueCloseAllActionDrops = queueCloseAllActionDrops;
+bindQueueActionDropGlobalCloseOnce();
+
+/** Open the Actions ▾ menu for the selected queue row (apptListSelectedApptId on queue tab). */
+function openQueueSelectedRowAction() {
+    var apptId = apptListSelectedApptId;
+    if (!apptId || apptListSelectedTab !== 'queue') return false;
+
+    function openForSelectedRow() {
+        var tb = g('queueBody');
+        if (!tb) return false;
+        var row = tb.querySelector('tr[data-appt-id="' + apptId + '"]');
+        if (!row) return false;
+        var btn = row.querySelector('.action-btn');
+        var drop = row.querySelector('.action-drop');
+        if (!btn || !drop) return false;
+        try {
+            row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        } catch (eScroll) {
+            try { row.scrollIntoView(false); } catch (eScroll2) {}
+        }
+        queueOpenActionDrop(drop, btn);
+        return true;
+    }
+
+    var onQueueTab = typeof apptSectionIsActive === 'function' && apptSectionIsActive() &&
+        typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue';
+
+    if (onQueueTab && openForSelectedRow()) return true;
+
+    if (typeof showOnly === 'function') showOnly('appointmentSection');
+    if (typeof switchApptTab === 'function') switchApptTab('queue');
+
+    var attempt = 0;
+    (function poll() {
+        attempt++;
+        if (openForSelectedRow()) return;
+        if (attempt < 25) setTimeout(poll, 80);
+    })();
+    return true;
+}
+
+window.openQueueSelectedRowAction = openQueueSelectedRowAction;
+
 function apptPatchCachedPatientRows(patient) {
     if (!patient || !patient.id) return;
     var pid = String(patient.id);
@@ -11261,9 +11626,7 @@ function resolveQueueRowPatientId(q, done) {
 
 function openEditPatientFromQueueRow(q) {
     if (!q) return;
-    document.querySelectorAll('.action-drop.open').forEach(function (d) {
-        d.classList.remove('open');
-    });
+    queueCloseAllActionDrops(null);
     resolveQueueRowPatientId(q, function (pid) {
         if (pid && typeof openEditPatient === 'function') {
             openEditPatient(pid);
@@ -11483,6 +11846,30 @@ function bindQueueReorderHandlers(tbody) {
     }, false);
 }
 
+// ── Queue remarks pencil (delegated — survives row re-render) ─
+function bindQueueRemarksPencilOnce() {
+    if (queueRemarksPencilBound) return;
+    var tb = g('queueBody');
+    if (!tb) return;
+    queueRemarksPencilBound = true;
+    tb.addEventListener('click', function(e) {
+        var pencil = e.target && e.target.closest
+            ? e.target.closest('.queue-remarks-pencil')
+            : null;
+        if (!pencil) return;
+        e.stopPropagation();
+        e.preventDefault();
+        var row = pencil.closest('tr[data-appt-id]');
+        if (!row) return;
+        var apptId = row.getAttribute('data-appt-id');
+        if (!apptId) return;
+        var q = apptFindListRowAppt(apptId, 'queue');
+        if (!q) return;
+        if (typeof queueCloseAllActionDrops === 'function') queueCloseAllActionDrops(null);
+        openQueueRemarksEditor(q);
+    });
+}
+
 // ── Queue remarks modal (full text edit) ─────────────────────
 function bindQueueRemarksModalOnce() {
     if (queueRemarksModalBound) return;
@@ -11687,14 +12074,88 @@ function ensureQueueElapsedTicker() {
     }, 30000);
 }
 
-function loadQueue() {
+function apptShouldPreserveScroll(opts) {
+    return !!(opts && opts.soft);
+}
+
+var _apptLiveScrollState = null;
+var _apptLiveScrollBound = false;
+
+function apptBindLiveScrollTrackOnce() {
+    if (_apptLiveScrollBound) return;
+    _apptLiveScrollBound = true;
+    window.addEventListener('scroll', function() {
+        if (typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) return;
+        if (typeof captureAppScrollState === 'function') {
+            _apptLiveScrollState = captureAppScrollState();
+        }
+    }, true);
+}
+
+function apptSavedScrollSnapshot(opts) {
+    if (!apptShouldPreserveScroll(opts)) return null;
+    if (_apptLiveScrollState && _apptLiveScrollState.winY > 0) return _apptLiveScrollState;
+    var live = (typeof captureAppScrollState === 'function') ? captureAppScrollState() : null;
+    if (live && live.winY > 0) return live;
+    if (typeof readAppScrollRestorePayload === 'function') {
+        var payload = readAppScrollRestorePayload();
+        if (payload && payload.scroll && payload.scroll.winY > 0) return payload.scroll;
+    }
+    return live || _apptLiveScrollState;
+}
+
+function apptSwapTbodyContent(tb, fillFn) {
+    // Before destroying current rows, close any action-drops that have been
+    // portaled to document.body — their home wrap is about to be removed, so
+    // queueRestoreActionDropHome must run while tb still contains the wrap.
+    if (tb) {
+        document.querySelectorAll('.action-drop.action-drop--portal, .action-drop.open').forEach(function(d) {
+            var hw = d.__queueActionWrap;
+            if (hw && tb.contains(hw)) {
+                if (typeof queueCloseActionDrop === 'function') queueCloseActionDrop(d);
+            }
+        });
+    }
+    var frag = document.createDocumentFragment();
+    fillFn(frag);
+    while (tb.firstChild) tb.removeChild(tb.firstChild);
+    while (frag.firstChild) tb.appendChild(frag.firstChild);
+}
+
+function apptSetTbodyHtml(tb, html, opts) {
+    if (opts && opts.soft) {
+        apptSwapTbodyContent(tb, function(frag) {
+            var t = document.createElement('template');
+            t.innerHTML = '<table><tbody>' + html + '</tbody></table>';
+            var src = t.content.querySelector('tbody');
+            while (src && src.firstChild) frag.appendChild(src.firstChild);
+        });
+        return;
+    }
+    tb.innerHTML = html;
+}
+
+function apptFinishScrollPreserve(opts, saved) {
+    if (!apptShouldPreserveScroll(opts) || !saved) return;
+    if (typeof releaseAppScrollLock === 'function') releaseAppScrollLock(false);
+    if (typeof scheduleAppScrollRestore === 'function') {
+        scheduleAppScrollRestore(saved, { delays: [0, 100, 250, 600, 1200] });
+    }
+}
+
+function loadQueue(opts) {
+    opts = opts || {};
     var tb = g('queueBody');
     if (!tb) return;
+    var savedScroll = apptSavedScrollSnapshot(opts);
+    queueCloseAllActionDrops(null);
     var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
-    tb.innerHTML =
-        '<tr><td colspan="11" style="text-align:center;' +
-        'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
+    if (!opts.soft) {
+        tb.innerHTML =
+            '<tr><td colspan="11" style="text-align:center;' +
+            'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
+    }
 
     var qq = SB.from('appointments').select('*')
         .eq('date', todayISO())
@@ -11704,27 +12165,29 @@ function loadQueue() {
     qq = applyApptModuleClinicQuery(qq);
     qq.then(function(r) {
         if (loadSeq !== queueLoadSeq) return;
-        tb.innerHTML = '';
+        if (!opts.soft) tb.innerHTML = '';
         var doStrip = function (apptRows) {
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
                 CalDoctorColors.renderDoctorFilterStrip('queueDoctorFilterBar', apptRows || []);
             }
         };
         if (r.error || !r.data || !r.data.length) {
-            tb.innerHTML =
+            apptSetTbodyHtml(tb,
                 '<tr><td colspan="11" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' +
-                esc(tr('appt.queue.empty')) + '</td></tr>';
+                esc(tr('appt.queue.empty')) + '</td></tr>', opts);
             apptRefreshPatientCountBadge('queue');
             doStrip([]);
             queueApptsCache = [];
             setQueueRefreshMeta({ stampNow: true });
-            queueScheduleCompactFit();
+            queueScheduleCompactFit(function() {
+                apptFinishScrollPreserve(opts, savedScroll);
+            });
             return;
         }
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
             if (loadSeq !== queueLoadSeq) return;
-            tb.innerHTML = '';
+            if (!opts.soft) tb.innerHTML = '';
             plusApptHydrateTaskStateForList(rows, function(hydratedRows) {
                 if (loadSeq !== queueLoadSeq) return;
                 var activeRows = (hydratedRows || []).filter(function(q) {
@@ -11737,16 +12200,22 @@ function loadQueue() {
                 var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                     ? CalDoctorColors.filterAppts(activeRows) : activeRows;
                 apptRefreshPatientCountBadge('queue');
+                var dotCtx = apptListDoctorDotCtx(activeRows);
                 if (!visible.length) {
-                    tb.innerHTML =
+                    apptSetTbodyHtml(tb,
                         '<tr><td colspan="11" style="text-align:center;' +
                         'color:#aaa;padding:24px;">' +
                         esc(activeRows.length
                             ? tr('appt.queue.emptyFiltered')
                             : tr('appt.queue.empty')) +
-                        '</td></tr>';
+                        '</td></tr>', opts);
+                } else if (opts.soft) {
+                    apptSwapTbodyContent(tb, function(frag) {
+                        visible.forEach(function(q, idx) {
+                            buildQueueRow(frag, q, idx + 1, dotCtx);
+                        });
+                    });
                 } else {
-                    var dotCtx = apptListDoctorDotCtx(activeRows);
                     visible.forEach(function(q, idx) {
                         buildQueueRow(tb, q, idx + 1, dotCtx);
                     });
@@ -11756,12 +12225,14 @@ function loadQueue() {
                 setQueueRefreshMeta({ stampNow: true });
                 ensureQueueElapsedTicker();
                 queueRefreshElapsedBadges();
-                queueScheduleCompactFit();
+                queueScheduleCompactFit(function() {
+                    apptFinishScrollPreserve(opts, savedScroll);
+                });
                 hydrateApptUnpaidBalances(hydratedRows, function(changed) {
                     if (!changed) return;
                     if (loadSeq !== queueLoadSeq) return;
                     if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
-                        loadQueue();
+                        loadQueue({ soft: true });
                     }
                 });
             });
@@ -11897,11 +12368,11 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
                     apptUnpaidBadgeHtml(q, 'appt-unpaid-badge--remarks queue-clear-unpaid-badge') +
                     '<span class="queue-clear-remarks-body">' +
                         plusApptRemarksScrollerHtml(q.remarks, q.id, { hideStaffAuthor: true }) +
-                        '<button type="button" class="queue-remarks-pencil queue-remarks-pencil--inline" ' +
-                        'id="qrm-pencil-' + uid + '" ' +
-                        'title="' + esc(tr('appt.queue.editRemarksTitle')) + '" aria-label="' + esc(tr('appt.queue.editRemarksAria')) + '">' +
-                        '✎</button>' +
                     '</span>' +
+                    '<button type="button" class="queue-remarks-pencil queue-remarks-pencil--inline" ' +
+                    'data-no-click-guard="1" ' +
+                    'title="' + esc(tr('appt.queue.editRemarksTitle')) + '" aria-label="' + esc(tr('appt.queue.editRemarksAria')) + '">' +
+                    '✎</button>' +
                 '</div>' +
             '</td>';
         timeCellHtml =
@@ -11936,7 +12407,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
                     apptUnpaidBadgeHtml(q, 'appt-unpaid-badge--remarks') +
                     apptTaskSummaryHtml(q) +
                     '<button type="button" class="queue-remarks-pencil" ' +
-                    'id="qrm-pencil-' + uid + '" ' +
+                    'data-no-click-guard="1" ' +
                     'title="' + esc(tr('appt.queue.editRemarksTitle')) + '" aria-label="' + esc(tr('appt.queue.editRemarksAria')) + '">' +
                     '✎</button>' +
                 '</div>' +
@@ -11992,7 +12463,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         '</td>' +
         '<td class="queue-actions-cell' + dataCls + '">' +
             '<div class="action-wrap" id="aw-' + uid + '">' +
-                '<button class="action-btn" id="ab-' + uid + '">' +
+                '<button type="button" class="action-btn" id="ab-' + uid + '" data-no-click-guard="1">' +
                     esc(tr('appt.queue.actions')) +
                 '</button>' +
                 '<div class="action-drop" id="ad-' + uid + '">' +
@@ -12101,48 +12572,45 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         openEditPatientFromQueueRow(q);
     });
 
-    var drop = g('ad-' + uid);
-    var btn  = g('ab-' + uid);
+    // ── IMPORTANT: look up all action elements from within `row` itself using
+    // querySelector, NOT via g()/getElementById. During soft-refresh the row is
+    // built inside a disconnected DocumentFragment while old rows are still live
+    // in queueBody. g() would find the old (about-to-be-detached) elements and
+    // all click-handler closures would capture stale references.
+    var wrap = row.querySelector('.action-wrap');
+    var drop = row.querySelector('.action-drop');
+    var btn  = row.querySelector('.action-btn');
+    if (drop && wrap) {
+        drop.__queueActionWrap = wrap;
+    }
+    queueBindActionWrapGuards(wrap);
 
-    btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        document.querySelectorAll('.action-drop.open')
-            .forEach(function(d) {
-                if (d !== drop) d.classList.remove('open');
-            });
-        if (drop.classList.contains('open')) {
-            drop.classList.remove('open');
-            return;
-        }
-        var rect  = btn.getBoundingClientRect();
-        // action-drop is position:fixed; keep coordinates in viewport space (no scrollY).
-        var dropW = 200;
-        var dropH = 240;
-        var gap = 4;
-        var edge = 8;
-        var top = rect.bottom + gap;
-        if (top + dropH > window.innerHeight - edge) {
-            top = rect.top - dropH - gap;
-        }
-        if (top < edge) top = edge;
-        var left = rect.right - dropW;
-        if (left + dropW > window.innerWidth - edge) {
-            left = window.innerWidth - dropW - edge;
-        }
-        if (left < edge) left = edge;
-        drop.style.top  = Math.round(top) + 'px';
-        drop.style.left = Math.round(left) + 'px';
-        drop.classList.add('open');
-    });
+    if (btn) {
+        btn.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+        });
+        btn.addEventListener('click', function(e) {
+            queueStopRowEvent(e, true);
+            // Re-resolve from the live DOM at click time for extra safety.
+            // The drop may have been portaled to document.body; if so, the
+            // __queueActionWrap back-reference still points to this wrap.
+            var liveWrap = this.closest ? this.closest('.action-wrap') : wrap;
+            var liveDrop = (liveWrap && liveWrap.querySelector('.action-drop')) || drop;
+            if (!liveDrop && drop && drop.__queueActionWrap === liveWrap) liveDrop = drop;
+            queueToggleActionDrop(liveDrop || drop, this);
+        });
+    }
 
-    g('act-bill-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+    var actBill = row.querySelector('[id="act-bill-' + uid + '"]');
+    if (actBill) actBill.addEventListener('click', function(e) {
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { openBillPanel(q); }, 60);
     });
-    g('act-wa-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+    var actWa = row.querySelector('[id="act-wa-' + uid + '"]');
+    if (actWa) actWa.addEventListener('click', function(e) {
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { openAppointmentWhatsApp(q, 'appointmentReminder'); }, 40);
     });
     row.querySelectorAll('.appt-task-pill-btn[data-task-cycle="1"]').forEach(function(btn) {
@@ -12159,9 +12627,10 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         });
     });
 
-    g('act-notes-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+    var actNotes = row.querySelector('[id="act-notes-' + uid + '"]');
+    if (actNotes) actNotes.addEventListener('click', function(e) {
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         var pid = q.patient_id;
         if (!pid) {
             alert(tr('appt.queue.noPatientLinked'));
@@ -12172,21 +12641,24 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         }, 80);
     });
 
-    g('act-done-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+    var actDone = row.querySelector('[id="act-done-' + uid + '"]');
+    if (actDone) actDone.addEventListener('click', function(e) {
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { updateQueueStatus(q.id, 'Done'); }, 60);
     });
 
-    g('act-noshow-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+    var actNoshow = row.querySelector('[id="act-noshow-' + uid + '"]');
+    if (actNoshow) actNoshow.addEventListener('click', function(e) {
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() { updateQueueStatus(q.id, 'No Show'); }, 60);
     });
 
-    g('act-remove-' + uid).addEventListener('click', function(e) {
-        e.stopPropagation();
-        drop.classList.remove('open');
+    var actRemove = row.querySelector('[id="act-remove-' + uid + '"]');
+    if (actRemove) actRemove.addEventListener('click', function(e) {
+        queueStopRowEvent(e, true);
+        queueCloseActionDrop(drop);
         setTimeout(function() {
             if (!confirm(trRepl('appt.queue.confirmRemove', {
                 NAME: q.patient_name || tr('appt.today.thisPatient')
@@ -12207,22 +12679,16 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         }, 60);
     });
 
-    var pencil = g('qrm-pencil-' + uid);
-    if (pencil) {
-        pencil.addEventListener('click', function(e) {
-            e.stopPropagation();
-            e.preventDefault();
-            drop.classList.remove('open');
-            openQueueRemarksEditor(q);
-        });
-    }
-
     var remarksWrap = row.querySelector('.queue-remarks-preview-wrap, .plusappt-remarks-preview-wrap');
     if (remarksWrap) {
         remarksWrap.addEventListener('dblclick', function(e) {
+            if (e.target && e.target.closest &&
+                e.target.closest('.queue-remarks-pencil, .plusappt-remarks-nav, .appt-task-pill-btn, button')) {
+                return;
+            }
             e.stopPropagation();
             e.preventDefault();
-            drop.classList.remove('open');
+            queueCloseActionDrop(drop);
             openQueueRemarksEditor(q);
         });
     }
@@ -14665,7 +15131,10 @@ function wireBillPanelControls() {
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
     bindClickOnce('receiptPrintOptionsBtn', reopenReceiptPrintOptionsFromReceipt);
-    bindClickOnce('receiptPrintNowBtn', function () { printReceiptDocument(); });
+    bindClickOnce('receiptPrintNowBtn',     function () { printReceiptDocument(); });
+    bindClickOnce('receiptPrintEnBtn',      function () { printReceiptForLang('en'); });
+    bindClickOnce('receiptPrintZhHantBtn',  function () { printReceiptForLang('zh-Hant'); });
+    bindClickOnce('receiptPrintZhCNBtn',    function () { printReceiptForLang('zh-CN'); });
     bindClickOnce('closeReceiptPrintOptionsModal', function() {
         dismissReceiptPrintOptionsModal(true);
     });
@@ -14689,6 +15158,9 @@ function wireBillPanelControls() {
     bindClickOnce('bhpSelectNoneBtn', function() { setAllBillHistoryPrintChecks(false); });
     wireBillHistoryPrintOptionInputs();
     wireBillHistoryFilterUi();
+    ensureModalNoBackdropClose('billPaymentClinicConfirmModal');
+    bindClickOnce('bpcConfirmYesBtn', confirmBillPaymentClinicMismatch);
+    bindClickOnce('bpcConfirmNoBtn', dismissBillPaymentClinicConfirm);
 
     var pendingDrSel = g('pendingListDoctor');
     if (pendingDrSel && pendingDrSel.dataset.billInputBound !== '1') {
@@ -14757,6 +15229,16 @@ function applyBillPanelPatientRecord(patient) {
         billPatChineseName = String(patient.chinese_name || '').trim();
     }
     updateBillPanelPatientInfoDom();
+    // Keep the bill detail modal in sync only when the open bill belongs to this patient.
+    if (bdCurrentBill && bdCurrentBill.patient_id === patient.id) {
+        if (en) bdCurrentBill.patient_name = en;
+        if (patient.patient_no) bdCurrentBill.patient_no = patient.patient_no;
+        var bdModalEl = g('billDetailModal');
+        if (bdModalEl && bdModalEl.style.display === 'block') {
+            if (en) bdSet('bdPatient', en);
+            if (patient.patient_no) bdSet('bdPatientNo', patient.patient_no);
+        }
+    }
     return true;
 }
 
@@ -14971,6 +15453,19 @@ function openBillPanel(q) {
 
     updateBillPanelPatientInfoDom();
 
+    // Background-fetch the live patient record so the header always shows the
+    // current name even when the appointment cache carried a stale denormalized value.
+    if (billPatId) {
+        SB.from('patients')
+            .select('id,patient_no,full_name,chinese_name')
+            .eq('id', billPatId)
+            .single()
+            .then(function(r) {
+                if (!r.error && r.data) applyBillPanelPatientRecord(r.data);
+            })
+            .catch(function() {});
+    }
+
     billItems    = [];
     pendingLists = [];
     pendingIdx   = -1;
@@ -14988,7 +15483,7 @@ function openBillPanel(q) {
         });
     });
     resetBillHistoryFilterUi();
-    loadBillHistory();
+    loadBillHistory(function() { renderStep1UI(); });
     loadBillDoctors();
 
     wireBillPanelControls();
@@ -15171,13 +15666,42 @@ function renderStep1UI() {
 
     var statusEl = g('pendingListStatus');
     if (statusEl) {
-        if (pl.bill_id) {
+        var locked = isCurrentPendingListLocked();
+        if (locked) {
+            statusEl.textContent = tr('bill.status.locked');
+            statusEl.style.color = '#b45309';
+        } else if (pl.bill_id) {
             statusEl.textContent = tr('bill.status.billPendingPayment');
             statusEl.style.color = '#2563eb';
         } else {
             statusEl.textContent = pl.id ? tr('bill.status.saved') : tr('bill.status.notSaved');
             statusEl.style.color = pl.id ? '#16a34a' : '#f59e0b';
         }
+    }
+
+    // Show / hide the lock banner and update its message
+    var lockBanner = g('billLockBanner');
+    if (lockBanner) {
+        var isLocked = isCurrentPendingListLocked();
+        if (isLocked) {
+            var lockedBill = getLockedBillRow();
+            var paidAmt = lockedBill ? parseFloat(lockedBill.amount_paid || 0) : 0;
+            var msgEl = g('billLockBannerMsg');
+            if (msgEl) msgEl.textContent = trRepl('bill.locked.bannerMsg', { AMT: fmt2(paidAmt) });
+            lockBanner.style.display = 'flex';
+        } else {
+            lockBanner.style.display = 'none';
+        }
+    }
+
+    // Also lock/unlock the Create Bill button
+    var createBtn = g('createBillBtn');
+    if (createBtn) {
+        var isLocked2 = isCurrentPendingListLocked();
+        createBtn.disabled = isLocked2;
+        createBtn.style.opacity = isLocked2 ? '0.4' : '';
+        createBtn.style.cursor = isLocked2 ? 'not-allowed' : '';
+        createBtn.title = isLocked2 ? tr('bill.alert.lockedBillNoEdit').split('\n')[0] : '';
     }
 }
 
@@ -15221,6 +15745,11 @@ function createBillFromCurrentList() {
     syncPendingListDoctorFromUi();
     var pl = pendingLists[pendingIdx];
     var sub = pendingListSubtotalFromItems(billItems);
+
+    if (isCurrentPendingListLocked()) {
+        alert(tr('bill.alert.lockedBillNoEdit'));
+        return;
+    }
 
     if (sub <= 0.005) {
         alert(tr('bill.alert.addItemsFirst'));
@@ -15331,7 +15860,7 @@ function saveCurrentPendingList(opts) {
                     if (pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
                     renderStep1UI();
                     noteBillPendingRefreshed();
-                    loadBillHistory();
+                    loadBillHistory(function() { renderStep1UI(); });
                     try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
                 });
                 return;
@@ -15819,6 +16348,10 @@ function loadBillDoctors() {
 }
 
 function addBillItem() {
+    if (isCurrentPendingListLocked()) {
+        alert(tr('bill.alert.lockedBillNoEdit'));
+        return;
+    }
     if (!pendingLists.length) {
         addNewPendingList();
     }
@@ -15827,6 +16360,49 @@ function addBillItem() {
     renderBillItems();
     recalcTotals();
 }
+
+// ── Bill lock helpers ─────────────────────────────────────────────
+// A bill is "locked" once any payment has been recorded against it.
+// Locked bills: items/totals are read-only; additional instalment
+// payments are still allowed via the Add Payment modal.
+function isCurrentPendingListLocked() {
+    var pl = (pendingIdx >= 0 && pendingIdx < pendingLists.length) ? pendingLists[pendingIdx] : null;
+    if (!pl || !pl.bill_id) return false;
+    var billId = String(pl.bill_id);
+    // 1. Check bdCurrentBill first — it is updated synchronously right after
+    //    every payment save / void, so it is always the freshest source of truth.
+    if (typeof bdCurrentBill !== 'undefined' && bdCurrentBill &&
+            String(bdCurrentBill.id) === billId) {
+        return parseFloat(bdCurrentBill.amount_paid || 0) > 0.005;
+    }
+    // 2. Fall back to billHistoryCache (covers panel-open scenario where
+    //    bdCurrentBill is null but history has already loaded).
+    var cache = Array.isArray(billHistoryCache) ? billHistoryCache : [];
+    for (var _i = 0; _i < cache.length; _i++) {
+        if (String(cache[_i].id) === billId) {
+            return parseFloat(cache[_i].amount_paid || 0) > 0.005;
+        }
+    }
+    return false;
+}
+
+function getLockedBillRow() {
+    var pl = (pendingIdx >= 0 && pendingIdx < pendingLists.length) ? pendingLists[pendingIdx] : null;
+    if (!pl || !pl.bill_id) return null;
+    var billId = String(pl.bill_id);
+    // Check bdCurrentBill first (freshest)
+    if (typeof bdCurrentBill !== 'undefined' && bdCurrentBill &&
+            String(bdCurrentBill.id) === billId) {
+        return bdCurrentBill;
+    }
+    // Fall back to cache
+    var cache = Array.isArray(billHistoryCache) ? billHistoryCache : [];
+    for (var _i = 0; _i < cache.length; _i++) {
+        if (String(cache[_i].id) === billId) return cache[_i];
+    }
+    return null;
+}
+// ─────────────────────────────────────────────────────────────────
 
 function syncBillItemsToPendingList() {
     if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
@@ -16049,6 +16625,44 @@ function renderBillItems() {
     var tb = g('billItemsBody');
     if (!tb) return;
     tb.innerHTML = '';
+
+    var locked = isCurrentPendingListLocked();
+    var addBtn = g('addBillItemBtn');
+    if (addBtn) {
+        addBtn.disabled = locked;
+        addBtn.style.opacity = locked ? '0.4' : '';
+        addBtn.style.cursor = locked ? 'not-allowed' : '';
+    }
+
+    if (locked) {
+        billItems.forEach(function(item) {
+            var n = normalizeBillItem(item);
+            var isOthers = billItemIsOthers(n);
+            var row = document.createElement('tr');
+            row.style.background = '#fffbeb';
+            var toothDisplay = isOthers ? '—' : (billItemToothInputValue(n) || '—');
+            row.innerHTML =
+                '<td style="padding:6px 8px;font-size:13px;color:#374151;">' + esc(billItemDisplayDesc(n)) + '</td>' +
+                '<td class="bill-tooth-cell" style="text-align:center;font-size:13px;color:#6b7280;">' + esc(toothDisplay) + '</td>' +
+                '<td class="bill-qty-cell" style="text-align:center;font-size:13px;">' + esc(String(n.qty || 1)) + '</td>' +
+                '<td style="font-size:13px;">' + fmt2(n.price || 0) + '</td>' +
+                '<td style="text-align:center;font-size:13px;">' + esc(formatBillDiscPctDisplay(n.disc || 0)) + '%</td>' +
+                '<td style="text-align:right;font-weight:600;font-size:13px;">' + fmt2(billItemAmt(n)) + '</td>' +
+                '<td></td>';
+            tb.appendChild(row);
+            if (isOthers && billItemOthersRemark(n)) {
+                var remarkRow = document.createElement('tr');
+                remarkRow.className = 'bill-item-others-remark-row';
+                remarkRow.innerHTML =
+                    '<td colspan="7" style="padding:2px 8px 10px 8px;background:#fffbeb;' +
+                    'border-bottom:1px solid #fde68a;font-size:12px;color:#92400e;">' +
+                    esc(billItemOthersRemark(n)) + '</td>';
+                tb.appendChild(remarkRow);
+            }
+        });
+        return;
+    }
+
     billItems.forEach(function(item, i) {
         var row = document.createElement('tr');
         var descBase = billItemDescBase(item.desc) || item.desc;
@@ -16294,6 +16908,10 @@ function renderBillItems() {
         var delBtn = row.querySelector('.bill-del-row');
         if (delBtn) {
             delBtn.addEventListener('click', function() {
+                if (isCurrentPendingListLocked()) {
+                    alert(tr('bill.alert.lockedBillNoEdit'));
+                    return;
+                }
                 billItems.splice(parseInt(this.dataset.idx, 10), 1);
                 syncBillItemsToPendingList();
                 renderBillItems();
@@ -17636,6 +18254,7 @@ function executeBillDelete() {
         voided_by: (typeof currentName !== 'undefined' ? currentName : null)
     };
 
+    var _voidTargetId = bdDeleteTarget.id;
     SB.from('bills').update(voidPayload).eq('id', bdDeleteTarget.id)
     .then(function(r) {
         if (r.error) {
@@ -17646,6 +18265,16 @@ function executeBillDelete() {
         closeModal('billDeleteModal');
         bdDeleteTarget = null;
         loadBillHistory();
+        // If the detail modal is open showing the bill that was just voided, patch
+        // bdCurrentBill with the void fields and re-render the modal header live.
+        if (bdCurrentBill && bdCurrentBill.id === _voidTargetId) {
+            bdCurrentBill.voided_at = voidPayload.voided_at;
+            bdCurrentBill.voided_by = voidPayload.voided_by;
+            var bdModalEl = g('billDetailModal');
+            if (bdModalEl && bdModalEl.style.display === 'block') {
+                if (typeof showBillDetail === 'function') showBillDetail(bdCurrentBill);
+            }
+        }
         try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
     });
 }
@@ -17782,7 +18411,6 @@ function applyBillDetailExtraDiscount(pct) {
     SB.from('bills')
         .update({ discount: discountAmt, total: total, balance: balance, status: newStatus })
         .eq('id', b.id)
-        .select()
     .then(function(r) {
         if (sel) sel.disabled = false;
         if (r.error) {
@@ -17790,48 +18418,23 @@ function applyBillDetailExtraDiscount(pct) {
             syncBillDetailExtraDiscount(b);
             return;
         }
+        b.discount = discountAmt;
+        b.total = total;
+        b.balance = balance;
+        b.status = newStatus;
 
-        // Use the row the database actually persisted as the source of truth.
-        var saved = (r.data && r.data[0]) ? r.data[0] : null;
-        if (saved) {
-            Object.assign(b, saved);
-        } else {
-            b.discount = discountAmt;
-            b.total = total;
-            b.balance = balance;
-            b.status = newStatus;
-        }
-
-        // Keep the in-memory history list in sync with the saved DB record.
-        if (typeof billHistoryCache !== 'undefined' && Array.isArray(billHistoryCache)) {
-            for (var i = 0; i < billHistoryCache.length; i++) {
-                if (billHistoryCache[i] && String(billHistoryCache[i].id) === String(b.id)) {
-                    Object.assign(billHistoryCache[i], b);
-                    break;
-                }
-            }
-        }
-
-        var savedDisc = parseFloat(b.discount) || 0;
-        var savedTotal = parseFloat(b.total) || 0;
-        var savedBal = parseFloat(b.balance) || 0;
-
-        g('bdDiscount').textContent = fmtHKNeg(savedDisc);
-        g('bdTotal').textContent = fmtHK(savedTotal);
-        g('bdBalance').textContent = fmtHK(savedBal);
-        g('bdBalance').style.color = savedBal > 0 ? 'var(--danger)' : '#16a34a';
+        g('bdDiscount').textContent = fmtHKNeg(discountAmt);
+        g('bdTotal').textContent = fmtHK(total);
+        g('bdBalance').textContent = fmtHK(balance);
+        g('bdBalance').style.color = balance > 0 ? 'var(--danger)' : '#16a34a';
 
         var voidedBill = billRecordIsVoid(b);
         var banner = g('bdOutstandingBanner');
         var addBtn = g('bdAddPaymentBtn');
-        if (banner) banner.style.display = (!voidedBill && savedBal > 0) ? 'block' : 'none';
-        if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(savedBal);
-        if (addBtn) addBtn.style.display = (!voidedBill && savedBal > 0) ? 'inline-block' : 'none';
+        if (banner) banner.style.display = (!voidedBill && balance > 0) ? 'block' : 'none';
+        if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(balance);
+        if (addBtn) addBtn.style.display = (!voidedBill && balance > 0) ? 'inline-block' : 'none';
 
-        // Reflect lock state / preset selection from the freshly persisted values.
-        syncBillDetailExtraDiscount(b);
-
-        // Re-fetch the authoritative list from the database.
         if (typeof loadBillHistory === 'function') loadBillHistory();
         try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
     });
@@ -17953,30 +18556,22 @@ function bdSet(id, val) {
     if (e) e.textContent = (val === null || val === undefined) ? '—' : String(val);
 }
 
+/** Bill detail header + receipt default — current active working clinic only. */
 function billDetailClinicCode(b) {
-    var active = '';
-    if (typeof currentClinicCodeForTagging === 'function') {
-        active = String(currentClinicCodeForTagging() || '').trim();
-    }
-    if (!active) {
-        var sel = g('appWorkingClinicSelect');
-        var cid = sel && sel.value ? String(sel.value).trim() : '';
-        if (typeof isWorkingClinicAllValue === 'function' && isWorkingClinicAllValue(cid)) {
-            cid = '';
-        }
-        if (!cid && typeof currentClinicId !== 'undefined' && currentClinicId) {
-            cid = String(currentClinicId).trim();
-        }
-        if (cid && typeof clinicRecordFromId === 'function') {
-            var recActive = clinicRecordFromId(cid);
-            if (recActive) active = String(recActive.clinic_code || recActive.id || '').trim();
-        }
-    }
-    if (active) return active;
+    var ctx = billPaymentClinicContext();
+    var code = String(ctx.clinic_code || '').trim();
+    return code || '—';
+}
 
-    if (!b) return '';
-    var raw = String((b.clinic_tag || b.clinic_id || '')).trim();
-    if (!raw) return '';
+function billPaymentReceivingClinicDisplay(p, bill) {
+    var raw = '';
+    if (p) {
+        raw = String(p.clinic_tag || p.clinic_code || p.clinic_id || '').trim();
+    }
+    if (!raw && bill) {
+        raw = String(bill.clinic_tag || bill.clinic_id || '').trim();
+    }
+    if (!raw) return '—';
     var rec = null;
     if (typeof clinicRecordForReceiptByTagOrId === 'function') {
         rec = clinicRecordForReceiptByTagOrId(raw);
@@ -17985,9 +18580,80 @@ function billDetailClinicCode(b) {
         rec = clinicRecordFromId(raw);
     }
     if (rec) {
-        return String(rec.clinic_code || rec.id || raw).trim();
+        return String(rec.clinic_code || rec.id || raw).trim() || '—';
     }
     return raw;
+}
+
+function billPaymentClinicCompareKey(p, bill) {
+    var label = billPaymentReceivingClinicDisplay(p, bill);
+    if (!label || label === '—') return '';
+    return String(label).trim().toUpperCase();
+}
+
+function activePaymentClinicDisplay() {
+    var ctx = billPaymentClinicContext();
+    return billPaymentReceivingClinicDisplay({
+        clinic_tag: ctx.clinic_tag,
+        clinic_code: ctx.clinic_code,
+        clinic_id: ctx.clinic_id
+    }, null);
+}
+
+function fetchPreviousPaymentClinicForBill(bill, cb) {
+    if (!bill || !bill.id || !SB || typeof SB.from !== 'function') {
+        if (cb) cb({ key: '', label: '—' });
+        return;
+    }
+    SB.from('bill_payments')
+        .select('*')
+        .eq('bill_id', bill.id)
+        .order('paid_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .then(function(r) {
+            var rows = (!r.error && r.data) ? r.data : [];
+            rows = mergeBillPaymentHistoryWithBill(bill, rows);
+            var active = billPaymentsActiveOnly(rows);
+            if (!active.length) {
+                if (cb) cb({ key: '', label: '—' });
+                return;
+            }
+            var last = active[active.length - 1];
+            var label = billPaymentReceivingClinicDisplay(last, bill);
+            var key = billPaymentClinicCompareKey(last, bill);
+            if (cb) cb({ key: key, label: label });
+        })
+        .catch(function() {
+            if (cb) cb({ key: '', label: '—' });
+        });
+}
+
+var _pendingAddPaymentSaveCtx = null;
+
+function dismissBillPaymentClinicConfirm() {
+    _pendingAddPaymentSaveCtx = null;
+    closeModal('billPaymentClinicConfirmModal');
+}
+
+function showBillPaymentClinicConfirmModal(prevLabel, currLabel, saveCtx) {
+    _pendingAddPaymentSaveCtx = saveCtx || null;
+    var prevEl = g('bpcPrevClinic');
+    var currEl = g('bpcCurrClinic');
+    if (prevEl) prevEl.textContent = prevLabel || '—';
+    if (currEl) currEl.textContent = currLabel || '—';
+    openModal('billPaymentClinicConfirmModal');
+    if (typeof applyI18nInRoot === 'function') {
+        var modal = g('billPaymentClinicConfirmModal');
+        if (modal) applyI18nInRoot(modal);
+    }
+}
+
+function confirmBillPaymentClinicMismatch() {
+    var ctx = _pendingAddPaymentSaveCtx;
+    _pendingAddPaymentSaveCtx = null;
+    closeModal('billPaymentClinicConfirmModal');
+    if (!ctx) return;
+    executeAddPaymentSave(ctx);
 }
 
 function printBillDetailReceipt() {
@@ -18045,9 +18711,13 @@ function showBillDetail(b) {
     }
     refreshBillDetailVoidMeta(b);
 
-    // Info fields
-    bdSet('bdPatient',   b.patient_name || '—');
-    bdSet('bdPatientNo', b.patient_no   || '—');
+    // Info fields — prefer the live billPatName so the header always reflects
+    // the most recent patient edit, even when the bill record carries a stale
+    // denormalized name from the time the bill was created.
+    var _bdDisplayName = (billPatName && billPatName !== '-') ? billPatName : (b.patient_name || '—');
+    var _bdDisplayNo   = (billPatNo   && billPatNo   !== '-') ? billPatNo   : (b.patient_no   || '—');
+    bdSet('bdPatient',   _bdDisplayName);
+    bdSet('bdPatientNo', _bdDisplayNo);
     bdSet('bdDate',      b.bill_date    || '—');
     bdSet('bdDoctor',    b.doctor_tag   || b.doctor_name || '—');
     bdSet('bdClinicCode', billDetailClinicCode(b) || '—');
@@ -18214,6 +18884,9 @@ function mergeBillPaymentHistoryWithBill(bill, rows) {
         method: bill.bill_type,
         notes: bill.notes,
         received_by: null,
+        clinic_id: bill.clinic_id || null,
+        clinic_tag: bill.clinic_tag || null,
+        clinic_code: bill.clinic_tag || null,
         _fromBillRecord: true
     });
     return pmts;
@@ -18223,7 +18896,7 @@ function normalizeReceiptPayments(bill, payments) {
     return mergeBillPaymentHistoryWithBill(bill, billPaymentsActiveOnly(payments || []));
 }
 
-function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
+function appendBillPaymentHistoryRow(tbody, p, rowIndex, bill) {
     var voided = billPaymentIsVoid(p);
     var row = document.createElement('tr');
     if (voided) {
@@ -18251,6 +18924,7 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
               '</td>'
             : '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>');
     var dateTdClass = voided ? ' bill-pay-void-date-col' : '';
+    var clinicLabel = billPaymentReceivingClinicDisplay(p, bill);
     row.innerHTML =
         statusCell +
         '<td class="' + dateTdClass.trim() + '" style="padding:8px 12px;">' +
@@ -18260,6 +18934,8 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
         '<td style="padding:8px 12px;">' + esc((typeof dispPayMethod === 'function')
             ? dispPayMethod(p.method)
             : (p.method || '—')) + '</td>' +
+        '<td style="padding:8px 12px;color:#888;">' +
+            esc(clinicLabel) + '</td>' +
         '<td style="padding:8px 12px;color:#888;">' +
             esc(p.received_by || '—') + '</td>' +
         '<td style="padding:8px 12px;color:#888;font-size:12px;">' +
@@ -18285,7 +18961,7 @@ function loadBillPayments(billId) {
     var tbody = g('bdPaymentHistoryBody');
     if (!tbody) return;
     tbody.innerHTML =
-        '<tr><td colspan="7" style="padding:12px;text-align:center;' +
+        '<tr><td colspan="8" style="padding:12px;text-align:center;' +
         'color:#aaa;font-size:13px;">' + esc(tr('bill.historyLoading')) + '</td></tr>';
 
     SB.from('bill_payments')
@@ -18296,20 +18972,21 @@ function loadBillPayments(billId) {
     .then(function(r) {
         tbody.innerHTML = '';
         var rows = (!r.error && r.data) ? r.data : [];
-        if (bdCurrentBill && bdCurrentBill.id === billId) {
-            rows = mergeBillPaymentHistoryWithBill(bdCurrentBill, rows);
-            var currentMethod = billCurrentPaymentMethodFromRows(bdCurrentBill, rows);
-            bdCurrentBill.bill_type = currentMethod;
+        var billForRows = (bdCurrentBill && bdCurrentBill.id === billId) ? bdCurrentBill : null;
+        if (billForRows) {
+            rows = mergeBillPaymentHistoryWithBill(billForRows, rows);
+            var currentMethod = billCurrentPaymentMethodFromRows(billForRows, rows);
+            billForRows.bill_type = currentMethod;
             refreshBillDetailPaymentMethod(currentMethod);
         }
         if (!rows.length) {
             tbody.innerHTML =
-                '<tr><td colspan="7" style="padding:12px;text-align:center;' +
+                '<tr><td colspan="8" style="padding:12px;text-align:center;' +
                 'color:#aaa;font-size:13px;">' + esc(tr('bill.detail.noPayments')) + '</td></tr>';
             return;
         }
         rows.forEach(function(p, i) {
-            appendBillPaymentHistoryRow(tbody, p, i);
+            appendBillPaymentHistoryRow(tbody, p, i, billForRows);
         });
     });
 }
@@ -18380,6 +19057,76 @@ function billPaymentClinicContext() {
 }
 
 // ── Confirm & save a new payment ────────────────────────
+function executeAddPaymentSave(ctx) {
+    if (!ctx || !ctx.payRecord || !bdCurrentBill) return;
+    var payRecord = ctx.payRecord;
+    var newPaid = ctx.newPaid;
+    var newBalance = ctx.newBalance;
+    var newStatus = ctx.newStatus;
+    var payMethod = ctx.payMethod;
+    var errEl = g('apError');
+
+    insertBillPaymentRecord(payRecord, function(r) {
+        if (r.error) {
+            if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); errEl.style.display = ''; }
+            return;
+        }
+        // Update the parent bill's totals
+        return SB.from('bills').update({
+            amount_paid: newPaid,
+            balance:     newBalance,
+            status:      newStatus,
+            bill_type:   payMethod
+        }).eq('id', bdCurrentBill.id)
+        .then(function(u) {
+            if (u.error) {
+                if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: u.error.message }); errEl.style.display = ''; }
+                return;
+            }
+            // Refresh in-memory bill object
+            bdCurrentBill.amount_paid = newPaid;
+            bdCurrentBill.balance     = newBalance;
+            bdCurrentBill.status      = newStatus;
+            bdCurrentBill.bill_type   = payMethod;
+
+            // Immediately re-render Step 1 — bdCurrentBill is now the freshest
+            // source for isCurrentPendingListLocked(), so the lock activates
+            // without waiting for the async loadBillHistory callback.
+            renderStep1UI();
+
+            closeModal('addPaymentModal');
+
+            // Refresh the detail view live
+            g('bdPaid').textContent    = fmtHK(newPaid);
+            g('bdBalance').textContent = fmtHK(newBalance);
+            g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
+            refreshBillDetailPaymentMethod(payMethod);
+
+            var badge = g('bdStatusBadge');
+            if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
+
+            var banner = g('bdOutstandingBanner');
+            var addBtn = g('bdAddPaymentBtn');
+            if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
+            if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
+            if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
+
+            loadBillPayments(bdCurrentBill.id);
+            loadBillHistory(function() {
+                // Re-render Step 1 immediately so the lock banner activates
+                // for partial payments without requiring a manual refresh.
+                renderStep1UI();
+            });
+            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+
+            if (newBalance <= 0.005) {
+                var paidBillId = bdCurrentBill.id;
+                resetBillCreationAfterPayment(paidBillId);
+            }
+        });
+    });
+}
+
 function confirmAddPayment() {
     if (!bdCurrentBill) return;
     var amount = parseFloat(g('apAmount').value) || 0;
@@ -18422,55 +19169,27 @@ function confirmAddPayment() {
     payRecord.clinic_tag = clinicCtx.clinic_tag;
     payRecord.clinic_code = clinicCtx.clinic_code;
 
-    insertBillPaymentRecord(payRecord, function(r) {
-        if (r.error) {
-            if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); errEl.style.display = ''; }
+    var saveCtx = {
+        payRecord: payRecord,
+        newPaid: newPaid,
+        newBalance: newBalance,
+        newStatus: newStatus,
+        payMethod: payMethod
+    };
+
+    var currLabel = activePaymentClinicDisplay();
+    var currKey = billPaymentClinicCompareKey({
+        clinic_tag: clinicCtx.clinic_tag,
+        clinic_code: clinicCtx.clinic_code,
+        clinic_id: clinicCtx.clinic_id
+    }, null);
+
+    fetchPreviousPaymentClinicForBill(bdCurrentBill, function(prev) {
+        if (!prev.key || !currKey || prev.key === currKey) {
+            executeAddPaymentSave(saveCtx);
             return;
         }
-        // Update the parent bill's totals
-        return SB.from('bills').update({
-            amount_paid: newPaid,
-            balance:     newBalance,
-            status:      newStatus,
-            bill_type:   payMethod
-        }).eq('id', bdCurrentBill.id)
-        .then(function(u) {
-            if (u.error) {
-                if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: u.error.message }); errEl.style.display = ''; }
-                return;
-            }
-            // Refresh in-memory bill object
-            bdCurrentBill.amount_paid = newPaid;
-            bdCurrentBill.balance     = newBalance;
-            bdCurrentBill.status      = newStatus;
-            bdCurrentBill.bill_type   = payMethod;
-
-            closeModal('addPaymentModal');
-
-            // Refresh the detail view live
-            g('bdPaid').textContent    = fmtHK(newPaid);
-            g('bdBalance').textContent = fmtHK(newBalance);
-            g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
-            refreshBillDetailPaymentMethod(payMethod);
-
-            var badge = g('bdStatusBadge');
-            if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
-
-            var banner = g('bdOutstandingBanner');
-            var addBtn = g('bdAddPaymentBtn');
-            if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
-            if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
-            if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
-
-            loadBillPayments(bdCurrentBill.id);
-            loadBillHistory();
-            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
-
-            if (newBalance <= 0.005) {
-                var paidBillId = bdCurrentBill.id;
-                resetBillCreationAfterPayment(paidBillId);
-            }
-        });
+        showBillPaymentClinicConfirmModal(prev.label, currLabel, saveCtx);
     });
 }
 
@@ -18526,13 +19245,17 @@ function voidPaymentRecord(p) {
         }).eq('id', p.bill_id)
         .then(function(u) {
             if (u.error) return;
-            if (bdCurrentBill && bdCurrentBill.id === p.bill_id) {
-                bdCurrentBill.amount_paid = newPaid;
-                bdCurrentBill.balance     = newBalance;
-                bdCurrentBill.status      = newStatus;
-                bdCurrentBill.bill_type   = nextBillType;
+                if (bdCurrentBill && bdCurrentBill.id === p.bill_id) {
+                    bdCurrentBill.amount_paid = newPaid;
+                    bdCurrentBill.balance     = newBalance;
+                    bdCurrentBill.status      = newStatus;
+                    bdCurrentBill.bill_type   = nextBillType;
 
-                g('bdPaid').textContent    = fmtHK(newPaid);
+                    // Immediately re-render Step 1 so the lock clears/restores
+                    // without waiting for the async loadBillHistory callback.
+                    renderStep1UI();
+
+                    g('bdPaid').textContent    = fmtHK(newPaid);
                 g('bdBalance').textContent = fmtHK(newBalance);
                 g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
                 refreshBillDetailPaymentMethod(nextBillType);
@@ -18547,7 +19270,11 @@ function voidPaymentRecord(p) {
                 if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
 
                 loadBillPayments(p.bill_id);
-                loadBillHistory();
+                loadBillHistory(function() {
+                    // Re-render Step 1 so the lock banner clears automatically
+                    // when the last payment is voided (amount_paid drops to 0).
+                    renderStep1UI();
+                });
                 try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
             }
         });
@@ -18555,6 +19282,8 @@ function voidPaymentRecord(p) {
 }
 
 var _receiptPrintInProgress = false;
+var _receiptClinicNameForFooter = '';
+var _receiptClinicTelForFooter  = '';
 var RECEIPT_PRINT_MIN_SCALE_PCT = 80;
 
 /**
@@ -19053,6 +19782,148 @@ function printReceiptDocument() {
     }, 140);
 }
 
+// ════════════════════════════════════════════════════════════════
+// LANGUAGE-SPECIFIC RECEIPT PRINT
+// Each of the three language buttons (EN / 繁體 / 简体) calls
+// printReceiptForLang(lang) which builds a single-page receipt
+// translated entirely into the chosen language, independent of
+// the current UI language setting.
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Clone `area` and re-apply all data-i18n labels for `lang`.
+ * Also reconstructs the clinic-specific tel / thanks footer lines
+ * that are set dynamically (not covered by data-i18n alone).
+ */
+function buildReceiptPageForLang(area, lang) {
+    var wrap = document.createElement('div');
+    wrap.innerHTML = area.innerHTML;
+
+    // Re-translate every data-i18n label for this language
+    var els = wrap.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        var key = el.getAttribute('data-i18n');
+        if (key && typeof t === 'function') el.textContent = t(key, lang);
+    }
+
+    // Re-apply tel line (set dynamically by applyReceiptClinicHeaderFromRecord)
+    var telEl = wrap.querySelector('#rClinicTelLine');
+    if (telEl && typeof t === 'function') {
+        var telStr = t('bill.receipt.telPrefix', lang);
+        telEl.textContent = telStr.replace('{TEL}', _receiptClinicTelForFooter || '—');
+    }
+
+    // Re-apply clinic-specific footer thanks line
+    var footEl = wrap.querySelector('#rReceiptFooterThanks');
+    if (footEl && typeof t === 'function') {
+        var thanksStr = t('bill.receipt.thanksVisit', lang);
+        footEl.textContent = thanksStr.replace('{NAME}', _receiptClinicNameForFooter || '');
+    }
+
+    return wrap.innerHTML;
+}
+
+/**
+ * Print a single receipt translated entirely into `lang`
+ * ('en', 'zh-Hant', or 'zh-CN'), regardless of the UI language.
+ */
+function printReceiptForLang(lang) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    var area = g('receiptPrintArea');
+    if (!area) return;
+    if (_receiptPrintInProgress) return;
+    _receiptPrintInProgress = true;
+
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    var billPrintRow = null;
+    var sheetCss = receiptPrintSheetFallbackCss();
+    if (typeof CFG !== 'undefined' && CFG) {
+        if (typeof CFG.prefetchPrintSettings === 'function') CFG.prefetchPrintSettings(cid);
+        if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss) {
+            billPrintRow = CFG.getPrintSettingsForDoc('bill', cid);
+            sheetCss = CFG.buildPrintSheetStylesCss(billPrintRow);
+        }
+    }
+
+    var printStylesAll = sheetCss +
+        '.print-sheet-outer img,.print-sheet-outer table{max-width:100%;}' +
+        receiptContentPrintStyles();
+
+    var translatedHtml = buildReceiptPageForLang(area, lang);
+
+    var iframe = g('receiptPrintFrame');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'receiptPrintFrame';
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.title = 'Receipt print';
+        document.body.appendChild(iframe);
+    }
+    iframe.style.cssText =
+        'position:fixed;left:-10000px;top:0;width:794px;height:1123px;' +
+        'border:0;visibility:hidden;opacity:0;pointer-events:none;';
+
+    var releaseLock = function () {
+        _receiptPrintInProgress = false;
+        if (iframe) {
+            iframe.style.cssText =
+                'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+        }
+    };
+
+    var doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+    if (!doc) { releaseLock(); alert(tr('bill.receipt.popupBlocked')); return; }
+
+    doc.open();
+    doc.write(
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
+        '<title>' + esc(t('bill.receipt.printTitle', lang)) + '</title>' +
+        '<style>' + printStylesAll + '</style></head><body>' +
+        '<div class="print-sheet-outer"><div id="receiptPrintArea">' +
+        translatedHtml +
+        '</div></div></body></html>'
+    );
+    doc.close();
+
+    var win = iframe.contentWindow;
+    if (!win) { releaseLock(); return; }
+
+    var done = false;
+    function finish() {
+        if (done) return;
+        done = true;
+        releaseLock();
+        if (typeof closeModal === 'function') closeModal('receiptModal');
+    }
+
+    try { win.addEventListener('afterprint', function () { setTimeout(finish, 300); }); } catch (_) {}
+
+    setTimeout(function () {
+        var scalePct;
+        try {
+            scalePct = receiptAutoFitScalePercent(doc, billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
+        } catch (eFit) {
+            scalePct = receiptPrintMaxScalePercent(billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
+        }
+        setTimeout(function () {
+            try {
+                win.focus();
+                win.print();
+            } catch (ePrint) {
+                finish();
+                alert(tr('bill.receipt.popupBlocked'));
+                return;
+            }
+            setTimeout(finish, 8000);
+        }, 60);
+    }, 140);
+}
+
 function clinicRecordForReceiptByTagOrId(tagOrId) {
     if (!tagOrId || !APP_CLINICS || !APP_CLINICS.length) return null;
     var t = String(tagOrId).trim();
@@ -19105,6 +19976,10 @@ function applyReceiptClinicHeaderFromRecord(rec) {
     }
     if (!name && currentClinicLabel) name = String(currentClinicLabel).trim();
     if (!name) name = tr('ai.clinicFallback');
+
+    // Save for trilingual print re-use
+    _receiptClinicNameForFooter = name;
+    _receiptClinicTelForFooter  = tel;
 
     if (nmEl) nmEl.textContent = name;
     if (addrEl) addrEl.textContent = addr || '—';
@@ -19552,6 +20427,8 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
             var row = document.createElement('tr');
             row.className = 'receipt-inst-row';
             if (i % 2 === 1) row.className += ' receipt-inst-row--alt';
+            var clinicLabel = (typeof billPaymentReceivingClinicDisplay === 'function')
+                ? billPaymentReceivingClinicDisplay(p, bill) : '';
             row.innerHTML =
                 '<td class="receipt-inst-td receipt-inst-td--num">' + (i + 1) + '</td>' +
                 '<td class="receipt-inst-td">' + esc(p.paid_date || '—') + '</td>' +
@@ -19559,6 +20436,7 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
                 '<td class="receipt-inst-td">' + esc((typeof dispPayMethod === 'function')
                     ? dispPayMethod(p.method)
                     : (p.method || '—')) + '</td>' +
+                '<td class="receipt-inst-td receipt-inst-td--clinic">' + esc(clinicLabel) + '</td>' +
                 '<td class="receipt-inst-td receipt-inst-td--notes">' +
                     esc(p.notes || '') + '</td>';
             bodyEl.appendChild(row);

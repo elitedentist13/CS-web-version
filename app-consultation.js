@@ -58,7 +58,6 @@ var conPatientTimelineHadErrors = false;
 var conPtlRefreshTimer = null;
 var conFormsEditingDocId = null;
 var conFormsToolbarReady = false;
-var _conFormsDirty = false;   // true when Forms editor has unsaved content
 var CON_NOTE_TEMPLATES_KEY = 'con_note_templates_v1';
 var CON_NOTE_TEMPLATES_TABLE = 'con_note_templates';
 var conNoteTemplatesCache = [];
@@ -641,48 +640,7 @@ function openConForPatient(patientId, opts) {
 // ════════════════════════════════════════════════════════════════
 // TAB SWITCHING
 // ════════════════════════════════════════════════════════════════
-function _conFormsCheckUnsavedThen(proceed) {
-    if (!_conFormsDirty) { proceed(); return; }
-    var tFn = (typeof conTr === 'function') ? conTr : (typeof t === 'function' ? t : function(k){ return k; });
-    if (typeof showMediaUnsavedOverlay === 'function') {
-        showMediaUnsavedOverlay(
-            'consultationSection',
-            function() {                        // Save
-                saveConFormsDoc(false);
-                // saveConFormsDoc clears _conFormsDirty on success; proceed after brief tick
-                setTimeout(proceed, 300);
-            },
-            function() {                        // Discard
-                _conFormsDirty = false;
-                proceed();
-            },
-            {
-                messageKey: 'con.forms.unsaved.message',
-                saveKey:    'con.forms.unsaved.save',
-                discardKey: 'con.forms.unsaved.discard',
-                cancelKey:  'con.forms.unsaved.cancel'
-            }
-        );
-    } else {
-        // Fallback if helper not loaded yet
-        if (confirm(tFn('con.forms.unsaved.message'))) {
-            saveConFormsDoc(false);
-            setTimeout(proceed, 300);
-        } else {
-            _conFormsDirty = false;
-            proceed();
-        }
-    }
-}
-
 function switchConTab(tab) {
-    // Guard: if currently on forms tab with unsaved content, prompt before leaving
-    var currentFormsActive = document.querySelector('.con-tab[data-tab="forms"].active');
-    if (currentFormsActive && tab !== 'forms' && _conFormsDirty) {
-        _conFormsCheckUnsavedThen(function() { switchConTab(tab); });
-        return;
-    }
-
     document.querySelectorAll('.con-tab').forEach(function(b) {
         b.classList.toggle('active', b.dataset.tab === tab);
     });
@@ -808,34 +766,7 @@ function selectConPatient(p) {
     if (dobEl) dobEl.textContent = p.dob ? formatDobAge(p.dob) : '-';
 
     var phoneEl = g('conBannerPhone');
-    if (phoneEl) phoneEl.textContent = p.phone_number || p.mobile_phone || '-';
-
-    var mobWrap = g('conBannerMobileWrap');
-    var mobEl   = g('conBannerMobile');
-    if (mobWrap && mobEl) {
-        var mobStr = String(p.mobile_phone || '').trim();
-        var telStr = String(p.phone_number || '').trim();
-        if (mobStr && mobStr !== telStr) {
-            mobWrap.style.display = '';
-            mobEl.textContent = mobStr;
-        } else {
-            mobWrap.style.display = 'none';
-            mobEl.textContent = '—';
-        }
-    }
-
-    var addrWrap = g('conBannerAddressWrap');
-    var addrEl   = g('conBannerAddress');
-    if (addrWrap && addrEl) {
-        var addrStr = String(p.address || '').trim();
-        if (addrStr) {
-            addrWrap.style.display = '';
-            addrEl.textContent = addrStr;
-        } else {
-            addrWrap.style.display = 'none';
-            addrEl.textContent = '—';
-        }
-    }
+    if (phoneEl) phoneEl.textContent = p.mobile_phone || p.phone_number || '-';
 
     var emailStr = String(p.email || '').trim();
     var emWrap = g('conBannerEmailWrap');
@@ -1024,18 +955,6 @@ function conFormsEnsureRichEditor() {
     });
     DocEditor.refreshFontSizeLabels('conForms', function (k) { return conTr(k); });
     conFormsToolbarReady = true;
-
-    // Mark dirty on any editor or doc-name change
-    var editorEl = g('conFormsDocEditor');
-    if (editorEl && !editorEl._conFormsDirtyBound) {
-        editorEl._conFormsDirtyBound = true;
-        editorEl.addEventListener('input', function() { _conFormsDirty = true; });
-    }
-    var nameEl = g('conFormsDocName');
-    if (nameEl && !nameEl._conFormsDirtyBound) {
-        nameEl._conFormsDirtyBound = true;
-        nameEl.addEventListener('input', function() { _conFormsDirty = true; });
-    }
 }
 
 function conFormsUpdateEditingBadge() {
@@ -1046,7 +965,6 @@ function conFormsUpdateEditingBadge() {
 }
 
 function conFormsStartNewDoc() {
-    _conFormsDirty = false;
     conFormsEditingDocId = null;
     conFormsUpdateEditingBadge();
     if (g('conFormsDocName')) g('conFormsDocName').value = '';
@@ -2603,7 +2521,6 @@ function saveConFormsDoc(andPrint) {
             alert(conTrRepl('con.forms.alertSaveFailed', { MSG: r.error.message }));
             return;
         }
-        _conFormsDirty = false;
         alert(conTr(wasEdit ? 'con.forms.updatedOk' : 'con.forms.savedOk'));
         if (!wasEdit && r.data && r.data[0] && r.data[0].id) {
             conFormsEditingDocId = r.data[0].id;
@@ -2895,7 +2812,6 @@ function openConFormsDoc(id) {
     .then(function(r) {
         if (r.error || !r.data) { alert(conTr('con.alert.loadDocFail')); return; }
         var d = r.data;
-        _conFormsDirty = false;   // opening a saved doc is not a dirty state
         conFormsEditingDocId = d.id;
         conFormsUpdateEditingBadge();
         conFormsDocsCache[d.id] = d;
@@ -3757,17 +3673,10 @@ function bindConBackQueueBtnOnce() {
     if (!btn || btn.dataset.bound === '1') return;
     btn.dataset.bound = '1';
     btn.addEventListener('click', function() {
-        var doExit = function() {
-            if (typeof showOnly === 'function') showOnly('appointmentSection');
-            setTimeout(function() {
-                if (typeof switchApptTab === 'function') switchApptTab('queue');
-            }, 40);
-        };
-        if (_conFormsDirty) {
-            _conFormsCheckUnsavedThen(doExit);
-        } else {
-            doExit();
-        }
+        if (typeof showOnly === 'function') showOnly('appointmentSection');
+        setTimeout(function() {
+            if (typeof switchApptTab === 'function') switchApptTab('queue');
+        }, 40);
     });
 }
 

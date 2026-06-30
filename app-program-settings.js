@@ -140,7 +140,6 @@ function performProgramIdleLogout() {
     if (!currentUserId) return;
     currentRole = null;
     currentName = null;
-    if (typeof loggedInUserName !== 'undefined') loggedInUserName = null;
     currentUserId = null;
     currentClinicId = null;
     currentClinicLabel = null;

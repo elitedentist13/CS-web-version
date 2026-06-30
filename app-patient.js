@@ -913,13 +913,6 @@ function fetchPatients() {
         }
         renderPatients(patientListCache);
         refreshPatientDirPaginationUI(false);
-        if (qText && patientDirTotalCount === 1 && patientListCache.length === 1) {
-            var sole = patientListCache[0];
-            if (sole && sole.id &&
-                String(selPatientId || '') !== String(sole.id)) {
-                setDirectoryActivePatient(sole, 'patient-dir-search-single');
-            }
-        }
         if (patientDirScrollActivePending) {
             patientDirScrollActivePending = false;
             updatePatientDirActiveRowHighlight();
@@ -1053,12 +1046,7 @@ function renderPatients(list) {
     tb.querySelectorAll('.btn-notes').forEach(function(b) {
         b.addEventListener('click', function(e){
             e.stopPropagation();
-            var pid = b.dataset.id;
-            if (typeof openConForPatient === 'function') {
-                openConForPatient(pid);
-            } else {
-                viewHistory(pid);
-            }
+            viewHistory(b.dataset.id);
         });
     });
     tb.querySelectorAll('.btn-checkin-p').forEach(function (b) {
@@ -1356,16 +1344,6 @@ function submitEditPatient(e) {
                 patient_no: (g('edit_patientNo') && g('edit_patientNo').value) || ''
             }));
         }
-        // Silently patch the denormalized patient_name on all bills so that the
-        // bill history panel always shows the up-to-date name after a rename.
-        if (savedId && savedPatient && savedPatient.full_name) {
-            SB.from('bills')
-                .update({ patient_name: savedPatient.full_name })
-                .eq('patient_id', savedId)
-                .then(function() {})
-                .catch(function() {});
-        }
-
         if (savedPatient && typeof activePatientSlots !== 'undefined' &&
             typeof activePatientNormalize === 'function') {
             for (var si = 0; si < activePatientSlots.length; si++) {

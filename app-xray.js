@@ -118,7 +118,6 @@ var lbTransform = {
 };
 
 var lbCurrentId  = null;    // id of record open in lightbox
-var _lbMetaDirty = false;   // true when metadata fields edited without saving
 var XRAY_BUCKET  = 'xrays'; // Supabase Storage bucket name
 
 function xrayGetPublicUrlForPath(storagePath) {
@@ -1021,29 +1020,13 @@ function openLightbox(idx) {
     sv('lbDate',  x.taken_date || '');
     sv('lbNotes', x.notes      || '');
 
-    // Reset dirty flag and re-wire input listeners each open
-    _lbMetaDirty = false;
-    ['lbType','lbDate','lbNotes'].forEach(function(id) {
-        var el = g(id);
-        if (!el) return;
-        if (el._lbDirtyBound) return;
-        el._lbDirtyBound = true;
-        el.addEventListener('input', function() { _lbMetaDirty = true; });
-        el.addEventListener('change', function() { _lbMetaDirty = true; });
-    });
-
     openModal('xrayLightbox');
     var lbModal = g('xrayLightbox');
     if (lbModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(lbModal);
     if (typeof lbSyncLightboxChrome === 'function') lbSyncLightboxChrome();
 }
 
-function lbHasUnsavedChanges() {
-    return _lbMetaDirty || lbNeedsImagePersist();
-}
-
-function _forceCloseLightbox() {
-    _lbMetaDirty = false;
+function closeLightbox() {
     var video = g('xrayLbVideo');
     if (video && !video.paused) video.pause();
     closeModal('xrayLightbox');
@@ -1055,21 +1038,6 @@ function _forceCloseLightbox() {
     if (modal) modal.classList.remove('xray-lb-maximized');
     var main = g('xrayLbMain');
     if (main) main.classList.remove('xray-lb-meta-hidden');
-}
-
-function closeLightbox() {
-    // If the lightbox has unsaved image edits or metadata changes, prompt first
-    if (lbCurrentId && lbHasUnsavedChanges()) {
-        if (typeof showMediaUnsavedOverlay === 'function') {
-            showMediaUnsavedOverlay(
-                'xrayLightbox',
-                function() { saveLbMeta(); },     // Save & Close (saveLbMeta calls closeLightbox after save)
-                function() { _forceCloseLightbox(); }  // Discard & Close
-            );
-            return;
-        }
-    }
-    _forceCloseLightbox();
 }
 
 function applyLbTransform() {
@@ -1673,8 +1641,7 @@ function saveLbMeta() {
     var rec = xrayAllRecords.find(function(x) { return x.id === lbCurrentId; });
 
     function finishOk(msg) {
-        _lbMetaDirty = false;   // clear before close so no re-prompt
-        _forceCloseLightbox();
+        closeLightbox();
         loadXrayRecords().then(function() {
             alert(msg || mediaTr('media.alert.savedDefault'));
         });

@@ -18,8 +18,7 @@ var photoFilterCat   = '';
 var photoFilterYear  = '';
 var photoFilterQuery = '';
 
-var photoLbCurrentId  = null;
-var _photoLbMetaDirty = false;  // true when metadata fields edited without saving
+var photoLbCurrentId = null;
 
 var PHOTO_BUCKET = 'photos';
 
@@ -892,9 +891,6 @@ function openPhotoLightbox(idx) {
     sv('photoLbDr',      x.dr         || '');
     sv('photoLbClinic',  x.clinic     || '');
 
-    _photoLbMetaDirty = false;
-    _photoLbWireDirtyListeners();
-
     var isNurse = (typeof currentRole !== 'undefined' && currentRole === 'nurse');
     var editRow = g('photoLbEditRow');
     if (editRow) editRow.style.display = isNurse ? 'none' : 'flex';
@@ -960,9 +956,6 @@ function openPhotoLightbox(idx) {
   sv('photoLbDr',      x.dr         || '');
   sv('photoLbClinic',  x.clinic     || '');
 
-  _photoLbMetaDirty = false;
-  _photoLbWireDirtyListeners();
-
   var isNurse2 = (typeof currentRole !== 'undefined' && currentRole === 'nurse');
   var editRow2 = g('photoLbEditRow');
   if (editRow2) editRow2.style.display = isNurse2 ? 'none' : 'flex';
@@ -973,47 +966,18 @@ function openPhotoLightbox(idx) {
   if (typeof photoLbSyncLightboxChrome === 'function') photoLbSyncLightboxChrome();
 }
 
-function _photoLbWireDirtyListeners() {
-    ['photoLbCat','photoLbDate','photoLbCaption','photoLbDr','photoLbClinic'].forEach(function(id) {
-        var el = g(id);
-        if (!el || el._photoLbDirtyBound) return;
-        el._photoLbDirtyBound = true;
-        el.addEventListener('input',  function() { _photoLbMetaDirty = true; });
-        el.addEventListener('change', function() { _photoLbMetaDirty = true; });
-    });
-}
-
-function photoLbHasUnsavedChanges() {
-    return _photoLbMetaDirty || photoLbNeedsImagePersist();
-}
-
-function _forceClosePhotoLightbox() {
-    _photoLbMetaDirty = false;
-    var video = g('photoLbVideo');
-    if (video && !video.paused) video.pause();
-    closeModal('photoLightbox');
-    photoLbCurrentId = null;
-    photoLbChromeMaximized = false;
-    photoLbChromeMetaVisible = true;
-    photoLbChromeScaleBeforeMax = 1;
-    var modal = g('photoLightbox');
-    if (modal) modal.classList.remove('xray-lb-maximized');
-    var main = g('photoLbMain');
-    if (main) main.classList.remove('xray-lb-meta-hidden');
-}
-
 function closePhotoLightbox() {
-    if (photoLbCurrentId && photoLbHasUnsavedChanges()) {
-        if (typeof showMediaUnsavedOverlay === 'function') {
-            showMediaUnsavedOverlay(
-                'photoLightbox',
-                function() { savePhotoLbMeta(); },
-                function() { _forceClosePhotoLightbox(); }
-            );
-            return;
-        }
-    }
-    _forceClosePhotoLightbox();
+  var video = g('photoLbVideo');
+  if (video && !video.paused) video.pause();
+  closeModal('photoLightbox');
+  photoLbCurrentId = null;
+  photoLbChromeMaximized = false;
+  photoLbChromeMetaVisible = true;
+  photoLbChromeScaleBeforeMax = 1;
+  var modal = g('photoLightbox');
+  if (modal) modal.classList.remove('xray-lb-maximized');
+  var main = g('photoLbMain');
+  if (main) main.classList.remove('xray-lb-meta-hidden');
 }
 
 function photoLbApplyTransform() {
@@ -1650,8 +1614,7 @@ function savePhotoLbMeta() {
   });
 
   function finishOk(msg) {
-    _photoLbMetaDirty = false;   // clear before close so no re-prompt
-    _forceClosePhotoLightbox();
+    closePhotoLightbox();
     loadPhotoRecords().then(function() {
       alert(msg || mediaTr('media.alert.savedDefault'));
     });

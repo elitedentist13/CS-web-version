@@ -492,7 +492,7 @@ option {
 }
 
 .active-patient-info-badge.is-filled {
-    cursor: auto;
+    cursor: grab;
 }
 
 .active-patient-badge-textbox {
@@ -1194,51 +1194,6 @@ body.app-session-active {
     text-align: center;
     margin-top: 12px;
     font-size: 14px;
-    display: none;
-}
-
-/* ── Admin TOTP 2FA step ────────────────────────────────────── */
-.totp-auth-divider {
-    border-top: 1px solid #e5e7eb;
-    margin: 20px 0 18px;
-}
-.totp-auth-heading {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--primary);
-    text-align: center;
-    margin: 0 0 6px;
-}
-.totp-auth-sub {
-    font-size: 13px;
-    color: #555;
-    text-align: center;
-    margin: 0 0 14px;
-    line-height: 1.5;
-}
-.totp-auth-cancel-btn {
-    display: block;
-    width: 100%;
-    padding: 10px;
-    background: transparent !important;
-    color: #6b7280 !important;
-    border: 1.5px solid #d1d5db !important;
-    border-radius: 7px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    margin-top: 8px;
-}
-.totp-auth-cancel-btn:hover {
-    background: #f3f4f6 !important;
-    border-color: #9ca3af !important;
-}
-.totp-auth-error {
-    color: #dc2626;
-    font-size: 13px;
-    text-align: center;
-    margin-top: 10px;
-    min-height: 18px;
     display: none;
 }
 
@@ -3734,48 +3689,6 @@ tr:hover td { background: #fafcff; }
 #todaySettingsPanel.queue-settings-panel.open {
     display: block;
 }
-/* Monthly calendar settings panel */
-.cal-month-settings-anchor {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-}
-#calMonthSettingsPanel.cal-month-settings-panel {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 250;
-    width: min(300px, 90vw);
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, .14);
-    padding: 16px;
-    max-height: 560px;
-    overflow-y: auto;
-    display: none;
-}
-#calMonthSettingsPanel.cal-month-settings-panel.open {
-    display: block;
-}
-#calMonthSettingsPanel label {
-    font-size: 11px;
-    font-weight: 700;
-    color: #374151;
-    text-transform: uppercase;
-    letter-spacing: .4px;
-    display: block;
-    margin-top: 10px;
-    margin-bottom: 4px;
-}
-#calMonthSettingsPanel select {
-    width: 100%;
-    padding: 7px 9px;
-    border: 1px solid #d1d5db;
-    border-radius: 7px;
-    font-size: 13px;
-    background: #fff;
-}
 .plusappt-font-color-swatch {
     display: inline-block;
     width: 28px;
@@ -4603,8 +4516,7 @@ tr:hover td { background: #fafcff; }
 /* ════════════════════════════════════════════════════════════════
    APPOINTMENT — USER BAR
 ════════════════════════════════════════════════════════════════ */
-.appt-user-bar,
-.appt-patient-banner {
+.appt-user-bar {
     background: linear-gradient(135deg, #0084ff, #0060cc);
     color: white;
     padding: 14px 20px;
@@ -4615,22 +4527,6 @@ tr:hover td { background: #fafcff; }
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 10px;
-}
-
-/* No-patient state: show user info, hide patient info */
-.appt-patient-banner--no-patient .appt-banner-patient-info { display: none !important; }
-.appt-banner-no-patient-info { display: flex; align-items: center; gap: 12px; }
-.appt-patient-banner--no-patient .appt-banner-no-patient-info { display: flex; }
-
-/* Active patient state: hide user info, show patient info */
-.appt-patient-banner:not(.appt-patient-banner--no-patient) .appt-banner-no-patient-info { display: none !important; }
-.appt-patient-banner:not(.appt-patient-banner--no-patient) .appt-banner-patient-info {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 12px;
-    flex: 1;
 }
 
 .u-info { display: flex; align-items: center; gap: 12px; }
@@ -5388,50 +5284,6 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     filter: brightness(0.97);
 }
 
-/* ── Task-pill dropdown picker (replaces click-to-cycle) ─── */
-#apptTaskPicker {
-    position: fixed;
-    z-index: 10000;
-    display: none;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    box-shadow: 0 6px 28px rgba(0, 0, 0, 0.15);
-    padding: 5px;
-    min-width: 170px;
-}
-.appt-task-picker-title {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #94a3b8;
-    padding: 2px 7px 5px;
-    border-bottom: 1px solid #f1f5f9;
-    margin-bottom: 3px;
-    white-space: nowrap;
-}
-.appt-task-picker-opt {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    width: 100%;
-    padding: 5px 8px;
-    border-radius: 6px;
-    margin: 1px 0;
-    border: 1.5px solid transparent;
-    cursor: pointer;
-    font-size: 11px;
-    font-weight: 600;
-    text-align: left;
-    background: none;
-    transition: filter 0.1s;
-}
-.appt-task-picker-opt:hover { filter: brightness(0.95); border-color: currentColor !important; }
-.appt-task-picker-opt.is-selected { border-color: currentColor !important; }
-.appt-task-picker-icon { font-size: 13px; flex-shrink: 0; width: 18px; text-align: center; }
-.appt-task-picker-check { margin-left: auto; font-weight: 900; font-size: 12px; }
-
 .queue-remarks-pencil {
     position: absolute;
     top: 4px;
@@ -5725,73 +5577,6 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
    PATIENT SEARCH DROPDOWN
 ════════════════════════════════════════════════════════════════ */
 .ps-wrap { position: relative; }
-
-/* ── Queue patient search bar ───────────────────────────────── */
-.queue-patient-search-bar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-    background: #f0f7ff;
-    border: 1px solid #bfdbfe;
-    border-radius: 10px;
-    margin-bottom: 12px;
-}
-.queue-ps-label {
-    font-size: 13px;
-    font-weight: 700;
-    color: #1d4ed8;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-.queue-ps-wrap {
-    position: relative;
-    flex: 1;
-    min-width: 180px;
-    max-width: 420px;
-}
-.queue-ps-icon {
-    position: absolute;
-    left: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 14px;
-    pointer-events: none;
-    z-index: 1;
-}
-.queue-ps-input {
-    width: 100%;
-    padding: 8px 12px 8px 32px;
-    font-size: 13px;
-    font-weight: 500;
-    border: 1px solid #93c5fd;
-    border-radius: 8px;
-    background: white;
-    color: #0f172a;
-    box-sizing: border-box;
-    outline: none;
-    transition: border-color 0.15s;
-}
-.queue-ps-input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
-}
-.queue-ps-clear-btn {
-    background: #dbeafe;
-    border: none;
-    border-radius: 50%;
-    width: 26px;
-    height: 26px;
-    font-size: 12px;
-    cursor: pointer;
-    color: #1d4ed8;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: background 0.15s;
-}
-.queue-ps-clear-btn:hover { background: #bfdbfe; }
 
 .ps-drop {
     position: absolute;
@@ -6291,7 +6076,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 
 .gcal-month-grid .cal-cell {
-    min-height: var(--month-cell-min-h, 116px);
+    min-height: 116px;
     border-right: 1px solid #dadce0;
     border-bottom: 1px solid #dadce0;
     padding: 4px 3px 3px;
@@ -6324,13 +6109,12 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     margin: 1px 2px;
     padding: 2px 5px;
     border-radius: 4px;
-    font-size: var(--month-pill-fs, 12px);
-    font-weight: var(--month-pill-fw, 400);
-    color: var(--month-pill-color, inherit);
-    line-height: 1.4;
+    font-size: 10px;
+    line-height: 1.35;
     cursor: pointer;
-    white-space: normal;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
     border-left-width: 4px !important;
     border-left-style: solid !important;
     box-sizing: border-box;
@@ -6341,48 +6125,14 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-/* 3-row pill sub-elements */
-.gmp-row {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.gmp-cn {
-    font-weight: 400;
-}
-.gmp-treat {
-    font-size: 0.88em;
-    opacity: 0.85;
-    margin-left: 1px;
-}
-.gmp-r2 {
-    font-size: 0.88em;
-    opacity: 0.80;
-}
-.gmp-time {
-    font-weight: 700;
-}
-.gmp-en {
-    margin-right: 1px;
-}
-.gmp-sep {
-    opacity: 0.5;
-}
-.gmp-r3 {
-    font-size: 0.84em;
-    opacity: 0.70;
-    font-style: italic;
-}
-
-/* Legacy classes kept for back-compat if any code still references them */
 .gcal-month-pill-time {
     font-weight: 700;
     margin-right: 3px;
 }
+
 .gcal-month-pill-dr {
     display: block;
-    font-size: 0.85em;
+    font-size: 9px;
     font-weight: 700;
     opacity: 0.9;
 }
@@ -6575,152 +6325,6 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     border-color: var(--primary);
 }
 
-/* ── Rich card variant (monthly day-panel) ──────────────────── */
-.day-panel-item.dpi-rich {
-    cursor: default;
-    padding: 12px 14px;
-}
-.day-panel-item.dpi-rich:hover {
-    background: #f9fafb;
-    border-color: #e5e7eb;
-}
-
-.dpi-header {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 8px;
-}
-.dpi-header .dpi-time {
-    margin-bottom: 0;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--primary);
-    white-space: nowrap;
-}
-.dpi-dr-badge {
-    font-size: 11px;
-    font-weight: 700;
-    white-space: nowrap;
-}
-.dpi-header .status-badge {
-    margin-left: auto;
-}
-
-.dpi-patient-block {
-    margin-bottom: 7px;
-}
-.dpi-patient-block .dpi-name {
-    font-size: 15px;
-    font-weight: 400;
-    color: #111827;
-    margin-bottom: 1px;
-    display: inline;
-}
-.dpi-cn {
-    font-family: var(--font-cjk-sans);
-    font-size: 14px;
-    font-weight: 400;
-    color: #374151;
-    display: inline;
-    margin-left: 6px;
-    -webkit-font-smoothing: antialiased;
-}
-.dpi-sub {
-    font-size: 13px;
-    color: #6b7280;
-    margin-top: 3px;
-}
-
-.dpi-remarks-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    margin: 6px 0 9px;
-    min-height: 22px;
-}
-.dpi-remarks-preview {
-    flex: 1;
-    font-size: 12px;
-    color: #374151;
-    line-height: 1.45;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-}
-.dpi-remarks-preview.dpi-remarks-empty {
-    color: #9ca3af;
-    font-style: italic;
-}
-.dpi-remarks-btn {
-    flex: 0 0 auto;
-    background: #f3f4f6;
-    border: 1px solid #d1d5db;
-    border-radius: 5px;
-    padding: 2px 7px;
-    font-size: 13px;
-    cursor: pointer;
-    color: #374151;
-    line-height: 1.5;
-    transition: background 0.12s;
-}
-.dpi-remarks-btn:hover {
-    background: #e5edff;
-    border-color: var(--primary);
-    color: var(--primary);
-}
-
-.dpi-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 6px;
-    flex-wrap: wrap;
-}
-.dpi-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 7px;
-    border: 1px solid transparent;
-    font-size: 16px;
-    cursor: pointer;
-    transition: opacity 0.12s, transform 0.1s, background 0.12s;
-    flex: 0 0 auto;
-    line-height: 1;
-    padding: 0;
-}
-.dpi-btn:hover { opacity: 0.8; transform: translateY(-1px); }
-.dpi-btn:active { transform: scale(0.93); }
-.dpi-btn-patient {
-    background: #e0f2fe;
-    color: #0369a1;
-    border-color: #bae6fd;
-}
-.dpi-btn-consult {
-    background: #dcfce7;
-    color: #166534;
-    border-color: #bbf7d0;
-}
-.dpi-btn-bill {
-    background: #fef9c3;
-    color: #854d0e;
-    border-color: #fde68a;
-}
-.dpi-btn-delete {
-    background: #fee2e2;
-    color: #991b1b;
-    border-color: #fca5a5;
-}
-.dpi-btn:disabled {
-    opacity: 0.35;
-    cursor: default;
-    transform: none;
-}
-
 .dpi-time {
     font-size: 12px;
     font-weight: 700;
@@ -6736,7 +6340,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 
 .dpi-treat {
-    font-size: 13px;
+    font-size: 12px;
     color: #6b7280;
     margin-bottom: 4px;
 }
@@ -6790,10 +6394,6 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 #addPaymentModal,
 #receiptModal {
     z-index: 3000;
-}
-
-#billPaymentClinicConfirmModal {
-    z-index: 3050;
 }
 
 #receiptPrintOptionsModal {
@@ -7197,41 +6797,6 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 .receipt-print-now-btn:hover {
     filter: brightness(1.05);
-}
-
-/* ── Three language print buttons ── */
-.receipt-print-lang-row {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-}
-
-.receipt-print-lang-btn {
-    flex: 1 1 0;
-    padding: 12px 6px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 13px;
-    color: #fff;
-    letter-spacing: 0.01em;
-    transition: filter 0.15s;
-    white-space: nowrap;
-}
-
-.receipt-print-lang-btn:hover { filter: brightness(1.1); }
-
-.receipt-print-lang-btn--en {
-    background: linear-gradient(135deg, #1d4ed8, #2563eb);
-}
-
-.receipt-print-lang-btn--zh-hant {
-    background: linear-gradient(135deg, #0f766e, #0d9488);
-}
-
-.receipt-print-lang-btn--zh-cn {
-    background: linear-gradient(135deg, #b45309, #d97706);
 }
 
 .receipt-options-btn,
@@ -12262,7 +11827,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     display: inline;
     font-family: var(--font-cjk-sans);
     font-size: 13px;
-    font-weight: 400;
+    font-weight: 900;
     letter-spacing: 0.4px;
     color: inherit;
     -webkit-font-smoothing: antialiased;
@@ -14873,84 +14438,4 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 .rpt-void-list .patient-dir-pager-info {
     color: #9a3412;
 }
-
-/* ════════════════════════════════════════════════════════════════
-   UNSAVED-CHANGES OVERLAY
-   Shown inside lightbox modals (xray, photo) and the
-   consultation section when forms tab has unsaved content.
-════════════════════════════════════════════════════════════════ */
-.media-unsaved-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 9000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(15, 23, 42, 0.55);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
-    border-radius: inherit;
-}
-
-.media-unsaved-card {
-    background: #fff;
-    border-radius: 14px;
-    padding: 24px 28px 20px;
-    box-shadow: 0 16px 48px rgba(15, 23, 42, 0.32);
-    max-width: 320px;
-    width: 90%;
-    text-align: center;
-    animation: mediaUnsavedIn 0.18s ease;
-}
-
-@keyframes mediaUnsavedIn {
-    from { opacity: 0; transform: scale(0.9) translateY(8px); }
-    to   { opacity: 1; transform: scale(1)   translateY(0);   }
-}
-
-.media-unsaved-icon {
-    font-size: 36px;
-    margin-bottom: 10px;
-    line-height: 1;
-}
-
-.media-unsaved-msg {
-    font-size: 14px;
-    font-weight: 600;
-    color: #1e293b;
-    line-height: 1.5;
-    margin-bottom: 18px;
-}
-
-.media-unsaved-btns {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.media-unsaved-btn {
-    width: 100%;
-    padding: 10px 14px;
-    border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: filter 0.15s;
-}
-.media-unsaved-btn:hover { filter: brightness(1.08); }
-
-.media-unsaved-save {
-    background: #0084ff;
-    color: #fff;
-}
-.media-unsaved-discard {
-    background: #fee2e2;
-    color: #b91c1c;
-}
-.media-unsaved-cancel {
-    background: #f1f5f9;
-    color: #475569;
-}
-
 

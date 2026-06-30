@@ -1197,6 +1197,51 @@ body.app-session-active {
     display: none;
 }
 
+/* ── Admin TOTP 2FA step ────────────────────────────────────── */
+.totp-auth-divider {
+    border-top: 1px solid #e5e7eb;
+    margin: 20px 0 18px;
+}
+.totp-auth-heading {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+    text-align: center;
+    margin: 0 0 6px;
+}
+.totp-auth-sub {
+    font-size: 13px;
+    color: #555;
+    text-align: center;
+    margin: 0 0 14px;
+    line-height: 1.5;
+}
+.totp-auth-cancel-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background: transparent !important;
+    color: #6b7280 !important;
+    border: 1.5px solid #d1d5db !important;
+    border-radius: 7px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+}
+.totp-auth-cancel-btn:hover {
+    background: #f3f4f6 !important;
+    border-color: #9ca3af !important;
+}
+.totp-auth-error {
+    color: #dc2626;
+    font-size: 13px;
+    text-align: center;
+    margin-top: 10px;
+    min-height: 18px;
+    display: none;
+}
+
 /* ════════════════════════════════════════════════════════════════
    TOP BAR
 ════════════════════════════════════════════════════════════════ */

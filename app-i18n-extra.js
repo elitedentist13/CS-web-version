@@ -3556,6 +3556,41 @@
             'zh-Hant': '此醫生登入未關聯醫生檔案。請在設定 → 使用者中設定。'
         },
         'login.errGeneric': { en: 'Login error.', 'zh-CN': '登录错误。', 'zh-Hant': '登入錯誤。' },
+        'login.totpStep.title': { en: '2-Step Verification', 'zh-CN': '两步验证', 'zh-Hant': '兩步驗證' },
+        'login.totpStep.sub': {
+            en: 'Enter the 6-digit code from your authenticator app (Google Authenticator / Authy).',
+            'zh-CN': '请输入验证器应用中的 6 位验证码（Google Authenticator / Authy）。',
+            'zh-Hant': '請輸入驗證器應用程式中的 6 位驗證碼（Google Authenticator / Authy）。'
+        },
+        'login.totpStep.codePh': { en: '000000', 'zh-CN': '000000', 'zh-Hant': '000000' },
+        'login.totpStep.verifyBtn': { en: 'Verify', 'zh-CN': '验证', 'zh-Hant': '驗證' },
+        'login.totpStep.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
+        'login.totpStep.errInvalid': {
+            en: 'Incorrect code. Please try again.',
+            'zh-CN': '验证码错误，请重试。',
+            'zh-Hant': '驗證碼錯誤，請重試。'
+        },
+        'login.totpStep.errNoSecret': {
+            en: 'No 2FA is configured for this account. Set it up in Configuration → Users.',
+            'zh-CN': '此账号未设置两步验证，请在设置 → 用户中配置。',
+            'zh-Hant': '此帳號未設定兩步驗證，請在設定 → 使用者中配置。'
+        },
+        'cfg.totp.setupTitle': { en: 'Set up 2-Step Verification', 'zh-CN': '设置两步验证', 'zh-Hant': '設定兩步驗證' },
+        'cfg.totp.scanInstruction': {
+            en: 'Scan this QR code with Google Authenticator, Authy, or Microsoft Authenticator.',
+            'zh-CN': '使用 Google Authenticator、Authy 或 Microsoft Authenticator 扫描此二维码。',
+            'zh-Hant': '使用 Google Authenticator、Authy 或 Microsoft Authenticator 掃描此 QR 碼。'
+        },
+        'cfg.totp.manualKey': { en: 'Or enter this key manually:', 'zh-CN': '或手动输入此密钥：', 'zh-Hant': '或手動輸入此金鑰：' },
+        'cfg.totp.confirmInstruction': {
+            en: 'Enter the 6-digit code shown in the app to confirm setup:',
+            'zh-CN': '输入应用中显示的 6 位验证码以确认设置：',
+            'zh-Hant': '輸入應用程式中顯示的 6 位驗證碼以確認設定：'
+        },
+        'cfg.totp.confirmBtn': { en: 'Confirm & Save', 'zh-CN': '确认并保存', 'zh-Hant': '確認並儲存' },
+        'cfg.totp.removeBtn': { en: 'Remove 2FA', 'zh-CN': '移除两步验证', 'zh-Hant': '移除兩步驗證' },
+        'cfg.totp.badge2faActive': { en: '2FA Active', 'zh-CN': '已启用2FA', 'zh-Hant': '已啟用2FA' },
+        'cfg.totp.badgeNo2fa': { en: 'No 2FA', 'zh-CN': '未设置2FA', 'zh-Hant': '未設定2FA' },
         'alert.cfgAdminOnly': { en: 'Configuration is admin-only.', 'zh-CN': '设置仅限管理员。', 'zh-Hant': '設定僅限管理員。' },
         'ai.alert.settingsSaved': { en: 'Settings saved locally for this workstation.', 'zh-CN': '设置已保存在本工作站。', 'zh-Hant': '設定已儲存在本工作站。' },
         'ai.alert.storageFail': { en: 'Cannot save browser storage.', 'zh-CN': '无法保存浏览器存储。', 'zh-Hant': '無法儲存瀏覽器儲存。' },

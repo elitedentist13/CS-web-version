@@ -706,7 +706,7 @@ var CFG = (function () {
                     '<div style="font-size:11px;color:#888;margin-top:6px;">' +
                     esc(ctr('cfg.label.adminHint')) + '</div>' +
                     '</div>' +
-                    '<div id="docList">' + renderDocCards(rows, adminUsers) + '</div>' +
+                    '<div id="docList" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">' + renderDocCards(rows, adminUsers) + '</div>' +
                     renderReceptionSection(recepUsers) +
                     docPanelHTML();
                 pane.innerHTML = html;
@@ -788,6 +788,60 @@ var CFG = (function () {
             _syncUserRoleFields();
             var t2 = g('cfgUserPanelTitle');
             if (t2) t2.textContent = id ? ctr('cfg.panel.editAdminLogin') : ctr('cfg.panel.newAdminLogin');
+
+            // Inject 2FA section into the panel when editing an existing admin.
+            if (!id) { _removeCfgTotpSection(); return; }
+            SB.from('app_users').select('totp_secret,user_id').eq('id', id).single()
+            .then(function(r) {
+                var u = (r && r.data) || {};
+                _renderCfgTotpSection(id, u.user_id || '', !!(u.totp_secret && String(u.totp_secret).trim()));
+            }).catch(function() {
+                _renderCfgTotpSection(id, '', false);
+            });
+        }
+
+        function _removeCfgTotpSection() {
+            var old = g('cfgAdminTotpSection');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+        }
+
+        function _renderCfgTotpSection(dbId, userId, isActive) {
+            _removeCfgTotpSection();
+            var panel = g('cfgUserPanel');
+            if (!panel) return;
+
+            var sec = document.createElement('div');
+            sec.id = 'cfgAdminTotpSection';
+            sec.style.cssText = 'margin-top:20px;padding:16px 18px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;';
+            sec.innerHTML =
+                '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">' +
+                  '<div>' +
+                    '<div style="font-size:14px;font-weight:700;color:#065f46;margin-bottom:3px;">' +
+                      esc(ctr('cfg.totp.setupTitle')) +
+                    '</div>' +
+                    '<div style="font-size:12px;color:#047857;">' +
+                      (isActive
+                        ? '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:8px;font-weight:700;">' + esc(ctr('cfg.totp.badge2faActive')) + '</span>'
+                        : '<span style="background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:8px;font-weight:600;">' + esc(ctr('cfg.totp.badgeNo2fa')) + '</span>') +
+                    '</div>' +
+                  '</div>' +
+                  '<div style="display:flex;gap:8px;">' +
+                    '<button type="button" ' +
+                      'onclick="CFG._openTotpSetup(\'' + esc(dbId) + '\',\'' + esc(userId) + '\')" ' +
+                      'style="padding:8px 16px;background:#10b981;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">' +
+                      esc(isActive ? ctr('cfg.totp.removeBtn').replace('Remove', 'Reset') : ctr('cfg.totp.setupTitle')) +
+                    '</button>' +
+                    (isActive
+                      ? '<button type="button" ' +
+                          'onclick="CFG._removeTotpSecret(\'' + esc(dbId) + '\')" ' +
+                          'style="padding:8px 16px;background:#fff;color:#dc2626;border:1.5px solid #fca5a5;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">' +
+                          esc(ctr('cfg.totp.removeBtn')) +
+                        '</button>'
+                      : '') +
+                  '</div>' +
+                '</div>';
+
+            panel.appendChild(sec);
         }
 
         function _onUserRoleChange() {
@@ -1090,6 +1144,17 @@ var CFG = (function () {
                 var active = u.is_active !== false;
                 var statusBg  = active ? '#d4edda' : '#f8d7da';
                 var statusCol = active ? '#155724' : '#721c24';
+                var has2fa = !!(u.totp_secret && String(u.totp_secret).trim());
+                var tfaBadge = has2fa
+                    ? '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#d1fae5;color:#065f46;">' + esc(ctr('cfg.totp.badge2faActive')) + '</span>'
+                    : '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#f3f4f6;color:#6b7280;">' + esc(ctr('cfg.totp.badgeNo2fa')) + '</span>';
+                var tfaBtn = has2fa
+                    ? '<button onclick="CFG._removeTotpSecret(\'' + esc(u.id) + '\')" ' +
+                      'style="padding:4px 10px;background:#fff;color:#dc2626;border:1.5px solid #fca5a5;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;width:100%;">' +
+                      esc(ctr('cfg.totp.removeBtn')) + '</button>'
+                    : '<button onclick="CFG._openTotpSetup(\'' + esc(u.id) + '\',\'' + esc(u.user_id) + '\')" ' +
+                      'style="padding:4px 10px;background:#10b981;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;width:100%;">' +
+                      '🔐 ' + esc(ctr('cfg.totp.setupTitle')) + '</button>';
                 return '<tr style="background:#fffbf0;">' +
                     '<td style="' + TD0_C + 'color:#aaa;">—</td>' +
                     '<td style="' + TD0 + 'font-weight:700;color:#b8860b;">ADMIN</td>' +
@@ -1100,11 +1165,14 @@ var CFG = (function () {
                     '<td style="' + TD0_C + '"><div style="width:22px;height:22px;border-radius:50%;margin:0 auto;background:#6c757d;border:2px solid #ddd;"></div></td>' +
                     '<td style="' + TD0_C + '"><span style="display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;background:' +
                     statusBg + ';color:' + statusCol + ';">' + (active ? esc(ctr('cfg.label.active')) : esc(ctr('cfg.label.inactiveStatus'))) + '</span></td>' +
-                    '<td style="' + TD0_C + '">' +
+                    '<td style="' + TD0_C + 'min-width:140px;">' +
+                    '<div style="display:flex;flex-direction:column;align-items:stretch;gap:5px;">' +
+                    tfaBadge +
                     '<button onclick="CFG._openAdminUserPanel(\'' + esc(u.id) + '\')" ' +
-                    'style="padding:4px 11px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;">' +
+                    'style="padding:4px 10px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;">' +
                     esc(ctr('cfg.btn.editLogin')) + '</button>' +
-                    '</td></tr>';
+                    tfaBtn +
+                    '</div></td></tr>';
             }).join('');
         }
 
@@ -2333,7 +2401,7 @@ var CFG = (function () {
                     '<span style="color:#8a6d3b;">' + esc(ctr('cfg.users.adminOnlyHint')) + '</span>' +
                   '</span>' +
                 '</label>' +
-                '<div style="margin-top:12px;">' +
+                '<div style="margin-top:12px;overflow-x:auto;-webkit-overflow-scrolling:touch;">' +
                   renderUsersTable(rows) +
                 '</div>';
 
@@ -2410,6 +2478,24 @@ var CFG = (function () {
 
         rows.forEach(function (u) {
             var active = u.is_active !== false;
+            var isAdmin = String(u.role || '').toLowerCase() === 'admin';
+            var has2fa  = isAdmin && !!(u.totp_secret && String(u.totp_secret).trim());
+            var editFn  = isAdmin
+                ? 'CFG._openAdminUserPanel(\'' + esc(u.id) + '\')'
+                : 'CFG._openUserPanel(\'' + esc(u.id) + '\')';
+            var totpCell = isAdmin
+                ? '<div style="margin-top:5px;">' +
+                    (has2fa
+                      ? '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#d1fae5;color:#065f46;margin-bottom:4px;">' + esc(ctr('cfg.totp.badge2faActive')) + '</span><br>' +
+                        '<button onclick="CFG._openTotpSetup(\'' + esc(u.id) + '\',\'' + esc(u.user_id) + '\')" ' +
+                        'style="padding:4px 10px;background:#10b981;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;width:100%;margin-top:2px;">🔐 Reset 2FA</button>' +
+                        '<button onclick="CFG._removeTotpSecret(\'' + esc(u.id) + '\')" ' +
+                        'style="padding:4px 10px;background:#fff;color:#dc2626;border:1.5px solid #fca5a5;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;width:100%;margin-top:3px;">' + esc(ctr('cfg.totp.removeBtn')) + '</button>'
+                      : '<span style="display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#f3f4f6;color:#6b7280;margin-bottom:4px;">' + esc(ctr('cfg.totp.badgeNo2fa')) + '</span><br>' +
+                        '<button onclick="CFG._openTotpSetup(\'' + esc(u.id) + '\',\'' + esc(u.user_id) + '\')" ' +
+                        'style="padding:4px 10px;background:#10b981;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;width:100%;margin-top:2px;">🔐 ' + esc(ctr('cfg.totp.setupTitle')) + '</button>') +
+                  '</div>'
+                : '';
             html +=
               '<tr onmouseover="this.style.background=\'#f5f9ff\'" ' +
               'onmouseout="this.style.background=\'#fff\'">' +
@@ -2426,11 +2512,12 @@ var CFG = (function () {
                     ? '<span style="display:inline-block;padding:3px 10px;border-radius:999px;background:#d4edda;color:#155724;font-size:11px;font-weight:800;">' + esc(ctr('cfg.tpl.yes')) + '</span>'
                     : '<span style="display:inline-block;padding:3px 10px;border-radius:999px;background:#f8d7da;color:#721c24;font-size:11px;font-weight:800;">' + esc(ctr('cfg.tpl.no')) + '</span>') +
                 '</td>' +
-                '<td style="' + TD + 'text-align:center;">' +
-                  '<button onclick="CFG._openUserPanel(\'' + esc(u.id) + '\')" ' +
+                '<td style="' + TD + 'text-align:center;min-width:160px;">' +
+                  '<button onclick="' + editFn + '" ' +
                     'style="padding:6px 12px;background:#0d6efd;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:800;margin-right:6px;">' + esc(ctr('cfg.btn.edit')) + '</button>' +
                   '<button onclick="CFG._deleteUser(\'' + esc(u.id) + '\',\'' + esc(u.user_id) + '\')" ' +
                     'style="padding:6px 12px;background:#dc3545;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:800;">' + esc(ctr('cfg.btn.delete')) + '</button>' +
+                  totpCell +
                 '</td>' +
               '</tr>';
         });
@@ -2559,6 +2646,8 @@ var CFG = (function () {
     function _closeUserPanel() {
         var panel = g('cfgUserPanel');
         if (panel) panel.style.display = 'none';
+        var totpSec = g('cfgAdminTotpSection');
+        if (totpSec && totpSec.parentNode) totpSec.parentNode.removeChild(totpSec);
         _usrEditId = null;
     }
 
@@ -5508,12 +5597,137 @@ var CFG = (function () {
         _deleteUser: _deleteUser,
         _ensureNurseLogin: _ensureNurseLogin,
         _toggleConfigAdminOnly: _toggleConfigAdminOnly,
+        _openTotpSetup: _openTotpSetup,
+        _removeTotpSecret: _removeTotpSecret,
         // data
         _exportCSV:     _exportCSV,
         _exportAllJson: _exportAllJson,
         _onRestoreFile: _onRestoreFile,
         _runRestore:    _runRestore
     };
+
+    // ════════════════════════════════════════════════════════════
+    // TOTP 2FA SETUP (Config → Users)
+    // ════════════════════════════════════════════════════════════
+
+    function _openTotpSetup(dbId, userId) {
+        // Remove any existing modal
+        var existing = document.getElementById('totpSetupModal');
+        if (existing) existing.parentNode.removeChild(existing);
+
+        var secret = typeof _totpGenSecret === 'function' ? _totpGenSecret() : '';
+        if (!secret) { alert('TOTP generator not available.'); return; }
+
+        var issuer  = 'JoyfulSmile';
+        var label   = encodeURIComponent(issuer + ':' + userId);
+        var uri     = 'otpauth://totp/' + label +
+                      '?secret=' + secret +
+                      '&issuer=' + encodeURIComponent(issuer) +
+                      '&algorithm=SHA1&digits=6&period=30';
+        var qrUrl   = 'https://api.qrserver.com/v1/create-qr-code/?data=' +
+                      encodeURIComponent(uri) + '&size=200x200&ecc=M';
+
+        var overlay = document.createElement('div');
+        overlay.id  = 'totpSetupModal';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);' +
+            'z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+        overlay.innerHTML =
+            '<div style="background:#fff;border-radius:12px;padding:32px 28px;max-width:440px;' +
+            'width:94vw;box-shadow:0 8px 40px rgba(0,0,0,.25);text-align:center;">' +
+            '<h3 style="margin:0 0 6px;font-size:18px;color:#0d6efd;">' +
+                esc(ctr('cfg.totp.setupTitle')) + '</h3>' +
+            '<p style="margin:0 0 14px;font-size:13px;color:#555;">' +
+                esc(ctr('cfg.totp.scanInstruction')) + '</p>' +
+            '<img src="' + esc(qrUrl) + '" width="200" height="200" ' +
+                'style="border:1px solid #e5e7eb;border-radius:8px;margin-bottom:14px;" ' +
+                'alt="QR Code">' +
+            '<p style="font-size:12px;color:#6b7280;margin:0 0 4px;">' +
+                esc(ctr('cfg.totp.manualKey')) + '</p>' +
+            '<code style="display:block;background:#f3f4f6;border-radius:6px;padding:8px 10px;' +
+                'font-size:14px;letter-spacing:0.12em;word-break:break-all;margin-bottom:16px;">' +
+                esc(secret) + '</code>' +
+            '<p style="font-size:13px;color:#374151;margin:0 0 8px;text-align:left;">' +
+                esc(ctr('cfg.totp.confirmInstruction')) + '</p>' +
+            '<input id="totpSetupCodeInput" type="text" inputmode="numeric" maxlength="6" ' +
+                'autocomplete="one-time-code" placeholder="000000" ' +
+                'style="width:100%;padding:10px;border:1.5px solid #d1d5db;border-radius:7px;' +
+                'font-size:22px;letter-spacing:0.25em;text-align:center;margin-bottom:12px;box-sizing:border-box;">' +
+            '<p id="totpSetupError" style="color:#dc2626;font-size:13px;min-height:18px;margin:0 0 12px;display:none;"></p>' +
+            '<div style="display:flex;gap:10px;">' +
+            '<button type="button" id="totpSetupConfirmBtn" ' +
+                'style="flex:1;padding:11px;background:#10b981;color:#fff;border:none;border-radius:7px;' +
+                'font-size:14px;font-weight:700;cursor:pointer;">' +
+                esc(ctr('cfg.totp.confirmBtn')) + '</button>' +
+            '<button type="button" onclick="(function(){var m=document.getElementById(\'totpSetupModal\');if(m)m.parentNode.removeChild(m);})()" ' +
+                'style="flex:1;padding:11px;background:transparent;color:#6b7280;border:1.5px solid #d1d5db;' +
+                'border-radius:7px;font-size:14px;font-weight:600;cursor:pointer;">' +
+                esc(ctr('login.totpStep.cancel')) + '</button>' +
+            '</div></div>';
+
+        document.body.appendChild(overlay);
+
+        var confirmBtn = document.getElementById('totpSetupConfirmBtn');
+        var codeInput  = document.getElementById('totpSetupCodeInput');
+        var errEl      = document.getElementById('totpSetupError');
+
+        function showSetupError(msg) {
+            if (!errEl) return;
+            errEl.textContent = msg || '';
+            errEl.style.display = msg ? '' : 'none';
+        }
+
+        codeInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') doConfirm(); });
+        confirmBtn.addEventListener('click', doConfirm);
+        setTimeout(function() { codeInput.focus(); }, 80);
+
+        function doConfirm() {
+            var token = String(codeInput.value || '').trim();
+            if (!/^\d{6}$/.test(token)) {
+                showSetupError(ctr('login.totpStep.errInvalid'));
+                return;
+            }
+            confirmBtn.disabled = true;
+            showSetupError('');
+            if (typeof _totpVerify !== 'function') {
+                showSetupError('TOTP engine not available.');
+                confirmBtn.disabled = false;
+                return;
+            }
+            _totpVerify(secret, token).then(function(ok) {
+                if (!ok) {
+                    confirmBtn.disabled = false;
+                    showSetupError(ctr('login.totpStep.errInvalid'));
+                    codeInput.value = '';
+                    codeInput.focus();
+                    return;
+                }
+                SB.from('app_users').update({ totp_secret: secret }).eq('id', dbId)
+                .then(function(r) {
+                    confirmBtn.disabled = false;
+                    if (r.error) { showSetupError(r.error.message); return; }
+                    var m = document.getElementById('totpSetupModal');
+                    if (m) m.parentNode.removeChild(m);
+                    if (typeof CFG._reloadActiveTab === 'function') CFG._reloadActiveTab();
+                }).catch(function(e) {
+                    confirmBtn.disabled = false;
+                    showSetupError(e.message || 'Save failed.');
+                });
+            }).catch(function() {
+                confirmBtn.disabled = false;
+                showSetupError(ctr('login.totpStep.errInvalid'));
+            });
+        }
+    }
+
+    function _removeTotpSecret(dbId) {
+        if (!confirm(ctr('cfg.totp.removeBtn') + ' — are you sure?')) return;
+        SB.from('app_users').update({ totp_secret: null }).eq('id', dbId)
+        .then(function(r) {
+            if (r.error) { alert(r.error.message); return; }
+            if (typeof CFG._reloadActiveTab === 'function') CFG._reloadActiveTab();
+        }).catch(function(e) { alert(e.message || 'Remove failed.'); });
+    }
 
 })();
 

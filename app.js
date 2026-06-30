@@ -4145,6 +4145,180 @@ function hydrateLoggedInUserNameFromDb() {
         .catch(function () {});
 }
 
+// ════════════════════════════════════════════════════════════════
+// ADMIN TOTP 2FA
+// ════════════════════════════════════════════════════════════════
+
+/** IDs of login-form elements to hide while the TOTP step is active. */
+var _TOTP_STEP_HIDE_IDS = [
+    'loginUserId', 'loginPassword', 'loginClinicLabel', 'loginClinic',
+    'loginDoctorLabel', 'loginDoctor', 'loginDoctorHint',
+    'loginBtn', 'tryAiAssistantBtn', 'loginError'
+];
+var _pendingAdminUser     = null;
+var _pendingAdminDoctorId = null;
+
+function _setTotpError(msg) {
+    var el = g('totpAuthError');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.display = msg ? '' : 'none';
+}
+
+/** Decode a base32 string into a Uint8Array (RFC 4648). */
+function _totpBase32Decode(base32) {
+    var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    var s = base32.toUpperCase().replace(/=+$/, '').replace(/\s/g, '');
+    var bits = 0, value = 0, idx = 0;
+    var out = new Uint8Array(Math.floor(s.length * 5 / 8));
+    for (var i = 0; i < s.length; i++) {
+        var pos = alphabet.indexOf(s[i]);
+        if (pos < 0) continue;
+        value = (value << 5) | pos;
+        bits += 5;
+        if (bits >= 8) { out[idx++] = (value >>> (bits - 8)) & 0xff; bits -= 8; }
+    }
+    return out;
+}
+
+/** Generate a cryptographically random base32 secret (160-bit). */
+function _totpGenSecret() {
+    var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    var bytes = new Uint8Array(20);
+    crypto.getRandomValues(bytes);
+    var out = '';
+    for (var i = 0; i < 20; i += 5) {
+        var b = [bytes[i]||0, bytes[i+1]||0, bytes[i+2]||0, bytes[i+3]||0, bytes[i+4]||0];
+        out += alphabet[b[0] >> 3];
+        out += alphabet[((b[0] & 7) << 2) | (b[1] >> 6)];
+        out += alphabet[(b[1] >> 1) & 31];
+        out += alphabet[((b[1] & 1) << 4) | (b[2] >> 4)];
+        out += alphabet[((b[2] & 15) << 1) | (b[3] >> 7)];
+        out += alphabet[(b[3] >> 2) & 31];
+        out += alphabet[((b[3] & 3) << 3) | (b[4] >> 5)];
+        out += alphabet[b[4] & 31];
+    }
+    return out;
+}
+
+/**
+ * Verify a TOTP token against a base32 secret.
+ * Checks the current 30-second window ±1 to tolerate minor clock drift.
+ * Returns a Promise<boolean>.
+ */
+function _totpVerify(base32Secret, token) {
+    token = String(token || '').trim();
+    if (!/^\d{6}$/.test(token)) return Promise.resolve(false);
+    var keyBytes = _totpBase32Decode(base32Secret);
+    var timeStep = Math.floor(Date.now() / 1000 / 30);
+
+    return crypto.subtle.importKey(
+        'raw', keyBytes, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+    ).then(function(cryptoKey) {
+        var checks = [-1, 0, 1].map(function(offset) {
+            var counter = timeStep + offset;
+            var buf = new ArrayBuffer(8);
+            new DataView(buf).setUint32(4, counter >>> 0, false);
+            return crypto.subtle.sign('HMAC', cryptoKey, buf).then(function(sig) {
+                var arr = new Uint8Array(sig);
+                var o   = arr[19] & 0xf;
+                var code = ((arr[o] & 0x7f) << 24 | arr[o+1] << 16 | arr[o+2] << 8 | arr[o+3]) % 1000000;
+                return String(code).padStart(6, '0') === token;
+            });
+        });
+        return Promise.all(checks).then(function(results) {
+            return results.indexOf(true) !== -1;
+        });
+    });
+}
+
+function cancelAdminTotpAuth() {
+    var step = g('totpAuthStep');
+    if (step) step.style.display = 'none';
+
+    _TOTP_STEP_HIDE_IDS.forEach(function(id) {
+        var el = g(id);
+        if (el) el.style.display = '';
+    });
+
+    var inp = g('totpCodeInput');
+    if (inp) inp.value = '';
+    _setTotpError('');
+
+    var loginBtn = g('loginBtn');
+    if (loginBtn) {
+        loginBtn.disabled    = false;
+        loginBtn.textContent = appTr('login.loginBtn');
+    }
+    _pendingAdminUser     = null;
+    _pendingAdminDoctorId = null;
+}
+
+function _submitTotpCode() {
+    var inp = g('totpCodeInput');
+    var token = inp ? String(inp.value || '').trim() : '';
+    if (!token) { _setTotpError(appTr('login.totpStep.errInvalid')); return; }
+
+    var submitBtn = g('totpSubmitBtn');
+    if (submitBtn) submitBtn.disabled = true;
+    _setTotpError('');
+
+    var u        = _pendingAdminUser;
+    var doctorId = _pendingAdminDoctorId;
+
+    _totpVerify(u.totp_secret, token).then(function(ok) {
+        if (submitBtn) submitBtn.disabled = false;
+        if (!ok) {
+            _setTotpError(appTr('login.totpStep.errInvalid'));
+            if (inp) { inp.value = ''; inp.focus(); }
+            return;
+        }
+        cancelAdminTotpAuth();
+        if (doctorId) applyIdentityFromDoctor(doctorId);
+        else {
+            currentDoctorId   = null;
+            currentDoctorName = null;
+            currentName = u.display_name || u.user_id;
+        }
+        finishLoginSession(u, doctorId || null);
+    }).catch(function() {
+        if (submitBtn) submitBtn.disabled = false;
+        _setTotpError(appTr('login.totpStep.errInvalid'));
+    });
+}
+
+function requireAdminTotpAuth(u, doctorId) {
+    var secret = String(u.totp_secret || '').trim();
+
+    if (!secret) {
+        console.warn('[TOTP] No totp_secret set for admin — skipping 2FA. Set up in Config → Users.');
+        if (doctorId) applyIdentityFromDoctor(doctorId);
+        else {
+            currentDoctorId   = null;
+            currentDoctorName = null;
+            currentName = u.display_name || u.user_id;
+        }
+        finishLoginSession(u, doctorId || null);
+        return;
+    }
+
+    _pendingAdminUser     = u;
+    _pendingAdminDoctorId = doctorId;
+
+    _TOTP_STEP_HIDE_IDS.forEach(function(id) {
+        var el = g(id);
+        if (el) el.style.display = 'none';
+    });
+
+    var step = g('totpAuthStep');
+    if (step) step.style.display = '';
+    applyI18nInRoot();
+    _setTotpError('');
+
+    var inp = g('totpCodeInput');
+    if (inp) { inp.value = ''; setTimeout(function() { inp.focus(); }, 80); }
+}
+
 function doLogin() {
     var uid = (g('loginUserId').value || '').trim();
     var pw  = (g('loginPassword').value || '');
@@ -4191,14 +4365,8 @@ function doLogin() {
         var u = r.data[0];
 
         if (u.role === 'admin') {
-            if (doctorId) applyIdentityFromDoctor(doctorId);
-            else {
-                currentDoctorId = null;
-                currentDoctorName = null;
-                currentName = u.display_name || u.user_id;
-            }
             done();
-            finishLoginSession(u, doctorId || null);
+            requireAdminTotpAuth(u, doctorId || null);
             return;
         }
 
@@ -4297,6 +4465,20 @@ document.addEventListener('DOMContentLoaded', function() {
     g('loginPassword').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') doLogin();
     });
+
+    // ── TOTP 2FA buttons ──────────────────────────────────────
+    var totpSubmitBtn = g('totpSubmitBtn');
+    if (totpSubmitBtn) totpSubmitBtn.addEventListener('click', _submitTotpCode);
+
+    var totpCancelBtn = g('totpCancelBtn');
+    if (totpCancelBtn) totpCancelBtn.addEventListener('click', cancelAdminTotpAuth);
+
+    var totpCodeInput = g('totpCodeInput');
+    if (totpCodeInput) {
+        totpCodeInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') _submitTotpCode();
+        });
+    }
     document.addEventListener('keydown', onGlobalRefreshHotkey);
 
     g('logoutBtn').addEventListener('click', function() {

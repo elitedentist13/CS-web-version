@@ -1365,6 +1365,7 @@ function submitEditPatient(e) {
                 .then(function() {})
                 .catch(function() {});
         }
+
         if (savedPatient && typeof activePatientSlots !== 'undefined' &&
             typeof activePatientNormalize === 'function') {
             for (var si = 0; si < activePatientSlots.length; si++) {

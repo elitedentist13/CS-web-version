@@ -10679,7 +10679,10 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
                 (a.patient_id && pAlertMap[a.patient_id])
                     ? String(pAlertMap[a.patient_id]).trim()
                     : '';
-            a._merged_chinese_name = fromAppt || fromPat;
+            // When the row links to a patient record, always prefer the live
+            // patients.chinese_name (fromPat) over the denormalized appointment
+            // field (fromAppt) so that name edits are reflected immediately.
+            a._merged_chinese_name = a.patient_id ? (fromPat || fromAppt) : (fromAppt || fromPat);
             if (a.patient_id && pNameMap[a.patient_id]) {
                 a.patient_name = pNameMap[a.patient_id];
             }

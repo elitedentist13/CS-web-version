@@ -1,0 +1,16 @@
+{
+  "name": "cs-web-version-main",
+  "version": "1.0.0",
+  "description": "[![PyPI](https://img.shields.io/pypi/v/markitdown.svg)](https://pypi.org/project/markitdown/) ![PyPI - Downloads](https://img.shields.io/pypi/dd/markitdown) [![Built by AutoGen Team](https://img.shields.io/badge/Built%20by-AutoGen%20Team-blue)](https://github.com/microsoft/autogen)",
+  "main": "app-ai-helper.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "supabase": "^2.108.0"
+  }
+}

@@ -913,6 +913,13 @@ function fetchPatients() {
         }
         renderPatients(patientListCache);
         refreshPatientDirPaginationUI(false);
+        if (qText && patientDirTotalCount === 1 && patientListCache.length === 1) {
+            var sole = patientListCache[0];
+            if (sole && sole.id &&
+                String(selPatientId || '') !== String(sole.id)) {
+                setDirectoryActivePatient(sole, 'patient-dir-search-single');
+            }
+        }
         if (patientDirScrollActivePending) {
             patientDirScrollActivePending = false;
             updatePatientDirActiveRowHighlight();

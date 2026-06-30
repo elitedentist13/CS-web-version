@@ -145,6 +145,8 @@ function persistProgramSettingRow(row) {
 // ════════════════════════════════════════════════════════════════
 var currentRole = null;
 var currentName = null;
+/** Logged-in user label for dashboard badge — fixed at login, not clinic/doctor context. */
+var loggedInUserName = null;
 var currentUserId = null;
 var currentClinicId = null;
 var currentClinicLabel = null;
@@ -2223,6 +2225,12 @@ function refreshVisiblePatientSearchDropdowns() {
     });
 }
 
+/** Push a patient picked from any search UI onto the primary active patient card. */
+function recordPatientSearchToActiveCard(p, source) {
+    if (!p || !p.id || typeof setActivePatientFromPayload !== 'function') return;
+    setActivePatientFromPayload(p, source || 'patient-search');
+}
+
 function fillPatientSearchDropdown(dd, rows, onSelect) {
     if (!dd) return;
     dd.innerHTML = '';
@@ -2275,11 +2283,17 @@ function runPatientSearchDropdown(opts) {
             dd.style.display = 'block';
             return;
         }
+        var syncSource = opts.activeSource ||
+            (opts.inputId ? ('patient-search:' + opts.inputId) : 'patient-search-select');
         fillPatientSearchDropdown(dd, r.data, function (p) {
             dd.style.display = 'none';
             if (inputEl) inputEl.value = patientSearchInputDisplayValue(p);
+            recordPatientSearchToActiveCard(p, syncSource);
             if (opts.onSelect) opts.onSelect(p);
         });
+        if (r.data && r.data.length === 1) {
+            recordPatientSearchToActiveCard(r.data[0], syncSource + '-single');
+        }
     }
     pq.then(function (r) {
         if (r.error && (r.error.message || '').indexOf('column') >= 0) {
@@ -2363,10 +2377,16 @@ function showOnly(id, opts) {
     }
 }
 
+function dashboardLoggedInUserLabel() {
+    if (loggedInUserName) return loggedInUserName;
+    if (currentUserId) return currentUserId;
+    return '-';
+}
+
 function refreshDashboardUserBadge() {
     var bn = g('badgeName');
     var br = g('badgeRole');
-    if (bn) bn.textContent = currentName || '-';
+    if (bn) bn.textContent = dashboardLoggedInUserLabel();
     if (br) {
         br.textContent = (typeof dispRole === 'function')
             ? dispRole(currentRole)
@@ -3861,7 +3881,8 @@ function persistSession() {
         localStorage.setItem('jsm_session', JSON.stringify({
             user_id: currentUserId,
             role: currentRole,
-            name: currentName,
+            name: loggedInUserName || currentUserId || null,
+            login_name: loggedInUserName || currentUserId || null,
             clinic_id: currentClinicId,
             clinic_label: currentClinicLabel,
             doctor_id: currentDoctorId,
@@ -3885,6 +3906,7 @@ function restoreSession() {
         if (!s || !s.user_id) return false;
         currentUserId = s.user_id || null;
         currentRole = s.role || null;
+        loggedInUserName = s.login_name || s.name || s.user_id || null;
         currentName = s.name || null;
         currentClinicId = s.clinic_id || null;
         currentClinicLabel = s.clinic_label || null;
@@ -4069,6 +4091,16 @@ function finishLoginSession(u, doctorId) {
         setCurrentUserPermissions(u ? u.permissions : null);
     }
 
+    if (u && String(u.display_name || '').trim()) {
+        loggedInUserName = String(u.display_name).trim();
+    } else if (u && String(u.user_id || '').toLowerCase() === 'nurse') {
+        loggedInUserName = 'Nurse';
+    } else if (u && u.user_id) {
+        loggedInUserName = u.user_id;
+    } else {
+        loggedInUserName = currentUserId;
+    }
+
     if (doctorId) {
         applyIdentityFromDoctor(doctorId);
     } else {
@@ -4086,6 +4118,31 @@ function finishLoginSession(u, doctorId) {
     else persistSession();
 
     schedulePostLoginHardRefresh();
+}
+
+/** Restore badge label from app_users when an older session stored a doctor name in `name`. */
+function hydrateLoggedInUserNameFromDb() {
+    if (!currentUserId) return;
+    if (String(currentUserId).toLowerCase() === 'nurse') {
+        loggedInUserName = 'Nurse';
+        refreshDashboardUserBadge();
+        return;
+    }
+    if (typeof SB === 'undefined' || !SB.from) return;
+    SB.from('app_users')
+        .select('display_name,user_id')
+        .eq('user_id', currentUserId)
+        .limit(1)
+        .then(function (r) {
+            if (!r.data || !r.data[0]) return;
+            var u = r.data[0];
+            var label = String(u.display_name || '').trim() || u.user_id || currentUserId;
+            if (!label || label === loggedInUserName) return;
+            loggedInUserName = label;
+            persistSession();
+            refreshDashboardUserBadge();
+        })
+        .catch(function () {});
 }
 
 function doLogin() {
@@ -4193,6 +4250,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var hasSession = restoreSession();
     if (hasSession) {
+        hydrateLoggedInUserNameFromDb();
         bindAppScrollPersistOnce();
         _bootNavPayload = readAppScrollRestorePayload();
         syncAppSessionChrome();
@@ -4245,6 +4303,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof stopRealtimeSync === 'function') stopRealtimeSync();
         currentRole = null;
         currentName = null;
+        loggedInUserName = null;
         currentUserId = null;
         currentClinicId = null;
         currentClinicLabel = null;

@@ -4603,7 +4603,8 @@ tr:hover td { background: #fafcff; }
 /* ════════════════════════════════════════════════════════════════
    APPOINTMENT — USER BAR
 ════════════════════════════════════════════════════════════════ */
-.appt-user-bar {
+.appt-user-bar,
+.appt-patient-banner {
     background: linear-gradient(135deg, #0084ff, #0060cc);
     color: white;
     padding: 14px 20px;
@@ -4614,6 +4615,22 @@ tr:hover td { background: #fafcff; }
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 10px;
+}
+
+/* No-patient state: show user info, hide patient info */
+.appt-patient-banner--no-patient .appt-banner-patient-info { display: none !important; }
+.appt-banner-no-patient-info { display: flex; align-items: center; gap: 12px; }
+.appt-patient-banner--no-patient .appt-banner-no-patient-info { display: flex; }
+
+/* Active patient state: hide user info, show patient info */
+.appt-patient-banner:not(.appt-patient-banner--no-patient) .appt-banner-no-patient-info { display: none !important; }
+.appt-patient-banner:not(.appt-patient-banner--no-patient) .appt-banner-patient-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    flex: 1;
 }
 
 .u-info { display: flex; align-items: center; gap: 12px; }
@@ -5708,6 +5725,73 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
    PATIENT SEARCH DROPDOWN
 ════════════════════════════════════════════════════════════════ */
 .ps-wrap { position: relative; }
+
+/* ── Queue patient search bar ───────────────────────────────── */
+.queue-patient-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: #f0f7ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
+.queue-ps-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1d4ed8;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.queue-ps-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 180px;
+    max-width: 420px;
+}
+.queue-ps-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    pointer-events: none;
+    z-index: 1;
+}
+.queue-ps-input {
+    width: 100%;
+    padding: 8px 12px 8px 32px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid #93c5fd;
+    border-radius: 8px;
+    background: white;
+    color: #0f172a;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.queue-ps-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+.queue-ps-clear-btn {
+    background: #dbeafe;
+    border: none;
+    border-radius: 50%;
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #1d4ed8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+.queue-ps-clear-btn:hover { background: #bfdbfe; }
 
 .ps-drop {
     position: absolute;

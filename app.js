@@ -1542,6 +1542,9 @@ function applyDashboardDoctorSelection(doctorId) {
     refreshAppSessionStripContents();
     if (typeof updateConsultationDoctorUI === 'function') updateConsultationDoctorUI();
     if (typeof refreshApptHeaderI18n === 'function') refreshApptHeaderI18n();
+    // Sync appointment module doctor select
+    var apptDrSel = g('apptDoctorSelect');
+    if (apptDrSel && apptDrSel.value !== (doctorId || '')) apptDrSel.value = doctorId || '';
 }
 
 function onDashboardClinicChange() {
@@ -1658,6 +1661,7 @@ function setWorkingClinic(clinicId, options) {
     persistSession();
     refreshAppSessionStripContents();
     populateDashboardDoctorSelect(currentDoctorId || '');
+    if (typeof populateApptDoctorSelect === 'function') populateApptDoctorSelect(clinicId);
     if (typeof restartRealtimeSync === 'function') restartRealtimeSync();
 
     if (options.reloadAppt) {

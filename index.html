@@ -874,24 +874,65 @@
   <button class="back-btn" id="apptBack" data-i18n="common.backDashboard"></button>
 
   <!-- user info bar -->
-  <div class="appt-user-bar">
-    <div class="u-info">
-      <span style="font-size:26px;">👤</span>
-      <div>
-        <div class="u-name" id="apptUserName">—</div>
-        <div style="font-size:11px;opacity:0.75;" data-i18n="common.loggedIn"></div>
+  <!-- Patient info banner (replaces old blue user bar) -->
+  <div id="apptPatientBanner" class="appt-patient-banner appt-patient-banner--no-patient">
+    <!-- No active patient: show logged-in user -->
+    <div class="appt-banner-no-patient-info">
+      <div class="u-info">
+        <span style="font-size:26px;">👤</span>
+        <div>
+          <div class="u-name" id="apptUserName">—</div>
+          <div style="font-size:11px;opacity:0.75;" data-i18n="common.loggedIn"></div>
+        </div>
+        <span class="u-role" id="apptUserRole">—</span>
       </div>
-      <span class="u-role" id="apptUserRole">—</span>
     </div>
-    <div id="apptTodayDate"
-         style="font-size:14px;opacity:0.85;"></div>
+    <!-- Active patient: show patient info -->
+    <div class="appt-banner-patient-info">
+      <div class="con-banner-left">
+        <span style="font-size:30px;">🧑‍⚕️</span>
+        <div>
+          <div id="apptBannerChinese" class="con-banner-chinese" style="display:none;"></div>
+          <div class="con-banner-name" id="apptBannerName">—</div>
+          <div class="con-banner-sub">
+            <span><span data-i18n="con.banner.noLabel"></span>&nbsp;<strong id="apptBannerNo">—</strong></span>
+            <span id="apptBannerSexWrap" style="display:none;" data-i18n-title="con.banner.sexTitle"></span>
+            <span><span data-i18n="con.banner.dobLabel"></span>&nbsp;<strong id="apptBannerDob">—</strong></span>
+            <span><span data-i18n="con.banner.phoneLabel"></span>&nbsp;<strong id="apptBannerPhone">—</strong>
+              <button type="button" id="apptBannerWaBtn" class="con-banner-wa-btn"
+                      onclick="apptBannerOpenWhatsApp()"
+                      data-i18n-title="whatsapp.action.reminder" title="WhatsApp">💬</button>
+            </span>
+            <span id="apptBannerMobileWrap" style="display:none;"><span data-i18n="con.banner.mobileLabel"></span>&nbsp;<strong id="apptBannerMobile">—</strong></span>
+            <span id="apptBannerAddressWrap" style="display:none;"><span data-i18n="con.banner.addressLabel"></span>&nbsp;<strong id="apptBannerAddress">—</strong></span>
+            <span id="apptBannerEmailWrap" style="display:none;"><span data-i18n="con.banner.emailLabel"></span>&nbsp;<strong id="apptBannerEmail">—</strong></span>
+            <span id="apptBannerHkidWrap" style="display:none;"><span data-i18n="con.banner.hkidLabel"></span>&nbsp;<strong id="apptBannerHkid">—</strong></span>
+            <span><span data-i18n="con.banner.todayLabel"></span>&nbsp;<strong id="apptBannerToday">—</strong></span>
+            <span><span data-i18n="con.banner.doctorLabel"></span>&nbsp;<strong id="apptBannerDoctor">—</strong></span>
+            <button id="apptBannerBalanceBtn" class="con-banner-balance-btn"
+                    onclick="apptBannerOpenBill()"
+                    data-i18n-title="con.banner.balanceBtnTitle"
+                    style="display:none;">
+              <span data-i18n="con.banner.balanceLabel"></span>&nbsp;<strong id="apptBannerBalance">—</strong>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="con-banner-alert" id="apptBannerAlertWrap" style="display:none;">
+        <span aria-hidden="true">⚠️&nbsp;</span><span id="apptBannerAlert"></span>
+      </div>
+    </div>
+    <!-- always visible: today's date -->
+    <div id="apptTodayDate" style="font-size:14px;opacity:0.85;"></div>
   </div>
 
-  <!-- clinic scope for all appointment subtabs -->
+  <!-- clinic + doctor scope for all appointment subtabs -->
   <div class="appt-clinic-bar">
     <label for="apptClinicSelect" class="appt-clinic-label" data-i18n="common.clinic"></label>
     <select id="apptClinicSelect" class="appt-clinic-select"
             data-i18n-title="common.apptClinicTitle"></select>
+    <label for="apptDoctorSelect" class="appt-clinic-label" data-i18n="dashboard.context.doctor"></label>
+    <select id="apptDoctorSelect" class="appt-clinic-select" style="min-width:160px;"></select>
     <span class="appt-clinic-hint" data-i18n="common.apptClinicHint"></span>
   </div>
 
@@ -943,6 +984,19 @@
         <span id="queueUpdatedAt" class="queue-refresh-meta"
               data-i18n="appt.queue.updatedNever"></span>
       </div>
+    </div>
+    <!-- Patient search bar — sets active patient slot & updates banner -->
+    <div class="queue-patient-search-bar">
+      <label for="queuePsInput" class="queue-ps-label" data-i18n="appt.modal.searchPatient"></label>
+      <div class="ps-wrap queue-ps-wrap">
+        <span class="queue-ps-icon" aria-hidden="true">🔍</span>
+        <input type="text" id="queuePsInput" class="queue-ps-input"
+               data-i18n-placeholder="appt.modal.searchPatientPh"
+               autocomplete="off" spellcheck="false">
+        <div class="ps-drop" id="queuePsDrop"></div>
+      </div>
+      <button type="button" id="queuePsClearBtn" class="queue-ps-clear-btn"
+              style="display:none;" aria-label="Clear patient">✕</button>
     </div>
     <div id="queueDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
     <div class="tbl-wrap queue-wrap">
@@ -1009,6 +1063,19 @@
                        padding:7px 14px;border-radius:6px;font-size:13px;
                        cursor:pointer;display:flex;align-items:center;gap:5px;" data-i18n="appt.printList"></button>
       </div>
+    </div>
+    <!-- Patient search bar — sets active patient slot & updates banner -->
+    <div class="queue-patient-search-bar">
+      <label for="todayPsInput" class="queue-ps-label" data-i18n="appt.modal.searchPatient"></label>
+      <div class="ps-wrap queue-ps-wrap">
+        <span class="queue-ps-icon" aria-hidden="true">🔍</span>
+        <input type="text" id="todayPsInput" class="queue-ps-input"
+               data-i18n-placeholder="appt.modal.searchPatientPh"
+               autocomplete="off" spellcheck="false">
+        <div class="ps-drop" id="todayPsDrop"></div>
+      </div>
+      <button type="button" id="todayPsClearBtn" class="queue-ps-clear-btn"
+              style="display:none;" aria-label="Clear patient">✕</button>
     </div>
     <div id="todayDoctorFilterBar" class="appt-dr-filter-host" hidden aria-hidden="true"></div>
     <div class="tbl-wrap today-wrap">

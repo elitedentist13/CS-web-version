@@ -1411,6 +1411,320 @@ function reloadApptModuleData() {
     }
 }
 
+// ─── Appointment Patient Banner ───────────────────────────────────────────────
+function apptBannerOpenWhatsApp() {
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+    if (!ap || typeof openWhatsAppPrefill !== 'function') return;
+    var phone = String(ap.mobile_phone || ap.phone_number || '').trim();
+    var name  = String(ap.chinese_name || ap.full_name || '').trim();
+    var clinic = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
+        ? currentClinicLabel : '';
+    var msg = typeof trRepl === 'function'
+        ? trRepl('whatsapp.msg.consultationHello', { NAME: name, CLINIC: clinic })
+        : ('Hello ' + name);
+    openWhatsAppPrefill(phone, msg, { source: 'appointment' });
+}
+
+function apptBannerOpenBill() {
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+    if (!ap || typeof openBillPanel !== 'function') return;
+    openBillPanel({
+        id: null,
+        patient_id:   ap.id,
+        patient_name: ap.full_name  || '',
+        patient_no:   ap.patient_no || ''
+    });
+}
+
+function refreshApptPatientOutstandingBalance(ap) {
+    var balEl = g('apptBannerBalance');
+    var btn   = g('apptBannerBalanceBtn');
+    if (!balEl || !btn) return;
+    if (!ap || !ap.id) { btn.style.display = 'none'; return; }
+    function showBtn(owing) {
+        btn.style.display = '';
+        btn.classList.toggle('con-banner-paid', !owing);
+    }
+    function hideBtn() {
+        btn.style.display = 'none';
+        btn.classList.remove('con-banner-paid');
+    }
+    function applyTotals(rows) {
+        var t = 0;
+        (rows || []).forEach(function(b) {
+            if (b && b.voided_at) return;
+            var x = parseFloat(b.balance);
+            if (isFinite(x) && x > 0.005) t += x;
+        });
+        balEl.textContent = typeof fmtHK === 'function' ? fmtHK(t) : ('$' + t.toFixed(2));
+        showBtn(t > 0.005);
+    }
+    var pno = String(ap.patient_no || '').trim();
+    function fetchByPatientNo() {
+        if (!pno) { hideBtn(); return; }
+        SB.from('bills').select('balance, voided_at').eq('patient_no', pno)
+            .then(function(r) { applyTotals(!r.error && r.data ? r.data : []); })
+            .catch(function() { hideBtn(); });
+    }
+    SB.from('bills').select('balance, voided_at').eq('patient_id', ap.id)
+        .then(function(r) {
+            if (r.error) {
+                if (String(r.error.message || '').toLowerCase().indexOf('patient_id') >= 0 && pno)
+                    fetchByPatientNo();
+                else hideBtn();
+                return;
+            }
+            applyTotals(r.data || []);
+        })
+        .catch(function() { fetchByPatientNo(); });
+}
+
+function updateApptPatientBanner() {
+    var banner = g('apptPatientBanner');
+    if (!banner) return;
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+
+    if (!ap) {
+        banner.classList.add('appt-patient-banner--no-patient');
+        syncQueuePatientSearchInput();
+        syncTodayPatientSearchInput();
+        return;
+    }
+    banner.classList.remove('appt-patient-banner--no-patient');
+
+    var nameEl = g('apptBannerName');
+    if (nameEl) nameEl.textContent = ap.full_name || '—';
+
+    var cnEl = g('apptBannerChinese');
+    var cn = String(ap.chinese_name || '').trim();
+    if (cnEl) {
+        cnEl.textContent = cn;
+        cnEl.style.display = cn ? 'block' : 'none';
+    }
+    banner.classList.toggle('has-chinese-name', !!cn);
+
+    var noEl = g('apptBannerNo');
+    if (noEl) noEl.textContent = ap.patient_no || '-';
+
+    var sexWrap = g('apptBannerSexWrap');
+    if (sexWrap) {
+        var sexHtml = typeof patientSexSymbolHtml === 'function'
+            ? patientSexSymbolHtml(ap.sex, { banner: true }) : '';
+        var sexKind = typeof patientSexKind === 'function' ? patientSexKind(ap.sex) : 'unknown';
+        if (sexKind === 'unknown') {
+            sexWrap.style.display = 'none';
+        } else {
+            sexWrap.style.display = '';
+            sexWrap.innerHTML = '<span data-i18n="con.banner.sexLabel"></span>&nbsp;' + sexHtml;
+        }
+    }
+
+    var dobEl = g('apptBannerDob');
+    if (dobEl) dobEl.textContent = ap.dob
+        ? (typeof formatDobAge === 'function' ? formatDobAge(ap.dob) : ap.dob)
+        : '-';
+
+    var phoneEl = g('apptBannerPhone');
+    if (phoneEl) phoneEl.textContent = ap.phone_number || ap.mobile_phone || '-';
+
+    var mobWrap = g('apptBannerMobileWrap');
+    var mobEl = g('apptBannerMobile');
+    if (mobWrap && mobEl) {
+        var mobStr = String(ap.mobile_phone || '').trim();
+        var telStr = String(ap.phone_number || '').trim();
+        if (mobStr && mobStr !== telStr) {
+            mobWrap.style.display = '';
+            mobEl.textContent = mobStr;
+        } else {
+            mobWrap.style.display = 'none';
+        }
+    }
+
+    var addrWrap = g('apptBannerAddressWrap');
+    var addrEl = g('apptBannerAddress');
+    if (addrWrap && addrEl) {
+        var addrStr = String(ap.address || '').trim();
+        if (addrStr) { addrWrap.style.display = ''; addrEl.textContent = addrStr; }
+        else { addrWrap.style.display = 'none'; }
+    }
+
+    var emWrap = g('apptBannerEmailWrap');
+    var emEl = g('apptBannerEmail');
+    if (emWrap && emEl) {
+        var emStr = String(ap.email || '').trim();
+        if (emStr) { emWrap.style.display = ''; emEl.textContent = emStr; }
+        else { emWrap.style.display = 'none'; }
+    }
+
+    var hkWrap = g('apptBannerHkidWrap');
+    var hkEl = g('apptBannerHkid');
+    if (hkWrap && hkEl) {
+        var hkStr = String(ap.hkid || '').trim();
+        if (hkStr) { hkWrap.style.display = ''; hkEl.textContent = hkStr; }
+        else { hkWrap.style.display = 'none'; }
+    }
+
+    var todayEl = g('apptBannerToday');
+    if (todayEl) todayEl.textContent = typeof fmtNowDateTimeHK === 'function'
+        ? fmtNowDateTimeHK()
+        : (typeof todayISO === 'function' ? todayISO() : '');
+
+    var drEl = g('apptBannerDoctor');
+    if (drEl) drEl.textContent =
+        (typeof currentDoctorName !== 'undefined' && currentDoctorName) ||
+        (typeof currentName !== 'undefined' && currentName) || '—';
+
+    var alertWrap = g('apptBannerAlertWrap');
+    var alertEl = g('apptBannerAlert');
+    if (alertWrap && alertEl) {
+        var alertTxt = '';
+        if (typeof buildPatientAlertDisplayText === 'function') {
+            alertTxt = String(buildPatientAlertDisplayText(ap) || '').trim();
+        }
+        if (!alertTxt) alertTxt = String(ap.medical_alerts || '').trim();
+        if (alertTxt) { alertWrap.style.display = ''; alertEl.textContent = alertTxt; }
+        else { alertWrap.style.display = 'none'; }
+    }
+
+    refreshApptPatientOutstandingBalance(ap);
+    syncQueuePatientSearchInput();
+    syncTodayPatientSearchInput();
+}
+
+// ─── Appointment Doctor Dropdown ──────────────────────────────────────────────
+function populateApptDoctorSelect(clinicId) {
+    var sel = g('apptDoctorSelect');
+    if (!sel) return;
+    var cId = clinicId || (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+    var docs = typeof doctorsForClinic === 'function'
+        ? doctorsForClinic(cId)
+        : (typeof APP_DOCTORS !== 'undefined' ? APP_DOCTORS : []).filter(function(d) {
+            return !cId || d.clinic_id === cId;
+        });
+    docs = (docs || []).filter(function(d) { return d.is_active !== false; });
+    var prev = sel.value;
+    sel.innerHTML = '<option value="">' + esc(tr('common.all')) + '</option>';
+    docs.forEach(function(d) {
+        var o = document.createElement('option');
+        o.value = d.id;
+        o.textContent = typeof doctorDisplayName === 'function'
+            ? doctorDisplayName(d)
+            : (d.english_name || d.doctor_code || '');
+        sel.appendChild(o);
+    });
+    var cDr = typeof currentDoctorId !== 'undefined' ? (currentDoctorId || '') : '';
+    var target = prev || cDr;
+    var has = Array.prototype.some.call(sel.options, function(o) { return o.value === target; });
+    sel.value = has ? target : '';
+}
+
+function onApptDoctorChange() {
+    var sel = g('apptDoctorSelect');
+    if (!sel) return;
+    var doctorId = sel.value || '';
+    // Sync dashboard doctor select
+    var dashSel = g('dashDoctorSelect');
+    if (dashSel && dashSel.value !== doctorId) dashSel.value = doctorId;
+    // Apply identity (sets currentDoctorId, refreshes header etc.)
+    if (typeof applyDashboardDoctorSelection === 'function') {
+        applyDashboardDoctorSelection(doctorId);
+    }
+}
+
+function bindApptDoctorSelectOnce() {
+    var sel = g('apptDoctorSelect');
+    if (!sel || sel.dataset.bound) return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', onApptDoctorChange);
+}
+
+// ─── Queue Patient Search Bar ─────────────────────────────────────────────────
+function _syncApptPatientSearchInput(inputId, clearBtnId) {
+    var inp = g(inputId);
+    var clrBtn = g(clearBtnId);
+    if (!inp) return;
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+    if (ap) {
+        inp.value = (ap.chinese_name ? ap.chinese_name + ' ' : '') +
+                    (ap.full_name || '') + ' (#' + (ap.patient_no || '') + ')';
+        if (clrBtn) clrBtn.style.display = '';
+    } else {
+        if (document.activeElement !== inp) inp.value = '';
+        if (clrBtn) clrBtn.style.display = 'none';
+    }
+}
+
+function syncQueuePatientSearchInput() {
+    _syncApptPatientSearchInput('queuePsInput', 'queuePsClearBtn');
+}
+
+function syncTodayPatientSearchInput() {
+    _syncApptPatientSearchInput('todayPsInput', 'todayPsClearBtn');
+}
+
+function _bindApptTabPatientSearchOnce(inputId, dropId, clearBtnId, source) {
+    var inp = g(inputId);
+    if (!inp || inp.dataset.bound) return;
+    inp.dataset.bound = '1';
+
+    inp.addEventListener('input', function() {
+        runPatientSearchDropdown({
+            inputId: inputId,
+            dropId:  dropId,
+            activeSource: source,
+            onSelect: function() {
+                var clrBtn = g(clearBtnId);
+                if (clrBtn) clrBtn.style.display = '';
+            }
+        });
+    });
+
+    inp.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var dd = g(dropId);
+            if (dd) dd.style.display = 'none';
+        }
+    });
+
+    var clrBtn = g(clearBtnId);
+    if (clrBtn) {
+        clrBtn.addEventListener('click', function() {
+            var inp2 = g(inputId);
+            if (inp2) inp2.value = '';
+            var dd = g(dropId);
+            if (dd) dd.style.display = 'none';
+            clrBtn.style.display = 'none';
+            if (typeof setActivePatientSlot === 'function') {
+                setActivePatientSlot(0, null, source + '-clear', true);
+            }
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        var dd = g(dropId);
+        var inp3 = g(inputId);
+        if (dd && inp3 && !inp3.contains(e.target) && !dd.contains(e.target)) {
+            dd.style.display = 'none';
+        }
+    });
+}
+
+function bindQueuePatientSearchOnce() {
+    _bindApptTabPatientSearchOnce('queuePsInput', 'queuePsDrop', 'queuePsClearBtn', 'queue-patient-search');
+}
+
+function bindTodayPatientSearchOnce() {
+    _bindApptTabPatientSearchOnce('todayPsInput', 'todayPsDrop', 'todayPsClearBtn', 'today-patient-search');
+}
+
 function onApptClinicChange() {
     var sel = g('apptClinicSelect');
     if (!sel || !sel.value) return;
@@ -1424,6 +1738,7 @@ function onApptClinicChange() {
         plusApptActiveClinicId = sel.value;
         plusApptClinicSyncing = false;
     }
+    populateApptDoctorSelect(sel.value);
     if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange();
     if (apptActiveTabKey() === 'plusappt' && typeof onPlusApptClinicChange === 'function') {
         onPlusApptClinicChange();
@@ -1455,6 +1770,12 @@ function initAppt(opts) {
     if (apSel && apSel.value && typeof setWorkingClinic === 'function') {
         setWorkingClinic(apSel.value, { syncFilters: true, reloadAppt: false });
     }
+    populateApptDoctorSelect(apSel ? apSel.value : '');
+    bindApptDoctorSelectOnce();
+    bindQueuePatientSearchOnce();
+    bindTodayPatientSearchOnce();
+    updateApptPatientBanner();
+    document.addEventListener('app-active-patient-change', updateApptPatientBanner);
     var qb = g('queueBody');
     if (qb) {
         if (!qb.querySelector('tr')) {
@@ -8841,6 +9162,7 @@ function refreshApptHeaderI18n() {
     if (typeof syncApptTodayDateLabels === 'function') syncApptTodayDateLabels();
     if (typeof setQueueRefreshMeta === 'function') setQueueRefreshMeta({ stampNow: false });
     if (typeof refreshApptSharedMemoI18n === 'function') refreshApptSharedMemoI18n();
+    updateApptPatientBanner();
 }
 
 function statusClass(s) {

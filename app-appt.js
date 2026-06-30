@@ -1857,7 +1857,18 @@ function switchApptTab(tab) {
     }
     if (tab === 'plusappt') showPlusApptTab();
     if (tab === 'calendar') showCalendarTab();
-    if (tab === 'records') loadApptRecords();
+    if (tab === 'records') {
+        // Auto-fill search from the primary active patient card if one is docked.
+        var _recAp = typeof activePatientSlots !== 'undefined' &&
+                     activePatientSlots[0] && activePatientSlots[0].id
+                     ? activePatientSlots[0] : null;
+        if (_recAp) {
+            var _recTerm = String(_recAp.full_name || _recAp.patient_no || '').trim();
+            var _recInp  = g('arSearchInput');
+            if (_recInp && _recTerm) _recInp.value = _recTerm;
+        }
+        loadApptRecords();
+    }
     if (tab === 'recall')   initRecallTab();
     if (tab === 'queue') {
         if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
@@ -9038,9 +9049,12 @@ function getNonDoctorRemarksAuthor() {
     var uid = typeof currentUserId !== 'undefined' ? String(currentUserId || '').trim() : '';
     var name = typeof currentName !== 'undefined' ? String(currentName || '').trim() : '';
     if (!uid && !name) return null;
+    // Always tag with the login user ID so the remarks record who actually
+    // made the edit, regardless of which doctor identity is currently active.
+    var tagName = uid || name;
     return {
-        uid: uid || name,
-        name: name || uid,
+        uid: tagName,
+        name: tagName,
         role: typeof currentRole !== 'undefined' ? (currentRole || 'staff') : 'staff'
     };
 }

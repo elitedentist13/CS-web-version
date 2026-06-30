@@ -808,7 +808,34 @@ function selectConPatient(p) {
     if (dobEl) dobEl.textContent = p.dob ? formatDobAge(p.dob) : '-';
 
     var phoneEl = g('conBannerPhone');
-    if (phoneEl) phoneEl.textContent = p.mobile_phone || p.phone_number || '-';
+    if (phoneEl) phoneEl.textContent = p.phone_number || p.mobile_phone || '-';
+
+    var mobWrap = g('conBannerMobileWrap');
+    var mobEl   = g('conBannerMobile');
+    if (mobWrap && mobEl) {
+        var mobStr = String(p.mobile_phone || '').trim();
+        var telStr = String(p.phone_number || '').trim();
+        if (mobStr && mobStr !== telStr) {
+            mobWrap.style.display = '';
+            mobEl.textContent = mobStr;
+        } else {
+            mobWrap.style.display = 'none';
+            mobEl.textContent = '—';
+        }
+    }
+
+    var addrWrap = g('conBannerAddressWrap');
+    var addrEl   = g('conBannerAddress');
+    if (addrWrap && addrEl) {
+        var addrStr = String(p.address || '').trim();
+        if (addrStr) {
+            addrWrap.style.display = '';
+            addrEl.textContent = addrStr;
+        } else {
+            addrWrap.style.display = 'none';
+            addrEl.textContent = '—';
+        }
+    }
 
     var emailStr = String(p.email || '').trim();
     var emWrap = g('conBannerEmailWrap');

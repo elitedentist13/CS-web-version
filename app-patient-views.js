@@ -78,10 +78,14 @@ function patViewNameHtml(p) {
 }
 
 function patViewPhotoUrl(record) {
+    if (!record) return '';
+    // Prefer the pre-computed public_url stored in the DB row
+    if (record.public_url) return record.public_url;
+    // Delegate to the shared helper when available (adds cache-busting token)
     if (typeof photoDisplayUrl === 'function') return photoDisplayUrl(record);
-    if (!record || !SB) return '';
-    var path = record.storage_path || record.file_path || '';
-    if (!path) return '';
+    // Last resort: derive from storage path
+    var path = record.file_path || record.storage_path || '';
+    if (!path || !SB) return '';
     try {
         var ur = SB.storage.from('photos').getPublicUrl(path);
         return (ur && ur.data && ur.data.publicUrl) ? ur.data.publicUrl : '';
@@ -239,6 +243,48 @@ function patViewSafeRows(promise) {
     }).catch(function () { return []; });
 }
 
+/**
+ * Re-fetch bill balances from Supabase and update the balance card in the
+ * patient dashboard without triggering a full dashboard reload.
+ * Called when a bill or payment event is detected.
+ */
+function patDashRefreshBalance() {
+    var card = g('patDashBalanceCard');
+    var amtEl = g('patDashBalanceAmt');
+    if (!card || !amtEl) return;
+    var pid = card.dataset.patientId || (selPatientId || '');
+    if (!pid) return;
+
+    var pno = (_patientDetailsPatient && _patientDetailsPatient.patient_no)
+        ? String(_patientDetailsPatient.patient_no).trim() : '';
+
+    function applyBills(rows) {
+        var t = 0;
+        (rows || []).forEach(function (b) {
+            if (!b || b.voided_at) return;
+            var x = parseFloat(b.balance);
+            if (isFinite(x) && x > 0.005) t += x;
+        });
+        if (patientDashData) patientDashData.bills = rows;
+        var fmt = (typeof fmtHK === 'function') ? fmtHK(t) : ('$' + t.toFixed(2));
+        amtEl.textContent = fmt;
+        card.classList.toggle('pat-dash-balance-card--due', t > 0.005);
+    }
+
+    SB.from('bills').select('id,total,balance,voided_at,created_at,bill_date')
+        .eq('patient_id', pid).order('created_at', { ascending: false }).limit(300)
+    .then(function (r) {
+        var rows = (!r.error && r.data) ? r.data : [];
+        if (!rows.length && pno) {
+            return SB.from('bills').select('id,total,balance,voided_at,created_at,bill_date')
+                .eq('patient_no', pno).order('created_at', { ascending: false }).limit(300)
+            .then(function (r2) { applyBills((!r2.error && r2.data) ? r2.data : []); });
+        }
+        applyBills(rows);
+    })
+    .catch(function () {});
+}
+
 function patViewLoadDashboard() {
     var host = g('patientDashboardHost');
     if (!host) return;
@@ -264,14 +310,19 @@ function patViewLoadDashboard() {
         patViewSafeRows(SB.from('treatments').select('id,notes,created_at,dentist_name')
             .eq('patient_id', pid).order('created_at', { ascending: false }).limit(25)),
         patViewSafeRows(SB.from('bills').select('id,total,balance,voided_at,created_at,bill_date')
-            .eq('patient_id', pid).order('created_at', { ascending: false }).limit(50)),
-        patViewSafeRows(SB.from('photos').select('id,file_name,storage_path,taken_date,created_at,notes')
-            .eq('patient_id', pid).order('created_at', { ascending: false }).limit(24)),
+            .eq('patient_id', pid).order('created_at', { ascending: false }).limit(300)),
+        patViewSafeRows(SB.from('photos').select('id,file_path,public_url,category,caption,taken_date,created_at')
+            .eq('patient_id', pid).order('taken_date', { ascending: false })
+            .order('created_at', { ascending: false }).limit(24)),
         patViewSafeRows(SB.from('patient_documents').select(
             'id,document_name,document_date,template_name,template_type,created_at'
         ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(30)),
         patViewSafeRows(SB.from('drughistory').select('id,drug_name,prescribed_date,doctor_tag')
-            .eq('patient_id', pid).order('prescribed_date', { ascending: false }).limit(20))
+            .eq('patient_id', pid).order('prescribed_date', { ascending: false }).limit(20)),
+        patViewSafeRows(SB.from('xrays').select(
+            'id,xray_type,taken_date,notes,file_name,file_url,created_at'
+        ).eq('patient_id', pid).order('taken_date', { ascending: false })
+            .order('created_at', { ascending: false }).limit(24))
     ]).then(function (parts) {
         if (loadSeq !== patientDashLoadSeq) return;
         var p = parts[0];
@@ -286,7 +337,7 @@ function patViewLoadDashboard() {
         if (!bills.length && pno) {
             return patViewSafeRows(
                 SB.from('bills').select('id,total,balance,voided_at,created_at,bill_date')
-                    .eq('patient_no', pno).order('created_at', { ascending: false }).limit(50)
+                    .eq('patient_no', pno).order('created_at', { ascending: false }).limit(300)
             ).then(function (b2) {
                 parts[3] = b2;
                 return parts;
@@ -302,9 +353,11 @@ function patViewLoadDashboard() {
             bills: parts[3],
             photos: parts[4],
             docs: parts[5],
-            rx: parts[6]
+            rx: parts[6],
+            xrays: parts[7] || []
         };
         patViewRenderDashboard(host, patientDashData);
+        patDashLoadTimeline(pid);
     });
 }
 
@@ -327,10 +380,11 @@ function patViewRenderDashboard(host, data) {
         '<div class="pat-dash-hero-right">' + patViewActionsHtml(p) + '</div>' +
         '</header>' +
         '<div class="pat-dash-top-row">' +
-        '<button type="button" class="pat-dash-balance-card' + (balance > 0.005 ? ' pat-dash-balance-card--due' : '') +
-        '" data-act="bills" data-id="' + esc(p.id) + '">' +
+        '<button type="button" id="patDashBalanceCard" class="pat-dash-balance-card' +
+        (balance > 0.005 ? ' pat-dash-balance-card--due' : '') +
+        '" data-act="bills" data-id="' + esc(p.id) + '" data-patient-id="' + esc(p.id) + '">' +
         '<span class="pat-dash-balance-label">' + esc(patViewTr('patient.view.balanceDue')) + '</span>' +
-        '<span class="pat-dash-balance-amt">' + esc(balanceHtml) + '</span>' +
+        '<span id="patDashBalanceAmt" class="pat-dash-balance-amt">' + esc(balanceHtml) + '</span>' +
         '<span class="pat-dash-balance-hint">' + esc(patViewTr('patient.view.balanceHint')) + '</span>' +
         '</button>' +
         '<div class="pat-dash-banana-wrap">' + patViewBananaPanelHtml(p) + '</div>' +
@@ -378,7 +432,15 @@ function patViewRenderDashboard(host, data) {
             patViewPhotosGridHtml(data.photos), 'pat-dash-widget--wide') +
         patViewDashWidget(patViewTr('patient.view.widget.docs'),
             patViewDocsListHtml(data.docs), 'pat-dash-widget--wide') +
-        '</div></div>';
+        patViewDashWidget(patViewTr('patient.view.widget.xrays'),
+            patViewXraysGridHtml(data.xrays), 'pat-dash-widget--wide') +
+        '</div>' +
+        '<section class="pat-dash-widget pat-dash-widget--full">' +
+        '<h3 class="pat-dash-widget-title">' + esc(patViewTr('patient.view.widget.timeline')) + '</h3>' +
+        '<div id="patDashTimelineHost" class="pat-dash-timeline-host">' +
+        '<p class="pat-view-muted">' + esc(patViewTr('patient.view.loading') || 'Loading…') + '</p>' +
+        '</div></section>' +
+        '</div>';
     patViewWireHostActions(host);
 }
 
@@ -441,14 +503,16 @@ function patViewPhotosGridHtml(rows) {
     }
     return '<div class="pat-dash-photo-grid">' + rows.map(function (ph) {
         var url = patViewPhotoUrl(ph);
-        var lbl = ph.taken_date || ph.file_name || '';
+        var dateLbl = patViewFmtDate(ph.taken_date || ph.created_at || '');
+        var subLbl = ph.caption || ph.category || '';
+        var figcap = dateLbl + (subLbl ? ' · ' + subLbl : '');
         if (url) {
             return '<figure class="pat-dash-photo-thumb">' +
                 '<img src="' + esc(url) + '" alt="" loading="lazy">' +
-                '<figcaption>' + esc(patViewFmtDate(lbl)) + '</figcaption></figure>';
+                '<figcaption>' + esc(figcap) + '</figcaption></figure>';
         }
         return '<figure class="pat-dash-photo-thumb pat-dash-photo-thumb--placeholder">' +
-            '<span>📷</span><figcaption>' + esc(patViewFmtDate(lbl)) + '</figcaption></figure>';
+            '<span>📷</span><figcaption>' + esc(figcap) + '</figcaption></figure>';
     }).join('') + '</div>';
 }
 
@@ -462,6 +526,28 @@ function patViewDocsListHtml(rows) {
             '<span class="pat-dash-doc-meta">' + esc(patViewFmtDate(d.document_date || d.created_at)) +
             (d.template_type ? ' · ' + esc(d.template_type) : '') + '</span></li>';
     }).join('') + '</ul>';
+}
+
+function patViewXraysGridHtml(rows) {
+    if (!rows || !rows.length) {
+        return '<p class="pat-view-muted">' + esc(patViewTr('patient.view.noXrays')) + '</p>';
+    }
+    return '<div class="pat-dash-xray-grid">' + rows.map(function (x) {
+        var date = x.taken_date ? patViewFmtDate(x.taken_date) : patViewFmtDate(x.created_at);
+        var type = String(x.xray_type || '—');
+        var notes = x.notes ? patViewTruncate(x.notes, 80) : '';
+        var url   = String(x.file_url || '').trim();
+        var media = url
+            ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">' +
+              '<img src="' + esc(url) + '" alt="" loading="lazy"></a>'
+            : '<span class="pat-dash-xray-icon">🦷</span>';
+        return '<figure class="pat-dash-xray-thumb">' + media +
+            '<figcaption>' +
+            '<strong>' + esc(type) + '</strong>' +
+            (date ? '<span>' + esc(date) + '</span>' : '') +
+            (notes ? '<em>' + esc(notes) + '</em>' : '') +
+            '</figcaption></figure>';
+    }).join('') + '</div>';
 }
 
 function patViewTruncate(s, max) {
@@ -591,6 +677,136 @@ function patientViewOnActiveChange(p) {
     if (patientViewMode === 'dashboard') patViewLoadDashboard();
 }
 
+// ─── Patient Dashboard: Timeline widget ───────────────────────────────────────
+function patDashLoadTimeline(pid) {
+    var host = g('patDashTimelineHost');
+    if (!host || !pid) return;
+
+    function safeRows(q) {
+        return q.then(function (r) { return (r && !r.error && r.data) ? r.data : []; })
+                .catch(function () { return []; });
+    }
+
+    var pno = (_patientDetailsPatient && _patientDetailsPatient.patient_no)
+        ? String(_patientDetailsPatient.patient_no).trim() : '';
+
+    Promise.all([
+        safeRows(SB.from('treatments').select('*').eq('patient_id', pid)
+            .order('created_at', { ascending: false }).limit(200)),
+        safeRows(SB.from('drughistory').select('*').eq('patient_id', pid)
+            .order('prescribed_date', { ascending: false }).limit(100)),
+        safeRows(SB.from('appointments').select(
+            'id,date,start_time,end_time,bill_status,treatment_items,remarks,' +
+            'dentist_name,doctor_name,doctor_code,created_at'
+        ).eq('patient_id', pid).order('date', { ascending: false }).limit(150)),
+        safeRows(SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
+            .eq('patient_id', pid).order('created_at', { ascending: false }).limit(120)),
+        safeRows(SB.from('patient_documents').select(
+            'id,document_name,document_date,template_name,template_type,created_at'
+        ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80)),
+        safeRows(SB.from('xrays').select('id,xray_type,taken_date,notes,file_name,created_at')
+            .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80)),
+        safeRows(SB.from('photos').select('id,file_path,public_url,category,caption,taken_date,created_at')
+            .eq('patient_id', pid).order('taken_date', { ascending: false })
+            .order('created_at', { ascending: false }).limit(80))
+    ]).then(function (parts) {
+        var bills = parts[3];
+        if (!bills.length && pno) {
+            return safeRows(SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
+                .eq('patient_no', pno).order('created_at', { ascending: false }).limit(120)
+            ).then(function (b2) { parts[3] = b2; return parts; });
+        }
+        return parts;
+    }).then(function (parts) {
+        var bills2  = parts[3] || [];
+        var appts2  = parts[2] || [];
+        var billIds = bills2.map(function (b) { return b && b.id; }).filter(Boolean);
+        var apptIds = appts2.map(function (a) { return a && a.id; }).filter(Boolean);
+        var qPay = billIds.length
+            ? safeRows(SB.from('bill_payments').select('*').in('bill_id', billIds)
+                .order('paid_date', { ascending: false })
+                .order('created_at', { ascending: false }).limit(200))
+            : Promise.resolve([]);
+        var qTask = apptIds.length
+            ? safeRows(SB.from('appointment_task_states')
+                .select('appointment_id,lab_status,recall_status,created_at,updated_at')
+                .in('appointment_id', apptIds))
+            : Promise.resolve([]);
+        return Promise.all([Promise.resolve(parts), qPay, qTask]);
+    }).then(function (bundle) {
+        var parts    = bundle[0];
+        var payments = bundle[1] || [];
+        var tasks    = bundle[2] || [];
+        var billMap  = {};
+        (parts[3] || []).forEach(function (b) { if (b && b.id) billMap[String(b.id)] = b; });
+        var apptMap  = {};
+        (parts[2] || []).forEach(function (a) { if (a && a.id) apptMap[String(a.id)] = a; });
+
+        var events = [];
+        if (typeof conPtlMergeEvents === 'function') {
+            events = conPtlMergeEvents([
+                typeof conPtlEventsFromNotes    === 'function' ? conPtlEventsFromNotes(parts[0])              : [],
+                typeof conPtlEventsFromRx       === 'function' ? conPtlEventsFromRx(parts[1])                 : [],
+                typeof conPtlEventsFromVisits   === 'function' ? conPtlEventsFromVisits(parts[2])             : [],
+                typeof conPtlEventsFromBills    === 'function' ? conPtlEventsFromBills(parts[3])              : [],
+                typeof conPtlEventsFromDocs     === 'function' ? conPtlEventsFromDocs(parts[4])               : [],
+                typeof conPtlEventsFromXrays    === 'function' ? conPtlEventsFromXrays(parts[5])              : [],
+                typeof conPtlEventsFromPhotos   === 'function' ? conPtlEventsFromPhotos(parts[6])             : [],
+                typeof conPtlEventsFromPayments === 'function' ? conPtlEventsFromPayments(payments, billMap)  : [],
+                typeof conPtlEventsFromTasks    === 'function' ? conPtlEventsFromTasks(tasks, apptMap)        : []
+            ]);
+        }
+        patDashRenderTimeline(host, events);
+    }).catch(function () {
+        if (host) host.innerHTML =
+            '<p class="pat-view-muted">' + esc(patViewTr('patient.view.none')) + '</p>';
+    });
+}
+
+function patDashRenderTimeline(host, events) {
+    if (!host) return;
+    if (!events || !events.length) {
+        host.innerHTML = '<p class="pat-view-muted">' + esc(patViewTr('patient.view.none')) + '</p>';
+        return;
+    }
+
+    var fmtDay = typeof conPtlFormatDay  === 'function' ? conPtlFormatDay  : function (ts) {
+        return new Date(ts).toLocaleDateString();
+    };
+    var fmtTime = typeof conPtlFormatTime === 'function' ? conPtlFormatTime : function (ts) {
+        return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    var html = '<div class="pat-dash-timeline-count">' +
+        esc(events.length + ' event' + (events.length !== 1 ? 's' : '')) +
+        '</div>';
+    var lastDay = '';
+
+    events.forEach(function (ev) {
+        var day = fmtDay(ev.ts);
+        if (day !== lastDay) {
+            if (lastDay) html += '</ul>';
+            lastDay = day;
+            html += '<div class="con-ptl-day">' + esc(day) + '</div>' +
+                    '<ul class="con-ptl-list">';
+        }
+        var evCls    = 'con-ptl-event con-ptl-event--' + esc(ev.kind || 'visit');
+        var headline = String(ev.headline || '').trim();
+        var detail   = String(ev.detail   || '').trim();
+        html += '<li class="' + evCls + '">' +
+            '<div class="con-ptl-event-head">' +
+            '<span class="con-ptl-event-type">' + esc(ev.title || ev.kind || '') + '</span>' +
+            '<span class="con-ptl-event-time">' + esc(fmtTime(ev.ts)) + '</span>' +
+            '</div>' +
+            (headline ? '<div class="con-ptl-event-title">' + esc(headline) + '</div>' : '') +
+            (detail   ? '<div class="con-ptl-event-body">'  + esc(detail)   + '</div>' : '') +
+            '</li>';
+    });
+    if (lastDay) html += '</ul>';
+
+    host.innerHTML = html;
+}
+
 function initPatientViews() {
     patViewLoadMode();
     document.querySelectorAll('.patient-view-btn').forEach(function (btn) {
@@ -625,4 +841,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
 document.addEventListener('app-lang-change', function () {
     if (typeof refreshPatientViewsI18n === 'function') refreshPatientViewsI18n();
+});
+
+// Refresh the balance card whenever a bill or payment changes
+document.addEventListener('consultation-ar-refresh', function () {
+    patDashRefreshBalance();
+});
+document.addEventListener('pat-dash-balance-refresh', function () {
+    patDashRefreshBalance();
 });

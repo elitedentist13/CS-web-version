@@ -9359,25 +9359,23 @@ function remarksForApptForm(remarks) {
     ).trim();
 }
 
-/** Logged-in user is doctor/dentist — no staff author tag on remarks. */
+/**
+ * Return the identity of the currently logged-in user for appending to saved
+ * remarks. Every role (admin / doctor / dentist / nurse / receptionist / staff)
+ * is tagged so there is always an audit trail of who last edited the field.
+ */
 function getNonDoctorRemarksAuthor() {
-    if (typeof getActiveDoctorContext === 'function') {
-        var ctx = getActiveDoctorContext();
-        if (ctx && ctx.shouldTag) return null;
-    } else {
-        var role = String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase();
-        if (role === 'doctor' || role === 'dentist') return null;
-    }
-    var uid = typeof currentUserId !== 'undefined' ? String(currentUserId || '').trim() : '';
-    var name = typeof currentName !== 'undefined' ? String(currentName || '').trim() : '';
-    if (!uid && !name) return null;
-    // Always tag with the login user ID so the remarks record who actually
-    // made the edit, regardless of which doctor identity is currently active.
+    // Always use the raw login user_id as the canonical identity tag so the
+    // record reflects who actually made the edit, not any impersonated context.
+    var uid  = typeof currentUserId !== 'undefined' ? String(currentUserId  || '').trim() : '';
+    var name = typeof currentName   !== 'undefined' ? String(currentName    || '').trim() : '';
+    var role = typeof currentRole   !== 'undefined' ? String(currentRole    || '').trim() : '';
     var tagName = uid || name;
+    if (!tagName) return null;
     return {
-        uid: tagName,
+        uid:  tagName,
         name: tagName,
-        role: typeof currentRole !== 'undefined' ? (currentRole || 'staff') : 'staff'
+        role: role || 'staff'
     };
 }
 

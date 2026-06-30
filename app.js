@@ -145,6 +145,8 @@ function persistProgramSettingRow(row) {
 // ════════════════════════════════════════════════════════════════
 var currentRole = null;
 var currentName = null;
+/** Logged-in user label for dashboard badge — fixed at login, not clinic/doctor context. */
+var loggedInUserName = null;
 var currentUserId = null;
 var currentClinicId = null;
 var currentClinicLabel = null;
@@ -1540,6 +1542,9 @@ function applyDashboardDoctorSelection(doctorId) {
     refreshAppSessionStripContents();
     if (typeof updateConsultationDoctorUI === 'function') updateConsultationDoctorUI();
     if (typeof refreshApptHeaderI18n === 'function') refreshApptHeaderI18n();
+    // Sync appointment module doctor select
+    var apptDrSel = g('apptDoctorSelect');
+    if (apptDrSel && apptDrSel.value !== (doctorId || '')) apptDrSel.value = doctorId || '';
 }
 
 function onDashboardClinicChange() {
@@ -1656,6 +1661,7 @@ function setWorkingClinic(clinicId, options) {
     persistSession();
     refreshAppSessionStripContents();
     populateDashboardDoctorSelect(currentDoctorId || '');
+    if (typeof populateApptDoctorSelect === 'function') populateApptDoctorSelect(clinicId);
     if (typeof restartRealtimeSync === 'function') restartRealtimeSync();
 
     if (options.reloadAppt) {
@@ -2223,6 +2229,12 @@ function refreshVisiblePatientSearchDropdowns() {
     });
 }
 
+/** Push a patient picked from any search UI onto the primary active patient card. */
+function recordPatientSearchToActiveCard(p, source) {
+    if (!p || !p.id || typeof setActivePatientFromPayload !== 'function') return;
+    setActivePatientFromPayload(p, source || 'patient-search');
+}
+
 function fillPatientSearchDropdown(dd, rows, onSelect) {
     if (!dd) return;
     dd.innerHTML = '';
@@ -2275,11 +2287,17 @@ function runPatientSearchDropdown(opts) {
             dd.style.display = 'block';
             return;
         }
+        var syncSource = opts.activeSource ||
+            (opts.inputId ? ('patient-search:' + opts.inputId) : 'patient-search-select');
         fillPatientSearchDropdown(dd, r.data, function (p) {
             dd.style.display = 'none';
             if (inputEl) inputEl.value = patientSearchInputDisplayValue(p);
+            recordPatientSearchToActiveCard(p, syncSource);
             if (opts.onSelect) opts.onSelect(p);
         });
+        if (r.data && r.data.length === 1) {
+            recordPatientSearchToActiveCard(r.data[0], syncSource + '-single');
+        }
     }
     pq.then(function (r) {
         if (r.error && (r.error.message || '').indexOf('column') >= 0) {
@@ -2321,7 +2339,14 @@ var SCREENS = [
     'reportSection',
     'aiHelperSection',
     'memoCardsSection',
-    'sectionConfig'           // ← added
+    'entertainmentSection',
+    'toolsSection',
+    'medCalcSection',
+    'qrToolSection',
+    'pdfUtilSection',
+    'certGenSection',
+    'docToolsSection',
+    'sectionConfig'
 ];
 
 function showOnly(id, opts) {
@@ -2356,10 +2381,16 @@ function showOnly(id, opts) {
     }
 }
 
+function dashboardLoggedInUserLabel() {
+    if (loggedInUserName) return loggedInUserName;
+    if (currentUserId) return currentUserId;
+    return '-';
+}
+
 function refreshDashboardUserBadge() {
     var bn = g('badgeName');
     var br = g('badgeRole');
-    if (bn) bn.textContent = currentName || '-';
+    if (bn) bn.textContent = dashboardLoggedInUserLabel();
     if (br) {
         br.textContent = (typeof dispRole === 'function')
             ? dispRole(currentRole)
@@ -2533,6 +2564,54 @@ function scheduleMarkAppReady() {
         return;
     }
     markAppReady();
+}
+
+// ════════════════════════════════════════════════════════════════
+// UNSAVED-CHANGES OVERLAY
+// Shared by X-ray lightbox, Photo lightbox, and Forms editor.
+// Injects a small confirmation card into `containerId`.
+// ════════════════════════════════════════════════════════════════
+function showMediaUnsavedOverlay(containerId, onSave, onDiscard, opts) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    if (container.querySelector('.media-unsaved-overlay')) return; // already showing
+
+    opts = opts || {};
+    var tKey  = opts.messageKey  || 'media.unsaved.message';
+    var sKey  = opts.saveKey     || 'media.unsaved.save';
+    var dKey  = opts.discardKey  || 'media.unsaved.discard';
+    var cKey  = opts.cancelKey   || 'media.unsaved.cancel';
+    var tFn   = (typeof t === 'function') ? t : function(k){ return k; };
+
+    var overlay = document.createElement('div');
+    overlay.className = 'media-unsaved-overlay';
+
+    var card = document.createElement('div');
+    card.className = 'media-unsaved-card';
+    card.innerHTML =
+        '<div class="media-unsaved-icon">⚠️</div>' +
+        '<div class="media-unsaved-msg">' + tFn(tKey) + '</div>';
+
+    function makeBtn(cls, labelKey, handler) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'media-unsaved-btn ' + cls;
+        btn.textContent = tFn(labelKey);
+        btn.addEventListener('click', function() {
+            overlay.remove();
+            handler();
+        });
+        return btn;
+    }
+
+    var row = document.createElement('div');
+    row.className = 'media-unsaved-btns';
+    row.appendChild(makeBtn('media-unsaved-save',    sKey, onSave));
+    row.appendChild(makeBtn('media-unsaved-discard', dKey, onDiscard));
+    row.appendChild(makeBtn('media-unsaved-cancel',  cKey, function() {}));
+    card.appendChild(row);
+    overlay.appendChild(card);
+    container.appendChild(overlay);
 }
 
 function showDashboard() {
@@ -3175,24 +3254,23 @@ function bindActivePatientBadgeCursor(card) {
             card.style.cursor = '';
             return;
         }
-        if (ev.target.closest('.active-patient-clear-btn')) {
-            card.style.cursor = 'pointer';
-            return;
-        }
-        if (ev.target.closest('.active-patient-phone-copy-btn') ||
+        if (ev.target.closest('.active-patient-clear-btn') ||
+            ev.target.closest('.active-patient-phone-copy-btn') ||
             ev.target.closest('.active-patient-copy-all-btn')) {
             card.style.cursor = 'pointer';
             return;
         }
-        if (ev.target.closest('.active-patient-badge-phone-text')) {
+        if (ev.target.closest('.active-patient-badge-textbox') ||
+            ev.target.closest('.active-patient-badge-phone-text')) {
             card.style.cursor = 'text';
             return;
         }
-        if (ev.target.closest('.active-patient-badge-textbox')) {
-            card.style.cursor = 'text';
+        if (ev.target.closest('.active-patient-badge-dragzone')) {
+            card.style.cursor = 'grab';
             return;
         }
-        card.style.cursor = 'grab';
+        // Let CSS default handle everything else (no forced grab on card body)
+        card.style.cursor = '';
     });
     card.addEventListener('mouseleave', function() {
         card.style.cursor = '';
@@ -3200,6 +3278,7 @@ function bindActivePatientBadgeCursor(card) {
     var box = card.querySelector('.active-patient-badge-textbox');
     if (box) {
         box.addEventListener('mousedown', function(ev) {
+            // prevent card-level handlers from interfering with text selection
             ev.stopPropagation();
         });
         box.addEventListener('dragstart', function(ev) {
@@ -3237,7 +3316,7 @@ function renderActivePatientSlot(idx, p) {
     card.setAttribute('data-copy-phone', activePatientBadgePhoneCopyRaw(p));
     var phoneBtn = card.querySelector('.active-patient-phone-copy-btn');
     if (phoneBtn) phoneBtn.disabled = !activePatientBadgePhoneCopyRaw(p);
-    card.setAttribute('draggable', 'true');
+    card.setAttribute('draggable', 'false');
     card.setAttribute('data-patient-id', p.id);
     card.setAttribute('data-payload', serializePatientDragPayload(p));
     card.classList.add('is-filled');
@@ -3333,7 +3412,8 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
         return;
     }
 
-    if (norm.phone_number && norm.hkid && norm.sex && norm.dob) {
+    if (norm.phone_number && norm.hkid && norm.sex && norm.dob &&
+        norm.address !== undefined && norm.email !== undefined) {
         commit(norm);
         return;
     }
@@ -3343,13 +3423,16 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
         return;
     }
 
-    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob').eq('id', norm.id).limit(1)
+    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob,address,email').eq('id', norm.id).limit(1)
     .then(function(r) {
         if (r.data && r.data[0]) {
             norm.phone_number = norm.phone_number || activePatientPhoneFromRecord(r.data[0]);
+            norm.mobile_phone = norm.mobile_phone || r.data[0].mobile_phone || '';
             norm.hkid = norm.hkid || r.data[0].hkid || '';
             norm.sex = norm.sex || r.data[0].sex || '';
             norm.dob = norm.dob || r.data[0].dob || '';
+            norm.address = norm.address || r.data[0].address || '';
+            norm.email = norm.email || r.data[0].email || '';
         }
         commit(norm);
     })
@@ -3503,14 +3586,36 @@ function bindActivePatientCardOnce() {
         var slotIdx = parseInt(card.getAttribute('data-slot') || '0', 10) || 0;
         bindActivePatientCardDropTarget(card, slotIdx);
         bindActivePatientBadgeCursor(card);
+
+        // ── Drag only arms from designated handle zones ──────────
+        // This keeps the card draggable=false so text inside the
+        // textarea is always freely selectable.  A mousedown on any
+        // dragzone (header, phone row, date strip) briefly arms the
+        // card so the browser's native drag sequence can fire.
+        card.querySelectorAll('.active-patient-badge-dragzone').forEach(function(zone) {
+            zone.addEventListener('mousedown', function() {
+                if (card.classList.contains('is-filled')) {
+                    card.setAttribute('draggable', 'true');
+                }
+            });
+        });
+        card.addEventListener('mouseup', function() {
+            card.setAttribute('draggable', 'false');
+        });
+        card.addEventListener('mouseleave', function() {
+            card.setAttribute('draggable', 'false');
+        });
+
         card.addEventListener('dragstart', function(ev) {
             if (activePatientBadgeDragBlockedTarget(ev.target)) {
                 ev.preventDefault();
+                card.setAttribute('draggable', 'false');
                 return;
             }
             var payload = card.getAttribute('data-payload') || '';
             if (!payload) {
                 ev.preventDefault();
+                card.setAttribute('draggable', 'false');
                 return;
             }
             setPatientDragPayloadSession(parsePatientDragPayload(payload));
@@ -3520,6 +3625,7 @@ function bindActivePatientCardOnce() {
             ev.dataTransfer.setData('text/plain', payload);
         });
         card.addEventListener('dragend', function() {
+            card.setAttribute('draggable', 'false');
             clearPatientDragPayloadSession();
         });
     });
@@ -3783,7 +3889,8 @@ function persistSession() {
         localStorage.setItem('jsm_session', JSON.stringify({
             user_id: currentUserId,
             role: currentRole,
-            name: currentName,
+            name: loggedInUserName || currentUserId || null,
+            login_name: loggedInUserName || currentUserId || null,
             clinic_id: currentClinicId,
             clinic_label: currentClinicLabel,
             doctor_id: currentDoctorId,
@@ -3807,6 +3914,7 @@ function restoreSession() {
         if (!s || !s.user_id) return false;
         currentUserId = s.user_id || null;
         currentRole = s.role || null;
+        loggedInUserName = s.login_name || s.name || s.user_id || null;
         currentName = s.name || null;
         currentClinicId = s.clinic_id || null;
         currentClinicLabel = s.clinic_label || null;
@@ -3991,6 +4099,16 @@ function finishLoginSession(u, doctorId) {
         setCurrentUserPermissions(u ? u.permissions : null);
     }
 
+    if (u && String(u.display_name || '').trim()) {
+        loggedInUserName = String(u.display_name).trim();
+    } else if (u && String(u.user_id || '').toLowerCase() === 'nurse') {
+        loggedInUserName = 'Nurse';
+    } else if (u && u.user_id) {
+        loggedInUserName = u.user_id;
+    } else {
+        loggedInUserName = currentUserId;
+    }
+
     if (doctorId) {
         applyIdentityFromDoctor(doctorId);
     } else {
@@ -4008,6 +4126,205 @@ function finishLoginSession(u, doctorId) {
     else persistSession();
 
     schedulePostLoginHardRefresh();
+}
+
+/** Restore badge label from app_users when an older session stored a doctor name in `name`. */
+function hydrateLoggedInUserNameFromDb() {
+    if (!currentUserId) return;
+    if (String(currentUserId).toLowerCase() === 'nurse') {
+        loggedInUserName = 'Nurse';
+        refreshDashboardUserBadge();
+        return;
+    }
+    if (typeof SB === 'undefined' || !SB.from) return;
+    SB.from('app_users')
+        .select('display_name,user_id')
+        .eq('user_id', currentUserId)
+        .limit(1)
+        .then(function (r) {
+            if (!r.data || !r.data[0]) return;
+            var u = r.data[0];
+            var label = String(u.display_name || '').trim() || u.user_id || currentUserId;
+            if (!label || label === loggedInUserName) return;
+            loggedInUserName = label;
+            persistSession();
+            refreshDashboardUserBadge();
+        })
+        .catch(function () {});
+}
+
+// ════════════════════════════════════════════════════════════════
+// ADMIN TOTP 2FA
+// ════════════════════════════════════════════════════════════════
+
+/** IDs of login-form elements to hide while the TOTP step is active. */
+var _TOTP_STEP_HIDE_IDS = [
+    'loginUserId', 'loginPassword', 'loginClinicLabel', 'loginClinic',
+    'loginDoctorLabel', 'loginDoctor', 'loginDoctorHint',
+    'loginBtn', 'tryAiAssistantBtn', 'loginError'
+];
+var _pendingAdminUser     = null;
+var _pendingAdminDoctorId = null;
+
+function _setTotpError(msg) {
+    var el = g('totpAuthError');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.display = msg ? '' : 'none';
+}
+
+/** Decode a base32 string into a Uint8Array (RFC 4648). */
+function _totpBase32Decode(base32) {
+    var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    var s = base32.toUpperCase().replace(/=+$/, '').replace(/\s/g, '');
+    var bits = 0, value = 0, idx = 0;
+    var out = new Uint8Array(Math.floor(s.length * 5 / 8));
+    for (var i = 0; i < s.length; i++) {
+        var pos = alphabet.indexOf(s[i]);
+        if (pos < 0) continue;
+        value = (value << 5) | pos;
+        bits += 5;
+        if (bits >= 8) { out[idx++] = (value >>> (bits - 8)) & 0xff; bits -= 8; }
+    }
+    return out;
+}
+
+/** Generate a cryptographically random base32 secret (160-bit). */
+function _totpGenSecret() {
+    var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    var bytes = new Uint8Array(20);
+    crypto.getRandomValues(bytes);
+    var out = '';
+    for (var i = 0; i < 20; i += 5) {
+        var b = [bytes[i]||0, bytes[i+1]||0, bytes[i+2]||0, bytes[i+3]||0, bytes[i+4]||0];
+        out += alphabet[b[0] >> 3];
+        out += alphabet[((b[0] & 7) << 2) | (b[1] >> 6)];
+        out += alphabet[(b[1] >> 1) & 31];
+        out += alphabet[((b[1] & 1) << 4) | (b[2] >> 4)];
+        out += alphabet[((b[2] & 15) << 1) | (b[3] >> 7)];
+        out += alphabet[(b[3] >> 2) & 31];
+        out += alphabet[((b[3] & 3) << 3) | (b[4] >> 5)];
+        out += alphabet[b[4] & 31];
+    }
+    return out;
+}
+
+/**
+ * Verify a TOTP token against a base32 secret.
+ * Checks the current 30-second window ±1 to tolerate minor clock drift.
+ * Returns a Promise<boolean>.
+ */
+function _totpVerify(base32Secret, token) {
+    token = String(token || '').trim();
+    if (!/^\d{6}$/.test(token)) return Promise.resolve(false);
+    var keyBytes = _totpBase32Decode(base32Secret);
+    var timeStep = Math.floor(Date.now() / 1000 / 30);
+
+    return crypto.subtle.importKey(
+        'raw', keyBytes, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+    ).then(function(cryptoKey) {
+        var checks = [-1, 0, 1].map(function(offset) {
+            var counter = timeStep + offset;
+            var buf = new ArrayBuffer(8);
+            new DataView(buf).setUint32(4, counter >>> 0, false);
+            return crypto.subtle.sign('HMAC', cryptoKey, buf).then(function(sig) {
+                var arr = new Uint8Array(sig);
+                var o   = arr[19] & 0xf;
+                var code = ((arr[o] & 0x7f) << 24 | arr[o+1] << 16 | arr[o+2] << 8 | arr[o+3]) % 1000000;
+                return String(code).padStart(6, '0') === token;
+            });
+        });
+        return Promise.all(checks).then(function(results) {
+            return results.indexOf(true) !== -1;
+        });
+    });
+}
+
+function cancelAdminTotpAuth() {
+    var step = g('totpAuthStep');
+    if (step) step.style.display = 'none';
+
+    _TOTP_STEP_HIDE_IDS.forEach(function(id) {
+        var el = g(id);
+        if (el) el.style.display = '';
+    });
+
+    var inp = g('totpCodeInput');
+    if (inp) inp.value = '';
+    _setTotpError('');
+
+    var loginBtn = g('loginBtn');
+    if (loginBtn) {
+        loginBtn.disabled    = false;
+        loginBtn.textContent = appTr('login.loginBtn');
+    }
+    _pendingAdminUser     = null;
+    _pendingAdminDoctorId = null;
+}
+
+function _submitTotpCode() {
+    var inp = g('totpCodeInput');
+    var token = inp ? String(inp.value || '').trim() : '';
+    if (!token) { _setTotpError(appTr('login.totpStep.errInvalid')); return; }
+
+    var submitBtn = g('totpSubmitBtn');
+    if (submitBtn) submitBtn.disabled = true;
+    _setTotpError('');
+
+    var u        = _pendingAdminUser;
+    var doctorId = _pendingAdminDoctorId;
+
+    _totpVerify(u.totp_secret, token).then(function(ok) {
+        if (submitBtn) submitBtn.disabled = false;
+        if (!ok) {
+            _setTotpError(appTr('login.totpStep.errInvalid'));
+            if (inp) { inp.value = ''; inp.focus(); }
+            return;
+        }
+        cancelAdminTotpAuth();
+        if (doctorId) applyIdentityFromDoctor(doctorId);
+        else {
+            currentDoctorId   = null;
+            currentDoctorName = null;
+            currentName = u.display_name || u.user_id;
+        }
+        finishLoginSession(u, doctorId || null);
+    }).catch(function() {
+        if (submitBtn) submitBtn.disabled = false;
+        _setTotpError(appTr('login.totpStep.errInvalid'));
+    });
+}
+
+function requireAdminTotpAuth(u, doctorId) {
+    var secret = String(u.totp_secret || '').trim();
+
+    if (!secret) {
+        console.warn('[TOTP] No totp_secret set for admin — skipping 2FA. Set up in Config → Users.');
+        if (doctorId) applyIdentityFromDoctor(doctorId);
+        else {
+            currentDoctorId   = null;
+            currentDoctorName = null;
+            currentName = u.display_name || u.user_id;
+        }
+        finishLoginSession(u, doctorId || null);
+        return;
+    }
+
+    _pendingAdminUser     = u;
+    _pendingAdminDoctorId = doctorId;
+
+    _TOTP_STEP_HIDE_IDS.forEach(function(id) {
+        var el = g(id);
+        if (el) el.style.display = 'none';
+    });
+
+    var step = g('totpAuthStep');
+    if (step) step.style.display = '';
+    applyI18nInRoot();
+    _setTotpError('');
+
+    var inp = g('totpCodeInput');
+    if (inp) { inp.value = ''; setTimeout(function() { inp.focus(); }, 80); }
 }
 
 function doLogin() {
@@ -4056,14 +4373,8 @@ function doLogin() {
         var u = r.data[0];
 
         if (u.role === 'admin') {
-            if (doctorId) applyIdentityFromDoctor(doctorId);
-            else {
-                currentDoctorId = null;
-                currentDoctorName = null;
-                currentName = u.display_name || u.user_id;
-            }
             done();
-            finishLoginSession(u, doctorId || null);
+            requireAdminTotpAuth(u, doctorId || null);
             return;
         }
 
@@ -4115,6 +4426,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var hasSession = restoreSession();
     if (hasSession) {
+        hydrateLoggedInUserNameFromDb();
         bindAppScrollPersistOnce();
         _bootNavPayload = readAppScrollRestorePayload();
         syncAppSessionChrome();
@@ -4161,12 +4473,27 @@ document.addEventListener('DOMContentLoaded', function() {
     g('loginPassword').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') doLogin();
     });
+
+    // ── TOTP 2FA buttons ──────────────────────────────────────
+    var totpSubmitBtn = g('totpSubmitBtn');
+    if (totpSubmitBtn) totpSubmitBtn.addEventListener('click', _submitTotpCode);
+
+    var totpCancelBtn = g('totpCancelBtn');
+    if (totpCancelBtn) totpCancelBtn.addEventListener('click', cancelAdminTotpAuth);
+
+    var totpCodeInput = g('totpCodeInput');
+    if (totpCodeInput) {
+        totpCodeInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') _submitTotpCode();
+        });
+    }
     document.addEventListener('keydown', onGlobalRefreshHotkey);
 
     g('logoutBtn').addEventListener('click', function() {
         if (typeof stopRealtimeSync === 'function') stopRealtimeSync();
         currentRole = null;
         currentName = null;
+        loggedInUserName = null;
         currentUserId = null;
         currentClinicId = null;
         currentClinicLabel = null;
@@ -4273,6 +4600,48 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    var entCard = g('card-entertainment');
+    if (entCard) {
+        entCard.addEventListener('click', function() {
+            if (typeof showEntertainment === 'function') showEntertainment();
+        });
+    }
+
+    var toolsCard = g('card-tools');
+    if (toolsCard) {
+        toolsCard.addEventListener('click', function() {
+            showOnly('toolsSection');
+        });
+    }
+
+    var toolsBack = g('toolsBack');
+    if (toolsBack) toolsBack.addEventListener('click', showDashboard);
+
+    function wireToolCard(tool, fn) {
+        var card = document.querySelector('#toolsSection [data-tool="' + tool + '"]');
+        if (card) card.addEventListener('click', fn);
+    }
+    wireToolCard('doc-converter', function() {
+        if (typeof DOCTOOLS !== 'undefined' && typeof DOCTOOLS.open === 'function') DOCTOOLS.open();
+        else alert(appTr('alert.docToolsLoading'));
+    });
+    wireToolCard('medcalc', function() {
+        if (typeof MEDCALC !== 'undefined' && typeof MEDCALC.open === 'function') MEDCALC.open();
+    });
+    wireToolCard('qrcode', function() {
+        if (typeof QRTOOL !== 'undefined' && typeof QRTOOL.open === 'function') QRTOOL.open();
+    });
+    wireToolCard('pdfutils', function() {
+        if (typeof PDFUTIL !== 'undefined' && typeof PDFUTIL.open === 'function') PDFUTIL.open();
+    });
+
+    [['medCalcBack', 'medCalcSection'], ['qrToolBack', 'qrToolSection'],
+     ['pdfUtilBack', 'pdfUtilSection']]
+    .forEach(function(pair) {
+        var b = g(pair[0]);
+        if (b) b.addEventListener('click', function() { showOnly('toolsSection'); });
+    });
 
     // placeholder cards (temporarily inactive)
     ['card-expenses', 'card-inventory']
@@ -4549,7 +4918,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // ════════════════════════════════════════════════════════
     // CONSULTATION SECTION WIRING
     // ════════════════════════════════════════════════════════
-    g('conBack').addEventListener('click', showDashboard);
+    g('conBack').addEventListener('click', function() {
+        if (typeof _conFormsDirty !== 'undefined' && _conFormsDirty &&
+                typeof _conFormsCheckUnsavedThen === 'function') {
+            _conFormsCheckUnsavedThen(showDashboard);
+        } else {
+            showDashboard();
+        }
+    });
 
     var memoBackBtn = g('memoBackBtn');
     if (memoBackBtn) {
@@ -4845,7 +5221,7 @@ function applyOpenGlobalModalsI18n() {
     }
     var ids = [
         'apptModal', 'apptPopup', 'queueRemarksModal', 'recallSendModal',
-        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'billDeleteModal',
+        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'billPaymentClinicConfirmModal', 'billDeleteModal',
         'patientDetailsModal', 'addPatientModal', 'editPatientModal', 'patientBananaModal',
         'photoUploadModal', 'photoLightbox',
         'xrayUploadModal', 'xrayLightbox', 'diySystemModal',

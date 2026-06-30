@@ -1169,18 +1169,57 @@ var CalDoctorColors = (function () {
         openColorModal(focusKey);
     }
 
+    /** Strip remarks to plain text for compact monthly pill display. */
+    function _pillRemarksPlain(remarks) {
+        if (!remarks) return '';
+        var s = String(remarks);
+        // Strip [[DR:...]] doctor tags
+        s = s.replace(/\[\[DR:[^\]]*\]\]/g, '');
+        // Strip staff-author spans
+        s = s.replace(/<span[^>]+data-rm-by[^>]*>[\s\S]*?<\/span>/gi, '');
+        // Strip remaining HTML tags (turn them into spaces)
+        s = s.replace(/<[^>]+>/g, ' ');
+        // Decode common HTML entities
+        s = s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+             .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+             .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+        return s.replace(/\s+/g, ' ').trim();
+    }
+
     function monthPillHtml(a) {
-        var sty = getStyleForAppt(a);
-        var dr = a.doctor_code || a.doctor_name || parseDoctorTagFromRemarks(a.remarks) || '';
-        var walkBadge = !a.patient_id
-            ? '<span class="gcal-month-walkin">' + esc(calTr('appt.badge.newWalkin')) + '</span> '
+        var sty       = getStyleForAppt(a);
+        var isWalkIn  = !a.patient_id;
+        var cnName    = String(a.patient_chinese_name || '').trim();
+        var enName    = String(a.patient_name || '').trim();
+        var displayCN = cnName || (isWalkIn ? calTr('appt.cal.cardWalkin') : enName);
+        var treatment = String(a.treatment_items || '').trim();
+        var timeStr   = fmt12(a.start_time) + (a.end_time ? '\u2013' + fmt12(a.end_time) : '');
+        var rmkPlain  = _pillRemarksPlain(a.remarks);
+
+        // Row 1: Chinese name (or walk-in label) + treatment item
+        var row1 = '<span class="gmp-row gmp-r1">' +
+            (isWalkIn
+                ? '<span class="gcal-month-walkin">' + esc(calTr('appt.badge.newWalkin')) + '</span>'
+                : '<span class="gmp-cn">' + esc(displayCN) + '</span>') +
+            (treatment ? '<span class="gmp-treat">\u00a0\u00b7\u00a0' + esc(treatment) + '</span>' : '') +
+        '</span>';
+
+        // Row 2: English name (only when distinct from row-1 name) + time span
+        var row2Inner = '';
+        if (cnName && enName) {
+            row2Inner += '<span class="gmp-en">' + esc(enName) + '</span><span class="gmp-sep"> \u00b7 </span>';
+        }
+        row2Inner += '<span class="gmp-time">' + esc(timeStr) + '</span>';
+        var row2 = '<span class="gmp-row gmp-r2">' + row2Inner + '</span>';
+
+        // Row 3: Remarks plain text (if any, capped at 80 chars)
+        var row3 = rmkPlain
+            ? '<span class="gmp-row gmp-r3">' + esc(rmkPlain.length > 80 ? rmkPlain.substring(0, 80) + '\u2026' : rmkPlain) + '</span>'
             : '';
+
         return '<div class="gcal-month-pill" data-id="' + esc(a.id) + '" data-dr-color="' + esc(sty.color) + '" ' +
             'style="border-left:4px solid ' + sty.borderColor + ' !important;background:' + sty.background + ' !important;">' +
-            '<span class="gcal-month-pill-time">' + esc(fmt12(a.start_time)) + '</span> ' +
-            walkBadge +
-            '<span class="gcal-month-pill-title">' + esc(a.patient_name || calTr('appt.cal.cardWalkin')) + '</span>' +
-            (dr ? '<span class="gcal-month-pill-dr" style="color:' + sty.color + ';">' + esc(dr) + '</span>' : '') +
+            row1 + row2 + row3 +
             '</div>';
     }
 

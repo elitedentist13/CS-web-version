@@ -10,3 +10,23 @@ Desktop.ini
 
 # Windows shortcuts (local paths)
 *.lnk
+
+# Local config / state files (machine-specific, not for version control)
+swcfg.dat
+swcfg.bck
+CB3DConfig.dat
+*.dat
+*.bck
+
+# Logs
+server.log
+gh-auth-log.txt
+*.log
+
+# Local ZIP bundles
+tools.zip
+*.zip
+
+# Node / build artefacts
+node_modules/
+.cache/

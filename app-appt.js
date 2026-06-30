@@ -748,6 +748,31 @@ function syncUnpaidBillFromPendingList(pl, sub, done) {
 
     function applyBillSave(existingBill) {
         var paidSoFar = existingBill ? (parseFloat(existingBill.amount_paid) || 0) : 0;
+
+        // LOCK GUARD (deep safety net): once any payment is recorded the bill's
+        // items, subtotal, and total must not be overwritten — even if the UI
+        // guard was somehow bypassed.  Only appointment-link housekeeping runs.
+        if (paidSoFar > 0.005 && existingBill) {
+            var billId = pl.bill_id || existingBill.id || null;
+            var afterLinked = function () {
+                if (billApptId) {
+                    SB.from('appointments')
+                        .update({ bill_status: parseFloat(existingBill.balance) <= 0.005 ? 'Paid' : 'Billed' })
+                        .eq('id', billApptId)
+                        .then(function () { if (done) done(null, existingBill); })
+                        .catch(function () { if (done) done(null, existingBill); });
+                    return;
+                }
+                if (done) done(null, existingBill);
+            };
+            if (billId) {
+                persistPendingListBillIdRow(pl, billId, afterLinked);
+            } else {
+                afterLinked();
+            }
+            return;
+        }
+
         var payload = buildUnpaidBillPayloadFromPendingList(pl, sub);
         payload.amount_paid = paidSoFar;
         payload.balance = Math.max(0, sub - paidSoFar);
@@ -1386,6 +1411,320 @@ function reloadApptModuleData() {
     }
 }
 
+// ─── Appointment Patient Banner ───────────────────────────────────────────────
+function apptBannerOpenWhatsApp() {
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+    if (!ap || typeof openWhatsAppPrefill !== 'function') return;
+    var phone = String(ap.mobile_phone || ap.phone_number || '').trim();
+    var name  = String(ap.chinese_name || ap.full_name || '').trim();
+    var clinic = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
+        ? currentClinicLabel : '';
+    var msg = typeof trRepl === 'function'
+        ? trRepl('whatsapp.msg.consultationHello', { NAME: name, CLINIC: clinic })
+        : ('Hello ' + name);
+    openWhatsAppPrefill(phone, msg, { source: 'appointment' });
+}
+
+function apptBannerOpenBill() {
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+    if (!ap || typeof openBillPanel !== 'function') return;
+    openBillPanel({
+        id: null,
+        patient_id:   ap.id,
+        patient_name: ap.full_name  || '',
+        patient_no:   ap.patient_no || ''
+    });
+}
+
+function refreshApptPatientOutstandingBalance(ap) {
+    var balEl = g('apptBannerBalance');
+    var btn   = g('apptBannerBalanceBtn');
+    if (!balEl || !btn) return;
+    if (!ap || !ap.id) { btn.style.display = 'none'; return; }
+    function showBtn(owing) {
+        btn.style.display = '';
+        btn.classList.toggle('con-banner-paid', !owing);
+    }
+    function hideBtn() {
+        btn.style.display = 'none';
+        btn.classList.remove('con-banner-paid');
+    }
+    function applyTotals(rows) {
+        var t = 0;
+        (rows || []).forEach(function(b) {
+            if (b && b.voided_at) return;
+            var x = parseFloat(b.balance);
+            if (isFinite(x) && x > 0.005) t += x;
+        });
+        balEl.textContent = typeof fmtHK === 'function' ? fmtHK(t) : ('$' + t.toFixed(2));
+        showBtn(t > 0.005);
+    }
+    var pno = String(ap.patient_no || '').trim();
+    function fetchByPatientNo() {
+        if (!pno) { hideBtn(); return; }
+        SB.from('bills').select('balance, voided_at').eq('patient_no', pno)
+            .then(function(r) { applyTotals(!r.error && r.data ? r.data : []); })
+            .catch(function() { hideBtn(); });
+    }
+    SB.from('bills').select('balance, voided_at').eq('patient_id', ap.id)
+        .then(function(r) {
+            if (r.error) {
+                if (String(r.error.message || '').toLowerCase().indexOf('patient_id') >= 0 && pno)
+                    fetchByPatientNo();
+                else hideBtn();
+                return;
+            }
+            applyTotals(r.data || []);
+        })
+        .catch(function() { fetchByPatientNo(); });
+}
+
+function updateApptPatientBanner() {
+    var banner = g('apptPatientBanner');
+    if (!banner) return;
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+
+    if (!ap) {
+        banner.classList.add('appt-patient-banner--no-patient');
+        syncQueuePatientSearchInput();
+        syncTodayPatientSearchInput();
+        return;
+    }
+    banner.classList.remove('appt-patient-banner--no-patient');
+
+    var nameEl = g('apptBannerName');
+    if (nameEl) nameEl.textContent = ap.full_name || '—';
+
+    var cnEl = g('apptBannerChinese');
+    var cn = String(ap.chinese_name || '').trim();
+    if (cnEl) {
+        cnEl.textContent = cn;
+        cnEl.style.display = cn ? 'block' : 'none';
+    }
+    banner.classList.toggle('has-chinese-name', !!cn);
+
+    var noEl = g('apptBannerNo');
+    if (noEl) noEl.textContent = ap.patient_no || '-';
+
+    var sexWrap = g('apptBannerSexWrap');
+    if (sexWrap) {
+        var sexHtml = typeof patientSexSymbolHtml === 'function'
+            ? patientSexSymbolHtml(ap.sex, { banner: true }) : '';
+        var sexKind = typeof patientSexKind === 'function' ? patientSexKind(ap.sex) : 'unknown';
+        if (sexKind === 'unknown') {
+            sexWrap.style.display = 'none';
+        } else {
+            sexWrap.style.display = '';
+            sexWrap.innerHTML = '<span data-i18n="con.banner.sexLabel"></span>&nbsp;' + sexHtml;
+        }
+    }
+
+    var dobEl = g('apptBannerDob');
+    if (dobEl) dobEl.textContent = ap.dob
+        ? (typeof formatDobAge === 'function' ? formatDobAge(ap.dob) : ap.dob)
+        : '-';
+
+    var phoneEl = g('apptBannerPhone');
+    if (phoneEl) phoneEl.textContent = ap.phone_number || ap.mobile_phone || '-';
+
+    var mobWrap = g('apptBannerMobileWrap');
+    var mobEl = g('apptBannerMobile');
+    if (mobWrap && mobEl) {
+        var mobStr = String(ap.mobile_phone || '').trim();
+        var telStr = String(ap.phone_number || '').trim();
+        if (mobStr && mobStr !== telStr) {
+            mobWrap.style.display = '';
+            mobEl.textContent = mobStr;
+        } else {
+            mobWrap.style.display = 'none';
+        }
+    }
+
+    var addrWrap = g('apptBannerAddressWrap');
+    var addrEl = g('apptBannerAddress');
+    if (addrWrap && addrEl) {
+        var addrStr = String(ap.address || '').trim();
+        if (addrStr) { addrWrap.style.display = ''; addrEl.textContent = addrStr; }
+        else { addrWrap.style.display = 'none'; }
+    }
+
+    var emWrap = g('apptBannerEmailWrap');
+    var emEl = g('apptBannerEmail');
+    if (emWrap && emEl) {
+        var emStr = String(ap.email || '').trim();
+        if (emStr) { emWrap.style.display = ''; emEl.textContent = emStr; }
+        else { emWrap.style.display = 'none'; }
+    }
+
+    var hkWrap = g('apptBannerHkidWrap');
+    var hkEl = g('apptBannerHkid');
+    if (hkWrap && hkEl) {
+        var hkStr = String(ap.hkid || '').trim();
+        if (hkStr) { hkWrap.style.display = ''; hkEl.textContent = hkStr; }
+        else { hkWrap.style.display = 'none'; }
+    }
+
+    var todayEl = g('apptBannerToday');
+    if (todayEl) todayEl.textContent = typeof fmtNowDateTimeHK === 'function'
+        ? fmtNowDateTimeHK()
+        : (typeof todayISO === 'function' ? todayISO() : '');
+
+    var drEl = g('apptBannerDoctor');
+    if (drEl) drEl.textContent =
+        (typeof currentDoctorName !== 'undefined' && currentDoctorName) ||
+        (typeof currentName !== 'undefined' && currentName) || '—';
+
+    var alertWrap = g('apptBannerAlertWrap');
+    var alertEl = g('apptBannerAlert');
+    if (alertWrap && alertEl) {
+        var alertTxt = '';
+        if (typeof buildPatientAlertDisplayText === 'function') {
+            alertTxt = String(buildPatientAlertDisplayText(ap) || '').trim();
+        }
+        if (!alertTxt) alertTxt = String(ap.medical_alerts || '').trim();
+        if (alertTxt) { alertWrap.style.display = ''; alertEl.textContent = alertTxt; }
+        else { alertWrap.style.display = 'none'; }
+    }
+
+    refreshApptPatientOutstandingBalance(ap);
+    syncQueuePatientSearchInput();
+    syncTodayPatientSearchInput();
+}
+
+// ─── Appointment Doctor Dropdown ──────────────────────────────────────────────
+function populateApptDoctorSelect(clinicId) {
+    var sel = g('apptDoctorSelect');
+    if (!sel) return;
+    var cId = clinicId || (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+    var docs = typeof doctorsForClinic === 'function'
+        ? doctorsForClinic(cId)
+        : (typeof APP_DOCTORS !== 'undefined' ? APP_DOCTORS : []).filter(function(d) {
+            return !cId || d.clinic_id === cId;
+        });
+    docs = (docs || []).filter(function(d) { return d.is_active !== false; });
+    var prev = sel.value;
+    sel.innerHTML = '<option value="">' + esc(tr('common.all')) + '</option>';
+    docs.forEach(function(d) {
+        var o = document.createElement('option');
+        o.value = d.id;
+        o.textContent = typeof doctorDisplayName === 'function'
+            ? doctorDisplayName(d)
+            : (d.english_name || d.doctor_code || '');
+        sel.appendChild(o);
+    });
+    var cDr = typeof currentDoctorId !== 'undefined' ? (currentDoctorId || '') : '';
+    var target = prev || cDr;
+    var has = Array.prototype.some.call(sel.options, function(o) { return o.value === target; });
+    sel.value = has ? target : '';
+}
+
+function onApptDoctorChange() {
+    var sel = g('apptDoctorSelect');
+    if (!sel) return;
+    var doctorId = sel.value || '';
+    // Sync dashboard doctor select
+    var dashSel = g('dashDoctorSelect');
+    if (dashSel && dashSel.value !== doctorId) dashSel.value = doctorId;
+    // Apply identity (sets currentDoctorId, refreshes header etc.)
+    if (typeof applyDashboardDoctorSelection === 'function') {
+        applyDashboardDoctorSelection(doctorId);
+    }
+}
+
+function bindApptDoctorSelectOnce() {
+    var sel = g('apptDoctorSelect');
+    if (!sel || sel.dataset.bound) return;
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', onApptDoctorChange);
+}
+
+// ─── Queue Patient Search Bar ─────────────────────────────────────────────────
+function _syncApptPatientSearchInput(inputId, clearBtnId) {
+    var inp = g(inputId);
+    var clrBtn = g(clearBtnId);
+    if (!inp) return;
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0] : null;
+    if (ap) {
+        inp.value = (ap.chinese_name ? ap.chinese_name + ' ' : '') +
+                    (ap.full_name || '') + ' (#' + (ap.patient_no || '') + ')';
+        if (clrBtn) clrBtn.style.display = '';
+    } else {
+        if (document.activeElement !== inp) inp.value = '';
+        if (clrBtn) clrBtn.style.display = 'none';
+    }
+}
+
+function syncQueuePatientSearchInput() {
+    _syncApptPatientSearchInput('queuePsInput', 'queuePsClearBtn');
+}
+
+function syncTodayPatientSearchInput() {
+    _syncApptPatientSearchInput('todayPsInput', 'todayPsClearBtn');
+}
+
+function _bindApptTabPatientSearchOnce(inputId, dropId, clearBtnId, source) {
+    var inp = g(inputId);
+    if (!inp || inp.dataset.bound) return;
+    inp.dataset.bound = '1';
+
+    inp.addEventListener('input', function() {
+        runPatientSearchDropdown({
+            inputId: inputId,
+            dropId:  dropId,
+            activeSource: source,
+            onSelect: function() {
+                var clrBtn = g(clearBtnId);
+                if (clrBtn) clrBtn.style.display = '';
+            }
+        });
+    });
+
+    inp.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var dd = g(dropId);
+            if (dd) dd.style.display = 'none';
+        }
+    });
+
+    var clrBtn = g(clearBtnId);
+    if (clrBtn) {
+        clrBtn.addEventListener('click', function() {
+            var inp2 = g(inputId);
+            if (inp2) inp2.value = '';
+            var dd = g(dropId);
+            if (dd) dd.style.display = 'none';
+            clrBtn.style.display = 'none';
+            if (typeof setActivePatientSlot === 'function') {
+                setActivePatientSlot(0, null, source + '-clear', true);
+            }
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        var dd = g(dropId);
+        var inp3 = g(inputId);
+        if (dd && inp3 && !inp3.contains(e.target) && !dd.contains(e.target)) {
+            dd.style.display = 'none';
+        }
+    });
+}
+
+function bindQueuePatientSearchOnce() {
+    _bindApptTabPatientSearchOnce('queuePsInput', 'queuePsDrop', 'queuePsClearBtn', 'queue-patient-search');
+}
+
+function bindTodayPatientSearchOnce() {
+    _bindApptTabPatientSearchOnce('todayPsInput', 'todayPsDrop', 'todayPsClearBtn', 'today-patient-search');
+}
+
 function onApptClinicChange() {
     var sel = g('apptClinicSelect');
     if (!sel || !sel.value) return;
@@ -1399,6 +1738,7 @@ function onApptClinicChange() {
         plusApptActiveClinicId = sel.value;
         plusApptClinicSyncing = false;
     }
+    populateApptDoctorSelect(sel.value);
     if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange();
     if (apptActiveTabKey() === 'plusappt' && typeof onPlusApptClinicChange === 'function') {
         onPlusApptClinicChange();
@@ -1430,6 +1770,12 @@ function initAppt(opts) {
     if (apSel && apSel.value && typeof setWorkingClinic === 'function') {
         setWorkingClinic(apSel.value, { syncFilters: true, reloadAppt: false });
     }
+    populateApptDoctorSelect(apSel ? apSel.value : '');
+    bindApptDoctorSelectOnce();
+    bindQueuePatientSearchOnce();
+    bindTodayPatientSearchOnce();
+    updateApptPatientBanner();
+    document.addEventListener('app-active-patient-change', updateApptPatientBanner);
     var qb = g('queueBody');
     if (qb) {
         if (!qb.querySelector('tr')) {
@@ -1832,7 +2178,18 @@ function switchApptTab(tab) {
     }
     if (tab === 'plusappt') showPlusApptTab();
     if (tab === 'calendar') showCalendarTab();
-    if (tab === 'records') loadApptRecords();
+    if (tab === 'records') {
+        // Auto-fill search from the primary active patient card if one is docked.
+        var _recAp = typeof activePatientSlots !== 'undefined' &&
+                     activePatientSlots[0] && activePatientSlots[0].id
+                     ? activePatientSlots[0] : null;
+        if (_recAp) {
+            var _recTerm = String(_recAp.full_name || _recAp.patient_no || '').trim();
+            var _recInp  = g('arSearchInput');
+            if (_recInp && _recTerm) _recInp.value = _recTerm;
+        }
+        loadApptRecords();
+    }
     if (tab === 'recall')   initRecallTab();
     if (tab === 'queue') {
         if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
@@ -2423,6 +2780,174 @@ function plusApptSaveGcalSettings(cfg) {
         localStorage.setItem('gcal_settings_v2', JSON.stringify(Object.assign(cur, cfg)));
     } catch (e) {}
 }
+
+// ═══════════════════════════════════════════════════════════════
+// MONTHLY VIEW PREFERENCES
+// ═══════════════════════════════════════════════════════════════
+var MONTH_PREF_KEY = 'gcal_month_pref_v1';
+var MONTH_PREF_DEFAULTS = {
+    fontSize:   12,
+    fontWeight: 'normal',
+    fontColor:  'default',
+    cellMinH:   116
+};
+
+function readMonthPrefs() {
+    try {
+        var raw = localStorage.getItem(MONTH_PREF_KEY);
+        return Object.assign({}, MONTH_PREF_DEFAULTS, raw ? JSON.parse(raw) : {});
+    } catch (e) {
+        return Object.assign({}, MONTH_PREF_DEFAULTS);
+    }
+}
+
+function saveMonthPrefs(patch) {
+    try {
+        localStorage.setItem(MONTH_PREF_KEY, JSON.stringify(Object.assign(readMonthPrefs(), patch)));
+    } catch (e) {}
+}
+
+function applyMonthPrefs() {
+    var cb = g('calBody');
+    if (!cb) return;
+    var p = readMonthPrefs();
+    var fs = Math.max(8, Math.min(20, parseInt(p.fontSize, 10) || 12));
+    cb.style.setProperty('--month-pill-fs', fs + 'px');
+    var fw = p.fontWeight === 'bold' ? '700' : (p.fontWeight === 'light' ? '300' : '400');
+    cb.style.setProperty('--month-pill-fw', fw);
+    var col = (p.fontColor && p.fontColor !== 'default') ? p.fontColor : 'inherit';
+    cb.style.setProperty('--month-pill-color', col);
+    var ch = Math.max(60, Math.min(300, parseInt(p.cellMinH, 10) || 116));
+    cb.style.setProperty('--month-cell-min-h', ch + 'px');
+}
+
+function fillMonthSettingsPanel(panel) {
+    if (!panel) return;
+    var p = readMonthPrefs();
+
+    var fsSizes = [9, 10, 11, 12, 13, 14, 16];
+    var fsOpts  = fsSizes.map(function(v) {
+        return '<option value="' + v + '"' + ((parseInt(p.fontSize,10)||12) === v ? ' selected' : '') + '>' + v + 'px</option>';
+    }).join('');
+
+    var fwList = [
+        { v: 'normal', l: tr('appt.cal.month.fontNormal') || 'Normal' },
+        { v: 'bold',   l: tr('appt.cal.month.fontBold')   || 'Bold'   },
+        { v: 'light',  l: tr('appt.cal.month.fontLight')  || 'Light'  }
+    ];
+    var fwOpts = fwList.map(function(o) {
+        return '<option value="' + esc(o.v) + '"' + ((p.fontWeight||'normal') === o.v ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+    }).join('');
+
+    var fcList = [
+        { key: 'default', l: tr('appt.cal.rowFontColorDefault') || 'Default (inherit)' },
+        { key: '#0f172a', l: 'Black'       },
+        { key: '#1e40af', l: 'Dark Blue'   },
+        { key: '#15803d', l: 'Dark Green'  },
+        { key: '#7e22ce', l: 'Purple'      },
+        { key: '#b45309', l: 'Amber'       },
+        { key: '#9f1239', l: 'Crimson'     }
+    ];
+    var fcOpts = fcList.map(function(o) {
+        return '<option value="' + esc(o.key) + '"' + ((p.fontColor||'default') === o.key ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+    }).join('');
+
+    var chList = [80, 100, 116, 130, 150, 180, 220];
+    var chOpts = chList.map(function(v) {
+        return '<option value="' + v + '"' + ((parseInt(p.cellMinH,10)||116) === v ? ' selected' : '') + '>' + v + 'px</option>';
+    }).join('');
+
+    // Doctor-colour rows (reuse CalDoctorColors machinery)
+    var drRows = '';
+    var colorKeys = typeof CalDoctorColors !== 'undefined'
+        ? CalDoctorColors.collectKeys(
+            typeof calMonthApptsCache !== 'undefined' ? calMonthApptsCache : [],
+            typeof currentClinicId !== 'undefined' ? currentClinicId : null)
+        : [];
+    colorKeys.forEach(function(item) {
+        var k   = item.key;
+        var col = typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.getColor(k) : '#0084ff';
+        drRows +=
+            '<div class="gcal-dr-row">' +
+            '<input type="color" class="gcal-dr-color-inp" data-key="' + encodeURIComponent(k) + '" value="' + col + '" ' +
+            'style="width:32px;height:32px;border:2px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:0;flex-shrink:0;">' +
+            '<span style="font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;">' + esc(item.label) + '</span>' +
+            (typeof CalDoctorColors !== 'undefined' ? CalDoctorColors.presetSwatchesHtml(k, col) : '') +
+            '</div>';
+    });
+    if (!colorKeys.length) {
+        drRows = '<p style="color:#aaa;font-size:11px;margin:0;">' + esc(tr('appt.cal.noDoctorsHint')) + '</p>';
+    }
+
+    panel.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+            '<strong style="font-size:13px;color:#1e293b;">' +
+                esc(tr('appt.cal.month.settingsTitle') || 'Monthly View Settings') +
+            '</strong>' +
+            '<button type="button" onclick="toggleMonthSettings()" ' +
+            'style="background:none;border:none;cursor:pointer;font-size:18px;color:#94a3b8;line-height:1;padding:2px 6px;">\u00d7</button>' +
+        '</div>' +
+        '<label>' + esc(tr('appt.cal.month.fontSize') || 'Card Font Size') + '</label>' +
+        '<select id="monthPrefFontSize">' + fsOpts + '</select>' +
+        '<label>' + esc(tr('appt.cal.month.fontStyle') || 'Font Style (Weight)') + '</label>' +
+        '<select id="monthPrefFontWeight">' + fwOpts + '</select>' +
+        '<label>' + esc(tr('appt.cal.month.fontColor') || 'Font Colour') + '</label>' +
+        '<select id="monthPrefFontColor">' + fcOpts + '</select>' +
+        '<label>' + esc(tr('appt.cal.month.cellHeight') || 'Day Cell Min-Height') + '</label>' +
+        '<select id="monthPrefCellH">' + chOpts + '</select>' +
+        '<label style="margin-top:14px;">' + esc(tr('appt.cal.drColoursLabel') || 'Doctor Colours') + '</label>' +
+        '<p style="font-size:10px;color:#94a3b8;margin:0 0 6px;line-height:1.4;">' +
+            esc(tr('appt.cal.drColoursHint') || 'Click colour swatch to change.') + '</p>' +
+        '<div id="monthPrefDrColorsBox">' + drRows + '</div>' +
+        (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.resetControlHtml
+            ? CalDoctorColors.resetControlHtml() : '') +
+        '<button type="button" onclick="applyMonthSettingsSave()" ' +
+        'style="margin-top:16px;width:100%;padding:10px;background:#0084ff;color:#fff;' +
+        'border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">' +
+        esc(tr('appt.cal.applyRefresh') || 'Apply & Refresh') + '</button>';
+
+    var box = panel.querySelector('#monthPrefDrColorsBox');
+    if (box && typeof CalDoctorColors !== 'undefined' && CalDoctorColors.wireColorPanel) {
+        box._calColorPanelWired = false;
+        CalDoctorColors.wireColorPanel(box);
+    }
+}
+
+function toggleMonthSettings() {
+    var sp = g('calMonthSettingsPanel');
+    if (!sp) return;
+    var opening = !sp.classList.contains('open');
+    if (opening) {
+        fillMonthSettingsPanel(sp);
+        sp.classList.add('open');
+        sp.setAttribute('aria-hidden', 'false');
+    } else {
+        sp.classList.remove('open');
+        sp.setAttribute('aria-hidden', 'true');
+    }
+}
+
+function applyMonthSettingsSave() {
+    var sp  = g('calMonthSettingsPanel');
+    var fsEl = sp && sp.querySelector('#monthPrefFontSize');
+    var fwEl = sp && sp.querySelector('#monthPrefFontWeight');
+    var fcEl = sp && sp.querySelector('#monthPrefFontColor');
+    var chEl = sp && sp.querySelector('#monthPrefCellH');
+    var patch = {};
+    if (fsEl) patch.fontSize   = parseInt(fsEl.value, 10) || 12;
+    if (fwEl) patch.fontWeight = fwEl.value || 'normal';
+    if (fcEl) patch.fontColor  = fcEl.value || 'default';
+    if (chEl) patch.cellMinH   = parseInt(chEl.value, 10) || 116;
+    saveMonthPrefs(patch);
+    applyMonthPrefs();
+    if (typeof calView !== 'undefined' && calView === 'monthly' && typeof renderCal === 'function') {
+        renderCal();
+    }
+    toggleMonthSettings();
+}
+
+window.toggleMonthSettings     = toggleMonthSettings;
+window.applyMonthSettingsSave  = applyMonthSettingsSave;
 
 /** Map row-height preset → + Appointment table row / patient-column sizing. */
 function plusApptScheduleLayoutFromSlotH(slotH) {
@@ -3754,6 +4279,8 @@ function plusApptNextRecallState(cur) {
 }
 
 function apptTaskCycleFromSummary(apptId, kind) {
+    // Legacy cycle function — kept for any direct callers, but the row UI now
+    // uses apptTaskShowPicker() instead of this function.
     var id = String(apptId || '').trim();
     if (!id) return;
     var ap = null;
@@ -3774,6 +4301,119 @@ function apptTaskCycleFromSummary(apptId, kind) {
     if (typeof loadQueue === 'function') loadQueue();
     if (plusApptDate === todayISO() && typeof renderPlusApptSchedule === 'function') {
         renderPlusApptSchedule(true);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TASK-PILL DROPDOWN PICKER
+// Replaces one-at-a-time cycling with a floating dropdown so the
+// user picks the desired value directly, triggering only one refresh.
+// ─────────────────────────────────────────────────────────────────
+function apptTaskShowPicker(triggerBtn, apptId, kind) {
+    var id = String(apptId || '').trim();
+    if (!id || !kind) return;
+
+    // Resolve current state
+    var ap = null;
+    var lists = [todayAppts, plusApptDayAppts,
+                 typeof queueApptsCache !== 'undefined' ? queueApptsCache : []];
+    for (var li = 0; li < lists.length && !ap; li++) {
+        var lst = lists[li];
+        if (lst && lst.length) {
+            ap = lst.find(function(a) { return a && String(a.id) === id; }) || null;
+        }
+    }
+    var st = plusApptTaskState(ap || { id: id });
+    var curVal = kind === 'lab' ? (st.lab || 'na') : (st.recall || '');
+
+    // Option definitions
+    var options;
+    if (kind === 'lab') {
+        options = [
+            { v: 'na',      icon: '—',  cls: 'is-na',      l: tr('appt.plusAppt.taskLabNA')      || 'N/A'            },
+            { v: 'pending', icon: '⏳', cls: 'is-pending',  l: tr('appt.plusAppt.taskLabPending') || 'Pending'        },
+            { v: 'back',    icon: '✅', cls: 'is-back',     l: tr('appt.plusAppt.taskLabBack')    || 'Returned / Back' }
+        ];
+    } else {
+        options = [
+            { v: '',         icon: '—',  cls: 'is-empty',    l: tr('appt.plusAppt.taskRecallNone')     || 'None'            },
+            { v: 'whatsapp', icon: '💬', cls: 'is-whatsapp', l: tr('appt.plusAppt.taskRecallWhatsapp') || 'WhatsApp'        },
+            { v: 'voice',    icon: '📞', cls: 'is-voice',    l: tr('appt.plusAppt.taskRecallVoice')    || 'Voice Call'      },
+            { v: 'cant',     icon: '🚫', cls: 'is-cant',     l: tr('appt.plusAppt.taskRecallCant')     || "Can't Contact"   },
+            { v: 'success',  icon: '✅', cls: 'is-success',  l: tr('appt.plusAppt.taskRecallSuccess')  || 'Success'         }
+        ];
+    }
+
+    // Create or reuse the shared picker element
+    var picker = document.getElementById('apptTaskPicker');
+    if (!picker) {
+        picker = document.createElement('div');
+        picker.id = 'apptTaskPicker';
+        document.body.appendChild(picker);
+    }
+
+    // Build HTML
+    var titleKey = kind === 'lab' ? 'appt.plusAppt.taskLab' : 'appt.plusAppt.taskRecall';
+    var html = '<div class="appt-task-picker-title">' + esc(tr(titleKey) || kind) + '</div>';
+    options.forEach(function(o) {
+        var sel = String(o.v) === String(curVal);
+        html +=
+            '<button type="button" class="appt-task-picker-opt appt-task-pill ' +
+                o.cls + (sel ? ' is-selected' : '') + '" ' +
+                'data-pick-appt="' + esc(id) + '" ' +
+                'data-pick-kind="' + esc(kind) + '" ' +
+                'data-pick-val="'  + esc(o.v)  + '">' +
+            '<span class="appt-task-picker-icon">' + o.icon + '</span>' +
+            '<span>' + esc(o.l) + '</span>' +
+            (sel ? '<span class="appt-task-picker-check">✓</span>' : '') +
+            '</button>';
+    });
+    picker.innerHTML = html;
+
+    // Position below the trigger button (flip up if near bottom)
+    var rect = triggerBtn.getBoundingClientRect();
+    var pickerW = 180;
+    var left = Math.min(rect.left, window.innerWidth - pickerW - 8);
+    if (left < 4) left = 4;
+    var top = rect.bottom + 4;
+    if (top + 220 > window.innerHeight - 8) top = Math.max(4, rect.top - 224);
+    picker.style.cssText = 'left:' + left + 'px;top:' + top + 'px;display:block;';
+
+    // Wire option clicks
+    picker.querySelectorAll('.appt-task-picker-opt').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            picker.style.display = 'none';
+            _apptTaskPickerDismiss();
+            var aid = btn.getAttribute('data-pick-appt');
+            var k   = btn.getAttribute('data-pick-kind');
+            var v   = btn.getAttribute('data-pick-val');
+            plusApptSetTaskState(aid, k, v);
+            if (typeof loadToday === 'function') loadToday({ soft: true });
+            if (typeof loadQueue === 'function') loadQueue({ soft: true });
+            if (plusApptDate === todayISO() && typeof renderPlusApptSchedule === 'function') {
+                renderPlusApptSchedule({ soft: true });
+            }
+        });
+    });
+
+    // Close on outside click
+    _apptTaskPickerDismiss();    // remove any previous listener
+    picker._dismiss = function(e) {
+        if (e.target === triggerBtn || picker.contains(e.target)) return;
+        picker.style.display = 'none';
+        _apptTaskPickerDismiss();
+    };
+    setTimeout(function() {
+        document.addEventListener('click', picker._dismiss, true);
+    }, 0);
+}
+
+function _apptTaskPickerDismiss() {
+    var picker = document.getElementById('apptTaskPicker');
+    if (picker && picker._dismiss) {
+        document.removeEventListener('click', picker._dismiss, true);
+        picker._dismiss = null;
     }
 }
 
@@ -5604,6 +6244,9 @@ function doPlusApptPatientSearch() {
                     (p.chinese_name ? p.chinese_name + ' ' : '') +
                     p.full_name + ' (#' + (p.patient_no || '') + ')';
                 dd.style.display = 'none';
+                if (typeof recordPatientSearchToActiveCard === 'function') {
+                    recordPatientSearchToActiveCard(p, 'plus-appt-search');
+                }
             });
             item.addEventListener('dragstart', function(ev) {
                 if (typeof beginPatientDragTransfer === 'function') {
@@ -5618,6 +6261,9 @@ function doPlusApptPatientSearch() {
             dd.appendChild(item);
         });
         dd.style.display = 'block';
+        if (r.data.length === 1 && typeof recordPatientSearchToActiveCard === 'function') {
+            recordPatientSearchToActiveCard(r.data[0], 'plus-appt-search-single');
+        }
     });
 }
 
@@ -8516,6 +9162,7 @@ function refreshApptHeaderI18n() {
     if (typeof syncApptTodayDateLabels === 'function') syncApptTodayDateLabels();
     if (typeof setQueueRefreshMeta === 'function') setQueueRefreshMeta({ stampNow: false });
     if (typeof refreshApptSharedMemoI18n === 'function') refreshApptSharedMemoI18n();
+    updateApptPatientBanner();
 }
 
 function statusClass(s) {
@@ -8583,6 +9230,9 @@ function apptRefreshSelectedPatientDob(patientId, dobHint) {
 
 function apptSetSelectedPatient(p) {
     if (!p || !p.id) return;
+    if (typeof recordPatientSearchToActiveCard === 'function') {
+        recordPatientSearchToActiveCard(p, 'appt-modal-patient');
+    }
     g('hPid').value      = p.id;
     g('hPno').value      = p.patient_no    || '';
     g('hPname').value    = p.full_name     || '';
@@ -8666,6 +9316,9 @@ function doPatientSearch() {
             dd.appendChild(item);
         });
         dd.style.display = 'block';
+        if (r.data.length === 1 && typeof recordPatientSearchToActiveCard === 'function') {
+            recordPatientSearchToActiveCard(r.data[0], 'psInput-single');
+        }
     });
 }
 
@@ -8718,9 +9371,12 @@ function getNonDoctorRemarksAuthor() {
     var uid = typeof currentUserId !== 'undefined' ? String(currentUserId || '').trim() : '';
     var name = typeof currentName !== 'undefined' ? String(currentName || '').trim() : '';
     if (!uid && !name) return null;
+    // Always tag with the login user ID so the remarks record who actually
+    // made the edit, regardless of which doctor identity is currently active.
+    var tagName = uid || name;
     return {
-        uid: uid || name,
-        name: name || uid,
+        uid: tagName,
+        name: tagName,
         role: typeof currentRole !== 'undefined' ? (currentRole || 'staff') : 'staff'
     };
 }
@@ -8733,8 +9389,22 @@ function staffAuthorRemarksHtml(author) {
     nameRaw = stripRolePrefixFromStaffName(nameRaw, roleRaw);
     var name = esc(nameRaw);
     var role = esc(roleRaw);
-    var inner = role && role !== name ? role + ' · ' + name : name;
+    var displayRole = esc(abbreviateRoleForDisplay(roleRaw));
+    var inner = displayRole && displayRole !== name ? displayRole + ' · ' + name : name;
     return '<span class="appt-rm-by" data-uid="' + uid + '" data-role="' + role + '">' + inner + '</span>';
+}
+
+function abbreviateRoleForDisplay(role) {
+    var r = String(role || '').trim().toLowerCase();
+    var map = {
+        receptionist: 'Recep',
+        admin: 'Admin',
+        staff: 'Staff',
+        nurse: 'Nurse',
+        dentist: 'Dr',
+        doctor: 'Dr'
+    };
+    return Object.prototype.hasOwnProperty.call(map, r) ? map[r] : role;
 }
 
 function stripRolePrefixFromStaffName(name, role) {
@@ -8743,7 +9413,17 @@ function stripRolePrefixFromStaffName(name, role) {
     if (!n || !r) return n;
     var escRole = r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     var rx = new RegExp('^\\s*' + escRole + '\\s*(?:[·\\-:：]\\s*)+', 'i');
-    return n.replace(rx, '').trim() || n;
+    var result = n.replace(rx, '').trim();
+    if (result !== n) return result || n;
+    // Also strip the abbreviated display form (e.g. "Recep ·" for "receptionist")
+    var abbrev = abbreviateRoleForDisplay(r);
+    if (abbrev && abbrev.toLowerCase() !== r) {
+        var escAbbrev = abbrev.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var rxAbbrev = new RegExp('^\\s*' + escAbbrev + '\\s*(?:[·\\-:：]\\s*)+', 'i');
+        var result2 = n.replace(rxAbbrev, '').trim();
+        if (result2 !== n) return result2 || n;
+    }
+    return n;
 }
 
 function extractStaffAuthorSpan(remarks) {
@@ -10335,7 +11015,10 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
                 (a.patient_id && pAlertMap[a.patient_id])
                     ? String(pAlertMap[a.patient_id]).trim()
                     : '';
-            a._merged_chinese_name = fromAppt || fromPat;
+            // When the row links to a patient record, always prefer the live
+            // patients.chinese_name (fromPat) over the denormalized appointment
+            // field (fromAppt) so that name edits are reflected immediately.
+            a._merged_chinese_name = a.patient_id ? (fromPat || fromAppt) : (fromAppt || fromPat);
             if (a.patient_id && pNameMap[a.patient_id]) {
                 a.patient_name = pNameMap[a.patient_id];
             }
@@ -10923,7 +11606,7 @@ function buildTodayRow(tb, a, dotCtx) {
             var aid = btn.getAttribute('data-appt-id');
             var kind = btn.getAttribute('data-task-kind');
             if (!aid || !kind) return;
-            apptTaskCycleFromSummary(aid, kind);
+            apptTaskShowPicker(btn, aid, kind);
         });
         btn.addEventListener('dblclick', function(e) {
             e.preventDefault();
@@ -12025,8 +12708,27 @@ function ensureQueueElapsedTicker() {
     }, 30000);
 }
 
+/**
+ * Immediately freeze the elapsed timer badge on a queue row by updating the
+ * row's data attributes to the new terminal status and refreshing all badges.
+ * Called before the async DB update so the UI responds instantly.
+ */
+function queueFreezeRowImmediate(apptId, newStatus) {
+    var tb = g('queueBody');
+    if (!tb || !apptId) return;
+    var row = tb.querySelector('tr[data-appt-id="' + String(apptId) + '"]');
+    if (!row) return;
+    row.dataset.billStatus = newStatus;
+    row.dataset.updatedAt  = new Date().toISOString();
+    queueRefreshElapsedBadges();
+}
+
 function apptShouldPreserveScroll(opts) {
-    return !!(opts && opts.soft);
+    if (opts && opts.soft) return true;
+    // Also preserve scroll for any background refresh while the section is visible
+    // (realtime sync, task updates, bill changes, etc.) — avoids jump-to-top.
+    if (typeof apptSectionIsActive === 'function' && apptSectionIsActive()) return true;
+    return false;
 }
 
 var _apptLiveScrollState = null;
@@ -12570,7 +13272,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
             var aid = btn.getAttribute('data-appt-id');
             var kind = btn.getAttribute('data-task-kind');
             if (!aid || !kind) return;
-            apptTaskCycleFromSummary(aid, kind);
+            apptTaskShowPicker(btn, aid, kind);
         });
         btn.addEventListener('dblclick', function(e) {
             e.preventDefault();
@@ -12596,6 +13298,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
     if (actDone) actDone.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);
+        queueFreezeRowImmediate(q.id, 'Done');
         setTimeout(function() { updateQueueStatus(q.id, 'Done'); }, 60);
     });
 
@@ -12603,6 +13306,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
     if (actNoshow) actNoshow.addEventListener('click', function(e) {
         queueStopRowEvent(e, true);
         queueCloseActionDrop(drop);
+        queueFreezeRowImmediate(q.id, 'No Show');
         setTimeout(function() { updateQueueStatus(q.id, 'No Show'); }, 60);
     });
 
@@ -12676,6 +13380,13 @@ function renderCal(opts) {
     }
     var miniBtn = g('calMonthMiniBtn');
     if (miniBtn) miniBtn.style.display = (calView === 'monthly') ? 'inline-flex' : 'none';
+    var monthSetBtn = g('calMonthSettingsBtn');
+    if (monthSetBtn) monthSetBtn.style.display = (calView === 'monthly') ? 'inline-flex' : 'none';
+    // Close settings panel when switching away from monthly
+    if (calView !== 'monthly') {
+        var msp = g('calMonthSettingsPanel');
+        if (msp) { msp.classList.remove('open'); msp.setAttribute('aria-hidden', 'true'); }
+    }
     if (calView !== 'monthly') {
         calMonthTransferDragApptId = null;
         calMonthTransferState = null;
@@ -12892,6 +13603,7 @@ function repaintCalMonthPills() {
 function renderMonthly(opts) {
     opts = opts || {};
     bindCalMonthMiniToolbarBtn();
+    applyMonthPrefs();
     var y  = calDate.getFullYear();
     var m  = calDate.getMonth();
     var ct = g('calTitle');
@@ -13716,7 +14428,8 @@ var GCAL = (function () {
                     : '') +
             '</span>';
         if (remarksTxt) {
-            html += '<span class="card-line card-line--3 card-remarks">' + esc(remarksTxt) + '</span>';
+            // remarksTxt is already safe HTML from formatRemarksForDisplay — do NOT re-escape
+            html += '<span class="card-line card-line--3 card-remarks">' + remarksTxt + '</span>';
         }
         html += '<span class="card-time">' + esc(fmt12(a.start_time) + ' - ' + fmt12(a.end_time)) + '</span>';
         html += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--cal');
@@ -14819,6 +15532,54 @@ function bindMonthlyCalActivePatientDrop(cb) {
 // ── Day panel ─────────────────────────────────────────────────
 var _dayPanelCtx = null;
 
+// Navigate to the patient module and select the patient from an appointment row.
+function openDayPanelPatientPage(a) {
+    if (!a || !a.patient_id) return;
+    if (typeof showOnly === 'function') showOnly('patientSection');
+    if (typeof fetchPatients === 'function') fetchPatients();
+    var mini = {
+        id: a.patient_id,
+        full_name: a.patient_name || '',
+        patient_no: a.patient_no || '',
+        chinese_name: a.patient_chinese_name || ''
+    };
+    if (typeof setDirectoryActivePatient === 'function') {
+        setDirectoryActivePatient(mini, 'cal-day-panel');
+    }
+}
+
+// Open the consultation module pre-loaded with the patient from an appointment row.
+function openDayPanelConsultation(a) {
+    if (!a || !a.patient_id) return;
+    if (typeof openConForPatient === 'function') {
+        openConForPatient(a.patient_id);
+    }
+}
+
+// Delete an appointment directly from the day panel (with confirmation).
+function deleteDayPanelAppt(a, cardEl) {
+    if (!a || !a.id) return;
+    if (isApptScheduleLocked(a)) {
+        alert(tr('appt.msg.lockedDelete'));
+        return;
+    }
+    if (!confirm(tr('appt.confirm.deleteAppt'))) return;
+    if (cardEl) cardEl.style.opacity = '0.4';
+    SB.from('appointments').delete().eq('id', a.id).then(function(r) {
+        if (r.error) {
+            if (cardEl) cardEl.style.opacity = '';
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+            return;
+        }
+        if (cardEl && cardEl.parentNode) cardEl.parentNode.removeChild(cardEl);
+        loadToday();
+        loadQueue();
+        loadApptRecords();
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+        if (typeof renderMonthly === 'function') renderMonthly();
+    });
+}
+
 function showDayPanel(iso, map) {
     var panel = g('dayPanel');
     var title = g('dayPanelTitle');
@@ -14844,36 +15605,116 @@ function showDayPanel(iso, map) {
         list.innerHTML = '';
         items.forEach(function(a) {
             var div = document.createElement('div');
-            div.className = 'day-panel-item';
+            div.className = 'day-panel-item dpi-rich';
             div.dataset.apptId = a.id;
+
             var dpiSty = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.getStyleForAppt
                 ? CalDoctorColors.getStyleForAppt(a)
                 : null;
-            if (dpiSty) {
-                div.style.borderLeft = '4px solid ' + dpiSty.borderColor;
-                div.style.background = dpiSty.background;
-            }
-            var drLbl = a.doctor_code || a.doctor_name || '';
+            div.style.borderLeft = '4px solid ' + (dpiSty ? dpiSty.borderColor : 'var(--primary)');
+            div.style.background = dpiSty ? dpiSty.background : '';
+
+            var drLbl  = a.doctor_code || a.doctor_name || '';
+            var drColor = dpiSty ? dpiSty.color : '#64748b';
+            var cn     = String(a.patient_chinese_name || '').trim();
+
+            // DOB / age from cache
+            var dobRaw = a.patient_id ? apptPatientDobLookup(a.patient_id) : '';
+            var ageTxt = dobRaw && typeof formatDobAge === 'function' ? formatDobAge(dobRaw) : '';
+            var subParts = [];
+            if (a.patient_no) subParts.push('#' + a.patient_no);
+            if (ageTxt) subParts.push(ageTxt);
+
+            // Remarks preview (strip HTML tags for plain text display)
+            var remarksRaw = a.remarks || '';
+            var remarksPlain = remarksRaw.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+            var hasRemarks = remarksPlain.length > 0;
+
             div.innerHTML =
-                '<div class="dpi-time">' +
-                    fmt12(a.start_time) + ' – ' + fmt12(a.end_time) +
+                // ── header: time · doctor · status ──
+                '<div class="dpi-header">' +
+                    '<span class="dpi-time">' + esc(fmt12(a.start_time) + ' – ' + fmt12(a.end_time)) + '</span>' +
+                    (drLbl ? '<span class="dpi-dr-badge" style="color:' + esc(drColor) + ';">● ' + esc(drLbl) + '</span>' : '') +
+                    '<span class="status-badge ' + statusClass(a.bill_status) + '">' +
+                        esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
+                    '</span>' +
                 '</div>' +
-                (drLbl ? '<div class="dpi-dr" style="color:' + (dpiSty ? dpiSty.color : '#64748b') + ';">● ' + esc(drLbl) + '</div>' : '') +
-                '<div class="dpi-name">' +
-                    esc(a.patient_name || '-') +
+
+                // ── patient name block ──
+                '<div class="dpi-patient-block">' +
+                    '<span class="dpi-name">' + esc(a.patient_name || '—') + '</span>' +
+                    (cn ? '<span class="dpi-cn">' + esc(cn) + '</span>' : '') +
+                    (subParts.length ? '<div class="dpi-sub">' + esc(subParts.join(' · ')) + '</div>' : '') +
                 '</div>' +
+
+                // ── unpaid badge + treatment ──
                 apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--daypanel') +
-                '<div class="dpi-treat">' +
-                    esc(a.treatment_items || '-') +
+                (a.treatment_items
+                    ? '<div class="dpi-treat">🏥 ' + esc(a.treatment_items) + '</div>'
+                    : '') +
+
+                // ── remarks row ──
+                '<div class="dpi-remarks-row">' +
+                    '<span class="dpi-remarks-preview' + (hasRemarks ? '' : ' dpi-remarks-empty') + '">' +
+                        (hasRemarks ? esc(remarksPlain) : esc(tr('appt.cal.noRemarks') || 'No remarks')) +
+                    '</span>' +
+                    '<button type="button" class="dpi-remarks-btn" title="' + esc(tr('appt.cal.editRemarks') || 'Edit remarks') + '">✎</button>' +
                 '</div>' +
-                '<span class="status-badge ' +
-                    statusClass(a.bill_status) + '">' +
-                    esc(dispStatusLabel(a.bill_status || 'Scheduled')) +
-                '</span>';
-            div.style.cursor = 'pointer';
-            div.addEventListener('click', function() {
-                showApptPopup(a, div);
+
+                // ── action buttons (icon thumbnails) ──
+                '<div class="dpi-actions">' +
+                    (a.patient_id
+                        ? '<button type="button" class="dpi-btn dpi-btn-patient" title="' + esc(tr('appt.cal.dpiPatientBtn') || 'Patient File') + '">👤</button>'
+                        : '') +
+                    (a.patient_id
+                        ? '<button type="button" class="dpi-btn dpi-btn-consult" title="' + esc(tr('appt.cal.dpiConsultBtn') || 'Consultation') + '">📋</button>'
+                        : '') +
+                    '<button type="button" class="dpi-btn dpi-btn-bill" title="' + esc(tr('appt.cal.dpiBillBtn') || 'Billing') + '">💲</button>' +
+                    '<button type="button" class="dpi-btn dpi-btn-delete" title="' + esc(tr('appt.cal.dpiDeleteBtn') || 'Delete appointment') + '">✕</button>' +
+                '</div>';
+
+            // Wire remarks edit button
+            div.querySelector('.dpi-remarks-btn').addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (typeof openQueueRemarksEditor === 'function') openQueueRemarksEditor(a);
             });
+
+            // Wire Patient File button
+            var patBtn = div.querySelector('.dpi-btn-patient');
+            if (patBtn) {
+                patBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    openDayPanelPatientPage(a);
+                });
+            }
+
+            // Wire Consultation button
+            var conBtn = div.querySelector('.dpi-btn-consult');
+            if (conBtn) {
+                conBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    openDayPanelConsultation(a);
+                });
+            }
+
+            // Wire Bill button
+            var billBtn = div.querySelector('.dpi-btn-bill');
+            if (billBtn) {
+                billBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (typeof openBillPanel === 'function') openBillPanel(a);
+                });
+            }
+
+            // Wire Delete button
+            var delBtn = div.querySelector('.dpi-btn-delete');
+            if (delBtn) {
+                delBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    deleteDayPanelAppt(a, div);
+                });
+            }
+
             list.appendChild(div);
         });
     }
@@ -15082,7 +15923,10 @@ function wireBillPanelControls() {
     bindClickOnce('closeReceiptModal', function() { closeModal('receiptModal'); });
     bindClickOnce('closeReceiptModal2', function() { closeModal('receiptModal'); });
     bindClickOnce('receiptPrintOptionsBtn', reopenReceiptPrintOptionsFromReceipt);
-    bindClickOnce('receiptPrintNowBtn', function () { printReceiptDocument(); });
+    bindClickOnce('receiptPrintNowBtn',     function () { printReceiptDocument(); });
+    bindClickOnce('receiptPrintEnBtn',      function () { printReceiptForLang('en'); });
+    bindClickOnce('receiptPrintZhHantBtn',  function () { printReceiptForLang('zh-Hant'); });
+    bindClickOnce('receiptPrintZhCNBtn',    function () { printReceiptForLang('zh-CN'); });
     bindClickOnce('closeReceiptPrintOptionsModal', function() {
         dismissReceiptPrintOptionsModal(true);
     });
@@ -15106,6 +15950,9 @@ function wireBillPanelControls() {
     bindClickOnce('bhpSelectNoneBtn', function() { setAllBillHistoryPrintChecks(false); });
     wireBillHistoryPrintOptionInputs();
     wireBillHistoryFilterUi();
+    ensureModalNoBackdropClose('billPaymentClinicConfirmModal');
+    bindClickOnce('bpcConfirmYesBtn', confirmBillPaymentClinicMismatch);
+    bindClickOnce('bpcConfirmNoBtn', dismissBillPaymentClinicConfirm);
 
     var pendingDrSel = g('pendingListDoctor');
     if (pendingDrSel && pendingDrSel.dataset.billInputBound !== '1') {
@@ -15174,6 +16021,16 @@ function applyBillPanelPatientRecord(patient) {
         billPatChineseName = String(patient.chinese_name || '').trim();
     }
     updateBillPanelPatientInfoDom();
+    // Keep the bill detail modal in sync only when the open bill belongs to this patient.
+    if (bdCurrentBill && bdCurrentBill.patient_id === patient.id) {
+        if (en) bdCurrentBill.patient_name = en;
+        if (patient.patient_no) bdCurrentBill.patient_no = patient.patient_no;
+        var bdModalEl = g('billDetailModal');
+        if (bdModalEl && bdModalEl.style.display === 'block') {
+            if (en) bdSet('bdPatient', en);
+            if (patient.patient_no) bdSet('bdPatientNo', patient.patient_no);
+        }
+    }
     return true;
 }
 
@@ -15388,6 +16245,19 @@ function openBillPanel(q) {
 
     updateBillPanelPatientInfoDom();
 
+    // Background-fetch the live patient record so the header always shows the
+    // current name even when the appointment cache carried a stale denormalized value.
+    if (billPatId) {
+        SB.from('patients')
+            .select('id,patient_no,full_name,chinese_name')
+            .eq('id', billPatId)
+            .single()
+            .then(function(r) {
+                if (!r.error && r.data) applyBillPanelPatientRecord(r.data);
+            })
+            .catch(function() {});
+    }
+
     billItems    = [];
     pendingLists = [];
     pendingIdx   = -1;
@@ -15405,7 +16275,7 @@ function openBillPanel(q) {
         });
     });
     resetBillHistoryFilterUi();
-    loadBillHistory();
+    loadBillHistory(function() { renderStep1UI(); });
     loadBillDoctors();
 
     wireBillPanelControls();
@@ -15588,13 +16458,42 @@ function renderStep1UI() {
 
     var statusEl = g('pendingListStatus');
     if (statusEl) {
-        if (pl.bill_id) {
+        var locked = isCurrentPendingListLocked();
+        if (locked) {
+            statusEl.textContent = tr('bill.status.locked');
+            statusEl.style.color = '#b45309';
+        } else if (pl.bill_id) {
             statusEl.textContent = tr('bill.status.billPendingPayment');
             statusEl.style.color = '#2563eb';
         } else {
             statusEl.textContent = pl.id ? tr('bill.status.saved') : tr('bill.status.notSaved');
             statusEl.style.color = pl.id ? '#16a34a' : '#f59e0b';
         }
+    }
+
+    // Show / hide the lock banner and update its message
+    var lockBanner = g('billLockBanner');
+    if (lockBanner) {
+        var isLocked = isCurrentPendingListLocked();
+        if (isLocked) {
+            var lockedBill = getLockedBillRow();
+            var paidAmt = lockedBill ? parseFloat(lockedBill.amount_paid || 0) : 0;
+            var msgEl = g('billLockBannerMsg');
+            if (msgEl) msgEl.textContent = trRepl('bill.locked.bannerMsg', { AMT: fmt2(paidAmt) });
+            lockBanner.style.display = 'flex';
+        } else {
+            lockBanner.style.display = 'none';
+        }
+    }
+
+    // Also lock/unlock the Create Bill button
+    var createBtn = g('createBillBtn');
+    if (createBtn) {
+        var isLocked2 = isCurrentPendingListLocked();
+        createBtn.disabled = isLocked2;
+        createBtn.style.opacity = isLocked2 ? '0.4' : '';
+        createBtn.style.cursor = isLocked2 ? 'not-allowed' : '';
+        createBtn.title = isLocked2 ? tr('bill.alert.lockedBillNoEdit').split('\n')[0] : '';
     }
 }
 
@@ -15638,6 +16537,11 @@ function createBillFromCurrentList() {
     syncPendingListDoctorFromUi();
     var pl = pendingLists[pendingIdx];
     var sub = pendingListSubtotalFromItems(billItems);
+
+    if (isCurrentPendingListLocked()) {
+        alert(tr('bill.alert.lockedBillNoEdit'));
+        return;
+    }
 
     if (sub <= 0.005) {
         alert(tr('bill.alert.addItemsFirst'));
@@ -15748,7 +16652,7 @@ function saveCurrentPendingList(opts) {
                     if (pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
                     renderStep1UI();
                     noteBillPendingRefreshed();
-                    loadBillHistory();
+                    loadBillHistory(function() { renderStep1UI(); });
                     try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
                 });
                 return;
@@ -16236,6 +17140,10 @@ function loadBillDoctors() {
 }
 
 function addBillItem() {
+    if (isCurrentPendingListLocked()) {
+        alert(tr('bill.alert.lockedBillNoEdit'));
+        return;
+    }
     if (!pendingLists.length) {
         addNewPendingList();
     }
@@ -16244,6 +17152,49 @@ function addBillItem() {
     renderBillItems();
     recalcTotals();
 }
+
+// ── Bill lock helpers ─────────────────────────────────────────────
+// A bill is "locked" once any payment has been recorded against it.
+// Locked bills: items/totals are read-only; additional instalment
+// payments are still allowed via the Add Payment modal.
+function isCurrentPendingListLocked() {
+    var pl = (pendingIdx >= 0 && pendingIdx < pendingLists.length) ? pendingLists[pendingIdx] : null;
+    if (!pl || !pl.bill_id) return false;
+    var billId = String(pl.bill_id);
+    // 1. Check bdCurrentBill first — it is updated synchronously right after
+    //    every payment save / void, so it is always the freshest source of truth.
+    if (typeof bdCurrentBill !== 'undefined' && bdCurrentBill &&
+            String(bdCurrentBill.id) === billId) {
+        return parseFloat(bdCurrentBill.amount_paid || 0) > 0.005;
+    }
+    // 2. Fall back to billHistoryCache (covers panel-open scenario where
+    //    bdCurrentBill is null but history has already loaded).
+    var cache = Array.isArray(billHistoryCache) ? billHistoryCache : [];
+    for (var _i = 0; _i < cache.length; _i++) {
+        if (String(cache[_i].id) === billId) {
+            return parseFloat(cache[_i].amount_paid || 0) > 0.005;
+        }
+    }
+    return false;
+}
+
+function getLockedBillRow() {
+    var pl = (pendingIdx >= 0 && pendingIdx < pendingLists.length) ? pendingLists[pendingIdx] : null;
+    if (!pl || !pl.bill_id) return null;
+    var billId = String(pl.bill_id);
+    // Check bdCurrentBill first (freshest)
+    if (typeof bdCurrentBill !== 'undefined' && bdCurrentBill &&
+            String(bdCurrentBill.id) === billId) {
+        return bdCurrentBill;
+    }
+    // Fall back to cache
+    var cache = Array.isArray(billHistoryCache) ? billHistoryCache : [];
+    for (var _i = 0; _i < cache.length; _i++) {
+        if (String(cache[_i].id) === billId) return cache[_i];
+    }
+    return null;
+}
+// ─────────────────────────────────────────────────────────────────
 
 function syncBillItemsToPendingList() {
     if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
@@ -16466,6 +17417,44 @@ function renderBillItems() {
     var tb = g('billItemsBody');
     if (!tb) return;
     tb.innerHTML = '';
+
+    var locked = isCurrentPendingListLocked();
+    var addBtn = g('addBillItemBtn');
+    if (addBtn) {
+        addBtn.disabled = locked;
+        addBtn.style.opacity = locked ? '0.4' : '';
+        addBtn.style.cursor = locked ? 'not-allowed' : '';
+    }
+
+    if (locked) {
+        billItems.forEach(function(item) {
+            var n = normalizeBillItem(item);
+            var isOthers = billItemIsOthers(n);
+            var row = document.createElement('tr');
+            row.style.background = '#fffbeb';
+            var toothDisplay = isOthers ? '—' : (billItemToothInputValue(n) || '—');
+            row.innerHTML =
+                '<td style="padding:6px 8px;font-size:13px;color:#374151;">' + esc(billItemDisplayDesc(n)) + '</td>' +
+                '<td class="bill-tooth-cell" style="text-align:center;font-size:13px;color:#6b7280;">' + esc(toothDisplay) + '</td>' +
+                '<td class="bill-qty-cell" style="text-align:center;font-size:13px;">' + esc(String(n.qty || 1)) + '</td>' +
+                '<td style="font-size:13px;">' + fmt2(n.price || 0) + '</td>' +
+                '<td style="text-align:center;font-size:13px;">' + esc(formatBillDiscPctDisplay(n.disc || 0)) + '%</td>' +
+                '<td style="text-align:right;font-weight:600;font-size:13px;">' + fmt2(billItemAmt(n)) + '</td>' +
+                '<td></td>';
+            tb.appendChild(row);
+            if (isOthers && billItemOthersRemark(n)) {
+                var remarkRow = document.createElement('tr');
+                remarkRow.className = 'bill-item-others-remark-row';
+                remarkRow.innerHTML =
+                    '<td colspan="7" style="padding:2px 8px 10px 8px;background:#fffbeb;' +
+                    'border-bottom:1px solid #fde68a;font-size:12px;color:#92400e;">' +
+                    esc(billItemOthersRemark(n)) + '</td>';
+                tb.appendChild(remarkRow);
+            }
+        });
+        return;
+    }
+
     billItems.forEach(function(item, i) {
         var row = document.createElement('tr');
         var descBase = billItemDescBase(item.desc) || item.desc;
@@ -16711,6 +17700,10 @@ function renderBillItems() {
         var delBtn = row.querySelector('.bill-del-row');
         if (delBtn) {
             delBtn.addEventListener('click', function() {
+                if (isCurrentPendingListLocked()) {
+                    alert(tr('bill.alert.lockedBillNoEdit'));
+                    return;
+                }
                 billItems.splice(parseInt(this.dataset.idx, 10), 1);
                 syncBillItemsToPendingList();
                 renderBillItems();
@@ -18053,6 +19046,7 @@ function executeBillDelete() {
         voided_by: (typeof currentName !== 'undefined' ? currentName : null)
     };
 
+    var _voidTargetId = bdDeleteTarget.id;
     SB.from('bills').update(voidPayload).eq('id', bdDeleteTarget.id)
     .then(function(r) {
         if (r.error) {
@@ -18063,6 +19057,16 @@ function executeBillDelete() {
         closeModal('billDeleteModal');
         bdDeleteTarget = null;
         loadBillHistory();
+        // If the detail modal is open showing the bill that was just voided, patch
+        // bdCurrentBill with the void fields and re-render the modal header live.
+        if (bdCurrentBill && bdCurrentBill.id === _voidTargetId) {
+            bdCurrentBill.voided_at = voidPayload.voided_at;
+            bdCurrentBill.voided_by = voidPayload.voided_by;
+            var bdModalEl = g('billDetailModal');
+            if (bdModalEl && bdModalEl.style.display === 'block') {
+                if (typeof showBillDetail === 'function') showBillDetail(bdCurrentBill);
+            }
+        }
         try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
     });
 }
@@ -18344,30 +19348,22 @@ function bdSet(id, val) {
     if (e) e.textContent = (val === null || val === undefined) ? '—' : String(val);
 }
 
+/** Bill detail header + receipt default — current active working clinic only. */
 function billDetailClinicCode(b) {
-    var active = '';
-    if (typeof currentClinicCodeForTagging === 'function') {
-        active = String(currentClinicCodeForTagging() || '').trim();
-    }
-    if (!active) {
-        var sel = g('appWorkingClinicSelect');
-        var cid = sel && sel.value ? String(sel.value).trim() : '';
-        if (typeof isWorkingClinicAllValue === 'function' && isWorkingClinicAllValue(cid)) {
-            cid = '';
-        }
-        if (!cid && typeof currentClinicId !== 'undefined' && currentClinicId) {
-            cid = String(currentClinicId).trim();
-        }
-        if (cid && typeof clinicRecordFromId === 'function') {
-            var recActive = clinicRecordFromId(cid);
-            if (recActive) active = String(recActive.clinic_code || recActive.id || '').trim();
-        }
-    }
-    if (active) return active;
+    var ctx = billPaymentClinicContext();
+    var code = String(ctx.clinic_code || '').trim();
+    return code || '—';
+}
 
-    if (!b) return '';
-    var raw = String((b.clinic_tag || b.clinic_id || '')).trim();
-    if (!raw) return '';
+function billPaymentReceivingClinicDisplay(p, bill) {
+    var raw = '';
+    if (p) {
+        raw = String(p.clinic_tag || p.clinic_code || p.clinic_id || '').trim();
+    }
+    if (!raw && bill) {
+        raw = String(bill.clinic_tag || bill.clinic_id || '').trim();
+    }
+    if (!raw) return '—';
     var rec = null;
     if (typeof clinicRecordForReceiptByTagOrId === 'function') {
         rec = clinicRecordForReceiptByTagOrId(raw);
@@ -18376,9 +19372,80 @@ function billDetailClinicCode(b) {
         rec = clinicRecordFromId(raw);
     }
     if (rec) {
-        return String(rec.clinic_code || rec.id || raw).trim();
+        return String(rec.clinic_code || rec.id || raw).trim() || '—';
     }
     return raw;
+}
+
+function billPaymentClinicCompareKey(p, bill) {
+    var label = billPaymentReceivingClinicDisplay(p, bill);
+    if (!label || label === '—') return '';
+    return String(label).trim().toUpperCase();
+}
+
+function activePaymentClinicDisplay() {
+    var ctx = billPaymentClinicContext();
+    return billPaymentReceivingClinicDisplay({
+        clinic_tag: ctx.clinic_tag,
+        clinic_code: ctx.clinic_code,
+        clinic_id: ctx.clinic_id
+    }, null);
+}
+
+function fetchPreviousPaymentClinicForBill(bill, cb) {
+    if (!bill || !bill.id || !SB || typeof SB.from !== 'function') {
+        if (cb) cb({ key: '', label: '—' });
+        return;
+    }
+    SB.from('bill_payments')
+        .select('*')
+        .eq('bill_id', bill.id)
+        .order('paid_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .then(function(r) {
+            var rows = (!r.error && r.data) ? r.data : [];
+            rows = mergeBillPaymentHistoryWithBill(bill, rows);
+            var active = billPaymentsActiveOnly(rows);
+            if (!active.length) {
+                if (cb) cb({ key: '', label: '—' });
+                return;
+            }
+            var last = active[active.length - 1];
+            var label = billPaymentReceivingClinicDisplay(last, bill);
+            var key = billPaymentClinicCompareKey(last, bill);
+            if (cb) cb({ key: key, label: label });
+        })
+        .catch(function() {
+            if (cb) cb({ key: '', label: '—' });
+        });
+}
+
+var _pendingAddPaymentSaveCtx = null;
+
+function dismissBillPaymentClinicConfirm() {
+    _pendingAddPaymentSaveCtx = null;
+    closeModal('billPaymentClinicConfirmModal');
+}
+
+function showBillPaymentClinicConfirmModal(prevLabel, currLabel, saveCtx) {
+    _pendingAddPaymentSaveCtx = saveCtx || null;
+    var prevEl = g('bpcPrevClinic');
+    var currEl = g('bpcCurrClinic');
+    if (prevEl) prevEl.textContent = prevLabel || '—';
+    if (currEl) currEl.textContent = currLabel || '—';
+    openModal('billPaymentClinicConfirmModal');
+    if (typeof applyI18nInRoot === 'function') {
+        var modal = g('billPaymentClinicConfirmModal');
+        if (modal) applyI18nInRoot(modal);
+    }
+}
+
+function confirmBillPaymentClinicMismatch() {
+    var ctx = _pendingAddPaymentSaveCtx;
+    _pendingAddPaymentSaveCtx = null;
+    closeModal('billPaymentClinicConfirmModal');
+    if (!ctx) return;
+    executeAddPaymentSave(ctx);
 }
 
 function printBillDetailReceipt() {
@@ -18436,9 +19503,13 @@ function showBillDetail(b) {
     }
     refreshBillDetailVoidMeta(b);
 
-    // Info fields
-    bdSet('bdPatient',   b.patient_name || '—');
-    bdSet('bdPatientNo', b.patient_no   || '—');
+    // Info fields — prefer the live billPatName so the header always reflects
+    // the most recent patient edit, even when the bill record carries a stale
+    // denormalized name from the time the bill was created.
+    var _bdDisplayName = (billPatName && billPatName !== '-') ? billPatName : (b.patient_name || '—');
+    var _bdDisplayNo   = (billPatNo   && billPatNo   !== '-') ? billPatNo   : (b.patient_no   || '—');
+    bdSet('bdPatient',   _bdDisplayName);
+    bdSet('bdPatientNo', _bdDisplayNo);
     bdSet('bdDate',      b.bill_date    || '—');
     bdSet('bdDoctor',    b.doctor_tag   || b.doctor_name || '—');
     bdSet('bdClinicCode', billDetailClinicCode(b) || '—');
@@ -18605,6 +19676,9 @@ function mergeBillPaymentHistoryWithBill(bill, rows) {
         method: bill.bill_type,
         notes: bill.notes,
         received_by: null,
+        clinic_id: bill.clinic_id || null,
+        clinic_tag: bill.clinic_tag || null,
+        clinic_code: bill.clinic_tag || null,
         _fromBillRecord: true
     });
     return pmts;
@@ -18614,7 +19688,7 @@ function normalizeReceiptPayments(bill, payments) {
     return mergeBillPaymentHistoryWithBill(bill, billPaymentsActiveOnly(payments || []));
 }
 
-function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
+function appendBillPaymentHistoryRow(tbody, p, rowIndex, bill) {
     var voided = billPaymentIsVoid(p);
     var row = document.createElement('tr');
     if (voided) {
@@ -18642,6 +19716,7 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
               '</td>'
             : '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>');
     var dateTdClass = voided ? ' bill-pay-void-date-col' : '';
+    var clinicLabel = billPaymentReceivingClinicDisplay(p, bill);
     row.innerHTML =
         statusCell +
         '<td class="' + dateTdClass.trim() + '" style="padding:8px 12px;">' +
@@ -18651,6 +19726,8 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex) {
         '<td style="padding:8px 12px;">' + esc((typeof dispPayMethod === 'function')
             ? dispPayMethod(p.method)
             : (p.method || '—')) + '</td>' +
+        '<td style="padding:8px 12px;color:#888;">' +
+            esc(clinicLabel) + '</td>' +
         '<td style="padding:8px 12px;color:#888;">' +
             esc(p.received_by || '—') + '</td>' +
         '<td style="padding:8px 12px;color:#888;font-size:12px;">' +
@@ -18676,7 +19753,7 @@ function loadBillPayments(billId) {
     var tbody = g('bdPaymentHistoryBody');
     if (!tbody) return;
     tbody.innerHTML =
-        '<tr><td colspan="7" style="padding:12px;text-align:center;' +
+        '<tr><td colspan="8" style="padding:12px;text-align:center;' +
         'color:#aaa;font-size:13px;">' + esc(tr('bill.historyLoading')) + '</td></tr>';
 
     SB.from('bill_payments')
@@ -18687,20 +19764,21 @@ function loadBillPayments(billId) {
     .then(function(r) {
         tbody.innerHTML = '';
         var rows = (!r.error && r.data) ? r.data : [];
-        if (bdCurrentBill && bdCurrentBill.id === billId) {
-            rows = mergeBillPaymentHistoryWithBill(bdCurrentBill, rows);
-            var currentMethod = billCurrentPaymentMethodFromRows(bdCurrentBill, rows);
-            bdCurrentBill.bill_type = currentMethod;
+        var billForRows = (bdCurrentBill && bdCurrentBill.id === billId) ? bdCurrentBill : null;
+        if (billForRows) {
+            rows = mergeBillPaymentHistoryWithBill(billForRows, rows);
+            var currentMethod = billCurrentPaymentMethodFromRows(billForRows, rows);
+            billForRows.bill_type = currentMethod;
             refreshBillDetailPaymentMethod(currentMethod);
         }
         if (!rows.length) {
             tbody.innerHTML =
-                '<tr><td colspan="7" style="padding:12px;text-align:center;' +
+                '<tr><td colspan="8" style="padding:12px;text-align:center;' +
                 'color:#aaa;font-size:13px;">' + esc(tr('bill.detail.noPayments')) + '</td></tr>';
             return;
         }
         rows.forEach(function(p, i) {
-            appendBillPaymentHistoryRow(tbody, p, i);
+            appendBillPaymentHistoryRow(tbody, p, i, billForRows);
         });
     });
 }
@@ -18771,6 +19849,89 @@ function billPaymentClinicContext() {
 }
 
 // ── Confirm & save a new payment ────────────────────────
+function executeAddPaymentSave(ctx) {
+    if (!ctx || !ctx.payRecord || !bdCurrentBill) return;
+    var payRecord = ctx.payRecord;
+    var newPaid = ctx.newPaid;
+    var newBalance = ctx.newBalance;
+    var newStatus = ctx.newStatus;
+    var payMethod = ctx.payMethod;
+    var errEl = g('apError');
+
+    insertBillPaymentRecord(payRecord, function(r) {
+        if (r.error) {
+            if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); errEl.style.display = ''; }
+            return;
+        }
+        // Update the parent bill's totals
+        return SB.from('bills').update({
+            amount_paid: newPaid,
+            balance:     newBalance,
+            status:      newStatus,
+            bill_type:   payMethod
+        }).eq('id', bdCurrentBill.id)
+        .then(function(u) {
+            if (u.error) {
+                if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: u.error.message }); errEl.style.display = ''; }
+                return;
+            }
+            // Refresh in-memory bill object
+            bdCurrentBill.amount_paid = newPaid;
+            bdCurrentBill.balance     = newBalance;
+            bdCurrentBill.status      = newStatus;
+            bdCurrentBill.bill_type   = payMethod;
+
+            // Immediately re-render Step 1 — bdCurrentBill is now the freshest
+            // source for isCurrentPendingListLocked(), so the lock activates
+            // without waiting for the async loadBillHistory callback.
+            renderStep1UI();
+
+            closeModal('addPaymentModal');
+
+            // Refresh the detail view live
+            g('bdPaid').textContent    = fmtHK(newPaid);
+            g('bdBalance').textContent = fmtHK(newBalance);
+            g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
+            refreshBillDetailPaymentMethod(payMethod);
+
+            var badge = g('bdStatusBadge');
+            if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
+
+            var banner = g('bdOutstandingBanner');
+            var addBtn = g('bdAddPaymentBtn');
+            if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
+            if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
+            if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
+
+            loadBillPayments(bdCurrentBill.id);
+            loadBillHistory(function() {
+                // Re-render Step 1 immediately so the lock banner activates
+                // for partial payments without requiring a manual refresh.
+                renderStep1UI();
+            });
+            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+
+            if (newBalance <= 0.005) {
+                var paidBillId = bdCurrentBill.id;
+                resetBillCreationAfterPayment(paidBillId);
+                // Freeze the queue timer: update the appointment status to Paid
+                var linkedApptId = (bdCurrentBill.appointment_id) ||
+                                   (typeof billApptId !== 'undefined' ? billApptId : null);
+                if (linkedApptId) {
+                    queueFreezeRowImmediate(linkedApptId, 'Paid');
+                    SB.from('appointments')
+                        .update({ bill_status: 'Paid' })
+                        .eq('id', linkedApptId)
+                    .then(function() {
+                        if (typeof loadQueue === 'function') loadQueue({ soft: true });
+                        if (typeof loadToday === 'function') loadToday({ soft: true });
+                    });
+                }
+            }
+        });
+    });
+}
+
 function confirmAddPayment() {
     if (!bdCurrentBill) return;
     var amount = parseFloat(g('apAmount').value) || 0;
@@ -18813,55 +19974,27 @@ function confirmAddPayment() {
     payRecord.clinic_tag = clinicCtx.clinic_tag;
     payRecord.clinic_code = clinicCtx.clinic_code;
 
-    insertBillPaymentRecord(payRecord, function(r) {
-        if (r.error) {
-            if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); errEl.style.display = ''; }
+    var saveCtx = {
+        payRecord: payRecord,
+        newPaid: newPaid,
+        newBalance: newBalance,
+        newStatus: newStatus,
+        payMethod: payMethod
+    };
+
+    var currLabel = activePaymentClinicDisplay();
+    var currKey = billPaymentClinicCompareKey({
+        clinic_tag: clinicCtx.clinic_tag,
+        clinic_code: clinicCtx.clinic_code,
+        clinic_id: clinicCtx.clinic_id
+    }, null);
+
+    fetchPreviousPaymentClinicForBill(bdCurrentBill, function(prev) {
+        if (!prev.key || !currKey || prev.key === currKey) {
+            executeAddPaymentSave(saveCtx);
             return;
         }
-        // Update the parent bill's totals
-        return SB.from('bills').update({
-            amount_paid: newPaid,
-            balance:     newBalance,
-            status:      newStatus,
-            bill_type:   payMethod
-        }).eq('id', bdCurrentBill.id)
-        .then(function(u) {
-            if (u.error) {
-                if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: u.error.message }); errEl.style.display = ''; }
-                return;
-            }
-            // Refresh in-memory bill object
-            bdCurrentBill.amount_paid = newPaid;
-            bdCurrentBill.balance     = newBalance;
-            bdCurrentBill.status      = newStatus;
-            bdCurrentBill.bill_type   = payMethod;
-
-            closeModal('addPaymentModal');
-
-            // Refresh the detail view live
-            g('bdPaid').textContent    = fmtHK(newPaid);
-            g('bdBalance').textContent = fmtHK(newBalance);
-            g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
-            refreshBillDetailPaymentMethod(payMethod);
-
-            var badge = g('bdStatusBadge');
-            if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
-
-            var banner = g('bdOutstandingBanner');
-            var addBtn = g('bdAddPaymentBtn');
-            if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
-            if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
-            if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
-
-            loadBillPayments(bdCurrentBill.id);
-            loadBillHistory();
-            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
-
-            if (newBalance <= 0.005) {
-                var paidBillId = bdCurrentBill.id;
-                resetBillCreationAfterPayment(paidBillId);
-            }
-        });
+        showBillPaymentClinicConfirmModal(prev.label, currLabel, saveCtx);
     });
 }
 
@@ -18917,13 +20050,17 @@ function voidPaymentRecord(p) {
         }).eq('id', p.bill_id)
         .then(function(u) {
             if (u.error) return;
-            if (bdCurrentBill && bdCurrentBill.id === p.bill_id) {
-                bdCurrentBill.amount_paid = newPaid;
-                bdCurrentBill.balance     = newBalance;
-                bdCurrentBill.status      = newStatus;
-                bdCurrentBill.bill_type   = nextBillType;
+                if (bdCurrentBill && bdCurrentBill.id === p.bill_id) {
+                    bdCurrentBill.amount_paid = newPaid;
+                    bdCurrentBill.balance     = newBalance;
+                    bdCurrentBill.status      = newStatus;
+                    bdCurrentBill.bill_type   = nextBillType;
 
-                g('bdPaid').textContent    = fmtHK(newPaid);
+                    // Immediately re-render Step 1 so the lock clears/restores
+                    // without waiting for the async loadBillHistory callback.
+                    renderStep1UI();
+
+                    g('bdPaid').textContent    = fmtHK(newPaid);
                 g('bdBalance').textContent = fmtHK(newBalance);
                 g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
                 refreshBillDetailPaymentMethod(nextBillType);
@@ -18938,7 +20075,11 @@ function voidPaymentRecord(p) {
                 if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
 
                 loadBillPayments(p.bill_id);
-                loadBillHistory();
+                loadBillHistory(function() {
+                    // Re-render Step 1 so the lock banner clears automatically
+                    // when the last payment is voided (amount_paid drops to 0).
+                    renderStep1UI();
+                });
                 try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
             }
         });
@@ -18946,6 +20087,8 @@ function voidPaymentRecord(p) {
 }
 
 var _receiptPrintInProgress = false;
+var _receiptClinicNameForFooter = '';
+var _receiptClinicTelForFooter  = '';
 var RECEIPT_PRINT_MIN_SCALE_PCT = 80;
 
 /**
@@ -19444,6 +20587,148 @@ function printReceiptDocument() {
     }, 140);
 }
 
+// ════════════════════════════════════════════════════════════════
+// LANGUAGE-SPECIFIC RECEIPT PRINT
+// Each of the three language buttons (EN / 繁體 / 简体) calls
+// printReceiptForLang(lang) which builds a single-page receipt
+// translated entirely into the chosen language, independent of
+// the current UI language setting.
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Clone `area` and re-apply all data-i18n labels for `lang`.
+ * Also reconstructs the clinic-specific tel / thanks footer lines
+ * that are set dynamically (not covered by data-i18n alone).
+ */
+function buildReceiptPageForLang(area, lang) {
+    var wrap = document.createElement('div');
+    wrap.innerHTML = area.innerHTML;
+
+    // Re-translate every data-i18n label for this language
+    var els = wrap.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        var key = el.getAttribute('data-i18n');
+        if (key && typeof t === 'function') el.textContent = t(key, lang);
+    }
+
+    // Re-apply tel line (set dynamically by applyReceiptClinicHeaderFromRecord)
+    var telEl = wrap.querySelector('#rClinicTelLine');
+    if (telEl && typeof t === 'function') {
+        var telStr = t('bill.receipt.telPrefix', lang);
+        telEl.textContent = telStr.replace('{TEL}', _receiptClinicTelForFooter || '—');
+    }
+
+    // Re-apply clinic-specific footer thanks line
+    var footEl = wrap.querySelector('#rReceiptFooterThanks');
+    if (footEl && typeof t === 'function') {
+        var thanksStr = t('bill.receipt.thanksVisit', lang);
+        footEl.textContent = thanksStr.replace('{NAME}', _receiptClinicNameForFooter || '');
+    }
+
+    return wrap.innerHTML;
+}
+
+/**
+ * Print a single receipt translated entirely into `lang`
+ * ('en', 'zh-Hant', or 'zh-CN'), regardless of the UI language.
+ */
+function printReceiptForLang(lang) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    var area = g('receiptPrintArea');
+    if (!area) return;
+    if (_receiptPrintInProgress) return;
+    _receiptPrintInProgress = true;
+
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+    var billPrintRow = null;
+    var sheetCss = receiptPrintSheetFallbackCss();
+    if (typeof CFG !== 'undefined' && CFG) {
+        if (typeof CFG.prefetchPrintSettings === 'function') CFG.prefetchPrintSettings(cid);
+        if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss) {
+            billPrintRow = CFG.getPrintSettingsForDoc('bill', cid);
+            sheetCss = CFG.buildPrintSheetStylesCss(billPrintRow);
+        }
+    }
+
+    var printStylesAll = sheetCss +
+        '.print-sheet-outer img,.print-sheet-outer table{max-width:100%;}' +
+        receiptContentPrintStyles();
+
+    var translatedHtml = buildReceiptPageForLang(area, lang);
+
+    var iframe = g('receiptPrintFrame');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'receiptPrintFrame';
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.title = 'Receipt print';
+        document.body.appendChild(iframe);
+    }
+    iframe.style.cssText =
+        'position:fixed;left:-10000px;top:0;width:794px;height:1123px;' +
+        'border:0;visibility:hidden;opacity:0;pointer-events:none;';
+
+    var releaseLock = function () {
+        _receiptPrintInProgress = false;
+        if (iframe) {
+            iframe.style.cssText =
+                'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+        }
+    };
+
+    var doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+    if (!doc) { releaseLock(); alert(tr('bill.receipt.popupBlocked')); return; }
+
+    doc.open();
+    doc.write(
+        '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
+        '<title>' + esc(t('bill.receipt.printTitle', lang)) + '</title>' +
+        '<style>' + printStylesAll + '</style></head><body>' +
+        '<div class="print-sheet-outer"><div id="receiptPrintArea">' +
+        translatedHtml +
+        '</div></div></body></html>'
+    );
+    doc.close();
+
+    var win = iframe.contentWindow;
+    if (!win) { releaseLock(); return; }
+
+    var done = false;
+    function finish() {
+        if (done) return;
+        done = true;
+        releaseLock();
+        if (typeof closeModal === 'function') closeModal('receiptModal');
+    }
+
+    try { win.addEventListener('afterprint', function () { setTimeout(finish, 300); }); } catch (_) {}
+
+    setTimeout(function () {
+        var scalePct;
+        try {
+            scalePct = receiptAutoFitScalePercent(doc, billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
+        } catch (eFit) {
+            scalePct = receiptPrintMaxScalePercent(billPrintRow);
+            receiptApplyPrintScale(doc, scalePct);
+        }
+        setTimeout(function () {
+            try {
+                win.focus();
+                win.print();
+            } catch (ePrint) {
+                finish();
+                alert(tr('bill.receipt.popupBlocked'));
+                return;
+            }
+            setTimeout(finish, 8000);
+        }, 60);
+    }, 140);
+}
+
 function clinicRecordForReceiptByTagOrId(tagOrId) {
     if (!tagOrId || !APP_CLINICS || !APP_CLINICS.length) return null;
     var t = String(tagOrId).trim();
@@ -19496,6 +20781,10 @@ function applyReceiptClinicHeaderFromRecord(rec) {
     }
     if (!name && currentClinicLabel) name = String(currentClinicLabel).trim();
     if (!name) name = tr('ai.clinicFallback');
+
+    // Save for trilingual print re-use
+    _receiptClinicNameForFooter = name;
+    _receiptClinicTelForFooter  = tel;
 
     if (nmEl) nmEl.textContent = name;
     if (addrEl) addrEl.textContent = addr || '—';
@@ -19943,6 +21232,8 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
             var row = document.createElement('tr');
             row.className = 'receipt-inst-row';
             if (i % 2 === 1) row.className += ' receipt-inst-row--alt';
+            var clinicLabel = (typeof billPaymentReceivingClinicDisplay === 'function')
+                ? billPaymentReceivingClinicDisplay(p, bill) : '';
             row.innerHTML =
                 '<td class="receipt-inst-td receipt-inst-td--num">' + (i + 1) + '</td>' +
                 '<td class="receipt-inst-td">' + esc(p.paid_date || '—') + '</td>' +
@@ -19950,6 +21241,7 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
                 '<td class="receipt-inst-td">' + esc((typeof dispPayMethod === 'function')
                     ? dispPayMethod(p.method)
                     : (p.method || '—')) + '</td>' +
+                '<td class="receipt-inst-td receipt-inst-td--clinic">' + esc(clinicLabel) + '</td>' +
                 '<td class="receipt-inst-td receipt-inst-td--notes">' +
                     esc(p.notes || '') + '</td>';
             bodyEl.appendChild(row);

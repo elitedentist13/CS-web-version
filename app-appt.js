@@ -5912,6 +5912,9 @@ function doPlusApptPatientSearch() {
                     (p.chinese_name ? p.chinese_name + ' ' : '') +
                     p.full_name + ' (#' + (p.patient_no || '') + ')';
                 dd.style.display = 'none';
+                if (typeof recordPatientSearchToActiveCard === 'function') {
+                    recordPatientSearchToActiveCard(p, 'plus-appt-search');
+                }
             });
             item.addEventListener('dragstart', function(ev) {
                 if (typeof beginPatientDragTransfer === 'function') {
@@ -5926,6 +5929,9 @@ function doPlusApptPatientSearch() {
             dd.appendChild(item);
         });
         dd.style.display = 'block';
+        if (r.data.length === 1 && typeof recordPatientSearchToActiveCard === 'function') {
+            recordPatientSearchToActiveCard(r.data[0], 'plus-appt-search-single');
+        }
     });
 }
 
@@ -8891,6 +8897,9 @@ function apptRefreshSelectedPatientDob(patientId, dobHint) {
 
 function apptSetSelectedPatient(p) {
     if (!p || !p.id) return;
+    if (typeof recordPatientSearchToActiveCard === 'function') {
+        recordPatientSearchToActiveCard(p, 'appt-modal-patient');
+    }
     g('hPid').value      = p.id;
     g('hPno').value      = p.patient_no    || '';
     g('hPname').value    = p.full_name     || '';
@@ -8974,6 +8983,9 @@ function doPatientSearch() {
             dd.appendChild(item);
         });
         dd.style.display = 'block';
+        if (r.data.length === 1 && typeof recordPatientSearchToActiveCard === 'function') {
+            recordPatientSearchToActiveCard(r.data[0], 'psInput-single');
+        }
     });
 }
 

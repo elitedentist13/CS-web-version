@@ -3249,16 +3249,26 @@ var REPORT = (function () {
       _rows = rows.map(function (r) {
         return { item: r.item, frequency: r.freq, income: r.income.toFixed(2) };
       });
+      // Append total row so it appears in CSV export
+      _rows = _rows.concat([{ item: tr('report.drStats.totalRow'), frequency: grandItems, income: grandIncome.toFixed(2) }]);
 
       var th = 'padding:10px 12px;background:#f3f0ff;color:#6d28d9;font-size:12px;font-weight:900;border-bottom:2px solid #e9ddff;text-align:left;';
       var td = 'padding:9px 12px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
-      var rowsHtml = _rows.map(function (r) {
+      var dataRows = _rows.slice(0, _rows.length - 1);
+      var rowsHtml = dataRows.map(function (r) {
         return '<tr>' +
           '<td style="' + td + 'font-weight:900;color:#0f172a;">' + esc(r.item) + '</td>' +
           '<td style="' + td + 'text-align:right;">' + esc(String(r.frequency || 0)) + '</td>' +
           '<td style="' + td + 'text-align:right;font-weight:900;color:#6d28d9;">' + fmtHK(Number(r.income)) + '</td>' +
         '</tr>';
       }).join('');
+      var tfootStyle = 'padding:10px 12px;font-size:13px;vertical-align:middle;background:#f3f0ff;border-top:2px solid #c4b5fd;';
+      var totalFooter =
+        '<tfoot><tr>' +
+          '<td style="' + tfootStyle + 'font-weight:900;color:#4c1d95;">' + esc(tr('report.drStats.totalRow')) + '</td>' +
+          '<td style="' + tfootStyle + 'text-align:right;font-weight:900;color:#4c1d95;">' + esc(String(grandItems)) + '</td>' +
+          '<td style="' + tfootStyle + 'text-align:right;font-weight:900;color:#4c1d95;">' + fmtHK(grandIncome) + '</td>' +
+        '</tr></tfoot>';
 
       body.innerHTML =
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
@@ -3280,6 +3290,7 @@ var REPORT = (function () {
                 '<th style="' + th + 'text-align:right;width:200px;">' + esc(tr('report.drStats.thTotalIncome')) + '</th>' +
               '</tr></thead>' +
               '<tbody>' + rowsHtml + '</tbody>' +
+              totalFooter +
             '</table>' +
           '</div>' +
         '</div>';

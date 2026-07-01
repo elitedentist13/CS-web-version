@@ -1554,6 +1554,7 @@
         'report.drStats.monthItemGrand': { en: 'Month Items Grand Total', 'zh-CN': '本月项目总计', 'zh-Hant': '本月項目總計' },
         'report.drStats.monthTotalFreq': { en: 'Total Item Frequency', 'zh-CN': '项目总次数', 'zh-Hant': '項目總次數' },
         'report.drStats.thTotalIncome': { en: 'Total Income', 'zh-CN': '合计收入', 'zh-Hant': '合計收入' },
+        'report.drStats.totalRow': { en: 'TOTAL', 'zh-CN': '合计', 'zh-Hant': '合計' },
         'report.drMonthly.kpiTotalBilled': { en: 'Total Billed', 'zh-CN': '应收合计', 'zh-Hant': '應收合計' },
         'report.drMonthly.kpiTotalPaid': { en: 'Total Paid', 'zh-CN': '已付合计', 'zh-Hant': '已付合計' },
         'report.drMonthly.kpiOutstanding': { en: 'Outstanding', 'zh-CN': '未结余额', 'zh-Hant': '未結餘額' },

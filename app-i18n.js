@@ -180,6 +180,16 @@ var I18N_STRINGS = {
         'zh-CN': '合并、提取、旋转、加水印及压缩 PDF',
         'zh-Hant': '合併、提取、旋轉、加浮水印及壓縮 PDF'
     },
+    'tools.posterMaker': {
+        en: 'Clinic Poster Maker',
+        'zh-CN': '诊所海报设计',
+        'zh-Hant': '診所海報設計'
+    },
+    'tools.posterMakerDesc': {
+        en: 'Design appointment reminders, health tips & notices — export or print',
+        'zh-CN': '设计预约提醒、健康贴士及公告海报，可导出或打印',
+        'zh-Hant': '設計預約提醒、健康貼士及公告海報，可匯出或列印'
+    },
     'tools.cert': {
         en: 'Certificate / Receipt / Label',
         'zh-CN': '证明 / 收据 / 标签',

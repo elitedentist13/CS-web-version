@@ -5649,6 +5649,11 @@
         <div class="ent-game-name" data-i18n="tools.pdf"></div>
         <div class="ent-game-desc" data-i18n="tools.pdfDesc"></div>
       </div>
+      <div class="ent-game-card" data-tool="poster-maker">
+        <div class="ent-game-icon">🎨</div>
+        <div class="ent-game-name" data-i18n="tools.posterMaker"></div>
+        <div class="ent-game-desc" data-i18n="tools.posterMakerDesc"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -5681,6 +5686,15 @@
 </section>
 
 <!-- ── Certificate / receipt / label ── (removed) -->
+
+<!-- ── Clinic Poster Maker ── -->
+<section id="posterMakerSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="posterMakerBack" data-i18n="tools.back"></button>
+    <h1 data-i18n="tools.posterMaker"></h1>
+  </div>
+  <div id="posterMakerApp"></div>
+</section>
 
 <section id="docToolsSection" class="container" style="display:none;" aria-hidden="true">
   <div class="top-bar">
@@ -5724,7 +5738,8 @@
     'app-engines.js',
     'app-entertainment.js',
     'app-doc-tools.js',
-    'app-tools.js'
+    'app-tools.js',
+    'app-poster-maker.js'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

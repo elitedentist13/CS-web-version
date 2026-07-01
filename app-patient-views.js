@@ -777,12 +777,23 @@ function patDashRenderTimeline(host, events) {
         return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
+    function actionLabel(ev) {
+        if (typeof conTr !== 'function') return '→';
+        if (ev.action === 'visit')  return conTr('con.ptl.actionVisit');
+        if (ev.action === 'bill')   return conTr('con.ptl.actionBill');
+        if (ev.action === 'rx')     return conTr('con.ptl.actionRx');
+        if (ev.action === 'photo')  return conTr('con.ptl.actionPhoto');
+        if (ev.action === 'xray')   return conTr('con.ptl.actionXray');
+        if (ev.action === 'doc')    return conTr('con.ptl.actionDoc');
+        return conTr('con.ptl.actionOpen');
+    }
+
     var html = '<div class="pat-dash-timeline-count">' +
         esc(events.length + ' event' + (events.length !== 1 ? 's' : '')) +
         '</div>';
     var lastDay = '';
 
-    events.forEach(function (ev) {
+    events.forEach(function (ev, idx) {
         var day = fmtDay(ev.ts);
         if (day !== lastDay) {
             if (lastDay) html += '</ul>';
@@ -792,19 +803,129 @@ function patDashRenderTimeline(host, events) {
         }
         var evCls    = 'con-ptl-event con-ptl-event--' + esc(ev.kind || 'visit');
         var headline = String(ev.headline || '').trim();
-        var detail   = String(ev.detail   || '').trim();
-        html += '<li class="' + evCls + '">' +
+        var detail   = String(ev.detail || ev.body || '').trim();
+        html += '<li class="' + evCls + '" data-ptl-idx="' + idx + '" style="cursor:pointer;">' +
             '<div class="con-ptl-event-head">' +
             '<span class="con-ptl-event-type">' + esc(ev.title || ev.kind || '') + '</span>' +
             '<span class="con-ptl-event-time">' + esc(fmtTime(ev.ts)) + '</span>' +
             '</div>' +
             (headline ? '<div class="con-ptl-event-title">' + esc(headline) + '</div>' : '') +
             (detail   ? '<div class="con-ptl-event-body">'  + esc(detail)   + '</div>' : '') +
+            '<div class="con-ptl-event-meta">' +
+            '<button type="button" class="con-ptl-event-jump" data-ptl-open="' + idx + '">' +
+                esc(actionLabel(ev)) +
+            '</button>' +
+            '</div>' +
             '</li>';
     });
     if (lastDay) html += '</ul>';
 
     host.innerHTML = html;
+
+    host.querySelectorAll('.con-ptl-event').forEach(function (el) {
+        el.addEventListener('click', function (e) {
+            if (e.target && e.target.closest && e.target.closest('button')) return;
+            var idx = parseInt(el.getAttribute('data-ptl-idx'), 10);
+            if (!isNaN(idx) && events[idx]) patDashPtlOpenEvent(events[idx]);
+        });
+    });
+    host.querySelectorAll('[data-ptl-open]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var idx = parseInt(btn.getAttribute('data-ptl-open'), 10);
+            if (!isNaN(idx) && events[idx]) patDashPtlOpenEvent(events[idx]);
+        });
+    });
+}
+
+function patDashPtlOpenEvent(ev) {
+    if (!ev) return;
+    var pid = selPatientId || (_patientDetailsPatient && _patientDetailsPatient.id);
+
+    if (ev.action === 'visit') {
+        if (typeof openApptFromTimelineVisit === 'function') {
+            openApptFromTimelineVisit(ev.payload || { id: ev.refId });
+        } else if (typeof showOnly === 'function') {
+            showOnly('appointmentSection');
+            setTimeout(function () {
+                if (typeof switchApptTab === 'function') switchApptTab('plusappt');
+            }, 40);
+        }
+        return;
+    }
+
+    if (ev.action === 'bill') {
+        if (ev.payload && ev.payload.items && typeof showBillDetail === 'function') {
+            showBillDetail(ev.payload);
+            return;
+        }
+        if (ev.refId) {
+            SB.from('bills').select('*').eq('id', ev.refId).single()
+                .then(function (r) {
+                    if (!r.error && r.data && typeof showBillDetail === 'function') {
+                        showBillDetail(r.data);
+                    }
+                });
+            return;
+        }
+        return;
+    }
+
+    if (!pid || typeof openConForPatient !== 'function') return;
+
+    if (ev.action === 'notes') {
+        openConForPatient(pid);
+        setTimeout(function () {
+            if (typeof switchConTnSubtab === 'function') switchConTnSubtab('notes');
+        }, 150);
+        return;
+    }
+
+    if (ev.action === 'rx') {
+        openConForPatient(pid);
+        setTimeout(function () {
+            if (typeof switchConTnSubtab === 'function') switchConTnSubtab('notes');
+            setTimeout(function () {
+                var wrap = g('drugHistoryWrap');
+                if (wrap && wrap.scrollIntoView) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 250);
+        }, 150);
+        return;
+    }
+
+    if (ev.action === 'doc') {
+        openConForPatient(pid);
+        setTimeout(function () {
+            if (typeof switchConTab === 'function') switchConTab('forms');
+            if (ev.refId && typeof openConFormsDoc === 'function') {
+                setTimeout(function () { openConFormsDoc(ev.refId); }, 150);
+            }
+        }, 150);
+        return;
+    }
+
+    if (ev.action === 'xray') {
+        openConForPatient(pid);
+        setTimeout(function () {
+            if (typeof switchConTab === 'function') switchConTab('xrays');
+        }, 150);
+        return;
+    }
+
+    if (ev.action === 'photo') {
+        openConForPatient(pid);
+        setTimeout(function () {
+            if (typeof switchConTab === 'function') switchConTab('photos');
+            setTimeout(function () {
+                if (typeof refreshPhotos === 'function') refreshPhotos();
+            }, 80);
+        }, 150);
+        return;
+    }
+
+    // Fallback: open consultation treatment tab
+    openConForPatient(pid);
 }
 
 function initPatientViews() {

@@ -132,6 +132,8 @@
         if (app) app.innerHTML =
             '<div style="padding:20px;color:#64748b;text-align:center;">' +
             esc(t('Loading canvas engine…', '加载画布引擎…', '載入畫布引擎…')) + '</div>';
+        // Silently fetch API keys from Supabase so new browsers get them automatically
+        pmFetchApiKeysFromSupabase();
         ensureFabric().then(function (fabric) {
             render(fabric);
         }).catch(function (e) {
@@ -706,27 +708,46 @@
 
             // API key modal (hidden)
             '<div id="pm-ol-keymodal" style="display:none;background:#1e293b;border:1px solid #334155;' +
-                'border-radius:8px;padding:10px;font-size:11px;color:#e2e8f0;">' +
-                '<div style="font-weight:700;margin-bottom:6px;color:#60a5fa;">' +
+                'border-radius:8px;padding:10px;font-size:11px;color:#e2e8f0;max-width:172px;">' +
+
+                '<div style="font-weight:700;margin-bottom:4px;color:#60a5fa;">' +
                     esc(t('API Key Settings','API密钥设置','API密鑰設定')) + '</div>' +
-                '<div style="font-size:9px;color:#94a3b8;margin-bottom:6px;">' +
-                    esc(t('Keys are saved in your browser only.','密钥仅保存在您的浏览器中。','密鑰僅儲存在您的瀏覽器中。')) + '</div>' +
+
+                // Supabase status indicator
+                '<div id="pm-ol-key-sb-status" style="font-size:8px;color:#94a3b8;margin-bottom:6px;' +
+                    'padding:3px 6px;background:#0f172a;border-radius:4px;line-height:1.4;word-break:break-all;">' +
+                    '⏳ ' + esc(t('Checking Supabase…','检查Supabase中…','檢查Supabase中…')) +
+                '</div>' +
+
                 '<label style="font-size:9px;color:#94a3b8;display:block;margin-bottom:2px;">Unsplash Access Key</label>' +
                 '<div style="display:flex;gap:3px;margin-bottom:5px;">' +
-                    '<input id="pm-ol-ukey" type="password" placeholder="Get free key → unsplash.com/developers" ' +
+                    '<input id="pm-ol-ukey" type="password" placeholder="unsplash.com/developers" ' +
                         'style="flex:1;font-size:9px;padding:3px 5px;background:#0f172a;border:1px solid #334155;' +
-                        'border-radius:4px;color:#f1f5f9;box-sizing:border-box;">' +
+                        'border-radius:4px;color:#f1f5f9;box-sizing:border-box;min-width:0;">' +
                 '</div>' +
                 '<label style="font-size:9px;color:#94a3b8;display:block;margin-bottom:2px;">Pexels API Key</label>' +
-                '<div style="display:flex;gap:3px;margin-bottom:6px;">' +
-                    '<input id="pm-ol-pkey" type="password" placeholder="Get free key → pexels.com/api" ' +
+                '<div style="display:flex;gap:3px;margin-bottom:7px;">' +
+                    '<input id="pm-ol-pkey" type="password" placeholder="pexels.com/api" ' +
                         'style="flex:1;font-size:9px;padding:3px 5px;background:#0f172a;border:1px solid #334155;' +
-                        'border-radius:4px;color:#f1f5f9;box-sizing:border-box;">' +
+                        'border-radius:4px;color:#f1f5f9;box-sizing:border-box;min-width:0;">' +
                 '</div>' +
+
+                // Primary: Save to Supabase for all users
+                '<button id="pm-ol-key-save-sb" style="width:100%;font-size:9px;padding:5px 8px;margin-bottom:3px;' +
+                    'background:#0d9488;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;">' +
+                    '☁️ ' + esc(t('Save to Supabase (all users)','保存到Supabase（所有用户）','儲存到Supabase（所有使用者）')) +
+                '</button>' +
+
+                // Secondary: copy SQL snippet
+                '<button id="pm-ol-key-copy-sql" style="width:100%;font-size:9px;padding:4px 8px;margin-bottom:7px;' +
+                    'background:#1e40af;color:#bfdbfe;border:1px solid #1d4ed8;border-radius:4px;cursor:pointer;">' +
+                    '📋 ' + esc(t('Copy Setup SQL (run in Supabase)','复制安装SQL（在Supabase运行）','複製安裝SQL（在Supabase執行）')) +
+                '</button>' +
+
                 '<div style="display:flex;gap:4px;justify-content:flex-end;">' +
                     '<button id="pm-ol-key-save" style="font-size:9px;padding:3px 8px;background:#3b82f6;' +
                         'color:#fff;border:none;border-radius:4px;cursor:pointer;">' +
-                        esc(t('Save','保存','儲存')) + '</button>' +
+                        '💾 ' + esc(t('This browser only','仅此浏览器','僅此瀏覽器')) + '</button>' +
                     '<button id="pm-ol-key-cancel" style="font-size:9px;padding:3px 8px;background:#334155;' +
                         'color:#e2e8f0;border:none;border-radius:4px;cursor:pointer;">' +
                         esc(t('Cancel','取消','取消')) + '</button>' +
@@ -1910,23 +1931,93 @@
                 olModalEl.style.display = olModalEl.style.display === 'none' ? 'block' : 'none';
             });
         }
+        // "This browser only" save — localStorage only
         var olKeySaveEl = g('pm-ol-key-save'), olKeyCancelEl = g('pm-ol-key-cancel');
         if (olKeySaveEl) {
             olKeySaveEl.addEventListener('click', function () {
-                var uv = (g('pm-ol-ukey') || {}).value || '';
-                var pv = (g('pm-ol-pkey') || {}).value || '';
-                if (uv) localStorage.setItem('pm_unsplash_key', uv.trim());
+                var uv = ((g('pm-ol-ukey') || {}).value || '').trim();
+                var pv = ((g('pm-ol-pkey') || {}).value || '').trim();
+                if (uv) localStorage.setItem('pm_unsplash_key', uv);
                 else    localStorage.removeItem('pm_unsplash_key');
-                if (pv) localStorage.setItem('pm_pexels_key', pv.trim());
+                if (pv) localStorage.setItem('pm_pexels_key', pv);
                 else    localStorage.removeItem('pm_pexels_key');
                 if (olModalEl) olModalEl.style.display = 'none';
-                alert(t('API keys saved!','API密钥已保存！','API密鑰已儲存！'));
+                alert(t('Keys saved for this browser.','密钥已保存到此浏览器。','密鑰已儲存至此瀏覽器。'));
             });
         }
+
+        // "Save to Supabase (all users)" — upsert to app_config table
+        var olKeySaveSbEl = g('pm-ol-key-save-sb');
+        if (olKeySaveSbEl) {
+            olKeySaveSbEl.addEventListener('click', function () {
+                var uv = ((g('pm-ol-ukey') || {}).value || '').trim();
+                var pv = ((g('pm-ol-pkey') || {}).value || '').trim();
+                olKeySaveSbEl.disabled = true;
+                olKeySaveSbEl.textContent = '⏳ ' + t('Saving…','保存中…','儲存中…');
+                pmSaveApiKeysToSupabase(uv, pv)
+                    .then(function (result) {
+                        olKeySaveSbEl.disabled = false;
+                        olKeySaveSbEl.innerHTML = '☁️ ' + esc(t('Save to Supabase (all users)','保存到Supabase（所有用户）','儲存到Supabase（所有使用者）'));
+                        if (result.ok) {
+                            if (uv) localStorage.setItem('pm_unsplash_key', uv);
+                            else    localStorage.removeItem('pm_unsplash_key');
+                            if (pv) localStorage.setItem('pm_pexels_key', pv);
+                            else    localStorage.removeItem('pm_pexels_key');
+                            if (olModalEl) olModalEl.style.display = 'none';
+                            pmRefreshKeyModalStatus();
+                            alert(t('✅ Keys saved to Supabase — all users will receive them automatically.',
+                                    '✅ 密钥已保存到Supabase，所有用户将自动获取。',
+                                    '✅ 密鑰已儲存到Supabase，所有使用者將自動獲取。'));
+                        } else {
+                            // Show specific error and guide user to copy-SQL approach
+                            var errMsg = result.error || 'Unknown error';
+                            var sbStatus = g('pm-ol-key-sb-status');
+                            if (sbStatus) {
+                                sbStatus.style.color = '#f87171';
+                                sbStatus.textContent = '❌ ' + errMsg + ' → ' +
+                                    t('Click "Copy Setup SQL" and run it in your Supabase SQL Editor first.',
+                                      '请点击"复制安装SQL"并在Supabase SQL编辑器中运行。',
+                                      '請點擊「複製安裝SQL」並在Supabase SQL編輯器中執行。');
+                            }
+                        }
+                    });
+            });
+        }
+
+        // "Copy Setup SQL" — generates complete SQL and copies to clipboard
+        var olCopySqlEl = g('pm-ol-key-copy-sql');
+        if (olCopySqlEl) {
+            olCopySqlEl.addEventListener('click', function () {
+                var uv = ((g('pm-ol-ukey') || {}).value || '').trim();
+                var pv = ((g('pm-ol-pkey') || {}).value || '').trim();
+                var sql = pmGenerateSetupSql(uv, pv);
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(sql).then(function () {
+                        olCopySqlEl.textContent = '✅ Copied!';
+                        setTimeout(function () {
+                            olCopySqlEl.innerHTML = '📋 ' + esc(t('Copy Setup SQL (run in Supabase)','复制安装SQL（在Supabase运行）','複製安裝SQL（在Supabase執行）'));
+                        }, 2500);
+                    });
+                } else {
+                    // Fallback: show in a prompt for manual copy
+                    window.prompt(t('Copy this SQL and run it in your Supabase SQL Editor:',
+                                    '请复制此SQL并在Supabase SQL编辑器中运行：',
+                                    '請複製此SQL並在Supabase SQL編輯器中執行：'), sql);
+                }
+            });
+        }
+
         if (olKeyCancelEl) {
             olKeyCancelEl.addEventListener('click', function () {
                 if (olModalEl) olModalEl.style.display = 'none';
             });
+        }
+
+        // Refresh Supabase status whenever the modal is opened
+        if (olApiBtnEl && olModalEl) {
+            olApiBtnEl.addEventListener('click', function () {
+                pmRefreshKeyModalStatus();
+            }, true);
         }
 
         // Tab switching
@@ -2816,6 +2907,177 @@
             }
         } catch (e) {}
         return name || t('Your Clinic', '诊所名称', '診所名稱');
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  SUPABASE API-KEY SYNC
+    //  Table:  public.app_config  (key TEXT PK, value TEXT, updated_at TIMESTAMPTZ)
+    //  RLS:    SELECT → public (anon + authenticated)
+    //          INSERT/UPDATE/DELETE → authenticated only
+    // ════════════════════════════════════════════════════════════════
+
+    var _pmKeysFetched = false;   // fetch only once per session
+
+    // Fetch Unsplash + Pexels keys from Supabase and cache in localStorage.
+    // Called silently when the poster maker opens — works for any browser.
+    function pmFetchApiKeysFromSupabase() {
+        if (_pmKeysFetched) return Promise.resolve();
+        if (typeof SB === 'undefined') return Promise.resolve();
+        return SB.from('app_config')
+            .select('key, value')
+            .in('key', ['unsplash_api_key', 'pexels_api_key'])
+            .then(function (result) {
+                _pmKeysFetched = true;
+                if (result.error || !result.data) return;
+                result.data.forEach(function (row) {
+                    if (!row.value) return;
+                    if (row.key === 'unsplash_api_key') localStorage.setItem('pm_unsplash_key', row.value);
+                    if (row.key === 'pexels_api_key')   localStorage.setItem('pm_pexels_key',   row.value);
+                });
+                var ukEl = g('pm-ol-ukey'), pkEl = g('pm-ol-pkey');
+                if (ukEl) ukEl.value = localStorage.getItem('pm_unsplash_key') || '';
+                if (pkEl) pkEl.value = localStorage.getItem('pm_pexels_key')   || '';
+            })
+            .catch(function () { /* silently ignore */ });
+    }
+
+    // Upsert keys to Supabase.  Returns { ok: bool, error: string|null }.
+    // Requires the app_config table to exist with an open-write RLS policy
+    // (run pmGenerateSetupSql() to get the SQL).
+    function pmSaveApiKeysToSupabase(unsplashKey, pexelsKey) {
+        if (typeof SB === 'undefined') return Promise.resolve({ ok: false, error: 'Supabase SDK not loaded' });
+        var ts   = new Date().toISOString();
+        var rows = [
+            { key: 'unsplash_api_key', value: unsplashKey || '', updated_at: ts },
+            { key: 'pexels_api_key',   value: pexelsKey   || '', updated_at: ts }
+        ];
+        return SB.from('app_config')
+            .upsert(rows, { onConflict: 'key' })
+            .then(function (result) {
+                if (result.error) {
+                    var code = result.error.code || '';
+                    var msg  = result.error.message || 'Unknown Supabase error';
+                    var hint = '';
+                    if (code === '42P01') hint = ' (Table does not exist — run the Setup SQL first)';
+                    else if (code === '42501') hint = ' (Permission denied — run the Setup SQL to fix RLS policy)';
+                    console.warn('pmSaveApiKeysToSupabase:', msg, result.error);
+                    return { ok: false, error: msg + hint };
+                }
+                _pmKeysFetched = false;
+                return { ok: true, error: null };
+            })
+            .catch(function (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                console.warn('pmSaveApiKeysToSupabase exception:', msg);
+                return { ok: false, error: msg };
+            });
+    }
+
+    // Generate the complete one-time setup SQL for the Supabase SQL Editor.
+    // Embeds the actual key values if provided so the admin can run it in one shot.
+    function pmGenerateSetupSql(unsplashKey, pexelsKey) {
+        var uSafe = (unsplashKey || 'PASTE_UNSPLASH_KEY_HERE').replace(/'/g, "''");
+        var pSafe = (pexelsKey   || 'PASTE_PEXELS_KEY_HERE').replace(/'/g, "''");
+        return [
+            '-- ═══════════════════════════════════════════════════════',
+            '-- Clinic Poster Maker — Supabase API Key Setup',
+            '-- Paste and run this in: Supabase Dashboard → SQL Editor',
+            '-- ═══════════════════════════════════════════════════════',
+            '',
+            '-- 1. Create config table',
+            'CREATE TABLE IF NOT EXISTS public.app_config (',
+            '    key         TEXT PRIMARY KEY,',
+            '    value       TEXT,',
+            '    updated_at  TIMESTAMPTZ DEFAULT NOW()',
+            ');',
+            '',
+            '-- 2. Enable Row Level Security',
+            'ALTER TABLE public.app_config ENABLE ROW LEVEL SECURITY;',
+            '',
+            '-- 3. Allow anyone to read (so new browsers auto-fetch keys)',
+            'DO $$ BEGIN',
+            '  IF NOT EXISTS (',
+            '    SELECT 1 FROM pg_policies',
+            '    WHERE tablename=\'app_config\' AND policyname=\'app_config_public_read\'',
+            '  ) THEN',
+            '    CREATE POLICY "app_config_public_read"',
+            '      ON public.app_config FOR SELECT USING (true);',
+            '  END IF;',
+            'END $$;',
+            '',
+            '-- 4. Allow anyone to write the photo API keys',
+            '--    (these are non-personal keys; risk is minimal)',
+            'DO $$ BEGIN',
+            '  IF NOT EXISTS (',
+            '    SELECT 1 FROM pg_policies',
+            '    WHERE tablename=\'app_config\' AND policyname=\'app_config_public_write\'',
+            '  ) THEN',
+            '    CREATE POLICY "app_config_public_write"',
+            '      ON public.app_config FOR ALL USING (true) WITH CHECK (true);',
+            '  END IF;',
+            'END $$;',
+            '',
+            '-- 5. Insert / update the API keys',
+            'INSERT INTO public.app_config (key, value, updated_at) VALUES',
+            '  (\'unsplash_api_key\', \'' + uSafe + '\', NOW()),',
+            '  (\'pexels_api_key\',   \'' + pSafe + '\', NOW())',
+            'ON CONFLICT (key) DO UPDATE',
+            '  SET value = EXCLUDED.value, updated_at = NOW();',
+            '',
+            '-- Done! All users will now receive these keys automatically.'
+        ].join('\n');
+    }
+
+    // Update the status badge inside the API key modal.
+    function pmRefreshKeyModalStatus() {
+        var el = g('pm-ol-key-sb-status');
+        if (!el) return;
+        if (typeof SB === 'undefined') {
+            el.style.color = '#f87171';
+            el.textContent = '⚠️ Supabase SDK not available';
+            return;
+        }
+        el.style.color = '#94a3b8';
+        el.textContent = '⏳ ' + t('Checking Supabase…','检查Supabase中…','檢查Supabase中…');
+        SB.from('app_config')
+            .select('key, updated_at')
+            .in('key', ['unsplash_api_key', 'pexels_api_key'])
+            .then(function (result) {
+                if (result.error) {
+                    var code = result.error.code || '';
+                    el.style.color = '#f87171';
+                    if (code === '42P01') {
+                        el.textContent = '❌ ' +
+                            t('Table not set up yet. Click "Copy Setup SQL", paste it in Supabase SQL Editor and run it.',
+                              '表尚未创建。点击"复制安装SQL"，粘贴到Supabase SQL编辑器并运行。',
+                              '資料表尚未建立。點擊「複製安裝SQL」，貼到Supabase SQL編輯器並執行。');
+                    } else {
+                        el.textContent = '❌ ' + (result.error.message || 'Supabase error');
+                    }
+                    return;
+                }
+                var rows = result.data || [];
+                if (rows.length === 0) {
+                    el.style.color = '#f59e0b';
+                    el.textContent = '⚠️ ' +
+                        t('Table exists but no keys yet. Enter keys and click "Save to Supabase" or "Copy Setup SQL".',
+                          '表已存在但尚无密钥。请输入密钥后点击"保存到Supabase"或"复制安装SQL"。',
+                          '資料表已存在但尚無密鑰。請輸入密鑰後點擊「儲存到Supabase」或「複製安裝SQL」。');
+                } else {
+                    var latest = rows.reduce(function (acc, r) {
+                        return r.updated_at > acc ? r.updated_at : acc;
+                    }, '');
+                    var d = latest ? new Date(latest).toLocaleString() : '';
+                    el.style.color = '#86efac';
+                    el.textContent = '✅ ' + rows.length + '/2 ' +
+                        t('keys in Supabase','个密钥已存入Supabase','個密鑰已存入Supabase') +
+                        (d ? ' · ' + d : '');
+                }
+            })
+            .catch(function (err) {
+                el.style.color = '#f87171';
+                el.textContent = '❌ ' + t('Cannot reach Supabase.','无法连接Supabase。','無法連線Supabase。');
+            });
     }
 
     // ════════════════════════════════════════════════════════════════

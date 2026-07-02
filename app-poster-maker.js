@@ -520,6 +520,32 @@
                         tp('senior','👴',t('Senior Package','乐龄配套','樂齡配套')),
                     false) +
 
+                    grp(t('Dental Education','牙科教育','牙科教育'), '🦷',
+                        tp('de_brushing','🪥',t('Brushing Guide','刷牙指南','刷牙指南')) +
+                        tp('de_flossing','🧵',t('Flossing 101','牙线使用','牙線使用')) +
+                        tp('de_cavity','🦷',t('Cavities','蛀牙成因','蛀牙成因')) +
+                        tp('de_gum','🩸',t('Gum Disease','牙周病','牙周病')) +
+                        tp('de_kidsteeth','🧒',t('Kids Teeth','儿童牙齿','兒童牙齒')) +
+                        tp('de_diet','🍎',t('Diet & Teeth','饮食与牙齿','飲食與牙齒')) +
+                        tp('de_whitening','✨',t('Whitening','牙齿美白','牙齒美白')) +
+                        tp('de_implant','🔩',t('Implants','植牙','植牙')) +
+                        tp('de_braces','😁',t('Braces','牙齿矫正','牙齒矯正')) +
+                        tp('de_dentalemer','🚑',t('Dental Emergency','牙科急症','牙科急症')),
+                    false) +
+
+                    grp(t('Events & Info','活动资讯','活動資訊'), '🎪',
+                        tp('ev_healthtalk','🎤',t('Health Talk','健康讲座','健康講座')) +
+                        tp('ev_openday','🚪',t('Open Day','开放日','開放日')) +
+                        tp('ev_dentalcamp','⛺',t('Dental Camp','义诊活动','義診活動')) +
+                        tp('ev_workshop','🛠',t('Workshop','工作坊','工作坊')) +
+                        tp('ev_grandopening','🎀',t('Grand Opening','盛大开幕','盛大開幕')) +
+                        tp('ev_anniversary','🎂',t('Anniversary','周年庆典','週年慶典')) +
+                        tp('ev_promo','🏷',t('Special Offer','特别优惠','特別優惠')) +
+                        tp('ev_schedule','🗓',t('Event Schedule','活动流程','活動流程')) +
+                        tp('ev_webinar','💻',t('Webinar','网络研讨会','網路研討會')) +
+                        tp('ev_charity','🤝',t('Charity Event','慈善活动','慈善活動')),
+                    false) +
+
                     grp(t('Other Templates','其他模板','其他模板'), '📌',
                         tp('diabcare','🩺',t('Diabetes Care','糖尿病护理','糖尿病護理')) +
                         tp('mentalhealth','🧠',t('Mental Health','心理健康','心理健康')) +
@@ -3556,6 +3582,69 @@
                 selectable: false, evented: false }));
         }
 
+        // ── Enhanced visual helpers (dental education & events) ──
+        // Set background colour + sync the bg colour input
+        function bgFill(color) {
+            setBgInput(color);
+            _canvas.setBackgroundColor(color, function () { _canvas.renderAll(); });
+        }
+        // Left vertical accent bar
+        function sideBar(color, widthFrac) {
+            var bw = Math.round(W * (widthFrac || 0.032));
+            add(rect({ left: 0, top: 0, width: bw, height: H, fill: color,
+                selectable: false, evented: false }));
+        }
+        // Decorative circle centred at (cx,cy) — great for corners / accents
+        function blob(color, cx, cy, r, opacity) {
+            add(circle({ left: cx - r, top: cy - r, radius: r, fill: color,
+                opacity: (opacity == null ? 1 : opacity), selectable: false, evented: false }));
+        }
+        // Numbered step: filled circle + number + label line
+        function stepRow(n, label, yFrac, circColor, textColor, sizePt) {
+            var cr = sf(15);
+            var cx = Math.round(W * 0.135);
+            var cy = Math.round(H * yFrac);
+            blob(circColor, cx, cy, cr, 1);
+            add(txt(String(n), { left: cx, top: cy, fontSize: sf(15), fill: '#ffffff',
+                fontWeight: 'bold', originX: 'center', originY: 'center',
+                selectable: false, evented: false }));
+            add(txt(label, { left: Math.round(W * 0.225), top: cy, fontSize: sf(sizePt || 14),
+                fill: textColor || '#334155', originY: 'center' }));
+        }
+        // Centred pill chip with text (CTA / tagline)
+        function chip(label, yFrac, fillColor, textColor, sizePt) {
+            var tw = Math.max(Math.round(W * 0.42), label.length * sf(9) + sf(46));
+            if (tw > W * 0.92) tw = Math.round(W * 0.92);
+            var th = Math.round(H * 0.052);
+            var top = Math.round(H * yFrac);
+            add(rect({ left: (W - tw) / 2, top: top, width: tw, height: th,
+                fill: fillColor, rx: th / 2, ry: th / 2, selectable: false, evented: false }));
+            add(txt(label, { left: W / 2, top: top + th / 2, fontSize: sf(sizePt || 13),
+                fill: textColor || '#ffffff', fontWeight: 'bold',
+                originX: 'center', originY: 'center' }));
+        }
+        // Rounded info-card row: icon + label (for event date/time/venue)
+        function infoRow(icon, label, yFrac, accent) {
+            var rh = Math.round(H * 0.072);
+            var top = Math.round(H * yFrac);
+            add(rect({ left: Math.round(W * 0.08), top: top, width: Math.round(W * 0.84),
+                height: rh, fill: '#ffffff', rx: sf(10), ry: sf(10),
+                stroke: accent, strokeWidth: sf(1.5), selectable: false, evented: false }));
+            add(rect({ left: Math.round(W * 0.08), top: top, width: sf(6), height: rh,
+                fill: accent, rx: sf(3), ry: sf(3), selectable: false, evented: false }));
+            add(txt(icon, { left: Math.round(W * 0.145), top: top + rh / 2, fontSize: sf(20),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            add(txt(label, { left: Math.round(W * 0.215), top: top + rh / 2, fontSize: sf(14),
+                fill: '#0f172a', fontWeight: 'bold', originY: 'center' }));
+        }
+        // Eyebrow / banner label above a big title
+        function eyebrow(label, yFrac, color, sizePt) {
+            add(txt(label, { left: W / 2, top: Math.round(H * yFrac),
+                fontSize: sf(sizePt || 14), fill: color, fontWeight: 'bold',
+                charSpacing: 200, originX: 'center', originY: 'center',
+                selectable: false, evented: false }));
+        }
+
         // ════════════════════════════════════════════════════════
         //  GENERAL
         // ════════════════════════════════════════════════════════
@@ -4418,6 +4507,350 @@
             body(t('Consult your doctor for personalised advice.',
                    '请咨询医生以获取个性化建议。',
                    '請諮詢醫生以獲取個性化建議。'), 0.870, '#134e4a', 12);
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  DENTAL EDUCATION
+        // ════════════════════════════════════════════════════════
+        if (tpl === 'de_brushing') {
+            bgFill('#eff6ff');
+            sideBar('#2563eb', 0.03);
+            header('#2563eb', 0.17); cnHeader('#dbeafe', 0.06, 22);
+            blob('#3b82f6', W, Math.round(H * 0.17), sf(60), 0.30);
+            bigTitle('🪥 ' + t('How to Brush Correctly', '正确刷牙方法', '正確刷牙方法'), 0.245, '#1e3a8a', 26);
+            body(t('Five easy steps for a healthy smile.', '五个简单步骤，笑容更健康。', '五個簡單步驟，笑容更健康。'), 0.305, '#2563eb', 13);
+            divider(0.355, '#bfdbfe');
+            stepRow(1, t('Use a pea-sized amount of fluoride paste.', '使用豌豆大小的含氟牙膏。', '使用豌豆大小的含氟牙膏。'), 0.43, '#2563eb', '#1e3a8a');
+            stepRow(2, t('Angle the brush 45° to the gumline.', '牙刷与牙龈成45度角。', '牙刷與牙齦成45度角。'), 0.52, '#2563eb', '#1e3a8a');
+            stepRow(3, t('Brush gently in small circles.', '以小圈方式轻柔刷牙。', '以小圈方式輕柔刷牙。'), 0.61, '#2563eb', '#1e3a8a');
+            stepRow(4, t('Brush 2 minutes, twice a day.', '每天刷牙两次，每次2分钟。', '每天刷牙兩次，每次2分鐘。'), 0.70, '#2563eb', '#1e3a8a');
+            stepRow(5, t('Brush your tongue, then rinse.', '清洁舌头，然后漱口。', '清潔舌頭，然後漱口。'), 0.79, '#2563eb', '#1e3a8a');
+            footer('#2563eb', 0.06);
+            body('— ' + cn + ' —', 0.955, '#dbeafe', 11);
+        }
+
+        if (tpl === 'de_flossing') {
+            bgFill('#f0fdfa');
+            sideBar('#0d9488', 0.03);
+            header('#0d9488', 0.17); cnHeader('#ccfbf1', 0.06, 22);
+            blob('#14b8a6', 0, Math.round(H * 0.17), sf(55), 0.30);
+            bigTitle('🧵 ' + t('Flossing 101', '牙线使用指南', '牙線使用指南'), 0.245, '#0f766e', 27);
+            body(t("Clean where your brush can't reach.", '清洁牙刷无法触及的地方。', '清潔牙刷無法觸及的地方。'), 0.305, '#0d9488', 13);
+            divider(0.355, '#99f6e4');
+            stepRow(1, t('Use about 45 cm of dental floss.', '取约45厘米长的牙线。', '取約45厘米長的牙線。'), 0.43, '#0d9488', '#134e4a');
+            stepRow(2, t('Wrap around fingers, hold it tight.', '缠绕手指并拉紧。', '纏繞手指並拉緊。'), 0.52, '#0d9488', '#134e4a');
+            stepRow(3, t('Glide gently between each tooth.', '轻柔滑入每颗牙缝。', '輕柔滑入每顆牙縫。'), 0.61, '#0d9488', '#134e4a');
+            stepRow(4, t("Curve into a 'C' against the tooth.", '沿牙面弯成C形。', '沿牙面彎成C形。'), 0.70, '#0d9488', '#134e4a');
+            stepRow(5, t('Floss once every day.', '每天使用牙线一次。', '每天使用牙線一次。'), 0.79, '#0d9488', '#134e4a');
+            footer('#0d9488', 0.06);
+            body('— ' + cn + ' —', 0.955, '#ccfbf1', 11);
+        }
+
+        if (tpl === 'de_cavity') {
+            bgFill('#fff1f2');
+            header('#dc2626', 0.18); cnHeader('#fecaca', 0.065, 22);
+            add(txt('🦷', { left: W / 2, top: Math.round(H * 0.265), fontSize: sf(52),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Understanding Cavities', '认识蛀牙', '認識蛀牙'), 0.375, '#991b1b', 28);
+            divider(0.435, '#fca5a5');
+            body(t('How tooth decay happens — and how to stop it:', '蛀牙如何形成，以及如何预防：', '蛀牙如何形成，以及如何預防：'), 0.485, '#b91c1c', 13);
+            field('🍭 ' + t('Sugar feeds harmful mouth bacteria', '糖分滋养有害口腔细菌', '糖分滋養有害口腔細菌'), 0.545, '#dc2626', 14);
+            field('🦠 ' + t('Bacteria make enamel-eroding acid', '细菌产生侵蚀牙釉质的酸', '細菌產生侵蝕牙釉質的酸'), 0.595, '#dc2626', 14);
+            field('🕳️ ' + t('Untreated decay reaches the nerve', '未治疗的蛀牙会伤及牙神经', '未治療的蛀牙會傷及牙神經'), 0.645, '#dc2626', 14);
+            field('✅ ' + t('Prevent: brush, floss & check-ups', '预防：刷牙、牙线及定期检查', '預防：刷牙、牙線及定期檢查'), 0.695, '#16a34a', 14);
+            divider(0.755, '#fca5a5');
+            body(t('Early decay is painless — regular checks catch it.', '早期蛀牙无痛，定期检查及早发现。', '早期蛀牙無痛，定期檢查及早發現。'), 0.815, '#991b1b', 13);
+            body('— ' + cn + ' —', 0.885, '#f87171', 12);
+        }
+
+        if (tpl === 'de_gum') {
+            bgFill('#fdf2f8');
+            header('#be185d', 0.18); cnHeader('#fbcfe8', 0.065, 22);
+            add(txt('🩸', { left: W / 2, top: Math.round(H * 0.265), fontSize: sf(50),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Gum Disease Awareness', '牙周病警觉', '牙周病警覺'), 0.375, '#9d174d', 26);
+            divider(0.435, '#f9a8d4');
+            body(t('Watch for these early warning signs:', '留意以下早期警示信号：', '留意以下早期警示信號：'), 0.485, '#be185d', 13);
+            field('🔴 ' + t('Red, swollen or tender gums', '牙龈红肿或触痛', '牙齦紅腫或觸痛'), 0.545, '#be185d', 14);
+            field('🩸 ' + t('Gums bleed when brushing', '刷牙时牙龈出血', '刷牙時牙齦出血'), 0.595, '#be185d', 14);
+            field('😮‍💨 ' + t('Persistent bad breath', '持续口臭', '持續口臭'), 0.645, '#be185d', 14);
+            field('🦷 ' + t('Loose or shifting teeth', '牙齿松动或移位', '牙齒鬆動或移位'), 0.695, '#be185d', 14);
+            divider(0.755, '#f9a8d4');
+            body(t("Healthy gums don't bleed. See us early!", '健康牙龈不出血，请及早求诊！', '健康牙齦不出血，請及早求診！'), 0.815, '#9d174d', 13);
+            body('— ' + cn + ' —', 0.885, '#f472b6', 12);
+        }
+
+        if (tpl === 'de_kidsteeth') {
+            bgFill('#fef9c3');
+            sideBar('#ca8a04', 0.03);
+            header('#ca8a04', 0.17); cnHeader('#fef08a', 0.06, 22);
+            add(txt('🧒', { left: W / 2, top: Math.round(H * 0.255), fontSize: sf(46),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Healthy Smiles for Kids', '孩子的健康笑容', '孩子的健康笑容'), 0.355, '#854d0e', 25);
+            divider(0.415, '#fde047');
+            field('🪥 ' + t('Start brushing at the first tooth', '长第一颗牙就开始刷牙', '長第一顆牙就開始刷牙'), 0.470, '#a16207', 14);
+            field('⏳ ' + t('Supervise brushing until age 7', '7岁前需协助刷牙', '7歲前需協助刷牙'), 0.520, '#a16207', 14);
+            field('🍬 ' + t('Limit sweets & sugary drinks', '限制糖果及含糖饮料', '限制糖果及含糖飲料'), 0.570, '#a16207', 14);
+            field('🦷 ' + t('First dental visit by age 1', '一岁前首次看牙医', '一歲前首次看牙醫'), 0.620, '#a16207', 14);
+            field('😀 ' + t('Make brushing fun together!', '让刷牙成为亲子乐趣！', '讓刷牙成為親子樂趣！'), 0.670, '#a16207', 14);
+            divider(0.730, '#fde047');
+            body(t('Good habits early mean lifelong smiles.', '及早养成好习惯，笑容伴一生。', '及早養成好習慣，笑容伴一生。'), 0.790, '#854d0e', 13);
+            body('— ' + cn + ' —', 0.860, '#eab308', 12);
+        }
+
+        if (tpl === 'de_diet') {
+            bgFill('#f0fdf4');
+            header('#15803d', 0.18); cnHeader('#bbf7d0', 0.065, 22);
+            bigTitle('🍎 ' + t('Eat Well for Strong Teeth', '健康饮食强健牙齿', '健康飲食強健牙齒'), 0.28, '#14532d', 25);
+            divider(0.345, '#86efac');
+            body(t('Smart food choices protect your teeth:', '聪明的饮食选择保护牙齿：', '聰明的飲食選擇保護牙齒：'), 0.400, '#15803d', 13);
+            field('✅ ' + t('Cheese, milk & yoghurt (calcium)', '芝士、牛奶及乳酪（钙质）', '芝士、牛奶及乳酪（鈣質）'), 0.455, '#16a34a', 14);
+            field('✅ ' + t('Crunchy fruit & vegetables', '爽脆的水果与蔬菜', '爽脆的水果與蔬菜'), 0.505, '#16a34a', 14);
+            field('✅ ' + t('Water instead of soft drinks', '以清水代替汽水', '以清水代替汽水'), 0.555, '#16a34a', 14);
+            field('❌ ' + t('Sticky sweets & sugary snacks', '黏性糖果及含糖零食', '黏性糖果及含糖零食'), 0.615, '#dc2626', 14);
+            field('❌ ' + t('Frequent snacking between meals', '两餐之间频繁进食', '兩餐之間頻繁進食'), 0.665, '#dc2626', 14);
+            divider(0.725, '#86efac');
+            body(t('Rinse with water after sugary treats.', '吃甜食后用清水漱口。', '吃甜食後用清水漱口。'), 0.785, '#14532d', 13);
+            body('— ' + cn + ' —', 0.855, '#4ade80', 12);
+        }
+
+        if (tpl === 'de_whitening') {
+            bgFill('#faf5ff');
+            header('#7c3aed', 0.18); cnHeader('#e9d5ff', 0.065, 22);
+            add(txt('✨', { left: W / 2, top: Math.round(H * 0.265), fontSize: sf(48),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Teeth Whitening Facts', '牙齿美白真相', '牙齒美白真相'), 0.375, '#5b21b6', 27);
+            divider(0.435, '#ddd6fe');
+            field('❌ ' + t('Myth: Whitening ruins your enamel', '误解：美白会破坏牙釉质', '誤解：美白會破壞牙釉質'), 0.495, '#dc2626', 14);
+            field('✅ ' + t('Fact: Professional whitening is safe', '事实：专业美白安全可靠', '事實：專業美白安全可靠'), 0.545, '#16a34a', 14);
+            field('❌ ' + t('Myth: Results last forever', '误解：效果永久不变', '誤解：效果永久不變'), 0.610, '#dc2626', 14);
+            field('✅ ' + t('Fact: Touch-ups keep it bright', '事实：定期护理保持亮白', '事實：定期護理保持亮白'), 0.660, '#16a34a', 14);
+            divider(0.725, '#ddd6fe');
+            chip(t('Ask us about professional whitening', '向我们查询专业美白', '向我們查詢專業美白'), 0.775, '#7c3aed', '#ffffff', 13);
+            body('— ' + cn + ' —', 0.875, '#a78bfa', 12);
+        }
+
+        if (tpl === 'de_implant') {
+            bgFill('#f0f9ff');
+            sideBar('#0369a1', 0.03);
+            header('#0369a1', 0.17); cnHeader('#bae6fd', 0.06, 22);
+            add(txt('🔩', { left: W / 2, top: Math.round(H * 0.255), fontSize: sf(44),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Dental Implants', '植牙修复', '植牙修復'), 0.355, '#0c4a6e', 28);
+            body(t('A permanent solution for missing teeth.', '缺牙的永久解决方案。', '缺牙的永久解決方案。'), 0.420, '#0369a1', 14);
+            divider(0.475, '#7dd3fc');
+            field('✔ ' + t('Look & feel like natural teeth', '外观与触感如真牙', '外觀與觸感如真牙'), 0.530, '#0284c7', 14);
+            field('✔ ' + t('Preserve jawbone & face shape', '保护颚骨与脸型', '保護顎骨與臉型'), 0.580, '#0284c7', 14);
+            field('✔ ' + t('Eat & speak with confidence', '进食说话更自信', '進食說話更自信'), 0.630, '#0284c7', 14);
+            field('✔ ' + t('Long-lasting with good care', '悉心护理可长久使用', '悉心護理可長久使用'), 0.680, '#0284c7', 14);
+            divider(0.740, '#7dd3fc');
+            chip(t('Book a consultation today', '今日预约咨询', '今日預約諮詢'), 0.790, '#0369a1', '#ffffff', 13);
+            body('📞 ___________________________', 0.885, '#0c4a6e', 15);
+        }
+
+        if (tpl === 'de_braces') {
+            bgFill('#eef2ff');
+            header('#4338ca', 0.18); cnHeader('#c7d2fe', 0.065, 22);
+            add(txt('😁', { left: W / 2, top: Math.round(H * 0.265), fontSize: sf(48),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Braces & Orthodontics', '牙齿矫正', '牙齒矯正'), 0.375, '#3730a3', 27);
+            body(t('Straighter teeth, healthier bite.', '牙齿更整齐，咬合更健康。', '牙齒更整齊，咬合更健康。'), 0.435, '#4338ca', 14);
+            divider(0.490, '#a5b4fc');
+            field('🦷 ' + t('Correct crowding & gaps', '矫正牙齿拥挤与缝隙', '矯正牙齒擁擠與縫隙'), 0.545, '#4f46e5', 14);
+            field('😬 ' + t('Fix bite & alignment issues', '改善咬合与排列问题', '改善咬合與排列問題'), 0.595, '#4f46e5', 14);
+            field('✨ ' + t('Metal, ceramic or clear aligners', '金属、陶瓷或隐形牙套', '金屬、陶瓷或隱形牙套'), 0.645, '#4f46e5', 14);
+            field('🕐 ' + t('Treatment usually 12–24 months', '疗程一般为12至24个月', '療程一般為12至24個月'), 0.695, '#4f46e5', 14);
+            divider(0.755, '#a5b4fc');
+            chip(t('Free orthodontic assessment', '免费矫齿评估', '免費矯齒評估'), 0.805, '#4338ca', '#ffffff', 13);
+            body('— ' + cn + ' —', 0.895, '#818cf8', 12);
+        }
+
+        if (tpl === 'de_dentalemer') {
+            bgFill('#fff1f2');
+            header('#b91c1c', 0.18); cnHeader('#fecaca', 0.065, 22);
+            add(txt('🚑', { left: W / 2, top: Math.round(H * 0.265), fontSize: sf(50),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Dental Emergency? Act Fast', '牙科急症？立即处理', '牙科急症？立即處理'), 0.375, '#7f1d1d', 24);
+            divider(0.435, '#fca5a5');
+            field('🦷 ' + t('Knocked-out tooth: keep it in milk', '牙齿脱落：放入牛奶保存', '牙齒脫落：放入牛奶保存'), 0.495, '#dc2626', 14);
+            field('🩸 ' + t('Bleeding: apply gentle pressure', '出血：轻压止血', '出血：輕壓止血'), 0.550, '#dc2626', 14);
+            field('🧊 ' + t('Swelling: use a cold compress', '肿胀：冷敷患处', '腫脹：冷敷患處'), 0.605, '#dc2626', 14);
+            field('💊 ' + t('Pain: rinse with warm salt water', '疼痛：以温盐水漱口', '疼痛：以溫鹽水漱口'), 0.660, '#dc2626', 14);
+            divider(0.720, '#fca5a5');
+            badge('#b91c1c', 0.765, 0.80, 0.085);
+            add(txt('📞 ' + t('Call us now: ___________', '立即致电：___________', '立即致電：___________'), {
+                left: W / 2, top: Math.round(H * 0.807), fontSize: sf(15),
+                fill: '#ffffff', fontWeight: 'bold', textAlign: 'center', originX: 'center' }));
+            body('— ' + cn + ' —', 0.905, '#f87171', 12);
+        }
+
+        // ════════════════════════════════════════════════════════
+        //  EVENTS & INFO DISPLAY
+        // ════════════════════════════════════════════════════════
+        if (tpl === 'ev_healthtalk') {
+            bgFill('#eff6ff');
+            header('#1d4ed8', 0.22); cnHeader('#dbeafe', 0.055, 20);
+            blob('#3b82f6', W, 0, sf(70), 0.25);
+            eyebrow(t('FREE HEALTH TALK', '免费健康讲座', '免費健康講座'), 0.135, '#bfdbfe', 12);
+            bigTitle(t('Health Seminar', '健康讲座', '健康講座'), 0.30, '#1e3a8a', 30);
+            body(t('Topic: ___________________________', '主题：___________________________', '主題：___________________________'), 0.365, '#2563eb', 14);
+            infoRow('📅', t('Date : ___________', '日期：___________', '日期：___________'), 0.44, '#1d4ed8');
+            infoRow('🕐', t('Time : ___________', '时间：___________', '時間：___________'), 0.55, '#1d4ed8');
+            infoRow('📍', t('Venue: ___________', '地点：___________', '地點：___________'), 0.66, '#1d4ed8');
+            chip(t('Free Admission · All Welcome', '免费入场 · 欢迎参加', '免費入場 · 歡迎參加'), 0.78, '#1d4ed8', '#ffffff', 14);
+            body(t('Reserve your seat — call us today!', '预留座位 — 今日致电！', '預留座位 — 今日致電！'), 0.865, '#1e3a8a', 13);
+            footer('#1d4ed8', 0.06);
+            body('— ' + cn + ' —', 0.955, '#dbeafe', 11);
+        }
+
+        if (tpl === 'ev_openday') {
+            bgFill('#f0fdfa');
+            header('#0d9488', 0.22); cnHeader('#ccfbf1', 0.055, 20);
+            blob('#14b8a6', 0, 0, sf(70), 0.25);
+            eyebrow(t("YOU'RE INVITED", '诚邀出席', '誠邀出席'), 0.135, '#99f6e4', 12);
+            bigTitle('🚪 ' + t('Clinic Open Day', '诊所开放日', '診所開放日'), 0.30, '#0f766e', 28);
+            infoRow('📅', t('Date : ___________', '日期：___________', '日期：___________'), 0.40, '#0d9488');
+            infoRow('🕐', t('Time : ___________', '时间：___________', '時間：___________'), 0.51, '#0d9488');
+            infoRow('📍', t('Venue: ___________', '地点：___________', '地點：___________'), 0.62, '#0d9488');
+            body(t('Tours · Free mini check-ups · Meet our team', '导览 · 免费小检查 · 认识团队', '導覽 · 免費小檢查 · 認識團隊'), 0.735, '#0f766e', 13);
+            chip(t('Free Entry · Refreshments Provided', '免费入场 · 备有茶点', '免費入場 · 備有茶點'), 0.79, '#0d9488', '#ffffff', 13);
+            footer('#0d9488', 0.06);
+            body('— ' + cn + ' —', 0.955, '#ccfbf1', 11);
+        }
+
+        if (tpl === 'ev_dentalcamp') {
+            bgFill('#f0fdf4');
+            header('#15803d', 0.22); cnHeader('#bbf7d0', 0.055, 20);
+            blob('#22c55e', W, 0, sf(70), 0.25);
+            eyebrow(t('COMMUNITY SERVICE', '社区服务', '社區服務'), 0.135, '#86efac', 12);
+            bigTitle('⛺ ' + t('Free Dental Check Camp', '免费牙科义诊', '免費牙科義診'), 0.30, '#14532d', 25);
+            infoRow('📅', t('Date : ___________', '日期：___________', '日期：___________'), 0.40, '#15803d');
+            infoRow('🕐', t('Time : ___________', '时间：___________', '時間：___________'), 0.51, '#15803d');
+            infoRow('📍', t('Venue: ___________', '地点：___________', '地點：___________'), 0.62, '#15803d');
+            body(t('Includes: oral exam · cleaning advice · Q&A', '包括：口腔检查 · 洁牙建议 · 问答', '包括：口腔檢查 · 潔牙建議 · 問答'), 0.735, '#166534', 13);
+            chip(t('Free for All · Bring the Family', '全民免费 · 欢迎全家', '全民免費 · 歡迎全家'), 0.79, '#15803d', '#ffffff', 13);
+            footer('#15803d', 0.06);
+            body('— ' + cn + ' —', 0.955, '#bbf7d0', 11);
+        }
+
+        if (tpl === 'ev_workshop') {
+            bgFill('#fff7ed');
+            header('#c2410c', 0.22); cnHeader('#fed7aa', 0.055, 20);
+            blob('#f97316', 0, 0, sf(70), 0.25);
+            eyebrow(t('HANDS-ON WORKSHOP', '实作工作坊', '實作工作坊'), 0.135, '#fdba74', 12);
+            bigTitle('🛠 ' + t('Workshop', '工作坊', '工作坊'), 0.30, '#7c2d12', 28);
+            body(t('Title: ___________________________', '题目：___________________________', '題目：___________________________'), 0.365, '#c2410c', 14);
+            infoRow('📅', t('Date : ___________', '日期：___________', '日期：___________'), 0.44, '#c2410c');
+            infoRow('🕐', t('Time : ___________', '时间：___________', '時間：___________'), 0.55, '#c2410c');
+            infoRow('📍', t('Venue: ___________', '地点：___________', '地點：___________'), 0.66, '#c2410c');
+            body(t('Limited seats — registration required.', '名额有限 — 需预先报名。', '名額有限 — 需預先報名。'), 0.78, '#7c2d12', 13);
+            chip(t('Register Now', '立即报名', '立即報名'), 0.83, '#c2410c', '#ffffff', 14);
+            footer('#c2410c', 0.06);
+            body('— ' + cn + ' —', 0.955, '#fed7aa', 11);
+        }
+
+        if (tpl === 'ev_grandopening') {
+            bgFill('#fffbeb');
+            header('#a16207', 0.20); cnHeader('#fde68a', 0.075, 22);
+            blob('#eab308', W, 0, sf(70), 0.28);
+            blob('#eab308', 0, 0, sf(60), 0.28);
+            eyebrow(t('GRAND OPENING', '盛大开幕', '盛大開幕'), 0.255, '#ca8a04', 14);
+            bigTitle('🎀 ' + t('Grand Opening', '盛大开幕', '盛大開幕'), 0.335, '#713f12', 30);
+            body(t("We're delighted to welcome you.", '我们诚挚欢迎您的到来。', '我們誠摯歡迎您的到來。'), 0.400, '#a16207', 14);
+            infoRow('📅', t('Date : ___________', '日期：___________', '日期：___________'), 0.470, '#a16207');
+            infoRow('🕐', t('Time : ___________', '时间：___________', '時間：___________'), 0.580, '#a16207');
+            infoRow('📍', t('Address: ___________', '地址：___________', '地址：___________'), 0.690, '#a16207');
+            chip(t('Ribbon-Cutting · Gifts · Refreshments', '剪彩 · 礼品 · 茶点', '剪綵 · 禮品 · 茶點'), 0.80, '#a16207', '#ffffff', 13);
+            footer('#a16207', 0.06);
+            body('— ' + cn + ' —', 0.955, '#fde68a', 11);
+        }
+
+        if (tpl === 'ev_anniversary') {
+            bgFill('#faf5ff');
+            header('#6d28d9', 0.20); cnHeader('#e9d5ff', 0.075, 22);
+            blob('#8b5cf6', W, 0, sf(70), 0.25);
+            add(txt('🎂', { left: W / 2, top: Math.round(H * 0.29), fontSize: sf(56),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            eyebrow(t('CELEBRATING TOGETHER', '共同庆祝', '共同慶祝'), 0.395, '#a78bfa', 12);
+            bigTitle(t('___ Year Anniversary', '___ 周年庆典', '___ 週年慶典'), 0.465, '#5b21b6', 27);
+            body(t('Thank you for your trust over the years.', '感谢您多年来的信任。', '感謝您多年來的信任。'), 0.535, '#6d28d9', 14);
+            divider(0.595, '#ddd6fe');
+            infoRow('📅', t('Celebration Date : ___________', '庆祝日期：___________', '慶祝日期：___________'), 0.640, '#6d28d9');
+            chip(t('Special Thank-You Offers Inside', '内有特别答谢优惠', '內有特別答謝優惠'), 0.775, '#6d28d9', '#ffffff', 13);
+            footer('#6d28d9', 0.06);
+            body('— ' + cn + ' —', 0.955, '#e9d5ff', 11);
+        }
+
+        if (tpl === 'ev_promo') {
+            bgFill('#fff1f2');
+            header('#dc2626', 0.18); cnHeader('#fecaca', 0.065, 22);
+            eyebrow(t('LIMITED TIME OFFER', '限时优惠', '限時優惠'), 0.235, '#ef4444', 13);
+            blob('#dc2626', W / 2, Math.round(H * 0.42), sf(95), 1);
+            add(txt(t('__% OFF', '__% 折扣', '__% 折扣'), { left: W / 2, top: Math.round(H * 0.42),
+                fontSize: sf(42), fill: '#ffffff', fontWeight: 'bold',
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            bigTitle(t('Special Offer', '特别优惠', '特別優惠'), 0.585, '#991b1b', 28);
+            body(t('On: ___________________________', '项目：___________________________', '項目：___________________________'), 0.650, '#dc2626', 14);
+            body(t('Valid: ___________ to ___________', '有效期：___________ 至 ___________', '有效期：___________ 至 ___________'), 0.705, '#7f1d1d', 13);
+            chip(t('Book Now to Save!', '立即预约享优惠！', '立即預約享優惠！'), 0.775, '#dc2626', '#ffffff', 14);
+            footer('#dc2626', 0.06);
+            body('— ' + cn + ' —', 0.955, '#fecaca', 11);
+        }
+
+        if (tpl === 'ev_schedule') {
+            bgFill('#f8fafc');
+            header('#1e293b', 0.17); cnHeader('#cbd5e1', 0.06, 22);
+            bigTitle('🗓 ' + t('Event Schedule', '活动流程', '活動流程'), 0.245, '#0f172a', 26);
+            body(t('Event: ___________________________', '活动：___________________________', '活動：___________________________'), 0.305, '#475569', 13);
+            divider(0.355, '#e2e8f0');
+            (function () {
+                function timeRow(time, item, yFrac, bg) {
+                    add(rect({ left: Math.round(W * 0.06), top: Math.round(H * yFrac),
+                        width: Math.round(W * 0.88), height: Math.round(H * 0.072),
+                        fill: bg, rx: sf(8), ry: sf(8), selectable: false, evented: false }));
+                    add(txt(time, { left: Math.round(W * 0.10), top: Math.round(H * (yFrac + 0.036)),
+                        fontSize: sf(14), fill: '#0f172a', fontWeight: 'bold', originY: 'center' }));
+                    add(txt(item, { left: Math.round(W * 0.34), top: Math.round(H * (yFrac + 0.036)),
+                        fontSize: sf(14), fill: '#334155', originY: 'center' }));
+                }
+                timeRow('09:00', t('Registration', '签到登记', '簽到登記'),        0.41, '#e2e8f0');
+                timeRow('09:30', t('Welcome & Intro', '欢迎与介绍', '歡迎與介紹'), 0.50, '#f1f5f9');
+                timeRow('10:00', t('Main Talk', '主题演讲', '主題演講'),           0.59, '#e2e8f0');
+                timeRow('11:00', t('Q&A Session', '问答环节', '問答環節'),         0.68, '#f1f5f9');
+                timeRow('11:30', t('Refreshments', '茶点交流', '茶點交流'),        0.77, '#e2e8f0');
+            })();
+            divider(0.855, '#e2e8f0');
+            body('— ' + cn + ' —', 0.905, '#94a3b8', 12);
+        }
+
+        if (tpl === 'ev_webinar') {
+            bgFill('#ecfeff');
+            header('#0891b2', 0.20); cnHeader('#a5f3fc', 0.075, 22);
+            blob('#06b6d4', W, 0, sf(70), 0.25);
+            add(txt('💻', { left: W / 2, top: Math.round(H * 0.275), fontSize: sf(48),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            eyebrow(t('ONLINE WEBINAR', '网络研讨会', '網路研討會'), 0.375, '#67e8f9', 12);
+            bigTitle(t('Live Webinar', '线上讲座', '線上講座'), 0.440, '#164e63', 27);
+            body(t('Topic: ___________________________', '主题：___________________________', '主題：___________________________'), 0.505, '#0e7490', 13);
+            infoRow('📅', t('Date : ___________', '日期：___________', '日期：___________'), 0.560, '#0891b2');
+            infoRow('🕐', t('Time : ___________', '时间：___________', '時間：___________'), 0.660, '#0891b2');
+            chip(t('Join Free · Link Below', '免费参加 · 连结如下', '免費參加 · 連結如下'), 0.780, '#0891b2', '#ffffff', 13);
+            body('🔗 ___________________________', 0.870, '#164e63', 14);
+        }
+
+        if (tpl === 'ev_charity') {
+            bgFill('#fff1f2');
+            header('#be123c', 0.20); cnHeader('#fecdd3', 0.075, 22);
+            blob('#f43f5e', 0, 0, sf(70), 0.25);
+            add(txt('🤝', { left: W / 2, top: Math.round(H * 0.275), fontSize: sf(50),
+                originX: 'center', originY: 'center', selectable: false, evented: false }));
+            eyebrow(t('COMMUNITY EVENT', '社区活动', '社區活動'), 0.375, '#fda4af', 12);
+            bigTitle(t('Charity Health Drive', '慈善健康活动', '慈善健康活動'), 0.440, '#881337', 26);
+            infoRow('📅', t('Date : ___________', '日期：___________', '日期：___________'), 0.510, '#be123c');
+            infoRow('🕐', t('Time : ___________', '时间：___________', '時間：___________'), 0.610, '#be123c');
+            infoRow('📍', t('Venue: ___________', '地点：___________', '地點：___________'), 0.710, '#be123c');
+            chip(t('Together for a Healthier Community', '携手共建健康社区', '攜手共建健康社區'), 0.82, '#be123c', '#ffffff', 12);
+            body('— ' + cn + ' —', 0.915, '#fda4af', 12);
         }
 
         _canvas.renderAll();

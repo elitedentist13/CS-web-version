@@ -1512,14 +1512,46 @@ function photoLbOverlayHasInk() {
   return false;
 }
 
+function photoLbOrientChanged() {
+  var rot = ((phLbTransform.rotate % 360) + 360) % 360;
+  return rot !== 0 || !!phLbTransform.flipH || !!phLbTransform.flipV;
+}
+
 function photoLbNeedsImagePersist() {
   if (phLbIsVideo) return false;
   var img = g('photoLbImg');
   if (img && img.src && img.src.indexOf('data:image') === 0) return true;
+  if (photoLbOrientChanged()) return true;
   if (phLbBrightness !== 100 || phLbContrast !== 100 || phLbTransform.invert) {
     return true;
   }
   return photoLbOverlayHasInk();
+}
+
+// Bake rotate/flip into a new canvas, matching the on-screen CSS transform
+// order (scale/flip first, then rotate). Returns src unchanged if no
+// orientation change is active.
+function photoLbBakeOrient(src) {
+  if (!src || !photoLbOrientChanged()) return src;
+  var rot  = ((phLbTransform.rotate % 360) + 360) % 360;
+  var fH   = !!phLbTransform.flipH;
+  var fV   = !!phLbTransform.flipV;
+  var sw   = src.width;
+  var sh   = src.height;
+  var swap = (rot === 90 || rot === 270);
+
+  var out = document.createElement('canvas');
+  out.width  = swap ? sh : sw;
+  out.height = swap ? sw : sh;
+
+  var ctx = out.getContext('2d');
+  ctx.save();
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.scale(fH ? -1 : 1, fV ? -1 : 1);
+  ctx.rotate(rot * Math.PI / 180);
+  ctx.drawImage(src, -sw / 2, -sh / 2, sw, sh);
+  ctx.restore();
+  return out;
 }
 
 function photoLbBuildMergedImageBlobInner(callback) {
@@ -1551,10 +1583,11 @@ function photoLbBuildMergedImageBlobInner(callback) {
     mCtx.drawImage(canvas, 0, 0);
     mCtx.restore();
 
+    var outCanvas = photoLbBakeOrient(merged);
     if (typeof canvasToJpegBlob === 'function') {
-      canvasToJpegBlob(merged, 0.92, callback);
+      canvasToJpegBlob(outCanvas, 0.92, callback);
     } else {
-      merged.toBlob(callback, 'image/jpeg', 0.92);
+      outCanvas.toBlob(callback, 'image/jpeg', 0.92);
     }
   } catch (err) {
     callback(null);
@@ -1602,10 +1635,11 @@ function photoLbComposeMergeViaFetch(record, callback) {
           mCtx.drawImage(canvasOv, 0, 0);
           mCtx.restore();
 
+          var outCanvas = photoLbBakeOrient(merged);
           if (typeof canvasToJpegBlob === 'function') {
-            canvasToJpegBlob(merged, 0.92, callback);
+            canvasToJpegBlob(outCanvas, 0.92, callback);
           } else {
-            merged.toBlob(callback, 'image/jpeg', 0.92);
+            outCanvas.toBlob(callback, 'image/jpeg', 0.92);
           }
         } catch (e3) {
           callback(null);

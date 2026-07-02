@@ -112,6 +112,7 @@ var slideTransform = {
 // Image transform state — lightbox
 var lbChromeMaximized = false;
 var lbChromeMetaVisible = true;
+var lbChromeMetaVisibleBeforeMax = true;
 var lbChromeScaleBeforeMax = 1;
 var lbTransform = {
     scale: 1, rotate: 0, flipH: false, flipV: false, invert: false
@@ -718,6 +719,7 @@ function lbResetScrollHost() {
 function lbResetLightboxChrome() {
     lbChromeMaximized = false;
     lbChromeMetaVisible = true;
+    lbChromeMetaVisibleBeforeMax = true;
     lbChromeScaleBeforeMax = 1;
     lbSyncLightboxChrome();
 }
@@ -737,7 +739,12 @@ function lbFitToScrollHost() {
     lbTransform.scale = prevScale;
 
     if (!d.bw || !d.bh) return;
-    var fit = Math.min(vpW / d.bw, vpH / d.bh);
+    var fitW = vpW / d.bw;
+    var fitH = vpH / d.bh;
+    // When maximized, magnify to fill the display width as much as allowed
+    // (vertical overflow is handled by the scroll viewport). Otherwise fit
+    // the whole image within the viewport.
+    var fit = lbChromeMaximized ? fitW : Math.min(fitW, fitH);
     if (!isFinite(fit) || fit <= 0) return;
 
     lbTransform.scale = Math.max(0.12, Math.min(14, fit));
@@ -832,10 +839,14 @@ function lbSyncLightboxChrome(options) {
 function lbToggleMaximize() {
     if (!lbChromeMaximized) {
         lbChromeScaleBeforeMax = lbTransform.scale;
+        lbChromeMetaVisibleBeforeMax = lbChromeMetaVisible;
         lbChromeMaximized = true;
+        // Auto-hide the info column so the image can use the full width.
+        lbChromeMetaVisible = false;
         lbSyncLightboxChrome({ refitMax: true });
     } else {
         lbChromeMaximized = false;
+        lbChromeMetaVisible = lbChromeMetaVisibleBeforeMax;
         lbTransform.scale = lbChromeScaleBeforeMax;
         lbSyncLightboxChrome();
     }
@@ -1050,6 +1061,7 @@ function _forceCloseLightbox() {
     lbCurrentId = null;
     lbChromeMaximized = false;
     lbChromeMetaVisible = true;
+    lbChromeMetaVisibleBeforeMax = true;
     lbChromeScaleBeforeMax = 1;
     var modal = g('xrayLightbox');
     if (modal) modal.classList.remove('xray-lb-maximized');
@@ -1510,14 +1522,46 @@ function lbOverlayHasInk() {
     return false;
 }
 
+function lbOrientChanged() {
+    var rot = ((lbTransform.rotate % 360) + 360) % 360;
+    return rot !== 0 || !!lbTransform.flipH || !!lbTransform.flipV;
+}
+
 function lbNeedsImagePersist() {
     if (lbIsVideo) return false;
     var img = g('xrayLbImg');
     if (img && img.src && img.src.indexOf('data:image') === 0) return true;
+    if (lbOrientChanged()) return true;
     if (lbBrightness !== 100 || lbContrast !== 100 || lbTransform.invert) {
         return true;
     }
     return lbOverlayHasInk();
+}
+
+// Bake rotate/flip into a new canvas, matching the on-screen CSS transform
+// order (scale/flip first, then rotate). Returns src unchanged if no
+// orientation change is active.
+function lbBakeOrient(src) {
+    if (!src || !lbOrientChanged()) return src;
+    var rot  = ((lbTransform.rotate % 360) + 360) % 360;
+    var fH   = !!lbTransform.flipH;
+    var fV   = !!lbTransform.flipV;
+    var sw   = src.width;
+    var sh   = src.height;
+    var swap = (rot === 90 || rot === 270);
+
+    var out = document.createElement('canvas');
+    out.width  = swap ? sh : sw;
+    out.height = swap ? sw : sh;
+
+    var ctx = out.getContext('2d');
+    ctx.save();
+    ctx.translate(out.width / 2, out.height / 2);
+    ctx.scale(fH ? -1 : 1, fV ? -1 : 1);
+    ctx.rotate(rot * Math.PI / 180);
+    ctx.drawImage(src, -sw / 2, -sh / 2, sw, sh);
+    ctx.restore();
+    return out;
 }
 
 // JPEG Blob from canvas — toBlob fallback (some browsers filter/taint ⇒ null blob)
@@ -1584,7 +1628,7 @@ function lbBuildMergedImageBlobInner(callback) {
         mCtx.drawImage(canvas, 0, 0);
         mCtx.restore();
 
-        canvasToJpegBlob(merged, 0.92, callback);
+        canvasToJpegBlob(lbBakeOrient(merged), 0.92, callback);
     } catch (err) {
         callback(null);
     }
@@ -1631,7 +1675,7 @@ function lbComposeMergeViaFetch(record, callback) {
                     mCtx.drawImage(canvasOv, 0, 0);
                     mCtx.restore();
 
-                    canvasToJpegBlob(merged, 0.92, callback);
+                    canvasToJpegBlob(lbBakeOrient(merged), 0.92, callback);
                 } catch (e3) {
                     callback(null);
                 }

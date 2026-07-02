@@ -108,6 +108,24 @@
             }
         },
         {
+            id: 'queue_actions',
+            icon: '▾',
+            i18nKey: 'ql.queueActions',
+            shortcut: 'Ctrl+Shift+A',
+            requiresQueueSelection: true,
+            handler: function () {
+                if (!qlHasQueueRowSelection()) {
+                    qlToast(qlTr('ql.needQueueSelection'));
+                    return;
+                }
+                if (typeof openQueueSelectedRowAction === 'function') {
+                    openQueueSelectedRowAction();
+                    return;
+                }
+                qlToast(qlTr('ql.needQueueSelection'));
+            }
+        },
+        {
             id: 'appt_records',
             icon: '📋',
             i18nKey: 'ql.apptRecords',

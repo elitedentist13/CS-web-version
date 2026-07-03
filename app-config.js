@@ -2040,7 +2040,7 @@ var CFG = (function () {
         { key: 'modify_medical_notes',      labelKey: 'cfg.setting.modifyMedNotes',         type: 'checkbox' },
         { key: 'add_medical_term',          labelKey: 'cfg.setting.addMedTerm',             type: 'checkbox' },
         { key: 'audit_trail',               labelKey: 'cfg.setting.auditTrail',             type: 'checkbox' },
-        { key: 'login_timeout_minutes',     labelKey: 'cfg.setting.loginTimeout',           type: 'number'   },
+        { key: 'login_timeout_minutes',     labelKey: 'cfg.setting.loginTimeout',           type: 'number', defaultVal: '0' },
         { key: 'queue_refresh_interval',    labelKey: 'cfg.setting.queueRefresh',           type: 'number'   },
         { key: 'bill_pending_refresh_interval', labelKey: 'cfg.setting.billPendingRefresh', type: 'number'   },
         { key: 'receipt_header',            labelKey: 'cfg.setting.receiptHeader',          type: 'textarea' },
@@ -2074,7 +2074,10 @@ var CFG = (function () {
                 '<div style="max-width:600px;">';
 
             SETTING_KEYS.forEach(function (s) {
-                var val = map[s.key] !== undefined ? map[s.key] : '';
+                var raw = map[s.key];
+                var val = (raw !== undefined && raw !== null && String(raw).trim() !== '')
+                    ? String(raw)
+                    : (s.defaultVal !== undefined ? String(s.defaultVal) : '');
                 html += '<div style="margin-bottom:16px;">' +
                     '<label style="display:block;font-size:13px;color:#555;' +
                     'margin-bottom:4px;">' + esc(ctr(s.labelKey)) + '</label>';
@@ -2086,10 +2089,17 @@ var CFG = (function () {
                     html += '<textarea id="set_' + s.key + '" rows="3" style="' +
                         inputStyle() + '">' + esc(val) + '</textarea>';
                 } else {
+                    var numAttrs = (s.type === 'number' && s.key === 'login_timeout_minutes')
+                        ? ' min="0" step="1"'
+                        : '';
                     html += '<input type="' + s.type + '" id="set_' + s.key +
-                        '" value="' + esc(val) + '" style="' + inputStyle() + '">';
+                        '" value="' + esc(val) + '"' + numAttrs + ' style="' + inputStyle() + '">';
                 }
-                if (s.key === 'bill_pending_refresh_interval') {
+                if (s.key === 'login_timeout_minutes') {
+                    html += '<div style="font-size:12px;color:#888;margin-top:4px;">' +
+                        esc(ctr('cfg.setting.loginTimeoutHint')) +
+                        '</div>';
+                } else if (s.key === 'bill_pending_refresh_interval') {
                     html += '<div style="font-size:12px;color:#888;margin-top:4px;">' +
                         esc(ctr('cfg.setting.billPendingRefreshHint')) +
                         '</div>';
@@ -2141,6 +2151,10 @@ var CFG = (function () {
             var val = el
                 ? (s.type === 'checkbox' ? String(el.checked) : el.value)
                 : '';
+            if (s.key === 'login_timeout_minutes') {
+                var mins = parseInt(String(val || '').trim(), 10);
+                val = (isNaN(mins) || mins < 0) ? '0' : String(mins);
+            }
             return { setting_key: s.key, setting_value: val };
         });
 
@@ -5524,6 +5538,8 @@ var CFG = (function () {
             printMarginsMmFromRow:  printMarginsMmFromRow,
             buildPrintSheetStylesCss: buildPrintSheetStylesCss,
             estimatePrintPopupSizePx: estimatePrintPopupSizePx,
+            enumerateSystemPrintersAsync: enumerateSystemPrintersAsync,
+            getMergedPrinterNames:  mergedPrinterNameList,
             loadPrint:              loadPrint,
             _reloadActiveTab:       function () {
                 refreshCfgNavLabels();

@@ -11,6 +11,11 @@
     var CDN_PDFLIB = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
     var LS_SIG_KEY = 'joyful_pdf_editor_sig_v1';
     var LS_SIG_TYPE_STYLE = 'joyful_pdf_editor_sig_type_style_v1';
+    var LS_PRINT_KEY = 'joyful_pdf_editor_print_settings_v1';
+    var PRINTERS_LS_KEY = 'jsm_known_printers_v1';
+    var PDE_PRINT_TO_PDF_NAMES = ['Microsoft Print to PDF', 'Save as PDF', 'Print to PDF'];
+    var _pdeCachedSystemPrinters = [];
+    var _pdePrinterPreloadPromise = null;
 
     function sigTypeFontOptions() {
         return [
@@ -1344,6 +1349,7 @@
                 gg('pde_empty').style.display = 'none';
                 gg('pde_shell').style.display = 'flex';
                 gg('pde_save').disabled = false;
+                setPrintButtonsEnabled(true);
                 return buildThumbnails().then(renderPage);
             }).then(function () {
                 setStatus(t('Ready.', '就绪。', '就緒。'));
@@ -1354,13 +1360,16 @@
         reader.readAsArrayBuffer(file);
     }
 
-    function exportPdf() {
-        if (!pdfBytes) return;
-        setStatus(t('Exporting…', '导出中…', '匯出中…'), 'work');
-        var saveBtn = gg('pde_save');
-        if (saveBtn) saveBtn.disabled = true;
+    function setPrintButtonsEnabled(on) {
+        ['pde_print', 'pde_print_setup'].forEach(function (id) {
+            var b = gg(id);
+            if (b) b.disabled = !on;
+        });
+    }
 
-        ensurePdfLib().then(function (PDFLib) {
+    function buildFlattenedPdfBytes() {
+        if (!pdfBytes) return Promise.reject(new Error('No PDF loaded'));
+        return ensurePdfLib().then(function (PDFLib) {
             return PDFLib.PDFDocument.load(pdfBytes.slice(0), { ignoreEncryption: true });
         }).then(function (doc) {
             var pages = doc.getPages();
@@ -1491,7 +1500,15 @@
                 });
             });
             return chain.then(function () { return doc.save(); });
-        }).then(function (bytes) {
+        });
+    }
+
+    function exportPdf() {
+        if (!pdfBytes) return;
+        setStatus(t('Exporting…', '导出中…', '匯出中…'), 'work');
+        var saveBtn = gg('pde_save');
+        if (saveBtn) saveBtn.disabled = true;
+        buildFlattenedPdfBytes().then(function (bytes) {
             var base = fileName.replace(/\.pdf$/i, '') || 'document';
             dl(new Blob([bytes], { type: 'application/pdf' }), base + '_edited.pdf');
             setStatus(t('Saved successfully.', '保存成功。', '儲存成功。'), 'ok');
@@ -1500,6 +1517,632 @@
         }).then(function () {
             if (saveBtn) saveBtn.disabled = false;
         });
+    }
+
+    // ── print setup & print ───────────────────────────────────────
+    function defaultPrintSettings() {
+        return {
+            printer_name: 'Microsoft Print to PDF',
+            paper_size: 'A4',
+            paper_width_mm: null,
+            paper_height_mm: null,
+            margin_left: 10,
+            margin_right: 10,
+            margin_top: 10,
+            margin_bottom: 10,
+            orientation: 'portrait',
+            scale_percent: 100,
+            copies: 1,
+            color_mode: 'color',
+            fit_to_page: true,
+            page_range: 'all'
+        };
+    }
+
+    function loadPrintSettings() {
+        try {
+            var raw = localStorage.getItem(LS_PRINT_KEY);
+            if (!raw) return defaultPrintSettings();
+            return Object.assign(defaultPrintSettings(), JSON.parse(raw) || {});
+        } catch (e) {
+            return defaultPrintSettings();
+        }
+    }
+
+    function savePrintSettings(settings) {
+        try {
+            localStorage.setItem(LS_PRINT_KEY, JSON.stringify(settings || {}));
+        } catch (e) {}
+    }
+
+    function readKnownPrintersList() {
+        try {
+            var raw = localStorage.getItem(PRINTERS_LS_KEY);
+            var arr = raw ? JSON.parse(raw) : [];
+            return Array.isArray(arr) ? arr.filter(function (n) { return String(n || '').trim(); }) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function addKnownPrinterName(name) {
+        var n = String(name || '').trim();
+        if (!n) return;
+        var list = readKnownPrintersList();
+        if (list.indexOf(n) >= 0) return;
+        list.push(n);
+        list.sort(function (a, b) { return a.localeCompare(b, undefined, { sensitivity: 'base' }); });
+        try {
+            localStorage.setItem(PRINTERS_LS_KEY, JSON.stringify(list));
+        } catch (e) {}
+    }
+
+    function collectPrintersFromClinicStore() {
+        var names = [];
+        function add(n) {
+            var s = String(n || '').trim();
+            if (s && names.indexOf(s) < 0) names.push(s);
+        }
+        try {
+            var raw = localStorage.getItem('jsm_clinic_print_settings_v1');
+            var all = raw ? JSON.parse(raw) : {};
+            Object.keys(all).forEach(function (cid) {
+                var map = all[cid] || {};
+                Object.keys(map).forEach(function (dt) {
+                    add(map[dt] && map[dt].printer_name);
+                });
+            });
+        } catch (e) {}
+        return names;
+    }
+
+    function mergedPrinterNames(current) {
+        var map = {};
+        PDE_PRINT_TO_PDF_NAMES.forEach(function (n) { map[n] = true; });
+        _pdeCachedSystemPrinters.forEach(function (n) { map[n] = true; });
+        collectPrintersFromClinicStore().forEach(function (n) { map[n] = true; });
+        readKnownPrintersList().forEach(function (n) { map[n] = true; });
+        if (typeof CFG !== 'undefined' && CFG && typeof CFG.getMergedPrinterNames === 'function') {
+            CFG.getMergedPrinterNames().forEach(function (n) { map[n] = true; });
+        }
+        var cur = String(current || '').trim();
+        if (cur) map[cur] = true;
+        return Object.keys(map).sort(function (a, b) {
+            return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+    }
+
+    function updatePrintPrinterStatus(count, systemCount) {
+        var el = gg('pde_print_printer_status');
+        if (!el) return;
+        if (systemCount > 0) {
+            el.textContent = t(
+                count + ' printer(s) listed (' + systemCount + ' from this device).',
+                '已列出 ' + count + ' 个打印机（本机检测到 ' + systemCount + ' 个）。',
+                '已列出 ' + count + ' 部印表機（本機偵測到 ' + systemCount + ' 部）。'
+            );
+        } else if (count > 0) {
+            el.textContent = t(
+                count + ' printer(s) listed (saved names + Print to PDF). System list unavailable in this browser.',
+                '已列出 ' + count + ' 个打印机（已保存名称 + 打印到 PDF）。此浏览器无法读取系统打印机列表。',
+                '已列出 ' + count + ' 部印表機（已儲存名稱 + 列印到 PDF）。此瀏覽器無法讀取系統印表機列表。'
+            );
+        } else {
+            el.textContent = t(
+                'No printers found yet. Use Refresh or type a printer name.',
+                '尚未找到打印机。请刷新或手动输入名称。',
+                '尚未找到印表機。請重新整理或手動輸入名稱。'
+            );
+        }
+    }
+
+    function setPrintPrinterSelectLoading(loading) {
+        var sel = gg('pde_print_printer_sel');
+        var refreshBtn = gg('pde_print_refresh_printers');
+        if (!sel) return;
+        if (loading) {
+            sel.disabled = true;
+            sel.innerHTML = '<option value="">' +
+                esc(t('Detecting printers…', '正在检测打印机…', '正在偵測印表機…')) + '</option>';
+        } else {
+            sel.disabled = false;
+        }
+        if (refreshBtn) refreshBtn.disabled = !!loading;
+    }
+
+    function enumeratePrintersAsync(forceRefresh) {
+        if (forceRefresh) _pdePrinterPreloadPromise = null;
+        if (!forceRefresh && _pdePrinterPreloadPromise) return _pdePrinterPreloadPromise;
+
+        _pdePrinterPreloadPromise = new Promise(function (resolve) {
+            var detected = [];
+            var systemDetected = [];
+            function add(n, isSystem) {
+                var s = String(n || '').trim();
+                if (!s || detected.indexOf(s) >= 0) return;
+                detected.push(s);
+                if (isSystem && systemDetected.indexOf(s) < 0) systemDetected.push(s);
+            }
+
+            var tasks = [];
+
+            if (typeof CFG !== 'undefined' && CFG &&
+                typeof CFG.enumerateSystemPrintersAsync === 'function') {
+                tasks.push(
+                    CFG.enumerateSystemPrintersAsync().then(function (sys) {
+                        (sys || []).forEach(function (n) { add(n, true); });
+                    }).catch(function () {})
+                );
+            } else {
+                if (typeof navigator !== 'undefined' && navigator.printers &&
+                    typeof navigator.printers.getPrinters === 'function') {
+                    tasks.push(
+                        navigator.printers.getPrinters().then(function (list) {
+                            (list || []).forEach(function (p) {
+                                if (typeof p === 'string') add(p, true);
+                                else add(p.name || p.deviceName || p.displayName || p.id, true);
+                            });
+                        }).catch(function () {})
+                    );
+                }
+                if (typeof printing !== 'undefined' && printing &&
+                    typeof printing.getPrinters === 'function') {
+                    tasks.push(
+                        printing.getPrinters().then(function (list) {
+                            (list || []).forEach(function (p) {
+                                if (typeof p === 'string') add(p, true);
+                                else add(p.name || p.id, true);
+                            });
+                        }).catch(function () {})
+                    );
+                }
+            }
+
+            if (typeof CFG !== 'undefined' && CFG && typeof CFG.preloadPrinterLists === 'function') {
+                tasks.push(CFG.preloadPrinterLists().catch(function () {}));
+            }
+
+            Promise.all(tasks.length ? tasks : [Promise.resolve()]).then(function () {
+                collectPrintersFromClinicStore().forEach(function (n) { add(n, false); });
+                readKnownPrintersList().forEach(function (n) { add(n, false); });
+                if (typeof CFG !== 'undefined' && CFG && typeof CFG.getMergedPrinterNames === 'function') {
+                    CFG.getMergedPrinterNames().forEach(function (n) { add(n, false); });
+                }
+                _pdeCachedSystemPrinters = systemDetected.slice();
+                detected.forEach(addKnownPrinterName);
+
+                if (forceRefresh) _pdePrinterPreloadPromise = null;
+                resolve({
+                    all: mergedPrinterNames(),
+                    system: systemDetected.length
+                });
+            }).catch(function () {
+                if (forceRefresh) _pdePrinterPreloadPromise = null;
+                resolve({ all: mergedPrinterNames(), system: _pdeCachedSystemPrinters.length });
+            });
+        });
+
+        return _pdePrinterPreloadPromise;
+    }
+
+    function preloadPrintersForEditor() {
+        return enumeratePrintersAsync(false);
+    }
+
+    function refreshPrintSetupPrinterList(currentPrinter, showLoading) {
+        if (showLoading) setPrintPrinterSelectLoading(true);
+        return enumeratePrintersAsync(true).then(function (result) {
+            setPrintPrinterSelectLoading(false);
+            rebuildPrintPrinterSelect(currentPrinter);
+            updatePrintPrinterStatus(result.all.length, result.system);
+            return result;
+        });
+    }
+
+    function rebuildPrintPrinterSelect(current) {
+        var sel = gg('pde_print_printer_sel');
+        var inp = gg('pde_print_printer');
+        var dl = gg('pde_print_printer_list');
+        if (!sel) return;
+        var names = mergedPrinterNames(current || (inp && inp.value));
+        var cur = String(current || (inp && inp.value) || '').trim();
+        var html = '<option value="">' + esc(t('— Select printer —', '— 选择打印机 —', '— 選擇印表機 —')) + '</option>';
+        names.forEach(function (n) {
+            html += '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+        });
+        html += '<option value="__custom__">' + esc(t('Other / type name…', '其他 / 手动输入…', '其他 / 手動輸入…')) + '</option>';
+        sel.innerHTML = html;
+        if (dl) {
+            dl.innerHTML = names.map(function (n) {
+                return '<option value="' + esc(n) + '">';
+            }).join('');
+        }
+        if (cur && names.indexOf(cur) >= 0) {
+            sel.value = cur;
+            if (inp) inp.value = cur;
+        } else if (cur) {
+            sel.value = '__custom__';
+            if (inp) inp.value = cur;
+        } else {
+            sel.value = '';
+            if (inp) inp.value = '';
+        }
+    }
+
+    function isPrintToPdfPrinter(name) {
+        return /print\s*to\s*pdf|save\s*as\s*pdf|microsoft\s*print\s*to\s*pdf/i.test(String(name || '').trim());
+    }
+
+    function printSettingsToPrintRow(settings) {
+        return {
+            paper_size: settings.paper_size || 'A4',
+            paper_width_mm: settings.paper_width_mm,
+            paper_height_mm: settings.paper_height_mm,
+            margin_left: settings.margin_left,
+            margin_right: settings.margin_right,
+            margin_top: settings.margin_top,
+            margin_bottom: settings.margin_bottom,
+            orientation: settings.orientation || 'portrait',
+            scale_percent: settings.scale_percent,
+            fit_to_page: settings.fit_to_page !== false,
+            color_mode: settings.color_mode || 'color'
+        };
+    }
+
+    function buildLocalPrintSheetCss(settings) {
+        var row = printSettingsToPrintRow(settings);
+        if (typeof CFG !== 'undefined' && CFG && typeof CFG.buildPrintSheetStylesCss === 'function') {
+            return CFG.buildPrintSheetStylesCss(row);
+        }
+        var sz = String(row.paper_size || 'A4');
+        var pw = 210;
+        var ph = 297;
+        if (sz === 'A5') { pw = 148; ph = 210; }
+        else if (sz === 'Letter') { pw = 216; ph = 279; }
+        else if (sz === 'Custom' && row.paper_width_mm && row.paper_height_mm) {
+            pw = Math.max(20, Number(row.paper_width_mm) || pw);
+            ph = Math.max(20, Number(row.paper_height_mm) || ph);
+        }
+        if (String(row.orientation || '').toLowerCase() === 'landscape') {
+            var tmp = pw; pw = ph; ph = tmp;
+        }
+        var ml = Number(row.margin_left) || 0;
+        var mr = Number(row.margin_right) || 0;
+        var mt = Number(row.margin_top) || 0;
+        var mb = Number(row.margin_bottom) || 0;
+        return '@page{margin:' + mt + 'mm ' + mr + 'mm ' + mb + 'mm ' + ml + 'mm;size:' + pw + 'mm ' + ph + 'mm;}' +
+            'html,body{margin:0;background:#d4d4d4;}' +
+            '.print-sheet-outer{box-sizing:border-box;width:' + pw + 'mm;margin:14px auto;background:#fff;' +
+            'box-shadow:0 4px 28px rgba(0,0,0,.22);padding:' + mt + 'mm ' + mr + 'mm ' + mb + 'mm ' + ml + 'mm;}' +
+            '.pde-print-page{page-break-after:always;}' +
+            '.pde-print-page:last-child{page-break-after:auto;}' +
+            '@media print{html,body{background:#fff!important;}.print-sheet-outer{margin:0!important;' +
+            'padding:0!important;box-shadow:none!important;width:auto!important;}}';
+    }
+
+    function syncPrintPaperCustomFields() {
+        var sel = gg('pde_print_paper');
+        var wrap = gg('pde_print_custom_dims');
+        if (!sel || !wrap) return;
+        wrap.style.display = sel.value === 'Custom' ? 'grid' : 'none';
+    }
+
+    function readPrintSetupForm() {
+        function num(id, fb) {
+            var el = gg(id);
+            var n = el ? parseFloat(el.value) : NaN;
+            return isFinite(n) ? n : fb;
+        }
+        function int(id, fb) {
+            return Math.max(0, Math.round(num(id, fb)));
+        }
+        var sel = gg('pde_print_printer_sel');
+        var inp = gg('pde_print_printer');
+        var printer = '';
+        if (sel && sel.value === '__custom__') printer = inp ? String(inp.value || '').trim() : '';
+        else if (sel && sel.value) printer = sel.value;
+        else if (inp) printer = String(inp.value || '').trim();
+        return {
+            printer_name: printer,
+            paper_size: (gg('pde_print_paper') && gg('pde_print_paper').value) || 'A4',
+            paper_width_mm: num('pde_print_w_mm', null),
+            paper_height_mm: num('pde_print_h_mm', null),
+            margin_left: int('pde_print_ml', 10),
+            margin_right: int('pde_print_mr', 10),
+            margin_top: int('pde_print_mt', 10),
+            margin_bottom: int('pde_print_mb', 10),
+            orientation: (gg('pde_print_orient') && gg('pde_print_orient').value) || 'portrait',
+            scale_percent: Math.min(200, Math.max(25, int('pde_print_scale', 100))),
+            copies: Math.max(1, int('pde_print_copies', 1)),
+            color_mode: (gg('pde_print_color') && gg('pde_print_color').value) || 'color',
+            fit_to_page: !!(gg('pde_print_fit') && gg('pde_print_fit').checked),
+            page_range: (gg('pde_print_range') && gg('pde_print_range').value) || 'all'
+        };
+    }
+
+    function fillPrintSetupForm(settings, opts) {
+        opts = opts || {};
+        settings = settings || defaultPrintSettings();
+        if (!opts.skipPrinter) rebuildPrintPrinterSelect(settings.printer_name);
+        var fields = {
+            pde_print_paper: settings.paper_size,
+            pde_print_w_mm: settings.paper_width_mm != null ? settings.paper_width_mm : '',
+            pde_print_h_mm: settings.paper_height_mm != null ? settings.paper_height_mm : '',
+            pde_print_ml: settings.margin_left,
+            pde_print_mr: settings.margin_right,
+            pde_print_mt: settings.margin_top,
+            pde_print_mb: settings.margin_bottom,
+            pde_print_orient: settings.orientation,
+            pde_print_scale: settings.scale_percent,
+            pde_print_copies: settings.copies,
+            pde_print_color: settings.color_mode,
+            pde_print_range: settings.page_range
+        };
+        Object.keys(fields).forEach(function (id) {
+            var el = gg(id);
+            if (!el) return;
+            el.value = fields[id] === null || fields[id] === undefined ? '' : String(fields[id]);
+        });
+        var fit = gg('pde_print_fit');
+        if (fit) fit.checked = settings.fit_to_page !== false;
+        syncPrintPaperCustomFields();
+    }
+
+    function getPrintPageIndices(settings) {
+        if (settings.page_range === 'current') return [pageNum];
+        var out = [];
+        for (var i = 0; i < pageCount; i++) out.push(i);
+        return out;
+    }
+
+    function renderPagesForPrint(flatBytes, pageIndices) {
+        return ensurePdfJs().then(function (pdfjs) {
+            return pdfjs.getDocument({ data: flatBytes.slice(0) }).promise;
+        }).then(function (doc) {
+            var images = [];
+            var chain = Promise.resolve();
+            pageIndices.forEach(function (pi) {
+                chain = chain.then(function () {
+                    return doc.getPage(pi + 1).then(function (page) {
+                        var vp = page.getViewport({ scale: 2 });
+                        var c = document.createElement('canvas');
+                        c.width = vp.width;
+                        c.height = vp.height;
+                        var ctx = c.getContext('2d');
+                        ctx.fillStyle = '#fff';
+                        ctx.fillRect(0, 0, c.width, c.height);
+                        return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+                            images.push(c.toDataURL('image/jpeg', 0.92));
+                        });
+                    });
+                });
+            });
+            return chain.then(function () { return images; });
+        });
+    }
+
+    function printViaBrowserPopup(images, settings) {
+        if (!images || !images.length) return false;
+        var row = printSettingsToPrintRow(settings);
+        var sheetCss = buildLocalPrintSheetCss(settings);
+        var wh = { width: 920, height: 720 };
+        if (typeof CFG !== 'undefined' && CFG && typeof CFG.estimatePrintPopupSizePx === 'function') {
+            wh = CFG.estimatePrintPopupSizePx(row);
+        }
+        var popup = window.open('', '_blank',
+            'width=' + wh.width + ',height=' + wh.height + ',scrollbars=1,resizable=1');
+        if (!popup) {
+            alert(t('Pop-up blocked. Allow pop-ups to print.', '弹窗被阻止，请允许弹窗以打印。', '彈出視窗被阻止，請允許彈出以列印。'));
+            return false;
+        }
+
+        var imgStyle = 'display:block;margin:0 auto;';
+        if (settings.fit_to_page !== false) {
+            imgStyle += 'max-width:100%;height:auto;object-fit:contain;';
+        }
+        if (settings.scale_percent && settings.scale_percent !== 100) {
+            imgStyle += 'width:' + settings.scale_percent + '%;';
+        }
+        if (settings.color_mode === 'grayscale') {
+            imgStyle += '-webkit-filter:grayscale(100%);filter:grayscale(100%);';
+        }
+
+        var pagesHtml = images.map(function (src) {
+            return '<div class="pde-print-page"><img src="' + src + '" style="' + imgStyle + '" alt=""></div>';
+        }).join('');
+
+        var printerHint = settings.printer_name
+            ? '<p class="pde-print-hint">' + esc(t('In the print dialog, choose:', '在打印对话框中选择：', '在列印對話框中選擇：')) +
+                ' <strong>' + esc(settings.printer_name) + '</strong></p>'
+            : '';
+
+        popup.document.write(
+            '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+            '<title>' + esc(t('Print PDF', '打印 PDF', '列印 PDF')) + '</title>' +
+            '<style>' + sheetCss +
+            '.pde-print-hint{font:13px/1.5 sans-serif;color:#444;text-align:center;margin:12px 0;}' +
+            '@media print{.pde-print-hint{display:none!important;}}' +
+            '</style></head><body>' +
+            printerHint +
+            '<div class="print-sheet-outer">' + pagesHtml + '</div>' +
+            '<script>(function(){' +
+            (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
+            'window.onload=function(){setTimeout(function(){try{window.print();}catch(e){' +
+            'if(typeof __ppClose==="function")__ppClose();}},300);};})();<\/script>' +
+            '</body></html>'
+        );
+        popup.document.close();
+        if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
+        return true;
+    }
+
+    function printToPdfFile(bytes) {
+        var base = fileName.replace(/\.pdf$/i, '') || 'document';
+        dl(new Blob([bytes], { type: 'application/pdf' }), base + '_print.pdf');
+        setStatus(t('Saved as PDF.', '已保存为 PDF。', '已儲存為 PDF。'), 'ok');
+    }
+
+    function executePrint(settings) {
+        if (!pdfBytes) return;
+        settings = settings || loadPrintSettings();
+        if (settings.printer_name) addKnownPrinterName(settings.printer_name);
+        savePrintSettings(settings);
+
+        setStatus(t('Preparing print…', '准备打印…', '準備列印…'), 'work');
+        var pageIndices = getPrintPageIndices(settings);
+
+        buildFlattenedPdfBytes().then(function (bytes) {
+            if (isPrintToPdfPrinter(settings.printer_name)) {
+                printToPdfFile(bytes);
+                return null;
+            }
+            return renderPagesForPrint(bytes, pageIndices).then(function (images) {
+                if (!printViaBrowserPopup(images, settings)) {
+                    throw new Error(t('Print blocked', '打印被阻止', '列印被阻止'));
+                }
+                setStatus(t('Print dialog opened.', '已打开打印对话框。', '已開啟列印對話框。'), 'ok');
+            });
+        }).catch(function (e) {
+            setStatus(t('Print failed: ', '打印失败：', '列印失敗：') + (e && e.message || e), 'bad');
+        });
+    }
+
+    var _printSetupOv = null;
+
+    function closePrintSetupModal() {
+        if (_printSetupOv && _printSetupOv.parentNode) _printSetupOv.parentNode.removeChild(_printSetupOv);
+        _printSetupOv = null;
+    }
+
+    function openPrintSetupModal(opts) {
+        opts = opts || {};
+        if (!pdfBytes) return;
+        closePrintSetupModal();
+
+        var settings = loadPrintSettings();
+        _printSetupOv = document.createElement('div');
+        _printSetupOv.className = 'pde-print-overlay';
+        _printSetupOv.innerHTML =
+            '<div class="pde-print-modal" role="dialog" aria-labelledby="pde_print_title">' +
+                '<h2 id="pde_print_title">' + esc(t('Print setup', '打印设置', '列印設定')) + '</h2>' +
+                '<div class="pde-print-grid">' +
+                    '<label class="pde-print-field pde-print-field--full">' +
+                        '<span>' + esc(t('Printer', '打印机', '印表機')) + '</span>' +
+                        '<div class="pde-print-printer-row">' +
+                            '<select id="pde_print_printer_sel"></select>' +
+                            '<button type="button" class="ct-btn" id="pde_print_refresh_printers" title="' +
+                                esc(t('Refresh list', '刷新列表', '重新整理列表')) + '">↻</button>' +
+                        '</div>' +
+                        '<input type="text" id="pde_print_printer" list="pde_print_printer_list" placeholder="' +
+                            esc(t('Printer name (e.g. Microsoft Print to PDF)', '打印机名称（如 Microsoft Print to PDF）',
+                                '印表機名稱（如 Microsoft Print to PDF）')) + '">' +
+                        '<datalist id="pde_print_printer_list"></datalist>' +
+                        '<small id="pde_print_printer_status"></small>' +
+                        '<small>' + esc(t('Includes Print to PDF. Browser print dialog chooses the actual device.',
+                            '包含“打印到 PDF”。实际设备在浏览器打印对话框中选择。',
+                            '包含「列印到 PDF」。實際裝置在瀏覽器列印對話框中選擇。')) + '</small>' +
+                    '</label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Paper', '纸张', '紙張')) + '</span>' +
+                        '<select id="pde_print_paper">' +
+                            '<option value="A4">A4</option>' +
+                            '<option value="A5">A5</option>' +
+                            '<option value="Letter">Letter</option>' +
+                            '<option value="Custom">' + esc(t('Custom', '自定义', '自訂')) + '</option>' +
+                        '</select></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Orientation', '方向', '方向')) + '</span>' +
+                        '<select id="pde_print_orient">' +
+                            '<option value="portrait">' + esc(t('Portrait', '纵向', '直向')) + '</option>' +
+                            '<option value="landscape">' + esc(t('Landscape', '横向', '橫向')) + '</option>' +
+                        '</select></label>' +
+                    '<div id="pde_print_custom_dims" class="pde-print-field pde-print-field--full pde-print-custom-dims">' +
+                        '<label><span>' + esc(t('Width (mm)', '宽 (mm)', '寬 (mm)')) + '</span>' +
+                            '<input type="number" id="pde_print_w_mm" min="20" step="1"></label>' +
+                        '<label><span>' + esc(t('Height (mm)', '高 (mm)', '高 (mm)')) + '</span>' +
+                            '<input type="number" id="pde_print_h_mm" min="20" step="1"></label>' +
+                    '</div>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Margin L (mm)', '左边距 (mm)', '左邊距 (mm)')) + '</span>' +
+                        '<input type="number" id="pde_print_ml" min="0" step="1"></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Margin R (mm)', '右边距 (mm)', '右邊距 (mm)')) + '</span>' +
+                        '<input type="number" id="pde_print_mr" min="0" step="1"></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Margin T (mm)', '上边距 (mm)', '上邊距 (mm)')) + '</span>' +
+                        '<input type="number" id="pde_print_mt" min="0" step="1"></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Margin B (mm)', '下边距 (mm)', '下邊距 (mm)')) + '</span>' +
+                        '<input type="number" id="pde_print_mb" min="0" step="1"></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Scale (%)', '缩放 (%)', '縮放 (%)')) + '</span>' +
+                        '<input type="number" id="pde_print_scale" min="25" max="200" step="5"></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Copies', '份数', '份數')) + '</span>' +
+                        '<input type="number" id="pde_print_copies" min="1" max="99" step="1"></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Color', '颜色', '色彩')) + '</span>' +
+                        '<select id="pde_print_color">' +
+                            '<option value="color">' + esc(t('Color', '彩色', '彩色')) + '</option>' +
+                            '<option value="grayscale">' + esc(t('Grayscale', '灰度', '灰階')) + '</option>' +
+                        '</select></label>' +
+                    '<label class="pde-print-field"><span>' + esc(t('Pages', '页面', '頁面')) + '</span>' +
+                        '<select id="pde_print_range">' +
+                            '<option value="all">' + esc(t('All pages', '全部页面', '全部頁面')) + '</option>' +
+                            '<option value="current">' + esc(t('Current page only', '仅当前页', '僅目前頁')) + '</option>' +
+                        '</select></label>' +
+                    '<label class="pde-print-field pde-print-check">' +
+                        '<input type="checkbox" id="pde_print_fit" checked> ' +
+                        esc(t('Fit to page', '适应页面', '適應頁面')) + '</label>' +
+                '</div>' +
+                '<div class="pde-print-actions">' +
+                    '<button type="button" class="ct-btn" id="pde_print_cancel">' + esc(t('Cancel', '取消', '取消')) + '</button>' +
+                    '<button type="button" class="ct-btn" id="pde_print_save_setup">' +
+                        esc(t('Save setup', '保存设置', '儲存設定')) + '</button>' +
+                    '<button type="button" class="ct-btn ct-btn-primary" id="pde_print_go">' +
+                        esc(t('Print', '打印', '列印')) + '</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(_printSetupOv);
+
+        fillPrintSetupForm(settings, { skipPrinter: true });
+        var cachedNames = mergedPrinterNames(settings.printer_name);
+        var hasCachedList = cachedNames.length > PDE_PRINT_TO_PDF_NAMES.length ||
+            _pdeCachedSystemPrinters.length > 0;
+        if (hasCachedList) {
+            rebuildPrintPrinterSelect(settings.printer_name);
+            updatePrintPrinterStatus(cachedNames.length, _pdeCachedSystemPrinters.length);
+        } else {
+            setPrintPrinterSelectLoading(true);
+        }
+        refreshPrintSetupPrinterList(settings.printer_name, !hasCachedList);
+
+        gg('pde_print_printer_sel').addEventListener('change', function () {
+            var sel = gg('pde_print_printer_sel');
+            var inp = gg('pde_print_printer');
+            if (!sel || !inp) return;
+            if (sel.value === '__custom__') {
+                if (!inp.value) inp.focus();
+            } else if (sel.value) {
+                inp.value = sel.value;
+            }
+        });
+        gg('pde_print_paper').addEventListener('change', syncPrintPaperCustomFields);
+        gg('pde_print_cancel').addEventListener('click', closePrintSetupModal);
+        _printSetupOv.addEventListener('click', function (e) {
+            if (e.target === _printSetupOv) closePrintSetupModal();
+        });
+        gg('pde_print_refresh_printers').addEventListener('click', function () {
+            var cur = readPrintSetupForm().printer_name;
+            refreshPrintSetupPrinterList(cur, true).then(function () {
+                setStatus(t('Printer list refreshed.', '打印机列表已刷新。', '印表機列表已重新整理。'));
+            });
+        });
+        gg('pde_print_save_setup').addEventListener('click', function () {
+            var s = readPrintSetupForm();
+            if (s.printer_name) addKnownPrinterName(s.printer_name);
+            savePrintSettings(s);
+            setStatus(t('Print setup saved.', '打印设置已保存。', '列印設定已儲存。'), 'ok');
+            closePrintSetupModal();
+        });
+        gg('pde_print_go').addEventListener('click', function () {
+            var s = readPrintSetupForm();
+            closePrintSetupModal();
+            executePrint(s);
+        });
+
+        if (opts.focusPrint && gg('pde_print_go')) gg('pde_print_go').focus();
     }
 
     // ── UI shell ─────────────────────────────────────────────────
@@ -1517,6 +2160,8 @@
                     '<label class="pde-mb-btn pde-open-lbl">' + esc(t('Open', '打开', '打開')) +
                         '<input type="file" id="pde_file" accept="application/pdf,.pdf" hidden></label>' +
                     '<button type="button" class="pde-mb-btn pde-mb-primary" id="pde_save" disabled>' + esc(t('Save PDF', '保存', '儲存')) + '</button>' +
+                    '<button type="button" class="pde-mb-btn" id="pde_print" disabled title="Ctrl+P">' + esc(t('Print', '打印', '列印')) + '</button>' +
+                    '<button type="button" class="pde-mb-btn" id="pde_print_setup" disabled>' + esc(t('Print setup', '打印设置', '列印設定')) + '</button>' +
                     '<span class="pde-mb-sep"></span>' +
                     '<button type="button" class="pde-mb-btn" id="pde_undo" disabled title="Ctrl+Z">↶</button>' +
                     '<button type="button" class="pde-mb-btn" id="pde_redo" disabled title="Ctrl+Y">↷</button>' +
@@ -1580,6 +2225,7 @@
             '</div>';
         wireUi();
         refreshPropsPanel();
+        preloadPrintersForEditor();
     }
 
     function wireUi() {
@@ -1598,6 +2244,10 @@
         if (fe) fe.addEventListener('change', onFilePick);
 
         gg('pde_save').addEventListener('click', exportPdf);
+        var printBtn = gg('pde_print');
+        if (printBtn) printBtn.addEventListener('click', function () { openPrintSetupModal({ focusPrint: true }); });
+        var printSetupBtn = gg('pde_print_setup');
+        if (printSetupBtn) printSetupBtn.addEventListener('click', function () { openPrintSetupModal({}); });
         gg('pde_undo').addEventListener('click', undo);
         gg('pde_redo').addEventListener('click', redo);
 
@@ -1683,6 +2333,7 @@
         if ((e.ctrlKey || e.metaKey) && k === 'c') { e.preventDefault(); copySelected(); return; }
         if ((e.ctrlKey || e.metaKey) && k === 'v') { e.preventDefault(); pasteClip(); return; }
         if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); exportPdf(); return; }
+        if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); openPrintSetupModal({ focusPrint: true }); return; }
 
         if (!e.ctrlKey && !e.metaKey) {
             var map = { v: 'select', h: 'hand', p: 'pen', e: 'eraser', t: 'text' };

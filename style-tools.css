@@ -562,6 +562,100 @@
     gap: 8px;
     justify-content: flex-end;
 }
+
+.pde-print-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+.pde-print-modal {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    width: min(560px, 100%);
+    max-height: min(92vh, 720px);
+    overflow: auto;
+    padding: 20px 22px 18px;
+}
+.pde-print-modal h2 {
+    margin: 0 0 16px;
+    font-size: 18px;
+    color: #1a1a1a;
+}
+.pde-print-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 14px;
+}
+.pde-print-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: #444;
+}
+.pde-print-field--full { grid-column: 1 / -1; }
+.pde-print-field > span { font-weight: 600; }
+.pde-print-field input[type="text"],
+.pde-print-field input[type="number"],
+.pde-print-field select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 8px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 13px;
+}
+.pde-print-field small {
+    font-size: 11px;
+    color: #777;
+    line-height: 1.4;
+}
+#pde_print_printer_status {
+    display: block;
+    color: #2563eb;
+    font-weight: 500;
+}
+.pde-print-printer-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.pde-print-printer-row select { flex: 1; }
+.pde-print-printer-row .ct-btn {
+    flex-shrink: 0;
+    min-width: 36px;
+    padding: 7px 10px;
+}
+.pde-print-custom-dims {
+    display: none;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.pde-print-check {
+    flex-direction: row;
+    align-items: center;
+    grid-column: 1 / -1;
+}
+.pde-print-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #eee;
+}
+
+@media (max-width: 520px) {
+    .pde-print-grid { grid-template-columns: 1fr; }
+    .pde-print-custom-dims { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 900px) {
     .pde-props-panel { display: none; }
     .pde-thumbs-panel { width: 72px; }

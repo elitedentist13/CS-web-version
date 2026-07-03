@@ -2149,6 +2149,11 @@
         'cfg.setting.addMedTerm': { en: 'Add Medical Terms', 'zh-CN': '允许添加医学术语', 'zh-Hant': '允許新增醫學術語' },
         'cfg.setting.auditTrail': { en: 'Audit Trail', 'zh-CN': '审计追踪', 'zh-Hant': '稽核追蹤' },
         'cfg.setting.loginTimeout': { en: 'Login Timeout (min)', 'zh-CN': '登录超时（分钟）', 'zh-Hant': '登入逾時（分鐘）' },
+        'cfg.setting.loginTimeoutHint': {
+            en: '0 = disabled (no auto-logout). e.g. 60 = logout after 60 minutes idle.',
+            'zh-CN': '0 = 关闭（不会自动登出）。例如 60 = 闲置 60 分钟后自动登出。',
+            'zh-Hant': '0 = 關閉（不會自動登出）。例如 60 = 閒置 60 分鐘後自動登出。'
+        },
         'cfg.setting.queueRefresh': { en: 'Queue Refresh Interval (s)', 'zh-CN': '队列刷新间隔（秒）', 'zh-Hant': '隊列重新整理間隔（秒）' },
         'cfg.setting.billPendingRefresh': { en: 'Bill Panel Refresh Interval (s)', 'zh-CN': '账单面板刷新间隔（秒）', 'zh-Hant': '帳單面板重新整理間隔（秒）' },
         'cfg.setting.billPendingRefreshHint': { en: 'Minimum 10 seconds recommended.', 'zh-CN': '建议最少 10 秒。', 'zh-Hant': '建議最少 10 秒。' },

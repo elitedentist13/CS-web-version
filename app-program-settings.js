@@ -117,6 +117,14 @@ function loadProgramSettings(force) {
                     PROGRAM_SETTINGS[row.setting_key] = row.setting_value;
                 }
             });
+            if (PROGRAM_SETTINGS.login_timeout_minutes === undefined &&
+                typeof persistProgramSettingRow === 'function') {
+                PROGRAM_SETTINGS.login_timeout_minutes = '0';
+                persistProgramSettingRow({
+                    setting_key: 'login_timeout_minutes',
+                    setting_value: '0'
+                }).catch(function () {});
+            }
             applyProgramSettingsSideEffects();
             return PROGRAM_SETTINGS;
         })

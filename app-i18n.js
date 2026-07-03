@@ -180,6 +180,16 @@ var I18N_STRINGS = {
         'zh-CN': '合并、提取、旋转、加水印及压缩 PDF',
         'zh-Hant': '合併、提取、旋轉、加浮水印及壓縮 PDF'
     },
+    'tools.pdfEditor': {
+        en: 'PDF Editor',
+        'zh-CN': 'PDF 编辑器',
+        'zh-Hant': 'PDF 編輯器'
+    },
+    'tools.pdfEditorDesc': {
+        en: 'Annotate, sign, stamp & export PDFs — Acrobat-style editor',
+        'zh-CN': '标注、签名、图章并导出 PDF — Acrobat 风格编辑器',
+        'zh-Hant': '標註、簽名、圖章並匯出 PDF — Acrobat 風格編輯器'
+    },
     'tools.posterMaker': {
         en: 'Clinic Poster Maker',
         'zh-CN': '诊所海报设计',

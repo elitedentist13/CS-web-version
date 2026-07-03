@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260627-tools-backup-3';
+  var BUILD = '20260704-pdf-editor-pro';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -5649,6 +5649,11 @@
         <div class="ent-game-name" data-i18n="tools.pdf"></div>
         <div class="ent-game-desc" data-i18n="tools.pdfDesc"></div>
       </div>
+      <div class="ent-game-card" data-tool="pdf-editor">
+        <div class="ent-game-icon">✏️</div>
+        <div class="ent-game-name" data-i18n="tools.pdfEditor"></div>
+        <div class="ent-game-desc" data-i18n="tools.pdfEditorDesc"></div>
+      </div>
       <div class="ent-game-card" data-tool="poster-maker">
         <div class="ent-game-icon">🎨</div>
         <div class="ent-game-name" data-i18n="tools.posterMaker"></div>
@@ -5683,6 +5688,15 @@
     <h1 data-i18n="tools.pdf"></h1>
   </div>
   <div id="pdfUtilApp"></div>
+</section>
+
+<!-- ── PDF editor ── -->
+<section id="pdfEditorSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="pdfEditorBack" data-i18n="tools.back"></button>
+    <h1 data-i18n="tools.pdfEditor"></h1>
+  </div>
+  <div id="pdfEditorApp"></div>
 </section>
 
 <!-- ── Certificate / receipt / label ── (removed) -->
@@ -5739,6 +5753,7 @@
     'app-entertainment.js',
     'app-doc-tools.js',
     'app-tools.js',
+    'app-pdf-editor.js',
     'app-poster-maker.js'
   ];
   /* entertainment section is injected inline above the script block */

@@ -2344,6 +2344,7 @@ var SCREENS = [
     'medCalcSection',
     'qrToolSection',
     'pdfUtilSection',
+    'pdfEditorSection',
     'certGenSection',
     'docToolsSection',
     'posterMakerSection',
@@ -4636,12 +4637,16 @@ document.addEventListener('DOMContentLoaded', function() {
     wireToolCard('pdfutils', function() {
         if (typeof PDFUTIL !== 'undefined' && typeof PDFUTIL.open === 'function') PDFUTIL.open();
     });
+    wireToolCard('pdf-editor', function() {
+        if (typeof PDFEDITOR !== 'undefined' && typeof PDFEDITOR.open === 'function') PDFEDITOR.open();
+    });
     wireToolCard('poster-maker', function() {
         if (typeof POSTERMKR !== 'undefined' && typeof POSTERMKR.open === 'function') POSTERMKR.open();
     });
 
     [['medCalcBack', 'medCalcSection'], ['qrToolBack', 'qrToolSection'],
-     ['pdfUtilBack', 'pdfUtilSection'], ['posterMakerBack', 'posterMakerSection']]
+     ['pdfUtilBack', 'pdfUtilSection'], ['pdfEditorBack', 'pdfEditorSection'],
+     ['posterMakerBack', 'posterMakerSection']]
     .forEach(function(pair) {
         var b = g(pair[0]);
         if (b) b.addEventListener('click', function() { showOnly('toolsSection'); });

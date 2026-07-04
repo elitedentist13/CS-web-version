@@ -41,10 +41,140 @@
         }, 2500);
     }
 
+    /** Primary active-patient dock (slot 0) — authoritative "current patient" for staff. */
+    function qlPrimaryDockPatient() {
+        if (typeof activePatientSlots !== 'undefined' &&
+            activePatientSlots[0] && activePatientSlots[0].id) {
+            return activePatientSlots[0];
+        }
+        return null;
+    }
+
+    function qlPatientFromDirectory() {
+        if (typeof selPatientId === 'undefined' || !selPatientId) return null;
+        if (typeof _patientDetailsPatient !== 'undefined' &&
+            _patientDetailsPatient && String(_patientDetailsPatient.id) === String(selPatientId)) {
+            return _patientDetailsPatient;
+        }
+        if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
+            var dirHit = patientListCache.find(function (x) {
+                return x && String(x.id) === String(selPatientId);
+            });
+            if (dirHit) return dirHit;
+        }
+        return { id: selPatientId };
+    }
+
+    function qlPatientFromQueueSelection() {
+        if (!qlHasQueueRowSelection()) return null;
+        var apptId = (typeof apptListSelectedApptId !== 'undefined') ? apptListSelectedApptId : null;
+        if (!apptId) return null;
+        var tab = (typeof apptListSelectedTab !== 'undefined') ? apptListSelectedTab : 'queue';
+        var appt = null;
+        if (typeof apptFindListRowAppt === 'function') {
+            appt = apptFindListRowAppt(apptId, tab);
+        }
+        if (!appt) {
+            var lists = [];
+            if (typeof queueApptsCache !== 'undefined') lists.push(queueApptsCache);
+            if (typeof todayAppts !== 'undefined') lists.push(todayAppts);
+            for (var li = 0; li < lists.length && !appt; li++) {
+                var list = lists[li] || [];
+                for (var i = 0; i < list.length; i++) {
+                    if (list[i] && String(list[i].id) === String(apptId)) {
+                        appt = list[i];
+                        break;
+                    }
+                }
+            }
+        }
+        if (!appt || !appt.patient_id) return null;
+        return {
+            id: appt.patient_id,
+            patient_no: appt.patient_no || '',
+            full_name: appt.patient_name || '',
+            chinese_name: appt.patient_chinese_name || ''
+        };
+    }
+
+    function qlPatientFromConsultation() {
+        if (typeof conPatientId !== 'undefined' && conPatientId &&
+            typeof conPatientData !== 'undefined' && conPatientData &&
+            String(conPatientData.id) === String(conPatientId)) {
+            return conPatientData;
+        }
+        return null;
+    }
+
+    /** Resolve current patient: dock → directory → queue row → consultation module. */
+    function qlResolvePatientRecord() {
+        return qlPrimaryDockPatient() ||
+            qlPatientFromDirectory() ||
+            qlPatientFromQueueSelection() ||
+            qlPatientFromConsultation();
+    }
+
     function qlCurrentPatientId() {
-        var pid = (typeof conPatientId !== 'undefined') ? conPatientId : null;
-        if (pid) return pid;
-        return (typeof selPatientId !== 'undefined') ? selPatientId : null;
+        var rec = qlResolvePatientRecord();
+        return rec && rec.id ? rec.id : null;
+    }
+
+    function qlEnsurePatientRecord(p, done) {
+        if (!p || !p.id) {
+            if (done) done(null);
+            return;
+        }
+        if (p.full_name || p.patient_no) {
+            if (done) done(p);
+            return;
+        }
+        if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
+            var cached = patientListCache.find(function (x) {
+                return x && String(x.id) === String(p.id);
+            });
+            if (cached) {
+                if (done) done(cached);
+                return;
+            }
+        }
+        if (typeof SB === 'undefined' || !SB || !SB.from) {
+            if (done) done(p);
+            return;
+        }
+        SB.from('patients')
+            .select('id,patient_no,full_name,chinese_name')
+            .eq('id', p.id)
+            .limit(1)
+        .then(function (r) {
+            if (r.error || !r.data || !r.data.length) {
+                if (done) done(p);
+                return;
+            }
+            if (done) done(r.data[0]);
+        })
+        .catch(function () {
+            if (done) done(p);
+        });
+    }
+
+    /** Same path as patient directory "Bills" — appointment screen + slide-in bill panel. */
+    function qlOpenBillPanelForPatient(p) {
+        qlEnsurePatientRecord(p, function (rec) {
+            if (!rec || !rec.id || typeof openBillPanel !== 'function') {
+                qlToast(qlTr('ql.needPatient'));
+                return;
+            }
+            if (typeof showOnly === 'function') showOnly('appointmentSection');
+            setTimeout(function () {
+                openBillPanel({
+                    id: null,
+                    patient_id: rec.id,
+                    patient_name: rec.full_name || '',
+                    patient_chinese_name: rec.chinese_name || '',
+                    patient_no: rec.patient_no || ''
+                });
+            }, 80);
+        });
     }
 
     function qlHasQueueRowSelection() {
@@ -145,7 +275,8 @@
             shortcut: 'Ctrl+Shift+4',
             requiresPatient: false,
             handler: function () {
-                var pid = qlCurrentPatientId();
+                var rec = qlResolvePatientRecord();
+                var pid = rec && rec.id ? rec.id : null;
                 if (pid && typeof openConForPatient === 'function') {
                     openConForPatient(pid);
                     return;
@@ -160,23 +291,25 @@
             shortcut: 'Ctrl+Shift+5',
             requiresPatient: true,
             handler: function () {
-                var pid = qlCurrentPatientId();
+                var rec = qlResolvePatientRecord();
+                var pid = rec && rec.id ? rec.id : null;
                 if (!pid) {
                     qlToast(qlTr('ql.needPatient'));
                     if (typeof initConsultation === 'function') initConsultation();
                     return;
                 }
                 if (typeof openConForPatient === 'function') {
-                    openConForPatient(pid);
+                    openConForPatient(pid, {
+                        onReady: function () {
+                            if (typeof switchConTab === 'function') switchConTab('treatment');
+                            setTimeout(function () {
+                                if (typeof toggleDrugAddPanel === 'function') toggleDrugAddPanel(true);
+                            }, 60);
+                        }
+                    });
                 } else if (typeof showOnly === 'function') {
                     showOnly('consultationSection');
                 }
-                setTimeout(function () {
-                    if (typeof switchConTab === 'function') switchConTab('treatment');
-                    setTimeout(function () {
-                        if (typeof toggleDrugAddPanel === 'function') toggleDrugAddPanel(true);
-                    }, 120);
-                }, 60);
             }
         },
         {
@@ -186,34 +319,12 @@
             shortcut: 'Ctrl+Shift+6',
             requiresPatient: true,
             handler: function () {
-                var pid = qlCurrentPatientId();
-                if (!pid) {
+                var rec = qlResolvePatientRecord();
+                if (!rec || !rec.id) {
                     qlToast(qlTr('ql.needPatient'));
-                    if (typeof initConsultation === 'function') initConsultation();
                     return;
                 }
-                if (typeof openConForPatient === 'function') {
-                    openConForPatient(pid);
-                } else if (typeof initConsultation === 'function' && !conPatientId) {
-                    initConsultation();
-                }
-                setTimeout(function () {
-                    if (typeof conBannerOpenBill === 'function') {
-                        conBannerOpenBill();
-                        return;
-                    }
-                    if (typeof openBillPanel === 'function' &&
-                               typeof conPatientData !== 'undefined' && conPatientData) {
-                        openBillPanel({
-                            id:           null,
-                            patient_id:   pid,
-                            patient_name: conPatientData.full_name  || '',
-                            patient_no:   conPatientData.patient_no || ''
-                        });
-                    } else {
-                        qlToast(qlTr('ql.needPatient'));
-                    }
-                }, 220);
+                qlOpenBillPanelForPatient(rec);
             }
         },
         {
@@ -237,33 +348,12 @@
                         checkInPatientFromRecord(p);
                     }
                 }
-                var cached = null;
-                if (typeof patientListCache !== 'undefined' && patientListCache && patientListCache.length) {
-                    cached = patientListCache.find(function (x) { return x && x.id === pid; }) || null;
-                }
-                if (!cached && typeof conPatientId !== 'undefined' && conPatientId === pid &&
-                    typeof conPatientData !== 'undefined' && conPatientData) {
-                    cached = conPatientData;
-                }
-                if (cached) {
-                    runCheckIn(cached);
+                var rec = qlResolvePatientRecord();
+                if (rec && rec.id && (rec.full_name || rec.patient_no)) {
+                    runCheckIn(rec);
                     return;
                 }
-                if (typeof SB === 'undefined' || !SB || !SB.from) {
-                    qlToast(qlTr('ql.needPatient'));
-                    return;
-                }
-                SB.from('patients')
-                    .select('id,patient_no,full_name,chinese_name')
-                    .eq('id', pid)
-                    .limit(1)
-                .then(function (r) {
-                    if (r.error || !r.data || !r.data.length) {
-                        qlToast(qlTr('ql.needPatient'));
-                        return;
-                    }
-                    runCheckIn(r.data[0]);
-                });
+                qlEnsurePatientRecord({ id: pid }, runCheckIn);
             }
         },
         {

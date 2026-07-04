@@ -629,6 +629,9 @@ function openConForPatient(patientId, opts) {
                     ' (#' + (r.data.patient_no || '') + ')';
             }
             selectConPatient(r.data);
+            if (typeof opts.onReady === 'function') {
+                try { opts.onReady(r.data); } catch (e) { /* ignore */ }
+            }
         });
     }
     fetchPatient(

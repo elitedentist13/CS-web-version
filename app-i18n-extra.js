@@ -1475,7 +1475,7 @@
         'report.title.payStats': { en: 'Payment Method Statistics', 'zh-CN': '付款方式统计', 'zh-Hant': '付款方式統計' },
         'report.hint.payStats': { en: 'Paid amount grouped by bill_type (excludes Pending / unsettled).', 'zh-CN': '已付金额按 bill_type 汇总（不含待付/未结算）。', 'zh-Hant': '已付金額按 bill_type 匯總（不含待付/未結算）。' },
         'report.title.txStats': { en: 'Treatment Items Statistics', 'zh-CN': '治疗项目统计', 'zh-Hant': '治療項目統計' },
-        'report.hint.txStats': { en: 'Aggregated from bills.items (desc, qty, price).', 'zh-CN': '从 bills.items（描述、数量、价格）汇总。', 'zh-Hant': '從 bills.items（說明、數量、價格）匯總。' },
+        'report.hint.txStats': { en: 'Top treatment items by paid amount (payment allocated across bill line items).', 'zh-CN': '按已付金额汇总的治疗项目（付款按账单行项目比例分配）。', 'zh-Hant': '按已付金額匯總的治療項目（付款按帳單行項目比例分配）。' },
         'report.title.drDaily': { en: 'Drs Daily', 'zh-CN': '医师每日', 'zh-Hant': '醫師每日' },
         'report.hint.drDaily': { en: 'Choose doctor + day. Simple, Detail Transaction, or Treatment Statistics view.', 'zh-CN': '选择医师与日期：简易、逐笔交易或治疗统计视图。', 'zh-Hant': '選擇醫師與日期：簡易、逐筆交易或治療統計檢視。' },
         'report.title.drMonthly': { en: 'Drs Monthly', 'zh-CN': '医师每月', 'zh-Hant': '醫師每月' },

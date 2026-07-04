@@ -1514,6 +1514,54 @@ var REPORT = (function () {
     }
   }
 
+  function billItemLineAmount(it) {
+    return Number(it && it.qty != null ? it.qty : 0) * Number(it && it.price != null ? it.price : 0);
+  }
+
+  /**
+   * Split a payment total across bill line items by each line's share of the bill subtotal.
+   * Statistics income uses payment (paid) amounts — bill line prices are reference only.
+   */
+  function allocatePaidAmountToBillItems(itemsJson, paidAmount) {
+    var items = parseBillItems(itemsJson);
+    var paid = Number(paidAmount || 0);
+    if (paid <= 0.005 || !items.length) return [];
+    var defaultName = tr('report.treat.defaultName');
+    var lines = items.map(function (it) {
+      return {
+        name: String(it && it.desc ? it.desc : defaultName),
+        qty: Number(it && it.qty ? it.qty : 0),
+        lineAmt: billItemLineAmount(it)
+      };
+    });
+    var subtotal = lines.reduce(function (s, l) { return s + l.lineAmt; }, 0);
+    if (subtotal <= 0.005) {
+      if (lines.length === 1) {
+        return [{ name: lines[0].name, qty: lines[0].qty, paidShare: paid }];
+      }
+      var even = paid / lines.length;
+      return lines.map(function (l) {
+        return { name: l.name, qty: l.qty, paidShare: even };
+      });
+    }
+    return lines.map(function (l) {
+      return {
+        name: l.name,
+        qty: l.qty,
+        paidShare: paid * (l.lineAmt / subtotal)
+      };
+    });
+  }
+
+  function accumulateTreatmentStatsMap(byItem, itemsJson, paidAmount) {
+    allocatePaidAmountToBillItems(itemsJson, paidAmount).forEach(function (line) {
+      var name = line.name;
+      if (!byItem[name]) byItem[name] = { frequency: 0, amount_num: 0 };
+      byItem[name].frequency += line.qty;
+      byItem[name].amount_num += line.paidShare;
+    });
+  }
+
   function renderTable(columns, rows) {
     var wrap = g('rptTableWrap');
     if (!wrap) return;
@@ -3072,25 +3120,20 @@ var REPORT = (function () {
 
     if (_drDailyMode === 'treatmentStats') {
       var byItem = {};
+      tx.forEach(function (r) {
+        var paid = Number(r.bill_paid != null ? r.bill_paid : 0);
+        if (paid <= 0.005) return;
+        accumulateTreatmentStatsMap(byItem, r.treatment_items, paid);
+      });
       var grandFreq = 0;
       var grandAmt = 0;
-      tx.forEach(function (r) {
-        var items = parseBillItems(r.treatment_items);
-        items.forEach(function (it) {
-          var qty = Number(it && it.qty ? it.qty : 0);
-          var price = Number(it && it.price ? it.price : 0);
-          var name = String(it && it.desc ? it.desc : tr('report.treat.defaultName'));
-          var amt = qty * price;
-          if (!byItem[name]) byItem[name] = { item_name: name, frequency: 0, amount_num: 0 };
-          byItem[name].frequency += qty;
-          byItem[name].amount_num += amt;
-          grandFreq += qty;
-          grandAmt += amt;
-        });
+      Object.keys(byItem).forEach(function (k) {
+        grandFreq += byItem[k].frequency;
+        grandAmt += byItem[k].amount_num;
       });
       var rows = Object.keys(byItem).map(function (k) {
         return {
-          item_name: byItem[k].item_name,
+          item_name: k,
           frequency: byItem[k].frequency,
           amount: byItem[k].amount_num.toFixed(2)
         };
@@ -3221,24 +3264,22 @@ var REPORT = (function () {
     // ───────────────────────────────────────────────────────
     if (_drMonthlyMode === 'treatmentStats') {
       var byItem = {};
-      var grandItems = 0;
-      var grandIncome = 0;
       filtered.forEach(function (b) {
-        parseBillItems(b.items).forEach(function (it) {
-          var name = String(it && it.desc ? it.desc : tr('report.treat.defaultName'));
-          var qty = Number(it && it.qty ? it.qty : 0);
-          var price = Number(it && it.price ? it.price : 0);
-          var amt = qty * price;
-          if (!byItem[name]) byItem[name] = { item: name, freq: 0, income: 0 };
-          byItem[name].freq += qty;
-          byItem[name].income += amt;
-          grandItems += qty;
-          grandIncome += amt;
-        });
+        var paid = reportBillPaidValue(b);
+        if (paid <= 0.005) return;
+        accumulateTreatmentStatsMap(byItem, b.items, paid);
       });
 
-      var rows = Object.keys(byItem).map(function (k) { return byItem[k]; })
-        .sort(function (a, b) { return b.income - a.income; });
+      var grandItems = 0;
+      var grandIncome = 0;
+      Object.keys(byItem).forEach(function (k) {
+        grandItems += byItem[k].frequency;
+        grandIncome += byItem[k].amount_num;
+      });
+
+      var rows = Object.keys(byItem).map(function (k) {
+        return { item: k, freq: byItem[k].frequency, income: byItem[k].amount_num };
+      }).sort(function (a, b) { return b.income - a.income; });
 
       if (!rows.length) {
         body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledTreatmentMonth')) + '</div>';
@@ -4853,30 +4894,21 @@ var REPORT = (function () {
       if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
       if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = '';
 
-      // txStats only uses loadBills — skip the heavier loadReportPaymentSlices entirely.
+      // txStats: bills in date range, income allocated from payment (not bill line prices).
       if (_tab === 'txStats') {
         setHeader(tr('report.title.txStats'), tr('report.hint.txStats'));
         var bills = await loadBills(from, to);
         if (mySeq !== _refreshSeq) return;
-        var items = [];
+        var byItem = {};
         bills.forEach(function (b) {
-          parseBillItems(b.items).forEach(function (it) {
-            items.push({
-              desc: it.desc || tr('report.unknown'),
-              qty: Number(it.qty || 0),
-              amount: Number(it.qty || 0) * Number(it.price || 0)
-            });
-          });
+          var paid = reportBillPaidValue(b);
+          if (paid <= 0.005) return;
+          accumulateTreatmentStatsMap(byItem, b.items, paid);
         });
-        var byDesc = {};
-        items.forEach(function (it) {
-          var k = it.desc;
-          if (!byDesc[k]) byDesc[k] = { item: k, qty: 0, amount: 0 };
-          byDesc[k].qty += it.qty;
-          byDesc[k].amount += it.amount;
-        });
-        _rows = Object.keys(byDesc)
-          .map(function (k) { return byDesc[k]; })
+        _rows = Object.keys(byItem)
+          .map(function (k) {
+            return { item: k, qty: byItem[k].frequency, amount: byItem[k].amount_num };
+          })
           .sort(function (a, b) { return b.amount - a.amount; })
           .slice(0, 40)
           .map(function (r) {

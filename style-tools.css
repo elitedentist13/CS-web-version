@@ -366,7 +366,52 @@
     position: absolute;
     left: 0;
     top: 0;
+    z-index: 2;
     touch-action: none;
+}
+.pde-text-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    line-height: 1;
+    user-select: none;
+    pointer-events: none;
+    z-index: 1;
+}
+.pde-text-layer.active {
+    user-select: text;
+    pointer-events: auto;
+}
+.pde-text-layer span {
+    position: absolute;
+    white-space: pre;
+    color: transparent;
+    cursor: text;
+    transform-origin: 0 0;
+}
+.pde-text-layer span::selection {
+    background: rgba(20, 115, 230, 0.35);
+}
+.pde-ocr-result {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 120px;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+    resize: vertical;
+    font-family: inherit;
+}
+.pde-ocr-progress {
+    font-size: 11px;
+    color: #1473e6;
+    min-height: 16px;
+    margin: 4px 0 8px;
 }
 #pde_ol.pde-cursor-place { cursor: copy; }
 .pde-props-panel {
@@ -642,7 +687,34 @@
     align-items: center;
     grid-column: 1 / -1;
 }
-.pde-print-actions {
+.pde-pages-hint {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #555;
+    margin: 0 0 14px;
+}
+.pde-pages-meta {
+    font-size: 12px;
+    color: #666;
+    margin: 0 0 12px;
+}
+.pde-pages-fieldset {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 10px 12px 8px;
+    margin: 0 0 14px;
+}
+.pde-pages-fieldset legend {
+    font-size: 12px;
+    font-weight: 600;
+    color: #444;
+    padding: 0 4px;
+}
+.pde-pages-fieldset .pde-print-check { margin-bottom: 6px; }
+.pde-print-field input[type="file"] {
+    font-size: 13px;
+    padding: 6px 0;
+}
     display: flex;
     gap: 8px;
     justify-content: flex-end;

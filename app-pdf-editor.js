@@ -9,6 +9,7 @@
     var CDN_PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
     var CDN_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
     var CDN_PDFLIB = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    var CDN_TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
     var LS_SIG_KEY = 'joyful_pdf_editor_sig_v1';
     var LS_SIG_TYPE_STYLE = 'joyful_pdf_editor_sig_type_style_v1';
     var LS_PRINT_KEY = 'joyful_pdf_editor_print_settings_v1';
@@ -91,6 +92,10 @@
         if (window.PDFLib) return Promise.resolve(window.PDFLib);
         return loadScript(CDN_PDFLIB).then(function () { return window.PDFLib; });
     }
+    function ensureTesseract() {
+        if (window.Tesseract) return Promise.resolve(window.Tesseract);
+        return loadScript(CDN_TESSERACT).then(function () { return window.Tesseract; });
+    }
 
     function lang() { return (typeof getAppLang === 'function') ? getAppLang() : 'en'; }
     function t(en, cn, ht) {
@@ -111,6 +116,45 @@
         a.href = u; a.download = name;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function () { URL.revokeObjectURL(u); }, 5000);
+    }
+
+    function readFileArrayBuffer(file) {
+        return new Promise(function (resolve, reject) {
+            var fr = new FileReader();
+            fr.onload = function () { resolve(fr.result); };
+            fr.onerror = function () { reject(fr.error || new Error('read failed')); };
+            fr.readAsArrayBuffer(file);
+        });
+    }
+
+    /** Parse "1-3,5,8-9" → 0-based unique indices within [0..count-1]. */
+    function parsePageRange(str, count) {
+        var out = [], seen = {};
+        String(str || '').split(',').forEach(function (part) {
+            part = part.trim();
+            if (!part) return;
+            var seg = part.split('-');
+            if (seg.length === 1) {
+                var n = parseInt(seg[0], 10);
+                if (n >= 1 && n <= count && !seen[n]) { seen[n] = 1; out.push(n - 1); }
+            } else {
+                var a = parseInt(seg[0], 10), b = parseInt(seg[1], 10);
+                if (isNaN(a) || isNaN(b)) return;
+                if (a > b) { var tmp = a; a = b; b = tmp; }
+                for (var i = a; i <= b; i++) {
+                    if (i >= 1 && i <= count && !seen[i]) { seen[i] = 1; out.push(i - 1); }
+                }
+            }
+        });
+        return out;
+    }
+
+    function pdfLibAddBufferToDoc(PDFLib, outDoc, buf) {
+        return PDFLib.PDFDocument.load(buf, { ignoreEncryption: true }).then(function (src) {
+            return outDoc.copyPages(src, src.getPageIndices()).then(function (pages) {
+                pages.forEach(function (pg) { outDoc.addPage(pg); });
+            });
+        });
     }
 
     // ── document state ───────────────────────────────────────────
@@ -155,6 +199,13 @@
     var shapePreview = null;
     var panDrag = null;
     var textEditorEl = null;
+
+    var textLayerEl = null;
+    /** @type {Object<number,string>} */
+    var ocrResultByPage = {};
+    var ocrLang = 'eng+chi_tra';
+    var ocrPreview = null;
+    var ocrBusy = false;
 
     var bgCanvas = null;
     var olCanvas = null;
@@ -273,6 +324,183 @@
         el.textContent = pct + '%';
     }
 
+    // ── text layer (embedded PDF text selection) ─────────────────
+    function syncTextLayerMode() {
+        if (!textLayerEl || !olCanvas) return;
+        var textActive = tool === 'textselect';
+        textLayerEl.classList.toggle('active', textActive);
+        olCanvas.style.pointerEvents = textActive ? 'none' : '';
+    }
+
+    function buildTextLayer(page, vp) {
+        if (!textLayerEl || !pdfJsDoc) return Promise.resolve();
+        textLayerEl.innerHTML = '';
+        return page.getTextContent({ includeMarkedContent: false }).then(function (tc) {
+            var util = window.pdfjsLib && window.pdfjsLib.Util;
+            var items = tc.items || [];
+            if (!items.length) {
+                textLayerEl.setAttribute('data-empty', '1');
+                return;
+            }
+            textLayerEl.removeAttribute('data-empty');
+            items.forEach(function (textItem) {
+                if (!textItem.str) return;
+                var tx = util
+                    ? util.transform(vp.transform, textItem.transform)
+                    : textItem.transform;
+                var angle = Math.atan2(tx[1], tx[0]);
+                var fontHeight = Math.hypot(tx[2], tx[3]) || Math.abs(tx[0]) || 12;
+                var fontAscent = fontHeight * 0.85;
+                var span = document.createElement('span');
+                span.textContent = textItem.str;
+                span.style.left = tx[4] + 'px';
+                span.style.top = (tx[5] - fontAscent) + 'px';
+                span.style.fontSize = fontHeight + 'px';
+                span.style.fontFamily = 'sans-serif';
+                if (angle) span.style.transform = 'rotate(' + angle + 'rad)';
+                textLayerEl.appendChild(span);
+            });
+        }).catch(function () {
+            textLayerEl.setAttribute('data-empty', '1');
+        });
+    }
+
+    function getNativeTextSelection() {
+        try {
+            var sel = window.getSelection();
+            if (!sel || sel.isCollapsed || !textLayerEl) return '';
+            var anchor = sel.anchorNode;
+            if (!anchor || !textLayerEl.contains(anchor)) return '';
+            return String(sel.toString() || '').trim();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function copyTextToClipboard(text) {
+        text = String(text || '').trim();
+        if (!text) {
+            setStatus(t('Nothing to copy.', '没有可复制的内容。', '沒有可複製的內容。'), 'bad');
+            return;
+        }
+        function ok() {
+            setStatus(t('Copied to clipboard.', '已复制到剪贴板。', '已複製到剪貼簿。'), 'ok');
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok).catch(function () {
+                fallbackCopy(text);
+                ok();
+            });
+            return;
+        }
+        fallbackCopy(text);
+        ok();
+    }
+
+    function fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        ta.remove();
+    }
+
+    function copySelectedOrOcrText() {
+        var sel = getNativeTextSelection();
+        if (sel) { copyTextToClipboard(sel); return; }
+        var ocr = ocrResultByPage[pageNum];
+        if (ocr) { copyTextToClipboard(ocr); return; }
+        setStatus(t('Select text or run OCR first.', '请先选择文字或运行 OCR。', '請先選擇文字或執行 OCR。'), 'bad');
+    }
+
+    function setOcrResult(text) {
+        ocrResultByPage[pageNum] = String(text || '').trim();
+        var ta = gg('pde_ocr_result');
+        if (ta) ta.value = ocrResultByPage[pageNum];
+        refreshPropsPanel();
+    }
+
+    function cropBgCanvasRect(nx, ny, nw, nh) {
+        if (!bgCanvas) return null;
+        var x = Math.round(Math.max(0, nx * bgCanvas.width));
+        var y = Math.round(Math.max(0, ny * bgCanvas.height));
+        var w = Math.round(Math.max(1, nw * bgCanvas.width));
+        var h = Math.round(Math.max(1, nh * bgCanvas.height));
+        if (x + w > bgCanvas.width) w = bgCanvas.width - x;
+        if (y + h > bgCanvas.height) h = bgCanvas.height - y;
+        if (w < 8 || h < 8) return null;
+        var c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        c.getContext('2d').drawImage(bgCanvas, x, y, w, h, 0, 0, w, h);
+        return c;
+    }
+
+    function runOcrOnCanvas(sourceCanvas) {
+        if (!sourceCanvas || ocrBusy) return Promise.resolve();
+        ocrBusy = true;
+        setStatus(t('OCR in progress…', 'OCR 识别中…', 'OCR 辨識中…'), 'work');
+        var prog = gg('pde_ocr_progress');
+        if (prog) prog.textContent = '0%';
+        return ensureTesseract().then(function (Tesseract) {
+            return Tesseract.recognize(sourceCanvas, ocrLang, {
+                logger: function (m) {
+                    if (m.status === 'recognizing text' && prog) {
+                        prog.textContent = Math.round((m.progress || 0) * 100) + '%';
+                    }
+                }
+            });
+        }).then(function (res) {
+            var text = (res && res.data && res.data.text) ? res.data.text : '';
+            setOcrResult(text);
+            setStatus(
+                text.trim()
+                    ? t('OCR complete.', 'OCR 完成。', 'OCR 完成。')
+                    : t('OCR found no text.', 'OCR 未识别到文字。', 'OCR 未辨識到文字。'),
+                text.trim() ? 'ok' : 'bad'
+            );
+        }).catch(function (e) {
+            setStatus(t('OCR failed: ', 'OCR 失败：', 'OCR 失敗：') + (e && e.message || e), 'bad');
+        }).finally(function () {
+            ocrBusy = false;
+            if (prog) prog.textContent = '';
+        });
+    }
+
+    function runOcrFullPage() {
+        if (!bgCanvas || !pdfJsDoc) return;
+        runOcrOnCanvas(bgCanvas);
+    }
+
+    function runOcrRegionNorm(nx, ny, nw, nh) {
+        var c = cropBgCanvasRect(nx, ny, nw, nh);
+        if (!c) {
+            setStatus(t('Selection too small — drag a larger area or use OCR page.', '选区太小 — 请拖选更大区域或使用整页 OCR。', '選取太小 — 請拖選更大區域或使用整頁 OCR。'), 'bad');
+            return;
+        }
+        runOcrOnCanvas(c);
+    }
+
+    function drawOcrPreviewRect() {
+        if (!ocrPreview || !olCtx || !olCanvas) return;
+        var x1 = Math.min(ocrPreview.x, ocrPreview.x2);
+        var y1 = Math.min(ocrPreview.y, ocrPreview.y2);
+        var x2 = Math.max(ocrPreview.x, ocrPreview.x2);
+        var y2 = Math.max(ocrPreview.y, ocrPreview.y2);
+        var tl = normToCanvas(x1, y1);
+        var br = normToCanvas(x2, y2);
+        olCtx.save();
+        olCtx.strokeStyle = '#1473e6';
+        olCtx.lineWidth = 2;
+        olCtx.setLineDash([6, 4]);
+        olCtx.fillStyle = 'rgba(20, 115, 230, 0.12)';
+        olCtx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+        olCtx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+        olCtx.restore();
+    }
+
     // ── render ───────────────────────────────────────────────────
     function renderPage() {
         if (!pdfJsDoc || !bgCanvas || !olCanvas) return Promise.resolve();
@@ -292,13 +520,17 @@
             var ctx = bgCanvas.getContext('2d');
             ctx.fillStyle = '#fff';
             ctx.fillRect(0, 0, vp.width, vp.height);
-            return page.render({ canvasContext: ctx, viewport: vp }).promise;
+            return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+                return buildTextLayer(page, vp);
+            });
         }).then(function () {
+            syncTextLayerMode();
             redrawOverlay();
             updatePageLabel();
             updateZoomLabel();
             refreshThumbsActive();
             closeTextEditor();
+            if (tool === 'textselect' || tool === 'ocr') refreshPropsPanel();
         });
     }
 
@@ -308,6 +540,7 @@
         pageAnns().forEach(function (ann, i) { drawAnn(ann, i === selectedIdx); });
         if (currentStroke) drawStrokePath(currentStroke, false);
         if (shapePreview) drawShapeAnn(shapePreview, false, true);
+        if (ocrPreview) drawOcrPreviewRect();
     }
 
     function strokeStyle(ctx, ann, sel) {
@@ -594,6 +827,7 @@
 
     function onPointerDown(ev) {
         if (!pdfJsDoc || textEditorEl) return;
+        if (tool === 'textselect') return;
         if (tool === 'hand') {
             panDrag = { x: ev.clientX, y: ev.clientY, sl: viewportEl.scrollLeft, st: viewportEl.scrollTop };
             if (olCanvas) olCanvas.style.cursor = 'grabbing';
@@ -655,6 +889,12 @@
             return;
         }
 
+        if (tool === 'ocr') {
+            ocrPreview = { x: p.x, y: p.y, x2: p.x, y2: p.y };
+            redrawOverlay();
+            return;
+        }
+
         if (tool === 'select') {
             var idx = hitTest(p.x, p.y);
             if (idx >= 0) {
@@ -702,6 +942,13 @@
         if (shapePreview) {
             shapePreview.w = p.x - shapePreview.x;
             shapePreview.h = p.y - shapePreview.y;
+            redrawOverlay();
+            return;
+        }
+
+        if (ocrPreview) {
+            ocrPreview.x2 = p.x;
+            ocrPreview.y2 = p.y;
             redrawOverlay();
             return;
         }
@@ -769,6 +1016,21 @@
             shapePreview = null;
             redrawOverlay();
             refreshPropsPanel();
+        }
+        if (ocrPreview) {
+            var ox1 = Math.min(ocrPreview.x, ocrPreview.x2);
+            var oy1 = Math.min(ocrPreview.y, ocrPreview.y2);
+            var ox2 = Math.max(ocrPreview.x, ocrPreview.x2);
+            var oy2 = Math.max(ocrPreview.y, ocrPreview.y2);
+            var ow = ox2 - ox1;
+            var oh = oy2 - oy1;
+            ocrPreview = null;
+            redrawOverlay();
+            if (ow > 0.008 && oh > 0.008) {
+                runOcrRegionNorm(ox1, oy1, ow, oh);
+            } else {
+                runOcrFullPage();
+            }
         }
         if (dragState) {
             pushUndo();
@@ -898,6 +1160,7 @@
             olCanvas && olCanvas.classList.remove('pde-cursor-place');
         }
         if (!opts.keepSelect) selectedIdx = -1;
+        syncTextLayerMode();
         updateToolCursors();
         document.querySelectorAll('[data-pde-tool]').forEach(function (btn) {
             btn.classList.toggle('active', btn.getAttribute('data-pde-tool') === next);
@@ -910,18 +1173,101 @@
         if (!olCanvas) return;
         var map = {
             select: 'default', hand: 'grab', pen: 'crosshair', highlight: 'crosshair',
-            eraser: 'cell', text: 'text', rect: 'crosshair', ellipse: 'crosshair',
+            eraser: 'cell', text: 'text', textselect: 'text', ocr: 'crosshair',
+            rect: 'crosshair', ellipse: 'crosshair',
             line: 'crosshair', arrow: 'crosshair', stamp: 'copy'
         };
         olCanvas.style.cursor = placeMode ? 'copy' : (map[tool] || 'default');
     }
 
     // ── properties panel ─────────────────────────────────────────
+    function textToolPanelHtml() {
+        if (tool === 'textselect') {
+            var emptyHint = textLayerEl && textLayerEl.getAttribute('data-empty') === '1'
+                ? t('No embedded text on this page — try OCR for scans.', '此页无嵌入文字 — 扫描件请用 OCR。', '此頁無嵌入文字 — 掃描件請用 OCR。')
+                : t('Drag to select text on the page. Ctrl+C to copy.', '在页面上拖选文字。Ctrl+C 复制。', '在頁面上拖選文字。Ctrl+C 複製。');
+            return '<p class="pde-props-type">' + esc(t('Text select', '文字选择', '文字選取')) + '</p>' +
+                '<p class="pde-props-empty">' + esc(emptyHint) + '</p>' +
+                '<button type="button" class="ct-btn pde-props-btn" id="pde_copy_text_btn">' +
+                esc(t('Copy selection', '复制选中', '複製選取')) + '</button>';
+        }
+        if (tool === 'ocr') {
+            var ocrText = ocrResultByPage[pageNum] || '';
+            return '<p class="pde-props-type">' + esc(t('OCR (scan → text)', 'OCR（扫描识别）', 'OCR（掃描辨識）')) + '</p>' +
+                '<p class="pde-props-empty">' + esc(t(
+                    'Drag a rectangle to OCR a region, or click without dragging for the full page. First run downloads language data (~15 MB).',
+                    '拖选矩形识别区域；不拖动则识别整页。首次运行会下载语言包（约 15 MB）。',
+                    '拖選矩形辨識區域；不拖動則辨識整頁。首次執行會下載語言包（約 15 MB）。')) + '</p>' +
+                fieldSelect('pde_ocr_lang', t('Languages', '语言', '語言'), ocrLang, [
+                    ['eng', 'English'],
+                    ['chi_tra', 'Chinese (Traditional)'],
+                    ['chi_sim', 'Chinese (Simplified)'],
+                    ['eng+chi_tra', 'English + Traditional Chinese'],
+                    ['eng+chi_sim', 'English + Simplified Chinese']
+                ]) +
+                '<button type="button" class="ct-btn pde-props-btn" id="pde_ocr_page_btn"' +
+                (ocrBusy ? ' disabled' : '') + '>' + esc(t('OCR this page', '识别本页', '辨識本頁')) + '</button>' +
+                '<div id="pde_ocr_progress" class="pde-ocr-progress"></div>' +
+                '<label class="pde-prop-field"><span>' + esc(t('OCR result', '识别结果', '辨識結果')) + '</span>' +
+                '<textarea id="pde_ocr_result" class="pde-ocr-result" rows="8" readonly>' +
+                esc(ocrText) + '</textarea></label>' +
+                '<button type="button" class="ct-btn pde-props-btn" id="pde_copy_ocr_btn"' +
+                (ocrText ? '' : ' disabled') + '>' + esc(t('Copy OCR text', '复制 OCR 文字', '複製 OCR 文字')) + '</button>' +
+                '<button type="button" class="ct-btn pde-props-btn" id="pde_ocr_to_ann_btn"' +
+                (ocrText ? '' : ' disabled') + '>' + esc(t('Add as text box', '添加为文本框', '新增為文字框')) + '</button>';
+        }
+        return '';
+    }
+
+    function wireTextToolPanel() {
+        var copySel = gg('pde_copy_text_btn');
+        if (copySel) copySel.addEventListener('click', copySelectedOrOcrText);
+        var ocrPage = gg('pde_ocr_page_btn');
+        if (ocrPage) ocrPage.addEventListener('click', runOcrFullPage);
+        var copyOcr = gg('pde_copy_ocr_btn');
+        if (copyOcr) copyOcr.addEventListener('click', function () {
+            copyTextToClipboard(ocrResultByPage[pageNum] || '');
+        });
+        var langSel = gg('pde_ocr_lang');
+        if (langSel) {
+            langSel.addEventListener('change', function () {
+                ocrLang = langSel.value || 'eng+chi_tra';
+            });
+        }
+        var toAnn = gg('pde_ocr_to_ann_btn');
+        if (toAnn) {
+            toAnn.addEventListener('click', function () {
+                var txt = String(ocrResultByPage[pageNum] || '').trim();
+                if (!txt) return;
+                pushUndo();
+                pageAnns().push({
+                    type: 'text',
+                    text: txt,
+                    x: 0.08,
+                    y: 0.12,
+                    size: props.fontSize || 14,
+                    fontFamily: props.fontFamily || 'sans-serif',
+                    color: props.color || '#111827',
+                    opacity: 1
+                });
+                selectedIdx = pageAnns().length - 1;
+                setTool('select');
+                redrawOverlay();
+                refreshPropsPanel();
+            });
+        }
+    }
+
     function refreshPropsPanel() {
         var panel = gg('pde_props_body');
         if (!panel) return;
         var ann = selectedIdx >= 0 ? pageAnns()[selectedIdx] : null;
         if (!ann) {
+            if (tool === 'textselect' || tool === 'ocr') {
+                panel.innerHTML = textToolPanelHtml();
+                wireTextToolPanel();
+                return;
+            }
             panel.innerHTML =
                 '<p class="pde-props-empty">' + esc(t('Select an object to edit properties, or adjust defaults below.', '选择对象以编辑属性，或调整默认设置。', '選擇物件以編輯屬性，或調整預設設定。')) + '</p>' +
                 propsFields(null);
@@ -1328,40 +1674,50 @@
     }
 
     // ── load / export ────────────────────────────────────────────
+    function loadPdfFromBytes(bytes, name) {
+        if (!bytes) return Promise.reject(new Error('No PDF data'));
+        pdfBytes = bytes;
+        fileName = name || 'document.pdf';
+        setStatus(t('Loading…', '加载中…', '載入中…'), 'work');
+        return ensurePdfJs().then(function (pdfjs) {
+            return pdfjs.getDocument({ data: pdfBytes.slice(0) }).promise;
+        }).then(function (doc) {
+            pdfJsDoc = doc;
+            pageCount = doc.numPages;
+            pageNum = Math.min(pageNum, Math.max(0, pageCount - 1));
+            annByPage = {};
+            pageDims = {};
+            ocrResultByPage = {};
+            undoStack = [];
+            redoStack = [];
+            syncHistoryButtons();
+            var emptyEl = gg('pde_empty');
+            var shellEl = gg('pde_shell');
+            if (emptyEl) emptyEl.style.display = 'none';
+            if (shellEl) shellEl.style.display = 'flex';
+            var saveBtn = gg('pde_save');
+            if (saveBtn) saveBtn.disabled = false;
+            setDocActionButtonsEnabled(true);
+            return buildThumbnails().then(renderPage);
+        }).then(function () {
+            setStatus(t('Ready.', '就绪。', '就緒。'));
+        });
+    }
+
     function loadPdfFile(file) {
         if (!file) return;
         fileName = file.name || 'document.pdf';
         setStatus(t('Loading…', '加载中…', '載入中…'), 'work');
-        var reader = new FileReader();
-        reader.onload = function () {
-            pdfBytes = reader.result;
-            ensurePdfJs().then(function (pdfjs) {
-                return pdfjs.getDocument({ data: pdfBytes.slice(0) }).promise;
-            }).then(function (doc) {
-                pdfJsDoc = doc;
-                pageCount = doc.numPages;
-                pageNum = 0;
-                annByPage = {};
-                pageDims = {};
-                undoStack = [];
-                redoStack = [];
-                syncHistoryButtons();
-                gg('pde_empty').style.display = 'none';
-                gg('pde_shell').style.display = 'flex';
-                gg('pde_save').disabled = false;
-                setPrintButtonsEnabled(true);
-                return buildThumbnails().then(renderPage);
-            }).then(function () {
-                setStatus(t('Ready.', '就绪。', '就緒。'));
-            }).catch(function (e) {
-                setStatus(t('Failed: ', '失败：', '失敗：') + (e && e.message || e), 'bad');
-            });
-        };
-        reader.readAsArrayBuffer(file);
+        readFileArrayBuffer(file).then(function (buf) {
+            pageNum = 0;
+            return loadPdfFromBytes(buf, fileName);
+        }).catch(function (e) {
+            setStatus(t('Failed: ', '失败：', '失敗：') + (e && e.message || e), 'bad');
+        });
     }
 
-    function setPrintButtonsEnabled(on) {
-        ['pde_print', 'pde_print_setup'].forEach(function (id) {
+    function setDocActionButtonsEnabled(on) {
+        ['pde_save', 'pde_print', 'pde_print_setup', 'pde_copy_text', 'pde_ocr_page', 'pde_extract'].forEach(function (id) {
             var b = gg(id);
             if (b) b.disabled = !on;
         });
@@ -1516,6 +1872,226 @@
             setStatus(t('Export failed: ', '导出失败：', '匯出失敗：') + (e && e.message || e), 'bad');
         }).then(function () {
             if (saveBtn) saveBtn.disabled = false;
+        });
+    }
+
+    // ── merge / extract pages ─────────────────────────────────────
+    var _mergeOv = null;
+    var _extractOv = null;
+
+    function closeMergeModal() {
+        if (_mergeOv && _mergeOv.parentNode) _mergeOv.parentNode.removeChild(_mergeOv);
+        _mergeOv = null;
+    }
+
+    function closeExtractModal() {
+        if (_extractOv && _extractOv.parentNode) _extractOv.parentNode.removeChild(_extractOv);
+        _extractOv = null;
+    }
+
+    function mergePdfBuffers(buffers) {
+        return ensurePdfLib().then(function (PDFLib) {
+            return PDFLib.PDFDocument.create().then(function (outDoc) {
+                var chain = Promise.resolve();
+                buffers.forEach(function (buf) {
+                    chain = chain.then(function () { return pdfLibAddBufferToDoc(PDFLib, outDoc, buf); });
+                });
+                return chain.then(function () { return outDoc.save(); });
+            });
+        });
+    }
+
+    function runMergeFromModal(extraFiles, position) {
+        closeMergeModal();
+        setStatus(t('Merging PDFs…', '合并 PDF 中…', '合併 PDF 中…'), 'work');
+        var job;
+        if (pdfBytes) {
+            job = buildFlattenedPdfBytes().then(function (currentBytes) {
+                var bufs = position === 'prepend' ? [] : [currentBytes];
+                var tail = Promise.resolve();
+                extraFiles.forEach(function (f) {
+                    tail = tail.then(function () {
+                        return readFileArrayBuffer(f).then(function (b) { bufs.push(b); });
+                    });
+                });
+                return tail.then(function () {
+                    if (position === 'prepend') bufs.push(currentBytes);
+                    return mergePdfBuffers(bufs);
+                });
+            });
+        } else {
+            if (extraFiles.length < 2) {
+                return Promise.reject(new Error(t('Choose at least 2 PDF files.', '请至少选择 2 个 PDF 文件。', '請至少選擇 2 個 PDF 檔案。')));
+            }
+            var bufs = [];
+            var chain = Promise.resolve();
+            extraFiles.forEach(function (f) {
+                chain = chain.then(function () {
+                    return readFileArrayBuffer(f).then(function (b) { bufs.push(b); });
+                });
+            });
+            job = chain.then(function () { return mergePdfBuffers(bufs); });
+        }
+        return job.then(function (bytes) {
+            var base = fileName.replace(/\.pdf$/i, '') || 'document';
+            pageNum = 0;
+            return loadPdfFromBytes(bytes, base + '_merged.pdf');
+        }).then(function () {
+            setStatus(t('Merge complete.', '合并完成。', '合併完成。'), 'ok');
+        }).catch(function (e) {
+            setStatus(t('Merge failed: ', '合并失败：', '合併失敗：') + (e && e.message || e), 'bad');
+        });
+    }
+
+    function openMergeModal() {
+        closeMergeModal();
+        var hasDoc = !!pdfBytes;
+        _mergeOv = document.createElement('div');
+        _mergeOv.className = 'pde-print-overlay';
+        _mergeOv.innerHTML =
+            '<div class="pde-print-modal" role="dialog">' +
+                '<h2>' + esc(t('Merge PDFs', '合并 PDF', '合併 PDF')) + '</h2>' +
+                '<p class="pde-pages-hint">' + esc(hasDoc
+                    ? t('Add other PDF files to the current document. Annotations on open pages are included.',
+                        '将其他 PDF 添加到当前文档。当前页上的标注会一并合并。',
+                        '將其他 PDF 新增至目前文件。目前頁面上的標註會一併合併。')
+                    : t('Choose two or more PDF files to combine into one document.',
+                        '选择两个或以上 PDF 文件合并为一个文档。',
+                        '選擇兩個或以上 PDF 檔案合併為一個文件。')) + '</p>' +
+                '<label class="pde-print-field pde-print-field--full">' +
+                    '<span>' + esc(t('PDF files to add', '要添加的 PDF 文件', '要新增的 PDF 檔案')) +
+                    (hasDoc ? '' : ' (' + esc(t('2 or more', '2 个或以上', '2 個或以上')) + ')') + '</span>' +
+                    '<input id="pde_merge_files" type="file" accept="application/pdf,.pdf" multiple></label>' +
+                (hasDoc
+                    ? ('<fieldset class="pde-pages-fieldset">' +
+                        '<legend>' + esc(t('Position', '位置', '位置')) + '</legend>' +
+                        '<label class="pde-print-check"><input type="radio" name="pde_merge_pos" value="append" checked> ' +
+                        esc(t('Append after current document', '追加到当前文档之后', '追加至目前文件之後')) + '</label>' +
+                        '<label class="pde-print-check"><input type="radio" name="pde_merge_pos" value="prepend"> ' +
+                        esc(t('Insert before current document', '插入到当前文档之前', '插入至目前文件之前')) + '</label>' +
+                    '</fieldset>')
+                    : '') +
+                '<div class="pde-print-actions">' +
+                    '<button type="button" class="ct-btn" id="pde_merge_cancel">' + esc(t('Cancel', '取消', '取消')) + '</button>' +
+                    '<button type="button" class="ct-btn ct-btn-primary" id="pde_merge_go">' +
+                        esc(t('Merge', '合并', '合併')) + '</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(_mergeOv);
+        gg('pde_merge_cancel').addEventListener('click', closeMergeModal);
+        _mergeOv.addEventListener('click', function (e) { if (e.target === _mergeOv) closeMergeModal(); });
+        gg('pde_merge_go').addEventListener('click', function () {
+            var inp = gg('pde_merge_files');
+            var files = inp && inp.files ? Array.prototype.slice.call(inp.files) : [];
+            if (!files.length) {
+                alert(t('Please choose PDF file(s).', '请选择 PDF 文件。', '請選擇 PDF 檔案。'));
+                return;
+            }
+            if (!hasDoc && files.length < 2) {
+                alert(t('Choose at least 2 PDF files.', '请至少选择 2 个 PDF 文件。', '請至少選擇 2 個 PDF 檔案。'));
+                return;
+            }
+            var pos = 'append';
+            var posEl = _mergeOv.querySelector('input[name="pde_merge_pos"]:checked');
+            if (posEl) pos = posEl.value || 'append';
+            var btn = gg('pde_merge_go');
+            if (btn) btn.disabled = true;
+            runMergeFromModal(files, pos).finally(function () {
+                if (btn) btn.disabled = false;
+            });
+        });
+    }
+
+    function runExtractFromModal(rangeStr, download, loadInEditor) {
+        if (!pdfBytes) return Promise.reject(new Error(t('No PDF loaded.', '未打开 PDF。', '未開啟 PDF。')));
+        if (!download && !loadInEditor) {
+            return Promise.reject(new Error(t('Choose download and/or open in editor.', '请选择下载和/或在编辑器中打开。', '請選擇下載和/或在編輯器中開啟。')));
+        }
+        var indices = parsePageRange(rangeStr, pageCount);
+        if (!indices.length) {
+            return Promise.reject(new Error(t('No valid pages.', '没有有效页码。', '沒有有效頁碼。')));
+        }
+        closeExtractModal();
+        setStatus(t('Extracting pages…', '提取页面中…', '提取頁面中…'), 'work');
+        return buildFlattenedPdfBytes().then(function (currentBytes) {
+            return ensurePdfLib().then(function (PDFLib) {
+                return PDFLib.PDFDocument.load(currentBytes, { ignoreEncryption: true }).then(function (src) {
+                    return PDFLib.PDFDocument.create().then(function (out) {
+                        return out.copyPages(src, indices).then(function (pages) {
+                            pages.forEach(function (pg) { out.addPage(pg); });
+                            return out.save();
+                        });
+                    });
+                });
+            });
+        }).then(function (bytes) {
+            var base = fileName.replace(/\.pdf$/i, '') || 'document';
+            var outName = base + '_pages_' + String(rangeStr).replace(/\s+/g, '') + '.pdf';
+            if (download) {
+                dl(new Blob([bytes], { type: 'application/pdf' }), outName);
+            }
+            if (loadInEditor) {
+                pageNum = 0;
+                return loadPdfFromBytes(bytes, outName);
+            }
+        }).then(function () {
+            setStatus(t('Extract complete.', '提取完成。', '提取完成。'), 'ok');
+        }).catch(function (e) {
+            setStatus(t('Extract failed: ', '提取失败：', '提取失敗：') + (e && e.message || e), 'bad');
+        });
+    }
+
+    function openExtractModal() {
+        if (!pdfBytes) return;
+        closeExtractModal();
+        var defaultRange = String(pageNum + 1);
+        _extractOv = document.createElement('div');
+        _extractOv.className = 'pde-print-overlay';
+        _extractOv.innerHTML =
+            '<div class="pde-print-modal" role="dialog">' +
+                '<h2>' + esc(t('Extract pages', '提取页面', '提取頁面')) + '</h2>' +
+                '<p class="pde-pages-hint">' + esc(t(
+                    'Keep selected pages as a new PDF. Use commas and dashes (e.g. 1-3,5). Current annotations are included.',
+                    '将选定页保存为新 PDF。可用逗号和连字符（如 1-3,5）。包含当前标注。',
+                    '將選定頁儲存為新 PDF。可用逗號和連字符（如 1-3,5）。包含目前標註。')) + '</p>' +
+                '<label class="pde-print-field pde-print-field--full">' +
+                    '<span>' + esc(t('Pages to extract', '要提取的页', '要提取的頁')) + '</span>' +
+                    '<input id="pde_extract_range" type="text" value="' + esc(defaultRange) +
+                    '" placeholder="1-3,5"></label>' +
+                '<p class="pde-pages-meta">' + esc(t('Document has', '文档共', '文件共') + ' ' + pageCount + ' ' +
+                    t('pages', '页', '頁') + ' · ' + t('viewing page', '当前第', '目前第') + ' ' + (pageNum + 1)) + '</p>' +
+                '<label class="pde-print-check"><input type="checkbox" id="pde_extract_download" checked> ' +
+                    esc(t('Download extracted PDF', '下载提取的 PDF', '下載提取的 PDF')) + '</label>' +
+                '<label class="pde-print-check"><input type="checkbox" id="pde_extract_load"> ' +
+                    esc(t('Open extracted pages in editor', '在编辑器中打开提取的页', '在編輯器中開啟提取的頁')) + '</label>' +
+                '<div class="pde-print-actions">' +
+                    '<button type="button" class="ct-btn" id="pde_extract_current">' +
+                        esc(t('Current page only', '仅当前页', '僅目前頁')) + '</button>' +
+                    '<button type="button" class="ct-btn" id="pde_extract_cancel">' + esc(t('Cancel', '取消', '取消')) + '</button>' +
+                    '<button type="button" class="ct-btn ct-btn-primary" id="pde_extract_go">' +
+                        esc(t('Extract', '提取', '提取')) + '</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(_extractOv);
+        gg('pde_extract_cancel').addEventListener('click', closeExtractModal);
+        _extractOv.addEventListener('click', function (e) { if (e.target === _extractOv) closeExtractModal(); });
+        gg('pde_extract_current').addEventListener('click', function () {
+            var inp = gg('pde_extract_range');
+            if (inp) inp.value = String(pageNum + 1);
+        });
+        gg('pde_extract_go').addEventListener('click', function () {
+            var rangeInp = gg('pde_extract_range');
+            var dl = gg('pde_extract_download');
+            var load = gg('pde_extract_load');
+            var btn = gg('pde_extract_go');
+            if (btn) btn.disabled = true;
+            runExtractFromModal(
+                rangeInp ? rangeInp.value : '',
+                dl && dl.checked,
+                load && load.checked
+            ).finally(function () {
+                if (btn) btn.disabled = false;
+            });
         });
     }
 
@@ -2160,8 +2736,12 @@
                     '<label class="pde-mb-btn pde-open-lbl">' + esc(t('Open', '打开', '打開')) +
                         '<input type="file" id="pde_file" accept="application/pdf,.pdf" hidden></label>' +
                     '<button type="button" class="pde-mb-btn pde-mb-primary" id="pde_save" disabled>' + esc(t('Save PDF', '保存', '儲存')) + '</button>' +
+                    '<button type="button" class="pde-mb-btn" id="pde_merge">' + esc(t('Merge…', '合并…', '合併…')) + '</button>' +
+                    '<button type="button" class="pde-mb-btn" id="pde_extract" disabled>' + esc(t('Extract…', '提取…', '提取…')) + '</button>' +
                     '<button type="button" class="pde-mb-btn" id="pde_print" disabled title="Ctrl+P">' + esc(t('Print', '打印', '列印')) + '</button>' +
                     '<button type="button" class="pde-mb-btn" id="pde_print_setup" disabled>' + esc(t('Print setup', '打印设置', '列印設定')) + '</button>' +
+                    '<button type="button" class="pde-mb-btn" id="pde_copy_text" disabled title="Ctrl+Shift+C">' + esc(t('Copy text', '复制文字', '複製文字')) + '</button>' +
+                    '<button type="button" class="pde-mb-btn" id="pde_ocr_page" disabled>' + esc(t('OCR page', 'OCR 本页', 'OCR 本頁')) + '</button>' +
                     '<span class="pde-mb-sep"></span>' +
                     '<button type="button" class="pde-mb-btn" id="pde_undo" disabled title="Ctrl+Z">↶</button>' +
                     '<button type="button" class="pde-mb-btn" id="pde_redo" disabled title="Ctrl+Y">↷</button>' +
@@ -2192,6 +2772,10 @@
                         ribbonBtn('signature', '✍', t('Sign', '签名', '簽名')) +
                         ribbonBtn('stamp', '🔴', t('Stamp', '图章', '圖章')) +
                     '</div>' +
+                    '<div class="pde-rib-group"><span>' + esc(t('Text', '文字', '文字')) + '</span>' +
+                        ribbonBtn('textselect', 'Aa', t('Select text', '选择文字', '選取文字')) +
+                        ribbonBtn('ocr', '🔍', t('OCR', 'OCR 识别', 'OCR 辨識')) +
+                    '</div>' +
                     '<div class="pde-rib-group"><span>' + esc(t('Shapes', '形状', '形狀')) + '</span>' +
                         ribbonBtn('rect', '▭', t('Rectangle', '矩形', '矩形')) +
                         ribbonBtn('ellipse', '○', t('Ellipse', '椭圆', '橢圓')) +
@@ -2202,7 +2786,7 @@
                 '<div id="pde_empty" class="pde-empty">' +
                     '<div class="pde-empty-icon">📄</div>' +
                     '<h2>' + esc(t('PDF Editor', 'PDF 编辑器', 'PDF 編輯器')) + '</h2>' +
-                    '<p>' + esc(t('Open a PDF to annotate, sign, and export — like a lightweight Acrobat.', '打开 PDF 进行标注、签名并导出 — 轻量版 Acrobat 体验。', '打開 PDF 進行標註、簽名並匯出 — 輕量版 Acrobat 體驗。')) + '</p>' +
+                    '<p>' + esc(t('Open a PDF to annotate, merge, extract pages, select text, OCR scans, sign, and export.', '打开 PDF 进行标注、合并、提取页面、选择文字、OCR 识别、签名并导出。', '打開 PDF 進行標註、合併、提取頁面、選取文字、OCR 辨識、簽名並匯出。')) + '</p>' +
                     '<label class="ct-btn ct-btn-primary pde-open-lbl">' + esc(t('Open PDF…', '打开 PDF…', '打開 PDF…')) +
                         '<input type="file" id="pde_file_empty" accept="application/pdf,.pdf" hidden></label>' +
                 '</div>' +
@@ -2212,6 +2796,7 @@
                         '<div id="pde_viewport" class="pde-viewport">' +
                             '<div id="pde_stage" class="pde-stage">' +
                                 '<canvas id="pde_bg"></canvas>' +
+                                '<div id="pde_text_layer" class="pde-text-layer" aria-hidden="true"></div>' +
                                 '<canvas id="pde_ol"></canvas>' +
                             '</div>' +
                         '</div>' +
@@ -2231,6 +2816,7 @@
     function wireUi() {
         bgCanvas = gg('pde_bg');
         olCanvas = gg('pde_ol');
+        textLayerEl = gg('pde_text_layer');
         viewportEl = gg('pde_viewport');
         stageEl = gg('pde_stage');
 
@@ -2244,12 +2830,26 @@
         if (fe) fe.addEventListener('change', onFilePick);
 
         gg('pde_save').addEventListener('click', exportPdf);
+        var mergeBtn = gg('pde_merge');
+        if (mergeBtn) mergeBtn.addEventListener('click', openMergeModal);
+        var extractBtn = gg('pde_extract');
+        if (extractBtn) extractBtn.addEventListener('click', openExtractModal);
         var printBtn = gg('pde_print');
         if (printBtn) printBtn.addEventListener('click', function () { openPrintSetupModal({ focusPrint: true }); });
         var printSetupBtn = gg('pde_print_setup');
         if (printSetupBtn) printSetupBtn.addEventListener('click', function () { openPrintSetupModal({}); });
         gg('pde_undo').addEventListener('click', undo);
         gg('pde_redo').addEventListener('click', redo);
+
+        var copyTextBtn = gg('pde_copy_text');
+        if (copyTextBtn) copyTextBtn.addEventListener('click', copySelectedOrOcrText);
+        var ocrPageBtn = gg('pde_ocr_page');
+        if (ocrPageBtn) {
+            ocrPageBtn.addEventListener('click', function () {
+                setTool('ocr');
+                runOcrFullPage();
+            });
+        }
 
         gg('pde_prev').addEventListener('click', function () {
             if (pageNum <= 0) return;
@@ -2327,16 +2927,28 @@
         if (document.activeElement && /input|textarea|select/i.test(document.activeElement.tagName)) return;
 
         var k = e.key.toLowerCase();
-        if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); return; }
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (tool !== 'textselect') deleteSelected();
+            return;
+        }
         if ((e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
         if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
-        if ((e.ctrlKey || e.metaKey) && k === 'c') { e.preventDefault(); copySelected(); return; }
+        if ((e.ctrlKey || e.metaKey) && k === 'c') {
+            if (tool === 'textselect' || tool === 'ocr') {
+                e.preventDefault();
+                copySelectedOrOcrText();
+                return;
+            }
+            e.preventDefault();
+            copySelected();
+            return;
+        }
         if ((e.ctrlKey || e.metaKey) && k === 'v') { e.preventDefault(); pasteClip(); return; }
         if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); exportPdf(); return; }
         if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); openPrintSetupModal({ focusPrint: true }); return; }
 
         if (!e.ctrlKey && !e.metaKey) {
-            var map = { v: 'select', h: 'hand', p: 'pen', e: 'eraser', t: 'text' };
+            var map = { v: 'select', h: 'hand', p: 'pen', e: 'eraser', t: 'text', o: 'ocr' };
             if (map[k]) setTool(map[k]);
         }
     }

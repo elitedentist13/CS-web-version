@@ -186,9 +186,9 @@ var I18N_STRINGS = {
         'zh-Hant': 'PDF 編輯器'
     },
     'tools.pdfEditorDesc': {
-        en: 'Annotate, sign, stamp & export PDFs — Acrobat-style editor',
-        'zh-CN': '标注、签名、图章并导出 PDF — Acrobat 风格编辑器',
-        'zh-Hant': '標註、簽名、圖章並匯出 PDF — Acrobat 風格編輯器'
+        en: 'Annotate, merge, extract pages, OCR, select text & export PDFs',
+        'zh-CN': '标注、合并、提取页面、OCR、选择文字并导出 PDF',
+        'zh-Hant': '標註、合併、提取頁面、OCR、選取文字並匯出 PDF'
     },
     'tools.posterMaker': {
         en: 'Clinic Poster Maker',

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260704-pdf-editor-print2';
+  var BUILD = '20260705-drug-allergy-v4';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1716,6 +1716,24 @@
       </div><!-- /con-drug-col -->
     </div><!-- /conMainLayout -->
   </div><!-- /con-treatment -->
+
+  <div id="drugAllergyWarnModal" class="modal modal-no-backdrop-close"
+       style="z-index:100050;display:none;" data-no-backdrop-close="1">
+    <div class="modal-box" style="max-width:540px;border:3px solid #dc2626;">
+      <h2 id="drugAllergyWarnTitle" style="color:#dc2626;margin:0 0 12px;font-size:18px;">
+        ⚠ DRUG ALLERGY WARNING
+      </h2>
+      <div id="drugAllergyWarnBody" style="font-size:14px;line-height:1.55;color:#1f2937;max-height:55vh;overflow:auto;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;">
+        <button type="button" id="drugAllergyWarnCancel"
+                style="background:#e5e7eb;color:#111827;border:none;padding:10px 16px;border-radius:8px;font-weight:600;cursor:pointer;"
+                data-i18n="common.btnCancel"></button>
+        <button type="button" id="drugAllergyWarnProceed"
+                style="background:#dc2626;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-weight:600;cursor:pointer;"
+                data-i18n="con.rx.allergyWarnProceed"></button>
+      </div>
+    </div>
+  </div>
 
   <div id="conNoteTemplateModal" class="modal">
     <div class="modal-box" style="max-width:460px;">
@@ -5743,6 +5761,7 @@
     'app-appt.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
+    'app-drug-allergy.js',
     'app-consultation.js',
     'app-xray.js?v=20260520f',
     'app-charts.js',

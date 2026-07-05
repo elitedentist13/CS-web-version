@@ -2620,6 +2620,27 @@ function saveConFormsDoc(andPrint) {
     });
 }
 
+function conOpenPdfEditor() {
+    if (typeof PDFEDITOR === 'undefined' || typeof PDFEDITOR.open !== 'function') {
+        alert(typeof conTr === 'function'
+            ? conTr('con.forms.pdfEditorUnavailable')
+            : 'PDF Editor is not available.');
+        return;
+    }
+    var patient = (typeof conFormsPatientData !== 'undefined' && conFormsPatientData)
+        ? conFormsPatientData
+        : ((typeof conPatientData !== 'undefined' && conPatientData) ? conPatientData : null);
+    var tpl = (typeof conFormsSelectedTemplate !== 'undefined' && conFormsSelectedTemplate)
+        ? conFormsSelectedTemplate : null;
+    var docNameEl = g('conFormsDocName');
+    PDFEDITOR.open({
+        patient: patient,
+        patientId: patient ? null : (conFormsPatientId || conPatientId),
+        template: tpl,
+        documentName: docNameEl ? String(docNameEl.value || '').trim() : null
+    });
+}
+
 function printConFormsHtml(html) {
     if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
     var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)

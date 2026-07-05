@@ -186,9 +186,9 @@ var I18N_STRINGS = {
         'zh-Hant': 'PDF 編輯器'
     },
     'tools.pdfEditorDesc': {
-        en: 'Annotate, merge, extract pages, OCR, select text & export PDFs',
-        'zh-CN': '标注、合并、提取页面、OCR、选择文字并导出 PDF',
-        'zh-Hant': '標註、合併、提取頁面、OCR、選取文字並匯出 PDF'
+        en: 'Annotate, patient filing, multi-page view, compare, shortcuts, batch OCR & export PDFs',
+        'zh-CN': '标注、患者归档、多页视图、对比、快捷键、批量 OCR 并导出 PDF',
+        'zh-Hant': '標註、患者歸檔、多頁檢視、對比、快捷鍵、批次 OCR 並匯出 PDF'
     },
     'tools.posterMaker': {
         en: 'Clinic Poster Maker',

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260705-pdf-merge-extract-v1';
+  var BUILD = '20260705-pdf-refine-v2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -2358,6 +2358,7 @@
             <button class="btn-add" type="button" onclick="saveConFormsDoc(false)" data-i18n="con.forms.btnSaveOnly"></button>
             <button class="btn-add" type="button" style="background:var(--primary);" onclick="saveConFormsDoc(true)" data-i18n="con.forms.btnSavePrint"></button>
             <button class="btn-add" type="button" style="background:#64748b;" onclick="conFormsStartNewDoc()" data-i18n="con.forms.btnNewDoc"></button>
+            <button class="btn-add" type="button" style="background:#0ea5e9;" onclick="conOpenPdfEditor()" data-i18n="con.forms.btnPdfEditor"></button>
           </div>
         </div>
 

@@ -2755,6 +2755,12 @@
         'con.forms.editorHint': { en: 'Edit like a word processor. English and Traditional Chinese text from the template are shown with patient and doctor details filled in.', 'zh-CN': '像 Word 一样编辑。模板中的中英文已填入患者与医生资料。', 'zh-Hant': '像 Word 一樣編輯。範本中的中英文已填入病人與醫生資料。' },
         'con.forms.editingExisting': { en: 'Editing saved document', 'zh-CN': '正在编辑已保存文件', 'zh-Hant': '正在編輯已儲存文件' },
         'con.forms.btnNewDoc': { en: '＋ New document', 'zh-CN': '＋ 新建文件', 'zh-Hant': '＋ 新增文件' },
+        'con.forms.btnPdfEditor': { en: 'PDF Editor', 'zh-CN': 'PDF 编辑器', 'zh-Hant': 'PDF 編輯器' },
+        'con.forms.pdfEditorUnavailable': {
+            en: 'PDF Editor is not loaded. Open Tools → PDF Editor first.',
+            'zh-CN': 'PDF 编辑器未加载。请先从工具打开 PDF 编辑器。',
+            'zh-Hant': 'PDF 編輯器未載入。請先從工具開啟 PDF 編輯器。'
+        },
         'con.forms.updatedOk': { en: 'Document updated.', 'zh-CN': '文件已更新。', 'zh-Hant': '文件已更新。' },
         'con.forms.btnPrintOne': { en: 'Print', 'zh-CN': '打印', 'zh-Hant': '列印' },
         'con.forms.patientLabel': { en: '{NAME} (#{NO})', 'zh-CN': '{NAME}（#{NO}）', 'zh-Hant': '{NAME}（#{NO}）' },

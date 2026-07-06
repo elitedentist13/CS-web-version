@@ -377,7 +377,7 @@
     }
 
     function xrayAiFindInterarchGap(toothMask, cw, ch) {
-        var proj = new Float32Array(ch), y, x, i, lo, hi, segMin, segIdx, peak, above, below, minSide;
+        var proj = new Float32Array(ch), y, x, i, lo, hi, segMin, segIdx, peak, above, below, minSide, sum, cnt;
         for (y = 0; y < ch; y++) {
             sum = 0;
             for (x = 0; x < cw; x++) if (toothMask[y * cw + x]) sum++;
@@ -413,9 +413,7 @@
     function xrayAiColumnVerticalBands(colBool, cw, ch, archGapY) {
         var rows = [], y, x, i, gapMin, bands = [], start, prev, r;
         for (y = 0; y < ch; y++) {
-            for (x = 0; x < cw; x++) {
-                if (colBool[y * cw + x]) { rows.push(y); break; }
-            }
+            if (colBool[y]) { rows.push(y); break; }
         }
         if (rows.length < 8) return [];
         gapMin = Math.max(4, (ch * 0.018) | 0);

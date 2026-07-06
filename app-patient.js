@@ -712,7 +712,18 @@ function genPatientNo(cb) {
     });
 }
 
-function openAddPatient() {
+function applyAddPatientPrefill(prefill) {
+    if (!prefill) return;
+    var fn = prefill.fullName != null ? String(prefill.fullName).trim() : '';
+    var cn = prefill.chineseName != null ? String(prefill.chineseName).trim() : '';
+    var ph = prefill.phone != null ? String(prefill.phone).trim() : '';
+    if (fn && g('fullName')) g('fullName').value = fn;
+    if (cn && g('chineseName')) g('chineseName').value = cn;
+    if (ph && g('phone')) g('phone').value = ph;
+}
+
+function openAddPatient(prefill) {
+    prefill = prefill || null;
     g('patientForm').reset();
     sv('preview_patientNo','');
     if (g('banana_info_enabled')) {
@@ -730,6 +741,10 @@ function openAddPatient() {
     initPatientResidentialDistrictSelectsOnce();
     refreshPatientSexSelects();
     refreshPatientResidentialDistrictSelects();
+    applyAddPatientPrefill(prefill);
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function () { applyAddPatientPrefill(prefill); });
+    }
     if (typeof programSettingBool === 'function' && programSettingBool('default_patient_female', false)) {
         sv('sex', 'F');
     }
@@ -739,6 +754,7 @@ function openAddPatient() {
         if (no) {
             sv('preview_patientNo', no);
             updateAddPatientNoAvailabilityUI();
+            applyAddPatientPrefill(prefill);
             return;
         }
         sv('preview_patientNo', '');

@@ -163,6 +163,7 @@ var loginDoctorAllowedIds = null;
 
 var PATIENT_CLINIC_TAG_FIELD = 'clinic_tag';
 var APPOINTMENT_CLINIC_TAG_FIELD = 'clinic_tag';
+var APPOINTMENT_WALK_IN_PHONE_FIELD = 'walk_in_phone';
 var TREATMENT_CLINIC_TAG_FIELD = 'clinic_tag';
 
 /** Populated after DOM exists; refreshed when clinics load. */

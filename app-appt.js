@@ -37,6 +37,7 @@ var apptListSelectedApptId = null;
 var apptListSelectedTab = '';
 /** Today's walk-in appointment id awaiting patient registration before check-in. */
 var todayApptPendingPatientRegId = null;
+var WALKIN_APPT_PHONE_LS = 'jsm_walkin_appt_phones_v1';
 var TODAY_NOSHOW_DISMISS_LS = 'joyful_today_noshow_dismiss_v1';
 var calMonthApptsCache = [];
 var calWeekApptsCache = [];
@@ -4591,6 +4592,7 @@ function apptPayloadFromSourceForTransfer(src, target) {
         duration: target.duration != null ? target.duration : src.duration,
         treatment_items: src.treatment_items || null,
         remarks: src.remarks || null,
+        walk_in_phone: src.walk_in_phone || null,
         bill_status: 'Scheduled',
         in_queue: null,
         arrival_time: null
@@ -6128,6 +6130,7 @@ function loadPlusApptDay(opts) {
 }
 
 function plusApptPrefillModalPatient() {
+    if (apptHasWalkInDraft() || apptModalIsWalkInMode()) return;
     var p = plusApptHeaderPatient || apptActivePatientSnapshot();
     if (!p) return;
     if (typeof apptSetSelectedPatient === 'function') apptSetSelectedPatient(p);
@@ -8512,6 +8515,7 @@ function arOpenEdit(id) {
 }
 
 function openNewApptSamePatientFromRecord(appt) {
+    appt = apptResolveForEdit(appt);
     apptEditId = null;
     apptEditLockRef = null;
     setApptScheduleLockFormUI(false);
@@ -8548,8 +8552,6 @@ function openNewApptSamePatientFromRecord(appt) {
     sv('npPhone',  '');
 
     if (!appt.patient_id) {
-        sv('npName', appt.patient_name || '');
-        sv('npPhone', extractPhoneFromRemarks(appt.remarks));
         switchApptPatientMode('new');
     } else {
         switchApptPatientMode('exist');
@@ -8561,6 +8563,7 @@ function openNewApptSamePatientFromRecord(appt) {
     sv('fDur',   '30');
     calcEnd();
     refreshApptModalI18n();
+    restoreWalkInApptFormFields(appt);
     openModal('apptModal');
 }
 
@@ -9230,6 +9233,7 @@ function apptRefreshSelectedPatientDob(patientId, dobHint) {
 
 function apptSetSelectedPatient(p) {
     if (!p || !p.id) return;
+    if (apptHasWalkInDraft() || apptModalIsWalkInMode()) return;
     if (typeof recordPatientSearchToActiveCard === 'function') {
         recordPatientSearchToActiveCard(p, 'appt-modal-patient');
     }
@@ -9263,6 +9267,7 @@ function apptActivePatientSnapshot() {
 }
 
 function prefillApptModalFromActivePatient() {
+    if (apptHasWalkInDraft() || apptModalIsWalkInMode()) return false;
     var p = apptActivePatientSnapshot();
     if (!p) return false;
     apptSetSelectedPatient(p);
@@ -9340,17 +9345,192 @@ function stripDoctorTagsFromRemarks(remarks) {
 }
 
 function extractPhoneFromRemarks(remarks) {
-    var m = String(remarks || '').match(/(?:^|\|)\s*Ph:\s*([^|]+)/i);
-    return m ? m[1].trim() : '';
+    var s = String(remarks || '');
+    if (typeof stripStaffAuthorFromRemarks === 'function') {
+        s = stripStaffAuthorFromRemarks(s);
+    }
+    if (typeof stripDoctorTagsFromRemarks === 'function') {
+        s = stripDoctorTagsFromRemarks(s);
+    }
+    if (remarksStringHasHtml(s)) {
+        s = s.replace(/<br\s*\/?>/gi, ' ');
+        s = s.replace(/<[^>]+>/g, ' ');
+    }
+    s = s.replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+    var patterns = [
+        /(?:^|\|)\s*Ph:\s*([^|]+)/i,
+        /(?:^|\|)\s*电话[：:]\s*([^|]+)/,
+        /(?:^|\|)\s*電話[：:]\s*([^|]+)/
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+        var m = s.match(patterns[i]);
+        if (m && m[1]) return m[1].trim();
+    }
+    return '';
+}
+
+/** Walk-in / unlinked appointment phone (DB column, remarks tag, or cache). */
+function apptWalkInPhone(a) {
+    if (!a) return '';
+    var field = typeof APPOINTMENT_WALK_IN_PHONE_FIELD !== 'undefined'
+        ? APPOINTMENT_WALK_IN_PHONE_FIELD
+        : 'walk_in_phone';
+    var cached = String(a[field] || a._walkin_phone || a._merged_phone || '').trim();
+    if (cached) return cached;
+    cached = extractPhoneFromRemarks(a.remarks);
+    if (cached) return cached;
+    if (a.id != null) cached = recallWalkInApptPhone(a.id);
+    return cached || '';
+}
+
+function apptHydrateWalkInPhone(row) {
+    if (!row) return;
+    var field = typeof APPOINTMENT_WALK_IN_PHONE_FIELD !== 'undefined'
+        ? APPOINTMENT_WALK_IN_PHONE_FIELD
+        : 'walk_in_phone';
+    var ph = String(row[field] || row._walkin_phone || '').trim();
+    if (!ph && !row.patient_id) ph = extractPhoneFromRemarks(row.remarks);
+    if (!ph) return;
+    row._walkin_phone = ph;
+    if (!row._merged_phone) row._merged_phone = ph;
+}
+
+function rememberWalkInApptPhone(apptId, phone) {
+    phone = String(phone || '').trim();
+    if (apptId == null || !phone) return;
+    try {
+        var map = JSON.parse(localStorage.getItem(WALKIN_APPT_PHONE_LS) || '{}');
+        map[String(apptId)] = phone;
+        localStorage.setItem(WALKIN_APPT_PHONE_LS, JSON.stringify(map));
+    } catch (e) { /* ignore */ }
+}
+
+function recallWalkInApptPhone(apptId) {
+    if (apptId == null) return '';
+    try {
+        var map = JSON.parse(localStorage.getItem(WALKIN_APPT_PHONE_LS) || '{}');
+        return String(map[String(apptId)] || '').trim();
+    } catch (e) { return ''; }
+}
+
+function forgetWalkInApptPhone(apptId) {
+    if (apptId == null) return;
+    try {
+        var map = JSON.parse(localStorage.getItem(WALKIN_APPT_PHONE_LS) || '{}');
+        delete map[String(apptId)];
+        localStorage.setItem(WALKIN_APPT_PHONE_LS, JSON.stringify(map));
+    } catch (e) { /* ignore */ }
+}
+
+function apptHasWalkInDraft() {
+    var ph = g('npPhone') ? String(g('npPhone').value || '').trim() : '';
+    var nm = g('npName') ? String(g('npName').value || '').trim() : '';
+    return !!(ph || nm);
+}
+
+function apptModalIsWalkInMode() {
+    var modal = g('apptModal');
+    if (modal && modal.dataset.patientMode === 'new') return true;
+    var sec = g('psSectionNew');
+    if (sec && sec.style.display !== 'none') return true;
+    var npName = g('npName') ? String(g('npName').value || '').trim() : '';
+    var hPid = g('hPid') ? String(g('hPid').value || '').trim() : '';
+    return !!npName && !hPid;
 }
 
 function stripPhoneFromRemarks(remarks) {
     var r = String(remarks || '')
         .replace(/(?:^|\|)\s*Ph:\s*[^|]+/gi, '')
+        .replace(/(?:^|\|)\s*电话[：:]\s*[^|]+/g, '')
+        .replace(/(?:^|\|)\s*電話[：:]\s*[^|]+/g, '')
         .replace(/\s*\|\s*\|/g, ' | ')
         .replace(/^\s*\|\s*|\s*\|\s*$/g, '');
     if (remarksStringHasHtml(r)) return r.trim();
     return r.replace(/\s+/g, ' ').trim();
+}
+
+/** Merge the freshest cached copy of an appointment row (remarks, phone, etc.). */
+function apptResolveForEdit(appt) {
+    if (!appt) return appt;
+    var id = appt.id != null ? String(appt.id) : '';
+    if (!id) return appt;
+    var merged = Object.assign({}, appt);
+    var lists = [
+        typeof todayAppts !== 'undefined' ? todayAppts : null,
+        typeof plusApptDayAppts !== 'undefined' ? plusApptDayAppts : null,
+        typeof arAllData !== 'undefined' ? arAllData : null
+    ];
+    var li, i, list;
+    for (li = 0; li < lists.length; li++) {
+        list = lists[li];
+        if (!list || !list.length) continue;
+        for (i = 0; i < list.length; i++) {
+            if (list[i] && String(list[i].id) === id) {
+                merged = Object.assign(merged, list[i]);
+                break;
+            }
+        }
+    }
+    if (apptEditLockRef && String(apptEditLockRef.id) === id) {
+        merged = Object.assign({}, apptEditLockRef, merged);
+    }
+    return merged;
+}
+
+/** Keep in-memory appointment lists in sync immediately after save (before reload). */
+function apptMergeSavedRowIntoCaches(row) {
+    if (!row || row.id == null) return;
+    if (!row.patient_id) {
+        apptHydrateWalkInPhone(row);
+        if (row._walkin_phone && row.id != null) {
+            rememberWalkInApptPhone(row.id, row._walkin_phone);
+        }
+    }
+    var id = String(row.id);
+    var patchList = function (list) {
+        if (!list) return false;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] && String(list[i].id) === id) {
+                list[i] = Object.assign({}, list[i], row);
+                return true;
+            }
+        }
+        return false;
+    };
+    if (typeof todayAppts !== 'undefined' && todayAppts) {
+        if (!patchList(todayAppts) && row.date === todayISO()) {
+            todayAppts.push(Object.assign({}, row));
+            todayAppts.sort(function (a, b) {
+                return String(a.start_time || '').localeCompare(String(b.start_time || ''));
+            });
+        }
+    }
+    if (typeof arAllData !== 'undefined' && arAllData) {
+        patchList(arAllData);
+    }
+    if (typeof plusApptMergeSavedRow === 'function') {
+        plusApptMergeSavedRow(row);
+    }
+}
+
+function restoreWalkInApptFormFields(appt) {
+    if (!appt || appt.patient_id) return;
+    sv('npName', appt.patient_name || '');
+    sv('npPhone', apptWalkInPhone(appt));
+}
+
+function resolveWalkInPhoneForSave(npPhoneVal, priorRawRemarks) {
+    var phone = String(npPhoneVal || '').trim();
+    if (phone) return phone;
+    return extractPhoneFromRemarks(priorRawRemarks);
+}
+
+function appendWalkInPhoneToRemarks(rem, phone) {
+    if (!phone) return rem;
+    var body = stripPhoneFromRemarks(String(rem || '').trim());
+    return body
+        ? body + trRepl('appt.walkinRemarksAppend', { PHONE: phone })
+        : trRepl('appt.walkinRemarksPhone', { PHONE: phone });
 }
 
 function remarksForApptForm(remarks) {
@@ -10541,6 +10721,8 @@ function switchApptPatientMode(mode) {
         sv('npName',  '');
         sv('npPhone', '');
     }
+    var modal = g('apptModal');
+    if (modal) modal.dataset.patientMode = mode === 'new' ? 'new' : 'exist';
 }
 
 function resetApptBookingGuards() {
@@ -10552,7 +10734,9 @@ function resetApptBookingGuards() {
 function openApptModalWithPatient(iso, time, p) {
     openApptModal(iso || todayISO());
     setTimeout(function() {
-        if (p && p.id && typeof apptSetSelectedPatient === 'function') {
+        if (apptHasWalkInDraft() || apptModalIsWalkInMode()) {
+            /* keep walk-in draft — delayed active-patient prefill must not wipe npPhone */
+        } else if (p && p.id && typeof apptSetSelectedPatient === 'function') {
             apptSetSelectedPatient(p);
         } else if (typeof prefillApptModalFromActivePatient === 'function') {
             prefillApptModalFromActivePatient();
@@ -10610,6 +10794,7 @@ function openApptModal(prefillDate) {
 }
 
 function openApptEditModal(appt) {
+    appt = apptResolveForEdit(appt);
     resetApptBookingGuards();
     ensureModalNoBackdropClose('apptModal');
     apptEditLockRef = appt;
@@ -10637,8 +10822,6 @@ function openApptEditModal(appt) {
 
     // If appointment has no patient_id it was a walk-in booking — restore that mode
     if (!appt.patient_id) {
-        sv('npName',  appt.patient_name || '');
-        sv('npPhone', extractPhoneFromRemarks(appt.remarks));
         switchApptPatientMode('new');
     } else {
         switchApptPatientMode('exist');
@@ -10658,6 +10841,7 @@ function openApptEditModal(appt) {
     }
     calcEnd();
     refreshApptModalI18n();
+    restoreWalkInApptFormFields(appt);
     openModal('apptModal');
 }
 
@@ -10684,13 +10868,14 @@ function saveAppt() {
     if (!start) { alert(tr('appt.msg.selectStart')); return; }
 
     // ── Determine patient info based on active mode ──────────────
-    var isWalkIn = g('psSectionNew') && g('psSectionNew').style.display !== 'none';
+    var priorRaw = apptEditLockRef ? apptEditLockRef.remarks : null;
+    var isWalkIn = apptModalIsWalkInMode();
     var pid, pname, pno;
+    var walkPhoneSaved = resolveWalkInPhoneForSave(g('npPhone') ? g('npPhone').value : '', priorRaw);
 
     if (isWalkIn) {
         pname = (g('npName').value  || '').trim();
         if (!pname) { alert(tr('appt.msg.enterPatientName')); g('npName').focus(); return; }
-        var phone = (g('npPhone').value || '').trim();
         pid = '';    // no linked patient record
         pno = '';
     } else {
@@ -10717,17 +10902,14 @@ function saveAppt() {
     var chineseName = isWalkIn ? '' : ((g('hPchinese') && g('hPchinese').value) || '');
 
     var rem = remarksFromEditor('fRemarksEditor');
-    if (isWalkIn) {
-        var walkPhone = (g('npPhone').value || '').trim();
-        if (walkPhone) {
-            rem = rem
-                ? rem + trRepl('appt.walkinRemarksAppend', { PHONE: walkPhone })
-                : trRepl('appt.walkinRemarksPhone', { PHONE: walkPhone });
-        }
+    if (walkPhoneSaved) {
+        rem = appendWalkInPhoneToRemarks(rem, walkPhoneSaved);
     }
-    var priorRaw = apptEditLockRef ? apptEditLockRef.remarks : null;
     rem = mergeStaffAuthorOnSave(rem, priorRaw);
 
+    var walkInField = typeof APPOINTMENT_WALK_IN_PHONE_FIELD !== 'undefined'
+        ? APPOINTMENT_WALK_IN_PHONE_FIELD
+        : 'walk_in_phone';
     var payload = {
         patient_id:            pid   || null,
         patient_no:            pno   || null,
@@ -10741,6 +10923,11 @@ function saveAppt() {
         remarks:               rem,
         bill_status:           apptEditId ? undefined : 'Scheduled'
     };
+    if (isWalkIn) {
+        payload[walkInField] = walkPhoneSaved || null;
+    } else if (pid) {
+        payload[walkInField] = null;
+    }
     if (drCode) {
         payload.doctor_code = drCode;
         payload.doctor_name = drName;
@@ -10777,6 +10964,12 @@ function saveAppt() {
                 savedRow.doctor_name = drName;
             }
             if (apCt) savedRow[APPOINTMENT_CLINIC_TAG_FIELD] = apCt;
+            if (walkPhoneSaved) {
+                savedRow._walkin_phone = walkPhoneSaved;
+                savedRow[walkInField] = walkPhoneSaved;
+                if (savedId) rememberWalkInApptPhone(savedId, walkPhoneSaved);
+            }
+            apptMergeSavedRowIntoCaches(savedRow);
         }
         apptEditId = null;
         apptEditLockRef = null;
@@ -10827,6 +11020,10 @@ function saveAppt() {
                     var p3 = Object.assign({}, p);
                     delete p3[APPOINTMENT_CLINIC_TAG_FIELD];
                     tryPayload(p3, opts);
+                } else if (msg.indexOf('walk_in_phone') >= 0) {
+                    var p4 = Object.assign({}, p);
+                    delete p4[walkInField];
+                    tryPayload(p4, opts);
                 } else {
                     setSaveBusy(false);
                     alert(trRepl('appt.msg.error', { MSG: msg }));
@@ -11038,6 +11235,9 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
             }
             if (a.patient_id && pSearchMap[a.patient_id]) {
                 a._merged_patient_search = pSearchMap[a.patient_id];
+            }
+            if (!a.patient_id) {
+                apptHydrateWalkInPhone(a);
             }
         });
         if (callback) callback(rows);
@@ -11360,18 +11560,36 @@ function clearTodayApptPendingPatientReg() {
 
 function openNewPatientForTodayAppt(a) {
     if (!a || !a.id) return;
+    a = apptResolveForEdit(a);
     todayApptPendingPatientRegId = a.id;
     if (typeof openAddPatient !== 'function') {
         alert(tr('appt.today.regNotAvailable'));
         return;
     }
-    openAddPatient();
-    setTimeout(function () {
-        var en = String(a.patient_name || '').trim();
-        var cn = String(a.patient_chinese_name || '').trim();
-        if (en && g('fullName')) g('fullName').value = en;
-        if (cn && g('chineseName')) g('chineseName').value = cn;
-    }, 0);
+
+    var launchAddPatient = function (row) {
+        var phone = apptWalkInPhone(row) || recallWalkInApptPhone(row.id);
+        openAddPatient({
+            fullName: String(row.patient_name || '').trim(),
+            chineseName: String(row.patient_chinese_name || '').trim(),
+            phone: phone
+        });
+    };
+
+    if (typeof SB === 'undefined') {
+        launchAddPatient(a);
+        return;
+    }
+
+    SB.from('appointments')
+        .select('*')
+        .eq('id', a.id)
+        .maybeSingle()
+        .then(function (r) {
+            var row = (r.data && !r.error) ? Object.assign({}, a, r.data) : a;
+            apptMergeSavedRowIntoCaches(row);
+            launchAddPatient(row);
+        });
 }
 
 /** Called from patient registration after saving a new patient (app-patient.js). */
@@ -11379,16 +11597,20 @@ function linkTodayApptAfterPatientRegistration(patient) {
     if (!todayApptPendingPatientRegId || !patient || !patient.id) return false;
     var apptId = todayApptPendingPatientRegId;
     todayApptPendingPatientRegId = null;
+    forgetWalkInApptPhone(apptId);
 
-    SB.from('appointments')
-        .update({
-            patient_id:           patient.id,
-            patient_no:           patient.patient_no || null,
-            patient_name:         patient.full_name || null,
-            patient_chinese_name: patient.chinese_name || null
-        })
-        .eq('id', apptId)
-    .then(function (res) {
+    var walkInField = typeof APPOINTMENT_WALK_IN_PHONE_FIELD !== 'undefined'
+        ? APPOINTMENT_WALK_IN_PHONE_FIELD
+        : 'walk_in_phone';
+    var linkPayload = {
+        patient_id:           patient.id,
+        patient_no:           patient.patient_no || null,
+        patient_name:         patient.full_name || null,
+        patient_chinese_name: patient.chinese_name || null
+    };
+    linkPayload[walkInField] = null;
+
+    var finishLink = function (res) {
         if (res.error) {
             alert(trRepl('appt.today.regLinkFail', { MSG: res.error.message }));
             loadToday();
@@ -11396,6 +11618,19 @@ function linkTodayApptAfterPatientRegistration(patient) {
         }
         loadToday();
         alert(trRepl('appt.today.regLinkOk', { NO: (patient.patient_no || '—') }));
+    };
+
+    SB.from('appointments')
+        .update(linkPayload)
+        .eq('id', apptId)
+    .then(function (res) {
+        if (res.error && String(res.error.message || '').indexOf('walk_in_phone') >= 0) {
+            var p2 = Object.assign({}, linkPayload);
+            delete p2[walkInField];
+            SB.from('appointments').update(p2).eq('id', apptId).then(finishLink);
+            return;
+        }
+        finishLink(res);
     });
     return true;
 }
@@ -12902,7 +13137,11 @@ function apptConsultationDoctorContext(appt) {
 }
 
 function apptPatientPhoneForWhatsApp(a) {
-    return String((a && (a._merged_phone || a.phone || a.phone_number || a.mobile_phone || a.patient_phone)) || '').trim();
+    if (!a) return '';
+    if (a.patient_id) {
+        return String((a._merged_phone || a.phone || a.phone_number || a.mobile_phone || a.patient_phone) || '').trim();
+    }
+    return apptWalkInPhone(a);
 }
 
 function apptPatientNameForWhatsApp(a) {

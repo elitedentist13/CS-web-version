@@ -169,6 +169,49 @@
         return ann;
     }
 
+    /** Size a sticky note (normalized 0–1) to fit its text on the current overlay canvas. */
+    function measureNoteNormSize(ann) {
+        var fs = Math.round((ann && ann.size) || props.fontSize || 11);
+        var font = (ann && ann.fontFamily) || props.fontFamily || 'sans-serif';
+        var lines = String((ann && ann.text) || ' ').split('\n').slice(0, 14);
+        var pad = 10;
+        var maxW = 60;
+        var lineH = fs * 1.32;
+        var maxLinePx = 0;
+        if (olCtx && olCanvas) {
+            olCtx.save();
+            olCtx.font = fs + 'px ' + font;
+            lines.forEach(function (line) {
+                maxLinePx = Math.max(maxLinePx, olCtx.measureText(line.slice(0, 100)).width);
+            });
+            olCtx.restore();
+        } else {
+            lines.forEach(function (line) {
+                maxLinePx = Math.max(maxLinePx, line.length * fs * 0.52);
+            });
+        }
+        var boxW = Math.min(380, Math.max(88, maxLinePx + pad * 2));
+        var boxH = Math.max(44, lines.length * lineH + pad * 2);
+        var cw = olCanvas ? olCanvas.width : 800;
+        var ch = olCanvas ? olCanvas.height : 1100;
+        return {
+            w: Math.min(0.5, Math.max(0.1, boxW / cw)),
+            h: Math.min(0.4, Math.max(0.055, boxH / ch))
+        };
+    }
+
+    function normalizeNoteAnn(ann) {
+        if (!ann || ann.type !== 'note') return ann;
+        if (!ann.color) ann.color = '#fef08a';
+        if (ann.opacity == null) ann.opacity = 0.95;
+        if (!ann.size) ann.size = props.fontSize || 11;
+        if (!ann.fontFamily) ann.fontFamily = props.fontFamily || 'sans-serif';
+        var dims = measureNoteNormSize(ann);
+        ann.w = dims.w;
+        ann.h = dims.h;
+        return ann;
+    }
+
     function formatAnnMetaLine(ann) {
         if (!ann || (!ann.author && !ann.createdAt)) return '';
         var parts = [];
@@ -457,7 +500,6 @@
     var pdfFormValues = {};
     var pendingStampText = null;
     var pendingStampColor = '#dc2626';
-    var calloutPreview = null;
 
     var PDF_DOC_BUCKET = 'patient-documents';
     var pdePatient = null;
@@ -818,7 +860,7 @@
             updatePageLabel();
             updateZoomLabel();
             refreshThumbsActive();
-            closeTextEditor();
+            closeTextEditor(true);
             if (tool === 'textselect' || tool === 'ocr') refreshPropsPanel();
         });
     }
@@ -968,9 +1010,20 @@
     }
 
     function drawNoteAnn(ann, sel) {
+        var dims = measureNoteNormSize(ann);
+        var nw = ann.w || dims.w;
+        var nh = ann.h || dims.h;
+        // Upgrade legacy tiny icon-only notes (old 3.5% box) to fit text.
+        if (ann.text && (!ann.w || ann.w < 0.06)) {
+            ann.w = dims.w;
+            ann.h = dims.h;
+            nw = ann.w;
+            nh = ann.h;
+        }
         var st = normToCanvas(ann.x, ann.y);
-        var sw = (ann.w || 0.04) * olCanvas.width;
-        var sh = (ann.h || 0.04) * olCanvas.height;
+        var sw = nw * olCanvas.width;
+        var sh = nh * olCanvas.height;
+        var pad = 8;
         olCtx.save();
         olCtx.fillStyle = ann.color || '#fef08a';
         olCtx.strokeStyle = sel ? '#1473e6' : '#ca8a04';
@@ -978,25 +1031,29 @@
         olCtx.globalAlpha = ann.opacity != null ? ann.opacity : 0.95;
         olCtx.fillRect(st.x, st.y, sw, sh);
         olCtx.strokeRect(st.x, st.y, sw, sh);
-        olCtx.beginPath();
-        olCtx.moveTo(st.x + sw * 0.75, st.y);
-        olCtx.lineTo(st.x + sw, st.y + sh * 0.25);
-        olCtx.lineTo(st.x + sw * 0.75, st.y + sh * 0.25);
-        olCtx.closePath();
-        olCtx.fillStyle = '#fde047';
-        olCtx.fill();
-        olCtx.stroke();
-        olCtx.font = '700 ' + Math.round(Math.min(sw, sh) * 0.45) + 'px sans-serif';
-        olCtx.fillStyle = '#713f12';
-        olCtx.textAlign = 'center';
-        olCtx.textBaseline = 'middle';
-        olCtx.fillText('!', st.x + sw * 0.35, st.y + sh * 0.55);
+        // Folded corner (visual cue only — no "!" icon).
+        var fold = Math.min(16, sw * 0.18, sh * 0.22);
+        if (fold > 4) {
+            olCtx.beginPath();
+            olCtx.moveTo(st.x + sw - fold, st.y);
+            olCtx.lineTo(st.x + sw, st.y);
+            olCtx.lineTo(st.x + sw, st.y + fold);
+            olCtx.closePath();
+            olCtx.fillStyle = '#fde047';
+            olCtx.fill();
+            olCtx.stroke();
+        }
         if (ann.text) {
-            olCtx.font = Math.round(11 * viewportScale) + 'px sans-serif';
+            var fs = Math.round((ann.size || 11) * viewportScale);
+            olCtx.font = fs + 'px ' + (ann.fontFamily || 'sans-serif');
             olCtx.fillStyle = '#713f12';
             olCtx.textAlign = 'left';
             olCtx.textBaseline = 'top';
-            olCtx.fillText(String(ann.text).split('\n')[0].slice(0, 48), st.x + sw + 6, st.y + 2);
+            var lines = String(ann.text).split('\n').slice(0, 14);
+            var lh = fs * 1.32;
+            lines.forEach(function (line, li) {
+                olCtx.fillText(line.slice(0, 100), st.x + pad, st.y + pad + li * lh);
+            });
         }
         if (sel) drawSelectionHandles(st.x, st.y, sw, sh);
         olCtx.restore();
@@ -1120,6 +1177,10 @@
             var maxY = Math.max(ann.y + (ann.h || 0), ann.ay != null ? ann.ay : ann.y);
             return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
         }
+        if (ann.type === 'note') {
+            var nd = measureNoteNormSize(ann);
+            return { x: ann.x, y: ann.y, w: ann.w || nd.w, h: ann.h || nd.h };
+        }
         if (ann.type === 'text') {
             var fs = (ann.size || 16) / (pageDim().h || 842);
             var lines = String(ann.text || '').split('\n').length;
@@ -1152,7 +1213,17 @@
     }
 
     function hitTestHandle(nx, ny, ann) {
-        var b = annBounds(ann);
+        var b;
+        if (ann.type === 'callout' || ann.type === 'note') {
+            var nb = ann;
+            if (ann.type === 'note') {
+                var ndh = measureNoteNormSize(ann);
+                nb = { x: ann.x, y: ann.y, w: ann.w || ndh.w, h: ann.h || ndh.h };
+            }
+            b = { x: nb.x, y: nb.y, w: nb.w || 0.1, h: nb.h || 0.05 };
+        } else {
+            b = annBounds(ann);
+        }
         if (!b) return null;
         var handles = {
             nw: [b.x, b.y], ne: [b.x + b.w, b.y],
@@ -1222,6 +1293,11 @@
         });
     }
 
+    var PDE_CANVAS_TOOLS = {
+        select: 1, hand: 1, pen: 1, highlight: 1, eraser: 1, text: 1, note: 1, callout: 1,
+        underline: 1, strikeout: 1, redact: 1, rect: 1, ellipse: 1, line: 1, arrow: 1, ocr: 1
+    };
+
     function ensureSingleEditMode() {
         if (compareState) {
             setStatus(t('Exit compare mode to edit.', '请先退出对比模式再编辑。', '請先退出對比模式再編輯。'), 'bad');
@@ -1231,6 +1307,72 @@
             setViewMode('single');
         }
         return !!olCanvas;
+    }
+
+    /** Switch to single-page edit mode, then run callback once the overlay canvas exists. */
+    function whenCanvasReadyForEdit(cb) {
+        if (compareState) {
+            setStatus(t('Exit compare mode to edit.', '请先退出对比模式再编辑。', '請先退出對比模式再編輯。'), 'bad');
+            return Promise.resolve(false);
+        }
+        if (viewMode !== 'single') {
+            return setViewMode('single').then(function () { return !!olCanvas; });
+        }
+        return Promise.resolve(!!olCanvas);
+    }
+
+    function activateCanvasTool(toolId) {
+        if (!PDE_CANVAS_TOOLS[toolId]) {
+            setTool(toolId);
+            return;
+        }
+        whenCanvasReadyForEdit().then(function (ready) {
+            if (!ready) {
+                setStatus(t('Open a PDF in single-page view to annotate.', '请在单页视图中打开 PDF 再标注。', '請在單頁檢視中打開 PDF 再標註。'), 'bad');
+                return;
+            }
+            setTool(toolId);
+        });
+    }
+
+    function clampNormBox(x, y, w, h) {
+        w = Math.max(0.04, Math.min(0.92, w));
+        h = Math.max(0.03, Math.min(0.55, h));
+        return {
+            x: Math.max(0, Math.min(1 - w, x)),
+            y: Math.max(0, Math.min(1 - h, y)),
+            w: w,
+            h: h
+        };
+    }
+
+    function finalizeCalloutPreview(sp) {
+        if (!sp || sp.type !== 'callout') return sp;
+        var ax = sp.ax != null ? sp.ax : sp.x;
+        var ay = sp.ay != null ? sp.ay : sp.y;
+        sp.ax = ax;
+        sp.ay = ay;
+        if (Math.abs(sp.w) <= 0.01 && Math.abs(sp.h) <= 0.01) {
+            sp.w = 0.22;
+            sp.h = 0.08;
+            sp.x = ax + 0.02;
+            if (ay >= sp.h + 0.03) {
+                sp.y = ay - sp.h - 0.025;
+            } else {
+                sp.y = Math.min(0.97 - sp.h, ay + 0.025);
+            }
+        } else {
+            if (sp.w < 0) { sp.x += sp.w; sp.w = Math.abs(sp.w); }
+            if (sp.h < 0) { sp.y += sp.h; sp.h = Math.abs(sp.h); }
+            if (sp.w < 0.06) sp.w = 0.06;
+            if (sp.h < 0.04) sp.h = 0.04;
+        }
+        var cl = clampNormBox(sp.x, sp.y, sp.w, sp.h);
+        sp.x = cl.x;
+        sp.y = cl.y;
+        sp.w = cl.w;
+        sp.h = cl.h;
+        return sp;
     }
 
     function placeImageAt(p) {
@@ -1288,10 +1430,30 @@
             if (olCanvas) olCanvas.style.cursor = 'grabbing';
             return;
         }
-        if (!olCanvas) return;
+        if (!olCanvas) {
+            if (pdfJsDoc && tool !== 'hand') {
+                whenCanvasReadyForEdit().then(function (ready) {
+                    if (ready) setStatus(t('Click again to place the annotation.', '请再次点击以放置标注。', '請再次點擊以放置標註。'));
+                });
+            }
+            return;
+        }
+        var p = pointerPos(ev);
+
+        // One-shot tools: skip pointer capture so the inline editor can keep focus.
+        if (tool === 'text') {
+            ev.preventDefault();
+            openTextEditor(p.x, p.y, null, -1, 'text');
+            return;
+        }
+        if (tool === 'note') {
+            ev.preventDefault();
+            openTextEditor(p.x, p.y, null, -1, 'note');
+            return;
+        }
+
         ev.preventDefault();
         olCanvas.setPointerCapture(ev.pointerId);
-        var p = pointerPos(ev);
 
         if (tool === 'eraser') {
             if (!eraserStrokeActive) {
@@ -1336,26 +1498,6 @@
             return;
         }
 
-        if (tool === 'text') {
-            openTextEditor(p.x, p.y, null, -1, 'text');
-            return;
-        }
-
-        if (tool === 'note') {
-            pushAnn({
-                type: 'note',
-                x: p.x,
-                y: p.y,
-                w: 0.035,
-                h: 0.035,
-                text: t('Note', '备注', '備註'),
-                color: '#fef08a',
-                opacity: 0.95
-            });
-            openTextEditor(p.x, p.y, pageAnns()[selectedIdx], selectedIdx, 'note');
-            return;
-        }
-
         if (tool === 'rect' || tool === 'ellipse' || tool === 'line' || tool === 'arrow' ||
             tool === 'underline' || tool === 'strikeout') {
             shapePreview = {
@@ -1373,7 +1515,7 @@
             shapePreview = {
                 type: 'callout',
                 ax: p.x, ay: p.y,
-                x: p.x, y: p.y, w: 0, h: 0,
+                x: p.x + 0.02, y: p.y + 0.02, w: 0, h: 0,
                 text: t('Comment', '评论', '評論'),
                 color: props.color,
                 width: props.width,
@@ -1502,6 +1644,10 @@
         else if (handle === 'ne') { y = o.y + dy; w = Math.max(0.02, o.w + dx); h = Math.max(0.02, o.h - dy); }
         else if (handle === 'nw') { x = o.x + dx; y = o.y + dy; w = Math.max(0.02, o.w - dx); h = Math.max(0.02, o.h - dy); }
         ann.x = x; ann.y = y; ann.w = w; ann.h = h;
+        if (o.type === 'callout') {
+            ann.ax = o.ax;
+            ann.ay = o.ay;
+        }
     }
 
     function onPointerUp(ev) {
@@ -1510,7 +1656,7 @@
             updateToolCursors();
             return;
         }
-        try { olCanvas.releasePointerCapture(ev.pointerId); } catch (e) {}
+        try { if (olCanvas) olCanvas.releasePointerCapture(ev.pointerId); } catch (e) {}
         if (currentStroke) {
             if (currentStroke.points.length >= 2) {
                 pushAnn(currentStroke);
@@ -1519,19 +1665,28 @@
             redrawOverlay();
         }
         if (shapePreview) {
-            if (Math.abs(shapePreview.w) > 0.01 || Math.abs(shapePreview.h) > 0.01) {
-                if (shapePreview.type === 'rect' || shapePreview.type === 'ellipse' || shapePreview.type === 'redact' ||
-                    shapePreview.type === 'callout') {
-                    if (shapePreview.w < 0) { shapePreview.x += shapePreview.w; shapePreview.w = Math.abs(shapePreview.w); }
-                    if (shapePreview.h < 0) { shapePreview.y += shapePreview.h; shapePreview.h = Math.abs(shapePreview.h); }
-                }
-                var created = withAnnMeta(JSON.parse(JSON.stringify(shapePreview)));
+            var sp = shapePreview;
+            var created = null;
+            if (sp.type === 'callout') {
+                sp = finalizeCalloutPreview(JSON.parse(JSON.stringify(sp)));
+                created = withAnnMeta(sp);
                 pushUndo();
                 pageAnns().push(created);
                 selectedIdx = pageAnns().length - 1;
-                if (created.type === 'callout') {
-                    openTextEditor(created.x, created.y, created, selectedIdx, 'callout');
+                var calloutIdx = pageAnns().length - 1;
+                var calloutAnn = created;
+                requestAnimationFrame(function () {
+                    openTextEditor(calloutAnn.x, calloutAnn.y, calloutAnn, calloutIdx, 'callout', { removeOnCancel: true });
+                });
+            } else if (Math.abs(sp.w) > 0.01 || Math.abs(sp.h) > 0.01) {
+                if (sp.type === 'rect' || sp.type === 'ellipse' || sp.type === 'redact') {
+                    if (sp.w < 0) { sp.x += sp.w; sp.w = Math.abs(sp.w); }
+                    if (sp.h < 0) { sp.y += sp.h; sp.h = Math.abs(sp.h); }
                 }
+                created = withAnnMeta(JSON.parse(JSON.stringify(sp)));
+                pushUndo();
+                pageAnns().push(created);
+                selectedIdx = pageAnns().length - 1;
             }
             shapePreview = null;
             redrawOverlay();
@@ -1575,16 +1730,34 @@
     // ── inline text editor ───────────────────────────────────────
     function closeTextEditor(commit) {
         if (!textEditorEl) return;
-        if (commit && textEditorEl._pdeMeta) {
-            var meta = textEditorEl._pdeMeta;
+        var meta = textEditorEl._pdeMeta;
+        if (!commit && meta && meta.removeOnCancel && meta.idx >= 0) {
+            var list = pageAnns();
+            if (list[meta.idx]) {
+                pushUndo();
+                list.splice(meta.idx, 1);
+                if (selectedIdx === meta.idx) selectedIdx = -1;
+                else if (selectedIdx > meta.idx) selectedIdx--;
+                redrawOverlay();
+                refreshPropsPanel();
+            }
+        } else if (commit && meta) {
             var val = textEditorEl.value;
             var kind = meta.kind || 'text';
             if (val.trim()) {
                 if (meta.idx >= 0) {
                     pushUndo();
-                    pageAnns()[meta.idx].text = val;
+                    var row = pageAnns()[meta.idx];
+                    if (row) {
+                        row.text = val;
+                        if (kind === 'callout' || kind === 'note') {
+                            row.size = props.fontSize;
+                            row.fontFamily = props.fontFamily;
+                        }
+                        if (kind === 'note') normalizeNoteAnn(row);
+                    }
                 } else {
-                    pushAnn({
+                    var payload = {
                         type: kind,
                         text: val,
                         x: meta.x,
@@ -1592,11 +1765,37 @@
                         size: props.fontSize,
                         fontFamily: props.fontFamily,
                         color: props.color,
-                        opacity: props.opacity,
-                        w: kind === 'note' ? 0.035 : undefined,
-                        h: kind === 'note' ? 0.035 : undefined
-                    });
+                        opacity: props.opacity
+                    };
+                    if (kind === 'note') {
+                        payload.color = '#fef08a';
+                        payload.opacity = 0.95;
+                        normalizeNoteAnn(payload);
+                    }
+                    if (kind === 'callout') {
+                        payload.w = 0.22;
+                        payload.h = 0.08;
+                        payload.ax = meta.x;
+                        payload.ay = meta.y;
+                        payload.x = Math.min(0.97 - payload.w, meta.x + 0.02);
+                        payload.y = meta.y >= payload.h + 0.03
+                            ? meta.y - payload.h - 0.025
+                            : Math.min(0.97 - payload.h, meta.y + 0.025);
+                        var cl = clampNormBox(payload.x, payload.y, payload.w, payload.h);
+                        payload.x = cl.x;
+                        payload.y = cl.y;
+                        payload.w = cl.w;
+                        payload.h = cl.h;
+                    }
+                    pushAnn(payload);
                 }
+                redrawOverlay();
+                refreshPropsPanel();
+            } else if (meta.removeOnCancel && meta.idx >= 0) {
+                pushUndo();
+                pageAnns().splice(meta.idx, 1);
+                if (selectedIdx === meta.idx) selectedIdx = -1;
+                else if (selectedIdx > meta.idx) selectedIdx--;
                 redrawOverlay();
                 refreshPropsPanel();
             }
@@ -1605,29 +1804,79 @@
         textEditorEl = null;
     }
 
-    function openTextEditor(nx, ny, existing, idx, kind) {
+    function openTextEditor(nx, ny, existing, idx, kind, opts) {
         kind = kind || 'text';
+        opts = opts || {};
         closeTextEditor(false);
+        if (!stageEl || !olCanvas) return;
         var cp = normToCanvas(nx, ny);
         var stageRect = stageEl.getBoundingClientRect();
+        var scaleX = stageEl.offsetWidth / olCanvas.width;
+        var scaleY = stageEl.offsetHeight / olCanvas.height;
+        var left = stageRect.left + cp.x * scaleX;
+        var top = stageRect.top + cp.y * scaleY;
+        if (kind === 'note') {
+            left += 6;
+            top += 6;
+        } else if (kind === 'callout') {
+            left += 6;
+            top += 6;
+        } else {
+            top -= Math.round(props.fontSize * viewportScale);
+        }
         var ta = document.createElement('textarea');
         ta.className = 'pde-text-editor';
-        ta.style.left = (stageRect.left + cp.x * (stageEl.offsetWidth / olCanvas.width)) + 'px';
-        ta.style.top = (stageRect.top + cp.y * (stageEl.offsetHeight / olCanvas.height) - props.fontSize) + 'px';
-        ta.style.fontSize = Math.round(props.fontSize * viewportScale) + 'px';
-        ta.style.fontFamily = props.fontFamily;
-        ta.style.color = props.color;
-        ta.value = existing ? existing.text : '';
-        ta._pdeMeta = { x: nx, y: ny, idx: idx, kind: kind };
-        if (kind === 'note') ta.style.minWidth = '180px';
+        ta.style.left = Math.round(left) + 'px';
+        ta.style.top = Math.round(top) + 'px';
+        ta.style.fontSize = Math.round((existing && existing.size ? existing.size : props.fontSize) * viewportScale) + 'px';
+        ta.style.fontFamily = (existing && existing.fontFamily) || props.fontFamily;
+        if (kind === 'note') {
+            ta.style.color = '#713f12';
+            ta.placeholder = t('Type a note…', '输入备注…', '輸入備註…');
+            ta.style.minWidth = '180px';
+            ta.style.minHeight = '60px';
+        } else if (kind === 'callout') {
+            ta.style.color = (existing && existing.color) || props.color;
+            ta.placeholder = t('Type a comment…', '输入评论…', '輸入評論…');
+        } else {
+            ta.style.color = props.color;
+        }
+        ta.value = existing ? (existing.text || '') : '';
+        ta._pdeMeta = {
+            x: nx,
+            y: ny,
+            idx: idx,
+            kind: kind,
+            removeOnCancel: !!opts.removeOnCancel
+        };
         if (kind === 'callout') ta.style.minWidth = '220px';
         document.body.appendChild(ta);
         textEditorEl = ta;
-        ta.focus();
-        ta.addEventListener('blur', function () { closeTextEditor(true); });
+        var allowBlur = false;
+        ta.addEventListener('mousedown', function (e) { e.stopPropagation(); });
+        ta.addEventListener('blur', function () {
+            if (!allowBlur) return;
+            closeTextEditor(true);
+        });
         ta.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') { e.preventDefault(); closeTextEditor(false); }
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                closeTextEditor(true);
+            }
             e.stopPropagation();
+        });
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                ta.focus({ preventScroll: true });
+                if (idx < 0 || opts.removeOnCancel) {
+                    ta.select();
+                } else {
+                    var end = ta.value.length;
+                    ta.setSelectionRange(end, end);
+                }
+                allowBlur = true;
+            });
         });
     }
 
@@ -1926,13 +2175,23 @@
         });
         bind('pde_prop_fontsize', function () {
             var v = parseInt(gg('pde_prop_fontsize').value, 10);
-            if (ann) { ann.size = v; redrawOverlay(); pdeMarkDirty(); }
-            else props.fontSize = v;
+            if (ann) {
+                ann.size = v;
+                if (ann.type === 'note') normalizeNoteAnn(ann);
+                redrawOverlay();
+                pdeMarkDirty();
+            } else props.fontSize = v;
+            var em = gg('pde_prop_fontsize') && gg('pde_prop_fontsize').nextElementSibling;
+            if (em) em.textContent = v + 'px';
         });
         bind('pde_prop_font', function () {
             var v = gg('pde_prop_font').value;
-            if (ann) { ann.fontFamily = v; redrawOverlay(); pdeMarkDirty(); }
-            else props.fontFamily = v;
+            if (ann) {
+                ann.fontFamily = v;
+                if (ann.type === 'note') normalizeNoteAnn(ann);
+                redrawOverlay();
+                pdeMarkDirty();
+            } else props.fontFamily = v;
         });
         bind('pde_prop_fill', function () {
             if (!ann) return;
@@ -1949,6 +2208,7 @@
         bind('pde_prop_ann_text', function () {
             if (!ann) return;
             ann.text = gg('pde_prop_ann_text').value;
+            if (ann.type === 'note') normalizeNoteAnn(ann);
             redrawOverlay();
             pdeMarkDirty();
         });
@@ -4315,26 +4575,34 @@
                                 return;
                             }
                             if (ann.type === 'note') {
-                                var nt = pt(ann.x, ann.y + (ann.h || 0.035));
-                                var nw = (ann.w || 0.035) * pw;
-                                var nh = (ann.h || 0.035) * ph;
+                                var noteAnn = Object.assign({}, ann);
+                                normalizeNoteAnn(noteAnn);
+                                var nt = pt(noteAnn.x, noteAnn.y + noteAnn.h);
+                                var nw = noteAnn.w * pw;
+                                var nh = noteAnn.h * ph;
                                 page.drawRectangle({
                                     x: nt.x, y: nt.y,
                                     width: nw, height: nh,
-                                    color: hexRgb(PDFLib, ann.color || '#fef08a'),
+                                    color: hexRgb(PDFLib, noteAnn.color || '#fef08a'),
                                     borderColor: hexRgb(PDFLib, '#ca8a04'),
                                     borderWidth: 1,
-                                    opacity: ann.opacity != null ? ann.opacity : 0.95
+                                    opacity: noteAnn.opacity != null ? noteAnn.opacity : 0.95
                                 });
-                                if (ann.text) {
-                                    page.drawText(String(ann.text), {
-                                        x: nt.x + nw + 4,
-                                        y: nt.y + nh * 0.5,
-                                        size: Math.max(8, 10 * sx),
-                                        color: hexRgb(PDFLib, '#713f12')
+                                if (noteAnn.text) {
+                                    var noteFs = Math.max(8, (noteAnn.size || 11) * sx);
+                                    var noteLines = String(noteAnn.text).split('\n').slice(0, 14);
+                                    var notePad = 6 * sx;
+                                    var noteLh = noteFs * 1.32;
+                                    noteLines.forEach(function (line, li) {
+                                        page.drawText(line.slice(0, 100), {
+                                            x: nt.x + notePad,
+                                            y: nt.y + nh - notePad - noteFs - li * noteLh,
+                                            size: noteFs,
+                                            color: hexRgb(PDFLib, '#713f12')
+                                        });
                                     });
                                 }
-                                drawExportMeta(page, PDFLib, pt, ann, sx);
+                                drawExportMeta(page, PDFLib, pt, noteAnn, sx);
                                 return;
                             }
                             if (ann.type === 'callout') {
@@ -5638,7 +5906,7 @@
             }
             if (id === 'signature') { openSignaturePad(); return; }
             if (id === 'stamp') { openStampPicker(); return; }
-            setTool(id);
+            activateCanvasTool(id);
         });
 
         wireCanvasEvents();

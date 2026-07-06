@@ -1672,7 +1672,8 @@ kbd {
     pointer-events: auto;
 }
 
-/* Resize stays available on hover even outside edit mode. */
+/* Quick actions + resize on hover (dbl-click still toggles persistent edit mode). */
+.memo-sticky-note:hover .memo-sticky-quickbar,
 .memo-sticky-note:hover .memo-sticky-resize-handle {
     opacity: 1;
     pointer-events: auto;

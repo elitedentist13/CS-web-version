@@ -765,7 +765,9 @@ var MEMO_AI = MEMO_AI || {};
 
     ns.refreshDashboardStickies = function() {
         var dock = gmem('memoStickyDock');
-        if (!dock || !_cards.length) return;
+        if (!dock) return;
+        if (!_cards.length) loadStore();
+        if (!_cards.length) return;
         _stickyPaintAttempts = 0;
         requestAnimationFrame(function() {
             requestAnimationFrame(function() {

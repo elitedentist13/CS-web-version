@@ -10567,12 +10567,21 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 
 /* Drawing canvas — transparent overlay on the image */
+#xrayLbAiCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
 #xrayLbCanvas {
     position: absolute;
     top: 0; left: 0;
     width: 100%; height: 100%;
     pointer-events: none;
     touch-action: none;
+    z-index: 2;
 }
 
 /* Photos/Documents lightbox — same stacking as X-ray (#lbMediaWrap / #xrayLbCanvas) */
@@ -15030,4 +15039,342 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     color: #475569;
 }
 
+/* ── CS X-ray Assist (lite) ───────────────────────────────────── */
+.xray-ai-run-btn.lb-tool-active,
+.xray-lb-toolbar .xray-ai-run-btn:hover {
+    background: #7c3aed !important;
+    color: #fff !important;
+}
+
+.xray-ai-panel {
+    margin: 10px 0 14px;
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.xray-ai-panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 13px;
+    color: #334155;
+}
+
+.xray-ai-hint {
+    margin: 6px 0 8px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #64748b;
+}
+
+.xray-ai-status {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.xray-ai-status-work { color: #7c3aed; }
+.xray-ai-status-ok { color: #15803d; }
+.xray-ai-status-bad { color: #dc2626; }
+
+.xray-ai-run-meta {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-bottom: 6px;
+}
+
+.xray-ai-summary {
+    margin-bottom: 8px;
+}
+
+.xray-ai-summary-head {
+    font-size: 10px;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 4px;
+}
+
+.xray-ai-summary-total {
+    font-weight: 600;
+    color: #94a3b8;
+}
+
+.xray-ai-summary-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.xray-ai-summary-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--chip-color, #cbd5e1);
+    border-radius: 999px;
+    background: #fff;
+    padding: 2px 8px 2px 4px;
+    font-size: 10px;
+    color: #334155;
+    cursor: pointer;
+}
+
+.xray-ai-summary-chip.is-off {
+    opacity: 0.4;
+}
+
+.xray-ai-summary-count {
+    font-weight: 800;
+    min-width: 14px;
+    text-align: center;
+}
+
+.xray-ai-summary-label {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xray-ai-legend-count {
+    font-size: 9px;
+    font-weight: 800;
+    background: #e2e8f0;
+    color: #475569;
+    border-radius: 999px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    padding: 0 4px;
+}
+
+.xray-ai-anatomy-legend {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background: #faf5ff;
+    border: 1px solid #e9d5ff;
+    border-radius: 8px;
+}
+
+.xray-ai-anatomy-head {
+    font-size: 12px;
+    font-weight: 700;
+    color: #6d28d9;
+    margin-bottom: 4px;
+}
+
+.xray-ai-anatomy-toggle {
+    display: block;
+    font-size: 11px;
+    color: #475569;
+    margin: 3px 0;
+    cursor: pointer;
+}
+
+.xray-ai-anatomy-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.xray-ai-anatomy-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+}
+
+.xray-ai-anatomy-chip.is-off { opacity: 0.45; }
+
+.xray-ai-anatomy-chip input { margin: 0; }
+
+.xray-ai-bone-measures {
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.xray-ai-bone-head {
+    font-size: 10px;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 2px;
+}
+
+.xray-ai-bone-hint {
+    font-size: 9px;
+    color: #94a3b8;
+    margin: 0 0 6px;
+    line-height: 1.35;
+}
+
+.xray-ai-bone-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #fff;
+    padding: 5px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    margin-bottom: 4px;
+}
+
+.xray-ai-bone-item:last-child {
+    margin-bottom: 0;
+}
+
+.xray-ai-bone-item.is-selected {
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.xray-ai-bone-item.is-hidden {
+    opacity: 0.45;
+}
+
+.xray-ai-bone-label {
+    flex: 1;
+}
+
+.xray-ai-bone-mm {
+    font-weight: 800;
+    color: #0f766e;
+    white-space: nowrap;
+}
+
+.xray-ai-findings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.xray-ai-empty {
+    font-size: 11px;
+    color: #94a3b8;
+    padding: 6px 0;
+}
+
+.xray-ai-finding-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #fff;
+    padding: 6px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.xray-ai-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.xray-ai-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: #475569;
+    cursor: pointer;
+    user-select: none;
+}
+
+.xray-ai-legend-item.is-off {
+    opacity: 0.4;
+    text-decoration: line-through;
+}
+
+.xray-ai-legend-item input {
+    margin: 0;
+    width: 12px;
+    height: 12px;
+}
+
+.xray-ai-finding-item.is-hidden {
+    opacity: 0.45;
+    text-decoration: line-through;
+}
+
+.xray-ai-finding-item.is-selected {
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.xray-ai-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.xray-ai-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    background: rgba(15, 23, 42, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.xray-ai-modal {
+    background: #fff;
+    border-radius: 12px;
+    max-width: 480px;
+    width: 100%;
+    padding: 20px 22px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+
+.xray-ai-modal h2 {
+    margin: 0 0 12px;
+    font-size: 18px;
+}
+
+.xray-ai-disclaimer-body {
+    font-size: 13px;
+    line-height: 1.55;
+    color: #475569;
+    margin-bottom: 12px;
+}
+
+.xray-ai-check {
+    display: block;
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 14px;
+}
+
+.xray-ai-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
 

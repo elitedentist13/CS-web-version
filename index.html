@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260705-pdf-refine-v2';
+  var BUILD = '20260706-xray-ai-v18';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -28,6 +28,9 @@
   } catch (e) {}
   window.__JSM_ASSET_BUST_TS = bust || '';
   window.__JSM_BUILD = BUILD;
+  /* X-ray Assist — local Python API (start: xray-ai-service\\python main.py) */
+  window.XRAY_AI_API_URL = 'http://127.0.0.1:8765';
+  window.XRAY_AI_PREFER_API = true;
   function withBust(path) {
     var sep = path.indexOf('?') >= 0 ? '&' : '?';
     var qs = 'b=' + encodeURIComponent(BUILD);
@@ -2507,6 +2510,20 @@
         </label>
       </div>
 
+      <!-- CS X-ray Assist -->
+      <div class="xray-lb-tgroup" id="lbXrayAiGroup">
+        <span class="xray-lb-tglabel" data-i18n="media.xrayAi.group"></span>
+        <button type="button" id="lbXrayAiBtn" class="xray-lb-tool-btn xray-ai-run-btn"
+                data-i18n="media.xrayAi.runBtn" data-i18n-title="media.xrayAi.runTitle"
+                onclick="xrayAiRunAssist()">🦷 AI</button>
+        <button type="button" id="lbXrayAiToggleBtn" class="xray-lb-tool-btn"
+                data-i18n-title="media.xrayAi.toggleOverlays"
+                onclick="xrayAiToggleOverlays()">👁</button>
+        <button type="button" class="xray-lb-tool-btn" data-i18n="media.xrayAi.clearBtn"
+                data-i18n-title="media.xrayAi.clearTitle"
+                onclick="xrayAiClearFindings()">✕</button>
+      </div>
+
       <!-- Draw -->
       <div class="xray-lb-tgroup">
         <span class="xray-lb-tglabel" data-i18n="media.lb.draw"></span>
@@ -2571,6 +2588,7 @@
             <div id="lbMediaWrap">
               <img   id="xrayLbImg"   src="" data-i18n-alt="media.alt.xray" alt="X-Ray">
               <video id="xrayLbVideo" style="display:none;" preload="metadata"></video>
+              <canvas id="xrayLbAiCanvas" aria-hidden="true"></canvas>
               <canvas id="xrayLbCanvas"></canvas>
             </div>
           </div>
@@ -2608,6 +2626,19 @@
           <textarea id="lbNotes" rows="4"
                     data-i18n-placeholder="media.lb.notesPh"
                     class="xlm-input"></textarea>
+        </div>
+        <div id="xrayAiPanel" class="xray-ai-panel">
+          <div class="xray-ai-panel-head">
+            <span data-i18n="media.xrayAi.panelTitle"></span>
+            <span id="xrayAiStatus" class="xray-ai-status"></span>
+          </div>
+          <p class="xray-ai-hint" data-i18n="media.xrayAi.panelHint"></p>
+          <div id="xrayAiAnatomyLegend" class="xray-ai-anatomy-legend"></div>
+          <div id="xrayAiLegend" class="xray-ai-legend"></div>
+          <div id="xrayAiSummary" class="xray-ai-summary"></div>
+          <div id="xrayAiRunMeta" class="xray-ai-run-meta"></div>
+          <div id="xrayAiBoneMeasures" class="xray-ai-bone-measures"></div>
+          <div id="xrayAiFindingsList" class="xray-ai-findings-list"></div>
         </div>
         <div class="xray-lb-meta-row">
           <span class="xlm-label" data-i18n="media.lb.textOnImageXray"></span>
@@ -5765,6 +5796,7 @@
     'app-drug-allergy.js',
     'app-consultation.js',
     'app-xray.js?v=20260520f',
+    'app-xray-ai.js',
     'app-charts.js',
     'app-drugs.js',
     'app-broadcast.js?v=20260524c',

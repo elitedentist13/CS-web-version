@@ -1047,6 +1047,7 @@ function openLightbox(idx) {
     var lbModal = g('xrayLightbox');
     if (lbModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(lbModal);
     if (typeof lbSyncLightboxChrome === 'function') lbSyncLightboxChrome();
+    if (typeof xrayAiOnLightboxOpen === 'function') xrayAiOnLightboxOpen(lbCurrentId);
 }
 
 function lbHasUnsavedChanges() {
@@ -1055,6 +1056,7 @@ function lbHasUnsavedChanges() {
 
 function _forceCloseLightbox() {
     _lbMetaDirty = false;
+    if (typeof xrayAiOnLightboxClose === 'function') xrayAiOnLightboxClose();
     var video = g('xrayLbVideo');
     if (video && !video.paused) video.pause();
     closeModal('xrayLightbox');
@@ -1167,6 +1169,7 @@ function lbInitCanvas() {
     canvas.height = img.offsetHeight || 600;
     lbDrawHistory = [];
     lbSyncLightboxScrollShell();
+    if (typeof xrayAiOnCanvasResize === 'function') xrayAiOnCanvasResize();
 }
 
 function lbSaveHistory() {

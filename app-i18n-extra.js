@@ -3494,6 +3494,120 @@
         'media.lb.cropBtn': { en: '✂️ Crop', 'zh-CN': '✂️ 裁剪', 'zh-Hant': '✂️ 裁剪' },
         'media.lb.undo': { en: '↩ Undo', 'zh-CN': '↩ 撤销', 'zh-Hant': '↩ 復原' },
         'media.lb.clear': { en: '🗑 Clear', 'zh-CN': '🗑 清除', 'zh-Hant': '🗑 清除' },
+        'media.xrayAi.group': { en: 'Assist', 'zh-CN': '辅助', 'zh-Hant': '輔助' },
+        'media.xrayAi.runBtn': { en: '🦷 Analyze', 'zh-CN': '🦷 分析', 'zh-Hant': '🦷 分析' },
+        'media.xrayAi.runTitle': {
+            en: 'Run CS X-ray Assist (experimental hints — verify clinically)',
+            'zh-CN': '运行 CS X 光辅助（实验性提示 — 需临床确认）',
+            'zh-Hant': '執行 CS X 光輔助（實驗性提示 — 需臨床確認）'
+        },
+        'media.xrayAi.clearBtn': { en: 'Clear AI', 'zh-CN': '清除 AI', 'zh-Hant': '清除 AI' },
+        'media.xrayAi.clearTitle': { en: 'Clear AI overlays', 'zh-CN': '清除 AI 标记', 'zh-Hant': '清除 AI 標記' },
+        'media.xrayAi.panelTitle': { en: 'X-ray Assist', 'zh-CN': 'X 光辅助', 'zh-Hant': 'X 光輔助' },
+        'media.xrayAi.panelHint': {
+            en: 'Pearl-style colour overlays for review only. Toggle categories below. Shift+click a finding to hide it.',
+            'zh-CN': 'Pearl 风格彩色叠加，仅供审阅。可在下方切换类别。Shift+点击可隐藏单项。',
+            'zh-Hant': 'Pearl 風格彩色疊加，僅供審閱。可在下方切換類別。Shift+點擊可隱藏單項。'
+        },
+        'media.xrayAi.toggleOverlays': { en: 'Toggle all overlays', 'zh-CN': '切换全部叠加', 'zh-Hant': '切換全部疊加' },
+        'media.xrayAi.summaryTitle': { en: 'Summary', 'zh-CN': '汇总', 'zh-Hant': '匯總' },
+        'media.xrayAi.summaryTotal': { en: '{N} total', 'zh-CN': '共 {N} 处', 'zh-Hant': '共 {N} 處' },
+        'media.xrayAi.boneTitle': { en: 'Bone loss measurements', 'zh-CN': '骨吸收测量', 'zh-Hant': '骨吸收測量' },
+        'media.xrayAi.boneHint': {
+            en: 'Approximate vertical drop (mm) — indicative only, not CEJ–crest.',
+            'zh-CN': '近似垂直落差（毫米）— 仅供参考，非 CEJ–牙槽嵴标准测量。',
+            'zh-Hant': '近似垂直落差（毫米）— 僅供參考，非 CEJ–牙槽嵴標準測量。'
+        },
+        'media.xrayAi.boneHintPearl': {
+            en: 'CEJ to alveolar crest (mm) at interproximal contacts — indicative only.',
+            'zh-CN': '邻面接触区 CEJ 至牙槽嵴距离（毫米）— 仅供参考。',
+            'zh-Hant': '鄰面接觸區 CEJ 至牙槽嵴距離（毫米）— 僅供參考。'
+        },
+        'media.xrayAi.boneGap': { en: 'Contact {N}', 'zh-CN': '邻面 {N}', 'zh-Hant': '鄰面 {N}' },
+        'media.xrayAi.anatomyTitle': { en: 'Tooth layers', 'zh-CN': '牙体分层', 'zh-Hant': '牙體分層' },
+        'media.xrayAi.showLayers': { en: 'Show anatomy layers', 'zh-CN': '显示解剖分层', 'zh-Hant': '顯示解剖分層' },
+        'media.xrayAi.showBoneLines': { en: 'Show CEJ–crest lines', 'zh-CN': '显示 CEJ–牙槽嵴线', 'zh-Hant': '顯示 CEJ–牙槽嵴線' },
+        'media.xrayAi.layer.enamel': { en: 'Enamel', 'zh-CN': '牙釉质', 'zh-Hant': '牙釉質' },
+        'media.xrayAi.layer.dentin': { en: 'Dentin', 'zh-CN': '牙本质', 'zh-Hant': '牙本質' },
+        'media.xrayAi.layer.pulp': { en: 'Pulp', 'zh-CN': '牙髓', 'zh-Hant': '牙髓' },
+        'media.xrayAi.layer.restoration': { en: 'Restoration', 'zh-CN': '修复体', 'zh-Hant': '修復體' },
+        'media.xrayAi.tag.caries': { en: 'AI Caries', 'zh-CN': 'AI 龋坏', 'zh-Hant': 'AI 齲壞' },
+        'media.xrayAi.tag.calculus': { en: 'AI Calculus', 'zh-CN': 'AI 牙石', 'zh-Hant': 'AI 牙石' },
+        'media.xrayAi.tag.enamelDentin': {
+            en: 'Enamel: {E}%, Dentin: {D}%',
+            'zh-CN': '釉质: {E}%, 本质: {D}%',
+            'zh-Hant': '釉質: {E}%, 本質: {D}%'
+        },
+        'media.xrayAi.disclaimerTitle': { en: 'X-ray Assist — important', 'zh-CN': 'X 光辅助 — 重要说明', 'zh-Hant': 'X 光輔助 — 重要說明' },
+        'media.xrayAi.disclaimerBody': {
+            en: 'This tool shows experimental computer-generated hints only. It can miss disease or show false positives. You must examine the radiograph yourself and apply your clinical judgment. Do not rely on this tool alone for diagnosis or treatment decisions.',
+            'zh-CN': '本工具仅显示实验性计算机提示，可能漏诊或误报。您必须亲自阅片并运用临床判断。请勿单独依据本工具作出诊断或治疗决定。',
+            'zh-Hant': '本工具僅顯示實驗性電腦提示，可能漏診或誤報。您必須親自閱片並運用臨床判斷。請勿單獨依據本工具作出診斷或治療決定。'
+        },
+        'media.xrayAi.disclaimerDontShow': {
+            en: 'Do not show again this session (stored on this device)',
+            'zh-CN': '不再显示（保存在本设备）',
+            'zh-Hant': '不再顯示（保存在本裝置）'
+        },
+        'media.xrayAi.understand': { en: 'I understand', 'zh-CN': '我理解', 'zh-Hant': '我理解' },
+        'media.xrayAi.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
+        'media.xrayAi.running': { en: 'Analyzing…', 'zh-CN': '分析中…', 'zh-Hant': '分析中…' },
+        'media.xrayAi.runningSlow': {
+            en: 'Analyzing… (first run may take up to 60s on CPU)',
+            'zh-CN': '分析中…（CPU 首次分析最多约 60 秒）',
+            'zh-Hant': '分析中…（CPU 首次分析最多約 60 秒）'
+        },
+        'media.xrayAi.fallbackClient': {
+            en: 'Server unavailable — using browser analysis…',
+            'zh-CN': '服务器不可用 — 改用浏览器分析…',
+            'zh-Hant': '伺服器不可用 — 改用瀏覽器分析…'
+        },
+        'media.xrayAi.errorGeneric': {
+            en: 'Analysis failed. Open the app at http://127.0.0.1:8888/index.html (not port 8080).',
+            'zh-CN': '分析失败。请用 http://127.0.0.1:8888/index.html 打开应用（不要用 8080 端口）。',
+            'zh-Hant': '分析失敗。請用 http://127.0.0.1:8888/index.html 打開應用（不要用 8080 端口）。'
+        },
+        'media.xrayAi.imageNotReady': {
+            en: 'X-ray still loading — wait until the image appears, then try again.',
+            'zh-CN': 'X 光仍在加载 — 请等图像显示后再试。',
+            'zh-Hant': 'X 光仍在載入 — 請等圖像顯示後再試。'
+        },
+        'media.xrayAi.errorApply': {
+            en: 'Could not display results: {MSG}',
+            'zh-CN': '无法显示结果：{MSG}',
+            'zh-Hant': '無法顯示結果：{MSG}'
+        },
+        'media.xrayAi.apiUnreachable': {
+            en: 'Browser cannot reach the API. Use http://127.0.0.1:8888/index.html (not https, not port 8080).',
+            'zh-CN': '浏览器无法连接 API。请用 http://127.0.0.1:8888/index.html 打开（不要用 https，不要用 8080 端口）。',
+            'zh-Hant': '瀏覽器無法連接 API。請用 http://127.0.0.1:8888/index.html 打開（不要用 https，不要用 8080 端口）。'
+        },
+        'media.xrayAi.done': { en: '{N} finding(s) — use legend to filter', 'zh-CN': '{N} 处发现 — 可用图例筛选', 'zh-Hant': '{N} 處發現 — 可用圖例篩選' },
+        'media.xrayAi.noFindings': { en: 'No candidate regions above threshold.', 'zh-CN': '未发现超过阈值的候选区域。', 'zh-Hant': '未發現超過閾值的候選區域。' },
+        'media.xrayAi.noFindingsShort': { en: 'No hints found.', 'zh-CN': '未发现提示。', 'zh-Hant': '未發現提示。' },
+        'media.xrayAi.runMeta': { en: '{N} hints · {SRC} · {VER}', 'zh-CN': '{N} 处 · {SRC} · {VER}', 'zh-Hant': '{N} 處 · {SRC} · {VER}' },
+        'media.xrayAi.sourceApi': { en: 'server', 'zh-CN': '服务器', 'zh-Hant': '伺服器' },
+        'media.xrayAi.sourceClient': { en: 'browser', 'zh-CN': '浏览器', 'zh-Hant': '瀏覽器' },
+        'media.xrayAi.imagesOnly': { en: 'Assist works on X-ray images only, not video.', 'zh-CN': '辅助仅适用于 X 光图像，不支持视频。', 'zh-Hant': '輔助僅適用於 X 光圖像，不支援視訊。' },
+        'media.xrayAi.noImage': { en: 'No image loaded.', 'zh-CN': '未加载图像。', 'zh-Hant': '未載入圖像。' },
+        'media.xrayAi.corsError': {
+            en: 'Browser analysis blocked (CORS). Start the optional API or use same-origin images.',
+            'zh-CN': '浏览器分析被阻止（CORS）。请启动可选 API 或使用同源图像。',
+            'zh-Hant': '瀏覽器分析被阻止（CORS）。請啟動可選 API 或使用同源圖像。'
+        },
+        'media.xrayAi.finding.cariesIncipient': { en: 'Caries — incipient', 'zh-CN': '龋坏 — 初期', 'zh-Hant': '齲壞 — 初期' },
+        'media.xrayAi.finding.cariesProgressed': { en: 'Caries — progressed', 'zh-CN': '龋坏 — 进展', 'zh-Hant': '齲壞 — 進展' },
+        'media.xrayAi.finding.calculus': { en: 'Calculus', 'zh-CN': '牙石', 'zh-Hant': '牙石' },
+        'media.xrayAi.finding.periapical': { en: 'Periapical radiolucency', 'zh-CN': '根尖透射区', 'zh-Hant': '根尖透射區' },
+        'media.xrayAi.finding.margin': { en: 'Defective margin', 'zh-CN': '边缘缺陷', 'zh-Hant': '邊緣缺陷' },
+        'media.xrayAi.finding.restoration': { en: 'Restoration (dense)', 'zh-CN': '修复体（高密度）', 'zh-Hant': '修復體（高密度）' },
+        'media.xrayAi.finding.boneMild': { en: 'Bone loss — mild', 'zh-CN': '骨吸收 — 轻度', 'zh-Hant': '骨吸收 — 輕度' },
+        'media.xrayAi.finding.boneMod': { en: 'Bone loss — moderate', 'zh-CN': '骨吸收 — 中度', 'zh-Hant': '骨吸收 — 中度' },
+        'media.xrayAi.finding.boneSev': { en: 'Bone loss — severe', 'zh-CN': '骨吸收 — 重度', 'zh-Hant': '骨吸收 — 重度' },
+        'media.xrayAi.finding.caries': { en: 'Decay hint', 'zh-CN': '龋坏提示', 'zh-Hant': '齲壞提示' },
+        'media.xrayAi.finding.radiolucency': { en: 'Radiolucency hint', 'zh-CN': '透射区提示', 'zh-Hant': '透射區提示' },
+        'media.xrayAi.finding.dense': { en: 'Dense spot hint', 'zh-CN': '高密度提示', 'zh-Hant': '高密度提示' },
+        'media.xrayAi.finding.unknown': { en: 'Region hint', 'zh-CN': '区域提示', 'zh-Hant': '區域提示' },
         'media.lb.fromStart': { en: 'From Start', 'zh-CN': '从头', 'zh-Hant': '從頭' },
         'media.lb.back10': { en: 'Back 10 s', 'zh-CN': '后退 10 秒', 'zh-Hant': '後退 10 秒' },
         'media.lb.playPause': { en: 'Play / Pause', 'zh-CN': '播放 / 暂停', 'zh-Hant': '播放 / 暫停' },

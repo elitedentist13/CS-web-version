@@ -2192,6 +2192,7 @@ function switchApptTab(tab) {
         loadApptRecords();
     }
     if (tab === 'recall')   initRecallTab();
+    if (tab === 'webbook' && typeof initWebBookTab === 'function') initWebBookTab();
     if (tab === 'queue') {
         if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
     }
@@ -7788,6 +7789,7 @@ function apptAutoRefreshTick() {
     if (tab === 'queue') loadQueue(soft);
     else if (tab === 'today') loadToday(soft);
     else if (tab === 'plusappt' || tab === 'calendar') refreshApptPlannerData(soft);
+    else if (tab === 'webbook' && typeof webbookRefreshList === 'function') webbookRefreshList(soft);
 }
 
 function stopApptAutoRefresh() {
@@ -8455,6 +8457,7 @@ function arRow(a, today) {
           'padding:1px 4px;border-radius:3px;margin-left:3px;vertical-align:middle;">' +
           esc(tr('appt.badge.newWalkin')) + '</span>'
         : '';
+    var webBadge = typeof apptWebBadgeHtml === 'function' ? apptWebBadgeHtml(a) : '';
 
     return '<tr class="ar-record-row" data-appt-id="' + esc(a.id) + '" style="' + rowStyle + 'cursor:pointer;" ' +
            'ondblclick="arOpenEdit(\'' + a.id + '\')">' +
@@ -8464,7 +8467,7 @@ function arRow(a, today) {
                esc(arDurationDisplay(a)) + '</td>' +
            '<td style="color:#64748b;">' + esc(a.patient_no || '—') + '</td>' +
            '<td>' + chinesePart +
-               '<span style="font-size:12px;">' + esc(a.patient_name || '—') + walkInBadge + '</span>' +
+               '<span style="font-size:12px;">' + esc(a.patient_name || '—') + walkInBadge + webBadge + '</span>' +
            '</td>' +
            '<td style="font-size:12px;">' + esc(a.treatment_items || '—') + '</td>' +
            '<td style="font-size:12px;font-weight:700;color:#0084ff;">' +
@@ -11322,6 +11325,9 @@ function apptPatientDisplayNameHTML(a, opt) {
 
     if (opt.walkIn && a && !a.patient_id) {
         out += '<span class="appt-walkin-badge">' + esc(tr('appt.badge.newWalkin')) + '</span>';
+    }
+    if (typeof apptWebBadgeHtml === 'function') {
+        out += apptWebBadgeHtml(a);
     }
 
     if (cn) {
@@ -14633,6 +14639,7 @@ var GCAL = (function () {
 
         var dr           = a.doctor_code || a.doctor_name || '';
         var isWalkIn     = !a.patient_id;
+        var isWebBook    = typeof apptIsWebBooking === 'function' && apptIsWebBooking(a);
         var chineseName  = a.patient_chinese_name || '';
         var engName      = a.patient_name || (isWalkIn ? tr('appt.cal.cardWalkin') : '—');
         var treatment    = String(a.treatment_items || '').trim();
@@ -14651,6 +14658,7 @@ var GCAL = (function () {
             '</button>' +
             '<span class="card-line card-line--1 card-headline">' +
                 (isWalkIn ? '<span class="card-new-badge">' + esc(tr('appt.badge.newWalkin')) + '</span>' : '') +
+                (typeof apptWebBadgeHtml === 'function' ? apptWebBadgeHtml(a) : '') +
                 '<span class="card-chinese">' + esc(chineseName || engName) + '</span>' +
                 (treatment
                     ? '<span class="card-treatment">' + esc(treatment) + '</span>'
@@ -14675,6 +14683,13 @@ var GCAL = (function () {
         }
         card.innerHTML = html;
         if (locked) card.classList.add('gcal-card-locked');
+        if (isWebBook) {
+            card.classList.add('gcal-card-web');
+            var wbSt = String(a.booking_status || '').toLowerCase();
+            if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || !wbSt) {
+                card.classList.add('gcal-card-web-pending');
+            }
+        }
 
         var lockBtn = card.querySelector('.gcal-card-lock');
         if (lockBtn) {

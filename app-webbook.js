@@ -1,0 +1,589 @@
+// ════════════════════════════════════════════════════════════════
+// app-webbook.js — Online booking management panel (staff)
+// Requires: SB, app.js globals, app-appt.js modals
+// ════════════════════════════════════════════════════════════════
+
+var WEBBOOK = (function () {
+
+    var _rows = [];
+    var _selId = null;
+    var _bound = false;
+    var _loading = false;
+
+    var TYPE_FILTERS = {
+        new_patient: true,
+        existing_patient: true,
+        recall: true,
+        asap: true
+    };
+
+    function g(id) { return document.getElementById(id); }
+
+    function tr(key, fallback) {
+        if (typeof t === 'function') {
+            var v = t(key);
+            if (v && v !== key) return v;
+        }
+        return fallback || key;
+    }
+
+    function trRepl(key, vars, fallback) {
+        var s = tr(key, fallback);
+        if (vars) {
+            Object.keys(vars).forEach(function (k) {
+                s = s.split('{' + k + '}').join(String(vars[k]));
+            });
+        }
+        return s;
+    }
+
+    function esc(s) {
+        if (typeof window.esc === 'function') return window.esc(s);
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function todayIso() {
+        if (typeof window.todayISO === 'function') return window.todayISO();
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    function daysAgoIso(n) {
+        var d = new Date();
+        d.setDate(d.getDate() - n);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    function fmtDateTime(iso) {
+        if (!iso) return '—';
+        try {
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return String(iso).slice(0, 16).replace('T', ' ');
+            var loc = (typeof apptDateLocale === 'function') ? apptDateLocale() : undefined;
+            return d.toLocaleString(loc, {
+                year: '2-digit', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit'
+            });
+        } catch (e) {
+            return String(iso).slice(0, 16);
+        }
+    }
+
+    function fmt12(time) {
+        if (typeof window.fmt12 === 'function') return window.fmt12(time);
+        if (!time) return '—';
+        var p = String(time).slice(0, 5).split(':');
+        var h = parseInt(p[0], 10);
+        var m = p[1] || '00';
+        var ap = h >= 12 ? 'PM' : 'AM';
+        return (h % 12 || 12) + ':' + m + ' ' + ap;
+    }
+
+    function clinicLabel(tag) {
+        if (!tag) return '—';
+        if (typeof APP_CLINICS !== 'undefined' && APP_CLINICS.length) {
+            var c = APP_CLINICS.find(function (x) {
+                return String(x.clinic_code || '').trim() === String(tag).trim();
+            });
+            if (c) return c.english_name || c.clinic_code || tag;
+        }
+        return tag;
+    }
+
+    function statusLabel(st) {
+        var map = {
+            pending_otp: tr('webbook.status.pendingOtp', 'Awaiting verification'),
+            pending_staff: tr('webbook.status.pendingStaff', 'Created from Web'),
+            confirmed: tr('webbook.status.confirmed', 'Confirmed'),
+            cancelled: tr('webbook.status.cancelled', 'Cancelled'),
+            expired: tr('webbook.status.expired', 'Expired')
+        };
+        return map[String(st || '').toLowerCase()] || st || '—';
+    }
+
+    function statusStyle(st) {
+        var s = String(st || '').toLowerCase();
+        if (s === 'pending_staff') return 'background:#dbeafe;color:#1d4ed8;';
+        if (s === 'pending_otp') return 'background:#fef3c7;color:#92400e;';
+        if (s === 'confirmed') return 'background:#dcfce7;color:#166534;';
+        if (s === 'cancelled' || s === 'expired') return 'background:#f1f5f9;color:#64748b;';
+        return 'background:#e2e8f0;color:#475569;';
+    }
+
+    function typeLabel(tp) {
+        var map = {
+            new_patient: tr('webbook.type.new', 'New patient'),
+            existing_patient: tr('webbook.type.existing', 'Existing patient'),
+            recall: tr('webbook.type.recall', 'Recall'),
+            asap: tr('webbook.type.asap', 'ASAP')
+        };
+        return map[String(tp || '').toLowerCase()] || tp || '—';
+    }
+
+    function isWebBooking(a) {
+        if (!a) return false;
+        if (String(a.booking_source || '').toLowerCase() === 'web') return true;
+        return /\[WEB\]|WEB ref:/i.test(String(a.remarks || ''));
+    }
+
+    function effectiveStatus(a) {
+        if (a.booking_status) return a.booking_status;
+        if (isWebBooking(a)) return 'pending_staff';
+        return '';
+    }
+
+    function effectiveCreated(a) {
+        return a.web_created_at || a.created_at || '';
+    }
+
+    function patientDobDisplay(a) {
+        if (a.patient_dob) return String(a.patient_dob).slice(0, 10);
+        return '—';
+    }
+
+    function patientNameDisplay(a) {
+        var cn = (a.patient_chinese_name || '').trim();
+        var en = (a.patient_name || '').trim();
+        if (cn && en) return cn + ' · ' + en;
+        return cn || en || '—';
+    }
+
+    function phoneForRow(a) {
+        return a.walk_in_phone || a._walkin_phone || '';
+    }
+
+    function phoneDisplay(a) {
+        var ph = String(phoneForRow(a) || '').replace(/\D/g, '');
+        if (!ph) return '';
+        if (ph.indexOf('852') === 0 && ph.length === 11) {
+            return '+852 ' + ph.slice(3, 7) + ' ' + ph.slice(7);
+        }
+        if (ph.length === 8) return ph.slice(0, 4) + ' ' + ph.slice(4);
+        return ph;
+    }
+
+    function phoneTelHref(a) {
+        var ph = String(phoneForRow(a) || '').replace(/\D/g, '');
+        if (!ph) return '';
+        if (ph.length === 8) return '+852' + ph;
+        if (ph.indexOf('852') === 0) return '+' + ph;
+        return '+' + ph;
+    }
+
+    function filterRows() {
+        var fromEl = g('wbFilterFrom');
+        var toEl = g('wbFilterTo');
+        var statusEl = g('wbFilterStatus');
+        var from = fromEl ? fromEl.value : '';
+        var to = toEl ? toEl.value : '';
+        var status = statusEl ? statusEl.value : 'all';
+
+        return _rows.filter(function (a) {
+            var tp = String(a.booking_type || 'new_patient').toLowerCase();
+            if (!TYPE_FILTERS[tp] && TYPE_FILTERS.hasOwnProperty(tp)) return false;
+            if (tp === 'new_patient' && !a.patient_id && TYPE_FILTERS.new_patient === false) return false;
+
+            if (status !== 'all') {
+                if (effectiveStatus(a) !== status) return false;
+            }
+            var created = effectiveCreated(a);
+            if (from && created && created.slice(0, 10) < from) return false;
+            if (to && created && created.slice(0, 10) > to) return false;
+            return true;
+        });
+    }
+
+    function applyClinicScope(builder) {
+        if (!builder) return builder;
+        var tag = '';
+        if (typeof currentClinicCodeForTagging === 'function') {
+            tag = currentClinicCodeForTagging();
+        }
+        if (!tag) return builder;
+        var field = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+            ? APPOINTMENT_CLINIC_TAG_FIELD
+            : 'clinic_tag';
+        return builder.or(field + '.eq.' + tag + ',' + field + '.is.null');
+    }
+
+    function loadList(opts) {
+        opts = opts || {};
+        if (_loading && opts.soft) return;
+        _loading = true;
+        var tbody = g('wbTableBody');
+        if (tbody && !opts.soft) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:#64748b;">' +
+                esc(tr('webbook.loading', 'Loading…')) + '</td></tr>';
+        }
+
+        var fromEl = g('wbFilterFrom');
+        var toEl = g('wbFilterTo');
+        var from = fromEl ? fromEl.value : daysAgoIso(30);
+        var to = toEl ? toEl.value : todayIso();
+
+        var q = SB.from('appointments').select('*');
+        q = q.eq('booking_source', 'web');
+        if (from) q = q.gte('web_created_at', from + 'T00:00:00');
+        if (to) q = q.lte('web_created_at', to + 'T23:59:59');
+        q = applyClinicScope(q);
+        q = q.order('web_created_at', { ascending: false });
+
+        q.then(function (r) {
+            _loading = false;
+            if (r.error) {
+                if ((r.error.message || '').indexOf('booking_source') >= 0) {
+                    loadListLegacy(from, to, opts);
+                    return;
+                }
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="color:#b91c1c;padding:16px;">' +
+                        esc(r.error.message) + '</td></tr>';
+                }
+                return;
+            }
+            _rows = r.data || [];
+            renderTable();
+            updateTabBadge();
+        }).catch(function () {
+            _loading = false;
+        });
+    }
+
+    function loadListLegacy(from, to, opts) {
+        var q2 = SB.from('appointments').select('*');
+        q2 = q2.or('remarks.ilike.%WEB ref:%,remarks.ilike.%[WEB]%');
+        if (from) q2 = q2.gte('date', from);
+        if (to) q2 = q2.lte('date', to);
+        q2 = applyClinicScope(q2);
+        q2 = q2.order('date', { ascending: false });
+        q2.then(function (r2) {
+            _rows = (r2.data || []).filter(isWebBooking);
+            renderTable();
+            updateTabBadge();
+        });
+    }
+
+    function renderTable() {
+        var tbody = g('wbTableBody');
+        if (!tbody) return;
+        var list = filterRows();
+        var cnt = g('wbCountLbl');
+        if (cnt) {
+            cnt.textContent = trRepl('webbook.count', { N: list.length }, list.length + ' booking(s)');
+        }
+
+        if (!list.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="wb-empty">' +
+                esc(tr('webbook.empty', 'No web bookings in this period.')) + '</td></tr>';
+            renderActionBar(null);
+            return;
+        }
+
+        var html = '';
+        list.forEach(function (a) {
+            var id = String(a.id);
+            var sel = _selId === id;
+            var st = effectiveStatus(a);
+            var ph = phoneDisplay(a);
+            var tel = phoneTelHref(a);
+            html += '<tr class="wb-row' + (sel ? ' wb-row--sel' : '') + '" data-id="' + esc(id) + '">' +
+                '<td>' + esc(clinicLabel(a.clinic_tag)) + '</td>' +
+                '<td style="white-space:nowrap;font-size:12px;">' + esc(fmtDateTime(effectiveCreated(a))) + '</td>' +
+                '<td style="white-space:nowrap;font-weight:600;">' + esc(a.date || '') + ' ' + esc(fmt12(a.start_time)) + '</td>' +
+                '<td>' + esc(patientNameDisplay(a)) +
+                    (typeof apptWebBadgeHtml === 'function' ? apptWebBadgeHtml(a) : '') + '</td>' +
+                '<td style="font-size:12px;white-space:nowrap;">' +
+                    (ph && tel
+                        ? '<a href="tel:' + esc(tel) + '" class="wb-phone-link" onclick="event.stopPropagation();">' + esc(ph) + '</a>'
+                        : '—') + '</td>' +
+                '<td style="font-size:12px;">' + esc(patientDobDisplay(a)) + '</td>' +
+                '<td><span class="wb-status-pill" style="' + statusStyle(st) + '">' + esc(statusLabel(st)) + '</span></td>' +
+                '<td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(a.treatment_items || '') + '">' +
+                    esc(a.treatment_items || '—') + '</td>' +
+                '<td style="font-size:11px;color:#64748b;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+                    esc(typeLabel(a.booking_type)) + '</td>' +
+                '</tr>';
+        });
+        tbody.innerHTML = html;
+
+        tbody.querySelectorAll('.wb-row').forEach(function (tr) {
+            tr.addEventListener('click', function () {
+                _selId = tr.getAttribute('data-id');
+                tbody.querySelectorAll('.wb-row').forEach(function (r) {
+                    r.classList.toggle('wb-row--sel', r.getAttribute('data-id') === _selId);
+                });
+                var row = _rows.find(function (x) { return String(x.id) === _selId; });
+                renderActionBar(row);
+            });
+            tr.addEventListener('dblclick', function () {
+                _selId = tr.getAttribute('data-id');
+                var row = _rows.find(function (x) { return String(x.id) === _selId; });
+                if (row && typeof openApptEditModal === 'function') openApptEditModal(row);
+            });
+        });
+
+        if (_selId) {
+            var sel = _rows.find(function (x) { return String(x.id) === _selId; });
+            renderActionBar(sel);
+        }
+    }
+
+    function renderActionBar(row) {
+        var bar = g('wbActionBar');
+        var lbl = g('wbSelLbl');
+        if (!bar) return;
+        if (!row) {
+            bar.style.display = 'none';
+            if (lbl) lbl.textContent = tr('webbook.selectRow', 'Select a booking below');
+            return;
+        }
+        bar.style.display = 'flex';
+        if (lbl) {
+            var phLbl = phoneDisplay(row);
+            lbl.textContent = patientNameDisplay(row) +
+                (phLbl ? ' · ' + phLbl : '') +
+                ' · ' + (row.date || '') + ' ' + fmt12(row.start_time);
+        }
+
+        var st = effectiveStatus(row);
+        var btnConfirm = g('wbBtnConfirm');
+        var btnCancel = g('wbBtnCancel');
+        if (btnConfirm) btnConfirm.style.display = (st === 'pending_staff' || st === 'pending_otp') ? '' : 'none';
+        if (btnCancel) btnCancel.style.display = (st !== 'cancelled' && st !== 'expired') ? '' : 'none';
+    }
+
+    function selectedRow() {
+        if (!_selId) return null;
+        return _rows.find(function (x) { return String(x.id) === _selId; }) || null;
+    }
+
+    function patchRow(id, patch, done) {
+        var tryPatch = function (p, legacy) {
+            SB.from('appointments').update(p).eq('id', id).select('*')
+                .then(function (r) {
+                    if (r.error && !legacy && (r.error.message || '').indexOf('booking_status') >= 0) {
+                        var p2 = Object.assign({}, p);
+                        delete p2.booking_status;
+                        delete p2.booking_source;
+                        tryPatch(p2, true);
+                        return;
+                    }
+                    if (r.error) {
+                        alert(r.error.message);
+                        if (done) done(false);
+                        return;
+                    }
+                    var saved = r.data && r.data[0];
+                    if (saved) {
+                        var idx = _rows.findIndex(function (x) { return String(x.id) === String(id); });
+                        if (idx >= 0) _rows[idx] = Object.assign({}, _rows[idx], saved);
+                        if (typeof apptMergeSavedRowIntoCaches === 'function') {
+                            apptMergeSavedRowIntoCaches(saved);
+                        }
+                    }
+                    renderTable();
+                    updateTabBadge();
+                    if (typeof loadToday === 'function') loadToday({ soft: true });
+                    if (typeof loadQueue === 'function') loadQueue({ soft: true });
+                    if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData({ soft: true });
+                    if (done) done(true);
+                });
+        };
+        tryPatch(patch, false);
+    }
+
+    function confirmSelected() {
+        var row = selectedRow();
+        if (!row) return;
+        if (!confirm(tr('webbook.confirmPrompt', 'Confirm this web booking?'))) return;
+        patchRow(row.id, { booking_status: 'confirmed' }, function (ok) {
+            if (ok && typeof showClinicRefreshToast === 'function') {
+                showClinicRefreshToast(row.clinic_tag, false);
+            }
+        });
+    }
+
+    function cancelSelected() {
+        var row = selectedRow();
+        if (!row) return;
+        if (!confirm(tr('webbook.cancelPrompt', 'Cancel this web booking?'))) return;
+        patchRow(row.id, { booking_status: 'cancelled', bill_status: 'Cancelled' });
+    }
+
+    function rescheduleSelected() {
+        var row = selectedRow();
+        if (!row) return;
+        if (typeof openApptEditModal === 'function') openApptEditModal(row);
+    }
+
+    function whatsappSelected() {
+        var row = selectedRow();
+        if (!row) return;
+        var phone = phoneForRow(row);
+        if (!phone && row.patient_id && typeof SB !== 'undefined') {
+            SB.from('patients').select('phone_number,mobile_phone').eq('id', row.patient_id).maybeSingle()
+                .then(function (r) {
+                    if (r.data) {
+                        phone = r.data.mobile_phone || r.data.phone_number || '';
+                    }
+                    sendWa(row, phone);
+                });
+            return;
+        }
+        sendWa(row, phone);
+    }
+
+    function sendWa(row, phone) {
+        if (!phone) {
+            alert(tr('webbook.noPhone', 'No phone number on file.'));
+            return;
+        }
+        var msg = trRepl('webbook.waMsg', {
+            NAME: row.patient_name || '',
+            DATE: row.date || '',
+            TIME: fmt12(row.start_time)
+        }, 'Hi ' + (row.patient_name || '') + ', regarding your appointment on ' + row.date + ' at ' + fmt12(row.start_time) + '.');
+        if (typeof openWhatsAppPrefill === 'function') {
+            openWhatsAppPrefill(phone, msg, { source: 'webbook' });
+        }
+    }
+
+    function viewCalendarSelected() {
+        var row = selectedRow();
+        if (!row || !row.date) return;
+        if (typeof switchApptTab === 'function') switchApptTab('calendar');
+        if (typeof syncApptPlannerDate === 'function') {
+            syncApptPlannerDate(row.date, { syncCal: true });
+        } else if (typeof showCalendarTab === 'function') {
+            showCalendarTab();
+        }
+        setTimeout(function () {
+            if (typeof renderCal === 'function') renderCal({ force: true });
+        }, 400);
+    }
+
+    function linkPatientSelected() {
+        var row = selectedRow();
+        if (!row) return;
+        if (typeof openApptEditModal === 'function') {
+            openApptEditModal(row);
+            setTimeout(function () {
+                if (typeof switchApptPatientMode === 'function') switchApptPatientMode('exist');
+                var inp = g('psInput');
+                if (inp) inp.focus();
+            }, 300);
+        }
+    }
+
+    function updateTabBadge() {
+        var pending = _rows.filter(function (a) {
+            var st = effectiveStatus(a);
+            return st === 'pending_staff' || st === 'pending_otp';
+        }).length;
+        var tab = document.querySelector('.appt-tab[data-tab="webbook"]');
+        if (!tab) return;
+        var badge = tab.querySelector('.wb-tab-badge');
+        if (!pending) {
+            if (badge) badge.remove();
+            return;
+        }
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'wb-tab-badge';
+            tab.appendChild(badge);
+        }
+        badge.textContent = pending > 99 ? '99+' : String(pending);
+    }
+
+    function bindOnce() {
+        if (_bound) return;
+        _bound = true;
+
+        var refreshBtn = g('wbRefreshBtn');
+        if (refreshBtn) refreshBtn.addEventListener('click', function () { loadList(); });
+
+        ['wbFilterFrom', 'wbFilterTo', 'wbFilterStatus'].forEach(function (id) {
+            var el = g(id);
+            if (el) el.addEventListener('change', renderTable);
+        });
+
+        document.querySelectorAll('.wb-type-chk').forEach(function (chk) {
+            chk.addEventListener('change', function () {
+                TYPE_FILTERS[chk.dataset.type] = chk.checked;
+                renderTable();
+            });
+        });
+
+        var map = {
+            wbBtnConfirm: confirmSelected,
+            wbBtnCancel: cancelSelected,
+            wbBtnReschedule: rescheduleSelected,
+            wbBtnWhatsapp: whatsappSelected,
+            wbBtnCalendar: viewCalendarSelected,
+            wbBtnLink: linkPatientSelected
+        };
+        Object.keys(map).forEach(function (id) {
+            var el = g(id);
+            if (el) el.addEventListener('click', map[id]);
+        });
+    }
+
+    function init() {
+        bindOnce();
+        var from = g('wbFilterFrom');
+        var to = g('wbFilterTo');
+        if (from && !from.value) from.value = daysAgoIso(30);
+        if (to && !to.value) to.value = todayIso();
+        _selId = null;
+        loadList();
+        renderActionBar(null);
+    }
+
+    function refresh(opts) {
+        loadList(opts || {});
+    }
+
+    function countPending() {
+        return _rows.filter(function (a) {
+            var st = effectiveStatus(a);
+            return st === 'pending_staff' || st === 'pending_otp';
+        }).length;
+    }
+
+    return {
+        init: init,
+        refresh: refresh,
+        countPending: countPending,
+        isWebBooking: isWebBooking
+    };
+})();
+
+function initWebBookTab() {
+    if (WEBBOOK && WEBBOOK.init) WEBBOOK.init();
+}
+
+function webbookRefreshList(opts) {
+    if (WEBBOOK && WEBBOOK.refresh) WEBBOOK.refresh(opts);
+}
+
+function webbookCountPending() {
+    return WEBBOOK && WEBBOOK.countPending ? WEBBOOK.countPending() : 0;
+}
+
+function apptIsWebBooking(a) {
+    return WEBBOOK && WEBBOOK.isWebBooking ? WEBBOOK.isWebBooking(a) : false;
+}
+
+function apptWebBadgeHtml(a) {
+    if (!apptIsWebBooking(a)) return '';
+    var st = String((a && a.booking_status) || '').toLowerCase();
+    var pending = st === 'pending_staff' || st === 'pending_otp' || !st;
+    var cls = pending ? 'appt-web-badge appt-web-badge--pending' : 'appt-web-badge';
+    var label = pending
+        ? (typeof tr === 'function' ? tr('appt.badge.webPending') : 'WEB')
+        : (typeof tr === 'function' ? tr('appt.badge.web') : 'WEB');
+    var escFn = typeof esc === 'function' ? esc : function (s) { return s; };
+    return '<span class="' + cls + '">' + escFn(label) + '</span>';
+}

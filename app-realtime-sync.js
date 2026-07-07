@@ -366,6 +366,9 @@ var REALTIME_SYNC = (function() {
         if (tab === 'records' && typeof loadApptRecords === 'function') {
             loadApptRecords();
         }
+        if (tab === 'webbook' && typeof webbookRefreshList === 'function') {
+            webbookRefreshList({ soft: true });
+        }
     }
 
     function refreshBillFromRealtime() {

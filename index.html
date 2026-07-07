@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260706-xray-ai-v19';
+  var BUILD = '20260707-webbook-v1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -946,6 +946,7 @@
     <button class="appt-tab" data-tab="calendar" data-i18n="appt.calendarTab"></button>
     <button class="appt-tab" data-tab="records" data-i18n="appt.recordsTab"></button>
     <button class="appt-tab" data-tab="recall" data-i18n="appt.recallTab"></button>
+    <button class="appt-tab" data-tab="webbook" data-i18n="appt.webbookTab"></button>
   </div>
 
   <div id="apptMemoBarPool" hidden aria-hidden="true"></div>
@@ -1452,6 +1453,86 @@
     </div>
 
   </div><!-- /tab-recall -->
+
+  <!-- ── TAB: WEB BOOKINGS (online scheduling inbox) ─────── -->
+  <div id="tab-webbook" class="tab-pane">
+    <div class="wb-panel">
+      <div class="wb-panel-head">
+        <h2 class="wb-panel-title" data-i18n="webbook.title">Web Bookings</h2>
+        <button type="button" id="wbRefreshBtn" class="wb-refresh-btn" data-i18n="webbook.refresh">Refresh List</button>
+      </div>
+
+      <div class="wb-filters">
+        <div class="wb-filter-group">
+          <span class="wb-filter-label" data-i18n="webbook.filterCreated">Date created</span>
+          <label class="wb-filter-date">
+            <span data-i18n="webbook.from">From</span>
+            <input type="date" id="wbFilterFrom">
+          </label>
+          <label class="wb-filter-date">
+            <span data-i18n="webbook.to">To</span>
+            <input type="date" id="wbFilterTo">
+          </label>
+        </div>
+        <div class="wb-filter-group">
+          <label class="wb-filter-select-wrap">
+            <span class="wb-filter-label" data-i18n="webbook.filterStatus">Status</span>
+            <select id="wbFilterStatus" class="wb-filter-select">
+              <option value="all" data-i18n="webbook.statusAll">All</option>
+              <option value="pending_staff" data-i18n="webbook.status.pendingStaff">Created from Web</option>
+              <option value="pending_otp" data-i18n="webbook.status.pendingOtp">Awaiting verification</option>
+              <option value="confirmed" data-i18n="webbook.status.confirmed">Confirmed</option>
+              <option value="cancelled" data-i18n="webbook.status.cancelled">Cancelled</option>
+            </select>
+          </label>
+        </div>
+        <div class="wb-filter-group wb-type-filters">
+          <span class="wb-filter-label" data-i18n="webbook.showTypes">Show</span>
+          <label class="wb-chk"><input type="checkbox" class="wb-type-chk" data-type="new_patient" checked>
+            <span data-i18n="webbook.type.new">New patient</span></label>
+          <label class="wb-chk"><input type="checkbox" class="wb-type-chk" data-type="existing_patient" checked>
+            <span data-i18n="webbook.type.existing">Existing patient</span></label>
+          <label class="wb-chk"><input type="checkbox" class="wb-type-chk" data-type="recall" checked>
+            <span data-i18n="webbook.type.recall">Recall</span></label>
+          <label class="wb-chk"><input type="checkbox" class="wb-type-chk" data-type="asap" checked>
+            <span data-i18n="webbook.type.asap">ASAP</span></label>
+        </div>
+      </div>
+
+      <p id="wbCountLbl" class="wb-count-lbl"></p>
+
+      <div class="wb-table-wrap">
+        <table class="wb-table" id="wbTable">
+          <thead>
+            <tr>
+              <th data-i18n="webbook.th.clinic">Clinic</th>
+              <th data-i18n="webbook.th.created">Date Time Created</th>
+              <th data-i18n="webbook.th.appt">Appt Date Time</th>
+              <th data-i18n="webbook.th.name">Patient Name</th>
+              <th data-i18n="webbook.th.phone">Phone</th>
+              <th data-i18n="webbook.th.dob">Patient DOB</th>
+              <th data-i18n="webbook.th.status">Confirmation Status</th>
+              <th data-i18n="webbook.th.note">Appt Note</th>
+              <th data-i18n="webbook.th.type">Type</th>
+            </tr>
+          </thead>
+          <tbody id="wbTableBody"></tbody>
+        </table>
+      </div>
+
+      <div id="wbActionBar" class="wb-action-bar" style="display:none;">
+        <span id="wbSelLbl" class="wb-sel-lbl" data-i18n="webbook.selectRow">Select a booking below</span>
+        <div class="wb-action-btns">
+          <button type="button" id="wbBtnConfirm" class="wb-act wb-act--primary" data-i18n="webbook.act.confirm">Confirm</button>
+          <button type="button" id="wbBtnReschedule" class="wb-act" data-i18n="webbook.act.reschedule">Reschedule</button>
+          <button type="button" id="wbBtnCancel" class="wb-act wb-act--danger" data-i18n="webbook.act.cancel">Cancel</button>
+          <button type="button" id="wbBtnLink" class="wb-act" data-i18n="webbook.act.link">Link patient</button>
+          <button type="button" id="wbBtnWhatsapp" class="wb-act wb-act--wa" data-i18n="webbook.act.whatsapp">WhatsApp</button>
+          <button type="button" id="wbBtnCalendar" class="wb-act" data-i18n="webbook.act.calendar">View calendar</button>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-webbook -->
 
 </div>
 
@@ -5806,7 +5887,8 @@
     'app-doc-tools.js',
     'app-tools.js',
     'app-pdf-editor.js',
-    'app-poster-maker.js'
+    'app-poster-maker.js',
+    'app-webbook.js'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

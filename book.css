@@ -1,0 +1,426 @@
+/* Online booking — public patient UI */
+
+:root {
+  --ob-primary: #0084ff;
+  --ob-primary-dark: #0066cc;
+  --ob-bg: #f0f4f8;
+  --ob-card: #ffffff;
+  --ob-text: #1e293b;
+  --ob-muted: #64748b;
+  --ob-border: #e2e8f0;
+  --ob-success: #16a34a;
+  --ob-warn: #d97706;
+  --ob-radius: 14px;
+  --ob-shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
+  --ob-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  min-height: 100%;
+  font-family: var(--ob-font);
+  background: var(--ob-bg);
+  color: var(--ob-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px 48px;
+}
+
+.ob-wrap {
+  width: 100%;
+  max-width: 520px;
+}
+
+/* ── Header (clinic branding) ─────────────────────────────── */
+.ob-header {
+  background: linear-gradient(135deg, var(--ob-primary) 0%, #00a8ff 100%);
+  color: #fff;
+  border-radius: var(--ob-radius) var(--ob-radius) 0 0;
+  padding: 28px 24px 22px;
+  text-align: center;
+  box-shadow: var(--ob-shadow);
+}
+
+.ob-header h1 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.ob-header .ob-clinic-meta {
+  font-size: 0.82rem;
+  opacity: 0.92;
+  line-height: 1.55;
+}
+
+.ob-header .ob-banana {
+  font-size: 2rem;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.15));
+}
+
+/* ── Card body ────────────────────────────────────────────── */
+.ob-card {
+  background: var(--ob-card);
+  border-radius: 0 0 var(--ob-radius) var(--ob-radius);
+  padding: 28px 24px 32px;
+  box-shadow: var(--ob-shadow);
+  border: 1px solid var(--ob-border);
+  border-top: none;
+}
+
+.ob-step { display: none; }
+.ob-step.active { display: block; }
+
+.ob-step-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--ob-text);
+}
+
+.ob-soft-hint {
+  font-size: 0.88rem;
+  color: var(--ob-muted);
+  line-height: 1.5;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  background: #f0f9ff;
+  border-radius: 8px;
+  border: 1px solid #bae6fd;
+}
+
+/* ── Patient type toggle ───────────────────────────────────── */
+.ob-type-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.ob-type-btn {
+  flex: 1;
+  padding: 11px 12px;
+  border: 2px solid var(--ob-border);
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .18s;
+  color: var(--ob-muted);
+}
+
+.ob-type-btn.active {
+  border-color: var(--ob-primary);
+  background: #eff6ff;
+  color: var(--ob-primary);
+}
+
+/* ── Form fields ───────────────────────────────────────────── */
+.ob-field {
+  margin-bottom: 16px;
+}
+
+.ob-field label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ob-muted);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ob-field label .req { color: #ef4444; }
+
+.ob-field input,
+.ob-field select,
+.ob-field textarea {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1.5px solid var(--ob-border);
+  border-radius: 9px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color .15s, box-shadow .15s;
+  background: #fff;
+}
+
+.ob-field input:focus,
+.ob-field select:focus {
+  outline: none;
+  border-color: var(--ob-primary);
+  box-shadow: 0 0 0 3px rgba(0, 132, 255, 0.12);
+}
+
+.ob-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ob-phone-wrap {
+  display: flex;
+  gap: 8px;
+}
+
+.ob-phone-prefix {
+  flex-shrink: 0;
+  padding: 11px 10px;
+  background: #f1f5f9;
+  border: 1.5px solid var(--ob-border);
+  border-radius: 9px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ob-muted);
+}
+
+.ob-phone-wrap input { flex: 1; }
+
+/* ── Slot picker ─────────────────────────────────────────────── */
+.ob-slots-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ob-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.ob-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.ob-slot {
+  padding: 9px 14px;
+  border: 1.5px solid var(--ob-border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .15s;
+  color: var(--ob-text);
+}
+
+.ob-slot:hover { border-color: var(--ob-primary); background: #f0f9ff; }
+
+.ob-slot.selected {
+  border-color: var(--ob-primary);
+  background: var(--ob-primary);
+  color: #fff;
+}
+
+.ob-slots-empty,
+.ob-slots-loading {
+  font-size: 0.88rem;
+  color: var(--ob-muted);
+  padding: 10px 0;
+}
+
+/* ── Buttons ───────────────────────────────────────────────── */
+.ob-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 13px 22px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+  font-family: inherit;
+}
+
+.ob-btn:active { transform: scale(0.98); }
+
+.ob-btn-primary {
+  background: var(--ob-primary);
+  color: #fff;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.ob-btn-primary:hover { background: var(--ob-primary-dark); }
+
+.ob-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ob-btn-ghost {
+  background: #fff;
+  color: var(--ob-muted);
+  border: 1.5px solid var(--ob-border);
+}
+
+.ob-btn-row {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* ── Verify overlay ──────────────────────────────────────────── */
+.ob-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.ob-overlay.open { display: flex; }
+
+.ob-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 26px 22px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.2);
+}
+
+.ob-modal h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.ob-modal .ob-help {
+  font-size: 0.82rem;
+  color: var(--ob-muted);
+  margin-top: 12px;
+  line-height: 1.5;
+}
+
+.ob-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+  display: none;
+}
+
+.ob-error.show { display: block; }
+
+/* ── Confirmation page ───────────────────────────────────────── */
+.ob-confirm {
+  text-align: center;
+  padding: 20px 0 8px;
+}
+
+.ob-confirm-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+}
+
+.ob-confirm h2 {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--ob-primary);
+  margin-bottom: 20px;
+}
+
+.ob-confirm-date {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.ob-confirm-time {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--ob-muted);
+  margin-bottom: 18px;
+}
+
+.ob-confirm-ref {
+  font-size: 0.82rem;
+  color: var(--ob-muted);
+  background: #f1f5f9;
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 20px;
+  margin-bottom: 16px;
+}
+
+.ob-confirm-note {
+  font-size: 0.88rem;
+  color: var(--ob-muted);
+  line-height: 1.55;
+  max-width: 340px;
+  margin: 0 auto;
+}
+
+/* ── Loading spinner ─────────────────────────────────────────── */
+.ob-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ob-spin .7s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes ob-spin { to { transform: rotate(360deg); } }
+
+.ob-debug-otp {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #fffbeb;
+  border: 1px dashed #fbbf24;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #92400e;
+  display: none;
+}
+
+.ob-debug-otp.show { display: block; }
+
+.ob-lang-bar {
+  text-align: right;
+  margin-bottom: 10px;
+}
+
+.ob-lang-btn {
+  background: none;
+  border: 1px solid var(--ob-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  color: var(--ob-muted);
+  margin-left: 4px;
+}
+
+.ob-lang-btn.active {
+  background: var(--ob-primary);
+  color: #fff;
+  border-color: var(--ob-primary);
+}
+
+@media (max-width: 480px) {
+  .ob-field-row { grid-template-columns: 1fr; }
+  body { padding: 12px 10px 32px; }
+}

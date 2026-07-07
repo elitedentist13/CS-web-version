@@ -15379,3 +15379,260 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     gap: 8px;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   ONLINE BOOKING — staff panel + calendar web cards
+════════════════════════════════════════════════════════════════ */
+
+.appt-web-badge {
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 5px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.35px;
+    border: 1px dashed #60a5fa;
+}
+.appt-web-badge--pending {
+    background: #fffbeb;
+    color: #b45309;
+    border-color: #fbbf24;
+}
+
+.wb-tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    margin-left: 5px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    border-radius: 10px;
+    vertical-align: middle;
+}
+
+.wb-panel {
+    padding: 12px 0 24px;
+}
+.wb-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.wb-panel-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 800;
+    color: #1e293b;
+}
+.wb-refresh-btn {
+    padding: 8px 16px;
+    background: #0084ff;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.wb-refresh-btn:hover { background: #0066cc; }
+
+.wb-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 20px;
+    align-items: flex-end;
+    padding: 14px 16px;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 12px;
+}
+.wb-filter-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+}
+.wb-filter-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.wb-filter-date {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #475569;
+}
+.wb-filter-date input {
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 12px;
+}
+.wb-filter-select-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.wb-filter-select {
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 13px;
+    min-width: 180px;
+}
+.wb-type-filters .wb-chk {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: #374151;
+    cursor: pointer;
+    margin-right: 8px;
+}
+.wb-count-lbl {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    margin: 0 0 8px 4px;
+}
+
+.wb-table-wrap {
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: auto;
+    max-height: 420px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+.wb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.wb-table thead th {
+    position: sticky;
+    top: 0;
+    background: #f1f5f9;
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 800;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap;
+}
+.wb-table tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+.wb-row { cursor: pointer; transition: background .12s; }
+.wb-row:hover td { background: #f0f9ff; }
+.wb-row--sel td { background: #dbeafe !important; }
+.wb-phone-link { color: #0369a1; text-decoration: none; font-weight: 600; }
+.wb-phone-link:hover { text-decoration: underline; }
+.wb-empty {
+    text-align: center;
+    padding: 28px 16px !important;
+    color: #64748b;
+}
+.wb-status-pill {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.wb-action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: #fff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+.wb-sel-lbl {
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+}
+.wb-action-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.wb-act {
+    padding: 8px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #374151;
+}
+.wb-act:hover { background: #f8fafc; }
+.wb-act--primary {
+    background: #0084ff;
+    border-color: #0084ff;
+    color: #fff;
+}
+.wb-act--primary:hover { background: #0066cc; }
+.wb-act--danger {
+    color: #b91c1c;
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+.wb-act--wa {
+    background: #25d366;
+    border-color: #25d366;
+    color: #fff;
+}
+
+/* Calendar: online booking dashed cards */
+.gcal-card.gcal-card-web {
+    border-style: dashed !important;
+    border-width: 2px !important;
+    border-left-style: dashed !important;
+    background-image: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 5px,
+        rgba(0, 132, 255, 0.035) 5px,
+        rgba(0, 132, 255, 0.035) 10px
+    ) !important;
+}
+.gcal-card.gcal-card-web-pending {
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35), 0 1px 3px rgba(0,0,0,.1) !important;
+}
+
+.card-new-badge + .appt-web-badge,
+.appt-walkin-badge + .appt-web-badge {
+    margin-left: 4px;
+}
+

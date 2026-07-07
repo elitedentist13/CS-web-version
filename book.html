@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Book Appointment</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="book.css">
+<script>
+(function () {
+  window.ONLINE_BOOKING_CONFIG = {
+    supabaseProject: 'kprihawipljrltfzpfjd',
+    supabaseUrl: 'https://kprihawipljrltfzpfjd.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+      'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwcmloYXdpcGxqcmx0ZnpwZmpkIiwi' +
+      'cm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NzUyMzAsImV4cCI6MjA5MjM1MTIzMH0.' +
+      'fHbfVQOmIMOTbjBTG6iy2yrgmo-iZXEe-wNLlAlVtM4',
+    edgeUrl: 'https://kprihawipljrltfzpfjd.supabase.co/functions/v1/online-booking',
+    localUrl: 'http://127.0.0.1:8788',
+    preferLocal: (function () {
+      try {
+        var q = new URLSearchParams(location.search);
+        return q.get('local') === '1' || location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+      } catch (e) { return false; }
+    })()
+  };
+})();
+</script>
+</head>
+<body>
+
+<div class="ob-wrap">
+  <div class="ob-lang-bar">
+    <button type="button" class="ob-lang-btn active" data-lang="en">EN</button>
+    <button type="button" class="ob-lang-btn" data-lang="zh-Hant">繁</button>
+    <button type="button" class="ob-lang-btn" data-lang="zh-CN">简</button>
+  </div>
+
+  <header class="ob-header" id="obHeader">
+    <div class="ob-banana">🍌</div>
+    <h1 id="obClinicName">Joyful Smile</h1>
+    <div class="ob-clinic-meta" id="obClinicMeta">Loading clinic information…</div>
+  </header>
+
+  <main class="ob-card">
+
+    <section class="ob-step active" id="stepForm">
+      <h2 class="ob-step-title" data-i18n="title">Book an appointment</h2>
+      <p class="ob-soft-hint" data-i18n="softHint">Name, mobile and date of birth are required. Our team will confirm your booking.</p>
+      <div class="ob-error" id="formError"></div>
+
+      <div class="ob-field-row">
+        <div class="ob-field">
+          <label data-i18n="name">Your name <span class="req">*</span></label>
+          <input type="text" id="fName" autocomplete="name" required>
+        </div>
+        <div class="ob-field">
+          <label data-i18n="nameZh">Name (Chinese)</label>
+          <input type="text" id="fNameZh" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="ob-field">
+        <label data-i18n="mobile">Mobile <span class="req">*</span></label>
+        <div class="ob-phone-wrap">
+          <span class="ob-phone-prefix">+852</span>
+          <input type="tel" id="fPhone" inputmode="numeric" autocomplete="tel" placeholder="9123 4567" required>
+        </div>
+      </div>
+
+      <div class="ob-field">
+        <label data-i18n="dob">Date of birth <span class="req">*</span></label>
+        <input type="date" id="fDob" autocomplete="bday" required>
+      </div>
+
+      <div class="ob-field">
+        <label data-i18n="clinic">Clinic</label>
+        <select id="fClinic"></select>
+      </div>
+
+      <div class="ob-field-row">
+        <div class="ob-field">
+          <label data-i18n="reason">Visit reason</label>
+          <select id="fReason"></select>
+        </div>
+        <div class="ob-field">
+          <label data-i18n="doctor">Doctor</label>
+          <select id="fDoctor"></select>
+        </div>
+      </div>
+
+      <div class="ob-field">
+        <label data-i18n="date">Preferred date</label>
+        <input type="date" id="fDate">
+      </div>
+
+      <div class="ob-field">
+        <div class="ob-slots-label" data-i18n="time">Preferred time</div>
+        <div class="ob-slots" id="slotGrid">
+          <span class="ob-slots-empty" data-i18n="pickDate">Select a date and doctor to see times (optional)</span>
+        </div>
+      </div>
+
+      <button type="button" class="ob-btn ob-btn-primary" id="btnBook" data-i18n="bookBtn">Submit booking request</button>
+    </section>
+
+    <section class="ob-step" id="stepConfirm">
+      <div class="ob-confirm">
+        <div class="ob-confirm-icon">✅</div>
+        <h2 data-i18n="booked">Request Received!</h2>
+        <div class="ob-confirm-date" id="confirmDate">—</div>
+        <div class="ob-confirm-time" id="confirmTime">—</div>
+        <div class="ob-confirm-ref" id="confirmRef"></div>
+        <p class="ob-confirm-note" data-i18n="confirmNote">
+          Your booking request has been placed. Our team will contact you to confirm.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="book.js"></script>
+</body>
+</html>

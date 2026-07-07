@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260707-webbook-roster-v1';
+  var BUILD = '20260707-webbook-roster-sessions-v8';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1554,8 +1554,9 @@
           <button type="button" class="wbr-mode-btn active" data-mode="pattern" data-i18n="webbook.roster.modePattern">Pattern (weekly)</button>
           <button type="button" class="wbr-mode-btn" data-mode="manual" data-i18n="webbook.roster.modeManual">Manual month</button>
         </div>
+        <p class="wbr-mode-note" data-i18n="webbook.roster.modeExclusive">Use either weekly pattern or manual month — only the selected mode is saved online; the other panel stays visible but disabled.</p>
 
-        <div id="wbrPatternPane" class="wbr-pattern-pane">
+        <div id="wbrPatternPane" class="wbr-pattern-pane wbr-pane-section">
           <table class="wbr-grid">
             <thead>
               <tr>
@@ -1590,27 +1591,66 @@
                 <td><input type="checkbox" id="wbrAlt6" disabled></td>
                 <td><input type="checkbox" id="wbrAlt0" disabled></td>
               </tr>
+              <tr>
+                <th data-i18n="webbook.roster.sessAm">AM<br><span class="wbr-sess-time">10:00–13:00</span></th>
+                <td><input type="checkbox" id="wbrAm1" disabled></td>
+                <td><input type="checkbox" id="wbrAm2" disabled></td>
+                <td><input type="checkbox" id="wbrAm3" disabled></td>
+                <td><input type="checkbox" id="wbrAm4" disabled></td>
+                <td><input type="checkbox" id="wbrAm5" disabled></td>
+                <td><input type="checkbox" id="wbrAm6" disabled></td>
+                <td><input type="checkbox" id="wbrAm0" disabled></td>
+              </tr>
+              <tr>
+                <th data-i18n="webbook.roster.sessPm">PM<br><span class="wbr-sess-time">14:30–19:30*</span></th>
+                <td><input type="checkbox" id="wbrPm1" disabled></td>
+                <td><input type="checkbox" id="wbrPm2" disabled></td>
+                <td><input type="checkbox" id="wbrPm3" disabled></td>
+                <td><input type="checkbox" id="wbrPm4" disabled></td>
+                <td><input type="checkbox" id="wbrPm5" disabled></td>
+                <td><input type="checkbox" id="wbrPm6" disabled></td>
+                <td><input type="checkbox" id="wbrPm0" disabled></td>
+              </tr>
+              <tr>
+                <th data-i18n="webbook.roster.sessNight">Night<br><span class="wbr-sess-time">21:00–23:30</span></th>
+                <td><input type="checkbox" id="wbrNight1" disabled></td>
+                <td><input type="checkbox" id="wbrNight2" disabled></td>
+                <td><input type="checkbox" id="wbrNight3" disabled></td>
+                <td><input type="checkbox" id="wbrNight4" disabled></td>
+                <td><input type="checkbox" id="wbrNight5" disabled></td>
+                <td><input type="checkbox" id="wbrNight6" disabled></td>
+                <td><input type="checkbox" id="wbrNight0" disabled></td>
+              </tr>
             </tbody>
           </table>
           <label class="wbr-anchor-wrap">
             <span data-i18n="webbook.roster.anchor">Anchor week (Week A starts)</span>
             <input type="date" id="wbrAnchor">
           </label>
-          <p class="wbr-hint" data-i18n="webbook.roster.patternHint">Tick On duty for weekly days. Tick Alt wk on a day to make only that weekday alternate (A/B weeks).</p>
+          <p class="wbr-hint" data-i18n="webbook.roster.patternHint">Tick On duty for weekly days. Choose AM / PM / Night sessions per day. Tick Alt wk on a day to make only that weekday alternate (A/B weeks). *PM ends 18:30 on Sat/Sun and red public holidays.</p>
         </div>
 
-        <div id="wbrManualPane" class="wbr-manual-pane" style="display:none;">
+        <div id="wbrManualPane" class="wbr-manual-pane wbr-pane-section wbr-pane-section--inactive">
           <div class="wbr-manual-nav">
             <button type="button" id="wbrManualPrev" class="wbr-nav-btn">◀</button>
             <span id="wbrManualMonthLbl" class="wbr-month-lbl"></span>
             <button type="button" id="wbrManualNext" class="wbr-nav-btn">▶</button>
           </div>
           <div id="wbrManualGrid" class="wbr-manual-grid"></div>
+          <p class="wbr-ph-legend" data-i18n="webbook.roster.phLegend">Red shading = HK public holiday (hover for name).</p>
+          <div id="wbrManualSessions" class="wbr-manual-sessions" style="display:none;">
+            <span class="wbr-manual-sess-lbl" data-i18n="webbook.roster.manualSessions">Sessions for</span>
+            <strong id="wbrManualSelDate" class="wbr-manual-sel-date"></strong>
+            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManAm"> <span data-i18n="webbook.roster.sessAm">AM</span> <span class="wbr-sess-time">10:00–13:00</span></label>
+            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManPm"> <span data-i18n="webbook.roster.sessPm">PM</span> <span class="wbr-sess-time">14:30–19:30*</span></label>
+            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManNight"> <span data-i18n="webbook.roster.sessNight">Night</span> <span class="wbr-sess-time">21:00–23:30</span></label>
+            <button type="button" id="wbrManRemove" class="wb-act wbr-man-remove" data-i18n="webbook.roster.removeDay">Remove day</button>
+          </div>
           <div class="wbr-manual-actions">
             <button type="button" id="wbrCopyMonth" class="wb-act" data-i18n="webbook.roster.copyMonth">Copy from previous month</button>
             <button type="button" id="wbrClearMonth" class="wb-act" data-i18n="webbook.roster.clearMonth">Clear this month</button>
           </div>
-          <p class="wbr-hint" data-i18n="webbook.roster.manualHint">Click dates to toggle on-duty days for this doctor at the selected clinic.</p>
+          <p class="wbr-hint" data-i18n="webbook.roster.manualHint">Click dates to toggle on-duty days. Click an on-duty date again to edit AM / PM / Night sessions.</p>
         </div>
 
         <div class="wbr-save-row">
@@ -5958,6 +5998,7 @@
     'app-patient.js',
     'app-patient-views.js',
     'cal-doctor-colors.js',
+    'app-public-holidays.js',
     'app-appt.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',

@@ -25,6 +25,9 @@ create table if not exists public.online_booking_roster_pattern (
     day_of_week int not null check (day_of_week between 0 and 6),
     on_duty boolean not null default false,
     alternate boolean not null default false,
+    session_am boolean not null default true,
+    session_pm boolean not null default true,
+    session_night boolean not null default false,
     unique (clinic_tag, doctor_code, day_of_week)
 );
 
@@ -37,11 +40,57 @@ create table if not exists public.online_booking_roster_dates (
     doctor_code text not null,
     duty_date date not null,
     enabled boolean not null default true,
+    session_am boolean not null default true,
+    session_pm boolean not null default true,
+    session_night boolean not null default false,
     unique (clinic_tag, doctor_code, duty_date)
 );
 
+-- Migration for databases created before session columns existed
+alter table public.online_booking_roster_pattern
+    add column if not exists session_am boolean not null default true,
+    add column if not exists session_pm boolean not null default true,
+    add column if not exists session_night boolean not null default false;
+
+alter table public.online_booking_roster_dates
+    add column if not exists session_am boolean not null default true,
+    add column if not exists session_pm boolean not null default true,
+    add column if not exists session_night boolean not null default false;
+
 create index if not exists idx_ob_roster_dates_lookup
     on public.online_booking_roster_dates (clinic_tag, doctor_code, duty_date);
+
+-- ── Red public holidays (HK general holidays; add future years as needed) ─
+create table if not exists public.online_booking_public_holidays (
+    holiday_date date primary key,
+    name text,
+    enabled boolean not null default true
+);
+
+comment on table public.online_booking_public_holidays is 'HK red public holidays — PM session ends 18:30 on these dates and weekends';
+
+insert into public.online_booking_public_holidays (holiday_date, name) values
+    ('2026-01-01', 'New Year''s Day'),
+    ('2026-02-17', 'Lunar New Year''s Day'),
+    ('2026-02-18', 'Second day of Lunar New Year'),
+    ('2026-02-19', 'Third day of Lunar New Year'),
+    ('2026-04-03', 'Good Friday'),
+    ('2026-04-04', 'Day following Good Friday'),
+    ('2026-04-06', 'Day following Ching Ming Festival'),
+    ('2026-04-07', 'Day following Easter Monday'),
+    ('2026-05-01', 'Labour Day'),
+    ('2026-05-25', 'Day following Birthday of the Buddha'),
+    ('2026-06-19', 'Tuen Ng Festival'),
+    ('2026-07-01', 'HKSAR Establishment Day'),
+    ('2026-09-26', 'Day following Mid-Autumn Festival'),
+    ('2026-10-01', 'National Day'),
+    ('2026-10-19', 'Day following Chung Yeung Festival'),
+    ('2026-12-25', 'Christmas Day'),
+    ('2026-12-26', 'First weekday after Christmas Day')
+on conflict (holiday_date) do nothing;
+
+grant select on public.online_booking_public_holidays to anon, authenticated, service_role;
+grant insert, update, delete on public.online_booking_public_holidays to authenticated, service_role;
 
 -- ── Helper: Monday on or before a date ──────────────────────────
 create or replace function public.ob_roster_monday(p_date date)
@@ -126,6 +175,161 @@ begin
 end;
 $$;
 
+-- ── Sessions for a duty date (AM 10:00–13:00, PM 14:30–19:30 weekdays / 18:30 weekend & PH, Night 21:00–23:30) ─
+
+create or replace function public.ob_is_weekend_or_red_holiday(p_date date)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+    select p_date is not null and (
+        extract(dow from p_date)::int in (0, 6)
+        or exists (
+            select 1 from public.online_booking_public_holidays h
+             where h.holiday_date = p_date
+               and h.enabled is distinct from false
+        )
+    );
+$$;
+
+create or replace function public.ob_pm_session_end(p_date date)
+returns time
+language sql
+stable
+set search_path = public
+as $$
+    select case
+        when public.ob_is_weekend_or_red_holiday(p_date) then time '18:30'
+        else time '19:30'
+    end;
+$$;
+
+create or replace function public.ob_get_roster_sessions(
+    p_clinic_tag text,
+    p_doctor_code text,
+    p_date date
+)
+returns jsonb
+language plpgsql
+stable
+set search_path = public
+as $$
+declare
+    v_clinic text := nullif(trim(p_clinic_tag), '');
+    v_doctor text := nullif(trim(p_doctor_code), '');
+    v_prof record;
+    v_pat record;
+    v_man record;
+    v_dow int;
+    v_am boolean;
+    v_pm boolean;
+    v_night boolean;
+    v_pm_end text;
+begin
+    v_pm_end := to_char(public.ob_pm_session_end(p_date), 'HH24:MI');
+
+    if v_doctor is null or p_date is null then
+        return jsonb_build_object('am', false, 'pm', false, 'night', false, 'pm_end', v_pm_end);
+    end if;
+
+    if not public.ob_is_on_duty(p_clinic_tag, p_doctor_code, p_date) then
+        return jsonb_build_object('am', false, 'pm', false, 'night', false, 'pm_end', v_pm_end);
+    end if;
+
+    select * into v_prof
+      from public.online_booking_roster_profile rp
+     where rp.doctor_code = v_doctor
+       and (v_clinic is null or rp.clinic_tag = v_clinic)
+     order by case when rp.clinic_tag = v_clinic then 0 else 1 end
+     limit 1;
+
+    if not found then
+        return jsonb_build_object('am', true, 'pm', true, 'night', false, 'pm_end', v_pm_end);
+    end if;
+
+    if v_prof.mode = 'manual' then
+        select * into v_man
+          from public.online_booking_roster_dates d
+         where d.clinic_tag = v_prof.clinic_tag
+           and d.doctor_code = v_prof.doctor_code
+           and d.duty_date = p_date
+           and d.enabled is distinct from false
+         limit 1;
+        if not found then
+            return jsonb_build_object('am', true, 'pm', true, 'night', false, 'pm_end', v_pm_end);
+        end if;
+        v_am := coalesce(v_man.session_am, true);
+        v_pm := coalesce(v_man.session_pm, true);
+        v_night := coalesce(v_man.session_night, false);
+    else
+        v_dow := extract(dow from p_date)::int;
+        select * into v_pat
+          from public.online_booking_roster_pattern p
+         where p.clinic_tag = v_prof.clinic_tag
+           and p.doctor_code = v_prof.doctor_code
+           and p.day_of_week = v_dow;
+        if not found then
+            return jsonb_build_object('am', true, 'pm', true, 'night', false, 'pm_end', v_pm_end);
+        end if;
+        v_am := coalesce(v_pat.session_am, true);
+        v_pm := coalesce(v_pat.session_pm, true);
+        v_night := coalesce(v_pat.session_night, false);
+    end if;
+
+    if not coalesce(v_am, false) and not coalesce(v_pm, false) and not coalesce(v_night, false) then
+        v_am := true;
+        v_pm := true;
+        v_night := false;
+    end if;
+
+    return jsonb_build_object('am', v_am, 'pm', v_pm, 'night', v_night, 'pm_end', v_pm_end);
+end;
+$$;
+
+drop function if exists public.ob_time_allowed_in_sessions(time, int, jsonb);
+
+create or replace function public.ob_time_allowed_in_sessions(
+    p_start_time time,
+    p_duration int,
+    p_sessions jsonb,
+    p_date date default null
+)
+returns boolean
+language plpgsql
+stable
+set search_path = public
+as $$
+declare
+    v_pm_end time;
+    v_dur int := coalesce(nullif(p_duration, 0), 30);
+begin
+    v_pm_end := coalesce(
+        nullif(left(coalesce(p_sessions->>'pm_end', ''), 5), '')::time,
+        public.ob_pm_session_end(p_date)
+    );
+
+    return coalesce(
+        (coalesce((p_sessions->>'am')::boolean, false)
+            and p_start_time >= time '10:00'
+            and p_start_time + make_interval(mins => v_dur) <= time '13:00')
+        or (coalesce((p_sessions->>'pm')::boolean, false)
+            and p_start_time >= time '14:30'
+            and p_start_time + make_interval(mins => v_dur) <= v_pm_end)
+        or (coalesce((p_sessions->>'night')::boolean, false)
+            and p_start_time >= time '21:00'
+            and p_start_time + make_interval(mins => v_dur) <= time '23:30'),
+        false
+    );
+end;
+$$;
+
+grant execute on function public.ob_is_weekend_or_red_holiday(date) to anon, authenticated, service_role;
+grant execute on function public.ob_pm_session_end(date) to anon, authenticated, service_role;
+
+grant execute on function public.ob_get_roster_sessions(text, text, date) to anon, authenticated, service_role;
+grant execute on function public.ob_time_allowed_in_sessions(time, int, jsonb, date) to anon, authenticated, service_role;
+
 -- ── RPC: duty dates in range (for patient calendar) ─────────────
 create or replace function public.ob_get_duty_dates(
     p_clinic_tag text,
@@ -144,6 +348,8 @@ declare
     v_d date;
     v_mode text := 'legacy';
     v_prof record;
+    v_sessions jsonb := '{}'::jsonb;
+    v_sess jsonb;
 begin
     if nullif(trim(p_doctor_code), '') is null then
         return jsonb_build_object('dates', '[]'::jsonb, 'mode', 'none');
@@ -164,13 +370,16 @@ begin
     while v_d <= coalesce(p_to_date, v_d + 60) loop
         if public.ob_is_on_duty(p_clinic_tag, p_doctor_code, v_d) then
             v_dates := array_append(v_dates, v_d);
+            v_sess := public.ob_get_roster_sessions(p_clinic_tag, p_doctor_code, v_d);
+            v_sessions := v_sessions || jsonb_build_object(to_char(v_d, 'YYYY-MM-DD'), v_sess);
         end if;
         v_d := v_d + 1;
     end loop;
 
     return jsonb_build_object(
         'dates', (select coalesce(jsonb_agg(to_char(d, 'YYYY-MM-DD') order by d), '[]'::jsonb) from unnest(v_dates) d),
-        'mode', v_mode
+        'mode', v_mode,
+        'sessions', v_sessions
     );
 end;
 $$;
@@ -217,6 +426,7 @@ declare
     v_appt_id uuid;
     v_start_raw text;
     v_dob date;
+    v_sessions jsonb;
 begin
     if coalesce(trim(p_patient_name), '') = '' or coalesce(trim(p_patient_phone), '') = '' then
         raise exception 'Name and mobile phone are required';
@@ -254,6 +464,11 @@ begin
     v_start_raw := nullif(left(coalesce(p_start_time, ''), 5), '');
     v_start_time := coalesce(v_start_raw::time, time '10:00');
     v_end_time := v_start_time + make_interval(mins => v_duration);
+
+    v_sessions := public.ob_get_roster_sessions(p_clinic_tag, v_doctor_code, v_date);
+    if not public.ob_time_allowed_in_sessions(v_start_time, v_duration, v_sessions, v_date) then
+        raise exception 'Selected time is outside available sessions for this date';
+    end if;
 
     v_phone := regexp_replace(coalesce(p_patient_phone, ''), '\D', '', 'g');
     if length(v_phone) = 8 then

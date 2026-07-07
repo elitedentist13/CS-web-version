@@ -808,6 +808,26 @@
         'webbook.roster.mode': { en: 'Roster mode', 'zh-CN': '排班模式', 'zh-Hant': '排班模式' },
         'webbook.roster.modePattern': { en: 'Pattern (weekly)', 'zh-CN': '规律排班', 'zh-Hant': '規律排班' },
         'webbook.roster.modeManual': { en: 'Manual month', 'zh-CN': '按月手动', 'zh-Hant': '按月手動' },
+        'webbook.roster.modeExclusive': {
+            en: 'Use either weekly pattern or manual month — only the selected mode is saved online; the other panel stays visible but disabled.',
+            'zh-CN': '规律排班与按月手动只能二选一；仅保存当前所选模式到系统，另一项面板保留但变灰不可编辑。',
+            'zh-Hant': '規律排班與按月手動只能二選一；僅儲存目前所選模式到系統，另一項面板保留但變灰不可編輯。'
+        },
+        'webbook.roster.saveBothWarn': {
+            en: 'Both weekly pattern and manual dates are set. Only "{mode}" will be saved online — the other will not be used for booking. Continue?',
+            'zh-CN': '规律排班与手动日期均已设置。仅“{mode}”会保存到系统用于预约，另一项不会生效。是否继续？',
+            'zh-Hant': '規律排班與手動日期均已設定。僅「{mode}」會儲存到系統用於預約，另一項不會生效。是否繼續？'
+        },
+        'webbook.roster.savedPattern': {
+            en: 'Weekly pattern saved for online booking. Manual dates kept on screen only.',
+            'zh-CN': '规律排班已保存用于网上预约。手动日期仅保留在画面上。',
+            'zh-Hant': '規律排班已儲存用於網上預約。手動日期僅保留在畫面上。'
+        },
+        'webbook.roster.savedManual': {
+            en: 'Manual dates saved for online booking. Weekly pattern kept on screen only.',
+            'zh-CN': '手动日期已保存用于网上预约。规律排班仅保留在画面上。',
+            'zh-Hant': '手動日期已儲存用於網上預約。規律排班僅保留在畫面上。'
+        },
         'webbook.roster.mon': { en: 'Mon', 'zh-CN': '一', 'zh-Hant': '一' },
         'webbook.roster.tue': { en: 'Tue', 'zh-CN': '二', 'zh-Hant': '二' },
         'webbook.roster.wed': { en: 'Wed', 'zh-CN': '三', 'zh-Hant': '三' },
@@ -817,17 +837,28 @@
         'webbook.roster.sun': { en: 'Sun', 'zh-CN': '日', 'zh-Hant': '日' },
         'webbook.roster.onDuty': { en: 'On duty', 'zh-CN': '值班', 'zh-Hant': '值班' },
         'webbook.roster.altWk': { en: 'Alt wk', 'zh-CN': '隔周', 'zh-Hant': '隔週' },
+        'webbook.roster.sessAm': { en: 'AM', 'zh-CN': '上午', 'zh-Hant': '上午' },
+        'webbook.roster.sessPm': { en: 'PM', 'zh-CN': '下午', 'zh-Hant': '下午' },
+        'webbook.roster.sessNight': { en: 'Night', 'zh-CN': '晚间', 'zh-Hant': '晚間' },
+        'webbook.roster.manualSessions': { en: 'Sessions for', 'zh-CN': '时段：', 'zh-Hant': '時段：' },
+        'webbook.roster.removeDay': { en: 'Remove day', 'zh-CN': '取消该日', 'zh-Hant': '取消該日' },
         'webbook.roster.anchor': { en: 'Anchor week (Week A starts)', 'zh-CN': 'A周起始日', 'zh-Hant': 'A週起始日' },
         'webbook.roster.patternHint': {
-            en: 'Tick On duty for weekly days. Tick Alt wk on a day to make only that weekday alternate (A/B weeks).',
-            'zh-CN': '勾选值班日为每周上班。勾选隔周则仅该星期几改为隔周（A/B周）。',
-            'zh-Hant': '勾選值班日為每週上班。勾選隔週則僅該星期幾改為隔週（A/B週）。'
+            en: 'Tick On duty for weekly days. Choose AM / PM / Night sessions per day. Tick Alt wk on a day to make only that weekday alternate (A/B weeks). *PM ends 18:30 on Sat/Sun and red public holidays.',
+            'zh-CN': '勾选值班日为每周上班。按日选择上午/下午/晚间时段。勾选隔周则仅该星期几改为隔周（A/B周）。*周末及公众假期下午至18:30。',
+            'zh-Hant': '勾選值班日為每週上班。按日選擇上午/下午/晚間時段。勾選隔週則僅該星期幾改為隔週（A/B週）。*週末及公眾假期下午至18:30。'
         },
         'webbook.roster.manualHint': {
-            en: 'Click dates to toggle on-duty days for this doctor at the selected clinic.',
-            'zh-CN': '点击日期以设置该医生在所选诊所的值班日。',
-            'zh-Hant': '點擊日期以設定該醫生在所選診所的值班日。'
+            en: 'Click dates to toggle on-duty days. Click an on-duty date again to edit AM / PM / Night sessions.',
+            'zh-CN': '点击日期切换值班。再次点击已选值班日可编辑上午/下午/晚间时段。',
+            'zh-Hant': '點擊日期切換值班。再次點擊已選值班日可編輯上午/下午/晚間時段。'
         },
+        'webbook.roster.phLegend': {
+            en: 'Red shading = HK public holiday (hover for name).',
+            'zh-CN': '红色底色 = 香港公众假期（悬停查看名称）。',
+            'zh-Hant': '紅色底色 = 香港公眾假期（懸停查看名稱）。'
+        },
+        'webbook.roster.publicHoliday': { en: 'Public holiday', 'zh-CN': '公众假期', 'zh-Hant': '公眾假期' },
         'webbook.roster.copyMonth': { en: 'Copy from previous month', 'zh-CN': '复制上月', 'zh-Hant': '複製上月' },
         'webbook.roster.clearMonth': { en: 'Clear this month', 'zh-CN': '清除本月', 'zh-Hant': '清除本月' },
         'webbook.roster.save': { en: 'Save roster', 'zh-CN': '保存排班', 'zh-Hant': '儲存排班' },
@@ -881,6 +912,7 @@
         'appt.calWeekly': { en: 'Weekly', 'zh-CN': '按周', 'zh-Hant': '按週' },
         'appt.calMonthly': { en: 'Monthly', 'zh-CN': '按月', 'zh-Hant': '按月' },
         'appt.calToday': { en: 'Today', 'zh-CN': '今天', 'zh-Hant': '今天' },
+        'appt.ph.defaultName': { en: 'Public holiday', 'zh-CN': '公众假期', 'zh-Hant': '公眾假期' },
         'appt.calShowDoctors': { en: 'Show doctors', 'zh-CN': '显示医生', 'zh-Hant': '顯示醫生' },
         'appt.calAll': { en: 'All', 'zh-CN': '全部', 'zh-Hant': '全部' },
         'appt.calNone': { en: 'None', 'zh-CN': '无', 'zh-Hant': '無' },

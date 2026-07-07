@@ -561,6 +561,7 @@ var WEBBOOK = (function () {
 })();
 
 function initWebBookTab() {
+    if (typeof initWebBookRosterBind === 'function') initWebBookRosterBind();
     if (WEBBOOK && WEBBOOK.init) WEBBOOK.init();
 }
 

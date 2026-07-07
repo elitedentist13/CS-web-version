@@ -495,6 +495,40 @@ body {
 
 .ob-cal-day--off { opacity: 0.45; }
 
+.ob-session-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ob-session-lbl {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin-right: 4px;
+}
+
+.ob-session-btn {
+  padding: 8px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+
+.ob-session-btn:hover { border-color: var(--ob-primary); background: #f0f9ff; }
+
+.ob-session-btn.selected {
+  border-color: var(--ob-primary);
+  background: var(--ob-primary);
+  color: #fff;
+}
+
 @media (max-width: 480px) {
   .ob-field-row { grid-template-columns: 1fr; }
   body { padding: 12px 10px 32px; }

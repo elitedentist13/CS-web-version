@@ -10,8 +10,15 @@
   var selectedSlot = '';
   var apiReachable = false;
   var dutyDateMap = {};
+  var selectedSession = '';
   var calViewYear = 0;
   var calViewMonth = 0;
+
+  var OB_SESSION_WINDOWS = {
+    am: { start: '10:00', end: '13:00', label: 'AM' },
+    pm: { start: '14:30', end: '19:30', label: 'PM' },
+    night: { start: '21:00', end: '23:30', label: 'Night' }
+  };
 
   var VISIT_REASONS = [
     { id: 'checkup', en: 'Check-up', zh: '覆診檢查' },
@@ -37,6 +44,10 @@
       date: 'Preferred date',
       time: 'Preferred time',
       pickDate: 'Select a highlighted date to see times (optional)',
+      pickSession: 'Session',
+      sessAm: 'Morning (10:00–13:00)',
+      sessPm: 'Afternoon (14:30–19:30; 18:30 Sat/Sun & public holidays)',
+      sessNight: 'Night (21:00–23:30)',
       pickClinicDr: 'Select clinic and doctor first. Highlighted dates are on-duty days.',
       noDutyDates: 'No on-duty dates in this period for this doctor. Please contact the clinic.',
       calLoading: 'Loading doctor schedule…',
@@ -66,6 +77,10 @@
       date: '希望日期',
       time: '希望時間',
       pickDate: '可選擇高亮日期查看時段',
+      pickSession: '時段',
+      sessAm: '上午 (10:00–13:00)',
+      sessPm: '下午 (14:30–19:30；週末及公眾假期至18:30)',
+      sessNight: '晚間 (21:00–23:30)',
       pickClinicDr: '請先選擇診所及醫生。高亮日期為值班日。',
       noDutyDates: '此醫生在本段期間沒有值班日，請聯絡診所。',
       calLoading: '載入醫生排班中…',
@@ -95,6 +110,10 @@
       date: '希望日期',
       time: '希望时间',
       pickDate: '可选择高亮日期查看时段',
+      pickSession: '时段',
+      sessAm: '上午 (10:00–13:00)',
+      sessPm: '下午 (14:30–19:30；周末及公众假期至18:30)',
+      sessNight: '晚间 (21:00–23:30)',
       pickClinicDr: '请先选择诊所及医生。高亮日期为值班日。',
       noDutyDates: '此医生在本段期间没有值班日，请联系诊所。',
       calLoading: '加载医生排班中…',
@@ -194,6 +213,83 @@
     };
   }
 
+  function pmEndForDate(date, sessions) {
+    if (sessions && sessions.pm_end) return String(sessions.pm_end).slice(0, 5);
+    var d = new Date(date + 'T12:00:00').getDay();
+    if (d === 0 || d === 6) return '18:30';
+    return '19:30';
+  }
+
+  function generateSessionSlots(sessions, interval, duration, sessionFilter, date) {
+    var slots = [];
+    var keys = sessionFilter ? [sessionFilter] : ['am', 'pm', 'night'];
+    keys.forEach(function (key) {
+      if (!sessions || !sessions[key]) return;
+      var win = OB_SESSION_WINDOWS[key];
+      if (!win) return;
+      var startH = timeToMin(win.start);
+      var endH = timeToMin(key === 'pm' ? pmEndForDate(date, sessions) : win.end);
+      for (var m = startH; m + duration <= endH; m += interval) {
+        slots.push(minToTime(m));
+      }
+    });
+    return slots.sort();
+  }
+
+  function getRosterSessionsDirect(clinic, doctor, date) {
+    return sbRestRpc('ob_get_roster_sessions', {
+      p_clinic_tag: clinic || null,
+      p_doctor_code: doctor,
+      p_date: date
+    }).then(function (s) {
+      return {
+        am: s.am !== false,
+        pm: s.pm !== false,
+        night: !!s.night,
+        pm_end: s.pm_end ? String(s.pm_end).slice(0, 5) : pmEndForDate(date, null)
+      };
+    }).catch(function () {
+      return { am: true, pm: true, night: false, pm_end: pmEndForDate(date, null) };
+    });
+  }
+
+  function enabledSessionKeys(sessions) {
+    return ['am', 'pm', 'night'].filter(function (k) { return sessions && sessions[k]; });
+  }
+
+  function renderSessionBar(sessions) {
+    var bar = $('obSessionBar');
+    if (!bar) return;
+    var keys = enabledSessionKeys(sessions);
+    if (keys.length < 2) {
+      bar.style.display = 'none';
+      bar.innerHTML = '';
+      var field = $('obSessionField');
+      if (field) field.style.display = 'none';
+      selectedSession = keys[0] || '';
+      return;
+    }
+    var field = $('obSessionField');
+    if (field) field.style.display = '';
+    bar.style.display = '';
+    bar.innerHTML = '<span class="ob-session-lbl">' + t('pickSession') + '</span>';
+    keys.forEach(function (key) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ob-session-btn' + (selectedSession === key || (!selectedSession && keys[0] === key) ? ' selected' : '');
+      btn.dataset.session = key;
+      btn.textContent = t('sess' + key.charAt(0).toUpperCase() + key.slice(1));
+      btn.addEventListener('click', function () {
+        selectedSession = key;
+        bar.querySelectorAll('.ob-session-btn').forEach(function (b) { b.classList.remove('selected'); });
+        btn.classList.add('selected');
+        loadSlots();
+      });
+      bar.appendChild(btn);
+    });
+    if (!selectedSession || keys.indexOf(selectedSession) < 0) selectedSession = keys[0];
+  }
+
   function generateCandidateSlots(rules, duration) {
     var startH = timeToMin(rules.start_time);
     var endH = timeToMin(rules.end_time);
@@ -245,25 +341,35 @@
     var doctorCode = String(body.doctor_code || '');
     var clinicTag = String(body.clinic_tag || '');
     var duration = parseInt(String(body.duration || '30'), 10) || 30;
+    var sessionFilter = String(body.session || '') || null;
     if (!date || !doctorCode) {
       return Promise.reject(Object.assign(new Error('date and doctor_code required'), { status: 400 }));
     }
     var day = new Date(date + 'T12:00:00').getDay();
-    return sbRestGet('online_booking_rules?select=*&enabled=eq.true')
-      .catch(function () { return []; })
-      .then(function (rulesRows) {
-        var rules = pickRules(rulesRows, clinicTag, doctorCode, day);
-        var candidates = generateCandidateSlots(rules, duration);
-        return getOccupiedDirect(date, doctorCode, clinicTag).then(function (occupied) {
-          var slots = filterFreeSlots(candidates, occupied, duration);
-          if (date === todayIso()) {
-            var cutMin = new Date(Date.now() + (Number(rules.lead_time_hours) || 2) * 3600000);
-            var cm = cutMin.getHours() * 60 + cutMin.getMinutes();
-            slots = slots.filter(function (s) { return timeToMin(s) >= cm; });
+    var sessionsPromise = dutyDateMap[date]
+      ? Promise.resolve(dutyDateMap[date])
+      : getRosterSessionsDirect(clinicTag, doctorCode, date);
+    return sessionsPromise.then(function (sessions) {
+      return sbRestGet('online_booking_rules?select=*&enabled=eq.true')
+        .catch(function () { return []; })
+        .then(function (rulesRows) {
+          var rules = pickRules(rulesRows, clinicTag, doctorCode, day);
+          var interval = Number(rules.slot_interval) || 15;
+          var candidates = generateSessionSlots(sessions, interval, duration, sessionFilter, date);
+          if (!candidates.length) {
+            candidates = generateCandidateSlots(rules, duration);
           }
-          return { slots: slots, duration: duration, rules: rules, source: 'direct' };
+          return getOccupiedDirect(date, doctorCode, clinicTag).then(function (occupied) {
+            var slots = filterFreeSlots(candidates, occupied, duration);
+            if (date === todayIso()) {
+              var cutMin = new Date(Date.now() + (Number(rules.lead_time_hours) || 2) * 3600000);
+              var cm = cutMin.getHours() * 60 + cutMin.getMinutes();
+              slots = slots.filter(function (s) { return timeToMin(s) >= cm; });
+            }
+            return { slots: slots, duration: duration, rules: rules, sessions: sessions, source: 'direct' };
+          });
         });
-      });
+    });
   }
 
   function sbRestRpc(fn, args) {
@@ -317,11 +423,23 @@
       p_from_date: todayIso(),
       p_to_date: maxBookDateIso()
     }).then(function (res) {
+      dutyDateMap = {};
       var dates = res.dates || [];
       if (typeof dates === 'string') {
         try { dates = JSON.parse(dates); } catch (e) { dates = []; }
       }
-      return dates.map(function (d) { return String(d).slice(0, 10); });
+      var sessions = res.sessions || {};
+      return dates.map(function (d) {
+        var iso = String(d).slice(0, 10);
+        var s = sessions[iso] || { am: true, pm: true, night: false };
+        dutyDateMap[iso] = {
+          am: s.am !== false,
+          pm: s.pm !== false,
+          night: !!s.night,
+          pm_end: s.pm_end ? String(s.pm_end).slice(0, 5) : pmEndForDate(iso, null)
+        };
+        return iso;
+      });
     });
   }
 
@@ -331,18 +449,20 @@
     var grid = $('obCalGrid');
     $('fDate').value = '';
     selectedSlot = '';
+    selectedSession = '';
+    renderSessionBar({});
     if ($('slotGrid')) {
       $('slotGrid').innerHTML = '<span class="ob-slots-empty">' + t('pickDate') + '</span>';
     }
     if (!clinic || !doctor) {
       dutyDateMap = {};
+      selectedSession = '';
       if (grid) grid.innerHTML = '<span class="ob-slots-empty">' + t('pickClinicDr') + '</span>';
+      renderSessionBar({});
       return Promise.resolve();
     }
     if (grid) grid.innerHTML = '<span class="ob-slots-loading">' + t('calLoading') + '</span>';
-    return getDutyDatesDirect(clinic, doctor).then(function (dates) {
-      dutyDateMap = {};
-      dates.forEach(function (d) { dutyDateMap[d] = true; });
+    return getDutyDatesDirect(clinic, doctor).then(function () {
       var now = new Date();
       calViewYear = now.getFullYear();
       calViewMonth = now.getMonth();
@@ -403,8 +523,10 @@
       btn.addEventListener('click', function () {
         var d = btn.getAttribute('data-date');
         $('fDate').value = d;
+        selectedSession = '';
         grid.querySelectorAll('.ob-cal-day').forEach(function (b) { b.classList.remove('ob-cal-day--sel'); });
         btn.classList.add('ob-cal-day--sel');
+        renderSessionBar(dutyDateMap[d] || {});
         loadSlots();
       });
     });
@@ -631,13 +753,21 @@
       grid.innerHTML = '<span class="ob-slots-empty">' + t('noSlots') + '</span>';
       return;
     }
+    var sessions = dutyDateMap[date] || {};
+    var sessKeys = enabledSessionKeys(sessions);
+    if (!sessKeys.length) {
+      grid.innerHTML = '<span class="ob-slots-empty">' + t('noSlots') + '</span>';
+      return;
+    }
+    if (sessKeys.length >= 2 && !selectedSession) selectedSession = sessKeys[0];
     grid.innerHTML = '<span class="ob-slots-loading">' + t('loading') + '</span>';
     bookingAction({
       action: 'get-slots',
       date: date,
       doctor_code: doctor,
       clinic_tag: clinic,
-      duration: 30
+      duration: 30,
+      session: sessKeys.length >= 2 ? selectedSession : ''
     }).then(function (res) {
       var slots = res.slots || [];
       if (!slots.length) {

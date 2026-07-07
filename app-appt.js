@@ -1758,6 +1758,11 @@ function bindApptClinicSelectOnce() {
 // ════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════
+function apptPhDayExtras(iso, phClass) {
+    if (typeof APPT_PUBLIC_HOLIDAYS === 'undefined') return { extraClass: '', titleAttr: '' };
+    return APPT_PUBLIC_HOLIDAYS.dayExtras(iso, phClass);
+}
+
 function initAppt(opts) {
     opts = opts || {};
     var un = g('apptUserName');
@@ -1803,6 +1808,11 @@ function initAppt(opts) {
     apptBindLiveScrollTrackOnce();
     switchApptTab(opts.initialTab || 'queue');
     if (typeof startApptAutoRefresh === 'function') startApptAutoRefresh();
+    if (typeof APPT_PUBLIC_HOLIDAYS !== 'undefined') {
+        APPT_PUBLIC_HOLIDAYS.load().then(function () {
+            APPT_PUBLIC_HOLIDAYS.refreshAppointmentCalendars();
+        });
+    }
 }
 
 function queueRefreshTimeText(ts) {
@@ -5594,6 +5604,13 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         if (a && typeof todayApptIsNoshow === 'function' && todayApptIsNoshow(a)) {
             rowCls.push('plusappt-row-noshow');
         }
+        if (a && typeof apptIsWebBooking === 'function' && apptIsWebBooking(a)) {
+            rowCls.push('plusappt-row-web');
+            var wbSt = String(a.booking_status || '').toLowerCase();
+            if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || !wbSt) {
+                rowCls.push('plusappt-row-web-pending');
+            }
+        }
         if (stackFollow) rowCls.push('plusappt-row-noshow-follow');
         row.className = rowCls.join(' ');
         row.dataset.slotTime = slot;
@@ -5617,10 +5634,11 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         var taskHtml = '';
         var durHtml = '—';
         var locked = false;
+        var webBadge = (a && typeof apptWebBadgeHtml === 'function') ? apptWebBadgeHtml(a) : '';
         if (a) {
             patNoHtml = esc(apptPatientNoDisplayText(a));
             if (clearMode) {
-                nameHtml = plusApptClearModeNameHtml(a, { skipPatNo: true });
+                nameHtml = plusApptClearModeNameHtml(a, { skipPatNo: true }) + webBadge;
                 treatHtml = plusApptTreatmentInlineHtml(a, true);
                 remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
                 durHtml = (a.duration != null && a.duration !== '')
@@ -5631,6 +5649,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             nameHtml = (typeof apptPatientDisplayNameHTML === 'function'
                 ? apptPatientDisplayNameHTML(a, { walkIn: true })
                 : esc(a.patient_name || '—'));
+            nameHtml += webBadge;
             nameHtml += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus');
             remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
             durHtml = (a.duration != null && a.duration !== '')
@@ -6011,7 +6030,9 @@ function renderPlusApptMiniCal() {
         var cs = 'plusappt-mc-day';
         if (sel) cs += ' plusappt-mc-day--sel';
         if (today) cs += ' plusappt-mc-day--today';
-        html += '<button type="button" class="' + cs + '" data-iso="' + iso + '">' + day + '</button>';
+        var ph = apptPhDayExtras(iso, 'plusappt-mc-day--ph');
+        cs += ph.extraClass;
+        html += '<button type="button" class="' + cs + '" data-iso="' + iso + '"' + ph.titleAttr + '>' + day + '</button>';
         cell++;
     }
     html += '</div>' +
@@ -8096,7 +8117,9 @@ function renderArMiniCal() {
         var cs = 'plusappt-mc-day';
         if (sel) cs += ' plusappt-mc-day--sel';
         if (today) cs += ' plusappt-mc-day--today';
-        html += '<button type="button" class="' + cs + '" data-iso="' + iso + '">' + day + '</button>';
+        var ph = apptPhDayExtras(iso, 'plusappt-mc-day--ph');
+        cs += ph.extraClass;
+        html += '<button type="button" class="' + cs + '" data-iso="' + iso + '"' + ph.titleAttr + '>' + day + '</button>';
     }
     html += '</div>' +
         '<button type="button" class="plusappt-mc-today" data-act="today">' +
@@ -8627,8 +8650,10 @@ function renderRcal() {
         if (iso === rcDate) cls += ' rcal-sel';
         else if (iso === today) cls += ' rcal-today';
         else if (iso > today)   cls += ' rcal-future';
+        var phR = apptPhDayExtras(iso, 'rcal-ph');
+        cls += phR.extraClass;
 
-        html += '<td class="' + cls + '" onclick="rcSelectDate(\'' + iso + '\')">' + d + '</td>';
+        html += '<td class="' + cls + '" onclick="rcSelectDate(\'' + iso + '\')"' + phR.titleAttr + '>' + d + '</td>';
         dow++;
         if (dow % 7 === 0 && d < daysM) html += '</tr><tr>';
     }
@@ -13705,10 +13730,13 @@ function renderCalMonthMini() {
     for (var day = 1; day <= daysInMonth; day++) {
         var iso = y + '-' + pad(mo + 1) + '-' + pad(day);
         var isToday = iso === todayLocal;
+        var phM = apptPhDayExtras(iso, 'cal-month-mini-day--ph');
         var cs = 'cursor:pointer;padding:3px 1px;font-size:11px;border-radius:4px;';
+        var dayCls = 'cal-month-mini-day' + phM.extraClass;
         if (isToday) cs += 'background:#0084ff;color:#fff;font-weight:700;';
+        else if (phM.extraClass) cs += 'color:#dc2626;font-weight:700;';
         else cs += 'color:#374151;';
-        html += '<div class="cal-month-mini-day" data-iso="' + iso + '" style="' + cs + '">' + day + '</div>';
+        html += '<div class="' + dayCls + '" data-iso="' + iso + '" style="' + cs + '"' + phM.titleAttr + '>' + day + '</div>';
     }
     html += '</div>';
     html +=
@@ -13898,6 +13926,7 @@ function renderMonthly(opts) {
         for (var d2 = 1; d2 <= daysInMonth; d2++) {
             var iso  = y + '-' + pad(m + 1) + '-' + pad(d2);
             var isTo = iso === todayStr;
+            var phMo = apptPhDayExtras(iso, 'cal-cell--ph');
             var list = map[iso] || [];
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts) {
                 list = CalDoctorColors.filterAppts(list);
@@ -13905,7 +13934,8 @@ function renderMonthly(opts) {
             html +=
                 '<div class="cal-cell' +
                 (isTo ? ' cal-today' : '') +
-                '" data-date="' + iso + '">' +
+                phMo.extraClass +
+                '" data-date="' + iso + '"' + phMo.titleAttr + '>' +
                     '<div class="cal-cell-num">' + d2 +
                         (list.length
                             ? '<span class="gcal-month-day-move" draggable="true" data-day-iso="' + iso + '" data-day-count="' + list.length + '" title="Move all appointments of this day">⇄</span>'
@@ -14688,6 +14718,12 @@ var GCAL = (function () {
             var wbSt = String(a.booking_status || '').toLowerCase();
             if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || !wbSt) {
                 card.classList.add('gcal-card-web-pending');
+            }
+            card.style.setProperty('border-style', 'dashed', 'important');
+            card.style.setProperty('border-width', '3px', 'important');
+            card.style.setProperty('border-color', '#1d4ed8', 'important');
+            if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || !wbSt) {
+                card.style.setProperty('border-color', '#d97706', 'important');
             }
         }
 
@@ -15504,11 +15540,14 @@ var GCAL = (function () {
             var iso     = y + '-' + pad(mo + 1) + '-' + pad(day);
             var isToday = iso === todayLocal;
             var inWeek  = !!weekSet[iso];
+            var phG = apptPhDayExtras(iso, 'gcal-mini-day--ph');
             var cs = 'cursor:pointer;padding:3px 1px;font-size:11px;border-radius:4px;';
+            var dayCls = 'gcal-mini-day' + phG.extraClass;
             if      (isToday) cs += 'background:#0084ff;color:#fff;font-weight:700;';
             else if (inWeek)  cs += 'background:#dbeafe;color:#1d4ed8;font-weight:600;';
+            else if (phG.extraClass) cs += 'color:#dc2626;font-weight:700;';
             else              cs += 'color:#374151;';
-            html += '<div onclick="GCAL.pickMiniCalDate(\'' + iso + '\')" style="' + cs + '">' + day + '</div>';
+            html += '<div class="' + dayCls + '" onclick="GCAL.pickMiniCalDate(\'' + iso + '\')" style="' + cs + '"' + phG.titleAttr + '>' + day + '</div>';
         }
 
         html += '</div>';

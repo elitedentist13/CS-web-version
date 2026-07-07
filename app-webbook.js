@@ -9,6 +9,8 @@ var WEBBOOK = (function () {
     var _selId = null;
     var _bound = false;
     var _loading = false;
+    var _loadSeq = 0;
+    var _activeClinicTag = '';
 
     var TYPE_FILTERS = {
         new_patient: true,
@@ -216,12 +218,23 @@ var WEBBOOK = (function () {
         });
     }
 
+    function activeClinicTag() {
+        if (typeof currentClinicCodeForTagging === 'function') {
+            return String(currentClinicCodeForTagging() || '').trim();
+        }
+        return '';
+    }
+
+    function clinicScopeLabel() {
+        var tag = activeClinicTag();
+        if (!tag) return tr('webbook.clinicAll', 'All clinics');
+        return clinicLabel(tag);
+    }
+
     function applyClinicScope(builder) {
         if (!builder) return builder;
-        var tag = '';
-        if (typeof currentClinicCodeForTagging === 'function') {
-            tag = currentClinicCodeForTagging();
-        }
+        var tag = activeClinicTag();
+        _activeClinicTag = tag;
         if (!tag) return builder;
         var field = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
             ? APPOINTMENT_CLINIC_TAG_FIELD
@@ -229,10 +242,26 @@ var WEBBOOK = (function () {
         return builder.or(field + '.eq.' + tag + ',' + field + '.is.null');
     }
 
+    function syncTabFiltersForActiveClinic() {
+        var from = g('wbFilterFrom');
+        var to = g('wbFilterTo');
+        var statusEl = g('wbFilterStatus');
+        if (from) from.value = daysAgoIso(90);
+        if (to) to.value = '';
+        if (statusEl) statusEl.value = 'all';
+    }
+
+    function updateClinicScopeLbl() {
+        var lbl = g('wbClinicScopeLbl');
+        if (!lbl) return;
+        lbl.textContent = trRepl('webbook.clinicScope', { CLINIC: clinicScopeLabel() },
+            'Showing web bookings for: ' + clinicScopeLabel());
+    }
+
     function loadList(opts) {
         opts = opts || {};
-        if (_loading && opts.soft) return;
-        _loading = true;
+        var seq = ++_loadSeq;
+        if (!opts.soft) _loading = true;
         var tbody = g('wbTableBody');
         if (tbody && !opts.soft) {
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:#64748b;">' +
@@ -241,8 +270,8 @@ var WEBBOOK = (function () {
 
         var fromEl = g('wbFilterFrom');
         var toEl = g('wbFilterTo');
-        var from = fromEl ? fromEl.value : daysAgoIso(30);
-        var to = toEl ? toEl.value : todayIso();
+        var from = fromEl && fromEl.value ? fromEl.value : daysAgoIso(90);
+        var to = toEl && toEl.value ? toEl.value : '';
 
         var q = SB.from('appointments').select('*');
         q = q.eq('booking_source', 'web');
@@ -252,10 +281,11 @@ var WEBBOOK = (function () {
         q = q.order('web_created_at', { ascending: false });
 
         q.then(function (r) {
+            if (seq !== _loadSeq) return;
             _loading = false;
             if (r.error) {
                 if ((r.error.message || '').indexOf('booking_source') >= 0) {
-                    loadListLegacy(from, to, opts);
+                    loadListLegacy(from, to, opts, seq);
                     return;
                 }
                 if (tbody) {
@@ -265,14 +295,19 @@ var WEBBOOK = (function () {
                 return;
             }
             _rows = r.data || [];
+            if (_selId && !_rows.some(function (x) { return String(x.id) === String(_selId); })) {
+                _selId = null;
+            }
+            updateClinicScopeLbl();
             renderTable();
-            updateTabBadge();
+            refreshTabBadge();
         }).catch(function () {
+            if (seq !== _loadSeq) return;
             _loading = false;
         });
     }
 
-    function loadListLegacy(from, to, opts) {
+    function loadListLegacy(from, to, opts, seq) {
         var q2 = SB.from('appointments').select('*');
         q2 = q2.or('remarks.ilike.%WEB ref:%,remarks.ilike.%[WEB]%');
         if (from) q2 = q2.gte('date', from);
@@ -280,9 +315,18 @@ var WEBBOOK = (function () {
         q2 = applyClinicScope(q2);
         q2 = q2.order('date', { ascending: false });
         q2.then(function (r2) {
+            if (seq && seq !== _loadSeq) return;
+            _loading = false;
             _rows = (r2.data || []).filter(isWebBooking);
+            if (_selId && !_rows.some(function (x) { return String(x.id) === String(_selId); })) {
+                _selId = null;
+            }
+            updateClinicScopeLbl();
             renderTable();
-            updateTabBadge();
+            refreshTabBadge();
+        }).catch(function () {
+            if (seq && seq !== _loadSeq) return;
+            _loading = false;
         });
     }
 
@@ -415,7 +459,7 @@ var WEBBOOK = (function () {
                         }
                     }
                     renderTable();
-                    updateTabBadge();
+                    refreshTabBadge();
                     if (typeof loadToday === 'function') loadToday({ soft: true });
                     if (typeof loadQueue === 'function') loadQueue({ soft: true });
                     if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData({ soft: true });
@@ -518,24 +562,81 @@ var WEBBOOK = (function () {
         }
     }
 
-    function updateTabBadge() {
-        var pending = _rows.filter(function (a) {
-            var st = effectiveStatus(a);
-            return st === 'pending_staff' || st === 'pending_otp' || st === 'pending_arrange';
-        }).length;
+    function setTabBadgeCount(pending) {
+        var n = Math.max(0, parseInt(pending, 10) || 0);
         var tab = document.querySelector('.appt-tab[data-tab="webbook"]');
         if (!tab) return;
         var badge = tab.querySelector('.wb-tab-badge');
-        if (!pending) {
+        if (!n) {
             if (badge) badge.remove();
             return;
         }
         if (!badge) {
             badge = document.createElement('span');
             badge.className = 'wb-tab-badge';
+            badge.setAttribute('aria-label', tr('webbook.badgeAria', 'Pending web bookings'));
             tab.appendChild(badge);
         }
-        badge.textContent = pending > 99 ? '99+' : String(pending);
+        badge.textContent = n > 99 ? '99+' : String(n);
+    }
+
+    function updateTabBadge() {
+        setTabBadgeCount(_rows.filter(function (a) {
+            var st = effectiveStatus(a);
+            return st === 'pending_staff' || st === 'pending_otp' || st === 'pending_arrange';
+        }).length);
+    }
+
+    function fetchPendingCount(done) {
+        if (typeof SB === 'undefined' || !SB || !SB.from) {
+            if (done) done(countPending());
+            return;
+        }
+        var q = SB.from('appointments').select('id', { count: 'exact', head: true })
+            .eq('booking_source', 'web')
+            .in('booking_status', ['pending_staff', 'pending_otp', 'pending_arrange']);
+        q = applyClinicScope(q);
+        q.then(function (r) {
+            if (r.error) {
+                if ((r.error.message || '').indexOf('booking_source') >= 0 ||
+                    (r.error.message || '').indexOf('booking_status') >= 0) {
+                    fetchPendingCountLegacy(done);
+                    return;
+                }
+                if (done) done(countPending());
+                return;
+            }
+            if (done) done(r.count || 0);
+        }).catch(function () {
+            if (done) done(countPending());
+        });
+    }
+
+    function fetchPendingCountLegacy(done) {
+        var q2 = SB.from('appointments').select('id', { count: 'exact', head: true })
+            .or('remarks.ilike.%WEB ref:%,remarks.ilike.%[WEB]%')
+            .not('bill_status', 'ilike', '%cancel%');
+        q2 = applyClinicScope(q2);
+        q2.then(function (r2) {
+            if (r2.error) {
+                if (done) done(countPending());
+                return;
+            }
+            if (done) done(r2.count || 0);
+        }).catch(function () {
+            if (done) done(countPending());
+        });
+    }
+
+    function refreshTabBadge(opts) {
+        opts = opts || {};
+        if (opts.count != null) {
+            setTabBadgeCount(opts.count);
+            return;
+        }
+        fetchPendingCount(function (n) {
+            setTabBadgeCount(n);
+        });
     }
 
     function bindOnce() {
@@ -547,7 +648,7 @@ var WEBBOOK = (function () {
 
         ['wbFilterFrom', 'wbFilterTo', 'wbFilterStatus'].forEach(function (id) {
             var el = g(id);
-            if (el) el.addEventListener('change', renderTable);
+            if (el) el.addEventListener('change', function () { loadList({ soft: true }); });
         });
 
         document.querySelectorAll('.wb-type-chk').forEach(function (chk) {
@@ -571,19 +672,31 @@ var WEBBOOK = (function () {
         });
     }
 
-    function init() {
+    function activateTab(opts) {
+        opts = opts || {};
         bindOnce();
-        var from = g('wbFilterFrom');
-        var to = g('wbFilterTo');
-        if (from && !from.value) from.value = daysAgoIso(30);
-        if (to && !to.value) to.value = todayIso();
-        _selId = null;
-        loadList();
-        renderActionBar(null);
+        if (opts.syncFilters !== false) syncTabFiltersForActiveClinic();
+        updateClinicScopeLbl();
+        refreshTabBadge();
+        loadList({ soft: opts.soft !== false });
+        if (!opts.keepSelection) {
+            var sel = selectedRow();
+            if (!sel) renderActionBar(null);
+        }
+    }
+
+    function init() {
+        activateTab({ soft: false, syncFilters: true });
     }
 
     function refresh(opts) {
-        loadList(opts || {});
+        opts = opts || {};
+        if (opts.syncFilters) syncTabFiltersForActiveClinic();
+        loadList(Object.assign({ soft: true }, opts));
+        if (!opts.keepSelection) {
+            var sel = selectedRow();
+            if (!sel) renderActionBar(null);
+        }
     }
 
     function countPending() {
@@ -595,20 +708,30 @@ var WEBBOOK = (function () {
 
     return {
         init: init,
+        activateTab: activateTab,
         refresh: refresh,
         countPending: countPending,
         isWebBooking: isWebBooking,
-        isArrangeRequest: isArrangeRequest
+        isArrangeRequest: isArrangeRequest,
+        refreshTabBadge: refreshTabBadge
     };
 })();
 
 function initWebBookTab() {
     if (typeof initWebBookRosterBind === 'function') initWebBookRosterBind();
-    if (WEBBOOK && WEBBOOK.init) WEBBOOK.init();
+    if (WEBBOOK && WEBBOOK.activateTab) {
+        WEBBOOK.activateTab({ soft: true, syncFilters: true, keepSelection: true });
+    } else if (WEBBOOK && WEBBOOK.init) {
+        WEBBOOK.init();
+    }
 }
 
 function webbookRefreshList(opts) {
     if (WEBBOOK && WEBBOOK.refresh) WEBBOOK.refresh(opts);
+}
+
+function webbookRefreshTabBadge(opts) {
+    if (WEBBOOK && WEBBOOK.refreshTabBadge) WEBBOOK.refreshTabBadge(opts || {});
 }
 
 function webbookCountPending() {

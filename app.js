@@ -1675,6 +1675,11 @@ function setWorkingClinic(clinicId, options) {
                 if (typeof loadApptRecords === 'function') loadApptRecords();
             }
         }
+    } else if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'webbook' &&
+        typeof webbookRefreshList === 'function') {
+        webbookRefreshList({ soft: true, syncFilters: true, keepSelection: true });
+    } else if (typeof webbookRefreshTabBadge === 'function') {
+        webbookRefreshTabBadge();
     }
 
     var rptSec = g('reportSection');
@@ -2379,6 +2384,9 @@ function showOnly(id, opts) {
         patViewSetMode('directory', { skipScroll: true });
     }
     syncAppSessionChrome();
+    if (id === 'appointmentSection' && typeof webbookRefreshTabBadge === 'function') {
+        webbookRefreshTabBadge();
+    }
     if (id !== 'loginOverlay' && currentUserId && typeof persistAppScrollRestoreState === 'function') {
         requestAnimationFrame(function() { persistAppScrollRestoreState(); });
     }

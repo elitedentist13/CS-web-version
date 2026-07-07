@@ -1410,6 +1410,9 @@ function reloadApptModuleData() {
         if (typeof rcDate !== 'undefined' && rcDate) loadRecallPatients(rcDate);
         else initRecallTab();
     }
+    else if (tab === 'webbook' && typeof webbookRefreshList === 'function') {
+        webbookRefreshList({ soft: true, syncFilters: true, keepSelection: true });
+    }
 }
 
 // ─── Appointment Patient Banner ───────────────────────────────────────────────
@@ -1807,6 +1810,7 @@ function initAppt(opts) {
     apptModuleBindEditPauseOnce();
     apptBindLiveScrollTrackOnce();
     switchApptTab(opts.initialTab || 'queue');
+    if (typeof webbookRefreshTabBadge === 'function') webbookRefreshTabBadge();
     if (typeof startApptAutoRefresh === 'function') startApptAutoRefresh();
     if (typeof APPT_PUBLIC_HOLIDAYS !== 'undefined') {
         APPT_PUBLIC_HOLIDAYS.load().then(function () {
@@ -7808,6 +7812,7 @@ function apptActiveTabKey() {
 function apptAutoRefreshTick() {
     if (typeof document !== 'undefined' && document.hidden) return;
     if (!apptSectionIsActive()) return;
+    if (typeof webbookRefreshTabBadge === 'function') webbookRefreshTabBadge({ soft: true });
     var tab = apptActiveTabKey();
     var soft = { soft: true };
     if (tab === 'queue') loadQueue(soft);
@@ -10972,11 +10977,15 @@ function saveAppt() {
     if (apCt) payload[APPOINTMENT_CLINIC_TAG_FIELD] = apCt;
 
     if (apptEditId && apptEditLockRef) {
-        var wbSt = String(apptEditLockRef.booking_status || '').toLowerCase();
-        var wasArrange = wbSt === 'pending_arrange' ||
-            (typeof apptIsArrangeRequest === 'function' && apptIsArrangeRequest(apptEditLockRef));
-        if (wasArrange && start && String(start).slice(0, 5) !== '00:00') {
-            payload.booking_status = 'pending_staff';
+        var isWebPending = false;
+        if (typeof apptIsWebBooking === 'function' && apptIsWebBooking(apptEditLockRef)) {
+            var wbSt = String(apptEditLockRef.booking_status || '').toLowerCase();
+            if (!wbSt || wbSt === 'pending_staff' || wbSt === 'pending_otp' || wbSt === 'pending_arrange') {
+                isWebPending = true;
+            }
+        }
+        if (isWebPending && start && String(start).slice(0, 5) !== '00:00') {
+            payload.booking_status = 'confirmed';
             payload.bill_status = 'Scheduled';
         }
     }
@@ -10984,6 +10993,11 @@ function saveAppt() {
     Object.keys(payload).forEach(function(k) {
         if (payload[k] === undefined) delete payload[k];
     });
+
+    var savedWebBookingConfirm = !!(apptEditId && apptEditLockRef &&
+        payload.booking_status === 'confirmed' &&
+        typeof apptIsWebBooking === 'function' &&
+        apptIsWebBooking(apptEditLockRef));
 
     var btnSave = g('btnSaveAppt');
     var setSaveBusy = function(busy) {
@@ -11031,6 +11045,10 @@ function saveAppt() {
                 syncApptPlannerDate(date, { syncCal: true });
             }
             refreshApptPlannerData();
+        }
+        if (typeof webbookRefreshTabBadge === 'function') webbookRefreshTabBadge();
+        if (savedWebBookingConfirm && typeof webbookRefreshList === 'function') {
+            webbookRefreshList({ soft: true, keepSelection: true });
         }
     };
 

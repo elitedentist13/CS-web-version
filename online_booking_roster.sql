@@ -499,8 +499,10 @@ begin
     end if;
 
     v_phone := regexp_replace(coalesce(p_patient_phone, ''), '\D', '', 'g');
-    if length(v_phone) = 8 then
-        v_phone := '852' || v_phone;
+    if length(v_phone) = 11 and left(v_phone, 3) = '852' then
+        v_phone := substring(v_phone from 4);
+    elsif length(v_phone) > 11 and left(v_phone, 5) = '00852' then
+        v_phone := substring(v_phone from 6);
     end if;
 
     v_booking_type := case
@@ -546,7 +548,7 @@ begin
                 v_start_time, v_end_time, v_duration,
                 v_doctor_code, coalesce(v_doctor_name, v_doctor_code), nullif(trim(p_clinic_tag), ''),
                 nullif(trim(p_reason_label), ''), '[WEB] ' || v_remarks || ' · DOB: ' || v_dob::text,
-                v_phone, 'Scheduled', null, null
+                v_phone, v_bill_status, null, null
             )
             returning id into v_appt_id;
     end;

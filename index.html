@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260708-webbook-arrange-v1';
+  var BUILD = '20260708-webbook-save-confirm-v4';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -946,7 +946,7 @@
     <button class="appt-tab" data-tab="calendar" data-i18n="appt.calendarTab"></button>
     <button class="appt-tab" data-tab="records" data-i18n="appt.recordsTab"></button>
     <button class="appt-tab" data-tab="recall" data-i18n="appt.recallTab"></button>
-    <button class="appt-tab" data-tab="webbook" data-i18n="appt.webbookTab"></button>
+    <button class="appt-tab" data-tab="webbook"><span class="appt-tab-lbl" data-i18n="appt.webbookTab"></span></button>
   </div>
 
   <div id="apptMemoBarPool" hidden aria-hidden="true"></div>
@@ -1508,6 +1508,7 @@
         </div>
       </div>
 
+      <p id="wbClinicScopeLbl" class="wb-clinic-scope-lbl"></p>
       <p id="wbCountLbl" class="wb-count-lbl"></p>
 
       <div class="wb-table-wrap">

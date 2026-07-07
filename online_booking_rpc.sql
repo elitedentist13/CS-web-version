@@ -91,8 +91,10 @@ begin
     v_date := coalesce(p_date, current_date);
 
     v_phone := regexp_replace(coalesce(p_patient_phone, ''), '\D', '', 'g');
-    if length(v_phone) = 8 then
-        v_phone := '852' || v_phone;
+    if length(v_phone) = 11 and left(v_phone, 3) = '852' then
+        v_phone := substring(v_phone from 4);
+    elsif length(v_phone) > 11 and left(v_phone, 5) = '00852' then
+        v_phone := substring(v_phone from 6);
     end if;
 
     v_booking_type := case

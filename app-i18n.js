@@ -548,6 +548,7 @@ function applyAppI18n() {
         refreshLoginDoctorSelect(ls && ls.value ? ls.value : '', mode);
     }
     if (typeof loadConsultationDoctors === 'function') loadConsultationDoctors();
+    if (typeof webbookRefreshTabBadge === 'function') webbookRefreshTabBadge();
 }
 
 function updateLangToggleButtons() {

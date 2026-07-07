@@ -15461,19 +15461,23 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 .wb-act.wb-act--primary:hover {
     background: #c2410c;
 }
+
+.wb-tab-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 18px;
     height: 18px;
     padding: 0 5px;
-    margin-left: 5px;
+    margin-left: 6px;
     background: #ef4444;
     color: #fff;
     font-size: 10px;
     font-weight: 800;
+    line-height: 1;
     border-radius: 10px;
     vertical-align: middle;
+    box-shadow: 0 1px 2px rgba(185, 28, 28, 0.35);
 }
 
 .wb-panel {
@@ -15562,6 +15566,12 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     color: #374151;
     cursor: pointer;
     margin-right: 8px;
+}
+.wb-clinic-scope-lbl {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1d4ed8;
+    margin: 0 0 4px 4px;
 }
 .wb-count-lbl {
     font-size: 12px;

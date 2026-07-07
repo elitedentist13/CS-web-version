@@ -97,6 +97,64 @@ body {
   border: 1px solid #bae6fd;
 }
 
+.ob-mini-note {
+  margin: 0 0 16px;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  background: #fffbeb;
+  overflow: hidden;
+}
+
+.ob-mini-note-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #92400e;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.ob-mini-note-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ob-mini-note-summary::after {
+  content: '▾';
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #b45309;
+  transition: transform 0.15s ease;
+}
+
+.ob-mini-note[open] .ob-mini-note-summary::after {
+  transform: rotate(180deg);
+}
+
+.ob-mini-note-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.ob-mini-note-body {
+  padding: 0 12px 12px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #78350f;
+  border-top: 1px dashed #fcd34d;
+}
+
+.ob-mini-note:not([open]) .ob-mini-note-body {
+  display: none;
+}
+
+.ob-mini-note[open] .ob-mini-note-body {
+  padding-top: 10px;
+}
+
 /* ── Patient type toggle ───────────────────────────────────── */
 .ob-type-toggle {
   display: flex;

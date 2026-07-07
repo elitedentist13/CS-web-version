@@ -420,6 +420,81 @@ body {
   border-color: var(--ob-primary);
 }
 
+.ob-cal-hint {
+  font-size: 0.82rem;
+  color: var(--ob-muted);
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+
+.ob-cal-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ob-cal-nav-btn {
+  border: 1px solid var(--ob-border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.ob-cal-month-lbl {
+  font-weight: 800;
+  font-size: 1rem;
+  min-width: 90px;
+  text-align: center;
+}
+
+.ob-cal-grid { margin-bottom: 8px; }
+
+.ob-cal-head, .ob-cal-cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.ob-cal-head span {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ob-muted);
+}
+
+.ob-cal-empty { min-height: 38px; }
+
+.ob-cal-day {
+  min-height: 38px;
+  border: 1.5px solid var(--ob-border);
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: default;
+}
+
+.ob-cal-day--duty {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  cursor: pointer;
+}
+
+.ob-cal-day--duty:hover { background: #dbeafe; }
+
+.ob-cal-day--sel {
+  background: var(--ob-primary) !important;
+  border-color: var(--ob-primary-dark) !important;
+  color: #fff !important;
+}
+
+.ob-cal-day--off { opacity: 0.45; }
+
 @media (max-width: 480px) {
   .ob-field-row { grid-template-columns: 1fr; }
   body { padding: 12px 10px 32px; }

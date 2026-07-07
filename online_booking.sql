@@ -91,7 +91,7 @@ where not exists (select 1 from public.online_booking_rules limit 1);
 -- update public.online_booking_rules set start_time = '10:00', end_time = '19:00', lunch_start = '13:00', lunch_end = '15:00';
 
 -- ── Booking submit RPC (required for book.html without local API) ─
--- Run online_booking_rpc.sql after this file.
+-- Run online_booking_rpc.sql after this file, then online_booking_roster.sql for doctor roster.
 
 -- ── Realtime (optional — enable if using live staff panel refresh) ─
 -- alter publication supabase_realtime add table public.online_booking_requests;

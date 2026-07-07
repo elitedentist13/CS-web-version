@@ -9,6 +9,9 @@
   var visitReasons = [];
   var selectedSlot = '';
   var apiReachable = false;
+  var dutyDateMap = {};
+  var calViewYear = 0;
+  var calViewMonth = 0;
 
   var VISIT_REASONS = [
     { id: 'checkup', en: 'Check-up', zh: '覆診檢查' },
@@ -33,7 +36,10 @@
       doctor: 'Doctor',
       date: 'Preferred date',
       time: 'Preferred time',
-      pickDate: 'Select a date and doctor to see times (optional)',
+      pickDate: 'Select a highlighted date to see times (optional)',
+      pickClinicDr: 'Select clinic and doctor first. Highlighted dates are on-duty days.',
+      noDutyDates: 'No on-duty dates in this period for this doctor. Please contact the clinic.',
+      calLoading: 'Loading doctor schedule…',
       noSlots: 'No times shown — you may still submit; staff will arrange',
       loading: 'Loading times…',
       bookBtn: 'Submit booking request',
@@ -42,7 +48,7 @@
       errNamePhone: 'Please enter your name, mobile and date of birth.',
       errDisabled: 'Online booking is currently unavailable.',
       errGeneric: 'Something went wrong. Please try again.',
-      errRpcMissing: 'Run online_booking_rpc.sql in Supabase SQL Editor (one-time setup), then refresh this page.',
+      errRpcMissing: 'Run online_booking_roster.sql in Supabase SQL Editor (one-time setup), then refresh this page.',
       errApiDown: 'Booking could not be saved. Run online_booking_rpc.sql in Supabase SQL Editor, then refresh.',
       reasonNone: '— Not specified —',
       timeTbc: 'To be confirmed by clinic'
@@ -59,7 +65,10 @@
       doctor: '醫生',
       date: '希望日期',
       time: '希望時間',
-      pickDate: '可選擇日期及醫生查看時段',
+      pickDate: '可選擇高亮日期查看時段',
+      pickClinicDr: '請先選擇診所及醫生。高亮日期為值班日。',
+      noDutyDates: '此醫生在本段期間沒有值班日，請聯絡診所。',
+      calLoading: '載入醫生排班中…',
       noSlots: '暫無顯示時段 — 仍可提交，由診所安排',
       loading: '載入時段中…',
       bookBtn: '提交預約申請',
@@ -68,7 +77,7 @@
       errNamePhone: '請填寫姓名、手提電話及出生日期。',
       errDisabled: '網上預約暫停服務。',
       errGeneric: '發生錯誤，請重試。',
-      errRpcMissing: '請在 Supabase SQL Editor 執行 online_booking_rpc.sql（一次性設定），然後重新整理此頁。',
+      errRpcMissing: '請在 Supabase SQL Editor 執行 online_booking_roster.sql（一次性設定），然後重新整理此頁。',
       errApiDown: '無法儲存預約。請在 Supabase SQL Editor 執行 online_booking_rpc.sql，然後重新整理。',
       reasonNone: '— 未指定 —',
       timeTbc: '待診所確認'
@@ -85,7 +94,10 @@
       doctor: '医生',
       date: '希望日期',
       time: '希望时间',
-      pickDate: '可选择日期及医生查看时段',
+      pickDate: '可选择高亮日期查看时段',
+      pickClinicDr: '请先选择诊所及医生。高亮日期为值班日。',
+      noDutyDates: '此医生在本段期间没有值班日，请联系诊所。',
+      calLoading: '加载医生排班中…',
       noSlots: '暂无显示时段 — 仍可提交，由诊所安排',
       loading: '加载时段中…',
       bookBtn: '提交预约申请',
@@ -94,7 +106,7 @@
       errNamePhone: '请填写姓名、手机及出生日期。',
       errDisabled: '网上预约暂停服务。',
       errGeneric: '发生错误，请重试。',
-      errRpcMissing: '请在 Supabase SQL Editor 运行 online_booking_rpc.sql（一次性设置），然后刷新此页。',
+      errRpcMissing: '请在 Supabase SQL Editor 运行 online_booking_roster.sql（一次性设置），然后刷新此页。',
       errApiDown: '无法保存预约。请在 Supabase SQL Editor 运行 online_booking_rpc.sql，然后刷新。',
       reasonNone: '— 未指定 —',
       timeTbc: '待诊所确认'
@@ -292,6 +304,116 @@
     return sbRestRpc('ob_request_booking', payload);
   }
 
+  function maxBookDateIso() {
+    var maxD = new Date();
+    maxD.setDate(maxD.getDate() + 60);
+    return maxD.getFullYear() + '-' + pad(maxD.getMonth() + 1) + '-' + pad(maxD.getDate());
+  }
+
+  function getDutyDatesDirect(clinic, doctor) {
+    return sbRestRpc('ob_get_duty_dates', {
+      p_clinic_tag: clinic || null,
+      p_doctor_code: doctor || null,
+      p_from_date: todayIso(),
+      p_to_date: maxBookDateIso()
+    }).then(function (res) {
+      var dates = res.dates || [];
+      if (typeof dates === 'string') {
+        try { dates = JSON.parse(dates); } catch (e) { dates = []; }
+      }
+      return dates.map(function (d) { return String(d).slice(0, 10); });
+    });
+  }
+
+  function loadDutyCalendar() {
+    var clinic = $('fClinic').value;
+    var doctor = $('fDoctor').value;
+    var grid = $('obCalGrid');
+    $('fDate').value = '';
+    selectedSlot = '';
+    if ($('slotGrid')) {
+      $('slotGrid').innerHTML = '<span class="ob-slots-empty">' + t('pickDate') + '</span>';
+    }
+    if (!clinic || !doctor) {
+      dutyDateMap = {};
+      if (grid) grid.innerHTML = '<span class="ob-slots-empty">' + t('pickClinicDr') + '</span>';
+      return Promise.resolve();
+    }
+    if (grid) grid.innerHTML = '<span class="ob-slots-loading">' + t('calLoading') + '</span>';
+    return getDutyDatesDirect(clinic, doctor).then(function (dates) {
+      dutyDateMap = {};
+      dates.forEach(function (d) { dutyDateMap[d] = true; });
+      var now = new Date();
+      calViewYear = now.getFullYear();
+      calViewMonth = now.getMonth();
+      renderPatientCalendar();
+    }).catch(function () {
+      dutyDateMap = {};
+      if (grid) grid.innerHTML = '<span class="ob-slots-empty">' + t('noDutyDates') + '</span>';
+    });
+  }
+
+  function renderPatientCalendar() {
+    var grid = $('obCalGrid');
+    var lbl = $('obCalMonthLbl');
+    if (!grid) return;
+
+    var y = calViewYear;
+    var m = calViewMonth;
+    if (lbl) lbl.textContent = y + '-' + pad(m + 1);
+
+    var first = new Date(y, m, 1);
+    var startPad = (first.getDay() + 6) % 7;
+    var daysInMonth = new Date(y, m + 1, 0).getDate();
+    var today = todayIso();
+    var maxD = maxBookDateIso();
+    var hasDuty = Object.keys(dutyDateMap).length > 0;
+
+    if (!hasDuty) {
+      grid.innerHTML = '<span class="ob-slots-empty">' + t('noDutyDates') + '</span>';
+      return;
+    }
+
+    var html = '<div class="ob-cal-head">';
+    ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].forEach(function (d) {
+      html += '<span>' + d + '</span>';
+    });
+    html += '</div><div class="ob-cal-cells">';
+
+    for (var i = 0; i < startPad; i++) {
+      html += '<span class="ob-cal-empty"></span>';
+    }
+    for (var day = 1; day <= daysInMonth; day++) {
+      var iso = y + '-' + pad(m + 1) + '-' + pad(day);
+      var onDuty = !!dutyDateMap[iso];
+      var past = iso < today;
+      var tooFar = iso > maxD;
+      var sel = $('fDate').value === iso;
+      var cls = 'ob-cal-day';
+      if (onDuty && !past && !tooFar) cls += ' ob-cal-day--duty';
+      if (sel) cls += ' ob-cal-day--sel';
+      if (past || tooFar || !onDuty) cls += ' ob-cal-day--off';
+      html += '<button type="button" class="' + cls + '" data-date="' + iso + '"' +
+        ((past || tooFar || !onDuty) ? ' disabled' : '') + '>' + day + '</button>';
+    }
+    html += '</div>';
+    grid.innerHTML = html;
+
+    grid.querySelectorAll('.ob-cal-day--duty').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.getAttribute('data-date');
+        $('fDate').value = d;
+        grid.querySelectorAll('.ob-cal-day').forEach(function (b) { b.classList.remove('ob-cal-day--sel'); });
+        btn.classList.add('ob-cal-day--sel');
+        loadSlots();
+      });
+    });
+  }
+
+  function onClinicDoctorChange() {
+    loadDutyCalendar();
+  }
+
   function sbRestHeaders() {
     return {
       apikey: CFG.anonKey,
@@ -360,6 +482,7 @@
     fillClinics();
     filterDoctors();
     fillReasons();
+    onClinicDoctorChange();
     if (res.source === 'direct' && !apiReachable) {
       showError('formError', '');
     }
@@ -453,7 +576,7 @@
       var c = clinics.find(function (x) { return x.clinic_code === sel.value; });
       updateHeader(c);
       filterDoctors();
-      loadSlots();
+      onClinicDoctorChange();
     });
   }
 
@@ -502,6 +625,10 @@
     selectedSlot = '';
     if (!date || !doctor) {
       grid.innerHTML = '<span class="ob-slots-empty">' + t('pickDate') + '</span>';
+      return;
+    }
+    if (Object.keys(dutyDateMap).length && !dutyDateMap[date]) {
+      grid.innerHTML = '<span class="ob-slots-empty">' + t('noSlots') + '</span>';
       return;
     }
     grid.innerHTML = '<span class="ob-slots-loading">' + t('loading') + '</span>';
@@ -612,19 +739,23 @@
       });
     });
 
-    $('fDate').min = todayIso();
-    var maxD = new Date();
-    maxD.setDate(maxD.getDate() + 60);
-    $('fDate').max = maxD.getFullYear() + '-' + pad(maxD.getMonth() + 1) + '-' + pad(maxD.getDate());
-
+    $('fDoctor').addEventListener('change', onClinicDoctorChange);
+    $('obCalPrev').addEventListener('click', function () {
+      calViewMonth--;
+      if (calViewMonth < 0) { calViewMonth = 11; calViewYear--; }
+      renderPatientCalendar();
+    });
+    $('obCalNext').addEventListener('click', function () {
+      calViewMonth++;
+      if (calViewMonth > 11) { calViewMonth = 0; calViewYear++; }
+      renderPatientCalendar();
+    });
     var dobMax = new Date();
     $('fDob').max = dobMax.getFullYear() + '-' + pad(dobMax.getMonth() + 1) + '-' + pad(dobMax.getDate());
     var dobMin = new Date();
     dobMin.setFullYear(dobMin.getFullYear() - 120);
     $('fDob').min = dobMin.getFullYear() + '-' + pad(dobMin.getMonth() + 1) + '-' + pad(dobMin.getDate());
 
-    $('fDate').addEventListener('change', loadSlots);
-    $('fDoctor').addEventListener('change', loadSlots);
     $('btnBook').addEventListener('click', submitBooking);
 
     apiCall({ action: 'get-options' }).then(function (res) {

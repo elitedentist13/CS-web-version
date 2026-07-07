@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260707-webbook-v1';
+  var BUILD = '20260707-webbook-roster-v1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1459,6 +1459,14 @@
     <div class="wb-panel">
       <div class="wb-panel-head">
         <h2 class="wb-panel-title" data-i18n="webbook.title">Web Bookings</h2>
+        <div class="wb-subtabs">
+          <button type="button" class="wb-subtab active" data-wb-sub="bookings" data-i18n="webbook.sub.bookings">Bookings</button>
+          <button type="button" class="wb-subtab" data-wb-sub="roster" data-i18n="webbook.sub.roster">Doctor Roster</button>
+        </div>
+      </div>
+
+      <div id="wbPaneBookings">
+      <div class="wb-pane-toolbar">
         <button type="button" id="wbRefreshBtn" class="wb-refresh-btn" data-i18n="webbook.refresh">Refresh List</button>
       </div>
 
@@ -1531,6 +1539,85 @@
           <button type="button" id="wbBtnCalendar" class="wb-act" data-i18n="webbook.act.calendar">View calendar</button>
         </div>
       </div>
+      </div><!-- /wbPaneBookings -->
+
+      <div id="wbPaneRoster" class="wbr-pane" style="display:none;">
+        <div class="wbr-toolbar">
+          <label class="wbr-sel-wrap"><span data-i18n="webbook.roster.clinic">Clinic</span>
+            <select id="wbrClinic"></select></label>
+          <label class="wbr-sel-wrap"><span data-i18n="webbook.roster.doctor">Doctor</span>
+            <select id="wbrDoctor"></select></label>
+        </div>
+
+        <div class="wbr-mode-bar">
+          <span class="wbr-mode-lbl" data-i18n="webbook.roster.mode">Roster mode</span>
+          <button type="button" class="wbr-mode-btn active" data-mode="pattern" data-i18n="webbook.roster.modePattern">Pattern (weekly)</button>
+          <button type="button" class="wbr-mode-btn" data-mode="manual" data-i18n="webbook.roster.modeManual">Manual month</button>
+        </div>
+
+        <div id="wbrPatternPane" class="wbr-pattern-pane">
+          <table class="wbr-grid">
+            <thead>
+              <tr>
+                <th></th>
+                <th data-i18n="webbook.roster.mon">Mon</th>
+                <th data-i18n="webbook.roster.tue">Tue</th>
+                <th data-i18n="webbook.roster.wed">Wed</th>
+                <th data-i18n="webbook.roster.thu">Thu</th>
+                <th data-i18n="webbook.roster.fri">Fri</th>
+                <th data-i18n="webbook.roster.sat">Sat</th>
+                <th data-i18n="webbook.roster.sun">Sun</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th data-i18n="webbook.roster.onDuty">On duty</th>
+                <td><input type="checkbox" id="wbrOn1"></td>
+                <td><input type="checkbox" id="wbrOn2"></td>
+                <td><input type="checkbox" id="wbrOn3"></td>
+                <td><input type="checkbox" id="wbrOn4"></td>
+                <td><input type="checkbox" id="wbrOn5"></td>
+                <td><input type="checkbox" id="wbrOn6"></td>
+                <td><input type="checkbox" id="wbrOn0"></td>
+              </tr>
+              <tr>
+                <th data-i18n="webbook.roster.altWk">Alt wk</th>
+                <td><input type="checkbox" id="wbrAlt1" disabled></td>
+                <td><input type="checkbox" id="wbrAlt2" disabled></td>
+                <td><input type="checkbox" id="wbrAlt3" disabled></td>
+                <td><input type="checkbox" id="wbrAlt4" disabled></td>
+                <td><input type="checkbox" id="wbrAlt5" disabled></td>
+                <td><input type="checkbox" id="wbrAlt6" disabled></td>
+                <td><input type="checkbox" id="wbrAlt0" disabled></td>
+              </tr>
+            </tbody>
+          </table>
+          <label class="wbr-anchor-wrap">
+            <span data-i18n="webbook.roster.anchor">Anchor week (Week A starts)</span>
+            <input type="date" id="wbrAnchor">
+          </label>
+          <p class="wbr-hint" data-i18n="webbook.roster.patternHint">Tick On duty for weekly days. Tick Alt wk on a day to make only that weekday alternate (A/B weeks).</p>
+        </div>
+
+        <div id="wbrManualPane" class="wbr-manual-pane" style="display:none;">
+          <div class="wbr-manual-nav">
+            <button type="button" id="wbrManualPrev" class="wbr-nav-btn">◀</button>
+            <span id="wbrManualMonthLbl" class="wbr-month-lbl"></span>
+            <button type="button" id="wbrManualNext" class="wbr-nav-btn">▶</button>
+          </div>
+          <div id="wbrManualGrid" class="wbr-manual-grid"></div>
+          <div class="wbr-manual-actions">
+            <button type="button" id="wbrCopyMonth" class="wb-act" data-i18n="webbook.roster.copyMonth">Copy from previous month</button>
+            <button type="button" id="wbrClearMonth" class="wb-act" data-i18n="webbook.roster.clearMonth">Clear this month</button>
+          </div>
+          <p class="wbr-hint" data-i18n="webbook.roster.manualHint">Click dates to toggle on-duty days for this doctor at the selected clinic.</p>
+        </div>
+
+        <div class="wbr-save-row">
+          <button type="button" id="wbrSaveBtn" class="wb-act wb-act--primary" data-i18n="webbook.roster.save">Save roster</button>
+          <span id="wbrStatus" class="wbr-status"></span>
+        </div>
+      </div><!-- /wbPaneRoster -->
     </div>
   </div><!-- /tab-webbook -->
 
@@ -5888,7 +5975,8 @@
     'app-tools.js',
     'app-pdf-editor.js',
     'app-poster-maker.js',
-    'app-webbook.js'
+    'app-webbook.js',
+    'app-webbook-roster.js'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

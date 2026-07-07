@@ -91,8 +91,17 @@
       </div>
 
       <div class="ob-field">
-        <label data-i18n="date">Preferred date</label>
-        <input type="date" id="fDate">
+        <label data-i18n="date">Select appointment date</label>
+        <p class="ob-cal-hint" data-i18n="pickClinicDr">Select clinic and doctor first. Highlighted dates are on-duty days.</p>
+        <div class="ob-cal-nav">
+          <button type="button" class="ob-cal-nav-btn" id="obCalPrev" aria-label="Previous month">◀</button>
+          <span id="obCalMonthLbl" class="ob-cal-month-lbl"></span>
+          <button type="button" class="ob-cal-nav-btn" id="obCalNext" aria-label="Next month">▶</button>
+        </div>
+        <div id="obCalGrid" class="ob-cal-grid">
+          <span class="ob-slots-empty" data-i18n="pickClinicDr">Select clinic and doctor first</span>
+        </div>
+        <input type="hidden" id="fDate">
       </div>
 
       <div class="ob-field">

@@ -392,6 +392,10 @@ grant execute on function public.ob_is_on_duty(text, text, date) to anon, authen
 -- ── Patch ob_request_booking: reject off-roster dates ───────────
 -- Re-run online_booking_rpc.sql after this, or run the block below.
 
+drop function if exists public.ob_request_booking(
+    text, text, text, date, text, int, text, text, text, date, text, text
+);
+
 create or replace function public.ob_request_booking(
     p_clinic_tag text default null,
     p_doctor_code text default null,
@@ -404,7 +408,8 @@ create or replace function public.ob_request_booking(
     p_patient_phone text default null,
     p_patient_dob date default null,
     p_reason_id text default null,
-    p_reason_label text default null
+    p_reason_label text default null,
+    p_preferred_session text default null
 )
 returns jsonb
 language plpgsql
@@ -427,6 +432,10 @@ declare
     v_start_raw text;
     v_dob date;
     v_sessions jsonb;
+    v_arrange boolean := false;
+    v_booking_status text;
+    v_bill_status text;
+    v_pref_sess text;
 begin
     if coalesce(trim(p_patient_name), '') = '' or coalesce(trim(p_patient_phone), '') = '' then
         raise exception 'Name and mobile phone are required';
@@ -455,19 +464,38 @@ begin
         raise exception 'No doctor available';
     end if;
 
+    v_start_raw := nullif(left(coalesce(p_start_time, ''), 5), '');
+    v_pref_sess := nullif(lower(trim(coalesce(p_preferred_session, ''))), '');
+    if v_pref_sess is not null and v_pref_sess not in ('am', 'pm', 'night') then
+        v_pref_sess := null;
+    end if;
+    v_arrange := (v_start_raw is null);
+
+    if v_arrange and p_date is null then
+        raise exception 'Preferred date is required';
+    end if;
+
     v_date := coalesce(p_date, current_date);
 
     if not public.ob_is_on_duty(p_clinic_tag, v_doctor_code, v_date) then
         raise exception 'Selected date is not available for this doctor at this clinic';
     end if;
 
-    v_start_raw := nullif(left(coalesce(p_start_time, ''), 5), '');
-    v_start_time := coalesce(v_start_raw::time, time '10:00');
-    v_end_time := v_start_time + make_interval(mins => v_duration);
-
     v_sessions := public.ob_get_roster_sessions(p_clinic_tag, v_doctor_code, v_date);
-    if not public.ob_time_allowed_in_sessions(v_start_time, v_duration, v_sessions, v_date) then
-        raise exception 'Selected time is outside available sessions for this date';
+
+    if v_arrange then
+        v_start_time := time '00:00';
+        v_end_time := time '00:00';
+        v_booking_status := 'pending_arrange';
+        v_bill_status := 'Pending';
+    else
+        v_start_time := v_start_raw::time;
+        v_end_time := v_start_time + make_interval(mins => v_duration);
+        v_booking_status := 'pending_staff';
+        v_bill_status := 'Scheduled';
+        if not public.ob_time_allowed_in_sessions(v_start_time, v_duration, v_sessions, v_date) then
+            raise exception 'Selected time is outside available sessions for this date';
+        end if;
     end if;
 
     v_phone := regexp_replace(coalesce(p_patient_phone, ''), '\D', '', 'g');
@@ -486,19 +514,25 @@ begin
 
     v_remarks := 'WEB ref: ' || v_ref ||
         case when coalesce(trim(p_reason_label), '') <> '' then ' · Reason: ' || trim(p_reason_label) else '' end;
+    if v_arrange then
+        v_remarks := v_remarks ||
+            case when v_pref_sess is not null
+                then ' · Arrange: ' || upper(v_pref_sess) || ' session (time TBC)'
+                else ' · Arrange: time TBC by clinic' end;
+    end if;
 
     begin
         insert into public.appointments (
             patient_name, patient_chinese_name, patient_dob, date, start_time, end_time, duration,
             doctor_code, doctor_name, clinic_tag, treatment_items, remarks,
             walk_in_phone, bill_status, booking_source, booking_status, booking_type,
-            web_created_at, web_booking_ref, in_queue, arrival_time
+            web_created_at, web_booking_ref, web_preferred_session, in_queue, arrival_time
         ) values (
             trim(p_patient_name), nullif(trim(p_patient_chinese_name), ''), v_dob, v_date,
             v_start_time, v_end_time, v_duration,
             v_doctor_code, coalesce(v_doctor_name, v_doctor_code), nullif(trim(p_clinic_tag), ''),
-            nullif(trim(p_reason_label), ''), v_remarks, v_phone, 'Scheduled',
-            'web', 'pending_staff', v_booking_type, v_now, v_ref, null, null
+            nullif(trim(p_reason_label), ''), v_remarks, v_phone, v_bill_status,
+            'web', v_booking_status, v_booking_type, v_now, v_ref, v_pref_sess, null, null
         )
         returning id into v_appt_id;
     exception
@@ -522,20 +556,25 @@ begin
         'appointment_id', v_appt_id,
         'web_booking_ref', v_ref,
         'date', v_date,
-        'start_time', to_char(v_start_time, 'HH24:MI'),
-        'end_time', to_char(v_end_time, 'HH24:MI'),
+        'start_time', case when v_arrange then null else to_char(v_start_time, 'HH24:MI') end,
+        'end_time', case when v_arrange then null else to_char(v_end_time, 'HH24:MI') end,
         'doctor_name', coalesce(v_doctor_name, v_doctor_code),
         'patient_name', trim(p_patient_name),
-        'pending_staff', true,
-        'message', 'Booking placed. Clinic staff will confirm shortly.'
+        'booking_status', v_booking_status,
+        'arrange_requested', v_arrange,
+        'preferred_session', v_pref_sess,
+        'pending_staff', not v_arrange,
+        'message', case when v_arrange
+            then 'Request received. Our team will contact you to arrange a time.'
+            else 'Booking placed. Clinic staff will confirm shortly.' end
     );
 end;
 $$;
 
 revoke all on function public.ob_request_booking(
-    text, text, text, date, text, int, text, text, text, date, text, text
+    text, text, text, date, text, int, text, text, text, date, text, text, text
 ) from public;
 
 grant execute on function public.ob_request_booking(
-    text, text, text, date, text, int, text, text, text, date, text, text
+    text, text, text, date, text, int, text, text, text, date, text, text, text
 ) to anon, authenticated, service_role;

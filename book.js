@@ -51,11 +51,15 @@
       pickClinicDr: 'Select clinic and doctor first. Highlighted dates are on-duty days.',
       noDutyDates: 'No on-duty dates in this period for this doctor. Please contact the clinic.',
       calLoading: 'Loading doctor schedule…',
-      noSlots: 'No times shown — you may still submit; staff will arrange',
+      noSlots: 'No times available on this day',
+      arrangeHint: 'You can still submit a request — our front desk will contact you to arrange a time.',
+      arrangeBanner: 'Request appointment (time to be arranged)',
+      errDate: 'Please select a preferred date on the calendar.',
       loading: 'Loading times…',
       bookBtn: 'Submit booking request',
       booked: 'Request Received!',
       confirmNote: 'Your booking request has been placed. Our team will contact you to confirm.',
+      confirmNoteArrange: 'Your request has been received. Our front desk will contact you to arrange a time on your chosen day.',
       errNamePhone: 'Please enter your name, mobile and date of birth.',
       errDisabled: 'Online booking is currently unavailable.',
       errGeneric: 'Something went wrong. Please try again.',
@@ -84,11 +88,15 @@
       pickClinicDr: '請先選擇診所及醫生。高亮日期為值班日。',
       noDutyDates: '此醫生在本段期間沒有值班日，請聯絡診所。',
       calLoading: '載入醫生排班中…',
-      noSlots: '暫無顯示時段 — 仍可提交，由診所安排',
+      noSlots: '此日暫無可選時段',
+      arrangeHint: '您仍可提交申請 — 前台同事會聯絡您安排時間。',
+      arrangeBanner: '申請預約（時間待安排）',
+      errDate: '請在日曆上選擇希望日期。',
       loading: '載入時段中…',
       bookBtn: '提交預約申請',
       booked: '申請已收到！',
       confirmNote: '您的預約申請已提交。診所將盡快聯絡您確認。',
+      confirmNoteArrange: '您的申請已收到。前台同事會聯絡您，於所選日期安排預約時間。',
       errNamePhone: '請填寫姓名、手提電話及出生日期。',
       errDisabled: '網上預約暫停服務。',
       errGeneric: '發生錯誤，請重試。',
@@ -117,11 +125,15 @@
       pickClinicDr: '请先选择诊所及医生。高亮日期为值班日。',
       noDutyDates: '此医生在本段期间没有值班日，请联系诊所。',
       calLoading: '加载医生排班中…',
-      noSlots: '暂无显示时段 — 仍可提交，由诊所安排',
+      noSlots: '此日暂无可选时段',
+      arrangeHint: '您仍可提交申请 — 前台同事会联系您安排时间。',
+      arrangeBanner: '申请预约（时间待安排）',
+      errDate: '请在日历上选择希望日期。',
       loading: '加载时段中…',
       bookBtn: '提交预约申请',
       booked: '申请已收到！',
       confirmNote: '您的预约申请已提交。诊所将尽快联系您确认。',
+      confirmNoteArrange: '您的申请已收到。前台同事会联系您，于所选日期安排预约时间。',
       errNamePhone: '请填写姓名、手机及出生日期。',
       errDisabled: '网上预约暂停服务。',
       errGeneric: '发生错误，请重试。',
@@ -328,10 +340,12 @@
       q += '&or=(clinic_tag.eq.' + encodeURIComponent(clinicTag) + ',clinic_tag.is.null)';
     }
     return sbRestGet(q).then(function (rows) {
-      return (rows || []).filter(function (a) {
+        return (rows || []).filter(function (a) {
         var bs = String(a.bill_status || '').toLowerCase();
         var bks = String(a.booking_status || '').toLowerCase();
-        return !(bs.indexOf('cancel') >= 0 || bks === 'cancelled' || bks === 'expired');
+        if (bs.indexOf('cancel') >= 0 || bks === 'cancelled' || bks === 'expired') return false;
+        if (bks === 'pending_arrange') return false;
+        return true;
       });
     });
   }
@@ -405,7 +419,8 @@
       p_patient_phone: body.patient_phone || null,
       p_patient_dob: body.patient_dob || null,
       p_reason_id: body.reason_id || null,
-      p_reason_label: body.reason_label || null
+      p_reason_label: body.reason_label || null,
+      p_preferred_session: body.preferred_session || null
     };
     return sbRestRpc('ob_request_booking', payload);
   }
@@ -664,6 +679,14 @@
     return null;
   }
 
+  function slotsEmptyHtml() {
+    return '<div class="ob-slots-empty-wrap">' +
+      '<span class="ob-slots-empty">' + t('noSlots') + '</span>' +
+      '<p class="ob-arrange-hint">' + t('arrangeHint') + '</p>' +
+      '<div class="ob-arrange-banner">' + t('arrangeBanner') + '</div>' +
+      '</div>';
+  }
+
   function fmtDateDisplay(iso) {
     if (!iso) return '—';
     var p = iso.split('-');
@@ -750,13 +773,13 @@
       return;
     }
     if (Object.keys(dutyDateMap).length && !dutyDateMap[date]) {
-      grid.innerHTML = '<span class="ob-slots-empty">' + t('noSlots') + '</span>';
+      grid.innerHTML = slotsEmptyHtml();
       return;
     }
     var sessions = dutyDateMap[date] || {};
     var sessKeys = enabledSessionKeys(sessions);
     if (!sessKeys.length) {
-      grid.innerHTML = '<span class="ob-slots-empty">' + t('noSlots') + '</span>';
+      grid.innerHTML = slotsEmptyHtml();
       return;
     }
     if (sessKeys.length >= 2 && !selectedSession) selectedSession = sessKeys[0];
@@ -771,7 +794,7 @@
     }).then(function (res) {
       var slots = res.slots || [];
       if (!slots.length) {
-        grid.innerHTML = '<span class="ob-slots-empty">' + t('noSlots') + '</span>';
+        grid.innerHTML = slotsEmptyHtml();
         return;
       }
       grid.innerHTML = '';
@@ -789,7 +812,7 @@
         grid.appendChild(btn);
       });
     }).catch(function () {
-      grid.innerHTML = '<span class="ob-slots-empty">' + t('noSlots') + '</span>';
+      grid.innerHTML = slotsEmptyHtml();
     });
   }
 
@@ -799,6 +822,10 @@
     $('confirmDate').textContent = res.date ? fmtDateDisplay(res.date) : '—';
     $('confirmTime').textContent = res.start_time ? fmt12(res.start_time) : t('timeTbc');
     $('confirmRef').textContent = res.web_booking_ref || '';
+    var noteEl = $('confirmNote');
+    if (noteEl) {
+      noteEl.textContent = res.arrange_requested ? t('confirmNoteArrange') : t('confirmNote');
+    }
     document.title = t('booked');
   }
 
@@ -822,6 +849,11 @@
       ? reasonSel.selectedOptions[0].textContent
       : '';
 
+    if (!date) {
+      showError('formError', t('errDate'));
+      return;
+    }
+
     var btn = $('btnBook');
     btn.disabled = true;
     btn.innerHTML = '<span class="ob-spinner"></span>';
@@ -833,6 +865,7 @@
       doctor_name: doctorName,
       date: date,
       start_time: selectedSlot || '',
+      preferred_session: (!selectedSlot && selectedSession) ? selectedSession : '',
       duration: 30,
       patient_name: name,
       patient_chinese_name: ($('fNameZh').value || '').trim(),

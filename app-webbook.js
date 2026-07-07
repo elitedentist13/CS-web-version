@@ -96,6 +96,7 @@ var WEBBOOK = (function () {
         var map = {
             pending_otp: tr('webbook.status.pendingOtp', 'Awaiting verification'),
             pending_staff: tr('webbook.status.pendingStaff', 'Created from Web'),
+            pending_arrange: tr('webbook.status.pendingArrange', 'Arrange by front desk'),
             confirmed: tr('webbook.status.confirmed', 'Confirmed'),
             cancelled: tr('webbook.status.cancelled', 'Cancelled'),
             expired: tr('webbook.status.expired', 'Expired')
@@ -106,6 +107,7 @@ var WEBBOOK = (function () {
     function statusStyle(st) {
         var s = String(st || '').toLowerCase();
         if (s === 'pending_staff') return 'background:#dbeafe;color:#1d4ed8;';
+        if (s === 'pending_arrange') return 'background:#ffedd5;color:#c2410c;';
         if (s === 'pending_otp') return 'background:#fef3c7;color:#92400e;';
         if (s === 'confirmed') return 'background:#dcfce7;color:#166534;';
         if (s === 'cancelled' || s === 'expired') return 'background:#f1f5f9;color:#64748b;';
@@ -162,6 +164,25 @@ var WEBBOOK = (function () {
         }
         if (ph.length === 8) return ph.slice(0, 4) + ' ' + ph.slice(4);
         return ph;
+    }
+
+    function isArrangeRequest(a) {
+        if (!a) return false;
+        if (String(a.booking_status || '').toLowerCase() === 'pending_arrange') return true;
+        return String(a.start_time || '').slice(0, 5) === '00:00' &&
+            String(a.booking_source || '').toLowerCase() === 'web';
+    }
+
+    function apptTimeDisplay(a) {
+        if (isArrangeRequest(a)) {
+            var sess = String(a.web_preferred_session || '').toLowerCase();
+            var tbc = tr('webbook.timeTbc', 'Time TBC');
+            if (sess === 'am' || sess === 'pm' || sess === 'night') {
+                return tbc + ' · ' + tr('webbook.sess.' + sess, sess.toUpperCase());
+            }
+            return tbc;
+        }
+        return fmt12(a.start_time);
     }
 
     function phoneTelHref(a) {
@@ -291,7 +312,7 @@ var WEBBOOK = (function () {
             html += '<tr class="wb-row' + (sel ? ' wb-row--sel' : '') + '" data-id="' + esc(id) + '">' +
                 '<td>' + esc(clinicLabel(a.clinic_tag)) + '</td>' +
                 '<td style="white-space:nowrap;font-size:12px;">' + esc(fmtDateTime(effectiveCreated(a))) + '</td>' +
-                '<td style="white-space:nowrap;font-weight:600;">' + esc(a.date || '') + ' ' + esc(fmt12(a.start_time)) + '</td>' +
+                '<td style="white-space:nowrap;font-weight:600;">' + esc(a.date || '') + ' ' + esc(apptTimeDisplay(a)) + '</td>' +
                 '<td>' + esc(patientNameDisplay(a)) +
                     (typeof apptWebBadgeHtml === 'function' ? apptWebBadgeHtml(a) : '') + '</td>' +
                 '<td style="font-size:12px;white-space:nowrap;">' +
@@ -344,13 +365,23 @@ var WEBBOOK = (function () {
             var phLbl = phoneDisplay(row);
             lbl.textContent = patientNameDisplay(row) +
                 (phLbl ? ' · ' + phLbl : '') +
-                ' · ' + (row.date || '') + ' ' + fmt12(row.start_time);
+                ' · ' + (row.date || '') + ' ' + apptTimeDisplay(row);
         }
 
         var st = effectiveStatus(row);
         var btnConfirm = g('wbBtnConfirm');
         var btnCancel = g('wbBtnCancel');
-        if (btnConfirm) btnConfirm.style.display = (st === 'pending_staff' || st === 'pending_otp') ? '' : 'none';
+        var btnReschedule = g('wbBtnReschedule');
+        if (btnConfirm) {
+            btnConfirm.style.display = (st === 'pending_staff' || st === 'pending_otp') ? '' : 'none';
+        }
+        if (btnReschedule && st === 'pending_arrange') {
+            btnReschedule.classList.add('wb-act--primary');
+            btnReschedule.title = tr('webbook.arrangeHint', 'Set a time, then confirm');
+        } else if (btnReschedule) {
+            btnReschedule.classList.remove('wb-act--primary');
+            btnReschedule.title = '';
+        }
         if (btnCancel) btnCancel.style.display = (st !== 'cancelled' && st !== 'expired') ? '' : 'none';
     }
 
@@ -397,6 +428,11 @@ var WEBBOOK = (function () {
     function confirmSelected() {
         var row = selectedRow();
         if (!row) return;
+        if (isArrangeRequest(row)) {
+            alert(tr('webbook.arrangeConfirmBlock', 'Set an appointment time first (Reschedule), then confirm.'));
+            if (typeof openApptEditModal === 'function') openApptEditModal(row);
+            return;
+        }
         if (!confirm(tr('webbook.confirmPrompt', 'Confirm this web booking?'))) return;
         patchRow(row.id, { booking_status: 'confirmed' }, function (ok) {
             if (ok && typeof showClinicRefreshToast === 'function') {
@@ -440,11 +476,16 @@ var WEBBOOK = (function () {
             alert(tr('webbook.noPhone', 'No phone number on file.'));
             return;
         }
-        var msg = trRepl('webbook.waMsg', {
-            NAME: row.patient_name || '',
-            DATE: row.date || '',
-            TIME: fmt12(row.start_time)
-        }, 'Hi ' + (row.patient_name || '') + ', regarding your appointment on ' + row.date + ' at ' + fmt12(row.start_time) + '.');
+        var msg = isArrangeRequest(row)
+            ? trRepl('webbook.waMsgArrange', {
+                NAME: row.patient_name || '',
+                DATE: row.date || ''
+            }, 'Hi ' + (row.patient_name || '') + ', regarding your appointment request on ' + (row.date || '') + '. Our team will contact you to arrange a time.')
+            : trRepl('webbook.waMsg', {
+                NAME: row.patient_name || '',
+                DATE: row.date || '',
+                TIME: fmt12(row.start_time)
+            }, 'Hi ' + (row.patient_name || '') + ', regarding your appointment on ' + row.date + ' at ' + fmt12(row.start_time) + '.');
         if (typeof openWhatsAppPrefill === 'function') {
             openWhatsAppPrefill(phone, msg, { source: 'webbook' });
         }
@@ -480,7 +521,7 @@ var WEBBOOK = (function () {
     function updateTabBadge() {
         var pending = _rows.filter(function (a) {
             var st = effectiveStatus(a);
-            return st === 'pending_staff' || st === 'pending_otp';
+            return st === 'pending_staff' || st === 'pending_otp' || st === 'pending_arrange';
         }).length;
         var tab = document.querySelector('.appt-tab[data-tab="webbook"]');
         if (!tab) return;
@@ -548,7 +589,7 @@ var WEBBOOK = (function () {
     function countPending() {
         return _rows.filter(function (a) {
             var st = effectiveStatus(a);
-            return st === 'pending_staff' || st === 'pending_otp';
+            return st === 'pending_staff' || st === 'pending_otp' || st === 'pending_arrange';
         }).length;
     }
 
@@ -556,7 +597,8 @@ var WEBBOOK = (function () {
         init: init,
         refresh: refresh,
         countPending: countPending,
-        isWebBooking: isWebBooking
+        isWebBooking: isWebBooking,
+        isArrangeRequest: isArrangeRequest
     };
 })();
 
@@ -577,14 +619,26 @@ function apptIsWebBooking(a) {
     return WEBBOOK && WEBBOOK.isWebBooking ? WEBBOOK.isWebBooking(a) : false;
 }
 
+function apptIsArrangeRequest(a) {
+    return WEBBOOK && WEBBOOK.isArrangeRequest ? WEBBOOK.isArrangeRequest(a) : false;
+}
+
 function apptWebBadgeHtml(a) {
     if (!apptIsWebBooking(a)) return '';
     var st = String((a && a.booking_status) || '').toLowerCase();
-    var pending = st === 'pending_staff' || st === 'pending_otp' || !st;
-    var cls = pending ? 'appt-web-badge appt-web-badge--pending' : 'appt-web-badge';
-    var label = pending
-        ? (typeof tr === 'function' ? tr('appt.badge.webPending') : 'WEB')
-        : (typeof tr === 'function' ? tr('appt.badge.web') : 'WEB');
+    var arrange = st === 'pending_arrange' || apptIsArrangeRequest(a);
+    var pending = arrange || st === 'pending_staff' || st === 'pending_otp' || !st;
+    var cls = arrange
+        ? 'appt-web-badge appt-web-badge--arrange'
+        : (pending ? 'appt-web-badge appt-web-badge--pending' : 'appt-web-badge');
+    var label;
+    if (arrange) {
+        label = typeof tr === 'function' ? tr('appt.badge.webArrange') : 'ARRANGE';
+    } else if (pending) {
+        label = typeof tr === 'function' ? tr('appt.badge.webPending') : 'WEB';
+    } else {
+        label = typeof tr === 'function' ? tr('appt.badge.web') : 'WEB';
+    }
     var escFn = typeof esc === 'function' ? esc : function (s) { return s; };
     return '<span class="' + cls + '">' + escFn(label) + '</span>';
 }

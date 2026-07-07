@@ -228,6 +228,33 @@ body {
   padding: 10px 0;
 }
 
+.ob-slots-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+
+.ob-arrange-hint {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--ob-muted);
+  line-height: 1.45;
+}
+
+.ob-arrange-banner {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px dashed #f59e0b;
+  color: #b45309;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
 /* ── Buttons ───────────────────────────────────────────────── */
 .ob-btn {
   display: inline-flex;

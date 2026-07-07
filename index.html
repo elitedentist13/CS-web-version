@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260707-webbook-roster-sessions-v8';
+  var BUILD = '20260708-webbook-arrange-v1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1487,6 +1487,7 @@
             <span class="wb-filter-label" data-i18n="webbook.filterStatus">Status</span>
             <select id="wbFilterStatus" class="wb-filter-select">
               <option value="all" data-i18n="webbook.statusAll">All</option>
+              <option value="pending_arrange" data-i18n="webbook.status.pendingArrange">Arrange by front desk</option>
               <option value="pending_staff" data-i18n="webbook.status.pendingStaff">Created from Web</option>
               <option value="pending_otp" data-i18n="webbook.status.pendingOtp">Awaiting verification</option>
               <option value="confirmed" data-i18n="webbook.status.confirmed">Confirmed</option>

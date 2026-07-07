@@ -15447,8 +15447,20 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     color: #b45309;
     border-color: #fbbf24;
 }
+.appt-web-badge--arrange {
+    background: #fff7ed;
+    color: #c2410c;
+    border-color: #fb923c;
+}
 
-.wb-tab-badge {
+.wb-act.wb-act--primary {
+    background: #ea580c;
+    color: #fff;
+    border-color: #c2410c;
+}
+.wb-act.wb-act--primary:hover {
+    background: #c2410c;
+}
     display: inline-flex;
     align-items: center;
     justify-content: center;

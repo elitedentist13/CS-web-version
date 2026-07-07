@@ -12,10 +12,15 @@ alter table public.appointments
     add column if not exists verified_at timestamptz;
 
 comment on column public.appointments.booking_source is 'staff | web | phone';
-comment on column public.appointments.booking_status is 'pending_otp | pending_staff | confirmed | cancelled | expired';
+comment on column public.appointments.booking_status is 'pending_otp | pending_staff | pending_arrange | confirmed | cancelled | expired';
 comment on column public.appointments.booking_type is 'new_patient | existing_patient | recall | asap';
 comment on column public.appointments.web_created_at is 'Timestamp when patient submitted online booking';
 comment on column public.appointments.web_booking_ref is 'Public reference code e.g. WB-20260707-A3F2';
+
+alter table public.appointments
+    add column if not exists web_preferred_session text;
+
+comment on column public.appointments.web_preferred_session is 'am | pm | night when patient requested arrange on a full duty day';
 comment on column public.appointments.patient_dob is 'DOB entered on web form (existing patient match)';
 
 create index if not exists idx_appointments_booking_source

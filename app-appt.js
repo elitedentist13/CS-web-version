@@ -3889,6 +3889,9 @@ function plusApptSpanBySlot(appts) {
 
 function plusApptFilterAppts(rows, doctorCode) {
     var list = rows || [];
+    list = list.filter(function (a) {
+        return !(typeof apptIsArrangeRequest === 'function' && apptIsArrangeRequest(a));
+    });
     var dr = doctorCode != null ? doctorCode : plusApptActiveDoctorCode;
     if (dr && dr !== PLUSAPPT_DOCTOR_ALL) {
         list = list.filter(function(a) {
@@ -10968,6 +10971,16 @@ function saveAppt() {
             : '');
     if (apCt) payload[APPOINTMENT_CLINIC_TAG_FIELD] = apCt;
 
+    if (apptEditId && apptEditLockRef) {
+        var wbSt = String(apptEditLockRef.booking_status || '').toLowerCase();
+        var wasArrange = wbSt === 'pending_arrange' ||
+            (typeof apptIsArrangeRequest === 'function' && apptIsArrangeRequest(apptEditLockRef));
+        if (wasArrange && start && String(start).slice(0, 5) !== '00:00') {
+            payload.booking_status = 'pending_staff';
+            payload.bill_status = 'Scheduled';
+        }
+    }
+
     Object.keys(payload).forEach(function(k) {
         if (payload[k] === undefined) delete payload[k];
     });
@@ -13907,6 +13920,7 @@ function renderMonthly(opts) {
             }
             var map   = {};
             appts.forEach(function(a) {
+                if (typeof apptIsArrangeRequest === 'function' && apptIsArrangeRequest(a)) return;
                 if (!map[a.date]) map[a.date] = [];
                 map[a.date].push(a);
             });
@@ -14512,6 +14526,7 @@ var GCAL = (function () {
 
             // Appointment cards (side-by-side when overlapping — Google Calendar style)
             var dayAppts = appts.filter(function (a) {
+                if (typeof apptIsArrangeRequest === 'function' && apptIsArrangeRequest(a)) return false;
                 return a.date === iso && !apptTransferIsCutPending(a.id);
             });
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts) {
@@ -14716,13 +14731,15 @@ var GCAL = (function () {
         if (isWebBook) {
             card.classList.add('gcal-card-web');
             var wbSt = String(a.booking_status || '').toLowerCase();
-            if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || !wbSt) {
+            if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || wbSt === 'pending_arrange' || !wbSt) {
                 card.classList.add('gcal-card-web-pending');
             }
             card.style.setProperty('border-style', 'dashed', 'important');
             card.style.setProperty('border-width', '3px', 'important');
             card.style.setProperty('border-color', '#1d4ed8', 'important');
-            if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || !wbSt) {
+            if (wbSt === 'pending_arrange') {
+                card.style.setProperty('border-color', '#ea580c', 'important');
+            } else if (wbSt === 'pending_staff' || wbSt === 'pending_otp' || !wbSt) {
                 card.style.setProperty('border-color', '#d97706', 'important');
             }
         }

@@ -759,6 +759,12 @@
         'appt.badge.webPending': { en: 'WEB?', 'zh-CN': '待确认', 'zh-Hant': '待確認' },
         'appt.badge.webArrange': { en: 'ARRANGE', 'zh-CN': '待安排', 'zh-Hant': '待安排' },
         'webbook.title': { en: 'Web Bookings', 'zh-CN': '网上预约管理', 'zh-Hant': '網上預約管理' },
+        'webbook.help': { en: '❓ Help — Staff manual', 'zh-CN': '❓ 帮助 — 同事手册', 'zh-Hant': '❓ 說明 — 同事手冊' },
+        'webbook.helpTitle': {
+            en: 'Open online booking staff manual (PDF)',
+            'zh-CN': '打开网上预约同事手册（PDF）',
+            'zh-Hant': '開啟網上預約同事手冊（PDF）'
+        },
         'webbook.refresh': { en: 'Refresh List', 'zh-CN': '刷新列表', 'zh-Hant': '重新整理清單' },
         'webbook.filterCreated': { en: 'Date created', 'zh-CN': '创建日期', 'zh-Hant': '建立日期' },
         'webbook.from': { en: 'From', 'zh-CN': '从', 'zh-Hant': '從' },

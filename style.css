@@ -15497,6 +15497,23 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     font-weight: 800;
     color: #1e293b;
 }
+.wb-panel-head-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.wb-help-link {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0ea5e9;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.wb-help-link:hover {
+    color: #0284c7;
+    text-decoration: underline;
+}
 .wb-refresh-btn {
     padding: 8px 16px;
     background: #0084ff;

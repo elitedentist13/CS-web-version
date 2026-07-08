@@ -548,7 +548,7 @@ begin
                 v_start_time, v_end_time, v_duration,
                 v_doctor_code, coalesce(v_doctor_name, v_doctor_code), nullif(trim(p_clinic_tag), ''),
                 nullif(trim(p_reason_label), ''), '[WEB] ' || v_remarks || ' · DOB: ' || v_dob::text,
-                v_phone, v_bill_status, null, null
+                v_phone, 'Scheduled', null, null
             )
             returning id into v_appt_id;
     end;

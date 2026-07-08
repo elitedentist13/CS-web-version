@@ -3,7 +3,7 @@
   'use strict';
 
   var CFG = window.ONLINE_BOOKING_CONFIG || {};
-  var LANG = 'en';
+  var LANG = 'zh-Hant';
   var clinics = [];
   var doctors = [];
   var visitReasons = [];
@@ -66,7 +66,9 @@
       errRpcMissing: 'Run online_booking_roster.sql in Supabase SQL Editor (one-time setup), then refresh this page.',
       errApiDown: 'Booking could not be saved. Run online_booking_rpc.sql in Supabase SQL Editor, then refresh.',
       reasonNone: '— Not specified —',
-      timeTbc: 'To be confirmed by clinic'
+      timeTbc: 'To be confirmed by clinic',
+      clinicNoteTitle: 'Clinic availability note',
+      clinicNoteBody: 'Quarry Bay and Po Lam are still awaiting a system update — online booking is not available at these locations yet. Please contact the clinic directly or choose another location.'
     },
     'zh-Hant': {
       title: '網上預約',
@@ -103,7 +105,9 @@
       errRpcMissing: '請在 Supabase SQL Editor 執行 online_booking_roster.sql（一次性設定），然後重新整理此頁。',
       errApiDown: '無法儲存預約。請在 Supabase SQL Editor 執行 online_booking_rpc.sql，然後重新整理。',
       reasonNone: '— 未指定 —',
-      timeTbc: '待診所確認'
+      timeTbc: '待診所確認',
+      clinicNoteTitle: '診所預約提示',
+      clinicNoteBody: '鰂魚涌及寶琳診所系統更新中，暫未能提供網上預約。請直接聯絡診所，或選擇其他診所。'
     },
     'zh-CN': {
       title: '网上预约',
@@ -140,7 +144,9 @@
       errRpcMissing: '请在 Supabase SQL Editor 运行 online_booking_roster.sql（一次性设置），然后刷新此页。',
       errApiDown: '无法保存预约。请在 Supabase SQL Editor 运行 online_booking_rpc.sql，然后刷新。',
       reasonNone: '— 未指定 —',
-      timeTbc: '待诊所确认'
+      timeTbc: '待诊所确认',
+      clinicNoteTitle: '诊所预约提示',
+      clinicNoteBody: '鲗鱼涌及宝琳诊所系统更新中，暂未能提供网上预约。请直接联络诊所，或选择其他诊所。'
     }
   };
 

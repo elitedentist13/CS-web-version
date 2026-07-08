@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -32,8 +32,8 @@
 
 <div class="ob-wrap">
   <div class="ob-lang-bar">
-    <button type="button" class="ob-lang-btn active" data-lang="en">EN</button>
-    <button type="button" class="ob-lang-btn" data-lang="zh-Hant">繁</button>
+    <button type="button" class="ob-lang-btn" data-lang="en">EN</button>
+    <button type="button" class="ob-lang-btn active" data-lang="zh-Hant">繁</button>
     <button type="button" class="ob-lang-btn" data-lang="zh-CN">简</button>
   </div>
 
@@ -48,6 +48,17 @@
     <section class="ob-step active" id="stepForm">
       <h2 class="ob-step-title" data-i18n="title">Book an appointment</h2>
       <p class="ob-soft-hint" data-i18n="softHint">Name, mobile and date of birth are required. Our team will confirm your booking.</p>
+
+      <details class="ob-mini-note" id="obClinicPendingNote">
+        <summary class="ob-mini-note-summary">
+          <span class="ob-mini-note-icon" aria-hidden="true">ℹ️</span>
+          <span data-i18n="clinicNoteTitle">Clinic availability</span>
+        </summary>
+        <div class="ob-mini-note-body" data-i18n="clinicNoteBody">
+          Quarry Bay and Po Lam are still awaiting a system update — online booking is not available at these locations yet. Please contact the clinic directly or choose another location.
+        </div>
+      </details>
+
       <div class="ob-error" id="formError"></div>
 
       <div class="ob-field-row">

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260708-webbook-save-confirm-v4';
+  var BUILD = '20260708-webbook-help-link-v1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1458,7 +1458,14 @@
   <div id="tab-webbook" class="tab-pane">
     <div class="wb-panel">
       <div class="wb-panel-head">
-        <h2 class="wb-panel-title" data-i18n="webbook.title">Web Bookings</h2>
+        <div class="wb-panel-head-main">
+          <h2 class="wb-panel-title" data-i18n="webbook.title">Web Bookings</h2>
+          <a id="wbHelpLink" class="wb-help-link"
+             href="https://drive.google.com/file/d/13AIL_yjDCwCpRmGgoxpqf4yJzM67p-kz/view?usp=sharing"
+             target="_blank" rel="noopener noreferrer"
+             data-i18n="webbook.help"
+             data-i18n-title="webbook.helpTitle">❓ Help</a>
+        </div>
         <div class="wb-subtabs">
           <button type="button" class="wb-subtab active" data-wb-sub="bookings" data-i18n="webbook.sub.bookings">Bookings</button>
           <button type="button" class="wb-subtab" data-wb-sub="roster" data-i18n="webbook.sub.roster">Doctor Roster</button>

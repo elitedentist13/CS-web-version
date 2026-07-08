@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260708-webbook-help-link-v1';
+  var BUILD = '20260709-webbook-session-settings-v1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1558,6 +1558,49 @@
             <select id="wbrDoctor"></select></label>
         </div>
 
+        <div id="wbrSessionSettings" class="wbr-session-settings">
+          <div class="wbr-session-settings-head">
+            <strong data-i18n="webbook.roster.sessionSettingsTitle">Session times &amp; slot interval</strong>
+            <span class="wbr-session-settings-sub" data-i18n="webbook.roster.sessionSettingsSub">Per clinic + doctor. Defaults shown until you save a custom setup.</span>
+          </div>
+          <div class="wbr-session-grid">
+            <div class="wbr-session-row">
+              <span class="wbr-session-lbl" data-i18n="webbook.roster.sessAm">AM</span>
+              <label class="wbr-time-wrap"><span data-i18n="webbook.roster.timeStart">Start</span>
+                <input type="time" id="wbrAmStart" value="10:00" step="60"></label>
+              <label class="wbr-time-wrap"><span data-i18n="webbook.roster.timeEnd">End</span>
+                <input type="time" id="wbrAmEnd" value="13:00" step="60"></label>
+            </div>
+            <div class="wbr-session-row">
+              <span class="wbr-session-lbl" data-i18n="webbook.roster.sessPm">PM</span>
+              <label class="wbr-time-wrap"><span data-i18n="webbook.roster.timeStart">Start</span>
+                <input type="time" id="wbrPmStart" value="14:30" step="60"></label>
+              <label class="wbr-time-wrap"><span data-i18n="webbook.roster.pmEndWeekday">End (weekday)</span>
+                <input type="time" id="wbrPmEnd" value="19:30" step="60"></label>
+              <label class="wbr-time-wrap"><span data-i18n="webbook.roster.pmEndWeekend">End (Sat/Sun &amp; PH)</span>
+                <input type="time" id="wbrPmEndWeekend" value="18:30" step="60"></label>
+            </div>
+            <div class="wbr-session-row">
+              <span class="wbr-session-lbl" data-i18n="webbook.roster.sessNight">Night</span>
+              <label class="wbr-time-wrap"><span data-i18n="webbook.roster.timeStart">Start</span>
+                <input type="time" id="wbrNightStart" value="21:00" step="60"></label>
+              <label class="wbr-time-wrap"><span data-i18n="webbook.roster.timeEnd">End</span>
+                <input type="time" id="wbrNightEnd" value="23:30" step="60"></label>
+            </div>
+            <div class="wbr-session-row wbr-session-row--interval">
+              <label class="wbr-sel-wrap wbr-interval-wrap"><span data-i18n="webbook.roster.slotInterval">Appointment interval</span>
+                <select id="wbrSlotInterval">
+                  <option value="15">15 min</option>
+                  <option value="30" selected>30 min</option>
+                  <option value="45">45 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <p class="wbr-hint wbr-session-hint" data-i18n="webbook.roster.sessionSettingsHint">Saved with roster below. Patient booking page uses these windows for available time slots.</p>
+        </div>
+
         <div class="wbr-mode-bar">
           <span class="wbr-mode-lbl" data-i18n="webbook.roster.mode">Roster mode</span>
           <button type="button" class="wbr-mode-btn active" data-mode="pattern" data-i18n="webbook.roster.modePattern">Pattern (weekly)</button>
@@ -1601,7 +1644,7 @@
                 <td><input type="checkbox" id="wbrAlt0" disabled></td>
               </tr>
               <tr>
-                <th data-i18n="webbook.roster.sessAm">AM<br><span class="wbr-sess-time">10:00–13:00</span></th>
+                <th data-i18n="webbook.roster.sessAm">AM<br><span class="wbr-sess-time" id="wbrLblAm">10:00–13:00</span></th>
                 <td><input type="checkbox" id="wbrAm1" disabled></td>
                 <td><input type="checkbox" id="wbrAm2" disabled></td>
                 <td><input type="checkbox" id="wbrAm3" disabled></td>
@@ -1611,7 +1654,7 @@
                 <td><input type="checkbox" id="wbrAm0" disabled></td>
               </tr>
               <tr>
-                <th data-i18n="webbook.roster.sessPm">PM<br><span class="wbr-sess-time">14:30–19:30*</span></th>
+                <th data-i18n="webbook.roster.sessPm">PM<br><span class="wbr-sess-time" id="wbrLblPm">14:30–19:30*</span></th>
                 <td><input type="checkbox" id="wbrPm1" disabled></td>
                 <td><input type="checkbox" id="wbrPm2" disabled></td>
                 <td><input type="checkbox" id="wbrPm3" disabled></td>
@@ -1621,7 +1664,7 @@
                 <td><input type="checkbox" id="wbrPm0" disabled></td>
               </tr>
               <tr>
-                <th data-i18n="webbook.roster.sessNight">Night<br><span class="wbr-sess-time">21:00–23:30</span></th>
+                <th data-i18n="webbook.roster.sessNight">Night<br><span class="wbr-sess-time" id="wbrLblNight">21:00–23:30</span></th>
                 <td><input type="checkbox" id="wbrNight1" disabled></td>
                 <td><input type="checkbox" id="wbrNight2" disabled></td>
                 <td><input type="checkbox" id="wbrNight3" disabled></td>
@@ -1650,9 +1693,9 @@
           <div id="wbrManualSessions" class="wbr-manual-sessions" style="display:none;">
             <span class="wbr-manual-sess-lbl" data-i18n="webbook.roster.manualSessions">Sessions for</span>
             <strong id="wbrManualSelDate" class="wbr-manual-sel-date"></strong>
-            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManAm"> <span data-i18n="webbook.roster.sessAm">AM</span> <span class="wbr-sess-time">10:00–13:00</span></label>
-            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManPm"> <span data-i18n="webbook.roster.sessPm">PM</span> <span class="wbr-sess-time">14:30–19:30*</span></label>
-            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManNight"> <span data-i18n="webbook.roster.sessNight">Night</span> <span class="wbr-sess-time">21:00–23:30</span></label>
+            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManAm"> <span data-i18n="webbook.roster.sessAm">AM</span> <span class="wbr-sess-time" id="wbrLblManAm">10:00–13:00</span></label>
+            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManPm"> <span data-i18n="webbook.roster.sessPm">PM</span> <span class="wbr-sess-time" id="wbrLblManPm">14:30–19:30*</span></label>
+            <label class="wbr-sess-chk"><input type="checkbox" id="wbrManNight"> <span data-i18n="webbook.roster.sessNight">Night</span> <span class="wbr-sess-time" id="wbrLblManNight">21:00–23:30</span></label>
             <button type="button" id="wbrManRemove" class="wb-act wbr-man-remove" data-i18n="webbook.roster.removeDay">Remove day</button>
           </div>
           <div class="wbr-manual-actions">

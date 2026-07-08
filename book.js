@@ -192,7 +192,7 @@
     end_time: '19:00',
     lunch_start: '13:00',
     lunch_end: '15:00',
-    slot_interval: 15,
+    slot_interval: 30,
     default_duration: 30,
     lead_time_hours: 2
   };
@@ -233,9 +233,31 @@
 
   function pmEndForDate(date, sessions) {
     if (sessions && sessions.pm_end) return String(sessions.pm_end).slice(0, 5);
-    var d = new Date(date + 'T12:00:00').getDay();
-    if (d === 0 || d === 6) return '18:30';
+    if (sessions && sessions.pm_end_weekday) {
+      var d = new Date(date + 'T12:00:00').getDay();
+      if (d === 0 || d === 6) {
+        return String(sessions.pm_end_weekend || '18:30').slice(0, 5);
+      }
+      return String(sessions.pm_end_weekday).slice(0, 5);
+    }
+    var d2 = new Date(date + 'T12:00:00').getDay();
+    if (d2 === 0 || d2 === 6) return '18:30';
     return '19:30';
+  }
+
+  function sessionWindowStart(sessions, key) {
+    var k = key + '_start';
+    if (sessions && sessions[k]) return String(sessions[k]).slice(0, 5);
+    var win = OB_SESSION_WINDOWS[key];
+    return win ? win.start : '00:00';
+  }
+
+  function sessionWindowEnd(sessions, key, date) {
+    if (key === 'pm') return pmEndForDate(date, sessions);
+    var k = key + '_end';
+    if (sessions && sessions[k]) return String(sessions[k]).slice(0, 5);
+    var win = OB_SESSION_WINDOWS[key];
+    return win ? win.end : '23:59';
   }
 
   function generateSessionSlots(sessions, interval, duration, sessionFilter, date) {
@@ -243,10 +265,8 @@
     var keys = sessionFilter ? [sessionFilter] : ['am', 'pm', 'night'];
     keys.forEach(function (key) {
       if (!sessions || !sessions[key]) return;
-      var win = OB_SESSION_WINDOWS[key];
-      if (!win) return;
-      var startH = timeToMin(win.start);
-      var endH = timeToMin(key === 'pm' ? pmEndForDate(date, sessions) : win.end);
+      var startH = timeToMin(sessionWindowStart(sessions, key));
+      var endH = timeToMin(sessionWindowEnd(sessions, key, date));
       for (var m = startH; m + duration <= endH; m += interval) {
         slots.push(minToTime(m));
       }
@@ -264,10 +284,29 @@
         am: s.am !== false,
         pm: s.pm !== false,
         night: !!s.night,
-        pm_end: s.pm_end ? String(s.pm_end).slice(0, 5) : pmEndForDate(date, null)
+        am_start: s.am_start ? String(s.am_start).slice(0, 5) : OB_SESSION_WINDOWS.am.start,
+        am_end: s.am_end ? String(s.am_end).slice(0, 5) : OB_SESSION_WINDOWS.am.end,
+        pm_start: s.pm_start ? String(s.pm_start).slice(0, 5) : OB_SESSION_WINDOWS.pm.start,
+        pm_end: s.pm_end ? String(s.pm_end).slice(0, 5) : pmEndForDate(date, null),
+        pm_end_weekday: s.pm_end_weekday ? String(s.pm_end_weekday).slice(0, 5) : '19:30',
+        pm_end_weekend: s.pm_end_weekend ? String(s.pm_end_weekend).slice(0, 5) : '18:30',
+        night_start: s.night_start ? String(s.night_start).slice(0, 5) : OB_SESSION_WINDOWS.night.start,
+        night_end: s.night_end ? String(s.night_end).slice(0, 5) : OB_SESSION_WINDOWS.night.end,
+        slot_interval: Number(s.slot_interval) || ONLINE_BOOK_DEFAULTS.slot_interval
       };
     }).catch(function () {
-      return { am: true, pm: true, night: false, pm_end: pmEndForDate(date, null) };
+      return {
+        am: true, pm: true, night: false,
+        am_start: OB_SESSION_WINDOWS.am.start,
+        am_end: OB_SESSION_WINDOWS.am.end,
+        pm_start: OB_SESSION_WINDOWS.pm.start,
+        pm_end: pmEndForDate(date, null),
+        pm_end_weekday: '19:30',
+        pm_end_weekend: '18:30',
+        night_start: OB_SESSION_WINDOWS.night.start,
+        night_end: OB_SESSION_WINDOWS.night.end,
+        slot_interval: ONLINE_BOOK_DEFAULTS.slot_interval
+      };
     });
   }
 
@@ -311,7 +350,7 @@
   function generateCandidateSlots(rules, duration) {
     var startH = timeToMin(rules.start_time);
     var endH = timeToMin(rules.end_time);
-    var interval = Number(rules.slot_interval) || 15;
+    var interval = Number(rules.slot_interval) || ONLINE_BOOK_DEFAULTS.slot_interval;
     var lunchStart = timeToMin(rules.lunch_start);
     var lunchEnd = timeToMin(rules.lunch_end);
     var slots = [];
@@ -374,7 +413,7 @@
         .catch(function () { return []; })
         .then(function (rulesRows) {
           var rules = pickRules(rulesRows, clinicTag, doctorCode, day);
-          var interval = Number(rules.slot_interval) || 15;
+          var interval = Number(sessions.slot_interval) || Number(rules.slot_interval) || ONLINE_BOOK_DEFAULTS.slot_interval;
           var candidates = generateSessionSlots(sessions, interval, duration, sessionFilter, date);
           if (!candidates.length) {
             candidates = generateCandidateSlots(rules, duration);

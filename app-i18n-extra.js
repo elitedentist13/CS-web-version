@@ -889,6 +889,31 @@
         'webbook.roster.loading': { en: 'Loading…', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
         'webbook.roster.loadErr': { en: 'Could not load roster.', 'zh-CN': '无法加载排班。', 'zh-Hant': '無法載入排班。' },
         'webbook.roster.saveErr': { en: 'Save failed.', 'zh-CN': '保存失败。', 'zh-Hant': '儲存失敗。' },
+        'webbook.roster.sessionSettingsTitle': {
+            en: 'Session times & slot interval',
+            'zh-CN': '时段与预约间隔',
+            'zh-Hant': '時段與預約間隔'
+        },
+        'webbook.roster.sessionSettingsSub': {
+            en: 'Per clinic + doctor. Defaults shown until you save a custom setup.',
+            'zh-CN': '按诊所及医生个别设定。未储存前显示系统默认值。',
+            'zh-Hant': '按診所及醫生個別設定。未儲存前顯示系統預設值。'
+        },
+        'webbook.roster.sessionSettingsHint': {
+            en: 'Saved with roster below. Patient booking page uses these windows for available time slots.',
+            'zh-CN': '与下方排班一并保存。病人网上预约页会按此时段产生可选时间。',
+            'zh-Hant': '與下方排班一併儲存。病人網上預約頁會按此時段產生可選時間。'
+        },
+        'webbook.roster.timeStart': { en: 'Start', 'zh-CN': '开始', 'zh-Hant': '開始' },
+        'webbook.roster.timeEnd': { en: 'End', 'zh-CN': '结束', 'zh-Hant': '結束' },
+        'webbook.roster.pmEndWeekday': { en: 'End (weekday)', 'zh-CN': '结束（平日）', 'zh-Hant': '結束（平日）' },
+        'webbook.roster.pmEndWeekend': { en: 'End (Sat/Sun & PH)', 'zh-CN': '结束（六日及公众假期）', 'zh-Hant': '結束（六日及公眾假期）' },
+        'webbook.roster.slotInterval': { en: 'Appointment interval', 'zh-CN': '预约间隔', 'zh-Hant': '預約間隔' },
+        'webbook.roster.sessionTimeInvalid': {
+            en: '{PERIOD}: start time must be before end time.',
+            'zh-CN': '{PERIOD}：开始时间必须早于结束时间。',
+            'zh-Hant': '{PERIOD}：開始時間必須早於結束時間。'
+        },
         'appt.queueHead': { en: '🏥 Current Queue', 'zh-CN': '🏥 当前队列', 'zh-Hant': '🏥 目前候診' },
         'appt.queueHint': {
             en: 'Drag rows to reorder who goes in to see the doctor (order is saved). Double-click a row (outside buttons) to edit patient information.',

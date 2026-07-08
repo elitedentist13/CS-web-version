@@ -71,7 +71,7 @@ create table if not exists public.online_booking_rules (
     end_time time not null default '19:00',
     lunch_start time default '13:00',
     lunch_end time default '15:00',
-    slot_interval int default 15,
+    slot_interval int default 30,
     default_duration int default 30,
     lead_time_hours int default 2,
     max_days_ahead int default 60,

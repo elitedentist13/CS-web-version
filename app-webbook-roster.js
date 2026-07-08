@@ -16,6 +16,145 @@ var WEBBOOK_ROSTER = (function () {
     var DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
     var SESSION_KEYS = ['am', 'pm', 'night'];
 
+    var SESSION_TIME_DEFAULTS = {
+        am_start: '10:00',
+        am_end: '13:00',
+        pm_start: '14:30',
+        pm_end: '19:30',
+        pm_end_weekend: '18:30',
+        night_start: '21:00',
+        night_end: '23:30',
+        slot_interval: 30
+    };
+
+    var SESSION_TIME_INPUT_IDS = [
+        'wbrAmStart', 'wbrAmEnd', 'wbrPmStart', 'wbrPmEnd', 'wbrPmEndWeekend',
+        'wbrNightStart', 'wbrNightEnd'
+    ];
+
+    function sliceTime(raw, fallback) {
+        if (raw === null || raw === undefined || raw === '') return fallback;
+        return String(raw).slice(0, 5);
+    }
+
+    function timeInputVal(id, fallback) {
+        var el = g(id);
+        if (!el || !el.value) return fallback || '';
+        return String(el.value).slice(0, 5);
+    }
+
+    function timeToMinutes(t) {
+        var p = String(t || '').split(':');
+        return parseInt(p[0], 10) * 60 + parseInt(p[1] || '0', 10);
+    }
+
+    function setSessionLabel(id, text) {
+        var el = g(id);
+        if (el) el.textContent = text;
+    }
+
+    function updateSessionTimeLabels() {
+        var amS = timeInputVal('wbrAmStart', SESSION_TIME_DEFAULTS.am_start);
+        var amE = timeInputVal('wbrAmEnd', SESSION_TIME_DEFAULTS.am_end);
+        var pmS = timeInputVal('wbrPmStart', SESSION_TIME_DEFAULTS.pm_start);
+        var pmE = timeInputVal('wbrPmEnd', SESSION_TIME_DEFAULTS.pm_end);
+        var nS = timeInputVal('wbrNightStart', SESSION_TIME_DEFAULTS.night_start);
+        var nE = timeInputVal('wbrNightEnd', SESSION_TIME_DEFAULTS.night_end);
+        setSessionLabel('wbrLblAm', amS + '–' + amE);
+        setSessionLabel('wbrLblPm', pmS + '–' + pmE + '*');
+        setSessionLabel('wbrLblNight', nS + '–' + nE);
+        setSessionLabel('wbrLblManAm', amS + '–' + amE);
+        setSessionLabel('wbrLblManPm', pmS + '–' + pmE + '*');
+        setSessionLabel('wbrLblManNight', nS + '–' + nE);
+    }
+
+    function applySessionTimeDefaults() {
+        var map = {
+            wbrAmStart: SESSION_TIME_DEFAULTS.am_start,
+            wbrAmEnd: SESSION_TIME_DEFAULTS.am_end,
+            wbrPmStart: SESSION_TIME_DEFAULTS.pm_start,
+            wbrPmEnd: SESSION_TIME_DEFAULTS.pm_end,
+            wbrPmEndWeekend: SESSION_TIME_DEFAULTS.pm_end_weekend,
+            wbrNightStart: SESSION_TIME_DEFAULTS.night_start,
+            wbrNightEnd: SESSION_TIME_DEFAULTS.night_end
+        };
+        Object.keys(map).forEach(function (id) {
+            var el = g(id);
+            if (el) el.value = map[id];
+        });
+        var interval = g('wbrSlotInterval');
+        if (interval) interval.value = String(SESSION_TIME_DEFAULTS.slot_interval);
+        updateSessionTimeLabels();
+    }
+
+    function applySessionTimesFromProfile(prof) {
+        if (!prof) {
+            applySessionTimeDefaults();
+            return;
+        }
+        var el;
+        el = g('wbrAmStart');
+        if (el) el.value = sliceTime(prof.session_am_start, SESSION_TIME_DEFAULTS.am_start);
+        el = g('wbrAmEnd');
+        if (el) el.value = sliceTime(prof.session_am_end, SESSION_TIME_DEFAULTS.am_end);
+        el = g('wbrPmStart');
+        if (el) el.value = sliceTime(prof.session_pm_start, SESSION_TIME_DEFAULTS.pm_start);
+        el = g('wbrPmEnd');
+        if (el) el.value = sliceTime(prof.session_pm_end, SESSION_TIME_DEFAULTS.pm_end);
+        el = g('wbrPmEndWeekend');
+        if (el) el.value = sliceTime(prof.session_pm_end_weekend, SESSION_TIME_DEFAULTS.pm_end_weekend);
+        el = g('wbrNightStart');
+        if (el) el.value = sliceTime(prof.session_night_start, SESSION_TIME_DEFAULTS.night_start);
+        el = g('wbrNightEnd');
+        if (el) el.value = sliceTime(prof.session_night_end, SESSION_TIME_DEFAULTS.night_end);
+        el = g('wbrSlotInterval');
+        if (el) {
+            var iv = parseInt(prof.slot_interval, 10);
+            el.value = String([15, 30, 45, 60].indexOf(iv) >= 0 ? iv : SESSION_TIME_DEFAULTS.slot_interval);
+        }
+        updateSessionTimeLabels();
+    }
+
+    function collectSessionSettingsPayload() {
+        var iv = parseInt(g('wbrSlotInterval') ? g('wbrSlotInterval').value : '30', 10);
+        if ([15, 30, 45, 60].indexOf(iv) < 0) iv = SESSION_TIME_DEFAULTS.slot_interval;
+        return {
+            session_am_start: timeInputVal('wbrAmStart', SESSION_TIME_DEFAULTS.am_start),
+            session_am_end: timeInputVal('wbrAmEnd', SESSION_TIME_DEFAULTS.am_end),
+            session_pm_start: timeInputVal('wbrPmStart', SESSION_TIME_DEFAULTS.pm_start),
+            session_pm_end: timeInputVal('wbrPmEnd', SESSION_TIME_DEFAULTS.pm_end),
+            session_pm_end_weekend: timeInputVal('wbrPmEndWeekend', SESSION_TIME_DEFAULTS.pm_end_weekend),
+            session_night_start: timeInputVal('wbrNightStart', SESSION_TIME_DEFAULTS.night_start),
+            session_night_end: timeInputVal('wbrNightEnd', SESSION_TIME_DEFAULTS.night_end),
+            slot_interval: iv
+        };
+    }
+
+    function validateSessionSettings() {
+        var pairs = [
+            { start: timeInputVal('wbrAmStart', SESSION_TIME_DEFAULTS.am_start),
+              end: timeInputVal('wbrAmEnd', SESSION_TIME_DEFAULTS.am_end),
+              label: tr('webbook.roster.sessAm', 'AM') },
+            { start: timeInputVal('wbrPmStart', SESSION_TIME_DEFAULTS.pm_start),
+              end: timeInputVal('wbrPmEnd', SESSION_TIME_DEFAULTS.pm_end),
+              label: tr('webbook.roster.sessPm', 'PM') + ' (' + tr('webbook.roster.pmEndWeekday', 'weekday') + ')' },
+            { start: timeInputVal('wbrPmStart', SESSION_TIME_DEFAULTS.pm_start),
+              end: timeInputVal('wbrPmEndWeekend', SESSION_TIME_DEFAULTS.pm_end_weekend),
+              label: tr('webbook.roster.sessPm', 'PM') + ' (' + tr('webbook.roster.pmEndWeekend', 'weekend') + ')' },
+            { start: timeInputVal('wbrNightStart', SESSION_TIME_DEFAULTS.night_start),
+              end: timeInputVal('wbrNightEnd', SESSION_TIME_DEFAULTS.night_end),
+              label: tr('webbook.roster.sessNight', 'Night') }
+        ];
+        for (var i = 0; i < pairs.length; i++) {
+            var row = pairs[i];
+            if (timeToMinutes(row.start) >= timeToMinutes(row.end)) {
+                return trRepl('webbook.roster.sessionTimeInvalid', { PERIOD: row.label },
+                    row.label + ': start must be before end.');
+            }
+        }
+        return '';
+    }
+
     function defaultSessions() {
         return { am: true, pm: true, night: false };
     }
@@ -32,6 +171,16 @@ var WEBBOOK_ROSTER = (function () {
             if (v && v !== key) return v;
         }
         return fallback || key;
+    }
+
+    function trRepl(key, vars, fallback) {
+        var s = tr(key, fallback);
+        if (vars) {
+            Object.keys(vars).forEach(function (k) {
+                s = s.split('{' + k + '}').join(String(vars[k]));
+            });
+        }
+        return s;
     }
 
     function pad(n) { return String(n).padStart(2, '0'); }
@@ -252,6 +401,7 @@ var WEBBOOK_ROSTER = (function () {
         if (!clinic || !doctor || typeof SB === 'undefined') return;
 
         clearPatternGrid();
+        applySessionTimeDefaults();
         _manualDates = {};
         _manualSelected = '';
         hideManualSessions();
@@ -279,6 +429,7 @@ var WEBBOOK_ROSTER = (function () {
             var dates = parts[2].data || [];
 
             _mode = (prof && prof.mode === 'manual') ? 'manual' : 'pattern';
+            applySessionTimesFromProfile(prof);
 
             var anchor = g('wbrAnchor');
             if (anchor && prof && prof.anchor_date) anchor.value = String(prof.anchor_date).slice(0, 10);
@@ -335,6 +486,12 @@ var WEBBOOK_ROSTER = (function () {
         var doctor = g('wbrDoctor') ? g('wbrDoctor').value : '';
         if (!clinic || !doctor || typeof SB === 'undefined') return;
 
+        var timeErr = validateSessionSettings();
+        if (timeErr) {
+            alert(timeErr);
+            return;
+        }
+
         if (patternHasContent() && manualHasContent()) {
             var warn = tr(
                 'webbook.roster.saveBothWarn',
@@ -349,13 +506,13 @@ var WEBBOOK_ROSTER = (function () {
         if (btn) btn.disabled = true;
         if (status) status.textContent = tr('webbook.roster.saving', 'Saving…');
 
-        var profPayload = {
+        var profPayload = Object.assign({
             clinic_tag: clinic,
             doctor_code: doctor,
             mode: _mode,
             anchor_date: anchor || todayIso(),
             updated_at: new Date().toISOString()
-        };
+        }, collectSessionSettingsPayload());
 
         var patternRows = [];
         if (_mode === 'pattern') {
@@ -638,6 +795,14 @@ var WEBBOOK_ROSTER = (function () {
         var doctor = g('wbrDoctor');
         if (clinic) clinic.addEventListener('change', function () { fillDoctorSelect(); loadRoster(); });
         if (doctor) doctor.addEventListener('change', loadRoster);
+
+        SESSION_TIME_INPUT_IDS.forEach(function (id) {
+            var el = g(id);
+            if (el) el.addEventListener('change', updateSessionTimeLabels);
+            if (el) el.addEventListener('input', updateSessionTimeLabels);
+        });
+        var slotIv = g('wbrSlotInterval');
+        if (slotIv) slotIv.addEventListener('change', updateSessionTimeLabels);
 
         var save = g('wbrSaveBtn');
         if (save) save.addEventListener('click', saveRoster);

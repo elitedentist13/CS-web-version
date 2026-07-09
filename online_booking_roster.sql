@@ -9,7 +9,7 @@ create table if not exists public.online_booking_roster_profile (
     doctor_code text not null,
     mode text not null default 'pattern' check (mode in ('pattern', 'manual')),
     anchor_date date default current_date,
-    session_am_start time default '10:00',
+    session_am_start time default '10:30',
     session_am_end time default '13:00',
     session_pm_start time default '14:30',
     session_pm_end time default '19:30',
@@ -26,7 +26,7 @@ comment on column public.online_booking_roster_profile.mode is 'pattern = weekly
 comment on column public.online_booking_roster_profile.anchor_date is 'Monday-containing week that starts Week A (for alternate weekdays)';
 
 alter table public.online_booking_roster_profile
-    add column if not exists session_am_start time default '10:00',
+    add column if not exists session_am_start time default '10:30',
     add column if not exists session_am_end time default '13:00',
     add column if not exists session_pm_start time default '14:30',
     add column if not exists session_pm_end time default '19:30',
@@ -193,7 +193,7 @@ begin
 end;
 $$;
 
--- ── Sessions for a duty date (defaults: AM 10:00–13:00, PM 14:30–19:30 / 18:30 weekend & PH, Night 21:00–23:30) ─
+-- ── Sessions for a duty date (defaults: AM 10:30–13:00, PM 14:30–19:30 / 18:30 weekend & PH, Night 21:00–23:30) ─
 
 create or replace function public.ob_is_weekend_or_red_holiday(p_date date)
 returns boolean
@@ -237,7 +237,7 @@ declare
     v_clinic text := nullif(trim(p_clinic_tag), '');
     v_doctor text := nullif(trim(p_doctor_code), '');
     v_prof record;
-    v_am_start time := time '10:00';
+    v_am_start time := time '10:30';
     v_am_end time := time '13:00';
     v_pm_start time := time '14:30';
     v_pm_end time := time '19:30';
@@ -389,7 +389,7 @@ declare
     v_dur int := coalesce(nullif(p_duration, 0), 30);
     v_am_start time := coalesce(
         nullif(left(coalesce(p_sessions->>'am_start', ''), 5), '')::time,
-        time '10:00'
+        time '10:30'
     );
     v_am_end time := coalesce(
         nullif(left(coalesce(p_sessions->>'am_end', ''), 5), '')::time,

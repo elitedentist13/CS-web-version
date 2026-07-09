@@ -643,6 +643,20 @@ var WEBBOOK = (function () {
         if (_bound) return;
         _bound = true;
 
+        var helpLink = g('wbHelpLink');
+        if (helpLink && !helpLink.dataset.wbHelpBound) {
+            helpLink.dataset.wbHelpBound = '1';
+            helpLink.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                window.open(
+                    'https://drive.google.com/file/d/13AIL_yjDCwCpRmGgoxpqf4yJzM67p-kz/view?usp=sharing',
+                    '_blank',
+                    'noopener,noreferrer'
+                );
+            });
+        }
+
         var refreshBtn = g('wbRefreshBtn');
         if (refreshBtn) refreshBtn.addEventListener('click', function () { loadList(); });
 

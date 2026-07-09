@@ -17,7 +17,7 @@ var WEBBOOK_ROSTER = (function () {
     var SESSION_KEYS = ['am', 'pm', 'night'];
 
     var SESSION_TIME_DEFAULTS = {
-        am_start: '10:00',
+        am_start: '10:30',
         am_end: '13:00',
         pm_start: '14:30',
         pm_end: '19:30',
@@ -556,6 +556,7 @@ var WEBBOOK_ROSTER = (function () {
         var savedMsg = _mode === 'pattern'
             ? tr('webbook.roster.savedPattern', 'Weekly pattern saved. Manual dates cleared.')
             : tr('webbook.roster.savedManual', 'Manual dates saved. Weekly pattern cleared.');
+        savedMsg += ' ' + tr('webbook.roster.savedSessionSettings', 'Session times and interval saved.');
 
         SB.from('online_booking_roster_profile').upsert([profPayload], { onConflict: 'clinic_tag,doctor_code' })
             .then(function () {

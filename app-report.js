@@ -24,6 +24,10 @@ var REPORT = (function () {
   var _drMonthlyMonth = null; // YYYY-MM
   var _drMonthlyDoctorId = null;
   var _drMonthlyMode = 'simple'; // simple | detail | treatmentStats
+  var _drMonthlyIncomeExport = null; // { meta, rows } for Clinic Income CSV layout
+  var _drDailyIncomeExport = null; // { meta, rows } for Dr Daily Doctor Income Report
+  var _dailySummaryIncomeExport = null; // { meta, rows } for Daily Summary monthly Clinic Income layout
+  var _clinicIncomeDetailExport = null; // { meta, rows } for Clinic Income detail transaction layout
   var _reportTabsWired = false;
   var _reportDateInputsWired = false;
   var _auditFilterItem = '';
@@ -1883,6 +1887,18 @@ var REPORT = (function () {
       exportDailySummaryCsvFormatted();
       return;
     }
+    if (_tab === 'drMonthly' && _drMonthlyMode === 'simple') {
+      exportDrMonthlyIncomeCsv();
+      return;
+    }
+    if (_tab === 'drDaily') {
+      exportDrDailyDoctorIncomeExcel(_drDailyIncomeExport);
+      return;
+    }
+    if (_tab === 'drMonthly' && _drMonthlyMode === 'detail') {
+      exportClinicIncomeDetailExcel(_clinicIncomeDetailExport, 'dr_monthly_income_', { includeDoctor: true });
+      return;
+    }
     if (!_rows || !_rows.length) {
       alert(tr('report.alert.exportNoData'));
       return;
@@ -1892,18 +1908,13 @@ var REPORT = (function () {
       alert(tr('report.alert.exportNoData'));
       return;
     }
-    var csv = keys.join(',') + '\n' + _rows.map(function (r) {
-      return keys.map(function (k) {
-        var v = (r[k] === null || r[k] === undefined) ? '' : r[k];
-        return '"' + String(v).replace(/"/g, '""') + '"';
-      }).join(',');
-    }).join('\n');
+    var columns = keys.map(function (k) { return { key: k, label: k }; });
     var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
     var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : from;
     var range = normalizeReportDateRange(from, to);
     var fname = (_tab || 'report') + '_' + range.from;
     if (range.to !== range.from) fname += '_to_' + range.to;
-    downloadCsvUtf8(fname + '.csv', csv);
+    downloadReportExcel(fname, columns, _rows);
   }
 
   function groupSumBy(rows, keyFn, valueFn) {
@@ -2461,20 +2472,287 @@ var REPORT = (function () {
     '</div>';
   }
 
-  function downloadCSV(filename, columns, rows) {
+  function reportExportFilename(name) {
+    return String(name || 'report').replace(/\.(csv|xls|xlsx)$/i, '') + '.xlsx';
+  }
+
+  var _reportXlsxLibPromise = null;
+  var _reportXlsxStyled = false;
+
+  function loadReportXlsxLib() {
+    if (_reportXlsxStyled && typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile) {
+      return Promise.resolve(XLSX);
+    }
+    if (!_reportXlsxLibPromise || !_reportXlsxStyled) {
+      _reportXlsxLibPromise = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js';
+        s.async = true;
+        s.onload = function () {
+          if (typeof XLSX !== 'undefined' && XLSX.utils && XLSX.writeFile) {
+            _reportXlsxStyled = true;
+            resolve(XLSX);
+          } else {
+            reject(new Error('XLSX library failed to initialize'));
+          }
+        };
+        s.onerror = function () { reject(new Error('Failed to load XLSX library')); };
+        document.head.appendChild(s);
+      });
+    }
+    return _reportXlsxLibPromise;
+  }
+
+  function reportExcelBaseCellStyle(extra) {
+    var base = {
+      font: { name: 'Calibri', sz: 11, color: { rgb: '000000' } },
+      alignment: { vertical: 'top', wrapText: false }
+    };
+    if (!extra) return base;
+    if (extra.font) extra.font = Object.assign({}, base.font, extra.font);
+    if (extra.alignment) extra.alignment = Object.assign({}, base.alignment, extra.alignment);
+    return Object.assign({}, base, extra);
+  }
+
+  function applyReportExcelSheetStyles(ws, sheetData) {
+    if (!ws || !sheetData) return;
+    var headerRow = sheetData.headerRowIndex;
+    var colCount = sheetData.colCount || 0;
+    var prefaceCount = sheetData.prefaceCount || 0;
+    var numericCols = sheetData.numericColIndices || [];
+    var numericColFormats = sheetData.numericColFormats || {};
+    var aoa = sheetData.aoa || [];
+    var r;
+    var c;
+    var addr;
+    var cell;
+
+    if (prefaceCount > 0) {
+      addr = XLSX.utils.encode_cell({ r: 0, c: 0 });
+      cell = ws[addr];
+      if (cell) {
+        cell.s = reportExcelBaseCellStyle({ font: { bold: true } });
+      }
+    }
+
+    if (headerRow >= 0) {
+      var headerBorderStyle = sheetData.headerBottomBorder || 'thin';
+      for (c = 0; c < colCount; c++) {
+        addr = XLSX.utils.encode_cell({ r: headerRow, c: c });
+        cell = ws[addr];
+        if (!cell) continue;
+        cell.s = reportExcelBaseCellStyle({
+          font: { bold: true },
+          border: { bottom: { style: headerBorderStyle, color: { rgb: '000000' } } }
+        });
+      }
+    }
+
+    (sheetData.columnHeaderRows || []).forEach(function (rowIdx) {
+      var colHeaderBorder = sheetData.headerBottomBorder || 'thin';
+      for (c = 0; c < colCount; c++) {
+        addr = XLSX.utils.encode_cell({ r: rowIdx, c: c });
+        cell = ws[addr];
+        if (!cell) continue;
+        cell.s = reportExcelBaseCellStyle({
+          font: { bold: true },
+          border: { bottom: { style: colHeaderBorder, color: { rgb: '000000' } } }
+        });
+      }
+    });
+
+    (sheetData.sectionHeaderRows || []).forEach(function (rowIdx) {
+      addr = XLSX.utils.encode_cell({ r: rowIdx, c: 0 });
+      cell = ws[addr];
+      if (cell) {
+        cell.s = reportExcelBaseCellStyle({ font: { bold: true } });
+      }
+    });
+
+    (sheetData.boldRows || []).forEach(function (rowIdx) {
+      for (c = 0; c < colCount; c++) {
+        addr = XLSX.utils.encode_cell({ r: rowIdx, c: c });
+        cell = ws[addr];
+        if (!cell) continue;
+        var existing = cell.s || reportExcelBaseCellStyle();
+        cell.s = reportExcelBaseCellStyle(Object.assign({}, existing, {
+          font: Object.assign({}, (existing.font || {}), { bold: true })
+        }));
+      }
+    });
+
+    var styledSkipRows = {};
+    (sheetData.columnHeaderRows || []).forEach(function (i) { styledSkipRows[i] = true; });
+    (sheetData.sectionHeaderRows || []).forEach(function (i) { styledSkipRows[i] = true; });
+
+    for (r = headerRow + 1; r < aoa.length; r++) {
+      if (styledSkipRows[r]) continue;
+      numericCols.forEach(function (colIdx) {
+        addr = XLSX.utils.encode_cell({ r: r, c: colIdx });
+        cell = ws[addr];
+        if (!cell || cell.v === '' || cell.v === null || cell.v === undefined) return;
+        var fmt = numericColFormats[colIdx] || '#,##0.00';
+        cell.s = reportExcelBaseCellStyle({
+          alignment: { horizontal: 'right' },
+          numFmt: typeof cell.v === 'number' ? fmt : undefined
+        });
+      });
+    }
+
+    ws['!views'] = [{ showGridLines: true }];
+  }
+
+  function reportExcelColWidthChars(px) {
+    return Math.max(8, Math.round(Number(px || 140) / 7));
+  }
+
+  function buildReportExcelAoA(opts) {
+    opts = opts || {};
+    var preface = opts.prefaceRows || [];
+    var columns = opts.columns || [];
+    var rows = opts.rows || [];
+    var keys = columns.map(function (c) { return c.key; });
+    var labels = columns.map(function (c) { return c.label; });
+    var colCount = Math.max(columns.length, 1);
+    var colWidths = columns.map(function (c, i) {
+      if (opts.colWidths && opts.colWidths[i]) return opts.colWidths[i];
+      return reportExcelColWidth(c.key, c.label);
+    });
+    var numericKeys = {};
+    keys.forEach(function (k) {
+      if (isReportExcelNumericKey(k)) numericKeys[k] = true;
+    });
+    (opts.numericKeys || []).forEach(function (k) { numericKeys[k] = true; });
+
+    function cellVal(v, key) {
+      if (v === null || v === undefined || v === '') return '';
+      if (numericKeys[key]) {
+        var n = Number(v);
+        if (!isNaN(n)) return n;
+      }
+      return String(v);
+    }
+
+    function blankRow() {
+      var r = [];
+      for (var i = 0; i < colCount; i++) r.push('');
+      return r;
+    }
+
+    var aoa = [];
+    var merges = [];
+    var headerRowIndex = -1;
+
+    preface.forEach(function (line) {
+      var r = blankRow();
+      r[0] = String(line || '');
+      merges.push({ s: { r: aoa.length, c: 0 }, e: { r: aoa.length, c: colCount - 1 } });
+      aoa.push(r);
+    });
+    if (preface.length) aoa.push(blankRow());
+
+    var skipGlobalHeader = !!opts.skipGlobalHeader;
+    var sectionHeaderRows = [];
+    var columnHeaderRows = [];
+    var boldRows = [];
+
+    if (!skipGlobalHeader) {
+      headerRowIndex = aoa.length;
+      aoa.push(labels.slice());
+    }
+
+    rows.forEach(function (row) {
+      var rowMeta = (typeof opts.rowMeta === 'function') ? (opts.rowMeta(row) || {}) : {};
+      if (row._type === 'columnHeader' || rowMeta.columnHeader) {
+        columnHeaderRows.push(aoa.length);
+      }
+      if (row._type === 'doctorSection' || rowMeta.sectionHeader) {
+        sectionHeaderRows.push(aoa.length);
+        if (colCount > 1) {
+          merges.push({ s: { r: aoa.length, c: 0 }, e: { r: aoa.length, c: colCount - 1 } });
+        }
+      }
+      if (rowMeta.bold || row._type === 'total') {
+        boldRows.push(aoa.length);
+      }
+      aoa.push(keys.map(function (k, i) {
+        var v = cellVal(row[k], k);
+        if (rowMeta.indentCol === i && v) v = '  ' + String(v);
+        return v;
+      }));
+    });
+
+    var numericColIndices = [];
+    var numericColFormats = {};
+    keys.forEach(function (k, i) {
+      if (!numericKeys[k]) return;
+      numericColIndices.push(i);
+      numericColFormats[i] = (k === 'tx_count') ? '0' : '#,##0.00';
+    });
+
+    return {
+      aoa: aoa,
+      colWidths: colWidths,
+      merges: merges,
+      headerRowIndex: headerRowIndex,
+      colCount: colCount,
+      prefaceCount: preface.length,
+      numericColIndices: numericColIndices,
+      numericColFormats: numericColFormats,
+      sectionHeaderRows: sectionHeaderRows,
+      columnHeaderRows: columnHeaderRows,
+      boldRows: boldRows,
+      headerBottomBorder: opts.headerBottomBorder || 'thin'
+    };
+  }
+
+  function downloadReportExcelWorkbook(filename, sheetData) {
+    var ws = XLSX.utils.aoa_to_sheet(sheetData.aoa);
+    if (sheetData.merges && sheetData.merges.length) ws['!merges'] = sheetData.merges;
+    ws['!cols'] = (sheetData.colWidths || []).map(function (w) {
+      return { wch: reportExcelColWidthChars(w) };
+    });
+    applyReportExcelSheetStyles(ws, sheetData);
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    XLSX.writeFile(wb, reportExportFilename(filename), { bookType: 'xlsx', compression: true, cellStyles: true });
+  }
+
+  function downloadReportExcel(filename, columns, rows, opts) {
     if (!rows || !rows.length) {
       alert(tr('report.alert.exportNoData'));
       return;
     }
-    var keys = columns.map(function (c) { return c.key; });
-    var header = columns.map(function (c) { return c.label; }).join(',');
-    var csv = header + '\n' + rows.map(function (r) {
-      return keys.map(function (k) {
-        var v = (r[k] === null || r[k] === undefined) ? '' : r[k];
-        return '"' + String(v).replace(/"/g, '""') + '"';
-      }).join(',');
-    }).join('\n');
-    downloadCsvUtf8(filename, csv);
+    var sheetData = buildReportExcelAoA(Object.assign({ columns: columns, rows: rows }, opts || {}));
+    loadReportXlsxLib().then(function () {
+      downloadReportExcelWorkbook(filename, sheetData);
+    }).catch(function (e) {
+      alert(trRepl('report.alert.exportFailed', { MSG: e.message || String(e) }));
+    });
+  }
+
+  function reportExcelColWidth(key, label) {
+    var k = String(key || '').toLowerCase();
+    if (k.indexOf('remark') >= 0 || k.indexOf('item') >= 0 || k.indexOf('treatment') >= 0) return 240;
+    if (k.indexOf('chinese') >= 0 || k.indexOf('english') >= 0 || k.indexOf('patient_name') >= 0) return 180;
+    if (k.indexOf('patient') >= 0 || k.indexOf('doctor') >= 0) return 160;
+    if (k.indexOf('date') >= 0 || k.indexOf('month') >= 0 || k.indexOf('week') >= 0) return 150;
+    if (k.indexOf('method') >= 0 || k.indexOf('account') >= 0) return 150;
+    if (k.indexOf('paid') >= 0 || k.indexOf('total') >= 0 || k.indexOf('amount') >= 0 || k.indexOf('balance') >= 0 || k.indexOf('income') >= 0) return 120;
+    if (k.indexOf('freq') >= 0 || k.indexOf('count') >= 0 || k.indexOf('bills') >= 0) return 110;
+    if (String(label || '').length > 12) return 160;
+    return 140;
+  }
+
+  function isReportExcelNumericKey(key) {
+    var k = String(key || '').toLowerCase();
+    if (k === 'payment_method' || k === 'method' || k === 'account') return false;
+    return /(^|_)(paid|total|amount|balance|income|value|freq|frequency|bills?|count|tx_count)(_|$)/.test(k) ||
+      k === 'paid' || k === 'total' || k === 'amount' || k === 'balance' || k === 'income';
+  }
+
+  function downloadCSV(filename, columns, rows) {
+    downloadReportExcel(filename, columns, rows);
   }
 
   function showChartColumn(show) {
@@ -2945,6 +3223,1196 @@ var REPORT = (function () {
     return iso(d);
   }
 
+  var DR_MONTHLY_ENGLISH_MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  function drMonthlyEnglishMonthName(monthIdx) {
+    return DR_MONTHLY_ENGLISH_MONTHS[monthIdx] || DR_MONTHLY_ENGLISH_MONTHS[0];
+  }
+
+  function formatDrMonthlyLongDate(isoDate) {
+    var d = parseDateToLocal(isoDate);
+    if (!d || isNaN(d.getTime())) return String(isoDate || '');
+    var day = String(d.getDate()).padStart(2, '0');
+    return day + ' ' + drMonthlyEnglishMonthName(d.getMonth()) + ' ' + d.getFullYear();
+  }
+
+  function formatDrMonthlyMonthTitle(yyyyMm) {
+    var m = /^(\d{4})-(\d{2})$/.exec(String(yyyyMm || ''));
+    if (!m) return String(yyyyMm || '');
+    return drMonthlyEnglishMonthName(+m[2] - 1) + ' ' + m[1];
+  }
+
+  function enumerateMonthDays(yyyyMm) {
+    var days = [];
+    var cur = parseDateToLocal(String(yyyyMm || '') + '-01');
+    var end = parseDateToLocal(monthEndISO(yyyyMm));
+    if (!cur || !end || isNaN(cur.getTime()) || isNaN(end.getTime())) return days;
+    while (cur.getTime() <= end.getTime()) {
+      days.push(iso(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return days;
+  }
+
+  /** Legacy Clinic Income Report account labels (VISA, MASTER, EPS, …). */
+  function drMonthlyAccountLabel(method) {
+    var s = String(method || '').trim();
+    if (!s) return '';
+    var lk = s.toLowerCase().replace(/\s+/g, ' ');
+    if (lk === 'mastercard' || lk === 'master' || lk === 'master card') return 'MASTER';
+    if (lk === 'visa' || lk === 'visa card') return 'VISA';
+    if (lk === 'union pay' || lk === 'unionpay' || lk === 'union-pay') return 'UNION PAY';
+    if (lk === 'cash') return 'CASH';
+    if (lk === 'eps') return 'EPS';
+    if (lk === 'octopus') return 'OCTOPUS';
+    if (lk === 'alipay') return 'ALIPAY';
+    if (lk === 'wechat pay' || lk === 'wechat') return 'WECHAT PAY';
+    if (lk === 'hkbc') return 'HKBC';
+    if (lk === 'cheque') return 'CHEQUE';
+    if (lk === 'bank transfer') return 'BANK TRANSFER';
+    return s.toUpperCase();
+  }
+
+  function drMonthlyAmountPlain(n) {
+    return Number(n || 0).toFixed(2);
+  }
+
+  function drMonthlyAmountDisplay(n) {
+    if (typeof fmt2 === 'function') return fmt2(n);
+    return drMonthlyAmountPlain(n);
+  }
+
+  function buildDrMonthlyIncomeReportData(slices, yyyyMm, opts) {
+    opts = opts || {};
+    var byDay = {};
+    var monthByMethod = {};
+    var grandTotal = 0;
+
+    (slices || []).forEach(function (s) {
+      var d = s.paid_date;
+      if (!d) return;
+      var amt = Number(s.amount || 0);
+      if (amt <= 0.005) return;
+      var acct = drMonthlyAccountLabel(s.method);
+      if (!acct) return;
+      if (!byDay[d]) byDay[d] = { bills: {}, methods: {} };
+      if (s.bill && s.bill.id) byDay[d].bills[s.bill.id] = true;
+      byDay[d].methods[acct] = (byDay[d].methods[acct] || 0) + amt;
+      monthByMethod[acct] = (monthByMethod[acct] || 0) + amt;
+      grandTotal += amt;
+    });
+
+    var displayRows = [];
+    var exportRows = [];
+    var days;
+    if (opts.singleDay) {
+      days = [opts.singleDay];
+    } else if (opts.from && opts.to) {
+      days = enumerateDateRange(opts.from, opts.to);
+    } else {
+      days = enumerateMonthDays(yyyyMm);
+    }
+
+    days.forEach(function (d) {
+      var dayData = byDay[d] || { bills: {}, methods: {} };
+      var txCount = Object.keys(dayData.bills).length;
+      var dayTotal = Object.keys(dayData.methods).reduce(function (sum, k) {
+        return sum + Number(dayData.methods[k] || 0);
+      }, 0);
+      var dateLabel = formatDrMonthlyLongDate(d);
+
+      displayRows.push({
+        date: dateLabel,
+        tx_count: String(txCount),
+        account: '',
+        amount: '',
+        total: drMonthlyAmountPlain(dayTotal),
+        _type: 'day'
+      });
+      exportRows.push({
+        date: dateLabel,
+        tx_count: String(txCount),
+        account: '',
+        amount: '',
+        total: drMonthlyAmountPlain(dayTotal),
+        _type: 'day'
+      });
+
+      if (!txCount) return;
+
+      Object.keys(dayData.methods).sort(function (a, b) {
+        return dayData.methods[b] - dayData.methods[a];
+      }).forEach(function (acct) {
+        var amt = dayData.methods[acct];
+        displayRows.push({
+          date: '',
+          tx_count: '',
+          account: acct,
+          amount: drMonthlyAmountPlain(amt),
+          total: '',
+          _type: 'method'
+        });
+        exportRows.push({
+          date: '',
+          tx_count: '',
+          account: acct,
+          amount: drMonthlyAmountPlain(amt),
+          total: '',
+          _type: 'method'
+        });
+      });
+    });
+
+    var grandLabel = tr('report.drMonthly.grandTotal');
+    displayRows.push({
+      date: '',
+      tx_count: '',
+      account: grandLabel,
+      amount: '',
+      total: drMonthlyAmountPlain(grandTotal),
+      _type: 'grand'
+    });
+    exportRows.push({
+      date: '',
+      tx_count: '',
+      account: grandLabel,
+      amount: '',
+      total: drMonthlyAmountPlain(grandTotal),
+      _type: 'grand'
+    });
+
+    Object.keys(monthByMethod).sort(function (a, b) {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    }).forEach(function (acct) {
+      displayRows.push({
+        date: '',
+        tx_count: '',
+        account: acct,
+        amount: drMonthlyAmountPlain(monthByMethod[acct]),
+        total: '',
+        _type: 'monthMethod'
+      });
+      exportRows.push({
+        date: '',
+        tx_count: '',
+        account: acct,
+        amount: drMonthlyAmountPlain(monthByMethod[acct]),
+        total: '',
+        _type: 'monthMethod'
+      });
+    });
+
+    return {
+      displayRows: displayRows,
+      exportRows: exportRows,
+      grandTotal: grandTotal,
+      monthByMethod: monthByMethod
+    };
+  }
+
+  function groupDrMonthlySlicesByDoctor(slices, doctors) {
+    var map = {};
+    (slices || []).forEach(function (s) {
+      var df = resolveBillDoctorFields(s.bill, doctors);
+      var key = df.doctor_key || df.doctor_display || '__unknown__';
+      if (!map[key]) {
+        map[key] = { doctorLabel: df.doctor_display, slices: [] };
+      }
+      map[key].slices.push(s);
+    });
+    return Object.keys(map).map(function (k) { return map[k]; }).sort(function (a, b) {
+      return String(a.doctorLabel || '').localeCompare(String(b.doctorLabel || ''));
+    });
+  }
+
+  function drMonthlyColumnHeaderRow() {
+    return {
+      date: tr('report.drMonthly.col.date'),
+      tx_count: tr('report.drMonthly.col.txCount'),
+      account: tr('report.drMonthly.col.account'),
+      amount: tr('report.drMonthly.col.amount'),
+      total: tr('report.drMonthly.col.total'),
+      _type: 'columnHeader'
+    };
+  }
+
+  function buildDrMonthlyIncomeReportDataForAllDoctors(slices, yyyyMm, doctors) {
+    var sections = groupDrMonthlySlicesByDoctor(slices, doctors).map(function (g) {
+      return {
+        doctorLabel: g.doctorLabel,
+        incomeData: buildDrMonthlyIncomeReportData(g.slices, yyyyMm)
+      };
+    });
+    var displayRows = [];
+    var exportRows = [];
+    sections.forEach(function (sec, idx) {
+      if (idx > 0) {
+        var gap = { date: '', tx_count: '', account: '', amount: '', total: '', _type: 'spacer' };
+        displayRows.push(gap);
+        exportRows.push(Object.assign({}, gap));
+      }
+      var colHeader = drMonthlyColumnHeaderRow();
+      var header = {
+        date: sec.doctorLabel,
+        tx_count: '',
+        account: '',
+        amount: '',
+        total: '',
+        _type: 'doctorSection'
+      };
+      displayRows.push(header);
+      exportRows.push(Object.assign({}, header));
+      displayRows.push(colHeader);
+      exportRows.push(Object.assign({}, colHeader));
+      displayRows = displayRows.concat(sec.incomeData.displayRows);
+      exportRows = exportRows.concat(sec.incomeData.exportRows.map(function (r) {
+        return Object.assign({}, r);
+      }));
+    });
+    return {
+      sections: sections,
+      displayRows: displayRows,
+      exportRows: exportRows,
+      grandTotal: sections.reduce(function (sum, sec) {
+        return sum + Number(sec.incomeData.grandTotal || 0);
+      }, 0)
+    };
+  }
+
+  function renderDrMonthlyIncomeReport(body, incomeData, clinicLabel, doctorLabel, month, allDoctors) {
+    if (!body) return;
+    var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;';
+    var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:top;';
+    var rowsHtml = (incomeData.displayRows || []).map(function (r) {
+      if (r._type === 'columnHeader') {
+        return '<tr>' +
+          '<th style="' + th + '">' + esc(r.date) + '</th>' +
+          '<th style="' + th + 'text-align:right;width:130px;">' + esc(r.tx_count) + '</th>' +
+          '<th style="' + th + 'width:180px;">' + esc(r.account) + '</th>' +
+          '<th style="' + th + 'text-align:right;width:140px;">' + esc(r.amount) + '</th>' +
+          '<th style="' + th + 'text-align:right;width:140px;">' + esc(r.total) + '</th>' +
+        '</tr>';
+      }
+      if (r._type === 'doctorSection') {
+        return '<tr><td colspan="5" style="padding:10px 10px 6px;font-weight:900;color:#1e40af;font-size:14px;">' +
+          esc(r.date || '') + '</td></tr>';
+      }
+      if (r._type === 'spacer') {
+        return '<tr><td colspan="5" style="height:10px;border:none;"></td></tr>';
+      }
+      var isMethod = r._type === 'method' || r._type === 'monthMethod';
+      var isGrand = r._type === 'grand';
+      var acctStyle = isMethod ? (td + 'padding-left:28px;color:#475569;font-weight:800;') : (td + (isGrand ? 'font-weight:900;color:#0f172a;' : ''));
+      var totalStyle = td + 'text-align:right;' + ((r._type === 'day' || isGrand) ? 'font-weight:900;color:#15803d;' : '');
+      var amountCell = r.amount ? drMonthlyAmountDisplay(r.amount) : '';
+      var totalCell = r.total ? drMonthlyAmountDisplay(r.total) : '';
+      return '<tr>' +
+        '<td style="' + td + (r.date ? 'font-weight:900;color:#0f172a;' : '') + '">' + esc(r.date) + '</td>' +
+        '<td style="' + td + 'text-align:right;">' + esc(r.tx_count) + '</td>' +
+        '<td style="' + acctStyle + '">' + esc(r.account) + '</td>' +
+        '<td style="' + td + 'text-align:right;' + (isMethod ? 'font-weight:800;color:#334155;' : '') + '">' + esc(amountCell) + '</td>' +
+        '<td style="' + totalStyle + '">' + esc(totalCell) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var metaLines =
+      '<div style="margin-bottom:12px;line-height:1.6;">' +
+        '<div style="font-size:16px;font-weight:900;color:#0f172a;">' + esc(tr('report.drMonthly.reportTitle')) + '</div>' +
+        '<div style="font-size:13px;color:#475569;">' + esc(tr('report.drMonthly.labelClinic')) + ': <strong>' + esc(clinicLabel || '—') + '</strong></div>' +
+        '<div style="font-size:13px;color:#475569;">' + esc(tr('report.ds.labelMonth')) + ': <strong>' + esc(formatDrMonthlyMonthTitle(month)) + '</strong></div>' +
+        (allDoctors
+          ? ('<div style="font-size:13px;color:#475569;">' + esc(tr('report.dr.labelDoctor')) + ': <strong>' + esc(tr('report.dr.allDoctors')) + '</strong></div>')
+          : (doctorLabel
+            ? ('<div style="font-size:13px;color:#475569;">' + esc(tr('report.dr.labelDoctor')) + ': <strong>' + esc(doctorLabel) + '</strong></div>')
+            : '')) +
+      '</div>';
+
+    var tableHead = allDoctors ? '' : (
+      '<thead><tr>' +
+        '<th style="' + th + '">' + esc(tr('report.drMonthly.col.date')) + '</th>' +
+        '<th style="' + th + 'text-align:right;width:130px;">' + esc(tr('report.drMonthly.col.txCount')) + '</th>' +
+        '<th style="' + th + 'width:180px;">' + esc(tr('report.drMonthly.col.account')) + '</th>' +
+        '<th style="' + th + 'text-align:right;width:140px;">' + esc(tr('report.drMonthly.col.amount')) + '</th>' +
+        '<th style="' + th + 'text-align:right;width:140px;">' + esc(tr('report.drMonthly.col.total')) + '</th>' +
+      '</tr></thead>'
+    );
+
+    body.innerHTML = metaLines +
+      '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
+        '<table style="width:100%;border-collapse:collapse;min-width:720px;">' +
+          tableHead +
+          '<tbody>' + rowsHtml + '</tbody>' +
+        '</table>' +
+      '</div>';
+  }
+
+  function exportClinicIncomeReportExcel(exportBundle, fnameBase, options) {
+    options = options || {};
+    if (!exportBundle || !exportBundle.rows || !exportBundle.rows.length) {
+      alert(tr('report.alert.exportNoData'));
+      return;
+    }
+    var meta = exportBundle.meta || {};
+    var columns = [
+      { key: 'date', label: tr('report.drMonthly.col.date') },
+      { key: 'tx_count', label: tr('report.drMonthly.col.txCount') },
+      { key: 'account', label: tr('report.drMonthly.col.account') },
+      { key: 'amount', label: tr('report.drMonthly.col.amount') },
+      { key: 'total', label: tr('report.drMonthly.col.total') }
+    ];
+    var preface = [
+      tr('report.drMonthly.reportTitle'),
+      trRepl('report.drMonthly.exportClinic', { C: meta.clinic || '' }),
+      trRepl('report.drMonthly.exportMonth', { M: meta.month || '' })
+    ];
+    if (options.includeDoctor && meta.doctor) {
+      preface.push(trRepl('report.drMonthly.exportDoctor', { D: meta.doctor }));
+    }
+    if (options.includeDoctor && meta.allDoctors) {
+      preface.push(trRepl('report.drMonthly.exportDoctor', { D: tr('report.dr.allDoctors') }));
+    }
+    var fname = meta.fileBase || (fnameBase + (meta.monthKey || meta.dateKey || monthKeyOf(todayISO())));
+    if (meta.doctorSlug) fname += '_' + meta.doctorSlug;
+    var grandLabel = tr('report.drMonthly.grandTotal');
+    downloadReportExcel(fname, columns, exportBundle.rows, {
+      prefaceRows: preface,
+      colWidths: [240, 140, 200, 140, 140],
+      numericKeys: ['tx_count', 'amount', 'total'],
+      skipGlobalHeader: !!meta.allDoctors,
+      rowMeta: function (r) {
+        if (r._type === 'columnHeader') return { columnHeader: true };
+        if (r._type === 'doctorSection') return { sectionHeader: true };
+        if (r._type === 'method' || r._type === 'monthMethod') return { indentCol: 2 };
+        if (!r.date && r.account && r.account !== grandLabel && r._type !== 'grand') {
+          return { indentCol: 2 };
+        }
+        return {};
+      }
+    });
+  }
+
+  function reportActiveClinicLabel() {
+    return isReportAllClinicsSelected()
+      ? tr('report.audit.allClinics')
+      : reportClinicLabelFromCode(reportClinicTag());
+  }
+
+  function enumerateDateRange(fromIso, toIso) {
+    var days = [];
+    var cur = parseDateToLocal(fromIso);
+    var end = parseDateToLocal(toIso);
+    if (!cur || !end || isNaN(cur.getTime()) || isNaN(end.getTime())) return days;
+    while (cur.getTime() <= end.getTime()) {
+      days.push(iso(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return days;
+  }
+
+  function clinicIncomeDetailDayKey(t) {
+    return paymentDateKey(t && (t.payment_date || t.bill_date));
+  }
+
+  function formatClinicIncomeDetailPatient(t) {
+    var no = String(t.patient_no || '').trim();
+    var cn = String(t.patient_chinese || '').trim();
+    var en = String(t.patient_name || '').trim();
+    var name = cn + (cn && en ? ' / ' : '') + en;
+    var line = (no ? (no + ' ') : '') + name;
+    if (t.doctor_display) {
+      line += ' (' + String(t.doctor_display) + ')';
+    }
+    return line.trim();
+  }
+
+  function sumUniqueBillAmounts(transactions) {
+    var bill = 0;
+    var balance = 0;
+    var seen = {};
+    (transactions || []).forEach(function (t) {
+      var bid = t.bill_id ? String(t.bill_id) : '';
+      if (bid) {
+        if (seen[bid]) return;
+        seen[bid] = true;
+      }
+      bill += Number(t.bill_total || 0);
+      balance += Number(t.bill_balance || 0);
+    });
+    return { bill: bill, balance: balance };
+  }
+
+  function clinicIncomeDetailColumns() {
+    return [
+      { key: 'date', label: tr('report.drMonthly.col.date') },
+      { key: 'tx_count', label: tr('report.drMonthly.col.txCount') },
+      { key: 'patient', label: tr('report.ds.detail.thPatient') },
+      { key: 'payment_method', label: tr('report.csv.paymentMethod') },
+      { key: 'bill', label: tr('report.ds.detail.thBill') },
+      { key: 'paid', label: tr('report.ds.detail.thPaid') },
+      { key: 'balance', label: tr('report.ds.detail.thRemaining') },
+      { key: 'total', label: tr('report.drMonthly.col.total') }
+    ];
+  }
+
+  function buildClinicIncomeDetailReportData(transactions, opts) {
+    opts = opts || {};
+    var byDay = {};
+    (transactions || []).forEach(function (t) {
+      var d = clinicIncomeDetailDayKey(t);
+      if (!d) return;
+      if (!byDay[d]) byDay[d] = [];
+      byDay[d].push(t);
+    });
+
+    var days;
+    if (opts.yyyyMm) {
+      days = enumerateMonthDays(opts.yyyyMm);
+    } else if (opts.from && opts.to) {
+      days = enumerateDateRange(opts.from, opts.to);
+    } else {
+      days = Object.keys(byDay).sort();
+    }
+
+    var monthByMethod = {};
+    var grandPaid = 0;
+    var displayRows = [];
+    var exportRows = [];
+
+    function pushRow(row) {
+      displayRows.push(row);
+      exportRows.push(Object.assign({}, row));
+    }
+
+    days.forEach(function (d) {
+      var dayTx = (byDay[d] || []).slice().sort(dailySummaryTxSortCompare);
+      var txCount = dayTx.length;
+      var dayPaid = dayTx.reduce(function (sum, t) { return sum + Number(t.bill_paid || 0); }, 0);
+      var dayAmounts = sumUniqueBillAmounts(dayTx);
+      var dateLabel = formatDrMonthlyLongDate(d);
+
+      dayTx.forEach(function (t) {
+        var acct = drMonthlyAccountLabel(t.payment_method);
+        if (acct) monthByMethod[acct] = (monthByMethod[acct] || 0) + Number(t.bill_paid || 0);
+      });
+      grandPaid += dayPaid;
+
+      pushRow({
+        date: dateLabel,
+        tx_count: String(txCount),
+        patient: '',
+        payment_method: '',
+        bill: txCount ? drMonthlyAmountPlain(dayAmounts.bill) : '',
+        paid: txCount ? drMonthlyAmountPlain(dayPaid) : '',
+        balance: txCount ? drMonthlyAmountPlain(dayAmounts.balance) : '',
+        total: drMonthlyAmountPlain(dayPaid),
+        _type: 'day'
+      });
+
+      if (!txCount) return;
+
+      dayTx.forEach(function (t) {
+        pushRow({
+          date: '',
+          tx_count: '',
+          patient: formatClinicIncomeDetailPatient(t),
+          payment_method: drMonthlyAccountLabel(t.payment_method),
+          bill: drMonthlyAmountPlain(t.bill_total),
+          paid: drMonthlyAmountPlain(t.bill_paid),
+          balance: drMonthlyAmountPlain(t.bill_balance),
+          total: '',
+          _type: 'detail'
+        });
+      });
+    });
+
+    var grandAmounts = sumUniqueBillAmounts(transactions);
+    var grandLabel = tr('report.drMonthly.grandTotal');
+    pushRow({
+      date: '',
+      tx_count: '',
+      patient: grandLabel,
+      payment_method: '',
+      bill: drMonthlyAmountPlain(grandAmounts.bill),
+      paid: drMonthlyAmountPlain(grandPaid),
+      balance: drMonthlyAmountPlain(grandAmounts.balance),
+      total: drMonthlyAmountPlain(grandPaid),
+      _type: 'grand'
+    });
+
+    Object.keys(monthByMethod).sort(function (a, b) {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    }).forEach(function (acct) {
+      pushRow({
+        date: '',
+        tx_count: '',
+        patient: '',
+        payment_method: acct,
+        bill: '',
+        paid: drMonthlyAmountPlain(monthByMethod[acct]),
+        balance: '',
+        total: '',
+        _type: 'monthMethod'
+      });
+    });
+
+    return {
+      displayRows: displayRows,
+      exportRows: exportRows,
+      grandTotal: grandPaid,
+      monthByMethod: monthByMethod
+    };
+  }
+
+  function renderClinicIncomeDetailReport(body, reportData, meta) {
+    if (!body) return;
+    var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;';
+    var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:top;';
+    var rowsHtml = (reportData.displayRows || []).map(function (r) {
+      var isDetail = r._type === 'detail';
+      var isMethod = r._type === 'monthMethod';
+      var isGrand = r._type === 'grand';
+      var isDay = r._type === 'day';
+      var patientStyle = td + (isDetail ? 'padding-left:28px;color:#334155;' : (isGrand ? 'font-weight:900;color:#0f172a;' : ''));
+      var methodStyle = td + (isMethod ? 'padding-left:28px;color:#475569;font-weight:800;' : '');
+      var billStyle = td + 'text-align:right;' + ((isDay || isGrand || isDetail) ? 'font-weight:800;color:#0f172a;' : '');
+      var paidStyle = td + 'text-align:right;' + ((isDay || isGrand || isDetail || isMethod) ? 'font-weight:800;color:#0369a1;' : '');
+      var balStyle = td + 'text-align:right;font-weight:800;color:' + (Number(r.balance || 0) > 0 ? '#dc2626' : '#16a34a') + ';';
+      var totalStyle = td + 'text-align:right;' + ((isDay || isGrand) ? 'font-weight:900;color:#15803d;' : '');
+      return '<tr>' +
+        '<td style="' + td + (r.date ? 'font-weight:900;color:#0f172a;' : '') + '">' + esc(r.date) + '</td>' +
+        '<td style="' + td + 'text-align:right;">' + esc(r.tx_count) + '</td>' +
+        '<td style="' + patientStyle + '">' + esc(r.patient) + '</td>' +
+        '<td style="' + methodStyle + '">' + esc(r.payment_method) + '</td>' +
+        '<td style="' + billStyle + '">' + esc(r.bill ? drMonthlyAmountDisplay(r.bill) : '') + '</td>' +
+        '<td style="' + paidStyle + '">' + esc(r.paid ? drMonthlyAmountDisplay(r.paid) : '') + '</td>' +
+        '<td style="' + balStyle + '">' + esc(r.balance ? drMonthlyAmountDisplay(r.balance) : '') + '</td>' +
+        '<td style="' + totalStyle + '">' + esc(r.total ? drMonthlyAmountDisplay(r.total) : '') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var periodLabel = meta.periodLabel || meta.month || '';
+    var metaLines =
+      '<div style="margin-bottom:12px;line-height:1.6;">' +
+        '<div style="font-size:16px;font-weight:900;color:#0f172a;">' + esc(tr('report.drMonthly.reportTitle')) + '</div>' +
+        '<div style="font-size:13px;color:#475569;">' + esc(tr('report.drMonthly.labelClinic')) + ': <strong>' + esc(meta.clinic || '—') + '</strong></div>' +
+        (periodLabel
+          ? ('<div style="font-size:13px;color:#475569;">' + esc(meta.periodTitle || tr('report.ds.labelMonth')) + ': <strong>' + esc(periodLabel) + '</strong></div>')
+          : '') +
+        (meta.allDoctors
+          ? ('<div style="font-size:13px;color:#475569;">' + esc(tr('report.dr.labelDoctor')) + ': <strong>' + esc(tr('report.dr.allDoctors')) + '</strong></div>')
+          : (meta.doctor
+            ? ('<div style="font-size:13px;color:#475569;">' + esc(tr('report.dr.labelDoctor')) + ': <strong>' + esc(meta.doctor) + '</strong></div>')
+            : '')) +
+      '</div>';
+
+    body.innerHTML = metaLines +
+      '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
+        '<table style="width:100%;border-collapse:collapse;min-width:980px;">' +
+          '<thead><tr>' +
+            '<th style="' + th + '">' + esc(tr('report.drMonthly.col.date')) + '</th>' +
+            '<th style="' + th + 'text-align:right;width:90px;">' + esc(tr('report.drMonthly.col.txCount')) + '</th>' +
+            '<th style="' + th + 'min-width:220px;">' + esc(tr('report.ds.detail.thPatient')) + '</th>' +
+            '<th style="' + th + 'width:140px;">' + esc(tr('report.csv.paymentMethod')) + '</th>' +
+            '<th style="' + th + 'text-align:right;width:110px;">' + esc(tr('report.ds.detail.thBill')) + '</th>' +
+            '<th style="' + th + 'text-align:right;width:110px;">' + esc(tr('report.ds.detail.thPaid')) + '</th>' +
+            '<th style="' + th + 'text-align:right;width:110px;color:#dc2626;">' + esc(tr('report.ds.detail.thRemaining')) + '</th>' +
+            '<th style="' + th + 'text-align:right;width:110px;">' + esc(tr('report.drMonthly.col.total')) + '</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rowsHtml + '</tbody>' +
+        '</table>' +
+      '</div>';
+  }
+
+  function presentClinicIncomeDetailReport(body, transactions, meta, buildOpts) {
+    var reportData = buildClinicIncomeDetailReportData(transactions, buildOpts || {});
+    _clinicIncomeDetailExport = {
+      meta: meta || {},
+      rows: reportData.exportRows
+    };
+    _rows = reportData.exportRows;
+    renderClinicIncomeDetailReport(body, reportData, meta || {});
+  }
+
+  function exportClinicIncomeDetailExcel(exportBundle, fnameBase, options) {
+    options = options || {};
+    if (!exportBundle || !exportBundle.rows || !exportBundle.rows.length) {
+      alert(tr('report.alert.exportNoData'));
+      return;
+    }
+    var meta = exportBundle.meta || {};
+    var columns = clinicIncomeDetailColumns();
+    var preface = [
+      tr('report.drMonthly.reportTitle'),
+      trRepl('report.drMonthly.exportClinic', { C: meta.clinic || '' })
+    ];
+    if (meta.month) {
+      preface.push(trRepl('report.drMonthly.exportMonth', { M: meta.month }));
+    } else if (meta.periodLabel) {
+      preface.push(trRepl('report.drMonthly.exportMonth', { M: meta.periodLabel }));
+    }
+    if (options.includeDoctor && meta.doctor) {
+      preface.push(trRepl('report.drMonthly.exportDoctor', { D: meta.doctor }));
+    }
+    if (options.includeDoctor && meta.allDoctors) {
+      preface.push(trRepl('report.drMonthly.exportDoctor', { D: tr('report.dr.allDoctors') }));
+    }
+    var fname = fnameBase + (meta.monthKey || meta.dateKey || monthKeyOf(todayISO()));
+    if (meta.doctorSlug) fname += '_' + meta.doctorSlug;
+    var grandLabel = tr('report.drMonthly.grandTotal');
+    downloadReportExcel(fname, columns, exportBundle.rows, {
+      prefaceRows: preface,
+      colWidths: [240, 90, 240, 150, 110, 110, 110, 110],
+      numericKeys: ['tx_count', 'bill', 'paid', 'balance', 'total'],
+      rowMeta: function (r) {
+        if (r._type === 'detail') return { indentCol: 2 };
+        if (r._type === 'monthMethod') return { indentCol: 3 };
+        if (!r.date && r.patient && r.patient !== grandLabel && r._type !== 'grand') {
+          return { indentCol: 2 };
+        }
+        return {};
+      }
+    });
+  }
+
+  function exportDrMonthlyIncomeCsv() {
+    exportClinicIncomeReportExcel(_drMonthlyIncomeExport, 'dr_monthly_income_', { includeDoctor: true });
+  }
+
+  function exportDailySummaryClinicIncomeExcel() {
+    exportClinicIncomeReportExcel(_dailySummaryIncomeExport, 'daily_summary_', { includeDoctor: false });
+  }
+
+  function dailySummarySimpleExportColumns(includeDate, omitDoctor) {
+    var cols = [
+      { key: 'patient_no', label: tr('report.csv.patientNo') },
+      { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
+      { key: 'patient_name', label: tr('report.csv.patientEnglish') }
+    ];
+    if (!omitDoctor) {
+      cols.push({ key: 'doctor_display', label: tr('report.csv.doctor') });
+    }
+    cols.push(
+      { key: 'payment_method', label: tr('report.csv.paymentMethod') },
+      { key: 'bill_paid', label: tr('report.csv.paid') },
+      { key: 'remarks', label: tr('report.csv.remarks') }
+    );
+    if (includeDate) {
+      return [{ key: 'payment_date', label: tr('report.col.date') }].concat(cols);
+    }
+    return cols;
+  }
+
+  function buildDailySummarySimpleDailyExportRow(t, method, amt, includeDate, omitDoctor) {
+    var row = {
+      patient_no: t.patient_no || '',
+      patient_chinese: t.patient_chinese || '',
+      patient_name: t.patient_name || '',
+      payment_method: drMonthlyAccountLabel(method),
+      bill_paid: drMonthlyAmountPlain(amt),
+      remarks: t.remarks || '',
+      _type: 'tx'
+    };
+    if (!omitDoctor) row.doctor_display = t.doctor_display || '';
+    if (includeDate) {
+      row.payment_date = t.payment_date || t.bill_date || '';
+    }
+    return row;
+  }
+
+  function dailySummarySimpleColumnHeaderRow(includeDate, omitDoctor) {
+    var row = {
+      patient_no: tr('report.csv.patientNo'),
+      patient_chinese: tr('report.csv.patientChinese'),
+      patient_name: tr('report.csv.patientEnglish'),
+      payment_method: tr('report.csv.paymentMethod'),
+      bill_paid: tr('report.csv.paid'),
+      remarks: tr('report.csv.remarks'),
+      _type: 'columnHeader'
+    };
+    if (!omitDoctor) row.doctor_display = tr('report.csv.doctor');
+    if (includeDate) row.payment_date = tr('report.col.date');
+    return row;
+  }
+
+  function dailySummarySimpleDoctorSectionRow(label, includeDate) {
+    var row = {
+      patient_no: String(label || ''),
+      patient_chinese: '',
+      patient_name: '',
+      doctor_display: '',
+      payment_method: '',
+      bill_paid: '',
+      remarks: '',
+      _type: 'doctorSection'
+    };
+    if (includeDate) row.payment_date = '';
+    return row;
+  }
+
+  function appendDailySummarySimpleTxExportRows(transactions, exportRows, includeDate, byMethod, onAmount, omitDoctor) {
+    (transactions || []).slice().sort(dailySummaryTxSortCompare).forEach(function (t) {
+      var allocs = t.payment_allocations;
+      var pushed = false;
+      if (allocs && allocs.length) {
+        allocs.forEach(function (a) {
+          var amt = Number(a.amount || 0);
+          if (amt <= 0.005) return;
+          var method = drMonthlyAccountLabel(a.method);
+          if (!method) return;
+          if (onAmount) onAmount(amt, method);
+          exportRows.push(buildDailySummarySimpleDailyExportRow(t, a.method, amt, includeDate, omitDoctor));
+          pushed = true;
+        });
+      }
+      if (!pushed) {
+        var amt = Number(t.bill_paid != null ? t.bill_paid : t.amount || 0);
+        if (amt <= 0.005) return;
+        var method = drMonthlyAccountLabel(t.payment_method);
+        if (!method || reportPayMethodIsUnsettled(reportPayMethodCanonicalKey(t.payment_method))) return;
+        if (onAmount) onAmount(amt, method);
+        exportRows.push(buildDailySummarySimpleDailyExportRow(t, t.payment_method, amt, includeDate, omitDoctor));
+      }
+    });
+  }
+
+  function buildDailySummarySimpleDailyExportRows(transactions, includeDate) {
+    var exportRows = [];
+    var byMethod = {};
+    var grandTotal = 0;
+    var blankBase = {
+      patient_no: '',
+      patient_chinese: '',
+      patient_name: '',
+      doctor_display: '',
+      payment_method: '',
+      bill_paid: '',
+      remarks: ''
+    };
+    if (includeDate) blankBase.payment_date = '';
+
+    function trackAmount(amt, method) {
+      grandTotal += amt;
+      byMethod[method] = (byMethod[method] || 0) + amt;
+    }
+
+    var groupByDoctor = dailySummaryGroupByDoctorEnabled();
+    if (groupByDoctor) {
+      var groups = dailySummaryGroupTxByDoctor(transactions);
+      groups.forEach(function (g, idx) {
+        if (idx > 0) {
+          exportRows.push(Object.assign({}, blankBase, { _type: 'spacer' }));
+        }
+        exportRows.push(dailySummarySimpleDoctorSectionRow(g.label, includeDate));
+        exportRows.push(dailySummarySimpleColumnHeaderRow(includeDate, true));
+        appendDailySummarySimpleTxExportRows(g.rows, exportRows, includeDate, byMethod, trackAmount, true);
+      });
+    } else {
+      appendDailySummarySimpleTxExportRows(transactions, exportRows, includeDate, byMethod, trackAmount, false);
+    }
+
+    var totalRow = Object.assign({}, blankBase, {
+      payment_method: tr('report.drDaily.totalLabel'),
+      bill_paid: drMonthlyAmountPlain(grandTotal),
+      _type: 'total'
+    });
+    exportRows.push(totalRow);
+
+    Object.keys(byMethod).sort(function (a, b) {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    }).forEach(function (method) {
+      exportRows.push(Object.assign({}, blankBase, {
+        payment_method: method,
+        bill_paid: drMonthlyAmountPlain(byMethod[method]),
+        _type: 'methodTotal'
+      }));
+    });
+
+    return {
+      exportRows: exportRows,
+      grandTotal: grandTotal,
+      byMethod: byMethod,
+      groupByDoctor: groupByDoctor
+    };
+  }
+
+  function setDailySummaryDailySimpleExportBundle(transactions, from, to) {
+    var range = normalizeReportDateRange(from, to);
+    var includeDate = range.from !== range.to;
+    var built = buildDailySummarySimpleDailyExportRows(transactions, includeDate);
+    var periodLabel = range.from === range.to
+      ? formatDrMonthlyLongDate(range.from)
+      : (formatDrMonthlyLongDate(range.from) + ' – ' + formatDrMonthlyLongDate(range.to));
+    var fileSuffix = dailySummaryExportSuffix(range.from, range.to);
+    _dailySummaryIncomeExport = {
+      meta: {
+        month: periodLabel,
+        clinic: reportActiveClinicLabel(),
+        fileBase: 'daily_summary_' + fileSuffix,
+        includeDate: includeDate,
+        exportKind: 'dailySimple',
+        groupByDoctor: !!built.groupByDoctor
+      },
+      rows: built.exportRows
+    };
+    return built;
+  }
+
+  function exportDailySummarySimpleDailyExcel(exportBundle) {
+    if (!exportBundle || !exportBundle.rows || !exportBundle.rows.length) {
+      alert(tr('report.alert.exportNoData'));
+      return;
+    }
+    var meta = exportBundle.meta || {};
+    var omitDoctor = !!meta.groupByDoctor;
+    var columns = dailySummarySimpleExportColumns(!!meta.includeDate, omitDoctor);
+    var payMethodColIdx = -1;
+    columns.forEach(function (c, i) {
+      if (c.key === 'payment_method') payMethodColIdx = i;
+    });
+    var preface = [
+      tr('report.drMonthly.reportTitle'),
+      trRepl('report.drMonthly.exportClinic', { C: meta.clinic || '' }),
+      trRepl('report.drDaily.exportDate', { D: meta.month || '' })
+    ];
+    var fname = meta.fileBase || ('daily_summary_' + todayISO());
+    downloadReportExcel(fname, columns, exportBundle.rows, {
+      prefaceRows: preface,
+      colWidths: meta.includeDate
+        ? (omitDoctor ? [100, 90, 120, 140, 120, 100, 180] : [100, 90, 120, 140, 120, 120, 100, 180])
+        : (omitDoctor ? [90, 120, 140, 120, 100, 180] : [90, 120, 140, 120, 120, 100, 180]),
+      numericKeys: ['bill_paid'],
+      skipGlobalHeader: omitDoctor,
+      headerBottomBorder: 'medium',
+      rowMeta: function (r) {
+        if (r._type === 'columnHeader') return { columnHeader: true };
+        if (r._type === 'doctorSection') return { sectionHeader: true };
+        if (r._type === 'total') return { bold: true };
+        if (r._type === 'methodTotal') return { indentCol: payMethodColIdx };
+        return {};
+      }
+    });
+  }
+
+  async function setDailySummaryClinicIncomeExportBundle(from, to) {
+    var range = normalizeReportDateRange(from, to);
+    var slices = await loadReportPaymentSlices(range.from, range.to);
+    var buildOpts;
+    var periodLabel;
+    if (range.from === range.to) {
+      buildOpts = { singleDay: range.from };
+      periodLabel = formatDrMonthlyLongDate(range.from);
+    } else {
+      buildOpts = { from: range.from, to: range.to };
+      periodLabel = _dailySummaryView === 'monthly'
+        ? formatDrMonthlyMonthTitle(monthKeyOf(range.from))
+        : (formatDrMonthlyLongDate(range.from) + ' – ' + formatDrMonthlyLongDate(range.to));
+    }
+    var incomeData = buildDrMonthlyIncomeReportData(
+      slices || [],
+      monthKeyOf(range.from),
+      buildOpts
+    );
+    var fileSuffix = dailySummaryExportSuffix(range.from, range.to);
+    _dailySummaryIncomeExport = {
+      meta: {
+        monthKey: monthKeyOf(range.from),
+        month: periodLabel,
+        clinic: reportActiveClinicLabel(),
+        fileBase: 'daily_summary_' + fileSuffix
+      },
+      rows: incomeData.exportRows
+    };
+    return incomeData;
+  }
+
+  function formatDrDailyReportDate(isoDate) {
+    var d = parseDateToLocal(isoDate);
+    if (!d || isNaN(d.getTime())) return String(isoDate || '');
+    var day = String(d.getDate()).padStart(2, '0');
+    return day + ' ' + drMonthlyEnglishMonthName(d.getMonth()) + ', ' + d.getFullYear();
+  }
+
+  function formatDrDailyPatientExportLine(b, p) {
+    var parts = [];
+    var no = String((b && b.patient_no) || (p && p.patient_no) || '').trim();
+    var cn = String((p && p.chinese_name) || '').trim();
+    var en = String((p && p.full_name) || (b && b.patient_name) || '').trim();
+    if (no) parts.push(no);
+    if (cn) parts.push(cn);
+    if (en) parts.push(en);
+    return parts.join(', ');
+  }
+
+  function drDailyDoctorIncomeColumns() {
+    return [
+      { key: 'transaction_code', label: tr('report.drDaily.col.transactionCode') },
+      { key: 'patient', label: tr('report.ds.detail.thPatient') },
+      { key: 'account', label: tr('report.drMonthly.col.account') },
+      { key: 'received', label: tr('report.drDaily.col.received') },
+      { key: 'remarks', label: tr('report.csv.remarks') }
+    ];
+  }
+
+  function buildDrDailyDoctorIncomeRowsFromSlices(slices, pmap, day) {
+    var byMethod = {};
+    var grandTotal = 0;
+    var exportRows = [];
+    var billCodeById = {};
+    var billSeq = 0;
+    var dayKey = String(day || '').replace(/-/g, '');
+
+    function codeForBill(b) {
+      var bid = b && b.id;
+      if (!bid) return '';
+      if (!billCodeById[bid]) {
+        billSeq += 1;
+        billCodeById[bid] = dayKey + String(billSeq).padStart(4, '0');
+      }
+      return billCodeById[bid];
+    }
+
+    var sorted = (slices || []).slice().sort(function (a, b) {
+      var pa = formatDrDailyPatientExportLine(a.bill, pmap[a.bill && a.bill.patient_id]);
+      var pb = formatDrDailyPatientExportLine(b.bill, pmap[b.bill && b.bill.patient_id]);
+      return pa.localeCompare(pb);
+    });
+
+    sorted.forEach(function (s) {
+      var b = s.bill || {};
+      var p = pmap[b.patient_id] || {};
+      var acct = drMonthlyAccountLabel(s.method);
+      var amt = Number(s.amount || 0);
+      if (amt <= 0.005) return;
+      grandTotal += amt;
+      if (acct) byMethod[acct] = (byMethod[acct] || 0) + amt;
+      exportRows.push({
+        transaction_code: codeForBill(b),
+        patient: formatDrDailyPatientExportLine(b, p),
+        account: acct,
+        received: drMonthlyAmountPlain(amt),
+        remarks: String(b.notes || ''),
+        _type: 'tx'
+      });
+    });
+
+    exportRows.push({
+      transaction_code: '',
+      patient: '',
+      account: tr('report.drDaily.totalLabel'),
+      received: drMonthlyAmountPlain(grandTotal),
+      remarks: '',
+      _type: 'total'
+    });
+
+    Object.keys(byMethod).sort(function (a, b) {
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    }).forEach(function (acct) {
+      exportRows.push({
+        transaction_code: '',
+        patient: '',
+        account: acct,
+        received: drMonthlyAmountPlain(byMethod[acct]),
+        remarks: '',
+        _type: 'methodTotal'
+      });
+    });
+
+    return {
+      displayRows: exportRows,
+      exportRows: exportRows,
+      grandTotal: grandTotal,
+      byMethod: byMethod
+    };
+  }
+
+  function buildDrDailyDoctorIncomeReportData(slices, pmap, day) {
+    return buildDrDailyDoctorIncomeRowsFromSlices(slices, pmap, day);
+  }
+
+  function buildDrDailyDoctorIncomeReportDataAllDoctors(slices, doctors, pmap, day) {
+    var groups = groupDrMonthlySlicesByDoctor(slices, doctors);
+    var displayRows = [];
+    var exportRows = [];
+    groups.forEach(function (g, idx) {
+      if (idx > 0) {
+        var gap = {
+          transaction_code: '', patient: '', account: '', received: '', remarks: '',
+          _type: 'spacer'
+        };
+        displayRows.push(gap);
+        exportRows.push(Object.assign({}, gap));
+      }
+      displayRows.push({
+        transaction_code: g.doctorLabel,
+        patient: '', account: '', received: '', remarks: '',
+        _type: 'doctorSection'
+      });
+      exportRows.push({
+        transaction_code: g.doctorLabel,
+        patient: '', account: '', received: '', remarks: '',
+        _type: 'doctorSection'
+      });
+      var colHeader = {
+        transaction_code: tr('report.drDaily.col.transactionCode'),
+        patient: tr('report.ds.detail.thPatient'),
+        account: tr('report.drMonthly.col.account'),
+        received: tr('report.drDaily.col.received'),
+        remarks: tr('report.csv.remarks'),
+        _type: 'columnHeader'
+      };
+      displayRows.push(colHeader);
+      exportRows.push(Object.assign({}, colHeader));
+      var section = buildDrDailyDoctorIncomeRowsFromSlices(g.slices, pmap, day);
+      displayRows = displayRows.concat(section.displayRows);
+      exportRows = exportRows.concat(section.exportRows.map(function (r) {
+        return Object.assign({}, r);
+      }));
+    });
+    return { displayRows: displayRows, exportRows: exportRows };
+  }
+
+  function renderDrDailyDoctorIncomeReport(body, bundle) {
+    if (!body) return;
+    var meta = bundle.meta || {};
+    var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #0d6efd;text-align:left;';
+    var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:top;';
+    var rowsHtml = (bundle.displayRows || bundle.rows || []).map(function (r) {
+      if (r._type === 'columnHeader') {
+        return '<tr>' +
+          '<th style="' + th + '">' + esc(r.transaction_code) + '</th>' +
+          '<th style="' + th + '">' + esc(r.patient) + '</th>' +
+          '<th style="' + th + 'width:120px;">' + esc(r.account) + '</th>' +
+          '<th style="' + th + 'text-align:right;width:120px;">' + esc(r.received) + '</th>' +
+          '<th style="' + th + '">' + esc(r.remarks) + '</th>' +
+        '</tr>';
+      }
+      if (r._type === 'doctorSection') {
+        return '<tr><td colspan="5" style="padding:10px 10px 6px;font-weight:900;color:#1e40af;font-size:14px;">' +
+          esc(r.transaction_code || '') + '</td></tr>';
+      }
+      if (r._type === 'spacer') {
+        return '<tr><td colspan="5" style="height:10px;border:none;"></td></tr>';
+      }
+      var isTotal = r._type === 'total';
+      var isMethod = r._type === 'methodTotal';
+      var acctStyle = td + (isMethod ? 'padding-left:28px;color:#475569;font-weight:800;' : (isTotal ? 'font-weight:900;color:#0f172a;' : 'color:#475569;font-weight:800;'));
+      var recvStyle = td + 'text-align:right;font-weight:900;color:' + (isTotal ? '#15803d' : '#0369a1') + ';';
+      var recvCell = r.received ? drMonthlyAmountDisplay(r.received) : '';
+      return '<tr>' +
+        '<td style="' + td + 'color:#334155;font-weight:800;">' + esc(r.transaction_code) + '</td>' +
+        '<td style="' + td + 'color:#0f172a;">' + esc(r.patient) + '</td>' +
+        '<td style="' + acctStyle + '">' + esc(r.account) + '</td>' +
+        '<td style="' + recvStyle + '">' + esc(recvCell) + '</td>' +
+        '<td style="' + td + 'color:#64748b;">' + esc(r.remarks) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var tableHead = meta.allDoctors ? '' : (
+      '<thead><tr>' +
+        '<th style="' + th + '">' + esc(tr('report.drDaily.col.transactionCode')) + '</th>' +
+        '<th style="' + th + '">' + esc(tr('report.ds.detail.thPatient')) + '</th>' +
+        '<th style="' + th + 'width:120px;">' + esc(tr('report.drMonthly.col.account')) + '</th>' +
+        '<th style="' + th + 'text-align:right;width:120px;">' + esc(tr('report.drDaily.col.received')) + '</th>' +
+        '<th style="' + th + '">' + esc(tr('report.csv.remarks')) + '</th>' +
+      '</tr></thead>'
+    );
+
+    body.innerHTML =
+      '<div style="margin-bottom:12px;line-height:1.6;">' +
+        '<div style="font-size:16px;font-weight:900;color:#0f172a;">' + esc(tr('report.drDaily.reportTitle')) + '</div>' +
+        '<div style="font-size:13px;color:#475569;">' + esc(tr('report.drMonthly.labelClinic')) + ': <strong>' + esc(meta.clinic || '—') + '</strong></div>' +
+        '<div style="font-size:13px;color:#475569;">' + esc(tr('report.dr.labelDoctor')) + ': <strong>' + esc(meta.doctorDisplay || meta.doctor || tr('report.dr.allDoctors')) + '</strong></div>' +
+        '<div style="font-size:13px;color:#475569;">' + esc(tr('report.ds.labelDate')) + ': <strong>' + esc(meta.date || '') + '</strong></div>' +
+      '</div>' +
+      '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
+        '<table style="width:100%;border-collapse:collapse;min-width:860px;">' +
+          tableHead +
+          '<tbody>' + rowsHtml + '</tbody>' +
+        '</table>' +
+      '</div>';
+  }
+
+  async function prepareDrDailyDoctorIncomeExport(day, allDoctors, dr) {
+    var slices = await loadReportPaymentSlices(day, day);
+    var filtered = slices || [];
+    if (!allDoctors) {
+      filtered = filtered.filter(function (s) {
+        return billMatchesDoctor(s.bill, dr);
+      });
+    }
+    var patientIds = uniqIds(filtered.map(function (s) {
+      return s.bill && s.bill.patient_id;
+    }));
+    var pts = patientIds.length ? await loadPatientsByIds(patientIds) : [];
+    var pmap = {};
+    pts.forEach(function (p) { if (p && p.id) pmap[p.id] = p; });
+
+    var clinicLabel = reportActiveClinicLabel();
+    var doctorDisplay = allDoctors ? tr('report.dr.allDoctors') : drDisplayName(dr);
+    var doctorSlug = allDoctors
+      ? 'all_doctors'
+      : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();
+    var reportData = allDoctors
+      ? buildDrDailyDoctorIncomeReportDataAllDoctors(filtered, _drDailyDoctors, pmap, day)
+      : buildDrDailyDoctorIncomeReportData(filtered, pmap, day);
+
+    return {
+      meta: {
+        dateKey: day,
+        clinic: clinicLabel,
+        doctor: allDoctors ? '' : doctorDisplay,
+        doctorDisplay: doctorDisplay,
+        allDoctors: allDoctors,
+        doctorSlug: doctorSlug,
+        date: formatDrDailyReportDate(day)
+      },
+      rows: reportData.exportRows,
+      displayRows: reportData.displayRows
+    };
+  }
+
+  function exportDrDailyDoctorIncomeExcel(exportBundle) {
+    if (!exportBundle || !exportBundle.rows || !exportBundle.rows.length) {
+      alert(tr('report.alert.exportNoData'));
+      return;
+    }
+    var meta = exportBundle.meta || {};
+    var columns = drDailyDoctorIncomeColumns();
+    var preface = [
+      tr('report.drDaily.reportTitle'),
+      trRepl('report.drMonthly.exportClinic', { C: meta.clinic || '' }),
+      trRepl('report.drMonthly.exportDoctor', { D: meta.doctorDisplay || meta.doctor || tr('report.dr.allDoctors') }),
+      trRepl('report.drDaily.exportDate', { D: meta.date || '' })
+    ];
+    var fname = 'dr_daily_income_' + (meta.dateKey || todayISO());
+    if (meta.doctorSlug) fname += '_' + meta.doctorSlug;
+    downloadReportExcel(fname, columns, exportBundle.rows, {
+      prefaceRows: preface,
+      colWidths: [140, 320, 120, 120, 240],
+      numericKeys: ['received'],
+      skipGlobalHeader: !!meta.allDoctors,
+      headerBottomBorder: 'medium',
+      rowMeta: function (r) {
+        if (r._type === 'columnHeader') return { columnHeader: true };
+        if (r._type === 'doctorSection') return { sectionHeader: true };
+        if (r._type === 'total') return { bold: true };
+        if (r._type === 'methodTotal') return { indentCol: 2 };
+        return {};
+      }
+    });
+  }
+
   function doctorTagOf(d) {
     if (!d) return '';
     return String(d.doctor_code || '').trim();
@@ -3037,6 +4505,17 @@ var REPORT = (function () {
     if (!allDoctors && !dr) {
       body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noDoctorMsg')) + '</div>';
       _rows = [];
+      _drDailyIncomeExport = null;
+      return;
+    }
+
+    var incomeExportBundle = await prepareDrDailyDoctorIncomeExport(day, allDoctors, dr);
+    _drDailyIncomeExport = incomeExportBundle;
+
+    if (_drDailyMode === 'simple') {
+      _clinicIncomeDetailExport = null;
+      _rows = incomeExportBundle.rows || [];
+      renderDrDailyDoctorIncomeReport(body, incomeExportBundle);
       return;
     }
 
@@ -3090,11 +4569,12 @@ var REPORT = (function () {
 
     var tx = filteredBills.map(function (b) {
       var p = pmap[b.patient_id] || {};
-      var extra = {
+      var extra = Object.assign({
         bill_date: b.bill_date || day,
+        payment_date: b.bill_date || day,
         doctor_tag: b.doctor_tag || b.doctor_name || (dr ? doctorTagOf(dr) : '') || '',
         dr_treatments: tByPatient[b.patient_id] || []
-      };
+      }, resolveBillDoctorFields(b, _drDailyDoctors));
       if (drDailyAllClinics) {
         var clinicTag = dailySummaryClinicTagForBill(
           b, p, (paymentsByBillId[b.id] || [])[0] || null,
@@ -3110,11 +4590,21 @@ var REPORT = (function () {
     var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
     if (_drDailyMode === 'detail') {
-      body.innerHTML = '';
-      var temp = document.createElement('div');
-      temp.id = 'rptDailySummaryBody';
-      body.appendChild(temp);
-      renderDailySummaryDetailDaily(tx, totalsPaid);
+      _clinicIncomeDetailExport = null;
+      _drMonthlyIncomeExport = null;
+      var drDailyDoctorLabel = allDoctors ? '' : drDisplayName(dr);
+      var drDailyDoctorSlug = allDoctors
+        ? 'all_doctors'
+        : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();
+      presentClinicIncomeDetailReport(body, tx, {
+        clinic: reportActiveClinicLabel(),
+        periodLabel: formatDrMonthlyLongDate(day),
+        periodTitle: tr('report.ds.labelDate'),
+        dateKey: day,
+        doctor: drDailyDoctorLabel,
+        allDoctors: allDoctors,
+        doctorSlug: drDailyDoctorSlug
+      }, { from: day, to: day });
       return;
     }
 
@@ -3179,12 +4669,6 @@ var REPORT = (function () {
       _rows = rows;
       return;
     }
-
-    body.innerHTML = '';
-    var temp2 = document.createElement('div');
-    temp2.id = 'rptDailySummaryBody';
-    body.appendChild(temp2);
-    renderDailySummaryDaily(tx, totalsPaid);
     } catch (e) {
       body.innerHTML = '<div style="padding:14px;color:#dc2626;">' + esc(e.message || tr('report.error.loadingDataNote')) + '</div>';
       _rows = [];
@@ -3248,14 +4732,59 @@ var REPORT = (function () {
     if (!allDoctors && !dr) {
       body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noDoctorMsg')) + '</div>';
       _rows = [];
+      _drMonthlyIncomeExport = null;
       return;
     }
+
+    // ── SIMPLE: Clinic Income layout (paid_date + payment-method splits) ──
+    if (_drMonthlyMode === 'simple') {
+      var slices = await loadReportPaymentSlices(from, to);
+      var filteredSlices = slices || [];
+      if (!allDoctors) {
+        filteredSlices = filteredSlices.filter(function (s) {
+          return billMatchesDoctor(s.bill, dr);
+        });
+      }
+      var incomeData = allDoctors
+        ? buildDrMonthlyIncomeReportDataForAllDoctors(filteredSlices, month, _drDailyDoctors)
+        : buildDrMonthlyIncomeReportData(filteredSlices, month);
+      var clinicLabel = isReportAllClinicsSelected()
+        ? tr('report.audit.allClinics')
+        : reportClinicLabelFromCode(reportClinicTag());
+      var doctorLabel = allDoctors ? '' : drDisplayName(dr);
+      var doctorSlug = allDoctors
+        ? 'all_doctors'
+        : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();
+      _drMonthlyIncomeExport = {
+        meta: {
+          monthKey: month,
+          month: formatDrMonthlyMonthTitle(month),
+          clinic: clinicLabel,
+          doctor: doctorLabel,
+          allDoctors: allDoctors,
+          doctorSlug: doctorSlug
+        },
+        rows: incomeData.exportRows
+      };
+      if (!incomeData.exportRows || !incomeData.exportRows.length) {
+        body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledMonth')) + '</div>';
+        _rows = [];
+        _drMonthlyIncomeExport = null;
+        return;
+      }
+      _rows = incomeData.exportRows;
+      _clinicIncomeDetailExport = null;
+      renderDrMonthlyIncomeReport(body, incomeData, clinicLabel, doctorLabel, month, allDoctors);
+      return;
+    }
+
     var bills = await loadBillsLiteDedupe(from, to);
     var filtered = allDoctors ? bills.slice() : bills.filter(function (b) { return billMatchesDoctor(b, dr); });
 
     if (!filtered.length) {
       body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledMonth')) + '</div>';
       _rows = [];
+      _drMonthlyIncomeExport = null;
       return;
     }
 
@@ -3358,7 +4887,10 @@ var REPORT = (function () {
 
       var tx = filtered.map(function (b) {
         var p = pmap[b.patient_id] || {};
-        var extra = { bill_date: b.bill_date || '' };
+        var extra = Object.assign({
+          bill_date: b.bill_date || '',
+          payment_date: b.bill_date || ''
+        }, resolveBillDoctorFields(b, _drDailyDoctors));
         if (drMoAllClinics) {
           var clinicTag = dailySummaryClinicTagForBill(
             b, p, (paymentsByBillId[b.id] || [])[0] || null,
@@ -3371,155 +4903,49 @@ var REPORT = (function () {
       });
 
       _rows = tx;
-      var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
-
-      body.innerHTML = '';
-      var temp = document.createElement('div');
-      temp.id = 'rptDailySummaryBody';
-      body.appendChild(temp);
-      renderDailySummaryDetailDaily(tx, totalsPaid);
+      _clinicIncomeDetailExport = null;
+      _drMonthlyIncomeExport = null;
+      var drMoDoctorLabel = allDoctors ? '' : drDisplayName(dr);
+      var drMoDoctorSlug = allDoctors
+        ? 'all_doctors'
+        : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();
+      presentClinicIncomeDetailReport(body, tx, {
+        clinic: reportActiveClinicLabel(),
+        month: formatDrMonthlyMonthTitle(month),
+        monthKey: month,
+        periodLabel: formatDrMonthlyMonthTitle(month),
+        periodTitle: tr('report.ds.labelMonth'),
+        doctor: drMoDoctorLabel,
+        allDoctors: allDoctors,
+        doctorSlug: drMoDoctorSlug
+      }, { yyyyMm: month });
       return;
     }
-
-    // "All clinics" → resolve each bill's clinic so paid amounts can be split
-    // into one column per clinic (otherwise just a single combined column).
-    var drMoSimpleAll = isReportAllClinicsSelected();
-    var drMoSimpleClinicMap = null, drMoSimpleApptResolver = null, drMoSimplePmap = null;
-    if (drMoSimpleAll) {
-      var simpleParts = await Promise.all([
-        loadPatientsByIds(filtered.map(function (b) { return b.patient_id; }).filter(Boolean)),
-        buildAppointmentClinicResolver(from, to, filtered)
-      ]);
-      drMoSimplePmap = {};
-      simpleParts[0].forEach(function (p) { drMoSimplePmap[p.id] = p; });
-      drMoSimpleClinicMap = patientClinicMapFromPmap(drMoSimplePmap);
-      drMoSimpleApptResolver = simpleParts[1];
-    }
-    function drMoSimpleBillClinic(b) {
-      if (!drMoSimpleAll) return '';
-      var p = drMoSimplePmap[b.patient_id] || {};
-      return clinicCanonicalKey(dailySummaryClinicTagForBill(b, p, null, drMoSimpleClinicMap, drMoSimpleApptResolver)) || '';
-    }
-
-    var byDay = {};
-    var paid = 0;
-    var bal = 0;
-    var drMoClinicTotals = {};
-    filtered.forEach(function (b) {
-      var day = b.bill_date || from;
-      var p = reportBillPaidValue(b);
-      var r = reportBillBalanceValue(b);
-      if (!byDay[day]) byDay[day] = { date: day, bills: 0, paid: 0, balance: 0, byClinic: {} };
-      byDay[day].bills += 1;
-      byDay[day].paid += p;
-      byDay[day].balance += r;
-      paid += p;
-      bal += r;
-      if (drMoSimpleAll) {
-        var ck = drMoSimpleBillClinic(b);
-        byDay[day].byClinic[ck] = (byDay[day].byClinic[ck] || 0) + p;
-        drMoClinicTotals[ck] = (drMoClinicTotals[ck] || 0) + p;
-      }
-    });
-
-    var th = 'padding:10px 10px;background:#f0f7ff;color:#0d6efd;font-size:12px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;';
-    var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:top;';
-
-    var kpiHtml =
-      '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
-        '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#166534;font-weight:800;">' + esc(tr('report.drMonthly.kpiTotalPaid')) + '</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#15803d;font-weight:900;">' + fmtHK(paid) + '</div>' +
-        '</div>' +
-        '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;min-width:180px;">' +
-          '<div style="font-size:11px;color:#991b1b;font-weight:800;">' + esc(tr('report.drMonthly.kpiOutstanding')) + '</div>' +
-          '<div style="margin-top:2px;font-size:18px;color:#dc2626;font-weight:900;">' + fmtHK(bal) + '</div>' +
-        '</div>' +
-      '</div>';
-
-    if (drMoSimpleAll) {
-      var drMoCodes = Object.keys(drMoClinicTotals).sort(function (a, b) {
-        if (a === '' && b !== '') return 1;
-        if (b === '' && a !== '') return -1;
-        return drMoClinicTotals[b] - drMoClinicTotals[a];
-      });
-      _rows = Object.keys(byDay).sort().map(function (k) {
-        var r = byDay[k];
-        var row = { date: r.date, bills: String(r.bills) };
-        drMoCodes.forEach(function (code) { row['c_' + code] = Number(r.byClinic[code] || 0).toFixed(2); });
-        row.paid = r.paid.toFixed(2);
-        row.balance = r.balance.toFixed(2);
-        return row;
-      });
-      var clinicHead = drMoCodes.map(function (code) {
-        return '<th style="' + th + 'text-align:right;">' + esc(reportClinicLabelFromCode(code)) + '</th>';
-      }).join('');
-      var clinicRowsHtml = _rows.map(function (r) {
-        var cells = drMoCodes.map(function (code) {
-          return '<td style="' + td + 'text-align:right;">' + fmtHK(Number(r['c_' + code] || 0)) + '</td>';
-        }).join('');
-        return '<tr>' +
-          '<td style="' + td + '">' + esc(r.date) + '</td>' +
-          '<td style="' + td + 'text-align:right;">' + esc(r.bills) + '</td>' +
-          cells +
-          '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(r.paid)) + '</td>' +
-          '<td style="' + td + 'text-align:right;color:' + (Number(r.balance) > 0 ? '#dc2626' : '#16a34a') + ';">' + fmtHK(Number(r.balance)) + '</td>' +
-        '</tr>';
-      }).join('');
-      body.innerHTML = kpiHtml +
-        '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
-          '<table style="width:100%;border-collapse:collapse;min-width:640px;">' +
-            '<thead><tr>' +
-              '<th style="' + th + '">' + esc(tr('report.col.date')) + '</th>' +
-              '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.billCount')) + '</th>' +
-              clinicHead +
-              '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.paid')) + '</th>' +
-              '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.balance')) + '</th>' +
-            '</tr></thead>' +
-            '<tbody>' + clinicRowsHtml + '</tbody>' +
-          '</table>' +
-        '</div>';
-      return;
-    }
-
-    _rows = Object.keys(byDay).sort().map(function (k) {
-      var r = byDay[k];
-      return {
-        date: r.date,
-        bills: String(r.bills),
-        paid: r.paid.toFixed(2),
-        balance: r.balance.toFixed(2)
-      };
-    });
-
-    var rowsHtml = _rows.map(function (r) {
-      return '<tr>' +
-        '<td style="' + td + '">' + esc(r.date) + '</td>' +
-        '<td style="' + td + 'text-align:right;">' + esc(r.bills) + '</td>' +
-        '<td style="' + td + 'text-align:right;font-weight:900;color:#15803d;">' + fmtHK(Number(r.paid)) + '</td>' +
-        '<td style="' + td + 'text-align:right;color:' + (Number(r.balance) > 0 ? '#dc2626' : '#16a34a') + ';">' + fmtHK(Number(r.balance)) + '</td>' +
-      '</tr>';
-    }).join('');
-
-    body.innerHTML = kpiHtml +
-      '<div style="border:1px solid #e5e7eb;border-radius:12px;overflow:auto;max-height:560px;background:#fff;">' +
-        '<table style="width:100%;border-collapse:collapse;">' +
-          '<thead><tr>' +
-            '<th style="' + th + '">' + esc(tr('report.col.date')) + '</th>' +
-            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.billCount')) + '</th>' +
-            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.paid')) + '</th>' +
-            '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.balance')) + '</th>' +
-          '</tr></thead>' +
-          '<tbody>' + rowsHtml + '</tbody>' +
-        '</table>' +
-      '</div>';
     } catch (e) {
       body.innerHTML = '<div style="padding:14px;color:#dc2626;">' + esc(e.message || tr('report.error.loadingDataNote')) + '</div>';
       _rows = [];
+      _drMonthlyIncomeExport = null;
     }
   }
 
+  async function buildDailySummaryMonthlyClinicIncome(fromM, toM) {
+    var body = g('rptDailySummaryBody');
+    if (!body) return;
+    var monthKey = monthKeyOf(fromM) || _dailySummaryMonth || monthKeyOf(todayISO());
+    _dailySummaryMonth = monthKey;
+    var incomeData = await setDailySummaryClinicIncomeExportBundle(fromM, toM);
+    var clinicLabel = reportActiveClinicLabel();
+    _rows = incomeData.exportRows;
+    _clinicIncomeDetailExport = null;
+    renderDrMonthlyIncomeReport(body, incomeData, clinicLabel, '', monthKey, false);
+  }
+
   async function buildDailySummaryForDateRange(fromM, toM, doctors) {
+    if (_dailySummaryView === 'monthly' && !_dailySummaryDetailMode) {
+      await buildDailySummaryMonthlyClinicIncome(fromM, toM);
+      return;
+    }
+    _dailySummaryIncomeExport = null;
     var monthSlices = await loadReportPaymentSlices(fromM, toM);
     var groups = {};
     var order = [];
@@ -3612,8 +5038,25 @@ var REPORT = (function () {
 
     _rows = monthAllTx;
     if (_dailySummaryDetailMode) {
-      renderDailySummaryDetailMonthly(dayCards, totalsByMethodPaidM);
+      _dailySummaryIncomeExport = null;
+      var dsMonthKey = monthKeyOf(fromM);
+      var dsBody = g('rptDailySummaryBody');
+      var dsIsMonthly = _dailySummaryView === 'monthly';
+      presentClinicIncomeDetailReport(dsBody, monthAllTx, {
+        clinic: reportActiveClinicLabel(),
+        month: dsIsMonthly ? formatDrMonthlyMonthTitle(dsMonthKey) : '',
+        monthKey: dsIsMonthly ? dsMonthKey : '',
+        periodLabel: dsIsMonthly
+          ? formatDrMonthlyMonthTitle(dsMonthKey)
+          : (fromM === toM
+            ? formatDrMonthlyLongDate(fromM)
+            : (formatDrMonthlyLongDate(fromM) + ' – ' + formatDrMonthlyLongDate(toM))),
+        periodTitle: dsIsMonthly ? tr('report.ds.labelMonth') : tr('report.ds.labelDate'),
+        dateKey: !dsIsMonthly && fromM === toM ? fromM : ''
+      }, dsIsMonthly ? { yyyyMm: dsMonthKey } : { from: fromM, to: toM });
     } else {
+      _clinicIncomeDetailExport = null;
+      setDailySummaryDailySimpleExportBundle(monthAllTx, fromM, toM);
       renderDailySummaryMonthly(dayCards, totalsByMethodPaidM);
     }
   }
@@ -3706,9 +5149,21 @@ var REPORT = (function () {
       var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
 
       _rows = tx;
-      if (_dailySummaryDetailMode) {
-        renderDailySummaryDetailDaily(tx, totalsPaid);
+      if (!_dailySummaryDetailMode) {
+        setDailySummaryDailySimpleExportBundle(tx, day, day);
       } else {
+        _dailySummaryIncomeExport = null;
+      }
+      if (_dailySummaryDetailMode) {
+        _clinicIncomeDetailExport = null;
+        presentClinicIncomeDetailReport(g('rptDailySummaryBody'), tx, {
+          clinic: reportActiveClinicLabel(),
+          periodLabel: formatDrMonthlyLongDate(day),
+          periodTitle: tr('report.ds.labelDate'),
+          dateKey: day
+        }, { from: day, to: day });
+      } else {
+        _clinicIncomeDetailExport = null;
         renderDailySummaryDaily(tx, totalsPaid);
       }
       return;
@@ -3776,7 +5231,7 @@ var REPORT = (function () {
             '</button>' +
             '<span style="width:1px;height:22px;background:#e5e7eb;display:inline-block;"></span>' +
             pickerHtml +
-            dailySummaryAllClinicsLayoutToggleHtml() +
+            ((_dailySummaryView === 'monthly') ? '' : dailySummaryAllClinicsLayoutToggleHtml()) +
           '</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#22c55e;" onclick="REPORT.printDailySummary()">' + esc(tr('report.ds.btnPrint')) + '</button>' +
@@ -5062,6 +6517,23 @@ var REPORT = (function () {
   }
 
   function exportDailySummaryCsvFormatted() {
+    if (_dailySummaryView === 'monthly' && !_dailySummaryDetailMode) {
+      exportDailySummaryClinicIncomeExcel();
+      return;
+    }
+    if (_dailySummaryView === 'daily' && !_dailySummaryDetailMode) {
+      exportDailySummarySimpleDailyExcel(_dailySummaryIncomeExport);
+      return;
+    }
+    if (_dailySummaryDetailMode) {
+      var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
+      var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : from;
+      var suffix = dailySummaryExportSuffix(from, to);
+      exportClinicIncomeDetailExcel(_clinicIncomeDetailExport, 'daily_summary_' + suffix, { includeDoctor: false });
+      return;
+    }
+    _dailySummaryIncomeExport = null;
+    _clinicIncomeDetailExport = null;
     if (!_rows || !_rows.length) {
       alert(tr('report.alert.exportNoData'));
       return;
@@ -5082,21 +6554,7 @@ var REPORT = (function () {
       if (!includeDateCol) return cols;
       return [{ key: 'payment_date', label: tr('report.col.date') }].concat(cols);
     }
-    if (_dailySummaryDetailMode) {
-      downloadCSV('daily_summary_' + suffix + '.csv', withOptionalDateCol([
-        { key: 'patient_no', label: tr('report.csv.patientNo') },
-        { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
-        { key: 'patient_name', label: tr('report.csv.patientEnglish') },
-        { key: 'doctor_display', label: tr('report.csv.doctor') },
-        { key: 'payment_method', label: tr('report.csv.paymentMethod') },
-        { key: 'bill_total', label: tr('report.csv.billAmount') },
-        { key: 'bill_paid', label: tr('report.csv.paid') },
-        { key: 'bill_balance', label: tr('report.csv.balance') },
-        { key: 'remarks', label: tr('report.csv.remarks') }
-      ]), mappedRows);
-      return;
-    }
-    downloadCSV('daily_summary_' + suffix + '.csv', withOptionalDateCol([
+    downloadCSV('daily_summary_' + suffix, withOptionalDateCol([
       { key: 'patient_no', label: tr('report.csv.patientNo') },
       { key: 'patient_chinese', label: tr('report.csv.patientChinese') },
       { key: 'patient_name', label: tr('report.csv.patientEnglish') },

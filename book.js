@@ -15,7 +15,7 @@
   var calViewMonth = 0;
 
   var OB_SESSION_WINDOWS = {
-    am: { start: '10:00', end: '13:00', label: 'AM' },
+    am: { start: '10:30', end: '13:00', label: 'AM' },
     pm: { start: '14:30', end: '19:30', label: 'PM' },
     night: { start: '21:00', end: '23:30', label: 'Night' }
   };
@@ -45,7 +45,7 @@
       time: 'Preferred time',
       pickDate: 'Select a highlighted date to see times (optional)',
       pickSession: 'Session',
-      sessAm: 'Morning (10:00–13:00)',
+      sessAm: 'Morning (10:30–13:00)',
       sessPm: 'Afternoon (14:30–19:30; 18:30 Sat/Sun & public holidays)',
       sessNight: 'Night (21:00–23:30)',
       pickClinicDr: 'Select clinic and doctor first. Highlighted dates are on-duty days.',
@@ -84,7 +84,7 @@
       time: '希望時間',
       pickDate: '可選擇高亮日期查看時段',
       pickSession: '時段',
-      sessAm: '上午 (10:00–13:00)',
+      sessAm: '上午 (10:30–13:00)',
       sessPm: '下午 (14:30–19:30；週末及公眾假期至18:30)',
       sessNight: '晚間 (21:00–23:30)',
       pickClinicDr: '請先選擇診所及醫生。高亮日期為值班日。',
@@ -123,7 +123,7 @@
       time: '希望时间',
       pickDate: '可选择高亮日期查看时段',
       pickSession: '时段',
-      sessAm: '上午 (10:00–13:00)',
+      sessAm: '上午 (10:30–13:00)',
       sessPm: '下午 (14:30–19:30；周末及公众假期至18:30)',
       sessNight: '晚间 (21:00–23:30)',
       pickClinicDr: '请先选择诊所及医生。高亮日期为值班日。',
@@ -179,6 +179,12 @@
   }
 
   function bookingAction(body) {
+    /* Slot times must use roster profile (interval + session windows) from Supabase —
+       not the edge/local API, which still uses legacy 15-min rules for dates outside
+       manually saved roster months. */
+    if (body.action === 'get-slots' && CFG.supabaseUrl && CFG.anonKey) {
+      return getSlotsDirect(body);
+    }
     return apiCall(body).catch(function (err) {
       if (!CFG.supabaseUrl || !CFG.anonKey) throw err;
       if (body.action === 'get-slots') return getSlotsDirect(body);
@@ -274,39 +280,34 @@
     return slots.sort();
   }
 
+  function mapSessionFromRpc(s, iso) {
+    s = s || {};
+    var date = iso || todayIso();
+    return {
+      am: s.am !== false,
+      pm: s.pm !== false,
+      night: !!s.night,
+      am_start: s.am_start ? String(s.am_start).slice(0, 5) : OB_SESSION_WINDOWS.am.start,
+      am_end: s.am_end ? String(s.am_end).slice(0, 5) : OB_SESSION_WINDOWS.am.end,
+      pm_start: s.pm_start ? String(s.pm_start).slice(0, 5) : OB_SESSION_WINDOWS.pm.start,
+      pm_end: s.pm_end ? String(s.pm_end).slice(0, 5) : pmEndForDate(date, s),
+      pm_end_weekday: s.pm_end_weekday ? String(s.pm_end_weekday).slice(0, 5) : '19:30',
+      pm_end_weekend: s.pm_end_weekend ? String(s.pm_end_weekend).slice(0, 5) : '18:30',
+      night_start: s.night_start ? String(s.night_start).slice(0, 5) : OB_SESSION_WINDOWS.night.start,
+      night_end: s.night_end ? String(s.night_end).slice(0, 5) : OB_SESSION_WINDOWS.night.end,
+      slot_interval: Number(s.slot_interval) || ONLINE_BOOK_DEFAULTS.slot_interval
+    };
+  }
+
   function getRosterSessionsDirect(clinic, doctor, date) {
     return sbRestRpc('ob_get_roster_sessions', {
       p_clinic_tag: clinic || null,
       p_doctor_code: doctor,
       p_date: date
     }).then(function (s) {
-      return {
-        am: s.am !== false,
-        pm: s.pm !== false,
-        night: !!s.night,
-        am_start: s.am_start ? String(s.am_start).slice(0, 5) : OB_SESSION_WINDOWS.am.start,
-        am_end: s.am_end ? String(s.am_end).slice(0, 5) : OB_SESSION_WINDOWS.am.end,
-        pm_start: s.pm_start ? String(s.pm_start).slice(0, 5) : OB_SESSION_WINDOWS.pm.start,
-        pm_end: s.pm_end ? String(s.pm_end).slice(0, 5) : pmEndForDate(date, null),
-        pm_end_weekday: s.pm_end_weekday ? String(s.pm_end_weekday).slice(0, 5) : '19:30',
-        pm_end_weekend: s.pm_end_weekend ? String(s.pm_end_weekend).slice(0, 5) : '18:30',
-        night_start: s.night_start ? String(s.night_start).slice(0, 5) : OB_SESSION_WINDOWS.night.start,
-        night_end: s.night_end ? String(s.night_end).slice(0, 5) : OB_SESSION_WINDOWS.night.end,
-        slot_interval: Number(s.slot_interval) || ONLINE_BOOK_DEFAULTS.slot_interval
-      };
+      return mapSessionFromRpc(s, date);
     }).catch(function () {
-      return {
-        am: true, pm: true, night: false,
-        am_start: OB_SESSION_WINDOWS.am.start,
-        am_end: OB_SESSION_WINDOWS.am.end,
-        pm_start: OB_SESSION_WINDOWS.pm.start,
-        pm_end: pmEndForDate(date, null),
-        pm_end_weekday: '19:30',
-        pm_end_weekend: '18:30',
-        night_start: OB_SESSION_WINDOWS.night.start,
-        night_end: OB_SESSION_WINDOWS.night.end,
-        slot_interval: ONLINE_BOOK_DEFAULTS.slot_interval
-      };
+      return mapSessionFromRpc({ am: true, pm: true, night: false }, date);
     });
   }
 
@@ -404,19 +405,50 @@
     if (!date || !doctorCode) {
       return Promise.reject(Object.assign(new Error('date and doctor_code required'), { status: 400 }));
     }
+
+    return sbRestRpc('ob_get_booking_slots', {
+      p_clinic_tag: clinicTag || null,
+      p_doctor_code: doctorCode,
+      p_date: date,
+      p_duration: duration,
+      p_session: sessionFilter
+    }).then(function (res) {
+      var slots = res.slots || [];
+      if (typeof slots === 'string') {
+        try { slots = JSON.parse(slots); } catch (e) { slots = []; }
+      }
+      return {
+        slots: slots,
+        duration: duration,
+        rules: { slot_interval: Number(res.interval) || ONLINE_BOOK_DEFAULTS.slot_interval },
+        sessions: mapSessionFromRpc(res.sessions || {}, date),
+        source: 'ob_get_booking_slots'
+      };
+    }).catch(function () {
+      return getSlotsDirectClient(body);
+    });
+  }
+
+  function getSlotsDirectClient(body) {
+    var date = String(body.date || '');
+    var doctorCode = String(body.doctor_code || '');
+    var clinicTag = String(body.clinic_tag || '');
+    var duration = parseInt(String(body.duration || '30'), 10) || 30;
+    var sessionFilter = String(body.session || '') || null;
     var day = new Date(date + 'T12:00:00').getDay();
-    var sessionsPromise = dutyDateMap[date]
-      ? Promise.resolve(dutyDateMap[date])
-      : getRosterSessionsDirect(clinicTag, doctorCode, date);
-    return sessionsPromise.then(function (sessions) {
+    return getRosterSessionsDirect(clinicTag, doctorCode, date).then(function (sessions) {
       return sbRestGet('online_booking_rules?select=*&enabled=eq.true')
         .catch(function () { return []; })
         .then(function (rulesRows) {
           var rules = pickRules(rulesRows, clinicTag, doctorCode, day);
-          var interval = Number(sessions.slot_interval) || Number(rules.slot_interval) || ONLINE_BOOK_DEFAULTS.slot_interval;
+          var interval = Number(sessions.slot_interval) || ONLINE_BOOK_DEFAULTS.slot_interval;
+          if ([15, 30, 45, 60].indexOf(interval) < 0) interval = ONLINE_BOOK_DEFAULTS.slot_interval;
           var candidates = generateSessionSlots(sessions, interval, duration, sessionFilter, date);
+          if (!candidates.length && sessionFilter) {
+            candidates = generateSessionSlots(sessions, interval, duration, null, date);
+          }
           if (!candidates.length) {
-            candidates = generateCandidateSlots(rules, duration);
+            candidates = generateCandidateSlots(Object.assign({}, rules, { slot_interval: interval }), duration);
           }
           return getOccupiedDirect(date, doctorCode, clinicTag).then(function (occupied) {
             var slots = filterFreeSlots(candidates, occupied, duration);
@@ -425,7 +457,7 @@
               var cm = cutMin.getHours() * 60 + cutMin.getMinutes();
               slots = slots.filter(function (s) { return timeToMin(s) >= cm; });
             }
-            return { slots: slots, duration: duration, rules: rules, sessions: sessions, source: 'direct' };
+            return { slots: slots, duration: duration, rules: rules, sessions: sessions, source: 'direct-client' };
           });
         });
     });
@@ -492,12 +524,7 @@
       return dates.map(function (d) {
         var iso = String(d).slice(0, 10);
         var s = sessions[iso] || { am: true, pm: true, night: false };
-        dutyDateMap[iso] = {
-          am: s.am !== false,
-          pm: s.pm !== false,
-          night: !!s.night,
-          pm_end: s.pm_end ? String(s.pm_end).slice(0, 5) : pmEndForDate(iso, null)
-        };
+        dutyDateMap[iso] = mapSessionFromRpc(s, iso);
         return iso;
       });
     });

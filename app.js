@@ -1950,6 +1950,58 @@ function patientSearchDobFilterParts(q) {
     return parts;
 }
 
+/** Strip active-patient display suffix, e.g. "Chan Tai Man (#12345)". */
+function patientSearchNormalizeInputQuery(q) {
+    var raw = String(q || '').trim();
+    return raw.replace(/\s*\(#[^)]*\)\s*$/, '').trim();
+}
+
+/** Minimum length before firing quick-search (avoids IME pinyin fragments). */
+function patientSearchMeetsMinLength(q) {
+    var raw = patientSearchNormalizeInputQuery(q);
+    if (!raw) return false;
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length >= 4) return true;
+    if (/^\d+$/.test(raw.replace(/\s+/g, ''))) return raw.replace(/\s+/g, '').length >= 4;
+    return raw.length >= 2;
+}
+
+/** Identity-only filter for appointment quick search (name / contact / id). */
+function patientSearchOrFilterIdentity(q) {
+    var raw = patientSearchNormalizeInputQuery(q);
+    if (!raw) return '';
+    var safe = escapePostgrestIlike(raw);
+    var parts = [
+        'full_name.ilike.%' + safe + '%',
+        'chinese_name.ilike.%' + safe + '%',
+        'patient_no.ilike.%' + safe + '%',
+        'phone_number.ilike.%' + safe + '%',
+        'mobile_phone.ilike.%' + safe + '%',
+        'hkid.ilike.%' + safe + '%',
+        'email.ilike.%' + safe + '%'
+    ];
+    var hk = raw.replace(/\s+/g, '').toUpperCase();
+    if (hk && hk !== safe.toUpperCase()) {
+        parts.push('hkid.ilike.%' + escapePostgrestIlike(hk) + '%');
+    }
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length >= 4 && digits !== raw) {
+        parts.push('phone_number.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('mobile_phone.ilike.%' + escapePostgrestIlike(digits) + '%');
+        parts.push('patient_no.ilike.%' + escapePostgrestIlike(digits) + '%');
+    }
+    patientSearchDobFilterParts(raw).forEach(function (p) { parts.push(p); });
+    return parts.join(',');
+}
+
+function patientSearchIdentityTexts(p) {
+    if (!p) return [];
+    return [
+        p.full_name, p.chinese_name, p.patient_no,
+        p.phone_number, p.mobile_phone, p.hkid, p.email, p.dob
+    ];
+}
+
 /** PostgREST .or() filter across common patient directory columns. */
 function patientSearchOrFilter(q) {
     var raw = String(q || '').trim();
@@ -2155,10 +2207,17 @@ var PATIENT_SEARCH_SELECT =
     'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,banana_index,banana_notes,' +
     PATIENT_CLINIC_TAG_FIELD;
 
-function patientSearchQueryBuilder(q, extraSelect) {
-    var filter = patientSearchOrFilter(q);
+function patientSearchQueryBuilder(q, extraSelect, opts) {
+    opts = opts || {};
+    var normQ = patientSearchNormalizeInputQuery(q);
+    var filter = opts.searchMode === 'identity'
+        ? patientSearchOrFilterIdentity(normQ)
+        : patientSearchOrFilter(normQ);
     if (!filter) return null;
-    var sel = PATIENT_SEARCH_SELECT + (extraSelect ? ',' + extraSelect : '');
+    var sel = (opts.searchMode === 'identity'
+        ? 'id,patient_no,full_name,chinese_name,sex,dob,phone_number,mobile_phone,hkid,email,' +
+          PATIENT_CLINIC_TAG_FIELD
+        : PATIENT_SEARCH_SELECT) + (extraSelect ? ',' + extraSelect : '');
     return SB.from('patients').select(sel).or(filter).limit(8);
 }
 
@@ -2273,11 +2332,18 @@ function runPatientSearchDropdown(opts) {
     var dd = opts.dropId ? g(opts.dropId) : null;
     if (!dd) return;
     var q = inputEl ? (inputEl.value || '').trim() : '';
+    q = patientSearchNormalizeInputQuery(q);
     if (!q) {
         dd.style.display = 'none';
         return;
     }
-    var pq = patientSearchQueryBuilder(q);
+    if (opts.requireMinLength !== false && !patientSearchMeetsMinLength(q)) {
+        dd.style.display = 'none';
+        return;
+    }
+    var pq = patientSearchQueryBuilder(q, null, {
+        searchMode: opts.searchMode === 'identity' ? 'identity' : 'full'
+    });
     if (!pq) {
         dd.style.display = 'none';
         return;
@@ -2293,16 +2359,22 @@ function runPatientSearchDropdown(opts) {
             dd.style.display = 'block';
             return;
         }
+        var rows = r.data || [];
+        if (opts.searchMode === 'identity') {
+            rows = rows.filter(function (p) {
+                return patientSearchLocalMatches(q, patientSearchIdentityTexts(p));
+            });
+        }
         var syncSource = opts.activeSource ||
             (opts.inputId ? ('patient-search:' + opts.inputId) : 'patient-search-select');
-        fillPatientSearchDropdown(dd, r.data, function (p) {
+        fillPatientSearchDropdown(dd, rows, function (p) {
             dd.style.display = 'none';
             if (inputEl) inputEl.value = patientSearchInputDisplayValue(p);
             recordPatientSearchToActiveCard(p, syncSource);
             if (opts.onSelect) opts.onSelect(p);
         });
-        if (r.data && r.data.length === 1) {
-            recordPatientSearchToActiveCard(r.data[0], syncSource + '-single');
+        if (opts.autoSelectSingle !== false && rows.length === 1) {
+            recordPatientSearchToActiveCard(rows[0], syncSource + '-single');
         }
     }
     pq.then(function (r) {
@@ -2310,7 +2382,9 @@ function runPatientSearchDropdown(opts) {
             var coreSel =
                 'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
                 'medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD;
-            var coreFilter = patientSearchOrFilterCore(q);
+            var coreFilter = opts.searchMode === 'identity'
+                ? patientSearchOrFilterIdentity(q)
+                : patientSearchOrFilterCore(q);
             if (!coreFilter) {
                 finish(r);
                 return;

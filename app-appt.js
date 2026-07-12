@@ -1679,16 +1679,41 @@ function _bindApptTabPatientSearchOnce(inputId, dropId, clearBtnId, source) {
     if (!inp || inp.dataset.bound) return;
     inp.dataset.bound = '1';
 
-    inp.addEventListener('input', function() {
+    var searchTimer = null;
+    var imeComposing = false;
+
+    function runApptTabPatientSearch() {
         runPatientSearchDropdown({
             inputId: inputId,
             dropId:  dropId,
             activeSource: source,
+            searchMode: 'identity',
+            autoSelectSingle: false,
             onSelect: function() {
                 var clrBtn = g(clearBtnId);
                 if (clrBtn) clrBtn.style.display = '';
             }
         });
+    }
+
+    inp.addEventListener('compositionstart', function() { imeComposing = true; });
+    inp.addEventListener('compositionend', function() {
+        imeComposing = false;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runApptTabPatientSearch, 80);
+    });
+
+    inp.addEventListener('input', function(e) {
+        if (imeComposing || (e && e.isComposing)) return;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runApptTabPatientSearch, 280);
+    });
+
+    inp.addEventListener('focus', function() {
+        var v = (inp.value || '').trim();
+        if (v && /\(#[^)]*\)\s*$/.test(v)) {
+            try { inp.select(); } catch (_) {}
+        }
     });
 
     inp.addEventListener('keydown', function(e) {

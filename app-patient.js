@@ -1382,14 +1382,20 @@ function submitEditPatient(e) {
                 .catch(function() {});
         }
 
-        if (savedPatient && typeof activePatientSlots !== 'undefined' &&
-            typeof activePatientNormalize === 'function') {
+        if (savedPatient && typeof activePatientSlots !== 'undefined') {
             for (var si = 0; si < activePatientSlots.length; si++) {
                 if (activePatientSlots[si] && String(activePatientSlots[si].id) === String(savedPatient.id)) {
-                    activePatientSlots[si] = activePatientNormalize(savedPatient);
+                    if (typeof normalizeActivePatientPayload === 'function') {
+                        var updated = normalizeActivePatientPayload(savedPatient);
+                        if (updated) {
+                            updated.address = savedPatient.address || '';
+                            updated.email = savedPatient.email || '';
+                            activePatientSlots[si] = updated;
+                        }
+                    }
                 }
             }
-            if (typeof renderActivePatientDock === 'function') renderActivePatientDock();
+            if (typeof renderActivePatientSlots === 'function') renderActivePatientSlots();
         }
         if (typeof patientViewOnActiveChange === 'function') {
             patientViewOnActiveChange(savedPatient);

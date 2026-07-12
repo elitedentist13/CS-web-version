@@ -216,6 +216,16 @@
             'zh-CN': '复制手机号码',
             'zh-Hant': '複製手機號碼'
         },
+        'activePatient.copyInsuranceTitle': {
+            en: 'Copy note',
+            'zh-CN': '复制备注',
+            'zh-Hant': '複製備註'
+        },
+        'activePatient.copyInsuranceToast': {
+            en: 'Note copied',
+            'zh-CN': '备注已复制',
+            'zh-Hant': '備註已複製'
+        },
         'activePatient.copyPhoneToast': {
             en: 'Mobile number copied',
             'zh-CN': '手机号码已复制',
@@ -398,7 +408,11 @@
         'patient.form.bananaIndex': { en: 'Banana Index', 'zh-CN': '香蕉指数', 'zh-Hant': '香蕉指數' },
         'patient.form.bananaNotes': { en: 'Banana Notes', 'zh-CN': '香蕉备注', 'zh-Hant': '香蕉備註' },
         'patient.form.bananaNotesPh': { en: 'Optional notes for banana index...', 'zh-CN': '可填写与香蕉指数相关备注…', 'zh-Hant': '可填寫與香蕉指數相關備註…' },
-        'patient.form.insurance': { en: 'Insurance No.', 'zh-CN': '保险编号', 'zh-Hant': '保險編號' },
+        'patient.form.insurance': {
+            en: 'Insurance No. / Reminder',
+            'zh-CN': '保险编号 / 备忘',
+            'zh-Hant': '保險編號 / 備忘'
+        },
         'patient.form.occupation': { en: 'Occupation', 'zh-CN': '职业', 'zh-Hant': '職業' },
         'patient.form.address': { en: 'Address', 'zh-CN': '地址', 'zh-Hant': '地址' },
         'patient.form.resDistrict': { en: 'Res. District', 'zh-CN': '居住地区', 'zh-Hant': '居住地區' },

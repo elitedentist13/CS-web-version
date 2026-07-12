@@ -265,7 +265,8 @@ function serializePatientDragPayload(p) {
             : (p.phone_number || p.mobile_phone || ''),
         hkid: p.hkid || '',
         sex: p.sex || '',
-        dob: p.dob || ''
+        dob: p.dob || '',
+        insurance_no: p.insurance_no != null ? String(p.insurance_no).trim() : ''
     });
 }
 
@@ -3147,7 +3148,7 @@ function activePatientPhoneFromRecord(p) {
 
 function normalizeActivePatientPayload(p) {
     if (!p || !p.id) return null;
-    return {
+    var out = {
         id: p.id,
         patient_no: p.patient_no || '',
         full_name: p.full_name || '',
@@ -3157,6 +3158,10 @@ function normalizeActivePatientPayload(p) {
         sex: p.sex || '',
         dob: p.dob || ''
     };
+    if ('insurance_no' in p) {
+        out.insurance_no = p.insurance_no != null ? String(p.insurance_no).trim() : '';
+    }
+    return out;
 }
 
 function activePatientBadgeSexLabel(sex) {
@@ -3194,6 +3199,18 @@ function activePatientBadgePhoneText(p) {
     return 'M:' + ph.replace(/\s+/g, '');
 }
 
+function activePatientBadgeInsuranceText(p) {
+    var ins = p && p.insurance_no != null ? String(p.insurance_no).trim() : '';
+    if (!ins) return '—';
+    if (ins.charAt(0) === '(' && ins.charAt(ins.length - 1) === ')') return ins;
+    return '(' + ins + ')';
+}
+
+function activePatientBadgeInsuranceCopyRaw(p) {
+    if (!p) return '';
+    return String(p.insurance_no || '').trim();
+}
+
 function activePatientBadgeStampDateText() {
     return nowLocal().toLocaleDateString(appUiLocale(), {
         day: 'numeric',
@@ -3223,6 +3240,7 @@ function activePatientBadgeCopyAllText(p) {
         activePatientBadgeDobAgeText(p.dob),
         p.chinese_name || '—',
         String(p.full_name || '—').toUpperCase(),
+        activePatientBadgeInsuranceText(p),
         activePatientBadgePhoneText(p)
     ].join('\n');
 }
@@ -3313,21 +3331,28 @@ function activePatientBadgeEmptyHtml(card) {
     if (!card) return;
     var box = card.querySelector('.active-patient-badge-textbox');
     if (box) box.value = '—\n—\n—\n—\n—';
+    var insurance = card.querySelector('[data-field="insuranceText"]');
+    if (insurance) insurance.textContent = '—';
     var phone = card.querySelector('[data-field="phoneText"]');
     if (phone) phone.textContent = '—';
     var date = card.querySelector('[data-field="stampDate"]');
     if (date) date.textContent = '';
     card.removeAttribute('data-copy-phone');
+    card.removeAttribute('data-copy-insurance');
     var phoneBtn = card.querySelector('.active-patient-phone-copy-btn');
     if (phoneBtn) phoneBtn.disabled = true;
+    var insBtn = card.querySelector('.active-patient-insurance-copy-btn');
+    if (insBtn) insBtn.disabled = true;
 }
 
 function activePatientBadgeDragBlockedTarget(target) {
     if (!target || !target.closest) return false;
     if (target.closest('.active-patient-clear-btn')) return true;
     if (target.closest('.active-patient-phone-copy-btn')) return true;
+    if (target.closest('.active-patient-insurance-copy-btn')) return true;
     if (target.closest('.active-patient-copy-all-btn')) return true;
     if (target.closest('.active-patient-badge-textbox')) return true;
+    if (target.closest('.active-patient-badge-insurance-text')) return true;
     return false;
 }
 
@@ -3341,12 +3366,14 @@ function bindActivePatientBadgeCursor(card) {
         }
         if (ev.target.closest('.active-patient-clear-btn') ||
             ev.target.closest('.active-patient-phone-copy-btn') ||
+            ev.target.closest('.active-patient-insurance-copy-btn') ||
             ev.target.closest('.active-patient-copy-all-btn')) {
             card.style.cursor = 'pointer';
             return;
         }
         if (ev.target.closest('.active-patient-badge-textbox') ||
-            ev.target.closest('.active-patient-badge-phone-text')) {
+            ev.target.closest('.active-patient-badge-phone-text') ||
+            ev.target.closest('.active-patient-badge-insurance-text')) {
             card.style.cursor = 'text';
             return;
         }
@@ -3394,13 +3421,18 @@ function renderActivePatientSlot(idx, p) {
     }
     var box = card.querySelector('.active-patient-badge-textbox');
     if (box) box.value = activePatientBadgeMainText(p);
+    var insuranceEl = card.querySelector('[data-field="insuranceText"]');
+    if (insuranceEl) insuranceEl.textContent = activePatientBadgeInsuranceText(p);
     var phoneEl = card.querySelector('[data-field="phoneText"]');
     if (phoneEl) phoneEl.textContent = activePatientBadgePhoneText(p);
     var dateEl = card.querySelector('[data-field="stampDate"]');
     if (dateEl) dateEl.textContent = activePatientBadgeStampDateText();
     card.setAttribute('data-copy-phone', activePatientBadgePhoneCopyRaw(p));
+    card.setAttribute('data-copy-insurance', activePatientBadgeInsuranceCopyRaw(p));
     var phoneBtn = card.querySelector('.active-patient-phone-copy-btn');
     if (phoneBtn) phoneBtn.disabled = !activePatientBadgePhoneCopyRaw(p);
+    var insBtn = card.querySelector('.active-patient-insurance-copy-btn');
+    if (insBtn) insBtn.disabled = !activePatientBadgeInsuranceCopyRaw(p);
     card.setAttribute('draggable', 'false');
     card.setAttribute('data-patient-id', p.id);
     card.setAttribute('data-payload', serializePatientDragPayload(p));
@@ -3420,10 +3452,13 @@ function renderActivePatientSlots() {
 function hydrateActivePatientDetailsIfNeeded(slotIdx) {
     var p = activePatientSlots[slotIdx];
     if (!p || !p.id || p.__detailsHydrateDone) return;
-    if (p.phone_number && p.hkid && p.sex && p.dob) return;
+    if (p.phone_number && p.hkid && p.sex && p.dob && ('insurance_no' in p)) {
+        p.__detailsHydrateDone = true;
+        return;
+    }
     if (typeof SB === 'undefined' || !SB.from) return;
     p.__detailsHydrateDone = true;
-    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob').eq('id', p.id).limit(1)
+    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob,insurance_no').eq('id', p.id).limit(1)
     .then(function(r) {
         if (!r.data || !r.data[0]) return;
         var row = r.data[0];
@@ -3434,6 +3469,9 @@ function hydrateActivePatientDetailsIfNeeded(slotIdx) {
         if (!cur.hkid) cur.hkid = row.hkid || '';
         if (!cur.sex) cur.sex = row.sex || '';
         if (!cur.dob) cur.dob = row.dob || '';
+        if (!('insurance_no' in cur)) {
+            cur.insurance_no = row.insurance_no != null ? String(row.insurance_no).trim() : '';
+        }
         renderActivePatientSlot(slotIdx, cur);
     })
     .catch(function() {});
@@ -3498,7 +3536,7 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
     }
 
     if (norm.phone_number && norm.hkid && norm.sex && norm.dob &&
-        norm.address !== undefined && norm.email !== undefined) {
+        norm.address !== undefined && norm.email !== undefined && ('insurance_no' in norm)) {
         commit(norm);
         return;
     }
@@ -3508,7 +3546,7 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
         return;
     }
 
-    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob,address,email').eq('id', norm.id).limit(1)
+    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob,address,email,insurance_no').eq('id', norm.id).limit(1)
     .then(function(r) {
         if (r.data && r.data[0]) {
             norm.phone_number = norm.phone_number || activePatientPhoneFromRecord(r.data[0]);
@@ -3518,6 +3556,9 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
             norm.dob = norm.dob || r.data[0].dob || '';
             norm.address = norm.address || r.data[0].address || '';
             norm.email = norm.email || r.data[0].email || '';
+            norm.insurance_no = r.data[0].insurance_no != null
+                ? String(r.data[0].insurance_no).trim()
+                : '';
         }
         commit(norm);
     })
@@ -3642,8 +3683,9 @@ function bindActivePatientCardOnce() {
         stack.dataset.copyBound = '1';
         stack.addEventListener('click', function(ev) {
             var phoneBtn = ev.target.closest('[data-act="copy-phone"]');
+            var insBtn = ev.target.closest('[data-act="copy-insurance"]');
             var allBtn = ev.target.closest('[data-act="copy-all"]');
-            if (!phoneBtn && !allBtn) return;
+            if (!phoneBtn && !insBtn && !allBtn) return;
             ev.preventDefault();
             ev.stopPropagation();
             var card = ev.target.closest('.active-patient-card');
@@ -3656,6 +3698,14 @@ function bindActivePatientCardOnce() {
                 if (!raw) return;
                 activePatientCopyTextToClipboard(raw, function(ok) {
                     activePatientCopyToast(ok ? 'activePatient.copyPhoneToast' : 'activePatient.copyFailToast');
+                });
+                return;
+            }
+            if (insBtn) {
+                var insRaw = card.getAttribute('data-copy-insurance') || activePatientBadgeInsuranceCopyRaw(p);
+                if (!insRaw) return;
+                activePatientCopyTextToClipboard(insRaw, function(ok) {
+                    activePatientCopyToast(ok ? 'activePatient.copyInsuranceToast' : 'activePatient.copyFailToast');
                 });
                 return;
             }

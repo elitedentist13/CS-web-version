@@ -365,7 +365,8 @@ option {
         line-height: 1.4;
     }
 
-    .active-patient-badge-phone-text {
+    .active-patient-badge-phone-text,
+    .active-patient-badge-insurance-text {
         font-size: 12px;
     }
 
@@ -551,6 +552,39 @@ option {
     cursor: grab;
 }
 
+.active-patient-badge-insurance-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 4px;
+    padding: 2px 4px 2px 6px;
+    border: 1px inset rgba(32, 32, 128, 0.14);
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.22);
+    cursor: grab;
+}
+
+.active-patient-badge-insurance-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+    color: #202080;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+}
+
+.active-patient-insurance-copy-btn {
+    flex-shrink: 0;
+}
+
 .active-patient-badge-phone-text {
     flex: 1;
     min-width: 0;
@@ -567,6 +601,7 @@ option {
 }
 
 .active-patient-phone-copy-btn,
+.active-patient-insurance-copy-btn,
 .active-patient-copy-all-btn {
     flex-shrink: 0;
     display: inline-flex;
@@ -586,19 +621,22 @@ option {
 }
 
 .active-patient-phone-copy-btn:hover,
+.active-patient-insurance-copy-btn:hover,
 .active-patient-copy-all-btn:hover {
     border-color: #202080;
     background: #fff;
     box-shadow: 0 1px 4px rgba(32, 32, 128, 0.14);
 }
 
-.active-patient-phone-copy-btn:disabled {
+.active-patient-phone-copy-btn:disabled,
+.active-patient-insurance-copy-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
     box-shadow: none;
 }
 
 .active-patient-info-badge:not(.is-filled) .active-patient-phone-copy-btn,
+.active-patient-info-badge:not(.is-filled) .active-patient-insurance-copy-btn,
 .active-patient-info-badge:not(.is-filled) .active-patient-copy-all-btn {
     display: none;
 }

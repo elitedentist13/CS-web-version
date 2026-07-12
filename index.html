@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260712-appt-ps-search-fix';
+  var BUILD = '20260712-patient-insurance-label';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -115,6 +115,12 @@
       </div>
       <textarea class="active-patient-badge-textbox" data-field="textContent" readonly
                 aria-readonly="true" tabindex="0" rows="7" spellcheck="false"></textarea>
+      <div class="active-patient-badge-insurance-row active-patient-badge-dragzone">
+        <span class="active-patient-badge-insurance-text" data-field="insuranceText">—</span>
+        <button type="button" class="active-patient-insurance-copy-btn" data-act="copy-insurance"
+                data-i18n-title="activePatient.copyInsuranceTitle"
+                data-i18n-aria-label="activePatient.copyInsuranceTitle" aria-label="Copy note">📄</button>
+      </div>
       <div class="active-patient-badge-phone-row active-patient-badge-dragzone">
         <span class="active-patient-badge-phone-text" data-field="phoneText">—</span>
         <button type="button" class="active-patient-phone-copy-btn" data-act="copy-phone"
@@ -135,6 +141,12 @@
       </div>
       <textarea class="active-patient-badge-textbox" data-field="textContent" readonly
                 aria-readonly="true" tabindex="0" rows="7" spellcheck="false"></textarea>
+      <div class="active-patient-badge-insurance-row active-patient-badge-dragzone">
+        <span class="active-patient-badge-insurance-text" data-field="insuranceText">—</span>
+        <button type="button" class="active-patient-insurance-copy-btn" data-act="copy-insurance"
+                data-i18n-title="activePatient.copyInsuranceTitle"
+                data-i18n-aria-label="activePatient.copyInsuranceTitle" aria-label="Copy note">📄</button>
+      </div>
       <div class="active-patient-badge-phone-row active-patient-badge-dragzone">
         <span class="active-patient-badge-phone-text" data-field="phoneText">—</span>
         <button type="button" class="active-patient-phone-copy-btn" data-act="copy-phone"

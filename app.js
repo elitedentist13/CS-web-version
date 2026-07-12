@@ -3107,6 +3107,7 @@ function syncActivePatientDockLayout() {
     if (!dock) return;
     var w = window.innerWidth || 0;
     dock.classList.toggle('active-patient-dock--compact', w > 0 && w <= ACTIVE_PATIENT_COMPACT_MAX_W);
+    refreshActivePatientInsuranceTooltips();
 }
 
 function bindActivePatientDockLayoutOnce() {
@@ -3209,6 +3210,37 @@ function activePatientBadgeInsuranceText(p) {
 function activePatientBadgeInsuranceCopyRaw(p) {
     if (!p) return '';
     return String(p.insurance_no || '').trim();
+}
+
+/** Native title tooltip only when the 2-line clamp hides part of the reminder. */
+function syncActivePatientInsuranceTooltip(el, p) {
+    if (!el) return;
+    var raw = activePatientBadgeInsuranceCopyRaw(p);
+    if (!raw) {
+        el.removeAttribute('title');
+        return;
+    }
+    var full = activePatientBadgeInsuranceText(p);
+    requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+            if (!el.isConnected) return;
+            var truncated = el.scrollHeight > el.clientHeight + 1;
+            if (truncated) el.setAttribute('title', full);
+            else el.removeAttribute('title');
+        });
+    });
+}
+
+function refreshActivePatientInsuranceTooltips() {
+    [0, 1].forEach(function(idx) {
+        var card = g('activePatientCard' + idx);
+        var p = activePatientSlots[idx];
+        if (!card || !p || !p.id) return;
+        syncActivePatientInsuranceTooltip(
+            card.querySelector('[data-field="insuranceText"]'),
+            p
+        );
+    });
 }
 
 function activePatientBadgeStampDateText() {
@@ -3332,7 +3364,10 @@ function activePatientBadgeEmptyHtml(card) {
     var box = card.querySelector('.active-patient-badge-textbox');
     if (box) box.value = '—\n—\n—\n—\n—';
     var insurance = card.querySelector('[data-field="insuranceText"]');
-    if (insurance) insurance.textContent = '—';
+    if (insurance) {
+        insurance.textContent = '—';
+        insurance.removeAttribute('title');
+    }
     var phone = card.querySelector('[data-field="phoneText"]');
     if (phone) phone.textContent = '—';
     var date = card.querySelector('[data-field="stampDate"]');
@@ -3422,7 +3457,10 @@ function renderActivePatientSlot(idx, p) {
     var box = card.querySelector('.active-patient-badge-textbox');
     if (box) box.value = activePatientBadgeMainText(p);
     var insuranceEl = card.querySelector('[data-field="insuranceText"]');
-    if (insuranceEl) insuranceEl.textContent = activePatientBadgeInsuranceText(p);
+    if (insuranceEl) {
+        insuranceEl.textContent = activePatientBadgeInsuranceText(p);
+        syncActivePatientInsuranceTooltip(insuranceEl, p);
+    }
     var phoneEl = card.querySelector('[data-field="phoneText"]');
     if (phoneEl) phoneEl.textContent = activePatientBadgePhoneText(p);
     var dateEl = card.querySelector('[data-field="stampDate"]');

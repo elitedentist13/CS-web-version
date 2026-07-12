@@ -554,7 +554,7 @@ option {
 
 .active-patient-badge-insurance-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 6px;
     margin-top: 4px;
@@ -573,9 +573,14 @@ option {
     line-height: 1.35;
     color: #202080;
     letter-spacing: 0.01em;
-    white-space: nowrap;
+    white-space: normal;
     overflow: hidden;
-    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    word-break: break-word;
+    overflow-wrap: anywhere;
     user-select: text;
     -webkit-user-select: text;
     cursor: text;
@@ -583,6 +588,7 @@ option {
 
 .active-patient-insurance-copy-btn {
     flex-shrink: 0;
+    margin-top: 1px;
 }
 
 .active-patient-badge-phone-text {

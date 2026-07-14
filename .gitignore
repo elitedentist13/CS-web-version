@@ -2,6 +2,7 @@
 tools/.env
 .env
 .env.*
+online-booking.env
 
 # OS / editor noise
 Thumbs.db

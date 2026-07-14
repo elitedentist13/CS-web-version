@@ -1,4 +1,4 @@
-/* book.js — public online booking (soft launch: name + phone only, staff confirms) */
+/* book.js — public online booking (Twilio Verify OTP → staff confirms) */
 (function () {
   'use strict';
 
@@ -13,6 +13,10 @@
   var selectedSession = '';
   var calViewYear = 0;
   var calViewMonth = 0;
+  var otpRequired = true;
+  var pendingOtp = null;
+  var resendSecondsLeft = 0;
+  var resendTimer = null;
 
   var OB_SESSION_WINDOWS = {
     am: { start: '10:30', end: '13:00', label: 'AM' },
@@ -33,7 +37,7 @@
   var I18N = {
     en: {
       title: 'Book an appointment',
-      softHint: 'Name, mobile and date of birth are required. Our team will confirm your booking.',
+      softHint: 'Name, mobile and date of birth are required. We will SMS a code to verify your number, then our team will confirm your booking.',
       name: 'Your name',
       nameZh: 'Name (Chinese)',
       mobile: 'Mobile',
@@ -56,23 +60,39 @@
       arrangeBanner: 'Request appointment (time to be arranged)',
       errDate: 'Please select a preferred date on the calendar.',
       loading: 'Loading times…',
-      bookBtn: 'Submit booking request',
+      bookBtn: 'Send verification code',
       booked: 'Request Received!',
       confirmNote: 'Your booking request has been placed. Our team will contact you to confirm.',
       confirmNoteArrange: 'Your request has been received. Our front desk will contact you to arrange a time on your chosen day.',
       errNamePhone: 'Please enter your name, mobile and date of birth.',
+      errPhone: 'Please enter a valid 8-digit Hong Kong mobile number.',
       errDisabled: 'Online booking is currently unavailable.',
       errGeneric: 'Something went wrong. Please try again.',
       errRpcMissing: 'Run online_booking_roster.sql in Supabase SQL Editor (one-time setup), then refresh this page.',
-      errApiDown: 'Booking could not be saved. Run online_booking_rpc.sql in Supabase SQL Editor, then refresh.',
+      errApiDown: 'Booking could not be saved. Start the booking API (or deploy the Edge Function), then refresh.',
+      errOtpApi: 'SMS verification needs the booking API. Use book.html?local=1 with start-online-booking.bat, or deploy the online-booking Edge Function.',
       reasonNone: '— Not specified —',
+      clinicNone: '— Select clinic —',
+      doctorNone: '— Select doctor —',
+      errClinicDoctor: 'Please select a clinic and doctor.',
       timeTbc: 'To be confirmed by clinic',
       clinicNoteTitle: 'Clinic availability note',
-      clinicNoteBody: 'Quarry Bay and Po Lam are still awaiting a system update — online booking is not available at these locations yet. Please contact the clinic directly or choose another location.'
+      clinicNoteBody: 'Quarry Bay and Po Lam are still awaiting a system update — online booking is not available at these locations yet. Please contact the clinic directly or choose another location.',
+      otpTitle: 'Verify mobile number',
+      otpHint: 'We sent a 6-digit code by SMS. Enter it below to confirm your booking request.',
+      otpCode: 'Verification code',
+      otpVerify: 'Verify & submit',
+      otpResend: 'Resend code',
+      otpResendIn: 'Resend in {s}s',
+      otpBack: 'Back',
+      otpMeta: 'Code sent to {phone}',
+      otpSending: 'Sending code…',
+      otpVerifying: 'Verifying…',
+      errOtp: 'Enter the code from your SMS.'
     },
     'zh-Hant': {
       title: '網上預約',
-      softHint: '只需填寫姓名、手提電話及出生日期。診所同事會為您確認預約。',
+      softHint: '請填寫姓名、手提電話及出生日期。我們會以短訊發送驗證碼，確認後診所同事會為您確認預約。',
       name: '您的姓名',
       nameZh: '中文姓名',
       mobile: '手提電話',
@@ -95,23 +115,39 @@
       arrangeBanner: '申請預約（時間待安排）',
       errDate: '請在日曆上選擇希望日期。',
       loading: '載入時段中…',
-      bookBtn: '提交預約申請',
+      bookBtn: '發送驗證碼',
       booked: '申請已收到！',
       confirmNote: '您的預約申請已提交。診所將盡快聯絡您確認。',
       confirmNoteArrange: '您的申請已收到。前台同事會聯絡您，於所選日期安排預約時間。',
       errNamePhone: '請填寫姓名、手提電話及出生日期。',
+      errPhone: '請輸入有效的 8 位香港手提電話號碼。',
       errDisabled: '網上預約暫停服務。',
       errGeneric: '發生錯誤，請重試。',
       errRpcMissing: '請在 Supabase SQL Editor 執行 online_booking_roster.sql（一次性設定），然後重新整理此頁。',
-      errApiDown: '無法儲存預約。請在 Supabase SQL Editor 執行 online_booking_rpc.sql，然後重新整理。',
+      errApiDown: '無法儲存預約。請啟動預約 API（或部署 Edge Function），然後重新整理。',
+      errOtpApi: '短訊驗證需要預約 API。請用 book.html?local=1 並執行 start-online-booking.bat，或部署 online-booking Edge Function。',
       reasonNone: '— 未指定 —',
+      clinicNone: '— 請選擇診所 —',
+      doctorNone: '— 請選擇醫生 —',
+      errClinicDoctor: '請選擇診所及醫生。',
       timeTbc: '待診所確認',
       clinicNoteTitle: '診所預約提示',
-      clinicNoteBody: '鰂魚涌及寶琳診所系統更新中，暫未能提供網上預約。請直接聯絡診所，或選擇其他診所。'
+      clinicNoteBody: '鰂魚涌及寶琳診所系統更新中，暫未能提供網上預約。請直接聯絡診所，或選擇其他診所。',
+      otpTitle: '驗證手提電話',
+      otpHint: '我們已以短訊發送 6 位驗證碼。請輸入以確認預約申請。',
+      otpCode: '驗證碼',
+      otpVerify: '驗證並提交',
+      otpResend: '重新發送',
+      otpResendIn: '{s} 秒後可重發',
+      otpBack: '返回',
+      otpMeta: '驗證碼已發送至 {phone}',
+      otpSending: '發送中…',
+      otpVerifying: '驗證中…',
+      errOtp: '請輸入短訊中的驗證碼。'
     },
     'zh-CN': {
       title: '网上预约',
-      softHint: '只需填写姓名、手机及出生日期。诊所同事会为您确认预约。',
+      softHint: '请填写姓名、手机及出生日期。我们会以短信发送验证码，确认后诊所同事会为您确认预约。',
       name: '您的姓名',
       nameZh: '中文姓名',
       mobile: '手机',
@@ -134,19 +170,35 @@
       arrangeBanner: '申请预约（时间待安排）',
       errDate: '请在日历上选择希望日期。',
       loading: '加载时段中…',
-      bookBtn: '提交预约申请',
+      bookBtn: '发送验证码',
       booked: '申请已收到！',
       confirmNote: '您的预约申请已提交。诊所将尽快联系您确认。',
       confirmNoteArrange: '您的申请已收到。前台同事会联系您，于所选日期安排预约时间。',
       errNamePhone: '请填写姓名、手机及出生日期。',
+      errPhone: '请输入有效的 8 位香港手机号码。',
       errDisabled: '网上预约暂停服务。',
       errGeneric: '发生错误，请重试。',
       errRpcMissing: '请在 Supabase SQL Editor 运行 online_booking_roster.sql（一次性设置），然后刷新此页。',
-      errApiDown: '无法保存预约。请在 Supabase SQL Editor 运行 online_booking_rpc.sql，然后刷新。',
+      errApiDown: '无法保存预约。请启动预约 API（或部署 Edge Function），然后刷新。',
+      errOtpApi: '短信验证需要预约 API。请用 book.html?local=1 并运行 start-online-booking.bat，或部署 online-booking Edge Function。',
       reasonNone: '— 未指定 —',
+      clinicNone: '— 请选择诊所 —',
+      doctorNone: '— 请选择医生 —',
+      errClinicDoctor: '请选择诊所及医生。',
       timeTbc: '待诊所确认',
       clinicNoteTitle: '诊所预约提示',
-      clinicNoteBody: '鲗鱼涌及宝琳诊所系统更新中，暂未能提供网上预约。请直接联络诊所，或选择其他诊所。'
+      clinicNoteBody: '鲗鱼涌及宝琳诊所系统更新中，暂未能提供网上预约。请直接联络诊所，或选择其他诊所。',
+      otpTitle: '验证手机号码',
+      otpHint: '我们已以短信发送 6 位验证码。请输入以确认预约申请。',
+      otpCode: '验证码',
+      otpVerify: '验证并提交',
+      otpResend: '重新发送',
+      otpResendIn: '{s} 秒后可重发',
+      otpBack: '返回',
+      otpMeta: '验证码已发送至 {phone}',
+      otpSending: '发送中…',
+      otpVerifying: '验证中…',
+      errOtp: '请输入短信中的验证码。'
     }
   };
 
@@ -185,10 +237,14 @@
     if (body.action === 'get-slots' && CFG.supabaseUrl && CFG.anonKey) {
       return getSlotsDirect(body);
     }
+    /* OTP actions must go through the booking API (Twilio lives server-side). */
+    if (body.action === 'send-otp' || body.action === 'verify-otp' || body.action === 'resend-otp') {
+      return apiCall(body);
+    }
     return apiCall(body).catch(function (err) {
       if (!CFG.supabaseUrl || !CFG.anonKey) throw err;
       if (body.action === 'get-slots') return getSlotsDirect(body);
-      if (body.action === 'request-booking') return requestBookingDirect(body);
+      if (body.action === 'request-booking' && !otpRequired) return requestBookingDirect(body);
       throw err;
     });
   }
@@ -678,6 +734,7 @@
       $('btnBook').disabled = true;
       return;
     }
+    if (typeof res.otp_required === 'boolean') otpRequired = res.otp_required;
     clinics = res.clinics || [];
     doctors = clinicalDoctors(res.doctors || []);
     visitReasons = res.visitReasons || VISIT_REASONS;
@@ -766,7 +823,11 @@
   }
 
   function updateHeader(clinic) {
-    if (!clinic) return;
+    if (!clinic) {
+      $('obClinicName').textContent = 'Joyful Smile';
+      $('obClinicMeta').textContent = t('pickClinicDr');
+      return;
+    }
     var name = clinic.english_name || clinic.clinic_code || 'Clinic';
     if (LANG !== 'en' && clinic.chinese_name) name = clinic.chinese_name;
     $('obClinicName').textContent = name;
@@ -780,21 +841,26 @@
   function fillClinics() {
     var sel = $('fClinic');
     sel.innerHTML = '';
-    clinics.forEach(function (c, i) {
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = t('clinicNone');
+    sel.appendChild(blank);
+    clinics.forEach(function (c) {
       var o = document.createElement('option');
       o.value = c.clinic_code || '';
       var label = c.english_name || c.clinic_code;
       if (LANG !== 'en' && c.chinese_name) label = c.chinese_name + ' · ' + (c.english_name || '');
       o.textContent = label;
       sel.appendChild(o);
-      if (i === 0) updateHeader(c);
     });
-    sel.addEventListener('change', function () {
+    sel.value = '';
+    updateHeader(null);
+    sel.onchange = function () {
       var c = clinics.find(function (x) { return x.clinic_code === sel.value; });
       updateHeader(c);
       filterDoctors();
       onClinicDoctorChange();
-    });
+    };
   }
 
   function filterDoctors() {
@@ -803,6 +869,14 @@
     var clinicId = clinic ? clinic.id : null;
     var sel = $('fDoctor');
     sel.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = t('doctorNone');
+    sel.appendChild(blank);
+    if (!clinicCode) {
+      sel.value = '';
+      return;
+    }
     var list = doctors.filter(function (d) {
       return !clinicId || !d.clinic_id || d.clinic_id === clinicId;
     });
@@ -816,6 +890,7 @@
       o.dataset.name = d.english_name || d.doctor_code;
       sel.appendChild(o);
     });
+    sel.value = '';
   }
 
   function fillReasons() {
@@ -890,6 +965,7 @@
 
   function showConfirm(res) {
     $('stepForm').classList.remove('active');
+    $('stepOtp').classList.remove('active');
     $('stepConfirm').classList.add('active');
     $('confirmDate').textContent = res.date ? fmtDateDisplay(res.date) : '—';
     $('confirmTime').textContent = res.start_time ? fmt12(res.start_time) : t('timeTbc');
@@ -899,18 +975,81 @@
       noteEl.textContent = res.arrange_requested ? t('confirmNoteArrange') : t('confirmNote');
     }
     document.title = t('booked');
+    stopResendTimer();
   }
 
-  function submitBooking() {
-    showError('formError', '');
+  function stopResendTimer() {
+    if (resendTimer) {
+      clearInterval(resendTimer);
+      resendTimer = null;
+    }
+    resendSecondsLeft = 0;
+  }
+
+  function startResendTimer(seconds) {
+    stopResendTimer();
+    resendSecondsLeft = seconds || 60;
+    var btn = $('btnOtpResend');
+    function tick() {
+      if (!btn) return;
+      if (resendSecondsLeft <= 0) {
+        btn.disabled = false;
+        btn.textContent = t('otpResend');
+        stopResendTimer();
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = t('otpResendIn').replace('{s}', String(resendSecondsLeft));
+      resendSecondsLeft -= 1;
+    }
+    tick();
+    resendTimer = setInterval(tick, 1000);
+  }
+
+  function showOtpStep(res) {
+    pendingOtp = {
+      request_id: res.request_id,
+      web_booking_ref: res.web_booking_ref,
+      phone_masked: res.phone_masked || '',
+      date: res.date,
+      start_time: res.start_time,
+      arrange_requested: res.arrange_requested
+    };
+    $('stepForm').classList.remove('active');
+    $('stepConfirm').classList.remove('active');
+    $('stepOtp').classList.add('active');
+    showError('otpError', '');
+    $('fOtp').value = '';
+    var meta = $('otpMeta');
+    if (meta) {
+      meta.textContent = t('otpMeta').replace('{phone}', pendingOtp.phone_masked || '+852');
+    }
+    var dbg = $('otpDebug');
+    if (dbg) {
+      if (res.debug) {
+        dbg.textContent = JSON.stringify(res.debug);
+        dbg.classList.add('show');
+      } else {
+        dbg.textContent = '';
+        dbg.classList.remove('show');
+      }
+    }
+    startResendTimer(60);
+    setTimeout(function () { $('fOtp').focus(); }, 50);
+  }
+
+  function backFromOtp() {
+    stopResendTimer();
+    pendingOtp = null;
+    $('stepOtp').classList.remove('active');
+    $('stepForm').classList.add('active');
+    showError('otpError', '');
+  }
+
+  function collectBookingPayload() {
     var name = ($('fName').value || '').trim();
     var phone = ($('fPhone').value || '').replace(/\D/g, '');
     var dob = parseDob($('fDob').value || '');
-    if (!name || !phone || !dob) {
-      showError('formError', t('errNamePhone'));
-      return;
-    }
-
     var date = $('fDate').value || '';
     var doctorSel = $('fDoctor');
     var doctorCode = doctorSel.value || '';
@@ -920,18 +1059,7 @@
     var reasonLabel = reasonSel.selectedOptions[0] && reasonSel.value
       ? reasonSel.selectedOptions[0].textContent
       : '';
-
-    if (!date) {
-      showError('formError', t('errDate'));
-      return;
-    }
-
-    var btn = $('btnBook');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="ob-spinner"></span>';
-
-    bookingAction({
-      action: 'request-booking',
+    return {
       clinic_tag: $('fClinic').value || '',
       doctor_code: doctorCode,
       doctor_name: doctorName,
@@ -945,16 +1073,97 @@
       patient_dob: dob,
       reason_id: reasonId,
       reason_label: reasonLabel
-    }).then(function (res) {
+    };
+  }
+
+  function submitBooking() {
+    showError('formError', '');
+    var payload = collectBookingPayload();
+    if (!payload.patient_name || !payload.patient_phone || !payload.patient_dob) {
+      showError('formError', t('errNamePhone'));
+      return;
+    }
+    if (String(payload.patient_phone).length !== 8) {
+      showError('formError', t('errPhone'));
+      return;
+    }
+    if (!payload.clinic_tag || !payload.doctor_code) {
+      showError('formError', t('errClinicDoctor'));
+      return;
+    }
+    if (!payload.date) {
+      showError('formError', t('errDate'));
+      return;
+    }
+
+    var btn = $('btnBook');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="ob-spinner"></span> ' + t('otpSending');
+
+    var actionBody = Object.assign({ action: otpRequired ? 'send-otp' : 'request-booking' }, payload);
+
+    bookingAction(actionBody).then(function (res) {
       btn.disabled = false;
       btn.textContent = t('bookBtn');
-      showConfirm(res);
+      if (otpRequired || res.request_id) showOtpStep(res);
+      else showConfirm(res);
     }).catch(function (e) {
       btn.disabled = false;
       btn.textContent = t('bookBtn');
       var msg = e.message || t('errGeneric');
+      if (e.network || e.status === 0) msg = t('errOtpApi');
       if (e.rpcMissing || e.status === 404) msg = t('errRpcMissing');
+      if (/Twilio|Verify|not configured|SMS verification/i.test(msg)) msg = t('errOtpApi') + ' (' + msg + ')';
       showError('formError', msg);
+    });
+  }
+
+  function verifyOtpSubmit() {
+    showError('otpError', '');
+    if (!pendingOtp || !pendingOtp.request_id) {
+      showError('otpError', t('errGeneric'));
+      return;
+    }
+    var code = ($('fOtp').value || '').replace(/\D/g, '');
+    if (!code || code.length < 4) {
+      showError('otpError', t('errOtp'));
+      return;
+    }
+    var btn = $('btnOtpVerify');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="ob-spinner"></span> ' + t('otpVerifying');
+    bookingAction({
+      action: 'verify-otp',
+      request_id: pendingOtp.request_id,
+      code: code
+    }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = t('otpVerify');
+      showConfirm(res);
+    }).catch(function (e) {
+      btn.disabled = false;
+      btn.textContent = t('otpVerify');
+      showError('otpError', e.message || t('errGeneric'));
+    });
+  }
+
+  function resendOtpSubmit() {
+    showError('otpError', '');
+    if (!pendingOtp || !pendingOtp.request_id) return;
+    var btn = $('btnOtpResend');
+    btn.disabled = true;
+    bookingAction({
+      action: 'resend-otp',
+      request_id: pendingOtp.request_id
+    }).then(function (res) {
+      if (res.phone_masked) pendingOtp.phone_masked = res.phone_masked;
+      var meta = $('otpMeta');
+      if (meta) meta.textContent = t('otpMeta').replace('{phone}', pendingOtp.phone_masked || '+852');
+      startResendTimer(60);
+    }).catch(function (e) {
+      btn.disabled = false;
+      btn.textContent = t('otpResend');
+      showError('otpError', e.message || t('errGeneric'));
     });
   }
 
@@ -969,8 +1178,16 @@
         });
         applyI18n();
         fillReasons();
+        var clinicVal = $('fClinic').value;
+        var doctorVal = $('fDoctor').value;
+        if (clinics.length) {
+          fillClinics();
+          if (clinicVal) $('fClinic').value = clinicVal;
+          filterDoctors();
+          if (doctorVal) $('fDoctor').value = doctorVal;
+        }
         var c = clinics.find(function (x) { return x.clinic_code === $('fClinic').value; });
-        updateHeader(c);
+        updateHeader(c || null);
       });
     });
 
@@ -992,6 +1209,15 @@
     $('fDob').min = dobMin.getFullYear() + '-' + pad(dobMin.getMonth() + 1) + '-' + pad(dobMin.getDate());
 
     $('btnBook').addEventListener('click', submitBooking);
+    $('btnOtpVerify').addEventListener('click', verifyOtpSubmit);
+    $('btnOtpResend').addEventListener('click', resendOtpSubmit);
+    $('btnOtpBack').addEventListener('click', backFromOtp);
+    $('fOtp').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        verifyOtpSubmit();
+      }
+    });
 
     apiCall({ action: 'get-options' }).then(function (res) {
       applyOptions(res);

@@ -9,11 +9,11 @@
 ## 1. What you need to know (30 seconds) | 三句話明白
 
 **EN**  
-Patients submit requests on the clinic website. They are **not confirmed** until **you** confirm them.  
+Patients submit requests on the clinic website after **SMS verification**. They are **not confirmed** until **you** confirm them.  
 Open **Appointments → 🌐 Web Bookings** and follow the red number.
 
 **繁**  
-病人在診所網頁提交申請，**要你確認後**才算正式預約。  
+病人在診所網頁提交申請（先經 **短訊驗證**），**要你確認後**才算正式預約。  
 請開 **Appointments → 🌐 Web Bookings**，留意紅色數字。
 
 ---

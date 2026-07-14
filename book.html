@@ -47,7 +47,7 @@
 
     <section class="ob-step active" id="stepForm">
       <h2 class="ob-step-title" data-i18n="title">Book an appointment</h2>
-      <p class="ob-soft-hint" data-i18n="softHint">Name, mobile and date of birth are required. Our team will confirm your booking.</p>
+      <p class="ob-soft-hint" data-i18n="softHint">Name, mobile and date of birth are required. We will SMS a code to verify your number, then our team will confirm your booking.</p>
 
       <details class="ob-mini-note" id="obClinicPendingNote">
         <summary class="ob-mini-note-summary">
@@ -129,6 +129,23 @@
       <button type="button" class="ob-btn ob-btn-primary" id="btnBook" data-i18n="bookBtn">Submit booking request</button>
     </section>
 
+    <section class="ob-step" id="stepOtp">
+      <h2 class="ob-step-title" data-i18n="otpTitle">Verify mobile number</h2>
+      <p class="ob-soft-hint" id="otpHint" data-i18n="otpHint">We sent a 6-digit code by SMS. Enter it below to confirm your booking request.</p>
+      <div class="ob-error" id="otpError"></div>
+      <div class="ob-field">
+        <label data-i18n="otpCode">Verification code</label>
+        <input type="text" id="fOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456">
+      </div>
+      <p class="ob-otp-meta" id="otpMeta"></p>
+      <div class="ob-btn-row">
+        <button type="button" class="ob-btn ob-btn-ghost" id="btnOtpBack" data-i18n="otpBack">Back</button>
+        <button type="button" class="ob-btn ob-btn-ghost" id="btnOtpResend" data-i18n="otpResend" disabled>Resend code</button>
+        <button type="button" class="ob-btn ob-btn-primary" id="btnOtpVerify" data-i18n="otpVerify">Verify &amp; submit</button>
+      </div>
+      <div class="ob-debug-otp" id="otpDebug"></div>
+    </section>
+
     <section class="ob-step" id="stepConfirm">
       <div class="ob-confirm">
         <div class="ob-confirm-icon">✅</div>
@@ -145,6 +162,6 @@
   </main>
 </div>
 
-<script src="book.js?v=20260709-slot-interval-fix"></script>
+<script src="book.js?v=20260715-blank-clinic-dr"></script>
 </body>
 </html>

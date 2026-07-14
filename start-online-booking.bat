@@ -19,9 +19,11 @@ if "%SUPABASE_SERVICE_ROLE_KEY%"=="" (
   echo.
 )
 
-set ONLINE_BOOKING_DEBUG=
-echo Starting online booking API on port 8788 (staff confirm mode, no SMS OTP)...
-echo Patient page: http://127.0.0.1:8123/book.html?local=1
+if "%ONLINE_BOOKING_DEBUG%"=="" set ONLINE_BOOKING_DEBUG=0
+echo Starting online booking API on port 8788...
+echo  Patient page: http://127.0.0.1:8123/book.html?local=1
+echo  Twilio OTP: set TWILIO_* in online-booking.env  (see ONLINE_BOOKING_TWILIO_OTP_SETUP.md)
+echo  SQL once:   run online_booking_otp.sql in Supabase SQL Editor
 echo.
 start "" cmd /c "npx --yes http-server -p 8123 -c-1"
 node tools/online-booking-api.mjs

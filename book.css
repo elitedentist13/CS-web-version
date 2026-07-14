@@ -353,9 +353,15 @@ body {
 
 .ob-btn-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+  align-items: center;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+.ob-btn-row .ob-btn-primary {
+  flex: 1 1 160px;
 }
 
 /* ── Verify overlay ──────────────────────────────────────────── */
@@ -482,6 +488,20 @@ body {
 }
 
 .ob-debug-otp.show { display: block; }
+
+.ob-otp-meta {
+  font-size: 0.85rem;
+  color: var(--ob-muted);
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+
+#fOtp {
+  letter-spacing: 0.28em;
+  font-size: 1.25rem;
+  text-align: center;
+  font-weight: 600;
+}
 
 .ob-lang-bar {
   text-align: right;

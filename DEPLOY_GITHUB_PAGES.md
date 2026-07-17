@@ -10,7 +10,7 @@ For users opening your `https://….github.io/…` link, AI must use **Supabase 
 
 ### 1. Push this repo to GitHub
 
-Include folder: `supabase/functions/ai-patient-draft/`
+Include folders: `supabase/functions/ai-patient-draft/` and `supabase/functions/twilio-whatsapp/`
 
 ### 2. Enable GitHub Pages
 
@@ -87,6 +87,16 @@ Then run workflow **Deploy Supabase AI Edge** (or push changes under `supabase/f
 
 ---
 
+## Twilio WhatsApp (live)
+
+For **AI Helper → Recall → Send Twilio WhatsApp** on the published site:
+
+1. Deploy Edge Function: `supabase functions deploy twilio-whatsapp --no-verify-jwt`
+2. Set secrets: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` (see `TWILIO_WHATSAPP_TEST.md`)
+3. Log in on the live URL and send a test to your own phone
+
+---
+
 ## What does *not* work on GitHub Pages
 
 | Item | Works on Pages? |
@@ -94,6 +104,7 @@ Then run workflow **Deploy Supabase AI Edge** (or push changes under `supabase/f
 | `START-AI.bat` / local proxy | No (only on your PC) |
 | `tools/.env` on GitHub | No (gitignored; never commit keys) |
 | AI without Edge deploy | No (shows demo templates) |
+| Twilio WhatsApp without Edge deploy | No (button fails until `twilio-whatsapp` is deployed) |
 
 ---
 

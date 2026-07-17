@@ -3,6 +3,7 @@ tools/.env
 .env
 .env.*
 online-booking.env
+twilio-whatsapp.env
 
 # OS / editor noise
 Thumbs.db

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260712-insurance-note-tooltip';
+  var BUILD = '20260717-twilio-wa-edge';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -580,6 +580,21 @@
           <button type="button" class="ai-channel-btn sms" onclick="AIHELPER.openChannelRecall('sms')" data-i18n="ai.btn.sms"></button>
           <button type="button" class="ai-channel-btn email" onclick="AIHELPER.openChannelRecall('email')" data-i18n="ai.btn.email"></button>
           <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.copyOut('recall')" data-i18n="ai.btn.copy"></button>
+        </div>
+        <div class="ai-twilio-wa-test" style="margin-top:14px;padding:12px 12px 10px;border:1px dashed #94a3b8;border-radius:10px;background:#f8fafc;">
+          <div style="font-weight:800;font-size:12px;color:#0f172a;margin-bottom:6px;" data-i18n="ai.twilioWaTest.title">Twilio WhatsApp (live)</div>
+          <p class="ai-hint" style="margin:0 0 8px;line-height:1.45;" data-i18n="ai.twilioWaTest.hint">Sends one real message via Supabase Edge Function twilio-whatsapp. Deploy the function and set Twilio secrets first (see TWILIO_WHATSAPP_TEST.md). Use your own phone for testing.</p>
+          <label class="ai-label" data-i18n="ai.twilioWaTest.phone">Test phone</label>
+          <input type="text" id="aiTwilioWaTestPhone" class="ai-input" maxlength="32"
+                 placeholder="+85291234567" data-i18n-placeholder="ai.twilioWaTest.phonePh">
+          <label class="ai-label" style="margin-top:6px;" data-i18n="ai.twilioWaTest.name">Name (template {{1}})</label>
+          <input type="text" id="aiTwilioWaTestName" class="ai-input" maxlength="60"
+                 placeholder="Test Patient" data-i18n-placeholder="ai.twilioWaTest.namePh">
+          <div class="ai-actions-row" style="margin-top:10px;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="ai-channel-btn whatsapp" id="aiTwilioWaTestBtn"
+                    onclick="AIHELPER.sendTwilioWhatsAppTest()" data-i18n="ai.twilioWaTest.btn">Send Twilio WhatsApp</button>
+            <span id="aiTwilioWaTestStatus" class="ai-status-chip"></span>
+          </div>
         </div>
       </div>
     </div>

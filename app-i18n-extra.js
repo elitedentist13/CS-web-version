@@ -1559,6 +1559,27 @@
         'ai.btn.sms': { en: 'SMS', 'zh-CN': '短信', 'zh-Hant': '短訊' },
         'ai.btn.email': { en: 'Email', 'zh-CN': '邮件', 'zh-Hant': '電郵' },
         'ai.btn.copy': { en: '📋 Copy', 'zh-CN': '📋 复制', 'zh-Hant': '📋 複製' },
+        'ai.twilioWaTest.title': { en: 'Twilio WhatsApp (live)', 'zh-CN': 'Twilio WhatsApp（线上）', 'zh-Hant': 'Twilio WhatsApp（線上）' },
+        'ai.twilioWaTest.hint': {
+            en: 'Sends one real message via Supabase Edge Function twilio-whatsapp. Deploy the function and set Twilio secrets first (see TWILIO_WHATSAPP_TEST.md). Use your own phone for testing.',
+            'zh-CN': '通过 Supabase Edge 函数 twilio-whatsapp 发送一条真实消息。请先部署函数并设置 Twilio 密钥（见 TWILIO_WHATSAPP_TEST.md）。请用自己的手机测试。',
+            'zh-Hant': '透過 Supabase Edge 函式 twilio-whatsapp 發送一則真實訊息。請先部署函式並設定 Twilio 密鑰（見 TWILIO_WHATSAPP_TEST.md）。請用自己的手機測試。'
+        },
+        'ai.twilioWaTest.phone': { en: 'Test phone', 'zh-CN': '测试手机号', 'zh-Hant': '測試手機號碼' },
+        'ai.twilioWaTest.phonePh': { en: '+85291234567', 'zh-CN': '+85291234567', 'zh-Hant': '+85291234567' },
+        'ai.twilioWaTest.name': { en: 'Name (template {{1}})', 'zh-CN': '姓名（模板 {{1}}）', 'zh-Hant': '姓名（範本 {{1}}）' },
+        'ai.twilioWaTest.namePh': { en: 'Test Patient', 'zh-CN': '测试患者', 'zh-Hant': '測試病人' },
+        'ai.twilioWaTest.btn': { en: 'Send Twilio WhatsApp', 'zh-CN': '发送 Twilio WhatsApp', 'zh-Hant': '傳送 Twilio WhatsApp' },
+        'ai.twilioWaTest.needPhone': { en: 'Enter a test phone number first.', 'zh-CN': '请先输入测试手机号。', 'zh-Hant': '請先輸入測試手機號碼。' },
+        'ai.twilioWaTest.needLogin': { en: 'Log in as a clinic user before sending WhatsApp.', 'zh-CN': '发送 WhatsApp 前请先以诊所用户登录。', 'zh-Hant': '傳送 WhatsApp 前請先以診所使用者登入。' },
+        'ai.twilioWaTest.sending': { en: 'Sending…', 'zh-CN': '发送中…', 'zh-Hant': '傳送中…' },
+        'ai.twilioWaTest.ok': { en: 'Sent', 'zh-CN': '已发送', 'zh-Hant': '已傳送' },
+        'ai.twilioWaTest.fail': { en: 'Twilio WhatsApp send failed.', 'zh-CN': 'Twilio WhatsApp 发送失败。', 'zh-Hant': 'Twilio WhatsApp 傳送失敗。' },
+        'ai.twilioWaTest.apiDown': {
+            en: 'Cannot reach Edge Function twilio-whatsapp. Deploy it and set Twilio secrets (TWILIO_WHATSAPP_TEST.md).',
+            'zh-CN': '无法连接 Edge 函数 twilio-whatsapp。请部署并设置 Twilio 密钥（TWILIO_WHATSAPP_TEST.md）。',
+            'zh-Hant': '無法連接 Edge 函式 twilio-whatsapp。請部署並設定 Twilio 密鑰（TWILIO_WHATSAPP_TEST.md）。'
+        },
         'ai.recall.filterHint': { en: 'Same slicing rules as birthdays; optionally require mobiles for SMS/WhatsApp.', 'zh-CN': '筛选规则与生日相同；可要求必须有手机以便短信/WhatsApp。', 'zh-Hant': '篩選規則與生日相同；可要求必須有手機以便短訊/WhatsApp。' },
         'ai.cb.requirePhone': { en: 'Only show records with plausible phone digits', 'zh-CN': '仅显示含合理电话号码的记录', 'zh-Hant': '僅顯示含合理電話號碼的紀錄' },
         'ai.guestFoldRecall': { en: 'Guest outreach (manual name)', 'zh-CN': '访客外展（手动姓名）', 'zh-Hant': '訪客外展（手動姓名）' },

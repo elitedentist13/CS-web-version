@@ -1107,6 +1107,89 @@ var AIHELPER = AIHELPER || {};
         openBulkChannel(ch, 'recall');
     };
 
+    var TWILIO_WA_EDGE_FN = 'twilio-whatsapp';
+
+    function setTwilioWaTestStatus(msg, isErr) {
+        var el = pick('aiTwilioWaTestStatus');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = isErr ? '#b91c1c' : '#047857';
+    }
+
+    /** One-shot Twilio WhatsApp via live Supabase Edge (publish-ready). */
+    ns.sendTwilioWhatsAppTest = function() {
+        var phoneEl = pick('aiTwilioWaTestPhone');
+        var nameEl = pick('aiTwilioWaTestName');
+        var btn = pick('aiTwilioWaTestBtn');
+        var to = phoneEl ? String(phoneEl.value || '').trim() : '';
+        var name = nameEl ? String(nameEl.value || '').trim() : '';
+        var outEl = pick('aiRecallOutput');
+        var body = outEl ? String(outEl.value || '').trim() : '';
+        var caller = callerSnippet();
+
+        if (!caller.callerUserId) {
+            alert(aiTr('ai.twilioWaTest.needLogin'));
+            return;
+        }
+
+        if (!to) {
+            var guestPhone = pick('aiRecallGuestPhone');
+            if (guestPhone) to = String(guestPhone.value || '').trim();
+        }
+        if (!to) {
+            var selId = trimmedVal('aiRecallBulkTarget');
+            var p = patientRowById(selId) || resolvedGuestRecall();
+            if (p && p.phone_number) to = String(p.phone_number || '').trim();
+            if (!name && p && p.full_name) name = String(p.full_name || '').trim().split(/\s+/)[0] || '';
+        }
+        if (!to) {
+            alert(aiTr('ai.twilioWaTest.needPhone'));
+            return;
+        }
+        if (!name) name = 'Patient';
+
+        if (typeof SB === 'undefined' || !SB.functions ||
+            typeof SB.functions.invoke !== 'function') {
+            alert(aiTr('ai.twilioWaTest.apiDown'));
+            return;
+        }
+
+        setTwilioWaTestStatus(aiTr('ai.twilioWaTest.sending'), false);
+        if (btn) btn.disabled = true;
+
+        var payload = withCaller({ to: to, name: name });
+        if (body) payload.body = body.slice(0, 1500);
+
+        SB.functions.invoke(TWILIO_WA_EDGE_FN, { body: payload })
+            .then(function(res) {
+                if (btn) btn.disabled = false;
+                var dataObj = normalizeEdgeData(res.data);
+                if (dataObj && dataObj.ok && dataObj.result) {
+                    var sid = dataObj.result.sid ? String(dataObj.result.sid) : '';
+                    var mode = dataObj.result.mode ? String(dataObj.result.mode) : '';
+                    setTwilioWaTestStatus(
+                        aiTr('ai.twilioWaTest.ok') +
+                            (sid ? ' · ' + sid : '') +
+                            (mode ? ' (' + mode + ')' : ''),
+                        false
+                    );
+                    return;
+                }
+                var err =
+                    (dataObj && (dataObj.error || dataObj.detail)) ||
+                    (res.error && res.error.message) ||
+                    aiTr('ai.twilioWaTest.fail');
+                setTwilioWaTestStatus(String(err), true);
+                alert(aiTr('ai.twilioWaTest.fail') + '\n\n' + String(err));
+            })
+            .catch(function(e) {
+                if (btn) btn.disabled = false;
+                var msg = (e && e.message) ? String(e.message) : aiTr('ai.twilioWaTest.apiDown');
+                setTwilioWaTestStatus(msg, true);
+                alert(aiTr('ai.twilioWaTest.fail') + '\n\n' + msg);
+            });
+    };
+
     function openBulkChannel(ch, side) {
         var outId = side === 'birth' ? 'aiBirthOutput' : 'aiRecallOutput';
         var selId = side === 'birth' ? 'aiBirthBulkTarget' : 'aiRecallBulkTarget';

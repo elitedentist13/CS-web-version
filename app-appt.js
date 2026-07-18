@@ -196,7 +196,6 @@ var plusApptTabBound = false;
 var plusApptActiveClinicId = '';
 var plusApptActiveDoctorCode = '';
 var plusApptClinicUiState = {};
-var plusApptClinicSyncing = false;
 var plusApptAllActiveDoctorCode = '';
 var PLUSAPPT_DOCTOR_ALL = '__all__';
 var PLUSAPPT_SLOT_MIN = 15;
@@ -1287,37 +1286,22 @@ function plusApptNotifyAppointmentSaved(meta) {
     var cid = (typeof currentClinicId !== 'undefined' ? currentClinicId : '') ||
         plusApptActiveClinicId;
     if (cid) {
-        var plusSel = g('plusApptClinicSelect');
-        if (plusSel && plusSel.value !== cid) {
-            plusApptClinicSyncing = true;
-            plusSel.value = cid;
-            plusApptClinicSyncing = false;
-        }
         var apptSel = g('apptClinicSelect');
         if (apptSel && apptSel.value !== cid) {
-            plusApptClinicSyncing = true;
             apptSel.value = cid;
-            plusApptClinicSyncing = false;
         }
         plusApptActiveClinicId = cid;
+        if (typeof setWorkingClinic === 'function') {
+            setWorkingClinic(cid, { syncFilters: true, reloadAppt: false });
+        }
     }
     if (meta.doctorCode) {
-        var drSel = g('plusApptDoctorSelect');
         var drCode = String(meta.doctorCode).trim();
-        if (drSel && drCode) {
-            var hasOpt = false;
-            for (var oi = 0; oi < drSel.options.length; oi++) {
-                if (drSel.options[oi].value === drCode) {
-                    hasOpt = true;
-                    break;
-                }
-            }
-            if (hasOpt && drSel.value !== PLUSAPPT_DOCTOR_ALL) {
-                drSel.value = drCode;
-                plusApptActiveDoctorCode = drCode;
-            } else if (plusApptIsAllDoctorsMode()) {
-                plusApptAllActiveDoctorCode = drCode;
-            }
+        if (drCode && typeof plusApptApplyDoctorCodeToApptBar === 'function') {
+            plusApptApplyDoctorCodeToApptBar(drCode);
+        }
+        if (typeof plusApptSyncScopeFromApptBar === 'function') {
+            plusApptSyncScopeFromApptBar();
         }
     }
     if (meta.apptId) plusApptPendingSelectApptId = String(meta.apptId);
@@ -1639,6 +1623,13 @@ function onApptDoctorChange() {
     if (typeof applyDashboardDoctorSelection === 'function') {
         applyDashboardDoctorSelection(doctorId);
     }
+    if (typeof plusApptSyncScopeFromApptBar === 'function') plusApptSyncScopeFromApptBar();
+    var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
+    if (tab === 'plusappt' && typeof onPlusApptDoctorChange === 'function') {
+        onPlusApptDoctorChange();
+    } else if (tab === 'calendar' && typeof refreshApptPlannerData === 'function') {
+        refreshApptPlannerData();
+    }
 }
 
 function bindApptDoctorSelectOnce() {
@@ -1760,13 +1751,7 @@ function onApptClinicChange() {
     if (typeof setWorkingClinic === 'function') {
         setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: false });
     }
-    var plusSel = g('plusApptClinicSelect');
-    if (plusSel && plusSel.value !== sel.value) {
-        plusApptClinicSyncing = true;
-        plusSel.value = sel.value;
-        plusApptActiveClinicId = sel.value;
-        plusApptClinicSyncing = false;
-    }
+    plusApptActiveClinicId = sel.value;
     populateApptDoctorSelect(sel.value);
     if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange();
     if (apptActiveTabKey() === 'plusappt' && typeof onPlusApptClinicChange === 'function') {
@@ -1958,8 +1943,6 @@ var _apptMemoScopeBusy = false;
 function apptMemoClinicId() {
     var sel = g('apptClinicSelect');
     if (sel && sel.value) return String(sel.value);
-    var plusSel = g('plusApptClinicSelect');
-    if (plusSel && plusSel.value) return String(plusSel.value);
     if (typeof plusApptActiveClinicId !== 'undefined' && plusApptActiveClinicId) {
         return String(plusApptActiveClinicId);
     }
@@ -2430,7 +2413,6 @@ function plusApptRestoreClinicUiState(clinicId) {
     if (!st) {
         plusApptDate = todayISO();
         plusApptMiniCalMonth = new Date();
-        plusApptActiveDoctorCode = '';
         return;
     }
     plusApptDate = st.date || todayISO();
@@ -2442,7 +2424,6 @@ function plusApptRestoreClinicUiState(clinicId) {
             ? new Date(d.getFullYear(), d.getMonth(), 1)
             : new Date();
     }
-    plusApptActiveDoctorCode = st.activeDoctor || '';
 }
 
 function plusApptApplyClinicTheme() {
@@ -2540,97 +2521,64 @@ function plusApptApptMatchesDoctor(a, code) {
     return false;
 }
 
-function populatePlusApptClinicSelect() {
-    var sel = g('plusApptClinicSelect');
-    if (!sel) return;
-    var prev = sel.value || plusApptActiveClinicId;
-    sel.innerHTML = '';
-    if (!APP_CLINICS || !APP_CLINICS.length) {
-        sel.innerHTML = '<option value="">' + esc(tr('common.noClinics')) + '</option>';
-        return;
-    }
-    APP_CLINICS.forEach(function(c, i) {
-        var o = document.createElement('option');
-        o.value = c.id;
-        o.textContent = (typeof clinicDisplayName === 'function')
-            ? clinicDisplayName(c)
-            : (c.english_name || c.chinese_name || clinicDisplayFallback());
-        o.dataset.themeIdx = String(i % PLUSAPPT_CLINIC_THEMES.length);
-        sel.appendChild(o);
-    });
-    var def = typeof defaultWorkingClinicId === 'function'
-        ? defaultWorkingClinicId()
-        : (APP_CLINICS[0] ? APP_CLINICS[0].id : '');
-    var has = false;
-    for (var j = 0; j < sel.options.length; j++) {
-        if (sel.options[j].value === prev) { has = true; break; }
-    }
-    sel.value = has ? prev : def;
-    plusApptActiveClinicId = sel.value;
+function plusApptDoctorCodeFromApptBarSel() {
+    var sel = g('apptDoctorSelect');
+    if (!sel || !sel.value) return PLUSAPPT_DOCTOR_ALL;
+    var doc = typeof getDoctorById === 'function' ? getDoctorById(sel.value) : null;
+    if (doc && doc.doctor_code) return String(doc.doctor_code).trim();
+    return PLUSAPPT_DOCTOR_ALL;
 }
 
-function populatePlusApptDoctorSelect() {
-    var sel = g('plusApptDoctorSelect');
-    if (!sel) return;
-    var prev = sel.value || plusApptActiveDoctorCode;
-    sel.innerHTML = '';
-    var cid = plusApptActiveClinicId ||
-        (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
-    var list = plusApptDoctorsForActiveClinic();
-    if (!list.length) {
-        sel.innerHTML = '<option value="">' + esc(tr('appt.modal.noDoctorsForClinic')) + '</option>';
-        plusApptActiveDoctorCode = '';
-        plusApptAllActiveDoctorCode = '';
-        return;
-    }
-    var allOpt = document.createElement('option');
-    allOpt.value = PLUSAPPT_DOCTOR_ALL;
-    allOpt.textContent = tr('common.all');
-    sel.appendChild(allOpt);
-    list.forEach(function(d) {
-        var code = String(d.doctor_code || '').trim();
-        var opt = document.createElement('option');
-        opt.value = code;
-        opt.textContent = (typeof doctorDisplayName === 'function'
-            ? doctorDisplayName(d)
-            : (d.english_name || d.chinese_name || code)) +
-            ' [' + code + ']';
-        sel.appendChild(opt);
-    });
-    if (prev && typeof isLoginPlaceholderDoctorCode === 'function' &&
-        isLoginPlaceholderDoctorCode(prev) && prev !== PLUSAPPT_DOCTOR_ALL) {
-        prev = PLUSAPPT_DOCTOR_ALL;
-    }
-    var has = false;
-    for (var i = 0; i < sel.options.length; i++) {
-        if (sel.options[i].value === prev) { has = true; break; }
-    }
-    if (!has) {
-        var st = plusApptGetClinicState();
-        prev = (st && st.activeDoctor) ? st.activeDoctor : list[0].doctor_code;
-        if (prev && typeof isLoginPlaceholderDoctorCode === 'function' &&
-            isLoginPlaceholderDoctorCode(prev) && prev !== PLUSAPPT_DOCTOR_ALL) {
-            prev = PLUSAPPT_DOCTOR_ALL;
-        }
-        has = !!prev;
-    }
-    sel.value = has ? prev : list[0].doctor_code;
-    plusApptActiveDoctorCode = sel.value;
+function plusApptSyncScopeFromApptBar() {
+    var clinicSel = g('apptClinicSelect');
+    plusApptActiveClinicId = (clinicSel && clinicSel.value)
+        ? clinicSel.value
+        : ((typeof currentClinicId !== 'undefined' && currentClinicId) ? currentClinicId : '');
+    plusApptActiveDoctorCode = plusApptDoctorCodeFromApptBarSel();
     if (plusApptIsAllDoctorsMode()) {
-        plusApptAllActiveDoctorCode = plusApptAllActiveDoctorCode || list[0].doctor_code;
+        var docs = plusApptDoctorsForActiveClinic();
+        if (!plusApptAllActiveDoctorCode && docs.length) {
+            plusApptAllActiveDoctorCode = docs[0].doctor_code;
+        }
     } else {
         plusApptAllActiveDoctorCode = '';
     }
 }
 
-function plusApptSyncTimelineHead() {
-    var head = g('plusApptTimelineHead');
-    var sel = g('plusApptDoctorSelect');
-    if (!head) return;
-    if (!sel || !sel.value) {
-        head.innerHTML = '<span>' + esc(tr('appt.plusAppt.pickDoctor')) + '</span>';
+function plusApptApplyDoctorCodeToApptBar(code) {
+    var sel = g('apptDoctorSelect');
+    if (!sel) return;
+    if (!code || code === PLUSAPPT_DOCTOR_ALL) {
+        sel.value = '';
         return;
     }
+    var docs = plusApptDoctorsForActiveClinic();
+    for (var i = 0; i < docs.length; i++) {
+        if (String(docs[i].doctor_code || '').trim() === String(code).trim()) {
+            sel.value = docs[i].id;
+            return;
+        }
+    }
+    sel.value = '';
+}
+
+/** Keep + Appointment scope aligned with the appointment module header bar. */
+function populatePlusApptClinicSelect() {
+    plusApptSyncScopeFromApptBar();
+}
+
+function populatePlusApptDoctorSelect() {
+    var cid = plusApptActiveClinicId ||
+        ((g('apptClinicSelect') && g('apptClinicSelect').value) || '') ||
+        (typeof currentClinicId !== 'undefined' ? currentClinicId : '');
+    if (typeof populateApptDoctorSelect === 'function') populateApptDoctorSelect(cid);
+    plusApptSyncScopeFromApptBar();
+}
+
+function plusApptSyncTimelineHead() {
+    var head = g('plusApptTimelineHead');
+    if (!head) return;
+    plusApptSyncScopeFromApptBar();
     var dateStr = plusApptDate && typeof fmtDateLong === 'function'
         ? fmtDateLong(plusApptDate, { long: true })
         : (plusApptDate || '');
@@ -2643,10 +2591,25 @@ function plusApptSyncTimelineHead() {
             ' · ' + esc(trRepl('appt.plusAppt.allScrollHint', { N: String(n) })) + '</span>';
         return;
     }
-    var code = sel.value;
+    var code = plusApptActiveDoctorCode;
+    if (!code || code === PLUSAPPT_DOCTOR_ALL) {
+        head.innerHTML = '<span>' + esc(tr('appt.plusAppt.pickDoctor')) + '</span>';
+        return;
+    }
     var col = plusApptDoctorColor(code);
-    var opt = sel.options[sel.selectedIndex];
-    var name = opt ? opt.textContent : code;
+    var doc = null;
+    var docs = plusApptDoctorsForActiveClinic();
+    for (var i = 0; i < docs.length; i++) {
+        if (String(docs[i].doctor_code || '').trim() === code) {
+            doc = docs[i];
+            break;
+        }
+    }
+    var name = doc
+        ? ((typeof doctorDisplayName === 'function'
+            ? doctorDisplayName(doc)
+            : (doc.english_name || doc.chinese_name || code)) + ' [' + code + ']')
+        : code;
     head.innerHTML =
         '<span class="plusappt-dr-dot" style="background:' + esc(col) + ';"></span>' +
         '<span>' + esc(tr('appt.plusAppt.timelineFor')) + ' ' + esc(name) + '</span>' +
@@ -2654,24 +2617,10 @@ function plusApptSyncTimelineHead() {
 }
 
 function onPlusApptClinicChange() {
-    if (plusApptClinicSyncing) return;
-    var sel = g('plusApptClinicSelect');
-    if (!sel || !sel.value) return;
+    plusApptSyncScopeFromApptBar();
     plusApptSaveUiState();
-    plusApptActiveClinicId = sel.value;
-    var apptSel = g('apptClinicSelect');
-    if (apptSel && apptSel.value !== sel.value) {
-        plusApptClinicSyncing = true;
-        apptSel.value = sel.value;
-        plusApptClinicSyncing = false;
-    }
-    if (typeof setWorkingClinic === 'function') {
-        setWorkingClinic(sel.value, { syncFilters: true, reloadAppt: false });
-    }
-    plusApptRestoreClinicUiState(sel.value);
-    populatePlusApptDoctorSelect();
-    var drSel = g('plusApptDoctorSelect');
-    if (drSel) plusApptActiveDoctorCode = drSel.value;
+    plusApptRestoreClinicUiState(plusApptActiveClinicId);
+    plusApptSyncScopeFromApptBar();
     plusApptApplyClinicTheme();
     plusApptSyncDateLabel();
     plusApptToggleScheduleViews();
@@ -2682,9 +2631,8 @@ function onPlusApptClinicChange() {
 }
 
 function onPlusApptDoctorChange() {
+    plusApptSyncScopeFromApptBar();
     plusApptSaveUiState();
-    var sel = g('plusApptDoctorSelect');
-    plusApptActiveDoctorCode = sel ? sel.value : '';
     var st = plusApptGetClinicState();
     if (st) st.activeDoctor = plusApptActiveDoctorCode;
     if (plusApptIsAllDoctorsMode()) {
@@ -2700,6 +2648,7 @@ function onPlusApptDoctorChange() {
     plusApptSyncTimelineHead();
     renderPlusApptSchedule(true);
     plusApptRestoreDoctorSelection();
+    if (typeof apptMemoOnScopeChange === 'function') apptMemoOnScopeChange('plusappt');
 }
 
 function plusApptNormTime(t) {
@@ -6436,15 +6385,6 @@ function bindPlusApptTabOnce() {
         });
     }
 
-    var clinicSel = g('plusApptClinicSelect');
-    if (clinicSel) {
-        clinicSel.addEventListener('change', onPlusApptClinicChange);
-    }
-    var doctorSel = g('plusApptDoctorSelect');
-    if (doctorSel) {
-        doctorSel.addEventListener('change', onPlusApptDoctorChange);
-    }
-
     var scMap = {
         plusApptScEditPatient: function() {
             var a = plusApptSelectedAppt;
@@ -6800,41 +6740,28 @@ function apptImportSoftRefreshPlusAppt(insertDateIso, importClinicTag, preferDoc
     }
     var clinicId = apptImportClinicIdFromTag(importClinicTag);
     if (clinicId) {
-        var plusSel = g('plusApptClinicSelect');
-        if (plusSel && plusSel.value !== clinicId) {
-            plusApptClinicSyncing = true;
-            plusSel.value = clinicId;
-            plusApptClinicSyncing = false;
+        var clinicSel = g('apptClinicSelect');
+        if (clinicSel && clinicSel.value !== clinicId) {
+            clinicSel.value = clinicId;
         }
         plusApptActiveClinicId = clinicId;
         if (typeof setWorkingClinic === 'function') {
             setWorkingClinic(clinicId, { syncFilters: true, reloadAppt: false });
         }
-        if (typeof populatePlusApptDoctorSelect === 'function') populatePlusApptDoctorSelect();
+        if (typeof populateApptDoctorSelect === 'function') populateApptDoctorSelect(clinicId);
     }
     var psIn = g('plusApptPsInput');
     if (psIn) psIn.value = '';
     if (typeof plusApptClearSelection === 'function') plusApptClearSelection(true);
 
     var drCode = String(preferDoctorCode || '').trim();
-    var drSel = g('plusApptDoctorSelect');
-    if (drSel && drCode) {
-        var hasOpt = false;
-        for (var oi = 0; oi < drSel.options.length; oi++) {
-            if (drSel.options[oi].value === drCode) {
-                hasOpt = true;
-                break;
-            }
-        }
-        if (hasOpt) {
-            drSel.value = drCode;
-            plusApptActiveDoctorCode = drCode;
-            plusApptAllActiveDoctorCode = '';
-            var st = typeof plusApptGetClinicState === 'function' ? plusApptGetClinicState() : null;
-            if (st) st.activeDoctor = drCode;
-        } else if (typeof plusApptIsAllDoctorsMode === 'function' && plusApptIsAllDoctorsMode()) {
-            plusApptAllActiveDoctorCode = drCode;
-        }
+    if (drCode && typeof plusApptApplyDoctorCodeToApptBar === 'function') {
+        plusApptApplyDoctorCodeToApptBar(drCode);
+    }
+    if (typeof plusApptSyncScopeFromApptBar === 'function') plusApptSyncScopeFromApptBar();
+    if (drCode) {
+        var st = typeof plusApptGetClinicState === 'function' ? plusApptGetClinicState() : null;
+        if (st) st.activeDoctor = drCode;
     }
 
     function tick() {
@@ -7752,19 +7679,9 @@ function importApptRowsGeneric(dateIso, clinicTag, doctorName, doctorCodeOverrid
 
 function showPlusApptTab() {
     bindPlusApptTabOnce();
-    populatePlusApptClinicSelect();
-    var apptSel = g('apptClinicSelect');
-    var plusClinic = g('plusApptClinicSelect');
-    if (apptSel && apptSel.value && plusClinic && plusClinic.value !== apptSel.value) {
-        plusApptClinicSyncing = true;
-        plusClinic.value = apptSel.value;
-        plusApptActiveClinicId = apptSel.value;
-        plusApptClinicSyncing = false;
-        if (typeof setWorkingClinic === 'function') {
-            setWorkingClinic(apptSel.value, { syncFilters: true, reloadAppt: false });
-        }
-    }
+    plusApptSyncScopeFromApptBar();
     plusApptRestoreClinicUiState(plusApptActiveClinicId);
+    plusApptSyncScopeFromApptBar();
     if (!plusApptDate && calDate) {
         syncApptPlannerDate(
             calDate.getFullYear() + '-' + pad(calDate.getMonth() + 1) + '-' + pad(calDate.getDate()),

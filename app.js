@@ -1893,7 +1893,6 @@ function refreshAllClinicDropdowns() {
     relabelOrPopulate('reportClinicSelect', populateReportClinicSelect,
         { matchBy: 'id', allOptionKey: 'common.all' });
     relabelOrPopulate('apptClinicSelect', populateApptClinicSelect);
-    relabelOrPopulate('plusApptClinicSelect', populatePlusApptClinicSelect);
     relabelOrPopulate('addPatientClinicSelect', fillAddPatientClinicSelect);
     relabelOrPopulate('editPatientClinicSelect', null);
     relabelOrPopulate('docClinicSelect', null);

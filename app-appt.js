@@ -1394,6 +1394,9 @@ function reloadApptModuleData() {
         if (typeof rcDate !== 'undefined' && rcDate) loadRecallPatients(rcDate);
         else initRecallTab();
     }
+    else if (tab === 'broadcast' && typeof MASSBC !== 'undefined' && MASSBC.refreshFromBar) {
+        MASSBC.refreshFromBar();
+    }
     else if (tab === 'webbook' && typeof webbookRefreshList === 'function') {
         webbookRefreshList({ soft: true, syncFilters: true, keepSelection: true });
     }
@@ -1629,6 +1632,8 @@ function onApptDoctorChange() {
         onPlusApptDoctorChange();
     } else if (tab === 'calendar' && typeof refreshApptPlannerData === 'function') {
         refreshApptPlannerData();
+    } else if (tab === 'broadcast' && typeof MASSBC !== 'undefined' && MASSBC.refreshFromBar) {
+        MASSBC.refreshFromBar();
     }
 }
 
@@ -2214,6 +2219,7 @@ function switchApptTab(tab) {
         loadApptRecords();
     }
     if (tab === 'recall')   initRecallTab();
+    if (tab === 'broadcast' && typeof MASSBC !== 'undefined' && MASSBC.init) MASSBC.init();
     if (tab === 'webbook' && typeof initWebBookTab === 'function') initWebBookTab();
     if (tab === 'queue') {
         if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
@@ -8563,11 +8569,22 @@ function initRecallTab() {
     rcDate   = todayISO();
     rcMonthD = new Date();
     loadRcTemplates();
-    refreshRcTwilioFromSelect();
-    refreshRcTwilioTplSelect();
-    renderRcal();
-    loadRecallPatients(rcDate);
-    if (typeof setRcContact === 'function') setRcContact(rcContact);
+    function afterTpl() {
+        refreshRcTwilioFromSelect();
+        refreshRcTwilioTplSelect();
+        renderRcal();
+        loadRecallPatients(rcDate);
+        if (typeof setRcContact === 'function') setRcContact(rcContact);
+    }
+    var fromP = (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.ensureTwilioFromNumbers === 'function')
+        ? AIHELPER.ensureTwilioFromNumbers(true)
+        : Promise.resolve();
+    var tplP = (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.ensureTwilioContentTemplates === 'function')
+        ? AIHELPER.ensureTwilioContentTemplates(true)
+        : Promise.resolve();
+    Promise.all([fromP, tplP]).then(afterTpl).catch(afterTpl);
 }
 
 // ── Mini Calendar ────────────────────────────────────────────────

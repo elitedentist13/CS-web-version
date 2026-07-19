@@ -631,8 +631,12 @@ var AIHELPER = AIHELPER || {};
                 }
                 ensureLocalProxyDefaultInUi();
                 if (!silentReload) syncProxyInputs();
-                ns.refreshTwilioFromSelect();
-                ns.refreshTwilioTplSelect();
+                ensureTwilioFromCache(true).then(function() {
+                    ns.refreshTwilioFromSelect();
+                });
+                ensureTwilioTplCache(true).then(function() {
+                    ns.refreshTwilioTplSelect();
+                });
             });
     };
 
@@ -1169,9 +1173,19 @@ var AIHELPER = AIHELPER || {};
     /** Active channel in Twilio Send panel: 'whatsapp' | 'sms' */
     var _twilioChannel = 'whatsapp';
     var TWILIO_FROM_LS_KEY = 'ai_twilio_from_numbers_v1';
+    /** Legacy browser store — migrated once into Supabase twilio_content_templates. */
     var TWILIO_TPL_LS_KEY = 'ai_twilio_content_tpls_v1';
+    /** Per-browser last-selected template id (clinic list lives in Supabase). */
+    var TWILIO_TPL_SELECTED_KEY = 'ai_twilio_content_tpl_selected_v1';
+    var TWILIO_TPL_TABLE = 'twilio_content_templates';
     var TWILIO_TPL_CONSOLE_URL =
         'https://console.twilio.com/us1/develop/sms/content-template-builder';
+
+    /** In-memory clinic-wide template cache (synced from Supabase). */
+    var _tplCache = null;
+    var _tplLoadPromise = null;
+    var _tplDbReady = false;
+    var _tplDbMissing = false;
 
     function setTwilioStatus(msg, isErr) {
         var el = pick('aiTwilioStatus');
@@ -1224,12 +1238,7 @@ var AIHELPER = AIHELPER || {};
 
     function normalizeTplRow(t) {
         if (!t || typeof t !== 'object') return null;
-        var sid = normalizeContentSid(t.contentSid);
-        if (!sid && t.contentSid) {
-            // allow partially typed during edit only via form — skip invalid in store
-            sid = String(t.contentSid || '').trim();
-            if (!/^HX[a-zA-Z0-9]{32}$/.test(sid)) return null;
-        }
+        var sid = normalizeContentSid(t.contentSid || t.content_sid);
         if (!sid) return null;
         var id = String(t.id || '').trim();
         if (!id) id = 'tpl_' + sid.slice(0, 12);
@@ -1243,42 +1252,215 @@ var AIHELPER = AIHELPER || {};
         };
     }
 
-    function loadTwilioTplStore() {
-        var seed = defaultTwilioTplSeed();
+    function readSelectedTplPref() {
         try {
-            var raw = localStorage.getItem(TWILIO_TPL_LS_KEY);
-            if (!raw) return seed;
-            var parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object') return seed;
-            var list = Array.isArray(parsed.templates) ? parsed.templates : [];
-            var templates = [];
-            list.forEach(function(t) {
-                var row = normalizeTplRow(t);
-                if (row) templates.push(row);
-            });
-            if (!templates.length) return seed;
-            var selectedId = String(parsed.selectedId || templates[0].id);
-            var found = false;
-            for (var i = 0; i < templates.length; i++) {
-                if (templates[i].id === selectedId) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) selectedId = templates[0].id;
-            return { selectedId: selectedId, templates: templates };
+            return String(localStorage.getItem(TWILIO_TPL_SELECTED_KEY) || '').trim();
         } catch (e) {
-            return seed;
+            return '';
         }
     }
 
-    function saveTwilioTplStore(store) {
+    function writeSelectedTplPref(id) {
         try {
-            localStorage.setItem(
-                TWILIO_TPL_LS_KEY,
-                JSON.stringify(store || defaultTwilioTplSeed())
-            );
+            if (id) localStorage.setItem(TWILIO_TPL_SELECTED_KEY, String(id));
         } catch (e) { /* ignore */ }
+    }
+
+    function readLegacyLocalTplTemplates() {
+        try {
+            var raw = localStorage.getItem(TWILIO_TPL_LS_KEY);
+            if (!raw) return [];
+            var parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return [];
+            var list = Array.isArray(parsed.templates) ? parsed.templates : [];
+            var out = [];
+            list.forEach(function(t) {
+                var row = normalizeTplRow(t);
+                if (row) out.push(row);
+            });
+            return out;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function setTplCache(templates, selectedId) {
+        var list = Array.isArray(templates) ? templates.slice() : [];
+        if (!list.length) list = defaultTwilioTplSeed().templates.slice();
+        var sel = String(selectedId || readSelectedTplPref() || '');
+        var found = false;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === sel) { found = true; break; }
+        }
+        if (!found) sel = list[0].id;
+        _tplCache = { selectedId: sel, templates: list };
+        writeSelectedTplPref(sel);
+        return _tplCache;
+    }
+
+    function loadTwilioTplStore() {
+        if (_tplCache && _tplCache.templates && _tplCache.templates.length) {
+            return _tplCache;
+        }
+        return setTplCache(defaultTwilioTplSeed().templates, readSelectedTplPref());
+    }
+
+    function saveTwilioTplStore(store) {
+        // Selected id is per-browser; template rows live in Supabase.
+        if (!store) return;
+        _tplCache = {
+            selectedId: String(store.selectedId || ''),
+            templates: Array.isArray(store.templates) ? store.templates.slice() : []
+        };
+        writeSelectedTplPref(_tplCache.selectedId);
+    }
+
+    function mapDbRowToTpl(row) {
+        if (!row) return null;
+        return normalizeTplRow({
+            id: row.id,
+            label: row.label,
+            contentSid: row.content_sid,
+            vars: row.vars,
+            notes: row.notes,
+            builtin: false
+        });
+    }
+
+    function tplTableMissing(err) {
+        var msg = String((err && err.message) || err || '');
+        return /twilio_content_templates|does not exist|schema cache|Could not find the table/i.test(msg);
+    }
+
+    function callerUserIdForTpl() {
+        try {
+            if (typeof currentUserId !== 'undefined' && currentUserId) {
+                return String(currentUserId);
+            }
+        } catch (e) { /* ignore */ }
+        return null;
+    }
+
+    function seedDefaultTplToDb() {
+        if (typeof SB === 'undefined') return Promise.resolve(null);
+        return SB.from(TWILIO_TPL_TABLE).insert([{
+            label: 'Clinic recall (default)',
+            content_sid: TWILIO_WA_CONTENT_SID,
+            vars: '1',
+            notes: 'Approved WhatsApp recall · {{1}} = patient name',
+            sort_order: 0,
+            created_by: 'seed'
+        }]).select('id,label,content_sid,vars,notes').then(function(r) {
+            if (r.error) return null;
+            return r.data && r.data[0] ? mapDbRowToTpl(r.data[0]) : null;
+        });
+    }
+
+    function migrateLegacyLocalTplsToDb() {
+        var legacy = readLegacyLocalTplTemplates();
+        if (!legacy.length || typeof SB === 'undefined') return Promise.resolve(0);
+        var rows = legacy.map(function(t, idx) {
+            return {
+                label: t.label || t.contentSid,
+                content_sid: t.contentSid,
+                vars: t.vars || '1',
+                notes: t.notes || null,
+                sort_order: idx,
+                created_by: callerUserIdForTpl() || 'migrate'
+            };
+        });
+        // Upsert-like: insert one by one, ignore duplicate SIDs
+        var chain = Promise.resolve(0);
+        rows.forEach(function(row) {
+            chain = chain.then(function(n) {
+                return SB.from(TWILIO_TPL_TABLE).insert([row]).then(function(r) {
+                    if (r.error) return n;
+                    return n + 1;
+                });
+            });
+        });
+        return chain;
+    }
+
+    function fetchTwilioTemplatesFromDb() {
+        if (typeof SB === 'undefined') {
+            _tplDbReady = false;
+            return Promise.resolve(setTplCache(defaultTwilioTplSeed().templates, readSelectedTplPref()));
+        }
+        return SB.from(TWILIO_TPL_TABLE)
+            .select('id,label,content_sid,vars,notes,sort_order,is_active')
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .order('label', { ascending: true })
+            .then(function(r) {
+                if (r.error) {
+                    if (tplTableMissing(r.error)) {
+                        _tplDbMissing = true;
+                        _tplDbReady = false;
+                        var legacy = readLegacyLocalTplTemplates();
+                        setTplCache(
+                            legacy.length ? legacy : defaultTwilioTplSeed().templates,
+                            readSelectedTplPref()
+                        );
+                        return _tplCache;
+                    }
+                    _tplDbReady = false;
+                    setTplCache(defaultTwilioTplSeed().templates, readSelectedTplPref());
+                    return _tplCache;
+                }
+                _tplDbMissing = false;
+                _tplDbReady = true;
+                var list = (r.data || []).map(mapDbRowToTpl).filter(Boolean);
+                if (!list.length) {
+                    return migrateLegacyLocalTplsToDb().then(function(migrated) {
+                        if (migrated) {
+                            return SB.from(TWILIO_TPL_TABLE)
+                                .select('id,label,content_sid,vars,notes,sort_order,is_active')
+                                .eq('is_active', true)
+                                .order('sort_order', { ascending: true })
+                                .order('label', { ascending: true })
+                                .then(function(r2) {
+                                    var list2 = (r2.data || []).map(mapDbRowToTpl).filter(Boolean);
+                                    if (list2.length) {
+                                        setTplCache(list2, readSelectedTplPref());
+                                        return _tplCache;
+                                    }
+                                    return seedDefaultTplToDb().then(function(row) {
+                                        setTplCache(
+                                            row ? [row] : defaultTwilioTplSeed().templates,
+                                            row ? row.id : readSelectedTplPref()
+                                        );
+                                        return _tplCache;
+                                    });
+                                });
+                        }
+                        return seedDefaultTplToDb().then(function(row) {
+                            setTplCache(
+                                row ? [row] : defaultTwilioTplSeed().templates,
+                                row ? row.id : readSelectedTplPref()
+                            );
+                            return _tplCache;
+                        });
+                    });
+                }
+                setTplCache(list, readSelectedTplPref());
+                return _tplCache;
+            });
+    }
+
+    function ensureTwilioTplCache(force) {
+        if (!force && _tplCache && _tplDbReady && _tplCache.templates.length) {
+            return Promise.resolve(_tplCache);
+        }
+        if (!force && _tplLoadPromise) return _tplLoadPromise;
+        _tplLoadPromise = fetchTwilioTemplatesFromDb().then(function(store) {
+            _tplLoadPromise = null;
+            return store;
+        }).catch(function() {
+            _tplLoadPromise = null;
+            return loadTwilioTplStore();
+        });
+        return _tplLoadPromise;
     }
 
     function getSelectedTwilioTpl() {
@@ -1385,7 +1567,7 @@ var AIHELPER = AIHELPER || {};
         return vars;
     }
 
-    ns.refreshTwilioTplSelect = function() {
+    function paintTwilioTplSelect() {
         var sel = pick('aiTwilioTpl');
         if (!sel) return;
         var store = loadTwilioTplStore();
@@ -1408,6 +1590,33 @@ var AIHELPER = AIHELPER || {};
         store.selectedId = sel.value;
         saveTwilioTplStore(store);
         ns.onTwilioTplChange();
+        if (_tplDbMissing) {
+            setTwilioStatus(aiTr('ai.twilio.tplDbMissing'), true);
+        }
+    }
+
+    ns.refreshTwilioTplSelect = function() {
+        return ensureTwilioTplCache(false).then(function() {
+            paintTwilioTplSelect();
+        });
+    };
+
+    ns.reloadTwilioContentTemplates = function() {
+        _tplDbReady = false;
+        return ensureTwilioTplCache(true).then(function() {
+            paintTwilioTplSelect();
+            setTwilioStatus(
+                _tplDbMissing
+                    ? aiTr('ai.twilio.tplDbMissing')
+                    : aiTr('ai.twilio.tplReloaded'),
+                !!_tplDbMissing
+            );
+            return loadTwilioTplStore().templates.slice();
+        });
+    };
+
+    ns.ensureTwilioContentTemplates = function(force) {
+        return ensureTwilioTplCache(!!force);
     };
 
     ns.onTwilioTplChange = function() {
@@ -1421,39 +1630,187 @@ var AIHELPER = AIHELPER || {};
         syncTwilioTplHint();
     };
 
+    /**
+     * Programmatic clinic-wide template APIs (Broadcast tab, AI Helper UI).
+     * @returns {Promise<{ok:boolean, id?:string, error?:string, templates?:Array}>}
+     */
+    ns.addTwilioContentTemplate = function(opts) {
+        opts = opts || {};
+        var sid = normalizeContentSid(opts.contentSid || opts.content_sid || '');
+        if (!sid) {
+            return Promise.resolve({ ok: false, error: 'sid' });
+        }
+        var form = {
+            label: String(opts.label || '').trim() || sid,
+            contentSid: sid,
+            vars: normalizeTplVars(opts.vars || '1'),
+            notes: String(opts.notes || '').trim().slice(0, 160)
+        };
+        return ensureTwilioTplCache(false).then(function() {
+            var store = loadTwilioTplStore();
+            for (var i = 0; i < store.templates.length; i++) {
+                if (store.templates[i].contentSid === form.contentSid) {
+                    return { ok: false, error: 'dup' };
+                }
+            }
+            if (!_tplDbReady || typeof SB === 'undefined') {
+                if (_tplDbMissing) return { ok: false, error: 'db_missing' };
+                var localId = 'tpl_' + Date.now().toString(36);
+                store.templates.push({
+                    id: localId,
+                    label: form.label,
+                    contentSid: form.contentSid,
+                    vars: form.vars,
+                    notes: form.notes,
+                    builtin: false
+                });
+                store.selectedId = localId;
+                saveTwilioTplStore(store);
+                paintTwilioTplSelect();
+                return { ok: true, id: localId, templates: store.templates.slice() };
+            }
+            return SB.from(TWILIO_TPL_TABLE).insert([{
+                label: form.label,
+                content_sid: form.contentSid,
+                vars: form.vars,
+                notes: form.notes || null,
+                sort_order: store.templates.length,
+                created_by: callerUserIdForTpl()
+            }]).select('id').single().then(function(r) {
+                if (r.error) {
+                    var msg = String(r.error.message || '');
+                    if (/duplicate|unique/i.test(msg)) return { ok: false, error: 'dup' };
+                    return { ok: false, error: msg };
+                }
+                var newId = r.data && r.data.id ? String(r.data.id) : '';
+                if (newId) writeSelectedTplPref(newId);
+                return ensureTwilioTplCache(true).then(function() {
+                    paintTwilioTplSelect();
+                    return {
+                        ok: true,
+                        id: newId,
+                        templates: loadTwilioTplStore().templates.slice()
+                    };
+                });
+            });
+        });
+    };
+
+    ns.updateTwilioContentTemplate = function(id, opts) {
+        opts = opts || {};
+        var tplId = String(id || '').trim();
+        if (!tplId) return Promise.resolve({ ok: false, error: 'select' });
+        var sid = normalizeContentSid(opts.contentSid || opts.content_sid || '');
+        if (!sid) return Promise.resolve({ ok: false, error: 'sid' });
+        var form = {
+            label: String(opts.label || '').trim() || sid,
+            contentSid: sid,
+            vars: normalizeTplVars(opts.vars || '1'),
+            notes: String(opts.notes || '').trim().slice(0, 160)
+        };
+        return ensureTwilioTplCache(false).then(function() {
+            var store = loadTwilioTplStore();
+            var prev = null;
+            for (var i = 0; i < store.templates.length; i++) {
+                if (store.templates[i].id === tplId) {
+                    prev = store.templates[i];
+                    break;
+                }
+            }
+            if (!prev) return { ok: false, error: 'select' };
+
+            if (!_tplDbReady || typeof SB === 'undefined') {
+                if (_tplDbMissing) return { ok: false, error: 'db_missing' };
+                prev.label = form.label;
+                prev.contentSid = form.contentSid;
+                prev.vars = form.vars;
+                prev.notes = form.notes;
+                store.selectedId = prev.id;
+                saveTwilioTplStore(store);
+                paintTwilioTplSelect();
+                return { ok: true, id: prev.id, templates: store.templates.slice() };
+            }
+
+            return SB.from(TWILIO_TPL_TABLE).update({
+                label: form.label,
+                content_sid: form.contentSid,
+                vars: form.vars,
+                notes: form.notes || null,
+                updated_at: new Date().toISOString()
+            }).eq('id', prev.id).then(function(r) {
+                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                writeSelectedTplPref(prev.id);
+                return ensureTwilioTplCache(true).then(function() {
+                    paintTwilioTplSelect();
+                    return {
+                        ok: true,
+                        id: prev.id,
+                        templates: loadTwilioTplStore().templates.slice()
+                    };
+                });
+            });
+        });
+    };
+
+    ns.removeTwilioContentTemplate = function(id) {
+        var tplId = String(id || '').trim();
+        if (!tplId) return Promise.resolve({ ok: false, error: 'select' });
+        return ensureTwilioTplCache(false).then(function() {
+            var store = loadTwilioTplStore();
+            var row = null;
+            for (var i = 0; i < store.templates.length; i++) {
+                if (store.templates[i].id === tplId) {
+                    row = store.templates[i];
+                    break;
+                }
+            }
+            if (!row) return { ok: false, error: 'select' };
+            if (store.templates.length <= 1) return { ok: false, error: 'keep_one' };
+
+            if (!_tplDbReady || typeof SB === 'undefined') {
+                store.templates = store.templates.filter(function(t) { return t.id !== tplId; });
+                store.selectedId = store.templates[0].id;
+                saveTwilioTplStore(store);
+                paintTwilioTplSelect();
+                return { ok: true, templates: store.templates.slice() };
+            }
+
+            return SB.from(TWILIO_TPL_TABLE).update({
+                is_active: false,
+                updated_at: new Date().toISOString()
+            }).eq('id', tplId).then(function(r) {
+                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                return ensureTwilioTplCache(true).then(function() {
+                    paintTwilioTplSelect();
+                    return {
+                        ok: true,
+                        templates: loadTwilioTplStore().templates.slice()
+                    };
+                });
+            });
+        });
+    };
+
     ns.saveTwilioTpl = function() {
         var form = readTwilioTplForm();
         if (form.error === 'sid') {
             alert(aiTr('ai.twilio.needTplSid'));
             return;
         }
-        var store = loadTwilioTplStore();
         var sel = pick('aiTwilioTpl');
         var id = sel ? String(sel.value || '') : '';
-        var idx = -1;
-        for (var i = 0; i < store.templates.length; i++) {
-            if (store.templates[i].id === id) {
-                idx = i;
-                break;
+        setTwilioStatus(aiTr('ai.twilio.tplSaving'), false);
+        ns.updateTwilioContentTemplate(id, form).then(function(res) {
+            if (!res || !res.ok) {
+                if (res && res.error === 'db_missing') alert(aiTr('ai.twilio.tplDbMissing'));
+                else if (res && res.error === 'select') alert(aiTr('ai.twilio.needTplSelect'));
+                else if (res && res.error === 'sid') alert(aiTr('ai.twilio.needTplSid'));
+                else alert(aiTr('ai.twilio.tplSaveFail') + (res && res.error ? '\n\n' + res.error : ''));
+                setTwilioStatus((res && res.error) || aiTr('ai.twilio.tplSaveFail'), true);
+                return;
             }
-        }
-        if (idx < 0) {
-            alert(aiTr('ai.twilio.needTplSelect'));
-            return;
-        }
-        var prev = store.templates[idx];
-        store.templates[idx] = {
-            id: prev.id,
-            label: form.label || form.contentSid,
-            contentSid: form.contentSid,
-            vars: form.vars,
-            notes: form.notes,
-            builtin: !!prev.builtin
-        };
-        store.selectedId = prev.id;
-        saveTwilioTplStore(store);
-        ns.refreshTwilioTplSelect();
-        setTwilioStatus(aiTr('ai.twilio.tplSaved'), false);
+            setTwilioStatus(aiTr('ai.twilio.tplSavedClinic'), false);
+        });
     };
 
     ns.addTwilioTpl = function() {
@@ -1462,32 +1819,24 @@ var AIHELPER = AIHELPER || {};
             alert(aiTr('ai.twilio.needTplSid'));
             return;
         }
-        var store = loadTwilioTplStore();
-        for (var i = 0; i < store.templates.length; i++) {
-            if (store.templates[i].contentSid === form.contentSid) {
-                alert(aiTr('ai.twilio.tplDupSid'));
+        setTwilioStatus(aiTr('ai.twilio.tplSaving'), false);
+        ns.addTwilioContentTemplate(form).then(function(res) {
+            if (!res || !res.ok) {
+                if (res && res.error === 'dup') alert(aiTr('ai.twilio.tplDupSid'));
+                else if (res && res.error === 'db_missing') alert(aiTr('ai.twilio.tplDbMissing'));
+                else if (res && res.error === 'sid') alert(aiTr('ai.twilio.needTplSid'));
+                else alert(aiTr('ai.twilio.tplSaveFail') + (res && res.error ? '\n\n' + res.error : ''));
+                setTwilioStatus((res && res.error) || aiTr('ai.twilio.tplSaveFail'), true);
                 return;
             }
-        }
-        var id = 'tpl_' + Date.now().toString(36);
-        store.templates.push({
-            id: id,
-            label: form.label || form.contentSid,
-            contentSid: form.contentSid,
-            vars: form.vars,
-            notes: form.notes,
-            builtin: false
+            setTwilioStatus(aiTr('ai.twilio.tplAddedClinic'), false);
         });
-        store.selectedId = id;
-        saveTwilioTplStore(store);
-        ns.refreshTwilioTplSelect();
-        setTwilioStatus(aiTr('ai.twilio.tplAdded'), false);
     };
 
     ns.removeTwilioTpl = function() {
-        var store = loadTwilioTplStore();
         var sel = pick('aiTwilioTpl');
         var id = sel ? String(sel.value || '') : '';
+        var store = loadTwilioTplStore();
         var row = null;
         for (var i = 0; i < store.templates.length; i++) {
             if (store.templates[i].id === id) {
@@ -1499,52 +1848,28 @@ var AIHELPER = AIHELPER || {};
             alert(aiTr('ai.twilio.needTplSelect'));
             return;
         }
-        if (store.templates.length <= 1) {
-            alert(aiTr('ai.twilio.tplKeepOne'));
-            return;
-        }
         if (!window.confirm(aiTr('ai.twilio.tplRemoveConfirm').replace('{label}', row.label))) {
             return;
         }
-        store.templates = store.templates.filter(function(t) { return t.id !== id; });
-        store.selectedId = store.templates[0].id;
-        saveTwilioTplStore(store);
-        ns.refreshTwilioTplSelect();
-        setTwilioStatus(aiTr('ai.twilio.tplRemoved'), false);
+        setTwilioStatus(aiTr('ai.twilio.tplSaving'), false);
+        ns.removeTwilioContentTemplate(id).then(function(res) {
+            if (!res || !res.ok) {
+                if (res && res.error === 'keep_one') alert(aiTr('ai.twilio.tplKeepOne'));
+                else if (res && res.error === 'select') alert(aiTr('ai.twilio.needTplSelect'));
+                else alert(aiTr('ai.twilio.tplSaveFail') + (res && res.error ? '\n\n' + res.error : ''));
+                setTwilioStatus((res && res.error) || aiTr('ai.twilio.tplSaveFail'), true);
+                return;
+            }
+            setTwilioStatus(aiTr('ai.twilio.tplRemovedClinic'), false);
+        });
     };
 
-    function loadTwilioFromStore() {
-        var empty = { selectedId: 'default', numbers: [] };
-        try {
-            var raw = localStorage.getItem(TWILIO_FROM_LS_KEY);
-            if (!raw) return empty;
-            var parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object') return empty;
-            var nums = Array.isArray(parsed.numbers) ? parsed.numbers : [];
-            return {
-                selectedId: String(parsed.selectedId || 'default'),
-                numbers: nums.filter(function(n) {
-                    return n && n.id && n.phone;
-                }).map(function(n) {
-                    return {
-                        id: String(n.id),
-                        label: String(n.label || '').trim() || String(n.phone),
-                        phone: String(n.phone || '').trim(),
-                        whatsapp: n.whatsapp !== false,
-                        sms: n.sms !== false
-                    };
-                })
-            };
-        } catch (e) {
-            return empty;
-        }
-    }
-
-    function saveTwilioFromStore(store) {
-        try {
-            localStorage.setItem(TWILIO_FROM_LS_KEY, JSON.stringify(store || { selectedId: 'default', numbers: [] }));
-        } catch (e) { /* ignore quota */ }
-    }
+    var TWILIO_FROM_TABLE = 'twilio_from_numbers';
+    var TWILIO_FROM_SELECTED_KEY = 'ai_twilio_from_selected_v1';
+    var _fromCache = null;
+    var _fromLoadPromise = null;
+    var _fromDbReady = false;
+    var _fromDbMissing = false;
 
     function normalizeE164Phone(raw) {
         var s = String(raw || '').trim().replace(/[\s()-]/g, '');
@@ -1564,6 +1889,179 @@ var AIHELPER = AIHELPER || {};
         if (!e164) return '';
         if (channel === 'whatsapp') return 'whatsapp:' + e164;
         return e164;
+    }
+
+    function normalizeFromRow(n) {
+        if (!n || typeof n !== 'object') return null;
+        var phone = normalizeE164Phone(n.phone);
+        if (!phone) return null;
+        var id = String(n.id || '').trim();
+        if (!id) id = 'n_' + phone.replace(/\D/g, '').slice(-10);
+        return {
+            id: id,
+            label: String(n.label || '').trim() || phone,
+            phone: phone,
+            whatsapp: n.whatsapp !== false,
+            sms: n.sms !== false
+        };
+    }
+
+    function readSelectedFromPref() {
+        try {
+            return String(localStorage.getItem(TWILIO_FROM_SELECTED_KEY) || '').trim() || 'default';
+        } catch (e) {
+            return 'default';
+        }
+    }
+
+    function writeSelectedFromPref(id) {
+        try {
+            localStorage.setItem(TWILIO_FROM_SELECTED_KEY, String(id || 'default'));
+        } catch (e) { /* ignore */ }
+    }
+
+    function readLegacyLocalFromNumbers() {
+        try {
+            var raw = localStorage.getItem(TWILIO_FROM_LS_KEY);
+            if (!raw) return [];
+            var parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return [];
+            var nums = Array.isArray(parsed.numbers) ? parsed.numbers : [];
+            return nums.map(normalizeFromRow).filter(Boolean);
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function setFromCache(numbers, selectedId) {
+        var list = Array.isArray(numbers) ? numbers.slice() : [];
+        var sel = String(selectedId || readSelectedFromPref() || 'default');
+        if (sel !== 'default') {
+            var found = false;
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === sel) { found = true; break; }
+            }
+            if (!found) sel = 'default';
+        }
+        _fromCache = { selectedId: sel, numbers: list };
+        writeSelectedFromPref(sel);
+        return _fromCache;
+    }
+
+    function loadTwilioFromStore() {
+        if (_fromCache) return _fromCache;
+        return setFromCache(readLegacyLocalFromNumbers(), readSelectedFromPref());
+    }
+
+    function saveTwilioFromStore(store) {
+        if (!store) return;
+        _fromCache = {
+            selectedId: String(store.selectedId || 'default'),
+            numbers: Array.isArray(store.numbers) ? store.numbers.slice() : []
+        };
+        writeSelectedFromPref(_fromCache.selectedId);
+        // Keep legacy key in sync for older code paths / offline fallback
+        try {
+            localStorage.setItem(TWILIO_FROM_LS_KEY, JSON.stringify(_fromCache));
+        } catch (e) { /* ignore */ }
+    }
+
+    function fromTableMissing(err) {
+        var msg = String((err && err.message) || err || '');
+        return /twilio_from_numbers|does not exist|schema cache|Could not find the table/i.test(msg);
+    }
+
+    function mapDbRowToFrom(row) {
+        if (!row) return null;
+        return normalizeFromRow({
+            id: row.id,
+            label: row.label,
+            phone: row.phone,
+            whatsapp: row.whatsapp,
+            sms: row.sms
+        });
+    }
+
+    function migrateLegacyFromToDb() {
+        var legacy = readLegacyLocalFromNumbers();
+        if (!legacy.length || typeof SB === 'undefined') return Promise.resolve(0);
+        var chain = Promise.resolve(0);
+        legacy.forEach(function(n, idx) {
+            chain = chain.then(function(count) {
+                return SB.from(TWILIO_FROM_TABLE).insert([{
+                    label: n.label,
+                    phone: n.phone,
+                    whatsapp: n.whatsapp !== false,
+                    sms: n.sms !== false,
+                    sort_order: idx,
+                    created_by: callerUserIdForTpl() || 'migrate'
+                }]).then(function(r) {
+                    return r.error ? count : count + 1;
+                });
+            });
+        });
+        return chain;
+    }
+
+    function fetchTwilioFromFromDb() {
+        if (typeof SB === 'undefined') {
+            _fromDbReady = false;
+            return Promise.resolve(setFromCache(readLegacyLocalFromNumbers(), readSelectedFromPref()));
+        }
+        return SB.from(TWILIO_FROM_TABLE)
+            .select('id,label,phone,whatsapp,sms,sort_order,is_active')
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .order('label', { ascending: true })
+            .then(function(r) {
+                if (r.error) {
+                    if (fromTableMissing(r.error)) {
+                        _fromDbMissing = true;
+                        _fromDbReady = false;
+                        return setFromCache(readLegacyLocalFromNumbers(), readSelectedFromPref());
+                    }
+                    _fromDbReady = false;
+                    return setFromCache(readLegacyLocalFromNumbers(), readSelectedFromPref());
+                }
+                _fromDbMissing = false;
+                _fromDbReady = true;
+                var list = (r.data || []).map(mapDbRowToFrom).filter(Boolean);
+                if (!list.length) {
+                    return migrateLegacyFromToDb().then(function(migrated) {
+                        if (!migrated) {
+                            setFromCache([], readSelectedFromPref());
+                            return _fromCache;
+                        }
+                        return SB.from(TWILIO_FROM_TABLE)
+                            .select('id,label,phone,whatsapp,sms,sort_order,is_active')
+                            .eq('is_active', true)
+                            .order('sort_order', { ascending: true })
+                            .order('label', { ascending: true })
+                            .then(function(r2) {
+                                var list2 = (r2.data || []).map(mapDbRowToFrom).filter(Boolean);
+                                setFromCache(list2, readSelectedFromPref());
+                                return _fromCache;
+                            });
+                    });
+                }
+                setFromCache(list, readSelectedFromPref());
+                return _fromCache;
+            });
+    }
+
+    function ensureTwilioFromCache(force) {
+        if (!force && _fromCache && _fromDbReady) {
+            return Promise.resolve(_fromCache);
+        }
+        if (!force && _fromLoadPromise) return _fromLoadPromise;
+        _fromLoadPromise = fetchTwilioFromFromDb().then(function(store) {
+            _fromLoadPromise = null;
+            return store;
+        }).catch(function() {
+            _fromLoadPromise = null;
+            return loadTwilioFromStore();
+        });
+        return _fromLoadPromise;
     }
 
     function getSelectedTwilioFrom() {
@@ -1593,7 +2091,7 @@ var AIHELPER = AIHELPER || {};
         hint.textContent = aiTr(key).replace('{from}', addr || row.phone);
     }
 
-    ns.refreshTwilioFromSelect = function() {
+    function paintTwilioFromSelect() {
         var sel = pick('aiTwilioFrom');
         if (!sel) return;
         var store = loadTwilioFromStore();
@@ -1637,6 +2135,31 @@ var AIHELPER = AIHELPER || {};
         store.selectedId = sel.value;
         saveTwilioFromStore(store);
         syncTwilioFromHint();
+        if (_fromDbMissing) {
+            setTwilioStatus(aiTr('ai.twilio.fromDbMissing'), true);
+        }
+    }
+
+    ns.refreshTwilioFromSelect = function() {
+        return ensureTwilioFromCache(false).then(function() {
+            paintTwilioFromSelect();
+        });
+    };
+
+    ns.ensureTwilioFromNumbers = function(force) {
+        return ensureTwilioFromCache(!!force);
+    };
+
+    ns.reloadTwilioFromNumbers = function() {
+        _fromDbReady = false;
+        return ensureTwilioFromCache(true).then(function() {
+            paintTwilioFromSelect();
+            setTwilioStatus(
+                _fromDbMissing ? aiTr('ai.twilio.fromDbMissing') : aiTr('ai.twilio.fromReloaded'),
+                !!_fromDbMissing
+            );
+            return loadTwilioFromStore().numbers.slice();
+        });
     };
 
     ns.onTwilioFromChange = function() {
@@ -1647,38 +2170,184 @@ var AIHELPER = AIHELPER || {};
         syncTwilioFromHint();
     };
 
+    /** @returns {Promise<{ok:boolean, id?:string, error?:string, numbers?:Array}>} */
+    ns.addTwilioFromNumberOpts = function(opts) {
+        opts = opts || {};
+        var phone = normalizeE164Phone(opts.phone);
+        if (!phone) return Promise.resolve({ ok: false, error: 'phone' });
+        var wa = opts.whatsapp !== false;
+        var sms = opts.sms !== false;
+        if (!wa && !sms) return Promise.resolve({ ok: false, error: 'caps' });
+        var label = String(opts.label || '').trim() || phone;
+
+        return ensureTwilioFromCache(false).then(function() {
+            var store = loadTwilioFromStore();
+            for (var i = 0; i < store.numbers.length; i++) {
+                if (store.numbers[i].phone === phone) return { ok: false, error: 'dup' };
+            }
+
+            if (!_fromDbReady || typeof SB === 'undefined') {
+                if (_fromDbMissing) return { ok: false, error: 'db_missing' };
+                var localId = 'n_' + Date.now().toString(36);
+                store.numbers.push({
+                    id: localId, label: label, phone: phone, whatsapp: wa, sms: sms
+                });
+                store.selectedId = localId;
+                saveTwilioFromStore(store);
+                paintTwilioFromSelect();
+                return { ok: true, id: localId, numbers: store.numbers.slice() };
+            }
+
+            return SB.from(TWILIO_FROM_TABLE).insert([{
+                label: label,
+                phone: phone,
+                whatsapp: wa,
+                sms: sms,
+                sort_order: store.numbers.length,
+                created_by: callerUserIdForTpl()
+            }]).select('id').single().then(function(r) {
+                if (r.error) {
+                    var msg = String(r.error.message || '');
+                    if (/duplicate|unique/i.test(msg)) return { ok: false, error: 'dup' };
+                    return { ok: false, error: msg };
+                }
+                var newId = r.data && r.data.id ? String(r.data.id) : '';
+                if (newId) writeSelectedFromPref(newId);
+                return ensureTwilioFromCache(true).then(function() {
+                    paintTwilioFromSelect();
+                    return {
+                        ok: true,
+                        id: newId,
+                        numbers: loadTwilioFromStore().numbers.slice()
+                    };
+                });
+            });
+        });
+    };
+
+    ns.updateTwilioFromNumberOpts = function(id, opts) {
+        opts = opts || {};
+        var fromId = String(id || '').trim();
+        if (!fromId || fromId === 'default') {
+            return Promise.resolve({ ok: false, error: 'select' });
+        }
+        var phone = normalizeE164Phone(opts.phone);
+        if (!phone) return Promise.resolve({ ok: false, error: 'phone' });
+        var wa = opts.whatsapp !== false;
+        var sms = opts.sms !== false;
+        if (!wa && !sms) return Promise.resolve({ ok: false, error: 'caps' });
+        var label = String(opts.label || '').trim() || phone;
+
+        return ensureTwilioFromCache(false).then(function() {
+            var store = loadTwilioFromStore();
+            var prev = null;
+            for (var i = 0; i < store.numbers.length; i++) {
+                if (store.numbers[i].id === fromId) {
+                    prev = store.numbers[i];
+                    break;
+                }
+            }
+            if (!prev) return { ok: false, error: 'select' };
+
+            if (!_fromDbReady || typeof SB === 'undefined') {
+                if (_fromDbMissing) return { ok: false, error: 'db_missing' };
+                prev.label = label;
+                prev.phone = phone;
+                prev.whatsapp = wa;
+                prev.sms = sms;
+                store.selectedId = prev.id;
+                saveTwilioFromStore(store);
+                paintTwilioFromSelect();
+                return { ok: true, id: prev.id, numbers: store.numbers.slice() };
+            }
+
+            return SB.from(TWILIO_FROM_TABLE).update({
+                label: label,
+                phone: phone,
+                whatsapp: wa,
+                sms: sms,
+                updated_at: new Date().toISOString()
+            }).eq('id', prev.id).then(function(r) {
+                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                writeSelectedFromPref(prev.id);
+                return ensureTwilioFromCache(true).then(function() {
+                    paintTwilioFromSelect();
+                    return {
+                        ok: true,
+                        id: prev.id,
+                        numbers: loadTwilioFromStore().numbers.slice()
+                    };
+                });
+            });
+        });
+    };
+
+    ns.removeTwilioFromNumberOpts = function(id) {
+        var fromId = String(id || '').trim();
+        if (!fromId || fromId === 'default') {
+            return Promise.resolve({ ok: false, error: 'default' });
+        }
+        return ensureTwilioFromCache(false).then(function() {
+            var store = loadTwilioFromStore();
+            var row = null;
+            for (var i = 0; i < store.numbers.length; i++) {
+                if (store.numbers[i].id === fromId) {
+                    row = store.numbers[i];
+                    break;
+                }
+            }
+            if (!row) return { ok: false, error: 'select' };
+
+            if (!_fromDbReady || typeof SB === 'undefined') {
+                store.numbers = store.numbers.filter(function(n) { return n.id !== fromId; });
+                store.selectedId = 'default';
+                saveTwilioFromStore(store);
+                paintTwilioFromSelect();
+                return { ok: true, numbers: store.numbers.slice() };
+            }
+
+            return SB.from(TWILIO_FROM_TABLE).update({
+                is_active: false,
+                updated_at: new Date().toISOString()
+            }).eq('id', fromId).then(function(r) {
+                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                writeSelectedFromPref('default');
+                return ensureTwilioFromCache(true).then(function() {
+                    paintTwilioFromSelect();
+                    return {
+                        ok: true,
+                        numbers: loadTwilioFromStore().numbers.slice()
+                    };
+                });
+            });
+        });
+    };
+
     ns.addTwilioFromNumber = function() {
         var labelEl = pick('aiTwilioFromLabel');
         var phoneEl = pick('aiTwilioFromPhone');
         var capWa = pick('aiTwilioFromCapWa');
         var capSms = pick('aiTwilioFromCapSms');
-        var phone = normalizeE164Phone(phoneEl ? phoneEl.value : '');
-        if (!phone) {
-            alert(aiTr('ai.twilio.needFromPhone'));
-            return;
-        }
-        var wa = !capWa || !!capWa.checked;
-        var sms = !capSms || !!capSms.checked;
-        if (!wa && !sms) {
-            alert(aiTr('ai.twilio.needFromCap'));
-            return;
-        }
-        var store = loadTwilioFromStore();
-        var id = 'n_' + Date.now().toString(36);
-        var label = labelEl ? String(labelEl.value || '').trim() : '';
-        store.numbers.push({
-            id: id,
-            label: label || phone,
-            phone: phone,
-            whatsapp: wa,
-            sms: sms
+        setTwilioStatus(aiTr('ai.twilio.fromSaving'), false);
+        ns.addTwilioFromNumberOpts({
+            label: labelEl ? labelEl.value : '',
+            phone: phoneEl ? phoneEl.value : '',
+            whatsapp: !capWa || !!capWa.checked,
+            sms: !capSms || !!capSms.checked
+        }).then(function(res) {
+            if (!res || !res.ok) {
+                if (res && res.error === 'phone') alert(aiTr('ai.twilio.needFromPhone'));
+                else if (res && res.error === 'caps') alert(aiTr('ai.twilio.needFromCap'));
+                else if (res && res.error === 'dup') alert(aiTr('ai.twilio.fromDup'));
+                else if (res && res.error === 'db_missing') alert(aiTr('ai.twilio.fromDbMissing'));
+                else alert(aiTr('ai.twilio.fromSaveFail') + (res && res.error ? '\n\n' + res.error : ''));
+                setTwilioStatus((res && res.error) || aiTr('ai.twilio.fromSaveFail'), true);
+                return;
+            }
+            if (labelEl) labelEl.value = '';
+            if (phoneEl) phoneEl.value = '';
+            setTwilioStatus(aiTr('ai.twilio.fromAddedClinic'), false);
         });
-        store.selectedId = id;
-        saveTwilioFromStore(store);
-        if (labelEl) labelEl.value = '';
-        if (phoneEl) phoneEl.value = '';
-        ns.refreshTwilioFromSelect();
-        setTwilioStatus(aiTr('ai.twilio.fromAdded'), false);
     };
 
     ns.removeTwilioFromNumber = function() {
@@ -1688,12 +2357,15 @@ var AIHELPER = AIHELPER || {};
             alert(aiTr('ai.twilio.cannotRemoveDefault'));
             return;
         }
-        var store = loadTwilioFromStore();
-        store.numbers = store.numbers.filter(function(n) { return n.id !== id; });
-        store.selectedId = 'default';
-        saveTwilioFromStore(store);
-        ns.refreshTwilioFromSelect();
-        setTwilioStatus(aiTr('ai.twilio.fromRemoved'), false);
+        setTwilioStatus(aiTr('ai.twilio.fromSaving'), false);
+        ns.removeTwilioFromNumberOpts(id).then(function(res) {
+            if (!res || !res.ok) {
+                alert(aiTr('ai.twilio.fromSaveFail') + (res && res.error ? '\n\n' + res.error : ''));
+                setTwilioStatus((res && res.error) || aiTr('ai.twilio.fromSaveFail'), true);
+                return;
+            }
+            setTwilioStatus(aiTr('ai.twilio.fromRemovedClinic'), false);
+        });
     };
 
     function syncTwilioChannelUi() {
@@ -2023,7 +2695,10 @@ var AIHELPER = AIHELPER || {};
         ns.sendTwilioMessage();
     };
 
-    /** Shared list for Appointment Recall + AI Helper (same localStorage store). */
+    /**
+     * Shared clinic-wide list (Supabase twilio_content_templates, cached).
+     * Call ensureTwilioContentTemplates() before first use if dropdown may be empty.
+     */
     ns.listTwilioContentTemplates = function() {
         return loadTwilioTplStore().templates.slice();
     };
@@ -2035,10 +2710,17 @@ var AIHELPER = AIHELPER || {};
         for (var i = 0; i < store.templates.length; i++) {
             if (store.templates[i].id === want) return store.templates[i];
         }
+        // Also match by Content SID for older prefs
+        for (var j = 0; j < store.templates.length; j++) {
+            if (store.templates[j].contentSid === want) return store.templates[j];
+        }
         return null;
     };
 
-    /** Saved Twilio From numbers (shared with Appointment Recall). */
+    /**
+     * Clinic-wide From numbers (Supabase twilio_from_numbers, cached).
+     * Call ensureTwilioFromNumbers() before first use if the list may be empty.
+     */
     ns.listTwilioFromNumbers = function(channel) {
         var store = loadTwilioFromStore();
         var list = store.numbers.slice();
@@ -2057,6 +2739,9 @@ var AIHELPER = AIHELPER || {};
         if (!want || want === 'default') return null;
         for (var i = 0; i < store.numbers.length; i++) {
             if (store.numbers[i].id === want) return store.numbers[i];
+        }
+        for (var j = 0; j < store.numbers.length; j++) {
+            if (store.numbers[j].phone === want) return store.numbers[j];
         }
         return null;
     };

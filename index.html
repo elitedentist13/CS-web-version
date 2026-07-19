@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260719-rc-twilio-from';
+  var BUILD = '20260719-mb-filter-layout';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -613,18 +613,21 @@
           Default uses the Edge secret TWILIO_WHATSAPP_FROM / Messaging Service. Pick a saved number to override.
         </p>
         <details class="ai-twilio-from-manage" id="aiTwilioFromManage">
-          <summary data-i18n="ai.twilio.fromManage">Manage Twilio numbers</summary>
+          <summary data-i18n="ai.twilio.fromManage">Manage Twilio numbers (clinic-wide)</summary>
+          <p class="ai-hint" style="margin:8px 0 10px;" data-i18n="ai.twilio.fromClinicHint">
+            Numbers are saved in Supabase for all staff (also editable under Appointment → Broadcast).
+          </p>
           <div class="ai-twilio-from-manage-grid">
-            <div>
+              <div>
               <label class="ai-label" data-i18n="ai.twilio.fromLabel">Label</label>
               <input type="text" id="aiTwilioFromLabel" class="ai-input" maxlength="40"
                      placeholder="Clinic main" data-i18n-placeholder="ai.twilio.fromLabelPh">
-            </div>
-            <div>
+              </div>
+              <div>
               <label class="ai-label" data-i18n="ai.twilio.fromPhone">Phone (E.164)</label>
               <input type="text" id="aiTwilioFromPhone" class="ai-input" maxlength="24"
                      placeholder="+85291234567" data-i18n-placeholder="ai.twilio.fromPhonePh">
-            </div>
+              </div>
           </div>
           <div class="ai-twilio-from-caps" role="group" aria-label="Channels">
             <label class="ai-mass-inline"><input type="checkbox" id="aiTwilioFromCapWa" checked> <span data-i18n="ai.twilio.ch.wa">WhatsApp</span></label>
@@ -633,6 +636,7 @@
           <div class="ai-actions-row" style="margin-top:8px;">
             <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.addTwilioFromNumber()" data-i18n="ai.twilio.btn.addFrom">Add number</button>
             <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.removeTwilioFromNumber()" data-i18n="ai.twilio.btn.removeFrom">Remove selected</button>
+            <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.reloadTwilioFromNumbers()" data-i18n="ai.twilio.btn.reloadFrom">Reload from cloud</button>
           </div>
         </details>
       </div>
@@ -680,7 +684,10 @@
             </p>
 
             <details class="ai-twilio-from-manage" id="aiTwilioTplManage">
-              <summary data-i18n="ai.twilio.tplManage">Manage content templates</summary>
+              <summary data-i18n="ai.twilio.tplManage">Manage content templates (clinic-wide)</summary>
+              <p class="ai-hint" style="margin:8px 0 10px;" data-i18n="ai.twilio.tplClinicHint">
+                Templates are saved in Supabase for all staff. Paste approved Content SIDs (HX…) from Twilio — no need to change Edge secrets.
+              </p>
               <div class="ai-twilio-from-manage-grid">
                 <div>
                   <label class="ai-label" data-i18n="ai.twilio.tplLabel">Label</label>
@@ -712,6 +719,7 @@
                 <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.saveTwilioTpl()" data-i18n="ai.twilio.btn.saveTpl">Save changes</button>
                 <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.addTwilioTpl()" data-i18n="ai.twilio.btn.addTpl">Add as new</button>
                 <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.removeTwilioTpl()" data-i18n="ai.twilio.btn.removeTpl">Remove selected</button>
+                <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.reloadTwilioContentTemplates()" data-i18n="ai.twilio.btn.reloadTpl">Reload from cloud</button>
               </div>
             </details>
 
@@ -1112,6 +1120,7 @@
     <button class="appt-tab" data-tab="calendar" data-i18n="appt.calendarTab"></button>
     <button class="appt-tab" data-tab="records" data-i18n="appt.recordsTab"></button>
     <button class="appt-tab" data-tab="recall" data-i18n="appt.recallTab"></button>
+    <button class="appt-tab" data-tab="broadcast" data-i18n="appt.broadcastTab"></button>
     <button class="appt-tab" data-tab="webbook"><span class="appt-tab-lbl" data-i18n="appt.webbookTab"></span></button>
   </div>
 
@@ -1658,6 +1667,407 @@
     </div>
 
   </div><!-- /tab-recall -->
+
+  <!-- ── TAB: MASS BROADCAST (SleekFlow-style contacts + campaigns) ── -->
+  <div id="tab-broadcast" class="tab-pane">
+    <div class="mb-panel">
+      <div class="mb-panel-head">
+        <div>
+          <h2 class="mb-title" data-i18n="mb.title">Mass Broadcast</h2>
+          <p class="mb-subtitle" data-i18n="mb.subtitle">
+            Contact list → filter → Twilio WhatsApp template or SMS → send log
+          </p>
+        </div>
+        <div class="mb-mode-tabs" role="tablist">
+          <button type="button" class="mb-mode-btn mb-mode-active" data-mb-mode="contacts"
+                  data-i18n="mb.mode.contacts">Contacts</button>
+          <button type="button" class="mb-mode-btn" data-mb-mode="campaign"
+                  data-i18n="mb.mode.campaign">Campaign</button>
+          <button type="button" class="mb-mode-btn" data-mb-mode="history"
+                  data-i18n="mb.mode.history">History</button>
+        </div>
+      </div>
+
+      <!-- CONTACTS -->
+      <div id="mbPaneContacts" class="mb-pane">
+        <div class="mb-layout">
+          <aside class="mb-side">
+            <div class="mb-side-label" data-i18n="mb.seg.heading">Lists</div>
+            <div id="mbSegList" class="mb-seg-list"></div>
+            <button type="button" class="mb-btn ghost mb-side-action"
+                    onclick="MASSBC.saveCurrentAsSegment()" data-i18n="mb.seg.save">Save as list</button>
+          </aside>
+          <div class="mb-main">
+            <div class="mb-toolbar">
+              <div class="mb-search-row">
+                <input type="search" id="mbSearch" class="mb-search"
+                       data-i18n-placeholder="mb.searchPh" placeholder="Search name, no., phone, email…">
+                <div class="mb-search-actions">
+                  <button type="button" class="mb-btn ghost" onclick="MASSBC.toggleColEditor()"
+                          data-i18n="mb.cols.edit">Columns</button>
+                  <button type="button" class="mb-btn ghost" onclick="MASSBC.loadPatients()"
+                          data-i18n="mb.refresh">Refresh</button>
+                </div>
+              </div>
+
+              <div class="mb-control-grid">
+                <section class="mb-control-card" aria-labelledby="mbFilterPatientLbl">
+                  <h3 id="mbFilterPatientLbl" class="mb-control-title" data-i18n="mb.group.patient">Patient filters</h3>
+                  <div class="mb-control-fields">
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.clinic">Clinic</span>
+                      <select id="mbFilterClinic" class="mb-select" onchange="MASSBC.applyFilters()">
+                        <option value="" data-i18n="common.all">All</option>
+                      </select>
+                    </label>
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.sex">Sex</span>
+                      <select id="mbFilterSex" class="mb-select">
+                        <option value="" data-i18n="common.all">All</option>
+                        <option value="M" data-i18n="mb.filter.sexM">Male</option>
+                        <option value="F" data-i18n="mb.filter.sexF">Female</option>
+                      </select>
+                    </label>
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.dobMonth">DOB month</span>
+                      <select id="mbFilterDobMonth" class="mb-select">
+                        <option value="" data-i18n="common.all">All</option>
+                        <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                        <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                        <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+                        <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                      </select>
+                    </label>
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.phone">Phone</span>
+                      <select id="mbFilterHasPhone" class="mb-select">
+                        <option value="" data-i18n="common.all">All</option>
+                        <option value="yes" data-i18n="mb.filter.phoneYes">Has phone</option>
+                        <option value="no" data-i18n="mb.filter.phoneNo">No phone</option>
+                      </select>
+                    </label>
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.optOut">Opt-out</span>
+                      <select id="mbFilterOptOut" class="mb-select">
+                        <option value="exclude" data-i18n="mb.filter.optExclude">Hide opt-out</option>
+                        <option value="" data-i18n="common.all">All</option>
+                        <option value="only" data-i18n="mb.filter.optOnly">Opt-out only</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="mb-control-card" aria-labelledby="mbFilterOutreachLbl">
+                  <h3 id="mbFilterOutreachLbl" class="mb-control-title" data-i18n="mb.group.outreach">Outreach tags</h3>
+                  <div class="mb-control-fields">
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.tagWindow">Tag window</span>
+                      <select id="mbSentPeriod" class="mb-select" onchange="MASSBC.onSentPeriodChange()">
+                        <option value="1" data-i18n="mb.filter.sentPeriod1Short">1 month</option>
+                        <option value="3" data-i18n="mb.filter.sentPeriod3Short">3 months</option>
+                        <option value="6" selected data-i18n="mb.filter.sentPeriod6Short">6 months</option>
+                        <option value="12" data-i18n="mb.filter.sentPeriod12Short">12 months</option>
+                      </select>
+                    </label>
+                    <label class="mb-field mb-field-wide">
+                      <span class="mb-field-lab" data-i18n="mb.field.sentStatus">Messaged</span>
+                      <select id="mbFilterSent" class="mb-select">
+                        <option value="" data-i18n="common.all">All</option>
+                        <option value="yes" data-i18n="mb.filter.sentYes">Messaged in window</option>
+                        <option value="no" data-i18n="mb.filter.sentNo">Not messaged in window</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p class="mb-hint mb-sent-legend" data-i18n="mb.sent.legendShort">
+                    Mini-tags show successful mass sends inside this window.
+                  </p>
+                </section>
+
+                <section class="mb-control-card mb-control-card-sort" aria-labelledby="mbSortLbl">
+                  <h3 id="mbSortLbl" class="mb-control-title" data-i18n="mb.group.sort">Sort</h3>
+                  <div class="mb-control-fields mb-sort-fields">
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.sortBy">Sort by</span>
+                      <select id="mbSortKey" class="mb-select" onchange="MASSBC.onSortChange()">
+                        <option value="patient_no" data-i18n="mb.sort.noShort">Patient no.</option>
+                        <option value="name" data-i18n="mb.sort.nameShort">Name</option>
+                        <option value="phone" data-i18n="mb.sort.phoneShort">Phone</option>
+                        <option value="clinic" data-i18n="mb.sort.clinicShort">Clinic</option>
+                        <option value="dob" data-i18n="mb.sort.dobShort">DOB</option>
+                        <option value="last_sent" data-i18n="mb.sort.lastSentShort">Last sent</option>
+                      </select>
+                    </label>
+                    <label class="mb-field">
+                      <span class="mb-field-lab" data-i18n="mb.field.order">Order</span>
+                      <select id="mbSortDir" class="mb-select" onchange="MASSBC.onSortChange()">
+                        <option value="asc" data-i18n="mb.sort.asc">Asc</option>
+                        <option value="desc" data-i18n="mb.sort.desc">Desc</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+              </div>
+
+              <details class="mb-advanced">
+                <summary data-i18n="mb.cond.label">Filter by condition</summary>
+                <div class="mb-cond-row">
+                  <select id="mbCondField" class="mb-select">
+                    <option value="district" data-i18n="mb.cond.district">District</option>
+                    <option value="referred_by" data-i18n="mb.cond.referred">Referred by</option>
+                    <option value="clinic" data-i18n="mb.cond.clinic">Clinic tag</option>
+                    <option value="email" data-i18n="mb.cond.email">Email</option>
+                  </select>
+                  <select id="mbCondOp" class="mb-select">
+                    <option value="contains" data-i18n="mb.cond.contains">contains</option>
+                    <option value="eq" data-i18n="mb.cond.eq">equals</option>
+                    <option value="neq" data-i18n="mb.cond.neq">not equals</option>
+                    <option value="empty" data-i18n="mb.cond.empty">is empty</option>
+                    <option value="notempty" data-i18n="mb.cond.notempty">is not empty</option>
+                  </select>
+                  <input type="text" id="mbCondValue" class="mb-input" maxlength="80"
+                         data-i18n-placeholder="mb.cond.valuePh" placeholder="Value">
+                  <button type="button" class="mb-btn ghost" onclick="MASSBC.addCondition()"
+                          data-i18n="mb.cond.add">Add</button>
+                  <button type="button" class="mb-btn ghost" onclick="MASSBC.clearConditions()"
+                          data-i18n="mb.cond.clear">Clear</button>
+                </div>
+                <div id="mbCondChips" class="mb-chips"></div>
+              </details>
+            </div>
+
+            <div id="mbColPanel" class="mb-col-panel" style="display:none;"></div>
+            <div class="mb-action-bar">
+              <span id="mbCounts" class="mb-counts"></span>
+              <span id="mbStatus" class="mb-status"></span>
+              <div class="mb-action-btns">
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.selectAllFiltered()"
+                        data-i18n="mb.selectAll">Select all filtered</button>
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.clearSelection()"
+                        data-i18n="mb.clearSel">Clear selection</button>
+                <button type="button" class="mb-btn primary" onclick="MASSBC.startCampaignFromSelection()"
+                        data-i18n="mb.newBroadcast">New broadcast</button>
+              </div>
+            </div>
+            <div class="tbl-wrap mb-table-wrap">
+              <table class="appt-tbl mb-table">
+                <thead id="mbTableHead"></thead>
+                <tbody id="mbTableBody"></tbody>
+              </table>
+            </div>
+            <div id="mbPager" class="mb-pager"></div>
+            <p class="mb-hint" data-i18n="mb.hint.scope">
+              Clinic / doctor filters use the appointment bar above. “Clinic / doctor bar” list applies them.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- CAMPAIGN WIZARD -->
+      <div id="mbPaneCampaign" class="mb-pane" style="display:none;">
+        <div class="mb-wizard-rail">
+          <button type="button" class="mb-step-btn mb-step-active" data-mb-step="1" data-i18n="mb.step1">1. Channel</button>
+          <button type="button" class="mb-step-btn" data-mb-step="2" data-i18n="mb.step2">2. Content</button>
+          <button type="button" class="mb-step-btn" data-mb-step="3" data-i18n="mb.step3">3. Audience</button>
+          <button type="button" class="mb-step-btn" data-mb-step="4" data-i18n="mb.step4">4. Test</button>
+          <button type="button" class="mb-step-btn" data-mb-step="5" data-i18n="mb.step5">5. Review</button>
+        </div>
+
+        <div id="mbWizardStep1" class="mb-wizard-step">
+          <label class="mb-label" for="mbCampaignName" data-i18n="mb.campaign.name">Campaign name</label>
+          <input type="text" id="mbCampaignName" class="mb-input mb-input-wide" maxlength="80"
+                 data-i18n-placeholder="mb.campaign.namePh" placeholder="e.g. July recall SMS">
+          <div class="mb-channel-row" role="group">
+            <span class="mb-label" data-i18n="mb.channel">Channel</span>
+            <button type="button" class="mb-ch-btn is-active" id="mbChWa"
+                    onclick="MASSBC.setChannel('whatsapp')" data-i18n="mb.ch.wa">Twilio WhatsApp</button>
+            <button type="button" class="mb-ch-btn" id="mbChSms"
+                    onclick="MASSBC.setChannel('sms')" data-i18n="mb.ch.sms">Twilio SMS</button>
+          </div>
+          <label class="mb-label" for="mbTwilioFrom" data-i18n="mb.from">Send from</label>
+          <div class="mb-tpl-select-row">
+            <select id="mbTwilioFrom" class="mb-select mb-input-wide" onchange="MASSBC.onFromChange()"></select>
+            <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadFromNumbers()"
+                    data-i18n="mb.from.reload">Reload</button>
+          </div>
+          <p id="mbTwilioFromHint" class="mb-hint" data-i18n="mb.from.hintDefault">
+            Default uses Edge secrets. Pick a saved clinic number to override.
+          </p>
+
+          <details class="mb-tpl-manage mb-from-manage" id="mbFromManage" open>
+            <summary data-i18n="mb.from.manageTitle">Twilio sender numbers (clinic-wide)</summary>
+            <p class="mb-hint" data-i18n="mb.from.manageHint">
+              Add, edit, or remove sender numbers for all staff. Saved to Supabase — no need to open AI Helper.
+            </p>
+            <div class="mb-tpl-form-grid">
+              <div>
+                <label class="mb-label" for="mbFromLabel" data-i18n="ai.twilio.fromLabel">Label</label>
+                <input type="text" id="mbFromLabel" class="mb-input mb-input-wide" maxlength="40"
+                       data-i18n-placeholder="ai.twilio.fromLabelPh" placeholder="Clinic main">
+              </div>
+              <div>
+                <label class="mb-label" for="mbFromPhone" data-i18n="ai.twilio.fromPhone">Phone (E.164)</label>
+                <input type="text" id="mbFromPhone" class="mb-input mb-input-wide" maxlength="24"
+                       data-i18n-placeholder="ai.twilio.fromPhonePh" placeholder="+85291234567"
+                       spellcheck="false" autocomplete="off">
+              </div>
+            </div>
+            <div class="mb-from-caps" role="group">
+              <label class="mb-cap-check">
+                <input type="checkbox" id="mbFromCapWa" checked>
+                <span data-i18n="ai.twilio.ch.wa">WhatsApp</span>
+              </label>
+              <label class="mb-cap-check">
+                <input type="checkbox" id="mbFromCapSms" checked>
+                <span data-i18n="ai.twilio.ch.sms">SMS</span>
+              </label>
+            </div>
+            <div class="mb-tpl-actions">
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.saveFromNumber()"
+                      data-i18n="mb.from.save">Save selected</button>
+              <button type="button" class="mb-btn primary" onclick="MASSBC.addFromNumber()"
+                      data-i18n="mb.from.add">Add number</button>
+              <button type="button" class="mb-btn ghost mb-btn-danger" onclick="MASSBC.removeFromNumber()"
+                      data-i18n="mb.from.remove">Remove selected</button>
+            </div>
+            <p id="mbFromStatus" class="mb-status" style="margin-top:8px;"></p>
+          </details>
+
+          <div class="mb-wizard-nav">
+            <button type="button" class="mb-btn primary" onclick="MASSBC.goWizardStep(2)"
+                    data-i18n="mb.next">Next</button>
+          </div>
+        </div>
+
+        <div id="mbWizardStep2" class="mb-wizard-step" style="display:none;">
+          <div id="mbWaFields">
+            <label class="mb-label" for="mbTwilioTpl" data-i18n="mb.tpl">WhatsApp content template</label>
+            <div class="mb-tpl-select-row">
+              <select id="mbTwilioTpl" class="mb-select mb-input-wide" onchange="MASSBC.onTplChange()"></select>
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadTemplates()"
+                      data-i18n="mb.tpl.reload">Reload</button>
+            </div>
+            <p id="mbTwilioTplHint" class="mb-hint"></p>
+            <p class="mb-hint">
+              <a href="https://console.twilio.com/us1/develop/sms/content-template-builder"
+                 target="_blank" rel="noopener noreferrer" class="mb-link"
+                 data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
+            </p>
+            <p class="mb-hint" data-i18n="mb.tpl.note">{{1}} = patient first name. Extra vars use SMS body text when present.</p>
+
+            <details class="mb-tpl-manage" id="mbTplManage" open>
+              <summary data-i18n="mb.tpl.manageTitle">Message content templates (clinic-wide)</summary>
+              <p class="mb-hint" data-i18n="mb.tpl.manageHint">
+                Add or remove Content SIDs (HX…) for all staff. Saved to Supabase — no Edge secret change needed.
+              </p>
+              <div class="mb-tpl-form-grid">
+                <div>
+                  <label class="mb-label" for="mbTplLabel" data-i18n="ai.twilio.tplLabel">Label</label>
+                  <input type="text" id="mbTplLabel" class="mb-input mb-input-wide" maxlength="60"
+                         data-i18n-placeholder="ai.twilio.tplLabelPh" placeholder="Clinic recall">
+                </div>
+                <div>
+                  <label class="mb-label" for="mbTplSid" data-i18n="ai.twilio.tplSid">Content SID</label>
+                  <input type="text" id="mbTplSid" class="mb-input mb-input-wide" maxlength="40"
+                         data-i18n-placeholder="ai.twilio.tplSidPh"
+                         placeholder="HXf63c7a58271df43f5c63d97c6a514413"
+                         spellcheck="false" autocomplete="off">
+                </div>
+                <div>
+                  <label class="mb-label" for="mbTplVars" data-i18n="ai.twilio.tplVars">Variable keys</label>
+                  <input type="text" id="mbTplVars" class="mb-input mb-input-wide" maxlength="40"
+                         value="1" data-i18n-placeholder="ai.twilio.tplVarsPh" placeholder="1">
+                  <p class="mb-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.</p>
+                </div>
+                <div>
+                  <label class="mb-label" for="mbTplNotes" data-i18n="ai.twilio.tplNotes">Notes / preview</label>
+                  <input type="text" id="mbTplNotes" class="mb-input mb-input-wide" maxlength="160"
+                         data-i18n-placeholder="ai.twilio.tplNotesPh" placeholder="Approved recall greeting">
+                </div>
+              </div>
+              <div class="mb-tpl-actions">
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.saveTemplate()"
+                        data-i18n="mb.tpl.save">Save selected</button>
+                <button type="button" class="mb-btn primary" onclick="MASSBC.addTemplate()"
+                        data-i18n="mb.tpl.add">Add to list</button>
+                <button type="button" class="mb-btn ghost mb-btn-danger" onclick="MASSBC.removeTemplate()"
+                        data-i18n="mb.tpl.remove">Remove selected</button>
+              </div>
+              <p id="mbTplStatus" class="mb-status" style="margin-top:8px;"></p>
+            </details>
+          </div>
+          <div id="mbSmsFields" style="display:none;">
+            <label class="mb-label" for="mbSmsBody" data-i18n="mb.sms.body">SMS message</label>
+            <textarea id="mbSmsBody" class="mb-textarea" rows="5"
+                      data-i18n-placeholder="mb.sms.bodyPh"
+                      placeholder="Hi {NAME}, this is {CLINIC}. …"></textarea>
+            <p class="mb-hint" data-i18n="mb.sms.vars">Variables: {NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}</p>
+          </div>
+          <div class="mb-wizard-nav">
+            <button type="button" class="mb-btn ghost" onclick="MASSBC.goWizardStep(1)" data-i18n="mb.back">Back</button>
+            <button type="button" class="mb-btn primary" onclick="MASSBC.goWizardStep(3)" data-i18n="mb.next">Next</button>
+          </div>
+        </div>
+
+        <div id="mbWizardStep3" class="mb-wizard-step" style="display:none;">
+          <p class="mb-hint" data-i18n="mb.aud.hint">Audience is the selection from Contacts. Go back to Contacts to change it.</p>
+          <div id="mbAudienceSummary" class="mb-audience-box"></div>
+          <div class="mb-wizard-nav">
+            <button type="button" class="mb-btn ghost" onclick="MASSBC.setMode('contacts')"
+                    data-i18n="mb.aud.edit">Edit audience</button>
+            <button type="button" class="mb-btn ghost" onclick="MASSBC.goWizardStep(2)" data-i18n="mb.back">Back</button>
+            <button type="button" class="mb-btn primary" onclick="MASSBC.goWizardStep(4)" data-i18n="mb.next">Next</button>
+          </div>
+        </div>
+
+        <div id="mbWizardStep4" class="mb-wizard-step" style="display:none;">
+          <p class="mb-hint" data-i18n="mb.test.hint">Send a test to your own phone before publishing.</p>
+          <button type="button" class="mb-btn primary" onclick="MASSBC.sendTest()"
+                  data-i18n="mb.test.send">Send test message</button>
+          <p id="mbTestStatus" class="mb-status" style="margin-top:12px;"></p>
+          <div class="mb-wizard-nav">
+            <button type="button" class="mb-btn ghost" onclick="MASSBC.goWizardStep(3)" data-i18n="mb.back">Back</button>
+            <button type="button" class="mb-btn primary" onclick="MASSBC.goWizardStep(5)" data-i18n="mb.next">Next</button>
+          </div>
+        </div>
+
+        <div id="mbWizardStep5" class="mb-wizard-step" style="display:none;">
+          <div id="mbReviewBox" class="mb-review-box"></div>
+          <div class="mb-progress-track"><div id="mbSendProgress" class="mb-progress-bar"></div></div>
+          <p id="mbSendStatus" class="mb-status"></p>
+          <div class="mb-wizard-nav">
+            <button type="button" class="mb-btn ghost" onclick="MASSBC.goWizardStep(4)" data-i18n="mb.back">Back</button>
+            <button type="button" class="mb-btn primary" onclick="MASSBC.publishCampaign()"
+                    data-i18n="mb.publish">Publish broadcast</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- HISTORY -->
+      <div id="mbPaneHistory" class="mb-pane" style="display:none;">
+        <div class="mb-action-bar">
+          <span class="mb-hint" data-i18n="mb.history.hint">Click a campaign to view recipient log.</span>
+          <button type="button" class="mb-btn ghost" onclick="MASSBC.loadHistory()"
+                  data-i18n="mb.refresh">Refresh</button>
+        </div>
+        <div class="tbl-wrap mb-table-wrap">
+          <table class="appt-tbl mb-table">
+            <thead>
+              <tr>
+                <th data-i18n="mb.col.campaign">Campaign</th>
+                <th data-i18n="mb.col.channel">Channel</th>
+                <th data-i18n="mb.col.status">Status</th>
+                <th data-i18n="mb.col.totals">Sent / Fail / Skip</th>
+                <th data-i18n="mb.col.clinic">Clinic</th>
+                <th data-i18n="mb.col.when">When</th>
+              </tr>
+            </thead>
+            <tbody id="mbHistoryBody"></tbody>
+          </table>
+        </div>
+        <div id="mbHistoryDetail" class="mb-hist-detail" style="display:none;"></div>
+      </div>
+    </div>
+  </div><!-- /tab-broadcast -->
 
   <!-- ── TAB: WEB BOOKINGS (online scheduling inbox) ─────── -->
   <div id="tab-webbook" class="tab-pane">
@@ -6273,7 +6683,8 @@
     'app-pdf-editor.js',
     'app-poster-maker.js',
     'app-webbook.js',
-    'app-webbook-roster.js'
+    'app-webbook-roster.js',
+    'app-mass-broadcast.js'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

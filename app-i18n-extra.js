@@ -768,7 +768,384 @@
         'appt.calendarTab': { en: '📅 Calendar', 'zh-CN': '📅 日历', 'zh-Hant': '📅 日曆' },
         'appt.recordsTab': { en: '📁 Appointment Records', 'zh-CN': '📁 预约记录', 'zh-Hant': '📁 預約紀錄' },
         'appt.recallTab': { en: '📞 Recall Patient', 'zh-CN': '📞 召回患者', 'zh-Hant': '📞 召回病人' },
+        'appt.broadcastTab': { en: '📣 Broadcast', 'zh-CN': '📣 群发消息', 'zh-Hant': '📣 群發訊息' },
         'appt.webbookTab': { en: '🌐 Web Bookings', 'zh-CN': '🌐 网上预约', 'zh-Hant': '🌐 網上預約' },
+
+        'mb.title': { en: 'Mass Broadcast', 'zh-CN': '群发消息', 'zh-Hant': '群發訊息' },
+        'mb.subtitle': {
+            en: 'Contact list → filter → Twilio WhatsApp template or SMS → send log',
+            'zh-CN': '联系人列表 → 筛选 → Twilio WhatsApp 模板或短信 → 发送记录',
+            'zh-Hant': '聯絡人列表 → 篩選 → Twilio WhatsApp 範本或短訊 → 傳送紀錄'
+        },
+        'mb.mode.contacts': { en: 'Contacts', 'zh-CN': '联系人', 'zh-Hant': '聯絡人' },
+        'mb.mode.campaign': { en: 'Campaign', 'zh-CN': '活动', 'zh-Hant': '活動' },
+        'mb.mode.history': { en: 'History', 'zh-CN': '记录', 'zh-Hant': '紀錄' },
+        'mb.seg.heading': { en: 'Lists', 'zh-CN': '分组', 'zh-Hant': '分組' },
+        'mb.seg.all': { en: 'All contacts', 'zh-CN': '全部联系人', 'zh-Hant': '全部聯絡人' },
+        'mb.seg.scope': { en: 'Clinic / doctor bar', 'zh-CN': '诊所/医生栏', 'zh-Hant': '診所/醫生欄' },
+        'mb.seg.hasPhone': { en: 'Has phone', 'zh-CN': '有电话', 'zh-Hant': '有電話' },
+        'mb.seg.birthday': { en: 'Birthday this month', 'zh-CN': '本月生日', 'zh-Hant': '本月生日' },
+        'mb.seg.sent': { en: 'Messaged in window', 'zh-CN': '窗口内已发', 'zh-Hant': '視窗內已發' },
+        'mb.seg.unsent': { en: 'Not messaged in window', 'zh-CN': '窗口内未发', 'zh-Hant': '視窗內未發' },
+        'mb.seg.save': { en: 'Save as list', 'zh-CN': '存为分组', 'zh-Hant': '存為分組' },
+        'mb.group.patient': { en: 'Patient filters', 'zh-CN': '患者筛选', 'zh-Hant': '病人篩選' },
+        'mb.group.outreach': { en: 'Outreach tags', 'zh-CN': '发送标记', 'zh-Hant': '傳送標記' },
+        'mb.group.sort': { en: 'Sort', 'zh-CN': '排序', 'zh-Hant': '排序' },
+        'mb.field.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'mb.field.sex': { en: 'Sex', 'zh-CN': '性别', 'zh-Hant': '性別' },
+        'mb.field.dobMonth': { en: 'DOB month', 'zh-CN': '出生月', 'zh-Hant': '出生月' },
+        'mb.field.phone': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
+        'mb.field.optOut': { en: 'Opt-out', 'zh-CN': '退订', 'zh-Hant': '退訂' },
+        'mb.field.tagWindow': { en: 'Tag window', 'zh-CN': '标记窗口', 'zh-Hant': '標記視窗' },
+        'mb.field.sentStatus': { en: 'Messaged', 'zh-CN': '发送状态', 'zh-Hant': '傳送狀態' },
+        'mb.field.sortBy': { en: 'Sort by', 'zh-CN': '排序字段', 'zh-Hant': '排序欄位' },
+        'mb.field.order': { en: 'Order', 'zh-CN': '顺序', 'zh-Hant': '順序' },
+        'mb.filter.clinicAll': { en: 'Clinic: All', 'zh-CN': '诊所：全部', 'zh-Hant': '診所：全部' },
+        'mb.filter.sentPeriod1': { en: 'Tag window: 1 mo', 'zh-CN': '标记窗口：1 个月', 'zh-Hant': '標記視窗：1 個月' },
+        'mb.filter.sentPeriod3': { en: 'Tag window: 3 mo', 'zh-CN': '标记窗口：3 个月', 'zh-Hant': '標記視窗：3 個月' },
+        'mb.filter.sentPeriod6': { en: 'Tag window: 6 mo', 'zh-CN': '标记窗口：半年', 'zh-Hant': '標記視窗：半年' },
+        'mb.filter.sentPeriod12': { en: 'Tag window: 12 mo', 'zh-CN': '标记窗口：12 个月', 'zh-Hant': '標記視窗：12 個月' },
+        'mb.filter.sentPeriod1Short': { en: '1 month', 'zh-CN': '1 个月', 'zh-Hant': '1 個月' },
+        'mb.filter.sentPeriod3Short': { en: '3 months', 'zh-CN': '3 个月', 'zh-Hant': '3 個月' },
+        'mb.filter.sentPeriod6Short': { en: '6 months', 'zh-CN': '半年', 'zh-Hant': '半年' },
+        'mb.filter.sentPeriod12Short': { en: '12 months', 'zh-CN': '12 个月', 'zh-Hant': '12 個月' },
+        'mb.filter.sentAll': { en: 'Sent: All', 'zh-CN': '发送：全部', 'zh-Hant': '傳送：全部' },
+        'mb.filter.sentYes': { en: 'Messaged in window', 'zh-CN': '窗口内已发', 'zh-Hant': '視窗內已發' },
+        'mb.filter.sentNo': { en: 'Not messaged in window', 'zh-CN': '窗口内未发', 'zh-Hant': '視窗內未發' },
+        'mb.sort.no': { en: 'Sort: No.', 'zh-CN': '排序：编号', 'zh-Hant': '排序：編號' },
+        'mb.sort.name': { en: 'Sort: Name', 'zh-CN': '排序：姓名', 'zh-Hant': '排序：姓名' },
+        'mb.sort.phone': { en: 'Sort: Phone', 'zh-CN': '排序：电话', 'zh-Hant': '排序：電話' },
+        'mb.sort.clinic': { en: 'Sort: Clinic', 'zh-CN': '排序：诊所', 'zh-Hant': '排序：診所' },
+        'mb.sort.dob': { en: 'Sort: DOB', 'zh-CN': '排序：生日', 'zh-Hant': '排序：生日' },
+        'mb.sort.lastSent': { en: 'Sort: Last sent', 'zh-CN': '排序：最近发送', 'zh-Hant': '排序：最近傳送' },
+        'mb.sort.noShort': { en: 'Patient no.', 'zh-CN': '编号', 'zh-Hant': '編號' },
+        'mb.sort.nameShort': { en: 'Name', 'zh-CN': '姓名', 'zh-Hant': '姓名' },
+        'mb.sort.phoneShort': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
+        'mb.sort.clinicShort': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'mb.sort.dobShort': { en: 'DOB', 'zh-CN': '生日', 'zh-Hant': '生日' },
+        'mb.sort.lastSentShort': { en: 'Last sent', 'zh-CN': '最近发送', 'zh-Hant': '最近傳送' },
+        'mb.sort.asc': { en: 'Asc', 'zh-CN': '升序', 'zh-Hant': '升序' },
+        'mb.sort.desc': { en: 'Desc', 'zh-CN': '降序', 'zh-Hant': '降序' },
+        'mb.sent.legend': {
+            en: 'Mini-tags mark patients who received a successful mass message within the selected window (default 6 months).',
+            'zh-CN': '迷你标签标记在所选时间窗口内（默认半年）成功收到群发消息的患者。',
+            'zh-Hant': '迷你標籤標記在所選時間視窗內（預設半年）成功收到群發訊息的病人。'
+        },
+        'mb.sent.legendShort': {
+            en: 'Mini-tags show successful mass sends inside this window.',
+            'zh-CN': '迷你标签显示此窗口内成功群发。',
+            'zh-Hant': '迷你標籤顯示此視窗內成功群發。'
+        },
+        'mb.sent.today': { en: 'today', 'zh-CN': '今天', 'zh-Hant': '今天' },
+        'mb.sent.d': { en: 'd', 'zh-CN': '天', 'zh-Hant': '天' },
+        'mb.sent.w': { en: 'w', 'zh-CN': '周', 'zh-Hant': '週' },
+        'mb.sent.mo': { en: 'mo', 'zh-CN': '月', 'zh-Hant': '月' },
+        'mb.sent.tagTitle': {
+            en: 'Last {CH} {DATE} · {N} in last {M} mo',
+            'zh-CN': '最近 {CH} {DATE} · 近 {M} 月共 {N} 次',
+            'zh-Hant': '最近 {CH} {DATE} · 近 {M} 月共 {N} 次'
+        },
+        'mb.col.lastSent': { en: 'Last sent', 'zh-CN': '最近发送', 'zh-Hant': '最近傳送' },
+        'mb.loadedTagged': {
+            en: 'Loaded {N} contacts · {T} tagged (last {M} mo)',
+            'zh-CN': '已加载 {N} 位 · {T} 位已标记（近 {M} 月）',
+            'zh-Hant': '已載入 {N} 位 · {T} 位已標記（近 {M} 月）'
+        },
+        'mb.countsTagged': {
+            en: '{F} shown · {T} tagged/{M}mo · {S} selected · {P} sendable · {O} opt-out',
+            'zh-CN': '显示 {F} · 标记 {T}/{M}月 · 已选 {S} · 可发 {P} · 退订 {O}',
+            'zh-Hant': '顯示 {F} · 標記 {T}/{M}月 · 已選 {S} · 可發 {P} · 退訂 {O}'
+        },
+        'mb.seg.promptName': { en: 'Segment name', 'zh-CN': '分组名称', 'zh-Hant': '分組名稱' },
+        'mb.searchPh': {
+            en: 'Search name, no., phone, email…',
+            'zh-CN': '搜索姓名、编号、电话、电邮…',
+            'zh-Hant': '搜尋姓名、編號、電話、電郵…'
+        },
+        'mb.filter.sexAll': { en: 'Sex: All', 'zh-CN': '性别：全部', 'zh-Hant': '性別：全部' },
+        'mb.filter.sexM': { en: 'Male', 'zh-CN': '男', 'zh-Hant': '男' },
+        'mb.filter.sexF': { en: 'Female', 'zh-CN': '女', 'zh-Hant': '女' },
+        'mb.filter.dobAll': { en: 'DOB month: All', 'zh-CN': '出生月：全部', 'zh-Hant': '出生月：全部' },
+        'mb.filter.phoneAll': { en: 'Phone: All', 'zh-CN': '电话：全部', 'zh-Hant': '電話：全部' },
+        'mb.filter.phoneYes': { en: 'Has phone', 'zh-CN': '有电话', 'zh-Hant': '有電話' },
+        'mb.filter.phoneNo': { en: 'No phone', 'zh-CN': '无电话', 'zh-Hant': '無電話' },
+        'mb.filter.optExclude': { en: 'Hide opt-out', 'zh-CN': '隐藏退订', 'zh-Hant': '隱藏退訂' },
+        'mb.filter.optAll': { en: 'Opt-out: All', 'zh-CN': '退订：全部', 'zh-Hant': '退訂：全部' },
+        'mb.filter.optOnly': { en: 'Opt-out only', 'zh-CN': '仅退订', 'zh-Hant': '僅退訂' },
+        'mb.cols.edit': { en: 'Columns', 'zh-CN': '列', 'zh-Hant': '欄' },
+        'mb.cols.save': { en: 'Save columns', 'zh-CN': '保存列', 'zh-Hant': '儲存欄' },
+        'mb.refresh': { en: 'Refresh', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
+        'mb.cond.label': { en: 'Filter by condition', 'zh-CN': '条件筛选', 'zh-Hant': '條件篩選' },
+        'mb.cond.district': { en: 'District', 'zh-CN': '地区', 'zh-Hant': '地區' },
+        'mb.cond.referred': { en: 'Referred by', 'zh-CN': '转介', 'zh-Hant': '轉介' },
+        'mb.cond.clinic': { en: 'Clinic tag', 'zh-CN': '诊所标签', 'zh-Hant': '診所標籤' },
+        'mb.cond.email': { en: 'Email', 'zh-CN': '电邮', 'zh-Hant': '電郵' },
+        'mb.cond.contains': { en: 'contains', 'zh-CN': '包含', 'zh-Hant': '包含' },
+        'mb.cond.eq': { en: 'equals', 'zh-CN': '等于', 'zh-Hant': '等於' },
+        'mb.cond.neq': { en: 'not equals', 'zh-CN': '不等于', 'zh-Hant': '不等於' },
+        'mb.cond.empty': { en: 'is empty', 'zh-CN': '为空', 'zh-Hant': '為空' },
+        'mb.cond.notempty': { en: 'is not empty', 'zh-CN': '非空', 'zh-Hant': '非空' },
+        'mb.cond.valuePh': { en: 'Value', 'zh-CN': '值', 'zh-Hant': '值' },
+        'mb.cond.add': { en: 'Add', 'zh-CN': '添加', 'zh-Hant': '新增' },
+        'mb.cond.clear': { en: 'Clear', 'zh-CN': '清除', 'zh-Hant': '清除' },
+        'mb.selectAll': { en: 'Select all filtered', 'zh-CN': '全选筛选结果', 'zh-Hant': '全選篩選結果' },
+        'mb.clearSel': { en: 'Clear selection', 'zh-CN': '清除选择', 'zh-Hant': '清除選擇' },
+        'mb.newBroadcast': { en: 'New broadcast', 'zh-CN': '新建群发', 'zh-Hant': '新建群發' },
+        'mb.hint.scope': {
+            en: 'Clinic / doctor filters use the appointment bar above. Use the “Clinic / doctor bar” list to apply them.',
+            'zh-CN': '诊所/医生筛选使用上方预约栏。请选择「诊所/医生栏」分组以套用。',
+            'zh-Hant': '診所/醫生篩選使用上方預約欄。請選擇「診所/醫生欄」分組以套用。'
+        },
+        'mb.step1': { en: '1. Channel', 'zh-CN': '1. 通道', 'zh-Hant': '1. 通道' },
+        'mb.step2': { en: '2. Content', 'zh-CN': '2. 内容', 'zh-Hant': '2. 內容' },
+        'mb.step3': { en: '3. Audience', 'zh-CN': '3. 受众', 'zh-Hant': '3. 受眾' },
+        'mb.step4': { en: '4. Test', 'zh-CN': '4. 测试', 'zh-Hant': '4. 測試' },
+        'mb.step5': { en: '5. Review', 'zh-CN': '5. 确认', 'zh-Hant': '5. 確認' },
+        'mb.campaign.name': { en: 'Campaign name', 'zh-CN': '活动名称', 'zh-Hant': '活動名稱' },
+        'mb.campaign.namePh': { en: 'e.g. July recall SMS', 'zh-CN': '例如：七月召回短信', 'zh-Hant': '例如：七月召回短訊' },
+        'mb.channel': { en: 'Channel', 'zh-CN': '通道', 'zh-Hant': '通道' },
+        'mb.ch.wa': { en: 'Twilio WhatsApp', 'zh-CN': 'Twilio WhatsApp', 'zh-Hant': 'Twilio WhatsApp' },
+        'mb.ch.sms': { en: 'Twilio SMS', 'zh-CN': 'Twilio 短信', 'zh-Hant': 'Twilio 短訊' },
+        'mb.from': { en: 'Send from', 'zh-CN': '发件号码', 'zh-Hant': '發件號碼' },
+        'mb.manageFrom': { en: 'Manage numbers in AI Helper', 'zh-CN': '在 AI 助手管理号码', 'zh-Hant': '在 AI 助手管理號碼' },
+        'mb.from.reload': { en: 'Reload', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
+        'mb.from.hintDefault': {
+            en: 'Default uses Edge secrets. Pick a saved clinic number to override.',
+            'zh-CN': '默认使用 Edge 密钥。选择已保存的诊所号码可覆盖。',
+            'zh-Hant': '預設使用 Edge 密鑰。選擇已儲存的診所號碼可覆寫。'
+        },
+        'mb.from.hintSelected': {
+            en: 'Sending from {LABEL} ({FROM})',
+            'zh-CN': '将从 {LABEL}（{FROM}）发送',
+            'zh-Hant': '將從 {LABEL}（{FROM}）傳送'
+        },
+        'mb.from.manageTitle': {
+            en: 'Twilio sender numbers (clinic-wide)',
+            'zh-CN': 'Twilio 发件号码（全诊所共享）',
+            'zh-Hant': 'Twilio 發件號碼（全診所共用）'
+        },
+        'mb.from.manageHint': {
+            en: 'Add, edit, or remove sender numbers for all staff. Saved to Supabase — no need to open AI Helper.',
+            'zh-CN': '在此添加、编辑或删除发件号码，全员共用。保存到 Supabase，无需打开 AI 助手。',
+            'zh-Hant': '在此新增、編輯或刪除發件號碼，全員共用。儲存到 Supabase，無需開啟 AI 助手。'
+        },
+        'mb.from.save': { en: 'Save selected', 'zh-CN': '保存所选', 'zh-Hant': '儲存所選' },
+        'mb.from.add': { en: 'Add number', 'zh-CN': '添加号码', 'zh-Hant': '新增號碼' },
+        'mb.from.remove': { en: 'Remove selected', 'zh-CN': '删除所选', 'zh-Hant': '刪除所選' },
+        'mb.from.saving': { en: 'Saving…', 'zh-CN': '保存中…', 'zh-Hant': '儲存中…' },
+        'mb.from.reloading': { en: 'Reloading…', 'zh-CN': '刷新中…', 'zh-Hant': '重新整理中…' },
+        'mb.from.added': { en: 'Sender number added for all staff.', 'zh-CN': '发件号码已添加（全员可见）。', 'zh-Hant': '發件號碼已新增（全員可見）。' },
+        'mb.from.saved': { en: 'Sender number saved for all staff.', 'zh-CN': '发件号码已保存（全员可见）。', 'zh-Hant': '發件號碼已儲存（全員可見）。' },
+        'mb.from.removed': { en: 'Sender number removed from clinic list.', 'zh-CN': '发件号码已从列表移除。', 'zh-Hant': '發件號碼已從清單移除。' },
+        'mb.from.reloaded': { en: 'Sender numbers reloaded from cloud.', 'zh-CN': '已从云端刷新发件号码。', 'zh-Hant': '已從雲端重新整理發件號碼。' },
+        'mb.from.needPhone': {
+            en: 'Enter a valid E.164 phone (+852…).',
+            'zh-CN': '请输入有效的 E.164 电话（+852…）。',
+            'zh-Hant': '請輸入有效的 E.164 電話（+852…）。'
+        },
+        'mb.from.needCap': {
+            en: 'Enable WhatsApp and/or SMS.',
+            'zh-CN': '请勾选 WhatsApp 和/或短信。',
+            'zh-Hant': '請勾選 WhatsApp 和/或短訊。'
+        },
+        'mb.from.needSelect': {
+            en: 'Select a saved number first (not Default).',
+            'zh-CN': '请先选择已保存号码（非默认）。',
+            'zh-Hant': '請先選擇已儲存號碼（非預設）。'
+        },
+        'mb.from.dup': {
+            en: 'That number is already in the list.',
+            'zh-CN': '该号码已在列表中。',
+            'zh-Hant': '該號碼已在清單中。'
+        },
+        'mb.from.dbMissing': {
+            en: 'Cloud from-numbers table missing. Run twilio_from_numbers.sql in Supabase.',
+            'zh-CN': '缺少云端发件号码表。请执行 twilio_from_numbers.sql。',
+            'zh-Hant': '缺少雲端發件號碼表。請執行 twilio_from_numbers.sql。'
+        },
+        'mb.from.saveFail': { en: 'Could not save sender number.', 'zh-CN': '无法保存发件号码。', 'zh-Hant': '無法儲存發件號碼。' },
+        'mb.from.removeConfirm': {
+            en: 'Remove sender “{LABEL}” from the clinic list?',
+            'zh-CN': '从诊所列表删除发件号码「{LABEL}」？',
+            'zh-Hant': '從診所清單刪除發件號碼「{LABEL}」？'
+        },
+        'mb.manageTpl': { en: 'Manage templates', 'zh-CN': '管理模板', 'zh-Hant': '管理範本' },
+        'mb.tpl': { en: 'WhatsApp content template', 'zh-CN': 'WhatsApp 内容模板', 'zh-Hant': 'WhatsApp 內容範本' },
+        'mb.tpl.note': {
+            en: '{{1}} = patient first name. Extra vars use SMS body text when present.',
+            'zh-CN': '{{1}} = 患者名。额外变量使用短信正文（如有）。',
+            'zh-Hant': '{{1}} = 病人名。額外變數使用短訊正文（如有）。'
+        },
+        'mb.tpl.reload': { en: 'Reload', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
+        'mb.tpl.manageTitle': {
+            en: 'Message content templates (clinic-wide)',
+            'zh-CN': '消息内容模板（全诊所共享）',
+            'zh-Hant': '訊息內容範本（全診所共用）'
+        },
+        'mb.tpl.manageHint': {
+            en: 'Add or remove Content SIDs (HX…) for all staff. Saved to Supabase — no Edge secret change needed.',
+            'zh-CN': '在此添加或删除 Content SID（HX…），全员共用。保存到 Supabase，无需改 Edge 密钥。',
+            'zh-Hant': '在此新增或刪除 Content SID（HX…），全員共用。儲存到 Supabase，無需改 Edge 密鑰。'
+        },
+        'mb.tpl.save': { en: 'Save selected', 'zh-CN': '保存所选', 'zh-Hant': '儲存所選' },
+        'mb.tpl.add': { en: 'Add to list', 'zh-CN': '加入列表', 'zh-Hant': '加入清單' },
+        'mb.tpl.remove': { en: 'Remove selected', 'zh-CN': '删除所选', 'zh-Hant': '刪除所選' },
+        'mb.tpl.saving': { en: 'Saving…', 'zh-CN': '保存中…', 'zh-Hant': '儲存中…' },
+        'mb.tpl.reloading': { en: 'Reloading…', 'zh-CN': '刷新中…', 'zh-Hant': '重新整理中…' },
+        'mb.tpl.added': { en: 'Template added for all staff.', 'zh-CN': '模板已添加（全员可见）。', 'zh-Hant': '範本已新增（全員可見）。' },
+        'mb.tpl.saved': { en: 'Template saved for all staff.', 'zh-CN': '模板已保存（全员可见）。', 'zh-Hant': '範本已儲存（全員可見）。' },
+        'mb.tpl.removed': { en: 'Template removed from clinic list.', 'zh-CN': '模板已从列表移除。', 'zh-Hant': '範本已從清單移除。' },
+        'mb.tpl.reloaded': { en: 'Templates reloaded from cloud.', 'zh-CN': '已从云端刷新模板。', 'zh-Hant': '已從雲端重新整理範本。' },
+        'mb.tpl.needSid': {
+            en: 'Enter a valid Content SID (HX…, 34 chars).',
+            'zh-CN': '请输入有效的 Content SID（HX…，34 位）。',
+            'zh-Hant': '請輸入有效的 Content SID（HX…，34 位）。'
+        },
+        'mb.tpl.needSelect': {
+            en: 'Select a template from the list first.',
+            'zh-CN': '请先从列表选择模板。',
+            'zh-Hant': '請先從清單選擇範本。'
+        },
+        'mb.tpl.dup': {
+            en: 'That Content SID is already in the list.',
+            'zh-CN': '该 Content SID 已在列表中。',
+            'zh-Hant': '該 Content SID 已在清單中。'
+        },
+        'mb.tpl.dbMissing': {
+            en: 'Cloud template table missing. Run twilio_content_templates.sql in Supabase.',
+            'zh-CN': '缺少云端模板表。请执行 twilio_content_templates.sql。',
+            'zh-Hant': '缺少雲端範本表。請執行 twilio_content_templates.sql。'
+        },
+        'mb.tpl.saveFail': { en: 'Could not save template.', 'zh-CN': '无法保存模板。', 'zh-Hant': '無法儲存範本。' },
+        'mb.tpl.keepOne': {
+            en: 'Keep at least one template in the list.',
+            'zh-CN': '列表中请至少保留一个模板。',
+            'zh-Hant': '清單中請至少保留一個範本。'
+        },
+        'mb.tpl.removeConfirm': {
+            en: 'Remove “{LABEL}” from the clinic template list?',
+            'zh-CN': '从诊所模板列表删除「{LABEL}」？',
+            'zh-Hant': '從診所範本清單刪除「{LABEL}」？'
+        },
+        'mb.sms.body': { en: 'SMS message', 'zh-CN': '短信内容', 'zh-Hant': '短訊內容' },
+        'mb.sms.bodyPh': { en: 'Hi {NAME}, this is {CLINIC}. …', 'zh-CN': '您好 {NAME}，这里是 {CLINIC}。…', 'zh-Hant': '您好 {NAME}，這裡是 {CLINIC}。…' },
+        'mb.sms.vars': {
+            en: 'Variables: {NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}',
+            'zh-CN': '变量：{NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}',
+            'zh-Hant': '變數：{NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}'
+        },
+        'mb.aud.hint': {
+            en: 'Audience is the selection from Contacts. Go back to Contacts to change it.',
+            'zh-CN': '受众来自联系人页的勾选。请返回联系人修改。',
+            'zh-Hant': '受眾來自聯絡人頁的勾選。請返回聯絡人修改。'
+        },
+        'mb.aud.edit': { en: 'Edit audience', 'zh-CN': '编辑受众', 'zh-Hant': '編輯受眾' },
+        'mb.test.hint': {
+            en: 'Send a test to your own phone before publishing.',
+            'zh-CN': '发布前请先向自己的手机发送测试。',
+            'zh-Hant': '發佈前請先向自己的手機發送測試。'
+        },
+        'mb.test.send': { en: 'Send test message', 'zh-CN': '发送测试', 'zh-Hant': '傳送測試' },
+        'mb.publish': { en: 'Publish broadcast', 'zh-CN': '发布群发', 'zh-Hant': '發佈群發' },
+        'mb.back': { en: 'Back', 'zh-CN': '返回', 'zh-Hant': '返回' },
+        'mb.next': { en: 'Next', 'zh-CN': '下一步', 'zh-Hant': '下一步' },
+        'mb.prev': { en: 'Prev', 'zh-CN': '上一页', 'zh-Hant': '上一頁' },
+        'mb.history.hint': {
+            en: 'Click a campaign to view recipient log.',
+            'zh-CN': '点击活动查看收件记录。',
+            'zh-Hant': '點擊活動查看收件紀錄。'
+        },
+        'mb.col.campaign': { en: 'Campaign', 'zh-CN': '活动', 'zh-Hant': '活動' },
+        'mb.col.channel': { en: 'Channel', 'zh-CN': '通道', 'zh-Hant': '通道' },
+        'mb.col.status': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
+        'mb.col.totals': { en: 'Sent / Fail / Skip', 'zh-CN': '成功/失败/跳过', 'zh-Hant': '成功/失敗/略過' },
+        'mb.col.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'mb.col.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'mb.col.no': { en: 'No.', 'zh-CN': '编号', 'zh-Hant': '編號' },
+        'mb.col.name': { en: 'Name', 'zh-CN': '姓名', 'zh-Hant': '姓名' },
+        'mb.col.phone': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
+        'mb.col.sex': { en: 'Sex', 'zh-CN': '性别', 'zh-Hant': '性別' },
+        'mb.col.dob': { en: 'DOB', 'zh-CN': '生日', 'zh-Hant': '生日' },
+        'mb.col.district': { en: 'District', 'zh-CN': '地区', 'zh-Hant': '地區' },
+        'mb.col.email': { en: 'Email', 'zh-CN': '电邮', 'zh-Hant': '電郵' },
+        'mb.col.error': { en: 'Error', 'zh-CN': '错误', 'zh-Hant': '錯誤' },
+        'mb.exportCsv': { en: 'Export CSV', 'zh-CN': '导出 CSV', 'zh-Hant': '匯出 CSV' },
+        'mb.loading': { en: 'Loading contacts…', 'zh-CN': '加载联系人…', 'zh-Hant': '載入聯絡人…' },
+        'mb.empty': { en: 'No contacts match these filters.', 'zh-CN': '没有符合条件的联系人。', 'zh-Hant': '沒有符合條件的聯絡人。' },
+        'mb.optOut': { en: 'Opt-out', 'zh-CN': '退订', 'zh-Hant': '退訂' },
+        'mb.history.needSql': {
+            en: 'No campaign log yet. Apply message_broadcast.sql in Supabase SQL Editor.',
+            'zh-CN': '尚无发送记录。请在 Supabase SQL 编辑器执行 message_broadcast.sql。',
+            'zh-Hant': '尚無傳送紀錄。請在 Supabase SQL 編輯器執行 message_broadcast.sql。'
+        },
+        'mb.history.empty': { en: 'No campaigns yet.', 'zh-CN': '尚无活动。', 'zh-Hant': '尚無活動。' },
+        'mb.alert.selectFirst': { en: 'Select at least one contact first.', 'zh-CN': '请先勾选至少一位联系人。', 'zh-Hant': '請先勾選至少一位聯絡人。' },
+        'mb.alert.needTpl': { en: 'Select a WhatsApp content template.', 'zh-CN': '请选择 WhatsApp 内容模板。', 'zh-Hant': '請選擇 WhatsApp 內容範本。' },
+        'mb.alert.needBody': { en: 'Enter an SMS message body.', 'zh-CN': '请输入短信内容。', 'zh-Hant': '請輸入短訊內容。' },
+        'mb.alert.needName': { en: 'Enter a campaign name.', 'zh-CN': '请输入活动名称。', 'zh-Hant': '請輸入活動名稱。' },
+        'mb.alert.noneSendable': {
+            en: 'No sendable recipients (phone + not opted out).',
+            'zh-CN': '没有可发送的收件人（需有电话且未退订）。',
+            'zh-Hant': '沒有可傳送的收件人（需有電話且未退訂）。'
+        },
+        'mb.alert.twilioDown': {
+            en: 'Twilio send unavailable. Open AI Helper → Twilio Send.',
+            'zh-CN': '无法使用 Twilio。请打开 AI 助手 → Twilio 发送。',
+            'zh-Hant': '無法使用 Twilio。請開啟 AI 助手 → Twilio 傳送。'
+        },
+        'mb.alert.badPhone': { en: 'Invalid phone number.', 'zh-CN': '电话号码无效。', 'zh-Hant': '電話號碼無效。' },
+        'mb.confirm.publish': {
+            en: 'Send {CH} to {N} contacts? ({SKIP} will be skipped)',
+            'zh-CN': '向 {N} 位联系人发送 {CH}？（将跳过 {SKIP} 位）',
+            'zh-Hant': '向 {N} 位聯絡人傳送 {CH}？（將略過 {SKIP} 位）'
+        },
+        'mb.test.prompt': {
+            en: 'Send test to phone (E.164, e.g. +85291234567)',
+            'zh-CN': '测试发送至电话（E.164，如 +85291234567）',
+            'zh-Hant': '測試傳送至電話（E.164，如 +85291234567）'
+        },
+        'mb.test.ok': { en: 'Test sent', 'zh-CN': '测试已发送', 'zh-Hant': '測試已傳送' },
+        'mb.sending': { en: 'Sending…', 'zh-CN': '发送中…', 'zh-Hant': '傳送中…' },
+        'mb.send.fail': { en: 'Send failed', 'zh-CN': '发送失败', 'zh-Hant': '傳送失敗' },
+        'mb.send.done': {
+            en: 'Done — sent {S}, failed {F}, skipped {K}',
+            'zh-CN': '完成 — 成功 {S}，失败 {F}，跳过 {K}',
+            'zh-Hant': '完成 — 成功 {S}，失敗 {F}，略過 {K}'
+        },
+        'mb.send.progress': {
+            en: 'Sending {CUR}/{TOTAL}: {NAME}',
+            'zh-CN': '发送 {CUR}/{TOTAL}：{NAME}',
+            'zh-Hant': '傳送 {CUR}/{TOTAL}：{NAME}'
+        },
+        'mb.counts': {
+            en: '{F} shown · {S} selected · {P} sendable · {O} opt-out',
+            'zh-CN': '显示 {F} · 已选 {S} · 可发 {P} · 退订 {O}',
+            'zh-Hant': '顯示 {F} · 已選 {S} · 可發 {P} · 退訂 {O}'
+        },
+        'mb.pageOf': {
+            en: 'Page {CUR} / {TOTAL} · {N} contacts',
+            'zh-CN': '第 {CUR} / {TOTAL} 页 · {N} 位',
+            'zh-Hant': '第 {CUR} / {TOTAL} 頁 · {N} 位'
+        },
+        'mb.loaded': { en: 'Loaded {N} contacts', 'zh-CN': '已加载 {N} 位联系人', 'zh-Hant': '已載入 {N} 位聯絡人' },
+        'mb.from.default': { en: 'Default (Edge secret)', 'zh-CN': '默认（Edge 密钥）', 'zh-Hant': '預設（Edge 密鑰）' },
+        'mb.tpl.empty': {
+            en: 'No templates — add below',
+            'zh-CN': '无模板 — 请在下方添加',
+            'zh-Hant': '無範本 — 請在下方新增'
+        },
+        'mb.campaign.defaultName': { en: 'Broadcast {D}', 'zh-CN': '群发 {D}', 'zh-Hant': '群發 {D}' },
+        'mb.aud.selected': { en: 'selected', 'zh-CN': '已选', 'zh-Hant': '已選' },
+        'mb.aud.sendable': { en: 'sendable', 'zh-CN': '可发送', 'zh-Hant': '可傳送' },
+        'mb.aud.noPhone': { en: 'no phone', 'zh-CN': '无电话', 'zh-Hant': '無電話' },
+        'mb.aud.optOut': { en: 'opt-out', 'zh-CN': '退订', 'zh-Hant': '退訂' },
+        'mb.review.name': { en: 'Name', 'zh-CN': '名称', 'zh-Hant': '名稱' },
+        'mb.review.channel': { en: 'Channel', 'zh-CN': '通道', 'zh-Hant': '通道' },
+        'mb.review.from': { en: 'From', 'zh-CN': '发件', 'zh-Hant': '發件' },
+        'mb.review.content': { en: 'Content', 'zh-CN': '内容', 'zh-Hant': '內容' },
+        'mb.review.audience': { en: 'Audience', 'zh-CN': '受众', 'zh-Hant': '受眾' },
+        'mb.selectPage': { en: 'Select page', 'zh-CN': '选择本页', 'zh-Hant': '選擇本頁' },
+
         'appt.badge.web': { en: 'WEB', 'zh-CN': '网约', 'zh-Hant': '網約' },
         'appt.badge.webPending': { en: 'WEB?', 'zh-CN': '待确认', 'zh-Hant': '待確認' },
         'appt.badge.webArrange': { en: 'ARRANGE', 'zh-CN': '待安排', 'zh-Hant': '待安排' },
@@ -1714,9 +2091,54 @@
             'zh-Hant': '短訊將從 {from} 傳送。號碼須支援 Programmable Messaging 短訊。'
         },
         'ai.twilio.fromManage': {
-            en: 'Manage Twilio numbers',
-            'zh-CN': '管理 Twilio 号码',
-            'zh-Hant': '管理 Twilio 號碼'
+            en: 'Manage Twilio numbers (clinic-wide)',
+            'zh-CN': '管理 Twilio 号码（全诊所共享）',
+            'zh-Hant': '管理 Twilio 號碼（全診所共用）'
+        },
+        'ai.twilio.fromClinicHint': {
+            en: 'Numbers are saved in Supabase for all staff (also editable under Appointment → Broadcast).',
+            'zh-CN': '号码保存在 Supabase，全员共用（也可在 预约 → 群发 中编辑）。',
+            'zh-Hant': '號碼儲存在 Supabase，全員共用（亦可在 預約 → 群發 中編輯）。'
+        },
+        'ai.twilio.fromDbMissing': {
+            en: 'Cloud from-numbers table missing. Run twilio_from_numbers.sql in Supabase SQL Editor.',
+            'zh-CN': '缺少云端发件号码表。请在 Supabase 执行 twilio_from_numbers.sql。',
+            'zh-Hant': '缺少雲端發件號碼表。請在 Supabase 執行 twilio_from_numbers.sql。'
+        },
+        'ai.twilio.fromSaving': {
+            en: 'Saving sender number…',
+            'zh-CN': '正在保存发件号码…',
+            'zh-Hant': '正在儲存發件號碼…'
+        },
+        'ai.twilio.fromSaveFail': {
+            en: 'Could not save sender number to Supabase.',
+            'zh-CN': '无法将发件号码保存到 Supabase。',
+            'zh-Hant': '無法將發件號碼儲存到 Supabase。'
+        },
+        'ai.twilio.fromAddedClinic': {
+            en: 'Sender number added for all staff.',
+            'zh-CN': '发件号码已添加（全员可见）。',
+            'zh-Hant': '發件號碼已新增（全員可見）。'
+        },
+        'ai.twilio.fromRemovedClinic': {
+            en: 'Sender number removed from clinic list.',
+            'zh-CN': '发件号码已从诊所列表移除。',
+            'zh-Hant': '發件號碼已從診所清單移除。'
+        },
+        'ai.twilio.fromReloaded': {
+            en: 'Sender numbers reloaded from cloud.',
+            'zh-CN': '已从云端刷新发件号码。',
+            'zh-Hant': '已從雲端重新整理發件號碼。'
+        },
+        'ai.twilio.fromDup': {
+            en: 'That number is already in the clinic list.',
+            'zh-CN': '该号码已在诊所列表中。',
+            'zh-Hant': '該號碼已在診所清單中。'
+        },
+        'ai.twilio.btn.reloadFrom': {
+            en: 'Reload from cloud',
+            'zh-CN': '从云端刷新',
+            'zh-Hant': '從雲端重新整理'
         },
         'ai.twilio.fromLabel': { en: 'Label', 'zh-CN': '标签', 'zh-Hant': '標籤' },
         'ai.twilio.fromLabelPh': { en: 'Clinic main', 'zh-CN': '诊所主号', 'zh-Hant': '診所主號' },
@@ -1795,9 +2217,54 @@
             'zh-Hant': ' — 從已批准範本複製 Content SID（HX…）到下方清單。'
         },
         'ai.twilio.tplManage': {
-            en: 'Manage content templates',
-            'zh-CN': '管理内容模板',
-            'zh-Hant': '管理內容範本'
+            en: 'Manage content templates (clinic-wide)',
+            'zh-CN': '管理内容模板（全诊所共享）',
+            'zh-Hant': '管理內容範本（全診所共用）'
+        },
+        'ai.twilio.tplClinicHint': {
+            en: 'Templates are saved in Supabase for all staff. Paste approved Content SIDs (HX…) from Twilio — no need to change Edge secrets.',
+            'zh-CN': '模板保存在 Supabase，全员共用。从 Twilio 粘贴已批准的 Content SID（HX…）即可，无需改 Edge 密钥。',
+            'zh-Hant': '範本儲存在 Supabase，全員共用。從 Twilio 貼上已批准的 Content SID（HX…）即可，無需改 Edge 密鑰。'
+        },
+        'ai.twilio.tplDbMissing': {
+            en: 'Cloud template table missing. Run twilio_content_templates.sql in Supabase SQL Editor.',
+            'zh-CN': '缺少云端模板表。请在 Supabase SQL 编辑器执行 twilio_content_templates.sql。',
+            'zh-Hant': '缺少雲端範本表。請在 Supabase SQL 編輯器執行 twilio_content_templates.sql。'
+        },
+        'ai.twilio.tplSaving': {
+            en: 'Saving template to clinic list…',
+            'zh-CN': '正在保存模板到诊所列表…',
+            'zh-Hant': '正在儲存範本到診所清單…'
+        },
+        'ai.twilio.tplSaveFail': {
+            en: 'Could not save template to Supabase.',
+            'zh-CN': '无法将模板保存到 Supabase。',
+            'zh-Hant': '無法將範本儲存到 Supabase。'
+        },
+        'ai.twilio.tplSavedClinic': {
+            en: 'Template saved for all staff.',
+            'zh-CN': '模板已保存（全员可见）。',
+            'zh-Hant': '範本已儲存（全員可見）。'
+        },
+        'ai.twilio.tplAddedClinic': {
+            en: 'Template added for all staff.',
+            'zh-CN': '模板已添加（全员可见）。',
+            'zh-Hant': '範本已新增（全員可見）。'
+        },
+        'ai.twilio.tplRemovedClinic': {
+            en: 'Template removed from clinic list.',
+            'zh-CN': '模板已从诊所列表移除。',
+            'zh-Hant': '範本已從診所清單移除。'
+        },
+        'ai.twilio.tplReloaded': {
+            en: 'Templates reloaded from cloud.',
+            'zh-CN': '已从云端重新加载模板。',
+            'zh-Hant': '已從雲端重新載入範本。'
+        },
+        'ai.twilio.btn.reloadTpl': {
+            en: 'Reload from cloud',
+            'zh-CN': '从云端刷新',
+            'zh-Hant': '從雲端重新整理'
         },
         'ai.twilio.tplLabel': { en: 'Label', 'zh-CN': '标签', 'zh-Hant': '標籤' },
         'ai.twilio.tplLabelPh': { en: 'Clinic recall', 'zh-CN': '诊所复诊', 'zh-Hant': '診所覆診' },

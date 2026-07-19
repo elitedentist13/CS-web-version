@@ -31,7 +31,14 @@ supabase secrets set TWILIO_SMS_FROM=+852xxxxxxxx
 supabase secrets set TWILIO_WHATSAPP_CONTENT_SID=HXf63c7a58271df43f5c63d97c6a514413
 ```
 
-**Do not rotate `TWILIO_WHATSAPP_CONTENT_SID` for each template.** The AI Helper sends the selected Content SID in the request body; Edge prefers that over the secret.
+**Do not rotate `TWILIO_WHATSAPP_CONTENT_SID` for each template.** Staff pick Content SIDs from the clinic-wide Supabase table `twilio_content_templates` (AI Helper → Manage content templates). The selected SID is sent in the request body; Edge uses the secret only as a fallback when `contentSid` is omitted.
+
+Apply once in the Supabase SQL Editor:
+
+- `twilio_content_templates.sql` — shared WhatsApp Content SIDs  
+- `twilio_from_numbers.sql` — shared Twilio sender (From) numbers  
+
+Both are editable under **Appointment → Broadcast** (and AI Helper).
 
 **SMS From priority:** request `from` → `TWILIO_SMS_FROM` → stripped `TWILIO_WHATSAPP_FROM` → Messaging Service (last resort).
 
@@ -66,10 +73,12 @@ Expect: `{"ok":true,"result":{"sid":"SM…","mode":"content"}}`
 3. **AI Helper → Twilio Send**
 4. Choose **WhatsApp** or **SMS**, pick a **Content template** (or add SIDs from Twilio Console), enter phone (+ message body for SMS) → **Send via Twilio**
 
-### Content templates (AI Helper)
+### Content templates (clinic-wide)
 
 - WhatsApp sends use the selected **Content SID** + `contentVariables`.
-- Staff can add / edit / remove templates in the panel (saved in browser `localStorage`).
+- Templates live in Supabase table `twilio_content_templates` — shared by all staff (AI Helper, Recall, Broadcast).
+- Add / edit / remove in **AI Helper → Twilio Send → Manage content templates**; use **Reload from cloud** after another staff updates the list.
+- First load migrates any old browser `localStorage` templates into the table if it is empty.
 - Direct link: [Twilio Content Template Builder](https://console.twilio.com/us1/develop/sms/content-template-builder) — copy approved `HX…` SIDs into the clinic list.
 - Default seeded template: `HXf63c7a58271df43f5c63d97c6a514413` (clinic recall, `{{1}}` = name).
 

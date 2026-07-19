@@ -32,8 +32,10 @@ var MASSBC = (function () {
     var _historyDetailId = null;
     var _logMissingWarned = false;
     var _doctorPatientIds = null; // Set when doctor filter active
-    /** @type {Object.<string,{lastAt:number,channel:string,count:number}>} */
+    /** @type {Object.<string,{lastAt:number,channel:string,count:number}>} keyed by patient id */
     var _sentMap = {};
+    /** @type {Object.<string,{lastAt:number,channel:string,count:number}>} keyed by patient_no */
+    var _sentByNo = {};
     var _sentMonths = DEFAULT_SENT_MONTHS;
     var _inited = false;
 
@@ -336,7 +338,9 @@ var MASSBC = (function () {
     }
 
     function setMode(mode) {
-        _mode = mode === 'campaign' || mode === 'history' ? mode : 'contacts';
+        var next = mode === 'campaign' || mode === 'history' ? mode : 'contacts';
+        var prev = _mode;
+        _mode = next;
         var contacts = pick('mbPaneContacts');
         var campaign = pick('mbPaneCampaign');
         var history = pick('mbPaneHistory');
@@ -352,6 +356,10 @@ var MASSBC = (function () {
             fillTwilioSelects();
         }
         if (_mode === 'history') loadHistory();
+        // Returning from Campaign/History: refresh sent tags so the window filter updates.
+        if (_mode === 'contacts' && prev !== 'contacts') {
+            loadSentHistory().then(function () { applyFilters(); });
+        }
     }
 
     function refreshFromBar() {
@@ -422,19 +430,46 @@ var MASSBC = (function () {
         return d.toISOString();
     }
 
+    function rememberSent(patientId, patientNo, channel, atMs) {
+        var ts = atMs || Date.now();
+        var ch = String(channel || '');
+        var info = null;
+        var pid = patientId != null && patientId !== '' ? String(patientId) : '';
+        var pno = patientNo != null && patientNo !== '' ? String(patientNo).trim() : '';
+        if (pid && _sentMap[pid]) info = _sentMap[pid];
+        else if (pno && _sentByNo[pno]) info = _sentByNo[pno];
+        if (!info) {
+            info = { lastAt: ts, channel: ch, count: 1 };
+        } else {
+            info.count += 1;
+            if (ts >= info.lastAt) {
+                info.lastAt = ts;
+                info.channel = ch || info.channel;
+            }
+        }
+        if (pid) _sentMap[pid] = info;
+        if (pno) _sentByNo[pno] = info;
+        return info;
+    }
+
     function loadSentHistory() {
+        var prevMap = _sentMap;
+        var prevByNo = _sentByNo;
         _sentMap = {};
+        _sentByNo = {};
         if (typeof SB === 'undefined') return Promise.resolve();
         var since = sentSinceIso();
         return SB.from('message_send_log')
-            .select('patient_id,channel,created_at,status')
+            .select('patient_id,patient_no,channel,created_at,status')
             .eq('status', 'sent')
             .gte('created_at', since)
-            .not('patient_id', 'is', null)
             .order('created_at', { ascending: false })
             .limit(50000)
             .then(function (r) {
                 if (r.error) {
+                    // Keep any in-session optimistic tags if DB log is unavailable.
+                    _sentMap = prevMap;
+                    _sentByNo = prevByNo;
                     if (!_logMissingWarned &&
                         /message_send_log|does not exist|schema cache/i.test(String(r.error.message || ''))) {
                         _logMissingWarned = true;
@@ -444,28 +479,42 @@ var MASSBC = (function () {
                 }
                 (r.data || []).forEach(function (row) {
                     var pid = String(row.patient_id || '');
-                    if (!pid) return;
+                    var pno = String(row.patient_no || '').trim();
+                    if (!pid && !pno) return;
                     var ts = Date.parse(row.created_at || '') || 0;
-                    if (!_sentMap[pid]) {
-                        _sentMap[pid] = {
-                            lastAt: ts,
-                            channel: String(row.channel || ''),
-                            count: 1
-                        };
-                    } else {
-                        _sentMap[pid].count += 1;
-                        if (ts > _sentMap[pid].lastAt) {
-                            _sentMap[pid].lastAt = ts;
-                            _sentMap[pid].channel = String(row.channel || '');
-                        }
+                    rememberSent(pid, pno, row.channel, ts);
+                });
+                // Merge recent in-session sends that may not have flushed yet
+                Object.keys(prevMap || {}).forEach(function (pid) {
+                    var prev = prevMap[pid];
+                    var cur = _sentMap[pid];
+                    if (!cur || (prev && prev.lastAt > cur.lastAt)) {
+                        _sentMap[pid] = prev;
+                    }
+                });
+                Object.keys(prevByNo || {}).forEach(function (pno) {
+                    var prev = prevByNo[pno];
+                    var cur = _sentByNo[pno];
+                    if (!cur || (prev && prev.lastAt > cur.lastAt)) {
+                        _sentByNo[pno] = prev;
                     }
                 });
             })
-            .catch(function () { /* ignore */ });
+            .catch(function () {
+                _sentMap = prevMap;
+                _sentByNo = prevByNo;
+            });
     }
 
-    function getSentInfo(patientId) {
-        return _sentMap[String(patientId)] || null;
+    function getSentInfo(patientOrId) {
+        if (patientOrId && typeof patientOrId === 'object') {
+            var byId = patientOrId.id != null ? _sentMap[String(patientOrId.id)] : null;
+            if (byId) return byId;
+            var no = String(patientOrId.patient_no || '').trim();
+            return no ? (_sentByNo[no] || null) : null;
+        }
+        var key = String(patientOrId || '');
+        return _sentMap[key] || _sentByNo[key] || null;
     }
 
     function formatSentAgo(ts) {
@@ -479,7 +528,7 @@ var MASSBC = (function () {
     }
 
     function sentTagHtml(p) {
-        var info = getSentInfo(p.id);
+        var info = getSentInfo(p);
         if (!info || !info.lastAt) return '';
         var ch = String(info.channel || '').toLowerCase();
         var chLbl = ch === 'sms' ? 'SMS' : (ch === 'whatsapp' ? 'WA' : 'Sent');
@@ -673,7 +722,7 @@ var MASSBC = (function () {
             if (optOut === 'exclude' && p.messaging_opt_out) return false;
             if (optOut === 'only' && !p.messaging_opt_out) return false;
 
-            var sentInfo = getSentInfo(p.id);
+            var sentInfo = getSentInfo(p);
             if (sentFilter === 'yes' && !sentInfo) return false;
             if (sentFilter === 'no' && sentInfo) return false;
 
@@ -719,14 +768,32 @@ var MASSBC = (function () {
         return true;
     }
 
+    function englishSortName(p) {
+        return String((p && p.full_name) || '').trim();
+    }
+
     function sortFiltered() {
         var key = _sortKey;
         var asc = _sortAsc;
         _filtered.sort(function (a, b) {
-            var av, bv;
+            var av, bv, cmp;
             if (key === 'name') {
-                av = displayName(a).toLowerCase();
-                bv = displayName(b).toLowerCase();
+                // Alphabetical by English name (full_name); missing English names go last.
+                av = englishSortName(a);
+                bv = englishSortName(b);
+                var aEmpty = !av;
+                var bEmpty = !bv;
+                if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+                cmp = av.localeCompare(bv, 'en', { sensitivity: 'base', numeric: true });
+                if (cmp !== 0) return asc ? cmp : -cmp;
+                // Tie-break: Chinese name, then patient no.
+                cmp = String(a.chinese_name || '').localeCompare(String(b.chinese_name || ''), 'zh', {
+                    sensitivity: 'base'
+                });
+                if (cmp !== 0) return asc ? cmp : -cmp;
+                return String(a.patient_no || '').localeCompare(String(b.patient_no || ''), 'en', {
+                    numeric: true
+                });
             } else if (key === 'phone') {
                 av = phoneOf(a);
                 bv = phoneOf(b);
@@ -734,8 +801,8 @@ var MASSBC = (function () {
                 av = String(a.clinic_tag || '');
                 bv = String(b.clinic_tag || '');
             } else if (key === 'last_sent') {
-                var sa = getSentInfo(a.id);
-                var sb = getSentInfo(b.id);
+                var sa = getSentInfo(a);
+                var sb = getSentInfo(b);
                 av = sa ? sa.lastAt : 0;
                 bv = sb ? sb.lastAt : 0;
                 if (av !== bv) return asc ? (av - bv) : (bv - av);
@@ -806,7 +873,7 @@ var MASSBC = (function () {
         var html = '';
         slice.forEach(function (p) {
             var checked = _selected[p.id] ? ' checked' : '';
-            var sentInfo = getSentInfo(p.id);
+            var sentInfo = getSentInfo(p);
             html += '<tr class="mb-row' +
                 (p.messaging_opt_out ? ' mb-row-optout' : '') +
                 (sentInfo ? ' mb-row-sent' : '') + '">';
@@ -840,7 +907,7 @@ var MASSBC = (function () {
     }
 
     function lastSentCellHtml(p) {
-        var info = getSentInfo(p.id);
+        var info = getSentInfo(p);
         if (!info || !info.lastAt) {
             return '<span class="mb-muted">—</span>';
         }
@@ -878,14 +945,14 @@ var MASSBC = (function () {
         host.innerHTML =
             '<button type="button" class="mb-btn ghost" id="mbPrevPage"' +
             (_page <= 0 ? ' disabled' : '') + '>' +
-            esc(tr('mb.prev', 'Prev')) + '</button>' +
+            esc(tr('mb.page.prev', 'Prev')) + '</button>' +
             '<span class="mb-pager-meta">' +
             esc(trRepl('mb.pageOf', { CUR: _page + 1, TOTAL: pages, N: total },
                 'Page {CUR} / {TOTAL} · {N} contacts')) +
             '</span>' +
             '<button type="button" class="mb-btn ghost" id="mbNextPage"' +
             (_page >= pages - 1 ? ' disabled' : '') + '>' +
-            esc(tr('mb.next', 'Next')) + '</button>';
+            esc(tr('mb.page.next', 'Next')) + '</button>';
         var prev = pick('mbPrevPage');
         var next = pick('mbNextPage');
         if (prev) prev.onclick = function () { _page--; renderTable(); };
@@ -900,7 +967,7 @@ var MASSBC = (function () {
         var skippedOpt = 0;
         var taggedShown = 0;
         _filtered.forEach(function (p) {
-            if (getSentInfo(p.id)) taggedShown++;
+            if (getSentInfo(p)) taggedShown++;
         });
         selIds.forEach(function (id) {
             var p = _allPatients.find(function (x) { return String(x.id) === String(id); });
@@ -1578,7 +1645,12 @@ var MASSBC = (function () {
             alert(tr('mb.alert.twilioDown', 'Twilio send unavailable. Open AI Helper → Twilio Send.'));
             return;
         }
-        var fake = {
+        // Prefer the selected contact when testing so the sent-window tag sticks to them.
+        var selected = selectedRecipients();
+        var matched = selected.find(function (p) {
+            return phoneE164(phoneOf(p)) === to;
+        }) || (selected.length === 1 ? selected[0] : null);
+        var fake = matched || {
             full_name: 'Test',
             chinese_name: '',
             patient_no: '',
@@ -1588,7 +1660,7 @@ var MASSBC = (function () {
         buildOutreachOpts(fake).then(function (opts) {
             if (!opts) return;
             opts.to = to;
-            opts.name = 'Test';
+            opts.name = matched ? firstName(matched) : 'Test';
             var st = pick('mbTestStatus');
             if (st) st.textContent = tr('mb.sending', 'Sending…');
             return AIHELPER.sendTwilioOutreach(opts).then(function (res) {
@@ -1599,6 +1671,25 @@ var MASSBC = (function () {
                 }
                 if (!(res && res.ok)) {
                     alert(tr('mb.send.fail', 'Send failed') + '\n\n' + ((res && res.error) || ''));
+                    return;
+                }
+                if (matched && matched.id) {
+                    rememberSent(matched.id, matched.patient_no, _channel, Date.now());
+                    return insertLogs([{
+                        campaign_id: null,
+                        patient_id: matched.id,
+                        patient_no: matched.patient_no || null,
+                        patient_name: displayName(matched),
+                        to_phone: to,
+                        channel: _channel,
+                        from_phone: opts.from || getFromPhone() || null,
+                        content_sid: opts.contentSid || null,
+                        body_preview: (opts.body || '').slice(0, 200),
+                        status: 'sent',
+                        twilio_sid: res.result && res.result.sid ? String(res.result.sid) : null,
+                        clinic_tag: matched.clinic_tag || null,
+                        sent_by: (typeof currentUserId !== 'undefined' ? currentUserId : null) || null
+                    }]);
                 }
             });
         });
@@ -1763,6 +1854,8 @@ var MASSBC = (function () {
                     return AIHELPER.sendTwilioOutreach(opts).then(function (res) {
                         if (res && res.ok) {
                             sent++;
+                            // Tag immediately so Contacts filter works even if log insert lags/fails.
+                            rememberSent(p.id, p.patient_no, _channel, Date.now());
                             return insertLogs([{
                                 campaign_id: campaignId,
                                 patient_id: p.id,
@@ -1829,9 +1922,11 @@ var MASSBC = (function () {
         }).finally(function () {
             alert(trRepl('mb.send.done', { S: sent, F: failed, K: skipped },
                 'Done — sent {S}, failed {F}, skipped {K}'));
-            loadSentHistory().then(function () { /* tags refresh next contacts view */ });
-            setMode('history');
             _historyDetailId = campaignId;
+            // Refresh tags first, then open history (contacts pane reloads tags on return).
+            loadSentHistory().finally(function () {
+                setMode('history');
+            });
         });
     }
 
@@ -1860,11 +1955,22 @@ var MASSBC = (function () {
 
     function insertLogs(rows) {
         if (!rows || !rows.length || typeof SB === 'undefined') return Promise.resolve();
-        if (String(rows[0].campaign_id || '').indexOf('local_') === 0) return Promise.resolve();
-        return SB.from('message_send_log').insert(rows).then(function (r) {
-            if (r.error && !_logMissingWarned) {
-                _logMissingWarned = true;
+        // Even if campaign insert failed (local_*), still persist recipient logs so
+        // Contacts "messaged in window" tags/filters keep working.
+        var payload = rows.map(function (row) {
+            var copy = Object.assign({}, row);
+            if (String(copy.campaign_id || '').indexOf('local_') === 0) {
+                copy.campaign_id = null;
+            }
+            return copy;
+        });
+        return SB.from('message_send_log').insert(payload).then(function (r) {
+            if (r.error) {
                 console.warn('[MASSBC] message_send_log insert failed:', r.error.message);
+                if (!_logMissingWarned &&
+                    /message_send_log|does not exist|schema cache/i.test(String(r.error.message || ''))) {
+                    _logMissingWarned = true;
+                }
             }
         });
     }

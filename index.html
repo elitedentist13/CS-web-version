@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260719-mb-filter-layout';
+  var BUILD = '20260719-mb-page-i18n';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1790,7 +1790,7 @@
                       <span class="mb-field-lab" data-i18n="mb.field.sortBy">Sort by</span>
                       <select id="mbSortKey" class="mb-select" onchange="MASSBC.onSortChange()">
                         <option value="patient_no" data-i18n="mb.sort.noShort">Patient no.</option>
-                        <option value="name" data-i18n="mb.sort.nameShort">Name</option>
+                        <option value="name" data-i18n="mb.sort.nameShort">English name</option>
                         <option value="phone" data-i18n="mb.sort.phoneShort">Phone</option>
                         <option value="clinic" data-i18n="mb.sort.clinicShort">Clinic</option>
                         <option value="dob" data-i18n="mb.sort.dobShort">DOB</option>

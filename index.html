@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260719-mb-page-i18n';
+  var BUILD = '20260719-mb-pager-empty';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1848,13 +1848,14 @@
                         data-i18n="mb.newBroadcast">New broadcast</button>
               </div>
             </div>
+            <div id="mbPagerTop" class="mb-pager mb-pager-top"></div>
             <div class="tbl-wrap mb-table-wrap">
               <table class="appt-tbl mb-table">
                 <thead id="mbTableHead"></thead>
                 <tbody id="mbTableBody"></tbody>
               </table>
             </div>
-            <div id="mbPager" class="mb-pager"></div>
+            <div id="mbPager" class="mb-pager mb-pager-bottom"></div>
             <p class="mb-hint" data-i18n="mb.hint.scope">
               Clinic / doctor filters use the appointment bar above. “Clinic / doctor bar” list applies them.
             </p>

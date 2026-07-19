@@ -11,6 +11,8 @@ var MASSBC = (function () {
     var SENT_PERIOD_LS_KEY = 'mb_sent_tag_months_v1';
     var SEND_DELAY_MS = 450;
     var PAGE_SIZE = 80;
+    /** Supabase/PostgREST typically caps one response at ~1000 rows — page past that. */
+    var PATIENT_FETCH_SIZE = 1000;
     var DEFAULT_SENT_MONTHS = 6;
 
     var _mode = 'contacts'; // contacts | campaign | history
@@ -145,6 +147,28 @@ var MASSBC = (function () {
         var eng = String((p && p.full_name) || '').trim();
         if (chi && eng) return chi + ' / ' + eng;
         return chi || eng || '—';
+    }
+
+    /** Shell / import junk rows: no number and no name — they sort first and look blank. */
+    function isBlankContact(p) {
+        if (!p) return true;
+        var no = String(p.patient_no || '').trim();
+        var eng = String(p.full_name || '').trim();
+        var chi = String(p.chinese_name || '').trim();
+        return !no && !eng && !chi;
+    }
+
+    function goToPage(pageIndex) {
+        var total = _filtered.length;
+        var pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        var n = parseInt(pageIndex, 10);
+        if (isNaN(n)) n = 0;
+        _page = Math.max(0, Math.min(pages - 1, n));
+        renderTable();
+        var top = pick('mbPagerTop');
+        if (top && typeof top.scrollIntoView === 'function') {
+            try { top.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* ignore */ }
+        }
     }
 
     function loadColPrefs() {
@@ -548,6 +572,30 @@ var MASSBC = (function () {
     }
 
     // ── Load patients ────────────────────────────────────────────
+    function fetchAllPatients(cols, onProgress) {
+        var all = [];
+        var size = PATIENT_FETCH_SIZE;
+
+        function page(from) {
+            return SB.from('patients')
+                .select(cols)
+                .order('patient_no', { ascending: true })
+                .range(from, from + size - 1)
+                .then(function (r) {
+                    if (r.error) return r;
+                    var rows = r.data || [];
+                    all = all.concat(rows);
+                    if (typeof onProgress === 'function') onProgress(all.length);
+                    if (rows.length < size) {
+                        return { data: all, error: null };
+                    }
+                    return page(from + size);
+                });
+        }
+
+        return page(0);
+    }
+
     function loadPatients() {
         var status = pick('mbStatus');
         if (status) status.textContent = tr('mb.loading', 'Loading contacts…');
@@ -559,47 +607,55 @@ var MASSBC = (function () {
         fillClinicFilterSelect();
         readSentMonths();
 
-        var cols =
+        var colsWithOptOut =
             'id,patient_no,full_name,chinese_name,phone_number,mobile_phone,sex,dob,' +
             'email,residential_district,referred_by,clinic_tag,messaging_opt_out';
+        var colsBasic =
+            'id,patient_no,full_name,chinese_name,phone_number,mobile_phone,sex,dob,' +
+            'email,residential_district,referred_by,clinic_tag';
 
-        var q = SB.from('patients').select(cols).order('patient_no', { ascending: true });
-        // Soft-fail if messaging_opt_out column missing
-        q.then(function (r) {
-            if (r.error && /messaging_opt_out/i.test(String(r.error.message || ''))) {
-                return SB.from('patients').select(
-                    'id,patient_no,full_name,chinese_name,phone_number,mobile_phone,sex,dob,' +
-                    'email,residential_district,referred_by,clinic_tag'
-                ).order('patient_no', { ascending: true });
+        function progress(n) {
+            if (status) {
+                status.textContent = trRepl('mb.loadingN', { N: n }, 'Loading contacts… {N}');
             }
-            return r;
-        }).then(function (r) {
-            if (r.error) {
-                _allPatients = [];
-                if (status) status.textContent = String(r.error.message || r.error);
-                applyFilters();
-                return;
-            }
-            _allPatients = (r.data || []).map(function (p) {
-                if (p.messaging_opt_out == null) p.messaging_opt_out = false;
-                return p;
-            });
-            return Promise.all([enrichDoctorFilter(), loadSentHistory()]).then(function () {
-                applyFilters();
-                var tagged = Object.keys(_sentMap).length;
-                if (status) {
-                    status.textContent = trRepl('mb.loadedTagged', {
-                        N: _allPatients.length,
-                        T: tagged,
-                        M: readSentMonths()
-                    }, 'Loaded {N} contacts · {T} tagged (last {M} mo)');
+        }
+
+        fetchAllPatients(colsWithOptOut, progress)
+            .then(function (r) {
+                // Soft-fail if messaging_opt_out column missing
+                if (r.error && /messaging_opt_out/i.test(String(r.error.message || ''))) {
+                    return fetchAllPatients(colsBasic, progress);
                 }
+                return r;
+            })
+            .then(function (r) {
+                if (r.error) {
+                    _allPatients = [];
+                    if (status) status.textContent = String(r.error.message || r.error);
+                    applyFilters();
+                    return;
+                }
+                _allPatients = (r.data || []).map(function (p) {
+                    if (p.messaging_opt_out == null) p.messaging_opt_out = false;
+                    return p;
+                });
+                return Promise.all([enrichDoctorFilter(), loadSentHistory()]).then(function () {
+                    applyFilters();
+                    var tagged = Object.keys(_sentMap).length;
+                    if (status) {
+                        status.textContent = trRepl('mb.loadedTagged', {
+                            N: _allPatients.length,
+                            T: tagged,
+                            M: readSentMonths()
+                        }, 'Loaded {N} contacts · {T} tagged (last {M} mo)');
+                    }
+                });
+            })
+            .catch(function (e) {
+                _allPatients = [];
+                if (status) status.textContent = (e && e.message) ? e.message : tr('mb.loadFail', 'Load failed');
+                applyFilters();
             });
-        }).catch(function (e) {
-            _allPatients = [];
-            if (status) status.textContent = (e && e.message) ? e.message : tr('mb.loadFail', 'Load failed');
-            applyFilters();
-        });
     }
 
     function enrichDoctorFilter() {
@@ -702,6 +758,7 @@ var MASSBC = (function () {
         var nowMonth = String(new Date().getMonth() + 1);
 
         _filtered = _allPatients.filter(function (p) {
+            if (isBlankContact(p)) return false;
             if (_activeSegmentId === 'hasphone' && !phoneOf(p)) return false;
             if (_activeSegmentId === 'birthday') {
                 if (!p.dob) return false;
@@ -807,9 +864,21 @@ var MASSBC = (function () {
                 bv = sb ? sb.lastAt : 0;
                 if (av !== bv) return asc ? (av - bv) : (bv - av);
                 return 0;
+            } else if (key === 'patient_no') {
+                av = String(a.patient_no == null ? '' : a.patient_no).trim();
+                bv = String(b.patient_no == null ? '' : b.patient_no).trim();
             } else {
                 av = String(a[key] == null ? '' : a[key]);
                 bv = String(b[key] == null ? '' : b[key]);
+            }
+            // Empty sort keys go last (avoids blank rows clustering at the top).
+            var aEmpty = !av;
+            var bEmpty = !bv;
+            if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+            if (key === 'patient_no' || key === 'phone' || key === 'dob') {
+                cmp = String(av).localeCompare(String(bv), 'en', { numeric: true, sensitivity: 'base' });
+                if (cmp !== 0) return asc ? cmp : -cmp;
+                return 0;
             }
             if (av < bv) return asc ? -1 : 1;
             if (av > bv) return asc ? 1 : -1;
@@ -937,26 +1006,75 @@ var MASSBC = (function () {
     }
 
     function renderPager() {
-        var host = pick('mbPager');
-        if (!host) return;
         var total = _filtered.length;
         var pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
         if (_page >= pages) _page = pages - 1;
-        host.innerHTML =
-            '<button type="button" class="mb-btn ghost" id="mbPrevPage"' +
-            (_page <= 0 ? ' disabled' : '') + '>' +
+        if (_page < 0) _page = 0;
+        var from = total ? (_page * PAGE_SIZE + 1) : 0;
+        var to = Math.min(total, (_page + 1) * PAGE_SIZE);
+        var atStart = _page <= 0;
+        var atEnd = _page >= pages - 1 || total === 0;
+
+        var html =
+            '<div class="mb-pager-inner">' +
+            '<button type="button" class="mb-btn ghost mb-pager-btn" data-mb-page="first"' +
+            (atStart ? ' disabled' : '') + ' title="' + esc(tr('mb.page.first', 'First page')) + '">' +
+            esc(tr('mb.page.firstShort', '« First')) + '</button>' +
+            '<button type="button" class="mb-btn ghost mb-pager-btn" data-mb-page="prev"' +
+            (atStart ? ' disabled' : '') + '>' +
             esc(tr('mb.page.prev', 'Prev')) + '</button>' +
-            '<span class="mb-pager-meta">' +
-            esc(trRepl('mb.pageOf', { CUR: _page + 1, TOTAL: pages, N: total },
-                'Page {CUR} / {TOTAL} · {N} contacts')) +
+            '<label class="mb-pager-jump">' +
+            '<span class="mb-pager-jump-lab">' + esc(tr('mb.page.jump', 'Page')) + '</span>' +
+            '<input type="number" class="mb-pager-input" data-mb-page-input min="1" max="' +
+            pages + '" value="' + (_page + 1) + '"' + (total === 0 ? ' disabled' : '') + '>' +
+            '<span class="mb-pager-meta">/ ' + pages + '</span>' +
+            '</label>' +
+            '<button type="button" class="mb-btn ghost mb-pager-btn" data-mb-page="go"' +
+            (total === 0 ? ' disabled' : '') + '>' +
+            esc(tr('mb.page.go', 'Go')) + '</button>' +
+            '<button type="button" class="mb-btn ghost mb-pager-btn" data-mb-page="next"' +
+            (atEnd ? ' disabled' : '') + '>' +
+            esc(tr('mb.page.next', 'Next')) + '</button>' +
+            '<button type="button" class="mb-btn ghost mb-pager-btn" data-mb-page="last"' +
+            (atEnd ? ' disabled' : '') + ' title="' + esc(tr('mb.page.last', 'Last page')) + '">' +
+            esc(tr('mb.page.lastShort', 'Last »')) + '</button>' +
+            '<span class="mb-pager-meta mb-pager-range">' +
+            esc(trRepl('mb.page.range', { FROM: from, TO: to, N: total },
+                'Showing {FROM}–{TO} of {N}')) +
             '</span>' +
-            '<button type="button" class="mb-btn ghost" id="mbNextPage"' +
-            (_page >= pages - 1 ? ' disabled' : '') + '>' +
-            esc(tr('mb.page.next', 'Next')) + '</button>';
-        var prev = pick('mbPrevPage');
-        var next = pick('mbNextPage');
-        if (prev) prev.onclick = function () { _page--; renderTable(); };
-        if (next) next.onclick = function () { _page++; renderTable(); };
+            '</div>';
+
+        function bindHost(host) {
+            if (!host) return;
+            host.innerHTML = html;
+            host.querySelectorAll('[data-mb-page]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var act = btn.getAttribute('data-mb-page');
+                    if (act === 'first') goToPage(0);
+                    else if (act === 'prev') goToPage(_page - 1);
+                    else if (act === 'next') goToPage(_page + 1);
+                    else if (act === 'last') goToPage(pages - 1);
+                    else if (act === 'go') {
+                        var inp = host.querySelector('[data-mb-page-input]');
+                        var v = inp ? parseInt(inp.value, 10) : (_page + 1);
+                        goToPage((isNaN(v) ? 1 : v) - 1);
+                    }
+                });
+            });
+            var input = host.querySelector('[data-mb-page-input]');
+            if (input) {
+                input.addEventListener('keydown', function (ev) {
+                    if (ev.key === 'Enter') {
+                        ev.preventDefault();
+                        var v = parseInt(input.value, 10);
+                        goToPage((isNaN(v) ? 1 : v) - 1);
+                    }
+                });
+            }
+        }
+
+        bindHost(pick('mbPagerTop'));
+        bindHost(pick('mbPager'));
     }
 
     function updateCounts() {

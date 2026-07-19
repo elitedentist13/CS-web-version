@@ -846,6 +846,11 @@
             'zh-Hant': '最近 {CH} {DATE} · 近 {M} 月共 {N} 次'
         },
         'mb.col.lastSent': { en: 'Last sent', 'zh-CN': '最近发送', 'zh-Hant': '最近傳送' },
+        'mb.loadingN': {
+            en: 'Loading contacts… {N}',
+            'zh-CN': '正在加载联系人… {N}',
+            'zh-Hant': '正在載入聯絡人… {N}'
+        },
         'mb.loadedTagged': {
             en: 'Loaded {N} contacts · {T} tagged (last {M} mo)',
             'zh-CN': '已加载 {N} 位 · {T} 位已标记（近 {M} 月）',
@@ -1052,6 +1057,17 @@
         'mb.prev': { en: 'Prev', 'zh-CN': '上一步', 'zh-Hant': '上一步' },
         'mb.page.next': { en: 'Next', 'zh-CN': '下一页', 'zh-Hant': '下一頁' },
         'mb.page.prev': { en: 'Prev', 'zh-CN': '上一页', 'zh-Hant': '上一頁' },
+        'mb.page.first': { en: 'First page', 'zh-CN': '第一页', 'zh-Hant': '第一頁' },
+        'mb.page.last': { en: 'Last page', 'zh-CN': '最后一页', 'zh-Hant': '最後一頁' },
+        'mb.page.firstShort': { en: '« First', 'zh-CN': '« 首页', 'zh-Hant': '« 首頁' },
+        'mb.page.lastShort': { en: 'Last »', 'zh-CN': '末页 »', 'zh-Hant': '末頁 »' },
+        'mb.page.jump': { en: 'Page', 'zh-CN': '页', 'zh-Hant': '頁' },
+        'mb.page.go': { en: 'Go', 'zh-CN': '跳转', 'zh-Hant': '跳至' },
+        'mb.page.range': {
+            en: 'Showing {FROM}–{TO} of {N}',
+            'zh-CN': '显示 {FROM}–{TO} / 共 {N}',
+            'zh-Hant': '顯示 {FROM}–{TO} / 共 {N}'
+        },
         'mb.history.hint': {
             en: 'Click a campaign to view recipient log.',
             'zh-CN': '点击活动查看收件记录。',

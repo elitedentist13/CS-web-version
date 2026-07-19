@@ -89,11 +89,11 @@ Then run workflow **Deploy Supabase AI Edge** (or push changes under `supabase/f
 
 ## Twilio WhatsApp (live)
 
-For **AI Helper → Recall → Send Twilio WhatsApp** on the published site:
+For **AI Helper → Twilio Send** (SMS / WhatsApp) on the published site:
 
 1. Deploy Edge Function: `supabase functions deploy twilio-whatsapp --no-verify-jwt`
-2. Set secrets: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` (see `TWILIO_WHATSAPP_TEST.md`)
-3. Log in on the live URL and send a test to your own phone
+2. Set secrets: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, and `TWILIO_WHATSAPP_CONTENT_SID=HXf63c7a58271df43f5c63d97c6a514413` (see `TWILIO_WHATSAPP_TEST.md`). AI Helper sends `channel=whatsapp|sms`, and for WhatsApp also `contentSid` + `contentVariables["1"]=name`.
+3. Log in on the live URL → **AI Helper → Twilio Send** → test to your own phone
 
 ---
 

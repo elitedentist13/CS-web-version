@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260717-twilio-wa-edge';
+  var BUILD = '20260719-rc-twilio-from';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -382,6 +382,8 @@
               onclick="AIHELPER.switchTab('birthday')" data-i18n="ai.tabBirthday"></button>
       <button type="button" class="ai-tab-btn" data-ai-tab="recall"
               onclick="AIHELPER.switchTab('recall')" data-i18n="ai.tabRecall"></button>
+      <button type="button" class="ai-tab-btn" data-ai-tab="twilio"
+              onclick="AIHELPER.switchTab('twilio')" data-i18n="ai.tabTwilio">Twilio Send</button>
       <button type="button" class="ai-tab-btn" data-ai-tab="settings"
               onclick="AIHELPER.switchTab('settings')" data-i18n="ai.tabIntel"></button>
     </div>
@@ -477,6 +479,11 @@
           <button type="button" class="ai-channel-btn sms" onclick="AIHELPER.openChannelBirth('sms')" data-i18n="ai.btn.sms"></button>
           <button type="button" class="ai-channel-btn email" onclick="AIHELPER.openChannelBirth('email')" data-i18n="ai.btn.email"></button>
           <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.copyOut('birth')" data-i18n="ai.btn.copy"></button>
+        </div>
+        <div class="ai-send-bar ai-twilio-inline-bar">
+          <span class="ai-label ai-twilio-inline-lab" data-i18n="ai.twilio.viaClinic">Via clinic Twilio number</span>
+          <button type="button" class="ai-channel-btn whatsapp ai-twilio-inline-btn" onclick="AIHELPER.prepareTwilioSend('birth','whatsapp')" data-i18n="ai.twilio.btn.waClinic">Twilio WhatsApp</button>
+          <button type="button" class="ai-channel-btn sms ai-twilio-inline-btn" onclick="AIHELPER.prepareTwilioSend('birth','sms')" data-i18n="ai.twilio.btn.smsClinic">Twilio SMS</button>
         </div>
       </div>
     </div>
@@ -581,19 +588,151 @@
           <button type="button" class="ai-channel-btn email" onclick="AIHELPER.openChannelRecall('email')" data-i18n="ai.btn.email"></button>
           <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.copyOut('recall')" data-i18n="ai.btn.copy"></button>
         </div>
-        <div class="ai-twilio-wa-test" style="margin-top:14px;padding:12px 12px 10px;border:1px dashed #94a3b8;border-radius:10px;background:#f8fafc;">
-          <div style="font-weight:800;font-size:12px;color:#0f172a;margin-bottom:6px;" data-i18n="ai.twilioWaTest.title">Twilio WhatsApp (live)</div>
-          <p class="ai-hint" style="margin:0 0 8px;line-height:1.45;" data-i18n="ai.twilioWaTest.hint">Sends one real message via Supabase Edge Function twilio-whatsapp. Deploy the function and set Twilio secrets first (see TWILIO_WHATSAPP_TEST.md). Use your own phone for testing.</p>
-          <label class="ai-label" data-i18n="ai.twilioWaTest.phone">Test phone</label>
-          <input type="text" id="aiTwilioWaTestPhone" class="ai-input" maxlength="32"
-                 placeholder="+85291234567" data-i18n-placeholder="ai.twilioWaTest.phonePh">
-          <label class="ai-label" style="margin-top:6px;" data-i18n="ai.twilioWaTest.name">Name (template {{1}})</label>
-          <input type="text" id="aiTwilioWaTestName" class="ai-input" maxlength="60"
-                 placeholder="Test Patient" data-i18n-placeholder="ai.twilioWaTest.namePh">
-          <div class="ai-actions-row" style="margin-top:10px;align-items:center;gap:8px;flex-wrap:wrap;">
-            <button type="button" class="ai-channel-btn whatsapp" id="aiTwilioWaTestBtn"
-                    onclick="AIHELPER.sendTwilioWhatsAppTest()" data-i18n="ai.twilioWaTest.btn">Send Twilio WhatsApp</button>
-            <span id="aiTwilioWaTestStatus" class="ai-status-chip"></span>
+        <div class="ai-send-bar ai-twilio-inline-bar">
+          <span class="ai-label ai-twilio-inline-lab" data-i18n="ai.twilio.viaClinic">Via clinic Twilio number</span>
+          <button type="button" class="ai-channel-btn whatsapp ai-twilio-inline-btn" onclick="AIHELPER.prepareTwilioSend('recall','whatsapp')" data-i18n="ai.twilio.btn.waClinic">Twilio WhatsApp</button>
+          <button type="button" class="ai-channel-btn sms ai-twilio-inline-btn" onclick="AIHELPER.prepareTwilioSend('recall','sms')" data-i18n="ai.twilio.btn.smsClinic">Twilio SMS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiPanelTwilio" class="ai-panel" style="display:none;">
+    <div class="ai-twilio-panel">
+      <div class="ai-twilio-panel-head">
+        <h4 class="ai-subhead" style="margin:0;" data-i18n="ai.twilio.title">Twilio Send</h4>
+        <p class="ai-filter-hint" style="margin:8px 0 0;" data-i18n="ai.twilio.hint">
+          Choose your clinic Twilio number, then send SMS or WhatsApp via Supabase Edge. WhatsApp uses the approved Content Template; SMS sends the message body as a regular text.
+        </p>
+      </div>
+
+      <div class="ai-twilio-from-box">
+        <label class="ai-label" data-i18n="ai.twilio.from">Send from (Twilio number)</label>
+        <select id="aiTwilioFrom" class="ai-input" onchange="AIHELPER.onTwilioFromChange()"></select>
+        <p id="aiTwilioFromHint" class="ai-hint" style="margin-top:6px;" data-i18n="ai.twilio.fromHintDefault">
+          Default uses the Edge secret TWILIO_WHATSAPP_FROM / Messaging Service. Pick a saved number to override.
+        </p>
+        <details class="ai-twilio-from-manage" id="aiTwilioFromManage">
+          <summary data-i18n="ai.twilio.fromManage">Manage Twilio numbers</summary>
+          <div class="ai-twilio-from-manage-grid">
+            <div>
+              <label class="ai-label" data-i18n="ai.twilio.fromLabel">Label</label>
+              <input type="text" id="aiTwilioFromLabel" class="ai-input" maxlength="40"
+                     placeholder="Clinic main" data-i18n-placeholder="ai.twilio.fromLabelPh">
+            </div>
+            <div>
+              <label class="ai-label" data-i18n="ai.twilio.fromPhone">Phone (E.164)</label>
+              <input type="text" id="aiTwilioFromPhone" class="ai-input" maxlength="24"
+                     placeholder="+85291234567" data-i18n-placeholder="ai.twilio.fromPhonePh">
+            </div>
+          </div>
+          <div class="ai-twilio-from-caps" role="group" aria-label="Channels">
+            <label class="ai-mass-inline"><input type="checkbox" id="aiTwilioFromCapWa" checked> <span data-i18n="ai.twilio.ch.wa">WhatsApp</span></label>
+            <label class="ai-mass-inline"><input type="checkbox" id="aiTwilioFromCapSms" checked> <span data-i18n="ai.twilio.ch.sms">SMS</span></label>
+          </div>
+          <div class="ai-actions-row" style="margin-top:8px;">
+            <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.addTwilioFromNumber()" data-i18n="ai.twilio.btn.addFrom">Add number</button>
+            <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.removeTwilioFromNumber()" data-i18n="ai.twilio.btn.removeFrom">Remove selected</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="ai-twilio-channel-row" role="group" aria-label="Channel">
+        <span class="ai-label" data-i18n="ai.twilio.channel">Channel</span>
+        <div class="ai-twilio-channel-btns">
+          <button type="button" class="ai-channel-btn whatsapp ai-twilio-ch-btn is-active" id="aiTwilioChWa"
+                  onclick="AIHELPER.setTwilioChannel('whatsapp')" data-i18n="ai.twilio.ch.wa">WhatsApp</button>
+          <button type="button" class="ai-channel-btn sms ai-twilio-ch-btn" id="aiTwilioChSms"
+                  onclick="AIHELPER.setTwilioChannel('sms')" data-i18n="ai.twilio.ch.sms">SMS</button>
+        </div>
+      </div>
+
+      <div class="ai-twilio-grid">
+        <div class="ai-twilio-col">
+          <label class="ai-label" data-i18n="ai.twilio.draftSource">Load draft from</label>
+          <select id="aiTwilioDraftSource" class="ai-input" onchange="AIHELPER.loadTwilioDraft()">
+            <option value="custom" data-i18n="ai.twilio.draft.custom">Custom / typed</option>
+            <option value="recall" data-i18n="ai.twilio.draft.recall">Recall preview</option>
+            <option value="birth" data-i18n="ai.twilio.draft.birth">Birthday preview</option>
+          </select>
+          <div class="ai-actions-row" style="margin-top:8px;">
+            <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.loadTwilioDraft()" data-i18n="ai.twilio.btn.reloadDraft">Reload draft</button>
+            <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.refreshTwilioRecipients()" data-i18n="ai.twilio.btn.refreshRecipients">Refresh recipients</button>
+          </div>
+
+          <label class="ai-label" style="margin-top:12px;" data-i18n="ai.twilio.recipient">Recipient (from ticked lists)</label>
+          <select id="aiTwilioRecipient" class="ai-input" onchange="AIHELPER.onTwilioRecipientChange()"></select>
+
+          <label class="ai-label" style="margin-top:12px;" data-i18n="ai.twilio.to">To phone</label>
+          <input type="text" id="aiTwilioTo" class="ai-input" maxlength="32"
+                 placeholder="+85291234567" data-i18n-placeholder="ai.twilio.toPh">
+
+          <div id="aiTwilioWaFields">
+            <label class="ai-label" style="margin-top:12px;" data-i18n="ai.twilio.tpl">Content template</label>
+            <select id="aiTwilioTpl" class="ai-input" onchange="AIHELPER.onTwilioTplChange()"></select>
+            <p id="aiTwilioTplHint" class="ai-hint" style="margin-top:6px;"></p>
+            <p class="ai-hint" style="margin-top:6px;">
+              <a id="aiTwilioTplConsoleLink" class="ai-twilio-console-link"
+                 href="https://console.twilio.com/us1/develop/sms/content-template-builder"
+                 target="_blank" rel="noopener noreferrer"
+                 data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
+              <span data-i18n="ai.twilio.tplConsoleHint"> — copy Content SIDs (HX…) from approved templates into the list below.</span>
+            </p>
+
+            <details class="ai-twilio-from-manage" id="aiTwilioTplManage">
+              <summary data-i18n="ai.twilio.tplManage">Manage content templates</summary>
+              <div class="ai-twilio-from-manage-grid">
+                <div>
+                  <label class="ai-label" data-i18n="ai.twilio.tplLabel">Label</label>
+                  <input type="text" id="aiTwilioTplLabel" class="ai-input" maxlength="60"
+                         placeholder="Clinic recall" data-i18n-placeholder="ai.twilio.tplLabelPh">
+                </div>
+                <div>
+                  <label class="ai-label" data-i18n="ai.twilio.tplSid">Content SID</label>
+                  <input type="text" id="aiTwilioTplSid" class="ai-input" maxlength="40"
+                         placeholder="HXf63c7a58271df43f5c63d97c6a514413" data-i18n-placeholder="ai.twilio.tplSidPh"
+                         spellcheck="false" autocomplete="off">
+                </div>
+              </div>
+              <div class="ai-twilio-from-manage-grid" style="margin-top:10px;">
+                <div>
+                  <label class="ai-label" data-i18n="ai.twilio.tplVars">Variable keys</label>
+                  <input type="text" id="aiTwilioTplVars" class="ai-input" maxlength="40"
+                         placeholder="1" data-i18n-placeholder="ai.twilio.tplVarsPh"
+                         spellcheck="false" autocomplete="off">
+                  <small class="ai-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.</small>
+                </div>
+                <div>
+                  <label class="ai-label" data-i18n="ai.twilio.tplNotes">Notes / preview</label>
+                  <input type="text" id="aiTwilioTplNotes" class="ai-input" maxlength="160"
+                         placeholder="Approved recall greeting" data-i18n-placeholder="ai.twilio.tplNotesPh">
+                </div>
+              </div>
+              <div class="ai-actions-row" style="margin-top:8px;">
+                <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.saveTwilioTpl()" data-i18n="ai.twilio.btn.saveTpl">Save changes</button>
+                <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.addTwilioTpl()" data-i18n="ai.twilio.btn.addTpl">Add as new</button>
+                <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.removeTwilioTpl()" data-i18n="ai.twilio.btn.removeTpl">Remove selected</button>
+              </div>
+            </details>
+
+            <label class="ai-label" style="margin-top:12px;" data-i18n="ai.twilio.name">Name (template {{1}})</label>
+            <input type="text" id="aiTwilioName" class="ai-input" maxlength="60"
+                   placeholder="Patient" data-i18n-placeholder="ai.twilio.namePh">
+            <div id="aiTwilioTplExtraVars" class="ai-twilio-tpl-extra"></div>
+          </div>
+        </div>
+
+        <div class="ai-twilio-col">
+          <label class="ai-label" data-i18n="ai.twilio.body">Message body</label>
+          <textarea id="aiTwilioBody" class="ai-input ai-textarea ai-output" rows="12"
+                    data-i18n-placeholder="ai.twilio.bodyPh"></textarea>
+          <p id="aiTwilioModeHint" class="ai-hint" style="margin-top:8px;" data-i18n="ai.twilio.mode.wa">
+            WhatsApp: Meta-approved template is sent (name fills {{1}}). Body is optional fallback only.
+          </p>
+          <div class="ai-actions-row" style="margin-top:12px;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="ai-channel-btn whatsapp" id="aiTwilioSendBtn"
+                    onclick="AIHELPER.sendTwilioMessage()" data-i18n="ai.twilio.btn.send">Send via Twilio</button>
+            <span id="aiTwilioStatus" class="ai-status-chip"></span>
           </div>
         </div>
       </div>
@@ -1427,15 +1566,62 @@
       <!-- Contact method selector -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
         <span style="font-weight:700;font-size:13px;color:#374151;" data-i18n="appt.recallSendVia"></span>
-        <button id="rcContactWA" onclick="setRcContact('whatsapp')"
+        <button type="button" id="rcContactWA" onclick="setRcContact('whatsapp')"
                 style="padding:7px 18px;border-radius:20px;border:2px solid #25d366;
                        background:#25d366;color:#fff;font-size:13px;font-weight:700;
                        cursor:pointer;display:flex;align-items:center;gap:5px;" data-i18n="appt.recallWa"></button>
-        <button id="rcContactSMS" onclick="setRcContact('sms')"
+        <button type="button" id="rcContactSMS" onclick="setRcContact('sms')"
                 style="padding:7px 18px;border-radius:20px;border:2px solid #e5e7eb;
                        background:#fff;color:#374151;font-size:13px;font-weight:700;
                        cursor:pointer;" data-i18n="appt.recallSms"></button>
+        <button type="button" id="rcContactTwilioWA" onclick="setRcContact('twilio_wa')"
+                style="padding:7px 14px;border-radius:20px;border:2px solid #e5e7eb;
+                       background:#fff;color:#374151;font-size:12px;font-weight:700;
+                       cursor:pointer;" data-i18n="appt.recallTwilioWa">Twilio WhatsApp</button>
+        <button type="button" id="rcContactTwilioSMS" onclick="setRcContact('twilio_sms')"
+                style="padding:7px 14px;border-radius:20px;border:2px solid #e5e7eb;
+                       background:#fff;color:#374151;font-size:12px;font-weight:700;
+                       cursor:pointer;" data-i18n="appt.recallTwilioSms">Twilio SMS</button>
         <span style="font-size:11px;color:#94a3b8;margin-left:4px;" data-i18n-html="appt.recallPlaceholderHintHtml"></span>
+      </div>
+
+      <!-- Twilio From number + content template -->
+      <div id="rcTwilioPanel" style="display:none;margin-bottom:14px;padding:12px 14px;
+           background:#fff;border:1px solid #e2e8f0;border-radius:10px;">
+        <div id="rcTwilioFromRow" style="margin-bottom:12px;">
+          <label for="rcTwilioFrom" style="display:block;font-size:12px;font-weight:800;color:#334155;margin-bottom:6px;"
+                 data-i18n="appt.recallTwilioFrom">Send from (Twilio number)</label>
+          <select id="rcTwilioFrom" class="ai-input" style="max-width:520px;"
+                  onchange="onRcTwilioFromChange()"></select>
+          <p id="rcTwilioFromHint" style="margin:6px 0 0;font-size:11px;color:#64748b;line-height:1.45;"
+             data-i18n="appt.recallTwilioFromHintDefault">
+            Default uses Edge secrets (TWILIO_WHATSAPP_FROM / TWILIO_SMS_FROM). Pick a saved number to override.
+          </p>
+          <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;">
+            <button type="button" class="ai-link-btn" onclick="openAiHelperTwilioFromNumbers()"
+                    data-i18n="appt.recallTwilioManageFrom">Manage numbers in AI Helper</button>
+          </p>
+        </div>
+
+        <div id="rcTwilioWaTplRow">
+          <label for="rcTwilioTpl" style="display:block;font-size:12px;font-weight:800;color:#334155;margin-bottom:6px;"
+                 data-i18n="appt.recallTwilioTpl">Twilio Content Template</label>
+          <select id="rcTwilioTpl" class="ai-input" style="max-width:520px;"
+                  onchange="onRcTwilioTplChange()"></select>
+          <p id="rcTwilioTplHint" style="margin:6px 0 0;font-size:11px;color:#64748b;line-height:1.45;"></p>
+          <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;">
+            <a href="https://console.twilio.com/us1/develop/sms/content-template-builder"
+               target="_blank" rel="noopener noreferrer" class="ai-twilio-console-link"
+               data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
+            <button type="button" class="ai-link-btn" style="margin-left:10px;"
+                    onclick="openAiHelperTwilioTemplates()"
+                    data-i18n="appt.recallTwilioManageTpl">Manage templates in AI Helper</button>
+          </p>
+        </div>
+        <p id="rcTwilioSmsHint" style="display:none;margin:0;font-size:11px;color:#64748b;line-height:1.45;"
+           data-i18n="appt.recallTwilioSmsHint">
+          Twilio SMS sends the message box text from the selected Twilio number (prefer an SMS-capable number; WhatsApp senders often cannot send SMS).
+        </p>
       </div>
 
       <!-- Message textarea -->
@@ -1445,6 +1631,10 @@
                        border:1.5px solid #e2e8f0;border-radius:8px;resize:vertical;
                        box-sizing:border-box;font-family:inherit;outline:none;
                        background:#fff;color:#1e293b;"></textarea>
+      <p id="rcTwilioWaBodyNote" style="display:none;margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;"
+         data-i18n="appt.recallTwilioWaBodyNote">
+        WhatsApp via Twilio uses the selected Content Template ({{1}} = patient first name). Message box is optional fallback only.
+      </p>
 
       <!-- Action buttons -->
       <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">

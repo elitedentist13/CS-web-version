@@ -8550,18 +8550,24 @@ var rcDate      = '';          // YYYY-MM-DD currently selected
 var rcMonthD    = new Date();  // month shown in recall mini-calendar
 var rcPatients  = [];          // enriched appointment rows for selected date
 var rcSelIds    = {};          // { apptId: true }
-var rcContact   = 'whatsapp';  // 'whatsapp' | 'sms'
+var rcContact   = 'whatsapp';  // 'whatsapp' | 'sms' | 'twilio_wa' | 'twilio_sms'
 var rcTemplates = [];          // saved templates (localStorage)
 var rcSendQueue = [];          // patients to step through when sending
 var rcSendIdx   = 0;
+var rcTwilioBusy = false;
 var RC_TMPL_KEY = 'recall_templates_v1';
+var RC_TWILIO_TPL_PREF = 'appt_recall_twilio_tpl_id_v1';
+var RC_TWILIO_FROM_PREF = 'appt_recall_twilio_from_id_v1';
 
 function initRecallTab() {
     rcDate   = todayISO();
     rcMonthD = new Date();
     loadRcTemplates();
+    refreshRcTwilioFromSelect();
+    refreshRcTwilioTplSelect();
     renderRcal();
     loadRecallPatients(rcDate);
+    if (typeof setRcContact === 'function') setRcContact(rcContact);
 }
 
 // ── Mini Calendar ────────────────────────────────────────────────
@@ -8751,20 +8757,239 @@ function rcDeselectAll() {
 }
 
 // ── Contact method toggle ────────────────────────────────────────
+function isRcTwilioContact() {
+    return rcContact === 'twilio_wa' || rcContact === 'twilio_sms';
+}
+
+function styleRcContactBtn(btn, on, onBg, onBorder) {
+    if (!btn) return;
+    btn.style.background  = on ? onBg : '#fff';
+    btn.style.color       = on ? '#fff' : '#374151';
+    btn.style.borderColor = on ? onBorder : '#e5e7eb';
+}
+
 function setRcContact(method) {
+    if (method !== 'whatsapp' && method !== 'sms' &&
+        method !== 'twilio_wa' && method !== 'twilio_sms') {
+        method = 'whatsapp';
+    }
     rcContact = method;
-    var waBtn  = g('rcContactWA');
-    var smsBtn = g('rcContactSMS');
-    if (waBtn) {
-        waBtn.style.background   = method === 'whatsapp' ? '#25d366' : '#fff';
-        waBtn.style.color        = method === 'whatsapp' ? '#fff'    : '#374151';
-        waBtn.style.borderColor  = method === 'whatsapp' ? '#25d366' : '#e5e7eb';
+    styleRcContactBtn(g('rcContactWA'), method === 'whatsapp', '#25d366', '#25d366');
+    styleRcContactBtn(g('rcContactSMS'), method === 'sms', '#0084ff', '#0084ff');
+    styleRcContactBtn(g('rcContactTwilioWA'), method === 'twilio_wa', '#0f766e', '#0f766e');
+    styleRcContactBtn(g('rcContactTwilioSMS'), method === 'twilio_sms', '#0369a1', '#0369a1');
+
+    var panel = g('rcTwilioPanel');
+    var waRow = g('rcTwilioWaTplRow');
+    var smsHint = g('rcTwilioSmsHint');
+    var waBodyNote = g('rcTwilioWaBodyNote');
+    var showTwilio = isRcTwilioContact();
+    if (panel) panel.style.display = showTwilio ? 'block' : 'none';
+    if (waRow) waRow.style.display = method === 'twilio_wa' ? 'block' : 'none';
+    if (smsHint) smsHint.style.display = method === 'twilio_sms' ? 'block' : 'none';
+    if (waBodyNote) waBodyNote.style.display = method === 'twilio_wa' ? 'block' : 'none';
+
+    if (showTwilio) {
+        refreshRcTwilioFromSelect();
+        if (method === 'twilio_wa') refreshRcTwilioTplSelect();
     }
-    if (smsBtn) {
-        smsBtn.style.background  = method === 'sms' ? '#0084ff' : '#fff';
-        smsBtn.style.color       = method === 'sms' ? '#fff'    : '#374151';
-        smsBtn.style.borderColor = method === 'sms' ? '#0084ff' : '#e5e7eb';
+}
+
+function rcTwilioChannelKey() {
+    return rcContact === 'twilio_sms' ? 'sms' : 'whatsapp';
+}
+
+function refreshRcTwilioFromSelect() {
+    var sel = g('rcTwilioFrom');
+    if (!sel) return;
+    var channel = rcTwilioChannelKey();
+    var numbers = [];
+    if (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.listTwilioFromNumbers === 'function') {
+        numbers = AIHELPER.listTwilioFromNumbers(channel) || [];
     }
+    var prev = '';
+    try { prev = localStorage.getItem(RC_TWILIO_FROM_PREF) || ''; } catch (e) { prev = ''; }
+    if (sel.value) prev = sel.value;
+
+    sel.innerHTML = '';
+    var defOpt = document.createElement('option');
+    defOpt.value = 'default';
+    defOpt.textContent = (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.getTwilioFromDefaultLabel === 'function')
+        ? AIHELPER.getTwilioFromDefaultLabel()
+        : tr('appt.recallTwilioFromDefault');
+    sel.appendChild(defOpt);
+
+    numbers.forEach(function(n) {
+        var o = document.createElement('option');
+        o.value = n.id;
+        var caps = [];
+        if (n.whatsapp) caps.push('WA');
+        if (n.sms) caps.push('SMS');
+        o.textContent =
+            (n.label || n.phone) +
+            ' · ' +
+            n.phone +
+            (caps.length ? ' (' + caps.join('/') + ')' : '');
+        sel.appendChild(o);
+    });
+
+    var exists = prev === 'default';
+    if (!exists) {
+        for (var i = 0; i < numbers.length; i++) {
+            if (numbers[i].id === prev) { exists = true; break; }
+        }
+    }
+    sel.value = exists ? prev : 'default';
+    try { localStorage.setItem(RC_TWILIO_FROM_PREF, sel.value); } catch (e2) { /* ignore */ }
+    syncRcTwilioFromHint();
+}
+
+function onRcTwilioFromChange() {
+    var sel = g('rcTwilioFrom');
+    if (sel) {
+        try { localStorage.setItem(RC_TWILIO_FROM_PREF, String(sel.value || 'default')); } catch (e) { /* ignore */ }
+    }
+    syncRcTwilioFromHint();
+}
+
+function syncRcTwilioFromHint() {
+    var hint = g('rcTwilioFromHint');
+    if (!hint) return;
+    var row = getSelectedRcTwilioFrom();
+    var channel = rcTwilioChannelKey();
+    if (!row) {
+        hint.setAttribute('data-i18n', 'appt.recallTwilioFromHintDefault');
+        hint.textContent = tr('appt.recallTwilioFromHintDefault');
+        return;
+    }
+    var key = channel === 'sms'
+        ? 'appt.recallTwilioFromHintSms'
+        : 'appt.recallTwilioFromHintWa';
+    hint.setAttribute('data-i18n', key);
+    hint.textContent = trRepl(key, { FROM: row.phone || '' });
+}
+
+function getSelectedRcTwilioFrom() {
+    var sel = g('rcTwilioFrom');
+    var id = sel ? String(sel.value || 'default') : 'default';
+    if (!id || id === 'default') return null;
+    if (typeof AIHELPER === 'undefined' ||
+        typeof AIHELPER.getTwilioFromNumber !== 'function') {
+        return null;
+    }
+    var row = AIHELPER.getTwilioFromNumber(id);
+    if (!row) return null;
+    var channel = rcTwilioChannelKey();
+    if (channel === 'whatsapp' && row.whatsapp === false) return null;
+    if (channel === 'sms' && row.sms === false) return null;
+    return row;
+}
+
+function openAiHelperTwilioFromNumbers() {
+    openAiHelperTwilioTemplates();
+    var manage = document.getElementById('aiTwilioFromManage');
+    if (manage && typeof manage.open !== 'undefined') {
+        try { manage.open = true; } catch (e) { /* ignore */ }
+    }
+}
+
+function refreshRcTwilioTplSelect() {
+    var sel = g('rcTwilioTpl');
+    if (!sel) return;
+    var templates = [];
+    if (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.listTwilioContentTemplates === 'function') {
+        templates = AIHELPER.listTwilioContentTemplates() || [];
+    }
+    var prev = '';
+    try { prev = localStorage.getItem(RC_TWILIO_TPL_PREF) || ''; } catch (e) { prev = ''; }
+    if (sel.value) prev = sel.value;
+
+    sel.innerHTML = '';
+    if (!templates.length) {
+        var empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = tr('appt.recallTwilioTplEmpty');
+        sel.appendChild(empty);
+        syncRcTwilioTplHint();
+        return;
+    }
+    templates.forEach(function(t) {
+        var o = document.createElement('option');
+        o.value = t.id;
+        o.textContent = (t.label || t.contentSid) + ' · ' +
+            String(t.contentSid || '').slice(0, 10) + '…';
+        sel.appendChild(o);
+    });
+    var exists = false;
+    for (var i = 0; i < templates.length; i++) {
+        if (templates[i].id === prev) { exists = true; break; }
+    }
+    sel.value = exists ? prev : templates[0].id;
+    try { localStorage.setItem(RC_TWILIO_TPL_PREF, sel.value); } catch (e2) { /* ignore */ }
+    syncRcTwilioTplHint();
+}
+
+function onRcTwilioTplChange() {
+    var sel = g('rcTwilioTpl');
+    if (sel) {
+        try { localStorage.setItem(RC_TWILIO_TPL_PREF, String(sel.value || '')); } catch (e) { /* ignore */ }
+    }
+    syncRcTwilioTplHint();
+}
+
+function syncRcTwilioTplHint() {
+    var hint = g('rcTwilioTplHint');
+    if (!hint) return;
+    var sel = g('rcTwilioTpl');
+    var id = sel ? String(sel.value || '') : '';
+    var tpl = null;
+    if (id && typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.getTwilioContentTemplate === 'function') {
+        tpl = AIHELPER.getTwilioContentTemplate(id);
+    }
+    if (!tpl) {
+        hint.textContent = tr('appt.recallTwilioTplEmpty');
+        return;
+    }
+    var notes = tpl.notes ? ' — ' + tpl.notes : '';
+    hint.textContent = trRepl('appt.recallTwilioTplHint', {
+        SID: tpl.contentSid || '',
+        VARS: '{{' + String(tpl.vars || '1').split(',').join('}}, {{') + '}}'
+    }) + notes;
+}
+
+function getSelectedRcTwilioTpl() {
+    var sel = g('rcTwilioTpl');
+    var id = sel ? String(sel.value || '') : '';
+    if (typeof AIHELPER === 'undefined' ||
+        typeof AIHELPER.getTwilioContentTemplate !== 'function') {
+        return null;
+    }
+    return AIHELPER.getTwilioContentTemplate(id);
+}
+
+function openAiHelperTwilioTemplates() {
+    if (typeof showOnly === 'function') {
+        try { showOnly('aiHelperSection'); } catch (e) { /* ignore */ }
+    }
+    if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.switchTab === 'function') {
+        AIHELPER.switchTab('twilio');
+    }
+}
+
+function recallPhoneE164(phone) {
+    var digits = formatPhoneForWA(phone);
+    if (!digits || digits.length < 8) return '';
+    return digits.charAt(0) === '+' ? digits : ('+' + digits);
+}
+
+function recallPatientFirstName(a) {
+    var full = String((a && (a.patient_name || a.patient_chinese_name)) || '').trim();
+    if (!full) return 'Patient';
+    return full.split(/\s+/)[0] || full;
 }
 
 // ── Templates (localStorage) ─────────────────────────────────────
@@ -8855,7 +9080,24 @@ function buildRecallWhatsAppOpenUrl(apptRow, personalised) {
 
 function startRecallSend() {
     var msg = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
-    if (!msg) { alert(tr('appt.recall.alertEnterRecallMsg')); return; }
+    var twilioWa = rcContact === 'twilio_wa';
+    var twilioSms = rcContact === 'twilio_sms';
+
+    if (twilioWa) {
+        var tpl = getSelectedRcTwilioTpl();
+        if (!tpl || !tpl.contentSid) {
+            alert(tr('appt.recall.alertNeedTwilioTpl'));
+            return;
+        }
+        if (typeof AIHELPER === 'undefined' ||
+            typeof AIHELPER.sendTwilioOutreach !== 'function') {
+            alert(tr('appt.recall.alertTwilioApiDown'));
+            return;
+        }
+    } else if (!msg) {
+        alert(tr('appt.recall.alertEnterRecallMsg'));
+        return;
+    }
 
     var selected = rcPatients.filter(function(a) { return rcSelIds[a.id]; });
     if (!selected.length) { alert(tr('appt.recall.alertSelectPatients')); return; }
@@ -8898,9 +9140,20 @@ function showRcSendModal() {
     var personalised = buildRecallPersonalised(a);
 
     var isWA = rcContact === 'whatsapp';
-    var actionLabel = isWA ? tr('appt.recall.openWaWeb') : tr('appt.recall.openSms');
-    var actionColor = isWA ? '#25d366' : '#0084ff';
+    var isTwilioWa = rcContact === 'twilio_wa';
+    var isTwilioSms = rcContact === 'twilio_sms';
+    var isTwilio = isTwilioWa || isTwilioSms;
+    var actionLabel = isTwilio
+        ? tr('appt.recall.sendTwilio')
+        : (isWA ? tr('appt.recall.openWaWeb') : tr('appt.recall.openSms'));
+    var actionColor = isTwilioWa ? '#0f766e'
+        : (isTwilioSms ? '#0369a1' : (isWA ? '#25d366' : '#0084ff'));
+    var channelLabel = isTwilioWa ? tr('appt.recallTwilioWa')
+        : (isTwilioSms ? tr('appt.recallTwilioSms')
+            : (isWA ? tr('appt.recallWa') : tr('appt.recallSms')));
 
+    var tpl = isTwilioWa ? getSelectedRcTwilioTpl() : null;
+    var fromRow = isTwilio ? getSelectedRcTwilioFrom() : null;
     var progress = trRepl('appt.recall.sendProgress', {
         CUR: rcSendIdx + 1,
         TOTAL: rcSendQueue.length
@@ -8912,6 +9165,29 @@ function showRcSendModal() {
         : '';
     var isLast = rcSendIdx + 1 >= rcSendQueue.length;
 
+    var previewBlock;
+    if (isTwilioWa && tpl) {
+        previewBlock =
+            '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;' +
+            'padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.55;color:#065f46;">' +
+            '<div style="font-weight:800;margin-bottom:4px;">' +
+            esc(tr('appt.recall.twilioTplPreview')) + '</div>' +
+            esc(tpl.label || '') + '<br>' +
+            '<span style="font-family:ui-monospace,Consolas,monospace;font-size:11px;">' +
+            esc(tpl.contentSid || '') + '</span>' +
+            '<div style="margin-top:6px;">{{1}} = <strong>' +
+            esc(recallPatientFirstName(a)) + '</strong></div>' +
+            (tpl.notes ? '<div style="margin-top:4px;opacity:.9;">' + esc(tpl.notes) + '</div>' : '') +
+            '</div>';
+    } else {
+        previewBlock =
+            '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;' +
+            'padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.6;' +
+            'white-space:pre-wrap;max-height:110px;overflow-y:auto;color:#1e293b;">' +
+            esc(personalised) +
+            '</div>';
+    }
+
     content.innerHTML =
         // Progress bar
         '<div style="display:flex;justify-content:space-between;align-items:center;' +
@@ -8920,13 +9196,25 @@ function showRcSendModal() {
                 'padding:3px 10px;border-radius:10px;font-weight:700;">' +
                 esc(progress) + '</span>' +
             '<span style="font-size:12px;font-weight:700;color:#64748b;">' +
-                (isWA ? tr('appt.recallWa') : tr('appt.recallSms')) +
+                esc(channelLabel) +
             '</span>' +
         '</div>' +
         (isWA
             ? '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;' +
                 'padding:8px 10px;margin-bottom:10px;font-size:11px;line-height:1.45;color:#065f46;">' +
                 t('appt.recall.waWebHintHtml') +
+            '</div>'
+            : '') +
+        (isTwilio
+            ? '<div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;' +
+                'padding:8px 10px;margin-bottom:10px;font-size:11px;line-height:1.45;color:#115e59;">' +
+                esc(tr('appt.recall.twilioHint')) +
+                '<div style="margin-top:4px;font-weight:700;">' +
+                esc(tr('appt.recallTwilioFrom')) + ': ' +
+                esc(fromRow && fromRow.phone
+                    ? ((fromRow.label ? fromRow.label + ' · ' : '') + fromRow.phone)
+                    : tr('appt.recallTwilioFromDefault')) +
+                '</div>' +
             '</div>'
             : '') +
         // Patient card
@@ -8939,12 +9227,9 @@ function showRcSendModal() {
             '<br><span style="font-size:13px;font-weight:700;color:#0084ff;' +
                 'margin-top:6px;display:block;">📞 ' + esc(a.phone) + '</span>' +
         '</div>' +
-        // Message preview
-        '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;' +
-            'padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.6;' +
-            'white-space:pre-wrap;max-height:110px;overflow-y:auto;color:#1e293b;">' +
-            esc(personalised) +
-        '</div>' +
+        previewBlock +
+        '<div id="rcTwilioSendStatus" style="min-height:18px;margin-bottom:8px;' +
+            'font-size:12px;font-weight:600;color:#047857;"></div>' +
         (isWA
             ? '<button type="button" onclick="rcCopyRecallWaLink()" ' +
                 'style="width:100%;margin-bottom:8px;font-size:11px;padding:8px 10px;' +
@@ -8954,7 +9239,7 @@ function showRcSendModal() {
             : '') +
         // Action + Skip
         '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
-            '<button type="button" onclick="rcOpenRecallSend()" ' +
+            '<button type="button" id="rcTwilioSendActionBtn" onclick="rcOpenRecallSend()" ' +
                 'style="flex:1;padding:11px 8px;background:' + actionColor + ';color:#fff;' +
                 'border:none;border-radius:8px;text-align:center;font-weight:700;' +
                 'font-size:13px;cursor:pointer;">' +
@@ -8989,9 +9274,14 @@ function rcSendDone() {
     rcSendQueue = []; rcSendIdx = 0;
 }
 
-/** WhatsApp Web / SMS — opened via script so Chrome allows popup from user tap; WA uses web app on desktop. */
+/** WhatsApp Web / SMS / Twilio clinic number. */
 function rcOpenRecallSend() {
     if (!rcSendQueue || rcSendIdx >= rcSendQueue.length) return;
+    if (rcContact === 'twilio_wa' || rcContact === 'twilio_sms') {
+        rcSendViaTwilio();
+        return;
+    }
+
     var a = rcSendQueue[rcSendIdx];
     var personalised = buildRecallPersonalised(a);
 
@@ -9039,6 +9329,92 @@ function rcOpenRecallSend() {
     } else {
         fallbackPrompt(url);
     }
+}
+
+function rcSendViaTwilio() {
+    if (rcTwilioBusy) return;
+    if (!rcSendQueue || rcSendIdx >= rcSendQueue.length) return;
+    if (typeof AIHELPER === 'undefined' ||
+        typeof AIHELPER.sendTwilioOutreach !== 'function') {
+        alert(tr('appt.recall.alertTwilioApiDown'));
+        return;
+    }
+
+    var a = rcSendQueue[rcSendIdx];
+    var to = recallPhoneE164(a.phone);
+    if (!to) {
+        alert(tr('appt.recall.noValidMobile'));
+        return;
+    }
+
+    var channel = rcContact === 'twilio_sms' ? 'sms' : 'whatsapp';
+    var name = recallPatientFirstName(a);
+    var body = buildRecallPersonalised(a);
+    var opts = {
+        channel: channel,
+        to: to,
+        name: name,
+        body: body
+    };
+
+    var fromRow = getSelectedRcTwilioFrom();
+    if (fromRow && fromRow.phone) {
+        opts.from = fromRow.phone;
+    }
+
+    if (channel === 'whatsapp') {
+        var tpl = getSelectedRcTwilioTpl();
+        if (!tpl || !tpl.contentSid) {
+            alert(tr('appt.recall.alertNeedTwilioTpl'));
+            return;
+        }
+        opts.contentSid = tpl.contentSid;
+        opts.contentVariables = { '1': name };
+        // Extra vars: fill empty for now ({{1}} is the main recall use-case)
+        var keys = String(tpl.vars || '1').split(',').filter(Boolean);
+        keys.forEach(function(k) {
+            if (k === '1') return;
+            // Prefer personalised message for {{2}} if present
+            opts.contentVariables[k] = body ? String(body).slice(0, 120) : '';
+        });
+    }
+
+    var statusEl = g('rcTwilioSendStatus');
+    var btn = g('rcTwilioSendActionBtn');
+    if (statusEl) {
+        statusEl.style.color = '#047857';
+        var sendHint = tr('appt.recall.twilioSending');
+        if (opts.from) sendHint += ' · from ' + opts.from;
+        if (opts.contentSid) sendHint += ' · ' + opts.contentSid;
+        statusEl.textContent = sendHint;
+    }
+    if (btn) btn.disabled = true;
+    rcTwilioBusy = true;
+
+    AIHELPER.sendTwilioOutreach(opts).then(function(res) {
+        rcTwilioBusy = false;
+        if (btn) btn.disabled = false;
+        if (res && res.ok) {
+            var sid = res.result && res.result.sid ? String(res.result.sid) : '';
+            var used = res.result && res.result.contentSid
+                ? String(res.result.contentSid)
+                : (opts.contentSid || '');
+            if (statusEl) {
+                statusEl.style.color = '#047857';
+                statusEl.textContent =
+                    tr('appt.recall.twilioSent') +
+                    (sid ? (' · ' + sid) : '') +
+                    (used ? (' · ' + used) : '');
+            }
+            return;
+        }
+        var err = (res && res.error) ? String(res.error) : tr('ai.twilio.fail');
+        if (statusEl) {
+            statusEl.style.color = '#b91c1c';
+            statusEl.textContent = err;
+        }
+        alert(tr('appt.recall.twilioFail') + '\n\n' + err);
+    });
 }
 
 /** Always copies desktop WhatsApp Web compose URL (works after login). */

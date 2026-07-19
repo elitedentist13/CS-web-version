@@ -2073,6 +2073,100 @@ kbd {
     color: #334155;
 }
 
+.ai-twilio-panel {
+    max-width: 960px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 18px 18px 16px;
+}
+.ai-twilio-from-box {
+    margin: 14px 0 4px;
+    padding: 12px 14px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+}
+.ai-twilio-from-manage {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #475569;
+}
+.ai-twilio-from-manage > summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: #334155;
+    user-select: none;
+}
+.ai-twilio-from-manage-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    margin-top: 10px;
+}
+@media (max-width: 640px) {
+    .ai-twilio-from-manage-grid { grid-template-columns: 1fr; }
+}
+.ai-twilio-from-caps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    margin-top: 10px;
+}
+.ai-twilio-inline-bar {
+    align-items: center;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed #e2e8f0;
+}
+.ai-twilio-inline-lab {
+    margin: 0;
+    width: 100%;
+    color: #64748b;
+    font-weight: 700;
+}
+.ai-twilio-inline-btn {
+    font-size: 12px;
+    padding: 7px 12px;
+}
+.ai-twilio-console-link {
+    color: #0f766e;
+    font-weight: 700;
+    text-decoration: underline;
+}
+.ai-twilio-console-link:hover { color: #115e59; }
+.ai-twilio-tpl-extra { margin-top: 4px; }
+.ai-twilio-channel-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    margin: 14px 0 16px;
+}
+.ai-twilio-channel-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.ai-twilio-ch-btn {
+    opacity: 0.55;
+    outline: 2px solid transparent;
+}
+.ai-twilio-ch-btn.is-active {
+    opacity: 1;
+    outline-color: #0f172a;
+    outline-offset: 2px;
+}
+.ai-twilio-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 18px;
+    align-items: start;
+}
+@media (max-width: 860px) {
+    .ai-twilio-grid { grid-template-columns: 1fr; }
+}
+
 .ai-panel-settings .ai-field-group { margin-bottom: 14px; max-width: 640px; }
 
 .ai-settings-lead { max-width: 720px; color: #475569; font-size: 14px; line-height: 1.5; margin-top: 0; }

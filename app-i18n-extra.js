@@ -1148,6 +1148,108 @@
         'appt.recallSendVia': { en: 'Send via:', 'zh-CN': '发送方式：', 'zh-Hant': '發送方式：' },
         'appt.recallWa': { en: '💬 WhatsApp', 'zh-CN': '💬 WhatsApp', 'zh-Hant': '💬 WhatsApp' },
         'appt.recallSms': { en: '📱 SMS', 'zh-CN': '📱 短信', 'zh-Hant': '📱 短訊' },
+        'appt.recallTwilioWa': {
+            en: 'Twilio WhatsApp',
+            'zh-CN': 'Twilio WhatsApp',
+            'zh-Hant': 'Twilio WhatsApp'
+        },
+        'appt.recallTwilioSms': {
+            en: 'Twilio SMS',
+            'zh-CN': 'Twilio 短信',
+            'zh-Hant': 'Twilio 短訊'
+        },
+        'appt.recallTwilioFrom': {
+            en: 'Send from (Twilio number)',
+            'zh-CN': '发送号码（Twilio）',
+            'zh-Hant': '傳送號碼（Twilio）'
+        },
+        'appt.recallTwilioFromDefault': {
+            en: 'Default (Edge secret)',
+            'zh-CN': '默认（Edge 密钥）',
+            'zh-Hant': '預設（Edge 密鑰）'
+        },
+        'appt.recallTwilioFromHintDefault': {
+            en: 'Default uses Edge secrets (TWILIO_WHATSAPP_FROM / TWILIO_SMS_FROM). Pick a saved number to override.',
+            'zh-CN': '默认使用 Edge 密钥（TWILIO_WHATSAPP_FROM / TWILIO_SMS_FROM）。选择已保存号码可覆盖。',
+            'zh-Hant': '預設使用 Edge 密鑰（TWILIO_WHATSAPP_FROM / TWILIO_SMS_FROM）。選擇已儲存號碼可覆寫。'
+        },
+        'appt.recallTwilioFromHintWa': {
+            en: 'WhatsApp will send from {FROM}.',
+            'zh-CN': 'WhatsApp 将从 {FROM} 发送。',
+            'zh-Hant': 'WhatsApp 將從 {FROM} 傳送。'
+        },
+        'appt.recallTwilioFromHintSms': {
+            en: 'SMS will send from {FROM}. Use an SMS-capable number.',
+            'zh-CN': '短信将从 {FROM} 发送。请使用可发短信的号码。',
+            'zh-Hant': '短訊將從 {FROM} 傳送。請使用可發短訊的號碼。'
+        },
+        'appt.recallTwilioManageFrom': {
+            en: 'Manage numbers in AI Helper',
+            'zh-CN': '在 AI 助手中管理号码',
+            'zh-Hant': '在 AI 助手中管理號碼'
+        },
+        'appt.recallTwilioTpl': {
+            en: 'Twilio Content Template',
+            'zh-CN': 'Twilio 内容模板',
+            'zh-Hant': 'Twilio 內容範本'
+        },
+        'appt.recallTwilioTplEmpty': {
+            en: 'No templates yet — add them in AI Helper → Twilio Send',
+            'zh-CN': '尚无模板 — 请到 AI 助手 → Twilio 发送 中添加',
+            'zh-Hant': '尚無範本 — 請到 AI 助手 → Twilio 傳送 中新增'
+        },
+        'appt.recallTwilioTplHint': {
+            en: 'SID {SID} · vars {VARS}',
+            'zh-CN': 'SID {SID} · 变量 {VARS}',
+            'zh-Hant': 'SID {SID} · 變數 {VARS}'
+        },
+        'appt.recallTwilioManageTpl': {
+            en: 'Manage templates in AI Helper',
+            'zh-CN': '在 AI 助手中管理模板',
+            'zh-Hant': '在 AI 助手中管理範本'
+        },
+        'appt.recallTwilioSmsHint': {
+            en: 'Twilio SMS sends the message box text from the selected Twilio number (prefer an SMS-capable number; WhatsApp senders often cannot send SMS).',
+            'zh-CN': 'Twilio 短信用所选 Twilio 号码发送下方正文（请优先选用可发短信的号码；WhatsApp 发送号通常不能发短信）。',
+            'zh-Hant': 'Twilio 短訊用所選 Twilio 號碼發送下方正文（請優先選用可發短訊的號碼；WhatsApp 發送號通常不能發短訊）。'
+        },
+        'appt.recallTwilioWaBodyNote': {
+            en: 'WhatsApp via Twilio uses the selected Content Template ({{1}} = patient first name). Message box is optional fallback only.',
+            'zh-CN': 'Twilio WhatsApp 使用所选内容模板（{{1}} = 患者名）。下方正文仅作可选备用。',
+            'zh-Hant': 'Twilio WhatsApp 使用所選內容範本（{{1}} = 病人名）。下方正文僅作可選備用。'
+        },
+        'appt.recall.alertNeedTwilioTpl': {
+            en: 'Select a Twilio Content Template first (or add one in AI Helper → Twilio Send).',
+            'zh-CN': '请先选择 Twilio 内容模板（或到 AI 助手 → Twilio 发送 中添加）。',
+            'zh-Hant': '請先選擇 Twilio 內容範本（或到 AI 助手 → Twilio 傳送 中新增）。'
+        },
+        'appt.recall.alertTwilioApiDown': {
+            en: 'Twilio send is unavailable. Ensure AI Helper scripts loaded and Edge twilio-whatsapp is deployed.',
+            'zh-CN': '无法使用 Twilio 发送。请确认 AI 助手脚本已加载且已部署 Edge twilio-whatsapp。',
+            'zh-Hant': '無法使用 Twilio 傳送。請確認 AI 助手腳本已載入且已部署 Edge twilio-whatsapp。'
+        },
+        'appt.recall.sendTwilio': {
+            en: 'Send via Twilio',
+            'zh-CN': '通过 Twilio 发送',
+            'zh-Hant': '透過 Twilio 傳送'
+        },
+        'appt.recall.twilioHint': {
+            en: 'Sends from your clinic Twilio number via Supabase Edge. WhatsApp uses the selected Content Template.',
+            'zh-CN': '通过 Supabase Edge 用诊所 Twilio 号码发送。WhatsApp 使用所选内容模板。',
+            'zh-Hant': '透過 Supabase Edge 用診所 Twilio 號碼傳送。WhatsApp 使用所選內容範本。'
+        },
+        'appt.recall.twilioTplPreview': {
+            en: 'Content template to send',
+            'zh-CN': '将发送的内容模板',
+            'zh-Hant': '將傳送的內容範本'
+        },
+        'appt.recall.twilioSending': { en: 'Sending…', 'zh-CN': '发送中…', 'zh-Hant': '傳送中…' },
+        'appt.recall.twilioSent': { en: 'Sent', 'zh-CN': '已发送', 'zh-Hant': '已傳送' },
+        'appt.recall.twilioFail': {
+            en: 'Twilio send failed.',
+            'zh-CN': 'Twilio 发送失败。',
+            'zh-Hant': 'Twilio 傳送失敗。'
+        },
         'appt.recallPlaceholderHint': {
             en: 'Use {name} {chinese} {date} as placeholders',
             'zh-CN': '使用 {name} {chinese} {date} 作为占位符',
@@ -1507,6 +1609,7 @@
             'zh-Hant': '<strong>負責任使用：</strong>僅為建議文案，非醫療建議。請勿在發送至外部 AI 的提示中包含敏感健康資訊。'
         },
         'ai.tabRecall': { en: '🔔 Recall', 'zh-CN': '🔔 复诊提醒', 'zh-Hant': '🔔 覆診提醒' },
+        'ai.tabTwilio': { en: '📱 Twilio Send', 'zh-CN': '📱 Twilio 发送', 'zh-Hant': '📱 Twilio 傳送' },
         'ai.tabIntel': { en: '⚙ Intelligence', 'zh-CN': '⚙ 智能设置', 'zh-Hant': '⚙ 智能設定' },
         'ai.reloadPatients': { en: 'Reload patients', 'zh-CN': '重新加载患者', 'zh-Hant': '重新載入病人' },
         'ai.sub.filterRoster': { en: '1) Filter roster', 'zh-CN': '1) 筛选名册', 'zh-Hant': '1) 篩選名冊' },
@@ -1559,11 +1662,250 @@
         'ai.btn.sms': { en: 'SMS', 'zh-CN': '短信', 'zh-Hant': '短訊' },
         'ai.btn.email': { en: 'Email', 'zh-CN': '邮件', 'zh-Hant': '電郵' },
         'ai.btn.copy': { en: '📋 Copy', 'zh-CN': '📋 复制', 'zh-Hant': '📋 複製' },
+        'ai.twilio.openPanel': {
+            en: 'Open Twilio Send panel (SMS / WhatsApp via clinic number)',
+            'zh-CN': '打开 Twilio 发送面板（用诊所号码发短信 / WhatsApp）',
+            'zh-Hant': '開啟 Twilio 傳送面板（用診所號碼發短訊 / WhatsApp）'
+        },
+        'ai.twilio.viaClinic': {
+            en: 'Via clinic Twilio number',
+            'zh-CN': '用诊所 Twilio 号码发送',
+            'zh-Hant': '用診所 Twilio 號碼傳送'
+        },
+        'ai.twilio.btn.waClinic': {
+            en: 'Twilio WhatsApp',
+            'zh-CN': 'Twilio WhatsApp',
+            'zh-Hant': 'Twilio WhatsApp'
+        },
+        'ai.twilio.btn.smsClinic': {
+            en: 'Twilio SMS',
+            'zh-CN': 'Twilio 短信',
+            'zh-Hant': 'Twilio 短訊'
+        },
+        'ai.twilio.title': { en: 'Twilio Send', 'zh-CN': 'Twilio 发送', 'zh-Hant': 'Twilio 傳送' },
+        'ai.twilio.hint': {
+            en: 'Choose your clinic Twilio number, then send SMS or WhatsApp via Supabase Edge. WhatsApp uses the approved Content Template; SMS sends the message body as a regular text.',
+            'zh-CN': '选择诊所 Twilio 号码，再通过 Supabase Edge 发送短信或 WhatsApp。WhatsApp 使用已批准的内容模板；短信按正文普通发送。',
+            'zh-Hant': '選擇診所 Twilio 號碼，再透過 Supabase Edge 發送短訊或 WhatsApp。WhatsApp 使用已批准的內容範本；短訊按正文普通發送。'
+        },
+        'ai.twilio.from': {
+            en: 'Send from (Twilio number)',
+            'zh-CN': '发送号码（Twilio）',
+            'zh-Hant': '傳送號碼（Twilio）'
+        },
+        'ai.twilio.fromDefault': {
+            en: 'Default (Edge secret TWILIO_WHATSAPP_FROM)',
+            'zh-CN': '默认（Edge 密钥 TWILIO_WHATSAPP_FROM）',
+            'zh-Hant': '預設（Edge 密鑰 TWILIO_WHATSAPP_FROM）'
+        },
+        'ai.twilio.fromHintDefault': {
+            en: 'Default uses the Edge secret TWILIO_WHATSAPP_FROM / Messaging Service. Pick a saved number to override.',
+            'zh-CN': '默认使用 Edge 密钥 TWILIO_WHATSAPP_FROM / Messaging Service。选择已保存号码可覆盖。',
+            'zh-Hant': '預設使用 Edge 密鑰 TWILIO_WHATSAPP_FROM / Messaging Service。選擇已儲存號碼可覆寫。'
+        },
+        'ai.twilio.fromHintWa': {
+            en: 'WhatsApp will send from {from}. Number must be a Twilio WhatsApp sender on this account.',
+            'zh-CN': 'WhatsApp 将从 {from} 发送。号码须为本账号的 Twilio WhatsApp 发送方。',
+            'zh-Hant': 'WhatsApp 將從 {from} 傳送。號碼須為本帳號的 Twilio WhatsApp 發送方。'
+        },
+        'ai.twilio.fromHintSms': {
+            en: 'SMS will send from {from}. Number must support Programmable Messaging SMS.',
+            'zh-CN': '短信将从 {from} 发送。号码须支持 Programmable Messaging 短信。',
+            'zh-Hant': '短訊將從 {from} 傳送。號碼須支援 Programmable Messaging 短訊。'
+        },
+        'ai.twilio.fromManage': {
+            en: 'Manage Twilio numbers',
+            'zh-CN': '管理 Twilio 号码',
+            'zh-Hant': '管理 Twilio 號碼'
+        },
+        'ai.twilio.fromLabel': { en: 'Label', 'zh-CN': '标签', 'zh-Hant': '標籤' },
+        'ai.twilio.fromLabelPh': { en: 'Clinic main', 'zh-CN': '诊所主号', 'zh-Hant': '診所主號' },
+        'ai.twilio.fromPhone': { en: 'Phone (E.164)', 'zh-CN': '电话（E.164）', 'zh-Hant': '電話（E.164）' },
+        'ai.twilio.fromPhonePh': { en: '+85291234567', 'zh-CN': '+85291234567', 'zh-Hant': '+85291234567' },
+        'ai.twilio.btn.addFrom': { en: 'Add number', 'zh-CN': '添加号码', 'zh-Hant': '新增號碼' },
+        'ai.twilio.btn.removeFrom': { en: 'Remove selected', 'zh-CN': '删除所选', 'zh-Hant': '刪除所選' },
+        'ai.twilio.needFromPhone': {
+            en: 'Enter a valid Twilio From number in E.164 (e.g. +85291234567).',
+            'zh-CN': '请输入有效的 Twilio 发送号码（E.164，如 +85291234567）。',
+            'zh-Hant': '請輸入有效的 Twilio 傳送號碼（E.164，如 +85291234567）。'
+        },
+        'ai.twilio.needFromCap': {
+            en: 'Enable at least one channel (WhatsApp or SMS) for this number.',
+            'zh-CN': '请至少勾选一个渠道（WhatsApp 或短信）。',
+            'zh-Hant': '請至少勾選一個渠道（WhatsApp 或短訊）。'
+        },
+        'ai.twilio.cannotRemoveDefault': {
+            en: 'Select a saved Twilio number to remove (not Default).',
+            'zh-CN': '请选择要删除的已保存号码（不能删默认项）。',
+            'zh-Hant': '請選擇要刪除的已儲存號碼（不能刪預設項）。'
+        },
+        'ai.twilio.fromAdded': { en: 'Twilio number saved.', 'zh-CN': '已保存 Twilio 号码。', 'zh-Hant': '已儲存 Twilio 號碼。' },
+        'ai.twilio.fromRemoved': { en: 'Twilio number removed.', 'zh-CN': '已删除 Twilio 号码。', 'zh-Hant': '已刪除 Twilio 號碼。' },
+        'ai.twilio.fromNoWa': {
+            en: 'This From number is not enabled for WhatsApp. Pick another or enable WhatsApp on it.',
+            'zh-CN': '此发送号码未启用 WhatsApp。请另选或勾选 WhatsApp。',
+            'zh-Hant': '此傳送號碼未啟用 WhatsApp。請另選或勾選 WhatsApp。'
+        },
+        'ai.twilio.fromNoSms': {
+            en: 'This From number is not enabled for SMS. Pick another or enable SMS on it.',
+            'zh-CN': '此发送号码未启用短信。请另选或勾选短信。',
+            'zh-Hant': '此傳送號碼未啟用短訊。請另選或勾選短訊。'
+        },
+        'ai.twilio.prefilled': {
+            en: 'Draft & recipient loaded — choose From number, then Send via Twilio.',
+            'zh-CN': '已载入草稿与收件人 — 选择发送号码后点「通过 Twilio 发送」。',
+            'zh-Hant': '已載入草稿與收件人 — 選擇傳送號碼後按「透過 Twilio 傳送」。'
+        },
+        'ai.twilio.channel': { en: 'Channel', 'zh-CN': '渠道', 'zh-Hant': '渠道' },
+        'ai.twilio.ch.wa': { en: 'WhatsApp', 'zh-CN': 'WhatsApp', 'zh-Hant': 'WhatsApp' },
+        'ai.twilio.ch.sms': { en: 'SMS', 'zh-CN': '短信', 'zh-Hant': '短訊' },
+        'ai.twilio.draftSource': { en: 'Load draft from', 'zh-CN': '载入草稿来源', 'zh-Hant': '載入草稿來源' },
+        'ai.twilio.draft.custom': { en: 'Custom / typed', 'zh-CN': '自定义 / 手输', 'zh-Hant': '自訂 / 手輸' },
+        'ai.twilio.draft.recall': { en: 'Recall preview', 'zh-CN': '复诊预览', 'zh-Hant': '覆診預覽' },
+        'ai.twilio.draft.birth': { en: 'Birthday preview', 'zh-CN': '生日预览', 'zh-Hant': '生日預覽' },
+        'ai.twilio.btn.reloadDraft': { en: 'Reload draft', 'zh-CN': '重新载入草稿', 'zh-Hant': '重新載入草稿' },
+        'ai.twilio.btn.refreshRecipients': { en: 'Refresh recipients', 'zh-CN': '刷新收件人', 'zh-Hant': '重新整理收件人' },
+        'ai.twilio.recipient': { en: 'Recipient (from ticked lists)', 'zh-CN': '收件人（来自勾选列表）', 'zh-Hant': '收件人（來自勾選清單）' },
+        'ai.twilio.recipientNone': { en: '— Manual phone —', 'zh-CN': '— 手动输入号码 —', 'zh-Hant': '— 手動輸入號碼 —' },
+        'ai.twilio.to': { en: 'To phone', 'zh-CN': '收件手机号', 'zh-Hant': '收件手機號碼' },
+        'ai.twilio.toPh': { en: '+85291234567', 'zh-CN': '+85291234567', 'zh-Hant': '+85291234567' },
+        'ai.twilio.tpl': {
+            en: 'Content template',
+            'zh-CN': '内容模板',
+            'zh-Hant': '內容範本'
+        },
+        'ai.twilio.tplHint': {
+            en: 'SID {sid} · vars {vars}',
+            'zh-CN': 'SID {sid} · 变量 {vars}',
+            'zh-Hant': 'SID {sid} · 變數 {vars}'
+        },
+        'ai.twilio.tplHintEmpty': {
+            en: 'No content templates saved yet. Add one below or open Twilio Console.',
+            'zh-CN': '尚未保存内容模板。请在下方添加，或打开 Twilio 控制台。',
+            'zh-Hant': '尚未儲存內容範本。請在下方新增，或開啟 Twilio 控制台。'
+        },
+        'ai.twilio.tplConsoleLink': {
+            en: 'Open Twilio Content Template Builder →',
+            'zh-CN': '打开 Twilio 内容模板生成器 →',
+            'zh-Hant': '開啟 Twilio 內容範本產生器 →'
+        },
+        'ai.twilio.tplConsoleHint': {
+            en: ' — copy Content SIDs (HX…) from approved templates into the list below.',
+            'zh-CN': ' — 从已批准模板复制 Content SID（HX…）到下方列表。',
+            'zh-Hant': ' — 從已批准範本複製 Content SID（HX…）到下方清單。'
+        },
+        'ai.twilio.tplManage': {
+            en: 'Manage content templates',
+            'zh-CN': '管理内容模板',
+            'zh-Hant': '管理內容範本'
+        },
+        'ai.twilio.tplLabel': { en: 'Label', 'zh-CN': '标签', 'zh-Hant': '標籤' },
+        'ai.twilio.tplLabelPh': { en: 'Clinic recall', 'zh-CN': '诊所复诊', 'zh-Hant': '診所覆診' },
+        'ai.twilio.tplSid': { en: 'Content SID', 'zh-CN': 'Content SID', 'zh-Hant': 'Content SID' },
+        'ai.twilio.tplSidPh': {
+            en: 'HXf63c7a58271df43f5c63d97c6a514413',
+            'zh-CN': 'HXf63c7a58271df43f5c63d97c6a514413',
+            'zh-Hant': 'HXf63c7a58271df43f5c63d97c6a514413'
+        },
+        'ai.twilio.tplVars': { en: 'Variable keys', 'zh-CN': '变量键', 'zh-Hant': '變數鍵' },
+        'ai.twilio.tplVarsPh': { en: '1', 'zh-CN': '1', 'zh-Hant': '1' },
+        'ai.twilio.tplVarsHint': {
+            en: 'Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.',
+            'zh-CN': '逗号分隔的 Meta 键，如 1 或 1,2。键 1 使用姓名字段。',
+            'zh-Hant': '逗號分隔的 Meta 鍵，如 1 或 1,2。鍵 1 使用姓名欄位。'
+        },
+        'ai.twilio.tplNotes': { en: 'Notes / preview', 'zh-CN': '备注 / 预览', 'zh-Hant': '備註 / 預覽' },
+        'ai.twilio.tplNotesPh': {
+            en: 'Approved recall greeting',
+            'zh-CN': '已批准复诊问候',
+            'zh-Hant': '已批准覆診問候'
+        },
+        'ai.twilio.btn.saveTpl': { en: 'Save changes', 'zh-CN': '保存修改', 'zh-Hant': '儲存修改' },
+        'ai.twilio.btn.addTpl': { en: 'Add as new', 'zh-CN': '添加为新模板', 'zh-Hant': '新增為新範本' },
+        'ai.twilio.btn.removeTpl': { en: 'Remove selected', 'zh-CN': '删除所选', 'zh-Hant': '刪除所選' },
+        'ai.twilio.tplVarN': {
+            en: 'Template variable {n}',
+            'zh-CN': '模板变量 {n}',
+            'zh-Hant': '範本變數 {n}'
+        },
+        'ai.twilio.needTplSid': {
+            en: 'Enter a valid Content SID (starts with HX, 34 characters).',
+            'zh-CN': '请输入有效的 Content SID（以 HX 开头，共 34 位）。',
+            'zh-Hant': '請輸入有效的 Content SID（以 HX 開頭，共 34 位）。'
+        },
+        'ai.twilio.needTplSelect': {
+            en: 'Select a content template first.',
+            'zh-CN': '请先选择内容模板。',
+            'zh-Hant': '請先選擇內容範本。'
+        },
+        'ai.twilio.needTplVar': {
+            en: 'Fill template variable {n} before sending.',
+            'zh-CN': '发送前请填写模板变量 {n}。',
+            'zh-Hant': '傳送前請填寫範本變數 {n}。'
+        },
+        'ai.twilio.tplDupSid': {
+            en: 'That Content SID is already in your list. Select it or edit it instead.',
+            'zh-CN': '该 Content SID 已在列表中。请选择或编辑它。',
+            'zh-Hant': '該 Content SID 已在清單中。請選擇或編輯它。'
+        },
+        'ai.twilio.tplKeepOne': {
+            en: 'Keep at least one content template in the list.',
+            'zh-CN': '列表中至少保留一个内容模板。',
+            'zh-Hant': '清單中至少保留一個內容範本。'
+        },
+        'ai.twilio.tplRemoveConfirm': {
+            en: 'Remove template “{label}” from this clinic list? (Does not delete it in Twilio.)',
+            'zh-CN': '从本诊所列表删除模板“{label}”？（不会在 Twilio 中删除。）',
+            'zh-Hant': '從本診所清單刪除範本「{label}」？（不會在 Twilio 中刪除。）'
+        },
+        'ai.twilio.tplSaved': { en: 'Content template saved.', 'zh-CN': '内容模板已保存。', 'zh-Hant': '內容範本已儲存。' },
+        'ai.twilio.tplAdded': { en: 'Content template added.', 'zh-CN': '内容模板已添加。', 'zh-Hant': '內容範本已新增。' },
+        'ai.twilio.tplRemoved': { en: 'Content template removed.', 'zh-CN': '内容模板已删除。', 'zh-Hant': '內容範本已刪除。' },
+        'ai.twilio.name': { en: 'Name (template {{1}})', 'zh-CN': '姓名（模板 {{1}}）', 'zh-Hant': '姓名（範本 {{1}}）' },
+        'ai.twilio.namePh': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '病人' },
+        'ai.twilio.contentSidLabel': {
+            en: 'Content SID: HXf63c7a58271df43f5c63d97c6a514413',
+            'zh-CN': '内容模板 SID: HXf63c7a58271df43f5c63d97c6a514413',
+            'zh-Hant': '內容範本 SID: HXf63c7a58271df43f5c63d97c6a514413'
+        },
+        'ai.twilio.body': { en: 'Message body', 'zh-CN': '短信正文', 'zh-Hant': '短訊正文' },
+        'ai.twilio.bodyPh': {
+            en: 'SMS text, or optional WhatsApp fallback…',
+            'zh-CN': '短信正文，或 WhatsApp 可选备用内容…',
+            'zh-Hant': '短訊正文，或 WhatsApp 可選備用內容…'
+        },
+        'ai.twilio.mode.wa': {
+            en: 'WhatsApp: selected Content Template is sent ({{1}} = Name; extra vars if configured). Body is optional fallback only.',
+            'zh-CN': 'WhatsApp：发送所选内容模板（{{1}} = 姓名；若配置了额外变量也会填入）。正文仅作可选备用。',
+            'zh-Hant': 'WhatsApp：發送所選內容範本（{{1}} = 姓名；若設定了額外變數也會填入）。正文僅作可選備用。'
+        },
+        'ai.twilio.mode.sms': {
+            en: 'SMS: sends the message body from your selected Twilio number (or Edge default).',
+            'zh-CN': '短信：用所选 Twilio 号码（或 Edge 默认）发送正文。',
+            'zh-Hant': '短訊：用所選 Twilio 號碼（或 Edge 預設）發送正文。'
+        },
+        'ai.twilio.btn.send': { en: 'Send via Twilio', 'zh-CN': '通过 Twilio 发送', 'zh-Hant': '透過 Twilio 傳送' },
+        'ai.twilio.needPhone': { en: 'Enter a destination phone number first.', 'zh-CN': '请先输入收件手机号。', 'zh-Hant': '請先輸入收件手機號碼。' },
+        'ai.twilio.needBody': { en: 'Enter an SMS message body first.', 'zh-CN': '请先输入短信正文。', 'zh-Hant': '請先輸入短訊正文。' },
+        'ai.twilio.needLogin': { en: 'Log in as a clinic user before sending.', 'zh-CN': '发送前请先以诊所用户登录。', 'zh-Hant': '傳送前請先以診所使用者登入。' },
+        'ai.twilio.sending': { en: 'Sending…', 'zh-CN': '发送中…', 'zh-Hant': '傳送中…' },
+        'ai.twilio.ok': { en: 'Sent', 'zh-CN': '已发送', 'zh-Hant': '已傳送' },
+        'ai.twilio.fail': { en: 'Twilio send failed.', 'zh-CN': 'Twilio 发送失败。', 'zh-Hant': 'Twilio 傳送失敗。' },
+        'ai.twilio.apiDown': {
+            en: 'Cannot reach Edge Function twilio-whatsapp. Deploy it and set Twilio secrets (TWILIO_WHATSAPP_TEST.md). Edge must accept channel=sms|whatsapp and optional from=.',
+            'zh-CN': '无法连接 Edge 函数 twilio-whatsapp。请部署并设置 Twilio 密钥（TWILIO_WHATSAPP_TEST.md）。Edge 需支持 channel=sms|whatsapp 及可选 from=。',
+            'zh-Hant': '無法連接 Edge 函式 twilio-whatsapp。請部署並設定 Twilio 密鑰（TWILIO_WHATSAPP_TEST.md）。Edge 需支援 channel=sms|whatsapp 及可選 from=。'
+        },
         'ai.twilioWaTest.title': { en: 'Twilio WhatsApp (live)', 'zh-CN': 'Twilio WhatsApp（线上）', 'zh-Hant': 'Twilio WhatsApp（線上）' },
         'ai.twilioWaTest.hint': {
-            en: 'Sends one real message via Supabase Edge Function twilio-whatsapp. Deploy the function and set Twilio secrets first (see TWILIO_WHATSAPP_TEST.md). Use your own phone for testing.',
-            'zh-CN': '通过 Supabase Edge 函数 twilio-whatsapp 发送一条真实消息。请先部署函数并设置 Twilio 密钥（见 TWILIO_WHATSAPP_TEST.md）。请用自己的手机测试。',
-            'zh-Hant': '透過 Supabase Edge 函式 twilio-whatsapp 發送一則真實訊息。請先部署函式並設定 Twilio 密鑰（見 TWILIO_WHATSAPP_TEST.md）。請用自己的手機測試。'
+            en: 'Sends via Edge twilio-whatsapp using Content Template HXf63c7a58271df43f5c63d97c6a514413 ({{1}} = name). Deploy the function and set Twilio secrets first (TWILIO_WHATSAPP_TEST.md). Use your own phone for testing.',
+            'zh-CN': '通过 Edge 函数 twilio-whatsapp 发送，使用内容模板 HXf63c7a58271df43f5c63d97c6a514413（{{1}} = 姓名）。请先部署函数并设置 Twilio 密钥（TWILIO_WHATSAPP_TEST.md）。请用自己的手机测试。',
+            'zh-Hant': '透過 Edge 函式 twilio-whatsapp 發送，使用內容範本 HXf63c7a58271df43f5c63d97c6a514413（{{1}} = 姓名）。請先部署函式並設定 Twilio 密鑰（TWILIO_WHATSAPP_TEST.md）。請用自己的手機測試。'
+        },
+        'ai.twilioWaTest.contentSidLabel': {
+            en: 'Content SID: HXf63c7a58271df43f5c63d97c6a514413',
+            'zh-CN': '内容模板 SID: HXf63c7a58271df43f5c63d97c6a514413',
+            'zh-Hant': '內容範本 SID: HXf63c7a58271df43f5c63d97c6a514413'
         },
         'ai.twilioWaTest.phone': { en: 'Test phone', 'zh-CN': '测试手机号', 'zh-Hant': '測試手機號碼' },
         'ai.twilioWaTest.phonePh': { en: '+85291234567', 'zh-CN': '+85291234567', 'zh-Hant': '+85291234567' },

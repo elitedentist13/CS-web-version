@@ -848,6 +848,30 @@
         'mb.seg.sent': { en: 'Messaged in window', 'zh-CN': '窗口内已发', 'zh-Hant': '視窗內已發' },
         'mb.seg.unsent': { en: 'Not messaged in window', 'zh-CN': '窗口内未发', 'zh-Hant': '視窗內未發' },
         'mb.seg.save': { en: 'Save as list', 'zh-CN': '存为分组', 'zh-Hant': '存為分組' },
+        'mb.seg.delete': { en: 'Delete list', 'zh-CN': '删除分组', 'zh-Hant': '刪除分組' },
+        'mb.seg.promptName': { en: 'List name', 'zh-CN': '分组名称', 'zh-Hant': '分組名稱' },
+        'mb.seg.needContacts': {
+            en: 'No contacts to save. Filter or tick contacts first.',
+            'zh-CN': '没有可保存的联系人。请先筛选或勾选联系人。',
+            'zh-Hant': '沒有可儲存的聯絡人。請先篩選或勾選聯絡人。'
+        },
+        'mb.seg.defaultSelected': { en: 'Selected contacts', 'zh-CN': '已选联系人', 'zh-Hant': '已選聯絡人' },
+        'mb.seg.defaultFiltered': { en: 'Filtered contacts', 'zh-CN': '筛选结果', 'zh-Hant': '篩選結果' },
+        'mb.seg.confirmOverwrite': {
+            en: 'List “{NAME}” already exists. Replace it with {N} contact(s)?',
+            'zh-CN': '分组「{NAME}」已存在。是否用 {N} 位联系人覆盖？',
+            'zh-Hant': '分組「{NAME}」已存在。是否用 {N} 位聯絡人覆寫？'
+        },
+        'mb.seg.confirmDelete': {
+            en: 'Delete list “{NAME}”?',
+            'zh-CN': '删除分组「{NAME}」？',
+            'zh-Hant': '刪除分組「{NAME}」？'
+        },
+        'mb.seg.savedOk': {
+            en: 'Saved list “{NAME}” ({N} contacts).',
+            'zh-CN': '已保存分组「{NAME}」（{N} 位联系人）。',
+            'zh-Hant': '已儲存分組「{NAME}」（{N} 位聯絡人）。'
+        },
         'mb.group.patient': { en: 'Patient filters', 'zh-CN': '患者筛选', 'zh-Hant': '病人篩選' },
         'mb.group.outreach': { en: 'Outreach tags', 'zh-CN': '发送标记', 'zh-Hant': '傳送標記' },
         'mb.group.sort': { en: 'Sort', 'zh-CN': '排序', 'zh-Hant': '排序' },
@@ -860,6 +884,12 @@
         'mb.field.sentStatus': { en: 'Messaged', 'zh-CN': '发送状态', 'zh-Hant': '傳送狀態' },
         'mb.field.sortBy': { en: 'Sort by', 'zh-CN': '排序字段', 'zh-Hant': '排序欄位' },
         'mb.field.order': { en: 'Order', 'zh-CN': '顺序', 'zh-Hant': '順序' },
+        'mb.filter.clearAll': { en: 'Clear All', 'zh-CN': '全部清除', 'zh-Hant': '全部清除' },
+        'mb.filter.cleared': {
+            en: 'Filters cleared · showing all contacts.',
+            'zh-CN': '已清除筛选 · 显示全部联系人。',
+            'zh-Hant': '已清除篩選 · 顯示全部聯絡人。'
+        },
         'mb.filter.clinicAll': { en: 'Clinic: All', 'zh-CN': '诊所：全部', 'zh-Hant': '診所：全部' },
         'mb.filter.sentPeriod1': { en: 'Tag window: 1 mo', 'zh-CN': '标记窗口：1 个月', 'zh-Hant': '標記視窗：1 個月' },
         'mb.filter.sentPeriod3': { en: 'Tag window: 3 mo', 'zh-CN': '标记窗口：3 个月', 'zh-Hant': '標記視窗：3 個月' },
@@ -921,7 +951,6 @@
             'zh-CN': '显示 {F} · 标记 {T}/{M}月 · 已选 {S} · 可发 {P} · 退订 {O}',
             'zh-Hant': '顯示 {F} · 標記 {T}/{M}月 · 已選 {S} · 可發 {P} · 退訂 {O}'
         },
-        'mb.seg.promptName': { en: 'Segment name', 'zh-CN': '分组名称', 'zh-Hant': '分組名稱' },
         'mb.searchPh': {
             en: 'Search name, no., phone, email…',
             'zh-CN': '搜索姓名、编号、电话、电邮…',
@@ -1707,9 +1736,9 @@
             'zh-Hant': 'Twilio 設定'
         },
         'appt.recallTwilioSmsHint': {
-            en: 'Twilio SMS sends the message box text from the selected Twilio number (prefer an SMS-capable number; WhatsApp senders often cannot send SMS).',
-            'zh-CN': 'Twilio 短信用所选 Twilio 号码发送下方正文（请优先选用可发短信的号码；WhatsApp 发送号通常不能发短信）。',
-            'zh-Hant': 'Twilio 短訊用所選 Twilio 號碼發送下方正文（請優先選用可發短訊的號碼；WhatsApp 發送號通常不能發短訊）。'
+            en: 'Twilio SMS needs an SMS-capable From number (not WhatsApp-only). Prefer a number with SMS checked in Twilio Setup, or leave Default and set Edge secret TWILIO_SMS_FROM. Error 21659 usually means the selected From is not SMS-capable on this Twilio account.',
+            'zh-CN': 'Twilio 短信需要可发短信的发件号码（不能只用 WhatsApp 号）。请在 Twilio 设置勾选短信，或选 Default 并设置 Edge 密钥 TWILIO_SMS_FROM。错误 21659 通常表示所选 From 在此 Twilio 账户上不能发短信。',
+            'zh-Hant': 'Twilio 短訊需要可發短訊的發件號碼（不能只用 WhatsApp 號）。請在 Twilio 設定勾選短訊，或選 Default 並設定 Edge 密鑰 TWILIO_SMS_FROM。錯誤 21659 通常表示所選 From 在此 Twilio 帳戶上不能發短訊。'
         },
         'appt.recallTwilioWaBodyNote': {
             en: 'Read-only: this is the approved Twilio Content Template body (from Twilio Setup / Content Template Builder). Live WhatsApp text is sent by Twilio — it cannot be free-edited here. Change the template in Twilio Setup.',
@@ -2360,6 +2389,16 @@
             en: 'This From number is not enabled for SMS. Pick another or enable SMS on it.',
             'zh-CN': '此发送号码未启用短信。请另选或勾选短信。',
             'zh-Hant': '此傳送號碼未啟用短訊。請另選或勾選短訊。'
+        },
+        'ai.twilio.err21659': {
+            en: 'Twilio Error 21659: “{FROM}” is not a valid SMS From number on this Twilio account (or country mismatch).\n\nCommon cause: WhatsApp senders cannot send SMS. In Twilio Console → Phone Numbers, confirm this number is owned by the same account as your Edge secrets and has SMS capability. Or uncheck SMS on this number in Twilio Setup and use a separate SMS-capable number / TWILIO_SMS_FROM secret.',
+            'zh-CN': 'Twilio 错误 21659：“{FROM}”不是此 Twilio 账户上有效的短信发件号码（或国家不匹配）。\n\n常见原因：WhatsApp 发送号通常不能发短信。请在 Twilio Console → Phone Numbers 确认该号码属于 Edge 密钥同一账户且具备 SMS 能力；或在 Twilio 设置中取消勾选短信，改用可发短信的号码 / TWILIO_SMS_FROM。',
+            'zh-Hant': 'Twilio 錯誤 21659：「{FROM}」不是此 Twilio 帳戶上有效的短訊發件號碼（或國家不符）。\n\n常見原因：WhatsApp 發送號通常不能發短訊。請在 Twilio Console → Phone Numbers 確認該號碼屬於 Edge 密鑰同一帳戶且具備 SMS 能力；或在 Twilio 設定中取消勾選短訊，改用可發短訊的號碼 / TWILIO_SMS_FROM。'
+        },
+        'ai.twilio.err21606': {
+            en: 'Twilio Error 21606: “{FROM}” is not an SMS-capable Twilio number for this account. Use an SMS-enabled number from Phone Numbers, or set TWILIO_SMS_FROM.',
+            'zh-CN': 'Twilio 错误 21606：“{FROM}”不是此账户的可发短信号码。请使用 Phone Numbers 中启用 SMS 的号码，或设置 TWILIO_SMS_FROM。',
+            'zh-Hant': 'Twilio 錯誤 21606：「{FROM}」不是此帳戶的可發短訊號碼。請使用 Phone Numbers 中啟用 SMS 的號碼，或設定 TWILIO_SMS_FROM。'
         },
         'ai.twilio.prefilled': {
             en: 'Draft & recipient loaded — choose From number, then Send via Twilio.',

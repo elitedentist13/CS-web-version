@@ -16083,6 +16083,11 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     gap: 10px;
     margin-bottom: 10px;
 }
+.mb-control-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin: -2px 0 10px;
+}
 .mb-control-card {
     background: #f8fafc;
     border: 1px solid #e2e8f0;

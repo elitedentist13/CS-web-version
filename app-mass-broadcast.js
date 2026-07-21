@@ -306,11 +306,16 @@ var MASSBC = (function () {
                 setMode(modeBtn.getAttribute('data-mb-mode'));
                 return;
             }
+            var segDel = t.closest('[data-mb-seg-del]');
+            if (segDel) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                deleteSavedSegment(segDel.getAttribute('data-mb-seg-del'));
+                return;
+            }
             var segBtn = t.closest('[data-mb-seg]');
             if (segBtn) {
-                _activeSegmentId = segBtn.getAttribute('data-mb-seg') || 'all';
-                renderSegments();
-                enrichDoctorFilter().then(function () { applyFilters(); });
+                activateSegment(segBtn.getAttribute('data-mb-seg') || 'all');
                 return;
             }
             var stepBtn = t.closest('[data-mb-step]');
@@ -435,27 +440,119 @@ var MASSBC = (function () {
             '<button type="button" class="mb-seg-btn' + (_activeSegmentId === 'unsent' ? ' active' : '') +
             '" data-mb-seg="unsent">' + esc(tr('mb.seg.unsent', 'Not messaged in window')) + '</button>';
         segs.forEach(function (s) {
+            var n = Array.isArray(s.patientIds) ? s.patientIds.length : 0;
+            var label = (s.name || 'List') + (n ? (' (' + n + ')') : '');
             html +=
+                '<div class="mb-seg-row" style="display:flex;align-items:center;gap:4px;">' +
                 '<button type="button" class="mb-seg-btn' + (_activeSegmentId === s.id ? ' active' : '') +
-                '" data-mb-seg="' + esc(s.id) + '">' + esc(s.name || 'Segment') + '</button>';
+                '" data-mb-seg="' + esc(s.id) + '" style="flex:1;">' + esc(label) + '</button>' +
+                '<button type="button" class="mb-seg-del" data-mb-seg-del="' + esc(s.id) + '" ' +
+                'title="' + esc(tr('mb.seg.delete', 'Delete list')) + '" ' +
+                'aria-label="' + esc(tr('mb.seg.delete', 'Delete list')) + '" ' +
+                'style="flex:none;padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;' +
+                'background:#fff;color:#94a3b8;cursor:pointer;font-size:12px;">✕</button>' +
+                '</div>';
         });
         host.innerHTML = html;
     }
 
-    function saveCurrentAsSegment() {
-        var name = window.prompt(tr('mb.seg.promptName', 'Segment name'));
-        if (name === null || !String(name).trim()) return;
+    /** IDs to store: checked rows if any, else current filtered result set. */
+    function collectIdsForSavedList() {
+        var selectedIds = Object.keys(_selected).filter(function (id) {
+            return !!_selected[id];
+        });
+        if (selectedIds.length) return selectedIds;
+        return (_filtered || []).map(function (p) {
+            return p && p.id != null ? String(p.id) : '';
+        }).filter(Boolean);
+    }
+
+    function findSavedSegment(id) {
         var segs = loadSegments();
-        var id = 'seg_' + Date.now();
-        segs.push({
-            id: id,
-            name: String(name).trim(),
-            conditions: snapshotConditions(),
-            clinicTag: clinicTagForFilter(),
-            doctorId: (pick('apptDoctorSelect') && pick('apptDoctorSelect').value) || ''
+        for (var i = 0; i < segs.length; i++) {
+            if (String(segs[i].id) === String(id)) return segs[i];
+        }
+        return null;
+    }
+
+    function saveCurrentAsSegment() {
+        var ids = collectIdsForSavedList();
+        if (!ids.length) {
+            alert(tr('mb.seg.needContacts',
+                'No contacts to save. Filter or select contacts first.'));
+            return;
+        }
+        var usedSelected = Object.keys(_selected).some(function (id) {
+            return !!_selected[id];
+        });
+        var defaultName = usedSelected
+            ? tr('mb.seg.defaultSelected', 'Selected contacts')
+            : tr('mb.seg.defaultFiltered', 'Filtered contacts');
+        var name = window.prompt(
+            tr('mb.seg.promptName', 'List name'),
+            defaultName + ' (' + ids.length + ')'
+        );
+        if (name === null || !String(name).trim()) return;
+        name = String(name).trim();
+
+        var segs = loadSegments();
+        // Overwrite if same name (case-insensitive)
+        var existing = null;
+        for (var i = 0; i < segs.length; i++) {
+            if (String(segs[i].name || '').trim().toLowerCase() === name.toLowerCase()) {
+                existing = segs[i];
+                break;
+            }
+        }
+        if (existing) {
+            if (!window.confirm(trRepl('mb.seg.confirmOverwrite', { NAME: existing.name, N: ids.length },
+                'List “{NAME}” already exists. Replace it with {N} contact(s)?'))) {
+                return;
+            }
+            existing.name = name;
+            existing.patientIds = ids.slice();
+            existing.conditions = snapshotConditions();
+            existing.updatedAt = new Date().toISOString();
+            // Drop legacy scope fields that incorrectly forced clinic/doctor bar
+            delete existing.clinicTag;
+            delete existing.doctorId;
+            saveSegments(segs);
+            _activeSegmentId = existing.id;
+        } else {
+            var id = 'seg_' + Date.now().toString(36);
+            segs.push({
+                id: id,
+                name: name,
+                patientIds: ids.slice(),
+                conditions: snapshotConditions(),
+                createdAt: new Date().toISOString()
+            });
+            saveSegments(segs);
+            _activeSegmentId = id;
+        }
+        renderSegments();
+        applyFilters();
+        var status = pick('mbStatus');
+        if (status) {
+            status.textContent = trRepl('mb.seg.savedOk', { NAME: name, N: ids.length },
+                'Saved list “{NAME}” ({N} contacts).');
+        }
+    }
+
+    function deleteSavedSegment(id) {
+        var sid = String(id || '');
+        if (!sid || sid.indexOf('seg_') !== 0) return;
+        var seg = findSavedSegment(sid);
+        var label = seg && seg.name ? seg.name : sid;
+        if (!window.confirm(trRepl('mb.seg.confirmDelete', { NAME: label },
+            'Delete list “{NAME}”?'))) {
+            return;
+        }
+        var segs = loadSegments().filter(function (s) {
+            return String(s.id) !== sid;
         });
         saveSegments(segs);
-        _activeSegmentId = id;
+        if (_activeSegmentId === sid) _activeSegmentId = 'all';
         renderSegments();
         applyFilters();
     }
@@ -471,6 +568,42 @@ var MASSBC = (function () {
             clinic: (pick('mbFilterClinic') && pick('mbFilterClinic').value) || '',
             extras: _conditions.slice()
         };
+    }
+
+    /** Push saved filter criteria back into the Contacts UI (for editing). */
+    function restoreConditionsToUi(cond) {
+        if (!cond || typeof cond !== 'object') return;
+        function setVal(id, v) {
+            var el = pick(id);
+            if (el) el.value = v != null ? String(v) : '';
+        }
+        setVal('mbSearch', cond.search || '');
+        setVal('mbFilterSex', cond.sex || '');
+        setVal('mbFilterDobMonth', cond.dobMonth || '');
+        setVal('mbFilterHasPhone', cond.hasPhone || '');
+        setVal('mbFilterOptOut', cond.optOut || '');
+        setVal('mbFilterSent', cond.sent || '');
+        setVal('mbFilterClinic', cond.clinic || '');
+        _conditions = Array.isArray(cond.extras) ? cond.extras.slice() : [];
+        renderConditionChips();
+    }
+
+    function activateSegment(segId) {
+        _activeSegmentId = segId || 'all';
+        if (_activeSegmentId.indexOf('seg_') === 0) {
+            var seg = findSavedSegment(_activeSegmentId);
+            // Static membership lists keep current UI filters clear so membership is obvious
+            if (seg && Array.isArray(seg.patientIds) && seg.patientIds.length) {
+                restoreConditionsToUi({
+                    search: '', sex: '', dobMonth: '', hasPhone: '',
+                    optOut: '', sent: '', clinic: '', extras: []
+                });
+            } else if (seg && seg.conditions) {
+                restoreConditionsToUi(seg.conditions);
+            }
+        }
+        renderSegments();
+        enrichDoctorFilter().then(function () { applyFilters(); });
     }
 
     function sentSinceIso() {
@@ -686,24 +819,10 @@ var MASSBC = (function () {
 
     function enrichDoctorFilter() {
         _doctorPatientIds = null;
-        // Doctor scope only when using "Clinic / doctor bar" segment (or saved seg with doctor)
-        var needDoctor = _activeSegmentId === 'scope';
-        var forceDoctorId = '';
-        if (_activeSegmentId.indexOf('seg_') === 0) {
-            var segs = loadSegments();
-            var seg = segs.find(function (s) { return s.id === _activeSegmentId; });
-            if (seg && seg.doctorId) {
-                needDoctor = true;
-                forceDoctorId = String(seg.doctorId);
-            }
-        }
-        if (!needDoctor) return Promise.resolve();
+        // Doctor scope only for built-in "Clinic / doctor bar" segment
+        if (_activeSegmentId !== 'scope') return Promise.resolve();
 
-        var doc = null;
-        if (forceDoctorId && typeof APP_DOCTORS !== 'undefined') {
-            doc = APP_DOCTORS.find(function (d) { return String(d.id) === forceDoctorId; }) || null;
-        }
-        if (!doc) doc = selectedDoctorMeta();
+        var doc = selectedDoctorMeta();
         if (!doc) return Promise.resolve();
 
         var code = String(doc.doctor_code || '').trim();
@@ -759,32 +878,53 @@ var MASSBC = (function () {
         var clinicFilter = (pick('mbFilterClinic') && pick('mbFilterClinic').value) || '';
         var clinicTag = clinicFilter;
 
+        // Custom saved list with fixed membership (preferred)
+        var membershipSet = null;
+        if (_activeSegmentId.indexOf('seg_') === 0) {
+            var segs = loadSegments();
+            var seg = null;
+            for (var si = 0; si < segs.length; si++) {
+                if (String(segs[si].id) === String(_activeSegmentId)) {
+                    seg = segs[si];
+                    break;
+                }
+            }
+            if (seg && Array.isArray(seg.patientIds) && seg.patientIds.length) {
+                membershipSet = {};
+                seg.patientIds.forEach(function (pid) {
+                    if (pid != null && pid !== '') membershipSet[String(pid)] = true;
+                });
+            } else if (seg && seg.conditions) {
+                // Legacy condition-only lists (pre patientIds)
+                var c = seg.conditions;
+                search = String(c.search != null ? c.search : '').trim().toLowerCase();
+                sex = c.sex || '';
+                dobMonth = c.dobMonth || '';
+                hasPhone = c.hasPhone || '';
+                optOut = c.optOut || '';
+                sentFilter = c.sent || '';
+                clinicTag = c.clinic || '';
+                if (Array.isArray(c.extras)) _conditions = c.extras.slice();
+            }
+        }
+
         if (_activeSegmentId === 'scope') {
             clinicTag = clinicTagForFilter() || clinicTag;
-        } else if (_activeSegmentId.indexOf('seg_') === 0) {
-            var segs = loadSegments();
-            var seg = segs.find(function (s) { return s.id === _activeSegmentId; });
-            if (seg) {
-                if (seg.conditions) {
-                    search = String(seg.conditions.search || search).toLowerCase();
-                    sex = seg.conditions.sex || sex;
-                    dobMonth = seg.conditions.dobMonth || dobMonth;
-                    hasPhone = seg.conditions.hasPhone || hasPhone;
-                    optOut = seg.conditions.optOut || optOut;
-                    sentFilter = seg.conditions.sent || sentFilter;
-                    if (seg.conditions.clinic) clinicTag = seg.conditions.clinic;
-                }
-                if (seg.clinicTag) clinicTag = seg.clinicTag;
-            }
         }
 
         if (_activeSegmentId === 'sent') sentFilter = 'yes';
         if (_activeSegmentId === 'unsent') sentFilter = 'no';
 
         var nowMonth = String(new Date().getMonth() + 1);
+        var extras = _conditions;
 
         _filtered = _allPatients.filter(function (p) {
             if (isBlankContact(p)) return false;
+
+            if (membershipSet) {
+                return !!membershipSet[String(p.id)];
+            }
+
             if (_activeSegmentId === 'hasphone' && !phoneOf(p)) return false;
             if (_activeSegmentId === 'birthday') {
                 if (!p.dob) return false;
@@ -817,9 +957,8 @@ var MASSBC = (function () {
                 if (blob.indexOf(search) < 0) return false;
             }
 
-            // Extra stacked conditions
-            for (var i = 0; i < _conditions.length; i++) {
-                if (!matchCondition(p, _conditions[i])) return false;
+            for (var i = 0; i < extras.length; i++) {
+                if (!matchCondition(p, extras[i])) return false;
             }
             return true;
         });
@@ -1154,6 +1293,37 @@ var MASSBC = (function () {
     function clearConditions() {
         _conditions = [];
         applyFilters();
+    }
+
+    /** Reset every filter dropdown / search / condition chip and show All contacts. */
+    function clearAllFilters() {
+        restoreConditionsToUi({
+            search: '',
+            sex: '',
+            dobMonth: '',
+            hasPhone: '',
+            optOut: '',
+            sent: '',
+            clinic: '',
+            extras: []
+        });
+        var condVal = pick('mbCondValue');
+        if (condVal) condVal.value = '';
+        var advanced = pick('mbCondChips');
+        if (advanced && advanced.closest) {
+            var det = advanced.closest('.mb-advanced');
+            if (det) det.open = false;
+        }
+        _activeSegmentId = 'all';
+        renderSegments();
+        renderConditionChips();
+        enrichDoctorFilter().then(function () {
+            applyFilters();
+            var status = pick('mbStatus');
+            if (status) {
+                status.textContent = tr('mb.filter.cleared', 'Filters cleared · showing all contacts.');
+            }
+        });
     }
 
     function renderConditionChips() {
@@ -2837,6 +3007,7 @@ var MASSBC = (function () {
         clearSelection: clearSelection,
         addCondition: addCondition,
         clearConditions: clearConditions,
+        clearAllFilters: clearAllFilters,
         toggleColEditor: toggleColEditor,
         saveCurrentAsSegment: saveCurrentAsSegment,
         startCampaignFromSelection: startCampaignFromSelection,

@@ -10112,7 +10112,17 @@ function rcSendViaTwilio() {
 
     var fromRow = getSelectedRcTwilioFrom();
     if (fromRow && fromRow.phone) {
+        if (channel === 'sms' && fromRow.sms === false) {
+            alert(tr('ai.twilio.fromNoSms'));
+            return;
+        }
+        if (channel === 'whatsapp' && fromRow.whatsapp === false) {
+            alert(tr('ai.twilio.fromNoWa'));
+            return;
+        }
         opts.from = fromRow.phone;
+    } else if (channel === 'sms') {
+        // Prefer Default → Edge TWILIO_SMS_FROM; warn if user expected a saved number.
     }
 
     if (channel === 'whatsapp') {

@@ -759,6 +759,22 @@ var AIHELPER = AIHELPER || {};
         return null;
     }
 
+    /** Turn raw Twilio/Edge errors into actionable clinic guidance. */
+    function humanizeTwilioSendError(raw, fromUsed) {
+        var msg = String(raw || '').trim();
+        if (!msg) return aiTr('ai.twilio.fail');
+        var from = String(fromUsed || '').replace(/^whatsapp:/i, '').trim();
+        if (/21659/i.test(msg) ||
+            (/from/i.test(msg) && /not a twilio phone number|short code country mismatch/i.test(msg))) {
+            return aiTr('ai.twilio.err21659').replace(/\{FROM\}/g, from || 'From');
+        }
+        if (/21606/i.test(msg) ||
+            (/from/i.test(msg) && /not a valid.*message-capable|not.*sms-capable/i.test(msg))) {
+            return aiTr('ai.twilio.err21606').replace(/\{FROM\}/g, from || 'From');
+        }
+        return msg;
+    }
+
     /** Parse Supabase functions.invoke result, including non-2xx body when present. */
     function parseTwilioInvokeResult(res) {
         var dataObj = normalizeEdgeData(res && res.data);
@@ -3011,13 +3027,17 @@ var AIHELPER = AIHELPER || {};
                     var err =
                         (dataObj && (dataObj.error || dataObj.detail)) ||
                         aiTr('ai.twilio.fail');
+                    err = humanizeTwilioSendError(err, payload.from);
                     setTwilioStatus(String(err), true);
                     alert(aiTr('ai.twilio.fail') + '\n\n' + String(err));
                 });
             })
             .catch(function(e) {
                 if (btn) btn.disabled = false;
-                var msg = (e && e.message) ? String(e.message) : aiTr('ai.twilio.apiDown');
+                var msg = humanizeTwilioSendError(
+                    (e && e.message) ? String(e.message) : aiTr('ai.twilio.apiDown'),
+                    payload.from
+                );
                 setTwilioStatus(msg, true);
                 alert(aiTr('ai.twilio.fail') + '\n\n' + msg);
             });
@@ -3166,13 +3186,20 @@ var AIHELPER = AIHELPER || {};
                     var err =
                         (dataObj && (dataObj.error || dataObj.detail)) ||
                         aiTr('ai.twilio.fail');
-                    return { ok: false, error: String(err), result: dataObj && dataObj.result };
+                    return {
+                        ok: false,
+                        error: humanizeTwilioSendError(err, payload.from || opts.from),
+                        result: dataObj && dataObj.result
+                    };
                 });
             })
             .catch(function(e) {
                 return {
                     ok: false,
-                    error: (e && e.message) ? String(e.message) : aiTr('ai.twilio.apiDown')
+                    error: humanizeTwilioSendError(
+                        (e && e.message) ? String(e.message) : aiTr('ai.twilio.apiDown'),
+                        opts.from
+                    )
                 };
             });
     };

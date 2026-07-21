@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260721-twilio-body-readonly';
+  var BUILD = '20260721-broadcast-clear-all';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1860,6 +1860,11 @@
                     </label>
                   </div>
                 </section>
+              </div>
+
+              <div class="mb-control-actions">
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.clearAllFilters()"
+                        data-i18n="mb.filter.clearAll">Clear All</button>
               </div>
 
               <details class="mb-advanced">

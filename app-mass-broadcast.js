@@ -359,6 +359,24 @@ var MASSBC = (function () {
             var el = pick(id);
             if (el) el.addEventListener('change', function () { applyFilters(); });
         });
+
+        // Live-update template preview while editing Notes / vars / label / SID
+        ['mbTplLabel', 'mbTplSid', 'mbTplVars', 'mbTplNotes'].forEach(function (id) {
+            var el = pick(id);
+            if (!el) return;
+            el.addEventListener('input', refreshTplPreviewFromForm);
+            el.addEventListener('change', refreshTplPreviewFromForm);
+        });
+        // Mapping dropdowns live inside mbTplVarMap (delegated)
+        var mapBox = pick('mbTplVarMap');
+        if (mapBox && !mapBox.getAttribute('data-var-map-bound')) {
+            mapBox.setAttribute('data-var-map-bound', '1');
+            mapBox.addEventListener('change', function (ev) {
+                var t = ev && ev.target;
+                if (!t || !t.getAttribute || !t.getAttribute('data-tpl-map-key')) return;
+                refreshTplPreviewFromForm();
+            });
+        }
     }
 
     function setMode(mode) {
@@ -383,7 +401,10 @@ var MASSBC = (function () {
             syncWizardUi();
             fillTwilioSelects();
         }
-        if (_mode === 'twilio') fillTwilioSelects();
+        if (_mode === 'twilio') {
+            fillTwilioSelects();
+            refreshTplPreviewFromForm();
+        }
         if (_mode === 'history') loadHistory();
         // Returning from Campaign/History: refresh sent tags so the window filter updates.
         if (_mode === 'contacts' && prev !== 'contacts' && prev !== 'twilio') {
@@ -1305,9 +1326,16 @@ var MASSBC = (function () {
             if (!tplSel || typeof AIHELPER === 'undefined' || !AIHELPER.listTwilioContentTemplates) return;
             var tpls = AIHELPER.listTwilioContentTemplates() || [];
             tplSel.innerHTML = '';
+            var newOpt = document.createElement('option');
+            newOpt.value = '__new__';
+            newOpt.textContent = tr('mb.tpl.addNewOpt', '+ Add new template…');
+            tplSel.appendChild(newOpt);
             if (!tpls.length) {
-                tplSel.innerHTML = '<option value="">' +
-                    esc(tr('mb.tpl.empty', 'No templates — open Twilio Setup')) + '</option>';
+                var empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = tr('mb.tpl.empty', 'No templates — open Twilio Setup');
+                tplSel.appendChild(empty);
+                tplSel.value = '__new__';
             } else {
                 tpls.forEach(function (t) {
                     var o = document.createElement('option');
@@ -1316,12 +1344,12 @@ var MASSBC = (function () {
                     tplSel.appendChild(o);
                 });
                 var hasTpl = false;
-                if (prevTpl) {
+                if (prevTpl && prevTpl !== '__new__') {
                     Array.prototype.forEach.call(tplSel.options, function (o) {
                         if (o.value === prevTpl) hasTpl = true;
                     });
                 }
-                if (hasTpl) tplSel.value = prevTpl;
+                tplSel.value = hasTpl ? prevTpl : tpls[0].id;
             }
             onTplChange();
         }
@@ -1330,27 +1358,35 @@ var MASSBC = (function () {
             if (!setupTpl || typeof AIHELPER === 'undefined' || !AIHELPER.listTwilioContentTemplates) return;
             var tpls = AIHELPER.listTwilioContentTemplates() || [];
             setupTpl.innerHTML = '';
-            if (!tpls.length) {
-                setupTpl.innerHTML = '<option value="">' +
-                    esc(tr('mb.setup.tplEmpty', 'No templates yet — add below')) + '</option>';
-            } else {
-                setupTpl.innerHTML = '<option value="">' +
-                    esc(tr('mb.setup.tplPick', 'Select a template to edit…')) + '</option>';
-                tpls.forEach(function (t) {
-                    var o = document.createElement('option');
-                    o.value = t.id;
-                    o.textContent = (t.label || t.contentSid) + ' · ' + (t.contentSid || '');
-                    setupTpl.appendChild(o);
+            var pickOpt = document.createElement('option');
+            pickOpt.value = '';
+            pickOpt.textContent = tpls.length
+                ? tr('mb.setup.tplPick', 'Select a template to edit…')
+                : tr('mb.setup.tplEmpty', 'No templates yet — add below');
+            setupTpl.appendChild(pickOpt);
+            var newOpt = document.createElement('option');
+            newOpt.value = '__new__';
+            newOpt.textContent = tr('mb.tpl.addNewOpt', '+ Add new template…');
+            setupTpl.appendChild(newOpt);
+            tpls.forEach(function (t) {
+                var o = document.createElement('option');
+                o.value = t.id;
+                o.textContent = (t.label || t.contentSid) + ' · ' + (t.contentSid || '');
+                setupTpl.appendChild(o);
+            });
+            var has = false;
+            if (prevSetupTpl && prevSetupTpl !== '__new__') {
+                Array.prototype.forEach.call(setupTpl.options, function (o) {
+                    if (o.value === prevSetupTpl) has = true;
                 });
-                var has = false;
-                if (prevSetupTpl) {
-                    Array.prototype.forEach.call(setupTpl.options, function (o) {
-                        if (o.value === prevSetupTpl) has = true;
-                    });
-                }
-                setupTpl.value = has ? prevSetupTpl : '';
             }
-            onSetupTplChange();
+            if (_pendingNewTpl) {
+                setupTpl.value = '__new__';
+                applyNewTemplateForm();
+            } else {
+                setupTpl.value = has ? prevSetupTpl : '';
+                onSetupTplChange();
+            }
         }
 
         var fromP = (typeof AIHELPER !== 'undefined' &&
@@ -1598,35 +1634,336 @@ var MASSBC = (function () {
             if (sidEl) sidEl.value = '';
             if (varsEl) varsEl.value = '1';
             if (notesEl) notesEl.value = '';
+            renderMbTplVarMap('1', { '1': 'NAME' });
+            renderTplPreview(null);
             return;
         }
         if (labelEl) labelEl.value = tpl.label || '';
         if (sidEl) sidEl.value = tpl.contentSid || '';
         if (varsEl) varsEl.value = tpl.vars || '1';
         if (notesEl) notesEl.value = tpl.notes || '';
+        renderMbTplVarMap(tpl.vars || '1', tpl.varMap);
+        renderTplPreview(tpl);
+    }
+
+    function renderMbTplVarMap(varsStr, varMap) {
+        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.renderTplVarMapInto === 'function') {
+            AIHELPER.renderTplVarMapInto('mbTplVarMap', varsStr, varMap);
+            return;
+        }
+        var box = pick('mbTplVarMap');
+        if (box) box.innerHTML = '';
+    }
+
+    function readMbTplVarMap(varsStr) {
+        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.readTplVarMapFromContainer === 'function') {
+            return AIHELPER.readTplVarMapFromContainer('mbTplVarMap', varsStr);
+        }
+        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.normalizeTplVarMap === 'function') {
+            return AIHELPER.normalizeTplVarMap(varsStr, null);
+        }
+        return { '1': 'NAME' };
+    }
+
+    function sampleValueForField(field) {
+        var f = String(field || '').toUpperCase();
+        if (f === 'NAME') return 'Alex';
+        if (f === 'FULL_NAME') return 'Alex Chan';
+        if (f === 'CLINIC') return 'Joyful Smile';
+        if (f === 'DATE') return '2026-07-22';
+        if (f === 'TIME') return '10:00 AM';
+        if (f === 'DOCTOR') return 'Chan';
+        if (f === 'PHONE') return '+85291234567';
+        if (f === 'PATIENT_NO') return '001234';
+        if (f === 'BODY') return '…';
+        return 'Sample';
+    }
+
+    function sampleValueForVarKey(key, varMap) {
+        var k = String(key || '').trim();
+        var map = varMap || {};
+        var field = map[k];
+        if (field) return sampleValueForField(field);
+        if (k === '1') return 'Alex';
+        if (k === '2') return 'Joyful Smile';
+        if (k === '3') return '2026-07-22';
+        if (k === '4') return '10:00 AM';
+        if (k === '5') return 'Chan';
+        return 'Sample ' + k;
+    }
+
+    /** Build a next-day style body using {{n}} tokens from the current map. */
+    function defaultPreviewBodyFromMap(varsStr, varMap) {
+        var map = varMap || {};
+        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.normalizeTplVarMap === 'function') {
+            map = AIHELPER.normalizeTplVarMap(varsStr, varMap);
+        }
+        var byField = {};
+        Object.keys(map).forEach(function (k) {
+            byField[String(map[k] || '').toUpperCase()] = k;
+        });
+        function tok(field) {
+            var k = byField[field];
+            return k ? ('{{' + k + '}}') : ('{' + field + '}');
+        }
+        return 'Hi ' + tok('NAME') + ', this is ' + tok('CLINIC') +
+            '. Reminder: your appointment is on ' + tok('DATE') +
+            ' at ' + tok('TIME') + ' with Dr ' + tok('DOCTOR') +
+            '. Please reply to confirm. Thank you.';
+    }
+
+    function broadcastClinicName(p) {
+        if (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) {
+            return String(currentClinicLabel);
+        }
+        return clinicLabel(p && p.clinic_tag) || 'Joyful Smile';
+    }
+
+    function broadcastDoctorName(appt) {
+        if (!appt) return '';
+        if (typeof apptDoctorNameForWhatsApp === 'function') {
+            return apptDoctorNameForWhatsApp(appt);
+        }
+        return String(appt.doctor_name || appt.doctor_code || '').trim();
+    }
+
+    /** Next upcoming appointment for a patient (for date/time/doctor fields). */
+    function fetchNextAppointment(p) {
+        if (!p || !p.id || typeof SB === 'undefined' || !SB.from) {
+            return Promise.resolve(null);
+        }
+        if (Object.prototype.hasOwnProperty.call(p, '_nextAppt')) {
+            return Promise.resolve(p._nextAppt);
+        }
+        var today = typeof todayISO === 'function'
+            ? todayISO()
+            : new Date().toISOString().slice(0, 10);
+        return SB.from('appointments')
+            .select('date,start_time,doctor_code,doctor_name,patient_name,patient_chinese_name')
+            .eq('patient_id', p.id)
+            .gte('date', today)
+            .order('date', { ascending: true })
+            .order('start_time', { ascending: true })
+            .limit(1)
+            .then(function (r) {
+                var row = r && !r.error && r.data && r.data.length ? r.data[0] : null;
+                p._nextAppt = row;
+                return row;
+            })
+            .catch(function () {
+                p._nextAppt = null;
+                return null;
+            });
+    }
+
+    function buildPreviewBubbleHtml(notes, varsStr, varMap) {
+        var keys = String(varsStr || '1').split(',')
+            .map(function (s) { return String(s || '').trim(); })
+            .filter(Boolean);
+        var map = varMap || readMbTplVarMap(varsStr || '1');
+        var raw = String(notes || '').trim();
+        var auto = false;
+        if (!raw) {
+            raw = defaultPreviewBodyFromMap(varsStr, map);
+            auto = true;
+        }
+        // Escape first, then highlight {{n}} / {FIELD} with sample values.
+        var html = esc(raw);
+        keys.forEach(function (k) {
+            var sample = esc(sampleValueForVarKey(k, map));
+            var chip = '<span class="mb-tpl-var">' + sample + '</span>';
+            var reBrace = new RegExp('\\{\\{\\s*' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}\\}', 'g');
+            var reSingle = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\}', 'g');
+            html = html.replace(reBrace, chip).replace(reSingle, chip);
+        });
+        var fields = (typeof AIHELPER !== 'undefined' && AIHELPER.listTwilioWebFields)
+            ? AIHELPER.listTwilioWebFields()
+            : ['NAME', 'FULL_NAME', 'CLINIC', 'DATE', 'TIME', 'DOCTOR', 'PHONE', 'PATIENT_NO', 'BODY'];
+        fields.forEach(function (f) {
+            var sample = esc(sampleValueForField(f));
+            var chip = '<span class="mb-tpl-var">' + sample + '</span>';
+            var re = new RegExp('\\{\\s*' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}', 'gi');
+            html = html.replace(re, chip);
+        });
+        html = html.replace(/\{\{\s*([0-9A-Za-z_]+)\s*\}\}/g, function (_m, k) {
+            return '<span class="mb-tpl-var">' + esc(sampleValueForVarKey(k, map)) + '</span>';
+        });
+        return { html: html, muted: false, auto: auto };
+    }
+
+    function renderTplPreview(tplOrNull) {
+        var emptyEl = pick('mbTplPreviewEmpty');
+        var bodyEl = pick('mbTplPreviewBody');
+        var textEl = pick('mbTplPreviewText');
+        var factsEl = pick('mbTplPreviewFacts');
+        var metaEl = pick('mbTplPreviewMeta');
+        var form = readMbTplForm();
+        var hasSelection = !!(pick('mbSetupTpl') && pick('mbSetupTpl').value);
+        var hasDraft = !!(form.label || form.contentSid || form.notes);
+        var src = tplOrNull || (hasSelection || hasDraft ? {
+            label: form.label,
+            contentSid: form.contentSid,
+            vars: form.vars || '1',
+            varMap: form.varMap,
+            notes: form.notes
+        } : null);
+
+        if (!src || (!src.label && !src.contentSid && !src.notes && !hasSelection)) {
+            if (emptyEl) emptyEl.style.display = '';
+            if (bodyEl) bodyEl.style.display = 'none';
+            if (metaEl) metaEl.textContent = '';
+            return;
+        }
+
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (bodyEl) bodyEl.style.display = '';
+        if (metaEl) {
+            metaEl.textContent = src.label
+                ? src.label
+                : tr('mb.setup.tplPreview', 'Template preview');
+        }
+
+        var bubble = buildPreviewBubbleHtml(src.notes, src.vars || '1', src.varMap);
+        if (textEl) {
+            textEl.innerHTML = bubble.html;
+            textEl.classList.toggle('is-muted', !!bubble.muted);
+        }
+        if (metaEl && bubble.auto) {
+            metaEl.textContent = (src.label || tr('mb.setup.tplPreview', 'Template preview')) +
+                ' · ' + tr('mb.setup.tplPreviewAuto', 'auto sample');
+        }
+
+        if (factsEl) {
+            var keys = String(src.vars || '1').split(',')
+                .map(function (s) { return String(s || '').trim(); })
+                .filter(Boolean);
+            var map = src.varMap || readMbTplVarMap(src.vars || '1');
+            var varDesc = keys.map(function (k) {
+                var field = map[k] || '?';
+                return '{{' + k + '}} → {' + field + '} = ' + sampleValueForVarKey(k, map);
+            }).join(' · ') || '—';
+            factsEl.innerHTML =
+                '<dt>' + esc(tr('mb.setup.tplPreviewLabel', 'Label')) + '</dt>' +
+                '<dd>' + esc(src.label || '—') + '</dd>' +
+                '<dt>' + esc(tr('mb.setup.tplPreviewSid', 'Content SID')) + '</dt>' +
+                '<dd>' + esc(src.contentSid || '—') + '</dd>' +
+                '<dt>' + esc(tr('mb.setup.tplPreviewVars', 'Variables')) + '</dt>' +
+                '<dd>' + esc(keys.length ? keys.map(function (k) {
+                    return '{{' + k + '}}→{' + (map[k] || '?') + '}';
+                }).join(', ') : '—') + '</dd>' +
+                '<dt>' + esc(tr('mb.setup.tplPreviewSample', 'Sample')) + '</dt>' +
+                '<dd>' + esc(varDesc) + '</dd>';
+        }
+    }
+
+    function refreshTplPreviewFromForm(evOrOpts) {
+        var remapVars = false;
+        if (evOrOpts && evOrOpts.target && evOrOpts.target.id === 'mbTplVars') {
+            remapVars = true;
+        } else if (evOrOpts && evOrOpts.remapVars) {
+            remapVars = true;
+        }
+        var sel = pick('mbSetupTpl');
+        var id = sel ? String(sel.value || '') : '';
+        var tpl = null;
+        if (id && typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioContentTemplate) {
+            tpl = AIHELPER.getTwilioContentTemplate(id);
+        }
+        var varsVal = (pick('mbTplVars') && pick('mbTplVars').value) || (tpl && tpl.vars) || '1';
+        if (remapVars) {
+            var keep = readMbTplVarMap(varsVal);
+            renderMbTplVarMap(varsVal, keep);
+        }
+        var liveMap = readMbTplVarMap(varsVal);
+        renderTplPreview({
+            label: (pick('mbTplLabel') && pick('mbTplLabel').value) || (tpl && tpl.label) || '',
+            contentSid: (pick('mbTplSid') && pick('mbTplSid').value) || (tpl && tpl.contentSid) || '',
+            vars: varsVal,
+            varMap: liveMap,
+            notes: (pick('mbTplNotes') && pick('mbTplNotes').value) || (tpl && tpl.notes) || ''
+        });
     }
 
     function readMbTplForm() {
+        var vars = pick('mbTplVars') ? String(pick('mbTplVars').value || '1').trim() : '1';
         return {
             label: pick('mbTplLabel') ? String(pick('mbTplLabel').value || '').trim() : '',
             contentSid: pick('mbTplSid') ? String(pick('mbTplSid').value || '').trim() : '',
-            vars: pick('mbTplVars') ? String(pick('mbTplVars').value || '1').trim() : '1',
+            vars: vars,
+            varMap: readMbTplVarMap(vars),
             notes: pick('mbTplNotes') ? String(pick('mbTplNotes').value || '').trim() : ''
         };
+    }
+
+    var _pendingNewTpl = false;
+
+    function applyNewTemplateForm() {
+        var setupSel = pick('mbSetupTpl');
+        if (setupSel) {
+            var hasNew = false;
+            Array.prototype.forEach.call(setupSel.options, function (o) {
+                if (o.value === '__new__') hasNew = true;
+            });
+            if (!hasNew) {
+                var opt = document.createElement('option');
+                opt.value = '__new__';
+                opt.textContent = tr('mb.tpl.addNewOpt', '+ Add new template…');
+                if (setupSel.options.length > 1) {
+                    setupSel.insertBefore(opt, setupSel.options[1]);
+                } else {
+                    setupSel.appendChild(opt);
+                }
+            }
+            setupSel.value = '__new__';
+        }
+        fillMbTplForm(null);
+        var varsEl = pick('mbTplVars');
+        if (varsEl) varsEl.value = '1,2,3,4,5';
+        renderMbTplVarMap('1,2,3,4,5', null);
+        refreshTplPreviewFromForm({ remapVars: true });
+        setTplStatus(tr('mb.tpl.newHint',
+            'New template — fill Label + Content SID, map variables, then click Add to list.'), false);
+        var label = pick('mbTplLabel');
+        if (label) {
+            try { label.focus(); } catch (e) { /* ignore */ }
+        }
+        _pendingNewTpl = false;
+    }
+
+    function beginNewTemplate() {
+        _pendingNewTpl = true;
+        if (_mode !== 'twilio') {
+            setMode('twilio');
+            // fillTwilioSelects is async — re-apply blank form after lists paint
+            setTimeout(function () {
+                if (_pendingNewTpl) applyNewTemplateForm();
+            }, 250);
+            return;
+        }
+        applyNewTemplateForm();
     }
 
     function onTplChange() {
         var hint = pick('mbTwilioTplHint');
         var sel = pick('mbTwilioTpl');
+        var id = sel ? String(sel.value || '') : '';
+        if (id === '__new__') {
+            beginNewTemplate();
+            return;
+        }
         var tpl = null;
-        if (typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioContentTemplate) {
-            tpl = AIHELPER.getTwilioContentTemplate(sel ? sel.value : '');
+        if (id && typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioContentTemplate) {
+            tpl = AIHELPER.getTwilioContentTemplate(id);
         }
         if (hint) {
             if (!tpl) hint.textContent = '';
             else {
+                var map = tpl.varMap || {};
+                var bits = Object.keys(map).sort().map(function (k) {
+                    return '{{' + k + '}}={' + map[k] + '}';
+                }).join(' · ');
                 hint.textContent = (tpl.notes || '') +
-                    (tpl.vars ? ' · vars: ' + tpl.vars : ' · {{1}} = name');
+                    (bits ? ' · ' + bits : (tpl.vars ? ' · vars: ' + tpl.vars : ''));
             }
         }
     }
@@ -1634,11 +1971,17 @@ var MASSBC = (function () {
     function onSetupTplChange() {
         var sel = pick('mbSetupTpl');
         var id = sel ? String(sel.value || '') : '';
+        if (id === '__new__') {
+            // Avoid re-entry loops while painting selects
+            if (!_pendingNewTpl) applyNewTemplateForm();
+            return;
+        }
         var tpl = null;
         if (id && typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioContentTemplate) {
             tpl = AIHELPER.getTwilioContentTemplate(id);
         }
         fillMbTplForm(tpl);
+        if (!id) setTplStatus('', false);
     }
 
     function selectTplInDropdown(id) {
@@ -1673,6 +2016,15 @@ var MASSBC = (function () {
             return;
         }
         var form = readMbTplForm();
+        if (!form.contentSid) {
+            alert(tr('mb.tpl.needSid', 'Enter a valid Content SID (HX…, 34 chars).'));
+            return;
+        }
+        if (!form.label) {
+            form.label = form.contentSid;
+            var labelEl = pick('mbTplLabel');
+            if (labelEl && !labelEl.value) labelEl.value = form.label;
+        }
         setTplStatus(tr('mb.tpl.saving', 'Saving…'), false);
         AIHELPER.addTwilioContentTemplate(form).then(function (res) {
             if (!res || !res.ok) {
@@ -1705,17 +2057,26 @@ var MASSBC = (function () {
         }
         var sel = pick('mbSetupTpl');
         var id = sel ? String(sel.value || '') : '';
-        if (!id) {
-            alert(tr('mb.tpl.needSelect', 'Select a template from the list first.'));
+        // New-template draft (or nothing selected): Save acts as Add to list
+        if (!id || id === '__new__') {
+            addTemplate();
             return;
         }
         var form = readMbTplForm();
+        if (!form.contentSid) {
+            alert(tr('mb.tpl.needSid', 'Enter a valid Content SID (HX…, 34 chars).'));
+            return;
+        }
         setTplStatus(tr('mb.tpl.saving', 'Saving…'), false);
         AIHELPER.updateTwilioContentTemplate(id, form).then(function (res) {
             if (!res || !res.ok) {
                 var err = res && res.error;
                 if (err === 'sid') alert(tr('mb.tpl.needSid', 'Enter a valid Content SID (HX…, 34 chars).'));
-                else if (err === 'db_missing') {
+                else if (err === 'select') {
+                    // Stale selection — fall back to add
+                    addTemplate();
+                    return;
+                } else if (err === 'db_missing') {
                     alert(tr('mb.tpl.dbMissing',
                         'Cloud template table missing. Run twilio_content_templates.sql in Supabase.'));
                 } else {
@@ -1739,7 +2100,7 @@ var MASSBC = (function () {
         }
         var sel = pick('mbSetupTpl');
         var id = sel ? String(sel.value || '') : '';
-        if (!id) {
+        if (!id || id === '__new__') {
             alert(tr('mb.tpl.needSelect', 'Select a template from the list first.'));
             return;
         }
@@ -1954,13 +2315,36 @@ var MASSBC = (function () {
                 return Promise.resolve(null);
             }
             opts.contentSid = tpl.contentSid;
-            opts.contentVariables = { '1': name };
-            var keys = String(tpl.vars || '1').split(',').filter(Boolean);
-            keys.forEach(function (k) {
-                if (k === '1') return;
-                opts.contentVariables[k] = body ? String(body).slice(0, 120) : '';
+            return fetchNextAppointment(p).then(function (appt) {
+                var clinic = broadcastClinicName(p);
+                var date = appt && appt.date ? String(appt.date) : '';
+                var time = '';
+                if (appt && appt.start_time) {
+                    time = typeof fmt12 === 'function'
+                        ? fmt12(appt.start_time)
+                        : String(appt.start_time);
+                }
+                var doctor = broadcastDoctorName(appt);
+                if (typeof AIHELPER !== 'undefined' &&
+                    typeof AIHELPER.buildTwilioContentVariables === 'function') {
+                    opts.contentVariables = AIHELPER.buildTwilioContentVariables(tpl, {
+                        name: name,
+                        fullName: displayName(p),
+                        clinic: clinic,
+                        date: date,
+                        time: time,
+                        doctor: doctor,
+                        phone: phoneOf(p),
+                        patientNo: p.patient_no || '',
+                        body: body
+                    });
+                } else {
+                    opts.contentVariables = { '1': name };
+                }
+                return opts;
             });
-        } else if (!body) {
+        }
+        if (!body) {
             alert(tr('mb.alert.needBody', 'Enter an SMS message body.'));
             return Promise.resolve(null);
         }
@@ -2365,7 +2749,9 @@ var MASSBC = (function () {
         setChannel: setChannel,
         onTplChange: onTplChange,
         onSetupTplChange: onSetupTplChange,
+        refreshTplPreviewFromForm: refreshTplPreviewFromForm,
         addTemplate: addTemplate,
+        beginNewTemplate: beginNewTemplate,
         saveTemplate: saveTemplate,
         removeTemplate: removeTemplate,
         reloadTemplates: reloadTemplates,

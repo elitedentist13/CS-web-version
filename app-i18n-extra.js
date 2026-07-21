@@ -811,6 +811,35 @@
             'zh-CN': '尚无模板 — 请在下方添加',
             'zh-Hant': '尚無範本 — 請在下方新增'
         },
+        'mb.setup.tplPreview': {
+            en: 'Template preview',
+            'zh-CN': '模板预览',
+            'zh-Hant': '範本預覽'
+        },
+        'mb.setup.tplPreviewEmpty': {
+            en: 'Select a template to preview its notes and variables.',
+            'zh-CN': '请选择模板以预览备注与变量。',
+            'zh-Hant': '請選擇範本以預覽備註與變數。'
+        },
+        'mb.setup.tplPreviewNote': {
+            en: 'Preview substitutes sample values into the Preview body (or an auto next-day sample from your variable map). Live WhatsApp text still comes from Twilio Content Template Builder.',
+            'zh-CN': '预览会把示例值填入「预览正文」（若留空则按变量映射自动生成翌日提醒样例）。实际 WhatsApp 正文仍以 Twilio Content Template Builder 为准。',
+            'zh-Hant': '預覽會把範例值填入「預覽正文」（若留空則按變數對應自動產生翌日提醒樣例）。實際 WhatsApp 正文仍以 Twilio Content Template Builder 為準。'
+        },
+        'mb.setup.tplPreviewNoNotes': {
+            en: '(No preview body yet — paste Twilio template text below, or rely on auto sample from the map.)',
+            'zh-CN': '（尚无预览正文 — 请粘贴 Twilio 模板正文，或使用下方映射自动样例。）',
+            'zh-Hant': '（尚無預覽正文 — 請貼上 Twilio 範本正文，或使用下方對應自動樣例。）'
+        },
+        'mb.setup.tplPreviewAuto': {
+            en: 'auto sample',
+            'zh-CN': '自动样例',
+            'zh-Hant': '自動樣例'
+        },
+        'mb.setup.tplPreviewLabel': { en: 'Label', 'zh-CN': '标签', 'zh-Hant': '標籤' },
+        'mb.setup.tplPreviewSid': { en: 'Content SID', 'zh-CN': 'Content SID', 'zh-Hant': 'Content SID' },
+        'mb.setup.tplPreviewVars': { en: 'Variables', 'zh-CN': '变量', 'zh-Hant': '變數' },
+        'mb.setup.tplPreviewSample': { en: 'Sample', 'zh-CN': '示例', 'zh-Hant': '範例' },
         'mb.seg.heading': { en: 'Lists', 'zh-CN': '分组', 'zh-Hant': '分組' },
         'mb.seg.all': { en: 'All contacts', 'zh-CN': '全部联系人', 'zh-Hant': '全部聯絡人' },
         'mb.seg.scope': { en: 'Clinic / doctor bar', 'zh-CN': '诊所/医生栏', 'zh-Hant': '診所/醫生欄' },
@@ -1008,9 +1037,9 @@
         'mb.manageTpl': { en: 'Twilio Setup', 'zh-CN': 'Twilio 设置', 'zh-Hant': 'Twilio 設定' },
         'mb.tpl': { en: 'WhatsApp content template', 'zh-CN': 'WhatsApp 内容模板', 'zh-Hant': 'WhatsApp 內容範本' },
         'mb.tpl.note': {
-            en: '{{1}} = patient first name. Extra vars use SMS body text when present.',
-            'zh-CN': '{{1}} = 患者名。额外变量使用短信正文（如有）。',
-            'zh-Hant': '{{1}} = 病人名。額外變數使用短訊正文（如有）。'
+            en: 'Map Twilio {{n}} keys to web placeholders ({NAME}, {CLINIC}, {DATE}, {TIME}, {DOCTOR}, …) in Twilio Setup.',
+            'zh-CN': '在 Twilio 设置中，将 Twilio {{n}} 键映射到网页占位符（{NAME}、{CLINIC}、{DATE}、{TIME}、{DOCTOR} 等）。',
+            'zh-Hant': '在 Twilio 設定中，將 Twilio {{n}} 鍵對應到網頁佔位符（{NAME}、{CLINIC}、{DATE}、{TIME}、{DOCTOR} 等）。'
         },
         'mb.tpl.reload': { en: 'Reload', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
         'mb.tpl.manageTitle': {
@@ -1025,6 +1054,22 @@
         },
         'mb.tpl.save': { en: 'Save selected', 'zh-CN': '保存所选', 'zh-Hant': '儲存所選' },
         'mb.tpl.add': { en: 'Add to list', 'zh-CN': '加入列表', 'zh-Hant': '加入清單' },
+        'mb.tpl.addNewOpt': {
+            en: '+ Add new template…',
+            'zh-CN': '+ 添加新模板…',
+            'zh-Hant': '+ 新增範本…'
+        },
+        'mb.tpl.addNewBtn': { en: '+ New', 'zh-CN': '+ 新建', 'zh-Hant': '+ 新增' },
+        'mb.tpl.addNewHint': {
+            en: 'Choose “+ Add new template…” or click + New, fill Label + Content SID + variable map, then Add to list.',
+            'zh-CN': '选择「+ 添加新模板…」或点「+ 新建」，填写标签、Content SID 与变量映射，再点「加入列表」。',
+            'zh-Hant': '選擇「+ 新增範本…」或按「+ 新增」，填寫標籤、Content SID 與變數對應，再按「加入清單」。'
+        },
+        'mb.tpl.newHint': {
+            en: 'New template — fill Label + Content SID, map variables, then click Add to list.',
+            'zh-CN': '新建模板 — 填写标签与 Content SID，映射变量，然后点「加入列表」。',
+            'zh-Hant': '新增範本 — 填寫標籤與 Content SID，對應變數，然後按「加入清單」。'
+        },
         'mb.tpl.remove': { en: 'Remove selected', 'zh-CN': '删除所选', 'zh-Hant': '刪除所選' },
         'mb.tpl.saving': { en: 'Saving…', 'zh-CN': '保存中…', 'zh-Hant': '儲存中…' },
         'mb.tpl.reloading': { en: 'Reloading…', 'zh-CN': '刷新中…', 'zh-Hant': '重新整理中…' },
@@ -1625,9 +1670,19 @@
             'zh-Hant': '尚無範本 — 請到 群發 → Twilio 設定 中新增'
         },
         'appt.recallTwilioTplHint': {
-            en: 'SID {SID} · vars {VARS}',
-            'zh-CN': 'SID {SID} · 变量 {VARS}',
-            'zh-Hant': 'SID {SID} · 變數 {VARS}'
+            en: 'SID {SID} · {VARS}',
+            'zh-CN': 'SID {SID} · {VARS}',
+            'zh-Hant': 'SID {SID} · {VARS}'
+        },
+        'appt.recall.twilioTplPreviewEmpty': {
+            en: 'Select a Twilio content template to preview sample text.',
+            'zh-CN': '请选择 Twilio 内容模板以预览示例正文。',
+            'zh-Hant': '請選擇 Twilio 內容範本以預覽範例正文。'
+        },
+        'appt.recall.twilioTplPreviewNote': {
+            en: 'Preview uses the template’s preview body (or an auto sample from the variable map). Live WhatsApp text comes from Twilio.',
+            'zh-CN': '预览使用模板的预览正文（或按变量映射自动样例）。实际 WhatsApp 正文来自 Twilio。',
+            'zh-Hant': '預覽使用範本的預覽正文（或按變數對應自動樣例）。實際 WhatsApp 正文來自 Twilio。'
         },
         'appt.recallTwilioManageTpl': {
             en: 'Twilio Setup',
@@ -1640,9 +1695,9 @@
             'zh-Hant': 'Twilio 短訊用所選 Twilio 號碼發送下方正文（請優先選用可發短訊的號碼；WhatsApp 發送號通常不能發短訊）。'
         },
         'appt.recallTwilioWaBodyNote': {
-            en: 'WhatsApp via Twilio uses the selected Content Template ({{1}} = patient first name). Message box is optional fallback only.',
-            'zh-CN': 'Twilio WhatsApp 使用所选内容模板（{{1}} = 患者名）。下方正文仅作可选备用。',
-            'zh-Hant': 'Twilio WhatsApp 使用所選內容範本（{{1}} = 病人名）。下方正文僅作可選備用。'
+            en: 'WhatsApp via Twilio uses the selected Content Template. Variable mapping is set in Twilio Setup ({{n}} → {NAME}/{CLINIC}/…). Message box is optional fallback only.',
+            'zh-CN': 'Twilio WhatsApp 使用所选内容模板。变量映射在 Twilio 设置中配置（{{n}} → {NAME}/{CLINIC}/…）。下方正文仅作可选备用。',
+            'zh-Hant': 'Twilio WhatsApp 使用所選內容範本。變數對應在 Twilio 設定中配置（{{n}} → {NAME}/{CLINIC}/…）。下方正文僅作可選備用。'
         },
         'appt.recall.alertNeedTwilioTpl': {
             en: 'Select a Twilio Content Template first (or add one in Broadcast → Twilio Setup).',
@@ -2324,17 +2379,50 @@
             'zh-Hant': 'HXf63c7a58271df43f5c63d97c6a514413'
         },
         'ai.twilio.tplVars': { en: 'Variable keys', 'zh-CN': '变量键', 'zh-Hant': '變數鍵' },
-        'ai.twilio.tplVarsPh': { en: '1', 'zh-CN': '1', 'zh-Hant': '1' },
+        'ai.twilio.tplVarsPh': { en: '1,2,3,4,5', 'zh-CN': '1,2,3,4,5', 'zh-Hant': '1,2,3,4,5' },
         'ai.twilio.tplVarsHint': {
-            en: 'Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.',
-            'zh-CN': '逗号分隔的 Meta 键，如 1 或 1,2。键 1 使用姓名字段。',
-            'zh-Hant': '逗號分隔的 Meta 鍵，如 1 或 1,2。鍵 1 使用姓名欄位。'
+            en: 'Comma-separated Twilio keys from the approved template (e.g. 1,2,3,4,5). Map each key to a web placeholder below.',
+            'zh-CN': '填写已批准模板中的 Twilio 变量键（如 1,2,3,4,5），并在下方映射到网页占位符。',
+            'zh-Hant': '填寫已批准範本中的 Twilio 變數鍵（如 1,2,3,4,5），並在下方對應到網頁佔位符。'
         },
-        'ai.twilio.tplNotes': { en: 'Notes / preview', 'zh-CN': '备注 / 预览', 'zh-Hant': '備註 / 預覽' },
+        'ai.twilio.varMapHint': {
+            en: 'Match Twilio variables → web placeholders',
+            'zh-CN': '匹配：Twilio 变量 → 网页占位符',
+            'zh-Hant': '對應：Twilio 變數 → 網頁佔位符'
+        },
+        'ai.twilio.tplVarOverride': {
+            en: 'optional override',
+            'zh-CN': '可选覆盖',
+            'zh-Hant': '可選覆蓋'
+        },
+        'ai.twilio.field.name': { en: 'Name', 'zh-CN': '姓名', 'zh-Hant': '姓名' },
+        'ai.twilio.field.full_name': { en: 'Full name', 'zh-CN': '全名', 'zh-Hant': '全名' },
+        'ai.twilio.field.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'ai.twilio.field.date': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
+        'ai.twilio.field.time': { en: 'Time', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'ai.twilio.field.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'ai.twilio.field.phone': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
+        'ai.twilio.field.patient_no': { en: 'Patient no.', 'zh-CN': '患者编号', 'zh-Hant': '病人編號' },
+        'ai.twilio.field.body': { en: 'Message body', 'zh-CN': '短信正文', 'zh-Hant': '短訊正文' },
+        'ai.twilio.varRole.name': { en: 'Name', 'zh-CN': '姓名', 'zh-Hant': '姓名' },
+        'ai.twilio.varRole.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'ai.twilio.varRole.date': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
+        'ai.twilio.varRole.time': { en: 'Time', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'ai.twilio.varRole.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'ai.twilio.tplNotes': {
+            en: 'Preview body (paste Twilio text)',
+            'zh-CN': '预览正文（粘贴 Twilio 文本）',
+            'zh-Hant': '預覽正文（貼上 Twilio 文字）'
+        },
         'ai.twilio.tplNotesPh': {
-            en: 'Approved recall greeting',
-            'zh-CN': '已批准复诊问候',
-            'zh-Hant': '已批准覆診問候'
+            en: 'Hi {{1}}, this is {{2}}. Reminder: your appointment is on {{3}} at {{4}} with Dr {{5}}. Please reply to confirm. Thank you.',
+            'zh-CN': 'Hi {{1}}, this is {{2}}. Reminder: your appointment is on {{3}} at {{4}} with Dr {{5}}. Please reply to confirm. Thank you.',
+            'zh-Hant': 'Hi {{1}}, this is {{2}}. Reminder: your appointment is on {{3}} at {{4}} with Dr {{5}}. Please reply to confirm. Thank you.'
+        },
+        'ai.twilio.tplNotesHint': {
+            en: 'Paste the approved Twilio template body here (with {{1}}, {{2}}…). Preview fills sample values from the map. Leave blank to auto-preview from the mapping.',
+            'zh-CN': '在此粘贴已批准的 Twilio 模板正文（含 {{1}}、{{2}}…）。预览会按映射填入示例值；留空则按映射自动预览。',
+            'zh-Hant': '在此貼上已批准的 Twilio 範本正文（含 {{1}}、{{2}}…）。預覽會按對應填入範例值；留空則按對應自動預覽。'
         },
         'ai.twilio.btn.saveTpl': { en: 'Save changes', 'zh-CN': '保存修改', 'zh-Hant': '儲存修改' },
         'ai.twilio.btn.addTpl': { en: 'Add as new', 'zh-CN': '添加为新模板', 'zh-Hant': '新增為新範本' },
@@ -2391,9 +2479,9 @@
             'zh-Hant': '短訊正文，或 WhatsApp 可選備用內容…'
         },
         'ai.twilio.mode.wa': {
-            en: 'WhatsApp: selected Content Template is sent ({{1}} = Name; extra vars if configured). Body is optional fallback only.',
-            'zh-CN': 'WhatsApp：发送所选内容模板（{{1}} = 姓名；若配置了额外变量也会填入）。正文仅作可选备用。',
-            'zh-Hant': 'WhatsApp：發送所選內容範本（{{1}} = 姓名；若設定了額外變數也會填入）。正文僅作可選備用。'
+            en: 'WhatsApp: selected Content Template is sent using the placeholder map from Twilio Setup. Body is optional fallback only.',
+            'zh-CN': 'WhatsApp：发送所选内容模板，并使用 Twilio 设置中的占位符映射。正文仅作可选备用。',
+            'zh-Hant': 'WhatsApp：發送所選內容範本，並使用 Twilio 設定中的佔位符對應。正文僅作可選備用。'
         },
         'ai.twilio.mode.sms': {
             en: 'SMS: sends the message body from your selected Twilio number (or Edge default).',

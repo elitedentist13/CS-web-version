@@ -1203,12 +1203,28 @@ var AIHELPER = AIHELPER || {};
                     label: 'Clinic recall (default)',
                     contentSid: TWILIO_WA_CONTENT_SID,
                     vars: '1',
+                    varMap: { '1': 'NAME' },
                     notes: 'Approved WhatsApp recall · {{1}} = patient name',
                     builtin: true
                 }
             ]
         };
     }
+
+    /** Web-app placeholders staff can map onto Twilio {{n}} slots. */
+    var TWILIO_WEB_FIELDS = [
+        'NAME', 'FULL_NAME', 'CLINIC', 'DATE', 'TIME', 'DOCTOR',
+        'PHONE', 'PATIENT_NO', 'BODY'
+    ];
+
+    /** Sensible defaults when a template has no saved var_map yet. */
+    var TWILIO_DEFAULT_KEY_FIELD = {
+        '1': 'NAME',
+        '2': 'CLINIC',
+        '3': 'DATE',
+        '4': 'TIME',
+        '5': 'DOCTOR'
+    };
 
     function normalizeContentSid(raw) {
         var s = String(raw || '').trim();
@@ -1236,18 +1252,71 @@ var AIHELPER = AIHELPER || {};
         return out.join(',');
     }
 
+    function normalizeFieldToken(raw) {
+        var s = String(raw || '').trim().toUpperCase().replace(/[{}]/g, '');
+        if (!s) return '';
+        if (TWILIO_WEB_FIELDS.indexOf(s) >= 0) return s;
+        // Allow custom tokens that look like placeholders (A-Z0-9_)
+        if (/^[A-Z][A-Z0-9_]{0,31}$/.test(s)) return s;
+        return '';
+    }
+
+    /**
+     * Build/normalize { "1":"NAME", "2":"CLINIC", … } for the given vars list.
+     * @param {string} varsStr e.g. "1,2,3"
+     * @param {Object|string|null} rawMap
+     */
+    function normalizeTplVarMap(varsStr, rawMap) {
+        var keys = String(normalizeTplVars(varsStr) || '1').split(',').filter(Boolean);
+        var src = rawMap;
+        if (typeof src === 'string') {
+            try { src = JSON.parse(src); } catch (e) { src = null; }
+        }
+        if (!src || typeof src !== 'object') src = {};
+        var out = {};
+        keys.forEach(function(k) {
+            var fromRaw = normalizeFieldToken(src[k] != null ? src[k] : src[String(k)]);
+            if (fromRaw) {
+                out[k] = fromRaw;
+                return;
+            }
+            out[k] = TWILIO_DEFAULT_KEY_FIELD[k] || 'BODY';
+        });
+        return out;
+    }
+
+    function varMapToCompact(varMap) {
+        var m = varMap && typeof varMap === 'object' ? varMap : {};
+        var out = {};
+        Object.keys(m).forEach(function(k) {
+            var f = normalizeFieldToken(m[k]);
+            if (f) out[String(k)] = f;
+        });
+        return out;
+    }
+
+    ns.listTwilioWebFields = function() {
+        return TWILIO_WEB_FIELDS.slice();
+    };
+
+    ns.normalizeTplVarMap = normalizeTplVarMap;
+
     function normalizeTplRow(t) {
         if (!t || typeof t !== 'object') return null;
         var sid = normalizeContentSid(t.contentSid || t.content_sid);
         if (!sid) return null;
         var id = String(t.id || '').trim();
         if (!id) id = 'tpl_' + sid.slice(0, 12);
+        var vars = normalizeTplVars(t.vars);
+        var rawMap = t.varMap != null ? t.varMap
+            : (t.var_map != null ? t.var_map : null);
         return {
             id: id,
             label: String(t.label || '').trim() || sid,
             contentSid: sid,
-            vars: normalizeTplVars(t.vars),
-            notes: String(t.notes || '').trim().slice(0, 160),
+            vars: vars,
+            varMap: normalizeTplVarMap(vars, rawMap),
+            notes: String(t.notes || '').trim().slice(0, 1000),
             builtin: !!t.builtin
         };
     }
@@ -1322,6 +1391,7 @@ var AIHELPER = AIHELPER || {};
             label: row.label,
             contentSid: row.content_sid,
             vars: row.vars,
+            varMap: row.var_map,
             notes: row.notes,
             builtin: false
         });
@@ -1330,6 +1400,11 @@ var AIHELPER = AIHELPER || {};
     function tplTableMissing(err) {
         var msg = String((err && err.message) || err || '');
         return /twilio_content_templates|does not exist|schema cache|Could not find the table/i.test(msg);
+    }
+
+    function tplVarMapColumnMissing(err) {
+        var msg = String((err && err.message) || err || '');
+        return /var_map|column .* does not exist|schema cache/i.test(msg);
     }
 
     function callerUserIdForTpl() {
@@ -1343,17 +1418,30 @@ var AIHELPER = AIHELPER || {};
 
     function seedDefaultTplToDb() {
         if (typeof SB === 'undefined') return Promise.resolve(null);
-        return SB.from(TWILIO_TPL_TABLE).insert([{
+        var row = {
             label: 'Clinic recall (default)',
             content_sid: TWILIO_WA_CONTENT_SID,
             vars: '1',
+            var_map: { '1': 'NAME' },
             notes: 'Approved WhatsApp recall · {{1}} = patient name',
             sort_order: 0,
             created_by: 'seed'
-        }]).select('id,label,content_sid,vars,notes').then(function(r) {
-            if (r.error) return null;
-            return r.data && r.data[0] ? mapDbRowToTpl(r.data[0]) : null;
-        });
+        };
+        return SB.from(TWILIO_TPL_TABLE).insert([row])
+            .select('id,label,content_sid,vars,var_map,notes')
+            .then(function(r) {
+                if (r.error && tplVarMapColumnMissing(r.error)) {
+                    delete row.var_map;
+                    return SB.from(TWILIO_TPL_TABLE).insert([row])
+                        .select('id,label,content_sid,vars,notes')
+                        .then(function(r2) {
+                            if (r2.error) return null;
+                            return r2.data && r2.data[0] ? mapDbRowToTpl(r2.data[0]) : null;
+                        });
+                }
+                if (r.error) return null;
+                return r.data && r.data[0] ? mapDbRowToTpl(r.data[0]) : null;
+            });
     }
 
     function migrateLegacyLocalTplsToDb() {
@@ -1364,6 +1452,7 @@ var AIHELPER = AIHELPER || {};
                 label: t.label || t.contentSid,
                 content_sid: t.contentSid,
                 vars: t.vars || '1',
+                var_map: varMapToCompact(t.varMap || normalizeTplVarMap(t.vars || '1', null)),
                 notes: t.notes || null,
                 sort_order: idx,
                 created_by: callerUserIdForTpl() || 'migrate'
@@ -1374,6 +1463,20 @@ var AIHELPER = AIHELPER || {};
         rows.forEach(function(row) {
             chain = chain.then(function(n) {
                 return SB.from(TWILIO_TPL_TABLE).insert([row]).then(function(r) {
+                    if (r.error && tplVarMapColumnMissing(r.error)) {
+                        var bare = {
+                            label: row.label,
+                            content_sid: row.content_sid,
+                            vars: row.vars,
+                            notes: row.notes,
+                            sort_order: row.sort_order,
+                            created_by: row.created_by
+                        };
+                        return SB.from(TWILIO_TPL_TABLE).insert([bare]).then(function(r2) {
+                            if (r2.error) return n;
+                            return n + 1;
+                        });
+                    }
                     if (r.error) return n;
                     return n + 1;
                 });
@@ -1388,10 +1491,20 @@ var AIHELPER = AIHELPER || {};
             return Promise.resolve(setTplCache(defaultTwilioTplSeed().templates, readSelectedTplPref()));
         }
         return SB.from(TWILIO_TPL_TABLE)
-            .select('id,label,content_sid,vars,notes,sort_order,is_active')
+            .select('id,label,content_sid,vars,var_map,notes,sort_order,is_active')
             .eq('is_active', true)
             .order('sort_order', { ascending: true })
             .order('label', { ascending: true })
+            .then(function(r) {
+                if (r.error && tplVarMapColumnMissing(r.error)) {
+                    return SB.from(TWILIO_TPL_TABLE)
+                        .select('id,label,content_sid,vars,notes,sort_order,is_active')
+                        .eq('is_active', true)
+                        .order('sort_order', { ascending: true })
+                        .order('label', { ascending: true });
+                }
+                return r;
+            })
             .then(function(r) {
                 if (r.error) {
                     if (tplTableMissing(r.error)) {
@@ -1415,10 +1528,20 @@ var AIHELPER = AIHELPER || {};
                     return migrateLegacyLocalTplsToDb().then(function(migrated) {
                         if (migrated) {
                             return SB.from(TWILIO_TPL_TABLE)
-                                .select('id,label,content_sid,vars,notes,sort_order,is_active')
+                                .select('id,label,content_sid,vars,var_map,notes,sort_order,is_active')
                                 .eq('is_active', true)
                                 .order('sort_order', { ascending: true })
                                 .order('label', { ascending: true })
+                                .then(function(r2) {
+                                    if (r2.error && tplVarMapColumnMissing(r2.error)) {
+                                        return SB.from(TWILIO_TPL_TABLE)
+                                            .select('id,label,content_sid,vars,notes,sort_order,is_active')
+                                            .eq('is_active', true)
+                                            .order('sort_order', { ascending: true })
+                                            .order('label', { ascending: true });
+                                    }
+                                    return r2;
+                                })
                                 .then(function(r2) {
                                     var list2 = (r2.data || []).map(mapDbRowToTpl).filter(Boolean);
                                     if (list2.length) {
@@ -1485,10 +1608,14 @@ var AIHELPER = AIHELPER || {};
         }
         var sidShort = tpl.contentSid;
         var notes = tpl.notes ? ' — ' + tpl.notes : '';
+        var map = normalizeTplVarMap(tpl.vars || '1', tpl.varMap);
+        var mapBits = Object.keys(map).sort().map(function(k) {
+            return '{{' + k + '}}={' + map[k] + '}';
+        }).join(' · ');
         hint.textContent =
             aiTr('ai.twilio.tplHint')
                 .replace('{sid}', sidShort)
-                .replace('{vars}', '{{' + String(tpl.vars || '1').split(',').join('}}, {{') + '}}') +
+                .replace('{vars}', mapBits || ('{{' + String(tpl.vars || '1').split(',').join('}}, {{') + '}}')) +
             notes;
     }
 
@@ -1502,12 +1629,28 @@ var AIHELPER = AIHELPER || {};
             if (sidEl) sidEl.value = '';
             if (varsEl) varsEl.value = '1';
             if (notesEl) notesEl.value = '';
+            renderTwilioTplVarMapUi('1', { '1': 'NAME' });
             return;
         }
         if (labelEl) labelEl.value = tpl.label || '';
         if (sidEl) sidEl.value = tpl.contentSid || '';
         if (varsEl) varsEl.value = tpl.vars || '1';
         if (notesEl) notesEl.value = tpl.notes || '';
+        renderTwilioTplVarMapUi(tpl.vars || '1', tpl.varMap);
+    }
+
+    function readTwilioTplVarMapFromUi(varsStr) {
+        var box = pick('aiTwilioTplVarMap');
+        var raw = {};
+        if (box) {
+            var sels = box.querySelectorAll('select[data-tpl-map-key], input[data-tpl-map-key]');
+            Array.prototype.forEach.call(sels, function(el) {
+                var k = el.getAttribute('data-tpl-map-key');
+                if (!k) return;
+                raw[k] = el.value;
+            });
+        }
+        return normalizeTplVarMap(varsStr, raw);
     }
 
     function readTwilioTplForm() {
@@ -1517,34 +1660,217 @@ var AIHELPER = AIHELPER || {};
         var notesEl = pick('aiTwilioTplNotes');
         var sid = normalizeContentSid(sidEl ? sidEl.value : '');
         if (!sid) return { error: 'sid' };
+        var vars = normalizeTplVars(varsEl ? varsEl.value : '1');
         return {
             label: labelEl ? String(labelEl.value || '').trim() : '',
             contentSid: sid,
-            vars: normalizeTplVars(varsEl ? varsEl.value : '1'),
-            notes: notesEl ? String(notesEl.value || '').trim().slice(0, 160) : ''
+            vars: vars,
+            varMap: readTwilioTplVarMapFromUi(vars),
+            notes: notesEl ? String(notesEl.value || '').trim().slice(0, 1000) : ''
         };
     }
+
+    function fieldLabelForUi(field) {
+        var f = String(field || '').toUpperCase();
+        var key = 'ai.twilio.field.' + f.toLowerCase();
+        var translated = aiTr(key);
+        if (translated && translated !== key) return translated + ' ({' + f + '})';
+        return '{' + f + '}';
+    }
+
+    /**
+     * Render matching rows: Twilio {{n}} → web placeholder select.
+     * @param {string} containerId
+     * @param {string} varsStr
+     * @param {Object} varMap
+     */
+    function renderTplVarMapInto(containerId, varsStr, varMap) {
+        var box = pick(containerId);
+        if (!box) return;
+        var keys = String(normalizeTplVars(varsStr) || '1').split(',').filter(Boolean);
+        var map = normalizeTplVarMap(varsStr, varMap);
+        box.innerHTML = '';
+        if (!keys.length) return;
+
+        var title = document.createElement('div');
+        title.className = 'ai-hint';
+        title.style.margin = '8px 0 6px';
+        title.textContent = aiTr('ai.twilio.varMapHint');
+        box.appendChild(title);
+
+        keys.forEach(function(k) {
+            var row = document.createElement('div');
+            row.className = 'ai-twilio-var-map-row';
+            row.style.cssText =
+                'display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;';
+
+            var lab = document.createElement('label');
+            lab.className = 'ai-label';
+            lab.style.cssText = 'margin:0;min-width:72px;font-family:ui-monospace,Consolas,monospace;';
+            lab.textContent = '{{' + k + '}}';
+
+            var arrow = document.createElement('span');
+            arrow.textContent = '→';
+            arrow.style.color = '#64748b';
+
+            var sel = document.createElement('select');
+            sel.className = 'ai-input';
+            sel.style.cssText = 'flex:1;min-width:160px;';
+            sel.setAttribute('data-tpl-map-key', k);
+            TWILIO_WEB_FIELDS.forEach(function(f) {
+                var opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = fieldLabelForUi(f);
+                if (map[k] === f) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            // Preserve custom mapped field not in catalog
+            if (map[k] && TWILIO_WEB_FIELDS.indexOf(map[k]) < 0) {
+                var custom = document.createElement('option');
+                custom.value = map[k];
+                custom.textContent = '{' + map[k] + '}';
+                custom.selected = true;
+                sel.appendChild(custom);
+            }
+
+            row.appendChild(lab);
+            row.appendChild(arrow);
+            row.appendChild(sel);
+            box.appendChild(row);
+        });
+    }
+
+    function renderTwilioTplVarMapUi(varsStr, varMap) {
+        renderTplVarMapInto('aiTwilioTplVarMap', varsStr, varMap);
+    }
+
+    ns.renderTplVarMapInto = renderTplVarMapInto;
+    ns.readTplVarMapFromContainer = function(containerId, varsStr) {
+        var box = pick(containerId);
+        var raw = {};
+        if (box) {
+            var els = box.querySelectorAll('select[data-tpl-map-key], input[data-tpl-map-key]');
+            Array.prototype.forEach.call(els, function(el) {
+                var k = el.getAttribute('data-tpl-map-key');
+                if (!k) return;
+                raw[k] = el.value;
+            });
+        }
+        return normalizeTplVarMap(varsStr, raw);
+    };
+
+    function defaultClinicForTwilio() {
+        if (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) {
+            return String(currentClinicLabel);
+        }
+        if (typeof currentClinicId !== 'undefined' && currentClinicId &&
+            typeof clinicRecordFromId === 'function' && typeof clinicDisplayName === 'function') {
+            var rec = clinicRecordFromId(currentClinicId);
+            if (rec) return clinicDisplayName(rec) || '';
+        }
+        return 'Joyful Smile';
+    }
+
+    function buildFieldBag(ctx) {
+        ctx = ctx || {};
+        var f = {};
+        if (ctx.fields && typeof ctx.fields === 'object') {
+            Object.keys(ctx.fields).forEach(function(k) {
+                var tok = normalizeFieldToken(k);
+                if (tok) f[tok] = String(ctx.fields[k] != null ? ctx.fields[k] : '');
+            });
+        }
+        function put(key, val) {
+            if (f[key] != null && String(f[key]).trim() !== '') return;
+            if (val == null || String(val).trim() === '') return;
+            f[key] = String(val);
+        }
+        put('NAME', ctx.name);
+        put('FULL_NAME', ctx.fullName || ctx.full_name);
+        put('CLINIC', ctx.clinic);
+        put('DATE', ctx.date);
+        put('TIME', ctx.time);
+        put('DOCTOR', ctx.doctor);
+        put('PHONE', ctx.phone);
+        put('PATIENT_NO', ctx.patientNo || ctx.patient_no);
+        put('BODY', ctx.body);
+        if (!f.CLINIC) put('CLINIC', defaultClinicForTwilio());
+        if (!f.NAME) put('NAME', 'Patient');
+        return f;
+    }
+
+    /**
+     * Build Twilio contentVariables using per-template varMap.
+     * Convention fallback when map missing: {{1}}=NAME {{2}}=CLINIC {{3}}=DATE {{4}}=TIME {{5}}=DOCTOR
+     * @param {string|{vars?:string,varMap?:Object}} tplOrVars
+     * @param {{name?:string,clinic?:string,date?:string,time?:string,doctor?:string,body?:string,fields?:Object,overrides?:Object}} ctx
+     */
+    ns.buildTwilioContentVariables = function(tplOrVars, ctx) {
+        ctx = ctx || {};
+        var varsStr = typeof tplOrVars === 'string'
+            ? tplOrVars
+            : ((tplOrVars && tplOrVars.vars) || '1');
+        var rawMap = typeof tplOrVars === 'object' && tplOrVars
+            ? (tplOrVars.varMap || tplOrVars.var_map || null)
+            : null;
+        var varMap = normalizeTplVarMap(varsStr, rawMap);
+        var keys = String(normalizeTplVars(varsStr) || '1').split(',').filter(Boolean);
+        if (!keys.length) keys = ['1'];
+
+        var fields = buildFieldBag(ctx);
+        var overrides = (ctx.overrides && typeof ctx.overrides === 'object')
+            ? ctx.overrides
+            : {};
+        var out = {};
+
+        keys.forEach(function(k) {
+            if (Object.prototype.hasOwnProperty.call(overrides, k) &&
+                String(overrides[k] != null ? overrides[k] : '').trim() !== '') {
+                out[k] = String(overrides[k]).trim().slice(0, 120);
+                return;
+            }
+            var field = varMap[k] || TWILIO_DEFAULT_KEY_FIELD[k] || 'BODY';
+            var val = fields[field];
+            if (val == null || String(val).trim() === '') {
+                // Meta rejects empty substitution values
+                out[k] = '-';
+                return;
+            }
+            out[k] = String(val).trim().slice(0, 120);
+        });
+        return out;
+    };
 
     function renderTwilioTplExtraVars(tpl) {
         var box = pick('aiTwilioTplExtraVars');
         if (!box) return;
         box.innerHTML = '';
         if (!tpl) return;
+        // Manual overrides only for fields not auto-filled from NAME (key 1 uses Name input).
+        // Show mapped field labels so staff know what {{n}} means for this template.
+        var map = normalizeTplVarMap(tpl.vars || '1', tpl.varMap);
         var keys = String(tpl.vars || '1').split(',').filter(Boolean);
         keys.forEach(function(k) {
             if (k === '1') return;
+            var field = map[k] || '';
             var wrap = document.createElement('div');
             wrap.style.marginTop = '10px';
             var lab = document.createElement('label');
             lab.className = 'ai-label';
-            lab.textContent = aiTr('ai.twilio.tplVarN').replace('{n}', k);
+            lab.textContent = '{{' + k + '}}' +
+                (field ? ' → {' + field + '}' : '') +
+                ' (' + aiTr('ai.twilio.tplVarOverride') + ')';
             var inp = document.createElement('input');
             inp.type = 'text';
             inp.className = 'ai-input';
             inp.id = 'aiTwilioTplVar_' + k;
             inp.maxLength = 120;
             inp.setAttribute('data-tpl-var', k);
-            inp.placeholder = '{{' + k + '}}';
+            inp.placeholder = field ? '{' + field + '}' : ('{{' + k + '}}');
+            if (field === 'CLINIC') {
+                var clinicDefault = defaultClinicForTwilio();
+                if (clinicDefault) inp.value = clinicDefault;
+            }
             wrap.appendChild(lab);
             wrap.appendChild(inp);
             box.appendChild(wrap);
@@ -1552,19 +1878,20 @@ var AIHELPER = AIHELPER || {};
     }
 
     function collectTwilioContentVariables(tpl, name) {
-        var vars = { '1': name || 'Patient' };
-        if (!tpl) return vars;
-        var keys = String(tpl.vars || '1').split(',').filter(Boolean);
-        keys.forEach(function(k) {
-            if (k === '1') {
-                vars['1'] = name || 'Patient';
-                return;
-            }
-            var el = pick('aiTwilioTplVar_' + k);
-            vars[k] = el ? String(el.value || '').trim() : '';
-            if (!vars[k]) vars[k] = '';
+        var overrides = {};
+        if (tpl) {
+            var keys = String(tpl.vars || '1').split(',').filter(Boolean);
+            keys.forEach(function(k) {
+                if (k === '1') return;
+                var el = pick('aiTwilioTplVar_' + k);
+                if (el) overrides[k] = String(el.value || '').trim();
+            });
+        }
+        return ns.buildTwilioContentVariables(tpl, {
+            name: name || 'Patient',
+            clinic: defaultClinicForTwilio(),
+            overrides: overrides
         });
-        return vars;
     }
 
     function paintTwilioTplSelect() {
@@ -1630,6 +1957,14 @@ var AIHELPER = AIHELPER || {};
         syncTwilioTplHint();
     };
 
+    /** Re-draw mapping rows when Variable keys text changes; keep chosen fields where possible. */
+    ns.onTwilioTplVarsInput = function() {
+        var varsEl = pick('aiTwilioTplVars');
+        var vars = varsEl ? String(varsEl.value || '1') : '1';
+        var current = readTwilioTplVarMapFromUi(vars);
+        renderTwilioTplVarMapUi(vars, current);
+    };
+
     /**
      * Programmatic clinic-wide template APIs (Broadcast tab, AI Helper UI).
      * @returns {Promise<{ok:boolean, id?:string, error?:string, templates?:Array}>}
@@ -1644,7 +1979,8 @@ var AIHELPER = AIHELPER || {};
             label: String(opts.label || '').trim() || sid,
             contentSid: sid,
             vars: normalizeTplVars(opts.vars || '1'),
-            notes: String(opts.notes || '').trim().slice(0, 160)
+            varMap: normalizeTplVarMap(opts.vars || '1', opts.varMap || opts.var_map || null),
+            notes: String(opts.notes || '').trim().slice(0, 1000)
         };
         return ensureTwilioTplCache(false).then(function() {
             var store = loadTwilioTplStore();
@@ -1661,6 +1997,7 @@ var AIHELPER = AIHELPER || {};
                     label: form.label,
                     contentSid: form.contentSid,
                     vars: form.vars,
+                    varMap: form.varMap,
                     notes: form.notes,
                     builtin: false
                 });
@@ -1669,14 +2006,22 @@ var AIHELPER = AIHELPER || {};
                 paintTwilioTplSelect();
                 return { ok: true, id: localId, templates: store.templates.slice() };
             }
-            return SB.from(TWILIO_TPL_TABLE).insert([{
+            var insertRow = {
                 label: form.label,
                 content_sid: form.contentSid,
                 vars: form.vars,
+                var_map: form.varMap,
                 notes: form.notes || null,
                 sort_order: store.templates.length,
                 created_by: callerUserIdForTpl()
-            }]).select('id').single().then(function(r) {
+            };
+            return SB.from(TWILIO_TPL_TABLE).insert([insertRow]).select('id').single().then(function(r) {
+                if (r.error && tplVarMapColumnMissing(r.error)) {
+                    delete insertRow.var_map;
+                    return SB.from(TWILIO_TPL_TABLE).insert([insertRow]).select('id').single();
+                }
+                return r;
+            }).then(function(r) {
                 if (r.error) {
                     var msg = String(r.error.message || '');
                     if (/duplicate|unique/i.test(msg)) return { ok: false, error: 'dup' };
@@ -1706,7 +2051,8 @@ var AIHELPER = AIHELPER || {};
             label: String(opts.label || '').trim() || sid,
             contentSid: sid,
             vars: normalizeTplVars(opts.vars || '1'),
-            notes: String(opts.notes || '').trim().slice(0, 160)
+            varMap: normalizeTplVarMap(opts.vars || '1', opts.varMap || opts.var_map || null),
+            notes: String(opts.notes || '').trim().slice(0, 1000)
         };
         return ensureTwilioTplCache(false).then(function() {
             var store = loadTwilioTplStore();
@@ -1724,6 +2070,7 @@ var AIHELPER = AIHELPER || {};
                 prev.label = form.label;
                 prev.contentSid = form.contentSid;
                 prev.vars = form.vars;
+                prev.varMap = form.varMap;
                 prev.notes = form.notes;
                 store.selectedId = prev.id;
                 saveTwilioTplStore(store);
@@ -1731,13 +2078,21 @@ var AIHELPER = AIHELPER || {};
                 return { ok: true, id: prev.id, templates: store.templates.slice() };
             }
 
-            return SB.from(TWILIO_TPL_TABLE).update({
+            var patch = {
                 label: form.label,
                 content_sid: form.contentSid,
                 vars: form.vars,
+                var_map: form.varMap,
                 notes: form.notes || null,
                 updated_at: new Date().toISOString()
-            }).eq('id', prev.id).then(function(r) {
+            };
+            return SB.from(TWILIO_TPL_TABLE).update(patch).eq('id', prev.id).then(function(r) {
+                if (r.error && tplVarMapColumnMissing(r.error)) {
+                    delete patch.var_map;
+                    return SB.from(TWILIO_TPL_TABLE).update(patch).eq('id', prev.id);
+                }
+                return r;
+            }).then(function(r) {
                 if (r.error) return { ok: false, error: String(r.error.message || '') };
                 writeSelectedTplPref(prev.id);
                 return ensureTwilioTplCache(true).then(function() {
@@ -1799,12 +2154,19 @@ var AIHELPER = AIHELPER || {};
         }
         var sel = pick('aiTwilioTpl');
         var id = sel ? String(sel.value || '') : '';
+        // No selection / unknown id → add as new
+        if (!id || id === '__new__' || !ns.getTwilioContentTemplate(id)) {
+            ns.addTwilioTpl();
+            return;
+        }
         setTwilioStatus(aiTr('ai.twilio.tplSaving'), false);
         ns.updateTwilioContentTemplate(id, form).then(function(res) {
             if (!res || !res.ok) {
                 if (res && res.error === 'db_missing') alert(aiTr('ai.twilio.tplDbMissing'));
-                else if (res && res.error === 'select') alert(aiTr('ai.twilio.needTplSelect'));
-                else if (res && res.error === 'sid') alert(aiTr('ai.twilio.needTplSid'));
+                else if (res && res.error === 'select') {
+                    ns.addTwilioTpl();
+                    return;
+                } else if (res && res.error === 'sid') alert(aiTr('ai.twilio.needTplSid'));
                 else alert(aiTr('ai.twilio.tplSaveFail') + (res && res.error ? '\n\n' + res.error : ''));
                 setTwilioStatus((res && res.error) || aiTr('ai.twilio.tplSaveFail'), true);
                 return;
@@ -3037,5 +3399,14 @@ var AIHELPER = AIHELPER || {};
         ns.refreshTwilioFromSelect();
         ns.refreshTwilioTplSelect();
     });
+
+    // Live-update placeholder matching rows when Variable keys change
+    (function bindTwilioTplVarMapUi() {
+        var varsEl = pick('aiTwilioTplVars');
+        if (!varsEl || varsEl.getAttribute('data-var-map-bound')) return;
+        varsEl.setAttribute('data-var-map-bound', '1');
+        varsEl.addEventListener('input', function() { ns.onTwilioTplVarsInput(); });
+        varsEl.addEventListener('change', function() { ns.onTwilioTplVarsInput(); });
+    })();
 
 })(AIHELPER);

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260721-mb-twilio-setup';
+  var BUILD = '20260721-recall-tpl-preview';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -705,16 +705,20 @@
                 <div>
                   <label class="ai-label" data-i18n="ai.twilio.tplVars">Variable keys</label>
                   <input type="text" id="aiTwilioTplVars" class="ai-input" maxlength="40"
-                         placeholder="1" data-i18n-placeholder="ai.twilio.tplVarsPh"
-                         spellcheck="false" autocomplete="off">
-                  <small class="ai-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.</small>
+                         placeholder="1,2,3,4,5" data-i18n-placeholder="ai.twilio.tplVarsPh"
+                         spellcheck="false" autocomplete="off"
+                         oninput="AIHELPER.onTwilioTplVarsInput()"
+                         onchange="AIHELPER.onTwilioTplVarsInput()">
+                  <small class="ai-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Twilio keys from the approved template (e.g. 1,2,3,4,5). Map each key to a web placeholder below.</small>
                 </div>
                 <div>
-                  <label class="ai-label" data-i18n="ai.twilio.tplNotes">Notes / preview</label>
-                  <input type="text" id="aiTwilioTplNotes" class="ai-input" maxlength="160"
-                         placeholder="Approved recall greeting" data-i18n-placeholder="ai.twilio.tplNotesPh">
+                  <label class="ai-label" data-i18n="ai.twilio.tplNotes">Preview body (paste Twilio text)</label>
+                  <textarea id="aiTwilioTplNotes" class="ai-input ai-textarea" rows="3" maxlength="1000"
+                         placeholder="Hi {{1}}, this is {{2}}. Reminder…" data-i18n-placeholder="ai.twilio.tplNotesPh"></textarea>
+                  <small class="ai-hint" data-i18n="ai.twilio.tplNotesHint">Paste the approved Twilio template body (with {{1}}, {{2}}…). Leave blank to auto-preview from the mapping.</small>
                 </div>
               </div>
+              <div id="aiTwilioTplVarMap" class="ai-twilio-tpl-var-map" style="margin-top:8px;"></div>
               <div class="ai-actions-row" style="margin-top:8px;">
                 <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.saveTwilioTpl()" data-i18n="ai.twilio.btn.saveTpl">Save changes</button>
                 <button type="button" class="ai-channel-btn ghost" onclick="AIHELPER.addTwilioTpl()" data-i18n="ai.twilio.btn.addTpl">Add as new</button>
@@ -1607,25 +1611,52 @@
             Default uses Edge secrets (TWILIO_WHATSAPP_FROM / TWILIO_SMS_FROM). Pick a saved number to override.
           </p>
           <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;">
-            <button type="button" class="ai-link-btn" onclick="openAiHelperTwilioFromNumbers()"
-                    data-i18n="appt.recallTwilioManageFrom">Twilio Setup</button>
+            <button type="button" class="mb-btn ghost" onclick="openBroadcastTwilioSetup()"
+                    data-i18n="mb.openTwilioSetup">Twilio Setup</button>
           </p>
         </div>
 
         <div id="rcTwilioWaTplRow">
           <label for="rcTwilioTpl" style="display:block;font-size:12px;font-weight:800;color:#334155;margin-bottom:6px;"
                  data-i18n="appt.recallTwilioTpl">Twilio Content Template</label>
-          <select id="rcTwilioTpl" class="ai-input" style="max-width:520px;"
-                  onchange="onRcTwilioTplChange()"></select>
+          <div class="mb-tpl-select-row" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <select id="rcTwilioTpl" class="mb-select mb-input-wide" style="flex:1;min-width:220px;max-width:520px;"
+                    onchange="onRcTwilioTplChange()"></select>
+            <button type="button" class="mb-btn ghost" onclick="reloadRcTwilioTemplates()"
+                    data-i18n="mb.tpl.reload">Reload</button>
+            <button type="button" class="mb-btn ghost" onclick="openBroadcastTwilioSetup()"
+                    data-i18n="mb.openTwilioSetup">Twilio Setup</button>
+            <button type="button" class="mb-btn primary" onclick="beginRcNewTwilioTemplate()"
+                    data-i18n="mb.tpl.addNewBtn">+ New</button>
+          </div>
           <p id="rcTwilioTplHint" style="margin:6px 0 0;font-size:11px;color:#64748b;line-height:1.45;"></p>
           <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;">
             <a href="https://console.twilio.com/us1/develop/sms/content-template-builder"
                target="_blank" rel="noopener noreferrer" class="ai-twilio-console-link"
                data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
-            <button type="button" class="ai-link-btn" style="margin-left:10px;"
-                    onclick="openAiHelperTwilioTemplates()"
-                    data-i18n="appt.recallTwilioManageTpl">Twilio Setup</button>
           </p>
+
+          <div id="rcTplPreview" class="mb-tpl-preview" style="margin-top:12px;" aria-live="polite">
+            <div class="mb-tpl-preview-head">
+              <span class="mb-tpl-preview-title" data-i18n="mb.setup.tplPreview">Template preview</span>
+              <span id="rcTplPreviewMeta" class="mb-tpl-preview-meta"></span>
+            </div>
+            <div id="rcTplPreviewEmpty" class="mb-tpl-preview-empty" data-i18n="appt.recall.twilioTplPreviewEmpty">
+              Select a Twilio content template to preview sample text.
+            </div>
+            <div id="rcTplPreviewBody" class="mb-tpl-preview-body" style="display:none;">
+              <div class="mb-tpl-preview-wa">
+                <div class="mb-tpl-preview-bubble">
+                  <div id="rcTplPreviewText" class="mb-tpl-preview-text"></div>
+                  <div class="mb-tpl-preview-time">12:00</div>
+                </div>
+              </div>
+              <dl id="rcTplPreviewFacts" class="mb-tpl-preview-facts"></dl>
+              <p class="mb-hint mb-tpl-preview-note" data-i18n="appt.recall.twilioTplPreviewNote">
+                Preview uses the template’s preview body (or an auto sample from the variable map). Live WhatsApp text comes from Twilio.
+              </p>
+            </div>
+          </div>
         </div>
         <p id="rcTwilioSmsHint" style="display:none;margin:0;font-size:11px;color:#64748b;line-height:1.45;"
            data-i18n="appt.recallTwilioSmsHint">
@@ -1914,6 +1945,8 @@
             <label class="mb-label" for="mbTwilioTpl" data-i18n="mb.tpl">WhatsApp content template</label>
             <div class="mb-tpl-select-row">
               <select id="mbTwilioTpl" class="mb-select mb-input-wide" onchange="MASSBC.onTplChange()"></select>
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.beginNewTemplate()"
+                      data-i18n="mb.tpl.addNewBtn">+ New</button>
               <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadTemplates()"
                       data-i18n="mb.tpl.reload">Reload</button>
               <button type="button" class="mb-btn ghost" onclick="MASSBC.setMode('twilio')"
@@ -1925,7 +1958,7 @@
                  target="_blank" rel="noopener noreferrer" class="mb-link"
                  data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
             </p>
-            <p class="mb-hint" data-i18n="mb.tpl.note">{{1}} = patient first name. Extra vars use SMS body text when present.</p>
+            <p class="mb-hint" data-i18n="mb.tpl.note">Map Twilio {{n}} keys to web placeholders ({NAME}, {CLINIC}, {DATE}, {TIME}, {DOCTOR}, …) in Twilio Setup.</p>
           </div>
           <div id="mbSmsFields" style="display:none;">
             <label class="mb-label" for="mbSmsBody" data-i18n="mb.sms.body">SMS message</label>
@@ -2045,9 +2078,37 @@
             <label class="mb-label" for="mbSetupTpl" data-i18n="mb.setup.tplList">Saved templates</label>
             <div class="mb-tpl-select-row">
               <select id="mbSetupTpl" class="mb-select mb-input-wide" onchange="MASSBC.onSetupTplChange()"></select>
+              <button type="button" class="mb-btn primary" onclick="MASSBC.beginNewTemplate()"
+                      data-i18n="mb.tpl.addNewBtn">+ New</button>
               <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadTemplates()"
                       data-i18n="mb.tpl.reload">Reload</button>
             </div>
+            <p class="mb-hint" data-i18n="mb.tpl.addNewHint">
+              Choose “+ Add new template…” or click + New, fill Label + Content SID + variable map, then Add to list.
+            </p>
+
+            <div id="mbTplPreview" class="mb-tpl-preview" aria-live="polite">
+              <div class="mb-tpl-preview-head">
+                <span class="mb-tpl-preview-title" data-i18n="mb.setup.tplPreview">Template preview</span>
+                <span id="mbTplPreviewMeta" class="mb-tpl-preview-meta"></span>
+              </div>
+              <div id="mbTplPreviewEmpty" class="mb-tpl-preview-empty" data-i18n="mb.setup.tplPreviewEmpty">
+                Select a template to preview its notes and variables.
+              </div>
+              <div id="mbTplPreviewBody" class="mb-tpl-preview-body" style="display:none;">
+                <div class="mb-tpl-preview-wa">
+                  <div class="mb-tpl-preview-bubble">
+                    <div id="mbTplPreviewText" class="mb-tpl-preview-text"></div>
+                    <div class="mb-tpl-preview-time">12:00</div>
+                  </div>
+                </div>
+                <dl id="mbTplPreviewFacts" class="mb-tpl-preview-facts"></dl>
+                <p class="mb-hint mb-tpl-preview-note" data-i18n="mb.setup.tplPreviewNote">
+                  Preview substitutes sample values into the Preview body (or an auto next-day sample from your variable map). Live WhatsApp text still comes from Twilio Content Template Builder.
+                </p>
+              </div>
+            </div>
+
             <div class="mb-tpl-form-grid">
               <div>
                 <label class="mb-label" for="mbTplLabel" data-i18n="ai.twilio.tplLabel">Label</label>
@@ -2064,15 +2125,18 @@
               <div>
                 <label class="mb-label" for="mbTplVars" data-i18n="ai.twilio.tplVars">Variable keys</label>
                 <input type="text" id="mbTplVars" class="mb-input mb-input-wide" maxlength="40"
-                       value="1" data-i18n-placeholder="ai.twilio.tplVarsPh" placeholder="1">
-                <p class="mb-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.</p>
+                       value="1" data-i18n-placeholder="ai.twilio.tplVarsPh" placeholder="1,2,3,4,5">
+                <p class="mb-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Twilio keys from the approved template (e.g. 1,2,3,4,5). Map each key to a web placeholder below.</p>
               </div>
               <div>
-                <label class="mb-label" for="mbTplNotes" data-i18n="ai.twilio.tplNotes">Notes / preview</label>
-                <input type="text" id="mbTplNotes" class="mb-input mb-input-wide" maxlength="160"
-                       data-i18n-placeholder="ai.twilio.tplNotesPh" placeholder="Approved recall greeting">
+                <label class="mb-label" for="mbTplNotes" data-i18n="ai.twilio.tplNotes">Preview body (paste Twilio text)</label>
+                <textarea id="mbTplNotes" class="mb-textarea mb-input-wide" rows="4" maxlength="1000"
+                       data-i18n-placeholder="ai.twilio.tplNotesPh"
+                       placeholder="Hi {{1}}, this is {{2}}. Reminder: your appointment is on {{3}} at {{4}} with Dr {{5}}. Please reply to confirm. Thank you."></textarea>
+                <p class="mb-hint" data-i18n="ai.twilio.tplNotesHint">Paste the approved Twilio template body here (with {{1}}, {{2}}…). Preview fills sample values from the map below. Leave blank to auto-preview from the mapping.</p>
               </div>
             </div>
+            <div id="mbTplVarMap" class="mb-tpl-var-map" style="margin-top:10px;"></div>
             <div class="mb-tpl-actions">
               <button type="button" class="mb-btn ghost" onclick="MASSBC.saveTemplate()"
                       data-i18n="mb.tpl.save">Save selected</button>

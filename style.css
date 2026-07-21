@@ -44,7 +44,7 @@ option {
     font-synthesis: none;
 }
 
-/* Slim title-style strip: date + clinic (decorative ? ? ◊ for familiar window chrome) */
+/* Slim title-style strip: date + clinic (decorative ? ? ù for familiar window chrome) */
 .app-session-strip {
     display: none;
     position: fixed;
@@ -347,7 +347,7 @@ option {
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.24);
 }
 
-/* Auto-compact for 1280◊1024 and similar (?1320px wide) */
+/* Auto-compact for 1280ù1024 and similar (?1320px wide) */
 @media (max-width: 1320px) {
     .active-patient-dock:not(.is-collapsed) {
         width: 178px;
@@ -12448,7 +12448,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     margin-left: 5px;
 }
 .gcal-card .card-treatment::before {
-    content: '∑';
+    content: 'ù';
     margin-right: 4px;
     opacity: .55;
 }
@@ -16353,6 +16353,75 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 @media (max-width: 900px) {
     .mb-setup-grid { grid-template-columns: 1fr; }
 }
+
+/* Template preview (Twilio Setup) */
+.mb-tpl-preview {
+    margin: 12px 0 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1.5px solid #d1fae5;
+    background: linear-gradient(180deg, #f0fdf9 0%, #f8fafc 100%);
+}
+.mb-tpl-preview-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+    gap: 6px 12px; margin-bottom: 10px;
+}
+.mb-tpl-preview-title {
+    font-size: 11px; font-weight: 800; letter-spacing: .04em;
+    text-transform: uppercase; color: #0f766e;
+}
+.mb-tpl-preview-meta {
+    font-size: 11px; font-weight: 650; color: #64748b;
+}
+.mb-tpl-preview-empty {
+    font-size: 12px; color: #94a3b8; line-height: 1.45; padding: 8px 0 2px;
+}
+.mb-tpl-preview-wa {
+    background: #e5ddd5;
+    background-image:
+        radial-gradient(rgba(0,0,0,.04) 1px, transparent 1px);
+    background-size: 12px 12px;
+    border-radius: 10px;
+    padding: 14px 12px 16px;
+}
+.mb-tpl-preview-bubble {
+    max-width: 92%;
+    margin-right: auto;
+    background: #fff;
+    border-radius: 8px 8px 8px 2px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.08);
+    padding: 8px 10px 4px;
+    position: relative;
+}
+.mb-tpl-preview-text {
+    font-size: 13px; line-height: 1.45; color: #111827;
+    white-space: pre-wrap; word-break: break-word;
+    min-height: 1.2em;
+}
+.mb-tpl-preview-text .mb-tpl-var {
+    display: inline-block;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: #ccfbf1;
+    color: #115e59;
+    font-weight: 700;
+    font-size: 12px;
+}
+.mb-tpl-preview-text.is-muted { color: #94a3b8; font-style: italic; }
+.mb-tpl-preview-time {
+    text-align: right; font-size: 10px; color: #94a3b8; margin-top: 4px;
+}
+.mb-tpl-preview-facts {
+    display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+    margin: 10px 0 0; font-size: 12px;
+}
+.mb-tpl-preview-facts dt {
+    margin: 0; font-weight: 750; color: #64748b;
+}
+.mb-tpl-preview-facts dd {
+    margin: 0; color: #334155; word-break: break-all;
+}
+.mb-tpl-preview-note { margin: 8px 0 0; }
 
 .mb-sent-legend { margin: 0 0 8px; }
 .mb-sent-tag {

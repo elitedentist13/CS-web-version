@@ -8927,6 +8927,7 @@ function refreshRcTwilioTplSelect() {
         empty.textContent = tr('appt.recallTwilioTplEmpty');
         sel.appendChild(empty);
         syncRcTwilioTplHint();
+        renderRcTplPreview();
         return;
     }
     templates.forEach(function(t) {
@@ -8943,6 +8944,7 @@ function refreshRcTwilioTplSelect() {
     sel.value = exists ? prev : templates[0].id;
     try { localStorage.setItem(RC_TWILIO_TPL_PREF, sel.value); } catch (e2) { /* ignore */ }
     syncRcTwilioTplHint();
+    renderRcTplPreview();
 }
 
 function onRcTwilioTplChange() {
@@ -8951,6 +8953,7 @@ function onRcTwilioTplChange() {
         try { localStorage.setItem(RC_TWILIO_TPL_PREF, String(sel.value || '')); } catch (e) { /* ignore */ }
     }
     syncRcTwilioTplHint();
+    renderRcTplPreview();
 }
 
 function syncRcTwilioTplHint() {
@@ -8967,10 +8970,18 @@ function syncRcTwilioTplHint() {
         hint.textContent = tr('appt.recallTwilioTplEmpty');
         return;
     }
-    var notes = tpl.notes ? ' — ' + tpl.notes : '';
+    var map = tpl.varMap || {};
+    if (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.normalizeTplVarMap === 'function') {
+        map = AIHELPER.normalizeTplVarMap(tpl.vars || '1', tpl.varMap);
+    }
+    var bits = Object.keys(map).sort().map(function(k) {
+        return '{{' + k + '}}={' + map[k] + '}';
+    }).join(' · ');
+    var notes = tpl.notes ? ' — ' + String(tpl.notes).slice(0, 80) : '';
     hint.textContent = trRepl('appt.recallTwilioTplHint', {
         SID: tpl.contentSid || '',
-        VARS: '{{' + String(tpl.vars || '1').split(',').join('}}, {{') + '}}'
+        VARS: bits || ('{{' + String(tpl.vars || '1').split(',').join('}}, {{') + '}}')
     }) + notes;
 }
 
@@ -8982,6 +8993,168 @@ function getSelectedRcTwilioTpl() {
         return null;
     }
     return AIHELPER.getTwilioContentTemplate(id);
+}
+
+function rcEscHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function rcSampleField(field) {
+    var f = String(field || '').toUpperCase();
+    if (f === 'NAME') return 'Alex';
+    if (f === 'FULL_NAME') return 'Alex Chan';
+    if (f === 'CLINIC') return (typeof apptClinicNameForWhatsApp === 'function'
+        ? apptClinicNameForWhatsApp() : '') || 'Joyful Smile';
+    if (f === 'DATE') return (typeof rcDate !== 'undefined' && rcDate) ? rcDate : '2026-07-22';
+    if (f === 'TIME') return '10:00 AM';
+    if (f === 'DOCTOR') return 'Chan';
+    if (f === 'PHONE') return '+85291234567';
+    if (f === 'PATIENT_NO') return '001234';
+    if (f === 'BODY') return '…';
+    return 'Sample';
+}
+
+function rcSampleForKey(k, varMap) {
+    var map = varMap || {};
+    if (map[k]) return rcSampleField(map[k]);
+    if (k === '1') return rcSampleField('NAME');
+    if (k === '2') return rcSampleField('CLINIC');
+    if (k === '3') return rcSampleField('DATE');
+    if (k === '4') return rcSampleField('TIME');
+    if (k === '5') return rcSampleField('DOCTOR');
+    return 'Sample ' + k;
+}
+
+function rcDefaultPreviewBody(varsStr, varMap) {
+    var map = varMap || {};
+    if (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.normalizeTplVarMap === 'function') {
+        map = AIHELPER.normalizeTplVarMap(varsStr, varMap);
+    }
+    var byField = {};
+    Object.keys(map).forEach(function(k) {
+        byField[String(map[k] || '').toUpperCase()] = k;
+    });
+    function tok(field) {
+        var k = byField[field];
+        return k ? ('{{' + k + '}}') : ('{' + field + '}');
+    }
+    return 'Hi ' + tok('NAME') + ', this is ' + tok('CLINIC') +
+        '. Reminder: your appointment is on ' + tok('DATE') +
+        ' at ' + tok('TIME') + ' with Dr ' + tok('DOCTOR') +
+        '. Please reply to confirm. Thank you.';
+}
+
+function renderRcTplPreview() {
+    var emptyEl = g('rcTplPreviewEmpty');
+    var bodyEl = g('rcTplPreviewBody');
+    var textEl = g('rcTplPreviewText');
+    var factsEl = g('rcTplPreviewFacts');
+    var metaEl = g('rcTplPreviewMeta');
+    var tpl = getSelectedRcTwilioTpl();
+
+    if (!tpl || !tpl.contentSid) {
+        if (emptyEl) emptyEl.style.display = '';
+        if (bodyEl) bodyEl.style.display = 'none';
+        if (metaEl) metaEl.textContent = '';
+        return;
+    }
+
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (bodyEl) bodyEl.style.display = '';
+    if (metaEl) metaEl.textContent = tpl.label || tpl.contentSid || '';
+
+    var varsStr = tpl.vars || '1';
+    var map = tpl.varMap || {};
+    if (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.normalizeTplVarMap === 'function') {
+        map = AIHELPER.normalizeTplVarMap(varsStr, tpl.varMap);
+    }
+    var keys = String(varsStr).split(',').map(function(s) {
+        return String(s || '').trim();
+    }).filter(Boolean);
+
+    var raw = String(tpl.notes || '').trim();
+    var auto = false;
+    if (!raw) {
+        raw = rcDefaultPreviewBody(varsStr, map);
+        auto = true;
+    }
+    var html = rcEscHtml(raw);
+    keys.forEach(function(k) {
+        var sample = rcEscHtml(rcSampleForKey(k, map));
+        var chip = '<span class="mb-tpl-var">' + sample + '</span>';
+        var reBrace = new RegExp('\\{\\{\\s*' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}\\}', 'g');
+        var reSingle = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\}', 'g');
+        html = html.replace(reBrace, chip).replace(reSingle, chip);
+    });
+    ['NAME', 'FULL_NAME', 'CLINIC', 'DATE', 'TIME', 'DOCTOR', 'PHONE', 'PATIENT_NO', 'BODY']
+        .forEach(function(f) {
+            var sample = rcEscHtml(rcSampleField(f));
+            var chip = '<span class="mb-tpl-var">' + sample + '</span>';
+            var re = new RegExp('\\{\\s*' + f + '\\s*\\}', 'gi');
+            html = html.replace(re, chip);
+        });
+    html = html.replace(/\{\{\s*([0-9A-Za-z_]+)\s*\}\}/g, function(_m, k) {
+        return '<span class="mb-tpl-var">' + rcEscHtml(rcSampleForKey(k, map)) + '</span>';
+    });
+
+    if (textEl) {
+        textEl.innerHTML = html;
+        textEl.classList.toggle('is-muted', false);
+    }
+    if (metaEl && auto) {
+        metaEl.textContent = (tpl.label || tpl.contentSid || '') + ' · ' +
+            tr('mb.setup.tplPreviewAuto', 'auto sample');
+    }
+
+    if (factsEl) {
+        var varDesc = keys.map(function(k) {
+            return '{{' + k + '}} → {' + (map[k] || '?') + '} = ' + rcSampleForKey(k, map);
+        }).join(' · ') || '—';
+        factsEl.innerHTML =
+            '<dt>' + rcEscHtml(tr('mb.setup.tplPreviewLabel', 'Label')) + '</dt>' +
+            '<dd>' + rcEscHtml(tpl.label || '—') + '</dd>' +
+            '<dt>' + rcEscHtml(tr('mb.setup.tplPreviewSid', 'Content SID')) + '</dt>' +
+            '<dd>' + rcEscHtml(tpl.contentSid || '—') + '</dd>' +
+            '<dt>' + rcEscHtml(tr('mb.setup.tplPreviewVars', 'Variables')) + '</dt>' +
+            '<dd>' + rcEscHtml(keys.map(function(k) {
+                return '{{' + k + '}}→{' + (map[k] || '?') + '}';
+            }).join(', ') || '—') + '</dd>' +
+            '<dt>' + rcEscHtml(tr('mb.setup.tplPreviewSample', 'Sample')) + '</dt>' +
+            '<dd>' + rcEscHtml(varDesc) + '</dd>';
+    }
+}
+
+function reloadRcTwilioTemplates() {
+    if (typeof AIHELPER === 'undefined') {
+        refreshRcTwilioTplSelect();
+        return;
+    }
+    var p = typeof AIHELPER.reloadTwilioContentTemplates === 'function'
+        ? AIHELPER.reloadTwilioContentTemplates()
+        : (AIHELPER.ensureTwilioContentTemplates
+            ? AIHELPER.ensureTwilioContentTemplates(true)
+            : Promise.resolve());
+    Promise.resolve(p).then(function() {
+        refreshRcTwilioFromSelect();
+        refreshRcTwilioTplSelect();
+    }).catch(function() {
+        refreshRcTwilioTplSelect();
+    });
+}
+
+function beginRcNewTwilioTemplate() {
+    openBroadcastTwilioSetup();
+    setTimeout(function() {
+        if (typeof MASSBC !== 'undefined' && typeof MASSBC.beginNewTemplate === 'function') {
+            MASSBC.beginNewTemplate();
+        }
+    }, 120);
 }
 
 function openBroadcastTwilioSetup() {
@@ -9189,6 +9362,30 @@ function showRcSendModal() {
 
     var previewBlock;
     if (isTwilioWa && tpl) {
+        var cvPreview = (typeof AIHELPER !== 'undefined' &&
+            typeof AIHELPER.buildTwilioContentVariables === 'function')
+            ? AIHELPER.buildTwilioContentVariables(tpl, {
+                name: recallPatientFirstName(a),
+                fullName: a.patient_name || a.patient_chinese_name || '',
+                clinic: typeof apptClinicNameForWhatsApp === 'function'
+                    ? apptClinicNameForWhatsApp()
+                    : '',
+                date: a.date || rcDate || '',
+                time: a.start_time && typeof fmt12 === 'function'
+                    ? fmt12(a.start_time)
+                    : String(a.start_time || ''),
+                doctor: typeof apptDoctorNameForWhatsApp === 'function'
+                    ? apptDoctorNameForWhatsApp(a)
+                    : String(a.doctor_name || a.doctor_code || ''),
+                phone: a.phone || '',
+                patientNo: a.patient_no || ''
+            })
+            : { '1': recallPatientFirstName(a) };
+        var map = tpl.varMap || {};
+        var varLines = Object.keys(cvPreview).sort().map(function(k) {
+            var field = map[k] ? ('{' + map[k] + '} ') : '';
+            return '{{' + k + '}} ' + field + '= <strong>' + esc(cvPreview[k]) + '</strong>';
+        }).join('<br>');
         previewBlock =
             '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;' +
             'padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.55;color:#065f46;">' +
@@ -9197,8 +9394,7 @@ function showRcSendModal() {
             esc(tpl.label || '') + '<br>' +
             '<span style="font-family:ui-monospace,Consolas,monospace;font-size:11px;">' +
             esc(tpl.contentSid || '') + '</span>' +
-            '<div style="margin-top:6px;">{{1}} = <strong>' +
-            esc(recallPatientFirstName(a)) + '</strong></div>' +
+            '<div style="margin-top:6px;">' + varLines + '</div>' +
             (tpl.notes ? '<div style="margin-top:4px;opacity:.9;">' + esc(tpl.notes) + '</div>' : '') +
             '</div>';
     } else {
@@ -9391,14 +9587,27 @@ function rcSendViaTwilio() {
             return;
         }
         opts.contentSid = tpl.contentSid;
-        opts.contentVariables = { '1': name };
-        // Extra vars: fill empty for now ({{1}} is the main recall use-case)
-        var keys = String(tpl.vars || '1').split(',').filter(Boolean);
-        keys.forEach(function(k) {
-            if (k === '1') return;
-            // Prefer personalised message for {{2}} if present
-            opts.contentVariables[k] = body ? String(body).slice(0, 120) : '';
-        });
+        if (typeof AIHELPER.buildTwilioContentVariables === 'function') {
+            opts.contentVariables = AIHELPER.buildTwilioContentVariables(tpl, {
+                name: name,
+                fullName: a.patient_name || a.patient_chinese_name || name,
+                clinic: typeof apptClinicNameForWhatsApp === 'function'
+                    ? apptClinicNameForWhatsApp()
+                    : '',
+                date: a.date || rcDate || '',
+                time: a.start_time && typeof fmt12 === 'function'
+                    ? fmt12(a.start_time)
+                    : String(a.start_time || ''),
+                doctor: typeof apptDoctorNameForWhatsApp === 'function'
+                    ? apptDoctorNameForWhatsApp(a)
+                    : String(a.doctor_name || a.doctor_code || ''),
+                phone: a.phone || '',
+                patientNo: a.patient_no || '',
+                body: body
+            });
+        } else {
+            opts.contentVariables = { '1': name };
+        }
     }
 
     var statusEl = g('rcTwilioSendStatus');

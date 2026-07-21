@@ -7,6 +7,7 @@ var MASSBC = (function () {
     'use strict';
 
     var SEG_LS_KEY = 'mb_broadcast_segments_v1';
+    var SEG_TABLE = 'broadcast_contact_lists';
     var COL_LS_KEY = 'mb_broadcast_cols_v1';
     var SENT_PERIOD_LS_KEY = 'mb_sent_tag_months_v1';
     var SEND_DELAY_MS = 450;
@@ -14,6 +15,9 @@ var MASSBC = (function () {
     /** Supabase/PostgREST typically caps one response at ~1000 rows — page past that. */
     var PATIENT_FETCH_SIZE = 1000;
     var DEFAULT_SENT_MONTHS = 6;
+    var BUILTIN_SEGMENTS = {
+        all: 1, scope: 1, hasphone: 1, birthday: 1, sent: 1, unsent: 1
+    };
 
     var _mode = 'contacts'; // contacts | campaign | twilio | history
     var _wizardStep = 1;
@@ -25,6 +29,11 @@ var MASSBC = (function () {
     var _page = 0;
     var _conditions = [];
     var _activeSegmentId = 'all';
+    /** In-memory cache of clinic-wide saved lists (from Supabase). */
+    var _segments = [];
+    var _segmentsLoading = false;
+    var _segmentsDbMissing = false;
+    var _segmentsMigrating = false;
     var _channel = 'whatsapp';
     var _campaignName = '';
     var _smsBody = '';
@@ -190,6 +199,10 @@ var MASSBC = (function () {
     }
 
     function loadSegments() {
+        return _segments.slice();
+    }
+
+    function readLegacyLocalSegments() {
         try {
             var raw = localStorage.getItem(SEG_LS_KEY);
             var list = raw ? JSON.parse(raw) : [];
@@ -199,8 +212,174 @@ var MASSBC = (function () {
         }
     }
 
-    function saveSegments(list) {
+    function clearLegacyLocalSegments() {
+        try { localStorage.removeItem(SEG_LS_KEY); } catch (e) { /* ignore */ }
+    }
+
+    function isSavedListId(id) {
+        var sid = String(id || '');
+        return !!sid && !BUILTIN_SEGMENTS[sid];
+    }
+
+    function segmentCreatedBy() {
+        try {
+            if (typeof currentUserId !== 'undefined' && currentUserId) {
+                return String(currentUserId);
+            }
+        } catch (e) { /* ignore */ }
+        return '';
+    }
+
+    function segmentsTableMissing(err) {
+        var msg = String((err && err.message) || err || '');
+        return /broadcast_contact_lists|does not exist|schema cache|Could not find the table/i.test(msg);
+    }
+
+    function normalizePatientIds(raw) {
+        var ids = raw;
+        if (typeof ids === 'string') {
+            try { ids = JSON.parse(ids); } catch (e) { ids = []; }
+        }
+        if (!Array.isArray(ids)) return [];
+        return ids.map(function (pid) {
+            return pid != null && pid !== '' ? String(pid) : '';
+        }).filter(Boolean);
+    }
+
+    function normalizeSegmentRow(row) {
+        if (!row || typeof row !== 'object') return null;
+        var id = String(row.id || '').trim();
+        var name = String(row.name || '').trim();
+        if (!id || !name) return null;
+        var conditions = row.conditions;
+        if (typeof conditions === 'string') {
+            try { conditions = JSON.parse(conditions); } catch (e) { conditions = null; }
+        }
+        if (!conditions || typeof conditions !== 'object') conditions = null;
+        return {
+            id: id,
+            name: name,
+            patientIds: normalizePatientIds(row.patient_ids != null ? row.patient_ids : row.patientIds),
+            conditions: conditions,
+            createdAt: row.created_at || row.createdAt || null,
+            updatedAt: row.updated_at || row.updatedAt || null
+        };
+    }
+
+    function activeSavedList() {
+        if (!isSavedListId(_activeSegmentId)) return null;
+        return findSavedSegment(_activeSegmentId);
+    }
+
+    function activeListLabel() {
+        var seg = activeSavedList();
+        if (seg) return seg.name || '';
+        if (_activeSegmentId === 'scope') return tr('mb.seg.scope', 'Clinic / doctor bar');
+        if (_activeSegmentId === 'hasphone') return tr('mb.seg.hasPhone', 'Has phone');
+        if (_activeSegmentId === 'birthday') return tr('mb.seg.birthday', 'Birthday this month');
+        if (_activeSegmentId === 'sent') return tr('mb.seg.sent', 'Messaged in window');
+        if (_activeSegmentId === 'unsent') return tr('mb.seg.unsent', 'Not messaged in window');
+        return tr('mb.seg.all', 'All contacts');
+    }
+
+    function migrateLegacyLocalSegmentsToDb() {
+        if (_segmentsMigrating || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve(0);
+        }
+        var legacy = readLegacyLocalSegments();
+        if (!legacy.length) return Promise.resolve(0);
+        _segmentsMigrating = true;
+        var chain = Promise.resolve(0);
+        legacy.forEach(function (s, idx) {
+            var name = String((s && s.name) || '').trim();
+            if (!name) return;
+            var patientIds = normalizePatientIds(s.patientIds || s.patient_ids);
+            var conditions = s.conditions && typeof s.conditions === 'object' ? s.conditions : null;
+            chain = chain.then(function (n) {
+                return SB.from(SEG_TABLE).insert([{
+                    name: name,
+                    patient_ids: patientIds,
+                    conditions: conditions,
+                    sort_order: idx,
+                    created_by: segmentCreatedBy() || 'migrate'
+                }]).then(function (r) {
+                    if (r.error) return n;
+                    return n + 1;
+                });
+            });
+        });
+        return chain.then(function (n) {
+            _segmentsMigrating = false;
+            if (n > 0) clearLegacyLocalSegments();
+            return n;
+        }).catch(function () {
+            _segmentsMigrating = false;
+            return 0;
+        });
+    }
+
+    function refreshSegmentsFromCloud() {
+        renderSegments();
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
+            renderSegments();
+            return Promise.resolve(_segments);
+        }
+        if (_segmentsLoading) return Promise.resolve(_segments);
+        _segmentsLoading = true;
+        return SB.from(SEG_TABLE)
+            .select('id,name,patient_ids,conditions,sort_order,created_at,updated_at')
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true })
+            .order('name', { ascending: true })
+            .then(function (r) {
+                _segmentsLoading = false;
+                if (r.error) {
+                    if (segmentsTableMissing(r.error)) {
+                        _segmentsDbMissing = true;
+                        _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
+                        renderSegments();
+                        return _segments;
+                    }
+                    console.warn('[broadcast] load lists', r.error);
+                    return _segments;
+                }
+                _segmentsDbMissing = false;
+                var list = (r.data || []).map(normalizeSegmentRow).filter(Boolean);
+                if (!list.length) {
+                    return migrateLegacyLocalSegmentsToDb().then(function (migrated) {
+                        if (migrated) return refreshSegmentsFromCloud();
+                        _segments = [];
+                        renderSegments();
+                        return _segments;
+                    });
+                }
+                _segments = list;
+                // Prefer cloud; drop stale local copy once cloud has data
+                if (readLegacyLocalSegments().length) clearLegacyLocalSegments();
+                renderSegments();
+                if (isSavedListId(_activeSegmentId) && !findSavedSegment(_activeSegmentId)) {
+                    _activeSegmentId = 'all';
+                    applyFilters();
+                }
+                return _segments;
+            })
+            .catch(function (err) {
+                _segmentsLoading = false;
+                console.warn('[broadcast] load lists', err);
+                _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
+                renderSegments();
+                return _segments;
+            });
+    }
+
+    function persistSegmentLocalFallback(list) {
         try { localStorage.setItem(SEG_LS_KEY, JSON.stringify(list || [])); } catch (e) { /* ignore */ }
+    }
+
+    function alertSegmentsNeedCloud() {
+        alert(tr('mb.seg.needCloud',
+            'Cloud contact lists need the Supabase table. Run broadcast_contact_lists.sql in the Supabase SQL Editor, then refresh.'));
     }
 
     // ── Init / mode ──────────────────────────────────────────────
@@ -211,7 +390,7 @@ var MASSBC = (function () {
         syncSortUiFromState();
         fillClinicFilterSelect();
         setMode('contacts');
-        renderSegments();
+        refreshSegmentsFromCloud();
         refreshFromBar();
         if (typeof applyI18nInRoot === 'function') {
             var root = pick('tab-broadcast');
@@ -496,7 +675,6 @@ var MASSBC = (function () {
         name = String(name).trim();
 
         var segs = loadSegments();
-        // Overwrite if same name (case-insensitive)
         var existing = null;
         for (var i = 0; i < segs.length; i++) {
             if (String(segs[i].name || '').trim().toLowerCase() === name.toLowerCase()) {
@@ -509,52 +687,160 @@ var MASSBC = (function () {
                 'List “{NAME}” already exists. Replace it with {N} contact(s)?'))) {
                 return;
             }
-            existing.name = name;
-            existing.patientIds = ids.slice();
-            existing.conditions = snapshotConditions();
-            existing.updatedAt = new Date().toISOString();
-            // Drop legacy scope fields that incorrectly forced clinic/doctor bar
-            delete existing.clinicTag;
-            delete existing.doctorId;
-            saveSegments(segs);
-            _activeSegmentId = existing.id;
-        } else {
-            var id = 'seg_' + Date.now().toString(36);
-            segs.push({
-                id: id,
-                name: name,
-                patientIds: ids.slice(),
-                conditions: snapshotConditions(),
-                createdAt: new Date().toISOString()
-            });
-            saveSegments(segs);
-            _activeSegmentId = id;
         }
-        renderSegments();
-        applyFilters();
+
+        var conditions = snapshotConditions();
         var status = pick('mbStatus');
-        if (status) {
-            status.textContent = trRepl('mb.seg.savedOk', { NAME: name, N: ids.length },
-                'Saved list “{NAME}” ({N} contacts).');
+
+        function finishOk(segId, savedName, count) {
+            _activeSegmentId = segId;
+            renderSegments();
+            applyFilters();
+            if (status) {
+                status.textContent = trRepl('mb.seg.savedOk', { NAME: savedName, N: count },
+                    'Saved list “{NAME}” ({N} contacts).');
+            }
         }
+
+        function saveLocalFallback(segId) {
+            var list = _segments.slice();
+            var found = null;
+            for (var j = 0; j < list.length; j++) {
+                if ((segId && String(list[j].id) === String(segId)) ||
+                    String(list[j].name || '').trim().toLowerCase() === name.toLowerCase()) {
+                    found = list[j];
+                    break;
+                }
+            }
+            if (found) {
+                found.name = name;
+                found.patientIds = ids.slice();
+                found.conditions = conditions;
+                found.updatedAt = new Date().toISOString();
+                _segments = list;
+                persistSegmentLocalFallback(list);
+                finishOk(found.id, name, ids.length);
+            } else {
+                var localId = segId || ('seg_' + Date.now().toString(36));
+                list.push({
+                    id: localId,
+                    name: name,
+                    patientIds: ids.slice(),
+                    conditions: conditions,
+                    createdAt: new Date().toISOString()
+                });
+                _segments = list;
+                persistSegmentLocalFallback(list);
+                finishOk(localId, name, ids.length);
+            }
+        }
+
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
+            alertSegmentsNeedCloud();
+            saveLocalFallback(existing && existing.id);
+            return;
+        }
+
+        if (status) status.textContent = tr('mb.seg.saving', 'Saving list to cloud…');
+
+        var payload = {
+            name: name,
+            patient_ids: ids.slice(),
+            conditions: conditions,
+            updated_at: new Date().toISOString()
+        };
+
+        var req = existing
+            ? SB.from(SEG_TABLE).update(payload).eq('id', existing.id).select(
+                'id,name,patient_ids,conditions,created_at,updated_at'
+            ).single()
+            : SB.from(SEG_TABLE).insert([{
+                name: name,
+                patient_ids: ids.slice(),
+                conditions: conditions,
+                sort_order: segs.length,
+                created_by: segmentCreatedBy() || null
+            }]).select('id,name,patient_ids,conditions,created_at,updated_at').single();
+
+        req.then(function (r) {
+            if (r.error) {
+                if (segmentsTableMissing(r.error)) {
+                    _segmentsDbMissing = true;
+                    alertSegmentsNeedCloud();
+                    saveLocalFallback(existing && existing.id);
+                    return;
+                }
+                alert(trRepl('mb.seg.saveFail', { MSG: r.error.message || r.error },
+                    'Could not save list: {MSG}'));
+                return;
+            }
+            var row = normalizeSegmentRow(r.data);
+            if (!row) {
+                alert(tr('mb.seg.saveFailGeneric', 'Could not save list.'));
+                return;
+            }
+            if (existing) {
+                for (var k = 0; k < _segments.length; k++) {
+                    if (String(_segments[k].id) === String(row.id)) {
+                        _segments[k] = row;
+                        break;
+                    }
+                }
+            } else {
+                _segments.push(row);
+            }
+            finishOk(row.id, row.name, row.patientIds.length);
+        }).catch(function (err) {
+            alert(trRepl('mb.seg.saveFail', { MSG: (err && err.message) || err },
+                'Could not save list: {MSG}'));
+        });
     }
 
     function deleteSavedSegment(id) {
         var sid = String(id || '');
-        if (!sid || sid.indexOf('seg_') !== 0) return;
+        if (!isSavedListId(sid)) return;
         var seg = findSavedSegment(sid);
         var label = seg && seg.name ? seg.name : sid;
         if (!window.confirm(trRepl('mb.seg.confirmDelete', { NAME: label },
             'Delete list “{NAME}”?'))) {
             return;
         }
-        var segs = loadSegments().filter(function (s) {
-            return String(s.id) !== sid;
+
+        function finishDelete() {
+            _segments = _segments.filter(function (s) {
+                return String(s.id) !== sid;
+            });
+            if (_activeSegmentId === sid) _activeSegmentId = 'all';
+            renderSegments();
+            applyFilters();
+        }
+
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
+            finishDelete();
+            persistSegmentLocalFallback(_segments);
+            return;
+        }
+
+        SB.from(SEG_TABLE).update({
+            is_active: false,
+            updated_at: new Date().toISOString()
+        }).eq('id', sid).then(function (r) {
+            if (r.error) {
+                if (segmentsTableMissing(r.error)) {
+                    _segmentsDbMissing = true;
+                    finishDelete();
+                    persistSegmentLocalFallback(_segments);
+                    return;
+                }
+                alert(trRepl('mb.seg.deleteFail', { MSG: r.error.message || r.error },
+                    'Could not delete list: {MSG}'));
+                return;
+            }
+            finishDelete();
+        }).catch(function (err) {
+            alert(trRepl('mb.seg.deleteFail', { MSG: (err && err.message) || err },
+                'Could not delete list: {MSG}'));
         });
-        saveSegments(segs);
-        if (_activeSegmentId === sid) _activeSegmentId = 'all';
-        renderSegments();
-        applyFilters();
     }
 
     function snapshotConditions() {
@@ -590,7 +876,7 @@ var MASSBC = (function () {
 
     function activateSegment(segId) {
         _activeSegmentId = segId || 'all';
-        if (_activeSegmentId.indexOf('seg_') === 0) {
+        if (isSavedListId(_activeSegmentId)) {
             var seg = findSavedSegment(_activeSegmentId);
             // Static membership lists keep current UI filters clear so membership is obvious
             if (seg && Array.isArray(seg.patientIds) && seg.patientIds.length) {
@@ -880,7 +1166,7 @@ var MASSBC = (function () {
 
         // Custom saved list with fixed membership (preferred)
         var membershipSet = null;
-        if (_activeSegmentId.indexOf('seg_') === 0) {
+        if (isSavedListId(_activeSegmentId)) {
             var segs = loadSegments();
             var seg = null;
             for (var si = 0; si < segs.length; si++) {
@@ -2408,7 +2694,16 @@ var MASSBC = (function () {
         });
         var noPhone = list.filter(function (p) { return !phoneOf(p) || !phoneE164(phoneOf(p)); });
         var opted = list.filter(function (p) { return p.messaging_opt_out; });
+        var listLabel = activeListLabel();
+        var saved = activeSavedList();
         el.innerHTML =
+            '<div class="mb-aud-list">' +
+            '<strong>' + esc(tr('mb.aud.list', 'List')) + ':</strong> ' +
+            esc(listLabel) +
+            (saved && Array.isArray(saved.patientIds)
+                ? ' <span class="mb-hint">(' + esc(String(saved.patientIds.length)) + ')</span>'
+                : '') +
+            '</div>' +
             '<strong>' + esc(String(list.length)) + '</strong> ' +
             esc(tr('mb.aud.selected', 'selected')) + ' · ' +
             '<strong>' + esc(String(sendable.length)) + '</strong> ' +
@@ -2490,6 +2785,7 @@ var MASSBC = (function () {
             '</dd>' +
             '<dt>' + esc(tr('mb.review.audience', 'Audience')) + '</dt><dd>' +
             esc(String(sendable.length)) + ' / ' + esc(String(list.length)) +
+            ' · ' + esc(tr('mb.aud.list', 'List')) + ': ' + esc(activeListLabel()) +
             '</dd></dl>';
     }
 
@@ -2670,17 +2966,20 @@ var MASSBC = (function () {
         if (st) st.textContent = tr('mb.sending', 'Sending…');
 
         var doc = selectedDoctorMeta();
+        var savedList = activeSavedList();
         var campaignPayload = {
             name: _campaignName,
             channel: _channel,
             from_phone: getFromPhone() || null,
             content_sid: _channel === 'whatsapp' ? (getSelectedTpl() && getSelectedTpl().contentSid) : null,
             body_template: _channel === 'sms' ? _smsBody : null,
-            audience_mode: 'selection',
+            audience_mode: savedList ? 'list' : 'selection',
             audience_snapshot: {
                 selectedIds: queue.map(function (p) { return p.id; }),
                 skipped: skipped.length,
-                filters: snapshotConditions()
+                filters: snapshotConditions(),
+                listId: savedList ? savedList.id : null,
+                listName: savedList ? savedList.name : activeListLabel()
             },
             status: 'sending',
             totals: { sent: 0, failed: 0, skipped: skipped.length, queued: queue.length },
@@ -2879,7 +3178,7 @@ var MASSBC = (function () {
             return;
         }
         SB.from('message_campaigns')
-            .select('id,name,channel,status,totals,created_at,completed_at,created_by,clinic_tag')
+            .select('id,name,channel,status,totals,created_at,completed_at,created_by,clinic_tag,audience_snapshot,audience_mode')
             .order('created_at', { ascending: false })
             .limit(100)
             .then(function (r) {
@@ -2901,9 +3200,15 @@ var MASSBC = (function () {
                 }
                 body.innerHTML = _historyCampaigns.map(function (c) {
                     var t = c.totals || {};
+                    var snap = c.audience_snapshot || {};
+                    var listName = snap.listName || '';
+                    var nameCell = esc(c.name || '—') +
+                        (listName
+                            ? '<div class="mb-hint">' + esc(tr('mb.aud.list', 'List') + ': ' + listName) + '</div>'
+                            : '');
                     return (
                         '<tr class="mb-hist-row" data-mb-campaign="' + esc(c.id) + '">' +
-                        '<td>' + esc(c.name || '—') + '</td>' +
+                        '<td>' + nameCell + '</td>' +
                         '<td>' + esc(c.channel || '') + '</td>' +
                         '<td>' + esc(c.status || '') + '</td>' +
                         '<td>' + esc(String(t.sent != null ? t.sent : '—')) + ' / ' +
@@ -2936,9 +3241,13 @@ var MASSBC = (function () {
                 }
                 var rows = r.data || [];
                 var camp = _historyCampaigns.find(function (c) { return c.id === campaignId; });
+                var snap = (camp && camp.audience_snapshot) || {};
+                var listLine = snap.listName
+                    ? '<div class="mb-hint">' + esc(tr('mb.aud.list', 'List') + ': ' + snap.listName) + '</div>'
+                    : '';
                 host.innerHTML =
                     '<div class="mb-hist-detail-head">' +
-                    '<strong>' + esc(camp ? camp.name : campaignId) + '</strong>' +
+                    '<div><strong>' + esc(camp ? camp.name : campaignId) + '</strong>' + listLine + '</div>' +
                     '<button type="button" class="mb-btn ghost" id="mbExportCsv">' +
                     esc(tr('mb.exportCsv', 'Export CSV')) + '</button></div>' +
                     '<div class="tbl-wrap mb-hist-detail-tbl"><table class="appt-tbl"><thead><tr>' +
@@ -3010,6 +3319,7 @@ var MASSBC = (function () {
         clearAllFilters: clearAllFilters,
         toggleColEditor: toggleColEditor,
         saveCurrentAsSegment: saveCurrentAsSegment,
+        refreshSegmentsFromCloud: refreshSegmentsFromCloud,
         startCampaignFromSelection: startCampaignFromSelection,
         goWizardStep: goWizardStep,
         setChannel: setChannel,

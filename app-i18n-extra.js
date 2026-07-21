@@ -872,6 +872,24 @@
             'zh-CN': '已保存分组「{NAME}」（{N} 位联系人）。',
             'zh-Hant': '已儲存分組「{NAME}」（{N} 位聯絡人）。'
         },
+        'mb.seg.saving': { en: 'Saving list to cloud…', 'zh-CN': '正在保存分组到云端…', 'zh-Hant': '正在儲存分組到雲端…' },
+        'mb.seg.needCloud': {
+            en: 'Cloud contact lists need the Supabase table. Run broadcast_contact_lists.sql in the Supabase SQL Editor, then refresh.',
+            'zh-CN': '云端联系人分组需要 Supabase 表。请在 Supabase SQL Editor 运行 broadcast_contact_lists.sql，然后刷新。',
+            'zh-Hant': '雲端聯絡人分組需要 Supabase 資料表。請在 Supabase SQL Editor 執行 broadcast_contact_lists.sql，然後重新整理。'
+        },
+        'mb.seg.saveFail': {
+            en: 'Could not save list: {MSG}',
+            'zh-CN': '无法保存分组：{MSG}',
+            'zh-Hant': '無法儲存分組：{MSG}'
+        },
+        'mb.seg.saveFailGeneric': { en: 'Could not save list.', 'zh-CN': '无法保存分组。', 'zh-Hant': '無法儲存分組。' },
+        'mb.seg.deleteFail': {
+            en: 'Could not delete list: {MSG}',
+            'zh-CN': '无法删除分组：{MSG}',
+            'zh-Hant': '無法刪除分組：{MSG}'
+        },
+        'mb.aud.list': { en: 'List', 'zh-CN': '分组', 'zh-Hant': '分組' },
         'mb.group.patient': { en: 'Patient filters', 'zh-CN': '患者筛选', 'zh-Hant': '病人篩選' },
         'mb.group.outreach': { en: 'Outreach tags', 'zh-CN': '发送标记', 'zh-Hant': '傳送標記' },
         'mb.group.sort': { en: 'Sort', 'zh-CN': '排序', 'zh-Hant': '排序' },

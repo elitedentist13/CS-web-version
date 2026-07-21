@@ -779,7 +779,38 @@
         },
         'mb.mode.contacts': { en: 'Contacts', 'zh-CN': '联系人', 'zh-Hant': '聯絡人' },
         'mb.mode.campaign': { en: 'Campaign', 'zh-CN': '活动', 'zh-Hant': '活動' },
+        'mb.mode.twilio': { en: 'Twilio Setup', 'zh-CN': 'Twilio 设置', 'zh-Hant': 'Twilio 設定' },
         'mb.mode.history': { en: 'History', 'zh-CN': '记录', 'zh-Hant': '紀錄' },
+        'mb.openTwilioSetup': { en: 'Twilio Setup', 'zh-CN': 'Twilio 设置', 'zh-Hant': 'Twilio 設定' },
+        'mb.backToContacts': { en: 'Back to Contacts', 'zh-CN': '返回联系人', 'zh-Hant': '返回聯絡人' },
+        'mb.twilio.setupTitle': { en: 'Twilio Setup', 'zh-CN': 'Twilio 设置', 'zh-Hant': 'Twilio 設定' },
+        'mb.twilio.setupIntro': {
+            en: 'Configure clinic Twilio sender numbers and WhatsApp content templates here. No contact selection needed — settings apply to Broadcast, Recall, and AI Helper.',
+            'zh-CN': '在此配置诊所 Twilio 发件号码与 WhatsApp 内容模板。无需先选联系人 — 设置同时用于群发、召回与 AI 助手。',
+            'zh-Hant': '在此設定診所 Twilio 發件號碼與 WhatsApp 內容範本。無需先選聯絡人 — 設定同時用於群發、召回與 AI 助手。'
+        },
+        'mb.twilio.setupLinkHint': {
+            en: 'Add or edit clinic Twilio numbers and WhatsApp content templates in Twilio Setup — no patient selection needed.',
+            'zh-CN': '请在「Twilio 设置」中添加或编辑发件号码与 WhatsApp 内容模板 — 无需先选患者。',
+            'zh-Hant': '請在「Twilio 設定」中新增或編輯發件號碼與 WhatsApp 內容範本 — 無需先選病人。'
+        },
+        'mb.setup.fromList': { en: 'Saved numbers', 'zh-CN': '已保存号码', 'zh-Hant': '已儲存號碼' },
+        'mb.setup.tplList': { en: 'Saved templates', 'zh-CN': '已保存模板', 'zh-Hant': '已儲存範本' },
+        'mb.setup.fromPick': {
+            en: 'Select a number to edit…',
+            'zh-CN': '选择要编辑的号码…',
+            'zh-Hant': '選擇要編輯的號碼…'
+        },
+        'mb.setup.tplPick': {
+            en: 'Select a template to edit…',
+            'zh-CN': '选择要编辑的模板…',
+            'zh-Hant': '選擇要編輯的範本…'
+        },
+        'mb.setup.tplEmpty': {
+            en: 'No templates yet — add below',
+            'zh-CN': '尚无模板 — 请在下方添加',
+            'zh-Hant': '尚無範本 — 請在下方新增'
+        },
         'mb.seg.heading': { en: 'Lists', 'zh-CN': '分组', 'zh-Hant': '分組' },
         'mb.seg.all': { en: 'All contacts', 'zh-CN': '全部联系人', 'zh-Hant': '全部聯絡人' },
         'mb.seg.scope': { en: 'Clinic / doctor bar', 'zh-CN': '诊所/医生栏', 'zh-Hant': '診所/醫生欄' },
@@ -912,7 +943,7 @@
         'mb.ch.wa': { en: 'Twilio WhatsApp', 'zh-CN': 'Twilio WhatsApp', 'zh-Hant': 'Twilio WhatsApp' },
         'mb.ch.sms': { en: 'Twilio SMS', 'zh-CN': 'Twilio 短信', 'zh-Hant': 'Twilio 短訊' },
         'mb.from': { en: 'Send from', 'zh-CN': '发件号码', 'zh-Hant': '發件號碼' },
-        'mb.manageFrom': { en: 'Manage numbers in AI Helper', 'zh-CN': '在 AI 助手管理号码', 'zh-Hant': '在 AI 助手管理號碼' },
+        'mb.manageFrom': { en: 'Twilio Setup', 'zh-CN': 'Twilio 设置', 'zh-Hant': 'Twilio 設定' },
         'mb.from.reload': { en: 'Reload', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
         'mb.from.hintDefault': {
             en: 'Default uses Edge secrets. Pick a saved clinic number to override.',
@@ -954,9 +985,9 @@
             'zh-Hant': '請勾選 WhatsApp 和/或短訊。'
         },
         'mb.from.needSelect': {
-            en: 'Select a saved number first (not Default).',
-            'zh-CN': '请先选择已保存号码（非默认）。',
-            'zh-Hant': '請先選擇已儲存號碼（非預設）。'
+            en: 'Select a saved number from the list first.',
+            'zh-CN': '请先从列表选择已保存号码。',
+            'zh-Hant': '請先從清單選擇已儲存號碼。'
         },
         'mb.from.dup': {
             en: 'That number is already in the list.',
@@ -974,7 +1005,7 @@
             'zh-CN': '从诊所列表删除发件号码「{LABEL}」？',
             'zh-Hant': '從診所清單刪除發件號碼「{LABEL}」？'
         },
-        'mb.manageTpl': { en: 'Manage templates', 'zh-CN': '管理模板', 'zh-Hant': '管理範本' },
+        'mb.manageTpl': { en: 'Twilio Setup', 'zh-CN': 'Twilio 设置', 'zh-Hant': 'Twilio 設定' },
         'mb.tpl': { en: 'WhatsApp content template', 'zh-CN': 'WhatsApp 内容模板', 'zh-Hant': 'WhatsApp 內容範本' },
         'mb.tpl.note': {
             en: '{{1}} = patient first name. Extra vars use SMS body text when present.',
@@ -1148,9 +1179,9 @@
         'mb.loaded': { en: 'Loaded {N} contacts', 'zh-CN': '已加载 {N} 位联系人', 'zh-Hant': '已載入 {N} 位聯絡人' },
         'mb.from.default': { en: 'Default (Edge secret)', 'zh-CN': '默认（Edge 密钥）', 'zh-Hant': '預設（Edge 密鑰）' },
         'mb.tpl.empty': {
-            en: 'No templates — add below',
-            'zh-CN': '无模板 — 请在下方添加',
-            'zh-Hant': '無範本 — 請在下方新增'
+            en: 'No templates — open Twilio Setup',
+            'zh-CN': '无模板 — 请打开 Twilio 设置',
+            'zh-Hant': '無範本 — 請開啟 Twilio 設定'
         },
         'mb.campaign.defaultName': { en: 'Broadcast {D}', 'zh-CN': '群发 {D}', 'zh-Hant': '群發 {D}' },
         'mb.aud.selected': { en: 'selected', 'zh-CN': '已选', 'zh-Hant': '已選' },
@@ -1579,9 +1610,9 @@
             'zh-Hant': '短訊將從 {FROM} 傳送。請使用可發短訊的號碼。'
         },
         'appt.recallTwilioManageFrom': {
-            en: 'Manage numbers in AI Helper',
-            'zh-CN': '在 AI 助手中管理号码',
-            'zh-Hant': '在 AI 助手中管理號碼'
+            en: 'Twilio Setup',
+            'zh-CN': 'Twilio 设置',
+            'zh-Hant': 'Twilio 設定'
         },
         'appt.recallTwilioTpl': {
             en: 'Twilio Content Template',
@@ -1589,9 +1620,9 @@
             'zh-Hant': 'Twilio 內容範本'
         },
         'appt.recallTwilioTplEmpty': {
-            en: 'No templates yet — add them in AI Helper → Twilio Send',
-            'zh-CN': '尚无模板 — 请到 AI 助手 → Twilio 发送 中添加',
-            'zh-Hant': '尚無範本 — 請到 AI 助手 → Twilio 傳送 中新增'
+            en: 'No templates yet — add them in Broadcast → Twilio Setup',
+            'zh-CN': '尚无模板 — 请到 群发 → Twilio 设置 中添加',
+            'zh-Hant': '尚無範本 — 請到 群發 → Twilio 設定 中新增'
         },
         'appt.recallTwilioTplHint': {
             en: 'SID {SID} · vars {VARS}',
@@ -1599,9 +1630,9 @@
             'zh-Hant': 'SID {SID} · 變數 {VARS}'
         },
         'appt.recallTwilioManageTpl': {
-            en: 'Manage templates in AI Helper',
-            'zh-CN': '在 AI 助手中管理模板',
-            'zh-Hant': '在 AI 助手中管理範本'
+            en: 'Twilio Setup',
+            'zh-CN': 'Twilio 设置',
+            'zh-Hant': 'Twilio 設定'
         },
         'appt.recallTwilioSmsHint': {
             en: 'Twilio SMS sends the message box text from the selected Twilio number (prefer an SMS-capable number; WhatsApp senders often cannot send SMS).',
@@ -1614,9 +1645,9 @@
             'zh-Hant': 'Twilio WhatsApp 使用所選內容範本（{{1}} = 病人名）。下方正文僅作可選備用。'
         },
         'appt.recall.alertNeedTwilioTpl': {
-            en: 'Select a Twilio Content Template first (or add one in AI Helper → Twilio Send).',
-            'zh-CN': '请先选择 Twilio 内容模板（或到 AI 助手 → Twilio 发送 中添加）。',
-            'zh-Hant': '請先選擇 Twilio 內容範本（或到 AI 助手 → Twilio 傳送 中新增）。'
+            en: 'Select a Twilio Content Template first (or add one in Broadcast → Twilio Setup).',
+            'zh-CN': '请先选择 Twilio 内容模板（或到 群发 → Twilio 设置 中添加）。',
+            'zh-Hant': '請先選擇 Twilio 內容範本（或到 群發 → Twilio 設定 中新增）。'
         },
         'appt.recall.alertTwilioApiDown': {
             en: 'Twilio send is unavailable. Ensure AI Helper scripts loaded and Edge twilio-whatsapp is deployed.',
@@ -2114,9 +2145,9 @@
             'zh-Hant': '管理 Twilio 號碼（全診所共用）'
         },
         'ai.twilio.fromClinicHint': {
-            en: 'Numbers are saved in Supabase for all staff (also editable under Appointment → Broadcast).',
-            'zh-CN': '号码保存在 Supabase，全员共用（也可在 预约 → 群发 中编辑）。',
-            'zh-Hant': '號碼儲存在 Supabase，全員共用（亦可在 預約 → 群發 中編輯）。'
+            en: 'Numbers are saved in Supabase for all staff (also editable under Appointment → Broadcast → Twilio Setup).',
+            'zh-CN': '号码保存在 Supabase，全员共用（也可在 预约 → 群发 → Twilio 设置 中编辑）。',
+            'zh-Hant': '號碼儲存在 Supabase，全員共用（亦可在 預約 → 群發 → Twilio 設定 中編輯）。'
         },
         'ai.twilio.fromDbMissing': {
             en: 'Cloud from-numbers table missing. Run twilio_from_numbers.sql in Supabase SQL Editor.',
@@ -2240,9 +2271,9 @@
             'zh-Hant': '管理內容範本（全診所共用）'
         },
         'ai.twilio.tplClinicHint': {
-            en: 'Templates are saved in Supabase for all staff. Paste approved Content SIDs (HX…) from Twilio — no need to change Edge secrets.',
-            'zh-CN': '模板保存在 Supabase，全员共用。从 Twilio 粘贴已批准的 Content SID（HX…）即可，无需改 Edge 密钥。',
-            'zh-Hant': '範本儲存在 Supabase，全員共用。從 Twilio 貼上已批准的 Content SID（HX…）即可，無需改 Edge 密鑰。'
+            en: 'Templates are saved in Supabase for all staff (also editable under Appointment → Broadcast → Twilio Setup). Paste approved Content SIDs (HX…) from Twilio — no need to change Edge secrets.',
+            'zh-CN': '模板保存在 Supabase，全员共用（也可在 预约 → 群发 → Twilio 设置 中编辑）。从 Twilio 粘贴已批准的 Content SID（HX…）即可，无需改 Edge 密钥。',
+            'zh-Hant': '範本儲存在 Supabase，全員共用（亦可在 預約 → 群發 → Twilio 設定 中編輯）。從 Twilio 貼上已批准的 Content SID（HX…）即可，無需改 Edge 密鑰。'
         },
         'ai.twilio.tplDbMissing': {
             en: 'Cloud template table missing. Run twilio_content_templates.sql in Supabase SQL Editor.',

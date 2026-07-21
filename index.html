@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260719-mb-pager-empty';
+  var BUILD = '20260721-mb-twilio-setup';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -615,7 +615,7 @@
         <details class="ai-twilio-from-manage" id="aiTwilioFromManage">
           <summary data-i18n="ai.twilio.fromManage">Manage Twilio numbers (clinic-wide)</summary>
           <p class="ai-hint" style="margin:8px 0 10px;" data-i18n="ai.twilio.fromClinicHint">
-            Numbers are saved in Supabase for all staff (also editable under Appointment → Broadcast).
+            Numbers are saved in Supabase for all staff (also editable under Appointment → Broadcast → Twilio Setup).
           </p>
           <div class="ai-twilio-from-manage-grid">
               <div>
@@ -1608,7 +1608,7 @@
           </p>
           <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;">
             <button type="button" class="ai-link-btn" onclick="openAiHelperTwilioFromNumbers()"
-                    data-i18n="appt.recallTwilioManageFrom">Manage numbers in AI Helper</button>
+                    data-i18n="appt.recallTwilioManageFrom">Twilio Setup</button>
           </p>
         </div>
 
@@ -1624,7 +1624,7 @@
                data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
             <button type="button" class="ai-link-btn" style="margin-left:10px;"
                     onclick="openAiHelperTwilioTemplates()"
-                    data-i18n="appt.recallTwilioManageTpl">Manage templates in AI Helper</button>
+                    data-i18n="appt.recallTwilioManageTpl">Twilio Setup</button>
           </p>
         </div>
         <p id="rcTwilioSmsHint" style="display:none;margin:0;font-size:11px;color:#64748b;line-height:1.45;"
@@ -1683,6 +1683,8 @@
                   data-i18n="mb.mode.contacts">Contacts</button>
           <button type="button" class="mb-mode-btn" data-mb-mode="campaign"
                   data-i18n="mb.mode.campaign">Campaign</button>
+          <button type="button" class="mb-mode-btn" data-mb-mode="twilio"
+                  data-i18n="mb.mode.twilio">Twilio Setup</button>
           <button type="button" class="mb-mode-btn" data-mb-mode="history"
                   data-i18n="mb.mode.history">History</button>
         </div>
@@ -1840,6 +1842,8 @@
               <span id="mbCounts" class="mb-counts"></span>
               <span id="mbStatus" class="mb-status"></span>
               <div class="mb-action-btns">
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.setMode('twilio')"
+                        data-i18n="mb.mode.twilio">Twilio Setup</button>
                 <button type="button" class="mb-btn ghost" onclick="MASSBC.selectAllFiltered()"
                         data-i18n="mb.selectAll">Select all filtered</button>
                 <button type="button" class="mb-btn ghost" onclick="MASSBC.clearSelection()"
@@ -1889,49 +1893,15 @@
             <select id="mbTwilioFrom" class="mb-select mb-input-wide" onchange="MASSBC.onFromChange()"></select>
             <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadFromNumbers()"
                     data-i18n="mb.from.reload">Reload</button>
+            <button type="button" class="mb-btn ghost" onclick="MASSBC.setMode('twilio')"
+                    data-i18n="mb.openTwilioSetup">Twilio Setup</button>
           </div>
           <p id="mbTwilioFromHint" class="mb-hint" data-i18n="mb.from.hintDefault">
             Default uses Edge secrets. Pick a saved clinic number to override.
           </p>
-
-          <details class="mb-tpl-manage mb-from-manage" id="mbFromManage" open>
-            <summary data-i18n="mb.from.manageTitle">Twilio sender numbers (clinic-wide)</summary>
-            <p class="mb-hint" data-i18n="mb.from.manageHint">
-              Add, edit, or remove sender numbers for all staff. Saved to Supabase — no need to open AI Helper.
-            </p>
-            <div class="mb-tpl-form-grid">
-              <div>
-                <label class="mb-label" for="mbFromLabel" data-i18n="ai.twilio.fromLabel">Label</label>
-                <input type="text" id="mbFromLabel" class="mb-input mb-input-wide" maxlength="40"
-                       data-i18n-placeholder="ai.twilio.fromLabelPh" placeholder="Clinic main">
-              </div>
-              <div>
-                <label class="mb-label" for="mbFromPhone" data-i18n="ai.twilio.fromPhone">Phone (E.164)</label>
-                <input type="text" id="mbFromPhone" class="mb-input mb-input-wide" maxlength="24"
-                       data-i18n-placeholder="ai.twilio.fromPhonePh" placeholder="+85291234567"
-                       spellcheck="false" autocomplete="off">
-              </div>
-            </div>
-            <div class="mb-from-caps" role="group">
-              <label class="mb-cap-check">
-                <input type="checkbox" id="mbFromCapWa" checked>
-                <span data-i18n="ai.twilio.ch.wa">WhatsApp</span>
-              </label>
-              <label class="mb-cap-check">
-                <input type="checkbox" id="mbFromCapSms" checked>
-                <span data-i18n="ai.twilio.ch.sms">SMS</span>
-              </label>
-            </div>
-            <div class="mb-tpl-actions">
-              <button type="button" class="mb-btn ghost" onclick="MASSBC.saveFromNumber()"
-                      data-i18n="mb.from.save">Save selected</button>
-              <button type="button" class="mb-btn primary" onclick="MASSBC.addFromNumber()"
-                      data-i18n="mb.from.add">Add number</button>
-              <button type="button" class="mb-btn ghost mb-btn-danger" onclick="MASSBC.removeFromNumber()"
-                      data-i18n="mb.from.remove">Remove selected</button>
-            </div>
-            <p id="mbFromStatus" class="mb-status" style="margin-top:8px;"></p>
-          </details>
+          <p class="mb-hint" data-i18n="mb.twilio.setupLinkHint">
+            Add or edit clinic Twilio numbers and WhatsApp content templates in Twilio Setup — no patient selection needed.
+          </p>
 
           <div class="mb-wizard-nav">
             <button type="button" class="mb-btn primary" onclick="MASSBC.goWizardStep(2)"
@@ -1946,6 +1916,8 @@
               <select id="mbTwilioTpl" class="mb-select mb-input-wide" onchange="MASSBC.onTplChange()"></select>
               <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadTemplates()"
                       data-i18n="mb.tpl.reload">Reload</button>
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.setMode('twilio')"
+                      data-i18n="mb.openTwilioSetup">Twilio Setup</button>
             </div>
             <p id="mbTwilioTplHint" class="mb-hint"></p>
             <p class="mb-hint">
@@ -1954,47 +1926,6 @@
                  data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
             </p>
             <p class="mb-hint" data-i18n="mb.tpl.note">{{1}} = patient first name. Extra vars use SMS body text when present.</p>
-
-            <details class="mb-tpl-manage" id="mbTplManage" open>
-              <summary data-i18n="mb.tpl.manageTitle">Message content templates (clinic-wide)</summary>
-              <p class="mb-hint" data-i18n="mb.tpl.manageHint">
-                Add or remove Content SIDs (HX…) for all staff. Saved to Supabase — no Edge secret change needed.
-              </p>
-              <div class="mb-tpl-form-grid">
-                <div>
-                  <label class="mb-label" for="mbTplLabel" data-i18n="ai.twilio.tplLabel">Label</label>
-                  <input type="text" id="mbTplLabel" class="mb-input mb-input-wide" maxlength="60"
-                         data-i18n-placeholder="ai.twilio.tplLabelPh" placeholder="Clinic recall">
-                </div>
-                <div>
-                  <label class="mb-label" for="mbTplSid" data-i18n="ai.twilio.tplSid">Content SID</label>
-                  <input type="text" id="mbTplSid" class="mb-input mb-input-wide" maxlength="40"
-                         data-i18n-placeholder="ai.twilio.tplSidPh"
-                         placeholder="HXf63c7a58271df43f5c63d97c6a514413"
-                         spellcheck="false" autocomplete="off">
-                </div>
-                <div>
-                  <label class="mb-label" for="mbTplVars" data-i18n="ai.twilio.tplVars">Variable keys</label>
-                  <input type="text" id="mbTplVars" class="mb-input mb-input-wide" maxlength="40"
-                         value="1" data-i18n-placeholder="ai.twilio.tplVarsPh" placeholder="1">
-                  <p class="mb-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.</p>
-                </div>
-                <div>
-                  <label class="mb-label" for="mbTplNotes" data-i18n="ai.twilio.tplNotes">Notes / preview</label>
-                  <input type="text" id="mbTplNotes" class="mb-input mb-input-wide" maxlength="160"
-                         data-i18n-placeholder="ai.twilio.tplNotesPh" placeholder="Approved recall greeting">
-                </div>
-              </div>
-              <div class="mb-tpl-actions">
-                <button type="button" class="mb-btn ghost" onclick="MASSBC.saveTemplate()"
-                        data-i18n="mb.tpl.save">Save selected</button>
-                <button type="button" class="mb-btn primary" onclick="MASSBC.addTemplate()"
-                        data-i18n="mb.tpl.add">Add to list</button>
-                <button type="button" class="mb-btn ghost mb-btn-danger" onclick="MASSBC.removeTemplate()"
-                        data-i18n="mb.tpl.remove">Remove selected</button>
-              </div>
-              <p id="mbTplStatus" class="mb-status" style="margin-top:8px;"></p>
-            </details>
           </div>
           <div id="mbSmsFields" style="display:none;">
             <label class="mb-label" for="mbSmsBody" data-i18n="mb.sms.body">SMS message</label>
@@ -2040,6 +1971,118 @@
             <button type="button" class="mb-btn primary" onclick="MASSBC.publishCampaign()"
                     data-i18n="mb.publish">Publish broadcast</button>
           </div>
+        </div>
+      </div>
+
+      <!-- TWILIO SETUP (clinic-wide; no patient selection required) -->
+      <div id="mbPaneTwilio" class="mb-pane" style="display:none;">
+        <div class="mb-setup-head">
+          <div>
+            <h3 class="mb-setup-title" data-i18n="mb.twilio.setupTitle">Twilio Setup</h3>
+            <p class="mb-hint" data-i18n="mb.twilio.setupIntro">
+              Configure clinic Twilio sender numbers and WhatsApp content templates here. No contact selection needed — settings apply to Broadcast, Recall, and AI Helper.
+            </p>
+          </div>
+          <button type="button" class="mb-btn ghost" onclick="MASSBC.setMode('contacts')"
+                  data-i18n="mb.backToContacts">Back to Contacts</button>
+        </div>
+        <div class="mb-setup-grid">
+          <section class="mb-setup-card mb-from-manage" aria-labelledby="mbSetupFromHeading">
+            <h4 id="mbSetupFromHeading" class="mb-setup-card-title" data-i18n="mb.from.manageTitle">Twilio sender numbers (clinic-wide)</h4>
+            <p class="mb-hint" data-i18n="mb.from.manageHint">
+              Add, edit, or remove sender numbers for all staff. Saved to Supabase — no need to open AI Helper.
+            </p>
+            <label class="mb-label" for="mbSetupFrom" data-i18n="mb.setup.fromList">Saved numbers</label>
+            <div class="mb-tpl-select-row">
+              <select id="mbSetupFrom" class="mb-select mb-input-wide" onchange="MASSBC.onSetupFromChange()"></select>
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadFromNumbers()"
+                      data-i18n="mb.from.reload">Reload</button>
+            </div>
+            <div class="mb-tpl-form-grid">
+              <div>
+                <label class="mb-label" for="mbFromLabel" data-i18n="ai.twilio.fromLabel">Label</label>
+                <input type="text" id="mbFromLabel" class="mb-input mb-input-wide" maxlength="40"
+                       data-i18n-placeholder="ai.twilio.fromLabelPh" placeholder="Clinic main">
+              </div>
+              <div>
+                <label class="mb-label" for="mbFromPhone" data-i18n="ai.twilio.fromPhone">Phone (E.164)</label>
+                <input type="text" id="mbFromPhone" class="mb-input mb-input-wide" maxlength="24"
+                       data-i18n-placeholder="ai.twilio.fromPhonePh" placeholder="+85291234567"
+                       spellcheck="false" autocomplete="off">
+              </div>
+            </div>
+            <div class="mb-from-caps" role="group">
+              <label class="mb-cap-check">
+                <input type="checkbox" id="mbFromCapWa" checked>
+                <span data-i18n="ai.twilio.ch.wa">WhatsApp</span>
+              </label>
+              <label class="mb-cap-check">
+                <input type="checkbox" id="mbFromCapSms" checked>
+                <span data-i18n="ai.twilio.ch.sms">SMS</span>
+              </label>
+            </div>
+            <div class="mb-tpl-actions">
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.saveFromNumber()"
+                      data-i18n="mb.from.save">Save selected</button>
+              <button type="button" class="mb-btn primary" onclick="MASSBC.addFromNumber()"
+                      data-i18n="mb.from.add">Add number</button>
+              <button type="button" class="mb-btn ghost mb-btn-danger" onclick="MASSBC.removeFromNumber()"
+                      data-i18n="mb.from.remove">Remove selected</button>
+            </div>
+            <p id="mbFromStatus" class="mb-status" style="margin-top:8px;"></p>
+          </section>
+
+          <section class="mb-setup-card mb-tpl-manage" aria-labelledby="mbSetupTplHeading">
+            <h4 id="mbSetupTplHeading" class="mb-setup-card-title" data-i18n="mb.tpl.manageTitle">Message content templates (clinic-wide)</h4>
+            <p class="mb-hint" data-i18n="mb.tpl.manageHint">
+              Add or remove Content SIDs (HX…) for all staff. Saved to Supabase — no Edge secret change needed.
+            </p>
+            <p class="mb-hint">
+              <a href="https://console.twilio.com/us1/develop/sms/content-template-builder"
+                 target="_blank" rel="noopener noreferrer" class="mb-link"
+                 data-i18n="ai.twilio.tplConsoleLink">Open Twilio Content Template Builder →</a>
+            </p>
+            <label class="mb-label" for="mbSetupTpl" data-i18n="mb.setup.tplList">Saved templates</label>
+            <div class="mb-tpl-select-row">
+              <select id="mbSetupTpl" class="mb-select mb-input-wide" onchange="MASSBC.onSetupTplChange()"></select>
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadTemplates()"
+                      data-i18n="mb.tpl.reload">Reload</button>
+            </div>
+            <div class="mb-tpl-form-grid">
+              <div>
+                <label class="mb-label" for="mbTplLabel" data-i18n="ai.twilio.tplLabel">Label</label>
+                <input type="text" id="mbTplLabel" class="mb-input mb-input-wide" maxlength="60"
+                       data-i18n-placeholder="ai.twilio.tplLabelPh" placeholder="Clinic recall">
+              </div>
+              <div>
+                <label class="mb-label" for="mbTplSid" data-i18n="ai.twilio.tplSid">Content SID</label>
+                <input type="text" id="mbTplSid" class="mb-input mb-input-wide" maxlength="40"
+                       data-i18n-placeholder="ai.twilio.tplSidPh"
+                       placeholder="HXf63c7a58271df43f5c63d97c6a514413"
+                       spellcheck="false" autocomplete="off">
+              </div>
+              <div>
+                <label class="mb-label" for="mbTplVars" data-i18n="ai.twilio.tplVars">Variable keys</label>
+                <input type="text" id="mbTplVars" class="mb-input mb-input-wide" maxlength="40"
+                       value="1" data-i18n-placeholder="ai.twilio.tplVarsPh" placeholder="1">
+                <p class="mb-hint" data-i18n="ai.twilio.tplVarsHint">Comma-separated Meta keys, e.g. 1 or 1,2. Key 1 uses the Name field.</p>
+              </div>
+              <div>
+                <label class="mb-label" for="mbTplNotes" data-i18n="ai.twilio.tplNotes">Notes / preview</label>
+                <input type="text" id="mbTplNotes" class="mb-input mb-input-wide" maxlength="160"
+                       data-i18n-placeholder="ai.twilio.tplNotesPh" placeholder="Approved recall greeting">
+              </div>
+            </div>
+            <div class="mb-tpl-actions">
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.saveTemplate()"
+                      data-i18n="mb.tpl.save">Save selected</button>
+              <button type="button" class="mb-btn primary" onclick="MASSBC.addTemplate()"
+                      data-i18n="mb.tpl.add">Add to list</button>
+              <button type="button" class="mb-btn ghost mb-btn-danger" onclick="MASSBC.removeTemplate()"
+                      data-i18n="mb.tpl.remove">Remove selected</button>
+            </div>
+            <p id="mbTplStatus" class="mb-status" style="margin-top:8px;"></p>
+          </section>
         </div>
       </div>
 

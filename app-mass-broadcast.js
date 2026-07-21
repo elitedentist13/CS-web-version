@@ -15,7 +15,7 @@ var MASSBC = (function () {
     var PATIENT_FETCH_SIZE = 1000;
     var DEFAULT_SENT_MONTHS = 6;
 
-    var _mode = 'contacts'; // contacts | campaign | history
+    var _mode = 'contacts'; // contacts | campaign | twilio | history
     var _wizardStep = 1;
     var _allPatients = [];
     var _filtered = [];
@@ -362,14 +362,18 @@ var MASSBC = (function () {
     }
 
     function setMode(mode) {
-        var next = mode === 'campaign' || mode === 'history' ? mode : 'contacts';
+        var next = (mode === 'campaign' || mode === 'history' || mode === 'twilio')
+            ? mode
+            : 'contacts';
         var prev = _mode;
         _mode = next;
         var contacts = pick('mbPaneContacts');
         var campaign = pick('mbPaneCampaign');
+        var twilio = pick('mbPaneTwilio');
         var history = pick('mbPaneHistory');
         if (contacts) contacts.style.display = _mode === 'contacts' ? '' : 'none';
         if (campaign) campaign.style.display = _mode === 'campaign' ? '' : 'none';
+        if (twilio) twilio.style.display = _mode === 'twilio' ? '' : 'none';
         if (history) history.style.display = _mode === 'history' ? '' : 'none';
         document.querySelectorAll('#tab-broadcast [data-mb-mode]').forEach(function (btn) {
             btn.classList.toggle('mb-mode-active', btn.getAttribute('data-mb-mode') === _mode);
@@ -379,9 +383,10 @@ var MASSBC = (function () {
             syncWizardUi();
             fillTwilioSelects();
         }
+        if (_mode === 'twilio') fillTwilioSelects();
         if (_mode === 'history') loadHistory();
         // Returning from Campaign/History: refresh sent tags so the window filter updates.
-        if (_mode === 'contacts' && prev !== 'contacts') {
+        if (_mode === 'contacts' && prev !== 'contacts' && prev !== 'twilio') {
             loadSentHistory().then(function () { applyFilters(); });
         }
     }
@@ -1234,12 +1239,25 @@ var MASSBC = (function () {
         fillTwilioSelects();
     }
 
+    function fromOptionLabel(n) {
+        var caps = [];
+        if (n.whatsapp !== false) caps.push('WA');
+        if (n.sms !== false) caps.push('SMS');
+        return (n.label || n.phone) + ' · ' + n.phone +
+            (caps.length ? ' (' + caps.join('/') + ')' : '');
+    }
+
     function fillTwilioSelects() {
         var fromSel = pick('mbTwilioFrom');
         var tplSel = pick('mbTwilioTpl');
+        var setupFrom = pick('mbSetupFrom');
+        var setupTpl = pick('mbSetupTpl');
         var prevFrom = fromSel ? String(fromSel.value || 'default') : 'default';
+        var prevSetupFrom = setupFrom ? String(setupFrom.value || '') : '';
+        var prevSetupTpl = setupTpl ? String(setupTpl.value || '') : '';
+        var prevTpl = tplSel ? String(tplSel.value || '') : '';
 
-        function paintFrom() {
+        function paintCampaignFrom() {
             if (!fromSel || typeof AIHELPER === 'undefined' || !AIHELPER.listTwilioFromNumbers) return;
             var nums = AIHELPER.listTwilioFromNumbers(_channel) || [];
             var defLabel = AIHELPER.getTwilioFromDefaultLabel
@@ -1249,11 +1267,7 @@ var MASSBC = (function () {
             nums.forEach(function (n) {
                 var o = document.createElement('option');
                 o.value = n.id;
-                var caps = [];
-                if (n.whatsapp !== false) caps.push('WA');
-                if (n.sms !== false) caps.push('SMS');
-                o.textContent = (n.label || n.phone) + ' · ' + n.phone +
-                    (caps.length ? ' (' + caps.join('/') + ')' : '');
+                o.textContent = fromOptionLabel(n);
                 fromSel.appendChild(o);
             });
             var has = prevFrom === 'default';
@@ -1266,13 +1280,34 @@ var MASSBC = (function () {
             onFromChange();
         }
 
-        function paintTpls() {
+        function paintSetupFrom() {
+            if (!setupFrom || typeof AIHELPER === 'undefined' || !AIHELPER.listTwilioFromNumbers) return;
+            var nums = AIHELPER.listTwilioFromNumbers() || [];
+            setupFrom.innerHTML = '<option value="">' +
+                esc(tr('mb.setup.fromPick', 'Select a number to edit…')) + '</option>';
+            nums.forEach(function (n) {
+                var o = document.createElement('option');
+                o.value = n.id;
+                o.textContent = fromOptionLabel(n);
+                setupFrom.appendChild(o);
+            });
+            var has = false;
+            if (prevSetupFrom) {
+                Array.prototype.forEach.call(setupFrom.options, function (o) {
+                    if (o.value === prevSetupFrom) has = true;
+                });
+            }
+            setupFrom.value = has ? prevSetupFrom : '';
+            onSetupFromChange();
+        }
+
+        function paintCampaignTpls() {
             if (!tplSel || typeof AIHELPER === 'undefined' || !AIHELPER.listTwilioContentTemplates) return;
             var tpls = AIHELPER.listTwilioContentTemplates() || [];
             tplSel.innerHTML = '';
             if (!tpls.length) {
                 tplSel.innerHTML = '<option value="">' +
-                    esc(tr('mb.tpl.empty', 'No templates — add below')) + '</option>';
+                    esc(tr('mb.tpl.empty', 'No templates — open Twilio Setup')) + '</option>';
             } else {
                 tpls.forEach(function (t) {
                     var o = document.createElement('option');
@@ -1280,8 +1315,42 @@ var MASSBC = (function () {
                     o.textContent = (t.label || t.contentSid) + ' · ' + (t.contentSid || '');
                     tplSel.appendChild(o);
                 });
+                var hasTpl = false;
+                if (prevTpl) {
+                    Array.prototype.forEach.call(tplSel.options, function (o) {
+                        if (o.value === prevTpl) hasTpl = true;
+                    });
+                }
+                if (hasTpl) tplSel.value = prevTpl;
             }
             onTplChange();
+        }
+
+        function paintSetupTpls() {
+            if (!setupTpl || typeof AIHELPER === 'undefined' || !AIHELPER.listTwilioContentTemplates) return;
+            var tpls = AIHELPER.listTwilioContentTemplates() || [];
+            setupTpl.innerHTML = '';
+            if (!tpls.length) {
+                setupTpl.innerHTML = '<option value="">' +
+                    esc(tr('mb.setup.tplEmpty', 'No templates yet — add below')) + '</option>';
+            } else {
+                setupTpl.innerHTML = '<option value="">' +
+                    esc(tr('mb.setup.tplPick', 'Select a template to edit…')) + '</option>';
+                tpls.forEach(function (t) {
+                    var o = document.createElement('option');
+                    o.value = t.id;
+                    o.textContent = (t.label || t.contentSid) + ' · ' + (t.contentSid || '');
+                    setupTpl.appendChild(o);
+                });
+                var has = false;
+                if (prevSetupTpl) {
+                    Array.prototype.forEach.call(setupTpl.options, function (o) {
+                        if (o.value === prevSetupTpl) has = true;
+                    });
+                }
+                setupTpl.value = has ? prevSetupTpl : '';
+            }
+            onSetupTplChange();
         }
 
         var fromP = (typeof AIHELPER !== 'undefined' &&
@@ -1293,8 +1362,20 @@ var MASSBC = (function () {
             ? AIHELPER.ensureTwilioContentTemplates(true)
             : Promise.resolve();
 
-        Promise.resolve(fromP).then(paintFrom).catch(paintFrom);
-        Promise.resolve(tplP).then(paintTpls).catch(paintTpls);
+        Promise.resolve(fromP).then(function () {
+            paintCampaignFrom();
+            paintSetupFrom();
+        }).catch(function () {
+            paintCampaignFrom();
+            paintSetupFrom();
+        });
+        Promise.resolve(tplP).then(function () {
+            paintCampaignTpls();
+            paintSetupTpls();
+        }).catch(function () {
+            paintCampaignTpls();
+            paintSetupTpls();
+        });
     }
 
     function setFromStatus(msg, isErr) {
@@ -1350,19 +1431,41 @@ var MASSBC = (function () {
                 }, 'Sending from {LABEL} ({FROM})');
             }
         }
-        if (id === 'default') fillMbFromForm(null);
-        else fillMbFromForm(row);
+    }
+
+    function onSetupFromChange() {
+        var sel = pick('mbSetupFrom');
+        var id = sel ? String(sel.value || '') : '';
+        var row = null;
+        if (id && typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioFromNumber) {
+            row = AIHELPER.getTwilioFromNumber(id);
+        }
+        fillMbFromForm(row);
     }
 
     function selectFromInDropdown(id) {
-        var fromSel = pick('mbTwilioFrom');
-        if (!fromSel || !id) return;
-        var has = false;
-        Array.prototype.forEach.call(fromSel.options, function (o) {
-            if (o.value === id) has = true;
-        });
-        if (has) fromSel.value = id;
-        onFromChange();
+        var setupSel = pick('mbSetupFrom');
+        var campSel = pick('mbTwilioFrom');
+        if (setupSel && id) {
+            var hasSetup = false;
+            Array.prototype.forEach.call(setupSel.options, function (o) {
+                if (o.value === id) hasSetup = true;
+            });
+            if (hasSetup) {
+                setupSel.value = id;
+                onSetupFromChange();
+            }
+        }
+        if (campSel && id) {
+            var hasCamp = false;
+            Array.prototype.forEach.call(campSel.options, function (o) {
+                if (o.value === id) hasCamp = true;
+            });
+            if (hasCamp) {
+                campSel.value = id;
+                onFromChange();
+            }
+        }
     }
 
     function addFromNumber() {
@@ -1401,10 +1504,10 @@ var MASSBC = (function () {
             alert(tr('mb.alert.twilioDown', 'Twilio send unavailable. Open AI Helper → Twilio Send.'));
             return;
         }
-        var sel = pick('mbTwilioFrom');
+        var sel = pick('mbSetupFrom');
         var id = sel ? String(sel.value || '') : '';
-        if (!id || id === 'default') {
-            alert(tr('mb.from.needSelect', 'Select a saved number first (not Default).'));
+        if (!id) {
+            alert(tr('mb.from.needSelect', 'Select a saved number from the list first.'));
             return;
         }
         var form = readMbFromForm();
@@ -1436,10 +1539,10 @@ var MASSBC = (function () {
             alert(tr('mb.alert.twilioDown', 'Twilio send unavailable. Open AI Helper → Twilio Send.'));
             return;
         }
-        var sel = pick('mbTwilioFrom');
+        var sel = pick('mbSetupFrom');
         var id = sel ? String(sel.value || '') : '';
-        if (!id || id === 'default') {
-            alert(tr('mb.from.needSelect', 'Select a saved number first (not Default).'));
+        if (!id) {
+            alert(tr('mb.from.needSelect', 'Select a saved number from the list first.'));
             return;
         }
         var row = AIHELPER.getTwilioFromNumber ? AIHELPER.getTwilioFromNumber(id) : null;
@@ -1526,18 +1629,41 @@ var MASSBC = (function () {
                     (tpl.vars ? ' · vars: ' + tpl.vars : ' · {{1}} = name');
             }
         }
+    }
+
+    function onSetupTplChange() {
+        var sel = pick('mbSetupTpl');
+        var id = sel ? String(sel.value || '') : '';
+        var tpl = null;
+        if (id && typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioContentTemplate) {
+            tpl = AIHELPER.getTwilioContentTemplate(id);
+        }
         fillMbTplForm(tpl);
     }
 
     function selectTplInDropdown(id) {
-        var tplSel = pick('mbTwilioTpl');
-        if (!tplSel || !id) return;
-        var has = false;
-        Array.prototype.forEach.call(tplSel.options, function (o) {
-            if (o.value === id) has = true;
-        });
-        if (has) tplSel.value = id;
-        onTplChange();
+        var setupSel = pick('mbSetupTpl');
+        var campSel = pick('mbTwilioTpl');
+        if (setupSel && id) {
+            var hasSetup = false;
+            Array.prototype.forEach.call(setupSel.options, function (o) {
+                if (o.value === id) hasSetup = true;
+            });
+            if (hasSetup) {
+                setupSel.value = id;
+                onSetupTplChange();
+            }
+        }
+        if (campSel && id) {
+            var hasCamp = false;
+            Array.prototype.forEach.call(campSel.options, function (o) {
+                if (o.value === id) hasCamp = true;
+            });
+            if (hasCamp) {
+                campSel.value = id;
+                onTplChange();
+            }
+        }
     }
 
     function addTemplate() {
@@ -1577,7 +1703,7 @@ var MASSBC = (function () {
             alert(tr('mb.alert.twilioDown', 'Twilio send unavailable. Open AI Helper → Twilio Send.'));
             return;
         }
-        var sel = pick('mbTwilioTpl');
+        var sel = pick('mbSetupTpl');
         var id = sel ? String(sel.value || '') : '';
         if (!id) {
             alert(tr('mb.tpl.needSelect', 'Select a template from the list first.'));
@@ -1611,7 +1737,7 @@ var MASSBC = (function () {
             alert(tr('mb.alert.twilioDown', 'Twilio send unavailable. Open AI Helper → Twilio Send.'));
             return;
         }
-        var sel = pick('mbTwilioTpl');
+        var sel = pick('mbSetupTpl');
         var id = sel ? String(sel.value || '') : '';
         if (!id) {
             alert(tr('mb.tpl.needSelect', 'Select a template from the list first.'));
@@ -2211,11 +2337,13 @@ var MASSBC = (function () {
         URL.revokeObjectURL(a.href);
     }
 
+    function openTwilioSetup() {
+        setMode('twilio');
+    }
+
+    /** @deprecated Prefer openTwilioSetup — kept for older onclick handlers */
     function openAiTwilioManage() {
-        if (typeof showOnly === 'function') showOnly('aiHelperSection');
-        if (typeof AIHELPER !== 'undefined' && AIHELPER.switchTab) {
-            setTimeout(function () { AIHELPER.switchTab('twilio'); }, 80);
-        }
+        openTwilioSetup();
     }
 
     // Public API
@@ -2236,11 +2364,13 @@ var MASSBC = (function () {
         goWizardStep: goWizardStep,
         setChannel: setChannel,
         onTplChange: onTplChange,
+        onSetupTplChange: onSetupTplChange,
         addTemplate: addTemplate,
         saveTemplate: saveTemplate,
         removeTemplate: removeTemplate,
         reloadTemplates: reloadTemplates,
         onFromChange: onFromChange,
+        onSetupFromChange: onSetupFromChange,
         addFromNumber: addFromNumber,
         saveFromNumber: saveFromNumber,
         removeFromNumber: removeFromNumber,
@@ -2248,6 +2378,7 @@ var MASSBC = (function () {
         sendTest: sendTest,
         publishCampaign: publishCampaign,
         loadHistory: loadHistory,
+        openTwilioSetup: openTwilioSetup,
         openAiTwilioManage: openAiTwilioManage,
         loadPatients: loadPatients
     };

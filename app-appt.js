@@ -8905,11 +8905,7 @@ function getSelectedRcTwilioFrom() {
 }
 
 function openAiHelperTwilioFromNumbers() {
-    openAiHelperTwilioTemplates();
-    var manage = document.getElementById('aiTwilioFromManage');
-    if (manage && typeof manage.open !== 'undefined') {
-        try { manage.open = true; } catch (e) { /* ignore */ }
-    }
+    openBroadcastTwilioSetup();
 }
 
 function refreshRcTwilioTplSelect() {
@@ -8988,13 +8984,22 @@ function getSelectedRcTwilioTpl() {
     return AIHELPER.getTwilioContentTemplate(id);
 }
 
+function openBroadcastTwilioSetup() {
+    if (typeof switchApptTab === 'function') {
+        try { switchApptTab('broadcast'); } catch (e) { /* ignore */ }
+    }
+    // switchApptTab('broadcast') already inits MASSBC (and resets to Contacts).
+    // Open Twilio Setup after that paint so it is not wiped by init().
+    setTimeout(function () {
+        if (typeof MASSBC === 'undefined') return;
+        if (typeof MASSBC.openTwilioSetup === 'function') MASSBC.openTwilioSetup();
+        else if (typeof MASSBC.setMode === 'function') MASSBC.setMode('twilio');
+    }, 60);
+}
+
+/** @deprecated Prefer openBroadcastTwilioSetup */
 function openAiHelperTwilioTemplates() {
-    if (typeof showOnly === 'function') {
-        try { showOnly('aiHelperSection'); } catch (e) { /* ignore */ }
-    }
-    if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.switchTab === 'function') {
-        AIHELPER.switchTab('twilio');
-    }
+    openBroadcastTwilioSetup();
 }
 
 function recallPhoneE164(phone) {

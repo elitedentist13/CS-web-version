@@ -16330,6 +16330,30 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     font-size: 12px; font-weight: 700; color: #334155; cursor: pointer;
 }
 
+/* Twilio Setup pane (Broadcast subtab) */
+.mb-setup-head {
+    display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+    gap: 12px; margin-bottom: 14px;
+}
+.mb-setup-title {
+    margin: 0 0 6px; font-size: 16px; font-weight: 800; color: #0f766e;
+}
+.mb-setup-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start;
+}
+.mb-setup-card {
+    margin-top: 0; padding: 14px 16px; background: #fff;
+    border: 1.5px solid #d1fae5; border-radius: 12px;
+}
+.mb-setup-card.mb-from-manage { border-color: #bae6fd; }
+.mb-setup-card-title {
+    margin: 0 0 8px; font-size: 14px; font-weight: 800; color: #115e59;
+}
+.mb-setup-card.mb-from-manage .mb-setup-card-title { color: #0c4a6e; }
+@media (max-width: 900px) {
+    .mb-setup-grid { grid-template-columns: 1fr; }
+}
+
 .mb-sent-legend { margin: 0 0 8px; }
 .mb-sent-tag {
     display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;

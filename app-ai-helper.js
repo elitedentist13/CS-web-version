@@ -1213,7 +1213,8 @@ var AIHELPER = AIHELPER || {};
 
     /** Web-app placeholders staff can map onto Twilio {{n}} slots. */
     var TWILIO_WEB_FIELDS = [
-        'NAME', 'FULL_NAME', 'CLINIC', 'DATE', 'TIME', 'DOCTOR',
+        'NAME', 'FULL_NAME', 'FIRST', 'CHINESE', 'ENGLISH',
+        'CLINIC', 'DATE', 'TIME', 'DOCTOR', 'TREATMENT',
         'PHONE', 'PATIENT_NO', 'BODY'
     ];
 
@@ -1789,10 +1790,14 @@ var AIHELPER = AIHELPER || {};
         }
         put('NAME', ctx.name);
         put('FULL_NAME', ctx.fullName || ctx.full_name);
+        put('FIRST', ctx.first);
+        put('CHINESE', ctx.chinese);
+        put('ENGLISH', ctx.english);
         put('CLINIC', ctx.clinic);
         put('DATE', ctx.date);
         put('TIME', ctx.time);
         put('DOCTOR', ctx.doctor);
+        put('TREATMENT', ctx.treatment);
         put('PHONE', ctx.phone);
         put('PATIENT_NO', ctx.patientNo || ctx.patient_no);
         put('BODY', ctx.body);
@@ -2219,14 +2224,23 @@ var AIHELPER = AIHELPER || {};
     var _fromDbMissing = false;
 
     function normalizeE164Phone(raw) {
-        var s = String(raw || '').trim().replace(/[\s()-]/g, '');
+        var s = String(raw || '').trim();
         if (!s) return '';
-        if (s.indexOf('whatsapp:') === 0) s = s.slice(9);
+        // Accept pasted Twilio WhatsApp addresses
+        s = s.replace(/^whatsapp:\s*/i, '');
+        // Spaces, dashes, parentheses, dots, NBSP
+        s = s.replace(/[\s()\-.\u00a0\u3000]/g, '');
+        // International dial prefix 00… → +…
+        if (/^00[1-9]/.test(s)) s = '+' + s.slice(2);
+        if (!s) return '';
         if (s.charAt(0) !== '+') {
-            var digits = s.replace(/\D/g, '');
-            if (digits.length >= 8) s = '+' + digits;
+            var digitsOnly = s.replace(/\D/g, '');
+            if (digitsOnly.length >= 8 && digitsOnly.length <= 15) s = '+' + digitsOnly;
             else return '';
+        } else {
+            s = '+' + s.slice(1).replace(/\D/g, '');
         }
+        // E.164: + then 8–15 digits, first digit 1–9
         if (!/^\+[1-9]\d{7,14}$/.test(s)) return '';
         return s;
     }
@@ -2527,22 +2541,14 @@ var AIHELPER = AIHELPER || {};
         if (!wa && !sms) return Promise.resolve({ ok: false, error: 'caps' });
         var label = String(opts.label || '').trim() || phone;
 
-        return ensureTwilioFromCache(false).then(function() {
+        // Always refresh from Supabase before write — never silently save local-only.
+        return ensureTwilioFromCache(true).then(function() {
+            if (!_fromDbReady || _fromDbMissing || typeof SB === 'undefined') {
+                return { ok: false, error: 'db_missing' };
+            }
             var store = loadTwilioFromStore();
             for (var i = 0; i < store.numbers.length; i++) {
                 if (store.numbers[i].phone === phone) return { ok: false, error: 'dup' };
-            }
-
-            if (!_fromDbReady || typeof SB === 'undefined') {
-                if (_fromDbMissing) return { ok: false, error: 'db_missing' };
-                var localId = 'n_' + Date.now().toString(36);
-                store.numbers.push({
-                    id: localId, label: label, phone: phone, whatsapp: wa, sms: sms
-                });
-                store.selectedId = localId;
-                saveTwilioFromStore(store);
-                paintTwilioFromSelect();
-                return { ok: true, id: localId, numbers: store.numbers.slice() };
             }
 
             return SB.from(TWILIO_FROM_TABLE).insert([{
@@ -2556,6 +2562,7 @@ var AIHELPER = AIHELPER || {};
                 if (r.error) {
                     var msg = String(r.error.message || '');
                     if (/duplicate|unique/i.test(msg)) return { ok: false, error: 'dup' };
+                    if (fromTableMissing(r.error)) return { ok: false, error: 'db_missing' };
                     return { ok: false, error: msg };
                 }
                 var newId = r.data && r.data.id ? String(r.data.id) : '';
@@ -2575,7 +2582,7 @@ var AIHELPER = AIHELPER || {};
     ns.updateTwilioFromNumberOpts = function(id, opts) {
         opts = opts || {};
         var fromId = String(id || '').trim();
-        if (!fromId || fromId === 'default') {
+        if (!fromId || fromId === 'default' || fromId === '__new__') {
             return Promise.resolve({ ok: false, error: 'select' });
         }
         var phone = normalizeE164Phone(opts.phone);
@@ -2585,7 +2592,10 @@ var AIHELPER = AIHELPER || {};
         if (!wa && !sms) return Promise.resolve({ ok: false, error: 'caps' });
         var label = String(opts.label || '').trim() || phone;
 
-        return ensureTwilioFromCache(false).then(function() {
+        return ensureTwilioFromCache(true).then(function() {
+            if (!_fromDbReady || _fromDbMissing || typeof SB === 'undefined') {
+                return { ok: false, error: 'db_missing' };
+            }
             var store = loadTwilioFromStore();
             var prev = null;
             for (var i = 0; i < store.numbers.length; i++) {
@@ -2596,18 +2606,6 @@ var AIHELPER = AIHELPER || {};
             }
             if (!prev) return { ok: false, error: 'select' };
 
-            if (!_fromDbReady || typeof SB === 'undefined') {
-                if (_fromDbMissing) return { ok: false, error: 'db_missing' };
-                prev.label = label;
-                prev.phone = phone;
-                prev.whatsapp = wa;
-                prev.sms = sms;
-                store.selectedId = prev.id;
-                saveTwilioFromStore(store);
-                paintTwilioFromSelect();
-                return { ok: true, id: prev.id, numbers: store.numbers.slice() };
-            }
-
             return SB.from(TWILIO_FROM_TABLE).update({
                 label: label,
                 phone: phone,
@@ -2615,7 +2613,10 @@ var AIHELPER = AIHELPER || {};
                 sms: sms,
                 updated_at: new Date().toISOString()
             }).eq('id', prev.id).then(function(r) {
-                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                if (r.error) {
+                    if (fromTableMissing(r.error)) return { ok: false, error: 'db_missing' };
+                    return { ok: false, error: String(r.error.message || '') };
+                }
                 writeSelectedFromPref(prev.id);
                 return ensureTwilioFromCache(true).then(function() {
                     paintTwilioFromSelect();
@@ -2631,10 +2632,13 @@ var AIHELPER = AIHELPER || {};
 
     ns.removeTwilioFromNumberOpts = function(id) {
         var fromId = String(id || '').trim();
-        if (!fromId || fromId === 'default') {
+        if (!fromId || fromId === 'default' || fromId === '__new__') {
             return Promise.resolve({ ok: false, error: 'default' });
         }
-        return ensureTwilioFromCache(false).then(function() {
+        return ensureTwilioFromCache(true).then(function() {
+            if (!_fromDbReady || _fromDbMissing || typeof SB === 'undefined') {
+                return { ok: false, error: 'db_missing' };
+            }
             var store = loadTwilioFromStore();
             var row = null;
             for (var i = 0; i < store.numbers.length; i++) {
@@ -2645,19 +2649,14 @@ var AIHELPER = AIHELPER || {};
             }
             if (!row) return { ok: false, error: 'select' };
 
-            if (!_fromDbReady || typeof SB === 'undefined') {
-                store.numbers = store.numbers.filter(function(n) { return n.id !== fromId; });
-                store.selectedId = 'default';
-                saveTwilioFromStore(store);
-                paintTwilioFromSelect();
-                return { ok: true, numbers: store.numbers.slice() };
-            }
-
             return SB.from(TWILIO_FROM_TABLE).update({
                 is_active: false,
                 updated_at: new Date().toISOString()
             }).eq('id', fromId).then(function(r) {
-                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                if (r.error) {
+                    if (fromTableMissing(r.error)) return { ok: false, error: 'db_missing' };
+                    return { ok: false, error: String(r.error.message || '') };
+                }
                 writeSelectedFromPref('default');
                 return ensureTwilioFromCache(true).then(function() {
                     paintTwilioFromSelect();

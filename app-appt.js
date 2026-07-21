@@ -8558,6 +8558,9 @@ var rcPatients  = [];          // enriched appointment rows for selected date
 var rcSelIds    = {};          // { apptId: true }
 var rcContact   = 'whatsapp';  // 'whatsapp' | 'sms' | 'twilio_wa' | 'twilio_sms'
 var rcTemplates = [];          // saved message templates (Supabase; legacy localStorage migrate)
+var rcActiveTmplId = '';       // currently open free-text template id
+var _rcMsgBoxDraft = '';       // stash free-text draft while Twilio WA shows approved body
+var _rcMsgBoxLocked = false;   // true when message box shows read-only Twilio Content Template text
 var rcSendQueue = [];          // patients to step through when sending
 var rcSendIdx   = 0;
 var rcTwilioBusy = false;
@@ -8571,6 +8574,7 @@ function initRecallTab() {
     rcDate   = todayISO();
     rcMonthD = new Date();
     loadRcTemplates();
+    renderRcPlaceholderChips();
     function afterTpl() {
         refreshRcTwilioFromSelect();
         refreshRcTwilioTplSelect();
@@ -8801,17 +8805,101 @@ function setRcContact(method) {
     var panel = g('rcTwilioPanel');
     var waRow = g('rcTwilioWaTplRow');
     var smsHint = g('rcTwilioSmsHint');
-    var waBodyNote = g('rcTwilioWaBodyNote');
     var showTwilio = isRcTwilioContact();
     if (panel) panel.style.display = showTwilio ? 'block' : 'none';
     if (waRow) waRow.style.display = method === 'twilio_wa' ? 'block' : 'none';
     if (smsHint) smsHint.style.display = method === 'twilio_sms' ? 'block' : 'none';
-    if (waBodyNote) waBodyNote.style.display = method === 'twilio_wa' ? 'block' : 'none';
 
     if (showTwilio) {
         refreshRcTwilioFromSelect();
         if (method === 'twilio_wa') refreshRcTwilioTplSelect();
     }
+    syncRcMsgBoxMode();
+}
+
+/** Approved Twilio Content Template body for the message box (read-only display). */
+function rcTwilioApprovedBodyText(tpl) {
+    if (!tpl) {
+        return tr('appt.recall.twilioBodyEmpty');
+    }
+    var varsStr = tpl.vars || '1';
+    var map = tpl.varMap || {};
+    if (typeof AIHELPER !== 'undefined' &&
+        typeof AIHELPER.normalizeTplVarMap === 'function') {
+        map = AIHELPER.normalizeTplVarMap(varsStr, tpl.varMap);
+    }
+    var raw = String(tpl.notes || '').trim();
+    if (!raw) raw = rcDefaultPreviewBody(varsStr, map);
+    return raw;
+}
+
+/**
+ * WhatsApp / SMS / Twilio SMS → editable free text.
+ * Twilio WhatsApp → show approved Content Template body, read-only.
+ */
+function syncRcMsgBoxMode() {
+    var el = g('recallMsgBox');
+    var msgTools = g('rcMsgTools');
+    var waPhNote = g('rcWaPlaceholderNote');
+    var waBodyNote = g('rcTwilioWaBodyNote');
+    var saveBtn = g('rcSaveTmplBtn');
+    var tmplPanel = g('recallTmplPanel');
+    var editBanner = g('rcTmplEditBanner');
+    var lockTwilioWa = rcContact === 'twilio_wa';
+    var freeText = rcContact === 'whatsapp' || rcContact === 'sms' || rcContact === 'twilio_sms';
+
+    if (lockTwilioWa) {
+        if (!_rcMsgBoxLocked && el) {
+            _rcMsgBoxDraft = String(el.value || '');
+        }
+        _rcMsgBoxLocked = true;
+        var tpl = getSelectedRcTwilioTpl();
+        if (el) {
+            el.value = rcTwilioApprovedBodyText(tpl);
+            el.readOnly = true;
+            el.setAttribute('aria-readonly', 'true');
+            el.style.background = '#f1f5f9';
+            el.style.color = '#334155';
+            el.style.cursor = 'default';
+            el.style.borderColor = '#cbd5e1';
+            el.removeAttribute('data-i18n-placeholder');
+            el.placeholder = tr('appt.recall.twilioBodyReadonlyPh');
+        }
+        if (msgTools) msgTools.style.display = 'none';
+        if (waPhNote) waPhNote.style.display = 'none';
+        if (waBodyNote) {
+            waBodyNote.style.display = 'block';
+            waBodyNote.setAttribute('data-i18n', 'appt.recallTwilioWaBodyNote');
+            waBodyNote.textContent = tr('appt.recallTwilioWaBodyNote');
+        }
+        if (saveBtn) saveBtn.style.display = 'none';
+        if (tmplPanel) tmplPanel.style.display = 'none';
+        if (editBanner) editBanner.style.display = 'none';
+        return;
+    }
+
+    if (_rcMsgBoxLocked) {
+        if (el) el.value = _rcMsgBoxDraft || '';
+        _rcMsgBoxLocked = false;
+    }
+    if (el) {
+        el.readOnly = false;
+        el.removeAttribute('aria-readonly');
+        el.style.background = '#fff';
+        el.style.color = '#1e293b';
+        el.style.cursor = 'text';
+        el.style.borderColor = '#e2e8f0';
+        el.setAttribute('data-i18n-placeholder', 'appt.recallMsgPh');
+        el.placeholder = tr('appt.recallMsgPh');
+    }
+    if (msgTools) msgTools.style.display = freeText ? 'block' : 'none';
+    if (waPhNote) waPhNote.style.display = freeText ? 'block' : 'none';
+    if (waBodyNote) waBodyNote.style.display = 'none';
+    if (saveBtn) saveBtn.style.display = '';
+    if (freeText) renderRcPlaceholderChips();
+    // Restore saved free-text template list visibility
+    if (tmplPanel) renderRcTemplates();
+    syncRcTemplateEditUi();
 }
 
 function rcTwilioChannelKey() {
@@ -8930,6 +9018,7 @@ function refreshRcTwilioTplSelect() {
         sel.appendChild(empty);
         syncRcTwilioTplHint();
         renderRcTplPreview();
+        if (rcContact === 'twilio_wa') syncRcMsgBoxMode();
         return;
     }
     templates.forEach(function(t) {
@@ -8947,6 +9036,7 @@ function refreshRcTwilioTplSelect() {
     try { localStorage.setItem(RC_TWILIO_TPL_PREF, sel.value); } catch (e2) { /* ignore */ }
     syncRcTwilioTplHint();
     renderRcTplPreview();
+    if (rcContact === 'twilio_wa') syncRcMsgBoxMode();
 }
 
 function onRcTwilioTplChange() {
@@ -8956,6 +9046,7 @@ function onRcTwilioTplChange() {
     }
     syncRcTwilioTplHint();
     renderRcTplPreview();
+    if (rcContact === 'twilio_wa') syncRcMsgBoxMode();
 }
 
 function syncRcTwilioTplHint() {
@@ -9008,14 +9099,17 @@ function rcEscHtml(s) {
 function rcSampleField(field) {
     var f = String(field || '').toUpperCase();
     if (f === 'NAME') return 'Alex';
-    if (f === 'FULL_NAME') return 'Alex Chan';
+    if (f === 'FULL_NAME' || f === 'ENGLISH') return 'Alex Chan';
+    if (f === 'FIRST') return 'Alex';
+    if (f === 'CHINESE') return '陳大文';
     if (f === 'CLINIC') return (typeof apptClinicNameForWhatsApp === 'function'
         ? apptClinicNameForWhatsApp() : '') || 'Joyful Smile';
     if (f === 'DATE') return (typeof rcDate !== 'undefined' && rcDate) ? rcDate : '2026-07-22';
     if (f === 'TIME') return '10:00 AM';
     if (f === 'DOCTOR') return 'Chan';
+    if (f === 'TREATMENT') return 'Check-up';
     if (f === 'PHONE') return '+85291234567';
-    if (f === 'PATIENT_NO') return '001234';
+    if (f === 'PATIENT_NO' || f === 'NO') return '001234';
     if (f === 'BODY') return '…';
     return 'Sample';
 }
@@ -9094,7 +9188,8 @@ function renderRcTplPreview() {
         var reSingle = new RegExp('\\{' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\}', 'g');
         html = html.replace(reBrace, chip).replace(reSingle, chip);
     });
-    ['NAME', 'FULL_NAME', 'CLINIC', 'DATE', 'TIME', 'DOCTOR', 'PHONE', 'PATIENT_NO', 'BODY']
+    ['NAME', 'FULL_NAME', 'FIRST', 'CHINESE', 'ENGLISH', 'CLINIC', 'DATE', 'TIME',
+        'DOCTOR', 'TREATMENT', 'PHONE', 'PATIENT_NO', 'BODY']
         .forEach(function(f) {
             var sample = rcEscHtml(rcSampleField(f));
             var chip = '<span class="mb-tpl-var">' + sample + '</span>';
@@ -9295,17 +9390,106 @@ function loadRcTemplates() {
         });
 }
 
-function saveRcTemplate() {
-    var txt = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
-    if (!txt) { alert(tr('appt.recall.alertEnterMsg')); return; }
-    var name = prompt(tr('appt.recall.promptTmplName'));
-    if (name === null || !name.trim()) return;
-    name = name.trim();
-    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
-        alert(tr('appt.recall.tmplDbMissing'));
-        return;
+function getRcActiveTemplate() {
+    var sid = String(rcActiveTmplId || '');
+    if (!sid) return null;
+    for (var i = 0; i < rcTemplates.length; i++) {
+        if (String(rcTemplates[i].id) === sid) return rcTemplates[i];
     }
-    SB.from(RC_MSG_TMPL_TABLE).insert([{
+    return null;
+}
+
+function setRcActiveTemplate(id, opts) {
+    opts = opts || {};
+    rcActiveTmplId = id ? String(id) : '';
+    syncRcTemplateEditUi();
+    if (!opts.skipRender) renderRcTemplates();
+}
+
+function clearRcActiveTemplate(opts) {
+    setRcActiveTemplate('', opts || {});
+}
+
+function syncRcTemplateEditUi() {
+    var banner = g('rcTmplEditBanner');
+    var saveBtn = g('rcSaveTmplBtn');
+    var active = getRcActiveTemplate();
+    if (banner) {
+        if (active) {
+            banner.style.display = 'flex';
+            banner.innerHTML =
+                '<span style="flex:1;min-width:0;">' +
+                esc(trRepl('appt.recall.editingTmpl', { NAME: active.name })) +
+                '</span>' +
+                '<button type="button" onclick="beginRcNewTemplateDraft()" ' +
+                'style="padding:4px 10px;border-radius:6px;border:1px solid #cbd5e1;' +
+                'background:#fff;color:#334155;font-size:11px;font-weight:700;cursor:pointer;">' +
+                esc(tr('appt.recall.newTmplDraft')) + '</button>';
+        } else {
+            banner.style.display = 'none';
+            banner.innerHTML = '';
+        }
+    }
+    // Always the same save action: prompt for name (overwrite if name exists).
+    if (saveBtn) {
+        saveBtn.textContent = tr('appt.recallSaveTmpl');
+        saveBtn.setAttribute('data-i18n', 'appt.recallSaveTmpl');
+    }
+}
+
+function beginRcNewTemplateDraft() {
+    clearRcActiveTemplate();
+    var el = g('recallMsgBox');
+    if (el) {
+        try { el.focus(); } catch (e) { /* ignore */ }
+    }
+}
+
+function findRcTemplateByName(name) {
+    var needle = String(name || '').trim().toLowerCase();
+    if (!needle) return null;
+    for (var i = 0; i < rcTemplates.length; i++) {
+        if (String(rcTemplates[i].name || '').trim().toLowerCase() === needle) {
+            return rcTemplates[i];
+        }
+    }
+    return null;
+}
+
+function updateRcTemplateRow(existing, txt) {
+    return SB.from(RC_MSG_TMPL_TABLE).update({
+        content: txt,
+        updated_at: new Date().toISOString()
+    }).eq('id', existing.id).then(function(r) {
+        if (r.error) {
+            if (rcMsgTmplTableMissing(r.error)) {
+                alert(tr('appt.recall.tmplDbMissing'));
+                return { ok: false };
+            }
+            alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(r.error.message || ''));
+            return { ok: false };
+        }
+        existing.content = txt;
+        for (var i = 0; i < rcTemplates.length; i++) {
+            if (String(rcTemplates[i].id) === String(existing.id)) {
+                rcTemplates[i].content = txt;
+                rcTemplates[i].name = existing.name;
+                break;
+            }
+        }
+        setRcActiveTemplate(existing.id);
+        if (typeof apptToast === 'function') {
+            apptToast(trRepl('appt.recall.tmplUpdated', { NAME: existing.name }));
+        }
+        return { ok: true };
+    }).catch(function(err) {
+        alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(err && err.message || err || ''));
+        return { ok: false };
+    });
+}
+
+function insertRcTemplateRow(name, txt) {
+    return SB.from(RC_MSG_TMPL_TABLE).insert([{
         name: name,
         content: txt,
         sort_order: rcTemplates.length,
@@ -9314,50 +9498,110 @@ function saveRcTemplate() {
         if (r.error) {
             if (rcMsgTmplTableMissing(r.error)) {
                 alert(tr('appt.recall.tmplDbMissing'));
-                return;
+                return { ok: false };
             }
             alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(r.error.message || ''));
-            return;
+            return { ok: false };
         }
+        var newId = '';
         if (r.data) {
+            newId = String(r.data.id);
             rcTemplates.push({
-                id: String(r.data.id),
+                id: newId,
                 name: String(r.data.name || name),
                 content: String(r.data.content || txt)
             });
         }
-        renderRcTemplates();
+        if (newId) setRcActiveTemplate(newId);
+        else renderRcTemplates();
+        if (typeof apptToast === 'function') {
+            apptToast(trRepl('appt.recall.tmplCreated', { NAME: name }));
+        }
+        return { ok: true };
     }).catch(function(err) {
         alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(err && err.message || err || ''));
+        return { ok: false };
     });
+}
+
+function saveRcTemplate() {
+    if (_rcMsgBoxLocked || rcContact === 'twilio_wa') {
+        alert(tr('appt.recall.twilioCannotSaveBody'));
+        return;
+    }
+    var txt = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
+    if (!txt) { alert(tr('appt.recall.alertEnterMsg')); return; }
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        alert(tr('appt.recall.tmplDbMissing'));
+        return;
+    }
+
+    var active = getRcActiveTemplate();
+    var suggested = active ? String(active.name || '') : '';
+    var name = window.prompt(tr('appt.recall.promptTmplName'), suggested);
+    if (name === null || !String(name).trim()) return;
+    name = String(name).trim();
+
+    var existing = findRcTemplateByName(name);
+    if (existing) {
+        var okOverwrite = window.confirm(trRepl('appt.recall.confirmOverwriteTmpl', {
+            NAME: existing.name
+        }));
+        if (!okOverwrite) return;
+        // Keep the stored display name casing from the existing row.
+        updateRcTemplateRow(existing, txt);
+        return;
+    }
+
+    insertRcTemplateRow(name, txt);
 }
 
 function renderRcTemplates() {
     var panel = g('recallTmplPanel');
     if (!panel) return;
-    if (!rcTemplates.length) { panel.style.display = 'none'; return; }
+    if (!rcTemplates.length) {
+        panel.style.display = 'none';
+        if (rcActiveTmplId) clearRcActiveTemplate({ skipRender: true });
+        return;
+    }
     panel.style.display = 'block';
+    var activeId = String(rcActiveTmplId || '');
     var html =
         '<div style="font-weight:700;font-size:12px;color:#64748b;margin-bottom:8px;' +
         'letter-spacing:.4px;">' + esc(tr('appt.recall.tmplSavedHeader')) + '</div>';
     rcTemplates.forEach(function(t) {
         var sid = String(t.id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        var isActive = activeId && String(t.id) === activeId;
         html +=
-            '<div class="rc-tmpl-item">' +
-            '<span class="rc-tmpl-name" onclick="applyRcTemplate(\'' + sid + '\')">' +
+            '<div class="rc-tmpl-item"' +
+            (isActive
+                ? ' style="background:#eff6ff;border-radius:8px;outline:1px solid #93c5fd;"'
+                : '') + '>' +
+            '<span class="rc-tmpl-name" onclick="applyRcTemplate(\'' + sid + '\')"' +
+            (isActive ? ' style="color:#1d4ed8;font-weight:800;"' : '') + '>' +
                 esc(t.name) +
+                (isActive ? ' · ' + esc(tr('appt.recall.tmplEditingBadge')) : '') +
             '</span>' +
             '<button class="rc-tmpl-del" title="' + esc(tr('appt.recall.deleteTmplTitle')) + '" ' +
                 'onclick="deleteRcTemplate(\'' + sid + '\')">✕</button>' +
             '</div>';
     });
     panel.innerHTML = html;
+    syncRcTemplateEditUi();
 }
+
 function applyRcTemplate(id) {
+    if (_rcMsgBoxLocked || rcContact === 'twilio_wa') return;
     var sid = String(id);
     var tmpl = rcTemplates.filter(function(t) { return String(t.id) === sid; })[0];
-    if (tmpl && g('recallMsgBox')) g('recallMsgBox').value = tmpl.content;
+    if (!tmpl) return;
+    if (g('recallMsgBox')) g('recallMsgBox').value = tmpl.content;
+    setRcActiveTemplate(tmpl.id);
+    if (g('recallMsgBox')) {
+        try { g('recallMsgBox').focus(); } catch (e) { /* ignore */ }
+    }
 }
+
 function deleteRcTemplate(id) {
     if (!confirm(tr('appt.recall.confirmDeleteTmpl'))) return;
     var sid = String(id);
@@ -9378,6 +9622,7 @@ function deleteRcTemplate(id) {
             return;
         }
         rcTemplates = rcTemplates.filter(function(t) { return String(t.id) !== sid; });
+        if (String(rcActiveTmplId) === sid) rcActiveTmplId = '';
         renderRcTemplates();
     }).catch(function(err) {
         alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(err && err.message || err || ''));
@@ -9386,15 +9631,168 @@ function deleteRcTemplate(id) {
 
 // ── Send Queue ───────────────────────────────────────────────────
 
-/** Placeholders for recall message box ({name}, {date}, …). */
+/**
+ * Field values for Recall free-text WhatsApp / SMS — aligned with
+ * appointment WhatsApp (apptWhatsAppMessage) + extended tokens.
+ */
+function recallMessageFieldValues(a) {
+    a = a || {};
+    var chinese = String(a.patient_chinese_name || a._merged_chinese_name || '').trim();
+    var english = String(a.patient_name || '').trim();
+    var fullName = english || chinese;
+    var name = (typeof apptPatientNameForWhatsApp === 'function')
+        ? apptPatientNameForWhatsApp(a)
+        : (chinese || english || 'Patient');
+    var first = (typeof recallPatientFirstName === 'function')
+        ? recallPatientFirstName(a)
+        : (fullName.split(/\s+/)[0] || fullName || name);
+    var clinic = (typeof apptClinicNameForWhatsApp === 'function'
+        ? apptClinicNameForWhatsApp()
+        : '') || 'Joyful Smile';
+    var date = String(a.date || rcDate || '');
+    var time = '';
+    if (a.start_time) {
+        time = (typeof fmt12 === 'function')
+            ? String(fmt12(a.start_time) || '')
+            : String(a.start_time);
+    }
+    var doctor = (typeof apptDoctorNameForWhatsApp === 'function')
+        ? apptDoctorNameForWhatsApp(a)
+        : String(a.doctor_name || a.doctor_code || '').trim();
+    if (!doctor) doctor = '-';
+    var treatment = String(a.treatment_items || '').trim() || '-';
+    var phone = String(a.phone || a._merged_phone || '').trim();
+    var patientNo = String(a.patient_no || '').trim();
+
+    return {
+        NAME: name,
+        FULL_NAME: fullName,
+        FIRST: first,
+        CHINESE: chinese,
+        ENGLISH: english,
+        CLINIC: clinic,
+        DATE: date,
+        TIME: time,
+        DOCTOR: doctor,
+        TREATMENT: treatment,
+        PHONE: phone,
+        PATIENT_NO: patientNo,
+        NO: patientNo
+    };
+}
+
+/** Replace {TOKEN} / {token} using recallMessageFieldValues. */
+function applyRecallPlaceholders(template, a) {
+    var msg = String(template || '');
+    if (!msg) return '';
+    var f = recallMessageFieldValues(a);
+    // Longer tokens first so PATIENT_NO / FULL_NAME win over NO / NAME fragments.
+    var keys = [
+        'FULL_NAME', 'PATIENT_NO', 'TREATMENT', 'CHINESE', 'ENGLISH',
+        'CLINIC', 'DOCTOR', 'PHONE', 'FIRST', 'NAME', 'DATE', 'TIME', 'NO'
+    ];
+    keys.forEach(function(k) {
+        var val = f[k] != null ? String(f[k]) : '';
+        msg = msg.replace(new RegExp('\\{\\s*' + k + '\\s*\\}', 'gi'), val);
+    });
+    // Legacy lowercase aliases used in older recall templates
+    msg = msg
+        .replace(/\{chinese\}/gi, f.CHINESE)
+        .replace(/\{english\}/gi, f.ENGLISH)
+        .replace(/\{first\}/gi, f.FIRST)
+        .replace(/\{no\}/gi, f.PATIENT_NO);
+    return msg;
+}
+
+/** Placeholders for recall message box — same set as appointment WhatsApp. */
 function buildRecallPersonalised(a) {
     var msg = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
-    return msg
-        .replace(/\{name\}/gi,    a.patient_name         || a.patient_chinese_name || '')
-        .replace(/\{chinese\}/gi, a.patient_chinese_name || '')
-        .replace(/\{date\}/gi,    rcDate)
-        .replace(/\{phone\}/gi,   a.phone                || '')
-        .replace(/\{no\}/gi,      a.patient_no           || '');
+    return applyRecallPlaceholders(msg, a);
+}
+
+var RC_PLACEHOLDER_CHIPS = [
+    'NAME', 'FULL_NAME', 'CLINIC', 'DATE', 'TIME', 'DOCTOR',
+    'TREATMENT', 'CHINESE', 'ENGLISH', 'PHONE', 'PATIENT_NO'
+];
+
+function renderRcPlaceholderChips() {
+    var box = g('rcPlaceholderChips');
+    if (!box) return;
+    var html = '<span style="font-size:11px;font-weight:700;color:#64748b;margin-right:4px;">' +
+        esc(tr('appt.recall.placeholdersLabel')) + '</span>';
+    RC_PLACEHOLDER_CHIPS.forEach(function(tok) {
+        html +=
+            '<button type="button" class="rc-ph-chip" onclick="insertRcPlaceholder(\'{' + tok + '}\')"' +
+            ' style="padding:3px 8px;border-radius:999px;border:1px solid #cbd5e1;' +
+            'background:#f8fafc;color:#0f172a;font-size:11px;font-weight:700;' +
+            'cursor:pointer;font-family:ui-monospace,Consolas,monospace;">' +
+            '{' + tok + '}</button>';
+    });
+    box.innerHTML = html;
+}
+
+function insertRcPlaceholder(token) {
+    if (_rcMsgBoxLocked || rcContact === 'twilio_wa') return;
+    var el = g('recallMsgBox');
+    if (!el) return;
+    var tok = String(token || '');
+    if (!tok) return;
+    var start = el.selectionStart != null ? el.selectionStart : el.value.length;
+    var end = el.selectionEnd != null ? el.selectionEnd : start;
+    var before = el.value.slice(0, start);
+    var after = el.value.slice(end);
+    el.value = before + tok + after;
+    var pos = start + tok.length;
+    try {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+    } catch (e) { /* ignore */ }
+}
+
+/** Fill message box with the same web-app WhatsApp templates (placeholders intact). */
+function fillRcWebWhatsAppTemplate(kind) {
+    if (_rcMsgBoxLocked || rcContact === 'twilio_wa') return;
+    var key = kind === 'runningLate'
+        ? 'whatsapp.msg.runningLate'
+        : (kind === 'labReady'
+            ? 'whatsapp.msg.labReady'
+            : 'whatsapp.msg.appointmentReminder');
+    var raw = tr(key);
+    var el = g('recallMsgBox');
+    if (!el) return;
+    if (el.value && el.value.trim() &&
+        !window.confirm(tr('appt.recall.confirmReplaceMsg'))) {
+        return;
+    }
+    el.value = raw;
+    try { el.focus(); } catch (e2) { /* ignore */ }
+}
+
+/** Context for Twilio contentVariables — same sources as free-text WhatsApp. */
+function recallTwilioContentCtx(a, extra) {
+    var f = recallMessageFieldValues(a);
+    var ctx = {
+        name: f.NAME,
+        fullName: f.FULL_NAME,
+        clinic: f.CLINIC,
+        date: f.DATE,
+        time: f.TIME,
+        doctor: f.DOCTOR,
+        phone: f.PHONE,
+        patientNo: f.PATIENT_NO,
+        fields: {
+            TREATMENT: f.TREATMENT,
+            CHINESE: f.CHINESE,
+            ENGLISH: f.ENGLISH,
+            FIRST: f.FIRST
+        }
+    };
+    if (extra && typeof extra === 'object') {
+        Object.keys(extra).forEach(function(k) {
+            ctx[k] = extra[k];
+        });
+    }
+    return ctx;
 }
 
 /** WhatsApp prefilled body length guard (GET URL limits). */
@@ -9515,23 +9913,8 @@ function showRcSendModal() {
     if (isTwilioWa && tpl) {
         var cvPreview = (typeof AIHELPER !== 'undefined' &&
             typeof AIHELPER.buildTwilioContentVariables === 'function')
-            ? AIHELPER.buildTwilioContentVariables(tpl, {
-                name: recallPatientFirstName(a),
-                fullName: a.patient_name || a.patient_chinese_name || '',
-                clinic: typeof apptClinicNameForWhatsApp === 'function'
-                    ? apptClinicNameForWhatsApp()
-                    : '',
-                date: a.date || rcDate || '',
-                time: a.start_time && typeof fmt12 === 'function'
-                    ? fmt12(a.start_time)
-                    : String(a.start_time || ''),
-                doctor: typeof apptDoctorNameForWhatsApp === 'function'
-                    ? apptDoctorNameForWhatsApp(a)
-                    : String(a.doctor_name || a.doctor_code || ''),
-                phone: a.phone || '',
-                patientNo: a.patient_no || ''
-            })
-            : { '1': recallPatientFirstName(a) };
+            ? AIHELPER.buildTwilioContentVariables(tpl, recallTwilioContentCtx(a))
+            : { '1': recallMessageFieldValues(a).NAME };
         var map = tpl.varMap || {};
         var varLines = Object.keys(cvPreview).sort().map(function(k) {
             var field = map[k] ? ('{' + map[k] + '} ') : '';
@@ -9717,7 +10100,8 @@ function rcSendViaTwilio() {
     }
 
     var channel = rcContact === 'twilio_sms' ? 'sms' : 'whatsapp';
-    var name = recallPatientFirstName(a);
+    var fields = recallMessageFieldValues(a);
+    var name = fields.NAME;
     var body = buildRecallPersonalised(a);
     var opts = {
         channel: channel,
@@ -9739,23 +10123,10 @@ function rcSendViaTwilio() {
         }
         opts.contentSid = tpl.contentSid;
         if (typeof AIHELPER.buildTwilioContentVariables === 'function') {
-            opts.contentVariables = AIHELPER.buildTwilioContentVariables(tpl, {
-                name: name,
-                fullName: a.patient_name || a.patient_chinese_name || name,
-                clinic: typeof apptClinicNameForWhatsApp === 'function'
-                    ? apptClinicNameForWhatsApp()
-                    : '',
-                date: a.date || rcDate || '',
-                time: a.start_time && typeof fmt12 === 'function'
-                    ? fmt12(a.start_time)
-                    : String(a.start_time || ''),
-                doctor: typeof apptDoctorNameForWhatsApp === 'function'
-                    ? apptDoctorNameForWhatsApp(a)
-                    : String(a.doctor_name || a.doctor_code || ''),
-                phone: a.phone || '',
-                patientNo: a.patient_no || '',
-                body: body
-            });
+            opts.contentVariables = AIHELPER.buildTwilioContentVariables(
+                tpl,
+                recallTwilioContentCtx(a, { body: body })
+            );
         } else {
             opts.contentVariables = { '1': name };
         }

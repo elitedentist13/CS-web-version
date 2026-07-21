@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260721-tpl-cloud-sync';
+  var BUILD = '20260721-twilio-body-readonly';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1664,17 +1664,38 @@
         </p>
       </div>
 
-      <!-- Message textarea -->
+      <!-- Message textarea + web-app placeholders (WhatsApp / SMS) -->
+      <div id="rcMsgTools" style="margin-bottom:8px;">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;">
+          <button type="button" class="mb-btn ghost" onclick="fillRcWebWhatsAppTemplate('appointmentReminder')"
+                  data-i18n="appt.recall.insertReminder">Insert appointment reminder</button>
+          <button type="button" class="mb-btn ghost" onclick="fillRcWebWhatsAppTemplate('runningLate')"
+                  data-i18n="appt.recall.insertLate">Insert running-late</button>
+          <button type="button" class="mb-btn ghost" onclick="fillRcWebWhatsAppTemplate('labReady')"
+                  data-i18n="appt.recall.insertLab">Insert lab-ready</button>
+        </div>
+        <div id="rcPlaceholderChips" style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;"
+             aria-label="Placeholders"></div>
+      </div>
       <textarea id="recallMsgBox" rows="5"
                 data-i18n-placeholder="appt.recallMsgPh"
                 style="width:100%;padding:12px;font-size:13px;line-height:1.6;
                        border:1.5px solid #e2e8f0;border-radius:8px;resize:vertical;
                        box-sizing:border-box;font-family:inherit;outline:none;
                        background:#fff;color:#1e293b;"></textarea>
+      <p id="rcWaPlaceholderNote" style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;"
+         data-i18n="appt.recall.waPlaceholderNote">
+        Same placeholders as appointment WhatsApp: {NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {TREATMENT} plus {FULL_NAME} {chinese} {english} {PHONE} {PATIENT_NO}. Click a chip to insert.
+      </p>
       <p id="rcTwilioWaBodyNote" style="display:none;margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;"
          data-i18n="appt.recallTwilioWaBodyNote">
-        WhatsApp via Twilio uses the selected Content Template ({{1}} = patient first name). Message box is optional fallback only.
+        Read-only: this is the approved Twilio Content Template body. Live WhatsApp text is sent by Twilio — edit templates in Twilio Setup only.
       </p>
+
+      <div id="rcTmplEditBanner"
+           style="display:none;align-items:center;gap:10px;margin-top:10px;padding:8px 12px;
+                  background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;
+                  font-size:12px;color:#1e40af;font-weight:600;"></div>
 
       <!-- Action buttons -->
       <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
@@ -1684,7 +1705,7 @@
                        color:#fff;border:none;border-radius:8px;
                        font-size:14px;font-weight:700;cursor:pointer;
                        box-shadow:0 2px 8px rgba(0,132,255,.25);" data-i18n="appt.recallSendBtn"></button>
-        <button onclick="saveRcTemplate()"
+        <button type="button" id="rcSaveTmplBtn" onclick="saveRcTemplate()"
                 style="padding:11px 18px;background:#fff;color:#0084ff;
                        border:1.5px solid #0084ff;border-radius:8px;
                        font-size:13px;font-weight:700;cursor:pointer;" data-i18n="appt.recallSaveTmpl"></button>
@@ -1965,7 +1986,7 @@
             <textarea id="mbSmsBody" class="mb-textarea" rows="5"
                       data-i18n-placeholder="mb.sms.bodyPh"
                       placeholder="Hi {NAME}, this is {CLINIC}. …"></textarea>
-            <p class="mb-hint" data-i18n="mb.sms.vars">Variables: {NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}</p>
+            <p class="mb-hint" data-i18n="mb.sms.vars">Variables: {NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO}</p>
           </div>
           <div class="mb-wizard-nav">
             <button type="button" class="mb-btn ghost" onclick="MASSBC.goWizardStep(1)" data-i18n="mb.back">Back</button>
@@ -2028,9 +2049,14 @@
             <label class="mb-label" for="mbSetupFrom" data-i18n="mb.setup.fromList">Saved numbers</label>
             <div class="mb-tpl-select-row">
               <select id="mbSetupFrom" class="mb-select mb-input-wide" onchange="MASSBC.onSetupFromChange()"></select>
+              <button type="button" class="mb-btn primary" onclick="MASSBC.beginNewFromNumber()"
+                      data-i18n="mb.from.addNewBtn">+ New</button>
               <button type="button" class="mb-btn ghost" onclick="MASSBC.reloadFromNumbers()"
                       data-i18n="mb.from.reload">Reload</button>
             </div>
+            <p class="mb-hint" data-i18n="mb.from.addNewHint">
+              Choose “+ Add new number…” or click + New, enter Label + phone in E.164 (e.g. +85291234567), then Add number.
+            </p>
             <div class="mb-tpl-form-grid">
               <div>
                 <label class="mb-label" for="mbFromLabel" data-i18n="ai.twilio.fromLabel">Label</label>
@@ -2042,6 +2068,9 @@
                 <input type="text" id="mbFromPhone" class="mb-input mb-input-wide" maxlength="24"
                        data-i18n-placeholder="ai.twilio.fromPhonePh" placeholder="+85291234567"
                        spellcheck="false" autocomplete="off">
+                <p class="mb-hint" data-i18n="mb.from.phoneFormatHint">
+                  Format: + country code + number, no spaces (e.g. +85291234567). Also accepts 85291234567 or whatsapp:+852…
+                </p>
               </div>
             </div>
             <div class="mb-from-caps" role="group">
@@ -2055,10 +2084,10 @@
               </label>
             </div>
             <div class="mb-tpl-actions">
-              <button type="button" class="mb-btn ghost" onclick="MASSBC.saveFromNumber()"
-                      data-i18n="mb.from.save">Save selected</button>
               <button type="button" class="mb-btn primary" onclick="MASSBC.addFromNumber()"
                       data-i18n="mb.from.add">Add number</button>
+              <button type="button" class="mb-btn ghost" onclick="MASSBC.saveFromNumber()"
+                      data-i18n="mb.from.save">Save selected</button>
               <button type="button" class="mb-btn ghost mb-btn-danger" onclick="MASSBC.removeFromNumber()"
                       data-i18n="mb.from.remove">Remove selected</button>
             </div>

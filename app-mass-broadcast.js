@@ -1304,22 +1304,36 @@ var MASSBC = (function () {
         function paintSetupFrom() {
             if (!setupFrom || typeof AIHELPER === 'undefined' || !AIHELPER.listTwilioFromNumbers) return;
             var nums = AIHELPER.listTwilioFromNumbers() || [];
-            setupFrom.innerHTML = '<option value="">' +
-                esc(tr('mb.setup.fromPick', 'Select a number to edit…')) + '</option>';
-            nums.forEach(function (n) {
-                var o = document.createElement('option');
-                o.value = n.id;
-                o.textContent = fromOptionLabel(n);
-                setupFrom.appendChild(o);
-            });
-            var has = false;
-            if (prevSetupFrom) {
-                Array.prototype.forEach.call(setupFrom.options, function (o) {
-                    if (o.value === prevSetupFrom) has = true;
+            setupFrom.innerHTML = '';
+            var newOpt = document.createElement('option');
+            newOpt.value = '__new__';
+            newOpt.textContent = tr('mb.from.addNewOpt', '+ Add new number…');
+            setupFrom.appendChild(newOpt);
+            if (!nums.length) {
+                setupFrom.value = '__new__';
+                if (_pendingNewFrom) applyNewFromForm();
+                else fillMbFromForm(null);
+            } else {
+                nums.forEach(function (n) {
+                    var o = document.createElement('option');
+                    o.value = n.id;
+                    o.textContent = fromOptionLabel(n);
+                    setupFrom.appendChild(o);
                 });
+                var has = false;
+                if (prevSetupFrom && prevSetupFrom !== '__new__') {
+                    Array.prototype.forEach.call(setupFrom.options, function (o) {
+                        if (o.value === prevSetupFrom) has = true;
+                    });
+                }
+                if (_pendingNewFrom) {
+                    setupFrom.value = '__new__';
+                    applyNewFromForm();
+                } else {
+                    setupFrom.value = has ? prevSetupFrom : (nums[0] ? nums[0].id : '__new__');
+                    onSetupFromChange();
+                }
             }
-            setupFrom.value = has ? prevSetupFrom : '';
-            onSetupFromChange();
         }
 
         function paintCampaignTpls() {
@@ -1469,9 +1483,53 @@ var MASSBC = (function () {
         }
     }
 
+    var _pendingNewFrom = false;
+
+    function applyNewFromForm() {
+        var setupSel = pick('mbSetupFrom');
+        if (setupSel) {
+            var hasNew = false;
+            Array.prototype.forEach.call(setupSel.options, function (o) {
+                if (o.value === '__new__') hasNew = true;
+            });
+            if (!hasNew) {
+                var opt = document.createElement('option');
+                opt.value = '__new__';
+                opt.textContent = tr('mb.from.addNewOpt', '+ Add new number…');
+                if (setupSel.firstChild) setupSel.insertBefore(opt, setupSel.firstChild);
+                else setupSel.appendChild(opt);
+            }
+            setupSel.value = '__new__';
+        }
+        fillMbFromForm(null);
+        setFromStatus(tr('mb.from.newHint',
+            'New number — enter Label + E.164 phone (e.g. +85291234567), tick channels, then Add number.'), false);
+        var phone = pick('mbFromPhone');
+        if (phone) {
+            try { phone.focus(); } catch (e) { /* ignore */ }
+        }
+        _pendingNewFrom = false;
+    }
+
+    function beginNewFromNumber() {
+        _pendingNewFrom = true;
+        if (_mode !== 'twilio') {
+            setMode('twilio');
+            setTimeout(function () {
+                if (_pendingNewFrom) applyNewFromForm();
+            }, 200);
+            return;
+        }
+        applyNewFromForm();
+    }
+
     function onSetupFromChange() {
         var sel = pick('mbSetupFrom');
         var id = sel ? String(sel.value || '') : '';
+        if (id === '__new__') {
+            beginNewFromNumber();
+            return;
+        }
         var row = null;
         if (id && typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioFromNumber) {
             row = AIHELPER.getTwilioFromNumber(id);
@@ -1489,7 +1547,10 @@ var MASSBC = (function () {
             });
             if (hasSetup) {
                 setupSel.value = id;
-                onSetupFromChange();
+                // Avoid re-entering beginNewFromNumber when selecting a real id
+                var row = (typeof AIHELPER !== 'undefined' && AIHELPER.getTwilioFromNumber)
+                    ? AIHELPER.getTwilioFromNumber(id) : null;
+                fillMbFromForm(row);
             }
         }
         if (campSel && id) {
@@ -1515,8 +1576,10 @@ var MASSBC = (function () {
         AIHELPER.addTwilioFromNumberOpts(form).then(function (res) {
             if (!res || !res.ok) {
                 var err = res && res.error;
-                if (err === 'phone') alert(tr('mb.from.needPhone', 'Enter a valid E.164 phone (+852…).'));
-                else if (err === 'caps') alert(tr('mb.from.needCap', 'Enable WhatsApp and/or SMS.'));
+                if (err === 'phone') {
+                    alert(tr('mb.from.needPhone',
+                        'Enter a valid E.164 phone (e.g. +85291234567). Digits only after +, with country code.'));
+                } else if (err === 'caps') alert(tr('mb.from.needCap', 'Enable WhatsApp and/or SMS.'));
                 else if (err === 'dup') alert(tr('mb.from.dup', 'That number is already in the list.'));
                 else if (err === 'db_missing') {
                     alert(tr('mb.from.dbMissing',
@@ -1542,8 +1605,10 @@ var MASSBC = (function () {
         }
         var sel = pick('mbSetupFrom');
         var id = sel ? String(sel.value || '') : '';
-        if (!id) {
-            alert(tr('mb.from.needSelect', 'Select a saved number from the list first.'));
+        // No selection / new → add instead of blocking
+        if (!id || id === '__new__' ||
+            (typeof AIHELPER.getTwilioFromNumber === 'function' && !AIHELPER.getTwilioFromNumber(id))) {
+            addFromNumber();
             return;
         }
         var form = readMbFromForm();
@@ -1551,8 +1616,14 @@ var MASSBC = (function () {
         AIHELPER.updateTwilioFromNumberOpts(id, form).then(function (res) {
             if (!res || !res.ok) {
                 var err = res && res.error;
-                if (err === 'phone') alert(tr('mb.from.needPhone', 'Enter a valid E.164 phone (+852…).'));
-                else if (err === 'caps') alert(tr('mb.from.needCap', 'Enable WhatsApp and/or SMS.'));
+                if (err === 'select') {
+                    addFromNumber();
+                    return;
+                }
+                if (err === 'phone') {
+                    alert(tr('mb.from.needPhone',
+                        'Enter a valid E.164 phone (e.g. +85291234567). Digits only after +, with country code.'));
+                } else if (err === 'caps') alert(tr('mb.from.needCap', 'Enable WhatsApp and/or SMS.'));
                 else if (err === 'db_missing') {
                     alert(tr('mb.from.dbMissing',
                         'Cloud from-numbers table missing. Run twilio_from_numbers.sql in Supabase.'));
@@ -1577,7 +1648,7 @@ var MASSBC = (function () {
         }
         var sel = pick('mbSetupFrom');
         var id = sel ? String(sel.value || '') : '';
-        if (!id) {
+        if (!id || id === '__new__') {
             alert(tr('mb.from.needSelect', 'Select a saved number from the list first.'));
             return;
         }
@@ -1667,12 +1738,14 @@ var MASSBC = (function () {
 
     function sampleValueForField(field) {
         var f = String(field || '').toUpperCase();
-        if (f === 'NAME') return 'Alex';
-        if (f === 'FULL_NAME') return 'Alex Chan';
+        if (f === 'NAME' || f === 'FIRST') return 'Alex';
+        if (f === 'FULL_NAME' || f === 'ENGLISH') return 'Alex Chan';
+        if (f === 'CHINESE') return '陳大文';
         if (f === 'CLINIC') return 'Joyful Smile';
         if (f === 'DATE') return '2026-07-22';
         if (f === 'TIME') return '10:00 AM';
         if (f === 'DOCTOR') return 'Chan';
+        if (f === 'TREATMENT') return 'Check-up';
         if (f === 'PHONE') return '+85291234567';
         if (f === 'PATIENT_NO') return '001234';
         if (f === 'BODY') return '…';
@@ -2183,10 +2256,24 @@ var MASSBC = (function () {
         } else {
             clinic = clinicLabel(p.clinic_tag);
         }
+        var appt = p && Object.prototype.hasOwnProperty.call(p, '_nextAppt')
+            ? p._nextAppt
+            : null;
+        var date = appt && appt.date ? String(appt.date) : '';
+        var time = '';
+        if (appt && appt.start_time) {
+            time = typeof fmt12 === 'function'
+                ? String(fmt12(appt.start_time) || '')
+                : String(appt.start_time);
+        }
+        var doctor = broadcastDoctorName(appt);
         return String(body || '')
-            .replace(/\{NAME\}/gi, firstName(p))
             .replace(/\{FULL_NAME\}/gi, displayName(p))
-            .replace(/\{CLINIC\}/gi, clinic)
+            .replace(/\{NAME\}/gi, firstName(p))
+            .replace(/\{CLINIC\}/gi, clinic || 'Joyful Smile')
+            .replace(/\{DATE\}/gi, date)
+            .replace(/\{TIME\}/gi, time)
+            .replace(/\{DOCTOR\}/gi, doctor)
             .replace(/\{PHONE\}/gi, phoneOf(p))
             .replace(/\{PATIENT_NO\}/gi, String(p.patient_no || ''));
     }
@@ -2304,8 +2391,8 @@ var MASSBC = (function () {
         var channel = _channel;
         var name = firstName(p);
         var bodyEl = pick('mbSmsBody');
-        var body = personaliseSms(bodyEl ? bodyEl.value : _smsBody, p);
-        var opts = { channel: channel, to: phoneE164(phoneOf(p)), name: name, body: body };
+        var rawBody = bodyEl ? bodyEl.value : _smsBody;
+        var opts = { channel: channel, to: phoneE164(phoneOf(p)), name: name, body: '' };
         var from = getFromPhone();
         if (from) opts.from = from;
         if (channel === 'whatsapp') {
@@ -2316,6 +2403,9 @@ var MASSBC = (function () {
             }
             opts.contentSid = tpl.contentSid;
             return fetchNextAppointment(p).then(function (appt) {
+                p._nextAppt = appt;
+                var body = personaliseSms(rawBody, p);
+                opts.body = body;
                 var clinic = broadcastClinicName(p);
                 var date = appt && appt.date ? String(appt.date) : '';
                 var time = '';
@@ -2344,11 +2434,16 @@ var MASSBC = (function () {
                 return opts;
             });
         }
-        if (!body) {
-            alert(tr('mb.alert.needBody', 'Enter an SMS message body.'));
-            return Promise.resolve(null);
-        }
-        return Promise.resolve(opts);
+        return fetchNextAppointment(p).then(function (appt) {
+            p._nextAppt = appt;
+            var body = personaliseSms(rawBody, p);
+            opts.body = body;
+            if (!body) {
+                alert(tr('mb.alert.needBody', 'Enter an SMS message body.'));
+                return null;
+            }
+            return opts;
+        });
     }
 
     function publishCampaign() {
@@ -2758,6 +2853,7 @@ var MASSBC = (function () {
         onFromChange: onFromChange,
         onSetupFromChange: onSetupFromChange,
         addFromNumber: addFromNumber,
+        beginNewFromNumber: beginNewFromNumber,
         saveFromNumber: saveFromNumber,
         removeFromNumber: removeFromNumber,
         reloadFromNumbers: reloadFromNumbers,

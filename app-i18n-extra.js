@@ -996,6 +996,23 @@
         },
         'mb.from.save': { en: 'Save selected', 'zh-CN': '保存所选', 'zh-Hant': '儲存所選' },
         'mb.from.add': { en: 'Add number', 'zh-CN': '添加号码', 'zh-Hant': '新增號碼' },
+        'mb.from.addNewBtn': { en: '+ New', 'zh-CN': '+ 新建', 'zh-Hant': '+ 新建' },
+        'mb.from.addNewOpt': { en: '+ Add new number…', 'zh-CN': '+ 添加新号码…', 'zh-Hant': '+ 新增號碼…' },
+        'mb.from.addNewHint': {
+            en: 'Choose “+ Add new number…” or click + New, enter Label + phone in E.164 (e.g. +85291234567), then Add number.',
+            'zh-CN': '选择「+ 添加新号码…」或点 + 新建，填写标签与 E.164 电话（如 +85291234567），再点添加号码。',
+            'zh-Hant': '選擇「+ 新增號碼…」或按 + 新建，填寫標籤與 E.164 電話（如 +85291234567），再按新增號碼。'
+        },
+        'mb.from.newHint': {
+            en: 'New number — enter Label + E.164 phone (e.g. +85291234567), tick channels, then Add number.',
+            'zh-CN': '新建号码 — 填写标签与 E.164 电话（如 +85291234567），勾选渠道，再点添加号码。',
+            'zh-Hant': '新建號碼 — 填寫標籤與 E.164 電話（如 +85291234567），勾選渠道，再按新增號碼。'
+        },
+        'mb.from.phoneFormatHint': {
+            en: 'Format: + country code + number, no spaces (e.g. +85291234567). Also accepts 85291234567 or whatsapp:+852…',
+            'zh-CN': '格式：+国家码+号码，不要空格（如 +85291234567）。也接受 85291234567 或 whatsapp:+852…',
+            'zh-Hant': '格式：+國家碼+號碼，不要空格（如 +85291234567）。也接受 85291234567 或 whatsapp:+852…'
+        },
         'mb.from.remove': { en: 'Remove selected', 'zh-CN': '删除所选', 'zh-Hant': '刪除所選' },
         'mb.from.saving': { en: 'Saving…', 'zh-CN': '保存中…', 'zh-Hant': '儲存中…' },
         'mb.from.reloading': { en: 'Reloading…', 'zh-CN': '刷新中…', 'zh-Hant': '重新整理中…' },
@@ -1004,9 +1021,9 @@
         'mb.from.removed': { en: 'Sender number removed from clinic list.', 'zh-CN': '发件号码已从列表移除。', 'zh-Hant': '發件號碼已從清單移除。' },
         'mb.from.reloaded': { en: 'Sender numbers reloaded from cloud.', 'zh-CN': '已从云端刷新发件号码。', 'zh-Hant': '已從雲端重新整理發件號碼。' },
         'mb.from.needPhone': {
-            en: 'Enter a valid E.164 phone (+852…).',
-            'zh-CN': '请输入有效的 E.164 电话（+852…）。',
-            'zh-Hant': '請輸入有效的 E.164 電話（+852…）。'
+            en: 'Enter a valid E.164 phone (e.g. +85291234567). Digits only after +, with country code.',
+            'zh-CN': '请输入有效的 E.164 电话（如 +85291234567）。+ 后仅为数字，须含国家码。',
+            'zh-Hant': '請輸入有效的 E.164 電話（如 +85291234567）。+ 後僅為數字，須含國家碼。'
         },
         'mb.from.needCap': {
             en: 'Enable WhatsApp and/or SMS.',
@@ -1111,9 +1128,9 @@
         'mb.sms.body': { en: 'SMS message', 'zh-CN': '短信内容', 'zh-Hant': '短訊內容' },
         'mb.sms.bodyPh': { en: 'Hi {NAME}, this is {CLINIC}. …', 'zh-CN': '您好 {NAME}，这里是 {CLINIC}。…', 'zh-Hant': '您好 {NAME}，這裡是 {CLINIC}。…' },
         'mb.sms.vars': {
-            en: 'Variables: {NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}',
-            'zh-CN': '变量：{NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}',
-            'zh-Hant': '變數：{NAME} {FULL_NAME} {CLINIC} {PHONE} {PATIENT_NO}'
+            en: 'Variables: {NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO}',
+            'zh-CN': '变量：{NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO}',
+            'zh-Hant': '變數：{NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO}'
         },
         'mb.aud.hint': {
             en: 'Audience is the selection from Contacts. Go back to Contacts to change it.',
@@ -1695,9 +1712,24 @@
             'zh-Hant': 'Twilio 短訊用所選 Twilio 號碼發送下方正文（請優先選用可發短訊的號碼；WhatsApp 發送號通常不能發短訊）。'
         },
         'appt.recallTwilioWaBodyNote': {
-            en: 'WhatsApp via Twilio uses the selected Content Template. Variable mapping is set in Twilio Setup ({{n}} → {NAME}/{CLINIC}/…). Message box is optional fallback only.',
-            'zh-CN': 'Twilio WhatsApp 使用所选内容模板。变量映射在 Twilio 设置中配置（{{n}} → {NAME}/{CLINIC}/…）。下方正文仅作可选备用。',
-            'zh-Hant': 'Twilio WhatsApp 使用所選內容範本。變數對應在 Twilio 設定中配置（{{n}} → {NAME}/{CLINIC}/…）。下方正文僅作可選備用。'
+            en: 'Read-only: this is the approved Twilio Content Template body (from Twilio Setup / Content Template Builder). Live WhatsApp text is sent by Twilio — it cannot be free-edited here. Change the template in Twilio Setup.',
+            'zh-CN': '只读：此处显示已批准的 Twilio 内容模板正文（来自 Twilio 设置 / Content Template Builder）。实际 WhatsApp 文案由 Twilio 发送，不可在此自由编辑。请到 Twilio 设置中更改模板。',
+            'zh-Hant': '唯讀：此處顯示已批准的 Twilio 內容範本正文（來自 Twilio 設定 / Content Template Builder）。實際 WhatsApp 文案由 Twilio 傳送，不可在此自由編輯。請到 Twilio 設定中更改範本。'
+        },
+        'appt.recall.twilioBodyReadonlyPh': {
+            en: 'Approved Twilio Content Template body (read-only)',
+            'zh-CN': '已批准的 Twilio 内容模板正文（只读）',
+            'zh-Hant': '已批准的 Twilio 內容範本正文（唯讀）'
+        },
+        'appt.recall.twilioBodyEmpty': {
+            en: 'No Content Template selected — open Twilio Setup to add a template, then Reload.',
+            'zh-CN': '未选择内容模板 — 请到 Twilio 设置添加模板，然后刷新。',
+            'zh-Hant': '未選擇內容範本 — 請到 Twilio 設定新增範本，然後重新整理。'
+        },
+        'appt.recall.twilioCannotSaveBody': {
+            en: 'Twilio WhatsApp uses the approved Content Template — it cannot be saved as a free-text template. Edit templates in Twilio Setup.',
+            'zh-CN': 'Twilio WhatsApp 使用已批准的内容模板，不能存为自由文本模板。请到 Twilio 设置中编辑模板。',
+            'zh-Hant': 'Twilio WhatsApp 使用已批准的內容範本，不能存為自由文本範本。請到 Twilio 設定中編輯範本。'
         },
         'appt.recall.alertNeedTwilioTpl': {
             en: 'Select a Twilio Content Template first (or add one in Broadcast → Twilio Setup).',
@@ -1732,22 +1764,74 @@
             'zh-Hant': 'Twilio 傳送失敗。'
         },
         'appt.recallPlaceholderHint': {
-            en: 'Use {name} {chinese} {date} as placeholders',
-            'zh-CN': '使用 {name} {chinese} {date} 作为占位符',
-            'zh-Hant': '使用 {name} {chinese} {date} 作為佔位符'
+            en: 'WhatsApp uses the same placeholders as appointment reminders',
+            'zh-CN': 'WhatsApp 使用与预约提醒相同的占位符',
+            'zh-Hant': 'WhatsApp 使用與預約提醒相同的佔位符'
         },
         'appt.recallPlaceholderHintHtml': {
-            en: 'Use <code>{name}</code> <code>{chinese}</code> <code>{date}</code> as placeholders',
-            'zh-CN': '使用 <code>{name}</code> <code>{chinese}</code> <code>{date}</code> 作为占位符',
-            'zh-Hant': '使用 <code>{name}</code> <code>{chinese}</code> <code>{date}</code> 作為佔位符'
+            en: 'Same as appointment WhatsApp: <code>{NAME}</code> <code>{CLINIC}</code> <code>{DATE}</code> <code>{TIME}</code> <code>{DOCTOR}</code> <code>{TREATMENT}</code>',
+            'zh-CN': '与预约 WhatsApp 相同：<code>{NAME}</code> <code>{CLINIC}</code> <code>{DATE}</code> <code>{TIME}</code> <code>{DOCTOR}</code> <code>{TREATMENT}</code>',
+            'zh-Hant': '與預約 WhatsApp 相同：<code>{NAME}</code> <code>{CLINIC}</code> <code>{DATE}</code> <code>{TIME}</code> <code>{DOCTOR}</code> <code>{TREATMENT}</code>'
+        },
+        'appt.recall.waPlaceholderNote': {
+            en: 'Same placeholders as appointment WhatsApp: {NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {TREATMENT} plus {FULL_NAME} {CHINESE} {ENGLISH} {PHONE} {PATIENT_NO}. Click a chip to insert.',
+            'zh-CN': '与预约 WhatsApp 相同的占位符：{NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {TREATMENT}，另有 {FULL_NAME} {CHINESE} {ENGLISH} {PHONE} {PATIENT_NO}。点击标签可插入。',
+            'zh-Hant': '與預約 WhatsApp 相同的佔位符：{NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {TREATMENT}，另有 {FULL_NAME} {CHINESE} {ENGLISH} {PHONE} {PATIENT_NO}。點擊標籤可插入。'
+        },
+        'appt.recall.placeholdersLabel': {
+            en: 'Insert:',
+            'zh-CN': '插入：',
+            'zh-Hant': '插入：'
+        },
+        'appt.recall.insertReminder': {
+            en: 'Insert appointment reminder',
+            'zh-CN': '插入预约提醒',
+            'zh-Hant': '插入預約提醒'
+        },
+        'appt.recall.insertLate': {
+            en: 'Insert running-late',
+            'zh-CN': '插入延误通知',
+            'zh-Hant': '插入延誤通知'
+        },
+        'appt.recall.insertLab': {
+            en: 'Insert lab-ready',
+            'zh-CN': '插入技工完成',
+            'zh-Hant': '插入技工完成'
+        },
+        'appt.recall.confirmReplaceMsg': {
+            en: 'Replace the current message with the standard WhatsApp template?',
+            'zh-CN': '用标准 WhatsApp 模板替换当前消息？',
+            'zh-Hant': '用標準 WhatsApp 範本取代目前訊息？'
         },
         'appt.recallMsgPh': {
-            en: 'Type your recall message here…\ne.g. Dear {name}, it has been 6 months since your last dental visit on {date}. Please call us to schedule your next appointment. — Joyful Smile Clinic',
-            'zh-CN': '在此输入召回信息…\n例如：尊敬的 {name}，您上次于 {date} 就诊至今已半年，请致电预约下次复诊。——乐意牙科',
-            'zh-Hant': '在此輸入召回訊息…\n例如：尊敬的 {name}，您上次於 {date} 就診至今已半年，請致電預約下次覆診。——樂意牙科'
+            en: 'Type your WhatsApp message… or click “Insert appointment reminder”.\nHi {NAME}, this is {CLINIC}. Reminder: your appointment is on {DATE} at {TIME} with Dr {DOCTOR}.',
+            'zh-CN': '输入 WhatsApp 消息…或点「插入预约提醒」。\n{NAME} 您好，这里是 {CLINIC}。温馨提示：您的预约为 {DATE} {TIME}，医生：{DOCTOR}。',
+            'zh-Hant': '輸入 WhatsApp 訊息…或按「插入預約提醒」。\n{NAME} 您好，這裡是 {CLINIC}。溫馨提示：您的預約為 {DATE} {TIME}，醫生：{DOCTOR}。'
         },
         'appt.recallSendBtn': { en: '🚀 Send to Selected Patients', 'zh-CN': '🚀 发送给所选患者', 'zh-Hant': '🚀 發送給所選病人' },
         'appt.recallSaveTmpl': { en: '💾 Save as Template', 'zh-CN': '💾 存为模板', 'zh-Hant': '💾 存為範本' },
+        'appt.recall.confirmOverwriteTmpl': {
+            en: 'A template named “{NAME}” already exists.\n\nOverwrite it with the current message?',
+            'zh-CN': '已存在名为「{NAME}」的模板。\n\n是否用当前消息覆盖它？',
+            'zh-Hant': '已存在名為「{NAME}」的範本。\n\n是否用目前訊息覆寫它？'
+        },
+        'appt.recall.editingTmpl': {
+            en: 'Opened template: {NAME}',
+            'zh-CN': '已打开模板：{NAME}',
+            'zh-Hant': '已開啟範本：{NAME}'
+        },
+        'appt.recall.newTmplDraft': { en: 'New draft', 'zh-CN': '新建草稿', 'zh-Hant': '新建草稿' },
+        'appt.recall.tmplEditingBadge': { en: 'open', 'zh-CN': '已打开', 'zh-Hant': '已開啟' },
+        'appt.recall.tmplUpdated': {
+            en: 'Template “{NAME}” saved.',
+            'zh-CN': '模板「{NAME}」已保存。',
+            'zh-Hant': '範本「{NAME}」已儲存。'
+        },
+        'appt.recall.tmplCreated': {
+            en: 'Template “{NAME}” created.',
+            'zh-CN': '模板「{NAME}」已创建。',
+            'zh-Hant': '範本「{NAME}」已建立。'
+        },
         'appt.recallPleaseSelectRow': { en: 'Please select a date.', 'zh-CN': '请选择日期。', 'zh-Hant': '請選擇日期。' },
 
         'con.title': { en: '🩺 Consultation', 'zh-CN': '🩺 诊疗', 'zh-Hant': '🩺 診療' },

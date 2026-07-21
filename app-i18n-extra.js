@@ -3810,6 +3810,16 @@
         'appt.recall.alertEnterMsg': { en: 'Please enter a message before saving as template.', 'zh-CN': '保存为模板前请输入消息。', 'zh-Hant': '儲存為範本前請輸入訊息。' },
         'appt.recall.promptTmplName': { en: 'Template name (e.g. "6-month recall"):', 'zh-CN': '模板名称（例如：「6 个月召回」）：', 'zh-Hant': '範本名稱（例如：「6 個月召回」）：' },
         'appt.recall.confirmDeleteTmpl': { en: 'Delete this template?', 'zh-CN': '删除此模板？', 'zh-Hant': '刪除此範本？' },
+        'appt.recall.tmplDbMissing': {
+            en: 'Recall templates need the Supabase table. Run recall_message_templates.sql in the Supabase SQL Editor, then refresh.',
+            'zh-CN': '召回模板需要 Supabase 表。请在 Supabase SQL Editor 中运行 recall_message_templates.sql，然后刷新。',
+            'zh-Hant': '召回範本需要 Supabase 資料表。請在 Supabase SQL Editor 執行 recall_message_templates.sql，然後重新整理。'
+        },
+        'appt.recall.tmplSaveFail': {
+            en: 'Could not save template to the clinic database.',
+            'zh-CN': '无法将模板保存到诊所数据库。',
+            'zh-Hant': '無法將範本儲存到診所資料庫。'
+        },
         'appt.recall.alertEnterRecallMsg': { en: 'Please enter a recall message.', 'zh-CN': '请输入召回消息。', 'zh-Hant': '請輸入召回訊息。' },
         'appt.recall.alertSelectPatients': { en: 'Please select at least one patient.', 'zh-CN': '请至少选择一位患者。', 'zh-Hant': '請至少選擇一位病人。' },
         'appt.recall.confirmSkipNoPhone': { en: '{N} patient(s) have no phone number and will be skipped:\n{NAMES}\n\nContinue with the rest?', 'zh-CN': '{N} 位患者没有电话号码，将跳过：\n{NAMES}\n\n是否继续其余？', 'zh-Hant': '{N} 位病人沒有電話號碼，將跳過：\n{NAMES}\n\n是否繼續其餘？' },

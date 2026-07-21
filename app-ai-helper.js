@@ -1404,7 +1404,9 @@ var AIHELPER = AIHELPER || {};
 
     function tplVarMapColumnMissing(err) {
         var msg = String((err && err.message) || err || '');
-        return /var_map|column .* does not exist|schema cache/i.test(msg);
+        // Only treat as missing var_map column — not a missing table (also mentions schema cache).
+        return /var_map/i.test(msg) &&
+            (/column|schema cache|does not exist|Could not find/i.test(msg));
     }
 
     function callerUserIdForTpl() {
@@ -1982,29 +1984,16 @@ var AIHELPER = AIHELPER || {};
             varMap: normalizeTplVarMap(opts.vars || '1', opts.varMap || opts.var_map || null),
             notes: String(opts.notes || '').trim().slice(0, 1000)
         };
-        return ensureTwilioTplCache(false).then(function() {
+        // Always refresh from Supabase before write — never silently save local-only.
+        return ensureTwilioTplCache(true).then(function() {
+            if (!_tplDbReady || _tplDbMissing || typeof SB === 'undefined') {
+                return { ok: false, error: 'db_missing' };
+            }
             var store = loadTwilioTplStore();
             for (var i = 0; i < store.templates.length; i++) {
                 if (store.templates[i].contentSid === form.contentSid) {
                     return { ok: false, error: 'dup' };
                 }
-            }
-            if (!_tplDbReady || typeof SB === 'undefined') {
-                if (_tplDbMissing) return { ok: false, error: 'db_missing' };
-                var localId = 'tpl_' + Date.now().toString(36);
-                store.templates.push({
-                    id: localId,
-                    label: form.label,
-                    contentSid: form.contentSid,
-                    vars: form.vars,
-                    varMap: form.varMap,
-                    notes: form.notes,
-                    builtin: false
-                });
-                store.selectedId = localId;
-                saveTwilioTplStore(store);
-                paintTwilioTplSelect();
-                return { ok: true, id: localId, templates: store.templates.slice() };
             }
             var insertRow = {
                 label: form.label,
@@ -2025,6 +2014,7 @@ var AIHELPER = AIHELPER || {};
                 if (r.error) {
                     var msg = String(r.error.message || '');
                     if (/duplicate|unique/i.test(msg)) return { ok: false, error: 'dup' };
+                    if (tplTableMissing(r.error)) return { ok: false, error: 'db_missing' };
                     return { ok: false, error: msg };
                 }
                 var newId = r.data && r.data.id ? String(r.data.id) : '';
@@ -2044,7 +2034,9 @@ var AIHELPER = AIHELPER || {};
     ns.updateTwilioContentTemplate = function(id, opts) {
         opts = opts || {};
         var tplId = String(id || '').trim();
-        if (!tplId) return Promise.resolve({ ok: false, error: 'select' });
+        if (!tplId || tplId === '__new__') {
+            return Promise.resolve({ ok: false, error: 'select' });
+        }
         var sid = normalizeContentSid(opts.contentSid || opts.content_sid || '');
         if (!sid) return Promise.resolve({ ok: false, error: 'sid' });
         var form = {
@@ -2054,7 +2046,10 @@ var AIHELPER = AIHELPER || {};
             varMap: normalizeTplVarMap(opts.vars || '1', opts.varMap || opts.var_map || null),
             notes: String(opts.notes || '').trim().slice(0, 1000)
         };
-        return ensureTwilioTplCache(false).then(function() {
+        return ensureTwilioTplCache(true).then(function() {
+            if (!_tplDbReady || _tplDbMissing || typeof SB === 'undefined') {
+                return { ok: false, error: 'db_missing' };
+            }
             var store = loadTwilioTplStore();
             var prev = null;
             for (var i = 0; i < store.templates.length; i++) {
@@ -2064,19 +2059,6 @@ var AIHELPER = AIHELPER || {};
                 }
             }
             if (!prev) return { ok: false, error: 'select' };
-
-            if (!_tplDbReady || typeof SB === 'undefined') {
-                if (_tplDbMissing) return { ok: false, error: 'db_missing' };
-                prev.label = form.label;
-                prev.contentSid = form.contentSid;
-                prev.vars = form.vars;
-                prev.varMap = form.varMap;
-                prev.notes = form.notes;
-                store.selectedId = prev.id;
-                saveTwilioTplStore(store);
-                paintTwilioTplSelect();
-                return { ok: true, id: prev.id, templates: store.templates.slice() };
-            }
 
             var patch = {
                 label: form.label,
@@ -2093,7 +2075,10 @@ var AIHELPER = AIHELPER || {};
                 }
                 return r;
             }).then(function(r) {
-                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                if (r.error) {
+                    if (tplTableMissing(r.error)) return { ok: false, error: 'db_missing' };
+                    return { ok: false, error: String(r.error.message || '') };
+                }
                 writeSelectedTplPref(prev.id);
                 return ensureTwilioTplCache(true).then(function() {
                     paintTwilioTplSelect();
@@ -2109,8 +2094,13 @@ var AIHELPER = AIHELPER || {};
 
     ns.removeTwilioContentTemplate = function(id) {
         var tplId = String(id || '').trim();
-        if (!tplId) return Promise.resolve({ ok: false, error: 'select' });
-        return ensureTwilioTplCache(false).then(function() {
+        if (!tplId || tplId === '__new__') {
+            return Promise.resolve({ ok: false, error: 'select' });
+        }
+        return ensureTwilioTplCache(true).then(function() {
+            if (!_tplDbReady || _tplDbMissing || typeof SB === 'undefined') {
+                return { ok: false, error: 'db_missing' };
+            }
             var store = loadTwilioTplStore();
             var row = null;
             for (var i = 0; i < store.templates.length; i++) {
@@ -2122,19 +2112,14 @@ var AIHELPER = AIHELPER || {};
             if (!row) return { ok: false, error: 'select' };
             if (store.templates.length <= 1) return { ok: false, error: 'keep_one' };
 
-            if (!_tplDbReady || typeof SB === 'undefined') {
-                store.templates = store.templates.filter(function(t) { return t.id !== tplId; });
-                store.selectedId = store.templates[0].id;
-                saveTwilioTplStore(store);
-                paintTwilioTplSelect();
-                return { ok: true, templates: store.templates.slice() };
-            }
-
             return SB.from(TWILIO_TPL_TABLE).update({
                 is_active: false,
                 updated_at: new Date().toISOString()
             }).eq('id', tplId).then(function(r) {
-                if (r.error) return { ok: false, error: String(r.error.message || '') };
+                if (r.error) {
+                    if (tplTableMissing(r.error)) return { ok: false, error: 'db_missing' };
+                    return { ok: false, error: String(r.error.message || '') };
+                }
                 return ensureTwilioTplCache(true).then(function() {
                     paintTwilioTplSelect();
                     return {

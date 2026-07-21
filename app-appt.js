@@ -8557,11 +8557,13 @@ var rcMonthD    = new Date();  // month shown in recall mini-calendar
 var rcPatients  = [];          // enriched appointment rows for selected date
 var rcSelIds    = {};          // { apptId: true }
 var rcContact   = 'whatsapp';  // 'whatsapp' | 'sms' | 'twilio_wa' | 'twilio_sms'
-var rcTemplates = [];          // saved templates (localStorage)
+var rcTemplates = [];          // saved message templates (Supabase; legacy localStorage migrate)
 var rcSendQueue = [];          // patients to step through when sending
 var rcSendIdx   = 0;
 var rcTwilioBusy = false;
 var RC_TMPL_KEY = 'recall_templates_v1';
+var RC_MSG_TMPL_TABLE = 'recall_message_templates';
+var _rcMsgTmplMigrating = false;
 var RC_TWILIO_TPL_PREF = 'appt_recall_twilio_tpl_id_v1';
 var RC_TWILIO_FROM_PREF = 'appt_recall_twilio_from_id_v1';
 
@@ -9187,21 +9189,149 @@ function recallPatientFirstName(a) {
     return full.split(/\s+/)[0] || full;
 }
 
-// ── Templates (localStorage) ─────────────────────────────────────
-function loadRcTemplates() {
-    try { rcTemplates = JSON.parse(localStorage.getItem(RC_TMPL_KEY) || '[]'); }
-    catch(e) { rcTemplates = []; }
-    renderRcTemplates();
+// ── Templates (Supabase clinic-wide; migrates legacy localStorage) ─
+function readLegacyLocalRcTemplates() {
+    try {
+        var list = JSON.parse(localStorage.getItem(RC_TMPL_KEY) || '[]');
+        return Array.isArray(list) ? list : [];
+    } catch (e) {
+        return [];
+    }
 }
+
+function rcMsgTmplTableMissing(err) {
+    var msg = String((err && err.message) || err || '');
+    return /recall_message_templates|does not exist|schema cache|Could not find the table/i.test(msg);
+}
+
+function rcMsgTmplCreatedBy() {
+    try {
+        if (typeof currentUserId !== 'undefined' && currentUserId) {
+            return String(currentUserId);
+        }
+    } catch (e) { /* ignore */ }
+    return '';
+}
+
+function migrateLegacyLocalRcTemplatesToDb() {
+    if (_rcMsgTmplMigrating || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        return Promise.resolve(0);
+    }
+    var legacy = readLegacyLocalRcTemplates();
+    if (!legacy.length) return Promise.resolve(0);
+    _rcMsgTmplMigrating = true;
+    var chain = Promise.resolve(0);
+    legacy.forEach(function(t, idx) {
+        var name = String((t && t.name) || '').trim();
+        var content = String((t && t.content) || '').trim();
+        if (!name || !content) return;
+        chain = chain.then(function(n) {
+            return SB.from(RC_MSG_TMPL_TABLE).insert([{
+                name: name,
+                content: content,
+                sort_order: idx,
+                created_by: rcMsgTmplCreatedBy() || 'migrate'
+            }]).then(function(r) {
+                if (r.error) return n;
+                return n + 1;
+            });
+        });
+    });
+    return chain.then(function(n) {
+        _rcMsgTmplMigrating = false;
+        if (n > 0) {
+            try { localStorage.removeItem(RC_TMPL_KEY); } catch (e2) { /* ignore */ }
+        }
+        return n;
+    }).catch(function() {
+        _rcMsgTmplMigrating = false;
+        return 0;
+    });
+}
+
+function loadRcTemplates() {
+    renderRcTemplates();
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        rcTemplates = readLegacyLocalRcTemplates();
+        renderRcTemplates();
+        return;
+    }
+    SB.from(RC_MSG_TMPL_TABLE)
+        .select('id,name,content,sort_order')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true })
+        .then(function(r) {
+            if (r.error) {
+                if (rcMsgTmplTableMissing(r.error)) {
+                    rcTemplates = readLegacyLocalRcTemplates();
+                    renderRcTemplates();
+                    return;
+                }
+                console.warn('[recall] load templates', r.error);
+                return;
+            }
+            var list = (r.data || []).map(function(row) {
+                return {
+                    id: String(row.id),
+                    name: String(row.name || ''),
+                    content: String(row.content || '')
+                };
+            }).filter(function(t) { return t.name && t.content; });
+            if (!list.length) {
+                return migrateLegacyLocalRcTemplatesToDb().then(function(migrated) {
+                    if (migrated) return loadRcTemplates();
+                    rcTemplates = [];
+                    renderRcTemplates();
+                });
+            }
+            rcTemplates = list;
+            renderRcTemplates();
+        })
+        .catch(function(err) {
+            console.warn('[recall] load templates', err);
+            rcTemplates = readLegacyLocalRcTemplates();
+            renderRcTemplates();
+        });
+}
+
 function saveRcTemplate() {
     var txt = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
     if (!txt) { alert(tr('appt.recall.alertEnterMsg')); return; }
     var name = prompt(tr('appt.recall.promptTmplName'));
     if (name === null || !name.trim()) return;
-    rcTemplates.push({ id: Date.now(), name: name.trim(), content: txt });
-    localStorage.setItem(RC_TMPL_KEY, JSON.stringify(rcTemplates));
-    renderRcTemplates();
+    name = name.trim();
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        alert(tr('appt.recall.tmplDbMissing'));
+        return;
+    }
+    SB.from(RC_MSG_TMPL_TABLE).insert([{
+        name: name,
+        content: txt,
+        sort_order: rcTemplates.length,
+        created_by: rcMsgTmplCreatedBy()
+    }]).select('id,name,content').single().then(function(r) {
+        if (r.error) {
+            if (rcMsgTmplTableMissing(r.error)) {
+                alert(tr('appt.recall.tmplDbMissing'));
+                return;
+            }
+            alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(r.error.message || ''));
+            return;
+        }
+        if (r.data) {
+            rcTemplates.push({
+                id: String(r.data.id),
+                name: String(r.data.name || name),
+                content: String(r.data.content || txt)
+            });
+        }
+        renderRcTemplates();
+    }).catch(function(err) {
+        alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(err && err.message || err || ''));
+    });
 }
+
 function renderRcTemplates() {
     var panel = g('recallTmplPanel');
     if (!panel) return;
@@ -9211,26 +9341,47 @@ function renderRcTemplates() {
         '<div style="font-weight:700;font-size:12px;color:#64748b;margin-bottom:8px;' +
         'letter-spacing:.4px;">' + esc(tr('appt.recall.tmplSavedHeader')) + '</div>';
     rcTemplates.forEach(function(t) {
+        var sid = String(t.id).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         html +=
             '<div class="rc-tmpl-item">' +
-            '<span class="rc-tmpl-name" onclick="applyRcTemplate(' + t.id + ')">' +
+            '<span class="rc-tmpl-name" onclick="applyRcTemplate(\'' + sid + '\')">' +
                 esc(t.name) +
             '</span>' +
             '<button class="rc-tmpl-del" title="' + esc(tr('appt.recall.deleteTmplTitle')) + '" ' +
-                'onclick="deleteRcTemplate(' + t.id + ')">✕</button>' +
+                'onclick="deleteRcTemplate(\'' + sid + '\')">✕</button>' +
             '</div>';
     });
     panel.innerHTML = html;
 }
 function applyRcTemplate(id) {
-    var tmpl = rcTemplates.filter(function(t) { return t.id === id; })[0];
+    var sid = String(id);
+    var tmpl = rcTemplates.filter(function(t) { return String(t.id) === sid; })[0];
     if (tmpl && g('recallMsgBox')) g('recallMsgBox').value = tmpl.content;
 }
 function deleteRcTemplate(id) {
     if (!confirm(tr('appt.recall.confirmDeleteTmpl'))) return;
-    rcTemplates = rcTemplates.filter(function(t) { return t.id !== id; });
-    localStorage.setItem(RC_TMPL_KEY, JSON.stringify(rcTemplates));
-    renderRcTemplates();
+    var sid = String(id);
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        alert(tr('appt.recall.tmplDbMissing'));
+        return;
+    }
+    SB.from(RC_MSG_TMPL_TABLE).update({
+        is_active: false,
+        updated_at: new Date().toISOString()
+    }).eq('id', sid).then(function(r) {
+        if (r.error) {
+            if (rcMsgTmplTableMissing(r.error)) {
+                alert(tr('appt.recall.tmplDbMissing'));
+                return;
+            }
+            alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(r.error.message || ''));
+            return;
+        }
+        rcTemplates = rcTemplates.filter(function(t) { return String(t.id) !== sid; });
+        renderRcTemplates();
+    }).catch(function(err) {
+        alert(tr('appt.recall.tmplSaveFail') + '\n\n' + String(err && err.message || err || ''));
+    });
 }
 
 // ── Send Queue ───────────────────────────────────────────────────

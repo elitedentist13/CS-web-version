@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260723-broadcast-shift-select';
+  var BUILD = '20260723-broadcast-multi-union';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1772,6 +1772,9 @@
               <button type="button" id="mbMoveUnderFolderBtn" class="mb-btn ghost mb-side-action"
                       style="display:none;"
                       onclick="MASSBC.moveToTopLevel()" data-i18n="mb.org.moveTop">Move to top level</button>
+              <button type="button" class="mb-btn primary mb-side-action"
+                      onclick="MASSBC.autoPatchListsFromSelection()"
+                      data-i18n="mb.patch.btn">Auto patch lists</button>
               <p class="mb-org-drag-hint" data-i18n="mb.org.dragHint">Tip: drag a list onto a folder to move it.</p>
             </div>
           </aside>
@@ -1940,6 +1943,8 @@
                 </div>
                 <button type="button" class="mb-btn ghost" onclick="MASSBC.clearSelection()"
                         data-i18n="mb.clearSel">Clear selection</button>
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.autoPatchListsFromSelection()"
+                        data-i18n="mb.patch.btn">Auto patch lists</button>
                 <button type="button" class="mb-btn primary" onclick="MASSBC.startCampaignFromSelection()"
                         data-i18n="mb.newBroadcast">New broadcast</button>
               </div>

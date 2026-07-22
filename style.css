@@ -16066,12 +16066,17 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: calc(100vh - 180px);
+    /* Fixed height budget so the list area can scroll past the fold */
+    height: calc(100vh - 200px);
+    max-height: calc(100vh - 200px);
+    min-height: 280px;
+    overflow: hidden;
     position: sticky;
     top: 8px;
 }
 .mb-side-head {
     display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    flex-shrink: 0;
 }
 .mb-side-label {
     font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase;
@@ -16082,6 +16087,7 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 }
 .mb-org-toolbar {
     display: flex; flex-wrap: wrap; gap: 4px;
+    flex-shrink: 0;
 }
 .mb-org-tool {
     flex: 1 1 auto;
@@ -16092,19 +16098,32 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 }
 .mb-seg-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .mb-org-list {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
+    /* Sole scrollport for folders / lists beyond the visible panel */
+    flex: 1 1 0;
+    min-height: 120px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     margin-bottom: 0;
     gap: 10px;
-    padding-right: 2px;
+    padding-right: 4px;
 }
-.mb-org-footer { display: flex; flex-direction: column; gap: 6px; }
+.mb-org-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+    padding-top: 2px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
 .mb-org-block {
     background: #fff;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
-    overflow: hidden;
+    overflow: visible;
+    flex-shrink: 0;
 }
 .mb-org-block-title {
     font-size: 10px;
@@ -16681,8 +16700,18 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
         width: 100%;
         max-width: none;
         min-width: 0;
+        height: auto;
         max-height: none;
+        min-height: 0;
+        overflow: visible;
         position: static;
+    }
+    /* Keep a scrollable list band on narrow screens */
+    .mb-org-list {
+        flex: none;
+        max-height: min(52vh, 420px);
+        min-height: 160px;
+        overflow-y: auto;
     }
     .mb-review-dl { grid-template-columns: 1fr; }
 }

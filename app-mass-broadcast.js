@@ -22,6 +22,8 @@ var MASSBC = (function () {
         all: 1, scope: 1, hasphone: 1, birthday: 1, sent: 1, unsent: 1
     };
     var BUILTIN_ORDER = ['all', 'scope', 'hasphone', 'birthday', 'sent', 'unsent'];
+    /** Active mode when 2+ organiser checkboxes are ticked (OR-union of lists). */
+    var UNION_SEGMENT_ID = '__checked_union__';
     /** Gmail-style list markers (remarks column). */
     var LIST_MARKERS = [
         { id: '', icon: '·', labelKey: 'mb.org.mark.none', label: 'None' },
@@ -617,7 +619,17 @@ var MASSBC = (function () {
         return findSavedSegment(_activeSegmentId);
     }
 
+    function getCheckedListIds() {
+        return Object.keys(_listSelected).filter(function (id) {
+            return !!_listSelected[id];
+        });
+    }
+
     function activeListLabel() {
+        if (_activeSegmentId === UNION_SEGMENT_ID) {
+            var n = getCheckedListIds().length;
+            return trRepl('mb.union.label', { N: n }, '{N} lists combined');
+        }
         var seg = activeSavedList();
         if (seg) {
             applyOrgToSegment(seg);
@@ -853,6 +865,41 @@ var MASSBC = (function () {
             ev.preventDefault();
         }, true);
 
+        // Use change (not click) so .checked is committed before we sync counts
+        root.addEventListener('change', function (ev) {
+            var t = ev.target;
+            if (!t || !t.getAttribute) return;
+            if (t.id === 'mbSelectPage') {
+                // Handled by listener attached in renderTable
+                return;
+            }
+            if (t.getAttribute('data-mb-row') != null) {
+                var id = String(t.getAttribute('data-mb-row') || '');
+                if (!id) return;
+                setPatientSelected(id, !!t.checked);
+                _selectAnchorId = id;
+                syncSelectionUi();
+                return;
+            }
+            if (t.getAttribute('data-mb-list-check') != null) {
+                var lid = String(t.getAttribute('data-mb-list-check') || '');
+                if (!lid) return;
+                if (t.checked) _listSelected[lid] = true;
+                else delete _listSelected[lid];
+                syncListSelectAllUi();
+                syncMoveUnderUi();
+                // 1 checked → that list; 2+ checked → OR-union (add-on sum)
+                applyCheckedListsToBody();
+                return;
+            }
+            if (t.getAttribute('data-mb-list-check-all') != null) {
+                toggleSelectAllLists(
+                    t.getAttribute('data-mb-list-check-all'),
+                    !!t.checked
+                );
+            }
+        });
+
         root.addEventListener('click', function (ev) {
             var t = ev.target;
             if (!t) return;
@@ -861,20 +908,8 @@ var MASSBC = (function () {
                 setMode(modeBtn.getAttribute('data-mb-mode'));
                 return;
             }
-            var listCb = t.closest('input[data-mb-list-check]');
-            if (listCb) {
-                ev.stopPropagation();
-                var lid = listCb.getAttribute('data-mb-list-check');
-                if (listCb.checked) _listSelected[lid] = true;
-                else delete _listSelected[lid];
-                syncListSelectAllUi();
-                syncMoveUnderUi();
-                return;
-            }
-            var listCheckAll = t.closest('input[data-mb-list-check-all]');
-            if (listCheckAll) {
-                ev.stopPropagation();
-                toggleSelectAllLists(listCheckAll.getAttribute('data-mb-list-check-all'), !!listCheckAll.checked);
+            // List / row checkbox toggles are handled on `change` (committed state).
+            if (t.closest('input[data-mb-list-check], input[data-mb-list-check-all], #mbSelectPage')) {
                 return;
             }
             var markBtn = t.closest('[data-mb-list-mark]');
@@ -935,17 +970,15 @@ var MASSBC = (function () {
             if (rowCb) {
                 var id = String(rowCb.getAttribute('data-mb-row') || '');
                 if (!id) return;
+                // Normal toggles: `change` handler syncs selection + counts.
+                // Shift+click: range-select in filtered order (across pages).
                 if (ev.shiftKey && _selectAnchorId) {
                     ev.preventDefault();
                     selectFilteredRange(_selectAnchorId, id, true);
                     renderTable();
-                    updateCounts();
+                    syncSelectionUi();
                     return;
                 }
-                if (rowCb.checked) _selected[id] = true;
-                else delete _selected[id];
-                _selectAnchorId = id;
-                updateCounts();
                 return;
             }
             // Shift+click on a result row (not only the checkbox) also ranges
@@ -957,7 +990,7 @@ var MASSBC = (function () {
                     ev.preventDefault();
                     selectFilteredRange(_selectAnchorId, rid, true);
                     renderTable();
-                    updateCounts();
+                    syncSelectionUi();
                     return;
                 }
             }
@@ -1451,7 +1484,8 @@ var MASSBC = (function () {
                 else delete _listSelected[s.id];
             });
         }
-        renderSegments();
+        // Select-all also drives the contacts body (union when 2+)
+        applyCheckedListsToBody();
     }
 
     function syncListSelectAllUi() {
@@ -1473,7 +1507,8 @@ var MASSBC = (function () {
     function renderOrgRow(opts) {
         var id = opts.id;
         var label = opts.label;
-        var active = _activeSegmentId === id;
+        var active = _activeSegmentId === id ||
+            (_activeSegmentId === UNION_SEGMENT_ID && !!_listSelected[id]);
         var checked = !!_listSelected[id];
         var org = resolveListOrg(id);
         var md = markerDef(org.marker);
@@ -1618,23 +1653,32 @@ var MASSBC = (function () {
         return resolveFolderParentId(seg.parentId);
     }
 
-    function createFolderNode(name, parentId, kind) {
-        var nm = String(name || '').trim();
-        if (!nm) return;
-        var parent = resolveFolderParentId(parentId);
-        if (parentId && String(parentId).trim() && !parent) {
+    /**
+     * Create a folder or membership list. Returns Promise<row|null>.
+     * opts: { name, parentId, kind, patientIds, activate, quiet }
+     */
+    function createSegmentRecord(opts) {
+        opts = opts || {};
+        var nm = String(opts.name || '').trim();
+        if (!nm) return Promise.resolve(null);
+        var rawParent = opts.parentId != null ? String(opts.parentId) : '';
+        var parent = rawParent ? resolveFolderParentId(rawParent) : '';
+        if (rawParent && !parent) {
             alert(tr('mb.org.listCannotNest',
                 'A patient list cannot contain other lists. Open a folder, then use “Save under folder”.'));
-            return;
+            return Promise.resolve(null);
         }
-        var isFolder = kind === 'folder';
+        var isFolder = opts.kind === 'folder';
+        var patientIds = normalizePatientIds(opts.patientIds || []);
+        var activate = opts.activate !== false;
+        var quiet = !!opts.quiet;
         var status = pick('mbStatus');
 
         function finish(row) {
             applyOrgToSegment(row);
             row.parentId = parent;
             row.kind = isFolder ? 'folder' : 'list';
-            if (!row.patientIds) row.patientIds = [];
+            row.patientIds = isFolder ? [] : patientIds.slice();
             var exists = false;
             for (var i = 0; i < _segments.length; i++) {
                 if (String(_segments[i].id) === String(row.id)) {
@@ -1645,22 +1689,28 @@ var MASSBC = (function () {
             }
             if (!exists) _segments.push(row);
             persistSegmentOrg(row);
-            _activeSegmentId = row.id;
-            renderSegments();
-            applyFilters();
-            if (status) {
+            if (activate) {
+                _activeSegmentId = row.id;
+                if (!quiet) {
+                    renderSegments();
+                    applyFilters();
+                }
+            }
+            if (!quiet && status) {
                 status.textContent = isFolder
                     ? trRepl('mb.org.folderCreated', { NAME: row.name }, 'Folder “{NAME}” created.')
-                    : trRepl('mb.seg.savedOk', { NAME: row.name, N: 0 }, 'Saved list “{NAME}” ({N} contacts).');
+                    : trRepl('mb.seg.savedOk', { NAME: row.name, N: row.patientIds.length },
+                        'Saved list “{NAME}” ({N} contacts).');
             }
+            return row;
         }
 
         function localCreate() {
-            var localId = 'seg_' + Date.now().toString(36);
-            finish({
+            var localId = 'seg_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e4);
+            var row = finish({
                 id: localId,
                 name: nm,
-                patientIds: [],
+                patientIds: isFolder ? [] : patientIds.slice(),
                 conditions: null,
                 parentId: parent,
                 marker: '',
@@ -1669,22 +1719,18 @@ var MASSBC = (function () {
                 createdAt: new Date().toISOString()
             });
             persistSegmentLocalFallback(_segments);
+            return Promise.resolve(row);
         }
 
         if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
-            if (isFolder) {
-                localCreate();
-                return;
-            }
-            alertSegmentsNeedCloud();
-            localCreate();
-            return;
+            if (!isFolder) alertSegmentsNeedCloud();
+            return localCreate();
         }
 
-        if (status) status.textContent = tr('mb.seg.saving', 'Saving list to cloud…');
+        if (!quiet && status) status.textContent = tr('mb.seg.saving', 'Saving list to cloud…');
         var payload = {
             name: nm,
-            patient_ids: [],
+            patient_ids: isFolder ? [] : patientIds.slice(),
             conditions: conditionsWithOrg({
                 parentId: parent,
                 marker: '',
@@ -1695,7 +1741,7 @@ var MASSBC = (function () {
             sort_order: _segments.length,
             created_by: segmentCreatedBy() || null
         };
-        SB.from(SEG_TABLE).insert([payload])
+        return SB.from(SEG_TABLE).insert([payload])
             .select('id,name,patient_ids,conditions,created_at,updated_at')
             .single()
             .then(function (r) {
@@ -1703,23 +1749,35 @@ var MASSBC = (function () {
                     if (segmentsTableMissing(r.error)) {
                         _segmentsDbMissing = true;
                         alertSegmentsNeedCloud();
-                        localCreate();
-                        return;
+                        return localCreate();
                     }
                     alert(trRepl('mb.seg.saveFail', { MSG: r.error.message || r.error },
                         'Could not save list: {MSG}'));
-                    return;
+                    return null;
                 }
                 var row = normalizeSegmentRow(r.data);
                 if (!row) {
                     alert(tr('mb.seg.saveFailGeneric', 'Could not save list.'));
-                    return;
+                    return null;
                 }
-                finish(row);
-            }).catch(function (err) {
+                return finish(row);
+            })
+            .catch(function (err) {
                 alert(trRepl('mb.seg.saveFail', { MSG: (err && err.message) || err },
                     'Could not save list: {MSG}'));
+                return null;
             });
+    }
+
+    function createFolderNode(name, parentId, kind) {
+        return createSegmentRecord({
+            name: name,
+            parentId: parentId || '',
+            kind: kind === 'folder' ? 'folder' : 'list',
+            patientIds: [],
+            activate: true,
+            quiet: false
+        });
     }
 
     function createFolder() {
@@ -1746,6 +1804,134 @@ var MASSBC = (function () {
         );
         if (name === null || !String(name).trim()) return;
         createFolderNode(name, parent, 'folder');
+    }
+
+    /** Selected ids in current filtered order; else full filtered set. */
+    function collectIdsForPatchLists() {
+        var selectedIds = Object.keys(_selected).filter(function (id) {
+            return !!_selected[id];
+        });
+        if (selectedIds.length) {
+            var set = {};
+            selectedIds.forEach(function (id) { set[String(id)] = true; });
+            return (_filtered || []).map(function (p) {
+                return p && p.id != null && set[String(p.id)] ? String(p.id) : '';
+            }).filter(Boolean);
+        }
+        return (_filtered || []).map(function (p) {
+            return p && p.id != null ? String(p.id) : '';
+        }).filter(Boolean);
+    }
+
+    /**
+     * Auto patch list former:
+     * selection/filtered pool → daily limit → folder + Patch 1..N lists under it.
+     */
+    function autoPatchListsFromSelection() {
+        var ids = collectIdsForPatchLists();
+        if (!ids.length) {
+            alert(tr('mb.patch.needContacts',
+                'Select contacts (or open a list / filter) first, then run Auto patch lists.'));
+            return;
+        }
+
+        var limitStr = window.prompt(
+            trRepl('mb.patch.limitPrompt', { N: ids.length },
+                'Daily send limit (contacts per patch).\nCurrent pool: {N} contacts.'),
+            '250'
+        );
+        if (limitStr === null) return;
+        var limit = parseInt(String(limitStr).trim(), 10);
+        if (!limit || limit < 1) {
+            alert(tr('mb.patch.limitInvalid', 'Enter a valid daily limit (e.g. 250).'));
+            return;
+        }
+
+        var patchCount = Math.ceil(ids.length / limit);
+        var defaultFolder = trRepl('mb.patch.folderDefault', {
+            D: new Date().toISOString().slice(0, 10)
+        }, 'Patches {D}');
+        var folderName = window.prompt(
+            trRepl('mb.patch.folderPrompt', { P: patchCount, L: limit, N: ids.length },
+                'New folder name for {P} patches ({N} contacts ÷ {L}/day):'),
+            defaultFolder
+        );
+        if (folderName === null || !String(folderName).trim()) return;
+        folderName = String(folderName).trim();
+
+        if (!window.confirm(trRepl('mb.patch.confirm', {
+            FOLDER: folderName,
+            P: patchCount,
+            L: limit,
+            N: ids.length
+        }, 'Create folder “{FOLDER}” with {P} lists (Patch 1…Patch {P}), up to {L} contacts each?\nTotal: {N} contacts.'))) {
+            return;
+        }
+
+        var status = pick('mbStatus');
+        if (status) {
+            status.textContent = tr('mb.patch.working', 'Creating patch folder and lists…');
+        }
+
+        var chunks = [];
+        for (var i = 0; i < ids.length; i += limit) {
+            chunks.push(ids.slice(i, i + limit));
+        }
+
+        createSegmentRecord({
+            name: folderName,
+            parentId: '',
+            kind: 'folder',
+            patientIds: [],
+            activate: false,
+            quiet: true
+        }).then(function (folder) {
+            if (!folder) {
+                if (status) {
+                    status.textContent = tr('mb.patch.fail', 'Could not create patch folder.');
+                }
+                return null;
+            }
+            var chain = Promise.resolve(0);
+            chunks.forEach(function (chunk, idx) {
+                chain = chain.then(function (n) {
+                    if (status) {
+                        status.textContent = trRepl('mb.patch.progress', {
+                            CUR: idx + 1,
+                            P: chunks.length
+                        }, 'Saving Patch {CUR} / {P}…');
+                    }
+                    return createSegmentRecord({
+                        name: 'Patch ' + (idx + 1),
+                        parentId: folder.id,
+                        kind: 'list',
+                        patientIds: chunk,
+                        activate: false,
+                        quiet: true
+                    }).then(function (row) {
+                        return row ? (n + 1) : n;
+                    });
+                });
+            });
+            return chain.then(function (made) {
+                _activeSegmentId = folder.id;
+                if (_listCollapsed[folder.id]) {
+                    delete _listCollapsed[folder.id];
+                    patchOrgMeta(folder.id, { collapsed: '' });
+                }
+                renderSegments();
+                applyFilters();
+                if (status) {
+                    status.textContent = trRepl('mb.patch.done', {
+                        FOLDER: folder.name,
+                        P: made,
+                        N: ids.length,
+                        L: limit
+                    }, 'Created “{FOLDER}” with {P} patches ({N} contacts, {L}/list).');
+                }
+                return made;
+            });
+        });
     }
 
     function saveCurrentAsSegmentUnder() {
@@ -1996,8 +2182,7 @@ var MASSBC = (function () {
         });
         chain.then(function () {
             _listSelected = {};
-            renderSegments();
-            applyFilters();
+            applyCheckedListsToBody();
         });
     }
 
@@ -2335,6 +2520,9 @@ var MASSBC = (function () {
 
     function activateSegment(segId) {
         _activeSegmentId = segId || 'all';
+        // Name click = exclusive: one checked list matching the active filter
+        _listSelected = {};
+        if (_activeSegmentId) _listSelected[_activeSegmentId] = true;
         if (isSavedListId(_activeSegmentId)) {
             var seg = findSavedSegment(_activeSegmentId);
             if (seg) applyOrgToSegment(seg);
@@ -2348,10 +2536,120 @@ var MASSBC = (function () {
             } else if (seg && seg.conditions) {
                 restoreConditionsToUi(seg.conditions);
             }
+        } else if (!BUILTIN_SEGMENTS[_activeSegmentId]) {
+            restoreConditionsToUi({
+                search: '', sex: '', dobMonth: '', hasPhone: '',
+                optOut: '', sent: '', clinic: '', extras: []
+            });
         }
         renderSegments();
         syncMoveUnderUi();
         enrichDoctorFilter().then(function () { applyFilters(); });
+    }
+
+    /**
+     * Apply organiser checkbox selection to the contacts body.
+     * 0 → All contacts; 1 → that list; 2+ → OR-union (add-on sum of contacts).
+     */
+    function applyCheckedListsToBody() {
+        var checked = getCheckedListIds();
+        if (!checked.length) {
+            _activeSegmentId = 'all';
+            restoreConditionsToUi({
+                search: '', sex: '', dobMonth: '', hasPhone: '',
+                optOut: '', sent: '', clinic: '', extras: []
+            });
+            renderSegments();
+            syncMoveUnderUi();
+            enrichDoctorFilter().then(function () { applyFilters(); });
+            return;
+        }
+        if (checked.length === 1) {
+            activateSegment(checked[0]);
+            return;
+        }
+        _activeSegmentId = UNION_SEGMENT_ID;
+        restoreConditionsToUi({
+            search: '', sex: '', dobMonth: '', hasPhone: '',
+            optOut: '', sent: '', clinic: '', extras: []
+        });
+        renderSegments();
+        syncMoveUnderUi();
+        enrichDoctorFilter().then(function () { applyFilters(); });
+        var status = pick('mbStatus');
+        if (status) {
+            status.textContent = trRepl('mb.union.status', { N: checked.length },
+                'Combined {N} checked lists (add-on / union).');
+        }
+    }
+
+    /** Whether patient belongs to a single organiser segment (builtin or saved). */
+    function patientMatchesSegmentId(p, segId, ctx) {
+        if (!p || !segId) return false;
+        ctx = ctx || {};
+        var nowMonth = ctx.nowMonth || String(new Date().getMonth() + 1);
+        if (segId === 'all') return !isBlankContact(p);
+        if (segId === 'hasphone') return !!phoneOf(p);
+        if (segId === 'birthday') {
+            if (!p.dob) return false;
+            return parseInt(String(p.dob).slice(5, 7), 10) === parseInt(nowMonth, 10);
+        }
+        if (segId === 'sent') return !!getSentInfo(p);
+        if (segId === 'unsent') return !getSentInfo(p);
+        if (segId === 'scope') {
+            var clinicTag = ctx.scopeClinicTag || clinicTagForFilter();
+            if (clinicTag && !patientMatchesClinicTag(p, clinicTag)) return false;
+            if (ctx.doctorPatientIds && !ctx.doctorPatientIds[String(p.id)]) return false;
+            return true;
+        }
+        if (isSavedListId(segId)) {
+            var seg = findSavedSegment(segId);
+            if (!seg) return false;
+            applyOrgToSegment(seg);
+            if (seg.kind === 'folder' ||
+                (Array.isArray(seg.patientIds) && seg.patientIds.length)) {
+                var ids = membershipIdsForSegment(seg);
+                for (var i = 0; i < ids.length; i++) {
+                    if (String(ids[i]) === String(p.id)) return true;
+                }
+                return false;
+            }
+            // Legacy condition-only saved list
+            if (seg.conditions) {
+                return patientMatchesLegacyConditions(p, seg.conditions, nowMonth);
+            }
+        }
+        return false;
+    }
+
+    function patientMatchesLegacyConditions(p, c, nowMonth) {
+        if (!c || typeof c !== 'object') return true;
+        if (c.sex && String(p.sex || '') !== String(c.sex)) return false;
+        if (c.dobMonth) {
+            if (!p.dob) return false;
+            if (parseInt(String(p.dob).slice(5, 7), 10) !== parseInt(c.dobMonth, 10)) return false;
+        }
+        if (c.hasPhone === 'yes' && !phoneOf(p)) return false;
+        if (c.hasPhone === 'no' && phoneOf(p)) return false;
+        if (c.optOut === 'exclude' && p.messaging_opt_out) return false;
+        if (c.optOut === 'only' && !p.messaging_opt_out) return false;
+        if (c.clinic && !patientMatchesClinicTag(p, c.clinic)) return false;
+        var sentInfo = getSentInfo(p);
+        if (c.sent === 'yes' && !sentInfo) return false;
+        if (c.sent === 'no' && sentInfo) return false;
+        var search = String(c.search != null ? c.search : '').trim().toLowerCase();
+        if (search) {
+            var blob = [
+                p.patient_no, p.full_name, p.chinese_name,
+                p.phone_number, p.mobile_phone, p.email
+            ].join(' ').toLowerCase();
+            if (blob.indexOf(search) < 0) return false;
+        }
+        var extras = Array.isArray(c.extras) ? c.extras : [];
+        for (var i = 0; i < extras.length; i++) {
+            if (!matchCondition(p, extras[i])) return false;
+        }
+        return !isBlankContact(p);
     }
 
     function sentSinceIso() {
@@ -2567,8 +2865,10 @@ var MASSBC = (function () {
 
     function enrichDoctorFilter() {
         _doctorPatientIds = null;
-        // Doctor scope only for built-in "Clinic / doctor bar" segment
-        if (_activeSegmentId !== 'scope') return Promise.resolve();
+        // Doctor scope for built-in "Clinic / doctor bar", or union that includes it
+        var needsScope = _activeSegmentId === 'scope' ||
+            (_activeSegmentId === UNION_SEGMENT_ID && !!_listSelected.scope);
+        if (!needsScope) return Promise.resolve();
 
         var doc = selectedDoctorMeta();
         if (!doc) return Promise.resolve();
@@ -2628,7 +2928,36 @@ var MASSBC = (function () {
 
         // Custom saved list / folder with fixed membership (preferred)
         var membershipSet = null;
-        if (isSavedListId(_activeSegmentId)) {
+        var unionMode = _activeSegmentId === UNION_SEGMENT_ID;
+        var unionIds = unionMode ? getCheckedListIds() : [];
+        var unionCtx = null;
+
+        if (unionMode) {
+            unionCtx = {
+                nowMonth: String(new Date().getMonth() + 1),
+                scopeClinicTag: clinicTagForFilter(),
+                doctorPatientIds: _doctorPatientIds
+            };
+            // Preload saved-list membership into a set for speed; builtins stay predicate-based
+            unionCtx.savedSets = {};
+            unionIds.forEach(function (id) {
+                if (!isSavedListId(id)) return;
+                var seg = findSavedSegment(id);
+                if (!seg) return;
+                applyOrgToSegment(seg);
+                var set = {};
+                membershipIdsForSegment(seg).forEach(function (pid) {
+                    set[String(pid)] = true;
+                });
+                // Legacy condition lists: empty patientIds — match via patientMatchesSegmentId
+                unionCtx.savedSets[id] = {
+                    seg: seg,
+                    set: set,
+                    useSet: seg.kind === 'folder' ||
+                        (Array.isArray(seg.patientIds) && seg.patientIds.length > 0)
+                };
+            });
+        } else if (isSavedListId(_activeSegmentId)) {
             var seg = findSavedSegment(_activeSegmentId);
             if (seg) applyOrgToSegment(seg);
             if (seg && seg.kind === 'folder') {
@@ -2669,6 +2998,35 @@ var MASSBC = (function () {
 
         _filtered = _allPatients.filter(function (p) {
             if (isBlankContact(p)) return false;
+
+            if (unionMode) {
+                var hit = false;
+                for (var ui = 0; ui < unionIds.length; ui++) {
+                    var uid = unionIds[ui];
+                    if (isSavedListId(uid) && unionCtx.savedSets[uid] &&
+                        unionCtx.savedSets[uid].useSet) {
+                        if (unionCtx.savedSets[uid].set[String(p.id)]) {
+                            hit = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    if (patientMatchesSegmentId(p, uid, unionCtx)) {
+                        hit = true;
+                        break;
+                    }
+                }
+                if (!hit) return false;
+                // Continue with optional UI search only (list OR already applied)
+                if (search) {
+                    var ublob = [
+                        p.patient_no, p.full_name, p.chinese_name,
+                        p.phone_number, p.mobile_phone, p.email
+                    ].join(' ').toLowerCase();
+                    if (ublob.indexOf(search) < 0) return false;
+                }
+                return true;
+            }
 
             if (membershipSet) {
                 if (membershipSet.__emptyFolder) return false;
@@ -2715,8 +3073,7 @@ var MASSBC = (function () {
 
         sortFiltered();
         _page = 0;
-        renderTable();
-        updateCounts();
+        renderTable(); // syncSelectionUi → updateCounts
         renderConditionChips();
     }
 
@@ -2832,12 +3189,16 @@ var MASSBC = (function () {
                 pageCb.addEventListener('change', function () {
                     var start = _page * PAGE_SIZE;
                     var slice = _filtered.slice(start, start + PAGE_SIZE);
+                    var on = !!pageCb.checked;
                     slice.forEach(function (p) {
-                        if (pageCb.checked) _selected[p.id] = true;
-                        else delete _selected[p.id];
+                        if (!p || p.id == null) return;
+                        setPatientSelected(p.id, on);
                     });
+                    if (slice.length) {
+                        _selectAnchorId = String(slice[0].id);
+                    }
                     renderTable();
-                    updateCounts();
+                    syncSelectionUi();
                 });
             }
         }
@@ -2851,19 +3212,21 @@ var MASSBC = (function () {
                 esc(tr('mb.empty', 'No contacts match these filters.')) +
                 '</td></tr>';
             renderPager();
+            syncSelectionUi();
             return;
         }
 
         var html = '';
         slice.forEach(function (p) {
-            var checked = _selected[p.id] ? ' checked' : '';
+            var pid = String(p.id);
+            var checked = _selected[pid] ? ' checked' : '';
             var sentInfo = getSentInfo(p);
             html += '<tr class="mb-row' +
                 (p.messaging_opt_out ? ' mb-row-optout' : '') +
                 (sentInfo ? ' mb-row-sent' : '') + '">';
             html +=
                 '<td class="mb-td-check"><input type="checkbox" data-mb-row="' +
-                esc(p.id) + '"' + checked + '></td>';
+                esc(pid) + '"' + checked + '></td>';
             cols.forEach(function (c) {
                 if (!c.on) return;
                 html += '<td>' + cellHtml(p, c.key) + '</td>';
@@ -2873,6 +3236,7 @@ var MASSBC = (function () {
         });
         body.innerHTML = html;
         renderPager();
+        syncSelectionUi();
     }
 
     function colLabel(key) {
@@ -2993,10 +3357,46 @@ var MASSBC = (function () {
         syncPageSelectInputs();
     }
 
+    function setPatientSelected(id, on) {
+        var sid = String(id == null ? '' : id);
+        if (!sid) return;
+        if (on) _selected[sid] = true;
+        else delete _selected[sid];
+    }
+
+    function selectedPatientIds() {
+        return Object.keys(_selected).filter(function (id) {
+            return !!_selected[id];
+        });
+    }
+
+    function syncPageSelectCheckbox() {
+        var pageCb = pick('mbSelectPage');
+        if (!pageCb) return;
+        var start = _page * PAGE_SIZE;
+        var slice = _filtered.slice(start, start + PAGE_SIZE);
+        if (!slice.length) {
+            pageCb.checked = false;
+            pageCb.indeterminate = false;
+            return;
+        }
+        var n = 0;
+        slice.forEach(function (p) {
+            if (p && p.id != null && _selected[String(p.id)]) n += 1;
+        });
+        pageCb.checked = n === slice.length;
+        pageCb.indeterminate = n > 0 && n < slice.length;
+    }
+
+    function syncSelectionUi() {
+        syncPageSelectCheckbox();
+        updateCounts();
+    }
+
     function updateCounts() {
         var el = pick('mbCounts');
         if (!el) return;
-        var selIds = Object.keys(_selected);
+        var selIds = selectedPatientIds();
         var withPhone = 0;
         var skippedOpt = 0;
         var taggedShown = 0;
@@ -3045,13 +3445,8 @@ var MASSBC = (function () {
         for (var i = lo; i <= hi; i++) {
             var p = _filtered[i];
             if (!p || p.id == null) continue;
-            var id = String(p.id);
-            if (on) {
-                _selected[id] = true;
-                n += 1;
-            } else {
-                delete _selected[id];
-            }
+            setPatientSelected(p.id, on);
+            if (on) n += 1;
         }
         var status = pick('mbStatus');
         if (status && on) {
@@ -3062,19 +3457,19 @@ var MASSBC = (function () {
     }
 
     function selectAllFiltered() {
-        _filtered.forEach(function (p) { _selected[p.id] = true; });
+        _filtered.forEach(function (p) { setPatientSelected(p.id, true); });
         if (_filtered.length) {
             _selectAnchorId = String(_filtered[0].id);
         }
         renderTable();
-        updateCounts();
+        syncSelectionUi();
     }
 
     function clearSelection() {
         _selected = {};
         _selectAnchorId = null;
         renderTable();
-        updateCounts();
+        syncSelectionUi();
     }
 
     function syncPageSelectInputs() {
@@ -3126,14 +3521,14 @@ var MASSBC = (function () {
             var p = _filtered[i];
             if (!p || p.id == null) continue;
             var pid = String(p.id);
-            _selected[pid] = true;
+            setPatientSelected(pid, true);
             if (!firstId) firstId = pid;
             n += 1;
         }
         _selectAnchorId = firstId;
         // Show the first page of the selected range
         goToPage(from - 1);
-        updateCounts();
+        syncSelectionUi();
         var status = pick('mbStatus');
         if (status) {
             status.textContent = from === to
@@ -4905,6 +5300,7 @@ var MASSBC = (function () {
         renameSavedSegment: renameSavedSegment,
         createFolder: createFolder,
         createSubfolder: createSubfolder,
+        autoPatchListsFromSelection: autoPatchListsFromSelection,
         bulkSetMarkerPrompt: bulkSetMarkerPrompt,
         deleteSelectedLists: deleteSelectedLists,
         setListMarker: setListMarker,

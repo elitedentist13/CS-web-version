@@ -849,6 +849,16 @@
         'mb.seg.unsent': { en: 'Not messaged in window', 'zh-CN': '窗口内未发', 'zh-Hant': '視窗內未發' },
         'mb.seg.save': { en: 'Save as list', 'zh-CN': '存为分组', 'zh-Hant': '存為分組' },
         'mb.seg.delete': { en: 'Delete list', 'zh-CN': '删除分组', 'zh-Hant': '刪除分組' },
+        'mb.union.label': {
+            en: '{N} lists combined',
+            'zh-CN': '已合并 {N} 个列表',
+            'zh-Hant': '已合併 {N} 個列表'
+        },
+        'mb.union.status': {
+            en: 'Combined {N} checked lists (add-on / union).',
+            'zh-CN': '已合并 {N} 个勾选列表（叠加合计）。',
+            'zh-Hant': '已合併 {N} 個勾選列表（疊加合計）。'
+        },
         'mb.org.hint': { en: 'Campaign organiser', 'zh-CN': '群发整理器', 'zh-Hant': '群發整理器' },
         'mb.org.smart': { en: 'Default filters', 'zh-CN': '默认筛选', 'zh-Hant': '預設篩選' },
         'mb.org.saved': { en: 'Folders & lists', 'zh-CN': '文件夹与分组', 'zh-Hant': '資料夾與分組' },
@@ -873,6 +883,53 @@
             en: 'Move {N} under folder',
             'zh-CN': '将 {N} 项移到文件夹下',
             'zh-Hant': '將 {N} 項移到資料夾下'
+        },
+        'mb.patch.btn': { en: 'Auto patch lists', 'zh-CN': '自动分批列表', 'zh-Hant': '自動分批列表' },
+        'mb.patch.needContacts': {
+            en: 'Select contacts (or open a list / filter) first, then run Auto patch lists.',
+            'zh-CN': '请先选择联系人（或打开列表/筛选），再运行自动分批列表。',
+            'zh-Hant': '請先選擇聯絡人（或開啟列表/篩選），再執行自動分批列表。'
+        },
+        'mb.patch.limitPrompt': {
+            en: 'Daily send limit (contacts per patch).\nCurrent pool: {N} contacts.',
+            'zh-CN': '每日可发送上限（每批联系人数）。\n当前池：{N} 位联系人。',
+            'zh-Hant': '每日可傳送上限（每批聯絡人數）。\n目前池：{N} 位聯絡人。'
+        },
+        'mb.patch.limitInvalid': {
+            en: 'Enter a valid daily limit (e.g. 250).',
+            'zh-CN': '请输入有效的每日上限（例如 250）。',
+            'zh-Hant': '請輸入有效的每日上限（例如 250）。'
+        },
+        'mb.patch.folderDefault': { en: 'Patches {D}', 'zh-CN': '分批 {D}', 'zh-Hant': '分批 {D}' },
+        'mb.patch.folderPrompt': {
+            en: 'New folder name for {P} patches ({N} contacts ÷ {L}/day):',
+            'zh-CN': '新建文件夹名称（将生成 {P} 批，共 {N} 人，每批 {L}）：',
+            'zh-Hant': '新建資料夾名稱（將產生 {P} 批，共 {N} 人，每批 {L}）：'
+        },
+        'mb.patch.confirm': {
+            en: 'Create folder “{FOLDER}” with {P} lists (Patch 1…Patch {P}), up to {L} contacts each?\nTotal: {N} contacts.',
+            'zh-CN': '创建文件夹「{FOLDER}」，内含 {P} 个列表（Patch 1…Patch {P}），每批最多 {L} 人？\n合计：{N} 位联系人。',
+            'zh-Hant': '建立資料夾「{FOLDER}」，內含 {P} 個列表（Patch 1…Patch {P}），每批最多 {L} 人？\n合計：{N} 位聯絡人。'
+        },
+        'mb.patch.working': {
+            en: 'Creating patch folder and lists…',
+            'zh-CN': '正在创建分批文件夹与列表…',
+            'zh-Hant': '正在建立分批資料夾與列表…'
+        },
+        'mb.patch.progress': {
+            en: 'Saving Patch {CUR} / {P}…',
+            'zh-CN': '正在保存 Patch {CUR} / {P}…',
+            'zh-Hant': '正在儲存 Patch {CUR} / {P}…'
+        },
+        'mb.patch.fail': {
+            en: 'Could not create patch folder.',
+            'zh-CN': '无法创建分批文件夹。',
+            'zh-Hant': '無法建立分批資料夾。'
+        },
+        'mb.patch.done': {
+            en: 'Created “{FOLDER}” with {P} patches ({N} contacts, {L}/list).',
+            'zh-CN': '已创建「{FOLDER}」，含 {P} 个批次（{N} 人，每批 {L}）。',
+            'zh-Hant': '已建立「{FOLDER}」，含 {P} 個批次（{N} 人，每批 {L}）。'
         },
         'mb.org.moveTop': { en: 'Move to top level', 'zh-CN': '移到顶层', 'zh-Hant': '移到頂層' },
         'mb.org.moveTopN': {

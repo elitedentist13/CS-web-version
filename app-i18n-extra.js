@@ -849,6 +849,208 @@
         'mb.seg.unsent': { en: 'Not messaged in window', 'zh-CN': '窗口内未发', 'zh-Hant': '視窗內未發' },
         'mb.seg.save': { en: 'Save as list', 'zh-CN': '存为分组', 'zh-Hant': '存為分組' },
         'mb.seg.delete': { en: 'Delete list', 'zh-CN': '删除分组', 'zh-Hant': '刪除分組' },
+        'mb.org.hint': { en: 'Campaign organiser', 'zh-CN': '群发整理器', 'zh-Hant': '群發整理器' },
+        'mb.org.smart': { en: 'Default filters', 'zh-CN': '默认筛选', 'zh-Hant': '預設篩選' },
+        'mb.org.saved': { en: 'Folders & lists', 'zh-CN': '文件夹与分组', 'zh-Hant': '資料夾與分組' },
+        'mb.org.col.name': { en: 'List', 'zh-CN': '名称', 'zh-Hant': '名稱' },
+        'mb.org.selectAll': { en: 'Select all', 'zh-CN': '全选', 'zh-Hant': '全選' },
+        'mb.org.emptySaved': {
+            en: 'No saved folders or lists yet.',
+            'zh-CN': '尚无已保存的文件夹或分组。',
+            'zh-Hant': '尚無已儲存的資料夾或分組。'
+        },
+        'mb.org.newFolder': { en: 'New folder', 'zh-CN': '新建文件夹', 'zh-Hant': '新建資料夾' },
+        'mb.org.newFolderShort': { en: '📁+', 'zh-CN': '📁+', 'zh-Hant': '📁+' },
+        'mb.org.newSubfolder': { en: 'New subfolder', 'zh-CN': '新建子文件夹', 'zh-Hant': '新建子資料夾' },
+        'mb.org.newSubfolderShort': { en: '↳📁', 'zh-CN': '↳📁', 'zh-Hant': '↳📁' },
+        'mb.org.markSelected': { en: 'Mark selected', 'zh-CN': '标记所选', 'zh-Hant': '標記所選' },
+        'mb.org.markSelectedShort': { en: '★', 'zh-CN': '★', 'zh-Hant': '★' },
+        'mb.org.deleteSelected': { en: 'Delete selected', 'zh-CN': '删除所选', 'zh-Hant': '刪除所選' },
+        'mb.org.deleteSelectedShort': { en: '🗑', 'zh-CN': '🗑', 'zh-Hant': '🗑' },
+        'mb.org.saveUnder': { en: 'Save under folder', 'zh-CN': '存到当前文件夹', 'zh-Hant': '存到目前資料夾' },
+        'mb.org.moveUnder': { en: 'Move under folder', 'zh-CN': '移到文件夹下', 'zh-Hant': '移到資料夾下' },
+        'mb.org.moveUnderN': {
+            en: 'Move {N} under folder',
+            'zh-CN': '将 {N} 项移到文件夹下',
+            'zh-Hant': '將 {N} 項移到資料夾下'
+        },
+        'mb.org.moveTop': { en: 'Move to top level', 'zh-CN': '移到顶层', 'zh-Hant': '移到頂層' },
+        'mb.org.moveTopN': {
+            en: 'Move {N} to top level',
+            'zh-CN': '将 {N} 项移到顶层',
+            'zh-Hant': '將 {N} 項移到頂層'
+        },
+        'mb.org.dragHint': {
+            en: 'Tip: drag a list onto a folder to move it.',
+            'zh-CN': '提示：把列表拖到文件夹上即可移动。',
+            'zh-Hant': '提示：把列表拖到資料夾上即可移動。'
+        },
+        'mb.org.dragTitle': {
+            en: 'Drag onto a folder to move',
+            'zh-CN': '拖到文件夹上可移动',
+            'zh-Hant': '拖到資料夾上可移動'
+        },
+        'mb.org.dropRootHint': {
+            en: 'Drop here to move to top level',
+            'zh-CN': '拖放到此处移到顶层',
+            'zh-Hant': '拖放到此處移到頂層'
+        },
+        'mb.org.dropRootShort': { en: '↓ top level', 'zh-CN': '↓ 顶层', 'zh-Hant': '↓ 頂層' },
+        'mb.org.topLevel': { en: 'Top level', 'zh-CN': '顶层', 'zh-Hant': '頂層' },
+        'mb.org.noFoldersYet': {
+            en: 'No folders yet — create one with 📁+',
+            'zh-CN': '还没有文件夹 — 请先用 📁+ 创建',
+            'zh-Hant': '還沒有資料夾 — 請先用 📁+ 建立'
+        },
+        'mb.org.needSelectSavedMove': {
+            en: 'Select a saved list or folder first, then choose Move to top level.',
+            'zh-CN': '请先选择一个已保存的列表或文件夹，再点“移到顶层”。',
+            'zh-Hant': '請先選擇一個已儲存的列表或資料夾，再點「移到頂層」。'
+        },
+        'mb.org.movePrompt': {
+            en: 'Move {N} item(s) under which folder?',
+            'zh-CN': '将 {N} 项移到哪个文件夹下？',
+            'zh-Hant': '將 {N} 項移到哪個資料夾下？'
+        },
+        'mb.org.moveEnter': { en: 'Enter number:', 'zh-CN': '输入编号：', 'zh-Hant': '輸入編號：' },
+        'mb.org.moveCycle': {
+            en: 'Cannot move a folder into itself or one of its subfolders.',
+            'zh-CN': '不能把文件夹移到自身或其子文件夹下。',
+            'zh-Hant': '不能把資料夾移到自身或其子資料夾下。'
+        },
+        'mb.org.moveNeedFolder': {
+            en: 'Choose a folder as the destination.',
+            'zh-CN': '请选择文件夹作为目标。',
+            'zh-Hant': '請選擇資料夾作為目標。'
+        },
+        'mb.org.moveAlready': {
+            en: 'Already in that folder.',
+            'zh-CN': '已在该文件夹下。',
+            'zh-Hant': '已在該資料夾下。'
+        },
+        'mb.org.movedOk': {
+            en: 'Moved {N} item(s) under “{NAME}”.',
+            'zh-CN': '已将 {N} 项移到「{NAME}」下。',
+            'zh-Hant': '已將 {N} 項移到「{NAME}」下。'
+        },
+        'mb.org.folderPrompt': { en: 'Folder name', 'zh-CN': '文件夹名称', 'zh-Hant': '資料夾名稱' },
+        'mb.org.folderDefault': { en: 'Campaign folder', 'zh-CN': '群发文件夹', 'zh-Hant': '群發資料夾' },
+        'mb.org.subfolderPrompt': {
+            en: 'Subfolder name (under “{NAME}”)',
+            'zh-CN': '子文件夹名称（在「{NAME}」下）',
+            'zh-Hant': '子資料夾名稱（在「{NAME}」下）'
+        },
+        'mb.org.subfolderDefault': { en: 'Subfolder', 'zh-CN': '子文件夹', 'zh-Hant': '子資料夾' },
+        'mb.org.needParent': {
+            en: 'Open a folder first (lists cannot contain subfolders), then create a subfolder under it.',
+            'zh-CN': '请先打开一个文件夹（列表不能包含子文件夹），再在其下创建子文件夹。',
+            'zh-Hant': '請先開啟一個資料夾（列表不能包含子資料夾），再在其下建立子資料夾。'
+        },
+        'mb.org.needParentSave': {
+            en: 'Open a saved folder first, then save contacts under it.',
+            'zh-CN': '请先打开一个已保存的文件夹，再把联系人存到其下。',
+            'zh-Hant': '請先開啟一個已儲存的資料夾，再把聯絡人存到其下。'
+        },
+        'mb.org.listCannotNest': {
+            en: 'A patient list cannot contain other lists. Open a folder, then use “Save under folder”.',
+            'zh-CN': '患者列表不能包含其他列表。请打开文件夹，再使用“存到当前文件夹”。',
+            'zh-Hant': '病人列表不能包含其他列表。請開啟資料夾，再使用「存到目前資料夾」。'
+        },
+        'mb.org.saveClashFolder': {
+            en: 'A folder already uses that name. Choose a different list name.',
+            'zh-CN': '已有文件夹使用该名称。请换一个列表名称。',
+            'zh-Hant': '已有資料夾使用該名稱。請換一個列表名稱。'
+        },
+        'mb.org.renameHint': {
+            en: 'Double-click to rename',
+            'zh-CN': '双击可重命名',
+            'zh-Hant': '按兩下可重新命名'
+        },
+        'mb.org.renamePrompt': {
+            en: 'Rename {KIND}',
+            'zh-CN': '重命名{KIND}',
+            'zh-Hant': '重新命名{KIND}'
+        },
+        'mb.org.renameEmpty': {
+            en: 'Name cannot be empty.',
+            'zh-CN': '名称不能为空。',
+            'zh-Hant': '名稱不能為空。'
+        },
+        'mb.org.renameClash': {
+            en: 'Another item is already named “{NAME}”.',
+            'zh-CN': '已有项目名为「{NAME}」。',
+            'zh-Hant': '已有項目名為「{NAME}」。'
+        },
+        'mb.org.renaming': { en: 'Renaming…', 'zh-CN': '正在重命名…', 'zh-Hant': '正在重新命名…' },
+        'mb.org.renamedOk': {
+            en: 'Renamed to “{NAME}”.',
+            'zh-CN': '已重命名为「{NAME}」。',
+            'zh-Hant': '已重新命名為「{NAME}」。'
+        },
+        'mb.org.renameFail': {
+            en: 'Could not rename: {MSG}',
+            'zh-CN': '无法重命名：{MSG}',
+            'zh-Hant': '無法重新命名：{MSG}'
+        },
+        'mb.org.folderCreated': {
+            en: 'Folder “{NAME}” created.',
+            'zh-CN': '已创建文件夹「{NAME}」。',
+            'zh-Hant': '已建立資料夾「{NAME}」。'
+        },
+        'mb.org.folderTag': { en: 'folder', 'zh-CN': '文件夹', 'zh-Hant': '資料夾' },
+        'mb.org.needSelect': {
+            en: 'Select one or more lists first (left checkboxes).',
+            'zh-CN': '请先用左侧复选框选择一个或多个列表。',
+            'zh-Hant': '請先用左側核取方塊選擇一個或多個列表。'
+        },
+        'mb.org.needSelectSaved': {
+            en: 'Select one or more saved folders/lists to delete.',
+            'zh-CN': '请选择要删除的已保存文件夹/分组。',
+            'zh-Hant': '請選擇要刪除的已儲存資料夾/分組。'
+        },
+        'mb.org.confirmBulkDelete': {
+            en: 'Delete {N} selected folder(s)/list(s)? Subfolders are removed too.',
+            'zh-CN': '删除所选的 {N} 个文件夹/分组？子项也会一并删除。',
+            'zh-Hant': '刪除所選的 {N} 個資料夾/分組？子項也會一併刪除。'
+        },
+        'mb.org.confirmDeleteTree': {
+            en: 'Delete “{NAME}” and {N} subfolder(s)/list(s)?',
+            'zh-CN': '删除「{NAME}」及其下 {N} 个子项？',
+            'zh-Hant': '刪除「{NAME}」及其下 {N} 個子項？'
+        },
+        'mb.org.mark.title': { en: 'Remarks', 'zh-CN': '备注标记', 'zh-Hant': '備註標記' },
+        'mb.org.mark.hint': { en: 'Set remark / marker', 'zh-CN': '设置备注/标记', 'zh-Hant': '設定備註/標記' },
+        'mb.org.mark.none': { en: 'None', 'zh-CN': '无', 'zh-Hant': '無' },
+        'mb.org.mark.star': { en: 'Starred', 'zh-CN': '已加星标', 'zh-Hant': '已加星號' },
+        'mb.org.mark.important': { en: 'Important', 'zh-CN': '重要', 'zh-Hant': '重要' },
+        'mb.org.mark.done': { en: 'Done', 'zh-CN': '已完成', 'zh-Hant': '已完成' },
+        'mb.org.mark.flag': { en: 'Flagged', 'zh-CN': '已旗标', 'zh-Hant': '已旗標' },
+        'mb.org.mark.question': { en: 'Question', 'zh-CN': '待确认', 'zh-Hant': '待確認' },
+        'mb.org.mark.progress': { en: 'In progress', 'zh-CN': '进行中', 'zh-Hant': '進行中' },
+        'mb.org.mark.hold': { en: 'On hold', 'zh-CN': '暂缓', 'zh-Hant': '暫緩' },
+        'mb.org.remark': { en: 'Note', 'zh-CN': '备注', 'zh-Hant': '備註' },
+        'mb.org.remarkPh': { en: 'Optional note…', 'zh-CN': '可选备注…', 'zh-Hant': '可選備註…' },
+        'mb.org.remarkSave': { en: 'Save note', 'zh-CN': '保存备注', 'zh-Hant': '儲存備註' },
+        'mb.org.bulkMarkPrompt': {
+            en: 'Set marker for selected lists:',
+            'zh-CN': '为所选列表设置标记：',
+            'zh-Hant': '為所選列表設定標記：'
+        },
+        'mb.org.bulkMarkEnter': {
+            en: 'Enter number (1–{N}):',
+            'zh-CN': '输入数字（1–{N}）：',
+            'zh-Hant': '輸入數字（1–{N}）：'
+        },
+        'mb.org.bulkMarkSub': {
+            en: 'Apply to {N} selected',
+            'zh-CN': '应用到已选的 {N} 项',
+            'zh-Hant': '套用到已選的 {N} 項'
+        },
+        'mb.org.metaNeedCloud': {
+            en: 'Remarks need Supabase table broadcast_organiser_meta — run broadcast_organiser_meta.sql, then refresh.',
+            'zh-CN': '备注需要 Supabase 表 broadcast_organiser_meta。请在 SQL Editor 运行 broadcast_organiser_meta.sql，然后刷新。',
+            'zh-Hant': '備註需要 Supabase 資料表 broadcast_organiser_meta。請在 SQL Editor 執行 broadcast_organiser_meta.sql，然後重新整理。'
+        },
         'mb.seg.promptName': { en: 'List name', 'zh-CN': '分组名称', 'zh-Hant': '分組名稱' },
         'mb.seg.needContacts': {
             en: 'No contacts to save. Filter or tick contacts first.',
@@ -1001,6 +1203,33 @@
         'mb.cond.add': { en: 'Add', 'zh-CN': '添加', 'zh-Hant': '新增' },
         'mb.cond.clear': { en: 'Clear', 'zh-CN': '清除', 'zh-Hant': '清除' },
         'mb.selectAll': { en: 'Select all filtered', 'zh-CN': '全选筛选结果', 'zh-Hant': '全選篩選結果' },
+        'mb.selectByPage': { en: 'Select by page', 'zh-CN': '按页选择', 'zh-Hant': '按頁選擇' },
+        'mb.selectByPageGo': { en: 'Select', 'zh-CN': '选择', 'zh-Hant': '選擇' },
+        'mb.selectByPage.empty': {
+            en: 'No contacts to select on this result set.',
+            'zh-CN': '当前结果没有可选择的联系人。',
+            'zh-Hant': '目前結果沒有可選擇的聯絡人。'
+        },
+        'mb.selectByPage.okOne': {
+            en: 'Selected page {P} ({N} contacts).',
+            'zh-CN': '已选择第 {P} 页（{N} 位联系人）。',
+            'zh-Hant': '已選擇第 {P} 頁（{N} 位聯絡人）。'
+        },
+        'mb.selectByPage.okRange': {
+            en: 'Selected pages {FROM}–{TO} ({N} contacts).',
+            'zh-CN': '已选择第 {FROM}–{TO} 页（{N} 位联系人）。',
+            'zh-Hant': '已選擇第 {FROM}–{TO} 頁（{N} 位聯絡人）。'
+        },
+        'mb.shiftSelect.ok': {
+            en: 'Shift-selected {N} contacts (from–to).',
+            'zh-CN': '已用 Shift 连选 {N} 位联系人。',
+            'zh-Hant': '已用 Shift 連選 {N} 位聯絡人。'
+        },
+        'mb.hint.shiftSelect': {
+            en: 'Tip: tick one contact, then Shift+click another to select every row between them.',
+            'zh-CN': '提示：先勾选一位联系人，再按住 Shift 点击另一位，即可连选中间所有行。',
+            'zh-Hant': '提示：先勾選一位聯絡人，再按住 Shift 點擊另一位，即可連選中間所有列。'
+        },
         'mb.clearSel': { en: 'Clear selection', 'zh-CN': '清除选择', 'zh-Hant': '清除選擇' },
         'mb.newBroadcast': { en: 'New broadcast', 'zh-CN': '新建群发', 'zh-Hant': '新建群發' },
         'mb.hint.scope': {

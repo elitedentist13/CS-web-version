@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260721-broadcast-lists-cloud';
+  var BUILD = '20260723-broadcast-shift-select';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1745,11 +1745,35 @@
       <!-- CONTACTS -->
       <div id="mbPaneContacts" class="mb-pane">
         <div class="mb-layout">
-          <aside class="mb-side">
-            <div class="mb-side-label" data-i18n="mb.seg.heading">Lists</div>
-            <div id="mbSegList" class="mb-seg-list"></div>
-            <button type="button" class="mb-btn ghost mb-side-action"
-                    onclick="MASSBC.saveCurrentAsSegment()" data-i18n="mb.seg.save">Save as list</button>
+          <aside class="mb-side mb-side-org">
+            <div class="mb-side-head">
+              <div class="mb-side-label" data-i18n="mb.seg.heading">Lists</div>
+              <span class="mb-side-hint" data-i18n="mb.org.hint">Campaign organiser</span>
+            </div>
+            <div class="mb-org-toolbar">
+              <button type="button" class="mb-btn ghost mb-org-tool" onclick="MASSBC.createFolder()"
+                      title="New folder" data-i18n-title="mb.org.newFolder" data-i18n="mb.org.newFolderShort">📁+</button>
+              <button type="button" class="mb-btn ghost mb-org-tool" onclick="MASSBC.createSubfolder()"
+                      title="New subfolder" data-i18n-title="mb.org.newSubfolder" data-i18n="mb.org.newSubfolderShort">↳📁</button>
+              <button type="button" id="mbOrgMarkBtn" class="mb-btn ghost mb-org-tool"
+                      onclick="MASSBC.bulkSetMarkerPrompt(event)"
+                      title="Mark selected" data-i18n-title="mb.org.markSelected"
+                      data-i18n="mb.org.markSelectedShort"
+                      aria-haspopup="menu" aria-expanded="false">★</button>
+              <button type="button" class="mb-btn ghost mb-org-tool mb-btn-danger" onclick="MASSBC.deleteSelectedLists()"
+                      title="Delete selected" data-i18n-title="mb.org.deleteSelected" data-i18n="mb.org.deleteSelectedShort">🗑</button>
+            </div>
+            <div id="mbSegList" class="mb-seg-list mb-org-list"></div>
+            <div class="mb-org-footer">
+              <button type="button" class="mb-btn ghost mb-side-action"
+                      onclick="MASSBC.saveCurrentAsSegment()" data-i18n="mb.seg.save">Save as list</button>
+              <button type="button" class="mb-btn primary mb-side-action"
+                      onclick="MASSBC.saveCurrentAsSegmentUnder()" data-i18n="mb.org.saveUnder">Save under folder</button>
+              <button type="button" id="mbMoveUnderFolderBtn" class="mb-btn ghost mb-side-action"
+                      style="display:none;"
+                      onclick="MASSBC.moveToTopLevel()" data-i18n="mb.org.moveTop">Move to top level</button>
+              <p class="mb-org-drag-hint" data-i18n="mb.org.dragHint">Tip: drag a list onto a folder to move it.</p>
+            </div>
           </aside>
           <div class="mb-main">
             <div class="mb-toolbar">
@@ -1903,6 +1927,17 @@
                         data-i18n="mb.mode.twilio">Twilio Setup</button>
                 <button type="button" class="mb-btn ghost" onclick="MASSBC.selectAllFiltered()"
                         data-i18n="mb.selectAll">Select all filtered</button>
+                <div class="mb-page-sel" title="Select contacts on a page range">
+                  <span class="mb-page-sel-lab" data-i18n="mb.selectByPage">Select by page</span>
+                  <input type="number" id="mbSelPageFrom" class="mb-page-sel-input" min="1" step="1"
+                         inputmode="numeric" aria-label="From page" value="1">
+                  <span class="mb-page-sel-sep" aria-hidden="true">–</span>
+                  <input type="number" id="mbSelPageTo" class="mb-page-sel-input" min="1" step="1"
+                         inputmode="numeric" aria-label="To page" value="1">
+                  <button type="button" class="mb-btn ghost mb-page-sel-btn"
+                          onclick="MASSBC.selectByPageRange()"
+                          data-i18n="mb.selectByPageGo">Select</button>
+                </div>
                 <button type="button" class="mb-btn ghost" onclick="MASSBC.clearSelection()"
                         data-i18n="mb.clearSel">Clear selection</button>
                 <button type="button" class="mb-btn primary" onclick="MASSBC.startCampaignFromSelection()"
@@ -1919,6 +1954,9 @@
             <div id="mbPager" class="mb-pager mb-pager-bottom"></div>
             <p class="mb-hint" data-i18n="mb.hint.scope">
               Clinic / doctor filters use the appointment bar above. “Clinic / doctor bar” list applies them.
+            </p>
+            <p class="mb-hint" data-i18n="mb.hint.shiftSelect">
+              Tip: tick one contact, then Shift+click another to select every row between them.
             </p>
           </div>
         </div>

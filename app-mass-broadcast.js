@@ -8,8 +8,11 @@ var MASSBC = (function () {
 
     var SEG_LS_KEY = 'mb_broadcast_segments_v1';
     var SEG_TABLE = 'broadcast_contact_lists';
+    var ORG_META_TABLE = 'broadcast_organiser_meta';
     var COL_LS_KEY = 'mb_broadcast_cols_v1';
     var SENT_PERIOD_LS_KEY = 'mb_sent_tag_months_v1';
+    /** Local cache of organiser meta (cloud is source of truth for marker/remark). */
+    var ORG_LS_KEY = 'mb_list_org_v1';
     var SEND_DELAY_MS = 450;
     var PAGE_SIZE = 80;
     /** Supabase/PostgREST typically caps one response at ~1000 rows — page past that. */
@@ -18,12 +21,26 @@ var MASSBC = (function () {
     var BUILTIN_SEGMENTS = {
         all: 1, scope: 1, hasphone: 1, birthday: 1, sent: 1, unsent: 1
     };
+    var BUILTIN_ORDER = ['all', 'scope', 'hasphone', 'birthday', 'sent', 'unsent'];
+    /** Gmail-style list markers (remarks column). */
+    var LIST_MARKERS = [
+        { id: '', icon: '·', labelKey: 'mb.org.mark.none', label: 'None' },
+        { id: 'star', icon: '★', labelKey: 'mb.org.mark.star', label: 'Starred' },
+        { id: 'important', icon: '❗', labelKey: 'mb.org.mark.important', label: 'Important' },
+        { id: 'done', icon: '✓', labelKey: 'mb.org.mark.done', label: 'Done' },
+        { id: 'flag', icon: '⚑', labelKey: 'mb.org.mark.flag', label: 'Flagged' },
+        { id: 'question', icon: '?', labelKey: 'mb.org.mark.question', label: 'Question' },
+        { id: 'progress', icon: '◎', labelKey: 'mb.org.mark.progress', label: 'In progress' },
+        { id: 'hold', icon: '⏸', labelKey: 'mb.org.mark.hold', label: 'On hold' }
+    ];
 
     var _mode = 'contacts'; // contacts | campaign | twilio | history
     var _wizardStep = 1;
     var _allPatients = [];
     var _filtered = [];
     var _selected = {}; // id -> true
+    /** Anchor patient id for Shift+click range selection in filtered results. */
+    var _selectAnchorId = null;
     var _sortKey = 'patient_no';
     var _sortAsc = true;
     var _page = 0;
@@ -34,6 +51,22 @@ var MASSBC = (function () {
     var _segmentsLoading = false;
     var _segmentsDbMissing = false;
     var _segmentsMigrating = false;
+    /** In-memory clinic-wide organiser remarks/markers (from Supabase). */
+    var _orgCloud = {};
+    var _orgCloudLoading = false;
+    var _orgMetaDbMissing = false;
+    /** Checked list/folder rows in the LHS organiser (id -> true). */
+    var _listSelected = {};
+    /** Collapsed folder ids (id -> true). */
+    var _listCollapsed = {};
+    /** Floating marker menu element (body-attached). */
+    var _markMenuEl = null;
+    var _markMenuTargetId = null;
+    /** When set, marker menu applies to these ids (toolbar bulk mark). */
+    var _markMenuBulkIds = null;
+    /** HTML5 drag-and-drop state for list/folder moves. */
+    var _dragListIds = null;
+    var _dragOverTargetId = null;
     var _channel = 'whatsapp';
     var _campaignName = '';
     var _smsBody = '';
@@ -246,6 +279,230 @@ var MASSBC = (function () {
         }).filter(Boolean);
     }
 
+    function readOrgStore() {
+        try {
+            var raw = localStorage.getItem(ORG_LS_KEY);
+            var obj = raw ? JSON.parse(raw) : {};
+            return obj && typeof obj === 'object' ? obj : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function writeOrgStore(store) {
+        try { localStorage.setItem(ORG_LS_KEY, JSON.stringify(store || {})); } catch (e) { /* ignore */ }
+    }
+
+    function orgMetaTableMissing(err) {
+        var msg = String((err && err.message) || err || '');
+        return /broadcast_organiser_meta|does not exist|schema cache|Could not find the table/i.test(msg);
+    }
+
+    /** Cloud remarks/markers win when a cloud row exists; collapsed stays local. */
+    function getOrgMeta(id) {
+        var sid = String(id || '');
+        var local = readOrgStore()[sid];
+        local = local && typeof local === 'object' ? local : {};
+        var hasCloud = Object.prototype.hasOwnProperty.call(_orgCloud, sid);
+        var cloud = hasCloud && _orgCloud[sid] && typeof _orgCloud[sid] === 'object'
+            ? _orgCloud[sid]
+            : null;
+        return {
+            parentId: local.parentId || '',
+            kind: local.kind || '',
+            collapsed: local.collapsed || '',
+            marker: hasCloud ? String(cloud.marker || '') : String(local.marker || ''),
+            remark: hasCloud ? String(cloud.remark || '') : String(local.remark || '')
+        };
+    }
+
+    function patchOrgMeta(id, patch) {
+        var sid = String(id || '');
+        if (!sid) return;
+        var store = readOrgStore();
+        var cur = store[sid] && typeof store[sid] === 'object' ? store[sid] : {};
+        var next = Object.assign({}, cur, patch || {});
+        Object.keys(next).forEach(function (k) {
+            if (next[k] == null || next[k] === '') delete next[k];
+        });
+        if (Object.keys(next).length) store[sid] = next;
+        else delete store[sid];
+        writeOrgStore(store);
+        // Keep in-memory cloud cache in sync for marker/remark
+        if (patch && (Object.prototype.hasOwnProperty.call(patch, 'marker') ||
+            Object.prototype.hasOwnProperty.call(patch, 'remark'))) {
+            var c = _orgCloud[sid] && typeof _orgCloud[sid] === 'object' ? _orgCloud[sid] : {};
+            if (Object.prototype.hasOwnProperty.call(patch, 'marker')) c.marker = patch.marker || '';
+            if (Object.prototype.hasOwnProperty.call(patch, 'remark')) c.remark = patch.remark || '';
+            _orgCloud[sid] = c;
+        }
+    }
+
+    function persistOrgMetaToCloud(id, meta) {
+        var sid = String(id || '');
+        if (!sid) return Promise.resolve(false);
+        var marker = String((meta && meta.marker) || '');
+        var remark = String((meta && meta.remark) || '');
+        _orgCloud[sid] = { marker: marker, remark: remark };
+        patchOrgMeta(sid, { marker: marker, remark: remark });
+
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _orgMetaDbMissing) {
+            return Promise.resolve(false);
+        }
+        var row = {
+            list_key: sid,
+            marker: marker,
+            remark: remark,
+            updated_at: new Date().toISOString(),
+            updated_by: segmentCreatedBy() || null
+        };
+        return SB.from(ORG_META_TABLE)
+            .upsert([row], { onConflict: 'list_key' })
+            .then(function (r) {
+                if (r.error) {
+                    if (orgMetaTableMissing(r.error)) {
+                        _orgMetaDbMissing = true;
+                        console.warn('[broadcast] organiser meta table missing — run broadcast_organiser_meta.sql');
+                        return false;
+                    }
+                    console.warn('[broadcast] save organiser meta', r.error);
+                    return false;
+                }
+                return true;
+            })
+            .catch(function (err) {
+                console.warn('[broadcast] save organiser meta', err);
+                return false;
+            });
+    }
+
+    function refreshOrgMetaFromCloud() {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve(_orgCloud);
+        }
+        if (_orgCloudLoading) return Promise.resolve(_orgCloud);
+        _orgCloudLoading = true;
+        return SB.from(ORG_META_TABLE)
+            .select('list_key,marker,remark,updated_at')
+            .then(function (r) {
+                _orgCloudLoading = false;
+                if (r.error) {
+                    if (orgMetaTableMissing(r.error)) {
+                        _orgMetaDbMissing = true;
+                        console.warn('[broadcast] organiser meta table missing — run broadcast_organiser_meta.sql');
+                        return migrateLocalOrgMetaToCloud();
+                    }
+                    console.warn('[broadcast] load organiser meta', r.error);
+                    return _orgCloud;
+                }
+                _orgMetaDbMissing = false;
+                var map = {};
+                (r.data || []).forEach(function (row) {
+                    var key = String((row && row.list_key) || '').trim();
+                    if (!key) return;
+                    map[key] = {
+                        marker: String(row.marker || ''),
+                        remark: String(row.remark || '')
+                    };
+                });
+                _orgCloud = map;
+                // Mirror into local cache so offline reads still work
+                var store = readOrgStore();
+                Object.keys(map).forEach(function (key) {
+                    var cur = store[key] && typeof store[key] === 'object' ? store[key] : {};
+                    store[key] = Object.assign({}, cur, {
+                        marker: map[key].marker || undefined,
+                        remark: map[key].remark || undefined
+                    });
+                    if (!store[key].marker) delete store[key].marker;
+                    if (!store[key].remark) delete store[key].remark;
+                });
+                writeOrgStore(store);
+                // Push any local-only remarks that are not yet in cloud
+                return migrateLocalOrgMetaToCloud();
+            })
+            .catch(function (err) {
+                _orgCloudLoading = false;
+                console.warn('[broadcast] load organiser meta', err);
+                return _orgCloud;
+            });
+    }
+
+    /** One-time / incremental: upload local remarks not present in cloud. */
+    function migrateLocalOrgMetaToCloud() {
+        if (_orgMetaDbMissing || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve(_orgCloud);
+        }
+        var store = readOrgStore();
+        var pending = [];
+        Object.keys(store).forEach(function (key) {
+            var local = store[key];
+            if (!local || typeof local !== 'object') return;
+            var hasLocal = !!(local.marker || local.remark);
+            if (!hasLocal) return;
+            // Cloud already has this key — do not overwrite clinic data
+            if (Object.prototype.hasOwnProperty.call(_orgCloud, key)) return;
+            pending.push({
+                list_key: key,
+                marker: String(local.marker || ''),
+                remark: String(local.remark || ''),
+                updated_at: new Date().toISOString(),
+                updated_by: segmentCreatedBy() || 'migrate'
+            });
+        });
+        if (!pending.length) return Promise.resolve(_orgCloud);
+        return SB.from(ORG_META_TABLE)
+            .upsert(pending, { onConflict: 'list_key' })
+            .then(function (r) {
+                if (r.error) {
+                    if (orgMetaTableMissing(r.error)) _orgMetaDbMissing = true;
+                    else console.warn('[broadcast] migrate organiser meta', r.error);
+                    return _orgCloud;
+                }
+                pending.forEach(function (row) {
+                    _orgCloud[row.list_key] = { marker: row.marker, remark: row.remark };
+                });
+                return _orgCloud;
+            })
+            .catch(function () { return _orgCloud; });
+    }
+
+    function markerDef(id) {
+        var mid = String(id || '');
+        for (var i = 0; i < LIST_MARKERS.length; i++) {
+            if (LIST_MARKERS[i].id === mid) return LIST_MARKERS[i];
+        }
+        return LIST_MARKERS[0];
+    }
+
+    function stripOrgFromConditions(cond) {
+        if (!cond || typeof cond !== 'object') return null;
+        var out = {};
+        Object.keys(cond).forEach(function (k) {
+            if (k === '_org') return;
+            out[k] = cond[k];
+        });
+        return Object.keys(out).length ? out : null;
+    }
+
+    function conditionsWithOrg(seg) {
+        var base = seg && seg.conditions && typeof seg.conditions === 'object'
+            ? Object.assign({}, seg.conditions)
+            : {};
+        var org = {
+            parentId: seg.parentId || '',
+            marker: seg.marker || '',
+            remark: seg.remark || '',
+            kind: seg.kind === 'folder' ? 'folder' : 'list'
+        };
+        if (!org.parentId && !org.marker && !org.remark && org.kind === 'list') {
+            delete base._org;
+            return Object.keys(base).length ? base : null;
+        }
+        base._org = org;
+        return base;
+    }
+
     function normalizeSegmentRow(row) {
         if (!row || typeof row !== 'object') return null;
         var id = String(row.id || '').trim();
@@ -256,14 +513,103 @@ var MASSBC = (function () {
             try { conditions = JSON.parse(conditions); } catch (e) { conditions = null; }
         }
         if (!conditions || typeof conditions !== 'object') conditions = null;
+        var orgFromCond = conditions && conditions._org && typeof conditions._org === 'object'
+            ? conditions._org
+            : null;
+        var local = getOrgMeta(id);
+        var hasCloudMeta = Object.prototype.hasOwnProperty.call(_orgCloud, id);
+        var parentId = String(
+            row.parent_id || row.parentId ||
+            (orgFromCond && orgFromCond.parentId) ||
+            local.parentId || ''
+        ).trim();
+        var marker = hasCloudMeta
+            ? String((_orgCloud[id] && _orgCloud[id].marker) || '')
+            : String(
+                row.marker ||
+                (orgFromCond && orgFromCond.marker) ||
+                local.marker || ''
+            ).trim();
+        var remark = hasCloudMeta
+            ? String((_orgCloud[id] && _orgCloud[id].remark) || '')
+            : String(
+                row.remark ||
+                (orgFromCond && orgFromCond.remark) ||
+                local.remark || ''
+            ).trim();
+        var kind = String(
+            row.kind ||
+            (orgFromCond && orgFromCond.kind) ||
+            local.kind || 'list'
+        ).trim();
+        if (kind !== 'folder') kind = 'list';
+        if (local.collapsed) _listCollapsed[id] = true;
         return {
             id: id,
             name: name,
             patientIds: normalizePatientIds(row.patient_ids != null ? row.patient_ids : row.patientIds),
-            conditions: conditions,
+            conditions: stripOrgFromConditions(conditions),
+            parentId: parentId,
+            marker: marker,
+            remark: remark,
+            kind: kind,
             createdAt: row.created_at || row.createdAt || null,
             updatedAt: row.updated_at || row.updatedAt || null
         };
+    }
+
+    function applyOrgToSegment(seg) {
+        if (!seg) return seg;
+        var local = getOrgMeta(seg.id);
+        if (!seg.parentId && local.parentId) seg.parentId = String(local.parentId);
+        if (!seg.marker && local.marker) seg.marker = String(local.marker);
+        if (!seg.remark && local.remark) seg.remark = String(local.remark);
+        if (seg.kind !== 'folder' && local.kind === 'folder') seg.kind = 'folder';
+        return seg;
+    }
+
+    function persistSegmentOrg(seg) {
+        if (!seg || !seg.id) return;
+        patchOrgMeta(seg.id, {
+            parentId: seg.parentId || '',
+            marker: seg.marker || '',
+            remark: seg.remark || '',
+            kind: seg.kind === 'folder' ? 'folder' : 'list',
+            collapsed: _listCollapsed[seg.id] ? 1 : ''
+        });
+        // Clinic-wide remarks/markers for every organiser row (builtin + saved)
+        persistOrgMetaToCloud(seg.id, {
+            marker: seg.marker || '',
+            remark: seg.remark || ''
+        });
+        if (!isSavedListId(seg.id)) return;
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
+            persistSegmentLocalFallback(_segments);
+            return;
+        }
+        var payload = {
+            conditions: conditionsWithOrg(seg),
+            updated_at: new Date().toISOString(),
+            parent_id: seg.parentId || null,
+            kind: seg.kind === 'folder' ? 'folder' : 'list',
+            marker: seg.marker || '',
+            remark: seg.remark || ''
+        };
+        SB.from(SEG_TABLE).update(payload).eq('id', seg.id).then(function (r) {
+            if (!r.error) return;
+            if (segmentsTableMissing(r.error)) {
+                _segmentsDbMissing = true;
+                persistSegmentLocalFallback(_segments);
+                return;
+            }
+            // Columns may not exist yet — retry with conditions._org only
+            if (/parent_id|kind|marker|remark|column/i.test(String(r.error.message || ''))) {
+                SB.from(SEG_TABLE).update({
+                    conditions: conditionsWithOrg(seg),
+                    updated_at: new Date().toISOString()
+                }).eq('id', seg.id).then(function () { /* ignore */ });
+            }
+        }).catch(function () { /* ignore */ });
     }
 
     function activeSavedList() {
@@ -273,7 +619,14 @@ var MASSBC = (function () {
 
     function activeListLabel() {
         var seg = activeSavedList();
-        if (seg) return seg.name || '';
+        if (seg) {
+            applyOrgToSegment(seg);
+            var base = seg.name || '';
+            if (seg.kind === 'folder') {
+                return base + ' · ' + tr('mb.org.folderTag', 'folder');
+            }
+            return base;
+        }
         if (_activeSegmentId === 'scope') return tr('mb.seg.scope', 'Clinic / doctor bar');
         if (_activeSegmentId === 'hasphone') return tr('mb.seg.hasPhone', 'Has phone');
         if (_activeSegmentId === 'birthday') return tr('mb.seg.birthday', 'Birthday this month');
@@ -320,57 +673,69 @@ var MASSBC = (function () {
 
     function refreshSegmentsFromCloud() {
         renderSegments();
-        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
-            _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
-            renderSegments();
-            return Promise.resolve(_segments);
-        }
-        if (_segmentsLoading) return Promise.resolve(_segments);
-        _segmentsLoading = true;
-        return SB.from(SEG_TABLE)
-            .select('id,name,patient_ids,conditions,sort_order,created_at,updated_at')
-            .eq('is_active', true)
-            .order('sort_order', { ascending: true })
-            .order('name', { ascending: true })
-            .then(function (r) {
-                _segmentsLoading = false;
-                if (r.error) {
-                    if (segmentsTableMissing(r.error)) {
-                        _segmentsDbMissing = true;
-                        _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
-                        renderSegments();
-                        return _segments;
-                    }
-                    console.warn('[broadcast] load lists', r.error);
-                    return _segments;
-                }
-                _segmentsDbMissing = false;
-                var list = (r.data || []).map(normalizeSegmentRow).filter(Boolean);
-                if (!list.length) {
-                    return migrateLegacyLocalSegmentsToDb().then(function (migrated) {
-                        if (migrated) return refreshSegmentsFromCloud();
-                        _segments = [];
-                        renderSegments();
-                        return _segments;
-                    });
-                }
-                _segments = list;
-                // Prefer cloud; drop stale local copy once cloud has data
-                if (readLegacyLocalSegments().length) clearLegacyLocalSegments();
-                renderSegments();
-                if (isSavedListId(_activeSegmentId) && !findSavedSegment(_activeSegmentId)) {
-                    _activeSegmentId = 'all';
-                    applyFilters();
-                }
-                return _segments;
-            })
-            .catch(function (err) {
-                _segmentsLoading = false;
-                console.warn('[broadcast] load lists', err);
+        return refreshOrgMetaFromCloud().then(function () {
+            if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
                 _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
                 renderSegments();
                 return _segments;
-            });
+            }
+            if (_segmentsLoading) return _segments;
+            _segmentsLoading = true;
+            var selectCols = 'id,name,patient_ids,conditions,sort_order,created_at,updated_at,parent_id,kind,marker,remark';
+            function loadWithSelect(cols) {
+                return SB.from(SEG_TABLE)
+                    .select(cols)
+                    .eq('is_active', true)
+                    .order('sort_order', { ascending: true })
+                    .order('name', { ascending: true });
+            }
+            return loadWithSelect(selectCols)
+                .then(function (r) {
+                    if (r.error && /parent_id|kind|marker|remark|column/i.test(String(r.error.message || ''))) {
+                        return loadWithSelect('id,name,patient_ids,conditions,sort_order,created_at,updated_at');
+                    }
+                    return r;
+                })
+                .then(function (r) {
+                    _segmentsLoading = false;
+                    if (r.error) {
+                        if (segmentsTableMissing(r.error)) {
+                            _segmentsDbMissing = true;
+                            _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
+                            renderSegments();
+                            return _segments;
+                        }
+                        console.warn('[broadcast] load lists', r.error);
+                        return _segments;
+                    }
+                    _segmentsDbMissing = false;
+                    var list = (r.data || []).map(normalizeSegmentRow).filter(Boolean);
+                    if (!list.length) {
+                        return migrateLegacyLocalSegmentsToDb().then(function (migrated) {
+                            if (migrated) return refreshSegmentsFromCloud();
+                            _segments = [];
+                            renderSegments();
+                            return _segments;
+                        });
+                    }
+                    _segments = list;
+                    // Prefer cloud; drop stale local copy once cloud has data
+                    if (readLegacyLocalSegments().length) clearLegacyLocalSegments();
+                    renderSegments();
+                    if (isSavedListId(_activeSegmentId) && !findSavedSegment(_activeSegmentId)) {
+                        _activeSegmentId = 'all';
+                        applyFilters();
+                    }
+                    return _segments;
+                })
+                .catch(function (err) {
+                    _segmentsLoading = false;
+                    console.warn('[broadcast] load lists', err);
+                    _segments = readLegacyLocalSegments().map(normalizeSegmentRow).filter(Boolean);
+                    renderSegments();
+                    return _segments;
+                });
+        });
     }
 
     function persistSegmentLocalFallback(list) {
@@ -390,7 +755,10 @@ var MASSBC = (function () {
         syncSortUiFromState();
         fillClinicFilterSelect();
         setMode('contacts');
-        refreshSegmentsFromCloud();
+        refreshOrgMetaFromCloud().then(function () {
+            renderSegments();
+            return refreshSegmentsFromCloud();
+        });
         refreshFromBar();
         if (typeof applyI18nInRoot === 'function') {
             var root = pick('tab-broadcast');
@@ -477,12 +845,50 @@ var MASSBC = (function () {
         if (!root || root.dataset.mbBound === '1') return;
         root.dataset.mbBound = '1';
 
+        // Prevent checkbox toggle flicker before Shift+range select applies
+        root.addEventListener('mousedown', function (ev) {
+            if (!ev.shiftKey) return;
+            var cb = ev.target && ev.target.closest && ev.target.closest('input[data-mb-row]');
+            if (!cb) return;
+            ev.preventDefault();
+        }, true);
+
         root.addEventListener('click', function (ev) {
             var t = ev.target;
             if (!t) return;
             var modeBtn = t.closest('[data-mb-mode]');
             if (modeBtn) {
                 setMode(modeBtn.getAttribute('data-mb-mode'));
+                return;
+            }
+            var listCb = t.closest('input[data-mb-list-check]');
+            if (listCb) {
+                ev.stopPropagation();
+                var lid = listCb.getAttribute('data-mb-list-check');
+                if (listCb.checked) _listSelected[lid] = true;
+                else delete _listSelected[lid];
+                syncListSelectAllUi();
+                syncMoveUnderUi();
+                return;
+            }
+            var listCheckAll = t.closest('input[data-mb-list-check-all]');
+            if (listCheckAll) {
+                ev.stopPropagation();
+                toggleSelectAllLists(listCheckAll.getAttribute('data-mb-list-check-all'), !!listCheckAll.checked);
+                return;
+            }
+            var markBtn = t.closest('[data-mb-list-mark]');
+            if (markBtn) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                openMarkerMenu(markBtn.getAttribute('data-mb-list-mark'), markBtn);
+                return;
+            }
+            var toggleBtn = t.closest('[data-mb-list-toggle]');
+            if (toggleBtn) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                toggleListCollapsed(toggleBtn.getAttribute('data-mb-list-toggle'));
                 return;
             }
             var segDel = t.closest('[data-mb-seg-del]');
@@ -494,7 +900,17 @@ var MASSBC = (function () {
             }
             var segBtn = t.closest('[data-mb-seg]');
             if (segBtn) {
-                activateSegment(segBtn.getAttribute('data-mb-seg') || 'all');
+                // Ignore synthetic click after a drag-move
+                if (segBtn.getAttribute('data-mb-dragged') === '1') {
+                    segBtn.removeAttribute('data-mb-dragged');
+                    return;
+                }
+                // Defer activate so a double-click can rename instead
+                var sidClick = segBtn.getAttribute('data-mb-seg') || 'all';
+                clearTimeout(root._mbSegClickTimer);
+                root._mbSegClickTimer = setTimeout(function () {
+                    activateSegment(sidClick);
+                }, 260);
                 return;
             }
             var stepBtn = t.closest('[data-mb-step]');
@@ -517,11 +933,33 @@ var MASSBC = (function () {
             }
             var rowCb = t.closest('input[data-mb-row]');
             if (rowCb) {
-                var id = rowCb.getAttribute('data-mb-row');
+                var id = String(rowCb.getAttribute('data-mb-row') || '');
+                if (!id) return;
+                if (ev.shiftKey && _selectAnchorId) {
+                    ev.preventDefault();
+                    selectFilteredRange(_selectAnchorId, id, true);
+                    renderTable();
+                    updateCounts();
+                    return;
+                }
                 if (rowCb.checked) _selected[id] = true;
                 else delete _selected[id];
+                _selectAnchorId = id;
                 updateCounts();
                 return;
+            }
+            // Shift+click on a result row (not only the checkbox) also ranges
+            var dataRow = t.closest('tr.mb-row');
+            if (dataRow && ev.shiftKey && root.contains(dataRow)) {
+                var rowInput = dataRow.querySelector('input[data-mb-row]');
+                var rid = rowInput ? String(rowInput.getAttribute('data-mb-row') || '') : '';
+                if (rid && _selectAnchorId) {
+                    ev.preventDefault();
+                    selectFilteredRange(_selectAnchorId, rid, true);
+                    renderTable();
+                    updateCounts();
+                    return;
+                }
             }
             var histRow = t.closest('[data-mb-campaign]');
             if (histRow) {
@@ -529,6 +967,134 @@ var MASSBC = (function () {
                 return;
             }
         });
+
+        root.addEventListener('dblclick', function (ev) {
+            var t = ev.target;
+            if (!t || !t.closest) return;
+            var segBtn = t.closest('[data-mb-seg]');
+            if (!segBtn || !root.contains(segBtn)) return;
+            var sid = segBtn.getAttribute('data-mb-seg') || '';
+            if (!isSavedListId(sid)) return;
+            clearTimeout(root._mbSegClickTimer);
+            ev.preventDefault();
+            ev.stopPropagation();
+            renameSavedSegment(sid);
+        });
+
+        // Windows-style drag lists/folders onto a folder (or root drop zone)
+        root.addEventListener('dragstart', function (ev) {
+            var t = ev.target;
+            if (t && t.closest && t.closest('input, .mb-org-mark-btn, .mb-seg-del, .mb-org-toggle')) {
+                ev.preventDefault();
+                return;
+            }
+            var row = t && t.closest && t.closest('[data-mb-org-row][draggable="true"]');
+            if (!row || !root.contains(row)) return;
+            var id = row.getAttribute('data-mb-org-row');
+            if (!isSavedListId(id)) {
+                ev.preventDefault();
+                return;
+            }
+            var ids = collectMoveCandidateIds(id);
+            _dragListIds = ids;
+            try {
+                ev.dataTransfer.setData('text/plain', ids.join(','));
+                ev.dataTransfer.effectAllowed = 'move';
+            } catch (e) { /* ignore */ }
+            row.classList.add('is-dragging');
+            ids.forEach(function (mid) {
+                var r = null;
+                Array.prototype.forEach.call(root.querySelectorAll('[data-mb-org-row]'), function (el) {
+                    if (!r && el.getAttribute('data-mb-org-row') === mid) r = el;
+                });
+                if (r) r.classList.add('is-dragging');
+            });
+        });
+        root.addEventListener('dragend', function () {
+            _dragListIds = null;
+            _dragOverTargetId = null;
+            root.querySelectorAll('.mb-org-row.is-dragging, .mb-org-row.is-drop-target, .mb-org-root-drop.is-drop-target')
+                .forEach(function (el) {
+                    el.classList.remove('is-dragging', 'is-drop-target');
+                });
+        });
+        root.addEventListener('dragover', function (ev) {
+            if (!_dragListIds || !_dragListIds.length) return;
+            var rootDrop = ev.target && ev.target.closest && ev.target.closest('[data-mb-org-drop-root]');
+            var folderRow = ev.target && ev.target.closest && ev.target.closest('[data-mb-org-row].is-folder');
+            var targetId = null;
+            if (rootDrop && root.contains(rootDrop)) {
+                targetId = '';
+            } else if (folderRow && root.contains(folderRow)) {
+                targetId = folderRow.getAttribute('data-mb-org-row') || '';
+                if (!canMoveListsUnder(_dragListIds, targetId)) return;
+            } else {
+                return;
+            }
+            ev.preventDefault();
+            try { ev.dataTransfer.dropEffect = 'move'; } catch (e2) { /* ignore */ }
+            if (_dragOverTargetId === targetId) return;
+            _dragOverTargetId = targetId;
+            root.querySelectorAll('.mb-org-row.is-drop-target, .mb-org-root-drop.is-drop-target')
+                .forEach(function (el) { el.classList.remove('is-drop-target'); });
+            if (targetId === '') {
+                var zone = root.querySelector('[data-mb-org-drop-root]');
+                if (zone) zone.classList.add('is-drop-target');
+            } else if (folderRow) {
+                folderRow.classList.add('is-drop-target');
+            }
+        });
+        root.addEventListener('dragleave', function (ev) {
+            var related = ev.relatedTarget;
+            if (related && root.contains(related)) return;
+            root.querySelectorAll('.mb-org-row.is-drop-target, .mb-org-root-drop.is-drop-target')
+                .forEach(function (el) { el.classList.remove('is-drop-target'); });
+            _dragOverTargetId = null;
+        });
+        root.addEventListener('drop', function (ev) {
+            if (!_dragListIds || !_dragListIds.length) return;
+            var rootDrop = ev.target && ev.target.closest && ev.target.closest('[data-mb-org-drop-root]');
+            var folderRow = ev.target && ev.target.closest && ev.target.closest('[data-mb-org-row].is-folder');
+            var targetId = null;
+            if (rootDrop && root.contains(rootDrop)) targetId = '';
+            else if (folderRow && root.contains(folderRow)) {
+                targetId = folderRow.getAttribute('data-mb-org-row') || '';
+            } else {
+                return;
+            }
+            ev.preventDefault();
+            ev.stopPropagation();
+            var ids = _dragListIds.slice();
+            _dragListIds = null;
+            _dragOverTargetId = null;
+            root.querySelectorAll('.mb-org-row.is-dragging, .mb-org-row.is-drop-target, .mb-org-root-drop.is-drop-target')
+                .forEach(function (el) {
+                    el.classList.remove('is-dragging', 'is-drop-target');
+                });
+            // Prevent the trailing click from activating the drop target / source
+            ids.forEach(function (mid) {
+                var nameEl = null;
+                Array.prototype.forEach.call(root.querySelectorAll('[data-mb-seg]'), function (el) {
+                    if (!nameEl && el.getAttribute('data-mb-seg') === mid) nameEl = el;
+                });
+                if (nameEl) nameEl.setAttribute('data-mb-dragged', '1');
+            });
+            moveListsUnderFolder(ids, targetId);
+        });
+
+        if (!document.documentElement.dataset.mbOrgMarkBound) {
+            document.documentElement.dataset.mbOrgMarkBound = '1';
+            document.addEventListener('click', function (ev) {
+                if (!_markMenuEl || !_markMenuEl.classList.contains('is-open')) return;
+                if (ev.target && _markMenuEl.contains(ev.target)) return;
+                if (ev.target && ev.target.closest && ev.target.closest('[data-mb-list-mark]')) return;
+                if (ev.target && ev.target.closest && ev.target.closest('#mbOrgMarkBtn')) return;
+                closeMarkerMenu();
+            });
+            document.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Escape') closeMarkerMenu();
+            });
+        }
 
         var search = pick('mbSearch');
         if (search) {
@@ -600,39 +1166,839 @@ var MASSBC = (function () {
         loadPatients();
     }
 
-    // ── Segments ─────────────────────────────────────────────────
+    // ── Segments / campaign organiser ────────────────────────────
+    function builtinLabel(id) {
+        if (id === 'scope') return tr('mb.seg.scope', 'Clinic / doctor bar');
+        if (id === 'hasphone') return tr('mb.seg.hasPhone', 'Has phone');
+        if (id === 'birthday') return tr('mb.seg.birthday', 'Birthday this month');
+        if (id === 'sent') return tr('mb.seg.sent', 'Messaged in window');
+        if (id === 'unsent') return tr('mb.seg.unsent', 'Not messaged in window');
+        return tr('mb.seg.all', 'All contacts');
+    }
+
+    function listChildrenOf(parentId) {
+        var pid = String(parentId || '');
+        return loadSegments().filter(function (s) {
+            return String(s.parentId || '') === pid;
+        });
+    }
+
+    function listDescendantIds(rootId) {
+        var out = [];
+        var stack = [String(rootId || '')];
+        var seen = {};
+        while (stack.length) {
+            var cur = stack.pop();
+            if (!cur || seen[cur]) continue;
+            seen[cur] = true;
+            listChildrenOf(cur).forEach(function (ch) {
+                out.push(ch.id);
+                stack.push(ch.id);
+            });
+        }
+        return out;
+    }
+
+    function flattenSavedTree() {
+        var roots = listChildrenOf('');
+        var rows = [];
+        function walk(nodes, depth) {
+            nodes.forEach(function (s) {
+                applyOrgToSegment(s);
+                var kids = listChildrenOf(s.id);
+                rows.push({ seg: s, depth: depth, hasKids: kids.length > 0 });
+                if (kids.length && !_listCollapsed[s.id]) walk(kids, depth + 1);
+            });
+        }
+        walk(roots, 0);
+        // Orphans whose parent is missing (e.g. deleted) still show at root
+        var shown = {};
+        rows.forEach(function (r) { shown[r.seg.id] = true; });
+        loadSegments().forEach(function (s) {
+            if (shown[s.id]) return;
+            var p = String(s.parentId || '');
+            if (p && findSavedSegment(p)) return;
+            applyOrgToSegment(s);
+            rows.push({ seg: s, depth: 0, hasKids: listChildrenOf(s.id).length > 0 });
+        });
+        return rows;
+    }
+
+    function ensureMarkerMenu() {
+        if (_markMenuEl) return _markMenuEl;
+        var el = document.createElement('div');
+        el.id = 'mbMarkMenu';
+        el.className = 'mb-mark-menu';
+        el.setAttribute('role', 'menu');
+        el.innerHTML =
+            '<div class="mb-mark-menu-title" id="mbMarkMenuTitle">' +
+            esc(tr('mb.org.mark.title', 'Remarks')) + '</div>' +
+            '<div class="mb-mark-menu-sub" id="mbMarkMenuSub" style="display:none;"></div>' +
+            '<div class="mb-mark-menu-opts mb-mark-menu-icons">' +
+            LIST_MARKERS.map(function (m) {
+                return (
+                    '<button type="button" class="mb-mark-opt" role="menuitem" data-mb-mark-pick="' +
+                    esc(m.id) + '" title="' + esc(tr(m.labelKey, m.label)) + '">' +
+                    '<span class="mb-mark-opt-icon mb-mark-' + esc(m.id || 'none') + '">' +
+                    esc(m.icon) + '</span>' +
+                    '<span class="mb-mark-opt-lab">' + esc(tr(m.labelKey, m.label)) + '</span></button>'
+                );
+            }).join('') +
+            '</div>' +
+            '<div class="mb-mark-menu-remark" id="mbMarkMenuRemark">' +
+            '<label class="mb-mark-remark-lab">' + esc(tr('mb.org.remark', 'Note')) + '</label>' +
+            '<input type="text" id="mbMarkRemarkInput" class="mb-input mb-mark-remark-input" maxlength="120" ' +
+            'placeholder="' + esc(tr('mb.org.remarkPh', 'Optional note…')) + '">' +
+            '<button type="button" class="mb-btn primary mb-mark-remark-save" data-mb-mark-save-remark="1">' +
+            esc(tr('mb.org.remarkSave', 'Save note')) + '</button>' +
+            '</div>';
+        document.body.appendChild(el);
+        el.addEventListener('click', function (ev) {
+            var pickBtn = ev.target && ev.target.closest && ev.target.closest('[data-mb-mark-pick]');
+            if (pickBtn) {
+                var marker = pickBtn.getAttribute('data-mb-mark-pick') || '';
+                if (_markMenuBulkIds && _markMenuBulkIds.length) {
+                    _markMenuBulkIds.forEach(function (id) { setListMarker(id, marker); });
+                } else if (_markMenuTargetId) {
+                    setListMarker(_markMenuTargetId, marker);
+                }
+                closeMarkerMenu();
+                return;
+            }
+            if (ev.target && ev.target.closest && ev.target.closest('[data-mb-mark-save-remark]')) {
+                var inp = pick('mbMarkRemarkInput');
+                var note = inp ? inp.value : '';
+                if (_markMenuBulkIds && _markMenuBulkIds.length) {
+                    _markMenuBulkIds.forEach(function (id) { setListRemark(id, note); });
+                } else if (_markMenuTargetId) {
+                    setListRemark(_markMenuTargetId, note);
+                }
+                closeMarkerMenu();
+            }
+        });
+        _markMenuEl = el;
+        return el;
+    }
+
+    function positionMarkerMenu(anchorEl) {
+        var el = ensureMarkerMenu();
+        if (!anchorEl || !anchorEl.getBoundingClientRect) return;
+        var rect = anchorEl.getBoundingClientRect();
+        var mw = el.offsetWidth || 220;
+        var mh = el.offsetHeight || 280;
+        var left = Math.min(window.innerWidth - mw - 8, Math.max(8, rect.left));
+        var top = rect.bottom + 6;
+        if (top + mh > window.innerHeight - 8) top = Math.max(8, rect.top - mh - 6);
+        el.style.left = left + 'px';
+        el.style.top = top + 'px';
+    }
+
+    function closeMarkerMenu() {
+        if (!_markMenuEl) return;
+        _markMenuEl.classList.remove('is-open', 'is-bulk');
+        _markMenuTargetId = null;
+        _markMenuBulkIds = null;
+        var markBtn = pick('mbOrgMarkBtn');
+        if (markBtn) markBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    function openMarkerMenu(listId, anchorEl) {
+        var el = ensureMarkerMenu();
+        _markMenuBulkIds = null;
+        _markMenuTargetId = String(listId || '');
+        var meta = resolveListOrg(_markMenuTargetId);
+        var title = pick('mbMarkMenuTitle');
+        var sub = pick('mbMarkMenuSub');
+        var remarkBox = pick('mbMarkMenuRemark');
+        if (title) title.textContent = tr('mb.org.mark.title', 'Remarks');
+        if (sub) {
+            sub.style.display = 'none';
+            sub.textContent = '';
+        }
+        if (remarkBox) remarkBox.style.display = '';
+        var inp = pick('mbMarkRemarkInput');
+        if (inp) inp.value = meta.remark || '';
+        el.classList.remove('is-bulk');
+        el.querySelectorAll('[data-mb-mark-pick]').forEach(function (btn) {
+            btn.classList.toggle('is-active',
+                String(btn.getAttribute('data-mb-mark-pick') || '') === String(meta.marker || ''));
+        });
+        el.classList.add('is-open');
+        positionMarkerMenu(anchorEl);
+    }
+
+    function openBulkMarkerMenu(anchorEl, ids) {
+        var el = ensureMarkerMenu();
+        _markMenuTargetId = null;
+        _markMenuBulkIds = (ids || []).slice();
+        var title = pick('mbMarkMenuTitle');
+        var sub = pick('mbMarkMenuSub');
+        var remarkBox = pick('mbMarkMenuRemark');
+        if (title) title.textContent = tr('mb.org.markSelected', 'Mark selected');
+        if (sub) {
+            sub.style.display = '';
+            sub.textContent = trRepl('mb.org.bulkMarkSub', { N: _markMenuBulkIds.length },
+                'Apply to {N} selected');
+        }
+        if (remarkBox) remarkBox.style.display = 'none';
+        el.classList.add('is-bulk');
+        el.querySelectorAll('[data-mb-mark-pick]').forEach(function (btn) {
+            btn.classList.remove('is-active');
+        });
+        el.classList.add('is-open');
+        positionMarkerMenu(anchorEl);
+        var markBtn = pick('mbOrgMarkBtn');
+        if (markBtn) markBtn.setAttribute('aria-expanded', 'true');
+    }
+
+    function resolveListOrg(id) {
+        var sid = String(id || '');
+        if (isSavedListId(sid)) {
+            var seg = findSavedSegment(sid);
+            if (seg) {
+                applyOrgToSegment(seg);
+                return {
+                    marker: seg.marker || '',
+                    remark: seg.remark || '',
+                    parentId: seg.parentId || '',
+                    kind: seg.kind || 'list'
+                };
+            }
+        }
+        var local = getOrgMeta(sid);
+        return {
+            marker: local.marker || '',
+            remark: local.remark || '',
+            parentId: local.parentId || '',
+            kind: local.kind || 'list'
+        };
+    }
+
+    function setListMarker(id, markerId) {
+        var sid = String(id || '');
+        if (!sid) return;
+        var marker = String(markerId || '');
+        var cur = getOrgMeta(sid);
+        if (isSavedListId(sid)) {
+            var seg = findSavedSegment(sid);
+            if (seg) {
+                seg.marker = marker;
+                persistSegmentOrg(seg);
+                renderSegments();
+                return;
+            }
+        }
+        persistOrgMetaToCloud(sid, { marker: marker, remark: cur.remark || '' })
+            .then(function (ok) {
+                if (!ok && _orgMetaDbMissing) {
+                    var status = pick('mbStatus');
+                    if (status) {
+                        status.textContent = tr('mb.org.metaNeedCloud',
+                            'Remarks need Supabase table broadcast_organiser_meta — run broadcast_organiser_meta.sql, then refresh.');
+                    }
+                }
+                renderSegments();
+            });
+        renderSegments();
+    }
+
+    function setListRemark(id, remark) {
+        var sid = String(id || '');
+        if (!sid) return;
+        var note = String(remark || '').trim();
+        var cur = getOrgMeta(sid);
+        if (isSavedListId(sid)) {
+            var seg = findSavedSegment(sid);
+            if (seg) {
+                seg.remark = note;
+                persistSegmentOrg(seg);
+                renderSegments();
+                return;
+            }
+        }
+        persistOrgMetaToCloud(sid, { marker: cur.marker || '', remark: note })
+            .then(function (ok) {
+                if (!ok && _orgMetaDbMissing) {
+                    var status = pick('mbStatus');
+                    if (status) {
+                        status.textContent = tr('mb.org.metaNeedCloud',
+                            'Remarks need Supabase table broadcast_organiser_meta — run broadcast_organiser_meta.sql, then refresh.');
+                    }
+                }
+                renderSegments();
+            });
+        renderSegments();
+    }
+
+    function toggleListCollapsed(id) {
+        var sid = String(id || '');
+        if (!sid) return;
+        if (_listCollapsed[sid]) delete _listCollapsed[sid];
+        else _listCollapsed[sid] = true;
+        patchOrgMeta(sid, { collapsed: _listCollapsed[sid] ? 1 : '' });
+        renderSegments();
+    }
+
+    function toggleSelectAllLists(scope, on) {
+        if (scope === 'smart') {
+            BUILTIN_ORDER.forEach(function (id) {
+                if (on) _listSelected[id] = true;
+                else delete _listSelected[id];
+            });
+        } else {
+            loadSegments().forEach(function (s) {
+                if (on) _listSelected[s.id] = true;
+                else delete _listSelected[s.id];
+            });
+        }
+        renderSegments();
+    }
+
+    function syncListSelectAllUi() {
+        var smartAll = pick('mbListCheckAllSmart');
+        var savedAll = pick('mbListCheckAllSaved');
+        if (smartAll) {
+            var sn = BUILTIN_ORDER.filter(function (id) { return _listSelected[id]; }).length;
+            smartAll.checked = sn === BUILTIN_ORDER.length && sn > 0;
+            smartAll.indeterminate = sn > 0 && sn < BUILTIN_ORDER.length;
+        }
+        if (savedAll) {
+            var segs = loadSegments();
+            var sn2 = segs.filter(function (s) { return _listSelected[s.id]; }).length;
+            savedAll.checked = segs.length > 0 && sn2 === segs.length;
+            savedAll.indeterminate = sn2 > 0 && sn2 < segs.length;
+        }
+    }
+
+    function renderOrgRow(opts) {
+        var id = opts.id;
+        var label = opts.label;
+        var active = _activeSegmentId === id;
+        var checked = !!_listSelected[id];
+        var org = resolveListOrg(id);
+        var md = markerDef(org.marker);
+        var depth = opts.depth || 0;
+        var hasKids = !!opts.hasKids;
+        var collapsed = !!_listCollapsed[id];
+        var isFolder = opts.kind === 'folder';
+        var countHtml = opts.count != null
+            ? '<span class="mb-org-count">' + esc(String(opts.count)) + '</span>'
+            : '';
+        var toggleHtml = hasKids
+            ? ('<button type="button" class="mb-org-toggle' + (collapsed ? ' is-collapsed' : '') +
+                '" data-mb-list-toggle="' + esc(id) + '" aria-label="Expand/collapse">▸</button>')
+            : '<span class="mb-org-toggle-spacer"></span>';
+        var icon = isFolder ? '📁' : (opts.smart ? '⚡' : '📋');
+        var remarkTitle = org.remark
+            ? esc(org.remark)
+            : esc(tr('mb.org.mark.hint', 'Set remark / marker'));
+        var canDrag = !!opts.canDrag;
+        var canRename = !!opts.canDelete;
+        var rowTitle = canDrag
+            ? (tr('mb.org.dragTitle', 'Drag onto a folder to move') +
+                (canRename ? ' · ' + tr('mb.org.renameHint', 'Double-click to rename') : ''))
+            : '';
+        return (
+            '<tr class="mb-org-row' + (active ? ' is-active' : '') +
+            (isFolder ? ' is-folder' : '') +
+            (org.marker ? (' is-mark-' + esc(org.marker)) : '') +
+            '" data-mb-org-row="' + esc(id) + '"' +
+            (canDrag
+                ? ' draggable="true" title="' + esc(rowTitle) + '"'
+                : '') + '>' +
+            '<td class="mb-org-td-check">' +
+            '<input type="checkbox" draggable="false" data-mb-list-check="' + esc(id) + '"' +
+            (checked ? ' checked' : '') + ' aria-label="Select list"></td>' +
+            '<td class="mb-org-td-mark">' +
+            '<button type="button" draggable="false" class="mb-org-mark-btn mb-mark-' +
+            esc(org.marker || 'none') +
+            '" data-mb-list-mark="' + esc(id) + '" title="' + remarkTitle + '" ' +
+            'aria-haspopup="menu" aria-label="' + remarkTitle + '">' +
+            esc(md.icon) +
+            (org.remark ? '<span class="mb-org-mark-dot"></span>' : '') +
+            '</button></td>' +
+            '<td class="mb-org-td-name" style="padding-left:' + (8 + depth * 14) + 'px">' +
+            '<div class="mb-org-name-wrap">' + toggleHtml +
+            '<div role="button" tabindex="0" class="mb-seg-btn mb-org-name-btn' +
+            (active ? ' active' : '') +
+            '" data-mb-seg="' + esc(id) + '">' +
+            '<span class="mb-org-type-icon" aria-hidden="true">' + icon + '</span> ' +
+            '<span class="mb-org-name-text">' + esc(label) + '</span>' + countHtml +
+            (org.remark ? ('<span class="mb-org-remark-snip" title="' + esc(org.remark) + '">' +
+                esc(org.remark) + '</span>') : '') +
+            '</div>' +
+            (opts.canDelete
+                ? ('<button type="button" draggable="false" class="mb-seg-del" data-mb-seg-del="' +
+                    esc(id) + '" ' +
+                    'title="' + esc(tr('mb.seg.delete', 'Delete list')) + '" ' +
+                    'aria-label="' + esc(tr('mb.seg.delete', 'Delete list')) + '">✕</button>')
+                : '') +
+            '</div></td></tr>'
+        );
+    }
+
     function renderSegments() {
         var host = pick('mbSegList');
         if (!host) return;
-        var segs = loadSegments();
-        var html =
-            '<button type="button" class="mb-seg-btn' + (_activeSegmentId === 'all' ? ' active' : '') +
-            '" data-mb-seg="all">' + esc(tr('mb.seg.all', 'All contacts')) + '</button>' +
-            '<button type="button" class="mb-seg-btn' + (_activeSegmentId === 'scope' ? ' active' : '') +
-            '" data-mb-seg="scope">' + esc(tr('mb.seg.scope', 'Clinic / doctor bar')) + '</button>' +
-            '<button type="button" class="mb-seg-btn' + (_activeSegmentId === 'hasphone' ? ' active' : '') +
-            '" data-mb-seg="hasphone">' + esc(tr('mb.seg.hasPhone', 'Has phone')) + '</button>' +
-            '<button type="button" class="mb-seg-btn' + (_activeSegmentId === 'birthday' ? ' active' : '') +
-            '" data-mb-seg="birthday">' + esc(tr('mb.seg.birthday', 'Birthday this month')) + '</button>' +
-            '<button type="button" class="mb-seg-btn' + (_activeSegmentId === 'sent' ? ' active' : '') +
-            '" data-mb-seg="sent">' + esc(tr('mb.seg.sent', 'Messaged in window')) + '</button>' +
-            '<button type="button" class="mb-seg-btn' + (_activeSegmentId === 'unsent' ? ' active' : '') +
-            '" data-mb-seg="unsent">' + esc(tr('mb.seg.unsent', 'Not messaged in window')) + '</button>';
-        segs.forEach(function (s) {
-            var n = Array.isArray(s.patientIds) ? s.patientIds.length : 0;
-            var label = (s.name || 'List') + (n ? (' (' + n + ')') : '');
-            html +=
-                '<div class="mb-seg-row" style="display:flex;align-items:center;gap:4px;">' +
-                '<button type="button" class="mb-seg-btn' + (_activeSegmentId === s.id ? ' active' : '') +
-                '" data-mb-seg="' + esc(s.id) + '" style="flex:1;">' + esc(label) + '</button>' +
-                '<button type="button" class="mb-seg-del" data-mb-seg-del="' + esc(s.id) + '" ' +
-                'title="' + esc(tr('mb.seg.delete', 'Delete list')) + '" ' +
-                'aria-label="' + esc(tr('mb.seg.delete', 'Delete list')) + '" ' +
-                'style="flex:none;padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;' +
-                'background:#fff;color:#94a3b8;cursor:pointer;font-size:12px;">✕</button>' +
-                '</div>';
+        var smartRows = BUILTIN_ORDER.map(function (id) {
+            return renderOrgRow({
+                id: id,
+                label: builtinLabel(id),
+                smart: true,
+                kind: 'list',
+                canDelete: false
+            });
+        }).join('');
+        var tree = flattenSavedTree();
+        var savedRows = tree.length
+            ? tree.map(function (r) {
+                var s = r.seg;
+                var n = s.kind === 'folder'
+                    ? listChildrenOf(s.id).length
+                    : (Array.isArray(s.patientIds) ? s.patientIds.length : 0);
+                return renderOrgRow({
+                    id: s.id,
+                    label: s.name || (s.kind === 'folder' ? 'Folder' : 'List'),
+                    kind: s.kind,
+                    depth: r.depth,
+                    hasKids: r.hasKids,
+                    count: n,
+                    canDelete: true,
+                    canDrag: true
+                });
+            }).join('')
+            : '<tr class="mb-org-empty"><td colspan="3">' +
+                esc(tr('mb.org.emptySaved', 'No saved folders or lists yet.')) +
+                '</td></tr>';
+
+        host.innerHTML =
+            '<div class="mb-org-block">' +
+            '<div class="mb-org-block-title">' + esc(tr('mb.org.smart', 'Default filters')) + '</div>' +
+            '<table class="mb-org-tbl" aria-label="' + esc(tr('mb.org.smart', 'Default filters')) + '">' +
+            '<thead><tr>' +
+            '<th class="mb-org-th-check"><input type="checkbox" id="mbListCheckAllSmart" ' +
+            'data-mb-list-check-all="smart" title="' + esc(tr('mb.org.selectAll', 'Select all')) + '"></th>' +
+            '<th class="mb-org-th-mark" title="' + esc(tr('mb.org.mark.title', 'Remarks')) + '">★</th>' +
+            '<th class="mb-org-th-name">' + esc(tr('mb.org.col.name', 'List')) + '</th>' +
+            '</tr></thead><tbody>' + smartRows + '</tbody></table></div>' +
+            '<div class="mb-org-block">' +
+            '<div class="mb-org-block-title mb-org-root-drop" data-mb-org-drop-root="1" ' +
+            'title="' + esc(tr('mb.org.dropRootHint', 'Drop here to move to top level')) + '">' +
+            esc(tr('mb.org.saved', 'Folders & lists')) +
+            ' <span class="mb-org-root-drop-lab">' +
+            esc(tr('mb.org.dropRootShort', '↓ top level')) + '</span></div>' +
+            '<table class="mb-org-tbl" aria-label="' + esc(tr('mb.org.saved', 'Folders & lists')) + '">' +
+            '<thead><tr>' +
+            '<th class="mb-org-th-check"><input type="checkbox" id="mbListCheckAllSaved" ' +
+            'data-mb-list-check-all="saved" title="' + esc(tr('mb.org.selectAll', 'Select all')) + '"></th>' +
+            '<th class="mb-org-th-mark" title="' + esc(tr('mb.org.mark.title', 'Remarks')) + '">★</th>' +
+            '<th class="mb-org-th-name">' + esc(tr('mb.org.col.name', 'List')) + '</th>' +
+            '</tr></thead><tbody>' + savedRows + '</tbody></table></div>';
+        syncListSelectAllUi();
+        syncMoveUnderUi();
+    }
+
+    /** Only folders may own children. Lists never become parents. */
+    function resolveFolderParentId(candidateId) {
+        var pid = String(candidateId || '').trim();
+        if (!pid || !isSavedListId(pid)) return '';
+        var seg = findSavedSegment(pid);
+        if (!seg) return '';
+        applyOrgToSegment(seg);
+        return seg.kind === 'folder' ? seg.id : '';
+    }
+
+    function currentFolderParentId() {
+        if (!isSavedListId(_activeSegmentId)) return '';
+        var seg = findSavedSegment(_activeSegmentId);
+        if (!seg) return '';
+        applyOrgToSegment(seg);
+        // Nest only under a folder — never under another patient list
+        if (seg.kind === 'folder') return seg.id;
+        return resolveFolderParentId(seg.parentId);
+    }
+
+    function createFolderNode(name, parentId, kind) {
+        var nm = String(name || '').trim();
+        if (!nm) return;
+        var parent = resolveFolderParentId(parentId);
+        if (parentId && String(parentId).trim() && !parent) {
+            alert(tr('mb.org.listCannotNest',
+                'A patient list cannot contain other lists. Open a folder, then use “Save under folder”.'));
+            return;
+        }
+        var isFolder = kind === 'folder';
+        var status = pick('mbStatus');
+
+        function finish(row) {
+            applyOrgToSegment(row);
+            row.parentId = parent;
+            row.kind = isFolder ? 'folder' : 'list';
+            if (!row.patientIds) row.patientIds = [];
+            var exists = false;
+            for (var i = 0; i < _segments.length; i++) {
+                if (String(_segments[i].id) === String(row.id)) {
+                    _segments[i] = row;
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) _segments.push(row);
+            persistSegmentOrg(row);
+            _activeSegmentId = row.id;
+            renderSegments();
+            applyFilters();
+            if (status) {
+                status.textContent = isFolder
+                    ? trRepl('mb.org.folderCreated', { NAME: row.name }, 'Folder “{NAME}” created.')
+                    : trRepl('mb.seg.savedOk', { NAME: row.name, N: 0 }, 'Saved list “{NAME}” ({N} contacts).');
+            }
+        }
+
+        function localCreate() {
+            var localId = 'seg_' + Date.now().toString(36);
+            finish({
+                id: localId,
+                name: nm,
+                patientIds: [],
+                conditions: null,
+                parentId: parent,
+                marker: '',
+                remark: '',
+                kind: isFolder ? 'folder' : 'list',
+                createdAt: new Date().toISOString()
+            });
+            persistSegmentLocalFallback(_segments);
+        }
+
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
+            if (isFolder) {
+                localCreate();
+                return;
+            }
+            alertSegmentsNeedCloud();
+            localCreate();
+            return;
+        }
+
+        if (status) status.textContent = tr('mb.seg.saving', 'Saving list to cloud…');
+        var payload = {
+            name: nm,
+            patient_ids: [],
+            conditions: conditionsWithOrg({
+                parentId: parent,
+                marker: '',
+                remark: '',
+                kind: isFolder ? 'folder' : 'list',
+                conditions: null
+            }),
+            sort_order: _segments.length,
+            created_by: segmentCreatedBy() || null
+        };
+        SB.from(SEG_TABLE).insert([payload])
+            .select('id,name,patient_ids,conditions,created_at,updated_at')
+            .single()
+            .then(function (r) {
+                if (r.error) {
+                    if (segmentsTableMissing(r.error)) {
+                        _segmentsDbMissing = true;
+                        alertSegmentsNeedCloud();
+                        localCreate();
+                        return;
+                    }
+                    alert(trRepl('mb.seg.saveFail', { MSG: r.error.message || r.error },
+                        'Could not save list: {MSG}'));
+                    return;
+                }
+                var row = normalizeSegmentRow(r.data);
+                if (!row) {
+                    alert(tr('mb.seg.saveFailGeneric', 'Could not save list.'));
+                    return;
+                }
+                finish(row);
+            }).catch(function (err) {
+                alert(trRepl('mb.seg.saveFail', { MSG: (err && err.message) || err },
+                    'Could not save list: {MSG}'));
+            });
+    }
+
+    function createFolder() {
+        var name = window.prompt(
+            tr('mb.org.folderPrompt', 'Folder name'),
+            tr('mb.org.folderDefault', 'Campaign folder')
+        );
+        if (name === null || !String(name).trim()) return;
+        createFolderNode(name, '', 'folder');
+    }
+
+    function createSubfolder() {
+        var parent = currentFolderParentId();
+        if (!parent) {
+            alert(tr('mb.org.needParent',
+                'Open a folder first (lists cannot contain subfolders), then create a subfolder under it.'));
+            return;
+        }
+        var parentSeg = findSavedSegment(parent);
+        var name = window.prompt(
+            trRepl('mb.org.subfolderPrompt', { NAME: parentSeg ? parentSeg.name : '' },
+                'Subfolder name (under “{NAME}”)'),
+            tr('mb.org.subfolderDefault', 'Subfolder')
+        );
+        if (name === null || !String(name).trim()) return;
+        createFolderNode(name, parent, 'folder');
+    }
+
+    function saveCurrentAsSegmentUnder() {
+        var parent = currentFolderParentId();
+        if (!parent) {
+            var active = activeSavedList();
+            if (active && active.kind !== 'folder') {
+                alert(tr('mb.org.listCannotNest',
+                    'A patient list cannot contain other lists. Open a folder, then use “Save under folder”.'));
+                return;
+            }
+            alert(tr('mb.org.needParentSave',
+                'Open a saved folder first, then save contacts under it.'));
+            return;
+        }
+        saveCurrentAsSegment(parent);
+    }
+
+    function renameSavedSegment(id) {
+        var sid = String(id || '');
+        if (!isSavedListId(sid)) return;
+        var seg = findSavedSegment(sid);
+        if (!seg) return;
+        applyOrgToSegment(seg);
+        var kindLabel = seg.kind === 'folder'
+            ? tr('mb.org.folderTag', 'folder')
+            : tr('mb.aud.list', 'List');
+        var name = window.prompt(
+            trRepl('mb.org.renamePrompt', { KIND: kindLabel }, 'Rename {KIND}'),
+            seg.name || ''
+        );
+        if (name === null) return;
+        name = String(name).trim();
+        if (!name) {
+            alert(tr('mb.org.renameEmpty', 'Name cannot be empty.'));
+            return;
+        }
+        if (String(seg.name || '').trim() === name) return;
+
+        var clash = null;
+        loadSegments().forEach(function (s) {
+            if (String(s.id) === sid) return;
+            if (String(s.name || '').trim().toLowerCase() === name.toLowerCase()) clash = s;
         });
-        host.innerHTML = html;
+        if (clash) {
+            alert(trRepl('mb.org.renameClash', { NAME: clash.name },
+                'Another item is already named “{NAME}”.'));
+            return;
+        }
+
+        var status = pick('mbStatus');
+        function finishRename() {
+            seg.name = name;
+            persistSegmentOrg(seg);
+            persistSegmentLocalFallback(_segments);
+            renderSegments();
+            if (status) {
+                status.textContent = trRepl('mb.org.renamedOk', { NAME: name },
+                    'Renamed to “{NAME}”.');
+            }
+        }
+
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
+            finishRename();
+            return;
+        }
+        if (status) status.textContent = tr('mb.org.renaming', 'Renaming…');
+        SB.from(SEG_TABLE).update({
+            name: name,
+            updated_at: new Date().toISOString()
+        }).eq('id', sid).then(function (r) {
+            if (r.error) {
+                if (segmentsTableMissing(r.error)) {
+                    _segmentsDbMissing = true;
+                    finishRename();
+                    return;
+                }
+                alert(trRepl('mb.org.renameFail', { MSG: r.error.message || r.error },
+                    'Could not rename: {MSG}'));
+                return;
+            }
+            finishRename();
+        }).catch(function (err) {
+            alert(trRepl('mb.org.renameFail', { MSG: (err && err.message) || err },
+                'Could not rename: {MSG}'));
+        });
+    }
+
+    function collectMoveCandidateIds(preferId) {
+        var checked = Object.keys(_listSelected).filter(function (id) {
+            return _listSelected[id] && isSavedListId(id);
+        });
+        var pref = String(preferId || '');
+        if (pref && checked.indexOf(pref) >= 0) return checked;
+        if (pref && isSavedListId(pref)) return [pref];
+        if (checked.length) return checked;
+        if (isSavedListId(_activeSegmentId)) return [_activeSegmentId];
+        return [];
+    }
+
+    function listFolderOptions(excludeIds) {
+        var ban = {};
+        (excludeIds || []).forEach(function (id) {
+            ban[String(id)] = true;
+            listDescendantIds(id).forEach(function (d) { ban[String(d)] = true; });
+        });
+        return loadSegments().filter(function (s) {
+            applyOrgToSegment(s);
+            return s.kind === 'folder' && !ban[String(s.id)];
+        });
+    }
+
+    function canMoveListsUnder(ids, folderId) {
+        var target = String(folderId || '');
+        if (!ids || !ids.length) return false;
+        for (var i = 0; i < ids.length; i++) {
+            var id = String(ids[i]);
+            if (!isSavedListId(id)) return false;
+            if (target && (target === id || listDescendantIds(id).indexOf(target) >= 0)) {
+                return false;
+            }
+            var seg = findSavedSegment(id);
+            if (!seg) return false;
+            if (String(seg.parentId || '') === target) {
+                // already there — still allow UI highlight but move is no-op
+            }
+        }
+        return true;
+    }
+
+    function moveListsUnderFolder(ids, folderId) {
+        var target = String(folderId || '');
+        var list = (ids || []).filter(function (id) { return isSavedListId(id); });
+        if (!list.length) return false;
+        if (!canMoveListsUnder(list, target)) {
+            alert(tr('mb.org.moveCycle',
+                'Cannot move a folder into itself or one of its subfolders.'));
+            return false;
+        }
+        if (target) {
+            var folder = findSavedSegment(target);
+            if (!folder || folder.kind !== 'folder') {
+                alert(tr('mb.org.moveNeedFolder', 'Choose a folder as the destination.'));
+                return false;
+            }
+            // Auto-expand destination so the moved item is visible
+            if (_listCollapsed[target]) {
+                delete _listCollapsed[target];
+                patchOrgMeta(target, { collapsed: '' });
+            }
+        }
+        var moved = 0;
+        list.forEach(function (id) {
+            var seg = findSavedSegment(id);
+            if (!seg) return;
+            applyOrgToSegment(seg);
+            if (String(seg.parentId || '') === target) return;
+            seg.parentId = target;
+            persistSegmentOrg(seg);
+            moved += 1;
+        });
+        if (!moved) {
+            var status0 = pick('mbStatus');
+            if (status0) {
+                status0.textContent = tr('mb.org.moveAlready', 'Already in that folder.');
+            }
+            return true;
+        }
+        renderSegments();
+        applyFilters();
+        var status = pick('mbStatus');
+        if (status) {
+            var destName = target
+                ? ((findSavedSegment(target) && findSavedSegment(target).name) || target)
+                : tr('mb.org.topLevel', 'Top level');
+            status.textContent = trRepl('mb.org.movedOk', { N: moved, NAME: destName },
+                'Moved {N} item(s) under “{NAME}”.');
+        }
+        return true;
+    }
+
+    function syncMoveUnderUi() {
+        var btn = pick('mbMoveUnderFolderBtn');
+        if (!btn) return;
+        var ids = collectMoveCandidateIds();
+        var show = ids.length > 0;
+        btn.style.display = show ? '' : 'none';
+        if (show) {
+            btn.textContent = ids.length > 1
+                ? trRepl('mb.org.moveTopN', { N: ids.length }, 'Move {N} to top level')
+                : tr('mb.org.moveTop', 'Move to top level');
+        }
+    }
+
+    function moveToTopLevel() {
+        var ids = collectMoveCandidateIds();
+        if (!ids.length) {
+            alert(tr('mb.org.needSelectSavedMove',
+                'Select a saved list or folder first, then choose Move to top level.'));
+            return;
+        }
+        moveListsUnderFolder(ids, '');
+    }
+
+    /** @deprecated Use moveToTopLevel — kept for older onclick handlers */
+    function moveUnderFolderPrompt() {
+        moveToTopLevel();
+    }
+
+    function bulkSetMarkerPrompt(ev) {
+        var ids = Object.keys(_listSelected).filter(function (id) { return _listSelected[id]; });
+        if (!ids.length) {
+            alert(tr('mb.org.needSelect', 'Select one or more lists first (left checkboxes).'));
+            return;
+        }
+        var anchor = (ev && ev.currentTarget) || pick('mbOrgMarkBtn');
+        // Toggle closed if already open for bulk
+        if (_markMenuEl && _markMenuEl.classList.contains('is-open') &&
+            _markMenuBulkIds && _markMenuBulkIds.length) {
+            closeMarkerMenu();
+            return;
+        }
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        openBulkMarkerMenu(anchor, ids);
+    }
+
+    function deleteSelectedLists() {
+        var ids = Object.keys(_listSelected).filter(function (id) {
+            return _listSelected[id] && isSavedListId(id);
+        });
+        if (!ids.length) {
+            alert(tr('mb.org.needSelectSaved',
+                'Select one or more saved folders/lists to delete.'));
+            return;
+        }
+        if (!window.confirm(trRepl('mb.org.confirmBulkDelete', { N: ids.length },
+            'Delete {N} selected folder(s)/list(s)? Subfolders are removed too.'))) {
+            return;
+        }
+        var all = {};
+        ids.forEach(function (id) {
+            all[id] = true;
+            listDescendantIds(id).forEach(function (d) { all[d] = true; });
+        });
+        var chain = Promise.resolve();
+        Object.keys(all).forEach(function (id) {
+            chain = chain.then(function () { return deleteSavedSegmentSilent(id); });
+        });
+        chain.then(function () {
+            _listSelected = {};
+            renderSegments();
+            applyFilters();
+        });
     }
 
     /** IDs to store: checked rows if any, else current filtered result set. */
@@ -654,13 +2020,36 @@ var MASSBC = (function () {
         return null;
     }
 
-    function saveCurrentAsSegment() {
+    function saveCurrentAsSegment(parentIdOpt) {
         var ids = collectIdsForSavedList();
         if (!ids.length) {
             alert(tr('mb.seg.needContacts',
                 'No contacts to save. Filter or select contacts first.'));
             return;
         }
+
+        // "Save as list" (no parent arg) always stays top-level.
+        // Nesting is only allowed when an explicit folder parent is passed
+        // ("Save under folder") — never under another patient list.
+        var parentId = '';
+        if (parentIdOpt != null && String(parentIdOpt) !== '') {
+            parentId = resolveFolderParentId(parentIdOpt);
+            if (!parentId) {
+                alert(tr('mb.org.listCannotNest',
+                    'A patient list cannot contain other lists. Open a folder, then use “Save under folder”.'));
+                return;
+            }
+        } else {
+            // Guard: if a list is selected, do not silently nest under it
+            var activeSel = activeSavedList();
+            if (activeSel) {
+                applyOrgToSegment(activeSel);
+                if (activeSel.kind !== 'folder') {
+                    // Keep flat — intentional no-op parent; status hint after save
+                }
+            }
+        }
+
         var usedSelected = Object.keys(_selected).some(function (id) {
             return !!_selected[id];
         });
@@ -683,16 +2072,32 @@ var MASSBC = (function () {
             }
         }
         if (existing) {
+            applyOrgToSegment(existing);
+            if (existing.kind === 'folder') {
+                alert(tr('mb.org.saveClashFolder',
+                    'A folder already uses that name. Choose a different list name.'));
+                return;
+            }
             if (!window.confirm(trRepl('mb.seg.confirmOverwrite', { NAME: existing.name, N: ids.length },
                 'List “{NAME}” already exists. Replace it with {N} contact(s)?'))) {
                 return;
+            }
+            // Overwrite keeps the existing list's folder parent (if any),
+            // but never attaches under a list.
+            if (!parentId) {
+                parentId = resolveFolderParentId(existing.parentId);
             }
         }
 
         var conditions = snapshotConditions();
         var status = pick('mbStatus');
 
-        function finishOk(segId, savedName, count) {
+        function finishOk(segId, savedName, count, rowRef) {
+            if (rowRef) {
+                rowRef.parentId = parentId || '';
+                rowRef.kind = 'list';
+                persistSegmentOrg(rowRef);
+            }
             _activeSegmentId = segId;
             renderSegments();
             applyFilters();
@@ -716,22 +2121,29 @@ var MASSBC = (function () {
                 found.name = name;
                 found.patientIds = ids.slice();
                 found.conditions = conditions;
+                found.parentId = parentId || '';
+                found.kind = 'list';
                 found.updatedAt = new Date().toISOString();
                 _segments = list;
                 persistSegmentLocalFallback(list);
-                finishOk(found.id, name, ids.length);
+                finishOk(found.id, name, ids.length, found);
             } else {
                 var localId = segId || ('seg_' + Date.now().toString(36));
-                list.push({
+                var neu = {
                     id: localId,
                     name: name,
                     patientIds: ids.slice(),
                     conditions: conditions,
+                    parentId: parentId,
+                    marker: '',
+                    remark: '',
+                    kind: 'list',
                     createdAt: new Date().toISOString()
-                });
+                };
+                list.push(neu);
                 _segments = list;
                 persistSegmentLocalFallback(list);
-                finishOk(localId, name, ids.length);
+                finishOk(localId, name, ids.length, neu);
             }
         }
 
@@ -743,10 +2155,17 @@ var MASSBC = (function () {
 
         if (status) status.textContent = tr('mb.seg.saving', 'Saving list to cloud…');
 
+        var orgShell = {
+            parentId: parentId || '',
+            marker: (existing && existing.marker) || '',
+            remark: (existing && existing.remark) || '',
+            kind: 'list',
+            conditions: conditions
+        };
         var payload = {
             name: name,
             patient_ids: ids.slice(),
-            conditions: conditions,
+            conditions: conditionsWithOrg(orgShell),
             updated_at: new Date().toISOString()
         };
 
@@ -757,7 +2176,7 @@ var MASSBC = (function () {
             : SB.from(SEG_TABLE).insert([{
                 name: name,
                 patient_ids: ids.slice(),
-                conditions: conditions,
+                conditions: conditionsWithOrg(orgShell),
                 sort_order: segs.length,
                 created_by: segmentCreatedBy() || null
             }]).select('id,name,patient_ids,conditions,created_at,updated_at').single();
@@ -779,6 +2198,8 @@ var MASSBC = (function () {
                 alert(tr('mb.seg.saveFailGeneric', 'Could not save list.'));
                 return;
             }
+            if (parentId) row.parentId = parentId;
+            row.kind = 'list';
             if (existing) {
                 for (var k = 0; k < _segments.length; k++) {
                     if (String(_segments[k].id) === String(row.id)) {
@@ -789,39 +2210,38 @@ var MASSBC = (function () {
             } else {
                 _segments.push(row);
             }
-            finishOk(row.id, row.name, row.patientIds.length);
+            finishOk(row.id, row.name, row.patientIds.length, row);
         }).catch(function (err) {
             alert(trRepl('mb.seg.saveFail', { MSG: (err && err.message) || err },
                 'Could not save list: {MSG}'));
         });
     }
 
-    function deleteSavedSegment(id) {
+    function deleteSavedSegmentSilent(id) {
         var sid = String(id || '');
-        if (!isSavedListId(sid)) return;
-        var seg = findSavedSegment(sid);
-        var label = seg && seg.name ? seg.name : sid;
-        if (!window.confirm(trRepl('mb.seg.confirmDelete', { NAME: label },
-            'Delete list “{NAME}”?'))) {
-            return;
-        }
+        if (!isSavedListId(sid)) return Promise.resolve();
 
         function finishDelete() {
             _segments = _segments.filter(function (s) {
                 return String(s.id) !== sid;
             });
+            delete _listSelected[sid];
+            delete _listCollapsed[sid];
+            var store = readOrgStore();
+            if (store[sid]) {
+                delete store[sid];
+                writeOrgStore(store);
+            }
             if (_activeSegmentId === sid) _activeSegmentId = 'all';
-            renderSegments();
-            applyFilters();
         }
 
         if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
             finishDelete();
             persistSegmentLocalFallback(_segments);
-            return;
+            return Promise.resolve();
         }
 
-        SB.from(SEG_TABLE).update({
+        return SB.from(SEG_TABLE).update({
             is_active: false,
             updated_at: new Date().toISOString()
         }).eq('id', sid).then(function (r) {
@@ -832,15 +2252,54 @@ var MASSBC = (function () {
                     persistSegmentLocalFallback(_segments);
                     return;
                 }
-                alert(trRepl('mb.seg.deleteFail', { MSG: r.error.message || r.error },
-                    'Could not delete list: {MSG}'));
+                console.warn('[broadcast] delete list', r.error);
                 return;
             }
             finishDelete();
         }).catch(function (err) {
-            alert(trRepl('mb.seg.deleteFail', { MSG: (err && err.message) || err },
-                'Could not delete list: {MSG}'));
+            console.warn('[broadcast] delete list', err);
         });
+    }
+
+    function deleteSavedSegment(id) {
+        var sid = String(id || '');
+        if (!isSavedListId(sid)) return;
+        var seg = findSavedSegment(sid);
+        var label = seg && seg.name ? seg.name : sid;
+        var kids = listDescendantIds(sid);
+        var msg = kids.length
+            ? trRepl('mb.org.confirmDeleteTree', { NAME: label, N: kids.length },
+                'Delete “{NAME}” and {N} subfolder(s)/list(s)?')
+            : trRepl('mb.seg.confirmDelete', { NAME: label }, 'Delete list “{NAME}”?');
+        if (!window.confirm(msg)) return;
+
+        var chain = Promise.resolve();
+        kids.slice().reverse().forEach(function (cid) {
+            chain = chain.then(function () { return deleteSavedSegmentSilent(cid); });
+        });
+        chain.then(function () { return deleteSavedSegmentSilent(sid); })
+            .then(function () {
+                renderSegments();
+                applyFilters();
+            });
+    }
+
+    /** Union of patient ids for a folder (all descendant lists). */
+    function membershipIdsForSegment(seg) {
+        if (!seg) return [];
+        if (seg.kind === 'folder') {
+            var set = {};
+            var ids = [seg.id].concat(listDescendantIds(seg.id));
+            ids.forEach(function (id) {
+                var s = findSavedSegment(id);
+                if (!s || s.kind === 'folder') return;
+                (s.patientIds || []).forEach(function (pid) {
+                    if (pid != null && pid !== '') set[String(pid)] = true;
+                });
+            });
+            return Object.keys(set);
+        }
+        return normalizePatientIds(seg.patientIds);
     }
 
     function snapshotConditions() {
@@ -878,8 +2337,10 @@ var MASSBC = (function () {
         _activeSegmentId = segId || 'all';
         if (isSavedListId(_activeSegmentId)) {
             var seg = findSavedSegment(_activeSegmentId);
-            // Static membership lists keep current UI filters clear so membership is obvious
-            if (seg && Array.isArray(seg.patientIds) && seg.patientIds.length) {
+            if (seg) applyOrgToSegment(seg);
+            // Folders / membership lists: clear UI filters so membership is obvious
+            if (seg && (seg.kind === 'folder' ||
+                (Array.isArray(seg.patientIds) && seg.patientIds.length))) {
                 restoreConditionsToUi({
                     search: '', sex: '', dobMonth: '', hasPhone: '',
                     optOut: '', sent: '', clinic: '', extras: []
@@ -889,6 +2350,7 @@ var MASSBC = (function () {
             }
         }
         renderSegments();
+        syncMoveUnderUi();
         enrichDoctorFilter().then(function () { applyFilters(); });
     }
 
@@ -1164,18 +2626,19 @@ var MASSBC = (function () {
         var clinicFilter = (pick('mbFilterClinic') && pick('mbFilterClinic').value) || '';
         var clinicTag = clinicFilter;
 
-        // Custom saved list with fixed membership (preferred)
+        // Custom saved list / folder with fixed membership (preferred)
         var membershipSet = null;
         if (isSavedListId(_activeSegmentId)) {
-            var segs = loadSegments();
-            var seg = null;
-            for (var si = 0; si < segs.length; si++) {
-                if (String(segs[si].id) === String(_activeSegmentId)) {
-                    seg = segs[si];
-                    break;
-                }
-            }
-            if (seg && Array.isArray(seg.patientIds) && seg.patientIds.length) {
+            var seg = findSavedSegment(_activeSegmentId);
+            if (seg) applyOrgToSegment(seg);
+            if (seg && seg.kind === 'folder') {
+                membershipSet = {};
+                membershipIdsForSegment(seg).forEach(function (pid) {
+                    membershipSet[String(pid)] = true;
+                });
+                // Empty folder → show no contacts (organiser shell)
+                if (!Object.keys(membershipSet).length) membershipSet.__emptyFolder = true;
+            } else if (seg && Array.isArray(seg.patientIds) && seg.patientIds.length) {
                 membershipSet = {};
                 seg.patientIds.forEach(function (pid) {
                     if (pid != null && pid !== '') membershipSet[String(pid)] = true;
@@ -1208,6 +2671,7 @@ var MASSBC = (function () {
             if (isBlankContact(p)) return false;
 
             if (membershipSet) {
+                if (membershipSet.__emptyFolder) return false;
                 return !!membershipSet[String(p.id)];
             }
 
@@ -1526,6 +2990,7 @@ var MASSBC = (function () {
 
         bindHost(pick('mbPagerTop'));
         bindHost(pick('mbPager'));
+        syncPageSelectInputs();
     }
 
     function updateCounts() {
@@ -1554,16 +3019,129 @@ var MASSBC = (function () {
         }, '{F} shown · {T} tagged/{M}mo · {S} selected · {P} sendable · {O} opt-out');
     }
 
+    function filteredIndexOfPatientId(pid) {
+        var want = String(pid || '');
+        if (!want) return -1;
+        for (var i = 0; i < _filtered.length; i++) {
+            if (_filtered[i] && String(_filtered[i].id) === want) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * Shift+click range: select every filtered row between two patient ids (inclusive).
+     * Works across pages using the current filtered sort order.
+     */
+    function selectFilteredRange(fromId, toId, selectOn) {
+        var a = filteredIndexOfPatientId(fromId);
+        var b = filteredIndexOfPatientId(toId);
+        if (a < 0 && b < 0) return 0;
+        if (a < 0) a = b;
+        if (b < 0) b = a;
+        var lo = Math.min(a, b);
+        var hi = Math.max(a, b);
+        var on = selectOn !== false;
+        var n = 0;
+        for (var i = lo; i <= hi; i++) {
+            var p = _filtered[i];
+            if (!p || p.id == null) continue;
+            var id = String(p.id);
+            if (on) {
+                _selected[id] = true;
+                n += 1;
+            } else {
+                delete _selected[id];
+            }
+        }
+        var status = pick('mbStatus');
+        if (status && on) {
+            status.textContent = trRepl('mb.shiftSelect.ok', { N: n },
+                'Shift-selected {N} contacts (from–to).');
+        }
+        return n;
+    }
+
     function selectAllFiltered() {
         _filtered.forEach(function (p) { _selected[p.id] = true; });
+        if (_filtered.length) {
+            _selectAnchorId = String(_filtered[0].id);
+        }
         renderTable();
         updateCounts();
     }
 
     function clearSelection() {
         _selected = {};
+        _selectAnchorId = null;
         renderTable();
         updateCounts();
+    }
+
+    function syncPageSelectInputs() {
+        var total = _filtered.length;
+        var pages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
+        var fromEl = pick('mbSelPageFrom');
+        var toEl = pick('mbSelPageTo');
+        var cur = (_page || 0) + 1;
+        [fromEl, toEl].forEach(function (el) {
+            if (!el) return;
+            el.max = String(pages);
+            el.disabled = total === 0;
+            var v = parseInt(el.value, 10);
+            if (!el.value || isNaN(v) || v < 1) el.value = String(cur);
+            else if (v > pages) el.value = String(pages);
+        });
+    }
+
+    /** Select contacts on pages from–to only (1-based, inclusive). */
+    function selectByPageRange() {
+        var total = _filtered.length;
+        var pages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
+        if (!total) {
+            alert(tr('mb.selectByPage.empty', 'No contacts to select on this result set.'));
+            return;
+        }
+        var fromEl = pick('mbSelPageFrom');
+        var toEl = pick('mbSelPageTo');
+        var from = parseInt(fromEl && fromEl.value, 10);
+        var to = parseInt(toEl && toEl.value, 10);
+        if (isNaN(from) || from < 1) from = 1;
+        if (isNaN(to) || to < 1) to = from;
+        if (from > to) {
+            var swap = from;
+            from = to;
+            to = swap;
+        }
+        from = Math.min(from, pages);
+        to = Math.min(to, pages);
+        if (fromEl) fromEl.value = String(from);
+        if (toEl) toEl.value = String(to);
+
+        var startIdx = (from - 1) * PAGE_SIZE;
+        var endIdx = Math.min(total, to * PAGE_SIZE);
+        _selected = {};
+        var n = 0;
+        var firstId = null;
+        for (var i = startIdx; i < endIdx; i++) {
+            var p = _filtered[i];
+            if (!p || p.id == null) continue;
+            var pid = String(p.id);
+            _selected[pid] = true;
+            if (!firstId) firstId = pid;
+            n += 1;
+        }
+        _selectAnchorId = firstId;
+        // Show the first page of the selected range
+        goToPage(from - 1);
+        updateCounts();
+        var status = pick('mbStatus');
+        if (status) {
+            status.textContent = from === to
+                ? trRepl('mb.selectByPage.okOne', { P: from, N: n },
+                    'Selected page {P} ({N} contacts).')
+                : trRepl('mb.selectByPage.okRange', { FROM: from, TO: to, N: n },
+                    'Selected pages {FROM}–{TO} ({N} contacts).');
+        }
     }
 
     // ── Condition builder ────────────────────────────────────────
@@ -3313,12 +4891,24 @@ var MASSBC = (function () {
         onSentPeriodChange: onSentPeriodChange,
         onSortChange: onSortChange,
         selectAllFiltered: selectAllFiltered,
+        selectByPageRange: selectByPageRange,
         clearSelection: clearSelection,
         addCondition: addCondition,
         clearConditions: clearConditions,
         clearAllFilters: clearAllFilters,
         toggleColEditor: toggleColEditor,
         saveCurrentAsSegment: saveCurrentAsSegment,
+        saveCurrentAsSegmentUnder: saveCurrentAsSegmentUnder,
+        moveToTopLevel: moveToTopLevel,
+        moveUnderFolderPrompt: moveUnderFolderPrompt,
+        moveListsUnderFolder: moveListsUnderFolder,
+        renameSavedSegment: renameSavedSegment,
+        createFolder: createFolder,
+        createSubfolder: createSubfolder,
+        bulkSetMarkerPrompt: bulkSetMarkerPrompt,
+        deleteSelectedLists: deleteSelectedLists,
+        setListMarker: setListMarker,
+        setListRemark: setListRemark,
         refreshSegmentsFromCloud: refreshSegmentsFromCloud,
         startCampaignFromSelection: startCampaignFromSelection,
         goWizardStep: goWizardStep,

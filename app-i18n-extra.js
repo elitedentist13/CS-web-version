@@ -1517,6 +1517,85 @@
         'mb.loading': { en: 'Loading contacts…', 'zh-CN': '加载联系人…', 'zh-Hant': '載入聯絡人…' },
         'mb.empty': { en: 'No contacts match these filters.', 'zh-CN': '没有符合条件的联系人。', 'zh-Hant': '沒有符合條件的聯絡人。' },
         'mb.optOut': { en: 'Opt-out', 'zh-CN': '退订', 'zh-Hant': '退訂' },
+        'mb.optOut.markBtn': { en: 'Mark opt-out', 'zh-CN': '标记退订', 'zh-Hant': '標記退訂' },
+        'mb.optOut.clearBtn': { en: 'Allow messages', 'zh-CN': '允许接收', 'zh-Hant': '允許接收' },
+        'mb.optOut.markOne': { en: 'Opt out', 'zh-CN': '退订', 'zh-Hant': '退訂' },
+        'mb.optOut.allowOne': { en: 'Allow', 'zh-CN': '允许', 'zh-Hant': '允許' },
+        'mb.optOut.rowTitle': {
+            en: 'Opted out — will not receive clinic broadcast messages',
+            'zh-CN': '已退订 — 不会接收诊所群发消息',
+            'zh-Hant': '已退訂 — 不會接收診所群發訊息'
+        },
+        'mb.optOut.disabledCheck': {
+            en: 'Opted-out contacts cannot be selected for broadcast',
+            'zh-CN': '已退订的联系人不能加入群发',
+            'zh-Hant': '已退訂的聯絡人不能加入群發'
+        },
+        'mb.optOut.confirmMark': {
+            en: 'Mark {N} contact(s) as opt-out? They will not receive clinic broadcasts.',
+            'zh-CN': '将 {N} 位联系人标记为退订？他们将不再接收诊所群发。',
+            'zh-Hant': '將 {N} 位聯絡人標記為退訂？他們將不再接收診所群發。'
+        },
+        'mb.optOut.confirmClear': {
+            en: 'Allow {N} contact(s) to receive clinic broadcasts again?',
+            'zh-CN': '允许 {N} 位联系人再次接收诊所群发？',
+            'zh-Hant': '允許 {N} 位聯絡人再次接收診所群發？'
+        },
+        'mb.optOut.saving': {
+            en: 'Saving opt-out preference…',
+            'zh-CN': '正在保存退订偏好…',
+            'zh-Hant': '正在儲存退訂偏好…'
+        },
+        'mb.optOut.markedOk': {
+            en: 'Marked {N} contact(s) as opt-out.',
+            'zh-CN': '已将 {N} 位标记为退订。',
+            'zh-Hant': '已將 {N} 位標記為退訂。'
+        },
+        'mb.optOut.clearedOk': {
+            en: 'Cleared opt-out for {N} contact(s).',
+            'zh-CN': '已清除 {N} 位的退订标记。',
+            'zh-Hant': '已清除 {N} 位的退訂標記。'
+        },
+        'mb.optOut.markedOneOk': {
+            en: 'Contact marked as opt-out.',
+            'zh-CN': '已标记该联系人为退订。',
+            'zh-Hant': '已標記該聯絡人為退訂。'
+        },
+        'mb.optOut.clearedOneOk': {
+            en: 'Contact can receive broadcasts again.',
+            'zh-CN': '该联系人可再次接收群发。',
+            'zh-Hant': '該聯絡人可再次接收群發。'
+        },
+        'mb.optOut.saveFail': {
+            en: 'Could not save opt-out. {ERR}',
+            'zh-CN': '无法保存退订。{ERR}',
+            'zh-Hant': '無法儲存退訂。{ERR}'
+        },
+        'mb.optOut.savePartial': {
+            en: 'Updated {OK}; failed {FAIL}.',
+            'zh-CN': '已更新 {OK}；失败 {FAIL}。',
+            'zh-Hant': '已更新 {OK}；失敗 {FAIL}。'
+        },
+        'mb.optOut.needSql': {
+            en: 'Opt-out needs the patients.messaging_opt_out column. Run message_broadcast.sql in Supabase SQL Editor.',
+            'zh-CN': '退订需要 patients.messaging_opt_out 字段。请在 Supabase SQL 编辑器执行 message_broadcast.sql。',
+            'zh-Hant': '退訂需要 patients.messaging_opt_out 欄位。請在 Supabase SQL 編輯器執行 message_broadcast.sql。'
+        },
+        'mb.optOut.noSb': {
+            en: 'Supabase is not available.',
+            'zh-CN': '无法连接 Supabase。',
+            'zh-Hant': '無法連接 Supabase。'
+        },
+        'mb.hint.optOut': {
+            en: 'Red / grey rows are opt-out (do not receive clinic broadcasts). Use Mark opt-out / Allow messages, or the per-row button. They are excluded from receiver selection and send.',
+            'zh-CN': '红色／灰色行表示退订（不接收诊所群发）。可用「标记退订／允许接收」或行内按钮记录。退订者不会进入收件人选中，发送时也会排除。',
+            'zh-Hant': '紅色／灰色列表示退訂（不接收診所群發）。可用「標記退訂／允許接收」或列內按鈕記錄。退訂者不會進入收件人選取，傳送時也會排除。'
+        },
+        'mb.selectAll.ok': {
+            en: 'Selected {N} sendable contacts (opt-out skipped).',
+            'zh-CN': '已选 {N} 位可发送联系人（已跳过退订）。',
+            'zh-Hant': '已選 {N} 位可傳送聯絡人（已略過退訂）。'
+        },
         'mb.history.needSql': {
             en: 'No campaign log yet. Apply message_broadcast.sql in Supabase SQL Editor.',
             'zh-CN': '尚无发送记录。请在 Supabase SQL 编辑器执行 message_broadcast.sql。',

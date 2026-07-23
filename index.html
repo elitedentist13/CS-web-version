@@ -1943,6 +1943,10 @@
                 </div>
                 <button type="button" class="mb-btn ghost" onclick="MASSBC.clearSelection()"
                         data-i18n="mb.clearSel">Clear selection</button>
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.markSelectedOptOut(true)"
+                        data-i18n="mb.optOut.markBtn" title="Mark selected patients as not willing to receive broadcast messages">Mark opt-out</button>
+                <button type="button" class="mb-btn ghost" onclick="MASSBC.markSelectedOptOut(false)"
+                        data-i18n="mb.optOut.clearBtn" title="Allow selected patients to receive broadcast messages again">Allow messages</button>
                 <button type="button" class="mb-btn ghost" onclick="MASSBC.autoPatchListsFromSelection()"
                         data-i18n="mb.patch.btn">Auto patch lists</button>
                 <button type="button" class="mb-btn primary" onclick="MASSBC.startCampaignFromSelection()"
@@ -1962,6 +1966,9 @@
             </p>
             <p class="mb-hint" data-i18n="mb.hint.shiftSelect">
               Tip: tick one contact, then Shift+click another to select every row between them.
+            </p>
+            <p class="mb-hint" data-i18n="mb.hint.optOut">
+              Red / grey rows are opt-out (do not receive clinic broadcasts). Use Mark opt-out / Allow messages, or the per-row button. They are excluded from receiver selection and send.
             </p>
           </div>
         </div>

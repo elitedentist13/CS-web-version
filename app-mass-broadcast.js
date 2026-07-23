@@ -876,6 +876,12 @@ var MASSBC = (function () {
             if (t.getAttribute('data-mb-row') != null) {
                 var id = String(t.getAttribute('data-mb-row') || '');
                 if (!id) return;
+                if (t.checked && isMessagingOptOut(findPatientById(id))) {
+                    t.checked = false;
+                    setPatientSelected(id, false);
+                    syncSelectionUi();
+                    return;
+                }
                 setPatientSelected(id, !!t.checked);
                 _selectAnchorId = id;
                 syncSelectionUi();
@@ -917,6 +923,16 @@ var MASSBC = (function () {
                 ev.preventDefault();
                 ev.stopPropagation();
                 openMarkerMenu(markBtn.getAttribute('data-mb-list-mark'), markBtn);
+                return;
+            }
+            var optToggle = t.closest('[data-mb-optout-toggle]');
+            if (optToggle) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                var optId = optToggle.getAttribute('data-mb-optout-toggle');
+                var setAttr = optToggle.getAttribute('data-mb-optout-set');
+                var setOut = setAttr === '1' ? true : (setAttr === '0' ? false : null);
+                toggleOneOptOut(optId, setOut);
                 return;
             }
             var toggleBtn = t.closest('[data-mb-list-toggle]');
@@ -2844,6 +2860,10 @@ var MASSBC = (function () {
                     if (p.messaging_opt_out == null) p.messaging_opt_out = false;
                     return p;
                 });
+                // Drop any previously selected contacts that are opted out
+                Object.keys(_selected).forEach(function (sid) {
+                    if (isMessagingOptOut(findPatientById(sid))) delete _selected[sid];
+                });
                 return Promise.all([enrichDoctorFilter(), loadSentHistory()]).then(function () {
                     applyFilters();
                     var tagged = Object.keys(_sentMap).length;
@@ -3025,12 +3045,17 @@ var MASSBC = (function () {
                     ].join(' ').toLowerCase();
                     if (ublob.indexOf(search) < 0) return false;
                 }
+                if (optOut === 'exclude' && p.messaging_opt_out) return false;
+                if (optOut === 'only' && !p.messaging_opt_out) return false;
                 return true;
             }
 
             if (membershipSet) {
                 if (membershipSet.__emptyFolder) return false;
-                return !!membershipSet[String(p.id)];
+                if (!membershipSet[String(p.id)]) return false;
+                if (optOut === 'exclude' && p.messaging_opt_out) return false;
+                if (optOut === 'only' && !p.messaging_opt_out) return false;
+                return true;
             }
 
             if (_activeSegmentId === 'hasphone' && !phoneOf(p)) return false;
@@ -3192,6 +3217,7 @@ var MASSBC = (function () {
                     var on = !!pageCb.checked;
                     slice.forEach(function (p) {
                         if (!p || p.id == null) return;
+                        if (on && !isSelectablePatient(p)) return;
                         setPatientSelected(p.id, on);
                     });
                     if (slice.length) {
@@ -3223,10 +3249,19 @@ var MASSBC = (function () {
             var sentInfo = getSentInfo(p);
             html += '<tr class="mb-row' +
                 (p.messaging_opt_out ? ' mb-row-optout' : '') +
-                (sentInfo ? ' mb-row-sent' : '') + '">';
+                (sentInfo ? ' mb-row-sent' : '') + '"' +
+                (p.messaging_opt_out
+                    ? ' title="' + esc(tr('mb.optOut.rowTitle',
+                        'Opted out — will not receive clinic broadcast messages')) + '"'
+                    : '') + '>';
             html +=
                 '<td class="mb-td-check"><input type="checkbox" data-mb-row="' +
-                esc(pid) + '"' + checked + '></td>';
+                esc(pid) + '"' + checked +
+                (p.messaging_opt_out
+                    ? ' disabled title="' + esc(tr('mb.optOut.disabledCheck',
+                        'Opted-out contacts cannot be selected for broadcast')) + '"'
+                    : '') +
+                '></td>';
             cols.forEach(function (c) {
                 if (!c.on) return;
                 html += '<td>' + cellHtml(p, c.key) + '</td>';
@@ -3269,6 +3304,13 @@ var MASSBC = (function () {
             n += sentTagHtml(p);
             if (p.messaging_opt_out) {
                 n += ' <span class="mb-optout-badge">' + esc(tr('mb.optOut', 'Opt-out')) + '</span>';
+                n += ' <button type="button" class="mb-optout-toggle is-allow" data-mb-optout-toggle="' +
+                    esc(String(p.id)) + '" data-mb-optout-set="0">' +
+                    esc(tr('mb.optOut.allowOne', 'Allow')) + '</button>';
+            } else {
+                n += ' <button type="button" class="mb-optout-toggle" data-mb-optout-toggle="' +
+                    esc(String(p.id)) + '" data-mb-optout-set="1">' +
+                    esc(tr('mb.optOut.markOne', 'Opt out')) + '</button>';
             }
             return n;
         }
@@ -3357,11 +3399,183 @@ var MASSBC = (function () {
         syncPageSelectInputs();
     }
 
+    function findPatientById(id) {
+        var want = String(id == null ? '' : id);
+        if (!want) return null;
+        for (var i = 0; i < _allPatients.length; i++) {
+            if (_allPatients[i] && String(_allPatients[i].id) === want) return _allPatients[i];
+        }
+        return null;
+    }
+
+    function isMessagingOptOut(p) {
+        return !!(p && p.messaging_opt_out);
+    }
+
+    function isSelectablePatient(p) {
+        return !!(p && p.id != null && !p.messaging_opt_out);
+    }
+
     function setPatientSelected(id, on) {
         var sid = String(id == null ? '' : id);
         if (!sid) return;
-        if (on) _selected[sid] = true;
-        else delete _selected[sid];
+        if (on) {
+            // Hard gate: opted-out patients never enter receiver selection
+            if (isMessagingOptOut(findPatientById(sid))) {
+                delete _selected[sid];
+                return;
+            }
+            _selected[sid] = true;
+        } else {
+            delete _selected[sid];
+        }
+    }
+
+    /**
+     * Persist messaging_opt_out on patients and refresh local caches.
+     * @param {string[]} ids
+     * @param {boolean} optedOut
+     * @returns {Promise<{ok:number,fail:number,error?:string}>}
+     */
+    function persistMessagingOptOut(ids, optedOut) {
+        var flag = !!optedOut;
+        var list = (ids || []).map(String).filter(Boolean);
+        if (!list.length) {
+            return Promise.resolve({ ok: 0, fail: 0 });
+        }
+        if (typeof SB === 'undefined' || !SB) {
+            return Promise.resolve({
+                ok: 0,
+                fail: list.length,
+                error: tr('mb.optOut.noSb', 'Supabase is not available.')
+            });
+        }
+        var CHUNK = 40;
+        var ok = 0;
+        var fail = 0;
+        var lastErr = '';
+        var columnMissing = false;
+
+        function applyLocal(id) {
+            var p = findPatientById(id);
+            if (p) p.messaging_opt_out = flag;
+            if (flag) delete _selected[String(id)];
+        }
+
+        function runChunk(offset) {
+            if (offset >= list.length) {
+                return Promise.resolve({
+                    ok: ok,
+                    fail: fail,
+                    error: lastErr || undefined,
+                    columnMissing: columnMissing
+                });
+            }
+            var slice = list.slice(offset, offset + CHUNK);
+            return Promise.all(slice.map(function (id) {
+                return SB.from('patients')
+                    .update({ messaging_opt_out: flag })
+                    .eq('id', id)
+                    .then(function (r) {
+                        if (r.error) {
+                            fail += 1;
+                            lastErr = r.error.message || String(r.error);
+                            if (/messaging_opt_out/i.test(lastErr)) {
+                                columnMissing = true;
+                                // Keep UI usable this session if schema not applied yet
+                                applyLocal(id);
+                                ok += 1;
+                                fail -= 1;
+                            }
+                        } else {
+                            applyLocal(id);
+                            ok += 1;
+                        }
+                    })
+                    .catch(function (err) {
+                        fail += 1;
+                        lastErr = (err && err.message) || String(err);
+                    });
+            })).then(function () {
+                return runChunk(offset + CHUNK);
+            });
+        }
+
+        return runChunk(0);
+    }
+
+    function markSelectedOptOut(optedOut) {
+        var ids = selectedPatientIds();
+        if (!ids.length) {
+            alert(tr('mb.alert.selectFirst', 'Select at least one contact first.'));
+            return;
+        }
+        var flag = !!optedOut;
+        var msg = flag
+            ? trRepl('mb.optOut.confirmMark', { N: ids.length },
+                'Mark {N} contact(s) as opt-out? They will not receive clinic broadcasts.')
+            : trRepl('mb.optOut.confirmClear', { N: ids.length },
+                'Allow {N} contact(s) to receive clinic broadcasts again?');
+        if (!window.confirm(msg)) return;
+
+        var status = pick('mbStatus');
+        if (status) {
+            status.textContent = tr('mb.optOut.saving', 'Saving opt-out preference…');
+        }
+
+        persistMessagingOptOut(ids, flag).then(function (res) {
+            applyFilters();
+            if (status) {
+                if (res.fail && !res.ok) {
+                    status.textContent = trRepl('mb.optOut.saveFail', {
+                        ERR: res.error || ''
+                    }, 'Could not save opt-out. {ERR}');
+                } else if (res.fail) {
+                    status.textContent = trRepl('mb.optOut.savePartial', {
+                        OK: res.ok, FAIL: res.fail
+                    }, 'Updated {OK}; failed {FAIL}.');
+                } else {
+                    status.textContent = flag
+                        ? trRepl('mb.optOut.markedOk', { N: res.ok },
+                            'Marked {N} contact(s) as opt-out.')
+                        : trRepl('mb.optOut.clearedOk', { N: res.ok },
+                            'Cleared opt-out for {N} contact(s).');
+                }
+            }
+            if (res.columnMissing) {
+                alert(tr('mb.optOut.needSql',
+                    'Opt-out needs the patients.messaging_opt_out column. Run message_broadcast.sql in Supabase SQL Editor.'));
+            }
+        });
+    }
+
+    function toggleOneOptOut(patientId, setOut) {
+        var id = String(patientId || '');
+        if (!id) return;
+        var p = findPatientById(id);
+        var next = setOut == null ? !(p && p.messaging_opt_out) : !!setOut;
+        var status = pick('mbStatus');
+        if (status) {
+            status.textContent = tr('mb.optOut.saving', 'Saving opt-out preference…');
+        }
+        persistMessagingOptOut([id], next).then(function (res) {
+            applyFilters();
+            if (status) {
+                if (res.fail && !res.ok) {
+                    status.textContent = trRepl('mb.optOut.saveFail', {
+                        ERR: res.error || ''
+                    }, 'Could not save opt-out. {ERR}');
+                } else {
+                    status.textContent = next
+                        ? tr('mb.optOut.markedOneOk', 'Contact marked as opt-out.')
+                        : tr('mb.optOut.clearedOneOk', 'Contact can receive broadcasts again.');
+                }
+            }
+            if (res.columnMissing || (res.fail && !res.ok && res.error && /messaging_opt_out/i.test(res.error))) {
+                alert(tr('mb.optOut.needSql',
+                    'Opt-out needs the patients.messaging_opt_out column. Run message_broadcast.sql in Supabase SQL Editor.'));
+            }
+        });
     }
 
     function selectedPatientIds() {
@@ -3375,17 +3589,20 @@ var MASSBC = (function () {
         if (!pageCb) return;
         var start = _page * PAGE_SIZE;
         var slice = _filtered.slice(start, start + PAGE_SIZE);
-        if (!slice.length) {
+        var selectable = slice.filter(isSelectablePatient);
+        if (!selectable.length) {
             pageCb.checked = false;
             pageCb.indeterminate = false;
+            pageCb.disabled = !slice.length ? false : true;
             return;
         }
+        pageCb.disabled = false;
         var n = 0;
-        slice.forEach(function (p) {
+        selectable.forEach(function (p) {
             if (p && p.id != null && _selected[String(p.id)]) n += 1;
         });
-        pageCb.checked = n === slice.length;
-        pageCb.indeterminate = n > 0 && n < slice.length;
+        pageCb.checked = n === selectable.length;
+        pageCb.indeterminate = n > 0 && n < selectable.length;
     }
 
     function syncSelectionUi() {
@@ -3445,6 +3662,7 @@ var MASSBC = (function () {
         for (var i = lo; i <= hi; i++) {
             var p = _filtered[i];
             if (!p || p.id == null) continue;
+            if (on && !isSelectablePatient(p)) continue;
             setPatientSelected(p.id, on);
             if (on) n += 1;
         }
@@ -3457,12 +3675,23 @@ var MASSBC = (function () {
     }
 
     function selectAllFiltered() {
-        _filtered.forEach(function (p) { setPatientSelected(p.id, true); });
+        var n = 0;
+        _filtered.forEach(function (p) {
+            if (!isSelectablePatient(p)) return;
+            setPatientSelected(p.id, true);
+            n += 1;
+        });
         if (_filtered.length) {
-            _selectAnchorId = String(_filtered[0].id);
+            var firstSel = _filtered.find(isSelectablePatient);
+            _selectAnchorId = firstSel ? String(firstSel.id) : String(_filtered[0].id);
         }
         renderTable();
         syncSelectionUi();
+        var status = pick('mbStatus');
+        if (status) {
+            status.textContent = trRepl('mb.selectAll.ok', { N: n },
+                'Selected {N} sendable contacts (opt-out skipped).');
+        }
     }
 
     function clearSelection() {
@@ -3520,6 +3749,7 @@ var MASSBC = (function () {
         for (var i = startIdx; i < endIdx; i++) {
             var p = _filtered[i];
             if (!p || p.id == null) continue;
+            if (!isSelectablePatient(p)) continue;
             var pid = String(p.id);
             setPatientSelected(pid, true);
             if (!firstId) firstId = pid;
@@ -5259,7 +5489,8 @@ var MASSBC = (function () {
                 return '"' + s + '"';
             }).join(','));
         });
-        var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+        // UTF-8 BOM so Excel opens Traditional Chinese names correctly (CSV UTF-8).
+        var blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = 'broadcast_' + (camp && camp.name ? camp.name : 'log')
@@ -5307,6 +5538,7 @@ var MASSBC = (function () {
         setListRemark: setListRemark,
         refreshSegmentsFromCloud: refreshSegmentsFromCloud,
         startCampaignFromSelection: startCampaignFromSelection,
+        markSelectedOptOut: markSelectedOptOut,
         goWizardStep: goWizardStep,
         setChannel: setChannel,
         onTplChange: onTplChange,

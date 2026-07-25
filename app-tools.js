@@ -311,6 +311,112 @@
     // ════════════════════════════════════════════════════════════════
     var QRTOOL = (function () {
         var TYPE = 'text';
+        var _logoDataUrl = null;
+        var _logoScale = 18;
+        var _centreLabel = '';
+        var _labelColor = '#111827';
+        var _labelScale = 100;
+        var _baseCanvas = null;
+        var _baseKey = '';
+        var _lastEcOverlay = false;
+        var QR_PREVIEW_PLACEHOLDER = 'https://joyful-smile.preview/qr';
+        var LOGO_SCALE_MIN = 12;
+        var LOGO_SAFE_MAX_SOLO = 22;
+        var LOGO_SAFE_MAX_WITH_LABEL = 16;
+
+        function logoSafeMaxPct() {
+            return readCentreLabel(false) ? LOGO_SAFE_MAX_WITH_LABEL : LOGO_SAFE_MAX_SOLO;
+        }
+        function clampLogoScale(value) {
+            var n = num(value);
+            if (isNaN(n)) n = 18;
+            return Math.max(LOGO_SCALE_MIN, Math.min(logoSafeMaxPct(), Math.round(n)));
+        }
+        function effectiveLogoScalePct() {
+            return clampLogoScale(_logoScale);
+        }
+        function updateOverlayScanHint() {
+            var el = gg('qr_scan_hint');
+            if (!el) return;
+            if (!_logoDataUrl) {
+                el.style.display = 'none';
+                el.textContent = '';
+                return;
+            }
+            var safe = logoSafeMaxPct();
+            var current = num(_logoScale) || effectiveLogoScalePct();
+            if (current > safe) {
+                el.style.display = '';
+                el.textContent = t(
+                    'Logo size was reduced to ' + safe + '% so the QR stays scannable.',
+                    '标志大小已限制为 ' + safe + '%，以确保二维码可扫描。',
+                    '標誌大小已限制為 ' + safe + '%，以確保 QR 碼可掃描。');
+            } else if (current >= safe - 1) {
+                el.style.display = '';
+                el.textContent = t(
+                    'Near the maximum safe logo size (' + safe + '%). Larger overlays often fail to scan.',
+                    '已接近安全上限（' + safe + '%）。更大的标志常导致无法扫描。',
+                    '已接近安全上限（' + safe + '%）。更大的標誌常導致無法掃描。');
+            } else {
+                el.style.display = 'none';
+                el.textContent = '';
+            }
+        }
+
+        /** Approximate print size at 300 dpi (mm) for hint text. */
+        function qrPrintMm(px) {
+            return Math.round((px / 300) * 25.4);
+        }
+
+        /** Suggested print use from pixel output size. */
+        function qrSizeHint(px) {
+            var mm = qrPrintMm(px);
+            if (px <= 192) {
+                return t(
+                    mm + ' mm (~' + px + ' px) — sticker, business-card back, email signature',
+                    mm + ' mm（约 ' + px + ' px）— 贴纸、名片背面、邮件签名',
+                    mm + ' mm（約 ' + px + ' px）— 貼紙、名片背面、電郵簽名');
+            }
+            if (px <= 320) {
+                return t(
+                    mm + ' mm (~' + px + ' px) — A6 flyer corner, appointment card, desk tent',
+                    mm + ' mm（约 ' + px + ' px）— A6 传单角落、预约卡、桌面展示牌',
+                    mm + ' mm（約 ' + px + ' px）— A6 傳單角落、預約卡、桌面展示牌');
+            }
+            if (px <= 448) {
+                return t(
+                    mm + ' mm (~' + px + ' px) — A5 handout, counter sign, leaflet insert',
+                    mm + ' mm（约 ' + px + ' px）— A5 宣传单、柜台告示、单张内页',
+                    mm + ' mm（約 ' + px + ' px）— A5 宣傳單、櫃台告示、單張內頁');
+            }
+            if (px <= 576) {
+                return t(
+                    mm + ' mm (~' + px + ' px) — A4 quarter-page, window decal, notice board',
+                    mm + ' mm（约 ' + px + ' px）— A4 四分之一页、橱窗贴、布告栏',
+                    mm + ' mm（約 ' + px + ' px）— A4 四分之一頁、櫥窗貼、佈告欄');
+            }
+            if (px <= 768) {
+                return t(
+                    mm + ' mm (~' + px + ' px) — A4 half-page, door sign, reception display',
+                    mm + ' mm（约 ' + px + ' px）— A4 半页、门口告示、接待处展示',
+                    mm + ' mm（約 ' + px + ' px）— A4 半頁、門口告示、接待處展示');
+            }
+            return t(
+                mm + ' mm (~' + px + ' px) — A4 full page, poster, wall banner',
+                mm + ' mm（约 ' + px + ' px）— A4 整页、海报、墙面横幅',
+                mm + ' mm（約 ' + px + ' px）— A4 整頁、海報、牆面橫幅');
+        }
+
+        function updateSizeHint() {
+            var hint = gg('qr_size_hint');
+            var sizeEl = gg('qr_size');
+            var valEl = gg('qr_size_val');
+            if (!hint || !sizeEl) return;
+            var px = num(sizeEl.value) || 320;
+            if (valEl) valEl.textContent = px + ' px';
+            hint.textContent = qrSizeHint(px);
+        }
+
         function open() {
             if (typeof showOnly === 'function') showOnly('qrToolSection');
             render();
@@ -333,26 +439,327 @@
                         '</div>' +
                         '<div id="qr_fields"></div>' +
                         '<div class="ct-qr-opts">' +
-                            '<label class="ct-field"><span>' + esc(t('Size', '尺寸', '尺寸')) + '</span>' +
+                            '<label class="ct-field ct-field--full"><span>' +
+                                esc(t('Size', '尺寸', '尺寸')) + ' · <strong id="qr_size_val">320 px</strong></span>' +
                             '<input id="qr_size" type="range" min="128" max="1024" step="32" value="320"></label>' +
+                            '<p id="qr_size_hint" class="ct-qr-size-hint" aria-live="polite"></p>' +
                             '<label class="ct-field"><span>' + esc(t('Dark', '前景色', '前景色')) + '</span>' +
                             '<input id="qr_fg" type="color" value="#111827"></label>' +
                             '<label class="ct-field"><span>' + esc(t('Light', '背景色', '背景色')) + '</span>' +
                             '<input id="qr_bg" type="color" value="#ffffff"></label>' +
                         '</div>' +
+                        '<div class="ct-qr-logo-block">' +
+                            '<div class="ct-qr-logo-head">' +
+                                '<span>' + esc(t('Centre overlay (optional)', '中心叠加（可选）', '中心疊加（可選）')) + '</span>' +
+                                '<button type="button" class="ct-btn ct-btn-ghost ct-btn-sm" id="qr_overlay_clear" ' +
+                                    'style="display:none;">' +
+                                    esc(t('Clear all', '全部清除', '全部清除')) + '</button>' +
+                            '</div>' +
+                            '<label class="ct-field ct-field--full">' +
+                                '<span>' + esc(t('Centre label', '中心文字', '中心文字')) + '</span>' +
+                                '<input id="qr_label" type="text" maxlength="28" value="' + esc(_centreLabel) +
+                                '" placeholder="' + esc(t('e.g. SCAN ME', '例如：扫码预约', '例如：掃碼預約')) + '">' +
+                            '</label>' +
+                            '<label class="ct-field">' +
+                                '<span>' + esc(t('Label colour', '文字颜色', '文字顏色')) + '</span>' +
+                                '<input id="qr_label_color" type="color" value="' + esc(_labelColor) + '">' +
+                            '</label>' +
+                            '<label class="ct-field ct-field--full">' +
+                                '<span>' + esc(t('Label size', '文字大小', '文字大小')) +
+                                    ' · <strong id="qr_label_scale_val">' + _labelScale + '%</strong></span>' +
+                                '<input id="qr_label_scale" type="range" min="50" max="200" step="5" value="' +
+                                    _labelScale + '"' + (readCentreLabel(false) ? '' : ' disabled') + '></label>' +
+                            '<label class="ct-field ct-field--full">' +
+                                '<span>' + esc(t('Centre logo', '中心标志', '中心標誌')) + '</span>' +
+                                '<input id="qr_logo_file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml">' +
+                            '</label>' +
+                            '<label class="ct-field ct-field--full">' +
+                                '<span>' + esc(t('Logo size', '标志大小', '標誌大小')) +
+                                    ' · <strong id="qr_logo_scale_val">' + _logoScale + '%</strong></span>' +
+                                '<input id="qr_logo_scale" type="range" min="12" max="' + logoSafeMaxPct() + '" step="1" value="' +
+                                    clampLogoScale(_logoScale) + '"' + (_logoDataUrl ? '' : ' disabled') + '></label>' +
+                            '<p id="qr_scan_hint" class="ct-qr-scan-hint" style="display:none;" aria-live="polite"></p>' +
+                            '<p class="ct-qr-logo-hint">' + esc(t(
+                                'Keep the centre logo under ~22% (or ~16% with a label) for reliable scanning. High error correction is used automatically.',
+                                '为保证可扫描，中心标志建议不超过 QR 约 22%（含文字时约 16%）。系统会自动使用高容错等级。',
+                                '為確保可掃描，中心標誌建議不超過 QR 約 22%（含文字時約 16%）。系統會自動使用高容錯等級。')) + '</p>' +
+                        '</div>' +
                     '</div>' +
                     '<div class="ct-qr-preview">' +
                         '<div id="qr_box" class="ct-qr-box"></div>' +
+                        '<p id="qr_preview_note" class="ct-qr-preview-note" style="display:none;" aria-live="polite"></p>' +
                         '<button type="button" class="ct-btn ct-btn-primary" id="qr_dl" disabled>⬇ ' +
                             esc(t('Download PNG', '下载 PNG', '下載 PNG')) + '</button>' +
                     '</div>' +
                 '</div>';
             renderFields();
             wireTypes();
-            gg('qr_size').addEventListener('input', regen);
+            updateSizeHint();
+            gg('qr_size').addEventListener('input', function () {
+                updateSizeHint();
+                regen();
+            });
             gg('qr_fg').addEventListener('input', regen);
             gg('qr_bg').addEventListener('input', regen);
             gg('qr_dl').addEventListener('click', download);
+            wireOverlayControls();
+            _lastEcOverlay = overlayEcActive();
+            refreshPreview({ force: true });
+        }
+        function readCentreLabel(live) {
+            var el = gg('qr_label');
+            var s = el ? String(el.value || '') : String(_centreLabel || '');
+            return live ? s : s.trim();
+        }
+        function overlayEcActive() {
+            return !!_logoDataUrl || !!readCentreLabel(false);
+        }
+        function hasVisibleOverlay() {
+            return !!_logoDataUrl || !!readCentreLabel(false);
+        }
+        function buildPayloadOrPreview() {
+            var real = buildPayload();
+            if (real) return { payload: real, placeholder: false };
+            if (hasVisibleOverlay()) return { payload: QR_PREVIEW_PLACEHOLDER, placeholder: true };
+            return { payload: '', placeholder: false };
+        }
+        function baseCacheKey(payload, size, fg, bg, needsH) {
+            return [payload, size, fg, bg, needsH ? 'H' : 'M'].join('\u0001');
+        }
+        function updatePreviewNotice(placeholder) {
+            var note = gg('qr_preview_note');
+            if (!note) return;
+            if (placeholder) {
+                note.style.display = '';
+                note.textContent = t(
+                    'Live preview — enter QR content above to enable download.',
+                    '实时预览中 — 请在上方填写 QR 内容后再下载。',
+                    '即時預覽中 — 請在上方填寫 QR 內容後再下載。');
+            } else {
+                note.style.display = 'none';
+                note.textContent = '';
+            }
+        }
+        function syncDownloadState(placeholder) {
+            var btn = gg('qr_dl');
+            if (btn) btn.disabled = !!placeholder || !buildPayload();
+            updatePreviewNotice(!!placeholder);
+        }
+        function captureBaseFromCanvas(canvas) {
+            if (!canvas) return;
+            if (!_baseCanvas) _baseCanvas = document.createElement('canvas');
+            _baseCanvas.width = canvas.width;
+            _baseCanvas.height = canvas.height;
+            _baseCanvas.getContext('2d').drawImage(canvas, 0, 0);
+        }
+        function waitForQrCanvas(container, tries) {
+            return new Promise(function (resolve) {
+                function attempt(n) {
+                    var c = container.querySelector('canvas');
+                    if (c && c.width > 0) return resolve(c);
+                    if (n <= 0) return resolve(null);
+                    requestAnimationFrame(function () { attempt(n - 1); });
+                }
+                attempt(tries || 16);
+            });
+        }
+        function paintPreviewCanvas() {
+            var box = gg('qr_box');
+            if (!box || !_baseCanvas) return Promise.resolve(null);
+            var size = _baseCanvas.width;
+            var canvas = box.querySelector('canvas');
+            if (!canvas) {
+                box.innerHTML = '';
+                canvas = document.createElement('canvas');
+                box.appendChild(canvas);
+            }
+            if (canvas.width !== size || canvas.height !== size) {
+                canvas.width = size;
+                canvas.height = size;
+            }
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(_baseCanvas, 0, 0);
+            if (hasVisibleOverlay()) return applyCentreOverlay(canvas);
+            return Promise.resolve(canvas);
+        }
+        function regenBase(force) {
+            var meta = buildPayloadOrPreview();
+            var box = gg('qr_box');
+            if (!box) return Promise.resolve();
+            syncDownloadState(meta.placeholder);
+
+            if (!meta.payload) {
+                _baseCanvas = null;
+                _baseKey = '';
+                box.innerHTML = '<span class="ct-qr-empty">' +
+                    esc(t('Fill in the fields to preview', '填写内容以预览', '填寫內容以預覽')) + '</span>';
+                updatePreviewNotice(false);
+                return Promise.resolve();
+            }
+
+            var size = num(gg('qr_size').value) || 320;
+            var fg = gg('qr_fg').value;
+            var bg = gg('qr_bg').value;
+            var needsH = overlayEcActive();
+            var key = baseCacheKey(meta.payload, size, fg, bg, needsH);
+
+            if (!force && key === _baseKey && _baseCanvas) {
+                return paintPreviewCanvas();
+            }
+
+            return ensureQRCode().then(function (QRCode) {
+                var off = document.createElement('div');
+                off.setAttribute('aria-hidden', 'true');
+                off.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;';
+                document.body.appendChild(off);
+                new QRCode(off, {
+                    text: meta.payload,
+                    width: size,
+                    height: size,
+                    colorDark: fg,
+                    colorLight: bg,
+                    correctLevel: needsH ? QRCode.CorrectLevel.H : QRCode.CorrectLevel.M
+                });
+                return waitForQrCanvas(off, 20).then(function (src) {
+                    if (off.parentNode) off.parentNode.removeChild(off);
+                    if (!src) throw new Error('QR canvas missing');
+                    captureBaseFromCanvas(src);
+                    _baseKey = key;
+                    if (!box.querySelector('canvas')) box.innerHTML = '';
+                    return paintPreviewCanvas();
+                });
+            }).catch(function () {
+                _baseCanvas = null;
+                _baseKey = '';
+                box.innerHTML = '<span class="ct-qr-empty">' +
+                    esc(t('Could not load QR library.', '无法加载二维码库。', '無法載入 QR 程式庫。')) + '</span>';
+            });
+        }
+        function refreshPreview(opts) {
+            opts = opts || {};
+            var meta = buildPayloadOrPreview();
+            if (!meta.payload) {
+                _lastEcOverlay = overlayEcActive();
+                return regenBase(true);
+            }
+            var ecNow = overlayEcActive();
+            var ecChanged = ecNow !== _lastEcOverlay;
+            _lastEcOverlay = ecNow;
+            if (opts.force || ecChanged || !_baseCanvas) return regenBase(true);
+            if (opts.overlayOnly) {
+                syncDownloadState(meta.placeholder);
+                return paintPreviewCanvas();
+            }
+            return regenBase(false);
+        }
+        function regen(opts) {
+            refreshPreview(opts && opts.overlayOnly
+                ? { overlayOnly: true }
+                : { force: true });
+        }
+        function wireOverlayControls() {
+            var fileIn = gg('qr_logo_file');
+            var scaleIn = gg('qr_logo_scale');
+            var clearBtn = gg('qr_overlay_clear');
+            var labelIn = gg('qr_label');
+            var labelColorIn = gg('qr_label_color');
+            var labelScaleIn = gg('qr_label_scale');
+            if (labelIn) {
+                labelIn.addEventListener('input', function () {
+                    _centreLabel = labelIn.value;
+                    syncOverlayUi();
+                    var ecNow = overlayEcActive();
+                    var ecChanged = ecNow !== _lastEcOverlay;
+                    _lastEcOverlay = ecNow;
+                    if (ecChanged || !_baseCanvas) refreshPreview({ force: true });
+                    else refreshPreview({ overlayOnly: true });
+                });
+            }
+            if (labelColorIn) {
+                labelColorIn.addEventListener('input', function () {
+                    _labelColor = labelColorIn.value;
+                    refreshPreview({ overlayOnly: true });
+                });
+            }
+            if (labelScaleIn) {
+                labelScaleIn.addEventListener('input', function () {
+                    _labelScale = num(labelScaleIn.value) || 100;
+                    var valEl = gg('qr_label_scale_val');
+                    if (valEl) valEl.textContent = _labelScale + '%';
+                    refreshPreview({ overlayOnly: true });
+                });
+            }
+            if (fileIn) {
+                fileIn.addEventListener('change', function () {
+                    var file = fileIn.files && fileIn.files[0];
+                    if (!file) return;
+                    if (file.size > 2 * 1024 * 1024) {
+                        alert(t('Logo file is too large (max 2 MB).', '标志文件过大（最大 2 MB）。', '標誌檔案過大（最大 2 MB）。'));
+                        fileIn.value = '';
+                        return;
+                    }
+                    var reader = new FileReader();
+                    reader.onload = function () {
+                        _logoDataUrl = reader.result;
+                        syncOverlayUi();
+                        var ecChanged = overlayEcActive() !== _lastEcOverlay;
+                        _lastEcOverlay = overlayEcActive();
+                        refreshPreview({ force: ecChanged || !_baseCanvas });
+                    };
+                    reader.onerror = function () {
+                        alert(t('Could not read logo file.', '无法读取标志文件。', '無法讀取標誌檔案。'));
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+            if (scaleIn) {
+                scaleIn.addEventListener('input', function () {
+                    _logoScale = clampLogoScale(scaleIn.value);
+                    scaleIn.value = String(_logoScale);
+                    var valEl = gg('qr_logo_scale_val');
+                    if (valEl) valEl.textContent = _logoScale + '%';
+                    updateOverlayScanHint();
+                    refreshPreview({ overlayOnly: true });
+                });
+            }
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function () {
+                    _logoDataUrl = null;
+                    _centreLabel = '';
+                    _labelColor = '#111827';
+                    _logoScale = 18;
+                    _labelScale = 100;
+                    if (fileIn) fileIn.value = '';
+                    if (labelIn) labelIn.value = '';
+                    if (labelColorIn) labelColorIn.value = '#111827';
+                    if (labelScaleIn) labelScaleIn.value = '100';
+                    var labelScaleVal = gg('qr_label_scale_val');
+                    if (labelScaleVal) labelScaleVal.textContent = '100%';
+                    syncOverlayUi();
+                    _lastEcOverlay = overlayEcActive();
+                    refreshPreview({ force: true });
+                });
+            }
+            syncOverlayUi();
+        }
+        function syncOverlayUi() {
+            var clearBtn = gg('qr_overlay_clear');
+            var scaleIn = gg('qr_logo_scale');
+            var labelScaleIn = gg('qr_label_scale');
+            if (clearBtn) clearBtn.style.display = (hasVisibleOverlay() || readCentreLabel(true)) ? '' : 'none';
+            if (scaleIn) {
+                scaleIn.disabled = !_logoDataUrl;
+                if (_logoDataUrl) {
+                    var cap = logoSafeMaxPct();
+                    scaleIn.max = String(cap);
+                    _logoScale = clampLogoScale(scaleIn.value || _logoScale);
+                    scaleIn.value = String(_logoScale);
+                    var logoVal = gg('qr_logo_scale_val');
+                    if (logoVal) logoVal.textContent = _logoScale + '%';
+                }
+            }
+            if (labelScaleIn) labelScaleIn.disabled = !readCentreLabel(false);
+            updateOverlayScanHint();
         }
         function seg(id, label) {
             return '<button type="button" class="ct-seg-btn' + (id === TYPE ? ' active' : '') +
@@ -431,33 +838,113 @@
             return '';
         }
         var _qr = null;
-        function regen() {
-            var payload = buildPayload();
-            var box = gg('qr_box'); var btn = gg('qr_dl');
-            if (!box) return;
-            box.innerHTML = '';
-            if (!payload) { btn.disabled = true; box.innerHTML = '<span class="ct-qr-empty">' +
-                esc(t('Fill in the fields to preview', '填写内容以预览', '填寫內容以預覽')) + '</span>'; return; }
-            ensureQRCode().then(function (QRCode) {
-                box.innerHTML = '';
-                var size = num(gg('qr_size').value) || 320;
-                _qr = new QRCode(box, {
-                    text: payload,
-                    width: size, height: size,
-                    colorDark: gg('qr_fg').value,
-                    colorLight: gg('qr_bg').value,
-                    correctLevel: QRCode.CorrectLevel.M
-                });
-                btn.disabled = false;
-            }).catch(function () {
-                box.innerHTML = '<span class="ct-qr-empty">' +
-                    esc(t('Could not load QR library.', '无法加载二维码库。', '無法載入 QR 程式庫。')) + '</span>';
+        function qrOverlayBg() {
+            var bgEl = gg('qr_bg');
+            return bgEl ? bgEl.value : '#ffffff';
+        }
+        function qrOverlayLabelColor() {
+            var c = gg('qr_label_color');
+            return c ? c.value : _labelColor;
+        }
+        function computeLabelFontSize(qrSize, labelTrim) {
+            var base = labelTrim.length > 10 ? 0.042 : 0.05;
+            var scale = (_labelScale || 100) / 100;
+            return Math.max(8, Math.round(qrSize * base * scale));
+        }
+        function drawCentreLabel(ctx, qrSize, cx, cy, maxWidth) {
+            var label = readCentreLabel(true);
+            var labelTrim = label.trim();
+            if (!labelTrim || !ctx) return 0;
+            var fontSize = computeLabelFontSize(qrSize, labelTrim);
+            var maxBoxW = Math.min(maxWidth || qrSize * 0.34, Math.round(qrSize * 0.34));
+            ctx.font = '700 ' + fontSize + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            var textW = ctx.measureText(label).width;
+            var pad = Math.max(4, Math.round(fontSize * 0.3));
+            var boxW = Math.min(maxBoxW, textW + pad * 2);
+            var boxH = fontSize + pad * 2;
+            var x = Math.round(cx - boxW / 2);
+            var y = Math.round(cy - boxH / 2);
+            ctx.fillStyle = qrOverlayBg();
+            ctx.fillRect(x, y, boxW, boxH);
+            ctx.fillStyle = qrOverlayLabelColor();
+            ctx.fillText(label, cx, cy);
+            return boxH;
+        }
+        function applyCentreOverlay(canvas) {
+            if (!canvas) return Promise.resolve(canvas);
+            var label = readCentreLabel(true);
+            var labelTrim = label.trim();
+            if (!_logoDataUrl && !labelTrim) return Promise.resolve(canvas);
+
+            function finishOverlay() {
+                try {
+                    if (!_logoDataUrl && labelTrim) {
+                        var ctxOnly = canvas.getContext('2d');
+                        drawCentreLabel(ctxOnly, canvas.width, canvas.width / 2, canvas.height / 2, canvas.width * 0.34);
+                    }
+                } catch (e) { /* keep plain QR */ }
+                return canvas;
+            }
+
+            if (!_logoDataUrl) return Promise.resolve(finishOverlay());
+
+            return new Promise(function (resolve) {
+                var img = new Image();
+                img.onload = function () {
+                    try {
+                        var ctx = canvas.getContext('2d');
+                        var qrSize = canvas.width;
+                        var pct = effectiveLogoScalePct() / 100;
+                        var logoSize = Math.round(qrSize * pct);
+                        var gap = labelTrim ? Math.max(4, Math.round(qrSize * 0.015)) : 0;
+                        var labelFont = labelTrim ? computeLabelFontSize(qrSize, labelTrim) : 0;
+                        var labelBlockH = labelTrim ? labelFont + Math.max(8, Math.round(qrSize * 0.02)) : 0;
+                        var totalH = logoSize + (labelTrim ? gap + labelBlockH : 0);
+                        var pad = Math.max(3, Math.round(logoSize * 0.06));
+                        var maxBlockH = Math.round(qrSize * (labelTrim ? 0.30 : 0.26));
+                        if (totalH + pad * 2 > maxBlockH) {
+                            logoSize = Math.max(
+                                Math.round(qrSize * LOGO_SCALE_MIN / 100),
+                                maxBlockH - pad * 2 - gap - labelBlockH
+                            );
+                            totalH = logoSize + (labelTrim ? gap + labelBlockH : 0);
+                        }
+                        var startY = Math.round((qrSize - totalH) / 2);
+                        var x = Math.round((qrSize - logoSize) / 2);
+                        var blockW = Math.max(logoSize + pad * 2, Math.round(qrSize * 0.34));
+                        var blockH = totalH + pad * 2;
+                        var bx = Math.round((qrSize - blockW) / 2);
+                        var by = startY - pad;
+                        ctx.fillStyle = qrOverlayBg();
+                        ctx.fillRect(bx, by, blockW, blockH);
+                        ctx.drawImage(img, x, startY, logoSize, logoSize);
+                        if (labelTrim) {
+                            drawCentreLabel(
+                                ctx, qrSize, qrSize / 2,
+                                startY + logoSize + gap + labelBlockH / 2,
+                                blockW - pad
+                            );
+                        }
+                    } catch (e) { /* keep plain QR */ }
+                    resolve(canvas);
+                };
+                img.onerror = function () { resolve(finishOverlay()); };
+                img.src = _logoDataUrl;
             });
         }
         function download() {
+            if (!buildPayload()) return;
             var box = gg('qr_box'); if (!box) return;
             var canvas = box.querySelector('canvas');
-            var url = canvas ? canvas.toDataURL('image/png') : (box.querySelector('img') || {}).src;
+            if (canvas) {
+                canvas.toBlob(function (b) {
+                    if (b) dl(b, 'qrcode.png');
+                }, 'image/png');
+                return;
+            }
+            var url = (box.querySelector('img') || {}).src;
             if (!url) return;
             fetch(url).then(function (r) { return r.blob(); }).then(function (b) {
                 dl(b, 'qrcode.png');

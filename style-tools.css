@@ -848,6 +848,53 @@
     margin-top: 8px;
 }
 .ct-qr-opts .ct-field:first-child { grid-column: 1 / -1; }
+.ct-qr-opts .ct-field--full { grid-column: 1 / -1; }
+.ct-qr-size-hint {
+    grid-column: 1 / -1;
+    margin: -2px 0 4px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #5a6278;
+    background: #f3f5fb;
+    border-radius: 8px;
+    border-left: 3px solid #7c8cff;
+}
+.ct-qr-logo-block {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid #e7e9f2;
+}
+.ct-qr-logo-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #3a4050;
+}
+.ct-qr-logo-hint {
+    margin: 6px 0 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #8a90a0;
+}
+.ct-btn-sm {
+    padding: 4px 10px;
+    font-size: 12px;
+}
+.ct-btn-ghost {
+    background: transparent;
+    border: 1px solid #d4d8e3;
+    color: #5a6278;
+    box-shadow: none;
+}
+.ct-btn-ghost:hover {
+    background: #f3f5fb;
+    transform: none;
+}
 .ct-qr-preview { text-align: center; }
 .ct-qr-box {
     min-height: 240px;
@@ -862,6 +909,25 @@
 }
 .ct-qr-box canvas, .ct-qr-box img { max-width: 100%; height: auto; }
 .ct-qr-empty { color: #9aa0b0; font-size: 13px; }
+.ct-qr-scan-hint {
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #9a3412;
+    background: #fff7ed;
+    border-radius: 8px;
+    border: 1px solid #fdba74;
+}
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #6b5a00;
+    background: #fffbe6;
+    border-radius: 8px;
+    border: 1px solid #f0e4a8;
+}
 
 /* ── certificate / receipt / label ────────────────────────────── */
 .ct-cg-layout {

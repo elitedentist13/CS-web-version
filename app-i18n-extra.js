@@ -5542,6 +5542,46 @@
         },
         'login.errGeneric': { en: 'Login error.', 'zh-CN': '登录错误。', 'zh-Hant': '登入錯誤。' },
         'login.totpStep.title': { en: '2-Step Verification', 'zh-CN': '两步验证', 'zh-Hant': '兩步驗證' },
+        'login.adminStep.title': {
+            en: 'Admin verification',
+            'zh-CN': '管理员验证',
+            'zh-Hant': '管理員驗證'
+        },
+        'login.adminStep.smsTitle': {
+            en: 'Step 1: SMS verification',
+            'zh-CN': '第 1 步：短信验证',
+            'zh-Hant': '第 1 步：短訊驗證'
+        },
+        'login.adminStep.totpTitle': {
+            en: 'Step 2: Authenticator app',
+            'zh-CN': '第 2 步：验证器应用',
+            'zh-Hant': '第 2 步：驗證器應用程式'
+        },
+        'login.adminStep.stepBadge': {
+            en: 'Step {N} of 2',
+            'zh-CN': '第 {N} 步，共 2 步',
+            'zh-Hant': '第 {N} 步，共 2 步'
+        },
+        'login.adminStep.smsSent': {
+            en: 'A verification code was sent by SMS to {PHONE}.',
+            'zh-CN': '验证码已通过短信发送至 {PHONE}。',
+            'zh-Hant': '驗證碼已透過短訊發送至 {PHONE}。'
+        },
+        'login.adminStep.totpSub': {
+            en: 'SMS verified. Now enter the 6-digit code from Google Authenticator / Authy.',
+            'zh-CN': '短信已验证。请输入 Google Authenticator / Authy 中的 6 位验证码。',
+            'zh-Hant': '短訊已驗證。請輸入 Google Authenticator / Authy 中的 6 位驗證碼。'
+        },
+        'login.adminStep.smsVerifyBtn': {
+            en: 'Verify SMS code',
+            'zh-CN': '验证短信验证码',
+            'zh-Hant': '驗證短訊驗證碼'
+        },
+        'login.adminStep.resendSms': {
+            en: 'Resend SMS code',
+            'zh-CN': '重新发送短信验证码',
+            'zh-Hant': '重新發送短訊驗證碼'
+        },
         'login.totpStep.sub': {
             en: 'Enter the 6-digit code from your authenticator app (Google Authenticator / Authy).',
             'zh-CN': '请输入验证器应用中的 6 位验证码（Google Authenticator / Authy）。',

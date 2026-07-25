@@ -207,17 +207,20 @@
     <button type="button" id="tryAiAssistantBtn" class="login-try-ai-btn" data-i18n="login.tryAi"></button>
     <p id="loginError"></p>
 
-    <!-- Admin TOTP 2FA step — shown after ID+PW pass for admin accounts -->
+    <!-- Admin 2FA — Step 1: Twilio SMS, then Step 2: Google Authenticator -->
     <div id="totpAuthStep" style="display:none;">
       <div class="totp-auth-divider"></div>
-      <p class="totp-auth-heading" data-i18n="login.totpStep.title"></p>
-      <p class="totp-auth-sub" data-i18n="login.totpStep.sub"></p>
+      <p id="adminAuthHeading" class="totp-auth-heading"></p>
+      <p id="adminStepBadge" class="totp-auth-sub" style="display:none;"></p>
+      <p id="adminSmsHint" class="totp-auth-sub" style="display:none;"></p>
+      <p id="adminTotpHint" class="totp-auth-sub" style="display:none;"></p>
       <input id="totpCodeInput" type="text" inputmode="numeric"
              pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"
              data-i18n-placeholder="login.totpStep.codePh"
              style="letter-spacing:0.25em;font-size:22px;text-align:center;">
-      <button type="button" id="totpSubmitBtn"
-              data-i18n="login.totpStep.verifyBtn"></button>
+      <button type="button" id="totpSubmitBtn"></button>
+      <button type="button" id="adminResendSmsBtn" class="totp-auth-cancel-btn"
+              style="display:none;" data-i18n="login.adminStep.resendSms"></button>
       <button type="button" id="totpCancelBtn"
               class="totp-auth-cancel-btn"
               data-i18n="login.totpStep.cancel"></button>
@@ -6910,6 +6913,7 @@
   var files = [
     'app-i18n.js',
     'app-i18n-extra.js',
+    'app-admin-verify.js',
     'app.js',
     'app-doc-editor.js',
     'app-program-settings.js',

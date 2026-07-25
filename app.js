@@ -4269,7 +4269,8 @@ function loadClinicsAndDoctorsForLogin() {
     });
 }
 
-function finishLoginSession(u, doctorId) {
+function finishLoginSession(u, doctorId, opts) {
+    opts = opts || {};
     currentUserId = u ? u.user_id : currentUserId;
     currentRole = u ? (u.role || 'staff') : currentRole;
     if (typeof setCurrentUserPermissions === 'function') {
@@ -4298,9 +4299,11 @@ function finishLoginSession(u, doctorId) {
     if (!currentName) currentName = currentUserId;
 
     if (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.queueFromSession === 'function') {
-        LOGINLOG.queueFromSession(u, doctorId || null, {
-            login_method: (u && String(u.role || '').toLowerCase() === 'admin') ? 'admin_totp' : 'password'
-        });
+        var loginMethod = opts.login_method;
+        if (!loginMethod) {
+            loginMethod = (u && String(u.role || '').toLowerCase() === 'admin') ? 'admin_totp' : 'password';
+        }
+        LOGINLOG.queueFromSession(u, doctorId || null, { login_method: loginMethod });
     }
 
     var loginClinicId = selectedLoginClinicId();
@@ -4337,10 +4340,10 @@ function hydrateLoggedInUserNameFromDb() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// ADMIN TOTP 2FA
+// ADMIN 2FA — sequential SMS (Twilio) then TOTP (Google Authenticator)
 // ════════════════════════════════════════════════════════════════
 
-/** IDs of login-form elements to hide while the TOTP step is active. */
+/** IDs of login-form elements to hide while the admin verify step is active. */
 var _TOTP_STEP_HIDE_IDS = [
     'loginUserId', 'loginPassword', 'loginClinicLabel', 'loginClinic',
     'loginDoctorLabel', 'loginDoctor', 'loginDoctorHint',
@@ -4348,6 +4351,225 @@ var _TOTP_STEP_HIDE_IDS = [
 ];
 var _pendingAdminUser     = null;
 var _pendingAdminDoctorId = null;
+var _adminAuthPhase       = null;   // 'sms' | 'totp'
+var _adminSmsVerifyActive = false;
+var _adminSmsPassed       = false;
+var _adminSmsSkipped      = false;
+var _adminSmsMasked       = '';
+
+function _updateAdminAuthStepUI() {
+    var headingEl = g('adminAuthHeading');
+    var badgeEl = g('adminStepBadge');
+    var smsEl = g('adminSmsHint');
+    var totpEl = g('adminTotpHint');
+    var resendBtn = g('adminResendSmsBtn');
+    var submitBtn = g('totpSubmitBtn');
+    var isSms = _adminAuthPhase === 'sms';
+    var isTotp = _adminAuthPhase === 'totp';
+    var showTwoStep = _adminSmsVerifyActive && !_adminSmsSkipped;
+
+    if (headingEl) {
+        headingEl.textContent = isSms
+            ? appTr('login.adminStep.smsTitle')
+            : appTr('login.adminStep.totpTitle');
+    }
+    if (badgeEl) {
+        if (showTwoStep) {
+            badgeEl.textContent = appTrRepl('login.adminStep.stepBadge', {
+                N: isSms ? '1' : '2'
+            });
+            badgeEl.style.display = '';
+        } else {
+            badgeEl.textContent = '';
+            badgeEl.style.display = 'none';
+        }
+    }
+    if (smsEl) {
+        if (isSms && _adminSmsVerifyActive) {
+            var mask = _adminSmsMasked || (typeof ADMINVERIFY !== 'undefined' ? ADMINVERIFY.phoneMask : '+852 **** 6591');
+            smsEl.textContent = appTrRepl('login.adminStep.smsSent', { PHONE: mask });
+            smsEl.style.display = '';
+        } else {
+            smsEl.textContent = '';
+            smsEl.style.display = 'none';
+        }
+    }
+    if (totpEl) {
+        if (isTotp) {
+            totpEl.textContent = showTwoStep
+                ? appTr('login.adminStep.totpSub')
+                : appTr('login.totpStep.sub');
+            totpEl.style.display = '';
+        } else {
+            totpEl.textContent = '';
+            totpEl.style.display = 'none';
+        }
+    }
+    if (resendBtn) resendBtn.style.display = (isSms && _adminSmsVerifyActive) ? '' : 'none';
+    if (submitBtn) {
+        submitBtn.textContent = isSms
+            ? appTr('login.adminStep.smsVerifyBtn')
+            : appTr('login.totpStep.verifyBtn');
+    }
+}
+
+function _showAdminAuthStep(phase, smsActive) {
+    _adminAuthPhase = phase;
+    _adminSmsVerifyActive = !!smsActive;
+    _TOTP_STEP_HIDE_IDS.forEach(function (id) {
+        var el = g(id);
+        if (el) el.style.display = 'none';
+    });
+    var step = g('totpAuthStep');
+    if (step) step.style.display = '';
+    applyI18nInRoot();
+    _setTotpError('');
+    _updateAdminAuthStepUI();
+    var inp = g('totpCodeInput');
+    if (inp) { inp.value = ''; setTimeout(function () { inp.focus(); }, 80); }
+}
+
+function _advanceToAdminTotpStep() {
+    _adminSmsPassed = true;
+    _adminAuthPhase = 'totp';
+    _adminSmsVerifyActive = false;
+    _setTotpError('');
+    var inp = g('totpCodeInput');
+    if (inp) inp.value = '';
+    _updateAdminAuthStepUI();
+    if (inp) setTimeout(function () { inp.focus(); }, 80);
+}
+
+function _completeAdminLogin(u, doctorId) {
+    var method = (_adminSmsPassed && !_adminSmsSkipped) ? 'admin_sms_totp' : 'admin_totp';
+    cancelAdminTotpAuth();
+    if (doctorId) applyIdentityFromDoctor(doctorId);
+    else {
+        currentDoctorId   = null;
+        currentDoctorName = null;
+        currentName = u.display_name || u.user_id;
+    }
+    finishLoginSession(u, doctorId || null, { login_method: method });
+}
+
+function _submitTotpCode() {
+    var inp = g('totpCodeInput');
+    var token = inp ? String(inp.value || '').trim() : '';
+    if (!token) { _setTotpError(appTr('login.totpStep.errInvalid')); return; }
+
+    var submitBtn = g('totpSubmitBtn');
+    if (submitBtn) submitBtn.disabled = true;
+    _setTotpError('');
+
+    var u        = _pendingAdminUser;
+    var doctorId = _pendingAdminDoctorId;
+    var hasTotp  = !!(u && String(u.totp_secret || '').trim());
+
+    function failInvalid() {
+        if (submitBtn) submitBtn.disabled = false;
+        _setTotpError(appTr('login.totpStep.errInvalid'));
+        if (inp) { inp.value = ''; inp.focus(); }
+    }
+
+    if (_adminAuthPhase === 'sms') {
+        if (typeof ADMINVERIFY === 'undefined' || !ADMINVERIFY.check) {
+            if (submitBtn) submitBtn.disabled = false;
+            _setTotpError(appTr('login.totpStep.errInvalid'));
+            return;
+        }
+        ADMINVERIFY.check(token).then(function (res) {
+            if (submitBtn) submitBtn.disabled = false;
+            if (!res || !res.ok) { failInvalid(); return; }
+            if (!hasTotp) {
+                _setTotpError(appTr('login.totpStep.errNoSecret'));
+                if (inp) { inp.value = ''; inp.focus(); }
+                return;
+            }
+            _advanceToAdminTotpStep();
+        }).catch(failInvalid);
+        return;
+    }
+
+    if (!hasTotp) {
+        if (submitBtn) submitBtn.disabled = false;
+        _setTotpError(appTr('login.totpStep.errNoSecret'));
+        return;
+    }
+    _totpVerify(u.totp_secret, token).then(function (ok) {
+        if (submitBtn) submitBtn.disabled = false;
+        if (!ok) { failInvalid(); return; }
+        _completeAdminLogin(u, doctorId);
+    }).catch(failInvalid);
+}
+
+function _resendAdminSms() {
+    if (_adminAuthPhase !== 'sms' || !_adminSmsVerifyActive ||
+        typeof ADMINVERIFY === 'undefined' || !ADMINVERIFY.resend) return;
+    var btn = g('adminResendSmsBtn');
+    if (btn) btn.disabled = true;
+    _setTotpError('');
+    ADMINVERIFY.resend().then(function (res) {
+        if (btn) btn.disabled = false;
+        if (res && res.ok) {
+            _adminSmsMasked = res.phone_masked || _adminSmsMasked;
+            _updateAdminAuthStepUI();
+        }
+    }).catch(function () {
+        if (btn) btn.disabled = false;
+    });
+}
+
+function requireAdminTotpAuth(u, doctorId) {
+    var secret = String(u.totp_secret || '').trim();
+    var hasTotp = !!secret;
+
+    _pendingAdminUser     = u;
+    _pendingAdminDoctorId = doctorId;
+    _adminAuthPhase       = null;
+    _adminSmsVerifyActive = false;
+    _adminSmsPassed       = false;
+    _adminSmsSkipped      = false;
+    _adminSmsMasked       = '';
+
+    function passwordOnlyFallback() {
+        console.warn('[AdminVerify] SMS/TOTP unavailable — admin login with password only.');
+        if (doctorId) applyIdentityFromDoctor(doctorId);
+        else {
+            currentDoctorId   = null;
+            currentDoctorName = null;
+            currentName = u.display_name || u.user_id;
+        }
+        cancelAdminTotpAuth();
+        finishLoginSession(u, doctorId || null, { login_method: 'password' });
+    }
+
+    function startTotpOnlyStep() {
+        _adminSmsSkipped = true;
+        if (!hasTotp) {
+            passwordOnlyFallback();
+            return;
+        }
+        _showAdminAuthStep('totp', false);
+    }
+
+    if (typeof ADMINVERIFY === 'undefined' || typeof ADMINVERIFY.send !== 'function') {
+        startTotpOnlyStep();
+        return;
+    }
+
+    ADMINVERIFY.send().then(function (res) {
+        if (res && res.ok) {
+            _adminSmsMasked = res.phone_masked || _adminSmsMasked;
+            _showAdminAuthStep('sms', true);
+            return;
+        }
+        console.warn('[AdminVerify] SMS unavailable — falling back to authenticator only.');
+        startTotpOnlyStep();
+    }).catch(function () {
+        console.warn('[AdminVerify] SMS send failed — falling back to authenticator only.');
+        startTotpOnlyStep();
+    });
+}
 
 function _setTotpError(msg) {
     var el = g('totpAuthError');
@@ -4443,71 +4665,11 @@ function cancelAdminTotpAuth() {
     }
     _pendingAdminUser     = null;
     _pendingAdminDoctorId = null;
-}
-
-function _submitTotpCode() {
-    var inp = g('totpCodeInput');
-    var token = inp ? String(inp.value || '').trim() : '';
-    if (!token) { _setTotpError(appTr('login.totpStep.errInvalid')); return; }
-
-    var submitBtn = g('totpSubmitBtn');
-    if (submitBtn) submitBtn.disabled = true;
-    _setTotpError('');
-
-    var u        = _pendingAdminUser;
-    var doctorId = _pendingAdminDoctorId;
-
-    _totpVerify(u.totp_secret, token).then(function(ok) {
-        if (submitBtn) submitBtn.disabled = false;
-        if (!ok) {
-            _setTotpError(appTr('login.totpStep.errInvalid'));
-            if (inp) { inp.value = ''; inp.focus(); }
-            return;
-        }
-        cancelAdminTotpAuth();
-        if (doctorId) applyIdentityFromDoctor(doctorId);
-        else {
-            currentDoctorId   = null;
-            currentDoctorName = null;
-            currentName = u.display_name || u.user_id;
-        }
-        finishLoginSession(u, doctorId || null);
-    }).catch(function() {
-        if (submitBtn) submitBtn.disabled = false;
-        _setTotpError(appTr('login.totpStep.errInvalid'));
-    });
-}
-
-function requireAdminTotpAuth(u, doctorId) {
-    var secret = String(u.totp_secret || '').trim();
-
-    if (!secret) {
-        console.warn('[TOTP] No totp_secret set for admin — skipping 2FA. Set up in Config → Users.');
-        if (doctorId) applyIdentityFromDoctor(doctorId);
-        else {
-            currentDoctorId   = null;
-            currentDoctorName = null;
-            currentName = u.display_name || u.user_id;
-        }
-        finishLoginSession(u, doctorId || null);
-        return;
-    }
-
-    _pendingAdminUser     = u;
-    _pendingAdminDoctorId = doctorId;
-
-    _TOTP_STEP_HIDE_IDS.forEach(function(id) {
-        var el = g(id);
-        if (el) el.style.display = 'none';
-    });
-
-    var step = g('totpAuthStep');
-    if (step) step.style.display = '';
-    applyI18nInRoot();
-    _setTotpError('');
-
-    var inp = g('totpCodeInput');
-    if (inp) { inp.value = ''; setTimeout(function() { inp.focus(); }, 80); }
+    _adminAuthPhase       = null;
+    _adminSmsVerifyActive = false;
+    _adminSmsPassed       = false;
+    _adminSmsSkipped      = false;
+    _adminSmsMasked       = '';
 }
 
 function doLogin() {
@@ -4663,6 +4825,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var totpCancelBtn = g('totpCancelBtn');
     if (totpCancelBtn) totpCancelBtn.addEventListener('click', cancelAdminTotpAuth);
+
+    var adminResendSmsBtn = g('adminResendSmsBtn');
+    if (adminResendSmsBtn) adminResendSmsBtn.addEventListener('click', _resendAdminSms);
 
     var totpCodeInput = g('totpCodeInput');
     if (totpCodeInput) {

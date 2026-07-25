@@ -369,6 +369,9 @@ var REALTIME_SYNC = (function() {
         if (tab === 'webbook' && typeof webbookRefreshList === 'function') {
             webbookRefreshList({ soft: true });
         }
+        if (tab === 'rsvp' && typeof RSVP_RECALL !== 'undefined' && RSVP_RECALL.refreshFromBar) {
+            RSVP_RECALL.refreshFromBar();
+        }
     }
 
     function refreshBillFromRealtime() {

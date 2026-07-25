@@ -768,8 +768,106 @@
         'appt.calendarTab': { en: '📅 Calendar', 'zh-CN': '📅 日历', 'zh-Hant': '📅 日曆' },
         'appt.recordsTab': { en: '📁 Appointment Records', 'zh-CN': '📁 预约记录', 'zh-Hant': '📁 預約紀錄' },
         'appt.recallTab': { en: '📞 Recall Patient', 'zh-CN': '📞 召回患者', 'zh-Hant': '📞 召回病人' },
+        'appt.rsvpTab': { en: '✅ Two-way RSVP', 'zh-CN': '✅ 双向确认', 'zh-Hant': '✅ 雙向確認' },
         'appt.broadcastTab': { en: '📣 Broadcast', 'zh-CN': '📣 群发消息', 'zh-Hant': '📣 群發訊息' },
         'appt.webbookTab': { en: '🌐 Web Bookings', 'zh-CN': '🌐 网上预约', 'zh-Hant': '🌐 網上預約' },
+
+        'rsvp.title': {
+            en: 'Two-way RSVP recall',
+            'zh-CN': '双向预约确认（WhatsApp）',
+            'zh-Hant': '雙向預約確認（WhatsApp）'
+        },
+        'rsvp.subtitle': {
+            en: 'Send the WhatsApp Confirm / Cancel template for a day of appointments. Replies update each appointment’s RSVP status. Existing Recall Patient tab is unchanged.',
+            'zh-CN': '按日发送带「确认 / 取消」按钮的 WhatsApp 模板；患者回复会写回该预约的 RSVP 状态。原「召回患者」功能不受影响。',
+            'zh-Hant': '按日傳送帶「確認 / 取消」按鈕的 WhatsApp 範本；病人回覆會寫回該預約的 RSVP 狀態。原「召回病人」功能不受影響。'
+        },
+        'rsvp.contentSidLabel': { en: 'Content SID', 'zh-CN': '内容模板 SID', 'zh-Hant': '內容範本 SID' },
+        'rsvp.dateLabel': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
+        'rsvp.refresh': { en: 'Refresh', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
+        'rsvp.pickDate': { en: 'Select a date', 'zh-CN': '请选择日期', 'zh-Hant': '請選擇日期' },
+        'rsvp.dateHdr': { en: 'Appointments on', 'zh-CN': '预约日期', 'zh-Hant': '預約日期' },
+        'rsvp.count': { en: '{N} appointment(s)', 'zh-CN': '{N} 个预约', 'zh-Hant': '{N} 個預約' },
+        'rsvp.countZero': { en: 'No appointments', 'zh-CN': '无预约', 'zh-Hant': '無預約' },
+        'rsvp.selected': { en: '{N} selected', 'zh-CN': '已选 {N}', 'zh-Hant': '已選 {N}' },
+        'rsvp.selectAll': { en: 'Select all', 'zh-CN': '全选', 'zh-Hant': '全選' },
+        'rsvp.clear': { en: 'Clear', 'zh-CN': '清除', 'zh-Hant': '清除' },
+        'rsvp.th.pick': { en: 'Pick', 'zh-CN': '选', 'zh-Hant': '選' },
+        'rsvp.th.patNo': { en: 'No.', 'zh-CN': '编号', 'zh-Hant': '編號' },
+        'rsvp.th.name': { en: 'Name', 'zh-CN': '姓名', 'zh-Hant': '姓名' },
+        'rsvp.th.phone': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
+        'rsvp.th.time': { en: 'Time', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'rsvp.th.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'rsvp.th.reply': { en: 'Reply status', 'zh-CN': '回复状态', 'zh-Hant': '回覆狀態' },
+        'rsvp.th.actions': { en: 'Staff override', 'zh-CN': '人工标记', 'zh-Hant': '人手標記' },
+        'rsvp.fromLabel': {
+            en: 'Send from (Twilio WhatsApp)',
+            'zh-CN': '发送号码（Twilio WhatsApp）',
+            'zh-Hant': '傳送號碼（Twilio WhatsApp）'
+        },
+        'rsvp.fromDefault': {
+            en: 'Default (Edge secret)',
+            'zh-CN': '默认（Edge 密钥）',
+            'zh-Hant': '預設（Edge 密鑰）'
+        },
+        'rsvp.sendBtn': {
+            en: 'Send RSVP WhatsApp',
+            'zh-CN': '发送 RSVP WhatsApp',
+            'zh-Hant': '傳送 RSVP WhatsApp'
+        },
+        'rsvp.hint': {
+            en: 'Uses quick-reply template Confirm / Cancel. After Twilio inbound webhook is deployed, patient taps update this table automatically. Until then, use Staff override.',
+            'zh-CN': '使用带「确认 / 取消」快捷回复的模板。部署 Twilio 入站 Webhook 后，患者点击会自动更新本表；此前可用「人工标记」。',
+            'zh-Hant': '使用帶「確認 / 取消」快速回覆的範本。部署 Twilio 入站 Webhook 後，病人點擊會自動更新本表；此前可用「人手標記」。'
+        },
+        'rsvp.status.confirmed': { en: 'Confirmed', 'zh-CN': '已确认', 'zh-Hant': '已確認' },
+        'rsvp.status.declined': { en: 'Declined', 'zh-CN': '已取消意向', 'zh-Hant': '已取消意向' },
+        'rsvp.status.pending': { en: 'Awaiting reply', 'zh-CN': '等待回复', 'zh-Hant': '等待回覆' },
+        'rsvp.status.failed': { en: 'Send failed', 'zh-CN': '发送失败', 'zh-Hant': '傳送失敗' },
+        'rsvp.status.expired': { en: 'Expired', 'zh-CN': '已过期', 'zh-Hant': '已過期' },
+        'rsvp.status.none': { en: 'Not sent', 'zh-CN': '未发送', 'zh-Hant': '未傳送' },
+        'rsvp.sentAt': { en: 'Sent', 'zh-CN': '已发', 'zh-Hant': '已傳' },
+        'rsvp.repliedAt': { en: 'Reply', 'zh-CN': '回复', 'zh-Hant': '回覆' },
+        'rsvp.act.confirm': { en: 'Mark Yes', 'zh-CN': '标为确认', 'zh-Hant': '標為確認' },
+        'rsvp.act.decline': { en: 'Mark No', 'zh-CN': '标为取消', 'zh-Hant': '標為取消' },
+        'rsvp.loading': { en: 'Loading…', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
+        'rsvp.empty': {
+            en: 'No appointments for this date / clinic.',
+            'zh-CN': '此日期 / 诊所得不到预约。',
+            'zh-Hant': '此日期 / 診所得不到預約。'
+        },
+        'rsvp.sending': { en: 'Sending RSVP… ', 'zh-CN': '正在发送 RSVP… ', 'zh-Hant': '正在傳送 RSVP… ' },
+        'rsvp.sendDone': {
+            en: 'Done: {OK} sent, {FAIL} failed.',
+            'zh-CN': '完成：成功 {OK}，失败 {FAIL}。',
+            'zh-Hant': '完成：成功 {OK}，失敗 {FAIL}。'
+        },
+        'rsvp.marked': { en: 'Updated reply status.', 'zh-CN': '已更新回复状态。', 'zh-Hant': '已更新回覆狀態。' },
+        'rsvp.alert.needSql': {
+            en: 'Run wa_appointment_rsvp.sql in Supabase SQL Editor once.',
+            'zh-CN': '请先在 Supabase SQL 编辑器执行 wa_appointment_rsvp.sql。',
+            'zh-Hant': '請先在 Supabase SQL 編輯器執行 wa_appointment_rsvp.sql。'
+        },
+        'rsvp.alert.noAi': {
+            en: 'AI Helper / Twilio send is unavailable.',
+            'zh-CN': '无法使用 AI 助手 / Twilio 发送。',
+            'zh-Hant': '無法使用 AI 助手 / Twilio 傳送。'
+        },
+        'rsvp.alert.noneSelected': {
+            en: 'Select at least one appointment.',
+            'zh-CN': '请至少选择一个预约。',
+            'zh-Hant': '請至少選擇一個預約。'
+        },
+        'rsvp.alert.noPhone': {
+            en: 'Selected patients have no valid phone.',
+            'zh-CN': '所选患者没有有效电话。',
+            'zh-Hant': '所選病人沒有有效電話。'
+        },
+        'rsvp.confirm.skipNoPhone': {
+            en: '{N} without phone will be skipped. Continue?',
+            'zh-CN': '{N} 位没有电话将被跳过。是否继续？',
+            'zh-Hant': '{N} 位沒有電話將被跳過。是否繼續？'
+        },
 
         'mb.title': { en: 'Mass Broadcast', 'zh-CN': '群发消息', 'zh-Hant': '群發訊息' },
         'mb.subtitle': {

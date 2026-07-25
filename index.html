@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260723-broadcast-multi-union';
+  var BUILD = '20260724-rsvp-twoway';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1124,6 +1124,7 @@
     <button class="appt-tab" data-tab="calendar" data-i18n="appt.calendarTab"></button>
     <button class="appt-tab" data-tab="records" data-i18n="appt.recordsTab"></button>
     <button class="appt-tab" data-tab="recall" data-i18n="appt.recallTab"></button>
+    <button class="appt-tab" data-tab="rsvp" data-i18n="appt.rsvpTab"></button>
     <button class="appt-tab" data-tab="broadcast" data-i18n="appt.broadcastTab"></button>
     <button class="appt-tab" data-tab="webbook"><span class="appt-tab-lbl" data-i18n="appt.webbookTab"></span></button>
   </div>
@@ -1719,6 +1720,73 @@
     </div>
 
   </div><!-- /tab-recall -->
+
+  <!-- ── TAB: TWO-WAY RSVP RECALL (WhatsApp Yes/No) — add-on; does not replace Recall ── -->
+  <div id="tab-rsvp" class="tab-pane">
+    <div class="rsvp-panel" style="padding-top:10px;">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:14px;">
+        <div style="max-width:640px;">
+          <h2 style="margin:0 0 6px;font-size:18px;color:#0f172a;" data-i18n="rsvp.title">Two-way RSVP recall</h2>
+          <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;" data-i18n="rsvp.subtitle">
+            Send the WhatsApp Confirm / Cancel template for a day of appointments. Replies update each appointment’s RSVP status. Existing Recall Patient tab is unchanged.
+          </p>
+          <p style="margin:8px 0 0;font-size:11px;color:#94a3b8;line-height:1.45;">
+            <span data-i18n="rsvp.contentSidLabel">Content SID</span>:
+            <code id="rsvpContentSid" style="font-size:11px;">HX3e0d0027555e8d6b700381a797f599cc</code>
+          </p>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <label for="rsvpDateInput" style="font-size:12px;font-weight:700;color:#334155;" data-i18n="rsvp.dateLabel">Date</label>
+          <input type="date" id="rsvpDateInput" style="padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;">
+          <button type="button" id="rsvpRefreshBtn" class="mb-btn ghost" data-i18n="rsvp.refresh">Refresh</button>
+          <button type="button" id="rsvpOpenTwilioSetup" class="mb-btn ghost" data-i18n="mb.openTwilioSetup">Twilio Setup</button>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
+        <div id="rsvpDateHdr" style="font-size:15px;font-weight:700;color:#1e293b;" data-i18n="rsvp.pickDate">Select a date</div>
+        <span id="rsvpPtCount" style="font-size:12px;color:#64748b;font-weight:600;"></span>
+        <span id="rsvpSelCount" style="font-size:12px;color:#0369a1;font-weight:600;"></span>
+        <span style="flex:1;"></span>
+        <button type="button" id="rsvpSelectAll" style="padding:5px 12px;font-size:12px;font-weight:700;background:#0084ff;color:#fff;border:none;border-radius:6px;cursor:pointer;" data-i18n="rsvp.selectAll">Select all</button>
+        <button type="button" id="rsvpClearSel" style="padding:5px 12px;font-size:12px;font-weight:700;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;" data-i18n="rsvp.clear">Clear</button>
+      </div>
+
+      <div class="tbl-wrap" style="max-height:360px;overflow-y:auto;margin-bottom:14px;">
+        <table class="appt-tbl" id="rsvpTable">
+          <thead>
+            <tr>
+              <th style="width:36px;text-align:center;" data-i18n="rsvp.th.pick">Pick</th>
+              <th style="width:70px;" data-i18n="rsvp.th.patNo">No.</th>
+              <th data-i18n="rsvp.th.name">Name</th>
+              <th style="width:110px;" data-i18n="rsvp.th.phone">Phone</th>
+              <th style="width:90px;" data-i18n="rsvp.th.time">Time</th>
+              <th style="width:120px;" data-i18n="rsvp.th.doctor">Doctor</th>
+              <th style="min-width:140px;" data-i18n="rsvp.th.reply">Reply status</th>
+              <th style="width:160px;" data-i18n="rsvp.th.actions">Staff override</th>
+            </tr>
+          </thead>
+          <tbody id="rsvpBody"></tbody>
+        </table>
+      </div>
+
+      <div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:14px;">
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:10px;">
+          <div style="flex:1;min-width:220px;">
+            <label for="rsvpTwilioFrom" style="display:block;font-size:12px;font-weight:800;color:#334155;margin-bottom:6px;" data-i18n="rsvp.fromLabel">Send from (Twilio WhatsApp)</label>
+            <select id="rsvpTwilioFrom" class="ai-input" style="max-width:520px;width:100%;"></select>
+          </div>
+          <button type="button" id="rsvpSendBtn"
+                  style="min-width:200px;padding:11px 18px;background:linear-gradient(135deg,#0d9488,#0f766e);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(13,148,136,.25);"
+                  data-i18n="rsvp.sendBtn">Send RSVP WhatsApp</button>
+        </div>
+        <p id="rsvpStatus" style="margin:0;min-height:1.2em;font-size:12px;color:#047857;" aria-live="polite"></p>
+        <p style="margin:8px 0 0;font-size:11px;color:#64748b;line-height:1.45;" data-i18n="rsvp.hint">
+          Uses quick-reply template Confirm / Cancel. After Twilio inbound webhook is deployed, patient taps update this table automatically. Until then, use Staff override.
+        </p>
+      </div>
+    </div>
+  </div><!-- /tab-rsvp -->
 
   <!-- ── TAB: MASS BROADCAST (SleekFlow-style contacts + campaigns) ── -->
   <div id="tab-broadcast" class="tab-pane">
@@ -6858,6 +6926,7 @@
     'cal-doctor-colors.js',
     'app-public-holidays.js',
     'app-appt.js',
+    'app-rsvp-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-drug-allergy.js',

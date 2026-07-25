@@ -1394,6 +1394,9 @@ function reloadApptModuleData() {
         if (typeof rcDate !== 'undefined' && rcDate) loadRecallPatients(rcDate);
         else initRecallTab();
     }
+    else if (tab === 'rsvp' && typeof RSVP_RECALL !== 'undefined' && RSVP_RECALL.refreshFromBar) {
+        RSVP_RECALL.refreshFromBar();
+    }
     else if (tab === 'broadcast' && typeof MASSBC !== 'undefined' && MASSBC.refreshFromBar) {
         MASSBC.refreshFromBar();
     }
@@ -2219,6 +2222,7 @@ function switchApptTab(tab) {
         loadApptRecords();
     }
     if (tab === 'recall')   initRecallTab();
+    if (tab === 'rsvp' && typeof RSVP_RECALL !== 'undefined' && RSVP_RECALL.init) RSVP_RECALL.init();
     if (tab === 'broadcast' && typeof MASSBC !== 'undefined' && MASSBC.init) MASSBC.init();
     if (tab === 'webbook' && typeof initWebBookTab === 'function') initWebBookTab();
     if (tab === 'queue') {
@@ -22755,6 +22759,11 @@ function refreshApptCachedTabsI18n() {
     if (typeof rcDate !== 'undefined' && rcDate) {
         if (typeof refreshRecallPanelI18n === 'function') refreshRecallPanelI18n();
         else apptTabApplyI18nIfCached('tab-recall');
+    }
+    if (typeof RSVP_RECALL !== 'undefined' && typeof RSVP_RECALL.applyI18n === 'function') {
+        RSVP_RECALL.applyI18n();
+    } else {
+        apptTabApplyI18nIfCached('tab-rsvp');
     }
     var cb = g('calBody');
     if (typeof calView !== 'undefined' && calView === 'weekly' &&

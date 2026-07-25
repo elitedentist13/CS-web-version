@@ -1,0 +1,674 @@
+// ════════════════════════════════════════════════════════════════
+// app-rsvp-recall.js — Two-way WhatsApp RSVP recall (add-on)
+// Does not modify Recall Patient / Broadcast send paths.
+// Requires: SB, AIHELPER.sendTwilioOutreach, appointment section helpers.
+// Schema: wa_appointment_rsvp.sql
+// ════════════════════════════════════════════════════════════════
+var RSVP_RECALL = (function () {
+    'use strict';
+
+    var CONTENT_SID = 'HX3e0d0027555e8d6b700381a797f599cc';
+    var TPL_VARS = '1,2,3,4,5';
+    var TPL_VAR_MAP = { '1': 'NAME', '2': 'CLINIC', '3': 'DATE', '4': 'TIME', '5': 'DOCTOR' };
+    var TABLE = 'wa_appointment_rsvp';
+    var EXPIRE_HOURS = 72;
+
+    var _ready = false;
+    var _date = '';
+    var _rows = [];
+    var _sel = Object.create(null);
+    var _rsvpByAppt = Object.create(null);
+    var _sending = false;
+    var _schemaMissing = false;
+    var _pollTimer = null;
+
+    function g(id) { return document.getElementById(id); }
+    function tr(key, fallback) {
+        if (typeof t === 'function') {
+            var v = t(key);
+            if (v && v !== key) return v;
+        }
+        return fallback || key;
+    }
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function todayISO() {
+        if (typeof window.todayISO === 'function') return window.todayISO();
+        var d = new Date();
+        var m = d.getMonth() + 1;
+        var day = d.getDate();
+        return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+    }
+    function fmt12(t) {
+        if (typeof window.fmt12 === 'function') return window.fmt12(t);
+        var s = String(t || '').slice(0, 5);
+        var parts = s.split(':');
+        var h = parseInt(parts[0], 10);
+        if (isNaN(h)) return s;
+        var m = parts[1] || '00';
+        var ap = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        if (!h) h = 12;
+        return h + ':' + m + ' ' + ap;
+    }
+    function clinicTag() {
+        if (typeof currentClinicCodeForTagging === 'function') {
+            return String(currentClinicCodeForTagging() || '').trim();
+        }
+        return String(typeof currentClinicLabel !== 'undefined' ? currentClinicLabel : '').trim();
+    }
+    function clinicLabel() {
+        return String(
+            (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) ? currentClinicLabel : ''
+        ).trim() || 'Clinic';
+    }
+    function doctorName(a) {
+        if (typeof apptDoctorNameForWhatsApp === 'function') {
+            return String(apptDoctorNameForWhatsApp(a) || '').trim();
+        }
+        return String((a && (a.doctor_name || a.doctor_code)) || '').trim();
+    }
+    function phoneE164(raw) {
+        var s = String(raw || '').trim();
+        if (!s) return '';
+        if (typeof formatPhoneForWA === 'function') {
+            var wa = String(formatPhoneForWA(s) || '').replace(/\D/g, '');
+            if (wa) return '+' + wa;
+        }
+        var d = s.replace(/\D/g, '');
+        if (d.length === 8) d = '852' + d;
+        if (!d) return '';
+        return '+' + d;
+    }
+    function firstName(full) {
+        var s = String(full || '').trim();
+        if (!s) return 'Patient';
+        return s.split(/\s+/)[0] || s;
+    }
+    function statusTone(st) {
+        st = String(st || '').toLowerCase();
+        if (st === 'confirmed') return { bg: '#dcfce7', fg: '#166534', label: tr('rsvp.status.confirmed', 'Confirmed') };
+        if (st === 'declined') return { bg: '#fee2e2', fg: '#991b1b', label: tr('rsvp.status.declined', 'Declined') };
+        if (st === 'pending') return { bg: '#fef9c3', fg: '#854d0e', label: tr('rsvp.status.pending', 'Awaiting reply') };
+        if (st === 'failed') return { bg: '#ffedd5', fg: '#9a3412', label: tr('rsvp.status.failed', 'Send failed') };
+        if (st === 'expired') return { bg: '#f1f5f9', fg: '#64748b', label: tr('rsvp.status.expired', 'Expired') };
+        return { bg: '#f8fafc', fg: '#64748b', label: tr('rsvp.status.none', 'Not sent') };
+    }
+    function setStatus(msg, isErr) {
+        var el = g('rsvpStatus');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = isErr ? '#b91c1c' : '#047857';
+    }
+
+    function buildTplStub() {
+        return {
+            contentSid: CONTENT_SID,
+            vars: TPL_VARS,
+            varMap: TPL_VAR_MAP
+        };
+    }
+
+    function resolveTemplate() {
+        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.getTwilioContentTemplate === 'function') {
+            var found = AIHELPER.getTwilioContentTemplate(CONTENT_SID);
+            if (found && found.contentSid) {
+                return {
+                    contentSid: found.contentSid,
+                    vars: found.vars || TPL_VARS,
+                    varMap: found.varMap || found.var_map || TPL_VAR_MAP
+                };
+            }
+        }
+        return buildTplStub();
+    }
+
+    function contentCtx(a) {
+        var name = firstName(a.patient_name || a.patient_chinese_name);
+        var full = String(a.patient_name || a.patient_chinese_name || name).trim();
+        var dateStr = a.date || _date;
+        if (typeof fmtDateLong === 'function') {
+            try { dateStr = fmtDateLong(a.date || _date) || dateStr; } catch (e) { /* keep */ }
+        }
+        return {
+            name: name,
+            fullName: full,
+            clinic: clinicLabel(),
+            date: dateStr,
+            time: fmt12(a.start_time),
+            doctor: doctorName(a),
+            phone: a.phone || '',
+            patientNo: a.patient_no || '',
+            fields: {
+                TREATMENT: String(a.treatment_items || '').trim(),
+                CHINESE: String(a.patient_chinese_name || '').trim(),
+                ENGLISH: String(a.patient_name || '').trim(),
+                FIRST: name
+            }
+        };
+    }
+
+    function applyClinicQuery(q) {
+        if (typeof applyApptModuleClinicQuery === 'function') {
+            return applyApptModuleClinicQuery(q);
+        }
+        var tag = clinicTag();
+        if (tag) q = q.eq('clinic_tag', tag);
+        return q;
+    }
+
+    function loadRsvpMap(apptIds) {
+        _rsvpByAppt = Object.create(null);
+        if (!apptIds.length || typeof SB === 'undefined') return Promise.resolve();
+        return SB.from(TABLE)
+            .select('id,appointment_id,status,outbound_sid,sent_at,replied_at,button_payload,error,to_phone')
+            .in('appointment_id', apptIds)
+            .order('sent_at', { ascending: false })
+            .limit(500)
+            .then(function (r) {
+                if (r.error) {
+                    if (/wa_appointment_rsvp|schema cache|does not exist/i.test(String(r.error.message || ''))) {
+                        _schemaMissing = true;
+                        setStatus(tr('rsvp.alert.needSql',
+                            'Run wa_appointment_rsvp.sql in Supabase SQL Editor once.'), true);
+                    }
+                    return;
+                }
+                _schemaMissing = false;
+                (r.data || []).forEach(function (row) {
+                    var aid = row.appointment_id;
+                    if (!aid || _rsvpByAppt[aid]) return;
+                    _rsvpByAppt[aid] = row;
+                });
+            });
+    }
+
+    function effectiveStatus(a) {
+        var fromAppt = String(a.patient_rsvp_status || '').toLowerCase();
+        var log = _rsvpByAppt[a.id];
+        if (fromAppt === 'confirmed' || fromAppt === 'declined') return fromAppt;
+        if (log && log.status) return String(log.status).toLowerCase();
+        if (fromAppt) return fromAppt;
+        return '';
+    }
+
+    function renderTable() {
+        var body = g('rsvpBody');
+        var countEl = g('rsvpPtCount');
+        var hdr = g('rsvpDateHdr');
+        if (hdr) {
+            hdr.textContent = _date
+                ? tr('rsvp.dateHdr', 'Appointments on') + ' ' + _date
+                : tr('rsvp.pickDate', 'Select a date');
+        }
+        if (countEl) {
+            countEl.textContent = _rows.length
+                ? tr('rsvp.count', '{N} appointment(s)').replace('{N}', String(_rows.length))
+                : tr('rsvp.countZero', 'No appointments');
+        }
+        if (!body) return;
+        if (!_rows.length) {
+            body.innerHTML =
+                '<tr><td colspan="8" style="text-align:center;padding:18px;color:#64748b;">' +
+                esc(tr('rsvp.empty', 'No appointments for this date / clinic.')) +
+                '</td></tr>';
+            return;
+        }
+        body.innerHTML = _rows.map(function (a) {
+            var st = effectiveStatus(a);
+            var tone = statusTone(st);
+            var phone = a.phone || '—';
+            var checked = _sel[a.id] ? ' checked' : '';
+            var log = _rsvpByAppt[a.id];
+            var sentAt = log && log.sent_at
+                ? String(log.sent_at).replace('T', ' ').slice(0, 16)
+                : '—';
+            var replied = log && log.replied_at
+                ? String(log.replied_at).replace('T', ' ').slice(0, 16)
+                : '—';
+            return (
+                '<tr data-rsvp-id="' + esc(a.id) + '">' +
+                '<td style="text-align:center;"><input type="checkbox" class="rsvp-cb" data-id="' +
+                esc(a.id) + '"' + checked + '></td>' +
+                '<td>' + esc(a.patient_no || '—') + '</td>' +
+                '<td><strong>' + esc(a.patient_chinese_name || a.patient_name || '—') + '</strong>' +
+                (a.patient_chinese_name && a.patient_name
+                    ? '<div style="font-size:11px;color:#64748b;">' + esc(a.patient_name) + '</div>'
+                    : '') +
+                '</td>' +
+                '<td>' + esc(phone) + '</td>' +
+                '<td>' + esc(fmt12(a.start_time)) + '</td>' +
+                '<td>' + esc(doctorName(a)) + '</td>' +
+                '<td><span style="display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;' +
+                'background:' + tone.bg + ';color:' + tone.fg + ';">' + esc(tone.label) + '</span>' +
+                '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">' +
+                esc(tr('rsvp.sentAt', 'Sent')) + ': ' + esc(sentAt) +
+                ' · ' + esc(tr('rsvp.repliedAt', 'Reply')) + ': ' + esc(replied) +
+                '</div></td>' +
+                '<td style="white-space:nowrap;">' +
+                '<button type="button" class="rsvp-act" data-act="confirm" data-id="' + esc(a.id) + '" ' +
+                'style="padding:4px 8px;font-size:11px;margin:0 2px;border-radius:6px;border:1px solid #86efac;background:#f0fdf4;cursor:pointer;">' +
+                esc(tr('rsvp.act.confirm', 'Mark Yes')) + '</button>' +
+                '<button type="button" class="rsvp-act" data-act="decline" data-id="' + esc(a.id) + '" ' +
+                'style="padding:4px 8px;font-size:11px;margin:0 2px;border-radius:6px;border:1px solid #fca5a5;background:#fef2f2;cursor:pointer;">' +
+                esc(tr('rsvp.act.decline', 'Mark No')) + '</button>' +
+                '</td>' +
+                '</tr>'
+            );
+        }).join('');
+    }
+
+    function loadPatients(dateIso) {
+        _date = dateIso || _date || todayISO();
+        var dateInp = g('rsvpDateInput');
+        if (dateInp && dateInp.value !== _date) dateInp.value = _date;
+        setStatus(tr('rsvp.loading', 'Loading…'), false);
+        if (typeof SB === 'undefined') {
+            setStatus('Supabase unavailable', true);
+            return Promise.resolve();
+        }
+        var q = SB.from('appointments')
+            .select('*')
+            .eq('date', _date)
+            .order('start_time');
+        q = applyClinicQuery(q);
+        return q.then(function (r) {
+            if (r.error) {
+                setStatus(r.error.message || 'Load failed', true);
+                _rows = [];
+                renderTable();
+                return;
+            }
+            var list = (r.data || []).filter(function (a) {
+                var bs = String(a.bill_status || '').toLowerCase();
+                return bs.indexOf('cancel') < 0;
+            });
+            var patIds = [];
+            list.forEach(function (a) {
+                if (a.patient_id) patIds.push(a.patient_id);
+            });
+            var uniq = patIds.filter(function (id, i, arr) { return arr.indexOf(id) === i; });
+            var phoneMap = Object.create(null);
+            var phoneP = uniq.length
+                ? SB.from('patients').select('id,phone_number,mobile_phone').in('id', uniq)
+                : Promise.resolve({ data: [], error: null });
+            return phoneP.then(function (pr) {
+                (pr.data || []).forEach(function (p) {
+                    phoneMap[p.id] = String(p.mobile_phone || p.phone_number || '').trim();
+                });
+                list.forEach(function (a) {
+                    a.phone = phoneMap[a.patient_id] || a.walk_in_phone || '';
+                });
+                _rows = list;
+                var ids = list.map(function (a) { return a.id; });
+                return loadRsvpMap(ids).then(function () {
+                    renderTable();
+                    setStatus('', false);
+                    updateSelCount();
+                });
+            });
+        });
+    }
+
+    function updateSelCount() {
+        var n = 0;
+        Object.keys(_sel).forEach(function (k) { if (_sel[k]) n++; });
+        var el = g('rsvpSelCount');
+        if (el) el.textContent = tr('rsvp.selected', '{N} selected').replace('{N}', String(n));
+    }
+
+    function selectAll(on) {
+        _rows.forEach(function (a) {
+            if (on) _sel[a.id] = true;
+            else delete _sel[a.id];
+        });
+        renderTable();
+        updateSelCount();
+    }
+
+    function writeApptRsvp(appointmentId, status, source) {
+        if (typeof SB === 'undefined') return Promise.resolve(false);
+        var now = new Date().toISOString();
+        return SB.from('appointments')
+            .update({
+                patient_rsvp_status: status,
+                patient_rsvp_at: now,
+                patient_rsvp_source: source || 'staff'
+            })
+            .eq('id', appointmentId)
+            .then(function (r) {
+                if (r.error && /patient_rsvp_status|schema cache|does not exist/i.test(String(r.error.message || ''))) {
+                    _schemaMissing = true;
+                    return false;
+                }
+                return !r.error;
+            });
+    }
+
+    function insertLog(row) {
+        if (typeof SB === 'undefined') return Promise.resolve(null);
+        return SB.from(TABLE).insert([row]).select('id').single()
+            .then(function (r) {
+                if (r.error) {
+                    if (/wa_appointment_rsvp|schema cache|does not exist/i.test(String(r.error.message || ''))) {
+                        _schemaMissing = true;
+                        setStatus(tr('rsvp.alert.needSql',
+                            'Run wa_appointment_rsvp.sql in Supabase SQL Editor once.'), true);
+                    }
+                    console.warn('[RSVP]', r.error.message);
+                    return null;
+                }
+                return r.data && r.data.id;
+            });
+    }
+
+    function markManual(appointmentId, decision) {
+        var a = _rows.find(function (x) { return x.id === appointmentId; });
+        if (!a) return;
+        var now = new Date().toISOString();
+        var log = _rsvpByAppt[appointmentId];
+        var pLog = Promise.resolve();
+        if (log && log.id && !_schemaMissing) {
+            pLog = SB.from(TABLE).update({
+                status: decision,
+                button_payload: decision === 'confirmed' ? 'CONFIRM' : 'CANCEL',
+                replied_at: now,
+                updated_at: now
+            }).eq('id', log.id);
+        } else if (!_schemaMissing) {
+            pLog = insertLog({
+                appointment_id: appointmentId,
+                patient_id: a.patient_id || null,
+                to_phone: phoneE164(a.phone) || null,
+                content_sid: CONTENT_SID,
+                status: decision,
+                button_payload: decision === 'confirmed' ? 'CONFIRM' : 'CANCEL',
+                sent_at: now,
+                replied_at: now,
+                sent_by: (typeof currentUserId !== 'undefined' ? currentUserId : null),
+                clinic_tag: clinicTag() || null
+            });
+        }
+        pLog.then(function () {
+            return writeApptRsvp(appointmentId, decision, 'staff');
+        }).then(function () {
+            a.patient_rsvp_status = decision;
+            a.patient_rsvp_at = now;
+            a.patient_rsvp_source = 'staff';
+            return loadRsvpMap(_rows.map(function (x) { return x.id; }));
+        }).then(function () {
+            renderTable();
+            setStatus(tr('rsvp.marked', 'Updated reply status.'), false);
+        });
+    }
+
+    function sendSelected() {
+        if (_sending) return;
+        if (_schemaMissing) {
+            setStatus(tr('rsvp.alert.needSql',
+                'Run wa_appointment_rsvp.sql in Supabase SQL Editor once.'), true);
+            return;
+        }
+        if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
+            setStatus(tr('rsvp.alert.noAi', 'AI Helper / Twilio send is unavailable.'), true);
+            return;
+        }
+        var queue = _rows.filter(function (a) { return _sel[a.id]; });
+        if (!queue.length) {
+            setStatus(tr('rsvp.alert.noneSelected', 'Select at least one appointment.'), true);
+            return;
+        }
+        var skipped = [];
+        var ready = [];
+        queue.forEach(function (a) {
+            var to = phoneE164(a.phone);
+            if (!to) skipped.push(a);
+            else ready.push({ a: a, to: to });
+        });
+        if (!ready.length) {
+            setStatus(tr('rsvp.alert.noPhone', 'Selected patients have no valid phone.'), true);
+            return;
+        }
+        if (skipped.length && !window.confirm(
+            tr('rsvp.confirm.skipNoPhone', '{N} without phone will be skipped. Continue?')
+                .replace('{N}', String(skipped.length))
+        )) return;
+
+        var tpl = resolveTemplate();
+        var fromSel = g('rsvpTwilioFrom');
+        var fromVal = fromSel ? String(fromSel.value || '').trim() : '';
+        _sending = true;
+        setStatus(tr('rsvp.sending', 'Sending RSVP… 0/') + ready.length, false);
+        var ok = 0;
+        var fail = 0;
+        var i = 0;
+
+        function next() {
+            if (i >= ready.length) {
+                _sending = false;
+                setStatus(
+                    tr('rsvp.sendDone', 'Done: {OK} sent, {FAIL} failed.')
+                        .replace('{OK}', String(ok))
+                        .replace('{FAIL}', String(fail)),
+                    fail > 0
+                );
+                loadPatients(_date);
+                return;
+            }
+            var item = ready[i++];
+            var a = item.a;
+            var ctx = contentCtx(a);
+            var vars = AIHELPER.buildTwilioContentVariables(tpl, ctx);
+            var opts = {
+                channel: 'whatsapp',
+                to: item.to,
+                name: ctx.name,
+                contentSid: tpl.contentSid || CONTENT_SID,
+                contentVariables: vars
+            };
+            if (fromVal) opts.from = fromVal;
+
+            var expires = new Date(Date.now() + EXPIRE_HOURS * 3600 * 1000).toISOString();
+            var sentAt = new Date().toISOString();
+
+            AIHELPER.sendTwilioOutreach(opts).then(function (res) {
+                if (res && res.ok) {
+                    ok++;
+                    var sid = res.result && res.result.sid ? String(res.result.sid) : null;
+                    return insertLog({
+                        appointment_id: a.id,
+                        patient_id: a.patient_id || null,
+                        to_phone: item.to,
+                        content_sid: opts.contentSid,
+                        outbound_sid: sid,
+                        status: 'pending',
+                        sent_at: sentAt,
+                        expires_at: expires,
+                        sent_by: (typeof currentUserId !== 'undefined' ? currentUserId : null),
+                        clinic_tag: clinicTag() || null
+                    }).then(function () {
+                        return writeApptRsvp(a.id, 'pending', 'whatsapp');
+                    });
+                }
+                fail++;
+                return insertLog({
+                    appointment_id: a.id,
+                    patient_id: a.patient_id || null,
+                    to_phone: item.to,
+                    content_sid: opts.contentSid,
+                    status: 'failed',
+                    error: (res && res.error) ? String(res.error).slice(0, 500) : 'send failed',
+                    sent_at: sentAt,
+                    sent_by: (typeof currentUserId !== 'undefined' ? currentUserId : null),
+                    clinic_tag: clinicTag() || null
+                });
+            }).catch(function (e) {
+                fail++;
+                console.warn('[RSVP] send', e);
+            }).then(function () {
+                setStatus(
+                    tr('rsvp.sending', 'Sending RSVP… ') + i + '/' + ready.length,
+                    false
+                );
+                setTimeout(next, 450);
+            });
+        }
+        next();
+    }
+
+    function fillFromPicker() {
+        var sel = g('rsvpTwilioFrom');
+        if (!sel || typeof AIHELPER === 'undefined') return;
+        var keep = sel.value;
+        sel.innerHTML = '';
+        var opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = tr('rsvp.fromDefault', 'Default (Edge secret)');
+        sel.appendChild(opt0);
+        var listP = typeof AIHELPER.ensureTwilioFromNumbers === 'function'
+            ? AIHELPER.ensureTwilioFromNumbers(true)
+            : Promise.resolve();
+        Promise.resolve(listP).then(function () {
+            var list = typeof AIHELPER.listTwilioFromNumbers === 'function'
+                ? AIHELPER.listTwilioFromNumbers('whatsapp')
+                : [];
+            (list || []).forEach(function (row) {
+                if (row.whatsapp === false || row.is_active === false) return;
+                var o = document.createElement('option');
+                o.value = row.phone || '';
+                o.textContent = (row.label || row.phone || '') + ' · ' + (row.phone || '');
+                sel.appendChild(o);
+            });
+            if (keep) sel.value = keep;
+        }).catch(function () { /* ignore */ });
+    }
+
+    function bindOnce() {
+        if (_ready) return;
+        _ready = true;
+        var root = g('tab-rsvp');
+        if (!root) return;
+
+        root.addEventListener('change', function (ev) {
+            var t = ev.target;
+            if (t && t.classList && t.classList.contains('rsvp-cb')) {
+                var id = t.getAttribute('data-id');
+                if (t.checked) _sel[id] = true;
+                else delete _sel[id];
+                updateSelCount();
+            }
+            if (t && t.id === 'rsvpDateInput') {
+                _date = t.value || todayISO();
+                _sel = Object.create(null);
+                loadPatients(_date);
+            }
+        });
+
+        root.addEventListener('click', function (ev) {
+            var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+            if (!btn) return;
+            var act = btn.getAttribute('data-act');
+            var id = btn.getAttribute('data-id');
+            if (act === 'confirm' && id) markManual(id, 'confirmed');
+            if (act === 'decline' && id) markManual(id, 'declined');
+        });
+
+        var sendBtn = g('rsvpSendBtn');
+        if (sendBtn) sendBtn.addEventListener('click', sendSelected);
+        var selAll = g('rsvpSelectAll');
+        if (selAll) selAll.addEventListener('click', function () { selectAll(true); });
+        var clearBtn = g('rsvpClearSel');
+        if (clearBtn) clearBtn.addEventListener('click', function () { selectAll(false); });
+        var refreshBtn = g('rsvpRefreshBtn');
+        if (refreshBtn) refreshBtn.addEventListener('click', function () { loadPatients(_date); });
+        var openSetup = g('rsvpOpenTwilioSetup');
+        if (openSetup) {
+            openSetup.addEventListener('click', function () {
+                if (typeof openBroadcastTwilioSetup === 'function') openBroadcastTwilioSetup();
+                else if (typeof switchApptTab === 'function') switchApptTab('broadcast');
+            });
+        }
+    }
+
+    function startPoll() {
+        stopPoll();
+        _pollTimer = setInterval(function () {
+            var pane = g('tab-rsvp');
+            if (!pane || !pane.classList.contains('active')) return;
+            if (_sending) return;
+            if (!_rows.length) return;
+            loadRsvpMap(_rows.map(function (a) { return a.id; })).then(function () {
+                // soft refresh statuses from appointments too
+                var ids = _rows.map(function (a) { return a.id; });
+                if (!ids.length || typeof SB === 'undefined') {
+                    renderTable();
+                    return;
+                }
+                SB.from('appointments')
+                    .select('id,patient_rsvp_status,patient_rsvp_at,patient_rsvp_source')
+                    .in('id', ids)
+                    .then(function (r) {
+                        var map = Object.create(null);
+                        (r.data || []).forEach(function (row) { map[row.id] = row; });
+                        _rows.forEach(function (a) {
+                            if (map[a.id]) {
+                                a.patient_rsvp_status = map[a.id].patient_rsvp_status;
+                                a.patient_rsvp_at = map[a.id].patient_rsvp_at;
+                                a.patient_rsvp_source = map[a.id].patient_rsvp_source;
+                            }
+                        });
+                        renderTable();
+                    });
+            });
+        }, 12000);
+    }
+
+    function stopPoll() {
+        if (_pollTimer) {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+        }
+    }
+
+    function init() {
+        bindOnce();
+        if (!_date) _date = todayISO();
+        var dateInp = g('rsvpDateInput');
+        if (dateInp && !dateInp.value) dateInp.value = _date;
+        var sidEl = g('rsvpContentSid');
+        if (sidEl) sidEl.textContent = CONTENT_SID;
+        fillFromPicker();
+        if (typeof AIHELPER !== 'undefined' && typeof AIHELPER.ensureTwilioContentTemplates === 'function') {
+            AIHELPER.ensureTwilioContentTemplates(true).catch(function () { /* ignore */ });
+        }
+        loadPatients(_date);
+        startPoll();
+    }
+
+    function refreshFromBar() {
+        if (g('tab-rsvp') && g('tab-rsvp').classList.contains('active')) {
+            loadPatients(_date || todayISO());
+        }
+    }
+
+    function applyI18n() {
+        if (typeof applyI18nToTree === 'function') {
+            var pane = g('tab-rsvp');
+            if (pane) applyI18nToTree(pane);
+        }
+        renderTable();
+        updateSelCount();
+    }
+
+    return {
+        init: init,
+        refreshFromBar: refreshFromBar,
+        applyI18n: applyI18n,
+        CONTENT_SID: CONTENT_SID
+    };
+})();
+
+window.RSVP_RECALL = RSVP_RECALL;

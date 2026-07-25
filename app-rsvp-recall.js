@@ -7,10 +7,12 @@
 var RSVP_RECALL = (function () {
     'use strict';
 
-    var CONTENT_SID = 'HX3e0d0027555e8d6b700381a797f599cc';
+    var CONTENT_SID = 'HX123c5d6b07dff76590124d0c363fdd21';
     var TPL_VARS = '1,2,3,4,5';
     var TPL_VAR_MAP = { '1': 'NAME', '2': 'CLINIC', '3': 'DATE', '4': 'TIME', '5': 'DOCTOR' };
     var TABLE = 'wa_appointment_rsvp';
+    var INBOUND_LOG = 'wa_rsvp_inbound_log';
+    var WEBHOOK_URL = 'https://kprihawipljrltfzpfjd.supabase.co/functions/v1/twilio-whatsapp-inbound';
     var EXPIRE_HOURS = 72;
 
     var _ready = false;
@@ -21,6 +23,8 @@ var RSVP_RECALL = (function () {
     var _sending = false;
     var _schemaMissing = false;
     var _pollTimer = null;
+    var _realtimeBound = false;
+    var _filter = 'all';
 
     function g(id) { return document.getElementById(id); }
     function tr(key, fallback) {
@@ -89,13 +93,81 @@ var RSVP_RECALL = (function () {
         return s.split(/\s+/)[0] || s;
     }
     function statusTone(st) {
+        if (typeof apptRsvpStatusMeta === 'function') {
+            var meta = apptRsvpStatusMeta(st);
+            return { bg: '', fg: '', label: meta.label, icon: meta.icon, cls: meta.cls };
+        }
         st = String(st || '').toLowerCase();
-        if (st === 'confirmed') return { bg: '#dcfce7', fg: '#166534', label: tr('rsvp.status.confirmed', 'Confirmed') };
-        if (st === 'declined') return { bg: '#fee2e2', fg: '#991b1b', label: tr('rsvp.status.declined', 'Declined') };
-        if (st === 'pending') return { bg: '#fef9c3', fg: '#854d0e', label: tr('rsvp.status.pending', 'Awaiting reply') };
-        if (st === 'failed') return { bg: '#ffedd5', fg: '#9a3412', label: tr('rsvp.status.failed', 'Send failed') };
-        if (st === 'expired') return { bg: '#f1f5f9', fg: '#64748b', label: tr('rsvp.status.expired', 'Expired') };
-        return { bg: '#f8fafc', fg: '#64748b', label: tr('rsvp.status.none', 'Not sent') };
+        if (st === 'confirmed') return { bg: '#dcfce7', fg: '#166534', label: tr('rsvp.status.confirmed', 'Coming'), icon: '✅', cls: 'is-confirmed' };
+        if (st === 'declined') return { bg: '#fee2e2', fg: '#991b1b', label: tr('rsvp.status.declined', 'Not coming'), icon: '❌', cls: 'is-declined' };
+        if (st === 'pending') return { bg: '#fef9c3', fg: '#854d0e', label: tr('rsvp.status.pending', 'Awaiting reply'), icon: '⏳', cls: 'is-pending' };
+        if (st === 'failed') return { bg: '#ffedd5', fg: '#9a3412', label: tr('rsvp.status.failed', 'Send failed'), icon: '⚠️', cls: 'is-failed' };
+        if (st === 'expired') return { bg: '#f1f5f9', fg: '#64748b', label: tr('rsvp.status.expired', 'Expired'), icon: '⌛', cls: 'is-expired' };
+        return { bg: '#f8fafc', fg: '#64748b', label: tr('rsvp.status.none', 'Not sent'), icon: '—', cls: 'is-none' };
+    }
+
+    function rsvpFilterBucket(st) {
+        st = String(st || '').toLowerCase();
+        if (_filter === 'all') return true;
+        if (_filter === 'confirmed') return st === 'confirmed';
+        if (_filter === 'declined') return st === 'declined';
+        if (_filter === 'pending') return st === 'pending' || st === 'failed' || st === 'expired';
+        if (_filter === 'none') return !st;
+        return true;
+    }
+
+    function countByStatus() {
+        var c = { confirmed: 0, declined: 0, pending: 0, none: 0 };
+        _rows.forEach(function (a) {
+            var st = effectiveStatus(a);
+            if (st === 'confirmed') c.confirmed++;
+            else if (st === 'declined') c.declined++;
+            else if (st === 'pending' || st === 'failed' || st === 'expired') c.pending++;
+            else c.none++;
+        });
+        return c;
+    }
+
+    function renderSummary() {
+        var el = g('rsvpSummary');
+        if (!el) return;
+        var c = countByStatus();
+        var chips = [
+            { key: 'confirmed', cls: 'is-confirmed', icon: '✅', label: tr('rsvp.summary.coming', 'Coming'), n: c.confirmed },
+            { key: 'declined', cls: 'is-declined', icon: '❌', label: tr('rsvp.summary.notComing', 'Not coming'), n: c.declined },
+            { key: 'pending', cls: 'is-pending', icon: '⏳', label: tr('rsvp.summary.awaiting', 'Awaiting'), n: c.pending },
+            { key: 'none', cls: 'is-none', icon: '—', label: tr('rsvp.summary.notSent', 'Not sent'), n: c.none }
+        ];
+        el.innerHTML = chips.map(function (ch) {
+            return (
+                '<button type="button" class="rsvp-summary-chip ' + ch.cls + '" data-rsvp-filter="' +
+                esc(ch.key === 'none' ? 'none' : ch.key) + '" title="' +
+                esc(ch.label) + '">' +
+                '<span>' + ch.icon + '</span>' +
+                '<span>' + esc(ch.label) + '</span>' +
+                '<span class="rsvp-summary-n">' + String(ch.n) + '</span>' +
+                '</button>'
+            );
+        }).join('');
+    }
+
+    function renderFilters() {
+        var el = g('rsvpFilters');
+        if (!el) return;
+        var items = [
+            { v: 'all', label: tr('rsvp.filter.all', 'All') },
+            { v: 'confirmed', label: '✅ ' + tr('rsvp.filter.coming', 'Coming') },
+            { v: 'declined', label: '❌ ' + tr('rsvp.filter.notComing', 'Not coming') },
+            { v: 'pending', label: '⏳ ' + tr('rsvp.filter.awaiting', 'Awaiting') },
+            { v: 'none', label: tr('rsvp.filter.notSent', 'Not sent') }
+        ];
+        el.innerHTML = items.map(function (it) {
+            var active = _filter === it.v ? ' is-active' : '';
+            return (
+                '<button type="button" class="rsvp-filter-btn' + active + '" data-rsvp-filter="' +
+                esc(it.v) + '">' + esc(it.label) + '</button>'
+            );
+        }).join('');
     }
     function setStatus(msg, isErr) {
         var el = g('rsvpStatus');
@@ -190,9 +262,73 @@ var RSVP_RECALL = (function () {
         var fromAppt = String(a.patient_rsvp_status || '').toLowerCase();
         var log = _rsvpByAppt[a.id];
         if (fromAppt === 'confirmed' || fromAppt === 'declined') return fromAppt;
+        if (log && log.replied_at) {
+            var ls = String(log.status || '').toLowerCase();
+            if (ls === 'confirmed' || ls === 'declined') return ls;
+        }
         if (log && log.status) return String(log.status).toLowerCase();
         if (fromAppt) return fromAppt;
         return '';
+    }
+
+    function loadWebhookDiagnostic() {
+        var el = g('rsvpWebhookDiag');
+        if (!el || typeof SB === 'undefined') return Promise.resolve();
+        var pInbound = SB.from(INBOUND_LOG)
+            .select('received_at,note,decision,from_phone,body')
+            .order('received_at', { ascending: false })
+            .limit(3);
+        var pOk = SB.from(INBOUND_LOG)
+            .select('received_at,note,decision')
+            .eq('note', 'ok')
+            .order('received_at', { ascending: false })
+            .limit(1);
+        var pPending = SB.from(TABLE)
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'pending');
+        return Promise.all([pInbound, pOk, pPending]).then(function (res) {
+            var inbound = res[0];
+            var okRow = res[1];
+            var pending = res[2];
+            var rows = (inbound.data && !inbound.error) ? inbound.data : [];
+            var last = rows[0];
+            var pendingN = (pending && !pending.error && pending.count != null) ? pending.count : '?';
+            var html = '<div style="font-weight:800;color:#334155;margin-bottom:6px;">' +
+                esc(tr('rsvp.diag.title', 'Inbound webhook diagnostic')) + '</div>';
+            html += '<div><span style="font-weight:700;">' + esc(tr('rsvp.diag.url', 'Twilio POST URL')) +
+                ':</span><br><code>' + esc(WEBHOOK_URL) + '</code></div>';
+            html += '<div style="margin-top:6px;"><span style="font-weight:700;">' +
+                esc(tr('rsvp.diag.pending', 'Pending replies waiting')) + ':</span> ' +
+                esc(String(pendingN)) + '</div>';
+            if (!last) {
+                html += '<div class="rsvp-diag-err" style="margin-top:6px;">' +
+                    esc(tr('rsvp.diag.never', 'Never received')) + '</div>';
+            } else {
+                var when = String(last.received_at || '').replace('T', ' ').slice(0, 19);
+                var note = String(last.note || '');
+                var cls = note === 'ok' ? 'rsvp-diag-ok' : (note === 'webhook_received' ? 'rsvp-diag-warn' : 'rsvp-diag-warn');
+                html += '<div style="margin-top:6px;"><span style="font-weight:700;">' +
+                    esc(tr('rsvp.diag.lastHit', 'Last inbound received')) + ':</span> ' +
+                    '<span class="' + cls + '">' + esc(when) + ' · ' + esc(note) +
+                    (last.decision ? (' · ' + esc(last.decision)) : '') + '</span></div>';
+                if (note === 'webhook_received' && rows.length === 1) {
+                    html += '<div class="rsvp-diag-warn" style="margin-top:4px;">' +
+                        esc('Twilio reached Supabase but RSVP was not matched or parsed — check note in wa_rsvp_inbound_log.') +
+                        '</div>';
+                }
+            }
+            if (okRow.data && okRow.data[0]) {
+                var okWhen = String(okRow.data[0].received_at || '').replace('T', ' ').slice(0, 19);
+                html += '<div style="margin-top:4px;"><span style="font-weight:700;">' +
+                    esc(tr('rsvp.diag.lastOk', 'Last successful RSVP update')) + ':</span> ' +
+                    '<span class="rsvp-diag-ok">' + esc(okWhen) + '</span></div>';
+            }
+            html += '<div style="margin-top:6px;color:#64748b;">' +
+                esc(tr('rsvp.diag.sendReminder', 'Patient must tap Send')) + '</div>';
+            html += '<div style="margin-top:4px;color:#94a3b8;">' +
+                esc(tr('rsvp.diag.checkTable', 'Debug table')) + ': wa_rsvp_inbound_log</div>';
+            el.innerHTML = html;
+        }).catch(function () { /* ignore */ });
     }
 
     function renderTable() {
@@ -209,6 +345,8 @@ var RSVP_RECALL = (function () {
                 ? tr('rsvp.count', '{N} appointment(s)').replace('{N}', String(_rows.length))
                 : tr('rsvp.countZero', 'No appointments');
         }
+        renderSummary();
+        renderFilters();
         if (!body) return;
         if (!_rows.length) {
             body.innerHTML =
@@ -217,7 +355,17 @@ var RSVP_RECALL = (function () {
                 '</td></tr>';
             return;
         }
-        body.innerHTML = _rows.map(function (a) {
+        var visible = _rows.filter(function (a) {
+            return rsvpFilterBucket(effectiveStatus(a));
+        });
+        if (!visible.length) {
+            body.innerHTML =
+                '<tr><td colspan="8" style="text-align:center;padding:18px;color:#64748b;">' +
+                esc(tr('rsvp.empty', 'No appointments for this date / clinic.')) +
+                '</td></tr>';
+            return;
+        }
+        body.innerHTML = visible.map(function (a) {
             var st = effectiveStatus(a);
             var tone = statusTone(st);
             var phone = a.phone || '—';
@@ -229,8 +377,26 @@ var RSVP_RECALL = (function () {
             var replied = log && log.replied_at
                 ? String(log.replied_at).replace('T', ' ').slice(0, 16)
                 : '—';
+            var rowCls = '';
+            if (st === 'confirmed') rowCls = ' class="rsvp-row-confirmed"';
+            else if (st === 'declined') rowCls = ' class="rsvp-row-declined"';
+            else if (st === 'pending') rowCls = ' class="rsvp-row-pending"';
+            var badgeHtml;
+            if (typeof apptRsvpBadgeBlockHtml === 'function') {
+                badgeHtml = apptRsvpBadgeBlockHtml(a, { logStatus: log && log.status });
+            } else {
+                badgeHtml =
+                    '<span class="rsvp-badge ' + tone.cls + '">' +
+                    '<span class="rsvp-badge-icon">' + tone.icon + '</span>' +
+                    '<span>' + esc(tone.label) + '</span></span>';
+            }
+            var metaLine =
+                '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">' +
+                esc(tr('rsvp.sentAt', 'Sent')) + ': ' + esc(sentAt) +
+                ' · ' + esc(tr('rsvp.repliedAt', 'Reply')) + ': ' + esc(replied) +
+                '</div>';
             return (
-                '<tr data-rsvp-id="' + esc(a.id) + '">' +
+                '<tr data-rsvp-id="' + esc(a.id) + '"' + rowCls + '>' +
                 '<td style="text-align:center;"><input type="checkbox" class="rsvp-cb" data-id="' +
                 esc(a.id) + '"' + checked + '></td>' +
                 '<td>' + esc(a.patient_no || '—') + '</td>' +
@@ -242,19 +408,14 @@ var RSVP_RECALL = (function () {
                 '<td>' + esc(phone) + '</td>' +
                 '<td>' + esc(fmt12(a.start_time)) + '</td>' +
                 '<td>' + esc(doctorName(a)) + '</td>' +
-                '<td><span style="display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;' +
-                'background:' + tone.bg + ';color:' + tone.fg + ';">' + esc(tone.label) + '</span>' +
-                '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">' +
-                esc(tr('rsvp.sentAt', 'Sent')) + ': ' + esc(sentAt) +
-                ' · ' + esc(tr('rsvp.repliedAt', 'Reply')) + ': ' + esc(replied) +
-                '</div></td>' +
+                '<td>' + badgeHtml + metaLine + '</td>' +
                 '<td style="white-space:nowrap;">' +
                 '<button type="button" class="rsvp-act" data-act="confirm" data-id="' + esc(a.id) + '" ' +
                 'style="padding:4px 8px;font-size:11px;margin:0 2px;border-radius:6px;border:1px solid #86efac;background:#f0fdf4;cursor:pointer;">' +
-                esc(tr('rsvp.act.confirm', 'Mark Yes')) + '</button>' +
+                '✅ ' + esc(tr('rsvp.act.confirm', 'Mark Yes')) + '</button>' +
                 '<button type="button" class="rsvp-act" data-act="decline" data-id="' + esc(a.id) + '" ' +
                 'style="padding:4px 8px;font-size:11px;margin:0 2px;border-radius:6px;border:1px solid #fca5a5;background:#fef2f2;cursor:pointer;">' +
-                esc(tr('rsvp.act.decline', 'Mark No')) + '</button>' +
+                '❌ ' + esc(tr('rsvp.act.decline', 'Mark No')) + '</button>' +
                 '</td>' +
                 '</tr>'
             );
@@ -308,6 +469,7 @@ var RSVP_RECALL = (function () {
                     renderTable();
                     setStatus('', false);
                     updateSelCount();
+                    loadWebhookDiagnostic();
                 });
             });
         });
@@ -395,13 +557,23 @@ var RSVP_RECALL = (function () {
         pLog.then(function () {
             return writeApptRsvp(appointmentId, decision, 'staff');
         }).then(function () {
+            if (typeof apptApplyRsvpRecallOutcome === 'function') {
+                return apptApplyRsvpRecallOutcome(appointmentId, decision);
+            }
+        }).then(function () {
             a.patient_rsvp_status = decision;
             a.patient_rsvp_at = now;
             a.patient_rsvp_source = 'staff';
+            if (decision === 'declined') a.bill_status = 'Cancelled';
             return loadRsvpMap(_rows.map(function (x) { return x.id; }));
         }).then(function () {
+            if (decision === 'declined') {
+                _rows = _rows.filter(function (x) { return x.id !== appointmentId; });
+            }
             renderTable();
             setStatus(tr('rsvp.marked', 'Updated reply status.'), false);
+            if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+            if (typeof loadToday === 'function') loadToday({ soft: true });
         });
     }
 
@@ -568,6 +740,12 @@ var RSVP_RECALL = (function () {
         });
 
         root.addEventListener('click', function (ev) {
+            var filt = ev.target && ev.target.closest ? ev.target.closest('[data-rsvp-filter]') : null;
+            if (filt) {
+                _filter = filt.getAttribute('data-rsvp-filter') || 'all';
+                renderTable();
+                return;
+            }
             var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
             if (!btn) return;
             var act = btn.getAttribute('data-act');
@@ -601,29 +779,97 @@ var RSVP_RECALL = (function () {
             if (_sending) return;
             if (!_rows.length) return;
             loadRsvpMap(_rows.map(function (a) { return a.id; })).then(function () {
-                // soft refresh statuses from appointments too
                 var ids = _rows.map(function (a) { return a.id; });
                 if (!ids.length || typeof SB === 'undefined') {
                     renderTable();
                     return;
                 }
                 SB.from('appointments')
-                    .select('id,patient_rsvp_status,patient_rsvp_at,patient_rsvp_source')
+                    .select('id,patient_rsvp_status,patient_rsvp_at,patient_rsvp_source,bill_status')
                     .in('id', ids)
                     .then(function (r) {
                         var map = Object.create(null);
                         (r.data || []).forEach(function (row) { map[row.id] = row; });
                         _rows.forEach(function (a) {
                             if (map[a.id]) {
+                                var prev = String(a.patient_rsvp_status || '').toLowerCase();
                                 a.patient_rsvp_status = map[a.id].patient_rsvp_status;
                                 a.patient_rsvp_at = map[a.id].patient_rsvp_at;
                                 a.patient_rsvp_source = map[a.id].patient_rsvp_source;
+                                if (map[a.id].bill_status) a.bill_status = map[a.id].bill_status;
+                                var newSt = String(a.patient_rsvp_status || '').toLowerCase();
+                                if ((newSt === 'confirmed' || newSt === 'declined') && prev !== newSt &&
+                                    typeof apptApplyRsvpRecallOutcome === 'function') {
+                                    apptApplyRsvpRecallOutcome(a.id, newSt);
+                                }
+                                if (newSt === 'declined') {
+                                    a.bill_status = 'Cancelled';
+                                }
                             }
                         });
+                        _rows = _rows.filter(function (x) {
+                            var bs = String(x.bill_status || '').toLowerCase();
+                            return bs.indexOf('cancel') < 0;
+                        });
                         renderTable();
+                        loadWebhookDiagnostic();
+                        if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+                        if (typeof loadToday === 'function') loadToday({ soft: true });
                     });
             });
-        }, 12000);
+        }, 5000);
+    }
+
+    function startRealtime() {
+        if (typeof SB === 'undefined' || !SB.channel || _realtimeBound) return;
+        _realtimeBound = true;
+        try {
+            SB.channel('rsvp-recall-' + Date.now())
+                .on('postgres_changes', {
+                    event: '*',
+                    schema: 'public',
+                    table: TABLE
+                }, function () {
+                    if (_sending || !_rows.length) return;
+                    loadRsvpMap(_rows.map(function (a) { return a.id; })).then(function () {
+                        renderTable();
+                        loadWebhookDiagnostic();
+                        if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+                        if (typeof loadToday === 'function') loadToday({ soft: true });
+                    });
+                })
+                .on('postgres_changes', {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'appointments'
+                }, function (payload) {
+                    if (_sending || !_rows.length || !payload || !payload.new) return;
+                    var nid = payload.new.id;
+                    _rows.forEach(function (a) {
+                        if (!a || a.id !== nid) return;
+                        if (payload.new.patient_rsvp_status != null) {
+                            a.patient_rsvp_status = payload.new.patient_rsvp_status;
+                        }
+                        if (payload.new.patient_rsvp_at != null) a.patient_rsvp_at = payload.new.patient_rsvp_at;
+                        if (payload.new.patient_rsvp_source != null) {
+                            a.patient_rsvp_source = payload.new.patient_rsvp_source;
+                        }
+                        if (payload.new.bill_status != null) a.bill_status = payload.new.bill_status;
+                    });
+                    loadRsvpMap(_rows.map(function (a) { return a.id; })).then(function () {
+                        renderTable();
+                        loadWebhookDiagnostic();
+                    });
+                })
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: INBOUND_LOG
+                }, function () {
+                    loadWebhookDiagnostic();
+                })
+                .subscribe();
+        } catch (e) { /* realtime optional */ }
     }
 
     function stopPoll() {
@@ -646,6 +892,7 @@ var RSVP_RECALL = (function () {
         }
         loadPatients(_date);
         startPoll();
+        startRealtime();
     }
 
     function refreshFromBar() {

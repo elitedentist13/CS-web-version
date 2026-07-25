@@ -17,6 +17,7 @@ create table if not exists public.user_login_log (
     duration_seconds integer,
     logout_reason text,
     user_agent text,
+    login_method text,
     session_active boolean not null default true,
     created_at timestamptz not null default now()
 );
@@ -40,3 +41,7 @@ create policy user_login_log_read
 
 create policy user_login_log_write
     on public.user_login_log for all using (true) with check (true);
+
+-- If the table already exists from an earlier deploy, add login_method:
+alter table public.user_login_log
+    add column if not exists login_method text;

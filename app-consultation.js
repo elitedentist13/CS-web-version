@@ -3582,6 +3582,7 @@ function conPtlTaskLabel(kind, value) {
         if (value === 'cant') return conTr('con.ptl.taskRecallCant');
         if (value === 'whatsapp') return conTr('con.ptl.taskRecallWhatsapp');
         if (value === 'voice') return conTr('con.ptl.taskRecallVoice');
+        if (value === 'cancel') return conTr('con.ptl.taskRecallCancel');
     }
     return '';
 }

@@ -4688,6 +4688,11 @@ tr:hover td { background: #fafcff; }
     background: #eff6ff;
     color: #1d4ed8;
 }
+.plusappt-task-badge.is-cancel {
+    border-color: #dc2626;
+    background: #fef2f2;
+    color: #991b1b;
+}
 .plusappt-task-badge.is-empty {
     border-color: #cbd5e1;
     background: #f8fafc;
@@ -5530,6 +5535,12 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     border-color: #0ea5e9;
     background: #eff6ff;
     color: #1d4ed8;
+}
+
+.appt-task-pill.is-cancel {
+    border-color: #dc2626;
+    background: #fef2f2;
+    color: #991b1b;
 }
 
 .appt-task-pill.is-empty {
@@ -16887,3 +16898,92 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 }
 .mb-th-sent, .mb-td-sent { white-space: nowrap; min-width: 88px; }
 .mb-row-sent td { background: #f8fffb; }
+
+/* ── Two-way RSVP badges & summary ── */
+.rsvp-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.rsvp-summary-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+}
+.rsvp-summary-chip:hover { filter: brightness(0.97); }
+.rsvp-summary-chip .rsvp-summary-n {
+    font-variant-numeric: tabular-nums;
+    min-width: 1.2em;
+    text-align: center;
+}
+.rsvp-summary-chip.is-confirmed { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.rsvp-summary-chip.is-declined  { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.rsvp-summary-chip.is-pending   { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
+.rsvp-summary-chip.is-none      { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
+.rsvp-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.rsvp-filter-btn {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+    cursor: pointer;
+}
+.rsvp-filter-btn:hover { border-color: #93c5fd; background: #eff6ff; }
+.rsvp-filter-btn.is-active {
+    border-color: #0ea5e9;
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.rsvp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.3;
+    vertical-align: middle;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    margin-left: 4px;
+}
+.rsvp-badge-icon { font-size: 11px; line-height: 1; }
+.rsvp-badge.is-confirmed { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+.rsvp-badge.is-declined  { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.rsvp-badge.is-pending   { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
+.rsvp-badge.is-failed    { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+.rsvp-badge.is-expired   { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
+tr.rsvp-row-confirmed td { background: #f7fef9; }
+tr.rsvp-row-declined td  { background: #fff7f7; }
+tr.rsvp-row-pending td   { background: #fffef5; }
+
+.rsvp-webhook-diag code {
+    font-size: 10px;
+    word-break: break-all;
+    background: #f1f5f9;
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+.rsvp-webhook-diag .rsvp-diag-ok { color: #047857; font-weight: 700; }
+.rsvp-webhook-diag .rsvp-diag-warn { color: #b45309; font-weight: 700; }
+.rsvp-webhook-diag .rsvp-diag-err { color: #b91c1c; font-weight: 700; }

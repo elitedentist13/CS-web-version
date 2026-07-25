@@ -102,6 +102,47 @@
         };
     }
 
+    function isUuid(v) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || ''));
+    }
+
+    function sanitizeLoginLogPayload(payload) {
+        var p = Object.assign({}, payload || {});
+        if (!isUuid(p.clinic_id)) p.clinic_id = null;
+        if (!isUuid(p.doctor_id)) p.doctor_id = null;
+        return p;
+    }
+
+    function logLoginLogError(action, r) {
+        var err = r && r.error;
+        if (!err) return;
+        var msg = err.message || String(err);
+        var code = err.code || '';
+        var hint = err.hint || '';
+        console.warn('[login-log] ' + action + ' failed:', msg, code ? ('code=' + code) : '', hint);
+        if (/does not exist|PGRST205|404|NOT_FOUND/i.test(msg + code)) {
+            console.warn('[login-log] Run user_login_log.sql in Supabase SQL Editor, then hard-refresh (Ctrl+Shift+R).');
+        }
+    }
+
+    function insertLoginLogRow(payload) {
+        if (!sbReady()) return Promise.resolve(null);
+        payload = sanitizeLoginLogPayload(payload);
+        if (!payload.user_id) return Promise.resolve(null);
+        return SB.from(LOGIN_LOG_TABLE).insert([payload]).select('id').then(function (r) {
+            if (r.error) {
+                logLoginLogError('insert', r);
+                return null;
+            }
+            var id = r.data && r.data[0] ? r.data[0].id : null;
+            if (id) setActiveLoginLogId(id);
+            return id;
+        }).catch(function (e) {
+            console.warn('[login-log] insert error:', e);
+            return null;
+        });
+    }
+
     function buildPendingPayload(u, doctorId, opts) {
         opts = opts || {};
         u = u || {};
@@ -143,6 +184,11 @@
         } catch (e) {}
     }
 
+    /** Insert login row immediately (preferred — no localStorage round-trip). */
+    function recordLoginLog(u, doctorId, opts) {
+        return insertLoginLogRow(buildPendingPayload(u, doctorId, opts));
+    }
+
     function flushPendingLoginLog() {
         if (!sbReady()) return Promise.resolve(null);
         var raw = null;
@@ -157,18 +203,11 @@
             try { localStorage.removeItem(PENDING_LS_KEY); } catch (e4) {}
             return Promise.resolve(null);
         }
-        return SB.from(LOGIN_LOG_TABLE).insert([payload]).select('id').then(function (r) {
-            try { localStorage.removeItem(PENDING_LS_KEY); } catch (e5) {}
-            if (r.error) {
-                console.warn('[login-log] insert failed:', r.error.message);
-                return null;
+        return insertLoginLogRow(payload).then(function (id) {
+            if (id) {
+                try { localStorage.removeItem(PENDING_LS_KEY); } catch (e5) {}
             }
-            var id = r.data && r.data[0] ? r.data[0].id : null;
-            if (id) setActiveLoginLogId(id);
             return id;
-        }).catch(function (e) {
-            console.warn('[login-log] insert error:', e);
-            return null;
         });
     }
 
@@ -176,7 +215,8 @@
         if (!sbReady() || !_activeLoginLogId) return Promise.resolve();
         var id = _activeLoginLogId;
         var now = new Date().toISOString();
-        return SB.from(LOGIN_LOG_TABLE).select('login_at').eq('id', id).single().then(function (r) {
+        return SB.from(LOGIN_LOG_TABLE).select('login_at').eq('id', id).maybeSingle().then(function (r) {
+            if (r.error) logLoginLogError('close-read', r);
             var loginAt = r.data && r.data.login_at ? new Date(r.data.login_at) : null;
             var dur = loginAt ? Math.max(0, Math.floor((Date.now() - loginAt.getTime()) / 1000)) : null;
             return SB.from(LOGIN_LOG_TABLE).update({
@@ -283,12 +323,14 @@
         return q.then(function (r) {
             if (r.error) {
                 var msg = r.error.message || String(r.error);
-                if (/does not exist|relation/i.test(msg)) {
+                var code = r.error.code || '';
+                if (/does not exist|relation|PGRST205|404/i.test(msg + code)) {
                     msg = t('cfg.loginLog.tableMissing',
                         'Table user_login_log not found — run user_login_log.sql in Supabase.',
                         '未找到 user_login_log 表 — 请在 Supabase 运行 user_login_log.sql。',
                         '未找到 user_login_log 表 — 請在 Supabase 執行 user_login_log.sql。');
                 }
+                logLoginLogError('load', r);
                 return { rows: [], error: msg };
             }
             return { rows: r.data || [], error: null };
@@ -382,6 +424,7 @@
     }
 
     window.LOGINLOG = {
+        recordLogin: recordLoginLog,
         queueFromSession: queuePendingLoginLog,
         flushPending: flushPendingLoginLog,
         closeActive: closeActiveLoginLog,

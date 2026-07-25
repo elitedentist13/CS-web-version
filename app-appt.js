@@ -4027,8 +4027,140 @@ function plusApptNormLabState(v) {
 
 function plusApptNormRecallState(v) {
     var s = String(v || '').toLowerCase();
-    if (s === 'success' || s === 'cant' || s === 'whatsapp' || s === 'voice') return s;
+    if (s === 'success' || s === 'cant' || s === 'whatsapp' || s === 'voice' || s === 'cancel') return s;
     return '';
+}
+
+/** Effective RSVP status from appointment row (and optional wa log status). */
+function apptRsvpEffectiveStatus(a, logStatus) {
+    if (!a) return '';
+    var fromAppt = String(a.patient_rsvp_status || '').toLowerCase();
+    if (fromAppt === 'confirmed' || fromAppt === 'declined') return fromAppt;
+    if (logStatus) return String(logStatus).toLowerCase();
+    if (fromAppt) return fromAppt;
+    return '';
+}
+
+function apptRsvpStatusMeta(st) {
+    st = String(st || '').toLowerCase();
+    if (st === 'confirmed') {
+        return { cls: 'is-confirmed', icon: '✅', label: tr('rsvp.status.confirmed') };
+    }
+    if (st === 'declined') {
+        return { cls: 'is-declined', icon: '❌', label: tr('rsvp.status.declined') };
+    }
+    if (st === 'pending') {
+        return { cls: 'is-pending', icon: '⏳', label: tr('rsvp.status.pending') };
+    }
+    if (st === 'failed') {
+        return { cls: 'is-failed', icon: '⚠️', label: tr('rsvp.status.failed') };
+    }
+    if (st === 'expired') {
+        return { cls: 'is-expired', icon: '⌛', label: tr('rsvp.status.expired') };
+    }
+    return { cls: 'is-none', icon: '—', label: tr('rsvp.status.none') };
+}
+
+/** Compact RSVP chip for Plus / Today rows. Hidden when not sent unless opts.force. */
+function apptRsvpBadgeHtml(a, opts) {
+    opts = opts || {};
+    if (!a) return '';
+    var st = apptRsvpEffectiveStatus(a, opts.logStatus);
+    if (!st || st === 'none') return '';
+    if (!opts.force && st !== 'confirmed' && st !== 'declined' && st !== 'pending' &&
+        st !== 'failed' && st !== 'expired') {
+        return '';
+    }
+    var meta = apptRsvpStatusMeta(st);
+    var when = a.patient_rsvp_at
+        ? String(a.patient_rsvp_at).replace('T', ' ').slice(0, 16)
+        : '—';
+    var srcKey = String(a.patient_rsvp_source || '').toLowerCase();
+    var srcLbl = srcKey === 'whatsapp'
+        ? tr('rsvp.source.whatsapp')
+        : (srcKey === 'staff' ? tr('rsvp.source.staff') : (srcKey || '—'));
+    var tip = trRepl('rsvp.chip.tooltip', {
+        STATUS: meta.label,
+        WHEN: when,
+        SOURCE: srcLbl
+    });
+    return (
+        '<span class="rsvp-badge ' + meta.cls + '" title="' + esc(tip) + '">' +
+            '<span class="rsvp-badge-icon">' + meta.icon + '</span>' +
+            '<span>' + esc(meta.label) + '</span>' +
+        '</span>'
+    );
+}
+
+function apptRsvpBadgeBlockHtml(a, opts) {
+    opts = opts || {};
+    var meta = apptRsvpStatusMeta(apptRsvpEffectiveStatus(a, opts.logStatus));
+    var when = a && a.patient_rsvp_at
+        ? String(a.patient_rsvp_at).replace('T', ' ').slice(0, 16)
+        : '—';
+    var srcKey = a ? String(a.patient_rsvp_source || '').toLowerCase() : '';
+    var srcLbl = srcKey === 'whatsapp'
+        ? tr('rsvp.source.whatsapp')
+        : (srcKey === 'staff' ? tr('rsvp.source.staff') : (srcKey || '—'));
+    var sub = when !== '—' || srcKey
+        ? ('<div class="rsvp-badge-meta" style="font-size:10px;color:#94a3b8;margin-top:4px;">' +
+            esc(when) + (srcKey ? (' · ' + esc(srcLbl)) : '') + '</div>')
+        : '';
+    return (
+        '<span class="rsvp-badge ' + meta.cls + '">' +
+            '<span class="rsvp-badge-icon">' + meta.icon + '</span>' +
+            '<span>' + esc(meta.label) + '</span>' +
+        '</span>' + sub
+    );
+}
+
+function plusApptPatchApptBillStatus(apptId, billStatus) {
+    var id = String(apptId || '');
+    if (!id) return;
+    var lists = [plusApptDayAppts, todayAppts, queueApptsCache];
+    lists.forEach(function(lst) {
+        (lst || []).forEach(function(a) {
+            if (a && String(a.id) === id) a.bill_status = billStatus;
+        });
+    });
+}
+
+function plusApptCancelAppointmentById(apptId, opts) {
+    opts = opts || {};
+    if (!apptId || typeof SB === 'undefined' || !SB.from) return Promise.resolve(false);
+    return SB.from('appointments').update({
+        bill_status: 'Cancelled',
+        in_queue: null,
+        arrival_time: null
+    }).eq('id', String(apptId)).then(function(r) {
+        if (r.error) {
+            try { console.warn('cancel appointment failed', r.error); } catch (_) {}
+            return false;
+        }
+        plusApptPatchApptBillStatus(apptId, 'Cancelled');
+        if (opts.refresh !== false) {
+            if (typeof loadToday === 'function') loadToday({ soft: true });
+            if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+        }
+        return true;
+    }).catch(function(err) {
+        try { console.warn('cancel appointment failed', err); } catch (_) {}
+        return false;
+    });
+}
+
+/** Wire RSVP confirm/decline to recall capsule (+ cancel appt on decline). */
+function apptApplyRsvpRecallOutcome(apptId, decision) {
+    if (!apptId) return Promise.resolve();
+    if (decision === 'confirmed') {
+        plusApptSetTaskState(apptId, 'recall', 'whatsapp', { skipCancelAppt: true });
+        return Promise.resolve();
+    }
+    if (decision === 'declined') {
+        plusApptSetTaskState(apptId, 'recall', 'cancel', { skipConfirm: true, fromRsvp: true });
+        return Promise.resolve();
+    }
+    return Promise.resolve();
 }
 
 function plusApptTaskState(appt) {
@@ -4187,6 +4319,7 @@ function plusApptTaskBadgeHtml(kind, value) {
         else if (value === 'cant') txt = tr('appt.plusAppt.taskRecallCant');
         else if (value === 'whatsapp') txt = tr('appt.plusAppt.taskRecallWhatsapp');
         else if (value === 'voice') txt = tr('appt.plusAppt.taskRecallVoice');
+        else if (value === 'cancel') txt = tr('appt.plusAppt.taskRecallCancel');
         else txt = tr('appt.plusAppt.taskRecallNone');
     }
     return '<span class="' + cls + '">' + esc(txt) + '</span>';
@@ -4211,12 +4344,14 @@ function plusApptTaskControlsHtml(appt, state) {
                 '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="cant">🚫</button>' +
                 '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="whatsapp">💬</button>' +
                 '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="voice">📞</button>' +
+                '<button type="button" class="plusappt-task-btn" data-appt-id="' + id + '" data-task-kind="recall" data-task-value="cancel">❌</button>' +
             '</div>' +
         '</div>'
     );
 }
 
-function plusApptSetTaskState(apptId, kind, value) {
+function plusApptSetTaskState(apptId, kind, value, opts) {
+    opts = opts || {};
     var id = String(apptId || '').trim();
     if (!id) return;
     var map = plusApptTaskMapRead();
@@ -4233,6 +4368,17 @@ function plusApptSetTaskState(apptId, kind, value) {
         if (kind === 'lab') a._plusLabState = plusApptNormLabState(value);
         if (kind === 'recall') a._plusRecallState = plusApptNormRecallState(value);
     });
+    if (todayAppts && todayAppts.length) {
+        todayAppts.forEach(function(a) {
+            if (!a || String(a.id) !== id) return;
+            if (kind === 'lab') a._plusLabState = plusApptNormLabState(value);
+            if (kind === 'recall') a._plusRecallState = plusApptNormRecallState(value);
+        });
+    }
+
+    if (kind === 'recall' && row.recall === 'cancel' && !opts.skipCancelAppt) {
+        plusApptCancelAppointmentById(id, { refresh: true });
+    }
 }
 
 function apptTaskSummaryHtml(appt) {
@@ -4247,6 +4393,7 @@ function apptTaskSummaryHtml(appt) {
     else if (st.recall === 'cant') recallTxt += tr('appt.plusAppt.taskRecallCant');
     else if (st.recall === 'whatsapp') recallTxt += tr('appt.plusAppt.taskRecallWhatsapp');
     else if (st.recall === 'voice') recallTxt += tr('appt.plusAppt.taskRecallVoice');
+    else if (st.recall === 'cancel') recallTxt += tr('appt.plusAppt.taskRecallCancel');
     else recallTxt += tr('appt.plusAppt.taskRecallNone');
 
     return (
@@ -4278,6 +4425,7 @@ function plusApptNextRecallState(cur) {
     if (s === 'whatsapp') return 'voice';
     if (s === 'voice') return 'cant';
     if (s === 'cant') return 'success';
+    if (s === 'success') return 'cancel';
     return '';
 }
 
@@ -4343,7 +4491,8 @@ function apptTaskShowPicker(triggerBtn, apptId, kind) {
             { v: 'whatsapp', icon: '💬', cls: 'is-whatsapp', l: tr('appt.plusAppt.taskRecallWhatsapp') || 'WhatsApp'        },
             { v: 'voice',    icon: '📞', cls: 'is-voice',    l: tr('appt.plusAppt.taskRecallVoice')    || 'Voice Call'      },
             { v: 'cant',     icon: '🚫', cls: 'is-cant',     l: tr('appt.plusAppt.taskRecallCant')     || "Can't Contact"   },
-            { v: 'success',  icon: '✅', cls: 'is-success',  l: tr('appt.plusAppt.taskRecallSuccess')  || 'Success'         }
+            { v: 'success',  icon: '✅', cls: 'is-success',  l: tr('appt.plusAppt.taskRecallSuccess')  || 'Success'         },
+            { v: 'cancel',   icon: '❌', cls: 'is-cancel',   l: tr('appt.plusAppt.taskRecallCancel')   || 'Cancel appt'     }
         ];
     }
 
@@ -4391,6 +4540,10 @@ function apptTaskShowPicker(triggerBtn, apptId, kind) {
             var aid = btn.getAttribute('data-pick-appt');
             var k   = btn.getAttribute('data-pick-kind');
             var v   = btn.getAttribute('data-pick-val');
+            if (k === 'recall' && v === 'cancel' &&
+                !confirm(tr('appt.plusAppt.confirmCancelAppt'))) {
+                return;
+            }
             plusApptSetTaskState(aid, k, v);
             if (typeof loadToday === 'function') loadToday({ soft: true });
             if (typeof loadQueue === 'function') loadQueue({ soft: true });
@@ -5630,6 +5783,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             patNoHtml = esc(apptPatientNoDisplayText(a));
             if (clearMode) {
                 nameHtml = plusApptClearModeNameHtml(a, { skipPatNo: true }) + webBadge;
+                nameHtml += apptRsvpBadgeHtml(a);
                 treatHtml = plusApptTreatmentInlineHtml(a, true);
                 remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
                 durHtml = (a.duration != null && a.duration !== '')
@@ -5641,6 +5795,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                 ? apptPatientDisplayNameHTML(a, { walkIn: true })
                 : esc(a.patient_name || '—'));
             nameHtml += webBadge;
+            nameHtml += apptRsvpBadgeHtml(a);
             nameHtml += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus');
             remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
             durHtml = (a.duration != null && a.duration !== '')
@@ -5910,6 +6065,10 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             var kind = btn.getAttribute('data-task-kind');
             var val = btn.getAttribute('data-task-value');
             if (!aid || !kind) return;
+            if (kind === 'recall' && val === 'cancel' &&
+                !confirm(tr('appt.plusAppt.confirmCancelAppt'))) {
+                return;
+            }
             plusApptSetTaskState(aid, kind, val);
             renderPlusApptSchedule(true);
         });
@@ -12870,6 +13029,7 @@ function buildTodayRow(tb, a, dotCtx) {
                 '<span class="appt-row-name-wrap">' +
                     drDot +
                     apptPatientDisplayNameHTML(a, { walkIn: true }) +
+                    apptRsvpBadgeHtml(a) +
                 '</span>' +
             '</td>' +
             '<td class="today-treatment-cell">' +

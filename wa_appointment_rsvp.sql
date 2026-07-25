@@ -78,17 +78,24 @@ insert into public.twilio_content_templates (
 )
 select
     'Appointment RSVP (Yes/No)',
-    'HX3e0d0027555e8d6b700381a797f599cc',
+    'HX123c5d6b07dff76590124d0c363fdd21',
     '1,2,3,4,5',
     '{"1":"NAME","2":"CLINIC","3":"DATE","4":"TIME","5":"DOCTOR"}'::jsonb,
     'Two-way recall · quick-reply CONFIRM / CANCEL · {{1}}=NAME {{2}}=CLINIC {{3}}=DATE {{4}}=TIME {{5}}=DOCTOR',
-    10,
+    5,
     'seed_rsvp',
     true
 where not exists (
     select 1 from public.twilio_content_templates
-    where content_sid = 'HX3e0d0027555e8d6b700381a797f599cc'
+    where content_sid = 'HX123c5d6b07dff76590124d0c363fdd21'
 );
+
+-- Retire previous draft RSVP template if present
+update public.twilio_content_templates
+set is_active = false,
+    notes = coalesce(notes, '') || ' · superseded by HX123c5d6b07dff76590124d0c363fdd21',
+    updated_at = now()
+where content_sid = 'HX3e0d0027555e8d6b700381a797f599cc';
 
 -- Optional: include in realtime publication (ignore if publication missing)
 do $$
@@ -99,4 +106,38 @@ begin
         when duplicate_object then null;
         when undefined_object then null;
     end;
+end $$;
+
+-- ── Debug log: every Twilio inbound POST (check if webhook is wired) ──
+create table if not exists public.wa_rsvp_inbound_log (
+    id uuid primary key default gen_random_uuid(),
+    received_at timestamptz not null default now(),
+    from_phone text,
+    body text,
+    button_payload text,
+    original_replied_sid text,
+    message_sid text,
+    raw_params jsonb,
+    matched_rsvp_id uuid references public.wa_appointment_rsvp (id) on delete set null,
+    decision text,
+    note text
+);
+
+create index if not exists wa_rsvp_inbound_log_received_idx
+    on public.wa_rsvp_inbound_log (received_at desc);
+
+alter table public.wa_rsvp_inbound_log enable row level security;
+
+do $$
+begin
+    if not exists (
+        select 1 from pg_policies
+        where schemaname = 'public'
+          and tablename = 'wa_rsvp_inbound_log'
+          and policyname = 'wa_rsvp_inbound_log_anon_all'
+    ) then
+        create policy wa_rsvp_inbound_log_anon_all
+            on public.wa_rsvp_inbound_log
+            for all using (true) with check (true);
+    end if;
 end $$;

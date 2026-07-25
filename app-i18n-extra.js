@@ -721,6 +721,12 @@
         'appt.plusAppt.taskRecallCant': { en: 'No contact', 'zh-CN': '联系不上', 'zh-Hant': '聯絡不上' },
         'appt.plusAppt.taskRecallWhatsapp': { en: 'WhatsApp', 'zh-CN': 'WhatsApp', 'zh-Hant': 'WhatsApp' },
         'appt.plusAppt.taskRecallVoice': { en: 'Voice msg', 'zh-CN': '语音留言', 'zh-Hant': '語音留言' },
+        'appt.plusAppt.taskRecallCancel': { en: 'Cancel appt', 'zh-CN': '取消预约', 'zh-Hant': '取消預約' },
+        'appt.plusAppt.confirmCancelAppt': {
+            en: 'Cancel this appointment? The row will be marked as cancelled.',
+            'zh-CN': '确定取消此预约？该预约将标记为已取消。',
+            'zh-Hant': '確定取消此預約？該預約將標記為已取消。'
+        },
         'appt.plusAppt.transferArmed': { en: 'Transfer mode armed', 'zh-CN': '已启动转移模式', 'zh-Hant': '已啟動轉移模式' },
         'appt.plusAppt.transferLogTitle': {
             en: 'Transfer history',
@@ -816,16 +822,48 @@
             'zh-Hant': '傳送 RSVP WhatsApp'
         },
         'rsvp.hint': {
-            en: 'Uses quick-reply template Confirm / Cancel. After Twilio inbound webhook is deployed, patient taps update this table automatically. Until then, use Staff override.',
-            'zh-CN': '使用带「确认 / 取消」快捷回复的模板。部署 Twilio 入站 Webhook 后，患者点击会自动更新本表；此前可用「人工标记」。',
-            'zh-Hant': '使用帶「確認 / 取消」快速回覆的範本。部署 Twilio 入站 Webhook 後，病人點擊會自動更新本表；此前可用「人手標記」。'
+            en: 'Patient must tap Confirm/Cancel then press Send (green arrow) if WhatsApp only fills the text box. Twilio must POST inbound to twilio-whatsapp-inbound (see TWILIO_WHATSAPP_RSVP_SETUP.md). Check Supabase table wa_rsvp_inbound_log after a reply — empty means webhook not wired. Staff override works anytime.',
+            'zh-CN': '若 WhatsApp 仅把按钮文字填入输入框，患者还需点绿色发送键。Twilio 须将入站消息 POST 到 twilio-whatsapp-inbound（见 TWILIO_WHATSAPP_RSVP_SETUP.md）。回复后查看 Supabase 表 wa_rsvp_inbound_log — 无新行表示 Webhook 未接通。可随时用「人工标记」。',
+            'zh-Hant': '若 WhatsApp 僅把按鈕文字填入輸入框，病人還需點綠色傳送鍵。Twilio 須將入站訊息 POST 到 twilio-whatsapp-inbound（見 TWILIO_WHATSAPP_RSVP_SETUP.md）。回覆後查看 Supabase 表 wa_rsvp_inbound_log — 無新列表示 Webhook 未接通。可隨時用「人手標記」。'
         },
-        'rsvp.status.confirmed': { en: 'Confirmed', 'zh-CN': '已确认', 'zh-Hant': '已確認' },
-        'rsvp.status.declined': { en: 'Declined', 'zh-CN': '已取消意向', 'zh-Hant': '已取消意向' },
-        'rsvp.status.pending': { en: 'Awaiting reply', 'zh-CN': '等待回复', 'zh-Hant': '等待回覆' },
+        'rsvp.status.confirmed': { en: 'Coming', 'zh-CN': '会到', 'zh-Hant': '會到' },
+        'rsvp.status.declined': { en: 'Not coming', 'zh-CN': '不到', 'zh-Hant': '唔到' },
+        'rsvp.status.pending': { en: 'Awaiting reply', 'zh-CN': '等回复', 'zh-Hant': '等回覆' },
         'rsvp.status.failed': { en: 'Send failed', 'zh-CN': '发送失败', 'zh-Hant': '傳送失敗' },
         'rsvp.status.expired': { en: 'Expired', 'zh-CN': '已过期', 'zh-Hant': '已過期' },
         'rsvp.status.none': { en: 'Not sent', 'zh-CN': '未发送', 'zh-Hant': '未傳送' },
+        'rsvp.filter.all': { en: 'All', 'zh-CN': '全部', 'zh-Hant': '全部' },
+        'rsvp.filter.coming': { en: 'Coming', 'zh-CN': '会到', 'zh-Hant': '會到' },
+        'rsvp.filter.notComing': { en: 'Not coming', 'zh-CN': '不到', 'zh-Hant': '唔到' },
+        'rsvp.filter.awaiting': { en: 'Awaiting', 'zh-CN': '等回复', 'zh-Hant': '等回覆' },
+        'rsvp.filter.notSent': { en: 'Not sent', 'zh-CN': '未发送', 'zh-Hant': '未傳送' },
+        'rsvp.summary.coming': { en: 'Coming', 'zh-CN': '会到', 'zh-Hant': '會到' },
+        'rsvp.summary.notComing': { en: 'Not coming', 'zh-CN': '不到', 'zh-Hant': '唔到' },
+        'rsvp.summary.awaiting': { en: 'Awaiting', 'zh-CN': '等回复', 'zh-Hant': '等回覆' },
+        'rsvp.summary.notSent': { en: 'Not sent', 'zh-CN': '未发送', 'zh-Hant': '未傳送' },
+        'rsvp.chip.tooltip': {
+            en: 'RSVP: {STATUS} · {WHEN} · via {SOURCE}',
+            'zh-CN': 'RSVP：{STATUS} · {WHEN} · {SOURCE}',
+            'zh-Hant': 'RSVP：{STATUS} · {WHEN} · {SOURCE}'
+        },
+        'rsvp.source.whatsapp': { en: 'WhatsApp', 'zh-CN': 'WhatsApp', 'zh-Hant': 'WhatsApp' },
+        'rsvp.source.staff': { en: 'Staff', 'zh-CN': '人工', 'zh-Hant': '人手' },
+        'rsvp.diag.title': { en: 'Inbound webhook diagnostic', 'zh-CN': '入站 Webhook 诊断', 'zh-Hant': '入站 Webhook 診斷' },
+        'rsvp.diag.url': { en: 'Twilio POST URL', 'zh-CN': 'Twilio POST 地址', 'zh-Hant': 'Twilio POST 網址' },
+        'rsvp.diag.lastHit': { en: 'Last inbound received', 'zh-CN': '上次收到入站', 'zh-Hant': '上次收到入站' },
+        'rsvp.diag.never': {
+            en: 'Never — Twilio is not reaching Supabase. Set “A message comes in” on your WhatsApp sender AND Messaging Service (if used).',
+            'zh-CN': '从未收到 — Twilio 未连到 Supabase。请在 WhatsApp 发送号码及 Messaging Service（如有）设置「A message comes in」。',
+            'zh-Hant': '從未收到 — Twilio 未連到 Supabase。請在 WhatsApp 發送號碼及 Messaging Service（如有）設定「A message comes in」。'
+        },
+        'rsvp.diag.lastOk': { en: 'Last successful RSVP update', 'zh-CN': '上次成功更新 RSVP', 'zh-Hant': '上次成功更新 RSVP' },
+        'rsvp.diag.pending': { en: 'Pending replies waiting', 'zh-CN': '等待回复中', 'zh-Hant': '等待回覆中' },
+        'rsvp.diag.sendReminder': {
+            en: 'If the button only fills WhatsApp text, the patient must tap Send (green arrow). Until then status stays Awaiting.',
+            'zh-CN': '若按钮只填入 WhatsApp 文字，患者须点绿色发送键；否则状态会一直显示等回复。',
+            'zh-Hant': '若按鈕只填入 WhatsApp 文字，病人須點綠色傳送鍵；否則狀態會一直顯示等回覆。'
+        },
+        'rsvp.diag.checkTable': { en: 'Debug table', 'zh-CN': '调试表', 'zh-Hant': '除錯表' },
         'rsvp.sentAt': { en: 'Sent', 'zh-CN': '已发', 'zh-Hant': '已傳' },
         'rsvp.repliedAt': { en: 'Reply', 'zh-CN': '回复', 'zh-Hant': '回覆' },
         'rsvp.act.confirm': { en: 'Mark Yes', 'zh-CN': '标为确认', 'zh-Hant': '標為確認' },
@@ -2394,6 +2432,7 @@
         'con.ptl.taskRecallCant': { en: 'Recall cannot contact', 'zh-CN': '召回无法联络', 'zh-Hant': '召回無法聯絡' },
         'con.ptl.taskRecallWhatsapp': { en: 'Recall WhatsApp', 'zh-CN': '召回 WhatsApp', 'zh-Hant': '召回 WhatsApp' },
         'con.ptl.taskRecallVoice': { en: 'Recall voice call', 'zh-CN': '召回电话', 'zh-Hant': '召回電話' },
+        'con.ptl.taskRecallCancel': { en: 'Recall cancel appt', 'zh-CN': '召回取消预约', 'zh-Hant': '召回取消預約' },
         'con.ptl.summaryTotal': { en: '{N} total', 'zh-CN': '共 {N}', 'zh-Hant': '共 {N}' },
         'con.ptl.summaryShown': { en: '{N} shown', 'zh-CN': '显示 {N}', 'zh-Hant': '顯示 {N}' },
         'con.ptl.summaryUpcoming': { en: '{N} upcoming', 'zh-CN': '{N} 个即将到来', 'zh-Hant': '{N} 個即將到來' },

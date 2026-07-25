@@ -6,7 +6,7 @@ create table if not exists public.appointment_task_states (
     lab_status text not null default 'na'
         check (lab_status in ('na', 'pending', 'back')),
     recall_status text not null default ''
-        check (recall_status in ('', 'success', 'cant', 'whatsapp', 'voice')),
+        check (recall_status in ('', 'success', 'cant', 'whatsapp', 'voice', 'cancel')),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
@@ -33,3 +33,10 @@ for each row
 execute function public.appointment_task_states_touch_updated_at();
 
 grant select, insert, update, delete on public.appointment_task_states to anon, authenticated;
+
+-- If table already exists, run once in SQL editor:
+-- alter table public.appointment_task_states
+--     drop constraint if exists appointment_task_states_recall_status_check;
+-- alter table public.appointment_task_states
+--     add constraint appointment_task_states_recall_status_check
+--     check (recall_status in ('', 'success', 'cant', 'whatsapp', 'voice', 'cancel'));

@@ -3979,6 +3979,7 @@ var JSM_ASSET_CACHE_BUST_LS = 'jsm_asset_cache_bust_v1';
 function jsmLocalStoragePreserveKeys() {
     var keys = {
         jsm_session: true,
+        jsm_pending_login_log: true,
         joyful_ui_lang_v1: true,
         joyful_working_date_override_v1: true,
         joyful_working_clinic_follow_v1: true,
@@ -4298,20 +4299,34 @@ function finishLoginSession(u, doctorId, opts) {
     }
     if (!currentName) currentName = currentUserId;
 
-    if (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.queueFromSession === 'function') {
-        var loginMethod = opts.login_method;
-        if (!loginMethod) {
-            loginMethod = (u && String(u.role || '').toLowerCase() === 'admin') ? 'admin_totp' : 'password';
-        }
-        LOGINLOG.queueFromSession(u, doctorId || null, { login_method: loginMethod });
-    }
-
     var loginClinicId = selectedLoginClinicId();
     var wc = loginClinicId || defaultWorkingClinicId();
     if (wc) setWorkingClinic(wc, { syncFilters: true, reloadAppt: false });
     else persistSession();
 
-    schedulePostLoginHardRefresh();
+    function proceedAfterLoginLog() {
+        schedulePostLoginHardRefresh();
+    }
+
+    if (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.recordLogin === 'function') {
+        var loginMethod = opts.login_method;
+        if (!loginMethod) {
+            loginMethod = (u && String(u.role || '').toLowerCase() === 'admin') ? 'admin_totp' : 'password';
+        }
+        LOGINLOG.recordLogin(u, doctorId || null, { login_method: loginMethod }).finally(proceedAfterLoginLog);
+    } else if (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.flushPending === 'function') {
+        if (typeof LOGINLOG.queueFromSession === 'function') {
+            var loginMethodFallback = opts.login_method;
+            if (!loginMethodFallback) {
+                loginMethodFallback = (u && String(u.role || '').toLowerCase() === 'admin') ? 'admin_totp' : 'password';
+            }
+            LOGINLOG.queueFromSession(u, doctorId || null, { login_method: loginMethodFallback });
+        }
+        LOGINLOG.flushPending().finally(proceedAfterLoginLog);
+    } else {
+        console.warn('[login-log] LOGINLOG module not loaded — login history will not be recorded.');
+        proceedAfterLoginLog();
+    }
 }
 
 /** Restore badge label from app_users when an older session stored a doctor name in `name`. */
@@ -4771,6 +4786,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var hasSession = restoreSession();
     if (hasSession) {
+        if (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.flushPending === 'function') {
+            LOGINLOG.flushPending();
+        }
         hydrateLoggedInUserNameFromDb();
         bindAppScrollPersistOnce();
         _bootNavPayload = readAppScrollRestorePayload();

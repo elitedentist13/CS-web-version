@@ -2620,32 +2620,44 @@ function saveConFormsDoc(andPrint) {
     });
 }
 
-function conOpenPdfEditor() {
-    if (typeof PDFEDITOR === 'undefined' || typeof PDFEDITOR.open !== 'function') {
-        alert(typeof conTr === 'function'
-            ? conTr('con.forms.pdfEditorUnavailable')
-            : 'PDF Editor is not available.');
-        return;
-    }
-    var patient = (typeof conFormsPatientData !== 'undefined' && conFormsPatientData)
-        ? conFormsPatientData
-        : ((typeof conPatientData !== 'undefined' && conPatientData) ? conPatientData : null);
-    var tpl = (typeof conFormsSelectedTemplate !== 'undefined' && conFormsSelectedTemplate)
-        ? conFormsSelectedTemplate : null;
-    var docNameEl = g('conFormsDocName');
-    PDFEDITOR.open({
-        patient: patient,
-        patientId: patient ? null : (conFormsPatientId || conPatientId),
-        template: tpl,
-        documentName: docNameEl ? String(docNameEl.value || '').trim() : null
-    });
+function conFormsDocIsPdfRecord(d) {
+    if (!d) return false;
+    if (String(d.template_type || '').toLowerCase() === 'pdf') return true;
+    return /pde-saved-pdf|data-file-path\s*=/.test(String(d.content_html || ''));
 }
 
-function printConFormsHtml(html) {
-    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+function conFormsParsePdfStoragePath(html) {
+    var meta = conFormsParsePdfStorageMeta(html);
+    return meta ? meta.path : null;
+}
+
+function conFormsParsePdfStorageMeta(html) {
+    html = String(html || '');
+    var pathM = html.match(/data-file-path=["']([^"']+)["']/);
+    if (!pathM) return null;
+    var bucketM = html.match(/data-file-bucket=["']([^"']+)["']/);
+    return {
+        path: pathM[1],
+        bucket: bucketM ? bucketM[1] : 'patient-documents'
+    };
+}
+
+function conFormsCollectEditorHtml() {
+    var html = '';
+    if (typeof DocEditor !== 'undefined' && typeof DocEditor.getHtml === 'function') {
+        html = DocEditor.getHtml('conFormsDocEditor') || '';
+    } else if (g('conFormsDocEditor')) {
+        html = g('conFormsDocEditor').innerHTML || '';
+    }
+    if (html && typeof conFormsPreparePrintHtml === 'function') {
+        html = conFormsPreparePrintHtml(html, false);
+    }
+    return html;
+}
+
+function conFormsGetPrintSheetCss() {
     var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
         ? String(currentClinicId) : '';
-
     var sheetCss =
         '@page{margin:15mm 15mm 15mm 15mm;size:210mm 297mm;}' +
         'html{background:#d4d4d4;}' +
@@ -2663,16 +2675,138 @@ function printConFormsHtml(html) {
                 'padding:0!important;box-shadow:none!important;background:#fff!important;' +
                 'print-color-adjust:economy!important;-webkit-print-color-adjust:economy!important;}' +
         '}';
-    var popW = 900;
-    var popH = 760;
-
     if (typeof CFG !== 'undefined' && CFG) {
         if (typeof CFG.prefetchPrintSettings === 'function') {
             CFG.prefetchPrintSettings(cid);
         }
-        if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss && CFG.estimatePrintPopupSizePx) {
+        if (CFG.getPrintSettingsForDoc && CFG.buildPrintSheetStylesCss) {
             var lettersRow = CFG.getPrintSettingsForDoc('letters', cid);
             sheetCss = CFG.buildPrintSheetStylesCss(lettersRow);
+        }
+    }
+    return sheetCss;
+}
+
+function conExportFormsPdf() {
+    if (!conFormsPatientId || !conFormsPatientData) {
+        alert(conTr('con.forms.alertSelectPatient'));
+        return;
+    }
+    if (typeof PDFEDITOR === 'undefined' || typeof PDFEDITOR.exportFormsHtmlToPatient !== 'function') {
+        alert(conTr('con.forms.pdfExportUnavailable'));
+        return;
+    }
+    var html = conFormsCollectEditorHtml();
+    if (!html || !String(html).replace(/<[^>]+>/g, '').trim()) {
+        alert(conTr('con.forms.alertEmpty'));
+        return;
+    }
+    var docNameEl = g('conFormsDocName');
+    var docName = docNameEl ? String(docNameEl.value || '').trim() : '';
+    if (!docName) {
+        var tpl = conFormsSelectedTemplate;
+        docName = (tpl && tpl.template_name) ? tpl.template_name : 'Document';
+    }
+    var patient = conFormsPatientData;
+    var tplMeta = conFormsSelectedTemplate;
+    var editingPdfId = null;
+    var storagePath = null;
+    var storageBucket = null;
+    if (conFormsEditingDocId && conFormsDocsCache[conFormsEditingDocId]) {
+        var cached = conFormsDocsCache[conFormsEditingDocId];
+        if (conFormsDocIsPdfRecord(cached)) {
+            editingPdfId = cached.id;
+            var pdfMeta = conFormsParsePdfStorageMeta(cached.content_html);
+            if (pdfMeta) {
+                storagePath = pdfMeta.path;
+                storageBucket = pdfMeta.bucket;
+            }
+        }
+    }
+    var exportBtn = g('conFormsExportPdfBtn');
+    if (exportBtn) {
+        exportBtn.disabled = true;
+        exportBtn.textContent = conTr('con.forms.exportPdfWorking');
+    }
+    PDFEDITOR.exportFormsHtmlToPatient({
+        html: html,
+        sheetCss: conFormsGetPrintSheetCss(),
+        patient: patient,
+        template: tplMeta,
+        documentName: docName,
+        editingDocId: editingPdfId,
+        storagePath: storagePath,
+        storageBucket: storageBucket,
+        download: true
+    }).then(function (docId) {
+        if (docId) conFormsEditingDocId = docId;
+        conFormsUpdateEditingBadge();
+        alert(conTr('con.forms.exportPdfOk'));
+        searchConFormsDocs();
+        conSchedulePatientTimelineRefresh(conPatientId);
+    }).catch(function (e) {
+        alert(conTrRepl('con.forms.exportPdfFailed', { MSG: (e && e.message) || String(e) }));
+    }).finally(function () {
+        if (exportBtn) {
+            exportBtn.disabled = false;
+            exportBtn.textContent = conTr('con.forms.btnExportPdf');
+        }
+    });
+}
+
+function conOpenPdfEditorWithRecord(d) {
+    if (typeof PDFEDITOR === 'undefined' || typeof PDFEDITOR.open !== 'function') {
+        alert(typeof conTr === 'function'
+            ? conTr('con.forms.pdfEditorUnavailable')
+            : 'PDF Editor is not available.');
+        return;
+    }
+    var path = conFormsParsePdfStoragePath(d.content_html);
+    if (!path) {
+        alert(typeof conTr === 'function'
+            ? conTr('con.forms.pdfOpenMissingPath')
+            : 'Could not locate the saved PDF file.');
+        return;
+    }
+    var pdfMeta = conFormsParsePdfStorageMeta(d.content_html);
+    var patient = (typeof conFormsPatientData !== 'undefined' && conFormsPatientData)
+        ? conFormsPatientData
+        : ((typeof conPatientData !== 'undefined' && conPatientData) ? conPatientData : null);
+    conFormsEditingDocId = d.id;
+    conFormsUpdateEditingBadge();
+    PDFEDITOR.open({
+        patient: patient,
+        patientId: patient ? null : (d.patient_id || conFormsPatientId || conPatientId),
+        template: {
+            id: d.template_id,
+            template_code: d.template_code,
+            template_name: d.template_name,
+            template_type: d.template_type
+        },
+        documentName: d.document_name,
+        storagePath: path,
+        storageBucket: pdfMeta ? pdfMeta.bucket : null,
+        editingDocId: d.id,
+        fileName: (d.document_name || 'document') + '.pdf',
+        returnScreen: 'consultationSection',
+        returnConTab: 'forms'
+    });
+}
+
+function printConFormsHtml(html) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
+        ? String(currentClinicId) : '';
+
+    var sheetCss = conFormsGetPrintSheetCss();
+    var popW = 900;
+    var popH = 760;
+
+    if (typeof CFG !== 'undefined' && CFG && CFG.estimatePrintPopupSizePx) {
+        var lettersRow = CFG.getPrintSettingsForDoc
+            ? CFG.getPrintSettingsForDoc('letters', cid)
+            : null;
+        if (lettersRow) {
             var wh = CFG.estimatePrintPopupSizePx(lettersRow);
             popW = wh.width;
             popH = wh.height;
@@ -2759,9 +2893,14 @@ function searchConFormsDocs() {
         rows.forEach(function (d) { conFormsDocsCache[d.id] = d; });
 
         list.innerHTML = rows.map(function(d) {
+            var isPdf = conFormsDocIsPdfRecord(d);
             var meta = (d.template_name || '-') + (d.template_type ? ' · ' + conDispTplType(d.template_type) : '');
+            if (isPdf) meta += ' · PDF';
             var safeId = esc(d.id);
             var editing = conFormsEditingDocId === d.id;
+            var openLabel = isPdf
+                ? (typeof conTr === 'function' ? conTr('con.forms.btnOpenPdf') : 'Open PDF')
+                : (typeof conTr === 'function' ? conTr('con.forms.btnOpen') : 'Open');
             return '<div style="display:flex;justify-content:space-between;gap:10px;' +
                 'padding:10px 12px;border-bottom:1px solid #f0f0f0;align-items:center;' +
                 (editing ? 'background:#f0f7ff;' : '') + '" ' +
@@ -2780,7 +2919,7 @@ function searchConFormsDocs() {
                 '</div>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
                   '<button type="button" class="btn-add" style="padding:6px 10px;font-size:12px;" ' +
-                  'onclick="event.stopPropagation();openConFormsDoc(\'' + safeId + '\')">' + esc(conTr('con.forms.btnOpen')) + '</button>' +
+                  'onclick="event.stopPropagation();openConFormsDoc(\'' + safeId + '\')">' + esc(openLabel) + '</button>' +
                   '<button type="button" class="btn-add" style="padding:6px 10px;font-size:12px;background:#22c55e;" ' +
                   'onclick="event.stopPropagation();conFormsPrintOneDoc(\'' + safeId + '\')">' + esc(conTr('con.forms.btnPrintOne')) + '</button>' +
                 '</div>' +
@@ -2919,6 +3058,12 @@ function openConFormsDoc(id) {
     .then(function(r) {
         if (r.error || !r.data) { alert(conTr('con.alert.loadDocFail')); return; }
         var d = r.data;
+        if (conFormsDocIsPdfRecord(d)) {
+            conOpenPdfEditorWithRecord(d);
+            searchConFormsDocs();
+            return;
+        }
+        if (g('conFormsEditorWrap')) g('conFormsEditorWrap').style.display = 'block';
         _conFormsDirty = false;   // opening a saved doc is not a dirty state
         conFormsEditingDocId = d.id;
         conFormsUpdateEditingBadge();

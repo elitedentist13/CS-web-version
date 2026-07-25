@@ -4542,10 +4542,36 @@
         'con.photo.searchHint': { en: 'Select a patient to view or manage photos', 'zh-CN': '选择患者以查看或管理照片', 'zh-Hant': '選擇病人以查看或管理相片' },
         'con.forms.title': { en: '📄 Forms / Letters', 'zh-CN': '📄 表格 / 信件', 'zh-Hant': '📄 表格 / 信件' },
         'con.forms.searchHint': { en: 'Select a patient, pick a template, edit the document (placeholders filled in), then save or print.', 'zh-CN': '选择患者、挑选模板，在已填入占位符的文件中编辑，然后保存或打印。', 'zh-Hant': '選擇病人、挑選範本，在已填入佔位符的文件中編輯，然後儲存或列印。' },
-        'con.forms.editorHint': { en: 'Edit like a word processor. English and Traditional Chinese text from the template are shown with patient and doctor details filled in.', 'zh-CN': '像 Word 一样编辑。模板中的中英文已填入患者与医生资料。', 'zh-Hant': '像 Word 一樣編輯。範本中的中英文已填入病人與醫生資料。' },
+        'con.forms.editorHint': {
+            en: 'Edit like a word processor. English and Traditional Chinese text from the template are shown with patient and doctor details filled in. Use Export PDF to save an exact formatted copy.',
+            'zh-CN': '像 Word 一样编辑。模板中的中英文已填入患者与医生资料。使用「导出 PDF」可保存完整格式的副本。',
+            'zh-Hant': '像 Word 一樣編輯。範本中的中英文已填入病人與醫生資料。使用「匯出 PDF」可儲存完整格式的副本。'
+        },
         'con.forms.editingExisting': { en: 'Editing saved document', 'zh-CN': '正在编辑已保存文件', 'zh-Hant': '正在編輯已儲存文件' },
         'con.forms.btnNewDoc': { en: '＋ New document', 'zh-CN': '＋ 新建文件', 'zh-Hant': '＋ 新增文件' },
-        'con.forms.btnPdfEditor': { en: 'PDF Editor', 'zh-CN': 'PDF 编辑器', 'zh-Hant': 'PDF 編輯器' },
+        'con.forms.btnExportPdf': { en: 'Export PDF', 'zh-CN': '导出 PDF', 'zh-Hant': '匯出 PDF' },
+        'con.forms.exportPdfWorking': { en: 'Exporting PDF…', 'zh-CN': '正在导出 PDF…', 'zh-Hant': '正在匯出 PDF…' },
+        'con.forms.exportPdfOk': {
+            en: 'PDF exported and saved to patient record.',
+            'zh-CN': 'PDF 已导出并保存到患者档案。',
+            'zh-Hant': 'PDF 已匯出並儲存到患者檔案。'
+        },
+        'con.forms.exportPdfFailed': {
+            en: 'PDF export failed: {MSG}\n\nIf this mentions row-level security, run patient_documents.sql in Supabase SQL Editor.',
+            'zh-CN': 'PDF 导出失败：{MSG}\n\n若提示 row-level security，请在 Supabase SQL 编辑器中运行 patient_documents.sql。',
+            'zh-Hant': 'PDF 匯出失敗：{MSG}\n\n若提示 row-level security，請在 Supabase SQL 編輯器中執行 patient_documents.sql。'
+        },
+        'con.forms.pdfExportUnavailable': {
+            en: 'PDF export is not loaded. Refresh the page and try again.',
+            'zh-CN': 'PDF 导出模块未加载。请刷新页面后重试。',
+            'zh-Hant': 'PDF 匯出模組未載入。請重新整理頁面後再試。'
+        },
+        'con.forms.btnOpenPdf': { en: 'Open PDF', 'zh-CN': '打开 PDF', 'zh-Hant': '開啟 PDF' },
+        'con.forms.pdfOpenMissingPath': {
+            en: 'Could not locate the saved PDF file for this document.',
+            'zh-CN': '找不到此文件对应的 PDF 文件。',
+            'zh-Hant': '找不到此文件對應的 PDF 檔案。'
+        },
         'con.forms.pdfEditorUnavailable': {
             en: 'PDF Editor is not loaded. Open Tools → PDF Editor first.',
             'zh-CN': 'PDF 编辑器未加载。请先从工具打开 PDF 编辑器。',
@@ -4798,6 +4824,46 @@
         'cfg.users.adminOnlyOn': { en: 'Configuration is now Admin-only.', 'zh-CN': '「设置」模块现仅限管理员。', 'zh-Hant': '「設定」模組現僅限管理員。' },
         'cfg.users.adminOnlyOff': { en: 'Configuration now follows each user\u2019s permissions.', 'zh-CN': '「设置」模块现按每位用户的权限控制。', 'zh-Hant': '「設定」模組現按每位使用者的權限控制。' },
         'cfg.users.panelHint': { en: 'User ID, password, and linked doctor identities across clinics.', 'zh-CN': '用户 ID、密码及跨诊所关联医生身份。', 'zh-Hant': '使用者 ID、密碼及跨診所關聯醫生身份。' },
+        'cfg.loginLog.title': { en: 'Login history', 'zh-CN': '登录记录', 'zh-Hant': '登入記錄' },
+        'cfg.loginLog.hint': {
+            en: 'All user sign-ins with clinic, role, doctor identity, session duration, and sign-out reason. Admin logins are highlighted.',
+            'zh-CN': '全部用户登录记录，含诊所、角色、医生身份、会话时长与登出原因。管理员登录以高亮显示。',
+            'zh-Hant': '全部使用者登入記錄，含診所、角色、醫生身份、工作階段時長與登出原因。管理員登入以高亮顯示。'
+        },
+        'cfg.loginLog.refresh': { en: 'Refresh', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
+        'cfg.loginLog.filterClinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'cfg.loginLog.filterUser': { en: 'User ID', 'zh-CN': '用户 ID', 'zh-Hant': '使用者 ID' },
+        'cfg.loginLog.allClinics': { en: 'All clinics', 'zh-CN': '全部诊所', 'zh-Hant': '全部診所' },
+        'cfg.loginLog.adminOnly': { en: 'Admin only', 'zh-CN': '仅管理员', 'zh-Hant': '僅管理員' },
+        'cfg.loginLog.apply': { en: 'Apply filters', 'zh-CN': '应用筛选', 'zh-Hant': '套用篩選' },
+        'cfg.loginLog.empty': { en: 'No login records yet.', 'zh-CN': '暂无登录记录。', 'zh-Hant': '尚無登入記錄。' },
+        'cfg.loginLog.tableMissing': {
+            en: 'Table user_login_log not found — run user_login_log.sql in Supabase.',
+            'zh-CN': '未找到 user_login_log 表 — 请在 Supabase 运行 user_login_log.sql。',
+            'zh-Hant': '未找到 user_login_log 表 — 請在 Supabase 執行 user_login_log.sql。'
+        },
+        'cfg.loginLog.noDb': { en: 'Database not available.', 'zh-CN': '数据库不可用。', 'zh-Hant': '資料庫不可用。' },
+        'cfg.loginLog.colLogin': { en: 'Login', 'zh-CN': '登录时间', 'zh-Hant': '登入時間' },
+        'cfg.loginLog.colLogout': { en: 'Logout', 'zh-CN': '登出时间', 'zh-Hant': '登出時間' },
+        'cfg.loginLog.colDuration': { en: 'Duration', 'zh-CN': '时长', 'zh-Hant': '時長' },
+        'cfg.loginLog.colUser': { en: 'User', 'zh-CN': '用户', 'zh-Hant': '使用者' },
+        'cfg.loginLog.colRole': { en: 'Role', 'zh-CN': '角色', 'zh-Hant': '角色' },
+        'cfg.loginLog.colClinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'cfg.loginLog.colDoctor': { en: 'Doctor identity', 'zh-CN': '医生身份', 'zh-Hant': '醫生身份' },
+        'cfg.loginLog.colReason': { en: 'End reason', 'zh-CN': '结束原因', 'zh-Hant': '結束原因' },
+        'cfg.loginLog.colStatus': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
+        'cfg.loginLog.adminBadge': { en: 'ADMIN', 'zh-CN': '管理员', 'zh-Hant': '管理員' },
+        'cfg.loginLog.active': { en: 'Active', 'zh-CN': '在线', 'zh-Hant': '在線' },
+        'cfg.loginLog.statusActive': { en: 'Online', 'zh-CN': '在线', 'zh-Hant': '在線' },
+        'cfg.loginLog.statusEnded': { en: 'Ended', 'zh-CN': '已结束', 'zh-Hant': '已結束' },
+        'cfg.loginLog.roleAdmin': { en: 'Admin', 'zh-CN': '管理员', 'zh-Hant': '管理員' },
+        'cfg.loginLog.roleDoctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'cfg.loginLog.roleNurse': { en: 'Nurse', 'zh-CN': '护士', 'zh-Hant': '護士' },
+        'cfg.loginLog.roleReception': { en: 'Reception', 'zh-CN': '接待', 'zh-Hant': '接待' },
+        'cfg.loginLog.roleStaff': { en: 'Staff', 'zh-CN': '员工', 'zh-Hant': '員工' },
+        'cfg.loginLog.reasonManual': { en: 'Signed out', 'zh-CN': '手动登出', 'zh-Hant': '手動登出' },
+        'cfg.loginLog.reasonIdle': { en: 'Idle timeout', 'zh-CN': '空闲超时', 'zh-Hant': '閒置逾時' },
+        'cfg.loginLog.reasonExpired': { en: 'Session expired', 'zh-CN': '会话过期', 'zh-Hant': '工作階段過期' },
         'cfg.auth.sectionTitle': { en: 'Authorization', 'zh-CN': '权限', 'zh-Hant': '授權' },
         'cfg.auth.sectionHint': { en: 'Check modules this user may access. Unchecking a parent disables its sub-options.', 'zh-CN': '勾选此用户可使用的模块。取消父项将同时取消其子项。', 'zh-Hant': '勾選此使用者可使用的模組。取消父項將同時取消其子項。' },
         'cfg.auth.appointment': { en: 'Appointment', 'zh-CN': '预约', 'zh-Hant': '預約' },

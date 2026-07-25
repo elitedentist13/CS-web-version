@@ -11,6 +11,7 @@
     var CDN_PDFLIB = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
     var CDN_TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
     var CDN_JSPDF = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    var CDN_HTML2CANVAS = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
     var LS_SIG_KEY = 'joyful_pdf_editor_sig_v1';
     var LS_SIG_TYPE_STYLE = 'joyful_pdf_editor_sig_type_style_v1';
     var LS_PRINT_KEY = 'joyful_pdf_editor_print_settings_v1';
@@ -116,6 +117,10 @@
             if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('jsPDF missing');
             return window.jspdf.jsPDF;
         });
+    }
+    function ensureHtml2Canvas() {
+        if (window.html2canvas) return Promise.resolve(window.html2canvas);
+        return loadScript(CDN_HTML2CANVAS).then(function () { return window.html2canvas; });
     }
     function numVal(v) { var n = parseFloat(v); return isNaN(n) ? NaN : n; }
     function fmtBytes(n) {
@@ -502,9 +507,15 @@
     var pendingStampColor = '#dc2626';
 
     var PDF_DOC_BUCKET = 'patient-documents';
+    var PDF_DOC_BUCKET_FALLBACK = 'photos';
+    var pdeStorageBucket = null;
     var pdePatient = null;
     var pdeDocMeta = null;
     var pdeDirty = false;
+    var pdeReturnScreen = null;
+    var pdeReturnConTab = null;
+    var pdeEditingDocId = null;
+    var pdeStoragePath = null;
     var _batchOv = null;
     var _templateOv = null;
     var _savePatientOv = null;
@@ -2507,6 +2518,472 @@
         });
     }
 
+    // ── HTML → editable PDF text (consultation forms bridge) ─────
+    function htmlToPlainLines(html) {
+        var root = document.createElement('div');
+        root.innerHTML = String(html || '');
+        root.querySelectorAll('script,style').forEach(function (n) { n.remove(); });
+        root.querySelectorAll('br').forEach(function (br) {
+            br.replaceWith(document.createTextNode('\n'));
+        });
+        root.querySelectorAll('p,div,li,tr,h1,h2,h3,h4,table').forEach(function (el) {
+            el.insertAdjacentText('afterend', '\n');
+        });
+        return String(root.textContent || '')
+            .replace(/\r/g, '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+
+    function wrapTextLine(text, maxChars) {
+        maxChars = maxChars || 68;
+        var words = String(text || '').split(/\s+/).filter(Boolean);
+        if (!words.length) return [''];
+        var out = [];
+        var line = words[0];
+        for (var i = 1; i < words.length; i++) {
+            var next = line + ' ' + words[i];
+            if (next.length <= maxChars) line = next;
+            else { out.push(line); line = words[i]; }
+        }
+        out.push(line);
+        return out;
+    }
+
+    function htmlToLayoutLines(html) {
+        var lines = [];
+        htmlToPlainLines(html).split('\n').forEach(function (raw) {
+            var t = String(raw || '').trim();
+            if (!t) { lines.push(''); return; }
+            wrapTextLine(t, 68).forEach(function (l) { lines.push(l); });
+        });
+        if (!lines.length) lines.push('');
+        return lines;
+    }
+
+    function estimatePagesForLines(lineCount) {
+        var linesPerPage = Math.max(1, Math.floor((0.90 - 0.10) / 0.032));
+        return Math.max(1, Math.ceil(lineCount / linesPerPage));
+    }
+
+    function createBlankA4PdfBytes(pageCount) {
+        pageCount = Math.max(1, pageCount || 1);
+        return ensurePdfLib().then(function (PDFLib) {
+            return PDFLib.PDFDocument.create().then(function (doc) {
+                for (var i = 0; i < pageCount; i++) doc.addPage([595.28, 841.89]);
+                return doc.save();
+            });
+        });
+    }
+
+    function seedLinesAsTextAnnotations(lines) {
+        var lineH = 0.032;
+        var startY = 0.10;
+        var maxY = 0.90;
+        var pageIdx = 0;
+        var y = startY;
+        annByPage = {};
+        (lines || []).forEach(function (line) {
+            if (y > maxY) {
+                pageIdx += 1;
+                y = startY;
+            }
+            if (!annByPage[pageIdx]) annByPage[pageIdx] = [];
+            if (line) {
+                annByPage[pageIdx].push(withAnnMeta({
+                    type: 'text',
+                    text: line,
+                    x: 0.08,
+                    y: y,
+                    size: 11,
+                    fontFamily: props.fontFamily || 'sans-serif',
+                    color: props.color || '#111827',
+                    opacity: 1
+                }));
+            }
+            y += lineH;
+        });
+        selectedIdx = -1;
+    }
+
+    function mmToPt(mm) {
+        return (Number(mm) || 0) * 72 / 25.4;
+    }
+
+    function mmToPx(mm) {
+        return Math.round((Number(mm) || 0) * 96 / 25.4);
+    }
+
+    function formsExportPageSpec() {
+        var dim = { w: 210, h: 297 };
+        var margins = { t: 15, r: 15, b: 15, l: 15 };
+        if (typeof CFG !== 'undefined' && CFG && typeof CFG.getPrintSettingsForDoc === 'function') {
+            var cid = (typeof currentClinicId !== 'undefined' && currentClinicId) ? String(currentClinicId) : '';
+            var row = CFG.getPrintSettingsForDoc('letters', cid);
+            if (typeof CFG.printSheetDimensionsMm === 'function') dim = CFG.printSheetDimensionsMm(row);
+            if (typeof CFG.printMarginsMmFromRow === 'function') margins = CFG.printMarginsMmFromRow(row);
+        }
+        var pageWPt = mmToPt(dim.w);
+        var pageHPt = mmToPt(dim.h);
+        return {
+            pageWPx: mmToPx(dim.w),
+            pageHPx: mmToPx(dim.h),
+            pageWPt: pageWPt,
+            pageHPt: pageHPt,
+            padTop: mmToPx(margins.t),
+            padRight: mmToPx(margins.r),
+            padBottom: mmToPx(margins.b),
+            padLeft: mmToPx(margins.l),
+            format: [pageWPt, pageHPt],
+            landscape: pageWPt > pageHPt
+        };
+    }
+
+    function canvasToPagedPdfBytes(canvas, spec) {
+        var JsPDF = window.jspdf.jsPDF;
+        var pdf = new JsPDF({
+            unit: 'pt',
+            format: spec.format,
+            compress: true,
+            orientation: spec.landscape ? 'landscape' : 'portrait'
+        });
+        var pageW = spec.pageWPt;
+        var pageH = spec.pageHPt;
+        var pageCanvasH = Math.max(1, Math.round(canvas.width * (pageH / pageW)));
+        var sliceCanvas = document.createElement('canvas');
+        var sliceCtx = sliceCanvas.getContext('2d');
+        var y = 0;
+        var pageIdx = 0;
+
+        while (y < canvas.height) {
+            var sliceH = Math.min(pageCanvasH, canvas.height - y);
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = sliceH;
+            sliceCtx.fillStyle = '#ffffff';
+            sliceCtx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+            sliceCtx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+            var sliceData = sliceCanvas.toDataURL('image/jpeg', 0.92);
+            var renderH = pageH * (sliceH / pageCanvasH);
+            if (pageIdx > 0) {
+                pdf.addPage(spec.format, spec.landscape ? 'landscape' : 'portrait');
+            }
+            pdf.addImage(sliceData, 'JPEG', 0, 0, pageW, renderH);
+            y += sliceH;
+            pageIdx += 1;
+        }
+        return new Uint8Array(pdf.output('arraybuffer'));
+    }
+
+    function pdeWaitForExportFonts(doc) {
+        if (doc && doc.fonts && doc.fonts.ready) {
+            return doc.fonts.ready.catch(function () { return null; });
+        }
+        return Promise.resolve();
+    }
+
+    /** Render formatted HTML (same shell as print preview) to PDF bytes — layout/fonts preserved. */
+    function htmlToPdfBytes(bodyHtml, opts) {
+        opts = opts || {};
+        bodyHtml = String(bodyHtml || '');
+        if (!bodyHtml.trim()) {
+            return Promise.reject(new Error(t('Document is empty.', '文件为空。', '文件為空。')));
+        }
+        var spec = formsExportPageSpec();
+        return ensureJsPdf().then(function () {
+            return ensureHtml2Canvas();
+        }).then(function (html2canvas) {
+            return new Promise(function (resolve, reject) {
+                var iframe = document.createElement('iframe');
+                iframe.setAttribute('aria-hidden', 'true');
+                iframe.style.cssText = 'position:fixed;left:-12000px;top:0;border:0;visibility:hidden;';
+                document.body.appendChild(iframe);
+                var idoc = iframe.contentDocument;
+                if (!idoc) {
+                    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+                    reject(new Error(t('Could not prepare export frame.', '无法准备导出框架。', '無法準備匯出框架。')));
+                    return;
+                }
+
+                var exportCss =
+                    'html,body{margin:0;padding:0;background:#fff;color:#111;overflow:visible;}' +
+                    '.pde-export-sheet{' +
+                        'box-sizing:border-box;' +
+                        'width:' + spec.pageWPx + 'px;' +
+                        'min-height:' + spec.pageHPx + 'px;' +
+                        'padding:' + spec.padTop + 'px ' + spec.padRight + 'px ' +
+                            spec.padBottom + 'px ' + spec.padLeft + 'px;' +
+                        'background:#fff;color:#111;' +
+                        'font-family:"Segoe UI",Arial,sans-serif;font-size:13px;line-height:1.45;' +
+                    '}' +
+                    '.pde-export-sheet img,.pde-export-sheet table{max-width:100%;}' +
+                    '.pde-export-sheet p{margin:0 0 0.65em 0;}' +
+                    '.pde-export-sheet *{box-sizing:border-box;max-width:100%;}';
+
+                idoc.open();
+                idoc.write(
+                    '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+                    (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
+                    '<style>' + exportCss + '</style></head><body>' +
+                    '<div class="pde-export-sheet">' + bodyHtml + '</div></body></html>'
+                );
+                idoc.close();
+
+                function cleanup() {
+                    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+                }
+
+                function runExport() {
+                    var target = idoc.querySelector('.pde-export-sheet');
+                    if (!target) {
+                        cleanup();
+                        reject(new Error(t('No content to export.', '没有可导出的内容。', '沒有可匯出的內容。')));
+                        return;
+                    }
+                    var sw = Math.max(spec.pageWPx, target.scrollWidth || target.offsetWidth || spec.pageWPx);
+                    var sh = Math.max(spec.pageHPx, target.scrollHeight || target.offsetHeight || spec.pageHPx);
+                    iframe.style.width = sw + 'px';
+                    iframe.style.height = sh + 'px';
+                    if (idoc.documentElement) {
+                        idoc.documentElement.style.overflow = 'visible';
+                        idoc.documentElement.style.width = sw + 'px';
+                        idoc.documentElement.style.height = sh + 'px';
+                    }
+                    if (idoc.body) {
+                        idoc.body.style.overflow = 'visible';
+                        idoc.body.style.width = sw + 'px';
+                        idoc.body.style.minHeight = sh + 'px';
+                    }
+
+                    html2canvas(target, {
+                        scale: 2,
+                        backgroundColor: '#ffffff',
+                        useCORS: true,
+                        logging: false,
+                        letterRendering: true,
+                        width: sw,
+                        height: sh,
+                        windowWidth: sw,
+                        windowHeight: sh,
+                        scrollX: 0,
+                        scrollY: 0,
+                        x: 0,
+                        y: 0
+                    }).then(function (canvas) {
+                        try {
+                            resolve(canvasToPagedPdfBytes(canvas, spec));
+                        } catch (e) {
+                            reject(e);
+                        } finally {
+                            cleanup();
+                        }
+                    }).catch(function (e) {
+                        cleanup();
+                        reject(e);
+                    });
+                }
+
+                setTimeout(function () {
+                    pdeWaitForExportFonts(idoc).then(function () {
+                        setTimeout(runExport, 150);
+                    }).catch(function () {
+                        setTimeout(runExport, 300);
+                    });
+                }, 120);
+            });
+        });
+    }
+
+    function downloadPdfBytes(bytes, filename) {
+        if (!bytes) return;
+        var blob = bytes instanceof Blob ? bytes : new Blob([bytes], { type: 'application/pdf' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'document.pdf';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () {
+            URL.revokeObjectURL(url);
+            if (a.parentNode) a.parentNode.removeChild(a);
+        }, 0);
+    }
+
+    function exportFormsHtmlToPatient(opts) {
+        opts = opts || {};
+        pdePatient = opts.patient || null;
+        pdeDocMeta = opts.template ? pdeNormalizeTemplateMeta(opts.template) : null;
+        pdeEditingDocId = opts.editingDocId || null;
+        pdeStoragePath = opts.storagePath || null;
+        pdeStorageBucket = opts.storageBucket || null;
+        if (opts.documentName) {
+            if (!pdeDocMeta) pdeDocMeta = {};
+            pdeDocMeta.document_name = opts.documentName;
+        }
+        if (!pdePatient && opts.patientId) {
+            return fetchPatientById(opts.patientId).then(function (p) {
+                var next = Object.assign({}, opts, { patient: p, patientId: null });
+                return exportFormsHtmlToPatient(next);
+            });
+        }
+        if (!pdePatient || !pdePatient.id) {
+            return Promise.reject(new Error(t('Link a patient first.', '请先关联患者。', '請先關聯患者。')));
+        }
+        var docName = String(opts.documentName || '').trim() || pdeDefaultDocumentName();
+        return htmlToPdfBytes(opts.html, { sheetCss: opts.sheetCss }).then(function (bytes) {
+            if (opts.download !== false) {
+                downloadPdfBytes(bytes, pdeBuildExportFilename(docName.replace(/\.pdf$/i, ''), '.pdf'));
+            }
+            return savePdfToPatientRecord(bytes, docName);
+        });
+    }
+
+    function loadHtmlAsEditablePdf(html, name, opts) {
+        opts = opts || {};
+        var lines = htmlToLayoutLines(html);
+        var pages = estimatePagesForLines(lines.length);
+        setStatus(t('Building editable PDF…', '正在生成可编辑 PDF…', '正在產生可編輯 PDF…'), 'work');
+        return createBlankA4PdfBytes(pages).then(function (bytes) {
+            return loadPdfFromBytes(bytes, name || 'document.pdf', { keepAnnotations: false }).then(function () {
+                seedLinesAsTextAnnotations(lines);
+                redrawOverlay();
+                refreshPropsPanel();
+                if (!opts.keepClean) pdeMarkDirty();
+                setStatus(t('Editable text PDF ready — click text to edit.', '可编辑 PDF 已就绪 — 点击文字即可编辑。', '可編輯 PDF 已就緒 — 點擊文字即可編輯。'), 'ok');
+            });
+        });
+    }
+
+    function pdeIsRlsError(err) {
+        var msg = String((err && err.message) || err || '').toLowerCase();
+        return msg.indexOf('row-level security') >= 0 || msg.indexOf('42501') >= 0;
+    }
+
+    function pdeParseSavedPdfMeta(html) {
+        html = String(html || '');
+        var pathM = html.match(/data-file-path=["']([^"']+)["']/);
+        var bucketM = html.match(/data-file-bucket=["']([^"']+)["']/);
+        return {
+            path: pathM ? pathM[1] : null,
+            bucket: bucketM ? bucketM[1] : PDF_DOC_BUCKET
+        };
+    }
+
+    function pdeBuildSavedPdfHtml(path, bucket, docName, url) {
+        var attrs = ' data-file-path="' + esc(path) + '"';
+        if (bucket && bucket !== PDF_DOC_BUCKET) {
+            attrs += ' data-file-bucket="' + esc(bucket) + '"';
+        }
+        return '<div class="pde-saved-pdf"' + attrs + '>' +
+            '<p>PDF: <a href="' + esc(url || '#') + '" target="_blank" rel="noopener">' +
+            esc(docName) + '</a></p></div>';
+    }
+
+    function pdeStoragePathForBucket(bucket, path) {
+        if (bucket !== PDF_DOC_BUCKET_FALLBACK) return path;
+        if (path.indexOf('/forms/') >= 0) return path;
+        var parts = String(path || '').split('/');
+        if (parts.length < 2) return 'forms/' + path;
+        return parts[0] + '/forms/' + parts.slice(1).join('/');
+    }
+
+    function pdeUploadBytesToBucket(bucket, path, bytes, upsert) {
+        return SB.storage.from(bucket).upload(path, bytes, {
+            cacheControl: '3600',
+            upsert: !!upsert,
+            contentType: 'application/pdf'
+        });
+    }
+
+    function pdeUploadPatientPdf(bytes, path, upsert) {
+        var buckets = (upsert && pdeStorageBucket)
+            ? [pdeStorageBucket]
+            : [PDF_DOC_BUCKET, PDF_DOC_BUCKET_FALLBACK];
+        var idx = 0;
+        function attempt() {
+            var bucket = buckets[idx];
+            var uploadPath = pdeStoragePathForBucket(bucket, path);
+            return pdeUploadBytesToBucket(bucket, uploadPath, bytes, upsert && bucket === pdeStorageBucket)
+                .then(function (up) {
+                    if (up.error) {
+                        if (pdeIsRlsError(up.error) && idx + 1 < buckets.length) {
+                            idx += 1;
+                            return attempt();
+                        }
+                        throw up.error;
+                    }
+                    return { bucket: bucket, path: uploadPath };
+                });
+        }
+        return attempt();
+    }
+
+    function pdeGetPublicUrl(path, bucket) {
+        bucket = bucket || pdeStorageBucket || PDF_DOC_BUCKET;
+        if (typeof SB === 'undefined' || !SB.storage || !path) return null;
+        try {
+            var ur = SB.storage.from(bucket).getPublicUrl(path);
+            return ur.data && ur.data.publicUrl ? ur.data.publicUrl : null;
+        } catch (e) { return null; }
+    }
+
+    function pdeWritePatientDocument(payload, editingId) {
+        function doWrite(p, retried) {
+            var op = editingId
+                ? SB.from('patient_documents').update(p).eq('id', editingId).select('id')
+                : SB.from('patient_documents').insert([p]).select('id');
+            return op.then(function (r) {
+                if (!r.error) return r;
+                var msg = String(r.error.message || '').toLowerCase();
+                if (!retried && msg.indexOf('clinic_id') >= 0) {
+                    var p2 = Object.assign({}, p);
+                    delete p2.clinic_id;
+                    return doWrite(p2, true);
+                }
+                if (pdeIsRlsError(r.error)) {
+                    throw new Error(
+                        t(
+                            'Database permission denied. Run patient_documents.sql in Supabase SQL Editor.',
+                            '数据库权限被拒绝。请在 Supabase SQL 编辑器中运行 patient_documents.sql。',
+                            '資料庫權限被拒絕。請在 Supabase SQL 編輯器中執行 patient_documents.sql。'
+                        )
+                    );
+                }
+                throw r.error;
+            });
+        }
+        if (typeof currentClinicId !== 'undefined' && currentClinicId) {
+            payload = Object.assign({}, payload, { clinic_id: currentClinicId });
+        }
+        return doWrite(payload, false);
+    }
+
+    function downloadPdfFromStorage(path, bucket) {
+        bucket = bucket || pdeStorageBucket || PDF_DOC_BUCKET;
+        if (typeof SB === 'undefined' || !path) {
+            return Promise.reject(new Error(t('Storage path missing.', '缺少存储路径。', '缺少儲存路徑。')));
+        }
+        return SB.storage.from(bucket).download(path).then(function (r) {
+            if (r.error) throw r.error;
+            if (!r.data) throw new Error(t('PDF file not found.', '未找到 PDF 文件。', '未找到 PDF 檔案。'));
+            if (typeof r.data.arrayBuffer === 'function') return r.data.arrayBuffer();
+            return r.data;
+        });
+    }
+
+    function pdeNavigateBack() {
+        var screen = pdeReturnScreen || 'toolsSection';
+        var tab = pdeReturnConTab;
+        pdeReturnScreen = null;
+        pdeReturnConTab = null;
+        if (typeof showOnly === 'function') showOnly(screen);
+        if (screen === 'consultationSection' && tab && typeof switchConTab === 'function') {
+            setTimeout(function () { switchConTab(tab); }, 0);
+        }
+    }
+
     // ── load / export ────────────────────────────────────────────
     function reloadPdfDocument(opts) {
         opts = opts || {};
@@ -3464,52 +3941,45 @@
         }).catch(function () { return null; });
     }
 
-    function pdeGetPublicUrl(path) {
-        if (typeof SB === 'undefined' || !SB.storage || !path) return null;
-        try {
-            var ur = SB.storage.from(PDF_DOC_BUCKET).getPublicUrl(path);
-            return ur.data && ur.data.publicUrl ? ur.data.publicUrl : null;
-        } catch (e) { return null; }
-    }
-
     function watermarkPdfBytes(bytes, opts) {
         opts = opts || {};
         return ensurePdfLib().then(function (PDFLib) {
             return loadPdfLibDocument(bytes).then(function (doc) {
-                return doc.embedFont(PDFLib.StandardFonts.Helvetica).then(function (fontReg) {
-                    return doc.embedFont(PDFLib.StandardFonts.HelveticaBold).then(function (fontBold) {
-                        var pages = doc.getPages();
-                        pages.forEach(function (pg, pi) {
-                            if (opts.scope === 'current' && pi !== pageNum) return;
-                            var w = pg.getWidth();
-                            var h = pg.getHeight();
-                            if (opts.watermarkText) {
-                                var wt = String(opts.watermarkText);
-                                var size = Math.max(24, Math.min(w, h) / 8);
-                                var tw = fontBold.widthOfTextAtSize(wt, size);
-                                pg.drawText(wt, {
-                                    x: w / 2 - tw / 2 * Math.cos(Math.PI / 4),
-                                    y: h / 2 - size / 2,
-                                    size: size,
-                                    font: fontBold,
-                                    color: PDFLib.rgb(0.6, 0.6, 0.6),
-                                    opacity: opts.wmOpacity != null ? opts.wmOpacity : 0.3,
-                                    rotate: PDFLib.degrees(45)
-                                });
-                            }
-                            if (opts.pageNumbers) {
-                                var pn = t('Page', '第', '第') + ' ' + (pi + 1) +
-                                    ' ' + t('of', '页，共', '頁，共') + ' ' + pages.length;
-                                var pw = fontReg.widthOfTextAtSize(pn, 10);
-                                pg.drawText(pn, {
-                                    x: w - pw - 24, y: 14, size: 10, font: fontReg,
+                var pages = doc.getPages();
+                var chain = Promise.resolve();
+                pages.forEach(function (pg, pi) {
+                    chain = chain.then(function () {
+                        if (opts.scope === 'current' && pi !== pageNum) return;
+                        var w = pg.getWidth();
+                        var h = pg.getHeight();
+                        var job = Promise.resolve();
+                        if (opts.watermarkText) {
+                            var wt = String(opts.watermarkText);
+                            var size = Math.max(24, Math.min(w, h) / 8);
+                            job = pdeSafeDrawText(pg, PDFLib, doc, wt, {
+                                x: Math.max(12, w * 0.22),
+                                y: h * 0.52,
+                                size: size,
+                                color: PDFLib.rgb(0.6, 0.6, 0.6),
+                                opacity: opts.wmOpacity != null ? opts.wmOpacity : 0.3
+                            }, { colorHex: '#999999' });
+                        }
+                        if (opts.pageNumbers) {
+                            var pn = t('Page', '第', '第') + ' ' + (pi + 1) +
+                                ' ' + t('of', '页，共', '頁，共') + ' ' + pages.length;
+                            job = job.then(function () {
+                                return pdeSafeDrawText(pg, PDFLib, doc, pn, {
+                                    x: w - 140,
+                                    y: 14,
+                                    size: 10,
                                     color: PDFLib.rgb(0.35, 0.35, 0.35)
-                                });
-                            }
-                        });
-                        return doc.save();
+                                }, { colorHex: '#5a5a5a' });
+                            });
+                        }
+                        return job;
                     });
                 });
+                return chain.then(function () { return doc.save(); });
             });
         });
     }
@@ -3538,17 +4008,13 @@
         }
         docName = String(docName || '').trim() || pdeDefaultDocumentName();
         var fname = pdeBuildExportFilename('document', '.pdf');
-        var path = pdePatient.id + '/' + Date.now() + '_' + fname.replace(/[^\w.\-]/g, '_');
-        return SB.storage.from(PDF_DOC_BUCKET).upload(path, bytes, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: 'application/pdf'
-        }).then(function (up) {
-            if (up.error) throw up.error;
-            var url = pdeGetPublicUrl(path);
-            var html = '<div class="pde-saved-pdf" data-file-path="' + esc(path) + '">' +
-                '<p>PDF: <a href="' + esc(url || '#') + '" target="_blank" rel="noopener">' +
-                esc(docName) + '</a></p></div>';
+        var path = pdeStoragePath || (pdePatient.id + '/' + Date.now() + '_' + fname.replace(/[^\w.\-]/g, '_'));
+        var isUpdate = !!pdeEditingDocId && !!pdeStoragePath;
+        return pdeUploadPatientPdf(bytes, path, isUpdate).then(function (uploaded) {
+            pdeStoragePath = uploaded.path;
+            pdeStorageBucket = uploaded.bucket;
+            var url = pdeGetPublicUrl(uploaded.path, uploaded.bucket);
+            var html = pdeBuildSavedPdfHtml(uploaded.path, uploaded.bucket, docName, url);
             var payload = {
                 patient_id: pdePatient.id,
                 patient_no: pdePatient.patient_no || null,
@@ -3562,17 +4028,21 @@
                 document_date: typeof todayISO === 'function' ? todayISO() : new Date().toISOString().slice(0, 10),
                 content_html: html
             };
-            return SB.from('patient_documents').insert([payload]).select('id');
+            return pdeWritePatientDocument(payload, isUpdate ? pdeEditingDocId : null);
         }).then(function (r) {
             if (r.error) throw r.error;
             pdeClearDirty();
+            if (!isUpdate && r.data && r.data[0] && r.data[0].id) pdeEditingDocId = r.data[0].id;
             pdeAuditLog('SAVE_TO_PATIENT', {
                 summary: docName,
                 document_name: docName,
                 patient_no: pdePatient.patient_no
             });
             if (typeof refreshConFormsDocs === 'function') refreshConFormsDocs();
-            return r.data && r.data[0] ? r.data[0].id : null;
+            if (typeof conFormsEditingDocId !== 'undefined' && pdeEditingDocId) {
+                conFormsEditingDocId = pdeEditingDocId;
+            }
+            return r.data && r.data[0] ? r.data[0].id : pdeEditingDocId;
         });
     }
 
@@ -4007,9 +4477,7 @@
                 if (!pdeDirty) return;
                 e.preventDefault();
                 e.stopImmediatePropagation();
-                pdeConfirmLeave(function () {
-                    if (typeof showOnly === 'function') showOnly('toolsSection');
-                });
+                pdeConfirmLeave(function () { pdeNavigateBack(); });
             }, true);
         }
         if (!_pdeBeforeUnloadWired) {
@@ -4436,19 +4904,91 @@
         olCanvas.addEventListener('dblclick', onDoubleClick);
     }
 
-    function drawExportMeta(page, PDFLib, pt, ann, sx) {
+    function drawExportMeta(page, PDFLib, doc, pt, ann, sx) {
         var meta = formatAnnMetaLine(ann);
-        if (!meta) return;
+        if (!meta) return Promise.resolve();
         var mp = pt(ann.x, (ann.y || 0) + (ann.h || 0.02));
-        try {
-            page.drawText(meta, {
-                x: mp.x,
-                y: Math.max(8, mp.y - 10),
-                size: Math.max(6, 8 * sx),
-                color: hexRgb(PDFLib, '#64748b'),
-                opacity: 0.75
+        return pdeSafeDrawText(page, PDFLib, doc, meta, {
+            x: mp.x,
+            y: Math.max(8, mp.y - 10),
+            size: Math.max(6, 8 * sx),
+            color: hexRgb(PDFLib, '#64748b'),
+            opacity: 0.75
+        }, { colorHex: '#64748b' });
+    }
+
+    function textNeedsImageEmbed(text) {
+        return /[^\u0000-\u00ff]/.test(String(text || ''));
+    }
+
+    function renderTextToPngBuffer(text, fontSize, fontFamily, colorHex) {
+        fontSize = Math.max(8, fontSize || 14);
+        colorHex = colorHex || '#111827';
+        if (textNeedsImageEmbed(text)) {
+            fontFamily = '"Segoe UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif';
+        } else {
+            fontFamily = fontFamily || 'sans-serif';
+        }
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d');
+        var lines = String(text || '').split('\n');
+        ctx.font = fontSize + 'px ' + fontFamily;
+        var maxW = 0;
+        lines.forEach(function (line) {
+            maxW = Math.max(maxW, ctx.measureText(line || ' ').width);
+        });
+        var pad = 4;
+        var lineH = fontSize * 1.32;
+        canvas.width = Math.max(1, Math.ceil(maxW + pad * 2));
+        canvas.height = Math.max(1, Math.ceil(lines.length * lineH + pad * 2));
+        ctx.font = fontSize + 'px ' + fontFamily;
+        ctx.fillStyle = colorHex;
+        ctx.textBaseline = 'top';
+        lines.forEach(function (line, i) {
+            ctx.fillText(line || ' ', pad, pad + i * lineH);
+        });
+        return new Promise(function (resolve) {
+            if (canvas.toBlob) {
+                canvas.toBlob(function (blob) {
+                    if (!blob) { resolve(null); return; }
+                    blob.arrayBuffer().then(resolve);
+                }, 'image/png');
+                return;
+            }
+            resolve(null);
+        });
+    }
+
+    /** pdf-lib WinAnsi drawText fails on Chinese/CJK — rasterize those strings instead. */
+    function pdeSafeDrawText(page, PDFLib, doc, text, drawOpts, styleOpts) {
+        styleOpts = styleOpts || {};
+        text = String(text || '');
+        if (!text) return Promise.resolve();
+        if (!textNeedsImageEmbed(text)) {
+            try {
+                page.drawText(text, drawOpts);
+                return Promise.resolve();
+            } catch (e) { /* fall through to image embed */ }
+        }
+        if (!doc || typeof doc.embedPng !== 'function') return Promise.resolve();
+        var fontSize = drawOpts.size || 14;
+        return renderTextToPngBuffer(
+            text,
+            fontSize,
+            styleOpts.fontFamily || props.fontFamily || 'sans-serif',
+            styleOpts.colorHex || '#111827'
+        ).then(function (buf) {
+            if (!buf) return;
+            return doc.embedPng(buf).then(function (png) {
+                page.drawImage(png, {
+                    x: drawOpts.x,
+                    y: drawOpts.y - png.height * 0.88,
+                    width: png.width,
+                    height: png.height,
+                    opacity: drawOpts.opacity != null ? drawOpts.opacity : 1
+                });
             });
-        } catch (e) {}
+        });
     }
 
     function buildFlattenedPdfBytes() {
@@ -4497,14 +5037,16 @@
                             }
                             if (ann.type === 'text') {
                                 var tp = pt(ann.x, ann.y);
-                                page.drawText(String(ann.text || ''), {
+                                return pdeSafeDrawText(page, PDFLib, doc, String(ann.text || ''), {
                                     x: tp.x,
                                     y: tp.y,
                                     size: Math.max(8, (ann.size || 14) * sx),
                                     color: hexRgb(PDFLib, ann.color),
                                     opacity: ann.opacity != null ? ann.opacity : 1
+                                }, {
+                                    fontFamily: ann.fontFamily || props.fontFamily,
+                                    colorHex: ann.color || '#111827'
                                 });
-                                return;
                             }
                             if (ann.type === 'rect') {
                                 var rtl = pt(ann.x, ann.y + ann.h);
@@ -4571,7 +5113,7 @@
                                     color: hexRgb(PDFLib, ca.hex),
                                     opacity: ca.opacity
                                 });
-                                if (ann.author || ann.createdAt) drawExportMeta(page, PDFLib, pt, ann, sx);
+                                if (ann.author || ann.createdAt) return drawExportMeta(page, PDFLib, doc, pt, ann, sx);
                                 return;
                             }
                             if (ann.type === 'note') {
@@ -4588,22 +5130,29 @@
                                     borderWidth: 1,
                                     opacity: noteAnn.opacity != null ? noteAnn.opacity : 0.95
                                 });
+                                var noteJob = Promise.resolve();
                                 if (noteAnn.text) {
                                     var noteFs = Math.max(8, (noteAnn.size || 11) * sx);
                                     var noteLines = String(noteAnn.text).split('\n').slice(0, 14);
                                     var notePad = 6 * sx;
                                     var noteLh = noteFs * 1.32;
                                     noteLines.forEach(function (line, li) {
-                                        page.drawText(line.slice(0, 100), {
-                                            x: nt.x + notePad,
-                                            y: nt.y + nh - notePad - noteFs - li * noteLh,
-                                            size: noteFs,
-                                            color: hexRgb(PDFLib, '#713f12')
+                                        noteJob = noteJob.then(function () {
+                                            return pdeSafeDrawText(page, PDFLib, doc, line.slice(0, 100), {
+                                                x: nt.x + notePad,
+                                                y: nt.y + nh - notePad - noteFs - li * noteLh,
+                                                size: noteFs,
+                                                color: hexRgb(PDFLib, '#713f12')
+                                            }, {
+                                                colorHex: '#713f12',
+                                                fontFamily: noteAnn.fontFamily || props.fontFamily
+                                            });
                                         });
                                     });
                                 }
-                                drawExportMeta(page, PDFLib, pt, noteAnn, sx);
-                                return;
+                                return noteJob.then(function () {
+                                    return drawExportMeta(page, PDFLib, doc, pt, noteAnn, sx);
+                                });
                             }
                             if (ann.type === 'callout') {
                                 var cb = pt(ann.x, ann.y + ann.h);
@@ -4615,12 +5164,16 @@
                                     color: PDFLib.rgb(1, 1, 1),
                                     opacity: 0.92
                                 });
+                                var calloutJob = Promise.resolve();
                                 if (ann.text) {
-                                    page.drawText(String(ann.text), {
+                                    calloutJob = pdeSafeDrawText(page, PDFLib, doc, String(ann.text), {
                                         x: cb.x + 6,
                                         y: cb.y + ann.h * ph - 14 * sy,
                                         size: Math.max(8, (ann.size || 14) * sx),
                                         color: hexRgb(PDFLib, ca.hex)
+                                    }, {
+                                        colorHex: ca.hex,
+                                        fontFamily: ann.fontFamily || props.fontFamily
                                     });
                                 }
                                 var anc = pt(ann.ax, ann.ay);
@@ -4630,8 +5183,9 @@
                                     thickness: (ann.width || 2) * sx * 0.4,
                                     color: hexRgb(PDFLib, ca.hex)
                                 });
-                                drawExportMeta(page, PDFLib, pt, ann, sx);
-                                return;
+                                return calloutJob.then(function () {
+                                    return drawExportMeta(page, PDFLib, doc, pt, ann, sx);
+                                });
                             }
                             if (ann.type === 'stamp') {
                                 var stCol = ann.color || '#dc2626';
@@ -4643,14 +5197,17 @@
                                     borderWidth: 2,
                                     opacity: 0.85
                                 });
-                                page.drawText(String(ann.text || 'APPROVED'), {
+                                return pdeSafeDrawText(page, PDFLib, doc, String(ann.text || 'APPROVED'), {
                                     x: st.x + ann.w * pw * 0.15,
                                     y: st.y + ann.h * ph * 0.35,
                                     size: Math.min(ann.h * ph * 0.45, 24),
                                     color: hexRgb(PDFLib, stCol)
+                                }, {
+                                    colorHex: stCol,
+                                    fontFamily: ann.fontFamily || props.fontFamily
+                                }).then(function () {
+                                    return drawExportMeta(page, PDFLib, doc, pt, ann, sx);
                                 });
-                                drawExportMeta(page, PDFLib, pt, ann, sx);
-                                return;
                             }
                             if ((ann.type === 'image' || ann.type === 'signature') && ann.dataUrl) {
                                 var bytes = dataUrlToBytes(ann.dataUrl);
@@ -5981,6 +6538,11 @@
     function open(opts) {
         opts = opts || {};
         if (typeof showOnly === 'function') showOnly('pdfEditorSection');
+        pdeReturnScreen = opts.returnScreen || null;
+        pdeReturnConTab = opts.returnConTab || null;
+        pdeEditingDocId = opts.editingDocId || null;
+        pdeStoragePath = opts.storagePath || null;
+        pdeStorageBucket = opts.storageBucket || null;
         pdePatient = opts.patient || null;
         pdeDocMeta = opts.template ? pdeNormalizeTemplateMeta(opts.template) : null;
         if (opts.documentName) {
@@ -5997,25 +6559,48 @@
                 updatePdePatientBanner();
             });
         }
-        after.then(function () {
+        after = after.then(function () {
+            if (opts.storagePath) {
+                return downloadPdfFromStorage(opts.storagePath, opts.storageBucket).then(function (buf) {
+                    return loadPdfFromBytes(buf, opts.fileName || opts.documentName || 'document.pdf', opts.loadOpts || {});
+                });
+            }
             if (opts.pdfBytes) {
                 return loadPdfFromBytes(opts.pdfBytes, opts.fileName || 'document.pdf', opts.loadOpts || {});
             }
             if (opts.file) return loadPdfFile(opts.file);
-        }).then(function () {
+            if (opts.htmlContent) {
+                return loadHtmlAsEditablePdf(
+                    opts.htmlContent,
+                    (opts.fileName || opts.documentName || 'document.pdf'),
+                    { keepClean: false }
+                );
+            }
+        });
+        after.then(function () {
             pdeAuditLog('OPEN', {
                 file: opts.fileName || (opts.file && opts.file.name) || null,
-                patient_no: pdePatient && pdePatient.patient_no
+                patient_no: pdePatient && pdePatient.patient_no,
+                source: opts.htmlContent ? 'html' : (opts.storagePath ? 'storage' : 'file')
             });
+        }).catch(function (e) {
+            setStatus(t('Failed: ', '失败：', '失敗：') + (e && e.message || e), 'bad');
         });
     }
 
     window.PDFEDITOR = {
         open: open,
+        navigateBack: pdeNavigateBack,
+        htmlToPdfBytes: htmlToPdfBytes,
+        exportFormsHtmlToPatient: exportFormsHtmlToPatient,
         openForPatient: function (patient, moreOpts) {
             moreOpts = moreOpts || {};
             moreOpts.patient = patient;
             open(moreOpts);
+        },
+        openFromFormsHtml: function (html, opts) {
+            opts = opts || {};
+            return exportFormsHtmlToPatient(Object.assign({}, opts, { html: html }));
         }
     };
 })();

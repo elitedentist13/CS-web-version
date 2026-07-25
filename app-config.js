@@ -2417,10 +2417,15 @@ var CFG = (function () {
                 '</label>' +
                 '<div style="margin-top:12px;overflow-x:auto;-webkit-overflow-scrolling:touch;">' +
                   renderUsersTable(rows) +
-                '</div>';
+                '</div>' +
+                (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.renderSectionHtml === 'function'
+                    ? LOGINLOG.renderSectionHtml(_usrClinics) : '');
 
             pane.innerHTML = html;
             mountCfgUserPanel();
+            if (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.refresh === 'function') {
+                LOGINLOG.refresh();
+            }
         }).catch(function (e) {
             pane.innerHTML = '<p style="color:#dc3545;">' + esc(ctrRepl('appt.msg.error', { MSG: e.message })) + '</p>';
         });

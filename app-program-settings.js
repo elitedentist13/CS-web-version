@@ -146,6 +146,9 @@ var _loginIdleTimer = null;
 
 function performProgramIdleLogout() {
     if (!currentUserId) return;
+    var closeLog = (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.closeActive === 'function')
+        ? LOGINLOG.closeActive('idle_timeout') : Promise.resolve();
+    closeLog.finally(function () {
     currentRole = null;
     currentName = null;
     if (typeof loggedInUserName !== 'undefined') loggedInUserName = null;
@@ -157,6 +160,7 @@ function performProgramIdleLogout() {
     if (typeof setCurrentUserPermissions === 'function') setCurrentUserPermissions(null);
     if (typeof clearSession === 'function') clearSession();
     if (typeof showLogin === 'function') showLogin();
+    });
 }
 
 function restartLoginIdleTimeout() {

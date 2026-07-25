@@ -4067,7 +4067,9 @@ function persistSession() {
             clinic_label: currentClinicLabel,
             doctor_id: currentDoctorId,
             doctor_name: currentDoctorName,
-            permissions: currentUserPermissions
+            permissions: currentUserPermissions,
+            login_log_id: (typeof LOGINLOG !== 'undefined' && LOGINLOG.getActiveId)
+                ? LOGINLOG.getActiveId() : null
         }));
     } catch (e) {}
 }
@@ -4094,6 +4096,9 @@ function restoreSession() {
         currentDoctorName = s.doctor_name || null;
         if (typeof setCurrentUserPermissions === 'function') {
             setCurrentUserPermissions(s.permissions);
+        }
+        if (s.login_log_id && typeof LOGINLOG !== 'undefined' && LOGINLOG.setActiveId) {
+            LOGINLOG.setActiveId(s.login_log_id);
         }
         return true;
     } catch (e) {
@@ -4291,6 +4296,12 @@ function finishLoginSession(u, doctorId) {
         currentName = u.display_name;
     }
     if (!currentName) currentName = currentUserId;
+
+    if (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.queueFromSession === 'function') {
+        LOGINLOG.queueFromSession(u, doctorId || null, {
+            login_method: (u && String(u.role || '').toLowerCase() === 'admin') ? 'admin_totp' : 'password'
+        });
+    }
 
     var loginClinicId = selectedLoginClinicId();
     var wc = loginClinicId || defaultWorkingClinicId();
@@ -4663,6 +4674,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     g('logoutBtn').addEventListener('click', function() {
         if (typeof stopRealtimeSync === 'function') stopRealtimeSync();
+        var closeLog = (typeof LOGINLOG !== 'undefined' && typeof LOGINLOG.closeActive === 'function')
+            ? LOGINLOG.closeActive('manual') : Promise.resolve();
+        closeLog.finally(function () {
         currentRole = null;
         currentName = null;
         loggedInUserName = null;
@@ -4678,6 +4692,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             document.dispatchEvent(new CustomEvent('app-session-sync'));
         } catch (eSync) {}
+        });
     });
 
     var dashboardHelpBtn = g('dashboardHelpBtn');
@@ -4815,12 +4830,21 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     [['medCalcBack', 'medCalcSection'], ['qrToolBack', 'qrToolSection'],
-     ['pdfUtilBack', 'pdfUtilSection'], ['pdfEditorBack', 'pdfEditorSection'],
-     ['posterMakerBack', 'posterMakerSection']]
+     ['pdfUtilBack', 'pdfUtilSection'], ['posterMakerBack', 'posterMakerSection']]
     .forEach(function(pair) {
         var b = g(pair[0]);
         if (b) b.addEventListener('click', function() { showOnly('toolsSection'); });
     });
+    var pdfEditorBack = g('pdfEditorBack');
+    if (pdfEditorBack) {
+        pdfEditorBack.addEventListener('click', function() {
+            if (typeof PDFEDITOR !== 'undefined' && typeof PDFEDITOR.navigateBack === 'function') {
+                PDFEDITOR.navigateBack();
+            } else {
+                showOnly('toolsSection');
+            }
+        });
+    }
 
     // placeholder cards (temporarily inactive)
     ['card-expenses', 'card-inventory']

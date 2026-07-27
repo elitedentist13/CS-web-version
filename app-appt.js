@@ -4149,7 +4149,25 @@ function plusApptCancelAppointmentById(apptId, opts) {
     });
 }
 
-/** Wire RSVP confirm/decline to recall capsule (+ cancel appt on decline). */
+/** Persist No Show when patient RSVP is declined — row stays on Today with noshow styling. */
+function apptMarkRsvpDeclinedNoShow(apptId) {
+    if (!apptId || typeof SB === 'undefined' || !SB.from) return Promise.resolve(false);
+    return SB.from('appointments').update({ bill_status: 'No Show' })
+        .eq('id', String(apptId))
+        .then(function (r) {
+            if (r.error) {
+                try { console.warn('RSVP decline → No Show failed', r.error); } catch (_) {}
+                return false;
+            }
+            plusApptPatchApptBillStatus(apptId, 'No Show');
+            return true;
+        }).catch(function (err) {
+            try { console.warn('RSVP decline → No Show failed', err); } catch (_) {}
+            return false;
+        });
+}
+
+/** Wire RSVP confirm/decline to recall capsule; decline → No Show (not cancel/remove). */
 function apptApplyRsvpRecallOutcome(apptId, decision) {
     if (!apptId) return Promise.resolve();
     if (decision === 'confirmed') {
@@ -4157,8 +4175,12 @@ function apptApplyRsvpRecallOutcome(apptId, decision) {
         return Promise.resolve();
     }
     if (decision === 'declined') {
-        plusApptSetTaskState(apptId, 'recall', 'cancel', { skipConfirm: true, fromRsvp: true });
-        return Promise.resolve();
+        plusApptSetTaskState(apptId, 'recall', 'cancel', {
+            skipConfirm: true,
+            skipCancelAppt: true,
+            fromRsvp: true
+        });
+        return apptMarkRsvpDeclinedNoShow(apptId);
     }
     return Promise.resolve();
 }
@@ -12754,9 +12776,21 @@ function loadToday(opts) {
                     if (a.in_queue !== null && a.in_queue !== undefined) return false;
                     var s = String(a.bill_status || '').toLowerCase();
                     if (s === 'queue' || s === 'done' || s === 'finish') return false;
-                    if (/cancel/.test(s)) return false;
+                    if (/cancel/.test(s) &&
+                        String(a.patient_rsvp_status || '').toLowerCase() !== 'declined') {
+                        return false;
+                    }
                     if (todayApptIsNoshow(a) && todayNoshowIsDismissed(a.id)) return false;
                     return true;
+                });
+                todayRows.forEach(function (a) {
+                    if (!a || !a.id) return;
+                    if (String(a.patient_rsvp_status || '').toLowerCase() !== 'declined') return;
+                    if (/cancel/i.test(String(a.bill_status || '')) &&
+                        typeof apptMarkRsvpDeclinedNoShow === 'function') {
+                        apptMarkRsvpDeclinedNoShow(a.id);
+                        a.bill_status = 'No Show';
+                    }
                 });
                 todayAppts = todayRows;
                 if (!opts.force && apptModuleEditPaused('today')) {
@@ -12807,7 +12841,10 @@ function loadToday(opts) {
 }
 
 function todayApptIsNoshow(a) {
-    return /no.?show|failed/i.test(String(a && a.bill_status ? a.bill_status : ''));
+    if (!a) return false;
+    if (/no.?show|failed/i.test(String(a.bill_status || ''))) return true;
+    if (String(a.patient_rsvp_status || '').toLowerCase() === 'declined') return true;
+    return false;
 }
 
 function todayNoshowDismissStore() {

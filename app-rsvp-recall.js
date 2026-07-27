@@ -564,12 +564,9 @@ var RSVP_RECALL = (function () {
             a.patient_rsvp_status = decision;
             a.patient_rsvp_at = now;
             a.patient_rsvp_source = 'staff';
-            if (decision === 'declined') a.bill_status = 'Cancelled';
+            if (decision === 'declined') a.bill_status = 'No Show';
             return loadRsvpMap(_rows.map(function (x) { return x.id; }));
         }).then(function () {
-            if (decision === 'declined') {
-                _rows = _rows.filter(function (x) { return x.id !== appointmentId; });
-            }
             renderTable();
             setStatus(tr('rsvp.marked', 'Updated reply status.'), false);
             if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
@@ -803,13 +800,9 @@ var RSVP_RECALL = (function () {
                                     apptApplyRsvpRecallOutcome(a.id, newSt);
                                 }
                                 if (newSt === 'declined') {
-                                    a.bill_status = 'Cancelled';
+                                    a.bill_status = 'No Show';
                                 }
                             }
-                        });
-                        _rows = _rows.filter(function (x) {
-                            var bs = String(x.bill_status || '').toLowerCase();
-                            return bs.indexOf('cancel') < 0;
                         });
                         renderTable();
                         loadWebhookDiagnostic();
@@ -847,6 +840,7 @@ var RSVP_RECALL = (function () {
                     var nid = payload.new.id;
                     _rows.forEach(function (a) {
                         if (!a || a.id !== nid) return;
+                        var prev = String(a.patient_rsvp_status || '').toLowerCase();
                         if (payload.new.patient_rsvp_status != null) {
                             a.patient_rsvp_status = payload.new.patient_rsvp_status;
                         }
@@ -855,10 +849,18 @@ var RSVP_RECALL = (function () {
                             a.patient_rsvp_source = payload.new.patient_rsvp_source;
                         }
                         if (payload.new.bill_status != null) a.bill_status = payload.new.bill_status;
+                        var newSt = String(a.patient_rsvp_status || '').toLowerCase();
+                        if ((newSt === 'confirmed' || newSt === 'declined') && prev !== newSt &&
+                            typeof apptApplyRsvpRecallOutcome === 'function') {
+                            apptApplyRsvpRecallOutcome(a.id, newSt);
+                        }
+                        if (newSt === 'declined') a.bill_status = 'No Show';
                     });
                     loadRsvpMap(_rows.map(function (a) { return a.id; })).then(function () {
                         renderTable();
                         loadWebhookDiagnostic();
+                        if (typeof loadPlusApptDay === 'function') loadPlusApptDay({ soft: true });
+                        if (typeof loadToday === 'function') loadToday({ soft: true });
                     });
                 })
                 .on('postgres_changes', {

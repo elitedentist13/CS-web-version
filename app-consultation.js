@@ -624,9 +624,10 @@ function openConForPatient(patientId, opts) {
             }
             var inp = g('conPsInput');
             if (inp) {
-                inp.value =
-                    r.data.full_name +
-                    ' (#' + (r.data.patient_no || '') + ')';
+                inp.value = (typeof patientSearchInputDisplayValue === 'function')
+                    ? patientSearchInputDisplayValue(r.data)
+                    : (r.data.full_name + ' (#' + (r.data.patient_no || '') + ')');
+                inp.dataset.psLockedPatientId = String(r.data.id || '');
             }
             selectConPatient(r.data);
             if (typeof opts.onReady === 'function') {
@@ -735,6 +736,8 @@ function doConPatientSearch() {
         inputId: 'conPsInput',
         dropId: 'conPsDrop',
         clinicFilterId: 'conPsClinicFilter',
+        autoSelectSingle: false,
+        activeSource: 'consultation-treatment-search',
         onSelect: selectConPatient
     });
 }
@@ -745,6 +748,8 @@ function doConPatientSearchChart() {
         inputId: 'conPsInputChart',
         dropId: 'conPsDropChart',
         clinicFilterId: 'conPsClinicFilterChart',
+        autoSelectSingle: false,
+        activeSource: 'consultation-chart-search',
         onSelect: selectConPatient
     });
 }
@@ -892,9 +897,11 @@ function selectConPatient(p) {
     if (layout) layout.style.display = 'grid';
 
     var medInput = g('conPsInputMed');
-    if (medInput) {
-        medInput.value =
-            p.full_name + ' (#' + (p.patient_no || '') + ')';
+    if (medInput && document.activeElement !== medInput) {
+        medInput.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(p)
+            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
+        medInput.dataset.psLockedPatientId = String(p.id || '');
     }
     var medDrop = g('conPsDropMed');
     if (medDrop) medDrop.style.display = 'none';
@@ -916,20 +923,44 @@ function selectConPatient(p) {
     }
 
     var denInput = g('conPsInputDen');
-    if (denInput) {
-        denInput.value =
-            p.full_name + ' (#' + (p.patient_no || '') + ')';
+    if (denInput && document.activeElement !== denInput) {
+        denInput.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(p)
+            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
+        denInput.dataset.psLockedPatientId = String(p.id || '');
     }
     var denDrop = g('conPsDropDen');
     if (denDrop) denDrop.style.display = 'none';
 
     var chartInput = g('conPsInputChart');
-    if (chartInput) {
-        chartInput.value =
-            p.full_name + ' (#' + (p.patient_no || '') + ')';
+    if (chartInput && document.activeElement !== chartInput) {
+        chartInput.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(p)
+            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
+        chartInput.dataset.psLockedPatientId = String(p.id || '');
     }
     var chartDrop = g('conPsDropChart');
     if (chartDrop) chartDrop.style.display = 'none';
+
+    var treatInput = g('conPsInput');
+    if (treatInput && document.activeElement !== treatInput) {
+        treatInput.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(p)
+            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
+        treatInput.dataset.psLockedPatientId = String(p.id || '');
+    }
+    var treatDrop = g('conPsDrop');
+    if (treatDrop) treatDrop.style.display = 'none';
+
+    var formsInput = g('conFormsPsInput');
+    if (formsInput && document.activeElement !== formsInput) {
+        formsInput.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(p)
+            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
+        formsInput.dataset.psLockedPatientId = String(p.id || '');
+    }
+    var formsDrop = g('conFormsPsDrop');
+    if (formsDrop) formsDrop.style.display = 'none';
 
     var denBanner = g('conDenBanner');
     if (denBanner) denBanner.style.display = 'flex';
@@ -1376,6 +1407,8 @@ function doConFormsPatientSearch() {
         inputId: 'conFormsPsInput',
         dropId: 'conFormsPsDrop',
         clinicFilterId: 'conFormsPsClinicFilter',
+        autoSelectSingle: false,
+        activeSource: 'consultation-forms-search',
         onSelect: function (p) {
             selectConPatient(p);
             initConForms();
@@ -7286,6 +7319,8 @@ function doConPatientSearchMed() {
         inputId: 'conPsInputMed',
         dropId: 'conPsDropMed',
         clinicFilterId: 'conPsClinicFilterMed',
+        autoSelectSingle: false,
+        activeSource: 'consultation-med-search',
         onSelect: selectMedPatient
     });
 }
@@ -7416,6 +7451,8 @@ function doConPatientSearchDen() {
         inputId: 'conPsInputDen',
         dropId: 'conPsDropDen',
         clinicFilterId: 'conPsClinicFilterDen',
+        autoSelectSingle: false,
+        activeSource: 'consultation-den-search',
         onSelect: selectDenPatient
     });
 }

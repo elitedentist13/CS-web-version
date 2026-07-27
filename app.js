@@ -2257,8 +2257,13 @@ function patientSearchQueryBuilder(q, extraSelect, opts) {
 
 function patientSearchInputDisplayValue(p) {
     if (!p) return '';
-    var name = p.full_name || p.chinese_name || appTr('common.patientFallback');
-    return name + ' (#' + (p.patient_no || '') + ')';
+    var cn = String(p.chinese_name || '').trim();
+    var en = String(p.full_name || '').trim();
+    var parts = [];
+    if (cn) parts.push(cn);
+    if (en && en !== cn) parts.push(en);
+    if (!parts.length) parts.push(appTr('common.patientFallback'));
+    return parts.join(' ') + ' (#' + (p.patient_no || '') + ')';
 }
 
 function patientSearchResultHtml(p) {
@@ -2293,6 +2298,27 @@ function refreshVisiblePatientSearchDropdowns() {
     var specs = [
         { drop: 'psDrop', input: 'psInput', run: function () {
             if (typeof doPatientSearch === 'function') doPatientSearch();
+        }},
+        { drop: 'queuePsDrop', input: 'queuePsInput', run: function () {
+            if (typeof runPatientSearchDropdown === 'function') {
+                runPatientSearchDropdown({
+                    inputId: 'queuePsInput', dropId: 'queuePsDrop',
+                    searchMode: 'identity', autoSelectSingle: false,
+                    activeSource: 'queue-patient-search'
+                });
+            }
+        }},
+        { drop: 'todayPsDrop', input: 'todayPsInput', run: function () {
+            if (typeof runPatientSearchDropdown === 'function') {
+                runPatientSearchDropdown({
+                    inputId: 'todayPsInput', dropId: 'todayPsDrop',
+                    searchMode: 'identity', autoSelectSingle: false,
+                    activeSource: 'today-patient-search'
+                });
+            }
+        }},
+        { drop: 'plusApptPsDrop', input: 'plusApptPsInput', run: function () {
+            if (typeof doPlusApptPatientSearch === 'function') doPlusApptPatientSearch();
         }},
         { drop: 'conPsDrop', input: 'conPsInput', run: function () {
             if (typeof doConPatientSearch === 'function') doConPatientSearch();
@@ -2334,7 +2360,8 @@ function recordPatientSearchToActiveCard(p, source) {
     setActivePatientFromPayload(p, source || 'patient-search');
 }
 
-function fillPatientSearchDropdown(dd, rows, onSelect) {
+function fillPatientSearchDropdown(dd, rows, onSelect, opts) {
+    opts = opts || {};
     if (!dd) return;
     dd.innerHTML = '';
     if (!rows || !rows.length) {
@@ -2348,6 +2375,19 @@ function fillPatientSearchDropdown(dd, rows, onSelect) {
         var item = document.createElement('div');
         item.className = 'ps-item';
         item.innerHTML = patientSearchResultHtml(p);
+        if (opts.draggable) {
+            item.setAttribute('draggable', 'true');
+            item.addEventListener('dragstart', function (ev) {
+                if (typeof beginPatientDragTransfer === 'function') {
+                    beginPatientDragTransfer(ev, p);
+                }
+            });
+            item.addEventListener('dragend', function () {
+                if (typeof clearPatientDragPayloadSession === 'function') {
+                    clearPatientDragPayloadSession();
+                }
+            });
+        }
         item.addEventListener('click', function () {
             if (onSelect) onSelect(p);
         });
@@ -2356,9 +2396,17 @@ function fillPatientSearchDropdown(dd, rows, onSelect) {
     dd.style.display = 'block';
 }
 
+var _patientSearchReqSeq = {};
+
 /**
- * Shared patient search dropdown (consultation module and related tabs).
- * opts: { inputId, dropId, clinicFilterId?, onSelect(p) }
+ * Shared patient search dropdown (Patients / Appointment / Consultation).
+ * opts: {
+ *   inputId, dropId, clinicFilterId?, onSelect(p),
+ *   searchMode?: 'full'|'identity',
+ *   autoSelectSingle?: boolean (default false — avoid sudden patient swap while typing),
+ *   draggable?: boolean,
+ *   activeSource?: string
+ * }
  */
 function runPatientSearchDropdown(opts) {
     opts = opts || {};
@@ -2375,6 +2423,9 @@ function runPatientSearchDropdown(opts) {
         dd.style.display = 'none';
         return;
     }
+    var reqKey = String(opts.inputId || opts.dropId || '_ps');
+    var mySeq = (_patientSearchReqSeq[reqKey] = (_patientSearchReqSeq[reqKey] || 0) + 1);
+    var qAtStart = q;
     var pq = patientSearchQueryBuilder(q, null, {
         searchMode: opts.searchMode === 'identity' ? 'identity' : 'full'
     });
@@ -2385,7 +2436,14 @@ function runPatientSearchDropdown(opts) {
     if (opts.clinicFilterId && typeof applyPatientQueryClinicTag === 'function') {
         pq = applyPatientQueryClinicTag(pq, opts.clinicFilterId);
     }
+    function isStale() {
+        if (_patientSearchReqSeq[reqKey] !== mySeq) return true;
+        if (!inputEl) return false;
+        var nowQ = patientSearchNormalizeInputQuery((inputEl.value || '').trim());
+        return nowQ !== qAtStart;
+    }
     function finish(r) {
+        if (isStale()) return;
         if (r.error) {
             dd.innerHTML =
                 '<div class="ps-item" style="color:#c00;">' +
@@ -2402,19 +2460,25 @@ function runPatientSearchDropdown(opts) {
         var syncSource = opts.activeSource ||
             (opts.inputId ? ('patient-search:' + opts.inputId) : 'patient-search-select');
         fillPatientSearchDropdown(dd, rows, function (p) {
+            if (isStale()) return;
             dd.style.display = 'none';
-            if (inputEl) inputEl.value = patientSearchInputDisplayValue(p);
+            if (inputEl) {
+                inputEl.dataset.psLockedPatientId = String(p.id || '');
+                inputEl.value = patientSearchInputDisplayValue(p);
+            }
             recordPatientSearchToActiveCard(p, syncSource);
             if (opts.onSelect) opts.onSelect(p);
-        });
-        if (opts.autoSelectSingle !== false && rows.length === 1) {
+        }, { draggable: !!opts.draggable });
+        // Opt-in only: never auto-swap active patient while the user is still searching.
+        if (opts.autoSelectSingle === true && rows.length === 1) {
             recordPatientSearchToActiveCard(rows[0], syncSource + '-single');
         }
     }
     pq.then(function (r) {
+        if (isStale()) return;
         if (r.error && (r.error.message || '').indexOf('column') >= 0) {
             var coreSel =
-                'id,patient_no,full_name,chinese_name,sex,dob,phone_number,hkid,email,address,' +
+                'id,patient_no,full_name,chinese_name,sex,dob,phone_number,mobile_phone,hkid,email,address,' +
                 'medical_alerts,banana_index,' + PATIENT_CLINIC_TAG_FIELD;
             var coreFilter = opts.searchMode === 'identity'
                 ? patientSearchOrFilterIdentity(q)
@@ -2427,10 +2491,105 @@ function runPatientSearchDropdown(opts) {
             if (opts.clinicFilterId && typeof applyPatientQueryClinicTag === 'function') {
                 coreQ = applyPatientQueryClinicTag(coreQ, opts.clinicFilterId);
             }
-            coreQ.then(finish);
+            coreQ.then(function (r2) {
+                if (isStale()) return;
+                finish(r2);
+            });
             return;
         }
         finish(r);
+    });
+}
+
+/**
+ * Bind a module patient search box once — same behavior as Patients directory
+ * responsiveness (debounce + IME) without flicker / sudden patient swaps.
+ * opts: { inputId, dropId, clearBtnId?, clinicFilterId?, onSelect?, activeSource?,
+ *         searchMode?, draggable?, debounceMs?, onClear? }
+ */
+function bindModulePatientSearchOnce(opts) {
+    opts = opts || {};
+    var inputId = opts.inputId;
+    var dropId = opts.dropId;
+    var clearBtnId = opts.clearBtnId;
+    var inp = inputId ? g(inputId) : null;
+    if (!inp || inp.dataset.psBound === '1') return;
+    inp.dataset.psBound = '1';
+
+    var searchTimer = null;
+    var imeComposing = false;
+    var debounceMs = opts.debounceMs != null ? opts.debounceMs : 280;
+
+    function runSearch() {
+        runPatientSearchDropdown({
+            inputId: inputId,
+            dropId: dropId,
+            clinicFilterId: opts.clinicFilterId,
+            activeSource: opts.activeSource || ('patient-search:' + inputId),
+            searchMode: opts.searchMode || 'full',
+            autoSelectSingle: false,
+            draggable: !!opts.draggable,
+            onSelect: function (p) {
+                var clrBtn = clearBtnId ? g(clearBtnId) : null;
+                if (clrBtn) clrBtn.style.display = '';
+                if (opts.onSelect) opts.onSelect(p);
+            }
+        });
+    }
+
+    inp.addEventListener('compositionstart', function () { imeComposing = true; });
+    inp.addEventListener('compositionend', function () {
+        imeComposing = false;
+        delete inp.dataset.psLockedPatientId;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runSearch, 80);
+    });
+    inp.addEventListener('input', function (e) {
+        if (imeComposing || (e && e.isComposing)) return;
+        delete inp.dataset.psLockedPatientId;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runSearch, debounceMs);
+    });
+    inp.addEventListener('focus', function () {
+        var v = (inp.value || '').trim();
+        if (v && /\(#[^)]*\)\s*$/.test(v)) {
+            try { inp.select(); } catch (_) {}
+        }
+    });
+    inp.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            var dd = g(dropId);
+            if (dd) dd.style.display = 'none';
+        }
+    });
+
+    if (clearBtnId) {
+        var clrBtn = g(clearBtnId);
+        if (clrBtn && clrBtn.dataset.psClearBound !== '1') {
+            clrBtn.dataset.psClearBound = '1';
+            clrBtn.addEventListener('click', function () {
+                var inp2 = g(inputId);
+                if (inp2) {
+                    inp2.value = '';
+                    delete inp2.dataset.psLockedPatientId;
+                }
+                var dd = g(dropId);
+                if (dd) dd.style.display = 'none';
+                clrBtn.style.display = 'none';
+                if (opts.onClear) opts.onClear();
+                else if (typeof setActivePatientSlot === 'function') {
+                    setActivePatientSlot(0, null, (opts.activeSource || inputId) + '-clear', true);
+                }
+            });
+        }
+    }
+
+    document.addEventListener('click', function (e) {
+        var dd = g(dropId);
+        var inp3 = g(inputId);
+        if (dd && inp3 && !inp3.contains(e.target) && !dd.contains(e.target)) {
+            dd.style.display = 'none';
+        }
     });
 }
 
@@ -5333,12 +5492,6 @@ document.addEventListener('DOMContentLoaded', function() {
     g('fStart').addEventListener('change', calcEnd);
     g('fDur').addEventListener('change',   calcEnd);
 
-    // patient search in appointment modal
-    g('psInput').addEventListener('input', function() {
-        clearTimeout(psTimer);
-        psTimer = setTimeout(doPatientSearch, 280);
-    });
-
     // bill panel (handlers live in app-appt.js)
     if (typeof wireBillPanelControls === 'function') wireBillPanelControls();
 
@@ -5393,11 +5546,59 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // patient search in consultation
-    g('conPsInput').addEventListener('input', function() {
-        clearTimeout(conPsTimer);
-        conPsTimer = setTimeout(doConPatientSearch, 280);
-    });
+    // patient search in consultation — same stable binder as Appointment / Patients
+    if (typeof bindModulePatientSearchOnce === 'function') {
+        [
+            { inputId: 'conPsInput', dropId: 'conPsDrop', clinicFilterId: 'conPsClinicFilter',
+              activeSource: 'consultation-treatment-search', onSelect: function (p) {
+                  if (typeof selectConPatient === 'function') selectConPatient(p);
+              }},
+            { inputId: 'conPsInputMed', dropId: 'conPsDropMed', clinicFilterId: 'conPsClinicFilterMed',
+              activeSource: 'consultation-med-search', onSelect: function (p) {
+                  if (typeof selectMedPatient === 'function') selectMedPatient(p);
+              }},
+            { inputId: 'conPsInputDen', dropId: 'conPsDropDen', clinicFilterId: 'conPsClinicFilterDen',
+              activeSource: 'consultation-den-search', onSelect: function (p) {
+                  if (typeof selectDenPatient === 'function') selectDenPatient(p);
+              }},
+            { inputId: 'conPsInputXray', dropId: 'conPsDropXray', clinicFilterId: 'conPsClinicFilterXray',
+              activeSource: 'consultation-xray-search', onSelect: function (p) {
+                  if (typeof selectXrayPatient === 'function') selectXrayPatient(p);
+              }},
+            { inputId: 'conPsInputPhoto', dropId: 'conPsDropPhoto', clinicFilterId: 'conPsClinicFilterPhoto',
+              activeSource: 'consultation-photo-search', onSelect: function (p) {
+                  if (typeof selectPhotoPatient === 'function') selectPhotoPatient(p);
+              }},
+            { inputId: 'conPsInputChart', dropId: 'conPsDropChart', clinicFilterId: 'conPsClinicFilterChart',
+              activeSource: 'consultation-chart-search', onSelect: function (p) {
+                  if (typeof selectConPatient === 'function') selectConPatient(p);
+              }},
+            { inputId: 'conFormsPsInput', dropId: 'conFormsPsDrop', clinicFilterId: 'conFormsPsClinicFilter',
+              activeSource: 'consultation-forms-search', onSelect: function (p) {
+                  if (typeof selectConPatient === 'function') selectConPatient(p);
+                  if (typeof initConForms === 'function') initConForms();
+              }}
+        ].forEach(function (spec) {
+            bindModulePatientSearchOnce(spec);
+        });
+    } else {
+        g('conPsInput').addEventListener('input', function() {
+            clearTimeout(conPsTimer);
+            conPsTimer = setTimeout(doConPatientSearch, 280);
+        });
+    }
+
+    // appointment modal patient search
+    if (typeof bindModulePatientSearchOnce === 'function') {
+        bindModulePatientSearchOnce({
+            inputId: 'psInput',
+            dropId: 'psDrop',
+            activeSource: 'appt-modal-search',
+            onSelect: function (p) {
+                if (typeof apptSetSelectedPatient === 'function') apptSetSelectedPatient(p);
+            }
+        });
+    }
 
     // treatment note save
     var conNoteInp = g('conNoteInput');

@@ -224,6 +224,8 @@ function doConPatientSearchPhoto() {
     inputId: 'conPsInputPhoto',
     dropId: 'conPsDropPhoto',
     clinicFilterId: 'conPsClinicFilterPhoto',
+    autoSelectSingle: false,
+    activeSource: 'consultation-photo-search',
     onSelect: selectPhotoPatient
   });
 }

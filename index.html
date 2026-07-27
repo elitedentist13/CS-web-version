@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260726-rsvp-inbound-debug';
+  var BUILD = '20260727-patient-search-stable';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -2644,7 +2644,7 @@
         <div class="ps-wrap" style="flex:1;max-width:500px;">
           <input type="text" id="conPsInput"
                  data-i18n-placeholder="con.searchPh"
-                 autocomplete="off">
+                 autocomplete="off" spellcheck="false">
           <div class="ps-drop" id="conPsDrop"></div>
         </div>
         <select id="conPsClinicFilter" data-i18n-title="common.conPsClinicTitle"
@@ -2923,8 +2923,7 @@
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputMed"
                  data-i18n-placeholder="con.searchPh"
-                 autocomplete="off"
-                 oninput="doConPatientSearchMed()">
+                 autocomplete="off" spellcheck="false">
           <div class="ps-drop" id="conPsDropMed"></div>
         </div>
         <select id="conPsClinicFilterMed" data-i18n-title="common.conPsClinicTitle"
@@ -3039,8 +3038,7 @@
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputDen"
                  data-i18n-placeholder="con.searchPh"
-                 autocomplete="off"
-                 oninput="doConPatientSearchDen()">
+                 autocomplete="off" spellcheck="false">
           <div class="ps-drop" id="conPsDropDen"></div>
         </div>
         <select id="conPsClinicFilterDen" data-i18n-title="common.conPsClinicTitle"
@@ -3136,8 +3134,7 @@
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputXray"
                  data-i18n-placeholder="con.searchPh"
-                 autocomplete="off"
-                 oninput="doConPatientSearchXray()">
+                 autocomplete="off" spellcheck="false">
           <div class="ps-drop" id="conPsDropXray"></div>
         </div>
         <select id="conPsClinicFilterXray" data-i18n-title="common.conPsClinicTitle"
@@ -3417,8 +3414,7 @@
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conFormsPsInput"
                  data-i18n-placeholder="con.searchPh"
-                 autocomplete="off"
-                 oninput="doConFormsPatientSearch()">
+                 autocomplete="off" spellcheck="false">
           <div class="ps-drop" id="conFormsPsDrop"></div>
         </div>
         <select id="conFormsPsClinicFilter" data-i18n-title="common.conPsClinicTitle"
@@ -3958,8 +3954,7 @@
                style="flex:1;max-width:480px;">
             <input type="text" id="conPsInputChart"
                    data-i18n-placeholder="con.searchPh"
-                   autocomplete="off"
-                   oninput="doConPatientSearchChart()">
+                   autocomplete="off" spellcheck="false">
             <div class="ps-drop" id="conPsDropChart"></div>
           </div>
           <select id="conPsClinicFilterChart" data-i18n-title="common.conPsClinicTitle"
@@ -3984,8 +3979,7 @@
         <div class="ps-wrap" style="flex:1;max-width:480px;">
           <input type="text" id="conPsInputPhoto"
                  data-i18n-placeholder="con.searchPh"
-                 autocomplete="off"
-                 oninput="doConPatientSearchPhoto()">
+                 autocomplete="off" spellcheck="false">
           <div class="ps-drop" id="conPsDropPhoto"></div>
         </div>
         <select id="conPsClinicFilterPhoto" data-i18n-title="common.conPsClinicTitle"

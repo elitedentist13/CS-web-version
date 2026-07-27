@@ -1651,15 +1651,26 @@ function _syncApptPatientSearchInput(inputId, clearBtnId) {
     var inp = g(inputId);
     var clrBtn = g(clearBtnId);
     if (!inp) return;
+    // Never clobber a search box the user is actively editing (prevents flicker / swap).
+    if (document.activeElement === inp) return;
+    var lockedId = String(inp.dataset.psLockedPatientId || '').trim();
     var ap = (typeof activePatientSlots !== 'undefined' &&
               activePatientSlots[0] && activePatientSlots[0].id)
         ? activePatientSlots[0] : null;
     if (ap) {
-        inp.value = (ap.chinese_name ? ap.chinese_name + ' ' : '') +
-                    (ap.full_name || '') + ' (#' + (ap.patient_no || '') + ')';
+        if (lockedId && lockedId === String(ap.id) && (inp.value || '').trim()) {
+            if (clrBtn) clrBtn.style.display = '';
+            return;
+        }
+        inp.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(ap)
+            : ((ap.chinese_name ? ap.chinese_name + ' ' : '') +
+               (ap.full_name || '') + ' (#' + (ap.patient_no || '') + ')');
+        inp.dataset.psLockedPatientId = String(ap.id);
         if (clrBtn) clrBtn.style.display = '';
     } else {
-        if (document.activeElement !== inp) inp.value = '';
+        inp.value = '';
+        delete inp.dataset.psLockedPatientId;
         if (clrBtn) clrBtn.style.display = 'none';
     }
 }
@@ -1673,73 +1684,17 @@ function syncTodayPatientSearchInput() {
 }
 
 function _bindApptTabPatientSearchOnce(inputId, dropId, clearBtnId, source) {
-    var inp = g(inputId);
-    if (!inp || inp.dataset.bound) return;
-    inp.dataset.bound = '1';
-
-    var searchTimer = null;
-    var imeComposing = false;
-
-    function runApptTabPatientSearch() {
-        runPatientSearchDropdown({
-            inputId: inputId,
-            dropId:  dropId,
-            activeSource: source,
-            searchMode: 'identity',
-            autoSelectSingle: false,
-            onSelect: function() {
-                var clrBtn = g(clearBtnId);
-                if (clrBtn) clrBtn.style.display = '';
-            }
-        });
-    }
-
-    inp.addEventListener('compositionstart', function() { imeComposing = true; });
-    inp.addEventListener('compositionend', function() {
-        imeComposing = false;
-        clearTimeout(searchTimer);
-        searchTimer = setTimeout(runApptTabPatientSearch, 80);
-    });
-
-    inp.addEventListener('input', function(e) {
-        if (imeComposing || (e && e.isComposing)) return;
-        clearTimeout(searchTimer);
-        searchTimer = setTimeout(runApptTabPatientSearch, 280);
-    });
-
-    inp.addEventListener('focus', function() {
-        var v = (inp.value || '').trim();
-        if (v && /\(#[^)]*\)\s*$/.test(v)) {
-            try { inp.select(); } catch (_) {}
-        }
-    });
-
-    inp.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            var dd = g(dropId);
-            if (dd) dd.style.display = 'none';
-        }
-    });
-
-    var clrBtn = g(clearBtnId);
-    if (clrBtn) {
-        clrBtn.addEventListener('click', function() {
-            var inp2 = g(inputId);
-            if (inp2) inp2.value = '';
-            var dd = g(dropId);
-            if (dd) dd.style.display = 'none';
-            clrBtn.style.display = 'none';
+    if (typeof bindModulePatientSearchOnce !== 'function') return;
+    bindModulePatientSearchOnce({
+        inputId: inputId,
+        dropId: dropId,
+        clearBtnId: clearBtnId,
+        activeSource: source,
+        searchMode: 'identity',
+        onClear: function () {
             if (typeof setActivePatientSlot === 'function') {
                 setActivePatientSlot(0, null, source + '-clear', true);
             }
-        });
-    }
-
-    document.addEventListener('click', function(e) {
-        var dd = g(dropId);
-        var inp3 = g(inputId);
-        if (dd && inp3 && !inp3.contains(e.target) && !dd.contains(e.target)) {
-            dd.style.display = 'none';
         }
     });
 }
@@ -6334,10 +6289,13 @@ function plusApptApplyHeaderPatient(p) {
     plusApptHeaderPatient = p;
     var inp = g('plusApptPsInput');
     if (inp) {
-        inp.value =
-            (p.chinese_name ? p.chinese_name + ' ' : '') +
-            (p.full_name || p.patient_name || '') +
-            ' (#' + (p.patient_no || '') + ')';
+        if (document.activeElement === inp) return;
+        inp.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(p)
+            : ((p.chinese_name ? p.chinese_name + ' ' : '') +
+               (p.full_name || p.patient_name || '') +
+               ' (#' + (p.patient_no || '') + ')');
+        inp.dataset.psLockedPatientId = String(p.id);
     }
     var dd = g('plusApptPsDrop');
     if (dd) dd.style.display = 'none';
@@ -6397,68 +6355,24 @@ function plusApptOpenCreateForDroppedPatient(p, slot, doctorCode) {
 }
 
 function doPlusApptPatientSearch() {
+    if (typeof runPatientSearchDropdown !== 'function') return;
     var inp = g('plusApptPsInput');
-    var dd = g('plusApptPsDrop');
-    if (!inp || !dd) return;
-    var q = (inp.value || '').trim();
+    var q = inp ? String(inp.value || '').trim() : '';
     if (!q) {
         plusApptHeaderPatient = null;
-        dd.style.display = 'none';
+        var dd = g('plusApptPsDrop');
+        if (dd) dd.style.display = 'none';
         return;
     }
-
-    var pq = typeof patientSearchQueryBuilder === 'function'
-        ? patientSearchQueryBuilder(q)
-        : null;
-    if (!pq) {
-        dd.style.display = 'none';
-        return;
-    }
-    pq.then(function(r) {
-        dd.innerHTML = '';
-        if (r.error || !r.data || !r.data.length) {
-            dd.innerHTML =
-                '<div class="ps-item" style="color:#aaa;">' +
-                esc(tr('common.psNoPatients')) + '</div>';
-            dd.style.display = 'block';
-            return;
-        }
-        r.data.forEach(function(p) {
-            var item = document.createElement('div');
-            item.className = 'ps-item';
-            item.innerHTML =
-                (p.chinese_name
-                    ? '<span style="font-family:\'Joyful CJK Rare\',\'Joyful CJK Sans\',sans-serif;font-weight:700;">' +
-                      esc(p.chinese_name) + '</span> '
-                    : '') +
-                '<strong>' + esc(p.full_name) + '</strong>' +
-                '<br><small style="color:#aaa;">#' + esc(p.patient_no || '-') + '</small>';
-            item.setAttribute('draggable', 'true');
-            item.addEventListener('click', function() {
-                plusApptHeaderPatient = p;
-                inp.value =
-                    (p.chinese_name ? p.chinese_name + ' ' : '') +
-                    p.full_name + ' (#' + (p.patient_no || '') + ')';
-                dd.style.display = 'none';
-                if (typeof recordPatientSearchToActiveCard === 'function') {
-                    recordPatientSearchToActiveCard(p, 'plus-appt-search');
-                }
-            });
-            item.addEventListener('dragstart', function(ev) {
-                if (typeof beginPatientDragTransfer === 'function') {
-                    beginPatientDragTransfer(ev, p);
-                }
-            });
-            item.addEventListener('dragend', function() {
-                if (typeof clearPatientDragPayloadSession === 'function') {
-                    clearPatientDragPayloadSession();
-                }
-            });
-            dd.appendChild(item);
-        });
-        dd.style.display = 'block';
-        if (r.data.length === 1 && typeof recordPatientSearchToActiveCard === 'function') {
-            recordPatientSearchToActiveCard(r.data[0], 'plus-appt-search-single');
+    runPatientSearchDropdown({
+        inputId: 'plusApptPsInput',
+        dropId: 'plusApptPsDrop',
+        activeSource: 'plus-appt-search',
+        searchMode: 'identity',
+        autoSelectSingle: false,
+        draggable: true,
+        onSelect: function (p) {
+            plusApptHeaderPatient = p;
         }
     });
 }
@@ -6562,7 +6476,21 @@ function bindPlusApptTabOnce() {
     }
 
     var psIn = g('plusApptPsInput');
-    if (psIn) {
+    if (psIn && typeof bindModulePatientSearchOnce === 'function') {
+        bindModulePatientSearchOnce({
+            inputId: 'plusApptPsInput',
+            dropId: 'plusApptPsDrop',
+            activeSource: 'plus-appt-search',
+            searchMode: 'identity',
+            draggable: true,
+            onSelect: function (p) {
+                plusApptHeaderPatient = p;
+            },
+            onClear: function () {
+                plusApptHeaderPatient = null;
+            }
+        });
+    } else if (psIn) {
         psIn.addEventListener('input', function() {
             clearTimeout(plusApptPsTimer);
             plusApptPsTimer = setTimeout(doPlusApptPatientSearch, 280);
@@ -10580,6 +10508,8 @@ function doPatientSearch() {
         runPatientSearchDropdown({
             inputId: 'psInput',
             dropId: 'psDrop',
+            autoSelectSingle: false,
+            activeSource: 'appt-modal-search',
             onSelect: function(p) {
                 if (typeof apptSetSelectedPatient === 'function') apptSetSelectedPatient(p);
             }

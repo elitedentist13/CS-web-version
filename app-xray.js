@@ -182,6 +182,8 @@ function doConPatientSearchXray() {
         inputId: 'conPsInputXray',
         dropId: 'conPsDropXray',
         clinicFilterId: 'conPsClinicFilterXray',
+        autoSelectSingle: false,
+        activeSource: 'consultation-xray-search',
         onSelect: selectXrayPatient
     });
 }
@@ -265,8 +267,11 @@ function syncXrayPatient(patientId, patientData) {
     
     // Populate the search input
     var searchInput = g('conPsInputXray');
-    if (searchInput && patientData) {
-        searchInput.value = xrayPatientSearchLabel(patientData);
+    if (searchInput && patientData && document.activeElement !== searchInput) {
+        searchInput.value = (typeof patientSearchInputDisplayValue === 'function')
+            ? patientSearchInputDisplayValue(patientData)
+            : xrayPatientSearchLabel(patientData);
+        searchInput.dataset.psLockedPatientId = String(patientData.id || patientId || '');
     }
     
     // Close dropdown if open

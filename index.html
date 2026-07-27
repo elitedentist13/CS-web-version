@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260727-rsvp-age-toggles';
+  var BUILD = '20260727-rsvp-doctor-unify';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1758,25 +1758,24 @@
       <div id="rsvpSummary" class="rsvp-summary" aria-live="polite"></div>
       <div id="rsvpFilters" class="rsvp-filters" role="toolbar" aria-label="RSVP filters"></div>
 
+      <div id="rsvpDoctorFilterBar" class="rsvp-doctor-filter-bar" role="group" style="display:none;"
+           aria-label="Doctor filter">
+        <span class="rsvp-doctor-filter-label" data-i18n="rsvp.doctor.label">Doctor</span>
+        <div id="rsvpDoctorFilterBtns" class="rsvp-doctor-filter-btns" role="toolbar"></div>
+        <span id="rsvpDoctorFilterHint" class="rsvp-doctor-filter-hint" data-i18n="rsvp.doctor.hint">
+          Multiple doctors today — filter the RSVP list by doctor.
+        </span>
+      </div>
+
       <div id="rsvpAgeFilterBar" class="rsvp-age-filter-bar" role="group"
-           aria-label="Age smart filter">
+           aria-label="RSVP age and sex filters">
         <div class="rsvp-age-filter-head">
-          <span class="rsvp-age-filter-title" data-i18n="rsvp.age.title">Age smart filter</span>
+          <span class="rsvp-age-filter-title" data-i18n="rsvp.age.title">Age / sex</span>
           <span class="rsvp-age-filter-hint" data-i18n="rsvp.age.hint">
-            Toggle Hide under 12 and/or Hide over 65 separately before sending RSVP. Ages use patient DOB; optional AI phrase match via Transformers.js.
+            Filter the RSVP list by age group or sex.
           </span>
         </div>
         <div id="rsvpAgeFilterBtns" class="rsvp-age-filter-btns" role="toolbar"></div>
-        <div class="rsvp-age-smart-row">
-          <label for="rsvpAgeSmartInput" class="rsvp-age-smart-label" data-i18n="rsvp.age.smartLabel">Smart phrase</label>
-          <input type="text" id="rsvpAgeSmartInput" class="rsvp-age-smart-input"
-                 data-i18n-placeholder="rsvp.age.smartPh"
-                 placeholder="e.g. exclude kids under 12 and elderly over 65"
-                 autocomplete="off" spellcheck="false">
-          <button type="button" id="rsvpAgeSmartBtn" class="rsvp-age-smart-btn"
-                  data-i18n="rsvp.age.smartApply">Apply AI</button>
-          <span id="rsvpAgeSmartStatus" class="rsvp-age-smart-status" aria-live="polite"></span>
-        </div>
         <div id="rsvpAgeFilterMeta" class="rsvp-age-filter-meta" aria-live="polite"></div>
       </div>
 

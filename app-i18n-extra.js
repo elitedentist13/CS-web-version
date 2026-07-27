@@ -839,22 +839,66 @@
         'rsvp.filter.notSent': { en: 'Not sent', 'zh-CN': '未发送', 'zh-Hant': '未傳送' },
         'rsvp.th.age': { en: 'Age', 'zh-CN': '年龄', 'zh-Hant': '年齡' },
         'rsvp.age.title': {
-            en: 'Age smart filter',
-            'zh-CN': '年龄智能筛选',
-            'zh-Hant': '年齡智能篩選'
+            en: 'Age / sex',
+            'zh-CN': '年龄 / 性别',
+            'zh-Hant': '年齡 / 性別'
         },
         'rsvp.age.hint': {
-            en: 'Toggle Hide under 12 and/or Hide over 65 separately before sending RSVP. Ages use patient DOB; optional AI phrase match via Transformers.js.',
-            'zh-CN': '可分别勾选“隐藏未满 12”和“隐藏超过 65”后再发送 RSVP。年龄按出生日期计算；可用 Transformers.js 理解自然语言筛选。',
-            'zh-Hant': '可分別勾選「隱藏未滿 12」同「隱藏超過 65」再傳送 RSVP。年齡按出生日期計算；可用 Transformers.js 理解自然語句篩選。'
+            en: 'Filter the RSVP list by age group or sex.',
+            'zh-CN': '按年龄段或性别筛选 RSVP 名单。',
+            'zh-Hant': '按年齡段或性別篩選 RSVP 名單。'
         },
-        'rsvp.age.smartLabel': { en: 'Smart phrase', 'zh-CN': '智能语句', 'zh-Hant': '智能語句' },
+        'rsvp.age.smartLabel': { en: 'Ask', 'zh-CN': '提问', 'zh-Hant': '提問' },
         'rsvp.age.smartPh': {
-            en: 'e.g. exclude kids under 12 and elderly over 65',
-            'zh-CN': '例如：排除 12 岁以下和 65 岁以上',
-            'zh-Hant': '例如：排除 12 歲以下同 65 歲以上'
+            en: 'e.g. male awaiting · not sent · has phone · hide under 12 · dr lam',
+            'zh-CN': '例如：只要男 等回复 · 未发送 · 有电话 · 隐藏未满12 · dr lam',
+            'zh-Hant': '例如：只要男 等回覆 · 未傳送 · 有電話 · 隱藏未滿12 · dr lam'
         },
-        'rsvp.age.smartApply': { en: 'Apply AI', 'zh-CN': 'AI 应用', 'zh-Hant': 'AI 套用' },
+        'rsvp.age.smartApply': { en: 'Ask', 'zh-CN': '提问', 'zh-Hant': '提問' },
+        'rsvp.smart.none': {
+            en: 'No filters (showing all)',
+            'zh-CN': '无筛选（显示全部）',
+            'zh-Hant': '無篩選（顯示全部）'
+        },
+        'rsvp.smart.reply': {
+            en: 'Got it — applied: {MODE}',
+            'zh-CN': '已套用：{MODE}',
+            'zh-Hant': '已套用：{MODE}'
+        },
+        'rsvp.smart.showing': { en: '{N} shown', 'zh-CN': '显示 {N} 人', 'zh-Hant': '顯示 {N} 人' },
+        'rsvp.smart.ask': {
+            en: 'Try: “male only”, “awaiting”, “not sent”, “has phone”, “hide under 12”, “dr lam”, or “clear filters”.',
+            'zh-CN': '可试：“只要男”、“等回复”、“未发送”、“有电话”、“隐藏未满12”、“dr lam”、或“清除筛选”。',
+            'zh-Hant': '可試：「只要男」、「等回覆」、「未傳送」、「有電話」、「隱藏未滿12」、「dr lam」、或「清除篩選」。'
+        },
+        'rsvp.smart.chip.clear': { en: 'Clear filters', 'zh-CN': '清除筛选', 'zh-Hant': '清除篩選' },
+        'rsvp.smart.chip.male': { en: 'Male only', 'zh-CN': '仅男性', 'zh-Hant': '僅男性' },
+        'rsvp.smart.chip.female': { en: 'Female only', 'zh-CN': '仅女性', 'zh-Hant': '僅女性' },
+        'rsvp.smart.chip.hideChild': { en: 'Hide under 12', 'zh-CN': '隐藏未满12', 'zh-Hant': '隱藏未滿12' },
+        'rsvp.smart.chip.hideSenior': { en: 'Hide over 65', 'zh-CN': '隐藏超过65', 'zh-Hant': '隱藏超過65' },
+        'rsvp.smart.chip.awaiting': { en: 'Awaiting', 'zh-CN': '等回复', 'zh-Hant': '等回覆' },
+        'rsvp.smart.chip.notSent': { en: 'Not sent', 'zh-CN': '未发送', 'zh-Hant': '未傳送' },
+        'rsvp.smart.chip.coming': { en: 'Coming', 'zh-CN': '会到', 'zh-Hant': '會到' },
+        'rsvp.smart.chip.hasPhone': { en: 'Has phone', 'zh-CN': '有电话', 'zh-Hant': '有電話' },
+        'rsvp.smart.chip.noPhone': { en: 'No phone', 'zh-CN': '无电话', 'zh-Hant': '無電話' },
+        'rsvp.doctor.label': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'rsvp.doctor.hint': {
+            en: 'Multiple doctors today — filter the RSVP list by doctor.',
+            'zh-CN': '今日有多位医生 — 可按医生筛选 RSVP 列表。',
+            'zh-Hant': '今日有多位醫生 — 可按醫生篩選 RSVP 列表。'
+        },
+        'rsvp.doctor.all': { en: 'All doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
+        'rsvp.doctor.only': { en: 'Doctor: {N}', 'zh-CN': '医生: {N}', 'zh-Hant': '醫生: {N}' },
+        'rsvp.phone.has': { en: 'Has phone', 'zh-CN': '有电话', 'zh-Hant': '有電話' },
+        'rsvp.phone.none': { en: 'No phone', 'zh-CN': '无电话', 'zh-Hant': '無電話' },
+        'rsvp.sex.all': { en: 'All sexes', 'zh-CN': '全部性别', 'zh-Hant': '全部性別' },
+        'rsvp.sex.maleOnly': { en: 'Male only', 'zh-CN': '仅男性', 'zh-Hant': '僅男性' },
+        'rsvp.sex.femaleOnly': { en: 'Female only', 'zh-CN': '仅女性', 'zh-Hant': '僅女性' },
+        'rsvp.sex.meta': {
+            en: 'M: {M} · F: {F} · sex ?: {X}',
+            'zh-CN': '男: {M} · 女: {F} · 性别?: {X}',
+            'zh-Hant': '男: {M} · 女: {F} · 性別?: {X}'
+        },
         'rsvp.age.all': { en: 'All ages', 'zh-CN': '全部年龄', 'zh-Hant': '全部年齡' },
         'rsvp.age.excludeBoth': { en: 'Hide <12 & 65+', 'zh-CN': '隐藏 <12 与 65+', 'zh-Hant': '隱藏 <12 與 65+' },
         'rsvp.age.excludeChild': { en: 'Hide under 12', 'zh-CN': '隐藏未满 12', 'zh-Hant': '隱藏未滿 12' },
@@ -880,7 +924,13 @@
             'zh-Hant': '正在載入 Transformers.js 模型（首次可能需一分鐘）…'
         },
         'rsvp.age.aiNeedPhrase': { en: 'Enter a phrase first.', 'zh-CN': '请先输入筛选语句。', 'zh-Hant': '請先輸入篩選語句。' },
-        'rsvp.age.aiRuleOk': { en: 'Matched (rules): {MODE}', 'zh-CN': '已匹配（规则）: {MODE}', 'zh-Hant': '已匹配（規則）: {MODE}' },
+        'rsvp.age.aiRuleOk': { en: 'Matched: {MODE}', 'zh-CN': '已匹配: {MODE}', 'zh-Hant': '已匹配: {MODE}' },
+        'rsvp.age.aiFuzzyOk': { en: 'Matched (smart): {MODE}', 'zh-CN': '智能匹配: {MODE}', 'zh-Hant': '智能匹配: {MODE}' },
+        'rsvp.age.aiHint': {
+            en: 'Press Ask / Enter to interpret…',
+            'zh-CN': '按「提问」或 Enter 理解…',
+            'zh-Hant': '按「提問」或 Enter 理解…'
+        },
         'rsvp.age.aiRunning': {
             en: 'Interpreting with Transformers.js…',
             'zh-CN': '正在用 Transformers.js 理解…',
@@ -888,14 +938,14 @@
         },
         'rsvp.age.aiOk': { en: 'AI matched: {MODE} ({PCT}%)', 'zh-CN': 'AI 匹配: {MODE}（{PCT}%）', 'zh-Hant': 'AI 匹配: {MODE}（{PCT}%）' },
         'rsvp.age.aiFail': {
-            en: 'Could not match phrase. Try: “exclude under 12 and over 65”.',
-            'zh-CN': '无法识别语句。可试：“排除 12 岁以下和 65 岁以上”。',
-            'zh-Hant': '無法識別語句。可試：「排除 12 歲以下同 65 歲以上」。'
+            en: 'Could not match. Try: “hide under 12”, “hide over 65”, or “exclude kids and elderly”.',
+            'zh-CN': '无法识别。可试：“隐藏未满12”、“隐藏超过65”、或“排除小孩和老人”。',
+            'zh-Hant': '無法識別。可試：「隱藏未滿12」、「隱藏超過65」、或「排除小孩同老人」。'
         },
         'rsvp.age.aiErr': {
-            en: 'AI model unavailable — use the preset buttons, or phrases like “exclude kids and elderly”.',
-            'zh-CN': 'AI 模型不可用 — 请用上方预设按钮，或输入如“排除小孩和老人”。',
-            'zh-Hant': 'AI 模型不可用 — 請用上方預設按鈕，或輸入如「排除小孩同老人」。'
+            en: 'AI model slow/unavailable — try “hide under 12” or “hide over 65”, or use the buttons.',
+            'zh-CN': 'AI 模型较慢或不可用 — 可试“隐藏未满12 / 超过65”，或用上方按钮。',
+            'zh-Hant': 'AI 模型較慢或不可用 — 可試「隱藏未滿12 / 超過65」，或用上方按鈕。'
         },
         'rsvp.emptyFiltered': {
             en: 'No appointments match the current status / age filters.',

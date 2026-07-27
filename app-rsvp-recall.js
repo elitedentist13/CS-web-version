@@ -29,10 +29,12 @@ var RSVP_RECALL = (function () {
     var _ageOnly = 'all';
     var _ageHideChild = false;
     var _ageHideSenior = false;
+    /** Independent sex filter: 'all' | 'male' | 'female' */
+    var _sexFilter = 'all';
+    /** Stable doctor identity key (id:/code:/name:); empty = all doctors */
+    var _doctorKey = '';
     var AGE_CHILD_LT = 12;
     var AGE_SENIOR_GT = 65;
-    var _xfPipeline = null;
-    var _xfLoading = null;
 
     function g(id) { return document.getElementById(id); }
     function tr(key, fallback) {
@@ -150,23 +152,234 @@ var RSVP_RECALL = (function () {
         return true;
     }
 
+    function rowSexKind(a) {
+        if (a && a._sexKind) return a._sexKind;
+        var sex = a && a.sex;
+        if (typeof patientSexKind === 'function') return patientSexKind(sex);
+        var s = String(sex || '').trim().toUpperCase();
+        if (s === 'M' || s === 'MALE' || s === '男') return 'male';
+        if (s === 'F' || s === 'FEMALE' || s === '女') return 'female';
+        return 'unknown';
+    }
+
+    function sexFilterPass(a) {
+        if (_sexFilter === 'all') return true;
+        var kind = rowSexKind(a);
+        if (_sexFilter === 'male') return kind === 'male';
+        if (_sexFilter === 'female') return kind === 'female';
+        return true;
+    }
+
+    function doctorCatalog() {
+        return (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS))
+            ? APP_DOCTORS
+            : [];
+    }
+
+    /** Normalize name so "DR." / "DR" / Chinese titles collapse to one key. */
+    function rsvpNormDoctorName(v) {
+        var s = String(v || '').trim();
+        if (!s) return '';
+        if (typeof stripDoctorTagPrefix === 'function') s = stripDoctorTagPrefix(s);
+        if (typeof normalizeDoctorNameKey === 'function') {
+            s = normalizeDoctorNameKey(s);
+        } else {
+            s = s.toLowerCase().replace(/^dr\.?\s+/i, '').replace(/\s+/g, ' ');
+        }
+        s = String(s || '')
+            .toLowerCase()
+            .replace(/[.]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .replace(/牙科醫生|牙科医生|醫生|醫師|医师|医生/g, '')
+            .trim();
+        return s;
+    }
+
+    function findDoctorRecord(a) {
+        a = a || {};
+        var id = a.doctor_id || a.doctorId || null;
+        if (id) {
+            var byId = null;
+            if (typeof getDoctorById === 'function') byId = getDoctorById(id);
+            if (!byId) {
+                var sid = String(id);
+                byId = doctorCatalog().find(function (d) {
+                    return d && String(d.id) === sid;
+                }) || null;
+            }
+            if (byId) return byId;
+        }
+        var code = String(a.doctor_code || '').trim().toLowerCase();
+        if (code) {
+            var byCode = doctorCatalog().find(function (d) {
+                return String(d.doctor_code || '').trim().toLowerCase() === code;
+            });
+            if (byCode) return byCode;
+        }
+        var rawNames = [
+            a.doctor_name,
+            a.dentist_name,
+            typeof apptDoctorNameForWhatsApp === 'function' ? apptDoctorNameForWhatsApp(a) : ''
+        ];
+        var docs = doctorCatalog();
+        for (var i = 0; i < rawNames.length; i++) {
+            var nk = rsvpNormDoctorName(rawNames[i]);
+            if (!nk) continue;
+            var hit = docs.find(function (d) {
+                if (!d) return false;
+                var cands = [
+                    rsvpNormDoctorName(d.english_name),
+                    rsvpNormDoctorName(d.chinese_name),
+                    rsvpNormDoctorName(d.display_name)
+                ].filter(Boolean);
+                return cands.some(function (c) {
+                    if (c === nk) return true;
+                    // "吳培精牙科醫生" vs catalog "吳培精"
+                    if (nk.length >= 2 && (c.indexOf(nk) >= 0 || nk.indexOf(c) >= 0)) return true;
+                    return false;
+                });
+            });
+            if (hit) return hit;
+        }
+        return null;
+    }
+
+    function doctorPreferredLabel(rec, fallback) {
+        if (rec) {
+            if (typeof doctorDisplayName === 'function') {
+                var shown = String(doctorDisplayName(rec) || '').trim();
+                if (shown) return shown;
+            }
+            var eng = String(rec.english_name || rec.display_name || '').trim();
+            var chi = String(rec.chinese_name || '').trim();
+            if (eng) return eng;
+            if (chi) return chi;
+            var code = String(rec.doctor_code || '').trim();
+            if (code) return code;
+        }
+        return String(fallback || '').trim();
+    }
+
+    /** One stable identity per clinician (prefer doctor_id / APP_DOCTORS). */
+    function resolveDoctorIdentity(a) {
+        var rec = findDoctorRecord(a);
+        var fallback = doctorName(a);
+        if (rec && rec.id) {
+            return {
+                key: 'id:' + String(rec.id),
+                label: doctorPreferredLabel(rec, fallback),
+                id: String(rec.id)
+            };
+        }
+        if (rec && rec.doctor_code) {
+            return {
+                key: 'code:' + String(rec.doctor_code).trim().toLowerCase(),
+                label: doctorPreferredLabel(rec, fallback),
+                id: ''
+            };
+        }
+        var nk = rsvpNormDoctorName(fallback);
+        if (!nk) return null;
+        return { key: 'name:' + nk, label: fallback || nk, id: '' };
+    }
+
+    function doctorFilterPass(a) {
+        if (!_doctorKey) return true;
+        var idn = resolveDoctorIdentity(a);
+        return !!(idn && idn.key === _doctorKey);
+    }
+
+    function listDayDoctors() {
+        var map = Object.create(null);
+        (_rows || []).forEach(function (a) {
+            var idn = resolveDoctorIdentity(a);
+            if (!idn || !idn.key) return;
+            if (!map[idn.key]) {
+                map[idn.key] = {
+                    key: idn.key,
+                    label: idn.label,
+                    count: 0,
+                    id: idn.id || ''
+                };
+            }
+            map[idn.key].count++;
+            if (idn.label && !map[idn.key].label) map[idn.key].label = idn.label;
+        });
+        return Object.keys(map).map(function (k) { return map[k]; })
+            .sort(function (a, b) {
+                return String(a.label).localeCompare(String(b.label));
+            });
+    }
+
+    function syncDoctorFilterToDay() {
+        var docs = listDayDoctors();
+        if (docs.length <= 1) {
+            _doctorKey = '';
+            return docs;
+        }
+        if (!_doctorKey) return docs;
+        var hit = docs.some(function (d) { return d.key === _doctorKey; });
+        if (!hit) _doctorKey = '';
+        return docs;
+    }
+
+    function doctorFilterActive() {
+        return !!_doctorKey;
+    }
+
     function ageFilterActive() {
         return _ageOnly !== 'all' || _ageHideChild || _ageHideSenior;
     }
 
-    function ageFilterSummaryLabel() {
-        if (_ageOnly === 'only_adult') return tr('rsvp.age.onlyAdult', 'Ages 12–65 only');
-        if (_ageOnly === 'only_child') return tr('rsvp.age.onlyChild', 'Under 12 only');
-        if (_ageOnly === 'only_senior') return tr('rsvp.age.onlySenior', 'Over 65 only');
-        var parts = [];
-        if (_ageHideChild) parts.push(tr('rsvp.age.excludeChild', 'Hide under 12'));
-        if (_ageHideSenior) parts.push(tr('rsvp.age.excludeSenior', 'Hide over 65'));
-        return parts.length ? parts.join(' + ') : tr('rsvp.age.all', 'All ages');
+    function sexFilterActive() {
+        return _sexFilter === 'male' || _sexFilter === 'female';
+    }
+
+    function statusFilterActive() {
+        return _filter !== 'all';
+    }
+
+    function smartFilterActive() {
+        return ageFilterActive() || sexFilterActive() ||
+            doctorFilterActive() || statusFilterActive();
+    }
+
+    function renderDoctorFilters() {
+        var bar = g('rsvpDoctorFilterBar');
+        var el = g('rsvpDoctorFilterBtns');
+        if (!bar || !el) return;
+        var docs = syncDoctorFilterToDay();
+        if (docs.length <= 1) {
+            bar.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        bar.style.display = '';
+        var allActive = !_doctorKey ? ' is-active' : '';
+        var html =
+            '<button type="button" class="rsvp-doctor-btn' + allActive + '" data-rsvp-doctor="" ' +
+            'aria-pressed="' + (!_doctorKey ? 'true' : 'false') + '">' +
+            esc(tr('rsvp.doctor.all', 'All doctors')) +
+            ' <span class="rsvp-doctor-n">' + String(_rows.length) + '</span></button>';
+        html += docs.map(function (d) {
+            var active = (_doctorKey && d.key === _doctorKey) ? ' is-active' : '';
+            return (
+                '<button type="button" class="rsvp-doctor-btn' + active + '" data-rsvp-doctor="' +
+                esc(d.key) + '" title="' + esc(d.label) + '" aria-pressed="' +
+                (active ? 'true' : 'false') + '">' +
+                esc(d.label) +
+                ' <span class="rsvp-doctor-n">' + String(d.count) + '</span></button>'
+            );
+        }).join('');
+        el.innerHTML = html;
     }
 
     function visibleRows() {
         return _rows.filter(function (a) {
-            return rsvpFilterBucket(effectiveStatus(a)) && ageFilterPass(a);
+            return rsvpFilterBucket(effectiveStatus(a)) &&
+                ageFilterPass(a) &&
+                sexFilterPass(a) &&
+                doctorFilterPass(a);
         });
     }
 
@@ -181,6 +394,14 @@ var RSVP_RECALL = (function () {
         ];
     }
 
+    function sexFilterPresets() {
+        return [
+            { v: 'all', label: tr('rsvp.sex.all', 'All sexes') },
+            { v: 'male', label: tr('rsvp.sex.maleOnly', 'Male only') },
+            { v: 'female', label: tr('rsvp.sex.femaleOnly', 'Female only') }
+        ];
+    }
+
     function agePresetIsActive(v) {
         if (v === 'all') return !ageFilterActive();
         if (v === 'exclude_child') return _ageOnly === 'all' && _ageHideChild;
@@ -191,7 +412,7 @@ var RSVP_RECALL = (function () {
     function renderAgeFilters() {
         var el = g('rsvpAgeFilterBtns');
         if (!el) return;
-        el.innerHTML = ageFilterPresets().map(function (it) {
+        var ageHtml = ageFilterPresets().map(function (it) {
             var active = agePresetIsActive(it.v) ? ' is-active' : '';
             return (
                 '<button type="button" class="rsvp-age-btn' + active + '" data-rsvp-age="' +
@@ -199,6 +420,18 @@ var RSVP_RECALL = (function () {
                 esc(it.label) + '</button>'
             );
         }).join('');
+        var sexHtml = sexFilterPresets().map(function (it) {
+            var active = _sexFilter === it.v ? ' is-active' : '';
+            return (
+                '<button type="button" class="rsvp-age-btn rsvp-sex-btn' + active + '" data-rsvp-sex="' +
+                esc(it.v) + '" aria-pressed="' + (active ? 'true' : 'false') + '">' +
+                esc(it.label) + '</button>'
+            );
+        }).join('');
+        el.innerHTML =
+            '<div class="rsvp-filter-row">' + ageHtml + '</div>' +
+            '<div class="rsvp-filter-row rsvp-sex-filter-row">' + sexHtml + '</div>';
+        renderDoctorFilters();
         renderAgeFilterMeta();
     }
 
@@ -208,12 +441,16 @@ var RSVP_RECALL = (function () {
         var nAll = _rows.length;
         var nVis = visibleRows().length;
         var hidden = Math.max(0, nAll - nVis);
-        var childN = 0, seniorN = 0, unkN = 0;
+        var childN = 0, seniorN = 0, unkN = 0, maleN = 0, femaleN = 0, sexUnk = 0;
         _rows.forEach(function (a) {
             var b = ageBand(rowAgeYears(a));
             if (b === 'child') childN++;
             else if (b === 'senior') seniorN++;
             else if (b === 'unknown') unkN++;
+            var sk = rowSexKind(a);
+            if (sk === 'male') maleN++;
+            else if (sk === 'female') femaleN++;
+            else sexUnk++;
         });
         var msg = tr('rsvp.age.meta',
             'Showing {V} of {T} · under 12: {C} · over 65: {S} · no DOB: {U}')
@@ -222,6 +459,10 @@ var RSVP_RECALL = (function () {
             .replace('{C}', String(childN))
             .replace('{S}', String(seniorN))
             .replace('{U}', String(unkN));
+        msg += ' · ' + tr('rsvp.sex.meta', 'M: {M} · F: {F} · sex ?: {X}')
+            .replace('{M}', String(maleN))
+            .replace('{F}', String(femaleN))
+            .replace('{X}', String(sexUnk));
         if (hidden) {
             msg += ' · ' + tr('rsvp.age.hiddenN', 'filtered out: {H}').replace('{H}', String(hidden));
         }
@@ -243,6 +484,20 @@ var RSVP_RECALL = (function () {
         updateSelCount();
     }
 
+    function setSexFilter(mode, opts) {
+        opts = opts || {};
+        mode = String(mode || 'all');
+        if (mode !== 'male' && mode !== 'female') mode = 'all';
+        _sexFilter = mode;
+        applyAgeState(opts);
+    }
+
+    function setDoctorFilter(key, opts) {
+        opts = opts || {};
+        _doctorKey = String(key || '').trim();
+        applyAgeState(opts);
+    }
+
     /** Apply exclusive mode or toggle hide-under-12 / hide-over-65 independently. */
     function setAgeFilter(mode, opts) {
         opts = opts || {};
@@ -252,21 +507,11 @@ var RSVP_RECALL = (function () {
             _ageHideChild = true;
             _ageHideSenior = true;
         } else if (mode === 'exclude_child') {
-            if (opts.fromAi) {
-                _ageOnly = 'all';
-                _ageHideChild = true;
-            } else {
-                _ageOnly = 'all';
-                _ageHideChild = !_ageHideChild;
-            }
+            _ageOnly = 'all';
+            _ageHideChild = !_ageHideChild;
         } else if (mode === 'exclude_senior') {
-            if (opts.fromAi) {
-                _ageOnly = 'all';
-                _ageHideSenior = true;
-            } else {
-                _ageOnly = 'all';
-                _ageHideSenior = !_ageHideSenior;
-            }
+            _ageOnly = 'all';
+            _ageHideSenior = !_ageHideSenior;
         } else if (mode === 'only_adult' || mode === 'only_child' || mode === 'only_senior') {
             _ageOnly = mode;
             _ageHideChild = false;
@@ -290,114 +535,6 @@ var RSVP_RECALL = (function () {
         return '<span class="' + cls + '" title="' +
             esc(a.dob ? String(a.dob) : tr('rsvp.age.noDob', 'No date of birth')) +
             '">' + esc(text) + '</span>';
-    }
-
-    /** Fast rule-based NL → age filter (works offline). */
-    function parseAgePhraseRules(text) {
-        var t = String(text || '').toLowerCase().trim();
-        if (!t) return null;
-        var wantChild = /(under\s*12|below\s*12|< ?12|children|child|kids?|pediatric|未成年|小孩|儿童|兒童|12歲以下|12岁以下)/i.test(t);
-        var wantSenior = /(over\s*65|above\s*65|> ?65|65\+|elderly|seniors?|aged|長者|长者|老人|65歲以上|65岁以上)/i.test(t);
-        var exclude = /(exclude|hide|filter\s*out|without|remove|不要|排除|隐藏|隱藏|唔要|不要發送|勿)/i.test(t);
-        var only = /(only|just|solely|只要|仅|僅|只顯示|只显示)/i.test(t);
-        var allAges = /(all\s*ages?|show\s*all|no\s*age\s*filter|全部年龄|全部年齡|不限年龄|不限年齡)/i.test(t);
-        if (allAges) return 'all';
-        if (only && wantChild && !wantSenior) return 'only_child';
-        if (only && wantSenior && !wantChild) return 'only_senior';
-        if (only && /adult|12.?65|working\s*age|成人|青壮年|青壯年/i.test(t)) return 'only_adult';
-        if (exclude && wantChild && wantSenior) return 'exclude_child_senior';
-        if (exclude && wantChild) return 'exclude_child';
-        if (exclude && wantSenior) return 'exclude_senior';
-        if (wantChild && wantSenior && !only) return 'exclude_child_senior';
-        if (/adults?\s*only|ages?\s*12|12\s*[–\-to]+\s*65/i.test(t)) return 'only_adult';
-        return null;
-    }
-
-    var AGE_ZS_LABELS = [
-        { key: 'all', label: 'show all ages with no age filter' },
-        { key: 'exclude_child_senior', label: 'exclude children under 12 and seniors over 65' },
-        { key: 'exclude_child', label: 'exclude only children under 12 years old' },
-        { key: 'exclude_senior', label: 'exclude only seniors over 65 years old' },
-        { key: 'only_adult', label: 'show only adults aged 12 to 65' },
-        { key: 'only_child', label: 'show only children under 12 years old' },
-        { key: 'only_senior', label: 'show only seniors over 65 years old' }
-    ];
-
-    function ensureZeroShotPipeline() {
-        if (_xfPipeline) return Promise.resolve(_xfPipeline);
-        if (_xfLoading) return _xfLoading;
-        setAgeSmartStatus(tr('rsvp.age.aiLoading', 'Loading Transformers.js model (first time may take a minute)…'));
-        _xfLoading = import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2')
-            .then(function (mod) {
-                if (mod.env) {
-                    mod.env.allowLocalModels = false;
-                    mod.env.useBrowserCache = true;
-                }
-                return mod.pipeline('zero-shot-classification', 'Xenova/mobilebert-uncased-mnli');
-            })
-            .then(function (pipe) {
-                _xfPipeline = pipe;
-                _xfLoading = null;
-                return pipe;
-            })
-            .catch(function (err) {
-                _xfLoading = null;
-                throw err;
-            });
-        return _xfLoading;
-    }
-
-    function classifyAgePhraseAi(text) {
-        return ensureZeroShotPipeline().then(function (pipe) {
-            var labels = AGE_ZS_LABELS.map(function (x) { return x.label; });
-            return pipe(String(text || ''), labels, { multi_label: false }).then(function (out) {
-                var top = (out && out.labels && out.labels[0]) || '';
-                var score = (out && out.scores && out.scores[0]) || 0;
-                var hit = AGE_ZS_LABELS.find(function (x) { return x.label === top; });
-                return { key: hit ? hit.key : null, score: score, label: top };
-            });
-        });
-    }
-
-    function setAgeSmartStatus(msg) {
-        var el = g('rsvpAgeSmartStatus');
-        if (el) el.textContent = msg || '';
-    }
-
-    function applyAgeSmartPhrase() {
-        var inp = g('rsvpAgeSmartInput');
-        var btn = g('rsvpAgeSmartBtn');
-        var text = inp ? String(inp.value || '').trim() : '';
-        if (!text) {
-            setAgeSmartStatus(tr('rsvp.age.aiNeedPhrase', 'Enter a phrase first.'));
-            return;
-        }
-        var ruled = parseAgePhraseRules(text);
-        if (ruled) {
-            setAgeFilter(ruled, { fromAi: true });
-            setAgeSmartStatus(tr('rsvp.age.aiRuleOk', 'Matched (rules): {MODE}')
-                .replace('{MODE}', ageFilterSummaryLabel()));
-            return;
-        }
-        if (btn) btn.disabled = true;
-        setAgeSmartStatus(tr('rsvp.age.aiRunning', 'Interpreting with Transformers.js…'));
-        classifyAgePhraseAi(text).then(function (res) {
-            if (btn) btn.disabled = false;
-            if (!res.key || res.score < 0.25) {
-                setAgeSmartStatus(tr('rsvp.age.aiFail',
-                    'Could not match phrase. Try: “exclude under 12 and over 65”.'));
-                return;
-            }
-            setAgeFilter(res.key, { fromAi: true });
-            setAgeSmartStatus(tr('rsvp.age.aiOk', 'AI matched: {MODE} ({PCT}%)')
-                .replace('{MODE}', ageFilterSummaryLabel())
-                .replace('{PCT}', String(Math.round(res.score * 100))));
-        }).catch(function (err) {
-            if (btn) btn.disabled = false;
-            console.warn('[RSVP age AI]', err);
-            setAgeSmartStatus(tr('rsvp.age.aiErr',
-                'AI model unavailable — use the preset buttons, or phrases like “exclude kids and elderly”.'));
-        });
     }
 
     function countByStatus() {
@@ -629,7 +766,7 @@ var RSVP_RECALL = (function () {
             var nVis = visibleRows().length;
             countEl.textContent = _rows.length
                 ? tr('rsvp.count', '{N} appointment(s)').replace('{N}', String(nVis)) +
-                  (ageFilterActive() && nVis !== _rows.length
+                  (smartFilterActive() && nVis !== _rows.length
                       ? ' · ' + tr('rsvp.age.ofTotal', 'of {T}').replace('{T}', String(_rows.length))
                       : '')
                 : tr('rsvp.countZero', 'No appointments');
@@ -742,27 +879,38 @@ var RSVP_RECALL = (function () {
             var uniq = patIds.filter(function (id, i, arr) { return arr.indexOf(id) === i; });
             var phoneMap = Object.create(null);
             var dobMap = Object.create(null);
+            var sexMap = Object.create(null);
             var phoneP = uniq.length
-                ? SB.from('patients').select('id,phone_number,mobile_phone,dob').in('id', uniq)
+                ? SB.from('patients').select('id,phone_number,mobile_phone,dob,sex').in('id', uniq)
                 : Promise.resolve({ data: [], error: null });
             return phoneP.then(function (pr) {
                 if (pr.error) {
-                    console.warn('[RSVP] patient phone/dob load:', pr.error.message);
-                    return SB.from('patients').select('id,phone_number,mobile_phone').in('id', uniq)
-                        .then(function (pr2) { return pr2.error ? { data: [] } : pr2; });
+                    console.warn('[RSVP] patient phone/dob/sex load:', pr.error.message);
+                    return SB.from('patients').select('id,phone_number,mobile_phone,dob').in('id', uniq)
+                        .then(function (pr2) {
+                            if (pr2.error) {
+                                return SB.from('patients').select('id,phone_number,mobile_phone').in('id', uniq)
+                                    .then(function (pr3) { return pr3.error ? { data: [] } : pr3; });
+                            }
+                            return pr2;
+                        });
                 }
                 return pr;
             }).then(function (pr) {
                 (pr.data || []).forEach(function (p) {
                     phoneMap[p.id] = String(p.mobile_phone || p.phone_number || '').trim();
                     if (p.dob) dobMap[p.id] = p.dob;
+                    if (p.sex != null) sexMap[p.id] = p.sex;
                 });
                 list.forEach(function (a) {
                     a.phone = phoneMap[a.patient_id] || a.walk_in_phone || '';
                     a.dob = dobMap[a.patient_id] || a.dob || null;
+                    a.sex = sexMap[a.patient_id] != null ? sexMap[a.patient_id] : (a.sex || null);
                     a._ageYears = typeof patientAgeYears === 'function' ? patientAgeYears(a.dob) : null;
+                    a._sexKind = rowSexKind(a);
                 });
                 _rows = list;
+                syncDoctorFilterToDay();
                 var ids = list.map(function (a) { return a.id; });
                 return loadRsvpMap(ids).then(function () {
                     renderTable();
@@ -1038,10 +1186,19 @@ var RSVP_RECALL = (function () {
         });
 
         root.addEventListener('click', function (ev) {
+            var sexFilt = ev.target && ev.target.closest ? ev.target.closest('[data-rsvp-sex]') : null;
+            if (sexFilt) {
+                setSexFilter(sexFilt.getAttribute('data-rsvp-sex') || 'all');
+                return;
+            }
+            var docFilt = ev.target && ev.target.closest ? ev.target.closest('[data-rsvp-doctor]') : null;
+            if (docFilt) {
+                setDoctorFilter(docFilt.getAttribute('data-rsvp-doctor') || '');
+                return;
+            }
             var ageFilt = ev.target && ev.target.closest ? ev.target.closest('[data-rsvp-age]') : null;
             if (ageFilt) {
                 setAgeFilter(ageFilt.getAttribute('data-rsvp-age') || 'all');
-                setAgeSmartStatus('');
                 return;
             }
             var filt = ev.target && ev.target.closest ? ev.target.closest('[data-rsvp-filter]') : null;
@@ -1072,17 +1229,6 @@ var RSVP_RECALL = (function () {
         if (clearBtn) clearBtn.addEventListener('click', function () { selectAll(false); });
         var refreshBtn = g('rsvpRefreshBtn');
         if (refreshBtn) refreshBtn.addEventListener('click', function () { loadPatients(_date); });
-        var smartBtn = g('rsvpAgeSmartBtn');
-        if (smartBtn) smartBtn.addEventListener('click', applyAgeSmartPhrase);
-        var smartInp = g('rsvpAgeSmartInput');
-        if (smartInp) {
-            smartInp.addEventListener('keydown', function (ev) {
-                if (ev.key === 'Enter') {
-                    ev.preventDefault();
-                    applyAgeSmartPhrase();
-                }
-            });
-        }
         var openSetup = g('rsvpOpenTwilioSetup');
         if (openSetup) {
             openSetup.addEventListener('click', function () {

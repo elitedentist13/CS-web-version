@@ -16929,11 +16929,64 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 .rsvp-summary-chip.is-pending   { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
 .rsvp-summary-chip.is-none      { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
 
-.rsvp-filters {
+.rsvp-doctor-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border: 1px solid #c7d2fe;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #eef2ff 0%, #fff 75%);
+}
+.rsvp-doctor-filter-label {
+    font-size: 12px;
+    font-weight: 800;
+    color: #3730a3;
+}
+.rsvp-doctor-filter-hint {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+}
+.rsvp-doctor-filter-btns {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 10px;
+    flex: 1;
+    min-width: 200px;
+}
+.rsvp-doctor-btn {
+    padding: 5px 11px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 8px;
+    border: 1px solid #a5b4fc;
+    background: #fff;
+    color: #3730a3;
+    cursor: pointer;
+}
+.rsvp-doctor-btn:hover {
+    border-color: #6366f1;
+    background: #eef2ff;
+}
+.rsvp-doctor-btn.is-active {
+    background: #4f46e5;
+    border-color: #4f46e5;
+    color: #fff;
+}
+.rsvp-doctor-n {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    background: rgba(15, 23, 42, 0.08);
+}
+.rsvp-doctor-btn.is-active .rsvp-doctor-n {
+    background: rgba(255, 255, 255, 0.22);
 }
 .rsvp-filter-btn {
     padding: 4px 12px;
@@ -16976,11 +17029,16 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     color: #64748b;
     line-height: 1.4;
 }
-.rsvp-age-filter-btns {
+.rsvp-filter-row {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
+}
+.rsvp-sex-filter-row .rsvp-sex-btn.is-active {
+    background: #0369a1;
+    border-color: #0369a1;
+    color: #fff;
 }
 .rsvp-age-btn {
     padding: 5px 11px;
@@ -16997,44 +17055,6 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     background: #0d9488;
     border-color: #0d9488;
     color: #fff;
-}
-.rsvp-age-smart-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-}
-.rsvp-age-smart-label {
-    font-size: 11px;
-    font-weight: 800;
-    color: #475569;
-}
-.rsvp-age-smart-input {
-    flex: 1;
-    min-width: 220px;
-    padding: 7px 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    font-size: 13px;
-}
-.rsvp-age-smart-btn {
-    padding: 7px 14px;
-    font-size: 12px;
-    font-weight: 800;
-    border: none;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #0d9488, #0f766e);
-    color: #fff;
-    cursor: pointer;
-}
-.rsvp-age-smart-btn:disabled {
-    opacity: 0.55;
-    cursor: wait;
-}
-.rsvp-age-smart-status {
-    font-size: 11px;
-    color: #64748b;
-    font-weight: 600;
 }
 .rsvp-age-filter-meta {
     margin-top: 8px;

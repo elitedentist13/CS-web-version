@@ -130,7 +130,13 @@ var AIHELPER = AIHELPER || {};
         return d;
     }
 
-    function clinicTitle() {
+    function clinicTitle(bodyHint) {
+        if (typeof clinicNameForOutboundMessage === 'function') {
+            return clinicNameForOutboundMessage({
+                body: bodyHint || '',
+                fallback: aiTr('ai.clinicFallback')
+            }) || aiTr('ai.clinicFallback');
+        }
         return (typeof currentClinicLabel === 'string' && currentClinicLabel.trim())
             ? currentClinicLabel.trim()
             : aiTr('ai.clinicFallback');
@@ -343,7 +349,7 @@ var AIHELPER = AIHELPER || {};
             .replace(/\{\{full\}\}/gi, String(p.full_name || '').trim())
             .replace(/\{\{no\}\}/gi, String(p.patient_no || '').trim())
             .replace(/\{\{patient_no\}\}/gi, String(p.patient_no || '').trim())
-            .replace(/\{\{clinic\}\}/gi, clinicTitle())
+            .replace(/\{\{clinic\}\}/gi, clinicTitle(tpl))
             .replace(/\{\{dob_dm\}\}/gi, fmtMd(p.dob))
             .replace(/\{\{sex\}\}/gi, sexLabel(p.sex || ''))
             ;
@@ -1001,7 +1007,7 @@ var AIHELPER = AIHELPER || {};
             ? aiTrRepl('ai.status.draftingBulk', { N: targets.length })
             : aiTr('ai.status.drafting'));
 
-        var clinic = clinicTitle();
+        var clinic = clinicTitle(tpl);
 
         /** @returns {Promise<string>} */
         function segmentForPatient(p, lastOriginHold) {
@@ -1075,7 +1081,7 @@ var AIHELPER = AIHELPER || {};
             ? aiTrRepl('ai.status.draftingRecallBulk', { N: targets.length })
             : aiTr('ai.status.drafting'));
 
-        var clinic = clinicTitle();
+        var clinic = clinicTitle(tpl);
 
         function segmentRecall(p, lastOriginHold) {
             var mergedPrompt =
@@ -1778,7 +1784,11 @@ var AIHELPER = AIHELPER || {};
         return normalizeTplVarMap(varsStr, raw);
     };
 
-    function defaultClinicForTwilio() {
+    function defaultClinicForTwilio(opts) {
+        opts = opts || {};
+        if (typeof clinicNameForOutboundMessage === 'function') {
+            return clinicNameForOutboundMessage(opts) || 'Joyful Smile';
+        }
         if (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) {
             return String(currentClinicLabel);
         }
@@ -1817,7 +1827,12 @@ var AIHELPER = AIHELPER || {};
         put('PHONE', ctx.phone);
         put('PATIENT_NO', ctx.patientNo || ctx.patient_no);
         put('BODY', ctx.body);
-        if (!f.CLINIC) put('CLINIC', defaultClinicForTwilio());
+        if (!f.CLINIC) {
+            put('CLINIC', defaultClinicForTwilio({
+                body: ctx.body || ctx.text || ctx.templateBody || '',
+                lang: ctx.lang
+            }));
+        }
         if (!f.NAME) put('NAME', 'Patient');
         return f;
     }
@@ -1891,7 +1906,10 @@ var AIHELPER = AIHELPER || {};
             inp.setAttribute('data-tpl-var', k);
             inp.placeholder = field ? '{' + field + '}' : ('{{' + k + '}}');
             if (field === 'CLINIC') {
-                var clinicDefault = defaultClinicForTwilio();
+                var clinicDefault = defaultClinicForTwilio({
+                    body: [tpl && tpl.notes, tpl && tpl.label, tpl && tpl.name, tpl && tpl.body]
+                        .filter(Boolean).join('\n')
+                });
                 if (clinicDefault) inp.value = clinicDefault;
             }
             wrap.appendChild(lab);
@@ -1912,7 +1930,10 @@ var AIHELPER = AIHELPER || {};
         }
         return ns.buildTwilioContentVariables(tpl, {
             name: name || 'Patient',
-            clinic: defaultClinicForTwilio(),
+            clinic: defaultClinicForTwilio({
+                body: [tpl && tpl.notes, tpl && tpl.label, tpl && tpl.name, tpl && tpl.body]
+                    .filter(Boolean).join('\n')
+            }),
             overrides: overrides
         });
     }

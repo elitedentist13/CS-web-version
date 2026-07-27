@@ -74,7 +74,13 @@ var RSVP_RECALL = (function () {
         }
         return String(typeof currentClinicLabel !== 'undefined' ? currentClinicLabel : '').trim();
     }
-    function clinicLabel() {
+    function clinicLabel(bodyHint) {
+        if (typeof clinicNameForOutboundMessage === 'function') {
+            return clinicNameForOutboundMessage({
+                body: bodyHint || '',
+                fallback: 'Clinic'
+            }) || 'Clinic';
+        }
         return String(
             (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) ? currentClinicLabel : ''
         ).trim() || 'Clinic';
@@ -627,15 +633,25 @@ var RSVP_RECALL = (function () {
         if (typeof fmtDateLong === 'function') {
             try { dateStr = fmtDateLong(a.date || _date) || dateStr; } catch (e) { /* keep */ }
         }
+        var tpl = resolveTemplate();
+        var bodyHint = [
+            tpl && tpl.notes,
+            tpl && tpl.label,
+            tpl && tpl.name,
+            tpl && tpl.body,
+            // HK RSVP templates are typically Chinese; nudge detection when no body text.
+            '預約確認 診所 回覆'
+        ].filter(Boolean).join('\n');
         return {
             name: name,
             fullName: full,
-            clinic: clinicLabel(),
+            clinic: clinicLabel(bodyHint),
             date: dateStr,
             time: fmt12(a.start_time),
             doctor: doctorName(a),
             phone: a.phone || '',
             patientNo: a.patient_no || '',
+            body: bodyHint,
             fields: {
                 TREATMENT: String(a.treatment_items || '').trim(),
                 CHINESE: String(a.patient_chinese_name || '').trim(),

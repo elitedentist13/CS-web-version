@@ -1712,9 +1712,9 @@
         'mb.sms.body': { en: 'SMS message', 'zh-CN': '短信内容', 'zh-Hant': '短訊內容' },
         'mb.sms.bodyPh': { en: 'Hi {NAME}, this is {CLINIC}. …', 'zh-CN': '您好 {NAME}，这里是 {CLINIC}。…', 'zh-Hant': '您好 {NAME}，這裡是 {CLINIC}。…' },
         'mb.sms.vars': {
-            en: 'Variables: {NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO}',
-            'zh-CN': '变量：{NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO}',
-            'zh-Hant': '變數：{NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO}'
+            en: 'Variables: {NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO} — {CLINIC}/{FULL_NAME}/{NAME} follow message language (EN/中文)',
+            'zh-CN': '变量：{NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO} — {CLINIC}/{FULL_NAME}/{NAME} 随短信语文切换（英/中）',
+            'zh-Hant': '變數：{NAME} {FULL_NAME} {CLINIC} {DATE} {TIME} {DOCTOR} {PHONE} {PATIENT_NO} — {CLINIC}/{FULL_NAME}/{NAME} 隨訊息語文切換（英/中）'
         },
         'mb.aud.hint': {
             en: 'Audience is the selection from Contacts. Go back to Contacts to change it.',

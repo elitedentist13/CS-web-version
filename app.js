@@ -661,6 +661,62 @@ function clinicDisplayName(c) {
     return eng || chi || String(c.clinic_code || '').trim() || clinicDisplayFallback();
 }
 
+/**
+ * Detect outbound SMS/WhatsApp paragraph language for {CLINIC} (and similar).
+ * Ignores {TOKEN} placeholders so they do not skew the Latin count.
+ * @returns {'zh'|'en'|''}
+ */
+function detectOutboundMessageLang(text) {
+    var s = String(text || '');
+    if (!s) return '';
+    s = s.replace(/\{\{[^}]+\}\}/g, ' ').replace(/\{[A-Za-z0-9_]+\}/g, ' ');
+    var cjk = (s.match(/[\u3400-\u9FFF\uF900-\uFAFF]/g) || []).length;
+    var latin = (s.match(/[A-Za-z]/g) || []).length;
+    if (!cjk && !latin) return '';
+    // Enough CJK relative to Latin → treat as Chinese paragraph
+    if (cjk >= 2 && cjk >= Math.max(1, Math.floor(latin * 0.25))) return 'zh';
+    if (latin > cjk) return 'en';
+    if (cjk > latin) return 'zh';
+    return '';
+}
+
+/**
+ * Clinic name for outbound patient messages — matches paragraph language.
+ * Prefers opts.lang, else detects from opts.body/text, else falls back to UI language.
+ * @param {{body?:string,text?:string,lang?:string,clinic?:object,clinicId?:string,fallback?:string}} [opts]
+ */
+function clinicNameForOutboundMessage(opts) {
+    opts = opts || {};
+    var lang = String(opts.lang || '').trim().toLowerCase();
+    if (lang === 'zh' || lang === 'zh-hant' || lang === 'zh-hk' || lang === 'zh-cn' ||
+        lang === 'zh-tw' || lang === 'chinese' || lang === 'hant' || lang === 'cn') {
+        lang = 'zh';
+    } else if (lang === 'en' || lang === 'en-hk' || lang === 'en-us' || lang === 'english') {
+        lang = 'en';
+    } else {
+        lang = '';
+    }
+    if (!lang) lang = detectOutboundMessageLang(opts.body || opts.text || '');
+    if (!lang) {
+        lang = (typeof printUiLangIsChinese === 'function' && printUiLangIsChinese()) ? 'zh' : 'en';
+    }
+
+    var rec = opts.clinic || null;
+    if (!rec) {
+        var cid = opts.clinicId ||
+            (typeof currentClinicId !== 'undefined' ? currentClinicId : null);
+        if (cid && typeof clinicRecordFromId === 'function') {
+            rec = clinicRecordFromId(cid);
+        }
+    }
+
+    var eng = rec ? String(rec.english_name || '').trim() : '';
+    var chi = rec ? String(rec.chinese_name || '').trim() : '';
+    var fallback = String(opts.fallback || 'Joyful Smile').trim() || 'Joyful Smile';
+    if (lang === 'zh') return chi || eng || fallback;
+    return eng || chi || fallback;
+}
+
 function nowLocal() {
     var real = realNowLocal();
     var override = hasEffectiveWorkingDateOverride() ? currentWorkingDateOverride() : '';

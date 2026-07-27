@@ -1413,8 +1413,11 @@ function apptBannerOpenWhatsApp() {
     if (!ap || typeof openWhatsAppPrefill !== 'function') return;
     var phone = String(ap.mobile_phone || ap.phone_number || '').trim();
     var name  = String(ap.chinese_name || ap.full_name || '').trim();
-    var clinic = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
-        ? currentClinicLabel : '';
+    var rawTpl = typeof tr === 'function' ? tr('whatsapp.msg.consultationHello') : '';
+    var clinic = (typeof clinicNameForOutboundMessage === 'function')
+        ? clinicNameForOutboundMessage({ body: rawTpl })
+        : ((typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
+            ? currentClinicLabel : '');
     var msg = typeof trRepl === 'function'
         ? trRepl('whatsapp.msg.consultationHello', { NAME: name, CLINIC: clinic })
         : ('Hello ' + name);
@@ -9215,7 +9218,8 @@ function rcSampleField(field) {
     if (f === 'FIRST') return 'Alex';
     if (f === 'CHINESE') return '陳大文';
     if (f === 'CLINIC') return (typeof apptClinicNameForWhatsApp === 'function'
-        ? apptClinicNameForWhatsApp() : '') || 'Joyful Smile';
+        ? apptClinicNameForWhatsApp({ body: 'Hi from {CLINIC} clinic reminder appointment' })
+        : '') || 'Joyful Smile';
     if (f === 'DATE') return (typeof rcDate !== 'undefined' && rcDate) ? rcDate : '2026-07-22';
     if (f === 'TIME') return '10:00 AM';
     if (f === 'DOCTOR') return 'Chan';
@@ -9747,8 +9751,9 @@ function deleteRcTemplate(id) {
  * Field values for Recall free-text WhatsApp / SMS — aligned with
  * appointment WhatsApp (apptWhatsAppMessage) + extended tokens.
  */
-function recallMessageFieldValues(a) {
+function recallMessageFieldValues(a, opts) {
     a = a || {};
+    opts = opts || {};
     var chinese = String(a.patient_chinese_name || a._merged_chinese_name || '').trim();
     var english = String(a.patient_name || '').trim();
     var fullName = english || chinese;
@@ -9758,8 +9763,13 @@ function recallMessageFieldValues(a) {
     var first = (typeof recallPatientFirstName === 'function')
         ? recallPatientFirstName(a)
         : (fullName.split(/\s+/)[0] || fullName || name);
+    var bodyHint = opts.body || opts.text || '';
+    if (!bodyHint && typeof g === 'function') {
+        var box = g('recallMsgBox');
+        if (box && box.value) bodyHint = String(box.value || '');
+    }
     var clinic = (typeof apptClinicNameForWhatsApp === 'function'
-        ? apptClinicNameForWhatsApp()
+        ? apptClinicNameForWhatsApp({ body: bodyHint, lang: opts.lang })
         : '') || 'Joyful Smile';
     var date = String(a.date || rcDate || '');
     var time = '';
@@ -9797,7 +9807,7 @@ function recallMessageFieldValues(a) {
 function applyRecallPlaceholders(template, a) {
     var msg = String(template || '');
     if (!msg) return '';
-    var f = recallMessageFieldValues(a);
+    var f = recallMessageFieldValues(a, { body: msg });
     // Longer tokens first so PATIENT_NO / FULL_NAME win over NO / NAME fragments.
     var keys = [
         'FULL_NAME', 'PATIENT_NO', 'TREATMENT', 'CHINESE', 'ENGLISH',
@@ -9882,7 +9892,15 @@ function fillRcWebWhatsAppTemplate(kind) {
 
 /** Context for Twilio contentVariables — same sources as free-text WhatsApp. */
 function recallTwilioContentCtx(a, extra) {
-    var f = recallMessageFieldValues(a);
+    var bodyHint = '';
+    if (extra && typeof extra === 'object') {
+        bodyHint = String(extra.body || extra.text || '').trim();
+    }
+    if (!bodyHint && typeof g === 'function') {
+        var box = g('recallMsgBox');
+        if (box) bodyHint = String(box.value || '');
+    }
+    var f = recallMessageFieldValues(a, { body: bodyHint });
     var ctx = {
         name: f.NAME,
         fullName: f.FULL_NAME,
@@ -9892,6 +9910,7 @@ function recallTwilioContentCtx(a, extra) {
         doctor: f.DOCTOR,
         phone: f.PHONE,
         patientNo: f.PATIENT_NO,
+        body: bodyHint,
         fields: {
             TREATMENT: f.TREATMENT,
             CHINESE: f.CHINESE,
@@ -10212,9 +10231,10 @@ function rcSendViaTwilio() {
     }
 
     var channel = rcContact === 'twilio_sms' ? 'sms' : 'whatsapp';
-    var fields = recallMessageFieldValues(a);
+    var rawMsg = (g('recallMsgBox') && g('recallMsgBox').value || '').trim();
+    var fields = recallMessageFieldValues(a, { body: rawMsg });
     var name = fields.NAME;
-    var body = buildRecallPersonalised(a);
+    var body = applyRecallPlaceholders(rawMsg, a);
     var opts = {
         channel: channel,
         to: to,
@@ -10247,7 +10267,7 @@ function rcSendViaTwilio() {
         if (typeof AIHELPER.buildTwilioContentVariables === 'function') {
             opts.contentVariables = AIHELPER.buildTwilioContentVariables(
                 tpl,
-                recallTwilioContentCtx(a, { body: body })
+                recallTwilioContentCtx(a, { body: rawMsg })
             );
         } else {
             opts.contentVariables = { '1': name };
@@ -14449,7 +14469,11 @@ function apptDoctorNameForWhatsApp(a) {
     return dr || String(a.doctor_code || '').trim() || '-';
 }
 
-function apptClinicNameForWhatsApp() {
+function apptClinicNameForWhatsApp(opts) {
+    opts = opts || {};
+    if (typeof clinicNameForOutboundMessage === 'function') {
+        return clinicNameForOutboundMessage(opts) || 'Joyful Smile';
+    }
     if (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) return currentClinicLabel;
     if (typeof currentClinicId !== 'undefined' && currentClinicId &&
         typeof clinicRecordFromId === 'function') {
@@ -14466,9 +14490,10 @@ function apptWhatsAppMessage(a, kind) {
         : (kind === 'labReady'
             ? 'whatsapp.msg.labReady'
             : 'whatsapp.msg.appointmentReminder');
+    var rawTpl = typeof tr === 'function' ? tr(key) : key;
     return trRepl(key, {
         NAME: apptPatientNameForWhatsApp(a),
-        CLINIC: apptClinicNameForWhatsApp(),
+        CLINIC: apptClinicNameForWhatsApp({ body: rawTpl }),
         DATE: a.date || (typeof todayISO === 'function' ? todayISO() : ''),
         TIME: a.start_time ? fmt12(a.start_time) : '',
         DOCTOR: apptDoctorNameForWhatsApp(a),

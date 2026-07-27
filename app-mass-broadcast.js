@@ -186,11 +186,51 @@ var MASSBC = (function () {
         return full.split(/\s+/)[0] || full;
     }
 
+    /** Staff UI label: Chinese / English when both exist. */
     function displayName(p) {
         var chi = String((p && p.chinese_name) || '').trim();
         var eng = String((p && p.full_name) || '').trim();
         if (chi && eng) return chi + ' / ' + eng;
         return chi || eng || '—';
+    }
+
+    /** Message-language patient full name for {FULL_NAME} in SMS/WhatsApp. */
+    function displayNameForMessage(p, bodyHint) {
+        var chi = String((p && p.chinese_name) || '').trim();
+        var eng = String((p && p.full_name) || '').trim();
+        var lang = messageLangFromBody(bodyHint);
+        if (lang === 'zh') return chi || eng || '—';
+        return eng || chi || '—';
+    }
+
+    /** Resolve EN/ZH from message body (same detector as {CLINIC}). */
+    function messageLangFromBody(bodyHint) {
+        var lang = '';
+        if (typeof detectOutboundMessageLang === 'function') {
+            lang = detectOutboundMessageLang(bodyHint || '');
+        }
+        if (!lang && typeof printUiLangIsChinese === 'function' && printUiLangIsChinese()) {
+            lang = 'zh';
+        }
+        return lang === 'zh' ? 'zh' : 'en';
+    }
+
+    /**
+     * Message-language greeting for {NAME}:
+     * - Chinese paragraph → Chinese full name (e.g. 陳大文)
+     * - English paragraph → English given/first token (e.g. Alex), fallback Chinese
+     */
+    function firstNameForMessage(p, bodyHint) {
+        var chi = String((p && p.chinese_name) || '').trim();
+        var eng = String((p && p.full_name) || '').trim();
+        var lang = messageLangFromBody(bodyHint);
+        if (lang === 'zh') {
+            return chi || eng || 'Patient';
+        }
+        if (eng) {
+            return eng.split(/\s+/)[0] || eng;
+        }
+        return chi || 'Patient';
     }
 
     /** Shell / import junk rows: no number and no name — they sort first and look blank. */
@@ -4397,10 +4437,19 @@ var MASSBC = (function () {
 
     function sampleValueForField(field) {
         var f = String(field || '').toUpperCase();
-        if (f === 'NAME' || f === 'FIRST') return 'Alex';
-        if (f === 'FULL_NAME' || f === 'ENGLISH') return 'Alex Chan';
+        var bodyEl = pick('mbSmsBody');
+        var bodyHint = bodyEl ? String(bodyEl.value || '') : String(_smsBody || '');
+        var lang = messageLangFromBody(bodyHint);
+        if (f === 'NAME' || f === 'FIRST') return lang === 'zh' ? '陳大文' : 'Alex';
+        if (f === 'FULL_NAME') return lang === 'zh' ? '陳大文' : 'Alex Chan';
+        if (f === 'ENGLISH') return 'Alex Chan';
         if (f === 'CHINESE') return '陳大文';
-        if (f === 'CLINIC') return 'Joyful Smile';
+        if (f === 'CLINIC') {
+            if (typeof clinicNameForOutboundMessage === 'function') {
+                return clinicNameForOutboundMessage({ body: bodyHint, fallback: 'Joyful Smile' });
+            }
+            return lang === 'zh' ? '歡樂笑容牙科' : 'Joyful Smile';
+        }
         if (f === 'DATE') return '2026-07-22';
         if (f === 'TIME') return '10:00 AM';
         if (f === 'DOCTOR') return 'Chan';
@@ -4444,11 +4493,59 @@ var MASSBC = (function () {
             '. Please reply to confirm. Thank you.';
     }
 
-    function broadcastClinicName(p) {
+    function broadcastClinicName(p, bodyHint) {
+        var rec = null;
+        if (typeof currentClinicId !== 'undefined' && currentClinicId &&
+            typeof clinicRecordFromId === 'function') {
+            rec = clinicRecordFromId(currentClinicId);
+        }
+        if (!rec && p && p.clinic_tag && typeof APP_CLINICS !== 'undefined' && APP_CLINICS) {
+            var t = String(p.clinic_tag).trim();
+            for (var i = 0; i < APP_CLINICS.length; i++) {
+                var c = APP_CLINICS[i];
+                if (String(c.id) === t || String(c.clinic_code || '') === t) {
+                    rec = c;
+                    break;
+                }
+            }
+        }
+        if (typeof clinicNameForOutboundMessage === 'function') {
+            return clinicNameForOutboundMessage({
+                body: bodyHint || '',
+                clinic: rec,
+                fallback: 'Joyful Smile'
+            });
+        }
         if (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) {
             return String(currentClinicLabel);
         }
         return clinicLabel(p && p.clinic_tag) || 'Joyful Smile';
+    }
+
+    function personaliseSms(body, p) {
+        var clinic = broadcastClinicName(p, body);
+        var fullName = displayNameForMessage(p, body);
+        var name = firstNameForMessage(p, body);
+        var appt = p && Object.prototype.hasOwnProperty.call(p, '_nextAppt')
+            ? p._nextAppt
+            : null;
+        var date = appt && appt.date ? String(appt.date) : '';
+        var time = '';
+        if (appt && appt.start_time) {
+            time = typeof fmt12 === 'function'
+                ? String(fmt12(appt.start_time) || '')
+                : String(appt.start_time);
+        }
+        var doctor = broadcastDoctorName(appt);
+        return String(body || '')
+            .replace(/\{FULL_NAME\}/gi, fullName)
+            .replace(/\{NAME\}/gi, name)
+            .replace(/\{CLINIC\}/gi, clinic || 'Joyful Smile')
+            .replace(/\{DATE\}/gi, date)
+            .replace(/\{TIME\}/gi, time)
+            .replace(/\{DOCTOR\}/gi, doctor)
+            .replace(/\{PHONE\}/gi, phoneOf(p))
+            .replace(/\{PATIENT_NO\}/gi, String(p.patient_no || ''));
     }
 
     function broadcastDoctorName(appt) {
@@ -4917,35 +5014,6 @@ var MASSBC = (function () {
             esc(tr('mb.aud.optOut', 'opt-out'));
     }
 
-    function personaliseSms(body, p) {
-        var clinic = '';
-        if (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) {
-            clinic = currentClinicLabel;
-        } else {
-            clinic = clinicLabel(p.clinic_tag);
-        }
-        var appt = p && Object.prototype.hasOwnProperty.call(p, '_nextAppt')
-            ? p._nextAppt
-            : null;
-        var date = appt && appt.date ? String(appt.date) : '';
-        var time = '';
-        if (appt && appt.start_time) {
-            time = typeof fmt12 === 'function'
-                ? String(fmt12(appt.start_time) || '')
-                : String(appt.start_time);
-        }
-        var doctor = broadcastDoctorName(appt);
-        return String(body || '')
-            .replace(/\{FULL_NAME\}/gi, displayName(p))
-            .replace(/\{NAME\}/gi, firstName(p))
-            .replace(/\{CLINIC\}/gi, clinic || 'Joyful Smile')
-            .replace(/\{DATE\}/gi, date)
-            .replace(/\{TIME\}/gi, time)
-            .replace(/\{DOCTOR\}/gi, doctor)
-            .replace(/\{PHONE\}/gi, phoneOf(p))
-            .replace(/\{PATIENT_NO\}/gi, String(p.patient_no || ''));
-    }
-
     function getFromPhone() {
         var sel = pick('mbTwilioFrom');
         var id = sel ? String(sel.value || 'default') : 'default';
@@ -5021,7 +5089,7 @@ var MASSBC = (function () {
         buildOutreachOpts(fake).then(function (opts) {
             if (!opts) return;
             opts.to = to;
-            opts.name = matched ? firstName(matched) : 'Test';
+            opts.name = matched ? firstNameForMessage(matched, (pick('mbSmsBody') && pick('mbSmsBody').value) || _smsBody) : 'Test';
             var st = pick('mbTestStatus');
             if (st) st.textContent = tr('mb.sending', 'Sending…');
             return AIHELPER.sendTwilioOutreach(opts).then(function (res) {
@@ -5058,9 +5126,9 @@ var MASSBC = (function () {
 
     function buildOutreachOpts(p) {
         var channel = _channel;
-        var name = firstName(p);
         var bodyEl = pick('mbSmsBody');
         var rawBody = bodyEl ? bodyEl.value : _smsBody;
+        var name = firstNameForMessage(p, rawBody);
         var opts = { channel: channel, to: phoneE164(phoneOf(p)), name: name, body: '' };
         var from = getFromPhone();
         if (from) opts.from = from;
@@ -5075,7 +5143,14 @@ var MASSBC = (function () {
                 p._nextAppt = appt;
                 var body = personaliseSms(rawBody, p);
                 opts.body = body;
-                var clinic = broadcastClinicName(p);
+                var tplHint = [
+                    rawBody,
+                    tpl && tpl.notes,
+                    tpl && tpl.label,
+                    tpl && tpl.name,
+                    tpl && tpl.body
+                ].filter(Boolean).join('\n');
+                var clinic = broadcastClinicName(p, tplHint);
                 var date = appt && appt.date ? String(appt.date) : '';
                 var time = '';
                 if (appt && appt.start_time) {
@@ -5087,8 +5162,8 @@ var MASSBC = (function () {
                 if (typeof AIHELPER !== 'undefined' &&
                     typeof AIHELPER.buildTwilioContentVariables === 'function') {
                     opts.contentVariables = AIHELPER.buildTwilioContentVariables(tpl, {
-                        name: name,
-                        fullName: displayName(p),
+                        name: firstNameForMessage(p, tplHint),
+                        fullName: displayNameForMessage(p, tplHint),
                         clinic: clinic,
                         date: date,
                         time: time,

@@ -257,9 +257,14 @@ function conBannerOpenBill() {
 function conBannerWhatsAppMessage(p) {
     p = p || {};
     var name = String(p.chinese_name || p.full_name || conTr('appt.today.thisPatient')).trim();
-    var clinic = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
-        ? currentClinicLabel
-        : 'Joyful Smile';
+    var rawTpl = typeof conTr === 'function'
+        ? conTr('whatsapp.msg.consultationHello')
+        : (typeof tr === 'function' ? tr('whatsapp.msg.consultationHello') : '');
+    var clinic = (typeof clinicNameForOutboundMessage === 'function')
+        ? clinicNameForOutboundMessage({ body: rawTpl })
+        : ((typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
+            ? currentClinicLabel
+            : 'Joyful Smile');
     return conTrRepl('whatsapp.msg.consultationHello', {
         NAME: name,
         CLINIC: clinic

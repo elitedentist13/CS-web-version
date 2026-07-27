@@ -37,12 +37,12 @@
         },
         'login.loginBtn': { en: 'Log In', 'zh-CN': '登录', 'zh-Hant': '登入' },
         'login.tryAi': { en: '✨ Try AI Patient Assistant — no login', 'zh-CN': '✨ 试用 AI 患者助手 — 免登录', 'zh-Hant': '✨ 試用 AI 患者助手 — 免登入' },
-        'login.doctorOptional': { en: 'Doctor identity (optional)', 'zh-CN': '医生身份（可选）', 'zh-Hant': '醫生身份（可選）' },
+        'login.doctorOptional': { en: 'Working doctor (optional)', 'zh-CN': '工作医生（可选）', 'zh-Hant': '工作醫生（可選）' },
         'login.doctorRequired': { en: 'Doctor identity *', 'zh-CN': '医生身份 *', 'zh-Hant': '醫生身份 *' },
         'login.hintStaff': {
-            en: 'Staff may choose ALL or a specific doctor. Clinic filters the doctor list.',
-            'zh-CN': '员工可选择全部或指定医生。诊所会筛选医生列表。',
-            'zh-Hant': '職員可選擇全部或指定醫生。診所會篩選醫生列表。'
+            en: 'Optional schedule filter (All = all doctors). Your login ID stays your identity. You can change working doctor on the Appointment page.',
+            'zh-CN': '可选工作医生筛选（全部＝所有医生）。身份保持您的登录账号。可在预约页随时更改工作医生。',
+            'zh-Hant': '可選工作醫生篩選（全部＝所有醫生）。身份保持您的登入帳號。可在預約頁隨時更改工作醫生。'
         },
         'login.hintDoctor': {
             en: 'User ID and password must match a doctor with a login in Configuration. Clinic filters this list.',
@@ -71,11 +71,11 @@
         'common.noClinics': { en: '(No clinics)', 'zh-CN': '（无诊所）', 'zh-Hant': '（無診所）' },
         'common.loadingDoctors': { en: 'Loading doctors...', 'zh-CN': '正在加载医生...', 'zh-Hant': '正在載入醫生...' },
         'dashboard.context.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
-        'dashboard.context.doctor': { en: 'Dr', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'dashboard.context.doctor': { en: 'Working doctor', 'zh-CN': '工作医生', 'zh-Hant': '工作醫生' },
         'dashboard.context.hint': {
-            en: 'Dashboard working context. Appointment, consultation, billing, and print screens will use this doctor where applicable.',
-            'zh-CN': '控制台工作范围。预约、诊症、收费及打印页面会按需要使用此医生。',
-            'zh-Hant': '控制台工作範圍。預約、診症、收費及列印頁面會按需要使用此醫生。'
+            en: 'Schedule filter for queue / calendar. Front desk identity stays your login ID; billing uses the bill doctor. Doctor logins still use this as clinical identity.',
+            'zh-CN': '预约队列／日历的工作医生筛选。前台身份保持登录账号；收费使用账单医生。医生登录仍以此作为诊症身份。',
+            'zh-Hant': '預約隊列／日曆的工作醫生篩選。前台身份保持登入帳號；收費使用帳單醫生。醫生登入仍以此作為診症身份。'
         },
         'whatsapp.action.short': { en: 'WA', 'zh-CN': 'WA', 'zh-Hant': 'WA' },
         'whatsapp.action.reminder': { en: 'WhatsApp reminder', 'zh-CN': 'WhatsApp 提醒', 'zh-Hant': 'WhatsApp 提醒' },

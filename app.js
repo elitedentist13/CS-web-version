@@ -1368,11 +1368,51 @@ function setLoginDoctorSelectModeForUser(u) {
     }
 }
 
+/** Doctor/dentist logins may impersonate their own clinical identity. */
+function isClinicalDoctorLoginRole() {
+    var role = String(currentRole || '').toLowerCase();
+    return role === 'doctor' || role === 'dentist';
+}
+
+/** Front desk / admin: doctor dropdown is schedule filter only, not identity. */
+function isFrontDeskWorkingDoctorMode() {
+    return !isClinicalDoctorLoginRole();
+}
+
+function loggedInIdentityName() {
+    if (loggedInUserName) return String(loggedInUserName).trim();
+    if (currentUserId) return String(currentUserId).trim();
+    return null;
+}
+
 function applyIdentityFromDoctor(doctorId) {
     var doc = getDoctorById(doctorId);
     currentDoctorId = doctorId || null;
     currentDoctorName = doc ? (doctorDisplayName(doc) || null) : null;
     if (currentDoctorName) currentName = currentDoctorName;
+}
+
+/**
+ * Set working doctor for schedule/filter context.
+ * Front desk keeps login identity (badge / remarks author); doctor/dentist
+ * logins still adopt the selected doctor as session identity.
+ */
+function applyWorkingDoctorSelection(doctorId) {
+    doctorId = doctorId || '';
+    if (doctorId && isClinicalDoctorLoginRole()) {
+        applyIdentityFromDoctor(doctorId);
+        return;
+    }
+    if (doctorId) {
+        var doc = getDoctorById(doctorId);
+        currentDoctorId = doctorId;
+        currentDoctorName = doc ? (doctorDisplayName(doc) || null) : null;
+    } else {
+        currentDoctorId = null;
+        currentDoctorName = null;
+    }
+    var idName = loggedInIdentityName();
+    if (idName) currentName = idName;
 }
 
 function populateReportClinicSelect() {
@@ -1532,19 +1572,13 @@ function populateDashboardDoctorSelect(preselectId) {
 }
 
 function applyDashboardDoctorSelection(doctorId) {
-    if (doctorId) {
-        applyIdentityFromDoctor(doctorId);
-    } else {
-        currentDoctorId = null;
-        currentDoctorName = null;
-        currentName = currentUserId || currentName;
-    }
+    applyWorkingDoctorSelection(doctorId || '');
     persistSession();
     refreshDashboardUserBadge();
     refreshAppSessionStripContents();
     if (typeof updateConsultationDoctorUI === 'function') updateConsultationDoctorUI();
     if (typeof refreshApptHeaderI18n === 'function') refreshApptHeaderI18n();
-    // Sync appointment module doctor select
+    // Sync appointment module doctor select (schedule filter)
     var apptDrSel = g('apptDoctorSelect');
     if (apptDrSel && apptDrSel.value !== (doctorId || '')) apptDrSel.value = doctorId || '';
 }
@@ -4090,11 +4124,15 @@ function restoreSession() {
         currentUserId = s.user_id || null;
         currentRole = s.role || null;
         loggedInUserName = s.login_name || s.name || s.user_id || null;
-        currentName = s.name || null;
+        currentName = s.login_name || s.name || s.user_id || null;
         currentClinicId = s.clinic_id || null;
         currentClinicLabel = s.clinic_label || null;
         currentDoctorId = s.doctor_id || null;
         currentDoctorName = s.doctor_name || null;
+        // Front desk: working doctor is filter only — restore badge/author as login id.
+        if (isFrontDeskWorkingDoctorMode() && loggedInUserName) {
+            currentName = loggedInUserName;
+        }
         if (typeof setCurrentUserPermissions === 'function') {
             setCurrentUserPermissions(s.permissions);
         }
@@ -4288,16 +4326,32 @@ function finishLoginSession(u, doctorId, opts) {
         loggedInUserName = currentUserId;
     }
 
-    if (doctorId) {
+    // Front desk / admin: optional login doctor is a schedule filter only.
+    // Doctor/dentist: selected doctor becomes clinical identity.
+    if (doctorId && isClinicalDoctorLoginRole()) {
         applyIdentityFromDoctor(doctorId);
+    } else if (doctorId) {
+        applyWorkingDoctorSelection(doctorId);
     } else {
         currentDoctorId = null;
         currentDoctorName = null;
     }
-    if (u && u.display_name && (!doctorId || !currentDoctorName)) {
-        currentName = u.display_name;
+    if (isFrontDeskWorkingDoctorMode()) {
+        // Prefer display name / login id — never keep an impersonated doctor name.
+        if (u && String(u.display_name || '').trim()) {
+            currentName = String(u.display_name).trim();
+            loggedInUserName = currentName;
+        } else if (loggedInUserName) {
+            currentName = loggedInUserName;
+        } else if (currentUserId) {
+            currentName = currentUserId;
+        }
+    } else {
+        if (u && u.display_name && (!doctorId || !currentDoctorName)) {
+            currentName = u.display_name;
+        }
+        if (!currentName) currentName = currentUserId;
     }
-    if (!currentName) currentName = currentUserId;
 
     var loginClinicId = selectedLoginClinicId();
     var wc = loginClinicId || defaultWorkingClinicId();
@@ -4458,12 +4512,7 @@ function _advanceToAdminTotpStep() {
 function _completeAdminLogin(u, doctorId) {
     var method = (_adminSmsPassed && !_adminSmsSkipped) ? 'admin_sms_totp' : 'admin_totp';
     cancelAdminTotpAuth();
-    if (doctorId) applyIdentityFromDoctor(doctorId);
-    else {
-        currentDoctorId   = null;
-        currentDoctorName = null;
-        currentName = u.display_name || u.user_id;
-    }
+    // Admin is front-desk mode: finishLoginSession sets filter + login identity.
     finishLoginSession(u, doctorId || null, { login_method: method });
 }
 
@@ -4548,12 +4597,6 @@ function requireAdminTotpAuth(u, doctorId) {
 
     function passwordOnlyFallback() {
         console.warn('[AdminVerify] SMS/TOTP unavailable — admin login with password only.');
-        if (doctorId) applyIdentityFromDoctor(doctorId);
-        else {
-            currentDoctorId   = null;
-            currentDoctorName = null;
-            currentName = u.display_name || u.user_id;
-        }
         cancelAdminTotpAuth();
         finishLoginSession(u, doctorId || null, { login_method: 'password' });
     }
@@ -4711,10 +4754,8 @@ function doLogin() {
     if (uid.toLowerCase() === 'nurse' && pw === 'nurse') {
         currentUserId = 'nurse';
         currentRole = 'nurse';
-        applyIdentityFromDoctor(doctorId);
-        if (!currentDoctorName) currentName = 'Nurse';
         done();
-        finishLoginSession({ user_id: 'nurse', role: 'nurse' }, doctorId);
+        finishLoginSession({ user_id: 'nurse', role: 'nurse', display_name: 'Nurse' }, doctorId);
         return;
     }
 

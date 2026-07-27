@@ -1622,10 +1622,9 @@ function onApptDoctorChange() {
     var sel = g('apptDoctorSelect');
     if (!sel) return;
     var doctorId = sel.value || '';
-    // Sync dashboard doctor select
+    // Sync dashboard doctor select (schedule filter — front desk keeps login identity)
     var dashSel = g('dashDoctorSelect');
     if (dashSel && dashSel.value !== doctorId) dashSel.value = doctorId;
-    // Apply identity (sets currentDoctorId, refreshes header etc.)
     if (typeof applyDashboardDoctorSelection === 'function') {
         applyDashboardDoctorSelection(doctorId);
     }
@@ -13414,11 +13413,18 @@ function checkInPatientFromRecord(patient, opts) {
     function apptDoctorFieldsForInsert() {
         var drCode = '';
         var drName = '';
-        var pickId = (typeof currentDoctorId !== 'undefined' && currentDoctorId)
-            ? currentDoctorId
-            : '';
-        if (!pickId && typeof defaultBillDoctorId === 'function') {
-            pickId = defaultBillDoctorId();
+        // Prefer explicit Appointment-bar doctor, then working-doctor filter.
+        var apptSel = g('apptDoctorSelect');
+        var pickId = (apptSel && apptSel.value) ? String(apptSel.value) : '';
+        if (!pickId && typeof currentDoctorId !== 'undefined' && currentDoctorId) {
+            pickId = String(currentDoctorId);
+        }
+        // Doctor/dentist may fall back to session default; front desk must pick explicitly.
+        var clinical = (typeof isClinicalDoctorLoginRole === 'function')
+            ? isClinicalDoctorLoginRole()
+            : false;
+        if (!pickId && clinical && typeof defaultBillDoctorId === 'function') {
+            pickId = defaultBillDoctorId() || '';
         }
         var list = billDoctorList || [];
         if (!list.length && typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS.length) {
@@ -13430,7 +13436,8 @@ function checkInPatientFromRecord(patient, opts) {
                 return d && String(d.id) === String(pickId);
             }) || null;
         }
-        if (!dr && list.length) dr = list[0];
+        // Never silently assign the first doctor for front-desk multi-doctor days.
+        if (!dr && clinical && list.length === 1) dr = list[0];
         if (dr) {
             drCode = String(dr.doctor_code || dr.id || '').trim();
             drName = String(dr.english_name || dr.display_name || dr.chinese_name || drCode).trim();
@@ -13443,6 +13450,11 @@ function checkInPatientFromRecord(patient, opts) {
         var dur = 30;
         var end = typeof addMins === 'function' ? addMins(start, dur) : start;
         var dr = apptDoctorFieldsForInsert();
+        if (!dr.doctor_code) {
+            alert(tr('appt.msg.selectDoctor'));
+            if (typeof showOnly === 'function') showOnly('appointmentSection');
+            return;
+        }
         var payload = {
             patient_id: patient.id,
             patient_no: patient.patient_no || null,

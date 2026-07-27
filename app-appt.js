@@ -17842,6 +17842,45 @@ function billDoctorIdFromApptRow(q) {
     return hit && hit.id ? String(hit.id) : '';
 }
 
+/** When bill opens for patient only, infer doctor from today's appointment(s). */
+function prefetchBillApptDoctorFromPatient(patientId, cb) {
+    if (!patientId || billApptDefaultDoctorId) {
+        if (cb) cb();
+        return;
+    }
+    if (typeof SB === 'undefined' || !SB || !SB.from) {
+        if (cb) cb();
+        return;
+    }
+    var day = typeof todayISO === 'function' ? todayISO() : '';
+    var q = SB.from('appointments')
+        .select('id,doctor_code,doctor_id,doctor_name')
+        .eq('patient_id', patientId)
+        .eq('date', day)
+        .order('start_time', { ascending: true });
+    var tag = typeof currentClinicCodeForTagging === 'function'
+        ? currentClinicCodeForTagging()
+        : '';
+    if (tag && typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined') {
+        q = q.eq(APPOINTMENT_CLINIC_TAG_FIELD, tag);
+    }
+    q.then(function (r) {
+        var rows = (r.data || []).filter(function (a) {
+            return a && (a.doctor_code || a.doctor_id);
+        });
+        if (rows.length === 1) {
+            billApptDefaultDoctorId = billDoctorIdFromApptRow(rows[0]) || null;
+            if (!billApptDoctorCode && rows[0].doctor_code) {
+                billApptDoctorCode = String(rows[0].doctor_code).trim();
+            }
+            if (!billApptId && rows[0].id) billApptId = rows[0].id;
+        }
+        if (cb) cb();
+    }).catch(function () {
+        if (cb) cb();
+    });
+}
+
 function openBillPanel(q) {
     billApptId  = q.id;
     billApptDoctorCode = String(q && q.doctor_code ? q.doctor_code : '').trim() || null;
@@ -17876,15 +17915,18 @@ function openBillPanel(q) {
     billPendingLastRefreshAt = null;
     renderBillPendingRefreshMeta();
 
-    // Load treatment item dropdown cache then pending lists
-    loadTreatmentItemsForBilling(function() {
-        loadPendingLists(function(ok) {
-            if (ok !== false) noteBillPendingRefreshed();
+    function beginBillPanelLoad() {
+        loadTreatmentItemsForBilling(function() {
+            loadPendingLists(function(ok) {
+                if (ok !== false) noteBillPendingRefreshed();
+            });
         });
-    });
-    resetBillHistoryFilterUi();
-    loadBillHistory(function() { renderStep1UI(); });
-    loadBillDoctors();
+        resetBillHistoryFilterUi();
+        loadBillHistory(function() { renderStep1UI(); });
+        loadBillDoctors();
+    }
+
+    prefetchBillApptDoctorFromPatient(billPatId, beginBillPanelLoad);
 
     wireBillPanelControls();
     startBillPendingAutoRefresh();
@@ -17919,6 +17961,10 @@ function switchBillTab(n) {
     if (step2) {
         step2.style.display = 'none';
         step2.classList.add('hidden');
+    }
+    if (n === 2) {
+        syncPendingDraftFromInputs();
+        syncPayPendingListDoctorFromUi();
     }
     if (n === 2 && typeof renderStep2 === 'function') {
         renderStep2(function(ok) {
@@ -17967,7 +18013,7 @@ function loadPendingLists(cb) {
             if (pl.id && preserveById[pl.id]) {
                 var local = preserveById[pl.id];
                 if (pl.bill_id) local.bill_id = pl.bill_id;
-                if (pl.doctor_id && !local.doctor_id) local.doctor_id = pl.doctor_id;
+                mergePendingListDoctorFromFetch(local, pl);
                 return local;
             }
             return pl;
@@ -18063,6 +18109,7 @@ function renderStep1UI() {
     renderBillItems();
     recalcPendingSubtotal();
     syncPendingListDoctorSelectFromCurrentList();
+    applyAppointmentDoctorToCurrentPendingList();
 
     var statusEl = g('pendingListStatus');
     if (statusEl) {
@@ -18452,7 +18499,7 @@ function renderStep2(cb, opts) {
                 for (var li = 0; li < pendingLists.length; li++) {
                     if (pendingLists[li] && pendingLists[li].id === pl.id) {
                         if (pl.bill_id) pendingLists[li].bill_id = pl.bill_id;
-                        if (pl.doctor_id) pendingLists[li].doctor_id = pl.doctor_id;
+                        mergePendingListDoctorFromFetch(pendingLists[li], pl);
                         break;
                     }
                 }
@@ -18487,9 +18534,16 @@ function renderStep2(cb, opts) {
                 btn.classList.add('selected');
                 payItems     = (pl.items || []).map(normalizeBillItem);
                 payPendingId = pl.id;
+                for (var pi = 0; pi < pendingLists.length; pi++) {
+                    if (pendingLists[pi] && pendingLists[pi].id === pl.id) {
+                        pendingIdx = pi;
+                        break;
+                    }
+                }
+                syncPendingListDoctorSelectFromCurrentList();
                 renderPayPreview();
                 recalcTotals();
-                updateBillStep2DoctorSummary(pl);
+                updateBillStep2DoctorSummary(pendingListByPayId(pl.id) || pl);
                 loadBillStep2NotesFromLinkedBill(pl);
             });
             cards.appendChild(btn);
@@ -18615,10 +18669,81 @@ function pendingListDoctorIdFromUi() {
     return sel ? String(sel.value || '').trim() : '';
 }
 
+/** Logged-in doctors may default billing to their session; front desk must pick explicitly. */
+function billDefaultUsesSessionDoctor() {
+    var role = String(currentRole || '').toLowerCase();
+    return role === 'doctor' || role === 'dentist';
+}
+
 function syncPendingListDoctorFromUi() {
     if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
     var id = pendingListDoctorIdFromUi();
     pendingLists[pendingIdx].doctor_id = id || null;
+}
+
+/** Push dropdown doctor onto the list selected for payment (Step 2) and Step 1 list. */
+function syncPayPendingListDoctorFromUi() {
+    var uiId = pendingListDoctorIdFromUi();
+    var cur = (pendingIdx >= 0 && pendingLists[pendingIdx]) ? pendingLists[pendingIdx] : null;
+    if (uiId && cur) cur.doctor_id = uiId;
+    if (payPendingId && cur && String(cur.id) === String(payPendingId)) {
+        if (uiId) cur.doctor_id = uiId;
+    } else if (payPendingId && uiId) {
+        var payPl = pendingListByPayId(payPendingId);
+        if (payPl && cur && String(payPl.id) === String(cur.id)) payPl.doctor_id = uiId;
+    }
+}
+
+function wantBillDoctorIdForList(pl) {
+    if (pl && pendingLists.length && pendingIdx >= 0 &&
+        pendingLists[pendingIdx] === pl) {
+        var uiDr = pendingListDoctorIdFromUi();
+        if (uiDr) return uiDr;
+    }
+    var apptDr = String(billApptDefaultDoctorId || '').trim();
+    if (apptDr) return apptDr;
+    if (pl && pl.doctor_id) return String(pl.doctor_id);
+    return defaultBillDoctorId() || '';
+}
+
+function mergePendingListDoctorFromFetch(localPl, fetchedPl) {
+    if (!localPl || !fetchedPl) return;
+    var apptDr = String(billApptDefaultDoctorId || '').trim();
+    var serverDr = String(fetchedPl.doctor_id || '').trim();
+    var localDr = String(localPl.doctor_id || '').trim();
+
+    if (isPendingListDirty(localPl) && localDr) return;
+
+    if (apptDr && (!serverDr || (!fetchedPl.bill_id && serverDr !== apptDr))) {
+        localPl.doctor_id = apptDr;
+        return;
+    }
+    if (serverDr) localPl.doctor_id = fetchedPl.doctor_id;
+    else if (apptDr) localPl.doctor_id = apptDr;
+}
+
+function resolveBillDoctorIdForDisplay(pl) {
+    syncPayPendingListDoctorFromUi();
+    var mem = pl && pl.id ? (pendingListByPayId(pl.id) || pl) : pl;
+    if (mem && mem.doctor_id) return String(mem.doctor_id);
+    var uiId = pendingListDoctorIdFromUi();
+    var cur = (pendingIdx >= 0 && pendingLists[pendingIdx]) ? pendingLists[pendingIdx] : null;
+    if (uiId && mem && cur && String(cur.id) === String(mem.id)) return uiId;
+    if (uiId && !payPendingId) return uiId;
+    return String(billApptDefaultDoctorId || '').trim();
+}
+
+function applyAppointmentDoctorToCurrentPendingList() {
+    var apptDr = String(billApptDefaultDoctorId || '').trim();
+    if (!apptDr || !pendingLists.length || pendingIdx < 0) return;
+    var pl = pendingLists[pendingIdx];
+    if (!pl || pl.bill_id || isCurrentPendingListLocked()) return;
+    var uiDr = pendingListDoctorIdFromUi();
+    if (uiDr && uiDr !== apptDr) return;
+    if (String(pl.doctor_id || '') !== apptDr) {
+        pl.doctor_id = apptDr;
+        syncPendingListDoctorSelectFromCurrentList();
+    }
 }
 
 function syncPendingListDoctorSelectFromCurrentList() {
@@ -18627,7 +18752,7 @@ function syncPendingListDoctorSelectFromCurrentList() {
     var pl = (pendingLists.length && pendingIdx >= 0 && pendingIdx < pendingLists.length)
         ? pendingLists[pendingIdx]
         : null;
-    var want = pl ? (pl.doctor_id || defaultBillDoctorIdForPendingList() || '') : '';
+    var want = pl ? (wantBillDoctorIdForList(pl) || '') : '';
     if (!sel.options.length || sel.options.length <= 1) {
         renderBillDoctorOptions(want, 'pendingListDoctor');
         return;
@@ -18637,7 +18762,7 @@ function syncPendingListDoctorSelectFromCurrentList() {
     } else {
         renderBillDoctorOptions(want, 'pendingListDoctor');
     }
-    if (pl && want && !pl.doctor_id) pl.doctor_id = want;
+    if (pl && want) pl.doctor_id = want;
 }
 
 function pendingListDoctorLabelById(doctorId) {
@@ -18655,13 +18780,14 @@ function updateBillStep2DoctorSummary(pl) {
     if (!pl && payPendingId) {
         pl = pendingListByPayId(payPendingId);
     }
-    if (!pl || !pl.doctor_id) {
+    var drId = resolveBillDoctorIdForDisplay(pl);
+    if (!drId) {
         wrap.style.display = 'none';
         labelEl.textContent = '—';
         return;
     }
     wrap.style.display = '';
-    labelEl.textContent = pendingListDoctorLabelById(pl.doctor_id);
+    labelEl.textContent = pendingListDoctorLabelById(drId);
 }
 
 function defaultBillDoctorIdForPendingList() {
@@ -18670,12 +18796,19 @@ function defaultBillDoctorIdForPendingList() {
 }
 
 function pendingListDoctorIdForPayment(pl) {
+    syncPendingDraftFromInputs();
+    syncPayPendingListDoctorFromUi();
     if (pl && pl.doctor_id) return pl.doctor_id;
     if (payPendingId) {
         var linked = pendingListByPayId(payPendingId);
         if (linked && linked.doctor_id) return linked.doctor_id;
     }
-    return pendingListDoctorIdFromUi() || '';
+    var uiId = pendingListDoctorIdFromUi();
+    var cur = (pendingIdx >= 0 && pendingLists[pendingIdx]) ? pendingLists[pendingIdx] : null;
+    if (uiId && cur && (!payPendingId || String(cur.id) === String(payPendingId))) {
+        return uiId;
+    }
+    return String(billApptDefaultDoctorId || '').trim();
 }
 
 function defaultBillDoctorId() {
@@ -18686,7 +18819,9 @@ function defaultBillDoctorId() {
         if (!id) return false;
         return pickerDocs.some(function (d) { return String(d.id) === String(id); });
     }
-    if (currentDoctorId && isPickable(currentDoctorId)) return currentDoctorId;
+    if (billDefaultUsesSessionDoctor() && currentDoctorId && isPickable(currentDoctorId)) {
+        return currentDoctorId;
+    }
     var role = String(currentRole || '').toLowerCase();
     if ((role === 'doctor' || role === 'dentist') && currentName) {
         var n = String(currentName).trim().toLowerCase();
@@ -18709,6 +18844,7 @@ function loadBillDoctors() {
         var def = defaultBillDoctorIdForPendingList();
         renderBillDoctorOptions(def, 'pendingListDoctor');
         syncPendingListDoctorSelectFromCurrentList();
+        applyAppointmentDoctorToCurrentPendingList();
         updateBillStep2DoctorSummary();
     }
 
@@ -19355,6 +19491,8 @@ function billPayAllAmount() {
 
 function saveBill(doPrint) {
     if (!payItems.length) { alert(tr('bill.alert.selectListFirst')); return; }
+
+    syncPayPendingListDoctorFromUi();
 
     var sub   = parseFloat(g('bSubtotal').textContent) || 0;
     var disc  = parseFloat(g('bDiscount').value)        || 0;

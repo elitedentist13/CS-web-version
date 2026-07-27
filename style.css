@@ -16952,6 +16952,110 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     color: #0369a1;
 }
 
+.rsvp-age-filter-bar {
+    margin: 0 0 12px;
+    padding: 12px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #f8fafc 0%, #fff 70%);
+}
+.rsvp-age-filter-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+.rsvp-age-filter-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+}
+.rsvp-age-filter-hint {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.4;
+}
+.rsvp-age-filter-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.rsvp-age-btn {
+    padding: 5px 11px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+}
+.rsvp-age-btn:hover { border-color: #0d9488; background: #f0fdfa; }
+.rsvp-age-btn.is-active {
+    background: #0d9488;
+    border-color: #0d9488;
+    color: #fff;
+}
+.rsvp-age-smart-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+.rsvp-age-smart-label {
+    font-size: 11px;
+    font-weight: 800;
+    color: #475569;
+}
+.rsvp-age-smart-input {
+    flex: 1;
+    min-width: 220px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+}
+.rsvp-age-smart-btn {
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 800;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #0d9488, #0f766e);
+    color: #fff;
+    cursor: pointer;
+}
+.rsvp-age-smart-btn:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+.rsvp-age-smart-status {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+}
+.rsvp-age-filter-meta {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #475569;
+    font-weight: 600;
+}
+.rsvp-age-pill {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+}
+.rsvp-age-pill.is-child { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.rsvp-age-pill.is-senior { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.rsvp-age-pill.is-unknown { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
 .rsvp-badge {
     display: inline-flex;
     align-items: center;

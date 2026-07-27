@@ -837,6 +837,71 @@
         'rsvp.filter.notComing': { en: 'Not coming', 'zh-CN': '不到', 'zh-Hant': '唔到' },
         'rsvp.filter.awaiting': { en: 'Awaiting', 'zh-CN': '等回复', 'zh-Hant': '等回覆' },
         'rsvp.filter.notSent': { en: 'Not sent', 'zh-CN': '未发送', 'zh-Hant': '未傳送' },
+        'rsvp.th.age': { en: 'Age', 'zh-CN': '年龄', 'zh-Hant': '年齡' },
+        'rsvp.age.title': {
+            en: 'Age smart filter',
+            'zh-CN': '年龄智能筛选',
+            'zh-Hant': '年齡智能篩選'
+        },
+        'rsvp.age.hint': {
+            en: 'Toggle Hide under 12 and/or Hide over 65 separately before sending RSVP. Ages use patient DOB; optional AI phrase match via Transformers.js.',
+            'zh-CN': '可分别勾选“隐藏未满 12”和“隐藏超过 65”后再发送 RSVP。年龄按出生日期计算；可用 Transformers.js 理解自然语言筛选。',
+            'zh-Hant': '可分別勾選「隱藏未滿 12」同「隱藏超過 65」再傳送 RSVP。年齡按出生日期計算；可用 Transformers.js 理解自然語句篩選。'
+        },
+        'rsvp.age.smartLabel': { en: 'Smart phrase', 'zh-CN': '智能语句', 'zh-Hant': '智能語句' },
+        'rsvp.age.smartPh': {
+            en: 'e.g. exclude kids under 12 and elderly over 65',
+            'zh-CN': '例如：排除 12 岁以下和 65 岁以上',
+            'zh-Hant': '例如：排除 12 歲以下同 65 歲以上'
+        },
+        'rsvp.age.smartApply': { en: 'Apply AI', 'zh-CN': 'AI 应用', 'zh-Hant': 'AI 套用' },
+        'rsvp.age.all': { en: 'All ages', 'zh-CN': '全部年龄', 'zh-Hant': '全部年齡' },
+        'rsvp.age.excludeBoth': { en: 'Hide <12 & 65+', 'zh-CN': '隐藏 <12 与 65+', 'zh-Hant': '隱藏 <12 與 65+' },
+        'rsvp.age.excludeChild': { en: 'Hide under 12', 'zh-CN': '隐藏未满 12', 'zh-Hant': '隱藏未滿 12' },
+        'rsvp.age.excludeSenior': { en: 'Hide over 65', 'zh-CN': '隐藏超过 65', 'zh-Hant': '隱藏超過 65' },
+        'rsvp.age.onlyAdult': { en: 'Ages 12–65 only', 'zh-CN': '仅 12–65 岁', 'zh-Hant': '僅 12–65 歲' },
+        'rsvp.age.onlyChild': { en: 'Under 12 only', 'zh-CN': '仅未满 12', 'zh-Hant': '僅未滿 12' },
+        'rsvp.age.onlySenior': { en: 'Over 65 only', 'zh-CN': '仅超过 65', 'zh-Hant': '僅超過 65' },
+        'rsvp.age.meta': {
+            en: 'Showing {V} of {T} · under 12: {C} · over 65: {S} · no DOB: {U}',
+            'zh-CN': '显示 {V}/{T} · 未满12: {C} · 超过65: {S} · 无生日: {U}',
+            'zh-Hant': '顯示 {V}/{T} · 未滿12: {C} · 超過65: {S} · 無生日: {U}'
+        },
+        'rsvp.age.hiddenN': {
+            en: 'filtered out: {H}',
+            'zh-CN': '已筛除: {H}',
+            'zh-Hant': '已篩除: {H}'
+        },
+        'rsvp.age.noDob': { en: 'No date of birth', 'zh-CN': '无出生日期', 'zh-Hant': '無出生日期' },
+        'rsvp.age.ofTotal': { en: 'of {T}', 'zh-CN': '/ 共 {T}', 'zh-Hant': '/ 共 {T}' },
+        'rsvp.age.aiLoading': {
+            en: 'Loading Transformers.js model (first time may take a minute)…',
+            'zh-CN': '正在加载 Transformers.js 模型（首次可能需一分钟）…',
+            'zh-Hant': '正在載入 Transformers.js 模型（首次可能需一分鐘）…'
+        },
+        'rsvp.age.aiNeedPhrase': { en: 'Enter a phrase first.', 'zh-CN': '请先输入筛选语句。', 'zh-Hant': '請先輸入篩選語句。' },
+        'rsvp.age.aiRuleOk': { en: 'Matched (rules): {MODE}', 'zh-CN': '已匹配（规则）: {MODE}', 'zh-Hant': '已匹配（規則）: {MODE}' },
+        'rsvp.age.aiRunning': {
+            en: 'Interpreting with Transformers.js…',
+            'zh-CN': '正在用 Transformers.js 理解…',
+            'zh-Hant': '正在用 Transformers.js 理解…'
+        },
+        'rsvp.age.aiOk': { en: 'AI matched: {MODE} ({PCT}%)', 'zh-CN': 'AI 匹配: {MODE}（{PCT}%）', 'zh-Hant': 'AI 匹配: {MODE}（{PCT}%）' },
+        'rsvp.age.aiFail': {
+            en: 'Could not match phrase. Try: “exclude under 12 and over 65”.',
+            'zh-CN': '无法识别语句。可试：“排除 12 岁以下和 65 岁以上”。',
+            'zh-Hant': '無法識別語句。可試：「排除 12 歲以下同 65 歲以上」。'
+        },
+        'rsvp.age.aiErr': {
+            en: 'AI model unavailable — use the preset buttons, or phrases like “exclude kids and elderly”.',
+            'zh-CN': 'AI 模型不可用 — 请用上方预设按钮，或输入如“排除小孩和老人”。',
+            'zh-Hant': 'AI 模型不可用 — 請用上方預設按鈕，或輸入如「排除小孩同老人」。'
+        },
+        'rsvp.emptyFiltered': {
+            en: 'No appointments match the current status / age filters.',
+            'zh-CN': '没有符合当前状态 / 年龄筛选的预约。',
+            'zh-Hant': '沒有符合目前狀態 / 年齡篩選的預約。'
+        },
         'rsvp.summary.coming': { en: 'Coming', 'zh-CN': '会到', 'zh-Hant': '會到' },
         'rsvp.summary.notComing': { en: 'Not coming', 'zh-CN': '不到', 'zh-Hant': '唔到' },
         'rsvp.summary.awaiting': { en: 'Awaiting', 'zh-CN': '等回复', 'zh-Hant': '等回覆' },

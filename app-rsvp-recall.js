@@ -25,6 +25,14 @@ var RSVP_RECALL = (function () {
     var _pollTimer = null;
     var _realtimeBound = false;
     var _filter = 'all';
+    /** Exclusive view: 'all' | 'only_adult' | 'only_child' | 'only_senior'. Hide toggles apply when mode is 'all'. */
+    var _ageOnly = 'all';
+    var _ageHideChild = false;
+    var _ageHideSenior = false;
+    var AGE_CHILD_LT = 12;
+    var AGE_SENIOR_GT = 65;
+    var _xfPipeline = null;
+    var _xfLoading = null;
 
     function g(id) { return document.getElementById(id); }
     function tr(key, fallback) {
@@ -116,6 +124,282 @@ var RSVP_RECALL = (function () {
         return true;
     }
 
+    function rowAgeYears(a) {
+        if (a && typeof a._ageYears === 'number' && !isNaN(a._ageYears)) return a._ageYears;
+        var dob = a && a.dob;
+        if (!dob) return null;
+        if (typeof patientAgeYears === 'function') return patientAgeYears(dob);
+        return null;
+    }
+
+    function ageBand(age) {
+        if (age == null || isNaN(age)) return 'unknown';
+        if (age < AGE_CHILD_LT) return 'child';
+        if (age > AGE_SENIOR_GT) return 'senior';
+        return 'adult';
+    }
+
+    function ageFilterPass(a) {
+        var age = rowAgeYears(a);
+        var band = ageBand(age);
+        if (_ageOnly === 'only_adult') return band === 'adult';
+        if (_ageOnly === 'only_child') return band === 'child';
+        if (_ageOnly === 'only_senior') return band === 'senior';
+        if (_ageHideChild && band === 'child') return false;
+        if (_ageHideSenior && band === 'senior') return false;
+        return true;
+    }
+
+    function ageFilterActive() {
+        return _ageOnly !== 'all' || _ageHideChild || _ageHideSenior;
+    }
+
+    function ageFilterSummaryLabel() {
+        if (_ageOnly === 'only_adult') return tr('rsvp.age.onlyAdult', 'Ages 12–65 only');
+        if (_ageOnly === 'only_child') return tr('rsvp.age.onlyChild', 'Under 12 only');
+        if (_ageOnly === 'only_senior') return tr('rsvp.age.onlySenior', 'Over 65 only');
+        var parts = [];
+        if (_ageHideChild) parts.push(tr('rsvp.age.excludeChild', 'Hide under 12'));
+        if (_ageHideSenior) parts.push(tr('rsvp.age.excludeSenior', 'Hide over 65'));
+        return parts.length ? parts.join(' + ') : tr('rsvp.age.all', 'All ages');
+    }
+
+    function visibleRows() {
+        return _rows.filter(function (a) {
+            return rsvpFilterBucket(effectiveStatus(a)) && ageFilterPass(a);
+        });
+    }
+
+    function ageFilterPresets() {
+        return [
+            { v: 'all', label: tr('rsvp.age.all', 'All ages'), kind: 'exclusive' },
+            { v: 'exclude_child', label: tr('rsvp.age.excludeChild', 'Hide under 12'), kind: 'toggle' },
+            { v: 'exclude_senior', label: tr('rsvp.age.excludeSenior', 'Hide over 65'), kind: 'toggle' },
+            { v: 'only_adult', label: tr('rsvp.age.onlyAdult', 'Ages 12–65 only'), kind: 'exclusive' },
+            { v: 'only_child', label: tr('rsvp.age.onlyChild', 'Under 12 only'), kind: 'exclusive' },
+            { v: 'only_senior', label: tr('rsvp.age.onlySenior', 'Over 65 only'), kind: 'exclusive' }
+        ];
+    }
+
+    function agePresetIsActive(v) {
+        if (v === 'all') return !ageFilterActive();
+        if (v === 'exclude_child') return _ageOnly === 'all' && _ageHideChild;
+        if (v === 'exclude_senior') return _ageOnly === 'all' && _ageHideSenior;
+        return _ageOnly === v;
+    }
+
+    function renderAgeFilters() {
+        var el = g('rsvpAgeFilterBtns');
+        if (!el) return;
+        el.innerHTML = ageFilterPresets().map(function (it) {
+            var active = agePresetIsActive(it.v) ? ' is-active' : '';
+            return (
+                '<button type="button" class="rsvp-age-btn' + active + '" data-rsvp-age="' +
+                esc(it.v) + '" aria-pressed="' + (active ? 'true' : 'false') + '">' +
+                esc(it.label) + '</button>'
+            );
+        }).join('');
+        renderAgeFilterMeta();
+    }
+
+    function renderAgeFilterMeta() {
+        var el = g('rsvpAgeFilterMeta');
+        if (!el) return;
+        var nAll = _rows.length;
+        var nVis = visibleRows().length;
+        var hidden = Math.max(0, nAll - nVis);
+        var childN = 0, seniorN = 0, unkN = 0;
+        _rows.forEach(function (a) {
+            var b = ageBand(rowAgeYears(a));
+            if (b === 'child') childN++;
+            else if (b === 'senior') seniorN++;
+            else if (b === 'unknown') unkN++;
+        });
+        var msg = tr('rsvp.age.meta',
+            'Showing {V} of {T} · under 12: {C} · over 65: {S} · no DOB: {U}')
+            .replace('{V}', String(nVis))
+            .replace('{T}', String(nAll))
+            .replace('{C}', String(childN))
+            .replace('{S}', String(seniorN))
+            .replace('{U}', String(unkN));
+        if (hidden) {
+            msg += ' · ' + tr('rsvp.age.hiddenN', 'filtered out: {H}').replace('{H}', String(hidden));
+        }
+        el.textContent = msg;
+    }
+
+    function pruneAgeSelection() {
+        var keep = Object.create(null);
+        visibleRows().forEach(function (a) {
+            if (_sel[a.id]) keep[a.id] = true;
+        });
+        _sel = keep;
+    }
+
+    function applyAgeState(opts) {
+        opts = opts || {};
+        if (!opts.keepSelection) pruneAgeSelection();
+        renderTable();
+        updateSelCount();
+    }
+
+    /** Apply exclusive mode or toggle hide-under-12 / hide-over-65 independently. */
+    function setAgeFilter(mode, opts) {
+        opts = opts || {};
+        mode = String(mode || 'all');
+        if (mode === 'exclude_child_senior') {
+            _ageOnly = 'all';
+            _ageHideChild = true;
+            _ageHideSenior = true;
+        } else if (mode === 'exclude_child') {
+            if (opts.fromAi) {
+                _ageOnly = 'all';
+                _ageHideChild = true;
+            } else {
+                _ageOnly = 'all';
+                _ageHideChild = !_ageHideChild;
+            }
+        } else if (mode === 'exclude_senior') {
+            if (opts.fromAi) {
+                _ageOnly = 'all';
+                _ageHideSenior = true;
+            } else {
+                _ageOnly = 'all';
+                _ageHideSenior = !_ageHideSenior;
+            }
+        } else if (mode === 'only_adult' || mode === 'only_child' || mode === 'only_senior') {
+            _ageOnly = mode;
+            _ageHideChild = false;
+            _ageHideSenior = false;
+        } else {
+            _ageOnly = 'all';
+            _ageHideChild = false;
+            _ageHideSenior = false;
+        }
+        applyAgeState(opts);
+    }
+
+    function ageLabelHtml(a) {
+        var age = rowAgeYears(a);
+        var band = ageBand(age);
+        var text = age == null ? '—' : String(age);
+        var cls = 'rsvp-age-pill';
+        if (band === 'child') cls += ' is-child';
+        else if (band === 'senior') cls += ' is-senior';
+        else if (band === 'unknown') cls += ' is-unknown';
+        return '<span class="' + cls + '" title="' +
+            esc(a.dob ? String(a.dob) : tr('rsvp.age.noDob', 'No date of birth')) +
+            '">' + esc(text) + '</span>';
+    }
+
+    /** Fast rule-based NL → age filter (works offline). */
+    function parseAgePhraseRules(text) {
+        var t = String(text || '').toLowerCase().trim();
+        if (!t) return null;
+        var wantChild = /(under\s*12|below\s*12|< ?12|children|child|kids?|pediatric|未成年|小孩|儿童|兒童|12歲以下|12岁以下)/i.test(t);
+        var wantSenior = /(over\s*65|above\s*65|> ?65|65\+|elderly|seniors?|aged|長者|长者|老人|65歲以上|65岁以上)/i.test(t);
+        var exclude = /(exclude|hide|filter\s*out|without|remove|不要|排除|隐藏|隱藏|唔要|不要發送|勿)/i.test(t);
+        var only = /(only|just|solely|只要|仅|僅|只顯示|只显示)/i.test(t);
+        var allAges = /(all\s*ages?|show\s*all|no\s*age\s*filter|全部年龄|全部年齡|不限年龄|不限年齡)/i.test(t);
+        if (allAges) return 'all';
+        if (only && wantChild && !wantSenior) return 'only_child';
+        if (only && wantSenior && !wantChild) return 'only_senior';
+        if (only && /adult|12.?65|working\s*age|成人|青壮年|青壯年/i.test(t)) return 'only_adult';
+        if (exclude && wantChild && wantSenior) return 'exclude_child_senior';
+        if (exclude && wantChild) return 'exclude_child';
+        if (exclude && wantSenior) return 'exclude_senior';
+        if (wantChild && wantSenior && !only) return 'exclude_child_senior';
+        if (/adults?\s*only|ages?\s*12|12\s*[–\-to]+\s*65/i.test(t)) return 'only_adult';
+        return null;
+    }
+
+    var AGE_ZS_LABELS = [
+        { key: 'all', label: 'show all ages with no age filter' },
+        { key: 'exclude_child_senior', label: 'exclude children under 12 and seniors over 65' },
+        { key: 'exclude_child', label: 'exclude only children under 12 years old' },
+        { key: 'exclude_senior', label: 'exclude only seniors over 65 years old' },
+        { key: 'only_adult', label: 'show only adults aged 12 to 65' },
+        { key: 'only_child', label: 'show only children under 12 years old' },
+        { key: 'only_senior', label: 'show only seniors over 65 years old' }
+    ];
+
+    function ensureZeroShotPipeline() {
+        if (_xfPipeline) return Promise.resolve(_xfPipeline);
+        if (_xfLoading) return _xfLoading;
+        setAgeSmartStatus(tr('rsvp.age.aiLoading', 'Loading Transformers.js model (first time may take a minute)…'));
+        _xfLoading = import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2')
+            .then(function (mod) {
+                if (mod.env) {
+                    mod.env.allowLocalModels = false;
+                    mod.env.useBrowserCache = true;
+                }
+                return mod.pipeline('zero-shot-classification', 'Xenova/mobilebert-uncased-mnli');
+            })
+            .then(function (pipe) {
+                _xfPipeline = pipe;
+                _xfLoading = null;
+                return pipe;
+            })
+            .catch(function (err) {
+                _xfLoading = null;
+                throw err;
+            });
+        return _xfLoading;
+    }
+
+    function classifyAgePhraseAi(text) {
+        return ensureZeroShotPipeline().then(function (pipe) {
+            var labels = AGE_ZS_LABELS.map(function (x) { return x.label; });
+            return pipe(String(text || ''), labels, { multi_label: false }).then(function (out) {
+                var top = (out && out.labels && out.labels[0]) || '';
+                var score = (out && out.scores && out.scores[0]) || 0;
+                var hit = AGE_ZS_LABELS.find(function (x) { return x.label === top; });
+                return { key: hit ? hit.key : null, score: score, label: top };
+            });
+        });
+    }
+
+    function setAgeSmartStatus(msg) {
+        var el = g('rsvpAgeSmartStatus');
+        if (el) el.textContent = msg || '';
+    }
+
+    function applyAgeSmartPhrase() {
+        var inp = g('rsvpAgeSmartInput');
+        var btn = g('rsvpAgeSmartBtn');
+        var text = inp ? String(inp.value || '').trim() : '';
+        if (!text) {
+            setAgeSmartStatus(tr('rsvp.age.aiNeedPhrase', 'Enter a phrase first.'));
+            return;
+        }
+        var ruled = parseAgePhraseRules(text);
+        if (ruled) {
+            setAgeFilter(ruled, { fromAi: true });
+            setAgeSmartStatus(tr('rsvp.age.aiRuleOk', 'Matched (rules): {MODE}')
+                .replace('{MODE}', ageFilterSummaryLabel()));
+            return;
+        }
+        if (btn) btn.disabled = true;
+        setAgeSmartStatus(tr('rsvp.age.aiRunning', 'Interpreting with Transformers.js…'));
+        classifyAgePhraseAi(text).then(function (res) {
+            if (btn) btn.disabled = false;
+            if (!res.key || res.score < 0.25) {
+                setAgeSmartStatus(tr('rsvp.age.aiFail',
+                    'Could not match phrase. Try: “exclude under 12 and over 65”.'));
+                return;
+            }
+            setAgeFilter(res.key, { fromAi: true });
+            setAgeSmartStatus(tr('rsvp.age.aiOk', 'AI matched: {MODE} ({PCT}%)')
+                .replace('{MODE}', ageFilterSummaryLabel())
+                .replace('{PCT}', String(Math.round(res.score * 100))));
+        }).catch(function (err) {
+            if (btn) btn.disabled = false;
+            console.warn('[RSVP age AI]', err);
+            setAgeSmartStatus(tr('rsvp.age.aiErr',
+                'AI model unavailable — use the preset buttons, or phrases like “exclude kids and elderly”.'));
+        });
+    }
+
     function countByStatus() {
         var c = { confirmed: 0, declined: 0, pending: 0, none: 0 };
         _rows.forEach(function (a) {
@@ -168,6 +452,7 @@ var RSVP_RECALL = (function () {
                 esc(it.v) + '">' + esc(it.label) + '</button>'
             );
         }).join('');
+        renderAgeFilters();
     }
     function setStatus(msg, isErr) {
         var el = g('rsvpStatus');
@@ -341,8 +626,12 @@ var RSVP_RECALL = (function () {
                 : tr('rsvp.pickDate', 'Select a date');
         }
         if (countEl) {
+            var nVis = visibleRows().length;
             countEl.textContent = _rows.length
-                ? tr('rsvp.count', '{N} appointment(s)').replace('{N}', String(_rows.length))
+                ? tr('rsvp.count', '{N} appointment(s)').replace('{N}', String(nVis)) +
+                  (ageFilterActive() && nVis !== _rows.length
+                      ? ' · ' + tr('rsvp.age.ofTotal', 'of {T}').replace('{T}', String(_rows.length))
+                      : '')
                 : tr('rsvp.countZero', 'No appointments');
         }
         renderSummary();
@@ -350,18 +639,16 @@ var RSVP_RECALL = (function () {
         if (!body) return;
         if (!_rows.length) {
             body.innerHTML =
-                '<tr><td colspan="8" style="text-align:center;padding:18px;color:#64748b;">' +
+                '<tr><td colspan="9" style="text-align:center;padding:18px;color:#64748b;">' +
                 esc(tr('rsvp.empty', 'No appointments for this date / clinic.')) +
                 '</td></tr>';
             return;
         }
-        var visible = _rows.filter(function (a) {
-            return rsvpFilterBucket(effectiveStatus(a));
-        });
+        var visible = visibleRows();
         if (!visible.length) {
             body.innerHTML =
-                '<tr><td colspan="8" style="text-align:center;padding:18px;color:#64748b;">' +
-                esc(tr('rsvp.empty', 'No appointments for this date / clinic.')) +
+                '<tr><td colspan="9" style="text-align:center;padding:18px;color:#64748b;">' +
+                esc(tr('rsvp.emptyFiltered', 'No appointments match the current status / age filters.')) +
                 '</td></tr>';
             return;
         }
@@ -405,6 +692,7 @@ var RSVP_RECALL = (function () {
                     ? '<div style="font-size:11px;color:#64748b;">' + esc(a.patient_name) + '</div>'
                     : '') +
                 '</td>' +
+                '<td>' + ageLabelHtml(a) + '</td>' +
                 '<td>' + esc(phone) + '</td>' +
                 '<td>' + esc(fmt12(a.start_time)) + '</td>' +
                 '<td>' + esc(doctorName(a)) + '</td>' +
@@ -453,15 +741,26 @@ var RSVP_RECALL = (function () {
             });
             var uniq = patIds.filter(function (id, i, arr) { return arr.indexOf(id) === i; });
             var phoneMap = Object.create(null);
+            var dobMap = Object.create(null);
             var phoneP = uniq.length
-                ? SB.from('patients').select('id,phone_number,mobile_phone').in('id', uniq)
+                ? SB.from('patients').select('id,phone_number,mobile_phone,dob').in('id', uniq)
                 : Promise.resolve({ data: [], error: null });
             return phoneP.then(function (pr) {
+                if (pr.error) {
+                    console.warn('[RSVP] patient phone/dob load:', pr.error.message);
+                    return SB.from('patients').select('id,phone_number,mobile_phone').in('id', uniq)
+                        .then(function (pr2) { return pr2.error ? { data: [] } : pr2; });
+                }
+                return pr;
+            }).then(function (pr) {
                 (pr.data || []).forEach(function (p) {
                     phoneMap[p.id] = String(p.mobile_phone || p.phone_number || '').trim();
+                    if (p.dob) dobMap[p.id] = p.dob;
                 });
                 list.forEach(function (a) {
                     a.phone = phoneMap[a.patient_id] || a.walk_in_phone || '';
+                    a.dob = dobMap[a.patient_id] || a.dob || null;
+                    a._ageYears = typeof patientAgeYears === 'function' ? patientAgeYears(a.dob) : null;
                 });
                 _rows = list;
                 var ids = list.map(function (a) { return a.id; });
@@ -483,10 +782,12 @@ var RSVP_RECALL = (function () {
     }
 
     function selectAll(on) {
-        _rows.forEach(function (a) {
-            if (on) _sel[a.id] = true;
-            else delete _sel[a.id];
-        });
+        var list = on ? visibleRows() : _rows;
+        if (on) {
+            list.forEach(function (a) { _sel[a.id] = true; });
+        } else {
+            _sel = Object.create(null);
+        }
         renderTable();
         updateSelCount();
     }
@@ -585,7 +886,7 @@ var RSVP_RECALL = (function () {
             setStatus(tr('rsvp.alert.noAi', 'AI Helper / Twilio send is unavailable.'), true);
             return;
         }
-        var queue = _rows.filter(function (a) { return _sel[a.id]; });
+        var queue = visibleRows().filter(function (a) { return _sel[a.id]; });
         if (!queue.length) {
             setStatus(tr('rsvp.alert.noneSelected', 'Select at least one appointment.'), true);
             return;
@@ -737,10 +1038,22 @@ var RSVP_RECALL = (function () {
         });
 
         root.addEventListener('click', function (ev) {
+            var ageFilt = ev.target && ev.target.closest ? ev.target.closest('[data-rsvp-age]') : null;
+            if (ageFilt) {
+                setAgeFilter(ageFilt.getAttribute('data-rsvp-age') || 'all');
+                setAgeSmartStatus('');
+                return;
+            }
             var filt = ev.target && ev.target.closest ? ev.target.closest('[data-rsvp-filter]') : null;
             if (filt) {
                 _filter = filt.getAttribute('data-rsvp-filter') || 'all';
+                var keep = Object.create(null);
+                visibleRows().forEach(function (a) {
+                    if (_sel[a.id]) keep[a.id] = true;
+                });
+                _sel = keep;
                 renderTable();
+                updateSelCount();
                 return;
             }
             var btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
@@ -759,6 +1072,17 @@ var RSVP_RECALL = (function () {
         if (clearBtn) clearBtn.addEventListener('click', function () { selectAll(false); });
         var refreshBtn = g('rsvpRefreshBtn');
         if (refreshBtn) refreshBtn.addEventListener('click', function () { loadPatients(_date); });
+        var smartBtn = g('rsvpAgeSmartBtn');
+        if (smartBtn) smartBtn.addEventListener('click', applyAgeSmartPhrase);
+        var smartInp = g('rsvpAgeSmartInput');
+        if (smartInp) {
+            smartInp.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    applyAgeSmartPhrase();
+                }
+            });
+        }
         var openSetup = g('rsvpOpenTwilioSetup');
         if (openSetup) {
             openSetup.addEventListener('click', function () {

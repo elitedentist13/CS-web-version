@@ -85,9 +85,12 @@ var RSVP_RECALL = (function () {
             (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) ? currentClinicLabel : ''
         ).trim() || 'Clinic';
     }
-    function doctorName(a) {
+    function doctorName(a, bodyHint) {
         if (typeof apptDoctorNameForWhatsApp === 'function') {
-            return String(apptDoctorNameForWhatsApp(a) || '').trim();
+            return String(apptDoctorNameForWhatsApp(a, { body: bodyHint || '' }) || '').trim();
+        }
+        if (typeof doctorNameForOutboundMessage === 'function') {
+            return String(doctorNameForOutboundMessage(a, { body: bodyHint || '' }) || '').trim();
         }
         return String((a && (a.doctor_name || a.doctor_code)) || '').trim();
     }
@@ -648,7 +651,7 @@ var RSVP_RECALL = (function () {
             clinic: clinicLabel(bodyHint),
             date: dateStr,
             time: fmt12(a.start_time),
-            doctor: doctorName(a),
+            doctor: doctorName(a, bodyHint),
             phone: a.phone || '',
             patientNo: a.patient_no || '',
             body: bodyHint,

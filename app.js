@@ -687,20 +687,7 @@ function detectOutboundMessageLang(text) {
  */
 function clinicNameForOutboundMessage(opts) {
     opts = opts || {};
-    var lang = String(opts.lang || '').trim().toLowerCase();
-    if (lang === 'zh' || lang === 'zh-hant' || lang === 'zh-hk' || lang === 'zh-cn' ||
-        lang === 'zh-tw' || lang === 'chinese' || lang === 'hant' || lang === 'cn') {
-        lang = 'zh';
-    } else if (lang === 'en' || lang === 'en-hk' || lang === 'en-us' || lang === 'english') {
-        lang = 'en';
-    } else {
-        lang = '';
-    }
-    if (!lang) lang = detectOutboundMessageLang(opts.body || opts.text || '');
-    if (!lang) {
-        lang = (typeof printUiLangIsChinese === 'function' && printUiLangIsChinese()) ? 'zh' : 'en';
-    }
-
+    var lang = resolveOutboundMessageLang(opts);
     var rec = opts.clinic || null;
     if (!rec) {
         var cid = opts.clinicId ||
@@ -715,6 +702,89 @@ function clinicNameForOutboundMessage(opts) {
     var fallback = String(opts.fallback || 'Joyful Smile').trim() || 'Joyful Smile';
     if (lang === 'zh') return chi || eng || fallback;
     return eng || chi || fallback;
+}
+
+/** Normalize opts.lang / body → 'zh' | 'en'. */
+function resolveOutboundMessageLang(opts) {
+    opts = opts || {};
+    var lang = String(opts.lang || '').trim().toLowerCase();
+    if (lang === 'zh' || lang === 'zh-hant' || lang === 'zh-hk' || lang === 'zh-cn' ||
+        lang === 'zh-tw' || lang === 'chinese' || lang === 'hant' || lang === 'cn') {
+        return 'zh';
+    }
+    if (lang === 'en' || lang === 'en-hk' || lang === 'en-us' || lang === 'english') {
+        return 'en';
+    }
+    lang = detectOutboundMessageLang(opts.body || opts.text || '');
+    if (lang === 'zh' || lang === 'en') return lang;
+    return (typeof printUiLangIsChinese === 'function' && printUiLangIsChinese()) ? 'zh' : 'en';
+}
+
+/** Find doctors-table row from appointment / source fields. */
+function findDoctorRecordForMessage(source) {
+    source = source || {};
+    var docs = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS))
+        ? APP_DOCTORS
+        : [];
+    var id = source.doctor_id || source.doctorId || null;
+    if (id) {
+        var byId = null;
+        if (typeof getDoctorById === 'function') byId = getDoctorById(id);
+        if (!byId) {
+            var sid = String(id);
+            byId = docs.find(function (d) { return d && String(d.id) === sid; }) || null;
+        }
+        if (byId) return byId;
+    }
+    var code = String(source.doctor_code || '').trim().toLowerCase();
+    if (code) {
+        var byCode = docs.find(function (d) {
+            return String(d.doctor_code || '').trim().toLowerCase() === code;
+        });
+        if (byCode) return byCode;
+    }
+    var raw = String(source.doctor_name || source.dentist_name || '').trim();
+    if (typeof stripDoctorTagPrefix === 'function') raw = stripDoctorTagPrefix(raw);
+    var nk = raw.toLowerCase().replace(/^dr\.?\s+/i, '').replace(/\s+/g, ' ').trim();
+    if (nk) {
+        var byName = docs.find(function (d) {
+            if (!d) return false;
+            var cands = [
+                String(d.english_name || '').trim().toLowerCase().replace(/^dr\.?\s+/i, '').replace(/\s+/g, ' '),
+                String(d.chinese_name || '').trim().toLowerCase(),
+                String(d.display_name || '').trim().toLowerCase().replace(/^dr\.?\s+/i, '').replace(/\s+/g, ' ')
+            ].filter(Boolean);
+            return cands.some(function (c) {
+                return c === nk || (nk.length >= 2 && (c.indexOf(nk) >= 0 || nk.indexOf(c) >= 0));
+            });
+        });
+        if (byName) return byName;
+    }
+    return null;
+}
+
+/**
+ * Doctor name for outbound SMS/WhatsApp — matches paragraph language.
+ * @param {object} [source] appointment-like row
+ * @param {{body?:string,text?:string,lang?:string,doctor?:object,fallback?:string}} [opts]
+ */
+function doctorNameForOutboundMessage(source, opts) {
+    opts = opts || {};
+    source = source || {};
+    var lang = resolveOutboundMessageLang(opts);
+    var rec = opts.doctor || findDoctorRecordForMessage(source);
+    var eng = '';
+    var chi = '';
+    if (rec) {
+        eng = String(rec.english_name || rec.display_name || '').trim();
+        chi = String(rec.chinese_name || '').trim();
+    }
+    var stored = String(source.doctor_name || source.dentist_name || '').trim();
+    if (typeof stripDoctorTagPrefix === 'function') stored = stripDoctorTagPrefix(stored);
+    var code = String(source.doctor_code || '').trim();
+    var fallback = String(opts.fallback != null ? opts.fallback : '-').trim() || '-';
+    if (lang === 'zh') return chi || eng || stored || code || fallback;
+    return eng || chi || stored || code || fallback;
 }
 
 function nowLocal() {

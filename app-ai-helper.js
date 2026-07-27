@@ -1235,9 +1235,12 @@ var AIHELPER = AIHELPER || {};
 
     /** Web-app placeholders staff can map onto Twilio {{n}} slots. */
     var TWILIO_WEB_FIELDS = [
-        'NAME', 'FULL_NAME', 'FIRST', 'CHINESE', 'ENGLISH',
-        'CLINIC', 'DATE', 'TIME', 'DOCTOR', 'TREATMENT',
-        'PHONE', 'PATIENT_NO', 'BODY'
+        'NAME', 'NAME_EN', 'NAME_ZH', 'FULL_NAME', 'FULL_NAME_EN', 'FULL_NAME_ZH',
+        'FIRST', 'CHINESE', 'ENGLISH',
+        'CLINIC', 'CLINIC_EN', 'CLINIC_ZH', 'CLINIC_CHI',
+        'DATE', 'TIME',
+        'DOCTOR', 'DOCTOR_EN', 'DOCTOR_ZH', 'DOCTOR_CHI',
+        'TREATMENT', 'PHONE', 'PATIENT_NO', 'BODY'
     ];
 
     /** Sensible defaults when a template has no saved var_map yet. */

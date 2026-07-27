@@ -233,6 +233,49 @@ var MASSBC = (function () {
         return chi || 'Patient';
     }
 
+    /** Forced English greeting name for {NAME_EN}. */
+    function patientNameEn(p) {
+        var eng = String((p && p.full_name) || '').trim();
+        var chi = String((p && p.chinese_name) || '').trim();
+        if (eng) return eng.split(/\s+/)[0] || eng;
+        return chi || 'Patient';
+    }
+
+    /** Forced Chinese greeting name for {NAME_ZH}. */
+    function patientNameZh(p) {
+        var chi = String((p && p.chinese_name) || '').trim();
+        var eng = String((p && p.full_name) || '').trim();
+        return chi || eng || 'Patient';
+    }
+
+    function patientFullEn(p) {
+        var eng = String((p && p.full_name) || '').trim();
+        var chi = String((p && p.chinese_name) || '').trim();
+        return eng || chi || '—';
+    }
+
+    function patientFullZh(p) {
+        var chi = String((p && p.chinese_name) || '').trim();
+        var eng = String((p && p.full_name) || '').trim();
+        return chi || eng || '—';
+    }
+
+    function clinicRecordForPatient(p) {
+        if (typeof currentClinicId !== 'undefined' && currentClinicId &&
+            typeof clinicRecordFromId === 'function') {
+            var cur = clinicRecordFromId(currentClinicId);
+            if (cur) return cur;
+        }
+        if (p && p.clinic_tag && typeof APP_CLINICS !== 'undefined' && APP_CLINICS) {
+            var t = String(p.clinic_tag).trim();
+            for (var i = 0; i < APP_CLINICS.length; i++) {
+                var c = APP_CLINICS[i];
+                if (String(c.id) === t || String(c.clinic_code || '') === t) return c;
+            }
+        }
+        return null;
+    }
+
     /** Shell / import junk rows: no number and no name — they sort first and look blank. */
     function isBlankContact(p) {
         if (!p) return true;
@@ -4441,18 +4484,40 @@ var MASSBC = (function () {
         var bodyHint = bodyEl ? String(bodyEl.value || '') : String(_smsBody || '');
         var lang = messageLangFromBody(bodyHint);
         if (f === 'NAME' || f === 'FIRST') return lang === 'zh' ? '陳大文' : 'Alex';
+        if (f === 'NAME_EN') return 'Alex';
+        if (f === 'NAME_ZH') return '陳大文';
         if (f === 'FULL_NAME') return lang === 'zh' ? '陳大文' : 'Alex Chan';
-        if (f === 'ENGLISH') return 'Alex Chan';
-        if (f === 'CHINESE') return '陳大文';
+        if (f === 'FULL_NAME_EN' || f === 'ENGLISH') return 'Alex Chan';
+        if (f === 'FULL_NAME_ZH' || f === 'CHINESE') return '陳大文';
         if (f === 'CLINIC') {
             if (typeof clinicNameForOutboundMessage === 'function') {
                 return clinicNameForOutboundMessage({ body: bodyHint, fallback: 'Joyful Smile' });
             }
             return lang === 'zh' ? '歡樂笑容牙科' : 'Joyful Smile';
         }
+        if (f === 'CLINIC_EN') {
+            return typeof clinicNameForOutboundMessage === 'function'
+                ? (clinicNameForOutboundMessage({ lang: 'en', fallback: 'Joyful Smile' }) || 'Joyful Smile')
+                : 'Joyful Smile';
+        }
+        if (f === 'CLINIC_ZH' || f === 'CLINIC_CHI') {
+            return typeof clinicNameForOutboundMessage === 'function'
+                ? (clinicNameForOutboundMessage({ lang: 'zh', fallback: 'Joyful Smile' }) || 'Joyful Smile')
+                : '歡樂笑容牙科';
+        }
         if (f === 'DATE') return '2026-07-22';
         if (f === 'TIME') return '10:00 AM';
-        if (f === 'DOCTOR') return 'Chan';
+        if (f === 'DOCTOR') {
+            if (typeof doctorNameForOutboundMessage === 'function') {
+                return doctorNameForOutboundMessage({}, {
+                    body: bodyHint,
+                    doctor: { english_name: 'Chan Tai Man', chinese_name: '陳大文' }
+                }) || (lang === 'zh' ? '陳大文' : 'Chan Tai Man');
+            }
+            return lang === 'zh' ? '陳大文' : 'Chan Tai Man';
+        }
+        if (f === 'DOCTOR_EN') return 'Chan Tai Man';
+        if (f === 'DOCTOR_ZH' || f === 'DOCTOR_CHI') return '陳大文';
         if (f === 'TREATMENT') return 'Check-up';
         if (f === 'PHONE') return '+85291234567';
         if (f === 'PATIENT_NO') return '001234';
@@ -4494,21 +4559,7 @@ var MASSBC = (function () {
     }
 
     function broadcastClinicName(p, bodyHint) {
-        var rec = null;
-        if (typeof currentClinicId !== 'undefined' && currentClinicId &&
-            typeof clinicRecordFromId === 'function') {
-            rec = clinicRecordFromId(currentClinicId);
-        }
-        if (!rec && p && p.clinic_tag && typeof APP_CLINICS !== 'undefined' && APP_CLINICS) {
-            var t = String(p.clinic_tag).trim();
-            for (var i = 0; i < APP_CLINICS.length; i++) {
-                var c = APP_CLINICS[i];
-                if (String(c.id) === t || String(c.clinic_code || '') === t) {
-                    rec = c;
-                    break;
-                }
-            }
-        }
+        var rec = clinicRecordForPatient(p);
         if (typeof clinicNameForOutboundMessage === 'function') {
             return clinicNameForOutboundMessage({
                 body: bodyHint || '',
@@ -4522,10 +4573,28 @@ var MASSBC = (function () {
         return clinicLabel(p && p.clinic_tag) || 'Joyful Smile';
     }
 
+    function broadcastClinicNameLang(p, lang) {
+        var rec = clinicRecordForPatient(p);
+        if (typeof clinicNameForOutboundMessage === 'function') {
+            return clinicNameForOutboundMessage({
+                lang: lang,
+                clinic: rec,
+                fallback: 'Joyful Smile'
+            });
+        }
+        return broadcastClinicName(p, lang === 'zh' ? '診所' : 'clinic');
+    }
+
     function personaliseSms(body, p) {
         var clinic = broadcastClinicName(p, body);
+        var clinicEn = broadcastClinicNameLang(p, 'en');
+        var clinicZh = broadcastClinicNameLang(p, 'zh');
         var fullName = displayNameForMessage(p, body);
+        var fullEn = patientFullEn(p);
+        var fullZh = patientFullZh(p);
         var name = firstNameForMessage(p, body);
+        var nameEn = patientNameEn(p);
+        var nameZh = patientNameZh(p);
         var appt = p && Object.prototype.hasOwnProperty.call(p, '_nextAppt')
             ? p._nextAppt
             : null;
@@ -4536,8 +4605,21 @@ var MASSBC = (function () {
                 ? String(fmt12(appt.start_time) || '')
                 : String(appt.start_time);
         }
-        var doctor = broadcastDoctorName(appt);
+        var doctor = broadcastDoctorName(appt, body);
+        var doctorEn = broadcastDoctorNameLang(appt, 'en');
+        var doctorZh = broadcastDoctorNameLang(appt, 'zh');
+        // Longer dual tokens first so {NAME_EN} is not eaten by {NAME}.
         return String(body || '')
+            .replace(/\{FULL_NAME_EN\}/gi, fullEn)
+            .replace(/\{FULL_NAME_ZH\}/gi, fullZh)
+            .replace(/\{NAME_EN\}/gi, nameEn)
+            .replace(/\{NAME_ZH\}/gi, nameZh)
+            .replace(/\{CLINIC_EN\}/gi, clinicEn || 'Joyful Smile')
+            .replace(/\{CLINIC_ZH\}/gi, clinicZh || clinicEn || 'Joyful Smile')
+            .replace(/\{CLINIC_CHI\}/gi, clinicZh || clinicEn || 'Joyful Smile')
+            .replace(/\{DOCTOR_EN\}/gi, doctorEn || '-')
+            .replace(/\{DOCTOR_ZH\}/gi, doctorZh || doctorEn || '-')
+            .replace(/\{DOCTOR_CHI\}/gi, doctorZh || doctorEn || '-')
             .replace(/\{FULL_NAME\}/gi, fullName)
             .replace(/\{NAME\}/gi, name)
             .replace(/\{CLINIC\}/gi, clinic || 'Joyful Smile')
@@ -4548,12 +4630,23 @@ var MASSBC = (function () {
             .replace(/\{PATIENT_NO\}/gi, String(p.patient_no || ''));
     }
 
-    function broadcastDoctorName(appt) {
+    function broadcastDoctorName(appt, bodyHint) {
         if (!appt) return '';
         if (typeof apptDoctorNameForWhatsApp === 'function') {
-            return apptDoctorNameForWhatsApp(appt);
+            return apptDoctorNameForWhatsApp(appt, { body: bodyHint || '' });
+        }
+        if (typeof doctorNameForOutboundMessage === 'function') {
+            return doctorNameForOutboundMessage(appt, { body: bodyHint || '' });
         }
         return String(appt.doctor_name || appt.doctor_code || '').trim();
+    }
+
+    function broadcastDoctorNameLang(appt, lang) {
+        if (!appt) return '';
+        if (typeof doctorNameForOutboundMessage === 'function') {
+            return doctorNameForOutboundMessage(appt, { lang: lang }) || '-';
+        }
+        return broadcastDoctorName(appt, lang === 'zh' ? '醫生' : 'doctor');
     }
 
     /** Next upcoming appointment for a patient (for date/time/doctor fields). */
@@ -4568,7 +4661,7 @@ var MASSBC = (function () {
             ? todayISO()
             : new Date().toISOString().slice(0, 10);
         return SB.from('appointments')
-            .select('date,start_time,doctor_code,doctor_name,patient_name,patient_chinese_name')
+            .select('date,start_time,doctor_id,doctor_code,doctor_name,patient_name,patient_chinese_name')
             .eq('patient_id', p.id)
             .gte('date', today)
             .order('date', { ascending: true })
@@ -5158,7 +5251,7 @@ var MASSBC = (function () {
                         ? fmt12(appt.start_time)
                         : String(appt.start_time);
                 }
-                var doctor = broadcastDoctorName(appt);
+                var doctor = broadcastDoctorName(appt, tplHint);
                 if (typeof AIHELPER !== 'undefined' &&
                     typeof AIHELPER.buildTwilioContentVariables === 'function') {
                     opts.contentVariables = AIHELPER.buildTwilioContentVariables(tpl, {
@@ -5170,7 +5263,21 @@ var MASSBC = (function () {
                         doctor: doctor,
                         phone: phoneOf(p),
                         patientNo: p.patient_no || '',
-                        body: body
+                        body: body,
+                        fields: {
+                            NAME_EN: patientNameEn(p),
+                            NAME_ZH: patientNameZh(p),
+                            FULL_NAME_EN: patientFullEn(p),
+                            FULL_NAME_ZH: patientFullZh(p),
+                            CLINIC_EN: broadcastClinicNameLang(p, 'en'),
+                            CLINIC_ZH: broadcastClinicNameLang(p, 'zh'),
+                            CLINIC_CHI: broadcastClinicNameLang(p, 'zh'),
+                            DOCTOR_EN: broadcastDoctorNameLang(appt, 'en'),
+                            DOCTOR_ZH: broadcastDoctorNameLang(appt, 'zh'),
+                            DOCTOR_CHI: broadcastDoctorNameLang(appt, 'zh'),
+                            ENGLISH: patientFullEn(p),
+                            CHINESE: patientFullZh(p)
+                        }
                     });
                 } else {
                     opts.contentVariables = { '1': name };

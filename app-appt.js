@@ -9771,6 +9771,12 @@ function recallMessageFieldValues(a, opts) {
     var clinic = (typeof apptClinicNameForWhatsApp === 'function'
         ? apptClinicNameForWhatsApp({ body: bodyHint, lang: opts.lang })
         : '') || 'Joyful Smile';
+    var clinicEn = (typeof clinicNameForOutboundMessage === 'function'
+        ? clinicNameForOutboundMessage({ lang: 'en', fallback: 'Joyful Smile' })
+        : clinic) || 'Joyful Smile';
+    var clinicZh = (typeof clinicNameForOutboundMessage === 'function'
+        ? clinicNameForOutboundMessage({ lang: 'zh', fallback: clinicEn })
+        : clinic) || clinicEn;
     var date = String(a.date || rcDate || '');
     var time = '';
     if (a.start_time) {
@@ -9779,23 +9785,45 @@ function recallMessageFieldValues(a, opts) {
             : String(a.start_time);
     }
     var doctor = (typeof apptDoctorNameForWhatsApp === 'function')
-        ? apptDoctorNameForWhatsApp(a)
+        ? apptDoctorNameForWhatsApp(a, { body: bodyHint, lang: opts.lang })
         : String(a.doctor_name || a.doctor_code || '').trim();
     if (!doctor) doctor = '-';
+    var doctorEn = (typeof doctorNameForOutboundMessage === 'function'
+        ? doctorNameForOutboundMessage(a, { lang: 'en' })
+        : doctor) || '-';
+    var doctorZh = (typeof doctorNameForOutboundMessage === 'function'
+        ? doctorNameForOutboundMessage(a, { lang: 'zh' })
+        : doctor) || doctorEn;
+    var nameEn = english
+        ? (english.split(/\s+/)[0] || english)
+        : (chinese || 'Patient');
+    var nameZh = chinese || english || 'Patient';
+    var fullEn = english || chinese || '';
+    var fullZh = chinese || english || '';
     var treatment = String(a.treatment_items || '').trim() || '-';
     var phone = String(a.phone || a._merged_phone || '').trim();
     var patientNo = String(a.patient_no || '').trim();
 
     return {
         NAME: name,
+        NAME_EN: nameEn,
+        NAME_ZH: nameZh,
         FULL_NAME: fullName,
+        FULL_NAME_EN: fullEn,
+        FULL_NAME_ZH: fullZh,
         FIRST: first,
         CHINESE: chinese,
         ENGLISH: english,
         CLINIC: clinic,
+        CLINIC_EN: clinicEn,
+        CLINIC_ZH: clinicZh,
+        CLINIC_CHI: clinicZh,
         DATE: date,
         TIME: time,
         DOCTOR: doctor,
+        DOCTOR_EN: doctorEn,
+        DOCTOR_ZH: doctorZh,
+        DOCTOR_CHI: doctorZh,
         TREATMENT: treatment,
         PHONE: phone,
         PATIENT_NO: patientNo,
@@ -9808,8 +9836,11 @@ function applyRecallPlaceholders(template, a) {
     var msg = String(template || '');
     if (!msg) return '';
     var f = recallMessageFieldValues(a, { body: msg });
-    // Longer tokens first so PATIENT_NO / FULL_NAME win over NO / NAME fragments.
+    // Longer tokens first so PATIENT_NO / FULL_NAME_EN / NAME_EN win over shorter ones.
     var keys = [
+        'FULL_NAME_EN', 'FULL_NAME_ZH', 'NAME_EN', 'NAME_ZH',
+        'CLINIC_EN', 'CLINIC_ZH', 'CLINIC_CHI',
+        'DOCTOR_EN', 'DOCTOR_ZH', 'DOCTOR_CHI',
         'FULL_NAME', 'PATIENT_NO', 'TREATMENT', 'CHINESE', 'ENGLISH',
         'CLINIC', 'DOCTOR', 'PHONE', 'FIRST', 'NAME', 'DATE', 'TIME', 'NO'
     ];
@@ -9833,7 +9864,9 @@ function buildRecallPersonalised(a) {
 }
 
 var RC_PLACEHOLDER_CHIPS = [
-    'NAME', 'FULL_NAME', 'CLINIC', 'DATE', 'TIME', 'DOCTOR',
+    'NAME', 'NAME_EN', 'NAME_ZH', 'FULL_NAME', 'FULL_NAME_EN', 'FULL_NAME_ZH',
+    'CLINIC', 'CLINIC_EN', 'CLINIC_ZH', 'DATE', 'TIME',
+    'DOCTOR', 'DOCTOR_EN', 'DOCTOR_ZH',
     'TREATMENT', 'CHINESE', 'ENGLISH', 'PHONE', 'PATIENT_NO'
 ];
 
@@ -9915,7 +9948,17 @@ function recallTwilioContentCtx(a, extra) {
             TREATMENT: f.TREATMENT,
             CHINESE: f.CHINESE,
             ENGLISH: f.ENGLISH,
-            FIRST: f.FIRST
+            FIRST: f.FIRST,
+            NAME_EN: f.NAME_EN,
+            NAME_ZH: f.NAME_ZH,
+            FULL_NAME_EN: f.FULL_NAME_EN,
+            FULL_NAME_ZH: f.FULL_NAME_ZH,
+            CLINIC_EN: f.CLINIC_EN,
+            CLINIC_ZH: f.CLINIC_ZH,
+            CLINIC_CHI: f.CLINIC_CHI,
+            DOCTOR_EN: f.DOCTOR_EN,
+            DOCTOR_ZH: f.DOCTOR_ZH,
+            DOCTOR_CHI: f.DOCTOR_CHI
         }
     };
     if (extra && typeof extra === 'object') {
@@ -14455,8 +14498,14 @@ function apptPatientNameForWhatsApp(a) {
     return String(a.patient_chinese_name || a._merged_chinese_name || a.patient_name || tr('appt.today.thisPatient')).trim();
 }
 
-function apptDoctorNameForWhatsApp(a) {
+function apptDoctorNameForWhatsApp(a, opts) {
     a = a || {};
+    opts = opts || {};
+    // When message body/lang is provided, pick EN/ZH doctor name from catalog.
+    if ((opts.body || opts.text || opts.lang) &&
+        typeof doctorNameForOutboundMessage === 'function') {
+        return doctorNameForOutboundMessage(a, opts) || '-';
+    }
     var dr = String(a.doctor_name || a.dentist_name || '').trim();
     if (!dr && a.doctor_code && typeof APP_DOCTORS !== 'undefined') {
         var code = String(a.doctor_code || '').trim().toLowerCase();
@@ -14496,7 +14545,7 @@ function apptWhatsAppMessage(a, kind) {
         CLINIC: apptClinicNameForWhatsApp({ body: rawTpl }),
         DATE: a.date || (typeof todayISO === 'function' ? todayISO() : ''),
         TIME: a.start_time ? fmt12(a.start_time) : '',
-        DOCTOR: apptDoctorNameForWhatsApp(a),
+        DOCTOR: apptDoctorNameForWhatsApp(a, { body: rawTpl }),
         TREATMENT: String(a.treatment_items || '').trim() || '-'
     });
 }

@@ -6442,26 +6442,13 @@ function conResolveActiveClinicRecordForLabels() {
     return rec;
 }
 
-/** Resolved from active clinic context for label header; falls back to session label. */
+/** Resolved from active clinic context for label header; falls back to session label.
+ *  Language follows the label print choice (EN/ZH buttons), not the UI locale —
+ *  otherwise English labels still show chinese_name when the app is in Chinese. */
 function currentActiveClinicLabelForPrinting(isZh) {
     var rec = conResolveActiveClinicRecordForLabels();
-    if (rec && typeof clinicDisplayName === 'function') {
-        var useZh = !!isZh || (typeof printUiLangIsChinese === 'function' && printUiLangIsChinese());
-        if (useZh) {
-            var cn = String(rec.chinese_name || '').trim();
-            if (cn) return cn;
-        }
-        var en = String(rec.english_name || '').trim();
-        if (en) return en;
-        return clinicDisplayName(rec) || '—';
-    }
-
     var en = rec ? String(rec.english_name || '').trim() : '';
     var cn = rec ? String(rec.chinese_name || '').trim() : '';
-
-    if (!en && typeof currentClinicLabel === 'string') {
-        en = currentClinicLabel.trim();
-    }
 
     if (isZh) {
         if (cn) return cn;
@@ -6471,8 +6458,13 @@ function currentActiveClinicLabelForPrinting(isZh) {
         if (cn) return cn;
     }
 
-    if (en) return en;
-    if (cn) return cn;
+    // Prefer bilingual fields above; session label is UI-locale and only a last resort.
+    if (typeof currentClinicLabel === 'string' && currentClinicLabel.trim()) {
+        return currentClinicLabel.trim();
+    }
+    if (rec && typeof clinicDisplayName === 'function') {
+        return clinicDisplayName(rec) || '—';
+    }
     return '—';
 }
 

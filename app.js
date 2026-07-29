@@ -2367,6 +2367,16 @@ var PATIENT_SEARCH_SELECT =
     'occupation,remarks,medical_alerts,medical_history,current_medications,allergy,banana_index,banana_notes,' +
     PATIENT_CLINIC_TAG_FIELD;
 
+/**
+ * Row cap for quick-search dropdowns (Queue / Today / Plus-Appt / Appt modal /
+ * Consultation tabs). Substring ilike matches can collide across many patients
+ * (e.g. "NG WING YEE" is also a substring of "CHEUNG WING YEE", "WONG WING YEE",
+ * etc. — any "-ng" surname + the same given name). Without a generous cap +
+ * deterministic order, the intended patient can be silently cut off. The
+ * dropdown (.ps-drop) already scrolls, so a higher cap here is safe.
+ */
+var PATIENT_SEARCH_DROPDOWN_LIMIT = 25;
+
 function patientSearchQueryBuilder(q, extraSelect, opts) {
     opts = opts || {};
     var normQ = patientSearchNormalizeInputQuery(q);
@@ -2378,7 +2388,11 @@ function patientSearchQueryBuilder(q, extraSelect, opts) {
         ? 'id,patient_no,full_name,chinese_name,sex,dob,phone_number,mobile_phone,hkid,email,' +
           PATIENT_CLINIC_TAG_FIELD
         : PATIENT_SEARCH_SELECT) + (extraSelect ? ',' + extraSelect : '');
-    return SB.from('patients').select(sel).or(filter).limit(8);
+    // Deterministic order (matches Patients directory) + wider cap so common name
+    // substrings that collide across many "-ng" surnames (Wong/Cheung/Leung/...)
+    // don't get silently truncated before the intended patient is returned.
+    return SB.from('patients').select(sel).or(filter)
+        .order('patient_no', { ascending: true }).limit(PATIENT_SEARCH_DROPDOWN_LIMIT);
 }
 
 function patientSearchInputDisplayValue(p) {
@@ -2613,7 +2627,8 @@ function runPatientSearchDropdown(opts) {
                 finish(r);
                 return;
             }
-            var coreQ = SB.from('patients').select(coreSel).or(coreFilter).limit(8);
+            var coreQ = SB.from('patients').select(coreSel).or(coreFilter)
+                .order('patient_no', { ascending: true }).limit(PATIENT_SEARCH_DROPDOWN_LIMIT);
             if (opts.clinicFilterId && typeof applyPatientQueryClinicTag === 'function') {
                 coreQ = applyPatientQueryClinicTag(coreQ, opts.clinicFilterId);
             }

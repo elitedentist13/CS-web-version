@@ -8312,7 +8312,8 @@ function arFetchPatientIdsForSearch(q, done) {
         if (done) done([]);
         return;
     }
-    SB.from('patients').select('id').or(filter).limit(250)
+    SB.from('patients').select('id').or(filter)
+        .order('patient_no', { ascending: true }).limit(250)
         .then(function (r) {
             if (r.error || !r.data) {
                 if (done) done([]);

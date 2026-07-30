@@ -21,7 +21,7 @@
     var XRAY_AI_CONFIG = {
         apiUrl: (typeof window.XRAY_AI_API_URL === 'string' && window.XRAY_AI_API_URL)
             ? window.XRAY_AI_API_URL.replace(/\/$/, '')
-            : 'http://127.0.0.1:8765',
+            : 'http://127.0.0.1:8877',
         preferApi: window.XRAY_AI_PREFER_API !== false,
         // Default position of the confidence slider — unchanged from the
         // previous fixed cutoff, so out-of-the-box output looks the same.

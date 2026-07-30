@@ -29,7 +29,8 @@
   window.__JSM_ASSET_BUST_TS = bust || '';
   window.__JSM_BUILD = BUILD;
   /* X-ray Assist — local Python API (start: xray-ai-service\\python main.py) */
-  window.XRAY_AI_API_URL = 'http://127.0.0.1:8765';
+  /* Not 8765 — that's used by dental sensor bridge software (e.g. RayView). */
+  window.XRAY_AI_API_URL = 'http://127.0.0.1:8877';
   window.XRAY_AI_PREFER_API = true;
   function withBust(path) {
     var sep = path.indexOf('?') >= 0 ? '&' : '?';

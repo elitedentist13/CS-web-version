@@ -1,6 +1,6 @@
 @echo off
 REM ====================================================================
-REM  CS X-ray Assist - local AI service launcher (port 8765)
+REM  CS X-ray Assist - local AI service launcher (port 8877)
 REM
 REM  First run creates a virtual environment, installs dependencies and
 REM  downloads the model weights (a few GB, one time only). Later runs
@@ -50,10 +50,14 @@ if not defined PY_CMD (
 )
 echo [1/4] Using Python: %PY_CMD%
 
-REM ---- free the port if a previous run is still listening ------------
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8765 .*LISTENING"') do (
-    echo       Stopping previous service on port 8765 ^(PID %%P^)
-    taskkill /F /PID %%P >nul 2>&1
+REM ---- free the port if a previous run of THIS service is still --------
+REM ---- listening (only ever kill python.exe - never someone else's ----
+REM ---- unrelated software that happens to be sat on the same port) ----
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8877 .*LISTENING"') do (
+    for /f %%N in ('tasklist /FI "PID eq %%P" /FI "IMAGENAME eq python.exe" /NH 2^>nul ^| findstr /I "python.exe"') do (
+        echo       Stopping previous service on port 8877 ^(PID %%P^)
+        taskkill /F /PID %%P >nul 2>&1
+    )
 )
 
 REM ---- virtual environment ------------------------------------------
@@ -95,7 +99,7 @@ if not exist "%MODEL_CACHE_DIR%\.downloaded" (
         echo.
         echo [WARN] One or more models failed to download.
         echo        The service will start in degraded mode. Check
-        echo        http://127.0.0.1:8765/health for per-model status.
+        echo        http://127.0.0.1:8877/health for per-model status.
         echo.
     ) else (
         echo downloaded > "%MODEL_CACHE_DIR%\.downloaded"
@@ -106,15 +110,15 @@ if not exist "%MODEL_CACHE_DIR%\.downloaded" (
 
 echo.
 echo ============================================
-echo   Starting on http://127.0.0.1:8765
-echo   Health check: http://127.0.0.1:8765/health
+echo   Starting on http://127.0.0.1:8877
+echo   Health check: http://127.0.0.1:8877/health
 echo.
 echo   Leave this window open while using
 echo   X-ray Assist. Press Ctrl+C to stop.
 echo ============================================
 echo.
 
-"%VENV_PY%" -m uvicorn main:app --host 127.0.0.1 --port 8765
+"%VENV_PY%" -m uvicorn main:app --host 127.0.0.1 --port 8877
 
 echo.
 echo Service stopped.

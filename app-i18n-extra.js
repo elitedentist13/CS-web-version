@@ -5565,6 +5565,7 @@
         'media.xrayAi.modality.panoramic': { en: 'panoramic', 'zh-CN': '全景片', 'zh-Hant': '全景片' },
         'media.xrayAi.modality.bitewing': { en: 'bitewing', 'zh-CN': '咬翼片', 'zh-Hant': '咬翼片' },
         'media.xrayAi.modality.periapical': { en: 'periapical', 'zh-CN': '根尖片', 'zh-Hant': '根尖片' },
+        'media.xrayAi.modality.pabw': { en: 'PA/bitewing', 'zh-CN': '根尖/咬翼片', 'zh-Hant': '根尖/咬翼片' },
         'media.xrayAi.fbConfirmTip': {
             en: 'Confirm this is caries — teaches the model (stored as training data).',
             'zh-CN': '确认这是蛀牙 —— 用于训练模型（将作为训练数据保存）。',
@@ -5589,10 +5590,12 @@
         },
         'media.xrayAi.train.title': { en: 'Caries model — training review', 'zh-CN': '蛀牙模型 —— 训练回顾', 'zh-Hant': '蛀牙模型 —— 訓練回顧' },
         'media.xrayAi.train.hint': {
-            en: 'Verdicts recorded from the findings list accumulate here as training data. A continual pass fine-tunes the model on them and only promotes the result if it does not regress on the reference set.',
-            'zh-CN': '在结果列表中记录的判定会在此累积为训练数据。持续训练会用这些数据微调模型，只有在参考集上不退步时才会采用新模型。',
-            'zh-Hant': '在結果列表中記錄的判定會在此累積為訓練資料。持續訓練會用這些資料微調模型，只有在參考集上不退步時才會採用新模型。'
+            en: 'Verdicts recorded from the findings list accumulate here as training data. A continual pass fine-tunes the model on them and only promotes the result if it does not regress on the reference set. The panoramic and PA/bitewing models train independently — pick a tab below.',
+            'zh-CN': '在结果列表中记录的判定会在此累积为训练数据。持续训练会用这些数据微调模型，只有在参考集上不退步时才会采用新模型。全景片模型与根尖/咬翼片模型各自独立训练 —— 请在下方选择分页。',
+            'zh-Hant': '在結果列表中記錄的判定會在此累積為訓練資料。持續訓練會用這些資料微調模型，只有在參考集上不退步時才會採用新模型。全景片模型與根尖/咬翼片模型各自獨立訓練 —— 請在下方選擇分頁。'
         },
+        'media.xrayAi.train.tabPano': { en: 'Panoramic model', 'zh-CN': '全景片模型', 'zh-Hant': '全景片模型' },
+        'media.xrayAi.train.tabPabw': { en: 'PA / Bitewing model', 'zh-CN': '根尖/咬翼片模型', 'zh-Hant': '根尖/咬翼片模型' },
         'media.xrayAi.train.loading': { en: 'Loading…', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
         'media.xrayAi.train.loadFailed': {
             en: 'Could not reach the AI service ({MSG}).',

@@ -6,6 +6,13 @@
     'use strict';
 
     var MODEL_VERSION = 'cs-xray-assist-pearl-v7';
+    // The service now runs two independently-trained models: a panoramic
+    // (full-arch) model and a dedicated PA/bitewing (intraoral) model, each
+    // with its own weights and its own continual-training loop. These are
+    // fallback labels only — the service's /health and /analyze responses
+    // are the source of truth when they advertise a model id.
+    var PANO_MODEL_VERSION = 'cs-xray-assist-pano-v1';
+    var PABW_MODEL_VERSION = 'cs-xray-assist-pabw-v1';
     // Bumped when the disclaimer's substance changes, so anyone who accepted an
     // earlier wording has to read and accept the new one.
     var DISCLAIMER_KEY = 'jsm_xray_ai_disclaimer_v2';
@@ -103,16 +110,31 @@
         running: false,
         lastSource: null,
         lastRunAt: null,
+        // Exact model id string reported by the service for the most recent run.
+        lastModel: null,
         // Provenance block from the service (which stage produced caries, etc.).
         advisory: null,
         modality: null,
         // Whether the running service accepts training feedback, and per-finding
         // verdicts already sent this run (keyed by finding index).
+        // feedbackEnabled covers the panoramic model; pabwFeedbackEnabled covers
+        // the separate PA/bitewing model — the service can enable either
+        // independently depending on which continual-training loop is ready.
         feedbackEnabled: false,
+        pabwFeedbackEnabled: false,
+        // Model ids actually reported by the service (falls back to the
+        // hardcoded version constants above when /health doesn't advertise them).
+        panoModelId: PANO_MODEL_VERSION,
+        pabwModelId: PABW_MODEL_VERSION,
         feedback: {},
         // User-adjustable display threshold (see the confidence slider).
         confidenceThreshold: xrayAiReadStoredConfidence()
     };
+
+    // Which training tab (pano vs PA/bitewing) is currently open in the
+    // training review modal. Defaults to panoramic; xrayAiOpenTrainingReview
+    // switches this to match whichever X-ray is open in the lightbox.
+    var xrayAiActiveTrainTab = 'pano';
 
     /** True when a finding clears the current confidence threshold. */
     function xrayAiMeetsConfidence(f) {
@@ -1733,8 +1755,16 @@
         if (meta) {
             var src = xrayAiState.lastSource === 'api' ? xrayAiTr('media.xrayAi.sourceApi') :
                 (xrayAiState.lastSource === 'client' ? xrayAiTr('media.xrayAi.sourceClient') : '');
+            // Prefer the exact model id the service reported for this run;
+            // fall back to the modality-appropriate constant (e.g. before the
+            // first successful run, or for the client-side heuristic).
+            var isPabwRun = (xrayAiState.modality === 'pabw' ||
+                xrayAiState.modality === 'periapical' || xrayAiState.modality === 'bitewing');
+            var isPanoRun = xrayAiState.modality === 'panoramic';
+            var verLabel = xrayAiState.lastModel ||
+                (isPabwRun ? xrayAiState.pabwModelId : (isPanoRun ? xrayAiState.panoModelId : MODEL_VERSION));
             meta.textContent = visible.length
-                ? xrayAiTr('media.xrayAi.runMeta', { N: visible.length, SRC: src, VER: MODEL_VERSION })
+                ? xrayAiTr('media.xrayAi.runMeta', { N: visible.length, SRC: src, VER: verLabel })
                 : '';
             if (xrayAiState.modality) {
                 var modKey = 'media.xrayAi.modality.' + xrayAiState.modality;
@@ -1758,9 +1788,10 @@
         }
         xrayAiUpdateScopeNote();
         // The training-review entry point only makes sense when the local
-        // service is up and accepting feedback.
+        // service is up and accepting feedback for at least one of the two
+        // models (panoramic or PA/bitewing train independently).
         var trainBtn = xrayAiG('xrayAiTrainOpenBtn');
-        if (trainBtn) trainBtn.hidden = !xrayAiState.feedbackEnabled;
+        if (trainBtn) trainBtn.hidden = !(xrayAiState.feedbackEnabled || xrayAiState.pabwFeedbackEnabled);
         xrayAiUpdateLegend();
         xrayAiUpdateAnatomyLegend();
         xrayAiUpdateSummaryRow();
@@ -1951,6 +1982,27 @@
         return null;
     }
 
+    /**
+     * Classifies the X-ray currently open in the lightbox into one of the
+     * two model families the service now runs: the full-arch panoramic model,
+     * or the shared periapical/bitewing ("pabw") intraoral model. Falls back
+     * to reading the live #lbType select (set while editing metadata) when
+     * the filtered-list record isn't available yet. Returns null when the
+     * type is something the service should auto-detect instead (CBCT, etc.).
+     */
+    function xrayAiCurrentXrayModality() {
+        var rec = xrayAiFindRecord();
+        var type = (rec && rec.xray_type) || '';
+        if (!type) {
+            var typeEl = xrayAiG('lbType');
+            if (typeEl && typeEl.value) type = typeEl.value;
+        }
+        type = String(type || '').toLowerCase();
+        if (type === 'panoramic') return 'panoramic';
+        if (type === 'periapical' || type === 'bitewing') return 'pabw';
+        return null;
+    }
+
     function xrayAiFetchBlobFromCanvas(imgEl) {
         return new Promise(function (resolve, reject) {
             if (!xrayAiImageReady(imgEl)) {
@@ -2013,7 +2065,11 @@
                 return r.json().then(function (j) {
                     // Remember whether this service will accept training feedback,
                     // so the panel only offers the buttons when they will work.
+                    // The two models train independently, so each has its own flag.
                     xrayAiState.feedbackEnabled = !!(j && j.caries_feedback && j.caries_feedback.enabled);
+                    xrayAiState.pabwFeedbackEnabled = !!(j && j.pabw_feedback && j.pabw_feedback.enabled);
+                    xrayAiState.panoModelId = (j && j.models && j.models.pano) || PANO_MODEL_VERSION;
+                    xrayAiState.pabwModelId = (j && j.models && j.models.pabw) || PABW_MODEL_VERSION;
                     return true;
                 }).catch(function () { return true; });
             })
@@ -2041,9 +2097,21 @@
     }
 
     function xrayAiAnalyzeApi(blob) {
+        // Tell the service which of its two models to use. This is a hint,
+        // not a guarantee — an unlabeled or CBCT/other image sends no
+        // modality field at all, so the service falls back to its own
+        // auto-detection.
+        var modalityHint = xrayAiCurrentXrayModality();
+        var fallbackModel = (modalityHint === 'pabw' ? PABW_MODEL_VERSION :
+            (modalityHint === 'panoramic' ? PANO_MODEL_VERSION : MODEL_VERSION)) + '-api';
         return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/analyze', {
             method: 'POST',
-            body: (function () { var fd = new FormData(); fd.append('file', blob, 'xray.jpg'); return fd; })(),
+            body: (function () {
+                var fd = new FormData();
+                fd.append('file', blob, 'xray.jpg');
+                if (modalityHint) fd.append('modality', modalityHint);
+                return fd;
+            })(),
             mode: 'cors'
         }, 120000).then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -2051,11 +2119,11 @@
         }).then(function (data) {
             return {
                 findings: (data.findings || []).map(xrayAiNormalizeFinding).filter(Boolean),
-                model: data.model || MODEL_VERSION + '-api',
+                model: data.model || fallbackModel,
                 summary: data.summary || null,
                 backend: data.backend || null,
                 advisory: data.advisory || null,
-                modality: data.modality || (data.advisory && data.advisory.modality) || null,
+                modality: data.modality || (data.advisory && data.advisory.modality) || modalityHint || null,
                 anatomy_layers: data.anatomy_layers || [],
                 bone_measurements: data.bone_measurements || [],
                 width: data.width || null,
@@ -2072,10 +2140,19 @@
     function xrayAiSendCariesFeedback(idx, verdict) {
         var f = xrayAiState.findings[idx];
         if (!f || !xrayAiIsCaries(f)) return;
-        if (xrayAiState.lastSource !== 'api' || !xrayAiState.feedbackEnabled) return;
+        if (xrayAiState.lastSource !== 'api') return;
+        // Each model has its own continual-training loop and its own enabled
+        // flag, so which endpoint (and which flag) applies depends on which
+        // model actually produced this run's findings.
+        var mod = xrayAiState.modality || xrayAiCurrentXrayModality();
+        var isPabw = (mod === 'pabw' || mod === 'periapical' || mod === 'bitewing');
+        if (isPabw ? !xrayAiState.pabwFeedbackEnabled : !xrayAiState.feedbackEnabled) return;
         if (xrayAiState.feedback[idx]) return;
         var img = xrayAiG('xrayLbImg');
         if (!img) return;
+
+        var feedbackUrl = XRAY_AI_CONFIG.apiUrl + (isPabw ? '/pabw/feedback' : '/feedback');
+        var modelForFeedback = isPabw ? xrayAiState.pabwModelId : xrayAiState.panoModelId;
 
         xrayAiSetStatus(xrayAiTr('media.xrayAi.fbSending'), 'work');
         xrayAiFetchBlobFromImg(img).then(function (blob) {
@@ -2097,17 +2174,18 @@
             if (typeof currentName === 'function') {
                 try { fd.append('created_by', String(currentName() || '')); } catch (e) { /* optional */ }
             }
-            fd.append('model_version', MODEL_VERSION);
+            fd.append('model_version', modelForFeedback || MODEL_VERSION);
             // Patient consent for retaining the image as training data is a PDPO
             // requirement; default off unless the deployment opts in explicitly.
             fd.append('consent', (typeof window !== 'undefined' && window.XRAY_AI_FEEDBACK_CONSENT === true) ? 'true' : 'false');
-            return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/feedback', {
+            return xrayAiFetchWithTimeout(feedbackUrl, {
                 method: 'POST', body: fd, mode: 'cors'
             }, 30000);
         }).then(function (r) {
             if (!r) return;
             if (r.status === 403) {
-                xrayAiState.feedbackEnabled = false;
+                if (isPabw) xrayAiState.pabwFeedbackEnabled = false;
+                else xrayAiState.feedbackEnabled = false;
                 xrayAiSetStatus(xrayAiTr('media.xrayAi.fbDisabled'), 'bad');
                 xrayAiUpdatePanel();
                 return;
@@ -2126,16 +2204,61 @@
     // ── Training review screen ─────────────────────────────────────
     // Lists the verdicts accumulated via the feedback buttons, shows whether
     // the machine is ready to retrain, and lets the operator kick off a
-    // continual pass and watch the promote/reject decision. All state lives on
-    // the service; this is a thin viewer over /caries/dataset and /caries/train.
+    // continual pass and watch the promote/reject decision. All state lives
+    // on the service; this is a thin viewer.
+    //
+    // The panoramic and PA/bitewing models train completely independently
+    // (separate datasets, separate weights, separate promote/reject
+    // decisions), so the modal has one tab per model. Every function below
+    // takes a `which` ('pano' | 'pabw') and reads/writes only that tab's DOM
+    // elements and endpoint prefix — xrayAiTrainIds() and xrayAiTrainBase()
+    // are the two lookup tables that make that possible.
 
     var xrayAiTrainPollTimer = null;
+
+    /** Endpoint prefix for the given model's training API. */
+    function xrayAiTrainBase(which) {
+        return which === 'pabw' ? '/pabw' : '/caries';
+    }
+
+    /** DOM elements for the given tab's pane (pano reuses the original ids). */
+    function xrayAiTrainIds(which) {
+        var suffix = which === 'pabw' ? 'Pabw' : '';
+        return {
+            stats: xrayAiG('xrayAiTrainStats' + suffix),
+            preflight: xrayAiG('xrayAiTrainPreflight' + suffix),
+            runBtn: xrayAiG('xrayAiTrainRunBtn' + suffix),
+            stateEl: xrayAiG('xrayAiTrainState' + suffix),
+            logEl: xrayAiG('xrayAiTrainLog' + suffix),
+            verdicts: xrayAiG('xrayAiTrainVerdicts' + suffix)
+        };
+    }
+
+    function xrayAiSwitchTrainTab(which) {
+        which = (which === 'pabw') ? 'pabw' : 'pano';
+        xrayAiActiveTrainTab = which;
+        var tabPano = xrayAiG('xrayAiTrainTabPano');
+        var tabPabw = xrayAiG('xrayAiTrainTabPabw');
+        var panePano = xrayAiG('xrayAiTrainPanePano');
+        var panePabw = xrayAiG('xrayAiTrainPanePabw');
+        if (tabPano) tabPano.classList.toggle('active', which === 'pano');
+        if (tabPabw) tabPabw.classList.toggle('active', which === 'pabw');
+        if (panePano) panePano.hidden = (which !== 'pano');
+        if (panePabw) panePabw.hidden = (which !== 'pabw');
+        if (xrayAiTrainPollTimer) {
+            clearTimeout(xrayAiTrainPollTimer);
+            xrayAiTrainPollTimer = null;
+        }
+        xrayAiLoadTrainingReview(which);
+    }
 
     function xrayAiOpenTrainingReview() {
         var modal = xrayAiG('xrayAiTrainModal');
         if (!modal) return;
         modal.hidden = false;
-        xrayAiLoadTrainingReview();
+        // Default to whichever model matches the X-ray currently open, when known.
+        var mod = xrayAiCurrentXrayModality();
+        xrayAiSwitchTrainTab(mod === 'pabw' ? 'pabw' : 'pano');
     }
 
     function xrayAiCloseTrainingReview() {
@@ -2147,40 +2270,40 @@
         }
     }
 
-    function xrayAiLoadTrainingReview() {
-        var stats = xrayAiG('xrayAiTrainStats');
-        if (stats) stats.textContent = xrayAiTr('media.xrayAi.train.loading');
-        xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/caries/dataset', { mode: 'cors' }, 10000)
+    function xrayAiLoadTrainingReview(which) {
+        which = which || xrayAiActiveTrainTab;
+        var ids = xrayAiTrainIds(which);
+        if (ids.stats) ids.stats.textContent = xrayAiTr('media.xrayAi.train.loading');
+        xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + xrayAiTrainBase(which) + '/dataset', { mode: 'cors' }, 10000)
             .then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json();
             })
             .then(function (data) {
-                xrayAiRenderTrainStats(data.stats || {});
-                xrayAiRenderTrainPreflight(data.preflight || [], !!data.ready_to_train, data.training_enabled !== false);
-                xrayAiRenderTrainVerdicts(data.recent || []);
-                return xrayAiFetchTrainStatus();
+                xrayAiRenderTrainStats(data.stats || {}, which);
+                xrayAiRenderTrainPreflight(data.preflight || [], !!data.ready_to_train, data.training_enabled !== false, which);
+                xrayAiRenderTrainVerdicts(data.recent || [], which);
+                return xrayAiFetchTrainStatus(which);
             })
             .catch(function (e) {
-                if (stats) stats.textContent = xrayAiTr('media.xrayAi.train.loadFailed', { MSG: (e && e.message) || 'error' });
+                if (ids.stats) ids.stats.textContent = xrayAiTr('media.xrayAi.train.loadFailed', { MSG: (e && e.message) || 'error' });
             });
     }
 
-    function xrayAiRenderTrainStats(s) {
-        var el = xrayAiG('xrayAiTrainStats');
-        if (!el) return;
-        el.textContent = xrayAiTr('media.xrayAi.train.stats', {
+    function xrayAiRenderTrainStats(s, which) {
+        var ids = xrayAiTrainIds(which || xrayAiActiveTrainTab);
+        if (!ids.stats) return;
+        ids.stats.textContent = xrayAiTr('media.xrayAi.train.stats', {
             CONFIRM: s.confirm || 0,
             REJECT: s.reject || 0,
             IMAGES: s.images || 0
         });
     }
 
-    function xrayAiRenderTrainPreflight(checks, ready, trainingEnabled) {
-        var el = xrayAiG('xrayAiTrainPreflight');
-        var btn = xrayAiG('xrayAiTrainRunBtn');
-        if (el) {
-            el.innerHTML = checks.map(function (c) {
+    function xrayAiRenderTrainPreflight(checks, ready, trainingEnabled, which) {
+        var ids = xrayAiTrainIds(which || xrayAiActiveTrainTab);
+        if (ids.preflight) {
+            ids.preflight.innerHTML = checks.map(function (c) {
                 var cls = c.ok ? 'ok' : (c.blocking ? 'bad' : 'warn');
                 var mark = c.ok ? '✓' : (c.blocking ? '✗' : '!');
                 return '<div class="xray-ai-train-check xray-ai-train-check-' + cls + '">' +
@@ -2188,16 +2311,17 @@
                     '<span>' + xrayAiEsc(c.detail || c.check) + '</span></div>';
             }).join('');
             if (!trainingEnabled) {
-                el.innerHTML += '<div class="xray-ai-train-check xray-ai-train-check-bad">' +
+                ids.preflight.innerHTML += '<div class="xray-ai-train-check xray-ai-train-check-bad">' +
                     '<span class="xray-ai-train-mark">✗</span><span>' +
                     xrayAiEsc(xrayAiTr('media.xrayAi.train.disabled')) + '</span></div>';
             }
         }
-        if (btn) btn.disabled = !(ready && trainingEnabled);
+        if (ids.runBtn) ids.runBtn.disabled = !(ready && trainingEnabled);
     }
 
-    function xrayAiRenderTrainVerdicts(recent) {
-        var el = xrayAiG('xrayAiTrainVerdicts');
+    function xrayAiRenderTrainVerdicts(recent, which) {
+        var ids = xrayAiTrainIds(which || xrayAiActiveTrainTab);
+        var el = ids.verdicts;
         if (!el) return;
         if (!recent.length) {
             el.innerHTML = '<div class="xray-ai-train-empty">' +
@@ -2221,24 +2345,24 @@
         }).join('');
     }
 
-    function xrayAiFetchTrainStatus() {
-        return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/caries/train/status', { mode: 'cors' }, 10000)
+    function xrayAiFetchTrainStatus(which) {
+        which = which || xrayAiActiveTrainTab;
+        return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + xrayAiTrainBase(which) + '/train/status', { mode: 'cors' }, 10000)
             .then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json();
             })
-            .then(xrayAiRenderTrainStatus)
+            .then(function (st) { return xrayAiRenderTrainStatus(st, which); })
             .catch(function () { /* status area simply stays as-is */ });
     }
 
-    function xrayAiRenderTrainStatus(st) {
+    function xrayAiRenderTrainStatus(st, which) {
+        which = which || xrayAiActiveTrainTab;
         st = st || {};
-        var stateEl = xrayAiG('xrayAiTrainState');
-        var logEl = xrayAiG('xrayAiTrainLog');
-        var btn = xrayAiG('xrayAiTrainRunBtn');
+        var ids = xrayAiTrainIds(which);
         var running = st.state === 'running';
 
-        if (stateEl) {
+        if (ids.stateEl) {
             var text = '';
             if (running) {
                 text = xrayAiTr('media.xrayAi.train.running');
@@ -2251,61 +2375,62 @@
             } else if (st.message) {
                 text = st.message;
             }
-            stateEl.textContent = text;
-            stateEl.className = 'xray-ai-train-state' +
+            ids.stateEl.textContent = text;
+            ids.stateEl.className = 'xray-ai-train-state' +
                 (running ? ' is-running' :
                     st.outcome === 'promoted' ? ' is-promoted' :
                     st.outcome === 'rejected' ? ' is-rejected' :
                     st.outcome === 'failed' ? ' is-failed' : '');
         }
-        if (logEl) {
+        if (ids.logEl) {
             var tail = st.log_tail || '';
-            logEl.hidden = !tail;
-            logEl.textContent = tail;
-            if (!logEl.hidden) logEl.scrollTop = logEl.scrollHeight;
+            ids.logEl.hidden = !tail;
+            ids.logEl.textContent = tail;
+            if (!ids.logEl.hidden) ids.logEl.scrollTop = ids.logEl.scrollHeight;
         }
-        if (btn && running) btn.disabled = true;
+        if (ids.runBtn && running) ids.runBtn.disabled = true;
 
         if (running) {
             if (xrayAiTrainPollTimer) clearTimeout(xrayAiTrainPollTimer);
             xrayAiTrainPollTimer = setTimeout(function () {
                 var modal = xrayAiG('xrayAiTrainModal');
-                if (modal && !modal.hidden) xrayAiFetchTrainStatus();
+                // Only keep polling if this tab is still the one on screen.
+                if (modal && !modal.hidden && xrayAiActiveTrainTab === which) xrayAiFetchTrainStatus(which);
             }, 5000);
         } else if (xrayAiTrainPollTimer) {
             clearTimeout(xrayAiTrainPollTimer);
             xrayAiTrainPollTimer = null;
             // A finished run can change readiness (e.g. new incumbent weights),
             // so refresh the preflight block once.
-            xrayAiLoadTrainingReview();
+            xrayAiLoadTrainingReview(which);
         }
     }
 
-    function xrayAiRunContinualTraining() {
-        var btn = xrayAiG('xrayAiTrainRunBtn');
-        if (btn) btn.disabled = true;
-        var stateEl = xrayAiG('xrayAiTrainState');
-        if (stateEl) stateEl.textContent = xrayAiTr('media.xrayAi.train.starting');
+    function xrayAiRunContinualTraining(which) {
+        which = which || xrayAiActiveTrainTab;
+        var ids = xrayAiTrainIds(which);
+        if (ids.runBtn) ids.runBtn.disabled = true;
+        if (ids.stateEl) ids.stateEl.textContent = xrayAiTr('media.xrayAi.train.starting');
         var fd = new FormData();
         fd.append('epochs', '40');
         fd.append('replay_frac', '0.5');
-        xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/caries/train', {
+        xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + xrayAiTrainBase(which) + '/train', {
             method: 'POST', body: fd, mode: 'cors'
         }, 20000).then(function (r) {
             if (r.status === 403) throw new Error(xrayAiTr('media.xrayAi.train.disabled'));
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         }).then(function (st) {
-            xrayAiRenderTrainStatus(st);
+            xrayAiRenderTrainStatus(st, which);
             if (st && st.preflight) {
-                xrayAiRenderTrainPreflight(st.preflight, st.state === 'running', true);
+                xrayAiRenderTrainPreflight(st.preflight, st.state === 'running', true, which);
             }
         }).catch(function (e) {
-            if (stateEl) {
-                stateEl.textContent = xrayAiTr('media.xrayAi.train.startFailed', { MSG: (e && e.message) || 'error' });
-                stateEl.className = 'xray-ai-train-state is-failed';
+            if (ids.stateEl) {
+                ids.stateEl.textContent = xrayAiTr('media.xrayAi.train.startFailed', { MSG: (e && e.message) || 'error' });
+                ids.stateEl.className = 'xray-ai-train-state is-failed';
             }
-            if (btn) btn.disabled = false;
+            if (ids.runBtn) ids.runBtn.disabled = false;
         });
     }
 
@@ -2344,6 +2469,7 @@
         xrayAiState.backend = result.backend || null;
         xrayAiState.advisory = result.advisory || null;
         xrayAiState.modality = result.modality || (result.advisory && result.advisory.modality) || null;
+        xrayAiState.lastModel = result.model || null;
         xrayAiState.analysisWidth = result.width || null;
         xrayAiState.analysisHeight = result.height || null;
         xrayAiState.anatomyLayers = xrayAiSanitizeLayers(
@@ -2491,6 +2617,7 @@
     window.xrayAiSendCariesFeedback = xrayAiSendCariesFeedback;
     window.xrayAiOpenTrainingReview = xrayAiOpenTrainingReview;
     window.xrayAiCloseTrainingReview = xrayAiCloseTrainingReview;
+    window.xrayAiSwitchTrainTab = xrayAiSwitchTrainTab;
     window.xrayAiRunContinualTraining = xrayAiRunContinualTraining;
     window.xrayAiOnLightboxOpen = xrayAiOnLightboxOpen;
     window.xrayAiOnLightboxClose = xrayAiOnLightboxClose;

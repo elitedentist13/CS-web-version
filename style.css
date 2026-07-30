@@ -15449,6 +15449,38 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     padding: 0 4px;
 }
 
+.xray-ai-train-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 8px 0 4px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.xray-ai-train-tab {
+    flex: 1 1 auto;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    background: none;
+    color: #64748b;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+
+.xray-ai-train-tab:hover {
+    color: #334155;
+}
+
+.xray-ai-train-tab.active {
+    color: #0f172a;
+    border-bottom-color: #2563eb;
+}
+
+.xray-ai-train-pane[hidden] {
+    display: none;
+}
+
 .xray-ai-train-stats {
     font-weight: 600;
     color: #0f172a;

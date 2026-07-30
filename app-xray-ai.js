@@ -6,23 +6,65 @@
     'use strict';
 
     var MODEL_VERSION = 'cs-xray-assist-pearl-v7';
-    var DISCLAIMER_KEY = 'jsm_xray_ai_disclaimer_v1';
+    // Bumped when the disclaimer's substance changes, so anyone who accepted an
+    // earlier wording has to read and accept the new one.
+    var DISCLAIMER_KEY = 'jsm_xray_ai_disclaimer_v2';
+    var CONFIDENCE_KEY = 'jsm_xray_ai_confidence_v1';
 
     var XRAY_AI_CONFIG = {
         apiUrl: (typeof window.XRAY_AI_API_URL === 'string' && window.XRAY_AI_API_URL)
             ? window.XRAY_AI_API_URL.replace(/\/$/, '')
             : 'http://127.0.0.1:8765',
         preferApi: window.XRAY_AI_PREFER_API !== false,
+        // Default position of the confidence slider — unchanged from the
+        // previous fixed cutoff, so out-of-the-box output looks the same.
         minConfidence: 0.38,
-        maxFindings: 14,
+        // Findings below this are discarded outright. Everything between this
+        // floor and the slider position is kept in state so raising/lowering
+        // the slider reveals or hides results without re-running the analysis.
+        retainConfidence: 0.15,
+        // Slider bounds, in percent.
+        confidenceMinPct: 15,
+        confidenceMaxPct: 95,
+        // Real detectors legitimately find more than the old heuristic did:
+        // a full-arch panoramic can carry 20+ genuine findings.
+        maxFindings: 40,
         maxCanvasTags: 6
     };
+
+    function xrayAiReadStoredConfidence() {
+        try {
+            var raw = localStorage.getItem(CONFIDENCE_KEY);
+            if (raw == null || raw === '') return XRAY_AI_CONFIG.minConfidence;
+            var v = parseFloat(raw);
+            if (!isFinite(v)) return XRAY_AI_CONFIG.minConfidence;
+            return Math.max(
+                XRAY_AI_CONFIG.confidenceMinPct / 100,
+                Math.min(XRAY_AI_CONFIG.confidenceMaxPct / 100, v)
+            );
+        } catch (e) {
+            return XRAY_AI_CONFIG.minConfidence;
+        }
+    }
 
     /** Pearl Second Opinion–style categories & colours (reference UX only). */
     var FINDING_TYPES_ORDER = [
         'caries_incipient', 'caries_progressed', 'calculus', 'periapical_radiolucency',
         'defective_margin', 'restoration',
         'bone_loss_mild', 'bone_loss_moderate', 'bone_loss_severe'
+    ];
+
+    /**
+     * Disease claims, as opposed to observations about hardware or geometry.
+     *
+     * The in-browser fallback (xrayAiAnalyzeClient) is a pixel-threshold
+     * heuristic with no model behind it, so it must not assert any of these —
+     * see xrayAiWithholdPathology. The Python service applies the equivalent
+     * gate server-side via ENABLE_PATHOLOGY_CLASSES.
+     */
+    var PATHOLOGY_TYPES = [
+        'caries_incipient', 'caries_progressed', 'calculus',
+        'periapical_radiolucency', 'defective_margin'
     ];
 
     var FINDING_META = {
@@ -61,8 +103,35 @@
         running: false,
         lastSource: null,
         lastRunAt: null,
-        summary: null
+        // Provenance block from the service (which stage produced caries, etc.).
+        advisory: null,
+        modality: null,
+        // Whether the running service accepts training feedback, and per-finding
+        // verdicts already sent this run (keyed by finding index).
+        feedbackEnabled: false,
+        feedback: {},
+        // User-adjustable display threshold (see the confidence slider).
+        confidenceThreshold: xrayAiReadStoredConfidence()
     };
+
+    /** True when a finding clears the current confidence threshold. */
+    function xrayAiMeetsConfidence(f) {
+        return (f && f.confidence != null ? f.confidence : 0) >= xrayAiState.confidenceThreshold;
+    }
+
+    /**
+     * Findings above the threshold, paired with their original index.
+     * The index matters: hidden[]/selectedIdx and the findings-list click
+     * handlers all key off position in xrayAiState.findings, so filtering must
+     * not renumber anything.
+     */
+    function xrayAiVisibleFindings() {
+        var out = [];
+        xrayAiState.findings.forEach(function (f, idx) {
+            if (xrayAiMeetsConfidence(f)) out.push({ f: f, idx: idx });
+        });
+        return out;
+    }
 
     function xrayAiTr(key, pairs) {
         if (typeof mediaTrRepl === 'function' && pairs) return mediaTrRepl(key, pairs);
@@ -141,14 +210,18 @@
         return out;
     }
 
+    /** Returns a normalized finding, or null if it cannot be represented. */
     function xrayAiNormalizeFinding(f) {
-        if (!f || !f.type) return f;
+        if (!f || !f.type) return null;
         var t = f.type;
         if (t === 'caries_candidate') t = 'caries_incipient';
         if (t === 'radiolucency_candidate') t = 'caries_progressed';
         if (t === 'dense_spot_candidate') t = 'restoration';
         if (t === 'periapical_hint') t = 'periapical_radiolucency';
-        if (!FINDING_META[t]) t = 'caries_progressed';
+        // An unrecognised type is dropped rather than coerced. It used to fall
+        // through to caries_progressed, which turned any unknown label into the
+        // most serious diagnosis in the taxonomy.
+        if (!FINDING_META[t]) return null;
         var out = Object.assign({}, f, { type: t });
         if (out.polygon && !Array.isArray(out.polygon)) out.polygon = null;
         if (Array.isArray(out.polygon)) {
@@ -1139,6 +1212,23 @@
         return findings.slice(0, 4);
     }
 
+    /**
+     * Strips disease claims from heuristic output.
+     *
+     * The fallback path reaches conclusions like "progressed caries, 94%" from
+     * nothing but local pixel darkness and contrast. Left in, it would assert
+     * more, and more confidently, than the trained detector in the Python
+     * service — which withholds these same classes because it scored too far
+     * below clinical accuracy on them. Restorations and bone geometry survive:
+     * radiopaque hardware and CEJ-to-crest distance are measurements rather
+     * than diagnoses.
+     */
+    function xrayAiWithholdPathology(findings) {
+        return (findings || []).filter(function (f) {
+            return f && PATHOLOGY_TYPES.indexOf(f.type) === -1;
+        });
+    }
+
     function xrayAiAnalyzeClient(imgEl) {
         return new Promise(function (resolve) {
             setTimeout(function () {
@@ -1207,9 +1297,15 @@
                         }
                     }
 
-                    findings = xrayAiFilterByAnatomy(findings.map(xrayAiNormalizeFinding), anatomy, gray);
+                    findings = xrayAiFilterByAnatomy(
+                        findings.map(xrayAiNormalizeFinding).filter(Boolean), anatomy, gray);
                     findings = xrayAiNms(findings, 0.42);
-                    findings = findings.filter(function (f) { return f.confidence >= XRAY_AI_CONFIG.minConfidence; });
+                    findings = xrayAiWithholdPathology(findings);
+                    // Retain to the same low floor the service uses, so the
+                    // confidence slider has range to work with on this path too.
+                    findings = findings.filter(function (f) {
+                        return f.confidence >= XRAY_AI_CONFIG.retainConfidence;
+                    });
                     findings.sort(function (a, b) { return b.confidence - a.confidence; });
                     findings = findings.slice(0, XRAY_AI_CONFIG.maxFindings);
                     resolve({
@@ -1269,7 +1365,10 @@
 
     function xrayAiRenderBoneLines(ctx, rect) {
         if (!xrayAiState.showBoneLines) return;
-        var lines = xrayAiState.boneMeasurements || [];
+        var boneGaps = xrayAiVisibleBoneGaps();
+        var lines = (xrayAiState.boneMeasurements || []).filter(function (line) {
+            return !(boneGaps && line.gap != null && !boneGaps[line.gap]);
+        });
         lines.forEach(function (line) {
             if (!line.cej || !line.crest) return;
             var p1 = xrayAiNormToCanvas(line.cej[0], line.cej[1], rect);
@@ -1352,6 +1451,7 @@
         if (!xrayAiState.showOverlays) return false;
         if (xrayAiState.hidden[idx]) return false;
         if (xrayAiState.categoryHidden[f.type]) return false;
+        if (!xrayAiMeetsConfidence(f)) return false;
         return true;
     }
 
@@ -1489,30 +1589,25 @@
         });
     }
 
+    /**
+     * Per-type counts of the findings currently above the confidence threshold.
+     * Always recomputed rather than reusing the backend's summary, so the
+     * summary chips and legend counts track the slider instead of reporting a
+     * total the clinician cannot see on the image.
+     */
     function xrayAiComputeSummary() {
-        if (xrayAiState.summary && typeof xrayAiState.summary === 'object') {
-            return xrayAiState.summary;
-        }
         var s = {};
-        xrayAiState.findings.forEach(function (f) {
-            s[f.type] = (s[f.type] || 0) + 1;
+        xrayAiVisibleFindings().forEach(function (item) {
+            s[item.f.type] = (s[item.f.type] || 0) + 1;
         });
         return s;
-    }
-
-    function xrayAiRefreshSummaryCounts() {
-        var s = {};
-        xrayAiState.findings.forEach(function (f) {
-            s[f.type] = (s[f.type] || 0) + 1;
-        });
-        xrayAiState.summary = s;
     }
 
     function xrayAiUpdateSummaryRow() {
         var el = xrayAiG('xrayAiSummary');
         if (!el) return;
         var summary = xrayAiComputeSummary();
-        var total = xrayAiState.findings.length;
+        var total = xrayAiVisibleFindings().length;
         if (!total) {
             el.innerHTML = '';
             el.style.display = 'none';
@@ -1546,16 +1641,35 @@
         });
     }
 
+    /**
+     * Gap keys of the bone-loss findings currently above the threshold, or null
+     * when no finding carries a gap key (in which case measurements cannot be
+     * matched to findings and are all shown).
+     */
+    function xrayAiVisibleBoneGaps() {
+        var anyKeyed = false;
+        var gaps = {};
+        xrayAiState.findings.forEach(function (f) {
+            if (!f.type || f.type.indexOf('bone_loss_') !== 0 || f.gap == null) return;
+            anyKeyed = true;
+            if (xrayAiMeetsConfidence(f)) gaps[f.gap] = true;
+        });
+        return anyKeyed ? gaps : null;
+    }
+
     function xrayAiUpdateBoneMeasures() {
         var el = xrayAiG('xrayAiBoneMeasures');
         if (!el) return;
+        var visibleGaps = xrayAiVisibleBoneGaps();
         var items = (xrayAiState.boneMeasurements || []).map(function (line, idx) {
             if (line.measurement_mm == null) return null;
+            if (visibleGaps && line.gap != null && !visibleGaps[line.gap]) return null;
             return { mm: line.measurement_mm, gap: (line.gap != null ? line.gap + 1 : idx + 1) };
         }).filter(Boolean);
         if (!items.length) {
             xrayAiState.findings.forEach(function (f, idx) {
-                if (f.type && f.type.indexOf('bone_loss_') === 0 && f.measurement != null) {
+                if (f.type && f.type.indexOf('bone_loss_') === 0 && f.measurement != null &&
+                    xrayAiMeetsConfidence(f)) {
                     items.push({ mm: f.measurement, gap: idx + 1, findingIdx: idx });
                 }
             });
@@ -1600,39 +1714,91 @@
         });
     }
 
+    /**
+     * Says out loud that the browser fallback does not look for disease, so a
+     * result with no caries markings is not mistaken for a negative finding.
+     */
+    function xrayAiUpdateScopeNote() {
+        var el = xrayAiG('xrayAiScopeNote');
+        if (!el) return;
+        var show = xrayAiState.lastSource === 'client';
+        el.hidden = !show;
+        el.textContent = show ? xrayAiTr('media.xrayAi.fallbackScope') : '';
+    }
+
     function xrayAiUpdatePanel() {
         var list = xrayAiG('xrayAiFindingsList');
         var meta = xrayAiG('xrayAiRunMeta');
+        var visible = xrayAiVisibleFindings();
         if (meta) {
             var src = xrayAiState.lastSource === 'api' ? xrayAiTr('media.xrayAi.sourceApi') :
                 (xrayAiState.lastSource === 'client' ? xrayAiTr('media.xrayAi.sourceClient') : '');
-            meta.textContent = xrayAiState.findings.length
-                ? xrayAiTr('media.xrayAi.runMeta', { N: xrayAiState.findings.length, SRC: src, VER: MODEL_VERSION })
+            meta.textContent = visible.length
+                ? xrayAiTr('media.xrayAi.runMeta', { N: visible.length, SRC: src, VER: MODEL_VERSION })
                 : '';
+            if (xrayAiState.modality) {
+                var modKey = 'media.xrayAi.modality.' + xrayAiState.modality;
+                var modLabel = xrayAiTr(modKey);
+                if (modLabel && modLabel !== modKey) {
+                    meta.textContent = (meta.textContent ? meta.textContent + ' · ' : '') + modLabel;
+                }
+            }
+            // Say which caries engine produced the hints this run, so a trained
+            // model and the classical fallback are never mistaken for each other.
+            if (visible.length && xrayAiState.advisory && xrayAiState.advisory.caries &&
+                visible.some(function (it) { return xrayAiIsCaries(it.f); })) {
+                var cariesAdv = xrayAiState.advisory.caries;
+                var cariesSrcKey = cariesAdv.indexOf('classical') === 0
+                    ? 'media.xrayAi.cariesSourceClassical'
+                    : (cariesAdv.indexOf('union') >= 0
+                        ? 'media.xrayAi.cariesSourceUnion'
+                        : 'media.xrayAi.cariesSourceTrained');
+                meta.textContent += ' · ' + xrayAiTr(cariesSrcKey);
+            }
         }
+        xrayAiUpdateScopeNote();
+        // The training-review entry point only makes sense when the local
+        // service is up and accepting feedback.
+        var trainBtn = xrayAiG('xrayAiTrainOpenBtn');
+        if (trainBtn) trainBtn.hidden = !xrayAiState.feedbackEnabled;
         xrayAiUpdateLegend();
         xrayAiUpdateAnatomyLegend();
         xrayAiUpdateSummaryRow();
         xrayAiUpdateBoneMeasures();
+        xrayAiSyncConfidenceControl();
         if (!list) return;
-        if (!xrayAiState.findings.length) {
-            list.innerHTML = '<div class="xray-ai-empty">' + xrayAiEsc(xrayAiTr('media.xrayAi.noFindings')) + '</div>';
+        if (!visible.length) {
+            // Distinguish "nothing found" from "everything is below the slider",
+            // otherwise a high threshold reads as a clean radiograph.
+            var msg = xrayAiState.findings.length
+                ? xrayAiTr('media.xrayAi.allBelowThreshold', {
+                    N: xrayAiState.findings.length,
+                    PCT: Math.round(xrayAiState.confidenceThreshold * 100)
+                })
+                : xrayAiTr('media.xrayAi.noFindings');
+            list.innerHTML = '<div class="xray-ai-empty">' + xrayAiEsc(msg) + '</div>';
             return;
         }
-        list.innerHTML = xrayAiState.findings.map(function (f, idx) {
+        list.innerHTML = visible.map(function (item) {
+            var f = item.f;
+            var idx = item.idx;
             var fm = FINDING_META[f.type] || FINDING_META.caries_progressed;
             var hidden = !!xrayAiState.hidden[idx];
             var sel = idx === xrayAiState.selectedIdx;
             var extra = (f.enamel_pct != null && f.dentin_pct != null)
                 ? (' · E' + f.enamel_pct + '% · D' + f.dentin_pct + '%')
                 : (f.measurement != null ? (' · ~' + f.measurement + 'mm') : (' · ' + Math.round((f.confidence || 0) * 100) + '%'));
-            return '<button type="button" class="xray-ai-finding-item' +
+            return '<div class="xray-ai-finding-row">' +
+                '<button type="button" class="xray-ai-finding-item' +
                 (hidden ? ' is-hidden' : '') + (sel ? ' is-selected' : '') +
                 '" data-ai-idx="' + idx + '">' +
                 '<span class="xray-ai-dot" style="background:' + fm.color + '"></span>' +
-                '<span class="xray-ai-finding-text">' + xrayAiEsc(xrayAiTr(fm.i18n)) + extra + '</span></button>';
+                '<span class="xray-ai-finding-text">' + xrayAiEsc(xrayAiTr(fm.i18n)) + extra +
+                xrayAiCariesBadgeHtml(f) + '</span></button>' +
+                xrayAiFeedbackHtml(idx, f) +
+                '</div>';
         }).join('');
-        list.querySelectorAll('[data-ai-idx]').forEach(function (btn) {
+        list.querySelectorAll('.xray-ai-finding-item[data-ai-idx]').forEach(function (btn) {
             btn.addEventListener('click', function (ev) {
                 var i = parseInt(btn.getAttribute('data-ai-idx'), 10);
                 if (ev.shiftKey) {
@@ -1644,6 +1810,62 @@
                 xrayAiUpdatePanel();
             });
         });
+        list.querySelectorAll('[data-ai-fb]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                xrayAiSendCariesFeedback(
+                    parseInt(btn.getAttribute('data-ai-fbidx'), 10),
+                    btn.getAttribute('data-ai-fb')
+                );
+            });
+        });
+    }
+
+    /** True for a caries finding produced by the service this run. */
+    function xrayAiIsCaries(f) {
+        return f && typeof f.type === 'string' && f.type.indexOf('caries_') === 0;
+    }
+
+    /** Provenance chips shown inside a caries finding row. */
+    function xrayAiCariesBadgeHtml(f) {
+        if (!xrayAiIsCaries(f) || !f.screening) return '';
+        var chips = '<span class="xray-ai-badge xray-ai-badge-screen" title="' +
+            xrayAiEsc(xrayAiTr('media.xrayAi.screeningTip')) + '">' +
+            xrayAiEsc(xrayAiTr('media.xrayAi.screeningBadge')) + '</span>';
+        if (f.surface) {
+            var key = 'media.xrayAi.surface.' + f.surface;
+            var label = xrayAiTr(key);
+            if (label === key) label = f.surface; // fall back to raw if untranslated
+            chips += '<span class="xray-ai-badge">' + xrayAiEsc(label) + '</span>';
+        }
+        if (f.edj_crossing || (f.relay_flags && f.relay_flags.indexOf('edj_crossing') !== -1)) {
+            chips += '<span class="xray-ai-badge" title="' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.edjCrossingTip')) + '">' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.edjCrossing')) + '</span>';
+        }
+        if (f.relay_flags && f.relay_flags.indexOf('near_restoration') !== -1) {
+            chips += '<span class="xray-ai-badge xray-ai-badge-warn" title="' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.nearRestorationTip')) + '">' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.nearRestoration')) + '</span>';
+        }
+        return chips;
+    }
+
+    /** Confirm/reject controls, or a "recorded" note once a verdict was sent. */
+    function xrayAiFeedbackHtml(idx, f) {
+        if (!xrayAiIsCaries(f) || xrayAiState.lastSource !== 'api' || !xrayAiState.feedbackEnabled) {
+            return '';
+        }
+        var given = xrayAiState.feedback[idx];
+        if (given) {
+            var k = given === 'confirm' ? 'media.xrayAi.fbRecordedConfirm' : 'media.xrayAi.fbRecordedReject';
+            return '<span class="xray-ai-fb-done">' + xrayAiEsc(xrayAiTr(k)) + '</span>';
+        }
+        return '<span class="xray-ai-fb">' +
+            '<button type="button" class="xray-ai-fb-btn xray-ai-fb-yes" data-ai-fb="confirm" data-ai-fbidx="' + idx + '" title="' +
+            xrayAiEsc(xrayAiTr('media.xrayAi.fbConfirmTip')) + '">\u2713</button>' +
+            '<button type="button" class="xray-ai-fb-btn xray-ai-fb-no" data-ai-fb="reject" data-ai-fbidx="' + idx + '" title="' +
+            xrayAiEsc(xrayAiTr('media.xrayAi.fbRejectTip')) + '">\u2717</button>' +
+            '</span>';
     }
 
     function xrayAiClearOverlays() {
@@ -1654,7 +1876,6 @@
         xrayAiState.selectedIdx = -1;
         xrayAiState.lastSource = null;
         xrayAiState.lastRunAt = null;
-        xrayAiState.summary = null;
         xrayAiInitCategoryFilters();
         var aiCv = xrayAiG('xrayLbAiCanvas');
         if (aiCv) aiCv.getContext('2d').clearRect(0, 0, aiCv.width, aiCv.height);
@@ -1667,6 +1888,44 @@
         var btn = xrayAiG('lbXrayAiToggleBtn');
         if (btn) btn.classList.toggle('lb-chrome-active', !xrayAiState.showOverlays);
         xrayAiRenderOverlays();
+    }
+
+    /** Reflect the current threshold on the slider without re-rendering. */
+    function xrayAiSyncConfidenceControl() {
+        var pct = Math.round(xrayAiState.confidenceThreshold * 100);
+        var slider = xrayAiG('xrayAiConfidenceSlider');
+        if (slider && String(slider.value) !== String(pct)) slider.value = pct;
+        var out = xrayAiG('xrayAiConfidenceVal');
+        if (out) out.textContent = pct + '%';
+        var note = xrayAiG('xrayAiConfidenceNote');
+        if (note) {
+            var retained = xrayAiState.findings.length;
+            var shown = xrayAiVisibleFindings().length;
+            note.textContent = retained
+                ? xrayAiTr('media.xrayAi.confidenceCount', { N: shown, T: retained })
+                : '';
+        }
+    }
+
+    /**
+     * Filter the existing findings to a new confidence threshold. Purely
+     * client-side: nothing is re-analyzed, so dragging the slider is instant.
+     */
+    function xrayAiSetConfidenceThreshold(val) {
+        var pct = parseFloat(val);
+        if (!isFinite(pct)) return;
+        pct = Math.max(XRAY_AI_CONFIG.confidenceMinPct,
+            Math.min(XRAY_AI_CONFIG.confidenceMaxPct, pct));
+        xrayAiState.confidenceThreshold = pct / 100;
+        try { localStorage.setItem(CONFIDENCE_KEY, String(pct / 100)); } catch (e) { /* private mode */ }
+        // A finding hidden by the slider must not stay selected, or its detail
+        // highlight would persist with nothing drawn for it.
+        if (xrayAiState.selectedIdx >= 0) {
+            var sel = xrayAiState.findings[xrayAiState.selectedIdx];
+            if (!sel || !xrayAiMeetsConfidence(sel)) xrayAiState.selectedIdx = -1;
+        }
+        xrayAiRenderOverlays();
+        xrayAiUpdatePanel();
     }
 
     function xrayAiImageReady(imgEl) {
@@ -1749,7 +2008,15 @@
 
     function xrayAiCheckApiHealth() {
         return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/health', { mode: 'cors' }, 5000)
-            .then(function (r) { return r.ok; })
+            .then(function (r) {
+                if (!r.ok) return false;
+                return r.json().then(function (j) {
+                    // Remember whether this service will accept training feedback,
+                    // so the panel only offers the buttons when they will work.
+                    xrayAiState.feedbackEnabled = !!(j && j.caries_feedback && j.caries_feedback.enabled);
+                    return true;
+                }).catch(function () { return true; });
+            })
             .catch(function () { return false; });
     }
 
@@ -1783,15 +2050,262 @@
             return r.json();
         }).then(function (data) {
             return {
-                findings: (data.findings || []).map(xrayAiNormalizeFinding),
+                findings: (data.findings || []).map(xrayAiNormalizeFinding).filter(Boolean),
                 model: data.model || MODEL_VERSION + '-api',
                 summary: data.summary || null,
                 backend: data.backend || null,
+                advisory: data.advisory || null,
+                modality: data.modality || (data.advisory && data.advisory.modality) || null,
                 anatomy_layers: data.anatomy_layers || [],
                 bone_measurements: data.bone_measurements || [],
                 width: data.width || null,
                 height: data.height || null
             };
+        });
+    }
+
+    /**
+     * Send a clinician verdict on a caries hint back to the service, where it
+     * becomes a labelled training example (continual learning). Best-effort:
+     * failures surface a status message but never disrupt review.
+     */
+    function xrayAiSendCariesFeedback(idx, verdict) {
+        var f = xrayAiState.findings[idx];
+        if (!f || !xrayAiIsCaries(f)) return;
+        if (xrayAiState.lastSource !== 'api' || !xrayAiState.feedbackEnabled) return;
+        if (xrayAiState.feedback[idx]) return;
+        var img = xrayAiG('xrayLbImg');
+        if (!img) return;
+
+        xrayAiSetStatus(xrayAiTr('media.xrayAi.fbSending'), 'work');
+        xrayAiFetchBlobFromImg(img).then(function (blob) {
+            var fd = new FormData();
+            fd.append('file', blob, 'xray.jpg');
+            fd.append('verdict', verdict);
+            fd.append('finding', JSON.stringify({
+                type: f.type,
+                box: { x: f.x, y: f.y, w: f.w, h: f.h },
+                polygon: f.polygon || null,
+                confidence: f.confidence,
+                surface: f.surface || null,
+                source: f.source || null
+            }));
+            if (xrayAiState.xrayId) fd.append('xray_id', String(xrayAiState.xrayId));
+            if (typeof xrayPatientId !== 'undefined' && xrayPatientId) {
+                fd.append('patient_ref', String(xrayPatientId));
+            }
+            if (typeof currentName === 'function') {
+                try { fd.append('created_by', String(currentName() || '')); } catch (e) { /* optional */ }
+            }
+            fd.append('model_version', MODEL_VERSION);
+            // Patient consent for retaining the image as training data is a PDPO
+            // requirement; default off unless the deployment opts in explicitly.
+            fd.append('consent', (typeof window !== 'undefined' && window.XRAY_AI_FEEDBACK_CONSENT === true) ? 'true' : 'false');
+            return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/feedback', {
+                method: 'POST', body: fd, mode: 'cors'
+            }, 30000);
+        }).then(function (r) {
+            if (!r) return;
+            if (r.status === 403) {
+                xrayAiState.feedbackEnabled = false;
+                xrayAiSetStatus(xrayAiTr('media.xrayAi.fbDisabled'), 'bad');
+                xrayAiUpdatePanel();
+                return;
+            }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json().then(function () {
+                xrayAiState.feedback[idx] = verdict;
+                xrayAiSetStatus(xrayAiTr('media.xrayAi.fbThanks'), 'ok');
+                xrayAiUpdatePanel();
+            });
+        }).catch(function (e) {
+            xrayAiSetStatus(xrayAiTr('media.xrayAi.fbFailed', { MSG: (e && e.message) || 'error' }), 'bad');
+        });
+    }
+
+    // ── Training review screen ─────────────────────────────────────
+    // Lists the verdicts accumulated via the feedback buttons, shows whether
+    // the machine is ready to retrain, and lets the operator kick off a
+    // continual pass and watch the promote/reject decision. All state lives on
+    // the service; this is a thin viewer over /caries/dataset and /caries/train.
+
+    var xrayAiTrainPollTimer = null;
+
+    function xrayAiOpenTrainingReview() {
+        var modal = xrayAiG('xrayAiTrainModal');
+        if (!modal) return;
+        modal.hidden = false;
+        xrayAiLoadTrainingReview();
+    }
+
+    function xrayAiCloseTrainingReview() {
+        var modal = xrayAiG('xrayAiTrainModal');
+        if (modal) modal.hidden = true;
+        if (xrayAiTrainPollTimer) {
+            clearTimeout(xrayAiTrainPollTimer);
+            xrayAiTrainPollTimer = null;
+        }
+    }
+
+    function xrayAiLoadTrainingReview() {
+        var stats = xrayAiG('xrayAiTrainStats');
+        if (stats) stats.textContent = xrayAiTr('media.xrayAi.train.loading');
+        xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/caries/dataset', { mode: 'cors' }, 10000)
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                xrayAiRenderTrainStats(data.stats || {});
+                xrayAiRenderTrainPreflight(data.preflight || [], !!data.ready_to_train, data.training_enabled !== false);
+                xrayAiRenderTrainVerdicts(data.recent || []);
+                return xrayAiFetchTrainStatus();
+            })
+            .catch(function (e) {
+                if (stats) stats.textContent = xrayAiTr('media.xrayAi.train.loadFailed', { MSG: (e && e.message) || 'error' });
+            });
+    }
+
+    function xrayAiRenderTrainStats(s) {
+        var el = xrayAiG('xrayAiTrainStats');
+        if (!el) return;
+        el.textContent = xrayAiTr('media.xrayAi.train.stats', {
+            CONFIRM: s.confirm || 0,
+            REJECT: s.reject || 0,
+            IMAGES: s.images || 0
+        });
+    }
+
+    function xrayAiRenderTrainPreflight(checks, ready, trainingEnabled) {
+        var el = xrayAiG('xrayAiTrainPreflight');
+        var btn = xrayAiG('xrayAiTrainRunBtn');
+        if (el) {
+            el.innerHTML = checks.map(function (c) {
+                var cls = c.ok ? 'ok' : (c.blocking ? 'bad' : 'warn');
+                var mark = c.ok ? '✓' : (c.blocking ? '✗' : '!');
+                return '<div class="xray-ai-train-check xray-ai-train-check-' + cls + '">' +
+                    '<span class="xray-ai-train-mark">' + mark + '</span>' +
+                    '<span>' + xrayAiEsc(c.detail || c.check) + '</span></div>';
+            }).join('');
+            if (!trainingEnabled) {
+                el.innerHTML += '<div class="xray-ai-train-check xray-ai-train-check-bad">' +
+                    '<span class="xray-ai-train-mark">✗</span><span>' +
+                    xrayAiEsc(xrayAiTr('media.xrayAi.train.disabled')) + '</span></div>';
+            }
+        }
+        if (btn) btn.disabled = !(ready && trainingEnabled);
+    }
+
+    function xrayAiRenderTrainVerdicts(recent) {
+        var el = xrayAiG('xrayAiTrainVerdicts');
+        if (!el) return;
+        if (!recent.length) {
+            el.innerHTML = '<div class="xray-ai-train-empty">' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.train.noVerdicts')) + '</div>';
+            return;
+        }
+        el.innerHTML = recent.map(function (v) {
+            var verdictKey = v.verdict === 'reject'
+                ? 'media.xrayAi.fbRecordedReject' : 'media.xrayAi.fbRecordedConfirm';
+            var when = (v.ts || '').replace('T', ' ').slice(0, 16);
+            var conf = (v.confidence != null) ? Math.round(v.confidence * 100) + '%' : '';
+            var surface = v.surface ? xrayAiTr('media.xrayAi.surface.' + v.surface) : '';
+            var typeLabel = (v.type && FINDING_META[v.type])
+                ? xrayAiTr(FINDING_META[v.type].i18n) : (v.type || '');
+            return '<div class="xray-ai-train-verdict xray-ai-train-verdict-' +
+                (v.verdict === 'reject' ? 'no' : 'yes') + '">' +
+                '<span class="xray-ai-train-verdict-mark">' + xrayAiEsc(xrayAiTr(verdictKey)) + '</span>' +
+                '<span>' + xrayAiEsc([typeLabel, surface, conf].filter(Boolean).join(' · ')) + '</span>' +
+                '<span class="xray-ai-train-verdict-when">' + xrayAiEsc(when) + '</span>' +
+                '</div>';
+        }).join('');
+    }
+
+    function xrayAiFetchTrainStatus() {
+        return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/caries/train/status', { mode: 'cors' }, 10000)
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(xrayAiRenderTrainStatus)
+            .catch(function () { /* status area simply stays as-is */ });
+    }
+
+    function xrayAiRenderTrainStatus(st) {
+        st = st || {};
+        var stateEl = xrayAiG('xrayAiTrainState');
+        var logEl = xrayAiG('xrayAiTrainLog');
+        var btn = xrayAiG('xrayAiTrainRunBtn');
+        var running = st.state === 'running';
+
+        if (stateEl) {
+            var text = '';
+            if (running) {
+                text = xrayAiTr('media.xrayAi.train.running');
+            } else if (st.outcome === 'promoted') {
+                text = xrayAiTr('media.xrayAi.train.promoted');
+            } else if (st.outcome === 'rejected') {
+                text = xrayAiTr('media.xrayAi.train.rejected');
+            } else if (st.outcome === 'failed') {
+                text = xrayAiTr('media.xrayAi.train.failed');
+            } else if (st.message) {
+                text = st.message;
+            }
+            stateEl.textContent = text;
+            stateEl.className = 'xray-ai-train-state' +
+                (running ? ' is-running' :
+                    st.outcome === 'promoted' ? ' is-promoted' :
+                    st.outcome === 'rejected' ? ' is-rejected' :
+                    st.outcome === 'failed' ? ' is-failed' : '');
+        }
+        if (logEl) {
+            var tail = st.log_tail || '';
+            logEl.hidden = !tail;
+            logEl.textContent = tail;
+            if (!logEl.hidden) logEl.scrollTop = logEl.scrollHeight;
+        }
+        if (btn && running) btn.disabled = true;
+
+        if (running) {
+            if (xrayAiTrainPollTimer) clearTimeout(xrayAiTrainPollTimer);
+            xrayAiTrainPollTimer = setTimeout(function () {
+                var modal = xrayAiG('xrayAiTrainModal');
+                if (modal && !modal.hidden) xrayAiFetchTrainStatus();
+            }, 5000);
+        } else if (xrayAiTrainPollTimer) {
+            clearTimeout(xrayAiTrainPollTimer);
+            xrayAiTrainPollTimer = null;
+            // A finished run can change readiness (e.g. new incumbent weights),
+            // so refresh the preflight block once.
+            xrayAiLoadTrainingReview();
+        }
+    }
+
+    function xrayAiRunContinualTraining() {
+        var btn = xrayAiG('xrayAiTrainRunBtn');
+        if (btn) btn.disabled = true;
+        var stateEl = xrayAiG('xrayAiTrainState');
+        if (stateEl) stateEl.textContent = xrayAiTr('media.xrayAi.train.starting');
+        var fd = new FormData();
+        fd.append('epochs', '40');
+        fd.append('replay_frac', '0.5');
+        xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/caries/train', {
+            method: 'POST', body: fd, mode: 'cors'
+        }, 20000).then(function (r) {
+            if (r.status === 403) throw new Error(xrayAiTr('media.xrayAi.train.disabled'));
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        }).then(function (st) {
+            xrayAiRenderTrainStatus(st);
+            if (st && st.preflight) {
+                xrayAiRenderTrainPreflight(st.preflight, st.state === 'running', true);
+            }
+        }).catch(function (e) {
+            if (stateEl) {
+                stateEl.textContent = xrayAiTr('media.xrayAi.train.startFailed', { MSG: (e && e.message) || 'error' });
+                stateEl.className = 'xray-ai-train-state is-failed';
+            }
+            if (btn) btn.disabled = false;
         });
     }
 
@@ -1815,17 +2329,21 @@
         result = result || {};
         var imgW = result.width || null;
         var imgH = result.height || null;
+        // Retain down to the low floor, not the display threshold: the slider
+        // can only reveal findings that were kept here in the first place.
         xrayAiState.findings = xrayAiDedupeFindings(
             (result.findings || [])
                 .map(function (f) { return xrayAiFinalizeFinding(f, imgW, imgH); })
-                .filter(function (f) { return f && (f.confidence || 0) >= XRAY_AI_CONFIG.minConfidence; })
+                .filter(function (f) { return f && (f.confidence || 0) >= XRAY_AI_CONFIG.retainConfidence; })
         ).slice(0, XRAY_AI_CONFIG.maxFindings);
         xrayAiState.hidden = {};
         xrayAiState.selectedIdx = -1;
+        xrayAiState.feedback = {};
         xrayAiState.lastSource = source;
         xrayAiState.lastRunAt = new Date().toISOString();
-        xrayAiState.summary = result.summary || null;
         xrayAiState.backend = result.backend || null;
+        xrayAiState.advisory = result.advisory || null;
+        xrayAiState.modality = result.modality || (result.advisory && result.advisory.modality) || null;
         xrayAiState.analysisWidth = result.width || null;
         xrayAiState.analysisHeight = result.height || null;
         xrayAiState.anatomyLayers = xrayAiSanitizeLayers(
@@ -1834,16 +2352,19 @@
             xrayAiState.analysisHeight
         );
         xrayAiState.boneMeasurements = Array.isArray(result.bone_measurements) ? result.bone_measurements : [];
-        if (!xrayAiState.summary) xrayAiRefreshSummaryCounts();
         xrayAiState.showOverlays = true;
         xrayAiState.showAnatomyLayers = true;
         xrayAiState.showBoneLines = true;
         xrayAiInitCategoryFilters();
+        xrayAiSyncConfidenceControl();
         try { xrayAiSyncCanvasSize(); } catch (e1) { /* canvas optional */ }
         try { xrayAiUpdatePanel(); } catch (e2) { /* panel optional */ }
-        xrayAiSetStatus(xrayAiState.findings.length
-            ? xrayAiTr('media.xrayAi.done', { N: xrayAiState.findings.length })
+        var shown = xrayAiVisibleFindings().length;
+        xrayAiSetStatus(shown
+            ? xrayAiTr('media.xrayAi.done', { N: shown })
             : xrayAiTr('media.xrayAi.noFindingsShort'), 'ok');
+        // The audit row records everything retained, not just what is on screen,
+        // so a later review is not limited by where the slider happened to sit.
         xrayAiPersistRun(xrayAiState.findings, result.model);
     }
 
@@ -1958,6 +2479,7 @@
     function xrayAiOnLightboxClose() {
         xrayAiClearOverlays();
         xrayAiState.xrayId = null;
+        xrayAiCloseTrainingReview();
     }
 
     xrayAiInitCategoryFilters();
@@ -1965,6 +2487,11 @@
     window.xrayAiRunAssist = xrayAiRunAssist;
     window.xrayAiClearFindings = xrayAiClearOverlays;
     window.xrayAiToggleOverlays = xrayAiToggleOverlays;
+    window.xrayAiSetConfidenceThreshold = xrayAiSetConfidenceThreshold;
+    window.xrayAiSendCariesFeedback = xrayAiSendCariesFeedback;
+    window.xrayAiOpenTrainingReview = xrayAiOpenTrainingReview;
+    window.xrayAiCloseTrainingReview = xrayAiCloseTrainingReview;
+    window.xrayAiRunContinualTraining = xrayAiRunContinualTraining;
     window.xrayAiOnLightboxOpen = xrayAiOnLightboxOpen;
     window.xrayAiOnLightboxClose = xrayAiOnLightboxClose;
     window.xrayAiOnCanvasResize = xrayAiSyncCanvasSize;

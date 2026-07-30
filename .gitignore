@@ -32,3 +32,23 @@ tools.zip
 # Node / build artefacts
 node_modules/
 .cache/
+
+# X-ray AI service: local venv, downloaded model weights, bytecode
+xray-ai-service/.venv/
+xray-ai-service/model_cache/
+__pycache__/
+*.pyc
+
+# Caries subsystem: trained weights, prepared datasets, training runs
+xray-ai-service/caries/weights/
+xray-ai-service/caries/train/dataset/
+xray-ai-service/caries/train/dataset_continual/
+xray-ai-service/caries/train/raw/
+xray-ai-service/_samples/
+xray-ai-service/caries/train/runs/
+runs/
+*.pt
+*.onnx
+
+# Continual-learning capture — contains PATIENT RADIOGRAPHS. Never commit.
+xray-ai-service/caries/clinic_data/

@@ -3790,14 +3790,46 @@
           <div class="xray-ai-panel-head">
             <span data-i18n="media.xrayAi.panelTitle"></span>
             <span id="xrayAiStatus" class="xray-ai-status"></span>
+            <button type="button" id="xrayAiTrainOpenBtn" class="xray-ai-train-open"
+                    onclick="xrayAiOpenTrainingReview()" hidden
+                    data-i18n="media.xrayAi.train.open"
+                    data-i18n-title="media.xrayAi.train.openTip"></button>
           </div>
           <p class="xray-ai-hint" data-i18n="media.xrayAi.panelHint"></p>
+          <div class="xray-ai-confidence-row">
+            <label for="xrayAiConfidenceSlider" data-i18n="media.xrayAi.confidenceLabel"></label>
+            <input type="range" id="xrayAiConfidenceSlider" min="15" max="95" step="1" value="38"
+                   oninput="xrayAiSetConfidenceThreshold(this.value)">
+            <span id="xrayAiConfidenceVal" class="xray-ai-confidence-val">38%</span>
+            <span id="xrayAiConfidenceNote" class="xray-ai-confidence-note"></span>
+          </div>
+          <p id="xrayAiScopeNote" class="xray-ai-scope-note" hidden></p>
           <div id="xrayAiAnatomyLegend" class="xray-ai-anatomy-legend"></div>
           <div id="xrayAiLegend" class="xray-ai-legend"></div>
           <div id="xrayAiSummary" class="xray-ai-summary"></div>
           <div id="xrayAiRunMeta" class="xray-ai-run-meta"></div>
           <div id="xrayAiBoneMeasures" class="xray-ai-bone-measures"></div>
           <div id="xrayAiFindingsList" class="xray-ai-findings-list"></div>
+        </div>
+        <div id="xrayAiTrainModal" class="xray-ai-train-modal" hidden>
+          <div class="xray-ai-train-card">
+            <div class="xray-ai-train-head">
+              <span data-i18n="media.xrayAi.train.title"></span>
+              <button type="button" class="xray-ai-train-close" onclick="xrayAiCloseTrainingReview()">&times;</button>
+            </div>
+            <p class="xray-ai-hint" data-i18n="media.xrayAi.train.hint"></p>
+            <div id="xrayAiTrainStats" class="xray-ai-train-stats"></div>
+            <div id="xrayAiTrainPreflight" class="xray-ai-train-preflight"></div>
+            <div class="xray-ai-train-actions">
+              <button type="button" id="xrayAiTrainRunBtn" class="xray-ai-train-run"
+                      onclick="xrayAiRunContinualTraining()"
+                      data-i18n="media.xrayAi.train.run" disabled></button>
+              <span id="xrayAiTrainState" class="xray-ai-train-state"></span>
+            </div>
+            <pre id="xrayAiTrainLog" class="xray-ai-train-log" hidden></pre>
+            <div class="xray-ai-train-list-head" data-i18n="media.xrayAi.train.recent"></div>
+            <div id="xrayAiTrainVerdicts" class="xray-ai-train-verdicts"></div>
+          </div>
         </div>
         <div class="xray-lb-meta-row">
           <span class="xlm-label" data-i18n="media.lb.textOnImageXray"></span>

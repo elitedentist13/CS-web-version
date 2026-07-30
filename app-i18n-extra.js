@@ -5516,9 +5516,119 @@
         'media.xrayAi.clearTitle': { en: 'Clear AI overlays', 'zh-CN': '清除 AI 标记', 'zh-Hant': '清除 AI 標記' },
         'media.xrayAi.panelTitle': { en: 'X-ray Assist', 'zh-CN': 'X 光辅助', 'zh-Hant': 'X 光輔助' },
         'media.xrayAi.panelHint': {
-            en: 'Pearl-style colour overlays for review only. Toggle categories below. Shift+click a finding to hide it.',
-            'zh-CN': 'Pearl 风格彩色叠加，仅供审阅。可在下方切换类别。Shift+点击可隐藏单项。',
-            'zh-Hant': 'Pearl 風格彩色疊加，僅供審閱。可在下方切換類別。Shift+點擊可隱藏單項。'
+            en: 'Pearl-style colour overlays for review only. Drag the confidence slider to widen or narrow the results. Toggle categories below. Shift+click a finding to hide it.',
+            'zh-CN': 'Pearl 风格彩色叠加，仅供审阅。拖动置信度滑块可放宽或收紧结果。可在下方切换类别。Shift+点击可隐藏单项。',
+            'zh-Hant': 'Pearl 風格彩色疊加，僅供審閱。拖動置信度滑桿可放寬或收緊結果。可在下方切換類別。Shift+點擊可隱藏單項。'
+        },
+        'media.xrayAi.confidenceLabel': { en: 'Confidence', 'zh-CN': '置信度', 'zh-Hant': '置信度' },
+        'media.xrayAi.confidenceCount': {
+            en: 'Showing {N} of {T} — lower the threshold to see more, raise it for higher-certainty findings only.',
+            'zh-CN': '显示 {N} / {T} 处 — 降低阈值可看到更多，提高阈值只保留较确定的发现。',
+            'zh-Hant': '顯示 {N} / {T} 處 — 降低閾值可看到更多，提高閾值只保留較確定的發現。'
+        },
+        'media.xrayAi.allBelowThreshold': {
+            en: '{N} finding(s) are below the {PCT}% confidence threshold. Lower the slider to review them.',
+            'zh-CN': '有 {N} 处发现低于 {PCT}% 置信度阈值。降低滑块即可查看。',
+            'zh-Hant': '有 {N} 處發現低於 {PCT}% 置信度閾值。降低滑桿即可查看。'
+        },
+        'media.xrayAi.fallbackScope': {
+            en: 'Offline mode: the analysis service is not running, so this was measured in the browser without any AI model. It marks restorations and bone levels only — it does not look for caries, calculus or periapical lesions. Absence of those markings means nothing here.',
+            'zh-CN': '离线模式：分析服务未运行，本次结果由浏览器计算，未使用任何 AI 模型。仅标示修复体与骨水平，不检测蛀牙、牙石或根尖病变。此处没有相关标记并不代表没有病变。',
+            'zh-Hant': '離線模式：分析服務未運行，本次結果由瀏覽器計算，未使用任何 AI 模型。僅標示修復體與骨水平，不檢測蛀牙、牙石或根尖病變。此處沒有相關標記並不代表沒有病變。'
+        },
+        'media.xrayAi.screeningBadge': { en: 'screening', 'zh-CN': '筛查', 'zh-Hant': '篩查' },
+        'media.xrayAi.screeningTip': {
+            en: 'Screening aid, not a diagnosis. Confidence is capped — verify on the radiograph.',
+            'zh-CN': '筛查辅助，非诊断。置信度设有上限 —— 请在片上核实。',
+            'zh-Hant': '篩查輔助，非診斷。置信度設有上限 —— 請在片上核實。'
+        },
+        'media.xrayAi.nearRestoration': { en: 'near filling', 'zh-CN': '邻近修复体', 'zh-Hant': '鄰近修復體' },
+        'media.xrayAi.edjCrossing': { en: 'E–D crossing', 'zh-CN': '釉牙本质界穿越', 'zh-Hant': '釉牙本質界穿越' },
+        'media.xrayAi.edjCrossingTip': {
+            en: 'Lesion involves both enamel and dentin (crosses the EDJ).',
+            'zh-CN': '病变同时累及釉质与牙本质（穿越釉牙本质界）。',
+            'zh-Hant': '病變同時累及釉質與牙本質（穿越釉牙本質界）。'
+        },
+        'media.xrayAi.nearRestorationTip': {
+            en: 'Sits against a restoration margin — could be recurrent caries or a peri-restoration artifact. Check carefully.',
+            'zh-CN': '紧贴修复体边缘 —— 可能是继发龋，也可能是修复体周围伪影。请仔细检查。',
+            'zh-Hant': '緊貼修復體邊緣 —— 可能是繼發齲，也可能是修復體周圍偽影。請仔細檢查。'
+        },
+        'media.xrayAi.surface.interproximal': { en: 'interproximal', 'zh-CN': '邻面', 'zh-Hant': '鄰面' },
+        'media.xrayAi.surface.occlusal': { en: 'occlusal', 'zh-CN': '咬合面', 'zh-Hant': '咬合面' },
+        'media.xrayAi.surface.cervical': { en: 'cervical', 'zh-CN': '牙颈部', 'zh-Hant': '牙頸部' },
+        'media.xrayAi.surface.root': { en: 'root', 'zh-CN': '牙根', 'zh-Hant': '牙根' },
+        'media.xrayAi.surface.smooth': { en: 'smooth surface', 'zh-CN': '平滑面', 'zh-Hant': '平滑面' },
+        'media.xrayAi.cariesSourceTrained': { en: 'caries: trained model', 'zh-CN': '蛀牙：训练模型', 'zh-Hant': '蛀牙：訓練模型' },
+        'media.xrayAi.cariesSourceClassical': { en: 'caries: classical fallback', 'zh-CN': '蛀牙：传统后备', 'zh-Hant': '蛀牙：傳統後備' },
+        'media.xrayAi.cariesSourceUnion': { en: 'caries: model + classical (high recall)', 'zh-CN': '蛀牙：模型+传统（高召回）', 'zh-Hant': '蛀牙：模型+傳統（高召回）' },
+        'media.xrayAi.modality.panoramic': { en: 'panoramic', 'zh-CN': '全景片', 'zh-Hant': '全景片' },
+        'media.xrayAi.modality.bitewing': { en: 'bitewing', 'zh-CN': '咬翼片', 'zh-Hant': '咬翼片' },
+        'media.xrayAi.modality.periapical': { en: 'periapical', 'zh-CN': '根尖片', 'zh-Hant': '根尖片' },
+        'media.xrayAi.fbConfirmTip': {
+            en: 'Confirm this is caries — teaches the model (stored as training data).',
+            'zh-CN': '确认这是蛀牙 —— 用于训练模型（将作为训练数据保存）。',
+            'zh-Hant': '確認這是蛀牙 —— 用於訓練模型（將作為訓練資料儲存）。'
+        },
+        'media.xrayAi.fbRejectTip': {
+            en: 'Not caries — teaches the model to stop flagging this (stored as training data).',
+            'zh-CN': '不是蛀牙 —— 教模型不再标记此处（将作为训练数据保存）。',
+            'zh-Hant': '不是蛀牙 —— 教模型不再標記此處（將作為訓練資料儲存）。'
+        },
+        'media.xrayAi.fbSending': { en: 'Recording feedback…', 'zh-CN': '正在记录反馈…', 'zh-Hant': '正在記錄回饋…' },
+        'media.xrayAi.fbThanks': { en: 'Feedback recorded for future training.', 'zh-CN': '反馈已记录，供日后训练。', 'zh-Hant': '回饋已記錄，供日後訓練。' },
+        'media.xrayAi.fbRecordedConfirm': { en: '✓ confirmed', 'zh-CN': '✓ 已确认', 'zh-Hant': '✓ 已確認' },
+        'media.xrayAi.fbRecordedReject': { en: '✗ dismissed', 'zh-CN': '✗ 已否定', 'zh-Hant': '✗ 已否定' },
+        'media.xrayAi.fbDisabled': { en: 'Feedback capture is turned off on the service.', 'zh-CN': '服务端已关闭反馈采集。', 'zh-Hant': '服務端已關閉回饋採集。' },
+        'media.xrayAi.fbFailed': { en: 'Could not record feedback ({MSG}).', 'zh-CN': '无法记录反馈（{MSG}）。', 'zh-Hant': '無法記錄回饋（{MSG}）。' },
+        'media.xrayAi.train.open': { en: 'Training', 'zh-CN': '训练', 'zh-Hant': '訓練' },
+        'media.xrayAi.train.openTip': {
+            en: 'Review confirmed/dismissed findings and run a continual training pass.',
+            'zh-CN': '查看已确认／已否定的结果，并运行一次持续训练。',
+            'zh-Hant': '查看已確認／已否定的結果，並執行一次持續訓練。'
+        },
+        'media.xrayAi.train.title': { en: 'Caries model — training review', 'zh-CN': '蛀牙模型 —— 训练回顾', 'zh-Hant': '蛀牙模型 —— 訓練回顧' },
+        'media.xrayAi.train.hint': {
+            en: 'Verdicts recorded from the findings list accumulate here as training data. A continual pass fine-tunes the model on them and only promotes the result if it does not regress on the reference set.',
+            'zh-CN': '在结果列表中记录的判定会在此累积为训练数据。持续训练会用这些数据微调模型，只有在参考集上不退步时才会采用新模型。',
+            'zh-Hant': '在結果列表中記錄的判定會在此累積為訓練資料。持續訓練會用這些資料微調模型，只有在參考集上不退步時才會採用新模型。'
+        },
+        'media.xrayAi.train.loading': { en: 'Loading…', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
+        'media.xrayAi.train.loadFailed': {
+            en: 'Could not reach the AI service ({MSG}).',
+            'zh-CN': '无法连接 AI 服务（{MSG}）。',
+            'zh-Hant': '無法連接 AI 服務（{MSG}）。'
+        },
+        'media.xrayAi.train.stats': {
+            en: 'Dataset: {CONFIRM} confirmed · {REJECT} dismissed · {IMAGES} image(s)',
+            'zh-CN': '数据集：已确认 {CONFIRM} · 已否定 {REJECT} · 图像 {IMAGES} 张',
+            'zh-Hant': '資料集：已確認 {CONFIRM} · 已否定 {REJECT} · 圖像 {IMAGES} 張'
+        },
+        'media.xrayAi.train.recent': { en: 'Recent verdicts', 'zh-CN': '最近判定', 'zh-Hant': '最近判定' },
+        'media.xrayAi.train.noVerdicts': {
+            en: 'No verdicts yet. Confirm or dismiss caries hints in the findings list to build the dataset.',
+            'zh-CN': '尚无判定。请在结果列表中确认或否定蛀牙提示，以累积数据集。',
+            'zh-Hant': '尚無判定。請在結果列表中確認或否定蛀牙提示，以累積資料集。'
+        },
+        'media.xrayAi.train.run': { en: 'Run continual training', 'zh-CN': '运行持续训练', 'zh-Hant': '執行持續訓練' },
+        'media.xrayAi.train.starting': { en: 'Starting…', 'zh-CN': '正在启动…', 'zh-Hant': '正在啟動…' },
+        'media.xrayAi.train.running': { en: 'Training in progress… this can take a long time.', 'zh-CN': '训练进行中…… 可能需时较长。', 'zh-Hant': '訓練進行中…… 可能需時較長。' },
+        'media.xrayAi.train.promoted': {
+            en: 'New model promoted — restart the AI service to load it.',
+            'zh-CN': '新模型已采用 —— 重启 AI 服务后生效。',
+            'zh-Hant': '新模型已採用 —— 重啟 AI 服務後生效。'
+        },
+        'media.xrayAi.train.rejected': {
+            en: 'Candidate regressed on the reference set — the current model was kept.',
+            'zh-CN': '候选模型在参考集上退步 —— 已保留当前模型。',
+            'zh-Hant': '候選模型在參考集上退步 —— 已保留目前模型。'
+        },
+        'media.xrayAi.train.failed': { en: 'Training failed — see the log below.', 'zh-CN': '训练失败 —— 见下方日志。', 'zh-Hant': '訓練失敗 —— 見下方日誌。' },
+        'media.xrayAi.train.startFailed': { en: 'Could not start training ({MSG}).', 'zh-CN': '无法启动训练（{MSG}）。', 'zh-Hant': '無法啟動訓練（{MSG}）。' },
+        'media.xrayAi.train.disabled': {
+            en: 'Training is disabled on the service (ENABLE_CARIES_TRAINING).',
+            'zh-CN': '服务端已关闭训练（ENABLE_CARIES_TRAINING）。',
+            'zh-Hant': '服務端已關閉訓練（ENABLE_CARIES_TRAINING）。'
         },
         'media.xrayAi.toggleOverlays': { en: 'Toggle all overlays', 'zh-CN': '切换全部叠加', 'zh-Hant': '切換全部疊加' },
         'media.xrayAi.summaryTitle': { en: 'Summary', 'zh-CN': '汇总', 'zh-Hant': '匯總' },
@@ -5551,9 +5661,9 @@
         },
         'media.xrayAi.disclaimerTitle': { en: 'X-ray Assist — important', 'zh-CN': 'X 光辅助 — 重要说明', 'zh-Hant': 'X 光輔助 — 重要說明' },
         'media.xrayAi.disclaimerBody': {
-            en: 'This tool shows experimental computer-generated hints only. It can miss disease or show false positives. You must examine the radiograph yourself and apply your clinical judgment. Do not rely on this tool alone for diagnosis or treatment decisions.',
-            'zh-CN': '本工具仅显示实验性计算机提示，可能漏诊或误报。您必须亲自阅片并运用临床判断。请勿单独依据本工具作出诊断或治疗决定。',
-            'zh-Hant': '本工具僅顯示實驗性電腦提示，可能漏診或誤報。您必須親自閱片並運用臨床判斷。請勿單獨依據本工具作出診斷或治療決定。'
+            en: 'This tool shows experimental computer-generated hints only. It can miss disease or show false positives. You must examine the radiograph yourself and apply your clinical judgment. Do not rely on this tool alone for diagnosis or treatment decisions.\n\nResults are filtered by an adjustable confidence threshold — lowering it reveals weaker, less reliable hints.\n\nCaries hints come from a screening workflow tuned for bitewings: a lesion detector followed by a reasoning layer that checks tooth anatomy and contrast and rejects common look-alikes (restorations, cervical burnout, the pulp chamber). Confidence is deliberately capped — this is a screening aid, not a validated diagnosis, and it has not been checked against your own cases. If no trained model is installed it uses a weaker classical detector, shown at lower confidence. Never read an absence of caries markings as an absence of caries.\n\nBone-loss values are geometric estimates from tooth position, not calibrated measurements, and have not been checked against clinician assessment. Tooth numbering is unreliable and must be verified.',
+            'zh-CN': '本工具仅显示实验性计算机提示，可能漏诊或误报。您必须亲自阅片并运用临床判断。请勿单独依据本工具作出诊断或治疗决定。\n\n结果按可调置信度阈值筛选 — 降低阈值会显示较弱、可靠性较低的提示。\n\n蛀牙提示来自针对咬翼片调校的筛查流程：先由病灶检测器找出可疑处，再由推理层核对牙齿解剖与对比度，并排除常见的相似影像（修复体、颈部烧灼伪影、髓腔）。置信度刻意设有上限 —— 这是筛查辅助，并非经过验证的诊断，也未针对贵诊所的病例核对。若未安装训练模型，则改用较弱的传统检测器并以较低置信度显示。切勿将没有蛀牙标记视为没有蛀牙。\n\n骨吸收数值是根据牙齿位置作出的几何估算，并非校准测量值，亦未与医生评估核对。牙位编号不可靠，必须自行核实。',
+            'zh-Hant': '本工具僅顯示實驗性電腦提示，可能漏診或誤報。您必須親自閱片並運用臨床判斷。請勿單獨依據本工具作出診斷或治療決定。\n\n結果按可調置信度閾值篩選 — 降低閾值會顯示較弱、可靠性較低的提示。\n\n蛀牙提示來自針對咬翼片調校的篩查流程：先由病灶偵測器找出可疑處，再由推理層核對牙齒解剖與對比度，並排除常見的相似影像（修復體、頸部燒灼偽影、髓腔）。置信度刻意設有上限 —— 這是篩查輔助，並非經過驗證的診斷，亦未針對貴診所的病例核對。若未安裝訓練模型，則改用較弱的傳統偵測器並以較低置信度顯示。切勿將沒有蛀牙標記視為沒有蛀牙。\n\n骨吸收數值是根據牙齒位置作出的幾何估算，並非校準測量值，亦未與醫生評估核對。牙位編號不可靠，必須自行核實。'
         },
         'media.xrayAi.disclaimerDontShow': {
             en: 'Do not show again this session (stored on this device)',

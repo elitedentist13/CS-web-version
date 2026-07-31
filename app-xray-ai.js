@@ -127,6 +127,15 @@
         panoModelId: PANO_MODEL_VERSION,
         pabwModelId: PABW_MODEL_VERSION,
         feedback: {},
+        // Set when a health-check/analyze call to the local service fails.
+        // null | 'offline' | 'lna_maybe' | 'lna_denied' — see
+        // xrayAiApiCrossesToPrivateNetwork() / xrayAiUpdateConnNote(). This
+        // exists because a hosted (https) copy of this app talking to a
+        // 127.0.0.1 service is, as of Chrome/Edge's Local Network Access
+        // rollout, gated behind a one-time browser permission prompt that
+        // looks identical to "service just isn't running" from fetch()'s
+        // point of view.
+        connIssue: null,
         // User-adjustable display threshold (see the confidence slider).
         confidenceThreshold: xrayAiReadStoredConfidence()
     };
@@ -495,23 +504,43 @@
         for (y = lo; y < hi; y++) {
             if (smooth[y] < segMin) { segMin = smooth[y]; segIdx = y; }
         }
-        if (peak < 4 || segMin > peak * 0.92) return null;
+        // Real inter-arch gap is nearly empty. Mild CEJ-waist dips on a
+        // single-arch PA/bitewing must not count (they were splitting every
+        // tooth into fake upper+lower fragments).
+        if (peak < 4 || segMin > peak * 0.28 || segMin > cw * 0.12) return null;
         if (segIdx - lo < 5 || hi - segIdx < 6) return null;
+        var runLo = Math.max(lo, segIdx - Math.max(2, (ch / 80) | 0));
+        var runHi = Math.min(hi, segIdx + Math.max(2, (ch / 80) | 0));
+        var runSum = 0, runCnt = 0;
+        for (y = runLo; y <= runHi; y++) { runSum += smooth[y]; runCnt++; }
+        if (runCnt && (runSum / runCnt) > peak * 0.32) return null;
         above = 0; below = 0;
         for (y = 0; y < segIdx; y++) for (x = 0; x < cw; x++) if (toothMask[y * cw + x]) above++;
         for (y = segIdx; y < ch; y++) for (x = 0; x < cw; x++) if (toothMask[y * cw + x]) below++;
         minSide = Math.max(24, ((cw * ch * 0.008) | 0));
         if (above < minSide || below < minSide) return null;
+        if (Math.min(above, below) / Math.max(above, below) < 0.18) return null;
         return segIdx;
     }
 
     function xrayAiColumnVerticalBands(colBool, cw, ch, archGapY) {
-        var rows = [], y, x, i, gapMin, bands = [], start, prev, r;
-        for (y = 0; y < ch; y++) {
-            if (colBool[y]) { rows.push(y); break; }
+        var filled = new Uint8Array(ch), rows = [], y, i, gapMin, bands = [], start, prev, r;
+        for (y = 0; y < ch; y++) if (colBool[y]) filled[y] = 1;
+        for (y = 0; y < ch; y++) if (filled[y]) rows.push(y);
+        if (rows.length < 8) return [];
+        // Close short CEJ-waist holes so one tooth isn't shattered into fragments.
+        var holeFill = Math.max(3, (ch * 0.025) | 0);
+        for (i = 0; i < rows.length - 1; i++) {
+            var a = rows[i], b = rows[i + 1];
+            if (b - a > 1 && b - a <= holeFill) {
+                for (y = a; y <= b; y++) filled[y] = 1;
+            }
         }
+        rows = [];
+        for (y = 0; y < ch; y++) if (filled[y]) rows.push(y);
         if (rows.length < 8) return [];
         gapMin = Math.max(4, (ch * 0.018) | 0);
+        if (archGapY == null) gapMin = Math.max(gapMin, (ch * 0.08) | 0);
         start = rows[0]; prev = rows[0];
         for (i = 1; i < rows.length; i++) {
             r = rows[i];
@@ -523,8 +552,9 @@
         }
         if (prev - start + 1 >= 8) bands.push([start, prev]);
         if (!bands.length) bands.push([rows[0], rows[rows.length - 1]]);
+        // Only split at a true empty oral-cavity gap, never through a solid tooth.
         if (archGapY != null && bands.length === 1) {
-            if (bands[0][0] + 10 < archGapY && archGapY < bands[0][1] - 10) {
+            if (bands[0][0] + 10 < archGapY && archGapY < bands[0][1] - 10 && !filled[archGapY]) {
                 bands = [[bands[0][0], archGapY - 1], [archGapY + 1, bands[0][1]]];
             }
         }
@@ -532,13 +562,20 @@
     }
 
     function xrayAiCrownRootForBand(yTop, yApex, cejY, ch, archGapY) {
+        // Crowns face the oral cavity (near the inter-arch gap); roots face
+        // bone (far from the gap). For the upper arch that means crown is
+        // the *bottom* of the band (larger y), not the top — the previous
+        // assignment was inverted and pushed CEJ/crest marks into empty space.
+        var arch;
         if (archGapY != null) {
-            if (yApex <= archGapY) return { crownY1: yTop, crownY2: cejY, arch: 'upper' };
-            if (yTop >= archGapY) return { crownY1: cejY, crownY2: yApex + 1, arch: 'lower' };
+            if (yApex <= archGapY) arch = 'upper';
+            else if (yTop >= archGapY) arch = 'lower';
         }
-        var bandMid = (yTop + yApex) / 2;
-        if (bandMid < ch * 0.48) return { crownY1: yTop, crownY2: cejY, arch: 'upper' };
-        return { crownY1: cejY, crownY2: yApex + 1, arch: 'lower' };
+        if (!arch) arch = ((yTop + yApex) / 2) < ch * 0.48 ? 'upper' : 'lower';
+        if (arch === 'upper') {
+            return { crownY1: Math.min(cejY, yApex), crownY2: Math.max(cejY, yApex) + 1, arch: 'upper', yNear: yApex, yFar: yTop };
+        }
+        return { crownY1: Math.min(yTop, cejY), crownY2: Math.max(yTop, cejY), arch: 'lower', yNear: yTop, yFar: yApex };
     }
 
     function xrayAiToothForPoint(anatomy, cx, cy) {
@@ -550,13 +587,51 @@
         return null;
     }
 
-    function xrayAiClampCejY(yTop, yApex, cejY) {
-        var colH = Math.max(10, yApex - yTop);
-        var minCej = yTop + Math.max(4, (colH * 0.30) | 0);
-        var maxCej = yTop + Math.max(8, (colH * 0.58) | 0);
+    function xrayAiClampCejY(yNear, yFar, cejY) {
+        var colH = Math.max(10, Math.abs(yFar - yNear));
+        var lo = Math.max(4, (colH * 0.34) | 0);
+        var hi = Math.max(8, (colH * 0.58) | 0);
+        var minCej, maxCej;
+        if (yNear <= yFar) {
+            minCej = yNear + lo;
+            maxCej = yNear + hi;
+        } else {
+            minCej = yNear - hi;
+            maxCej = yNear - lo;
+        }
         if (cejY < minCej) cejY = minCej;
         if (cejY > maxCej) cejY = maxCej;
         return cejY;
+    }
+
+    /** Pearl CEJ: crown-max → first lasting constriction toward the apex. */
+    function xrayAiCejWaistY(toothMask, cw, xLeft, xRight, yNear, yFar) {
+        var span = Math.max(1, Math.abs(yFar - yNear));
+        var widths = new Float32Array(span + 1);
+        var step = yNear <= yFar ? 1 : -1;
+        var i = 0, y, x, x1b, x2b;
+        for (y = yNear; y !== yFar + step; y += step, i++) {
+            if (i >= widths.length || y < 0 || y >= toothMask.length / cw) break;
+            x1b = cw; x2b = 0;
+            for (x = xLeft; x <= xRight; x++) {
+                if (toothMask[y * cw + x]) { if (x < x1b) x1b = x; if (x > x2b) x2b = x; }
+            }
+            widths[i] = x2b >= x1b ? (x2b - x1b + 1) : 0;
+        }
+        var crownEnd = Math.max(2, (span * 0.55) | 0);
+        var maxI = 0, maxW = 0;
+        for (i = 0; i < crownEnd && i < widths.length; i++) {
+            if (widths[i] > maxW) { maxW = widths[i]; maxI = i; }
+        }
+        var target = Math.max(3, maxW * 0.72);
+        var bestI = -1, searchEnd = Math.min(widths.length - 1, (span * 0.78) | 0);
+        for (i = maxI + 1; i <= searchEnd; i++) {
+            if (widths[i] <= 0) continue;
+            if (widths[i] <= target) { bestI = i; break; }
+            if (widths[i] < maxW * 0.90 && i >= maxI + 2) bestI = i;
+        }
+        if (bestI < 0) bestI = (span * 0.42) | 0;
+        return yNear <= yFar ? (yNear + bestI) : (yNear - bestI);
     }
 
     function xrayAiBuildAnatomy(gray, cw, ch) {
@@ -657,27 +732,41 @@
         for (p = 0; p < cw; p++) cejCurve[p] = (ch * 0.45) | 0;
         var teeth = [];
         var archGapY = xrayAiFindInterarchGap(toothMask, cw, ch);
+        // Single-arch PA/bitewing: arch from where the wide (crown) part sits.
+        var singleArch = null;
+        if (archGapY == null) {
+            var widths = new Float32Array(ch), y0c = -1, y1c = -1, yy, xx, maxW = 0, maxYi = 0;
+            for (yy = 0; yy < ch; yy++) {
+                var ww = 0;
+                for (xx = 0; xx < cw; xx++) if (toothMask[yy * cw + xx]) ww++;
+                widths[yy] = ww;
+                if (ww > 0) { if (y0c < 0) y0c = yy; y1c = yy; }
+                if (ww > maxW) { maxW = ww; maxYi = yy; }
+            }
+            if (y0c >= 0 && y1c > y0c) {
+                var relC = (maxYi - y0c) / Math.max(1, y1c - y0c);
+                if (relC < 0.42) singleArch = 'lower';
+                else if (relC > 0.58) singleArch = 'upper';
+                else singleArch = ((y0c + y1c) / 2) < ch * 0.48 ? 'upper' : 'lower';
+            }
+        }
 
         function addToothBand(xLeft, xRight, px, yTop, yApex) {
-            var widths = [], y, x, wMin = 1e9, cejY = ((yTop + yApex) * 0.55) | 0;
-            var s0 = (yTop + ((yApex - yTop) * 0.30) | 0) | 0;
-            var s1 = (yTop + ((yApex - yTop) * 0.78) | 0) | 0;
-            for (y = yTop; y <= yApex; y++) {
-                var x1b = cw, x2b = 0;
-                for (x = xLeft; x <= xRight; x++) {
-                    if (toothMask[y * cw + x]) { if (x < x1b) x1b = x; if (x > x2b) x2b = x; }
-                }
-                widths.push(x2b >= x1b ? x2b - x1b + 1 : 0);
-            }
-            for (y = s0 - yTop; y < Math.min(widths.length, s1 - yTop); y++) {
-                if (widths[y] > 0 && widths[y] < wMin) { wMin = widths[y]; cejY = yTop + y; }
-            }
-            cejY = xrayAiClampCejY(yTop, yApex, cejY);
+            var y, x;
+            // Tentative arch so CEJ is measured from the crown (near-gap) side.
+            var archGuess = (archGapY != null && yApex <= archGapY) ? 'upper'
+                : ((archGapY != null && yTop >= archGapY) ? 'lower'
+                    : (singleArch || (((yTop + yApex) / 2) < ch * 0.48 ? 'upper' : 'lower')));
+            var yNear = archGuess === 'upper' ? yApex : yTop;
+            var yFar = archGuess === 'upper' ? yTop : yApex;
+            var cejY = xrayAiCejWaistY(toothMask, cw, xLeft, xRight, yNear, yFar);
+            cejY = xrayAiClampCejY(yNear, yFar, cejY);
             var cr = xrayAiCrownRootForBand(yTop, yApex, cejY, ch, archGapY);
             if (cr.crownY2 <= cr.crownY1 + 2) return;
             teeth.push({
                 xLeft: xLeft, xRight: xRight, xCenter: px, yTop: yTop, cejY: cejY, yApex: yApex,
-                crownY1: cr.crownY1, crownY2: cr.crownY2, arch: cr.arch
+                crownY1: cr.crownY1, crownY2: cr.crownY2, arch: cr.arch,
+                yNear: cr.yNear, yFar: cr.yFar
             });
             for (x = xLeft; x <= xRight; x++) {
                 if (cr.arch === 'upper') cejCurve[x] = Math.min(cejCurve[x], cejY);
@@ -686,14 +775,10 @@
             for (y = cr.crownY1; y < cr.crownY2; y++) {
                 for (x = xLeft; x <= xRight; x++) if (toothMask[y * cw + x]) crownMask[y * cw + x] = 1;
             }
-            if (cr.arch === 'upper') {
-                for (y = cejY; y <= yApex; y++) {
-                    for (x = xLeft; x <= xRight; x++) if (toothMask[y * cw + x]) rootMask[y * cw + x] = 1;
-                }
-            } else {
-                for (y = yTop; y < cejY; y++) {
-                    for (x = xLeft; x <= xRight; x++) if (toothMask[y * cw + x]) rootMask[y * cw + x] = 1;
-                }
+            // Root = CEJ → apex (bone-facing), never crown → oral cavity.
+            var rootY0 = Math.min(cejY, cr.yFar), rootY1 = Math.max(cejY, cr.yFar);
+            for (y = rootY0; y <= rootY1; y++) {
+                for (x = xLeft; x <= xRight; x++) if (toothMask[y * cw + x]) rootMask[y * cw + x] = 1;
             }
             var darkVals = [];
             for (y = cr.crownY1; y < cr.crownY2; y++) {
@@ -765,9 +850,12 @@
                         for (x = gl; x <= gr; x++) interproxMask[y * cw + x] = 1;
                     }
                 }
-                var cej = arch === 'upper' ? Math.min(t1.cejY, t2.cejY) : Math.max(t1.cejY, t2.cejY);
-                var y0 = arch === 'upper' ? cej : Math.max(0, cej - ((ch * 0.22) | 0));
-                var y1 = arch === 'upper' ? Math.min(ch, cej + ((ch * 0.22) | 0)) : cej;
+                // Alveolar septum is apical to CEJ (toward roots), never
+                // toward the oral cavity / inter-arch empty space.
+                var cej = arch === 'upper' ? Math.max(t1.cejY, t2.cejY) : Math.min(t1.cejY, t2.cejY);
+                var bandH = (ch * 0.22) | 0;
+                var y0 = arch === 'upper' ? Math.max(0, cej - bandH) : cej;
+                var y1 = arch === 'upper' ? cej : Math.min(ch, cej + bandH);
                 for (y = y0; y < y1; y++) {
                     for (x = gl; x <= gr; x++) alveolarMask[y * cw + x] = 1;
                 }
@@ -896,39 +984,88 @@
         return Math.max(4, widths[(widths.length / 2) | 0] / 9);
     }
 
+    function xrayAiFindCrestOffset(profile, pxMm) {
+        // Same landmark for mild/moderate/severe: CEJ → tip of interdental
+        // alveolar crest (most-coronal bright bone edge). Never pick the
+        // brightest point deep in the window — that floated "severe" marks
+        // into empty space while mild gaps looked correct.
+        if (!profile || profile.length < 8 || !(pxMm > 0)) return -1;
+        var skip = Math.max(2, Math.round(0.8 * pxMm));
+        var maxSearch = Math.min(profile.length - 1, Math.max(skip + 4, Math.round(7 * pxMm)));
+        var nearEnd = Math.min(maxSearch, skip + Math.max(4, Math.round(3.5 * pxMm)));
+        if (maxSearch <= skip + 2) return -1;
+        var i, floor = 255, nearPeak = 0;
+        for (i = skip; i <= nearEnd; i++) {
+            if (profile[i] < floor) floor = profile[i];
+            if (profile[i] > nearPeak) nearPeak = profile[i];
+        }
+        if (nearPeak - floor < 6) return -1;
+        var boneThresh = floor + Math.max(8, 0.28 * (nearPeak - floor));
+        var minAbs = Math.max(70, floor + 12);
+        function isTip(idx) {
+            return idx >= skip && idx <= maxSearch && profile[idx] >= boneThresh && profile[idx] >= minAbs;
+        }
+        for (i = skip + 1; i <= nearEnd; i++) {
+            if (isTip(i) && profile[i] >= profile[i - 1] && (i + 1 > maxSearch || profile[i] >= profile[i + 1])) return i;
+        }
+        var run = 0, j;
+        for (i = skip; i <= maxSearch; i++) {
+            if (isTip(i)) {
+                run++;
+                if (run >= 2) {
+                    j = i;
+                    while (j > skip && profile[j - 1] >= boneThresh * 0.88 && profile[j - 1] >= minAbs * 0.92) j--;
+                    return j;
+                }
+            } else run = 0;
+        }
+        var peakI = skip;
+        for (i = skip; i <= nearEnd; i++) if (profile[i] > profile[peakI]) peakI = i;
+        return isTip(peakI) ? peakI : -1;
+    }
+
     function xrayAiMeasureCejCrest(anatomy, gray) {
         var cw = anatomy.cw, ch = anatomy.ch, lines = [], pxMm = xrayAiEstimatePxPerMm(anatomy);
-        for (var i = 0; i < anatomy.teeth.length - 1; i++) {
-            var gl = anatomy.teeth[i].xRight, gr = anatomy.teeth[i + 1].xLeft;
-            if (gr - gl < 1) { var mid = (gl + gr) >> 1; gl = Math.max(0, mid - 4); gr = Math.min(cw - 1, mid + 4); }
-            var cx = ((gl + gr) / 2) | 0;
-            var cej = anatomy.cejCurve[gl];
-            for (var x = gl; x <= gr; x++) if (anatomy.cejCurve[x] < cej) cej = anatomy.cejCurve[x];
-            var colW = Math.max(3, ((gr - gl) / 2 | 0) + 2);
-            var y0 = cej, y1 = Math.min(ch, cej + (ch * 0.22 | 0));
-            var profile = [], y, xi, sum, cnt, py;
-            for (py = y0; py < y1; py++) {
-                sum = 0; cnt = 0;
-                for (xi = cx - colW; xi <= cx + colW; xi++) {
-                    if (xi >= 0 && xi < cw) { sum += gray[py * cw + xi]; cnt++; }
+        var byArch = { upper: [], lower: [] };
+        anatomy.teeth.forEach(function (t) { (byArch[t.arch] || byArch.lower).push(t); });
+        var gapIdx = 0;
+        ['upper', 'lower'].forEach(function (arch) {
+            var group = byArch[arch].slice().sort(function (a, b) { return a.xCenter - b.xCenter; });
+            for (var i = 0; i < group.length - 1; i++) {
+                var a = group[i], b = group[i + 1];
+                var gl = a.xRight, gr = b.xLeft;
+                if (gr - gl < 1) { var mid = (gl + gr) >> 1; gl = Math.max(0, mid - 4); gr = Math.min(cw - 1, mid + 4); }
+                var cx = ((gl + gr) / 2) | 0;
+                var cej = arch === 'upper' ? Math.max(a.cejY, b.cejY) : Math.min(a.cejY, b.cejY);
+                var colW = Math.max(3, Math.min(10, ((gr - gl) / 2 | 0) + 2));
+                var bandH = Math.max((7 * pxMm) | 0, (ch * 0.12) | 0);
+                var y0 = arch === 'upper' ? Math.max(0, cej - bandH) : cej;
+                var y1 = arch === 'upper' ? cej : Math.min(ch, cej + bandH);
+                if (y1 - y0 < 8) continue;
+                var profile = [], y, xi, sum, cnt;
+                for (y = y0; y < y1; y++) {
+                    sum = 0; cnt = 0;
+                    for (xi = cx - colW; xi <= cx + colW; xi++) {
+                        if (xi >= 0 && xi < cw) { sum += gray[y * cw + xi]; cnt++; }
+                    }
+                    profile.push(cnt ? sum / cnt : 128);
                 }
-                profile.push(cnt ? sum / cnt : 128);
+                // Order CEJ → apex for the crest finder.
+                if (arch === 'upper') profile = profile.slice().reverse();
+                var off = xrayAiFindCrestOffset(profile, pxMm);
+                if (off < 0) continue;
+                var crestY = arch === 'upper' ? (y1 - 1 - off) : (y0 + off);
+                var distPx = Math.abs(crestY - cej);
+                var mm = distPx / pxMm;
+                if (mm < 2.0) continue;
+                lines.push({
+                    gap: gapIdx++,
+                    cej: [cx / cw, cej / ch],
+                    crest: [cx / cw, crestY / ch],
+                    measurement_mm: Math.round(mm * 100) / 100
+                });
             }
-            if (profile.length < 8) continue;
-            var minV = 1e9, minIdx = 0, pi;
-            for (pi = 0; pi < profile.length; pi++) {
-                if (profile[pi] < minV) { minV = profile[pi]; minIdx = pi; }
-            }
-            var crestY = y0 + minIdx;
-            var distPx = Math.max(0, crestY - cej);
-            if (distPx < 4) continue;
-            lines.push({
-                gap: i,
-                cej: [cx / cw, cej / ch],
-                crest: [cx / cw, crestY / ch],
-                measurement_mm: Math.round((distPx / pxMm) * 100) / 100
-            });
-        }
+        });
         return lines.slice(0, 8);
     }
 
@@ -1106,6 +1243,16 @@
                 var ring = xrayAiRingContrast(gray, cw, ch, bx, by, block, block, Math.max(4, Math.floor(win / 3)));
                 if (ring < 6) continue;
                 var interprox = xrayAiMaskOverlap(anatomy.interproxMask, cw, bx, by, block, block) > 0.3 ? 0.35 : 0;
+                // Pearl bitewing cue: contact-point thirds of each crown are
+                // where early enamel caries starts — treat as proximal even
+                // when the interprox mask is thin between overlapping contacts.
+                var tooth = xrayAiToothForPoint(anatomy, cx, cy);
+                if (tooth) {
+                    var relX = (cx - tooth.xLeft) / Math.max(1, tooth.xRight - tooth.xLeft);
+                    if (relX <= 0.30 || relX >= 0.70) interprox = Math.max(interprox, 0.40);
+                }
+                // Slightly more sensitive for proximal contact lucencies.
+                if (interprox < 0.2 && darkScore < 8) continue;
                 darkCells.push({ bx: bx, by: by, val: val, darkScore: darkScore, ring: ring, interprox: interprox });
             }
         }
@@ -1152,26 +1299,48 @@
                 w: Math.min(0.22, bw / cw), h: Math.min(0.22, bh / ch),
                 confidence: cls.conf,
                 enamel_pct: layers.enamel,
-                dentin_pct: layers.dentin
+                dentin_pct: layers.dentin,
+                screening: true,
+                // Mirrors the server-side stage_caries_by_edj() definition:
+                // true once the candidate's own enamel/dentin layer overlap
+                // spans both tissues, i.e. it actually crosses the EDJ
+                // rather than sitting cleanly inside one of them.
+                edj_crossing: layers.enamel > 0 && layers.dentin > 0
             });
         });
         return findings;
     }
 
     function xrayAiDetectPeriapical(gray, cw, ch, anatomy) {
-        var findings = [], block = 6, bx, by, x, y, sum, cnt, val, cy, t, i;
+        var findings = [], block = 6, bx, by, x, y, sum, cnt, val, cy;
         if (!anatomy.teeth.length) return findings;
         anatomy.teeth.forEach(function (tooth) {
-            for (by = tooth.cejY; by < Math.min(ch, tooth.yApex + (ch * 0.04 | 0)) - block; by += block) {
+            // Search the apical third of the root, arch-aware (upper apex is
+            // toward smaller y; lower toward larger y).
+            var yFar = (tooth.yFar != null) ? tooth.yFar : tooth.yApex;
+            var rootY0 = Math.min(tooth.cejY, yFar);
+            var rootY1 = Math.max(tooth.cejY, yFar);
+            var bandH = Math.max(block * 2, ((rootY1 - rootY0) * 0.35) | 0);
+            var by0, by1;
+            if (tooth.arch === 'upper') {
+                by0 = Math.max(0, rootY0 - ((ch * 0.03) | 0));
+                by1 = Math.min(rootY0 + bandH, tooth.cejY - 2);
+            } else {
+                by0 = Math.max(tooth.cejY + 2, rootY1 - bandH);
+                by1 = Math.min(ch, rootY1 + ((ch * 0.03) | 0));
+            }
+            for (by = by0; by < by1 - block; by += block) {
                 for (bx = tooth.xLeft; bx < tooth.xRight - block; bx += block) {
-                    if (xrayAiMaskOverlap(anatomy.rootMask, cw, bx, by, block, block) < 0.35) continue;
+                    if (xrayAiMaskOverlap(anatomy.rootMask, cw, bx, by, block, block) < 0.20) continue;
                     sum = 0; cnt = 0;
                     for (y = by; y < by + block; y++) {
                         for (x = bx; x < bx + block; x++) { sum += gray[y * cw + x]; cnt++; }
                     }
                     val = sum / cnt;
                     cy = by + block / 2;
-                    if (val > 115 || cy < tooth.cejY + 4) continue;
+                    if (val > 115) continue;
+                    // Must sit on the apical side of CEJ for this arch.
+                    if (tooth.arch === 'upper' ? cy > tooth.cejY - 2 : cy < tooth.cejY + 2) continue;
                     var ring = xrayAiRingContrast(gray, cw, ch, bx, by, block, block, 5);
                     var conf = Math.min(0.92, 0.40 + (118 - val) / 118 * 0.30 + Math.min(0.18, ring / 45));
                     if (conf < 0.42) continue;
@@ -1179,7 +1348,9 @@
                         type: 'periapical_radiolucency',
                         x: bx / cw, y: by / ch,
                         w: block * 2.2 / cw, h: block * 2.2 / ch,
-                        confidence: conf
+                        confidence: conf,
+                        surface: 'root',
+                        screening: true
                     });
                 }
             }
@@ -1188,50 +1359,29 @@
     }
 
     function xrayAiDetectBoneLoss(gray, cw, ch, anatomy) {
-        var findings = [], gaps = [], i, g, cej, y0, y1, colW, cx, y, x, sum, cnt, profile, pi, minV, minI, peakV, drop, sev;
-        for (i = 0; i < anatomy.teeth.length - 1; i++) {
-            var gl = anatomy.teeth[i].xRight, gr = anatomy.teeth[i + 1].xLeft;
-            if (gr - gl < 2) { var mid = (gl + gr) >> 1; gaps.push([Math.max(0, mid - 3), Math.min(cw - 1, mid + 3)]); }
-            else gaps.push([gl, gr]);
-        }
-        gaps.forEach(function (gap) {
-            cx = (gap[0] + gap[1]) >> 1;
-            colW = Math.max(3, ((gap[1] - gap[0]) >> 1) + 2);
-            cej = anatomy.cejCurve[gap[0]];
-            for (x = gap[0]; x <= gap[1]; x++) if (anatomy.cejCurve[x] < cej) cej = anatomy.cejCurve[x];
-            y0 = cej;
-            y1 = Math.min(ch, cej + (ch * 0.20 | 0));
-            profile = [];
-            for (y = y0; y < y1; y++) {
-                sum = 0; cnt = 0;
-                for (x = cx - colW; x <= cx + colW; x++) {
-                    if (x >= 0 && x < cw) { sum += gray[y * cw + x]; cnt++; }
-                }
-                profile.push(cnt ? sum / cnt : 128);
-            }
-            if (profile.length < 10) return;
-            minV = 255; minI = 0; peakV = 0;
-            for (pi = 0; pi < profile.length; pi++) {
-                if (profile[pi] < minV) { minV = profile[pi]; minI = pi; }
-                if (profile[pi] > peakV) peakV = profile[pi];
-            }
-            drop = peakV - minV;
-            if (drop < 20) return;
-            sev = drop / Math.max(peakV, 1);
-            if (sev < 0.14) return;
-            var btype2 = sev < 0.24 ? 'bone_loss_mild' : (sev < 0.34 ? 'bone_loss_moderate' : 'bone_loss_severe');
-            var bconf2 = sev < 0.24 ? Math.min(0.78, 0.38 + sev) : (sev < 0.34 ? Math.min(0.84, 0.42 + sev) : Math.min(0.88, 0.46 + sev * 0.7));
-            findings.push({
-                type: btype2,
-                x: (cx - colW) / cw,
-                y: (y0 + minI) / ch,
-                w: (colW * 2 + 1) / cw,
-                h: Math.max(0.04, Math.min(0.12, drop / 255 * 0.45 + 0.04)),
-                confidence: bconf2,
-                measurement: Math.round(drop / 8 * 10) / 10
-            });
-        });
-        return findings.slice(0, 4);
+        // Prefer the CEJ→crest millimetre measurements (arch-aware, bright
+        // ridge). The old intensity-drop-only detector put marks into empty
+        // inter-arch space on upper teeth.
+        var lines = xrayAiMeasureCejCrest(anatomy, gray);
+        return lines.map(function (ln) {
+            var mm = ln.measurement_mm || 0;
+            var btype = mm < 3.5 ? 'bone_loss_mild' : (mm < 5.5 ? 'bone_loss_moderate' : 'bone_loss_severe');
+            var y0 = Math.min(ln.cej[1], ln.crest[1]);
+            var y1 = Math.max(ln.cej[1], ln.crest[1]);
+            return {
+                type: btype,
+                x: Math.max(0, ln.cej[0] - 0.015),
+                y: y0,
+                w: 0.03,
+                h: Math.max(0.02, y1 - y0),
+                confidence: Math.min(0.88, 0.40 + Math.max(0, mm - 2) / 14),
+                measurement: Math.round(mm * 10) / 10,
+                cej: ln.cej,
+                crest: ln.crest,
+                gap: ln.gap,
+                surface: 'interproximal'
+            };
+        }).slice(0, 6);
     }
 
     /**
@@ -1748,6 +1898,50 @@
         el.textContent = show ? xrayAiTr('media.xrayAi.fallbackScope') : '';
     }
 
+    /**
+     * Surfaces the service's radiological gate (advisory.quality ===
+     * 'poor_image_quality', see xray-ai-service's assess_image_quality())
+     * so a clean-looking result on a bad film isn't mistaken for "nothing
+     * found" — pathology detection was skipped entirely for this run.
+     */
+    function xrayAiUpdateQualityNote() {
+        var el = xrayAiG('xrayAiQualityNote');
+        if (!el) return;
+        var adv = xrayAiState.advisory;
+        var show = !!(adv && adv.quality === 'poor_image_quality');
+        el.hidden = !show;
+        if (!show) {
+            el.textContent = '';
+            return;
+        }
+        var reasons = Array.isArray(adv.quality_reasons) ? adv.quality_reasons : [];
+        var reasonText = reasons.map(function (r) {
+            var key = 'media.xrayAi.qualityReason.' + r;
+            var label = xrayAiTr(key);
+            return label === key ? r : label;
+        }).join(', ');
+        el.textContent = xrayAiTr('media.xrayAi.qualityWarning', { REASONS: reasonText });
+    }
+
+    /**
+     * Surfaces xrayAiState.connIssue as a persistent banner (not just the
+     * transient status ticker) when the local AI service looked unreachable
+     * for a reason the staff can actually act on — specifically, a hosted
+     * copy of this app is subject to the browser's Local Network Access
+     * permission gate the first time it talks to 127.0.0.1, which fails
+     * silently and looks identical to "the service isn't running."
+     */
+    function xrayAiUpdateConnNote() {
+        var el = xrayAiG('xrayAiConnNote');
+        if (!el) return;
+        var issue = xrayAiState.connIssue;
+        var show = issue === 'lna_maybe' || issue === 'lna_denied';
+        el.hidden = !show;
+        el.textContent = show
+            ? xrayAiTr(issue === 'lna_denied' ? 'media.xrayAi.connLnaDenied' : 'media.xrayAi.connLnaMaybe')
+            : '';
+    }
+
     function xrayAiUpdatePanel() {
         var list = xrayAiG('xrayAiFindingsList');
         var meta = xrayAiG('xrayAiRunMeta');
@@ -1787,6 +1981,8 @@
             }
         }
         xrayAiUpdateScopeNote();
+        xrayAiUpdateQualityNote();
+        xrayAiUpdateConnNote();
         // The training-review entry point only makes sense when the local
         // service is up and accepting feedback for at least one of the two
         // models (panoramic or PA/bitewing train independently).
@@ -2058,10 +2254,89 @@
         });
     }
 
+    /**
+     * Classifies a hostname into the three IP address spaces the browser's
+     * Local Network Access (LNA) check cares about: 'loopback' (127.0.0.1,
+     * localhost, ::1), 'local' (RFC1918 private ranges, .local names) or
+     * 'public' (everything else, e.g. a GitHub Pages domain).
+     */
+    function xrayAiClassifyHostSpace(hostname) {
+        hostname = (hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+        if (!hostname) return 'loopback'; // file:// pages have no hostname at all
+        if (hostname === 'localhost' || hostname === '::1' || /^127\.\d+\.\d+\.\d+$/.test(hostname)) {
+            return 'loopback';
+        }
+        if (/\.local$/.test(hostname)) return 'local';
+        if (/^10\.\d+\.\d+\.\d+$/.test(hostname)) return 'local';
+        if (/^192\.168\.\d+\.\d+$/.test(hostname)) return 'local';
+        if (/^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(hostname)) return 'local';
+        if (/^169\.254\.\d+\.\d+$/.test(hostname)) return 'local';
+        return 'public';
+    }
+
+    /**
+     * True when a request from this page to XRAY_AI_CONFIG.apiUrl is a
+     * "local network request" per the WICG Local Network Access spec — i.e.
+     * this page (e.g. a GitHub Pages–hosted copy of the staff app) is on the
+     * public internet, and the AI service lives on loopback/a LAN address.
+     * Chrome 142+ and current Edge gate such requests behind a one-time
+     * per-origin permission prompt; when the staff hasn't seen/accepted it
+     * yet, /health and /analyze fail exactly like the service being down.
+     */
+    function xrayAiApiCrossesToPrivateNetwork() {
+        try {
+            if (window.location.protocol === 'file:') return false;
+            if (xrayAiClassifyHostSpace(window.location.hostname) !== 'public') return false;
+            var apiHost = new URL(XRAY_AI_CONFIG.apiUrl, window.location.href).hostname;
+            var targetSpace = xrayAiClassifyHostSpace(apiHost);
+            return targetSpace === 'loopback' || targetSpace === 'local';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /** Best-effort read of the browser's Local Network Access permission state. */
+    function xrayAiQueryLocalNetworkPermission() {
+        try {
+            if (!navigator.permissions || typeof navigator.permissions.query !== 'function') {
+                return Promise.resolve('unsupported');
+            }
+            return navigator.permissions.query({ name: 'local-network-access' })
+                .then(function (status) { return status.state; })
+                .catch(function () { return 'unsupported'; });
+        } catch (e) {
+            return Promise.resolve('unsupported');
+        }
+    }
+
+    /**
+     * Records why the local service looked unreachable so the UI can show a
+     * banner that's actually actionable instead of the generic offline note
+     * — see xrayAiUpdateConnNote(). Fires on every failed /health or
+     * /analyze call.
+     */
+    function xrayAiNoteConnFailure() {
+        if (!xrayAiApiCrossesToPrivateNetwork()) {
+            xrayAiState.connIssue = 'offline';
+            xrayAiUpdateConnNote();
+            return;
+        }
+        xrayAiState.connIssue = 'lna_maybe';
+        xrayAiUpdateConnNote();
+        xrayAiQueryLocalNetworkPermission().then(function (state) {
+            if (state === 'denied') {
+                xrayAiState.connIssue = 'lna_denied';
+                xrayAiUpdateConnNote();
+            }
+        });
+    }
+
     function xrayAiCheckApiHealth() {
         return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/health', { mode: 'cors' }, 5000)
             .then(function (r) {
-                if (!r.ok) return false;
+                if (!r.ok) { xrayAiNoteConnFailure(); return false; }
+                xrayAiState.connIssue = null;
+                xrayAiUpdateConnNote();
                 return r.json().then(function (j) {
                     // Remember whether this service will accept training feedback,
                     // so the panel only offers the buttons when they will work.
@@ -2073,7 +2348,7 @@
                     return true;
                 }).catch(function () { return true; });
             })
-            .catch(function () { return false; });
+            .catch(function () { xrayAiNoteConnFailure(); return false; });
     }
 
     function xrayAiFetchWithTimeout(url, options, ms) {
@@ -2117,6 +2392,7 @@
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         }).then(function (data) {
+            xrayAiState.connIssue = null;
             return {
                 findings: (data.findings || []).map(xrayAiNormalizeFinding).filter(Boolean),
                 model: data.model || fallbackModel,
@@ -2584,6 +2860,7 @@
                         finish();
                         return;
                     }
+                    xrayAiNoteConnFailure();
                     runClient(msg === 'timeout' ? 'timeout' : 'api');
                 });
             });

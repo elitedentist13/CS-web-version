@@ -39,7 +39,7 @@ xray-ai-service/model_cache/
 __pycache__/
 *.pyc
 
-# Caries subsystem: trained weights, prepared datasets, training runs
+# Caries subsystem (panoramic model): trained weights, prepared datasets, training runs
 xray-ai-service/caries/weights/
 xray-ai-service/caries/train/dataset/
 xray-ai-service/caries/train/dataset_continual/
@@ -50,5 +50,23 @@ runs/
 *.pt
 *.onnx
 
+# PA/bitewing subsystem: same shape as caries/, separate model + dataset
+xray-ai-service/pabw/weights/
+xray-ai-service/pabw/train/dataset/
+xray-ai-service/pabw/train/dataset_continual/
+xray-ai-service/pabw/train/raw/
+xray-ai-service/pabw/train/runs/
+
 # Continual-learning capture — contains PATIENT RADIOGRAPHS. Never commit.
 xray-ai-service/caries/clinic_data/
+xray-ai-service/pabw/clinic_data/
+
+# Note: the folders above are re-created automatically by the service on
+# startup (see service/config.py), so they don't need to be tracked empty.
+
+# Dev-only DENTEX validation harness (xray-ai-service/eval/): the harness
+# script is committed, the dataset it points at is not — DENTEX is
+# CC BY-NC-SA 4.0 (non-commercial) and is downloaded locally by whoever runs
+# the eval, never bundled with the service. See eval/README.md.
+xray-ai-service/eval/data/
+xray-ai-service/eval/reports/

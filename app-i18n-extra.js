@@ -5536,6 +5536,24 @@
             'zh-CN': '离线模式：分析服务未运行，本次结果由浏览器计算，未使用任何 AI 模型。仅标示修复体与骨水平，不检测蛀牙、牙石或根尖病变。此处没有相关标记并不代表没有病变。',
             'zh-Hant': '離線模式：分析服務未運行，本次結果由瀏覽器計算，未使用任何 AI 模型。僅標示修復體與骨水平，不檢測蛀牙、牙石或根尖病變。此處沒有相關標記並不代表沒有病變。'
         },
+        'media.xrayAi.qualityWarning': {
+            en: 'Image quality flag: {REASONS}. Caries, calculus, periapical and bone-loss detection were skipped for this run since low-quality input can produce misleadingly "confident" results — restorations and the reference anatomy overlay are unaffected. Consider retaking the film if possible.',
+            'zh-CN': '图像质量提示：{REASONS}。由于低质量影像可能产生看似"可信"却不可靠的结果，本次已跳过蛀牙、牙石、根尖病变及骨吸收检测；修复体标示与解剖参考图层不受影响。如可行，建议重新拍片。',
+            'zh-Hant': '影像品質提示：{REASONS}。由於低品質影像可能產生看似「可信」卻不可靠的結果，本次已跳過蛀牙、牙石、根尖病變及骨吸收檢測；修復體標示與解剖參考圖層不受影響。如可行，建議重新拍片。'
+        },
+        'media.xrayAi.connLnaMaybe': {
+            en: 'Browser blocked access to the local AI service (Local Network Access). When prompted, Allow this site to connect to devices on your local network, keep start-xray-ai.bat running on this PC, then re-run Assist. Until then only the browser fallback is available.',
+            'zh-CN': '浏览器拦截了对本机 AI 服务的访问（本地网络权限）。请在提示中允许本站连接本地网络设备，并保持本机 start-xray-ai.bat 运行，然后重新分析。在此之前仅可使用浏览器后备结果。',
+            'zh-Hant': '瀏覽器攔截了對本機 AI 服務的存取（本機網路權限）。請在提示中允許本站連線本機網路裝置，並保持本機 start-xray-ai.bat 執行，然後重新分析。在此之前僅可使用瀏覽器後備結果。'
+        },
+        'media.xrayAi.connLnaDenied': {
+            en: 'Local network access was denied for this site, so the AI model on this PC cannot be reached. Open the padlock / site settings for this page, allow Local network / loopback access, then reload and re-run Assist.',
+            'zh-CN': '本站的本地网络权限已被拒绝，无法连接本机 AI 模型。请打开此页的站点设置，允许本地网络／回环访问，然后刷新并重新分析。',
+            'zh-Hant': '本站的本機網路權限已被拒絕，無法連線本機 AI 模型。請開啟此頁的網站設定，允許本機網路／回環存取，然後重新整理並再分析。'
+        },
+        'media.xrayAi.qualityReason.low_contrast': { en: 'low contrast / flat exposure', 'zh-CN': '对比度过低／曝光过平', 'zh-Hant': '對比度過低／曝光過平' },
+        'media.xrayAi.qualityReason.blurry': { en: 'image appears blurry', 'zh-CN': '影像模糊', 'zh-Hant': '影像模糊' },
+        'media.xrayAi.qualityReason.no_teeth_detected': { en: 'no plausible tooth content found', 'zh-CN': '未检测到可信的牙齿结构', 'zh-Hant': '未偵測到可信的牙齒結構' },
         'media.xrayAi.screeningBadge': { en: 'screening', 'zh-CN': '筛查', 'zh-Hant': '篩查' },
         'media.xrayAi.screeningTip': {
             en: 'Screening aid, not a diagnosis. Confidence is capped — verify on the radiograph.',
@@ -5643,9 +5661,9 @@
             'zh-Hant': '近似垂直落差（毫米）— 僅供參考，非 CEJ–牙槽嵴標準測量。'
         },
         'media.xrayAi.boneHintPearl': {
-            en: 'CEJ to alveolar crest (mm) at interproximal contacts — indicative only.',
-            'zh-CN': '邻面接触区 CEJ 至牙槽嵴距离（毫米）— 仅供参考。',
-            'zh-Hant': '鄰面接觸區 CEJ 至牙槽嵴距離（毫米）— 僅供參考。'
+            en: 'CEJ (tooth-neck waist) to alveolar crest (mm) at interproximal contacts — a refined heuristic estimate, not a validated clinical measurement. Always confirm against the actual film.',
+            'zh-CN': '邻面接触区：CEJ（牙颈部）至牙槽嵴距离（毫米）— 经改进的启发式估算，非经验证的临床测量值，请务必以实际片子为准。',
+            'zh-Hant': '鄰面接觸區：CEJ（牙頸部）至牙槽嵴距離（毫米）— 經改進的啟發式估算，非經驗證的臨床測量值，請務必以實際片子為準。'
         },
         'media.xrayAi.boneGap': { en: 'Contact {N}', 'zh-CN': '邻面 {N}', 'zh-Hant': '鄰面 {N}' },
         'media.xrayAi.anatomyTitle': { en: 'Tooth layers', 'zh-CN': '牙体分层', 'zh-Hant': '牙體分層' },

@@ -65,7 +65,18 @@ var conNoteTemplatesCache = [];
 var conNoteTemplatesLoaded = false;
 var conNoteTemplatesRemoteWarned = false;
 
-var RX_COMBO_LISTS_KEY = 'rx_saved_combo_lists_v1';
+/** Supabase table for saved multi-drug lists (per doctor). See rx_saved_combo_lists.sql */
+var RX_COMBO_LISTS_TABLE = 'rx_saved_combo_lists';
+/** Legacy / offline localStorage base key. */
+var RX_COMBO_LISTS_KEY_BASE = 'rx_saved_combo_lists_v1';
+/** @deprecated Prefer RX_COMBO_LISTS_KEY_BASE — kept for migration. */
+var RX_COMBO_LISTS_KEY = RX_COMBO_LISTS_KEY_BASE;
+
+var rxComboListsCache = [];
+var rxComboListsCacheDoctorKey = '';
+var rxComboListsRemoteWarned = false;
+var rxComboListsMigrating = false;
+var rxComboListsLoading = false;
 
 function conUiLocale() {
     if (typeof appUiLocale === 'function') return appUiLocale();
@@ -539,6 +550,21 @@ function conSetActiveDoctor(doctorId) {
     }
     if (conActiveDoctorName) {
         currentName = conActiveDoctorName;
+    }
+
+    // Saved Rx combo lists are per-doctor — drop stale cache on doctor change
+    rxComboListsCache = [];
+    rxComboListsCacheDoctorKey = '';
+    if (typeof g === 'function') {
+        var rxModalOpen = g('rxDrugListsModal');
+        if (rxModalOpen && rxModalOpen.style.display === 'block' &&
+            typeof rxOpenDrugListsPicker === 'function') {
+            rxEnsureComboListsLoaded(function () {
+                if (typeof rxRenderSavedDrugListsModal === 'function') {
+                    rxRenderSavedDrugListsModal();
+                }
+            });
+        }
     }
 
     conFormsDoctorData = null;
@@ -5524,12 +5550,86 @@ function populateDrugSelect(idx) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// SAVED MULTI-DRUG LISTS (combinations stored in browser)
+// SAVED MULTI-DRUG LISTS
+// Primary store: Supabase table rx_saved_combo_lists, aligned by doctor.
+// localStorage kept only as offline / migration cache (not patient-scoped).
 // ════════════════════════════════════════════════════════════════
 
-function readRxComboListsStorage() {
+/**
+ * Resolve the doctor that owns saved Rx combo lists (consultation doctor).
+ * @returns {{ id: string|null, name: string, key: string }}
+ */
+function rxResolveComboDoctor() {
+    var id = '';
+    if (typeof conActiveDoctorId !== 'undefined' && conActiveDoctorId) {
+        id = String(conActiveDoctorId).trim();
+    } else if (typeof currentDoctorId !== 'undefined' && currentDoctorId) {
+        id = String(currentDoctorId).trim();
+    } else {
+        var sel = g('conDoctorSelect');
+        if (sel && sel.value) id = String(sel.value).trim();
+    }
+
+    var name = '';
+    if (typeof conActiveDoctorName !== 'undefined' && conActiveDoctorName) {
+        name = String(conActiveDoctorName).trim();
+    } else if (typeof currentDoctorName !== 'undefined' && currentDoctorName) {
+        name = String(currentDoctorName).trim();
+    } else if (typeof currentName !== 'undefined' && currentName) {
+        name = String(currentName).trim();
+    }
+    if (!name && id && typeof conDoctorsById !== 'undefined' && conDoctorsById[id]) {
+        var d = conDoctorsById[id];
+        name = (typeof doctorDisplayName === 'function')
+            ? String(doctorDisplayName(d) || '').trim()
+            : String(d.display_name || d.english_name || d.chinese_name || '').trim();
+    }
+
+    var key = '';
+    if (typeof conLooksLikeUuid === 'function' && conLooksLikeUuid(id)) {
+        key = id.toLowerCase();
+    } else if (name) {
+        key = 'name:' + name.toLowerCase().replace(/[^a-z0-9_\-@.]+/g, '_');
+    } else if (typeof currentUserId !== 'undefined' && currentUserId) {
+        key = 'user:' + String(currentUserId).trim().toLowerCase()
+            .replace(/[^a-z0-9_\-@.]/g, '_');
+    } else {
+        key = 'anon';
+    }
+
+    return {
+        id: (typeof conLooksLikeUuid === 'function' && conLooksLikeUuid(id)) ? id : null,
+        name: name,
+        key: key
+    };
+}
+
+function rxComboListsStorageKey() {
+    return RX_COMBO_LISTS_KEY_BASE + '__doc__' + rxResolveComboDoctor().key;
+}
+
+function rxComboListsTableMissing(err) {
+    var msg = String((err && err.message) || err || '');
+    return /rx_saved_combo_lists|does not exist|schema cache|Could not find the table/i.test(msg);
+}
+
+function rxComboListsCreatedBy() {
     try {
-        var raw = localStorage.getItem(RX_COMBO_LISTS_KEY);
+        if (typeof currentUserId !== 'undefined' && currentUserId) {
+            return String(currentUserId);
+        }
+    } catch (e) {}
+    return '';
+}
+
+function readRxComboListsLocal() {
+    try {
+        var key = rxComboListsStorageKey();
+        var raw = localStorage.getItem(key);
+        if (!raw) {
+            var legacy = localStorage.getItem(RX_COMBO_LISTS_KEY_BASE);
+            if (legacy) raw = legacy;
+        }
         if (!raw) return [];
         var a = JSON.parse(raw);
         return Array.isArray(a) ? a : [];
@@ -5538,17 +5638,200 @@ function readRxComboListsStorage() {
     }
 }
 
-function writeRxComboListsStorage(lists) {
-    try {
-        localStorage.setItem(RX_COMBO_LISTS_KEY, JSON.stringify(lists || []));
-    } catch (e) {
-        alert(conTrRepl('con.rx.storageWriteFail', { MSG: (e.message || e) }));
+/** Legacy local lists for the active doctor only (shared key + this doctor's cache). */
+function readLegacyRxComboListsForDoctor() {
+    var seen = {};
+    var out = [];
+    function absorb(raw) {
+        if (!raw) return;
+        try {
+            var a = JSON.parse(raw);
+            if (!Array.isArray(a)) return;
+            a.forEach(function (lst) {
+                if (!lst || !lst.name) return;
+                var sid = String(lst.id || '') + '|' + String(lst.name || '').toLowerCase();
+                if (seen[sid]) return;
+                seen[sid] = 1;
+                out.push(lst);
+            });
+        } catch (e) {}
     }
+    try {
+        absorb(localStorage.getItem(rxComboListsStorageKey()));
+        absorb(localStorage.getItem(RX_COMBO_LISTS_KEY_BASE));
+        // Previous per-login keys (before doctor-aligned Supabase store)
+        if (typeof currentUserId !== 'undefined' && currentUserId) {
+            var uid = String(currentUserId).trim().toLowerCase()
+                .replace(/[^a-z0-9_\-@.]/g, '_');
+            absorb(localStorage.getItem(RX_COMBO_LISTS_KEY_BASE + '__' + uid));
+        }
+    } catch (e2) {}
+    return out;
+}
+
+function writeRxComboListsLocal(lists) {
+    try {
+        localStorage.setItem(rxComboListsStorageKey(), JSON.stringify(lists || []));
+    } catch (e) {
+        /* offline cache is best-effort */
+    }
+}
+
+function readRxComboListsStorage() {
+    if (rxComboListsCacheDoctorKey === rxResolveComboDoctor().key &&
+        Array.isArray(rxComboListsCache)) {
+        return rxComboListsCache.slice();
+    }
+    return readRxComboListsLocal();
+}
+
+function writeRxComboListsStorage(lists) {
+    rxComboListsCache = (lists || []).slice();
+    rxComboListsCacheDoctorKey = rxResolveComboDoctor().key;
+    writeRxComboListsLocal(rxComboListsCache);
+}
+
+function rxNormalizeComboListRow(row) {
+    if (!row) return null;
+    var lines = row.lines;
+    if (typeof lines === 'string') {
+        try { lines = JSON.parse(lines); } catch (e) { lines = []; }
+    }
+    if (!Array.isArray(lines)) lines = [];
+    var name = String(row.name || '').trim();
+    if (!name) return null;
+    return {
+        id: String(row.id || ''),
+        name: name,
+        lines: lines.map(rxCloneSavedLine),
+        doctor_id: row.doctor_id || null,
+        doctor_name: String(row.doctor_name || '').trim(),
+        updated_at: row.updated_at || row.created_at || null
+    };
 }
 
 function rxNewComboListId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
     return 'lst_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
+}
+
+function migrateLegacyLocalRxComboListsToDb(doc) {
+    if (rxComboListsMigrating || typeof SB === 'undefined' || !SB ||
+        typeof SB.from !== 'function') {
+        return Promise.resolve(0);
+    }
+    var legacy = readLegacyRxComboListsForDoctor();
+    if (!legacy.length) return Promise.resolve(0);
+    rxComboListsMigrating = true;
+    var chain = Promise.resolve(0);
+    legacy.forEach(function (lst) {
+        var name = String((lst && lst.name) || '').trim();
+        var lines = (lst && Array.isArray(lst.lines)) ? lst.lines.map(rxCloneSavedLine) : [];
+        if (!name || !lines.length) return;
+        chain = chain.then(function (n) {
+            var payload = {
+                doctor_id: doc.id || null,
+                doctor_key: doc.key,
+                doctor_name: doc.name || null,
+                name: name,
+                lines: lines,
+                created_by: rxComboListsCreatedBy() || 'migrate',
+                updated_at: lst.updated_at || new Date().toISOString()
+            };
+            return SB.from(RX_COMBO_LISTS_TABLE).insert([payload]).then(function (r) {
+                if (r.error) return n;
+                return n + 1;
+            });
+        });
+    });
+    return chain.then(function (n) {
+        rxComboListsMigrating = false;
+        if (n > 0) {
+            try {
+                localStorage.removeItem(rxComboListsStorageKey());
+                localStorage.removeItem(RX_COMBO_LISTS_KEY_BASE);
+                if (typeof currentUserId !== 'undefined' && currentUserId) {
+                    var uid = String(currentUserId).trim().toLowerCase()
+                        .replace(/[^a-z0-9_\-@.]/g, '_');
+                    localStorage.removeItem(RX_COMBO_LISTS_KEY_BASE + '__' + uid);
+                }
+            } catch (e4) {}
+        }
+        return n;
+    }).catch(function () {
+        rxComboListsMigrating = false;
+        return 0;
+    });
+}
+
+/**
+ * Load this doctor's combo lists from Supabase (cache + local fallback).
+ * @param {function(Array, Error|null)=} done
+ * @param {{ force?: boolean }=} opts
+ */
+function rxEnsureComboListsLoaded(done, opts) {
+    opts = opts || {};
+    var doc = rxResolveComboDoctor();
+    if (!opts.force &&
+        rxComboListsCacheDoctorKey === doc.key &&
+        Array.isArray(rxComboListsCache) &&
+        !rxComboListsLoading) {
+        if (done) done(rxComboListsCache.slice(), null);
+        return;
+    }
+
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        var localOnly = readRxComboListsLocal();
+        writeRxComboListsStorage(localOnly);
+        if (done) done(localOnly, new Error('Supabase not ready'));
+        return;
+    }
+
+    rxComboListsLoading = true;
+    var q = SB.from(RX_COMBO_LISTS_TABLE)
+        .select('id,doctor_id,doctor_key,doctor_name,name,lines,updated_at,created_at')
+        .eq('doctor_key', doc.key)
+        .order('updated_at', { ascending: false });
+
+    q.then(function (r) {
+        rxComboListsLoading = false;
+        if (r.error) {
+            var localFallback = readRxComboListsLocal();
+            writeRxComboListsStorage(localFallback);
+            if (!rxComboListsRemoteWarned) {
+                rxComboListsRemoteWarned = true;
+                if (rxComboListsTableMissing(r.error)) {
+                    alert(conTr('con.rx.comboTableMissing'));
+                } else {
+                    alert(conTrRepl('con.rx.storageWriteFail', {
+                        MSG: r.error.message || String(r.error)
+                    }));
+                }
+            }
+            if (done) done(localFallback, r.error);
+            return;
+        }
+        var list = (r.data || []).map(rxNormalizeComboListRow).filter(function (x) {
+            return !!x;
+        });
+        if (!list.length) {
+            return migrateLegacyLocalRxComboListsToDb(doc).then(function (migrated) {
+                if (migrated) {
+                    rxEnsureComboListsLoaded(done, { force: true });
+                    return;
+                }
+                writeRxComboListsStorage([]);
+                if (done) done([], null);
+            });
+        }
+        writeRxComboListsStorage(list);
+        if (done) done(list, null);
+    }).catch(function (e) {
+        rxComboListsLoading = false;
+        var localFallback = readRxComboListsLocal();
+        writeRxComboListsStorage(localFallback);
+        if (done) done(localFallback, e);
+    });
 }
 
 function rxCloneSavedLine(src) {
@@ -5603,7 +5886,7 @@ function rxFirstMissingDrugNameIdx(lines) {
     return -1;
 }
 
-/** Store a cloned line array under a user-named list (draft or history snapshot). Returns true if saved. */
+/** Store a cloned line array under a user-named list for the active doctor. */
 function rxPersistNamedComboList(snapshot, promptHintCtx) {
     if (!snapshot || !snapshot.length) {
         alert(conTr('con.rx.nothingToSaveList'));
@@ -5615,6 +5898,12 @@ function rxPersistNamedComboList(snapshot, promptHintCtx) {
         return false;
     }
 
+    var doc = rxResolveComboDoctor();
+    if (!doc.key || doc.key === 'anon') {
+        alert(conTr('con.rx.comboNeedDoctor'));
+        return false;
+    }
+
     var promptLine = promptHintCtx
         ? conTrRepl('con.rx.promptNameComboFrom', { CTX: promptHintCtx })
         : conTr('con.rx.promptNameCombo');
@@ -5622,31 +5911,119 @@ function rxPersistNamedComboList(snapshot, promptHintCtx) {
     name = String(name || '').trim();
     if (!name) return false;
 
-    var lists    = readRxComboListsStorage();
-    var lowered  = name.toLowerCase();
-    var dupeIdx  = lists.findIndex(function(x) {
-        return String(x.name || '').toLowerCase() === lowered;
-    });
     var safeName = String(name).replace(/"/g, "'");
-    if (dupeIdx >= 0 &&
-        !confirm(conTrRepl('con.rx.confirmReplaceList', { NAME: safeName })))
-        return false;
-
     var payloadLines = snapshot.map(rxCloneSavedLine);
-    var id           = rxNewComboListId();
-    if (dupeIdx >= 0) id = lists[dupeIdx].id;
 
-    var payload = {
-        id:         id,
-        name:       name,
-        lines:      payloadLines,
-        updated_at: new Date().toISOString()
-    };
-    if (dupeIdx >= 0) lists[dupeIdx] = payload;
-    else lists.unshift(payload);
+    function finishWrite(lists) {
+        lists = lists || [];
+        var lowered = name.toLowerCase();
+        var dupeIdx = lists.findIndex(function (x) {
+            return String(x.name || '').toLowerCase() === lowered;
+        });
+        if (dupeIdx >= 0 &&
+            !confirm(conTrRepl('con.rx.confirmReplaceList', { NAME: safeName }))) {
+            return;
+        }
 
-    writeRxComboListsStorage(lists);
-    alert(conTrRepl('con.rx.savedListOk', { NAME: safeName, N: payloadLines.length }));
+        var existingId = dupeIdx >= 0 ? String(lists[dupeIdx].id || '') : '';
+        var nowIso = new Date().toISOString();
+        var rowPayload = {
+            doctor_id: doc.id || null,
+            doctor_key: doc.key,
+            doctor_name: doc.name || null,
+            name: name,
+            lines: payloadLines,
+            updated_at: nowIso
+        };
+        var createdBy = rxComboListsCreatedBy();
+        if (createdBy && !(existingId && conLooksLikeUuid(existingId))) {
+            rowPayload.created_by = createdBy;
+        }
+
+        function applyLocal(savedRow) {
+            var normalized = rxNormalizeComboListRow(savedRow) || {
+                id: existingId || rxNewComboListId(),
+                name: name,
+                lines: payloadLines,
+                doctor_id: doc.id,
+                doctor_name: doc.name,
+                updated_at: nowIso
+            };
+            var next = lists.slice();
+            if (dupeIdx >= 0) next[dupeIdx] = normalized;
+            else next.unshift(normalized);
+            writeRxComboListsStorage(next);
+            alert(conTrRepl('con.rx.savedListOk', {
+                NAME: safeName,
+                N: payloadLines.length
+            }));
+            if (typeof rxRenderSavedDrugListsModal === 'function') {
+                var modal = g('rxDrugListsModal');
+                if (modal && modal.style.display === 'block') {
+                    rxRenderSavedDrugListsModal();
+                }
+            }
+        }
+
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            applyLocal({
+                id: (existingId && conLooksLikeUuid(existingId))
+                    ? existingId
+                    : rxNewComboListId(),
+                name: name,
+                lines: payloadLines,
+                doctor_id: doc.id,
+                doctor_name: doc.name,
+                updated_at: nowIso
+            });
+            return;
+        }
+
+        var req = (existingId && conLooksLikeUuid(existingId))
+            ? SB.from(RX_COMBO_LISTS_TABLE).update(rowPayload).eq('id', existingId)
+                .select('*').limit(1)
+            : SB.from(RX_COMBO_LISTS_TABLE).insert([rowPayload]).select('*').limit(1);
+
+        req.then(function (r) {
+            if (r.error) {
+                if (rxComboListsTableMissing(r.error)) {
+                    alert(conTr('con.rx.comboTableMissing'));
+                } else {
+                    alert(conTrRepl('con.rx.storageWriteFail', {
+                        MSG: r.error.message || String(r.error)
+                    }));
+                }
+                // Still keep a local copy so the clinician is not blocked
+                applyLocal({
+                    id: existingId || rxNewComboListId(),
+                    name: name,
+                    lines: payloadLines,
+                    doctor_id: doc.id,
+                    doctor_name: doc.name,
+                    updated_at: nowIso
+                });
+                return;
+            }
+            var row = (r.data && r.data[0]) ? r.data[0] : Object.assign({
+                id: existingId || rxNewComboListId()
+            }, rowPayload);
+            applyLocal(row);
+        }).catch(function (e) {
+            alert(conTrRepl('con.rx.storageWriteFail', { MSG: (e && e.message) || e }));
+            applyLocal({
+                id: existingId || rxNewComboListId(),
+                name: name,
+                lines: payloadLines,
+                doctor_id: doc.id,
+                doctor_name: doc.name,
+                updated_at: nowIso
+            });
+        });
+    }
+
+    rxEnsureComboListsLoaded(function (lists) {
+        finishWrite(lists || []);
+    });
     return true;
 }
 
@@ -5684,8 +6061,11 @@ function rxOpenDrugListsPicker() {
     if (!panel || panel.style.display === 'none' || !panel.style.display) {
         toggleDrugAddPanel(true, { keepRxLines: true });
     }
-    rxRenderSavedDrugListsModal();
     openModal('rxDrugListsModal');
+    rxRenderSavedDrugListsModal({ loading: true });
+    rxEnsureComboListsLoaded(function () {
+        rxRenderSavedDrugListsModal();
+    }, { force: true });
 }
 
 /** Show prescription draft toolbar without clearing rxLines. */
@@ -5873,43 +6253,79 @@ function rxDeleteDrughistoryForReplace(ctx, onDone) {
 function rxApplySavedDrugList(listId, mode) {
     rxEnsureRxDraftChromeOnly();
 
-    var lists = readRxComboListsStorage();
-    var lst   = lists.find(function(x) { return x.id === listId; });
-    if (!lst || !lst.lines || !lst.lines.length) {
-        alert(conTr('con.rx.listNoDrugs'));
+    function applyFromLists(lists) {
+        var lst = (lists || []).find(function (x) { return String(x.id) === String(listId); });
+        if (!lst || !lst.lines || !lst.lines.length) {
+            alert(conTr('con.rx.listNoDrugs'));
+            return;
+        }
+        var copies = lst.lines.map(rxCloneSavedLine);
+        var label  = String(lst.name || conTr('con.rx.untitled')).replace(/"/g, "'");
+
+        if (mode === 'replace') {
+            if ((rxLines.length || rxStagedLines.length) &&
+                !confirm(conTrRepl('con.rx.confirmReplaceDraft', {
+                    N: rxStagedLines.length + rxLines.length, NAME: label
+                })))
+                return;
+            rxLines = [];
+            rxStagedLines = [];
+            rxClearEditingHistoryGroup();
+        }
+
+        copies.forEach(function (line) {
+            rxStagedLines.push(line);
+        });
+        renderRxStagedList();
+        renderRxLines();
+        closeModal('rxDrugListsModal');
+    }
+
+    var cached = readRxComboListsStorage();
+    if (cached.length) {
+        applyFromLists(cached);
         return;
     }
-    var copies = lst.lines.map(rxCloneSavedLine);
-    var label  = String(lst.name || conTr('con.rx.untitled')).replace(/"/g, "'");
-
-    if (mode === 'replace') {
-        if ((rxLines.length || rxStagedLines.length) &&
-            !confirm(conTrRepl('con.rx.confirmReplaceDraft', {
-                N: rxStagedLines.length + rxLines.length, NAME: label
-            })))
-            return;
-        rxLines = [];
-        rxStagedLines = [];
-        rxClearEditingHistoryGroup();
-    }
-
-    copies.forEach(function(line) {
-        rxStagedLines.push(line);
+    rxEnsureComboListsLoaded(function (lists) {
+        applyFromLists(lists);
     });
-    renderRxStagedList();
-    renderRxLines();
-    closeModal('rxDrugListsModal');
 }
 
 function rxDeleteSavedDrugList(listId) {
-    var lists = readRxComboListsStorage().filter(function(x) {
-        return x.id !== listId;
+    var id = String(listId || '');
+    if (!id) return;
+
+    function afterLocalRemove() {
+        var lists = readRxComboListsStorage().filter(function (x) {
+            return String(x.id) !== id;
+        });
+        writeRxComboListsStorage(lists);
+        rxRenderSavedDrugListsModal();
+    }
+
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' ||
+        !conLooksLikeUuid(id)) {
+        afterLocalRemove();
+        return;
+    }
+
+    SB.from(RX_COMBO_LISTS_TABLE).delete().eq('id', id)
+    .then(function (r) {
+        if (r.error && !rxComboListsTableMissing(r.error)) {
+            alert(conTrRepl('con.rx.storageWriteFail', {
+                MSG: r.error.message || String(r.error)
+            }));
+            return;
+        }
+        afterLocalRemove();
+    })
+    .catch(function (e) {
+        alert(conTrRepl('con.rx.storageWriteFail', { MSG: (e && e.message) || e }));
     });
-    writeRxComboListsStorage(lists);
-    rxRenderSavedDrugListsModal();
 }
 
-function rxRenderSavedDrugListsModal() {
+function rxRenderSavedDrugListsModal(opts) {
+    opts = opts || {};
     var body    = g('rxSavedListsBody');
     var emptyEl = g('rxSavedListsEmpty');
     var q       = '';
@@ -5917,18 +6333,32 @@ function rxRenderSavedDrugListsModal() {
     if (si) q = String(si.value || '').trim().toLowerCase();
     if (!body) return;
 
+    if (opts.loading || rxComboListsLoading) {
+        if (emptyEl) emptyEl.style.display = 'none';
+        body.innerHTML =
+            '<p style="padding:14px;color:#64748b;text-align:center;">' +
+            esc(conTr('con.rx.drugListLoading')) + '</p>';
+        return;
+    }
+
+    var doc = rxResolveComboDoctor();
     var allSrc = readRxComboListsStorage();
-    var lists  = allSrc.filter(function(lst) {
+    var lists  = allSrc.filter(function (lst) {
         if (!q) return true;
         return String(lst.name || '').toLowerCase().indexOf(q) !== -1;
     });
-    lists.sort(function(a, b) {
+    lists.sort(function (a, b) {
         return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
     });
 
     if (!allSrc.length) {
         body.innerHTML = '';
-        if (emptyEl) emptyEl.style.display = 'block';
+        if (emptyEl) {
+            emptyEl.style.display = 'block';
+            if (doc.name) {
+                emptyEl.setAttribute('data-doctor-hint', doc.name);
+            }
+        }
         return;
     }
     if (emptyEl) emptyEl.style.display = 'none';
@@ -5941,7 +6371,15 @@ function rxRenderSavedDrugListsModal() {
     }
 
     body.innerHTML = '';
-    lists.forEach(function(lst) {
+    if (doc.name) {
+        var head = document.createElement('div');
+        head.style.cssText =
+            'padding:6px 10px 10px;font-size:11px;color:#64748b;';
+        head.textContent = conTrRepl('con.rx.comboForDoctor', { NAME: doc.name });
+        body.appendChild(head);
+    }
+
+    lists.forEach(function (lst) {
         var nLines = lst.lines ? lst.lines.length : 0;
         var um     = '';
         try {
@@ -5988,13 +6426,13 @@ function rxRenderSavedDrugListsModal() {
                         'cursor:pointer;">🗑</button>' +
             '</div>';
 
-        row.querySelector('.rx-slist-append').addEventListener('click', function() {
+        row.querySelector('.rx-slist-append').addEventListener('click', function () {
             rxApplySavedDrugList(lst.id, 'append');
         });
-        row.querySelector('.rx-slist-replace').addEventListener('click', function() {
+        row.querySelector('.rx-slist-replace').addEventListener('click', function () {
             rxApplySavedDrugList(lst.id, 'replace');
         });
-        row.querySelector('.rx-slist-delete').addEventListener('click', function() {
+        row.querySelector('.rx-slist-delete').addEventListener('click', function () {
             var nm = String(lst.name || '').replace(/"/g, "'");
             if (!confirm(conTrRepl('con.rx.confirmRemoveList', { NAME: nm }))) return;
             rxDeleteSavedDrugList(lst.id);

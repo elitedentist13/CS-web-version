@@ -4520,9 +4520,24 @@
         'con.rx.noListMatch': { en: 'No list names match this filter.', 'zh-CN': '没有匹配的清单名称。', 'zh-Hant': '沒有符合的清單名稱。' },
         'con.rx.savedListsModalTitle': { en: '📋 Saved drug lists', 'zh-CN': '📋 已存药品清单', 'zh-Hant': '📋 已存藥物清單' },
         'con.rx.savedListsModalDesc': {
-            en: 'Named combinations you saved from the prescription panel. Append adds lines to the current draft; Replace clears it first — then saves you add still go to patient history when you press Save Prescription.',
-            'zh-CN': '从处方面板保存的命名组合。追加会加入当前草稿；替换会先清空草稿——之后您按保存处方时仍会写入患者用药记录。',
-            'zh-Hant': '從處方面板儲存的命名組合。追加會加入目前草稿；替換會先清空草稿——之後您按儲存處方時仍會寫入病人用藥紀錄。'
+            en: 'Named combinations stored in Supabase for the selected doctor (not tied to a patient). Append adds lines to the current draft; Replace clears it first — Save Prescription still writes to the selected patient’s history.',
+            'zh-CN': '命名组合按所选医生保存在 Supabase（不绑定患者）。追加会加入当前草稿；替换会先清空草稿——按保存处方仍会写入当前患者用药记录。',
+            'zh-Hant': '命名組合按所選醫生儲存在 Supabase（不綁定病人）。追加會加入目前草稿；替換會先清空草稿——按儲存處方仍會寫入目前病人用藥紀錄。'
+        },
+        'con.rx.comboNeedDoctor': {
+            en: 'Select a doctor in Consultation before saving a drug list.',
+            'zh-CN': '请先在会诊中选择医生，再保存药品清单。',
+            'zh-Hant': '請先在會診中選擇醫生，再儲存藥物清單。'
+        },
+        'con.rx.comboTableMissing': {
+            en: 'Supabase table rx_saved_combo_lists is missing. Run rx_saved_combo_lists.sql in the SQL Editor, then try again.',
+            'zh-CN': '缺少 Supabase 表 rx_saved_combo_lists。请在 SQL Editor 运行 rx_saved_combo_lists.sql 后再试。',
+            'zh-Hant': '缺少 Supabase 表 rx_saved_combo_lists。請在 SQL Editor 執行 rx_saved_combo_lists.sql 後再試。'
+        },
+        'con.rx.comboForDoctor': {
+            en: 'Lists for {NAME}',
+            'zh-CN': '{NAME} 的清单',
+            'zh-Hant': '{NAME} 的清單'
         },
         'con.rx.savedListsFilterPh': { en: '🔍 Filter by name…', 'zh-CN': '🔍 按名称筛选…', 'zh-Hant': '🔍 按名稱篩選…' },
         'con.rx.noListsYetHtml': {

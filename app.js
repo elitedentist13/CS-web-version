@@ -4326,16 +4326,28 @@ function jsmLocalStoragePreserveKeys() {
     return keys;
 }
 
+/** Keys / prefixes kept across post-login cache wipe (session prefs + durable clinician data). */
+function jsmShouldPreserveLocalStorageKey(k) {
+    if (!k) return false;
+    var preserve = jsmLocalStoragePreserveKeys();
+    if (preserve[k]) return true;
+    // Offline cache for per-doctor saved Rx combo lists (Consultation → Medication)
+    if (k === 'rx_saved_combo_lists_v1' ||
+        k.indexOf('rx_saved_combo_lists_v1__') === 0) {
+        return true;
+    }
+    return false;
+}
+
 /** Clear tab-scoped and draft browser storage; keep login session + language/working-date prefs. */
 function clearBrowserTempCachesOnLogin(done) {
     try { sessionStorage.clear(); } catch (e) {}
 
-    var preserve = jsmLocalStoragePreserveKeys();
     try {
         var removeKeys = [];
         for (var i = 0; i < localStorage.length; i++) {
             var k = localStorage.key(i);
-            if (k && !preserve[k]) removeKeys.push(k);
+            if (k && !jsmShouldPreserveLocalStorageKey(k)) removeKeys.push(k);
         }
         removeKeys.forEach(function (key) {
             try { localStorage.removeItem(key); } catch (e2) {}

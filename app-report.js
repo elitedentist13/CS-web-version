@@ -286,29 +286,40 @@ var REPORT = (function () {
   async function loadBillPaymentsByPaidDate(from, to) {
     var selectFull = 'id,bill_id,paid_date,amount,method,notes,received_by,clinic_id,clinic_tag,clinic_code,voided_at,created_at';
     var selectNoClinic = 'id,bill_id,paid_date,amount,method,notes,received_by,voided_at,created_at';
-    var res = await SB.from('bill_payments')
-      .select(selectFull)
-      .gte('paid_date', from)
-      .lte('paid_date', to)
-      .order('paid_date', { ascending: true })
-      .order('created_at', { ascending: true });
-    if (res.error) {
-      var m = String(res.error.message || '').toLowerCase();
-      if (m.indexOf('clinic_id') >= 0 || m.indexOf('clinic_tag') >= 0 || m.indexOf('clinic_code') >= 0) {
-        res = await SB.from('bill_payments')
-          .select(selectNoClinic)
-          .gte('paid_date', from)
-          .lte('paid_date', to)
-          .order('paid_date', { ascending: true })
-          .order('created_at', { ascending: true });
+    var PAGE = 1000;
+    var useNoClinic = false;
+    var out = [];
+    var offset = 0;
+
+    while (true) {
+      var res = await SB.from('bill_payments')
+        .select(useNoClinic ? selectNoClinic : selectFull)
+        .gte('paid_date', from)
+        .lte('paid_date', to)
+        .order('paid_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .range(offset, offset + PAGE - 1);
+
+      if (res.error) {
+        var m = String(res.error.message || '').toLowerCase();
+        if (!useNoClinic && (m.indexOf('clinic_id') >= 0 || m.indexOf('clinic_tag') >= 0 || m.indexOf('clinic_code') >= 0)) {
+          useNoClinic = true;
+          offset = 0;
+          out = [];
+          continue;
+        }
+        var msg = String(res.error.message || '').toLowerCase();
+        if (msg.indexOf('bill_payments') >= 0 || msg.indexOf('relation') >= 0) return [];
+        throw new Error(res.error.message);
       }
+
+      var rows = res.data || [];
+      out = out.concat(rows);
+      if (rows.length < PAGE) break;
+      offset += PAGE;
     }
-    if (res.error) {
-      var msg = String(res.error.message || '').toLowerCase();
-      if (msg.indexOf('bill_payments') >= 0 || msg.indexOf('relation') >= 0) return [];
-      throw new Error(res.error.message);
-    }
-    return (res.data || []).filter(function (p) { return !(p && p.voided_at); });
+
+    return out.filter(function (p) { return !(p && p.voided_at); });
   }
 
   function indexPaymentsByBillId(payments) {

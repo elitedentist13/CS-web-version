@@ -28,6 +28,12 @@ var REPORT = (function () {
   var _drDailyIncomeExport = null; // { meta, rows } for Dr Daily Doctor Income Report
   var _dailySummaryIncomeExport = null; // { meta, rows } for Daily Summary monthly Clinic Income layout
   var _clinicIncomeDetailExport = null; // { meta, rows } for Clinic Income detail transaction layout
+  var _monthlyIncomeFromMonth = null; // YYYY-MM
+  var _monthlyIncomeToMonth = null; // YYYY-MM
+  var _monthlyIncomeLastAnchor = 'to'; // 'from' | 'to' — which side stays when clamping to max span
+  var _monthlyIncomeToolsWired = false;
+  var MONTHLY_INCOME_MAX_MONTHS = 24;
+  var MONTHLY_INCOME_DEFAULT_MONTHS = 6;
   var _reportTabsWired = false;
   var _reportDateInputsWired = false;
   var _auditFilterItem = '';
@@ -1064,11 +1070,15 @@ var REPORT = (function () {
     var field = typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined'
       ? PATIENT_CLINIC_TAG_FIELD
       : 'clinic_tag';
-    var pr = await SB.from('patients').select('id,' + field).in('id', patientIds);
-    if (pr.error) throw new Error(pr.error.message);
-    (pr.data || []).forEach(function (p) {
-      pmap[p.id] = String(p[field] || '').trim();
-    });
+    var CHUNK = 80;
+    for (var i = 0; i < patientIds.length; i += CHUNK) {
+      var chunk = patientIds.slice(i, i + CHUNK);
+      var pr = await SB.from('patients').select('id,' + field).in('id', chunk);
+      if (pr.error) throw new Error(pr.error.message);
+      (pr.data || []).forEach(function (p) {
+        pmap[p.id] = String(p[field] || '').trim();
+      });
+    }
     return pmap;
   }
 
@@ -1079,11 +1089,15 @@ var REPORT = (function () {
     var af = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
       ? APPOINTMENT_CLINIC_TAG_FIELD
       : 'clinic_tag';
-    var ar = await SB.from('appointments').select('id,' + af).in('id', apptIds);
-    if (ar.error) throw new Error(ar.error.message);
-    (ar.data || []).forEach(function (a) {
-      amap[a.id] = String(a[af] || '').trim();
-    });
+    var CHUNK = 80;
+    for (var ai = 0; ai < apptIds.length; ai += CHUNK) {
+      var aChunk = apptIds.slice(ai, ai + CHUNK);
+      var ar = await SB.from('appointments').select('id,' + af).in('id', aChunk);
+      if (ar.error) throw new Error(ar.error.message);
+      (ar.data || []).forEach(function (a) {
+        amap[a.id] = String(a[af] || '').trim();
+      });
+    }
     return amap;
   }
 
@@ -1325,6 +1339,17 @@ var REPORT = (function () {
     box.style.display = show ? 'flex' : 'none';
   }
 
+  function showMonthlyIncomeTools(show) {
+    var box = g('rptMonthlyIncomeTools');
+    var dayBox = g('rptDayRangeTools');
+    if (box) box.style.display = show ? 'flex' : 'none';
+    if (dayBox) dayBox.style.display = show ? 'none' : 'flex';
+    if (show) {
+      wireMonthlyIncomeToolsOnce();
+      updateMonthlyIncomeHeaderPickers();
+    }
+  }
+
   function wirePatientDirToolsOnce() {
     if (_patientDirToolsWired) return;
     _patientDirToolsWired = true;
@@ -1499,12 +1524,10 @@ var REPORT = (function () {
     }
 
     if (tabKey === 'monthlyIncome') {
-      // recent 4 months: current month and 3 prior months
-      var firstCur = firstDayOfMonth(now);
-      var fromM = new Date(firstCur.getFullYear(), firstCur.getMonth() - 3, 1);
-      var toM = lastDayOfMonth(now);
-      fromEl.value = iso(fromM);
-      toEl.value = iso(toM);
+      var def = defaultMonthlyIncomeRange();
+      _monthlyIncomeFromMonth = def.from;
+      _monthlyIncomeToMonth = def.to;
+      applyMonthlyIncomeMonthRange(def.from, def.to);
       return;
     }
   }
@@ -1566,8 +1589,7 @@ var REPORT = (function () {
     });
   }
 
-  function renderTable(columns, rows) {
-    var wrap = g('rptTableWrap');
+  function renderTableInto(wrap, columns, rows) {
     if (!wrap) return;
     if (!rows || !rows.length) {
       wrap.innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.noData')) + '</div>';
@@ -1600,6 +1622,10 @@ var REPORT = (function () {
     });
     html += '</tbody></table></div>';
     wrap.innerHTML = html;
+  }
+
+  function renderTable(columns, rows) {
+    renderTableInto(g('rptTableWrap'), columns, rows);
   }
 
   function setChartNote(msg) {
@@ -1711,7 +1737,9 @@ var REPORT = (function () {
   }
 
   function printTable() {
-    var wrap = g('rptTableWrap');
+    var wrap = (_tab === 'monthlyIncome' && g('rptMonthlyIncomeBody'))
+      ? g('rptMonthlyIncomeBody')
+      : g('rptTableWrap');
     if (!wrap) return;
     var title = (g('rptTitle') && g('rptTitle').textContent) ? g('rptTitle').textContent : tr('report.fallback.reportTable');
     // Print the current table region (best effort)
@@ -1982,16 +2010,22 @@ var REPORT = (function () {
   }
 
   async function loadPatientsByIds(ids) {
-    ids = (ids || []).filter(Boolean);
+    ids = uniqIds((ids || []).filter(Boolean));
     if (!ids.length) return [];
     var pField = (typeof PATIENT_CLINIC_TAG_FIELD !== 'undefined' && PATIENT_CLINIC_TAG_FIELD)
       ? PATIENT_CLINIC_TAG_FIELD
       : 'clinic_tag';
-    var res = await SB.from('patients')
-      .select('id,patient_no,full_name,chinese_name,' + pField)
-      .in('id', ids);
-    if (res.error) throw new Error(res.error.message);
-    return res.data || [];
+    var out = [];
+    var CHUNK = 80;
+    for (var i = 0; i < ids.length; i += CHUNK) {
+      var chunk = ids.slice(i, i + CHUNK);
+      var res = await SB.from('patients')
+        .select('id,patient_no,full_name,chinese_name,' + pField)
+        .in('id', chunk);
+      if (res.error) throw new Error(res.error.message);
+      out = out.concat(res.data || []);
+    }
+    return out;
   }
 
   async function loadAppointmentsForDailySummary(from, to, bills) {
@@ -3149,6 +3183,233 @@ var REPORT = (function () {
       return '<option value="' + esc(v) + '"' + sel + '>' + esc(label) + '</option>';
     }).join('');
     return opts;
+  }
+
+  function yearOptionsHTML(selectedYear, yearsBack) {
+    var nowY = new Date().getFullYear();
+    var sel = Number(selectedYear) || nowY;
+    var back = (yearsBack != null) ? yearsBack : 5;
+    var opts = [];
+    for (var y = nowY; y >= nowY - back; y--) {
+      opts.push('<option value="' + y + '"' + (y === sel ? ' selected' : '') + '>' + y + '</option>');
+    }
+    return opts.join('');
+  }
+
+  function monthNumOptionsHTML(selectedMm) {
+    var sel = String(selectedMm || '').padStart(2, '0');
+    return MONTH_SHORT_KEYS.map(function (key, idx) {
+      var mm = String(idx + 1).padStart(2, '0');
+      var optSel = (mm === sel) ? ' selected' : '';
+      return '<option value="' + mm + '"' + optSel + '>' + esc(monthShortLabel(idx)) + '</option>';
+    }).join('');
+  }
+
+  function yyyyMmFromParts(year, monthMm) {
+    var y = String(year || new Date().getFullYear()).slice(0, 4);
+    var m = String(monthMm || '01').padStart(2, '0').slice(0, 2);
+    if (!/^\d{4}$/.test(y)) y = String(new Date().getFullYear());
+    if (!/^(0[1-9]|1[0-2])$/.test(m)) m = String(new Date().getMonth() + 1).padStart(2, '0');
+    return y + '-' + m;
+  }
+
+  function addMonthsYyyyMm(yyyyMm, delta) {
+    var m = /^(\d{4})-(\d{2})$/.exec(String(yyyyMm || ''));
+    if (!m) return monthKeyOf(todayISO());
+    var d = new Date(+m[1], +m[2] - 1 + Number(delta || 0), 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  function enumerateMonthsBetween(fromYyyyMm, toYyyyMm) {
+    var from = String(fromYyyyMm || '').slice(0, 7);
+    var to = String(toYyyyMm || '').slice(0, 7);
+    if (!from || !to) return [];
+    if (from > to) {
+      var tmp = from;
+      from = to;
+      to = tmp;
+    }
+    var out = [];
+    var cur = from;
+    var guard = 0;
+    while (guard++ < MONTHLY_INCOME_MAX_MONTHS + 4) {
+      out.push(cur);
+      if (cur === to) break;
+      cur = addMonthsYyyyMm(cur, 1);
+    }
+    return out;
+  }
+
+  function monthSpanCount(fromYyyyMm, toYyyyMm) {
+    return enumerateMonthsBetween(fromYyyyMm, toYyyyMm).length;
+  }
+
+  function defaultMonthlyIncomeRange() {
+    var toKey = monthKeyOf(todayISO());
+    var fromKey = addMonthsYyyyMm(toKey, -(MONTHLY_INCOME_DEFAULT_MONTHS - 1));
+    return { from: fromKey, to: toKey };
+  }
+
+  function clampMonthlyIncomeRange(fromYyyyMm, toYyyyMm, anchor) {
+    var from = String(fromYyyyMm || '').slice(0, 7) || monthKeyOf(todayISO());
+    var to = String(toYyyyMm || '').slice(0, 7) || from;
+    var clamped = false;
+    if (from > to) {
+      var swap = from;
+      from = to;
+      to = swap;
+    }
+    var span = monthSpanCount(from, to);
+    if (span > MONTHLY_INCOME_MAX_MONTHS) {
+      clamped = true;
+      if (anchor === 'from') {
+        to = addMonthsYyyyMm(from, MONTHLY_INCOME_MAX_MONTHS - 1);
+      } else {
+        from = addMonthsYyyyMm(to, -(MONTHLY_INCOME_MAX_MONTHS - 1));
+      }
+    }
+    return { from: from, to: to, clamped: clamped };
+  }
+
+  function applyMonthlyIncomeMonthRange(fromMonth, toMonth, opts) {
+    opts = opts || {};
+    var r = clampMonthlyIncomeRange(fromMonth, toMonth, _monthlyIncomeLastAnchor);
+    _monthlyIncomeFromMonth = r.from;
+    _monthlyIncomeToMonth = r.to;
+    setDateInputs(r.from + '-01', monthEndISO(r.to));
+    if (r.clamped && opts.notify) {
+      alert(trRepl('report.mi.rangeClamped', {
+        from: r.from,
+        to: r.to,
+        max: String(MONTHLY_INCOME_MAX_MONTHS)
+      }));
+    }
+    return r;
+  }
+
+  function ensureMonthlyIncomeRangeInitialized() {
+    if (_monthlyIncomeFromMonth && _monthlyIncomeToMonth) return;
+    var def = defaultMonthlyIncomeRange();
+    _monthlyIncomeFromMonth = def.from;
+    _monthlyIncomeToMonth = def.to;
+  }
+
+  function updateMonthlyIncomeHeaderPickers() {
+    ensureMonthlyIncomeRangeInitialized();
+    var from = _monthlyIncomeFromMonth;
+    var to = _monthlyIncomeToMonth;
+    var fromParts = /^(\d{4})-(\d{2})$/.exec(from) || [];
+    var toParts = /^(\d{4})-(\d{2})$/.exec(to) || [];
+    var fy = g('rptMiFromYear');
+    var fm = g('rptMiFromMonth');
+    var ty = g('rptMiToYear');
+    var tm = g('rptMiToMonth');
+    if (fy) {
+      fy.innerHTML = yearOptionsHTML(fromParts[1] || String(new Date().getFullYear()), 8);
+      fy.value = fromParts[1] || fy.value;
+    }
+    if (fm) {
+      fm.innerHTML = monthNumOptionsHTML(fromParts[2] || '01');
+      fm.value = fromParts[2] || fm.value;
+    }
+    if (ty) {
+      ty.innerHTML = yearOptionsHTML(toParts[1] || String(new Date().getFullYear()), 8);
+      ty.value = toParts[1] || ty.value;
+    }
+    if (tm) {
+      tm.innerHTML = monthNumOptionsHTML(toParts[2] || '01');
+      tm.value = toParts[2] || tm.value;
+    }
+  }
+
+  function wireMonthlyIncomeToolsOnce() {
+    if (_monthlyIncomeToolsWired) return;
+    [
+      { yearId: 'rptMiFromYear', monthId: 'rptMiFromMonth', anchor: 'from' },
+      { yearId: 'rptMiToYear', monthId: 'rptMiToMonth', anchor: 'to' }
+    ].forEach(function (cfg) {
+      [cfg.yearId, cfg.monthId].forEach(function (id) {
+        var el = g(id);
+        if (!el) return;
+        el.addEventListener('change', function () {
+          if (!_reportInitialized || _tab !== 'monthlyIncome') return;
+          setMonthlyIncomeRangeFromHeader(cfg.anchor, true);
+        });
+      });
+    });
+    _monthlyIncomeToolsWired = true;
+  }
+
+  function setMonthlyIncomeRangeFromHeader(anchor, notify) {
+    _monthlyIncomeLastAnchor = (anchor === 'from') ? 'from' : 'to';
+    var fromKey = yyyyMmFromParts(
+      g('rptMiFromYear') ? g('rptMiFromYear').value : '',
+      g('rptMiFromMonth') ? g('rptMiFromMonth').value : ''
+    );
+    var toKey = yyyyMmFromParts(
+      g('rptMiToYear') ? g('rptMiToYear').value : '',
+      g('rptMiToMonth') ? g('rptMiToMonth').value : ''
+    );
+    applyMonthlyIncomeMonthRange(fromKey, toKey, { notify: !!notify });
+    updateMonthlyIncomeHeaderPickers();
+    if (_tab === 'monthlyIncome') refresh();
+  }
+
+  function renderMonthlyIncomeShell() {
+    var wrap = g('rptTableWrap');
+    if (!wrap) return;
+    wrap.innerHTML =
+      '<div style="padding:12px;">' +
+        '<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">' +
+          '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#22c55e;" onclick="REPORT.printTable()">' + esc(tr('report.ds.btnPrint')) + '</button>' +
+          '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#0d6efd;" onclick="REPORT.printChart()">' + esc(tr('report.printChart')) + '</button>' +
+          '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:#64748b;" onclick="REPORT.exportCSV()">' + esc(tr('report.ds.btnExportCsv')) + '</button>' +
+        '</div>' +
+        '<div id="rptMonthlyIncomeBody" style="min-height:200px;"></div>' +
+      '</div>';
+  }
+
+  function fillMonthlyIncomeRows(groupedMap, fromMonthKey, toMonthKey) {
+    var months = enumerateMonthsBetween(fromMonthKey, toMonthKey);
+    return months.map(function (mk) {
+      return { month: mk, total: Number(groupedMap[mk] || 0).toFixed(2) };
+    });
+  }
+
+  function renderMonthlyIncomeByClinic(slices, fromMonthKey, toMonthKey) {
+    var body = g('rptMonthlyIncomeBody') || g('rptTableWrap');
+    var months = enumerateMonthsBetween(fromMonthKey, toMonthKey);
+    var monthSet = {};
+    months.forEach(function (mk) { monthSet[mk] = true; });
+    var periodKeyFn = function (s) { return String(s.paid_date || '').slice(0, 7); };
+    var filtered = (slices || []).filter(function (s) {
+      return monthSet[periodKeyFn(s)];
+    });
+    var piv = pivotSlicesByPeriodAndClinic(filtered, periodKeyFn);
+    var byPeriod = {};
+    piv.rows.forEach(function (r) { byPeriod[r.period] = r; });
+    var columns = [{ key: 'month', label: tr('report.col.month') }];
+    piv.codes.forEach(function (code) {
+      columns.push({ key: 'c_' + code, label: reportClinicLabelFromCode(code) });
+    });
+    columns.push({ key: 'total', label: tr('report.col.paymentHkd') });
+    _rows = months.map(function (mk) {
+      var src = byPeriod[mk] || { byClinic: {}, total: 0 };
+      var row = { month: mk };
+      piv.codes.forEach(function (code) {
+        row['c_' + code] = Number(src.byClinic[code] || 0).toFixed(2);
+      });
+      row.total = Number(src.total || 0).toFixed(2);
+      return row;
+    });
+    if (!piv.codes.length) {
+      columns = [
+        { key: 'month', label: tr('report.col.month') },
+        { key: 'total', label: tr('report.col.paymentHkd') }
+      ];
+    }
+    renderTableInto(body, columns, _rows);
+    renderChartFromRows('month', 'total');
   }
 
   function drDisplayName(d) {
@@ -6199,6 +6460,8 @@ var REPORT = (function () {
     setChartNote(tr('report.loading'));
 
     try {
+      if (_tab !== 'monthlyIncome') showMonthlyIncomeTools(false);
+
       if (_tab === 'auditTrail') {
         showPatientDirTools(false);
         var auditHint = (_auditSubTab === 'voidBills')
@@ -6377,6 +6640,17 @@ var REPORT = (function () {
         return;
       }
 
+      if (_tab === 'monthlyIncome') {
+        showMonthlyIncomeTools(true);
+        ensureMonthlyIncomeRangeInitialized();
+        applyMonthlyIncomeMonthRange(_monthlyIncomeFromMonth, _monthlyIncomeToMonth);
+        from = g('rptFrom') ? g('rptFrom').value : from;
+        to = g('rptTo') ? g('rptTo').value : to;
+        setHeader(tr('report.title.monthlyIncome'), tr('report.hint.monthlyIncome'));
+        if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
+        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = '';
+      }
+
       var paymentSlices = await loadReportPaymentSlices(from, to);
       if (mySeq !== _refreshSeq) return;
 
@@ -6409,15 +6683,26 @@ var REPORT = (function () {
       }
 
       if (_tab === 'monthlyIncome') {
+        if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
+        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = '';
+        var miFrom = _monthlyIncomeFromMonth || monthKeyOf(from) || monthKeyOf(todayISO());
+        var miTo = _monthlyIncomeToMonth || monthKeyOf(to) || miFrom;
         setHeader(tr('report.title.monthlyIncome'), tr('report.hint.monthlyIncome'));
-        var monthlyKeyFn = function (s) { return String(s.paid_date || '').slice(0, 7); };
+        renderMonthlyIncomeShell();
+        var miBody = g('rptMonthlyIncomeBody');
         if (isReportAllClinicsSelected()) {
-          renderIncomeByClinic(paymentSlices, monthlyKeyFn, 'month', tr('report.col.month'));
+          renderMonthlyIncomeByClinic(paymentSlices, miFrom, miTo);
           return;
         }
+        var monthlyKeyFn = function (s) { return String(s.paid_date || '').slice(0, 7); };
         var groupedM = groupPaymentSlicesBy(paymentSlices, monthlyKeyFn);
-        _rows = groupedM.map(function (g) { return { month: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'month', label: tr('report.col.month') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
+        var totalsMap = {};
+        groupedM.forEach(function (row) { totalsMap[row.key] = row.value; });
+        _rows = fillMonthlyIncomeRows(totalsMap, miFrom, miTo);
+        renderTableInto(miBody || g('rptTableWrap'), [
+          { key: 'month', label: tr('report.col.month') },
+          { key: 'total', label: tr('report.col.paymentHkd') }
+        ], _rows);
         renderChartFromRows('month', 'total');
         return;
       }
@@ -6581,6 +6866,7 @@ var REPORT = (function () {
     refreshReportChartTypeSelect();
     wireReportTabButtons();
     wireReportDateInputsOnce();
+    wireMonthlyIncomeToolsOnce();
     setDefaultDates();
     switchTab(_tab);
     _reportInitialized = true;
@@ -6674,6 +6960,9 @@ var REPORT = (function () {
     setDrMonthlyMonth: function (yyyyMm) {
       _drMonthlyMonth = String(yyyyMm || '').slice(0, 7) || monthKeyOf(todayISO());
       if (_tab === 'drMonthly') refresh();
+    },
+    setMonthlyIncomeRangeFromHeader: function (anchor) {
+      setMonthlyIncomeRangeFromHeader(anchor, true);
     },
     exportDailySummaryExcel: exportDailySummaryCsvFormatted,
     printDailySummary: printDailySummary,

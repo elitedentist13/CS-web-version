@@ -978,13 +978,28 @@
             <button id="rptPrintChartBtn" class="btn-add" style="padding:9px 12px;background:#0d6efd;" onclick="REPORT.printChart()" data-i18n="report.printChart"></button>
             <button class="btn-add" style="padding:9px 12px;background:#64748b;" onclick="REPORT.exportCSV()" data-i18n="report.exportCsv"></button>
           </div>
-          <div>
-            <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;" data-i18n="common.from"></div>
-            <input id="rptFrom" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
+          <div id="rptDayRangeTools" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+            <div>
+              <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;" data-i18n="common.from"></div>
+              <input id="rptFrom" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
+            </div>
+            <div>
+              <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;" data-i18n="common.to"></div>
+              <input id="rptTo" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
+            </div>
           </div>
-          <div>
-            <div style="font-size:12px;color:#555;font-weight:800;margin-bottom:4px;" data-i18n="common.to"></div>
-            <input id="rptTo" type="date" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;">
+          <div id="rptMonthlyIncomeTools"
+               style="display:none;gap:8px;align-items:end;flex-wrap:wrap;padding:8px 10px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <div style="font-size:12px;color:#555;font-weight:800;" data-i18n="report.mi.labelFromMonth"></div>
+              <select id="rptMiFromYear" style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;min-width:88px;"></select>
+              <select id="rptMiFromMonth" style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;min-width:100px;"></select>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <div style="font-size:12px;color:#555;font-weight:800;" data-i18n="report.mi.labelToMonth"></div>
+              <select id="rptMiToYear" style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;min-width:88px;"></select>
+              <select id="rptMiToMonth" style="padding:7px 10px;border:1px solid #ddd;border-radius:10px;min-width:100px;"></select>
+            </div>
           </div>
           <select id="reportPatientDirClinicFilter" hidden aria-hidden="true"
                   data-i18n-title="common.reportClinicTitle"></select>

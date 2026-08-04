@@ -1,15 +1,34 @@
-# Fast CSV extract from Clinic Solution CS6 (32-bit ODBC)
+# Fast CSV extract of Clinic Solution consultation notes (32-bit ODBC)
+#
+# Examples:
+#   .\export-cs-notes.ps1 -Branch TKO
+#   .\export-cs-notes.ps1 -Branch PL -Server 'BRANCHPC\CSX' -Database CS6
+#
+param(
+    [string]$Branch = 'TKO',
+    [string]$OutDir = 'C:\Users\Doctor-1\Downloads',
+    [string]$Server = 'RECEPTION\CSX',
+    [string]$Database = 'CS6',
+    [string]$Uid = 'sa',
+    [string]$Pwd = ''
+)
+
 $ErrorActionPreference = 'Stop'
-$outDir = 'C:\Users\Doctor-1\Downloads'
+
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$base = Join-Path $outDir "ClinicSolution_ConsultationNotes_by_HKID_$stamp"
+$branch = ($Branch.Trim().ToUpper() -replace '[^A-Z0-9_-]', '')
+if (-not $branch) { throw 'Branch is required (e.g. TKO, PL, KT)' }
+
+$base = Join-Path $OutDir ("CS_{0}_ConsultationNotes_{1}" -f $branch, $stamp)
 $notesCsv = "$base`_notes.csv"
 $extCsv   = "$base`_extend.csv"
 $patCsv   = "$base`_patients.csv"
 $metaTxt  = "$base`_meta.txt"
 
 function Get-Conn {
-    $c = New-Object System.Data.Odbc.OdbcConnection('Driver={SQL Server};Server=RECEPTION\CSX;Database=CS6;Uid=sa;Pwd=;Connection Timeout=30;')
+    $cs = 'Driver={{SQL Server}};Server={0};Database={1};Uid={2};Pwd={3};Connection Timeout=30;' -f `
+        $Server, $Database, $Uid, $Pwd
+    $c = New-Object System.Data.Odbc.OdbcConnection($cs)
     $c.Open()
     return $c
 }
@@ -47,7 +66,7 @@ function Export-QueryToCsv($conn, $sql, $path) {
     }
 }
 
-Write-Host 'Connecting...'
+Write-Host ("Connecting to {0} / {1} (branch {2}) ..." -f $Server, $Database, $branch)
 $conn = Get-Conn
 
 $sqlNotes = @"
@@ -110,6 +129,9 @@ Write-Host "Patients: $nPat -> $patCsv"
 $conn.Close()
 
 @"
+branch=$branch
+server=$Server
+database=$Database
 base=$base
 notes_csv=$notesCsv
 extend_csv=$extCsv

@@ -9,6 +9,8 @@ Multi-branch ready:
 Also:
   - Normalizes HKID (uppercase, strip spaces / brackets / punctuation)
   - Emits snake_case columns compatible with cs_notes_staging
+
+Guide: CS_NOTES_SUPABASE_IMPORT.md
 """
 from __future__ import annotations
 
@@ -51,8 +53,11 @@ def parse_visit_at(visit_ts: str, visit_date: str) -> str:
     return ""
 
 
-def import_key(branch: str, chart_no: str, visit_at: str, notes: str) -> str:
-    payload = f"{branch}|{chart_no}|{visit_at}|{notes}".encode("utf-8", errors="replace")
+def import_key(batch_id: str, branch: str, chart_no: str, visit_at: str, notes: str) -> str:
+    # Include batch_id so re-imports of the same notes never collide with prior staging rows
+    payload = f"{batch_id}|{branch}|{chart_no}|{visit_at}|{notes}".encode(
+        "utf-8", errors="replace"
+    )
     return hashlib.sha256(payload).hexdigest()[:40]
 
 
@@ -177,7 +182,7 @@ def main() -> None:
 
             writer.writerow(
                 {
-                    "import_key": import_key(branch, chart_no, visit_at, notes),
+                    "import_key": import_key(batch_id, branch, chart_no, visit_at, notes),
                     "batch_id": batch_id,
                     "branch_code": branch,
                     "banana_clinic_tag": banana_clinic_tag,

@@ -18022,7 +18022,7 @@ function loadPendingLists(cb) {
         var fetched = (!r.error && r.data) ? r.data : [];
         fetched.forEach(function(pl) {
             if (typeof pl.items === 'string') {
-                try { pl.items = JSON.parse(pl.items); } catch(e) { pl.items = []; }
+                pl.items = parseBillItemsField(pl.items);
             }
             pl.items = (pl.items || []).map(normalizeBillItem);
         });
@@ -18509,7 +18509,7 @@ function renderStep2(cb, opts) {
 
         lists.forEach(function(pl) {
             if (typeof pl.items === 'string') {
-                try { pl.items = JSON.parse(pl.items); } catch(e) { pl.items = []; }
+                pl.items = parseBillItemsField(pl.items);
             }
             pl.items = (pl.items || []).map(normalizeBillItem);
             if (pl.id) {
@@ -19020,6 +19020,21 @@ function billItemAmt(it) {
 
 function billItemGross(it) {
     return (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0);
+}
+
+/** bills.items may be jsonb (array) from Supabase or a JSON string. */
+function parseBillItemsField(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (raw == null || raw === '') return [];
+    if (typeof raw === 'string') {
+        try {
+            var parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+    return [];
 }
 
 function parseBillAmountInput(raw) {
@@ -21283,8 +21298,7 @@ function showBillDetail(b) {
     if (notesWrap && typeof applyI18nInRoot === 'function') applyI18nInRoot(notesWrap);
 
     // Items table — zebra rows
-    var items = [];
-    try { items = JSON.parse(b.items || '[]'); } catch(e) {}
+    var items = parseBillItemsField(b.items);
     var tbody = g('bdItemsBody');
     tbody.innerHTML = '';
     items.forEach(function(it, i) {
@@ -22954,8 +22968,7 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
     hydrateReceiptPatientProfile(bill);
 
     // ── Item rows (with disc %) ──────────────────────────
-    var items = [];
-    try { items = JSON.parse(bill.items || '[]'); } catch(e) {}
+    var items = parseBillItemsField(bill.items);
     var rb = g('rItemsBody');
     rb.innerHTML = '';
     items.forEach(function(it) {

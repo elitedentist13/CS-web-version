@@ -1,23 +1,22 @@
 -- =============================================================================
--- Clinic Solution → Banana (Supabase) consultation notes import
+-- Clinic Solution → Banana consultation notes → treatments
 -- MULTI-BRANCH SAFE
 -- =============================================================================
--- Prerequisites:
---   1. python prepare-cs-staging-csv.py --source "..._notes.csv" --branch TKO
---   2. Run sections 0–1 once (helpers + staging table)
---   3. Import staging CSV into cs_notes_staging
---   4. Set cs_import_params.batch_id to that CSV's batch_id
---   5. Run match (§3) → preview (§4) → insert (§5) → report (§6)
+-- Full workflow: CS_NOTES_SUPABASE_IMPORT.md
 --
--- Match order (scoped to batch_id):
---   A) hkid_norm + patients.clinic_tag = banana_clinic_tag   (preferred)
---   B) hkid_norm unique globally (only if require_clinic_scope = false,
---      or patient.clinic_tag is null/blank)
---   C) patient_no exact + clinic_tag                         (chart collisions guarded)
---   D) patient_no stripped zeros + clinic_tag
+-- Per branch:
+--   1) export-cs-notes.ps1 -Branch PL
+--   2) prepare-cs-staging-csv.py --source "..._notes.csv" --branch PL --clinic-tag PL
+--   3) §0–1 once; §2 set batch_id; import staging CSV
+--   4) §3 match → §4 preview → §5 insert → §6 report
+--   5) Unmatched: resolve-unmatched-notes.py + supabase_cs_notes_resolve_insert.sql
 --
--- Chart/patient_no matches NEVER run without clinic scope when
--- require_clinic_scope = true (default).
+-- Match order (active batch_id only):
+--   A) hkid_norm + clinic_tag
+--   B) hkid_norm unique (blank clinic / scope off)
+--   C) patient_no = chart_no + clinic_tag
+--   C2) patient_no = <clinic_tag> || chart_no + clinic_tag   (e.g. TKO003826)
+--   D) patient_no stripped + clinic_tag
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -261,6 +260,31 @@ SET matched_patient_id = h.patient_id,
     match_method = 'patient_no_exact+clinic_tag',
     import_status = 'matched'
 FROM pno_hits h
+WHERE s.import_key = h.import_key
+  AND h.hit_count = 1;
+
+-- 3B1) Prefixed chart: patient_no = TKO003826 when CS chart = 003826
+WITH pno_pref_hits AS (
+  SELECT
+    s.import_key,
+    pt.id AS patient_id,
+    count(*) OVER (PARTITION BY s.import_key) AS hit_count
+  FROM public.cs_notes_staging s
+  JOIN public.cs_import_params prm ON prm.id = 1 AND s.batch_id = prm.batch_id
+  JOIN public.patients pt
+    ON trim(pt.patient_no)
+       = public.normalize_clinic_tag(s.banana_clinic_tag) || trim(s.chart_no)
+   AND coalesce(trim(s.chart_no), '') <> ''
+   AND public.normalize_clinic_tag(pt.clinic_tag)
+       = public.normalize_clinic_tag(s.banana_clinic_tag)
+   AND coalesce(public.normalize_clinic_tag(s.banana_clinic_tag), '') <> ''
+  WHERE coalesce(s.import_status, 'pending') = 'pending'
+)
+UPDATE public.cs_notes_staging s
+SET matched_patient_id = h.patient_id,
+    match_method = 'patient_no_prefixed+clinic_tag',
+    import_status = 'matched'
+FROM pno_pref_hits h
 WHERE s.import_key = h.import_key
   AND h.hit_count = 1;
 

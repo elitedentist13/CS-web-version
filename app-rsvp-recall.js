@@ -106,6 +106,22 @@ var RSVP_RECALL = (function () {
         if (!d) return '';
         return '+' + d;
     }
+    /** Match +Appointment inactive rows: Cancelled, No Show (red tint), declined RSVP, recall-cancel. */
+    function isRsvpExcludedAppt(a) {
+        if (!a) return true;
+        var bs = String(a.bill_status || '').toLowerCase();
+        if (/cancel/.test(bs)) return true;
+        if (/no.?show|failed/.test(bs)) return true;
+        var bks = String(a.booking_status || '').toLowerCase();
+        if (bks === 'cancelled' || bks === 'canceled' || bks === 'expired') return true;
+        if (String(a.patient_rsvp_status || '').toLowerCase() === 'declined') return true;
+        if (typeof todayApptIsNoshow === 'function' && todayApptIsNoshow(a)) return true;
+        var recall = String(
+            a._plusRecallState || a.recall_followup_status || ''
+        ).toLowerCase();
+        if (recall === 'cancel') return true;
+        return false;
+    }
     function firstName(full) {
         var s = String(full || '').trim();
         if (!s) return 'Patient';
@@ -887,10 +903,12 @@ var RSVP_RECALL = (function () {
                 renderTable();
                 return;
             }
-            var list = (r.data || []).filter(function (a) {
-                var bs = String(a.bill_status || '').toLowerCase();
-                return bs.indexOf('cancel') < 0;
-            });
+            var list = r.data || [];
+            // Sync recall-cancel capsule from +Appointment task state before filtering.
+            if (typeof plusApptApplyTaskStateToList === 'function') {
+                plusApptApplyTaskStateToList(list);
+            }
+            list = list.filter(function (a) { return !isRsvpExcludedAppt(a); });
             var patIds = [];
             list.forEach(function (a) {
                 if (a.patient_id) patIds.push(a.patient_id);
@@ -1055,7 +1073,9 @@ var RSVP_RECALL = (function () {
             setStatus(tr('rsvp.alert.noAi', 'AI Helper / Twilio send is unavailable.'), true);
             return;
         }
-        var queue = visibleRows().filter(function (a) { return _sel[a.id]; });
+        var queue = visibleRows().filter(function (a) {
+            return _sel[a.id] && !isRsvpExcludedAppt(a);
+        });
         if (!queue.length) {
             setStatus(tr('rsvp.alert.noneSelected', 'Select at least one appointment.'), true);
             return;

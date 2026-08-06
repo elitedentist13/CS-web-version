@@ -22,6 +22,7 @@ if (-not $branch) { throw 'Branch is required (e.g. TKO, PL, KT)' }
 
 $masterCsv = Join-Path $OutDir ("CS_{0}_PaymentHistory_{1}_master.csv" -f $branch, $stamp)
 $itemsCsv  = Join-Path $OutDir ("CS_{0}_PaymentHistory_{1}_items.csv" -f $branch, $stamp)
+$incomeCsv = Join-Path $OutDir ("CS_{0}_PaymentHistory_{1}_income.csv" -f $branch, $stamp)
 $metaTxt   = Join-Path $OutDir ("CS_{0}_PaymentHistory_{1}_meta.txt" -f $branch, $stamp)
 
 function Get-Conn {
@@ -136,6 +137,31 @@ Write-Host 'Exporting payment line items...'
 $nItems = Export-QueryToCsv $conn $sqlItems $itemsCsv
 Write-Host "Items: $nItems -> $itemsCsv"
 
+# Per-receipt / installment ledger (may have multiple rows per T_CODE+P_CODE)
+$sqlIncome = @"
+SELECT
+  i.T_CODE AS TxnCode,
+  i.P_CODE AS ChartNo,
+  i.[DATE] AS PaidDate,
+  i.BDATE AS BillDate,
+  CONVERT(varchar(23), i.[TIMESTAMP], 121) AS PaidTimestamp,
+  ISNULL(i.MCLINICCODE, '') AS MasterClinicCode,
+  ISNULL(i.CLINICCODE, '') AS ClinicCode,
+  i.STATUS AS Status,
+  ISNULL(i.METHOD, '') AS Method,
+  ISNULL(i.DOCTORCODE, '') AS DoctorCode,
+  i.AMOUNT AS AmountCents,
+  CAST(i.AMOUNT AS decimal(18,2)) / 100.0 AS AmountHkd,
+  ISNULL(i.REMARKS, '') AS Remarks
+FROM INCOMETABLE i
+WHERE i.STATUS = 0
+ORDER BY i.T_CODE, i.P_CODE, i.[TIMESTAMP], i.AMOUNT
+"@
+
+Write-Host 'Exporting income / installment receipts...'
+$nIncome = Export-QueryToCsv $conn $sqlIncome $incomeCsv
+Write-Host "Income: $nIncome -> $incomeCsv"
+
 $conn.Close()
 
 @"
@@ -144,10 +170,12 @@ server=$Server
 database=$Database
 master_csv=$masterCsv
 items_csv=$itemsCsv
+income_csv=$incomeCsv
 master_rows=$nMaster
 items_rows=$nItems
+income_rows=$nIncome
 amount_unit=cents_in_db_exported_also_as_hkd_div_100
-notes=PAYMENTMASTERTABLE=bill header; PAYMENTSLAVETABLE=line items; CANCELSTATUS 0=active 1=cancelled
+notes=PAYMENTMASTERTABLE=bill header; PAYMENTSLAVETABLE=line items; INCOMETABLE=per-receipt installments (join TxnCode+ChartNo); CANCELSTATUS 0=active 1=cancelled
 "@ | Set-Content -LiteralPath $metaTxt -Encoding UTF8
 
 Write-Host "META $metaTxt"

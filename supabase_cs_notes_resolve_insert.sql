@@ -29,7 +29,7 @@ ALTER TABLE public.cs_notes_staging
 
 -- 2) Set active batch (EDIT — paste BATCH_ID from resolve-unmatched-notes.py)
 UPDATE public.cs_import_params
-SET batch_id = 'PASTE_NOTES_RESOLVE_BATCH_ID',
+SET batch_id = 'OKT_NOTES_RESOLVE_20260806_144203',
     require_clinic_scope = true,
     updated_at = now()
 WHERE id = 1;

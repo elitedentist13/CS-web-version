@@ -917,7 +917,9 @@ var RSVP_RECALL = (function () {
                 return pr;
             }).then(function (pr) {
                 (pr.data || []).forEach(function (p) {
-                    phoneMap[p.id] = String(p.mobile_phone || p.phone_number || '').trim();
+                    // RSVP uses telephone (phone_number). mobile_phone is spare /
+                    // parent / urgent contact — not the patient send number.
+                    phoneMap[p.id] = String(p.phone_number || '').trim();
                     if (p.dob) dobMap[p.id] = p.dob;
                     if (p.sex != null) sexMap[p.id] = p.sex;
                 });

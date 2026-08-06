@@ -9,7 +9,9 @@
 --   F) items: prefer prepare --items; else supabase_cs_payments_backfill_items.sql
 --   G) dups:  find-cs-bill-duplicates.py + supabase_cs_payments_void_duplicates.sql
 --
--- Idempotency: bills.notes / bill_payments.notes contain 'CS_TXN:<TxnCode>'
+-- Idempotency: bills.notes / bill_payments.notes contain
+--   'CS_TXN:<clinic_tag>:<TxnCode>'  (preferred; Softlink txn codes are NOT globally unique)
+-- Legacy rows may still use 'CS_TXN:<TxnCode>' — treat as same patient only.
 -- Prefer staging items_json filled (jsonb on insert). bill_date cast to date.
 -- =============================================================================
 
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS public.cs_payments_staging (
   remarks              text,
   diagnosis            text,
   items_json           text,          -- optional enriched line items
+  payments_json        text,          -- optional INCOMETABLE receipts [{paid_date,amount,method}]
   matched_patient_id   uuid,
   matched_patient_no   text,
   match_method         text,
@@ -96,7 +99,7 @@ CREATE INDEX IF NOT EXISTS cs_payments_staging_txn_idx ON public.cs_payments_sta
 -- 2) Set active batch (EDIT THIS)
 -- ---------------------------------------------------------------------------
 UPDATE public.cs_import_params
-SET batch_id = 'PASTE_BATCH_ID_FROM_PREPARE_SCRIPT',  -- e.g. from CS_TKO_PaymentHistory_staging_for_supabase_v2.csv
+SET batch_id = 'OKT_PAY_20260806_141904',  -- e.g. from CS_TKO_PaymentHistory_staging_for_supabase_v2.csv
     require_clinic_scope = true,
     updated_at = now()
 WHERE id = 1;
@@ -346,6 +349,8 @@ ORDER BY n DESC;
 -- ---------------------------------------------------------------------------
 
 -- 5a) Already imported earlier → skipped_dup
+-- Only treat as dup when the existing CS_TXN bill is on the SAME matched patient
+-- (bare CS_TXN:<txn> is not unique across Softlink / other CS sites).
 UPDATE public.cs_payments_staging s
 SET import_status = 'skipped_dup',
     imported_at = now(),
@@ -355,13 +360,21 @@ FROM public.bills b
 JOIN public.cs_import_params p ON p.id = 1
 WHERE s.batch_id = p.batch_id
   AND s.import_status = 'matched'
-  AND b.notes LIKE '%CS_TXN:' || trim(s.txn_code) || '%';
+  AND s.matched_patient_id IS NOT NULL
+  AND coalesce(trim(s.txn_code), '') <> ''
+  AND b.patient_id = s.matched_patient_id
+  AND (
+    b.notes LIKE '%CS_TXN:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+                 || ':' || trim(s.txn_code) || '%'
+    OR b.notes LIKE '%CS_TXN:' || trim(s.txn_code) || '%'
+  );
 
 -- 5b) Insert new bills
 WITH src AS (
   SELECT
     s.*,
-    ('CS_TXN:' || trim(s.txn_code)) AS txn_marker,
+    ('CS_TXN:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+      || ':' || trim(s.txn_code)) AS txn_marker,
     CASE
       WHEN length(trim(s.bill_date)) = 8
         THEN (
@@ -456,9 +469,72 @@ SET import_status = 'inserted',
     import_error = NULL
 FROM ins i
 WHERE s.import_status = 'matched'
-  AND i.notes LIKE '%CS_TXN:' || trim(s.txn_code) || '%';
+  AND i.notes LIKE '%CS_TXN:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+               || ':' || trim(s.txn_code) || '%';
 
--- 5c) bill_payments for received > 0 (idempotent on CS_TXN note)
+-- Ensure payments_json column exists on older staging tables
+ALTER TABLE public.cs_payments_staging
+  ADD COLUMN IF NOT EXISTS payments_json text;
+
+-- 5c) bill_payments from INCOMETABLE installments (payments_json) when present
+INSERT INTO public.bill_payments (
+  bill_id, paid_date, amount, method, notes, clinic_tag, created_at
+)
+SELECT
+  s.inserted_bill_id,
+  CASE
+    WHEN coalesce(nullif(trim(j.paid_date), ''), '') ~ '^\d{8}$'
+      THEN (
+        substring(trim(j.paid_date),1,4) || '-' ||
+        substring(trim(j.paid_date),5,2) || '-' ||
+        substring(trim(j.paid_date),7,2)
+      )::date
+    WHEN coalesce(trim(j.paid_date), '') <> ''
+      THEN trim(j.paid_date)::date
+    WHEN length(trim(s.bill_date)) = 8
+      THEN (
+        substring(trim(s.bill_date),1,4) || '-' ||
+        substring(trim(s.bill_date),5,2) || '-' ||
+        substring(trim(s.bill_date),7,2)
+      )::date
+    ELSE NULL
+  END,
+  coalesce(j.amount, 0),
+  coalesce(nullif(trim(j.method), ''), 'CS Import'),
+  'CS_INCOME:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+    || ':' || trim(s.txn_code) || ':' || coalesce(j.ord::text, '0'),
+  public.normalize_clinic_tag(s.banana_clinic_tag),
+  CASE
+    WHEN coalesce(trim(j.paid_timestamp), '') <> ''
+      THEN (trim(j.paid_timestamp)::timestamp AT TIME ZONE 'Asia/Hong_Kong')
+    WHEN coalesce(trim(s.bill_timestamp), '') <> ''
+      THEN (trim(s.bill_timestamp)::timestamp AT TIME ZONE 'Asia/Hong_Kong')
+    ELSE now()
+  END
+FROM public.cs_payments_staging s
+JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
+CROSS JOIN LATERAL (
+  SELECT
+    ord::int,
+    e->>'paid_date' AS paid_date,
+    e->>'paid_timestamp' AS paid_timestamp,
+    e->>'method' AS method,
+    coalesce(nullif(e->>'amount', '')::numeric, 0) AS amount
+  FROM jsonb_array_elements(coalesce(nullif(trim(s.payments_json), '')::jsonb, '[]'::jsonb))
+    WITH ORDINALITY AS t(e, ord)
+) j
+WHERE s.import_status IN ('inserted', 'skipped_dup')
+  AND s.inserted_bill_id IS NOT NULL
+  AND coalesce(trim(s.payments_json), '') <> ''
+  AND coalesce(j.amount, 0) > 0.005
+  AND NOT EXISTS (
+    SELECT 1 FROM public.bill_payments bp
+    WHERE bp.bill_id = s.inserted_bill_id
+      AND bp.notes LIKE 'CS_INCOME:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+                    || ':' || trim(s.txn_code) || ':%'
+  );
+
+-- 5d) Fallback lump-sum payment when payments_json is empty
 INSERT INTO public.bill_payments (
   bill_id, paid_date, amount, method, notes, clinic_tag, created_at
 )
@@ -477,7 +553,7 @@ SELECT
   END,
   coalesce(nullif(trim(s.received_hkd), '')::numeric, 0),
   'CS Import',
-  'CS_TXN:' || trim(s.txn_code),
+  'CS_TXN:' || public.normalize_clinic_tag(s.banana_clinic_tag) || ':' || trim(s.txn_code),
   public.normalize_clinic_tag(s.banana_clinic_tag),
   CASE
     WHEN coalesce(trim(s.bill_timestamp), '') <> ''
@@ -488,10 +564,17 @@ FROM public.cs_payments_staging s
 JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
 WHERE s.import_status IN ('inserted', 'skipped_dup')
   AND s.inserted_bill_id IS NOT NULL
+  AND coalesce(trim(s.payments_json), '') = ''
   AND coalesce(nullif(trim(s.received_hkd), '')::numeric, 0) > 0.005
   AND NOT EXISTS (
     SELECT 1 FROM public.bill_payments bp
-    WHERE bp.notes = 'CS_TXN:' || trim(s.txn_code)
+    WHERE bp.bill_id = s.inserted_bill_id
+      AND (
+        bp.notes LIKE 'CS_INCOME:%'
+        OR bp.notes = 'CS_TXN:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+                    || ':' || trim(s.txn_code)
+        OR bp.notes = 'CS_TXN:' || trim(s.txn_code)
+      )
   );
 
 -- ---------------------------------------------------------------------------

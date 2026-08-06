@@ -117,7 +117,7 @@ COMMENT ON TABLE public.cs_notes_staging IS
 -- ---------------------------------------------------------------------------
 -- >>> EDIT batch_id to the value printed by prepare-cs-staging-csv.py <<<
 UPDATE public.cs_import_params
-SET batch_id = 'REPLACE_WITH_BATCH_ID',   -- e.g. TKO_20260804_050112
+SET batch_id = 'OKT_20260806_141846',      -- OKT Softlink / Kai Tak; clinic_tag OKT
     require_clinic_scope = true,            -- keep true for multi-branch safety
     updated_at = now()
 WHERE id = 1;

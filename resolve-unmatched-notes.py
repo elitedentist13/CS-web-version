@@ -32,7 +32,7 @@ ANON = (
     "fHbfVQOmIMOTbjBTG6iy2yrgmo-iZXEe-wNLlAlVtM4"
 )
 BASE = "https://kprihawipljrltfzpfjd.supabase.co/rest/v1"
-OUT_DIR = Path(r"C:\Users\Doctor-1\Downloads")
+OUT_DIR = Path(r"C:\Users\joyfu\Downloads")
 
 
 def get_all(table_and_query: str) -> list:
@@ -101,11 +101,21 @@ def main() -> None:
         help="Source staging batch_id that still has unmatched rows",
     )
     ap.add_argument("--clinic-tag", default="", help="Defaults to branch")
+    ap.add_argument(
+        "--also-clinic-tags",
+        default="",
+        help="Comma-separated extra clinic_tags accepted when matching "
+        "(e.g. KT when importing Softlink Kai Tak as OKT)",
+    )
     ap.add_argument("--out-dir", default=str(OUT_DIR))
     args = ap.parse_args()
 
     branch = norm_clinic(args.branch)
     clinic = norm_clinic(args.clinic_tag) or branch
+    # Softlink Kai Tak → Banana OKT often still has legacy KT-tagged patients
+    also = {norm_clinic(x) for x in (args.also_clinic_tags or "").split(",") if x.strip()}
+    if clinic == "OKT" and not also:
+        also.add("KT")
     src_batch = args.batch_id.strip()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +153,8 @@ def main() -> None:
         if p["_name"] and p["_dob"]:
             by_name_dob[(p["_name"], p["_dob"])].append(p)
 
-    clinic_ok = {clinic, ""}
+    clinic_ok = {clinic, "", *also}
+    print("clinic_ok", sorted(clinic_ok))
 
     resolvable = []
     still = []

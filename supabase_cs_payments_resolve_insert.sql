@@ -1,10 +1,19 @@
--- Resolve-insert for remaining unmatched CS payments (template; TKO example batch below)
--- Full workflow: CS_PAYMENTS_SUPABASE_IMPORT.md (§H)
--- Other branches: rebuild staging with resolved_patient_id, set batch_id, same steps.
+-- =============================================================================
+-- Resolve-insert for unmatched CS payments (multi-branch)
+-- =============================================================================
+-- Prep:
+--   python resolve-unmatched-payments.py --branch CWB --batch-id CWB_PAY_...
+--   → CS_<BRANCH>_PaymentHistory_resolve_staging_for_supabase.csv
+--   → prints BATCH_ID = <BRANCH>_PAY_RESOLVE_...
 --
--- Staging CSV: C:\Users\Doctor-1\Downloads\CS_TKO_PaymentHistory_resolve_staging_for_supabase.csv
--- Batch: TKO_PAY_RESOLVE_20260805_042514
--- Idempotent via bills.notes CS_TXN:<txn_code>
+-- Steps:
+--   0) columns
+--   1) clear prior resolve batches for THIS branch only (edit LIKE)
+--   2) set cs_import_params.batch_id
+--   3) import resolve staging CSV
+--   4–8) apply / insert / report (uses active batch_id)
+-- Guide: CS_PAYMENTS_SUPABASE_IMPORT.md
+-- =============================================================================
 
 -- 0) Columns for pre-resolved patient
 ALTER TABLE public.cs_payments_staging
@@ -12,21 +21,21 @@ ALTER TABLE public.cs_payments_staging
 ALTER TABLE public.cs_payments_staging
   ADD COLUMN IF NOT EXISTS resolve_method text;
 
--- 1) Clear prior resolve-batch attempts only
-DELETE FROM public.cs_payments_staging
-WHERE batch_id LIKE 'TKO_PAY_RESOLVE_%';
+-- 1) Clear prior resolve attempts for this branch only (EDIT branch prefix)
+-- DELETE FROM public.cs_payments_staging
+-- WHERE batch_id LIKE 'CWB_PAY_RESOLVE_%';
 
--- 2) Set active batch
+-- 2) Set active batch (EDIT — paste BATCH_ID from resolve-unmatched-payments.py)
 UPDATE public.cs_import_params
-SET batch_id = 'TKO_PAY_RESOLVE_20260805_042514',
+SET batch_id = 'PASTE_PAY_RESOLVE_BATCH_ID',
     require_clinic_scope = true,
     updated_at = now()
 WHERE id = 1;
 
--- 3) Table Editor → Import CSV into cs_payments_staging (header on).
+-- 3) Table Editor → import CS_<BRANCH>_PaymentHistory_resolve_staging_for_supabase.csv
 --    Map resolved_patient_id + resolve_method if prompted.
 
--- 4) Apply pre-resolved matches
+-- 4) Apply pre-resolved matches (active batch)
 UPDATE public.cs_payments_staging s
 SET matched_patient_id = s.resolved_patient_id,
     matched_patient_no = pt.patient_no,
@@ -34,7 +43,8 @@ SET matched_patient_id = s.resolved_patient_id,
     import_status = 'matched',
     import_error = NULL
 FROM public.patients pt
-WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
+JOIN public.cs_import_params p ON p.id = 1
+WHERE s.batch_id = p.batch_id
   AND s.resolved_patient_id IS NOT NULL
   AND pt.id = s.resolved_patient_id;
 
@@ -42,7 +52,9 @@ WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
 UPDATE public.cs_payments_staging s
 SET import_status = 'unmatched',
     import_error = coalesce(nullif(s.resolve_method, ''), 'no_patient_match')
-WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
+FROM public.cs_import_params p
+WHERE p.id = 1
+  AND s.batch_id = p.batch_id
   AND coalesce(s.import_status, 'pending') = 'pending'
   AND s.resolved_patient_id IS NULL;
 
@@ -72,8 +84,8 @@ WITH src AS (
     coalesce(nullif(trim(s.received_hkd), '')::numeric, 0) AS recv_n,
     coalesce(nullif(trim(s.balance_hkd), '')::numeric, 0) AS bal_n
   FROM public.cs_payments_staging s
-  WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
-    AND s.import_status = 'matched'
+  JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
+  WHERE s.import_status = 'matched'
     AND s.matched_patient_id IS NOT NULL
     AND coalesce(trim(s.txn_code), '') <> ''
     AND NOT EXISTS (
@@ -131,7 +143,8 @@ SET import_status = 'inserted',
     imported_at = now(),
     import_error = NULL
 FROM ins i
-WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
+JOIN public.cs_import_params p ON p.id = 1
+WHERE s.batch_id = p.batch_id
   AND s.import_status = 'matched'
   AND i.notes LIKE '%CS_TXN:' || trim(s.txn_code) || '%';
 
@@ -141,7 +154,8 @@ SET import_status = 'skipped_dup',
     import_error = 'already_in_bills',
     inserted_bill_id = b.id
 FROM public.bills b
-WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
+JOIN public.cs_import_params p ON p.id = 1
+WHERE s.batch_id = p.batch_id
   AND s.import_status = 'matched'
   AND b.notes LIKE '%CS_TXN:' || trim(s.txn_code) || '%';
 
@@ -172,8 +186,8 @@ SELECT
     ELSE now()
   END
 FROM public.cs_payments_staging s
-WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
-  AND s.import_status IN ('inserted', 'skipped_dup')
+JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
+WHERE s.import_status IN ('inserted', 'skipped_dup')
   AND s.inserted_bill_id IS NOT NULL
   AND coalesce(nullif(trim(s.received_hkd), '')::numeric, 0) > 0.005
   AND NOT EXISTS (
@@ -183,7 +197,7 @@ WHERE s.batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
 
 -- 8) Report
 SELECT import_status, match_method, import_error, count(*) AS n
-FROM public.cs_payments_staging
-WHERE batch_id = 'TKO_PAY_RESOLVE_20260805_042514'
+FROM public.cs_payments_staging s
+JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
 GROUP BY 1, 2, 3
 ORDER BY n DESC;

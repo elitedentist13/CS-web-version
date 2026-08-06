@@ -22,8 +22,9 @@ End-to-end pipeline for **each clinic branch** (TKO, PL, KT, …):
 | `supabase_cs_payments_backfill_items.sql` | Apply items onto existing CS bills |
 | `find-cs-bill-duplicates.py` | Detect CS vs Banana duplicate bills |
 | `supabase_cs_payments_void_duplicates.sql` | Void CS duplicates (keep Banana) |
-| `resolve-unmatched-payments-tko.py` | Optional unmatched repair helper (pattern reusable) |
-| `supabase_cs_payments_resolve_insert.sql` | Optional resolve-insert for pre-linked rows |
+| `resolve-unmatched-payments.py` | Multi-branch unmatched repair (HKID+chart / SKW blank clinic) |
+| `resolve-unmatched-payments-tko.py` | Legacy TKO-only helper (prefer `resolve-unmatched-payments.py`) |
+| `supabase_cs_payments_resolve_insert.sql` | Resolve-insert for pre-linked rows (active `batch_id`) |
 | `CS_PAYMENTS_EXPORT.md` | Export notes / CS schema |
 
 ---
@@ -146,24 +147,42 @@ Hard-refresh the Banana app (jsonb items parse fix in `app-appt.js`).
 
 Bills with **no CS slave lines** stay as a single summary line — normal.
 
-### G — Void CS duplicates of Banana bills (required)
+### G — Void CS duplicates of Banana bills (**required** — Banana wins)
 
-CS import **inserts** only. If this branch already migrated balances into Banana (`JSM_PENDING:…` or manual bills) and took **newer payments** there, the CS copy looks like an overwrite and **double-counts** balance.
+CS import **inserts** only. It never updates an existing Banana bill.
+
+If the same visit already has a Banana bill (manual / `JSM_PENDING:…` / newer payments taken in Banana) **and** CS import adds a second bill (`CS_TXN:…`) with the same patient + date + total:
+
+| Keep (shows in app) | Void (hidden) |
+|---------------------|---------------|
+| **Newer / existing Banana bill** (no `CS_TXN:`) | CS transfer copy (`CS_TXN:…`) |
+
+Rule of thumb: **Banana prevails**; void the old CS-imported duplicate so balances do not double-count.
 
 ```bat
-python find-cs-bill-duplicates.py --branch PL --clinic-tag PL
+python find-cs-bill-duplicates.py --branch CWB --clinic-tag CWB --out-dir "C:\Users\joyfu\Downloads"
 ```
 
 Optional: also list same-day different totals for manual review:
 
 ```bat
-python find-cs-bill-duplicates.py --branch PL --clinic-tag PL --include-related-review
+python find-cs-bill-duplicates.py --branch CWB --clinic-tag CWB --include-related-review --out-dir "C:\Users\joyfu\Downloads"
 ```
+
+The script includes:
+- patients with `clinic_tag = <branch>`
+- plus patients linked from `cs_payments_staging` for that branch (covers SKW charts with blank `clinic_tag`)
 
 Outputs:
 
-- `CS_PL_bill_duplicate_conflicts.csv` — full review  
-- `CS_PL_bill_dup_void_staging_for_supabase.csv` — auto void list  
+- `CS_<BRANCH>_bill_duplicate_conflicts.csv` — full review  
+- `CS_<BRANCH>_bill_dup_void_staging_for_supabase.csv` — auto void list  
+
+Auto-void reasons:
+- `banana_ahead` — Banana paid more / lower balance / Paid vs CS Partial  
+- `identical_duplicate` — same paid & balance (still void CS to stop double-count)  
+
+Manual only (not in void CSV): `review_cs_more_paid`, `same_day_different_total`.
 
 Then SQL (`supabase_cs_payments_void_duplicates.sql`):
 
@@ -172,7 +191,7 @@ Then SQL (`supabase_cs_payments_void_duplicates.sql`):
 3. Import void staging CSV  
 4. §1 preview → §2 void → §3 report  
 
-**Keep Banana bills** (source of truth for newer payments). Only CS (`CS_TXN:`) rows are voided.
+§2 only voids rows where `bills.notes` contains `CS_TXN:` — **never** voids the Banana bill. Voided CS notes get `CS_DUP_VOID:superseded_by_Banana_bill`.
 
 Manually review `same_day_different_total` / split-total cases (add extra `cs_bill_id` rows to void staging if confirmed).
 
@@ -180,9 +199,12 @@ Manually review `same_day_different_total` / split-total cases (add extra `cs_bi
 
 Same idea as notes resolve:
 
-- Fix `clinic_tag` / create missing patients / use `<BRANCH>`+chart  
-- Or build resolve staging with `resolved_patient_id` and run a resolve-insert SQL  
-- See `resolve-unmatched-payments-tko.py` / `supabase_cs_payments_resolve_insert.sql` as a template (retarget `--branch`)
+```bat
+python resolve-unmatched-payments.py ^
+  --branch CWB --batch-id CWB_PAY_YYYYMMDD_HHMMSS --clinic-tag CWB
+```
+
+Then set `cs_import_params.batch_id` to the printed `*_PAY_RESOLVE_*`, import resolve staging CSV, run `supabase_cs_payments_resolve_insert.sql` §4–8.
 
 ---
 
@@ -203,10 +225,10 @@ Same idea as notes resolve:
 - [ ] Staging CSV imported (`items_json` mapped)  
 - [ ] Match §3 → preview §4 → insert §5 → report §6  
 - [ ] Items OK (via `--items` or backfill F)  
-- [ ] `find-cs-bill-duplicates.py --branch <X>`  
-- [ ] Void staging imported → void SQL §1–2  
+- [ ] **G — Banana wins:** `find-cs-bill-duplicates.py --branch <X> --clinic-tag <X>`  
+- [ ] Void staging imported → void SQL §1–2 (void CS `CS_TXN:` only; keep Banana)  
 - [ ] Unmatched reviewed / repaired  
-- [ ] App hard-refresh; sample patient balances look correct  
+- [ ] App hard-refresh; sample patient balances look correct (no double bills)  
 
 ---
 

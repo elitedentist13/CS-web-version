@@ -65,7 +65,7 @@ WITH to_insert AS (
   SELECT
     s.import_key,
     s.matched_patient_id AS patient_id,
-    s.notes,
+    replace(s.notes, '[[NL]]', E'\n') AS notes,
     nullif(trim(s.doctor_code), '') AS dentist_name,
     CASE
       WHEN coalesce(trim(s.visit_at), '') <> ''
@@ -112,7 +112,7 @@ WHERE p.id = 1
   AND EXISTS (
     SELECT 1 FROM public.treatments x
     WHERE x.patient_id = s.matched_patient_id
-      AND x.notes IS NOT DISTINCT FROM s.notes
+      AND x.notes IS NOT DISTINCT FROM replace(s.notes, '[[NL]]', E'\n')
       AND x.created_at IS NOT DISTINCT FROM (
         CASE
           WHEN coalesce(trim(s.visit_at), '') <> ''
@@ -129,7 +129,7 @@ FROM public.cs_notes_staging s
 JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
 WHERE s.import_status = 'inserted'
   AND t.patient_id = s.matched_patient_id
-  AND t.notes IS NOT DISTINCT FROM s.notes
+  AND t.notes IS NOT DISTINCT FROM replace(s.notes, '[[NL]]', E'\n')
   AND coalesce(t.clinic_tag, '') IS DISTINCT FROM public.normalize_clinic_tag(s.banana_clinic_tag);
 
 -- 6) Report

@@ -143,6 +143,14 @@ WHERE p.id = 1
     OR coalesce(s.name_other, '') LIKE '%对数%'
   );
 
+-- Match order (mirrors notes import; SKW charts often have blank clinic_tag):
+--   3A)  hkid_norm + clinic_tag
+--   3A2) hkid_norm unique among blank clinic_tag (or scope off)
+--   3B)  patient_no = chart_no + clinic_tag
+--   3B1) patient_no = <clinic_tag> || chart_no + clinic_tag
+--   3B2) patient_no = chart_no among blank clinic_tag (SKW legacy)
+--   3C)  patient_no stripped + clinic_tag
+
 -- 3A) HKID + clinic_tag
 WITH hits AS (
   SELECT s.import_key, pt.id AS patient_id, pt.patient_no,
@@ -154,6 +162,7 @@ WITH hits AS (
    AND coalesce(s.hkid_norm, '') <> ''
    AND public.normalize_clinic_tag(pt.clinic_tag)
        = public.normalize_clinic_tag(s.banana_clinic_tag)
+   AND coalesce(public.normalize_clinic_tag(s.banana_clinic_tag), '') <> ''
   WHERE coalesce(s.import_status, 'pending') = 'pending'
 )
 UPDATE public.cs_payments_staging s
@@ -164,32 +173,26 @@ SET matched_patient_id = h.patient_id,
 FROM hits h
 WHERE s.import_key = h.import_key AND h.hit_count = 1;
 
--- 3B) Prefixed chart: patient_no = TKO + chart_no (or exact chart)
-WITH hits AS (
-  SELECT s.import_key, pt.id AS patient_id, pt.patient_no,
-         count(*) OVER (PARTITION BY s.import_key) AS hit_count
+WITH ambig AS (
+  SELECT s.import_key
   FROM public.cs_payments_staging s
   JOIN public.cs_import_params prm ON prm.id = 1 AND s.batch_id = prm.batch_id
   JOIN public.patients pt
-    ON public.normalize_clinic_tag(pt.clinic_tag)
+    ON public.normalize_hkid(pt.hkid) = s.hkid_norm
+   AND coalesce(s.hkid_norm, '') <> ''
+   AND public.normalize_clinic_tag(pt.clinic_tag)
        = public.normalize_clinic_tag(s.banana_clinic_tag)
-   AND (
-        trim(pt.patient_no) = trim(s.chart_no)
-        OR trim(pt.patient_no) = public.normalize_clinic_tag(s.banana_clinic_tag) || trim(s.chart_no)
-        OR trim(pt.patient_no) LIKE '%' || trim(s.chart_no)
-      )
-   AND coalesce(trim(s.chart_no), '') <> ''
   WHERE coalesce(s.import_status, 'pending') = 'pending'
+  GROUP BY s.import_key
+  HAVING count(*) > 1
 )
 UPDATE public.cs_payments_staging s
-SET matched_patient_id = h.patient_id,
-    matched_patient_no = h.patient_no,
-    match_method = 'patient_no_prefixed+clinic_tag',
-    import_status = 'matched'
-FROM hits h
-WHERE s.import_key = h.import_key AND h.hit_count = 1;
+SET import_status = 'unmatched',
+    import_error = 'ambiguous_hkid_norm+clinic_tag'
+FROM ambig a
+WHERE s.import_key = a.import_key;
 
--- 3C) HKID unique among blank-clinic / when scope disabled
+-- 3A2) HKID unique among blank-clinic / when scope disabled
 WITH hits AS (
   SELECT s.import_key, pt.id AS patient_id, pt.patient_no,
          count(*) OVER (PARTITION BY s.import_key) AS hit_count
@@ -208,6 +211,115 @@ UPDATE public.cs_payments_staging s
 SET matched_patient_id = h.patient_id,
     matched_patient_no = h.patient_no,
     match_method = 'hkid_norm',
+    import_status = 'matched'
+FROM hits h
+WHERE s.import_key = h.import_key AND h.hit_count = 1;
+
+WITH ambig AS (
+  SELECT s.import_key
+  FROM public.cs_payments_staging s
+  JOIN public.cs_import_params prm ON prm.id = 1 AND s.batch_id = prm.batch_id
+  JOIN public.patients pt
+    ON public.normalize_hkid(pt.hkid) = s.hkid_norm
+   AND coalesce(s.hkid_norm, '') <> ''
+   AND (
+        prm.require_clinic_scope = false
+        OR coalesce(public.normalize_clinic_tag(pt.clinic_tag), '') = ''
+      )
+  WHERE coalesce(s.import_status, 'pending') = 'pending'
+  GROUP BY s.import_key
+  HAVING count(*) > 1
+)
+UPDATE public.cs_payments_staging s
+SET import_status = 'unmatched',
+    import_error = 'ambiguous_hkid_norm'
+FROM ambig a
+WHERE s.import_key = a.import_key;
+
+-- 3B) Exact patient_no + clinic_tag
+WITH hits AS (
+  SELECT s.import_key, pt.id AS patient_id, pt.patient_no,
+         count(*) OVER (PARTITION BY s.import_key) AS hit_count
+  FROM public.cs_payments_staging s
+  JOIN public.cs_import_params prm ON prm.id = 1 AND s.batch_id = prm.batch_id
+  JOIN public.patients pt
+    ON trim(pt.patient_no) = trim(s.chart_no)
+   AND coalesce(trim(s.chart_no), '') <> ''
+   AND public.normalize_clinic_tag(pt.clinic_tag)
+       = public.normalize_clinic_tag(s.banana_clinic_tag)
+   AND coalesce(public.normalize_clinic_tag(s.banana_clinic_tag), '') <> ''
+  WHERE coalesce(s.import_status, 'pending') = 'pending'
+)
+UPDATE public.cs_payments_staging s
+SET matched_patient_id = h.patient_id,
+    matched_patient_no = h.patient_no,
+    match_method = 'patient_no_exact+clinic_tag',
+    import_status = 'matched'
+FROM hits h
+WHERE s.import_key = h.import_key AND h.hit_count = 1;
+
+-- 3B1) Prefixed chart: patient_no = CWB||chart (or TKO||chart etc.)
+WITH hits AS (
+  SELECT s.import_key, pt.id AS patient_id, pt.patient_no,
+         count(*) OVER (PARTITION BY s.import_key) AS hit_count
+  FROM public.cs_payments_staging s
+  JOIN public.cs_import_params prm ON prm.id = 1 AND s.batch_id = prm.batch_id
+  JOIN public.patients pt
+    ON trim(pt.patient_no)
+       = public.normalize_clinic_tag(s.banana_clinic_tag) || trim(s.chart_no)
+   AND coalesce(trim(s.chart_no), '') <> ''
+   AND public.normalize_clinic_tag(pt.clinic_tag)
+       = public.normalize_clinic_tag(s.banana_clinic_tag)
+   AND coalesce(public.normalize_clinic_tag(s.banana_clinic_tag), '') <> ''
+  WHERE coalesce(s.import_status, 'pending') = 'pending'
+)
+UPDATE public.cs_payments_staging s
+SET matched_patient_id = h.patient_id,
+    matched_patient_no = h.patient_no,
+    match_method = 'patient_no_prefixed+clinic_tag',
+    import_status = 'matched'
+FROM hits h
+WHERE s.import_key = h.import_key AND h.hit_count = 1;
+
+-- 3B2) Exact chart among blank clinic_tag (SKW legacy rows)
+WITH hits AS (
+  SELECT s.import_key, pt.id AS patient_id, pt.patient_no,
+         count(*) OVER (PARTITION BY s.import_key) AS hit_count
+  FROM public.cs_payments_staging s
+  JOIN public.cs_import_params prm ON prm.id = 1 AND s.batch_id = prm.batch_id
+  JOIN public.patients pt
+    ON trim(pt.patient_no) = trim(s.chart_no)
+   AND coalesce(trim(s.chart_no), '') <> ''
+   AND coalesce(public.normalize_clinic_tag(pt.clinic_tag), '') = ''
+  WHERE coalesce(s.import_status, 'pending') = 'pending'
+)
+UPDATE public.cs_payments_staging s
+SET matched_patient_id = h.patient_id,
+    matched_patient_no = h.patient_no,
+    match_method = 'patient_no_exact+blank_clinic',
+    import_status = 'matched'
+FROM hits h
+WHERE s.import_key = h.import_key AND h.hit_count = 1;
+
+-- 3C) Stripped patient_no + clinic_tag
+WITH hits AS (
+  SELECT s.import_key, pt.id AS patient_id, pt.patient_no,
+         count(*) OVER (PARTITION BY s.import_key) AS hit_count
+  FROM public.cs_payments_staging s
+  JOIN public.cs_import_params prm ON prm.id = 1 AND s.batch_id = prm.batch_id
+  JOIN public.patients pt
+    ON public.normalize_patient_no(pt.patient_no)
+       = coalesce(nullif(s.chart_no_stripped, ''), public.normalize_patient_no(s.chart_no))
+   AND coalesce(s.chart_no_stripped, '') <> ''
+   AND public.normalize_clinic_tag(pt.clinic_tag)
+       = public.normalize_clinic_tag(s.banana_clinic_tag)
+   AND coalesce(public.normalize_clinic_tag(s.banana_clinic_tag), '') <> ''
+  WHERE coalesce(s.import_status, 'pending') = 'pending'
+)
+UPDATE public.cs_payments_staging s
+SET matched_patient_id = h.patient_id,
+    matched_patient_no = h.patient_no,
+    match_method = 'patient_no_stripped+clinic_tag',
     import_status = 'matched'
 FROM hits h
 WHERE s.import_key = h.import_key AND h.hit_count = 1;

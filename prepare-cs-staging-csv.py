@@ -159,6 +159,22 @@ def main() -> None:
             hkid_norm = normalize_hkid(hkid_raw)
             chart_no = normalize_chart_no(row.get("ChartNo") or row.get("chart_no") or "")
             notes = (row.get("ConsultationNote") or row.get("notes") or "").strip()
+            # Flatten newlines so each CSV record is one physical line.
+            # Supabase Table Editor / spreadsheet importers fail on multiline quoted fields
+            # ("Trailing quote on quoted field is malformed").
+            # Use [[NL]] (not " / ") so insert SQL can restore real line breaks in treatments.notes.
+            if notes:
+                notes = notes.replace("\r\n", "\n").replace("\r", "\n")
+                notes = "[[NL]]".join(
+                    p.strip() for p in notes.split("\n") if p.strip() != ""
+                )
+                notes = (
+                    notes.replace("\u201c", "'")
+                    .replace("\u201d", "'")
+                    .replace("\u2018", "'")
+                    .replace("\u2019", "'")
+                    .replace('"', "''")
+                )
             visit_at = parse_visit_at(
                 row.get("VisitTimestamp") or row.get("visit_at") or "",
                 row.get("VisitDate") or row.get("visit_date") or "",

@@ -33,6 +33,13 @@ def chart_no_stripped(raw: str) -> str:
     return s or "0"
 
 
+def flatten_text(raw: str) -> str:
+    """One physical CSV line — Supabase Table Editor fails on multiline quoted fields."""
+    s = (raw or "").replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+    parts = [p.strip() for p in s.split("\n") if p.strip() != ""]
+    return " | ".join(parts)
+
+
 def import_key(batch_id: str, txn: str, chart: str) -> str:
     payload = f"{batch_id}|{txn}|{chart}".encode("utf-8", errors="replace")
     return hashlib.sha256(payload).hexdigest()[:40]
@@ -277,8 +284,8 @@ def main() -> None:
                     "chart_no_stripped": chart_no_stripped(chart),
                     "hkid_raw": hkid_raw,
                     "hkid_norm": hkid_norm,
-                    "name_en": name_en,
-                    "name_other": name_other,
+                    "name_en": flatten_text(name_en),
+                    "name_other": flatten_text(name_other),
                     "dob": (row.get("DOB") or "").strip(),
                     "sex": (row.get("Sex") or "").strip(),
                     "clinic_code": clinic_code,
@@ -292,9 +299,9 @@ def main() -> None:
                     "balance_hkd": (row.get("BalanceHkd") or "").strip(),
                     "total_cents": (row.get("TotalCents") or "").strip(),
                     "received_cents": (row.get("ReceivedCents") or "").strip(),
-                    "remarks": (row.get("Remarks") or "").strip(),
-                    "diagnosis": (row.get("Diagnosis") or "").strip(),
-                    "items_json": items_json,
+                    "remarks": flatten_text(row.get("Remarks") or ""),
+                    "diagnosis": flatten_text(row.get("Diagnosis") or ""),
+                    "items_json": items_json.replace("\r", " ").replace("\n", " "),
                 }
             )
             stats["written"] += 1

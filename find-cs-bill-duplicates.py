@@ -38,7 +38,7 @@ ANON = (
     "fHbfVQOmIMOTbjBTG6iy2yrgmo-iZXEe-wNLlAlVtM4"
 )
 BASE = "https://kprihawipljrltfzpfjd.supabase.co/rest/v1"
-OUT_DIR = Path(r"C:\Users\Doctor-1\Downloads")
+OUT_DIR = Path(r"C:\Users\joyfu\Downloads")
 
 
 def get_all(table_and_query: str) -> list:
@@ -113,12 +113,31 @@ def main() -> None:
         "&notes=not.like.*CS_TXN:*&order=bill_date.asc"
     )
 
-    # clinic filter via patients table
+    # clinic filter via patients.clinic_tag
     patients = get_all(
         f"patients?select=id,patient_no,clinic_tag&clinic_tag=eq.{clinic}&order=patient_no.asc"
     )
     clinic_pids = {p["id"] for p in patients if p.get("id")}
-    print(f"patients in {clinic}: {len(clinic_pids)}")
+
+    # Also include patients linked by THIS branch's CS payment staging
+    # (CWB/SKW often have blank clinic_tag but banana_clinic_tag = CWB on staging).
+    staging = get_all(
+        "cs_payments_staging?select=matched_patient_id,banana_clinic_tag,branch_code,import_status"
+        f"&or=(banana_clinic_tag.eq.{clinic},branch_code.eq.{branch})"
+        "&matched_patient_id=not.is.null"
+    )
+    staging_pids = {
+        r["matched_patient_id"]
+        for r in staging
+        if r.get("matched_patient_id")
+        and (r.get("import_status") or "")
+        in ("inserted", "skipped_dup", "matched", "pending", "unmatched")
+    }
+    clinic_pids |= staging_pids
+    print(
+        f"patients in {clinic}: {len(patients)} tagged"
+        f" + {len(staging_pids)} from staging → {len(clinic_pids)} total"
+    )
 
     cs_a = [
         b

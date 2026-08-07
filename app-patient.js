@@ -14,6 +14,11 @@ var patientDirPageIndex = 0;
 var patientDirTotalCount = 0;
 var patientDirFetchToken = 0;
 var patientDirSearchTimer = null;
+/**
+ * When set, the patient directory shows this Advanced Search result set
+ * (client-side paging) instead of live Supabase pages.
+ */
+var patientDirAdvFilterList = null;
 /** Patient row shown in treatment-history modal (language refresh). */
 var _patientDetailsPatient = null;
 
@@ -872,8 +877,59 @@ function submitAddPatient(e) {
 // ════════════════════════════════════════════════════════════════
 // PATIENT — FETCH + RENDER
 // ════════════════════════════════════════════════════════════════
+
+/** Drive the live patient directory table from an Advanced Search result list. */
+function applyPatientDirAdvancedFilter(list) {
+    patientDirAdvFilterList = Array.isArray(list) ? list.slice() : [];
+    patientDirFetchToken++; // cancel any in-flight normal fetch
+    patientDirPageIndex = 0;
+    renderPatientDirAdvPage();
+}
+
+function clearPatientDirAdvancedFilter(opts) {
+    opts = opts || {};
+    var was = patientDirAdvFilterList != null;
+    patientDirAdvFilterList = null;
+    var root = document.getElementById('patientViewDirectory');
+    if (root) root.classList.remove('patient-dir-adv-filtered');
+    if (opts.refetch === false) return;
+    if (was || opts.force) fetchPatients({ resetPage: true, clearAdv: true });
+}
+
+function isPatientDirAdvFiltered() {
+    return patientDirAdvFilterList != null;
+}
+
+function renderPatientDirAdvPage() {
+    if (patientDirAdvFilterList == null) return;
+    var root = document.getElementById('patientViewDirectory');
+    if (root) root.classList.add('patient-dir-adv-filtered');
+    var total = patientDirAdvFilterList.length;
+    patientDirTotalCount = total;
+    var maxPage = Math.max(0, Math.ceil((total || 1) / PATIENT_DIR_PAGE_SIZE) - 1);
+    if (!total) maxPage = 0;
+    if (patientDirPageIndex > maxPage) patientDirPageIndex = maxPage;
+    if (patientDirPageIndex < 0) patientDirPageIndex = 0;
+    var from = patientDirPageIndex * PATIENT_DIR_PAGE_SIZE;
+    var page = patientDirAdvFilterList.slice(from, from + PATIENT_DIR_PAGE_SIZE);
+    renderPatients(page);
+    refreshPatientDirPaginationUI(false);
+    if (typeof window.PatientAdvancedSearch !== 'undefined' &&
+        typeof window.PatientAdvancedSearch.syncPageFromDirectory === 'function') {
+        window.PatientAdvancedSearch.syncPageFromDirectory(patientDirPageIndex);
+    }
+}
+
 function fetchPatients() {
     var opts = arguments[0] || {};
+    if (opts.clearAdv) patientDirAdvFilterList = null;
+    // Stay on the Advanced Search result set for pager / page-size changes.
+    if (patientDirAdvFilterList != null && !opts.clearAdv && !opts.forceLive) {
+        if (opts.resetPage) patientDirPageIndex = 0;
+        if (patientDirPageIndex < 0) patientDirPageIndex = 0;
+        renderPatientDirAdvPage();
+        return;
+    }
     if (opts.resetPage) patientDirPageIndex = 0;
     if (patientDirPageIndex < 0) patientDirPageIndex = 0;
 
@@ -1155,7 +1211,17 @@ function setPatientDirJumpHint(msg) {
 function schedulePatientDirSearch() {
     clearTimeout(patientDirSearchTimer);
     patientDirSearchTimer = setTimeout(function() {
-        fetchPatients({ resetPage: true });
+        // Typing in the quick search exits Advanced Search directory lock-in.
+        if (patientDirAdvFilterList != null) {
+            patientDirAdvFilterList = null;
+            var root = document.getElementById('patientViewDirectory');
+            if (root) root.classList.remove('patient-dir-adv-filtered');
+            if (typeof window.PatientAdvancedSearch !== 'undefined' &&
+                typeof window.PatientAdvancedSearch.onDirectoryLiveSearch === 'function') {
+                window.PatientAdvancedSearch.onDirectoryLiveSearch();
+            }
+        }
+        fetchPatients({ resetPage: true, clearAdv: true });
     }, 220);
 }
 
@@ -1212,7 +1278,16 @@ function patientDirJumpToPage(rawValue) {
 }
 
 function onPatientDirClinicFilterChange() {
-    fetchPatients({ resetPage: true });
+    if (patientDirAdvFilterList != null) {
+        patientDirAdvFilterList = null;
+        var root = document.getElementById('patientViewDirectory');
+        if (root) root.classList.remove('patient-dir-adv-filtered');
+        if (typeof window.PatientAdvancedSearch !== 'undefined' &&
+            typeof window.PatientAdvancedSearch.onDirectoryLiveSearch === 'function') {
+            window.PatientAdvancedSearch.onDirectoryLiveSearch();
+        }
+    }
+    fetchPatients({ resetPage: true, clearAdv: true });
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260728-dual-lang-tokens';
+  var BUILD = '20260807-patient-adv-treats2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -878,6 +878,8 @@
               data-i18n="patient.view.dashboard"></button>
     </div>
     <div class="patient-sec-header-actions">
+      <button type="button" class="btn-add patient-quick-btn" id="patientAdvSearchBtnHeader"
+              data-i18n="patient.adv.toggle">Advanced search</button>
       <button type="button" class="btn-add patient-quick-btn" id="patientPlusApptBtn"
               data-i18n="appt.plusAppt.addBtn"></button>
       <button class="btn-add" id="mainAddBtn" data-i18n="patient.newBtn"></button>
@@ -890,6 +892,155 @@
            data-i18n-placeholder="patient.searchPh">
     <select id="patientDirClinicFilter" class="patient-dir-clinic-select"
             data-i18n-title="common.patientDirFilterTitle"></select>
+    <button type="button" id="patientAdvSearchBtn" class="patient-adv-toggle-btn"
+            data-i18n="patient.adv.toggle">Advanced search</button>
+  </div>
+
+  <div id="patientAdvPanel" class="patient-adv-panel" hidden>
+    <div class="patient-adv-panel-head">
+      <strong data-i18n="patient.adv.title">Advanced search</strong>
+      <button type="button" id="patientAdvCloseBtn" class="patient-adv-link-btn" data-i18n="patient.adv.close">Close</button>
+    </div>
+    <div class="patient-adv-grid">
+      <div class="patient-adv-field">
+        <div class="patient-adv-label" data-i18n="patient.adv.age">Age group</div>
+        <div id="patientAdvAgeBtns" class="patient-adv-chips">
+          <button type="button" class="patient-adv-chip is-active" data-adv-age="all" data-i18n="patient.adv.age.all">All</button>
+          <button type="button" class="patient-adv-chip" data-adv-age="child" data-i18n="patient.adv.age.child">Under 12</button>
+          <button type="button" class="patient-adv-chip" data-adv-age="adult" data-i18n="patient.adv.age.adult">Ages 12–65</button>
+          <button type="button" class="patient-adv-chip" data-adv-age="senior" data-i18n="patient.adv.age.senior">Over 65</button>
+        </div>
+      </div>
+      <div class="patient-adv-field">
+        <div class="patient-adv-label" data-i18n="patient.adv.sex">Sex</div>
+        <div id="patientAdvSexBtns" class="patient-adv-chips">
+          <button type="button" class="patient-adv-chip is-active" data-adv-sex="all" data-i18n="patient.adv.sex.all">All</button>
+          <button type="button" class="patient-adv-chip" data-adv-sex="male" data-i18n="patient.adv.sex.male">Male</button>
+          <button type="button" class="patient-adv-chip" data-adv-sex="female" data-i18n="patient.adv.sex.female">Female</button>
+        </div>
+      </div>
+      <div class="patient-adv-field">
+        <label class="patient-adv-label" for="patientAdvBday" data-i18n="patient.adv.birthday">Birthday</label>
+        <select id="patientAdvBday" class="patient-adv-select">
+          <option value="" data-i18n="patient.adv.birthday.any">Any</option>
+          <option value="coming" data-i18n="patient.adv.birthday.coming">Coming month</option>
+          <option value="01">Jan</option><option value="02">Feb</option><option value="03">Mar</option>
+          <option value="04">Apr</option><option value="05">May</option><option value="06">Jun</option>
+          <option value="07">Jul</option><option value="08">Aug</option><option value="09">Sep</option>
+          <option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+        </select>
+      </div>
+      <div class="patient-adv-field">
+        <label class="patient-adv-label" for="patientAdvDistrict" data-i18n="patient.adv.district">Living district</label>
+        <select id="patientAdvDistrict" class="patient-adv-select">
+          <option value="" data-i18n="patient.adv.district.any">Any</option>
+        </select>
+      </div>
+      <div class="patient-adv-field">
+        <label class="patient-adv-label" for="patientAdvNotes" data-i18n="patient.adv.notes">Last treatment notes</label>
+        <select id="patientAdvNotes" class="patient-adv-select">
+          <option value="" data-i18n="patient.adv.notes.any">Any</option>
+          <option value="1" data-i18n="patient.adv.notes.1y">More than 1 year ago</option>
+          <option value="2" data-i18n="patient.adv.notes.2y">More than 2 years ago</option>
+          <option value="3" data-i18n="patient.adv.notes.3y">More than 3 years ago</option>
+          <option value="5" data-i18n="patient.adv.notes.5y">More than 5 years ago</option>
+        </select>
+      </div>
+      <div class="patient-adv-field">
+        <label class="patient-adv-label" for="patientAdvScaling" data-i18n="patient.adv.scaling">Last scaling</label>
+        <select id="patientAdvScaling" class="patient-adv-select">
+          <option value="" data-i18n="patient.adv.scaling.any">Any</option>
+          <option value="6" data-i18n="patient.adv.scaling.6m">More than 6 months ago</option>
+          <option value="9" data-i18n="patient.adv.scaling.9m">More than 9 months ago</option>
+          <option value="12" data-i18n="patient.adv.scaling.12m">More than 12 months ago</option>
+        </select>
+      </div>
+      <div class="patient-adv-field patient-adv-field-wide">
+        <div class="patient-adv-label" data-i18n="patient.adv.treatments">Treatment received</div>
+        <div class="patient-adv-treats">
+          <label><input type="checkbox" id="patientAdvTreat_root_planing"> <span data-i18n="patient.adv.treat.rootPlaning">Root planing</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_implants"> <span data-i18n="patient.adv.treat.implants">Dental implants</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_orthodontics"> <span data-i18n="patient.adv.treat.ortho">Orthodontics</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_invisalign"> <span data-i18n="patient.adv.treat.invisalign">Invisalign</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_bleaching"> <span data-i18n="patient.adv.treat.bleaching">Bleaching</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_root_canal"> <span data-i18n="patient.adv.treat.rootCanal">Root canal treatment</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_crown"> <span data-i18n="patient.adv.treat.crown">Crown / ceramic crown</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_wisdom_mos"> <span data-i18n="patient.adv.treat.wisdomMos">Wisdom teeth removal / minor oral surgery</span></label>
+        </div>
+      </div>
+      <div class="patient-adv-field patient-adv-field-wide" id="patientAdvSpendBlock">
+        <div class="patient-adv-label" data-i18n="patient.adv.spend">Accumulated expenditure</div>
+        <label class="patient-adv-check">
+          <input type="checkbox" id="patientAdvHasUnpaid">
+          <span data-i18n="patient.adv.spend.unpaid">Has unpaid balances</span>
+        </label>
+        <div class="patient-adv-spend-slider-wrap">
+          <div class="patient-adv-spend-slider-head">
+            <span data-i18n="patient.adv.spend.total">Total expenditure</span>
+            <strong id="patientAdvSpendLabel">Any</strong>
+          </div>
+          <input type="range" id="patientAdvSpendSlider" class="patient-adv-spend-slider"
+                 min="0" max="10" step="1" value="0" aria-labelledby="patientAdvSpendLabel">
+          <div class="patient-adv-spend-ends">
+            <span data-i18n="patient.adv.spend.below1k">Below 1k</span>
+            <span data-i18n="patient.adv.spend.over200k">≥ 200k+</span>
+          </div>
+        </div>
+        <div class="patient-adv-field patient-adv-stale-field">
+          <label class="patient-adv-label" for="patientAdvStaleBal" data-i18n="patient.adv.spend.stale">Stale unsettled balance</label>
+          <select id="patientAdvStaleBal" class="patient-adv-select">
+            <option value="" data-i18n="patient.adv.spend.stale.any">Any</option>
+            <option value="1" data-i18n="patient.adv.spend.stale.1y">More than 1 year ago</option>
+            <option value="2" data-i18n="patient.adv.spend.stale.2y">More than 2 years ago</option>
+            <option value="3" data-i18n="patient.adv.spend.stale.3y">More than 3 years ago</option>
+            <option value="5" data-i18n="patient.adv.spend.stale.5y">More than 5 years ago</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="patient-adv-actions">
+      <button type="button" id="patientAdvRunBtn" class="patient-adv-primary-btn" data-i18n="patient.adv.run">Search</button>
+      <button type="button" id="patientAdvClearBtn" class="patient-adv-link-btn" data-i18n="patient.adv.clear">Clear</button>
+      <span id="patientAdvStatus" class="patient-adv-status" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <div id="patientAdvSaved" class="patient-adv-saved" hidden>
+    <div class="patient-adv-saved-head">
+      <strong data-i18n="patient.adv.saved.title">Saved filter results</strong>
+      <button type="button" id="patientAdvSavedRefresh" class="patient-adv-link-btn"
+              data-i18n="patient.adv.saved.refresh">Refresh</button>
+    </div>
+    <div id="patientAdvSavedList" class="patient-adv-saved-list"></div>
+  </div>
+
+  <div id="patientAdvResults" class="patient-adv-results" hidden>
+    <div class="patient-adv-results-bar">
+      <div id="patientAdvResultMeta" class="patient-adv-result-meta"></div>
+      <div class="patient-adv-results-actions">
+        <button type="button" id="patientAdvSelPage" class="patient-adv-link-btn" data-i18n="patient.adv.selPage">Select page</button>
+        <button type="button" id="patientAdvSelAll" class="patient-adv-link-btn" data-i18n="patient.adv.selAll">Select all</button>
+        <button type="button" id="patientAdvSelNone" class="patient-adv-link-btn" data-i18n="patient.adv.selNone">Clear selection</button>
+        <button type="button" id="patientAdvPrev" class="patient-dir-page-btn" data-i18n="patient.page.prev">Prev</button>
+        <button type="button" id="patientAdvNext" class="patient-dir-page-btn" data-i18n="patient.page.next">Next</button>
+        <button type="button" id="patientAdvSaveResult" class="patient-adv-primary-btn" data-i18n="patient.adv.saveResult">Save result</button>
+        <button type="button" id="patientAdvTransferBroadcast" class="patient-adv-primary-btn patient-adv-transfer-btn"
+                data-i18n="patient.adv.transferBroadcast">Transfer to Broadcast</button>
+      </div>
+    </div>
+    <table class="patient-adv-result-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th data-i18n="patient.th.patientNoName">No.</th>
+          <th data-i18n="patient.form.name">Name</th>
+          <th data-i18n="patient.th.phone">Phone</th>
+          <th data-i18n="patient.th.clinicTag">Clinic</th>
+          <th data-i18n="patient.th.dob">DOB</th>
+        </tr>
+      </thead>
+      <tbody id="patientAdvResultBody"></tbody>
+    </table>
   </div>
 
   <div class="patient-dir-pager">
@@ -7020,6 +7171,7 @@
     'app-memo-ai.js',
     'app-photos.js',
     'app-patient.js',
+    'app-patient-advanced-search.js',
     'app-patient-views.js',
     'cal-doctor-colors.js',
     'app-public-holidays.js',

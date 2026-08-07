@@ -5707,6 +5707,184 @@ var MASSBC = (function () {
         toggleColEditor: toggleColEditor,
         saveCurrentAsSegment: saveCurrentAsSegment,
         saveCurrentAsSegmentUnder: saveCurrentAsSegmentUnder,
+        activateSegment: activateSegment,
+        getSegments: function () { return loadSegments(); },
+        findSegment: function (id) { return findSavedSegment(id); },
+        /** Soft-delete one saved list/folder by id. */
+        deleteListById: function (id) {
+            var sid = String(id || '');
+            if (!sid) return Promise.resolve(false);
+            return deleteSavedSegmentSilent(sid).then(function () {
+                renderSegments();
+                applyFilters();
+                return true;
+            });
+        },
+        /** Replace membership (and optional conditions) of an existing list. */
+        updateListPatientIds: function (id, ids, conditionsOpt) {
+            var sid = String(id || '');
+            var idArr = (ids || []).map(function (x) {
+                return x != null ? String(x) : '';
+            }).filter(Boolean);
+            var seg = findSavedSegment(sid);
+            if (!seg) return Promise.resolve(null);
+            if (!idArr.length) {
+                alert(tr('mb.seg.needContacts',
+                    'No contacts to save. Filter or select contacts first.'));
+                return Promise.resolve(null);
+            }
+            applyOrgToSegment(seg);
+            var conditions = conditionsOpt && typeof conditionsOpt === 'object'
+                ? conditionsOpt
+                : (seg.conditions || { source: 'patient_advanced_search' });
+            var orgShell = {
+                parentId: resolveFolderParentId(seg.parentId) || '',
+                marker: seg.marker || '',
+                remark: seg.remark || '',
+                kind: 'list',
+                conditions: conditions
+            };
+            var payload = {
+                name: seg.name,
+                patient_ids: idArr.slice(),
+                conditions: conditionsWithOrg(orgShell),
+                updated_at: new Date().toISOString()
+            };
+            if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
+                alertSegmentsNeedCloud();
+                return Promise.resolve(null);
+            }
+            return SB.from(SEG_TABLE).update(payload).eq('id', sid).select(
+                'id,name,patient_ids,conditions,created_at,updated_at'
+            ).single().then(function (r) {
+                if (r.error) {
+                    if (segmentsTableMissing(r.error)) {
+                        _segmentsDbMissing = true;
+                        alertSegmentsNeedCloud();
+                        return null;
+                    }
+                    alert(trRepl('mb.seg.saveFail', { MSG: r.error.message || r.error },
+                        'Could not save list: {MSG}'));
+                    return null;
+                }
+                var row = normalizeSegmentRow(r.data);
+                if (!row) return null;
+                row.kind = 'list';
+                for (var k = 0; k < _segments.length; k++) {
+                    if (String(_segments[k].id) === String(row.id)) {
+                        _segments[k] = row;
+                        break;
+                    }
+                }
+                if (_activeSegmentId === sid) applyFilters();
+                renderSegments();
+                return row;
+            }).catch(function (err) {
+                alert(trRepl('mb.seg.saveFail', { MSG: (err && err.message) || err },
+                    'Could not save list: {MSG}'));
+                return null;
+            });
+        },
+        /** Create/overwrite a Broadcast contact list from an external patient-id array. */
+        saveListFromPatientIds: function (name, ids, conditionsOpt) {
+            var listName = String(name || '').trim();
+            var idArr = (ids || []).map(function (id) {
+                return id != null ? String(id) : '';
+            }).filter(Boolean);
+            if (!listName) {
+                alert(tr('mb.seg.promptName', 'List name'));
+                return Promise.resolve(null);
+            }
+            if (!idArr.length) {
+                alert(tr('mb.seg.needContacts',
+                    'No contacts to save. Filter or select contacts first.'));
+                return Promise.resolve(null);
+            }
+            var segs = loadSegments();
+            var existing = null;
+            for (var i = 0; i < segs.length; i++) {
+                if (String(segs[i].name || '').trim().toLowerCase() === listName.toLowerCase()) {
+                    existing = segs[i];
+                    break;
+                }
+            }
+            if (existing) {
+                applyOrgToSegment(existing);
+                if (existing.kind === 'folder') {
+                    alert(tr('mb.org.saveClashFolder',
+                        'A folder already uses that name. Choose a different list name.'));
+                    return Promise.resolve(null);
+                }
+                if (!window.confirm(trRepl('mb.seg.confirmOverwrite', {
+                    NAME: existing.name, N: idArr.length
+                }, 'List “{NAME}” already exists. Replace it with {N} contact(s)?'))) {
+                    return Promise.resolve(null);
+                }
+            }
+            var conditions = conditionsOpt && typeof conditionsOpt === 'object'
+                ? conditionsOpt
+                : { source: 'patient_advanced_search' };
+            var orgShell = {
+                parentId: (existing && resolveFolderParentId(existing.parentId)) || '',
+                marker: (existing && existing.marker) || '',
+                remark: (existing && existing.remark) || '',
+                kind: 'list',
+                conditions: conditions
+            };
+            var payload = {
+                name: listName,
+                patient_ids: idArr.slice(),
+                conditions: conditionsWithOrg(orgShell),
+                updated_at: new Date().toISOString()
+            };
+            if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function' || _segmentsDbMissing) {
+                alertSegmentsNeedCloud();
+                return Promise.resolve(null);
+            }
+            var req = existing
+                ? SB.from(SEG_TABLE).update(payload).eq('id', existing.id).select(
+                    'id,name,patient_ids,conditions,created_at,updated_at'
+                ).single()
+                : SB.from(SEG_TABLE).insert([{
+                    name: listName,
+                    patient_ids: idArr.slice(),
+                    conditions: conditionsWithOrg(orgShell),
+                    sort_order: segs.length,
+                    created_by: segmentCreatedBy() || null
+                }]).select('id,name,patient_ids,conditions,created_at,updated_at').single();
+            return req.then(function (r) {
+                if (r.error) {
+                    if (segmentsTableMissing(r.error)) {
+                        _segmentsDbMissing = true;
+                        alertSegmentsNeedCloud();
+                        return null;
+                    }
+                    alert(trRepl('mb.seg.saveFail', { MSG: r.error.message || r.error },
+                        'Could not save list: {MSG}'));
+                    return null;
+                }
+                var row = normalizeSegmentRow(r.data);
+                if (!row) return null;
+                row.kind = 'list';
+                if (existing) {
+                    for (var k = 0; k < _segments.length; k++) {
+                        if (String(_segments[k].id) === String(row.id)) {
+                            _segments[k] = row;
+                            break;
+                        }
+                    }
+                } else {
+                    _segments.push(row);
+                }
+                _activeSegmentId = row.id;
+                renderSegments();
+                return row;
+            }).catch(function (err) {
+                alert(trRepl('mb.seg.saveFail', { MSG: (err && err.message) || err },
+                    'Could not save list: {MSG}'));
+                return null;
+            });
+        },
         moveToTopLevel: moveToTopLevel,
         moveUnderFolderPrompt: moveUnderFolderPrompt,
         moveListsUnderFolder: moveListsUnderFolder,

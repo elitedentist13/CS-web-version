@@ -192,9 +192,26 @@
         'patient.adv.loadingScaling': { en: 'Scanning scaling history… {N}', 'zh-CN': '扫描洗牙记录… {N}', 'zh-Hant': '掃描洗牙記錄… {N}' },
         'patient.adv.treatments': { en: 'Treatment received', 'zh-CN': '曾接受治疗', 'zh-Hant': '曾接受治療' },
         'patient.adv.treat.rootPlaning': { en: 'Root planing', 'zh-CN': '牙周刮治', 'zh-Hant': '牙周刮治' },
-        'patient.adv.treat.implants': { en: 'Dental implants', 'zh-CN': '植牙', 'zh-Hant': '植牙' },
-        'patient.adv.treat.ortho': { en: 'Orthodontics', 'zh-CN': '矫齿', 'zh-Hant': '矯齒' },
-        'patient.adv.treat.invisalign': { en: 'Invisalign', 'zh-CN': '隐适美', 'zh-Hant': '隱適美' },
+        'patient.adv.treat.implants': {
+            en: 'Dental implants (all brands)',
+            'zh-CN': '植牙（各品牌）',
+            'zh-Hant': '植牙（各品牌）'
+        },
+        'patient.adv.treat.ortho': {
+            en: 'Orthodontics (all — fixed + Invisalign)',
+            'zh-CN': '矫齿（全部：钢线 + 隐适美）',
+            'zh-Hant': '矯齒（全部：鋼線 + 隱適美）'
+        },
+        'patient.adv.treat.fixedAppliances': {
+            en: '↳ Fixed appliances (鋼線)',
+            'zh-CN': '↳ 固定矫治器（钢线）',
+            'zh-Hant': '↳ 固定矯治器（鋼線）'
+        },
+        'patient.adv.treat.invisalign': {
+            en: '↳ Invisalign',
+            'zh-CN': '↳ 隐适美',
+            'zh-Hant': '↳ 隱適美'
+        },
         'patient.adv.treat.bleaching': { en: 'Bleaching', 'zh-CN': '美白', 'zh-Hant': '美白' },
         'patient.adv.treat.rootCanal': { en: 'Root canal treatment', 'zh-CN': '根管治疗', 'zh-Hant': '根管治療' },
         'patient.adv.treat.crown': { en: 'Crown / ceramic crown', 'zh-CN': '牙冠 / 全瓷牙套', 'zh-Hant': '牙冠 / 全瓷牙套' },
@@ -212,6 +229,16 @@
         'patient.adv.spend.stale.2y': { en: 'More than 2 years ago', 'zh-CN': '超过2年', 'zh-Hant': '超過2年' },
         'patient.adv.spend.stale.3y': { en: 'More than 3 years ago', 'zh-CN': '超过3年', 'zh-Hant': '超過3年' },
         'patient.adv.spend.stale.5y': { en: 'More than 5 years ago', 'zh-CN': '超过5年', 'zh-Hant': '超過5年' },
+        'patient.adv.install': { en: 'Installment payments', 'zh-CN': '分期付款', 'zh-Hant': '分期付款' },
+        'patient.adv.install.moreThan': { en: 'More than', 'zh-CN': '多于', 'zh-Hant': '多於' },
+        'patient.adv.install.any': { en: 'Any', 'zh-CN': '不限', 'zh-Hant': '不限' },
+        'patient.adv.install.gt': { en: 'More than {N}', 'zh-CN': '多于 {N} 期', 'zh-Hant': '多於 {N} 期' },
+        'patient.adv.install.gt10': { en: 'More than 10+', 'zh-CN': '多于 10+ 期', 'zh-Hant': '多於 10+ 期' },
+        'patient.adv.loadingInstallments': {
+            en: 'Scanning installment payments… {N}',
+            'zh-CN': '正在扫描分期付款… {N}',
+            'zh-Hant': '正在掃描分期付款… {N}'
+        },
         'patient.adv.loadingSpend': { en: 'Scanning bill expenditure… {N}', 'zh-CN': '扫描账单消费… {N}', 'zh-Hant': '掃描帳單消費… {N}' },
         'patient.adv.run': { en: 'Search', 'zh-CN': '搜索', 'zh-Hant': '搜尋' },
         'patient.adv.clear': { en: 'Clear', 'zh-CN': '清除', 'zh-Hant': '清除' },
@@ -3912,6 +3939,87 @@
         'bill.addPayment.summary': { en: 'Bill Ref: {REF} · {DATE} · Total: HK$ {TOTAL}', 'zh-CN': '账单参考：{REF} · {DATE} · 合计：HK$ {TOTAL}', 'zh-Hant': '帳單參考：{REF} · {DATE} · 合計：HK$ {TOTAL}' },
         'bill.addPayment.errInvalidAmount': { en: 'Please enter a valid amount.', 'zh-CN': '请输入有效金额。', 'zh-Hant': '請輸入有效金額。' },
         'bill.addPayment.errExceedsBalance': { en: 'Amount exceeds outstanding balance (HK$ {BAL}).', 'zh-CN': '金额超过尚欠余额（HK$ {BAL}）。', 'zh-Hant': '金額超過尚欠餘額（HK$ {BAL}）。' },
+        'bill.addPayment.notesRequiredTransfer': { en: 'Settlement notes (required)', 'zh-CN': '结转备注（必填）', 'zh-Hant': '結轉備註（必填）' },
+        'bill.addPayment.transferHint': {
+            en: 'Balance transfer closes the bill here and is excluded from income reports. Enter where it was settled.',
+            'zh-CN': '余额转移会在此结清账单，且不计入收入报表。请注明于哪间诊所结清。',
+            'zh-Hant': '餘額轉移會在此結清帳單，且不計入收入報表。請註明於哪間診所結清。'
+        },
+        'bill.pay.balanceTransfer': { en: 'Balance transfer', 'zh-CN': '余额转移', 'zh-Hant': '餘額轉移' },
+        'bill.transfer.badge': { en: 'Balance transfer', 'zh-CN': '余额转移', 'zh-Hant': '餘額轉移' },
+        'bill.transfer.settledLabel': { en: 'Settled via transfer', 'zh-CN': '已转移结清', 'zh-Hant': '已轉移結清' },
+        'bill.transferConfirm.title': { en: 'Confirm balance transfer', 'zh-CN': '确认余额转移', 'zh-Hant': '確認餘額轉移' },
+        'bill.transferConfirm.body': {
+            en: 'This closes the outstanding balance on this bill. The amount will not count as clinic income in reports.',
+            'zh-CN': '此操作会结清本账单未付余额。该金额不会计入本诊所收入报表。',
+            'zh-Hant': '此操作會結清本帳單未付餘額。該金額不會計入本診所收入報表。'
+        },
+        'bill.transferConfirm.amount': { en: 'Amount', 'zh-CN': '金额', 'zh-Hant': '金額' },
+        'bill.transferConfirm.notesLabel': { en: 'Settlement notes (required)', 'zh-CN': '结转备注（必填）', 'zh-Hant': '結轉備註（必填）' },
+        'bill.transferConfirm.notesPh': {
+            en: 'e.g. Settled via transfer → {CLINIC} (date)',
+            'zh-CN': '例如：已转移结清 → {CLINIC}（日期）',
+            'zh-Hant': '例如：已轉移結清 → {CLINIC}（日期）'
+        },
+        'bill.transferConfirm.defaultNotes': {
+            en: 'Settled via transfer → {CLINIC} ({DATE})',
+            'zh-CN': '已转移结清 → {CLINIC}（{DATE}）',
+            'zh-Hant': '已轉移結清 → {CLINIC}（{DATE}）'
+        },
+        'bill.transferConfirm.ack': {
+            en: 'I confirm this is a balance transfer / settled at another clinic, not cash received here.',
+            'zh-CN': '我确认这是余额转移／已在其他诊所结清，并非在本诊所收取现金。',
+            'zh-Hant': '我確認這是餘額轉移／已在其他診所結清，並非在本診所收取現金。'
+        },
+        'bill.transferConfirm.yes': { en: 'Confirm & close balance', 'zh-CN': '确认并结清余额', 'zh-Hant': '確認並結清餘額' },
+        'bill.transferConfirm.errNotes': {
+            en: 'Please enter settlement notes (receiving clinic / date).',
+            'zh-CN': '请填写结转备注（收款诊所／日期）。',
+            'zh-Hant': '請填寫結轉備註（收款診所／日期）。'
+        },
+        'bill.transferConfirm.errAck': {
+            en: 'Please confirm this is a balance transfer, not cash received here.',
+            'zh-CN': '请勾选确认：这是余额转移，并非本诊所收款。',
+            'zh-Hant': '請勾選確認：這是餘額轉移，並非本診所收款。'
+        },
+        'patient.dup.title': { en: 'Duplicate patient to clinic', 'zh-CN': '复制患者到其他诊所', 'zh-Hant': '複製病人到其他診所' },
+        'patient.dup.targetClinic': { en: 'Target clinic', 'zh-CN': '目标诊所', 'zh-Hant': '目標診所' },
+        'patient.dup.newNo': { en: 'New patient no.', 'zh-CN': '新患者编号', 'zh-Hant': '新病人編號' },
+        'patient.dup.genNo': { en: 'Generate', 'zh-CN': '生成', 'zh-Hant': '產生' },
+        'patient.dup.createBf': { en: 'Create brought-forward opening bill', 'zh-CN': '同时创建结转期初账单', 'zh-Hant': '同時建立結轉期初帳單' },
+        'patient.dup.bfAmount': { en: 'Brought-forward amount (HK$)', 'zh-CN': '结转金额（港币）', 'zh-Hant': '結轉金額（港幣）' },
+        'patient.dup.bfNotes': { en: 'Opening bill notes', 'zh-CN': '期初账单备注', 'zh-Hant': '期初帳單備註' },
+        'patient.dup.bfNotesPh': {
+            en: 'Brought forward from {CLINIC}',
+            'zh-CN': '自 {CLINIC} 结转',
+            'zh-Hant': '自 {CLINIC} 結轉'
+        },
+        'patient.alertNotFound': {
+            en: 'Patient not found.',
+            'zh-CN': '未找到患者。',
+            'zh-Hant': '未找到病人。'
+        },
+        'patient.dup.bfItem': { en: 'Brought-forward balance', 'zh-CN': '结转余额', 'zh-Hant': '結轉餘額' },
+        'patient.dup.confirm': { en: 'Duplicate', 'zh-CN': '复制', 'zh-Hant': '複製' },
+        'patient.dup.btn': { en: 'Duplicate', 'zh-CN': '复制到诊所', 'zh-Hant': '複製到診所' },
+        'patient.dup.needClinic': { en: 'Select a different target clinic.', 'zh-CN': '请选择不同的目标诊所。', 'zh-Hant': '請選擇不同的目標診所。' },
+        'patient.dup.needNo': { en: 'Enter a valid new patient number.', 'zh-CN': '请输入有效的新患者编号。', 'zh-Hant': '請輸入有效的新病人編號。' },
+        'patient.dup.needBfAmt': { en: 'Enter a brought-forward amount greater than 0.', 'zh-CN': '请输入大于 0 的结转金额。', 'zh-Hant': '請輸入大於 0 的結轉金額。' },
+        'patient.dup.ok': {
+            en: 'Patient duplicated as #{NO} at {CLINIC}.',
+            'zh-CN': '已复制患者为 #{NO}（{CLINIC}）。',
+            'zh-Hant': '已複製病人為 #{NO}（{CLINIC}）。'
+        },
+        'patient.dup.okBf': {
+            en: 'Patient duplicated as #{NO} at {CLINIC} with brought-forward bill HK$ {AMT}.',
+            'zh-CN': '已复制患者为 #{NO}（{CLINIC}），并建立结转账单 HK$ {AMT}。',
+            'zh-Hant': '已複製病人為 #{NO}（{CLINIC}），並建立結轉帳單 HK$ {AMT}。'
+        },
+        'patient.dup.sourceMeta': {
+            en: 'From {NAME} (#{NO}) · {CLINIC}',
+            'zh-CN': '来源：{NAME}（#{NO}）· {CLINIC}',
+            'zh-Hant': '來源：{NAME}（#{NO}）· {CLINIC}'
+        },
         'bill.addPayment.clinicConfirmTitle': { en: 'Different receiving clinic', 'zh-CN': '收款诊所不同', 'zh-Hant': '收款診所不同' },
         'bill.addPayment.clinicConfirmBody': {
             en: 'This payment will be recorded at a different clinic from the previous payment on this bill.',

@@ -14,12 +14,38 @@
         { key: 'root_planing', labelKey: 'patient.adv.treat.rootPlaning', label: 'Root planing',
             match: [/root\s*planing/i] },
         { key: 'implants', labelKey: 'patient.adv.treat.implants', label: 'Dental implants',
-            match: [/implant/i] },
-        { key: 'orthodontics', labelKey: 'patient.adv.treat.ortho', label: 'Orthodontics',
-            match: [/fixed\s*ortho/i, /ortho\s*treatment/i, /orthodontic/i,
-                /ortho\s*consultation/i, /ortho-rpe/i] },
+            match: [
+                /implant/i,
+                /植牙/, /种植/, /種植/, /植體/, /植体/,
+                // Brand / system names (with or without "implant" prefix)
+                /osstem/i, /hiossen/i, /nobel(?:\s*biocare)?/i,
+                /straumann?/i, /\bBLX\b/i, /\bITI\b/i,
+                /dentium/i, /mega(?:\s*gen)?/i, /neodent/i, /anthogyr/i,
+                /zimmer(?:\s*biomet)?/i, /biohorizons/i, /astra(?:\s*tech)?/i
+            ] },
+        // Umbrella: all orthodontics (fixed appliances + Invisalign + general ortho).
+        // Sub-filters fixed_appliances / invisalign stay independent and narrower.
+        { key: 'orthodontics', labelKey: 'patient.adv.treat.ortho', label: 'Orthodontics (all)',
+            match: [
+                /ortho\s*treatment/i, /orthodontic/i, /ortho\s*consultation/i,
+                /ortho-?rpe/i, /\bRPE\b/,
+                /fixed\s*appliances?/i, /fixed\s*braces?/i, /fixed\s*ortho/i,
+                /metal\s*braces?/i, /ceramic\s*braces?/i,
+                /鋼線/, /钢线/, /鋼絲/, /钢丝/, /牙箍/, /箍牙/,
+                /invisalign/i, /隱適美/, /隐适美/,
+                /vivera/i, /viverra/i,
+                /fixed\s*retainer/i, /\bretainers?\b/i,
+                /矯齒/, /矫齿/, /正畸/
+            ] },
+        { key: 'fixed_appliances', labelKey: 'patient.adv.treat.fixedAppliances',
+            label: 'Fixed appliances (鋼線)',
+            match: [
+                /fixed\s*appliances?/i, /fixed\s*braces?/i, /fixed\s*ortho/i,
+                /metal\s*braces?/i, /ceramic\s*braces?/i,
+                /鋼線/, /钢线/, /鋼絲/, /钢丝/, /牙箍/, /箍牙/
+            ] },
         { key: 'invisalign', labelKey: 'patient.adv.treat.invisalign', label: 'Invisalign',
-            match: [/invisalign/i] },
+            match: [/invisalign/i, /隱適美/, /隐适美/] },
         { key: 'bleaching', labelKey: 'patient.adv.treat.bleaching', label: 'Bleaching',
             match: [/bleach/i, /美白/, /漂白/] },
         { key: 'root_canal', labelKey: 'patient.adv.treat.rootCanal', label: 'Root canal treatment',
@@ -46,6 +72,22 @@
         { key: 'gte100000', mode: 'gte', amount: 100000 },
         { key: 'gte150000', mode: 'gte', amount: 150000 },
         { key: 'gte200000', mode: 'gte', amount: 200000 }
+    ];
+    /**
+     * Installment slider: 0 = Any, then "more than 2" … "more than 10+".
+     * moreThan N means at least one bill with > N non-void payment rows.
+     */
+    var INSTALL_STEPS = [
+        { key: '', moreThan: 0 },
+        { key: 'gt2', moreThan: 2 },
+        { key: 'gt3', moreThan: 3 },
+        { key: 'gt4', moreThan: 4 },
+        { key: 'gt5', moreThan: 5 },
+        { key: 'gt6', moreThan: 6 },
+        { key: 'gt7', moreThan: 7 },
+        { key: 'gt8', moreThan: 8 },
+        { key: 'gt9', moreThan: 9 },
+        { key: 'gt10', moreThan: 10 }
     ];
 
     var _open = false;
@@ -117,6 +159,11 @@
         if (spendIdx >= EXPEND_STEPS.length) spendIdx = EXPEND_STEPS.length - 1;
         var spendStep = EXPEND_STEPS[spendIdx] || EXPEND_STEPS[0];
         var stale = (g('patientAdvStaleBal') && g('patientAdvStaleBal').value) || '';
+        var installSlider = g('patientAdvInstallSlider');
+        var installIdx = installSlider ? parseInt(installSlider.value, 10) : 0;
+        if (!isFinite(installIdx) || installIdx < 0) installIdx = 0;
+        if (installIdx >= INSTALL_STEPS.length) installIdx = INSTALL_STEPS.length - 1;
+        var installStep = INSTALL_STEPS[installIdx] || INSTALL_STEPS[0];
         return {
             age: age || 'all',
             sex: sex || 'all',
@@ -130,7 +177,10 @@
             spendKey: spendStep.key || '',
             spendMode: spendStep.mode || '',
             spendAmount: spendStep.amount || 0,
-            staleUnpaidYears: stale || ''
+            staleUnpaidYears: stale || '',
+            installIdx: installIdx,
+            installKey: installStep.key || '',
+            installMoreThan: installStep.moreThan || 0
         };
     }
 
@@ -304,6 +354,75 @@
             slider.addEventListener('input', syncSpendLabel);
             slider.addEventListener('change', syncSpendLabel);
         }
+    }
+
+    function installStepLabel(step) {
+        if (!step || !step.key || !step.moreThan) {
+            return tr('patient.adv.install.any', 'Any');
+        }
+        if (step.moreThan >= 10) {
+            return tr('patient.adv.install.gt10', 'More than 10+');
+        }
+        return trRepl('patient.adv.install.gt', { N: String(step.moreThan) },
+            'More than {N}');
+    }
+
+    function syncInstallLabel() {
+        var slider = g('patientAdvInstallSlider');
+        var label = g('patientAdvInstallLabel');
+        if (!slider || !label) return;
+        var idx = parseInt(slider.value, 10) || 0;
+        if (idx < 0) idx = 0;
+        if (idx >= INSTALL_STEPS.length) idx = INSTALL_STEPS.length - 1;
+        label.textContent = installStepLabel(INSTALL_STEPS[idx]);
+    }
+
+    function installHtmlBlock() {
+        return '<div class="patient-adv-field patient-adv-field-wide" id="patientAdvInstallBlock">' +
+            '<div class="patient-adv-label">' +
+            esc(tr('patient.adv.install', 'Installment payments')) + '</div>' +
+            '<div class="patient-adv-spend-slider-wrap">' +
+            '<div class="patient-adv-spend-slider-head"><span>' +
+            esc(tr('patient.adv.install.moreThan', 'More than')) +
+            '</span><strong id="patientAdvInstallLabel">' +
+            esc(tr('patient.adv.install.any', 'Any')) + '</strong></div>' +
+            '<input type="range" id="patientAdvInstallSlider" class="patient-adv-spend-slider" ' +
+            'min="0" max="' + (INSTALL_STEPS.length - 1) + '" step="1" value="0">' +
+            '<div class="patient-adv-spend-ends"><span>' +
+            esc(tr('patient.adv.install.any', 'Any')) + '</span><span>' +
+            esc(tr('patient.adv.install.gt10', 'More than 10+')) +
+            '</span></div></div></div>';
+    }
+
+    function bindInstallSlider() {
+        var slider = g('patientAdvInstallSlider');
+        if (slider && !slider._advBound) {
+            slider._advBound = true;
+            slider.addEventListener('input', syncInstallLabel);
+            slider.addEventListener('change', syncInstallLabel);
+        }
+        syncInstallLabel();
+    }
+
+    function ensureInstallFields() {
+        var panel = g('patientAdvPanel');
+        if (!panel) return;
+        if (g('patientAdvInstallBlock')) {
+            bindInstallSlider();
+            return;
+        }
+        var grid = panel.querySelector('.patient-adv-grid');
+        if (!grid) return;
+        var wrap = document.createElement('div');
+        wrap.innerHTML = installHtmlBlock();
+        var node = wrap.firstChild;
+        var after = g('patientAdvSpendBlock');
+        if (node && after && after.parentNode) {
+            after.parentNode.insertBefore(node, after.nextSibling);
+        } else if (node) {
+            grid.appendChild(node);
+        }
+        bindInstallSlider();
     }
 
     function ageMatches(dob, ageMode) {
@@ -572,6 +691,87 @@
         return !!(f.hasUnpaid || f.spendKey || f.staleUnpaidYears);
     }
 
+    function needsInstallScan(f) {
+        return !!(f && f.installKey && f.installMoreThan > 0);
+    }
+
+    function isInstallmentPayMethod(method) {
+        if (typeof window.isBalanceTransferPayMethod === 'function' &&
+            window.isBalanceTransferPayMethod(method)) {
+            return false;
+        }
+        var s = String(method == null ? '' : method).trim().toLowerCase();
+        if (!s) return true;
+        if (s === 'pending' || s === 'n/a' || s === 'na') return false;
+        return true;
+    }
+
+    /**
+     * Per-patient max installment count = max # of non-void, non-BT payment
+     * rows on any single bill.
+     */
+    function loadInstallmentStats(onProgress) {
+        function buildMap(bills, payments) {
+            var billPatient = Object.create(null);
+            (bills || []).forEach(function (b) {
+                if (!b || !b.id || !b.patient_id || b.voided_at) return;
+                billPatient[String(b.id)] = String(b.patient_id);
+            });
+            var billCounts = Object.create(null);
+            (payments || []).forEach(function (p) {
+                if (!p || !p.bill_id || p.voided_at) return;
+                if (!isInstallmentPayMethod(p.method)) return;
+                var amt = parseFloat(p.amount);
+                if (isFinite(amt) && amt <= 0.005) return;
+                var bid = String(p.bill_id);
+                if (!billPatient[bid]) return;
+                billCounts[bid] = (billCounts[bid] || 0) + 1;
+            });
+            var map = Object.create(null);
+            Object.keys(billCounts).forEach(function (bid) {
+                var pid = billPatient[bid];
+                if (!pid) return;
+                var n = billCounts[bid] || 0;
+                if (map[pid] == null || n > map[pid]) map[pid] = n;
+            });
+            return { data: map, error: null };
+        }
+
+        function loadPayments(bills, cols) {
+            cols = cols || 'bill_id,amount,method,voided_at';
+            return fetchAll('bill_payments', cols, onProgress)
+                .then(function (pr) {
+                    var msg = String((pr.error && pr.error.message) || '');
+                    if (pr.error && /voided_at/i.test(msg)) {
+                        return loadPayments(bills, cols.replace(/,?voided_at/, ''));
+                    }
+                    if (pr.error && /amount/i.test(msg) && /amount/.test(cols)) {
+                        return loadPayments(bills, cols.replace(/,?amount/, ''));
+                    }
+                    if (pr.error) return pr;
+                    return buildMap(bills, pr.data);
+                });
+        }
+
+        return fetchAll('bills', 'id,patient_id,voided_at', onProgress)
+            .then(function (br) {
+                if (br.error && /voided_at/i.test(String(br.error.message || ''))) {
+                    return fetchAll('bills', 'id,patient_id', onProgress).then(function (br2) {
+                        if (br2.error) return br2;
+                        return loadPayments(br2.data);
+                    });
+                }
+                if (br.error) return br;
+                return loadPayments(br.data);
+            });
+    }
+
+    function installmentMatches(maxCount, f) {
+        if (!needsInstallScan(f)) return true;
+        var n = maxCount == null ? 0 : Number(maxCount);
+        return n > f.installMoreThan;
+    }
+
     function runSearch() {
         if (_busy) return;
         if (typeof SB === 'undefined' || !SB.from) {
@@ -579,13 +779,14 @@
             return;
         }
         ensureSpendFields();
+        ensureInstallFields();
         ensureDistrictField();
         ensureTreatCheckboxes();
         var f = readFilters();
         var hasAny = (f.age && f.age !== 'all') || (f.sex && f.sex !== 'all') ||
             f.birthday || f.district || f.notesOlder || f.scalingOlder ||
             (f.treatments && f.treatments.length) ||
-            needsSpendScan(f);
+            needsSpendScan(f) || needsInstallScan(f);
         if (!hasAny) {
             setStatus(tr('patient.adv.needFilter',
                 'Choose at least one advanced filter, then search.'), true);
@@ -602,6 +803,7 @@
         var noteMap = null;
         var scalingMap = null;
         var spendMap = null;
+        var installMap = null;
 
         fetchPatientsScoped(function (n) {
             setStatus(trRepl('patient.adv.loadingPatients', { N: n }, 'Loading patients… {N}'), false);
@@ -653,6 +855,17 @@
                     });
                 });
             }
+            if (needsInstallScan(f)) {
+                chain = chain.then(function () {
+                    return loadInstallmentStats(function (n) {
+                        setStatus(trRepl('patient.adv.loadingInstallments', { N: n },
+                            'Scanning installment payments… {N}'), false);
+                    }).then(function (ir) {
+                        if (ir.error) throw ir.error;
+                        installMap = ir.data;
+                    });
+                });
+            }
             return chain.then(function () {
                 var out = patients.filter(function (p) {
                     if (!ageMatches(p.dob, f.age)) return false;
@@ -672,6 +885,10 @@
                         if (!spendTotalMatches(st, f)) return false;
                         if (!staleUnpaidMatches(st, f.staleUnpaidYears)) return false;
                     }
+                    if (needsInstallScan(f)) {
+                        var maxInst = installMap ? installMap[String(p.id)] : 0;
+                        if (!installmentMatches(maxInst, f)) return false;
+                    }
                     return true;
                 });
                 _results = out;
@@ -690,6 +907,8 @@
                     spendMode: f.spendMode,
                     spendAmount: f.spendAmount,
                     staleUnpaidYears: f.staleUnpaidYears,
+                    installKey: f.installKey,
+                    installMoreThan: f.installMoreThan,
                     clinic: clinicTag() || ''
                 };
                 setStatus(trRepl('patient.adv.found', { N: out.length },
@@ -1279,7 +1498,9 @@
         if (g('patientAdvHasUnpaid')) g('patientAdvHasUnpaid').checked = false;
         if (g('patientAdvSpendSlider')) g('patientAdvSpendSlider').value = '0';
         if (g('patientAdvStaleBal')) g('patientAdvStaleBal').value = '';
+        if (g('patientAdvInstallSlider')) g('patientAdvInstallSlider').value = '0';
         syncSpendLabel();
+        syncInstallLabel();
         _results = [];
         _selected = Object.create(null);
         _page = 0;
@@ -1394,6 +1615,7 @@
                 }).join('') +
                 '</div></div>' +
                 spendHtmlBlock() +
+                installHtmlBlock() +
                 '</div>' +
                 '<div class="patient-adv-actions">' +
                 '<button type="button" id="patientAdvRunBtn" class="patient-adv-primary-btn">' +
@@ -1404,6 +1626,7 @@
             toolbar.parentNode.insertBefore(panel, toolbar.nextSibling);
         }
         ensureSpendFields();
+        ensureInstallFields();
         ensureDistrictField();
         ensureTreatCheckboxes();
         if (dir && !g('patientAdvResults')) {
@@ -1445,6 +1668,7 @@
         ensureSavedLibraryDom();
         ensureDistrictField();
         ensureTreatCheckboxes();
+        ensureInstallFields();
         _open = force != null ? !!force : !_open;
         var panel = g('patientAdvPanel');
         if (panel) panel.hidden = !_open;
@@ -1484,6 +1708,7 @@
         var root = g('patientAdvPanel');
         if (!root) return;
         ensureSpendFields();
+        ensureInstallFields();
         var slider = g('patientAdvSpendSlider');
         if (slider && !slider._advBound) {
             slider._advBound = true;
@@ -1491,6 +1716,7 @@
             slider.addEventListener('change', syncSpendLabel);
         }
         syncSpendLabel();
+        bindInstallSlider();
         root.addEventListener('click', function (ev) {
             var age = ev.target && ev.target.closest ? ev.target.closest('[data-adv-age]') : null;
             if (age) {

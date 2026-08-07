@@ -6002,7 +6002,7 @@ function applyOpenGlobalModalsI18n() {
     }
     var ids = [
         'apptModal', 'apptPopup', 'queueRemarksModal', 'recallSendModal',
-        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'billPaymentClinicConfirmModal', 'billDeleteModal',
+        'billDetailModal', 'receiptModal', 'receiptPrintOptionsModal', 'billHistoryPrintModal', 'addPaymentModal', 'balanceTransferConfirmModal', 'patientDupClinicModal', 'billPaymentClinicConfirmModal', 'billDeleteModal',
         'patientDetailsModal', 'addPatientModal', 'editPatientModal', 'patientBananaModal',
         'photoUploadModal', 'photoLightbox',
         'xrayUploadModal', 'xrayLightbox', 'diySystemModal',

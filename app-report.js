@@ -155,8 +155,26 @@ var REPORT = (function () {
     return !s || s === 'pending' || s === 'n/a' || s === 'na' || s === 'unknown';
   }
 
+  /** Inter-clinic balance close — zeros bill due but must not count as income. */
+  function reportPayMethodIsNonIncome(key) {
+    if (typeof window.isBalanceTransferPayMethod === 'function') {
+      return window.isBalanceTransferPayMethod(key);
+    }
+    var s = String(key == null ? '' : key).trim().toLowerCase()
+      .replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+    return s === 'balance transfer' || s.indexOf('balance transfer') >= 0 ||
+      (s.indexOf('transferred') >= 0 && s.indexOf('settled') >= 0);
+  }
+
+  function reportPayMethodSkipIncome(key) {
+    return reportPayMethodIsUnsettled(key) || reportPayMethodIsNonIncome(key);
+  }
+
   function dispPayMethodSummary(key) {
     if (reportPayMethodIsUnsettled(key)) return '—';
+    if (reportPayMethodIsNonIncome(key)) {
+      return dispPayMethod(key);
+    }
     return dispPayMethod(key);
   }
 
@@ -176,13 +194,13 @@ var REPORT = (function () {
       if (allocs && allocs.length) {
         allocs.forEach(function (a) {
           var k = reportPayMethodCanonicalKey(a.method);
-          if (reportPayMethodIsUnsettled(k)) return;
+          if (reportPayMethodSkipIncome(k)) return;
           map[k] = (map[k] || 0) + Number(a.amount || 0);
         });
         return;
       }
       var k = reportPayMethodCanonicalKey(r[key]);
-      if (reportPayMethodIsUnsettled(k)) return;
+      if (reportPayMethodSkipIncome(k)) return;
       map[k] = (map[k] || 0) + Number(r[valueKey] || 0);
     });
     return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
@@ -204,7 +222,7 @@ var REPORT = (function () {
         amount: Number(p.amount || 0)
       };
     }).filter(function (a) {
-      return !reportPayMethodIsUnsettled(a.method) && a.amount > 0.005;
+      return !reportPayMethodSkipIncome(a.method) && a.amount > 0.005;
     });
   }
 
@@ -344,7 +362,7 @@ var REPORT = (function () {
     var map = {};
     (payments || []).forEach(function (p) {
       var method = reportPayMethodCanonicalKey(p.method);
-      if (reportPayMethodIsUnsettled(method)) return;
+      if (reportPayMethodSkipIncome(method)) return;
       map[method] = (map[method] || 0) + Number(p.amount || 0);
     });
     return Object.keys(map).sort().map(function (k) { return { method: k, amount: Number(map[k] || 0) }; });
@@ -381,10 +399,12 @@ var REPORT = (function () {
   }
 
   function buildDailySummaryTxRow(b, p, paymentsByBillId, extra) {
-    var paid = reportBillPaidValue(b);
+    var payRows = (paymentsByBillId && b.id) ? paymentsByBillId[b.id] : [];
+    // Income-facing paid total excludes Balance transfer / unsettled methods.
+    var paid = reportPaidForIncomeStats(b, payRows);
     var total = reportBillTotalValue(b);
     var bal = reportBillBalanceValue(b);
-    var allocs = reportPaymentAllocationsForBill(b, (paymentsByBillId && b.id) ? paymentsByBillId[b.id] : []);
+    var allocs = reportPaymentAllocationsForBill(b, payRows);
     var primaryMethod = allocs.length === 1
       ? allocs[0].method
       : (allocs.length ? allocs[0].method : reportPayMethodCanonicalKey(b.bill_type));
@@ -405,6 +425,18 @@ var REPORT = (function () {
     };
     if (extra) Object.assign(row, extra);
     return row;
+  }
+
+  /** Paid amount that counts as clinic income for a tx row (allocs already exclude BT). */
+  function reportTxIncomePaidAmount(t) {
+    var allocs = t && t.payment_allocations;
+    if (allocs && allocs.length) {
+      return allocs.reduce(function (sum, a) {
+        return sum + Number(a.amount || 0);
+      }, 0);
+    }
+    if (reportPayMethodSkipIncome(reportPayMethodCanonicalKey(t && t.payment_method))) return 0;
+    return Number(t && t.bill_paid != null ? t.bill_paid : (t && t.amount != null ? t.amount : 0));
   }
 
   function reportBillPaidValue(b) {
@@ -521,9 +553,19 @@ var REPORT = (function () {
     return cards;
   }
 
-  /** Paid amount for income / payment statistics (excludes Pending / unsettled). */
-  function reportPaidForIncomeStats(b) {
-    if (reportPayMethodIsUnsettled(reportPayMethodKey(b && b.bill_type))) return 0;
+  /**
+   * Paid amount for income / payment statistics.
+   * Excludes Pending / unsettled / balance-transfer portions (not clinic income).
+   */
+  function reportPaidForIncomeStats(b, paymentRows) {
+    var pmts = (paymentRows || []).filter(function (p) { return !(p && p.voided_at); });
+    if (pmts.length) {
+      return pmts.reduce(function (sum, p) {
+        if (reportPayMethodSkipIncome(reportPayMethodCanonicalKey(p.method))) return sum;
+        return sum + Number(p.amount || 0);
+      }, 0);
+    }
+    if (reportPayMethodSkipIncome(reportPayMethodKey(b && b.bill_type))) return 0;
     return reportBillPaidValue(b);
   }
 
@@ -1176,7 +1218,7 @@ var REPORT = (function () {
       var amt = Number(p.amount || 0);
       if (amt <= 0.005) return;
       var method = reportPayMethodCanonicalKey(p.method);
-      if (reportPayMethodIsUnsettled(method)) return;
+      if (reportPayMethodSkipIncome(method)) return;
       seenBillDay[p.bill_id + '|' + paidDate] = true;
       slices.push({
         payment: p,
@@ -1207,7 +1249,7 @@ var REPORT = (function () {
       if (!d || d < from || d > to) return;
       if (seenBillDay[b.id + '|' + d]) return;
       var method = reportPayMethodCanonicalKey(b.bill_type);
-      if (reportPayMethodIsUnsettled(method)) return;
+      if (reportPayMethodSkipIncome(method)) return;
       slices.push({
         payment: { method: b.bill_type, amount: paid, paid_date: d, _synthetic: true },
         bill: b,
@@ -2167,7 +2209,7 @@ var REPORT = (function () {
     var dueTotal = 0;
     (tx || []).forEach(function (r) {
       billTotal += Number(r.bill_total != null ? r.bill_total : 0);
-      paidTotal += Number(r.bill_paid != null ? r.bill_paid : (r.amount != null ? r.amount : 0));
+      paidTotal += reportTxIncomePaidAmount(r);
       dueTotal += Number(r.bill_balance != null ? r.bill_balance : 0);
     });
     return {
@@ -2341,13 +2383,13 @@ var REPORT = (function () {
       if (allocs.length) {
         allocs.forEach(function (a) {
           var k = reportPayMethodCanonicalKey(a.method);
-          if (reportPayMethodIsUnsettled(k)) return;
+          if (reportPayMethodSkipIncome(k)) return;
           methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(a.amount || 0);
         });
         return;
       }
       var k = reportPayMethodCanonicalKey(t.payment_method);
-      if (reportPayMethodIsUnsettled(k)) return;
+      if (reportPayMethodSkipIncome(k)) return;
       methodMiniMap[k] = (methodMiniMap[k] || 0) + Number(t.bill_paid || 0);
     });
     return Object.keys(methodMiniMap).sort().map(function (k) {
@@ -2361,7 +2403,7 @@ var REPORT = (function () {
     var groups = dailySummaryGroupTxByDoctor(transactions);
     if (groups.length < 2) return '';
     var cards = groups.map(function (g) {
-      var paid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+      var paid = (g.rows || []).reduce(function (acc, r) { return acc + reportTxIncomePaidAmount(r); }, 0);
       var pills = dailySummaryMethodMiniPillsFromRows(g.rows);
       var clinicBadge = dailySummaryGroupClinicBadgeHtml(g);
       return '<div style="background:#fff;border:1px solid #dbeafe;border-radius:12px;padding:10px 12px;min-width:200px;flex:1 1 220px;max-width:360px;box-shadow:0 2px 8px rgba(15,23,42,.04);">' +
@@ -2397,7 +2439,7 @@ var REPORT = (function () {
   }
 
   function dailySummarySimpleDoctorGroupHeaderHtml(g, colSpan) {
-    var paid = (g.rows || []).reduce(function (acc, r) { return acc + Number(r.bill_paid || 0); }, 0);
+    var paid = (g.rows || []).reduce(function (acc, r) { return acc + reportTxIncomePaidAmount(r); }, 0);
     var pills = dailySummaryMethodMiniPillsFromRows(g.rows);
     var clinicBadge = dailySummaryGroupClinicBadgeHtml(g);
     return '<tr>' +
@@ -2458,7 +2500,7 @@ var REPORT = (function () {
     var paidMap = {};
     (totalsByMethodPaid || []).forEach(function (x) {
       var k = reportPayMethodCanonicalKey(x.key);
-      if (!k || reportPayMethodIsUnsettled(k)) return;
+      if (!k || reportPayMethodSkipIncome(k)) return;
       paidMap[k] = Number(x.value || 0);
     });
     var out = [];
@@ -3533,6 +3575,8 @@ var REPORT = (function () {
   function drMonthlyAccountLabel(method) {
     var s = String(method || '').trim();
     if (!s) return '';
+    // Balance transfer / unsettled — not an income account bucket.
+    if (reportPayMethodSkipIncome(reportPayMethodCanonicalKey(s))) return '';
     var lk = s.toLowerCase().replace(/\s+/g, ' ');
     if (lk === 'mastercard' || lk === 'master' || lk === 'master card') return 'MASTER';
     if (lk === 'visa' || lk === 'visa card') return 'VISA';
@@ -3963,13 +4007,22 @@ var REPORT = (function () {
     days.forEach(function (d) {
       var dayTx = (byDay[d] || []).slice().sort(dailySummaryTxSortCompare);
       var txCount = dayTx.length;
-      var dayPaid = dayTx.reduce(function (sum, t) { return sum + Number(t.bill_paid || 0); }, 0);
+      var dayPaid = dayTx.reduce(function (sum, t) { return sum + reportTxIncomePaidAmount(t); }, 0);
       var dayAmounts = sumUniqueBillAmounts(dayTx);
       var dateLabel = formatDrMonthlyLongDate(d);
 
       dayTx.forEach(function (t) {
+        var allocs = t.payment_allocations;
+        if (allocs && allocs.length) {
+          allocs.forEach(function (a) {
+            var acctA = drMonthlyAccountLabel(a.method);
+            if (!acctA) return;
+            monthByMethod[acctA] = (monthByMethod[acctA] || 0) + Number(a.amount || 0);
+          });
+          return;
+        }
         var acct = drMonthlyAccountLabel(t.payment_method);
-        if (acct) monthByMethod[acct] = (monthByMethod[acct] || 0) + Number(t.bill_paid || 0);
+        if (acct) monthByMethod[acct] = (monthByMethod[acct] || 0) + reportTxIncomePaidAmount(t);
       });
       grandPaid += dayPaid;
 
@@ -3992,9 +4045,12 @@ var REPORT = (function () {
           date: '',
           tx_count: '',
           patient: formatClinicIncomeDetailPatient(t),
-          payment_method: drMonthlyAccountLabel(t.payment_method),
+          payment_method: drMonthlyAccountLabel(t.payment_method) ||
+            (reportPayMethodIsNonIncome(t.payment_method)
+              ? dispPayMethod(t.payment_method)
+              : ''),
           bill: drMonthlyAmountPlain(t.bill_total),
-          paid: drMonthlyAmountPlain(t.bill_paid),
+          paid: drMonthlyAmountPlain(reportTxIncomePaidAmount(t)),
           balance: drMonthlyAmountPlain(t.bill_balance),
           total: '',
           _type: 'detail'
@@ -4236,6 +4292,7 @@ var REPORT = (function () {
         allocs.forEach(function (a) {
           var amt = Number(a.amount || 0);
           if (amt <= 0.005) return;
+          if (reportPayMethodSkipIncome(reportPayMethodCanonicalKey(a.method))) return;
           var method = drMonthlyAccountLabel(a.method);
           if (!method) return;
           if (onAmount) onAmount(amt, method);
@@ -4247,7 +4304,7 @@ var REPORT = (function () {
         var amt = Number(t.bill_paid != null ? t.bill_paid : t.amount || 0);
         if (amt <= 0.005) return;
         var method = drMonthlyAccountLabel(t.payment_method);
-        if (!method || reportPayMethodIsUnsettled(reportPayMethodCanonicalKey(t.payment_method))) return;
+        if (!method || reportPayMethodSkipIncome(reportPayMethodCanonicalKey(t.payment_method))) return;
         if (onAmount) onAmount(amt, method);
         exportRows.push(buildDailySummarySimpleDailyExportRow(t, t.payment_method, amt, includeDate, omitDoctor));
       }
@@ -5065,8 +5122,12 @@ var REPORT = (function () {
     // ───────────────────────────────────────────────────────
     if (_drMonthlyMode === 'treatmentStats') {
       var byItem = {};
+      var monthPayRows = await loadBillPaymentsForBillIds(
+        filtered.map(function (b) { return b && b.id; }).filter(Boolean)
+      );
+      var monthPayByBill = indexPaymentsByBillId(monthPayRows);
       filtered.forEach(function (b) {
-        var paid = reportBillPaidValue(b);
+        var paid = reportPaidForIncomeStats(b, (b && b.id) ? monthPayByBill[b.id] : []);
         if (paid <= 0.005) return;
         accumulateTreatmentStatsMap(byItem, b.items, paid);
       });
@@ -6628,9 +6689,14 @@ var REPORT = (function () {
         setHeader(tr('report.title.txStats'), tr('report.hint.txStats'));
         var bills = await loadBills(from, to);
         if (mySeq !== _refreshSeq) return;
+        var txPayRows = await loadBillPaymentsForBillIds(
+          (bills || []).map(function (b) { return b && b.id; }).filter(Boolean)
+        );
+        if (mySeq !== _refreshSeq) return;
+        var txPayByBill = indexPaymentsByBillId(txPayRows);
         var byItem = {};
         bills.forEach(function (b) {
-          var paid = reportBillPaidValue(b);
+          var paid = reportPaidForIncomeStats(b, (b && b.id) ? txPayByBill[b.id] : []);
           if (paid <= 0.005) return;
           accumulateTreatmentStatsMap(byItem, b.items, paid);
         });
@@ -6721,7 +6787,7 @@ var REPORT = (function () {
       if (_tab === 'payStats') {
         setHeader(tr('report.title.payStats'), tr('report.hint.payStats'));
         var groupedP = groupPaymentSlicesBy(paymentSlices, function (s) { return s.method; });
-        _rows = groupedP.filter(function (g) { return !reportPayMethodIsUnsettled(g.key); }).map(function (g) {
+        _rows = groupedP.filter(function (g) { return !reportPayMethodSkipIncome(g.key); }).map(function (g) {
           return { method: dispPayMethod(g.key), total: g.value.toFixed(2) };
         });
         renderTable([{ key: 'method', label: tr('report.col.paymentMethod') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);

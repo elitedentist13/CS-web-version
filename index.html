@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260807-patient-adv-treats2';
+  var BUILD = '20260807-adv-ortho-umbrella';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -960,8 +960,9 @@
         <div class="patient-adv-treats">
           <label><input type="checkbox" id="patientAdvTreat_root_planing"> <span data-i18n="patient.adv.treat.rootPlaning">Root planing</span></label>
           <label><input type="checkbox" id="patientAdvTreat_implants"> <span data-i18n="patient.adv.treat.implants">Dental implants</span></label>
-          <label><input type="checkbox" id="patientAdvTreat_orthodontics"> <span data-i18n="patient.adv.treat.ortho">Orthodontics</span></label>
-          <label><input type="checkbox" id="patientAdvTreat_invisalign"> <span data-i18n="patient.adv.treat.invisalign">Invisalign</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_orthodontics"> <span data-i18n="patient.adv.treat.ortho">Orthodontics (all — fixed + Invisalign)</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_fixed_appliances"> <span data-i18n="patient.adv.treat.fixedAppliances">↳ Fixed appliances (鋼線)</span></label>
+          <label><input type="checkbox" id="patientAdvTreat_invisalign"> <span data-i18n="patient.adv.treat.invisalign">↳ Invisalign</span></label>
           <label><input type="checkbox" id="patientAdvTreat_bleaching"> <span data-i18n="patient.adv.treat.bleaching">Bleaching</span></label>
           <label><input type="checkbox" id="patientAdvTreat_root_canal"> <span data-i18n="patient.adv.treat.rootCanal">Root canal treatment</span></label>
           <label><input type="checkbox" id="patientAdvTreat_crown"> <span data-i18n="patient.adv.treat.crown">Crown / ceramic crown</span></label>
@@ -995,6 +996,21 @@
             <option value="3" data-i18n="patient.adv.spend.stale.3y">More than 3 years ago</option>
             <option value="5" data-i18n="patient.adv.spend.stale.5y">More than 5 years ago</option>
           </select>
+        </div>
+      </div>
+      <div class="patient-adv-field patient-adv-field-wide" id="patientAdvInstallBlock">
+        <div class="patient-adv-label" data-i18n="patient.adv.install">Installment payments</div>
+        <div class="patient-adv-spend-slider-wrap">
+          <div class="patient-adv-spend-slider-head">
+            <span data-i18n="patient.adv.install.moreThan">More than</span>
+            <strong id="patientAdvInstallLabel">Any</strong>
+          </div>
+          <input type="range" id="patientAdvInstallSlider" class="patient-adv-spend-slider"
+                 min="0" max="9" step="1" value="0" aria-labelledby="patientAdvInstallLabel">
+          <div class="patient-adv-spend-ends">
+            <span data-i18n="patient.adv.install.any">Any</span>
+            <span data-i18n="patient.adv.install.gt10">More than 10+</span>
+          </div>
         </div>
       </div>
     </div>
@@ -6671,8 +6687,12 @@
     </div>
 
     <div class="fg" style="margin-bottom:16px;">
-      <label data-i18n-html="bill.addPayment.notesOptionalHtml"></label>
+      <label id="apNotesLabel" data-i18n-html="bill.addPayment.notesOptionalHtml"></label>
       <input type="text" id="apNotes" data-i18n-placeholder="bill.addPayment.phNotes">
+      <div id="apTransferHint" class="ap-transfer-hint" hidden
+           data-i18n="bill.addPayment.transferHint">
+        Balance transfer closes the bill here and is excluded from income reports. Enter where it was settled.
+      </div>
     </div>
 
     <div id="apError"
@@ -6688,6 +6708,99 @@
               style="flex:1;padding:11px;background:var(--gray);color:#fff;
                      border:none;border-radius:7px;font-size:14px;
                      cursor:pointer;" data-i18n="bill.addPayment.btnCancel"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — BALANCE TRANSFER CONFIRM (trail check)
+════════════════════════════════════════════════════════════ -->
+<div id="balanceTransferConfirmModal" class="modal modal-no-backdrop-close" data-no-backdrop-close="1">
+  <div class="modal-box" style="max-width:480px;">
+    <button class="mclose" data-i18n-aria-label="common.closeAria"
+            onclick="dismissBalanceTransferConfirm()">×</button>
+    <h3 style="margin:0 0 8px;" data-i18n="bill.transferConfirm.title">Confirm balance transfer</h3>
+    <p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.45;"
+       data-i18n="bill.transferConfirm.body">
+      This closes the outstanding balance on this bill. The amount will not count as clinic income in reports.
+    </p>
+    <div id="btConfirmSummary"
+         style="font-size:13px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:12px;"></div>
+    <div class="fg" style="margin-bottom:12px;">
+      <label data-i18n="bill.transferConfirm.notesLabel">Settlement notes (required)</label>
+      <textarea id="btConfirmNotes" rows="3"
+                style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;font-family:inherit;"
+                data-i18n-placeholder="bill.transferConfirm.notesPh"
+                placeholder="e.g. Settled via transfer → KT (2026-08-07)"></textarea>
+    </div>
+    <label class="bt-confirm-check" style="display:flex;gap:8px;align-items:flex-start;margin-bottom:14px;font-size:13px;cursor:pointer;">
+      <input type="checkbox" id="btConfirmAck" style="margin-top:3px;">
+      <span data-i18n="bill.transferConfirm.ack">
+        I confirm this is a balance transfer / settled at another clinic, not cash received here.
+      </span>
+    </label>
+    <div id="btConfirmError"
+         style="display:none;color:#dc2626;font-size:12px;font-weight:600;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:10px;">
+      <button type="button" onclick="confirmBalanceTransferSave()"
+              style="flex:1;padding:11px;background:#0f766e;color:#fff;border:none;border-radius:7px;font-size:14px;font-weight:700;cursor:pointer;"
+              data-i18n="bill.transferConfirm.yes">Confirm &amp; close balance</button>
+      <button type="button" onclick="dismissBalanceTransferConfirm()"
+              style="flex:1;padding:11px;background:var(--gray);color:#fff;border:none;border-radius:7px;font-size:14px;cursor:pointer;"
+              data-i18n="bill.addPayment.btnCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODAL — DUPLICATE PATIENT TO ANOTHER CLINIC
+════════════════════════════════════════════════════════════ -->
+<div id="patientDupClinicModal" class="modal modal-no-backdrop-close" data-no-backdrop-close="1">
+  <div class="modal-box" style="max-width:480px;">
+    <button class="mclose" data-i18n-aria-label="common.closeAria"
+            onclick="closeModal('patientDupClinicModal')">×</button>
+    <h3 style="margin:0 0 8px;" data-i18n="patient.dup.title">Duplicate patient to clinic</h3>
+    <p id="patientDupSourceMeta" style="margin:0 0 14px;font-size:12px;color:#64748b;"></p>
+    <div class="fg" style="margin-bottom:12px;">
+      <label data-i18n="patient.dup.targetClinic">Target clinic</label>
+      <select id="patientDupClinicSelect" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;"></select>
+    </div>
+    <div class="fg" style="margin-bottom:12px;">
+      <label data-i18n="patient.dup.newNo">New patient no.</label>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="patientDupNewNo" style="flex:1;padding:10px 12px;border:1px solid #ddd;border-radius:8px;">
+        <button type="button" id="patientDupGenNoBtn"
+                style="padding:8px 12px;border:1px solid #0f766e;border-radius:8px;background:#f0fdfa;color:#0f766e;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;"
+                data-i18n="patient.dup.genNo">Generate</button>
+      </div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:13px;cursor:pointer;">
+      <input type="checkbox" id="patientDupCreateBf">
+      <span data-i18n="patient.dup.createBf">Create brought-forward opening bill</span>
+    </label>
+    <div id="patientDupBfFields" hidden>
+      <div class="fg" style="margin-bottom:10px;">
+        <label data-i18n="patient.dup.bfAmount">Brought-forward amount (HK$)</label>
+        <input type="number" id="patientDupBfAmount" min="0.01" step="0.01"
+               style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;">
+      </div>
+      <div class="fg" style="margin-bottom:12px;">
+        <label data-i18n="patient.dup.bfNotes">Opening bill notes</label>
+        <input type="text" id="patientDupBfNotes"
+               style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;"
+               data-i18n-placeholder="patient.dup.bfNotesPh"
+               placeholder="Brought forward from original clinic">
+      </div>
+    </div>
+    <div id="patientDupError"
+         style="display:none;color:#dc2626;font-size:12px;font-weight:600;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:10px;">
+      <button type="button" id="patientDupConfirmBtn"
+              style="flex:1;padding:11px;background:var(--primary);color:#fff;border:none;border-radius:7px;font-size:14px;font-weight:700;cursor:pointer;"
+              data-i18n="patient.dup.confirm">Duplicate</button>
+      <button type="button" onclick="closeModal('patientDupClinicModal')"
+              style="flex:1;padding:11px;background:var(--gray);color:#fff;border:none;border-radius:7px;font-size:14px;cursor:pointer;"
+              data-i18n="bill.addPayment.btnCancel">Cancel</button>
     </div>
   </div>
 </div>

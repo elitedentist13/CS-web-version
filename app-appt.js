@@ -493,8 +493,27 @@ function pendingListBillLinkNote(pl) {
 }
 
 function pendingBillIdLocalStoreKey(pl) {
-    if (!billPatId || !pl) return '';
-    return String(billPatId) + ':' + String(pl.id || pl.label || pendingIdx);
+    // Only key by stable pending-list id — label/index keys collide across lists
+    // and can reattach a paid bill_id onto a later list (looks like multi-bill clear).
+    if (!billPatId || !pl || !pl.id) return '';
+    return String(billPatId) + ':' + String(pl.id);
+}
+
+/** Remove every localStorage slot that points at this bill id. */
+function clearAllPendingBillIdLocalStoreForBill(billId) {
+    var bid = String(billId || '').trim();
+    if (!bid) return;
+    try {
+        var map = JSON.parse(localStorage.getItem(PENDING_BILL_ID_LS_KEY) || '{}');
+        var changed = false;
+        Object.keys(map).forEach(function (k) {
+            if (String(map[k] || '') === bid) {
+                delete map[k];
+                changed = true;
+            }
+        });
+        if (changed) localStorage.setItem(PENDING_BILL_ID_LS_KEY, JSON.stringify(map));
+    } catch (_) { /* ignore */ }
 }
 
 function readPendingBillIdFromLocalStore(pl) {
@@ -615,12 +634,29 @@ function findBillRowForPendingList(pl, cb) {
             return;
         }
         fetchBillRowForPendingList(bid, function (row) {
-            if (row) finish(row);
-            else next();
+            if (!row) {
+                clearPendingBillIdLocalStore(pl);
+                next();
+                return;
+            }
+            // Never reattach a settled / already-paid bill to a pending list.
+            var paid = parseFloat(row.amount_paid) || 0;
+            var bal = parseFloat(row.balance);
+            if (paid > 0.005 || (isFinite(bal) && bal <= 0.005)) {
+                clearPendingBillIdLocalStore(pl);
+                next();
+                return;
+            }
+            finish(row);
         });
     }
 
-    /** Same patient + same bill date → reuse only when list has no stable id yet. */
+    /**
+     * Same patient + same bill date → reuse only when list has no stable id yet.
+     * Never adopt a bill that already has payments, is settled, or is linked to
+     * another pending list — that collapses several lists onto one row so one
+     * Balance transfer looks like it cleared multiple bills.
+     */
     function trySameDayPatientBill(next) {
         if (pl.id) {
             next();
@@ -632,6 +668,29 @@ function findBillRowForPendingList(pl, cb) {
         if (!hasPatId && !hasPatNo) {
             next();
             return;
+        }
+
+        function adoptIfSafe(row) {
+            if (!row || !row.id) {
+                next();
+                return;
+            }
+            var paid = parseFloat(row.amount_paid) || 0;
+            var bal = parseFloat(row.balance);
+            if (paid > 0.005) {
+                next();
+                return;
+            }
+            if (isFinite(bal) && bal <= 0.005) {
+                next();
+                return;
+            }
+            var note = String(row.notes || '');
+            if (note.indexOf(PENDING_LIST_BILL_NOTE_PREFIX) === 0) {
+                next();
+                return;
+            }
+            finish(row);
         }
 
         function queryByPatientNo() {
@@ -647,9 +706,7 @@ function findBillRowForPendingList(pl, cb) {
                 .order('created_at', { ascending: false })
                 .limit(1)
                 .then(function (r) {
-                    var row = (r.data && r.data[0]) ? r.data[0] : null;
-                    if (row) finish(row);
-                    else next();
+                    adoptIfSafe((r.data && r.data[0]) ? r.data[0] : null);
                 })
                 .catch(next);
         }
@@ -664,7 +721,7 @@ function findBillRowForPendingList(pl, cb) {
                 .limit(1)
                 .then(function (r) {
                     var row = (r.data && r.data[0]) ? r.data[0] : null;
-                    if (row) finish(row);
+                    if (row) adoptIfSafe(row);
                     else queryByPatientNo();
                 })
                 .catch(function () {
@@ -18045,7 +18102,19 @@ function loadPendingLists(cb) {
         merged.forEach(function (pl) {
             if (!pl || pl.bill_id) return;
             var localBid = readPendingBillIdFromLocalStore(pl);
-            if (localBid) pl.bill_id = localBid;
+            if (!localBid) return;
+            var known = (billHistoryCache || []).find(function (b) {
+                return b && String(b.id) === String(localBid);
+            });
+            if (known) {
+                var kPaid = parseFloat(known.amount_paid) || 0;
+                var kBal = parseFloat(known.balance);
+                if (kPaid > 0.005 || (isFinite(kBal) && kBal <= 0.005)) {
+                    clearPendingBillIdLocalStore(pl);
+                    return;
+                }
+            }
+            pl.bill_id = localBid;
         });
         pendingLists = merged;
         fetched.forEach(function(pl) {
@@ -18407,14 +18476,17 @@ function resetBillCreationAfterPayment(billId) {
     }
     bdCurrentBill = null;
 
-    var linkedId = null;
+    clearAllPendingBillIdLocalStoreForBill(billId);
+
+    // Remove every pending list that pointed at this bill (shared bill_id).
+    var linkedIds = [];
     if (billId && pendingLists.length) {
-        for (var i = 0; i < pendingLists.length; i++) {
-            if (pendingLists[i] && pendingLists[i].bill_id === billId) {
-                linkedId = pendingLists[i].id || null;
-                break;
-            }
-        }
+        pendingLists.forEach(function (pl) {
+            if (!pl || pl.bill_id !== billId) return;
+            clearPendingBillIdLocalStore(pl);
+            if (pl.id) linkedIds.push(pl.id);
+            else pl.bill_id = null;
+        });
     }
 
     function startFreshList() {
@@ -18427,11 +18499,46 @@ function resetBillCreationAfterPayment(billId) {
         }
     }
 
-    if (linkedId) {
-        removePaidPendingList(linkedId, startFreshList);
-    } else {
-        startFreshList();
+    function removeNext(i) {
+        if (i >= linkedIds.length) {
+            startFreshList();
+            return;
+        }
+        removePaidPendingList(linkedIds[i], function () {
+            removeNext(i + 1);
+        });
     }
+
+    if (linkedIds.length) removeNext(0);
+    else startFreshList();
+}
+
+/**
+ * Mark appointment Paid only when no other open bills remain for that visit.
+ * Avoids freezing the whole visit after settling one of several bills.
+ */
+function markAppointmentPaidIfNoOpenBills(apptId, justPaidBillId) {
+    if (!apptId) return;
+    SB.from('bills')
+        .select('id,balance,voided_at')
+        .eq('appointment_id', apptId)
+        .then(function (r) {
+            var stillOpen = (r.data || []).some(function (b) {
+                if (!b || b.voided_at) return false;
+                if (justPaidBillId && String(b.id) === String(justPaidBillId)) return false;
+                return (parseFloat(b.balance) || 0) > 0.005;
+            });
+            if (stillOpen) return;
+            queueFreezeRowImmediate(apptId, 'Paid');
+            SB.from('appointments')
+                .update({ bill_status: 'Paid' })
+                .eq('id', apptId)
+                .then(function () {
+                    if (typeof loadQueue === 'function') loadQueue({ soft: true });
+                    if (typeof loadToday === 'function') loadToday({ soft: true });
+                });
+        })
+        .catch(function () { /* ignore */ });
 }
 
 /** Drop a paid pending list from Step 1 state and DB; refresh item picker for a new list. */
@@ -19694,8 +19801,38 @@ var billTypesFetchOk = false;
 
 var BILL_TYPE_FALLBACK_PAY_METHODS = [
     'Cash', 'Visa', 'Mastercard', 'EPS', 'HKBC', 'Cheque',
-    'Bank Transfer', 'Insurance', 'Waived', 'Other'
+    'Bank Transfer', 'Insurance', 'Waived', 'Other',
+    'Balance transfer'
 ];
+
+/** Canonical payment method for inter-clinic balance close (excluded from income reports). */
+var BALANCE_TRANSFER_METHOD = 'Balance transfer';
+
+function isBalanceTransferPayMethod(method) {
+    var raw = String(method == null ? '' : method).trim();
+    if (!raw) return false;
+    // Chinese UI labels (also used as bill_types.type_name in some clinics)
+    if (raw === '余额转移' || raw === '餘額轉移') return true;
+    var s = raw.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+    if (s === 'balance transfer' || s === 'balancetransfer') return true;
+    if (s === 'inter clinic transfer' || s === 'interclinic transfer') return true;
+    if (s.indexOf('balance transfer') >= 0) return true;
+    if (s.indexOf('transferred') >= 0 && s.indexOf('settled') >= 0) return true;
+    return false;
+}
+
+/** Prefer canonical Balance transfer value when a bill_types row is clearly that method. */
+function billTypeCanonicalPayValue(bt) {
+    var val = billTypeOptionValue(bt);
+    if (isBalanceTransferPayMethod(val)) return BALANCE_TRANSFER_METHOD;
+    if (bt && isBalanceTransferPayMethod(bt.type_name)) return BALANCE_TRANSFER_METHOD;
+    if (bt && isBalanceTransferPayMethod(bt.name)) return BALANCE_TRANSFER_METHOD;
+    if (bt && isBalanceTransferPayMethod(bt.type_code)) return BALANCE_TRANSFER_METHOD;
+    return val;
+}
+
+window.isBalanceTransferPayMethod = isBalanceTransferPayMethod;
+window.BALANCE_TRANSFER_METHOD = BALANCE_TRANSFER_METHOD;
 
 function invalidateBillTypesCache() {
     billTypesCache = [];
@@ -19768,10 +19905,25 @@ function ensureBillTypeOptionExists(sel, value) {
     var v = String(value || '').trim();
     if (!v) return;
     var has = Array.prototype.some.call(sel.options || [], function (o) { return o.value === v; });
-    if (has) return;
+    if (has) {
+        // Repair mis-labelled Balance transfer options (value must stay canonical).
+        if (isBalanceTransferPayMethod(v)) {
+            Array.prototype.forEach.call(sel.options || [], function (o) {
+                if (o && o.value === v) {
+                    o.value = BALANCE_TRANSFER_METHOD;
+                    o.textContent = (typeof dispPayMethod === 'function')
+                        ? dispPayMethod(BALANCE_TRANSFER_METHOD, true)
+                        : BALANCE_TRANSFER_METHOD;
+                }
+            });
+        }
+        return;
+    }
     var o = document.createElement('option');
-    o.value = v;
-    o.textContent = billTypeDisplayLabel(v);
+    o.value = isBalanceTransferPayMethod(v) ? BALANCE_TRANSFER_METHOD : v;
+    o.textContent = isBalanceTransferPayMethod(v) && typeof dispPayMethod === 'function'
+        ? dispPayMethod(BALANCE_TRANSFER_METHOD, true)
+        : billTypeDisplayLabel(v);
     sel.appendChild(o);
 }
 
@@ -19871,14 +20023,20 @@ function applyBillTypeOptions(sel, markDefault, opts) {
     sel.innerHTML = '';
 
     var defaultFound = false;
+    var seenVals = {};
     list.forEach(function (bt) {
-        var val = billTypeOptionValue(bt);
+        var val = billTypeCanonicalPayValue(bt);
         if (!val) return;
+        // Avoid duplicate Balance transfer options (DB row + injected).
+        if (seenVals[val.toLowerCase()]) return;
+        seenVals[val.toLowerCase()] = true;
         var opt = document.createElement('option');
         opt.value = val;
-        opt.textContent = billTypeDisplayLabel(bt, true);
+        opt.textContent = isBalanceTransferPayMethod(val) && typeof dispPayMethod === 'function'
+            ? dispPayMethod(BALANCE_TRANSFER_METHOD, true)
+            : billTypeDisplayLabel(bt, true);
         if (bt.color_hex) opt.style.color = bt.color_hex;
-        if (markDefault && bt.is_default && !defaultFound) {
+        if (markDefault && bt.is_default && !defaultFound && !isBalanceTransferPayMethod(val)) {
             opt.selected = true;
             defaultFound = true;
         }
@@ -19897,6 +20055,10 @@ function applyBillTypeOptions(sel, markDefault, opts) {
     (opts.extraValues || []).forEach(function (v) {
         ensureBillTypeOptionExists(sel, v);
     });
+
+    if (opts.forPayment) {
+        ensureBillTypeOptionExists(sel, BALANCE_TRANSFER_METHOD);
+    }
 
     if (includePending) ensurePendingBillTypeOption(sel);
 }
@@ -20735,7 +20897,14 @@ function renderBillHistoryRows(wrap, data) {
                 '</div>' +
                 '<div class="' + metaClass.trim() + '" style="font-size:12px;color:#888;">' +
                     esc(b.bill_date) +
-                    ' &nbsp;|&nbsp; ' + esc((typeof dispPayMethod === 'function')
+                    ' &nbsp;|&nbsp; ' +
+                    (isBalanceTransferPayMethod(b.bill_type) &&
+                        (parseFloat(b.balance) || 0) <= 0.005
+                        ? ('<span class="bill-pay-transfer-badge">' +
+                            esc(tr('bill.transfer.settledLabel', 'Settled via transfer')) +
+                            '</span> ')
+                        : '') +
+                    esc((typeof dispPayMethod === 'function')
                         ? dispPayMethod(b.bill_type) : b.bill_type) +
                     (drTag ? (' &nbsp;|&nbsp; ' + esc(drTag)) : '') +
                     ' &nbsp;|&nbsp; ' + esc(trRepl('bill.history.paidBalance', {
@@ -21494,21 +21663,34 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex, bill) {
             : '<td style="padding:8px 10px;text-align:center;color:#cbd5e1;">—</td>');
     var dateTdClass = voided ? ' bill-pay-void-date-col' : '';
     var clinicLabel = billPaymentReceivingClinicDisplay(p, bill);
+    var isXfer = !voided && isBalanceTransferPayMethod(p.method);
+    if (isXfer) row.classList.add('bill-pay-row--transfer');
+    var methodHtml = esc((typeof dispPayMethod === 'function')
+        ? dispPayMethod(p.method)
+        : (p.method || '—'));
+    if (isXfer) {
+        methodHtml =
+            '<span class="bill-pay-transfer-badge">' +
+            esc(tr('bill.transfer.badge', 'Balance transfer')) + '</span> ' +
+            methodHtml;
+    }
+    var notesHtml = esc(p.notes || '');
+    if (isXfer && p.notes) {
+        notesHtml = '<span class="bill-pay-transfer-notes">' + notesHtml + '</span>';
+    }
     row.innerHTML =
         statusCell +
         '<td class="' + dateTdClass.trim() + '" style="padding:8px 12px;">' +
             billPaymentDateCellHtml(p, voided) + '</td>' +
         '<td style="padding:8px 12px;text-align:right;font-weight:700;' + amtColor + '">' +
             '<span class="' + amtClass + '">' + fmtHK(p.amount) + '</span></td>' +
-        '<td style="padding:8px 12px;">' + esc((typeof dispPayMethod === 'function')
-            ? dispPayMethod(p.method)
-            : (p.method || '—')) + '</td>' +
+        '<td style="padding:8px 12px;">' + methodHtml + '</td>' +
         '<td style="padding:8px 12px;color:#888;">' +
             esc(clinicLabel) + '</td>' +
         '<td style="padding:8px 12px;color:#888;">' +
             esc(p.received_by || '—') + '</td>' +
         '<td style="padding:8px 12px;color:#888;font-size:12px;">' +
-            esc(p.notes || '') + '</td>' +
+            notesHtml + '</td>' +
         actionCell;
     if (!voided) {
         var delBtn = row.querySelector('.bp-del-btn');
@@ -21560,6 +21742,36 @@ function loadBillPayments(billId) {
     });
 }
 
+var _balanceTransferSaveCtx = null;
+
+function syncAddPaymentTransferUi() {
+    var methodSel = g('apMethod');
+    var method = methodSel ? String(methodSel.value || '').trim() : '';
+    var isXfer = isBalanceTransferPayMethod(method);
+    var hint = g('apTransferHint');
+    if (hint) hint.hidden = !isXfer;
+    var notesLabel = g('apNotesLabel');
+    if (notesLabel) {
+        if (isXfer) {
+            notesLabel.textContent = tr('bill.addPayment.notesRequiredTransfer',
+                'Settlement notes (required)');
+        } else if (typeof applyI18nInRoot === 'function') {
+            notesLabel.setAttribute('data-i18n-html', 'bill.addPayment.notesOptionalHtml');
+            applyI18nInRoot(notesLabel.parentElement || notesLabel);
+        }
+    }
+    var notes = g('apNotes');
+    if (isXfer && notes && !String(notes.value || '').trim()) {
+        var clinic = '';
+        if (typeof currentClinicCodeForTagging === 'function') {
+            clinic = String(currentClinicCodeForTagging() || '').trim();
+        }
+        notes.placeholder = trRepl('bill.transferConfirm.notesPh', {
+            CLINIC: clinic || 'KT'
+        }, 'e.g. Settled via transfer → {CLINIC} (' + todayISO() + ')');
+    }
+}
+
 // ── Open add-payment modal ──────────────────────────────
 function openAddPaymentModal() {
     if (!bdCurrentBill) return;
@@ -21587,6 +21799,8 @@ function openAddPaymentModal() {
 
     var errEl = g('apError');
     if (errEl) errEl.style.display = 'none';
+    var xHint = g('apTransferHint');
+    if (xHint) xHint.hidden = true;
 
     var legacyMethod = bdCurrentBill.bill_type || '';
     ensureBillTypesLoaded(function () {
@@ -21595,9 +21809,130 @@ function openAddPaymentModal() {
                 forPayment: true,
                 extraValues: legacyMethod ? [legacyMethod] : []
             });
+            if (!methodSel._xferUiBound) {
+                methodSel._xferUiBound = true;
+                methodSel.addEventListener('change', syncAddPaymentTransferUi);
+            }
         }
+        syncAddPaymentTransferUi();
         openModal('addPaymentModal');
     });
+}
+
+function restoreAddPaymentModalAfterTransferConfirm() {
+    var ap = g('addPaymentModal');
+    if (!ap) return;
+    if (ap.getAttribute('data-bt-beneath') === '1') {
+        ap.style.visibility = '';
+        ap.style.pointerEvents = '';
+        ap.removeAttribute('data-bt-beneath');
+    }
+}
+
+function parkAddPaymentModalForTransferConfirm() {
+    var ap = g('addPaymentModal');
+    if (!ap) return;
+    ap.setAttribute('data-bt-beneath', '1');
+    ap.style.visibility = 'hidden';
+    ap.style.pointerEvents = 'none';
+}
+
+function bringBalanceTransferConfirmToFront() {
+    var m = g('balanceTransferConfirmModal');
+    if (!m) return;
+    m.style.zIndex = '3200';
+    if (m.parentNode) m.parentNode.appendChild(m);
+}
+
+function dismissBalanceTransferConfirm() {
+    _balanceTransferSaveCtx = null;
+    closeModal('balanceTransferConfirmModal');
+    restoreAddPaymentModalAfterTransferConfirm();
+}
+
+function showBalanceTransferConfirm(saveCtx) {
+    // Always persist the canonical method — never rely on a re-read of the select.
+    if (saveCtx) {
+        saveCtx.payMethod = BALANCE_TRANSFER_METHOD;
+        saveCtx.isBalanceTransfer = true;
+        if (saveCtx.payRecord) saveCtx.payRecord.method = BALANCE_TRANSFER_METHOD;
+    }
+    _balanceTransferSaveCtx = saveCtx;
+    var sum = g('btConfirmSummary');
+    if (sum) {
+        sum.innerHTML =
+            '<div><strong>' + esc(tr('bill.transferConfirm.amount', 'Amount')) + ':</strong> ' +
+            esc(fmtHK(saveCtx.payRecord.amount)) + '</div>' +
+            '<div style="margin-top:4px;"><strong>' +
+            esc(tr('bill.labelPaymentMethod', 'Method')) + ':</strong> ' +
+            esc((typeof dispPayMethod === 'function')
+                ? dispPayMethod(BALANCE_TRANSFER_METHOD) : BALANCE_TRANSFER_METHOD) + '</div>';
+    }
+    var notesEl = g('btConfirmNotes');
+    if (notesEl) {
+        notesEl.value = String((saveCtx.payRecord && saveCtx.payRecord.notes) || '').trim();
+        if (!notesEl.value) {
+            var xferClinic = '';
+            if (typeof currentClinicCodeForTagging === 'function') {
+                xferClinic = String(currentClinicCodeForTagging() || '').trim();
+            }
+            var xferDate = (saveCtx.payRecord && saveCtx.payRecord.paid_date) || todayISO();
+            notesEl.value = trRepl('bill.transferConfirm.defaultNotes', {
+                CLINIC: xferClinic || 'clinic',
+                DATE: xferDate
+            });
+        }
+    }
+    var ack = g('btConfirmAck');
+    if (ack) ack.checked = false;
+    var err = g('btConfirmError');
+    if (err) { err.style.display = 'none'; err.textContent = ''; }
+    parkAddPaymentModalForTransferConfirm();
+    bringBalanceTransferConfirmToFront();
+    openModal('balanceTransferConfirmModal');
+    if (typeof applyI18nInRoot === 'function') {
+        applyI18nInRoot(g('balanceTransferConfirmModal'));
+    }
+}
+
+function confirmBalanceTransferSave() {
+    var err = g('btConfirmError');
+    if (!_balanceTransferSaveCtx || !_balanceTransferSaveCtx.payRecord) {
+        dismissBalanceTransferConfirm();
+        return;
+    }
+    var notes = g('btConfirmNotes') ? String(g('btConfirmNotes').value || '').trim() : '';
+    if (!notes) {
+        if (err) {
+            err.textContent = tr('bill.transferConfirm.errNotes',
+                'Please enter settlement notes (receiving clinic / date).');
+            err.style.display = '';
+        }
+        return;
+    }
+    var ack = g('btConfirmAck');
+    if (!ack || !ack.checked) {
+        if (err) {
+            err.textContent = tr('bill.transferConfirm.errAck',
+                'Please confirm this is a balance transfer, not cash received here.');
+            err.style.display = '';
+        }
+        return;
+    }
+    _balanceTransferSaveCtx.payMethod = BALANCE_TRANSFER_METHOD;
+    _balanceTransferSaveCtx.payRecord.method = BALANCE_TRANSFER_METHOD;
+    _balanceTransferSaveCtx.payRecord.notes = notes;
+    _balanceTransferSaveCtx.isBalanceTransfer = true;
+    if (g('apNotes')) g('apNotes').value = notes;
+    if (g('apMethod')) {
+        ensureBillTypeOptionExists(g('apMethod'), BALANCE_TRANSFER_METHOD);
+        g('apMethod').value = BALANCE_TRANSFER_METHOD;
+    }
+    var ctx = _balanceTransferSaveCtx;
+    _balanceTransferSaveCtx = null;
+    closeModal('balanceTransferConfirmModal');
+    // Keep Add Payment parked until save finishes (success closes it; failure restores + reopens trail).
+    executeAddPaymentSave(ctx);
 }
 
 function billPaymentClinicContext() {
@@ -21625,38 +21960,80 @@ function billPaymentClinicContext() {
     };
 }
 
+function reportAddPaymentSaveError(ctx, msg) {
+    var text = trRepl('appt.msg.error', { MSG: msg || 'Save failed' });
+    if (ctx && ctx.isBalanceTransfer) {
+        restoreAddPaymentModalAfterTransferConfirm();
+        showBalanceTransferConfirm(ctx);
+        var btErr = g('btConfirmError');
+        if (btErr) {
+            btErr.textContent = text;
+            btErr.style.display = '';
+        }
+        return;
+    }
+    restoreAddPaymentModalAfterTransferConfirm();
+    var errEl = g('apError');
+    if (errEl) { errEl.textContent = text; errEl.style.display = ''; }
+}
+
 // ── Confirm & save a new payment ────────────────────────
 function executeAddPaymentSave(ctx) {
-    if (!ctx || !ctx.payRecord || !bdCurrentBill) return;
+    if (!ctx || !ctx.payRecord) return;
     var payRecord = ctx.payRecord;
+    // Pin ids before any UI reset — never re-read a possibly null bdCurrentBill.
+    var billId = payRecord.bill_id || (bdCurrentBill && bdCurrentBill.id) || null;
+    if (!billId) return;
+    payRecord.bill_id = billId;
+    var linkedApptId = (bdCurrentBill && bdCurrentBill.appointment_id) ||
+        (typeof billApptId !== 'undefined' ? billApptId : null) || null;
     var newPaid = ctx.newPaid;
     var newBalance = ctx.newBalance;
     var newStatus = ctx.newStatus;
     var payMethod = ctx.payMethod;
+    if (ctx.isBalanceTransfer || isBalanceTransferPayMethod(payMethod)) {
+        payMethod = BALANCE_TRANSFER_METHOD;
+        ctx.payMethod = BALANCE_TRANSFER_METHOD;
+        ctx.isBalanceTransfer = true;
+        payRecord.method = BALANCE_TRANSFER_METHOD;
+    }
     var errEl = g('apError');
 
     insertBillPaymentRecord(payRecord, function(r) {
         if (r.error) {
-            if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); errEl.style.display = ''; }
+            reportAddPaymentSaveError(ctx, r.error.message);
             return;
         }
-        // Update the parent bill's totals
+        // Update only this bill row.
         return SB.from('bills').update({
             amount_paid: newPaid,
             balance:     newBalance,
             status:      newStatus,
             bill_type:   payMethod
-        }).eq('id', bdCurrentBill.id)
+        }).eq('id', billId)
         .then(function(u) {
             if (u.error) {
-                if (errEl) { errEl.textContent = trRepl('appt.msg.error', { MSG: u.error.message }); errEl.style.display = ''; }
+                reportAddPaymentSaveError(ctx, u.error.message);
                 return;
             }
-            // Refresh in-memory bill object
-            bdCurrentBill.amount_paid = newPaid;
-            bdCurrentBill.balance     = newBalance;
-            bdCurrentBill.status      = newStatus;
-            bdCurrentBill.bill_type   = payMethod;
+            restoreAddPaymentModalAfterTransferConfirm();
+            // Refresh in-memory bill object (may be cleared after full pay reset)
+            if (bdCurrentBill && String(bdCurrentBill.id) === String(billId)) {
+                bdCurrentBill.amount_paid = newPaid;
+                bdCurrentBill.balance     = newBalance;
+                bdCurrentBill.status      = newStatus;
+                bdCurrentBill.bill_type   = payMethod;
+            }
+            // Keep history cache in sync for this bill only
+            if (typeof billHistoryCache !== 'undefined' && billHistoryCache && billHistoryCache.length) {
+                billHistoryCache.forEach(function (b) {
+                    if (!b || String(b.id) !== String(billId)) return;
+                    b.amount_paid = newPaid;
+                    b.balance = newBalance;
+                    b.status = newStatus;
+                    b.bill_type = payMethod;
+                });
+            }
 
             // Immediately re-render Step 1 — bdCurrentBill is now the freshest
             // source for isCurrentPendingListLocked(), so the lock activates
@@ -21665,22 +22042,26 @@ function executeAddPaymentSave(ctx) {
 
             closeModal('addPaymentModal');
 
-            // Refresh the detail view live
-            g('bdPaid').textContent    = fmtHK(newPaid);
-            g('bdBalance').textContent = fmtHK(newBalance);
-            g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
-            refreshBillDetailPaymentMethod(payMethod);
+            // Refresh the detail view live (only if still open on this bill)
+            if (bdCurrentBill && String(bdCurrentBill.id) === String(billId)) {
+                if (g('bdPaid')) g('bdPaid').textContent = fmtHK(newPaid);
+                if (g('bdBalance')) {
+                    g('bdBalance').textContent = fmtHK(newBalance);
+                    g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
+                }
+                refreshBillDetailPaymentMethod(payMethod);
 
-            var badge = g('bdStatusBadge');
-            if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
+                var badge = g('bdStatusBadge');
+                if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
 
-            var banner = g('bdOutstandingBanner');
-            var addBtn = g('bdAddPaymentBtn');
-            if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
-            if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
-            if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
+                var banner = g('bdOutstandingBanner');
+                var addBtn = g('bdAddPaymentBtn');
+                if (banner) banner.style.display = newBalance > 0 ? 'block' : 'none';
+                if (g('bdOutstandingAmt')) g('bdOutstandingAmt').textContent = fmtHK(newBalance);
+                if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
 
-            loadBillPayments(bdCurrentBill.id);
+                loadBillPayments(billId);
+            }
             loadBillHistory(function() {
                 // Re-render Step 1 immediately so the lock banner activates
                 // for partial payments without requiring a manual refresh.
@@ -21689,21 +22070,8 @@ function executeAddPaymentSave(ctx) {
             try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
 
             if (newBalance <= 0.005) {
-                var paidBillId = bdCurrentBill.id;
-                resetBillCreationAfterPayment(paidBillId);
-                // Freeze the queue timer: update the appointment status to Paid
-                var linkedApptId = (bdCurrentBill.appointment_id) ||
-                                   (typeof billApptId !== 'undefined' ? billApptId : null);
-                if (linkedApptId) {
-                    queueFreezeRowImmediate(linkedApptId, 'Paid');
-                    SB.from('appointments')
-                        .update({ bill_status: 'Paid' })
-                        .eq('id', linkedApptId)
-                    .then(function() {
-                        if (typeof loadQueue === 'function') loadQueue({ soft: true });
-                        if (typeof loadToday === 'function') loadToday({ soft: true });
-                    });
-                }
+                resetBillCreationAfterPayment(billId);
+                markAppointmentPaidIfNoOpenBills(linkedApptId, billId);
             }
         });
     });
@@ -21738,12 +22106,31 @@ function confirmAddPayment() {
         return;
     }
 
+    var notesRaw = g('apNotes') ? String(g('apNotes').value || '').trim() : '';
+    var isXferPay = isBalanceTransferPayMethod(payMethod);
+    if (isXferPay) {
+        // Canonicalize immediately so a later select reset cannot rewrite this to Cash.
+        payMethod = BALANCE_TRANSFER_METHOD;
+        if (g('apMethod')) {
+            ensureBillTypeOptionExists(g('apMethod'), BALANCE_TRANSFER_METHOD);
+            g('apMethod').value = BALANCE_TRANSFER_METHOD;
+        }
+    }
+    if (isXferPay && !notesRaw) {
+        if (errEl) {
+            errEl.textContent = tr('bill.transferConfirm.errNotes',
+                'Please enter settlement notes (receiving clinic / date).');
+            errEl.style.display = '';
+        }
+        return;
+    }
+
     var payRecord = {
         bill_id:     bdCurrentBill.id,
         paid_date:   g('apDate').value || todayISO(),
         amount:      amount,
         method:      payMethod,
-        notes:       g('apNotes').value  || null,
+        notes:       notesRaw || null,
         received_by: (typeof currentName !== 'undefined' ? currentName : null)
     };
     var clinicCtx = billPaymentClinicContext();
@@ -21756,8 +22143,15 @@ function confirmAddPayment() {
         newPaid: newPaid,
         newBalance: newBalance,
         newStatus: newStatus,
-        payMethod: payMethod
+        payMethod: payMethod,
+        isBalanceTransfer: isXferPay
     };
+
+    // Balance transfer: one trail-check confirm (notes + acknowledgement).
+    if (isXferPay) {
+        showBalanceTransferConfirm(saveCtx);
+        return;
+    }
 
     var currLabel = activePaymentClinicDisplay();
     var currKey = billPaymentClinicCompareKey({

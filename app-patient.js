@@ -1094,6 +1094,12 @@ function renderPatients(list) {
                     'data-id="'+p.id+'">' +
                     esc(currentRole === 'nurse' ? patTr('patient.btnClinicTag') : patTr('patient.btnEdit')) +
                     '</button>' +
+                    '<button class="btn-dup-clinic" ' +
+                    'style="background:#0f766e;color:white;border:none;' +
+                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
+                    'data-id="'+p.id+'">' +
+                    esc(patTr('patient.dup.btn')) +
+                    '</button>' +
                 '</div>' +
             '</td>';
         tr.addEventListener('click', function(e) {
@@ -1149,6 +1155,12 @@ function renderPatients(list) {
         b.addEventListener('click', function(e){
             e.stopPropagation();
             openEditPatient(b.dataset.id);
+        });
+    });
+    tb.querySelectorAll('.btn-dup-clinic').forEach(function(b) {
+        b.addEventListener('click', function(e){
+            e.stopPropagation();
+            openDuplicatePatientToClinic(b.dataset.id);
         });
     });
     tb.querySelectorAll('.patient-dir-banana-link').forEach(function(b) {
@@ -1691,6 +1703,284 @@ function editNote(nid) {
             if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
             loadTreatments(selPatientId);
         });
+    });
+}
+
+// ════════════════════════════════════════════════════════════════
+// DUPLICATE PATIENT → ANOTHER CLINIC (+ optional BF opening bill)
+// ════════════════════════════════════════════════════════════════
+var _patientDupSource = null;
+
+function patientDupClinicTagFromSelect() {
+    var sel = g('patientDupClinicSelect');
+    if (!sel || !sel.value) return '';
+    var rec = typeof clinicRecordFromId === 'function'
+        ? clinicRecordFromId(sel.value) : null;
+    if (rec) {
+        var code = String(rec.clinic_code || '').trim();
+        if (code) return code;
+        return String(rec.id || '').trim();
+    }
+    return String(sel.value || '').trim();
+}
+
+function fillPatientDupClinicSelect(excludeTag) {
+    var sel = g('patientDupClinicSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    var exclude = String(excludeTag || '').trim().toUpperCase();
+    var list = (typeof APP_CLINICS !== 'undefined' && APP_CLINICS) ? APP_CLINICS : [];
+    var n = 0;
+    list.forEach(function (c) {
+        if (!c || c.is_active === false) return;
+        var code = String(c.clinic_code || c.id || '').trim();
+        if (exclude && code.toUpperCase() === exclude) return;
+        var opt = document.createElement('option');
+        opt.value = String(c.id || '');
+        opt.textContent = String(c.name || c.clinic_code || c.id || '—');
+        sel.appendChild(opt);
+        n++;
+    });
+    if (!n) {
+        var o = document.createElement('option');
+        o.value = '';
+        o.textContent = patTr('patient.select.loadingClinics');
+        sel.appendChild(o);
+    }
+}
+
+function openDuplicatePatientToClinic(patientId) {
+    var id = String(patientId || '');
+    var p = (patientListCache || []).find(function (x) {
+        return x && String(x.id) === id;
+    });
+    function show(src) {
+        if (!src) {
+            alert(patTr('patient.alertNotFound') || 'Patient not found.');
+            return;
+        }
+        _patientDupSource = src;
+        var meta = g('patientDupSourceMeta');
+        if (meta) {
+            var nm = ((src.chinese_name ? src.chinese_name + ' ' : '') + (src.full_name || '')).trim();
+            meta.textContent = patTrRepl('patient.dup.sourceMeta', {
+                NAME: nm || '—',
+                NO: src.patient_no || '—',
+                CLINIC: src[PATIENT_CLINIC_TAG_FIELD] || '—'
+            });
+        }
+        fillPatientDupClinicSelect(src[PATIENT_CLINIC_TAG_FIELD]);
+        var err = g('patientDupError');
+        if (err) { err.style.display = 'none'; err.textContent = ''; }
+        var bfCb = g('patientDupCreateBf');
+        if (bfCb) bfCb.checked = false;
+        var bfFields = g('patientDupBfFields');
+        if (bfFields) bfFields.hidden = true;
+        var amtEl = g('patientDupBfAmount');
+        if (amtEl) amtEl.value = '';
+        var notesEl = g('patientDupBfNotes');
+        if (notesEl) {
+            notesEl.value = patTrRepl('patient.dup.bfNotesPh', {
+                CLINIC: src[PATIENT_CLINIC_TAG_FIELD] || 'clinic'
+            });
+        }
+        // Prefill BF amount from current outstanding if available
+        if (typeof SB !== 'undefined' && SB.from) {
+            SB.from('bills').select('balance,voided_at')
+                .eq('patient_id', src.id)
+                .then(function (r) {
+                    var due = 0;
+                    (r.data || []).forEach(function (b) {
+                        if (!b || b.voided_at) return;
+                        var x = parseFloat(b.balance);
+                        if (isFinite(x) && x > 0.005) due += x;
+                    });
+                    if (amtEl && due > 0.005) amtEl.value = due.toFixed(2);
+                });
+        }
+        genPatientNo(function (no) {
+            var noEl = g('patientDupNewNo');
+            if (noEl && no) noEl.value = no;
+        });
+        if (!g('patientDupClinicSelect')._dupBound) {
+            g('patientDupClinicSelect')._dupBound = true;
+            var createBf = g('patientDupCreateBf');
+            if (createBf) {
+                createBf.addEventListener('change', function () {
+                    var box = g('patientDupBfFields');
+                    if (box) box.hidden = !createBf.checked;
+                });
+            }
+            var genBtn = g('patientDupGenNoBtn');
+            if (genBtn) {
+                genBtn.addEventListener('click', function () {
+                    genPatientNo(function (no) {
+                        var noEl = g('patientDupNewNo');
+                        if (noEl && no) noEl.value = no;
+                    });
+                });
+            }
+            var conf = g('patientDupConfirmBtn');
+            if (conf) conf.addEventListener('click', confirmDuplicatePatientToClinic);
+        }
+        ensureModalNoBackdropClose('patientDupClinicModal');
+        openModal('patientDupClinicModal');
+        if (typeof applyI18nInRoot === 'function') {
+            applyI18nInRoot(g('patientDupClinicModal'));
+        }
+    }
+    if (p) {
+        show(p);
+        return;
+    }
+    SB.from('patients').select('*').eq('id', id).maybeSingle().then(function (r) {
+        show(r.data || null);
+    });
+}
+
+function confirmDuplicatePatientToClinic() {
+    if (!_patientDupSource) return;
+    var err = g('patientDupError');
+    function fail(msg) {
+        if (err) { err.textContent = msg; err.style.display = ''; }
+    }
+    var clinicId = g('patientDupClinicSelect')
+        ? String(g('patientDupClinicSelect').value || '').trim() : '';
+    var clinicTag = patientDupClinicTagFromSelect();
+    if (!clinicId || !clinicTag) {
+        fail(patTr('patient.dup.needClinic'));
+        return;
+    }
+    var srcTag = String(_patientDupSource[PATIENT_CLINIC_TAG_FIELD] || '').trim().toUpperCase();
+    if (clinicTag.toUpperCase() === srcTag) {
+        fail(patTr('patient.dup.needClinic'));
+        return;
+    }
+    var no = normalizePatientNoInput(g('patientDupNewNo') && g('patientDupNewNo').value);
+    if (!no) {
+        fail(patTr('patient.dup.needNo'));
+        return;
+    }
+    var createBf = !!(g('patientDupCreateBf') && g('patientDupCreateBf').checked);
+    var bfAmt = parseFloat(g('patientDupBfAmount') && g('patientDupBfAmount').value) || 0;
+    if (createBf && bfAmt <= 0.005) {
+        fail(patTr('patient.dup.needBfAmt'));
+        return;
+    }
+    var bfNotes = (g('patientDupBfNotes') && g('patientDupBfNotes').value) || '';
+    if (err) err.style.display = 'none';
+
+    patientNoDupQuery(no).then(function (dupr) {
+        if (dupr.error) {
+            fail(patTrRepl('patient.alertVerifyNoFail', { MSG: dupr.error.message }));
+            return;
+        }
+        if (dupr.data && dupr.data.length) {
+            fail(patTr('patient.alertNoInUse'));
+            return;
+        }
+        var src = _patientDupSource;
+        var payload = {
+            patient_no: no,
+            full_name: src.full_name || '',
+            chinese_name: src.chinese_name || null,
+            phone_number: src.phone_number || null,
+            mobile_phone: src.mobile_phone || null,
+            email: src.email || null,
+            sex: src.sex || null,
+            dob: src.dob || null,
+            hkid: src.hkid || null,
+            insurance_no: src.insurance_no || null,
+            occupation: src.occupation || null,
+            address: src.address || null,
+            residential_district: src.residential_district || null,
+            medical_alerts: src.medical_alerts || null,
+            family_history: src.family_history || null,
+            referred_by: src.referred_by || null,
+            remarks: src.remarks || null,
+            banana_index: src.banana_index != null ? src.banana_index : null,
+            banana_notes: src.banana_notes || null
+        };
+        payload[PATIENT_CLINIC_TAG_FIELD] = clinicTag;
+
+        function insertBill(newPatient, done) {
+            if (!createBf) { done(null); return; }
+            var itemName = patTr('patient.dup.bfItem') || 'Brought-forward balance';
+            var bill = {
+                patient_id: newPatient.id,
+                patient_name: ((src.chinese_name ? src.chinese_name + ' ' : '') +
+                    (src.full_name || '')).trim() || null,
+                patient_no: no,
+                bill_date: (typeof todayISO === 'function') ? todayISO() : new Date().toISOString().slice(0, 10),
+                bill_type: (typeof billPendingPayTypeValue === 'function')
+                    ? billPendingPayTypeValue() : 'Pending',
+                items: JSON.stringify([{
+                    item_name: itemName,
+                    description: itemName,
+                    qty: 1,
+                    unit_price: bfAmt,
+                    amount: bfAmt
+                }]),
+                subtotal: bfAmt,
+                discount: 0,
+                total: bfAmt,
+                amount_paid: 0,
+                balance: bfAmt,
+                notes: String(bfNotes || '').trim() ||
+                    ('Brought forward from ' + (src[PATIENT_CLINIC_TAG_FIELD] || '')),
+                status: 'Partial',
+                clinic_tag: clinicTag
+            };
+            if (clinicId) bill.clinic_id = clinicId;
+            SB.from('bills').insert([bill]).select('id').single().then(function (br) {
+                if (br.error) {
+                    fail(trRepl('appt.msg.error', { MSG: br.error.message }));
+                    return;
+                }
+                done(br.data);
+            });
+        }
+
+        function finishOk(newPatient, billRow) {
+            closeModal('patientDupClinicModal');
+            _patientDupSource = null;
+            fetchPatients({ resetPage: true, clearAdv: true });
+            var msg = billRow
+                ? patTrRepl('patient.dup.okBf', {
+                    NO: no, CLINIC: clinicTag, AMT: bfAmt.toFixed(2)
+                })
+                : patTrRepl('patient.dup.ok', { NO: no, CLINIC: clinicTag });
+            alert(msg);
+            if (newPatient && newPatient.id && typeof setDirectoryActivePatient === 'function') {
+                setDirectoryActivePatient(newPatient, 'dup-patient');
+            }
+        }
+
+        function doInsert(pl, retried) {
+            SB.from('patients').insert([pl]).select('id,patient_no,full_name,chinese_name')
+                .then(function (r) {
+                    if (r.error) {
+                        var msg = String(r.error.message || '').toLowerCase();
+                        if (!retried && msg.indexOf('banana_notes') >= 0) {
+                            var pl2 = Object.assign({}, pl);
+                            delete pl2.banana_notes;
+                            doInsert(pl2, true);
+                            return;
+                        }
+                        fail(trRepl('appt.msg.error', { MSG: r.error.message }));
+                        return;
+                    }
+                    var row = r.data && r.data[0] ? r.data[0] : null;
+                    if (!row) {
+                        fail(trRepl('appt.msg.error', { MSG: 'No patient row' }));
+                        return;
+                    }
+                    insertBill(row, function (billRow) {
+                        finishOk(row, billRow);
+                    });
+                });
+        }
+        doInsert(payload, false);
     });
 }
 

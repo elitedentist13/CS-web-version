@@ -1095,6 +1095,33 @@ body.app-session-active {
 .patient-adv-transfer-btn:hover {
     background: #0d9488 !important;
 }
+.ap-transfer-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #0f766e;
+    line-height: 1.4;
+}
+.bill-pay-transfer-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #0f766e;
+    background: #ccfbf1;
+    border: 1px solid #99f6e4;
+    border-radius: 999px;
+    padding: 2px 7px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.bill-pay-row--transfer td {
+    background: #f0fdfa !important;
+}
+.bill-pay-transfer-notes {
+    color: #0f766e;
+    font-weight: 600;
+}
 .patient-adv-actions {
     display: flex;
     flex-wrap: wrap;
@@ -7292,6 +7319,11 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 #billPaymentClinicConfirmModal {
     z-index: 3050;
+}
+
+/* Must sit above #addPaymentModal / #billDetailModal (3000) or the trail-check is buried. */
+#balanceTransferConfirmModal {
+    z-index: 3200;
 }
 
 #receiptPrintOptionsModal {

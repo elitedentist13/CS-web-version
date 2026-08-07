@@ -413,6 +413,7 @@ function dispPayMethod(raw, noCfgLookup) {
         'hkbc': 'bill.pay.hkbc',
         'cheque': 'bill.pay.cheque',
         'bank transfer': 'bill.pay.bankTransfer',
+        'balance transfer': 'bill.pay.balanceTransfer',
         'insurance': 'bill.pay.insurance',
         'waived': 'bill.pay.waived',
         'other': 'bill.pay.other',

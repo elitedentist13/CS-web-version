@@ -174,9 +174,11 @@ WHERE s.batch_id = p.batch_id
     OR b.notes LIKE '%CS_TXN:' || trim(s.txn_code) || '%'
   );
 
--- Ensure payments_json column exists on older staging tables
+-- Ensure INCOMETABLE / items columns exist (older staging tables)
 ALTER TABLE public.cs_payments_staging
   ADD COLUMN IF NOT EXISTS payments_json text;
+ALTER TABLE public.cs_payments_staging
+  ADD COLUMN IF NOT EXISTS items_json text;
 
 -- 7a) Installment bill_payments from payments_json (INCOMETABLE)
 INSERT INTO public.bill_payments (

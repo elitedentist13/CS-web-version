@@ -95,11 +95,17 @@ CREATE INDEX IF NOT EXISTS cs_payments_staging_status_idx ON public.cs_payments_
 CREATE INDEX IF NOT EXISTS cs_payments_staging_hkid_idx ON public.cs_payments_staging (hkid_norm);
 CREATE INDEX IF NOT EXISTS cs_payments_staging_txn_idx ON public.cs_payments_staging (txn_code);
 
+-- Upgrade older staging tables created before INCOMETABLE support
+ALTER TABLE public.cs_payments_staging
+  ADD COLUMN IF NOT EXISTS payments_json text;
+ALTER TABLE public.cs_payments_staging
+  ADD COLUMN IF NOT EXISTS items_json text;
+
 -- ---------------------------------------------------------------------------
 -- 2) Set active batch (EDIT THIS)
 -- ---------------------------------------------------------------------------
 UPDATE public.cs_import_params
-SET batch_id = 'OKT_PAY_20260806_141904',  -- e.g. from CS_TKO_PaymentHistory_staging_for_supabase_v2.csv
+SET batch_id = 'TKO_PAY_20260807_093314',
     require_clinic_scope = true,
     updated_at = now()
 WHERE id = 1;
@@ -576,6 +582,128 @@ WHERE s.import_status IN ('inserted', 'skipped_dup')
         OR bp.notes = 'CS_TXN:' || trim(s.txn_code)
       )
   );
+
+-- ---------------------------------------------------------------------------
+-- 5e) Re-import expand: replace lump CS Import payments with INCOMETABLE rows
+--     Run AFTER §5a–5d when most rows are skipped_dup (bills already exist).
+--     Safe: only touches bills linked via staging.inserted_bill_id for this batch.
+-- ---------------------------------------------------------------------------
+
+-- Preview how many bills still need method/installment expansion
+SELECT
+  count(*) FILTER (
+    WHERE coalesce(trim(s.payments_json), '') <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM public.bill_payments bp
+        WHERE bp.bill_id = s.inserted_bill_id
+          AND bp.notes LIKE 'CS_INCOME:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+                        || ':' || trim(s.txn_code) || ':%'
+      )
+  ) AS bills_needing_income_expand,
+  count(*) FILTER (
+    WHERE coalesce(trim(s.payments_json), '') <> ''
+      AND EXISTS (
+        SELECT 1 FROM public.bill_payments bp
+        WHERE bp.bill_id = s.inserted_bill_id
+          AND bp.notes LIKE 'CS_INCOME:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+                        || ':' || trim(s.txn_code) || ':%'
+      )
+  ) AS bills_already_have_cs_income
+FROM public.cs_payments_staging s
+JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
+WHERE s.import_status IN ('inserted', 'skipped_dup')
+  AND s.inserted_bill_id IS NOT NULL;
+
+-- Delete lump CS_TXN / CS Import payment rows so installments do not double-count
+DELETE FROM public.bill_payments bp
+USING public.cs_payments_staging s
+JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
+WHERE bp.bill_id = s.inserted_bill_id
+  AND s.import_status IN ('inserted', 'skipped_dup')
+  AND s.inserted_bill_id IS NOT NULL
+  AND coalesce(trim(s.payments_json), '') <> ''
+  AND (
+    bp.notes LIKE 'CS_TXN:%'
+    OR coalesce(bp.method, '') = 'CS Import'
+  )
+  AND coalesce(bp.notes, '') NOT LIKE 'CS_INCOME:%';
+
+-- Insert real method / installment rows (idempotent via CS_INCOME notes)
+INSERT INTO public.bill_payments (
+  bill_id, paid_date, amount, method, notes, clinic_tag, created_at
+)
+SELECT
+  s.inserted_bill_id,
+  CASE
+    WHEN coalesce(nullif(trim(j.paid_date), ''), '') ~ '^\d{8}$'
+      THEN (
+        substring(trim(j.paid_date),1,4) || '-' ||
+        substring(trim(j.paid_date),5,2) || '-' ||
+        substring(trim(j.paid_date),7,2)
+      )::date
+    WHEN coalesce(trim(j.paid_date), '') <> ''
+      THEN trim(j.paid_date)::date
+    WHEN length(trim(s.bill_date)) = 8
+      THEN (
+        substring(trim(s.bill_date),1,4) || '-' ||
+        substring(trim(s.bill_date),5,2) || '-' ||
+        substring(trim(s.bill_date),7,2)
+      )::date
+    ELSE NULL
+  END,
+  coalesce(j.amount, 0),
+  coalesce(nullif(trim(j.method), ''), 'CS Import'),
+  'CS_INCOME:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+    || ':' || trim(s.txn_code) || ':' || coalesce(j.ord::text, '0'),
+  public.normalize_clinic_tag(s.banana_clinic_tag),
+  CASE
+    WHEN coalesce(trim(j.paid_timestamp), '') <> ''
+      THEN (trim(j.paid_timestamp)::timestamp AT TIME ZONE 'Asia/Hong_Kong')
+    WHEN coalesce(trim(s.bill_timestamp), '') <> ''
+      THEN (trim(s.bill_timestamp)::timestamp AT TIME ZONE 'Asia/Hong_Kong')
+    ELSE now()
+  END
+FROM public.cs_payments_staging s
+JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
+CROSS JOIN LATERAL (
+  SELECT
+    ord::int,
+    e->>'paid_date' AS paid_date,
+    e->>'paid_timestamp' AS paid_timestamp,
+    e->>'method' AS method,
+    coalesce(nullif(e->>'amount', '')::numeric, 0) AS amount
+  FROM jsonb_array_elements(coalesce(nullif(trim(s.payments_json), '')::jsonb, '[]'::jsonb))
+    WITH ORDINALITY AS t(e, ord)
+) j
+WHERE s.import_status IN ('inserted', 'skipped_dup')
+  AND s.inserted_bill_id IS NOT NULL
+  AND coalesce(trim(s.payments_json), '') <> ''
+  AND coalesce(j.amount, 0) > 0.005
+  AND NOT EXISTS (
+    SELECT 1 FROM public.bill_payments bp
+    WHERE bp.bill_id = s.inserted_bill_id
+      AND bp.notes LIKE 'CS_INCOME:' || public.normalize_clinic_tag(s.banana_clinic_tag)
+                    || ':' || trim(s.txn_code) || ':%'
+  );
+
+-- Spot-check: multi-installment bills now have real methods
+SELECT
+  s.txn_code,
+  s.chart_no,
+  s.matched_patient_no,
+  count(bp.*) AS n_payments,
+  string_agg(bp.method || '=' || bp.amount::text, ' | ' ORDER BY bp.created_at, bp.amount) AS methods
+FROM public.cs_payments_staging s
+JOIN public.cs_import_params p ON p.id = 1 AND s.batch_id = p.batch_id
+JOIN public.bill_payments bp ON bp.bill_id = s.inserted_bill_id
+WHERE s.import_status = 'skipped_dup'
+  AND bp.notes LIKE 'CS_INCOME:%'
+  AND coalesce(trim(s.payments_json), '') <> ''
+  AND (s.payments_json::jsonb) <> '[]'::jsonb
+  AND jsonb_array_length(s.payments_json::jsonb) >= 2
+GROUP BY 1, 2, 3
+ORDER BY n_payments DESC
+LIMIT 20;
 
 -- ---------------------------------------------------------------------------
 -- 6) Final report

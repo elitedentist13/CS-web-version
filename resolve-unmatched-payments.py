@@ -57,6 +57,7 @@ STAGING_FIELDS = [
     "remarks",
     "diagnosis",
     "items_json",
+    "payments_json",  # keep INCOMETABLE methods / installments for resolve insert
     "resolved_patient_id",
     "resolve_method",
 ]

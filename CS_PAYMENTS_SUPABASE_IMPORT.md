@@ -195,6 +195,25 @@ Then SQL (`supabase_cs_payments_void_duplicates.sql`):
 
 Manually review `same_day_different_total` / split-total cases (add extra `cs_bill_id` rows to void staging if confirmed).
 
+### G2 — Transfer-balance void (**JSM_PENDING** carry-over; multi-branch)
+
+After **G**, find CS open plans whose outstanding was carried into Banana as a later transfer bill, then CS still took further installments:
+
+```bat
+python find-cs-transfer-balance-duplicates.py ^
+  --branch KT --clinic-tag KT ^
+  --out-dir "C:\Users\ROOM 2\Downloads" ^
+  --append-master-log
+```
+
+Full checklist + log: **`CS_TRANSFER_BALANCE_VOID.md`** · **`CS_TRANSFER_BALANCE_VOID_LOG.md`**.
+
+Match (bill dates usually **differ**):
+
+`Banana.total ≈ CS.balance + sum(CS payments on/after Banana.bill_date)`
+
+Then same void SQL as **G** (`TRUNCATE cs_bill_dup_void` → import transfer void CSV → §1–2).
+
 ### H — Unmatched repair (optional)
 
 Same idea as notes resolve:
@@ -227,6 +246,8 @@ Then set `cs_import_params.batch_id` to the printed `*_PAY_RESOLVE_*`, import re
 - [ ] Items OK (via `--items` or backfill F)  
 - [ ] **G — Banana wins:** `find-cs-bill-duplicates.py --branch <X> --clinic-tag <X>`  
 - [ ] Void staging imported → void SQL §1–2 (void CS `CS_TXN:` only; keep Banana)  
+- [ ] **G2 — Transfer-balance void:** `find-cs-transfer-balance-duplicates.py --branch <X> --clinic-tag <X> --append-master-log`  
+- [ ] Transfer void CSV imported → void SQL §1–2 again; log in `CS_TRANSFER_BALANCE_VOID_LOG.md`  
 - [ ] Unmatched reviewed / repaired  
 - [ ] App hard-refresh; sample patient balances look correct (no double bills)  
 

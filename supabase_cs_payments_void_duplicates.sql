@@ -12,13 +12,15 @@
 --   Void the CS duplicate. Keep the Banana bill + its bill_payments.
 --
 -- Per branch:
---   1) python find-cs-bill-duplicates.py --branch PL --clinic-tag PL
---   2) Run §0 below
---   3) Import CS_<BRANCH>_bill_dup_void_staging_for_supabase.csv
---      into cs_bill_dup_void (header on)
---   4) Run §1 preview → §2 void → §3 report
---   5) Manually review CS_<BRANCH>_bill_duplicate_conflicts.csv rows with
---      action=manual_review / same_day_different_total
+--   1) Exact dups: python find-cs-bill-duplicates.py --branch PL --clinic-tag PL
+--   2) Transfer-balance dups (JSM_PENDING carry-over; different bill dates):
+--        python find-cs-transfer-balance-duplicates.py --branch PL --clinic-tag PL
+--        → CS_PL_transfer_balance_void_staging_for_supabase.csv
+--        Docs/log: CS_TRANSFER_BALANCE_VOID.md / CS_TRANSFER_BALANCE_VOID_LOG.md
+--   3) Run §0 below (once)
+--   4) TRUNCATE cs_bill_dup_void; import the void staging CSV for this pass
+--   5) Run §1 preview → §2 void → §3 report
+--   6) Manually review conflict CSV rows with action=manual_review
 -- =============================================================================
 
 -- 0) Staging (safe to re-run)
@@ -85,21 +87,4 @@ WHERE b.id = d.cs_bill_id
   AND d.voided_at IS NULL;
 
 -- 3) Report
-SELECT
-  count(*) FILTER (WHERE notes LIKE '%CS_DUP_VOID:%') AS cs_dup_voided_total,
-  count(*) FILTER (
-    WHERE notes LIKE '%CS_TXN:%' AND voided_at IS NULL
-  ) AS cs_bills_still_active,
-  count(*) FILTER (
-    WHERE notes LIKE '%CS_TXN:%'
-      AND voided_at IS NULL
-      AND coalesce(balance, 0) > 0.05
-  ) AS cs_open_balance_still_active
-FROM public.bills;
-
--- Optional: staging rows processed this run
-SELECT reason, count(*) AS n
-FROM public.cs_bill_dup_void
-WHERE voided_at IS NOT NULL
-GROUP BY 1
-ORDER BY n DESC;
+th

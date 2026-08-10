@@ -353,6 +353,11 @@ ORDER BY n DESC;
 -- ---------------------------------------------------------------------------
 -- 5) Insert bills (+ bill_payments when received > 0)
 -- ---------------------------------------------------------------------------
+-- If SQL Editor hits "upstream timeout" on large batches (~10k+ bills),
+-- do NOT re-run this whole §5. Use chunked inserts instead:
+--   supabase_cs_payments_import_chunked.sql
+-- (run BLOCK B / BLOCK C repeatedly until Progress shows matched = 0).
+-- ---------------------------------------------------------------------------
 
 -- 5a) Already imported earlier → skipped_dup
 -- Only treat as dup when the existing CS_TXN bill is on the SAME matched patient

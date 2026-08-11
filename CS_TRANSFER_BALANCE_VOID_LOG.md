@@ -29,6 +29,78 @@ Per-run machine logs: `CS_<BRANCH>_transfer_balance_void_<stamp>.log` (written b
 
 ## Runs
 
+### 2026-08-11 — TKO (clinic_tag=PY)
+
+| Field | Value |
+|-------|-------|
+| Finder command | `python find-cs-transfer-balance-duplicates.py --branch TKO --clinic-tag PY` |
+| Open CS bills (bal>0) scanned | 70 |
+| Active Banana bills in scope | 368 |
+| Void rows | **4** |
+| Reasons | `{'transfer_then_cs_installment': 3, 'transfer_gap_eq_first_banana_pay': 1}` |
+| Void staging CSV | `CS_TKO_transfer_balance_void_staging_for_supabase.csv` |
+| Review CSV | `CS_TKO_transfer_balance_conflicts.csv` |
+| Run log | `CS_TKO_transfer_balance_void_20260811_220155.log` |
+| Patients | PY002047, PY002062, PY002139, PY002224 |
+| Supabase void | import → `supabase_cs_payments_void_duplicates.sql` §1–3 |
+| Notes | Auto-appended by finder (`--append-master-log`). See `CS_TRANSFER_BALANCE_VOID.md`. |
+
+
+
+### 2026-08-11 — TKO (clinic_tag=PY)
+
+| Field | Value |
+|-------|-------|
+| Finder command | `python find-cs-transfer-balance-duplicates.py --branch TKO --clinic-tag PY` |
+| Open CS bills (bal>0) scanned | 70 |
+| Active Banana bills in scope | 367 |
+| Void rows | **4** |
+| Reasons | `{'transfer_then_cs_installment': 3, 'transfer_gap_eq_first_banana_pay': 1}` |
+| Void staging CSV | `CS_TKO_transfer_balance_void_staging_for_supabase.csv` |
+| Review CSV | `CS_TKO_transfer_balance_conflicts.csv` |
+| Run log | `CS_TKO_transfer_balance_void_20260811_215550.log` |
+| Patients | PY002047, PY002062, PY002139, PY002224 |
+| Supabase void | import → `supabase_cs_payments_void_duplicates.sql` §1–3 |
+| Notes | Auto-appended by finder (`--append-master-log`). See `CS_TRANSFER_BALANCE_VOID.md`. |
+
+
+
+### 2026-08-11 — TKO (clinic_tag=PY)
+
+| Field | Value |
+|-------|-------|
+| Finder command | `python find-cs-transfer-balance-duplicates.py --branch TKO --clinic-tag PY` |
+| Open CS bills (bal>0) scanned | 70 |
+| Active Banana bills in scope | 334 |
+| Void rows | **0** |
+| Reasons | `{}` |
+| Void staging CSV | `CS_TKO_transfer_balance_void_staging_for_supabase.csv` |
+| Review CSV | `CS_TKO_transfer_balance_conflicts.csv` |
+| Run log | `CS_TKO_transfer_balance_void_20260811_215146.log` |
+| Patients | (none) |
+| Supabase void | import → `supabase_cs_payments_void_duplicates.sql` §1–3 |
+| Notes | Auto-appended by finder (`--append-master-log`). See `CS_TRANSFER_BALANCE_VOID.md`. |
+
+
+
+### 2026-08-11 — TKO (clinic_tag=PY)
+
+| Field | Value |
+|-------|-------|
+| Finder command | `python find-cs-transfer-balance-duplicates.py --branch TKO --clinic-tag PY` |
+| Open CS bills (bal>0) scanned | 77 |
+| Active Banana bills in scope | 334 |
+| Void rows | **7** |
+| Reasons | `{'transfer_equal_balance': 6, 'transfer_then_cs_installment': 1}` |
+| Void staging CSV | `CS_TKO_transfer_balance_void_staging_for_supabase.csv` |
+| Review CSV | `CS_TKO_transfer_balance_conflicts.csv` |
+| Run log | `CS_TKO_transfer_balance_void_20260811_213230.log` |
+| Patients | PY000157, PY000974, PY001314, PY001647, PY001842, PY002505, TKO003500 |
+| Supabase void | import → `supabase_cs_payments_void_duplicates.sql` §1–3 |
+| Notes | Auto-appended by finder (`--append-master-log`). See `CS_TRANSFER_BALANCE_VOID.md`. |
+
+
+
 ### 2026-08-10 — MK (clinic_tag=MK)
 
 | Field | Value |

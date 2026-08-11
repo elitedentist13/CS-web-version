@@ -1517,10 +1517,8 @@
     }
 
     function syncToggleButtons() {
-        ['patientAdvSearchBtn', 'patientAdvSearchBtnHeader'].forEach(function (id) {
-            var btn = g(id);
-            if (btn) btn.classList.toggle('is-active', _open);
-        });
+        var btn = g('patientAdvSearchBtn');
+        if (btn) btn.classList.toggle('is-active', _open);
     }
 
     function ensureDom() {
@@ -1533,17 +1531,9 @@
             b.textContent = tr('patient.adv.toggle', 'Advanced search');
             toolbar.appendChild(b);
         }
-        var headerActions = document.querySelector('#patientSection .patient-sec-header-actions');
-        if (headerActions && !g('patientAdvSearchBtnHeader')) {
-            var hb = document.createElement('button');
-            hb.type = 'button';
-            hb.id = 'patientAdvSearchBtnHeader';
-            hb.className = 'btn-add patient-quick-btn';
-            hb.textContent = tr('patient.adv.toggle', 'Advanced search');
-            var first = headerActions.firstChild;
-            if (first) headerActions.insertBefore(hb, first);
-            else headerActions.appendChild(hb);
-        }
+        // Remove legacy header duplicate if present (keep only search-toolbar control)
+        var btnH = g('patientAdvSearchBtnHeader');
+        if (btnH && btnH.parentNode) btnH.parentNode.removeChild(btnH);
         var dir = g('patientViewDirectory');
         if (dir && !g('patientAdvPanel') && toolbar) {
             var panel = document.createElement('div');
@@ -1700,11 +1690,6 @@
             btn._advBound = true;
             btn.addEventListener('click', onToggleClick);
         }
-        var btnH = g('patientAdvSearchBtnHeader');
-        if (btnH && !btnH._advBound) {
-            btnH._advBound = true;
-            btnH.addEventListener('click', onToggleClick);
-        }
         var root = g('patientAdvPanel');
         if (!root) return;
         ensureSpendFields();
@@ -1824,17 +1809,9 @@
             if (!_bound) bindOnce();
             else {
                 var btn = g('patientAdvSearchBtn');
-                var btnH = g('patientAdvSearchBtnHeader');
                 if (btn && !btn._advBound) {
                     btn._advBound = true;
                     btn.addEventListener('click', function (ev) {
-                        ev.preventDefault();
-                        togglePanel();
-                    });
-                }
-                if (btnH && !btnH._advBound) {
-                    btnH._advBound = true;
-                    btnH.addEventListener('click', function (ev) {
                         ev.preventDefault();
                         togglePanel();
                     });

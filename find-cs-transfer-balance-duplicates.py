@@ -12,6 +12,18 @@ Match modes (CS plan date and Banana transfer date usually DIFFER):
      Banana.total ≈ CS.balance + sum(CS payments with paid_date >= Banana.bill_date)
      (transfer opened before final CS installment(s) — e.g. +$1000)
 
+  C) transfer_plus_1000_final_cs
+     Banana.total ≈ CS.balance + 1000 AND a CS pay of $1000 on/after transfer
+
+  D) transfer_gap_1000
+     CS unpaid balance; Banana.total - CS.balance ~= 1000
+     (CS unpaid is $1000 smaller than the new balance-transfer bill).
+     Does NOT require a later CS installment.
+
+  E) transfer_gap_eq_first_banana_pay
+     Banana.total - CS.balance ~= first payment on the Banana transfer bill
+     (earliest bill_payments by paid_date; any amount, not only $1000).
+
 These are NOT caught by find-cs-bill-duplicates.py (different date/total).
 
 Writes:
@@ -254,15 +266,18 @@ def main() -> None:
     }
     print(f"patients scoped: {len(clinic_pids)}")
 
-    cs = get_all(
+    # Fetch all bills then split in Python.
+    # PostgREST notes=not.like.*CS_TXN:* drops NULL/empty notes — those are
+    # often Banana balance-carry bills (e.g. PY002224 Alipay HK, notes='').
+    all_bills = get_all(
         "bills?select=id,patient_id,patient_no,patient_name,bill_date,total,"
         "amount_paid,balance,status,notes,voided_at,bill_type"
-        "&notes=like.*CS_TXN:*&order=bill_date.asc"
+        "&order=bill_date.asc"
     )
-    native = get_all(
-        "bills?select=id,patient_id,patient_no,patient_name,bill_date,total,"
-        "amount_paid,balance,status,notes,voided_at,bill_type"
-        "&notes=not.like.*CS_TXN:*&order=bill_date.asc"
+    cs = [b for b in all_bills if "CS_TXN:" in (b.get("notes") or "")]
+    native = [b for b in all_bills if "CS_TXN:" not in (b.get("notes") or "")]
+    print(
+        f"bills loaded: total={len(all_bills)} cs_txn={len(cs)} banana={len(native)}"
     )
 
     cs_open = [
@@ -297,7 +312,31 @@ def main() -> None:
         )
         for r in rows:
             pays_by_bill[r["bill_id"]].append(r)
-        print(f"  payments fetched … {min(i + chunk, len(ids))}/{len(ids)}")
+        print(f"  CS payments fetched … {min(i + chunk, len(ids))}/{len(ids)}")
+
+    # First payment on Banana transfer bills (for gap = first Banana pay rule)
+    first_pay_by_bill: dict[str, float] = {}
+    first_pay_detail: dict[str, str] = {}
+    nat_ids = [b["id"] for b in nat_a]
+    for i in range(0, len(nat_ids), chunk):
+        part = nat_ids[i : i + chunk]
+        in_list = ",".join(part)
+        rows = get_all(
+            "bill_payments?select=bill_id,paid_date,amount,method,notes"
+            f"&bill_id=in.({in_list})&order=paid_date.asc"
+        )
+        for r in rows:
+            bid = r.get("bill_id")
+            if not bid or bid in first_pay_by_bill:
+                continue
+            amt = money(r.get("amount"))
+            if amt <= tol:
+                continue
+            first_pay_by_bill[bid] = round(amt, 2)
+            first_pay_detail[bid] = (
+                f"{ymd(r.get('paid_date'))} {r.get('method') or ''} {amt:g}"
+            )
+        print(f"  Banana payments fetched … {min(i + chunk, len(nat_ids))}/{len(nat_ids)}")
 
     review_rows: list[dict] = []
     void_rows: list[dict] = []
@@ -342,6 +381,7 @@ def main() -> None:
                 is_jsm
                 or "transfer" in btype_n
                 or "transfer" in notes_n.lower()
+                or "balance" in notes_n.lower()
             )
 
             same_day_pays = [
@@ -360,9 +400,12 @@ def main() -> None:
             after_sum = round(sum(money(p.get("amount")) for p in after), 2)
             # Outstanding Banana should have carried (= current CS bal + later CS pays)
             bal_at_transfer = round(cs_bal + after_sum, 2)
+            gap = round(nat_tot - cs_bal, 2)
+            first_banana_pay = first_pay_by_bill.get(n["id"])
 
             reason = None
             score = 99
+            gap_detail = ""
 
             # A) Exact amount transfer: Banana total == current CS open balance
             #    (no later CS installment required; dates may differ)
@@ -398,6 +441,30 @@ def main() -> None:
                 bal_at_transfer = round(cs_bal + after_sum, 2)
                 score = 4 if is_jsm else 5
 
+            # D) Clinic rule: CS unpaid is $1000 smaller than Banana bill total
+            #    (no later CS installment required; Banana need not be labelled
+            #    JSM_PENDING — e.g. PY002224 Alipay HK balance-carry bill)
+            elif gap > tol and abs(gap - 1000.0) <= tol:
+                reason = "transfer_gap_1000"
+                bal_at_transfer = round(cs_bal + 1000.0, 2)
+                gap_detail = f"gap={gap:g} (=1000)"
+                # Prefer labelled transfer bills when scoring
+                score = (6 if is_jsm else 7) if looks_transfer else 10
+
+            # E) Gap equals first payment on the Banana bill (any amount)
+            elif (
+                gap > tol
+                and first_banana_pay is not None
+                and abs(gap - first_banana_pay) <= tol
+            ):
+                reason = "transfer_gap_eq_first_banana_pay"
+                bal_at_transfer = round(cs_bal + first_banana_pay, 2)
+                gap_detail = (
+                    f"gap={gap:g} = first_banana_pay "
+                    f"{first_pay_detail.get(n['id'], first_banana_pay)}"
+                )
+                score = (8 if is_jsm else 9) if looks_transfer else 11
+
             else:
                 continue
 
@@ -408,6 +475,9 @@ def main() -> None:
                 "after_sum": after_sum,
                 "same_day_sum": same_day_sum,
                 "bal_at_transfer": bal_at_transfer,
+                "gap": gap,
+                "first_banana_pay": first_banana_pay,
+                "gap_detail": gap_detail,
                 "score": (
                     score,
                     0 if is_jsm else 1,
@@ -427,11 +497,23 @@ def main() -> None:
         n = best["n"]
         after = best["after"]
         after_sum = best["after_sum"]
+        reason = best["reason"]
+        if reason in ("transfer_gap_1000", "transfer_gap_eq_first_banana_pay"):
+            review_note = (
+                "CS open bal + gap = Banana transfer total; "
+                "gap is $1000 or equals first payment on Banana bill; "
+                "void CS (Banana wins)."
+            )
+        else:
+            review_note = (
+                "Banana total ≈ CS open bal (+ CS pays on/after transfer date); "
+                "void CS (Banana wins)."
+            )
         row = {
             "branch_code": branch,
             "banana_clinic_tag": clinic,
             "action": "void_CS_keep_Banana",
-            "reason": best["reason"],
+            "reason": reason,
             "cs_bill_id": b["id"],
             "nat_bill_id": n["id"],
             "patient_no": b.get("patient_no") or n.get("patient_no") or "",
@@ -444,6 +526,8 @@ def main() -> None:
             "nat_total": round(money(n.get("total")), 2),
             "nat_paid": round(money(n.get("amount_paid")), 2),
             "nat_bal": round(money(n.get("balance")), 2),
+            "gap_nat_total_minus_cs_bal": best.get("gap", round(money(n.get("total")) - cs_bal, 2)),
+            "first_banana_pay": best.get("first_banana_pay") or "",
             "cs_pays_on_or_after_transfer": after_sum,
             "cs_pays_on_transfer_date": best.get("same_day_sum", 0),
             "reconstructed_bal_at_transfer": best["bal_at_transfer"],
@@ -456,11 +540,8 @@ def main() -> None:
             "cs_txn": txn_of(b.get("notes") or ""),
             "nat_notes": (n.get("notes") or "")[:140],
             "is_jsm": "Y" if "JSM_PENDING" in (n.get("notes") or "") else "N",
-            "review_note": (
-                "Requires CS installment on Banana bill_date. "
-                "Banana total = CS open bal + CS pays on/after that date; "
-                "void CS (Banana wins)."
-            ),
+            "review_note": review_note
+            + ((" " + best["gap_detail"]) if best.get("gap_detail") else ""),
         }
         review_rows.append(row)
         void_rows.append(
@@ -497,6 +578,8 @@ def main() -> None:
         "nat_total",
         "nat_paid",
         "nat_bal",
+        "gap_nat_total_minus_cs_bal",
+        "first_banana_pay",
         "cs_pays_on_or_after_transfer",
         "cs_pays_on_transfer_date",
         "reconstructed_bal_at_transfer",

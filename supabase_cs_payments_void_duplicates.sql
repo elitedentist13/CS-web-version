@@ -87,4 +87,13 @@ WHERE b.id = d.cs_bill_id
   AND d.voided_at IS NULL;
 
 -- 3) Report
-th
+SELECT
+  count(*) FILTER (WHERE d.voided_at IS NOT NULL) AS staging_marked_voided,
+  count(*) FILTER (
+    WHERE b.voided_at IS NOT NULL AND b.notes LIKE '%CS_DUP_VOID:%'
+  ) AS cs_bills_voided,
+  count(*) FILTER (
+    WHERE b.voided_at IS NULL AND b.notes LIKE '%CS_TXN:%'
+  ) AS cs_still_active_in_staging
+FROM public.cs_bill_dup_void d
+LEFT JOIN public.bills b ON b.id = d.cs_bill_id;

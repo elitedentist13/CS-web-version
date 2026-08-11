@@ -15,9 +15,10 @@ End-to-end pipeline for **each clinic branch** (TKO, PL, KT, …):
 
 | File | Role |
 |------|------|
-| `export-cs-payments.ps1` | Extract master + items from CS SQL |
-| `prepare-cs-payments-staging-csv.py` | Normalize + **`--items`** → `items_json` |
-| `supabase_cs_payments_import.sql` | Staging / match / insert |
+| `export-cs-payments.ps1` | Extract master + items + **income installments** from CS SQL |
+| `prepare-cs-payments-staging-csv.py` | Normalize + **`--items`** / **`--income`** → `items_json` / `payments_json` |
+| `run-cs-payments-import.py` | **All-in-one:** export → staging CSV → upload staging → match/insert via **anon REST** |
+| `supabase_cs_payments_import.sql` | Staging / match / insert (SQL Editor path) |
 | `backfill-cs-bill-items.py` | Build items backfill CSV (legacy / repair) |
 | `supabase_cs_payments_backfill_items.sql` | Apply items onto existing CS bills |
 | `find-cs-bill-duplicates.py` | Detect CS vs Banana duplicate bills |
@@ -37,10 +38,11 @@ End-to-end pipeline for **each clinic branch** (TKO, PL, KT, …):
 | `BillDate` | `bill_date` |
 | `NetHkd` / `DiscountHkd` / `ReceivedHkd` / balance | `total` / `discount` / `amount_paid` / `balance` |
 | `PAYMENTSLAVETABLE` lines | `bills.items` JSON `[{desc,qty,price,disc,tooth_no}]` |
-| `TxnCode` | `notes` / `bill_payments.notes` = `CS_TXN:<code>` (idempotency) |
-| — (method not on CS txn) | `bill_type` / payment `method` = **`CS Import`** |
+| `INCOMETABLE` receipts | `bill_payments` rows (`paid_date`, `amount`, **`method`**) via `payments_json` |
+| `TxnCode` | `notes` / payment notes = `CS_TXN:` / `CS_INCOME:` (idempotency) |
+| Missing income CSV | Fallback lump payment method = **`CS Import`** |
 
-**Not recoverable from CS history:** Cash / FPS / Visa per transaction.
+**Prefer `--income`:** methods (Cash / FPS / Visa / …) and installment dates come from `INCOMETABLE`.
 
 ---
 
@@ -80,13 +82,29 @@ Outputs (Downloads):
 
 - `CS_PL_PaymentHistory_<stamp>_master.csv`
 - `CS_PL_PaymentHistory_<stamp>_items.csv`
+- `CS_PL_PaymentHistory_<stamp>_income.csv` ← installments + methods
 
-### B — Normalize staging (include treatment items)
+### A2 — All-in-one via anon API (recommended on clinic PCs)
+
+```bat
+python run-cs-payments-import.py --branch PL --export ^
+  --server "RECEPTION\CSX" --database CS6 --clear-batch
+
+rem Or reuse CSVs already on disk:
+python run-cs-payments-import.py --branch PL ^
+  --master "..._master.csv" --items "..._items.csv" --income "..._income.csv" --clear-batch
+```
+
+This builds staging (items + `payments_json`), uploads `cs_payments_staging`, matches patients, inserts `bills` / installment `bill_payments`.  
+Use `--dry-run` to build the staging CSV and report matches without writing Banana data.
+
+### B — Normalize staging only (manual SQL path)
 
 ```bat
 python prepare-cs-payments-staging-csv.py ^
   --source "C:\Users\Doctor-1\Downloads\CS_PL_PaymentHistory_<stamp>_master.csv" ^
   --items  "C:\Users\Doctor-1\Downloads\CS_PL_PaymentHistory_<stamp>_items.csv" ^
+  --income "C:\Users\Doctor-1\Downloads\CS_PL_PaymentHistory_<stamp>_income.csv" ^
   --branch PL --clinic-tag PL --active-only
 ```
 
@@ -197,20 +215,31 @@ Manually review `same_day_different_total` / split-total cases (add extra `cs_bi
 
 ### G2 — Transfer-balance void (**JSM_PENDING** carry-over; multi-branch)
 
-After **G**, find CS open plans whose outstanding was carried into Banana as a later transfer bill, then CS still took further installments:
+After **G**, find CS open plans superseded by a Banana balance-transfer bill:
 
 ```bat
 python find-cs-transfer-balance-duplicates.py ^
   --branch KT --clinic-tag KT ^
   --out-dir "C:\Users\ROOM 2\Downloads" ^
   --append-master-log
+
+rem Softlink patients tagged PY in Banana:
+python find-cs-transfer-balance-duplicates.py ^
+  --branch TKO --clinic-tag PY ^
+  --out-dir "%USERPROFILE%\Downloads" --append-master-log
 ```
 
 Full checklist + log: **`CS_TRANSFER_BALANCE_VOID.md`** · **`CS_TRANSFER_BALANCE_VOID_LOG.md`**.
 
 Match (bill dates usually **differ**):
 
-`Banana.total ≈ CS.balance + sum(CS payments on/after Banana.bill_date)`
+| Reason | Rule |
+|--------|------|
+| `transfer_equal_balance` | Banana.total ≈ CS.balance |
+| `transfer_then_cs_installment` | Banana.total ≈ CS.balance + CS pays on/after Banana.bill_date |
+| `transfer_plus_1000_final_cs` | Banana.total ≈ CS.balance + 1000 and CS took $1000 after |
+| `transfer_gap_1000` | Banana.total − CS.balance ≈ **1000** (no later CS pay required) |
+| `transfer_gap_eq_first_banana_pay` | Banana.total − CS.balance ≈ **first payment** on Banana bill |
 
 Then same void SQL as **G** (`TRUNCATE cs_bill_dup_void` → import transfer void CSV → §1–2).
 

@@ -3987,6 +3987,7 @@
         'patient.dup.newNo': { en: 'New patient no.', 'zh-CN': '新患者编号', 'zh-Hant': '新病人編號' },
         'patient.dup.genNo': { en: 'Generate', 'zh-CN': '生成', 'zh-Hant': '產生' },
         'patient.dup.createBf': { en: 'Create brought-forward opening bill', 'zh-CN': '同时创建结转期初账单', 'zh-Hant': '同時建立結轉期初帳單' },
+        'patient.dup.bfTreatment': { en: 'Treatment item', 'zh-CN': '治疗项目', 'zh-Hant': '治療項目' },
         'patient.dup.bfAmount': { en: 'Brought-forward amount (HK$)', 'zh-CN': '结转金额（港币）', 'zh-Hant': '結轉金額（港幣）' },
         'patient.dup.bfNotes': { en: 'Opening bill notes', 'zh-CN': '期初账单备注', 'zh-Hant': '期初帳單備註' },
         'patient.dup.bfNotesPh': {
@@ -4005,6 +4006,11 @@
         'patient.dup.needClinic': { en: 'Select a different target clinic.', 'zh-CN': '请选择不同的目标诊所。', 'zh-Hant': '請選擇不同的目標診所。' },
         'patient.dup.needNo': { en: 'Enter a valid new patient number.', 'zh-CN': '请输入有效的新患者编号。', 'zh-Hant': '請輸入有效的新病人編號。' },
         'patient.dup.needBfAmt': { en: 'Enter a brought-forward amount greater than 0.', 'zh-CN': '请输入大于 0 的结转金额。', 'zh-Hant': '請輸入大於 0 的結轉金額。' },
+        'patient.dup.needBfTreatment': {
+            en: 'Please select a treatment item for the brought-forward bill.',
+            'zh-CN': '请选择结转账单的治疗项目。',
+            'zh-Hant': '請選擇結轉帳單的治療項目。'
+        },
         'patient.dup.ok': {
             en: 'Patient duplicated as #{NO} at {CLINIC}.',
             'zh-CN': '已复制患者为 #{NO}（{CLINIC}）。',

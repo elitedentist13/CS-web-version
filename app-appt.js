@@ -19257,7 +19257,7 @@ function billItemDisplayDesc(it) {
 
 function normalizeBillItem(it) {
     var raw = it || {};
-    var desc = String(raw.desc || '').trim();
+    var desc = String(raw.desc || raw.item_name || raw.description || '').trim();
     var othersRemark = String(raw.others_remark || raw.othersRemark || '').trim();
     var toothNo = billItemToothNo(raw);
     var base = billItemOthersBaseKey(desc);
@@ -19274,10 +19274,13 @@ function normalizeBillItem(it) {
         }
         if (!toothNo) toothNo = '-';
     }
+    var price = raw.price;
+    if (price == null || price === '') price = raw.unit_price;
+    if (price == null || price === '') price = raw.amount;
     return {
         desc: desc,
         qty: raw.qty || 1,
-        price: raw.price || 0,
+        price: price || 0,
         disc: roundBillDiscPct(raw.disc || 0),
         others_remark: othersRemark,
         tooth_no: toothNo

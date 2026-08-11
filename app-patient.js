@@ -1749,6 +1749,51 @@ function fillPatientDupClinicSelect(excludeTag) {
     }
 }
 
+function fillPatientDupBfTreatmentSelect() {
+    var sel = g('patientDupBfTreatment');
+    if (!sel) return;
+    var prev = String(sel.value || '').trim();
+    function applyOptions() {
+        if (typeof buildTreatmentItemOptions === 'function') {
+            sel.innerHTML = buildTreatmentItemOptions(prev);
+        } else {
+            var fallback = patTr('patient.dup.bfItem') || 'Brought-forward balance';
+            sel.innerHTML = '<option value="">' +
+                (typeof esc === 'function' ? esc(patTr('bill.treatSelectCustom') || '— Custom —') : '— Custom —') +
+                '</option><option value="' +
+                (typeof esc === 'function' ? esc(fallback) : fallback) + '">' +
+                (typeof esc === 'function' ? esc(fallback) : fallback) + '</option>';
+        }
+        if (prev) {
+            var has = false;
+            for (var i = 0; i < sel.options.length; i++) {
+                if (String(sel.options[i].value) === prev) { has = true; break; }
+            }
+            if (has) sel.value = prev;
+        }
+        var cacheLen = (typeof treatmentItemsCache !== 'undefined' && treatmentItemsCache)
+            ? treatmentItemsCache.length : 0;
+        if (!cacheLen && sel.options.length <= 1) {
+            var fb = patTr('patient.dup.bfItem') || 'Brought-forward balance';
+            var hasFb = false;
+            for (var j = 0; j < sel.options.length; j++) {
+                if (String(sel.options[j].value) === fb) { hasFb = true; break; }
+            }
+            if (!hasFb) {
+                var opt = document.createElement('option');
+                opt.value = fb;
+                opt.textContent = fb;
+                sel.appendChild(opt);
+            }
+        }
+    }
+    if (typeof loadTreatmentItemsForBilling === 'function') {
+        loadTreatmentItemsForBilling(applyOptions);
+    } else {
+        applyOptions();
+    }
+}
+
 function openDuplicatePatientToClinic(patientId) {
     var id = String(patientId || '');
     var p = (patientListCache || []).find(function (x) {
@@ -1778,6 +1823,9 @@ function openDuplicatePatientToClinic(patientId) {
         if (bfFields) bfFields.hidden = true;
         var amtEl = g('patientDupBfAmount');
         if (amtEl) amtEl.value = '';
+        var treatEl = g('patientDupBfTreatment');
+        if (treatEl) treatEl.innerHTML = '';
+        fillPatientDupBfTreatmentSelect();
         var notesEl = g('patientDupBfNotes');
         if (notesEl) {
             notesEl.value = patTrRepl('patient.dup.bfNotesPh', {
@@ -1809,6 +1857,7 @@ function openDuplicatePatientToClinic(patientId) {
                 createBf.addEventListener('change', function () {
                     var box = g('patientDupBfFields');
                     if (box) box.hidden = !createBf.checked;
+                    if (createBf.checked) fillPatientDupBfTreatmentSelect();
                 });
             }
             var genBtn = g('patientDupGenNoBtn');
@@ -1867,6 +1916,12 @@ function confirmDuplicatePatientToClinic() {
         fail(patTr('patient.dup.needBfAmt'));
         return;
     }
+    var bfTreatment = g('patientDupBfTreatment')
+        ? String(g('patientDupBfTreatment').value || '').trim() : '';
+    if (createBf && !bfTreatment) {
+        fail(patTr('patient.dup.needBfTreatment'));
+        return;
+    }
     var bfNotes = (g('patientDupBfNotes') && g('patientDupBfNotes').value) || '';
     if (err) err.style.display = 'none';
 
@@ -1905,7 +1960,17 @@ function confirmDuplicatePatientToClinic() {
 
         function insertBill(newPatient, done) {
             if (!createBf) { done(null); return; }
-            var itemName = patTr('patient.dup.bfItem') || 'Brought-forward balance';
+            var itemName = bfTreatment ||
+                (patTr('patient.dup.bfItem') || 'Brought-forward balance');
+            // Same item shape as payment-panel billItemsForBillSave → bills.items in Supabase
+            var lineItems = [{
+                desc: itemName,
+                qty: 1,
+                price: bfAmt,
+                disc: 0
+            }];
+            var billNotes = String(bfNotes || '').trim() ||
+                ('Brought forward from ' + (src[PATIENT_CLINIC_TAG_FIELD] || ''));
             var bill = {
                 patient_id: newPatient.id,
                 patient_name: ((src.chinese_name ? src.chinese_name + ' ' : '') +
@@ -1914,20 +1979,17 @@ function confirmDuplicatePatientToClinic() {
                 bill_date: (typeof todayISO === 'function') ? todayISO() : new Date().toISOString().slice(0, 10),
                 bill_type: (typeof billPendingPayTypeValue === 'function')
                     ? billPendingPayTypeValue() : 'Pending',
-                items: JSON.stringify([{
-                    item_name: itemName,
-                    description: itemName,
-                    qty: 1,
-                    unit_price: bfAmt,
-                    amount: bfAmt
-                }]),
+                items: JSON.stringify(
+                    (typeof billItemsForBillSave === 'function')
+                        ? billItemsForBillSave(lineItems)
+                        : lineItems
+                ),
                 subtotal: bfAmt,
                 discount: 0,
                 total: bfAmt,
                 amount_paid: 0,
                 balance: bfAmt,
-                notes: String(bfNotes || '').trim() ||
-                    ('Brought forward from ' + (src[PATIENT_CLINIC_TAG_FIELD] || '')),
+                notes: billNotes,
                 status: 'Partial',
                 clinic_tag: clinicTag
             };

@@ -5737,6 +5737,32 @@
         'media.lb.undo': { en: '↩ Undo', 'zh-CN': '↩ 撤销', 'zh-Hant': '↩ 復原' },
         'media.lb.clear': { en: '🗑 Clear', 'zh-CN': '🗑 清除', 'zh-Hant': '🗑 清除' },
         'media.xrayAi.group': { en: 'Assist', 'zh-CN': '辅助', 'zh-Hant': '輔助' },
+        'media.xrayAi.startServerBtn': { en: '▶ Server', 'zh-CN': '▶ 服务', 'zh-Hant': '▶ 服務' },
+        'media.xrayAi.startServerTitle': {
+            en: 'Start the local X-ray AI server (start-xray-ai.bat)',
+            'zh-CN': '启动本机 X 光 AI 服务（start-xray-ai.bat）',
+            'zh-Hant': '啟動本機 X 光 AI 服務（start-xray-ai.bat）'
+        },
+        'media.xrayAi.serverAlreadyUp': {
+            en: 'AI server already running.',
+            'zh-CN': 'AI 服务已在运行。',
+            'zh-Hant': 'AI 服務已在運行。'
+        },
+        'media.xrayAi.serverStarting': {
+            en: 'Starting AI server… leave the console window open.',
+            'zh-CN': '正在启动 AI 服务…请保持黑色控制台窗口开着。',
+            'zh-Hant': '正在啟動 AI 服務…請保持黑色主控台視窗開著。'
+        },
+        'media.xrayAi.serverReady': {
+            en: 'AI server ready — press Analyze.',
+            'zh-CN': 'AI 服务已就绪 — 可按分析。',
+            'zh-Hant': 'AI 服務已就緒 — 可按分析。'
+        },
+        'media.xrayAi.serverStartTimeout': {
+            en: 'AI server did not respond in time. If no console opened, run register-xray-ai-protocol.bat once, or double-click start-xray-ai.bat.',
+            'zh-CN': 'AI 服务未在时限内响应。若没有弹出控制台，请先运行一次 register-xray-ai-protocol.bat，或直接双击 start-xray-ai.bat。',
+            'zh-Hant': 'AI 服務未在時限內回應。若沒有彈出主控台，請先執行一次 register-xray-ai-protocol.bat，或直接雙擊 start-xray-ai.bat。'
+        },
         'media.xrayAi.runBtn': { en: '🦷 Analyze', 'zh-CN': '🦷 分析', 'zh-Hant': '🦷 分析' },
         'media.xrayAi.runTitle': {
             en: 'Run CS X-ray Assist (experimental hints — verify clinically)',

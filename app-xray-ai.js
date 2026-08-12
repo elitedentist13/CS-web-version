@@ -22,6 +22,11 @@
         apiUrl: (typeof window.XRAY_AI_API_URL === 'string' && window.XRAY_AI_API_URL)
             ? window.XRAY_AI_API_URL.replace(/\/$/, '')
             : 'http://127.0.0.1:8877',
+        // Browser cannot run .bat directly — clinic PCs register csxrayai:// once
+        // via register-xray-ai-protocol.bat, then this button launches start-xray-ai.bat.
+        startProtocol: (typeof window.XRAY_AI_START_PROTOCOL === 'string' && window.XRAY_AI_START_PROTOCOL)
+            ? window.XRAY_AI_START_PROTOCOL
+            : 'csxrayai://start',
         preferApi: window.XRAY_AI_PREFER_API !== false,
         // Default position of the confidence slider — unchanged from the
         // previous fixed cutoff, so out-of-the-box output looks the same.
@@ -108,6 +113,7 @@
         showAnatomyLayers: true,
         showBoneLines: true,
         running: false,
+        startingServer: false,
         lastSource: null,
         lastRunAt: null,
         // Exact model id string reported by the service for the most recent run.
@@ -2351,6 +2357,61 @@
             .catch(function () { xrayAiNoteConnFailure(); return false; });
     }
 
+    /**
+     * Start the local AI server on this clinic PC (creates venv / downloads
+     * models on first run via start-xray-ai.bat). Browsers cannot execute
+     * .bat files, so each PC registers the csxrayai:// protocol once with
+     * register-xray-ai-protocol.bat (or setup-xray-ai-clinic-pc.bat).
+     */
+    function xrayAiStartServer() {
+        if (xrayAiState.startingServer) return;
+        var btn = xrayAiG('lbXrayAiStartBtn');
+        function setBusy(busy) {
+            xrayAiState.startingServer = !!busy;
+            if (btn) btn.disabled = !!busy;
+        }
+        setBusy(true);
+        xrayAiSetStatus(xrayAiTr('media.xrayAi.serverStarting'), 'work');
+        xrayAiCheckApiHealth().then(function (alreadyUp) {
+            if (alreadyUp) {
+                xrayAiSetStatus(xrayAiTr('media.xrayAi.serverAlreadyUp'), 'ok');
+                setBusy(false);
+                return;
+            }
+            try {
+                var proto = XRAY_AI_CONFIG.startProtocol || 'csxrayai://start';
+                // Hidden iframe avoids navigating away from the lightbox.
+                var iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = proto;
+                document.body.appendChild(iframe);
+                setTimeout(function () {
+                    try { document.body.removeChild(iframe); } catch (e) {}
+                }, 2000);
+            } catch (e) {
+                console.warn('[xray-ai] start protocol failed', e);
+            }
+            var tries = 0;
+            var maxTries = 60; // ~2 min — first-time model download can be slow
+            var timer = setInterval(function () {
+                tries += 1;
+                xrayAiCheckApiHealth().then(function (ok) {
+                    if (ok) {
+                        clearInterval(timer);
+                        xrayAiSetStatus(xrayAiTr('media.xrayAi.serverReady'), 'ok');
+                        setBusy(false);
+                        return;
+                    }
+                    if (tries >= maxTries) {
+                        clearInterval(timer);
+                        xrayAiSetStatus(xrayAiTr('media.xrayAi.serverStartTimeout'), 'bad');
+                        setBusy(false);
+                    }
+                });
+            }, 2000);
+        });
+    }
+
     function xrayAiFetchWithTimeout(url, options, ms) {
         ms = ms || 90000;
         return new Promise(function (resolve, reject) {
@@ -2888,6 +2949,7 @@
     xrayAiInitCategoryFilters();
 
     window.xrayAiRunAssist = xrayAiRunAssist;
+    window.xrayAiStartServer = xrayAiStartServer;
     window.xrayAiClearFindings = xrayAiClearOverlays;
     window.xrayAiToggleOverlays = xrayAiToggleOverlays;
     window.xrayAiSetConfidenceThreshold = xrayAiSetConfidenceThreshold;

@@ -105,7 +105,7 @@ ALTER TABLE public.cs_payments_staging
 -- 2) Set active batch (EDIT THIS)
 -- ---------------------------------------------------------------------------
 UPDATE public.cs_import_params
-SET batch_id = 'TKO_PAY_20260807_093314',
+SET batch_id = 'MCP_PAY_20260812_210520',
     require_clinic_scope = true,
     updated_at = now()
 WHERE id = 1;

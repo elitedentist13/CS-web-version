@@ -29,6 +29,24 @@ Per-run machine logs: `CS_<BRANCH>_transfer_balance_void_<stamp>.log` (written b
 
 ## Runs
 
+### 2026-08-12 — MCP (clinic_tag=MCP)
+
+| Field | Value |
+|-------|-------|
+| Finder command | `python find-cs-transfer-balance-duplicates.py --branch MCP --clinic-tag MCP` |
+| Open CS bills (bal>0) scanned | 30 |
+| Active Banana bills in scope | 105 |
+| Void rows | **10** |
+| Reasons | `{'transfer_equal_balance': 9, 'transfer_then_cs_installment': 1}` |
+| Void staging CSV | `CS_MCP_transfer_balance_void_staging_for_supabase.csv` |
+| Review CSV | `CS_MCP_transfer_balance_conflicts.csv` |
+| Run log | `CS_MCP_transfer_balance_void_20260812_212307.log` |
+| Patients | MCP001015, MCP001079, MCP001622, MCP002427, MCP002969, MCP003112, MCP003146, MCP003243, MCP003262, MCP003295 |
+| Supabase void | import → `supabase_cs_payments_void_duplicates.sql` §1–3 |
+| Notes | Auto-appended by finder (`--append-master-log`). See `CS_TRANSFER_BALANCE_VOID.md`. |
+
+
+
 ### 2026-08-11 — TKO (clinic_tag=PY)
 
 | Field | Value |

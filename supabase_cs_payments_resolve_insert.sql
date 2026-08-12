@@ -27,7 +27,7 @@ ALTER TABLE public.cs_payments_staging
 
 -- 2) Set active batch (EDIT — paste BATCH_ID from resolve-unmatched-payments.py)
 UPDATE public.cs_import_params
-SET batch_id = 'OKT_PAY_RESOLVE2_20260806_182110',
+SET batch_id = 'MCP_PAY_RESOLVE_20260812_211420',
     require_clinic_scope = true,
     updated_at = now()
 WHERE id = 1;

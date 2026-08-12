@@ -25,11 +25,14 @@ ALTER TABLE public.cs_notes_staging
 
 -- 1) Clear prior resolve attempts for this branch only (EDIT branch prefix)
 -- DELETE FROM public.cs_notes_staging
--- WHERE batch_id LIKE 'PL_NOTES_RESOLVE_%';
+-- WHERE batch_id LIKE 'MCP_NOTES_RESOLVE_%';
 
 -- 2) Set active batch (EDIT — paste BATCH_ID from resolve-unmatched-notes.py)
+-- MCP: resolve CSV already imported as pending with resolved_patient_id filled.
+-- Prefer the already-loaded batch below; or use MCP_NOTES_RESOLVE_20260812_210154
+-- after re-importing the fresh CSV from Downloads.
 UPDATE public.cs_import_params
-SET batch_id = 'OKT_NOTES_RESOLVE_20260806_144203',
+SET batch_id = 'MCP_NOTES_RESOLVE_20260812_205552',
     require_clinic_scope = true,
     updated_at = now()
 WHERE id = 1;

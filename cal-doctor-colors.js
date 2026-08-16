@@ -68,24 +68,9 @@ var CalDoctorColors = (function () {
     }
 
     function refreshQueueTodayAfterDoctorFilter() {
-        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
-        if (tab === 'queue') {
-            if (typeof loadQueue === 'function') loadQueue();
-            return;
-        }
-        if (tab === 'today') {
-            if (typeof loadToday === 'function') loadToday();
-            return;
-        }
-        if ((tab === 'plusappt' || tab === 'calendar') &&
-            typeof refreshApptPlannerData === 'function') {
-            refreshApptPlannerData();
-        }
-    }
-
-    function refreshCalendarAfterDoctorFilter() {
-        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'calendar') return;
-        if (typeof renderCal === 'function') renderCal();
+        if (typeof loadToday === 'function') loadToday();
+        if (typeof loadQueue === 'function') loadQueue();
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
     }
 
     function setDoctorVisible(key, visible) {
@@ -96,7 +81,7 @@ var CalDoctorColors = (function () {
         saveFilter();
         syncLegendCheckboxes();
         refreshQueueTodayAfterDoctorFilter();
-        refreshCalendarAfterDoctorFilter();
+        if (typeof renderCal === 'function') renderCal();
     }
 
     function isApptVisible(a) {
@@ -114,7 +99,8 @@ var CalDoctorColors = (function () {
         saveFilter();
         syncLegendCheckboxes();
         refreshQueueTodayAfterDoctorFilter();
-        refreshCalendarAfterDoctorFilter();
+        if (typeof renderCal === 'function') renderCal();
+        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
     }
 
     function hideAllDoctors() {
@@ -134,7 +120,7 @@ var CalDoctorColors = (function () {
         saveFilter();
         syncLegendCheckboxes();
         refreshQueueTodayAfterDoctorFilter();
-        refreshCalendarAfterDoctorFilter();
+        if (typeof renderCal === 'function') renderCal();
     }
 
     function syncLegendCheckboxes() {
@@ -275,8 +261,7 @@ var CalDoctorColors = (function () {
         }
         if (settingsOpen) {
             repaintVisibleAppointmentColors();
-        } else if (typeof renderCal === 'function' &&
-            typeof apptSectionIsActive === 'function' && apptSectionIsActive()) {
+        } else if (typeof renderCal === 'function') {
             renderCal();
         }
         if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();

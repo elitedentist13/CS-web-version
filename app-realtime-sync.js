@@ -948,8 +948,9 @@ var REALTIME_SYNC = (function() {
         }
     });
 
-    /* Working date is local-only. Section reload is owned by
-       refreshAppSectionsForWorkingDate — do not stack another appt fetch. */
+    document.addEventListener('app-working-date-change', function() {
+        scheduleRefresh('appt');
+    });
 
     document.addEventListener('focusout', function(ev) {
         var target = ev.target;

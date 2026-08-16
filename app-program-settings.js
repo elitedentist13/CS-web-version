@@ -92,9 +92,7 @@ function applyProgramSettingsSideEffects() {
     if (typeof restartApptAutoRefresh === 'function') restartApptAutoRefresh();
     if (typeof restartBillPendingAutoRefresh === 'function') restartBillPendingAutoRefresh();
     if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.hydrateFromServer === 'function') {
-        /* Do not refresh calendar/queue views on boot — that froze the
-           dashboard when Working Date was still on from the last session. */
-        CalDoctorColors.hydrateFromServer({ refresh: false });
+        CalDoctorColors.hydrateFromServer({ refresh: true });
     }
     if (typeof CalDoctorColors !== 'undefined' &&
         typeof CalDoctorColors.migrateLocalColorsToServerIfNeeded === 'function') {

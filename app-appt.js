@@ -217,12 +217,6 @@ var plusApptTransferHistoryCacheKey = '';
 var plusApptPendingSelectApptId = null;
 var plusApptDayLoadSeq = 0;
 var todayLoadSeq = 0;
-var todayLoadedForDate = '';
-var todayLastFingerprint = '';
-var todayPaintBusy = false;
-var todayPendingSoftOpts = null;
-var todaySoftCoalesceTimer = null;
-var todayDoctorStripKey = '';
 var plusApptRemarksLinesCache = {};
 var apptUnpaidByPatientId = {};
 var apptUnpaidByPatientNo = {};
@@ -261,16 +255,6 @@ var queueElapsedClosedAtByApptId = {};
 var queueElapsedTickerId = null;
 /** Bumps on each loadQueue(); stale augment callbacks must not append rows. */
 var queueLoadSeq = 0;
-/** YYYY-MM-DD last successfully painted by loadQueue (working-date aware). */
-var queueLoadedForDate = '';
-var queueCompactFitTries = 0;
-/** Soft/auto-refresh fingerprint — skip full DOM rebuild when unchanged. */
-var queueLastFingerprint = '';
-var queuePaintBusy = false;
-var queuePendingSoftOpts = null;
-var queueSoftCoalesceTimer = null;
-var queueDoctorStripKey = '';
-var _apptLiveScrollThrottle = null;
 
 /** When true, appointment date must be today or later (records tab: new visit from a past row). */
 var arBookingMinDateToday = false;
@@ -1335,7 +1319,7 @@ function syncApptPlannerDate(iso, opts) {
 /** Reload day planner (+ Appointment) and calendar from Supabase (same clinic scope). */
 function refreshApptPlannerData(opts) {
     opts = opts || {};
-    if (!apptSectionIsActive()) return;
+    if (!opts.force && !apptSectionIsActive()) return;
     if (!plusApptDate) plusApptDate = todayISO();
     var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
     if ((tab === 'plusappt' || opts.forcePlusAppt) && typeof loadPlusApptDay === 'function') {
@@ -1832,10 +1816,7 @@ function initAppt(opts) {
     bindQueuePatientSearchOnce();
     bindTodayPatientSearchOnce();
     updateApptPatientBanner();
-    if (!window.__apptBannerPatientBound) {
-        window.__apptBannerPatientBound = true;
-        document.addEventListener('app-active-patient-change', updateApptPatientBanner);
-    }
+    document.addEventListener('app-active-patient-change', updateApptPatientBanner);
     var qb = g('queueBody');
     if (qb) {
         if (!qb.querySelector('tr')) {
@@ -1950,10 +1931,9 @@ function queueApplyCompactFitScale() {
     }
     var avail = wrap.clientWidth;
     if (avail <= 0) {
-        if (queueCompactFitTries++ < 12) queueScheduleCompactFit();
+        queueScheduleCompactFit();
         return;
     }
-    queueCompactFitTries = 0;
     var scale = 1;
     if (avail < 1280) scale = 0.96;
     if (avail < 1120) scale = 0.9;
@@ -2186,11 +2166,6 @@ function apptMemoOnScopeChange(tab) {
     tab = tab || (typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : 'queue');
     var oldKey = _apptMemoScopeKey;
     var newKey = apptMemoScopeKey(tab);
-    /* Queue ↔ Today share the same clinic|date memo — remount only, no refetch. */
-    if (oldKey && oldKey === newKey) {
-        mountApptSharedMemo(tab);
-        return Promise.resolve();
-    }
     _apptMemoScopeBusy = true;
     var chain = Promise.resolve();
     if (oldKey && oldKey !== newKey) {
@@ -2228,11 +2203,10 @@ function refreshApptSharedMemoI18n() {
 // TAB SWITCHING
 // ════════════════════════════════════════════════════════════════
 function switchApptTab(tab) {
-    var root = g('appointmentSection') || document;
-    root.querySelectorAll('.appt-tab').forEach(function(b) {
+    document.querySelectorAll('.appt-tab').forEach(function(b) {
         b.classList.toggle('active', b.dataset.tab === tab);
     });
-    root.querySelectorAll('.tab-pane').forEach(function(p) {
+    document.querySelectorAll('.tab-pane').forEach(function(p) {
         p.classList.toggle('active', p.id === 'tab-' + tab);
     });
     if (APPT_SHARED_MEMO_TABS[tab] && typeof apptMemoOnScopeChange === 'function') {
@@ -2240,50 +2214,11 @@ function switchApptTab(tab) {
     } else {
         mountApptSharedMemo(null);
     }
-    var day = typeof todayISO === 'function' ? todayISO() : '';
-    if (tab !== 'queue' && queuePaintBusy) {
-        queueLoadSeq++;
-        queuePaintBusy = false;
-        queuePendingSoftOpts = null;
-        /* Mid-paint cancel — force a fresh load next time this tab opens. */
-        queueLoadedForDate = '';
-        queueLastFingerprint = '';
-    }
-    if (tab !== 'today' && todayPaintBusy) {
-        todayLoadSeq++;
-        todayPaintBusy = false;
-        todayPendingSoftOpts = null;
-        todayLoadedForDate = '';
-        todayLastFingerprint = '';
-    }
-    if (tab === 'queue') {
-        /* Keep cached queue when hopping Today ↔ Queue on the same working date. */
-        var queueReady = queueLoadedForDate && queueLoadedForDate === day &&
-            g('queueBody') && g('queueBody').querySelector('tr') && !queuePaintBusy;
-        if (queueReady) {
-            if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
-        } else {
-            setTimeout(function() {
-                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'queue') return;
-                loadQueue();
-            }, 0);
-        }
-    }
+    if (tab === 'queue')    loadQueue();
     if (tab === 'today') {
-        var todayReady = todayLoadedForDate && todayLoadedForDate === day &&
-            g('todayBody') && g('todayBody').querySelector('tr') && !todayPaintBusy;
-        if (todayReady) {
-            if (typeof todayApplyClearModeCompactLayout === 'function') {
-                todayApplyClearModeCompactLayout();
-            }
-        } else {
-            setTimeout(function() {
-                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'today') return;
-                loadToday();
-                if (typeof todayApplyClearModeCompactLayout === 'function') {
-                    todayApplyClearModeCompactLayout();
-                }
-            }, 0);
+        loadToday();
+        if (typeof todayApplyClearModeCompactLayout === 'function') {
+            todayApplyClearModeCompactLayout();
         }
     }
     if (tab === 'plusappt') showPlusApptTab();
@@ -2304,6 +2239,9 @@ function switchApptTab(tab) {
     if (tab === 'rsvp' && typeof RSVP_RECALL !== 'undefined' && RSVP_RECALL.init) RSVP_RECALL.init();
     if (tab === 'broadcast' && typeof MASSBC !== 'undefined' && MASSBC.init) MASSBC.init();
     if (tab === 'webbook' && typeof initWebBookTab === 'function') initWebBookTab();
+    if (tab === 'queue') {
+        if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
+    }
     if (tab === 'queue' || tab === 'today' || tab === 'plusappt' || tab === 'calendar') {
         apptRefreshPatientCountBadge(tab);
     }
@@ -6320,9 +6258,6 @@ function plusApptSetDate(iso) {
 
 function loadPlusApptDay(opts) {
     opts = opts || {};
-    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
-        return;
-    }
     if (!opts.force && apptModuleEditPaused('plusappt')) {
         apptModuleMarkRefreshDeferred('plusappt');
         opts.soft = true;
@@ -8000,13 +7935,9 @@ function apptAutoRefreshTick() {
     if (typeof webbookRefreshTabBadge === 'function') webbookRefreshTabBadge({ soft: true });
     var tab = apptActiveTabKey();
     var soft = { soft: true };
-    if (tab === 'queue') {
-        if (queuePaintBusy) return;
-        loadQueue(soft);
-    } else if (tab === 'today') {
-        if (todayPaintBusy) return;
-        loadToday(soft);
-    } else if (tab === 'plusappt' || tab === 'calendar') refreshApptPlannerData(soft);
+    if (tab === 'queue') loadQueue(soft);
+    else if (tab === 'today') loadToday(soft);
+    else if (tab === 'plusappt' || tab === 'calendar') refreshApptPlannerData(soft);
     else if (tab === 'webbook' && typeof webbookRefreshList === 'function') webbookRefreshList(soft);
 }
 
@@ -8839,13 +8770,11 @@ function initRecallTab() {
 function renderRcal() {
     var wrap = g('rcalContainer');
     if (!wrap) return;
-    if (!rcMonthD || isNaN(rcMonthD.getTime())) rcMonthD = new Date();
     var y     = rcMonthD.getFullYear();
     var m     = rcMonthD.getMonth();          // 0-based
     var today = todayISO();
     var dow0  = new Date(y, m, 1).getDay();  // weekday of 1st
     var daysM = new Date(y, m + 1, 0).getDate();
-    if (!isFinite(daysM) || daysM < 1) return;
     var loc   = apptDateLocale();
     var mLbl  = new Date(y, m, 1).toLocaleDateString(loc, { month: 'long', year: 'numeric' });
     var dowHdr = apptCalWeekdayHeaders();
@@ -8880,7 +8809,7 @@ function renderRcal() {
         dow++;
         if (dow % 7 === 0 && d < daysM) html += '</tr><tr>';
     }
-    while (isFinite(dow) && dow % 7 !== 0) { html += '<td></td>'; dow++; }
+    while (dow % 7 !== 0) { html += '<td></td>'; dow++; }
     html += '</tr></tbody></table>';
 
     wrap.innerHTML = html;
@@ -12843,80 +12772,9 @@ function syncApptTodayDateLabels() {
 
 function loadToday(opts) {
     opts = opts || {};
-    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
-        return;
-    }
     if (!opts.force && apptModuleEditPaused('today')) {
         apptModuleMarkRefreshDeferred('today');
-        opts = Object.assign({}, opts, { soft: true });
-    }
-    if (opts.soft) {
-        if (todayPaintBusy) {
-            todayPendingSoftOpts = { soft: true };
-            return;
-        }
-        if (todaySoftCoalesceTimer) clearTimeout(todaySoftCoalesceTimer);
-        todaySoftCoalesceTimer = setTimeout(function() {
-            todaySoftCoalesceTimer = null;
-            loadTodayNow({ soft: true });
-        }, 150);
-        return;
-    }
-    if (todaySoftCoalesceTimer) {
-        clearTimeout(todaySoftCoalesceTimer);
-        todaySoftCoalesceTimer = null;
-    }
-    todayPendingSoftOpts = null;
-    loadTodayNow(opts);
-}
-
-function todayFlushPendingSoft() {
-    if (!todayPendingSoftOpts) return;
-    var pending = todayPendingSoftOpts;
-    todayPendingSoftOpts = null;
-    loadToday(pending);
-}
-
-function todayPatchUnpaidBadgesInPlace(rows) {
-    var tb = g('todayBody');
-    if (!tb) return;
-    var clearMode = typeof plusApptIsClearMode === 'function' && plusApptIsClearMode();
-    var byId = {};
-    (rows || []).forEach(function(a) {
-        if (a && a.id) byId[String(a.id)] = a;
-    });
-    tb.querySelectorAll('tr[data-appt-id]').forEach(function(row) {
-        var a = byId[String(row.dataset.apptId || '')];
-        if (!a) return;
-        var host = row.querySelector('.today-remarks-preview-wrap, .plusappt-remarks-preview-wrap, .queue-remarks-preview-wrap, td.today-remarks-cell, td.plusappt-remarks-cell-wrap');
-        if (!host) return;
-        var old = host.querySelector('.appt-unpaid-badge');
-        var html = apptUnpaidBadgeHtml(a, clearMode
-            ? 'appt-unpaid-badge--remarks'
-            : 'appt-unpaid-badge--remarks');
-        if (!html) {
-            if (old && old.parentNode) old.parentNode.removeChild(old);
-            return;
-        }
-        if (old) {
-            var tmp = document.createElement('div');
-            tmp.innerHTML = html;
-            var neu = tmp.firstChild;
-            if (neu) old.parentNode.replaceChild(neu, old);
-            return;
-        }
-        host.insertAdjacentHTML('afterbegin', html);
-    });
-}
-
-function loadTodayNow(opts) {
-    opts = opts || {};
-    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
-        return;
-    }
-    if (!opts.force && apptModuleEditPaused('today')) {
-        apptModuleMarkRefreshDeferred('today');
-        opts = Object.assign({}, opts, { soft: true });
+        opts.soft = true;
     }
     var tb  = g('todayBody');
     if (!tb) return;
@@ -12924,8 +12782,6 @@ function loadTodayNow(opts) {
     var loadSeq = ++todayLoadSeq;
     syncApptTodayDateLabels();
     if (!opts.soft) {
-        todayPaintBusy = true;
-        todayLastFingerprint = '';
         tb.innerHTML =
             '<tr><td colspan="9" style="text-align:center;' +
             'color:#aaa;padding:24px;">' + esc(tr('common.loadingEllipsis')) + '</td></tr>';
@@ -12937,28 +12793,18 @@ function loadTodayNow(opts) {
     tq = applyApptModuleClinicQuery(tq);
     tq.then(function(r) {
         if (loadSeq !== todayLoadSeq) return;
-        var doStrip = function (apptRows, force) {
-            var key = queueDoctorKeysFingerprint(apptRows);
-            if (!force && opts.soft && key && key === todayDoctorStripKey) return;
-            todayDoctorStripKey = key;
+        var doStrip = function (apptRows) {
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
                 CalDoctorColors.renderDoctorFilterStrip('todayDoctorFilterBar', apptRows || []);
             }
         };
-        function finishTodayIdle() {
-            todayPaintBusy = false;
-            setTimeout(todayFlushPendingSoft, 0);
-        }
         if (r.error || !r.data || !r.data.length) {
             todayAppts = [];
-            todayLastFingerprint = queueRowsFingerprint([]);
-            if (!r.error) todayLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
             if (!opts.force && apptModuleEditPaused('today')) {
                 apptModuleMarkRefreshDeferred('today');
                 apptRefreshPatientCountBadge('today');
-                doStrip([], true);
+                doStrip([]);
                 apptFinishScrollPreserve(opts, savedScroll);
-                finishTodayIdle();
                 return;
             }
             apptSetTbodyHtml(tb,
@@ -12966,9 +12812,8 @@ function loadTodayNow(opts) {
                 'color:#aaa;padding:24px;">' + esc(tr('appt.today.noToday')) +
                 '</td></tr>', opts);
             apptRefreshPatientCountBadge('today');
-            doStrip([], true);
+            doStrip([]);
             apptFinishScrollPreserve(opts, savedScroll);
-            finishTodayIdle();
             return;
         }
         augmentAppointmentsChineseFromPatients(r.data, function(rows) {
@@ -13001,88 +12846,47 @@ function loadTodayNow(opts) {
                 if (!opts.force && apptModuleEditPaused('today')) {
                     apptModuleMarkRefreshDeferred('today');
                     apptRefreshPatientCountBadge('today');
-                    doStrip(todayRows, false);
+                    doStrip(todayRows);
                     apptFinishScrollPreserve(opts, savedScroll);
-                    finishTodayIdle();
                     return;
                 }
                 var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                     ? CalDoctorColors.filterAppts(todayRows) : todayRows;
-                var fp = queueRowsFingerprint(visible);
                 apptRefreshPatientCountBadge('today');
-
-                if (opts.soft && fp && fp === todayLastFingerprint && tb.querySelector('tr[data-appt-id]')) {
-                    todayLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
-                    if (typeof todayApplyClearModeCompactLayout === 'function') {
-                        todayApplyClearModeCompactLayout();
-                    }
-                    finishTodayIdle();
-                    return;
-                }
                 var dotCtx = apptListDoctorDotCtx(todayRows);
-
-                function afterTodayRowsPainted() {
-                    if (loadSeq !== todayLoadSeq) {
-                        finishTodayIdle();
-                        return;
-                    }
-                    todayLastFingerprint = fp;
-                    todayLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
-                    doStrip(todayRows, !opts.soft);
-                    apptRestoreListRowSelection(tb, 'today');
-                    if (typeof todayApplyClearModeCompactLayout === 'function') {
-                        todayApplyClearModeCompactLayout();
-                    }
-                    apptFinishScrollPreserve(opts, savedScroll);
-                    hydrateApptUnpaidBalances(todayRows, function(changed) {
-                        if (changed) todayPatchUnpaidBadgesInPlace(todayRows);
-                        finishTodayIdle();
-                    });
-                }
-
                 if (!visible.length) {
                     apptSetTbodyHtml(tb,
                         '<tr><td colspan="9" style="text-align:center;' +
                         'color:#aaa;padding:24px;">' +
                         esc(todayRows.length ? tr('appt.today.noFiltered') : tr('appt.today.noToday')) +
                         '</td></tr>', opts);
-                    afterTodayRowsPainted();
-                    return;
+                } else if (opts.soft) {
+                    apptSwapTbodyContent(tb, function(frag) {
+                        visible.forEach(function(a) {
+                            buildTodayRow(frag, a, dotCtx);
+                        });
+                    });
+                } else {
+                    tb.innerHTML = '';
+                    visible.forEach(function(a) {
+                        buildTodayRow(tb, a, dotCtx);
+                    });
                 }
-
-                todayPaintBusy = true;
-                var rowIdx = 0;
-                var CHUNK = 16;
-                var paintRoot = opts.soft ? document.createDocumentFragment() : tb;
-                if (!opts.soft) tb.innerHTML = '';
-
-                (function paintTodayChunk() {
-                    if (loadSeq !== todayLoadSeq) {
-                        finishTodayIdle();
-                        return;
+                doStrip(todayRows);
+                apptRestoreListRowSelection(tb, 'today');
+                if (typeof todayApplyClearModeCompactLayout === 'function') {
+                    todayApplyClearModeCompactLayout();
+                }
+                apptFinishScrollPreserve(opts, savedScroll);
+                hydrateApptUnpaidBalances(todayRows, function(changed) {
+                    if (!changed) return;
+                    if (loadSeq !== todayLoadSeq) return;
+                    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'today') {
+                        loadToday({ soft: true });
                     }
-                    var frag = document.createDocumentFragment();
-                    var end = Math.min(rowIdx + CHUNK, visible.length);
-                    for (; rowIdx < end; rowIdx++) {
-                        buildTodayRow(frag, visible[rowIdx], dotCtx);
-                    }
-                    paintRoot.appendChild(frag);
-                    if (rowIdx < visible.length) {
-                        setTimeout(paintTodayChunk, 0);
-                        return;
-                    }
-                    if (opts.soft) {
-                        while (tb.firstChild) tb.removeChild(tb.firstChild);
-                        tb.appendChild(paintRoot);
-                    }
-                    afterTodayRowsPainted();
-                })();
+                });
             });
         });
-    }).catch(function() {
-        if (loadSeq !== todayLoadSeq) return;
-        todayPaintBusy = false;
-        todayFlushPendingSoft();
     });
 }
 
@@ -14575,13 +14379,9 @@ function apptBindLiveScrollTrackOnce() {
     _apptLiveScrollBound = true;
     window.addEventListener('scroll', function() {
         if (typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) return;
-        if (_apptLiveScrollThrottle) return;
-        _apptLiveScrollThrottle = setTimeout(function() {
-            _apptLiveScrollThrottle = null;
-            if (typeof captureAppScrollState === 'function') {
-                _apptLiveScrollState = captureAppScrollState();
-            }
-        }, 120);
+        if (typeof captureAppScrollState === 'function') {
+            _apptLiveScrollState = captureAppScrollState();
+        }
     }, true);
 }
 
@@ -14632,128 +14432,19 @@ function apptFinishScrollPreserve(opts, saved) {
     if (!apptShouldPreserveScroll(opts) || !saved) return;
     if (typeof releaseAppScrollLock === 'function') releaseAppScrollLock(false);
     if (typeof scheduleAppScrollRestore === 'function') {
-        /* Soft refreshes used to re-apply scroll 5 times and thrash the main thread. */
-        var delays = (opts && opts.soft) ? [0, 80] : [0, 100, 280];
-        scheduleAppScrollRestore(saved, { delays: delays });
+        scheduleAppScrollRestore(saved, { delays: [0, 100, 250, 600, 1200] });
     }
-}
-
-function queueRowsFingerprint(rows) {
-    var day = typeof todayISO === 'function' ? todayISO() : '';
-    var clear = (typeof plusApptIsClearMode === 'function' && plusApptIsClearMode()) ? '1' : '0';
-    var parts = [(rows || []).length, day, clear];
-    (rows || []).forEach(function(q) {
-        if (!q) return;
-        parts.push([
-            q.id,
-            q.in_queue,
-            q.start_time || '',
-            q.bill_status || '',
-            q.updated_at || '',
-            q.arrival_time || '',
-            q.patient_id || '',
-            q.patient_no || '',
-            q.patient_name || '',
-            q.patient_chinese_name || q._merged_chinese_name || '',
-            q.doctor_code || '',
-            String(q.treatment_items || ''),
-            String(q.remarks || ''),
-            q.lab_status || (q._task && q._task.lab) || '',
-            q.recall_status || (q._task && q._task.recall) || '',
-            q.patient_rsvp_status || ''
-        ].join('\x1f'));
-    });
-    return parts.join('\x1e');
-}
-
-function queueDoctorKeysFingerprint(rows) {
-    if (typeof CalDoctorColors === 'undefined' || !CalDoctorColors.collectKeys) {
-        return String((rows || []).length);
-    }
-    var cid = typeof currentClinicId !== 'undefined' ? currentClinicId : null;
-    return CalDoctorColors.collectKeys(rows || [], cid).map(function(item) {
-        return item && item.key ? item.key : '';
-    }).join('|');
-}
-
-function queuePatchUnpaidBadgesInPlace(rows) {
-    var tb = g('queueBody');
-    if (!tb) return;
-    var clearMode = typeof plusApptIsClearMode === 'function' && plusApptIsClearMode();
-    var byId = {};
-    (rows || []).forEach(function(q) {
-        if (q && q.id) byId[String(q.id)] = q;
-    });
-    tb.querySelectorAll('tr[data-appt-id]').forEach(function(row) {
-        var q = byId[String(row.dataset.apptId || '')];
-        if (!q) return;
-        var host = row.querySelector('.queue-remarks-preview-wrap, .plusappt-remarks-preview-wrap');
-        if (!host) return;
-        var old = host.querySelector('.appt-unpaid-badge');
-        var html = apptUnpaidBadgeHtml(q, clearMode
-            ? 'appt-unpaid-badge--remarks queue-clear-unpaid-badge'
-            : 'appt-unpaid-badge--remarks');
-        if (!html) {
-            if (old && old.parentNode) old.parentNode.removeChild(old);
-            return;
-        }
-        if (old) {
-            var tmp = document.createElement('div');
-            tmp.innerHTML = html;
-            var neu = tmp.firstChild;
-            if (neu) old.parentNode.replaceChild(neu, old);
-            return;
-        }
-        host.insertAdjacentHTML('afterbegin', html);
-    });
-}
-
-function queueFlushPendingSoft() {
-    if (!queuePendingSoftOpts) return;
-    var pending = queuePendingSoftOpts;
-    queuePendingSoftOpts = null;
-    loadQueue(pending);
 }
 
 function loadQueue(opts) {
     opts = opts || {};
-    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
-        return;
-    }
-    if (opts.soft) {
-        if (queuePaintBusy) {
-            queuePendingSoftOpts = { soft: true };
-            return;
-        }
-        if (queueSoftCoalesceTimer) clearTimeout(queueSoftCoalesceTimer);
-        queueSoftCoalesceTimer = setTimeout(function() {
-            queueSoftCoalesceTimer = null;
-            loadQueueNow({ soft: true });
-        }, 150);
-        return;
-    }
-    if (queueSoftCoalesceTimer) {
-        clearTimeout(queueSoftCoalesceTimer);
-        queueSoftCoalesceTimer = null;
-    }
-    queuePendingSoftOpts = null;
-    loadQueueNow(opts);
-}
-
-function loadQueueNow(opts) {
-    opts = opts || {};
-    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
-        return;
-    }
     var tb = g('queueBody');
     if (!tb) return;
     var savedScroll = apptSavedScrollSnapshot(opts);
-    if (!opts.soft) queueCloseAllActionDrops(null);
+    queueCloseAllActionDrops(null);
     var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
     if (!opts.soft) {
-        queuePaintBusy = true;
-        queueLastFingerprint = '';
         tb.innerHTML =
             '<tr><td colspan="11" style="text-align:center;' +
             'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
@@ -14768,32 +14459,22 @@ function loadQueueNow(opts) {
     qq.then(function(r) {
         if (loadSeq !== queueLoadSeq) return;
         if (!opts.soft) tb.innerHTML = '';
-        var doStrip = function (apptRows, force) {
-            var key = queueDoctorKeysFingerprint(apptRows);
-            if (!force && opts.soft && key && key === queueDoctorStripKey) return;
-            queueDoctorStripKey = key;
+        var doStrip = function (apptRows) {
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
                 CalDoctorColors.renderDoctorFilterStrip('queueDoctorFilterBar', apptRows || []);
             }
         };
-        function finishQueueIdle() {
-            queuePaintBusy = false;
-            setTimeout(queueFlushPendingSoft, 0);
-        }
         if (r.error || !r.data || !r.data.length) {
             apptSetTbodyHtml(tb,
                 '<tr><td colspan="11" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' +
                 esc(tr('appt.queue.empty')) + '</td></tr>', opts);
             apptRefreshPatientCountBadge('queue');
-            doStrip([], true);
+            doStrip([]);
             queueApptsCache = [];
-            queueLastFingerprint = queueRowsFingerprint([]);
-            if (!r.error) queueLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
             setQueueRefreshMeta({ stampNow: true });
             queueScheduleCompactFit(function() {
                 apptFinishScrollPreserve(opts, savedScroll);
-                finishQueueIdle();
             });
             return;
         }
@@ -14811,41 +14492,8 @@ function loadQueueNow(opts) {
                 queueApptsCache = activeRows;
                 var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                     ? CalDoctorColors.filterAppts(activeRows) : activeRows;
-                var fp = queueRowsFingerprint(visible);
                 apptRefreshPatientCountBadge('queue');
-
-                /* Soft/auto/realtime: unchanged list → refresh timers only. */
-                if (opts.soft && fp && fp === queueLastFingerprint && tb.querySelector('tr[data-appt-id]')) {
-                    queueLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
-                    setQueueRefreshMeta({ stampNow: true });
-                    ensureQueueElapsedTicker();
-                    queueRefreshElapsedBadges();
-                    finishQueueIdle();
-                    return;
-                }
                 var dotCtx = apptListDoctorDotCtx(activeRows);
-
-                function afterQueueRowsPainted() {
-                    if (loadSeq !== queueLoadSeq) {
-                        finishQueueIdle();
-                        return;
-                    }
-                    queueLastFingerprint = fp;
-                    queueLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
-                    doStrip(activeRows, !opts.soft);
-                    apptRestoreListRowSelection(tb, 'queue');
-                    setQueueRefreshMeta({ stampNow: true });
-                    ensureQueueElapsedTicker();
-                    queueRefreshElapsedBadges();
-                    queueScheduleCompactFit(function() {
-                        apptFinishScrollPreserve(opts, savedScroll);
-                    });
-                    hydrateApptUnpaidBalances(hydratedRows, function(changed) {
-                        if (changed) queuePatchUnpaidBadgesInPlace(hydratedRows);
-                        finishQueueIdle();
-                    });
-                }
-
                 if (!visible.length) {
                     apptSetTbodyHtml(tb,
                         '<tr><td colspan="11" style="text-align:center;' +
@@ -14854,54 +14502,34 @@ function loadQueueNow(opts) {
                             ? tr('appt.queue.emptyFiltered')
                             : tr('appt.queue.empty')) +
                         '</td></tr>', opts);
-                    afterQueueRowsPainted();
-                    return;
-                }
-
-                queuePaintBusy = true;
-                var rowIdx = 0;
-                var CHUNK = 16;
-                var paintRoot = opts.soft ? document.createDocumentFragment() : tb;
-                if (opts.soft) {
-                    /* Close portaled action menus before soft replace. */
-                    document.querySelectorAll('.action-drop.action-drop--portal, .action-drop.open').forEach(function(d) {
-                        var hw = d.__queueActionWrap;
-                        if (hw && tb.contains(hw) && typeof queueCloseActionDrop === 'function') {
-                            queueCloseActionDrop(d);
-                        }
+                } else if (opts.soft) {
+                    apptSwapTbodyContent(tb, function(frag) {
+                        visible.forEach(function(q, idx) {
+                            buildQueueRow(frag, q, idx + 1, dotCtx);
+                        });
                     });
-                } else if (!opts.soft && tb.firstChild) {
-                    /* loading row already cleared above when soft=false */
+                } else {
+                    visible.forEach(function(q, idx) {
+                        buildQueueRow(tb, q, idx + 1, dotCtx);
+                    });
                 }
-
-                (function paintQueueChunk() {
-                    if (loadSeq !== queueLoadSeq) {
-                        finishQueueIdle();
-                        return;
+                doStrip(activeRows);
+                apptRestoreListRowSelection(tb, 'queue');
+                setQueueRefreshMeta({ stampNow: true });
+                ensureQueueElapsedTicker();
+                queueRefreshElapsedBadges();
+                queueScheduleCompactFit(function() {
+                    apptFinishScrollPreserve(opts, savedScroll);
+                });
+                hydrateApptUnpaidBalances(hydratedRows, function(changed) {
+                    if (!changed) return;
+                    if (loadSeq !== queueLoadSeq) return;
+                    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
+                        loadQueue({ soft: true });
                     }
-                    var frag = document.createDocumentFragment();
-                    var end = Math.min(rowIdx + CHUNK, visible.length);
-                    for (; rowIdx < end; rowIdx++) {
-                        buildQueueRow(frag, visible[rowIdx], rowIdx + 1, dotCtx);
-                    }
-                    paintRoot.appendChild(frag);
-                    if (rowIdx < visible.length) {
-                        setTimeout(paintQueueChunk, 0);
-                        return;
-                    }
-                    if (opts.soft) {
-                        while (tb.firstChild) tb.removeChild(tb.firstChild);
-                        tb.appendChild(paintRoot);
-                    }
-                    afterQueueRowsPainted();
-                })();
+                });
             });
         });
-    }).catch(function() {
-        if (loadSeq !== queueLoadSeq) return;
-        setQueueRefreshMeta({ stampNow: true });
-        queuePaintBusy = false;
-        queueFlushPendingSoft();
     });
 }
 
@@ -15401,9 +15029,6 @@ function updateQueueStatus(apptId, status) {
 // ════════════════════════════════════════════════════════════════
 function renderCal(opts) {
     opts = opts || {};
-    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
-        return;
-    }
     if (!opts.force && apptModuleEditPaused('calendar')) {
         apptModuleMarkRefreshDeferred('calendar');
         opts = Object.assign({}, opts, { soft: true });

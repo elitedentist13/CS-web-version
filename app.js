@@ -548,122 +548,78 @@ function hasEffectiveWorkingDateOverride() {
     return !!(ov && ov !== realTodayISO());
 }
 
-var _workingDateRefreshTimer = null;
-var _workingDateRefreshBusy = false;
-
-function scheduleRefreshAppSectionsForWorkingDate() {
-    if (_workingDateRefreshTimer) clearTimeout(_workingDateRefreshTimer);
-    /* Let the date popover close and the strip paint before any module reload. */
-    _workingDateRefreshTimer = setTimeout(function () {
-        _workingDateRefreshTimer = null;
-        refreshAppSectionsForWorkingDate();
-    }, 80);
-}
-
 function setWorkingDateOverride(isoDate) {
     var iso = String(isoDate || '').trim();
-    var next = '';
-    if (iso && iso !== realTodayISO()) {
+    if (!iso || iso === realTodayISO()) {
+        appWorkingDateOverride = '';
+        writeWorkingDateOverrideToStore('');
+    } else {
         var d = parseISODateOnly(iso);
         if (!d || isNaN(d.getTime())) return;
-        next = iso;
+        appWorkingDateOverride = iso;
+        writeWorkingDateOverrideToStore(iso);
     }
-    var prev = currentWorkingDateOverride();
-    if (next === prev) {
-        refreshAppSessionStripContents();
-        return;
-    }
-    appWorkingDateOverride = next;
-    writeWorkingDateOverrideToStore(next);
-    if (typeof queueLoadedForDate !== 'undefined') queueLoadedForDate = '';
-    if (typeof queueLastFingerprint !== 'undefined') queueLastFingerprint = '';
-    if (typeof todayLoadedForDate !== 'undefined') todayLoadedForDate = '';
-    if (typeof todayLastFingerprint !== 'undefined') todayLastFingerprint = '';
     refreshAppSessionStripContents();
-    scheduleRefreshAppSectionsForWorkingDate();
+    refreshAppSectionsForWorkingDate();
     document.dispatchEvent(new CustomEvent('app-working-date-change', {
         detail: { date: appWorkingDateOverride || '' }
     }));
 }
 
 /**
- * After header working-date change: reload only the visible module/tab.
- * Reloading queue + today + +Appointment + calendar together freezes the UI.
+ * After header working-date change: reload panels that key off todayISO() / nowLocal().
  */
 function refreshAppSectionsForWorkingDate() {
-    if (_workingDateRefreshBusy) return;
-    _workingDateRefreshBusy = true;
-    try {
-        refreshAppSectionsForWorkingDateNow();
-    } finally {
-        _workingDateRefreshBusy = false;
-    }
-}
-
-function refreshAppSectionsForWorkingDateNow() {
     var workIso = todayISO();
-    var apptOn = typeof apptSectionIsActive === 'function' && apptSectionIsActive();
-    var conOn = typeof sectionVisible === 'function' && sectionVisible('consultationSection');
-    var patOn = typeof sectionVisible === 'function' && sectionVisible('patientSection');
-    var rptOn = typeof sectionVisible === 'function' && sectionVisible('reportSection');
 
-    /* Remember the planner date so Appointment opens on the override. */
     if (typeof syncApptPlannerDate === 'function') {
         syncApptPlannerDate(workIso, { syncCal: true });
     }
+    if (typeof refreshApptPlannerData === 'function') {
+        refreshApptPlannerData({ force: true, forcePlusAppt: true });
+    }
+    if (typeof loadToday === 'function') loadToday();
+    if (typeof loadQueue === 'function') loadQueue();
 
-    if (apptOn) {
-        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
-        if (tab === 'queue' && typeof loadQueue === 'function') {
-            setTimeout(function() { loadQueue(); }, 0);
-        } else if (tab === 'today' && typeof loadToday === 'function') {
-            loadToday();
-        } else if ((tab === 'plusappt' || tab === 'calendar') &&
-            typeof refreshApptPlannerData === 'function') {
-            refreshApptPlannerData();
-        } else if (tab === 'records' && typeof setArDateFilter === 'function') {
-            setArDateFilter(workIso);
-        } else if (tab === 'recall' && typeof loadRecallPatients === 'function') {
-            if (typeof rcDate !== 'undefined') rcDate = workIso;
+    if (typeof rcDate !== 'undefined' && typeof loadRecallPatients === 'function') {
+        var recallPane = g('tab-recall');
+        if (recallPane && recallPane.classList.contains('active')) {
+            rcDate = workIso;
             var rd = parseISODateOnly(workIso);
             if (rd && !isNaN(rd.getTime())) {
                 rcMonthD = new Date(rd.getFullYear(), rd.getMonth(), 1);
             }
             if (typeof renderRcal === 'function') renderRcal();
-            loadRecallPatients(rcDate || workIso);
-        } else if (tab === 'rsvp' && typeof RSVP_RECALL !== 'undefined' &&
-            RSVP_RECALL.refreshFromBar) {
-            RSVP_RECALL.refreshFromBar();
-        }
-        if (typeof refreshBillPanelForWorkingDate === 'function') {
-            refreshBillPanelForWorkingDate();
+            loadRecallPatients(rcDate);
         }
     }
 
-    if (conOn) {
-        var todayLbl = g('conBannerToday');
-        if (todayLbl && typeof fmtNowDateTimeHK === 'function') {
-            todayLbl.textContent = fmtNowDateTimeHK();
-        }
-        if (typeof conPatientId !== 'undefined' && conPatientId) {
-            if (typeof loadConNotes === 'function') loadConNotes(conPatientId);
-            if (typeof loadConPatientTimeline === 'function') loadConPatientTimeline(conPatientId);
-            if (typeof loadDrugHistory === 'function') loadDrugHistory(conPatientId);
-        }
-        if (typeof conFormsApplyWorkingDateToSickLeave === 'function') {
-            conFormsApplyWorkingDateToSickLeave();
-        } else if (typeof conFormsInitSickLeaveDefaults === 'function') {
-            conFormsInitSickLeaveDefaults();
-        }
-        if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
-        if (typeof conFormsScheduleSickLeaveRender === 'function') conFormsScheduleSickLeaveRender();
-        if (typeof conFormsRefreshPlaceholdersInEditor === 'function') {
-            conFormsRefreshPlaceholdersInEditor();
-        }
-        if (g('rxDate')) sv('rxDate', workIso);
+    var todayLbl = g('conBannerToday');
+    if (todayLbl && typeof fmtNowDateTimeHK === 'function') {
+        todayLbl.textContent = fmtNowDateTimeHK();
+    }
+    if (typeof conPatientId !== 'undefined' && conPatientId) {
+        if (typeof loadConNotes === 'function') loadConNotes(conPatientId);
+        if (typeof loadConPatientTimeline === 'function') loadConPatientTimeline(conPatientId);
+        if (typeof loadDrugHistory === 'function') loadDrugHistory(conPatientId);
+    }
+    if (typeof conFormsApplyWorkingDateToSickLeave === 'function') {
+        conFormsApplyWorkingDateToSickLeave();
+    } else if (typeof conFormsInitSickLeaveDefaults === 'function') {
+        conFormsInitSickLeaveDefaults();
+    }
+    if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+    if (typeof conFormsScheduleSickLeaveRender === 'function') conFormsScheduleSickLeaveRender();
+    if (typeof conFormsRefreshPlaceholdersInEditor === 'function') {
+        conFormsRefreshPlaceholdersInEditor();
+    }
+    if (g('rxDate')) sv('rxDate', workIso);
+
+    if (typeof refreshBillPanelForWorkingDate === 'function') {
+        refreshBillPanelForWorkingDate();
     }
 
-    if (patOn && typeof selPatientId !== 'undefined' && selPatientId &&
+    if (typeof selPatientId !== 'undefined' && selPatientId &&
         typeof loadTreatments === 'function') {
         var detModal = g('patientDetailsModal');
         if (detModal && detModal.style.display === 'block') {
@@ -671,8 +627,7 @@ function refreshAppSectionsForWorkingDateNow() {
         }
     }
 
-    if (rptOn && typeof REPORT !== 'undefined' && REPORT &&
-        typeof REPORT.refreshForWorkingDate === 'function') {
+    if (typeof REPORT !== 'undefined' && REPORT && typeof REPORT.refreshForWorkingDate === 'function') {
         REPORT.refreshForWorkingDate();
     }
 }
@@ -2958,14 +2913,7 @@ function wireAppDateAdjustControls() {
     }
     var dateInp = g('appDateAdjustInput');
     if (dateInp) {
-        /* Do not apply on input change — the native picker fires change as soon
-           as a day is clicked, which used to reload queue/today/+appt mid-picker. */
-        dateInp.addEventListener('keydown', function (ev) {
-            if (ev.key === 'Enter') {
-                ev.preventDefault();
-                applyAppDateFromInput();
-            }
-        });
+        dateInp.addEventListener('change', applyAppDateFromInput);
     }
     var todayBtn = g('appDateAdjustTodayBtn');
     if (todayBtn) {
@@ -4371,8 +4319,7 @@ function jsmLocalStoragePreserveKeys() {
         joyful_working_clinic_follow_v1: true,
         cal_doctor_colors_v1: true,
         cal_doctor_visible_v1: true,
-        gcal_settings_v2: true,
-        joyful_memo_cards_v1: true
+        gcal_settings_v2: true
     };
     keys[JSM_POST_LOGIN_REFRESH_LS] = true;
     keys[JSM_ASSET_CACHE_BUST_LS] = true;
@@ -4562,11 +4509,7 @@ function completeBootAfterReferenceData() {
     var restored = false;
     var payload = _bootNavPayload;
     _bootNavPayload = null;
-    /* After a post-login hard refresh, stay on the dashboard. Restoring
-       the previous module (often Appointment with Working Date ON) re-opens
-       the same stall that froze the last session. */
-    var skipRestore = !!window.__joyfulPostLoginRefresh;
-    if (!skipRestore && payload && payload.nav && payload.nav.screen &&
+    if (payload && payload.nav && payload.nav.screen &&
         typeof canRestoreAppScreen === 'function' &&
         canRestoreAppScreen(payload.nav.screen)) {
         openRestoredAppScreen(payload.nav.screen, payload.nav);
@@ -4582,44 +4525,34 @@ function completeBootAfterReferenceData() {
     syncAppSessionChrome();
 
     if (typeof hasEffectiveWorkingDateOverride === 'function' && hasEffectiveWorkingDateOverride()) {
-        /* Sync planner date only. Do not prefetch queue/today/calendar while
-           the dashboard is up — that is the Working Date login stall. */
-        if (typeof syncApptPlannerDate === 'function') {
-            syncApptPlannerDate(todayISO(), { syncCal: true });
-        }
-        if (typeof sectionVisible === 'function' && !sectionVisible('dashboardSection') &&
-            typeof refreshAppSectionsForWorkingDate === 'function') {
-            setTimeout(function () {
+        setTimeout(function () {
+            if (typeof refreshAppSectionsForWorkingDate === 'function') {
                 refreshAppSectionsForWorkingDate();
-            }, 400);
-        }
+            }
+        }, 400);
     }
 }
 
 function loadClinicsAndDoctorsForLogin() {
     function finishClinicRows(rows) {
         APP_CLINICS = rows || [];
-        try {
-            refreshAllClinicTagFilterSelects();
-            populateLoginClinicSelect();
-            populateWorkingClinicSelect();
-            refreshDashboardContextControls();
-            if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
-            if (typeof fillAddPatientClinicSelect === 'function') {
-                fillAddPatientClinicSelect();
+        refreshAllClinicTagFilterSelects();
+        populateLoginClinicSelect();
+        populateWorkingClinicSelect();
+        refreshDashboardContextControls();
+        if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
+        if (typeof fillAddPatientClinicSelect === 'function') {
+            fillAddPatientClinicSelect();
+        }
+        if (typeof refreshEditPatientClinicIfModalOpen === 'function') {
+            refreshEditPatientClinicIfModalOpen();
+        }
+        if (currentUserId) refreshAppSessionStripContents();
+        if (currentClinicId && !isClinicOperational(clinicRecordFromId(currentClinicId))) {
+            var nextId = defaultWorkingClinicId();
+            if (nextId && typeof setWorkingClinic === 'function') {
+                setWorkingClinic(nextId, { syncFilters: true, reloadAppt: false });
             }
-            if (typeof refreshEditPatientClinicIfModalOpen === 'function') {
-                refreshEditPatientClinicIfModalOpen();
-            }
-            if (currentUserId) refreshAppSessionStripContents();
-            if (currentClinicId && !isClinicOperational(clinicRecordFromId(currentClinicId))) {
-                var nextId = defaultWorkingClinicId();
-                if (nextId && typeof setWorkingClinic === 'function') {
-                    setWorkingClinic(nextId, { syncFilters: true, reloadAppt: false });
-                }
-            }
-        } catch (eClinicBoot) {
-            console.warn('[boot] finishClinicRows', eClinicBoot);
         }
         _markBootClinicsReady();
     }
@@ -4645,14 +4578,10 @@ function loadClinicsAndDoctorsForLogin() {
 
     function finishDoctorList(rows) {
         APP_DOCTORS = (rows || []).filter(function (d) { return d.is_active !== false; });
-        try {
-            if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.onDoctorsLoaded === 'function') {
-                CalDoctorColors.onDoctorsLoaded();
-            }
-            refreshDashboardContextControls();
-        } catch (eDoctorBoot) {
-            console.warn('[boot] finishDoctorList', eDoctorBoot);
+        if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.onDoctorsLoaded === 'function') {
+            CalDoctorColors.onDoctorsLoaded();
         }
+        refreshDashboardContextControls();
         _markBootDoctorsReady();
     }
 
@@ -5199,7 +5128,6 @@ function doLogin() {
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function() {
     var postLoginRefresh = consumePostLoginHardRefreshFlag();
-    window.__joyfulPostLoginRefresh = !!postLoginRefresh;
     if (postLoginRefresh) {
         clearBrowserTempCachesOnLogin();
         stripLoginReloadQueryParam();
@@ -5218,15 +5146,6 @@ document.addEventListener('DOMContentLoaded', function() {
         bindAppScrollPersistOnce();
         _bootNavPayload = readAppScrollRestorePayload();
         syncAppSessionChrome();
-        /* Show dash immediately so the page is not a blank unresponsive
-           shell while clinics/doctors load. completeBootAfterReferenceData
-           refreshes selects and may restore another screen. */
-        try {
-            showDashboard();
-        } catch (eDashBoot) {
-            console.warn('[boot] early showDashboard', eDashBoot);
-            if (typeof showOnly === 'function') showOnly('dashboardSection');
-        }
         whenBootReferenceDataReady(completeBootAfterReferenceData);
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
         if (typeof prefetchBillTypes === 'function') prefetchBillTypes();

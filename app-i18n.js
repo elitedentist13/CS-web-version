@@ -569,22 +569,8 @@ function updateLangToggleButtons() {
     }
 }
 
-/** Dashboard chrome only — do not walk the full 1800+ node body on every show. */
 function applyDashboardI18n() {
-    var dash = document.getElementById('dashboardSection');
-    if (dash) applyI18nInRoot(dash);
-    var strip = document.getElementById('appSessionStrip');
-    if (strip) applyI18nInRoot(strip);
-    var dock = document.getElementById('activePatientDock');
-    if (dock) applyI18nInRoot(dock);
-    var group = document.getElementById('dashLangToggle');
-    if (group) {
-        group.setAttribute('aria-label', t('dashboard.langGroup'));
-    }
-    updateLangToggleButtons();
-    try {
-        document.title = t('app.title');
-    } catch (eTitle) { /* ignore */ }
+    applyAppI18n();
 }
 
 function setAppLang(lang, opts) {
@@ -625,19 +611,7 @@ function initAppI18n() {
     appUiLang = i18nNormalizeLang(readStoredAppLang() || 'en');
     applyHtmlLang(appUiLang);
     bindLangToggle();
-    /* First paint: login + dash chrome only. Walking all 1800+ hidden
-       module nodes here blocked dashboard clicks after doctor login. */
-    var login = document.getElementById('loginOverlay');
-    if (login) applyI18nInRoot(login);
-    if (typeof applyDashboardI18n === 'function') applyDashboardI18n();
-    var later = function () {
-        if (typeof applyAppI18n === 'function') applyAppI18n();
-    };
-    if (typeof requestIdleCallback === 'function') {
-        requestIdleCallback(later, { timeout: 1800 });
-    } else {
-        setTimeout(later, 0);
-    }
+    applyAppI18n();
 }
 
 document.addEventListener('DOMContentLoaded', initAppI18n);

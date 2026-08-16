@@ -63,24 +63,15 @@ var APPT_PUBLIC_HOLIDAYS = (function () {
     }
 
     function refreshAppointmentCalendars() {
-        var apptOn = typeof apptSectionIsActive === 'function' && apptSectionIsActive();
-        if (!apptOn) return;
-        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
-        if (tab === 'plusappt' && typeof renderPlusApptMiniCal === 'function') {
-            renderPlusApptMiniCal();
+        if (typeof renderPlusApptMiniCal === 'function') renderPlusApptMiniCal();
+        if (typeof renderArMiniCal === 'function') renderArMiniCal();
+        if (typeof renderRcal === 'function') renderRcal();
+        if (typeof renderCalMonthMini === 'function') renderCalMonthMini();
+        if (typeof GCAL !== 'undefined' && GCAL.refreshMiniCalPanel) GCAL.refreshMiniCalPanel();
+        if (typeof renderCal === 'function' && typeof calView !== 'undefined' && calView === 'monthly') {
+            renderCal({ force: true });
         }
-        if (tab === 'records' && typeof renderArMiniCal === 'function') renderArMiniCal();
-        if (tab === 'recall' && typeof renderRcal === 'function') renderRcal();
-        if (tab === 'calendar') {
-            if (typeof renderCalMonthMini === 'function') renderCalMonthMini();
-            if (typeof GCAL !== 'undefined' && GCAL.refreshMiniCalPanel) GCAL.refreshMiniCalPanel();
-            if (typeof renderCal === 'function' && typeof calView !== 'undefined' &&
-                calView === 'monthly') {
-                renderCal();
-            }
-        }
-        if (tab === 'webbook' && typeof WEBBOOK_ROSTER !== 'undefined' &&
-            WEBBOOK_ROSTER.refreshManualMonth) {
+        if (typeof WEBBOOK_ROSTER !== 'undefined' && WEBBOOK_ROSTER.refreshManualMonth) {
             WEBBOOK_ROSTER.refreshManualMonth();
         }
     }

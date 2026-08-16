@@ -1319,7 +1319,7 @@ function syncApptPlannerDate(iso, opts) {
 /** Reload day planner (+ Appointment) and calendar from Supabase (same clinic scope). */
 function refreshApptPlannerData(opts) {
     opts = opts || {};
-    if (!opts.force && !apptSectionIsActive()) return;
+    if (!apptSectionIsActive()) return;
     if (!plusApptDate) plusApptDate = todayISO();
     var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
     if ((tab === 'plusappt' || opts.forcePlusAppt) && typeof loadPlusApptDay === 'function') {
@@ -6258,6 +6258,9 @@ function plusApptSetDate(iso) {
 
 function loadPlusApptDay(opts) {
     opts = opts || {};
+    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
+        return;
+    }
     if (!opts.force && apptModuleEditPaused('plusappt')) {
         apptModuleMarkRefreshDeferred('plusappt');
         opts.soft = true;
@@ -12772,6 +12775,9 @@ function syncApptTodayDateLabels() {
 
 function loadToday(opts) {
     opts = opts || {};
+    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
+        return;
+    }
     if (!opts.force && apptModuleEditPaused('today')) {
         apptModuleMarkRefreshDeferred('today');
         opts.soft = true;
@@ -14438,6 +14444,9 @@ function apptFinishScrollPreserve(opts, saved) {
 
 function loadQueue(opts) {
     opts = opts || {};
+    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
+        return;
+    }
     var tb = g('queueBody');
     if (!tb) return;
     var savedScroll = apptSavedScrollSnapshot(opts);
@@ -15029,6 +15038,9 @@ function updateQueueStatus(apptId, status) {
 // ════════════════════════════════════════════════════════════════
 function renderCal(opts) {
     opts = opts || {};
+    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
+        return;
+    }
     if (!opts.force && apptModuleEditPaused('calendar')) {
         apptModuleMarkRefreshDeferred('calendar');
         opts = Object.assign({}, opts, { soft: true });

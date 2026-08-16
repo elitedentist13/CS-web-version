@@ -568,58 +568,69 @@ function setWorkingDateOverride(isoDate) {
 
 /**
  * After header working-date change: reload panels that key off todayISO() / nowLocal().
+ * Hidden modules are skipped — forcing queue/today/+appt/calendar while the
+ * dashboard is showing is what froze Dr Yeung's login (Working Date ON).
  */
 function refreshAppSectionsForWorkingDate() {
     var workIso = todayISO();
+    var apptOn = typeof apptSectionIsActive === 'function' && apptSectionIsActive();
+    var conOn = typeof sectionVisible === 'function' && sectionVisible('consultationSection');
+    var patOn = typeof sectionVisible === 'function' && sectionVisible('patientSection');
+    var rptOn = typeof sectionVisible === 'function' && sectionVisible('reportSection');
 
+    /* Always remember the planner date so Appointment opens on the override. */
     if (typeof syncApptPlannerDate === 'function') {
         syncApptPlannerDate(workIso, { syncCal: true });
     }
-    if (typeof refreshApptPlannerData === 'function') {
-        refreshApptPlannerData({ force: true, forcePlusAppt: true });
-    }
-    if (typeof loadToday === 'function') loadToday();
-    if (typeof loadQueue === 'function') loadQueue();
 
-    if (typeof rcDate !== 'undefined' && typeof loadRecallPatients === 'function') {
-        var recallPane = g('tab-recall');
-        if (recallPane && recallPane.classList.contains('active')) {
-            rcDate = workIso;
-            var rd = parseISODateOnly(workIso);
-            if (rd && !isNaN(rd.getTime())) {
-                rcMonthD = new Date(rd.getFullYear(), rd.getMonth(), 1);
+    if (apptOn) {
+        if (typeof refreshApptPlannerData === 'function') {
+            refreshApptPlannerData({ force: true, forcePlusAppt: true });
+        }
+        if (typeof loadToday === 'function') loadToday();
+        if (typeof loadQueue === 'function') loadQueue();
+
+        if (typeof rcDate !== 'undefined' && typeof loadRecallPatients === 'function') {
+            var recallPane = g('tab-recall');
+            if (recallPane && recallPane.classList.contains('active')) {
+                rcDate = workIso;
+                var rd = parseISODateOnly(workIso);
+                if (rd && !isNaN(rd.getTime())) {
+                    rcMonthD = new Date(rd.getFullYear(), rd.getMonth(), 1);
+                }
+                if (typeof renderRcal === 'function') renderRcal();
+                loadRecallPatients(rcDate);
             }
-            if (typeof renderRcal === 'function') renderRcal();
-            loadRecallPatients(rcDate);
+        }
+        if (typeof refreshBillPanelForWorkingDate === 'function') {
+            refreshBillPanelForWorkingDate();
         }
     }
 
-    var todayLbl = g('conBannerToday');
-    if (todayLbl && typeof fmtNowDateTimeHK === 'function') {
-        todayLbl.textContent = fmtNowDateTimeHK();
-    }
-    if (typeof conPatientId !== 'undefined' && conPatientId) {
-        if (typeof loadConNotes === 'function') loadConNotes(conPatientId);
-        if (typeof loadConPatientTimeline === 'function') loadConPatientTimeline(conPatientId);
-        if (typeof loadDrugHistory === 'function') loadDrugHistory(conPatientId);
-    }
-    if (typeof conFormsApplyWorkingDateToSickLeave === 'function') {
-        conFormsApplyWorkingDateToSickLeave();
-    } else if (typeof conFormsInitSickLeaveDefaults === 'function') {
-        conFormsInitSickLeaveDefaults();
-    }
-    if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
-    if (typeof conFormsScheduleSickLeaveRender === 'function') conFormsScheduleSickLeaveRender();
-    if (typeof conFormsRefreshPlaceholdersInEditor === 'function') {
-        conFormsRefreshPlaceholdersInEditor();
-    }
-    if (g('rxDate')) sv('rxDate', workIso);
-
-    if (typeof refreshBillPanelForWorkingDate === 'function') {
-        refreshBillPanelForWorkingDate();
+    if (conOn) {
+        var todayLbl = g('conBannerToday');
+        if (todayLbl && typeof fmtNowDateTimeHK === 'function') {
+            todayLbl.textContent = fmtNowDateTimeHK();
+        }
+        if (typeof conPatientId !== 'undefined' && conPatientId) {
+            if (typeof loadConNotes === 'function') loadConNotes(conPatientId);
+            if (typeof loadConPatientTimeline === 'function') loadConPatientTimeline(conPatientId);
+            if (typeof loadDrugHistory === 'function') loadDrugHistory(conPatientId);
+        }
+        if (typeof conFormsApplyWorkingDateToSickLeave === 'function') {
+            conFormsApplyWorkingDateToSickLeave();
+        } else if (typeof conFormsInitSickLeaveDefaults === 'function') {
+            conFormsInitSickLeaveDefaults();
+        }
+        if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
+        if (typeof conFormsScheduleSickLeaveRender === 'function') conFormsScheduleSickLeaveRender();
+        if (typeof conFormsRefreshPlaceholdersInEditor === 'function') {
+            conFormsRefreshPlaceholdersInEditor();
+        }
+        if (g('rxDate')) sv('rxDate', workIso);
     }
 
-    if (typeof selPatientId !== 'undefined' && selPatientId &&
+    if (patOn && typeof selPatientId !== 'undefined' && selPatientId &&
         typeof loadTreatments === 'function') {
         var detModal = g('patientDetailsModal');
         if (detModal && detModal.style.display === 'block') {
@@ -627,7 +638,8 @@ function refreshAppSectionsForWorkingDate() {
         }
     }
 
-    if (typeof REPORT !== 'undefined' && REPORT && typeof REPORT.refreshForWorkingDate === 'function') {
+    if (rptOn && typeof REPORT !== 'undefined' && REPORT &&
+        typeof REPORT.refreshForWorkingDate === 'function') {
         REPORT.refreshForWorkingDate();
     }
 }
@@ -4319,7 +4331,8 @@ function jsmLocalStoragePreserveKeys() {
         joyful_working_clinic_follow_v1: true,
         cal_doctor_colors_v1: true,
         cal_doctor_visible_v1: true,
-        gcal_settings_v2: true
+        gcal_settings_v2: true,
+        joyful_memo_cards_v1: true
     };
     keys[JSM_POST_LOGIN_REFRESH_LS] = true;
     keys[JSM_ASSET_CACHE_BUST_LS] = true;
@@ -4509,7 +4522,11 @@ function completeBootAfterReferenceData() {
     var restored = false;
     var payload = _bootNavPayload;
     _bootNavPayload = null;
-    if (payload && payload.nav && payload.nav.screen &&
+    /* After a post-login hard refresh, stay on the dashboard. Restoring
+       the previous module (often Appointment with Working Date ON) re-opens
+       the same stall that froze the last session. */
+    var skipRestore = !!window.__joyfulPostLoginRefresh;
+    if (!skipRestore && payload && payload.nav && payload.nav.screen &&
         typeof canRestoreAppScreen === 'function' &&
         canRestoreAppScreen(payload.nav.screen)) {
         openRestoredAppScreen(payload.nav.screen, payload.nav);
@@ -4525,34 +4542,44 @@ function completeBootAfterReferenceData() {
     syncAppSessionChrome();
 
     if (typeof hasEffectiveWorkingDateOverride === 'function' && hasEffectiveWorkingDateOverride()) {
-        setTimeout(function () {
-            if (typeof refreshAppSectionsForWorkingDate === 'function') {
+        /* Sync planner date only. Do not prefetch queue/today/calendar while
+           the dashboard is up — that is the Working Date login stall. */
+        if (typeof syncApptPlannerDate === 'function') {
+            syncApptPlannerDate(todayISO(), { syncCal: true });
+        }
+        if (typeof sectionVisible === 'function' && !sectionVisible('dashboardSection') &&
+            typeof refreshAppSectionsForWorkingDate === 'function') {
+            setTimeout(function () {
                 refreshAppSectionsForWorkingDate();
-            }
-        }, 400);
+            }, 400);
+        }
     }
 }
 
 function loadClinicsAndDoctorsForLogin() {
     function finishClinicRows(rows) {
         APP_CLINICS = rows || [];
-        refreshAllClinicTagFilterSelects();
-        populateLoginClinicSelect();
-        populateWorkingClinicSelect();
-        refreshDashboardContextControls();
-        if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
-        if (typeof fillAddPatientClinicSelect === 'function') {
-            fillAddPatientClinicSelect();
-        }
-        if (typeof refreshEditPatientClinicIfModalOpen === 'function') {
-            refreshEditPatientClinicIfModalOpen();
-        }
-        if (currentUserId) refreshAppSessionStripContents();
-        if (currentClinicId && !isClinicOperational(clinicRecordFromId(currentClinicId))) {
-            var nextId = defaultWorkingClinicId();
-            if (nextId && typeof setWorkingClinic === 'function') {
-                setWorkingClinic(nextId, { syncFilters: true, reloadAppt: false });
+        try {
+            refreshAllClinicTagFilterSelects();
+            populateLoginClinicSelect();
+            populateWorkingClinicSelect();
+            refreshDashboardContextControls();
+            if (typeof populateApptClinicSelect === 'function') populateApptClinicSelect();
+            if (typeof fillAddPatientClinicSelect === 'function') {
+                fillAddPatientClinicSelect();
             }
+            if (typeof refreshEditPatientClinicIfModalOpen === 'function') {
+                refreshEditPatientClinicIfModalOpen();
+            }
+            if (currentUserId) refreshAppSessionStripContents();
+            if (currentClinicId && !isClinicOperational(clinicRecordFromId(currentClinicId))) {
+                var nextId = defaultWorkingClinicId();
+                if (nextId && typeof setWorkingClinic === 'function') {
+                    setWorkingClinic(nextId, { syncFilters: true, reloadAppt: false });
+                }
+            }
+        } catch (eClinicBoot) {
+            console.warn('[boot] finishClinicRows', eClinicBoot);
         }
         _markBootClinicsReady();
     }
@@ -4578,10 +4605,14 @@ function loadClinicsAndDoctorsForLogin() {
 
     function finishDoctorList(rows) {
         APP_DOCTORS = (rows || []).filter(function (d) { return d.is_active !== false; });
-        if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.onDoctorsLoaded === 'function') {
-            CalDoctorColors.onDoctorsLoaded();
+        try {
+            if (typeof CalDoctorColors !== 'undefined' && typeof CalDoctorColors.onDoctorsLoaded === 'function') {
+                CalDoctorColors.onDoctorsLoaded();
+            }
+            refreshDashboardContextControls();
+        } catch (eDoctorBoot) {
+            console.warn('[boot] finishDoctorList', eDoctorBoot);
         }
-        refreshDashboardContextControls();
         _markBootDoctorsReady();
     }
 
@@ -5128,6 +5159,7 @@ function doLogin() {
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function() {
     var postLoginRefresh = consumePostLoginHardRefreshFlag();
+    window.__joyfulPostLoginRefresh = !!postLoginRefresh;
     if (postLoginRefresh) {
         clearBrowserTempCachesOnLogin();
         stripLoginReloadQueryParam();
@@ -5146,6 +5178,15 @@ document.addEventListener('DOMContentLoaded', function() {
         bindAppScrollPersistOnce();
         _bootNavPayload = readAppScrollRestorePayload();
         syncAppSessionChrome();
+        /* Show dash immediately so the page is not a blank unresponsive
+           shell while clinics/doctors load. completeBootAfterReferenceData
+           refreshes selects and may restore another screen. */
+        try {
+            showDashboard();
+        } catch (eDashBoot) {
+            console.warn('[boot] early showDashboard', eDashBoot);
+            if (typeof showOnly === 'function') showOnly('dashboardSection');
+        }
         whenBootReferenceDataReady(completeBootAfterReferenceData);
         if (typeof loadProgramSettings === 'function') loadProgramSettings(true);
         if (typeof prefetchBillTypes === 'function') prefetchBillTypes();

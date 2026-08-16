@@ -261,7 +261,8 @@ var CalDoctorColors = (function () {
         }
         if (settingsOpen) {
             repaintVisibleAppointmentColors();
-        } else if (typeof renderCal === 'function') {
+        } else if (typeof renderCal === 'function' &&
+            typeof apptSectionIsActive === 'function' && apptSectionIsActive()) {
             renderCal();
         }
         if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();

@@ -548,59 +548,88 @@ function hasEffectiveWorkingDateOverride() {
     return !!(ov && ov !== realTodayISO());
 }
 
+var _workingDateRefreshTimer = null;
+var _workingDateRefreshBusy = false;
+
+function scheduleRefreshAppSectionsForWorkingDate() {
+    if (_workingDateRefreshTimer) clearTimeout(_workingDateRefreshTimer);
+    /* Let the date popover close and the strip paint before any module reload. */
+    _workingDateRefreshTimer = setTimeout(function () {
+        _workingDateRefreshTimer = null;
+        refreshAppSectionsForWorkingDate();
+    }, 80);
+}
+
 function setWorkingDateOverride(isoDate) {
     var iso = String(isoDate || '').trim();
-    if (!iso || iso === realTodayISO()) {
-        appWorkingDateOverride = '';
-        writeWorkingDateOverrideToStore('');
-    } else {
+    var next = '';
+    if (iso && iso !== realTodayISO()) {
         var d = parseISODateOnly(iso);
         if (!d || isNaN(d.getTime())) return;
-        appWorkingDateOverride = iso;
-        writeWorkingDateOverrideToStore(iso);
+        next = iso;
     }
+    var prev = currentWorkingDateOverride();
+    if (next === prev) {
+        refreshAppSessionStripContents();
+        return;
+    }
+    appWorkingDateOverride = next;
+    writeWorkingDateOverrideToStore(next);
     refreshAppSessionStripContents();
-    refreshAppSectionsForWorkingDate();
+    scheduleRefreshAppSectionsForWorkingDate();
     document.dispatchEvent(new CustomEvent('app-working-date-change', {
         detail: { date: appWorkingDateOverride || '' }
     }));
 }
 
 /**
- * After header working-date change: reload panels that key off todayISO() / nowLocal().
- * Hidden modules are skipped — forcing queue/today/+appt/calendar while the
- * dashboard is showing is what froze Dr Yeung's login (Working Date ON).
+ * After header working-date change: reload only the visible module/tab.
+ * Reloading queue + today + +Appointment + calendar together freezes the UI.
  */
 function refreshAppSectionsForWorkingDate() {
+    if (_workingDateRefreshBusy) return;
+    _workingDateRefreshBusy = true;
+    try {
+        refreshAppSectionsForWorkingDateNow();
+    } finally {
+        _workingDateRefreshBusy = false;
+    }
+}
+
+function refreshAppSectionsForWorkingDateNow() {
     var workIso = todayISO();
     var apptOn = typeof apptSectionIsActive === 'function' && apptSectionIsActive();
     var conOn = typeof sectionVisible === 'function' && sectionVisible('consultationSection');
     var patOn = typeof sectionVisible === 'function' && sectionVisible('patientSection');
     var rptOn = typeof sectionVisible === 'function' && sectionVisible('reportSection');
 
-    /* Always remember the planner date so Appointment opens on the override. */
+    /* Remember the planner date so Appointment opens on the override. */
     if (typeof syncApptPlannerDate === 'function') {
         syncApptPlannerDate(workIso, { syncCal: true });
     }
 
     if (apptOn) {
-        if (typeof refreshApptPlannerData === 'function') {
-            refreshApptPlannerData({ force: true, forcePlusAppt: true });
-        }
-        if (typeof loadToday === 'function') loadToday();
-        if (typeof loadQueue === 'function') loadQueue();
-
-        if (typeof rcDate !== 'undefined' && typeof loadRecallPatients === 'function') {
-            var recallPane = g('tab-recall');
-            if (recallPane && recallPane.classList.contains('active')) {
-                rcDate = workIso;
-                var rd = parseISODateOnly(workIso);
-                if (rd && !isNaN(rd.getTime())) {
-                    rcMonthD = new Date(rd.getFullYear(), rd.getMonth(), 1);
-                }
-                if (typeof renderRcal === 'function') renderRcal();
-                loadRecallPatients(rcDate);
+        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
+        if (tab === 'queue' && typeof loadQueue === 'function') {
+            loadQueue();
+        } else if (tab === 'today' && typeof loadToday === 'function') {
+            loadToday();
+        } else if ((tab === 'plusappt' || tab === 'calendar') &&
+            typeof refreshApptPlannerData === 'function') {
+            refreshApptPlannerData();
+        } else if (tab === 'records' && typeof setArDateFilter === 'function') {
+            setArDateFilter(workIso);
+        } else if (tab === 'recall' && typeof loadRecallPatients === 'function') {
+            if (typeof rcDate !== 'undefined') rcDate = workIso;
+            var rd = parseISODateOnly(workIso);
+            if (rd && !isNaN(rd.getTime())) {
+                rcMonthD = new Date(rd.getFullYear(), rd.getMonth(), 1);
             }
+            if (typeof renderRcal === 'function') renderRcal();
+            loadRecallPatients(rcDate || workIso);
+        } else if (tab === 'rsvp' && typeof RSVP_RECALL !== 'undefined' &&
+            RSVP_RECALL.refreshFromBar) {
+            RSVP_RECALL.refreshFromBar();
         }
         if (typeof refreshBillPanelForWorkingDate === 'function') {
             refreshBillPanelForWorkingDate();
@@ -2925,7 +2954,14 @@ function wireAppDateAdjustControls() {
     }
     var dateInp = g('appDateAdjustInput');
     if (dateInp) {
-        dateInp.addEventListener('change', applyAppDateFromInput);
+        /* Do not apply on input change — the native picker fires change as soon
+           as a day is clicked, which used to reload queue/today/+appt mid-picker. */
+        dateInp.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                applyAppDateFromInput();
+            }
+        });
     }
     var todayBtn = g('appDateAdjustTodayBtn');
     if (todayBtn) {

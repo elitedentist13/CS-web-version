@@ -68,8 +68,9 @@ var APPT_PUBLIC_HOLIDAYS = (function () {
         if (typeof renderRcal === 'function') renderRcal();
         if (typeof renderCalMonthMini === 'function') renderCalMonthMini();
         if (typeof GCAL !== 'undefined' && GCAL.refreshMiniCalPanel) GCAL.refreshMiniCalPanel();
-        if (typeof renderCal === 'function' && typeof calView !== 'undefined' && calView === 'monthly') {
-            renderCal({ force: true });
+        if (typeof renderCal === 'function' && typeof calView !== 'undefined' && calView === 'monthly' &&
+            typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'calendar') {
+            renderCal();
         }
         if (typeof WEBBOOK_ROSTER !== 'undefined' && WEBBOOK_ROSTER.refreshManualMonth) {
             WEBBOOK_ROSTER.refreshManualMonth();

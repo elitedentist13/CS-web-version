@@ -577,6 +577,8 @@ function setWorkingDateOverride(isoDate) {
     writeWorkingDateOverrideToStore(next);
     if (typeof queueLoadedForDate !== 'undefined') queueLoadedForDate = '';
     if (typeof queueLastFingerprint !== 'undefined') queueLastFingerprint = '';
+    if (typeof todayLoadedForDate !== 'undefined') todayLoadedForDate = '';
+    if (typeof todayLastFingerprint !== 'undefined') todayLastFingerprint = '';
     refreshAppSessionStripContents();
     scheduleRefreshAppSectionsForWorkingDate();
     document.dispatchEvent(new CustomEvent('app-working-date-change', {

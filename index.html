@@ -43,7 +43,7 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  ['fonts/cjk-fonts.css', 'style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
+  ['style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = withBust(path);
@@ -2883,6 +2883,9 @@
                   <button type="button" id="conBannerWaBtn" class="con-banner-wa-btn"
                           onclick="conBannerOpenWhatsApp()" data-i18n-title="whatsapp.action.reminder"
                           title="WhatsApp">💬</button>
+                  <button type="button" id="conBannerReminderBtn" class="con-banner-reminder-btn"
+                          onclick="conBannerOpenReminder()" data-i18n-title="con.banner.reminderBtnTitle"
+                          title="Appointment Reminder">🔔</button>
                 </span>
                 <span id="conBannerMobileWrap" style="display:none;"><span data-i18n="con.banner.mobileLabel"></span>&nbsp;<strong id="conBannerMobile">—</strong></span>
                 <span id="conBannerAddressWrap" style="display:none;"><span data-i18n="con.banner.addressLabel"></span>&nbsp;<strong id="conBannerAddress">—</strong></span>
@@ -7298,9 +7301,9 @@
     'app-public-holidays.js',
     'app-appt.js',
     'app-rsvp-recall.js',
+    'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-drug-allergy.js',
     'app-consultation.js',
     'app-xray.js?v=20260520f',
     'app-xray-ai.js',

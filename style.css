@@ -8899,6 +8899,23 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .con-banner-wa-btn:hover {
     background: #16a34a;
 }
+.con-banner-reminder-btn {
+    margin-left: 5px;
+    border: 1px solid rgba(255,255,255,.42);
+    border-radius: 999px;
+    background: #f59e0b;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    padding: 3px 7px;
+    cursor: pointer;
+    vertical-align: middle;
+    box-shadow: 0 1px 4px rgba(0,0,0,.18);
+}
+.con-banner-reminder-btn:hover {
+    background: #d97706;
+}
 .con-banner-balance-wrap strong {
     font-weight: 700;
 }

@@ -1,20 +1,33 @@
 /* ════════════════════════════════════════════════════════════════════
- *  app-patient-recall.js — standalone Appt Reminder + Set-recall modal
+ *  app-patient-recall.js — standalone Appointment Reminder (recall) plugin
  *
- *  Does NOT modify Recall Patient, RSVP, Broadcast, or AI Helper.
- *  Own table: patient_recalls. Own UI, strings, calendar, and handlers.
+ *  Rebuilt from scratch. Two entry points only:
+ *    1) Dr-side trigger button in the Consultation patient banner
+ *       (app-consultation.js: conBannerOpenReminder) -> PATIENT_RECALL.open(ctx)
+ *    2) A new "Appt Reminder" sub-tab injected into the Appointment module's
+ *       tab strip (.appt-tabs) -> PATIENT_RECALL.showPanel()
+ *
+ *  Hard constraint: this file must NEVER read from or write into the Queue
+ *  tab (#queueBody), the working-date override, or the Patient Directory
+ *  list. It does not attach any MutationObserver or poller to those areas,
+ *  and does not touch switchApptTab()'s existing tab side-effects (loadQueue,
+ *  loadToday, working-date refresh, etc). It only adds one new, independent
+ *  tab button + pane and reads/writes its own Supabase table (patient_recalls).
+ *
+ *  Does NOT modify Recall Patient (birthday recall), RSVP, Broadcast, or
+ *  AI Helper. Own table: patient_recalls. Own UI, strings, calendar, handlers.
  *
  *  Public API:
- *     PATIENT_RECALL.open(ctx)
- *     PATIENT_RECALL.showPanel()
- *     PATIENT_RECALL.init()
+ *     PATIENT_RECALL.open(ctx)     — open the Set-Reminder modal for a patient
+ *     PATIENT_RECALL.showPanel()   — open/refresh the management panel
+ *     PATIENT_RECALL.init()        — one-time boot (called automatically)
  * ════════════════════════════════════════════════════════════════════ */
 var PATIENT_RECALL = (function () {
     'use strict';
 
     var TABLE = 'patient_recalls';
     var TAB_KEY = 'reminder';
-    var PANEL_VER = '5';
+    var PANEL_VER = '7';
     var TPL_PREF = 'prc_twilio_tpl_id_v1';
     var FROM_PREF = 'prc_twilio_from_id_v1';
     var PH_CHIPS = [
@@ -23,15 +36,15 @@ var PATIENT_RECALL = (function () {
         'DATE', 'DOCTOR', 'REMARKS', 'PHONE', 'PATIENT_NO'
     ];
     var INTERVALS = {
+        '1m': { months: 1 },
         '3m': { months: 3 },
         '6m': { months: 6 },
         '9m': { months: 9 },
-        '1y': { months: 12 }
+        '12m': { months: 12 }
     };
 
     var I18N = {
-        'prc.action': { en: 'Set Review', 'zh-CN': '设定复查', 'zh-Hant': '設定覆查' },
-        'prc.title': { en: 'Set Review', 'zh-CN': '设定复查', 'zh-Hant': '設定覆查' },
+        'prc.title': { en: 'Appointment Reminder', 'zh-CN': '复诊提醒', 'zh-Hant': '覆診提醒' },
         'prc.tab': { en: '🔔 Appt Reminder', 'zh-CN': '🔔 复诊提醒', 'zh-Hant': '🔔 覆診提醒' },
         'prc.date': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'prc.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
@@ -39,10 +52,11 @@ var PATIENT_RECALL = (function () {
         'prc.remarks': { en: 'Remarks', 'zh-CN': '备注', 'zh-Hant': '備註' },
         'prc.remarksPh': { en: 'Optional notes', 'zh-CN': '可选备注', 'zh-Hant': '可選備註' },
         'prc.save': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
+        'prc.1m': { en: '1 Month', 'zh-CN': '1个月', 'zh-Hant': '1個月' },
         'prc.3m': { en: '3 Month', 'zh-CN': '3个月', 'zh-Hant': '3個月' },
         'prc.6m': { en: '6 Month', 'zh-CN': '6个月', 'zh-Hant': '6個月' },
         'prc.9m': { en: '9 Month', 'zh-CN': '9个月', 'zh-Hant': '9個月' },
-        'prc.1y': { en: '1 Year', 'zh-CN': '1年', 'zh-Hant': '1年' },
+        'prc.12m': { en: '12 Month', 'zh-CN': '12个月', 'zh-Hant': '12個月' },
         'prc.delete': { en: 'Delete', 'zh-CN': '删除', 'zh-Hant': '刪除' },
         'prc.return': { en: 'Return', 'zh-CN': '返回', 'zh-Hant': '返回' },
         'prc.th.date': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
@@ -53,8 +67,7 @@ var PATIENT_RECALL = (function () {
         'prc.th.tel': { en: 'Telephone', 'zh-CN': '电话', 'zh-Hant': '電話' },
         'prc.th.status': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
         'prc.th.contacted': { en: 'Contacted', 'zh-CN': '已联络', 'zh-Hant': '已聯絡' },
-        'prc.th.pick': { en: '', 'zh-CN': '', 'zh-Hant': '' },
-        'prc.err.noPatient': { en: 'No patient is linked to this row.', 'zh-CN': '此行没有关联患者。', 'zh-Hant': '此列沒有關聯病人。' },
+        'prc.err.noPatient': { en: 'No patient is linked to this reminder.', 'zh-CN': '此提醒没有关联患者。', 'zh-Hant': '此提醒沒有關聯病人。' },
         'prc.err.noDate': { en: 'Please select a recall date.', 'zh-CN': '请选择复诊日期。', 'zh-Hant': '請選擇覆診日期。' },
         'prc.err.noClinic': { en: 'Please select a clinic for this reminder.', 'zh-CN': '请选择此提醒所属诊所。', 'zh-Hant': '請選擇此提醒所屬診所。' },
         'prc.err.schema': { en: 'Run patient_recalls.sql in the Supabase SQL editor, then try again.', 'zh-CN': '请先在 Supabase SQL 编辑器运行 patient_recalls.sql。', 'zh-Hant': '請先在 Supabase SQL 編輯器執行 patient_recalls.sql。' },
@@ -95,8 +108,8 @@ var PATIENT_RECALL = (function () {
         'prc.send.fromNoSms': { en: 'That From number is not enabled for SMS.', 'zh-CN': '该发送号码未开通短信。', 'zh-Hant': '該發送號碼未開通短訊。' },
         'prc.send.ok': { en: 'Sent.', 'zh-CN': '已发送。', 'zh-Hant': '已發送。' },
         'prc.send.fail': { en: 'Send failed.', 'zh-CN': '发送失败。', 'zh-Hant': '發送失敗。' },
-        'prc.send.finished': { en: 'Finished the monthly list ({N}).', 'zh-CN': '本月名单已处理完（{N}）。', 'zh-Hant': '本月名單已處理完（{N}）。' },
-        'prc.send.hint': { en: 'Same month list — one patient at a time.', 'zh-CN': '按月份名单，逐位发送。', 'zh-Hant': '按月份名單，逐位發送。' },
+        'prc.send.finished': { en: 'Finished the list ({N}).', 'zh-CN': '名单已处理完（{N}）。', 'zh-Hant': '名單已處理完（{N}）。' },
+        'prc.send.hint': { en: 'Filtered reminder list — one patient at a time.', 'zh-CN': '按筛选名单，逐位发送。', 'zh-Hant': '按篩選名單，逐位發送。' },
         'prc.panel.title': { en: 'Appointment Reminder', 'zh-CN': '复诊提醒', 'zh-Hant': '覆診提醒' },
         'prc.panel.from': { en: 'From', 'zh-CN': '由', 'zh-Hant': '由' },
         'prc.panel.to': { en: 'To', 'zh-CN': '至', 'zh-Hant': '至' },
@@ -133,8 +146,6 @@ var PATIENT_RECALL = (function () {
     var _saving = false;
     var _panelRows = [];
     var _panelSel = Object.create(null);
-    var _queueObs = null;
-    var _dirObs = null;
     var _sendQ = [];
     var _sendIdx = 0;
     var _sendKind = '';
@@ -379,9 +390,6 @@ var PATIENT_RECALL = (function () {
             '.prc-btn-primary{background:#2563eb;color:#fff;border-color:#1d4ed8;}',
             '.prc-btn-danger{background:#dc2626;color:#fff;border-color:#b91c1c;}',
             '.prc-btn-danger:disabled{opacity:.45;cursor:not-allowed;}',
-            '.btn-prc{background:#7c3aed;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;}',
-            '.btn-prc:hover{background:#6d28d9;}',
-            '.action-item .ai-icon.prc-ai-bell{color:#eab308;filter:none;}',
             '#tab-reminder.tab-pane{padding-top:10px;}',
             '.prc-panel-head{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}',
             '.prc-filt{display:flex;flex-direction:column;gap:4px;min-width:140px;}',
@@ -398,10 +406,6 @@ var PATIENT_RECALL = (function () {
             '.prc-sel-btns{display:flex;gap:6px;}',
             '.prc-btn-mini{padding:4px 10px;font-size:12px;}',
             '.prc-panel-bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}',
-            '.prc-panel-bar .prc-btn-wa{background:#25d366;color:#fff;border-color:#1ebe5d;}',
-            '.prc-panel-bar .prc-btn-sms{background:#0084ff;color:#fff;border-color:#0369a1;}',
-            '.prc-panel-bar .prc-btn-twa{background:#0f766e;color:#fff;border-color:#0f766e;}',
-            '.prc-panel-bar .prc-btn-tsms{background:#0369a1;color:#fff;border-color:#0369a1;}',
             '.prc-send-box{max-width:440px;}',
             '.prc-send-hint{font-size:11px;color:#94a3b8;margin:0 0 12px;line-height:1.45;}',
             '.prc-send-progress{font-size:12px;font-weight:700;color:#475569;margin-bottom:10px;}',
@@ -458,10 +462,11 @@ var PATIENT_RECALL = (function () {
             '</tr></thead><tbody id="prcBody"></tbody></table></div>' +
             '<div class="prc-bar">' +
             '<button type="button" id="prcSaveBtn" class="prc-btn prc-btn-primary" data-prc-i18n="prc.save"></button>' +
+            '<button type="button" class="prc-btn" data-prc-interval="1m" data-prc-i18n="prc.1m"></button>' +
             '<button type="button" class="prc-btn" data-prc-interval="3m" data-prc-i18n="prc.3m"></button>' +
             '<button type="button" class="prc-btn" data-prc-interval="6m" data-prc-i18n="prc.6m"></button>' +
             '<button type="button" class="prc-btn" data-prc-interval="9m" data-prc-i18n="prc.9m"></button>' +
-            '<button type="button" class="prc-btn" data-prc-interval="1y" data-prc-i18n="prc.1y"></button>' +
+            '<button type="button" class="prc-btn" data-prc-interval="12m" data-prc-i18n="prc.12m"></button>' +
             '<button type="button" id="prcDeleteBtn" class="prc-btn prc-btn-danger" disabled data-prc-i18n="prc.delete"></button>' +
             '<button type="button" id="prcReturnBtn" class="prc-btn" data-prc-i18n="prc.return"></button>' +
             '</div></div></div>'
@@ -480,7 +485,6 @@ var PATIENT_RECALL = (function () {
             '<div class="prc-filt"><label><input type="checkbox" id="prcPUseNo"> <span data-prc-i18n="prc.panel.usePatRange"></span></label>' +
             '<div class="prc-filt-row"><input id="prcPNoFrom" type="text" style="width:90px;" disabled>' +
             '<span>–</span><input id="prcPNoTo" type="text" style="width:90px;" disabled></div></div>' +
-            '<button type="button" id="prcPViewBtn" class="prc-btn prc-btn-primary" data-prc-i18n="prc.panel.view"></button>' +
             '</div>' +
             '<div class="prc-panel-grid-wrap"><table class="prc-panel-grid"><thead><tr>' +
             '<th style="width:28px;"></th>' +
@@ -490,16 +494,17 @@ var PATIENT_RECALL = (function () {
             '<th data-prc-i18n="prc.th.tel"></th><th data-prc-i18n="prc.th.remarks"></th>' +
             '<th data-prc-i18n="prc.th.status"></th><th data-prc-i18n="prc.th.contacted"></th>' +
             '</tr></thead><tbody id="prcPBody"></tbody></table></div>' +
+            '<div class="prc-panel-bar">' +
+            '<button type="button" id="prcPViewBtn" class="prc-btn prc-btn-primary" data-prc-i18n="prc.panel.view"></button>' +
+            '<button type="button" id="prcPExportBtn" class="prc-btn" data-prc-i18n="prc.panel.export"></button>' +
+            '<button type="button" id="prcPPrintBtn" class="prc-btn" data-prc-i18n="prc.panel.print"></button>' +
+            '</div>' +
             '<div class="prc-count-row">' +
             '<div id="prcPCount" class="prc-count"></div>' +
             '<div class="prc-sel-btns">' +
             '<button type="button" id="prcPSelAllBtn" class="prc-btn prc-btn-mini" data-prc-i18n="prc.panel.selAll"></button>' +
             '<button type="button" id="prcPSelNoneBtn" class="prc-btn prc-btn-mini" data-prc-i18n="prc.panel.selNone"></button>' +
             '</div></div>' +
-            '<div class="prc-panel-bar">' +
-            '<button type="button" id="prcPExportBtn" class="prc-btn" data-prc-i18n="prc.panel.export"></button>' +
-            '<button type="button" id="prcPPrintBtn" class="prc-btn" data-prc-i18n="prc.panel.print"></button>' +
-            '</div>' +
             composerHtml() +
             '</div>'
         );
@@ -593,6 +598,11 @@ var PATIENT_RECALL = (function () {
         applyI18n(g('prcSendModal'));
     }
 
+    /* Injects exactly one new tab button + one new pane into the Appointment
+     * module's existing tab strip. It never removes or rewires any other
+     * tab (queue, today, recall, rsvp, etc). switchApptTab() only carries
+     * tab-specific side effects for its own known keys, so adding this
+     * 'reminder' key triggers no queue / working-date logic whatsoever. */
     function injectTab() {
         var pane = g('tab-reminder');
         if (pane && pane.getAttribute('data-prc-ver') !== PANEL_VER) {
@@ -757,9 +767,8 @@ var PATIENT_RECALL = (function () {
                 '<td>' + esc(r.doctor_name || r.doctor_code || '') + '</td>';
             tb.appendChild(rowEl);
         });
-        var pad = 5 - _rows.length;
-        var b;
-        for (b = 0; b < pad; b++) {
+        var padRows = 5 - _rows.length;
+        for (var b = 0; b < padRows; b++) {
             var blank = document.createElement('tr');
             blank.className = 'prc-row-blank';
             blank.innerHTML = '<td>&nbsp;</td><td></td><td></td><td></td>';
@@ -787,6 +796,7 @@ var PATIENT_RECALL = (function () {
 
     function open(ctx) {
         ensureShell();
+        bindOnce();
         if (!ctx || !ctx.patientId) {
             toast(tr('prc.err.noPatient'));
             return;
@@ -862,7 +872,7 @@ var PATIENT_RECALL = (function () {
             remarks: remarks,
             interval_code: intervalCode || 'custom',
             status: 'planned',
-            source: _ctx.source || 'directory',
+            source: _ctx.source || 'consultation',
             source_appt_id: _ctx.sourceApptId || null,
             created_by: currentUser(),
             updated_at: new Date().toISOString()
@@ -919,137 +929,6 @@ var PATIENT_RECALL = (function () {
             renderCal();
         }
         renderModalGrid();
-    }
-
-    /* ── injectors ───────────────────────────────────────────── */
-
-    function findQueueAppt(apptId) {
-        apptId = String(apptId || '');
-        if (!apptId) return null;
-        var lists = [];
-        if (typeof queueApptsCache !== 'undefined' && queueApptsCache) lists.push(queueApptsCache);
-        if (typeof todayAppts !== 'undefined' && todayAppts) lists.push(todayAppts);
-        for (var L = 0; L < lists.length; L++) {
-            var list = lists[L] || [];
-            for (var i = 0; i < list.length; i++) {
-                if (list[i] && String(list[i].id) === apptId) return list[i];
-            }
-        }
-        return null;
-    }
-
-    function findDirPatient(pid) {
-        pid = String(pid || '');
-        var list = (typeof patientListCache !== 'undefined' && patientListCache) ? patientListCache : [];
-        for (var i = 0; i < list.length; i++) {
-            if (list[i] && String(list[i].id) === pid) return list[i];
-        }
-        return null;
-    }
-
-    function queueActionHtml() {
-        return '<span class="ai-icon prc-ai-bell">🔔</span>' + esc(tr('prc.action'));
-    }
-
-    function injectQueueActions() {
-        document.querySelectorAll('#queueBody .action-drop, .action-drop.action-drop--portal').forEach(function (drop) {
-            var existing = drop.querySelector('[data-prc-item="1"]');
-            if (existing) {
-                existing.innerHTML = queueActionHtml();
-                return;
-            }
-            var rowEl = drop.closest('tr') ||
-                (drop.__queueActionWrap && drop.__queueActionWrap.closest && drop.__queueActionWrap.closest('tr'));
-            var apptId = (rowEl && (rowEl.dataset.apptId || rowEl.getAttribute('data-appt-id'))) || '';
-            var item = document.createElement('div');
-            item.className = 'action-item';
-            item.setAttribute('data-prc-item', '1');
-            item.setAttribute('data-no-click-guard', '1');
-            if (apptId) item.setAttribute('data-prc-appt-id', apptId);
-            item.innerHTML = queueActionHtml();
-            var after = drop.querySelector('[id^="act-wa-"]');
-            if (after && after.nextSibling) drop.insertBefore(item, after.nextSibling);
-            else if (after) drop.appendChild(item);
-            else drop.insertBefore(item, drop.firstChild);
-        });
-    }
-
-    function injectDirectoryButtons() {
-        document.querySelectorAll('#patientTableBody tr[data-patient-id]').forEach(function (rowEl) {
-            if (rowEl.querySelector('[data-prc-btn="1"]')) return;
-            var host = rowEl.querySelector('.btn-dup-clinic');
-            if (host) host = host.parentNode;
-            if (!host) host = rowEl.querySelector('td:last-child div') || rowEl.querySelector('td:last-child');
-            if (!host) return;
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'btn-prc';
-            btn.setAttribute('data-prc-btn', '1');
-            btn.setAttribute('data-no-click-guard', '1');
-            btn.setAttribute('data-patient-id', rowEl.getAttribute('data-patient-id'));
-            btn.textContent = tr('prc.action');
-            var dup = rowEl.querySelector('.btn-dup-clinic');
-            if (dup && dup.parentNode === host) host.insertBefore(btn, dup.nextSibling);
-            else host.appendChild(btn);
-        });
-    }
-
-    function watchLists() {
-        if (!_queueObs) {
-            _queueObs = new MutationObserver(function () { injectQueueActions(); });
-        }
-        if (!_dirObs) {
-            _dirObs = new MutationObserver(function () { injectDirectoryButtons(); });
-        }
-        var qb = g('queueBody');
-        var pb = g('patientTableBody');
-        if (qb) {
-            try { _queueObs.disconnect(); } catch (e1) { /* ignore */ }
-            _queueObs.observe(qb, { childList: true, subtree: true });
-        }
-        if (pb) {
-            try { _dirObs.disconnect(); } catch (e2) { /* ignore */ }
-            _dirObs.observe(pb, { childList: true, subtree: true });
-        }
-        injectQueueActions();
-        injectDirectoryButtons();
-    }
-
-    function openFromQueueRow(rowEl, apptIdHint) {
-        var apptId = apptIdHint ||
-            (rowEl && (rowEl.dataset.apptId || rowEl.getAttribute('data-appt-id'))) || '';
-        var q = findQueueAppt(apptId);
-        if (!q || !q.patient_id) {
-            toast(tr('prc.err.noPatient'));
-            return;
-        }
-        open({
-            patientId: q.patient_id,
-            patientNo: q.patient_no || '',
-            patientName: q.patient_name || '',
-            chineseName: q.patient_chinese_name || '',
-            source: 'queue',
-            sourceApptId: q.id,
-            clinicTag: resolveClinicTag(q.clinic_tag || q.clinic_code || currentTag()),
-            doctorId: q.doctor_id || '',
-            doctorCode: q.doctor_code || ''
-        });
-    }
-
-    function openFromDirectory(pid) {
-        var p = findDirPatient(pid);
-        if (!p) {
-            toast(tr('prc.err.noPatient'));
-            return;
-        }
-        open({
-            patientId: p.id,
-            patientNo: p.patient_no || '',
-            patientName: p.full_name || '',
-            chineseName: p.chinese_name || '',
-            source: 'directory',
-            clinicTag: resolveClinicTag(p.clinic_tag || p.clinic_code || currentTag())
-        });
     }
 
     /* ── panel ───────────────────────────────────────────────── */
@@ -2002,48 +1881,18 @@ var PATIENT_RECALL = (function () {
             var sendNext = g('prcSendNextBtn');
             if (sendNext) sendNext.addEventListener('click', sendAdvance);
         }
-
-        if (!document.documentElement.dataset.prcDocBound) {
-            document.documentElement.dataset.prcDocBound = '1';
-            document.addEventListener('click', function (e) {
-                var qItem = e.target.closest && e.target.closest('[data-prc-item="1"]');
-                if (qItem) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    var drop = qItem.closest('.action-drop');
-                    if (drop && typeof queueCloseActionDrop === 'function') {
-                        try { queueCloseActionDrop(drop); } catch (err) { /* ignore */ }
-                    }
-                    openFromQueueRow(qItem.closest('tr'), qItem.getAttribute('data-prc-appt-id'));
-                    return;
-                }
-                var dBtn = e.target.closest && e.target.closest('[data-prc-btn="1"]');
-                if (dBtn) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openFromDirectory(dBtn.getAttribute('data-patient-id'));
-                }
-            }, true);
-        }
     }
 
+    /* One-time boot: builds the modal/tab shell up front so the Consultation
+     * banner button and the Appointment tab strip both have something to
+     * open immediately. Intentionally has no observers, pollers, or listeners
+     * tied to Queue / working-date / Patient Directory. */
     function init() {
-        if (_ready) {
-            watchLists();
-            return;
-        }
+        if (_ready) return;
         _ready = true;
         ensureShell();
         bindOnce();
-        watchLists();
         fillPanelFilters();
-        document.addEventListener('app-session-sync', function () {
-            setTimeout(watchLists, 80);
-        });
-        setInterval(function () {
-            injectQueueActions();
-            injectDirectoryButtons();
-        }, 1500);
     }
 
     if (document.readyState === 'loading') {
@@ -2057,8 +1906,6 @@ var PATIENT_RECALL = (function () {
         applyI18n(g('prcSendModal'));
         var tabBtn = document.querySelector('.appt-tab[data-prc-tab="1"]');
         if (tabBtn) tabBtn.textContent = tr('prc.tab');
-        injectQueueActions();
-        injectDirectoryButtons();
         renderPanelGrid();
         renderModalGrid();
         renderChips();

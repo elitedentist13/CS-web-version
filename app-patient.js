@@ -1100,6 +1100,12 @@ function renderPatients(list) {
                     'data-id="'+p.id+'">' +
                     esc(patTr('patient.dup.btn')) +
                     '</button>' +
+                    '<button class="btn-appt-reminder" ' +
+                    'style="background:#f59e0b;color:white;border:none;' +
+                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
+                    'data-id="'+p.id+'">' +
+                    esc(patTr('patient.apptReminder.btn')) +
+                    '</button>' +
                 '</div>' +
             '</td>';
         tr.addEventListener('click', function(e) {
@@ -1163,6 +1169,12 @@ function renderPatients(list) {
             openDuplicatePatientToClinic(b.dataset.id);
         });
     });
+    tb.querySelectorAll('.btn-appt-reminder').forEach(function(b) {
+        b.addEventListener('click', function(e){
+            e.stopPropagation();
+            openApptReminderForPatient(b.dataset.id);
+        });
+    });
     tb.querySelectorAll('.patient-dir-banana-link').forEach(function(b) {
         b.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -1170,6 +1182,24 @@ function renderPatients(list) {
                 openPatientDirBananaPanel(b.dataset.id);
             }
         });
+    });
+}
+
+/** Patient Directory row action — opens the standalone Appointment Reminder
+ *  modal (app-patient-recall.js) for the given patient id. */
+function openApptReminderForPatient(pid) {
+    if (!pid) return;
+    if (typeof PATIENT_RECALL === 'undefined' || typeof PATIENT_RECALL.open !== 'function') return;
+    var p = (patientListCache || []).find(function (x) {
+        return x && String(x.id) === String(pid);
+    }) || {};
+    PATIENT_RECALL.open({
+        patientId: pid,
+        patientNo: p.patient_no || '',
+        patientName: p.full_name || '',
+        chineseName: p.chinese_name || '',
+        source: 'directory',
+        clinicTag: p[PATIENT_CLINIC_TAG_FIELD] || ''
     });
 }
 

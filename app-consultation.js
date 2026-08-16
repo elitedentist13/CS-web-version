@@ -265,6 +265,25 @@ function conBannerOpenBill() {
     });
 }
 
+/** Dr-side entry point — opens the standalone Appointment Reminder modal (app-patient-recall.js). */
+function conBannerOpenReminder() {
+    if (!conPatientId) return;
+    if (typeof PATIENT_RECALL === 'undefined' || typeof PATIENT_RECALL.open !== 'function') return;
+    var p = conPatientData || {};
+    var clinicTag = (typeof currentClinicCodeForTagging === 'function' ? currentClinicCodeForTagging() : '') ||
+        p.clinic_tag || '';
+    PATIENT_RECALL.open({
+        patientId: conPatientId,
+        patientNo: p.patient_no || '',
+        patientName: p.full_name || '',
+        chineseName: p.chinese_name || '',
+        source: 'consultation',
+        clinicTag: clinicTag,
+        doctorId: conActiveDoctorId || '',
+        doctorCode: conActiveDoctorTag || ''
+    });
+}
+
 function conBannerWhatsAppMessage(p) {
     p = p || {};
     var name = String(p.chinese_name || p.full_name || conTr('appt.today.thisPatient')).trim();

@@ -27,7 +27,7 @@ var PATIENT_RECALL = (function () {
 
     var TABLE = 'patient_recalls';
     var TAB_KEY = 'reminder';
-    var PANEL_VER = '7';
+    var PANEL_VER = '8';
     var TPL_PREF = 'prc_twilio_tpl_id_v1';
     var FROM_PREF = 'prc_twilio_from_id_v1';
     var PH_CHIPS = [
@@ -111,6 +111,7 @@ var PATIENT_RECALL = (function () {
         'prc.send.finished': { en: 'Finished the list ({N}).', 'zh-CN': '名单已处理完（{N}）。', 'zh-Hant': '名單已處理完（{N}）。' },
         'prc.send.hint': { en: 'Filtered reminder list — one patient at a time.', 'zh-CN': '按筛选名单，逐位发送。', 'zh-Hant': '按篩選名單，逐位發送。' },
         'prc.panel.title': { en: 'Appointment Reminder', 'zh-CN': '复诊提醒', 'zh-Hant': '覆診提醒' },
+        'prc.panel.manual': { en: '📖 Manual', 'zh-CN': '📖 使用手册', 'zh-Hant': '📖 使用手冊' },
         'prc.panel.from': { en: 'From', 'zh-CN': '由', 'zh-Hant': '由' },
         'prc.panel.to': { en: 'To', 'zh-CN': '至', 'zh-Hant': '至' },
         'prc.panel.patRange': { en: 'Patient no.', 'zh-CN': '病历号', 'zh-Hant': '病歷號' },
@@ -391,6 +392,7 @@ var PATIENT_RECALL = (function () {
             '.prc-btn-danger{background:#dc2626;color:#fff;border-color:#b91c1c;}',
             '.prc-btn-danger:disabled{opacity:.45;cursor:not-allowed;}',
             '#tab-reminder.tab-pane{padding-top:10px;}',
+            '.prc-panel-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;flex-wrap:wrap;}',
             '.prc-panel-head{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}',
             '.prc-filt{display:flex;flex-direction:column;gap:4px;min-width:140px;}',
             '.prc-filt label{font-size:11px;font-weight:700;color:#475569;}',
@@ -476,7 +478,10 @@ var PATIENT_RECALL = (function () {
     function panelHtml() {
         return (
             '<div id="tab-reminder" class="tab-pane">' +
-            '<h3 style="margin:0 0 10px;font-size:16px;" data-prc-i18n="prc.panel.title"></h3>' +
+            '<div class="prc-panel-title-row">' +
+            '<h3 style="margin:0;font-size:16px;" data-prc-i18n="prc.panel.title"></h3>' +
+            '<button type="button" id="prcManualBtn" class="prc-btn prc-btn-mini" data-prc-i18n="prc.panel.manual"></button>' +
+            '</div>' +
             '<div class="prc-panel-head">' +
             '<div class="prc-filt"><label data-prc-i18n="prc.clinic"></label><select id="prcPClinic"></select></div>' +
             '<div class="prc-filt"><label data-prc-i18n="prc.doctor"></label><select id="prcPDoctor"></select></div>' +
@@ -1778,6 +1783,12 @@ var PATIENT_RECALL = (function () {
         var pane = g('tab-reminder');
         if (pane && pane.dataset.prcBound !== '1') {
             pane.dataset.prcBound = '1';
+            var manualBtn = g('prcManualBtn');
+            if (manualBtn) {
+                manualBtn.addEventListener('click', function () {
+                    window.open('APPT_REMINDER_USER_MANUAL.pdf', '_blank', 'noopener,noreferrer');
+                });
+            }
             var viewBtn = g('prcPViewBtn');
             if (viewBtn) viewBtn.addEventListener('click', loadPanel);
             var exp = g('prcPExportBtn');

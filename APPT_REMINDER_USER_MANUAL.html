@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Appointment Reminder (Recall) — User Manual / 覆诊提醒用户手册 / 覆診提醒用戶手冊</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Microsoft JhengHei", "Microsoft YaHei", "PingFang TC", "PingFang SC", "Noto Sans TC", "Noto Sans SC", sans-serif;
+    font-size: 11pt;
+    line-height: 1.55;
+    color: #1a1a1a;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  h1 {
+    font-size: 21pt;
+    color: #0d47a1;
+    border-bottom: 3px solid #1976d2;
+    padding-bottom: 8px;
+    margin-top: 0;
+    page-break-after: avoid;
+  }
+  h2 {
+    font-size: 14pt;
+    color: #1565c0;
+    margin-top: 1.5em;
+    border-left: 4px solid #42a5f5;
+    padding-left: 10px;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12pt;
+    color: #333;
+    margin-top: 1.1em;
+    page-break-after: avoid;
+  }
+  p { margin: 0.5em 0; }
+  hr {
+    border: none;
+    border-top: 1px solid #ccc;
+    margin: 1.2em 0;
+  }
+  blockquote {
+    margin: 0.8em 0;
+    padding: 10px 14px;
+    background: #fff8e1;
+    border-left: 4px solid #f59e0b;
+    border-radius: 0 6px 6px 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.8em 0 1em;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #b0bec5;
+    padding: 7px 9px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #e3f2fd; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafafa; }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 9pt;
+    background: #f0f0f0;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  ul, ol { margin: 0.4em 0 0.8em; padding-left: 1.4em; }
+  li { margin: 0.3em 0; }
+  strong { color: #0d47a1; }
+  .badge {
+    display: inline-block;
+    background: #f59e0b;
+    color: #fff;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 9.5pt;
+  }
+  .cover {
+    text-align: center;
+    padding-top: 18%;
+  }
+  .cover h1 {
+    border: none;
+    font-size: 24pt;
+    margin-bottom: 4px;
+  }
+  .cover .sub {
+    font-size: 13pt;
+    color: #555;
+    margin-bottom: 30px;
+  }
+  .lang-section {
+    page-break-before: always;
+    padding-top: 4px;
+  }
+  .toc-item { font-size: 12pt; margin: 10px 0; }
+  .meta-line { color: #666; font-size: 10pt; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ COVER ═══════════════ -->
+<div class="cover">
+  <div style="font-size:52pt;">🔔</div>
+  <h1>Appointment Reminder (Recall) — User Manual</h1>
+  <div class="sub">覆诊提醒 用户手册　·　覆診提醒 用戶手冊</div>
+  <p class="meta-line"><strong>Module:</strong> Consultation banner · Patient Directory · Appointment module ("🔔 Appt Reminder" tab)</p>
+  <p class="meta-line"><strong>Version:</strong> August 2026</p>
+  <br>
+  <div class="toc-item">🇬🇧 English — page 2</div>
+  <div class="toc-item">🇨🇳 简体中文 — page (Simplified Chinese section)</div>
+  <div class="toc-item">🇭🇰 繁體中文 — page (Traditional Chinese section)</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ENGLISH
+     ══════════════════════════════════════════════════════════════ -->
+<div class="lang-section" lang="en">
+<h1>🔔 Appointment Reminder (Recall) — English</h1>
+<p class="meta-line">For doctors, nurses, and front-desk staff.</p>
+<hr>
+
+<h2>1. What is this feature?</h2>
+<p>
+The <strong>Appointment Reminder</strong> (also called <strong>Recall</strong>) lets you plan a future
+follow-up date for a patient — e.g. "see this patient again in 3 months" — and later run a
+list of everyone due for a reminder so you can contact them by WhatsApp, SMS, or Twilio.
+</p>
+<p>
+It is a completely separate feature from the <strong>Queue</strong> and from <strong>Recall Patient</strong>
+(birthday outreach). Setting or viewing reminders never changes today's queue, the working date,
+or any existing appointment.
+</p>
+
+<h2>2. Where to find it</h2>
+<table>
+<thead><tr><th>Entry point</th><th>Where</th><th>What it opens</th></tr></thead>
+<tbody>
+<tr><td><span class="badge">🔔</span> Bell button</td><td>Consultation screen, patient banner (next to the phone number, beside the WhatsApp button)</td><td>Set-Reminder pop-up for the patient currently open</td></tr>
+<tr><td><strong>Appt Reminder</strong> button</td><td>Patient Directory → each patient row's action buttons (next to <strong>Duplicate</strong>)</td><td>Set-Reminder pop-up for that row's patient</td></tr>
+<tr><td><strong>🔔 Appt Reminder</strong> tab</td><td>Appointment module → tab strip (next to Recall)</td><td>The management panel — list, filter, and send reminders in bulk</td></tr>
+</tbody>
+</table>
+
+<h2>3. Setting a reminder for one patient</h2>
+<p>Click the <strong>🔔</strong> bell (Consultation banner) or the <strong>Appt Reminder</strong> button (Patient Directory row). A pop-up opens with:</p>
+<ul>
+  <li><strong>Mini calendar</strong> (top-left) — click any date to select it.</li>
+  <li><strong>Date / Clinic / Doctor / Remarks</strong> fields (top-right) — the date field follows your calendar click; Clinic and Doctor default to the current context and can be changed.</li>
+  <li>A <strong>grid</strong> below showing this patient's existing reminders, with columns <strong>Date, Remarks, Clinic, Doctor</strong>. Click a row to reload it into the fields above (e.g. to edit or delete it).</li>
+</ul>
+<p>At the bottom of the pop-up:</p>
+<table>
+<thead><tr><th>Button</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><strong>Save</strong></td><td>Saves the date you picked on the calendar, plus Clinic/Doctor/Remarks, as a new reminder row.</td></tr>
+<tr><td><strong>1 / 3 / 6 / 9 / 12 Month</strong></td><td>One-click shortcuts — automatically calculates "today + N months" as the date and saves immediately. You do not need to touch the calendar.</td></tr>
+<tr><td><strong>Delete</strong></td><td>Deletes the reminder row currently selected in the grid (enabled only after you click a row).</td></tr>
+<tr><td><strong>Return</strong></td><td>Closes the pop-up.</td></tr>
+</tbody>
+</table>
+<blockquote><strong>Tip:</strong> You can save more than one reminder for the same patient (e.g. a 3-month AND a 12-month check). Each save adds a new row to the grid — nothing is overwritten.</blockquote>
+
+<h2>4. Managing all reminders (the "🔔 Appt Reminder" tab)</h2>
+<p>Open the <strong>Appointment</strong> module and click the <strong>🔔 Appt Reminder</strong> tab. This is the bulk/management view — it never touches Queue or the working date.</p>
+
+<h3>4.1 Filters</h3>
+<table>
+<thead><tr><th>Filter</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><strong>Clinic</strong></td><td>Show reminders for one clinic only, or ALL</td></tr>
+<tr><td><strong>Doctor</strong></td><td>Show reminders for one doctor only, or ALL</td></tr>
+<tr><td><strong>From / To</strong> (date)</td><td>Reminder due-date range (defaults to next calendar month)</td></tr>
+<tr><td><strong>Filter by patient no.</strong> (checkbox + range)</td><td>Only include patients whose patient number falls between the two values</td></tr>
+</tbody>
+</table>
+
+<h3>4.2 Viewing results</h3>
+<p>Click <strong>View</strong> to load all reminders matching your filters into the Excel-style grid below,
+with columns: <strong>Date, Clinic, Patient, Telephone, Remarks, Status, Contacted</strong>.</p>
+
+<h3>4.3 Export / Print</h3>
+<table>
+<thead><tr><th>Button</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><strong>View</strong></td><td>Loads/refreshes the grid using the current filters</td></tr>
+<tr><td><strong>Export</strong></td><td>Downloads the current grid as an <code>.xls</code> spreadsheet file</td></tr>
+<tr><td><strong>Print</strong></td><td>Opens a print-ready report of the current grid and sends it to your printer</td></tr>
+</tbody>
+</table>
+
+<h3>4.4 Selecting patients and choosing how to contact them</h3>
+<p>Below the grid: a record count, and <strong>All / None</strong> buttons to tick or clear every checkbox in the grid at once.
+You can also tick individual rows one by one.</p>
+<p>Choose a contact channel (pick one):</p>
+<table>
+<thead><tr><th>Channel</th><th>What happens when you send</th></tr></thead>
+<tbody>
+<tr><td><strong>WhatsApp</strong></td><td>Opens WhatsApp Web/App with the message pre-filled — you press Send yourself for each patient</td></tr>
+<tr><td><strong>SMS</strong></td><td>Opens your device's SMS app with the message pre-filled</td></tr>
+<tr><td><strong>Twilio WhatsApp</strong></td><td>Sends automatically through Twilio using an approved WhatsApp template (choose the template and, optionally, the sending number)</td></tr>
+<tr><td><strong>Twilio SMS</strong></td><td>Sends automatically through Twilio SMS using the message box text</td></tr>
+</tbody>
+</table>
+<p>The message box supports placeholder chips you can click to insert:
+<code>{NAME}</code> <code>{FULL_NAME}</code> <code>{CHINESE}</code> <code>{ENGLISH}</code>
+<code>{CLINIC}</code> <code>{CLINIC_EN}</code> <code>{CLINIC_ZH}</code>
+<code>{DATE}</code> <code>{DOCTOR}</code> <code>{REMARKS}</code> <code>{PHONE}</code> <code>{PATIENT_NO}</code>.
+For Twilio WhatsApp, the message box becomes read-only and shows the approved template instead
+(WhatsApp requires an approved template — free text cannot be sent).</p>
+<p>Click <strong>Send reminders</strong> to start. A one-at-a-time send window appears: it shows the
+patient's name, phone, and message preview. Click <strong>Open/Send</strong> to deliver it,
+<strong>Skip</strong> to leave that patient's status unchanged, or <strong>Next</strong> to move
+on (marks that patient as <em>reminded</em>). This repeats until every selected patient has been
+handled.</p>
+
+<h2>5. One-time setup (IT / Admin only)</h2>
+<p>Before the feature can save any data, run <code>patient_recalls.sql</code> once in the
+<strong>Supabase SQL Editor</strong> for this clinic's project. If you ever see the message
+<em>"Run patient_recalls.sql in the Supabase SQL editor, then try again"</em>, this step has not
+been done yet.</p>
+
+<h2>6. Frequently asked questions</h2>
+<table>
+<thead><tr><th>Question / Problem</th><th>Answer</th></tr></thead>
+<tbody>
+<tr><td>Does this affect the Queue or today's working date?</td><td>No. This feature only reads/writes its own table and never touches Queue or working-date logic.</td></tr>
+<tr><td>"No phone number on the selected row(s)"</td><td>The patient record has no mobile or phone number on file — add one in Patient Directory first.</td></tr>
+<tr><td>"Select a Twilio WhatsApp template..."</td><td>Open <strong>Twilio Setup</strong> (button next to the template dropdown) and add/approve a template first.</td></tr>
+<tr><td>A reminder does not show up in the list</td><td>Check your Clinic/Doctor/Date filters — reminders only show if their status is <em>planned</em> or <em>reminded</em> and fall inside the selected date range.</td></tr>
+<tr><td>Can I set more than one reminder per patient?</td><td>Yes — every Save (plain or 1/3/6/9/12-month) adds a new row; nothing is overwritten.</td></tr>
+</tbody>
+</table>
+<hr>
+<p><em>End of English section.</em></p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SIMPLIFIED CHINESE
+     ══════════════════════════════════════════════════════════════ -->
+<div class="lang-section" lang="zh-CN">
+<h1>🔔 覆诊提醒功能 — 简体中文</h1>
+<p class="meta-line">适用于医生、护士及前台职员。</p>
+<hr>
+
+<h2>1. 这是什么功能？</h2>
+<p>
+<strong>覆诊提醒（Appointment Reminder / Recall）</strong>让您为病人预先设定一个未来的覆诊日期
+（例如「三个月后再见这位病人」），并可在之后一次过列出所有到期需要提醒的病人，
+方便您透过 WhatsApp、短信或 Twilio 联络他们。
+</p>
+<p>
+此功能与<strong>候诊队列（Queue）</strong>及<strong>生日提醒（Recall Patient）</strong>完全独立。
+设定或查看覆诊提醒<strong>绝不会</strong>影响当日候诊队列、工作日期，或任何现有预约。
+</p>
+
+<h2>2. 在哪里可以找到</h2>
+<table>
+<thead><tr><th>入口</th><th>位置</th><th>打开什么</th></tr></thead>
+<tbody>
+<tr><td><span class="badge">🔔</span> 铃铛按钮</td><td>诊症画面的病人横幅（电话号码旁，WhatsApp 按钮旁）</td><td>为当前病人打开「设定提醒」弹窗</td></tr>
+<tr><td><strong>Appt Reminder</strong> 按钮</td><td>病人名册 → 每行病人的操作按钮（「复制到诊所」旁）</td><td>为该行病人打开「设定提醒」弹窗</td></tr>
+<tr><td><strong>🔔 Appt Reminder</strong> 分页</td><td>预约模块 → 分页列（Recall 旁）</td><td>管理面板 — 批量列表、筛选及发送提醒</td></tr>
+</tbody>
+</table>
+
+<h2>3. 为单一病人设定提醒</h2>
+<p>点击 <strong>🔔</strong> 铃铛（诊症横幅）或 <strong>Appt Reminder</strong> 按钮（病人名册行）。会打开一个弹窗，内含：</p>
+<ul>
+  <li><strong>迷你日历</strong>（左上）— 点击任何日期即可选取。</li>
+  <li><strong>日期／诊所／医生／备注</strong> 输入栏（右上）— 日期栏会跟随您在日历上的点击；诊所及医生预设为目前上下文，可自行更改。</li>
+  <li>下方 <strong>表格</strong> 显示此病人现有的提醒记录，栏位为 <strong>日期、备注、诊所、医生</strong>。点击某一行可将其载入上方栏位（例如作编辑或删除）。</li>
+</ul>
+<p>弹窗底部按钮：</p>
+<table>
+<thead><tr><th>按钮</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><strong>保存 (Save)</strong></td><td>将您在日历上选取的日期，连同诊所／医生／备注，保存为新的提醒记录。</td></tr>
+<tr><td><strong>1 / 3 / 6 / 9 / 12 个月</strong></td><td>一键快捷方式 — 自动计算「今天 + N 个月」作为日期并立即保存，无需操作日历。</td></tr>
+<tr><td><strong>删除 (Delete)</strong></td><td>删除表格中目前选中的提醒记录（需先点击某一行才会启用）。</td></tr>
+<tr><td><strong>返回 (Return)</strong></td><td>关闭弹窗。</td></tr>
+</tbody>
+</table>
+<blockquote><strong>提示：</strong>同一位病人可以保存多笔提醒（例如同时设定 3 个月及 12 个月覆诊）。每次保存都会新增一行，不会覆盖之前的记录。</blockquote>
+
+<h2>4. 管理所有提醒（「🔔 Appt Reminder」分页）</h2>
+<p>打开<strong>预约</strong>模块，点击 <strong>🔔 Appt Reminder</strong> 分页。此为批量管理画面，
+<strong>绝不会</strong>影响候诊队列或工作日期。</p>
+
+<h3>4.1 筛选条件</h3>
+<table>
+<thead><tr><th>筛选</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><strong>诊所</strong></td><td>只显示某一诊所的提醒，或选「全部」</td></tr>
+<tr><td><strong>医生</strong></td><td>只显示某一医生的提醒，或选「全部」</td></tr>
+<tr><td><strong>由 / 至</strong>（日期）</td><td>提醒到期日期范围（预设为下一个日历月）</td></tr>
+<tr><td><strong>按病历号筛选</strong>（勾选框＋范围）</td><td>只包含病历号介于所设范围内的病人</td></tr>
+</tbody>
+</table>
+
+<h3>4.2 查看结果</h3>
+<p>点击 <strong>查看 (View)</strong>，即可将符合筛选条件的所有提醒载入下方的 Excel 式表格，
+栏位为：<strong>日期、诊所、病人、电话、备注、状态、已联络</strong>。</p>
+
+<h3>4.3 导出／列印</h3>
+<table>
+<thead><tr><th>按钮</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><strong>查看 (View)</strong></td><td>按目前筛选条件载入／刷新表格</td></tr>
+<tr><td><strong>导出 (Export)</strong></td><td>将目前表格下载为 <code>.xls</code> 试算表文件</td></tr>
+<tr><td><strong>列印 (Print)</strong></td><td>打开目前表格的可列印报表并送到您的打印机</td></tr>
+</tbody>
+</table>
+
+<h3>4.4 选取病人及选择联络方式</h3>
+<p>表格下方显示记录数目，以及 <strong>全选 / 全不选</strong> 按钮，可一次勾选或清除表格内所有勾选框，
+亦可逐行个别勾选。</p>
+<p>选择一种联络方式（择一）：</p>
+<table>
+<thead><tr><th>方式</th><th>发送时会发生什么</th></tr></thead>
+<tbody>
+<tr><td><strong>WhatsApp</strong></td><td>打开 WhatsApp 网页版／应用程式并预先填入讯息 — 每位病人需您自行按下发送</td></tr>
+<tr><td><strong>短信 (SMS)</strong></td><td>打开您装置的短信应用程式并预先填入讯息</td></tr>
+<tr><td><strong>Twilio WhatsApp</strong></td><td>透过 Twilio 使用已核准的 WhatsApp 模板自动发送（可选择模板及发送号码）</td></tr>
+<tr><td><strong>Twilio 短信</strong></td><td>透过 Twilio 短信服务，使用讯息框内的文字自动发送</td></tr>
+</tbody>
+</table>
+<p>讯息输入框支援点击插入的占位符：
+<code>{NAME}</code> <code>{FULL_NAME}</code> <code>{CHINESE}</code> <code>{ENGLISH}</code>
+<code>{CLINIC}</code> <code>{CLINIC_EN}</code> <code>{CLINIC_ZH}</code>
+<code>{DATE}</code> <code>{DOCTOR}</code> <code>{REMARKS}</code> <code>{PHONE}</code> <code>{PATIENT_NO}</code>。
+使用 Twilio WhatsApp 时，讯息框会变为只读，改为显示已核准的模板内容
+（WhatsApp 规定必须使用已核准模板，不能发送自由文字）。</p>
+<p>点击 <strong>发送提醒</strong> 开始发送。系统会逐位显示发送窗口，列出病人姓名、电话及讯息预览。
+点击 <strong>打开／发送</strong> 即发送该讯息，<strong>跳过</strong> 则不改变该病人状态，
+<strong>下一位</strong> 会将该病人标记为「已提醒」并继续下一位，直至所有已选病人处理完毕。</p>
+
+<h2>5. 一次性设置（仅限 IT／管理员）</h2>
+<p>使用此功能前，须在此诊所的 <strong>Supabase SQL 编辑器</strong> 执行一次
+<code>patient_recalls.sql</code>。如看到讯息
+<em>「请先在 Supabase SQL 编辑器运行 patient_recalls.sql」</em>，即表示尚未执行此步骤。</p>
+
+<h2>6. 常见问题</h2>
+<table>
+<thead><tr><th>问题</th><th>解答</th></tr></thead>
+<tbody>
+<tr><td>会否影响候诊队列或今日工作日期？</td><td>不会。此功能只读写自己独立的数据表，绝不会碰到候诊队列或工作日期逻辑。</td></tr>
+<tr><td>「所选行没有电话号码」</td><td>该病人档案未有登记手机或电话号码 — 请先到病人名册补登。</td></tr>
+<tr><td>「请选择 Twilio WhatsApp 模板…」</td><td>请先点击模板下拉选单旁的 <strong>Twilio 设置</strong> 按钮，新增并核准模板。</td></tr>
+<tr><td>列表中看不到某笔提醒</td><td>请检查诊所／医生／日期筛选条件 — 只有状态为「待覆诊」或「已提醒」，且日期落在所选范围内的记录才会显示。</td></tr>
+<tr><td>可否为同一病人设定多笔提醒？</td><td>可以 — 每次按「保存」或月份按钮都会新增一行，不会覆盖先前记录。</td></tr>
+</tbody>
+</table>
+<hr>
+<p><em>简体中文部分完。</em></p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     TRADITIONAL CHINESE
+     ══════════════════════════════════════════════════════════════ -->
+<div class="lang-section" lang="zh-Hant">
+<h1>🔔 覆診提醒功能 — 繁體中文</h1>
+<p class="meta-line">適用於醫生、護士及前台職員。</p>
+<hr>
+
+<h2>1. 這是什麼功能？</h2>
+<p>
+<strong>覆診提醒（Appointment Reminder / Recall）</strong>讓您為病人預先設定一個未來的覆診日期
+（例如「三個月後再見這位病人」），並可在之後一次過列出所有到期需要提醒的病人，
+方便您透過 WhatsApp、短訊或 Twilio 聯絡他們。
+</p>
+<p>
+此功能與<strong>候診隊列（Queue）</strong>及<strong>生日提醒（Recall Patient）</strong>完全獨立。
+設定或查看覆診提醒<strong>絕不會</strong>影響當日候診隊列、工作日期，或任何現有預約。
+</p>
+
+<h2>2. 在哪裡可以找到</h2>
+<table>
+<thead><tr><th>入口</th><th>位置</th><th>打開什麼</th></tr></thead>
+<tbody>
+<tr><td><span class="badge">🔔</span> 鈴鐺按鈕</td><td>診症畫面的病人橫幅（電話號碼旁，WhatsApp 按鈕旁）</td><td>為目前病人打開「設定提醒」彈窗</td></tr>
+<tr><td><strong>Appt Reminder</strong> 按鈕</td><td>病人名冊 → 每行病人的操作按鈕（「複製到診所」旁）</td><td>為該行病人打開「設定提醒」彈窗</td></tr>
+<tr><td><strong>🔔 Appt Reminder</strong> 分頁</td><td>預約模組 → 分頁列（Recall 旁）</td><td>管理面板 — 批量列表、篩選及發送提醒</td></tr>
+</tbody>
+</table>
+
+<h2>3. 為單一病人設定提醒</h2>
+<p>點擊 <strong>🔔</strong> 鈴鐺（診症橫幅）或 <strong>Appt Reminder</strong> 按鈕（病人名冊行）。會打開一個彈窗，內含：</p>
+<ul>
+  <li><strong>迷你日曆</strong>（左上）— 點擊任何日期即可選取。</li>
+  <li><strong>日期／診所／醫生／備註</strong> 輸入欄（右上）— 日期欄會跟隨您在日曆上的點擊；診所及醫生預設為目前上下文，可自行更改。</li>
+  <li>下方 <strong>表格</strong> 顯示此病人現有的提醒紀錄，欄位為 <strong>日期、備註、診所、醫生</strong>。點擊某一行可將其載入上方欄位（例如作編輯或刪除）。</li>
+</ul>
+<p>彈窗底部按鈕：</p>
+<table>
+<thead><tr><th>按鈕</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><strong>儲存 (Save)</strong></td><td>將您在日曆上選取的日期，連同診所／醫生／備註，儲存為新的提醒紀錄。</td></tr>
+<tr><td><strong>1 / 3 / 6 / 9 / 12 個月</strong></td><td>一鍵快捷方式 — 自動計算「今天 + N 個月」作為日期並立即儲存，無需操作日曆。</td></tr>
+<tr><td><strong>刪除 (Delete)</strong></td><td>刪除表格中目前選中的提醒紀錄（需先點擊某一行才會啟用）。</td></tr>
+<tr><td><strong>返回 (Return)</strong></td><td>關閉彈窗。</td></tr>
+</tbody>
+</table>
+<blockquote><strong>提示：</strong>同一位病人可以儲存多筆提醒（例如同時設定 3 個月及 12 個月覆診）。每次儲存都會新增一行，不會覆蓋之前的紀錄。</blockquote>
+
+<h2>4. 管理所有提醒（「🔔 Appt Reminder」分頁）</h2>
+<p>打開<strong>預約</strong>模組，點擊 <strong>🔔 Appt Reminder</strong> 分頁。此為批量管理畫面，
+<strong>絕不會</strong>影響候診隊列或工作日期。</p>
+
+<h3>4.1 篩選條件</h3>
+<table>
+<thead><tr><th>篩選</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><strong>診所</strong></td><td>只顯示某一診所的提醒，或選「全部」</td></tr>
+<tr><td><strong>醫生</strong></td><td>只顯示某一醫生的提醒，或選「全部」</td></tr>
+<tr><td><strong>由 / 至</strong>（日期）</td><td>提醒到期日期範圍（預設為下一個日曆月）</td></tr>
+<tr><td><strong>按病歷號篩選</strong>（勾選框＋範圍）</td><td>只包含病歷號介於所設範圍內的病人</td></tr>
+</tbody>
+</table>
+
+<h3>4.2 查看結果</h3>
+<p>點擊 <strong>查看 (View)</strong>，即可將符合篩選條件的所有提醒載入下方的 Excel 式表格，
+欄位為：<strong>日期、診所、病人、電話、備註、狀態、已聯絡</strong>。</p>
+
+<h3>4.3 匯出／列印</h3>
+<table>
+<thead><tr><th>按鈕</th><th>作用</th></tr></thead>
+<tbody>
+<tr><td><strong>查看 (View)</strong></td><td>按目前篩選條件載入／重新整理表格</td></tr>
+<tr><td><strong>匯出 (Export)</strong></td><td>將目前表格下載為 <code>.xls</code> 試算表檔案</td></tr>
+<tr><td><strong>列印 (Print)</strong></td><td>打開目前表格的可列印報表並送到您的印表機</td></tr>
+</tbody>
+</table>
+
+<h3>4.4 選取病人及選擇聯絡方式</h3>
+<p>表格下方顯示紀錄數目，以及 <strong>全選 / 全不選</strong> 按鈕，可一次勾選或清除表格內所有勾選框，
+亦可逐行個別勾選。</p>
+<p>選擇一種聯絡方式（擇一）：</p>
+<table>
+<thead><tr><th>方式</th><th>發送時會發生什麼</th></tr></thead>
+<tbody>
+<tr><td><strong>WhatsApp</strong></td><td>打開 WhatsApp 網頁版／應用程式並預先填入訊息 — 每位病人需您自行按下發送</td></tr>
+<tr><td><strong>短訊 (SMS)</strong></td><td>打開您裝置的短訊應用程式並預先填入訊息</td></tr>
+<tr><td><strong>Twilio WhatsApp</strong></td><td>透過 Twilio 使用已核准的 WhatsApp 範本自動發送（可選擇範本及發送號碼）</td></tr>
+<tr><td><strong>Twilio 短訊</strong></td><td>透過 Twilio 短訊服務，使用訊息框內的文字自動發送</td></tr>
+</tbody>
+</table>
+<p>訊息輸入框支援點擊插入的佔位符：
+<code>{NAME}</code> <code>{FULL_NAME}</code> <code>{CHINESE}</code> <code>{ENGLISH}</code>
+<code>{CLINIC}</code> <code>{CLINIC_EN}</code> <code>{CLINIC_ZH}</code>
+<code>{DATE}</code> <code>{DOCTOR}</code> <code>{REMARKS}</code> <code>{PHONE}</code> <code>{PATIENT_NO}</code>。
+使用 Twilio WhatsApp 時，訊息框會變為唯讀，改為顯示已核准的範本內容
+（WhatsApp 規定必須使用已核准範本，不能發送自由文字）。</p>
+<p>點擊 <strong>發送提醒</strong> 開始發送。系統會逐位顯示發送視窗，列出病人姓名、電話及訊息預覽。
+點擊 <strong>開啟／發送</strong> 即發送該訊息，<strong>跳過</strong> 則不改變該病人狀態，
+<strong>下一位</strong> 會將該病人標記為「已提醒」並繼續下一位，直至所有已選病人處理完畢。</p>
+
+<h2>5. 一次性設置（僅限 IT／管理員）</h2>
+<p>使用此功能前，須在此診所的 <strong>Supabase SQL 編輯器</strong> 執行一次
+<code>patient_recalls.sql</code>。如看到訊息
+<em>「請先在 Supabase SQL 編輯器執行 patient_recalls.sql」</em>，即表示尚未執行此步驟。</p>
+
+<h2>6. 常見問題</h2>
+<table>
+<thead><tr><th>問題</th><th>解答</th></tr></thead>
+<tbody>
+<tr><td>會否影響候診隊列或今日工作日期？</td><td>不會。此功能只讀寫自己獨立的資料表，絕不會碰到候診隊列或工作日期邏輯。</td></tr>
+<tr><td>「所選列沒有電話號碼」</td><td>該病人檔案未有登記手機或電話號碼 — 請先到病人名冊補登。</td></tr>
+<tr><td>「請選擇 Twilio WhatsApp 範本…」</td><td>請先點擊範本下拉選單旁的 <strong>Twilio 設定</strong> 按鈕，新增並核准範本。</td></tr>
+<tr><td>列表中看不到某筆提醒</td><td>請檢查診所／醫生／日期篩選條件 — 只有狀態為「待覆診」或「已提醒」，且日期落在所選範圍內的紀錄才會顯示。</td></tr>
+<tr><td>可否為同一病人設定多筆提醒？</td><td>可以 — 每次按「儲存」或月份按鈕都會新增一行，不會覆蓋先前紀錄。</td></tr>
+</tbody>
+</table>
+<hr>
+<p><em>繁體中文部分完。</em></p>
+</div>
+
+</body>
+</html>

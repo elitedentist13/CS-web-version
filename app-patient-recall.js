@@ -310,10 +310,22 @@ var PATIENT_RECALL = (function () {
         return String(c.clinic_code || c.id || '').trim();
     }
 
+    /** Clinic tag for a doctor record (e.g. 'PL') — disambiguates same-name doctors
+     *  who hold separate doctor records at different clinics. */
+    function doctorClinicTag(d) {
+        if (!d || !d.clinic_id) return '';
+        var rec = (typeof clinicRecordFromId === 'function') ? clinicRecordFromId(d.clinic_id) : null;
+        return rec ? clinicTagOf(rec) : '';
+    }
+
+    /** e.g. "Dr Chan Tai Man [PL]" — appends the doctor's clinic tag so same-named
+     *  doctors at different clinics are never confused in a dropdown. */
     function doctorLabel(d) {
-        if (typeof doctorDisplayName === 'function') return doctorDisplayName(d);
         if (!d) return '';
-        return d.english_name || d.display_name || d.chinese_name || d.doctor_code || '';
+        var base = (typeof doctorDisplayName === 'function') ? doctorDisplayName(d) : '';
+        if (!base) base = d.english_name || d.display_name || d.chinese_name || d.doctor_code || '';
+        var tag = doctorClinicTag(d);
+        return tag ? (base + ' [' + tag + ']') : base;
     }
 
     function doctorsForTag(tag) {
@@ -948,7 +960,7 @@ var PATIENT_RECALL = (function () {
         var keepClinic = clinicSel ? String(clinicSel.value || '') : '';
         var keepDoctor = g('prcPDoctor') ? String(g('prcPDoctor').value || '') : '';
         fillClinicSelect(clinicSel, keepClinic, true);
-        fillDoctorSelect(g('prcPDoctor'), '', keepDoctor, true);
+        fillDoctorSelect(g('prcPDoctor'), keepClinic, keepDoctor, true);
         applyI18n(g('tab-reminder'));
         var tabBtn = document.querySelector('.appt-tab[data-prc-tab="1"]');
         if (tabBtn) tabBtn.textContent = tr('prc.tab');
@@ -1787,6 +1799,12 @@ var PATIENT_RECALL = (function () {
             if (manualBtn) {
                 manualBtn.addEventListener('click', function () {
                     window.open('APPT_REMINDER_USER_MANUAL.pdf', '_blank', 'noopener,noreferrer');
+                });
+            }
+            var pClinicSel = g('prcPClinic');
+            if (pClinicSel) {
+                pClinicSel.addEventListener('change', function () {
+                    fillDoctorSelect(g('prcPDoctor'), pClinicSel.value, '', true);
                 });
             }
             var viewBtn = g('prcPViewBtn');

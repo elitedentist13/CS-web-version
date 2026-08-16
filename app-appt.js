@@ -255,6 +255,9 @@ var queueElapsedClosedAtByApptId = {};
 var queueElapsedTickerId = null;
 /** Bumps on each loadQueue(); stale augment callbacks must not append rows. */
 var queueLoadSeq = 0;
+/** YYYY-MM-DD last successfully painted by loadQueue (working-date aware). */
+var queueLoadedForDate = '';
+var queueCompactFitTries = 0;
 
 /** When true, appointment date must be today or later (records tab: new visit from a past row). */
 var arBookingMinDateToday = false;
@@ -1931,9 +1934,10 @@ function queueApplyCompactFitScale() {
     }
     var avail = wrap.clientWidth;
     if (avail <= 0) {
-        queueScheduleCompactFit();
+        if (queueCompactFitTries++ < 12) queueScheduleCompactFit();
         return;
     }
+    queueCompactFitTries = 0;
     var scale = 1;
     if (avail < 1280) scale = 0.96;
     if (avail < 1120) scale = 0.9;
@@ -2203,10 +2207,12 @@ function refreshApptSharedMemoI18n() {
 // TAB SWITCHING
 // ════════════════════════════════════════════════════════════════
 function switchApptTab(tab) {
-    document.querySelectorAll('.appt-tab').forEach(function(b) {
+    var prev = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : null;
+    var root = g('appointmentSection') || document;
+    root.querySelectorAll('.appt-tab').forEach(function(b) {
         b.classList.toggle('active', b.dataset.tab === tab);
     });
-    document.querySelectorAll('.tab-pane').forEach(function(p) {
+    root.querySelectorAll('.tab-pane').forEach(function(p) {
         p.classList.toggle('active', p.id === 'tab-' + tab);
     });
     if (APPT_SHARED_MEMO_TABS[tab] && typeof apptMemoOnScopeChange === 'function') {
@@ -2214,7 +2220,19 @@ function switchApptTab(tab) {
     } else {
         mountApptSharedMemo(null);
     }
-    if (tab === 'queue')    loadQueue();
+    if (tab === 'queue') {
+        var day = typeof todayISO === 'function' ? todayISO() : '';
+        /* Re-clicking Current Queue while Working Date is on used to rebuild
+           the table (and compact-fit) on the main thread and freeze the UI. */
+        if (prev === 'queue' && queueLoadedForDate && queueLoadedForDate === day) {
+            if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
+        } else {
+            setTimeout(function() {
+                if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'queue') return;
+                loadQueue();
+            }, 0);
+        }
+    }
     if (tab === 'today') {
         loadToday();
         if (typeof todayApplyClearModeCompactLayout === 'function') {
@@ -2239,9 +2257,6 @@ function switchApptTab(tab) {
     if (tab === 'rsvp' && typeof RSVP_RECALL !== 'undefined' && RSVP_RECALL.init) RSVP_RECALL.init();
     if (tab === 'broadcast' && typeof MASSBC !== 'undefined' && MASSBC.init) MASSBC.init();
     if (tab === 'webbook' && typeof initWebBookTab === 'function') initWebBookTab();
-    if (tab === 'queue') {
-        if (typeof queueScheduleCompactFit === 'function') queueScheduleCompactFit();
-    }
     if (tab === 'queue' || tab === 'today' || tab === 'plusappt' || tab === 'calendar') {
         apptRefreshPatientCountBadge(tab);
     }
@@ -8773,11 +8788,13 @@ function initRecallTab() {
 function renderRcal() {
     var wrap = g('rcalContainer');
     if (!wrap) return;
+    if (!rcMonthD || isNaN(rcMonthD.getTime())) rcMonthD = new Date();
     var y     = rcMonthD.getFullYear();
     var m     = rcMonthD.getMonth();          // 0-based
     var today = todayISO();
     var dow0  = new Date(y, m, 1).getDay();  // weekday of 1st
     var daysM = new Date(y, m + 1, 0).getDate();
+    if (!isFinite(daysM) || daysM < 1) return;
     var loc   = apptDateLocale();
     var mLbl  = new Date(y, m, 1).toLocaleDateString(loc, { month: 'long', year: 'numeric' });
     var dowHdr = apptCalWeekdayHeaders();
@@ -8812,7 +8829,7 @@ function renderRcal() {
         dow++;
         if (dow % 7 === 0 && d < daysM) html += '</tr><tr>';
     }
-    while (dow % 7 !== 0) { html += '<td></td>'; dow++; }
+    while (isFinite(dow) && dow % 7 !== 0) { html += '<td></td>'; dow++; }
     html += '</tr></tbody></table>';
 
     wrap.innerHTML = html;
@@ -14481,6 +14498,7 @@ function loadQueue(opts) {
             apptRefreshPatientCountBadge('queue');
             doStrip([]);
             queueApptsCache = [];
+            if (!r.error) queueLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
             setQueueRefreshMeta({ stampNow: true });
             queueScheduleCompactFit(function() {
                 apptFinishScrollPreserve(opts, savedScroll);
@@ -14499,10 +14517,32 @@ function loadQueue(opts) {
                     return s !== 'cancelled';
                 });
                 queueApptsCache = activeRows;
+                queueLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
                 var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                     ? CalDoctorColors.filterAppts(activeRows) : activeRows;
                 apptRefreshPatientCountBadge('queue');
                 var dotCtx = apptListDoctorDotCtx(activeRows);
+
+                function afterQueueRowsPainted() {
+                    if (loadSeq !== queueLoadSeq) return;
+                    doStrip(activeRows);
+                    apptRestoreListRowSelection(tb, 'queue');
+                    setQueueRefreshMeta({ stampNow: true });
+                    ensureQueueElapsedTicker();
+                    queueRefreshElapsedBadges();
+                    queueScheduleCompactFit(function() {
+                        apptFinishScrollPreserve(opts, savedScroll);
+                    });
+                    if (opts.soft) return;
+                    hydrateApptUnpaidBalances(hydratedRows, function(changed) {
+                        if (!changed) return;
+                        if (loadSeq !== queueLoadSeq) return;
+                        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
+                            loadQueue({ soft: true });
+                        }
+                    });
+                }
+
                 if (!visible.length) {
                     apptSetTbodyHtml(tb,
                         '<tr><td colspan="11" style="text-align:center;' +
@@ -14511,32 +14551,34 @@ function loadQueue(opts) {
                             ? tr('appt.queue.emptyFiltered')
                             : tr('appt.queue.empty')) +
                         '</td></tr>', opts);
-                } else if (opts.soft) {
+                    afterQueueRowsPainted();
+                    return;
+                }
+                if (opts.soft) {
                     apptSwapTbodyContent(tb, function(frag) {
                         visible.forEach(function(q, idx) {
                             buildQueueRow(frag, q, idx + 1, dotCtx);
                         });
                     });
-                } else {
-                    visible.forEach(function(q, idx) {
-                        buildQueueRow(tb, q, idx + 1, dotCtx);
-                    });
+                    afterQueueRowsPainted();
+                    return;
                 }
-                doStrip(activeRows);
-                apptRestoreListRowSelection(tb, 'queue');
-                setQueueRefreshMeta({ stampNow: true });
-                ensureQueueElapsedTicker();
-                queueRefreshElapsedBadges();
-                queueScheduleCompactFit(function() {
-                    apptFinishScrollPreserve(opts, savedScroll);
-                });
-                hydrateApptUnpaidBalances(hydratedRows, function(changed) {
-                    if (!changed) return;
+                var rowIdx = 0;
+                var CHUNK = 24;
+                (function paintQueueChunk() {
                     if (loadSeq !== queueLoadSeq) return;
-                    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
-                        loadQueue({ soft: true });
+                    var frag = document.createDocumentFragment();
+                    var end = Math.min(rowIdx + CHUNK, visible.length);
+                    for (; rowIdx < end; rowIdx++) {
+                        buildQueueRow(frag, visible[rowIdx], rowIdx + 1, dotCtx);
                     }
-                });
+                    tb.appendChild(frag);
+                    if (rowIdx < visible.length) {
+                        setTimeout(paintQueueChunk, 0);
+                        return;
+                    }
+                    afterQueueRowsPainted();
+                })();
             });
         });
     });

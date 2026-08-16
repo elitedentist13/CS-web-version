@@ -68,9 +68,24 @@ var CalDoctorColors = (function () {
     }
 
     function refreshQueueTodayAfterDoctorFilter() {
-        if (typeof loadToday === 'function') loadToday();
-        if (typeof loadQueue === 'function') loadQueue();
-        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+        var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
+        if (tab === 'queue') {
+            if (typeof loadQueue === 'function') loadQueue();
+            return;
+        }
+        if (tab === 'today') {
+            if (typeof loadToday === 'function') loadToday();
+            return;
+        }
+        if ((tab === 'plusappt' || tab === 'calendar') &&
+            typeof refreshApptPlannerData === 'function') {
+            refreshApptPlannerData();
+        }
+    }
+
+    function refreshCalendarAfterDoctorFilter() {
+        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'calendar') return;
+        if (typeof renderCal === 'function') renderCal();
     }
 
     function setDoctorVisible(key, visible) {
@@ -81,7 +96,7 @@ var CalDoctorColors = (function () {
         saveFilter();
         syncLegendCheckboxes();
         refreshQueueTodayAfterDoctorFilter();
-        if (typeof renderCal === 'function') renderCal();
+        refreshCalendarAfterDoctorFilter();
     }
 
     function isApptVisible(a) {
@@ -99,8 +114,7 @@ var CalDoctorColors = (function () {
         saveFilter();
         syncLegendCheckboxes();
         refreshQueueTodayAfterDoctorFilter();
-        if (typeof renderCal === 'function') renderCal();
-        if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
+        refreshCalendarAfterDoctorFilter();
     }
 
     function hideAllDoctors() {
@@ -120,7 +134,7 @@ var CalDoctorColors = (function () {
         saveFilter();
         syncLegendCheckboxes();
         refreshQueueTodayAfterDoctorFilter();
-        if (typeof renderCal === 'function') renderCal();
+        refreshCalendarAfterDoctorFilter();
     }
 
     function syncLegendCheckboxes() {

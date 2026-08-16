@@ -679,7 +679,7 @@ var PATIENT_RECALL = (function () {
             dow++;
             if (dow % 7 === 0 && d < daysM) html += '</tr><tr>';
         }
-        while (dow % 7 !== 0) { html += '<td></td>'; dow++; }
+        while (isFinite(dow) && dow % 7 !== 0) { html += '<td></td>'; dow++; }
         html += '</tr></tbody></table>';
         wrap.innerHTML = html;
     }

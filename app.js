@@ -575,6 +575,7 @@ function setWorkingDateOverride(isoDate) {
     }
     appWorkingDateOverride = next;
     writeWorkingDateOverrideToStore(next);
+    if (typeof queueLoadedForDate !== 'undefined') queueLoadedForDate = '';
     refreshAppSessionStripContents();
     scheduleRefreshAppSectionsForWorkingDate();
     document.dispatchEvent(new CustomEvent('app-working-date-change', {
@@ -611,7 +612,7 @@ function refreshAppSectionsForWorkingDateNow() {
     if (apptOn) {
         var tab = typeof apptActiveTabKey === 'function' ? apptActiveTabKey() : '';
         if (tab === 'queue' && typeof loadQueue === 'function') {
-            loadQueue();
+            setTimeout(function() { loadQueue(); }, 0);
         } else if (tab === 'today' && typeof loadToday === 'function') {
             loadToday();
         } else if ((tab === 'plusappt' || tab === 'calendar') &&

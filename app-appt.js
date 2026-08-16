@@ -258,6 +258,13 @@ var queueLoadSeq = 0;
 /** YYYY-MM-DD last successfully painted by loadQueue (working-date aware). */
 var queueLoadedForDate = '';
 var queueCompactFitTries = 0;
+/** Soft/auto-refresh fingerprint — skip full DOM rebuild when unchanged. */
+var queueLastFingerprint = '';
+var queuePaintBusy = false;
+var queuePendingSoftOpts = null;
+var queueSoftCoalesceTimer = null;
+var queueDoctorStripKey = '';
+var _apptLiveScrollThrottle = null;
 
 /** When true, appointment date must be today or later (records tab: new visit from a past row). */
 var arBookingMinDateToday = false;
@@ -1819,7 +1826,10 @@ function initAppt(opts) {
     bindQueuePatientSearchOnce();
     bindTodayPatientSearchOnce();
     updateApptPatientBanner();
-    document.addEventListener('app-active-patient-change', updateApptPatientBanner);
+    if (!window.__apptBannerPatientBound) {
+        window.__apptBannerPatientBound = true;
+        document.addEventListener('app-active-patient-change', updateApptPatientBanner);
+    }
     var qb = g('queueBody');
     if (qb) {
         if (!qb.querySelector('tr')) {
@@ -7953,7 +7963,10 @@ function apptAutoRefreshTick() {
     if (typeof webbookRefreshTabBadge === 'function') webbookRefreshTabBadge({ soft: true });
     var tab = apptActiveTabKey();
     var soft = { soft: true };
-    if (tab === 'queue') loadQueue(soft);
+    if (tab === 'queue') {
+        if (queuePaintBusy) return;
+        loadQueue(soft);
+    }
     else if (tab === 'today') loadToday(soft);
     else if (tab === 'plusappt' || tab === 'calendar') refreshApptPlannerData(soft);
     else if (tab === 'webbook' && typeof webbookRefreshList === 'function') webbookRefreshList(soft);
@@ -14402,9 +14415,13 @@ function apptBindLiveScrollTrackOnce() {
     _apptLiveScrollBound = true;
     window.addEventListener('scroll', function() {
         if (typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) return;
-        if (typeof captureAppScrollState === 'function') {
-            _apptLiveScrollState = captureAppScrollState();
-        }
+        if (_apptLiveScrollThrottle) return;
+        _apptLiveScrollThrottle = setTimeout(function() {
+            _apptLiveScrollThrottle = null;
+            if (typeof captureAppScrollState === 'function') {
+                _apptLiveScrollState = captureAppScrollState();
+            }
+        }, 120);
     }, true);
 }
 
@@ -14455,8 +14472,87 @@ function apptFinishScrollPreserve(opts, saved) {
     if (!apptShouldPreserveScroll(opts) || !saved) return;
     if (typeof releaseAppScrollLock === 'function') releaseAppScrollLock(false);
     if (typeof scheduleAppScrollRestore === 'function') {
-        scheduleAppScrollRestore(saved, { delays: [0, 100, 250, 600, 1200] });
+        /* Soft refreshes used to re-apply scroll 5 times and thrash the main thread. */
+        var delays = (opts && opts.soft) ? [0, 80] : [0, 100, 280];
+        scheduleAppScrollRestore(saved, { delays: delays });
     }
+}
+
+function queueRowsFingerprint(rows) {
+    var day = typeof todayISO === 'function' ? todayISO() : '';
+    var clear = (typeof plusApptIsClearMode === 'function' && plusApptIsClearMode()) ? '1' : '0';
+    var parts = [(rows || []).length, day, clear];
+    (rows || []).forEach(function(q) {
+        if (!q) return;
+        parts.push([
+            q.id,
+            q.in_queue,
+            q.start_time || '',
+            q.bill_status || '',
+            q.updated_at || '',
+            q.arrival_time || '',
+            q.patient_id || '',
+            q.patient_no || '',
+            q.patient_name || '',
+            q.patient_chinese_name || q._merged_chinese_name || '',
+            q.doctor_code || '',
+            String(q.treatment_items || ''),
+            String(q.remarks || ''),
+            q.lab_status || (q._task && q._task.lab) || '',
+            q.recall_status || (q._task && q._task.recall) || '',
+            q.patient_rsvp_status || ''
+        ].join('\x1f'));
+    });
+    return parts.join('\x1e');
+}
+
+function queueDoctorKeysFingerprint(rows) {
+    if (typeof CalDoctorColors === 'undefined' || !CalDoctorColors.collectKeys) {
+        return String((rows || []).length);
+    }
+    var cid = typeof currentClinicId !== 'undefined' ? currentClinicId : null;
+    return CalDoctorColors.collectKeys(rows || [], cid).map(function(item) {
+        return item && item.key ? item.key : '';
+    }).join('|');
+}
+
+function queuePatchUnpaidBadgesInPlace(rows) {
+    var tb = g('queueBody');
+    if (!tb) return;
+    var clearMode = typeof plusApptIsClearMode === 'function' && plusApptIsClearMode();
+    var byId = {};
+    (rows || []).forEach(function(q) {
+        if (q && q.id) byId[String(q.id)] = q;
+    });
+    tb.querySelectorAll('tr[data-appt-id]').forEach(function(row) {
+        var q = byId[String(row.dataset.apptId || '')];
+        if (!q) return;
+        var host = row.querySelector('.queue-remarks-preview-wrap, .plusappt-remarks-preview-wrap');
+        if (!host) return;
+        var old = host.querySelector('.appt-unpaid-badge');
+        var html = apptUnpaidBadgeHtml(q, clearMode
+            ? 'appt-unpaid-badge--remarks queue-clear-unpaid-badge'
+            : 'appt-unpaid-badge--remarks');
+        if (!html) {
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+            return;
+        }
+        if (old) {
+            var tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            var neu = tmp.firstChild;
+            if (neu) old.parentNode.replaceChild(neu, old);
+            return;
+        }
+        host.insertAdjacentHTML('afterbegin', html);
+    });
+}
+
+function queueFlushPendingSoft() {
+    if (!queuePendingSoftOpts) return;
+    var pending = queuePendingSoftOpts;
+    queuePendingSoftOpts = null;
+    loadQueue(pending);
 }
 
 function loadQueue(opts) {
@@ -14464,13 +14560,40 @@ function loadQueue(opts) {
     if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
         return;
     }
+    if (opts.soft) {
+        if (queuePaintBusy) {
+            queuePendingSoftOpts = { soft: true };
+            return;
+        }
+        if (queueSoftCoalesceTimer) clearTimeout(queueSoftCoalesceTimer);
+        queueSoftCoalesceTimer = setTimeout(function() {
+            queueSoftCoalesceTimer = null;
+            loadQueueNow({ soft: true });
+        }, 150);
+        return;
+    }
+    if (queueSoftCoalesceTimer) {
+        clearTimeout(queueSoftCoalesceTimer);
+        queueSoftCoalesceTimer = null;
+    }
+    queuePendingSoftOpts = null;
+    loadQueueNow(opts);
+}
+
+function loadQueueNow(opts) {
+    opts = opts || {};
+    if (!opts.force && typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) {
+        return;
+    }
     var tb = g('queueBody');
     if (!tb) return;
     var savedScroll = apptSavedScrollSnapshot(opts);
-    queueCloseAllActionDrops(null);
+    if (!opts.soft) queueCloseAllActionDrops(null);
     var loadSeq = ++queueLoadSeq;
     setQueueRefreshMeta({ loading: true });
     if (!opts.soft) {
+        queuePaintBusy = true;
+        queueLastFingerprint = '';
         tb.innerHTML =
             '<tr><td colspan="11" style="text-align:center;' +
             'color:#aaa;padding:24px;">' + esc(tr('appt.queue.loading')) + '</td></tr>';
@@ -14485,23 +14608,32 @@ function loadQueue(opts) {
     qq.then(function(r) {
         if (loadSeq !== queueLoadSeq) return;
         if (!opts.soft) tb.innerHTML = '';
-        var doStrip = function (apptRows) {
+        var doStrip = function (apptRows, force) {
+            var key = queueDoctorKeysFingerprint(apptRows);
+            if (!force && opts.soft && key && key === queueDoctorStripKey) return;
+            queueDoctorStripKey = key;
             if (typeof CalDoctorColors !== 'undefined' && CalDoctorColors.renderDoctorFilterStrip) {
                 CalDoctorColors.renderDoctorFilterStrip('queueDoctorFilterBar', apptRows || []);
             }
         };
+        function finishQueueIdle() {
+            queuePaintBusy = false;
+            setTimeout(queueFlushPendingSoft, 0);
+        }
         if (r.error || !r.data || !r.data.length) {
             apptSetTbodyHtml(tb,
                 '<tr><td colspan="11" style="text-align:center;' +
                 'color:#aaa;padding:24px;">' +
                 esc(tr('appt.queue.empty')) + '</td></tr>', opts);
             apptRefreshPatientCountBadge('queue');
-            doStrip([]);
+            doStrip([], true);
             queueApptsCache = [];
+            queueLastFingerprint = queueRowsFingerprint([]);
             if (!r.error) queueLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
             setQueueRefreshMeta({ stampNow: true });
             queueScheduleCompactFit(function() {
                 apptFinishScrollPreserve(opts, savedScroll);
+                finishQueueIdle();
             });
             return;
         }
@@ -14520,12 +14652,26 @@ function loadQueue(opts) {
                 queueLoadedForDate = typeof todayISO === 'function' ? todayISO() : '';
                 var visible = typeof CalDoctorColors !== 'undefined' && CalDoctorColors.filterAppts
                     ? CalDoctorColors.filterAppts(activeRows) : activeRows;
+                var fp = queueRowsFingerprint(visible);
                 apptRefreshPatientCountBadge('queue');
+
+                /* Soft/auto/realtime: unchanged list → refresh timers only. */
+                if (opts.soft && fp && fp === queueLastFingerprint && tb.querySelector('tr[data-appt-id]')) {
+                    setQueueRefreshMeta({ stampNow: true });
+                    ensureQueueElapsedTicker();
+                    queueRefreshElapsedBadges();
+                    finishQueueIdle();
+                    return;
+                }
+                queueLastFingerprint = fp;
                 var dotCtx = apptListDoctorDotCtx(activeRows);
 
                 function afterQueueRowsPainted() {
-                    if (loadSeq !== queueLoadSeq) return;
-                    doStrip(activeRows);
+                    if (loadSeq !== queueLoadSeq) {
+                        finishQueueIdle();
+                        return;
+                    }
+                    doStrip(activeRows, !opts.soft);
                     apptRestoreListRowSelection(tb, 'queue');
                     setQueueRefreshMeta({ stampNow: true });
                     ensureQueueElapsedTicker();
@@ -14533,13 +14679,9 @@ function loadQueue(opts) {
                     queueScheduleCompactFit(function() {
                         apptFinishScrollPreserve(opts, savedScroll);
                     });
-                    if (opts.soft) return;
                     hydrateApptUnpaidBalances(hydratedRows, function(changed) {
-                        if (!changed) return;
-                        if (loadSeq !== queueLoadSeq) return;
-                        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'queue') {
-                            loadQueue({ soft: true });
-                        }
+                        if (changed) queuePatchUnpaidBadgesInPlace(hydratedRows);
+                        finishQueueIdle();
                     });
                 }
 
@@ -14554,33 +14696,51 @@ function loadQueue(opts) {
                     afterQueueRowsPainted();
                     return;
                 }
-                if (opts.soft) {
-                    apptSwapTbodyContent(tb, function(frag) {
-                        visible.forEach(function(q, idx) {
-                            buildQueueRow(frag, q, idx + 1, dotCtx);
-                        });
-                    });
-                    afterQueueRowsPainted();
-                    return;
-                }
+
+                queuePaintBusy = true;
                 var rowIdx = 0;
-                var CHUNK = 24;
+                var CHUNK = 16;
+                var paintRoot = opts.soft ? document.createDocumentFragment() : tb;
+                if (opts.soft) {
+                    /* Close portaled action menus before soft replace. */
+                    document.querySelectorAll('.action-drop.action-drop--portal, .action-drop.open').forEach(function(d) {
+                        var hw = d.__queueActionWrap;
+                        if (hw && tb.contains(hw) && typeof queueCloseActionDrop === 'function') {
+                            queueCloseActionDrop(d);
+                        }
+                    });
+                } else if (!opts.soft && tb.firstChild) {
+                    /* loading row already cleared above when soft=false */
+                }
+
                 (function paintQueueChunk() {
-                    if (loadSeq !== queueLoadSeq) return;
+                    if (loadSeq !== queueLoadSeq) {
+                        finishQueueIdle();
+                        return;
+                    }
                     var frag = document.createDocumentFragment();
                     var end = Math.min(rowIdx + CHUNK, visible.length);
                     for (; rowIdx < end; rowIdx++) {
                         buildQueueRow(frag, visible[rowIdx], rowIdx + 1, dotCtx);
                     }
-                    tb.appendChild(frag);
+                    paintRoot.appendChild(frag);
                     if (rowIdx < visible.length) {
                         setTimeout(paintQueueChunk, 0);
                         return;
+                    }
+                    if (opts.soft) {
+                        while (tb.firstChild) tb.removeChild(tb.firstChild);
+                        tb.appendChild(paintRoot);
                     }
                     afterQueueRowsPainted();
                 })();
             });
         });
+    }).catch(function() {
+        if (loadSeq !== queueLoadSeq) return;
+        setQueueRefreshMeta({ stampNow: true });
+        queuePaintBusy = false;
+        queueFlushPendingSoft();
     });
 }
 

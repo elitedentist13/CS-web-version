@@ -14,7 +14,7 @@ var PATIENT_RECALL = (function () {
 
     var TABLE = 'patient_recalls';
     var TAB_KEY = 'reminder';
-    var PANEL_VER = '4';
+    var PANEL_VER = '5';
     var TPL_PREF = 'prc_twilio_tpl_id_v1';
     var FROM_PREF = 'prc_twilio_from_id_v1';
     var PH_CHIPS = [
@@ -30,8 +30,8 @@ var PATIENT_RECALL = (function () {
     };
 
     var I18N = {
-        'prc.action': { en: 'Set recall', 'zh-CN': '设定复诊', 'zh-Hant': '設定覆診' },
-        'prc.title': { en: 'Set recall', 'zh-CN': '设定复诊', 'zh-Hant': '設定覆診' },
+        'prc.action': { en: 'Set Review', 'zh-CN': '设定复查', 'zh-Hant': '設定覆查' },
+        'prc.title': { en: 'Set Review', 'zh-CN': '设定复查', 'zh-Hant': '設定覆查' },
         'prc.tab': { en: '🔔 Appt Reminder', 'zh-CN': '🔔 复诊提醒', 'zh-Hant': '🔔 覆診提醒' },
         'prc.date': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'prc.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
@@ -381,6 +381,7 @@ var PATIENT_RECALL = (function () {
             '.prc-btn-danger:disabled{opacity:.45;cursor:not-allowed;}',
             '.btn-prc{background:#7c3aed;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;}',
             '.btn-prc:hover{background:#6d28d9;}',
+            '.action-item .ai-icon.prc-ai-bell{color:#eab308;filter:none;}',
             '#tab-reminder.tab-pane{padding-top:10px;}',
             '.prc-panel-head{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;margin-bottom:12px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}',
             '.prc-filt{display:flex;flex-direction:column;gap:4px;min-width:140px;}',
@@ -946,9 +947,17 @@ var PATIENT_RECALL = (function () {
         return null;
     }
 
+    function queueActionHtml() {
+        return '<span class="ai-icon prc-ai-bell">🔔</span>' + esc(tr('prc.action'));
+    }
+
     function injectQueueActions() {
         document.querySelectorAll('#queueBody .action-drop, .action-drop.action-drop--portal').forEach(function (drop) {
-            if (drop.querySelector('[data-prc-item="1"]')) return;
+            var existing = drop.querySelector('[data-prc-item="1"]');
+            if (existing) {
+                existing.innerHTML = queueActionHtml();
+                return;
+            }
             var rowEl = drop.closest('tr') ||
                 (drop.__queueActionWrap && drop.__queueActionWrap.closest && drop.__queueActionWrap.closest('tr'));
             var apptId = (rowEl && (rowEl.dataset.apptId || rowEl.getAttribute('data-appt-id'))) || '';
@@ -957,7 +966,7 @@ var PATIENT_RECALL = (function () {
             item.setAttribute('data-prc-item', '1');
             item.setAttribute('data-no-click-guard', '1');
             if (apptId) item.setAttribute('data-prc-appt-id', apptId);
-            item.innerHTML = '<span class="ai-icon">📅</span> ' + esc(tr('prc.action'));
+            item.innerHTML = queueActionHtml();
             var after = drop.querySelector('[id^="act-wa-"]');
             if (after && after.nextSibling) drop.insertBefore(item, after.nextSibling);
             else if (after) drop.appendChild(item);

@@ -3699,7 +3699,7 @@
         'bill.sectionNewBill': { en: 'New bill', 'zh-CN': '新建账单', 'zh-Hant': '新建帳單' },
         'bill.btnCreateBill': { en: '✓ Create bill', 'zh-CN': '✓ 创建账单', 'zh-Hant': '✓ 建立帳單' },
         'bill.alert.createListFirst': { en: 'Create a bill list first (+ New List).', 'zh-CN': '请先创建账单清单（+ 新建清单）。', 'zh-Hant': '請先建立帳單清單（+ 新增清單）。' },
-        'bill.alert.addItemsFirst': { en: 'Add at least one bill item with an amount before creating the bill.', 'zh-CN': '创建账单前请至少添加一项有金额的账单项目。', 'zh-Hant': '建立帳單前請至少新增一項有金額的帳單項目。' },
+        'bill.alert.addItemsFirst': { en: 'Add at least one bill item before creating the bill.', 'zh-CN': '创建账单前请至少添加一项账单项目。', 'zh-Hant': '建立帳單前請至少新增一項帳單項目。' },
         'bill.alert.lockedBillNoEdit': { en: 'This bill is locked because a payment has already been recorded.\nTo add more instalments, use "Add Payment" in Bill History.\nTo modify bill items, void all payments first.', 'zh-CN': '此账单已锁定，因为已记录付款。\n如需追加分期付款，请在账单历史中使用"添加付款"。\n如需修改账单项目，请先撤销所有付款。', 'zh-Hant': '此帳單已鎖定，因為已記錄付款。\n如需追加分期付款，請在帳單紀錄中使用「新增付款」。\n如需修改帳單項目，請先撤銷所有付款。' },
         'bill.status.locked': { en: '🔒 Locked — payment recorded', 'zh-CN': '🔒 已锁定 — 已记录付款', 'zh-Hant': '🔒 已鎖定 — 已記錄付款' },
         'bill.locked.bannerTitle': { en: '🔒 Bill Locked — Items Cannot Be Modified', 'zh-CN': '🔒 账单已锁定 — 项目不可修改', 'zh-Hant': '🔒 帳單已鎖定 — 項目不可修改' },

@@ -487,6 +487,13 @@ function pendingListSubtotalFromItems(items) {
     }, 0);
 }
 
+function billListHasRecordableItems(items) {
+    return (items || []).some(function (it) {
+        var n = normalizeBillItem(it);
+        return String(n.desc || '').trim() !== '' || (parseFloat(n.price) || 0) !== 0;
+    });
+}
+
 function pendingListBillLinkNote(pl) {
     if (!pl || !pl.id) return null;
     return PENDING_LIST_BILL_NOTE_PREFIX + pl.id;
@@ -639,10 +646,9 @@ function findBillRowForPendingList(pl, cb) {
                 next();
                 return;
             }
-            // Never reattach a settled / already-paid bill to a pending list.
-            var paid = parseFloat(row.amount_paid) || 0;
-            var bal = parseFloat(row.balance);
-            if (paid > 0.005 || (isFinite(bal) && bal <= 0.005)) {
+            // Keep unpaid and partial bills linked so item rows stay on the
+            // editor (locked while any payment remains). Only drop fully settled.
+            if (!billIsOpenForItemEditor(row)) {
                 clearPendingBillIdLocalStore(pl);
                 next();
                 return;
@@ -772,9 +778,9 @@ function buildUnpaidBillPayloadFromPendingList(pl, sub) {
         discount:       0,
         total:          sub,
         amount_paid:    0,
-        balance:        sub,
+        balance:        Math.max(0, sub),
         notes:          pendingListBillLinkNote(pl),
-        status:         sub > 0.005 ? 'Partial' : 'Paid'
+        status:         Math.max(0, sub) > 0.005 ? 'Partial' : 'Paid'
     };
     Object.assign(payload, billClinicFieldsForSave());
     Object.assign(payload, billDoctorFieldsForSave(pl.doctor_id || null, { noFallback: true }));
@@ -798,7 +804,7 @@ function persistPendingListBillIdRow(pl, billId, cb) {
 }
 
 function syncUnpaidBillFromPendingList(pl, sub, done) {
-    if (!pl || sub <= 0.005) {
+    if (!pl) {
         if (done) done(null, null);
         return;
     }
@@ -17871,7 +17877,11 @@ function refreshBillPanelLists(opts) {
             if (manual) loadBillHistory();
             renderStep2(done);
         } else {
-            loadBillHistory(done);
+            if (typeof syncPendingDraftFromInputs === 'function') syncPendingDraftFromInputs();
+            loadBillHistory(function (ok) {
+                renderStep1UI();
+                done(ok);
+            });
         }
     };
 
@@ -18106,13 +18116,9 @@ function loadPendingLists(cb) {
             var known = (billHistoryCache || []).find(function (b) {
                 return b && String(b.id) === String(localBid);
             });
-            if (known) {
-                var kPaid = parseFloat(known.amount_paid) || 0;
-                var kBal = parseFloat(known.balance);
-                if (kPaid > 0.005 || (isFinite(kBal) && kBal <= 0.005)) {
-                    clearPendingBillIdLocalStore(pl);
-                    return;
-                }
+            if (known && !billIsOpenForItemEditor(known)) {
+                clearPendingBillIdLocalStore(pl);
+                return;
             }
             pl.bill_id = localBid;
         });
@@ -18169,7 +18175,10 @@ function enrichPendingListsDoctorFromBills(lists, done) {
         .catch(function () { if (done) done(); });
 }
 
-function renderStep1UI() {
+function renderStep1UI(opts) {
+    opts = opts || {};
+    ensureOpenBillsInPendingEditor(opts.focusBillId || null);
+
     var hasLists = pendingLists.length > 0;
     g('pendingEmptyState').style.display  = hasLists ? 'none' : '';
     g('pendingActiveArea').style.display  = hasLists ? ''     : 'none';
@@ -18227,15 +18236,24 @@ function renderStep1UI() {
         }
     }
 
-    // Also lock/unlock the Create Bill button
+    // Also lock/unlock the Create Bill button, list label, doctor, and remove.
+    var isLocked2 = isCurrentPendingListLocked();
     var createBtn = g('createBillBtn');
     if (createBtn) {
-        var isLocked2 = isCurrentPendingListLocked();
         createBtn.disabled = isLocked2;
         createBtn.style.opacity = isLocked2 ? '0.4' : '';
         createBtn.style.cursor = isLocked2 ? 'not-allowed' : '';
         createBtn.title = isLocked2 ? tr('bill.alert.lockedBillNoEdit').split('\n')[0] : '';
     }
+    var labelEl = g('pendingListLabel');
+    if (labelEl) {
+        labelEl.disabled = isLocked2;
+        labelEl.readOnly = isLocked2;
+    }
+    var drSel = g('pendingListDoctor');
+    if (drSel) drSel.disabled = isLocked2;
+    var removeBtn = g('removePendingBtn');
+    if (removeBtn) removeBtn.disabled = isLocked2 || !hasLists;
 }
 
 function recalcPendingSubtotal() {
@@ -18251,7 +18269,8 @@ function navPendingList(dir) {
     renderStep1UI();
 }
 
-function addNewPendingList() {
+function addNewPendingList(opts) {
+    opts = opts || {};
     var label = trRepl('bill.list.defaultLabel', { N: String(pendingLists.length + 1) });
     var defDr = defaultBillDoctorIdForPendingList();
     pendingLists.push({
@@ -18266,7 +18285,7 @@ function addNewPendingList() {
     renderStep1UI();
     var statusEl = g('pendingListStatus');
     if (statusEl) { statusEl.textContent = tr('bill.status.notSaved'); statusEl.style.color = '#f59e0b'; }
-    if (g('pendingListLabel')) g('pendingListLabel').focus();
+    if (!opts.skipFocus && g('pendingListLabel')) g('pendingListLabel').focus();
 }
 
 function createBillFromCurrentList() {
@@ -18284,7 +18303,7 @@ function createBillFromCurrentList() {
         return;
     }
 
-    if (sub <= 0.005) {
+    if (!billListHasRecordableItems(billItems)) {
         alert(tr('bill.alert.addItemsFirst'));
         return;
     }
@@ -18301,6 +18320,10 @@ function createBillFromCurrentList() {
 function saveCurrentPendingList(opts) {
     opts = opts || {};
     if (!pendingLists.length || pendingIdx < 0) return;
+    if (isCurrentPendingListLocked()) {
+        if (opts.createBill) alert(tr('bill.alert.lockedBillNoEdit'));
+        return;
+    }
     var pl    = pendingLists[pendingIdx];
     var lockKey = pl.id || ('idx-' + pendingIdx);
     if (_pendingListSaveBusyKey === lockKey) return;
@@ -18370,12 +18393,12 @@ function saveCurrentPendingList(opts) {
         var t = new Date().toLocaleTimeString(apptDateLocale(), { hour: '2-digit', minute: '2-digit' });
 
         function finishListSaved() {
-            if (opts.createBill && sub > 0.005) {
+            if (opts.createBill && billListHasRecordableItems(pl.items || billItems)) {
                 if (statusEl) {
                     statusEl.textContent = tr('bill.status.creatingBill');
                     statusEl.style.color = '#888';
                 }
-                syncUnpaidBillFromPendingList(pl, sub, function (err) {
+                syncUnpaidBillFromPendingList(pl, sub, function (err, saved) {
                     releaseSaveLock();
                     if (err) {
                         if (statusEl) {
@@ -18391,10 +18414,30 @@ function saveCurrentPendingList(opts) {
                         statusEl.style.color = '#2563eb';
                     }
                     if (pl.id) pendingServerSnapshotById[pl.id] = pendingListSignature(pl);
-                    renderStep1UI();
                     noteBillPendingRefreshed();
-                    loadBillHistory(function() { renderStep1UI(); });
                     try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
+
+                    var settled = saved && (parseFloat(saved.balance) <= 0.005 || (parseFloat(sub) || 0) <= 0.005);
+                    function afterZeroPay() {
+                        if (settled && saved && saved.id) {
+                            resetBillCreationAfterPayment(saved.id);
+                            if (typeof showBillDetail === 'function') showBillDetail(saved);
+                            loadBillHistory(function () {
+                                var latest = (billHistoryCache || []).find(function (b) {
+                                    return b && String(b.id) === String(saved.id);
+                                });
+                                if (latest && typeof showBillDetail === 'function') showBillDetail(latest);
+                            });
+                            return;
+                        }
+                        renderStep1UI();
+                        loadBillHistory(function () { renderStep1UI(); });
+                    }
+                    if (settled && saved && saved.id) {
+                        recordZeroBalanceSettlementPayment(saved, afterZeroPay);
+                    } else {
+                        afterZeroPay();
+                    }
                 });
                 return;
             }
@@ -18444,6 +18487,10 @@ function saveCurrentPendingList(opts) {
 
 function removeCurrentPendingList() {
     if (!pendingLists.length || pendingIdx < 0) return;
+    if (isCurrentPendingListLocked()) {
+        alert(tr('bill.alert.lockedBillNoEdit'));
+        return;
+    }
     var pl = pendingLists[pendingIdx];
     if (!confirm(trRepl('bill.removeListConfirm', { LABEL: (pl.label || tr('bill.list.thisList')) }))) return;
 
@@ -18468,49 +18515,36 @@ function removeCurrentPendingList() {
     }
 }
 
-/** After a bill is fully paid, return to a fresh new-list workspace. */
+/** After a bill is fully paid, wipe the item editor clean — do not unlock those rows.
+ *  Keep the bill-detail payment panel open so the user lands there first. */
 function resetBillCreationAfterPayment(billId) {
     if (typeof closeModal === 'function') {
-        closeModal('billDetailModal');
         closeModal('addPaymentModal');
     }
-    bdCurrentBill = null;
 
     clearAllPendingBillIdLocalStoreForBill(billId);
 
-    // Remove every pending list that pointed at this bill (shared bill_id).
+    var bid = String(billId || '');
     var linkedIds = [];
-    if (billId && pendingLists.length) {
-        pendingLists.forEach(function (pl) {
-            if (!pl || pl.bill_id !== billId) return;
-            clearPendingBillIdLocalStore(pl);
-            if (pl.id) linkedIds.push(pl.id);
-            else pl.bill_id = null;
-        });
-    }
+    pendingLists = (pendingLists || []).filter(function (pl) {
+        if (!pl) return false;
+        if (!bid || String(pl.bill_id || '') !== bid) return true;
+        clearPendingBillIdLocalStore(pl);
+        if (pl.id) linkedIds.push(pl.id);
+        return false;
+    });
 
-    function startFreshList() {
-        addNewPendingList();
-        var formSec = g('billFormSection');
-        if (formSec && formSec.scrollIntoView) {
-            try { formSec.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {
-                formSec.scrollIntoView(true);
-            }
-        }
-    }
+    billItems = [];
+    payItems = [];
+    payPendingId = null;
+    pendingIdx = -1;
 
-    function removeNext(i) {
-        if (i >= linkedIds.length) {
-            startFreshList();
-            return;
-        }
-        removePaidPendingList(linkedIds[i], function () {
-            removeNext(i + 1);
-        });
-    }
+    addNewPendingList({ skipFocus: true });
 
-    if (linkedIds.length) removeNext(0);
-    else startFreshList();
+    linkedIds.forEach(function (id) {
+        delete pendingServerSnapshotById[id];
+        SB.from('pending_bill_items').delete().eq('id', id).then(function () {}).catch(function () {});
+    });
 }
 
 /**
@@ -18970,6 +19004,8 @@ function loadBillDoctors() {
         syncPendingListDoctorSelectFromCurrentList();
         applyAppointmentDoctorToCurrentPendingList();
         updateBillStep2DoctorSummary();
+        var drSel = g('pendingListDoctor');
+        if (drSel) drSel.disabled = isCurrentPendingListLocked();
     }
 
     var fromGlobal = (typeof APP_DOCTORS !== 'undefined' && Array.isArray(APP_DOCTORS))
@@ -19025,6 +19061,136 @@ function addBillItem() {
 // A bill is "locked" once any payment has been recorded against it.
 // Locked bills: items/totals are read-only; additional instalment
 // payments are still allowed via the Add Payment modal.
+// When every payment is voided the bill unlocks and line items become editable.
+
+function billIsOpenForItemEditor(b) {
+    if (!b || !b.id || billRecordIsVoid(b)) return false;
+    var bal = parseFloat(b.balance);
+    if (!isFinite(bal)) {
+        bal = (parseFloat(b.total) || 0) - (parseFloat(b.amount_paid) || 0);
+    }
+    return bal > 0.005;
+}
+
+function pendingListItemsFromBill(b) {
+    return (parseBillItemsField(b && b.items) || []).map(function (it) {
+        return normalizeBillItem(it);
+    }).filter(function (it) {
+        return it && (String(it.desc || '').trim() || (parseFloat(it.price) || 0) !== 0);
+    });
+}
+
+function makePendingListFromOpenBill(b) {
+    var items = pendingListItemsFromBill(b);
+    var ref = b && b.id ? String(b.id).slice(0, 8).toUpperCase() : '';
+    var date = (b && b.bill_date) ? String(b.bill_date) : '';
+    var label = (date && ref) ? (date + ' · ' + ref) : (date || ref || trRepl('bill.list.defaultLabel', { N: '1' }));
+    return {
+        id: null,
+        bill_id: b.id,
+        label: label,
+        items: items.length ? items : [{ desc: '', qty: 1, price: 0, disc: 0, tooth_no: '-' }],
+        subtotal: parseFloat(b.subtotal) || pendingListSubtotalFromItems(items),
+        doctor_id: (b && b.doctor_id) ? b.doctor_id : null,
+        _hydratedFromBill: true
+    };
+}
+
+/**
+ * Keep unpaid / partial bills in the Step 1 editor.
+ * Partial: item rows stay visible and locked.
+ * After every payment is voided: same rows stay, now editable.
+ */
+function ensureOpenBillsInPendingEditor(preferBillId) {
+    var cache = Array.isArray(billHistoryCache) ? billHistoryCache : [];
+    if (!pendingLists) pendingLists = [];
+
+    if (cache.length) {
+        var openById = {};
+        cache.forEach(function (b) {
+            if (billIsOpenForItemEditor(b)) openById[String(b.id)] = b;
+        });
+
+        pendingLists = pendingLists.filter(function (pl) {
+            if (!pl) return false;
+            if (!pl.bill_id) return true;
+            var bid = String(pl.bill_id);
+            var open = openById[bid];
+            if (open) return true;
+            var cached = null;
+            for (var i = 0; i < cache.length; i++) {
+                if (cache[i] && String(cache[i].id) === bid) {
+                    cached = cache[i];
+                    break;
+                }
+            }
+            if (cached) return false;
+            return !pl._hydratedFromBill;
+        });
+
+        pendingLists.forEach(function (pl) {
+            if (!pl || !pl.bill_id) return;
+            var b = openById[String(pl.bill_id)];
+            if (!b) return;
+            var paid = parseFloat(b.amount_paid) || 0;
+            var fromBill = pendingListItemsFromBill(b);
+            if (paid > 0.005) {
+                if (fromBill.length) {
+                    pl.items = fromBill;
+                    pl.subtotal = parseFloat(b.subtotal) || pendingListSubtotalFromItems(fromBill);
+                }
+                if (b.doctor_id) pl.doctor_id = b.doctor_id;
+            } else if ((!pl.items || !pl.items.length) && fromBill.length &&
+                    (pl._hydratedFromBill || !pl.id)) {
+                pl.items = fromBill;
+                pl.subtotal = parseFloat(b.subtotal) || pendingListSubtotalFromItems(fromBill);
+            }
+        });
+
+        Object.keys(openById).forEach(function (id) {
+            var exists = pendingLists.some(function (pl) {
+                return pl && String(pl.bill_id) === String(id);
+            });
+            if (!exists) pendingLists.push(makePendingListFromOpenBill(openById[id]));
+        });
+
+        var seen = {};
+        var deduped = [];
+        pendingLists.forEach(function (pl) {
+            if (!pl) return;
+            if (!pl.bill_id) {
+                deduped.push(pl);
+                return;
+            }
+            var k = String(pl.bill_id);
+            if (!seen[k]) {
+                seen[k] = pl;
+                deduped.push(pl);
+                return;
+            }
+            var prev = seen[k];
+            if (!prev.id && pl.id) {
+                var idx = deduped.indexOf(prev);
+                if (idx >= 0) deduped[idx] = pl;
+                seen[k] = pl;
+            }
+        });
+        pendingLists = deduped;
+    }
+
+    if (preferBillId) {
+        var hit = pendingLists.findIndex(function (pl) {
+            return pl && String(pl.bill_id) === String(preferBillId);
+        });
+        if (hit >= 0) pendingIdx = hit;
+    }
+    if (!pendingLists.length) {
+        pendingIdx = -1;
+    } else if (pendingIdx < 0 || pendingIdx >= pendingLists.length) {
+        pendingIdx = 0;
+    }
+}
+
 function isCurrentPendingListLocked() {
     var pl = (pendingIdx >= 0 && pendingIdx < pendingLists.length) ? pendingLists[pendingIdx] : null;
     if (!pl || !pl.bill_id) return false;
@@ -19110,6 +19276,7 @@ function isPendingListDirty(pl) {
 
 function syncPendingDraftFromInputs() {
     if (!pendingLists.length || pendingIdx < 0 || pendingIdx >= pendingLists.length) return;
+    if (isCurrentPendingListLocked()) return;
     var pl = pendingLists[pendingIdx];
     if (!pl) return;
     var labelEl = g('pendingListLabel');
@@ -19277,10 +19444,12 @@ function normalizeBillItem(it) {
     var price = raw.price;
     if (price == null || price === '') price = raw.unit_price;
     if (price == null || price === '') price = raw.amount;
+    var priceNum = parseFloat(price);
+    if (!isFinite(priceNum)) priceNum = 0;
     return {
         desc: desc,
         qty: raw.qty || 1,
-        price: price || 0,
+        price: priceNum,
         disc: roundBillDiscPct(raw.disc || 0),
         others_remark: othersRemark,
         tooth_no: toothNo
@@ -19393,7 +19562,7 @@ function renderBillItems() {
             '</td>' +
             '<td>' +
                 '<input type="number" id="bprice-' + i + '" ' +
-                'value="' + item.price + '" min="0" step="0.01" ' +
+                'value="' + item.price + '" step="0.01" ' +
                 'style="width:100%;padding:5px 7px;border:1px solid #ddd;' +
                 'border-radius:4px;font-size:13px;box-sizing:border-box;">' +
             '</td>' +
@@ -19748,7 +19917,17 @@ function saveBill(doPrint) {
             });
         };
 
-        removePaidPendingList(paidPendingId, afterPendingRemoved);
+        // Keep the pending list (and its item rows) for unpaid / partial bills.
+        // Only drop it once the bill is fully settled.
+        if (paid > 0.005 && bal <= 0.005) {
+            removePaidPendingList(paidPendingId, afterPendingRemoved);
+        } else if (savedBillId && linkedPl) {
+            persistPendingListBillIdRow(linkedPl, savedBillId, function () {
+                afterPendingRemoved();
+            });
+        } else {
+            afterPendingRemoved();
+        }
     };
 
     persistBillRecord(payload, existingBillId, function(err, saved) {
@@ -20113,8 +20292,12 @@ function billBillDateIso(b) {
 function billEligibleForPatientHistory(b) {
     if (!b || !b.id) return false;
     if (billRecordIsVoid(b)) return true;
+    var items = parseBillItemsField(b.items);
+    if (items && items.some(function (it) {
+        return it && (String(it.desc || '').trim() || (parseFloat(it.price) || 0) !== 0);
+    })) return true;
     var total = parseFloat(b.total) || 0;
-    if (total > 0.005) return true;
+    if (Math.abs(total) > 0.005) return true;
     return billHistoryDisplayPaid(b) > 0.005;
 }
 
@@ -21519,6 +21702,10 @@ function showBillDetail(b) {
     // Load payment history
     loadBillPayments(b.id);
 
+    if (billIsOpenForItemEditor(b)) {
+        renderStep1UI({ focusBillId: b.id });
+    }
+
     openModal('billDetailModal');
 }
 
@@ -21588,6 +21775,30 @@ function stripBillPaymentClinicColsByError(src, errMsg) {
         touched = true;
     }
     return { payload: out, changed: touched };
+}
+
+function recordZeroBalanceSettlementPayment(bill, cb) {
+    if (!bill || !bill.id) {
+        if (cb) cb();
+        return;
+    }
+    var payRecord = {
+        bill_id:     bill.id,
+        paid_date:   bill.bill_date || (typeof todayISO === 'function' ? todayISO() : null),
+        amount:      0,
+        method:      bill.bill_type || (typeof billPendingPayTypeValue === 'function' ? billPendingPayTypeValue() : 'Pending'),
+        notes:       (typeof billUserNotesText === 'function' ? billUserNotesText(bill.notes) : null) || null,
+        received_by: (typeof currentName !== 'undefined' ? currentName : null)
+    };
+    if (typeof billPaymentClinicContext === 'function') {
+        var clinicCtx = billPaymentClinicContext();
+        payRecord.clinic_id = clinicCtx.clinic_id;
+        payRecord.clinic_tag = clinicCtx.clinic_tag;
+        payRecord.clinic_code = clinicCtx.clinic_code;
+    }
+    insertBillPaymentRecord(payRecord, function () {
+        if (cb) cb();
+    });
 }
 
 function insertBillPaymentRecord(payRecord, cb) {
@@ -22038,11 +22249,6 @@ function executeAddPaymentSave(ctx) {
                 });
             }
 
-            // Immediately re-render Step 1 — bdCurrentBill is now the freshest
-            // source for isCurrentPendingListLocked(), so the lock activates
-            // without waiting for the async loadBillHistory callback.
-            renderStep1UI();
-
             closeModal('addPaymentModal');
 
             // Refresh the detail view live (only if still open on this bill)
@@ -22065,17 +22271,29 @@ function executeAddPaymentSave(ctx) {
 
                 loadBillPayments(billId);
             }
-            loadBillHistory(function() {
-                // Re-render Step 1 immediately so the lock banner activates
-                // for partial payments without requiring a manual refresh.
-                renderStep1UI();
-            });
             try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
 
             if (newBalance <= 0.005) {
                 resetBillCreationAfterPayment(billId);
                 markAppointmentPaidIfNoOpenBills(linkedApptId, billId);
+                if (bdCurrentBill && String(bdCurrentBill.id) === String(billId) &&
+                        typeof showBillDetail === 'function') {
+                    showBillDetail(bdCurrentBill);
+                }
+            } else {
+                // Partial: keep item rows on the editor, locked, focused on this bill.
+                renderStep1UI({ focusBillId: billId });
             }
+            loadBillHistory(function() {
+                if (newBalance <= 0.005) {
+                    var latest = (billHistoryCache || []).find(function (b) {
+                        return b && String(b.id) === String(billId);
+                    });
+                    if (latest && typeof showBillDetail === 'function') showBillDetail(latest);
+                    return;
+                }
+                renderStep1UI({ focusBillId: billId });
+            });
         });
     });
 }
@@ -22085,7 +22303,7 @@ function confirmAddPayment() {
     var amount = parseFloat(g('apAmount').value) || 0;
     var errEl  = g('apError');
 
-    if (amount <= 0) {
+    if (amount < 0) {
         if (errEl) { errEl.textContent = tr('bill.addPayment.errInvalidAmount'); errEl.style.display = ''; }
         return;
     }
@@ -22224,17 +22442,22 @@ function voidPaymentRecord(p) {
         }).eq('id', p.bill_id)
         .then(function(u) {
             if (u.error) return;
-                if (bdCurrentBill && bdCurrentBill.id === p.bill_id) {
-                    bdCurrentBill.amount_paid = newPaid;
-                    bdCurrentBill.balance     = newBalance;
-                    bdCurrentBill.status      = newStatus;
-                    bdCurrentBill.bill_type   = nextBillType;
+            if (typeof billHistoryCache !== 'undefined' && billHistoryCache && billHistoryCache.length) {
+                billHistoryCache.forEach(function (b) {
+                    if (!b || String(b.id) !== String(p.bill_id)) return;
+                    b.amount_paid = newPaid;
+                    b.balance = newBalance;
+                    b.status = newStatus;
+                    b.bill_type = nextBillType;
+                });
+            }
+            if (bdCurrentBill && String(bdCurrentBill.id) === String(p.bill_id)) {
+                bdCurrentBill.amount_paid = newPaid;
+                bdCurrentBill.balance     = newBalance;
+                bdCurrentBill.status      = newStatus;
+                bdCurrentBill.bill_type   = nextBillType;
 
-                    // Immediately re-render Step 1 so the lock clears/restores
-                    // without waiting for the async loadBillHistory callback.
-                    renderStep1UI();
-
-                    g('bdPaid').textContent    = fmtHK(newPaid);
+                g('bdPaid').textContent    = fmtHK(newPaid);
                 g('bdBalance').textContent = fmtHK(newBalance);
                 g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
                 refreshBillDetailPaymentMethod(nextBillType);
@@ -22249,13 +22472,14 @@ function voidPaymentRecord(p) {
                 if (addBtn)  addBtn.style.display = newBalance > 0 ? 'inline-block' : 'none';
 
                 loadBillPayments(p.bill_id);
-                loadBillHistory(function() {
-                    // Re-render Step 1 so the lock banner clears automatically
-                    // when the last payment is voided (amount_paid drops to 0).
-                    renderStep1UI();
-                });
-                try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
             }
+            // Unlock + restore editable item rows when the last payment is voided;
+            // keep rows locked while any installment remains.
+            renderStep1UI({ focusBillId: p.bill_id });
+            loadBillHistory(function() {
+                renderStep1UI({ focusBillId: p.bill_id });
+            });
+            try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
         });
     });
 }

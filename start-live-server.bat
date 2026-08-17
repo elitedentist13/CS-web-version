@@ -7,7 +7,7 @@ cd /d "%~dp0"
 echo.
 echo Starting live-server (auto-reload)...
 echo.
-echo     http://127.0.0.1:8123/index.html
+echo     http://127.0.0.1:5500/index.html
 echo.
 echo Press Ctrl+C to stop.
 echo.

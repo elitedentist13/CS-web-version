@@ -21949,12 +21949,12 @@ function billPaymentClinicContext() {
     if (!clinicId && typeof currentClinicId !== 'undefined' && currentClinicId) {
         clinicId = String(currentClinicId).trim();
     }
-    if (typeof currentClinicCodeForTagging === 'function') {
-        clinicCode = String(currentClinicCodeForTagging() || '').trim();
-    }
-    if (!clinicCode && clinicId && typeof clinicRecordFromId === 'function') {
+    if (clinicId && typeof clinicRecordFromId === 'function') {
         var rec = clinicRecordFromId(clinicId);
         if (rec) clinicCode = String(rec.clinic_code || rec.id || '').trim();
+    }
+    if (!clinicCode && typeof currentClinicCodeForTagging === 'function') {
+        clinicCode = String(currentClinicCodeForTagging() || '').trim();
     }
     return {
         clinic_id: clinicId || null,

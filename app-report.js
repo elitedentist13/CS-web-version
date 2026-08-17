@@ -301,17 +301,33 @@ var REPORT = (function () {
     return fetchBillsByIds(billIds);
   }
 
+  function dropMissingSelectColumn(selectCols, errMsg) {
+    var m = String(errMsg || '');
+    var col = '';
+    var hit = m.match(/column\s+(?:[\w]+\.)?([a-z_]+)\s+does not exist/i);
+    if (hit) col = hit[1];
+    if (!col) {
+      var low = m.toLowerCase();
+      if (low.indexOf('clinic_code') >= 0) col = 'clinic_code';
+      else if (low.indexOf('clinic_tag') >= 0) col = 'clinic_tag';
+      else if (low.indexOf('clinic_id') >= 0) col = 'clinic_id';
+    }
+    if (!col) return null;
+    var next = selectCols.split(',').map(function (s) { return s.trim(); }).filter(function (s) {
+      return s && s !== col;
+    }).join(',');
+    return next && next !== selectCols ? next : null;
+  }
+
   async function loadBillPaymentsByPaidDate(from, to) {
-    var selectFull = 'id,bill_id,paid_date,amount,method,notes,received_by,clinic_id,clinic_tag,clinic_code,voided_at,created_at';
-    var selectNoClinic = 'id,bill_id,paid_date,amount,method,notes,received_by,voided_at,created_at';
+    var selectCols = 'id,bill_id,paid_date,amount,method,notes,received_by,clinic_id,clinic_tag,clinic_code,voided_at,created_at';
     var PAGE = 1000;
-    var useNoClinic = false;
     var out = [];
     var offset = 0;
 
     while (true) {
       var res = await SB.from('bill_payments')
-        .select(useNoClinic ? selectNoClinic : selectFull)
+        .select(selectCols)
         .gte('paid_date', from)
         .lte('paid_date', to)
         .order('paid_date', { ascending: true })
@@ -319,9 +335,9 @@ var REPORT = (function () {
         .range(offset, offset + PAGE - 1);
 
       if (res.error) {
-        var m = String(res.error.message || '').toLowerCase();
-        if (!useNoClinic && (m.indexOf('clinic_id') >= 0 || m.indexOf('clinic_tag') >= 0 || m.indexOf('clinic_code') >= 0)) {
-          useNoClinic = true;
+        var nextSelect = dropMissingSelectColumn(selectCols, res.error.message || '');
+        if (nextSelect) {
+          selectCols = nextSelect;
           offset = 0;
           out = [];
           continue;
@@ -784,7 +800,13 @@ var REPORT = (function () {
       seen[d] = true;
       dates.push(d);
     }
-    if (payment && payment.paid_date) add(payment.paid_date);
+    // Installments belong to the day they were received — do not also
+    // pull the original bill's appointment date (that double-counts later
+    // payments onto the first clinic).
+    if (payment && payment.paid_date) {
+      add(payment.paid_date);
+      return dates;
+    }
     if (bill && bill.bill_date) add(bill.bill_date);
     return dates;
   }
@@ -929,7 +951,8 @@ var REPORT = (function () {
         matches.push(a);
       }
       if (bill && bill.appointment_id && byId[bill.appointment_id]) {
-        push(byId[bill.appointment_id]);
+        var linked = byId[bill.appointment_id];
+        if (!day || appointmentDayKey(linked) === day) push(linked);
       }
       if (bill && bill.patient_id) {
         push(byPatientDate[day + '|' + bill.patient_id]);
@@ -965,19 +988,6 @@ var REPORT = (function () {
           return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
         });
         return doctorMatched[0];
-      }
-
-      if (reportTag) {
-        var tagged = candidates.filter(function (a) {
-          return clinicCodesMatch(appointmentRowClinicCode(a, af), reportTag);
-        });
-        if (tagged.length === 1) return tagged[0];
-        if (tagged.length > 1) {
-          tagged.sort(function (a, b) {
-            return dailySummaryApptTimeToMin(a.start_time) - dailySummaryApptTimeToMin(b.start_time);
-          });
-          return tagged[0];
-        }
       }
 
       candidates.sort(function (a, b) {
@@ -1057,22 +1067,32 @@ var REPORT = (function () {
   }
 
   /**
+   * Clinic that received this installment. Each payment is independent of the
+   * original bill's clinic / appointment.
+   */
+  function paymentReceivingClinicCode(payment) {
+    if (!payment || payment._synthetic) return '';
+    return clinicCodeFromStoredTag(
+      payment.clinic_tag || payment.clinic_code || payment.clinic_id || ''
+    );
+  }
+
+  /**
    * Resolve which clinic a bill/payment belongs to for reporting.
-   * Appointment (visit site) is first — bills/payments often carry the staff
-   * working-clinic tag (e.g. KT) even when the visit was at TKO.
-   * Priority: appointment → bill → payment → patient home clinic.
+   * Installments use the clinic tagged when the payment was received.
+   * Untagged / synthetic rows fall back: same-day appointment → bill → patient.
    */
   function resolveTransactionClinicCode(bill, payment, patientClinicMap, appointmentResolver) {
     patientClinicMap = patientClinicMap || {};
+    var payTag = paymentReceivingClinicCode(payment);
+    if (payTag) return payTag;
     var apptCode = '';
     if (appointmentResolver && typeof appointmentResolver.clinicForBill === 'function') {
       apptCode = appointmentResolver.clinicForBill(bill, payment);
     }
     if (apptCode) return apptCode;
-    var billTag = clinicCodeFromStoredTag(bill && (bill.clinic_tag || bill.clinic_code));
+    var billTag = clinicCodeFromStoredTag(bill && (bill.clinic_tag || bill.clinic_code || bill.clinic_id));
     if (billTag) return billTag;
-    var payTag = clinicCodeFromStoredTag(payment && (payment.clinic_tag || payment.clinic_code));
-    if (payTag) return payTag;
     if (bill && bill.patient_id && patientClinicMap[bill.patient_id] !== undefined) {
       var patientTag = clinicCodeFromStoredTag(patientClinicMap[bill.patient_id]);
       if (patientTag) return patientTag;
@@ -1271,6 +1291,24 @@ var REPORT = (function () {
       map[k] = (map[k] || 0) + Number(s.amount || 0);
     });
     return Object.keys(map).sort().map(function (k) { return { key: k, value: map[k] }; });
+  }
+
+  /** One report row per bill + receiving clinic so later installments stay independent. */
+  function groupPaymentSlicesByBillAndClinic(slices) {
+    var map = {};
+    var order = [];
+    (slices || []).forEach(function (s) {
+      var bid = s && s.bill && s.bill.id ? String(s.bill.id) : '';
+      if (!bid) return;
+      var clinic = clinicCanonicalKey(s.clinic_code) || '';
+      var gk = bid + '|' + clinic;
+      if (!map[gk]) {
+        map[gk] = { billId: bid, clinic: clinic, bill: s.bill, payments: [] };
+        order.push(gk);
+      }
+      map[gk].payments.push(s.payment);
+    });
+    return { map: map, order: order };
   }
 
   // Human-readable clinic name for a stored clinic code/tag (falls back to the code).
@@ -5288,8 +5326,12 @@ var REPORT = (function () {
       if (!groups[d]) { groups[d] = {}; order.push(d); }
       var bid = s.bill && s.bill.id;
       if (!bid) return;
-      if (!groups[d][bid]) groups[d][bid] = [];
-      groups[d][bid].push(s.payment);
+      var clinic = clinicCanonicalKey(s.clinic_code) || '';
+      var gk = bid + '|' + clinic;
+      if (!groups[d][gk]) {
+        groups[d][gk] = { billId: bid, clinic: clinic, payments: [] };
+      }
+      groups[d][gk].payments.push(s.payment);
     });
     order.sort();
 
@@ -5319,11 +5361,13 @@ var REPORT = (function () {
     var monthAllTx = [];
     var dayCards = order.map(function (d) {
       var billGroups = groups[d] || {};
-      var billIdsThisDay = Object.keys(billGroups);
-      var rows = billIdsThisDay.map(function (bid) {
+      var groupKeysThisDay = Object.keys(billGroups);
+      var rows = groupKeysThisDay.map(function (gk) {
+        var grp = billGroups[gk] || {};
+        var bid = grp.billId;
         var b = monthBillMap[bid] || {};
         var p = pmapM[b.patient_id] || {};
-        var payRows = billGroups[bid] || [];
+        var payRows = grp.payments || [];
         var paidAmount = payRows.reduce(function (s, x) { return s + Number(x.amount || 0); }, 0);
         var allocs = reducePaymentAllocations(payRows);
         var ref = String(b.id || '').trim();
@@ -5331,7 +5375,7 @@ var REPORT = (function () {
           var ct = String(b.created_at || '').replace(/\D/g, '');
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
-        var clinicTag = dailySummaryClinicTagForBill(b, p, payRows[0] || null, patientClinicMapM, appointmentResolverM);
+        var clinicTag = grp.clinic || dailySummaryClinicTagForBill(b, p, payRows[0] || null, patientClinicMapM, appointmentResolverM);
         var includeBillMeta = !seenBillMeta[bid];
         seenBillMeta[bid] = true;
         var txRow = buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
@@ -5413,19 +5457,17 @@ var REPORT = (function () {
       var daySlices = await loadReportPaymentSlices(day, day);
       if (refreshSeq !== _refreshSeq) return;
 
-      var groupedByBill = {};
+      var grouped = groupPaymentSlicesByBillAndClinic(daySlices);
       var paidBillMap = {};
-      daySlices.forEach(function (s) {
-        var bid = s.bill && s.bill.id;
-        if (!bid) return;
-        paidBillMap[bid] = s.bill;
-        if (!groupedByBill[bid]) groupedByBill[bid] = [];
-        groupedByBill[bid].push(s.payment);
+      grouped.order.forEach(function (gk) {
+        var grp0 = grouped.map[gk];
+        if (grp0 && grp0.billId) paidBillMap[grp0.billId] = grp0.bill;
       });
 
-      var txBillIds = Object.keys(groupedByBill);
-      var patientIds = txBillIds.map(function (bid) {
-        return paidBillMap[bid] ? paidBillMap[bid].patient_id : '';
+      var txGroupKeys = grouped.order;
+      var patientIds = txGroupKeys.map(function (gk) {
+        var grp1 = grouped.map[gk];
+        return grp1 && grp1.bill ? grp1.bill.patient_id : '';
       }).filter(Boolean);
       // loadPatientsByIds and loadBillsLite are independent — run in parallel.
       // loadBillsLiteDedupe reuses the Promise already fired inside loadReportPaymentSlices.
@@ -5455,10 +5497,11 @@ var REPORT = (function () {
       var appointmentResolver = _dsPar2[1];
       var patientClinicMap = patientClinicMapFromPmap(pmap);
 
-      var tx = txBillIds.map(function (bid) {
-        var b = paidBillMap[bid] || {};
+      var tx = txGroupKeys.map(function (gk) {
+        var grp = grouped.map[gk] || {};
+        var b = grp.bill || paidBillMap[grp.billId] || {};
         var p = pmap[b.patient_id] || {};
-        var rows = groupedByBill[bid] || [];
+        var rows = grp.payments || [];
         var paidAmount = rows.reduce(function (s, x) { return s + Number(x.amount || 0); }, 0);
         var allocs = reducePaymentAllocations(rows);
         var ref = String(b.id || '').trim();
@@ -5466,7 +5509,7 @@ var REPORT = (function () {
           var ct = String(b.created_at || '').replace(/\D/g, '');
           ref = ct ? ('TX-' + ct.slice(-10)) : 'N/A';
         }
-        var clinicTag = dailySummaryClinicTagForBill(b, p, rows[0] || null, patientClinicMap, appointmentResolver);
+        var clinicTag = grp.clinic || dailySummaryClinicTagForBill(b, p, rows[0] || null, patientClinicMap, appointmentResolver);
         return buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
           bill_ref: ref,
           bill_date: day,

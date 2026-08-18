@@ -1,0 +1,818 @@
+﻿# tools/xray-local-launcher.ps1
+# Joyful Smile / Banana Clinic Manager — local desktop bridge for X-ray systems.
+#
+# Runs on each clinic PC (started by "Start X-Ray Launcher.bat"). Listens on
+# 127.0.0.1:17890 and lets the browser app open Carestream / Ai-Dental /
+# NNT-NEWTOM with the active patient's demographics pre-filled, without the
+# browser ever touching the local filesystem or spawning processes directly.
+#
+# This is a versioned copy of the script deployed at C:\NNT\xray-local-launcher.ps1
+# on clinic PCs. Deploy by copying this file (and "Start X-Ray Launcher.bat")
+# to the clinic PC's launcher folder.
+#
+# Self-test (no listener started, nothing launched, nothing outside $env:TEMP
+# touched): 
+#     powershell -NoProfile -ExecutionPolicy Bypass -File tools\xray-local-launcher.ps1 -SelfTest
+#
+param(
+    [switch]$SelfTest,
+    # Self-test is side-effect-free by default. On a PC where NNT is actually
+    # installed, Handle-Request's real /open/nntnewtom path (deliberately
+    # shared with the live server, for genuine coverage) WILL launch the real
+    # NNTBridge.exe / NNT.exe. Pass this switch only when you want that real,
+    # visible launch as part of the check.
+    [switch]$IncludeLiveLaunch,
+    [int]$Port = 0
+)
+
+$ErrorActionPreference = "Continue"
+
+if (-not $Port -or $Port -le 0) {
+    $Port = if ($env:XRAY_LAUNCHER_PORT) { [int]$env:XRAY_LAUNCHER_PORT } else { 17890 }
+}
+$PublicDesktop = Join-Path ($env:PUBLIC -replace '/','\') "Desktop"
+$UserDesktop = [Environment]::GetFolderPath("Desktop")
+
+function Test-PathSafe($Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    try { return Test-Path -LiteralPath $Path } catch { return $false }
+}
+
+function First-Existing($Paths) {
+    foreach ($p in $Paths) {
+        if (Test-PathSafe $p) { return $p }
+    }
+    return ""
+}
+
+function Resolve-Shortcut($ShortcutPath) {
+    if (-not (Test-PathSafe $ShortcutPath)) { return $null }
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $lnk = $shell.CreateShortcut($ShortcutPath)
+        return [ordered]@{
+            shortcut = $ShortcutPath
+            target = $lnk.TargetPath
+            arguments = $lnk.Arguments
+            workingDirectory = $lnk.WorkingDirectory
+        }
+    } catch {
+        return $null
+    }
+}
+
+$Systems = @{
+    carestream = @{
+        shortcuts = @(
+            (Join-Path $PublicDesktop "CS Imaging Software.lnk"),
+            (Join-Path $UserDesktop "CS Imaging Software.lnk")
+        )
+        executables = @(
+            "C:\Program Files (x86)\Carestream\Patient Browser\Patient.exe",
+            "C:\Program Files\Carestream\Patient Browser\Patient.exe"
+        )
+    }
+    aidental = @{
+        shortcuts = @(
+            (Join-Path $PublicDesktop "Ai-Dental-Client.lnk"),
+            (Join-Path $UserDesktop "Ai-Dental-Client.lnk")
+        )
+        executables = @(
+            "C:\Ai-Dental\Ai-Dental-Client\Ai-Dental.exe",
+            "C:\Program Files\Ai-Dental\Ai-Dental.exe",
+            "C:\Program Files (x86)\Ai-Dental\Ai-Dental.exe"
+        )
+    }
+    nntnewtom = @{
+        shortcuts = @(
+            (Join-Path $PublicDesktop "NNT.lnk"),
+            (Join-Path $UserDesktop "NNT.lnk"),
+            (Join-Path $PublicDesktop "NEWTOM.lnk"),
+            (Join-Path $UserDesktop "NEWTOM.lnk"),
+            (Join-Path $PublicDesktop "NewTom.lnk"),
+            (Join-Path $UserDesktop "NewTom.lnk"),
+            (Join-Path $PublicDesktop "NNT Viewer.lnk"),
+            (Join-Path $UserDesktop "NNT Viewer.lnk")
+        )
+        executables = @(
+            "C:\NNT\NNT.exe",
+            "C:\Program Files\NNT\NNT.exe",
+            "C:\Program Files (x86)\NNT\NNT.exe",
+            "C:\Program Files\NewTom\NNT\NNT.exe",
+            "C:\Program Files (x86)\NewTom\NNT\NNT.exe",
+            "C:\Program Files\QR\NNT\NNT.exe",
+            "C:\Program Files (x86)\QR\NNT\NNT.exe",
+            "C:\Program Files\CEFLA\NNT\NNT.exe",
+            "C:\Program Files (x86)\CEFLA\NNT\NNT.exe"
+        )
+    }
+}
+
+function Resolve-System($Key, $PreferredExecutable) {
+    $cfg = $Systems[$Key]
+    if (-not $cfg) { return $null }
+
+    $preferred = ""
+    if (Test-PathSafe $PreferredExecutable) { $preferred = $PreferredExecutable }
+    $shortcut = First-Existing $cfg.shortcuts
+    $shortcutInfo = Resolve-Shortcut $shortcut
+    $exe = First-Existing $cfg.executables
+    $target = if ($preferred) { $preferred } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { $shortcutInfo.target } elseif ($exe) { $exe } else { $shortcut }
+    $type = if ($preferred) { "configured" } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { "shortcut-target" } elseif ($exe) { "executable" } elseif ($shortcut) { "shortcut" } else { "" }
+    $arguments = if ($shortcutInfo) { $shortcutInfo.arguments } else { "" }
+    $workingDirectory = if ($shortcutInfo -and $shortcutInfo.workingDirectory) { $shortcutInfo.workingDirectory } elseif ($target) { Split-Path -Parent $target } else { "" }
+
+    return [ordered]@{
+        key = $Key
+        exists = [bool]$target
+        target = $target
+        type = $type
+        arguments = $arguments
+        workingDirectory = $workingDirectory
+        shortcut = $shortcut
+    }
+}
+
+function UrlDecode($Value) {
+    if ($null -eq $Value) { return "" }
+    return [Uri]::UnescapeDataString(($Value -replace '\+', ' '))
+}
+
+function Parse-Query($RawPath) {
+    $out = @{}
+    $idx = $RawPath.IndexOf("?")
+    if ($idx -lt 0) { return $out }
+    $query = $RawPath.Substring($idx + 1)
+    foreach ($part in ($query -split "&")) {
+        if (-not $part) { continue }
+        $kv = $part -split "=", 2
+        $k = UrlDecode $kv[0]
+        $v = if ($kv.Count -gt 1) { UrlDecode $kv[1] } else { "" }
+        $out[$k] = $v
+    }
+    return $out
+}
+
+function Status-Payload {
+    $carestream = Resolve-System "carestream" ""
+    $aidental = Resolve-System "aidental" ""
+    $nntnewtom = Resolve-System "nntnewtom" ""
+    return [ordered]@{
+        ok = $true
+        carestream_exists = [bool]$carestream.exists
+        aidental_exists = [bool]$aidental.exists
+        nntnewtom_exists = [bool]$nntnewtom.exists
+        systems = [ordered]@{
+            carestream = $carestream
+            aidental = $aidental
+            nntnewtom = $nntnewtom
+        }
+    }
+}
+
+function Get-HttpStatusText($StatusCode) {
+    switch ([int]$StatusCode) {
+        200 { "OK" }
+        204 { "No Content" }
+        400 { "Bad Request" }
+        404 { "Not Found" }
+        default { "Error" }
+    }
+}
+
+function Send-Http($Client, $StatusCode, $ContentType, $Bytes) {
+    if ($null -eq $Bytes) { $Bytes = [byte[]]@() }
+    $statusText = Get-HttpStatusText $StatusCode
+    $headers = @(
+        "HTTP/1.1 $StatusCode $statusText",
+        "Content-Type: $ContentType",
+        "Access-Control-Allow-Origin: *",
+        "Access-Control-Allow-Methods: GET, OPTIONS",
+        "Access-Control-Allow-Headers: Content-Type",
+        "Access-Control-Allow-Private-Network: true",
+        "Cache-Control: no-store",
+        "Content-Length: $($Bytes.Length)",
+        "Connection: close",
+        "",
+        ""
+    ) -join "`r`n"
+    $stream = $Client.GetStream()
+    $headerBytes = [Text.Encoding]::ASCII.GetBytes($headers)
+    $stream.Write($headerBytes, 0, $headerBytes.Length)
+    if ($Bytes.Length -gt 0) { $stream.Write($Bytes, 0, $Bytes.Length) }
+}
+
+function Send-Json($Client, $StatusCode, $Body) {
+    $json = if ($null -eq $Body) { "" } else { $Body | ConvertTo-Json -Depth 8 -Compress }
+    $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+    Send-Http $Client $StatusCode "application/json; charset=utf-8" $bytes
+}
+
+function Send-Bytes($Client, $StatusCode, $ContentType, $Bytes) {
+    Send-Http $Client $StatusCode $ContentType $Bytes
+}
+
+function Start-ResolvedProgram($Resolved) {
+    if (-not $Resolved -or -not $Resolved.target) {
+        throw "No target to launch."
+    }
+    $args = @{
+        FilePath = $Resolved.target
+    }
+    if ($Resolved.workingDirectory -and (Test-PathSafe $Resolved.workingDirectory)) {
+        $args.WorkingDirectory = $Resolved.workingDirectory
+    }
+    if ($Resolved.arguments) {
+        $args.ArgumentList = $Resolved.arguments
+    }
+    Start-Process @args
+}
+
+function Resolve-NntBridge($Resolved) {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($Resolved -and $Resolved.workingDirectory) {
+        $candidates.Add((Join-Path $Resolved.workingDirectory "NNTBridge.exe"))
+    }
+    if ($Resolved -and $Resolved.target) {
+        $targetDir = Split-Path -Parent $Resolved.target
+        if ($targetDir) { $candidates.Add((Join-Path $targetDir "NNTBridge.exe")) }
+    }
+    $candidates.Add("C:\NNT\NNTBridge.exe")
+    $candidates.Add("C:\Program Files\NNT\NNTBridge.exe")
+    $candidates.Add("C:\Program Files (x86)\NNT\NNTBridge.exe")
+    return First-Existing $candidates
+}
+
+function Quote-ProcessArg($Value) {
+    $s = [string]$Value
+    if ($s -match '[\s"]') {
+        return '"' + ($s -replace '"', '\"') + '"'
+    }
+    return $s
+}
+
+# Banana's <input type="date"> always yields yyyy-MM-dd; the other formats
+# are kept as a safety net for hand-typed or legacy-imported values.
+function Convert-NntBirthDate($Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy")
+    foreach ($fmt in $formats) {
+        try {
+            $dt = [DateTime]::ParseExact($Value, $fmt, [Globalization.CultureInfo]::InvariantCulture)
+            return $dt.ToString("dd/MM/yyyy")
+        } catch {}
+    }
+    try {
+        $dt = [DateTime]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture)
+        return $dt.ToString("dd/MM/yyyy")
+    } catch {
+        return $Value
+    }
+}
+
+# Banana's <select id="sex"> only ever sends "M", "F", or "" — the extra
+# Male/Female matches are kept for any other caller of this bridge.
+function Convert-NntSex($Value) {
+    $s = ([string]$Value).Trim().ToUpperInvariant()
+    if ($s -match '^(M|MALE)$') { return "M" }
+    if ($s -match '^(F|FEMALE)$') { return "F" }
+    return ""
+}
+
+# Banana's patient_no can carry a clinic-configurable letter prefix (Program
+# Settings -> "patient_no_prefix", e.g. "PY002505"), but NNT's own chart
+# numbers are always bare digits -- confirmed against a real scanned record
+# on \\RECEPTION\IMAGE\SCAN\002505 that has no matching "PY002505" folder at
+# all. Without this, /PATID never matches an existing NNT patient for anyone
+# whose clinic uses a prefix, so NNT silently falls back to "new patient"
+# mode (info fills in fine, but no x-rays show, since NNT never found them).
+# Extract the first run of digits so /PATID matches regardless of prefix.
+function Convert-NntPatientId($Value) {
+    $s = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($s)) { return "" }
+    $m = [regex]::Match($s, '\d+')
+    if ($m.Success) { return $m.Value }
+    return $s.Trim()
+}
+
+# 2D JPEG/PNG scans live on the reception share keyed by bare NNT chart
+# number (e.g. \\RECEPTION\IMAGE\SCAN\002505). Consultation-room PCs fetch
+# these into Banana without writing anything to Supabase. Volumetric / .pan_*
+# files stay inside NNT.exe — the browser cannot decode them.
+$script:NntScanRootsOverride = $null
+$script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
+
+function Get-NntScanRoots {
+    if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
+    return @(
+        "\\RECEPTION\IMAGE\SCAN",
+        "C:\Image\SCAN",
+        "C:\IMAGE\SCAN"
+    )
+}
+
+function Get-NntScanIdCandidates($PatientNo) {
+    $id = Convert-NntPatientId $PatientNo
+    $list = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($id)) { return $list }
+    $list.Add($id)
+    if ($id -match '^\d+$' -and $id.Length -lt 6) {
+        $padded = $id.PadLeft(6, '0')
+        if ($padded -ne $id) { $list.Add($padded) }
+    }
+    return $list
+}
+
+function Test-PathIsUnder($Child, $Parent) {
+    if ([string]::IsNullOrWhiteSpace($Child) -or [string]::IsNullOrWhiteSpace($Parent)) { return $false }
+    try {
+        $c = [IO.Path]::GetFullPath($Child)
+        $p = [IO.Path]::GetFullPath($Parent).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        return $c.StartsWith($p, [StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
+function Find-NntScanFolder($PatientNo) {
+    $roots = Get-NntScanRoots
+    foreach ($id in Get-NntScanIdCandidates $PatientNo) {
+        foreach ($root in $roots) {
+            if ([string]::IsNullOrWhiteSpace($root)) { continue }
+            $folder = Join-Path ([string]$root) ([string]$id)
+            if (Test-PathSafe $folder) { return $folder }
+        }
+    }
+    return ""
+}
+
+function Get-NntScanContentType($Extension) {
+    switch ($Extension.ToLowerInvariant()) {
+        ".jpg"  { "image/jpeg" }
+        ".jpeg" { "image/jpeg" }
+        ".png"  { "image/png" }
+        ".gif"  { "image/gif" }
+        ".bmp"  { "image/bmp" }
+        default { "application/octet-stream" }
+    }
+}
+
+function Get-NntScanFiles($PatientNo) {
+    $folder = Find-NntScanFolder $PatientNo
+    $patId = Convert-NntPatientId $PatientNo
+    if (-not $folder) {
+        return @{
+            ok = $true
+            found = $false
+            nnt_patid = "$patId"
+            folder = ""
+            files = @()
+        }
+    }
+    $files = New-Object System.Collections.Generic.List[object]
+    Get-ChildItem -LiteralPath $folder -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $ext = $_.Extension
+        if ($script:NntScanImageExts -notcontains $ext.ToLowerInvariant()) { return }
+        $files.Add([pscustomobject]@{
+            name = $_.Name
+            size = [int64]$_.Length
+            taken = $_.LastWriteTime.ToString("yyyy-MM-ddTHH:mm:ss")
+            content_type = [string](Get-NntScanContentType $ext)
+        })
+    }
+    return @{
+        ok = $true
+        found = $true
+        nnt_patid = "$patId"
+        folder = "$folder"
+        files = @($files.ToArray())
+    }
+}
+
+function Get-NntScanFileBytes($PatientNo, $Name) {
+    $name = [string]$Name
+    if ([string]::IsNullOrWhiteSpace($name) -or $name -match '[\\/]' -or $name.Contains("..")) {
+        return $null
+    }
+    $folder = Find-NntScanFolder $PatientNo
+    if (-not $folder) { return $null }
+    $full = Join-Path $folder $name
+    if (-not (Test-PathSafe $full)) { return $null }
+    if (-not (Test-PathIsUnder $full $folder)) { return $null }
+    $ext = [IO.Path]::GetExtension($full)
+    if ($script:NntScanImageExts -notcontains $ext.ToLowerInvariant()) { return $null }
+    try {
+        return [ordered]@{
+            bytes = [IO.File]::ReadAllBytes($full)
+            content_type = Get-NntScanContentType $ext
+            name = [IO.Path]::GetFileName($full)
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Build-PatientContext($Query) {
+    return [ordered]@{
+        patient_id = $Query["patient_id"]
+        patient_no = $Query["patient_no"]
+        patient_name = $Query["patient_name"]
+        chinese_name = $Query["chinese_name"]
+        dob = $Query["dob"]
+        sex = $Query["sex"]
+        phone = $Query["phone"]
+        mobile_phone = $Query["mobile_phone"]
+        hkid = $Query["hkid"]
+        email = $Query["email"]
+        address = $Query["address"]
+        medical_alerts = $Query["medical_alerts"]
+        folder_path = $Query["folder_path"]
+    }
+}
+
+function Patient-ContextText($Patient) {
+    $lines = New-Object System.Collections.Generic.List[string]
+    if ($Patient.patient_no) { $lines.Add("Patient No: $($Patient.patient_no)") }
+    if ($Patient.patient_id) { $lines.Add("Patient ID: $($Patient.patient_id)") }
+    if ($Patient.patient_name) { $lines.Add("Name: $($Patient.patient_name)") }
+    if ($Patient.chinese_name) { $lines.Add("Chinese Name: $($Patient.chinese_name)") }
+    if ($Patient.dob) { $lines.Add("DOB: $($Patient.dob)") }
+    if ($Patient.sex) { $lines.Add("Sex: $($Patient.sex)") }
+    if ($Patient.phone) { $lines.Add("Phone: $($Patient.phone)") }
+    if ($Patient.mobile_phone) { $lines.Add("Mobile: $($Patient.mobile_phone)") }
+    if ($Patient.hkid) { $lines.Add("HKID: $($Patient.hkid)") }
+    if ($Patient.email) { $lines.Add("Email: $($Patient.email)") }
+    if ($Patient.address) { $lines.Add("Address: $($Patient.address)") }
+    if ($Patient.medical_alerts) { $lines.Add("Alerts: $($Patient.medical_alerts)") }
+    if ($Patient.folder_path) { $lines.Add("X-Ray Folder: $($Patient.folder_path)") }
+    return ($lines -join [Environment]::NewLine)
+}
+
+function Save-PatientContext($Patient) {
+    $folder = $Patient.folder_path
+    if ([string]::IsNullOrWhiteSpace($folder)) {
+        return ""
+    }
+    try {
+        if (-not (Test-Path -LiteralPath $folder)) {
+            New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        }
+        $jsonPath = Join-Path $folder "nnt-patient-info.json"
+        $txtPath = Join-Path $folder "nnt-patient-info.txt"
+        ($Patient | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+        (Patient-ContextText $Patient) | Set-Content -LiteralPath $txtPath -Encoding UTF8
+        return $jsonPath
+    } catch {
+        return ""
+    }
+}
+
+function Copy-PatientContextToClipboard($Patient) {
+    try {
+        $text = Patient-ContextText $Patient
+        if ($text) { Set-Clipboard -Value $text }
+    } catch {}
+}
+
+# For nntnewtom: prefer NNTBridge.exe (CEFLA's PMS-integration tool) over a
+# plain shortcut double-click, since it accepts patient demographics on the
+# command line and both searches-by-ID and offers a pre-filled new-patient
+# form when no match is found (single unified call — see tools/README.md).
+function Start-NntBridgePatient($Resolved, $Patient) {
+    $bridge = Resolve-NntBridge $Resolved
+    # Only patient_no goes through prefix-stripping (it's Banana's clinic-formatted
+    # chart number). The patient_id UUID fallback is left as-is: it will never
+    # coincidentally match a real NNT record, which is the safe/intended behavior
+    # when patient_no is missing entirely.
+    $patId = if ($Patient.patient_no) { Convert-NntPatientId $Patient.patient_no } else { $Patient.patient_id }
+    if (-not $bridge -or [string]::IsNullOrWhiteSpace($patId)) {
+        return $null
+    }
+
+    $workDir = if ($Resolved.workingDirectory) { $Resolved.workingDirectory } else { Split-Path -Parent $bridge }
+    $appPath = if ($Resolved.target -and (Test-PathSafe $Resolved.target)) { $Resolved.target } else { Join-Path $workDir "NNT.exe" }
+
+    $argList = New-Object System.Collections.Generic.List[string]
+    $argList.Add("/PATID")
+    $argList.Add((Quote-ProcessArg $patId))
+    if ($Patient.patient_name) {
+        $argList.Add("/NAME")
+        $argList.Add((Quote-ProcessArg $Patient.patient_name))
+    }
+    # Original NNTBridge_CmdLine evidence used /SURNAME for the Chinese name
+    # (e.g. /SURNAME "熊關明"). NNTBridge.exe documents it as "PAT LASTNAME".
+    if ($Patient.chinese_name) {
+        $argList.Add("/SURNAME")
+        $argList.Add((Quote-ProcessArg $Patient.chinese_name))
+    }
+    $dob = Convert-NntBirthDate $Patient.dob
+    if ($dob) {
+        $argList.Add("/DATEB")
+        $argList.Add((Quote-ProcessArg $dob))
+    }
+    $sex = Convert-NntSex $Patient.sex
+    if ($sex) {
+        $argList.Add("/SEX")
+        $argList.Add($sex)
+    }
+    if ($Patient.hkid) {
+        $argList.Add("/SSNM")
+        $argList.Add((Quote-ProcessArg $Patient.hkid))
+    }
+    if ($appPath -and (Test-PathSafe $appPath)) {
+        $argList.Add("/APPPATH")
+        $argList.Add((Quote-ProcessArg $appPath))
+    }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $argList.Add("/WORKDIR")
+        $argList.Add((Quote-ProcessArg $workDir))
+    }
+    $argList.Add("/OPENPATIENT")
+
+    $startArgs = @{ FilePath = $bridge; ArgumentList = ($argList -join " ") }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $startArgs.WorkingDirectory = $workDir
+    }
+    Start-Process @startArgs
+    return [ordered]@{
+        bridge = $bridge
+        target = $appPath
+        workingDirectory = $workDir
+        patient_id = $patId
+        chinese_name = $Patient.chinese_name
+        mode = "nntbridge"
+        argList = ($argList -join " ")
+    }
+}
+
+function Handle-Request($RawPath) {
+    $pathOnly = ($RawPath -split "\?", 2)[0]
+    if ($pathOnly -eq "/status") {
+        return @{ status = 200; body = (Status-Payload) }
+    }
+    if ($pathOnly -eq "/nnt/scans") {
+        $query = Parse-Query $RawPath
+        $patientNo = $query["patient_no"]
+        if ([string]::IsNullOrWhiteSpace($patientNo)) {
+            return @{ status = 400; body = [ordered]@{ ok = $false; error = "patient_no is required." } }
+        }
+        return @{ status = 200; body = (Get-NntScanFiles $patientNo) }
+    }
+    if ($pathOnly -eq "/nnt/file") {
+        $query = Parse-Query $RawPath
+        $patientNo = $query["patient_no"]
+        $name = $query["name"]
+        if ([string]::IsNullOrWhiteSpace($patientNo) -or [string]::IsNullOrWhiteSpace($name)) {
+            return @{ status = 400; body = [ordered]@{ ok = $false; error = "patient_no and name are required." } }
+        }
+        $file = Get-NntScanFileBytes $patientNo $name
+        if (-not $file) {
+            return @{ status = 404; body = [ordered]@{ ok = $false; error = "Scan image not found." } }
+        }
+        return @{ status = 200; contentType = $file.content_type; bytes = $file.bytes }
+    }
+    if ($pathOnly -match "^/open/([^/]+)$") {
+        $key = (UrlDecode $Matches[1]).ToLowerInvariant()
+        $query = Parse-Query $RawPath
+        $resolved = Resolve-System $key $query["app_path"]
+        if (-not $resolved -or -not $resolved.exists) {
+            return @{ status = 404; body = [ordered]@{ ok = $false; error = "X-ray program shortcut/executable not found."; key = $key } }
+        }
+        $patientContext = Build-PatientContext $query
+        $patientInfoPath = Save-PatientContext $patientContext
+        Copy-PatientContextToClipboard $patientContext
+        $bridgeLaunch = $null
+        if ($key -eq "nntnewtom") {
+            $bridgeLaunch = Start-NntBridgePatient $resolved $patientContext
+        }
+        if (-not $bridgeLaunch) {
+            Start-ResolvedProgram $resolved
+        }
+        return @{
+            status = 200
+            body = [ordered]@{
+                ok = $true
+                key = $key
+                target = if ($bridgeLaunch) { $bridgeLaunch.target } else { $resolved.target }
+                type = $resolved.type
+                workingDirectory = $resolved.workingDirectory
+                bridge = $bridgeLaunch
+                patient_info_path = $patientInfoPath
+                patient_no = $query["patient_no"]
+                nnt_patid = if ($bridgeLaunch) { $bridgeLaunch.patient_id } else { Convert-NntPatientId $query["patient_no"] }
+                patient_name = $query["patient_name"]
+            }
+        }
+    }
+    return @{ status = 404; body = [ordered]@{ ok = $false; error = "Not found" } }
+}
+
+# ════════════════════════════════════════════════════════════════
+# SELF-TEST — exercises the functions above with no listener, no real
+# NNT/Carestream/Ai-Dental process, and no writes outside $env:TEMP.
+# ════════════════════════════════════════════════════════════════
+function Invoke-SelfTest {
+    # Script-scoped (not local) so Assert-Equal's $script: writes land in the
+    # same variables this function reads at the end — a plain local $passed
+    # here would silently desync from $script:passed and could even mask
+    # real failures in the final verdict.
+    $script:passed = 0
+    $script:failures = New-Object System.Collections.Generic.List[string]
+
+    function Assert-Equal($Label, $Expected, $Actual) {
+        if ("$Expected" -eq "$Actual") {
+            $script:passed++
+            Write-Host "  [PASS] $Label" -ForegroundColor Green
+        } else {
+            $script:failures.Add("$Label -- expected [$Expected] got [$Actual]")
+            Write-Host "  [FAIL] $Label -- expected [$Expected] got [$Actual]" -ForegroundColor Red
+        }
+    }
+
+    Write-Host "== Convert-NntBirthDate (Banana sends yyyy-MM-dd from <input type=date>) ==" -ForegroundColor Cyan
+    Assert-Equal "ISO date"            "23/05/1969" (Convert-NntBirthDate "1969-05-23")
+    Assert-Equal "ISO date, single digits" "05/01/2001" (Convert-NntBirthDate "2001-01-05")
+    Assert-Equal "Empty stays empty"   ""            (Convert-NntBirthDate "")
+    Assert-Equal "Null stays empty"    ""            (Convert-NntBirthDate $null)
+    Assert-Equal "Slash legacy format" "09/06/1958"  (Convert-NntBirthDate "1958/6/9")
+
+    Write-Host "== Convert-NntSex (Banana <select id=sex> only ever sends M / F / '') ==" -ForegroundColor Cyan
+    Assert-Equal "Male"          "M" (Convert-NntSex "M")
+    Assert-Equal "Female"        "F" (Convert-NntSex "F")
+    Assert-Equal "lowercase m"   "M" (Convert-NntSex "m")
+    Assert-Equal "word Male"     "M" (Convert-NntSex "Male")
+    Assert-Equal "Empty"         ""  (Convert-NntSex "")
+    Assert-Equal "Garbage value" ""  (Convert-NntSex "unknown")
+
+    Write-Host "== Convert-NntPatientId (strip clinic-configured patient_no_prefix for /PATID) ==" -ForegroundColor Cyan
+    Assert-Equal "Real case: PY-prefixed chart number" "002505" (Convert-NntPatientId "PY002505")
+    Assert-Equal "No prefix, digits only"              "002505" (Convert-NntPatientId "002505")
+    Assert-Equal "Multi-letter prefix"                 "013524" (Convert-NntPatientId "ABC013524")
+    Assert-Equal "Empty stays empty"                   ""       (Convert-NntPatientId "")
+    Assert-Equal "Null stays empty"                    ""       (Convert-NntPatientId $null)
+    Assert-Equal "No digits at all falls back to raw"  "NOPE"   (Convert-NntPatientId "NOPE")
+
+    Write-Host "== Get-NntScanIdCandidates (prefix strip + 6-digit pad) ==" -ForegroundColor Cyan
+    $c1 = Get-NntScanIdCandidates "PY002505"
+    Assert-Equal "PY002505 yields one id" "002505" ($c1 -join ",")
+    $c2 = Get-NntScanIdCandidates "PY2505"
+    Assert-Equal "Short digits also try 6-pad" "2505,002505" ($c2 -join ",")
+    $c3 = Get-NntScanIdCandidates ""
+    Assert-Equal "Empty patient_no yields no candidates" "0" ([string]$c3.Count)
+
+    Write-Host "== NNT SCAN folder list + file serve (temp tree only) ==" -ForegroundColor Cyan
+    $scanRoot = Join-Path $env:TEMP ("xray-nnt-scan-" + [Guid]::NewGuid().ToString("N"))
+    $scanFolder = Join-Path $scanRoot "002505"
+    $prevRoots = $script:NntScanRootsOverride
+    try {
+        New-Item -ItemType Directory -Path $scanFolder -Force | Out-Null
+        $jpgPath = Join-Path $scanFolder "002505_20260505112331.JPG"
+        [IO.File]::WriteAllBytes($jpgPath, [byte[]](0xFF, 0xD8, 0xFF, 0xD9))
+        $script:NntScanRootsOverride = @($scanRoot)
+        $listed = Get-NntScanFiles "PY002505"
+        Assert-Equal "SCAN folder found for PY-prefixed no" $true $listed.found
+        Assert-Equal "SCAN nnt_patid is bare digits" "002505" $listed.nnt_patid
+        Assert-Equal "SCAN lists the JPEG" "002505_20260505112331.JPG" $listed.files[0].name
+        $missing = Get-NntScanFiles "PY999999"
+        Assert-Equal "Unknown chart number is found=false" $false $missing.found
+        $scanResp = Handle-Request "/nnt/scans?patient_no=PY002505"
+        Assert-Equal "/nnt/scans returns 200" 200 $scanResp.status
+        Assert-Equal "/nnt/scans found=true" $true $scanResp.body.found
+        $badScan = Handle-Request "/nnt/scans"
+        Assert-Equal "/nnt/scans without patient_no is 400" 400 $badScan.status
+        $fileResp = Handle-Request "/nnt/file?patient_no=PY002505&name=002505_20260505112331.JPG"
+        Assert-Equal "/nnt/file returns 200" 200 $fileResp.status
+        Assert-Equal "/nnt/file is JPEG" "image/jpeg" $fileResp.contentType
+        Assert-Equal "/nnt/file has bytes" "4" ([string]$fileResp.bytes.Length)
+        $escapeResp = Handle-Request "/nnt/file?patient_no=PY002505&name=..%5CWindows%5Cwin.ini"
+        Assert-Equal "/nnt/file rejects path escape" 404 $escapeResp.status
+    } catch {
+        Assert-Equal "SCAN self-test threw" "no-throw" $_.Exception.Message
+    } finally {
+        $script:NntScanRootsOverride = $prevRoots
+        if (Test-Path -LiteralPath $scanRoot) { Remove-Item -LiteralPath $scanRoot -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    Write-Host "== Parse-Query / UrlDecode round-trip (Chinese name, spaces, symbols) ==" -ForegroundColor Cyan
+    $rawName = "HSIUNG KWAN MING"
+    $rawChinese = "熊關明"
+    $qs = "/open/nntnewtom?patient_no=" + [Uri]::EscapeDataString("001287") +
+          "&patient_name=" + [Uri]::EscapeDataString($rawName) +
+          "&chinese_name=" + [Uri]::EscapeDataString($rawChinese) +
+          "&dob=" + [Uri]::EscapeDataString("1969-05-23") +
+          "&sex=" + [Uri]::EscapeDataString("M") +
+          "&hkid=" + [Uri]::EscapeDataString("A123456(7)")
+    $parsed = Parse-Query $qs
+    Assert-Equal "patient_no round-trip"   "001287"     $parsed["patient_no"]
+    Assert-Equal "patient_name round-trip" $rawName     $parsed["patient_name"]
+    Assert-Equal "chinese_name round-trip" $rawChinese  $parsed["chinese_name"]
+    Assert-Equal "hkid with symbols"       "A123456(7)" $parsed["hkid"]
+
+    Write-Host "== Build-PatientContext + Patient-ContextText ==" -ForegroundColor Cyan
+    $ctx = Build-PatientContext $parsed
+    $text = Patient-ContextText $ctx
+    Assert-Equal "Context text has patient no" $true ($text -like "*Patient No: 001287*")
+    Assert-Equal "Context text has EN name"    $true ($text -like "*Name: $rawName*")
+    Assert-Equal "Context text has ZH name"    $true ($text -like "*Chinese Name: $rawChinese*")
+    Assert-Equal "Context text omits blank fields" $false ($text -like "*Alerts:*")
+
+    Write-Host "== Save-PatientContext (writes only under a temp folder) ==" -ForegroundColor Cyan
+    $tempFolder = Join-Path $env:TEMP ("xray-launcher-selftest-" + [Guid]::NewGuid().ToString("N"))
+    try {
+        $ctxWithFolder = Build-PatientContext (Parse-Query ($qs + "&folder_path=" + [Uri]::EscapeDataString($tempFolder)))
+        $jsonPath = Save-PatientContext $ctxWithFolder
+        Assert-Equal "JSON info file created" $true (Test-Path -LiteralPath $jsonPath)
+        Assert-Equal "TXT info file created"  $true (Test-Path -LiteralPath (Join-Path $tempFolder "nnt-patient-info.txt"))
+        $savedJson = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
+        Assert-Equal "Saved JSON has correct patient_no" "001287" $savedJson.patient_no
+    } finally {
+        if (Test-Path -LiteralPath $tempFolder) { Remove-Item -LiteralPath $tempFolder -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    Write-Host "== Resolve-System (works whether or not NNT is actually installed on this PC) ==" -ForegroundColor Cyan
+    $nnt = Resolve-System "nntnewtom" ""
+    Assert-Equal "nntnewtom.exists is a boolean" $true ($nnt.exists -is [bool])
+    Assert-Equal "unknown system key returns null" $true ((Resolve-System "does-not-exist" "") -eq $null)
+
+    Write-Host "== Handle-Request (HTTP-less integration test of routing) ==" -ForegroundColor Cyan
+    $statusResp = Handle-Request "/status"
+    Assert-Equal "/status returns 200"        200  $statusResp.status
+    Assert-Equal "/status body ok=true"       $true $statusResp.body.ok
+    $missingResp = Handle-Request "/open/does-not-exist"
+    Assert-Equal "/open/<unknown key> returns 404" 404 $missingResp.status
+    if ($IncludeLiveLaunch) {
+        # Opt-in only: if NNT is actually installed here, this really does invoke
+        # NNTBridge.exe / NNT.exe with the fabricated patient below
+        # (patient_no=001287, "HSIUNG KWAN MING"). Genuine end-to-end coverage,
+        # but a real, visible launch -- not a mock. Skipped unless requested so
+        # that routine "-SelfTest" runs never surprise anyone with a popped-up
+        # NNT window.
+        $nntOpenResp = Handle-Request ("/open/nntnewtom?" + $qs.Split('?')[1])
+        if ($nnt.exists) {
+            Assert-Equal "/open/nntnewtom returns 200 and launches the real bridge" 200 $nntOpenResp.status
+        } else {
+            Assert-Equal "/open/nntnewtom returns 404 when NNT not installed on this PC" 404 $nntOpenResp.status
+        }
+    } else {
+        Write-Host "  [SKIP] /open/nntnewtom live-launch check (pass -IncludeLiveLaunch to run it)" -ForegroundColor DarkYellow
+    }
+
+    Write-Host ""
+    $total = $script:passed + $script:failures.Count
+    if ($script:failures.Count -eq 0) {
+        Write-Host "SELF-TEST PASSED: $($script:passed) / $total checks" -ForegroundColor Green
+        return 0
+    } else {
+        Write-Host "SELF-TEST FAILED: $($script:failures.Count) of $total checks failed" -ForegroundColor Red
+        $script:failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+        return 1
+    }
+}
+
+if ($SelfTest) {
+    exit (Invoke-SelfTest)
+}
+
+# ════════════════════════════════════════════════════════════════
+# SERVER — only reached in normal (non -SelfTest) operation.
+# ════════════════════════════════════════════════════════════════
+$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse("127.0.0.1"), $Port)
+try {
+    $listener.Start()
+} catch {
+    Write-Host "X-Ray launcher bridge is already running on port $Port (or the port is taken). Exiting." -ForegroundColor Yellow
+    exit 0
+}
+Write-Host "X-Ray launcher bridge ready: http://127.0.0.1:$Port" -ForegroundColor Green
+Write-Host "Leave this window open while using CS Imaging / Ai-Dental / NNT-NEWTOM links." -ForegroundColor Cyan
+
+while ($true) {
+    $client = $listener.AcceptTcpClient()
+    try {
+        $stream = $client.GetStream()
+        $buffer = New-Object byte[] 8192
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        $request = [Text.Encoding]::ASCII.GetString($buffer, 0, $read)
+        $firstLine = ($request -split "`r?`n")[0]
+        $parts = $firstLine -split " "
+        $method = if ($parts.Count -gt 0) { $parts[0] } else { "" }
+        $rawPath = if ($parts.Count -gt 1) { $parts[1] } else { "/" }
+
+        if ($method -eq "OPTIONS") {
+            Send-Json $client 204 @{}
+        } else {
+            $result = Handle-Request $rawPath
+            if ($null -ne $result.bytes) {
+                Send-Bytes $client $result.status $result.contentType $result.bytes
+            } else {
+                Send-Json $client $result.status $result.body
+            }
+        }
+    } catch {
+        try {
+            Send-Json $client 500 ([ordered]@{ ok = $false; error = $_.Exception.Message })
+        } catch {}
+    } finally {
+        $client.Close()
+    }
+}

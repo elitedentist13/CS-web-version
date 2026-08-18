@@ -3477,6 +3477,15 @@
 
       </div>
 
+      <div id="nntLocalScanStrip" class="nnt-scan-strip" style="display:none;">
+        <div class="nnt-scan-strip-head">
+          <strong data-i18n="media.local.nntScansTitle">NNT / NEWTOM 2D scans</strong>
+          <span id="nntLocalScanCount" class="nnt-scan-count"></span>
+        </div>
+        <p class="nnt-scan-hint" data-i18n="media.local.nntScansHint"></p>
+        <div id="nntLocalScanThumbs" class="nnt-scan-thumbs"></div>
+      </div>
+
       <input type="file" id="xrayLocalFolderInput" multiple
              webkitdirectory directory
              style="display:none;"
@@ -7306,6 +7315,7 @@
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
     'app-xray.js?v=20260520f',
+    'app-nnt-scans.js',
     'app-xray-ai.js',
     'app-charts.js',
     'app-drugs.js',

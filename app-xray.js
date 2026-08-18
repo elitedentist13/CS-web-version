@@ -313,6 +313,7 @@ function syncXrayPatient(patientId, patientData) {
     // Pre-load x-ray records so they're ready
     loadXrayRecords();
     loadDiyLinks();
+    loadNntLocalScans();
 }
 
 // ── Single, authoritative definition of selectXrayPatient ─────
@@ -349,6 +350,7 @@ function selectXrayPatient(p) {
     // Load records and any saved external-system links
     loadXrayRecords();
     loadDiyLinks();
+    loadNntLocalScans();
 }
 
 // ════════════════════════════════════════════════════════════════

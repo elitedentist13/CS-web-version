@@ -5385,9 +5385,9 @@
         },
         'media.sys.nntnewtom': { en: 'NNT / NEWTOM', 'zh-CN': 'NNT / NEWTOM', 'zh-Hant': 'NNT / NEWTOM' },
         'media.sys.nntnewtom.info': {
-            en: 'Opens NNT / NEWTOM CBCT imaging software on this PC',
-            'zh-CN': '打开本机 NNT / NEWTOM CBCT 影像软件',
-            'zh-Hant': '開啟本機 NNT / NEWTOM CBCT 影像軟件'
+            en: 'Opens NNT / NEWTOM on this PC. Matching 2D scans from the NNT SCAN folder also appear in this tab.',
+            'zh-CN': '在本机打开 NNT / NEWTOM。匹配的 NNT SCAN 二维影像也会显示在本页。',
+            'zh-Hant': '在本機開啟 NNT / NEWTOM。符合的 NNT SCAN 二維影像也會顯示在本頁。'
         },
         'media.sys.nntnewtom.desktopHint': {
             en: 'NNT / NEWTOM CBCT software on this PC',
@@ -5445,14 +5445,29 @@
             'zh-Hant': '（在 Ai-Dental-Client 中按病人姓名或編號搜尋）'
         },
         'media.local.nntnewtomOpen': {
-            en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT/NEWTOM normally opens its own patient database — search by the copied patient name or patient no.',
-            'zh-CN': '在本机打开 NNT / NEWTOM？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\nNNT/NEWTOM 通常打开其自身患者数据库 — 请用已复制的患者姓名或编号搜索。',
-            'zh-Hant': '在本機開啟 NNT / NEWTOM？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 可選本機資料夾：{FOLDER}\n\nNNT/NEWTOM 通常開啟其自身病人資料庫 — 請用已複製的病人姓名或編號搜尋。'
+            en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT will search its own database by patient no. 2D scans from the NNT SCAN folder also appear in this X-ray tab (not uploaded to the cloud).',
+            'zh-CN': '在本机打开 NNT / NEWTOM？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\nNNT 会按患者编号搜索自身数据库。NNT SCAN 中的二维影像也会显示在本 X 光页（不会上传到云端）。',
+            'zh-Hant': '在本機開啟 NNT / NEWTOM？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 可選本機資料夾：{FOLDER}\n\nNNT 會按病人編號搜尋自身資料庫。NNT SCAN 中的二維影像也會顯示在本 X 光頁（不會上傳到雲端）。'
         },
         'media.local.nntnewtomLaunched': {
-            en: 'NNT / NEWTOM is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
-            'zh-CN': '正在启动 NNT / NEWTOM。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
-            'zh-Hant': '正在啟動 NNT / NEWTOM。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
+            en: 'NNT / NEWTOM is starting.\n\nCopied to clipboard: {PATIENT}\nMatching 2D scans (if any) are listed in this X-ray tab. CBCT / panoramic studies open in "{SHORTCUT}".',
+            'zh-CN': '正在启动 NNT / NEWTOM。\n\n已复制到剪贴板：{PATIENT}\n匹配的二维影像（如有）会列在本 X 光页。CBCT / 全景片在「{SHORTCUT}」中打开。',
+            'zh-Hant': '正在啟動 NNT / NEWTOM。\n\n已複製到剪貼簿：{PATIENT}\n符合的二維影像（如有）會列在本 X 光頁。CBCT / 全景片在「{SHORTCUT}」中開啟。'
+        },
+        'media.local.nntScansTitle': {
+            en: 'NNT / NEWTOM 2D scans on this PC',
+            'zh-CN': '本机 NNT / NEWTOM 二维影像',
+            'zh-Hant': '本機 NNT / NEWTOM 二維影像'
+        },
+        'media.local.nntScansHint': {
+            en: 'Fetched from the NNT SCAN folder for this patient. Not uploaded to Banana. Click a thumbnail to enlarge; use the NNT / NEWTOM button for CBCT.',
+            'zh-CN': '从该患者的 NNT SCAN 文件夹读取，不会上传到 Banana。点击缩略图放大；CBCT 请用 NNT / NEWTOM 按钮。',
+            'zh-Hant': '從該病人的 NNT SCAN 資料夾讀取，不會上傳到 Banana。按縮圖放大；CBCT 請用 NNT / NEWTOM 按鈕。'
+        },
+        'media.local.nntScansCount': {
+            en: '{N} image(s)',
+            'zh-CN': '{N} 张影像',
+            'zh-Hant': '{N} 張影像'
         },
         'media.local.nntnewtomLauncherNeeded': {
             en: 'Could not start NNT / NEWTOM from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click NNT / NEWTOM again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',

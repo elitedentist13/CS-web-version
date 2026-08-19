@@ -311,6 +311,51 @@ function Get-NntScanRoots {
     )
 }
 
+# NNT 2D panoramics on the CS IMAGE share are stored as *.2dh under
+# SCAN\{chart}\Document\...\2D Images collection\. These are NNT-proprietary
+# (not JPEGs). NNTBridge /DOCID <id> looks the id up in its own database and
+# fails with "SELECTPATIENT: Err = 12 - Unable to open document" for these --
+# use /DIR pointed at the chart's own SCAN folder instead (see
+# Start-NntBridgePatient). Also used to locate the file for the JPEG
+# export/import path into Supabase (see tools/_import_cs_opg.py).
+function Find-Nnt2dDocFile($PatientNo) {
+    $folder = Find-NntScanFolder $PatientNo
+    if (-not $folder) { return "" }
+    $doc = Join-Path $folder "Document"
+    if (-not (Test-PathSafe $doc)) { return "" }
+    try {
+        $pattern = Join-Path $doc "*\*\*\*\*\2D Images collection\*.2dh"
+        $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $hit) {
+            $hit = Get-ChildItem -LiteralPath $doc -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+        }
+        if ($hit) { return [string]$hit.FullName }
+    } catch {}
+    return ""
+}
+
+function Find-Nnt2dDocId($PatientNo) {
+    $path = Find-Nnt2dDocFile $PatientNo
+    if ([string]::IsNullOrWhiteSpace($path)) { return "" }
+    return [IO.Path]::GetFileNameWithoutExtension($path)
+}
+
+# /DIR is ignored if NNT.exe is already running (confirmed live by tracing
+# CS's own launch: CS closes/relaunches around this same constraint).
+function Stop-NntProcessesForDir {
+    foreach ($name in @("NNTBridge", "NNT_SID", "NNT")) {
+        Get-Process -Name $name -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    $deadline = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $deadline) {
+        $left = @(Get-Process -Name "NNT", "NNT_SID", "NNTBridge" -ErrorAction SilentlyContinue)
+        if ($left.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 400
+    }
+}
+
 function Get-NntScanIdCandidates($PatientNo) {
     $id = Convert-NntPatientId $PatientNo
     $list = New-Object System.Collections.Generic.List[string]
@@ -334,14 +379,27 @@ function Test-PathIsUnder($Child, $Parent) {
     }
 }
 
-function Find-NntScanFolder($PatientNo) {
+# All root x id-candidate combinations, in priority order, REGARDLESS of
+# whether the folder exists yet -- used so a brand-new patient (no scan
+# folder on disk at all yet) can still have its would-be folder(s) watched
+# for creation, rather than only ever resolving to "" until CS/NNT first
+# creates it. Find-NntScanFolder (existence-based) and
+# Start-NntNewOpgWatcher (watch-for-creation) both build on this.
+function Get-NntScanFolderCandidatePaths($PatientNo) {
     $roots = Get-NntScanRoots
+    $out = New-Object System.Collections.Generic.List[string]
     foreach ($id in Get-NntScanIdCandidates $PatientNo) {
         foreach ($root in $roots) {
             if ([string]::IsNullOrWhiteSpace($root)) { continue }
-            $folder = Join-Path ([string]$root) ([string]$id)
-            if (Test-PathSafe $folder) { return $folder }
+            $out.Add((Join-Path ([string]$root) ([string]$id)))
         }
+    }
+    return $out
+}
+
+function Find-NntScanFolder($PatientNo) {
+    foreach ($folder in Get-NntScanFolderCandidatePaths $PatientNo) {
+        if (Test-PathSafe $folder) { return $folder }
     }
     return ""
 }
@@ -492,7 +550,27 @@ function Start-NntBridgePatient($Resolved, $Patient) {
     $workDir = if ($Resolved.workingDirectory) { $Resolved.workingDirectory } else { Split-Path -Parent $bridge }
     $appPath = if ($Resolved.target -and (Test-PathSafe $Resolved.target)) { $Resolved.target } else { Join-Path $workDir "NNT.exe" }
 
+    # /DIR fix, confirmed by tracing CS's own NNTBridge invocation live
+    # (2026-08-19, chart 002505): CS passes /DIR pointing at the PATIENT'S
+    # OWN chart folder (\\RECEPTION\IMAGE\SCAN\{chart}), NOT the shared
+    # SCAN root. NNT then looks for "<DIR>\Document\..." directly under
+    # that -- which is exactly the per-chart SCAN folder layout, and why
+    # an earlier attempt with /DIR = the shared SCAN root never worked
+    # (wrong level, not a wrong mechanism). NNTBridge also still requires
+    # no NNT.exe instance already running for /DIR to take effect.
+    $docPath = Find-Nnt2dDocFile $patId
+    $docId = if ($docPath) { [IO.Path]::GetFileNameWithoutExtension($docPath) } else { "" }
+    $dirRoot = if ($docPath) { Find-NntScanFolder $patId } else { "" }
+
+    if ($dirRoot) {
+        Stop-NntProcessesForDir
+    }
+
     $argList = New-Object System.Collections.Generic.List[string]
+    if ($dirRoot) {
+        $argList.Add("/DIR")
+        $argList.Add((Quote-ProcessArg $dirRoot))
+    }
     $argList.Add("/PATID")
     $argList.Add((Quote-ProcessArg $patId))
     if ($Patient.patient_name) {
@@ -539,10 +617,94 @@ function Start-NntBridgePatient($Resolved, $Patient) {
         target = $appPath
         workingDirectory = $workDir
         patient_id = $patId
+        dir = $dirRoot
+        docid = $docId
+        docpath = $docPath
         chinese_name = $Patient.chinese_name
         mode = "nntbridge"
         argList = ($argList -join " ")
     }
+}
+
+# Fires off _nnt_identity_guard.ps1 in the background (non-blocking --
+# Handle-Request returns to the browser immediately either way). See that
+# script's header comment for why this exists: NNT's own internal patient
+# database is not reliably in sync with Supabase/CS, so /PATID can silently
+# open a completely different, unrelated patient for a large fraction of
+# older chart numbers. The guard script pops a warning dialog on this PC
+# if what NNT actually displays doesn't match who Banana asked for.
+function Start-NntIdentityGuard($Patient) {
+    $guardScript = Join-Path $PSScriptRoot "_nnt_identity_guard.ps1"
+    if (-not (Test-PathSafe $guardScript)) { return }
+    $argList = New-Object System.Collections.Generic.List[string]
+    $argList.Add("-NoProfile")
+    $argList.Add("-ExecutionPolicy")
+    $argList.Add("Bypass")
+    $argList.Add("-File")
+    $argList.Add((Quote-ProcessArg $guardScript))
+    $argList.Add("-ExpectedName")
+    $argList.Add((Quote-ProcessArg $Patient.patient_name))
+    if ($Patient.chinese_name) {
+        $argList.Add("-ExpectedChineseName")
+        $argList.Add((Quote-ProcessArg $Patient.chinese_name))
+    }
+    if ($Patient.patient_no) {
+        $argList.Add("-ChartNo")
+        $argList.Add((Quote-ProcessArg $Patient.patient_no))
+    }
+    try {
+        Start-Process powershell -ArgumentList ($argList -join " ") -WindowStyle Hidden
+    } catch {}
+}
+
+# Fires off _nnt_new_opg_watcher.ps1 in the background (non-blocking) right
+# alongside the identity guard. Watches this patient's SCAN folder(s) for a
+# freshly written file during this session (i.e. a NEW panoramic actually
+# captured in NNT just now, not one CS already had) and -- every single
+# time, by design, no "don't ask again" -- pops a Yes/No prompt asking
+# staff whether to screen-cap the NNT viewer and upload the result into
+# Banana's Supabase `xrays` bucket/table. See that script's header comment
+# for the full flow.
+#
+# Applies to every patient, new or old: the bridge-documented folder (if a
+# 2D study already exists) is watched first, but EVERY root x id-candidate
+# path from Get-NntScanFolderCandidatePaths is passed too, whether or not
+# it exists yet on disk -- so a brand-new patient with no scan folder at
+# all is still covered the moment NNT/CS create one. Duplicates across
+# both sources are removed; the watcher itself tolerates non-existent
+# folders (just keeps polling until one appears).
+function Start-NntNewOpgWatcher($Patient, $BridgeLaunch) {
+    $watcherScript = Join-Path $PSScriptRoot "_nnt_new_opg_watcher.ps1"
+    if (-not (Test-PathSafe $watcherScript)) { return }
+    if (-not $Patient.patient_id -or -not $Patient.patient_no) { return }
+
+    $patId = Convert-NntPatientId $Patient.patient_no
+    $folders = New-Object System.Collections.Generic.List[string]
+    if ($BridgeLaunch -and $BridgeLaunch.dir) { $folders.Add($BridgeLaunch.dir) }
+    foreach ($candidate in (Get-NntScanFolderCandidatePaths $patId)) {
+        if ($folders -notcontains $candidate) { $folders.Add($candidate) }
+    }
+    if ($folders.Count -eq 0) { return }
+
+    $argList = New-Object System.Collections.Generic.List[string]
+    $argList.Add("-NoProfile")
+    $argList.Add("-ExecutionPolicy")
+    $argList.Add("Bypass")
+    $argList.Add("-File")
+    $argList.Add((Quote-ProcessArg $watcherScript))
+    $argList.Add("-PatientId")
+    $argList.Add((Quote-ProcessArg $Patient.patient_id))
+    $argList.Add("-PatientNo")
+    $argList.Add((Quote-ProcessArg $Patient.patient_no))
+    if ($Patient.patient_name) {
+        $argList.Add("-PatientName")
+        $argList.Add((Quote-ProcessArg $Patient.patient_name))
+    }
+    $argList.Add("-ChartFolders")
+    $argList.Add((Quote-ProcessArg ($folders -join ";")))
+    try {
+        Start-Process powershell -ArgumentList ($argList -join " ") -WindowStyle Hidden
+    } catch {}
 }
 
 function Handle-Request($RawPath) {
@@ -587,6 +749,12 @@ function Handle-Request($RawPath) {
         }
         if (-not $bridgeLaunch) {
             Start-ResolvedProgram $resolved
+        }
+        if ($bridgeLaunch -and $patientContext.patient_name) {
+            Start-NntIdentityGuard $patientContext
+        }
+        if ($bridgeLaunch -and $patientContext.patient_id -and $patientContext.patient_no) {
+            Start-NntNewOpgWatcher $patientContext $bridgeLaunch
         }
         return @{
             status = 200
@@ -668,11 +836,18 @@ function Invoke-SelfTest {
         New-Item -ItemType Directory -Path $scanFolder -Force | Out-Null
         $jpgPath = Join-Path $scanFolder "002505_20260505112331.JPG"
         [IO.File]::WriteAllBytes($jpgPath, [byte[]](0xFF, 0xD8, 0xFF, 0xD9))
+        $twoD = Join-Path $scanFolder "Document\Pa\Pb\Pc\Pd\Pe\2D Images collection"
+        New-Item -ItemType Directory -Path $twoD -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $twoD "20.1231213163838006.1208.2dh") -Value "nnt" -Encoding ASCII
         $script:NntScanRootsOverride = @($scanRoot)
         $listed = Get-NntScanFiles "PY002505"
         Assert-Equal "SCAN folder found for PY-prefixed no" $true $listed.found
         Assert-Equal "SCAN nnt_patid is bare digits" "002505" $listed.nnt_patid
         Assert-Equal "SCAN lists the JPEG" "002505_20260505112331.JPG" $listed.files[0].name
+        Assert-Equal "2dh document id from SCAN tree" "20.1231213163838006.1208" (Find-Nnt2dDocId "PY002505")
+        $docFile = Find-Nnt2dDocFile "PY002505"
+        Assert-Equal "2dh file ends with collection name" $true ($docFile -like "*2D Images collection*20.1231213163838006.1208.2dh")
+        Assert-Equal "Unknown chart has no 2dh" "" (Find-Nnt2dDocId "PY999999")
         $missing = Get-NntScanFiles "PY999999"
         Assert-Equal "Unknown chart number is found=false" $false $missing.found
         $scanResp = Handle-Request "/nnt/scans?patient_no=PY002505"

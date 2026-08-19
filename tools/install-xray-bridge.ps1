@@ -9,9 +9,21 @@
 # entirely NNT's own business logic.
 #
 # What this does:
-#   1. Copies xray-local-launcher.ps1 into -InstallPath (default C:\NNT).
-#   2. Self-tests the COPIED file before enabling anything (fails fast if the
-#      copy is broken instead of silently installing something that won't run).
+#   1. Copies xray-local-launcher.ps1 AND its required companion scripts
+#      (see $RequiredCompanionScripts below -- currently
+#      _nnt_identity_guard.ps1 and _nnt_new_opg_watcher.ps1) into
+#      -InstallPath (default C:\NNT). The launcher looks these up as
+#      siblings via $PSScriptRoot at runtime, so if they aren't copied
+#      alongside it, the patient-identity-mismatch warning and the new-OPG
+#      upload prompt silently never fire -- no error, just missing safety
+#      features. Discovered 2026-08-19 when this installer was found to
+#      only ever copy the one main file. Any companion missing at the
+#      source is a warning, not a hard failure (the base bridge still
+#      works without it), but every companion actually copied is
+#      self-tested (see step 2) just like the main script.
+#   2. Self-tests every COPIED file (main script + each companion) before
+#      enabling anything (fails fast if a copy is broken instead of
+#      silently installing something that won't run).
 #   3. Adds a Startup-folder shortcut so the bridge starts automatically
 #      (minimized) at every login — no more remembering to double-click
 #      "Start X-Ray Launcher.bat" by hand. Prefers the All Users Startup
@@ -27,8 +39,13 @@
 #      successful but silently kept the OLD code running in memory.
 #   5. Refuses to stomp on a different program already using the port.
 #
+# Safe to re-run any time (e.g. after pulling a code update) -- every step
+# above is idempotent: files are overwritten, the startup shortcut is
+# recreated the same way, and an already-running bridge is restarted to
+# pick up the new code rather than left stale.
+#
 # Usage (run from the same folder as xray-local-launcher.ps1, or anywhere —
-# it locates its sibling file automatically):
+# it locates its sibling files automatically):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File install-xray-bridge.ps1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File install-xray-bridge.ps1 -Uninstall
 #
@@ -42,6 +59,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ShortcutName = "Joyful Smile X-Ray Bridge.lnk"
+
+# Scripts xray-local-launcher.ps1 loads as siblings via $PSScriptRoot at
+# runtime (Start-NntIdentityGuard / Start-NntNewOpgWatcher) -- must live
+# next to it in -InstallPath or those safety/upload features silently
+# no-op. Add any future companion script here so it gets installed and
+# self-tested automatically too.
+$RequiredCompanionScripts = @(
+    "_nnt_identity_guard.ps1",
+    "_nnt_new_opg_watcher.ps1"
+)
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "    OK: $msg" -ForegroundColor Green }
@@ -174,7 +201,7 @@ if ($Uninstall) {
     }
 
     Write-Host ""
-    Write-Host "Uninstall complete. The launcher script itself was left at $launcherPath (delete manually if you want it fully gone)." -ForegroundColor Cyan
+    Write-Host "Uninstall complete. The launcher script and its companion scripts were left in $InstallPath (delete manually if you want it fully gone: $launcherPath and $($RequiredCompanionScripts -join ', '))." -ForegroundColor Cyan
     exit 0
 }
 
@@ -196,13 +223,36 @@ $destLauncher = Join-Path $InstallPath "xray-local-launcher.ps1"
 Copy-Item -LiteralPath $sourceLauncher -Destination $destLauncher -Force
 Write-Ok "Copied xray-local-launcher.ps1 -> $destLauncher"
 
-Write-Step "Self-testing the installed copy (no listener, nothing launched)"
+$installedCompanions = New-Object System.Collections.Generic.List[string]
+foreach ($name in $RequiredCompanionScripts) {
+    $srcCompanion = Join-Path $sourceDir $name
+    $destCompanion = Join-Path $InstallPath $name
+    if (-not (Test-Path -LiteralPath $srcCompanion)) {
+        Write-Warn2 "Companion script not found next to installer, skipping: $name (the safety/upload feature that depends on it will silently do nothing until this is fixed and the installer is re-run)."
+        continue
+    }
+    Copy-Item -LiteralPath $srcCompanion -Destination $destCompanion -Force
+    Write-Ok "Copied $name -> $destCompanion"
+    $installedCompanions.Add($destCompanion)
+}
+
+Write-Step "Self-testing the installed copies (no listener, nothing launched)"
 & powershell -NoProfile -ExecutionPolicy Bypass -File $destLauncher -SelfTest
 if ($LASTEXITCODE -ne 0) {
-    Write-Err2 "Self-test FAILED (exit code $LASTEXITCODE). Not enabling auto-start. Fix the script and re-run this installer."
+    Write-Err2 "Self-test FAILED for xray-local-launcher.ps1 (exit code $LASTEXITCODE). Not enabling auto-start. Fix the script and re-run this installer."
     exit 1
 }
-Write-Ok "Self-test passed."
+Write-Ok "Self-test passed: xray-local-launcher.ps1"
+
+foreach ($destCompanion in $installedCompanions) {
+    $companionName = Split-Path -Leaf $destCompanion
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $destCompanion -SelfTest
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err2 "Self-test FAILED for $companionName (exit code $LASTEXITCODE). Not enabling auto-start. Fix the script and re-run this installer."
+        exit 1
+    }
+    Write-Ok "Self-test passed: $companionName"
+}
 
 Write-Step "Setting up auto-start at login"
 $userShortcutPath = Get-UserStartupShortcutPath
@@ -263,6 +313,12 @@ if (Test-BridgeAlive $Port) {
 Write-Host ""
 Write-Host "Install complete." -ForegroundColor Green
 Write-Host "  Install path:      $destLauncher"
+if ($installedCompanions.Count -gt 0) {
+    $companionNames = @($installedCompanions | ForEach-Object { Split-Path -Leaf $_ })
+    Write-Host "  Companion scripts: $($installedCompanions.Count) / $($RequiredCompanionScripts.Count) installed ($($companionNames -join ', '))"
+} else {
+    Write-Warn2 "No companion scripts installed -- identity-mismatch warnings and new-OPG upload prompts will NOT run on this PC. Re-run from a folder that also has $($RequiredCompanionScripts -join ', ')."
+}
 Write-Host "  Startup shortcut:  $shortcutPath"
 Write-Host "  Status endpoint:   http://127.0.0.1:$Port/status"
 Write-Host "  To remove:         run this installer again with -Uninstall"

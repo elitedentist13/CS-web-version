@@ -1,0 +1,8 @@
+﻿=== watch started 2026-08-19T19:53:18.8141488+08:00 ===
+Watching: C:\Program Files (x86)\VATECH\EzDent-i\Bin
+19:53:18.832  Watching EzDent-i folder: C:\Program Files (x86)\VATECH\EzDent-i\Bin
+19:53:19.244  Watchers registered. Waiting up to 300 seconds. Trigger CS -> open a patient's EzDent-i/OPG button now.
+19:53:19.247  (Any patient with a chart number, name, DOB, and gender works.)
+19:55:56.746  PROCESS: VTE232.exe (pid=19612) cmdline=VTE232.exe 
+19:57:09.082  PROCESS: VTE232.exe (pid=16980) cmdline=VTE232.exe 
+19:58:19.629  === watch ended 2026-08-19T19:58:19.6285971+08:00 ===

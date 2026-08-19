@@ -3,6 +3,195 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-08-19 — Split into separate per-system installer packages (`installer-ezdenti/`, `installer-nntnewtom/`)
+
+Requested explicitly: keep the EzDent-i installer in a fully separate
+folder from NNT-NEWTOM's, so the two can be copied to different clinic
+PCs without any risk of mixing files/branding up.
+
+Rather than fork `xray-local-launcher.ps1` into two independent copies
+(which would mean every future fix has to be applied twice and could
+silently drift), added a `-EnabledSystems` param to the engine itself:
+
+- `Resolve-System` returns `$null` for any key not in `-EnabledSystems`
+  (when set) -- byte-for-byte identical to an unrecognized key, not just
+  "hidden". `/open/<key>` 404s exactly like it does for a made-up key.
+- `Status-Payload` now builds its response dynamically and only reports
+  `<key>_exists` / `systems.<key>` for enabled systems, plus a new
+  `enabled_systems` field.
+- Default (no `-EnabledSystems` passed, or empty) = every system, i.e. the
+  shared `tools\` copy's behavior is completely unchanged for anyone
+  already relying on one bridge covering multiple systems on the same PC.
+
+`install-xray-bridge.ps1` grew matching `-EnabledSystems` and
+`-ShortcutName` params, threaded through the startup shortcut's Arguments,
+the immediate post-install `Start-Process`, and the elevation re-invoke.
+`Test-BridgeAlive` (used by install/uninstall to confirm the bridge is
+really ours before touching it) was also made generic -- it used to check
+specifically for `nntnewtom_exists` in `/status`, which no longer exists
+at all on an EzDent-i-restricted instance.
+
+Built two new self-contained folders, each with its own `Install/Start/
+Test/Uninstall *.bat` wrappers (passing their own fixed `-EnabledSystems`)
+and its own `README.md`:
+
+- `installer-ezdenti/` -- EzDent-i only, installs to
+  `C:\BananaBridge-EzDenti` (deliberately NOT `C:\NNT`, to avoid an
+  EzDent-i-only PC ending up with an NNT-named folder on it), shortcut
+  "Joyful Smile EzDent-i Bridge.lnk". Does not ship the two NNT companion
+  scripts at all.
+- `installer-nntnewtom/` -- NNT-NEWTOM only, installs to `C:\NNT` (kept as
+  the existing default -- real PCs, e.g. CONSULTRM1/Cbct-pc, already use
+  this path), shortcut "Joyful Smile NNT-NEWTOM Bridge.lnk". Ships the two
+  NNT companion scripts (`_nnt_identity_guard.ps1`,
+  `_nnt_new_opg_watcher.ps1`).
+
+Added `build-installer-packages.ps1` to sync the canonical engine/installer
+files into both subfolders and rebuild `Banana-EzDenti-Bridge-Installer.zip`
+/ `Banana-NNT-Bridge-Installer.zip` -- run this after editing
+`xray-local-launcher.ps1` or `install-xray-bridge.ps1` in this folder,
+rather than hand-editing the subfolder copies. Each build extracts its own
+zip to a clean temp folder and runs `-SelfTest` from there before
+declaring success, so a package that isn't actually self-sufficient fails
+the build instead of shipping broken. Removed the old single combined
+`Banana-XRay-Bridge-Installer.zip` (superseded by the two dedicated ones).
+
+Verified live (not just via self-test): started
+`installer-ezdenti\xray-local-launcher.ps1 -EnabledSystems "ezdenti"` on a
+throwaway port, confirmed `/status` has `ezdenti_exists` but no
+`nntnewtom_exists` key at all, and `GET /open/nntnewtom` returns a genuine
+404 -- the restriction holds at runtime, not just in the test harness.
+
+Self-test: +7 checks for `-EnabledSystems` isolation, 82/82 passing.
+
+## 2026-08-19 — EzDent-i live investigation: CS never wired it up either; redesigned the bridge to not depend on `linkage.xml` working, and shipped `tools/README.md` as the installer package doc
+
+Set out to *confirm* the `linkage.xml` design from the entry directly below
+this one, on a real clinic PC with both Clinic Solution and EzDent-i
+3.0.10.0 installed (client of a centralized EzWebServer at
+`192.168.50.100`). Findings, most important first:
+
+- **CS's own "EzDent-i" button is a blind launch, and always has been.**
+  Ran `_watch_ezdenti_linkage.ps1` (modeled on `_watch_vdds_import.ps1`)
+  while clicking CS's own EzDent-i button: it launches `VTE232.exe` with a
+  **completely empty command line** — no arguments, no `linkage.xml`
+  written anywhere first. `VTDebug.txt` shows the same
+  `CExternalLink::LoadLinkageSetting - External Link Info: Invalid value`
+  warning on **every single logged launch going back to the earliest
+  available log entry (July 2024)** — this is not something that broke
+  when the PC was relocated between clinics; this specific install has
+  most likely never had a working file-based bridge, independent of
+  Banana/CS entirely.
+- **`VTEzBridge32.exe` (the obvious bridge entry point) does not open a
+  window and does not read a sibling `linkage.xml`.** String-extracted its
+  binary: it does reference `Linkage.xml`, `strChartNo`, `strFirstName`,
+  `strLastName`, `dtBirthdate`, `strGender` — exactly the `E2_PAT`/`E2_IMG`
+  database columns seen in its SQL strings — so it's clearly *aware* of
+  this data shape. But launching it live, with a real `linkage.xml`
+  sibling file already in place in `Bin`, it exits in well under 500ms
+  with **no window, no `VTDebug.txt` entry, and the file left completely
+  untouched**. It does not spawn `VTE232.exe` either.
+- **"Linkage.xml" turned out to be an enum label, not (necessarily) a
+  filename this exe reads.** The string sits inside a table of patient
+  *import source types* — `Linkage.xml`, `EzPicker`, `EzBridge`,
+  `ESSyncro`, `EzDent-i`, `Ez3D-i`, `Migration`, `EzMobile`,
+  `DentalServiceWeb` — immediately followed by the same patient field name
+  list above. `VTServerConfig.ini` on this same PC has
+  `[ezpicker] ip_address = 192.168.50.100` — the *same* central server
+  seen throughout `VTDebug.txt`'s DB connection lines — which points at
+  "EzPicker" being a **server-side** service, not anything running on a
+  client PC. If a `Linkage.xml`-style import path is genuinely wired up
+  anywhere on this deployment, the folder it watches is most likely on
+  that server, not reachable or knowable from a client-only vantage point.
+  Confirming this needs either Vatech support/docs for a centralized
+  EzWebServer setup, or direct access to `192.168.50.100` itself.
+
+**Design change as a result** — `Start-EzdentiBridgePatient` no longer
+assumes the `linkage.xml` mechanism works:
+
+- It now always opens the real app itself (`$Resolved.target`, e.g.
+  `VTE2Loader32.exe` — confirmed live to reliably spawn the visible
+  `VTE232.exe` window), the same way `Start-NntBridgePatient` opens NNT.
+  Previously it silently did nothing visible if you only looked at the
+  screen (by design, matching a "just drop the file, let EzDent-i's own
+  loader do the rest" theory) — but since nothing on this deployment
+  reads that file, that theory couldn't be relied on. New executables
+  fallback order in `$Systems.ezdenti.executables`: `VTE2Loader32.exe` →
+  `VTE2Loader_ReqAdmin32.exe` → `VTEzDent-iLoader32.exe` → `VTE232.exe`
+  itself as a last resort (matches what CS's own blind launch does, so at
+  minimum nothing regresses).
+- `VTEzBridge32.exe` was fixed (previously guessed as `VTEzBridge.exe`,
+  no `32` suffix — never would have matched on a real install) and moved
+  out of the "app to open" list into its own `Resolve-EzdentiBridge`, since
+  it must never be treated as "the app" (no window). It's still fired
+  best-effort, non-blocking, before the real app opens — pure upside if
+  some component really does consume it, silently ignored if not.
+- The one thing proven to work every time regardless — copying the
+  patient's name + chart no. to the clipboard for manual paste into
+  EzDent-i's own search — is unchanged and is now the *primary* documented
+  path in the UI text (`app-i18n-extra.js`), with the automatic
+  open/create framed honestly as "best-effort, not guaranteed" rather than
+  promised outright.
+- Self-test: removed the old happy-path unit test for
+  `Start-EzdentiBridgePatient` (it used to write a real `linkage.xml` and
+  was safe only because the fake target didn't exist; now that the
+  function also resolves+fires a *real* `VTEzBridge32.exe` via hardcoded
+  fallback paths whenever the target **does** resolve, running that
+  end-to-end on a PC where EzDent-i is actually installed — like this one
+  — would have popped a real, if invisible, process every routine
+  `-SelfTest` run). Replaced with negative-path checks (missing/null
+  target → `null`, `Resolve-EzdentiBridge` never launches anything) plus
+  an opt-in `-IncludeLiveLaunch` check mirroring NNT's own live-launch
+  test. 75/75 passing without `-IncludeLiveLaunch`.
+
+**Also added `tools/README.md`** — the "server side installer package" doc
+requested for this: what's in the folder, which files actually need to be
+copied to a clinic PC (vs. the internal `_watch_*`/`_census_*`/etc.
+investigation-only scripts that don't), step-by-step deploy instructions,
+and an honest confirmed-vs-best-effort table per imaging system. The
+installer script (`install-xray-bridge.ps1`) itself needed no functional
+changes — it already copies whatever's in `xray-local-launcher.ps1`
+wholesale and self-tests it, so it covers EzDent-i automatically; only
+cosmetic mentions (shortcut description, header comment) were updated to
+name it explicitly alongside NNT-NEWTOM.
+
+## 2026-08-19 — EzDent-i (Vatech) bridge: same pattern as NNT, via `linkage.xml`
+
+Wired the "EzDent-i (Vatech)" button in the X-ray tab into the local bridge,
+replacing the old `ezdenti://` protocol stub that never actually launched
+anything real. Same shape as `nntnewtom`'s `NNTBridge.exe` integration, but
+EzDent-i has no documented command-line patient API — every publicly known
+PMS bridge (Open Dental, Carestack, MOGO, GoodDrs) instead writes a
+`linkage.xml` file into EzDent-i's own program folder (next to
+`VTE2Loader32.exe` / `VTEzDent-iLoader32.exe` / `VTEzBridge.exe`)
+immediately before launching it. EzDent-i reads that file on startup and
+opens the matching chart if the Chart Number already exists, or creates a
+new profile from the same fields if it doesn't — no manual typing either
+way, for both a brand-new patient and one with existing OPG/CT history on
+EzDent-i's own server (Banana never transfers image bytes itself).
+
+Added `New-EzdentiLinkageXml` / `Start-EzdentiBridgePatient` to
+`xray-local-launcher.ps1`, wired into `/open/ezdenti` in `Handle-Request`
+the same way `nntnewtom` wires into `Start-NntBridgePatient`. `app-xray.js`
+now routes `openXraySystem('vatech')` through `openDesktopXrayApp` (the
+same local-bridge path as Carestream/Ai-Dental/NNT) with
+`launcherKey: 'ezdenti'`, instead of the old `sys.url` protocol-navigation
+branch.
+
+**Caveat, same as every other bridge here:** the `LinkageParameter`/`Patient`
+XML shape and field mapping (which name goes in `FirstName` vs `LastName`,
+chart-number format) is the publicly documented Open Dental contract, not
+yet confirmed against a live CS → EzDent-i capture the way NNTBridge's
+`/PATID` contract was (see "Decoded CS's `-VDDS PATDATIMPORT`..." below).
+Re-verify on a clinic PC where CS → EzDent-i is known-good before trusting
+this for patients who already have EzDent-i history — same
+`_watch_vdds_import.ps1`-style live trace, watching for `linkage.xml`
+instead of a `.tmp` file.
+
+Self-test: 17 new checks (`Convert-GenderWord`, `Escape-Xml`,
+`New-EzdentiLinkageXml`, `Start-EzdentiBridgePatient`, `Resolve-System
+"ezdenti"`) — 77/77 passing.
+
 ## 2026-08-19 — Staff-gated "new OPG -> Banana" upload (`_nnt_new_opg_watcher.ps1`)
 
 Added a background watcher, spawned alongside `_nnt_identity_guard.ps1` on
@@ -418,5 +607,16 @@ restarting it so it loads the code just installed." and came back healthy.
   prefix-strip, `/SURNAME`, and the new `/nnt/scans` endpoints.
 - All Users Startup still needs one elevated installer run on each PC if
   other Windows accounts log in.
-- Same client/server bridge wiring for other x-ray systems (ezdenti, myray,
+- EzDent-i (ezdenti): the "open the app + clipboard" half is confirmed
+  working live; the automatic `Linkage.xml`/`VTEzBridge32.exe` chart
+  open/create is unconfirmed on a centralized-EzWebServer deployment (see
+  the 2026-08-19 live-investigation entry above) and needs either Vatech
+  support/docs, or access to the EzWebServer machine (`192.168.50.100`
+  on the test PC) to pin down where the real import folder/service lives,
+  if one exists at all.
+- Package this `tools/` folder for actual clinic deployment (README done —
+  see entry above); still need to physically run
+  `Install X-Ray Bridge.bat` on whichever PC(s) are used to open EzDent-i
+  for OPG/CT, and confirm the button in Banana behaves as expected there.
+- Same client/server bridge wiring for other x-ray systems (myray,
   Rayscan) — not started.

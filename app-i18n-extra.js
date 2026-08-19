@@ -5353,9 +5353,9 @@
             'zh-Hant': '啟動 Sidexis 4 桌面應用程式'
         },
         'media.sys.vatech.info': {
-            en: 'Launches EzDent-i application',
-            'zh-CN': '启动 EzDent-i 应用程序',
-            'zh-Hant': '啟動 EzDent-i 應用程式'
+            en: 'Opens EzDent-i and copies this patient\u2019s name + chart no. to the clipboard \u2014 paste into EzDent-i\u2019s own search to open their chart, or fill in a new one for OPG/CT. Also best-effort sends the same details straight to EzDent-i so it may open/create the chart automatically; not guaranteed on every install.',
+            'zh-CN': '打开 EzDent-i，并将此患者的姓名及编号复制到剪贴板 \u2014 可贴到 EzDent-i 自己的搜寻栏打开档案，或新建档案以拍摄 OPG/CT。同时会尝试将资料直接传送给 EzDent-i 以自动打开／新建档案，惟未必每部机都适用。',
+            'zh-Hant': '開啟 EzDent-i，並將此病人的姓名及編號複製到剪貼簿 \u2014 可貼到 EzDent-i 自己的搜尋欄開啟檔案，或新建檔案以拍攝 OPG/CT。同時會嘗試將資料直接傳送給 EzDent-i 以自動開啟／新建檔案，惟未必每部機都適用。'
         },
         'media.sys.planmeca.info': {
             en: 'Launches Romexis software',
@@ -5473,6 +5473,21 @@
             en: 'Could not start NNT / NEWTOM from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click NNT / NEWTOM again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
             'zh-CN': '无法从浏览器启动 NNT / NEWTOM。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 NNT / NEWTOM\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
             'zh-Hant': '無法從瀏覽器啟動 NNT / NEWTOM。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 NNT / NEWTOM\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
+        },
+        'media.local.ezdentiOpen': {
+            en: 'Open EzDent-i on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n\nSearch by name or patient no. inside EzDent-i to open their chart, or fill in a new one for OPG/CT. Patient details are also sent straight to EzDent-i as a best-effort extra step, in case this PC\u2019s setup picks it up automatically \u2014 not guaranteed.\n\nRequires "Start X-Ray Launcher.bat" running.',
+            'zh-CN': '在本机打开 EzDent-i？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n\n请在 EzDent-i 内以姓名或编号搜寻以打开档案，或新建档案以拍摄 OPG/CT。同时会尝试将资料直接传送给 EzDent-i，视乎本机设定是否支援自动读取，不保证成功。\n\n需运行「Start X-Ray Launcher.bat」。',
+            'zh-Hant': '在本機開啟 EzDent-i？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n\n請在 EzDent-i 內以姓名或編號搜尋以開啟檔案，或新建檔案以拍攝 OPG/CT。同時會嘗試將資料直接傳送給 EzDent-i，視乎本機設定是否支援自動讀取，不保證成功。\n\n需執行「Start X-Ray Launcher.bat」。'
+        },
+        'media.local.ezdentiLaunched': {
+            en: 'EzDent-i is starting.\n\nPatient details ({PATIENT}) are copied to the clipboard \u2014 paste into EzDent-i\u2019s own search if their chart doesn\u2019t open automatically.',
+            'zh-CN': '正在启动 EzDent-i。\n\n患者资料（{PATIENT}）已复制到剪贴板 \u2014 若档案未有自动打开，请贴到 EzDent-i 的搜寻栏。',
+            'zh-Hant': '正在啟動 EzDent-i。\n\n病人資料（{PATIENT}）已複製到剪貼簿 \u2014 若檔案未有自動開啟，請貼到 EzDent-i 的搜尋欄。'
+        },
+        'media.local.ezdentiLauncherNeeded': {
+            en: 'Could not start EzDent-i from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click EzDent-i (Vatech) again\n\nOr double-click desktop "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 EzDent-i。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 EzDent-i (Vatech)\n\n或双击桌面「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 EzDent-i。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 EzDent-i (Vatech)\n\n或按兩下桌面「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',

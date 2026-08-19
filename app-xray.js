@@ -2348,13 +2348,28 @@ var XRAY_SYSTEMS = {
         defaultSubPattern: 'Xrays\\{patient_no}',
         defaultAppPath: 'C:\\Program Files\\Sirona Dental\\SIDEXIS\\Sidexis.exe'
     },
+    // EzDent-i (Vatech): same local-bridge pattern as Carestream / Ai-Dental /
+    // NNT-NEWTOM below, NOT the "ezdenti://" protocol stub this used to be.
+    // EzDent-i has no command-line patient API; the documented PMS bridge
+    // (Open Dental, Carestack, MOGO, etc.) writes a "linkage.xml" file into
+    // EzDent-i's own program folder immediately before launching it, and
+    // EzDent-i reads that file on startup — opening the matching chart if one
+    // exists, or creating a new profile from the same fields if it doesn't.
+    // See tools/xray-local-launcher.ps1 New-EzdentiLinkageXml / Start-EzdentiBridgePatient.
     vatech: {
         nameKey: 'media.sys.vatech',
         infoKey: 'media.sys.vatech.info',
-        url: 'ezdenti://',
+        url: '',
+        launcherKey: 'ezdenti',
+        desktopShortcutName: 'EzDent-i',
+        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\EzDent-i.lnk',
         defaultDataPath: 'C:\\Image',
         defaultSubPattern: 'Xrays\\{patient_no}',
-        defaultAppPath: ''
+        defaultAppPath: 'C:\\Program Files (x86)\\VATECH\\EzDent-i\\Bin\\VTE2Loader32.exe',
+        launchProtocol: false,
+        openMsgKey: 'media.local.ezdentiOpen',
+        launchedMsgKey: 'media.local.ezdentiLaunched',
+        launcherNeededMsgKey: 'media.local.ezdentiLauncherNeeded'
     },
     planmeca: {
         nameKey: 'media.sys.planmeca',

@@ -5545,6 +5545,16 @@
             'zh-CN': '✗ 无法从 HTTPS 页面连接本机启动器。请通过 file:// 或 http://localhost（Live Server）打开应用，不要用 https。',
             'zh-Hant': '✗ 無法從 HTTPS 頁面連接本機啟動器。請透過 file:// 或 http://localhost（Live Server）開啟應用，不要用 https。'
         },
+        'media.local.launcherPermissionPrompt': {
+            en: '⚠ Chrome should be showing a "local network access" permission popup near the address bar. Click Allow on THAT popup first, then click this button again — the first click only triggers the popup, it does not open the program yet.',
+            'zh-CN': '⚠ Chrome 应该会在网址栏附近显示"本机网络访问"权限弹窗。请先在该弹窗点击"允许"，然后再次点击此按钮 — 第一次点击只是触发权限弹窗，尚未真正打开程序。',
+            'zh-Hant': '⚠ Chrome 應該會在網址列附近顯示「本機網路存取」權限彈窗。請先在該彈窗點擊「允許」，然後再次點擊此按鈕 — 第一次點擊只是觸發權限彈窗，尚未真正開啟程式。'
+        },
+        'media.local.launcherPermissionDenied': {
+            en: '✗ This browser has BLOCKED local network access for this site. Click the tune/info icon in the address bar → Site settings → set "Local network access" to Allow, then click this button again.',
+            'zh-CN': '✗ 此浏览器已阻止本网站访问本机网络。请点击网址栏的图标 → 网站设置 → 将"本机网络访问"设为允许，然后再次点击此按钮。',
+            'zh-Hant': '✗ 此瀏覽器已封鎖此網站存取本機網路。請點擊網址列的圖示 → 網站設定 → 將「本機網路存取」設為允許，然後再次點擊此按鈕。'
+        },
         'media.local.carestreamUsePatientBrowser': {
             en: '(Carestream Patient Browser — search by patient name or no. in the app)',
             'zh-CN': '（Carestream 患者浏览器 — 在软件内按患者姓名或编号搜索）',

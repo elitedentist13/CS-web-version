@@ -2229,47 +2229,100 @@ function xrayLauncherBlockedByPage() {
     return false;
 }
 
+// Chrome 141+ replaced the older Private-Network-Access preflight this bridge
+// was originally built against with "Local Network Access" (LNA): an actual
+// user-facing permission prompt, checked in ADDITION to CORS, before any
+// fetch() from a page to a loopback/private address is allowed through --
+// confirmed live (2026-08-20) via a real clinic PC's DevTools Issues tab
+// ("A site requested a resource from a network that it could only access
+// because of its users' privileged network position..."). If the user never
+// granted that permission on a given PC/browser profile, every fetch() below
+// silently fails/rejects even though the bridge itself is reachable (curl,
+// a plain address-bar navigation to /status, etc. all still work fine --
+// only page-initiated fetch()/XHR is gated). No server-side header can grant
+// this on the site's behalf; the user must accept the browser's own prompt
+// (or allow it via chrome://settings/content/localNetworkAccess or the
+// site-info/padlock icon's Site settings) once per browser profile.
+// `targetAddressSpace` is Chrome's documented way to annotate a fetch() as
+// intentionally local/loopback (see https://developer.chrome.com/blog/local-network-access);
+// harmless no-op on browsers that don't recognize the option.
+var XRAY_LAUNCHER_FETCH_OPTS = { targetAddressSpace: 'loopback' };
+
+// Chrome 138+ gates ANY fetch() from a page to 127.0.0.1 behind a real,
+// human-clickable "Allow local network access?" permission popup (see
+// XRAY_LAUNCHER_FETCH_OPTS comment above for the full history). That popup
+// is asynchronous and waits indefinitely for the user to notice/click it --
+// but the two functions below used to race it against a hardcoded 2000ms /
+// 2800ms setTimeout. On a PC where the permission was still in its default
+// "prompt" (undecided) state, that timeout fired long before a human could
+// react, so pingXrayLauncher() silently reported "offline" and the whole
+// flow gave up with "launcher needed" -- even though clicking Allow a
+// second later would have worked. Confirmed live (2026-08-20): the backend
+// (RAYBridge -> SMARTDent handoff) succeeded every single time when called
+// directly over HTTP, so the failure was isolated to this browser-side
+// timing race, not "SmartDent needs to be preloaded" as first suspected.
+// Fix: check navigator.permissions.query() first (Chrome-only; falls back
+// to "unsupported" on other browsers, which never show this popup) and use
+// a much longer timeout ONLY while permission is still undecided, so the
+// timer never fires before the user has had a real chance to respond.
+function xrayLoopbackPermissionState(cb) {
+    if (!navigator.permissions || !navigator.permissions.query) {
+        cb('unsupported');
+        return;
+    }
+    navigator.permissions.query({ name: 'loopback-network' })
+        .then(function(r) { cb(r.state); })
+        .catch(function() {
+            navigator.permissions.query({ name: 'local-network-access' })
+                .then(function(r) { cb(r.state); })
+                .catch(function() { cb('unsupported'); });
+        });
+}
+
 /** Quick check: is tools/Start X-Ray Launcher.bat running on this PC? */
 function pingXrayLauncher(cb) {
     if (xrayLauncherBlockedByPage()) {
         cb({ online: false, blocked: true });
         return;
     }
-    var finished = false;
-    var timer = setTimeout(function() {
-        if (!finished) {
-            finished = true;
-            cb({ online: false });
-        }
-    }, 2000);
-    fetch(XRAY_LAUNCHER_BASE + '/status', { method: 'GET', mode: 'cors', cache: 'no-store' })
-        .then(function(r) {
-            if (finished) return null;
-            clearTimeout(timer);
-            if (!r.ok) {
-                finished = true;
-                cb({ online: false });
-                return null;
-            }
-            return r.json().catch(function() { return {}; });
-        })
-        .then(function(body) {
-            if (finished || body === null) return;
-            finished = true;
-            cb({
-                online: !!(body && body.ok),
-                carestream_exists: !!(body && body.carestream_exists),
-                aidental_exists: !!(body && body.aidental_exists),
-                nntnewtom_exists: !!(body && body.nntnewtom_exists)
-            });
-        })
-        .catch(function() {
+    xrayLoopbackPermissionState(function(permState) {
+        var waitMs = (permState === 'prompt') ? 30000 : 2500;
+        var finished = false;
+        var timer = setTimeout(function() {
             if (!finished) {
                 finished = true;
-                clearTimeout(timer);
-                cb({ online: false });
+                cb({ online: false, permissionPrompt: (permState === 'prompt') });
             }
-        });
+        }, waitMs);
+        fetch(XRAY_LAUNCHER_BASE + '/status', Object.assign({ method: 'GET', mode: 'cors', cache: 'no-store' }, XRAY_LAUNCHER_FETCH_OPTS))
+            .then(function(r) {
+                if (finished) return null;
+                clearTimeout(timer);
+                if (!r.ok) {
+                    finished = true;
+                    cb({ online: false });
+                    return null;
+                }
+                return r.json().catch(function() { return {}; });
+            })
+            .then(function(body) {
+                if (finished || body === null) return;
+                finished = true;
+                cb({
+                    online: !!(body && body.ok),
+                    carestream_exists: !!(body && body.carestream_exists),
+                    aidental_exists: !!(body && body.aidental_exists),
+                    nntnewtom_exists: !!(body && body.nntnewtom_exists)
+                });
+            })
+            .catch(function() {
+                if (!finished) {
+                    finished = true;
+                    clearTimeout(timer);
+                    cb({ online: false, permissionDenied: (permState === 'denied') });
+                }
+            });
+    });
 }
 
 function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
@@ -2301,39 +2354,45 @@ function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
     if (qParts.length) patQ = '?' + qParts.join('&');
     var url = XRAY_LAUNCHER_BASE + '/open/' +
         encodeURIComponent(launcherKey || 'carestream') + patQ;
-    var finished = false;
-    var bridgeTimeout = (launcherKey === 'aidental') ? 90000 : 2800;
-    var timer = setTimeout(function() {
-        if (!finished) {
-            finished = true;
-            cb(false, {});
-        }
-    }, bridgeTimeout);
-    fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' })
-        .then(function(r) {
-            if (finished) return null;
-            clearTimeout(timer);
-            return r.json().catch(function() { return {}; }).then(function(body) {
-                return { httpOk: r.ok, body: body || {} };
-            });
-        })
-        .then(function(res) {
-            if (finished || res === null) return;
-            finished = true;
-            var body = res.body || {};
-            var bridgeOk = !!(body.ok || body.aidental_running || res.httpOk);
-            if (launcherKey === 'aidental') {
-                bridgeOk = !!body.aidental_running;
-            }
-            cb(bridgeOk, body);
-        })
-        .catch(function() {
+    xrayLoopbackPermissionState(function(permState) {
+        var finished = false;
+        // Same fetch-vs-permission-popup race as pingXrayLauncher() above:
+        // give this call plenty of room if the LNA permission is still
+        // undecided, otherwise keep the normal short timeout.
+        var baseTimeout = (launcherKey === 'aidental') ? 90000 : 2800;
+        var bridgeTimeout = (permState === 'prompt') ? Math.max(baseTimeout, 30000) : baseTimeout;
+        var timer = setTimeout(function() {
             if (!finished) {
                 finished = true;
-                clearTimeout(timer);
-                cb(false, {});
+                cb(false, { permissionPrompt: (permState === 'prompt'), permissionDenied: (permState === 'denied') });
             }
-        });
+        }, bridgeTimeout);
+        fetch(url, Object.assign({ method: 'GET', mode: 'cors', cache: 'no-store' }, XRAY_LAUNCHER_FETCH_OPTS))
+            .then(function(r) {
+                if (finished) return null;
+                clearTimeout(timer);
+                return r.json().catch(function() { return {}; }).then(function(body) {
+                    return { httpOk: r.ok, body: body || {} };
+                });
+            })
+            .then(function(res) {
+                if (finished || res === null) return;
+                finished = true;
+                var body = res.body || {};
+                var bridgeOk = !!(body.ok || body.aidental_running || res.httpOk);
+                if (launcherKey === 'aidental') {
+                    bridgeOk = !!body.aidental_running;
+                }
+                cb(bridgeOk, body);
+            })
+            .catch(function() {
+                if (!finished) {
+                    finished = true;
+                    clearTimeout(timer);
+                    cb(false, { permissionDenied: (permState === 'denied') });
+                }
+            });
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3029,6 +3088,10 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             launcherLine = mediaTr('media.local.launcherHttpsBlocked');
         } else if (status.online) {
             launcherLine = mediaTr('media.local.launcherReady');
+        } else if (status.permissionPrompt) {
+            launcherLine = mediaTr('media.local.launcherPermissionPrompt');
+        } else if (status.permissionDenied) {
+            launcherLine = mediaTr('media.local.launcherPermissionDenied');
         } else {
             launcherLine = mediaTrRepl('media.local.launcherNotRunning', {
                 BAT: 'tools\\Start X-Ray Launcher.bat'
@@ -3054,6 +3117,14 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
         copyTextToClipboard(clipboardText);
 
         if (status.blocked || !status.online) {
+            if (status.permissionPrompt) {
+                alert(mediaTr('media.local.launcherPermissionPrompt'));
+                return;
+            }
+            if (status.permissionDenied) {
+                alert(mediaTr('media.local.launcherPermissionDenied'));
+                return;
+            }
             var neededMsgKey = (launcherKey === 'aidental')
                 ? 'media.local.aidentalLauncherNeeded'
                 : neededKey;
@@ -3094,6 +3165,14 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
                     SHORTCUT: shortcutName,
                     PATIENT: bridgeBody.search_text || searchText
                 }));
+                return;
+            }
+            if (bridgeBody.permissionPrompt) {
+                alert(mediaTr('media.local.launcherPermissionPrompt'));
+                return;
+            }
+            if (bridgeBody.permissionDenied) {
+                alert(mediaTr('media.local.launcherPermissionDenied'));
                 return;
             }
             alert(mediaTrRepl(neededKey, {

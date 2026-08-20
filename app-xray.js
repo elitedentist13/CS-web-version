@@ -2425,6 +2425,30 @@ var XRAY_SYSTEMS = {
         launchedMsgKey: 'media.local.nntnewtomLaunched',
         launcherNeededMsgKey: 'media.local.nntnewtomLauncherNeeded'
     },
+    // Rayscan (RAYBridge / SMARTDent V3): same local-bridge pattern as
+    // NNT-NEWTOM above. Confirmed live (2026-08-20) that RAYBridge.exe
+    // accepts patient demographics directly on the command line
+    // ("ID:...", "LastName:...", "FirstName:...", "MiddleName:...",
+    // "BirthDay:yyyy-MM-dd", "Sex:M|F") and opens/creates the matching
+    // chart, then hands off to the SMARTDent V3 viewer for the actual
+    // OPG/CT/Lateral Cephalometric images. See
+    // tools/xray-local-launcher.ps1 Start-RayBridgePatient and
+    // tools/installer-rayscan/README.md for the full contract.
+    rayscan: {
+        nameKey: 'media.sys.rayscan',
+        infoKey: 'media.sys.rayscan.info',
+        url: '',
+        launcherKey: 'rayscan',
+        desktopShortcutName: 'RAYBridge',
+        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\RAYBridge.lnk',
+        defaultDataPath: 'C:\\Ray',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: 'C:\\Ray\\RAYBridge\\RAYBridge.exe',
+        launchProtocol: false,
+        openMsgKey: 'media.local.rayscanOpen',
+        launchedMsgKey: 'media.local.rayscanLaunched',
+        launcherNeededMsgKey: 'media.local.rayscanLauncherNeeded'
+    },
     Trophy: {
         nameKey: 'media.sys.trophy',
         infoKey: 'media.sys.trophy.info',

@@ -5394,6 +5394,17 @@
             'zh-CN': '本机 NNT / NEWTOM CBCT 软件',
             'zh-Hant': '本機 NNT / NEWTOM CBCT 軟件'
         },
+        'media.sys.rayscan': { en: 'Rayscan (RAYBridge)', 'zh-CN': 'Rayscan (RAYBridge)', 'zh-Hant': 'Rayscan (RAYBridge)' },
+        'media.sys.rayscan.info': {
+            en: 'Sends this patient\u2019s ID, name, DOB and gender straight to RAYBridge on this PC \u2014 opens the matching chart in Rayscan/SMARTDent V3, or fills in a new one, with nothing to re-type.',
+            'zh-CN': '将此患者的编号、姓名、出生日期及性别直接传送至本机的 RAYBridge \u2014 在 Rayscan / SMARTDent V3 中打开或建立相应档案，无需重新输入。',
+            'zh-Hant': '將此病人的編號、姓名、出生日期及性別直接傳送至本機的 RAYBridge \u2014 在 Rayscan / SMARTDent V3 中開啟或建立相應檔案，無需重新輸入。'
+        },
+        'media.sys.rayscan.desktopHint': {
+            en: 'RAYBridge / SMARTDent V3 (Rayscan) software on this PC',
+            'zh-CN': '本机 RAYBridge / SMARTDent V3（Rayscan）软件',
+            'zh-Hant': '本機 RAYBridge / SMARTDent V3（Rayscan）軟件'
+        },
         'media.local.aidentalFillOpen': {
             en: 'Fill Woodpecker Create Patient from active patient?\n\n1. Open Woodpecker Ai-Dental manually (Patient page)\n2. Click "Create Patient" in Woodpecker\n3. Confirm here — fields will be filled:\n   • Name (English)\n   • Birthday\n   • Gender (Male/Female)\n\nActive patient: {PATIENT}\n\nRequires "Start X-Ray Launcher.bat" running on this PC.',
             'zh-CN': '从当前患者填入 Woodpecker「Create Patient」？\n\n1. 请手动打开 Woodpecker Ai-Dental（Patient 页面）\n2. 在 Woodpecker 中点击「Create Patient」\n3. 在此确认 — 将自动填入：\n   • Name（英文姓名）\n   • Birthday（出生日期）\n   • Gender（男/女）\n\n当前患者：{PATIENT}\n\n需在本机运行「Start X-Ray Launcher.bat」。',
@@ -5473,6 +5484,21 @@
             en: 'Could not start NNT / NEWTOM from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click NNT / NEWTOM again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
             'zh-CN': '无法从浏览器启动 NNT / NEWTOM。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 NNT / NEWTOM\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
             'zh-Hant': '無法從瀏覽器啟動 NNT / NEWTOM。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 NNT / NEWTOM\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
+        },
+        'media.local.rayscanOpen': {
+            en: 'Open Rayscan (RAYBridge) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (ID, name, DOB, gender sent directly to RAYBridge): {PATIENT}\n\nRAYBridge will open the matching chart in Rayscan / SMARTDent V3, or fill in a new one \u2014 nothing to re-type. When a new OPG / CT / Lateral Cephalometric scan is taken, click this button again to bring it up in the Rayscan viewer.\n\nRequires "Start X-Ray Launcher.bat" running on this PC.',
+            'zh-CN': '在本机打开 Rayscan (RAYBridge)？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（编号、姓名、出生日期、性别将直接传送给 RAYBridge）：{PATIENT}\n\nRAYBridge 会在 Rayscan / SMARTDent V3 中打开相应档案，或建立新档案 \u2014 无需重新输入。拍摄新的 OPG / CT / 头颅侧位片后，再次点击此按钮即可在 Rayscan 查看器中显示。\n\n需在本机运行「Start X-Ray Launcher.bat」。',
+            'zh-Hant': '在本機開啟 Rayscan (RAYBridge)？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（編號、姓名、出生日期、性別將直接傳送給 RAYBridge）：{PATIENT}\n\nRAYBridge 會在 Rayscan / SMARTDent V3 中開啟相應檔案，或建立新檔案 \u2014 無需重新輸入。拍攝新的 OPG / CT / 頭顱側位片後，再次按此按鈕即可在 Rayscan 檢視器中顯示。\n\n需在本機執行「Start X-Ray Launcher.bat」。'
+        },
+        'media.local.rayscanLaunched': {
+            en: 'Rayscan (RAYBridge) is starting.\n\nPatient ID, name, DOB and gender were sent directly to RAYBridge \u2014 no need to re-type: {PATIENT}\nThe matching chart opens in Rayscan / SMARTDent V3, or a new one is filled in.',
+            'zh-CN': '正在启动 Rayscan (RAYBridge)。\n\n患者编号、姓名、出生日期及性别已直接传送给 RAYBridge，无需重新输入：{PATIENT}\n相应档案将在 Rayscan / SMARTDent V3 中打开，或建立新档案。',
+            'zh-Hant': '正在啟動 Rayscan (RAYBridge)。\n\n病人編號、姓名、出生日期及性別已直接傳送給 RAYBridge，無需重新輸入：{PATIENT}\n相應檔案將在 Rayscan / SMARTDent V3 中開啟，或建立新檔案。'
+        },
+        'media.local.rayscanLauncherNeeded': {
+            en: 'Could not start Rayscan (RAYBridge) from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click Rayscan again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nPatient: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Rayscan (RAYBridge)。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 Rayscan\n\n或双击桌面快捷方式「{SHORTCUT}」。\n患者：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Rayscan (RAYBridge)。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 Rayscan\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n病人：{PATIENT}\n程式：{EXE}'
         },
         'media.local.ezdentiOpen': {
             en: 'Open EzDent-i on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n\nSearch by name or patient no. inside EzDent-i to open their chart, or fill in a new one for OPG/CT. Patient details are also sent straight to EzDent-i as a best-effort extra step, in case this PC\u2019s setup picks it up automatically \u2014 not guaranteed.\n\nRequires "Start X-Ray Launcher.bat" running.',

@@ -72,6 +72,17 @@ function setCurrentUserPermissions(raw) {
 
 function hasAppPermission(key) {
     if (!key) return true;
+    // Administrator role always overrides every authorization checkbox, no
+    // matter what is stored in that admin account's own `permissions` JSON.
+    // Without this, the Users→Edit panel shows the SAME checkbox grid for
+    // admin accounts as everyone else (see _openAdminUserPanel in
+    // app-config.js), and _saveUser() always writes a concrete permissions
+    // object (never leaves it NULL) -- so an admin account that ever had a
+    // box unchecked (even by accident) would otherwise be locked out of
+    // that area too. canAccessConfiguration() already special-cased this
+    // for the Configuration module only; this makes the override universal
+    // for every permission key, current and future, in one place.
+    if (String(currentRole || '').toLowerCase() === 'admin') return true;
     if (currentUserPermissions === null) return true;
     if (currentUserPermissions[key] === false) return false;
     var def = USER_PERM_REGISTRY.find(function (d) { return d.key === key; });

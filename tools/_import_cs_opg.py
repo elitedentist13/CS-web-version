@@ -3,7 +3,7 @@ Banana's Supabase `xrays` bucket + table, via the same anon-key REST
 contract the web app itself uses (see app.js SB client + app-xray.js
 uploadSingleXrayFile).
 
-Two source cases per chart folder under \\RECEPTION\IMAGE\SCAN\{chart}\:
+Two source cases per chart folder under \\CSMAIN\IMAGE\SCAN\{chart}\:
   1. Plain top-level JPEG already classified as a real panoramic by
      _classify-cs-scan-jpegs.py (aspect >= 1.62, grayscale/color, not A4).
      -> uploaded as-is.
@@ -52,7 +52,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageFilter
 
-SCAN_ROOT = r"\\RECEPTION\IMAGE\SCAN"
+SCAN_ROOT = r"\\CSMAIN\IMAGE\SCAN"
 SUPABASE_URL = "https://kprihawipljrltfzpfjd.supabase.co"
 SUPABASE_ANON_KEY = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."

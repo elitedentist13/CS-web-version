@@ -5592,14 +5592,18 @@ var REPORT = (function () {
         '</div>';
     }
 
+    var dsDailyAllowed = (typeof hasAppPermission !== 'function') || hasAppPermission('report_clinic_daily');
+    var dsMonthlyAllowed = (typeof hasAppPermission !== 'function') || hasAppPermission('report_clinic_monthly');
     wrap.innerHTML =
       '<div style="padding:12px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+            (dsDailyAllowed ?
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_dailySummaryView === 'daily' ? 'var(--primary)' : 'var(--gray)') + ';" ' +
-              'onclick="REPORT.setDailySummaryView(\'daily\')">' + esc(tr('report.ds.btnDaily')) + '</button>' +
+              'onclick="REPORT.setDailySummaryView(\'daily\')">' + esc(tr('report.ds.btnDaily')) + '</button>' : '') +
+            (dsMonthlyAllowed ?
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_dailySummaryView === 'monthly' ? 'var(--primary)' : 'var(--gray)') + ';" ' +
-              'onclick="REPORT.setDailySummaryView(\'monthly\')">' + esc(tr('report.ds.btnMonthly')) + '</button>' +
+              'onclick="REPORT.setDailySummaryView(\'monthly\')">' + esc(tr('report.ds.btnMonthly')) + '</button>' : '') +
             '<button class="btn-add" style="padding:7px 12px;font-size:12px;background:' + (_dailySummaryDetailMode ? '#0d6efd' : '#64748b') + ';display:inline-flex;align-items:center;gap:8px;" ' +
               'onclick="REPORT.toggleDailySummaryDetail()">' +
               '<span>' + esc(tr('report.ds.btnDetailTx')) + '</span>' +
@@ -6865,16 +6869,58 @@ var REPORT = (function () {
     }
   }
 
+  // Report-tab permission map: which per-user authorization checkbox
+  // (Configuration → Users → Edit → Authorization) each report tab requires.
+  // Admin accounts always pass (see hasAppPermission()'s admin override).
+  var REPORT_TAB_PERM_MAP = {
+    drDaily: 'report_doctor_daily',
+    drMonthly: 'report_doctor_monthly',
+    auditTrail: 'audit_trail_report'
+  };
+
+  function reportTabAllowed(key) {
+    var perm = REPORT_TAB_PERM_MAP[key];
+    if (!perm) return true;
+    return (typeof hasAppPermission !== 'function') || hasAppPermission(perm);
+  }
+
+  function applyReportTabPermissionGuards() {
+    Object.keys(REPORT_TAB_PERM_MAP).forEach(function (key) {
+      var btn = document.querySelector('#reportSection [data-rpt="' + key + '"]');
+      if (!btn) return;
+      var allowed = reportTabAllowed(key);
+      btn.style.display = allowed ? '' : 'none';
+    });
+  }
+
   function switchTab(key) {
     // Admin-only tab gate
     if (key === 'patientDir' && typeof currentRole !== 'undefined' && currentRole !== 'admin') {
       alert(tr('report.alert.patientDirAdminOnly'));
       key = 'dailyIncome';
     }
+    // Per-user authorization checkboxes (Configuration → Users → Edit → Authorization)
+    if (!reportTabAllowed(key)) {
+      if (typeof permToastDenied === 'function') permToastDenied();
+      key = 'dailyIncome';
+    }
     if (key === 'auditTrail' && _tab !== 'auditTrail') _auditSubTab = 'voidBills';
     _tab = key;
     if (key === 'drDaily') _drDailyMode = 'simple';
     if (key === 'drMonthly') _drMonthlyMode = 'simple';
+    if (key === 'dailySummary') {
+      // Fall back to whichever clinic-summary view (daily/monthly) this
+      // user's authorization checkboxes actually permit.
+      if (_dailySummaryView === 'daily' && typeof hasAppPermission === 'function' &&
+          !hasAppPermission('report_clinic_daily') && hasAppPermission('report_clinic_monthly')) {
+        _dailySummaryView = 'monthly';
+      } else if (_dailySummaryView === 'monthly' && typeof hasAppPermission === 'function' &&
+          !hasAppPermission('report_clinic_monthly') && hasAppPermission('report_clinic_daily')) {
+        _dailySummaryView = 'daily';
+      }
+    }
+
+    applyReportTabPermissionGuards();
 
     // highlight left buttons (reuse cfg-nav-item style)
     document.querySelectorAll('#reportSection [data-rpt]').forEach(function (b) {
@@ -7023,7 +7069,13 @@ var REPORT = (function () {
     voidBillChangePage: voidBillChangePage,
     voidBillJumpToPage: voidBillJumpToPage,
     setDailySummaryView: function (v) {
-      _dailySummaryView = (v === 'monthly') ? 'monthly' : 'daily';
+      var view = (v === 'monthly') ? 'monthly' : 'daily';
+      var perm = (view === 'monthly') ? 'report_clinic_monthly' : 'report_clinic_daily';
+      if (typeof hasAppPermission === 'function' && !hasAppPermission(perm)) {
+        if (typeof permToastDenied === 'function') permToastDenied();
+        return;
+      }
+      _dailySummaryView = view;
       if (_tab === 'dailySummary') refresh();
     },
     setDailySummaryDetailMode: function (on) {

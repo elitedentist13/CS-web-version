@@ -1,5 +1,5 @@
 # tools/build-installer-packages.ps1
-# Joyful Smile / Banana Clinic Manager — assembles the two dedicated,
+# Joyful Smile / Banana Clinic Manager — assembles the dedicated,
 # single-system installer packages from the one canonical engine source
 # (xray-local-launcher.ps1 / install-xray-bridge.ps1 in this folder), and
 # zips each into a standalone file ready to copy to a clinic PC.
@@ -44,6 +44,12 @@ $Packages = @(
         folder = "installer-nntnewtom"
         zipName = "Banana-NNT-Bridge-Installer.zip"
         sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
+    },
+    [ordered]@{
+        name = "Rayscan"
+        folder = "installer-rayscan"
+        zipName = "Banana-Rayscan-Bridge-Installer.zip"
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1")
     }
 )
 

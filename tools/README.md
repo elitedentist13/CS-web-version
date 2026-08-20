@@ -2,10 +2,10 @@
 
 This folder holds the **local X-ray bridge**: a small background helper
 that lets the Banana web app (running in a normal browser) open desktop
-imaging software — **NNT-NEWTOM**, **EzDent-i (Vatech)**, **Carestream CS
-Imaging**, or **Ai-Dental** — with the current patient's chart no., name,
-DOB and gender already sent across, instead of a doctor/assistant
-re-typing everything by hand.
+imaging software — **NNT-NEWTOM**, **EzDent-i (Vatech)**, **Rayscan
+(RAYBridge / SMARTDent V3)**, **Carestream CS Imaging**, or **Ai-Dental**
+— with the current patient's chart no., name, DOB and gender already sent
+across, instead of a doctor/assistant re-typing everything by hand.
 
 ## Two ways to deploy it
 
@@ -22,12 +22,14 @@ PC:
 |---|---|
 | [`installer-ezdenti/`](installer-ezdenti/README.md) (`Banana-EzDenti-Bridge-Installer.zip`) | Any PC that only needs **EzDent-i (Vatech)**. |
 | [`installer-nntnewtom/`](installer-nntnewtom/README.md) (`Banana-NNT-Bridge-Installer.zip`) | Any PC that only needs **NNT-NEWTOM**. |
+| [`installer-rayscan/`](installer-rayscan/README.md) (`Banana-Rayscan-Bridge-Installer.zip`) | Any PC that only needs **Rayscan (RAYBridge / SMARTDent V3)**. |
 
-Each has its own install path (`C:\BananaBridge-EzDenti` vs. `C:\NNT`), its
-own startup-shortcut name, and its own README with system-specific
-troubleshooting. Don't install both packages on the same PC — Banana
-always talks to a bridge on the same port (17890), so only one can run on
-a given PC at a time.
+Each has its own install path (`C:\BananaBridge-EzDenti` /
+`C:\BananaBridge-Rayscan` / `C:\NNT`), its own startup-shortcut name, and
+its own README with system-specific troubleshooting. Don't install more
+than one of these packages on the same PC — Banana always talks to a
+bridge on the same port (17890), so only one can run on a given PC at a
+time.
 
 Only use **this** top-level folder's `install-xray-bridge.ps1` /
 `Install X-Ray Bridge.bat` directly if a specific PC genuinely needs
@@ -35,12 +37,12 @@ Only use **this** top-level folder's `install-xray-bridge.ps1` /
 multi-purpose PC with both NNT and EzDent-i installed) — it covers every
 system in one process, same as it always has.
 
-Both dedicated packages and this top-level copy share the exact same
+All three dedicated packages and this top-level copy share the exact same
 underlying engine (`xray-local-launcher.ps1`); `build-installer-packages.ps1`
-is what keeps the two subfolders in sync with it and rebuilds their zips —
-run that after editing `xray-local-launcher.ps1` or `install-xray-bridge.ps1`
-here, rather than hand-editing the copies inside `installer-ezdenti/` or
-`installer-nntnewtom/`.
+is what keeps the three subfolders in sync with it and rebuilds their zips
+— run that after editing `xray-local-launcher.ps1` or `install-xray-bridge.ps1`
+here, rather than hand-editing the copies inside `installer-ezdenti/`,
+`installer-nntnewtom/`, or `installer-rayscan/`.
 
 ## The combined (multi-system) bridge in this folder
 
@@ -69,8 +71,8 @@ already exists in *its* database.
 | `Start X-Ray Launcher.bat` | Double-click wrapper to run the bridge in the foreground (for manual testing — the installer sets up automatic background start, so you normally won't need this). |
 | `Test X-Ray Launcher.bat` | Double-click wrapper for `-SelfTest` (77+ automated checks, nothing is launched or written outside a temp folder). |
 | `Uninstall X-Ray Bridge.bat` | Double-click wrapper to remove the auto-start shortcut and stop the bridge. |
-| `installer-ezdenti/`, `installer-nntnewtom/` | The two dedicated single-system packages described above — each deployable on its own. |
-| `build-installer-packages.ps1` | Syncs `xray-local-launcher.ps1` / `install-xray-bridge.ps1` into the two subfolders above and rebuilds their zips. Run after editing either canonical file. |
+| `installer-ezdenti/`, `installer-nntnewtom/`, `installer-rayscan/` | The three dedicated single-system packages described above — each deployable on its own. |
+| `build-installer-packages.ps1` | Syncs `xray-local-launcher.ps1` / `install-xray-bridge.ps1` into the three subfolders above and rebuilds their zips. Run after editing either canonical file. |
 | `CHANGELOG.md` | Full development history and investigation notes — useful background if you're extending this, not needed to just deploy it. |
 
 Files starting with `_` other than the two NNT companions above (e.g.
@@ -98,8 +100,8 @@ needed to deploy the bridge and don't have to be copied to a clinic PC.
    - starts it immediately too, so it's live right away.
 4. In Banana, open a patient → **Consultation → X-ray** tab, and click the
    button for whichever imaging software is actually installed on that PC
-   (e.g. "EzDent-i (Vatech)" or "NNT-NEWTOM"). It should open with the
-   patient's details already sent across.
+   (e.g. "EzDent-i (Vatech)", "NNT-NEWTOM", or "Rayscan"). It should open
+   with the patient's details already sent across.
 5. Leave it be — it re-starts itself on every login from then on. To move
    it to a different PC or reinstall after a code update, just re-run step
    3 (safe to re-run any time; every step is idempotent).
@@ -126,6 +128,19 @@ To remove it from a PC, double-click **`Uninstall X-Ray Bridge.bat`**.
   **not guaranteed** — treat the clipboard paste as the reliable path
   until/unless Vatech support confirms the exact mechanism for a given
   clinic's EzWebServer setup.
+- **Rayscan (RAYBridge / SMARTDent V3)**: confirmed live (2026-08-20)
+  against `RAYBridge.exe`'s own embedded usage string and this clinic's
+  `LocalConfig.xml` / a real `PatientInfo.ini` handoff file. Launches
+  `RAYBridge.exe "ID:<patient_no, clinic prefix stripped>" "LastName:<...>"
+  "FirstName:<...>" "MiddleName:<...>" "BirthDay:yyyy-MM-dd" "Sex:M|F"` —
+  RAYBridge opens the matching chart, or its own new-patient screen
+  pre-filled, if it doesn't exist yet. `ID:` is normalized the same way as
+  NNT's `/PATID` (strip any clinic letter prefix, e.g. "MK") after a real
+  bug report showed old OPG records predating that prefix don't match
+  otherwise. The name split assumes HK/Cantonese surname-first English
+  names (see `installer-rayscan/README.md` for the full contract and
+  network setup between the client PC and the imaging server next to the
+  OPG/CT unit).
 - **Carestream / Ai-Dental**: no known command-line/file bridge exists for
   either. The button opens the desktop shortcut and copies the patient's
   name + chart no. to the clipboard for manual search inside the app.

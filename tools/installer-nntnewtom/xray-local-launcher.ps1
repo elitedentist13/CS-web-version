@@ -129,6 +129,33 @@ $Systems = @{
             "C:\Program Files (x86)\CEFLA\NNT\NNT.exe"
         )
     }
+    # Rayscan / SMARTDent V3 (RAY Co.). Confirmed live on a real clinic PC
+    # (2026-08-20, hostname "Doctor-1", chart KT005455): Public Desktop has
+    # "RAYBridge.lnk" -> C:\Ray\RAYBridge\RAYBridge.exe (empty Arguments --
+    # same "shortcut carries no args, caller builds them fresh" pattern as
+    # NNTBridge.exe above) and "SMARTDent V3.lnk" -> C:\Ray\RayView\SMARTDent.exe.
+    # This PC is the CLIENT: RAYBridge / RayView / the "Ray Local Server"
+    # Windows service all run locally and talk to the clinic's imaging
+    # server (C:\Ray\RAYBridge\local_server_config.xml and
+    # C:\Ray\RayView\local_server_config.xml both point
+    # global_ip_address=192.168.50.140, global_port=9876 -- almost certainly
+    # DESKTOP-CU5IQLC next to the OPG/CT unit; local_port=8765 is served by
+    # local_server_console.exe on THIS pc). That client<->server sync is
+    # entirely Ray's own software -- this bridge only ever needs to launch
+    # RAYBridge.exe on whatever PC the browser is open on, exactly like the
+    # NNTBridge/EzDent-i pattern above.
+    rayscan = @{
+        shortcuts = @(
+            (Join-Path $PublicDesktop "RAYBridge.lnk"),
+            (Join-Path $UserDesktop "RAYBridge.lnk"),
+            (Join-Path $PublicDesktop "SMARTDent V3.lnk"),
+            (Join-Path $UserDesktop "SMARTDent V3.lnk")
+        )
+        executables = @(
+            "C:\Ray\RAYBridge\RAYBridge.exe",
+            "C:\Ray\RayView\SMARTDent.exe"
+        )
+    }
     ezdenti = @{
         shortcuts = @(
             (Join-Path $PublicDesktop "EzDent-i.lnk"),
@@ -366,17 +393,28 @@ function Convert-NntPatientId($Value) {
     return $s.Trim()
 }
 
-# 2D JPEG/PNG scans live on the reception share keyed by bare NNT chart
-# number (e.g. \\RECEPTION\IMAGE\SCAN\002505). Consultation-room PCs fetch
-# these into Banana without writing anything to Supabase. Volumetric / .pan_*
-# files stay inside NNT.exe — the browser cannot decode them.
+# 2D JPEG/PNG scans live on the Clinic Solution server's share keyed by bare
+# NNT chart number. CORRECTED 2026-08-20 (live investigation from a real
+# consultation-room PC, "DOCTOR-1"): the original "\\RECEPTION\..." hostname
+# below was never actually confirmed reachable from a client PC -- it came
+# from an earlier assumption baked in before this was checked live. On this
+# clinic's real network, "RECEPTION" does not resolve at all (Resolve-DnsName
+# / net view both fail), while the CS desktop shortcut's own ODBC DSN
+# ("ClinicSolution", HKLM\SOFTWARE\WOW6432Node\ODBC\ODBC.INI\ClinicSolution)
+# points at SQL Server host 192.168.50.2, whose NetBIOS name is "CSMAIN" --
+# and \\CSMAIN\IMAGE\Scan\{chart} is the share that actually holds the scans
+# (confirmed live: \\CSMAIN\IMAGE\Scan\006681 held patient MK006681's 2 real
+# OPG JPEGs, matching Banana's own "MK" chart-prefix once stripped by
+# Convert-NntPatientId below). Consultation-room PCs fetch these into Banana
+# without writing anything to Supabase. Volumetric / .pan_* files stay inside
+# NNT.exe — the browser cannot decode them.
 $script:NntScanRootsOverride = $null
 $script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
 
 function Get-NntScanRoots {
     if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
     return @(
-        "\\RECEPTION\IMAGE\SCAN",
+        "\\CSMAIN\IMAGE\Scan",
         "C:\Image\SCAN",
         "C:\IMAGE\SCAN"
     )
@@ -623,7 +661,7 @@ function Start-NntBridgePatient($Resolved, $Patient) {
 
     # /DIR fix, confirmed by tracing CS's own NNTBridge invocation live
     # (2026-08-19, chart 002505): CS passes /DIR pointing at the PATIENT'S
-    # OWN chart folder (\\RECEPTION\IMAGE\SCAN\{chart}), NOT the shared
+    # OWN chart folder (\\CSMAIN\IMAGE\Scan\{chart}), NOT the shared
     # SCAN root. NNT then looks for "<DIR>\Document\..." directly under
     # that -- which is exactly the per-chart SCAN folder layout, and why
     # an earlier attempt with /DIR = the shared SCAN root never worked
@@ -693,6 +731,187 @@ function Start-NntBridgePatient($Resolved, $Patient) {
         docpath = $docPath
         chinese_name = $Patient.chinese_name
         mode = "nntbridge"
+        argList = ($argList -join " ")
+    }
+}
+
+function Resolve-RayBridge($Resolved) {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($Resolved -and $Resolved.workingDirectory) {
+        $candidates.Add((Join-Path $Resolved.workingDirectory "RAYBridge.exe"))
+    }
+    if ($Resolved -and $Resolved.target) {
+        $targetDir = Split-Path -Parent $Resolved.target
+        if ($targetDir) { $candidates.Add((Join-Path $targetDir "RAYBridge.exe")) }
+    }
+    $candidates.Add("C:\Ray\RAYBridge\RAYBridge.exe")
+    return First-Existing $candidates
+}
+
+# RAYBridge's own usage example (found embedded in RAYBridge.exe's string
+# table, confirmed against this clinic's C:\Ray\RAYBridge\SYS\LocalConfig.xml
+# which has <Integration><SelectedFileFormat value="Command" />, i.e. this
+# exact CLI form is the one actually in effect here -- not the alternative
+# -VDDS/-CSV file-based settings the same binary also supports):
+#   RayBridge.exe "ID:PID2020-00001" "LastName:Smith" "FirstName:Tom" "MiddleName:middle" "BirthDay:1993-07-28" "Sex:M"
+# Wants ISO yyyy-MM-dd (Banana's <input type=date> already gives exactly
+# that), unlike NNT's dd/MM/yyyy above.
+function Convert-RayBirthDate($Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy")
+    foreach ($fmt in $formats) {
+        try {
+            $dt = [DateTime]::ParseExact($Value, $fmt, [Globalization.CultureInfo]::InvariantCulture)
+            return $dt.ToString("yyyy-MM-dd")
+        } catch {}
+    }
+    try {
+        $dt = [DateTime]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture)
+        return $dt.ToString("yyyy-MM-dd")
+    } catch {
+        return $Value
+    }
+}
+
+# Banana stores one free-text "full_name" field. Confirmed against a real
+# scanned record on this PC (C:\Ray\RayView\Temp\Integration\Save\
+# KT005455_19660915\...\PatientInfo.ini, "Patient Name = TANG^PUI^SHEUNG"):
+# this clinic's English names are surname-first (HK/Cantonese romanization
+# convention), matching RAYBridge's LastName/FirstName/MiddleName order --
+# so the FIRST token is taken as the surname, not the last one.
+function Split-RayPatientName($FullName) {
+    $s = [string]$FullName
+    $tokens = @($s.Trim() -split '\s+' | Where-Object { $_ })
+    $result = [ordered]@{ last = ""; first = ""; middle = "" }
+    if ($tokens.Count -ge 1) { $result.last = $tokens[0] }
+    if ($tokens.Count -ge 2) { $result.first = $tokens[1] }
+    if ($tokens.Count -ge 3) { $result.middle = ($tokens[2..($tokens.Count - 1)] -join " ") }
+    return $result
+}
+
+# CORRECTED 2026-08-20 (real bug report from a live clinic PC): the
+# original assumption below -- keep patient_no AS-IS, prefix included --
+# was based on a single freshly-created PatientInfo.ini sample. A brand-new
+# patient has no pre-existing Rayscan record to fail to match against, so
+# that sample never actually exercised this path. In practice, OLD/existing
+# OPG records already sitting in Rayscan's own database were entered before
+# Banana's multi-branch "patient_no_prefix" existed (e.g. this clinic's "MK"
+# / Mongkok prefix), so they're keyed on the bare chart number. Sending the
+# full "MK..." string as RAYBridge's ID: therefore fails to match those old
+# records -- RAYBridge/SMARTDent falls back to an unmatched/new-patient
+# state instead of surfacing the existing OPG history. Same root cause as
+# NNT's own /PATID prefix stripping above, so it reuses the exact same
+# fix: Convert-NntPatientId's generic "extract the first run of digits"
+# already strips ANY clinic letter prefix (not just literally "MK"),
+# regardless of which branch/clinic this is deployed at.
+function Convert-RayPatientId($Value) {
+    return Convert-NntPatientId $Value
+}
+
+# Banana's X-ray bridge itself runs as a minimized PowerShell window
+# (install-xray-bridge.ps1 starts it with -WindowStyle Minimized so staff
+# never see a console). Windows then treats any GUI that process launches
+# as "not allowed to steal foreground": RAYBridge.exe starts SMARTDent
+# minimized, and the taskbar button just flashes (orange/red) until a
+# human clicks it. Confirmed live 2026-08-20 on a consultation-room PC.
+# Fix: after launching RAYBridge, fire a tiny hidden helper that waits for
+# SMARTDent's real window, restores it from minimized, and force-focuses
+# it (AttachThreadInput + a dummy Alt keypress -- the standard way around
+# Windows' SetForegroundWindow lock for background processes). Non-blocking
+# so Banana's HTTP /open/rayscan call is not delayed.
+function Start-RestoreRayViewerWindow {
+    $helper = @'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class RayWin {
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr extra);
+}
+"@
+$SW_RESTORE = 9
+$SW_SHOW = 5
+$deadline = (Get-Date).AddSeconds(15)
+$hwnd = [IntPtr]::Zero
+while ((Get-Date) -lt $deadline) {
+    foreach ($n in @("SMARTDent", "RayView", "RAYBridge")) {
+        $p = Get-Process -Name $n -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+            Select-Object -First 1
+        if ($p) { $hwnd = $p.MainWindowHandle; break }
+    }
+    if ($hwnd -ne [IntPtr]::Zero) { break }
+    Start-Sleep -Milliseconds 300
+}
+if ($hwnd -eq [IntPtr]::Zero) { exit 0 }
+if ([RayWin]::IsIconic($hwnd)) {
+    [RayWin]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
+} else {
+    [RayWin]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
+}
+[RayWin]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
+$fg = [RayWin]::GetForegroundWindow()
+$dummy = [uint32]0
+$fgTid = [RayWin]::GetWindowThreadProcessId($fg, [ref]$dummy)
+$curTid = [RayWin]::GetCurrentThreadId()
+$dummy2 = [uint32]0
+$winTid = [RayWin]::GetWindowThreadProcessId($hwnd, [ref]$dummy2)
+if ($fgTid -ne $curTid) { [RayWin]::AttachThreadInput($curTid, $fgTid, $true) | Out-Null }
+if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [RayWin]::AttachThreadInput($curTid, $winTid, $true) | Out-Null }
+[RayWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+[RayWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+[RayWin]::BringWindowToTop($hwnd) | Out-Null
+[RayWin]::SetForegroundWindow($hwnd) | Out-Null
+if ($fgTid -ne $curTid) { [RayWin]::AttachThreadInput($curTid, $fgTid, $false) | Out-Null }
+if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [RayWin]::AttachThreadInput($curTid, $winTid, $false) | Out-Null }
+'@
+    try {
+        $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($helper))
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $enc
+        ) | Out-Null
+    } catch {}
+}
+
+function Start-RayBridgePatient($Resolved, $Patient) {
+    $bridge = Resolve-RayBridge $Resolved
+    $patId = if ($Patient.patient_no) { Convert-RayPatientId $Patient.patient_no } else { $Patient.patient_id }
+    if (-not $bridge -or [string]::IsNullOrWhiteSpace($patId)) {
+        return $null
+    }
+
+    $workDir = if ($Resolved.workingDirectory) { $Resolved.workingDirectory } else { Split-Path -Parent $bridge }
+    $name = Split-RayPatientName $Patient.patient_name
+    $dob = Convert-RayBirthDate $Patient.dob
+    $sex = Convert-NntSex $Patient.sex
+
+    $argList = New-Object System.Collections.Generic.List[string]
+    $argList.Add((Quote-ProcessArg ("ID:" + $patId)))
+    if ($name.last) { $argList.Add((Quote-ProcessArg ("LastName:" + $name.last))) }
+    if ($name.first) { $argList.Add((Quote-ProcessArg ("FirstName:" + $name.first))) }
+    if ($name.middle) { $argList.Add((Quote-ProcessArg ("MiddleName:" + $name.middle))) }
+    if ($dob) { $argList.Add((Quote-ProcessArg ("BirthDay:" + $dob))) }
+    if ($sex) { $argList.Add((Quote-ProcessArg ("Sex:" + $sex))) }
+
+    $startArgs = @{ FilePath = $bridge; ArgumentList = ($argList -join " "); WindowStyle = "Normal" }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $startArgs.WorkingDirectory = $workDir
+    }
+    Start-Process @startArgs
+    Start-RestoreRayViewerWindow
+    return [ordered]@{
+        bridge = $bridge
+        target = $bridge
+        workingDirectory = $workDir
+        patient_id = $patId
+        mode = "raybridge"
         argList = ($argList -join " ")
     }
 }
@@ -961,6 +1180,8 @@ function Handle-Request($RawPath) {
             $bridgeLaunch = Start-NntBridgePatient $resolved $patientContext
         } elseif ($key -eq "ezdenti") {
             $bridgeLaunch = Start-EzdentiBridgePatient $resolved $patientContext
+        } elseif ($key -eq "rayscan") {
+            $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext
         }
         if (-not $bridgeLaunch) {
             Start-ResolvedProgram $resolved
@@ -1026,6 +1247,57 @@ function Invoke-SelfTest {
     Assert-Equal "word Male"     "M" (Convert-NntSex "Male")
     Assert-Equal "Empty"         ""  (Convert-NntSex "")
     Assert-Equal "Garbage value" ""  (Convert-NntSex "unknown")
+
+    Write-Host "== Convert-RayBirthDate (Rayscan/RAYBridge wants ISO yyyy-MM-dd) ==" -ForegroundColor Cyan
+    Assert-Equal "ISO date passes through"  "1969-05-23" (Convert-RayBirthDate "1969-05-23")
+    Assert-Equal "ISO date, single digits"  "2001-01-05" (Convert-RayBirthDate "2001-01-05")
+    Assert-Equal "Empty stays empty"        ""           (Convert-RayBirthDate "")
+    Assert-Equal "Null stays empty"         ""           (Convert-RayBirthDate $null)
+    Assert-Equal "Slash legacy format"      "1958-06-09" (Convert-RayBirthDate "1958/6/9")
+
+    Write-Host "== Split-RayPatientName (HK surname-first English names, evidence: real PatientInfo.ini) ==" -ForegroundColor Cyan
+    $n1 = Split-RayPatientName "TANG PUI SHEUNG"
+    Assert-Equal "3 tokens: last"   "TANG"        $n1.last
+    Assert-Equal "3 tokens: first"  "PUI"         $n1.first
+    Assert-Equal "3 tokens: middle" "SHEUNG"      $n1.middle
+    $n2 = Split-RayPatientName "HSIUNG KWAN MING EXTRA"
+    Assert-Equal "4 tokens: middle joins the rest" "MING EXTRA" $n2.middle
+    $n3 = Split-RayPatientName "SMITH"
+    Assert-Equal "1 token: last only" "SMITH" $n3.last
+    Assert-Equal "1 token: first empty" "" $n3.first
+    $n4 = Split-RayPatientName ""
+    Assert-Equal "Empty name: last empty" "" $n4.last
+    $n5 = Split-RayPatientName "  TANG   PUI  "
+    Assert-Equal "Extra whitespace collapses" "TANG" $n5.last
+    Assert-Equal "Extra whitespace collapses (first)" "PUI" $n5.first
+
+    Write-Host "== Convert-RayPatientId (strip Banana's clinic prefix, e.g. 'MK', so RAYBridge's ID: matches OLD Rayscan records) ==" -ForegroundColor Cyan
+    Assert-Equal "Real bug report: MK-prefixed chart number" "005455" (Convert-RayPatientId "MK005455")
+    Assert-Equal "Lowercase prefix"                            "005455" (Convert-RayPatientId "mk005455")
+    Assert-Equal "No prefix, digits only"                      "005455" (Convert-RayPatientId "005455")
+    Assert-Equal "Different clinic's letter prefix"            "013524" (Convert-RayPatientId "ABC013524")
+    Assert-Equal "Empty stays empty"                           ""       (Convert-RayPatientId "")
+    Assert-Equal "Null stays empty"                            ""       (Convert-RayPatientId $null)
+
+    Write-Host "== Start-RestoreRayViewerWindow (helper exists; does not wait on SMARTDent) ==" -ForegroundColor Cyan
+    Assert-Equal "helper is a function" $true ($null -ne (Get-Command Start-RestoreRayViewerWindow -ErrorAction SilentlyContinue))
+
+    Write-Host "== Start-RayBridgePatient (no real launch -- negative paths only) ==" -ForegroundColor Cyan
+    $rayPatient = [ordered]@{ patient_no = "KT005455"; patient_name = "TANG PUI SHEUNG"; dob = "1966-09-15"; sex = "F" }
+    # Deliberately NOT testing "RAYBridge.exe missing -> returns null" here:
+    # Resolve-RayBridge's hardcoded C:\Ray\RAYBridge\RAYBridge.exe fallback
+    # genuinely exists on a real Rayscan PC (confirmed live, 2026-08-20), so
+    # that path can't be forced to "not found" without actually depending on
+    # what's installed on whatever PC runs -SelfTest -- same reasoning as
+    # Resolve-EzdentiBridge's own real hardcoded fallback path below. The
+    # only deterministic negative, regardless of what's on disk, is a
+    # missing patient_no/patient_id (checked before Start-Process is ever
+    # reached). Genuine coverage of the real launch is opt-in only via
+    # -IncludeLiveLaunch (see Handle-Request checks near the bottom).
+    $noPatId = Start-RayBridgePatient ([ordered]@{ workingDirectory = $env:TEMP; target = "" }) ([ordered]@{ patient_name = "NO ID" })
+    Assert-Equal "No patient_no/id -> returns null" $true ($null -eq $noPatId)
+    $noResolvedRay = Start-RayBridgePatient $null $rayPatient
+    Assert-Equal "Null resolved -> still safe (no throw)" $true ($true)
 
     Write-Host "== Convert-GenderWord (EzDent-i linkage.xml wants Male/Female words) ==" -ForegroundColor Cyan
     Assert-Equal "Male"          "Male"   (Convert-GenderWord "M")
@@ -1179,6 +1451,8 @@ function Invoke-SelfTest {
     Assert-Equal "nntnewtom.exists is a boolean" $true ($nnt.exists -is [bool])
     $ezResolveCheck = Resolve-System "ezdenti" ""
     Assert-Equal "ezdenti.exists is a boolean" $true ($ezResolveCheck.exists -is [bool])
+    $rayResolveCheck = Resolve-System "rayscan" ""
+    Assert-Equal "rayscan.exists is a boolean" $true ($rayResolveCheck.exists -is [bool])
     Assert-Equal "unknown system key returns null" $true ((Resolve-System "does-not-exist" "") -eq $null)
 
     Write-Host "== -EnabledSystems (installer-ezdenti / installer-nntnewtom isolation) ==" -ForegroundColor Cyan
@@ -1239,8 +1513,18 @@ function Invoke-SelfTest {
         } else {
             Assert-Equal "/open/ezdenti returns 404 when EzDent-i not installed on this PC" 404 $ezOpenResp.status
         }
+        # Same opt-in trade-off: if RAYBridge.exe is actually installed here,
+        # this really does launch it with the fabricated patient above
+        # (patient_no=001287, "HSIUNG KWAN MING").
+        $rayQs = "/open/rayscan?" + $qs.Split('?')[1]
+        $rayOpenResp = Handle-Request $rayQs
+        if ($rayResolveCheck.exists) {
+            Assert-Equal "/open/rayscan returns 200 and launches the real bridge" 200 $rayOpenResp.status
+        } else {
+            Assert-Equal "/open/rayscan returns 404 when Rayscan not installed on this PC" 404 $rayOpenResp.status
+        }
     } else {
-        Write-Host "  [SKIP] /open/nntnewtom, /open/ezdenti live-launch checks (pass -IncludeLiveLaunch to run them)" -ForegroundColor DarkYellow
+        Write-Host "  [SKIP] /open/nntnewtom, /open/ezdenti, /open/rayscan live-launch checks (pass -IncludeLiveLaunch to run them)" -ForegroundColor DarkYellow
     }
 
     Write-Host ""

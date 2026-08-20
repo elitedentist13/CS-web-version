@@ -1,5 +1,5 @@
 """Batch-upload population A: CS charts that already have a plain
-top-level real-panoramic JPEG under \\RECEPTION\IMAGE\SCAN\{chart}\ (no
+top-level real-panoramic JPEG under \\CSMAIN\IMAGE\SCAN\{chart}\ (no
 proprietary decode needed -- see _census-opg-population.py bucket A).
 
 Reuses the exact same extraction + Supabase upload contract validated on

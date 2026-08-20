@@ -1,4 +1,4 @@
-"""Classify every chart folder under \\RECEPTION\IMAGE\SCAN into:
+"""Classify every chart folder under \\CSMAIN\IMAGE\SCAN into:
   A. has a plain top-level real-panoramic JPEG (easy Supabase upload, no
      decode needed)
   B. no plain JPEG, but has an NNT-proprietary 2D study (*.2dh under
@@ -17,7 +17,7 @@ import sys
 from collections import Counter
 
 sys.stdout.reconfigure(encoding="utf-8")
-ROOT = r"\\RECEPTION\IMAGE\SCAN"
+ROOT = r"\\CSMAIN\IMAGE\SCAN"
 JPEG_EXT = {".jpg", ".jpeg", ".jpe"}
 
 

@@ -1,11 +1,12 @@
 // app-nnt-scans.js — consultation-room NNT / NEWTOM 2D SCAN strip
 //
 // The local X-Ray launcher (127.0.0.1:17890) lists JPEG/PNG files from
-// \\RECEPTION\IMAGE\SCAN\{nnt_patid}. This module shows them in the X-ray tab
+// \\CSMAIN\IMAGE\Scan\{nnt_patid}. This module shows them in the X-ray tab
 // without uploading anything to Supabase. CBCT / .pan_* studies still open
 // in NNT.exe via the existing NNT / NEWTOM button.
 
 var nntScanLoadGen = 0;
+var nntScanImportBusy = false;
 
 function nntScanTr(key, fallback, vars) {
     var s = '';
@@ -44,8 +45,15 @@ function ensureNntScanStyles() {
         '.nnt-scan-strip-head strong{color:#0f766e;font-size:13px}' +
         '.nnt-scan-count{font-size:12px;color:#0f766e;font-weight:700}' +
         '.nnt-scan-hint{margin:4px 0 8px;font-size:12px;color:#64748b}' +
+        '.nnt-scan-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px}' +
+        '.nnt-scan-actions button{padding:6px 12px;font-size:12px;font-weight:800;' +
+        'border:none;border-radius:8px;background:#0f766e;color:#fff;cursor:pointer}' +
+        '.nnt-scan-actions button:disabled{opacity:.55;cursor:wait}' +
         '.nnt-scan-thumbs{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}' +
-        '.nnt-scan-thumb{flex:0 0 auto;width:112px;border:1px solid #99f6e4;border-radius:8px;' +
+        '.nnt-scan-item{flex:0 0 auto;width:112px;position:relative}' +
+        '.nnt-scan-chk{position:absolute;top:4px;left:4px;z-index:2;width:16px;height:16px;' +
+        'margin:0;accent-color:#0f766e;cursor:pointer}' +
+        '.nnt-scan-thumb{display:block;width:112px;border:1px solid #99f6e4;border-radius:8px;' +
         'background:#fff;cursor:pointer;padding:0;overflow:hidden}' +
         '.nnt-scan-thumb:hover{border-color:#0f766e}' +
         '.nnt-scan-thumb img{display:block;width:112px;height:84px;object-fit:cover;background:#ecfdf5}' +
@@ -58,22 +66,65 @@ function ensureNntScanStyles() {
     document.head.appendChild(css);
 }
 
+function nntScanClinicLabel() {
+    if (typeof currentClinicLabel === 'string' && currentClinicLabel.trim()) {
+        return currentClinicLabel.trim();
+    }
+    if (typeof clinicRecordFromId === 'function' && typeof clinicDisplayName === 'function' &&
+        typeof currentClinicId !== 'undefined' && currentClinicId) {
+        var rec = clinicRecordFromId(currentClinicId);
+        var name = rec ? clinicDisplayName(rec) : '';
+        if (name) return name;
+    }
+    return '';
+}
+
+function nntScanStripTitle() {
+    var clinic = nntScanClinicLabel() || 'clinic';
+    return nntScanTr('media.local.nntScansTitle', 'CS scan photos / xrays / doc in {CLINIC}', {
+        CLINIC: clinic,
+        clinic: clinic
+    });
+}
+
+function refreshNntScanStripTitle() {
+    var el = g('nntLocalScanTitle');
+    if (el) el.textContent = nntScanStripTitle();
+    var btn = g('nntScanAddToBananaBtn');
+    if (btn) btn.textContent = nntScanTr('media.local.nntScansAddToBanana', 'Add to Banana xray tab');
+    var hint = document.querySelector('#nntLocalScanStrip .nnt-scan-hint');
+    if (hint) {
+        hint.textContent = nntScanTr(
+            'media.local.nntScansHint',
+            'Fetched from this patient\'s Clinic Solution SCAN folder. Not uploaded to Banana. Click a thumbnail to enlarge.'
+        );
+    }
+}
+
 function ensureNntScanStrip() {
     ensureNntScanStyles();
     var existing = g('nntLocalScanStrip');
-    if (existing) return existing;
+    if (existing) {
+        refreshNntScanStripTitle();
+        bindNntScanAddButton();
+        return existing;
+    }
     var strip = document.createElement('div');
     strip.id = 'nntLocalScanStrip';
     strip.className = 'nnt-scan-strip';
     strip.style.display = 'none';
     strip.innerHTML =
         '<div class="nnt-scan-strip-head">' +
-        '<strong>' + esc(nntScanTr('media.local.nntScansTitle', 'NNT / NEWTOM 2D scans on this PC')) + '</strong>' +
+        '<strong id="nntLocalScanTitle">' + esc(nntScanStripTitle()) + '</strong>' +
         '<span id="nntLocalScanCount" class="nnt-scan-count"></span></div>' +
         '<p class="nnt-scan-hint">' + esc(nntScanTr(
             'media.local.nntScansHint',
-            'Fetched from the NNT SCAN folder for this patient. Not uploaded to Banana. Click a thumbnail to enlarge; use the NNT / NEWTOM button for CBCT.'
+            'Fetched from this patient\'s Clinic Solution SCAN folder. Not uploaded to Banana. Click a thumbnail to enlarge.'
         )) + '</p>' +
+        '<div class="nnt-scan-actions">' +
+        '<button type="button" id="nntScanAddToBananaBtn">' +
+        esc(nntScanTr('media.local.nntScansAddToBanana', 'Add to Banana xray tab')) +
+        '</button></div>' +
         '<div id="nntLocalScanThumbs" class="nnt-scan-thumbs"></div>';
     var systemsBar = document.querySelector('#con-xrays .xray-systems-bar');
     if (systemsBar && systemsBar.parentNode) {
@@ -83,7 +134,15 @@ function ensureNntScanStrip() {
         if (main) main.insertBefore(strip, main.firstChild);
         else document.body.appendChild(strip);
     }
+    bindNntScanAddButton();
     return strip;
+}
+
+function bindNntScanAddButton() {
+    var btn = g('nntScanAddToBananaBtn');
+    if (!btn || btn._nntBound) return;
+    btn._nntBound = true;
+    btn.addEventListener('click', addSelectedNntScansToBanana);
 }
 
 function hideNntLocalScans() {
@@ -128,6 +187,7 @@ function renderNntLocalScans(patientNo, files) {
         return;
     }
     strip.style.display = '';
+    refreshNntScanStripTitle();
     if (countEl) {
         countEl.textContent = nntScanTr('media.local.nntScansCount', '{N} image(s)', {
             N: String(files.length)
@@ -137,6 +197,16 @@ function renderNntLocalScans(patientNo, files) {
         var name = file && file.name ? String(file.name) : '';
         if (!name) return;
         var url = nntScanFileUrl(patientNo, name);
+        var taken = file.taken ? String(file.taken) : '';
+        var item = document.createElement('div');
+        item.className = 'nnt-scan-item';
+        var chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.className = 'nnt-scan-chk';
+        chk.setAttribute('data-nnt-scan-name', name);
+        chk.setAttribute('data-nnt-scan-taken', taken);
+        chk.title = name;
+        chk.addEventListener('click', function(ev) { ev.stopPropagation(); });
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'nnt-scan-thumb';
@@ -145,8 +215,119 @@ function renderNntLocalScans(patientNo, files) {
         btn.addEventListener('click', function() {
             openNntScanLightbox(url, name);
         });
-        thumbs.appendChild(btn);
+        item.appendChild(chk);
+        item.appendChild(btn);
+        thumbs.appendChild(item);
     });
+    bindNntScanAddButton();
+}
+
+function nntScanDateFromMeta(name, taken) {
+    if (taken) return String(taken).slice(0, 10);
+    var m = String(name || '').match(/_(\d{4})(\d{2})(\d{2})/);
+    if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    return (typeof todayISO === 'function') ? todayISO() : '';
+}
+
+function nntScanFetchOpts() {
+    var opts = { method: 'GET', mode: 'cors', cache: 'no-store' };
+    if (typeof XRAY_LAUNCHER_FETCH_OPTS === 'object' && XRAY_LAUNCHER_FETCH_OPTS) {
+        Object.keys(XRAY_LAUNCHER_FETCH_OPTS).forEach(function(k) {
+            opts[k] = XRAY_LAUNCHER_FETCH_OPTS[k];
+        });
+    }
+    return opts;
+}
+
+function nntScanSelectedChecks() {
+    return Array.prototype.slice.call(
+        document.querySelectorAll('#nntLocalScanThumbs .nnt-scan-chk:checked')
+    );
+}
+
+function addSelectedNntScansToBanana() {
+    if (nntScanImportBusy) return;
+    if (typeof xrayPatientId === 'undefined' || !xrayPatientId) {
+        alert(nntScanTr('media.local.nntScansNeedPatient', 'Open a patient in the X-ray tab first.'));
+        return;
+    }
+    if (typeof uploadSingleXrayFile !== 'function') {
+        alert(nntScanTr('media.local.nntScansImportFail', 'Could not read {FILE} from the Clinic Solution SCAN folder.', { FILE: '' }));
+        return;
+    }
+    var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
+    var patientNo = patient && String(patient.patient_no || '').trim();
+    if (!patientNo) {
+        alert(nntScanTr('media.local.nntScansNeedPatient', 'Open a patient in the X-ray tab first.'));
+        return;
+    }
+    var checks = nntScanSelectedChecks();
+    if (!checks.length) {
+        alert(nntScanTr('media.local.nntScansSelectFirst', 'Select at least one thumbnail first.'));
+        return;
+    }
+    var msg = nntScanTr('media.local.nntScansConfirmAdd',
+        'Copy {N} selected file(s) from Clinic Solution SCAN into this patient\'s Banana X-ray tab?',
+        { N: String(checks.length) });
+    if (!confirm(msg)) return;
+
+    var items = checks.map(function(chk) {
+        return {
+            name: chk.getAttribute('data-nnt-scan-name') || '',
+            taken: chk.getAttribute('data-nnt-scan-taken') || ''
+        };
+    }).filter(function(it) { return !!it.name; });
+
+    nntScanImportBusy = true;
+    var btn = g('nntScanAddToBananaBtn');
+    if (btn) btn.disabled = true;
+    uploadNntScanItemAt(items, 0, patientNo);
+}
+
+function uploadNntScanItemAt(items, idx, patientNo) {
+    if (idx >= items.length) {
+        nntScanImportBusy = false;
+        var btn = g('nntScanAddToBananaBtn');
+        if (btn) btn.disabled = false;
+        if (typeof showUploadProgress === 'function') showUploadProgress(false);
+        if (typeof loadXrayRecords === 'function') loadXrayRecords();
+        return;
+    }
+    var item = items[idx];
+    var label = nntScanTr('media.local.nntScansImporting', 'Adding {N} of {TOTAL} to Banana…', {
+        N: String(idx + 1),
+        TOTAL: String(items.length)
+    });
+    if (typeof showUploadProgress === 'function') {
+        showUploadProgress(true, label, Math.round((idx / items.length) * 100));
+    }
+    var url = nntScanFileUrl(patientNo, item.name);
+    fetch(url, nntScanFetchOpts())
+        .then(function(r) {
+            if (!r.ok) throw new Error('nnt file ' + r.status);
+            return r.blob().then(function(blob) {
+                return { blob: blob, type: r.headers.get('Content-Type') || blob.type };
+            });
+        })
+        .then(function(res) {
+            var mime = (res.type || res.blob.type || 'image/jpeg').split(';')[0];
+            var file = new File([res.blob], item.name, { type: mime });
+            var note = nntScanTr('media.local.nntScansImportNote',
+                'Copied from Clinic Solution SCAN: {FILE}', { FILE: item.name });
+            var date = nntScanDateFromMeta(item.name, item.taken);
+            uploadSingleXrayFile(file, 'Other', date, note, function() {
+                uploadNntScanItemAt(items, idx + 1, patientNo);
+            });
+        })
+        .catch(function() {
+            nntScanImportBusy = false;
+            var btn2 = g('nntScanAddToBananaBtn');
+            if (btn2) btn2.disabled = false;
+            if (typeof showUploadProgress === 'function') showUploadProgress(false);
+            alert(nntScanTr('media.local.nntScansImportFail',
+                'Could not read {FILE} from the Clinic Solution SCAN folder.',
+                { FILE: item.name }));
+        });
 }
 
 function loadNntLocalScans() {
@@ -165,12 +346,9 @@ function loadNntLocalScans() {
         if (ctrl) ctrl.abort();
         if (gen === nntScanLoadGen) hideNntLocalScans();
     }, 2500);
-    fetch(base + '/nnt/scans?patient_no=' + encodeURIComponent(no), {
-        method: 'GET',
-        mode: 'cors',
-        cache: 'no-store',
-        signal: ctrl ? ctrl.signal : undefined
-    }).then(function(r) {
+    var listOpts = nntScanFetchOpts();
+    if (ctrl) listOpts.signal = ctrl.signal;
+    fetch(base + '/nnt/scans?patient_no=' + encodeURIComponent(no), listOpts).then(function(r) {
         if (!r.ok) throw new Error('nnt scans ' + r.status);
         return r.json();
     }).then(function(body) {
@@ -234,3 +412,6 @@ document.addEventListener('DOMContentLoaded', function() {
     ensureNntScanStrip();
     loadNntLocalScans();
 });
+
+document.addEventListener('app-lang-change', refreshNntScanStripTitle);
+document.addEventListener('app-session-sync', refreshNntScanStripTitle);

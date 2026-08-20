@@ -12,8 +12,8 @@ from collections import Counter
 sys.stdout.reconfigure(encoding="utf-8")
 
 ROOTS = [
-    r"\\RECEPTION\IMAGE\SCAN",
-    r"\\RECEPTION\IMAGE\IMGDOC",
+    r"\\CSMAIN\IMAGE\SCAN",
+    r"\\CSMAIN\IMAGE\IMGDOC",
 ]
 JPEG_EXT = {".jpg", ".jpeg", ".jpe"}
 

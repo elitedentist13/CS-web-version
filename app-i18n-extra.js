@@ -5254,6 +5254,7 @@
         'cfg.loginLog.reasonExpired': { en: 'Session expired', 'zh-CN': '会话过期', 'zh-Hant': '工作階段過期' },
         'cfg.auth.sectionTitle': { en: 'Authorization', 'zh-CN': '权限', 'zh-Hant': '授權' },
         'cfg.auth.sectionHint': { en: 'Check modules this user may access. Unchecking a parent disables its sub-options.', 'zh-CN': '勾选此用户可使用的模块。取消父项将同时取消其子项。', 'zh-Hant': '勾選此使用者可使用的模組。取消父項將同時取消其子項。' },
+        'cfg.auth.adminOverrideNote': { en: '⚠ This account\'s role is Administrator — it always has full access to every module regardless of these checkboxes.', 'zh-CN': '⚠ 此帐户的角色为管理员 — 无论以下勾选状态如何，管理员始终拥有所有模块的完整权限。', 'zh-Hant': '⚠ 此帳戶的角色為管理員 — 無論以下勾選狀態如何，管理員始終擁有所有模組的完整權限。' },
         'cfg.auth.appointment': { en: 'Appointment', 'zh-CN': '预约', 'zh-Hant': '預約' },
         'cfg.auth.patient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '患者' },
         'cfg.auth.consultation': { en: 'Consultation', 'zh-CN': '诊疗', 'zh-Hant': '診療' },
@@ -5466,19 +5467,54 @@
             'zh-Hant': '正在啟動 NNT / NEWTOM。\n\n已複製到剪貼簿：{PATIENT}\n符合的二維影像（如有）會列在本 X 光頁。CBCT / 全景片在「{SHORTCUT}」中開啟。'
         },
         'media.local.nntScansTitle': {
-            en: 'NNT / NEWTOM 2D scans on this PC',
-            'zh-CN': '本机 NNT / NEWTOM 二维影像',
-            'zh-Hant': '本機 NNT / NEWTOM 二維影像'
+            en: 'CS scan photos / xrays / doc in {CLINIC}',
+            'zh-CN': 'CS 扫描照片 / X光 / 文件（{CLINIC}）',
+            'zh-Hant': 'CS 掃描照片 / X光 / 文件（{CLINIC}）'
         },
         'media.local.nntScansHint': {
-            en: 'Fetched from the NNT SCAN folder for this patient. Not uploaded to Banana. Click a thumbnail to enlarge; use the NNT / NEWTOM button for CBCT.',
-            'zh-CN': '从该患者的 NNT SCAN 文件夹读取，不会上传到 Banana。点击缩略图放大；CBCT 请用 NNT / NEWTOM 按钮。',
-            'zh-Hant': '從該病人的 NNT SCAN 資料夾讀取，不會上傳到 Banana。按縮圖放大；CBCT 請用 NNT / NEWTOM 按鈕。'
+            en: 'Fetched from this patient\'s Clinic Solution SCAN folder. Not uploaded to Banana. Click a thumbnail to enlarge.',
+            'zh-CN': '从该患者的 Clinic Solution SCAN 文件夹读取，不会上传到 Banana。点击缩略图放大。',
+            'zh-Hant': '從該病人的 clinic solution SCAN 資料夾讀取，不會上傳到 Banana。按縮圖放大'
         },
         'media.local.nntScansCount': {
             en: '{N} image(s)',
             'zh-CN': '{N} 张影像',
             'zh-Hant': '{N} 張影像'
+        },
+        'media.local.nntScansAddToBanana': {
+            en: 'Add to Banana xray tab',
+            'zh-CN': '加入 Banana X 光页',
+            'zh-Hant': '加入 Banana X 光頁'
+        },
+        'media.local.nntScansSelectFirst': {
+            en: 'Select at least one thumbnail first.',
+            'zh-CN': '请先勾选至少一张缩略图。',
+            'zh-Hant': '請先勾選至少一張縮圖。'
+        },
+        'media.local.nntScansNeedPatient': {
+            en: 'Open a patient in the X-ray tab first.',
+            'zh-CN': '请先在 X 光页打开一位患者。',
+            'zh-Hant': '請先在 X 光頁開啟一位病人。'
+        },
+        'media.local.nntScansConfirmAdd': {
+            en: 'Copy {N} selected file(s) from Clinic Solution SCAN into this patient\'s Banana X-ray tab?',
+            'zh-CN': '将已选的 {N} 个 Clinic Solution SCAN 文件复制到此患者的 Banana X 光页？',
+            'zh-Hant': '將已選的 {N} 個 clinic solution SCAN 檔案複製到此病人的 Banana X 光頁？'
+        },
+        'media.local.nntScansImportNote': {
+            en: 'Copied from Clinic Solution SCAN: {FILE}',
+            'zh-CN': '从 Clinic Solution SCAN 复制：{FILE}',
+            'zh-Hant': '從 clinic solution SCAN 複製：{FILE}'
+        },
+        'media.local.nntScansImporting': {
+            en: 'Adding {N} of {TOTAL} to Banana…',
+            'zh-CN': '正在加入 Banana（{N}/{TOTAL}）…',
+            'zh-Hant': '正在加入 Banana（{N}/{TOTAL}）…'
+        },
+        'media.local.nntScansImportFail': {
+            en: 'Could not read {FILE} from the Clinic Solution SCAN folder.',
+            'zh-CN': '无法从 Clinic Solution SCAN 文件夹读取 {FILE}。',
+            'zh-Hant': '無法從 clinic solution SCAN 資料夾讀取 {FILE}。'
         },
         'media.local.nntnewtomLauncherNeeded': {
             en: 'Could not start NNT / NEWTOM from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click NNT / NEWTOM again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',

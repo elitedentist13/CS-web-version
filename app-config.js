@@ -858,6 +858,12 @@ var CFG = (function () {
             var doctorWrap = _cfgUsrField('usr_doctor_wrap') || g('usr_doctor_wrap');
             if (doctorWrap) doctorWrap.style.display = isAdmin ? 'none' : 'block';
             if (isAdmin) cfgSetUserDoctorIds([]);
+            // Admin role always overrides these checkboxes at runtime
+            // (see hasAppPermission() in app-auth.js) -- surface that here
+            // so unchecking a box on an admin account isn't mistaken for an
+            // actual restriction.
+            var note = _cfgUsrField('usr_auth_admin_override_note') || g('usr_auth_admin_override_note');
+            if (note) note.style.display = isAdmin ? 'block' : 'none';
         }
 
         var _copyPickerKind = null;
@@ -2221,6 +2227,9 @@ var CFG = (function () {
               '<div style="font-size:13px;font-weight:900;color:#0d6efd;margin-bottom:8px;" ' +
                 'data-i18n="cfg.auth.sectionTitle"></div>' +
               '<div style="font-size:11px;color:#888;margin-bottom:10px;" data-i18n="cfg.auth.sectionHint"></div>' +
+              '<div id="usr_auth_admin_override_note" style="display:none;font-size:11px;font-weight:800;' +
+                'color:#b45309;background:#fff7ec;border:1px solid #f0dcb8;border-radius:6px;' +
+                'padding:6px 10px;margin-bottom:10px;" data-i18n="cfg.auth.adminOverrideNote"></div>' +
               '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 18px;">';
         for (var c = 0; c < 3; c++) {
             html += '<div class="cfg-user-auth-col">';

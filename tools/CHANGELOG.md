@@ -3,6 +3,219 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-08-20 — Fix: SMARTDent stays minimized / taskbar-flashing when Banana launches it via RAYBridge
+
+Reported as: clicking the Banana X-ray Rayscan button starts SMARTDent, but
+the window stays minimized and the taskbar button blinks red/orange until
+staff click it.
+
+Root cause: the local bridge PowerShell process is itself started
+minimized (`-WindowStyle Minimized` in `install-xray-bridge.ps1`). Windows
+then treats RAYBridge/SMARTDent as a background launch that is not allowed
+to steal foreground focus, so SMARTDent opens iconic and only flashes.
+
+Fix: `Start-RayBridgePatient` now launches RAYBridge with `WindowStyle
+Normal`, then fires a non-blocking helper (`Start-RestoreRayViewerWindow`)
+that waits up to 15s for the SMARTDent window, restores it from minimized,
+and force-focuses it (AttachThreadInput + Alt keypress, the usual
+workaround for `SetForegroundWindow` from a background process). Banana's
+`/open/rayscan` HTTP reply is not delayed.
+
+## 2026-08-20 — Fix: NNT scan strip hardcoded the wrong server hostname (`RECEPTION` instead of `CSMAIN`), breaking the X-ray tab's mini-thumbnail strip for this clinic
+
+Reported as: the NNT scan strip (separate from the Rayscan bridge work --
+the small header thumbnail strip in the X-ray tab that reads straight from
+the CS SCAN share) stopped showing patient MK006681's two existing JPEGs
+after unrelated changes.
+
+Root cause: `Get-NntScanRoots` in `tools\xray-local-launcher.ps1` had
+`\\RECEPTION\IMAGE\SCAN` listed first. On this clinic's actual network,
+`RECEPTION` does not resolve at all (`Resolve-DnsName` / `net view` both
+fail). Live diagnostics from a real consultation-room PC found: the CS
+desktop shortcut's own ODBC DSN (`ClinicSolution`,
+`HKLM\SOFTWARE\WOW6432Node\ODBC\ODBC.INI\ClinicSolution`) points at SQL
+Server host `192.168.50.2`, whose NetBIOS name is `CSMAIN` -- and
+`\\CSMAIN\IMAGE\Scan\{chart}` is the real share holding the scans (confirmed
+live: `\\CSMAIN\IMAGE\Scan\006681` held MK006681's 2 real OPG JPEGs, matching
+Banana's own "MK" chart prefix once stripped by `Convert-NntPatientId`).
+
+Fix: `Get-NntScanRoots` now uses `\\CSMAIN\IMAGE\Scan` (this clinic's
+confirmed CS IMAGE share). The old `\\RECEPTION\IMAGE\SCAN` hostname was
+removed — it never resolved here and only added a failed-lookup delay.
+Applied to:
+- The canonical `tools\xray-local-launcher.ps1` (shared source for all three
+  installer packages -- EzDenti, NNT-NEWTOM, Rayscan).
+- The already-running bridge on this PC (`C:\BananaBridge-Rayscan\
+  xray-local-launcher.ps1`), copied over and the bridge process restarted;
+  verified live that `/nnt/scans?patient_no=MK006681` returns the 2 files
+  again.
+- All three rebuilt installer zips (`Banana-EzDenti-Bridge-Installer.zip`,
+  `Banana-NNT-Bridge-Installer.zip`, `Banana-Rayscan-Bridge-Installer.zip`),
+  each re-verified 105/105 self-test checks pass from a clean extraction.
+- The read-only census/import Python scripts under `tools\` that point at
+  this same clinic's CS SCAN share for offline analysis/backfill work
+  (`_census-cs-scan-jpegs.py`, `_census-opg-population.py`,
+  `_classify-cs-scan-jpegs.py`, `_sample-cs-scan-sizes.py`,
+  `_import_cs_opg.py`, `_batch_import_population_a.py`): `RECEPTION` ->
+  `CSMAIN` in their hardcoded `ROOT`/`SCAN_ROOT` paths and docstrings.
+- `app-nnt-scans.js`'s header comment, updated to describe the real
+  `CSMAIN` path (with the `RECEPTION` fallback noted).
+
+Deliberately NOT touched: `run-cs-payments-import.py`, `export-cs-notes.ps1`,
+`export-cs-payments.ps1`, and their companion `CS_*_IMPORT.md` /
+`CS_PAYMENTS_EXPORT.md` docs. Their `RECEPTION\CSX` defaults are documented
+examples for *other* clinic branches (`--branch PL`, `-Branch TKO`), not this
+Mongkok/`CSMAIN` site -- renaming those would risk pointing a different
+branch's export at the wrong server. Left as-is; flagged for manual review
+if those branches also turn out to be misnamed.
+
+## 2026-08-20 — Fix: `xray-local-launcher.ps1` lost its UTF-8 BOM, which would have made a fresh install on any HK/TW Big5-locale PC (e.g. the server PC next to the OPG machine) fail to even start
+
+Discovered while preparing to hand the Rayscan package over to the server
+computer: `tools\build-installer-packages.ps1`'s own clean-zip-extraction
+verification step started failing with confusing cascading parser errors
+("Missing expression after '/'", "'&' operator reserved for future use")
+around the self-test's Chinese-name round-trip line -- for ALL THREE
+packages (EzDenti, NNT-NEWTOM, Rayscan), not just Rayscan.
+
+Root cause: `xray-local-launcher.ps1` contains a few non-ASCII (Chinese)
+characters in self-test fixtures, encoded as UTF-8. Windows PowerShell 5.1
+(Desktop edition -- confirmed via `$PSVersionTable` on this PC) only
+recognizes a file as UTF-8 if it starts with a UTF-8 byte-order-mark
+(`EF BB BF`); otherwise it decodes the file using the OS's legacy ANSI code
+page (Big5/950 on this HK-locale Windows install). Decoding UTF-8 bytes as
+Big5 turns the Chinese test string into garbage that, by coincidence,
+contains a byte value matching a double-quote -- closing the PowerShell
+string literal early and desyncing the parser for everything after it,
+breaking the *entire script* (parsing happens before any code runs, so this
+is not limited to the self-test path).
+
+The canonical `tools\xray-local-launcher.ps1` had silently lost its BOM at
+some point (very likely during an earlier same-day text edit/save), and
+every installer package's copy inherited that via the normal sync step.
+Confirmed the *already-running* bridge on this PC (`C:\BananaBridge-Rayscan\
+xray-local-launcher.ps1`, installed earlier from an older, still-BOM'd
+build) was unaffected and kept working throughout -- but re-installing from
+the current dev-folder source, or shipping the built zip to a fresh PC
+(such as the server computer next to the OPG machine), would have silently
+failed to start with no obvious explanation, since the file *looks*
+completely normal in any UTF-8-aware editor/reader.
+
+Fix: re-saved `xray-local-launcher.ps1` and `installer-nntnewtom\_nnt_new_opg_watcher.ps1`
+with a proper UTF-8 BOM (content otherwise byte-for-byte unchanged -- verified
+via diff). Rebuilt and re-verified all three installer zips from a clean
+extraction with `-SelfTest`: all 105/105 checks now pass for every package.
+Going forward, any new non-ASCII content added to these shared scripts is
+safe as long as the BOM is preserved (avoid tools that silently re-save as
+BOM-less UTF-8).
+
+## 2026-08-20 — Fix: browser-side fetch() timeouts raced Chrome's Local Network Access permission popup, so the FIRST Rayscan click (and any click before permission was granted) always failed with "launcher needed" even though the backend worked fine
+
+Follow-up to the "browser can't link to X-ray" report, after confirming
+via a live clinic PC that the backend hand-off (bridge -> `RAYBridge.exe`
+-> `SMARTDent.exe`) succeeded every single time when called directly over
+HTTP (bypassing the browser) -- ruling out the initial "SmartDent needs to
+be preloaded" theory. Ruled in instead: `app-xray.js`'s `pingXrayLauncher()`
+and `tryLaunchDesktopAppViaLocalBridge()` each raced their `fetch()` call
+against a hardcoded client-side timeout (2000ms / 2800ms). Chrome's Local
+Network Access permission prompt (see the `XRAY_LAUNCHER_FETCH_OPTS`
+comment in `app-xray.js`) is a real, human-clickable popup that the
+`fetch()` call waits on indefinitely -- but on a PC where that permission
+was still in its default "prompt" (undecided) state, Banana's own timer
+fired long before a human could notice and click Allow, so the code
+silently reported "offline" and gave up with a generic "Rayscan launcher
+needed" alert, before the fetch itself ever had a chance to succeed.
+
+Fix: added `xrayLoopbackPermissionState()`, which uses
+`navigator.permissions.query({name:'loopback-network'})` (Chrome-only;
+falls back to `'local-network-access'` then `'unsupported'` for other
+browsers, which never show this popup) to check whether the permission is
+already decided *before* picking a timeout. If it's still `'prompt'`, both
+functions now wait up to 30s instead of ~2-3s. Also threaded a
+`permissionPrompt` / `permissionDenied` flag back through the callbacks so
+the alert the user sees is specific ("click Allow on the popup, then click
+this button again" vs. "access was denied in Chrome settings") instead of
+the generic "is the launcher running?" message, which was actively
+misleading in this case since the launcher was running the whole time.
+New i18n keys: `media.local.launcherPermissionPrompt` /
+`media.local.launcherPermissionDenied` in `app-i18n-extra.js`.
+
+## 2026-08-20 — Fix: Rayscan/RAYBridge didn't match OLD OPG records for chart numbers with a clinic prefix (e.g. "MK")
+
+Real bug report from a live clinic PC: existing/old OPG records already
+sitting in Rayscan's own database were entered before Banana's
+multi-branch `patient_no_prefix` setting existed (this clinic uses "MK" /
+Mongkok), so they're keyed on the bare chart number. `Start-RayBridgePatient`
+was sending the full `"MK..."` string as RAYBridge's `ID:` argument, which
+never matched those old records -- RAYBridge/SMARTDent fell back to an
+unmatched/new-patient state instead of surfacing the existing OPG history.
+
+This corrects the 2026-08-20 "keep patient_no AS-IS" assumption from the
+entry below, which was based on a single freshly-created `PatientInfo.ini`
+sample -- a brand-new patient has no pre-existing record to fail to match
+against, so that sample never actually exercised this path.
+
+Added `Convert-RayPatientId` (thin wrapper around the existing
+`Convert-NntPatientId`, which already generically extracts the first run
+of digits, stripping ANY clinic letter prefix -- not hardcoded to "MK")
+and wired it into `Start-RayBridgePatient`'s `ID:` argument. Added
+matching self-test coverage. Rebuilt `installer-rayscan/` and re-ran the
+installer on the already-live bridge on this PC so it picked up the fix
+immediately (installer detects an already-running bridge and restarts it,
+since PowerShell doesn't hot-reload a running script from disk).
+
+## 2026-08-20 — Added Rayscan (RAYBridge / SMARTDent V3) support + its own installer package (`installer-rayscan/`)
+
+Investigated live on a real clinic PC (chart `KT005455`, hostname
+"Doctor-1"): `C:\Users\Public\Desktop` has `RAYBridge.lnk` ->
+`C:\Ray\RAYBridge\RAYBridge.exe` and `SMARTDent V3.lnk` ->
+`C:\Ray\RayView\SMARTDent.exe`. Decoded the actual patient handoff
+mechanism from three independent pieces of evidence, all pointing at the
+same contract:
+
+- `RAYBridge.exe`'s own embedded usage string (extracted from the binary):
+  `RayBridge.exe "ID:PID2020-00001" "LastName:Smith" "FirstName:Tom" "MiddleName:middle" "BirthDay:1993-07-28" "Sex:M"`.
+- `C:\Ray\RAYBridge\SYS\LocalConfig.xml` on this PC has
+  `<Integration><SelectedFileFormat value="Command" />`, confirming the
+  command-line form (not the alternative -VDDS/-CSV file-based settings
+  the same binary also supports) is the one actually in effect here.
+- A real captured handoff file,
+  `C:\Ray\RayView\Temp\Integration\Save\KT005455_19660915\...\PatientInfo.ini`,
+  showing `Patient ID = KT005455` (full patient_no, prefix kept -- unlike
+  NNT) and `Patient Name = TANG^PUI^SHEUNG` (caret-separated,
+  surname-first HK/Cantonese convention -- confirms which end of the free
+  text `patient_name` field maps to `LastName`).
+
+Added to `xray-local-launcher.ps1`: `Resolve-RayBridge`,
+`Convert-RayBirthDate` (ISO `yyyy-MM-dd`, unlike NNT's `dd/MM/yyyy`),
+`Split-RayPatientName` (surname-first split), and
+`Start-RayBridgePatient`, wired into `Handle-Request`'s `/open/rayscan`
+dispatch exactly like the existing NNT/EzDent-i bridges. Added matching
+self-tests (pure-function coverage always runs; the real
+`RAYBridge.exe`-launching path is opt-in via `-IncludeLiveLaunch`, same
+pattern as NNT/EzDent-i).
+
+This PC is the **client**: RAYBridge / RayView / the "Ray Local Server"
+Windows service all run locally and talk to the clinic's imaging server
+over the network (`local_server_config.xml` on this PC points
+`global_ip_address=192.168.50.140, global_port=9876` -- the PC next to the
+OPG/CT unit, e.g. `DESKTOP-CU5IQLC`). That client<->server sync is
+entirely Rayscan's own software; this bridge never talks across the
+network itself, it only ever launches `RAYBridge.exe` locally on whatever
+PC the browser is open on -- same as every other system in this file.
+
+Requested explicitly: keep the Rayscan installer in its own folder,
+separate from NNT-NEWTOM's and EzDent-i's. Built `installer-rayscan/`
+following the exact same pattern as `installer-ezdenti/` (dedicated
+`-EnabledSystems "rayscan"`, own install path `C:\BananaBridge-Rayscan`,
+own shortcut name, own `Install/Start/Test/Uninstall Rayscan *.bat`
+wrappers, own `README.md`), and added it as a third entry in
+`build-installer-packages.ps1`'s package list so it stays in sync with the
+canonical engine automatically.
+
+(Corrects the "not started" note below from 2026-08-19 -- Rayscan is now
+implemented; `myray` is still unstarted.)
+
 ## 2026-08-19 — Split into separate per-system installer packages (`installer-ezdenti/`, `installer-nntnewtom/`)
 
 Requested explicitly: keep the EzDent-i installer in a fully separate

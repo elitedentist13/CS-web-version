@@ -6,7 +6,7 @@ import sys
 from collections import Counter
 
 sys.stdout.reconfigure(encoding="utf-8")
-ROOT = r"\\RECEPTION\IMAGE\SCAN"
+ROOT = r"\\CSMAIN\IMAGE\SCAN"
 JPEG_EXT = {".jpg", ".jpeg", ".jpe"}
 
 

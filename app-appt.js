@@ -482,9 +482,10 @@ function persistBillRecord(payload, existingBillId, cb) {
 }
 
 function pendingListSubtotalFromItems(items) {
-    return (items || []).reduce(function (a, it) {
-        return a + billItemAmt(normalizeBillItem(it));
+    var cents = (items || []).reduce(function (a, it) {
+        return a + Math.round(billItemAmt(normalizeBillItem(it)) * 100);
     }, 0);
+    return cents / 100;
 }
 
 function billListHasRecordableItems(items) {
@@ -18257,7 +18258,7 @@ function renderStep1UI(opts) {
 }
 
 function recalcPendingSubtotal() {
-    var sub = billItems.reduce(function(a, it) { return a + billItemAmt(it); }, 0);
+    var sub = pendingListSubtotalFromItems(billItems);
     var el  = g('pendingSubtotal');
     if (el) el.textContent = fmt2(sub);
 }
@@ -19286,10 +19287,23 @@ function syncPendingDraftFromInputs() {
     pl.subtotal = pendingListSubtotalFromItems(billItems);
 }
 
+function billMoneyCents(n) {
+    return Math.round((parseFloat(n) || 0) * 100);
+}
+
+/** Net cents after Disc % — integer math so $18000 @ 2/3 off stays $6000.00, not $5999.99. */
+function billItemNetCents(grossCents, disc) {
+    var gCents = Math.round(parseFloat(grossCents) || 0);
+    if (gCents <= 0) return 0;
+    var d = parseFloat(disc) || 0;
+    if (d <= 0) return gCents;
+    if (d >= 100) return 0;
+    return Math.round(gCents * (100 - d) / 100);
+}
+
 function billItemAmt(it) {
-    var gross = billItemGross(it);
-    var disc  = roundBillDiscPct(it.disc);
-    return gross * (1 - disc / 100);
+    var grossCents = billMoneyCents(billItemGross(it));
+    return billItemNetCents(grossCents, it && it.disc) / 100;
 }
 
 function billItemGross(it) {
@@ -19318,16 +19332,23 @@ function parseBillAmountInput(raw) {
     return isNaN(n) ? 0 : n;
 }
 
-/** Stable discount % storage (avoids 15.000000000000002-style float drift). */
+/**
+ * Stable discount % storage.
+ * Snap binary noise (15.000000000000002 → 15) but keep extra digits for
+ * repeating ratios (6000/18000 → 66.6666…%) so cents round-trip.
+ */
 function roundBillDiscPct(disc) {
     var n = Math.min(100, Math.max(0, parseFloat(disc) || 0));
-    return Math.round(n * 10000) / 10000;
+    if (!isFinite(n)) return 0;
+    var snapped4 = Math.round(n * 10000) / 10000;
+    if (Math.abs(n - snapped4) < 1e-6) return snapped4;
+    return Math.round(n * 1e8) / 1e8;
 }
 
 /** Human-readable discount % for inputs, previews, and receipts. */
 function formatBillDiscPctDisplay(disc) {
     var n = roundBillDiscPct(disc);
-    return n.toFixed(4).replace(/\.?0+$/, '') || '0';
+    return n.toFixed(8).replace(/\.?0+$/, '') || '0';
 }
 
 function formatBillDiscPctInput(disc) {
@@ -19339,10 +19360,16 @@ function billItemDiscPctFromNet(it, netAmount) {
     var gross = billItemGross(it);
     if (!(gross > 0)) return 0;
     var net = Math.max(0, Math.min(gross, parseBillAmountInput(netAmount)));
-    var grossCents = Math.round(gross * 100);
-    var netCents = Math.round(net * 100);
+    var grossCents = billMoneyCents(gross);
+    var netCents = billMoneyCents(net);
     if (grossCents <= 0) return 0;
-    return roundBillDiscPct((1 - netCents / grossCents) * 100);
+    if (netCents >= grossCents) return 0;
+    if (netCents <= 0) return 100;
+    var pct = roundBillDiscPct((grossCents - netCents) * 100 / grossCents);
+    if (billItemNetCents(grossCents, pct) !== netCents) {
+        pct = Math.round(((grossCents - netCents) * 100 / grossCents) * 1e8) / 1e8;
+    }
+    return pct;
 }
 
 function syncBillItemAmountInput(idx) {
@@ -19774,9 +19801,9 @@ function recalcTotals() {
         // Use payItems from the selected pending list
         var sub  = payItems.reduce(function(a, it) { return a + billItemAmt(it); }, 0);
         var disc  = parseFloat(g('bDiscount').value) || 0;
-        var total = Math.max(0, sub - disc);
-        g('bSubtotal').textContent = fmt2(sub);
-        g('bTotal').textContent    = fmt2(total);
+        var total = Math.max(0, billRound2(sub) - billRound2(disc));
+        g('bSubtotal').textContent = fmt2(billRound2(sub));
+        g('bTotal').textContent    = fmt2(billRound2(total));
         recalcBalance();
     } else {
         // Step 1: update the pending subtotal display only
@@ -19787,7 +19814,7 @@ function recalcTotals() {
 function recalcBalance() {
     var total   = parseFloat(g('bTotal').textContent) || 0;
     var paid    = parseFloat(g('bAmtPaid').value)      || 0;
-    var balance = total - paid;
+    var balance = billRound2(total - paid);
     g('bBalance').textContent  = fmtHK(balance);
     g('bBalance').style.color  =
         balance > 0 ? 'var(--danger)' : 'var(--success)';
@@ -19805,11 +19832,11 @@ function saveBill(doPrint) {
 
     syncPayPendingListDoctorFromUi();
 
-    var sub   = parseFloat(g('bSubtotal').textContent) || 0;
-    var disc  = parseFloat(g('bDiscount').value)        || 0;
-    var total = parseFloat(g('bTotal').textContent)     || 0;
-    var paid  = parseFloat(g('bAmtPaid').value)         || 0;
-    var bal   = total - paid;
+    var sub   = billRound2(parseFloat(g('bSubtotal').textContent) || 0);
+    var disc  = billRound2(parseFloat(g('bDiscount').value)        || 0);
+    var total = billRound2(parseFloat(g('bTotal').textContent)     || 0);
+    var paid  = billRound2(parseFloat(g('bAmtPaid').value)         || 0);
+    var bal   = billRound2(total - paid);
 
     var linkedPl = pendingListByPayId(payPendingId);
     var existingBillId = linkedPl && linkedPl.bill_id ? linkedPl.bill_id : null;
@@ -21213,7 +21240,7 @@ var bdNotesEditWired = false;
 var BD_EXTRA_DISCOUNT_STEPS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50];
 
 function billRound2(n) {
-    return Math.round(((parseFloat(n) || 0) + Number.EPSILON) * 100) / 100;
+    return billMoneyCents(n) / 100;
 }
 
 /** Extra discount % currently stored on a bill (derived from discount / subtotal). */
@@ -21323,9 +21350,13 @@ function applyBillDetailExtraDiscount(pct) {
 
     var sub = parseFloat(b.subtotal) || 0;
     var paid = parseFloat(b.amount_paid) || 0;
-    var discountAmt = billRound2(sub * pct / 100);
-    var total = billRound2(sub - discountAmt);
-    var balance = billRound2(total - paid);
+    var subCents = billMoneyCents(sub);
+    var discountCents = Math.round(subCents * pct / 100);
+    var totalCents = Math.max(0, subCents - discountCents);
+    var paidCents = billMoneyCents(paid);
+    var discountAmt = discountCents / 100;
+    var total = totalCents / 100;
+    var balance = Math.max(0, totalCents - paidCents) / 100;
     var newStatus = balance <= 0.005
         ? 'Paid'
         : (paid > 0.005 ? 'Partial' : (b.status || 'Pending'));
@@ -22300,14 +22331,14 @@ function executeAddPaymentSave(ctx) {
 
 function confirmAddPayment() {
     if (!bdCurrentBill) return;
-    var amount = parseFloat(g('apAmount').value) || 0;
+    var amount = billRound2(parseFloat(g('apAmount').value) || 0);
     var errEl  = g('apError');
 
     if (amount < 0) {
         if (errEl) { errEl.textContent = tr('bill.addPayment.errInvalidAmount'); errEl.style.display = ''; }
         return;
     }
-    var bal = parseFloat(bdCurrentBill.balance) || 0;
+    var bal = billRound2(bdCurrentBill.balance);
     if (amount > bal + 0.005) {
         if (errEl) {
             errEl.textContent = trRepl('bill.addPayment.errExceedsBalance', { BAL: fmt2(bal) });
@@ -22317,8 +22348,8 @@ function confirmAddPayment() {
     }
     if (errEl) errEl.style.display = 'none';
 
-    var newPaid    = (parseFloat(bdCurrentBill.amount_paid) || 0) + amount;
-    var newBalance = Math.max(0, (parseFloat(bdCurrentBill.total) || 0) - newPaid);
+    var newPaid    = billRound2((parseFloat(bdCurrentBill.amount_paid) || 0) + amount);
+    var newBalance = billRound2(Math.max(0, (parseFloat(bdCurrentBill.total) || 0) - newPaid));
     var newStatus  = newBalance <= 0.005 ? 'Paid' : 'Partial';
 
     var payMethod = g('apMethod') ? String(g('apMethod').value || '').trim() : '';

@@ -32,38 +32,9 @@ def fnum(v, default: float = 0.0) -> float:
 
 
 def line_to_item(row: dict) -> dict | None:
-    item = (row.get("Item") or row.get("item") or "").strip()
-    sub = (row.get("SubItem") or row.get("sub_item") or "").strip()
-    if not item and not sub:
-        return None
-    desc = item if not sub else (f"{item} - {sub}" if item else sub)
+    from cs_bill_item_unit_price import cs_slave_row_to_bill_item
 
-    qty = fnum(row.get("Qty") or row.get("qty"), 0.0)
-    if qty <= 0:
-        qty = 1.0
-
-    net = fnum(row.get("NetHkd") or row.get("net_hkd"))
-    disc_hkd = fnum(row.get("DiscountHkd") or row.get("discount_hkd"))
-    unit_amt = fnum(row.get("UnitAmountHkd") or row.get("unit_amount_hkd"))
-
-    gross = net + disc_hkd
-    if gross <= 0 and unit_amt > 0:
-        gross = unit_amt
-        if net <= 0:
-            net = unit_amt - disc_hkd
-    if gross <= 0 and net > 0:
-        gross = net
-
-    unit_price = round(gross / qty, 2) if qty else round(gross, 2)
-    disc_pct = round((disc_hkd / gross) * 100.0, 4) if gross > 0 and disc_hkd > 0 else 0.0
-
-    return {
-        "desc": desc,
-        "qty": qty if qty != int(qty) else int(qty),
-        "price": unit_price,
-        "disc": disc_pct,
-        "tooth_no": "-",
-    }
+    return cs_slave_row_to_bill_item(row)
 
 
 def main() -> None:

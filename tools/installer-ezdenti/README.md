@@ -36,6 +36,12 @@ Safe to re-run the installer any time (e.g. after a code update).
   itself and copies the patient's name + chart no. to the clipboard —
   paste that into EzDent-i's own patient search to open or create the
   chart for OPG/CT.
+- **Chart number matching (2026-08-24):** Banana's `patient_no` can carry
+  a clinic letter prefix (Po Lam uses `PL`, e.g. `PL001287`). OLD EzDent-i
+  charts are keyed on the bare digits (`001287`). The bridge now strips
+  any letter prefix before writing `Linkage.xml` `ChartNumber` and before
+  copying the chart no. to the clipboard, same as NNT `/PATID` and Rayscan
+  `ID:`. Bare numbers (`001287`) are unchanged.
 - **Best-effort, not guaranteed:** the bridge also writes a `Linkage.xml`
   file and fires `VTEzBridge32.exe` first, in case this clinic's specific
   EzDent-i/EzWebServer setup picks it up and auto-opens/creates the chart

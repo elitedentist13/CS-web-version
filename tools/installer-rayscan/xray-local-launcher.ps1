@@ -962,8 +962,22 @@ function Start-RayBridgePatient($Resolved, $Patient) {
 # Vatech support/docs for a centralized EzWebServer deployment, or access
 # to the server (192.168.50.100) itself -- out of scope for a client PC
 # script.
+#
+# CORRECTED 2026-08-24 (Po Lam / "PL" clinic): Banana's patient_no carries
+# a clinic letter prefix (Program Settings -> patient_no_prefix, here
+# "PL"), but OLD EzDent-i charts were entered before that prefix existed
+# and are keyed on the bare digits. Sending ChartNumber="PL001287" (or
+# pasting "PL001287" into EzDent-i's own search) never matches those
+# existing records, so EzDent-i falls back to a new/unmatched patient
+# instead of the old OPG/CT. Same root cause as NNT /PATID and Rayscan
+# ID: -- reuse Convert-NntPatientId so ANY clinic letter prefix is
+# stripped, not just the literal "PL" this report named.
+function Convert-EzdentiPatientId($Value) {
+    return Convert-NntPatientId $Value
+}
+
 function New-EzdentiLinkageXml($Patient) {
-    $chartNo = if ($Patient.patient_no) { $Patient.patient_no } else { $Patient.patient_id }
+    $chartNo = if ($Patient.patient_no) { Convert-EzdentiPatientId $Patient.patient_no } else { $Patient.patient_id }
     # Chinese-name clinics: mirrors the NNT /NAME (English) + /SURNAME
     # (Chinese) split above. EzDent-i's LastName/FirstName attributes are a
     # Western given/family-name pair, so this is a best-effort mapping, not
@@ -1010,7 +1024,7 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
     if (-not $Resolved -or -not $Resolved.target -or -not (Test-PathSafe $Resolved.target)) {
         return $null
     }
-    $chartNo = if ($Patient.patient_no) { $Patient.patient_no } else { $Patient.patient_id }
+    $chartNo = if ($Patient.patient_no) { Convert-EzdentiPatientId $Patient.patient_no } else { $Patient.patient_id }
     $workDir = if ($Resolved.workingDirectory -and (Test-PathSafe $Resolved.workingDirectory)) { $Resolved.workingDirectory } else { Split-Path -Parent $Resolved.target }
 
     # Best-effort only -- see the caveat above New-EzdentiLinkageXml. Never
@@ -1047,6 +1061,15 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
     } catch {
         return $null
     }
+
+    # Overwrite the generic Handle-Request clipboard copy: that still has
+    # Banana's prefixed patient_no (e.g. "PL001287"). EzDent-i's own search
+    # and Linkage.xml ChartNumber must use the bare digits so OLD charts
+    # match. Staff paste this into EzDent-i search.
+    $clipPatient = [ordered]@{}
+    foreach ($k in $Patient.Keys) { $clipPatient[$k] = $Patient[$k] }
+    $clipPatient.patient_no = $chartNo
+    Copy-PatientContextToClipboard $clipPatient
 
     return [ordered]@{
         target = $Resolved.target
@@ -1405,6 +1428,14 @@ function Invoke-SelfTest {
         if (Test-Path -LiteralPath $tempFolder) { Remove-Item -LiteralPath $tempFolder -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
+    Write-Host "== Convert-EzdentiPatientId (strip Banana's clinic prefix, e.g. 'PL', so EzDent-i ChartNumber / search matches OLD records) ==" -ForegroundColor Cyan
+    Assert-Equal "Real case: PL-prefixed chart number" "001287" (Convert-EzdentiPatientId "PL001287")
+    Assert-Equal "Lowercase prefix"                    "001287" (Convert-EzdentiPatientId "pl001287")
+    Assert-Equal "No prefix, digits only"              "001287" (Convert-EzdentiPatientId "001287")
+    Assert-Equal "Different clinic's letter prefix"    "013524" (Convert-EzdentiPatientId "MK013524")
+    Assert-Equal "Empty stays empty"                   ""       (Convert-EzdentiPatientId "")
+    Assert-Equal "Null stays empty"                    ""       (Convert-EzdentiPatientId $null)
+
     Write-Host "== New-EzdentiLinkageXml (Vatech PMS-bridge linkage.xml contract) ==" -ForegroundColor Cyan
     $ezQs = $qs + "&address=" + [Uri]::EscapeDataString("1 Main St") +
             "&phone=" + [Uri]::EscapeDataString("21234567") +
@@ -1423,6 +1454,14 @@ function Invoke-SelfTest {
     Assert-Equal "Mobile"              $true ($ezXml -like "*<Mobile>91234567</Mobile>*")
     $ezXmlNoDob = New-EzdentiLinkageXml (Build-PatientContext (Parse-Query "/open/ezdenti?patient_no=999999"))
     Assert-Equal "Missing DOB omits Birthday tag" $false ($ezXmlNoDob -like "*<Birthday>*")
+    $ezXmlPl = New-EzdentiLinkageXml (Build-PatientContext (Parse-Query "/open/ezdenti?patient_no=PL001287"))
+    Assert-Equal "PL prefix stripped from ChartNumber" $true ($ezXmlPl -like '*ChartNumber="001287"*')
+    Assert-Equal "PL prefix not left on ChartNumber"   $false ($ezXmlPl -like '*ChartNumber="PL001287"*')
+    $ezClip = Build-PatientContext (Parse-Query "/open/ezdenti?patient_no=PL001287&patient_name=TEST")
+    $ezClip.patient_no = Convert-EzdentiPatientId $ezClip.patient_no
+    $ezClipText = Patient-ContextText $ezClip
+    Assert-Equal "Clipboard paste uses bare chart" $true ($ezClipText -like "*Patient No: 001287*")
+    Assert-Equal "Clipboard paste drops PL prefix" $false ($ezClipText -like "*Patient No: PL001287*")
 
     Write-Host "== Start-EzdentiBridgePatient / Resolve-EzdentiBridge (no real launch) ==" -ForegroundColor Cyan
     # Start-EzdentiBridgePatient now opens $Resolved.target itself (confirmed

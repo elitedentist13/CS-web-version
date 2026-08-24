@@ -3,6 +3,33 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-08-24 — Fix: EzDent-i did not match OLD charts when Banana's patient_no has a clinic prefix (e.g. "PL")
+
+Reported as: opening EzDent-i from Banana for a Po Lam patient (chart
+`PL…`) does not find the existing patient already in EzDent-i.
+
+Root cause: Banana's `patient_no` carries a clinic-configurable letter
+prefix (`patient_no_prefix`, here `"PL"`). OLD EzDent-i records were
+entered before that prefix existed and are keyed on the bare digits.
+`New-EzdentiLinkageXml` sent `ChartNumber="PL001287"` as-is, and the
+clipboard paste-into-search fallback copied the same prefixed string, so
+EzDent-i never matched the old chart.
+
+Fix: added `Convert-EzdentiPatientId` (same digit-extraction as NNT
+`/PATID` and Rayscan `ID:` — strips ANY clinic letter prefix, not only
+the literal `"PL"` this report named). Used for:
+
+- `Linkage.xml` `ChartNumber`
+- `Start-EzdentiBridgePatient`'s returned `chart_number`
+- the clipboard text staff paste into EzDent-i's own search (overwrites
+  the generic Handle-Request copy, which still holds Banana's full
+  prefixed number)
+
+Bare numbers (`001287`) are unchanged. Applied to the canonical
+`tools\xray-local-launcher.ps1`, then rebuilt all three installer
+packages via `build-installer-packages.ps1`. Re-run **Install EzDent-i
+Bridge.bat** on the clinic PC to pick this up.
+
 ## 2026-08-20 — Fix: SMARTDent stays minimized / taskbar-flashing when Banana launches it via RAYBridge
 
 Reported as: clicking the Banana X-ray Rayscan button starts SMARTDent, but
@@ -833,3 +860,13 @@ restarting it so it loads the code just installed." and came back healthy.
   for OPG/CT, and confirm the button in Banana behaves as expected there.
 - Same client/server bridge wiring for other x-ray systems (myray,
   Rayscan) — not started.
+
+## 2026-08-24 — CS bill item unit-price spot check (50 cases)
+
+- **Verdict:** REPAIR VERIFIED
+- **PASS:** 43/50 (items sum matches bill total within $0.05)
+- **Still fixable:** 0 | **Other gap:** 1 | **Warn over:** 5
+- **Log:** `tools/logs/cs-bill-item-unit-price-spotcheck.log`
+- **CSV:** `tools/logs/cs-bill-item-unit-price-spotcheck.csv`
+- **Final cleanup:** +4 bills patched; full scan now **0** auto-fixable remaining
+- **Grand total patched:** 7,662 bills (unit-price bug); script: `spot-check-cs-bill-items.py`

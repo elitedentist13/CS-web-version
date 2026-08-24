@@ -119,15 +119,18 @@ To remove it from a PC, double-click **`Uninstall X-Ray Bridge.bat`**.
   **opens EzDent-i itself** (`VTE2Loader32.exe` → the real `VTE232.exe`
   window) and copies the patient's name + chart no. to the clipboard, so
   staff can paste it straight into EzDent-i's own patient search — same
-  fallback already used for Carestream/Ai-Dental below. It *also*
-  best-effort writes a `Linkage.xml` file and fires `VTEzBridge32.exe`
-  first, on the chance that some component on this specific deployment
-  (there are hints it may be a server-side "EzPicker" service rather than
-  anything on the client PC — see `CHANGELOG.md`) picks it up and
-  auto-opens/creates the chart with zero typing. That last part is
-  **not guaranteed** — treat the clipboard paste as the reliable path
-  until/unless Vatech support confirms the exact mechanism for a given
-  clinic's EzWebServer setup.
+  fallback already used for Carestream/Ai-Dental below. Chart numbers
+  sent to EzDent-i (`Linkage.xml` `ChartNumber` and the clipboard paste)
+  have any Banana clinic letter prefix stripped (e.g. Po Lam `PL001287`
+  → `001287`), so OLD EzDent-i records keyed on the bare digits still
+  match. It *also* best-effort writes a `Linkage.xml` file and fires
+  `VTEzBridge32.exe` first, on the chance that some component on this
+  specific deployment (there are hints it may be a server-side "EzPicker"
+  service rather than anything on the client PC — see `CHANGELOG.md`)
+  picks it up and auto-opens/creates the chart with zero typing. That
+  last part is **not guaranteed** — treat the clipboard paste as the
+  reliable path until/unless Vatech support confirms the exact mechanism
+  for a given clinic's EzWebServer setup.
 - **Rayscan (RAYBridge / SMARTDent V3)**: confirmed live (2026-08-20)
   against `RAYBridge.exe`'s own embedded usage string and this clinic's
   `LocalConfig.xml` / a real `PatientInfo.ini` handoff file. Launches

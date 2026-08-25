@@ -1,0 +1,13 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pillow>=10.3
+numpy>=1.26
+opencv-python-headless>=4.10
+onnxruntime>=1.18
+transformers>=4.44
+torch>=2.2
+# transformers 5.x routes AutoImageProcessor through torchvision, so the
+# condition detector fails to load without it.
+torchvision>=0.17
+huggingface_hub>=0.24

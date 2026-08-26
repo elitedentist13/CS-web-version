@@ -5571,6 +5571,11 @@
             'zh-CN': '✓ 本机启动器正在运行 — 可以打开程序。',
             'zh-Hant': '✓ 本機啟動器正在運行 — 可以開啟程式。'
         },
+        'media.local.appLaunching': {
+            en: 'Opening {SHORTCUT}… (you can switch back to Banana anytime)',
+            'zh-CN': '正在打开 {SHORTCUT}…（可随时切回 Banana）',
+            'zh-Hant': '正在開啟 {SHORTCUT}…（可隨時切回 Banana）'
+        },
         'media.local.launcherNotRunning': {
             en: '✗ Browser cannot see the local launcher.\n\n1. Double-click start-banana-xray-mcp.bat (starts bridge + web app)\n   OR run tools\\Start X-Ray Launcher.bat (keep window open)\n2. Open ONLY http://127.0.0.1:5500/index.html (not file:// or GitHub Pages)\n3. Hard refresh Ctrl+F5\n4. Test http://127.0.0.1:17890/status — should show {"ok":true}',
             'zh-CN': '✗ 浏览器看不到本机启动器。\n\n1. 双击 start-banana-xray-mcp.bat（同时启动桥接 + 网页）\n   或运行 tools\\Start X-Ray Launcher.bat（保持窗口打开）\n2. 仅使用 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）\n3. 强制刷新 Ctrl+F5\n4. 测试 http://127.0.0.1:17890/status — 应显示 {"ok":true}',

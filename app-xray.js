@@ -35,7 +35,9 @@ function xrayClinicImageRoot() {
 /** CS Trophy SCAN share — server (XRAY-MCP) uses RECEPTION_MCP; clients may use CSMAIN. */
 function xrayTrophyScanRoot() {
     if (typeof window !== 'undefined' && typeof window.XRAY_TROPHY_SCAN_ROOT === 'string' && window.XRAY_TROPHY_SCAN_ROOT) {
-        return window.XRAY_TROPHY_SCAN_ROOT;
+        var root = window.XRAY_TROPHY_SCAN_ROOT.trim();
+        // Reject corrupted installer output (e.g. '\\' only).
+        if (root.length > 3 && /SCAN|Scan|IMAGE|Image/i.test(root)) return root;
     }
     return '\\\\RECEPTION_MCP\\IMAGE\\SCAN';
 }
@@ -2239,7 +2241,7 @@ function updateSelectedCount() {
 // LOCAL DESKTOP LAUNCHER  (tools/Start X-Ray Launcher.bat on this PC)
 // ════════════════════════════════════════════════════════════════
 // Must match tools/xray-local-launcher.ps1 default (17890).
-var XRAY_LAUNCHER_PORTS = [17890, 17891];
+var XRAY_LAUNCHER_PORTS = [17891, 17890];
 var XRAY_LAUNCHER_HOSTS = ['127.0.0.1', 'localhost'];
 var XRAY_LAUNCHER_PORT = 17890;
 var XRAY_LAUNCHER_BASE = 'http://127.0.0.1:' + XRAY_LAUNCHER_PORT;
@@ -2358,6 +2360,50 @@ function xrayLauncherBlockedByPage() {
     return false;
 }
 
+/** Non-blocking toast — external apps (Trophy TW.exe, etc.) steal focus; alert() leaves a hidden modal that blocks the browser when you switch back. */
+function xrayShowToast(msg, isErr) {
+    var t = document.getElementById('xrayLaunchToast');
+    if (!t) {
+        t = document.createElement('div');
+        t.id = 'xrayLaunchToast';
+        t.style.cssText =
+            'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:99999;' +
+            'padding:12px 22px;border-radius:8px;font-size:14px;color:#fff;' +
+            'box-shadow:0 4px 16px rgba(0,0,0,.25);transition:opacity .4s;' +
+            'pointer-events:none;opacity:0;max-width:min(520px,92vw);text-align:center;white-space:pre-wrap;';
+        document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.background = isErr ? '#dc3545' : '#198754';
+    t.style.opacity = '1';
+    clearTimeout(t._xrayToastTid);
+    t._xrayToastTid = setTimeout(function() { t.style.opacity = '0'; }, isErr ? 6000 : 3500);
+}
+
+function xrayPreferNonBlockingLaunchFeedback(launcherKey) {
+    return launcherKey === 'trophy' || launcherKey === 'carestream' ||
+        launcherKey === 'nntnewtom' || launcherKey === 'rayscan' || launcherKey === 'ezdenti';
+}
+
+function xrayNotifyUser(msg, isErr, launcherKey) {
+    if (xrayPreferNonBlockingLaunchFeedback(launcherKey)) {
+        xrayShowToast(msg, isErr);
+    } else {
+        alert(msg);
+    }
+}
+
+// Re-warm loopback permission + bridge when returning from a fullscreen desktop app.
+(function xrayLauncherVisibilityWarmup() {
+    if (typeof document === 'undefined') return;
+    var warming = false;
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden || warming || xrayLauncherBlockedByPage()) return;
+        warming = true;
+        pingXrayLauncher(function() { warming = false; });
+    });
+})();
+
 // Chrome 141+ replaced the older Private-Network-Access preflight this bridge
 // was originally built against with "Local Network Access" (LNA): an actual
 // user-facing permission prompt, checked in ADDITION to CORS, before any
@@ -2467,7 +2513,9 @@ function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
     if (qParts.length) patQ = '?' + qParts.join('&');
     var urlPath = '/open/' + encodeURIComponent(launcherKey || 'carestream') + patQ;
     xrayLoopbackPermissionState(function(permState) {
-        var baseTimeout = (launcherKey === 'aidental') ? 90000 : 5000;
+        var baseTimeout = (launcherKey === 'aidental') ? 90000
+            : (launcherKey === 'trophy' || launcherKey === 'carestream') ? 15000
+            : 5000;
         var bridgeTimeout = (permState === 'prompt') ? Math.max(baseTimeout, 30000) : baseTimeout;
         xrayFetchLauncher(urlPath, permState, bridgeTimeout, function(res, err) {
             if (err) {
@@ -3233,26 +3281,26 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
 
         if (status.blocked || !status.online) {
             if (status.permissionPrompt) {
-                alert(mediaTr('media.local.launcherPermissionPrompt'));
+                xrayNotifyUser(mediaTr('media.local.launcherPermissionPrompt'), true, launcherKey);
                 return;
             }
             if (status.permissionDenied) {
-                alert(mediaTr('media.local.launcherPermissionDenied'));
+                xrayNotifyUser(mediaTr('media.local.launcherPermissionDenied'), true, launcherKey);
                 return;
             }
             if (status.fetchFailed) {
-                alert(mediaTr('media.local.launcherFetchBlocked'));
+                xrayNotifyUser(mediaTr('media.local.launcherFetchBlocked'), true, launcherKey);
                 return;
             }
             var neededMsgKey = (launcherKey === 'aidental')
                 ? 'media.local.aidentalLauncherNeeded'
                 : neededKey;
-            alert(mediaTrRepl(neededMsgKey, {
+            xrayNotifyUser(mediaTrRepl(neededMsgKey, {
                 SHORTCUT: shortcutName,
                 EXE: appPath,
                 PATIENT: patientSummary,
                 BAT: 'tools\\Start X-Ray Launcher.bat'
-            }));
+            }), true, launcherKey);
             return;
         }
 
@@ -3280,31 +3328,34 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
                 return;
             }
             if (attached) {
-                alert(mediaTrRepl(launchedKey, {
+                xrayNotifyUser(mediaTrRepl(launchedKey, {
                     SHORTCUT: shortcutName,
                     PATIENT: bridgeBody.search_text || searchText
-                }));
+                }), false, launcherKey);
                 return;
             }
             if (bridgeBody.permissionPrompt) {
-                alert(mediaTr('media.local.launcherPermissionPrompt'));
+                xrayNotifyUser(mediaTr('media.local.launcherPermissionPrompt'), true, launcherKey);
                 return;
             }
             if (bridgeBody.permissionDenied) {
-                alert(mediaTr('media.local.launcherPermissionDenied'));
+                xrayNotifyUser(mediaTr('media.local.launcherPermissionDenied'), true, launcherKey);
                 return;
             }
             if (bridgeBody.fetchFailed) {
-                alert(mediaTr('media.local.launcherFetchBlocked'));
+                xrayNotifyUser(mediaTr('media.local.launcherFetchBlocked'), true, launcherKey);
                 return;
             }
-            alert(mediaTrRepl(neededKey, {
+            xrayNotifyUser(mediaTrRepl(neededKey, {
                 SHORTCUT: shortcutName,
                 EXE: appPath,
                 PATIENT: patientSummary,
                 BAT: 'tools\\Start X-Ray Launcher.bat'
-            }));
+            }), true, launcherKey);
         });
+        if (xrayPreferNonBlockingLaunchFeedback(launcherKey)) {
+            xrayShowToast(mediaTrRepl('media.local.appLaunching', { SHORTCUT: shortcutName }));
+        }
     });
 }
 

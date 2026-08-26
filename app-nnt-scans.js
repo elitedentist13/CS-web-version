@@ -338,28 +338,53 @@ function loadNntLocalScans() {
         return;
     }
     var gen = ++nntScanLoadGen;
+
+    function done(files) {
+        if (gen !== nntScanLoadGen) return;
+        renderNntLocalScans(no, files || []);
+    }
+
+    function fail() {
+        if (gen !== nntScanLoadGen) return;
+        hideNntLocalScans();
+    }
+
+    var path = '/nnt/scans?patient_no=' + encodeURIComponent(no);
+
+    if (typeof xrayFetchLauncher === 'function' && typeof xrayLoopbackPermissionState === 'function') {
+        xrayLoopbackPermissionState(function(permState) {
+            var waitMs = (permState === 'prompt') ? 30000 : 12000;
+            xrayFetchLauncher(path, permState, waitMs, function(res, err) {
+                if (gen !== nntScanLoadGen) return;
+                if (err || !res) { fail(); return; }
+                var body = res.body || {};
+                done((body.ok && body.files) ? body.files : []);
+            });
+        });
+        return;
+    }
+
     var base = (typeof XRAY_LAUNCHER_BASE === 'string' && XRAY_LAUNCHER_BASE)
         ? XRAY_LAUNCHER_BASE
         : 'http://127.0.0.1:17890';
     var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var timer = setTimeout(function() {
         if (ctrl) ctrl.abort();
-        if (gen === nntScanLoadGen) hideNntLocalScans();
-    }, 2500);
+        fail();
+    }, 8000);
     var listOpts = nntScanFetchOpts();
     if (ctrl) listOpts.signal = ctrl.signal;
-    fetch(base + '/nnt/scans?patient_no=' + encodeURIComponent(no), listOpts).then(function(r) {
+    fetch(base + path, listOpts).then(function(r) {
         if (!r.ok) throw new Error('nnt scans ' + r.status);
         return r.json();
     }).then(function(body) {
         if (gen !== nntScanLoadGen) return;
         clearTimeout(timer);
-        var files = (body && body.ok && body.files) ? body.files : [];
-        renderNntLocalScans(no, files);
+        done((body && body.ok && body.files) ? body.files : []);
     }).catch(function() {
         if (gen !== nntScanLoadGen) return;
         clearTimeout(timer);
-        hideNntLocalScans();
+        fail();
     });
 }
 
@@ -411,6 +436,10 @@ document.addEventListener('DOMContentLoaded', function() {
     wrapNntScanPatientHooks();
     ensureNntScanStrip();
     loadNntLocalScans();
+});
+
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) loadNntLocalScans();
 });
 
 document.addEventListener('app-lang-change', refreshNntScanStripTitle);

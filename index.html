@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260826-patient-dir-sync';
+  var BUILD = '20260827-trophy-working-port-17891';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3462,7 +3462,8 @@
         </button>
 
         <button class="xray-sys-btn xray-sys-Trophy"
-                onclick="openXraySystem('Trophy')">
+                onclick="openXraySystem('Trophy')"
+                data-i18n-title="media.sys.trophy.desktopHint">
           <span class="sys-icon">🏆</span>
           <span data-i18n="media.sys.trophy"></span>
         </button>

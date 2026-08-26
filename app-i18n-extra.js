@@ -5601,10 +5601,35 @@
             'zh-CN': '（打开桌面程序后，按已复制的患者姓名或编号搜索）',
             'zh-Hant': '（開啟桌面程式後，按已複製的病人姓名或編號搜尋）'
         },
+        'media.sys.trophy.desktopHint': {
+            en: 'Trophy F7 equivalent — opens TW.exe with patient SCAN folder (Carestream)',
+            'zh-CN': '等同 Trophy F7 — 以患者 SCAN 文件夹启动 TW.exe（Carestream）',
+            'zh-Hant': '等同 Trophy F7 — 以病人 SCAN 資料夾啟動 TW.exe（Carestream）'
+        },
+        'media.sys.trophy.desktopHint': {
+            en: 'Trophy F7 equivalent — opens TW.exe with patient SCAN folder (Carestream)',
+            'zh-CN': '等同 Trophy F7 — 以患者 SCAN 文件夹启动 TW.exe（Carestream）',
+            'zh-Hant': '等同 Trophy F7 — 以病人 SCAN 資料夾啟動 TW.exe（Carestream）'
+        },
         'media.sys.trophy.info': {
-            en: 'Launches Trophy/Kodak imaging system',
-            'zh-CN': '启动 Trophy/Kodak 影像系统',
-            'zh-Hant': '啟動 Trophy/Kodak 影像系統'
+            en: 'Carestream Trophy (TW.exe) — same as Clinic Solution Trophy F7: opens this patient\'s SCAN folder on the CS server',
+            'zh-CN': 'Carestream Trophy (TW.exe) — 与 Clinic Solution 的 Trophy F7 相同：打开 CS 服务器上该患者的 SCAN 文件夹',
+            'zh-Hant': 'Carestream Trophy (TW.exe) — 與 Clinic Solution 的 Trophy F7 相同：開啟 CS 伺服器上該病人的 SCAN 資料夾'
+        },
+        'media.local.trophyOpen': {
+            en: 'Open Trophy imaging (TW.exe) for this patient?\n\n• Program: {EXE}\n• Patient: {PATIENT}\n• CS SCAN folder: {FOLDER}\n\nSame handoff as Clinic Solution Trophy F7.',
+            'zh-CN': '为本患者打开 Trophy 影像 (TW.exe)？\n\n• 程序：{EXE}\n• 患者：{PATIENT}\n• CS SCAN 文件夹：{FOLDER}\n\n与 Clinic Solution 的 Trophy F7 相同。',
+            'zh-Hant': '為本病人開啟 Trophy 影像 (TW.exe)？\n\n• 程式：{EXE}\n• 病人：{PATIENT}\n• CS SCAN 資料夾：{FOLDER}\n\n與 Clinic Solution 的 Trophy F7 相同。'
+        },
+        'media.local.trophyLaunched': {
+            en: 'Trophy (TW.exe) is starting with this patient\'s CS SCAN folder.\n\nPatient: {PATIENT}',
+            'zh-CN': '正在启动 Trophy (TW.exe)，已带上该患者的 CS SCAN 文件夹。\n\n患者：{PATIENT}',
+            'zh-Hant': '正在啟動 Trophy (TW.exe)，已帶上該病人的 CS SCAN 資料夾。\n\n病人：{PATIENT}'
+        },
+        'media.local.trophyLauncherNeeded': {
+            en: 'Could not start Trophy from the browser.\n\n1. Run: current work\\{BAT} (leave window open)\n2. Click Trophy again\n\nOr run TW.exe manually.\nPatient: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Trophy。\n\n1. 运行：current work\\{BAT}（保持窗口打开）\n2. 再次点击 Trophy\n\n或手动运行 TW.exe。\n患者：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Trophy。\n\n1. 執行：current work\\{BAT}（保持視窗開啟）\n2. 再次按 Trophy\n\n或手動執行 TW.exe。\n病人：{PATIENT}\n程式：{EXE}'
         },
         'media.customLink': { en: 'Custom Link', 'zh-CN': '自定义链接', 'zh-Hant': '自訂連結' },
         'media.local.foldersBtn': { en: 'Local PC folders', 'zh-CN': '本机文件夹', 'zh-Hant': '本機資料夾' },

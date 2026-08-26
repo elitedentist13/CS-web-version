@@ -2220,7 +2220,7 @@ function updateSelectedCount() {
 // ════════════════════════════════════════════════════════════════
 // LOCAL DESKTOP LAUNCHER  (tools/Start X-Ray Launcher.bat on this PC)
 // ════════════════════════════════════════════════════════════════
-var XRAY_LAUNCHER_PORT = 17890;
+var XRAY_LAUNCHER_PORT = 17891;  // Temporarily using 17891 due to stuck process on 17890. Restart computer to use standard port.
 var XRAY_LAUNCHER_BASE = 'http://127.0.0.1:' + XRAY_LAUNCHER_PORT;
 
 function xrayLauncherBlockedByPage() {
@@ -2511,10 +2511,17 @@ var XRAY_SYSTEMS = {
     Trophy: {
         nameKey: 'media.sys.trophy',
         infoKey: 'media.sys.trophy.info',
-        url: 'trophy://',
-        defaultDataPath: 'C:\\Image',
-        defaultSubPattern: 'Xrays\\{patient_no}',
-        defaultAppPath: ''
+        url: '',
+        launcherKey: 'trophy',
+        desktopShortcutName: 'Trophy (TW.exe)',
+        desktopShortcutPath: '',
+        defaultDataPath: '\\\\RECEPTION_MCP\\IMAGE\\SCAN',
+        defaultSubPattern: '{patient_no}',
+        defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\CSImaging\\TW.exe',
+        launchProtocol: false,
+        openMsgKey: 'media.local.trophyOpen',
+        launchedMsgKey: 'media.local.trophyLaunched',
+        launcherNeededMsgKey: 'media.local.trophyLauncherNeeded'
     },
     _general: {
         nameKey: 'media.local.general',

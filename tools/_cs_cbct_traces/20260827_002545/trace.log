@@ -1,0 +1,23 @@
+﻿00:26:30.113  Session 20260827_002545 on DR-1-MCP
+00:26:30.121  Log: C:\Users\joyfu\Downloads\CS-web-version-main (4)\CS-web-version-main\tools\_cs_cbct_traces\20260827_002545\trace.log
+00:26:30.123  Captures: C:\Users\joyfu\Downloads\CS-web-version-main (4)\CS-web-version-main\tools\_cs_cbct_traces\20260827_002545\captures
+00:26:30.125  Stop early: New-Item -ItemType File -Path 'C:\Users\joyfu\Downloads\CS-web-version-main (4)\CS-web-version-main\tools\_cs_cbct_traces\20260827_002545\STOP'
+00:26:30.127  Waiting up to 1800 seconds ??open Clinic Solution and connect to CBCT / open x-ray now.
+00:26:30.566  Watchers active for: CS.exe, NNT.exe, NNTBridge.exe, NNTViewer.exe, RAYBridge.exe, RayView.exe, SMARTDent.exe, local_server_console.exe, Patient.exe, CSImaging.exe, CS3DImaging.exe, CS3D.exe, VTE232.exe, VTE2Loader32.exe, VTEzBridge32.exe, Ai-Dental.exe, NewTom.exe, WIFIServer.exe
+00:26:30.588  POLL running CS pid=40028
+00:26:31.241  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:26:31.243  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:26:45.690  POLL running CS pid=40028
+00:26:45.911  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:26:45.913  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:27:00.722  POLL running CS pid=40028
+00:27:00.983  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:27:00.985  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:27:15.891  POLL running CS pid=40028
+00:27:16.146  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:27:16.147  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:27:30.974  POLL running CS pid=40028
+00:27:31.215  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:27:31.218  POLL NET CS pid=40028 -> 192.168.50.114:53563 state=Established
+00:27:40.438  Stop file detected ??ending session.
+00:27:40.449  === watch ended 2026-08-27T00:27:40.4490051+08:00 ===

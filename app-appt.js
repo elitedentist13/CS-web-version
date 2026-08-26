@@ -12585,38 +12585,38 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
             var fromAppt =
                 String(a.patient_chinese_name || '').trim();
             var fromPat =
-                (a.patient_id && pmap[a.patient_id])
-                    ? String(pmap[a.patient_id]).trim()
+                (a.patient_id && pmap[String(a.patient_id)])
+                    ? String(pmap[String(a.patient_id)]).trim()
                     : '';
             var fromAlert =
-                (a.patient_id && pAlertMap[a.patient_id])
-                    ? String(pAlertMap[a.patient_id]).trim()
+                (a.patient_id && pAlertMap[String(a.patient_id)])
+                    ? String(pAlertMap[String(a.patient_id)]).trim()
                     : '';
             // When the row links to a patient record, always prefer the live
             // patients.chinese_name (fromPat) over the denormalized appointment
             // field (fromAppt) so that name edits are reflected immediately.
             a._merged_chinese_name = a.patient_id ? (fromPat || fromAppt) : (fromAppt || fromPat);
-            if (a.patient_id && pNameMap[a.patient_id]) {
-                a.patient_name = pNameMap[a.patient_id];
+            if (a.patient_id && pNameMap[String(a.patient_id)]) {
+                a.patient_name = pNameMap[String(a.patient_id)];
             }
-            if (a.patient_id && pNoMap[a.patient_id]) {
-                a.patient_no = pNoMap[a.patient_id];
+            if (a.patient_id && pNoMap[String(a.patient_id)]) {
+                a.patient_no = pNoMap[String(a.patient_id)];
             }
             a._merged_patient_alerts = fromAlert || String(a.medical_alerts || '').trim();
             if (a.patient_id && typeof patientAlertDisplayNeedsExtraFields === 'function' &&
                 patientAlertDisplayNeedsExtraFields()) {
-                a._merged_medical_history = pHistoryMap[a.patient_id] || '';
-                a._merged_current_medications = pMedsMap[a.patient_id] || '';
-                a._merged_allergy = pAllergyMap[a.patient_id] || '';
+                a._merged_medical_history = pHistoryMap[String(a.patient_id)] || '';
+                a._merged_current_medications = pMedsMap[String(a.patient_id)] || '';
+                a._merged_allergy = pAllergyMap[String(a.patient_id)] || '';
             }
-            if (a.patient_id && pPhoneMap[a.patient_id]) {
-                a._merged_phone = pPhoneMap[a.patient_id];
+            if (a.patient_id && pPhoneMap[String(a.patient_id)]) {
+                a._merged_phone = pPhoneMap[String(a.patient_id)];
             }
-            if (a.patient_id && pMobileMap[a.patient_id]) {
-                a._merged_mobile_phone = pMobileMap[a.patient_id];
+            if (a.patient_id && pMobileMap[String(a.patient_id)]) {
+                a._merged_mobile_phone = pMobileMap[String(a.patient_id)];
             }
-            if (a.patient_id && pSearchMap[a.patient_id]) {
-                a._merged_patient_search = pSearchMap[a.patient_id];
+            if (a.patient_id && pSearchMap[String(a.patient_id)]) {
+                a._merged_patient_search = pSearchMap[String(a.patient_id)];
             }
             if (!a.patient_id) {
                 apptHydrateWalkInPhone(a);
@@ -12643,19 +12643,20 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
     .then(function(pr) {
         if (!pr.error && pr.data) {
             pr.data.forEach(function(p) {
-                pmap[p.id] = p.chinese_name;
-                pNameMap[p.id] = String(p.full_name || '').trim();
-                pNoMap[p.id] = String(p.patient_no || '').trim();
-                pAlertMap[p.id] = p.medical_alerts;
+                var pid = String(p.id);
+                pmap[pid] = p.chinese_name;
+                pNameMap[pid] = String(p.full_name || '').trim();
+                pNoMap[pid] = String(p.patient_no || '').trim();
+                pAlertMap[pid] = p.medical_alerts;
                 if (patientAlertDisplayNeedsExtraFields()) {
-                    pHistoryMap[p.id] = p.medical_history;
-                    pMedsMap[p.id] = p.current_medications;
-                    pAllergyMap[p.id] = p.allergy;
+                    pHistoryMap[pid] = p.medical_history;
+                    pMedsMap[pid] = p.current_medications;
+                    pAllergyMap[pid] = p.allergy;
                 }
-                pPhoneMap[p.id] = String(p.phone_number || p.mobile_phone || '').trim();
-                pMobileMap[p.id] = String(p.mobile_phone || '').trim();
+                pPhoneMap[pid] = String(p.phone_number || p.mobile_phone || '').trim();
+                pMobileMap[pid] = String(p.mobile_phone || '').trim();
                 if (typeof patientSearchBlobFromRecord === 'function') {
-                    pSearchMap[p.id] = patientSearchBlobFromRecord(p);
+                    pSearchMap[pid] = patientSearchBlobFromRecord(p);
                 }
             });
         }
@@ -13845,6 +13846,7 @@ function apptPatchCachedPatientRows(patient) {
     if (!patient || !patient.id) return;
     var pid = String(patient.id);
     var lists = [todayAppts, queueApptsCache, plusApptDayAppts, calMonthApptsCache, calWeekApptsCache];
+    if (typeof arAllData !== 'undefined') lists.push(arAllData);
     lists.forEach(function(list) {
         (list || []).forEach(function(a) {
             if (!a || String(a.patient_id || '') !== pid) return;
@@ -13866,6 +13868,19 @@ function apptPatchCachedPatientRows(patient) {
 /** Refresh appointment subtabs after patient details change. */
 function refreshApptListsAfterPatientEdit(patient) {
     apptPatchCachedPatientRows(patient);
+    if (patient && patient.id && plusApptHeaderPatient &&
+        String(plusApptHeaderPatient.id) === String(patient.id) &&
+        typeof plusApptApplyHeaderPatient === 'function') {
+        plusApptApplyHeaderPatient(Object.assign({}, plusApptHeaderPatient, patient));
+    }
+    var apptModal = g('apptModal');
+    var hid = g('hPid');
+    if (patient && patient.id && apptModal && hid &&
+        apptModal.style.display === 'block' &&
+        String(hid.value || '') === String(patient.id) &&
+        typeof apptSetSelectedPatient === 'function') {
+        apptSetSelectedPatient(patient);
+    }
     if (typeof refreshBillPanelPatientInfo === 'function') {
         refreshBillPanelPatientInfo(patient);
     }

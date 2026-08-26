@@ -417,13 +417,16 @@ function readPatientDragPayloadFromEvent(ev) {
 /** Build active-patient payload from an appointment row/card (calendar, + Appointment). */
 function patientDragPayloadFromAppt(a) {
     if (!a || !a.patient_id) return null;
+    var liveCn = (typeof a._merged_chinese_name === 'string')
+        ? String(a._merged_chinese_name).trim()
+        : '';
     return normalizeActivePatientPayload({
         id: a.patient_id,
         patient_no: a.patient_no || '',
         full_name: a.patient_name || '',
-        chinese_name: a.patient_chinese_name || a._merged_chinese_name || '',
-        phone_number: a.patient_phone || a._merged_phone || a.phone_number || '',
-        mobile_phone: a.patient_mobile || a.mobile_phone || '',
+        chinese_name: liveCn || a.patient_chinese_name || '',
+        phone_number: a._merged_phone || a.patient_phone || a.phone_number || '',
+        mobile_phone: a._merged_mobile_phone || a.patient_mobile || a.mobile_phone || '',
         hkid: a.patient_hkid || a.hkid || '',
         sex: a.patient_sex || a.sex || '',
         dob: a.patient_dob || a.dob || ''
@@ -3485,7 +3488,7 @@ function normalizeActivePatientPayload(p) {
     var out = {
         id: p.id,
         patient_no: p.patient_no || '',
-        full_name: p.full_name || '',
+        full_name: p.full_name || p.patient_name || '',
         chinese_name: p.chinese_name || '',
         phone_number: activePatientPhoneFromRecord(p),
         hkid: p.hkid || '',
@@ -3495,7 +3498,127 @@ function normalizeActivePatientPayload(p) {
     if ('insurance_no' in p) {
         out.insurance_no = p.insurance_no != null ? String(p.insurance_no).trim() : '';
     }
+    if (typeof p.mobile_phone !== 'undefined') out.mobile_phone = p.mobile_phone || '';
+    if (typeof p.address !== 'undefined') out.address = p.address || '';
+    if (typeof p.email !== 'undefined') out.email = p.email || '';
     return out;
+}
+
+/** Overlay live patients-table fields onto a slot snapshot (directory wins). */
+function overlayCanonicalPatientFields(target, row) {
+    if (!target || !row) return target;
+    if (row.patient_no != null && String(row.patient_no).trim() !== '') {
+        target.patient_no = row.patient_no;
+    }
+    if (typeof row.full_name !== 'undefined') {
+        target.full_name = row.full_name || '';
+    }
+    if (typeof row.chinese_name !== 'undefined') {
+        target.chinese_name = row.chinese_name || '';
+    }
+    if (typeof row.phone_number !== 'undefined' || typeof row.mobile_phone !== 'undefined') {
+        target.phone_number = activePatientPhoneFromRecord(row);
+    }
+    if (typeof row.mobile_phone !== 'undefined') {
+        target.mobile_phone = row.mobile_phone || '';
+    }
+    if (typeof row.hkid !== 'undefined') target.hkid = row.hkid || '';
+    if (typeof row.sex !== 'undefined') target.sex = row.sex || '';
+    if (typeof row.dob !== 'undefined') target.dob = row.dob || '';
+    if (typeof row.address !== 'undefined') target.address = row.address || '';
+    if (typeof row.email !== 'undefined') target.email = row.email || '';
+    if (Object.prototype.hasOwnProperty.call(row, 'insurance_no')) {
+        target.insurance_no = row.insurance_no != null ? String(row.insurance_no).trim() : '';
+    }
+    return target;
+}
+
+var ACTIVE_PATIENT_CANONICAL_SELECT =
+    'patient_no,full_name,chinese_name,phone_number,mobile_phone,hkid,sex,dob,address,email,insurance_no';
+
+/** Push a directory patient row into matching sidebar slots (and primary context). */
+function applyLivePatientRecordToActiveSlots(patient, source) {
+    if (!patient || !patient.id) return false;
+    var changed = false;
+    for (var si = 0; si < activePatientSlots.length; si++) {
+        if (!activePatientSlots[si] ||
+            String(activePatientSlots[si].id) !== String(patient.id)) continue;
+        var next = normalizeActivePatientPayload(activePatientSlots[si]) ||
+            normalizeActivePatientPayload(patient);
+        if (!next) continue;
+        overlayCanonicalPatientFields(next, patient);
+        next.__detailsHydrateDone = true;
+        activePatientSlots[si] = next;
+        changed = true;
+    }
+    if (!changed) return false;
+    renderActivePatientSlots();
+    if (activePatientSlots[0] &&
+        String(activePatientSlots[0].id) === String(patient.id) &&
+        typeof syncPrimaryPatientContext === 'function') {
+        syncPrimaryPatientContext(source || 'active-slot-directory-edit');
+    }
+    return true;
+}
+
+/**
+ * Write denormalized name/no copies on appointments + bills so queue, calendar,
+ * records, and billing stay aligned after a directory edit.
+ */
+function persistDenormalizedPatientCopies(patient, done) {
+    function finish() {
+        if (typeof done === 'function') done();
+    }
+    if (!patient || !patient.id || typeof SB === 'undefined' || !SB.from) {
+        finish();
+        return;
+    }
+    var pid = patient.id;
+    var apptPayload = {};
+    if (typeof patient.full_name !== 'undefined') {
+        apptPayload.patient_name = patient.full_name || null;
+    }
+    if (typeof patient.chinese_name !== 'undefined') {
+        apptPayload.patient_chinese_name = patient.chinese_name || null;
+    }
+    if (patient.patient_no) apptPayload.patient_no = patient.patient_no;
+    if (!Object.keys(apptPayload).length) {
+        finish();
+        return;
+    }
+
+    function updateBills() {
+        var billPayload = {};
+        if (typeof patient.full_name !== 'undefined') {
+            billPayload.patient_name = patient.full_name || null;
+        }
+        if (patient.patient_no) billPayload.patient_no = patient.patient_no;
+        if (!Object.keys(billPayload).length) {
+            finish();
+            return;
+        }
+        SB.from('bills').update(billPayload).eq('patient_id', pid)
+        .then(function () { finish(); })
+        .catch(function () { finish(); });
+    }
+
+    function tryAppt(pl, retriedChinese) {
+        SB.from('appointments').update(pl).eq('patient_id', pid)
+        .then(function (r) {
+            if (r && r.error) {
+                var msg = String(r.error.message || '').toLowerCase();
+                if (!retriedChinese && msg.indexOf('patient_chinese_name') >= 0) {
+                    var pl2 = Object.assign({}, pl);
+                    delete pl2.patient_chinese_name;
+                    tryAppt(pl2, true);
+                    return;
+                }
+            }
+            updateBills();
+        })
+        .catch(function () { updateBills(); });
+    }
+    tryAppt(apptPayload, false);
 }
 
 function activePatientBadgeSexLabel(sex) {
@@ -3823,27 +3946,19 @@ function renderActivePatientSlots() {
 function hydrateActivePatientDetailsIfNeeded(slotIdx) {
     var p = activePatientSlots[slotIdx];
     if (!p || !p.id || p.__detailsHydrateDone) return;
-    if (p.phone_number && p.hkid && p.sex && p.dob && ('insurance_no' in p)) {
+    if (typeof SB === 'undefined' || !SB.from) {
         p.__detailsHydrateDone = true;
         return;
     }
-    if (typeof SB === 'undefined' || !SB.from) return;
     p.__detailsHydrateDone = true;
-    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob,insurance_no').eq('id', p.id).limit(1)
+    SB.from('patients').select(ACTIVE_PATIENT_CANONICAL_SELECT).eq('id', p.id).limit(1)
     .then(function(r) {
         if (!r.data || !r.data[0]) return;
-        var row = r.data[0];
         if (!activePatientSlots[slotIdx] ||
             String(activePatientSlots[slotIdx].id) !== String(p.id)) return;
-        var cur = activePatientSlots[slotIdx];
-        if (!cur.phone_number) cur.phone_number = activePatientPhoneFromRecord(row);
-        if (!cur.hkid) cur.hkid = row.hkid || '';
-        if (!cur.sex) cur.sex = row.sex || '';
-        if (!cur.dob) cur.dob = row.dob || '';
-        if (!('insurance_no' in cur)) {
-            cur.insurance_no = row.insurance_no != null ? String(row.insurance_no).trim() : '';
-        }
-        renderActivePatientSlot(slotIdx, cur);
+        overlayCanonicalPatientFields(activePatientSlots[slotIdx], r.data[0]);
+        renderActivePatientSlot(slotIdx, activePatientSlots[slotIdx]);
+        if (slotIdx === 0) renderActivePatientCollapsedTab();
     })
     .catch(function() {});
 }
@@ -3906,36 +4021,26 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
         return;
     }
 
-    if (norm.phone_number && norm.hkid && norm.sex && norm.dob &&
-        norm.address !== undefined && norm.email !== undefined && ('insurance_no' in norm)) {
-        commit(norm);
-        return;
+    if (typeof SB !== 'undefined' && SB.from) {
+        norm.__detailsHydrateDone = true;
     }
+    commit(norm);
+    if (typeof SB === 'undefined' || !SB.from) return;
 
-    if (typeof SB === 'undefined' || !SB.from) {
-        commit(norm);
-        return;
-    }
-
-    SB.from('patients').select('phone_number,mobile_phone,hkid,sex,dob,address,email,insurance_no').eq('id', norm.id).limit(1)
+    SB.from('patients').select(ACTIVE_PATIENT_CANONICAL_SELECT).eq('id', norm.id).limit(1)
     .then(function(r) {
-        if (r.data && r.data[0]) {
-            norm.phone_number = norm.phone_number || activePatientPhoneFromRecord(r.data[0]);
-            norm.mobile_phone = norm.mobile_phone || r.data[0].mobile_phone || '';
-            norm.hkid = norm.hkid || r.data[0].hkid || '';
-            norm.sex = norm.sex || r.data[0].sex || '';
-            norm.dob = norm.dob || r.data[0].dob || '';
-            norm.address = norm.address || r.data[0].address || '';
-            norm.email = norm.email || r.data[0].email || '';
-            norm.insurance_no = r.data[0].insurance_no != null
-                ? String(r.data[0].insurance_no).trim()
-                : '';
+        if (!r.data || !r.data[0]) return;
+        if (!activePatientSlots[slotIdx] ||
+            String(activePatientSlots[slotIdx].id) !== String(norm.id)) return;
+        overlayCanonicalPatientFields(activePatientSlots[slotIdx], r.data[0]);
+        activePatientSlots[slotIdx].__detailsHydrateDone = true;
+        renderActivePatientSlot(slotIdx, activePatientSlots[slotIdx]);
+        if (slotIdx === 0) renderActivePatientCollapsedTab();
+        if (syncPrimary !== false && slotIdx === 0) {
+            syncPrimaryPatientContext(source || 'active-slot-hydrate');
         }
-        commit(norm);
     })
-    .catch(function() {
-        commit(norm);
-    });
+    .catch(function() {});
 }
 
 function setActivePatientFromPayload(p, source) {

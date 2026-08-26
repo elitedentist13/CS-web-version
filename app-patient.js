@@ -1482,40 +1482,26 @@ function submitEditPatient(e) {
     if (!nurse) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
     function doneUpdate(savedPatient) {
         var savedId = (savedPatient && savedPatient.id) || editPatientId;
+        var merged = savedPatient || Object.assign({ id: savedId }, payload, {
+            patient_no: (g('edit_patientNo') && g('edit_patientNo').value) || ''
+        });
         closeModal('editPatientModal');
         fetchPatients();
-        if (typeof refreshApptListsAfterPatientEdit === 'function') {
-            refreshApptListsAfterPatientEdit(savedPatient || Object.assign({ id: savedId }, payload, {
-                patient_no: (g('edit_patientNo') && g('edit_patientNo').value) || ''
-            }));
+        if (typeof applyLivePatientRecordToActiveSlots === 'function') {
+            applyLivePatientRecordToActiveSlots(merged, 'active-slot-directory-edit');
         }
-        // Silently patch the denormalized patient_name on all bills so that the
-        // bill history panel always shows the up-to-date name after a rename.
-        if (savedId && savedPatient && savedPatient.full_name) {
-            SB.from('bills')
-                .update({ patient_name: savedPatient.full_name })
-                .eq('patient_id', savedId)
-                .then(function() {})
-                .catch(function() {});
-        }
-
-        if (savedPatient && typeof activePatientSlots !== 'undefined') {
-            for (var si = 0; si < activePatientSlots.length; si++) {
-                if (activePatientSlots[si] && String(activePatientSlots[si].id) === String(savedPatient.id)) {
-                    if (typeof normalizeActivePatientPayload === 'function') {
-                        var updated = normalizeActivePatientPayload(savedPatient);
-                        if (updated) {
-                            updated.address = savedPatient.address || '';
-                            updated.email = savedPatient.email || '';
-                            activePatientSlots[si] = updated;
-                        }
-                    }
-                }
+        function afterCopies() {
+            if (typeof refreshApptListsAfterPatientEdit === 'function') {
+                refreshApptListsAfterPatientEdit(merged);
             }
-            if (typeof renderActivePatientSlots === 'function') renderActivePatientSlots();
+        }
+        if (typeof persistDenormalizedPatientCopies === 'function') {
+            persistDenormalizedPatientCopies(merged, afterCopies);
+        } else {
+            afterCopies();
         }
         if (typeof patientViewOnActiveChange === 'function') {
-            patientViewOnActiveChange(savedPatient);
+            patientViewOnActiveChange(merged);
         }
         alert(nurse ? patTr('patient.alertClinicTagSaved') : patTr('patient.alertUpdated'));
     }

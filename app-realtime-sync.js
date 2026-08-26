@@ -546,6 +546,9 @@ var REALTIME_SYNC = (function() {
         var row = _remotePatientRow;
         _remotePatientRow = null;
 
+        if (typeof applyLivePatientRecordToActiveSlots === 'function' && row && row.id) {
+            applyLivePatientRecordToActiveSlots(row, 'active-slot-realtime-patient');
+        }
         if (typeof sectionVisible === 'function' && sectionVisible('patientSection')) {
             if (typeof fetchPatients === 'function') fetchPatients();
             if (typeof selPatientId !== 'undefined' && selPatientId &&

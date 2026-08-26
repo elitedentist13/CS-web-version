@@ -1,7 +1,0 @@
-http://127.0.0.1:17890/status
-
-rayscan:
-http://127.0.0.1:17890/status
-
-banana:
-https://elitedentist13.github.io/CS-web-version/

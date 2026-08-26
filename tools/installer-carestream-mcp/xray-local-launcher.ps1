@@ -50,10 +50,13 @@ if ($EnabledSystems.Count -eq 1 -and $EnabledSystems[0] -match ',') {
 if (-not $Port -or $Port -le 0) {
     $Port = if ($env:XRAY_LAUNCHER_PORT) { [int]$env:XRAY_LAUNCHER_PORT } else { 17890 }
 }
-# If -EnabledSystems was passed as a single comma-separated string (from a bat file),
-# split it into an array. PowerShell command-line parsing doesn't auto-split.
-if ($EnabledSystems.Count -eq 1 -and $EnabledSystems[0] -match ',') {
-    $EnabledSystems = @($EnabledSystems[0] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+# Optional per-PC overrides (SCAN share roots, etc.) — see xray-launcher-config.example-*.ps1
+$configPath = Join-Path $PSScriptRoot "xray-launcher-config.ps1"
+if (Test-Path -LiteralPath $configPath) {
+    try { . $configPath } catch {
+        Write-Warning "Could not load xray-launcher-config.ps1: $($_.Exception.Message)"
+    }
 }
 if (-not $EnabledSystems -or $EnabledSystems.Count -eq 0) {
     if ($env:XRAY_ENABLED_SYSTEMS) {
@@ -435,12 +438,17 @@ $script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
 
 function Get-NntScanRoots {
     if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
-    return @(
+    $defaults = @(
         "\\RECEPTION_MCP\IMAGE\SCAN",
         "\\CSMAIN\IMAGE\Scan",
+        "\\RECEPTION\IMAGE\SCAN",
         "C:\Image\SCAN",
         "C:\IMAGE\SCAN"
     )
+    # Prefer shares/folders that actually exist on THIS PC (server vs consultation client).
+    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
+    if ($reachable.Count -gt 0) { return $reachable }
+    return $defaults
 }
 
 # NNT 2D panoramics on the CS IMAGE share are stored as *.2dh under

@@ -24,9 +24,27 @@ var XRAY_LOCAL_PATHS_KEY = 'jsm_xray_local_paths_v1';
 var XRAY_IMAGE_EXT_RE    = /\.(jpe?g|png|bmp|gif|tif?f|webp|dcm)$/i;
 
 function xrayClinicImageRoot() {
+    if (typeof window !== 'undefined' && typeof window.CLINIC_IMAGE_ROOT === 'string' && window.CLINIC_IMAGE_ROOT) {
+        return window.CLINIC_IMAGE_ROOT;
+    }
     return (typeof CLINIC_IMAGE_ROOT === 'string' && CLINIC_IMAGE_ROOT)
         ? CLINIC_IMAGE_ROOT
         : 'C:\\Image';
+}
+
+/** CS Trophy SCAN share — server (XRAY-MCP) uses RECEPTION_MCP; clients may use CSMAIN. */
+function xrayTrophyScanRoot() {
+    if (typeof window !== 'undefined' && typeof window.XRAY_TROPHY_SCAN_ROOT === 'string' && window.XRAY_TROPHY_SCAN_ROOT) {
+        return window.XRAY_TROPHY_SCAN_ROOT;
+    }
+    return '\\\\RECEPTION_MCP\\IMAGE\\SCAN';
+}
+
+function xrayTrophySubPattern() {
+    if (typeof window !== 'undefined' && typeof window.XRAY_TROPHY_SUB_PATTERN === 'string' && window.XRAY_TROPHY_SUB_PATTERN) {
+        return window.XRAY_TROPHY_SUB_PATTERN;
+    }
+    return '{patient_no}';
 }
 
 function xrayDefaultSubPattern() {
@@ -2220,12 +2238,123 @@ function updateSelectedCount() {
 // ════════════════════════════════════════════════════════════════
 // LOCAL DESKTOP LAUNCHER  (tools/Start X-Ray Launcher.bat on this PC)
 // ════════════════════════════════════════════════════════════════
-var XRAY_LAUNCHER_PORT = 17891;  // Temporarily using 17891 due to stuck process on 17890. Restart computer to use standard port.
+// Must match tools/xray-local-launcher.ps1 default (17890).
+var XRAY_LAUNCHER_PORTS = [17890, 17891];
+var XRAY_LAUNCHER_HOSTS = ['127.0.0.1', 'localhost'];
+var XRAY_LAUNCHER_PORT = 17890;
 var XRAY_LAUNCHER_BASE = 'http://127.0.0.1:' + XRAY_LAUNCHER_PORT;
 
+function xrayLauncherPortList() {
+    if (typeof window !== 'undefined' && window.XRAY_LAUNCHER_PORT) {
+        var one = parseInt(window.XRAY_LAUNCHER_PORT, 10);
+        if (one > 0) return [one];
+    }
+    if (typeof window !== 'undefined' && Array.isArray(window.XRAY_LAUNCHER_PORTS) && window.XRAY_LAUNCHER_PORTS.length) {
+        return window.XRAY_LAUNCHER_PORTS.map(function(p) { return parseInt(p, 10) || 0; }).filter(function(p) { return p > 0; });
+    }
+    return XRAY_LAUNCHER_PORTS.slice();
+}
+
+function xrayLauncherHostList() {
+    if (typeof window !== 'undefined' && typeof window.XRAY_LAUNCHER_HOST === 'string' && window.XRAY_LAUNCHER_HOST) {
+        return [window.XRAY_LAUNCHER_HOST];
+    }
+    if (typeof window !== 'undefined' && Array.isArray(window.XRAY_LAUNCHER_HOSTS) && window.XRAY_LAUNCHER_HOSTS.length) {
+        return window.XRAY_LAUNCHER_HOSTS.slice();
+    }
+    return XRAY_LAUNCHER_HOSTS.slice();
+}
+
+function xraySetActiveLauncherPort(port, host) {
+    port = parseInt(port, 10);
+    host = host || '127.0.0.1';
+    if (!port) return;
+    XRAY_LAUNCHER_PORT = port;
+    XRAY_LAUNCHER_BASE = 'http://' + host + ':' + port;
+}
+
+function xrayLauncherLooksOnline(body, httpOk) {
+    body = body || {};
+    return !!(body.ok || body.trophy_exists !== undefined || body.carestream_exists !== undefined || httpOk);
+}
+
+/** fetch() to /status or /open/... — tries hosts, ports, and fetch option variants. */
+function xrayFetchLauncher(path, permState, timeoutMs, onResult) {
+    var ports = xrayLauncherPortList();
+    var hosts = xrayLauncherHostList();
+    if (!ports.length) ports = [17890];
+    var attempts = [];
+    hosts.forEach(function(host) {
+        ports.forEach(function(port) {
+            attempts.push({ host: host, port: port, loopback: true });
+            attempts.push({ host: host, port: port, loopback: false });
+        });
+    });
+    var idx = 0;
+    var finished = false;
+    var timer = setTimeout(function() {
+        if (!finished) {
+            finished = true;
+            onResult(null, {
+                online: false,
+                permissionPrompt: (permState === 'prompt'),
+                fetchFailed: true,
+                reason: 'timeout'
+            });
+        }
+    }, timeoutMs);
+
+    function failOrNext(lastErr) {
+        if (finished) return;
+        if (idx >= attempts.length) {
+            finished = true;
+            clearTimeout(timer);
+            onResult(null, {
+                online: false,
+                permissionDenied: (permState === 'denied'),
+                fetchFailed: true,
+                permissionPrompt: (permState === 'prompt'),
+                reason: lastErr || 'all_attempts_failed'
+            });
+            return;
+        }
+        tryAttempt(attempts[idx++]);
+    }
+
+    function tryAttempt(attempt) {
+        var base = 'http://' + attempt.host + ':' + attempt.port;
+        var fetchOpts = { method: 'GET', mode: 'cors', cache: 'no-store' };
+        if (attempt.loopback && XRAY_LAUNCHER_FETCH_OPTS && XRAY_LAUNCHER_FETCH_OPTS.targetAddressSpace) {
+            fetchOpts.targetAddressSpace = 'loopback';
+        }
+        fetch(base + path, fetchOpts)
+            .then(function(r) {
+                if (finished) return null;
+                if (!r.ok) { failOrNext('http_' + r.status); return null; }
+                return r.json().catch(function() { return {}; }).then(function(body) {
+                    return { host: attempt.host, port: attempt.port, httpOk: r.ok, body: body || {} };
+                });
+            })
+            .then(function(res) {
+                if (finished || !res) return;
+                finished = true;
+                clearTimeout(timer);
+                xraySetActiveLauncherPort(res.port, res.host);
+                onResult(res, null);
+            })
+            .catch(function(e) { failOrNext(String(e && e.message ? e.message : e)); });
+    }
+
+    tryAttempt(attempts[idx++]);
+}
+
 function xrayLauncherBlockedByPage() {
-    // Browser vendors allow loopback bridges like 127.0.0.1 from secure pages
-    // with CORS/PNA preflight. Keep GitHub Pages able to reach the local launcher.
+    try {
+        var proto = window.location.protocol || '';
+        var host = (window.location.hostname || '').toLowerCase();
+        if (proto === 'file:') return true;
+        if (proto === 'https:' && host !== 'localhost' && host !== '127.0.0.1') return true;
+    } catch (eBlock) {}
     return false;
 }
 
@@ -2286,42 +2415,26 @@ function pingXrayLauncher(cb) {
         return;
     }
     xrayLoopbackPermissionState(function(permState) {
-        var waitMs = (permState === 'prompt') ? 30000 : 2500;
-        var finished = false;
-        var timer = setTimeout(function() {
-            if (!finished) {
-                finished = true;
-                cb({ online: false, permissionPrompt: (permState === 'prompt') });
+        var waitMs = (permState === 'prompt') ? 30000 : 8000;
+        xrayFetchLauncher('/status', permState, waitMs, function(res, err) {
+            if (err) {
+                if (!err.fetchFailed && !err.permissionPrompt && !err.permissionDenied && !err.blocked) {
+                    err.fetchFailed = true;
+                }
+                cb(err);
+                return;
             }
-        }, waitMs);
-        fetch(XRAY_LAUNCHER_BASE + '/status', Object.assign({ method: 'GET', mode: 'cors', cache: 'no-store' }, XRAY_LAUNCHER_FETCH_OPTS))
-            .then(function(r) {
-                if (finished) return null;
-                clearTimeout(timer);
-                if (!r.ok) {
-                    finished = true;
-                    cb({ online: false });
-                    return null;
-                }
-                return r.json().catch(function() { return {}; });
-            })
-            .then(function(body) {
-                if (finished || body === null) return;
-                finished = true;
-                cb({
-                    online: !!(body && body.ok),
-                    carestream_exists: !!(body && body.carestream_exists),
-                    aidental_exists: !!(body && body.aidental_exists),
-                    nntnewtom_exists: !!(body && body.nntnewtom_exists)
-                });
-            })
-            .catch(function() {
-                if (!finished) {
-                    finished = true;
-                    clearTimeout(timer);
-                    cb({ online: false, permissionDenied: (permState === 'denied') });
-                }
+            var body = (res && res.body) || {};
+            cb({
+                online: xrayLauncherLooksOnline(body, res && res.httpOk),
+                port: res.port,
+                host: res.host,
+                carestream_exists: !!body.carestream_exists,
+                aidental_exists: !!body.aidental_exists,
+                nntnewtom_exists: !!body.nntnewtom_exists,
+                trophy_exists: !!body.trophy_exists
             });
+        });
     });
 }
 
@@ -2352,46 +2465,22 @@ function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
         qParts.push('aidental_mode=' + encodeURIComponent(opts.aidentalMode || 'auto'));
     }
     if (qParts.length) patQ = '?' + qParts.join('&');
-    var url = XRAY_LAUNCHER_BASE + '/open/' +
-        encodeURIComponent(launcherKey || 'carestream') + patQ;
+    var urlPath = '/open/' + encodeURIComponent(launcherKey || 'carestream') + patQ;
     xrayLoopbackPermissionState(function(permState) {
-        var finished = false;
-        // Same fetch-vs-permission-popup race as pingXrayLauncher() above:
-        // give this call plenty of room if the LNA permission is still
-        // undecided, otherwise keep the normal short timeout.
-        var baseTimeout = (launcherKey === 'aidental') ? 90000 : 2800;
+        var baseTimeout = (launcherKey === 'aidental') ? 90000 : 5000;
         var bridgeTimeout = (permState === 'prompt') ? Math.max(baseTimeout, 30000) : baseTimeout;
-        var timer = setTimeout(function() {
-            if (!finished) {
-                finished = true;
-                cb(false, { permissionPrompt: (permState === 'prompt'), permissionDenied: (permState === 'denied') });
+        xrayFetchLauncher(urlPath, permState, bridgeTimeout, function(res, err) {
+            if (err) {
+                cb(false, err);
+                return;
             }
-        }, bridgeTimeout);
-        fetch(url, Object.assign({ method: 'GET', mode: 'cors', cache: 'no-store' }, XRAY_LAUNCHER_FETCH_OPTS))
-            .then(function(r) {
-                if (finished) return null;
-                clearTimeout(timer);
-                return r.json().catch(function() { return {}; }).then(function(body) {
-                    return { httpOk: r.ok, body: body || {} };
-                });
-            })
-            .then(function(res) {
-                if (finished || res === null) return;
-                finished = true;
-                var body = res.body || {};
-                var bridgeOk = !!(body.ok || body.aidental_running || res.httpOk);
-                if (launcherKey === 'aidental') {
-                    bridgeOk = !!body.aidental_running;
-                }
-                cb(bridgeOk, body);
-            })
-            .catch(function() {
-                if (!finished) {
-                    finished = true;
-                    clearTimeout(timer);
-                    cb(false, { permissionDenied: (permState === 'denied') });
-                }
-            });
+            var body = (res && res.body) || {};
+            var bridgeOk = !!(body.ok || body.aidental_running || (res && res.httpOk));
+            if (launcherKey === 'aidental') {
+                bridgeOk = !!body.aidental_running;
+            }
+            cb(bridgeOk, body);
+        });
     });
 }
 
@@ -2515,8 +2604,8 @@ var XRAY_SYSTEMS = {
         launcherKey: 'trophy',
         desktopShortcutName: 'Trophy (TW.exe)',
         desktopShortcutPath: '',
-        defaultDataPath: '\\\\RECEPTION_MCP\\IMAGE\\SCAN',
-        defaultSubPattern: '{patient_no}',
+        defaultDataPath: xrayTrophyScanRoot(),
+        defaultSubPattern: xrayTrophySubPattern(),
         defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\CSImaging\\TW.exe',
         launchProtocol: false,
         openMsgKey: 'media.local.trophyOpen',
@@ -2591,6 +2680,8 @@ function seedXrayLocalPathsFromDesktop() {
 
     function needsImageRoot(path) {
         if (!path) return true;
+        // Keep UNC network scan roots (e.g. Trophy \\RECEPTION_MCP\IMAGE\SCAN).
+        if (/^\\\\/.test(path)) return false;
         return /Patient Browser|ProgramData|EzDent|Romexis|SIDEXIS|D:\\XRay/i.test(path);
     }
 
@@ -2598,6 +2689,7 @@ function seedXrayLocalPathsFromDesktop() {
         var sys = XRAY_SYSTEMS[key];
         var cur = xrayLocalPaths[key] || {};
         var appDefault = sys.defaultAppPath || '';
+        var dataDefault = sys.defaultDataPath || '';
         var patch = false;
         var next = {
             dataPath: cur.dataPath,
@@ -2605,7 +2697,21 @@ function seedXrayLocalPathsFromDesktop() {
             appPath: cur.appPath || ''
         };
         if (needsImageRoot(next.dataPath)) {
-            next.dataPath = root;
+            if (key === 'Trophy') {
+                next.dataPath = xrayTrophyScanRoot();
+                next.subPattern = xrayTrophySubPattern();
+            } else {
+                next.dataPath = (/^\\\\/.test(dataDefault)) ? dataDefault : root;
+            }
+            patch = true;
+        }
+        if (key === 'Trophy' && next.dataPath && /^C:\\Image/i.test(next.dataPath)) {
+            next.dataPath = xrayTrophyScanRoot();
+            next.subPattern = xrayTrophySubPattern();
+            patch = true;
+        }
+        if (key === 'Trophy' && next.subPattern && /Xrays/i.test(next.subPattern)) {
+            next.subPattern = xrayTrophySubPattern();
             patch = true;
         }
         if (!next.appPath && appDefault) {
@@ -3099,6 +3205,8 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             launcherLine = mediaTr('media.local.launcherPermissionPrompt');
         } else if (status.permissionDenied) {
             launcherLine = mediaTr('media.local.launcherPermissionDenied');
+        } else if (status.fetchFailed) {
+            launcherLine = mediaTr('media.local.launcherFetchBlocked');
         } else {
             launcherLine = mediaTrRepl('media.local.launcherNotRunning', {
                 BAT: 'tools\\Start X-Ray Launcher.bat'
@@ -3130,6 +3238,10 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             }
             if (status.permissionDenied) {
                 alert(mediaTr('media.local.launcherPermissionDenied'));
+                return;
+            }
+            if (status.fetchFailed) {
+                alert(mediaTr('media.local.launcherFetchBlocked'));
                 return;
             }
             var neededMsgKey = (launcherKey === 'aidental')
@@ -3180,6 +3292,10 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             }
             if (bridgeBody.permissionDenied) {
                 alert(mediaTr('media.local.launcherPermissionDenied'));
+                return;
+            }
+            if (bridgeBody.fetchFailed) {
+                alert(mediaTr('media.local.launcherFetchBlocked'));
                 return;
             }
             alert(mediaTrRepl(neededKey, {

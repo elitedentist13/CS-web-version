@@ -5572,14 +5572,19 @@
             'zh-Hant': '✓ 本機啟動器正在運行 — 可以開啟程式。'
         },
         'media.local.launcherNotRunning': {
-            en: '✗ Local launcher is NOT running.\nFirst run: current work\\{BAT} and leave that window open.',
-            'zh-CN': '✗ 本机启动器未运行。\n请先运行：current work\\{BAT} 并保持窗口打开。',
-            'zh-Hant': '✗ 本機啟動器未運行。\n請先執行：current work\\{BAT} 並保持視窗開啟。'
+            en: '✗ Browser cannot see the local launcher.\n\n1. Double-click start-banana-xray-mcp.bat (starts bridge + web app)\n   OR run tools\\Start X-Ray Launcher.bat (keep window open)\n2. Open ONLY http://127.0.0.1:5500/index.html (not file:// or GitHub Pages)\n3. Hard refresh Ctrl+F5\n4. Test http://127.0.0.1:17890/status — should show {"ok":true}',
+            'zh-CN': '✗ 浏览器看不到本机启动器。\n\n1. 双击 start-banana-xray-mcp.bat（同时启动桥接 + 网页）\n   或运行 tools\\Start X-Ray Launcher.bat（保持窗口打开）\n2. 仅使用 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）\n3. 强制刷新 Ctrl+F5\n4. 测试 http://127.0.0.1:17890/status — 应显示 {"ok":true}',
+            'zh-Hant': '✗ 瀏覽器看不到本機啟動器。\n\n1. 按兩下 start-banana-xray-mcp.bat（同時啟動橋接 + 網頁）\n   或執行 tools\\Start X-Ray Launcher.bat（保持視窗開啟）\n2. 僅使用 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）\n3. 強制重新整理 Ctrl+F5\n4. 測試 http://127.0.0.1:17890/status — 應顯示 {"ok":true}'
+        },
+        'media.local.launcherFetchBlocked': {
+            en: '✗ Browser cannot reach the local launcher (it may still be running).\n\n1. Hard-refresh this page: Ctrl+F5\n2. In Chrome, click Allow when asked for "local network access"\n3. Test in a new tab: http://127.0.0.1:17890/status — should show {"ok":true}\n4. Keep Start X-Ray Launcher.bat open, then click Trophy again',
+            'zh-CN': '✗ 浏览器无法连接本机启动器（启动器可能仍在运行）。\n\n1. 强制刷新本页：Ctrl+F5\n2. 在 Chrome 中，出现「本机网络访问」时点击「允许」\n3. 在新标签页测试：http://127.0.0.1:17890/status — 应显示 {"ok":true}\n4. 保持 Start X-Ray Launcher.bat 窗口打开，再按 Trophy',
+            'zh-Hant': '✗ 瀏覽器無法連線本機啟動器（啟動器可能仍在運行）。\n\n1. 強制重新整理本頁：Ctrl+F5\n2. 在 Chrome 中，出現「本機網路存取」時點擊「允許」\n3. 在新分頁測試：http://127.0.0.1:17890/status — 應顯示 {"ok":true}\n4. 保持 Start X-Ray Launcher.bat 視窗開啟，再按 Trophy'
         },
         'media.local.launcherHttpsBlocked': {
-            en: '✗ Cannot reach local launcher from an HTTPS page. Open the app via file:// or http://localhost (Live Server), not https.',
-            'zh-CN': '✗ 无法从 HTTPS 页面连接本机启动器。请通过 file:// 或 http://localhost（Live Server）打开应用，不要用 https。',
-            'zh-Hant': '✗ 無法從 HTTPS 頁面連接本機啟動器。請透過 file:// 或 http://localhost（Live Server）開啟應用，不要用 https。'
+            en: '✗ Wrong page URL — cannot reach local launcher.\n\nOpen http://127.0.0.1:5500/index.html on this PC (not file://, not GitHub Pages).\nThen run start-banana-xray-mcp.bat.',
+            'zh-CN': '✗ 页面网址不正确 — 无法连接本机启动器。\n\n请在本机打开 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）。\n然后运行 start-banana-xray-mcp.bat。',
+            'zh-Hant': '✗ 頁面網址不正確 — 無法連線本機啟動器。\n\n請在本機開啟 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）。\n然後執行 start-banana-xray-mcp.bat。'
         },
         'media.local.launcherPermissionPrompt': {
             en: '⚠ Chrome should be showing a "local network access" permission popup near the address bar. Click Allow on THAT popup first, then click this button again — the first click only triggers the popup, it does not open the program yet.',

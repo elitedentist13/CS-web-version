@@ -14,10 +14,8 @@
 <link rel="apple-touch-icon" href="favicon.svg">
 <script>
 (function () {
-  /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache.
-     ALSO update build-version.txt to the same string -- see the
-     self-heal check below, which depends on the two staying in sync. */
-  var BUILD = '20260828-any-banana-fixes-v3';
+  /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
+  var BUILD = '20260827-launcher-fix-v3';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -46,40 +44,12 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  ['style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css', 'style-remote.css'].forEach(function (path) {
+  ['style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = withBust(path);
     document.head.appendChild(link);
   });
-
-  /* Self-heal against GitHub Pages/Fastly caching THIS index.html itself
-     for up to 10 minutes (Cache-Control: max-age=600, confirmed live
-     2026-08-28 via response headers) -- the <meta http-equiv> no-cache
-     tags above are only a hint and several browsers ignore them for a
-     plain reopen/refresh, so a PC can keep re-loading an old HTML page
-     (with an old BUILD baked in, therefore old cache-busted JS/CSS URLs
-     too) for up to 10 minutes after a real deploy with NO visible sign
-     anything is wrong. build-version.txt is tiny and always fetched with
-     cache:'no-store' (a real bypass, unlike a normal navigation), so it
-     reflects the truth even when this page itself doesn't. One-shot
-     forced reload, guarded by build value so it can't loop forever. */
-  try {
-    fetch('build-version.txt?t=' + Date.now(), { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.text() : null; })
-      .then(function (latest) {
-        if (!latest) return;
-        latest = latest.trim();
-        if (!latest || latest === BUILD) return;
-        var reloadKey = 'jsm_build_reload_' + latest;
-        if (sessionStorage.getItem(reloadKey)) return;
-        sessionStorage.setItem(reloadKey, '1');
-        var u = new URL(window.location.href);
-        u.searchParams.set('_lr', String(Date.now()));
-        window.location.replace(u.toString());
-      })
-      .catch(function () {});
-  } catch (e) {}
 })();
 </script>
 <style>
@@ -374,9 +344,6 @@
     </div>
     <div class="dash-card" id="card-tools">
       <div>🧰</div><h3 data-i18n="dashboard.card.tools"></h3>
-    </div>
-    <div class="dash-card" id="card-any-banana">
-      <div>🍌</div><h3 data-i18n="dashboard.card.anyBanana"></h3>
     </div>
   </div>
 
@@ -7272,49 +7239,6 @@
   </div>
 </section>
 
-<!-- ── Any Banana (remote support) ── -->
-<section id="anyBananaSection" class="container" style="display:none;" aria-hidden="true">
-  <div class="top-bar">
-    <button type="button" class="back-btn" id="anyBananaBack" data-i18n="common.backDashboard"></button>
-    <h1 data-i18n="remote.title"></h1>
-  </div>
-
-  <div class="rb-panel" id="rbMyDevicePanel">
-    <h3 data-i18n="remote.yourDevice"></h3>
-    <div id="rbMyDeviceStatus" class="rb-device-status"></div>
-    <button type="button" class="ct-btn" id="rbRefreshDeviceBtn" data-i18n="remote.refresh"></button>
-  </div>
-
-  <div class="rb-panel" id="rbConnectPanel">
-    <h3 data-i18n="remote.connectTitle"></h3>
-    <p class="ct-intro" data-i18n="remote.connectHint"></p>
-    <div class="rb-connect-row">
-      <input type="text" id="rbTargetDeviceId" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="123456" />
-      <button type="button" class="ct-btn ct-btn-primary" id="rbConnectBtn" data-i18n="remote.connectBtn"></button>
-    </div>
-    <div id="rbConnectStatus" class="rb-connect-status" style="display:none;"></div>
-  </div>
-
-  <div class="rb-panel" id="rbViewerPanel" style="display:none;">
-    <div class="rb-viewer-toolbar">
-      <span class="rb-session-label" id="rbViewerSessionLabel"></span>
-      <button type="button" class="ct-btn" id="rbSendFileBtn" data-i18n="remote.sendFile"></button>
-      <input type="file" id="rbFileInput" style="display:none;" />
-      <button type="button" class="ct-btn" id="rbFullscreenBtn" data-i18n="remote.fullscreen"></button>
-      <button type="button" class="ct-btn" id="rbEndSessionBtn" data-i18n="remote.endSession"></button>
-    </div>
-    <div class="rb-viewer-screen-wrap rb-connecting" id="rbScreenWrap" tabindex="0">
-      <img id="rbScreenImg" draggable="false" alt="" />
-      <div class="rb-connecting-overlay" id="rbConnectingOverlay" data-i18n="remote.connectingFrame"></div>
-    </div>
-    <p class="rb-viewer-hint" data-i18n="remote.viewerHint"></p>
-    <div class="rb-file-list-title rb-hidden" id="rbReceivedFilesTitle" data-i18n="remote.receivedFilesTitle"></div>
-    <div class="rb-received-files" id="rbReceivedFiles"></div>
-    <div class="rb-file-list-title rb-hidden" id="rbSentFilesTitle" data-i18n="remote.sentFilesTitle"></div>
-    <div class="rb-sent-files" id="rbSentFiles"></div>
-  </div>
-</section>
-
 <!-- ── Medical calculators ── -->
 <section id="medCalcSection" class="container" style="display:none;" aria-hidden="true">
   <div class="top-bar">
@@ -7418,8 +7342,7 @@
     'app-poster-maker.js',
     'app-webbook.js',
     'app-webbook-roster.js',
-    'app-mass-broadcast.js',
-    'app-remote.js'
+    'app-mass-broadcast.js'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

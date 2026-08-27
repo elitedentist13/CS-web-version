@@ -125,11 +125,6 @@ var I18N_STRINGS = {
         'zh-CN': '工具',
         'zh-Hant': '工具'
     },
-    'dashboard.card.anyBanana': {
-        en: 'Any Banana',
-        'zh-CN': 'Any Banana 远程协助',
-        'zh-Hant': 'Any Banana 遠端協助'
-    },
     'tools.title': {
         en: '🧰 Tools',
         'zh-CN': '🧰 工具',

@@ -6657,6 +6657,116 @@
             en: '<span class="banana-brand">🍌 Banana Clinic Manager</span>',
             'zh-CN': '<span class="banana-brand">🍌 香蕉診所管理系統</span>',
             'zh-Hant': '<span class="banana-brand">🍌 香蕉診所管理系統</span>'
+        },
+        'remote.title': {
+            en: '🍌 Any Banana — Remote Support',
+            'zh-CN': '🍌 Any Banana — 远程协助',
+            'zh-Hant': '🍌 Any Banana — 遠端協助'
+        },
+        'remote.yourDevice': {
+            en: 'Your Device',
+            'zh-CN': '本机设备',
+            'zh-Hant': '本機裝置'
+        },
+        'remote.agentOnline': {
+            en: 'Agent running — this PC can be connected to',
+            'zh-CN': '代理程式运行中 — 此电脑可被连线',
+            'zh-Hant': '代理程式運行中 — 此電腦可被連線'
+        },
+        'remote.agentOffline': {
+            en: 'Agent not found on this PC',
+            'zh-CN': '此电脑未侦测到代理程式',
+            'zh-Hant': '此電腦未偵測到代理程式'
+        },
+        'remote.agentOfflineHint': {
+            en: 'You can still connect OUT to another PC below. To let others connect IN to this PC, install the Any Banana agent (see tools/README-any-banana.md).',
+            'zh-CN': '您仍可在下方连线到其他电脑。若要让别人连线进入此电脑，请安装 Any Banana 代理程式（参见 tools/README-any-banana.md）。',
+            'zh-Hant': '您仍可在下方連線到其他電腦。若要讓別人連線進入此電腦，請安裝 Any Banana 代理程式（參見 tools/README-any-banana.md）。'
+        },
+        'remote.refresh': {
+            en: 'Refresh',
+            'zh-CN': '刷新',
+            'zh-Hant': '重新整理'
+        },
+        'remote.connectTitle': {
+            en: 'Connect to Another PC',
+            'zh-CN': '连线到其他电脑',
+            'zh-Hant': '連線到其他電腦'
+        },
+        'remote.connectHint': {
+            en: 'Enter the 6-digit Device ID shown on the other PC. They will see an Allow/Deny prompt before you can see or control anything.',
+            'zh-CN': '请输入对方电脑显示的6位数设备编号。对方需按下同意后，您才能看到或操控画面。',
+            'zh-Hant': '請輸入對方電腦顯示的6位數裝置編號。對方需按下同意後，您才能看到或操控畫面。'
+        },
+        'remote.connectBtn': {
+            en: 'Connect',
+            'zh-CN': '连线',
+            'zh-Hant': '連線'
+        },
+        'remote.invalidId': {
+            en: 'Enter a valid 6-digit Device ID.',
+            'zh-CN': '请输入有效的6位数设备编号。',
+            'zh-Hant': '請輸入有效的6位數裝置編號。'
+        },
+        'remote.alreadyConnected': {
+            en: 'Already connected to a PC. End that session first.',
+            'zh-CN': '目前已连线至一台电脑，请先结束该连线。',
+            'zh-Hant': '目前已連線至一台電腦，請先結束該連線。'
+        },
+        'remote.waitingApproval': {
+            en: 'Waiting for the other PC to approve the connection…',
+            'zh-CN': '等待对方电脑批准连线中…',
+            'zh-Hant': '等待對方電腦批准連線中…'
+        },
+        'remote.deviceNotFound': {
+            en: 'Could not reach that Device ID. Check the number and that the Any Banana agent is running there.',
+            'zh-CN': '无法连线到该设备编号，请确认号码正确且对方已运行 Any Banana 代理程式。',
+            'zh-Hant': '無法連線到該裝置編號，請確認號碼正確且對方已運行 Any Banana 代理程式。'
+        },
+        'remote.denied': {
+            en: 'Connection was declined on the other PC.',
+            'zh-CN': '对方已拒绝此次连线。',
+            'zh-Hant': '對方已拒絕此次連線。'
+        },
+        'remote.noResponse': {
+            en: 'No response from the other PC. They may be away — try again later.',
+            'zh-CN': '对方电脑没有回应，可能不在座位上，请稍后再试。',
+            'zh-Hant': '對方電腦沒有回應，可能不在座位上，請稍後再試。'
+        },
+        'remote.hostEnded': {
+            en: 'The other PC ended the session.',
+            'zh-CN': '对方已结束此次连线。',
+            'zh-Hant': '對方已結束此次連線。'
+        },
+        'remote.youEnded': {
+            en: 'Session ended.',
+            'zh-CN': '连线已结束。',
+            'zh-Hant': '連線已結束。'
+        },
+        'remote.connectedTo': {
+            en: 'Connected to',
+            'zh-CN': '已连线至',
+            'zh-Hant': '已連線至'
+        },
+        'remote.sendFile': {
+            en: 'Send File',
+            'zh-CN': '传送档案',
+            'zh-Hant': '傳送檔案'
+        },
+        'remote.endSession': {
+            en: 'End Session',
+            'zh-CN': '结束连线',
+            'zh-Hant': '結束連線'
+        },
+        'remote.viewerHint': {
+            en: 'Click the screen to send keyboard input. Screen updates about twice per second — this is a lightweight support tool, not a smooth remote desktop.',
+            'zh-CN': '点击画面以启用键盘输入。画面每秒更新约两次 — 这是轻量协助工具，非流畅的远程桌面。',
+            'zh-Hant': '點擊畫面以啟用鍵盤輸入。畫面每秒更新約兩次 — 這是輕量協助工具，非流暢的遠端桌面。'
+        },
+        'remote.fileUploadFailed': {
+            en: 'File upload failed. Please try again.',
+            'zh-CN': '档案上传失败，请重试。',
+            'zh-Hant': '檔案上傳失敗，請重試。'
         }
     };
 

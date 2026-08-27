@@ -44,7 +44,7 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  ['style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
+  ['style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css', 'style-remote.css'].forEach(function (path) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = withBust(path);
@@ -344,6 +344,9 @@
     </div>
     <div class="dash-card" id="card-tools">
       <div>🧰</div><h3 data-i18n="dashboard.card.tools"></h3>
+    </div>
+    <div class="dash-card" id="card-any-banana">
+      <div>🍌</div><h3 data-i18n="dashboard.card.anyBanana"></h3>
     </div>
   </div>
 
@@ -7239,6 +7242,44 @@
   </div>
 </section>
 
+<!-- ── Any Banana (remote support) ── -->
+<section id="anyBananaSection" class="container" style="display:none;" aria-hidden="true">
+  <div class="top-bar">
+    <button type="button" class="back-btn" id="anyBananaBack" data-i18n="common.backDashboard"></button>
+    <h1 data-i18n="remote.title"></h1>
+  </div>
+
+  <div class="rb-panel" id="rbMyDevicePanel">
+    <h3 data-i18n="remote.yourDevice"></h3>
+    <div id="rbMyDeviceStatus" class="rb-device-status"></div>
+    <button type="button" class="ct-btn" id="rbRefreshDeviceBtn" data-i18n="remote.refresh"></button>
+  </div>
+
+  <div class="rb-panel" id="rbConnectPanel">
+    <h3 data-i18n="remote.connectTitle"></h3>
+    <p class="ct-intro" data-i18n="remote.connectHint"></p>
+    <div class="rb-connect-row">
+      <input type="text" id="rbTargetDeviceId" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="123456" />
+      <button type="button" class="ct-btn ct-btn-primary" id="rbConnectBtn" data-i18n="remote.connectBtn"></button>
+    </div>
+    <div id="rbConnectStatus" class="rb-connect-status" style="display:none;"></div>
+  </div>
+
+  <div class="rb-panel" id="rbViewerPanel" style="display:none;">
+    <div class="rb-viewer-toolbar">
+      <span class="rb-session-label" id="rbViewerSessionLabel"></span>
+      <button type="button" class="ct-btn" id="rbSendFileBtn" data-i18n="remote.sendFile"></button>
+      <input type="file" id="rbFileInput" style="display:none;" />
+      <button type="button" class="ct-btn" id="rbEndSessionBtn" data-i18n="remote.endSession"></button>
+    </div>
+    <div class="rb-viewer-screen-wrap" id="rbScreenWrap" tabindex="0">
+      <img id="rbScreenImg" draggable="false" alt="" />
+    </div>
+    <p class="rb-viewer-hint" data-i18n="remote.viewerHint"></p>
+    <div class="rb-received-files" id="rbReceivedFiles"></div>
+  </div>
+</section>
+
 <!-- ── Medical calculators ── -->
 <section id="medCalcSection" class="container" style="display:none;" aria-hidden="true">
   <div class="top-bar">
@@ -7342,7 +7383,8 @@
     'app-poster-maker.js',
     'app-webbook.js',
     'app-webbook-roster.js',
-    'app-mass-broadcast.js'
+    'app-mass-broadcast.js',
+    'app-remote.js'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

@@ -2765,6 +2765,7 @@ var SCREENS = [
     'certGenSection',
     'docToolsSection',
     'posterMakerSection',
+    'anyBananaSection',
     'sectionConfig'
 ];
 

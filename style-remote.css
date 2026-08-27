@@ -1,0 +1,138 @@
+/* ════════════════════════════════════════════════════════════════
+   style-remote.css — "Any Banana" remote support module
+════════════════════════════════════════════════════════════════ */
+
+#anyBananaSection {
+    min-height: 100vh;
+    background: #f7f8fc;
+}
+
+.rb-panel {
+    background: #fff;
+    border: 1px solid #e4e6ef;
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 10px rgba(30, 35, 70, .04);
+}
+.rb-panel h3 {
+    margin: 0 0 10px;
+    font-size: 16px;
+    color: #1a1f33;
+}
+
+.rb-device-status {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.rb-device-id {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: #6366f1;
+    font-variant-numeric: tabular-nums;
+}
+.rb-device-name {
+    color: #5b6275;
+    font-size: 13px;
+}
+.rb-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.rb-status-pill.ok { background: #e7f9ee; color: #1a9d5e; }
+.rb-status-pill.off { background: #fdecec; color: #d4453a; }
+.rb-status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+.rb-connect-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.rb-connect-row input {
+    width: 160px;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border: 1px solid #d4d8e3;
+    border-radius: 10px;
+    font-size: 20px;
+    letter-spacing: 3px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.rb-connect-status {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    background: #f2f3fb;
+    color: #3a4055;
+}
+.rb-connect-status.waiting { background: #fff8e6; color: #8a6d1a; }
+.rb-connect-status.denied  { background: #fdecec; color: #d4453a; }
+.rb-connect-status.ended   { background: #f2f3fb; color: #5b6275; }
+
+.rb-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.rb-viewer-toolbar .rb-session-label {
+    font-size: 13px;
+    color: #5b6275;
+    margin-right: auto;
+}
+
+.rb-viewer-screen-wrap {
+    position: relative;
+    width: 100%;
+    background: #10131f;
+    border-radius: 12px;
+    overflow: hidden;
+    outline: none;
+    line-height: 0;
+}
+.rb-viewer-screen-wrap:focus {
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .5);
+}
+.rb-viewer-screen-wrap img {
+    width: 100%;
+    height: auto;
+    display: block;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+.rb-viewer-hint {
+    padding: 6px 4px 0;
+    font-size: 12px;
+    color: #8a8f9c;
+}
+
+.rb-received-files {
+    margin-top: 14px;
+}
+.rb-received-files:empty { display: none; }
+.rb-file-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid #e4e6ef;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+.rb-file-chip a { color: #6366f1; font-weight: 600; text-decoration: none; }
+.rb-file-chip a:hover { text-decoration: underline; }

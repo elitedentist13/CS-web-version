@@ -1,4 +1,4 @@
-﻿# tools/xray-local-launcher.ps1
+# tools/xray-local-launcher.ps1
 # Joyful Smile / Banana Clinic Manager — local desktop bridge for X-ray systems.
 #
 # Runs on each clinic PC (started by "Start X-Ray Launcher.bat"). Listens on
@@ -438,17 +438,12 @@ $script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
 
 function Get-NntScanRoots {
     if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
-    $defaults = @(
+    return @(
         "\\RECEPTION_MCP\IMAGE\SCAN",
         "\\CSMAIN\IMAGE\Scan",
-        "\\RECEPTION\IMAGE\SCAN",
         "C:\Image\SCAN",
         "C:\IMAGE\SCAN"
     )
-    # Prefer shares/folders that actually exist on THIS PC (server vs consultation client).
-    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
-    if ($reachable.Count -gt 0) { return $reachable }
-    return $defaults
 }
 
 # NNT 2D panoramics on the CS IMAGE share are stored as *.2dh under

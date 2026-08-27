@@ -1,85 +1,117 @@
-# DEPLOYMENT CHECKLIST - Carestream MCP Bridge (unified server + client)
+# DEPLOYMENT CHECKLIST - Carestream MCP Bridge with Trophy Support
 
-## One installer for all PCs
+## Server vs client PCs (read first)
 
-**`Install Carestream MCP Bridge.bat`** auto-detects:
+See **`tools/XRAY_SERVER_VS_CLIENT.md`** for the full map.
 
-- Reachable SCAN shares (`\\RECEPTION_MCP\IMAGE\SCAN`, `\\CSMAIN\IMAGE\Scan`, etc.)
-- Installed Carestream apps (Patient.exe, TW.exe)
-- PC role: **xray-server** vs **consultation-client**
+| PC role | Example hostname | Trophy (TW.exe) | SCAN path |
+|---------|------------------|-----------------|-----------|
+| **X-ray server / MCP** | XRAY-MCP, Dr-1-MCP | Yes — TW.exe on this PC | `\\RECEPTION_MCP\IMAGE\SCAN` |
+| **Reception** | RECEPTION_MCP | Often yes | Local share or same UNC |
+| **Consultation client** | DOCTOR-1, etc. | Usually no | Often `\\CSMAIN\IMAGE\Scan` |
 
-It writes **`xray-launcher-config.ps1`** and **`xray-pc-config.js`** for that PC.
-
-See **`tools/XRAY_SERVER_VS_CLIENT.md`** for the full path map.
-
-| PC role | Example hostname | Trophy (TW.exe) | Typical SCAN path |
-|---------|------------------|-----------------|-------------------|
-| **X-ray server / MCP** | XRAY-MCP, Dr-1-MCP | Yes | `\\RECEPTION_MCP\IMAGE\SCAN` |
-| **Consultation client** | DOCTOR-1, nurse PCs | Usually no | `\\CSMAIN\IMAGE\Scan` |
+Each PC needs its own **`xray-pc-config.js`** and **`tools/xray-launcher-config.ps1`**.
 
 ---
 
 ## Before Deploying
 
-### 1. Web app
+### 1. Web app port (standard: 17890)
 
-- Load **`xray-pc-config.js`** before `app-xray.js` (already wired in `index.html`)
-- Open via **`http://127.0.0.1:5500`** — not `file://` or GitHub Pages
-- Hard refresh: **Ctrl+F5**
+`app-xray.js` uses port **17890** with auto-fallback. Per-PC paths: **`xray-pc-config.js`**.
+
+Hard refresh browser after deploy: **Ctrl+F5**.
 
 ### 2. Deploy the installer package
 
-**Hand to clinic PCs (either):**
-- `tools\Banana-Carestream-MCP-Bridge-Installer.zip` (extract, then install)
-- `tools\installer-carestream-mcp\` folder directly
-
-**On each target PC:**
-1. `Install Carestream MCP Bridge.bat` → Yes to Administrator
-2. Read `C:\BananaBridge-Carestream-MCP\INSTALL-NOTES.txt`
-3. Copy `xray-pc-config.js` to Banana web app root if not auto-updated
-
-**Rebuild zip after code changes:**
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-installer-carestream-mcp.ps1
+**Copy this folder to target computers:**
 ```
+tools\installer-carestream-mcp\
+```
+
+**Run on each target PC:**
+1. `Install Carestream MCP Bridge.bat`
+2. Click "Yes" if Windows asks for Administrator
+3. Wait for "installed OK" message
+
+**Target computers:**
+- Dr-1-MCP (CT room)
+- RECEPTION_MCP (reception desk)
+- Any consultation PC with Carestream
 
 ### 3. Verify Installation
 
-1. Bridge: http://127.0.0.1:17890/status → `"enabled_systems": "carestream,trophy"`
-2. Startup shortcut: `Joyful Smile Carestream MCP Bridge.lnk`
-3. Banana X-ray tab → Carestream / Trophy buttons
+**On each PC, check:**
+1. Bridge status: http://127.0.0.1:17890/status
+2. Should show: `"enabled_systems": "carestream,trophy"`
+3. Auto-start shortcut exists: `Startup\Joyful Smile Carestream MCP Bridge.lnk`
+
+**In Banana web app:**
+1. Hard refresh (Ctrl+F5)
+2. Open a patient
+3. Go to X-ray tab
+4. Click **Trophy** button
+5. TW.exe should launch with patient's SCAN folder
 
 ## What This Installer Does
 
-### Auto-detection
-- Probes SCAN shares; only configures paths that exist on **this** PC
-- Generates per-PC bridge + web app config
+### Trophy Integration (NEW)
+- Replicates Clinic Solution's "Trophy F7" button exactly
+- Launches: `TW.exe -P\\RECEPTION_MCP\IMAGE\SCAN\{patient_no} -NLUI "{name}" -FLUI "{name}"`
+- Requires network access to `\\RECEPTION_MCP\IMAGE\SCAN`
 
-### Trophy (server/MCP PCs)
-- `TW.exe -P\\RECEPTION_MCP\IMAGE\SCAN\{patient_no} -NLUI "{name}" -FLUI "{name}"`
-
-### Carestream Patient Browser (all PCs with Patient.exe)
+### Carestream Patient Browser
+- Opens Patient.exe for selected patient
+- Standard Carestream workflow
 
 ### Installation Details
 - Installs to: `C:\BananaBridge-Carestream-MCP`
-- Port: 17890
-- Auto-starts at login; safe to re-run
+- Port: 17890 (matches `XRAY_LAUNCHER_PORT` in web app)
+- Auto-starts at login for all users
+- Safe to re-run (updates files without breaking anything)
+
+## Troubleshooting
+
+### Port 17890 Already in Use
+If you see "port already in use" error:
+1. Check what's using it: `netstat -ano | findstr :17890`
+2. Stop the old process
+3. Re-run the installer
+
+### Trophy Button Not Responding
+1. Check TW.exe exists: `C:\Program Files (x86)\Carestream\CSImaging\TW.exe`
+2. Test network access: Open `\\RECEPTION_MCP\IMAGE\SCAN` in Explorer
+3. Check bridge: http://127.0.0.1:17890/status
+4. Look for errors in bridge window
+
+### Web App Still Using Port 17891
+- Remember to change `XRAY_LAUNCHER_PORT = 17890` in `app-xray.js`
+- Hard refresh browser (Ctrl+F5) after updating
 
 ## Files in Installer Package
 
 ```
 installer-carestream-mcp/
-├── Install Carestream MCP Bridge.bat
-├── install-carestream-mcp.ps1           ← unified auto-detect installer
-├── install-xray-bridge.ps1
-├── xray-local-launcher.ps1
-├── Start / Test / Uninstall *.bat
-├── README.md
-└── DEPLOYMENT.md
+├── Install Carestream MCP Bridge.bat      ← Run this to install
+├── Test Carestream MCP Launcher.bat       ← Test before installing
+├── Start Carestream MCP Launcher.bat      ← Manual start (testing only)
+├── Uninstall Carestream MCP Bridge.bat    ← Remove installation
+├── xray-local-launcher.ps1                ← Bridge engine (85KB, with Trophy)
+├── install-xray-bridge.ps1                ← Installation script
+├── _nnt_identity_guard.ps1                ← Companion script
+├── _nnt_new_opg_watcher.ps1               ← Companion script
+└── README.md                              ← User documentation
 ```
+
+## Testing Before Deployment
+
+**On your development PC (optional):**
+1. `Test Carestream MCP Launcher.bat` - should show "SELF-TEST PASSED"
+2. This verifies the scripts have no syntax errors
 
 ## Version Info
 
-- **Updated:** 2026-08-27 — unified server + client auto-detect installer
-- **Zip output:** `tools\Banana-Carestream-MCP-Bridge-Installer.zip`
-
+- **Created:** 2026-08-27 1:33 AM
+- **Trophy Support:** Working
+- **Tested On:** Dr-1-MCP with Carestream CSImaging + TW.exe
+- **Command Line:** Traced from live Clinic Solution workflow

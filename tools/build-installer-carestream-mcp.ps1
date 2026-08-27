@@ -21,6 +21,10 @@ foreach ($f in $sharedFiles) {
         exit 1
     }
     Copy-Item -LiteralPath $src -Destination (Join-Path $pkgDir $f) -Force
+    # Windows PowerShell 5.1 requires UTF-8 BOM for scripts containing non-ASCII self-test strings.
+    $utf8Bom = New-Object System.Text.UTF8Encoding $true
+    $text = [System.IO.File]::ReadAllText((Join-Path $pkgDir $f))
+    [System.IO.File]::WriteAllText((Join-Path $pkgDir $f), $text, $utf8Bom)
 }
 Write-Ok "Synced $($sharedFiles.Count) file(s)"
 

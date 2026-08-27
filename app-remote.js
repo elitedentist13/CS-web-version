@@ -233,41 +233,62 @@
         bindViewerInputHandlers();
     }
 
+    var frameFetchInFlight = false;
+    var currentFrameBlobUrl = null;
+
     function refreshFrame() {
-        if (!activeSessionId) return;
-        var img = g('rbScreenImg');
-        if (!img) return;
+        if (!activeSessionId || frameFetchInFlight) return;
         var urlRes = SB.storage.from(SCREENS_BUCKET).getPublicUrl(activeSessionId + '/frame.jpg');
         var base = (urlRes && urlRes.data) ? urlRes.data.publicUrl : null;
         if (!base) return;
-        img.src = base + '?t=' + Date.now();
+        frameFetchInFlight = true;
+        // fetch()+blob()+an off-DOM preload Image, swapping the visible
+        // <img>.src only once the NEXT frame has fully decoded, instead of
+        // the old `img.src = url` (which -- confirmed live 2026-08-28 --
+        // visibly flickered/looked unstable on a real internet link: any
+        // slow or dropped poll left the <img> showing a blank/broken frame
+        // for a moment, and a fast one could show a partially-decoded
+        // frame briefly). This is the standard "double buffering" fix:
+        // the visible element only ever gets a COMPLETE image.
+        fetch(base + '?t=' + Date.now(), { cache: 'no-store' })
+            .then(function (r) {
+                if (!r.ok) throw new Error('bad status ' + r.status);
+                return r.blob();
+            })
+            .then(function (blob) {
+                if (!activeSessionId) return;
+                var nextUrl = URL.createObjectURL(blob);
+                var pre = new Image();
+                pre.onload = function () { onFramePollOk(nextUrl); };
+                pre.onerror = function () { URL.revokeObjectURL(nextUrl); onFramePollFailed(); };
+                pre.src = nextUrl;
+            })
+            .catch(onFramePollFailed)
+            .then(function () { frameFetchInFlight = false; }, function () { frameFetchInFlight = false; });
     }
 
-    // Bound once at module init (the <img>/<wrap> elements exist in the DOM
-    // even while the section is hidden) -- tracks whether a frame has ever
-    // actually rendered, so the "connecting…" placeholder only disappears
-    // once there is real content to click on, and reappears if the stream
-    // stalls for a while (host agent crashed, network drop, etc.).
-    function bindScreenImageHandlers() {
+    function onFramePollOk(nextBlobUrl) {
         var img = g('rbScreenImg');
         var wrap = g('rbScreenWrap');
-        if (!img || !wrap) return;
-        img.addEventListener('load', function () {
-            hasReceivedFirstFrame = true;
-            frameLoadFailures = 0;
-            wrap.classList.remove('rb-connecting');
-        });
-        img.addEventListener('error', function () {
-            if (!activeSessionId) return;
-            frameLoadFailures++;
-            // A handful of misses is normal right after "accepted" (agent
-            // needs a moment to grab+upload its first frame); only flip
-            // back to the placeholder once a previously-working stream has
-            // clearly stalled, not on every single missed poll.
-            if (!hasReceivedFirstFrame || frameLoadFailures >= 6) {
-                wrap.classList.add('rb-connecting');
-            }
-        });
+        if (img) img.src = nextBlobUrl;
+        if (currentFrameBlobUrl) URL.revokeObjectURL(currentFrameBlobUrl);
+        currentFrameBlobUrl = nextBlobUrl;
+        hasReceivedFirstFrame = true;
+        frameLoadFailures = 0;
+        if (wrap) wrap.classList.remove('rb-connecting');
+    }
+
+    function onFramePollFailed() {
+        if (!activeSessionId) return;
+        frameLoadFailures++;
+        // A handful of misses is normal right after "accepted" (agent
+        // needs a moment to grab+upload its first frame); only flip back
+        // to the placeholder once a previously-working stream has clearly
+        // stalled, not on every single missed poll.
+        if (!hasReceivedFirstFrame || frameLoadFailures >= 6) {
+            var wrap = g('rbScreenWrap');
+            if (wrap) wrap.classList.add('rb-connecting');
+        }
     }
 
     function toggleFullscreen() {
@@ -288,6 +309,7 @@
     function stopViewer(message) {
         if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
         if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        if (currentFrameBlobUrl) { URL.revokeObjectURL(currentFrameBlobUrl); currentFrameBlobUrl = null; }
         teardownSessionChannel();
         activeSessionId = null;
         var panel = g('rbViewerPanel');
@@ -535,7 +557,10 @@
         var fullscreenBtn = g('rbFullscreenBtn');
         if (fullscreenBtn) fullscreenBtn.addEventListener('click', toggleFullscreen);
 
-        bindScreenImageHandlers();
+        // Frame load/error tracking now lives inside refreshFrame's
+        // fetch().then/catch (see onFramePollOk/onFramePollFailed) since
+        // frames are fetched as blobs, not loaded directly via img.src --
+        // no separate DOM event binding needed here anymore.
 
         // Best-effort immediate cleanup if the viewer just closes/refreshes
         // the tab instead of clicking "End Session" -- fetch(keepalive)

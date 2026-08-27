@@ -14,8 +14,10 @@
 <link rel="apple-touch-icon" href="favicon.svg">
 <script>
 (function () {
-  /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260828-any-banana-fixes-v2';
+  /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache.
+     ALSO update build-version.txt to the same string -- see the
+     self-heal check below, which depends on the two staying in sync. */
+  var BUILD = '20260828-any-banana-fixes-v3';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -50,6 +52,34 @@
     link.href = withBust(path);
     document.head.appendChild(link);
   });
+
+  /* Self-heal against GitHub Pages/Fastly caching THIS index.html itself
+     for up to 10 minutes (Cache-Control: max-age=600, confirmed live
+     2026-08-28 via response headers) -- the <meta http-equiv> no-cache
+     tags above are only a hint and several browsers ignore them for a
+     plain reopen/refresh, so a PC can keep re-loading an old HTML page
+     (with an old BUILD baked in, therefore old cache-busted JS/CSS URLs
+     too) for up to 10 minutes after a real deploy with NO visible sign
+     anything is wrong. build-version.txt is tiny and always fetched with
+     cache:'no-store' (a real bypass, unlike a normal navigation), so it
+     reflects the truth even when this page itself doesn't. One-shot
+     forced reload, guarded by build value so it can't loop forever. */
+  try {
+    fetch('build-version.txt?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (latest) {
+        if (!latest) return;
+        latest = latest.trim();
+        if (!latest || latest === BUILD) return;
+        var reloadKey = 'jsm_build_reload_' + latest;
+        if (sessionStorage.getItem(reloadKey)) return;
+        sessionStorage.setItem(reloadKey, '1');
+        var u = new URL(window.location.href);
+        u.searchParams.set('_lr', String(Date.now()));
+        window.location.replace(u.toString());
+      })
+      .catch(function () {});
+  } catch (e) {}
 })();
 </script>
 <style>

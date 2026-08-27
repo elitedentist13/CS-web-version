@@ -54,7 +54,7 @@ param(
     [string]$InstallPath = "C:\BananaRemote",
     [int]$Port = 17891,
     [string]$DeviceName = $env:COMPUTERNAME,
-    [int]$PollIntervalMs = 400
+    [int]$PollIntervalMs = 150
 )
 
 $ErrorActionPreference = "Continue"
@@ -277,7 +277,12 @@ function Get-ScreenJpegBytes {
     $g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size $screenW, $screenH))
     $g.Dispose()
 
-    $targetW = [Math]::Min(1280, $screenW)
+    # Live-trial finding (2026-08-27): 1280px-wide/quality-50 frames took
+    # long enough to encode+upload over a real internet connection that
+    # users reported the whole session feeling slow -- shrinking the
+    # payload matters more here than image sharpness for a screenshot-relay
+    # design that was never going to be pixel-perfect anyway.
+    $targetW = [Math]::Min(1024, $screenW)
     $targetH = [Math]::Max(1, [int]($screenH * ($targetW / $screenW)))
     $scaled = New-Object System.Drawing.Bitmap $full, $targetW, $targetH
     $full.Dispose()
@@ -285,7 +290,7 @@ function Get-ScreenJpegBytes {
     $stream = New-Object System.IO.MemoryStream
     $encoder = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
     $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
-    $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]50)
+    $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]42)
     $scaled.Save($stream, $encoder, $encParams)
     $scaled.Dispose()
     return $stream.ToArray()
@@ -304,8 +309,19 @@ function Send-ScreenFrame([string]$SessionId, [byte[]]$JpegBytes) {
     } catch {
         return $false
     }
-    $body = @{ last_frame_at = (Now-Iso) } | ConvertTo-Json
-    Invoke-SupabaseRest 'Patch' "remote_sessions?id=eq.$SessionId" $body @{ Prefer = "return=minimal" } | Out-Null
+    # last_frame_at is bookkeeping ONLY -- the viewer (app-remote.js) never
+    # reads it, it just re-polls the storage URL directly with its own
+    # cache-busting timestamp. Paying a WHOLE extra network round trip for
+    # it on every single frame was pure wasted latency budget; updating it
+    # at most every 3s keeps it usable as a rough staleness signal (e.g. for
+    # a future "host may have disconnected" indicator) without taxing every
+    # frame delivery.
+    $now = Get-Date
+    if (-not $script:lastFrameMetaUpdate -or ($now - $script:lastFrameMetaUpdate).TotalSeconds -ge 3) {
+        $body = @{ last_frame_at = (Now-Iso) } | ConvertTo-Json
+        Invoke-SupabaseRest 'Patch' "remote_sessions?id=eq.$SessionId" $body @{ Prefer = "return=minimal" } | Out-Null
+        $script:lastFrameMetaUpdate = $now
+    }
     return $true
 }
 

@@ -116,7 +116,13 @@ function Find-ListeningProcessOnPort($TargetPort) {
 }
 
 function Stop-AgentOnPort($TargetPort) {
-    if (-not (Test-AgentAlive $TargetPort)) { return 0 }
+    # Deliberately does NOT re-check Test-AgentAlive first (confirmed live
+    # 2026-08-28: the agent can be transiently slow to answer /status while
+    # mid-tick on a real network call, which made this gate flake and skip
+    # stopping the old process entirely -- silently leaving stale code
+    # running while the installer went on to report success). Callers only
+    # reach this after ALREADY deciding this port belongs to our own agent,
+    # so it's safe to just stop whatever is bound to it.
     $proc = Find-ListeningProcessOnPort $TargetPort
     if (-not $proc) { return 0 }
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -251,7 +257,24 @@ Write-Step "Starting the agent now"
 if (Test-AgentAlive $Port) {
     Write-Host "    Found the agent already running on port $Port -- restarting it so it loads the code just installed." -ForegroundColor Yellow
     $stopped = Stop-AgentOnPort $Port
-    if ($stopped -gt 0) { Start-Sleep -Milliseconds 500 }
+    if ($stopped -gt 0) {
+        # Stop-Process is synchronous, but the OS can take a little longer
+        # to actually release the bound TCP listening socket -- confirmed
+        # live 2026-08-28: without waiting for that, the freshly-started
+        # process below could hit its OWN "port already in use, exiting"
+        # branch and die instantly, while the OLD (stale-code) process kept
+        # answering health checks, making this installer falsely report
+        # success while nothing had actually been upgraded.
+        $freedDeadline = (Get-Date).AddSeconds(5)
+        while ((Get-Date) -lt $freedDeadline -and (Find-ListeningProcessOnPort $Port)) {
+            Start-Sleep -Milliseconds 250
+        }
+        if (Find-ListeningProcessOnPort $Port) {
+            Write-Warn2 "Port $Port still held after stopping the old agent -- forcing it closed again."
+            Stop-AgentOnPort $Port | Out-Null
+            Start-Sleep -Milliseconds 500
+        }
+    }
 } else {
     $existingProc = Find-ListeningProcessOnPort $Port
     if ($existingProc) {
@@ -262,12 +285,20 @@ if (Test-AgentAlive $Port) {
 }
 
 $argString = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$destAgent`" -InstallPath `"$InstallPath`" -Port $Port"
-Start-Process -FilePath "powershell" -ArgumentList $argString -WindowStyle Minimized | Out-Null
+$newProc = Start-Process -FilePath "powershell" -ArgumentList $argString -WindowStyle Minimized -PassThru
 Start-Sleep -Seconds 2
 $deviceId = $null
-if (Test-AgentAlive $Port) {
+$listenerProc = Find-ListeningProcessOnPort $Port
+if ((Test-AgentAlive $Port) -and $listenerProc -and $listenerProc.Id -eq $newProc.Id) {
     try { $deviceId = (Invoke-RestMethod -Uri "http://127.0.0.1:$Port/device-id" -TimeoutSec 3).device_id } catch {}
-    Write-Ok "Agent started and responding on http://127.0.0.1:$Port/status"
+    Write-Ok "Agent started and responding on http://127.0.0.1:$Port/status (PID $($newProc.Id))"
+} elseif (Test-AgentAlive $Port) {
+    # Something IS answering, but it's not the process we just started --
+    # almost always the old one never actually let go of the port. Do not
+    # report success: the code just installed is NOT the one running.
+    Write-Err2 "A DIFFERENT, older process (PID $(if ($listenerProc) { $listenerProc.Id } else { 'unknown' })) is still answering on port $Port, not the one just started (PID $($newProc.Id))."
+    Write-Err2 "Re-run this installer, or manually stop that PID first: Stop-Process -Id $(if ($listenerProc) { $listenerProc.Id } else { '<pid>' }) -Force"
+    exit 1
 } else {
     Write-Err2 "Agent did not respond after starting."
     if (-not $defenderExcluded) {

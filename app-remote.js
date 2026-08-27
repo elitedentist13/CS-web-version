@@ -16,7 +16,7 @@
     var LOCAL_AGENT_BASE = 'http://127.0.0.1:17891';
     var SCREENS_BUCKET = 'remote-screens';
     var FILES_BUCKET = 'remote-files';
-    var FRAME_REFRESH_MS = 450;
+    var FRAME_REFRESH_MS = 350;
     var PENDING_TIMEOUT_MS = 120000;
 
     var myDeviceId = null;

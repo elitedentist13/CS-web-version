@@ -5572,9 +5572,9 @@
             'zh-Hant': '✓ 本機啟動器正在運行 — 可以開啟程式。'
         },
         'media.local.launcherNotRunning': {
-            en: '✗ Browser cannot see the local launcher.\n\n1. Double-click start-banana-xray-mcp.bat (starts bridge + web app)\n   OR run tools\\Start X-Ray Launcher.bat (keep window open)\n2. Open ONLY http://127.0.0.1:5500/index.html (not file:// or GitHub Pages)\n3. Hard refresh Ctrl+F5\n4. Test http://127.0.0.1:17890/status — should show {"ok":true}',
-            'zh-CN': '✗ 浏览器看不到本机启动器。\n\n1. 双击 start-banana-xray-mcp.bat（同时启动桥接 + 网页）\n   或运行 tools\\Start X-Ray Launcher.bat（保持窗口打开）\n2. 仅使用 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）\n3. 强制刷新 Ctrl+F5\n4. 测试 http://127.0.0.1:17890/status — 应显示 {"ok":true}',
-            'zh-Hant': '✗ 瀏覽器看不到本機啟動器。\n\n1. 按兩下 start-banana-xray-mcp.bat（同時啟動橋接 + 網頁）\n   或執行 tools\\Start X-Ray Launcher.bat（保持視窗開啟）\n2. 僅使用 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）\n3. 強制重新整理 Ctrl+F5\n4. 測試 http://127.0.0.1:17890/status — 應顯示 {"ok":true}'
+            en: '✗ Browser cannot see the local launcher.\n\n1. Double-click start-banana-xray-mcp.bat (starts bridge + web app)\n   OR run tools\\Start X-Ray Launcher.bat (keep window open)\n2. Do not open Banana as a local file (file://) — use the usual browser link\n3. Hard refresh Ctrl+F5\n4. Test http://127.0.0.1:17890/status — should show {"ok":true}',
+            'zh-CN': '✗ 浏览器看不到本机启动器。\n\n1. 双击 start-banana-xray-mcp.bat（同时启动桥接 + 网页）\n   或运行 tools\\Start X-Ray Launcher.bat（保持窗口打开）\n2. 请勿以本机文件（file://）方式打开 Banana — 使用平时的浏览器链接\n3. 强制刷新 Ctrl+F5\n4. 测试 http://127.0.0.1:17890/status — 应显示 {"ok":true}',
+            'zh-Hant': '✗ 瀏覽器看不到本機啟動器。\n\n1. 按兩下 start-banana-xray-mcp.bat（同時啟動橋接 + 網頁）\n   或執行 tools\\Start X-Ray Launcher.bat（保持視窗開啟）\n2. 請勿以本機檔案（file://）方式開啟 Banana — 使用平時的瀏覽器連結\n3. 強制重新整理 Ctrl+F5\n4. 測試 http://127.0.0.1:17890/status — 應顯示 {"ok":true}'
         },
         'media.local.launcherFetchBlocked': {
             en: '✗ Browser cannot reach the local launcher (it may still be running).\n\n1. Hard-refresh this page: Ctrl+F5\n2. In Chrome, click Allow when asked for "local network access"\n3. Test in a new tab: http://127.0.0.1:17890/status — should show {"ok":true}\n4. Keep Start X-Ray Launcher.bat open, then click Trophy again',
@@ -5582,9 +5582,9 @@
             'zh-Hant': '✗ 瀏覽器無法連線本機啟動器（啟動器可能仍在運行）。\n\n1. 強制重新整理本頁：Ctrl+F5\n2. 在 Chrome 中，出現「本機網路存取」時點擊「允許」\n3. 在新分頁測試：http://127.0.0.1:17890/status — 應顯示 {"ok":true}\n4. 保持 Start X-Ray Launcher.bat 視窗開啟，再按 Trophy'
         },
         'media.local.launcherHttpsBlocked': {
-            en: '✗ Wrong page URL — cannot reach local launcher.\n\nOpen http://127.0.0.1:5500/index.html on this PC (not file://, not GitHub Pages).\nThen run start-banana-xray-mcp.bat.',
-            'zh-CN': '✗ 页面网址不正确 — 无法连接本机启动器。\n\n请在本机打开 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）。\n然后运行 start-banana-xray-mcp.bat。',
-            'zh-Hant': '✗ 頁面網址不正確 — 無法連線本機啟動器。\n\n請在本機開啟 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）。\n然後執行 start-banana-xray-mcp.bat。'
+            en: '✗ Wrong page URL — cannot reach local launcher.\n\nThis page was opened as a local file (file://), which browsers block from reaching any program on this PC.\n\nOpen Banana normally in the browser (e.g. the usual https:// link or http://127.0.0.1:5500/index.html) instead of double-clicking index.html.',
+            'zh-CN': '✗ 页面网址不正确 — 无法连接本机启动器。\n\n此页面是以本机文件方式打开（file://），浏览器会阻止这类页面连接本机的任何程序。\n\n请改用浏览器正常打开 Banana（例如平时使用的 https:// 链接，或 http://127.0.0.1:5500/index.html），而不要直接双击 index.html。',
+            'zh-Hant': '✗ 頁面網址不正確 — 無法連線本機啟動器。\n\n此頁面是以本機檔案方式開啟（file://），瀏覽器會阻止這類頁面連線本機的任何程式。\n\n請改用瀏覽器正常開啟 Banana（例如平時使用的 https:// 連結，或 http://127.0.0.1:5500/index.html），而不要直接按兩下 index.html。'
         },
         'media.local.launcherPermissionPrompt': {
             en: '⚠ Chrome should be showing a "local network access" permission popup near the address bar. Click Allow on THAT popup first, then click this button again — the first click only triggers the popup, it does not open the program yet.',

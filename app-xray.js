@@ -2348,12 +2348,20 @@ function xrayFetchLauncher(path, permState, timeoutMs, onResult) {
     tryAttempt(attempts[idx++]);
 }
 
+// Only file:// pages are hard-blocked here (no meaningful origin for CORS /
+// permission prompts to attach to). A remote https: page (e.g. the GitHub
+// Pages deployment) is deliberately NOT blocked: Chrome treats fetches to
+// loopback addresses (127.0.0.1 / localhost) as exempt from mixed-content
+// blocking regardless of the page's own scheme, and the bridge already
+// answers with "Access-Control-Allow-Private-Network: true" -- confirmed
+// live (2026-08-27) that a plain fetch('http://127.0.0.1:17890/status')
+// from https://elitedentist13.github.io succeeds once Local Network Access
+// permission is granted, via the same navigator.permissions.query()/
+// targetAddressSpace flow used below for the local dev-server case.
 function xrayLauncherBlockedByPage() {
     try {
         var proto = window.location.protocol || '';
-        var host = (window.location.hostname || '').toLowerCase();
         if (proto === 'file:') return true;
-        if (proto === 'https:' && host !== 'localhost' && host !== '127.0.0.1') return true;
     } catch (eBlock) {}
     return false;
 }

@@ -29,6 +29,18 @@ function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "    OK: $msg" -ForegroundColor Green }
 function Write-Err2($msg) { Write-Host "    ERROR: $msg" -ForegroundColor Red }
 
+# Catches genuine syntax errors -- including the "parses fine here but not
+# under this clinic PC's locale/codepage" class of bug found live
+# 2026-08-27 (missing UTF-8 BOM on a file with non-ASCII characters) --
+# without executing a single line of the file. Cheap enough to run on every
+# shared file on every build, not just ones that happen to have a -SelfTest.
+function Test-ScriptParses($Path) {
+    $tokens = $null
+    $parseErrors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$parseErrors)
+    return ($null -eq $parseErrors -or $parseErrors.Count -eq 0)
+}
+
 # key = subfolder name; sharedFiles are copied in from $toolsDir on every
 # build (kept in sync automatically); ownFiles already live in the
 # subfolder (the .bat wrappers + its own README.md) and are left alone.
@@ -37,19 +49,19 @@ $Packages = @(
         name = "EzDenti"
         folder = "installer-ezdenti"
         zipName = "Banana-EzDenti-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
     },
     [ordered]@{
         name = "NNT-NEWTOM"
         folder = "installer-nntnewtom"
         zipName = "Banana-NNT-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
     },
     [ordered]@{
         name = "Rayscan"
         folder = "installer-rayscan"
         zipName = "Banana-Rayscan-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
     }
 )
 
@@ -68,6 +80,11 @@ foreach ($pkg in $Packages) {
         $src = Join-Path $toolsDir $f
         if (-not (Test-Path -LiteralPath $src)) {
             Write-Err2 "Canonical source missing, cannot sync: $src"
+            $failed = $true
+            continue
+        }
+        if ($f -like '*.ps1' -and -not (Test-ScriptParses $src)) {
+            Write-Err2 "Canonical source has a syntax error, refusing to sync: $src"
             $failed = $true
             continue
         }
@@ -97,6 +114,20 @@ foreach ($pkg in $Packages) {
         } else {
             Write-Err2 "Self-test FAILED from a clean extraction (exit code $LASTEXITCODE) -- this package is not actually self-sufficient."
             $failed = $true
+        }
+
+        # xray-bridge-auto-update.ps1 has no -SelfTest mode of its own (it
+        # always tries to reach the network) -- a post-extraction parse
+        # check is the equivalent "did this actually make it into the zip
+        # intact" guarantee for it.
+        $updaterInZip = Join-Path $verifyDir "xray-bridge-auto-update.ps1"
+        if (Test-Path -LiteralPath $updaterInZip) {
+            if (Test-ScriptParses $updaterInZip) {
+                Write-Ok "xray-bridge-auto-update.ps1 present and parses cleanly from a clean extraction."
+            } else {
+                Write-Err2 "xray-bridge-auto-update.ps1 failed to parse from a clean extraction -- auto-update would be broken on this package."
+                $failed = $true
+            }
         }
     } finally {
         Remove-Item -LiteralPath $verifyDir -Recurse -Force -ErrorAction SilentlyContinue

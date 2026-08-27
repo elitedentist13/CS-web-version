@@ -1,4 +1,4 @@
-# tools/xray-local-launcher.ps1
+﻿# tools/xray-local-launcher.ps1
 # Joyful Smile / Banana Clinic Manager — local desktop bridge for X-ray systems.
 #
 # Runs on each clinic PC (started by "Start X-Ray Launcher.bat"). Listens on
@@ -260,6 +260,23 @@ function Parse-Query($RawPath) {
     return $out
 }
 
+# Read by /status only -- written by the separate, independently-scheduled
+# xray-bridge-auto-update.ps1 (see tools/xray-bridge-auto-update.ps1), never
+# by this script itself. Deliberately tolerant of the file being missing
+# (auto-update not installed / never run yet) or malformed (mid-write from
+# another process) -- this is a nice-to-have visibility panel, not something
+# that should ever be able to break /status.
+function Get-AutoUpdateStatus {
+    $statePath = Join-Path $PSScriptRoot "xray-bridge-update-state.json"
+    if (-not (Test-Path -LiteralPath $statePath)) { return $null }
+    try {
+        $raw = Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop
+        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+    } catch {
+        return $null
+    }
+}
+
 function Status-Payload {
     # Only reports on systems this instance actually serves (see
     # -EnabledSystems / Test-SystemEnabled above) -- an EzDent-i-only
@@ -275,6 +292,8 @@ function Status-Payload {
     }
     $payload["systems"] = $systemsOut
     $payload["enabled_systems"] = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { @($EnabledSystems) } else { @($Systems.Keys) }
+    $autoUpdate = Get-AutoUpdateStatus
+    if ($null -ne $autoUpdate) { $payload["auto_update"] = $autoUpdate }
     return $payload
 }
 

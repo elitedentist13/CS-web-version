@@ -9,7 +9,7 @@ echo This installs ONLY NNT-NEWTOM support -- it will never open EzDent-i,
 echo Carestream, or Ai-Dental, even if this script somehow ends up on a PC
 echo that also has one of those installed.
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-xray-bridge.ps1" -EnabledSystems "nntnewtom" -InstallPath "C:\NNT" -ShortcutName "Joyful Smile NNT-NEWTOM Bridge.lnk"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-xray-bridge.ps1" -EnabledSystems "nntnewtom" -InstallPath "C:\NNT" -ShortcutName "Joyful Smile NNT-NEWTOM Bridge.lnk" -PackageFolder "installer-nntnewtom"
 echo.
 echo Exit code: %ERRORLEVEL%  (0 = installed OK)
 pause

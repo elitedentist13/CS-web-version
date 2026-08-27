@@ -9,7 +9,7 @@ echo This installs ONLY Rayscan support -- it will never open NNT/NEWTOM,
 echo EzDent-i, Carestream, or Ai-Dental, even if this script somehow ends up
 echo on a PC that also has one of those installed.
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-xray-bridge.ps1" -EnabledSystems "rayscan" -InstallPath "C:\BananaBridge-Rayscan" -ShortcutName "Joyful Smile Rayscan Bridge.lnk"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-xray-bridge.ps1" -EnabledSystems "rayscan" -InstallPath "C:\BananaBridge-Rayscan" -ShortcutName "Joyful Smile Rayscan Bridge.lnk" -PackageFolder "installer-rayscan"
 echo.
 echo Exit code: %ERRORLEVEL%  (0 = installed OK)
 pause

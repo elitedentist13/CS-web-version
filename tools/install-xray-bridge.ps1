@@ -42,6 +42,14 @@
 #      re-running this installer after a code fix previously looked
 #      successful but silently kept the OLD code running in memory.
 #   5. Refuses to stomp on a different program already using the port.
+#   6. Deploys xray-bridge-auto-update.ps1 alongside the launcher and
+#      registers a recurring Windows Scheduled Task (every
+#      -UpdateCheckIntervalHours hours, default 6, plus once shortly after
+#      install) that checks the live Banana site for a newer bridge and
+#      safely applies it -- unless -NoAutoUpdate is passed. See
+#      xray-bridge-auto-update.ps1's own header for the full safety model
+#      (self-test gate, backups, automatic rollback). -Uninstall removes
+#      this task too.
 #
 # Safe to re-run any time (e.g. after pulling a code update) -- every step
 # above is idempotent: files are overwritten, the startup shortcut is
@@ -80,7 +88,15 @@ param(
     # other's autostart) -- each package's own Install *.bat passes its own
     # name. Defaults to the original generic name for the shared, all-systems
     # copy in tools\ itself.
-    [string]$ShortcutName = "Joyful Smile X-Ray Bridge.lnk"
+    [string]$ShortcutName = "Joyful Smile X-Ray Bridge.lnk",
+    # Auto-update (see xray-bridge-auto-update.ps1). All four of these are
+    # baked verbatim into the Scheduled Task's own command line at install
+    # time, so the task always knows how to re-invoke this same installer
+    # consistently on every future update cycle without guessing.
+    [string]$UpdateBaseUrl = "https://elitedentist13.github.io/CS-web-version",
+    [string]$PackageFolder = "",
+    [int]$UpdateCheckIntervalHours = 6,
+    [switch]$NoAutoUpdate
 )
 
 $ErrorActionPreference = "Stop"
@@ -193,6 +209,81 @@ function Find-ListeningProcessOnPort($TargetPort) {
     return $null
 }
 
+function Get-UpdateTaskName {
+    # Derived from -ShortcutName so the two dedicated packages
+    # (installer-ezdenti\ / installer-nntnewtom\) each get their own
+    # independent task, exactly like their startup shortcuts never collide.
+    $base = $ShortcutName -replace '\.lnk$', ''
+    return "$base - Auto Update"
+}
+
+function Register-UpdateScheduledTask {
+    $taskName = Get-UpdateTaskName
+    $updaterDest = Join-Path $InstallPath "xray-bridge-auto-update.ps1"
+    if (-not (Test-Path -LiteralPath $updaterDest)) { return $false }
+
+    $argsList = New-Object System.Collections.Generic.List[string]
+    $argsList.Add("-NoProfile")
+    $argsList.Add("-ExecutionPolicy"); $argsList.Add("Bypass")
+    $argsList.Add("-WindowStyle"); $argsList.Add("Hidden")
+    $argsList.Add("-File"); $argsList.Add("`"$updaterDest`"")
+    $argsList.Add("-InstallPath"); $argsList.Add("`"$InstallPath`"")
+    $argsList.Add("-Port"); $argsList.Add("$Port")
+    $argsList.Add("-ShortcutName"); $argsList.Add("`"$ShortcutName`"")
+    $argsList.Add("-UpdateBaseUrl"); $argsList.Add("`"$UpdateBaseUrl`"")
+    $argsList.Add("-PackageFolder"); $argsList.Add("`"$PackageFolder`"")
+    if ($EnabledSystems -and $EnabledSystems.Count -gt 0) {
+        $argsList.Add("-EnabledSystems")
+        foreach ($sys in $EnabledSystems) { $argsList.Add("`"$sys`"") }
+    }
+    if ($RequiredCompanionScripts -and $RequiredCompanionScripts.Count -gt 0) {
+        $argsList.Add("-CompanionScripts")
+        foreach ($comp in $RequiredCompanionScripts) { $argsList.Add("`"$comp`"") }
+    }
+    $argString = $argsList -join " "
+
+    try {
+        $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argString
+        # -Once + RepetitionInterval + a long RepetitionDuration is the
+        # standard idiom for "run once shortly after registering, then
+        # forever every N hours" without a second trigger object.
+        # [TimeSpan]::MaxValue looks tempting for "forever" but Task
+        # Scheduler's XML schema rejects the resulting duration string
+        # (confirmed live 2026-08-27: "working XML contains an invalid
+        # format or exceeds boundary value" on P99999999DT23H59M59S) -- 20
+        # years comfortably outlives any clinic PC's install and is well
+        # within the schema's accepted range.
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
+            -RepetitionInterval (New-TimeSpan -Hours $UpdateCheckIntervalHours) `
+            -RepetitionDuration (New-TimeSpan -Days (365 * 20))
+        # Interactive + Limited: runs as this same Windows account with
+        # standard (non-admin) rights whenever it's logged in -- no stored
+        # password needed, no elevation prompt, matches how the bridge
+        # itself only ever makes sense while someone is logged into this PC.
+        $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings `
+            -Description "Checks the live Banana site every $UpdateCheckIntervalHours hour(s) for a newer X-ray bridge and safely applies it (self-tested, backed up, auto-rollback on failure)." -Force | Out-Null
+        return $true
+    } catch {
+        Write-Warn2 "Could not register the auto-update Scheduled Task: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Unregister-UpdateScheduledTask {
+    $taskName = Get-UpdateTaskName
+    try {
+        $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($existing) {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+            return $true
+        }
+    } catch {}
+    return $false
+}
+
 function Stop-BridgeOnPort($TargetPort) {
     # Deliberately NOT using Get-CimInstance Win32_Process / WMI command-line
     # matching here: it has proven unreliable in the field (silently returns
@@ -215,9 +306,10 @@ function Stop-BridgeOnPort($TargetPort) {
 
 if (-not $NoElevate -and -not (Test-IsElevated)) {
     Write-Host "Requesting Administrator so auto-start can cover every Windows account on this PC..." -ForegroundColor Cyan
-    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" -InstallPath `"$InstallPath`" -Port $Port -ShortcutName `"$ShortcutName`""
+    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" -InstallPath `"$InstallPath`" -Port $Port -ShortcutName `"$ShortcutName`" -UpdateBaseUrl `"$UpdateBaseUrl`" -PackageFolder `"$PackageFolder`" -UpdateCheckIntervalHours $UpdateCheckIntervalHours"
     if ($NoAutoStart) { $argList += " -NoAutoStart" }
     if ($Uninstall) { $argList += " -Uninstall" }
+    if ($NoAutoUpdate) { $argList += " -NoAutoUpdate" }
     $argList += (Get-EnabledSystemsArgs)
     try {
         $elevated = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $argList -Wait -PassThru
@@ -238,6 +330,12 @@ if ($Uninstall) {
     }
     if (-not $removedAny) {
         Write-Ok "No startup shortcut found (already removed)."
+    }
+
+    if (Unregister-UpdateScheduledTask) {
+        Write-Ok "Removed auto-update Scheduled Task: $(Get-UpdateTaskName)"
+    } else {
+        Write-Ok "No auto-update Scheduled Task found (already removed)."
     }
 
     $launcherPath = Join-Path $InstallPath "xray-local-launcher.ps1"
@@ -267,14 +365,50 @@ if (-not (Test-Path -LiteralPath $InstallPath)) {
     Write-Ok "Created $InstallPath"
 }
 
+# xray-bridge-auto-update.ps1 deploys its OWN copy of this very installer
+# into -InstallPath (so future updates ship improvements to the restart
+# logic too -- see its header), then re-invokes that installed copy to do
+# the actual "stop old / start new" work rather than duplicating it. When
+# it does, $sourceDir (wherever THIS running .ps1 physically lives) and
+# $InstallPath resolve to the exact same folder, so source and destination
+# for every file below are literally the same path -- Copy-Item -Force
+# refuses to copy a file onto itself ("cannot overwrite itself"), confirmed
+# live 2026-08-27. Detect that case and simply treat the files as already
+# in place instead of attempting a no-op copy.
+$sourceDirFull = (Resolve-Path -LiteralPath $sourceDir).Path.TrimEnd('\')
+$installPathFull = (Resolve-Path -LiteralPath $InstallPath).Path.TrimEnd('\')
+$runningInPlace = $sourceDirFull -ieq $installPathFull
+
 $destLauncher = Join-Path $InstallPath "xray-local-launcher.ps1"
-Copy-Item -LiteralPath $sourceLauncher -Destination $destLauncher -Force
-Write-Ok "Copied xray-local-launcher.ps1 -> $destLauncher"
+if ($runningInPlace) {
+    Write-Ok "Already running from inside $InstallPath -- xray-local-launcher.ps1 is already in place, skipping copy."
+} else {
+    Copy-Item -LiteralPath $sourceLauncher -Destination $destLauncher -Force
+    Write-Ok "Copied xray-local-launcher.ps1 -> $destLauncher"
+}
+
+# Also deploy a copy of THIS installer script into -InstallPath (not just
+# xray-local-launcher.ps1) so xray-bridge-auto-update.ps1 -- which re-
+# invokes the copy living in -InstallPath to restart the bridge, see its
+# header -- always has an installed copy to compare against and hash-diff
+# from the very first auto-update cycle, rather than only ever getting one
+# once auto-update happens to fetch a changed one from the live site.
+$destInstaller = Join-Path $InstallPath "install-xray-bridge.ps1"
+if ($runningInPlace) {
+    Write-Ok "Already running from inside $InstallPath -- install-xray-bridge.ps1 is already in place, skipping copy."
+} else {
+    Copy-Item -LiteralPath $MyInvocation.MyCommand.Path -Destination $destInstaller -Force
+    Write-Ok "Copied install-xray-bridge.ps1 -> $destInstaller"
+}
 
 $installedCompanions = New-Object System.Collections.Generic.List[string]
 foreach ($name in $RequiredCompanionScripts) {
-    $srcCompanion = Join-Path $sourceDir $name
     $destCompanion = Join-Path $InstallPath $name
+    if ($runningInPlace) {
+        if (Test-Path -LiteralPath $destCompanion) { $installedCompanions.Add($destCompanion) }
+        continue
+    }
+    $srcCompanion = Join-Path $sourceDir $name
     if (-not (Test-Path -LiteralPath $srcCompanion)) {
         Write-Warn2 "Companion script not found next to installer, skipping: $name (the safety/upload feature that depends on it will silently do nothing until this is fixed and the installer is re-run)."
         continue
@@ -358,6 +492,37 @@ if (Test-BridgeAlive $Port) {
     exit 1
 }
 
+$updateTaskRegistered = $false
+if ($NoAutoUpdate) {
+    Write-Step "Skipping auto-update setup (-NoAutoUpdate passed)"
+} else {
+    Write-Step "Setting up auto-update (checks every $UpdateCheckIntervalHours hour(s))"
+    $sourceUpdater = Join-Path $sourceDir "xray-bridge-auto-update.ps1"
+    if (-not (Test-Path -LiteralPath $sourceUpdater)) {
+        Write-Warn2 "xray-bridge-auto-update.ps1 not found next to this installer -- skipping auto-update setup. Copy the whole tools folder to get this feature."
+    } else {
+        $destUpdater = Join-Path $InstallPath "xray-bridge-auto-update.ps1"
+        if (-not $runningInPlace) {
+            Copy-Item -LiteralPath $sourceUpdater -Destination $destUpdater -Force
+        }
+        $tokens = $null; $parseErrors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($destUpdater, [ref]$tokens, [ref]$parseErrors)
+        if ($null -ne $parseErrors -and $parseErrors.Count -gt 0) {
+            Write-Err2 "xray-bridge-auto-update.ps1 failed to parse after copying -- NOT registering the auto-update task. Re-copy the tools folder and re-run this installer."
+        } else {
+            if ($runningInPlace) {
+                Write-Ok "Already running from inside $InstallPath -- xray-bridge-auto-update.ps1 is already in place, skipping copy."
+            } else {
+                Write-Ok "Copied xray-bridge-auto-update.ps1 -> $destUpdater"
+            }
+            if (Register-UpdateScheduledTask) {
+                $updateTaskRegistered = $true
+                Write-Ok "Scheduled Task registered: $(Get-UpdateTaskName) (first check in ~3 minutes, then every $UpdateCheckIntervalHours hour(s))"
+            }
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "Install complete." -ForegroundColor Green
 Write-Host "  Install path:      $destLauncher"
@@ -373,4 +538,5 @@ if ($RequiredCompanionScripts.Count -eq 0) {
 }
 Write-Host "  Startup shortcut:  $shortcutPath"
 Write-Host "  Status endpoint:   http://127.0.0.1:$Port/status"
+Write-Host "  Auto-update:       $(if ($NoAutoUpdate) { 'disabled (-NoAutoUpdate)' } elseif ($updateTaskRegistered) { "every $UpdateCheckIntervalHours hour(s) from $UpdateBaseUrl" } else { 'NOT set up -- see warnings above' })"
 Write-Host "  To remove:         run this installer again with -Uninstall"

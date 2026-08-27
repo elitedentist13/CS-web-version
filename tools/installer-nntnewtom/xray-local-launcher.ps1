@@ -50,10 +50,13 @@ if ($EnabledSystems.Count -eq 1 -and $EnabledSystems[0] -match ',') {
 if (-not $Port -or $Port -le 0) {
     $Port = if ($env:XRAY_LAUNCHER_PORT) { [int]$env:XRAY_LAUNCHER_PORT } else { 17890 }
 }
-# If -EnabledSystems was passed as a single comma-separated string (from a bat file),
-# split it into an array. PowerShell command-line parsing doesn't auto-split.
-if ($EnabledSystems.Count -eq 1 -and $EnabledSystems[0] -match ',') {
-    $EnabledSystems = @($EnabledSystems[0] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+# Optional per-PC overrides (SCAN share roots, etc.) — see xray-launcher-config.example-*.ps1
+$configPath = Join-Path $PSScriptRoot "xray-launcher-config.ps1"
+if (Test-Path -LiteralPath $configPath) {
+    try { . $configPath } catch {
+        Write-Warning "Could not load xray-launcher-config.ps1: $($_.Exception.Message)"
+    }
 }
 if (-not $EnabledSystems -or $EnabledSystems.Count -eq 0) {
     if ($env:XRAY_ENABLED_SYSTEMS) {
@@ -257,6 +260,23 @@ function Parse-Query($RawPath) {
     return $out
 }
 
+# Read by /status only -- written by the separate, independently-scheduled
+# xray-bridge-auto-update.ps1 (see tools/xray-bridge-auto-update.ps1), never
+# by this script itself. Deliberately tolerant of the file being missing
+# (auto-update not installed / never run yet) or malformed (mid-write from
+# another process) -- this is a nice-to-have visibility panel, not something
+# that should ever be able to break /status.
+function Get-AutoUpdateStatus {
+    $statePath = Join-Path $PSScriptRoot "xray-bridge-update-state.json"
+    if (-not (Test-Path -LiteralPath $statePath)) { return $null }
+    try {
+        $raw = Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop
+        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+    } catch {
+        return $null
+    }
+}
+
 function Status-Payload {
     # Only reports on systems this instance actually serves (see
     # -EnabledSystems / Test-SystemEnabled above) -- an EzDent-i-only
@@ -272,6 +292,8 @@ function Status-Payload {
     }
     $payload["systems"] = $systemsOut
     $payload["enabled_systems"] = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { @($EnabledSystems) } else { @($Systems.Keys) }
+    $autoUpdate = Get-AutoUpdateStatus
+    if ($null -ne $autoUpdate) { $payload["auto_update"] = $autoUpdate }
     return $payload
 }
 

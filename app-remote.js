@@ -27,6 +27,10 @@
     var pendingTimeoutTimer = null;
     var deviceRefreshTimer = null;
     var knownReceivedFileIds = {};
+    var hasReceivedFirstFrame = false;
+    var frameLoadFailures = 0;
+    var inputFailureStreak = 0;
+    var sentFileSeq = 0;
 
     function tr(key) { return appTr(key); }
 
@@ -105,9 +109,30 @@
                 clearPendingTimeout();
                 pendingTimeoutTimer = setTimeout(function () {
                     if (activeSessionId) return; // already accepted
-                    setConnectStatus(tr('remote.noResponse'), 'denied');
-                    SB.from('remote_sessions').update({ status: 'ended', updated_at: new Date().toISOString() }).eq('id', session.id).then(function () {});
-                    teardownSessionChannel();
+                    // Re-check the real status instead of assuming it's still
+                    // pending -- the realtime subscription can miss an event
+                    // (dropped connection, tab backgrounded, etc.), and
+                    // blindly stomping status='ended' here would erase a
+                    // genuine accept/deny that actually happened on the host.
+                    SB.from('remote_sessions').select('status').eq('id', session.id).then(function (statusRes) {
+                        var row = (statusRes.data && statusRes.data.length) ? statusRes.data[0] : null;
+                        var status = row ? row.status : null;
+                        if (status === 'accepted') {
+                            startViewer(session.id, targetId);
+                            return;
+                        }
+                        if (status === 'denied') {
+                            setConnectStatus(tr('remote.denied'), 'denied');
+                            teardownSessionChannel();
+                            return;
+                        }
+                        setConnectStatus(tr('remote.noResponse'), 'denied');
+                        // Guarded by status=pending so this can never clobber
+                        // a real accept/deny that lands between the SELECT
+                        // above and this UPDATE.
+                        SB.from('remote_sessions').update({ status: 'ended', updated_at: new Date().toISOString() }).eq('id', session.id).eq('status', 'pending').then(function () {});
+                        teardownSessionChannel();
+                    });
                 }, PENDING_TIMEOUT_MS);
             })
             .catch(function () {
@@ -167,6 +192,18 @@
         knownReceivedFileIds = {};
         var filesBox = g('rbReceivedFiles');
         if (filesBox) filesBox.innerHTML = '';
+        var sentBox = g('rbSentFiles');
+        if (sentBox) sentBox.innerHTML = '';
+        var receivedTitle = g('rbReceivedFilesTitle');
+        if (receivedTitle) receivedTitle.classList.add('rb-hidden');
+        var sentTitle = g('rbSentFilesTitle');
+        if (sentTitle) sentTitle.classList.add('rb-hidden');
+
+        hasReceivedFirstFrame = false;
+        frameLoadFailures = 0;
+        inputFailureStreak = 0;
+        var wrap = g('rbScreenWrap');
+        if (wrap) wrap.classList.add('rb-connecting');
 
         refreshFrame();
         if (frameTimer) clearInterval(frameTimer);
@@ -185,12 +222,58 @@
         img.src = base + '?t=' + Date.now();
     }
 
+    // Bound once at module init (the <img>/<wrap> elements exist in the DOM
+    // even while the section is hidden) -- tracks whether a frame has ever
+    // actually rendered, so the "connecting…" placeholder only disappears
+    // once there is real content to click on, and reappears if the stream
+    // stalls for a while (host agent crashed, network drop, etc.).
+    function bindScreenImageHandlers() {
+        var img = g('rbScreenImg');
+        var wrap = g('rbScreenWrap');
+        if (!img || !wrap) return;
+        img.addEventListener('load', function () {
+            hasReceivedFirstFrame = true;
+            frameLoadFailures = 0;
+            wrap.classList.remove('rb-connecting');
+        });
+        img.addEventListener('error', function () {
+            if (!activeSessionId) return;
+            frameLoadFailures++;
+            // A handful of misses is normal right after "accepted" (agent
+            // needs a moment to grab+upload its first frame); only flip
+            // back to the placeholder once a previously-working stream has
+            // clearly stalled, not on every single missed poll.
+            if (!hasReceivedFirstFrame || frameLoadFailures >= 6) {
+                wrap.classList.add('rb-connecting');
+            }
+        });
+    }
+
+    function toggleFullscreen() {
+        var wrap = g('rbScreenWrap');
+        if (!wrap) return;
+        var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+        if (fsEl) {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            return;
+        }
+        var req = wrap.requestFullscreen || wrap.webkitRequestFullscreen;
+        if (req) {
+            Promise.resolve(req.call(wrap)).catch(function () {}).then(function () { wrap.focus(); });
+        }
+    }
+
     function stopViewer(message) {
         if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
         teardownSessionChannel();
         activeSessionId = null;
         var panel = g('rbViewerPanel');
         if (panel) panel.style.display = 'none';
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        }
         if (message) setConnectStatus(message, 'ended');
     }
 
@@ -207,7 +290,29 @@
     function sendInputEvent(evt) {
         if (!activeSessionId) return;
         evt.session_id = activeSessionId;
-        SB.from('remote_input_events').insert([evt]).then(function () {}).catch(function () {});
+        SB.from('remote_input_events').insert([evt])
+            .then(function (r) {
+                if (r && r.error) { onInputEventFailed(); return; }
+                if (inputFailureStreak > 0) {
+                    inputFailureStreak = 0;
+                    var label = g('rbViewerSessionLabel');
+                    var target = g('rbTargetDeviceId');
+                    if (label) label.textContent = tr('remote.connectedTo') + (target ? ' ' + target.value : '');
+                }
+            })
+            .catch(onInputEventFailed);
+    }
+
+    function onInputEventFailed() {
+        inputFailureStreak++;
+        // Every mouse move is its own insert, so a real outage produces a
+        // fast burst of failures -- wait for a short streak before
+        // bothering the user, so one dropped request isn't reported as an
+        // outage.
+        if (inputFailureStreak === 5) {
+            var label = g('rbViewerSessionLabel');
+            if (label) label.textContent = tr('remote.inputError');
+        }
     }
 
     function fractionFromMouseEvent(e, imgEl) {
@@ -280,19 +385,65 @@
     }
 
     // ── File sharing ─────────────────────────────────────────────
+    // Direction "to_host": browser -> agent. The agent (see
+    // Save-IncomingFile in banana-remote-agent.ps1) drops these straight
+    // into the logged-in host user's Downloads folder, so nothing extra to
+    // pick/confirm on that end -- it just shows up where anyone expects a
+    // downloaded file to be.
+    // Direction "to_viewer" (see addReceivedFileChip): agent -> browser.
+    // These land in the *browser's* own default download location (also
+    // Downloads, for essentially every user/browser) because the link
+    // below uses the standard `download` attribute -- the browser handles
+    // that itself, no code needed here.
     function sendFile(file) {
         if (!activeSessionId || !file) return;
         var safeName = file.name.replace(/[^\w.\-]+/g, '_');
         var path = activeSessionId + '/to_host/' + Date.now() + '_' + safeName;
+        var chipId = 'rb-sent-' + (++sentFileSeq);
+        var sentTitle = g('rbSentFilesTitle');
+        if (sentTitle) sentTitle.classList.remove('rb-hidden');
+        addSentFileChip(chipId, file.name, tr('remote.fileSending'), 'pending');
+
         SB.storage.from(FILES_BUCKET).upload(path, file, { cacheControl: '3600', upsert: false })
             .then(function (r) {
-                if (r.error) { alert(tr('remote.fileUploadFailed')); return; }
-                return SB.from('remote_files').insert([{
+                if (r.error) {
+                    updateSentFileChip(chipId, tr('remote.fileUploadFailed'), 'failed');
+                    return;
+                }
+                SB.from('remote_files').insert([{
                     session_id: activeSessionId, direction: 'to_host',
                     file_name: file.name, storage_path: path, file_size: file.size, delivered: false
-                }]);
+                }]).then(function (r2) {
+                    if (r2 && r2.error) {
+                        // Bytes made it to storage but the host will never
+                        // learn about them (no row to poll) -- treat this
+                        // the same as a full failure rather than pretending
+                        // it worked.
+                        updateSentFileChip(chipId, tr('remote.fileUploadFailed'), 'failed');
+                        return;
+                    }
+                    updateSentFileChip(chipId, tr('remote.fileSent'), 'sent');
+                }).catch(function () { updateSentFileChip(chipId, tr('remote.fileUploadFailed'), 'failed'); });
             })
-            .catch(function () { alert(tr('remote.fileUploadFailed')); });
+            .catch(function () { updateSentFileChip(chipId, tr('remote.fileUploadFailed'), 'failed'); });
+    }
+
+    function addSentFileChip(id, name, statusText, statusClass) {
+        var box = g('rbSentFiles');
+        if (!box) return;
+        var chip = document.createElement('div');
+        chip.id = id;
+        chip.className = 'rb-file-chip' + (statusClass === 'pending' ? ' rb-file-chip-pending' : '');
+        chip.innerHTML = '📤 <span>' + esc(name) + '</span> — <span class="rb-file-chip-status">' + esc(statusText) + '</span>';
+        box.appendChild(chip);
+    }
+
+    function updateSentFileChip(id, statusText, statusClass) {
+        var chip = document.getElementById(id);
+        if (!chip) return;
+        chip.className = 'rb-file-chip' + (statusClass === 'failed' ? ' rb-file-chip-failed' : '');
+        var statusEl = chip.querySelector('.rb-file-chip-status');
+        if (statusEl) statusEl.textContent = statusText;
     }
 
     function addReceivedFileChip(fileRow) {
@@ -300,6 +451,8 @@
         knownReceivedFileIds[fileRow.id] = true;
         var box = g('rbReceivedFiles');
         if (!box) return;
+        var receivedTitle = g('rbReceivedFilesTitle');
+        if (receivedTitle) receivedTitle.classList.remove('rb-hidden');
         var urlRes = SB.storage.from(FILES_BUCKET).getPublicUrl(fileRow.storage_path);
         var url = (urlRes && urlRes.data) ? urlRes.data.publicUrl : '#';
         var chip = document.createElement('div');
@@ -356,6 +509,11 @@
                 fileInput.value = '';
             });
         }
+
+        var fullscreenBtn = g('rbFullscreenBtn');
+        if (fullscreenBtn) fullscreenBtn.addEventListener('click', toggleFullscreen);
+
+        bindScreenImageHandlers();
     }
 
     if (document.readyState === 'loading') {

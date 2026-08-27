@@ -7270,13 +7270,18 @@
       <span class="rb-session-label" id="rbViewerSessionLabel"></span>
       <button type="button" class="ct-btn" id="rbSendFileBtn" data-i18n="remote.sendFile"></button>
       <input type="file" id="rbFileInput" style="display:none;" />
+      <button type="button" class="ct-btn" id="rbFullscreenBtn" data-i18n="remote.fullscreen"></button>
       <button type="button" class="ct-btn" id="rbEndSessionBtn" data-i18n="remote.endSession"></button>
     </div>
-    <div class="rb-viewer-screen-wrap" id="rbScreenWrap" tabindex="0">
+    <div class="rb-viewer-screen-wrap rb-connecting" id="rbScreenWrap" tabindex="0">
       <img id="rbScreenImg" draggable="false" alt="" />
+      <div class="rb-connecting-overlay" id="rbConnectingOverlay" data-i18n="remote.connectingFrame"></div>
     </div>
     <p class="rb-viewer-hint" data-i18n="remote.viewerHint"></p>
+    <div class="rb-file-list-title rb-hidden" id="rbReceivedFilesTitle" data-i18n="remote.receivedFilesTitle"></div>
     <div class="rb-received-files" id="rbReceivedFiles"></div>
+    <div class="rb-file-list-title rb-hidden" id="rbSentFilesTitle" data-i18n="remote.sentFilesTitle"></div>
+    <div class="rb-sent-files" id="rbSentFiles"></div>
   </div>
 </section>
 

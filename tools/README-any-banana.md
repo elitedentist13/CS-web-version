@@ -46,6 +46,32 @@ To remove it from a PC:
 powershell -NoProfile -ExecutionPolicy Bypass -File install-banana-remote.ps1 -Uninstall
 ```
 
+## Full control (mouse, keyboard, editing) and file transfer
+
+Once a session is **accepted**, there is no separate "view only" mode — the
+viewer has the same mouse/keyboard control as someone sitting at the host
+PC, including typing into and editing documents there. Click the screen once
+to focus it (a purple outline appears), then move/click/scroll/type as
+normal. Use the **Maximize** button in the viewer toolbar for a full-screen
+view (browser Fullscreen API — press `Esc` or use the browser's own exit
+control to leave it).
+
+Files travel **both directions** and land wherever people already expect
+downloaded files to be, with no extra folder to hunt for:
+
+- **Viewer → host:** dropped straight into the logged-in host user's own
+  **Downloads** folder (falls back to `C:\BananaRemote\Received` only if
+  Downloads can't be resolved). If a file of the same name already exists
+  there, it's saved as `name (1).ext`, `name (2).ext`, etc. — same
+  convention a browser uses — never silently overwritten.
+- **Host → viewer:** delivered as a normal browser download (the
+  `remote.receivedFilesTitle` list in the viewer), so it goes to whatever
+  folder that browser is already configured to download to (Downloads, for
+  the default setting on every major browser).
+
+The viewer's file panels show live status for every transfer (sending →
+delivered/failed) — nothing disappears silently anymore.
+
 ## Why the Defender exclusion?
 
 Screen capture + mouse/keyboard injection (`SetCursorPos`, `mouse_event`,
@@ -73,11 +99,23 @@ turn off real-time protection anywhere else on the PC.
 - **No auto-update** (unlike the X-ray bridge) — re-run the installer by
   hand after pulling code changes to this agent.
 
+## Diagnosing a misbehaving agent
+
+The agent never crashes silently — every tick of its main loop, and the
+consent popup specifically, are wrapped so errors get written to
+`C:\BananaRemote\agent.log` (device registration, heartbeats, every
+session accepted/denied/ended, skipped input events, and every incoming
+file saved or failed) instead of just killing the process. Check that file
+first whenever something looks stuck.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
 | Any Banana page says "agent not found on this PC" | The agent isn't installed/running here, or something else is using port 17891. This PC can still act as a *viewer* (connect out to other PCs) without the agent — it just can't be connected *to*. |
 | Installer's self-test fails immediately | Almost always the missing Defender exclusion — re-run the installer elevated (click Yes on the UAC prompt). |
-| Connection request never shows a popup on the host | The host's agent isn't running (check `http://127.0.0.1:17891/status` on that PC), or it's mid-session with someone else already. |
+| Connection request never shows a popup on the host | The host's agent isn't running (check `http://127.0.0.1:17891/status` on that PC), or it's mid-session with someone else already. Check `agent.log` for a `Show-ConsentPrompt threw` line. |
 | Screen looks frozen / very laggy | Expected at v1's ~2fps screenshot-polling design — see limitations above, not a bug. |
+| Mouse/keyboard don't seem to do anything | Click directly on the screen image first to focus it (purple outline = focused). If the screen area looks collapsed/blank instead of showing "Waiting for the host's screen…", refresh the page. |
+| Viewer toolbar shows a "control signal not reaching the host" warning | The `remote_input_events` inserts are failing (network drop, Supabase outage) — end and restart the session once connectivity is back. |
+| Sent file's status never leaves "Sending…" / shows "failed" | Check `agent.log` on the host for a `Failed to save incoming file` line, and confirm the host's Downloads folder isn't out of disk space or read-only. |

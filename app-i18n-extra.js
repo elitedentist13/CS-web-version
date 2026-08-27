@@ -6767,6 +6767,41 @@
             en: 'File upload failed. Please try again.',
             'zh-CN': '档案上传失败，请重试。',
             'zh-Hant': '檔案上傳失敗，請重試。'
+        },
+        'remote.fullscreen': {
+            en: 'Maximize',
+            'zh-CN': '全萤幕',
+            'zh-Hant': '全螢幕'
+        },
+        'remote.connectingFrame': {
+            en: 'Waiting for the host\u2019s screen\u2026',
+            'zh-CN': '正在等待对方画面…',
+            'zh-Hant': '正在等待對方畫面…'
+        },
+        'remote.receivedFilesTitle': {
+            en: 'Received from host',
+            'zh-CN': '收到的档案',
+            'zh-Hant': '收到的檔案'
+        },
+        'remote.sentFilesTitle': {
+            en: 'Sent to host',
+            'zh-CN': '已传送的档案',
+            'zh-Hant': '已傳送的檔案'
+        },
+        'remote.fileSending': {
+            en: 'Sending\u2026',
+            'zh-CN': '传送中…',
+            'zh-Hant': '傳送中…'
+        },
+        'remote.fileSent': {
+            en: 'Delivered — saved to the host\u2019s Downloads folder',
+            'zh-CN': '已送达 — 已存至对方的下载资料夹',
+            'zh-Hant': '已送達 — 已存至對方的下載資料夾'
+        },
+        'remote.inputError': {
+            en: '\u26a0\ufe0f Control signal not reaching the host — check connection',
+            'zh-CN': '⚠️ 控制讯号无法送达对方，请检查连线',
+            'zh-Hant': '⚠️ 控制訊號無法送達對方，請檢查連線'
         }
     };
 

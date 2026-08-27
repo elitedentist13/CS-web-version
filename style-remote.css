@@ -97,33 +97,90 @@
 .rb-viewer-screen-wrap {
     position: relative;
     width: 100%;
+    /* Fixed floor size regardless of whether the frame image has loaded yet
+       -- previously this had no height of its own and relied entirely on
+       the <img>'s intrinsic size, so a slow/failed first frame collapsed
+       the whole clickable+focusable area to 0x0px, silently breaking BOTH
+       mouse (nothing to hover/click) and keyboard (nothing to click into
+       for focus) control. aspect-ratio + min-height together keep this
+       area clickable from the very first render, before any frame exists. */
+    aspect-ratio: 16 / 9;
+    min-height: 320px;
+    max-height: 78vh;
     background: #10131f;
     border-radius: 12px;
     overflow: hidden;
     outline: none;
-    line-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .rb-viewer-screen-wrap:focus {
     box-shadow: 0 0 0 3px rgba(99, 102, 241, .5);
 }
 .rb-viewer-screen-wrap img {
     width: 100%;
-    height: auto;
+    height: 100%;
+    /* contain (not stretch/cover) -- the host's real screen resolution is
+       usually a different aspect ratio than this box, so this letterboxes
+       instead of distorting the picture. */
+    object-fit: contain;
     display: block;
     cursor: crosshair;
     user-select: none;
     -webkit-user-drag: none;
 }
+.rb-viewer-screen-wrap.rb-connecting img { opacity: 0; }
+.rb-connecting-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: #cfd3e6;
+    font-size: 14px;
+    text-align: center;
+    padding: 20px;
+    pointer-events: none;
+}
+.rb-viewer-screen-wrap.rb-connecting .rb-connecting-overlay { display: flex; }
+
+/* True Fullscreen API (see app-remote.js's requestFullscreen call) -- grow
+   to fill the whole monitor instead of the fixed 16:9 box above. Escape
+   always exits fullscreen at the browser level and can never reach our
+   own keydown handler while in this state -- a hard browser limitation,
+   not something we can work around, see the in-app hint text. */
+.rb-viewer-screen-wrap:fullscreen,
+.rb-viewer-screen-wrap:-webkit-full-screen {
+    aspect-ratio: unset;
+    max-height: none;
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+}
+
 .rb-viewer-hint {
     padding: 6px 4px 0;
     font-size: 12px;
     color: #8a8f9c;
 }
 
-.rb-received-files {
-    margin-top: 14px;
+.rb-file-list-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #5b6275;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin: 14px 0 6px;
 }
-.rb-received-files:empty { display: none; }
+/* Shown/hidden together with their list by app-remote.js (toggling this
+   class), not by a CSS-only :empty trick -- keeps behavior identical
+   across every browser instead of depending on :has() support. */
+.rb-file-list-title.rb-hidden,
+.rb-received-files:empty,
+.rb-sent-files:empty {
+    display: none;
+}
 .rb-file-chip {
     display: flex;
     align-items: center;
@@ -134,5 +191,7 @@
     margin-bottom: 8px;
     font-size: 13px;
 }
+.rb-file-chip.rb-file-chip-pending { color: #8a6d1a; border-color: #f2e2b5; background: #fff8e6; }
+.rb-file-chip.rb-file-chip-failed { color: #d4453a; border-color: #f5c6c2; background: #fdecec; }
 .rb-file-chip a { color: #6366f1; font-weight: 600; text-decoration: none; }
 .rb-file-chip a:hover { text-decoration: underline; }

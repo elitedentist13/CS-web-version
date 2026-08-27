@@ -29,7 +29,12 @@
 #      Add-Type / user32.dll P-Invoke technique already proven in
 #      xray-local-launcher.ps1's Start-RestoreRayViewerWindow.
 #   5. Either side can drop a file in during the session; this agent picks
-#      up anything queued for it and saves it under -InstallPath\Received.
+#      up anything queued for it and saves it straight into the logged-in
+#      user's normal Downloads folder (falls back to
+#      -InstallPath\Received only if Downloads can't be resolved/created),
+#      so files "just show up" wherever clinic staff already expect
+#      downloaded files to land -- no separate app-specific folder to hunt
+#      for.
 #
 # Known v1 limitations (deliberate, to keep this a "basic simple" tool
 # rather than a from-scratch AnyDesk clone -- see the design discussion
@@ -67,6 +72,21 @@ $SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "    OK: $msg" -ForegroundColor Green }
+
+# Every previous crash of this agent (confirmed live 2026-08-27: an
+# unhandled exception anywhere in the main loop -- screen capture, a
+# Supabase call, the consent prompt, anything -- silently killed the whole
+# process with NO trace anywhere except the heartbeat simply stopping in
+# Supabase) left no way to diagnose what happened after the fact. The main
+# loop below now catches per-tick and logs here instead of dying, so a
+# single bad tick never takes down the whole agent, and there is always
+# something to look at afterwards.
+function Write-AgentLog([string]$Message) {
+    try {
+        $line = "[{0}] {1}" -f (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"), $Message
+        Add-Content -LiteralPath (Join-Path $InstallPath "agent.log") -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch {}
+}
 
 # ════════════════════════════════════════════════════════════════
 # Pure helpers (covered by -SelfTest, no network/OS side effects)
@@ -120,6 +140,26 @@ $script:VirtualKeyMap = @{
 function Get-VirtualKeyCode([string]$KeyName) {
     if ($script:VirtualKeyMap.ContainsKey($KeyName)) { return $script:VirtualKeyMap[$KeyName] }
     return $null
+}
+
+# Windows has no classic CSIDL / [Environment]::GetFolderPath entry for
+# "Downloads" (unlike Desktop/Documents/etc.), so the documented way to
+# find it is this per-user registry value (Known Folder GUID for
+# Downloads). Falls back to the conventional %USERPROFILE%\Downloads path
+# -- correct on the overwhelming majority of PCs -- if that key is ever
+# missing, and to -InstallPath\Received as a last resort so file transfer
+# never simply fails outright.
+function Get-DownloadsFolder {
+    try {
+        $key = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+        $val = (Get-ItemProperty -Path $key -Name '{374DE290-123F-4565-9164-39C4925E467B}' -ErrorAction Stop).'{374DE290-123F-4565-9164-39C4925E467B}'
+        if ($val) {
+            $expanded = [Environment]::ExpandEnvironmentVariables($val)
+            if ($expanded) { return $expanded }
+        }
+    } catch {}
+    if ($env:USERPROFILE) { return (Join-Path $env:USERPROFILE "Downloads") }
+    return (Join-Path $InstallPath "Received")
 }
 
 # ════════════════════════════════════════════════════════════════
@@ -278,7 +318,17 @@ using System;
 using System.Runtime.InteropServices;
 public class BananaRemoteInput {
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+    // dwData is declared int, not uint, even though the real Win32 signature
+    // says DWORD -- for MOUSEEVENTF_WHEEL this value is a SIGNED wheel delta
+    // (negative = scroll down) reinterpreted as a bit pattern, and PowerShell's
+    // [uint32] cast is a *checked* conversion that throws on any negative
+    // input (confirmed live 2026-08-27: every single wheel-scroll event threw
+    // "value was either too large or too small for a UInt32", which -- before
+    // per-event try/catch was added below -- silently wedged the ENTIRE input
+    // queue forever the moment anyone touched their scroll wheel, since the
+    // poisoned event's id never advanced past it). Marshaling as int carries
+    // the exact same 4 bytes across the P/Invoke boundary with no such check.
+    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, UIntPtr dwExtraInfo);
     [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
 
@@ -348,7 +398,7 @@ function Invoke-RemoteInputEvent($Event) {
         }
         "wheel" {
             $delta = [int]([double]$Event.delta)
-            [BananaRemoteInput]::mouse_event([uint32]$script:MouseFlags.wheel, 0, 0, [uint32][int](-1 * $delta), [UIntPtr]::Zero)
+            [BananaRemoteInput]::mouse_event([uint32]$script:MouseFlags.wheel, 0, 0, [int](-1 * $delta), [UIntPtr]::Zero)
         }
         "keydown" {
             $vk = Get-VirtualKeyCode $Event.key
@@ -379,6 +429,34 @@ function Remove-InputEvents([string]$SessionId, [long]$MaxId) {
     Invoke-SupabaseRest 'Delete' "remote_input_events?session_id=eq.$SessionId&id=lte.$MaxId" $null @{ Prefer = "return=minimal" } | Out-Null
 }
 
+# Live-trial finding (2026-08-27): fetching+applying input, uploading a
+# screen frame, and checking for files are all separate real network round
+# trips to Supabase -- over an actual internet connection (not localhost)
+# each one can take a few hundred ms, so doing them serially made a single
+# mouse move/keypress measurably lag by more than one whole tick even
+# though the coordinate math itself was pixel-exact. Pulled into its own
+# function so the main loop (below) can call it BOTH before and after the
+# comparatively slow screen-frame upload each tick -- mouse/keyboard stay
+# responsive even while a frame is mid-upload, at zero extra Start-Sleep
+# cost.
+function Invoke-PendingInputEvents([string]$SessionId) {
+    $events = Get-NewInputEvents $SessionId $script:lastEventId
+    if ($events.Count -eq 0) { return }
+    $injectFailures = 0
+    foreach ($ev in $events) {
+        try {
+            Invoke-RemoteInputEvent $ev
+        } catch {
+            $injectFailures++
+        }
+        if ([long]$ev.id -gt $script:lastEventId) { $script:lastEventId = [long]$ev.id }
+    }
+    if ($injectFailures -gt 0) {
+        Write-AgentLog "Skipped $injectFailures of $($events.Count) input event(s) this tick (injection error)."
+    }
+    Remove-InputEvents $SessionId $script:lastEventId
+}
+
 # ════════════════════════════════════════════════════════════════
 # File transfer (incoming, viewer -> this host)
 # ════════════════════════════════════════════════════════════════
@@ -389,17 +467,39 @@ function Get-IncomingFiles([string]$SessionId) {
 }
 
 function Save-IncomingFile($FileRow) {
-    $destDir = Join-Path $InstallPath "Received"
-    if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+    $destDir = Get-DownloadsFolder
+    if (-not (Test-Path -LiteralPath $destDir)) {
+        try {
+            New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
+        } catch {
+            $destDir = Join-Path $InstallPath "Received"
+            New-Item -ItemType Directory -Path $destDir -Force -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
     $safeName = [IO.Path]::GetFileName($FileRow.file_name)
     $destPath = Join-Path $destDir $safeName
+    # Never silently overwrite an existing file of the same name -- very
+    # plausible now that everything lands in the same shared Downloads
+    # folder. Numbers it instead, the same convention browsers themselves
+    # use for repeat downloads.
+    if (Test-Path -LiteralPath $destPath) {
+        $base = [IO.Path]::GetFileNameWithoutExtension($safeName)
+        $ext = [IO.Path]::GetExtension($safeName)
+        $n = 1
+        do {
+            $destPath = Join-Path $destDir ("{0} ({1}){2}" -f $base, $n, $ext)
+            $n++
+        } while (Test-Path -LiteralPath $destPath)
+    }
     $url = "$SUPABASE_URL/storage/v1/object/public/remote-files/$($FileRow.storage_path)"
     try {
         Invoke-WebRequest -Uri $url -OutFile $destPath -UseBasicParsing -TimeoutSec 30 -ErrorAction Stop
         $body = @{ delivered = $true } | ConvertTo-Json
         Invoke-SupabaseRest 'Patch' "remote_files?id=eq.$($FileRow.id)" $body @{ Prefer = "return=minimal" } | Out-Null
+        Write-AgentLog "Saved incoming file '$safeName' -> $destPath"
         return $true
     } catch {
+        Write-AgentLog "Failed to save incoming file '$safeName': $($_.Exception.Message)"
         return $false
     }
 }
@@ -484,6 +584,11 @@ function Invoke-SelfTest {
     Assert-Equal "Unknown key returns null" $true ($null -eq (Get-VirtualKeyCode "SomeUnknownKey"))
     Assert-Equal "Printable char is not in the VK map" $true ($null -eq (Get-VirtualKeyCode "a"))
 
+    Write-Host "== Get-DownloadsFolder (incoming files land somewhere real) ==" -ForegroundColor Cyan
+    $downloads = Get-DownloadsFolder
+    Assert-Equal "Returns a non-empty path" $true (-not [string]::IsNullOrWhiteSpace($downloads))
+    Assert-Equal "Path name ends with Downloads or Received" $true ($downloads -match '(Downloads|Received)$')
+
     Write-Host "== Handle-LocalRequest (routing only, no real device/session state) ==" -ForegroundColor Cyan
     $statusResp = Handle-LocalRequest "GET" "/status" "123456" $false
     Assert-Equal "/status returns 200"        200    $statusResp.status
@@ -534,66 +639,104 @@ Write-Host "Leave this window open (or let it run minimized) to allow incoming c
 
 $lastHeartbeat = [DateTime]::MinValue
 $lastEventId = 0
+$lastFileCheck = [DateTime]::MinValue
 $activeSessionId = $null
+Write-AgentLog "Agent started (device $deviceId, port $Port)."
 
 while ($true) {
-    if ($listener.Pending()) {
-        $client = $listener.AcceptTcpClient()
-        try {
-            $stream = $client.GetStream()
-            $buffer = New-Object byte[] 4096
-            $read = $stream.Read($buffer, 0, $buffer.Length)
-            $request = [Text.Encoding]::ASCII.GetString($buffer, 0, $read)
-            $firstLine = ($request -split "`r?`n")[0]
-            $parts = $firstLine -split " "
-            $method = if ($parts.Count -gt 0) { $parts[0] } else { "" }
-            $path = if ($parts.Count -gt 1) { $parts[1] } else { "/" }
-            $resp = Handle-LocalRequest $method $path $deviceId ($null -ne $activeSessionId)
-            Send-Json $client $resp.status $resp.body
-        } catch {
-        } finally {
-            $client.Close()
-        }
-    }
-
-    $now = Get-Date
-    if (($now - $lastHeartbeat).TotalSeconds -ge 15) {
-        Send-Heartbeat $deviceId
-        $lastHeartbeat = $now
-    }
-
-    if (-not $activeSessionId) {
-        $pending = Get-PendingSession $deviceId
-        if ($pending) {
-            $allowed = Show-ConsentPrompt $pending.viewer_label
-            if ($allowed) {
-                Set-SessionStatus $pending.id "accepted"
-                $activeSessionId = $pending.id
-                $lastEventId = 0
-            } else {
-                Set-SessionStatus $pending.id "denied"
+    # Everything in this tick is wrapped so ONE bad iteration (a flaky
+    # Supabase call, a screen-capture hiccup, whatever) gets logged and
+    # skipped instead of silently killing the whole agent -- see
+    # Write-AgentLog's comment above for why this matters.
+    try {
+        if ($listener.Pending()) {
+            $client = $listener.AcceptTcpClient()
+            try {
+                $stream = $client.GetStream()
+                $buffer = New-Object byte[] 4096
+                $read = $stream.Read($buffer, 0, $buffer.Length)
+                $request = [Text.Encoding]::ASCII.GetString($buffer, 0, $read)
+                $firstLine = ($request -split "`r?`n")[0]
+                $parts = $firstLine -split " "
+                $method = if ($parts.Count -gt 0) { $parts[0] } else { "" }
+                $path = if ($parts.Count -gt 1) { $parts[1] } else { "/" }
+                $resp = Handle-LocalRequest $method $path $deviceId ($null -ne $activeSessionId)
+                Send-Json $client $resp.status $resp.body
+            } catch {
+            } finally {
+                $client.Close()
             }
         }
-    } else {
-        $sessionRow = Get-SessionById $activeSessionId
-        if (-not $sessionRow -or $sessionRow.status -ne "accepted") {
-            $activeSessionId = $null
-        } else {
-            $jpeg = Get-ScreenJpegBytes
-            if ($jpeg) { Send-ScreenFrame $activeSessionId $jpeg | Out-Null }
 
-            $events = Get-NewInputEvents $activeSessionId $lastEventId
-            if ($events.Count -gt 0) {
-                foreach ($ev in $events) {
-                    Invoke-RemoteInputEvent $ev
-                    if ([long]$ev.id -gt $lastEventId) { $lastEventId = [long]$ev.id }
+        $now = Get-Date
+        if (($now - $lastHeartbeat).TotalSeconds -ge 15) {
+            Send-Heartbeat $deviceId
+            $lastHeartbeat = $now
+        }
+
+        if (-not $activeSessionId) {
+            $pending = Get-PendingSession $deviceId
+            if ($pending) {
+                Write-AgentLog "Pending session $($pending.id) from '$($pending.viewer_label)' -- showing consent prompt."
+                # Isolated from the outer try/catch on purpose: if the consent
+                # UI itself is what's misbehaving (no interactive desktop,
+                # blocked window station, whatever), default to DENY rather
+                # than leaving the session stuck in limbo until the viewer's
+                # own client-side timeout eventually gives up.
+                $allowed = $false
+                try {
+                    $allowed = Show-ConsentPrompt $pending.viewer_label
+                } catch {
+                    Write-AgentLog "Show-ConsentPrompt threw: $($_.Exception.GetType().FullName) - $($_.Exception.Message) -- defaulting to deny."
+                    $allowed = $false
                 }
-                Remove-InputEvents $activeSessionId $lastEventId
+                if ($allowed) {
+                    Set-SessionStatus $pending.id "accepted"
+                    $activeSessionId = $pending.id
+                    $lastEventId = 0
+                    Write-AgentLog "Session $($pending.id) accepted."
+                } else {
+                    Set-SessionStatus $pending.id "denied"
+                    Write-AgentLog "Session $($pending.id) denied."
+                }
             }
+        } else {
+            $sessionRow = Get-SessionById $activeSessionId
+            if (-not $sessionRow -or $sessionRow.status -ne "accepted") {
+                Write-AgentLog "Session $activeSessionId ended (status: $(if ($sessionRow) { $sessionRow.status } else { 'not found' }))."
+                $activeSessionId = $null
+            } else {
+                # Input FIRST: applying a queued mouse/keyboard event is what
+                # "feels laggy" if delayed, whereas the screen frame below is
+                # already expected to be a few hundred ms stale (screenshot
+                # polling, not video) -- so control latency should never be
+                # made to wait behind screen-upload latency.
+                Invoke-PendingInputEvents $activeSessionId
 
-            $incomingFiles = Get-IncomingFiles $activeSessionId
-            foreach ($f in $incomingFiles) { Save-IncomingFile $f | Out-Null }
+                $jpeg = Get-ScreenJpegBytes
+                if ($jpeg) { Send-ScreenFrame $activeSessionId $jpeg | Out-Null }
+
+                # Check again right after the upload (the slowest single
+                # network call in this tick) so anything the viewer sent
+                # while it was in flight still lands in THIS tick instead of
+                # waiting for a whole extra Start-Sleep cycle -- doubles
+                # input responsiveness at no extra network cost when the
+                # queue is already empty (Get-NewInputEvents returning zero
+                # rows is cheap).
+                Invoke-PendingInputEvents $activeSessionId
+
+                # Files matter far less for "does this feel responsive" than
+                # mouse/keyboard do, so this REST round trip is throttled
+                # rather than paid on every single tick.
+                if (($now - $lastFileCheck).TotalSeconds -ge 2) {
+                    $incomingFiles = Get-IncomingFiles $activeSessionId
+                    foreach ($f in $incomingFiles) { Save-IncomingFile $f | Out-Null }
+                    $lastFileCheck = $now
+                }
+            }
         }
+    } catch {
+        Write-AgentLog "Main loop error (tick skipped, agent keeps running): $($_.Exception.GetType().FullName) - $($_.Exception.Message)"
     }
 
     Start-Sleep -Milliseconds $PollIntervalMs

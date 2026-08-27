@@ -657,6 +657,10 @@ $lastHeartbeat = [DateTime]::MinValue
 $lastEventId = 0
 $lastFileCheck = [DateTime]::MinValue
 $activeSessionId = $null
+# Viewer heartbeats land every ~8s (app-remote.js's HEARTBEAT_MS) -- 30s
+# gives 3+ missed heartbeats' worth of margin before assuming the viewer
+# is really gone, rather than just hitting one slow/dropped network tick.
+$SessionStaleSeconds = 30
 Write-AgentLog "Agent started (device $deviceId, port $Port)."
 
 while ($true) {
@@ -718,8 +722,32 @@ while ($true) {
             }
         } else {
             $sessionRow = Get-SessionById $activeSessionId
-            if (-not $sessionRow -or $sessionRow.status -ne "accepted") {
-                Write-AgentLog "Session $activeSessionId ended (status: $(if ($sessionRow) { $sessionRow.status } else { 'not found' }))."
+            # A viewer that just closes its tab / loses network / has its
+            # laptop die never gets to click "End Session", so status stays
+            # "accepted" forever unless something else notices -- confirmed
+            # live 2026-08-28: this left the agent refusing to even look
+            # for a NEW pending connection (see the `if (-not
+            # $activeSessionId)` branch above) indefinitely after exactly
+            # that happened. The viewer sends an `updated_at` heartbeat
+            # every few seconds while genuinely connected (app-remote.js);
+            # if that stops moving for too long, treat the session as dead
+            # regardless of what its status column still says.
+            $isStale = $false
+            if ($sessionRow -and $sessionRow.status -eq "accepted" -and $sessionRow.updated_at) {
+                try {
+                    $lastSeen = [DateTime]::Parse($sessionRow.updated_at, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                    if (((Get-Date).ToUniversalTime() - $lastSeen.ToUniversalTime()).TotalSeconds -gt $SessionStaleSeconds) {
+                        $isStale = $true
+                    }
+                } catch {}
+            }
+            if (-not $sessionRow -or $sessionRow.status -ne "accepted" -or $isStale) {
+                if ($isStale) {
+                    Write-AgentLog "Session $activeSessionId went stale (no viewer heartbeat for over ${SessionStaleSeconds}s) -- ending it."
+                    Set-SessionStatus $activeSessionId "ended"
+                } else {
+                    Write-AgentLog "Session $activeSessionId ended (status: $(if ($sessionRow) { $sessionRow.status } else { 'not found' }))."
+                }
                 $activeSessionId = $null
             } else {
                 # Input FIRST: applying a queued mouse/keyboard event is what

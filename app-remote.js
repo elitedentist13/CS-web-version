@@ -18,12 +18,17 @@
     var FILES_BUCKET = 'remote-files';
     var FRAME_REFRESH_MS = 350;
     var PENDING_TIMEOUT_MS = 120000;
+    // Must stay well under the host agent's own staleness timeout
+    // (banana-remote-agent.ps1's $SessionStaleSeconds, currently 30s) so a
+    // healthy connection never trips it -- 2-3 heartbeats' worth of margin.
+    var HEARTBEAT_MS = 8000;
 
     var myDeviceId = null;
     var myDeviceName = null;
     var activeSessionId = null;
     var sessionChannel = null;
     var frameTimer = null;
+    var heartbeatTimer = null;
     var pendingTimeoutTimer = null;
     var deviceRefreshTimer = null;
     var knownReceivedFileIds = {};
@@ -209,6 +214,22 @@
         if (frameTimer) clearInterval(frameTimer);
         frameTimer = setInterval(refreshFrame, FRAME_REFRESH_MS);
 
+        // The host only knows a session is still "live" (as opposed to
+        // abandoned by a viewer who just closed the tab / lost network /
+        // had their laptop die) by watching this row's updated_at move --
+        // without this, a session that never gets a clean "End Session"
+        // click sits marked "accepted" forever, and the host's main loop
+        // refuses to even check for NEW pending connections while it
+        // thinks one is already active (confirmed live 2026-08-28: this is
+        // exactly what made a second connection attempt's consent prompt
+        // never show up at all).
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(function () {
+            if (!activeSessionId) return;
+            SB.from('remote_sessions').update({ updated_at: new Date().toISOString() }).eq('id', activeSessionId)
+                .then(function () {}).catch(function () {});
+        }, HEARTBEAT_MS);
+
         bindViewerInputHandlers();
     }
 
@@ -266,6 +287,7 @@
 
     function stopViewer(message) {
         if (frameTimer) { clearInterval(frameTimer); frameTimer = null; }
+        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
         teardownSessionChannel();
         activeSessionId = null;
         var panel = g('rbViewerPanel');
@@ -514,6 +536,33 @@
         if (fullscreenBtn) fullscreenBtn.addEventListener('click', toggleFullscreen);
 
         bindScreenImageHandlers();
+
+        // Best-effort immediate cleanup if the viewer just closes/refreshes
+        // the tab instead of clicking "End Session" -- fetch(keepalive)
+        // is the modern replacement for the old sync-XHR-in-unload hack
+        // and (unlike a normal SB.from().update() promise) actually has a
+        // chance of completing after the page starts tearing down. Not
+        // guaranteed (browser crash, killed process, lost network all skip
+        // this) -- that's what the host-side staleness timeout in
+        // banana-remote-agent.ps1 is the real safety net for.
+        window.addEventListener('pagehide', sendEndSessionBeacon);
+        window.addEventListener('beforeunload', sendEndSessionBeacon);
+    }
+
+    function sendEndSessionBeacon() {
+        if (!activeSessionId) return;
+        try {
+            fetch('https://kprihawipljrltfzpfjd.supabase.co/rest/v1/remote_sessions?id=eq.' + encodeURIComponent(activeSessionId), {
+                method: 'PATCH',
+                keepalive: true,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwcmloYXdpcGxqcmx0ZnpwZmpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NzUyMzAsImV4cCI6MjA5MjM1MTIzMH0.fHbfVQOmIMOTbjBTG6iy2yrgmo-iZXEe-wNLlAlVtM4',
+                    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwcmloYXdpcGxqcmx0ZnpwZmpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NzUyMzAsImV4cCI6MjA5MjM1MTIzMH0.fHbfVQOmIMOTbjBTG6iy2yrgmo-iZXEe-wNLlAlVtM4'
+                },
+                body: JSON.stringify({ status: 'ended', updated_at: new Date().toISOString() })
+            });
+        } catch (e) {}
     }
 
     if (document.readyState === 'loading') {

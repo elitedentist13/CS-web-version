@@ -5476,6 +5476,11 @@
             'zh-CN': '从该患者的 Clinic Solution SCAN 文件夹读取，不会上传到 Banana。点击缩略图放大。',
             'zh-Hant': '從該病人的 clinic solution SCAN 資料夾讀取，不會上傳到 Banana。按縮圖放大'
         },
+        'media.local.nntScansBridgeBlocked': {
+            en: 'Cannot load SCAN folder photos from the browser. Press Ctrl+F5, allow Chrome local network access, and run fix-xray-bridge.bat (bridge port 17891).',
+            'zh-CN': '无法从浏览器加载 SCAN 文件夹照片。请按 Ctrl+F5，在 Chrome 中允许本机网络访问，并运行 fix-xray-bridge.bat（桥接端口 17891）。',
+            'zh-Hant': '無法從瀏覽器載入 SCAN 資料夾相片。請按 Ctrl+F5，在 Chrome 中允許本機網路存取，並執行 fix-xray-bridge.bat（橋接埠 17891）。'
+        },
         'media.local.nntScansCount': {
             en: '{N} image(s)',
             'zh-CN': '{N} 张影像',
@@ -5577,9 +5582,9 @@
             'zh-Hant': '正在開啟 {SHORTCUT}…（可隨時切回 Banana）'
         },
         'media.local.launcherNotRunning': {
-            en: '✗ Browser cannot see the local launcher.\n\n1. Double-click start-banana-xray-mcp.bat (starts bridge + web app)\n   OR run tools\\Start X-Ray Launcher.bat (keep window open)\n2. Open ONLY http://127.0.0.1:5500/index.html (not file:// or GitHub Pages)\n3. Hard refresh Ctrl+F5\n4. Test http://127.0.0.1:17890/status — should show {"ok":true}',
-            'zh-CN': '✗ 浏览器看不到本机启动器。\n\n1. 双击 start-banana-xray-mcp.bat（同时启动桥接 + 网页）\n   或运行 tools\\Start X-Ray Launcher.bat（保持窗口打开）\n2. 仅使用 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）\n3. 强制刷新 Ctrl+F5\n4. 测试 http://127.0.0.1:17890/status — 应显示 {"ok":true}',
-            'zh-Hant': '✗ 瀏覽器看不到本機啟動器。\n\n1. 按兩下 start-banana-xray-mcp.bat（同時啟動橋接 + 網頁）\n   或執行 tools\\Start X-Ray Launcher.bat（保持視窗開啟）\n2. 僅使用 http://127.0.0.1:5500/index.html（不要用 file:// 或 GitHub Pages）\n3. 強制重新整理 Ctrl+F5\n4. 測試 http://127.0.0.1:17890/status — 應顯示 {"ok":true}'
+            en: '✗ Browser cannot see the local launcher.\n\n1. Double-click fix-xray-bridge.bat (keep window open)\n2. Open ONLY http://127.0.0.1:5500/index.html (not file://)\n3. Hard refresh Ctrl+F5\n4. Test http://127.0.0.1:17891/status — must show trophy_exists:true',
+            'zh-CN': '✗ 浏览器看不到本机启动器。\n\n1. 双击 fix-xray-bridge.bat（保持窗口打开）\n2. 仅使用 http://127.0.0.1:5500/index.html（不要用 file://）\n3. 强制刷新 Ctrl+F5\n4. 测试 http://127.0.0.1:17891/status — 必须显示 trophy_exists:true',
+            'zh-Hant': '✗ 瀏覽器看不到本機啟動器。\n\n1. 按兩下 fix-xray-bridge.bat（保持視窗開啟）\n2. 僅使用 http://127.0.0.1:5500/index.html（不要用 file://）\n3. 強制重新整理 Ctrl+F5\n4. 測試 http://127.0.0.1:17891/status — 必須顯示 trophy_exists:true'
         },
         'media.local.launcherFetchBlocked': {
             en: '✗ Browser cannot reach the local launcher (it may still be running).\n\n1. Hard-refresh this page: Ctrl+F5\n2. In Chrome, click Allow when asked for "local network access"\n3. Test in a new tab: http://127.0.0.1:17890/status — should show {"ok":true}\n4. Keep Start X-Ray Launcher.bat open, then click Trophy again',
@@ -5637,9 +5642,9 @@
             'zh-Hant': '正在啟動 Trophy (TW.exe)，已帶上該病人的 CS SCAN 資料夾。\n\n病人：{PATIENT}'
         },
         'media.local.trophyLauncherNeeded': {
-            en: 'Could not start Trophy from the browser.\n\n1. Run: current work\\{BAT} (leave window open)\n2. Click Trophy again\n\nOr run TW.exe manually.\nPatient: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 Trophy。\n\n1. 运行：current work\\{BAT}（保持窗口打开）\n2. 再次点击 Trophy\n\n或手动运行 TW.exe。\n患者：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 Trophy。\n\n1. 執行：current work\\{BAT}（保持視窗開啟）\n2. 再次按 Trophy\n\n或手動執行 TW.exe。\n病人：{PATIENT}\n程式：{EXE}'
+            en: 'Could not start Trophy from the browser.\n\n1. Double-click fix-xray-bridge.bat (keep the PowerShell window open)\n2. Open http://127.0.0.1:17891/status — must show trophy_exists:true\n3. Hard refresh Banana (Ctrl+F5) then click Trophy again\n\nPatient: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Trophy。\n\n1. 双击 fix-xray-bridge.bat（保持 PowerShell 窗口打开）\n2. 打开 http://127.0.0.1:17891/status — 必须显示 trophy_exists:true\n3. 强制刷新 Banana（Ctrl+F5）后再点 Trophy\n\n患者：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Trophy。\n\n1. 按兩下 fix-xray-bridge.bat（保持 PowerShell 視窗開啟）\n2. 開啟 http://127.0.0.1:17891/status — 必須顯示 trophy_exists:true\n3. 強制重新整理 Banana（Ctrl+F5）後再按 Trophy\n\n病人：{PATIENT}\n程式：{EXE}'
         },
         'media.customLink': { en: 'Custom Link', 'zh-CN': '自定义链接', 'zh-Hant': '自訂連結' },
         'media.local.foldersBtn': { en: 'Local PC folders', 'zh-CN': '本机文件夹', 'zh-Hant': '本機資料夾' },

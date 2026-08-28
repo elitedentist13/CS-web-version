@@ -3699,7 +3699,7 @@
         'bill.sectionNewBill': { en: 'New bill', 'zh-CN': '新建账单', 'zh-Hant': '新建帳單' },
         'bill.btnCreateBill': { en: '✓ Create bill', 'zh-CN': '✓ 创建账单', 'zh-Hant': '✓ 建立帳單' },
         'bill.alert.createListFirst': { en: 'Create a bill list first (+ New List).', 'zh-CN': '请先创建账单清单（+ 新建清单）。', 'zh-Hant': '請先建立帳單清單（+ 新增清單）。' },
-        'bill.alert.addItemsFirst': { en: 'Add at least one bill item before creating the bill.', 'zh-CN': '创建账单前请至少添加一项账单项目。', 'zh-Hant': '建立帳單前請至少新增一項帳單項目。' },
+        'bill.alert.addItemsFirst': { en: 'Add at least one bill item with an amount before creating the bill.', 'zh-CN': '创建账单前请至少添加一项有金额的账单项目。', 'zh-Hant': '建立帳單前請至少新增一項有金額的帳單項目。' },
         'bill.alert.lockedBillNoEdit': { en: 'This bill is locked because a payment has already been recorded.\nTo add more instalments, use "Add Payment" in Bill History.\nTo modify bill items, void all payments first.', 'zh-CN': '此账单已锁定，因为已记录付款。\n如需追加分期付款，请在账单历史中使用"添加付款"。\n如需修改账单项目，请先撤销所有付款。', 'zh-Hant': '此帳單已鎖定，因為已記錄付款。\n如需追加分期付款，請在帳單紀錄中使用「新增付款」。\n如需修改帳單項目，請先撤銷所有付款。' },
         'bill.status.locked': { en: '🔒 Locked — payment recorded', 'zh-CN': '🔒 已锁定 — 已记录付款', 'zh-Hant': '🔒 已鎖定 — 已記錄付款' },
         'bill.locked.bannerTitle': { en: '🔒 Bill Locked — Items Cannot Be Modified', 'zh-CN': '🔒 账单已锁定 — 项目不可修改', 'zh-Hant': '🔒 帳單已鎖定 — 項目不可修改' },
@@ -5254,7 +5254,6 @@
         'cfg.loginLog.reasonExpired': { en: 'Session expired', 'zh-CN': '会话过期', 'zh-Hant': '工作階段過期' },
         'cfg.auth.sectionTitle': { en: 'Authorization', 'zh-CN': '权限', 'zh-Hant': '授權' },
         'cfg.auth.sectionHint': { en: 'Check modules this user may access. Unchecking a parent disables its sub-options.', 'zh-CN': '勾选此用户可使用的模块。取消父项将同时取消其子项。', 'zh-Hant': '勾選此使用者可使用的模組。取消父項將同時取消其子項。' },
-        'cfg.auth.adminOverrideNote': { en: '⚠ This account\'s role is Administrator — it always has full access to every module regardless of these checkboxes.', 'zh-CN': '⚠ 此帐户的角色为管理员 — 无论以下勾选状态如何，管理员始终拥有所有模块的完整权限。', 'zh-Hant': '⚠ 此帳戶的角色為管理員 — 無論以下勾選狀態如何，管理員始終擁有所有模組的完整權限。' },
         'cfg.auth.appointment': { en: 'Appointment', 'zh-CN': '预约', 'zh-Hant': '預約' },
         'cfg.auth.patient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '患者' },
         'cfg.auth.consultation': { en: 'Consultation', 'zh-CN': '诊疗', 'zh-Hant': '診療' },
@@ -5354,9 +5353,9 @@
             'zh-Hant': '啟動 Sidexis 4 桌面應用程式'
         },
         'media.sys.vatech.info': {
-            en: 'Opens EzDent-i and copies this patient\u2019s name + chart no. to the clipboard \u2014 paste into EzDent-i\u2019s own search to open their chart, or fill in a new one for OPG/CT. Also best-effort sends the same details straight to EzDent-i so it may open/create the chart automatically; not guaranteed on every install.',
-            'zh-CN': '打开 EzDent-i，并将此患者的姓名及编号复制到剪贴板 \u2014 可贴到 EzDent-i 自己的搜寻栏打开档案，或新建档案以拍摄 OPG/CT。同时会尝试将资料直接传送给 EzDent-i 以自动打开／新建档案，惟未必每部机都适用。',
-            'zh-Hant': '開啟 EzDent-i，並將此病人的姓名及編號複製到剪貼簿 \u2014 可貼到 EzDent-i 自己的搜尋欄開啟檔案，或新建檔案以拍攝 OPG/CT。同時會嘗試將資料直接傳送給 EzDent-i 以自動開啟／新建檔案，惟未必每部機都適用。'
+            en: 'Launches EzDent-i application',
+            'zh-CN': '启动 EzDent-i 应用程序',
+            'zh-Hant': '啟動 EzDent-i 應用程式'
         },
         'media.sys.planmeca.info': {
             en: 'Launches Romexis software',
@@ -5386,25 +5385,14 @@
         },
         'media.sys.nntnewtom': { en: 'NNT / NEWTOM', 'zh-CN': 'NNT / NEWTOM', 'zh-Hant': 'NNT / NEWTOM' },
         'media.sys.nntnewtom.info': {
-            en: 'Opens NNT / NEWTOM on this PC. Matching 2D scans from the NNT SCAN folder also appear in this tab.',
-            'zh-CN': '在本机打开 NNT / NEWTOM。匹配的 NNT SCAN 二维影像也会显示在本页。',
-            'zh-Hant': '在本機開啟 NNT / NEWTOM。符合的 NNT SCAN 二維影像也會顯示在本頁。'
+            en: 'Opens NNT / NEWTOM CBCT imaging software on this PC',
+            'zh-CN': '打开本机 NNT / NEWTOM CBCT 影像软件',
+            'zh-Hant': '開啟本機 NNT / NEWTOM CBCT 影像軟件'
         },
         'media.sys.nntnewtom.desktopHint': {
             en: 'NNT / NEWTOM CBCT software on this PC',
             'zh-CN': '本机 NNT / NEWTOM CBCT 软件',
             'zh-Hant': '本機 NNT / NEWTOM CBCT 軟件'
-        },
-        'media.sys.rayscan': { en: 'Rayscan (RAYBridge)', 'zh-CN': 'Rayscan (RAYBridge)', 'zh-Hant': 'Rayscan (RAYBridge)' },
-        'media.sys.rayscan.info': {
-            en: 'Sends this patient\u2019s ID, name, DOB and gender straight to RAYBridge on this PC \u2014 opens the matching chart in Rayscan/SMARTDent V3, or fills in a new one, with nothing to re-type.',
-            'zh-CN': '将此患者的编号、姓名、出生日期及性别直接传送至本机的 RAYBridge \u2014 在 Rayscan / SMARTDent V3 中打开或建立相应档案，无需重新输入。',
-            'zh-Hant': '將此病人的編號、姓名、出生日期及性別直接傳送至本機的 RAYBridge \u2014 在 Rayscan / SMARTDent V3 中開啟或建立相應檔案，無需重新輸入。'
-        },
-        'media.sys.rayscan.desktopHint': {
-            en: 'RAYBridge / SMARTDent V3 (Rayscan) software on this PC',
-            'zh-CN': '本机 RAYBridge / SMARTDent V3（Rayscan）软件',
-            'zh-Hant': '本機 RAYBridge / SMARTDent V3（Rayscan）軟件'
         },
         'media.local.aidentalFillOpen': {
             en: 'Fill Woodpecker Create Patient from active patient?\n\n1. Open Woodpecker Ai-Dental manually (Patient page)\n2. Click "Create Patient" in Woodpecker\n3. Confirm here — fields will be filled:\n   • Name (English)\n   • Birthday\n   • Gender (Male/Female)\n\nActive patient: {PATIENT}\n\nRequires "Start X-Ray Launcher.bat" running on this PC.',
@@ -5457,99 +5445,19 @@
             'zh-Hant': '（在 Ai-Dental-Client 中按病人姓名或編號搜尋）'
         },
         'media.local.nntnewtomOpen': {
-            en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT will search its own database by patient no. 2D scans from the NNT SCAN folder also appear in this X-ray tab (not uploaded to the cloud).',
-            'zh-CN': '在本机打开 NNT / NEWTOM？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\nNNT 会按患者编号搜索自身数据库。NNT SCAN 中的二维影像也会显示在本 X 光页（不会上传到云端）。',
-            'zh-Hant': '在本機開啟 NNT / NEWTOM？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 可選本機資料夾：{FOLDER}\n\nNNT 會按病人編號搜尋自身資料庫。NNT SCAN 中的二維影像也會顯示在本 X 光頁（不會上傳到雲端）。'
+            en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT/NEWTOM normally opens its own patient database — search by the copied patient name or patient no.',
+            'zh-CN': '在本机打开 NNT / NEWTOM？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\nNNT/NEWTOM 通常打开其自身患者数据库 — 请用已复制的患者姓名或编号搜索。',
+            'zh-Hant': '在本機開啟 NNT / NEWTOM？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 可選本機資料夾：{FOLDER}\n\nNNT/NEWTOM 通常開啟其自身病人資料庫 — 請用已複製的病人姓名或編號搜尋。'
         },
         'media.local.nntnewtomLaunched': {
-            en: 'NNT / NEWTOM is starting.\n\nCopied to clipboard: {PATIENT}\nMatching 2D scans (if any) are listed in this X-ray tab. CBCT / panoramic studies open in "{SHORTCUT}".',
-            'zh-CN': '正在启动 NNT / NEWTOM。\n\n已复制到剪贴板：{PATIENT}\n匹配的二维影像（如有）会列在本 X 光页。CBCT / 全景片在「{SHORTCUT}」中打开。',
-            'zh-Hant': '正在啟動 NNT / NEWTOM。\n\n已複製到剪貼簿：{PATIENT}\n符合的二維影像（如有）會列在本 X 光頁。CBCT / 全景片在「{SHORTCUT}」中開啟。'
-        },
-        'media.local.nntScansTitle': {
-            en: 'CS scan photos / xrays / doc in {CLINIC}',
-            'zh-CN': 'CS 扫描照片 / X光 / 文件（{CLINIC}）',
-            'zh-Hant': 'CS 掃描照片 / X光 / 文件（{CLINIC}）'
-        },
-        'media.local.nntScansHint': {
-            en: 'Fetched from this patient\'s Clinic Solution SCAN folder. Not uploaded to Banana. Click a thumbnail to enlarge.',
-            'zh-CN': '从该患者的 Clinic Solution SCAN 文件夹读取，不会上传到 Banana。点击缩略图放大。',
-            'zh-Hant': '從該病人的 clinic solution SCAN 資料夾讀取，不會上傳到 Banana。按縮圖放大'
-        },
-        'media.local.nntScansCount': {
-            en: '{N} image(s)',
-            'zh-CN': '{N} 张影像',
-            'zh-Hant': '{N} 張影像'
-        },
-        'media.local.nntScansAddToBanana': {
-            en: 'Add to Banana xray tab',
-            'zh-CN': '加入 Banana X 光页',
-            'zh-Hant': '加入 Banana X 光頁'
-        },
-        'media.local.nntScansSelectFirst': {
-            en: 'Select at least one thumbnail first.',
-            'zh-CN': '请先勾选至少一张缩略图。',
-            'zh-Hant': '請先勾選至少一張縮圖。'
-        },
-        'media.local.nntScansNeedPatient': {
-            en: 'Open a patient in the X-ray tab first.',
-            'zh-CN': '请先在 X 光页打开一位患者。',
-            'zh-Hant': '請先在 X 光頁開啟一位病人。'
-        },
-        'media.local.nntScansConfirmAdd': {
-            en: 'Copy {N} selected file(s) from Clinic Solution SCAN into this patient\'s Banana X-ray tab?',
-            'zh-CN': '将已选的 {N} 个 Clinic Solution SCAN 文件复制到此患者的 Banana X 光页？',
-            'zh-Hant': '將已選的 {N} 個 clinic solution SCAN 檔案複製到此病人的 Banana X 光頁？'
-        },
-        'media.local.nntScansImportNote': {
-            en: 'Copied from Clinic Solution SCAN: {FILE}',
-            'zh-CN': '从 Clinic Solution SCAN 复制：{FILE}',
-            'zh-Hant': '從 clinic solution SCAN 複製：{FILE}'
-        },
-        'media.local.nntScansImporting': {
-            en: 'Adding {N} of {TOTAL} to Banana…',
-            'zh-CN': '正在加入 Banana（{N}/{TOTAL}）…',
-            'zh-Hant': '正在加入 Banana（{N}/{TOTAL}）…'
-        },
-        'media.local.nntScansImportFail': {
-            en: 'Could not read {FILE} from the Clinic Solution SCAN folder.',
-            'zh-CN': '无法从 Clinic Solution SCAN 文件夹读取 {FILE}。',
-            'zh-Hant': '無法從 clinic solution SCAN 資料夾讀取 {FILE}。'
+            en: 'NNT / NEWTOM is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
+            'zh-CN': '正在启动 NNT / NEWTOM。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
+            'zh-Hant': '正在啟動 NNT / NEWTOM。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
         },
         'media.local.nntnewtomLauncherNeeded': {
             en: 'Could not start NNT / NEWTOM from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click NNT / NEWTOM again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
             'zh-CN': '无法从浏览器启动 NNT / NEWTOM。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 NNT / NEWTOM\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
             'zh-Hant': '無法從瀏覽器啟動 NNT / NEWTOM。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 NNT / NEWTOM\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
-        },
-        'media.local.rayscanOpen': {
-            en: 'Open Rayscan (RAYBridge) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (ID, name, DOB, gender sent directly to RAYBridge): {PATIENT}\n\nRAYBridge will open the matching chart in Rayscan / SMARTDent V3, or fill in a new one \u2014 nothing to re-type. When a new OPG / CT / Lateral Cephalometric scan is taken, click this button again to bring it up in the Rayscan viewer.\n\nRequires "Start X-Ray Launcher.bat" running on this PC.',
-            'zh-CN': '在本机打开 Rayscan (RAYBridge)？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（编号、姓名、出生日期、性别将直接传送给 RAYBridge）：{PATIENT}\n\nRAYBridge 会在 Rayscan / SMARTDent V3 中打开相应档案，或建立新档案 \u2014 无需重新输入。拍摄新的 OPG / CT / 头颅侧位片后，再次点击此按钮即可在 Rayscan 查看器中显示。\n\n需在本机运行「Start X-Ray Launcher.bat」。',
-            'zh-Hant': '在本機開啟 Rayscan (RAYBridge)？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（編號、姓名、出生日期、性別將直接傳送給 RAYBridge）：{PATIENT}\n\nRAYBridge 會在 Rayscan / SMARTDent V3 中開啟相應檔案，或建立新檔案 \u2014 無需重新輸入。拍攝新的 OPG / CT / 頭顱側位片後，再次按此按鈕即可在 Rayscan 檢視器中顯示。\n\n需在本機執行「Start X-Ray Launcher.bat」。'
-        },
-        'media.local.rayscanLaunched': {
-            en: 'Rayscan (RAYBridge) is starting.\n\nPatient ID, name, DOB and gender were sent directly to RAYBridge \u2014 no need to re-type: {PATIENT}\nThe matching chart opens in Rayscan / SMARTDent V3, or a new one is filled in.',
-            'zh-CN': '正在启动 Rayscan (RAYBridge)。\n\n患者编号、姓名、出生日期及性别已直接传送给 RAYBridge，无需重新输入：{PATIENT}\n相应档案将在 Rayscan / SMARTDent V3 中打开，或建立新档案。',
-            'zh-Hant': '正在啟動 Rayscan (RAYBridge)。\n\n病人編號、姓名、出生日期及性別已直接傳送給 RAYBridge，無需重新輸入：{PATIENT}\n相應檔案將在 Rayscan / SMARTDent V3 中開啟，或建立新檔案。'
-        },
-        'media.local.rayscanLauncherNeeded': {
-            en: 'Could not start Rayscan (RAYBridge) from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click Rayscan again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nPatient: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 Rayscan (RAYBridge)。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 Rayscan\n\n或双击桌面快捷方式「{SHORTCUT}」。\n患者：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 Rayscan (RAYBridge)。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 Rayscan\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n病人：{PATIENT}\n程式：{EXE}'
-        },
-        'media.local.ezdentiOpen': {
-            en: 'Open EzDent-i on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n\nSearch by name or patient no. inside EzDent-i to open their chart, or fill in a new one for OPG/CT. Patient details are also sent straight to EzDent-i as a best-effort extra step, in case this PC\u2019s setup picks it up automatically \u2014 not guaranteed.\n\nRequires "Start X-Ray Launcher.bat" running.',
-            'zh-CN': '在本机打开 EzDent-i？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n\n请在 EzDent-i 内以姓名或编号搜寻以打开档案，或新建档案以拍摄 OPG/CT。同时会尝试将资料直接传送给 EzDent-i，视乎本机设定是否支援自动读取，不保证成功。\n\n需运行「Start X-Ray Launcher.bat」。',
-            'zh-Hant': '在本機開啟 EzDent-i？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n\n請在 EzDent-i 內以姓名或編號搜尋以開啟檔案，或新建檔案以拍攝 OPG/CT。同時會嘗試將資料直接傳送給 EzDent-i，視乎本機設定是否支援自動讀取，不保證成功。\n\n需執行「Start X-Ray Launcher.bat」。'
-        },
-        'media.local.ezdentiLaunched': {
-            en: 'EzDent-i is starting.\n\nPatient details ({PATIENT}) are copied to the clipboard \u2014 paste into EzDent-i\u2019s own search if their chart doesn\u2019t open automatically.',
-            'zh-CN': '正在启动 EzDent-i。\n\n患者资料（{PATIENT}）已复制到剪贴板 \u2014 若档案未有自动打开，请贴到 EzDent-i 的搜寻栏。',
-            'zh-Hant': '正在啟動 EzDent-i。\n\n病人資料（{PATIENT}）已複製到剪貼簿 \u2014 若檔案未有自動開啟，請貼到 EzDent-i 的搜尋欄。'
-        },
-        'media.local.ezdentiLauncherNeeded': {
-            en: 'Could not start EzDent-i from the browser.\n\n1. Run: current work\\{BAT} (leave the launcher window open)\n2. Click EzDent-i (Vatech) again\n\nOr double-click desktop "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 EzDent-i。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 EzDent-i (Vatech)\n\n或双击桌面「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 EzDent-i。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 EzDent-i (Vatech)\n\n或按兩下桌面「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
@@ -5572,29 +5480,14 @@
             'zh-Hant': '✓ 本機啟動器正在運行 — 可以開啟程式。'
         },
         'media.local.launcherNotRunning': {
-            en: '✗ Browser cannot see the local launcher.\n\n1. Double-click start-banana-xray-mcp.bat (starts bridge + web app)\n   OR run tools\\Start X-Ray Launcher.bat (keep window open)\n2. Do not open Banana as a local file (file://) — use the usual browser link\n3. Hard refresh Ctrl+F5\n4. Test http://127.0.0.1:17890/status — should show {"ok":true}',
-            'zh-CN': '✗ 浏览器看不到本机启动器。\n\n1. 双击 start-banana-xray-mcp.bat（同时启动桥接 + 网页）\n   或运行 tools\\Start X-Ray Launcher.bat（保持窗口打开）\n2. 请勿以本机文件（file://）方式打开 Banana — 使用平时的浏览器链接\n3. 强制刷新 Ctrl+F5\n4. 测试 http://127.0.0.1:17890/status — 应显示 {"ok":true}',
-            'zh-Hant': '✗ 瀏覽器看不到本機啟動器。\n\n1. 按兩下 start-banana-xray-mcp.bat（同時啟動橋接 + 網頁）\n   或執行 tools\\Start X-Ray Launcher.bat（保持視窗開啟）\n2. 請勿以本機檔案（file://）方式開啟 Banana — 使用平時的瀏覽器連結\n3. 強制重新整理 Ctrl+F5\n4. 測試 http://127.0.0.1:17890/status — 應顯示 {"ok":true}'
-        },
-        'media.local.launcherFetchBlocked': {
-            en: '✗ Browser cannot reach the local launcher (it may still be running).\n\n1. Hard-refresh this page: Ctrl+F5\n2. In Chrome, click Allow when asked for "local network access"\n3. Test in a new tab: http://127.0.0.1:17890/status — should show {"ok":true}\n4. Keep Start X-Ray Launcher.bat open, then click Trophy again',
-            'zh-CN': '✗ 浏览器无法连接本机启动器（启动器可能仍在运行）。\n\n1. 强制刷新本页：Ctrl+F5\n2. 在 Chrome 中，出现「本机网络访问」时点击「允许」\n3. 在新标签页测试：http://127.0.0.1:17890/status — 应显示 {"ok":true}\n4. 保持 Start X-Ray Launcher.bat 窗口打开，再按 Trophy',
-            'zh-Hant': '✗ 瀏覽器無法連線本機啟動器（啟動器可能仍在運行）。\n\n1. 強制重新整理本頁：Ctrl+F5\n2. 在 Chrome 中，出現「本機網路存取」時點擊「允許」\n3. 在新分頁測試：http://127.0.0.1:17890/status — 應顯示 {"ok":true}\n4. 保持 Start X-Ray Launcher.bat 視窗開啟，再按 Trophy'
+            en: '✗ Local launcher is NOT running.\nFirst run: current work\\{BAT} and leave that window open.',
+            'zh-CN': '✗ 本机启动器未运行。\n请先运行：current work\\{BAT} 并保持窗口打开。',
+            'zh-Hant': '✗ 本機啟動器未運行。\n請先執行：current work\\{BAT} 並保持視窗開啟。'
         },
         'media.local.launcherHttpsBlocked': {
-            en: '✗ Wrong page URL — cannot reach local launcher.\n\nThis page was opened as a local file (file://), which browsers block from reaching any program on this PC.\n\nOpen Banana normally in the browser (e.g. the usual https:// link or http://127.0.0.1:5500/index.html) instead of double-clicking index.html.',
-            'zh-CN': '✗ 页面网址不正确 — 无法连接本机启动器。\n\n此页面是以本机文件方式打开（file://），浏览器会阻止这类页面连接本机的任何程序。\n\n请改用浏览器正常打开 Banana（例如平时使用的 https:// 链接，或 http://127.0.0.1:5500/index.html），而不要直接双击 index.html。',
-            'zh-Hant': '✗ 頁面網址不正確 — 無法連線本機啟動器。\n\n此頁面是以本機檔案方式開啟（file://），瀏覽器會阻止這類頁面連線本機的任何程式。\n\n請改用瀏覽器正常開啟 Banana（例如平時使用的 https:// 連結，或 http://127.0.0.1:5500/index.html），而不要直接按兩下 index.html。'
-        },
-        'media.local.launcherPermissionPrompt': {
-            en: '⚠ Chrome should be showing a "local network access" permission popup near the address bar. Click Allow on THAT popup first, then click this button again — the first click only triggers the popup, it does not open the program yet.',
-            'zh-CN': '⚠ Chrome 应该会在网址栏附近显示"本机网络访问"权限弹窗。请先在该弹窗点击"允许"，然后再次点击此按钮 — 第一次点击只是触发权限弹窗，尚未真正打开程序。',
-            'zh-Hant': '⚠ Chrome 應該會在網址列附近顯示「本機網路存取」權限彈窗。請先在該彈窗點擊「允許」，然後再次點擊此按鈕 — 第一次點擊只是觸發權限彈窗，尚未真正開啟程式。'
-        },
-        'media.local.launcherPermissionDenied': {
-            en: '✗ This browser has BLOCKED local network access for this site. Click the tune/info icon in the address bar → Site settings → set "Local network access" to Allow, then click this button again.',
-            'zh-CN': '✗ 此浏览器已阻止本网站访问本机网络。请点击网址栏的图标 → 网站设置 → 将"本机网络访问"设为允许，然后再次点击此按钮。',
-            'zh-Hant': '✗ 此瀏覽器已封鎖此網站存取本機網路。請點擊網址列的圖示 → 網站設定 → 將「本機網路存取」設為允許，然後再次點擊此按鈕。'
+            en: '✗ Cannot reach local launcher from an HTTPS page. Open the app via file:// or http://localhost (Live Server), not https.',
+            'zh-CN': '✗ 无法从 HTTPS 页面连接本机启动器。请通过 file:// 或 http://localhost（Live Server）打开应用，不要用 https。',
+            'zh-Hant': '✗ 無法從 HTTPS 頁面連接本機啟動器。請透過 file:// 或 http://localhost（Live Server）開啟應用，不要用 https。'
         },
         'media.local.carestreamUsePatientBrowser': {
             en: '(Carestream Patient Browser — search by patient name or no. in the app)',
@@ -5606,35 +5499,10 @@
             'zh-CN': '（打开桌面程序后，按已复制的患者姓名或编号搜索）',
             'zh-Hant': '（開啟桌面程式後，按已複製的病人姓名或編號搜尋）'
         },
-        'media.sys.trophy.desktopHint': {
-            en: 'Trophy F7 equivalent — opens TW.exe with patient SCAN folder (Carestream)',
-            'zh-CN': '等同 Trophy F7 — 以患者 SCAN 文件夹启动 TW.exe（Carestream）',
-            'zh-Hant': '等同 Trophy F7 — 以病人 SCAN 資料夾啟動 TW.exe（Carestream）'
-        },
-        'media.sys.trophy.desktopHint': {
-            en: 'Trophy F7 equivalent — opens TW.exe with patient SCAN folder (Carestream)',
-            'zh-CN': '等同 Trophy F7 — 以患者 SCAN 文件夹启动 TW.exe（Carestream）',
-            'zh-Hant': '等同 Trophy F7 — 以病人 SCAN 資料夾啟動 TW.exe（Carestream）'
-        },
         'media.sys.trophy.info': {
-            en: 'Carestream Trophy (TW.exe) — same as Clinic Solution Trophy F7: opens this patient\'s SCAN folder on the CS server',
-            'zh-CN': 'Carestream Trophy (TW.exe) — 与 Clinic Solution 的 Trophy F7 相同：打开 CS 服务器上该患者的 SCAN 文件夹',
-            'zh-Hant': 'Carestream Trophy (TW.exe) — 與 Clinic Solution 的 Trophy F7 相同：開啟 CS 伺服器上該病人的 SCAN 資料夾'
-        },
-        'media.local.trophyOpen': {
-            en: 'Open Trophy imaging (TW.exe) for this patient?\n\n• Program: {EXE}\n• Patient: {PATIENT}\n• CS SCAN folder: {FOLDER}\n\nSame handoff as Clinic Solution Trophy F7.',
-            'zh-CN': '为本患者打开 Trophy 影像 (TW.exe)？\n\n• 程序：{EXE}\n• 患者：{PATIENT}\n• CS SCAN 文件夹：{FOLDER}\n\n与 Clinic Solution 的 Trophy F7 相同。',
-            'zh-Hant': '為本病人開啟 Trophy 影像 (TW.exe)？\n\n• 程式：{EXE}\n• 病人：{PATIENT}\n• CS SCAN 資料夾：{FOLDER}\n\n與 Clinic Solution 的 Trophy F7 相同。'
-        },
-        'media.local.trophyLaunched': {
-            en: 'Trophy (TW.exe) is starting with this patient\'s CS SCAN folder.\n\nPatient: {PATIENT}',
-            'zh-CN': '正在启动 Trophy (TW.exe)，已带上该患者的 CS SCAN 文件夹。\n\n患者：{PATIENT}',
-            'zh-Hant': '正在啟動 Trophy (TW.exe)，已帶上該病人的 CS SCAN 資料夾。\n\n病人：{PATIENT}'
-        },
-        'media.local.trophyLauncherNeeded': {
-            en: 'Could not start Trophy from the browser.\n\n1. Run: current work\\{BAT} (leave window open)\n2. Click Trophy again\n\nOr run TW.exe manually.\nPatient: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 Trophy。\n\n1. 运行：current work\\{BAT}（保持窗口打开）\n2. 再次点击 Trophy\n\n或手动运行 TW.exe。\n患者：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 Trophy。\n\n1. 執行：current work\\{BAT}（保持視窗開啟）\n2. 再次按 Trophy\n\n或手動執行 TW.exe。\n病人：{PATIENT}\n程式：{EXE}'
+            en: 'Launches Trophy/Kodak imaging system',
+            'zh-CN': '启动 Trophy/Kodak 影像系统',
+            'zh-Hant': '啟動 Trophy/Kodak 影像系統'
         },
         'media.customLink': { en: 'Custom Link', 'zh-CN': '自定义链接', 'zh-Hant': '自訂連結' },
         'media.local.foldersBtn': { en: 'Local PC folders', 'zh-CN': '本机文件夹', 'zh-Hant': '本機資料夾' },

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260827-launcher-fix-v3';
+  var BUILD = '20260807-adv-ortho-umbrella';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -28,7 +28,6 @@
   } catch (e) {}
   window.__JSM_ASSET_BUST_TS = bust || '';
   window.__JSM_BUILD = BUILD;
-  /* Per-PC paths: xray-pc-config.js (server vs consultation client). Launcher port: 17890. */
   /* X-ray Assist — local Python API (start: start-xray-ai.bat / port 8877) */
   /* Not 8765 — that's used by dental sensor bridge software (e.g. RayView). */
   window.XRAY_AI_API_URL = 'http://127.0.0.1:8877';
@@ -3455,16 +3454,8 @@
           <span data-i18n="media.sys.nntnewtom"></span>
         </button>
 
-        <button class="xray-sys-btn xray-sys-rayscan"
-                onclick="openXraySystem('rayscan')"
-                data-i18n-title="media.sys.rayscan.desktopHint">
-          <span class="sys-icon">🩻</span>
-          <span data-i18n="media.sys.rayscan"></span>
-        </button>
-
         <button class="xray-sys-btn xray-sys-Trophy"
-                onclick="openXraySystem('Trophy')"
-                data-i18n-title="media.sys.trophy.desktopHint">
+                onclick="openXraySystem('Trophy')">
           <span class="sys-icon">🏆</span>
           <span data-i18n="media.sys.trophy"></span>
         </button>
@@ -3484,18 +3475,6 @@
           <span data-i18n="media.local.foldersBtn"></span>
         </button>
 
-      </div>
-
-      <div id="nntLocalScanStrip" class="nnt-scan-strip" style="display:none;">
-        <div class="nnt-scan-strip-head">
-          <strong id="nntLocalScanTitle">CS scan photos / xrays / doc</strong>
-          <span id="nntLocalScanCount" class="nnt-scan-count"></span>
-        </div>
-        <p class="nnt-scan-hint" data-i18n="media.local.nntScansHint"></p>
-        <div class="nnt-scan-actions">
-          <button type="button" id="nntScanAddToBananaBtn" data-i18n="media.local.nntScansAddToBanana">Add to Banana xray tab</button>
-        </div>
-        <div id="nntLocalScanThumbs" class="nnt-scan-thumbs"></div>
       </div>
 
       <input type="file" id="xrayLocalFolderInput" multiple
@@ -6705,7 +6684,7 @@
 
     <div class="fg" style="margin-bottom:14px;">
       <label data-i18n="bill.addPayment.labelAmount"></label>
-      <input type="number" id="apAmount" min="0" step="0.01"
+      <input type="number" id="apAmount" min="0.01" step="0.01"
              style="font-size:16px;font-weight:700;">
       <div style="font-size:12px;color:#888;margin-top:4px;">
         <span data-i18n="bill.addPayment.outstandingPrefix"></span> <strong id="apBalanceHint"
@@ -7326,9 +7305,7 @@
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
-    'xray-pc-config.js',
-    'app-xray.js',
-    'app-nnt-scans.js',
+    'app-xray.js?v=20260520f',
     'app-xray-ai.js',
     'app-charts.js',
     'app-drugs.js',

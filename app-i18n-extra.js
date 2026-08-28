@@ -5459,6 +5459,32 @@
             'zh-CN': '无法从浏览器启动 NNT / NEWTOM。\n\n1. 运行：current work\\{BAT}（保持启动器窗口打开）\n2. 再次点击 NNT / NEWTOM\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
             'zh-Hant': '無法從瀏覽器啟動 NNT / NEWTOM。\n\n1. 執行：current work\\{BAT}（保持啟動器視窗開啟）\n2. 再次按 NNT / NEWTOM\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
+        'media.sys.myray': { en: 'MyRay', 'zh-CN': 'MyRay', 'zh-Hant': 'MyRay' },
+        'media.sys.myray.info': {
+            en: 'Opens MyRay on this PC. Patient ID, name, DOB and gender are sent directly to MyRay — the matching chart opens, or a new one is pre-filled. MyRay and NewTom share the same CEFLA bridge (NNTBridge / MyRayBridge).',
+            'zh-CN': '在本机打开 MyRay。患者编号、姓名、出生日期及性别将直接传送至 MyRay — 相应档案将自动开启，或建立新档案（预填资料）。MyRay 与 NewTom 同属 CEFLA，共用相同桥接工具。',
+            'zh-Hant': '在本機開啟 MyRay。病人編號、姓名、出生日期及性別將直接傳送至 MyRay — 相應檔案將自動開啟，或建立新檔案（預填資料）。MyRay 與 NewTom 同屬 CEFLA，共用相同橋接工具。'
+        },
+        'media.sys.myray.desktopHint': {
+            en: 'MyRay CBCT / OPG software on this PC (CEFLA group, same bridge as NNT/NewTom)',
+            'zh-CN': '本机 MyRay CBCT / 全景软件（CEFLA 集团，与 NNT/NewTom 共用桥接工具）',
+            'zh-Hant': '本機 MyRay CBCT / 全景軟件（CEFLA 集團，與 NNT/NewTom 共用橋接工具）'
+        },
+        'media.local.myrayOpen': {
+            en: 'Open MyRay on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (ID, name, DOB, gender sent directly to MyRay bridge): {PATIENT}\n\nMyRay will search its database by patient no. For existing patients the clinic prefix (e.g. "MK") is automatically stripped so old records match.\n\nUses the shared CEFLA bridge (same as NewTom) on this PC — not a separate rival launcher.',
+            'zh-CN': '在本机打开 MyRay？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（编号、姓名、出生日期、性别将直接传送给 MyRay）：{PATIENT}\n\nMyRay 将按患者编号搜索数据库。旧档会自动去除诊所前缀（如「MK」）以匹配现有记录。\n\n使用与 NewTom 相同的 CEFLA 共享桥接（非独立冲突启动器）。',
+            'zh-Hant': '在本機開啟 MyRay？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（編號、姓名、出生日期及性別將直接傳送給 MyRay）：{PATIENT}\n\nMyRay 將按病人編號搜尋資料庫。舊檔會自動去除診所前綴（如「MK」）以匹配現有記錄。\n\n使用與 NewTom 相同的 CEFLA 共用橋接（非獨立衝突啟動器）。'
+        },
+        'media.local.myrayLaunched': {
+            en: 'MyRay is starting.\n\nPatient ID, name, DOB and gender were sent directly to MyRay bridge — no need to re-type: {PATIENT}\nThe matching chart opens in MyRay, or a new one is pre-filled.',
+            'zh-CN': '正在启动 MyRay。\n\n患者编号、姓名、出生日期及性别已直接传送给 MyRay，无需重新输入：{PATIENT}\n相应档案将在 MyRay 中打开，或建立新档案（已预填）。',
+            'zh-Hant': '正在啟動 MyRay。\n\n病人編號、姓名、出生日期及性別已直接傳送給 MyRay，無需重新輸入：{PATIENT}\n相應檔案將在 MyRay 中開啟，或建立新檔案（已預填）。'
+        },
+        'media.local.myrayLauncherNeeded': {
+            en: 'Could not start MyRay from the browser.\n\n1. Run: {BAT} (leave the launcher window open)\n2. Click MyRay again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 MyRay。\n\n1. 运行：{BAT}（保持启动器窗口打开）\n2. 再次点击 MyRay\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 MyRay。\n\n1. 執行：{BAT}（保持啟動器視窗開啟）\n2. 再次按 MyRay\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
+        },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
             'zh-CN': '在本机打开 Carestream CS Imaging？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\n本机不使用浏览器链接 — 请在软件中按姓名或患者编号搜索。',

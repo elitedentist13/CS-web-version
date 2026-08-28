@@ -1,28 +1,23 @@
-# Banana X-Ray Bridge — NNT-NEWTOM only
+# Banana X-Ray Bridge — NNT/NewTom + MyRay (CEFLA)
 
-Self-contained installer for **just** NNT-NEWTOM. Copy this whole folder
-(not individual files) to any PC used to open NNT — e.g. the machine
-attached to the CBCT/NewTom scanner, or a consultation-room PC that
-browses a patient's existing x-rays — and it will never try to open
-EzDent-i, Carestream, or Ai-Dental, even by accident. That isolation is
-enforced by the bridge itself (`-EnabledSystems nntnewtom`), not just by
-which files happen to be in this folder, so it's safe even if this folder
-ever ends up copied onto a PC that also has one of those other programs
-installed.
+Self-contained installer for the **CEFLA** stack: **NNT/NewTom and MyRay**
+share one bridge on port **17890** (`-EnabledSystems nntnewtom,myray`).
+They do not fight each other. Copy this whole folder to any PC used to
+open NNT or MyRay — scanner PC or consultation room.
 
-If a PC needs **more than one** imaging system's bridge, use the combined
-`tools\install-xray-bridge.ps1` (see `..\README.md`) instead of this
-folder — don't install both this and `..\installer-ezdenti\` on the same
-PC (they'd fight over the same port, 17890).
+It will not answer for EzDent-i, Carestream, Rayscan, or Ai-Dental.
+Do **not** also install those packages as exclusive rivals on the same
+PC (they'd fight over port 17890). MyRay support lives in this same
+CEFLA bridge — see also `..\installer-myray\` (same install path `C:\NNT`).
 
 ## What's in this folder (and why it's more than just the engine + installer)
 
-Unlike the EzDent-i package, this one also ships two **NNT-only companion
+Unlike the EzDent-i package, this one also ships two **CEFLA companion
 scripts** that `xray-local-launcher.ps1` looks for as siblings at runtime:
 
 | File | Purpose |
 |---|---|
-| `_nnt_identity_guard.ps1` | Warns if NNT opens a different patient than the one Banana asked for (NNT's own DB isn't always in sync). |
+| `_nnt_identity_guard.ps1` | Warns if NNT/MyRay opens a different patient than the one Banana asked for (NNT's own DB isn't always in sync). |
 | `_nnt_new_opg_watcher.ps1` | Watches for a newly-saved OPG/CT in NNT and offers to upload it back into Banana. |
 
 If either is missing from this folder when you copy it, the installer
@@ -64,8 +59,22 @@ by tracing CS's own launch").
   actually copied alongside the other files — the installer warns at the
   end if it wasn't found when you ran it.
 - **Port 17890 in use by something else**: close it, or re-run
-  `install-xray-bridge.ps1 -EnabledSystems "nntnewtom" -Port <number>`
+  `install-xray-bridge.ps1 -EnabledSystems "nntnewtom,myray" -Port <number>`
   directly and update `XRAY_LAUNCHER_PORT` near the top of `app-xray.js`
   in Banana to match.
 
 Full development history / investigation notes: `..\CHANGELOG.md`.
+
+## Auto-check / auto-update
+
+After install, Windows Task Scheduler runs:
+
+`Joyful Smile NNT-NEWTOM Bridge - Auto Update`
+
+- First run ~3 minutes after install, then every **6 hours** while logged in
+- Fetches from `https://elitedentist13.github.io/CS-web-version/tools/installer-nntnewtom/`
+- Safe apply: temp download → parse → `-SelfTest` → backup → restart → `/status`; rollback on failure
+- Log: `C:\NNT\xray-bridge-update.log`
+- State: `C:\NNT\xray-bridge-update-state.json`
+
+Manual check: **`Check NNT-NEWTOM Updates.bat`** (same channel as `installer-myray` CEFLA install).

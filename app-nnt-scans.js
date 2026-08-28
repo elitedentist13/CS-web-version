@@ -418,7 +418,7 @@ function wrapNntScanPatientHooks() {
         var origLaunch = tryLaunchDesktopAppViaLocalBridge;
         tryLaunchDesktopAppViaLocalBridge = function(launcherKey, patient, opts, cb) {
             origLaunch(launcherKey, patient, opts, function(attached, body) {
-                if (launcherKey === 'nntnewtom') loadNntLocalScans();
+                if (launcherKey === 'nntnewtom' || launcherKey === 'myray') loadNntLocalScans();
                 if (typeof cb === 'function') cb(attached, body);
             });
         };

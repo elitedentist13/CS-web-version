@@ -331,7 +331,7 @@ function syncXrayPatient(patientId, patientData) {
     // Pre-load x-ray records so they're ready
     loadXrayRecords();
     loadDiyLinks();
-    loadNntLocalScans();
+    if (typeof loadNntLocalScans === 'function') loadNntLocalScans();
 }
 
 // ── Single, authoritative definition of selectXrayPatient ─────
@@ -368,7 +368,7 @@ function selectXrayPatient(p) {
     // Load records and any saved external-system links
     loadXrayRecords();
     loadDiyLinks();
-    loadNntLocalScans();
+    if (typeof loadNntLocalScans === 'function') loadNntLocalScans();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2440,7 +2440,8 @@ function pingXrayLauncher(cb) {
                 carestream_exists: !!body.carestream_exists,
                 aidental_exists: !!body.aidental_exists,
                 nntnewtom_exists: !!body.nntnewtom_exists,
-                trophy_exists: !!body.trophy_exists
+                trophy_exists: !!body.trophy_exists,
+                myray_exists: !!body.myray_exists
             });
         });
     });
@@ -2580,6 +2581,27 @@ var XRAY_SYSTEMS = {
         openMsgKey: 'media.local.nntnewtomOpen',
         launchedMsgKey: 'media.local.nntnewtomLaunched',
         launcherNeededMsgKey: 'media.local.nntnewtomLauncherNeeded'
+    },
+    // MyRay (CEFLA group, same enterprise as NNT/NewTom). Uses NNTBridge.exe
+    // (or MyRayBridge.exe) with the identical /PATID /NAME /SURNAME /DATEB
+    // /SEX /OPENPATIENT command-line contract. Clinic prefix stripped by
+    // Convert-NntPatientId so old records (keyed on bare chart no.) still match.
+    myray: {
+        nameKey: 'media.sys.myray',
+        infoKey: 'media.sys.myray.info',
+        url: '',
+        launcherKey: 'myray',
+        desktopShortcutName: 'MyRay',
+        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\MyRay.lnk',
+        defaultDataPath: 'C:\\Image',
+        defaultSubPattern: 'Xrays\\{patient_no}',
+        defaultAppPath: 'C:\\MyRay\\MyRay.exe',
+        launchProtocol: false,
+        // Same shared CEFLA bridge as NewTom (port 17890) — does not start a rival process.
+        launcherBat: 'tools\\installer-nntnewtom\\Start NNT-NEWTOM Launcher.bat',
+        openMsgKey: 'media.local.myrayOpen',
+        launchedMsgKey: 'media.local.myrayLaunched',
+        launcherNeededMsgKey: 'media.local.myrayLauncherNeeded'
     },
     // Rayscan (RAYBridge / SMARTDent V3): same local-bridge pattern as
     // NNT-NEWTOM above. Confirmed live (2026-08-20) that RAYBridge.exe
@@ -2795,8 +2817,16 @@ function xrayEnsurePatientForBridge(patient, cb) {
         cb(patient);
         return;
     }
+    var done = false;
+    function finish(p) {
+        if (done) return;
+        done = true;
+        cb(p);
+    }
+    // Never let a hung Supabase read make the X-ray button feel dead.
+    setTimeout(function () { finish(patient); }, 2500);
     xrayHydratePatientRecord(patient.id, function(full) {
-        cb(full ? Object.assign({}, patient, full) : patient);
+        finish(full ? Object.assign({}, patient, full) : patient);
     });
 }
 
@@ -3143,7 +3173,10 @@ function saveXrayLocalPathsModal() {
 
 function openDesktopXrayApp(key) {
     var sys = XRAY_SYSTEMS[key];
-    if (!sys) return;
+    if (!sys) {
+        alert('Unknown X-ray system: ' + key + '. Hard-refresh (Ctrl+Shift+R).');
+        return;
+    }
 
     if (!xrayPatientId || !xrayPatientData) {
         var fallback = xrayResolveCurrentPatient();
@@ -3191,6 +3224,7 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             ? mediaTr('media.local.carestreamUsePatientBrowser')
             : mediaTr('media.local.desktopUsePatientSearch'));
     var launcherKey = sys.launcherKey || key;
+    var batPath = sys.launcherBat || 'tools\\Start X-Ray Launcher.bat';
     var searchText = (launcherKey === 'aidental')
         ? (xrayPatientSearchTextForLauncher(patient, launcherKey) ||
             xrayPatientSearchClipboardText(patient) || '—')
@@ -3201,6 +3235,26 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
     var clipboardText = (launcherKey === 'aidental')
         ? (xrayPatientBridgeClipboardText(patient) || searchText)
         : searchText;
+
+    // Confirm immediately (before bridge ping). Chrome Local Network Access can
+    // wait up to ~30s on first fetch — that used to make MyRay/NewTom feel dead.
+    var msg;
+    if (launcherKey === 'aidental') {
+        msg = mediaTrRepl('media.local.aidentalFillOpen', {
+            PATIENT: patientSummary
+        });
+    } else {
+        msg = mediaTrRepl(openKey, {
+            SHORTCUT: shortcutName,
+            EXE: appPath,
+            PATIENT: patientSummary,
+            FOLDER: folderPath || folderHint
+        });
+    }
+    msg += '\n\n' + mediaTr('media.local.launcherReady');
+    if (!confirm(msg)) return;
+
+    copyTextToClipboard(clipboardText);
 
     pingXrayLauncher(function(status) {
         status = status || { online: false };
@@ -3217,27 +3271,10 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             launcherLine = mediaTr('media.local.launcherFetchBlocked');
         } else {
             launcherLine = mediaTrRepl('media.local.launcherNotRunning', {
-                BAT: 'tools\\Start X-Ray Launcher.bat'
+                BAT: batPath
             });
         }
-
-        var msg;
-        if (launcherKey === 'aidental') {
-            msg = mediaTrRepl('media.local.aidentalFillOpen', {
-                PATIENT: patientSummary
-            });
-        } else {
-            msg = mediaTrRepl(openKey, {
-                SHORTCUT: shortcutName,
-                EXE: appPath,
-                PATIENT: patientSummary,
-                FOLDER: folderPath || folderHint
-            });
-        }
-        msg += '\n\n' + launcherLine;
-        if (!confirm(msg)) return;
-
-        copyTextToClipboard(clipboardText);
+        // status line kept for offline alerts below; confirm already done
 
         if (status.blocked || !status.online) {
             if (status.permissionPrompt) {
@@ -3259,7 +3296,7 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
                 SHORTCUT: shortcutName,
                 EXE: appPath,
                 PATIENT: patientSummary,
-                BAT: 'tools\\Start X-Ray Launcher.bat'
+                BAT: batPath
             }));
             return;
         }
@@ -3275,7 +3312,7 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
                 if (!bridgeBody.aidental_running) {
                     alert(mediaTrRepl('media.local.aidentalNotRunning', {
                         PATIENT: patientSummary,
-                        BAT: 'tools\\Start X-Ray Launcher.bat'
+                        BAT: batPath
                     }));
                     return;
                 }
@@ -3310,7 +3347,7 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
                 SHORTCUT: shortcutName,
                 EXE: appPath,
                 PATIENT: patientSummary,
-                BAT: 'tools\\Start X-Ray Launcher.bat'
+                BAT: batPath
             }));
         });
     });
@@ -3328,9 +3365,34 @@ function openNntNewtom() {
     openDesktopXrayApp('nntnewtom');
 }
 
+function openMyRay() {
+    try {
+        console.log('[MyRay] click');
+        if (typeof openDesktopXrayApp !== 'function') {
+            alert('X-ray module incomplete. Hard-refresh: Ctrl+Shift+R');
+            return;
+        }
+        if (!XRAY_SYSTEMS || !XRAY_SYSTEMS.myray) {
+            alert('MyRay missing from this page build. Hard-refresh Ctrl+Shift+R. Use http://127.0.0.1:5500');
+            return;
+        }
+        openDesktopXrayApp('myray');
+    } catch (err) {
+        console.error('[MyRay]', err);
+        alert('MyRay click failed: ' + (err && err.message ? err.message : String(err)));
+    }
+}
 function openXraySystem(key) {
+    if (!XRAY_SYSTEMS || !key) {
+        alert('X-ray module not ready. Hard-refresh the page (Ctrl+Shift+R).');
+        return;
+    }
     var sys = XRAY_SYSTEMS[key];
-    if (sys && sys.launcherKey) {
+    if (!sys) {
+        alert('Unknown X-ray system: ' + key);
+        return;
+    }
+    if (sys.launcherKey) {
         openDesktopXrayApp(key);
         return;
     }
@@ -3537,3 +3599,13 @@ document.addEventListener('DOMContentLoaded', function () {
         xraySyncFromActivePatientPayload(activePatientSlots[0], 'active-slot-boot');
     }
 });
+
+// Explicit window exports — inline onclick handlers and diagnostics rely on these.
+if (typeof window !== 'undefined') {
+    window.XRAY_SYSTEMS = XRAY_SYSTEMS;
+    window.openXraySystem = openXraySystem;
+    window.openMyRay = openMyRay;
+    window.openNntNewtom = openNntNewtom;
+    window.openDesktopXrayApp = openDesktopXrayApp;
+    window.pingXrayLauncher = pingXrayLauncher;
+}

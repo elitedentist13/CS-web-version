@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MyRay Launcher Diagnostic</title>
+<style>
+  body { font-family: Consolas, monospace; padding: 20px; background: #111; color: #ddd; max-width: 960px; }
+  h2 { color: #0f0; }
+  .ok { color: #0f0; } .fail { color: #f44; } .warn { color: #fa0; } .info { color: #8cf; }
+  button { padding: 10px 16px; margin: 6px 6px 6px 0; cursor: pointer; font-size: 14px; }
+  pre { background: #1a1a1a; border: 1px solid #333; padding: 12px; white-space: pre-wrap; line-height: 1.45; }
+  a { color: #8cf; }
+  .box { border: 1px solid #333; padding: 12px; margin: 12px 0; background: #181818; }
+</style>
+</head>
+<body>
+<h2>MyRay Bridge — End-to-End Diagnostic</h2>
+<p class="info">
+  This page tests the <b>desktop bridge</b> and whether <code>app-xray.js</code> on disk contains MyRay wiring.
+  The real UI button only works inside <a href="index.html">index.html</a> after selecting a patient.
+</p>
+
+<div class="box">
+  <button onclick="runAll()">▶ Run All Checks</button>
+  <button onclick="testOpenMyRay()">🦷 Test /open/myray (live launch)</button>
+  <button onclick="location.href='index.html'">Open Banana App</button>
+</div>
+
+<pre id="out">Click "Run All Checks".</pre>
+
+<script>
+var OUT = document.getElementById('out');
+function log(cls, msg) {
+  OUT.innerHTML += '<span class="' + cls + '">' + msg + '</span>\n';
+}
+function clearOut() { OUT.innerHTML = ''; }
+
+async function fetchText(url) {
+  var r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status);
+  return r.text();
+}
+
+async function fetchJson(url) {
+  var r = await fetch(url, { cache: 'no-store', mode: 'cors' });
+  var text = await r.text();
+  var body = null;
+  try { body = JSON.parse(text); } catch (e) { body = { raw: text }; }
+  return { ok: r.ok, status: r.status, body: body };
+}
+
+async function runAll() {
+  clearOut();
+  log('info', '=== 1) Live-served app-xray.js wiring ===');
+  try {
+    var js = await fetchText('app-xray.js?v=diag-' + Date.now());
+    log('ok', 'PASS  fetched app-xray.js (' + js.length + ' bytes)');
+    var checks = [
+      ['XRAY_SYSTEMS.myray block', /myray:\s*\{[\s\S]*?launcherKey:\s*'myray'/],
+      ['openMyRay()', /function openMyRay\s*\(/],
+      ['openXraySystem()', /function openXraySystem\s*\(/],
+      ['myray_exists in ping', /myray_exists:\s*!!body\.myray_exists/],
+      ['window export openMyRay', /window\.openMyRay\s*=\s*openMyRay/],
+      ['launcherBat for MyRay', /launcherBat:\s*'tools\\\\installer-myray\\\\Start MyRay Launcher\.bat'/]
+    ];
+    checks.forEach(function(c) {
+      if (c[1].test(js)) log('ok', 'PASS  ' + c[0]);
+      else log('fail', 'FAIL  ' + c[0]);
+    });
+  } catch (e) {
+    log('fail', 'FAIL  could not fetch app-xray.js: ' + e.message);
+  }
+
+  log('info', '\n=== 2) index.html button + script tag ===');
+  try {
+    var html = await fetchText('index.html?v=diag-' + Date.now());
+    if (html.indexOf('xray-sys-myray') >= 0) log('ok', 'PASS  MyRay button present');
+    else log('fail', 'FAIL  MyRay button missing');
+    if (html.indexOf("openMyRay") >= 0 || html.indexOf("openXraySystem('myray')") >= 0)
+      log('ok', 'PASS  MyRay onclick wired');
+    else log('fail', 'FAIL  MyRay onclick missing');
+    if (html.indexOf('app-xray.js') >= 0) log('ok', 'PASS  app-xray.js listed in script loader');
+    else log('fail', 'FAIL  app-xray.js not in script loader');
+    if (html.indexOf('20260828-myray-launcher') >= 0 || html.indexOf('20260828myray') >= 0)
+      log('ok', 'PASS  cache-bust token present');
+    else log('warn', 'WARN  expected cache-bust token not found');
+  } catch (e) {
+    log('fail', 'FAIL  could not fetch index.html: ' + e.message);
+  }
+
+  log('info', '\n=== 3) Desktop bridge on :17890 ===');
+  try {
+    var st = await fetchJson('http://127.0.0.1:17890/status');
+    if (st.ok && st.body && st.body.ok) {
+      log('ok', 'PASS  /status OK');
+      log('info', '      enabled_systems = ' + JSON.stringify(st.body.enabled_systems));
+      log(st.body.myray_exists ? 'ok' : 'warn',
+        (st.body.myray_exists ? 'PASS' : 'WARN') + '  myray_exists = ' + !!st.body.myray_exists);
+      if (st.body.systems && st.body.systems.myray) {
+        log('info', '      target = ' + st.body.systems.myray.target);
+        log('info', '      workdir = ' + st.body.systems.myray.workingDirectory);
+      }
+    } else {
+      log('fail', 'FAIL  /status HTTP ' + st.status + ' body=' + JSON.stringify(st.body));
+    }
+  } catch (e) {
+    log('fail', 'FAIL  bridge not reachable: ' + e.message);
+    log('warn', '      Start: tools\\installer-myray\\Start MyRay Launcher.bat');
+  }
+
+  log('info', '\n=== 4) Notes ===');
+  log('warn', 'INFO  MyRay shares the CEFLA bridge with NewTom (nntnewtom,myray) on :17890 — not a rival exclusive launcher.');
+  log('warn', 'INFO  /workstation 404 on :17890 is NORMAL — that path is for audit agent, not the X-ray bridge.');
+  log('warn', 'INFO  Button clicks only work on index.html with a patient selected.');
+  log('ok', '\nDone. Use "Test /open/myray" to live-launch NNTBridge with a sample chart.');
+}
+
+async function testOpenMyRay() {
+  log('info', '\n=== Live /open/myray ===');
+  var q = [
+    'patient_no=' + encodeURIComponent('PY002505'),
+    'patient_id=diag-test',
+    'patient_name=' + encodeURIComponent('DIAG TEST'),
+    'chinese_name=' + encodeURIComponent('測試'),
+    'dob=1990-01-15',
+    'sex=M'
+  ].join('&');
+  try {
+    var r = await fetchJson('http://127.0.0.1:17890/open/myray?' + q);
+    if (r.ok && r.body && r.body.ok) {
+      log('ok', 'PASS  /open/myray HTTP 200');
+      log('info', '      nnt_patid (prefix stripped) = ' + r.body.nnt_patid);
+      if (r.body.bridge) {
+        log(r.body.bridge.dir ? 'ok' : 'warn',
+          (r.body.bridge.dir ? 'PASS' : 'WARN') + '  bridge.dir (SCAN folder for x-rays) = ' + (r.body.bridge.dir || '(empty — images may not connect)'));
+        log('info', '      bridge.argList = ' + r.body.bridge.argList);
+      }
+      log('ok', 'MyRay/NNT should be opening now. Existing patients need bridge.dir set for images.');
+    } else {
+      log('fail', 'FAIL  /open/myray HTTP ' + r.status + ' ' + JSON.stringify(r.body));
+    }
+  } catch (e) {
+    log('fail', 'FAIL  ' + e.message);
+  }
+}
+</script>
+</body>
+</html>

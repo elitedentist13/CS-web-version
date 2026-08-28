@@ -154,6 +154,30 @@ $Systems = @{
             "C:\Program Files (x86)\CEFLA\NNT\NNT.exe"
         )
     }
+    # MyRay (CEFLA group, same enterprise as NNT/NewTom). Uses NNTBridge.exe
+    # (or MyRayBridge.exe if the MyRay install ships one) with the identical
+    # command-line protocol: /PATID /NAME /SURNAME /DATEB /SEX /SSNM /APPPATH
+    # /WORKDIR /OPENPATIENT. Old-patient matching: clinic prefix stripped via
+    # Convert-NntPatientId (same as nntnewtom). See Start-MyRayBridgePatient.
+    myray = @{
+        shortcuts = @(
+            (Join-Path $PublicDesktop "MyRay.lnk"),
+            (Join-Path $UserDesktop "MyRay.lnk"),
+            (Join-Path $PublicDesktop "MyRay Viewer.lnk"),
+            (Join-Path $UserDesktop "MyRay Viewer.lnk"),
+            (Join-Path $PublicDesktop "MyRay Bridge.lnk"),
+            (Join-Path $UserDesktop "MyRay Bridge.lnk")
+        )
+        executables = @(
+            "C:\MyRay\MyRay.exe",
+            "C:\Program Files\MyRay\MyRay.exe",
+            "C:\Program Files (x86)\MyRay\MyRay.exe",
+            "C:\Program Files\CEFLA\MyRay\MyRay.exe",
+            "C:\Program Files (x86)\CEFLA\MyRay\MyRay.exe",
+            "C:\Program Files\iRaysoft\MyRay\MyRay.exe",
+            "C:\Program Files (x86)\iRaysoft\MyRay\MyRay.exe"
+        )
+    }
     # Rayscan / SMARTDent V3 (RAY Co.). Confirmed live on a real clinic PC
     # (2026-08-20, hostname "Doctor-1", chart KT005455): Public Desktop has
     # "RAYBridge.lnk" -> C:\Ray\RAYBridge\RAYBridge.exe (empty Arguments --
@@ -260,23 +284,6 @@ function Parse-Query($RawPath) {
     return $out
 }
 
-# Read by /status only -- written by the separate, independently-scheduled
-# xray-bridge-auto-update.ps1 (see tools/xray-bridge-auto-update.ps1), never
-# by this script itself. Deliberately tolerant of the file being missing
-# (auto-update not installed / never run yet) or malformed (mid-write from
-# another process) -- this is a nice-to-have visibility panel, not something
-# that should ever be able to break /status.
-function Get-AutoUpdateStatus {
-    $statePath = Join-Path $PSScriptRoot "xray-bridge-update-state.json"
-    if (-not (Test-Path -LiteralPath $statePath)) { return $null }
-    try {
-        $raw = Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop
-        return ($raw | ConvertFrom-Json -ErrorAction Stop)
-    } catch {
-        return $null
-    }
-}
-
 function Status-Payload {
     # Only reports on systems this instance actually serves (see
     # -EnabledSystems / Test-SystemEnabled above) -- an EzDent-i-only
@@ -292,8 +299,6 @@ function Status-Payload {
     }
     $payload["systems"] = $systemsOut
     $payload["enabled_systems"] = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { @($EnabledSystems) } else { @($Systems.Keys) }
-    $autoUpdate = Get-AutoUpdateStatus
-    if ($null -ne $autoUpdate) { $payload["auto_update"] = $autoUpdate }
     return $payload
 }
 
@@ -457,12 +462,18 @@ $script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
 
 function Get-NntScanRoots {
     if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
-    return @(
-        "\\RECEPTION_MCP\IMAGE\SCAN",
+    $defaults = @(
         "\\CSMAIN\IMAGE\Scan",
+        "\\CSMAIN\IMAGE\SCAN",
+        "\\RECEPTION_MCP\IMAGE\SCAN",
+        "\\RECEPTION\IMAGE\SCAN",
         "C:\Image\SCAN",
         "C:\IMAGE\SCAN"
     )
+    # Prefer shares/folders that actually exist on THIS PC (server vs consultation client).
+    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
+    if ($reachable.Count -gt 0) { return $reachable }
+    return $defaults
 }
 
 # NNT 2D panoramics on the CS IMAGE share are stored as *.2dh under
@@ -473,19 +484,26 @@ function Get-NntScanRoots {
 # Start-NntBridgePatient). Also used to locate the file for the JPEG
 # export/import path into Supabase (see tools/_import_cs_opg.py).
 function Find-Nnt2dDocFile($PatientNo) {
-    $folder = Find-NntScanFolder $PatientNo
-    if (-not $folder) { return "" }
-    $doc = Join-Path $folder "Document"
-    if (-not (Test-PathSafe $doc)) { return "" }
-    try {
-        $pattern = Join-Path $doc "*\*\*\*\*\2D Images collection\*.2dh"
-        $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $hit) {
-            $hit = Get-ChildItem -LiteralPath $doc -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
-                Select-Object -First 1
-        }
-        if ($hit) { return [string]$hit.FullName }
-    } catch {}
+    $folders = New-Object System.Collections.Generic.List[string]
+    $preferred = Find-NntScanFolderWithStudies $PatientNo
+    if ($preferred) { $folders.Add($preferred) }
+    foreach ($cand in Get-NntScanFolderCandidatePaths $PatientNo) {
+        if ($folders -contains $cand) { continue }
+        if (Test-PathSafe $cand) { $folders.Add($cand) }
+    }
+    foreach ($folder in $folders) {
+        $doc = Join-Path $folder "Document"
+        if (-not (Test-PathSafe $doc)) { continue }
+        try {
+            $pattern = Join-Path $doc "*\*\*\*\*\2D Images collection\*.2dh"
+            $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $hit) {
+                $hit = Get-ChildItem -LiteralPath $doc -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+            }
+            if ($hit) { return [string]$hit.FullName }
+        } catch {}
+    }
     return ""
 }
 
@@ -498,13 +516,13 @@ function Find-Nnt2dDocId($PatientNo) {
 # /DIR is ignored if NNT.exe is already running (confirmed live by tracing
 # CS's own launch: CS closes/relaunches around this same constraint).
 function Stop-NntProcessesForDir {
-    foreach ($name in @("NNTBridge", "NNT_SID", "NNT")) {
+    foreach ($name in @("NNTBridge", "NNT_SID", "NNT", "MyRay", "MyRayBridge")) {
         Get-Process -Name $name -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
     }
     $deadline = (Get-Date).AddSeconds(8)
     while ((Get-Date) -lt $deadline) {
-        $left = @(Get-Process -Name "NNT", "NNT_SID", "NNTBridge" -ErrorAction SilentlyContinue)
+        $left = @(Get-Process -Name "NNT", "NNT_SID", "NNTBridge", "MyRay", "MyRayBridge" -ErrorAction SilentlyContinue)
         if ($left.Count -eq 0) { return }
         Start-Sleep -Milliseconds 400
     }
@@ -556,6 +574,217 @@ function Find-NntScanFolder($PatientNo) {
         if (Test-PathSafe $folder) { return $folder }
     }
     return ""
+}
+
+# True when the chart SCAN folder has openable CEFLA study files under Document
+# (typically *.2dh). An empty Document\ tree still "exists" as a folder after a
+# failed /DIR open — passing /DIR at that empty archive makes NNT/MyRay show a
+# blank patient UI. Prefer no /DIR (open by /PATID from NNT's own DB) in that case.
+function Test-NntScanFolderHasStudies($Folder) {
+    if ([string]::IsNullOrWhiteSpace($Folder) -or -not (Test-PathSafe $Folder)) { return $false }
+    $doc = Join-Path $Folder "Document"
+    if (-not (Test-PathSafe $doc)) { return $false }
+    try {
+        # Fast path: CEFLA's usual hashed layout (avoids full UNC recurse).
+        $pattern = Join-Path $doc "*\*\*\*\*\2D Images collection\*.2dh"
+        $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($hit) { return $true }
+        $hit = Get-ChildItem -LiteralPath $doc -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($hit) { return $true }
+        $img = Get-ChildItem -LiteralPath $doc -Recurse -Include *.jpg,*.jpeg,*.png,*.bmp -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        return [bool]$img
+    } catch {
+        return $false
+    }
+}
+
+# Prefer a chart folder that actually contains studies when several SCAN roots
+# are reachable (e.g. empty \\RECEPTION\...\002505 vs populated \\CSMAIN\...).
+function Find-NntScanFolderWithStudies($PatientNo) {
+    foreach ($folder in Get-NntScanFolderCandidatePaths $PatientNo) {
+        if (Test-NntScanFolderHasStudies $folder) { return $folder }
+    }
+    return ""
+}
+
+# ── MyRay-first archive resolution (CSMAIN/RECEPTION are CS leftovers) ──
+# Clinic is retiring Clinic Solution. MyRay/NNT (CEFLA Hyperion on CT-PC) keeps
+# its own PatDocDB (PMSPatientID = bare chart no.) and study files under
+# \\CT-PC\IMAGE\Scan\{chart}. Prefer that stack; only fall back to CS shares.
+
+function Get-MyRayNntIniPath {
+    foreach ($p in @(
+        "C:\NNT\NNT.ini",
+        (Join-Path $env:ProgramFiles "NNT\NNT.ini"),
+        (Join-Path ${env:ProgramFiles(x86)} "NNT\NNT.ini")
+    )) {
+        if (Test-PathSafe $p) { return $p }
+    }
+    return ""
+}
+
+function Read-MyRayNntIniValue($Key) {
+    $ini = Get-MyRayNntIniPath
+    if (-not $ini) { return "" }
+    try {
+        foreach ($line in Get-Content -LiteralPath $ini -ErrorAction SilentlyContinue) {
+            if ($line -match ("^\s*" + [regex]::Escape($Key) + "\s*=\s*(.*)\s*$")) {
+                return $Matches[1].Trim().Trim('"')
+            }
+        }
+    } catch {}
+    return ""
+}
+
+function Get-MyRayPatDocDbPaths {
+    $list = New-Object System.Collections.Generic.List[string]
+    # Prefer the local working copy (this PC's NNT Shared) — it holds PMSPatientID
+    # rows. \\CT-PC\Shared\PatDocDB.mdb is often an empty shell on clients.
+    foreach ($p in @(
+        "C:\NNT\Shared\PatDocDB.mdb",
+        "\\CT-PC\Shared\PatDocDB.mdb"
+    )) {
+        if ($list -notcontains $p) { $list.Add($p) }
+    }
+    $shared = Read-MyRayNntIniValue "PercorsoShared"
+    if ($shared) {
+        $p = Join-Path $shared.TrimEnd('\') "PatDocDB.mdb"
+        if ($list -notcontains $p) { $list.Add($p) }
+    }
+    return @($list | Where-Object { Test-PathSafe $_ })
+}
+
+function Copy-FileSharedRead($Source, $Dest) {
+    $in = $null
+    $out = $null
+    try {
+        $in = [IO.File]::Open($Source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $out = [IO.File]::Create($Dest)
+        $in.CopyTo($out)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        try { if ($out) { $out.Close() } } catch {}
+        try { if ($in) { $in.Close() } } catch {}
+    }
+}
+
+function Test-MyRayDbHasPatient($PatientNo) {
+    $patId = Convert-NntPatientId $PatientNo
+    if ([string]::IsNullOrWhiteSpace($patId)) { return $false }
+    $safeId = ($patId -replace '[^0-9A-Za-z]', '')
+    if (-not $safeId) { return $false }
+    foreach ($mdb in Get-MyRayPatDocDbPaths) {
+        $tmp = $null
+        $conn = $null
+        try {
+            # NNT often locks PatDocDB.mdb — shared-read copy then query so /open never blocks.
+            $tmp = [IO.Path]::Combine([IO.Path]::GetTempPath(), ("myray-patdoc-" + [Guid]::NewGuid().ToString("N") + ".mdb"))
+            if (-not (Copy-FileSharedRead $mdb $tmp)) { continue }
+            $cs = "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$tmp;Mode=Read;Persist Security Info=False;"
+            $conn = New-Object System.Data.OleDb.OleDbConnection($cs)
+            $conn.ConnectionTimeout = 3
+            $conn.Open()
+            $cmd = $conn.CreateCommand()
+            $cmd.CommandTimeout = 3
+            $cmd.CommandText = "SELECT COUNT(*) FROM Patients WHERE PMSPatientID = '$safeId'"
+            $n = [int]$cmd.ExecuteScalar()
+            if ($n -gt 0) { return $true }
+        } catch {
+            # ignore locked/unavailable DB and try next path
+        } finally {
+            try { if ($conn -and $conn.State -ne 'Closed') { $conn.Close() } } catch {}
+            if ($tmp) {
+                try { [IO.File]::Delete($tmp) } catch {}
+            }
+        }
+    }
+    return $false
+}
+
+# MyRay/Hyperion native SCAN roots (NOT Clinic Solution CSMAIN/RECEPTION).
+function Get-MyRayScanRoots {
+    $defaults = @(
+        "\\CT-PC\IMAGE\Scan",
+        "\\CT-PC\IMAGE\SCAN",
+        "C:\NNT\Document"
+    )
+    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
+    if ($reachable.Count -gt 0) { return $reachable }
+    return $defaults
+}
+
+function Get-MyRayScanFolderCandidatePaths($PatientNo) {
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($id in Get-NntScanIdCandidates $PatientNo) {
+        foreach ($root in Get-MyRayScanRoots) {
+            if ([string]::IsNullOrWhiteSpace($root)) { continue }
+            $out.Add((Join-Path ([string]$root) ([string]$id)))
+        }
+    }
+    return $out
+}
+
+function Find-MyRayScanFolderWithStudies($PatientNo) {
+    foreach ($folder in Get-MyRayScanFolderCandidatePaths $PatientNo) {
+        if (Test-NntScanFolderHasStudies $folder) { return $folder }
+    }
+    return ""
+}
+
+# Clinic Solution leftover shares — second priority for MyRay opens only.
+function Get-CsLegacyScanRoots {
+    $defaults = @(
+        "\\CSMAIN\IMAGE\Scan",
+        "\\CSMAIN\IMAGE\SCAN",
+        "\\RECEPTION_MCP\IMAGE\SCAN",
+        "\\RECEPTION\IMAGE\SCAN",
+        "C:\Image\SCAN",
+        "C:\IMAGE\SCAN"
+    )
+    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
+    if ($reachable.Count -gt 0) { return $reachable }
+    return $defaults
+}
+
+function Find-CsLegacyScanFolderWithStudies($PatientNo) {
+    foreach ($id in Get-NntScanIdCandidates $PatientNo) {
+        foreach ($root in Get-CsLegacyScanRoots) {
+            if ([string]::IsNullOrWhiteSpace($root)) { continue }
+            $folder = Join-Path ([string]$root) ([string]$id)
+            if (Test-NntScanFolderHasStudies $folder) { return $folder }
+        }
+    }
+    return ""
+}
+
+# Resolve /DIR for MyRay (CS retiring):
+#   1) MyRay PatDocDB hit → CT-PC IMAGE\Scan studies if present, else DB-only (no /DIR)
+#   2) Else MyRay files on \\CT-PC\IMAGE\Scan even without a DB row
+#   3) Else Clinic Solution leftovers on CSMAIN / RECEPTION
+function Resolve-MyRayPatientArchive($PatientNo) {
+    $patId = Convert-NntPatientId $PatientNo
+    $inDb = Test-MyRayDbHasPatient $patId
+    $myrayDir = Find-MyRayScanFolderWithStudies $patId
+
+    if ($inDb -and $myrayDir) {
+        return [ordered]@{ source = "myray-files"; dir = $myrayDir; in_myray_db = $true }
+    }
+    if ($inDb) {
+        return [ordered]@{ source = "myray-db"; dir = ""; in_myray_db = $true }
+    }
+    if ($myrayDir) {
+        return [ordered]@{ source = "myray-files"; dir = $myrayDir; in_myray_db = $false }
+    }
+
+    $csDir = Find-CsLegacyScanFolderWithStudies $patId
+    if ($csDir) {
+        return [ordered]@{ source = "cs-files"; dir = $csDir; in_myray_db = $false }
+    }
+    return [ordered]@{ source = "none"; dir = ""; in_myray_db = $false }
 }
 
 function Get-NntScanContentType($Extension) {
@@ -714,7 +943,14 @@ function Start-NntBridgePatient($Resolved, $Patient) {
     # no NNT.exe instance already running for /DIR to take effect.
     $docPath = Find-Nnt2dDocFile $patId
     $docId = if ($docPath) { [IO.Path]::GetFileNameWithoutExtension($docPath) } else { "" }
-    $dirRoot = if ($docPath) { Find-NntScanFolder $patId } else { "" }
+    # Only pass /DIR when the chart archive has real studies. Pointing /DIR at
+    # an empty SCAN\{chart} folder (common after a prior bad open) forces a
+    # blank NNT/MyRay UI. With no studies on disk, omit /DIR so NNT opens by
+    # /PATID from its own database instead.
+    $dirRoot = Find-NntScanFolderWithStudies $patId
+    if (-not $dirRoot -and $docPath) {
+        $dirRoot = Find-NntScanFolder $patId
+    }
 
     if ($dirRoot) {
         Stop-NntProcessesForDir
@@ -776,6 +1012,141 @@ function Start-NntBridgePatient($Resolved, $Patient) {
         docpath = $docPath
         chinese_name = $Patient.chinese_name
         mode = "nntbridge"
+        argList = ($argList -join " ")
+    }
+}
+
+# MyRay (CEFLA group, same enterprise as NNT/NewTom). Looks for MyRayBridge.exe
+# first (in case the MyRay install ships its own renamed copy), then falls back
+# to NNTBridge.exe in the MyRay program folder -- both accept the same
+# /PATID /NAME /SURNAME /DATEB /SEX /SSNM /APPPATH /WORKDIR /OPENPATIENT
+# command-line contract as the NNT/NewTom version.
+function Resolve-MyRayBridge($Resolved) {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($Resolved -and $Resolved.workingDirectory) {
+        $candidates.Add((Join-Path $Resolved.workingDirectory "MyRayBridge.exe"))
+        $candidates.Add((Join-Path $Resolved.workingDirectory "NNTBridge.exe"))
+    }
+    if ($Resolved -and $Resolved.target) {
+        $targetDir = Split-Path -Parent $Resolved.target
+        if ($targetDir) {
+            $candidates.Add((Join-Path $targetDir "MyRayBridge.exe"))
+            $candidates.Add((Join-Path $targetDir "NNTBridge.exe"))
+        }
+    }
+    $candidates.Add("C:\MyRay\MyRayBridge.exe")
+    $candidates.Add("C:\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files (x86)\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files\CEFLA\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files (x86)\CEFLA\MyRay\NNTBridge.exe")
+    return First-Existing $candidates
+}
+
+# MyRay open priority (CS retiring):
+#   1) MyRay PatDocDB + \\CT-PC\IMAGE\Scan studies (native Hyperion archive)
+#   2) CSMAIN / RECEPTION SCAN files only if patient is not in MyRay DB
+# Never force /DIR onto an empty CS chart folder — that blanks the UI.
+function Start-MyRayBridgePatient($Resolved, $Patient) {
+    $bridge = Resolve-MyRayBridge $Resolved
+    $patId = if ($Patient.patient_no) { Convert-NntPatientId $Patient.patient_no } else { $Patient.patient_id }
+    if (-not $bridge -or [string]::IsNullOrWhiteSpace($patId)) {
+        return $null
+    }
+
+    $workDir = if ($Resolved.workingDirectory) { $Resolved.workingDirectory } else { Split-Path -Parent $bridge }
+    $appPath = ""
+    if ($Resolved.target -and (Test-PathSafe $Resolved.target)) {
+        $appPath = $Resolved.target
+    } else {
+        foreach ($guess in @(
+            (Join-Path $workDir "MyRay.exe"),
+            (Join-Path $workDir "NNT.exe")
+        )) {
+            if (Test-PathSafe $guess) { $appPath = $guess; break }
+        }
+        if (-not $appPath) { $appPath = Join-Path $workDir "MyRay.exe" }
+    }
+
+    $archive = Resolve-MyRayPatientArchive $patId
+    $dirRoot = [string]$archive.dir
+    $docPath = ""
+    if ($dirRoot) {
+        $docUnder = Join-Path $dirRoot "Document"
+        if (Test-PathSafe $docUnder) {
+            try {
+                $pattern = Join-Path $docUnder "*\*\*\*\*\2D Images collection\*.2dh"
+                $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $hit) {
+                    $hit = Get-ChildItem -LiteralPath $docUnder -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
+                        Select-Object -First 1
+                }
+                if ($hit) { $docPath = [string]$hit.FullName }
+            } catch {}
+        }
+    }
+    $docId = if ($docPath) { [IO.Path]::GetFileNameWithoutExtension($docPath) } else { "" }
+
+    if ($dirRoot) {
+        Stop-NntProcessesForDir
+    }
+
+    $argList = New-Object System.Collections.Generic.List[string]
+    if ($dirRoot) {
+        $argList.Add("/DIR")
+        $argList.Add((Quote-ProcessArg $dirRoot))
+    }
+    $argList.Add("/PATID")
+    $argList.Add((Quote-ProcessArg $patId))
+    if ($Patient.patient_name) {
+        $argList.Add("/NAME")
+        $argList.Add((Quote-ProcessArg $Patient.patient_name))
+    }
+    if ($Patient.chinese_name) {
+        $argList.Add("/SURNAME")
+        $argList.Add((Quote-ProcessArg $Patient.chinese_name))
+    }
+    $dob = Convert-NntBirthDate $Patient.dob
+    if ($dob) {
+        $argList.Add("/DATEB")
+        $argList.Add((Quote-ProcessArg $dob))
+    }
+    $sex = Convert-NntSex $Patient.sex
+    if ($sex) {
+        $argList.Add("/SEX")
+        $argList.Add($sex)
+    }
+    if ($Patient.hkid) {
+        $argList.Add("/SSNM")
+        $argList.Add((Quote-ProcessArg $Patient.hkid))
+    }
+    if ($appPath -and (Test-PathSafe $appPath)) {
+        $argList.Add("/APPPATH")
+        $argList.Add((Quote-ProcessArg $appPath))
+    }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $argList.Add("/WORKDIR")
+        $argList.Add((Quote-ProcessArg $workDir))
+    }
+    $argList.Add("/OPENPATIENT")
+
+    $startArgs = @{ FilePath = $bridge; ArgumentList = ($argList -join " ") }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $startArgs.WorkingDirectory = $workDir
+    }
+    Start-Process @startArgs
+    return [ordered]@{
+        bridge = $bridge
+        target = $appPath
+        workingDirectory = $workDir
+        patient_id = $patId
+        dir = $dirRoot
+        docid = $docId
+        docpath = $docPath
+        archive_source = $archive.source
+        in_myray_db = [bool]$archive.in_myray_db
+        chinese_name = $Patient.chinese_name
+        mode = "myraybridge"
         argList = ($argList -join " ")
     }
 }
@@ -1315,6 +1686,8 @@ function Handle-Request($RawPath) {
             $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext
         } elseif ($key -eq "trophy") {
             $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
+        } elseif ($key -eq "myray") {
+            $bridgeLaunch = Start-MyRayBridgePatient $resolved $patientContext
         }
         if (-not $bridgeLaunch) {
             Start-ResolvedProgram $resolved
@@ -1323,6 +1696,14 @@ function Handle-Request($RawPath) {
             Start-NntIdentityGuard $patientContext
         }
         if ($bridgeLaunch -and $key -eq "nntnewtom" -and $patientContext.patient_id -and $patientContext.patient_no) {
+            Start-NntNewOpgWatcher $patientContext $bridgeLaunch
+        }
+        # MyRay shares the same CEFLA identity-guard and OPG-watcher logic as
+        # NNT/NewTom: same internal patient DB drift risk, same scan folder layout.
+        if ($bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_name) {
+            Start-NntIdentityGuard $patientContext
+        }
+        if ($bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_id -and $patientContext.patient_no) {
             Start-NntNewOpgWatcher $patientContext $bridgeLaunch
         }
         return @{
@@ -1602,7 +1983,24 @@ function Invoke-SelfTest {
     Assert-Equal "ezdenti.exists is a boolean" $true ($ezResolveCheck.exists -is [bool])
     $rayResolveCheck = Resolve-System "rayscan" ""
     Assert-Equal "rayscan.exists is a boolean" $true ($rayResolveCheck.exists -is [bool])
+    $myrayResolveCheck = Resolve-System "myray" ""
+    Assert-Equal "myray.exists is a boolean" $true ($myrayResolveCheck.exists -is [bool])
     Assert-Equal "unknown system key returns null" $true ((Resolve-System "does-not-exist" "") -eq $null)
+
+    Write-Host "== Resolve-MyRayBridge (returns a path string; safe on any PC) ==" -ForegroundColor Cyan
+    $myrayBridgeGuess = Resolve-MyRayBridge ([ordered]@{ workingDirectory = (Join-Path $env:TEMP ("xray-myray-" + [Guid]::NewGuid().ToString("N"))); target = "" })
+    Assert-Equal "Resolve-MyRayBridge returns a string" $true ($myrayBridgeGuess -is [string])
+
+    Write-Host "== Convert-NntPatientId covers MyRay clinic prefix stripping ==" -ForegroundColor Cyan
+    Assert-Equal "MyRay: MK prefix stripped" "005455" (Convert-NntPatientId "MK005455")
+    Assert-Equal "MyRay: no prefix, digits only" "005455" (Convert-NntPatientId "005455")
+    Assert-Equal "MyRay: empty stays empty"  "" (Convert-NntPatientId "")
+
+    Write-Host "== Start-MyRayBridgePatient (no real launch -- negative paths only) ==" -ForegroundColor Cyan
+    $noPatIdMyRay = Start-MyRayBridgePatient ([ordered]@{ workingDirectory = $env:TEMP; target = "" }) ([ordered]@{ patient_name = "NO ID" })
+    Assert-Equal "MyRay: no patient_no/id -> returns null" $true ($null -eq $noPatIdMyRay)
+    $noResolvedMyRay = Start-MyRayBridgePatient $null ([ordered]@{ patient_no = "001234"; patient_name = "TEST" })
+    Assert-Equal "MyRay: null resolved -> still safe (no throw)" $true ($true)
 
     Write-Host "== -EnabledSystems (installer-ezdenti / installer-nntnewtom isolation) ==" -ForegroundColor Cyan
     # Temporarily overrides the script-scope $EnabledSystems the same way

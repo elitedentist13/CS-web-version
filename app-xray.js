@@ -37,6 +37,9 @@ function xrayTrophyScanRoot() {
     if (typeof window !== 'undefined' && typeof window.XRAY_TROPHY_SCAN_ROOT === 'string' && window.XRAY_TROPHY_SCAN_ROOT) {
         return window.XRAY_TROPHY_SCAN_ROOT;
     }
+    if (typeof window !== 'undefined' && typeof window.__JSM_CS_SCAN_ROOT === 'string' && window.__JSM_CS_SCAN_ROOT) {
+        return window.__JSM_CS_SCAN_ROOT;
+    }
     return '\\\\RECEPTION_MCP\\IMAGE\\SCAN';
 }
 
@@ -44,7 +47,7 @@ function xrayTrophySubPattern() {
     if (typeof window !== 'undefined' && typeof window.XRAY_TROPHY_SUB_PATTERN === 'string' && window.XRAY_TROPHY_SUB_PATTERN) {
         return window.XRAY_TROPHY_SUB_PATTERN;
     }
-    return '{patient_no}';
+    return '{clinic_no_numbers_only}';
 }
 
 function xrayDefaultSubPattern() {
@@ -2744,6 +2747,10 @@ function seedXrayLocalPathsFromDesktop() {
             next.subPattern = xrayTrophySubPattern();
             patch = true;
         }
+        if (key === 'Trophy' && next.subPattern === '{patient_no}') {
+            next.subPattern = xrayTrophySubPattern();
+            patch = true;
+        }
         if (!next.appPath && appDefault) {
             next.appPath = appDefault;
             patch = true;
@@ -2766,9 +2773,13 @@ function xrayLocalPathTokens(patient) {
     var cn = String(patient.chinese_name || '').trim();
     var en = String(patient.full_name || '').trim();
     var name = en || cn;
+    var digits = (typeof clinicNoNumbersOnly === 'function')
+        ? clinicNoNumbersOnly(no)
+        : (no.match(/\d+/) ? no.match(/\d+/)[0] : '');
     return {
         patient_no: no,
         patient_no_clean: no.replace(/[^a-zA-Z0-9]/g, ''),
+        clinic_no_numbers_only: digits,
         patient_name: name,
         patient_name_clean: name.replace(/\s+/g, ''),
         chinese_name: cn
@@ -2928,14 +2939,11 @@ function appendXrayBridgePatientParams(qParts, patient, folderPath) {
 }
 
 function applyXrayLocalPattern(pattern, patient) {
-    var out = String(pattern || '{patient_no}');
+    var out = String(pattern || '{clinic_no_numbers_only}');
     var tokens = xrayLocalPathTokens(patient);
-    var k;
-    for (k in tokens) {
-        if (Object.prototype.hasOwnProperty.call(tokens, k)) {
-            out = out.split('{' + k + '}').join(tokens[k]);
-        }
-    }
+    Object.keys(tokens).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) {
+        out = out.split('{' + k + '}').join(tokens[k]);
+    });
     return out.replace(/[\\/]+/g, '\\');
 }
 
@@ -3025,6 +3033,9 @@ function xrayFileMatchesPatient(file, patient) {
     }
     if (tokens.patient_no_clean && tokens.patient_no_clean.length >= 2) {
         hits.push(tokens.patient_no_clean.toLowerCase());
+    }
+    if (tokens.clinic_no_numbers_only && tokens.clinic_no_numbers_only.length >= 2) {
+        hits.push(tokens.clinic_no_numbers_only.toLowerCase());
     }
     if (tokens.patient_name_clean && tokens.patient_name_clean.length >= 3) {
         hits.push(tokens.patient_name_clean.toLowerCase());
@@ -3122,7 +3133,7 @@ function renderXrayLocalPathsForm() {
                 '<label>' + esc(mediaTr('media.local.subPattern')) + '</label>' +
                 '<input type="text" id="xrayLocalSub-' + esc(key) + '" ' +
                 'value="' + esc(cfg.subPattern) + '" ' +
-                'placeholder="{patient_no}" ' +
+                'placeholder="{clinic_no_numbers_only}" ' +
                 'style="width:100%;font-family:Consolas,monospace;font-size:12px;">' +
             '</div>' +
             '<div class="fg">' +

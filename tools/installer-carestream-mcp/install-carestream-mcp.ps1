@@ -22,13 +22,32 @@ function Test-PathSafe($Path) {
 }
 
 function Get-CarestreamScanRootCandidates {
-    return @(
-        "\\RECEPTION_MCP\IMAGE\SCAN",
-        "\\CSMAIN\IMAGE\Scan",
-        "\\RECEPTION\IMAGE\SCAN",
-        "C:\Image\SCAN",
-        "C:\IMAGE\SCAN"
-    )
+    $list = New-Object System.Collections.Generic.List[string]
+    foreach ($local in @("C:\Image\SCAN", "C:\IMAGE\SCAN")) { [void]$list.Add($local) }
+    $hosts = New-Object System.Collections.Generic.List[string]
+    if ($env:COMPUTERNAME) { [void]$hosts.Add($env:COMPUTERNAME) }
+    foreach ($h in @(
+        "RECEPTION_MCP", "RECEPTION", "RECEPTION_TKO", "RECEPTION_PL",
+        "RECEPTION_CWB", "RECEPTION_QB", "RECEPTION_MK", "CSMAIN"
+    )) { [void]$hosts.Add($h) }
+    try {
+        $net = (net view 2>$null)
+        foreach ($line in $net) {
+            if ($line -match '\\\\(RECEPTION\S*|CSMAIN)\b') {
+                [void]$hosts.Add($Matches[1].Trim())
+            }
+        }
+    } catch {}
+    $seen = @{}
+    foreach ($h in $hosts) {
+        $key = $h.ToUpperInvariant()
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        foreach ($suf in @("IMAGE\SCAN", "IMAGE\Scan")) {
+            [void]$list.Add(("\\" + $h + "\" + $suf))
+        }
+    }
+    return @($list)
 }
 
 function Get-ReachableScanRoots {

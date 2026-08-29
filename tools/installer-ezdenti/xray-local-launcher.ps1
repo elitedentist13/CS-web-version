@@ -457,12 +457,17 @@ $script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
 
 function Get-NntScanRoots {
     if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
-    return @(
+    $defaults = @(
+        "\\RECEPTION\IMAGE\SCAN",
         "\\RECEPTION_MCP\IMAGE\SCAN",
         "\\CSMAIN\IMAGE\Scan",
+        "\\CSMAIN\IMAGE\SCAN",
         "C:\Image\SCAN",
         "C:\IMAGE\SCAN"
     )
+    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
+    if ($reachable.Count -gt 0) { return $reachable }
+    return $defaults
 }
 
 # NNT 2D panoramics on the CS IMAGE share are stored as *.2dh under

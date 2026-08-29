@@ -5539,9 +5539,9 @@
             'zh-Hant': '診所影像庫：{ROOT}（X 光 → Xrays\\病人編號，相片 → Photos\\病人編號）'
         },
         'media.local.introHtml': {
-            en: 'Patient images are stored under <strong>C:\\Image</strong> on this PC. Default x-ray folder pattern: <code>Xrays\\{patient_no}</code>. <strong>Carestream</strong> opens via desktop <strong>CS Imaging Software</strong> (<code>Patient.exe</code>). Use <strong>Import folder</strong> to upload into the cloud gallery. Paths are saved in this browser only.',
-            'zh-CN': '患者影像存放在本机 <strong>C:\\Image</strong>。默认 X 光路径：<code>Xrays\\{patient_no}</code>。<strong>Carestream</strong> 通过桌面 <strong>CS Imaging Software</strong>（<code>Patient.exe</code>）打开。使用<strong>导入文件夹</strong>可上传到云端库。路径仅保存在本浏览器。',
-            'zh-Hant': '患者影像存放在本機 <strong>C:\\Image</strong>。預設 X 光路徑：<code>Xrays\\{patient_no}</code>。<strong>Carestream</strong> 透過桌面 <strong>CS Imaging Software</strong>（<code>Patient.exe</code>）開啟。使用<strong>匯入資料夾</strong>可上載至雲端庫。路徑僅儲存在本瀏覽器。'
+            en: 'Patient images are stored under <strong>C:\\Image</strong> on this PC. Banana local folders use <code>Xrays\\{patient_no}</code>. Clinic Solution SCAN folders use <code>{clinic_no_numbers_only}</code> (chart digits only — MK/TKO/PL prefixes stripped). The launcher auto-detects <code>\\\\RECEPTION*\\IMAGE\\SCAN</code> on this clinic LAN. Use <strong>Import folder</strong> to upload into the cloud gallery. Paths are saved in this browser only.',
+            'zh-CN': '患者影像存放在本机 <strong>C:\\Image</strong>。Banana 本机路径：<code>Xrays\\{patient_no}</code>。Clinic Solution SCAN 使用 <code>{clinic_no_numbers_only}</code>（仅数字病历号，去掉 MK/TKO/PL 等诊所前缀）。启动器会自动探测本诊所局域网的 <code>\\\\RECEPTION*\\IMAGE\\SCAN</code>。使用<strong>导入文件夹</strong>可上传到云端库。路径仅保存在本浏览器。',
+            'zh-Hant': '患者影像存放在本機 <strong>C:\\Image</strong>。Banana 本機路徑：<code>Xrays\\{patient_no}</code>。Clinic Solution SCAN 使用 <code>{clinic_no_numbers_only}</code>（只取數字病歷號，去掉 MK/TKO/PL 等診所前綴）。啟動器會自動偵測本診所區網的 <code>\\\\RECEPTION*\\IMAGE\\SCAN</code>。使用<strong>匯入資料夾</strong>可上載至雲端庫。路徑僅儲存在本瀏覽器。'
         },
         'media.local.dataFolderPh': { en: 'e.g. C:\\Image', 'zh-CN': '例如 C:\\Image', 'zh-Hant': '例如 C:\\Image' },
         'media.local.general': { en: 'General / other folder', 'zh-CN': '通用 / 其他文件夹', 'zh-Hant': '通用 / 其他資料夾' },

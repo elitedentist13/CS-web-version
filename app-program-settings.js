@@ -44,6 +44,50 @@ function patientNoPrefix() {
     return String(getProgramSetting('patient_no_prefix', '') || '').trim();
 }
 
+/**
+ * Clinic Solution / imaging chart folder key: digits only.
+ * Banana's shared patient pool prefixes charts (MK006681, TKO003826, PL…).
+ * CS SCAN folders are bare numbers (006681). stripPatientNoPrefix() only
+ * removes the *current* clinic's prefix, so a TKO chart opened at MK would
+ * still miss. This strips any known clinic_code, then takes the first digit run.
+ */
+function clinicNoNumbersOnly(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return '';
+    var prefixes = [];
+    if (typeof APP_CLINICS !== 'undefined' && APP_CLINICS && APP_CLINICS.length) {
+        APP_CLINICS.forEach(function (c) {
+            var code = String((c && c.clinic_code) || '').trim();
+            if (code) prefixes.push(code);
+        });
+    }
+    var cur = String(patientNoPrefix() || '').trim();
+    if (cur) prefixes.push(cur);
+    prefixes.sort(function (a, b) { return b.length - a.length; });
+    var upper = s.toUpperCase();
+    var i;
+    for (i = 0; i < prefixes.length; i++) {
+        var p = prefixes[i].toUpperCase();
+        if (!p) continue;
+        if (upper.indexOf(p) === 0) {
+            var rest = s.slice(prefixes[i].length);
+            if (/\d/.test(rest)) {
+                s = rest;
+                break;
+            }
+        }
+    }
+    var m = String(s).match(/\d+/);
+    if (!m) return '';
+    var digits = m[0];
+    var width = patientNoDigitWidth();
+    if (width < 4 || width > 10) width = 6;
+    if (digits.length < width) {
+        digits = (new Array(width - digits.length + 1)).join('0') + digits;
+    }
+    return digits;
+}
+
 function formatPatientNoFromNumber(num) {
     var digits = patientNoDigitWidth();
     var padded = String(num).padStart(digits, '0');

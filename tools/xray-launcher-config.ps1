@@ -1,9 +1,8 @@
 # Per-PC bridge config — loaded automatically by xray-local-launcher.ps1
-# XRAY-MCP server: Trophy TW.exe runs here; SCAN data on RECEPTION_MCP share.
+# This clinic's CS SCAN share is \\RECEPTION\IMAGE\SCAN (not RECEPTION_MCP).
 
 $script:NntScanRootsOverride = @(
-    "\\RECEPTION_MCP\IMAGE\SCAN"
+    "\\RECEPTION\IMAGE\SCAN",
+    "\\RECEPTION_MCP\IMAGE\SCAN",
+    "\\CSMAIN\IMAGE\Scan"
 )
-
-# Optional: restrict which /open/* keys this bridge handles (installer sets via -EnabledSystems)
-# $EnabledSystems = @("carestream", "trophy")

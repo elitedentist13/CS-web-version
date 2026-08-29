@@ -1,9 +1,9 @@
 // app-nnt-scans.js — consultation-room NNT / NEWTOM 2D SCAN strip
 //
 // The local X-Ray launcher (127.0.0.1:17890) lists JPEG/PNG files from
-// \\CSMAIN\IMAGE\Scan\{nnt_patid}. This module shows them in the X-ray tab
-// without uploading anything to Supabase. CBCT / .pan_* studies still open
-// in NNT.exe via the existing NNT / NEWTOM button.
+// \\RECEPTION*\IMAGE\SCAN\{clinic_no_numbers_only} (auto-detected per clinic).
+// Banana chart prefixes (MK/TKO/PL) are stripped before matching CS folders.
+// Nothing is uploaded to Supabase. CBCT / .pan_* studies still open in NNT.exe.
 
 var nntScanLoadGen = 0;
 var nntScanImportBusy = false;
@@ -152,6 +152,33 @@ function hideNntLocalScans() {
     if (thumbs) thumbs.innerHTML = '';
 }
 
+function rememberDetectedCsScanRoot(body) {
+    if (!body || typeof window === 'undefined') return;
+    var root = '';
+    if (body.scan_root) root = String(body.scan_root);
+    else if (body.scan_roots && body.scan_roots.length) root = String(body.scan_roots[0]);
+    if (root) window.__JSM_CS_SCAN_ROOT = root;
+}
+
+function nntScanChartNo(patient) {
+    var raw = patient && String(patient.patient_no || '').trim();
+    if (!raw) return '';
+    if (typeof clinicNoNumbersOnly === 'function') {
+        return clinicNoNumbersOnly(raw) || raw;
+    }
+    var m = raw.match(/\d+/);
+    return m ? m[0] : raw;
+}
+
+function nntScanIdCandidates(patient) {
+    var raw = patient && String(patient.patient_no || '').trim();
+    var digits = nntScanChartNo(patient);
+    var out = [];
+    if (digits) out.push(digits);
+    if (raw && out.indexOf(raw) < 0) out.push(raw);
+    return out;
+}
+
 function nntScanFileUrl(patientNo, name) {
     var base = (typeof XRAY_LAUNCHER_BASE === 'string' && XRAY_LAUNCHER_BASE)
         ? XRAY_LAUNCHER_BASE
@@ -256,7 +283,7 @@ function addSelectedNntScansToBanana() {
         return;
     }
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
-    var patientNo = patient && String(patient.patient_no || '').trim();
+    var patientNo = nntScanChartNo(patient);
     if (!patientNo) {
         alert(nntScanTr('media.local.nntScansNeedPatient', 'Open a patient in the X-ray tab first.'));
         return;
@@ -332,16 +359,18 @@ function uploadNntScanItemAt(items, idx, patientNo) {
 
 function loadNntLocalScans() {
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
-    var no = patient && String(patient.patient_no || '').trim();
+    var ids = nntScanIdCandidates(patient);
+    var no = ids.length ? ids[0] : '';
     if (!no || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
         hideNntLocalScans();
         return;
     }
     var gen = ++nntScanLoadGen;
 
-    function done(files) {
+    function done(chartNo, files, body) {
         if (gen !== nntScanLoadGen) return;
-        renderNntLocalScans(no, files || []);
+        rememberDetectedCsScanRoot(body);
+        renderNntLocalScans(chartNo, files || []);
     }
 
     function fail() {
@@ -349,43 +378,56 @@ function loadNntLocalScans() {
         hideNntLocalScans();
     }
 
-    var path = '/nnt/scans?patient_no=' + encodeURIComponent(no);
-
-    if (typeof xrayFetchLauncher === 'function' && typeof xrayLoopbackPermissionState === 'function') {
-        xrayLoopbackPermissionState(function(permState) {
-            var waitMs = (permState === 'prompt') ? 30000 : 12000;
-            xrayFetchLauncher(path, permState, waitMs, function(res, err) {
-                if (gen !== nntScanLoadGen) return;
-                if (err || !res) { fail(); return; }
-                var body = res.body || {};
-                done((body.ok && body.files) ? body.files : []);
+    var ports = (typeof xrayLauncherPortList === 'function') ? xrayLauncherPortList() : [17891, 17890];
+    var hosts = (typeof xrayLauncherHostList === 'function') ? xrayLauncherHostList() : ['127.0.0.1'];
+    if (!ports.length) ports = [17890, 17891];
+    if (ports.indexOf(17891) < 0) ports = [17891].concat(ports);
+    var attempts = [];
+    hosts.forEach(function(host) {
+        ports.forEach(function(port) {
+            ids.forEach(function(id) {
+                attempts.push({ host: host, port: port, id: id });
             });
         });
-        return;
+    });
+
+    function tryAt(idx) {
+        if (gen !== nntScanLoadGen) return;
+        if (idx >= attempts.length) {
+            fail();
+            return;
+        }
+        var a = attempts[idx];
+        var url = 'http://' + a.host + ':' + a.port +
+            '/nnt/scans?patient_no=' + encodeURIComponent(a.id);
+        var opts = nntScanFetchOpts();
+        var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        if (ctrl) opts.signal = ctrl.signal;
+        var timer = setTimeout(function() {
+            if (ctrl) ctrl.abort();
+        }, 7000);
+        fetch(url, opts).then(function(r) {
+            if (!r.ok) throw new Error('nnt scans ' + r.status);
+            return r.json();
+        }).then(function(body) {
+            clearTimeout(timer);
+            if (gen !== nntScanLoadGen) return;
+            var files = (body && body.ok && body.files) ? body.files : [];
+            if (files.length) {
+                if (typeof xraySetActiveLauncherPort === 'function') {
+                    xraySetActiveLauncherPort(a.port, a.host);
+                }
+                done(a.id, files, body);
+                return;
+            }
+            tryAt(idx + 1);
+        }).catch(function() {
+            clearTimeout(timer);
+            tryAt(idx + 1);
+        });
     }
 
-    var base = (typeof XRAY_LAUNCHER_BASE === 'string' && XRAY_LAUNCHER_BASE)
-        ? XRAY_LAUNCHER_BASE
-        : 'http://127.0.0.1:17890';
-    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    var timer = setTimeout(function() {
-        if (ctrl) ctrl.abort();
-        fail();
-    }, 8000);
-    var listOpts = nntScanFetchOpts();
-    if (ctrl) listOpts.signal = ctrl.signal;
-    fetch(base + path, listOpts).then(function(r) {
-        if (!r.ok) throw new Error('nnt scans ' + r.status);
-        return r.json();
-    }).then(function(body) {
-        if (gen !== nntScanLoadGen) return;
-        clearTimeout(timer);
-        done((body && body.ok && body.files) ? body.files : []);
-    }).catch(function() {
-        if (gen !== nntScanLoadGen) return;
-        clearTimeout(timer);
-        fail();
-    });
+    tryAt(0);
 }
 
 function wrapNntScanPatientHooks() {

@@ -13,7 +13,7 @@
 
   /* Carestream Trophy F7 — CS SCAN share (on RECEPTION_MCP, not local C:\Image) */
   window.XRAY_TROPHY_SCAN_ROOT = '\\\\RECEPTION_MCP\\IMAGE\\SCAN';
-  window.XRAY_TROPHY_SUB_PATTERN = '{patient_no}';
+  window.XRAY_TROPHY_SUB_PATTERN = '{clinic_no_numbers_only}';
 
   /* Banana import folder for this PC (only if you store JPEG exports locally) */
   window.CLINIC_IMAGE_ROOT = 'C:\\Image';

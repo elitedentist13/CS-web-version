@@ -299,6 +299,9 @@ function Status-Payload {
     }
     $payload["systems"] = $systemsOut
     $payload["enabled_systems"] = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { @($EnabledSystems) } else { @($Systems.Keys) }
+    $scanRoots = @(Get-NntScanRoots)
+    $payload["scan_roots"] = $scanRoots
+    $payload["scan_root"] = if ($scanRoots.Count -gt 0) { [string]$scanRoots[0] } else { "" }
     return $payload
 }
 
@@ -459,9 +462,204 @@ function Convert-NntPatientId($Value) {
 # NNT.exe — the browser cannot decode them.
 $script:NntScanRootsOverride = $null
 $script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
+$script:CsScanRootsCache = $null
+$script:CsScanRootsCacheAt = [datetime]::MinValue
+$script:CsScanRootsCacheTtlSec = 300
+
+function Test-ReceptionHostName($Name) {
+    $s = [string]$Name
+    if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+    return [bool]($s -match '(?i)^RECEPTION')
+}
+
+function Test-SmbHostOpen($HostName, $TimeoutMs = 350) {
+    if ([string]::IsNullOrWhiteSpace($HostName)) { return $false }
+    $client = $null
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $iar = $client.BeginConnect($HostName, 445, $null, $null)
+        $ok = $iar.AsyncWaitHandle.WaitOne([int]$TimeoutMs, $false)
+        if (-not $ok) { return $false }
+        $client.EndConnect($iar)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($client) { try { $client.Close() } catch {} }
+    }
+}
+
+function Get-CsScanShareSuffixes {
+    return @(
+        "IMAGE\SCAN",
+        "IMAGE\Scan",
+        "Image\SCAN",
+        "Image\Scan"
+    )
+}
+
+function Get-NetViewHostNames {
+    $names = New-Object System.Collections.Generic.List[string]
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "net.exe"
+        $psi.Arguments = "view"
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+        $p = [Diagnostics.Process]::Start($psi)
+        if (-not $p) { return $names }
+        if (-not $p.WaitForExit(4000)) {
+            try { $p.Kill() } catch {}
+            return $names
+        }
+        $out = $p.StandardOutput.ReadToEnd()
+        foreach ($line in ($out -split "`r?`n")) {
+            if ($line -match '\\\\(\S+)') {
+                $n = $Matches[1].Trim().TrimEnd('\')
+                if ($n) { $names.Add($n) }
+            }
+        }
+    } catch {}
+    return $names
+}
+
+function Get-ReceptionHostGuesses {
+    param([switch]$IncludeStaticFallbacks)
+    $out = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    function Add-Host([string]$n) {
+        if ([string]::IsNullOrWhiteSpace($n)) { return }
+        $t = $n.Trim().TrimStart('\').TrimEnd('\')
+        if (-not $t) { return }
+        $key = $t.ToUpperInvariant()
+        if ($seen.ContainsKey($key)) { return }
+        $seen[$key] = $true
+        $out.Add($t)
+    }
+    Add-Host $env:COMPUTERNAME
+    # Always try the short RECEPTION hostname first. Several clinics use
+    # \\RECEPTION\IMAGE\SCAN (confirmed live for PL021289) while net view
+    # never lists that server and RECEPTION_MCP does not exist.
+    Add-Host "RECEPTION"
+    Add-Host "RECEPTION_MCP"
+    Add-Host "CSMAIN"
+    foreach ($h in @(Get-NetViewHostNames)) {
+        if ((Test-ReceptionHostName $h) -or ($h -match '(?i)^CSMAIN$')) { Add-Host $h }
+    }
+    if ($IncludeStaticFallbacks) {
+        foreach ($h in @(
+            "RECEPTION_MCP", "RECEPTION-MCP", "RECEPTION",
+            "RECEPTION_TKO", "RECEPTION_PL", "RECEPTION_CWB",
+            "RECEPTION_QB", "RECEPTION_MK", "RECEPTION_PY",
+            "RECEPTION_CW", "RECEPTION1", "RECEPTION2",
+            "CSMAIN"
+        )) { Add-Host $h }
+        foreach ($code in @("MCP", "TKO", "PL", "CWB", "QB", "MK", "PY", "CW", "QBD")) {
+            Add-Host ("RECEPTION_" + $code)
+            Add-Host ("RECEPTION-" + $code)
+        }
+    }
+    return $out
+}
+
+function Get-UncScanRootCandidatesForHost($HostName) {
+    $out = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($HostName)) { return $out }
+    foreach ($suf in (Get-CsScanShareSuffixes)) {
+        $out.Add(("\\" + $HostName + "\" + $suf))
+    }
+    return $out
+}
+
+function Find-ReachableCsScanRoots {
+    $found = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    function Add-IfReachable([string]$root) {
+        if ([string]::IsNullOrWhiteSpace($root)) { return }
+        $key = $root.ToUpperInvariant()
+        if ($seen.ContainsKey($key)) { return }
+        $seen[$key] = $true
+        if (Test-PathSafe $root) { $found.Add($root) }
+    }
+
+    foreach ($local in @("C:\Image\SCAN", "C:\IMAGE\SCAN", "C:\Image\Scan")) {
+        Add-IfReachable $local
+    }
+
+    $probed = @{}
+    function Probe-Hosts($hostList) {
+        foreach ($h in @($hostList)) {
+            $hk = $h.ToUpperInvariant()
+            if ($probed.ContainsKey($hk)) { continue }
+            $probed[$hk] = $true
+            $isLocal = ($h -eq $env:COMPUTERNAME)
+            if (-not $isLocal -and -not (Test-SmbHostOpen $h)) { continue }
+            foreach ($root in (Get-UncScanRootCandidatesForHost $h)) {
+                Add-IfReachable $root
+            }
+        }
+    }
+    Probe-Hosts (Get-ReceptionHostGuesses)
+    if ($found.Count -eq 0) {
+        Probe-Hosts (Get-ReceptionHostGuesses -IncludeStaticFallbacks)
+    }
+    return $found
+}
 
 function Get-NntScanRoots {
-    if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
+    $now = Get-Date
+    $override = @()
+    if ($null -ne $script:NntScanRootsOverride) { $override = @($script:NntScanRootsOverride) }
+    $cacheOk = $script:CsScanRootsCache -and (($now - $script:CsScanRootsCacheAt).TotalSeconds -lt $script:CsScanRootsCacheTtlSec)
+    if ($cacheOk) {
+        $missingOverride = @($override | Where-Object { $script:CsScanRootsCache -notcontains $_ })
+        if ($missingOverride.Count -eq 0) { return $script:CsScanRootsCache }
+    }
+
+    $merged = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    function Add-Root([string]$root) {
+        if ([string]::IsNullOrWhiteSpace($root)) { return }
+        $key = $root.ToUpperInvariant()
+        if ($seen.ContainsKey($key)) { return }
+        $seen[$key] = $true
+        $merged.Add($root)
+    }
+
+    $reachableOverride = @($override | Where-Object { Test-PathSafe $_ })
+    $localOverride = @($reachableOverride | Where-Object { $_ -notmatch '^\\\\' })
+    $uncOverride = @($reachableOverride | Where-Object { $_ -match '^\\\\' })
+    $discovered = @(Find-ReachableCsScanRoots)
+
+    function Get-UncHostName([string]$root) {
+        if ($root -match '^\\\\([^\\]+)\\') { return $Matches[1] }
+        return ""
+    }
+    $overrideHosts = @($uncOverride | ForEach-Object { Get-UncHostName $_ } | Where-Object { $_ })
+    $lanDifferentReception = $false
+    foreach ($r in $discovered) {
+        $h = Get-UncHostName $r
+        if (-not (Test-ReceptionHostName $h)) { continue }
+        $same = $false
+        foreach ($oh in $overrideHosts) {
+            if ($h.ToUpperInvariant() -eq $oh.ToUpperInvariant()) { $same = $true }
+        }
+        if (-not $same) { $lanDifferentReception = $true }
+    }
+
+    foreach ($r in $localOverride) { Add-Root $r }
+    if ($lanDifferentReception) {
+        foreach ($r in $discovered) { Add-Root $r }
+        foreach ($r in $uncOverride) { Add-Root $r }
+    } else {
+        foreach ($r in $uncOverride) { Add-Root $r }
+        foreach ($r in $discovered) { Add-Root $r }
+    }
+
+    foreach ($r in $override) { Add-Root $r }
+
     $defaults = @(
         "\\CSMAIN\IMAGE\Scan",
         "\\CSMAIN\IMAGE\SCAN",
@@ -470,10 +668,15 @@ function Get-NntScanRoots {
         "C:\Image\SCAN",
         "C:\IMAGE\SCAN"
     )
-    # Prefer shares/folders that actually exist on THIS PC (server vs consultation client).
-    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
-    if ($reachable.Count -gt 0) { return $reachable }
-    return $defaults
+    $reachableDefaults = @($defaults | Where-Object { Test-PathSafe $_ })
+    foreach ($r in $reachableDefaults) { Add-Root $r }
+    if ($merged.Count -eq 0) {
+        foreach ($r in $defaults) { Add-Root $r }
+    }
+
+    $script:CsScanRootsCache = @($merged)
+    $script:CsScanRootsCacheAt = $now
+    return $script:CsScanRootsCache
 }
 
 # NNT 2D panoramics on the CS IMAGE share are stored as *.2dh under
@@ -529,14 +732,19 @@ function Stop-NntProcessesForDir {
 }
 
 function Get-NntScanIdCandidates($PatientNo) {
+    $raw = ([string]$PatientNo).Trim()
     $id = Convert-NntPatientId $PatientNo
     $list = New-Object System.Collections.Generic.List[string]
-    if ([string]::IsNullOrWhiteSpace($id)) { return $list }
-    $list.Add($id)
-    if ($id -match '^\d+$' -and $id.Length -lt 6) {
-        $padded = $id.PadLeft(6, '0')
-        if ($padded -ne $id) { $list.Add($padded) }
+    function Add-Id([string]$v) {
+        if ([string]::IsNullOrWhiteSpace($v)) { return }
+        if ($list -notcontains $v) { $list.Add($v) }
     }
+    Add-Id $id
+    if ($id -match '^\d+$' -and $id.Length -lt 6) {
+        Add-Id ($id.PadLeft(6, '0'))
+    }
+    # Last resort: Banana's prefixed chart (rare CS folders created after the prefix existed).
+    if ($raw -and $raw -ne $id) { Add-Id $raw }
     return $list
 }
 
@@ -737,17 +945,7 @@ function Find-MyRayScanFolderWithStudies($PatientNo) {
 
 # Clinic Solution leftover shares — second priority for MyRay opens only.
 function Get-CsLegacyScanRoots {
-    $defaults = @(
-        "\\CSMAIN\IMAGE\Scan",
-        "\\CSMAIN\IMAGE\SCAN",
-        "\\RECEPTION_MCP\IMAGE\SCAN",
-        "\\RECEPTION\IMAGE\SCAN",
-        "C:\Image\SCAN",
-        "C:\IMAGE\SCAN"
-    )
-    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
-    if ($reachable.Count -gt 0) { return $reachable }
-    return $defaults
+    return @(Get-NntScanRoots)
 }
 
 function Find-CsLegacyScanFolderWithStudies($PatientNo) {
@@ -801,12 +999,16 @@ function Get-NntScanContentType($Extension) {
 function Get-NntScanFiles($PatientNo) {
     $folder = Find-NntScanFolder $PatientNo
     $patId = Convert-NntPatientId $PatientNo
+    $roots = @(Get-NntScanRoots)
     if (-not $folder) {
         return @{
             ok = $true
             found = $false
             nnt_patid = "$patId"
+            clinic_no_numbers_only = "$patId"
             folder = ""
+            scan_root = if ($roots.Count -gt 0) { [string]$roots[0] } else { "" }
+            scan_roots = $roots
             files = @()
         }
     }
@@ -821,11 +1023,16 @@ function Get-NntScanFiles($PatientNo) {
             content_type = [string](Get-NntScanContentType $ext)
         })
     }
+    $scanRoot = ""
+    try { $scanRoot = [string](Split-Path -Parent $folder) } catch { $scanRoot = "" }
     return @{
         ok = $true
         found = $true
         nnt_patid = "$patId"
+        clinic_no_numbers_only = "$patId"
         folder = "$folder"
+        scan_root = $scanRoot
+        scan_roots = $roots
         files = @($files.ToArray())
     }
 }
@@ -1646,6 +1853,17 @@ function Handle-Request($RawPath) {
     if ($pathOnly -eq "/status") {
         return @{ status = 200; body = (Status-Payload) }
     }
+    if ($pathOnly -eq "/nnt/roots") {
+        $roots = @(Get-NntScanRoots)
+        return @{
+            status = 200
+            body = [ordered]@{
+                ok = $true
+                scan_root = if ($roots.Count -gt 0) { [string]$roots[0] } else { "" }
+                scan_roots = $roots
+            }
+        }
+    }
     if ($pathOnly -eq "/nnt/scans") {
         $query = Parse-Query $RawPath
         $patientNo = $query["patient_no"]
@@ -1829,17 +2047,29 @@ function Invoke-SelfTest {
 
     Write-Host "== Convert-NntPatientId (strip clinic-configured patient_no_prefix for /PATID) ==" -ForegroundColor Cyan
     Assert-Equal "Real case: PY-prefixed chart number" "002505" (Convert-NntPatientId "PY002505")
+    Assert-Equal "MK patient-pool prefix"              "006681" (Convert-NntPatientId "MK006681")
+    Assert-Equal "TKO patient-pool prefix"             "003826" (Convert-NntPatientId "TKO003826")
+    Assert-Equal "PL patient-pool prefix"              "001287" (Convert-NntPatientId "PL001287")
     Assert-Equal "No prefix, digits only"              "002505" (Convert-NntPatientId "002505")
     Assert-Equal "Multi-letter prefix"                 "013524" (Convert-NntPatientId "ABC013524")
     Assert-Equal "Empty stays empty"                   ""       (Convert-NntPatientId "")
     Assert-Equal "Null stays empty"                    ""       (Convert-NntPatientId $null)
     Assert-Equal "No digits at all falls back to raw"  "NOPE"   (Convert-NntPatientId "NOPE")
 
+    Write-Host "== RECEPTION* host filter ==" -ForegroundColor Cyan
+    Assert-Equal "RECEPTION_MCP matches" $true (Test-ReceptionHostName "RECEPTION_MCP")
+    Assert-Equal "RECEPTION-TKO matches" $true (Test-ReceptionHostName "RECEPTION-TKO")
+    Assert-Equal "reception_pl matches" $true (Test-ReceptionHostName "reception_pl")
+    Assert-Equal "DOCTOR-1 does not match" $false (Test-ReceptionHostName "DOCTOR-1")
+    Assert-Equal "CSMAIN is not RECEPTION*" $false (Test-ReceptionHostName "CSMAIN")
+
     Write-Host "== Get-NntScanIdCandidates (prefix strip + 6-digit pad) ==" -ForegroundColor Cyan
     $c1 = Get-NntScanIdCandidates "PY002505"
-    Assert-Equal "PY002505 yields one id" "002505" ($c1 -join ",")
+    Assert-Equal "PY002505 yields digits then raw" "002505,PY002505" ($c1 -join ",")
     $c2 = Get-NntScanIdCandidates "PY2505"
-    Assert-Equal "Short digits also try 6-pad" "2505,002505" ($c2 -join ",")
+    Assert-Equal "Short digits also try 6-pad" "2505,002505,PY2505" ($c2 -join ",")
+    $cMk = Get-NntScanIdCandidates "MK006681"
+    Assert-Equal "MK pool chart prefers bare digits" "006681" $cMk[0]
     $c3 = Get-NntScanIdCandidates ""
     Assert-Equal "Empty patient_no yields no candidates" "0" ([string]$c3.Count)
 
@@ -1868,6 +2098,10 @@ function Invoke-SelfTest {
         $scanResp = Handle-Request "/nnt/scans?patient_no=PY002505"
         Assert-Equal "/nnt/scans returns 200" 200 $scanResp.status
         Assert-Equal "/nnt/scans found=true" $true $scanResp.body.found
+        Assert-Equal "/nnt/scans digits-only id" "002505" $scanResp.body.clinic_no_numbers_only
+        $rootsResp = Handle-Request "/nnt/roots"
+        Assert-Equal "/nnt/roots returns 200" 200 $rootsResp.status
+        Assert-Equal "/nnt/roots ok" $true $rootsResp.body.ok
         $badScan = Handle-Request "/nnt/scans"
         Assert-Equal "/nnt/scans without patient_no is 400" 400 $badScan.status
         $fileResp = Handle-Request "/nnt/file?patient_no=PY002505&name=002505_20260505112331.JPG"

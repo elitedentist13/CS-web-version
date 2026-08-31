@@ -2318,11 +2318,20 @@ var REPORT = (function () {
       doctor_name = doctor_name || drDisplayName(matched);
     }
     if (!doctor_display) doctor_display = tr('report.ds.unknownDoctor');
-    var doctor_key = normName(doctor_display) ||
-      normName(doctor_tag) ||
-      normName(doctor_name) ||
-      doctor_id ||
-      '__unknown__';
+    var person = (typeof DoctorAliases !== 'undefined' && DoctorAliases.resolveFromBill)
+      ? DoctorAliases.resolveFromBill(b, doctors)
+      : null;
+    var doctor_key;
+    if (person && person.key && person.key !== '__unknown__') {
+      doctor_key = person.key;
+      if (person.label) doctor_display = person.label;
+    } else {
+      doctor_key = normName(doctor_display) ||
+        normName(doctor_tag) ||
+        normName(doctor_name) ||
+        doctor_id ||
+        '__unknown__';
+    }
     return {
       doctor_id: doctor_id,
       doctor_name: doctor_name,
@@ -3520,20 +3529,33 @@ var REPORT = (function () {
     return _drDailyDoctors;
   }
 
+  function doctorPersonFromRecord(d) {
+    if (typeof DoctorAliases !== 'undefined' && DoctorAliases.resolveFromDoctor) {
+      return DoctorAliases.resolveFromDoctor(d);
+    }
+    return null;
+  }
+
+  function doctorOptionLabel(d) {
+    var person = doctorPersonFromRecord(d);
+    if (person && person.label) return person.label;
+    return drDisplayName(d);
+  }
+
   function drOptionsHTML(selectedId) {
-    var seenNames = {};
+    var seenKeys = {};
     var docs = [];
     (_drDailyDoctors || []).slice().sort(function (a, b) {
-      var an = String(drDisplayName(a) || '').toLowerCase();
-      var bn = String(drDisplayName(b) || '').toLowerCase();
+      var an = String(doctorOptionLabel(a) || '').toLowerCase();
+      var bn = String(doctorOptionLabel(b) || '').toLowerCase();
       if (an < bn) return -1;
       if (an > bn) return 1;
       return 0;
     }).forEach(function (d) {
-      var label = String(drDisplayName(d) || '').trim().toLowerCase();
-      if (!label) label = 'id:' + String(d && d.id != null ? d.id : '');
-      if (seenNames[label]) return;
-      seenNames[label] = true;
+      var person = doctorPersonFromRecord(d);
+      var key = (person && person.key) || ('id:' + String(d && d.id != null ? d.id : ''));
+      if (seenKeys[key]) return;
+      seenKeys[key] = true;
       docs.push(d);
     });
     var allOpt = '<option value="' + REPORT_ALL_DOCTORS_ID + '"' +
@@ -3544,7 +3566,7 @@ var REPORT = (function () {
     }
     return allOpt + docs.map(function (d) {
       var id = String(d.id != null ? d.id : '');
-      var shown = drDisplayName(d) || tr('report.dr.doctorFallback');
+      var shown = doctorOptionLabel(d) || tr('report.dr.doctorFallback');
       var sel = (String(selectedId) === id) ? ' selected' : '';
       return '<option value="' + esc(id) + '"' + sel + '>' + esc(shown) + '</option>';
     }).join('');
@@ -4726,7 +4748,7 @@ var REPORT = (function () {
     pts.forEach(function (p) { if (p && p.id) pmap[p.id] = p; });
 
     var clinicLabel = reportActiveClinicLabel();
-    var doctorDisplay = allDoctors ? tr('report.dr.allDoctors') : drDisplayName(dr);
+    var doctorDisplay = allDoctors ? tr('report.dr.allDoctors') : doctorOptionLabel(dr);
     var doctorSlug = allDoctors
       ? 'all_doctors'
       : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();
@@ -4797,6 +4819,14 @@ var REPORT = (function () {
 
   function billMatchesDoctor(b, d) {
     if (!b || !d) return false;
+    var bPerson = (typeof DoctorAliases !== 'undefined' && DoctorAliases.resolveFromBill)
+      ? DoctorAliases.resolveFromBill(b, _drDailyDoctors)
+      : null;
+    var dPerson = doctorPersonFromRecord(d);
+    if (bPerson && dPerson && bPerson.key && dPerson.key && bPerson.key === dPerson.key) {
+      return true;
+    }
+    if (bPerson && bPerson.isShort) return false;
     if (b.doctor_id && d.id && String(b.doctor_id) === String(d.id)) return true;
     var variants = doctorTextVariants(d);
     var nTag = normName(b.doctor_tag);
@@ -4806,6 +4836,14 @@ var REPORT = (function () {
 
   function treatmentMatchesDoctor(t, d) {
     if (!t || !d) return false;
+    var tPerson = (typeof DoctorAliases !== 'undefined' && DoctorAliases.resolveFromBill)
+      ? DoctorAliases.resolveFromBill(t, _drDailyDoctors)
+      : null;
+    var dPerson = doctorPersonFromRecord(d);
+    if (tPerson && dPerson && tPerson.key && dPerson.key && tPerson.key === dPerson.key) {
+      return true;
+    }
+    if (tPerson && tPerson.isShort) return false;
     if (t.doctor_id && d.id && String(t.doctor_id) === String(d.id)) return true;
     var variants = doctorTextVariants(d);
     var nTag = normName(t.doctor_tag);
@@ -4959,7 +4997,7 @@ var REPORT = (function () {
     if (_drDailyMode === 'detail') {
       _clinicIncomeDetailExport = null;
       _drMonthlyIncomeExport = null;
-      var drDailyDoctorLabel = allDoctors ? '' : drDisplayName(dr);
+      var drDailyDoctorLabel = allDoctors ? '' : doctorOptionLabel(dr);
       var drDailyDoctorSlug = allDoctors
         ? 'all_doctors'
         : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();
@@ -5118,7 +5156,7 @@ var REPORT = (function () {
       var clinicLabel = isReportAllClinicsSelected()
         ? tr('report.audit.allClinics')
         : reportClinicLabelFromCode(reportClinicTag());
-      var doctorLabel = allDoctors ? '' : drDisplayName(dr);
+      var doctorLabel = allDoctors ? '' : doctorOptionLabel(dr);
       var doctorSlug = allDoctors
         ? 'all_doctors'
         : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();
@@ -5276,7 +5314,7 @@ var REPORT = (function () {
       _rows = tx;
       _clinicIncomeDetailExport = null;
       _drMonthlyIncomeExport = null;
-      var drMoDoctorLabel = allDoctors ? '' : drDisplayName(dr);
+      var drMoDoctorLabel = allDoctors ? '' : doctorOptionLabel(dr);
       var drMoDoctorSlug = allDoctors
         ? 'all_doctors'
         : String(doctorTagOf(dr) || (dr && dr.id) || 'doctor').replace(/[^\w]+/g, '_').toLowerCase();

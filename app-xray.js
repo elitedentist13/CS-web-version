@@ -2444,7 +2444,8 @@ function pingXrayLauncher(cb) {
                 aidental_exists: !!body.aidental_exists,
                 nntnewtom_exists: !!body.nntnewtom_exists,
                 trophy_exists: !!body.trophy_exists,
-                myray_exists: !!body.myray_exists
+                myray_exists: !!body.myray_exists,
+                digirex_exists: !!body.digirex_exists
             });
         });
     });
@@ -2605,6 +2606,27 @@ var XRAY_SYSTEMS = {
         openMsgKey: 'media.local.myrayOpen',
         launchedMsgKey: 'media.local.myrayLaunched',
         launcherNeededMsgKey: 'media.local.myrayLauncherNeeded'
+    },
+    // Apixia Digirex (PSP periapical / bitewing). Same local-bridge pattern
+    // as EzDent-i: the documented PMS contract writes Switch.ini next to
+    // digirex.exe, then launches it. Clinic prefix (PL / MK / KT) is
+    // stripped so OLD Apixia charts match. Sidecar on the existing :17890
+    // listener -- does not start a rival process next to EzDent-i or MyRay.
+    digirex: {
+        nameKey: 'media.sys.digirex',
+        infoKey: 'media.sys.digirex.info',
+        url: '',
+        launcherKey: 'digirex',
+        desktopShortcutName: 'Digirex',
+        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\Digirex.lnk',
+        defaultDataPath: 'C:\\Program Files\\Digirex\\DATA',
+        defaultSubPattern: '{clinic_no_numbers_only}',
+        defaultAppPath: 'C:\\Program Files\\Digirex\\digirex.exe',
+        launchProtocol: false,
+        launcherBat: 'tools\\installer-digirex\\Start Digirex Launcher.bat',
+        openMsgKey: 'media.local.digirexOpen',
+        launchedMsgKey: 'media.local.digirexLaunched',
+        launcherNeededMsgKey: 'media.local.digirexLauncherNeeded'
     },
     // Rayscan (RAYBridge / SMARTDent V3): same local-bridge pattern as
     // NNT-NEWTOM above. Confirmed live (2026-08-20) that RAYBridge.exe
@@ -2926,7 +2948,10 @@ function xrayBridgePatientPayload(patient, folderPath) {
         email: patient.email || '',
         address: patient.address || '',
         medical_alerts: patient.medical_alerts || '',
-        folder_path: folderPath || ''
+        folder_path: folderPath || '',
+        dentist_id: (typeof conActiveDoctorTag === 'string' && String(conActiveDoctorTag).trim()) ||
+            (typeof currentDoctorName === 'string' && String(currentDoctorName).trim()) ||
+            ''
     };
 }
 
@@ -3211,10 +3236,16 @@ function openDesktopXrayApp(key) {
         }
     }
 
-    xrayEnsurePatientForBridge(patient, function(hydrated) {
-        patient = hydrated;
-        syncXrayPatient(patient.id, patient);
+    // Confirm/launch immediately. Waiting on Supabase hydration first made
+    // Digirex (and earlier MyRay) feel like a dead button — no dialog until
+    // the fetch finished or the 2.5s timeout fired.
+    try {
         openDesktopXrayAppWithPatient(key, sys, patient);
+    } catch (err) {
+        alert((key || 'X-ray') + ': ' + (err && err.message ? err.message : String(err)));
+    }
+    xrayEnsurePatientForBridge(patient, function(hydrated) {
+        if (hydrated && hydrated.id) syncXrayPatient(hydrated.id, hydrated);
     });
 }
 
@@ -3392,6 +3423,138 @@ function openMyRay() {
         console.error('[MyRay]', err);
         alert('MyRay click failed: ' + (err && err.message ? err.message : String(err)));
     }
+}
+
+function xrayShowSysToast(msg, opts) {
+    opts = opts || {};
+    var el = g('xraySysClickToast');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'xraySysClickToast';
+        el.style.cssText =
+            'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);' +
+            'z-index:2147483647;background:#0d9488;color:#fff;padding:12px 20px;' +
+            'border-radius:8px;font-size:14px;font-weight:700;' +
+            'box-shadow:0 4px 18px rgba(0,0,0,.28);max-width:92%;text-align:center;' +
+            'white-space:pre-wrap;line-height:1.35;';
+        document.body.appendChild(el);
+    }
+    el.style.background = opts.err ? '#b45309' : (opts.ok ? '#047857' : '#0d9488');
+    el.textContent = msg;
+    el.style.display = 'block';
+    clearTimeout(el._hid);
+    if (!opts.hold) {
+        el._hid = setTimeout(function () { el.style.display = 'none'; }, opts.ms || 8000);
+    }
+}
+
+var _digirexClickBusy = false;
+function openDigirex() {
+    if (_digirexClickBusy) return;
+    _digirexClickBusy = true;
+    setTimeout(function () { _digirexClickBusy = false; }, 4000);
+    console.log('[Digirex] click');
+    try {
+        if (!XRAY_SYSTEMS || !XRAY_SYSTEMS.digirex) {
+            xrayShowSysToast('Digirex missing from this page build — hard-refresh (Ctrl+Shift+R)', { err: true });
+            return;
+        }
+        var patient = xrayResolveCurrentPatient();
+        if (patient && patient.id && (!xrayPatientId || !xrayPatientData)) {
+            syncXrayPatient(patient.id, patient);
+        }
+        patient = xrayPatientData || patient;
+        if (!patient || !patient.id) {
+            var need = (typeof mediaTr === 'function')
+                ? mediaTr('con.forms.alertSelectPatient')
+                : 'Select a patient first.';
+            xrayShowSysToast('Digirex: ' + need, { err: true });
+            return;
+        }
+        launchDigirexViaBridge(patient);
+    } catch (err) {
+        console.error('[Digirex]', err);
+        xrayShowSysToast('Digirex click failed: ' + (err && err.message ? err.message : String(err)), { err: true, ms: 12000 });
+    }
+}
+
+function launchDigirexViaBridge(patient) {
+    var sys = XRAY_SYSTEMS.digirex;
+    var cfg = getEffectiveXrayLocalPathCfg('digirex');
+    var folderPath = buildLocalPatientFolderPathWithCfg('digirex', patient, cfg);
+    var appPath = (cfg && cfg.appPath) || (sys && sys.defaultAppPath) || '';
+    var batPath = (sys && sys.launcherBat) || 'tools\\installer-digirex\\Start Digirex Launcher.bat';
+    copyTextToClipboard(xrayPatientSearchClipboardText(patient) || '');
+
+    xrayShowSysToast('Digirex: contacting local bridge on 127.0.0.1:17890…', { hold: true });
+
+    pingXrayLauncher(function (status) {
+        status = status || { online: false };
+        if (status.blocked) {
+            xrayShowSysToast('Digirex: this page cannot reach 127.0.0.1 (HTTPS / local-network block). Open Banana on http://127.0.0.1:5500', { err: true, ms: 14000 });
+            return;
+        }
+        if (status.permissionPrompt) {
+            xrayShowSysToast('Digirex: Chrome asked to allow local network access — click Allow, then click Digirex again.', { err: true, ms: 14000 });
+            return;
+        }
+        if (status.permissionDenied) {
+            xrayShowSysToast('Digirex: local network access was denied. Allow 127.0.0.1 for this site, then retry.', { err: true, ms: 14000 });
+            return;
+        }
+        if (!status.online) {
+            xrayShowSysToast(
+                'Digirex: local X-ray bridge is not running on port 17890.\n' +
+                'Start the EXISTING EzDent-i or MyRay launcher on this PC (do not install a second one).\n' +
+                'Or: ' + batPath,
+                { err: true, ms: 16000 }
+            );
+            return;
+        }
+
+        xrayShowSysToast('Digirex: bridge is up — sending patient (prefix stripped)…', { hold: true });
+        tryLaunchDesktopAppViaLocalBridge('digirex', patient, {
+            appPath: appPath,
+            folderPath: folderPath,
+            searchText: xrayPatientSearchTextForLauncher(patient, 'digirex')
+        }, function (attached, bridgeBody) {
+            bridgeBody = bridgeBody || {};
+            if (attached || bridgeBody.ok) {
+                var chart = (bridgeBody.bridge && (bridgeBody.bridge.chart_number || bridgeBody.bridge.patient_id))
+                    || bridgeBody.nnt_patid
+                    || '';
+                var existing = bridgeBody.bridge && bridgeBody.bridge.existing_match;
+                xrayShowSysToast(
+                    'Digirex launched.' +
+                    (chart ? (' Chart ' + chart) : '') +
+                    (existing ? ' (matched existing films)' : ' (new or unmatched chart)') +
+                    '. If the window did not appear, Digirex is not installed on this PC, or the running bridge is an old copy — re-run Install EzDent-i / MyRay Bridge so Digirex is a sidecar.',
+                    { ok: true, ms: 14000 }
+                );
+                return;
+            }
+            var err = String(bridgeBody.error || '');
+            if (bridgeBody.fetchFailed) {
+                xrayShowSysToast('Digirex: browser blocked the launch request. Use http://127.0.0.1:5500 and allow local network.', { err: true, ms: 14000 });
+                return;
+            }
+            if (/not found/i.test(err) || /not installed/i.test(err) || /shortcut/i.test(err)) {
+                xrayShowSysToast(
+                    'Bridge answered, but Digirex is not on this PC (or this bridge build is too old).\n' +
+                    '1) Confirm digirex.exe is installed.\n' +
+                    '2) Re-run Install EzDent-i Bridge (PL) or Install MyRay Bridge (KT) — same port 17890, sidecar only.\n' +
+                    'Do not start a second launcher.',
+                    { err: true, ms: 18000 }
+                );
+                return;
+            }
+            xrayShowSysToast(
+                'Digirex did not open. ' + (err || 'Unknown bridge error.') +
+                (status.digirex_exists === false ? ' digirex.exe was not found by the bridge.' : ''),
+                { err: true, ms: 16000 }
+            );
+        });
+    });
 }
 function openXraySystem(key) {
     if (!XRAY_SYSTEMS || !key) {
@@ -3609,13 +3772,33 @@ document.addEventListener('DOMContentLoaded', function () {
         activePatientSlots[0].id) {
         xraySyncFromActivePatientPayload(activePatientSlots[0], 'active-slot-boot');
     }
+    bindDigirexButtonOnce();
 });
+
+function bindDigirexButtonOnce() {
+    var btn = g('btnOpenDigirex');
+    if (!btn || btn.getAttribute('data-digirex-bound') === '1') return;
+    btn.setAttribute('data-digirex-bound', '1');
+    btn.setAttribute('data-no-click-guard', '1');
+    btn.onclick = null;
+    btn.addEventListener('click', function (ev) {
+        if (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+        openDigirex();
+    });
+}
+if (document.readyState !== 'loading') {
+    bindDigirexButtonOnce();
+}
 
 // Explicit window exports — inline onclick handlers and diagnostics rely on these.
 if (typeof window !== 'undefined') {
     window.XRAY_SYSTEMS = XRAY_SYSTEMS;
     window.openXraySystem = openXraySystem;
     window.openMyRay = openMyRay;
+    window.openDigirex = openDigirex;
     window.openNntNewtom = openNntNewtom;
     window.openDesktopXrayApp = openDesktopXrayApp;
     window.pingXrayLauncher = pingXrayLauncher;

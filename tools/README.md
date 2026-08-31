@@ -3,7 +3,8 @@
 This folder holds the **local X-ray bridge**: a small background helper
 that lets the Banana web app (running in a normal browser) open desktop
 imaging software — **NNT-NEWTOM**, **EzDent-i (Vatech)**, **Rayscan
-(RAYBridge / SMARTDent V3)**, **Carestream CS Imaging**, or **Ai-Dental**
+(RAYBridge / SMARTDent V3)**, **Carestream CS Imaging**, **Ai-Dental**,
+**MyRay**, or **Apixia Digirex**
 — with the current patient's chart no., name, DOB and gender already sent
 across, instead of a doctor/assistant re-typing everything by hand.
 
@@ -20,16 +21,18 @@ PC:
 
 | Package | Use for |
 |---|---|
-| [`installer-ezdenti/`](installer-ezdenti/README.md) (`Banana-EzDenti-Bridge-Installer.zip`) | Any PC that only needs **EzDent-i (Vatech)**. |
+| [`installer-ezdenti/`](installer-ezdenti/README.md) (`Banana-EzDenti-Bridge-Installer.zip`) | Any PC that only needs **EzDent-i (Vatech)**. Digirex on the same PC is a sidecar after this update. |
 | [`installer-nntnewtom/`](installer-nntnewtom/README.md) (`Banana-NNT-Bridge-Installer.zip`) | Any PC that only needs **NNT-NEWTOM**. |
+| [`installer-myray/`](installer-myray/README.md) (`Banana-MyRay-Bridge-Installer.zip`) | Kwun Tong CEFLA PCs (**MyRay + NNT**). Digirex on the same PC is a sidecar after this update. |
 | [`installer-rayscan/`](installer-rayscan/README.md) (`Banana-Rayscan-Bridge-Installer.zip`) | Any PC that only needs **Rayscan (RAYBridge / SMARTDent V3)**. |
+| [`installer-digirex/`](installer-digirex/README.md) (`Banana-Digirex-Bridge-Installer.zip`) | Any PC that only needs **Apixia Digirex** (periapical / bitewing). Do **not** install this on a PC that already has EzDent-i (PL) or MyRay (KT). |
 
 Each has its own install path (`C:\BananaBridge-EzDenti` /
-`C:\BananaBridge-Rayscan` / `C:\NNT`), its own startup-shortcut name, and
-its own README with system-specific troubleshooting. Don't install more
-than one of these packages on the same PC — Banana always talks to a
-bridge on the same port (17890), so only one can run on a given PC at a
-time.
+`C:\BananaBridge-Digirex` / `C:\BananaBridge-Rayscan` / `C:\NNT`), its own
+startup-shortcut name, and its own README with system-specific
+troubleshooting. Don't install more than one of these packages on the
+same PC — Banana always talks to a bridge on the same port (17890), so
+only one can run on a given PC at a time.
 
 Only use **this** top-level folder's `install-xray-bridge.ps1` /
 `Install X-Ray Bridge.bat` directly if a specific PC genuinely needs

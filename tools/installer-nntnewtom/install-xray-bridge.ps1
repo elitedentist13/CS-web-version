@@ -108,7 +108,7 @@ $ErrorActionPreference = "Stop"
 # install (unrestricted, or explicitly enabled) -- the installer-ezdenti\
 # package doesn't ship these files at all, and shouldn't warn about their
 # absence as if that were a mistake.
-$RequiredCompanionScripts = if ((-not $EnabledSystems -or $EnabledSystems.Count -eq 0) -or ($EnabledSystems -contains "nntnewtom") -or ($EnabledSystems -contains "myray")) {
+$RequiredCompanionScripts = if ((-not $EnabledSystems -or $EnabledSystems.Count -eq 0) -or ($EnabledSystems -contains "nntnewtom")) {
     @("_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
 } else {
     @()

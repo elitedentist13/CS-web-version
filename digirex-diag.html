@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Digirex Launcher Diagnostic</title>
+<style>
+  body { font-family: Consolas, monospace; padding: 20px; background: #111; color: #ddd; max-width: 960px; }
+  h2 { color: #5eead4; }
+  .ok { color: #0f0; } .fail { color: #f44; } .warn { color: #fa0; } .info { color: #8cf; }
+  button { padding: 10px 16px; margin: 6px 6px 6px 0; cursor: pointer; font-size: 14px; }
+  pre { background: #1a1a1a; border: 1px solid #333; padding: 12px; white-space: pre-wrap; line-height: 1.45; }
+  a { color: #8cf; }
+  .box { border: 1px solid #333; padding: 12px; margin: 12px 0; background: #181818; }
+</style>
+</head>
+<body>
+<h2>Digirex (Apixia) Bridge — Spot / Smoke Diagnostic</h2>
+<p class="info">
+  Checks Consultation X-ray wiring and the shared <code>:17890</code> launcher.
+  Digirex is a sidecar: it must not start a second port next to EzDent-i (PL) or MyRay (KT).
+  The real button is on <a href="index.html">index.html</a> → Consultation → X-ray.
+</p>
+
+<div class="box">
+  <button onclick="runAll()">Run All Checks</button>
+  <button onclick="testOpenDigirex()">Test /open/digirex (live launch)</button>
+  <button onclick="location.href='index.html'">Open Banana App</button>
+</div>
+
+<pre id="out">Click "Run All Checks".</pre>
+
+<script>
+var OUT = document.getElementById('out');
+function log(cls, msg) {
+  OUT.innerHTML += '<span class="' + cls + '">' + msg + '</span>\n';
+}
+function clearOut() { OUT.innerHTML = ''; }
+
+async function fetchText(url) {
+  var r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status);
+  return r.text();
+}
+
+async function fetchJson(url) {
+  var r = await fetch(url, { cache: 'no-store', mode: 'cors' });
+  var text = await r.text();
+  var body = null;
+  try { body = JSON.parse(text); } catch (e) { body = { raw: text }; }
+  return { ok: r.ok, status: r.status, body: body };
+}
+
+async function runAll() {
+  clearOut();
+  log('info', '=== 1) app-xray.js Digirex wiring ===');
+  try {
+    var js = await fetchText('app-xray.js?v=diag-' + Date.now());
+    log('ok', 'PASS  fetched app-xray.js (' + js.length + ' bytes)');
+    var checks = [
+      ['XRAY_SYSTEMS.digirex block', /digirex:\s*\{[\s\S]*?launcherKey:\s*'digirex'/],
+      ['openDigirex()', /function openDigirex\s*\(/],
+      ['digirex_exists in ping', /digirex_exists:\s*!!body\.digirex_exists/],
+      ['window export openDigirex', /window\.openDigirex\s*=\s*openDigirex/]
+    ];
+    checks.forEach(function (c) {
+      if (c[1].test(js)) log('ok', 'PASS  ' + c[0]);
+      else log('fail', 'FAIL  ' + c[0]);
+    });
+  } catch (e) {
+    log('fail', 'FAIL  could not fetch app-xray.js: ' + e.message);
+  }
+
+  log('info', '\n=== 2) index.html Consultation X-ray button ===');
+  try {
+    var html = await fetchText('index.html?v=diag-' + Date.now());
+    if (html.indexOf('xray-sys-digirex') >= 0) log('ok', 'PASS  Digirex button present');
+    else log('fail', 'FAIL  Digirex button missing');
+    if (html.indexOf('openDigirex') >= 0) log('ok', 'PASS  Digirex onclick wired');
+    else log('fail', 'FAIL  Digirex onclick missing');
+    if (html.indexOf('20260831-digirex-bridge') >= 0 || html.indexOf('20260831digirex') >= 0)
+      log('ok', 'PASS  cache-bust mentions Digirex');
+    else log('warn', 'WARN  BUILD / script tag may be stale');
+  } catch (e) {
+    log('fail', 'FAIL  could not fetch index.html: ' + e.message);
+  }
+
+  log('info', '\n=== 3) Shared launcher :17890 (must be ONE process) ===');
+  try {
+    var st = await fetchJson('http://127.0.0.1:17890/status');
+    if (!st.ok) {
+      log('warn', 'WARN  /status HTTP ' + st.status + ' — start EzDent-i / MyRay / Digirex launcher (only one).');
+      return;
+    }
+    log('ok', 'PASS  launcher online');
+    log(st.body.digirex_exists ? 'ok' : 'warn',
+      (st.body.digirex_exists ? 'PASS' : 'WARN') + '  digirex_exists = ' + !!st.body.digirex_exists);
+    log('info', '      enabled_systems = ' + (st.body.enabled_systems || []).join(','));
+    log('info', '      ezdenti_exists = ' + !!st.body.ezdenti_exists +
+      '  myray_exists = ' + !!st.body.myray_exists);
+    if (st.body.systems && st.body.systems.digirex) {
+      log('info', '      target = ' + st.body.systems.digirex.target);
+      log('info', '      workdir = ' + st.body.systems.digirex.workingDirectory);
+    }
+    if (st.body.ezdenti_exists && st.body.myray_exists) {
+      log('warn', 'WARN  both EzDent-i and MyRay reported on this PC — unexpected for PL vs KT isolation, but Digirex sidecar is still OK.');
+    }
+  } catch (e) {
+    log('warn', 'WARN  launcher not reachable: ' + e.message);
+    log('warn', '      PL: Start EzDent-i Launcher (sidecar will add Digirex after update)');
+    log('warn', '      KT: Start MyRay Launcher (sidecar will add Digirex after update)');
+    log('warn', '      Digirex-only: tools\\installer-digirex\\Start Digirex Launcher.bat');
+  }
+  log('ok', '\nDone. Use "Test /open/digirex" only on a PC that has Digirex installed.');
+}
+
+async function testOpenDigirex() {
+  log('info', '\n=== Live /open/digirex ===');
+  var q = 'patient_no=' + encodeURIComponent('PL001287') +
+    '&patient_name=' + encodeURIComponent('DIAG TEST') +
+    '&sex=M';
+  try {
+    var r = await fetchJson('http://127.0.0.1:17890/open/digirex?' + q);
+    if (r.status === 200 && r.body && r.body.ok) {
+      log('ok', 'PASS  /open/digirex HTTP 200');
+      log('info', '      chart = ' + (r.body.bridge && r.body.bridge.chart_number));
+      log('info', '      existing_match = ' + (r.body.bridge && r.body.bridge.existing_match));
+      log('info', '      switch_ini = ' + (r.body.bridge && r.body.bridge.switch_ini));
+    } else if (r.status === 404) {
+      log('warn', 'WARN  Digirex not installed on this PC (expected on a machine without Apixia).');
+    } else {
+      log('fail', 'FAIL  /open/digirex HTTP ' + r.status + ' ' + JSON.stringify(r.body));
+    }
+  } catch (e) {
+    log('fail', 'FAIL  ' + e.message);
+  }
+}
+</script>
+</body>
+</html>

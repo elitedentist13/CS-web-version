@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260831-dr-alias-groups';
+  var BUILD = '20260831-digirex-launchfix';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3461,6 +3461,16 @@
                 data-i18n-title="media.sys.myray.desktopHint">
           <span class="sys-icon">🦷</span>
           <span data-i18n="media.sys.myray"></span>
+        </button>
+
+        <button class="xray-sys-btn xray-sys-digirex"
+                type="button"
+                id="btnOpenDigirex"
+                data-no-click-guard="1"
+                onclick="try{if(typeof openDigirex==='function'){openDigirex();}else{openXraySystem('digirex');}}catch(e){alert('Digirex: '+e);}"
+                data-i18n-title="media.sys.digirex.desktopHint">
+          <span class="sys-icon">🎞️</span>
+          <span data-i18n="media.sys.digirex"></span>
         </button>
 
         <button class="xray-sys-btn xray-sys-Trophy"
@@ -7316,7 +7326,7 @@
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
-    'app-xray.js?v=20260828myray5',
+    'app-xray.js?v=20260831digirex3',
     'app-nnt-scans.js?v=20260828myray5',
     'app-xray-ai.js',
     'app-charts.js',

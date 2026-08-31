@@ -3,9 +3,9 @@
 #
 # Runs on each clinic PC (started by "Start X-Ray Launcher.bat"). Listens on
 # 127.0.0.1:17890 and lets the browser app open Carestream / Ai-Dental /
-# NNT-NEWTOM / EzDent-i (Vatech) with the active patient's demographics
-# pre-filled, without the browser ever touching the local filesystem or
-# spawning processes directly.
+# NNT-NEWTOM / EzDent-i (Vatech) / MyRay / Apixia Digirex with the
+# active patient's demographics pre-filled, without the browser ever
+# touching the local filesystem or spawning processes directly.
 #
 # This is a versioned copy of the script deployed at C:\NNT\xray-local-launcher.ps1
 # on clinic PCs. Deploy by copying this file (and "Start X-Ray Launcher.bat")
@@ -65,7 +65,16 @@ if (-not $EnabledSystems -or $EnabledSystems.Count -eq 0) {
 }
 function Test-SystemEnabled($Key) {
     if (-not $EnabledSystems -or $EnabledSystems.Count -eq 0) { return $true }
-    return [bool]($EnabledSystems -contains $Key)
+    if ($EnabledSystems -contains $Key) { return $true }
+    # Sidecar: Apixia Digirex (periapical / bitewing PSP) often sits on the
+    # SAME consultation PC as EzDent-i (Po Lam) or MyRay (Kwun Tong). Those
+    # dedicated installers lock -EnabledSystems to their primary key so they
+    # never launch each other and never start a second listener on :17890.
+    # Digirex is additive only -- if the software is on disk, serve
+    # /open/digirex from the already-running bridge. Never overwrite another
+    # handler, never bind another port.
+    if ($Key -eq "digirex" -and (Test-DigirexInstalled)) { return $true }
+    return $false
 }
 $PublicDesktop = Join-Path ($env:PUBLIC -replace '/','\') "Desktop"
 $UserDesktop = [Environment]::GetFolderPath("Desktop")
@@ -154,6 +163,30 @@ $Systems = @{
             "C:\Program Files (x86)\CEFLA\NNT\NNT.exe"
         )
     }
+    # MyRay (CEFLA group, same enterprise as NNT/NewTom). Uses NNTBridge.exe
+    # (or MyRayBridge.exe if the MyRay install ships one) with the identical
+    # command-line protocol: /PATID /NAME /SURNAME /DATEB /SEX /SSNM /APPPATH
+    # /WORKDIR /OPENPATIENT. Old-patient matching: clinic prefix stripped via
+    # Convert-NntPatientId (same as nntnewtom). See Start-MyRayBridgePatient.
+    myray = @{
+        shortcuts = @(
+            (Join-Path $PublicDesktop "MyRay.lnk"),
+            (Join-Path $UserDesktop "MyRay.lnk"),
+            (Join-Path $PublicDesktop "MyRay Viewer.lnk"),
+            (Join-Path $UserDesktop "MyRay Viewer.lnk"),
+            (Join-Path $PublicDesktop "MyRay Bridge.lnk"),
+            (Join-Path $UserDesktop "MyRay Bridge.lnk")
+        )
+        executables = @(
+            "C:\MyRay\MyRay.exe",
+            "C:\Program Files\MyRay\MyRay.exe",
+            "C:\Program Files (x86)\MyRay\MyRay.exe",
+            "C:\Program Files\CEFLA\MyRay\MyRay.exe",
+            "C:\Program Files (x86)\CEFLA\MyRay\MyRay.exe",
+            "C:\Program Files\iRaysoft\MyRay\MyRay.exe",
+            "C:\Program Files (x86)\iRaysoft\MyRay\MyRay.exe"
+        )
+    }
     # Rayscan / SMARTDent V3 (RAY Co.). Confirmed live on a real clinic PC
     # (2026-08-20, hostname "Doctor-1", chart KT005455): Public Desktop has
     # "RAYBridge.lnk" -> C:\Ray\RAYBridge\RAYBridge.exe (empty Arguments --
@@ -212,6 +245,33 @@ $Systems = @{
             "C:\Program Files\VATECH\EzDent-i\Bin\VTE232.exe"
         )
     }
+    # Apixia Digirex (PSP periapical / bitewing). Documented PMS bridge
+    # (Open Dental "Apixia Bridge"): write Switch.ini next to digirex.exe,
+    # then launch the exe. Digirex loads [Patient] ID from that file --
+    # matching an existing chart or creating a new one. Chart IDs in the
+    # Apixia database are bare digits; Banana's clinic prefix (PL / MK /
+    # KT / …) must be stripped. See Start-DigirexBridgePatient.
+    digirex = @{
+        shortcuts = @(
+            (Join-Path $PublicDesktop "Digirex.lnk"),
+            (Join-Path $UserDesktop "Digirex.lnk"),
+            (Join-Path $PublicDesktop "Apixia Digirex.lnk"),
+            (Join-Path $UserDesktop "Apixia Digirex.lnk"),
+            (Join-Path $PublicDesktop "Apixia.lnk"),
+            (Join-Path $UserDesktop "Apixia.lnk")
+        )
+        executables = @(
+            "C:\Program Files\Digirex\digirex.exe",
+            "C:\Program Files (x86)\Digirex\digirex.exe",
+            "C:\Program Files\DIGIREX\digirex.exe",
+            "C:\Program Files (x86)\DIGIREX\digirex.exe",
+            "C:\Digirex\digirex.exe",
+            "C:\DIGIREX\digirex.exe",
+            "C:\Apixia\Digirex\digirex.exe",
+            "C:\Program Files\Apixia\Digirex\digirex.exe",
+            "C:\Program Files (x86)\Apixia\Digirex\digirex.exe"
+        )
+    }
 }
 
 function Resolve-System($Key, $PreferredExecutable) {
@@ -260,23 +320,6 @@ function Parse-Query($RawPath) {
     return $out
 }
 
-# Read by /status only -- written by the separate, independently-scheduled
-# xray-bridge-auto-update.ps1 (see tools/xray-bridge-auto-update.ps1), never
-# by this script itself. Deliberately tolerant of the file being missing
-# (auto-update not installed / never run yet) or malformed (mid-write from
-# another process) -- this is a nice-to-have visibility panel, not something
-# that should ever be able to break /status.
-function Get-AutoUpdateStatus {
-    $statePath = Join-Path $PSScriptRoot "xray-bridge-update-state.json"
-    if (-not (Test-Path -LiteralPath $statePath)) { return $null }
-    try {
-        $raw = Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop
-        return ($raw | ConvertFrom-Json -ErrorAction Stop)
-    } catch {
-        return $null
-    }
-}
-
 function Status-Payload {
     # Only reports on systems this instance actually serves (see
     # -EnabledSystems / Test-SystemEnabled above) -- an EzDent-i-only
@@ -292,8 +335,19 @@ function Status-Payload {
     }
     $payload["systems"] = $systemsOut
     $payload["enabled_systems"] = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { @($EnabledSystems) } else { @($Systems.Keys) }
-    $autoUpdate = Get-AutoUpdateStatus
-    if ($null -ne $autoUpdate) { $payload["auto_update"] = $autoUpdate }
+    # Digirex is a sidecar on EzDent-i / MyRay installs: not in -EnabledSystems,
+    # but /open/digirex still works when digirex.exe is on this PC. Report it
+    # so Banana and /status can show both panoramic and Digirex together.
+    $sidecars = New-Object System.Collections.Generic.List[string]
+    if ($EnabledSystems -and $EnabledSystems.Count -gt 0) {
+        if (($EnabledSystems -notcontains "digirex") -and (Test-DigirexInstalled)) {
+            $sidecars.Add("digirex")
+        }
+    }
+    $payload["sidecar_systems"] = @($sidecars)
+    $scanRoots = @(Get-NntScanRoots)
+    $payload["scan_roots"] = $scanRoots
+    $payload["scan_root"] = if ($scanRoots.Count -gt 0) { [string]$scanRoots[0] } else { "" }
     return $payload
 }
 
@@ -454,15 +508,221 @@ function Convert-NntPatientId($Value) {
 # NNT.exe — the browser cannot decode them.
 $script:NntScanRootsOverride = $null
 $script:NntScanImageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp")
+$script:CsScanRootsCache = $null
+$script:CsScanRootsCacheAt = [datetime]::MinValue
+$script:CsScanRootsCacheTtlSec = 300
+
+function Test-ReceptionHostName($Name) {
+    $s = [string]$Name
+    if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+    return [bool]($s -match '(?i)^RECEPTION')
+}
+
+function Test-SmbHostOpen($HostName, $TimeoutMs = 350) {
+    if ([string]::IsNullOrWhiteSpace($HostName)) { return $false }
+    $client = $null
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $iar = $client.BeginConnect($HostName, 445, $null, $null)
+        $ok = $iar.AsyncWaitHandle.WaitOne([int]$TimeoutMs, $false)
+        if (-not $ok) { return $false }
+        $client.EndConnect($iar)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($client) { try { $client.Close() } catch {} }
+    }
+}
+
+function Get-CsScanShareSuffixes {
+    return @(
+        "IMAGE\SCAN",
+        "IMAGE\Scan",
+        "Image\SCAN",
+        "Image\Scan"
+    )
+}
+
+function Get-NetViewHostNames {
+    $names = New-Object System.Collections.Generic.List[string]
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "net.exe"
+        $psi.Arguments = "view"
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+        $p = [Diagnostics.Process]::Start($psi)
+        if (-not $p) { return $names }
+        if (-not $p.WaitForExit(4000)) {
+            try { $p.Kill() } catch {}
+            return $names
+        }
+        $out = $p.StandardOutput.ReadToEnd()
+        foreach ($line in ($out -split "`r?`n")) {
+            if ($line -match '\\\\(\S+)') {
+                $n = $Matches[1].Trim().TrimEnd('\')
+                if ($n) { $names.Add($n) }
+            }
+        }
+    } catch {}
+    return $names
+}
+
+function Get-ReceptionHostGuesses {
+    param([switch]$IncludeStaticFallbacks)
+    $out = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    function Add-Host([string]$n) {
+        if ([string]::IsNullOrWhiteSpace($n)) { return }
+        $t = $n.Trim().TrimStart('\').TrimEnd('\')
+        if (-not $t) { return }
+        $key = $t.ToUpperInvariant()
+        if ($seen.ContainsKey($key)) { return }
+        $seen[$key] = $true
+        $out.Add($t)
+    }
+    Add-Host $env:COMPUTERNAME
+    # Always try the short RECEPTION hostname first. Several clinics use
+    # \\RECEPTION\IMAGE\SCAN (confirmed live for PL021289) while net view
+    # never lists that server and RECEPTION_MCP does not exist.
+    Add-Host "RECEPTION"
+    Add-Host "RECEPTION_MCP"
+    Add-Host "CSMAIN"
+    foreach ($h in @(Get-NetViewHostNames)) {
+        if ((Test-ReceptionHostName $h) -or ($h -match '(?i)^CSMAIN$')) { Add-Host $h }
+    }
+    if ($IncludeStaticFallbacks) {
+        foreach ($h in @(
+            "RECEPTION_MCP", "RECEPTION-MCP", "RECEPTION",
+            "RECEPTION_TKO", "RECEPTION_PL", "RECEPTION_CWB",
+            "RECEPTION_QB", "RECEPTION_MK", "RECEPTION_PY",
+            "RECEPTION_CW", "RECEPTION1", "RECEPTION2",
+            "CSMAIN"
+        )) { Add-Host $h }
+        foreach ($code in @("MCP", "TKO", "PL", "CWB", "QB", "MK", "PY", "CW", "QBD")) {
+            Add-Host ("RECEPTION_" + $code)
+            Add-Host ("RECEPTION-" + $code)
+        }
+    }
+    return $out
+}
+
+function Get-UncScanRootCandidatesForHost($HostName) {
+    $out = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($HostName)) { return $out }
+    foreach ($suf in (Get-CsScanShareSuffixes)) {
+        $out.Add(("\\" + $HostName + "\" + $suf))
+    }
+    return $out
+}
+
+function Find-ReachableCsScanRoots {
+    $found = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    function Add-IfReachable([string]$root) {
+        if ([string]::IsNullOrWhiteSpace($root)) { return }
+        $key = $root.ToUpperInvariant()
+        if ($seen.ContainsKey($key)) { return }
+        $seen[$key] = $true
+        if (Test-PathSafe $root) { $found.Add($root) }
+    }
+
+    foreach ($local in @("C:\Image\SCAN", "C:\IMAGE\SCAN", "C:\Image\Scan")) {
+        Add-IfReachable $local
+    }
+
+    $probed = @{}
+    function Probe-Hosts($hostList) {
+        foreach ($h in @($hostList)) {
+            $hk = $h.ToUpperInvariant()
+            if ($probed.ContainsKey($hk)) { continue }
+            $probed[$hk] = $true
+            $isLocal = ($h -eq $env:COMPUTERNAME)
+            if (-not $isLocal -and -not (Test-SmbHostOpen $h)) { continue }
+            foreach ($root in (Get-UncScanRootCandidatesForHost $h)) {
+                Add-IfReachable $root
+            }
+        }
+    }
+    Probe-Hosts (Get-ReceptionHostGuesses)
+    if ($found.Count -eq 0) {
+        Probe-Hosts (Get-ReceptionHostGuesses -IncludeStaticFallbacks)
+    }
+    return $found
+}
 
 function Get-NntScanRoots {
-    if ($null -ne $script:NntScanRootsOverride) { return $script:NntScanRootsOverride }
-    return @(
-        "\\RECEPTION_MCP\IMAGE\SCAN",
+    $now = Get-Date
+    $override = @()
+    if ($null -ne $script:NntScanRootsOverride) { $override = @($script:NntScanRootsOverride) }
+    $cacheOk = $script:CsScanRootsCache -and (($now - $script:CsScanRootsCacheAt).TotalSeconds -lt $script:CsScanRootsCacheTtlSec)
+    if ($cacheOk) {
+        $missingOverride = @($override | Where-Object { $script:CsScanRootsCache -notcontains $_ })
+        if ($missingOverride.Count -eq 0) { return $script:CsScanRootsCache }
+    }
+
+    $merged = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    function Add-Root([string]$root) {
+        if ([string]::IsNullOrWhiteSpace($root)) { return }
+        $key = $root.ToUpperInvariant()
+        if ($seen.ContainsKey($key)) { return }
+        $seen[$key] = $true
+        $merged.Add($root)
+    }
+
+    $reachableOverride = @($override | Where-Object { Test-PathSafe $_ })
+    $localOverride = @($reachableOverride | Where-Object { $_ -notmatch '^\\\\' })
+    $uncOverride = @($reachableOverride | Where-Object { $_ -match '^\\\\' })
+    $discovered = @(Find-ReachableCsScanRoots)
+
+    function Get-UncHostName([string]$root) {
+        if ($root -match '^\\\\([^\\]+)\\') { return $Matches[1] }
+        return ""
+    }
+    $overrideHosts = @($uncOverride | ForEach-Object { Get-UncHostName $_ } | Where-Object { $_ })
+    $lanDifferentReception = $false
+    foreach ($r in $discovered) {
+        $h = Get-UncHostName $r
+        if (-not (Test-ReceptionHostName $h)) { continue }
+        $same = $false
+        foreach ($oh in $overrideHosts) {
+            if ($h.ToUpperInvariant() -eq $oh.ToUpperInvariant()) { $same = $true }
+        }
+        if (-not $same) { $lanDifferentReception = $true }
+    }
+
+    foreach ($r in $localOverride) { Add-Root $r }
+    if ($lanDifferentReception) {
+        foreach ($r in $discovered) { Add-Root $r }
+        foreach ($r in $uncOverride) { Add-Root $r }
+    } else {
+        foreach ($r in $uncOverride) { Add-Root $r }
+        foreach ($r in $discovered) { Add-Root $r }
+    }
+
+    foreach ($r in $override) { Add-Root $r }
+
+    $defaults = @(
         "\\CSMAIN\IMAGE\Scan",
+        "\\CSMAIN\IMAGE\SCAN",
+        "\\RECEPTION_MCP\IMAGE\SCAN",
+        "\\RECEPTION\IMAGE\SCAN",
         "C:\Image\SCAN",
         "C:\IMAGE\SCAN"
     )
+    $reachableDefaults = @($defaults | Where-Object { Test-PathSafe $_ })
+    foreach ($r in $reachableDefaults) { Add-Root $r }
+    if ($merged.Count -eq 0) {
+        foreach ($r in $defaults) { Add-Root $r }
+    }
+
+    $script:CsScanRootsCache = @($merged)
+    $script:CsScanRootsCacheAt = $now
+    return $script:CsScanRootsCache
 }
 
 # NNT 2D panoramics on the CS IMAGE share are stored as *.2dh under
@@ -473,19 +733,26 @@ function Get-NntScanRoots {
 # Start-NntBridgePatient). Also used to locate the file for the JPEG
 # export/import path into Supabase (see tools/_import_cs_opg.py).
 function Find-Nnt2dDocFile($PatientNo) {
-    $folder = Find-NntScanFolder $PatientNo
-    if (-not $folder) { return "" }
-    $doc = Join-Path $folder "Document"
-    if (-not (Test-PathSafe $doc)) { return "" }
-    try {
-        $pattern = Join-Path $doc "*\*\*\*\*\2D Images collection\*.2dh"
-        $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $hit) {
-            $hit = Get-ChildItem -LiteralPath $doc -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
-                Select-Object -First 1
-        }
-        if ($hit) { return [string]$hit.FullName }
-    } catch {}
+    $folders = New-Object System.Collections.Generic.List[string]
+    $preferred = Find-NntScanFolderWithStudies $PatientNo
+    if ($preferred) { $folders.Add($preferred) }
+    foreach ($cand in Get-NntScanFolderCandidatePaths $PatientNo) {
+        if ($folders -contains $cand) { continue }
+        if (Test-PathSafe $cand) { $folders.Add($cand) }
+    }
+    foreach ($folder in $folders) {
+        $doc = Join-Path $folder "Document"
+        if (-not (Test-PathSafe $doc)) { continue }
+        try {
+            $pattern = Join-Path $doc "*\*\*\*\*\2D Images collection\*.2dh"
+            $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $hit) {
+                $hit = Get-ChildItem -LiteralPath $doc -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+            }
+            if ($hit) { return [string]$hit.FullName }
+        } catch {}
+    }
     return ""
 }
 
@@ -498,27 +765,32 @@ function Find-Nnt2dDocId($PatientNo) {
 # /DIR is ignored if NNT.exe is already running (confirmed live by tracing
 # CS's own launch: CS closes/relaunches around this same constraint).
 function Stop-NntProcessesForDir {
-    foreach ($name in @("NNTBridge", "NNT_SID", "NNT")) {
+    foreach ($name in @("NNTBridge", "NNT_SID", "NNT", "MyRay", "MyRayBridge")) {
         Get-Process -Name $name -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
     }
     $deadline = (Get-Date).AddSeconds(8)
     while ((Get-Date) -lt $deadline) {
-        $left = @(Get-Process -Name "NNT", "NNT_SID", "NNTBridge" -ErrorAction SilentlyContinue)
+        $left = @(Get-Process -Name "NNT", "NNT_SID", "NNTBridge", "MyRay", "MyRayBridge" -ErrorAction SilentlyContinue)
         if ($left.Count -eq 0) { return }
         Start-Sleep -Milliseconds 400
     }
 }
 
 function Get-NntScanIdCandidates($PatientNo) {
+    $raw = ([string]$PatientNo).Trim()
     $id = Convert-NntPatientId $PatientNo
     $list = New-Object System.Collections.Generic.List[string]
-    if ([string]::IsNullOrWhiteSpace($id)) { return $list }
-    $list.Add($id)
-    if ($id -match '^\d+$' -and $id.Length -lt 6) {
-        $padded = $id.PadLeft(6, '0')
-        if ($padded -ne $id) { $list.Add($padded) }
+    function Add-Id([string]$v) {
+        if ([string]::IsNullOrWhiteSpace($v)) { return }
+        if ($list -notcontains $v) { $list.Add($v) }
     }
+    Add-Id $id
+    if ($id -match '^\d+$' -and $id.Length -lt 6) {
+        Add-Id ($id.PadLeft(6, '0'))
+    }
+    # Last resort: Banana's prefixed chart (rare CS folders created after the prefix existed).
+    if ($raw -and $raw -ne $id) { Add-Id $raw }
     return $list
 }
 
@@ -558,6 +830,207 @@ function Find-NntScanFolder($PatientNo) {
     return ""
 }
 
+# True when the chart SCAN folder has openable CEFLA study files under Document
+# (typically *.2dh). An empty Document\ tree still "exists" as a folder after a
+# failed /DIR open — passing /DIR at that empty archive makes NNT/MyRay show a
+# blank patient UI. Prefer no /DIR (open by /PATID from NNT's own DB) in that case.
+function Test-NntScanFolderHasStudies($Folder) {
+    if ([string]::IsNullOrWhiteSpace($Folder) -or -not (Test-PathSafe $Folder)) { return $false }
+    $doc = Join-Path $Folder "Document"
+    if (-not (Test-PathSafe $doc)) { return $false }
+    try {
+        # Fast path: CEFLA's usual hashed layout (avoids full UNC recurse).
+        $pattern = Join-Path $doc "*\*\*\*\*\2D Images collection\*.2dh"
+        $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($hit) { return $true }
+        $hit = Get-ChildItem -LiteralPath $doc -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($hit) { return $true }
+        $img = Get-ChildItem -LiteralPath $doc -Recurse -Include *.jpg,*.jpeg,*.png,*.bmp -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        return [bool]$img
+    } catch {
+        return $false
+    }
+}
+
+# Prefer a chart folder that actually contains studies when several SCAN roots
+# are reachable (e.g. empty \\RECEPTION\...\002505 vs populated \\CSMAIN\...).
+function Find-NntScanFolderWithStudies($PatientNo) {
+    foreach ($folder in Get-NntScanFolderCandidatePaths $PatientNo) {
+        if (Test-NntScanFolderHasStudies $folder) { return $folder }
+    }
+    return ""
+}
+
+# ── MyRay-first archive resolution (CSMAIN/RECEPTION are CS leftovers) ──
+# Clinic is retiring Clinic Solution. MyRay/NNT (CEFLA Hyperion on CT-PC) keeps
+# its own PatDocDB (PMSPatientID = bare chart no.) and study files under
+# \\CT-PC\IMAGE\Scan\{chart}. Prefer that stack; only fall back to CS shares.
+
+function Get-MyRayNntIniPath {
+    foreach ($p in @(
+        "C:\NNT\NNT.ini",
+        (Join-Path $env:ProgramFiles "NNT\NNT.ini"),
+        (Join-Path ${env:ProgramFiles(x86)} "NNT\NNT.ini")
+    )) {
+        if (Test-PathSafe $p) { return $p }
+    }
+    return ""
+}
+
+function Read-MyRayNntIniValue($Key) {
+    $ini = Get-MyRayNntIniPath
+    if (-not $ini) { return "" }
+    try {
+        foreach ($line in Get-Content -LiteralPath $ini -ErrorAction SilentlyContinue) {
+            if ($line -match ("^\s*" + [regex]::Escape($Key) + "\s*=\s*(.*)\s*$")) {
+                return $Matches[1].Trim().Trim('"')
+            }
+        }
+    } catch {}
+    return ""
+}
+
+function Get-MyRayPatDocDbPaths {
+    $list = New-Object System.Collections.Generic.List[string]
+    # Prefer the local working copy (this PC's NNT Shared) — it holds PMSPatientID
+    # rows. \\CT-PC\Shared\PatDocDB.mdb is often an empty shell on clients.
+    foreach ($p in @(
+        "C:\NNT\Shared\PatDocDB.mdb",
+        "\\CT-PC\Shared\PatDocDB.mdb"
+    )) {
+        if ($list -notcontains $p) { $list.Add($p) }
+    }
+    $shared = Read-MyRayNntIniValue "PercorsoShared"
+    if ($shared) {
+        $p = Join-Path $shared.TrimEnd('\') "PatDocDB.mdb"
+        if ($list -notcontains $p) { $list.Add($p) }
+    }
+    return @($list | Where-Object { Test-PathSafe $_ })
+}
+
+function Copy-FileSharedRead($Source, $Dest) {
+    $in = $null
+    $out = $null
+    try {
+        $in = [IO.File]::Open($Source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $out = [IO.File]::Create($Dest)
+        $in.CopyTo($out)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        try { if ($out) { $out.Close() } } catch {}
+        try { if ($in) { $in.Close() } } catch {}
+    }
+}
+
+function Test-MyRayDbHasPatient($PatientNo) {
+    $patId = Convert-NntPatientId $PatientNo
+    if ([string]::IsNullOrWhiteSpace($patId)) { return $false }
+    $safeId = ($patId -replace '[^0-9A-Za-z]', '')
+    if (-not $safeId) { return $false }
+    foreach ($mdb in Get-MyRayPatDocDbPaths) {
+        $tmp = $null
+        $conn = $null
+        try {
+            # NNT often locks PatDocDB.mdb — shared-read copy then query so /open never blocks.
+            $tmp = [IO.Path]::Combine([IO.Path]::GetTempPath(), ("myray-patdoc-" + [Guid]::NewGuid().ToString("N") + ".mdb"))
+            if (-not (Copy-FileSharedRead $mdb $tmp)) { continue }
+            $cs = "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$tmp;Mode=Read;Persist Security Info=False;"
+            $conn = New-Object System.Data.OleDb.OleDbConnection($cs)
+            $conn.ConnectionTimeout = 3
+            $conn.Open()
+            $cmd = $conn.CreateCommand()
+            $cmd.CommandTimeout = 3
+            $cmd.CommandText = "SELECT COUNT(*) FROM Patients WHERE PMSPatientID = '$safeId'"
+            $n = [int]$cmd.ExecuteScalar()
+            if ($n -gt 0) { return $true }
+        } catch {
+            # ignore locked/unavailable DB and try next path
+        } finally {
+            try { if ($conn -and $conn.State -ne 'Closed') { $conn.Close() } } catch {}
+            if ($tmp) {
+                try { [IO.File]::Delete($tmp) } catch {}
+            }
+        }
+    }
+    return $false
+}
+
+# MyRay/Hyperion native SCAN roots (NOT Clinic Solution CSMAIN/RECEPTION).
+function Get-MyRayScanRoots {
+    $defaults = @(
+        "\\CT-PC\IMAGE\Scan",
+        "\\CT-PC\IMAGE\SCAN",
+        "C:\NNT\Document"
+    )
+    $reachable = @($defaults | Where-Object { Test-PathSafe $_ })
+    if ($reachable.Count -gt 0) { return $reachable }
+    return $defaults
+}
+
+function Get-MyRayScanFolderCandidatePaths($PatientNo) {
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($id in Get-NntScanIdCandidates $PatientNo) {
+        foreach ($root in Get-MyRayScanRoots) {
+            if ([string]::IsNullOrWhiteSpace($root)) { continue }
+            $out.Add((Join-Path ([string]$root) ([string]$id)))
+        }
+    }
+    return $out
+}
+
+function Find-MyRayScanFolderWithStudies($PatientNo) {
+    foreach ($folder in Get-MyRayScanFolderCandidatePaths $PatientNo) {
+        if (Test-NntScanFolderHasStudies $folder) { return $folder }
+    }
+    return ""
+}
+
+# Clinic Solution leftover shares — second priority for MyRay opens only.
+function Get-CsLegacyScanRoots {
+    return @(Get-NntScanRoots)
+}
+
+function Find-CsLegacyScanFolderWithStudies($PatientNo) {
+    foreach ($id in Get-NntScanIdCandidates $PatientNo) {
+        foreach ($root in Get-CsLegacyScanRoots) {
+            if ([string]::IsNullOrWhiteSpace($root)) { continue }
+            $folder = Join-Path ([string]$root) ([string]$id)
+            if (Test-NntScanFolderHasStudies $folder) { return $folder }
+        }
+    }
+    return ""
+}
+
+# Resolve /DIR for MyRay (CS retiring):
+#   1) MyRay PatDocDB hit → CT-PC IMAGE\Scan studies if present, else DB-only (no /DIR)
+#   2) Else MyRay files on \\CT-PC\IMAGE\Scan even without a DB row
+#   3) Else Clinic Solution leftovers on CSMAIN / RECEPTION
+function Resolve-MyRayPatientArchive($PatientNo) {
+    $patId = Convert-NntPatientId $PatientNo
+    $inDb = Test-MyRayDbHasPatient $patId
+    $myrayDir = Find-MyRayScanFolderWithStudies $patId
+
+    if ($inDb -and $myrayDir) {
+        return [ordered]@{ source = "myray-files"; dir = $myrayDir; in_myray_db = $true }
+    }
+    if ($inDb) {
+        return [ordered]@{ source = "myray-db"; dir = ""; in_myray_db = $true }
+    }
+    if ($myrayDir) {
+        return [ordered]@{ source = "myray-files"; dir = $myrayDir; in_myray_db = $false }
+    }
+
+    $csDir = Find-CsLegacyScanFolderWithStudies $patId
+    if ($csDir) {
+        return [ordered]@{ source = "cs-files"; dir = $csDir; in_myray_db = $false }
+    }
+    return [ordered]@{ source = "none"; dir = ""; in_myray_db = $false }
+}
+
 function Get-NntScanContentType($Extension) {
     switch ($Extension.ToLowerInvariant()) {
         ".jpg"  { "image/jpeg" }
@@ -572,12 +1045,16 @@ function Get-NntScanContentType($Extension) {
 function Get-NntScanFiles($PatientNo) {
     $folder = Find-NntScanFolder $PatientNo
     $patId = Convert-NntPatientId $PatientNo
+    $roots = @(Get-NntScanRoots)
     if (-not $folder) {
         return @{
             ok = $true
             found = $false
             nnt_patid = "$patId"
+            clinic_no_numbers_only = "$patId"
             folder = ""
+            scan_root = if ($roots.Count -gt 0) { [string]$roots[0] } else { "" }
+            scan_roots = $roots
             files = @()
         }
     }
@@ -592,11 +1069,16 @@ function Get-NntScanFiles($PatientNo) {
             content_type = [string](Get-NntScanContentType $ext)
         })
     }
+    $scanRoot = ""
+    try { $scanRoot = [string](Split-Path -Parent $folder) } catch { $scanRoot = "" }
     return @{
         ok = $true
         found = $true
         nnt_patid = "$patId"
+        clinic_no_numbers_only = "$patId"
         folder = "$folder"
+        scan_root = $scanRoot
+        scan_roots = $roots
         files = @($files.ToArray())
     }
 }
@@ -639,6 +1121,8 @@ function Build-PatientContext($Query) {
         address = $Query["address"]
         medical_alerts = $Query["medical_alerts"]
         folder_path = $Query["folder_path"]
+        dentist_id = $Query["dentist_id"]
+        doctor_code = $Query["doctor_code"]
     }
 }
 
@@ -714,7 +1198,14 @@ function Start-NntBridgePatient($Resolved, $Patient) {
     # no NNT.exe instance already running for /DIR to take effect.
     $docPath = Find-Nnt2dDocFile $patId
     $docId = if ($docPath) { [IO.Path]::GetFileNameWithoutExtension($docPath) } else { "" }
-    $dirRoot = if ($docPath) { Find-NntScanFolder $patId } else { "" }
+    # Only pass /DIR when the chart archive has real studies. Pointing /DIR at
+    # an empty SCAN\{chart} folder (common after a prior bad open) forces a
+    # blank NNT/MyRay UI. With no studies on disk, omit /DIR so NNT opens by
+    # /PATID from its own database instead.
+    $dirRoot = Find-NntScanFolderWithStudies $patId
+    if (-not $dirRoot -and $docPath) {
+        $dirRoot = Find-NntScanFolder $patId
+    }
 
     if ($dirRoot) {
         Stop-NntProcessesForDir
@@ -776,6 +1267,141 @@ function Start-NntBridgePatient($Resolved, $Patient) {
         docpath = $docPath
         chinese_name = $Patient.chinese_name
         mode = "nntbridge"
+        argList = ($argList -join " ")
+    }
+}
+
+# MyRay (CEFLA group, same enterprise as NNT/NewTom). Looks for MyRayBridge.exe
+# first (in case the MyRay install ships its own renamed copy), then falls back
+# to NNTBridge.exe in the MyRay program folder -- both accept the same
+# /PATID /NAME /SURNAME /DATEB /SEX /SSNM /APPPATH /WORKDIR /OPENPATIENT
+# command-line contract as the NNT/NewTom version.
+function Resolve-MyRayBridge($Resolved) {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($Resolved -and $Resolved.workingDirectory) {
+        $candidates.Add((Join-Path $Resolved.workingDirectory "MyRayBridge.exe"))
+        $candidates.Add((Join-Path $Resolved.workingDirectory "NNTBridge.exe"))
+    }
+    if ($Resolved -and $Resolved.target) {
+        $targetDir = Split-Path -Parent $Resolved.target
+        if ($targetDir) {
+            $candidates.Add((Join-Path $targetDir "MyRayBridge.exe"))
+            $candidates.Add((Join-Path $targetDir "NNTBridge.exe"))
+        }
+    }
+    $candidates.Add("C:\MyRay\MyRayBridge.exe")
+    $candidates.Add("C:\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files (x86)\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files\CEFLA\MyRay\NNTBridge.exe")
+    $candidates.Add("C:\Program Files (x86)\CEFLA\MyRay\NNTBridge.exe")
+    return First-Existing $candidates
+}
+
+# MyRay open priority (CS retiring):
+#   1) MyRay PatDocDB + \\CT-PC\IMAGE\Scan studies (native Hyperion archive)
+#   2) CSMAIN / RECEPTION SCAN files only if patient is not in MyRay DB
+# Never force /DIR onto an empty CS chart folder — that blanks the UI.
+function Start-MyRayBridgePatient($Resolved, $Patient) {
+    $bridge = Resolve-MyRayBridge $Resolved
+    $patId = if ($Patient.patient_no) { Convert-NntPatientId $Patient.patient_no } else { $Patient.patient_id }
+    if (-not $bridge -or [string]::IsNullOrWhiteSpace($patId)) {
+        return $null
+    }
+
+    $workDir = if ($Resolved.workingDirectory) { $Resolved.workingDirectory } else { Split-Path -Parent $bridge }
+    $appPath = ""
+    if ($Resolved.target -and (Test-PathSafe $Resolved.target)) {
+        $appPath = $Resolved.target
+    } else {
+        foreach ($guess in @(
+            (Join-Path $workDir "MyRay.exe"),
+            (Join-Path $workDir "NNT.exe")
+        )) {
+            if (Test-PathSafe $guess) { $appPath = $guess; break }
+        }
+        if (-not $appPath) { $appPath = Join-Path $workDir "MyRay.exe" }
+    }
+
+    $archive = Resolve-MyRayPatientArchive $patId
+    $dirRoot = [string]$archive.dir
+    $docPath = ""
+    if ($dirRoot) {
+        $docUnder = Join-Path $dirRoot "Document"
+        if (Test-PathSafe $docUnder) {
+            try {
+                $pattern = Join-Path $docUnder "*\*\*\*\*\2D Images collection\*.2dh"
+                $hit = Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $hit) {
+                    $hit = Get-ChildItem -LiteralPath $docUnder -Recurse -Filter "*.2dh" -File -ErrorAction SilentlyContinue |
+                        Select-Object -First 1
+                }
+                if ($hit) { $docPath = [string]$hit.FullName }
+            } catch {}
+        }
+    }
+    $docId = if ($docPath) { [IO.Path]::GetFileNameWithoutExtension($docPath) } else { "" }
+
+    if ($dirRoot) {
+        Stop-NntProcessesForDir
+    }
+
+    $argList = New-Object System.Collections.Generic.List[string]
+    if ($dirRoot) {
+        $argList.Add("/DIR")
+        $argList.Add((Quote-ProcessArg $dirRoot))
+    }
+    $argList.Add("/PATID")
+    $argList.Add((Quote-ProcessArg $patId))
+    if ($Patient.patient_name) {
+        $argList.Add("/NAME")
+        $argList.Add((Quote-ProcessArg $Patient.patient_name))
+    }
+    if ($Patient.chinese_name) {
+        $argList.Add("/SURNAME")
+        $argList.Add((Quote-ProcessArg $Patient.chinese_name))
+    }
+    $dob = Convert-NntBirthDate $Patient.dob
+    if ($dob) {
+        $argList.Add("/DATEB")
+        $argList.Add((Quote-ProcessArg $dob))
+    }
+    $sex = Convert-NntSex $Patient.sex
+    if ($sex) {
+        $argList.Add("/SEX")
+        $argList.Add($sex)
+    }
+    if ($Patient.hkid) {
+        $argList.Add("/SSNM")
+        $argList.Add((Quote-ProcessArg $Patient.hkid))
+    }
+    if ($appPath -and (Test-PathSafe $appPath)) {
+        $argList.Add("/APPPATH")
+        $argList.Add((Quote-ProcessArg $appPath))
+    }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $argList.Add("/WORKDIR")
+        $argList.Add((Quote-ProcessArg $workDir))
+    }
+    $argList.Add("/OPENPATIENT")
+
+    $startArgs = @{ FilePath = $bridge; ArgumentList = ($argList -join " ") }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $startArgs.WorkingDirectory = $workDir
+    }
+    Start-Process @startArgs
+    return [ordered]@{
+        bridge = $bridge
+        target = $appPath
+        workingDirectory = $workDir
+        patient_id = $patId
+        dir = $dirRoot
+        docid = $docId
+        docpath = $docPath
+        archive_source = $archive.source
+        in_myray_db = [bool]$archive.in_myray_db
+        chinese_name = $Patient.chinese_name
+        mode = "myraybridge"
         argList = ($argList -join " ")
     }
 }
@@ -1189,6 +1815,427 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
     }
 }
 
+# ════════════════════════════════════════════════════════════════
+# Apixia Digirex (PSP periapical / bitewing)
+#
+# Documented PMS contract (Open Dental "Apixia Bridge"): write Switch.ini
+# in the SAME folder as digirex.exe, then launch digirex.exe. Digirex
+# reads [Patient] ID / name / DOB / gender and [Dentist] ID + password
+# ("digirex") and either opens the matching chart or creates a new one
+# from those fields.
+#
+# Chart matching: Banana patient_no carries a clinic letter prefix
+# (Po Lam "PL001287", Mongkok "MK…", Kwun Tong "KT…"). OLD Digirex
+# charts were entered as bare digits. Convert-DigirexPatientId strips
+# ANY letter prefix (same digit-run as NNT / EzDent-i / Rayscan). If
+# the local DATA folder has a record under the zero-stripped form
+# ("1287") that is preferred so existing films open; otherwise the
+# padded digits ("001287") are sent so a NEW chart gets a stable id.
+#
+# [Dentist] login is NOT the Banana consultation doctor tag. Apixia
+# NETWORK 3.0 authenticates against DigirexServer; a wrong ID/password
+# pops "Wrong Username or password" and can freeze the splash. Clinic
+# login is username "apixia" / password "digirex". Override with
+# $script:DigirexDentistId / $script:DigirexDentistPassword. Banana
+# dentist_id / doctor_code query params are ignored (they are doctor
+# tags like "ignore", not Digirex users).
+#
+# Storage auto-detect (future Digirex versions / relocated installs):
+# desktop shortcuts, well-known Program Files paths, Digirex/Apixia
+# uninstall registry keys, DIGIREX_HOME, and VirtualStore DATA copies.
+# Override with $script:DigirexExePath / $script:DigirexDataRoots /
+# $script:DigirexDentistId / $script:DigirexDentistPassword in
+# xray-launcher-config.ps1. Clinic default login is apixia / digirex.
+#
+# Isolation: this handler only writes Switch.ini next to Digirex and
+# starts digirex.exe. It never touches EzDent-i Linkage.xml, NNTBridge
+# args, RAYBridge, or MyRay. Same :17890 listener -- no second port.
+# ════════════════════════════════════════════════════════════════
+
+function Convert-DigirexPatientId($Value) {
+    return Convert-NntPatientId $Value
+}
+
+function Get-DigirexPatientIdCandidates($Value) {
+    $list = New-Object System.Collections.Generic.List[string]
+    $digits = Convert-DigirexPatientId $Value
+    if ([string]::IsNullOrWhiteSpace($digits)) { return @() }
+    $list.Add($digits)
+    $stripped = $digits.TrimStart("0")
+    if ([string]::IsNullOrWhiteSpace($stripped)) { $stripped = "0" }
+    if ($stripped -ne $digits) { $list.Add($stripped) }
+    return @($list)
+}
+
+function Convert-DigirexBirthParts($Value) {
+    $out = [ordered]@{ Year = ""; Month = ""; Day = "" }
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $out }
+    $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy")
+    $dt = $null
+    foreach ($fmt in $formats) {
+        try {
+            $dt = [DateTime]::ParseExact($Value, $fmt, [Globalization.CultureInfo]::InvariantCulture)
+            break
+        } catch { $dt = $null }
+    }
+    if (-not $dt) {
+        try { $dt = [DateTime]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture) } catch { return $out }
+    }
+    $out.Year = $dt.Year.ToString()
+    $out.Month = $dt.Month.ToString()
+    $out.Day = $dt.Day.ToString()
+    return $out
+}
+
+function Split-DigirexPatientName($Patient) {
+    $first = [string]$Patient.patient_name
+    $last = [string]$Patient.chinese_name
+    $first = $first.Trim()
+    $last = $last.Trim()
+    if ($first -and $last) {
+        return [ordered]@{ First = $first; Last = $last }
+    }
+    if ($first) {
+        $split = Split-RayPatientName $first
+        if ($split.last -and $split.first) {
+            return [ordered]@{ First = $split.first; Last = $split.last }
+        }
+        return [ordered]@{ First = $first; Last = "" }
+    }
+    if ($last) { return [ordered]@{ First = $last; Last = "" } }
+    return [ordered]@{ First = ""; Last = "" }
+}
+
+function Get-DigirexRegistryExePaths {
+    $found = New-Object System.Collections.Generic.List[string]
+    $roots = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        try {
+            Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue | ForEach-Object {
+                try {
+                    $p = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+                    $name = [string]$p.DisplayName
+                    if ($name -notmatch '(?i)digirex|apixia') { return }
+                    foreach ($loc in @($p.InstallLocation, $p.DisplayIcon, $p.InstallSource)) {
+                        $s = [string]$loc
+                        if ([string]::IsNullOrWhiteSpace($s)) { continue }
+                        $s = $s.Trim().Trim('"')
+                        if ($s -match '(?i)digirex\.exe$') {
+                            $found.Add($s)
+                        } elseif (Test-PathSafe $s) {
+                            $exe = Join-Path $s "digirex.exe"
+                            if (Test-PathSafe $exe) { $found.Add($exe) }
+                        }
+                    }
+                } catch {}
+            }
+        } catch {}
+    }
+    return @($found)
+}
+
+function Get-DigirexKnownExePaths {
+    $list = New-Object System.Collections.Generic.List[string]
+    if ($script:DigirexExePath) { $list.Add([string]$script:DigirexExePath) }
+    if ($env:DIGIREX_HOME) {
+        $list.Add((Join-Path $env:DIGIREX_HOME "digirex.exe"))
+    }
+    if ($Systems.digirex -and $Systems.digirex.executables) {
+        foreach ($p in $Systems.digirex.executables) { $list.Add($p) }
+    }
+    if ($Systems.digirex -and $Systems.digirex.shortcuts) {
+        foreach ($s in $Systems.digirex.shortcuts) {
+            $info = Resolve-Shortcut $s
+            if ($info -and $info.target) { $list.Add([string]$info.target) }
+        }
+    }
+    foreach ($p in (Get-DigirexRegistryExePaths)) { $list.Add($p) }
+    return @($list | Where-Object { $_ } | Select-Object -Unique)
+}
+
+function Test-DigirexInstalled {
+    foreach ($p in (Get-DigirexKnownExePaths)) {
+        if (Test-PathSafe $p) { return $true }
+    }
+    return $false
+}
+
+function Resolve-DigirexInstall($Resolved) {
+    $exe = ""
+    # Explicit-but-missing target: do not hunt the real clinic install.
+    # -SelfTest uses this so a fabricated TEMP path can never pop Digirex.
+    if ($Resolved -and $Resolved.target -and -not (Test-PathSafe $Resolved.target)) {
+        return [ordered]@{ exe = ""; workingDirectory = ""; switch_ini = ""; exists = $false }
+    }
+    if ($Resolved -and $Resolved.target -and (Test-PathSafe $Resolved.target) -and ($Resolved.target -match '(?i)digirex\.exe$')) {
+        $exe = $Resolved.target
+    }
+    if (-not $exe) { $exe = First-Existing (Get-DigirexKnownExePaths) }
+    $workDir = ""
+    if ($exe) { $workDir = Split-Path -Parent $exe }
+    if ($Resolved -and $Resolved.workingDirectory -and (Test-PathSafe $Resolved.workingDirectory)) {
+        $workDir = $Resolved.workingDirectory
+        if (-not $exe) {
+            $guess = Join-Path $workDir "digirex.exe"
+            if (Test-PathSafe $guess) { $exe = $guess }
+        }
+    }
+    $switchIni = ""
+    if ($workDir) {
+        $candidate = Join-Path $workDir "Switch.ini"
+        $switchIni = $candidate
+    }
+    return [ordered]@{
+        exe = $exe
+        workingDirectory = $workDir
+        switch_ini = $switchIni
+        exists = [bool]$exe
+    }
+}
+
+function Get-DigirexDataRoots($Install) {
+    $roots = New-Object System.Collections.Generic.List[string]
+    if ($script:DigirexDataRoots) {
+        foreach ($r in @($script:DigirexDataRoots)) {
+            if ($r) { $roots.Add([string]$r) }
+        }
+    }
+    $workDir = if ($Install) { [string]$Install.workingDirectory } else { "" }
+    if ($workDir) {
+        $roots.Add((Join-Path $workDir "DATA"))
+        $roots.Add((Join-Path $workDir "Data"))
+        $roots.Add((Join-Path $workDir "data"))
+    }
+    $roots.Add("C:\Program Files\DIGIREX\DATA")
+    $roots.Add("C:\Program Files\Digirex\DATA")
+    $roots.Add("C:\Program Files (x86)\DIGIREX\DATA")
+    $roots.Add("C:\Program Files (x86)\Digirex\DATA")
+    $roots.Add("C:\DIGIREX\DATA")
+    $roots.Add("C:\Digirex\DATA")
+    if ($env:LOCALAPPDATA) {
+        $vs = $env:LOCALAPPDATA
+        $roots.Add((Join-Path $vs "VirtualStore\Program Files\DIGIREX\DATA"))
+        $roots.Add((Join-Path $vs "VirtualStore\Program Files\Digirex\DATA"))
+        $roots.Add((Join-Path $vs "VirtualStore\Program Files (x86)\DIGIREX\DATA"))
+        $roots.Add((Join-Path $vs "VirtualStore\Program Files (x86)\Digirex\DATA"))
+    }
+    $seen = @{}
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($r in $roots) {
+        $key = $r.ToLowerInvariant()
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        $out.Add($r)
+    }
+    return @($out)
+}
+
+function Test-DigirexPatientAtRoot($Root, $ChartId) {
+    if ([string]::IsNullOrWhiteSpace($Root) -or [string]::IsNullOrWhiteSpace($ChartId)) { return $false }
+    if (-not (Test-PathSafe $Root)) { return $false }
+    $direct = Join-Path $Root $ChartId
+    if (Test-PathSafe $direct) { return $true }
+    foreach ($name in @("$ChartId.ini", "$ChartId.dat", "$ChartId.db", "P$ChartId")) {
+        if (Test-PathSafe (Join-Path $Root $name)) { return $true }
+    }
+    try {
+        $hit = Get-ChildItem -LiteralPath $Root -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $ChartId -or $_.BaseName -eq $ChartId } |
+            Select-Object -First 1
+        if ($hit) { return $true }
+    } catch {}
+    return $false
+}
+
+function Find-DigirexPatientRecord($PatientNo, $Install) {
+    $candidates = @(Get-DigirexPatientIdCandidates $PatientNo)
+    if ($candidates.Count -eq 0) { return $null }
+    foreach ($root in (Get-DigirexDataRoots $Install)) {
+        foreach ($id in $candidates) {
+            if (Test-DigirexPatientAtRoot $root $id) {
+                return [ordered]@{
+                    chart_id = $id
+                    data_root = $root
+                    path = (Join-Path $root $id)
+                    existing = $true
+                }
+            }
+        }
+    }
+    return $null
+}
+
+function Resolve-DigirexMatchId($Patient, $Install) {
+    $found = Find-DigirexPatientRecord $Patient.patient_no $Install
+    if ($found -and $found.chart_id) { return [string]$found.chart_id }
+    $digits = Convert-DigirexPatientId $Patient.patient_no
+    if ($digits) { return $digits }
+    return [string]$Patient.patient_id
+}
+
+function Read-DigirexIniSection($Path, $Section) {
+    $out = [ordered]@{}
+    if (-not (Test-PathSafe $Path)) { return $out }
+    try {
+        $inSection = $false
+        foreach ($line in (Get-Content -LiteralPath $Path -ErrorAction Stop)) {
+            $t = ([string]$line).Trim()
+            if ($t -match '^\[(.+)\]\s*$') {
+                $inSection = ($Matches[1] -ieq $Section)
+                continue
+            }
+            if (-not $inSection) { continue }
+            if ($t -match '^([^#;=]+?)\s*=\s*(.*)$') {
+                $out[$Matches[1].Trim()] = $Matches[2].Trim()
+            }
+        }
+    } catch {}
+    return $out
+}
+
+function Read-DigirexSwitchIniDentist($SwitchPath) {
+    $sec = Read-DigirexIniSection $SwitchPath "Dentist"
+    return [ordered]@{
+        ID = [string]$sec.ID
+        Password = [string]$sec.Password
+    }
+}
+
+function Read-DigirexSwitchIniDentistId($SwitchPath) {
+    return [string]((Read-DigirexSwitchIniDentist $SwitchPath).ID)
+}
+
+function Read-DigirexServerAccount($Install) {
+    $workDir = if ($Install) { [string]$Install.workingDirectory } else { "" }
+    if (-not $workDir) { return [ordered]@{ ID = ""; Password = "" } }
+    foreach ($name in @("ServerIP.ini", "serverip.ini", "ServerIp.ini")) {
+        $sec = Read-DigirexIniSection (Join-Path $workDir $name) "Account"
+        $id = [string]$sec.ID
+        $pass = [string]$sec.Pass
+        if ([string]::IsNullOrWhiteSpace($pass)) { $pass = [string]$sec.Password }
+        if (-not [string]::IsNullOrWhiteSpace($id)) {
+            return [ordered]@{ ID = $id.Trim(); Password = $pass.Trim() }
+        }
+    }
+    return [ordered]@{ ID = ""; Password = "" }
+}
+
+function Test-DigirexTrustedDentistId($Value) {
+    $s = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+    # Banana consultation tags / login placeholders are not DigirexServer users.
+    if ($s -match '(?i)^(ignore|admin|login|none|null|undefined|doctor)$') { return $false }
+    if ($s -match '\s') { return $false }
+    return $true
+}
+
+function Resolve-DigirexDentistCredentials($Patient, $Install) {
+    if ($script:DigirexDentistId) {
+        $pass = [string]$script:DigirexDentistPassword
+        if ([string]::IsNullOrWhiteSpace($pass)) { $pass = "digirex" }
+        return [ordered]@{ ID = ([string]$script:DigirexDentistId).Trim(); Password = $pass; source = "config" }
+    }
+    # Clinic NETWORK login (confirmed live). Do not use Banana doctor tags,
+    # ServerIP.ini "ALL", or a leftover Switch.ini ID=ignore — those pop
+    # "Wrong Username or password".
+    return [ordered]@{ ID = "apixia"; Password = "digirex"; source = "default" }
+}
+
+function Resolve-DigirexDentistId($Patient, $Install) {
+    return [string]((Resolve-DigirexDentistCredentials $Patient $Install).ID)
+}
+
+function Escape-IniValue($Value) {
+    return ([string]$Value) -replace '[\r\n]+', ' '
+}
+
+function New-DigirexSwitchIni($Patient, $Install) {
+    $chartNo = Resolve-DigirexMatchId $Patient $Install
+    $names = Split-DigirexPatientName $Patient
+    $gender = Convert-GenderWord $Patient.sex
+    $dob = Convert-DigirexBirthParts $Patient.dob
+    $cred = Resolve-DigirexDentistCredentials $Patient $Install
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append("[Patient]" + [Environment]::NewLine)
+    [void]$sb.Append("ID=" + (Escape-IniValue $chartNo) + [Environment]::NewLine)
+    if ($gender) { [void]$sb.Append("Gender=" + $gender + [Environment]::NewLine) }
+    [void]$sb.Append("First=" + (Escape-IniValue $names.First) + [Environment]::NewLine)
+    [void]$sb.Append("Last=" + (Escape-IniValue $names.Last) + [Environment]::NewLine)
+    if ($dob.Year) { [void]$sb.Append("Year=" + $dob.Year + [Environment]::NewLine) }
+    if ($dob.Month) { [void]$sb.Append("Month=" + $dob.Month + [Environment]::NewLine) }
+    if ($dob.Day) { [void]$sb.Append("Day=" + $dob.Day + [Environment]::NewLine) }
+    [void]$sb.Append([Environment]::NewLine)
+    [void]$sb.Append("[Dentist]" + [Environment]::NewLine)
+    [void]$sb.Append("ID=" + (Escape-IniValue $cred.ID) + [Environment]::NewLine)
+    [void]$sb.Append("Password=" + (Escape-IniValue $cred.Password) + [Environment]::NewLine)
+    return $sb.ToString()
+}
+
+function Write-DigirexSwitchIni($Path, $Content) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or $null -eq $Content) { return $false }
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-PathSafe $dir)) {
+        try { New-Item -ItemType Directory -Path $dir -Force | Out-Null } catch { return $false }
+    }
+    try {
+        $utf8 = New-Object System.Text.UTF8Encoding $false
+        [IO.File]::WriteAllText($Path, $Content, $utf8)
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Start-DigirexBridgePatient($Resolved, $Patient) {
+    $install = Resolve-DigirexInstall $Resolved
+    if (-not $install.exists) { return $null }
+    $chartNo = Resolve-DigirexMatchId $Patient $install
+    if ([string]::IsNullOrWhiteSpace($chartNo)) { return $null }
+
+    $iniText = New-DigirexSwitchIni $Patient $install
+    $wrote = $false
+    if ($install.switch_ini) {
+        $wrote = Write-DigirexSwitchIni $install.switch_ini $iniText
+    }
+
+    $existing = Find-DigirexPatientRecord $Patient.patient_no $install
+
+    try {
+        $appArgs = @{ FilePath = $install.exe }
+        if ($install.workingDirectory -and (Test-PathSafe $install.workingDirectory)) {
+            $appArgs.WorkingDirectory = $install.workingDirectory
+        }
+        Start-Process @appArgs
+    } catch {
+        return $null
+    }
+
+    $clipPatient = [ordered]@{}
+    foreach ($k in $Patient.Keys) { $clipPatient[$k] = $Patient[$k] }
+    $clipPatient.patient_no = $chartNo
+    Copy-PatientContextToClipboard $clipPatient
+
+    return [ordered]@{
+        target = $install.exe
+        workingDirectory = $install.workingDirectory
+        switch_ini = $install.switch_ini
+        switch_ini_written = $wrote
+        chart_number = $chartNo
+        patient_id = $chartNo
+        existing_match = [bool]($existing -and $existing.existing)
+        existing_path = if ($existing) { $existing.path } else { "" }
+        data_root = if ($existing) { $existing.data_root } else { "" }
+        dentist_id = (Resolve-DigirexDentistId $Patient $install)
+        dentist_source = [string]((Resolve-DigirexDentistCredentials $Patient $install).source)
+        mode = "digirex-switch-ini"
+    }
+}
+
 # Fires off _nnt_identity_guard.ps1 in the background (non-blocking --
 # Handle-Request returns to the browser immediately either way). See that
 # script's header comment for why this exists: NNT's own internal patient
@@ -1275,6 +2322,17 @@ function Handle-Request($RawPath) {
     if ($pathOnly -eq "/status") {
         return @{ status = 200; body = (Status-Payload) }
     }
+    if ($pathOnly -eq "/nnt/roots") {
+        $roots = @(Get-NntScanRoots)
+        return @{
+            status = 200
+            body = [ordered]@{
+                ok = $true
+                scan_root = if ($roots.Count -gt 0) { [string]$roots[0] } else { "" }
+                scan_roots = $roots
+            }
+        }
+    }
     if ($pathOnly -eq "/nnt/scans") {
         $query = Parse-Query $RawPath
         $patientNo = $query["patient_no"]
@@ -1315,6 +2373,10 @@ function Handle-Request($RawPath) {
             $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext
         } elseif ($key -eq "trophy") {
             $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
+        } elseif ($key -eq "myray") {
+            $bridgeLaunch = Start-MyRayBridgePatient $resolved $patientContext
+        } elseif ($key -eq "digirex") {
+            $bridgeLaunch = Start-DigirexBridgePatient $resolved $patientContext
         }
         if (-not $bridgeLaunch) {
             Start-ResolvedProgram $resolved
@@ -1323,6 +2385,14 @@ function Handle-Request($RawPath) {
             Start-NntIdentityGuard $patientContext
         }
         if ($bridgeLaunch -and $key -eq "nntnewtom" -and $patientContext.patient_id -and $patientContext.patient_no) {
+            Start-NntNewOpgWatcher $patientContext $bridgeLaunch
+        }
+        # MyRay shares the same CEFLA identity-guard and OPG-watcher logic as
+        # NNT/NewTom: same internal patient DB drift risk, same scan folder layout.
+        if ($bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_name) {
+            Start-NntIdentityGuard $patientContext
+        }
+        if ($bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_id -and $patientContext.patient_no) {
             Start-NntNewOpgWatcher $patientContext $bridgeLaunch
         }
         return @{
@@ -1448,17 +2518,29 @@ function Invoke-SelfTest {
 
     Write-Host "== Convert-NntPatientId (strip clinic-configured patient_no_prefix for /PATID) ==" -ForegroundColor Cyan
     Assert-Equal "Real case: PY-prefixed chart number" "002505" (Convert-NntPatientId "PY002505")
+    Assert-Equal "MK patient-pool prefix"              "006681" (Convert-NntPatientId "MK006681")
+    Assert-Equal "TKO patient-pool prefix"             "003826" (Convert-NntPatientId "TKO003826")
+    Assert-Equal "PL patient-pool prefix"              "001287" (Convert-NntPatientId "PL001287")
     Assert-Equal "No prefix, digits only"              "002505" (Convert-NntPatientId "002505")
     Assert-Equal "Multi-letter prefix"                 "013524" (Convert-NntPatientId "ABC013524")
     Assert-Equal "Empty stays empty"                   ""       (Convert-NntPatientId "")
     Assert-Equal "Null stays empty"                    ""       (Convert-NntPatientId $null)
     Assert-Equal "No digits at all falls back to raw"  "NOPE"   (Convert-NntPatientId "NOPE")
 
+    Write-Host "== RECEPTION* host filter ==" -ForegroundColor Cyan
+    Assert-Equal "RECEPTION_MCP matches" $true (Test-ReceptionHostName "RECEPTION_MCP")
+    Assert-Equal "RECEPTION-TKO matches" $true (Test-ReceptionHostName "RECEPTION-TKO")
+    Assert-Equal "reception_pl matches" $true (Test-ReceptionHostName "reception_pl")
+    Assert-Equal "DOCTOR-1 does not match" $false (Test-ReceptionHostName "DOCTOR-1")
+    Assert-Equal "CSMAIN is not RECEPTION*" $false (Test-ReceptionHostName "CSMAIN")
+
     Write-Host "== Get-NntScanIdCandidates (prefix strip + 6-digit pad) ==" -ForegroundColor Cyan
     $c1 = Get-NntScanIdCandidates "PY002505"
-    Assert-Equal "PY002505 yields one id" "002505" ($c1 -join ",")
+    Assert-Equal "PY002505 yields digits then raw" "002505,PY002505" ($c1 -join ",")
     $c2 = Get-NntScanIdCandidates "PY2505"
-    Assert-Equal "Short digits also try 6-pad" "2505,002505" ($c2 -join ",")
+    Assert-Equal "Short digits also try 6-pad" "2505,002505,PY2505" ($c2 -join ",")
+    $cMk = Get-NntScanIdCandidates "MK006681"
+    Assert-Equal "MK pool chart prefers bare digits" "006681" $cMk[0]
     $c3 = Get-NntScanIdCandidates ""
     Assert-Equal "Empty patient_no yields no candidates" "0" ([string]$c3.Count)
 
@@ -1487,6 +2569,10 @@ function Invoke-SelfTest {
         $scanResp = Handle-Request "/nnt/scans?patient_no=PY002505"
         Assert-Equal "/nnt/scans returns 200" 200 $scanResp.status
         Assert-Equal "/nnt/scans found=true" $true $scanResp.body.found
+        Assert-Equal "/nnt/scans digits-only id" "002505" $scanResp.body.clinic_no_numbers_only
+        $rootsResp = Handle-Request "/nnt/roots"
+        Assert-Equal "/nnt/roots returns 200" 200 $rootsResp.status
+        Assert-Equal "/nnt/roots ok" $true $rootsResp.body.ok
         $badScan = Handle-Request "/nnt/scans"
         Assert-Equal "/nnt/scans without patient_no is 400" 400 $badScan.status
         $fileResp = Handle-Request "/nnt/file?patient_no=PY002505&name=002505_20260505112331.JPG"
@@ -1602,7 +2688,131 @@ function Invoke-SelfTest {
     Assert-Equal "ezdenti.exists is a boolean" $true ($ezResolveCheck.exists -is [bool])
     $rayResolveCheck = Resolve-System "rayscan" ""
     Assert-Equal "rayscan.exists is a boolean" $true ($rayResolveCheck.exists -is [bool])
+    $myrayResolveCheck = Resolve-System "myray" ""
+    Assert-Equal "myray.exists is a boolean" $true ($myrayResolveCheck.exists -is [bool])
+    $digirexResolveCheck = Resolve-System "digirex" ""
+    if ($digirexResolveCheck) {
+        Assert-Equal "digirex.exists is a boolean when resolvable" $true ($digirexResolveCheck.exists -is [bool])
+    } else {
+        Assert-Equal "digirex unresolved is null (not installed + not in EnabledSystems)" $true ($true)
+    }
     Assert-Equal "unknown system key returns null" $true ((Resolve-System "does-not-exist" "") -eq $null)
+
+    Write-Host "== Resolve-MyRayBridge (returns a path string; safe on any PC) ==" -ForegroundColor Cyan
+    $myrayBridgeGuess = Resolve-MyRayBridge ([ordered]@{ workingDirectory = (Join-Path $env:TEMP ("xray-myray-" + [Guid]::NewGuid().ToString("N"))); target = "" })
+    Assert-Equal "Resolve-MyRayBridge returns a string" $true ($myrayBridgeGuess -is [string])
+
+    Write-Host "== Convert-NntPatientId covers MyRay clinic prefix stripping ==" -ForegroundColor Cyan
+    Assert-Equal "MyRay: MK prefix stripped" "005455" (Convert-NntPatientId "MK005455")
+    Assert-Equal "MyRay: no prefix, digits only" "005455" (Convert-NntPatientId "005455")
+    Assert-Equal "MyRay: empty stays empty"  "" (Convert-NntPatientId "")
+
+    Write-Host "== Start-MyRayBridgePatient (no real launch -- negative paths only) ==" -ForegroundColor Cyan
+    $noPatIdMyRay = Start-MyRayBridgePatient ([ordered]@{ workingDirectory = $env:TEMP; target = "" }) ([ordered]@{ patient_name = "NO ID" })
+    Assert-Equal "MyRay: no patient_no/id -> returns null" $true ($null -eq $noPatIdMyRay)
+    $noResolvedMyRay = Start-MyRayBridgePatient $null ([ordered]@{ patient_no = "001234"; patient_name = "TEST" })
+    Assert-Equal "MyRay: null resolved -> still safe (no throw)" $true ($true)
+
+    Write-Host "== Convert-DigirexPatientId (strip clinic prefix so Apixia matches OLD charts) ==" -ForegroundColor Cyan
+    Assert-Equal "PL prefix stripped"              "001287" (Convert-DigirexPatientId "PL001287")
+    Assert-Equal "pl lowercase prefix stripped"    "001287" (Convert-DigirexPatientId "pl001287")
+    Assert-Equal "MK prefix stripped"              "005455" (Convert-DigirexPatientId "MK005455")
+    Assert-Equal "KT prefix stripped"              "003826" (Convert-DigirexPatientId "KT003826")
+    Assert-Equal "No prefix, digits only"          "001287" (Convert-DigirexPatientId "001287")
+    Assert-Equal "Empty stays empty"               ""       (Convert-DigirexPatientId "")
+    $dxIds = @(Get-DigirexPatientIdCandidates "PL001287")
+    Assert-Equal "Candidates include padded digits" "001287" $dxIds[0]
+    Assert-Equal "Candidates include zero-stripped" $true ($dxIds -contains "1287")
+
+    Write-Host "== Convert-DigirexBirthParts / Split-DigirexPatientName / New-DigirexSwitchIni ==" -ForegroundColor Cyan
+    $dxDob = Convert-DigirexBirthParts "1969-05-23"
+    Assert-Equal "Year"  "1969" $dxDob.Year
+    Assert-Equal "Month" "5"    $dxDob.Month
+    Assert-Equal "Day"   "23"   $dxDob.Day
+    $dxNames = Split-DigirexPatientName ([ordered]@{ patient_name = "HSIUNG KWAN MING"; chinese_name = "熊關明" })
+    Assert-Equal "First is English name" "HSIUNG KWAN MING" $dxNames.First
+    Assert-Equal "Last is Chinese name"  "熊關明"            $dxNames.Last
+    $dxPatient = Build-PatientContext (Parse-Query (
+        "/open/digirex?patient_no=" + [Uri]::EscapeDataString("PL001287") +
+        "&patient_name=" + [Uri]::EscapeDataString("HSIUNG KWAN MING") +
+        "&chinese_name=" + [Uri]::EscapeDataString("熊關明") +
+        "&dob=" + [Uri]::EscapeDataString("1969-05-23") +
+        "&sex=M&dentist_id=ignore"
+    ))
+    $dxIni = New-DigirexSwitchIni $dxPatient $null
+    Assert-Equal "Switch.ini has [Patient]"     $true ($dxIni -like "*[Patient]*")
+    Assert-Equal "ID is bare digits (no PL)"    $true ($dxIni -match '(?m)^ID=001287\r?$')
+    Assert-Equal "PL prefix not left on ID"     $false ($dxIni -like "*ID=PL001287*")
+    Assert-Equal "Gender word Male"             $true ($dxIni -like "*Gender=Male*")
+    Assert-Equal "First English"                $true ($dxIni -like "*First=HSIUNG KWAN MING*")
+    Assert-Equal "Last Chinese"                 $true ($dxIni -like "*Last=熊關明*")
+    Assert-Equal "Year 1969"                    $true ($dxIni -like "*Year=1969*")
+    Assert-Equal "Month 5"                      $true ($dxIni -like "*Month=5*")
+    Assert-Equal "Day 23"                       $true ($dxIni -like "*Day=23*")
+    Assert-Equal "Dentist section"              $true ($dxIni -like "*[Dentist]*")
+    Assert-Equal "Dentist ID is clinic apixia"  $true ($dxIni -match '(?ms)\[Dentist\].*?^ID=apixia\r?$')
+    Assert-Equal "Banana dentist_id ignored"    $false ($dxIni -like "*ID=ignore*")
+    Assert-Equal "Password is digirex"          $true ($dxIni -like "*Password=digirex*")
+
+    Write-Host "== Digirex DATA match + Switch.ini write (temp folder only) ==" -ForegroundColor Cyan
+    $dxTemp = Join-Path $env:TEMP ("xray-digirex-selftest-" + [Guid]::NewGuid().ToString("N"))
+    $dxData = Join-Path $dxTemp "DATA"
+    $prevDxRoots = $script:DigirexDataRoots
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $dxData "001287") -Force | Out-Null
+        $script:DigirexDataRoots = @($dxData)
+        $fakeInstall = [ordered]@{ workingDirectory = $dxTemp; switch_ini = (Join-Path $dxTemp "Switch.ini"); exe = (Join-Path $dxTemp "digirex.exe"); exists = $false }
+        $hit = Find-DigirexPatientRecord "PL001287" $fakeInstall
+        Assert-Equal "Existing chart matched under DATA\001287" $true ($hit -and $hit.existing)
+        Assert-Equal "Matched id keeps padded digits" "001287" $hit.chart_id
+        $matchId = Resolve-DigirexMatchId $dxPatient $fakeInstall
+        Assert-Equal "Resolve-DigirexMatchId prefers existing folder" "001287" $matchId
+        $iniPath = Join-Path $dxTemp "Switch.ini"
+        $wroteOk = Write-DigirexSwitchIni $iniPath $dxIni
+        Assert-Equal "Switch.ini written under TEMP" $true $wroteOk
+        Assert-Equal "Switch.ini exists" $true (Test-Path -LiteralPath $iniPath)
+        $roundTripDentist = Read-DigirexSwitchIniDentistId $iniPath
+        Assert-Equal "Read-back dentist ID" "apixia" $roundTripDentist
+        $serverIni = @"
+[Account]
+Remember=1
+ID=ALL
+Pass=digirex
+"@
+        [IO.File]::WriteAllText((Join-Path $dxTemp "ServerIP.ini"), $serverIni)
+        $afterServer = New-DigirexSwitchIni $dxPatient $fakeInstall
+        Assert-Equal "ServerIP ALL does not override apixia" $true ($afterServer -match '(?ms)\[Dentist\].*?^ID=apixia\r?$')
+        $prevDxId = $script:DigirexDentistId
+        $prevDxPass = $script:DigirexDentistPassword
+        try {
+            $script:DigirexDentistId = "clinicuser"
+            $script:DigirexDentistPassword = "clinicpass"
+            $cfgIni = New-DigirexSwitchIni $dxPatient $fakeInstall
+            Assert-Equal "Config dentist ID wins" $true ($cfgIni -match '(?ms)\[Dentist\].*?^ID=clinicuser\r?$')
+            Assert-Equal "Config password wins" $true ($cfgIni -like "*Password=clinicpass*")
+        } finally {
+            $script:DigirexDentistId = $prevDxId
+            $script:DigirexDentistPassword = $prevDxPass
+        }
+        $noLaunch = Start-DigirexBridgePatient ([ordered]@{ workingDirectory = $dxTemp; target = (Join-Path $dxTemp "missing-digirex.exe") }) $dxPatient
+        Assert-Equal "Missing digirex.exe returns null (no launch)" $true ($null -eq $noLaunch)
+    } finally {
+        $script:DigirexDataRoots = $prevDxRoots
+        if (Test-Path -LiteralPath $dxTemp) { Remove-Item -LiteralPath $dxTemp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    Write-Host "== Digirex sidecar does not unlock EzDent-i / MyRay / NNT ==" -ForegroundColor Cyan
+    $savedEnabledSystems2 = $EnabledSystems
+    try {
+        $EnabledSystems = @("ezdenti")
+        Assert-Equal "sidecar: ezdenti still enabled" $true ((Resolve-System "ezdenti" "") -ne $null)
+        Assert-Equal "sidecar: myray still isolated" $true ((Resolve-System "myray" "") -eq $null)
+        Assert-Equal "sidecar: nntnewtom still isolated" $true ((Resolve-System "nntnewtom" "") -eq $null)
+        $EnabledSystems = @("myray")
+        Assert-Equal "sidecar on myray install: ezdenti isolated" $true ((Resolve-System "ezdenti" "") -eq $null)
+    } finally {
+        $EnabledSystems = $savedEnabledSystems2
+    }
 
     Write-Host "== -EnabledSystems (installer-ezdenti / installer-nntnewtom isolation) ==" -ForegroundColor Cyan
     # Temporarily overrides the script-scope $EnabledSystems the same way
@@ -1624,9 +2834,19 @@ function Invoke-SelfTest {
         Assert-Equal "Restricted /status omits nntnewtom_exists entirely" $false ($restrictedStatus.Contains("nntnewtom_exists"))
         Assert-Equal "Restricted /status omits nntnewtom from systems map" $false ($restrictedStatus.systems.Keys -contains "nntnewtom")
         Assert-Equal "Restricted /status reports enabled_systems" "ezdenti" ($restrictedStatus.enabled_systems -join ",")
+        Assert-Equal "Restricted /status has sidecar_systems key" $true ($restrictedStatus.Contains("sidecar_systems"))
+        if (Test-DigirexInstalled) {
+            Assert-Equal "ezdenti install sidecars digirex when exe is on disk" $true ($restrictedStatus.sidecar_systems -contains "digirex")
+        }
+
+        $EnabledSystems = @("myray")
+        Assert-Equal "myray-only: nntnewtom still resolvable? isolation keeps it out" $true ((Resolve-System "nntnewtom" "") -eq $null)
+        Assert-Equal "myray-only: ezdenti stays isolated" $true ((Resolve-System "ezdenti" "") -eq $null)
+        Assert-Equal "myray-only: myray itself is enabled" $true ((Resolve-System "myray" "") -ne $null)
 
         $EnabledSystems = @()
         Assert-Equal "Empty EnabledSystems = unrestricted (nntnewtom resolvable again)" $true ((Resolve-System "nntnewtom" "") -ne $null)
+        Assert-Equal "Unrestricted: digirex key is in `$Systems" $true ($Systems.ContainsKey("digirex"))
     } finally {
         $EnabledSystems = $savedEnabledSystems
     }
@@ -1672,8 +2892,19 @@ function Invoke-SelfTest {
         } else {
             Assert-Equal "/open/rayscan returns 404 when Rayscan not installed on this PC" 404 $rayOpenResp.status
         }
+        if ($digirexResolveCheck -and $digirexResolveCheck.exists) {
+            $dxOpenResp = Handle-Request ("/open/digirex?patient_no=PL001287&patient_name=TEST&sex=M")
+            Assert-Equal "/open/digirex returns 200 and opens the real app" 200 $dxOpenResp.status
+        } else {
+            $dxOpenResp = Handle-Request "/open/digirex?patient_no=PL001287"
+            Assert-Equal "/open/digirex returns 404 when Digirex not installed on this PC" 404 $dxOpenResp.status
+        }
     } else {
-        Write-Host "  [SKIP] /open/nntnewtom, /open/ezdenti, /open/rayscan live-launch checks (pass -IncludeLiveLaunch to run them)" -ForegroundColor DarkYellow
+        if (-not ($digirexResolveCheck -and $digirexResolveCheck.exists)) {
+            $dxMissing = Handle-Request "/open/digirex?patient_no=PL001287"
+            Assert-Equal "/open/digirex returns 404 when Digirex not installed (no live launch)" 404 $dxMissing.status
+        }
+        Write-Host "  [SKIP] /open/nntnewtom, /open/ezdenti, /open/rayscan, /open/digirex live-launch checks (pass -IncludeLiveLaunch to run them)" -ForegroundColor DarkYellow
     }
 
     Write-Host ""
@@ -1703,7 +2934,7 @@ try {
     exit 0
 }
 Write-Host "X-Ray launcher bridge ready: http://127.0.0.1:$Port" -ForegroundColor Green
-Write-Host "Leave this window open while using CS Imaging / Ai-Dental / NNT-NEWTOM links." -ForegroundColor Cyan
+Write-Host "Leave this window open while using CS Imaging / Ai-Dental / NNT-NEWTOM / Digirex links." -ForegroundColor Cyan
 
 while ($true) {
     $client = $listener.AcceptTcpClient()

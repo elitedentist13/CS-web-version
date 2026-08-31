@@ -23,6 +23,12 @@ Carestream / EzDent-i / Rayscan / Trophy keep their own installers; those
 packages should not be mixed as exclusive rivals on the same port either.
 Use this CEFLA package for NewTom + MyRay.
 
+**Digirex (Apixia) on the same Kwun Tong PC:** after this launcher is
+updated, `/open/digirex` is served as a sidecar from **this same
+process** when `digirex.exe` is on disk. Login is username `apixia` /
+password `digirex`. Do not install `installer-digirex` alongside this
+package.
+
 ## What's in this folder
 
 | File | Purpose |
@@ -44,7 +50,7 @@ Use this CEFLA package for NewTom + MyRay.
 2. Double-click **`Test MyRay Launcher.bat`** — expect `SELF-TEST PASSED`.
 3. Double-click **`Install MyRay Bridge.bat`**. Click **Yes** if Windows asks for Administrator.
 4. Confirm the install summary shows **Auto-update: every 6 hour(s)**.
-5. In Banana: patient → **Consultation → X-ray** → **MyRay** or **NNT / NEWTOM**.
+5. In Banana: patient → **Consultation → X-ray** → **MyRay** or **NNT / NEWTOM**, and **Digirex (Apixia)** if Apixia is installed on this PC (same bridge; login `apixia` / `digirex`).
 
 ### Auto-check / auto-update
 

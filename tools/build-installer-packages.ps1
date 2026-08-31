@@ -62,6 +62,18 @@ $Packages = @(
         folder = "installer-rayscan"
         zipName = "Banana-Rayscan-Bridge-Installer.zip"
         sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
+    },
+    [ordered]@{
+        name = "MyRay"
+        folder = "installer-myray"
+        zipName = "Banana-MyRay-Bridge-Installer.zip"
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
+    },
+    [ordered]@{
+        name = "Digirex"
+        folder = "installer-digirex"
+        zipName = "Banana-Digirex-Bridge-Installer.zip"
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
     }
 )
 

@@ -5485,6 +5485,32 @@
             'zh-CN': '无法从浏览器启动 MyRay。\n\n1. 运行：{BAT}（保持启动器窗口打开）\n2. 再次点击 MyRay\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
             'zh-Hant': '無法從瀏覽器啟動 MyRay。\n\n1. 執行：{BAT}（保持啟動器視窗開啟）\n2. 再次按 MyRay\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
+        'media.sys.digirex': { en: 'Digirex (Apixia)', 'zh-CN': 'Digirex（Apixia 小片）', 'zh-Hant': 'Digirex（Apixia 小片）' },
+        'media.sys.digirex.info': {
+            en: 'Opens Apixia Digirex for periapical / bitewing films. Chart number is sent without the clinic prefix (e.g. PL001287 → 001287) so existing Digirex records match. New patients are created from name, DOB and gender. Uses the same local bridge as EzDent-i / MyRay (port 17890) — not a second launcher.',
+            'zh-CN': '打开 Apixia Digirex（根尖片 / 咬翼片）。病历号会去掉诊所前缀（如 PL001287 → 001287）以匹配 Digirex 旧档；新患者按姓名、出生日期、性别建立。与 EzDent-i / MyRay 共用同一本机桥接（端口 17890），不会另开冲突程序。',
+            'zh-Hant': '開啟 Apixia Digirex（根尖片 / 咬翼片）。病歷號會去掉診所前綴（如 PL001287 → 001287）以匹配 Digirex 舊檔；新病人按姓名、出生日期、性別建立。與 EzDent-i / MyRay 共用同一本機橋接（埠 17890），不會另開衝突程式。'
+        },
+        'media.sys.digirex.desktopHint': {
+            en: 'Apixia Digirex small-film (PSP) software on this PC — same bridge as EzDent-i / MyRay',
+            'zh-CN': '本机 Apixia Digirex 小片（PSP）软件 — 与 EzDent-i / MyRay 共用桥接',
+            'zh-Hant': '本機 Apixia Digirex 小片（PSP）軟件 — 與 EzDent-i / MyRay 共用橋接'
+        },
+        'media.local.digirexOpen': {
+            en: 'Open Digirex (Apixia) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (chart no. without clinic prefix, name, DOB, gender sent via Switch.ini): {PATIENT}\n\nExisting Digirex charts match on the numeric chart no. (PL / MK / KT prefix ignored). New patients are created from the same fields.\n\nUses the shared X-ray bridge already running for EzDent-i or MyRay — does not start a second port.',
+            'zh-CN': '在本机打开 Digirex（Apixia）？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（去掉诊所前缀的病历号、姓名、出生日期、性别将写入 Switch.ini）：{PATIENT}\n\n旧档按数字病历号匹配（忽略 PL / MK / KT 前缀）；新患者用相同字段建立。\n\n使用已在运行的 EzDent-i / MyRay 共用桥接，不会另开端口。',
+            'zh-Hant': '在本機開啟 Digirex（Apixia）？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（去掉診所前綴的病歷號、姓名、出生日期、性別將寫入 Switch.ini）：{PATIENT}\n\n舊檔按數字病歷號匹配（忽略 PL / MK / KT 前綴）；新病人用相同欄位建立。\n\n使用已在執行的 EzDent-i / MyRay 共用橋接，不會另開埠。'
+        },
+        'media.local.digirexLaunched': {
+            en: 'Digirex is starting.\n\nChart no. (prefix stripped), name, DOB and gender were written to Switch.ini — Digirex will open the matching film set or create a new chart: {PATIENT}',
+            'zh-CN': '正在启动 Digirex。\n\n已去掉前缀的病历号、姓名、出生日期及性别已写入 Switch.ini — Digirex 将打开对应小片或建立新档：{PATIENT}',
+            'zh-Hant': '正在啟動 Digirex。\n\n已去掉前綴的病歷號、姓名、出生日期及性別已寫入 Switch.ini — Digirex 將開啟對應小片或建立新檔：{PATIENT}'
+        },
+        'media.local.digirexLauncherNeeded': {
+            en: 'Could not start Digirex from the browser.\n\n1. If EzDent-i or MyRay bridge is already running on this PC, it will also serve Digirex after an update — just click Digirex again.\n2. Or run: {BAT} (leave the window open) and click Digirex again.\n\nDo NOT install a second bridge if one is already listening on port 17890.\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Digirex。\n\n1. 若本机已在运行 EzDent-i 或 MyRay 桥接，更新后同一程序也会处理 Digirex — 请再点一次 Digirex。\n2. 或运行：{BAT}（保持窗口打开）后再点 Digirex。\n\n若 17890 端口已有桥接在听，请勿再装第二个。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Digirex。\n\n1. 若本機已在執行 EzDent-i 或 MyRay 橋接，更新後同一程式也會處理 Digirex — 請再按一次 Digirex。\n2. 或執行：{BAT}（保持視窗開啟）後再按 Digirex。\n\n若 17890 埠已有橋接在聽，請勿再裝第二個。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
+        },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
             'zh-CN': '在本机打开 Carestream CS Imaging？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\n本机不使用浏览器链接 — 请在软件中按姓名或患者编号搜索。',

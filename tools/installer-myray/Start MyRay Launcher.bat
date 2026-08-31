@@ -1,7 +1,8 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo Starting Joyful Smile CEFLA local launcher (MyRay + NNT/NewTom)...
+echo Starting Joyful Smile CEFLA local launcher (MyRay + NNT/NewTom).
+echo Digirex sidecar is included if digirex.exe is on this PC.
 echo.
 echo Keep this window open while using desktop X-ray links.
 echo Browser bridge: http://127.0.0.1:17890/status

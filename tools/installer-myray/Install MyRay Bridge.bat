@@ -6,8 +6,9 @@ echo If Windows asks for Administrator, click Yes so auto-start
 echo works for every Windows account on this PC, not just this one.
 echo.
 echo This UPDATES the shared bridge at C:\NNT (same install as NewTom).
-echo It enables BOTH myray and nntnewtom on port 17890 — it does NOT
-echo install a second rival launcher that would clash with the others.
+echo It enables myray + nntnewtom on port 17890.
+echo If Apixia Digirex is also installed on this PC, the SAME bridge
+echo will open Digirex too -- do NOT run Install Digirex Bridge.bat here.
 echo.
 echo Also registers auto-update: every 6 hours the PC checks
 echo   https://elitedentist13.github.io/CS-web-version/tools/installer-myray/

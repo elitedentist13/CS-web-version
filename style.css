@@ -10295,6 +10295,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .xray-sys-aidental   { border-color: #7c3aed; color: #7c3aed; }
 .xray-sys-nntnewtom { border-color: #0f766e; color: #0f766e; }
 .xray-sys-myray { border-color: #0369a1; color: #0369a1; }
+.xray-sys-digirex { border-color: #0d9488; color: #0d9488; }
 .xray-sys-Trophy    { border-color: #9c27b0; color: #9c27b0; }
 .xray-sys-diy       {
     border-color: #374151;
@@ -10310,6 +10311,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .xray-sys-aidental:hover    { background: #7c3aed; color: white; }
 .xray-sys-nntnewtom:hover  { background: #0f766e; color: white; }
 .xray-sys-myray:hover     { background: #0369a1; color: white; }
+.xray-sys-digirex:hover   { background: #0d9488; color: white; }
 
 .nnt-scan-strip {
     margin: 10px 0 12px;

@@ -3,6 +3,62 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-08-31 — EzDent-i / MyRay installers co-run Digirex on the same port
+
+Po Lam and Kwun Tong consultation PCs run panoramic software and Apixia
+on one machine. Re-running **Install EzDent-i Bridge** or **Install MyRay
+Bridge** (updated zip) is enough: `/open/digirex` is a sidecar on the
+same `127.0.0.1:17890` process when `digirex.exe` is on disk. Login is
+`apixia` / `digirex`. Do not install `installer-digirex` on those PCs.
+
+## 2026-08-31 — Fix: Digirex "Wrong Username or password" on NETWORK 3.0
+
+Launching Digirex from Banana wrote `[Dentist] ID=` the Banana consultation
+doctor tag (often `ignore`) and that is not a DigirexServer user. Apixia
+NETWORK 3.0 then showed "Wrong Username or password, please try again."
+
+Clinic login is username `apixia` / password `digirex`. The launcher now
+always writes those credentials (overridable via `$script:DigirexDentistId`
+/ `$script:DigirexDentistPassword`) and ignores Banana `dentist_id`.
+
+Installer packages rebuilt for the next PC: run
+`tools\build-installer-packages.ps1` (or use the zips it writes). Copy
+`Banana-Digirex-Bridge-Installer.zip` to a Digirex-only PC; on a PC that
+already has EzDent-i or MyRay, re-run **that** installer instead so
+Digirex stays a sidecar.
+
+## 2026-08-31 — Add: Apixia Digirex (periapical / bitewing) sidecar on the existing :17890 bridge
+
+Clinic Solution / Banana Consultation → X-ray tab now has a **Digirex
+(Apixia)** button. Digirex is the small-film PSP program (periapical /
+bitewing), separate from EzDent-i (PL OPG) and MyRay (KT panoramic).
+
+Contract (same as Open Dental's Apixia Bridge): write `Switch.ini` next
+to `digirex.exe` (`[Patient]` ID / First / Last / Gender / Year / Month
+/ Day + `[Dentist]` ID + password `digirex`), then launch Digirex. That
+opens an existing chart or creates a new one from the same fields.
+
+Chart matching: Banana `patient_no` carries a clinic prefix (`PL001287`
+at Po Lam). OLD Digirex records are keyed on bare digits. Reuses
+`Convert-NntPatientId` so any prefix (PL / MK / KT / …) is stripped.
+If the local Digirex `DATA` folder (Program Files or VirtualStore) has
+a matching folder, that id is used so existing films open.
+
+Coexistence: Digirex is a **sidecar** on the already-running bridge.
+EzDent-i-only and MyRay-only installers still refuse to open each
+other. They do serve `/open/digirex` when `digirex.exe` is detected, so
+PL and KT do **not** install a second listener. Dedicated
+`installer-digirex` is only for Digirex-only PCs.
+
+Auto-detect: desktop shortcuts, well-known paths, `DIGIREX_HOME`,
+uninstall registry (DisplayName Digirex / Apixia). Override via
+`xray-launcher-config.ps1` (`$script:DigirexExePath` /
+`$script:DigirexDataRoots` / `$script:DigirexDentistId`).
+
+Auto-start and auto-update stay on the existing installer scheduled
+task / Startup shortcut. Re-run the PC's current installer (EzDent-i
+or MyRay) so the new engine is copied; do not add a second bridge.
+
 ## 2026-08-24 — Fix: EzDent-i did not match OLD charts when Banana's patient_no has a clinic prefix (e.g. "PL")
 
 Reported as: opening EzDent-i from Banana for a Po Lam patient (chart

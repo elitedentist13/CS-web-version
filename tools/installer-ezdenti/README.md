@@ -14,6 +14,12 @@ If a PC needs **more than one** imaging system's bridge, use the combined
 folder — don't install both this and `..\installer-nntnewtom\` on the same
 PC (they'd fight over the same port, 17890).
 
+**Digirex (Apixia) on the same Po Lam PC:** after this launcher is
+updated, `/open/digirex` is served as a sidecar from **this same
+process** when `digirex.exe` is on disk. Login is username `apixia` /
+password `digirex`. Do not install `installer-digirex` alongside this
+package.
+
 ## Install
 
 1. Copy this folder onto the target PC.
@@ -24,8 +30,8 @@ PC (they'd fight over the same port, 17890).
    asks for Administrator. Installs to `C:\BananaBridge-EzDenti`, sets up
    auto-start at login, and starts the bridge immediately.
 4. In Banana: patient → **Consultation → X-ray** tab → **EzDent-i
-   (Vatech)**. It should open EzDent-i with the patient's name + chart no.
-   already on the clipboard (paste into EzDent-i's own search).
+   (Vatech)** for OPG/CT, or **Digirex (Apixia)** for periapical/bitewing
+   (same bridge; Digirex login is `apixia` / `digirex`).
 
 To remove: double-click **`Uninstall EzDent-i Bridge.bat`**.
 Safe to re-run the installer any time (e.g. after a code update).

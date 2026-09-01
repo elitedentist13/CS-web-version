@@ -1,10 +1,10 @@
 /**
  * Report-side doctor identity: confirmed name groups only.
- * Short surnames that could be several people stay on their own line.
+ * Short surnames that could be several people stay on their own line,
+ * except Ng — clinic bills use "Dr NG" for Dr Ng Pui Ching (Michael).
  */
 var DoctorAliases = (function () {
     var SHORT_LABELS = {
-        ng: 'DR NG',
         chan: 'DR. CHAN',
         wong: 'DR. WONG',
         'wong qb': 'DR. WONG QB',
@@ -19,9 +19,13 @@ var DoctorAliases = (function () {
             key: 'ng-pui-ching',
             label: 'Dr Ng Pui Ching',
             aliases: [
+                'NG', 'Dr NG', 'DR NG', 'DR. NG', 'DR.NG', 'Dr. NG', 'Dr. Ng',
                 'Ng Pui Ching', 'Dr Ng Pui Ching', 'DR NG PUI CHING', 'DR. NG PUI CHING',
-                'NG Pui Ching', 'Michael NG', 'Dr Michael NG',
+                'DR.NG PUI CHING', 'NG Pui Ching', 'Ng Pui-Ching',
+                'Michael NG', 'Michael Ng', 'Dr Michael NG', 'Dr Michael Ng',
+                'DR MICHAEL NG', 'DR. MICHAEL NG', 'DR.MICHAEL NG',
                 '[Dr Michael NG] Dr Ng Pui Ching',
+                '[Dr NG] Dr Ng Pui Ching',
                 '[Dr NG PUI CHING] DR NG PUI CHING',
                 '吳培精', '吳培精牙科醫生'
             ]
@@ -264,7 +268,7 @@ var DoctorAliases = (function () {
         var list = (g.aliases || []).concat([g.label]);
         list.forEach(function (alias) {
             var c = cleanName(alias);
-            if (c && !SHORT_LABELS[c]) aliasToGroup[c] = g;
+            if (c) aliasToGroup[c] = g;
         });
     });
 
@@ -276,6 +280,11 @@ var DoctorAliases = (function () {
             var original = String(raw == null ? '' : raw).trim();
             var cleaned = cleanName(original);
             if (!cleaned) return;
+            var g = aliasToGroup[cleaned];
+            if (g) {
+                groupHit = { key: g.key, label: g.label, grouped: true };
+                return;
+            }
             if (SHORT_LABELS[cleaned]) {
                 if (!shortHit) {
                     shortHit = {
@@ -284,11 +293,6 @@ var DoctorAliases = (function () {
                         isShort: true
                     };
                 }
-                return;
-            }
-            var g = aliasToGroup[cleaned];
-            if (g) {
-                groupHit = { key: g.key, label: g.label, grouped: true };
                 return;
             }
             if (!looseHit) {
@@ -306,7 +310,7 @@ var DoctorAliases = (function () {
 
     function resolveFromDoctor(d) {
         if (!d) return null;
-        return resolveFromTexts([d.english_name, d.chinese_name, d.display_name]) ||
+        return resolveFromTexts([d.english_name, d.chinese_name, d.display_name, d.doctor_code]) ||
             (d.id ? { key: 'id:' + String(d.id), label: String(d.english_name || d.display_name || d.doctor_code || '').trim() || '—' } : null);
     }
 

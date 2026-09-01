@@ -919,6 +919,21 @@ body.app-session-active {
     color: #64748b;
     margin-bottom: 6px;
 }
+.patient-adv-age-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+.patient-adv-age-mini {
+    flex: 1 1 100px;
+    min-width: 88px;
+    max-width: 160px;
+}
+.patient-adv-age-mini .patient-adv-label {
+    margin-bottom: 4px;
+    font-size: 11px;
+}
 .patient-adv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .patient-adv-chip {
     border: 1px solid #cbd5e1;

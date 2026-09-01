@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260901-rx-hist-row-del';
+  var BUILD = '20260901-adv-age-minmax';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -903,12 +903,17 @@
     </div>
     <div class="patient-adv-grid">
       <div class="patient-adv-field">
-        <div class="patient-adv-label" data-i18n="patient.adv.age">Age group</div>
-        <div id="patientAdvAgeBtns" class="patient-adv-chips">
-          <button type="button" class="patient-adv-chip is-active" data-adv-age="all" data-i18n="patient.adv.age.all">All</button>
-          <button type="button" class="patient-adv-chip" data-adv-age="child" data-i18n="patient.adv.age.child">Under 12</button>
-          <button type="button" class="patient-adv-chip" data-adv-age="adult" data-i18n="patient.adv.age.adult">Ages 12–65</button>
-          <button type="button" class="patient-adv-chip" data-adv-age="senior" data-i18n="patient.adv.age.senior">Over 65</button>
+        <div class="patient-adv-age-row">
+          <div class="patient-adv-age-mini">
+            <label class="patient-adv-label" for="patientAdvAgeMin" data-i18n="patient.adv.ageMin">Age Min</label>
+            <input type="number" id="patientAdvAgeMin" class="patient-adv-select" min="0" max="130"
+                   data-i18n-placeholder="ai.ph.any">
+          </div>
+          <div class="patient-adv-age-mini">
+            <label class="patient-adv-label" for="patientAdvAgeMax" data-i18n="patient.adv.ageMax">Age Max</label>
+            <input type="number" id="patientAdvAgeMax" class="patient-adv-select" min="0" max="130"
+                   data-i18n-placeholder="ai.ph.any">
+          </div>
         </div>
       </div>
       <div class="patient-adv-field">

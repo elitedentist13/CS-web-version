@@ -136,10 +136,16 @@
         return sel ? String(sel.value || '').trim().toUpperCase() : '';
     }
 
+    function parseAgeBound(raw) {
+        var s = String(raw == null ? '' : raw).trim();
+        if (s === '') return NaN;
+        var n = parseInt(s, 10);
+        return isNaN(n) ? NaN : n;
+    }
+
     function readFilters() {
-        var age = '';
-        var ageBtn = document.querySelector('#patientAdvAgeBtns .patient-adv-chip.is-active[data-adv-age]');
-        if (ageBtn) age = ageBtn.getAttribute('data-adv-age') || '';
+        var ageMin = parseAgeBound(g('patientAdvAgeMin') && g('patientAdvAgeMin').value);
+        var ageMax = parseAgeBound(g('patientAdvAgeMax') && g('patientAdvAgeMax').value);
         var sex = '';
         var sexBtn = document.querySelector('#patientAdvSexBtns .patient-adv-chip.is-active[data-adv-sex]');
         if (sexBtn) sex = sexBtn.getAttribute('data-adv-sex') || '';
@@ -165,7 +171,8 @@
         if (installIdx >= INSTALL_STEPS.length) installIdx = INSTALL_STEPS.length - 1;
         var installStep = INSTALL_STEPS[installIdx] || INSTALL_STEPS[0];
         return {
-            age: age || 'all',
+            ageMin: ageMin,
+            ageMax: ageMax,
             sex: sex || 'all',
             birthday: bday || '',
             district: district || '',
@@ -425,14 +432,12 @@
         bindInstallSlider();
     }
 
-    function ageMatches(dob, ageMode) {
-        if (!ageMode || ageMode === 'all') return true;
+    function ageMatches(dob, ageMin, ageMax) {
+        if (isNaN(ageMin) && isNaN(ageMax)) return true;
         var age = typeof patientAgeYears === 'function' ? patientAgeYears(dob) : null;
-        if (age == null) return ageMode === 'unknown';
-        if (ageMode === 'child') return age < 12;
-        if (ageMode === 'adult') return age >= 12 && age <= 65;
-        if (ageMode === 'senior') return age > 65;
-        if (ageMode === 'unknown') return false;
+        var a = age == null ? NaN : Number(age);
+        if (!isNaN(ageMin) && (isNaN(a) || a < ageMin)) return false;
+        if (!isNaN(ageMax) && (isNaN(a) || a > ageMax)) return false;
         return true;
     }
 
@@ -783,7 +788,7 @@
         ensureDistrictField();
         ensureTreatCheckboxes();
         var f = readFilters();
-        var hasAny = (f.age && f.age !== 'all') || (f.sex && f.sex !== 'all') ||
+        var hasAny = !isNaN(f.ageMin) || !isNaN(f.ageMax) || (f.sex && f.sex !== 'all') ||
             f.birthday || f.district || f.notesOlder || f.scalingOlder ||
             (f.treatments && f.treatments.length) ||
             needsSpendScan(f) || needsInstallScan(f);
@@ -868,7 +873,7 @@
             }
             return chain.then(function () {
                 var out = patients.filter(function (p) {
-                    if (!ageMatches(p.dob, f.age)) return false;
+                    if (!ageMatches(p.dob, f.ageMin, f.ageMax)) return false;
                     if (!sexMatches(p.sex, f.sex)) return false;
                     if (!birthdayMatches(p.dob, f.birthday)) return false;
                     if (!districtMatches(p.residential_district, f.district)) return false;
@@ -895,7 +900,8 @@
                 _page = 0;
                 _lastConditions = {
                     source: 'patient_advanced_search',
-                    age: f.age,
+                    ageMin: isNaN(f.ageMin) ? '' : f.ageMin,
+                    ageMax: isNaN(f.ageMax) ? '' : f.ageMax,
                     sex: f.sex,
                     birthday: f.birthday,
                     district: f.district,
@@ -1485,7 +1491,8 @@
     }
 
     function clearFilters() {
-        setChipGroup('#patientAdvAgeBtns', 'data-adv-age', 'all');
+        if (g('patientAdvAgeMin')) g('patientAdvAgeMin').value = '';
+        if (g('patientAdvAgeMax')) g('patientAdvAgeMax').value = '';
         setChipGroup('#patientAdvSexBtns', 'data-adv-sex', 'all');
         if (g('patientAdvBday')) g('patientAdvBday').value = '';
         if (g('patientAdvDistrict')) g('patientAdvDistrict').value = '';
@@ -1546,17 +1553,15 @@
                 '<button type="button" id="patientAdvCloseBtn" class="patient-adv-link-btn">' +
                 esc(tr('patient.adv.close', 'Close')) + '</button></div>' +
                 '<div class="patient-adv-grid">' +
-                '<div class="patient-adv-field"><div class="patient-adv-label">' +
-                esc(tr('patient.adv.age', 'Age group')) + '</div>' +
-                '<div id="patientAdvAgeBtns" class="patient-adv-chips">' +
-                '<button type="button" class="patient-adv-chip is-active" data-adv-age="all">' +
-                esc(tr('patient.adv.age.all', 'All')) + '</button>' +
-                '<button type="button" class="patient-adv-chip" data-adv-age="child">' +
-                esc(tr('patient.adv.age.child', 'Under 12')) + '</button>' +
-                '<button type="button" class="patient-adv-chip" data-adv-age="adult">' +
-                esc(tr('patient.adv.age.adult', 'Ages 12–65')) + '</button>' +
-                '<button type="button" class="patient-adv-chip" data-adv-age="senior">' +
-                esc(tr('patient.adv.age.senior', 'Over 65')) + '</button></div></div>' +
+                '<div class="patient-adv-field"><div class="patient-adv-age-row">' +
+                '<div class="patient-adv-age-mini"><label class="patient-adv-label" for="patientAdvAgeMin">' +
+                esc(tr('patient.adv.ageMin', 'Age Min')) + '</label>' +
+                '<input type="number" id="patientAdvAgeMin" class="patient-adv-select" min="0" max="130" ' +
+                'placeholder="' + esc(tr('ai.ph.any', 'any')) + '"></div>' +
+                '<div class="patient-adv-age-mini"><label class="patient-adv-label" for="patientAdvAgeMax">' +
+                esc(tr('patient.adv.ageMax', 'Age Max')) + '</label>' +
+                '<input type="number" id="patientAdvAgeMax" class="patient-adv-select" min="0" max="130" ' +
+                'placeholder="' + esc(tr('ai.ph.any', 'any')) + '"></div></div></div>' +
                 '<div class="patient-adv-field"><div class="patient-adv-label">' +
                 esc(tr('patient.adv.sex', 'Sex')) + '</div>' +
                 '<div id="patientAdvSexBtns" class="patient-adv-chips">' +
@@ -1703,11 +1708,6 @@
         syncSpendLabel();
         bindInstallSlider();
         root.addEventListener('click', function (ev) {
-            var age = ev.target && ev.target.closest ? ev.target.closest('[data-adv-age]') : null;
-            if (age) {
-                setChipGroup('#patientAdvAgeBtns', 'data-adv-age', age.getAttribute('data-adv-age') || 'all');
-                return;
-            }
             var sex = ev.target && ev.target.closest ? ev.target.closest('[data-adv-sex]') : null;
             if (sex) {
                 setChipGroup('#patientAdvSexBtns', 'data-adv-sex', sex.getAttribute('data-adv-sex') || 'all');

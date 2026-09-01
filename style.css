@@ -12345,6 +12345,40 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
   flex-shrink: 0;
 }
 
+.rx-row-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-rx-hist-delete {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.btn-rx-hist-delete:hover,
+.btn-rx-hist-delete:focus {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+.btn-rx-hist-delete:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* ?? Group Header ??????????????????????????????????????????? */
 .rx-group-card {
   border: 1px solid #e5e7eb;

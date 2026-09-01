@@ -6719,7 +6719,10 @@ async function loadDrugHistory(patientId) {
             if (!qtyDisp && histLine && typeof rxLineQuantityText === 'function') {
                 qtyDisp = rxLineQuantityText(histLine);
             }
+            var rowId = String(r.id || '').trim();
+            var rowName = String(r.drug_name || '').trim();
             return '<div class="rx-history-row"' +
+                ' data-id="'              + esc(rowId) + '"' +
                 ' data-drug-name="'       + esc(r.drug_name       || '') + '"' +
                 ' data-dosage="'          + esc(r.dosage          || '') + '"' +
                 ' data-dosage-zh="'       + esc(r.dosage_zh       || r.dosage || '') + '"' +
@@ -6752,15 +6755,23 @@ async function loadDrugHistory(patientId) {
                               esc(r.remarks) + '</span>'
                             : '') +
                     '</div>' +
+                    '<div class="rx-row-side">' +
                     '<div class="rx-row-print-btns">' +
-                        '<button class="btn-label-sm-en" ' +
+                        '<button type="button" class="btn-label-sm-en" ' +
                         'onclick="printHistoryRowLabel(this,\'en\')" ' +
                         'title="' + esc(conTr('con.rx.printLabelEn')) + '">' +
                         esc(conTr('con.rx.btnPrintEn')) + '</button>' +
-                        '<button class="btn-label-sm-zh" ' +
+                        '<button type="button" class="btn-label-sm-zh" ' +
                         'onclick="printHistoryRowLabel(this,\'zh\')" ' +
                         'title="' + esc(conTr('con.rx.printLabelZh')) + '">' +
                         esc(conTr('con.rx.btnPrintZh')) + '</button>' +
+                    '</div>' +
+                    '<button type="button" class="btn-rx-hist-delete" ' +
+                    'data-rx-hist-id="' + esc(rowId) + '" ' +
+                    'title="' + esc(conTr('con.rx.deleteRowTitle')) + '" ' +
+                    'aria-label="' + esc(conTrRepl('con.rx.deleteRowAria', {
+                        NAME: rowName || '—'
+                    })) + '">×</button>' +
                     '</div>' +
                 '</div>';
         }).join('');
@@ -6816,11 +6827,27 @@ async function loadDrugHistory(patientId) {
             });
         }
 
+        groupDiv.querySelectorAll('.btn-rx-hist-delete').forEach(function(delBtn) {
+            delBtn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                var id = delBtn.getAttribute('data-rx-hist-id') || '';
+                var rec = null;
+                for (var i = 0; i < rows.length; i++) {
+                    if (String(rows[i].id || '') === String(id)) {
+                        rec = rows[i];
+                        break;
+                    }
+                }
+                deleteRxHistoryRow(id, rec && rec.drug_name, delBtn);
+            });
+        });
+
         groupDiv.querySelectorAll('.rx-history-row').forEach(function(rowEl) {
             rowEl.classList.add('rx-history-row--clickable');
             rowEl.setAttribute('title', conTr('con.rx.editHistClickTitle'));
             rowEl.addEventListener('click', function(ev) {
-                if (ev.target.closest('.rx-row-print-btns, button')) return;
+                if (ev.target.closest('.rx-row-side, .rx-row-print-btns, .btn-rx-hist-delete, button')) return;
                 rxEditHistoryGroupRecords(rows);
             });
         });
@@ -6828,8 +6855,53 @@ async function loadDrugHistory(patientId) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// DELETE RX GROUP
+// DELETE RX GROUP / SINGLE HISTORY ROW
 // ════════════════════════════════════════════════════════════════
+function deleteRxHistoryRow(rowId, drugName, btn) {
+    rowId = String(rowId || '').trim();
+    if (!rowId) {
+        alert(conTr('con.rx.deleteRowMissingId'));
+        return;
+    }
+    if (!conPatientId) {
+        alert(conTr('con.forms.alertSelectPatient'));
+        return;
+    }
+    var name = String(drugName || '').trim() || '—';
+    if (!confirm(conTrRepl('con.rx.confirmDeleteRow', { NAME: name }))) return;
+    if (btn) btn.disabled = true;
+
+    SB.from('drughistory')
+        .delete()
+        .eq('id', rowId)
+        .eq('patient_id', conPatientId)
+    .then(function(r) {
+        if (r.error) {
+            if (btn) btn.disabled = false;
+            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+            return;
+        }
+        if (rxEditingHistoryGroup && rxEditingHistoryGroup.recordIds) {
+            rxEditingHistoryGroup.recordIds = rxEditingHistoryGroup.recordIds.filter(function(id) {
+                return String(id) !== rowId;
+            });
+            if (!rxEditingHistoryGroup.recordIds.length) {
+                rxClearEditingHistoryGroup();
+            } else {
+                rxRefreshSavePrescriptionButtonLabel();
+            }
+        }
+        loadDrugHistory(conPatientId);
+        if (typeof conSchedulePatientTimelineRefresh === 'function') {
+            conSchedulePatientTimelineRefresh(conPatientId);
+        }
+    })
+    .catch(function(e) {
+        if (btn) btn.disabled = false;
+        alert(trRepl('appt.msg.error', { MSG: (e && e.message) || e }));
+    });
+}
+
 function deleteRxGroup(btn, dateStr, doctorTag) {
     if (!confirm(conTr('con.rx.confirmDeleteGroup'))) return;
     var q = SB.from('drughistory')

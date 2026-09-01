@@ -4784,6 +4784,26 @@
         'con.rx.saveAsListBtn': { en: '💾 Save as list', 'zh-CN': '💾 存为清单', 'zh-Hant': '💾 存為清單' },
         'con.rx.saveAsListHistTitle': { en: 'Save this prescription bundle as a named reusable list', 'zh-CN': '将此处方组合存为可重用清单', 'zh-Hant': '將此處方組合存為可重用清單' },
         'con.rx.deleteAll': { en: '🗑 Delete All', 'zh-CN': '🗑 全部删除', 'zh-Hant': '🗑 全部刪除' },
+        'con.rx.deleteRowTitle': {
+            en: 'Delete this drug only — keep the rest of the list',
+            'zh-CN': '仅删除此药品，保留其余处方',
+            'zh-Hant': '只刪除此藥物，保留其餘處方'
+        },
+        'con.rx.deleteRowAria': {
+            en: 'Delete {NAME} from this prescription',
+            'zh-CN': '从该处方删除 {NAME}',
+            'zh-Hant': '從此處方刪除 {NAME}'
+        },
+        'con.rx.confirmDeleteRow': {
+            en: 'Delete {NAME} from this prescription? The other drugs on this list will be kept.',
+            'zh-CN': '从该处方删除 {NAME}？此清单中的其他药品将保留。',
+            'zh-Hant': '從此處方刪除 {NAME}？此清單中的其他藥物將保留。'
+        },
+        'con.rx.deleteRowMissingId': {
+            en: 'This drug row cannot be deleted (missing record id).',
+            'zh-CN': '无法删除此药品行（缺少记录编号）。',
+            'zh-Hant': '無法刪除此藥物列（缺少紀錄編號）。'
+        },
         'con.rx.confirmDeleteGroup': { en: 'Delete all prescriptions for this date?', 'zh-CN': '删除此日期的所有处方？', 'zh-Hant': '刪除此日期的所有處方？' },
         'con.rx.historyFrom': { en: 'prescription history', 'zh-CN': '处方历史', 'zh-Hant': '處方紀錄' },
         'con.rx.phrasePick': { en: '— pick —', 'zh-CN': '— 选择 —', 'zh-Hant': '— 選擇 —' },

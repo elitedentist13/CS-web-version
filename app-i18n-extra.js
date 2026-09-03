@@ -5559,6 +5559,21 @@
             'zh-CN': '✗ 无法从 HTTPS 页面连接本机启动器。请通过 file:// 或 http://localhost（Live Server）打开应用，不要用 https。',
             'zh-Hant': '✗ 無法從 HTTPS 頁面連接本機啟動器。請透過 file:// 或 http://localhost（Live Server）開啟應用，不要用 https。'
         },
+        'media.local.launcherFetchBlocked': {
+            en: '✗ Could not connect to the local launcher on this PC.\n\nThe patient info was still copied to the clipboard, so you can paste it manually.\n\nCheck that:\n• Start X-ray Launcher.bat is running (a window titled "X-ray Launcher" should be open/minimized)\n• Antivirus/firewall is not blocking port 17890\n• You are using the same PC where the launcher is installed',
+            'zh-CN': '✗ 无法连接到本机启动器。\n\n病人资料已复制到剪贴板，可手动贴上。\n\n请检查：\n• Start X-ray Launcher.bat 是否正在运行（应有一个「X-ray Launcher」窗口开启或已最小化）\n• 防毒软件/防火墙是否阻挡了 17890 端口\n• 是否在已安装启动器的同一台电脑上操作',
+            'zh-Hant': '✗ 無法連接到本機啟動器。\n\n病人資料已複製到剪貼簿，可手動貼上。\n\n請檢查：\n• Start X-ray Launcher.bat 是否正在運行（應有一個「X-ray Launcher」視窗開啟或已最小化）\n• 防毒軟件/防火牆是否阻擋了 17890 埠\n• 是否在已安裝啟動器的同一台電腦上操作'
+        },
+        'media.local.launcherPermissionPrompt': {
+            en: '✗ This browser is asking for permission to access the local network/device.\n\nPlease click "Allow" on the browser\'s permission popup, then try again. The patient info was still copied to the clipboard.',
+            'zh-CN': '✗ 浏览器正在请求访问本机网络/设备的权限。\n\n请在浏览器的权限弹窗中点击「允许」，然后再试一次。病人资料已复制到剪贴板。',
+            'zh-Hant': '✗ 瀏覽器正在請求存取本機網絡/裝置的權限。\n\n請在瀏覽器的權限彈窗中按「允許」，然後再試一次。病人資料已複製到剪貼簿。'
+        },
+        'media.local.launcherPermissionDenied': {
+            en: '✗ This browser previously blocked access to the local launcher.\n\nClick the padlock/site-settings icon in the address bar, allow "Local network access" (or "Insecure content") for this site, then reload the page. The patient info was still copied to the clipboard.',
+            'zh-CN': '✗ 浏览器先前已阻止连接本机启动器。\n\n请点击网址列的锁头/网站设定图示，允许此网站的「本机网络存取」，然后重新载入网页。病人资料已复制到剪贴板。',
+            'zh-Hant': '✗ 瀏覽器先前已封鎖連接本機啟動器。\n\n請按網址列的鎖頭/網站設定圖示，允許此網站的「本機網絡存取」，然後重新載入網頁。病人資料已複製到剪貼簿。'
+        },
         'media.local.carestreamUsePatientBrowser': {
             en: '(Carestream Patient Browser — search by patient name or no. in the app)',
             'zh-CN': '（Carestream 患者浏览器 — 在软件内按患者姓名或编号搜索）',

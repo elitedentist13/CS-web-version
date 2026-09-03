@@ -3,6 +3,30 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-09-03 — Fix: local-launcher alerts showed the raw i18n key instead of a message
+
+Live-tested the new Ai-Dental button on a PC without the bridge reachable
+and got a popup that literally said `media.local.launcherFetchBlocked`
+instead of a real message. Root cause: `openDesktopXrayAppWithPatient`'s
+generic "can't reach the local bridge" handling (shared by **every**
+system, not just Ai-Dental — it's what fires whenever `fetch()` to
+`127.0.0.1:17890` fails outright, e.g. the launcher isn't running, a
+firewall/antivirus blocks the port, or the browser hasn't been asked for
+Local Network Access yet) references three i18n keys —
+`media.local.launcherFetchBlocked`, `media.local.launcherPermissionPrompt`,
+`media.local.launcherPermissionDenied` — that were never added to
+`app-i18n-extra.js`. `t()` falls back to returning the raw key when a
+translation is missing, so instead of "erroring", it silently displayed
+the dictionary key. This pre-dates the Ai-Dental work; it just never
+surfaced before because clinic PCs normally already have a working
+bridge, so this path is rare in practice.
+
+Added the three missing keys (EN / Simplified / Traditional Chinese),
+each explaining what to check (launcher `.bat` running, firewall, browser
+permission popup, browser site-settings) and noting the patient info was
+already copied to the clipboard as a fallback. Bumped `index.html`'s
+`BUILD` cache-buster so clinic browsers pick up the fix immediately.
+
 ## 2026-09-03 — New: Ai-Dental (Woodpecker i-Sensor) bridge — auto-fill, auto-update, clinic-prefix stripping
 
 Ai-Dental (small film / periapical / bitewing) previously had no real

@@ -30,10 +30,10 @@ other installs" below.
    Windows asks for Administrator. Installs to `C:\BananaBridge-AiDental`,
    sets up auto-start at login, and starts the bridge immediately.
 4. In Banana: patient → **Consultation → X-ray** tab → **Ai-Dental**. It
-   should launch `Ai-Dental.exe` with the patient's chart number and name
-   already on the command line — no re-typing. Full details are also
-   copied to the clipboard as a backup, in case the chart doesn't
-   auto-open (see "What's confirmed vs. best-effort" below).
+   launches `Ai-Dental.exe` with the patient's **name** already pre-filled
+   — no re-typing that. Chart no., sex, and DOB are **not** carried by this
+   launch (confirmed — see "What's confirmed vs. best-effort" below); type
+   those in by hand from the clipboard, which always gets the full details.
 
 To remove: double-click **`Uninstall Ai-Dental Bridge.bat`**.
 Safe to re-run the installer any time (e.g. after a code update).
@@ -56,32 +56,38 @@ for that clinic.
 Ai-Dental.exe is launched with a single command-line argument:
 
 ```
-Ai-Dental.exe "001287.HSIUNG.KWAN MING"
+Ai-Dental.exe "001287.KWAN MING.HSIUNG"
 ```
 
-- One dot-joined token: **`PatNum.LName.FName`** — this is Open Dental's
-  own documented "Ai-Dental Bridge" contract
-  (opendental.com/site/bridgeaidental.html: "Optional command line
-  arguments: Defaults to `[PatNum].[LName].[FName]`"), and its documented
-  default install path (`C:\Ai-Dental\Ai-Dental-Client\Ai-Dental.exe`)
-  matches exactly what's already hardcoded in Banana's `XRAY_SYSTEMS.aidental`.
+- One dot-joined token, **`PatNum.<given name>.<surname>`**. Open Dental's
+  own documented "Ai-Dental Bridge" page
+  (opendental.com/site/bridgeaidental.html) calls this
+  `[PatNum].[LName].[FName]` (i.e. surname 2nd, given name 3rd) — but a
+  **live, logged-in test against this exact install on 2026-09-03 found
+  the opposite**: whichever value is 2nd lands in the on-screen "Name\*"
+  field and whichever is 3rd lands in "SurName". So this bridge sends the
+  given name 2nd and the surname 3rd, matching what those field labels
+  actually mean rather than what Open Dental's page calls them. See
+  "What's confirmed vs. best-effort" below for the exact test.
 - **`PatNum`** — Banana's `patient_no` with any clinic letter prefix
   stripped (e.g. `MK001287` → `001287`), same helper (`Convert-NntPatientId`,
-  wrapped as `Convert-AiDentalPatientId`) used by every other bridge here,
-  so OLD Ai-Dental charts (created before Banana's multi-branch prefix
-  existed) still match.
-- **`LName` / `FName`** — Banana only stores one free-text name field.
+  wrapped as `Convert-AiDentalPatientId`) used by every other bridge here.
+  **Confirmed this token is parsed but then discarded on create** — see
+  below — so prefix-stripping only matters if/when a future Ai-Dental
+  update starts using it as a real match key; it does no harm either way.
+- **Given name / surname** — Banana only stores one free-text name field.
   Split the same way as Rayscan (`Split-RayPatientName` /
   `Split-AiDentalPatientName`): the clinic's English names are
-  surname-first (HK/Cantonese romanization), so the first word is sent as
-  `LName` and everything after it as `FName`. There is no separate slot for
-  the Chinese name in this contract (Open Dental itself has none either).
+  surname-first (HK/Cantonese romanization), so the first word is treated
+  as the surname and everything after it as the given name. There is no
+  separate slot for the Chinese name in this contract (Open Dental itself
+  has none either).
 - Any literal `.` inside a name or chart number is stripped first — the
   period is the field separator in this format, with no documented escape
   syntax.
-- Only `PatNum`/`LName`/`FName` are sent. Open Dental's page documents this
-  as the *entire* default argument string, not a truncated example, so
-  nothing beyond it (DOB, sex) is assumed here.
+- **Only the name is sent.** Chart no., sex, and DOB are confirmed *not*
+  deliverable through this launch mechanism at all (see below) — they are
+  only ever sent via the clipboard fallback for staff to type in by hand.
 
 `Ai-Dental.exe` is resolved from (in order): the `Ai-Dental-Client.lnk`
 desktop shortcut's own target folder, or the hardcoded fallback
@@ -92,12 +98,13 @@ builds them fresh" pattern as NNTBridge/RAYBridge).
 
 ## What's confirmed vs. best-effort
 
-Unlike Rayscan/Digirex, there was no way to fully confirm this contract
-against a live, logged-in Ai-Dental session — but this clinic's own PC
-really does have Ai-Dental-Client installed, so a real, live investigation
-was possible on 2026-09-03:
+This clinic's own PC really does have Ai-Dental-Client installed, so a
+real, live investigation was possible — first on 2026-09-03 without a
+login (couldn't see the result of a launch), then again on 2026-09-03
+with a full logged-in session, which resolved every open question below
+except the DICOM Worklist path.
 
-**Confirmed live:**
+**Confirmed live (logged-in test, 2026-09-03):**
 - This is genuinely Woodpecker's software (`WOODDCMDLL.dll`, the bundled
   `WP_*.CHM` manuals), installed at exactly the path Open Dental's bridge
   page documents as the default.
@@ -109,53 +116,65 @@ was possible on 2026-09-03:
   that Ai-Dental doesn't need a listener on this consultation PC itself.
 - The desktop shortcut (`C:\Users\Public\Desktop\Ai-Dental-Client.lnk`)
   really does point at `Ai-Dental.exe` with empty arguments.
-- Launching `Ai-Dental.exe "001287.HSIUNG.KWAN MING"` starts cleanly on
-  this PC — a visible "Ai-Dental" window opens, the process stays
-  responsive, no crash or error dialog. Safe to always send.
+- Launching `Ai-Dental.exe "<PatNum>.<token2>.<token3>"` **does** open the
+  app and create/select a patient with `token2`/`token3` pre-filled into
+  the on-screen "Name\*"/"SurName" fields respectively — confirmed with two
+  clean tests using distinct dummy values in each slot
+  (`777777.FIRSTVALUE.LASTVALUE` → Name\*=`FIRSTVALUE`,
+  SurName=`LASTVALUE`). This is the **opposite** field order from what
+  Open Dental's docs call `[LName].[FName]` — fixed in
+  `New-AiDentalArgument` to send `<given>.<surname>` instead so "SurName"
+  actually holds the surname.
+- **Chart no., sex, and DOB are confirmed NOT to transfer, ever, through
+  this launch, no matter the argument format.** Across both tests, the
+  on-screen "Chart No." field (a real field — confirmed present via the
+  app's own "More Detail" view) stayed completely blank, and
+  "Gender\*"/"Birthday\*" always showed this build's hardcoded new-patient
+  defaults (Male / 1 Jan 2000), never anything derived from `PatNum` or
+  the launch. An ASCII string scan of `Ai-Dental.exe` found the actual
+  internal route this argument reaches — a local dispatch table entry
+  `/patient/cmdline` (`service.cpp`) — and it is a genuinely narrower
+  handler than the app's own "Add Patient" form's `/patient/add` route
+  (which does have `idCard`/`gender`/`birthday` fields): `/patient/cmdline`
+  only extracts what becomes Name\*/SurName. `PatNum` is read (the launch
+  behaves differently with vs. without it) but never surfaces anywhere in
+  the UI, consistent with Open Dental's own model where `PatNum` is *its*
+  internal patient number, meaningless as a lookup key for any other
+  system's chart numbers.
 - No listening port and no auto-start entry was found for Ai-Dental on
   this PC at idle — nothing here for this bridge (port 17890) to conflict
   with.
 
-**Could NOT confirm:**
-- Whether the launched instance actually opens/creates chart `001287` —
-  the app requires an operator login first, and this environment has no
-  login credentials for it. **The next real clinic visit should click the
-  Banana "Ai-Dental" button and confirm the right chart opens.**
-- The `[PatNum].[LName].[FName]` string contract itself, inside this exact
-  build. Both an ASCII and a UTF-16 string scan of the installed
-  `Ai-Dental.exe` found no `"PatNum"` or `"OpenDental"` literal text.
-  Open Dental publishes this bridge for "Ai-Dental" generically, but this
-  specific regional build may not have that exact code path compiled in.
+**Still not confirmed:**
 - The bundled English user manual (`Documents\WP_UserManual_EN.CHM`)
-  documents a **different**, native PMS-connection mechanism instead:
+  documents a **different**, native PMS-connection mechanism:
   **DICOM Modality Worklist** (Setting → DICOM Setting → WORKLIST — a
-  configurable IP/PORT/AETitle, default AETitle `WOODPECKERPACS`). That's
-  a proper DICOM C-FIND server, a fundamentally bigger integration than
-  this CLI trick, and it was **not** implemented here — it would also
-  require changing Ai-Dental's own DICOM settings on this PC, unlike this
-  approach, which needs zero changes to Ai-Dental itself.
+  configurable IP/PORT/AETitle, default AETitle `WOODPECKERPACS`). Unlike
+  the CLI argument, DICOM MWL's standard attributes *do* include
+  PatientID, PatientSex, and PatientBirthDate — this would be the only way
+  to auto-fill those fields — but it's a proper DICOM C-FIND server, a
+  fundamentally bigger integration than this CLI trick (this bridge would
+  need to become a DICOM SCP), and it was **not** implemented here. It
+  would also require changing Ai-Dental's own DICOM settings on every PC,
+  unlike the CLI approach, which needs zero changes to Ai-Dental itself.
 
-This was still shipped because it's zero-config, purely additive, and
-confirmed harmless if the contract turns out to be wrong for this build
-(same "pure upside if so, silently ignored if not" posture already used
-for EzDent-i's `linkage.xml` — see `..\CHANGELOG.md`). The clipboard
-fallback (chart no., Chinese name, English name, DOB, sex, HKID, phone) is
-always copied too, so staff can search manually either way.
-
-If a real clinic visit shows the chart truly doesn't auto-open, building a
-DICOM Modality Worklist SCP into this bridge is the documented next step —
-see `Start-AiDentalBridgePatient` in `xray-local-launcher.ps1` for where
-that would replace/supplement the CLI-arg approach.
+Given the confirmed hard limit on chart no./sex/DOB, this bridge's value is
+name-only auto-fill plus a complete clipboard fallback (chart no., Chinese
+name, English name, DOB, sex, HKID, phone) for everything else — genuinely
+useful (no re-typing the name, which is the most error-prone field to
+copy by hand), but staff should expect to type the rest in manually every
+time, not just when something goes wrong.
 
 ## Troubleshooting
 
 - **"Could not start Ai-Dental from the browser"**: the bridge isn't
   running. Re-run `Start Ai-Dental Launcher.bat` (or re-run the installer).
-- **Ai-Dental opens but shows the wrong patient / a blank screen**: log in
-  to Ai-Dental first (it always requires a login), then click the Banana
-  button again — the CLI argument may only take effect after login. If it
-  still doesn't match, use the clipboard fallback (Ctrl+V into Ai-Dental's
-  own search) and see "What's confirmed vs. best-effort" above.
+- **Chart no., sex, or DOB don't show up in Ai-Dental**: this is expected,
+  not a bug — see "What's confirmed vs. best-effort" above. Paste them in
+  from the clipboard (always copied alongside every launch).
+- **Ai-Dental opens but shows the wrong patient**: click the Banana
+  button again to re-send; if it still doesn't match, use the clipboard
+  fallback (Ctrl+V into Ai-Dental's own search) instead.
 - **Names come out in the wrong order**: this clinic's English names are
   surname-first; if a different clinic's names are given-name-first,
   `Split-AiDentalPatientName` in `xray-local-launcher.ps1` will need its

@@ -3,6 +3,61 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-09-03 — Fix: Ai-Dental name fields swapped; confirm chart no./sex/DOB genuinely can't transfer via CLI
+
+User report: "the Ai-Dental bridge now only transfer patient name, the
+chart number and the sex and DOB all can't transfer." Investigated with a
+real, logged-in, live test against this dev PC's actual Ai-Dental-Client
+install (the earlier 2026-09-03 Ai-Dental integration work could only test
+up to the login screen) — found **two** separate things, one fixable, one
+a hard limitation:
+
+**Fixed — Name/SurName fields were swapped.** Two clean launches with
+distinct dummy values in each argument slot (e.g.
+`Ai-Dental.exe "777777.FIRSTVALUE.LASTVALUE"`) proved that whichever value
+is 2nd in the dot-joined argument lands in the on-screen "Name\*" field,
+and whichever is 3rd lands in "SurName" — the *opposite* of what Open
+Dental's own published spec calls `[PatNum].[LName].[FName]` (surname
+2nd, given name 3rd). `New-AiDentalArgument` was sending our surname 2nd
+per that documented order, so patients' surnames were landing in the
+"Name\*" field and given names in "SurName" — backwards for reception
+staff searching/sorting by family name. Swapped to send
+`<PatNum>.<given name>.<surname>` instead, matching what those field
+labels actually mean in this build. This is a genuine bug fix on Banana's
+side.
+
+**Confirmed hard limitation — chart no./sex/DOB cannot transfer via this
+CLI mechanism, period.** Across both live tests, the on-screen "Chart No."
+field (a real field, found via the app's own "More Detail" view) stayed
+completely blank, and "Gender\*"/"Birthday\*" always showed hardcoded
+new-patient defaults (Male / 1 Jan 2000) — never anything derived from
+the launch, regardless of argument content or order. An ASCII string scan
+of `Ai-Dental.exe` found the actual internal route this argument reaches
+— a local dispatch entry `/patient/cmdline` (`service.cpp`) — confirming
+it's a narrower handler than the app's own "Add Patient" form's
+`/patient/add` route (which *does* have `idCard`/`gender`/`birthday`
+fields internally): `/patient/cmdline` only ever extracts what becomes
+Name\*/SurName. `PatNum` is read (behavior differs with vs. without it)
+but never surfaces in the UI anywhere — consistent with Open Dental's own
+model where `PatNum` is *Open Dental's* internal patient number, not a
+field meant to display an external system's chart number. No CLI
+argument format on Banana's side can work around this; it would require
+either a Woodpecker-side update to `/patient/cmdline`, or implementing
+Ai-Dental's separately-documented native integration path (DICOM
+Modality Worklist, which does carry PatientID/Sex/BirthDate as standard
+attributes) — a fundamentally bigger project (this bridge would need to
+become a DICOM C-FIND SCP), not attempted here.
+
+Rewrote `tools\installer-aidental\README.md`'s "How the patient handoff
+works" and "What's confirmed vs. best-effort" sections with this
+evidence, and corrected the frontend's `media.local.aidental*` /
+`media.sys.aidental.info` messages (`app-i18n-extra.js`) to stop implying
+chart no. is sent automatically — they now clearly state only the name
+transfers and that chart no./sex/DOB must be pasted in from the clipboard
+fallback (which was already being copied correctly; only the messaging
+was wrong). Self-tests updated to assert the new (correct) argument
+order; 201/201 pass.
+
 ## 2026-09-03 — Fix: local-launcher alerts showed the raw i18n key instead of a message
 
 Live-tested the new Ai-Dental button on a PC without the bridge reachable

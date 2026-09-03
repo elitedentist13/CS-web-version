@@ -2388,31 +2388,45 @@ function Start-NntNewOpgWatcher($Patient, $BridgeLaunch) {
 #   -- WOODDCMDLL.dll, WP_*.CHM manuals -- and its own Config\YPBSetting.ini
 #   points at the SAME central imaging server IP as this clinic's Rayscan
 #   deployment, 192.168.50.140, just a different port (8003 vs Rayscan's
-#   9876) -- confirming no collision with any other bridge). Launching
-#   Ai-Dental.exe with a "PatNum.LName.FName" argument (see below) was
-#   confirmed live to start cleanly -- a visible window opens, the process
-#   stays responsive, no crash/error dialog -- so this is safe to always
-#   send. Whether it actually pre-fills that patient could NOT be confirmed
-#   (the app requires an operator login first; this environment has no
-#   login credentials for it).
-#   UNCONFIRMED / best-effort: the specific "[PatNum].[LName].[FName]"
-#   command-line contract itself. Open Dental's own published "Ai-Dental
-#   Bridge" (opendental.com/site/bridgeaidental.html) documents exactly this
-#   -- Path of file to open defaults to the same C:\Ai-Dental\Ai-Dental-
-#   Client\Ai-Dental.exe path -- but an ASCII + UTF-16 string scan of THIS
-#   installed Ai-Dental.exe found no "PatNum"/"OpenDental" literal strings,
-#   and its own bundled English user manual documents a completely
-#   different native PMS-connection path instead: DICOM Modality Worklist
-#   (Setting -> DICOM Setting -> WORKLIST, configurable IP/PORT/AETitle,
-#   default AETitle "WOODPECKERPACS") -- a proper DICOM C-FIND server, a
-#   fundamentally bigger integration than this CLI trick and NOT
-#   implemented here (would also require changing Ai-Dental's own DICOM
-#   settings, unlike this approach which needs zero changes to Ai-Dental
-#   itself). Shipped anyway because it is zero-config, additive, and
-#   confirmed harmless if wrong -- same "pure upside if so, silently
-#   ignored if not" posture already used for EzDent-i's linkage.xml above.
-#   If a real clinic visit shows the right chart does NOT open, the DICOM
-#   Worklist route is the documented fallback to build next.
+#   9876) -- confirming no collision with any other bridge).
+#   UPDATED 2026-09-03 with a full logged-in live test (the operator-login
+#   blocker from the first pass no longer applied): launching
+#   Ai-Dental.exe "<PatNum>.<token2>.<token3>" DOES open/create a patient
+#   and pre-fill its Name*/SurName* fields -- but two things needed
+#   correcting from the first pass's assumptions:
+#     1. Field ORDER is reversed from Open Dental's documented
+#        "[PatNum].[LName].[FName]". Two clean tests (distinct dummy
+#        values in each slot, e.g. "777777.FIRSTVALUE.LASTVALUE") showed
+#        token2 always lands in the on-screen "Name*" field and token3 in
+#        "SurName" -- so token2 must be the GIVEN name and token3 the
+#        SURNAME for those labels to hold what reception staff expect when
+#        searching/sorting by family name. New-AiDentalArgument below now
+#        sends "<PatNum>.<given>.<surname>" to match this.
+#     2. PatNum (token1) is confirmed CONSUMED BUT DISCARDED on create: an
+#        ASCII string scan found a real embedded local dispatch route
+#        "/patient/cmdline" (service.cpp) that this argument reaches, but
+#        it only extracts what becomes Name*/SurName -- the on-screen
+#        "Chart No." field (a real field, confirmed present) stayed BLANK
+#        across every test, and Gender*/Birthday* always showed this
+#        build's hardcoded new-patient defaults (Male / 2000-01-01),
+#        never anything derived from the launch. The binary's OWN richer
+#        "/patient/add" route (used by its own New-Patient dialog) does
+#        have idCard/gender/birthday fields -- they are simply not wired
+#        to the "/patient/cmdline" argv path Open Dental's bridge uses.
+#        Net effect: chart no., sex, and DOB genuinely CANNOT be
+#        transferred through this launch mechanism in this build, no
+#        matter how the argument is formatted -- confirmed by live
+#        behavior, not just absence from the docs. See
+#        Start-AiDentalBridgePatient's own comment and
+#        tools\installer-aidental\README.md for what this means for staff
+#        workflow (the existing rich-clipboard fallback below is the
+#        mitigation).
+#   The DICOM Modality Worklist path documented in Ai-Dental's own English
+#   manual (Setting -> DICOM Setting -> WORKLIST, default AETitle
+#   "WOODPECKERPACS") is a proper DICOM C-FIND server -- the only path that
+#   would carry chart no./sex/DOB automatically, since those are standard
+#   DICOM attributes -- but is a fundamentally bigger integration (this
+#   script would need to become a DICOM SCP) and is NOT implemented here.
 function Convert-AiDentalPatientId($Value) {
     # Same clinic-prefix-stripping requirement as every other bridge here
     # (NNT /PATID, RAYBridge ID:, Digirex Switch.ini [Patient] ID) -- Open
@@ -2447,11 +2461,23 @@ function Remove-AiDentalSeparatorChars($Value) {
 }
 
 function New-AiDentalArgument($Patient) {
+    # Field ORDER here is empirically reversed from Open Dental's own
+    # documented "[PatNum].[LName].[FName]" grammar -- confirmed via two
+    # live launches on 2026-09-03 against the real Ai-Dental-Client
+    # install (see tools\installer-aidental\README.md "What's confirmed
+    # vs. best-effort"): whatever is passed as the 2nd dot-separated token
+    # lands in the on-screen "Name*" field and the 3rd token lands in
+    # "SurName", regardless of what Open Dental's docs call them. Passing
+    # our actual surname 2nd (as literally documented) put the surname in
+    # "Name*" and the given name in "SurName" -- backwards for reception
+    # staff searching/sorting by family name. Swapped here so our given
+    # name is 2nd (-> "Name*") and surname is 3rd (-> "SurName"), matching
+    # what those on-screen labels actually mean.
     $patId = Convert-AiDentalPatientId $Patient.patient_no
     $name = Split-AiDentalPatientName $Patient.patient_name
     $last = Remove-AiDentalSeparatorChars $name.last
     $first = Remove-AiDentalSeparatorChars $name.first
-    return ((Remove-AiDentalSeparatorChars $patId) + "." + $last + "." + $first)
+    return ((Remove-AiDentalSeparatorChars $patId) + "." + $first + "." + $last)
 }
 
 function Start-AiDentalBridgePatient($Resolved, $Patient) {
@@ -3016,11 +3042,11 @@ Pass=digirex
     $adName3 = Split-AiDentalPatientName ""
     Assert-Equal "Empty name: last empty" "" $adName3.last
 
-    Write-Host "== New-AiDentalArgument (Open Dental's documented [PatNum].[LName].[FName]) ==" -ForegroundColor Cyan
+    Write-Host "== New-AiDentalArgument ([PatNum].[FName].[LName] -- order confirmed live 2026-09-03, reversed from Open Dental's docs) ==" -ForegroundColor Cyan
     $adPatient1 = [ordered]@{ patient_no = "MK001287"; patient_name = "TANG PUI SHEUNG" }
-    Assert-Equal "PatNum stripped, dot-joined" "001287.TANG.PUI SHEUNG" (New-AiDentalArgument $adPatient1)
+    Assert-Equal "PatNum stripped, given name 2nd, surname 3rd" "001287.PUI SHEUNG.TANG" (New-AiDentalArgument $adPatient1)
     $adPatient2 = [ordered]@{ patient_no = "PL.001287"; patient_name = "O'NEIL. J." }
-    Assert-Equal "Stray periods in ID/name are stripped (they're the field separator)" "001287.O'NEIL.J" (New-AiDentalArgument $adPatient2)
+    Assert-Equal "Stray periods in ID/name are stripped (they're the field separator)" "001287.J.O'NEIL" (New-AiDentalArgument $adPatient2)
 
     Write-Host "== Start-AiDentalBridgePatient (no real launch -- negative paths only) ==" -ForegroundColor Cyan
     # Same reasoning as Start-RayBridgePatient's own tests above: a real

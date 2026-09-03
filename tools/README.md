@@ -150,18 +150,21 @@ To remove it from a PC, double-click **`Uninstall X-Ray Bridge.bat`**.
   network setup between the client PC and the imaging server next to the
   OPG/CT unit).
 - **Ai-Dental (Woodpecker i-Sensor)**: researched from Open Dental's
-  published "Ai-Dental Bridge" spec, then checked live (2026-09-03) against
-  a real Ai-Dental-Client install on this dev PC — confirmed genuinely
-  Woodpecker's software at the documented default path, confirmed it
-  shares this clinic's imaging-server IP with Rayscan on a different port
-  (no conflict), and confirmed `Ai-Dental.exe "<PatNum>.<LName>.<FName>"`
-  launches cleanly with no crash. Chart no. has the clinic prefix stripped
-  the same way as every other system. Could **not** confirm the exact CLI
-  contract is actually wired up in this build (no matching string found in
-  the binary) or that it lands on the right chart (the app requires an
-  operator login this environment doesn't have) — treat as best-effort;
-  see `installer-aidental/README.md` for the full writeup and the
-  clipboard-fallback summary it also copies as a safety net.
+  published "Ai-Dental Bridge" spec, then confirmed live (2026-09-03,
+  logged-in test) against a real Ai-Dental-Client install on this dev PC.
+  `Ai-Dental.exe "<PatNum>.<given>.<surname>"` genuinely opens the app and
+  pre-fills the patient's **name** — but chart no., sex, and DOB are
+  confirmed **not deliverable** through this launch mechanism at all in
+  this build (the on-screen Chart No. field stays blank and
+  Gender/Birthday stay at hardcoded new-patient defaults every time, no
+  matter the argument). Note the field order is the *opposite* of what
+  Open Dental's docs call `[LName].[FName]` — confirmed via live testing
+  with distinct dummy values in each slot. Full writeup, including the
+  binary-level evidence for the chart-no./sex/DOB limit:
+  `installer-aidental/README.md` "What's confirmed vs. best-effort". The
+  clipboard fallback (chart no., Chinese name, English name, DOB, sex,
+  HKID, phone) is copied on every launch so staff can fill in what the
+  CLI can't carry.
 - **Carestream**: no known command-line/file bridge exists. The button
   opens the desktop shortcut and copies the patient's name + chart no. to
   the clipboard for manual search inside the app.

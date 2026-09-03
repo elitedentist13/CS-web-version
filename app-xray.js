@@ -2551,13 +2551,16 @@ var XRAY_SYSTEMS = {
     },
     // Ai-Dental-Client (Woodpecker i-Sensor small-film hub). Same
     // local-bridge pattern as Digirex/Rayscan above: launches Ai-Dental.exe
-    // with a "PatNum.LName.FName" command line (Open Dental's own
-    // documented "Ai-Dental Bridge" contract), clinic prefix stripped so
-    // OLD charts still match. Confirmed live (2026-09-03) this is really
-    // Woodpecker's software, installed at exactly this default path, and
-    // safe to launch this way (starts cleanly, no crash) -- but the exact
-    // CLI contract itself is best-effort for THIS install (see
-    // Start-AiDentalBridgePatient / tools\installer-aidental\README.md).
+    // with a one-argument command line (Open Dental's own documented
+    // "Ai-Dental Bridge" contract), clinic prefix stripped so OLD charts
+    // still match by name. Confirmed live (2026-09-03, real logged-in
+    // test) this genuinely pre-fills the patient's NAME -- but chart no.,
+    // sex, and DOB are confirmed NOT deliverable through this launch
+    // mechanism at all in this build (PatNum is parsed but discarded; the
+    // on-screen Chart No./Gender/Birthday fields stay at their new-patient
+    // defaults every time), so those are only ever sent via the clipboard
+    // fallback for staff to paste in by hand. See Start-AiDentalBridgePatient
+    // / tools\installer-aidental\README.md for the full live-test evidence.
     aidental: {
         nameKey: 'media.sys.aidental',
         infoKey: 'media.sys.aidental.info',

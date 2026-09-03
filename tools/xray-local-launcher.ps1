@@ -1850,6 +1850,22 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
 # Isolation: this handler only writes Switch.ini next to Digirex and
 # starts digirex.exe. It never touches EzDent-i Linkage.xml, NNTBridge
 # args, RAYBridge, or MyRay. Same :17890 listener -- no second port.
+#
+# CORRECTED 2026-09-03 (Po Lam / "PL" clinic bug report: Traditional
+# Chinese chart name fails to display in Digirex after opening a patient
+# from Banana). Root cause: Switch.ini was written as plain UTF-8 (no
+# BOM). Apixia's own Switch.ini reader is a legacy Win32 INI parser with
+# no Unicode awareness -- like every other non-BOM text file on this
+# fleet (see this file's own 2026-08-20 "lost its UTF-8 BOM" changelog
+# entry), it decodes bytes using the PC's system ANSI code page, which on
+# every one of this clinic's Windows installs is Traditional Chinese Big5
+# (950). Decoding UTF-8's multi-byte sequences as single/double-byte Big5
+# turns the Chinese name into mojibake or an empty-looking field --
+# exactly this report. Fix: Get-DigirexIniEncoding below writes Switch.ini
+# using the OS's own ANSI code page (Big5 here, but this adapts
+# automatically to whatever locale a given clinic PC actually runs,
+# matching the same page Digirex itself reads with) instead of a
+# hardcoded UTF-8. See Get-DigirexIniEncoding for the override hook.
 # ════════════════════════════════════════════════════════════════
 
 function Convert-DigirexPatientId($Value) {
@@ -2176,6 +2192,23 @@ function New-DigirexSwitchIni($Patient, $Install) {
     return $sb.ToString()
 }
 
+# Which byte encoding to write/read Switch.ini with. Defaults to the PC's
+# own ANSI code page (Big5/950 on this clinic's HK-locale Windows installs)
+# to match Apixia's legacy, non-Unicode-aware INI reader -- see the
+# CORRECTED 2026-09-03 note above New-DigirexSwitchIni's section header for
+# why plain UTF-8 silently corrupted Traditional Chinese chart names.
+# [System.Text.Encoding]::Default is Windows PowerShell 5.1's OS ANSI code
+# page (NOT UTF-8, unlike PowerShell 7/Core -- this fleet only ever runs
+# Windows PowerShell 5.1 Desktop, confirmed via $PSVersionTable). Override
+# with $script:DigirexIniEncoding in xray-launcher-config.ps1 only if a
+# specific clinic's Digirex build turns out to expect something else (e.g.
+# explicit code page 936 GBK for a Simplified-Chinese install, or -- on a
+# future Unicode-aware Digirex version -- UTF-8).
+function Get-DigirexIniEncoding {
+    if ($script:DigirexIniEncoding) { return $script:DigirexIniEncoding }
+    return [System.Text.Encoding]::Default
+}
+
 function Write-DigirexSwitchIni($Path, $Content) {
     if ([string]::IsNullOrWhiteSpace($Path) -or $null -eq $Content) { return $false }
     $dir = Split-Path -Parent $Path
@@ -2183,8 +2216,7 @@ function Write-DigirexSwitchIni($Path, $Content) {
         try { New-Item -ItemType Directory -Path $dir -Force | Out-Null } catch { return $false }
     }
     try {
-        $utf8 = New-Object System.Text.UTF8Encoding $false
-        [IO.File]::WriteAllText($Path, $Content, $utf8)
+        [IO.File]::WriteAllText($Path, $Content, (Get-DigirexIniEncoding))
         return $true
     } catch {
         return $false
@@ -2773,6 +2805,13 @@ function Invoke-SelfTest {
         Assert-Equal "Switch.ini exists" $true (Test-Path -LiteralPath $iniPath)
         $roundTripDentist = Read-DigirexSwitchIniDentistId $iniPath
         Assert-Equal "Read-back dentist ID" "apixia" $roundTripDentist
+        # CORRECTED 2026-09-03: proves the fix for the "Chinese chart name
+        # doesn't display in Digirex" bug -- writing with the wrong
+        # encoding (e.g. plain UTF-8, the old behavior) and reading back
+        # with the OS ANSI code page (what Apixia's own reader does) would
+        # turn "熊關明" into mojibake, failing this assertion.
+        $dxReadBack = [IO.File]::ReadAllText($iniPath, (Get-DigirexIniEncoding))
+        Assert-Equal "Chinese chart name survives the Switch.ini write/read round-trip" $true ($dxReadBack -like "*Last=熊關明*")
         $serverIni = @"
 [Account]
 Remember=1

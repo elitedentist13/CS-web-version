@@ -3,6 +3,46 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-09-03 — Fix: Digirex (Po Lam / "PL" clinic) fails to display Traditional Chinese patient names
+
+Real bug report from Po Lam: opening a patient's Digirex record from
+Banana showed the Traditional Chinese chart name as garbled text /
+mojibake (or, depending on the exact byte collisions, an apparently blank
+name field) instead of the correct characters. English names and all
+other fields (chart no., DOB, gender) were unaffected.
+
+Root cause: `Write-DigirexSwitchIni` wrote `Switch.ini` as plain UTF-8 (no
+BOM, `New-Object System.Text.UTF8Encoding $false`). Apixia's own
+`Switch.ini` reader is a legacy Win32 INI parser with no Unicode
+awareness — exactly like every other non-BOM text file on this fleet (see
+the 2026-08-20 "`xray-local-launcher.ps1` lost its UTF-8 BOM" entry
+below), it decodes bytes using the PC's system ANSI code page, which on
+every one of this clinic's Windows installs is Traditional Chinese Big5
+(950). Decoding UTF-8's multi-byte sequences as single/double-byte Big5
+turns the Chinese name into garbage — this bug never affected the
+English-name path because ASCII bytes are identical in UTF-8 and Big5.
+
+Fix: added `Get-DigirexIniEncoding` (defaults to
+`[System.Text.Encoding]::Default`, i.e. Windows PowerShell 5.1's OS ANSI
+code page — Big5 here, but adapts automatically to whatever locale a
+given clinic PC runs, matching the same page Digirex itself reads with)
+and switched `Write-DigirexSwitchIni` to use it instead of hardcoded
+UTF-8. Overridable per-PC via `$script:DigirexIniEncoding` in
+`xray-launcher-config.ps1` (e.g. explicit code page 936/GBK for a
+Simplified-Chinese install) — see
+`installer-digirex\xray-launcher-config.example.ps1`.
+
+Added a self-test that writes `Switch.ini` with a real Traditional
+Chinese chart name and reads it back through the same encoding path
+Digirex uses, so a future regression (e.g. someone reverting to UTF-8) is
+caught automatically (183/183 checks pass on all 5 affected packages).
+Synced the fix into every package that ships this shared engine file:
+`tools\xray-local-launcher.ps1` and `installer-digirex` /
+`installer-ezdenti` / `installer-myray` / `installer-nntnewtom` /
+`installer-rayscan` (all Digirex-capable via the shared :17890 sidecar).
+Clinics with an existing bridge pick this up on their next auto-update
+cycle; no re-install needed.
+
 ## 2026-09-03 — Fix: Rayscan button missing from Consultation → X-ray tab
 
 The **Rayscan** button never made it into `index.html`'s x-ray systems bar

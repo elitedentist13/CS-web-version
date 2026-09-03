@@ -5533,6 +5533,32 @@
             'zh-CN': '无法从浏览器启动 Digirex。\n\n1. 若本机已在运行 EzDent-i 或 MyRay 桥接，更新后同一程序也会处理 Digirex — 请再点一次 Digirex。\n2. 或运行：{BAT}（保持窗口打开）后再点 Digirex。\n\n若 17890 端口已有桥接在听，请勿再装第二个。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
             'zh-Hant': '無法從瀏覽器啟動 Digirex。\n\n1. 若本機已在執行 EzDent-i 或 MyRay 橋接，更新後同一程式也會處理 Digirex — 請再按一次 Digirex。\n2. 或執行：{BAT}（保持視窗開啟）後再按 Digirex。\n\n若 17890 埠已有橋接在聽，請勿再裝第二個。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
+        'media.sys.rayscan': { en: 'Rayscan (RAYBridge)', 'zh-CN': 'Rayscan（RAYBridge）', 'zh-Hant': 'Rayscan（RAYBridge）' },
+        'media.sys.rayscan.info': {
+            en: 'Opens Rayscan RAYBridge for OPG / CT / Lateral Cephalometric via the SMARTDent V3 viewer. Chart no. is sent without the clinic prefix (e.g. MK001287 → 001287) so existing Rayscan records match. Name, DOB and gender are sent directly on the command line — the matching chart opens, or a new one is created.',
+            'zh-CN': '打开 Rayscan RAYBridge（经 SMARTDent V3 检视器查看 OPG／CT／头颅测量侧位片）。病历号会去掉诊所前缀（如 MK001287 → 001287）以匹配 Rayscan 旧档；姓名、出生日期及性别会直接传入命令行 — 相应档案将开启，或建立新档案。',
+            'zh-Hant': '開啟 Rayscan RAYBridge（經 SMARTDent V3 檢視器查看 OPG／CT／頭顱測量側位片）。病歷號會去掉診所前綴（如 MK001287 → 001287）以匹配 Rayscan 舊檔；姓名、出生日期及性別會直接傳入命令列 — 相應檔案將開啟，或建立新檔案。'
+        },
+        'media.sys.rayscan.desktopHint': {
+            en: 'Rayscan RAYBridge / SMARTDent V3 OPG / CBCT software on this PC',
+            'zh-CN': '本机 Rayscan RAYBridge / SMARTDent V3 全景／CBCT 软件',
+            'zh-Hant': '本機 Rayscan RAYBridge / SMARTDent V3 全景／CBCT 軟件'
+        },
+        'media.local.rayscanOpen': {
+            en: 'Open Rayscan (RAYBridge) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (chart no. without clinic prefix, name, DOB, gender sent on the command line): {PATIENT}\n\nExisting Rayscan/SMARTDent records match on the numeric chart no. (clinic prefix, e.g. "MK", is ignored). New patients are created from the same fields.',
+            'zh-CN': '在本机打开 Rayscan（RAYBridge）？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（去掉诊所前缀的病历号、姓名、出生日期、性别将传入命令行）：{PATIENT}\n\n旧档按数字病历号匹配（忽略「MK」等诊所前缀）；新患者用相同字段建立。',
+            'zh-Hant': '在本機開啟 Rayscan（RAYBridge）？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（去掉診所前綴的病歷號、姓名、出生日期、性別將傳入命令列）：{PATIENT}\n\n舊檔按數字病歷號匹配（忽略「MK」等診所前綴）；新病人用相同欄位建立。'
+        },
+        'media.local.rayscanLaunched': {
+            en: 'Rayscan (RAYBridge) is starting.\n\nChart no. (prefix stripped), name, DOB and gender were sent to RAYBridge — the matching OPG/CT record opens in SMARTDent V3, or a new chart is created: {PATIENT}',
+            'zh-CN': '正在启动 Rayscan（RAYBridge）。\n\n已去掉前缀的病历号、姓名、出生日期及性别已传送给 RAYBridge — 相应 OPG／CT 记录将在 SMARTDent V3 中打开，或建立新档：{PATIENT}',
+            'zh-Hant': '正在啟動 Rayscan（RAYBridge）。\n\n已去掉前綴的病歷號、姓名、出生日期及性別已傳送給 RAYBridge — 相應 OPG／CT 記錄將在 SMARTDent V3 中開啟，或建立新檔：{PATIENT}'
+        },
+        'media.local.rayscanLauncherNeeded': {
+            en: 'Could not start Rayscan from the browser.\n\n1. Run: {BAT} (leave the launcher window open)\n2. Click Rayscan again\n\nOr double-click the desktop shortcut "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Rayscan。\n\n1. 运行：{BAT}（保持启动器窗口打开）\n2. 再次点击 Rayscan\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Rayscan。\n\n1. 執行：{BAT}（保持啟動器視窗開啟）\n2. 再次按 Rayscan\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
+        },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
             'zh-CN': '在本机打开 Carestream CS Imaging？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\n本机不使用浏览器链接 — 请在软件中按姓名或患者编号搜索。',

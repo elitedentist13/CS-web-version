@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260901-adv-age-minmax';
+  var BUILD = '20260903-rayscan-btn-restore';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3476,6 +3476,15 @@
                 data-i18n-title="media.sys.digirex.desktopHint">
           <span class="sys-icon">🎞️</span>
           <span data-i18n="media.sys.digirex"></span>
+        </button>
+
+        <button class="xray-sys-btn xray-sys-rayscan"
+                type="button"
+                id="btnOpenRayscan"
+                onclick="openXraySystem('rayscan')"
+                data-i18n-title="media.sys.rayscan.desktopHint">
+          <span class="sys-icon">🩻</span>
+          <span data-i18n="media.sys.rayscan"></span>
         </button>
 
         <button class="xray-sys-btn xray-sys-Trophy"

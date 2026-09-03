@@ -3,6 +3,46 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-09-03 — Fix: Rayscan button missing from Consultation → X-ray tab
+
+The **Rayscan** button never made it into `index.html`'s x-ray systems bar
+even though `XRAY_SYSTEMS.rayscan` (config), the full RAYBridge command-line
+contract, and the dedicated `tools\installer-rayscan\` package were already
+built and documented (see the 2026-08-20 entries below). It silently
+"disappeared" from staff's point of view the moment the Digirex button was
+added next to where Rayscan should have been, because it was never actually
+there in the HTML to begin with. Restored:
+
+- `index.html` — added the `xray-sys-rayscan` button (between Digirex and
+  Trophy) calling `openXraySystem('rayscan')`, same pattern as Carestream /
+  Ai-Dental / NNT-NEWTOM (no dedicated JS wrapper needed; the generic
+  `openDesktopXrayApp('rayscan')` path already handles the confirm dialog,
+  bridge ping, and launch).
+- `app-i18n-extra.js` — added the missing `media.sys.rayscan` /
+  `media.sys.rayscan.info` / `media.sys.rayscan.desktopHint` and
+  `media.local.rayscanOpen` / `rayscanLaunched` / `rayscanLauncherNeeded`
+  translation keys (EN / zh-CN / zh-Hant). Without these the button would
+  have rendered with a blank label even once added back.
+- `app-xray.js` — `XRAY_SYSTEMS.rayscan` was also missing `launcherBat`, so
+  the "could not start" message pointed staff at the generic, wrong
+  `tools\Start X-Ray Launcher.bat` instead of
+  `tools\installer-rayscan\Start Rayscan Launcher.bat`. Fixed to match the
+  same pattern as `digirex`.
+- `style.css` — added `.xray-sys-rayscan` / `:hover` color rules (indigo,
+  `#4f46e5`) so the new button isn't unstyled.
+
+No changes were needed to the bridge/installer itself for auto-update,
+auto-start-at-login, or clinic-prefix stripping — `tools\installer-rayscan\`
+already ships byte-identical `install-xray-bridge.ps1` /
+`xray-bridge-auto-update.ps1` copies to every other per-system installer
+(Startup-folder shortcut + a recurring Scheduled Task that hash-checks the
+live GitHub Pages site every 6 hours and safely swaps in updates), and
+`Convert-RayPatientId` already strips any clinic letter prefix (e.g. "MK")
+down to the bare digit chart number — see the 2026-08-20 / 08-27 entries
+below for that history. Clinics with an existing Rayscan bridge install will
+pick this UI-only fix up automatically once it's live and their next
+auto-update cycle runs; no re-install needed.
+
 ## 2026-08-31 — EzDent-i / MyRay installers co-run Digirex on the same port
 
 Po Lam and Kwun Tong consultation PCs run panoramic software and Apixia

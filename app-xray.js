@@ -2648,6 +2648,7 @@ var XRAY_SYSTEMS = {
         defaultSubPattern: 'Xrays\\{patient_no}',
         defaultAppPath: 'C:\\Ray\\RAYBridge\\RAYBridge.exe',
         launchProtocol: false,
+        launcherBat: 'tools\\installer-rayscan\\Start Rayscan Launcher.bat',
         openMsgKey: 'media.local.rayscanOpen',
         launchedMsgKey: 'media.local.rayscanLaunched',
         launcherNeededMsgKey: 'media.local.rayscanLauncherNeeded'

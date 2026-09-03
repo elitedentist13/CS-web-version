@@ -2474,13 +2474,10 @@ function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
     if (searchText) {
         qParts.push('search_text=' + encodeURIComponent(searchText));
     }
-    if (launcherKey === 'aidental') {
-        qParts.push('aidental_mode=' + encodeURIComponent(opts.aidentalMode || 'auto'));
-    }
     if (qParts.length) patQ = '?' + qParts.join('&');
     var urlPath = '/open/' + encodeURIComponent(launcherKey || 'carestream') + patQ;
     xrayLoopbackPermissionState(function(permState) {
-        var baseTimeout = (launcherKey === 'aidental') ? 90000 : 5000;
+        var baseTimeout = 5000;
         var bridgeTimeout = (permState === 'prompt') ? Math.max(baseTimeout, 30000) : baseTimeout;
         xrayFetchLauncher(urlPath, permState, bridgeTimeout, function(res, err) {
             if (err) {
@@ -2488,10 +2485,7 @@ function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
                 return;
             }
             var body = (res && res.body) || {};
-            var bridgeOk = !!(body.ok || body.aidental_running || (res && res.httpOk));
-            if (launcherKey === 'aidental') {
-                bridgeOk = !!body.aidental_running;
-            }
+            var bridgeOk = !!(body.ok || (res && res.httpOk));
             cb(bridgeOk, body);
         });
     });
@@ -2555,6 +2549,15 @@ var XRAY_SYSTEMS = {
         launchedMsgKey: 'media.local.carestreamLaunched',
         launcherNeededMsgKey: 'media.local.carestreamLauncherNeeded'
     },
+    // Ai-Dental-Client (Woodpecker i-Sensor small-film hub). Same
+    // local-bridge pattern as Digirex/Rayscan above: launches Ai-Dental.exe
+    // with a "PatNum.LName.FName" command line (Open Dental's own
+    // documented "Ai-Dental Bridge" contract), clinic prefix stripped so
+    // OLD charts still match. Confirmed live (2026-09-03) this is really
+    // Woodpecker's software, installed at exactly this default path, and
+    // safe to launch this way (starts cleanly, no crash) -- but the exact
+    // CLI contract itself is best-effort for THIS install (see
+    // Start-AiDentalBridgePatient / tools\installer-aidental\README.md).
     aidental: {
         nameKey: 'media.sys.aidental',
         infoKey: 'media.sys.aidental.info',
@@ -2566,6 +2569,7 @@ var XRAY_SYSTEMS = {
         defaultSubPattern: 'Xrays\\{patient_no}',
         defaultAppPath: 'C:\\Ai-Dental\\Ai-Dental-Client\\Ai-Dental.exe',
         launchProtocol: false,
+        launcherBat: 'tools\\installer-aidental\\Start Ai-Dental Launcher.bat',
         folderHintKey: 'media.local.aidentalUseFolder',
         openMsgKey: 'media.local.aidentalOpen',
         launchedMsgKey: 'media.local.aidentalLaunched',
@@ -2895,43 +2899,6 @@ function xrayPatientBridgeSummaryLine(patient) {
     if (patient.sex) parts.push(patient.sex);
     if (patient.hkid) parts.push(patient.hkid);
     return parts.join(' · ') || '—';
-}
-
-function xrayAiDentalLaunchMessageKey(bridgeBody) {
-    if (!bridgeBody) return 'media.local.aidentalCreatePatientNeeded';
-    if (bridgeBody.new_patient_prepared) return 'media.local.aidentalNewPatientPrepared';
-    return 'media.local.aidentalCreatePatientNeeded';
-}
-
-function xrayBridgeDebugLabel(bridgeBody) {
-    var debug = bridgeBody && bridgeBody.debug;
-    if (!debug || !debug.length) return '—';
-    return debug.join(' → ');
-}
-
-function xrayWoodpeckerPatientSummary(patient) {
-    patient = patient || {};
-    var parts = [];
-    if (patient.full_name) parts.push(patient.full_name);
-    if (patient.dob) parts.push(patient.dob);
-    if (patient.sex) parts.push(patient.sex);
-    if (patient.patient_no) parts.push('#' + patient.patient_no);
-    return parts.join(' · ') || xrayPatientBridgeSummaryLine(patient);
-}
-
-function xrayBridgeFieldsFilledLabel(bridgeBody) {
-    var filled = bridgeBody && bridgeBody.fields_filled;
-    if (!filled || !filled.length) return '';
-    var labels = {
-        patient_no: 'Chart No.',
-        patient_name: 'Name',
-        chinese_name: 'Chinese name',
-        dob: 'Birthday',
-        sex: 'Gender',
-        hkid: 'ID',
-        phone: 'Phone'
-    };
-    return filled.map(function(k) { return labels[k] || k; }).join(', ');
 }
 
 function xrayBridgePatientPayload(patient, folderPath) {
@@ -3268,32 +3235,26 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             : mediaTr('media.local.desktopUsePatientSearch'));
     var launcherKey = sys.launcherKey || key;
     var batPath = sys.launcherBat || 'tools\\Start X-Ray Launcher.bat';
+    // Ai-Dental's own contract (PatNum.LName.FName) has no room for HKID/
+    // phone/Chinese name, so its clipboard fallback is the richer
+    // multi-line summary — still useful for anything the CLI hand-off
+    // can't carry, or if this specific install doesn't consume it at all.
     var searchText = (launcherKey === 'aidental')
-        ? (xrayPatientSearchTextForLauncher(patient, launcherKey) ||
-            xrayPatientSearchClipboardText(patient) || '—')
+        ? (xrayPatientBridgeSummaryLine(patient) || '—')
         : (xrayPatientSearchClipboardText(patient) || '—');
-    var patientSummary = (launcherKey === 'aidental')
-        ? xrayWoodpeckerPatientSummary(patient)
-        : searchText;
+    var patientSummary = searchText;
     var clipboardText = (launcherKey === 'aidental')
         ? (xrayPatientBridgeClipboardText(patient) || searchText)
         : searchText;
 
     // Confirm immediately (before bridge ping). Chrome Local Network Access can
     // wait up to ~30s on first fetch — that used to make MyRay/NewTom feel dead.
-    var msg;
-    if (launcherKey === 'aidental') {
-        msg = mediaTrRepl('media.local.aidentalFillOpen', {
-            PATIENT: patientSummary
-        });
-    } else {
-        msg = mediaTrRepl(openKey, {
-            SHORTCUT: shortcutName,
-            EXE: appPath,
-            PATIENT: patientSummary,
-            FOLDER: folderPath || folderHint
-        });
-    }
+    var msg = mediaTrRepl(openKey, {
+        SHORTCUT: shortcutName,
+        EXE: appPath,
+        PATIENT: patientSummary,
+        FOLDER: folderPath || folderHint
+    });
     msg += '\n\n' + mediaTr('media.local.launcherReady');
     if (!confirm(msg)) return;
 
@@ -3332,10 +3293,7 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
                 alert(mediaTr('media.local.launcherFetchBlocked'));
                 return;
             }
-            var neededMsgKey = (launcherKey === 'aidental')
-                ? 'media.local.aidentalLauncherNeeded'
-                : neededKey;
-            alert(mediaTrRepl(neededMsgKey, {
+            alert(mediaTrRepl(neededKey, {
                 SHORTCUT: shortcutName,
                 EXE: appPath,
                 PATIENT: patientSummary,
@@ -3347,26 +3305,9 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
         tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, {
             appPath: appPath,
             folderPath: folderPath,
-            searchText: xrayPatientSearchTextForLauncher(patient, launcherKey),
-            aidentalMode: 'fill'
+            searchText: xrayPatientSearchTextForLauncher(patient, launcherKey)
         }, function(attached, bridgeBody) {
             bridgeBody = bridgeBody || {};
-            if (launcherKey === 'aidental') {
-                if (!bridgeBody.aidental_running) {
-                    alert(mediaTrRepl('media.local.aidentalNotRunning', {
-                        PATIENT: patientSummary,
-                        BAT: batPath
-                    }));
-                    return;
-                }
-                alert(mediaTrRepl(xrayAiDentalLaunchMessageKey(bridgeBody), {
-                    PATIENT: patientSummary,
-                    SUMMARY: patientSummary,
-                    FIELDS: xrayBridgeFieldsFilledLabel(bridgeBody),
-                    DEBUG: xrayBridgeDebugLabel(bridgeBody)
-                }));
-                return;
-            }
             if (attached) {
                 alert(mediaTrRepl(launchedKey, {
                     SHORTCUT: shortcutName,

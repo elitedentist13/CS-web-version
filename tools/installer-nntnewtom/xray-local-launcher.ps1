@@ -74,6 +74,13 @@ function Test-SystemEnabled($Key) {
     # /open/digirex from the already-running bridge. Never overwrite another
     # handler, never bind another port.
     if ($Key -eq "digirex" -and (Test-DigirexInstalled)) { return $true }
+    # Ai-Dental (Woodpecker i-Sensor small film) is likewise additive-only:
+    # a PC that already runs a dedicated EzDent-i/MyRay/NNT/Rayscan/Digirex
+    # installer can gain Ai-Dental support just by having Ai-Dental-Client
+    # installed on disk, with zero changes to that installer's own
+    # -EnabledSystems -- never a second listener on :17890, never
+    # overwrites another handler.
+    if ($Key -eq "aidental" -and (Test-AiDentalInstalled)) { return $true }
     return $false
 }
 $PublicDesktop = Join-Path ($env:PUBLIC -replace '/','\') "Desktop"
@@ -129,6 +136,14 @@ $Systems = @{
             "C:\Program Files\Carestream\CSImaging\TW.exe"
         )
     }
+    # Ai-Dental-Client (Woodpecker i-Sensor periapical/bitewing small-film
+    # hub). Documented PMS bridge (Open Dental "Ai-Dental Bridge"): launch
+    # Ai-Dental.exe with ONE command-line argument "[PatNum].[LName].
+    # [FName]" (dot-joined, not space-separated). Old-chart matching: clinic
+    # prefix stripped via Convert-AiDentalPatientId (same helper family as
+    # every other system here). See Start-AiDentalBridgePatient below and
+    # tools\installer-aidental\README.md for the full contract + what's
+    # confirmed vs. best-effort.
     aidental = @{
         shortcuts = @(
             (Join-Path $PublicDesktop "Ai-Dental-Client.lnk"),
@@ -342,6 +357,9 @@ function Status-Payload {
     if ($EnabledSystems -and $EnabledSystems.Count -gt 0) {
         if (($EnabledSystems -notcontains "digirex") -and (Test-DigirexInstalled)) {
             $sidecars.Add("digirex")
+        }
+        if (($EnabledSystems -notcontains "aidental") -and (Test-AiDentalInstalled)) {
+            $sidecars.Add("aidental")
         }
     }
     $payload["sidecar_systems"] = @($sidecars)
@@ -1981,6 +1999,18 @@ function Test-DigirexInstalled {
     return $false
 }
 
+# Sidecar detection for Ai-Dental (see Test-SystemEnabled above and
+# Start-AiDentalBridgePatient below). Deliberately checks only the fixed
+# $Systems.aidental.executables list, NOT desktop shortcuts -- a shortcut
+# could point anywhere, but this must only ever report "installed" for a
+# path this script would actually be able to launch.
+function Test-AiDentalInstalled {
+    foreach ($p in $Systems.aidental.executables) {
+        if (Test-PathSafe $p) { return $true }
+    }
+    return $false
+}
+
 function Resolve-DigirexInstall($Resolved) {
     $exe = ""
     # Explicit-but-missing target: do not hunt the real clinic install.
@@ -2349,6 +2379,114 @@ function Start-NntNewOpgWatcher($Patient, $BridgeLaunch) {
     } catch {}
 }
 
+# Ai-Dental-Client (Woodpecker i-Sensor's bundled periapical/bitewing
+# imaging hub). RESEARCHED + LIVE-CHECKED 2026-09-03 -- see
+# tools\installer-aidental\README.md "What's confirmed vs. best-effort" for
+# the full writeup, summarized here:
+#   CONFIRMED live on a real clinic PC (this software IS actually installed
+#   at C:\Ai-Dental\Ai-Dental-Client\Ai-Dental.exe here, genuinely Woodpecker
+#   -- WOODDCMDLL.dll, WP_*.CHM manuals -- and its own Config\YPBSetting.ini
+#   points at the SAME central imaging server IP as this clinic's Rayscan
+#   deployment, 192.168.50.140, just a different port (8003 vs Rayscan's
+#   9876) -- confirming no collision with any other bridge). Launching
+#   Ai-Dental.exe with a "PatNum.LName.FName" argument (see below) was
+#   confirmed live to start cleanly -- a visible window opens, the process
+#   stays responsive, no crash/error dialog -- so this is safe to always
+#   send. Whether it actually pre-fills that patient could NOT be confirmed
+#   (the app requires an operator login first; this environment has no
+#   login credentials for it).
+#   UNCONFIRMED / best-effort: the specific "[PatNum].[LName].[FName]"
+#   command-line contract itself. Open Dental's own published "Ai-Dental
+#   Bridge" (opendental.com/site/bridgeaidental.html) documents exactly this
+#   -- Path of file to open defaults to the same C:\Ai-Dental\Ai-Dental-
+#   Client\Ai-Dental.exe path -- but an ASCII + UTF-16 string scan of THIS
+#   installed Ai-Dental.exe found no "PatNum"/"OpenDental" literal strings,
+#   and its own bundled English user manual documents a completely
+#   different native PMS-connection path instead: DICOM Modality Worklist
+#   (Setting -> DICOM Setting -> WORKLIST, configurable IP/PORT/AETitle,
+#   default AETitle "WOODPECKERPACS") -- a proper DICOM C-FIND server, a
+#   fundamentally bigger integration than this CLI trick and NOT
+#   implemented here (would also require changing Ai-Dental's own DICOM
+#   settings, unlike this approach which needs zero changes to Ai-Dental
+#   itself). Shipped anyway because it is zero-config, additive, and
+#   confirmed harmless if wrong -- same "pure upside if so, silently
+#   ignored if not" posture already used for EzDent-i's linkage.xml above.
+#   If a real clinic visit shows the right chart does NOT open, the DICOM
+#   Worklist route is the documented fallback to build next.
+function Convert-AiDentalPatientId($Value) {
+    # Same clinic-prefix-stripping requirement as every other bridge here
+    # (NNT /PATID, RAYBridge ID:, Digirex Switch.ini [Patient] ID) -- Open
+    # Dental's own PatNum is always the bare chart number, so an
+    # un-stripped "PL001287" would never match an OLD Ai-Dental chart
+    # created before Banana's clinic prefix existed.
+    return Convert-NntPatientId $Value
+}
+
+# Ai-Dental's LName/FName are a Western family-name/given-name split (Open
+# Dental itself has no separate Chinese-name field). Reuses the exact same
+# "first token = surname" convention already confirmed for this clinic's
+# English names via Split-RayPatientName (real PatientInfo.ini evidence,
+# HK/Cantonese romanization is surname-first) -- see
+# tools\installer-aidental\README.md for why this is the chosen default
+# and how to flip it if a clinic's names are given-name-first instead.
+function Split-AiDentalPatientName($FullName) {
+    $parts = Split-RayPatientName $FullName
+    $first = $parts.first
+    if ($parts.middle) {
+        $first = if ($first) { $first + " " + $parts.middle } else { $parts.middle }
+    }
+    return [ordered]@{ last = $parts.last; first = $first }
+}
+
+# Periods are the field separator in Ai-Dental's own "[PatNum].[LName].
+# [FName]" format, so any stray literal period inside a name or chart
+# number would desync its parser -- strip them (there is no escape syntax
+# documented for this format).
+function Remove-AiDentalSeparatorChars($Value) {
+    return ([string]$Value) -replace '\.', ''
+}
+
+function New-AiDentalArgument($Patient) {
+    $patId = Convert-AiDentalPatientId $Patient.patient_no
+    $name = Split-AiDentalPatientName $Patient.patient_name
+    $last = Remove-AiDentalSeparatorChars $name.last
+    $first = Remove-AiDentalSeparatorChars $name.first
+    return ((Remove-AiDentalSeparatorChars $patId) + "." + $last + "." + $first)
+}
+
+function Start-AiDentalBridgePatient($Resolved, $Patient) {
+    if (-not $Resolved -or -not (Test-PathSafe $Resolved.target)) { return $null }
+    $patId = if ($Patient.patient_no) { Convert-AiDentalPatientId $Patient.patient_no } else { $Patient.patient_id }
+    if ([string]::IsNullOrWhiteSpace($patId)) { return $null }
+
+    $exe = $Resolved.target
+    $workDir = if ($Resolved.workingDirectory -and (Test-PathSafe $Resolved.workingDirectory)) { $Resolved.workingDirectory } else { Split-Path -Parent $exe }
+    $arg = New-AiDentalArgument $Patient
+
+    $startArgs = @{ FilePath = $exe; ArgumentList = (Quote-ProcessArg $arg); WindowStyle = "Normal" }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $startArgs.WorkingDirectory = $workDir
+    }
+    # Ai-Dental-Client is a single-instance imaging hub (Woodpecker's own
+    # docs: "server functionality... unlimited computer connections under a
+    # single software license") -- re-invoking it with a new command line
+    # while it's already open/running is Open Dental's own documented
+    # usage pattern (its bridge button does exactly this on every click,
+    # not just the first), so this never special-cases "already running"
+    # into a no-op: always launching with the fresh argument is what makes
+    # clicking the Banana button again switch the already-open instance to
+    # a different patient.
+    Start-Process @startArgs
+    return [ordered]@{
+        bridge = $exe
+        target = $exe
+        workingDirectory = $workDir
+        patient_id = $patId
+        mode = "aidental-cli-arg"
+        argList = $arg
+    }
+}
+
 function Handle-Request($RawPath) {
     $pathOnly = ($RawPath -split "\?", 2)[0]
     if ($pathOnly -eq "/status") {
@@ -2409,6 +2547,8 @@ function Handle-Request($RawPath) {
             $bridgeLaunch = Start-MyRayBridgePatient $resolved $patientContext
         } elseif ($key -eq "digirex") {
             $bridgeLaunch = Start-DigirexBridgePatient $resolved $patientContext
+        } elseif ($key -eq "aidental") {
+            $bridgeLaunch = Start-AiDentalBridgePatient $resolved $patientContext
         }
         if (-not $bridgeLaunch) {
             Start-ResolvedProgram $resolved
@@ -2728,6 +2868,12 @@ function Invoke-SelfTest {
     } else {
         Assert-Equal "digirex unresolved is null (not installed + not in EnabledSystems)" $true ($true)
     }
+    $aidentalResolveCheck = Resolve-System "aidental" ""
+    if ($aidentalResolveCheck) {
+        Assert-Equal "aidental.exists is a boolean when resolvable" $true ($aidentalResolveCheck.exists -is [bool])
+    } else {
+        Assert-Equal "aidental unresolved is null (not installed + not in EnabledSystems)" $true ($true)
+    }
     Assert-Equal "unknown system key returns null" $true ((Resolve-System "does-not-exist" "") -eq $null)
 
     Write-Host "== Resolve-MyRayBridge (returns a path string; safe on any PC) ==" -ForegroundColor Cyan
@@ -2853,6 +2999,53 @@ Pass=digirex
         $EnabledSystems = $savedEnabledSystems2
     }
 
+    Write-Host "== Convert-AiDentalPatientId (strip clinic prefix so Ai-Dental's PatNum matches OLD charts) ==" -ForegroundColor Cyan
+    Assert-Equal "MK-prefixed chart number"    "001287" (Convert-AiDentalPatientId "MK001287")
+    Assert-Equal "PL-prefixed chart number"    "001287" (Convert-AiDentalPatientId "PL001287")
+    Assert-Equal "No prefix, digits only"      "001287" (Convert-AiDentalPatientId "001287")
+    Assert-Equal "Empty stays empty"           ""       (Convert-AiDentalPatientId "")
+    Assert-Equal "Null stays empty"            ""       (Convert-AiDentalPatientId $null)
+
+    Write-Host "== Split-AiDentalPatientName (same surname-first convention as Split-RayPatientName) ==" -ForegroundColor Cyan
+    $adName1 = Split-AiDentalPatientName "TANG PUI SHEUNG"
+    Assert-Equal "3 tokens: last"                    "TANG"       $adName1.last
+    Assert-Equal "3 tokens: first folds in middle"   "PUI SHEUNG" $adName1.first
+    $adName2 = Split-AiDentalPatientName "SMITH"
+    Assert-Equal "1 token: last only"  "SMITH" $adName2.last
+    Assert-Equal "1 token: first empty" ""     $adName2.first
+    $adName3 = Split-AiDentalPatientName ""
+    Assert-Equal "Empty name: last empty" "" $adName3.last
+
+    Write-Host "== New-AiDentalArgument (Open Dental's documented [PatNum].[LName].[FName]) ==" -ForegroundColor Cyan
+    $adPatient1 = [ordered]@{ patient_no = "MK001287"; patient_name = "TANG PUI SHEUNG" }
+    Assert-Equal "PatNum stripped, dot-joined" "001287.TANG.PUI SHEUNG" (New-AiDentalArgument $adPatient1)
+    $adPatient2 = [ordered]@{ patient_no = "PL.001287"; patient_name = "O'NEIL. J." }
+    Assert-Equal "Stray periods in ID/name are stripped (they're the field separator)" "001287.O'NEIL.J" (New-AiDentalArgument $adPatient2)
+
+    Write-Host "== Start-AiDentalBridgePatient (no real launch -- negative paths only) ==" -ForegroundColor Cyan
+    # Same reasoning as Start-RayBridgePatient's own tests above: a real
+    # positive-path launch is opt-in only via -IncludeLiveLaunch (see the
+    # Handle-Request checks near the bottom), since this fleet has no
+    # confirmed live Ai-Dental-Client install to safely depend on the
+    # presence/absence of.
+    $noAiDentalTarget = Start-AiDentalBridgePatient ([ordered]@{ workingDirectory = $env:TEMP; target = "" }) ([ordered]@{ patient_no = "MK001287"; patient_name = "TEST" })
+    Assert-Equal "Missing/unresolved target -> returns null" $true ($null -eq $noAiDentalTarget)
+    $noAiDentalResolved = Start-AiDentalBridgePatient $null ([ordered]@{ patient_no = "MK001287"; patient_name = "TEST" })
+    Assert-Equal "Null resolved -> still safe (no throw)" $true ($null -eq $noAiDentalResolved)
+
+    Write-Host "== Ai-Dental sidecar does not unlock EzDent-i / MyRay / NNT ==" -ForegroundColor Cyan
+    $savedEnabledSystems3 = $EnabledSystems
+    try {
+        $EnabledSystems = @("ezdenti")
+        Assert-Equal "sidecar: ezdenti still enabled" $true ((Resolve-System "ezdenti" "") -ne $null)
+        Assert-Equal "sidecar: myray still isolated" $true ((Resolve-System "myray" "") -eq $null)
+        if (Test-AiDentalInstalled) {
+            Assert-Equal "ezdenti install sidecars aidental when exe is on disk" $true ((Resolve-System "aidental" "") -ne $null)
+        }
+    } finally {
+        $EnabledSystems = $savedEnabledSystems3
+    }
+
     Write-Host "== -EnabledSystems (installer-ezdenti / installer-nntnewtom isolation) ==" -ForegroundColor Cyan
     # Temporarily overrides the script-scope $EnabledSystems the same way
     # passing -EnabledSystems on the command line would, then restores it, so
@@ -2938,12 +3131,26 @@ Pass=digirex
             $dxOpenResp = Handle-Request "/open/digirex?patient_no=PL001287"
             Assert-Equal "/open/digirex returns 404 when Digirex not installed on this PC" 404 $dxOpenResp.status
         }
+        # Same opt-in trade-off: if Ai-Dental-Client is actually installed
+        # here, this really does launch it with "001287.HSIUNG.KWAN MING" on
+        # the command line (see New-AiDentalArgument).
+        if ($aidentalResolveCheck -and $aidentalResolveCheck.exists) {
+            $adOpenResp = Handle-Request ("/open/aidental?" + $qs.Split('?')[1])
+            Assert-Equal "/open/aidental returns 200 and launches the real app" 200 $adOpenResp.status
+        } else {
+            $adOpenResp = Handle-Request "/open/aidental?patient_no=PL001287"
+            Assert-Equal "/open/aidental returns 404 when Ai-Dental not installed on this PC" 404 $adOpenResp.status
+        }
     } else {
         if (-not ($digirexResolveCheck -and $digirexResolveCheck.exists)) {
             $dxMissing = Handle-Request "/open/digirex?patient_no=PL001287"
             Assert-Equal "/open/digirex returns 404 when Digirex not installed (no live launch)" 404 $dxMissing.status
         }
-        Write-Host "  [SKIP] /open/nntnewtom, /open/ezdenti, /open/rayscan, /open/digirex live-launch checks (pass -IncludeLiveLaunch to run them)" -ForegroundColor DarkYellow
+        if (-not ($aidentalResolveCheck -and $aidentalResolveCheck.exists)) {
+            $adMissing = Handle-Request "/open/aidental?patient_no=PL001287"
+            Assert-Equal "/open/aidental returns 404 when Ai-Dental not installed (no live launch)" 404 $adMissing.status
+        }
+        Write-Host "  [SKIP] /open/nntnewtom, /open/ezdenti, /open/rayscan, /open/digirex, /open/aidental live-launch checks (pass -IncludeLiveLaunch to run them)" -ForegroundColor DarkYellow
     }
 
     Write-Host ""

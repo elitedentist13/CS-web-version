@@ -26,6 +26,7 @@ PC:
 | [`installer-myray/`](installer-myray/README.md) (`Banana-MyRay-Bridge-Installer.zip`) | Kwun Tong CEFLA PCs (**MyRay + NNT**). Digirex on the same PC is a sidecar after this update. |
 | [`installer-rayscan/`](installer-rayscan/README.md) (`Banana-Rayscan-Bridge-Installer.zip`) | Any PC that only needs **Rayscan (RAYBridge / SMARTDent V3)**. |
 | [`installer-digirex/`](installer-digirex/README.md) (`Banana-Digirex-Bridge-Installer.zip`) | Any PC that only needs **Apixia Digirex** (periapical / bitewing). Do **not** install this on a PC that already has EzDent-i (PL) or MyRay (KT). |
+| [`installer-aidental/`](installer-aidental/README.md) (`Banana-AiDental-Bridge-Installer.zip`) | Any PC that only needs **Ai-Dental-Client** (Woodpecker i-Sensor, periapical / bitewing). Like Digirex, it becomes a sidecar automatically on any other dedicated install once Ai-Dental-Client is on disk — see that README's "Sidecar on other installs". |
 
 Each has its own install path (`C:\BananaBridge-EzDenti` /
 `C:\BananaBridge-Digirex` / `C:\BananaBridge-Rayscan` / `C:\NNT`), its own
@@ -40,12 +41,13 @@ Only use **this** top-level folder's `install-xray-bridge.ps1` /
 multi-purpose PC with both NNT and EzDent-i installed) — it covers every
 system in one process, same as it always has.
 
-All three dedicated packages and this top-level copy share the exact same
+All dedicated packages and this top-level copy share the exact same
 underlying engine (`xray-local-launcher.ps1`); `build-installer-packages.ps1`
-is what keeps the three subfolders in sync with it and rebuilds their zips
+is what keeps the subfolders in sync with it and rebuilds their zips
 — run that after editing `xray-local-launcher.ps1` or `install-xray-bridge.ps1`
 here, rather than hand-editing the copies inside `installer-ezdenti/`,
-`installer-nntnewtom/`, or `installer-rayscan/`.
+`installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`,
+`installer-digirex/`, or `installer-aidental/`.
 
 ## The combined (multi-system) bridge in this folder
 
@@ -72,10 +74,10 @@ already exists in *its* database.
 | `_nnt_new_opg_watcher.ps1` | Companion script (NNT only): watches for a newly-saved OPG/CT and offers to upload it back into Banana. |
 | `Install X-Ray Bridge.bat` | Double-click wrapper for `install-xray-bridge.ps1`. |
 | `Start X-Ray Launcher.bat` | Double-click wrapper to run the bridge in the foreground (for manual testing — the installer sets up automatic background start, so you normally won't need this). |
-| `Test X-Ray Launcher.bat` | Double-click wrapper for `-SelfTest` (77+ automated checks, nothing is launched or written outside a temp folder). |
+| `Test X-Ray Launcher.bat` | Double-click wrapper for `-SelfTest` (200+ automated checks, nothing is launched or written outside a temp folder). |
 | `Uninstall X-Ray Bridge.bat` | Double-click wrapper to remove the auto-start shortcut and stop the bridge. |
-| `installer-ezdenti/`, `installer-nntnewtom/`, `installer-rayscan/` | The three dedicated single-system packages described above — each deployable on its own. |
-| `build-installer-packages.ps1` | Syncs `xray-local-launcher.ps1` / `install-xray-bridge.ps1` into the three subfolders above and rebuilds their zips. Run after editing either canonical file. |
+| `installer-ezdenti/`, `installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`, `installer-digirex/`, `installer-aidental/` | The dedicated single-system packages described above — each deployable on its own. |
+| `build-installer-packages.ps1` | Syncs `xray-local-launcher.ps1` / `install-xray-bridge.ps1` into the subfolders above and rebuilds their zips. Run after editing either canonical file. |
 | `CHANGELOG.md` | Full development history and investigation notes — useful background if you're extending this, not needed to just deploy it. |
 
 Files starting with `_` other than the two NNT companions above (e.g.
@@ -122,7 +124,7 @@ To remove it from a PC, double-click **`Uninstall X-Ray Bridge.bat`**.
   **opens EzDent-i itself** (`VTE2Loader32.exe` → the real `VTE232.exe`
   window) and copies the patient's name + chart no. to the clipboard, so
   staff can paste it straight into EzDent-i's own patient search — same
-  fallback already used for Carestream/Ai-Dental below. Chart numbers
+  fallback already used for Carestream below. Chart numbers
   sent to EzDent-i (`Linkage.xml` `ChartNumber` and the clipboard paste)
   have any Banana clinic letter prefix stripped (e.g. Po Lam `PL001287`
   → `001287`), so OLD EzDent-i records keyed on the bare digits still
@@ -147,9 +149,22 @@ To remove it from a PC, double-click **`Uninstall X-Ray Bridge.bat`**.
   names (see `installer-rayscan/README.md` for the full contract and
   network setup between the client PC and the imaging server next to the
   OPG/CT unit).
-- **Carestream / Ai-Dental**: no known command-line/file bridge exists for
-  either. The button opens the desktop shortcut and copies the patient's
-  name + chart no. to the clipboard for manual search inside the app.
+- **Ai-Dental (Woodpecker i-Sensor)**: researched from Open Dental's
+  published "Ai-Dental Bridge" spec, then checked live (2026-09-03) against
+  a real Ai-Dental-Client install on this dev PC — confirmed genuinely
+  Woodpecker's software at the documented default path, confirmed it
+  shares this clinic's imaging-server IP with Rayscan on a different port
+  (no conflict), and confirmed `Ai-Dental.exe "<PatNum>.<LName>.<FName>"`
+  launches cleanly with no crash. Chart no. has the clinic prefix stripped
+  the same way as every other system. Could **not** confirm the exact CLI
+  contract is actually wired up in this build (no matching string found in
+  the binary) or that it lands on the right chart (the app requires an
+  operator login this environment doesn't have) — treat as best-effort;
+  see `installer-aidental/README.md` for the full writeup and the
+  clipboard-fallback summary it also copies as a safety net.
+- **Carestream**: no known command-line/file bridge exists. The button
+  opens the desktop shortcut and copies the patient's name + chart no. to
+  the clipboard for manual search inside the app.
 
 ## Troubleshooting
 

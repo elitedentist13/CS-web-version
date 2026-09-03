@@ -3,6 +3,94 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-09-03 — New: Ai-Dental (Woodpecker i-Sensor) bridge — auto-fill, auto-update, clinic-prefix stripping
+
+Ai-Dental (small film / periapical / bitewing) previously had no real
+connection to Banana at all: `app-xray.js` had substantial "aidental"-named
+UI plumbing (`aidentalMode`, `aidental_running`, `new_patient_prepared`, a
+function literally named `xrayWoodpeckerPatientSummary`) built toward some
+kind of "auto-fill Woodpecker's Create Patient form" flow, but
+`tools\xray-local-launcher.ps1` never implemented any backend for it —
+`/open/aidental` just launched the exe with zero patient data, identical to
+Carestream's "manual search" fallback. Worse, `tryLaunchDesktopAppViaLocalBridge`
+hard-coded `bridgeOk = !!body.aidental_running` for this key, a field the
+bridge never set — so even that bare launch always reported as "failed" to
+the user. New cases were entirely hand-typed into Ai-Dental as a result,
+exactly as reported.
+
+Researched what Ai-Dental-Client actually is (Woodpecker i-Sensor's bundled
+imaging hub) and found Open Dental publishes an official "Ai-Dental Bridge"
+(opendental.com/site/bridgeaidental.html): default path
+`C:\Ai-Dental\Ai-Dental-Client\Ai-Dental.exe` (already hardcoded in
+Banana's `XRAY_SYSTEMS.aidental` before this research) and a documented
+command-line contract, `Ai-Dental.exe [PatNum].[LName].[FName]` — one
+dot-joined argument.
+
+Unlike Rayscan/Digirex, this was researched from documentation alone at
+first — but this development PC turned out to actually have Ai-Dental-Client
+installed, so a real live investigation was possible too:
+
+- Confirmed genuinely Woodpecker's software (`WOODDCMDLL.dll`, bundled
+  `WP_*.CHM` manuals), installed at exactly Open Dental's documented
+  default path.
+- Confirmed its `Config\YPBSetting.ini` points at the same central imaging
+  server IP as this clinic's existing Rayscan deployment
+  (`192.168.50.140`), on a different port (`8003` vs Rayscan's `9876`) —
+  no collision between the two, and no local listening port for this
+  consultation-PC bridge to conflict with.
+- Confirmed the desktop shortcut (`Ai-Dental-Client.lnk`) points straight
+  at `Ai-Dental.exe` with empty arguments — same "shortcut carries no args,
+  caller builds them fresh" pattern as NNTBridge/RAYBridge.
+- Confirmed launching `Ai-Dental.exe "001287.HSIUNG.KWAN MING"` starts
+  cleanly (visible window, stays responsive, no crash/error dialog) — safe
+  to always send.
+- Could **not** confirm the `[PatNum].[LName].[FName]` string contract
+  itself inside this exact binary (ASCII + UTF-16 string scans found no
+  `"PatNum"`/`"OpenDental"` literals), and could not confirm the launched
+  instance actually opens the intended chart (the app requires an operator
+  login first; this environment has no credentials for it). The bundled
+  English manual documents a **different** native mechanism instead — DICOM
+  Modality Worklist (Setting → DICOM Setting → WORKLIST) — a proper DICOM
+  C-FIND server, a much bigger integration, not implemented here. Full
+  writeup: `installer-aidental\README.md` "What's confirmed vs.
+  best-effort".
+
+Implementation (same shared-engine pattern as every other system):
+
+- `Convert-AiDentalPatientId` (wraps `Convert-NntPatientId`) strips the
+  clinic prefix so OLD Ai-Dental charts still match.
+- `Split-AiDentalPatientName` reuses `Split-RayPatientName`'s surname-first
+  convention (same clinic, same evidence) to build `LName`/`FName` from
+  Banana's one free-text name field.
+- `New-AiDentalArgument` builds the dot-joined string, stripping stray
+  literal periods from the ID/name first (the field separator has no
+  documented escape syntax).
+- `Start-AiDentalBridgePatient` launches `Ai-Dental.exe` with that single
+  argument — always, even if already running, matching Open Dental's own
+  documented usage (its bridge button re-invokes on every click; Ai-Dental
+  is built on Qt's single-instance app pattern, confirmed via RTTI strings
+  in the binary, so a second invocation is expected to signal the already-
+  running instance rather than open a duplicate window).
+- Wired into `Handle-Request`'s `/open/aidental` dispatch; added as a
+  sidecar in `Test-SystemEnabled`/`Status-Payload` (same additive pattern
+  as Digirex on top of EzDent-i/MyRay) so any PC already running one of the
+  other dedicated bridges gains Ai-Dental support automatically once it's
+  installed on disk, with zero changes to that installer.
+- Fixed the frontend's `bridgeOk` bug and removed the dead "fill Woodpecker
+  Create Patient form" code path (`aidentalMode`, `aidental_running`,
+  `xrayWoodpeckerPatientSummary`, `xrayAiDentalLaunchMessageKey`,
+  `xrayBridgeFieldsFilledLabel`, `xrayBridgeDebugLabel`, and the six
+  matching now-unused i18n keys) — Ai-Dental now goes through the exact
+  same generic open/launch/needed message flow as every other system,
+  with a richer clipboard-fallback summary (chart no., Chinese name,
+  English name, DOB, sex, HKID, phone) since its own CLI contract can't
+  carry all of that.
+- New `tools\installer-aidental\` package (Install/Uninstall/Test/Start
+  `.bat` + auto-update + auto-start-at-login), added to
+  `build-installer-packages.ps1`. Self-tests: 201/201 pass, including 12
+  new Ai-Dental-specific checks (prefix stripping, name split, argument
+  construction, negative-path launch safety, sidecar isolation).
+
 ## 2026-09-03 — Fix: Digirex (Po Lam / "PL" clinic) fails to display Traditional Chinese patient names
 
 Real bug report from Po Lam: opening a patient's Digirex record from

@@ -5396,9 +5396,9 @@
         },
         'media.sys.aidental': { en: 'Ai-Dental (small film)', 'zh-CN': 'Ai-Dental（小片）', 'zh-Hant': 'Ai-Dental（小片）' },
         'media.sys.aidental.info': {
-            en: 'Fill Woodpecker Create Patient — Name, Birthday, Gender from active patient (Woodpecker opened manually)',
-            'zh-CN': '填入 Woodpecker Create Patient — 从当前患者带入 Name、Birthday、Gender（需手动打开 Woodpecker）',
-            'zh-Hant': '填入 Woodpecker Create Patient — 從目前病人帶入 Name、Birthday、Gender（需手動開啟 Woodpecker）'
+            en: 'Opens Ai-Dental-Client (Woodpecker i-Sensor) with this patient\'s chart no. and name — clinic prefix stripped so old charts still match',
+            'zh-CN': '打开 Ai-Dental-Client（Woodpecker i-Sensor）并带入本患者的编号及姓名 — 已去除分店前缀以匹配旧病历',
+            'zh-Hant': '開啟 Ai-Dental-Client（Woodpecker i-Sensor）並帶入本病人的編號及姓名 — 已去除分店前綴以匹配舊病歷'
         },
         'media.sys.aidental.desktopHint': {
             en: 'Ai-Dental-Client small-film software on this PC',
@@ -5416,55 +5416,25 @@
             'zh-CN': '本机 NNT / NEWTOM CBCT 软件',
             'zh-Hant': '本機 NNT / NEWTOM CBCT 軟件'
         },
-        'media.local.aidentalFillOpen': {
-            en: 'Fill Woodpecker Create Patient from active patient?\n\n1. Open Woodpecker Ai-Dental manually (Patient page)\n2. Click "Create Patient" in Woodpecker\n3. Confirm here — fields will be filled:\n   • Name (English)\n   • Birthday\n   • Gender (Male/Female)\n\nActive patient: {PATIENT}\n\nRequires "Start X-Ray Launcher.bat" running on this PC.',
-            'zh-CN': '从当前患者填入 Woodpecker「Create Patient」？\n\n1. 请手动打开 Woodpecker Ai-Dental（Patient 页面）\n2. 在 Woodpecker 中点击「Create Patient」\n3. 在此确认 — 将自动填入：\n   • Name（英文姓名）\n   • Birthday（出生日期）\n   • Gender（男/女）\n\n当前患者：{PATIENT}\n\n需在本机运行「Start X-Ray Launcher.bat」。',
-            'zh-Hant': '從目前病人填入 Woodpecker「Create Patient」？\n\n1. 請手動開啟 Woodpecker Ai-Dental（Patient 頁面）\n2. 在 Woodpecker 中按「Create Patient」\n3. 在此確認 — 將自動填入：\n   • Name（英文姓名）\n   • Birthday（出生日期）\n   • Gender（男/女）\n\n目前病人：{PATIENT}\n\n需在本機執行「Start X-Ray Launcher.bat」。'
-        },
-        'media.local.aidentalNotRunning': {
-            en: 'Woodpecker Ai-Dental is not open on this PC.\n\n1. Open Woodpecker manually\n2. Go to the Patient page\n3. Click Create Patient\n4. Try again\n\nPatient: {PATIENT}\n\nAlso check: {BAT} is running.',
-            'zh-CN': '本机未检测到 Woodpecker Ai-Dental。\n\n1. 请手动打开 Woodpecker\n2. 进入 Patient 页面\n3. 点击 Create Patient\n4. 再试一次\n\n患者：{PATIENT}\n\n并确认已运行：{BAT}',
-            'zh-Hant': '本機未偵測到 Woodpecker Ai-Dental。\n\n1. 請手動開啟 Woodpecker\n2. 進入 Patient 頁面\n3. 按 Create Patient\n4. 再試一次\n\n病人：{PATIENT}\n\n並確認已執行：{BAT}'
-        },
-        'media.local.aidentalCreatePatientNeeded': {
-            en: 'Woodpecker is open.\n\nCould not fill the form yet.\n\n• Click "Create Patient" in Woodpecker\n• Click Ai-Dental in the web app again\n\nOr paste manually from clipboard:\n{SUMMARY}\n\nDebug: {DEBUG}',
-            'zh-CN': 'Woodpecker 已打开。\n\n暂未填入表单。\n\n• 请在 Woodpecker 点击「Create Patient」\n• 再点一次网页上的 Ai-Dental\n\n或从剪贴板手动粘贴：\n{SUMMARY}\n\n调试：{DEBUG}',
-            'zh-Hant': 'Woodpecker 已開啟。\n\n暫未填入表單。\n\n• 請在 Woodpecker 按「Create Patient」\n• 再按一次網頁上的 Ai-Dental\n\n或從剪貼簿手動貼上：\n{SUMMARY}\n\n除錯：{DEBUG}'
-        },
         'media.local.aidentalOpen': {
-            en: 'Open Woodpecker Ai-Dental on this computer?\n\n• Patient: {PATIENT}\n• Will fill Create Patient: Name (English), Birthday, Gender\n• Optional: Chart No. from patient no.\n• Program: {EXE}\n\nRequires "Start X-Ray Launcher.bat" running.',
-            'zh-CN': '在本机打开 Woodpecker Ai-Dental？\n\n• 患者：{PATIENT}\n• 将填入「Create Patient」：Name（英文）、Birthday、Gender\n• 可选：Chart No.（患者编号）\n• 程序：{EXE}\n\n需运行「Start X-Ray Launcher.bat」。',
-            'zh-Hant': '在本機開啟 Woodpecker Ai-Dental？\n\n• 病人：{PATIENT}\n• 將填入「Create Patient」：Name（英文）、Birthday、Gender\n• 可選：Chart No.（病人編號）\n• 程式：{EXE}\n\n需執行「Start X-Ray Launcher.bat」。'
+            en: 'Open Ai-Dental-Client on this computer?\n\n• Patient: {PATIENT}\n• Chart no. and name will be sent automatically (clinic prefix stripped)\n• Program: {EXE}\n\nIf the chart doesn\'t open automatically, search by name or no. inside Ai-Dental — full details are also copied to the clipboard.\n\nRequires "Start X-Ray Launcher.bat" running.',
+            'zh-CN': '在本机打开 Ai-Dental-Client？\n\n• 患者：{PATIENT}\n• 将自动带入编号及姓名（已去除分店前缀）\n• 程序：{EXE}\n\n若未能自动打开对应病历，请在 Ai-Dental 中按姓名或编号搜索 — 完整资料已复制到剪贴板。\n\n需运行「Start X-Ray Launcher.bat」。',
+            'zh-Hant': '在本機開啟 Ai-Dental-Client？\n\n• 病人：{PATIENT}\n• 將自動帶入編號及姓名（已去除分店前綴）\n• 程式：{EXE}\n\n若未能自動開啟對應病歷，請在 Ai-Dental 中按姓名或編號搜尋 — 完整資料已複製到剪貼簿。\n\n需執行「Start X-Ray Launcher.bat」。'
         },
         'media.local.aidentalLaunched': {
-            en: 'Ai-Dental-Client is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
-            'zh-CN': '正在启动 Ai-Dental-Client。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
-            'zh-Hant': '正在啟動 Ai-Dental-Client。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
-        },
-        'media.local.aidentalSearchPasted': {
-            en: 'Ai-Dental-Client is open.\n\nPatient search: {PATIENT}\nFull demographics are on the clipboard ({SUMMARY}).\nIf the patient is not listed, click New / 新增 in Ai-Dental — or press Ctrl+V in each field.',
-            'zh-CN': 'Ai-Dental-Client 已打开。\n\n已搜索患者：{PATIENT}\n完整资料已复制到剪贴板（{SUMMARY}）。\n若列表中无此患者，请在 Ai-Dental 点击「新增」，或在各字段按 Ctrl+V 粘贴。',
-            'zh-Hant': 'Ai-Dental-Client 已開啟。\n\n已搜尋病人：{PATIENT}\n完整資料已複製到剪貼簿（{SUMMARY}）。\n若清單中無此病人，請在 Ai-Dental 按「新增」，或在各欄位按 Ctrl+V 貼上。'
-        },
-        'media.local.aidentalNewPatientPrepared': {
-            en: 'Woodpecker Create Patient form filled.\n\n• Name: {PATIENT}\n• Fields filled: {FIELDS}\n\nReview Birthday and Gender, then click Add. Cancel if patient already exists.',
-            'zh-CN': '已填入 Woodpecker「Create Patient」表单。\n\n• Name：{PATIENT}\n• 已填字段：{FIELDS}\n\n请核对 Birthday、Gender 后点击 Add。若患者已存在请 Cancel。',
-            'zh-Hant': '已填入 Woodpecker「Create Patient」表單。\n\n• Name：{PATIENT}\n• 已填欄位：{FIELDS}\n\n請核對 Birthday、Gender 後按 Add。若病人已存在請 Cancel。'
-        },
-        'media.local.aidentalClipboardOnly': {
-            en: 'Ai-Dental-Client is open.\n\nCould not auto-open the new-patient panel.\n\n1. In Ai-Dental, click New / 新增患者 manually\n2. Click the Ai-Dental button in the web app again (fields will paste one by one)\n\nOr paste from clipboard batch:\n{SUMMARY}\n\nDebug: {DEBUG}',
-            'zh-CN': 'Ai-Dental-Client 已打开。\n\n未能自动打开「新增患者」面板。\n\n1. 在 Ai-Dental 手动点击「新增 / 新增患者」\n2. 再点一次网页上的 Ai-Dental 按钮（会逐字段粘贴）\n\n或逐字段粘贴剪贴板完整资料：\n{SUMMARY}\n\n调试：{DEBUG}',
-            'zh-Hant': 'Ai-Dental-Client 已開啟。\n\n未能自動開啟「新增病人」面板。\n\n1. 在 Ai-Dental 手動按「新增 / 新增病人」\n2. 再按一次網頁上的 Ai-Dental 按鈕（會逐欄貼上）\n\n或逐欄貼上剪貼簿完整資料：\n{SUMMARY}\n\n除錯：{DEBUG}'
+            en: 'Ai-Dental-Client is starting with this patient\'s chart no. and name.\n\nCopied to clipboard (backup): {PATIENT}\nIf the wrong chart shows, search by name or no. in "{SHORTCUT}" instead.',
+            'zh-CN': '正在启动 Ai-Dental-Client，并带入本患者的编号及姓名。\n\n已复制到剪贴板（备用）：{PATIENT}\n若打开的病历不正确，请在「{SHORTCUT}」中改用姓名或编号搜索。',
+            'zh-Hant': '正在啟動 Ai-Dental-Client，並帶入本病人的編號及姓名。\n\n已複製到剪貼簿（備用）：{PATIENT}\n若開啟的病歷不正確，請在「{SHORTCUT}」中改用姓名或編號搜尋。'
         },
         'media.local.aidentalLauncherNeeded': {
-            en: 'Could not start Ai-Dental-Client from the browser.\n\n1. Run: current work\\{BAT}\n2. Leave the launcher window open\n3. Click Ai-Dental again\n\nOr double-click "{SHORTCUT}" on the desktop.\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 Ai-Dental-Client。\n\n1. 运行：current work\\{BAT}\n2. 保持启动器窗口打开\n3. 再次点击 Ai-Dental\n\n或双击桌面「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 Ai-Dental-Client。\n\n1. 執行：current work\\{BAT}\n2. 保持啟動器視窗開啟\n3. 再次按 Ai-Dental\n\n或按兩下桌面「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
+            en: 'Could not start Ai-Dental-Client from the browser.\n\n1. Run: current work\\{BAT}\n2. Leave the launcher window open\n3. Click Ai-Dental again\n\nOr double-click "{SHORTCUT}" on the desktop and search manually.\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Ai-Dental-Client。\n\n1. 运行：current work\\{BAT}\n2. 保持启动器窗口打开\n3. 再次点击 Ai-Dental\n\n或双击桌面「{SHORTCUT}」并手动搜索。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Ai-Dental-Client。\n\n1. 執行：current work\\{BAT}\n2. 保持啟動器視窗開啟\n3. 再次按 Ai-Dental\n\n或按兩下桌面「{SHORTCUT}」並手動搜尋。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
         'media.local.aidentalUseFolder': {
-            en: '(Search by patient name or no. in Ai-Dental-Client)',
-            'zh-CN': '（在 Ai-Dental-Client 中按患者姓名或编号搜索）',
-            'zh-Hant': '（在 Ai-Dental-Client 中按病人姓名或編號搜尋）'
+            en: '(If the chart doesn\'t auto-open, search by patient name or no. in Ai-Dental-Client)',
+            'zh-CN': '（若未能自动开启病历，请在 Ai-Dental-Client 中按患者姓名或编号搜索）',
+            'zh-Hant': '（若未能自動開啟病歷，請在 Ai-Dental-Client 中按病人姓名或編號搜尋）'
         },
         'media.local.nntnewtomOpen': {
             en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT/NEWTOM normally opens its own patient database — search by the copied patient name or patient no.',

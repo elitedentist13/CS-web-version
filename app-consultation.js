@@ -5725,7 +5725,9 @@ function rxNormalizeComboListRow(row) {
         lines: lines.map(rxCloneSavedLine),
         doctor_id: row.doctor_id || null,
         doctor_name: String(row.doctor_name || '').trim(),
-        updated_at: row.updated_at || row.created_at || null
+        updated_at: row.updated_at || row.created_at || null,
+        created_at: row.created_at || null,
+        created_by: row.created_by ? String(row.created_by).trim() : ''
     };
 }
 
@@ -5808,7 +5810,7 @@ function rxEnsureComboListsLoaded(done, opts) {
 
     rxComboListsLoading = true;
     var q = SB.from(RX_COMBO_LISTS_TABLE)
-        .select('id,doctor_id,doctor_key,doctor_name,name,lines,updated_at,created_at')
+        .select('id,doctor_id,doctor_key,doctor_name,name,lines,updated_at,created_at,created_by')
         .eq('doctor_key', doc.key)
         .order('updated_at', { ascending: false });
 
@@ -6430,6 +6432,11 @@ function rxRenderSavedDrugListsModal(opts) {
                 '</div>' +
             '</div>' +
             '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+                '<button type="button" class="rx-slist-detail" ' +
+                        'title="' + esc(conTr('con.rx.detailTitle')) + '" ' +
+                        'style="padding:5px 10px;font-size:11px;border-radius:5px;' +
+                        'border:1px solid #94a3b8;background:#f1f5f9;color:#334155;' +
+                        'cursor:pointer;font-weight:600;">' + esc(conTr('con.rx.detail')) + '</button>' +
                 '<button type="button" class="rx-slist-append" ' +
                         'style="padding:5px 10px;font-size:11px;border-radius:5px;' +
                         'border:1px solid #16a34a;background:#f0fdf4;color:#166534;' +
@@ -6445,6 +6452,9 @@ function rxRenderSavedDrugListsModal(opts) {
                         'cursor:pointer;">🗑</button>' +
             '</div>';
 
+        row.querySelector('.rx-slist-detail').addEventListener('click', function () {
+            rxOpenSavedDrugListDetail(lst.id);
+        });
         row.querySelector('.rx-slist-append').addEventListener('click', function () {
             rxApplySavedDrugList(lst.id, 'append');
         });
@@ -6459,6 +6469,109 @@ function rxRenderSavedDrugListsModal(opts) {
 
         body.appendChild(row);
     });
+}
+
+/** Cache of user_id -> display_name, so the detail modal doesn't re-query Supabase every time. */
+var rxUserDisplayNameCache = {};
+
+function rxResolveCreatedByName(userId, cb) {
+    var uid = String(userId || '').trim();
+    if (!uid) { cb(''); return; }
+    if (Object.prototype.hasOwnProperty.call(rxUserDisplayNameCache, uid)) {
+        cb(rxUserDisplayNameCache[uid]);
+        return;
+    }
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        cb(uid);
+        return;
+    }
+    SB.from('app_users').select('display_name').eq('user_id', uid).limit(1)
+    .then(function (r) {
+        var name = '';
+        if (!r.error && r.data && r.data[0]) {
+            name = String(r.data[0].display_name || '').trim();
+        }
+        var out = name || uid;
+        rxUserDisplayNameCache[uid] = out;
+        cb(out);
+    })
+    .catch(function () { cb(uid); });
+}
+
+/** Open the read-only "Detail" popup for one saved drug list. */
+function rxOpenSavedDrugListDetail(listId) {
+    var lists = readRxComboListsStorage();
+    var lst = (lists || []).find(function (x) { return String(x.id) === String(listId); });
+    if (!lst) return;
+    rxRenderSavedDrugListDetailModal(lst);
+    openModal('rxDrugListDetailModal');
+}
+
+function rxRenderSavedDrugListDetailModal(lst) {
+    var titleEl = g('rxDrugListDetailTitle');
+    var metaEl  = g('rxDrugListDetailMeta');
+    var bodyEl  = g('rxDrugListDetailBody');
+    if (!bodyEl) return;
+
+    if (titleEl) titleEl.textContent = lst.name || conTr('con.rx.untitled');
+
+    var addedOn = '';
+    try {
+        if (lst.created_at) {
+            addedOn = new Date(lst.created_at).toLocaleString(conUiLocale(), {
+                day:    '2-digit',
+                month:  'short',
+                year:   'numeric',
+                hour:   '2-digit',
+                minute: '2-digit'
+            });
+        }
+    } catch (err) {}
+
+    function renderMeta(addedByName) {
+        if (!metaEl) return;
+        var parts = [];
+        if (addedOn) parts.push(conTrRepl('con.rx.addedOn', { WHEN: addedOn }));
+        parts.push(conTrRepl('con.rx.addedBy', {
+            NAME: addedByName || conTr('con.rx.unknownUser')
+        }));
+        metaEl.textContent = parts.join(' · ');
+    }
+
+    renderMeta('');
+    if (lst.created_by) {
+        rxResolveCreatedByName(lst.created_by, renderMeta);
+    }
+
+    if (!lst.lines || !lst.lines.length) {
+        bodyEl.innerHTML =
+            '<p style="padding:14px;color:#64748b;text-align:center;">' +
+            esc(conTr('con.rx.historyNoLines')) + '</p>';
+        return;
+    }
+
+    bodyEl.innerHTML = lst.lines.map(function (line, idx) {
+        var meta = rxLineDisplayMeta(line);
+        return (
+            '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;' +
+                'margin-bottom:8px;background:#fafafa;">' +
+                '<div style="font-weight:700;font-size:13px;color:#111827;margin-bottom:6px;">' +
+                    esc(String(idx + 1) + '. ' + (line.drug_name || '—')) +
+                '</div>' +
+                '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));' +
+                    'gap:4px 14px;font-size:12px;color:#334155;">' +
+                    '<div><span style="color:#94a3b8;">' + esc(conTr('con.rx.labelDosage')) +
+                        ':</span> ' + esc(meta.dosage || '—') + '</div>' +
+                    '<div><span style="color:#94a3b8;">' + esc(conTr('con.rx.labelFrequency')) +
+                        ':</span> ' + esc(meta.frequency || '—') + '</div>' +
+                    '<div><span style="color:#94a3b8;">' + esc(conTr('con.rx.labelDuration')) +
+                        ':</span> ' + esc(meta.duration || '—') + '</div>' +
+                    '<div><span style="color:#94a3b8;">' + esc(conTr('con.rx.labelQty')) +
+                        ':</span> ' + esc(meta.quantity || '—') + '</div>' +
+                '</div>' +
+            '</div>'
+        );
+    }).join('');
 }
 
 function initRxSavedComboListsUI() {

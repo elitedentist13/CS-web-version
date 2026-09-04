@@ -6967,6 +6967,19 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════
+     MODAL — SAVED DRUG LIST DETAIL (per-drug dosage/frequency/days/qty)
+════════════════════════════════════════════════════════════ -->
+<div id="rxDrugListDetailModal" class="modal" style="z-index:4560;">
+  <div class="modal-box" style="max-width:520px;">
+    <button class="mclose" onclick="closeModal('rxDrugListDetailModal')"
+            data-i18n-aria-label="common.closeAria">×</button>
+    <h3 id="rxDrugListDetailTitle" style="margin:0 0 4px;"></h3>
+    <div id="rxDrugListDetailMeta" style="font-size:12px;color:#64748b;margin:0 0 12px;"></div>
+    <div id="rxDrugListDetailBody" style="max-height:60vh;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
      MODAL — DRUG LIST MANAGER
 ════════════════════════════════════════════════════════════ -->
 <div id="drugListModal" class="modal">

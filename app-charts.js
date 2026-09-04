@@ -15,6 +15,9 @@ var dentalState = {};
 // Perio chart state  — key: "tooth-surface", value: measurement array
 var perioState  = {};
 
+// Perio pane view mode: 'table' (data entry) or 'diagram' (pocket chart)
+var perioViewMode = 'table';
+
 // Active tool for dental charting
 var activeTool  = 'missing';
 
@@ -1201,6 +1204,7 @@ function applyTool(tn) {
 
     if (tool === 'eraser') {
         dentalState[tn] = [];
+        delete dentalState[tn + '_missingReason'];
         // Clear surface-specific states
         ['occlusal','mesial','distal','buccal','lingual'].forEach(function(s) {
             delete dentalState[tn + '-' + s + '-caries'];
@@ -1215,11 +1219,55 @@ function applyTool(tn) {
         else           state.push(tool);
     } else {
         var idx2 = state.indexOf(tool);
-        if (idx2 >= 0) state.splice(idx2, 1);
-        else            state.push(tool);
+        if (idx2 >= 0) {
+            state.splice(idx2, 1);
+            if (tool === 'missing') delete dentalState[tn + '_missingReason'];
+        } else {
+            state.push(tool);
+            if (tool === 'missing') promptMissingToothReason(tn);
+        }
     }
 
     refreshToothSVG(tn);
+}
+
+// ── Tooth-loss reason tag (used by Tonetti staging) ──────────
+var TOOTH_MISSING_REASONS = ['periodontal', 'caries', 'trauma', 'other'];
+
+function promptMissingToothReason(tn) {
+    var existing = g('toothMissingReasonPopup');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    var pop = document.createElement('div');
+    pop.id = 'toothMissingReasonPopup';
+    pop.style.cssText =
+        'position:fixed;z-index:99998;background:#fff;border:1px solid #d0dcf8;' +
+        'border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.2);padding:14px 16px;' +
+        'font-size:12px;left:50%;top:50%;transform:translate(-50%,-50%);min-width:280px;';
+    pop.innerHTML =
+        '<div style="font-weight:700;margin-bottom:10px;color:#333;">' +
+            esc(chartTrRepl('chart.missingReason.title', { TN: String(tn) })) + '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+        TOOTH_MISSING_REASONS.map(function(r) {
+            return '<button type="button" data-reason="' + esc(r) + '" style="' +
+                'padding:6px 10px;border:1px solid #d0dcf8;border-radius:6px;' +
+                'background:#f0f4ff;color:var(--primary);font-size:11px;font-weight:600;' +
+                'cursor:pointer;">' + esc(chartTr('chart.missingReason.' + r)) + '</button>';
+        }).join('') +
+        '<button type="button" data-reason="" style="padding:6px 10px;border:1px solid #ddd;' +
+            'border-radius:6px;background:#f8fafc;color:#888;font-size:11px;cursor:pointer;">' +
+            esc(chartTr('chart.missingReason.skip')) + '</button>' +
+        '</div>';
+    document.body.appendChild(pop);
+
+    Array.prototype.forEach.call(pop.querySelectorAll('button'), function(btn) {
+        btn.addEventListener('click', function() {
+            var reason = btn.getAttribute('data-reason');
+            if (reason) dentalState[tn + '_missingReason'] = reason;
+            else delete dentalState[tn + '_missingReason'];
+            if (pop.parentNode) pop.parentNode.removeChild(pop);
+        });
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1340,39 +1388,78 @@ function renderPerioPane() {
     if (!pane) return;
     pane.innerHTML = '';
 
-    // Legend
-    var legend = document.createElement('div');
-    legend.style.cssText =
-        'display:flex;flex-wrap:wrap;gap:8px 20px;font-size:11px;' +
-        'color:#555;margin-bottom:12px;padding:8px 12px;' +
-        'background:#f8fafc;border:1px solid #e8edf2;border-radius:8px;';
-    legend.innerHTML = chartTr('chart.perio.legendHtml');
-    pane.appendChild(legend);
+    // View toolbar: Enter Data / Chart View toggle + Print
+    pane.appendChild(buildPerioViewToolbar());
 
-    // Upper teeth section
-    var upSec = document.createElement('div');
-    upSec.className = 'perio-section';
-    var upTitle = document.createElement('div');
-    upTitle.className = 'perio-section-title';
-    upTitle.textContent = chartTr('chart.upperMaxillary');
-    upSec.appendChild(upTitle);
-    upSec.appendChild(buildPerioTable(
-        UPPER_RIGHT.concat(UPPER_LEFT), 'upper'));
-    pane.appendChild(upSec);
+    if (perioViewMode === 'diagram') {
+        // Legend (diagram-specific)
+        var dLegend = document.createElement('div');
+        dLegend.style.cssText =
+            'display:flex;flex-wrap:wrap;gap:8px 20px;font-size:11px;' +
+            'color:#555;margin-bottom:12px;padding:8px 12px;' +
+            'background:#f8fafc;border:1px solid #e8edf2;border-radius:8px;';
+        dLegend.innerHTML = chartTr('chart.perio.diagramLegendHtml');
+        pane.appendChild(dLegend);
 
-    // Lower teeth section
-    var loSec = document.createElement('div');
-    loSec.className = 'perio-section';
-    var loTitle = document.createElement('div');
-    loTitle.className = 'perio-section-title';
-    loTitle.textContent = chartTr('chart.lowerMandibular');
-    loSec.appendChild(loTitle);
-    loSec.appendChild(buildPerioTable(
-        LOWER_RIGHT.concat(LOWER_LEFT), 'lower'));
-    pane.appendChild(loSec);
+        // Upper arch diagram
+        var upDSec = document.createElement('div');
+        upDSec.className = 'perio-section';
+        var upDTitle = document.createElement('div');
+        upDTitle.className = 'perio-section-title';
+        upDTitle.textContent = chartTr('chart.upperMaxillary');
+        upDSec.appendChild(upDTitle);
+        upDSec.appendChild(buildPerioArchDiagram(
+            UPPER_RIGHT.concat(UPPER_LEFT), 'upper'));
+        pane.appendChild(upDSec);
+
+        // Lower arch diagram
+        var loDSec = document.createElement('div');
+        loDSec.className = 'perio-section';
+        var loDTitle = document.createElement('div');
+        loDTitle.className = 'perio-section-title';
+        loDTitle.textContent = chartTr('chart.lowerMandibular');
+        loDSec.appendChild(loDTitle);
+        loDSec.appendChild(buildPerioArchDiagram(
+            LOWER_RIGHT.concat(LOWER_LEFT), 'lower'));
+        pane.appendChild(loDSec);
+    } else {
+        // Legend
+        var legend = document.createElement('div');
+        legend.style.cssText =
+            'display:flex;flex-wrap:wrap;gap:8px 20px;font-size:11px;' +
+            'color:#555;margin-bottom:12px;padding:8px 12px;' +
+            'background:#f8fafc;border:1px solid #e8edf2;border-radius:8px;';
+        legend.innerHTML = chartTr('chart.perio.legendHtml');
+        pane.appendChild(legend);
+
+        // Upper teeth section
+        var upSec = document.createElement('div');
+        upSec.className = 'perio-section';
+        var upTitle = document.createElement('div');
+        upTitle.className = 'perio-section-title';
+        upTitle.textContent = chartTr('chart.upperMaxillary');
+        upSec.appendChild(upTitle);
+        upSec.appendChild(buildPerioTable(
+            UPPER_RIGHT.concat(UPPER_LEFT), 'upper'));
+        pane.appendChild(upSec);
+
+        // Lower teeth section
+        var loSec = document.createElement('div');
+        loSec.className = 'perio-section';
+        var loTitle = document.createElement('div');
+        loTitle.className = 'perio-section-title';
+        loTitle.textContent = chartTr('chart.lowerMandibular');
+        loSec.appendChild(loTitle);
+        loSec.appendChild(buildPerioTable(
+            LOWER_RIGHT.concat(LOWER_LEFT), 'lower'));
+        pane.appendChild(loSec);
+    }
 
     // Summary
     pane.appendChild(buildPerioSummary());
+
+    // Tonetti (2018 EFP/AAP) staging & grading — decision-support estimate
+    pane.appendChild(buildTonettiPanel());
 
     // Notes
     var na = document.createElement('div');
@@ -1386,6 +1473,81 @@ function renderPerioPane() {
         (perioState.__notes__ || '') +
         '</textarea>';
     pane.appendChild(na);
+}
+
+// ── View toolbar: Enter Data / Chart View toggle + Print ─────
+function buildPerioViewToolbar() {
+    var bar = document.createElement('div');
+    bar.style.cssText =
+        'display:flex;align-items:center;gap:10px;margin-bottom:12px;';
+
+    var toggle = document.createElement('div');
+    toggle.style.cssText =
+        'display:flex;border:1px solid #d0dcf8;border-radius:8px;' +
+        'overflow:hidden;background:#f0f4ff;';
+
+    var btnTable = document.createElement('button');
+    btnTable.type = 'button';
+    btnTable.textContent = chartTr('chart.perio.viewTable');
+    btnTable.style.cssText =
+        'padding:6px 14px;border:none;font-size:12px;font-weight:600;' +
+        'cursor:pointer;transition:all .15s;' +
+        (perioViewMode === 'table'
+            ? 'background:var(--primary);color:#fff;'
+            : 'background:transparent;color:var(--primary);');
+    btnTable.addEventListener('click', function() {
+        if (perioViewMode === 'table') return;
+        perioViewMode = 'table';
+        renderPerioPane();
+        updatePerioSummary();
+    });
+
+    var btnDiagram = document.createElement('button');
+    btnDiagram.type = 'button';
+    btnDiagram.textContent = chartTr('chart.perio.viewDiagram');
+    btnDiagram.style.cssText =
+        'padding:6px 14px;border:none;font-size:12px;font-weight:600;' +
+        'cursor:pointer;transition:all .15s;' +
+        (perioViewMode === 'diagram'
+            ? 'background:var(--primary);color:#fff;'
+            : 'background:transparent;color:var(--primary);');
+    btnDiagram.addEventListener('click', function() {
+        if (perioViewMode === 'diagram') return;
+        perioViewMode = 'diagram';
+        renderPerioPane();
+        updatePerioSummary();
+    });
+
+    toggle.appendChild(btnTable);
+    toggle.appendChild(btnDiagram);
+    bar.appendChild(toggle);
+
+    var spacer = document.createElement('div');
+    spacer.style.flex = '1';
+    bar.appendChild(spacer);
+
+    var printBtn = document.createElement('button');
+    printBtn.type = 'button';
+    printBtn.textContent = chartTr('chart.perio.printBtn');
+    printBtn.style.cssText =
+        'padding:6px 14px;background:#fff;border:1px solid #d0dcf8;' +
+        'color:var(--primary);border-radius:8px;font-size:12px;' +
+        'font-weight:600;cursor:pointer;';
+    printBtn.addEventListener('click', function() { printPerioChart(); });
+    bar.appendChild(printBtn);
+
+    var archiveBtn = document.createElement('button');
+    archiveBtn.type = 'button';
+    archiveBtn.id = 'perioArchiveBtn';
+    archiveBtn.textContent = chartTr('chart.perio.archiveBtn');
+    archiveBtn.style.cssText =
+        'padding:6px 14px;background:#fff;border:1px solid #d0dcf8;' +
+        'color:var(--primary);border-radius:8px;font-size:12px;' +
+        'font-weight:600;cursor:pointer;';
+    archiveBtn.addEventListener('click', function() { archivePerioChartToRecord(); });
+    bar.appendChild(archiveBtn);
+
+    return bar;
 }
 
 // ── Build perio table for a set of teeth ─────────────────────
@@ -1407,8 +1569,10 @@ function buildPerioTable(teeth, arch) {
         { id: 'gm_b',  labelKey: 'chart.perio.gmBuccal',  surface: 'B',   type: 'threeval' },
         { id: 'cal_b', labelKey: 'chart.perio.calBuccal', surface: 'B',   type: 'calc',
           a: 'pd_b', b: 'gm_b' },
+        { id: 'bl_b',  labelKey: 'chart.perio.blBuccal',  surface: 'B',   type: 'threeval' },
         { id: 'gm_l',  labelKey: 'chart.perio.gmLingual', surface: 'L',   type: 'threeval' },
         { id: 'pd_l',  labelKey: 'chart.perio.pdLingual', surface: 'L',   type: 'threeval' },
+        { id: 'bl_l',  labelKey: 'chart.perio.blLingual', surface: 'L',   type: 'threeval' },
         { id: 'bop_l', labelKey: 'chart.perio.bopL',      surface: 'L',   type: 'bop' },
     ];
 
@@ -1623,6 +1787,493 @@ function updatePerioSummary() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// POCKET DIAGRAM  (periodontalchart-online.com-style visualisation)
+// ════════════════════════════════════════════════════════════════
+// Layout constants (all in SVG user units == px at scale 1)
+var PD_SITE_W     = 22;   // width per D/M/Me site column
+var PD_TOOTH_GAP  = 3;    // gap between adjacent tooth groups
+var PD_MID_GAP    = 14;   // extra gap inserted at the midline (after 8 teeth)
+var PD_MM_PX      = 8;    // px per millimetre of depth
+var PD_MAX_MM     = 14;   // vertical scale range shown (0–14mm)
+var PD_AXIS_W     = 20;   // left gutter reserved for the mm scale
+var PD_LABEL_H    = 14;   // height of the "Buccal" / "Lingual" caption row
+var PD_MID_ROW_H  = 40;   // height of the tooth-number / mob / furcation row
+var PD_STRIP_H    = PD_MAX_MM * PD_MM_PX;
+
+/** x position (left edge) of tooth at index i within its arch's 16-tooth row. */
+function pdToothX(i) {
+    var x = i * (3 * PD_SITE_W + PD_TOOTH_GAP);
+    if (i >= 8) x += PD_MID_GAP;
+    return x;
+}
+
+/** x centre of one D/M/Me site column (s = 0,1,2) for tooth index i. */
+function pdSiteX(i, s) {
+    return pdToothX(i) + s * PD_SITE_W + PD_SITE_W / 2;
+}
+
+/** Reads one perio value (gm/pd) for tooth+surface+position, default 0. */
+function pdGetSiteVal(tn, surface, pos, field) {
+    var v = perioState[tn + '_' + field + '_' + surface + '_' + pos];
+    return (v === null || v === undefined || v === '') ? 0 : (parseFloat(v) || 0);
+}
+
+function pdGetBop(tn, surface, pos) {
+    return !!perioState[tn + '_bop_' + surface + '_' + pos];
+}
+
+/** Builds the {x, gm, al, bop} site-point series for one arch + surface. */
+function pdBuildPoints(teeth, surface) {
+    var pts = [];
+    teeth.forEach(function(tn, i) {
+        ['d', 'm', 'me'].forEach(function(pos, s) {
+            var gm = pdGetSiteVal(tn, surface, pos, 'gm');
+            var pd = pdGetSiteVal(tn, surface, pos, 'pd');
+            pts.push({
+                x:   pdSiteX(i, s),
+                gm:  gm,
+                al:  gm + pd,
+                bl:  pdGetSiteVal(tn, surface, pos, 'bl'),
+                bop: pdGetBop(tn, surface, pos)
+            });
+        });
+    });
+    return pts;
+}
+
+function pdPolylinePoints(pts, field) {
+    return pts.map(function(p) {
+        return (PD_AXIS_W + p.x).toFixed(1) + ',' + (p[field] * PD_MM_PX).toFixed(1);
+    }).join(' ');
+}
+
+/** Closed polygon between the GM line (forward) and AL line (reversed) = pocket. */
+function pdPocketPath(pts) {
+    if (!pts.length) return '';
+    var fwd = pts.map(function(p) {
+        return (PD_AXIS_W + p.x).toFixed(1) + ' ' + (p.gm * PD_MM_PX).toFixed(1);
+    }).join(' L ');
+    var bwd = pts.slice().reverse().map(function(p) {
+        return (PD_AXIS_W + p.x).toFixed(1) + ' ' + (p.al * PD_MM_PX).toFixed(1);
+    }).join(' L ');
+    return 'M ' + fwd + ' L ' + bwd + ' Z';
+}
+
+/** SVG markup for one horizontal strip (buccal or lingual) — local coord space, y=0 at top. */
+function pdStripSVG(pts, width) {
+    var grid = '';
+    for (var mm = 0; mm <= PD_MAX_MM; mm += 2) {
+        var y = mm * PD_MM_PX;
+        grid += '<line x1="' + PD_AXIS_W + '" y1="' + y + '" x2="' + (width - 2) +
+            '" y2="' + y + '" stroke="#eef1f6" stroke-width="1"/>' +
+            '<text x="1" y="' + (y + 3) + '" font-size="8" fill="#aaa">' + mm + '</text>';
+    }
+    var bop = pts.filter(function(p) { return p.bop; }).map(function(p) {
+        return '<circle cx="' + (PD_AXIS_W + p.x).toFixed(1) + '" cy="' +
+            (p.al * PD_MM_PX).toFixed(1) + '" r="2.6" fill="#e11d48" stroke="#fff" stroke-width="0.6"/>';
+    }).join('');
+    var hasBoneData = pts.some(function(p) { return p.bl > 0; });
+    var boneLine = hasBoneData
+        ? '<polyline points="' + pdPolylinePoints(pts, 'bl') +
+          '" fill="none" stroke="#374151" stroke-width="1.3" stroke-dasharray="4,3"/>'
+        : '';
+    return grid +
+        '<path d="' + pdPocketPath(pts) + '" fill="#bfe3ff" fill-opacity="0.55" stroke="none"/>' +
+        '<polyline points="' + pdPolylinePoints(pts, 'gm') + '" fill="none" stroke="#dc2626" stroke-width="1.6"/>' +
+        '<polyline points="' + pdPolylinePoints(pts, 'al') + '" fill="none" stroke="#2563eb" stroke-width="1.6"/>' +
+        boneLine +
+        bop;
+}
+
+/** SVG markup for the tooth-number / mobility / furcation row between the two strips. */
+function pdMidRowSVG(teeth) {
+    var out = '';
+    teeth.forEach(function(tn, i) {
+        var cx  = PD_AXIS_W + pdToothX(i) + 1.5 * PD_SITE_W;
+        var mob = perioState[tn + '_mob'];
+        var frc = perioState[tn + '_frc'];
+        var hasMob = mob && mob !== '0';
+        out += '<text x="' + cx + '" y="16" font-size="11" font-weight="700" ' +
+            'text-anchor="middle" fill="#1d4ed8">' + tn + '</text>';
+        if (hasMob) {
+            out += '<text x="' + cx + '" y="28" font-size="8.5" text-anchor="middle" ' +
+                'fill="#7c3aed">M:' + esc(String(mob)) + '</text>';
+        }
+        if (frc && frc !== '—' && frc !== '-') {
+            out += '<text x="' + cx + '" y="' + (hasMob ? 38 : 28) + '" font-size="8.5" ' +
+                'text-anchor="middle" fill="#b45309">F:' + esc(String(frc)) + '</text>';
+        }
+    });
+    var midX = PD_AXIS_W + pdToothX(8) - PD_MID_GAP / 2;
+    out += '<line x1="' + midX + '" y1="2" x2="' + midX + '" y2="' + (PD_MID_ROW_H - 2) +
+        '" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="2,2"/>';
+    return out;
+}
+
+/** Full pocket-diagram SVG markup for one arch: Buccal strip / tooth row / Lingual strip. */
+function pdBuildArchDiagramSVG(teeth) {
+    var width = PD_AXIS_W + pdToothX(teeth.length - 1) + 3 * PD_SITE_W + 8;
+    var totalH = PD_LABEL_H + PD_STRIP_H + PD_MID_ROW_H + PD_LABEL_H + PD_STRIP_H;
+
+    var buccalPts  = pdBuildPoints(teeth, 'b');
+    var lingualPts = pdBuildPoints(teeth, 'l');
+
+    var yBuccalStrip  = PD_LABEL_H;
+    var yMidRow       = yBuccalStrip + PD_STRIP_H;
+    var yLingualLabel = yMidRow + PD_MID_ROW_H;
+    var yLingualStrip = yLingualLabel + PD_LABEL_H;
+
+    return '<svg viewBox="0 0 ' + width + ' ' + totalH + '" width="' + width +
+        '" height="' + totalH + '" style="display:block;background:#fff;">' +
+        '<text x="1" y="' + (PD_LABEL_H - 3) + '" font-size="9" font-weight="700" ' +
+            'fill="#64748b">' + esc(chartTr('chart.perio.diagramBuccal')) + '</text>' +
+        '<g transform="translate(0,' + yBuccalStrip + ')">' + pdStripSVG(buccalPts, width) + '</g>' +
+        '<g transform="translate(0,' + yMidRow + ')">' + pdMidRowSVG(teeth) + '</g>' +
+        '<text x="1" y="' + (yLingualLabel + PD_LABEL_H - 3) + '" font-size="9" font-weight="700" ' +
+            'fill="#64748b">' + esc(chartTr('chart.perio.diagramLingual')) + '</text>' +
+        '<g transform="translate(0,' + yLingualStrip + ')">' + pdStripSVG(lingualPts, width) + '</g>' +
+        '</svg>';
+}
+
+/** DOM wrapper (horizontally scrollable) around one arch's pocket-diagram SVG. */
+function buildPerioArchDiagram(teeth, arch) {
+    var wrap = document.createElement('div');
+    wrap.className = 'perio-diagram-wrap';
+    wrap.style.cssText =
+        'overflow-x:auto;border:1px solid #e0e6ed;border-radius:10px;' +
+        'background:#fff;padding:6px 4px;';
+    wrap.innerHTML = pdBuildArchDiagramSVG(teeth);
+    return wrap;
+}
+
+// ════════════════════════════════════════════════════════════════
+// TONETTI (2018 EFP/AAP) STAGING & GRADING — decision-support only
+// ════════════════════════════════════════════════════════════════
+// Approximate average root lengths (mm) per FDI tooth number, used only
+// to convert an entered bone-loss mm value into a % of root length.
+// These are textbook averages, not patient-specific measurements.
+var TONETTI_ROOT_LENGTH_MM = {
+    11:13, 21:13, 12:13, 22:13, 13:17, 23:17, 14:14, 24:14, 15:14, 25:14,
+    16:13, 26:13, 17:11, 27:11, 18:11, 28:11,
+    41:12.5, 31:12.5, 42:14, 32:14, 43:16, 33:16, 44:14, 34:14, 45:15, 35:15,
+    46:13, 36:13, 47:11, 37:11, 48:11, 38:11
+};
+
+function tonettiRootLengthMm(tn) {
+    return TONETTI_ROOT_LENGTH_MM[tn] || 13;
+}
+
+/** Best-effort patient age (years) from the consultation module, if it's showing the same patient. */
+function chartPatientAgeYears() {
+    try {
+        if (perioState && perioState.__tonettiAgeOverride) {
+            var ov = parseInt(perioState.__tonettiAgeOverride, 10);
+            if (ov > 0) return ov;
+        }
+        if (typeof conPatientData !== 'undefined' && conPatientData &&
+            String(conPatientData.id || '') === String(chartPatientId || '') &&
+            typeof patientAgeYears === 'function') {
+            return patientAgeYears(conPatientData.dob);
+        }
+    } catch (e) {}
+    return null;
+}
+
+/**
+ * Simplified periodontal Stage (I-IV) / Grade (A-C) estimate per the 2018
+ * EFP/AAP classification, based on data already captured in this chart.
+ * This is a decision-support ESTIMATE only — always confirm clinically.
+ */
+function computeTonettiAssessment() {
+    var maxCAL = 0;
+    var maxBoneLossPct = 0;
+    var allPerioTeeth = UPPER_RIGHT.concat(UPPER_LEFT, LOWER_RIGHT, LOWER_LEFT);
+
+    allPerioTeeth.forEach(function(tn) {
+        ['b', 'l'].forEach(function(surface) {
+            ['d', 'm', 'me'].forEach(function(pos) {
+                var gm = pdGetSiteVal(tn, surface, pos, 'gm');
+                var pd = pdGetSiteVal(tn, surface, pos, 'pd');
+                var bl = pdGetSiteVal(tn, surface, pos, 'bl');
+                var cal = gm + pd;
+                if (cal > maxCAL) maxCAL = cal;
+                if (bl > 0) {
+                    var pct = (bl / tonettiRootLengthMm(tn)) * 100;
+                    if (pct > maxBoneLossPct) maxBoneLossPct = pct;
+                }
+            });
+        });
+    });
+
+    var teethLostToPerio = 0;
+    allDentalChartToothNums().forEach(function(tn) {
+        var st = dentalState[tn];
+        if (st && st.indexOf('missing') >= 0 &&
+            dentalState[tn + '_missingReason'] === 'periodontal') {
+            teethLostToPerio++;
+        }
+    });
+
+    // Severity/extent staging (simplified — greater of CAL or RBL decides the band)
+    var stage = null;
+    if (maxCAL > 0 || maxBoneLossPct > 0) {
+        stage = 'I';
+        if (maxCAL >= 3 || (maxBoneLossPct >= 15 && maxBoneLossPct < 33)) stage = 'II';
+        if (maxCAL >= 5 || maxBoneLossPct >= 33) stage = 'III';
+        if (maxBoneLossPct >= 66 || teethLostToPerio >= 5) stage = 'IV';
+    }
+
+    // Grading from % bone loss at the worst site divided by age (rate of progression)
+    var age  = chartPatientAgeYears();
+    var rate = null;
+    var grade = null;
+    if (age && age > 0 && maxBoneLossPct > 0) {
+        rate = maxBoneLossPct / age;
+        grade = rate < 0.25 ? 'A' : (rate <= 1.0 ? 'B' : 'C');
+    }
+
+    var stageOverride = perioState.__tonettiStageOverride || '';
+    var gradeOverride = perioState.__tonettiGradeOverride || '';
+
+    return {
+        maxCAL: maxCAL,
+        maxBoneLossPct: maxBoneLossPct,
+        teethLostToPerio: teethLostToPerio,
+        age: age,
+        rate: rate,
+        autoStage: stage,
+        autoGrade: grade,
+        finalStage: stageOverride || stage,
+        finalGrade: gradeOverride || grade,
+        stageOverridden: !!stageOverride,
+        gradeOverridden: !!gradeOverride
+    };
+}
+
+/** Builds the Tonetti staging/grading panel DOM node for the perio pane. */
+function buildTonettiPanel() {
+    var a = computeTonettiAssessment();
+    var wrap = document.createElement('div');
+    wrap.id = 'tonettiPanel';
+    wrap.style.cssText =
+        'margin:14px 0;padding:14px 16px;background:#fef9f0;' +
+        'border:1px solid #f3d9a8;border-radius:10px;font-size:12px;color:#333;';
+
+    var stageOptions = ['', 'I', 'II', 'III', 'IV'];
+    var gradeOptions  = ['', 'A', 'B', 'C'];
+
+    function optionsHtml(opts, current, autoLabel) {
+        return opts.map(function(o) {
+            var label = o === '' ? autoLabel : o;
+            return '<option value="' + esc(o) + '"' +
+                (o === current ? ' selected' : '') + '>' + esc(label) + '</option>';
+        }).join('');
+    }
+
+    wrap.innerHTML =
+        '<div style="font-weight:700;font-size:13px;margin-bottom:4px;color:#92610e;">' +
+            esc(chartTr('chart.tonetti.title')) + '</div>' +
+        '<div style="font-size:11px;color:#8a6d3b;font-style:italic;margin-bottom:10px;">' +
+            esc(chartTr('chart.tonetti.disclaimer')) + '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:14px 22px;margin-bottom:10px;">' +
+            '<span>' + esc(chartTr('chart.tonetti.maxCal')) + ': <strong>' +
+                (a.maxCAL > 0 ? a.maxCAL.toFixed(0) + ' mm' : '—') + '</strong></span>' +
+            '<span>' + esc(chartTr('chart.tonetti.maxBoneLoss')) + ': <strong>' +
+                (a.maxBoneLossPct > 0 ? a.maxBoneLossPct.toFixed(0) + '%' : '—') + '</strong></span>' +
+            '<span>' + esc(chartTr('chart.tonetti.teethLost')) + ': <strong>' + a.teethLostToPerio + '</strong></span>' +
+            '<span>' + esc(chartTr('chart.tonetti.age')) + ': ' +
+                '<input type="number" id="tonettiAgeInput" min="1" max="120" placeholder="' +
+                esc(chartTr('chart.tonetti.ageUnknownPh')) + '" value="' +
+                (perioState.__tonettiAgeOverride || '') + '" style="width:52px;padding:2px 4px;' +
+                'border:1px solid #ddd;border-radius:4px;font-size:11px;"> ' +
+                (a.age && !perioState.__tonettiAgeOverride
+                    ? '<span style="color:#999;">(' + esc(chartTr('chart.tonetti.fromRecord')) + ')</span>' : '') +
+            '</span>' +
+        '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;">' +
+            '<label>' + esc(chartTr('chart.tonetti.stage')) + ': ' +
+                '<select id="tonettiStageSelect" style="padding:3px 6px;border:1px solid #ddd;' +
+                'border-radius:4px;font-size:12px;margin-left:4px;">' +
+                optionsHtml(stageOptions, perioState.__tonettiStageOverride || '',
+                    chartTr('chart.tonetti.auto') + (a.autoStage ? ' (' + a.autoStage + ')' : ' (—)')) +
+                '</select></label>' +
+            '<label>' + esc(chartTr('chart.tonetti.grade')) + ': ' +
+                '<select id="tonettiGradeSelect" style="padding:3px 6px;border:1px solid #ddd;' +
+                'border-radius:4px;font-size:12px;margin-left:4px;">' +
+                optionsHtml(gradeOptions, perioState.__tonettiGradeOverride || '',
+                    chartTr('chart.tonetti.auto') + (a.autoGrade ? ' (' + a.autoGrade + ')' : ' (—)')) +
+                '</select></label>' +
+            '<span style="font-weight:700;color:#92610e;">' +
+                esc(chartTr('chart.tonetti.result')) + ': ' +
+                (a.finalStage || '—') + ' / ' + (a.finalGrade || '—') +
+            '</span>' +
+        '</div>';
+
+    var ageInput = wrap.querySelector('#tonettiAgeInput');
+    if (ageInput) {
+        ageInput.addEventListener('change', function() {
+            var v = parseInt(ageInput.value, 10);
+            if (v > 0) perioState.__tonettiAgeOverride = v;
+            else delete perioState.__tonettiAgeOverride;
+            refreshTonettiPanel();
+        });
+    }
+    var stageSel = wrap.querySelector('#tonettiStageSelect');
+    if (stageSel) {
+        stageSel.addEventListener('change', function() {
+            if (stageSel.value) perioState.__tonettiStageOverride = stageSel.value;
+            else delete perioState.__tonettiStageOverride;
+            refreshTonettiPanel();
+        });
+    }
+    var gradeSel = wrap.querySelector('#tonettiGradeSelect');
+    if (gradeSel) {
+        gradeSel.addEventListener('change', function() {
+            if (gradeSel.value) perioState.__tonettiGradeOverride = gradeSel.value;
+            else delete perioState.__tonettiGradeOverride;
+            refreshTonettiPanel();
+        });
+    }
+
+    return wrap;
+}
+
+/** Re-renders just the Tonetti panel in place (avoids losing focus in the wider pane on every keystroke). */
+function refreshTonettiPanel() {
+    var old = g('tonettiPanel');
+    if (!old || !old.parentNode) return;
+    var fresh = buildTonettiPanel();
+    old.parentNode.replaceChild(fresh, old);
+}
+
+// ── Print the pocket diagram (both arches) in a dedicated popup ─
+function printPerioChart() {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+
+    var dateEl = g('chartDateInput');
+    var date   = dateEl ? dateEl.value : chartDate;
+    var isZh   = typeof printUiLangIsChinese === 'function' && printUiLangIsChinese();
+    var clinicName = typeof currentActiveClinicLabelForPrinting === 'function'
+        ? currentActiveClinicLabelForPrinting(isZh) : '';
+    var patientName = chartPatientName || '';
+
+    var upperSVG = pdBuildArchDiagramSVG(UPPER_RIGHT.concat(UPPER_LEFT));
+    var lowerSVG = pdBuildArchDiagramSVG(LOWER_RIGHT.concat(LOWER_LEFT));
+    var tonetti  = computeTonettiAssessment();
+
+    var popup = window.open('', '_blank',
+        'width=1100,height=780,left=60,top=32,toolbar=0,menubar=0,scrollbars=1,resizable=1');
+    if (!popup) {
+        alert(chartTr('chart.perio.alertPopupBlocked'));
+        return;
+    }
+
+    var css =
+        '* { margin:0; padding:0; box-sizing:border-box; }' +
+        '@page { size:A4 landscape; margin:10mm; }' +
+        'html,body { font-family:"Segoe UI",system-ui,Arial,sans-serif; color:#111; padding:14px; background:#fff; }' +
+        'h1 { font-size:16px; margin-bottom:2px; }' +
+        '.meta { font-size:11px; color:#555; margin-bottom:14px; }' +
+        '.arch-block { margin-bottom:20px; }' +
+        '.arch-title { font-size:12px; font-weight:700; color:#555; margin-bottom:4px; }' +
+        '.legend { font-size:10px; color:#555; margin-top:10px; display:flex; flex-wrap:wrap; gap:6px 16px; }' +
+        '.tonetti { font-size:10px; color:#92610e; margin-top:10px; font-style:italic; }' +
+        '@media print { .arch-block { page-break-inside:avoid; } }';
+
+    popup.document.write(
+        '<!DOCTYPE html><html lang="' + (isZh ? 'zh-HK' : 'en') + '"><head><meta charset="UTF-8">' +
+        (typeof appCjkFontLinkHtml === 'function' ? appCjkFontLinkHtml() : '') +
+        '<title>' + esc(chartTr('chart.perio.printTitle')) + '</title>' +
+        '<style>' + css + '</style></head><body>' +
+        '<h1>' + esc(chartTr('chart.perio.printTitle')) + '</h1>' +
+        '<div class="meta">' +
+            esc(patientName) + (clinicName ? ' &middot; ' + esc(clinicName) : '') +
+            ' &middot; ' + esc(chartTr('chart.date')) + ': ' + esc(date) +
+        '</div>' +
+        '<div class="arch-block"><div class="arch-title">' + esc(chartTr('chart.upperMaxillary')) +
+            '</div>' + upperSVG + '</div>' +
+        '<div class="arch-block"><div class="arch-title">' + esc(chartTr('chart.lowerMandibular')) +
+            '</div>' + lowerSVG + '</div>' +
+        '<div class="legend">' + chartTr('chart.perio.diagramLegendHtml') + '</div>' +
+        '<div class="tonetti">' + esc(chartTr('chart.tonetti.title')) + ': ' +
+            (tonetti.finalStage || '—') + ' / ' + (tonetti.finalGrade || '—') +
+            ' &mdash; ' + esc(chartTr('chart.tonetti.disclaimer')) +
+        '</div>' +
+        '<script>' +
+        (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
+        'window.onload=function(){try{window.focus();}catch(e){}' +
+        'setTimeout(function(){try{window.print();}catch(e2){if(typeof __ppClose==="function")__ppClose();}},350);};' +
+        '<\/script>' +
+        '</body></html>'
+    );
+    popup.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
+    try { popup.focus(); } catch (ePrintFocus) {}
+}
+
+// ── Archive the pocket diagram as a PDF into the patient's permanent record ─
+function archivePerioChartToRecord() {
+    if (!chartPatientId) { alert(chartTr('chart.alert.noPatient')); return; }
+    if (typeof PDFEDITOR === 'undefined' || typeof PDFEDITOR.exportFormsHtmlToPatient !== 'function') {
+        alert(chartTr('chart.perio.archiveUnavailable'));
+        return;
+    }
+
+    var btn = g('perioArchiveBtn');
+    var origLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = chartTr('chart.perio.archiving'); }
+
+    var dateEl = g('chartDateInput');
+    var date   = dateEl ? dateEl.value : chartDate;
+    var isZh   = typeof printUiLangIsChinese === 'function' && printUiLangIsChinese();
+    var clinicName = typeof currentActiveClinicLabelForPrinting === 'function'
+        ? currentActiveClinicLabelForPrinting(isZh) : '';
+    var patientName = chartPatientName || '';
+    var tonetti = computeTonettiAssessment();
+
+    var upperSVG = pdBuildArchDiagramSVG(UPPER_RIGHT.concat(UPPER_LEFT));
+    var lowerSVG = pdBuildArchDiagramSVG(LOWER_RIGHT.concat(LOWER_LEFT));
+
+    var bodyHtml =
+        '<h2 style="margin:0 0 4px;font-size:16px;">' + esc(chartTr('chart.perio.printTitle')) + '</h2>' +
+        '<div style="font-size:11px;color:#555;margin-bottom:14px;">' +
+            esc(patientName) + (clinicName ? ' &middot; ' + esc(clinicName) : '') +
+            ' &middot; ' + esc(chartTr('chart.date')) + ': ' + esc(date) +
+        '</div>' +
+        '<div style="margin-bottom:6px;font-size:12px;font-weight:700;color:#555;">' +
+            esc(chartTr('chart.upperMaxillary')) + '</div>' + upperSVG +
+        '<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:#555;">' +
+            esc(chartTr('chart.lowerMandibular')) + '</div>' + lowerSVG +
+        '<div style="margin-top:10px;font-size:10px;color:#555;">' +
+            chartTr('chart.perio.diagramLegendHtml') + '</div>' +
+        '<div style="margin-top:8px;font-size:10px;color:#92610e;font-style:italic;">' +
+            esc(chartTr('chart.tonetti.title')) + ': ' +
+            (tonetti.finalStage || '—') + ' / ' + (tonetti.finalGrade || '—') +
+            ' &mdash; ' + esc(chartTr('chart.tonetti.disclaimer')) +
+        '</div>';
+
+    var docName = chartTrRepl('chart.perio.archiveDocName', { DATE: date });
+
+    PDFEDITOR.exportFormsHtmlToPatient({
+        patientId: chartPatientId,
+        html: bodyHtml,
+        documentName: docName,
+        download: false,
+        template: {
+            template_code: 'perio_chart',
+            template_name: chartTr('chart.perio.printTitle'),
+            template_type: 'pdf'
+        }
+    }).then(function() {
+        showChartToast(chartTr('chart.perio.archiveSaved'));
+    }).catch(function(e) {
+        alert(chartTrRepl('chart.perio.archiveError', { MSG: (e && e.message) || String(e) }));
+    }).finally(function() {
+        if (btn) { btn.disabled = false; btn.textContent = origLabel || chartTr('chart.perio.archiveBtn'); }
+    });
+}
+
+// ════════════════════════════════════════════════════════════════
 // SAVE / LOAD  (Supabase)
 // ════════════════════════════════════════════════════════════════
 function saveChartRecord() {
@@ -1693,6 +2344,8 @@ function loadChartRecord() {
             dentalState   = {};
             perioState    = {};
             chartRecordId = null;
+            var dnBlank = g('dentalChartNotes');
+            if (dnBlank) dnBlank.value = '';
             refreshAllTeeth();
             refreshPerioInputs();
             showChartToast(chartTrRepl('chart.toast.noRecord', { DATE: date }));
@@ -1705,6 +2358,13 @@ function loadChartRecord() {
         catch(e) { dentalState = {}; }
         try { perioState  = JSON.parse(rec.perio_data  || '{}'); }
         catch(e) { perioState  = {}; }
+
+        // Notes live outside dentalState/perioState in the DB (separate
+        // columns), but renderPerioPane() re-renders its textarea from
+        // perioState.__notes__ on every refresh — keep both in sync so a
+        // reload doesn't get clobbered back to blank on the next re-render.
+        dentalState.__notes__ = rec.dental_notes || '';
+        perioState.__notes__  = rec.perio_notes  || '';
 
         var dn = g('dentalChartNotes');
         var pn = g('perioChartNotes');

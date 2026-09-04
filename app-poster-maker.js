@@ -42,6 +42,13 @@
     var _olResults    = [];         // current search results (photos or icons)
     var _olIconPrefix = 'medical-icon'; // last Iconify search context
 
+    // Custom (non-standard) Fabric object props that must survive JSON
+    // (de)serialisation for background-photo tuning & watermark state.
+    var PM_CUSTOM_PROPS = [
+        'pmBg', 'pmBgMode', 'pmBgBrightness', 'pmBgContrast', 'pmBgSharpness', 'pmBgTileScale',
+        'pmWm', 'pmWmText', 'pmWmColor', 'pmWmFontSize'
+    ];
+
     var SIZES = {
         a4p:    { w: 794, h: 1123, label: 'A4 Portrait'   },
         a4l:    { w: 1123, h: 794, label: 'A4 Landscape'  },
@@ -385,6 +392,123 @@
                 '<input type="color" id="pm-bg" value="#ffffff" ' +
                     'style="width:100%;height:28px;border-radius:6px;border:1px solid #334155;' +
                     'cursor:pointer;background:none;box-sizing:border-box;">' +
+            '</div>' +
+
+            // ── BACKGROUND PHOTO ───────────────────────────────────
+            '<div style="border-top:1px solid #1e293b;margin-top:2px;"></div>' +
+            '<div style="font-size:10px;font-weight:900;color:#94a3b8;letter-spacing:1px;">' +
+                esc(t('BACKGROUND PHOTO', '背景图片', '背景圖片')) + '</div>' +
+            '<label id="pm-bgphoto-label" style="' + sideBtn('display:flex;align-items:center;gap:6px;') + '">📁 ' +
+                esc(t('Upload Background Photo', '上传背景图片', '上傳背景圖片')) +
+                '<input type="file" id="pm-bgphoto-file" accept="image/*" style="display:none;">' +
+            '</label>' +
+            '<div id="pm-bgphoto-hint" style="font-size:9px;color:#64748b;line-height:1.5;">' +
+                esc(t('Tip: you can also hover a photo in Online Library below and click "Set BG".',
+                      '提示：也可以将鼠标移到下方在线素材库的图片上，点击"设为背景"。',
+                      '提示：也可以將鼠標移到下方線上素材庫的圖片上，點擊「設為背景」。')) + '</div>' +
+            '<div id="pm-bgphoto-controls" style="display:none;flex-direction:column;gap:6px;">' +
+
+                // Style / tiling mode
+                '<div>' +
+                    '<label style="font-size:10px;color:#94a3b8;display:block;margin-bottom:3px;">' +
+                        esc(t('Style', '样式', '樣式')) + '</label>' +
+                    '<select id="pm-bgphoto-mode" style="width:100%;font-size:10px;padding:4px 5px;' +
+                        'background:#1e293b;color:#f1f5f9;border:1px solid #334155;border-radius:5px;box-sizing:border-box;">' +
+                        '<option value="single">'   + esc(t('Single (Fill Canvas)', '单张（填满画布）', '單張（填滿畫布）')) + '</option>' +
+                        '<option value="repeated">' + esc(t('Repeated (Tiled)', '重复（拼贴）', '重複（拼貼）')) + '</option>' +
+                        '<option value="flipped">'  + esc(t('Flipped (Mirrored)', '翻转（镜像）', '翻轉（鏡像）')) + '</option>' +
+                        '<option value="inverted">' + esc(t('Inverted (Negative)', '反色（负片）', '反色（負片）')) + '</option>' +
+                    '</select>' +
+                '</div>' +
+
+                // Tile size (repeated mode only)
+                '<div id="pm-bgphoto-tile-row" style="display:none;">' +
+                    '<label style="font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+                        esc(t('Tile Size', '拼贴大小', '拼貼大小')) +
+                        '<span id="pm-bgphoto-tilescale-val">30%</span>' +
+                    '</label>' +
+                    '<input type="range" id="pm-bgphoto-tilescale" min="10" max="100" value="30" ' +
+                        'style="width:100%;accent-color:#3b82f6;">' +
+                '</div>' +
+
+                // Opacity / translucency
+                '<div>' +
+                    '<label style="font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+                        esc(t('Opacity', '不透明度', '不透明度')) +
+                        '<span id="pm-bgphoto-opacity-val">100%</span>' +
+                    '</label>' +
+                    '<input type="range" id="pm-bgphoto-opacity" min="0" max="100" value="100" ' +
+                        'style="width:100%;accent-color:#3b82f6;">' +
+                '</div>' +
+
+                // Brightness
+                '<div>' +
+                    '<label style="font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+                        esc(t('Brightness', '亮度', '亮度')) +
+                        '<span id="pm-bgphoto-brightness-val">0</span>' +
+                    '</label>' +
+                    '<input type="range" id="pm-bgphoto-brightness" min="-100" max="100" value="0" ' +
+                        'style="width:100%;accent-color:#3b82f6;">' +
+                '</div>' +
+
+                // Contrast
+                '<div>' +
+                    '<label style="font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+                        esc(t('Contrast', '对比度', '對比度')) +
+                        '<span id="pm-bgphoto-contrast-val">0</span>' +
+                    '</label>' +
+                    '<input type="range" id="pm-bgphoto-contrast" min="-100" max="100" value="0" ' +
+                        'style="width:100%;accent-color:#3b82f6;">' +
+                '</div>' +
+
+                // Sharpness
+                '<div>' +
+                    '<label style="font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+                        esc(t('Sharpness', '锐化', '銳化')) +
+                        '<span id="pm-bgphoto-sharpness-val">0</span>' +
+                    '</label>' +
+                    '<input type="range" id="pm-bgphoto-sharpness" min="0" max="100" value="0" ' +
+                        'style="width:100%;accent-color:#3b82f6;">' +
+                '</div>' +
+
+                '<button id="pm-bgphoto-remove" style="width:100%;font-size:10px;padding:5px 6px;margin-top:2px;' +
+                    'background:#7f1d1d;color:#fecaca;border:1px solid #991b1b;border-radius:6px;cursor:pointer;font-weight:700;">' +
+                    '🗑 ' + esc(t('Remove Background', '移除背景', '移除背景')) + '</button>' +
+            '</div>' +
+
+            // ── WATERMARK ───────────────────────────────────────────
+            '<div style="border-top:1px solid #1e293b;margin-top:2px;"></div>' +
+            '<label style="font-size:10px;font-weight:900;color:#94a3b8;letter-spacing:1px;display:flex;' +
+                'align-items:center;gap:5px;cursor:pointer;">' +
+                '<input type="checkbox" id="pm-wm-enable" style="cursor:pointer;">' +
+                esc(t('WATERMARK', '水印', '水印')) +
+            '</label>' +
+            '<div id="pm-wm-controls" style="display:none;flex-direction:column;gap:6px;">' +
+                '<input type="text" id="pm-wm-text" placeholder="' + esc(t('e.g. SAMPLE','例如：样本','例如：樣本')) + '" ' +
+                    'value="SAMPLE" maxlength="40" style="width:100%;font-size:11px;padding:5px 6px;' +
+                    'background:#1e293b;color:#f1f5f9;border:1px solid #334155;border-radius:5px;box-sizing:border-box;">' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;align-items:center;">' +
+                    '<label style="font-size:10px;color:#94a3b8;">' + esc(t('Colour','颜色','顏色')) + '</label>' +
+                    '<input type="color" id="pm-wm-color" value="#94a3b8" ' +
+                        'style="width:100%;height:24px;border-radius:5px;border:1px solid #334155;cursor:pointer;' +
+                        'background:none;box-sizing:border-box;">' +
+                '</div>' +
+                '<div>' +
+                    '<label style="font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+                        esc(t('Opacity', '不透明度', '不透明度')) +
+                        '<span id="pm-wm-opacity-val">25%</span>' +
+                    '</label>' +
+                    '<input type="range" id="pm-wm-opacity" min="5" max="80" value="25" ' +
+                        'style="width:100%;accent-color:#3b82f6;">' +
+                '</div>' +
+                '<div>' +
+                    '<label style="font-size:10px;color:#94a3b8;display:flex;justify-content:space-between;">' +
+                        esc(t('Size', '字体大小', '字體大小')) +
+                        '<span id="pm-wm-fontsize-val">36px</span>' +
+                    '</label>' +
+                    '<input type="range" id="pm-wm-fontsize" min="14" max="90" value="36" ' +
+                        'style="width:100%;accent-color:#3b82f6;">' +
+                '</div>' +
             '</div>' +
 
             // ── DRAW TOOLS ─────────────────────────────────────────
@@ -1231,6 +1355,7 @@
 
         _history = []; _histPos = -1;
         snapshotHistory();
+        pmRefreshBgPanel();
 
         _canvas.on('object:modified', snapshotHistory);
     }
@@ -1238,7 +1363,7 @@
     // ── History (undo / redo) ────────────────────────────────────
     function snapshotHistory() {
         if (!_canvas || _pauseHistory) return;
-        var json = JSON.stringify(_canvas.toJSON());
+        var json = JSON.stringify(_canvas.toJSON(PM_CUSTOM_PROPS));
         _history = _history.slice(0, _histPos + 1);
         _history.push(json);
         if (_history.length > 60) { _history.shift(); }
@@ -1261,6 +1386,7 @@
         _canvas.loadFromJSON(JSON.parse(json), function () {
             _canvas.renderAll();
             _pauseHistory = false;
+            pmRefreshBgPanel();
         });
     }
 
@@ -1284,6 +1410,121 @@
         if (bgEl) bgEl.addEventListener('input', function () {
             if (_canvas) _canvas.setBackgroundColor(bgEl.value, function () { _canvas.renderAll(); });
         });
+
+        // ── Background photo — upload local file as background ─────
+        var bgPhotoFile = g('pm-bgphoto-file');
+        if (bgPhotoFile) bgPhotoFile.addEventListener('change', function () {
+            if (!bgPhotoFile.files || !bgPhotoFile.files[0] || !_canvas) return;
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                pmApplyBackground(e.target.result, pmReadBgSettings(pmFindBgObj()));
+            };
+            reader.readAsDataURL(bgPhotoFile.files[0]);
+            bgPhotoFile.value = '';
+        });
+
+        // Background photo — style / tiling mode
+        var bgModeEl = g('pm-bgphoto-mode');
+        if (bgModeEl) bgModeEl.addEventListener('change', function () {
+            pmUpdateBg({ mode: bgModeEl.value }, true);
+        });
+
+        // Background photo — tile size (repeated mode)
+        var bgTileEl  = g('pm-bgphoto-tilescale');
+        var bgTileVal = g('pm-bgphoto-tilescale-val');
+        if (bgTileEl) {
+            bgTileEl.addEventListener('input', function () {
+                if (bgTileVal) bgTileVal.textContent = bgTileEl.value + '%';
+            });
+            bgTileEl.addEventListener('change', function () {
+                pmUpdateBg({ tileScale: parseInt(bgTileEl.value, 10) }, true);
+            });
+        }
+
+        // Background photo — opacity / brightness / contrast / sharpness
+        function pmWireBgSlider(id, valId, key, fmt) {
+            var el = g(id), valEl = g(valId);
+            if (!el) return;
+            el.addEventListener('input', function () {
+                var v = parseInt(el.value, 10);
+                if (valEl) valEl.textContent = fmt ? fmt(v) : String(v);
+                var patch = {}; patch[key] = v;
+                pmUpdateBg(patch, false);
+            });
+            el.addEventListener('change', function () {
+                var v = parseInt(el.value, 10);
+                var patch = {}; patch[key] = v;
+                pmUpdateBg(patch, true);
+            });
+        }
+        pmWireBgSlider('pm-bgphoto-opacity',    'pm-bgphoto-opacity-val',    'opacity',    function (v) { return v + '%'; });
+        pmWireBgSlider('pm-bgphoto-brightness', 'pm-bgphoto-brightness-val', 'brightness', null);
+        pmWireBgSlider('pm-bgphoto-contrast',   'pm-bgphoto-contrast-val',   'contrast',   null);
+        pmWireBgSlider('pm-bgphoto-sharpness',  'pm-bgphoto-sharpness-val',  'sharpness',  null);
+
+        // Background photo — remove
+        var bgRemoveBtn = g('pm-bgphoto-remove');
+        if (bgRemoveBtn) bgRemoveBtn.addEventListener('click', function () {
+            pmRemoveBgObj();
+            if (_canvas) _canvas.renderAll();
+            pmRefreshBgPanel();
+            snapshotHistory();
+        });
+
+        // ── Watermark ────────────────────────────────────────────────
+        var wmChk   = g('pm-wm-enable');
+        var wmCtrls = g('pm-wm-controls');
+        function pmReadWmInputs() {
+            var textEl = g('pm-wm-text'), colorEl = g('pm-wm-color'),
+                opEl = g('pm-wm-opacity'), fsEl = g('pm-wm-fontsize');
+            return {
+                text:     textEl ? textEl.value : 'SAMPLE',
+                color:    colorEl ? colorEl.value : '#94a3b8',
+                opacity:  opEl ? parseInt(opEl.value, 10) : 25,
+                fontSize: fsEl ? parseInt(fsEl.value, 10) : 36
+            };
+        }
+        if (wmChk) wmChk.addEventListener('change', function () {
+            if (wmCtrls) wmCtrls.style.display = wmChk.checked ? 'flex' : 'none';
+            if (wmChk.checked) {
+                var v = pmReadWmInputs();
+                pmApplyWatermark(v.text, v.color, v.opacity, v.fontSize);
+            } else {
+                pmRemoveWmObj();
+                if (_canvas) _canvas.renderAll();
+                snapshotHistory();
+            }
+        });
+        ['pm-wm-text', 'pm-wm-color'].forEach(function (id) {
+            var el = g(id); if (!el) return;
+            el.addEventListener('change', function () {
+                if (!wmChk || !wmChk.checked) return;
+                var v = pmReadWmInputs();
+                pmApplyWatermark(v.text, v.color, v.opacity, v.fontSize);
+            });
+        });
+        var wmOpEl = g('pm-wm-opacity'), wmOpVal = g('pm-wm-opacity-val');
+        if (wmOpEl) {
+            wmOpEl.addEventListener('input', function () {
+                if (wmOpVal) wmOpVal.textContent = wmOpEl.value + '%';
+                var wm = pmFindWmObj();
+                if (wm && _canvas) { wm.set('opacity', parseInt(wmOpEl.value, 10) / 100); _canvas.renderAll(); }
+            });
+        }
+        var wmFsEl = g('pm-wm-fontsize'), wmFsVal = g('pm-wm-fontsize-val');
+        if (wmFsEl) {
+            wmFsEl.addEventListener('input', function () {
+                if (wmFsVal) wmFsVal.textContent = wmFsEl.value + 'px';
+            });
+            wmFsEl.addEventListener('change', function () {
+                if (!wmChk || !wmChk.checked) return;
+                var v = pmReadWmInputs();
+                pmApplyWatermark(v.text, v.color, v.opacity, v.fontSize);
+            });
+        }
+
+        // Reflect current bg/watermark state now that the panel exists
+        pmRefreshBgPanel();
 
         // Templates
         var tplBtns = document.querySelectorAll('#pm-shell .pm-tpl');
@@ -2538,7 +2779,7 @@
     // ── Multi-page ────────────────────────────────────────────────────
     function saveCurPage() {
         if (!_canvas) return;
-        _pages[_pageIdx] = { json: JSON.stringify(_canvas.toJSON()), bg: _canvas.backgroundColor };
+        _pages[_pageIdx] = { json: JSON.stringify(_canvas.toJSON(PM_CUSTOM_PROPS)), bg: _canvas.backgroundColor };
     }
     function loadPageAt(idx) {
         if (!_canvas) return;
@@ -2548,11 +2789,12 @@
         _pauseHistory = true;
         if (!pg) {
             _canvas.clear();
-            _canvas.setBackgroundColor('#ffffff', function () { _canvas.renderAll(); _pauseHistory = false; });
+            _canvas.setBackgroundColor('#ffffff', function () { _canvas.renderAll(); _pauseHistory = false; pmRefreshBgPanel(); });
         } else {
             _canvas.loadFromJSON(JSON.parse(pg.json), function () {
                 _canvas.setBackgroundColor(pg.bg || '#ffffff', function () {
                     _canvas.renderAll(); _pauseHistory = false;
+                    pmRefreshBgPanel();
                 });
             });
         }
@@ -2564,7 +2806,7 @@
         _pages.push(null);
         _pageIdx = _pages.length - 1;
         _canvas.clear();
-        _canvas.setBackgroundColor('#ffffff', function () { _canvas.renderAll(); });
+        _canvas.setBackgroundColor('#ffffff', function () { _canvas.renderAll(); pmRefreshBgPanel(); });
         _history = []; _histPos = -1; snapshotHistory();
         updatePageStrip();
     }
@@ -2606,6 +2848,248 @@
                 deletePage(parseInt(el.getAttribute('data-pidx'), 10));
             });
         });
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  BACKGROUND PHOTO — opacity / brightness / contrast / sharpness /
+    //  tiling style (single | repeated | flipped | inverted) + watermark
+    // ════════════════════════════════════════════════════════════════
+    function pmDefaultBgSettings() {
+        return { mode: 'single', opacity: 100, brightness: 0, contrast: 0, sharpness: 0, tileScale: 30 };
+    }
+    function pmFindBgObj() {
+        if (!_canvas) return null;
+        var objs = _canvas.getObjects();
+        for (var i = 0; i < objs.length; i++) { if (objs[i].pmBg) return objs[i]; }
+        return null;
+    }
+    function pmFindWmObj() {
+        if (!_canvas) return null;
+        var objs = _canvas.getObjects();
+        for (var i = 0; i < objs.length; i++) { if (objs[i].pmWm) return objs[i]; }
+        return null;
+    }
+    function pmReadBgSettings(obj) {
+        var d = pmDefaultBgSettings();
+        if (!obj) return d;
+        return {
+            mode:       obj.pmBgMode || d.mode,
+            opacity:    Math.round((obj.opacity != null ? obj.opacity : 1) * 100),
+            brightness: (obj.pmBgBrightness != null ? obj.pmBgBrightness : d.brightness),
+            contrast:   (obj.pmBgContrast   != null ? obj.pmBgContrast   : d.contrast),
+            sharpness:  (obj.pmBgSharpness  != null ? obj.pmBgSharpness  : d.sharpness),
+            tileScale:  (obj.pmBgTileScale  != null ? obj.pmBgTileScale  : d.tileScale)
+        };
+    }
+    function pmBgSrcOf(obj) {
+        if (!obj) return null;
+        if (obj.type === 'group' && obj._objects && obj._objects[0] && obj._objects[0].getSrc) {
+            return obj._objects[0].getSrc();
+        }
+        if (obj.getSrc) return obj.getSrc();
+        return null;
+    }
+    // Simple 3x3 sharpen (unsharp-mask style) convolution kernel, scaled 0–100.
+    function pmSharpenMatrix(pct) {
+        var s = Math.max(0, Math.min(100, pct || 0)) / 100 * 1.6;
+        var side = -s, center = 1 + 4 * s;
+        return [0, side, 0, side, center, side, 0, side, 0];
+    }
+    function pmBuildBgFilters(fabric, brightness, contrast, sharpness, inverted) {
+        var filters = [];
+        var b = Math.max(-100, Math.min(100, brightness || 0)) / 100;
+        var c = Math.max(-100, Math.min(100, contrast   || 0)) / 100;
+        if (b) filters.push(new fabric.Image.filters.Brightness({ brightness: b }));
+        if (c) filters.push(new fabric.Image.filters.Contrast({ contrast: c }));
+        if (sharpness) filters.push(new fabric.Image.filters.Convolute({ matrix: pmSharpenMatrix(sharpness) }));
+        if (inverted) filters.push(new fabric.Image.filters.Invert());
+        return filters;
+    }
+    function pmRemoveBgObj() {
+        var o = pmFindBgObj();
+        if (o && _canvas) _canvas.remove(o);
+    }
+    function pmRemoveWmObj() {
+        var o = pmFindWmObj();
+        if (o && _canvas) _canvas.remove(o);
+    }
+
+    // Rebuild the background object from a source URL + settings. This is a
+    // structural rebuild (switches between a single flat fabric.Image and a
+    // tiled fabric.Group of clones) — any previous background is replaced,
+    // never stacked.
+    function pmApplyBackground(url, settings) {
+        if (!_canvas || !_fabric || !url) return;
+        var fabric = _fabric;
+        var opts = settings || pmReadBgSettings(pmFindBgObj());
+        var W = _canvas.getWidth(), H = _canvas.getHeight();
+
+        fabric.Image.fromURL(url, function (img) {
+            if (!img) { alert(t('Could not load image.', '无法加载图片。', '無法載入圖片。')); return; }
+            pmRemoveBgObj();
+
+            var mode        = opts.mode || 'single';
+            var opacity     = (opts.opacity != null ? opts.opacity : 100) / 100;
+            var filters     = pmBuildBgFilters(fabric, opts.brightness, opts.contrast, opts.sharpness, mode === 'inverted');
+            var commonProps = {
+                pmBg: true, pmBgMode: mode,
+                pmBgBrightness: opts.brightness || 0, pmBgContrast: opts.contrast || 0,
+                pmBgSharpness: opts.sharpness || 0, pmBgTileScale: opts.tileScale || 30
+            };
+
+            if (mode === 'repeated') {
+                var tileScale = Math.max(10, Math.min(100, opts.tileScale || 30)) / 100;
+                var tileW = Math.max(20, Math.round(W * tileScale));
+                var tileH = Math.max(20, Math.round(tileW * (img.height / img.width)));
+                var cols  = Math.ceil(W / tileW) + 1;
+                var rows  = Math.ceil(H / tileH) + 1;
+                var el    = img.getElement();
+                var tiles = [];
+                for (var r = 0; r < rows; r++) {
+                    for (var c = 0; c < cols; c++) {
+                        var tile = new fabric.Image(el, {
+                            left: c * tileW, top: r * tileH,
+                            scaleX: tileW / img.width, scaleY: tileH / img.height,
+                            selectable: false, evented: false
+                        });
+                        tile.filters = filters.slice();
+                        tile.applyFilters();
+                        tiles.push(tile);
+                    }
+                }
+                var group = new fabric.Group(tiles, Object.assign({
+                    left: 0, top: 0, width: W, height: H,
+                    selectable: false, evented: false, opacity: opacity
+                }, commonProps));
+                _canvas.insertAt(group, 0);
+            } else {
+                img.set(Object.assign({
+                    left: 0, top: 0,
+                    scaleX: W / img.width, scaleY: H / img.height,
+                    selectable: false, evented: false,
+                    opacity: opacity,
+                    flipX: mode === 'flipped'
+                }, commonProps));
+                img.filters = filters;
+                img.applyFilters();
+                _canvas.insertAt(img, 0);
+            }
+
+            _canvas.renderAll();
+            pmRefreshBgPanel();
+            snapshotHistory();
+        }, { crossOrigin: 'anonymous' });
+    }
+
+    // Live in-place update of opacity / brightness / contrast / sharpness /
+    // tile-size without refetching the photo — falls back to a full rebuild
+    // (pmApplyBackground) only when the structural mode or tile size changes.
+    function pmUpdateBg(patch, commitHistory) {
+        var obj = pmFindBgObj();
+        if (!obj) return;
+        var cur  = pmReadBgSettings(obj);
+        var next = Object.assign({}, cur, patch);
+        var structuralChange = (next.mode !== cur.mode) ||
+            (next.mode === 'repeated' && next.tileScale !== cur.tileScale);
+
+        if (structuralChange) {
+            pmApplyBackground(pmBgSrcOf(obj), next);
+            return;
+        }
+
+        obj.set({
+            opacity: next.opacity / 100,
+            pmBgBrightness: next.brightness, pmBgContrast: next.contrast, pmBgSharpness: next.sharpness
+        });
+        var filters = pmBuildBgFilters(_fabric, next.brightness, next.contrast, next.sharpness, next.mode === 'inverted');
+        if (obj.type === 'group' && obj._objects) {
+            obj._objects.forEach(function (tile) {
+                tile.filters = filters.slice();
+                tile.applyFilters();
+            });
+        } else {
+            obj.filters = filters;
+            obj.applyFilters();
+        }
+        _canvas.renderAll();
+        if (commitHistory) snapshotHistory();
+    }
+
+    // ── Watermark (diagonal repeated text, locked, sits above the
+    //    background photo but below all other poster content) ────────
+    function pmApplyWatermark(text, color, opacityPct, fontSize) {
+        if (!_canvas || !_fabric) return;
+        var fabric = _fabric;
+        pmRemoveWmObj();
+        var W  = _canvas.getWidth(), H = _canvas.getHeight();
+        var fs = fontSize || 36;
+        var txt = text || 'SAMPLE';
+        var tileW = fs * (txt.length * 0.62 + 4);
+        var tileH = fs * 3.2;
+        var cols = Math.ceil((W * 1.6) / tileW) + 1;
+        var rows = Math.ceil((H * 1.6) / tileH) + 1;
+        var items = [];
+        for (var r = 0; r < rows; r++) {
+            for (var c = 0; c < cols; c++) {
+                items.push(new fabric.Text(txt, {
+                    left: c * tileW - (W * 0.3), top: r * tileH - (H * 0.3),
+                    fontSize: fs, fontFamily: 'Arial', fontWeight: 700,
+                    fill: color || '#94a3b8', selectable: false, evented: false
+                }));
+            }
+        }
+        var group = new fabric.Group(items, {
+            left: W / 2, top: H / 2, angle: -30,
+            originX: 'center', originY: 'center',
+            selectable: false, evented: false,
+            opacity: Math.max(5, Math.min(100, opacityPct != null ? opacityPct : 25)) / 100,
+            pmWm: true, pmWmText: txt, pmWmColor: color || '#94a3b8', pmWmFontSize: fs
+        });
+        // Sits just above the background photo (if any), below everything else.
+        var bg = pmFindBgObj();
+        _canvas.insertAt(group, bg ? 1 : 0);
+        _canvas.renderAll();
+        snapshotHistory();
+    }
+
+    // ── Sidebar panel refresh (reflects the current bg / watermark state
+    //    on the canvas — called after load/undo/page-switch/set/remove) ──
+    function pmRefreshBgPanel() {
+        var bg    = pmFindBgObj();
+        var s     = pmReadBgSettings(bg);
+        var hint  = g('pm-bgphoto-hint');
+        var ctrls = g('pm-bgphoto-controls');
+        if (hint)  hint.style.display  = bg ? 'none' : 'block';
+        if (ctrls) ctrls.style.display = bg ? 'flex' : 'none';
+        if (bg) {
+            var modeEl  = g('pm-bgphoto-mode');          if (modeEl)  modeEl.value  = s.mode;
+            var tileRow = g('pm-bgphoto-tile-row');      if (tileRow) tileRow.style.display = (s.mode === 'repeated') ? 'block' : 'none';
+            var tileEl  = g('pm-bgphoto-tilescale');     if (tileEl)  tileEl.value  = s.tileScale;
+            var tileVal = g('pm-bgphoto-tilescale-val'); if (tileVal) tileVal.textContent = s.tileScale + '%';
+            var opEl    = g('pm-bgphoto-opacity');       if (opEl)    opEl.value    = s.opacity;
+            var opVal   = g('pm-bgphoto-opacity-val');   if (opVal)   opVal.textContent = s.opacity + '%';
+            var brEl    = g('pm-bgphoto-brightness');    if (brEl)    brEl.value    = s.brightness;
+            var brVal   = g('pm-bgphoto-brightness-val');if (brVal)   brVal.textContent = s.brightness;
+            var coEl    = g('pm-bgphoto-contrast');      if (coEl)    coEl.value    = s.contrast;
+            var coVal   = g('pm-bgphoto-contrast-val');  if (coVal)   coVal.textContent = s.contrast;
+            var shEl    = g('pm-bgphoto-sharpness');     if (shEl)    shEl.value    = s.sharpness;
+            var shVal   = g('pm-bgphoto-sharpness-val'); if (shVal)   shVal.textContent = s.sharpness;
+        }
+
+        var wm      = pmFindWmObj();
+        var wmChk   = g('pm-wm-enable');
+        var wmCtrls = g('pm-wm-controls');
+        if (wmChk)   wmChk.checked = !!wm;
+        if (wmCtrls) wmCtrls.style.display = wm ? 'flex' : 'none';
+        if (wm) {
+            var wmText  = g('pm-wm-text');        if (wmText)  wmText.value  = wm.pmWmText  || 'SAMPLE';
+            var wmColor = g('pm-wm-color');       if (wmColor) wmColor.value = wm.pmWmColor || '#94a3b8';
+            var wmOpPct = Math.round((wm.opacity != null ? wm.opacity : 0.25) * 100);
+            var wmOpEl  = g('pm-wm-opacity');     if (wmOpEl)  wmOpEl.value  = wmOpPct;
+            var wmOpVal = g('pm-wm-opacity-val'); if (wmOpVal) wmOpVal.textContent = wmOpPct + '%';
+            var wmFsEl  = g('pm-wm-fontsize');    if (wmFsEl)  wmFsEl.value  = wm.pmWmFontSize || 36;
+            var wmFsVal = g('pm-wm-fontsize-val');if (wmFsVal) wmFsVal.textContent = (wm.pmWmFontSize || 36) + 'px';
+        }
     }
 
     // ── Grid / Snap ───────────────────────────────────────────────────
@@ -3205,6 +3689,7 @@
                     _history = []; _histPos = -1; snapshotHistory();
                     updatePageStrip();
                     drawGrid();
+                    pmRefreshBgPanel();
                 });
             } else {
                 _canvas.loadFromJSON(JSON.parse(activePg.json), function () {
@@ -3215,6 +3700,7 @@
                         updatePageStrip();
                         drawGrid();
                         setBgInput(activePg.bg || '#ffffff');
+                        pmRefreshBgPanel();
                     });
                 });
             }
@@ -3279,22 +3765,20 @@
     // ── Add photo to canvas ───────────────────────────────────────
     function olAddPhoto(url, asBackground) {
         if (!_canvas || !_fabric) return;
+        if (asBackground) {
+            // Reuses whatever opacity/brightness/contrast/sharpness/style the
+            // user already had tuned (or defaults, if no background yet).
+            pmApplyBackground(url);
+            return;
+        }
         var fab = _fabric;
         fab.Image.fromURL(url, function (img) {
             if (!img) { alert(t('Could not load image.','无法加载图片。','無法載入圖片。')); return; }
-            if (asBackground) {
-                var W = _canvas.getWidth(), H = _canvas.getHeight();
-                img.scaleX = W / img.width;
-                img.scaleY = H / img.height;
-                img.set({ left: 0, top: 0, selectable: false, evented: false });
-                _canvas.insertAt(img, 0);
-            } else {
-                var W2 = _canvas.getWidth();
-                img.scaleToWidth(Math.min(W2 * 0.55, img.width));
-                img.set({ left: W2 * 0.2, top: _canvas.getHeight() * 0.2 });
-                _canvas.add(img);
-                _canvas.setActiveObject(img);
-            }
+            var W2 = _canvas.getWidth();
+            img.scaleToWidth(Math.min(W2 * 0.55, img.width));
+            img.set({ left: W2 * 0.2, top: _canvas.getHeight() * 0.2 });
+            _canvas.add(img);
+            _canvas.setActiveObject(img);
             _canvas.renderAll();
             snapshotHistory();
         }, { crossOrigin: 'anonymous' });
@@ -3513,6 +3997,7 @@
         _canvas.loadFromJSON(json, function () {
             _canvas.renderAll();
             _pauseHistory = false;
+            pmRefreshBgPanel();
             snapshotHistory();
         });
     }
@@ -3651,7 +4136,7 @@
         if (tpl === 'blank') {
             _canvas.setBackgroundColor('#ffffff', function () { _canvas.renderAll(); });
             setBgInput('#ffffff');
-            _pauseHistory = false; snapshotHistory(); return;
+            _pauseHistory = false; pmRefreshBgPanel(); snapshotHistory(); return;
         }
 
         if (tpl === 'info') {
@@ -4855,6 +5340,7 @@
 
         _canvas.renderAll();
         _pauseHistory = false;
+        pmRefreshBgPanel();
         snapshotHistory();
     }
 

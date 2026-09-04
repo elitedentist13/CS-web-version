@@ -2832,11 +2832,43 @@
             return Promise.reject(new Error(t('Link a patient first.', '请先关联患者。', '請先關聯患者。')));
         }
         var docName = String(opts.documentName || '').trim() || pdeDefaultDocumentName();
-        return htmlToPdfBytes(opts.html, { sheetCss: opts.sheetCss }).then(function (bytes) {
+        var htmlPages = Array.isArray(opts.htmlPages)
+            ? opts.htmlPages.filter(function (h) { return h && String(h).trim(); })
+            : null;
+        var pdfBytesPromise = (htmlPages && htmlPages.length > 1)
+            ? mergeHtmlPagesToPdfBytes(htmlPages, { sheetCss: opts.sheetCss })
+            : htmlToPdfBytes(htmlPages && htmlPages.length ? htmlPages[0] : opts.html, { sheetCss: opts.sheetCss });
+        return pdfBytesPromise.then(function (bytes) {
             if (opts.download !== false) {
                 downloadPdfBytes(bytes, pdeBuildExportFilename(docName.replace(/\.pdf$/i, ''), '.pdf'));
             }
             return savePdfToPatientRecord(bytes, docName);
+        });
+    }
+
+    /** Render each HTML block to its own cleanly-paginated PDF (via htmlToPdfBytes),
+     *  then splice the resulting pages together into one PDF with pdf-lib — used so
+     *  distinct sections (e.g. a diagram page + a data-table page) each start cleanly
+     *  at the top of their own page, rather than being cut wherever a single tall
+     *  html2canvas snapshot happens to break. */
+    function mergeHtmlPagesToPdfBytes(htmlPages, opts) {
+        return ensurePdfLib().then(function (PDFLib) {
+            return htmlPages.reduce(function (chain, html) {
+                return chain.then(function (buffers) {
+                    return htmlToPdfBytes(html, opts).then(function (bytes) {
+                        buffers.push(bytes);
+                        return buffers;
+                    });
+                });
+            }, Promise.resolve([])).then(function (buffers) {
+                return PDFLib.PDFDocument.create().then(function (outDoc) {
+                    return buffers.reduce(function (chain, buf) {
+                        return chain.then(function () { return pdfLibAddBufferToDoc(PDFLib, outDoc, buf); });
+                    }, Promise.resolve()).then(function () {
+                        return outDoc.save();
+                    });
+                });
+            });
         });
     }
 

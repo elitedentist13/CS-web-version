@@ -3349,6 +3349,7 @@ function conPtlBuildFilterBar() {
         { key: 'doc', labelKey: 'con.ptl.filter.doc' },
         { key: 'xray', labelKey: 'con.ptl.filter.xray' },
         { key: 'photo', labelKey: 'con.ptl.filter.photo' },
+        { key: 'chart', labelKey: 'con.ptl.filter.chart' },
         { key: 'task', labelKey: 'con.ptl.filter.task' }
     ];
     var filterHtml = defs.map(function (d) {
@@ -3654,6 +3655,53 @@ function conPtlEventsFromXrays(rows) {
     });
 }
 
+/** Lightweight, translation-free summary of a dental_charts row's JSON payload
+ *  (used only for timeline event bodies; the full parser lives in app-charts.js). */
+function conPtlChartSummary(row) {
+    var denCount = 0, maxPd = 0, bopCount = 0;
+    try {
+        var den = row.dental_data ? JSON.parse(row.dental_data) : {};
+        Object.keys(den).forEach(function (k) {
+            if (k === '__notes__') return;
+            var v = den[k];
+            if (Array.isArray(v) && v.length) denCount++;
+        });
+    } catch (e) {}
+    try {
+        var per = row.perio_data ? JSON.parse(row.perio_data) : {};
+        Object.keys(per).forEach(function (k) {
+            if (k.indexOf('_pd_') >= 0) {
+                var v = parseFloat(per[k]);
+                if (isFinite(v) && v > maxPd) maxPd = v;
+            } else if (k.indexOf('_bop_') >= 0 && per[k]) {
+                bopCount++;
+            }
+        });
+    } catch (e) {}
+    var parts = [];
+    if (denCount) parts.push('🦷 ' + denCount);
+    if (maxPd)    parts.push('📏 ' + maxPd + 'mm');
+    if (bopCount) parts.push('🩸 ' + bopCount);
+    return parts.join(' · ');
+}
+
+function conPtlEventsFromCharts(rows) {
+    return (rows || []).map(function (c) {
+        var ms = conPtlTsFromAny(c.created_at, c.chart_date) ||
+            conPtlTsFromIsoDateTime(c.chart_date, '12:00');
+        return {
+            kind: 'chart',
+            ts: ms,
+            title: conTr('con.ptl.type.chart'),
+            body: conPtlChartSummary(c) || conTr('con.ptl.chartNoFindings'),
+            meta: c.chart_date || '',
+            action: 'chart',
+            refId: c.id,
+            chartDate: c.chart_date
+        };
+    });
+}
+
 function conPtlTaskLabel(kind, value) {
     if (kind === 'lab') {
         if (value === 'pending') return conTr('con.ptl.taskLabPending');
@@ -3785,6 +3833,9 @@ function loadConPatientTimeline(patientId) {
 
     var qBill = SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
         .eq('patient_id', pid).order('created_at', { ascending: false }).limit(120);
+    var qChart = SB.from('dental_charts').select(
+        'id,chart_date,dental_data,perio_data,created_at'
+    ).eq('patient_id', pid).order('chart_date', { ascending: false }).limit(60);
 
     Promise.all([
         conPtlSafeRows(qNotes),
@@ -3793,7 +3844,8 @@ function loadConPatientTimeline(patientId) {
         conPtlSafeRows(qBill),
         conPtlSafeRows(qDocs),
         conPtlSafeRows(qXray),
-        conPtlSafeRows(qPhoto)
+        conPtlSafeRows(qPhoto),
+        conPtlSafeRows(qChart)
     ]).then(function (parts) {
         var bills = parts[3];
         if (!bills.length && pno) {
@@ -3843,6 +3895,7 @@ function loadConPatientTimeline(patientId) {
             conPtlEventsFromDocs(parts[4]),
             conPtlEventsFromXrays(parts[5]),
             conPtlEventsFromPhotos(parts[6]),
+            conPtlEventsFromCharts(parts[7]),
             conPtlEventsFromPayments(payments, billMap),
             conPtlEventsFromTasks(tasks, apptMap)
         ]);
@@ -3904,7 +3957,9 @@ function renderConPatientTimeline() {
                         ? conTr('con.ptl.actionPhoto')
                         : (ev.action === 'xray'
                             ? conTr('con.ptl.actionXray')
-                            : (ev.action === 'doc' ? conTr('con.ptl.actionDoc') : conTr('con.ptl.actionOpen'))))));
+                            : (ev.action === 'doc'
+                                ? conTr('con.ptl.actionDoc')
+                                : (ev.action === 'chart' ? conTr('con.ptl.actionChart') : conTr('con.ptl.actionOpen')))))));
         html +=
             '<li class="' + evCls + '" data-ptl-idx="' + idx + '">' +
             '<div class="con-ptl-event-head">' +
@@ -3971,6 +4026,18 @@ function conPtlOpenEvent(ev) {
         setTimeout(function () {
             if (typeof refreshPhotos === 'function') refreshPhotos();
         }, 80);
+        return;
+    }
+    if (ev.action === 'chart') {
+        switchConTab('charting');
+        setTimeout(function () {
+            var dateEl = g('chartDateInput');
+            if (dateEl && ev.chartDate) dateEl.value = ev.chartDate;
+            if (ev.chartDate) {
+                if (typeof chartDate !== 'undefined') chartDate = ev.chartDate;
+                if (typeof loadChartRecord === 'function') loadChartRecord();
+            }
+        }, 350);
         return;
     }
     if (ev.action === 'bill') {

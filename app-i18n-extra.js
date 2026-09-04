@@ -425,11 +425,13 @@
         'patient.view.widget.photos': { en: 'Photos', 'zh-CN': '照片', 'zh-Hant': '相片' },
         'patient.view.widget.docs': { en: 'Documents & letters', 'zh-CN': '文件与信件', 'zh-Hant': '文件與信件' },
         'patient.view.widget.xrays': { en: 'X-rays', 'zh-CN': 'X光片', 'zh-Hant': 'X光片' },
+        'patient.view.widget.charts': { en: 'Dental / Perio Charts', 'zh-CN': '牙科 / 牙周图表', 'zh-Hant': '牙科 / 牙周圖表' },
         'patient.view.widget.timeline': { en: 'Patient Timeline', 'zh-CN': '患者时间轴', 'zh-Hant': '患者時間軸' },
         'patient.view.noXrays': { en: 'No X-rays uploaded', 'zh-CN': '暂无X光片', 'zh-Hant': '暫無X光片' },
         'patient.view.none': { en: 'None on record', 'zh-CN': '暂无记录', 'zh-Hant': '暫無記錄' },
         'patient.view.noPhotos': { en: 'No photos uploaded', 'zh-CN': '暂无照片', 'zh-Hant': '暫無相片' },
         'patient.view.noDocs': { en: 'No documents saved', 'zh-CN': '暂无文件', 'zh-Hant': '暫無文件' },
+        'patient.view.noCharts': { en: 'No charts recorded yet', 'zh-CN': '暂无图表记录', 'zh-Hant': '暫無圖表記錄' },
         'patient.btnEdit': { en: '✏️ Edit', 'zh-CN': '✏️ 编辑', 'zh-Hant': '✏️ 編輯' },
         'patient.btnClinicTag': { en: '🏷 Clinic', 'zh-CN': '🏷 诊所', 'zh-Hant': '🏷 診所' },
         'patient.checkInNeedRecord': {
@@ -2648,6 +2650,7 @@
         'con.ptl.filter.doc': { en: 'Documents', 'zh-CN': '文件', 'zh-Hant': '文件' },
         'con.ptl.filter.xray': { en: 'X-rays', 'zh-CN': 'X 光', 'zh-Hant': 'X 光' },
         'con.ptl.filter.photo': { en: 'Photos', 'zh-CN': '照片', 'zh-Hant': '相片' },
+        'con.ptl.filter.chart': { en: 'Charts', 'zh-CN': '图表', 'zh-Hant': '圖表' },
         'con.ptl.filter.task': { en: 'Lab / Recall', 'zh-CN': '技工 / 召回', 'zh-Hant': '技工 / 召回' },
         'con.ptl.type.note': { en: 'Treatment note', 'zh-CN': '治疗记录', 'zh-Hant': '治療記錄' },
         'con.ptl.type.rx': { en: 'Prescription', 'zh-CN': '处方', 'zh-Hant': '處方' },
@@ -2657,6 +2660,8 @@
         'con.ptl.type.doc': { en: 'Document', 'zh-CN': '表格/信件', 'zh-Hant': '表格/信件' },
         'con.ptl.type.xray': { en: 'X-ray', 'zh-CN': 'X 光片', 'zh-Hant': 'X 光片' },
         'con.ptl.type.photo': { en: 'Photo', 'zh-CN': '照片', 'zh-Hant': '相片' },
+        'con.ptl.type.chart': { en: 'Dental / Perio Chart', 'zh-CN': '牙科 / 牙周图表', 'zh-Hant': '牙科 / 牙周圖表' },
+        'con.ptl.chartNoFindings': { en: 'Chart recorded — no findings entered', 'zh-CN': '已记录图表 — 未输入任何检查结果', 'zh-Hant': '已記錄圖表 — 未輸入任何檢查結果' },
         'con.ptl.type.task': { en: 'Lab / Recall', 'zh-CN': '技工 / 召回', 'zh-Hant': '技工 / 召回' },
         'con.ptl.searchPh': { en: 'Search timeline: treatment, doctor, payment, X-ray…', 'zh-CN': '搜索时间线：治疗、医生、付款、X 光…', 'zh-Hant': '搜尋時間線：治療、醫生、付款、X 光…' },
         'con.ptl.refresh': { en: 'Refresh', 'zh-CN': '刷新', 'zh-Hant': '刷新' },
@@ -2686,6 +2691,7 @@
         'con.ptl.actionDoc': { en: 'Open Document', 'zh-CN': '打开文件', 'zh-Hant': '開啟文件' },
         'con.ptl.actionXray': { en: 'Open X-ray', 'zh-CN': '打开 X 光', 'zh-Hant': '開啟 X 光' },
         'con.ptl.actionPhoto': { en: 'Open Photos', 'zh-CN': '打开照片', 'zh-Hant': '開啟相片' },
+        'con.ptl.actionChart': { en: 'Open Chart', 'zh-CN': '打开图表', 'zh-Hant': '開啟圖表' },
         'con.ptl.jumpHint': { en: 'Open →', 'zh-CN': '打开 →', 'zh-Hant': '開啟 →' },
         'con.tab.medical': { en: '🏥 Medical History', 'zh-CN': '🏥 病史', 'zh-Hant': '🏥 病史' },
         'con.tab.dental': { en: '🦷 Dental History', 'zh-CN': '🦷 牙科病史', 'zh-Hant': '🦷 牙科病史' },
@@ -6283,6 +6289,38 @@
         'chart.date': { en: 'Date', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'chart.load': { en: 'Load', 'zh-CN': '加载', 'zh-Hant': '載入' },
         'chart.save': { en: '💾 Save', 'zh-CN': '💾 保存', 'zh-Hant': '💾 儲存' },
+        'chart.history.btn': { en: '📜 History', 'zh-CN': '📜 历史记录', 'zh-Hant': '📜 歷史記錄' },
+        'chart.history.btnTitle': {
+            en: 'View, load or delete previously saved charts for this patient',
+            'zh-CN': '查看、载入或删除此患者之前保存的图表',
+            'zh-Hant': '檢視、載入或刪除此病人之前儲存的圖表'
+        },
+        'chart.history.title': { en: 'Chart History', 'zh-CN': '图表历史记录', 'zh-Hant': '圖表歷史記錄' },
+        'chart.history.desc': {
+            en: 'All saved chart snapshots for this patient — load an earlier date or remove a duplicate.',
+            'zh-CN': '此患者所有已保存的图表快照 — 可载入较早日期或删除重复记录。',
+            'zh-Hant': '此病人所有已儲存的圖表快照 — 可載入較早日期或刪除重複記錄。'
+        },
+        'chart.history.loading': { en: 'Loading…', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
+        'chart.history.loadError': { en: 'Could not load history: {MSG}', 'zh-CN': '无法加载历史记录：{MSG}', 'zh-Hant': '無法載入歷史記錄：{MSG}' },
+        'chart.history.empty': { en: 'No saved charts yet for this patient.', 'zh-CN': '此患者尚无已保存的图表。', 'zh-Hant': '此病人尚無已儲存的圖表。' },
+        'chart.history.current': { en: '(currently loaded)', 'zh-CN': '（当前载入）', 'zh-Hant': '（目前載入）' },
+        'chart.history.byDoctor': { en: 'By Dr. {NAME}', 'zh-CN': '医生：{NAME}', 'zh-Hant': '醫生：{NAME}' },
+        'chart.history.noDoctor': { en: 'Doctor not recorded', 'zh-CN': '未记录医生', 'zh-Hant': '未記錄醫生' },
+        'chart.history.load': { en: 'Load', 'zh-CN': '载入', 'zh-Hant': '載入' },
+        'chart.history.rowClickHint': {
+            en: 'Click to load this chart',
+            'zh-CN': '点击载入此图表',
+            'zh-Hant': '點擊載入此圖表'
+        },
+        'chart.history.deleteTitle': { en: 'Delete this saved chart', 'zh-CN': '删除此已保存的图表', 'zh-Hant': '刪除此已儲存的圖表' },
+        'chart.history.confirmDelete': {
+            en: 'Delete the saved chart for {DATE}? This cannot be undone.',
+            'zh-CN': '删除 {DATE} 的已保存图表？此操作无法撤销。',
+            'zh-Hant': '刪除 {DATE} 的已儲存圖表？此操作無法復原。'
+        },
+        'chart.history.deleteError': { en: 'Could not delete: {MSG}', 'zh-CN': '无法删除：{MSG}', 'zh-Hant': '無法刪除：{MSG}' },
+        'chart.history.deleted': { en: '🗑 Chart for {DATE} deleted', 'zh-CN': '🗑 {DATE} 的图表已删除', 'zh-Hant': '🗑 {DATE} 的圖表已刪除' },
         'chart.upperArch': { en: '▲ Upper Arch', 'zh-CN': '▲ 上颌', 'zh-Hant': '▲ 上顎' },
         'chart.lowerArch': { en: '▼ Lower Arch', 'zh-CN': '▼ 下颌', 'zh-Hant': '▼ 下顎' },
         'chart.primarySubtitleHtml': {
@@ -6307,19 +6345,23 @@
             'zh-Hant': '<strong style="margin-right:4px;">圖例：</strong><span>PD = 探診深度 (mm)</span><span>|</span><span>GM = 齦緣 (mm)</span><span>|</span><span>BOP = 探診出血</span><span>|</span><span>MOB = 鬆動度</span><span>|</span><span style="color:#e74c3c;">紅格 = BOP 陽性</span><span>|</span><span style="color:#e67e22;">橙色 = 深袋 ≥4mm</span><span>|</span><span style="color:#27ae60;">綠色 = 淺袋 ≤2mm</span><span>|</span><span style="background:#e8f0ff;padding:1px 4px;border-radius:3px;">B = 頰側 / L = 舌側·腭側</span>'
         },
         'chart.perio.summaryHtml': {
-            en: '<strong style="color:var(--primary);align-self:center;">📊 Summary</strong><span>BOP sites: <strong id="summBOP">0</strong></span><span>Deep pockets (≥4mm): <strong id="summDeep">0</strong></span><span>Avg PD: <strong id="summAvgPD">—</strong> mm</span><span>Max PD: <strong id="summMaxPD">—</strong> mm</span>',
-            'zh-CN': '<strong style="color:var(--primary);align-self:center;">📊 摘要</strong><span>BOP 位点：<strong id="summBOP">0</strong></span><span>深袋 (≥4mm)：<strong id="summDeep">0</strong></span><span>平均 PD：<strong id="summAvgPD">—</strong> mm</span><span>最大 PD：<strong id="summMaxPD">—</strong> mm</span>',
-            'zh-Hant': '<strong style="color:var(--primary);align-self:center;">📊 摘要</strong><span>BOP 位點：<strong id="summBOP">0</strong></span><span>深袋 (≥4mm)：<strong id="summDeep">0</strong></span><span>平均 PD：<strong id="summAvgPD">—</strong> mm</span><span>最大 PD：<strong id="summMaxPD">—</strong> mm</span>'
+            en: '<strong style="color:var(--primary);align-self:center;">📊 Summary</strong><span>BOP sites: <strong id="summBOP">0</strong></span><span>Deep pockets (≥4mm): <strong id="summDeep">0</strong></span><span>Avg. Probing Depth: <strong id="summAvgPD">—</strong> mm</span><span>Max PD: <strong id="summMaxPD">—</strong> mm</span><span>Avg. Attachment Level: <strong id="summAvgCAL">—</strong> mm</span><span>BOP: <strong id="summBopPct">0</strong>%</span><span>PI: <strong id="summPiPct">0</strong>%</span>',
+            'zh-CN': '<strong style="color:var(--primary);align-self:center;">📊 摘要</strong><span>BOP 位点：<strong id="summBOP">0</strong></span><span>深袋 (≥4mm)：<strong id="summDeep">0</strong></span><span>平均探诊深度：<strong id="summAvgPD">—</strong> mm</span><span>最大 PD：<strong id="summMaxPD">—</strong> mm</span><span>平均附着水平：<strong id="summAvgCAL">—</strong> mm</span><span>BOP：<strong id="summBopPct">0</strong>%</span><span>PI：<strong id="summPiPct">0</strong>%</span>',
+            'zh-Hant': '<strong style="color:var(--primary);align-self:center;">📊 摘要</strong><span>BOP 位點：<strong id="summBOP">0</strong></span><span>深袋 (≥4mm)：<strong id="summDeep">0</strong></span><span>平均探診深度：<strong id="summAvgPD">—</strong> mm</span><span>最大 PD：<strong id="summMaxPD">—</strong> mm</span><span>平均附著水平：<strong id="summAvgCAL">—</strong> mm</span><span>BOP：<strong id="summBopPct">0</strong>%</span><span>PI：<strong id="summPiPct">0</strong>%</span>'
         },
         'chart.perio.mobility': { en: 'Mobility', 'zh-CN': '松动度', 'zh-Hant': '鬆動度' },
         'chart.perio.furcation': { en: 'Furcation', 'zh-CN': '根分叉', 'zh-Hant': '根分叉' },
-        'chart.perio.bopB': { en: 'BOP (B)', 'zh-CN': 'BOP (颊)', 'zh-Hant': 'BOP (頰)' },
-        'chart.perio.pdBuccal': { en: 'PD Buccal (mm)', 'zh-CN': 'PD 颊侧 (mm)', 'zh-Hant': 'PD 頰側 (mm)' },
-        'chart.perio.gmBuccal': { en: 'GM Buccal (mm)', 'zh-CN': 'GM 颊侧 (mm)', 'zh-Hant': 'GM 頰側 (mm)' },
-        'chart.perio.calBuccal': { en: 'CAL Buccal', 'zh-CN': 'CAL 颊侧', 'zh-Hant': 'CAL 頰側' },
-        'chart.perio.gmLingual': { en: 'GM Lingual (mm)', 'zh-CN': 'GM 舌侧 (mm)', 'zh-Hant': 'GM 舌側 (mm)' },
-        'chart.perio.pdLingual': { en: 'PD Lingual (mm)', 'zh-CN': 'PD 舌侧 (mm)', 'zh-Hant': 'PD 舌側 (mm)' },
-        'chart.perio.bopL': { en: 'BOP (L)', 'zh-CN': 'BOP (舌)', 'zh-Hant': 'BOP (舌)' },
+        'chart.perio.note': { en: 'Note', 'zh-CN': '备注', 'zh-Hant': '備註' },
+        'chart.confirm.yes': { en: 'Yes, Delete', 'zh-CN': '是，删除', 'zh-Hant': '是，刪除' },
+        'chart.confirm.no': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
+        'chart.perio.bopB': { en: 'BOP', 'zh-CN': 'BOP', 'zh-Hant': 'BOP' },
+        'chart.perio.pdBuccal': { en: 'PD (mm)', 'zh-CN': 'PD (mm)', 'zh-Hant': 'PD (mm)' },
+        'chart.perio.gmBuccal': { en: 'GM (mm)', 'zh-CN': 'GM (mm)', 'zh-Hant': 'GM (mm)' },
+        'chart.perio.calBuccal': { en: 'CAL', 'zh-CN': 'CAL', 'zh-Hant': 'CAL' },
+        'chart.perio.calLingual': { en: 'CAL', 'zh-CN': 'CAL', 'zh-Hant': 'CAL' },
+        'chart.perio.gmLingual': { en: 'GM (mm)', 'zh-CN': 'GM (mm)', 'zh-Hant': 'GM (mm)' },
+        'chart.perio.pdLingual': { en: 'PD (mm)', 'zh-CN': 'PD (mm)', 'zh-Hant': 'PD (mm)' },
+        'chart.perio.bopL': { en: 'BOP', 'zh-CN': 'BOP', 'zh-Hant': 'BOP' },
         'chart.perio.viewTable': { en: '📋 Enter Data', 'zh-CN': '📋 数据输入', 'zh-Hant': '📋 數據輸入' },
         'chart.perio.viewDiagram': { en: '📈 Chart View', 'zh-CN': '📈 图表视图', 'zh-Hant': '📈 圖表視圖' },
         'chart.perio.printBtn': { en: '🖨️ Print Chart', 'zh-CN': '🖨️ 打印图表', 'zh-Hant': '🖨️ 列印圖表' },
@@ -6332,12 +6374,74 @@
             'zh-Hant': '⚠️ 請允許此網站彈出視窗以列印牙周圖表。\n請查看瀏覽器網址列的彈出視窗攔截圖示。'
         },
         'chart.perio.diagramLegendHtml': {
-            en: '<span style="color:#dc2626;">━ Red line = Gingival Margin (GM)</span><span>|</span><span style="color:#2563eb;">━ Blue line = Attachment Level (GM + PD)</span><span>|</span><span style="background:#bfe3ff;padding:1px 6px;border-radius:3px;">Shaded = Pocket depth</span><span>|</span><span style="color:#374151;">┅ Dashed grey = Bone level (if recorded)</span><span>|</span><span style="color:#e11d48;">● = Bleeding on Probing (BOP)</span><span>|</span><span style="color:#7c3aed;">M: = Mobility</span><span>|</span><span style="color:#b45309;">F: = Furcation</span>',
-            'zh-CN': '<span style="color:#dc2626;">━ 红线 = 龈缘 (GM)</span><span>|</span><span style="color:#2563eb;">━ 蓝线 = 附着水平 (GM + PD)</span><span>|</span><span style="background:#bfe3ff;padding:1px 6px;border-radius:3px;">阴影 = 牙周袋深度</span><span>|</span><span style="color:#374151;">┅ 灰色虚线 = 骨水平（如有记录）</span><span>|</span><span style="color:#e11d48;">● = 探诊出血 (BOP)</span><span>|</span><span style="color:#7c3aed;">M: = 松动度</span><span>|</span><span style="color:#b45309;">F: = 根分叉</span>',
-            'zh-Hant': '<span style="color:#dc2626;">━ 紅線 = 齦緣 (GM)</span><span>|</span><span style="color:#2563eb;">━ 藍線 = 附著水平 (GM + PD)</span><span>|</span><span style="background:#bfe3ff;padding:1px 6px;border-radius:3px;">陰影 = 牙周袋深度</span><span>|</span><span style="color:#374151;">┅ 灰色虛線 = 骨水平（如有記錄）</span><span>|</span><span style="color:#e11d48;">● = 探診出血 (BOP)</span><span>|</span><span style="color:#7c3aed;">M: = 鬆動度</span><span>|</span><span style="color:#b45309;">F: = 根分叉</span>'
+            en: '<span style="color:#dc2626;">━ Red line = Gingival Margin (GM)</span><span>|</span><span style="color:#2563eb;">━ Blue line = Attachment Level (GM + PD)</span><span>|</span><span style="background:#94a3b8;opacity:.7;padding:1px 6px;border-radius:3px;color:#fff;">Shaded = Pocket depth</span><span>|</span><span style="color:#374151;">┅ Dashed grey = Bone level (if recorded)</span><span>|</span><span style="color:#e11d48;">● = Bleeding on Probing (BOP)</span><span>|</span><span style="color:#7c3aed;">Purple numeral = Mobility</span><span>|</span><span style="color:#b45309;">○ ◐ ● = Furcation Grade I / II / III</span>',
+            'zh-CN': '<span style="color:#dc2626;">━ 红线 = 龈缘 (GM)</span><span>|</span><span style="color:#2563eb;">━ 蓝线 = 附着水平 (GM + PD)</span><span>|</span><span style="background:#94a3b8;opacity:.7;padding:1px 6px;border-radius:3px;color:#fff;">阴影 = 牙周袋深度</span><span>|</span><span style="color:#374151;">┅ 灰色虚线 = 骨水平（如有记录）</span><span>|</span><span style="color:#e11d48;">● = 探诊出血 (BOP)</span><span>|</span><span style="color:#7c3aed;">紫色数字 = 松动度</span><span>|</span><span style="color:#b45309;">○ ◐ ● = 根分叉 I / II / III 级</span>',
+            'zh-Hant': '<span style="color:#dc2626;">━ 紅線 = 齦緣 (GM)</span><span>|</span><span style="color:#2563eb;">━ 藍線 = 附著水平 (GM + PD)</span><span>|</span><span style="background:#94a3b8;opacity:.7;padding:1px 6px;border-radius:3px;color:#fff;">陰影 = 牙周袋深度</span><span>|</span><span style="color:#374151;">┅ 灰色虛線 = 骨水平（如有記錄）</span><span>|</span><span style="color:#e11d48;">● = 探診出血 (BOP)</span><span>|</span><span style="color:#7c3aed;">紫色數字 = 鬆動度</span><span>|</span><span style="color:#b45309;">○ ◐ ● = 根分叉 I / II / III 級</span>'
         },
-        'chart.perio.blBuccal': { en: 'Bone Level Buccal (mm)', 'zh-CN': '骨水平 颊侧 (mm)', 'zh-Hant': '骨水平 頰側 (mm)' },
-        'chart.perio.blLingual': { en: 'Bone Level Lingual (mm)', 'zh-CN': '骨水平 舌侧 (mm)', 'zh-Hant': '骨水平 舌側 (mm)' },
+        'chart.perio.livePreviewTitle': {
+            en: '📈 Live Pocket Diagram Preview (updates as you type)',
+            'zh-CN': '📈 牙周袋图表实时预览（随输入即时更新）',
+            'zh-Hant': '📈 牙周袋圖表即時預覽（隨輸入即時更新）'
+        },
+        'chart.perio.implant': { en: 'Implant', 'zh-CN': '种植体', 'zh-Hant': '植體' },
+        'chart.perio.plaqueB': { en: 'Plaque', 'zh-CN': '菌斑', 'zh-Hant': '菌斑' },
+        'chart.perio.plaqueL': { en: 'Plaque', 'zh-CN': '菌斑', 'zh-Hant': '菌斑' },
+        'chart.perio.clickMissingTitle': {
+            en: 'Click to toggle this tooth as missing',
+            'zh-CN': '点击切换此牙齿为缺失状态',
+            'zh-Hant': '點擊切換此牙齒為缺失狀態'
+        },
+        'chart.perio.rowFillTitle': {
+            en: 'Click to fill entire row · Shift+Click to clear entire row',
+            'zh-CN': '点击填满整行 · Shift+点击清空整行',
+            'zh-Hant': '點擊填滿整行 · Shift+點擊清空整行'
+        },
+        'chart.perio.implantState0': { en: 'No implant — click to mark implant present', 'zh-CN': '无种植体 — 点击标记为已植入', 'zh-Hant': '無植體 — 點擊標記為已植入' },
+        'chart.perio.implantState1': { en: 'Implant present — click to mark peri-implantitis (red)', 'zh-CN': '种植体存在 — 点击标记种植体周围炎（红）', 'zh-Hant': '植體存在 — 點擊標記植體周圍炎（紅）' },
+        'chart.perio.implantState2': { en: 'Peri-implantitis — click to mark successfully treated (green)', 'zh-CN': '种植体周围炎 — 点击标记已成功治疗（绿）', 'zh-Hant': '植體周圍炎 — 點擊標記已成功治療（綠）' },
+        'chart.perio.implantState3': { en: 'Successfully treated — click to remove implant, return to natural tooth', 'zh-CN': '已成功治疗 — 点击移除种植体，恢复为天然牙', 'zh-Hant': '已成功治療 — 點擊移除植體，恢復為天然牙' },
+        'chart.perio.pdBopLabel': { en: 'PD/BOP', 'zh-CN': 'PD/BOP', 'zh-Hant': 'PD/BOP' },
+        'chart.perio.statusLabel': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
+        'chart.perio.pdBopTitle': {
+            en: 'Switch between the full chart and the reduced recall view (PD, BOP, Plaque only)',
+            'zh-CN': '在完整图表与简化复诊视图（仅 PD、BOP、菌斑）之间切换',
+            'zh-Hant': '在完整圖表與簡化複診視圖（僅 PD、BOP、菌斑）之間切換'
+        },
+        'chart.perio.settingsBtn': { en: '⚙️ Settings', 'zh-CN': '⚙️ 设置', 'zh-Hant': '⚙️ 設定' },
+        'chart.perio.settingsTitle': { en: 'Periodontal Chart Settings', 'zh-CN': '牙周图表设置', 'zh-Hant': '牙周圖表設定' },
+        'chart.perio.settingsClose': { en: 'Close', 'zh-CN': '关闭', 'zh-Hant': '關閉' },
+        'chart.perio.settingsSave': { en: 'Save', 'zh-CN': '保存', 'zh-Hant': '儲存' },
+        'chart.perio.settingsSaving': { en: 'Saving…', 'zh-CN': '保存中…', 'zh-Hant': '儲存中…' },
+        'chart.perio.settingsSaved': {
+            en: '✅ Settings saved (clinic-wide, synced via Supabase)',
+            'zh-CN': '✅ 设置已保存（全诊所共用，透过 Supabase 同步）',
+            'zh-Hant': '✅ 設定已儲存（全診所共用，透過 Supabase 同步）'
+        },
+        'chart.perio.settingsSaveError': {
+            en: '⚠️ Could not save settings to Supabase: {MSG}',
+            'zh-CN': '⚠️ 无法将设置保存到 Supabase：{MSG}',
+            'zh-Hant': '⚠️ 無法將設定儲存到 Supabase：{MSG}'
+        },
+        'chart.perio.setInvertGm': { en: 'Invert Gingival Margin sign', 'zh-CN': '反转龈缘数值正负号', 'zh-Hant': '反轉齦緣數值正負號' },
+        'chart.perio.gmSignNote': {
+            en: 'GM (mm): type a MINUS sign for recession (margin apical to the CEJ, root exposed) — e.g. -2. Type a plain positive number for gum overgrowth (margin coronal to the CEJ) — e.g. 2. 0 = right at the CEJ.',
+            'zh-CN': '龈缘 GM (mm)：牙龈退缩（根面暴露，龈缘位于牙骨质釉质界根方）请输入负号，例如 -2；牙龈增生（龈缘位于牙骨质釉质界冠方）请输入正数，例如 2；0 = 恰好位于牙骨质釉质界。',
+            'zh-Hant': '齦緣 GM (mm)：牙齦退縮（根面暴露，齦緣位於牙骨質釉質界根方）請輸入負號，例如 -2；牙齦增生（齦緣位於牙骨質釉質界冠方）請輸入正數，例如 2；0 = 恰好位於牙骨質釉質界。'
+        },
+        'chart.perio.setMirrorViews': {
+            en: 'Mirror Views (maxilla roots up, mandible roots down)',
+            'zh-CN': '镜像视图（上颌牙根向上，下颌牙根向下）',
+            'zh-Hant': '鏡像視圖（上顎牙根向上，下顎牙根向下）'
+        },
+        'chart.perio.setNumbering': { en: 'Tooth Numbering System', 'zh-CN': '牙位编号系统', 'zh-Hant': '牙位編號系統' },
+        'chart.perio.numberingFdi': { en: 'FDI (11–48)', 'zh-CN': 'FDI（11–48）', 'zh-Hant': 'FDI（11–48）' },
+        'chart.perio.numberingUniversal': { en: 'Universal (1–32)', 'zh-CN': '通用编号（1–32）', 'zh-Hant': '通用編號（1–32）' },
+        'chart.perio.setProbingSequence': { en: 'Probing Sequence', 'zh-CN': '探诊顺序', 'zh-Hant': '探診順序' },
+        'chart.perio.seqBern': { en: 'Standard of the Clinic for Periodontology, University of Bern', 'zh-CN': '伯尔尼大学牙周病诊所标准', 'zh-Hant': '伯恩大學牙周病診所標準' },
+        'chart.perio.seqRightToLeft': { en: 'Upper and lower jaw from right to left', 'zh-CN': '上下颌从右到左', 'zh-Hant': '上下顎從右到左' },
+        'chart.perio.seqPaperTable': { en: 'Ideal for data entry from a paper table', 'zh-CN': '适合从纸质表格录入数据', 'zh-Hant': '適合從紙本表格輸入資料' },
+        'chart.perio.blBuccal': { en: 'Bone Level (mm)', 'zh-CN': '骨水平 (mm)', 'zh-Hant': '骨水平 (mm)' },
+        'chart.perio.blLingual': { en: 'Bone Level (mm)', 'zh-CN': '骨水平 (mm)', 'zh-Hant': '骨水平 (mm)' },
         'chart.perio.archiveBtn': { en: '📁 Save to Record', 'zh-CN': '📁 存入病历', 'zh-Hant': '📁 存入病歷' },
         'chart.perio.archiving': { en: '📁 Saving…', 'zh-CN': '📁 保存中…', 'zh-Hant': '📁 儲存中…' },
         'chart.perio.archiveSaved': { en: '✅ Periodontal chart saved to patient record', 'zh-CN': '✅ 牙周图表已存入患者病历', 'zh-Hant': '✅ 牙周圖表已存入患者病歷' },

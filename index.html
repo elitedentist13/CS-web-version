@@ -6979,6 +6979,37 @@
   </div>
 </div>
 
+<!-- Periodontal Chart Settings (sign convention, numbering, mirror, probing sequence) -->
+<div id="perioSettingsModal" class="modal" style="z-index:4570;">
+  <div class="modal-box" style="max-width:480px;">
+    <button class="mclose" onclick="closeModal('perioSettingsModal')"
+            data-i18n-aria-label="common.closeAria">×</button>
+    <h3 style="margin:0 0 14px;" data-i18n="chart.perio.settingsTitle">Periodontal Chart Settings</h3>
+    <div id="perioSettingsBody" style="display:flex;flex-direction:column;gap:14px;font-size:13px;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;">
+      <button type="button" id="perioSettingsSaveBtn"
+              style="padding:9px 18px;background:var(--primary);color:#fff;border:none;
+                     border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;"
+              data-i18n="chart.perio.settingsSave">Save</button>
+      <button type="button" onclick="closeModal('perioSettingsModal')"
+              style="padding:9px 18px;background:var(--gray);color:#333;border:none;
+                     border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;"
+              data-i18n="chart.perio.settingsClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Chart History — per-patient mini save/load/delete list (Date · Dr · Remarks) -->
+<div id="chartHistoryModal" class="modal" style="z-index:4570;">
+  <div class="modal-box" style="max-width:520px;">
+    <button class="mclose" onclick="closeModal('chartHistoryModal')"
+            data-i18n-aria-label="common.closeAria">×</button>
+    <h3 style="margin:0 0 4px;" data-i18n="chart.history.title">Chart History</h3>
+    <p style="font-size:12px;color:#64748b;margin:0 0 12px;" data-i18n="chart.history.desc"></p>
+    <div id="chartHistoryBody" style="max-height:60vh;overflow-y:auto;"></div>
+  </div>
+</div>
+
 <!-- ════════════════════════════════════════════════════════════
      MODAL — DRUG LIST MANAGER
 ════════════════════════════════════════════════════════════ -->

@@ -322,7 +322,11 @@ function patViewLoadDashboard() {
         patViewSafeRows(SB.from('xrays').select(
             'id,xray_type,taken_date,notes,file_name,file_url,created_at'
         ).eq('patient_id', pid).order('taken_date', { ascending: false })
-            .order('created_at', { ascending: false }).limit(24))
+            .order('created_at', { ascending: false }).limit(24)),
+        patViewSafeRows(SB.from('dental_charts').select(
+            'id,chart_date,dental_data,perio_data,dental_notes,perio_notes,updated_at,created_at'
+        ).eq('patient_id', pid).order('chart_date', { ascending: false })
+            .order('created_at', { ascending: false }).limit(30))
     ]).then(function (parts) {
         if (loadSeq !== patientDashLoadSeq) return;
         var p = parts[0];
@@ -354,7 +358,8 @@ function patViewLoadDashboard() {
             photos: parts[4],
             docs: parts[5],
             rx: parts[6],
-            xrays: parts[7] || []
+            xrays: parts[7] || [],
+            charts: parts[8] || []
         };
         patViewRenderDashboard(host, patientDashData);
         patDashLoadTimeline(pid);
@@ -434,6 +439,8 @@ function patViewRenderDashboard(host, data) {
             patViewDocsListHtml(data.docs), 'pat-dash-widget--wide') +
         patViewDashWidget(patViewTr('patient.view.widget.xrays'),
             patViewXraysGridHtml(data.xrays), 'pat-dash-widget--wide') +
+        patViewDashWidget(patViewTr('patient.view.widget.charts'),
+            patViewChartsListHtml(data.charts), 'pat-dash-widget--wide') +
         '</div>' +
         '<section class="pat-dash-widget pat-dash-widget--full">' +
         '<h3 class="pat-dash-widget-title">' + esc(patViewTr('patient.view.widget.timeline')) + '</h3>' +
@@ -548,6 +555,57 @@ function patViewXraysGridHtml(rows) {
             (notes ? '<em>' + esc(notes) + '</em>' : '') +
             '</figcaption></figure>';
     }).join('') + '</div>';
+}
+
+/** Lightweight, translation-free summary of a dental_charts row's JSON payload
+ *  (used only for the patient-dashboard list; the full parser lives in app-charts.js). */
+function patViewChartSummaryFromRow(row) {
+    var denCount = 0, maxPd = 0, bopCount = 0;
+    try {
+        var den = row.dental_data ? JSON.parse(row.dental_data) : {};
+        Object.keys(den).forEach(function (k) {
+            if (k === '__notes__') return;
+            var v = den[k];
+            if (Array.isArray(v) && v.length) denCount++;
+        });
+    } catch (e) {}
+    try {
+        var per = row.perio_data ? JSON.parse(row.perio_data) : {};
+        Object.keys(per).forEach(function (k) {
+            if (k.indexOf('_pd_') >= 0) {
+                var v = parseFloat(per[k]);
+                if (isFinite(v) && v > maxPd) maxPd = v;
+            } else if (k.indexOf('_bop_') >= 0 && per[k]) {
+                bopCount++;
+            }
+        });
+    } catch (e) {}
+    var parts = [];
+    if (denCount) parts.push('🦷 ' + denCount);
+    if (maxPd)    parts.push('📏 ' + maxPd + 'mm');
+    if (bopCount) parts.push('🩸 ' + bopCount);
+    return parts.join(' · ');
+}
+
+function patViewChartsListHtml(rows) {
+    if (!rows || !rows.length) {
+        return '<p class="pat-view-muted">' + esc(patViewTr('patient.view.noCharts')) + '</p>';
+    }
+    return '<ul class="pat-dash-list">' + rows.map(function (c) {
+        var summary = patViewChartSummaryFromRow(c);
+        var noteBits = [];
+        if (c.dental_notes) noteBits.push(patViewTruncate(c.dental_notes, 60));
+        if (c.perio_notes)  noteBits.push(patViewTruncate(c.perio_notes, 60));
+        var sub = [summary, noteBits.join(' · ')].filter(Boolean).join(' · ');
+        return '<li class="pat-dash-list-item" data-act="chart" ' +
+            'data-chart-date="' + esc(c.chart_date || '') + '" style="cursor:pointer;">' +
+            '<span class="pat-dash-list-date">' + esc(patViewFmtDate(c.chart_date)) + '</span>' +
+            (sub
+                ? '<span class="pat-dash-list-sub">' + esc(sub) + '</span>'
+                : '<span class="pat-dash-list-sub pat-view-muted">' +
+                  esc(patViewTr('patient.view.none')) + '</span>') +
+            '</li>';
+    }).join('') + '</ul>';
 }
 
 function patViewTruncate(s, max) {
@@ -670,7 +728,28 @@ function patViewWireHostActions(host) {
         if (act === 'bills') {
             patViewOpenBills(patientViewFullRecord);
         }
+        if (act === 'chart') {
+            patDashOpenChartRecord(id, btn.getAttribute('data-chart-date') || '');
+        }
     });
+}
+
+/** Jump from the patient-dashboard "Charts" list into Consultation → Charting,
+ *  loading the specific historical dental_charts row for that date. */
+function patDashOpenChartRecord(pid, dateStr) {
+    if (!pid || typeof openConForPatient !== 'function') return;
+    openConForPatient(pid);
+    setTimeout(function () {
+        if (typeof switchConTab === 'function') switchConTab('charting');
+        setTimeout(function () {
+            var dateEl = g('chartDateInput');
+            if (dateEl && dateStr) dateEl.value = dateStr;
+            if (dateStr) {
+                if (typeof chartDate !== 'undefined') chartDate = dateStr;
+                if (typeof loadChartRecord === 'function') loadChartRecord();
+            }
+        }, 350);
+    }, 150);
 }
 
 function patientViewOnActiveChange(p) {
@@ -708,7 +787,10 @@ function patDashLoadTimeline(pid) {
             .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80)),
         safeRows(SB.from('photos').select('id,file_path,public_url,category,caption,taken_date,created_at')
             .eq('patient_id', pid).order('taken_date', { ascending: false })
-            .order('created_at', { ascending: false }).limit(80))
+            .order('created_at', { ascending: false }).limit(80)),
+        safeRows(SB.from('dental_charts').select(
+            'id,chart_date,dental_data,perio_data,created_at'
+        ).eq('patient_id', pid).order('chart_date', { ascending: false }).limit(60))
     ]).then(function (parts) {
         var bills = parts[3];
         if (!bills.length && pno) {
@@ -752,6 +834,7 @@ function patDashLoadTimeline(pid) {
                 typeof conPtlEventsFromDocs     === 'function' ? conPtlEventsFromDocs(parts[4])               : [],
                 typeof conPtlEventsFromXrays    === 'function' ? conPtlEventsFromXrays(parts[5])              : [],
                 typeof conPtlEventsFromPhotos   === 'function' ? conPtlEventsFromPhotos(parts[6])             : [],
+                typeof conPtlEventsFromCharts   === 'function' ? conPtlEventsFromCharts(parts[7])             : [],
                 typeof conPtlEventsFromPayments === 'function' ? conPtlEventsFromPayments(payments, billMap)  : [],
                 typeof conPtlEventsFromTasks    === 'function' ? conPtlEventsFromTasks(tasks, apptMap)        : []
             ]);
@@ -785,6 +868,7 @@ function patDashRenderTimeline(host, events) {
         if (ev.action === 'photo')  return conTr('con.ptl.actionPhoto');
         if (ev.action === 'xray')   return conTr('con.ptl.actionXray');
         if (ev.action === 'doc')    return conTr('con.ptl.actionDoc');
+        if (ev.action === 'chart')  return conTr('con.ptl.actionChart');
         return conTr('con.ptl.actionOpen');
     }
 
@@ -921,6 +1005,11 @@ function patDashPtlOpenEvent(ev) {
                 if (typeof refreshPhotos === 'function') refreshPhotos();
             }, 80);
         }, 150);
+        return;
+    }
+
+    if (ev.action === 'chart') {
+        patDashOpenChartRecord(pid, ev.chartDate || '');
         return;
     }
 

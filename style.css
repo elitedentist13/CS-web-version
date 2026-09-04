@@ -15336,6 +15336,9 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 }
 .pat-dash-list-item:last-child { border-bottom: none; }
 .pat-dash-list-item--future { background: #f0fdf9; margin: 0 -14px; padding: 8px 14px; }
+.pat-dash-list-item[data-act]:hover { background: #f8fafc; margin: 0 -14px; padding: 8px 14px; border-radius: 6px; }
+.chart-hist-item { cursor: pointer; transition: background .12s, border-color .12s; }
+.chart-hist-item:hover { background: #f0f4ff !important; border-color: var(--primary) !important; }
 .pat-dash-list-date { font-weight: 700; color: #1e293b; }
 .pat-dash-list-badge {
     font-size: 10px;

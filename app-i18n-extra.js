@@ -614,6 +614,33 @@
             'zh-CN': '列表上限 50,000 笔 — 请缩小日期范围',
             'zh-Hant': '列表上限 50,000 筆 — 請縮小日期範圍'
         },
+        'report.audit.loading': {
+            en: 'Loading audit trail…',
+            'zh-CN': '正在加载审计记录…',
+            'zh-Hant': '正在載入審計記錄…'
+        },
+        'report.audit.loadingPages': {
+            en: 'Loading audit trail… {LOADED} rows (batch {PAGE})',
+            'zh-CN': '正在加载审计记录… 已加载 {LOADED} 笔（第 {PAGE} 批）',
+            'zh-Hant': '正在載入審計記錄… 已載入 {LOADED} 筆（第 {PAGE} 批）'
+        },
+        'report.audit.page.summary': {
+            en: 'Showing {FROM}–{TO} of {TOTAL} (newest first)',
+            'zh-CN': '显示第 {FROM}–{TO} 条，共 {TOTAL} 条（最新在前）',
+            'zh-Hant': '顯示第 {FROM}–{TO} 筆，共 {TOTAL} 筆（最新在前）'
+        },
+        'report.audit.page.counter': { en: 'Page {PAGE}/{PAGES}', 'zh-CN': '第 {PAGE}/{PAGES} 页', 'zh-Hant': '第 {PAGE}/{PAGES} 頁' },
+        'report.audit.page.prev': { en: '◀ Prev', 'zh-CN': '◀ 上一页', 'zh-Hant': '◀ 上一頁' },
+        'report.audit.page.next': { en: 'Next ▶', 'zh-CN': '下一页 ▶', 'zh-Hant': '下一頁 ▶' },
+        'report.audit.page.sizeLabel': { en: 'Per page:', 'zh-CN': '每页：', 'zh-Hant': '每頁：' },
+        'report.audit.page.jumpLabel': { en: 'Jump:', 'zh-CN': '跳转：', 'zh-Hant': '跳至：' },
+        'report.audit.page.go': { en: 'Go', 'zh-CN': '前往', 'zh-Hant': '前往' },
+        'report.audit.page.jumpNeedNumber': { en: 'Enter a page number.', 'zh-CN': '请输入页码。', 'zh-Hant': '請輸入頁碼。' },
+        'report.audit.page.jumpRange': {
+            en: 'Use a number from 1 to {MAX}.',
+            'zh-CN': '请输入 1 到 {MAX} 的页码。',
+            'zh-Hant': '請輸入 1 到 {MAX} 的頁碼。'
+        },
         'report.audit.detailPlaceholder': {
             en: 'Select a row to view change detail ([FIELD]=value).',
             'zh-CN': '选择一行以查看变更明细（[字段]=值）。',

@@ -46,6 +46,9 @@ var REPORT = (function () {
   var _auditTrailDataLoaded = false;
   var _auditRowsTruncated = false;
   var _auditSubTab = 'voidBills'; // 'log' | 'voidBills'
+  var AUDIT_PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+  var _auditPageIndex = 0;
+  var _auditPageSize = 50;
   var _voidBillRows = [];
   var _voidBillSelectedId = null;
   var _voidBillSearchPatient = '';
@@ -323,7 +326,7 @@ var REPORT = (function () {
   }
 
   /** Supabase/PostgREST returns at most ~1000 rows per request — page until exhausted. */
-  async function fetchAllAuditTrailRows(from, to, clinic) {
+  async function fetchAllAuditTrailRows(from, to, clinic, onProgress) {
     var PAGE = 1000;
     var MAX = 50000;
     var out = [];
@@ -341,6 +344,9 @@ var REPORT = (function () {
       if (res.error) return { error: res.error, data: out, truncated: false };
       var rows = res.data || [];
       out = out.concat(rows);
+      if (typeof onProgress === 'function') {
+        onProgress(out.length, Math.floor(offset / PAGE) + 1);
+      }
       if (rows.length < PAGE) break;
       offset += PAGE;
     }
@@ -6440,6 +6446,7 @@ var REPORT = (function () {
     if (itemSel) {
       itemSel.onchange = function() {
         _auditFilterItem = itemSel.value || '';
+        _auditPageIndex = 0;
         renderAuditTrailList();
         updateAuditFilterSummary();
       };
@@ -6447,6 +6454,7 @@ var REPORT = (function () {
     if (userSel) {
       userSel.onchange = function() {
         _auditFilterUser = userSel.value || '';
+        _auditPageIndex = 0;
         renderAuditTrailList();
         updateAuditFilterSummary();
       };
@@ -6456,6 +6464,7 @@ var REPORT = (function () {
       patInp.value = _auditFilterPatient || '';
       patInp.oninput = function() {
         _auditFilterPatient = patInp.value || '';
+        _auditPageIndex = 0;
         renderAuditTrailList();
         updateAuditFilterSummary();
       };
@@ -6630,6 +6639,124 @@ var REPORT = (function () {
     renderAuditDetail(row);
   }
 
+  function auditPageCount(total) {
+    var n = Number(total || 0);
+    if (n <= 0) return 1;
+    return Math.max(1, Math.ceil(n / _auditPageSize));
+  }
+
+  function auditClampPageIndex(total) {
+    var pageCount = auditPageCount(total);
+    if (_auditPageIndex >= pageCount) _auditPageIndex = pageCount - 1;
+    if (_auditPageIndex < 0) _auditPageIndex = 0;
+  }
+
+  function auditChangePage(delta) {
+    var total = filteredAuditRows().length;
+    if (!total) return;
+    var pageCount = auditPageCount(total);
+    var step = parseInt(delta, 10) || 0;
+    if (!step) return;
+    var target = _auditPageIndex + step;
+    if (target < 0) target = 0;
+    if (target >= pageCount) target = pageCount - 1;
+    if (target === _auditPageIndex) return;
+    _auditPageIndex = target;
+    renderAuditTrailList();
+  }
+
+  function auditJumpToPage(rawValue) {
+    var hint = g('rptAuditJumpHint');
+    var total = filteredAuditRows().length;
+    if (!total) return;
+    var pageCount = auditPageCount(total);
+    var raw = String(rawValue || '').trim();
+    if (!raw) {
+      if (hint) hint.textContent = tr('report.audit.page.jumpNeedNumber');
+      return;
+    }
+    var n = parseInt(raw, 10);
+    if (isNaN(n)) {
+      if (hint) hint.textContent = tr('report.audit.page.jumpNeedNumber');
+      return;
+    }
+    if (n < 1 || n > pageCount) {
+      if (hint) hint.textContent = trRepl('report.audit.page.jumpRange', { MAX: String(pageCount) });
+      return;
+    }
+    if (hint) hint.textContent = '';
+    _auditPageIndex = n - 1;
+    renderAuditTrailList();
+  }
+
+  function auditApplyPageSize() {
+    var sel = g('rptAuditPageSize');
+    if (!sel) return;
+    var n = parseInt(sel.value, 10);
+    if (AUDIT_PAGE_SIZE_OPTIONS.indexOf(n) < 0) {
+      sel.value = String(_auditPageSize);
+      return;
+    }
+    if (n === _auditPageSize) return;
+    _auditPageSize = n;
+    _auditPageIndex = 0;
+    var hint = g('rptAuditJumpHint');
+    if (hint) hint.textContent = '';
+    renderAuditTrailList();
+  }
+
+  function auditPagerHtml(total, pageRows) {
+    var pageCount = auditPageCount(total);
+    var curPage = Math.min(_auditPageIndex + 1, pageCount);
+    var from = total ? (_auditPageIndex * _auditPageSize + 1) : 0;
+    var to = total ? (_auditPageIndex * _auditPageSize + (pageRows ? pageRows.length : 0)) : 0;
+    var infoText = total
+      ? trRepl('report.audit.page.summary', { FROM: String(from), TO: String(to), TOTAL: String(total) })
+      : tr('report.noData');
+    var pageLabel = trRepl('report.audit.page.counter', { PAGE: String(curPage), PAGES: String(pageCount) });
+    var sizeOpts = '';
+    AUDIT_PAGE_SIZE_OPTIONS.forEach(function(n) {
+      sizeOpts += '<option value="' + n + '"' + (n === _auditPageSize ? ' selected' : '') + '>' + n + '</option>';
+    });
+    return '<div class="patient-dir-pager rpt-audit-pager">' +
+      '<div id="rptAuditPagerInfo" class="patient-dir-pager-info">' + esc(infoText) + '</div>' +
+      '<div class="patient-dir-pager-actions">' +
+        '<label for="rptAuditPageSize" class="patient-dir-page-size-label">' + esc(tr('report.audit.page.sizeLabel')) + '</label>' +
+        '<select id="rptAuditPageSize" class="patient-dir-page-size-select">' + sizeOpts + '</select>' +
+        '<button type="button" id="rptAuditPrevBtn" class="patient-dir-page-btn" title="' + esc(tr('report.audit.page.prev')) + '"' +
+          (_auditPageIndex <= 0 ? ' disabled' : '') + '>' + esc(tr('report.audit.page.prev')) + '</button>' +
+        '<div id="rptAuditPageLabel" class="patient-dir-page-label">' + esc(pageLabel) + '</div>' +
+        '<button type="button" id="rptAuditNextBtn" class="patient-dir-page-btn" title="' + esc(tr('report.audit.page.next')) + '"' +
+          ((_auditPageIndex + 1) >= pageCount ? ' disabled' : '') + '>' + esc(tr('report.audit.page.next')) + '</button>' +
+        '<label for="rptAuditJumpInput" class="patient-dir-jump-label">' + esc(tr('report.audit.page.jumpLabel')) + '</label>' +
+        '<input type="number" id="rptAuditJumpInput" class="patient-dir-jump-input" min="1" max="' + pageCount + '" step="1" inputmode="numeric" placeholder="' + curPage + '">' +
+        '<button type="button" id="rptAuditJumpBtn" class="patient-dir-page-btn">' + esc(tr('report.audit.page.go')) + '</button>' +
+        '<span id="rptAuditJumpHint" class="patient-dir-jump-hint" aria-live="polite"></span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function wireAuditPager() {
+    var prev = g('rptAuditPrevBtn');
+    var next = g('rptAuditNextBtn');
+    var jumpBtn = g('rptAuditJumpBtn');
+    var jumpInp = g('rptAuditJumpInput');
+    var pageSizeSel = g('rptAuditPageSize');
+    if (prev) prev.onclick = function() { auditChangePage(-1); };
+    if (next) next.onclick = function() { auditChangePage(1); };
+    if (jumpBtn) {
+      jumpBtn.onclick = function() {
+        auditJumpToPage(jumpInp ? jumpInp.value : '');
+      };
+    }
+    if (jumpInp) {
+      jumpInp.onkeydown = function(e) {
+        if (e.key === 'Enter') auditJumpToPage(jumpInp.value);
+      };
+    }
+    if (pageSizeSel) pageSizeSel.onchange = auditApplyPageSize;
+  }
+
   function renderAuditTrailList() {
     var list = g('rptAuditList');
     if (!list) return;
@@ -6659,6 +6786,9 @@ var REPORT = (function () {
       renderAuditDetail(null);
       return;
     }
+    auditClampPageIndex(rows.length);
+    var start = _auditPageIndex * _auditPageSize;
+    var pageRows = rows.slice(start, start + _auditPageSize);
     var th = 'padding:8px 10px;background:#f0f7ff;color:#0d6efd;font-size:11px;font-weight:900;border-bottom:2px solid #dde8f5;text-align:left;white-space:nowrap;';
     var td = 'padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;vertical-align:top;';
     var html = '<div style="overflow:auto;max-height:480px;"><table style="width:100%;border-collapse:collapse;min-width:720px;"><thead><tr>' +
@@ -6669,7 +6799,7 @@ var REPORT = (function () {
       '<th style="' + th + '">' + esc(tr('report.audit.col.user')) + '</th>' +
       '<th style="' + th + '">' + esc(tr('report.audit.col.item')) + '</th>' +
       '</tr></thead><tbody>';
-    rows.forEach(function(r) {
+    pageRows.forEach(function(r) {
       var sel = (String(_auditSelectedId) === String(r.id));
       var bg = sel ? '#dbeafe' : '#fff';
       html += '<tr data-audit-id="' + esc(String(r.id)) + '" style="cursor:pointer;background:' + bg + ';" onclick="REPORT.selectAuditRow(this.getAttribute(\'data-audit-id\'))">' +
@@ -6682,18 +6812,29 @@ var REPORT = (function () {
         '</tr>';
     });
     html += '</tbody></table></div>';
+    html += auditPagerHtml(rows.length, pageRows);
     list.innerHTML = html;
-    if (!_auditSelectedId && rows.length) {
-      selectAuditRow(rows[0].id);
+    wireAuditPager();
+    if (!_auditSelectedId && pageRows.length) {
+      selectAuditRow(pageRows[0].id);
     } else {
       var active = null;
-      rows.some(function(r) {
+      pageRows.some(function(r) {
         if (String(r.id) === String(_auditSelectedId)) {
           active = r;
           return true;
         }
         return false;
       });
+      if (!active) {
+        rows.some(function(r) {
+          if (String(r.id) === String(_auditSelectedId)) {
+            active = r;
+            return true;
+          }
+          return false;
+        });
+      }
       renderAuditDetail(active);
     }
     updateAuditFilterSummary();
@@ -6704,15 +6845,22 @@ var REPORT = (function () {
     _auditTrailDataLoaded = false;
     _auditRowsTruncated = false;
     _auditPatientHaystackCache = {};
+    _auditPageIndex = 0;
     _auditAllRows = [];
     var list = g('rptAuditList');
     if (list && _auditSubTab === 'log') {
-      list.innerHTML = '<div style="padding:12px;color:#888;">' + esc(tr('report.loading')) + '</div>';
+      list.innerHTML = '<div style="padding:12px;color:#888;line-height:1.5;">' + esc(tr('report.audit.loading')) + '</div>';
     }
     var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
     var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : todayISO();
     var clinic = reportClinicTag();
-    var res = await fetchAllAuditTrailRows(from, to, clinic);
+    var res = await fetchAllAuditTrailRows(from, to, clinic, function(loaded, pageNum) {
+      if (list && _auditSubTab === 'log') {
+        list.innerHTML = '<div style="padding:12px;color:#888;line-height:1.5;">' +
+          esc(trRepl('report.audit.loadingPages', { LOADED: String(loaded), PAGE: String(pageNum) })) +
+          '</div>';
+      }
+    });
     if (res.error) {
       var msg = (res.error.message || '').toLowerCase();
       if (msg.indexOf('does not exist') >= 0 || msg.indexOf('not found') >= 0 || msg.indexOf('404') >= 0) {
@@ -7238,6 +7386,8 @@ var REPORT = (function () {
     selectVoidBillRow: selectVoidBillRow,
     voidBillChangePage: voidBillChangePage,
     voidBillJumpToPage: voidBillJumpToPage,
+    auditChangePage: auditChangePage,
+    auditJumpToPage: auditJumpToPage,
     setDailySummaryView: function (v) {
       var view = (v === 'monthly') ? 'monthly' : 'daily';
       var perm = (view === 'monthly') ? 'report_clinic_monthly' : 'report_clinic_daily';

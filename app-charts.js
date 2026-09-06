@@ -2020,7 +2020,7 @@ function buildPerioTable(teeth, arch) {
         }
 
         teeth.forEach(function(tn) {
-            var implantActive = (parseInt(perioState[tn + '_implant']) || 0) > 0;
+            var implantActive = pdPerioImplantActive(tn);
 
             if (row.type === 'threeval' || row.type === 'bop') {
                 ['d','m','me'].forEach(function(pos) {
@@ -2109,7 +2109,7 @@ function buildPerioTable(teeth, arch) {
                 var td = document.createElement('td');
                 td.colSpan = 3;
                 if (row.id === 'mob' && implantActive) {
-                    td.innerHTML = '<span style="color:#cbd5e1;font-size:11px;">—</span>';
+                    td.innerHTML = pdImplantDisabledCellContent();
                     tr.appendChild(td);
                     return;
                 }
@@ -2153,18 +2153,22 @@ function buildPerioTable(teeth, arch) {
                 }
                 renderImplantBtn();
                 btnI.addEventListener('click', function() {
-                    var v = ((parseInt(perioState[keyI]) || 0) + 1) % 4;
-                    perioState[keyI] = v || null;
+                    pdApplyImplantCycle(tn);
                     renderPerioPane();
                     refreshPerioLivePreview();
                 });
                 tdI.appendChild(btnI);
                 tr.appendChild(tdI);
             } else if (row.type === 'furcation') {
-                // Spans 3 columns. Click-cycles grade — → I → II → III → —,
-                // rendered with the same circle symbols used on the diagram.
+                // Spans 3 columns. Hidden while an implant is charted — furcation
+                // does not apply to implant fixtures.
                 var tdF = document.createElement('td');
                 tdF.colSpan = 3;
+                if (implantActive) {
+                    tdF.innerHTML = pdImplantDisabledCellContent();
+                    tr.appendChild(tdF);
+                    return;
+                }
                 var keyF = tn + '_frc';
                 var btnF = document.createElement('button');
                 btnF.type = 'button';
@@ -2292,11 +2296,11 @@ function buildPerioCompactRowCell(row, tn) {
         td.className = 'perio-missing-cell';
         return td;
     }
-    var implantActive = (parseInt(perioState[tn + '_implant']) || 0) > 0;
+    var implantActive = pdPerioImplantActive(tn);
 
     if (row.type === 'select') {
         if (row.id === 'mob' && implantActive) {
-            td.innerHTML = '<span style="color:#cbd5e1;font-size:11px;">—</span>';
+            td.innerHTML = pdImplantDisabledCellContent();
             return td;
         }
         var key = tn + '_' + row.id;
@@ -2331,8 +2335,7 @@ function buildPerioCompactRowCell(row, tn) {
         }
         renderImplantBtn();
         btnI.addEventListener('click', function() {
-            var v = ((parseInt(perioState[keyI]) || 0) + 1) % 4;
-            perioState[keyI] = v || null;
+            pdApplyImplantCycle(tn);
             renderPerioPane();
             refreshPerioLivePreview();
         });
@@ -2341,6 +2344,10 @@ function buildPerioCompactRowCell(row, tn) {
     }
 
     if (row.type === 'furcation') {
+        if (implantActive) {
+            td.innerHTML = pdImplantDisabledCellContent();
+            return td;
+        }
         var keyF = tn + '_frc';
         var btnF = document.createElement('button');
         btnF.type = 'button';
@@ -2535,14 +2542,14 @@ function pdDataTableCss() {
 }
 
 function pdDataTableSpanValueHtml(row, tn) {
-    var implantActive = (parseInt(perioState[tn + '_implant']) || 0) > 0;
+    var implantActive = pdPerioImplantActive(tn);
     if (row.id === 'mob') {
         if (implantActive) return '<td colspan="3" style="color:#cbd5e1;">—</td>';
         var mv = perioState[tn + '_mob'] || '0';
         return '<td colspan="3">' + esc(mv) + '</td>';
     }
     if (row.type === 'implant') {
-        var iv = parseInt(perioState[tn + '_implant']) || 0;
+        var iv = pdPerioImplantVal(tn);
         if (!iv) return '<td colspan="3" style="color:#cbd5e1;">—</td>';
         var implLabels = ['—', chartTr('chart.perio.implant'), '⚠', '✓'];
         var implColors = ['#cbd5e1', '#334155', '#dc2626', '#16a34a'];
@@ -2550,6 +2557,7 @@ function pdDataTableSpanValueHtml(row, tn) {
             esc(implLabels[iv]) + '</td>';
     }
     if (row.type === 'furcation') {
+        if (implantActive) return '<td colspan="3" style="color:#cbd5e1;">—</td>';
         var fv = perioState[tn + '_frc'] || '—';
         return '<td colspan="3" style="color:#b45309;font-weight:700;">' + esc(fv) + '</td>';
     }
@@ -2680,19 +2688,20 @@ function pdCompactDataCss() {
 /** One compact cell (colspan=1) for tooth-level rows: mobility / implant / furcation. */
 function pdCompactSpanCellHtml(row, tn, midline) {
     var cls = midline ? ' class="pd-midline"' : '';
-    var implantActive = (parseInt(perioState[tn + '_implant']) || 0) > 0;
+    var implantActive = pdPerioImplantActive(tn);
     if (row.id === 'mob') {
         if (implantActive) return '<td' + cls + ' style="color:#cbd5e1;">—</td>';
         return '<td' + cls + '>' + esc(perioState[tn + '_mob'] || '0') + '</td>';
     }
     if (row.type === 'implant') {
-        var iv = parseInt(perioState[tn + '_implant']) || 0;
+        var iv = pdPerioImplantVal(tn);
         if (!iv) return '<td' + cls + ' style="color:#cbd5e1;">—</td>';
         var implLabels = ['—', chartTr('chart.perio.implant'), '⚠', '✓'];
         var implColors = ['#cbd5e1', '#334155', '#dc2626', '#16a34a'];
         return '<td' + cls + ' style="color:' + implColors[iv] + ';font-weight:700;">' + esc(implLabels[iv]) + '</td>';
     }
     if (row.type === 'furcation') {
+        if (implantActive) return '<td' + cls + ' style="color:#cbd5e1;">—</td>';
         var fv = perioState[tn + '_frc'] || '—';
         return '<td' + cls + ' style="color:#b45309;font-weight:700;">' + esc(fv) + '</td>';
     }
@@ -2846,6 +2855,10 @@ function pdCompactToothRowSVG(teeth, flipped) {
         var cx = pdCompactToothX(i) + PD_C_TOOTH_W / 2;
         if (pdToothIsMissing(tn)) {
             return pdMissingToothHatchSVG(cx, PD_C_TOOTH_W / 2, -PD_C_CROWN_H, PD_C_ROOT_H);
+        }
+        var implantVal = pdPerioImplantVal(tn);
+        if (implantVal > 0) {
+            return pdCompactImplantOutlineSVG(cx, tn, implantVal);
         }
         return '<path d="' + pdCompactToothPath(cx, tn) + '" fill="#e8eaee" stroke="#111827" stroke-width="1"/>';
     }).join('');
@@ -3075,6 +3088,41 @@ function pdToothIsMissing(tn) {
     return !!(dentalState[tn] && dentalState[tn].indexOf('missing') >= 0);
 }
 
+/** Perio-chart implant state: 0 = none, 1 = present, 2 = peri-implantitis, 3 = treated. */
+function pdPerioImplantVal(tn) {
+    return parseInt(perioState[tn + '_implant'], 10) || 0;
+}
+
+function pdPerioImplantActive(tn) {
+    return pdPerioImplantVal(tn) > 0;
+}
+
+/** Mobility and furcation do not apply to implants — clear stored values. */
+function pdClearMobFrcForImplant(tn) {
+    delete perioState[tn + '_mob'];
+    delete perioState[tn + '_frc'];
+}
+
+/** Click-cycle implant row; blanks mobility/furcation whenever implant is set. */
+function pdApplyImplantCycle(tn) {
+    var v = (pdPerioImplantVal(tn) + 1) % 4;
+    perioState[tn + '_implant'] = v || null;
+    if (v > 0) pdClearMobFrcForImplant(tn);
+    return v;
+}
+
+function pdImplantDisabledCellContent() {
+    return '<span style="color:#cbd5e1;font-size:11px;">—</span>';
+}
+
+/** Strip mobility/furcation from any tooth already charted as an implant (e.g. on load). */
+function pdSanitizeImplantExcludedFields() {
+    var allTeeth = UPPER_RIGHT.concat(UPPER_LEFT, LOWER_RIGHT, LOWER_LEFT);
+    allTeeth.forEach(function(tn) {
+        if (pdPerioImplantActive(tn)) pdClearMobFrcForImplant(tn);
+    });
+}
+
 /**
  * Click-to-toggle-missing on the tooth number itself, exactly like the
  * reference chart's "Tooth Number – one click marks the tooth as missing".
@@ -3239,6 +3287,108 @@ function pdToothOutlinePath(cx, tn) {
     return 'M ' + pdN(cx - wNeck) + ',0 ' + crownPath + rootPath + 'Z';
 }
 
+/** Shared crown-width geometry for clinical + compact perio tooth silhouettes. */
+function pdToothSilhouetteDims(tn, columnPitch, crownHConst, rootLenConst) {
+    var geo = TOOTH_TYPE_GEOMETRY[pdToothType(tn)];
+    var t = (geo.wCrownMul - 0.42) / (0.85 - 0.42);
+    var targetFrac = 0.68 + t * (0.90 - 0.68);
+    var fullCrownW = columnPitch * targetFrac;
+    var unit = fullCrownW / (2 * geo.wCrownMul);
+    return {
+        geo: geo,
+        wCrown: unit * geo.wCrownMul,
+        wNeck: unit * geo.wNeckMul,
+        rootLen: rootLenConst * geo.rootMul,
+        top: -crownHConst
+    };
+}
+
+function pdImplantFixtureColors(implantVal) {
+    if (implantVal === 2) {
+        return { crown: '#fef2f2', fixture: '#fecaca', stroke: '#dc2626', thread: '#ef4444' };
+    }
+    if (implantVal === 3) {
+        return { crown: '#f0fdf4', fixture: '#bbf7d0', stroke: '#16a34a', thread: '#22c55e' };
+    }
+    return { crown: '#f8fafc', fixture: '#cbd5e1', stroke: '#475569', thread: '#64748b' };
+}
+
+/**
+ * Implant fixture + abutment below the crown CEJ (y=0), replacing natural root(s).
+ * Thread marks suggest a screw body; crown shape is drawn separately on top.
+ */
+function pdImplantFixturePath(cx, dims, implantVal) {
+    var wNeck = dims.wNeck;
+    var rootLen = dims.rootLen;
+    var wAbut = wNeck * 0.72;
+    var wBody = wNeck * 0.46;
+    var wApex = wNeck * 0.28;
+    var abutLen = Math.min(5, rootLen * 0.12);
+    var bodyLen = rootLen - abutLen;
+    var cols = pdImplantFixtureColors(implantVal);
+    var abutPath =
+        'M ' + pdN(cx - wNeck) + ',0 ' +
+        'L ' + pdN(cx - wAbut) + ',' + pdN(abutLen) + ' ' +
+        'L ' + pdN(cx + wAbut) + ',' + pdN(abutLen) + ' ' +
+        'L ' + pdN(cx + wNeck) + ',0 Z';
+    var bodyPath =
+        'M ' + pdN(cx - wAbut) + ',' + pdN(abutLen) + ' ' +
+        'C ' + pdN(cx - wBody) + ',' + pdN(abutLen + bodyLen * 0.35) + ' ' +
+           pdN(cx - wApex) + ',' + pdN(abutLen + bodyLen * 0.75) + ' ' +
+           pdN(cx - wApex) + ',' + pdN(rootLen) + ' ' +
+        'Q ' + pdN(cx) + ',' + pdN(rootLen + 2) + ' ' + pdN(cx + wApex) + ',' + pdN(rootLen) + ' ' +
+        'C ' + pdN(cx + wApex) + ',' + pdN(abutLen + bodyLen * 0.75) + ' ' +
+           pdN(cx + wBody) + ',' + pdN(abutLen + bodyLen * 0.35) + ' ' +
+           pdN(cx + wAbut) + ',' + pdN(abutLen) + ' Z';
+    var threads = '';
+    for (var ty = abutLen + 3; ty < rootLen - 2; ty += 5) {
+        var spread = wBody * (1 - (ty - abutLen) / (rootLen - abutLen) * 0.35);
+        threads += '<line x1="' + pdN(cx - spread) + '" y1="' + pdN(ty) + '" x2="' +
+            pdN(cx + spread) + '" y2="' + pdN(ty) + '" stroke="' + cols.thread +
+            '" stroke-width="0.9" opacity="0.55"/>';
+    }
+    return (
+        '<path d="' + abutPath + '" fill="' + cols.fixture + '" stroke="' + cols.stroke + '" stroke-width="1.1"/>' +
+        '<path d="' + bodyPath + '" fill="' + cols.fixture + '" stroke="' + cols.stroke + '" stroke-width="1.1"/>' +
+        threads
+    );
+}
+
+/** Crown + implant fixture SVG for one tooth (clinical pocket diagram scale). */
+function pdImplantOutlineSVG(cx, tn, implantVal) {
+    var pitch = 3 * PD_SITE_W + PD_TOOTH_GAP;
+    var dims = pdToothSilhouetteDims(tn, pitch, PD_CROWN_H, PD_STRIP_H);
+    var geo = dims.geo;
+    var cols = pdImplantFixtureColors(implantVal);
+    var crownPath;
+    if (geo.crown === 'canine')        crownPath = pdCrownCanine(cx, dims.wCrown, dims.wNeck, dims.top);
+    else if (geo.crown === 'premolar') crownPath = pdCrownPremolar(cx, dims.wCrown, dims.wNeck, dims.top);
+    else if (geo.crown === 'molar')    crownPath = pdCrownMolar(cx, dims.wCrown, dims.wNeck, dims.top);
+    else                                crownPath = pdCrownIncisor(cx, dims.wCrown, dims.wNeck, dims.top);
+    return (
+        '<path d="M ' + pdN(cx - dims.wNeck) + ',0 ' + crownPath + 'Z" fill="' + cols.crown +
+            '" stroke="#111827" stroke-width="1.3"/>' +
+        pdImplantFixturePath(cx, dims, implantVal)
+    );
+}
+
+/** Crown + implant fixture SVG for compact schematic diagram scale. */
+function pdCompactImplantOutlineSVG(cx, tn, implantVal) {
+    var dims = pdToothSilhouetteDims(tn, PD_C_TOOTH_W, PD_C_CROWN_H, PD_C_ROOT_H);
+    var geo = dims.geo;
+    var cols = pdImplantFixtureColors(implantVal);
+    var crownPath;
+    if (geo.crown === 'canine')        crownPath = pdCrownCanine(cx, dims.wCrown, dims.wNeck, dims.top);
+    else if (geo.crown === 'premolar') crownPath = pdCrownPremolar(cx, dims.wCrown, dims.wNeck, dims.top);
+    else if (geo.crown === 'molar')    crownPath = pdCrownMolar(cx, dims.wCrown, dims.wNeck, dims.top);
+    else                                crownPath = pdCrownIncisor(cx, dims.wCrown, dims.wNeck, dims.top);
+    return (
+        '<path d="M ' + pdN(cx - dims.wNeck) + ',0 ' + crownPath + 'Z" fill="' + cols.crown +
+            '" stroke="#111827" stroke-width="1"/>' +
+        pdImplantFixturePath(cx, dims, implantVal)
+    );
+}
+
 /**
  * Diagonal hatch block standing in for a missing tooth's silhouette — a
  * light-grey box, the same footprint (column width × full crown+root
@@ -3279,6 +3429,11 @@ function pdToothOutlineSVG(teeth) {
         var cx = PD_AXIS_W + pdToothX(i) + 1.5 * PD_SITE_W;
         if (pdToothIsMissing(tn)) {
             out += pdMissingToothHatchSVG(cx, 1.5 * PD_SITE_W, -PD_CROWN_H, PD_STRIP_H);
+            return;
+        }
+        var implantVal = pdPerioImplantVal(tn);
+        if (implantVal > 0) {
+            out += pdImplantOutlineSVG(cx, tn, implantVal);
             return;
         }
         out += '<path d="' + pdToothOutlinePath(cx, tn) + '" ' +
@@ -3413,10 +3568,10 @@ function pdMidRowSVG(teeth) {
     var out = '';
     teeth.forEach(function(tn, i) {
         var cx  = PD_AXIS_W + pdToothX(i) + 1.5 * PD_SITE_W;
+        var implantVal = pdPerioImplantVal(tn);
         var mob = perioState[tn + '_mob'];
         var frc = perioState[tn + '_frc'];
-        var hasMob = mob && mob !== '0';
-        var implantVal = parseInt(perioState[tn + '_implant']) || 0;
+        var hasMob = !implantVal && mob && mob !== '0';
         out += '<text x="' + cx + '" y="15" font-size="11" font-weight="700" ' +
             'text-anchor="middle" fill="#1d4ed8">' + esc(pdToothLabel(tn)) + '</text>';
         if (implantVal > 0) {
@@ -3428,7 +3583,7 @@ function pdMidRowSVG(teeth) {
             out += '<text x="' + cx + '" y="27" font-size="9" font-weight="700" ' +
                 'text-anchor="middle" fill="#7c3aed">' + esc(String(mob)) + '</text>';
         }
-        out += pdFurcationSymbolSVG(cx, 34, frc);
+        if (!implantVal) out += pdFurcationSymbolSVG(cx, 34, frc);
     });
     // The dental-midline partition itself is now drawn once, full height,
     // by the caller (pdBuildArchDiagramSVG) so it runs continuously through
@@ -3942,6 +4097,7 @@ function loadChartRecord() {
         catch(e) { dentalState = {}; }
         try { perioState  = JSON.parse(rec.perio_data  || '{}'); }
         catch(e) { perioState  = {}; }
+        pdSanitizeImplantExcludedFields();
 
         // Notes live outside dentalState/perioState in the DB (separate
         // columns), but renderPerioPane() re-renders its textarea from

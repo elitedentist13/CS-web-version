@@ -38,10 +38,13 @@ var REPORT = (function () {
   var _reportDateInputsWired = false;
   var _auditFilterItem = '';
   var _auditFilterUser = '';
+  var _auditFilterPatient = '';
+  var _auditPatientHaystackCache = {};
   var _auditAllRows = [];
   var _auditSelectedId = null;
   var _auditTableMissing = false;
   var _auditTrailDataLoaded = false;
+  var _auditRowsTruncated = false;
   var _auditSubTab = 'voidBills'; // 'log' | 'voidBills'
   var _voidBillRows = [];
   var _voidBillSelectedId = null;
@@ -317,6 +320,52 @@ var REPORT = (function () {
       return s && s !== col;
     }).join(',');
     return next && next !== selectCols ? next : null;
+  }
+
+  /** Supabase/PostgREST returns at most ~1000 rows per request — page until exhausted. */
+  async function fetchAllAuditTrailRows(from, to, clinic) {
+    var PAGE = 1000;
+    var MAX = 50000;
+    var out = [];
+    var offset = 0;
+
+    while (offset < MAX) {
+      var q = SB.from('audit_trail')
+        .select('*')
+        .gte('created_at', from + 'T00:00:00')
+        .lte('created_at', to + 'T23:59:59.999')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + PAGE - 1);
+      if (clinic) q = q.eq('clinic_tag', clinic);
+      var res = await q;
+      if (res.error) return { error: res.error, data: out, truncated: false };
+      var rows = res.data || [];
+      out = out.concat(rows);
+      if (rows.length < PAGE) break;
+      offset += PAGE;
+    }
+    return { error: null, data: out, truncated: offset >= MAX };
+  }
+
+  async function fetchAllVoidBillAuditRows() {
+    var PAGE = 1000;
+    var MAX = 50000;
+    var out = [];
+    var offset = 0;
+
+    while (offset < MAX) {
+      var res = await SB.from('audit_trail')
+        .select('*')
+        .eq('table_name', 'bills')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + PAGE - 1);
+      if (res.error) return [];
+      var rows = res.data || [];
+      out = out.concat(rows);
+      if (rows.length < PAGE) break;
+      offset += PAGE;
+    }
+    return out.filter(auditRowIsBillVoid);
   }
 
   async function loadBillPaymentsByPaidDate(from, to) {
@@ -6209,28 +6258,36 @@ var REPORT = (function () {
       'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,patient_id,patient_no,patient_name,appointment_id,clinic_tag,created_at,voided_at',
       'id,bill_date,bill_type,total,amount_paid,balance,items,notes,status,patient_id,patient_no,patient_name,appointment_id,created_at,voided_at'
     ];
+    var PAGE = 1000;
+    var MAX = 50000;
     var si;
     for (si = 0; si < selects.length; si++) {
-      var res = await SB.from('bills')
-        .select(selects[si])
-        .not('voided_at', 'is', null)
-        .order('voided_at', { ascending: false })
-        .limit(1500);
-      if (!res.error) return res.data || [];
-      var msg = String(res.error.message || '').toLowerCase();
-      if (msg.indexOf('voided_at') >= 0) return [];
+      var selectCols = selects[si];
+      var out = [];
+      var offset = 0;
+      while (offset < MAX) {
+        var res = await SB.from('bills')
+          .select(selectCols)
+          .not('voided_at', 'is', null)
+          .order('voided_at', { ascending: false })
+          .range(offset, offset + PAGE - 1);
+        if (res.error) {
+          var msg = String(res.error.message || '').toLowerCase();
+          if (msg.indexOf('voided_at') >= 0) return [];
+          break;
+        }
+        var rows = res.data || [];
+        out = out.concat(rows);
+        if (rows.length < PAGE) return out;
+        offset += PAGE;
+      }
+      if (out.length) return out;
     }
     return [];
   }
 
   async function fetchVoidBillAuditRows() {
-    var res = await SB.from('audit_trail')
-      .select('*')
-      .eq('table_name', 'bills')
-      .order('created_at', { ascending: false })
-      .limit(5000);
-    if (res.error) return [];
-    return (res.data || []).filter(auditRowIsBillVoid);
+    return fetchAllVoidBillAuditRows();
   }
 
   async function enrichVoidBillPatientNames(rows) {
@@ -6327,6 +6384,10 @@ var REPORT = (function () {
               '<select id="rptAuditItemFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:220px;"></select></div>' +
             '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.filterUser"></div>' +
               '<select id="rptAuditUserFilter" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:160px;"></select></div>' +
+            '<div><div style="font-size:11px;font-weight:800;color:#555;margin-bottom:4px;" data-i18n="report.audit.searchPatient"></div>' +
+              '<input type="search" id="rptAuditPatientSearch" autocomplete="off" ' +
+              'placeholder="" data-i18n-placeholder="report.audit.searchPatientPh" ' +
+              'style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;min-width:200px;width:220px;"></div>' +
             '<div style="margin-left:auto;font-size:11px;color:#64748b;text-align:right;" id="rptAuditFilterSummary">—</div>' +
           '</div>' +
           '<div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:stretch;">' +
@@ -6390,6 +6451,15 @@ var REPORT = (function () {
         updateAuditFilterSummary();
       };
     }
+    var patInp = g('rptAuditPatientSearch');
+    if (patInp) {
+      patInp.value = _auditFilterPatient || '';
+      patInp.oninput = function() {
+        _auditFilterPatient = patInp.value || '';
+        renderAuditTrailList();
+        updateAuditFilterSummary();
+      };
+    }
     var vp = g('rptVoidSearchPatient');
     var vu = g('rptVoidSearchUser');
     var vd = g('rptVoidSearchDoctor');
@@ -6409,11 +6479,23 @@ var REPORT = (function () {
     var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : '';
     var item = _auditFilterItem || tr('report.audit.allItems');
     var user = _auditFilterUser || tr('report.audit.allUsers');
+    var patient = String(_auditFilterPatient || '').trim();
+    var shown = filteredAuditRows().length;
+    var total = (_auditAllRows || []).length;
+    var countLine = trRepl('report.audit.summaryCount', {
+      SHOWN: String(shown),
+      TOTAL: String(total)
+    });
+    if (_auditRowsTruncated) {
+      countLine += ' · ' + tr('report.audit.truncated');
+    }
     el.innerHTML =
       esc(clinic) + '<br>' +
       esc(from) + ' – ' + esc(to) + '<br>' +
       esc(item) + '<br>' +
-      esc(user);
+      esc(user) + '<br>' +
+      (patient ? esc(tr('report.audit.searchPatient') + ': ' + patient) + '<br>' : '') +
+      esc(countLine);
   }
 
   function fillAuditFilterSelects() {
@@ -6448,10 +6530,59 @@ var REPORT = (function () {
     updateAuditFilterSummary();
   }
 
+  function auditRowPatientHaystack(row) {
+    if (!row) return '';
+    var id = row.id != null ? String(row.id) : '';
+    if (id && _auditPatientHaystackCache[id]) return _auditPatientHaystackCache[id];
+
+    var parts = [];
+    if (row.patient_no) parts.push(String(row.patient_no));
+    if (row.changes_detail) parts.push(String(row.changes_detail));
+
+    var payload = row.payload;
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch (eParse) { parts.push(payload); }
+    }
+    if (payload && typeof payload === 'object') {
+      var data = payload.data != null ? payload.data : payload;
+      if (Array.isArray(data)) {
+        data.forEach(function(item) {
+          if (item && typeof item === 'object') {
+            ['patient_no', 'patient_name', 'full_name', 'chinese_name', 'pcode', 'name', 'english_name',
+              'phone', 'mobile', 'tel', 'patient_phone', 'contact_phone']
+              .forEach(function(k) {
+                if (item[k] != null && item[k] !== '') parts.push(String(item[k]));
+              });
+          }
+        });
+      } else if (data && typeof data === 'object') {
+        ['patient_no', 'patient_name', 'full_name', 'chinese_name', 'pcode', 'name', 'english_name',
+          'phone', 'mobile', 'tel', 'patient_phone', 'contact_phone']
+          .forEach(function(k) {
+            if (data[k] != null && data[k] !== '') parts.push(String(data[k]));
+          });
+      }
+      try { parts.push(JSON.stringify(payload)); } catch (eJson) { /* skip */ }
+    }
+
+    if (row.table_name === 'patients' && row.record_id) {
+      parts.push(String(row.record_id));
+    }
+
+    var haystack = parts.join(' ').toLowerCase();
+    if (id) _auditPatientHaystackCache[id] = haystack;
+    return haystack;
+  }
+
   function filteredAuditRows() {
+    var pQ = String(_auditFilterPatient || '').trim().toLowerCase();
     return (_auditAllRows || []).filter(function(r) {
       if (_auditFilterItem && r.audit_item !== _auditFilterItem) return false;
       if (_auditFilterUser && r.user_id !== _auditFilterUser) return false;
+      if (pQ) {
+        var hay = auditRowPatientHaystack(r);
+        if (hay.indexOf(pQ) < 0) return false;
+      }
       return true;
     });
   }
@@ -6487,8 +6618,9 @@ var REPORT = (function () {
   function selectAuditRow(id) {
     _auditSelectedId = id || null;
     var row = null;
+    var sid = String(id || '');
     (_auditAllRows || []).some(function(r) {
-      if (r.id === id) {
+      if (String(r.id) === sid) {
         row = r;
         return true;
       }
@@ -6520,7 +6652,10 @@ var REPORT = (function () {
       };
     });
     if (!rows.length) {
-      list.innerHTML = '<div style="padding:16px;color:#888;">' + esc(tr('report.noData')) + '</div>';
+      var emptyMsg = (_auditAllRows || []).length
+        ? tr('report.audit.noMatchFilters')
+        : tr('report.noData');
+      list.innerHTML = '<div style="padding:16px;color:#888;line-height:1.5;">' + esc(emptyMsg) + '</div>';
       renderAuditDetail(null);
       return;
     }
@@ -6535,7 +6670,7 @@ var REPORT = (function () {
       '<th style="' + th + '">' + esc(tr('report.audit.col.item')) + '</th>' +
       '</tr></thead><tbody>';
     rows.forEach(function(r) {
-      var sel = (_auditSelectedId === r.id);
+      var sel = (String(_auditSelectedId) === String(r.id));
       var bg = sel ? '#dbeafe' : '#fff';
       html += '<tr data-audit-id="' + esc(String(r.id)) + '" style="cursor:pointer;background:' + bg + ';" onclick="REPORT.selectAuditRow(this.getAttribute(\'data-audit-id\'))">' +
         '<td style="' + td + '">' + esc(auditFmtTime(r.created_at)) + '</td>' +
@@ -6553,7 +6688,7 @@ var REPORT = (function () {
     } else {
       var active = null;
       rows.some(function(r) {
-        if (r.id === _auditSelectedId) {
+        if (String(r.id) === String(_auditSelectedId)) {
           active = r;
           return true;
         }
@@ -6561,11 +6696,14 @@ var REPORT = (function () {
       });
       renderAuditDetail(active);
     }
+    updateAuditFilterSummary();
   }
 
   async function loadAuditTrail() {
     _auditTableMissing = false;
     _auditTrailDataLoaded = false;
+    _auditRowsTruncated = false;
+    _auditPatientHaystackCache = {};
     _auditAllRows = [];
     var list = g('rptAuditList');
     if (list && _auditSubTab === 'log') {
@@ -6574,14 +6712,7 @@ var REPORT = (function () {
     var from = (g('rptFrom') && g('rptFrom').value) ? g('rptFrom').value : todayISO();
     var to = (g('rptTo') && g('rptTo').value) ? g('rptTo').value : todayISO();
     var clinic = reportClinicTag();
-    var q = SB.from('audit_trail')
-      .select('*')
-      .gte('created_at', from + 'T00:00:00')
-      .lte('created_at', to + 'T23:59:59.999')
-      .order('created_at', { ascending: false })
-      .limit(3000);
-    if (clinic) q = q.eq('clinic_tag', clinic);
-    var res = await q;
+    var res = await fetchAllAuditTrailRows(from, to, clinic);
     if (res.error) {
       var msg = (res.error.message || '').toLowerCase();
       if (msg.indexOf('does not exist') >= 0 || msg.indexOf('not found') >= 0 || msg.indexOf('404') >= 0) {
@@ -6593,6 +6724,7 @@ var REPORT = (function () {
       throw new Error(res.error.message || tr('report.error.loadingDataNote'));
     }
     _auditAllRows = res.data || [];
+    _auditRowsTruncated = !!res.truncated;
     _auditTrailDataLoaded = true;
     fillAuditFilterSelects();
     if (_auditSubTab === 'log') renderAuditTrailList();

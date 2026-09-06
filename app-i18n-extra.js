@@ -590,9 +590,30 @@
         },
         'report.audit.filterItem': { en: 'Audit item', 'zh-CN': '审计项目', 'zh-Hant': '審計項目' },
         'report.audit.filterUser': { en: 'User', 'zh-CN': '用户', 'zh-Hant': '使用者' },
+        'report.audit.searchPatient': { en: 'Patient', 'zh-CN': '患者', 'zh-Hant': '患者' },
+        'report.audit.searchPatientPh': {
+            en: 'Chart no, name, phone…',
+            'zh-CN': '病历号、姓名、电话…',
+            'zh-Hant': '病歷號、姓名、電話…'
+        },
+        'report.audit.noMatchFilters': {
+            en: 'No audit rows match the current filters. Widen the date range or clear the patient search.',
+            'zh-CN': '没有符合当前筛选条件的审计记录。请扩大日期范围或清空患者搜索。',
+            'zh-Hant': '沒有符合目前篩選條件的審計記錄。請擴大日期範圍或清空患者搜尋。'
+        },
         'report.audit.allItems': { en: 'ALL', 'zh-CN': '全部', 'zh-Hant': '全部' },
         'report.audit.allUsers': { en: 'ALL', 'zh-CN': '全部', 'zh-Hant': '全部' },
         'report.audit.allClinics': { en: 'All clinics', 'zh-CN': '全部诊所', 'zh-Hant': '全部診所' },
+        'report.audit.summaryCount': {
+            en: 'Showing {SHOWN} of {TOTAL} loaded (newest first)',
+            'zh-CN': '显示 {SHOWN} / {TOTAL} 笔已加载（最新在前）',
+            'zh-Hant': '顯示 {SHOWN} / {TOTAL} 筆已載入（最新在前）'
+        },
+        'report.audit.truncated': {
+            en: 'List capped at 50,000 rows — narrow the date range',
+            'zh-CN': '列表上限 50,000 笔 — 请缩小日期范围',
+            'zh-Hant': '列表上限 50,000 筆 — 請縮小日期範圍'
+        },
         'report.audit.detailPlaceholder': {
             en: 'Select a row to view change detail ([FIELD]=value).',
             'zh-CN': '选择一行以查看变更明细（[字段]=值）。',

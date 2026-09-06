@@ -6905,6 +6905,23 @@ var REPORT = (function () {
 
       if (_tab === 'auditTrail') {
         showPatientDirTools(false);
+        if (!isReportAdmin()) {
+          setHeader(tr('report.title.auditTrail'), tr('report.hint.auditTrailAdmin'));
+          showChartColumn(false);
+          destroyChart();
+          setChartNote(tr('report.chart.disabledAuditTrail'));
+          if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = 'none';
+          if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
+          var gridAuditDeny = g('rptMainGrid');
+          var colAuditDeny = g('rptChartCol');
+          if (gridAuditDeny) gridAuditDeny.style.gridTemplateColumns = '1fr';
+          if (colAuditDeny) colAuditDeny.style.display = 'none';
+          if (g('rptTableWrap')) {
+            g('rptTableWrap').innerHTML = '<div style="padding:16px;color:#888;line-height:1.5;">' +
+              esc(tr('report.audit.adminOnlyNote')) + '</div>';
+          }
+          return;
+        }
         var auditHint = (_auditSubTab === 'voidBills')
           ? tr('report.hint.voidBills')
           : tr('report.hint.auditTrail');
@@ -7196,11 +7213,17 @@ var REPORT = (function () {
   // Admin accounts always pass (see hasAppPermission()'s admin override).
   var REPORT_TAB_PERM_MAP = {
     drDaily: 'report_doctor_daily',
-    drMonthly: 'report_doctor_monthly',
-    auditTrail: 'audit_trail_report'
+    drMonthly: 'report_doctor_monthly'
   };
 
+  var REPORT_ADMIN_ONLY_TABS = ['auditTrail'];
+
+  function isReportAdmin() {
+    return String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase() === 'admin';
+  }
+
   function reportTabAllowed(key) {
+    if (REPORT_ADMIN_ONLY_TABS.indexOf(key) >= 0) return isReportAdmin();
     var perm = REPORT_TAB_PERM_MAP[key];
     if (!perm) return true;
     return (typeof hasAppPermission !== 'function') || hasAppPermission(perm);
@@ -7213,12 +7236,21 @@ var REPORT = (function () {
       var allowed = reportTabAllowed(key);
       btn.style.display = allowed ? '' : 'none';
     });
+    REPORT_ADMIN_ONLY_TABS.forEach(function (key) {
+      var adminBtn = document.querySelector('#reportSection [data-rpt="' + key + '"]');
+      if (!adminBtn) return;
+      adminBtn.style.display = isReportAdmin() ? '' : 'none';
+    });
   }
 
   function switchTab(key) {
     // Admin-only tab gate
     if (key === 'patientDir' && typeof currentRole !== 'undefined' && currentRole !== 'admin') {
       alert(tr('report.alert.patientDirAdminOnly'));
+      key = 'dailyIncome';
+    }
+    if (key === 'auditTrail' && !isReportAdmin()) {
+      alert(tr('report.alert.auditTrailAdminOnly'));
       key = 'dailyIncome';
     }
     // Per-user authorization checkboxes (Configuration → Users → Edit → Authorization)

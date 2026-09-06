@@ -584,9 +584,20 @@
         'report.tab.auditTrail': { en: '9) Audit Trail Report', 'zh-CN': '9) 审查记录报告', 'zh-Hant': '9) 審查記錄報告' },
         'report.title.auditTrail': { en: 'Audit Trail Report', 'zh-CN': '审查记录报告', 'zh-Hant': '審查記錄報告' },
         'report.hint.auditTrail': {
-            en: 'Every change saved to the server (insert/update/delete). Filter by date, clinic, audit item, and user. Click a row for field detail.',
-            'zh-CN': '服务器收到的每次保存变更（新增/修改/删除）。可按日期、诊所、审计项目与用户筛选。点击行查看字段明细。',
-            'zh-Hant': '伺服器收到的每次儲存變更（新增/修改/刪除）。可按日期、診所、審計項目與使用者篩選。點擊列查看欄位明細。'
+            en: 'Full audit log and void-bill history. Admin only.',
+            'zh-CN': '完整审计记录与作废账单历史。仅限管理员。',
+            'zh-Hant': '完整審計記錄與作廢帳單歷史。僅限管理員。'
+        },
+        'report.hint.auditTrailAdmin': { en: 'Admin access required.', 'zh-CN': '需要管理员权限。', 'zh-Hant': '需要管理員權限。' },
+        'report.alert.auditTrailAdminOnly': {
+            en: 'Audit Trail Report is admin-only (contains sensitive data such as password changes).',
+            'zh-CN': '审查记录报告仅限管理员（包含密码变更等敏感数据）。',
+            'zh-Hant': '審查記錄報告僅限管理員（包含密碼變更等敏感資料）。'
+        },
+        'report.audit.adminOnlyNote': {
+            en: 'This report is admin-only. It may contain sensitive audit data such as password changes.',
+            'zh-CN': '此报告仅限管理员，可能包含密码变更等敏感审计数据。',
+            'zh-Hant': '此報告僅限管理員，可能包含密碼變更等敏感審計資料。'
         },
         'report.audit.filterItem': { en: 'Audit item', 'zh-CN': '审计项目', 'zh-Hant': '審計項目' },
         'report.audit.filterUser': { en: 'User', 'zh-CN': '用户', 'zh-Hant': '使用者' },

@@ -31,8 +31,7 @@ var USER_PERM_REGISTRY = [
     { key: 'config_program_setting', parent: 'config', col: 1 },
     { key: 'void_payment', parent: null, col: 2 },
     { key: 'modify_bill', parent: null, col: 2 },
-    { key: 'management_report', parent: null, col: 2 },
-    { key: 'audit_trail_report', parent: null, col: 2 }
+    { key: 'management_report', parent: null, col: 2 }
 ];
 
 var USER_PERM_KEYS = USER_PERM_REGISTRY.map(function (d) { return d.key; });

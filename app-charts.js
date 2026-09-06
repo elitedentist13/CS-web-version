@@ -1404,6 +1404,7 @@ function applyTool(tn) {
     if (!dentalState[tn]) dentalState[tn] = [];
     var state = dentalState[tn];
     var tool  = activeTool;
+    var implantBefore = pdDentalImplantCharted(tn);
 
     if (tool === 'eraser') {
         dentalState[tn] = [];
@@ -1431,8 +1432,17 @@ function applyTool(tn) {
         }
     }
 
+    var implantAfter = pdDentalImplantCharted(tn);
+    var perioImplantChanged = false;
+    if (!implantBefore && implantAfter) {
+        perioImplantChanged = pdApplyPerioImplantFromDental(tn);
+    } else if (implantBefore && !implantAfter) {
+        perioImplantChanged = pdRemovePerioImplantFromDental(tn);
+    }
+
     refreshToothSVG(tn);
     if (typeof refreshPerioLivePreview === 'function') refreshPerioLivePreview();
+    if (perioImplantChanged && chartPerioTabActive()) renderPerioPane();
 }
 
 // ── Tooth-loss reason tag (used by Tonetti staging) ──────────
@@ -1590,6 +1600,8 @@ function buildMidline(centerLabel) {
 function renderPerioPane() {
     var pane = g('chartPane-perio');
     if (!pane) return;
+    pdSyncAllPerioImplantsFromDentalOnLoad();
+    pdSanitizeImplantExcludedFields();
     pane.innerHTML = '';
 
     // View toolbar: Enter Data / Chart View toggle + Print
@@ -3103,6 +3115,43 @@ function pdClearMobFrcForImplant(tn) {
     delete perioState[tn + '_frc'];
 }
 
+/** True when the dental chart marks this tooth as an implant (whole-tooth tool). */
+function pdDentalImplantCharted(tn) {
+    var st = dentalState[tn];
+    return !!(st && st.indexOf('implant') >= 0);
+}
+
+/** Dental → perio: mark implant present (state 1) unless perio already has a grade. */
+function pdApplyPerioImplantFromDental(tn) {
+    if (!pdPerioImplantActive(tn)) {
+        perioState[tn + '_implant'] = 1;
+        pdClearMobFrcForImplant(tn);
+        return true;
+    }
+    return false;
+}
+
+/** Dental → perio: clear implant when the dental chart removes it. */
+function pdRemovePerioImplantFromDental(tn) {
+    if (pdPerioImplantActive(tn)) {
+        delete perioState[tn + '_implant'];
+        return true;
+    }
+    return false;
+}
+
+/** On load / opening perio pane — additive only; never strips perio-only implant grades. */
+function pdSyncAllPerioImplantsFromDentalOnLoad() {
+    allDentalChartToothNums().forEach(function(tn) {
+        if (pdDentalImplantCharted(tn)) pdApplyPerioImplantFromDental(tn);
+    });
+}
+
+function chartPerioTabActive() {
+    var stabP = g('stab-perio');
+    return !!(stabP && stabP.classList.contains('active'));
+}
+
 /** Click-cycle implant row; blanks mobility/furcation whenever implant is set. */
 function pdApplyImplantCycle(tn) {
     var v = (pdPerioImplantVal(tn) + 1) % 4;
@@ -4097,6 +4146,7 @@ function loadChartRecord() {
         catch(e) { dentalState = {}; }
         try { perioState  = JSON.parse(rec.perio_data  || '{}'); }
         catch(e) { perioState  = {}; }
+        pdSyncAllPerioImplantsFromDentalOnLoad();
         pdSanitizeImplantExcludedFields();
 
         // Notes live outside dentalState/perioState in the DB (separate

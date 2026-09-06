@@ -6498,13 +6498,17 @@ var REPORT = (function () {
     if (_auditRowsTruncated) {
       countLine += ' · ' + tr('report.audit.truncated');
     }
+    var buildTag = (typeof window.__JSM_BUILD === 'string' && window.__JSM_BUILD)
+      ? window.__JSM_BUILD
+      : '';
     el.innerHTML =
       esc(clinic) + '<br>' +
       esc(from) + ' – ' + esc(to) + '<br>' +
       esc(item) + '<br>' +
       esc(user) + '<br>' +
       (patient ? esc(tr('report.audit.searchPatient') + ': ' + patient) + '<br>' : '') +
-      esc(countLine);
+      esc(countLine) +
+      (buildTag ? '<br><span style="opacity:0.75;font-size:10px;">' + esc(buildTag) + '</span>' : '');
   }
 
   function fillAuditFilterSelects() {

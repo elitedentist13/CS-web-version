@@ -15,7 +15,26 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260907-audit-trail-pagination';
+  var BUILD = '20260907b-audit-trail-pagination';
+  var pendingBuildReload = false;
+  try {
+    var prevBuild = localStorage.getItem('jsm_asset_build_v1');
+    if (prevBuild && prevBuild !== BUILD) {
+      localStorage.removeItem('jsm_asset_cache_bust_v1');
+      localStorage.setItem('jsm_asset_build_v1', BUILD);
+      var reloadKey = 'jsm_build_reload_' + BUILD;
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, '1');
+        var lr = '_lr=' + encodeURIComponent(BUILD);
+        var href = location.href;
+        location.replace(href.indexOf('_lr=') >= 0 ? href : href + (href.indexOf('?') >= 0 ? '&' : '?') + lr);
+        pendingBuildReload = true;
+      }
+    } else if (!prevBuild) {
+      localStorage.setItem('jsm_asset_build_v1', BUILD);
+    }
+  } catch (eBuild) { /* ignore */ }
+  if (pendingBuildReload) return;
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -7403,7 +7422,10 @@
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {
-    document.write('<script src="' + wb(files[i]) + '"><\/script>');
+    var s = document.createElement('script');
+    s.src = wb(files[i]);
+    s.async = false;
+    document.body.appendChild(s);
   }
 })();
 </script>

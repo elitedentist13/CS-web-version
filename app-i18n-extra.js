@@ -590,9 +590,9 @@
         },
         'report.hint.auditTrailAdmin': { en: 'Admin access required.', 'zh-CN': '需要管理员权限。', 'zh-Hant': '需要管理員權限。' },
         'report.alert.auditTrailAdminOnly': {
-            en: 'Audit Trail Report is admin-only (contains sensitive data such as password changes).',
-            'zh-CN': '审查记录报告仅限管理员（包含密码变更等敏感数据）。',
-            'zh-Hant': '審查記錄報告僅限管理員（包含密碼變更等敏感資料）。'
+            en: 'Audit Trail Report is admin-only.',
+            'zh-CN': '审查记录报告仅限管理员。',
+            'zh-Hant': '審查記錄報告僅限管理員。'
         },
         'report.audit.adminOnlyNote': {
             en: 'This report is admin-only. It may contain sensitive audit data such as password changes.',

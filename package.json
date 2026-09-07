@@ -17,5 +17,8 @@
   "devDependencies": {
     "live-server": "^1.2.2",
     "supabase": "^2.108.0"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1"
   }
 }

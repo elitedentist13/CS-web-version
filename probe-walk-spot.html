@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Perio probe-walk DOM spot test</title>
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; margin: 16px; max-width: 960px; }
+    .pass { color: #15803d; } .fail { color: #b91c1c; font-weight: 700; }
+    pre { background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; overflow: auto; }
+    .tri { display: inline-flex; border: 1px solid #cbd5e1; margin: 2px 6px 2px 0; }
+    .tri span { width: 28px; text-align: center; font-size: 10px; padding: 2px 0; border-right: 1px solid #e2e8f0; }
+    .tri span:last-child { border-right: 0; }
+    .row { margin: 8px 0; }
+    label { display: inline-block; width: 140px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <h1>Perio probe-walk DOM spot test</h1>
+  <p>Build harness — renders triples with live <code>pdSiteOrderForToothSurface</code>.</p>
+  <div id="samples"></div>
+  <h2>Results</h2>
+  <pre id="out">Running…</pre>
+  <script>
+    // Minimal stubs so we can eval the probe helpers from app-charts.js
+    var perioSettings = { probingSequence: 'bern' };
+    var UPPER_RIGHT = [18,17,16,15,14,13,12,11];
+    var UPPER_LEFT  = [21,22,23,24,25,26,27,28];
+    var LOWER_RIGHT = [48,47,46,45,44,43,42,41];
+    var LOWER_LEFT  = [31,32,33,34,35,36,37,38];
+  </script>
+  <script src="app-charts-probe-extract.js"></script>
+  <script>
+    // Fallback: fetch app-charts and eval the probe section if extract missing
+  </script>
+  <script>
+  (async function() {
+    var out = document.getElementById('out');
+    var samples = document.getElementById('samples');
+    var fails = [];
+
+    if (typeof pdSiteOrderForToothSurface !== 'function') {
+      var src = await fetch('app-charts.js?b=dom-spot').then(function(r) { return r.text(); });
+      var start = src.indexOf('function pdSameQuadrant');
+      var end = src.indexOf('function pdParsePerioCellId');
+      // eslint-disable-next-line no-eval
+      eval(src.slice(start, end));
+    }
+
+    var rules = [
+      { name: '18B→11B', teeth: [18,17,16,15,14,13,12,11], surf: 'b', exp: 'd-m-me' },
+      { name: '21B→28B', teeth: [21,22,23,24,25,26,27,28], surf: 'b', exp: 'me-m-d' },
+      { name: '28L→21L', teeth: [28,27,26,25,24,23,22,21], surf: 'l', exp: 'd-m-me' },
+      { name: '11L→18L', teeth: [11,12,13,14,15,16,17,18], surf: 'l', exp: 'me-m-d' },
+      { name: '38B→31B', teeth: [38,37,36,35,34,33,32,31], surf: 'b', exp: 'd-m-me' },
+      { name: '41B→48B', teeth: [41,42,43,44,45,46,47,48], surf: 'b', exp: 'me-m-d' },
+      { name: '48L→41L', teeth: [48,47,46,45,44,43,42,41], surf: 'l', exp: 'd-m-me' },
+      { name: '31L→38L', teeth: [31,32,33,34,35,36,37,38], surf: 'l', exp: 'me-m-d' }
+    ];
+
+    var lines = [];
+    var spotTeeth = [
+      { tn: 18, surf: 'b' }, { tn: 11, surf: 'b' }, { tn: 21, surf: 'b' }, { tn: 28, surf: 'b' },
+      { tn: 28, surf: 'l' }, { tn: 21, surf: 'l' }, { tn: 11, surf: 'l' }, { tn: 18, surf: 'l' },
+      { tn: 38, surf: 'b' }, { tn: 31, surf: 'b' }, { tn: 41, surf: 'b' }, { tn: 48, surf: 'b' },
+      { tn: 48, surf: 'l' }, { tn: 41, surf: 'l' }, { tn: 31, surf: 'l' }, { tn: 38, surf: 'l' }
+    ];
+
+    spotTeeth.forEach(function(s) {
+      var order = pdSiteOrderForToothSurface(s.tn, s.surf);
+      var row = document.createElement('div');
+      row.className = 'row';
+      var lab = document.createElement('label');
+      lab.textContent = s.tn + (s.surf === 'b' ? 'B' : 'L');
+      row.appendChild(lab);
+      var tri = document.createElement('div');
+      tri.className = 'tri';
+      tri.setAttribute('data-probe-order', order.join('-'));
+      order.forEach(function(pos) {
+        var span = document.createElement('span');
+        span.textContent = pos === 'd' ? 'D' : pos === 'me' ? 'Me' : 'M';
+        span.title = pos;
+        tri.appendChild(span);
+      });
+      row.appendChild(tri);
+      var meta = document.createElement('span');
+      meta.textContent = ' ' + order.join('-');
+      row.appendChild(meta);
+      samples.appendChild(row);
+    });
+
+    rules.forEach(function(rule) {
+      var bad = [];
+      rule.teeth.forEach(function(tn) {
+        var got = pdSiteOrderForToothSurface(tn, rule.surf).join('-');
+        if (got !== rule.exp) bad.push(tn + '=' + got);
+      });
+      var pass = !bad.length;
+      if (!pass) fails.push(rule.name + ': ' + bad.join(', '));
+      lines.push((pass ? 'PASS' : 'FAIL') + '  ' + rule.name + ' → ' + rule.exp);
+    });
+
+    var seq = pdProbeWalkSequence('bern');
+    var spots = [
+      ['11Bme→21Bme', 11,'b','me', 21,'b','me'],
+      ['28Bd→28Ld', 28,'b','d', 28,'l','d'],
+      ['21Lme→11Lme', 21,'l','me', 11,'l','me'],
+      ['18Ld→38Bd', 18,'l','d', 38,'b','d'],
+      ['31Bme→41Bme', 31,'b','me', 41,'b','me'],
+      ['48Bd→48Ld', 48,'b','d', 48,'l','d'],
+      ['41Lme→31Lme', 41,'l','me', 31,'l','me']
+    ];
+    spots.forEach(function(sp) {
+      var i = seq.findIndex(function(s) {
+        return s.tn === sp[1] && s.surface === sp[2] && s.pos === sp[3];
+      });
+      var n = seq[i + 1];
+      var pass = n && n.tn === sp[4] && n.surface === sp[5] && n.pos === sp[6];
+      if (!pass) fails.push(sp[0]);
+      lines.push((pass ? 'PASS' : 'FAIL') + '  ' + sp[0] +
+        (n ? ('  next=' + n.tn + n.surface + n.pos) : '  EOF'));
+    });
+
+    // DOM order check on rendered spot samples for 28L and 21B
+    function domOrder(tn, surf) {
+      var rows = samples.querySelectorAll('.row');
+      for (var i = 0; i < rows.length; i++) {
+        var lab = rows[i].querySelector('label').textContent;
+        if (lab === String(tn) + (surf === 'b' ? 'B' : 'L')) {
+          return rows[i].querySelector('.tri').getAttribute('data-probe-order');
+        }
+      }
+      return null;
+    }
+    [['28','l','d-m-me'], ['21','b','me-m-d'], ['41','b','me-m-d'], ['48','l','d-m-me']].forEach(function(t) {
+      var got = domOrder(t[0], t[1]);
+      var pass = got === t[2];
+      if (!pass) fails.push('DOM ' + t[0] + t[1] + ' got ' + got);
+      lines.push((pass ? 'PASS' : 'FAIL') + '  DOM ' + t[0] + (t[1]==='b'?'B':'L') + ' = ' + got);
+    });
+
+    lines.push('');
+    lines.push(fails.length ? ('FAILED: ' + fails.length) : 'ALL DOM SPOT CHECKS PASSED');
+    out.textContent = lines.join('\n');
+    out.className = fails.length ? 'fail' : 'pass';
+    document.title = (fails.length ? 'FAIL' : 'PASS') + ' — probe-walk DOM spot test';
+    window.__PROBE_SMOKE__ = { fails: fails, seqLen: seq.length };
+  })();
+  </script>
+</body>
+</html>

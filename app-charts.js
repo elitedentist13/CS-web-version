@@ -210,6 +210,256 @@ function allDentalChartToothNums() {
 var PERIO_SURFACES  = ['B','L'];   // Buccal / Lingual(Palatal)
 var PERIO_POSITIONS = ['D','M','C']; // Distal, Mid, Mesial
 
+/**
+ * Chairside probe walk (Bern default) — tooth path + site order by travel:
+ *
+ * Path: 18B→28B, 28L→18L, 38B→48B, 48L→38L
+ *
+ * Toward midline → Distal · Mid · Mesial
+ *   18→11 buccal, 28→21 lingual, 38→31 buccal, 48→41 lingual
+ * Away from midline → Mesial · Mid · Distal
+ *   21→28 buccal, 11→18 lingual, 41→48 buccal, 31→38 lingual
+ *
+ * Minibox LAYOUT is anatomical (pdDisplaySiteOrder): Mesial faces midline.
+ * ENTRY order is this walk (Tab / Enter / dictation) — on Q2/Q3 toward
+ * segments Distal is the right-hand box.
+ */
+function pdSameQuadrant(a, b) {
+    return Math.floor(a / 10) === Math.floor(b / 10);
+}
+
+function pdIsAdjacentCentrals(a, b) {
+    return (a === 11 && b === 21) || (a === 21 && b === 11) ||
+        (a === 31 && b === 41) || (a === 41 && b === 31);
+}
+
+/** Bern travel direction for one FDI tooth + surface (b|l). */
+function pdBernIsTowardMidline(tn, surface) {
+    var q = Math.floor(Number(tn) / 10);
+    surface = String(surface || '').toLowerCase();
+    // Buccal: Q1 18→11 and Q3 38→31 toward; Q2 21→28 and Q4 41→48 away
+    if (surface === 'b') return q === 1 || q === 3;
+    // Lingual/palatal: Q2 28→21 and Q4 48→41 toward; Q1 11→18 and Q3 31→38 away
+    if (surface === 'l') return q === 2 || q === 4;
+    return true;
+}
+
+function pdSiteOrderForDirection(toward) {
+    return toward ? ['d', 'm', 'me'] : ['me', 'm', 'd'];
+}
+
+/**
+ * Anatomical left→right order of the three site miniboxes for one FDI tooth.
+ *
+ * Mesial = toward the dental midline (between 11|21 and 31|41).
+ * Distal = toward the wisdom-tooth / back-of-arch side.
+ *
+ * Chart columns run 18…11 | 21…28 (and 48…41 | 31…38 below), so:
+ *   Q1 18–11 / Q4 48–41  →  Distal · Mid · Mesial  (D is outer/left)
+ *   Q2 21–28 / Q3 31–38  →  Mesial · Mid · Distal  (Me is inner/left, toward midline)
+ */
+function pdDisplaySiteOrder(tn) {
+    var q = Math.floor(Number(tn) / 10);
+    if (q === 2 || q === 3) return ['me', 'm', 'd'];
+    return ['d', 'm', 'me'];
+}
+
+function pdSitePosShortLabel(pos) {
+    return pos === 'd' ? 'D' : pos === 'me' ? 'Me' : 'M';
+}
+
+function pdSitePosLongLabel(pos) {
+    return pos === 'd' ? 'Distal' : pos === 'me' ? 'Mesial' : 'Mid';
+}
+
+/** Short labels left→right for the site-mark row under a tooth number. */
+function pdDisplaySiteLabels(tn) {
+    return pdDisplaySiteOrder(tn).map(pdSitePosShortLabel);
+}
+
+/** Hover text: Distal = wisdom side, Mesial = toward midline. */
+function pdSitePosTitle(pos) {
+    if (pos === 'd') return 'Distal — toward wisdom / back of arch';
+    if (pos === 'me') return 'Mesial — toward midline';
+    return 'Mid';
+}
+
+/**
+ * D/M/Me order for one tooth in the walk. For Bern, direction is taken from
+ * FDI quadrant + surface (not inferred only from neighbours) so 28–21
+ * lingual cannot accidentally inherit the 21–28 buccal Me·M·D layout.
+ */
+function pdSiteOrderForWalk(tn, prevTn, nextTn, surface) {
+    var seqName = (perioSettings && perioSettings.probingSequence) || 'bern';
+    if ((!seqName || seqName === 'bern') && surface) {
+        return pdSiteOrderForDirection(pdBernIsTowardMidline(tn, surface));
+    }
+    if (nextTn && pdSameQuadrant(tn, nextTn)) {
+        return pdSiteOrderForDirection((nextTn % 10) < (tn % 10));
+    }
+    if (nextTn && pdIsAdjacentCentrals(tn, nextTn)) return ['d', 'm', 'me'];
+    if (prevTn && pdSameQuadrant(prevTn, tn)) {
+        return pdSiteOrderForDirection((tn % 10) < (prevTn % 10));
+    }
+    if (prevTn && pdIsAdjacentCentrals(prevTn, tn)) return ['me', 'm', 'd'];
+    return ['d', 'm', 'me'];
+}
+
+function pdRowSurface(row) {
+    if (!row) return null;
+    var id = String(row.id || '');
+    if (/_b$/.test(id)) return 'b';
+    if (/_l$/.test(id)) return 'l';
+    if (row.surface === 'B' || row.surface === 'b') return 'b';
+    if (row.surface === 'L' || row.surface === 'l') return 'l';
+    return null;
+}
+
+/** D/M/Me order for one tooth on one surface, matching the current probe walk. */
+function pdSiteOrderForToothSurface(tn, surface) {
+    if (!surface) return ['d', 'm', 'me'];
+    surface = String(surface).toLowerCase();
+    var seqName = (perioSettings && perioSettings.probingSequence) || 'bern';
+    if (!seqName || seqName === 'bern') {
+        return pdSiteOrderForDirection(pdBernIsTowardMidline(tn, surface));
+    }
+    var blocks = pdProbeToothBlocks(seqName);
+    var b;
+    for (b = 0; b < blocks.length; b++) {
+        if (blocks[b].surface !== surface) continue;
+        var teeth = blocks[b].teeth;
+        var idx = teeth.indexOf(tn);
+        if (idx < 0) continue;
+        return pdSiteOrderForWalk(
+            tn,
+            idx > 0 ? teeth[idx - 1] : null,
+            idx < teeth.length - 1 ? teeth[idx + 1] : null,
+            surface
+        );
+    }
+    return ['d', 'm', 'me'];
+}
+
+function pdProbeToothBlocks(seqName) {
+    var ur = UPPER_RIGHT.slice();
+    var ul = UPPER_LEFT.slice();
+    var lr = LOWER_RIGHT.slice();
+    var ll = LOWER_LEFT.slice();
+    seqName = seqName || (perioSettings && perioSettings.probingSequence) || 'bern';
+    if (seqName === 'rightToLeft') {
+        return [
+            { teeth: ur.concat(ul.slice().reverse()), surface: 'b' },
+            { teeth: ur.concat(ul.slice().reverse()), surface: 'l' },
+            { teeth: lr.concat(ll.slice().reverse()), surface: 'b' },
+            { teeth: lr.concat(ll.slice().reverse()), surface: 'l' }
+        ];
+    }
+    if (seqName === 'paperTable') {
+        return [
+            { teeth: ur.concat(ul), surface: 'b' },
+            { teeth: ur.concat(ul), surface: 'l' },
+            { teeth: lr.concat(ll), surface: 'b' },
+            { teeth: lr.concat(ll), surface: 'l' }
+        ];
+    }
+    // Bern: 18B→28B, 28L→18L, 38B→48B, 48L→38L
+    // Toward midline (18→11, 28→21, 38→31, 48→41 lingual): D·M·Me
+    // Away from midline (21→28, 11→18, 41→48 buccal, 31→38): Me·M·D
+    return [
+        { teeth: ur.concat(ul), surface: 'b' },
+        { teeth: ul.slice().reverse().concat(ur.slice().reverse()), surface: 'l' },
+        // Lower buccal: 38 Distal buccal → … → 48 Distal buccal
+        //   38→31 toward midline (D·M·Me), then 41→48 away (Me·M·D)
+        { teeth: ll.slice().reverse().concat(lr.slice().reverse()), surface: 'b' },
+        // Lower lingual: 48 Distal lingual → … → 38 Distal lingual
+        //   48→41 toward midline (D·M·Me), then 31→38 away (Me·M·D)
+        { teeth: lr.concat(ll), surface: 'l' }
+    ];
+}
+
+function pdProbeWalkSequence(seqName) {
+    var out = [];
+    pdProbeToothBlocks(seqName).forEach(function(block) {
+        var teeth = block.teeth;
+        teeth.forEach(function(tn, i) {
+            var prev = i > 0 ? teeth[i - 1] : null;
+            var next = i < teeth.length - 1 ? teeth[i + 1] : null;
+            pdSiteOrderForWalk(tn, prev, next, block.surface).forEach(function(pos) {
+                out.push({ tn: tn, surface: block.surface, pos: pos });
+            });
+        });
+    });
+    return out;
+}
+
+function pdParsePerioCellId(id) {
+    var m = String(id || '').match(/^perio_(\d+)_(pd|gm|bop|pi|bl|cal)_([bl])_(d|m|me)$/);
+    if (!m) return null;
+    return {
+        tn: parseInt(m[1], 10),
+        measure: m[2],
+        surface: m[3],
+        pos: m[4]
+    };
+}
+
+function pdDefaultStartSite() {
+    var seq = pdProbeWalkSequence();
+    var i;
+    var passed = false;
+    for (i = 0; i < seq.length; i++) {
+        if (seq[i].tn === 18 && seq[i].surface === 'b' && seq[i].pos === 'd') passed = true;
+        if (!passed) continue;
+        if (typeof pdToothIsMissing === 'function' && pdToothIsMissing(seq[i].tn)) continue;
+        return { tn: seq[i].tn, surface: seq[i].surface, pos: seq[i].pos, measure: 'pd' };
+    }
+    return { tn: 18, surface: 'b', pos: 'd', measure: 'pd' };
+}
+
+function pdFocusDefaultStartSite() {
+    var start = pdDefaultStartSite();
+    var id = 'perio_' + start.tn + '_pd_' + start.surface + '_' + start.pos;
+    var el = typeof g === 'function' ? g(id) : document.getElementById(id);
+    if (!el) return false;
+    try {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        el.focus();
+        if (el.select) el.select();
+    } catch (eFocus) { /* ignore */ }
+    return true;
+}
+
+function pdFocusProbeNeighbor(fromEl, dir) {
+    var parsed = pdParsePerioCellId(fromEl && fromEl.id);
+    if (!parsed) return false;
+    var seq = pdProbeWalkSequence();
+    var idx = -1;
+    var i;
+    for (i = 0; i < seq.length; i++) {
+        if (seq[i].tn === parsed.tn && seq[i].surface === parsed.surface && seq[i].pos === parsed.pos) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) return false;
+    var j = idx + dir;
+    while (j >= 0 && j < seq.length) {
+        if (typeof pdToothIsMissing === 'function' && pdToothIsMissing(seq[j].tn)) {
+            j += dir;
+            continue;
+        }
+        var id = 'perio_' + seq[j].tn + '_' + parsed.measure + '_' + seq[j].surface + '_' + seq[j].pos;
+        var el = typeof g === 'function' ? g(id) : document.getElementById(id);
+        if (el) {
+            el.focus();
+            if (el.select) el.select();
+            return true;
+        }
+        j += dir;
+    }
+    return false;
+}
+
 // ════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════
@@ -586,7 +836,21 @@ function injectChartCSS() {
 .perio-bop-cell.on { background: #f87171 !important; }
 .perio-bop-cell.perio-plaque-cell:hover { background: #dbeafe; }
 .perio-bop-cell.perio-plaque-cell.on { background: #60a5fa !important; }
-.perio-bop-cell:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.5); }
+.perio-bop-cell:focus,
+.perio-bop-cell:focus-visible,
+.perio-bop-cell.perio-dictate-focus,
+.perio-bop-cell.perio-dictate-focus:focus,
+.perio-bop-cell.perio-dictate-focus:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+/* Never keep a green wash on PI/BI — selected state is red/blue fill only */
+.perio-bop-cell.perio-dictate-focus:not(.on) {
+    background: transparent !important;
+}
+.perio-bop-cell.perio-dictate-focus.on {
+    box-shadow: none !important;
+}
 
 .perio-row-label {
     background: #f8fafc;
@@ -634,7 +898,7 @@ function injectChartCSS() {
     width: 100%; height: 20px; border: none; background: transparent;
     font-size: 11px; font-weight: 700; cursor: pointer;
 }
-.perio-ctable .perio-calc-span { display: block; font-size: 10px; font-weight: 700; color: #555; line-height: 18px; }
+.perio-ctable .perio-calc-span { display: block; font-size: 10px; font-weight: 700; color: #555; line-height: 18px; cursor: pointer; }
 .perio-ctable .perio-note-input {
     width: 100%; height: 20px; border: none; background: transparent;
     font-size: 10px; font-weight: 500; color: #334155; padding: 0 3px;
@@ -683,6 +947,290 @@ function injectChartCSS() {
     content: ''; flex: 1; height: 1px; background: #e2e8f0;
 }
 
+/* ── Perio dictation audio widget ─────────── */
+.perio-dictation-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    max-width: min(560px, 100%);
+    position: relative;
+}
+.perio-dictation {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: relative;
+    flex: 0 1 auto;
+}
+.perio-dictation.is-on {
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+    border-radius: 10px;
+    padding: 3px 8px 3px 3px;
+}
+.perio-dictation-tips {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    max-width: 100%;
+}
+.perio-dictation-tips-toggle {
+    border: 1px solid #c7d2fe;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+    color: #3730a3;
+    border-radius: 999px;
+    padding: 4px 11px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.2;
+    letter-spacing: .01em;
+    box-shadow: 0 1px 0 rgba(255,255,255,.8) inset;
+}
+.perio-dictation-tips-toggle:hover {
+    background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+}
+.perio-dictation-tips.is-open .perio-dictation-tips-toggle {
+    background: #e0e7ff;
+    border-color: #a5b4fc;
+}
+.perio-dictation-tips-body {
+    display: none;
+    margin-top: 5px;
+    width: min(420px, calc(100vw - 48px));
+    padding: 9px 11px;
+    border-radius: 12px;
+    border: 1px solid #c7d2fe;
+    background: #f8fafc;
+    box-shadow: 0 6px 18px rgba(30, 41, 59, .08);
+}
+.perio-dictation-tips.is-open .perio-dictation-tips-body { display: block; }
+.perio-dictation-tips-list {
+    margin: 0;
+    padding: 0 0 0 16px;
+    list-style: disc;
+}
+.perio-dictation-tips-list li {
+    font-size: 11px;
+    line-height: 1.45;
+    color: #334155;
+    margin: 0 0 5px;
+}
+.perio-dictation-tips-list li:last-child { margin-bottom: 0; }
+.perio-dictation-tips-foot {
+    margin-top: 7px;
+    padding-top: 6px;
+    border-top: 1px dashed #c7d2fe;
+    font-size: 10px;
+    color: #64748b;
+    line-height: 1.4;
+}
+.perio-dictation-mic {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid #d0dcf8;
+    background: #fff;
+    color: var(--primary);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.perio-dictation-mic:hover { background: #f0fdf4; }
+.perio-dictation-mic.is-on {
+    background: #10b981;
+    border-color: #059669;
+    color: #fff;
+    animation: perio-dict-pulse 1.2s ease-in-out infinite;
+}
+.perio-dictation-mic.is-unsupported { color: #94a3b8; border-color: #e2e8f0; }
+.perio-dictation-mic.is-blocked {
+    background: #fef2f2;
+    border-color: #fca5a5;
+    color: #b91c1c;
+    animation: none;
+}
+.perio-dictation-mic.is-blocked:hover { background: #fee2e2; }
+.perio-dictation-stop {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid #0f172a;
+    background: #0f172a;
+    color: #fff;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    flex: 0 0 auto;
+    opacity: 0.55;
+    transition: opacity .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.perio-dictation-stop:hover {
+    opacity: 1;
+    background: #1e293b;
+}
+.perio-dictation-stop.is-armed {
+    opacity: 1;
+    background: #0f172a;
+    box-shadow: 0 0 0 2px rgba(15, 23, 42, .18);
+}
+.perio-dictation-stop-icon {
+    width: 11px;
+    height: 11px;
+    border-radius: 1px;
+    background: #f8fafc;
+    display: block;
+}
+.perio-dictation-blocked {
+    display: none;
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #991b1b;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+}
+.perio-dictation.is-blocked .perio-dictation-blocked { display: block; }
+@keyframes perio-dict-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,.45); }
+    50% { box-shadow: 0 0 0 7px rgba(16,185,129,0); }
+}
+.perio-dictation-mode {
+    border: none;
+    background: transparent;
+    color: #047857;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    padding: 2px 4px;
+    letter-spacing: .02em;
+}
+.perio-dictation-heard {
+    font-size: 11px;
+    color: #334155;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.perio-dictation-cursor {
+    font-size: 10px;
+    font-weight: 700;
+    color: #047857;
+    white-space: nowrap;
+}
+.perio-dictation-more {
+    border: 1px solid #d0dcf8;
+    background: #fff;
+    color: #047857;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 5px 7px;
+    border-radius: 8px;
+}
+.perio-dictation-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: auto;
+    right: 0;
+    z-index: 80;
+    width: min(420px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid #d1fae5;
+    border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, .12);
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #334155;
+}
+.perio-dictation.is-open .perio-dictation-panel { display: block; }
+.perio-dictation-panel h4 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: #065f46;
+}
+.perio-dictation-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 8px;
+}
+.perio-dictation-panel td {
+    padding: 3px 4px;
+    vertical-align: top;
+    border-bottom: 1px solid #f1f5f9;
+}
+.perio-dictation-panel td:first-child { font-weight: 700; color: #64748b; width: 38%; }
+.perio-dictation-try {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0;
+}
+.perio-dictation-try input {
+    flex: 1;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+.perio-dictation-try button,
+.perio-dictation-learn-row button,
+.perio-dictation-io button {
+    border: 1px solid #a7f3d0;
+    background: #ecfdf5;
+    color: #065f46;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.perio-dictation-learn-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: 6px 0;
+}
+.perio-dictation-learn-row input,
+.perio-dictation-learn-row select {
+    flex: 1 1 120px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 11px;
+}
+.perio-dictation-pairs { margin: 4px 0 8px; padding: 0; list-style: none; }
+.perio-dictation-pairs li {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0;
+}
+.perio-dictation-pairs button {
+    border: none;
+    background: transparent;
+    color: #b91c1c;
+    cursor: pointer;
+    font-size: 11px;
+}
+.perio-input.perio-dictate-focus {
+    /* Active only while 🎙 is open — cleared on stop / manual mode */
+    box-shadow: inset 0 0 0 2px #10b981 !important;
+    background: rgba(16, 185, 129, 0.22) !important;
+}
+
 /* tooth-tip tooltip */
 .tooth-tooltip {
     position: fixed;
@@ -712,6 +1260,9 @@ function switchChartTab(tab) {
         if (btn)  btn.classList.toggle('active', on);
         if (pane) pane.style.display = on ? 'block' : 'none';
     });
+    if (tab !== 'perio' && typeof pdDictationStop === 'function') {
+        pdDictationStop({ silent: true });
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1600,6 +2151,9 @@ function buildMidline(centerLabel) {
 function renderPerioPane() {
     var pane = g('chartPane-perio');
     if (!pane) return;
+    var restoreId = null;
+    var ae = document.activeElement;
+    if (ae && pane.contains(ae) && ae.id && ae.id.indexOf('perio_') === 0) restoreId = ae.id;
     pdSyncAllPerioImplantsFromDentalOnLoad();
     pdSanitizeImplantExcludedFields();
     pane.innerHTML = '';
@@ -1691,13 +2245,29 @@ function renderPerioPane() {
         (perioState.__notes__ || '') +
         '</textarea>';
     pane.appendChild(na);
+
+    if (perioViewMode === 'table') {
+        var dictOn = typeof pdDict !== 'undefined' && (pdDict.wantOn || pdDict.listening);
+        if (typeof pdDictClearFocus === 'function') pdDictClearFocus();
+        if (dictOn && typeof pdDictPaintCursor === 'function') {
+            pdDictPaintCursor({ skipFocus: true });
+        } else if (restoreId && g(restoreId) &&
+            !(g(restoreId).classList && g(restoreId).classList.contains('perio-bop-cell'))) {
+            try {
+                g(restoreId).focus();
+                if (g(restoreId).select) g(restoreId).select();
+            } catch (eRestore) { /* ignore */ }
+        } else if (!dictOn) {
+            pdFocusDefaultStartSite();
+        }
+    }
 }
 
 // ── View toolbar: Enter Data / Chart View toggle + Print ─────
 function buildPerioViewToolbar() {
     var bar = document.createElement('div');
     bar.style.cssText =
-        'display:flex;align-items:center;gap:10px;margin-bottom:12px;';
+        'display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;';
 
     var toggle = document.createElement('div');
     toggle.style.cssText =
@@ -1768,9 +2338,25 @@ function buildPerioViewToolbar() {
     settingsBtn.addEventListener('click', function() { openPerioSettingsModal(); });
     bar.appendChild(settingsBtn);
 
+    if (typeof mountPerioDictationWidget === 'function') {
+        mountPerioDictationWidget(bar);
+    }
+
     var spacer = document.createElement('div');
     spacer.style.flex = '1';
     bar.appendChild(spacer);
+
+    var resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.id = 'perioResetBtn';
+    resetBtn.textContent = chartTr('chart.perio.resetBtn');
+    resetBtn.title = chartTr('chart.perio.resetTitle');
+    resetBtn.style.cssText =
+        'padding:6px 14px;background:#fff;border:1px solid #fecaca;' +
+        'color:#b91c1c;border-radius:8px;font-size:12px;' +
+        'font-weight:600;cursor:pointer;';
+    resetBtn.addEventListener('click', function() { confirmResetPerioChart(); });
+    bar.appendChild(resetBtn);
 
     var printBtn = document.createElement('button');
     printBtn.type = 'button';
@@ -1794,6 +2380,33 @@ function buildPerioViewToolbar() {
     bar.appendChild(archiveBtn);
 
     return bar;
+}
+
+/** Confirm then wipe all live perio chart values (not archived records). */
+function confirmResetPerioChart() {
+    chartConfirmDialog(
+        chartTr('chart.perio.resetConfirm'),
+        function() { resetPerioChartData(); },
+        { yesLabel: chartTr('chart.perio.resetConfirmYes') }
+    );
+}
+
+function resetPerioChartData() {
+    if (typeof pdDictationStop === 'function') {
+        pdDictationStop({ silent: true });
+    }
+    try {
+        if (typeof pdDict !== 'undefined' && pdDict) {
+            pdDict.undoStack = [];
+            pdDict.cursor = null;
+            pdDict.handSite = null;
+        }
+    } catch (e) { /* ignore */ }
+
+    perioState = {};
+    renderPerioPane();
+    updatePerioSummary();
+    showChartToast(chartTr('chart.perio.resetDone'));
 }
 
 // ── Perio Settings modal ──────────────────────────────────────
@@ -1884,22 +2497,22 @@ function refreshPerioLivePreview() {
 }
 
 /**
- * Keyboard navigation for the "tiny" per-site data-entry cells: ArrowLeft /
- * ArrowRight move focus to the previous/next site cell within the same
- * measurement row, spanning across tooth boundaries (D/M/Me of one tooth,
- * then straight into D of the next tooth), the way a spreadsheet behaves.
+ * Keyboard navigation follows the chairside probe walk (not left-to-right
+ * on screen): ArrowRight / Tab = next site along the probe, ArrowLeft /
+ * Shift+Tab = previous. After the last buccal site the next cell is the
+ * matching lingual/palatal site.
  */
 function pdWireArrowNavRow(tr) {
     var els = Array.prototype.slice.call(
         tr.querySelectorAll('.perio-input, .perio-bop-cell'));
-    els.forEach(function(el, idx) {
+    els.forEach(function(el) {
         el.addEventListener('keydown', function(e) {
-            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-            var target = els[idx + (e.key === 'ArrowLeft' ? -1 : 1)];
-            if (!target) return;
-            e.preventDefault();
-            target.focus();
-            if (target.select) target.select();
+            var dir = 0;
+            if (e.key === 'ArrowRight') dir = 1;
+            else if (e.key === 'ArrowLeft') dir = -1;
+            else if (e.key === 'Tab') dir = e.shiftKey ? -1 : 1;
+            else return;
+            if (pdFocusProbeNeighbor(el, dir)) e.preventDefault();
         });
     });
 }
@@ -1973,22 +2586,7 @@ function buildPerioTable(teeth, arch) {
         htr.appendChild(th);
     });
     thead.appendChild(htr);
-
-    // Sub-header: D M Me positions
-    var sub = document.createElement('tr');
-    var sh0 = document.createElement('th');
-    sh0.textContent = '';
-    sub.appendChild(sh0);
-    teeth.forEach(function() {
-        ['D','M','Me'].forEach(function(pos) {
-            var th = document.createElement('th');
-            th.textContent = pos;
-            th.style.color = '#999';
-            th.style.fontSize = '9px';
-            sub.appendChild(th);
-        });
-    });
-    thead.appendChild(sub);
+    // D/Me mark sub-header hidden — see foldable Me/D · Probe capsule.
     table.appendChild(thead);
 
     // Body
@@ -2035,7 +2633,7 @@ function buildPerioTable(teeth, arch) {
             var implantActive = pdPerioImplantActive(tn);
 
             if (row.type === 'threeval' || row.type === 'bop') {
-                ['d','m','me'].forEach(function(pos) {
+                pdDisplaySiteOrder(tn).forEach(function(pos) {
                     var td  = document.createElement('td');
                     var key = tn + '_' + row.id + '_' + pos;
 
@@ -2058,8 +2656,14 @@ function buildPerioTable(teeth, arch) {
                             var on = !perioState[key];
                             perioState[key] = on;
                             setBopVisual(on);
+                            td.classList.remove('perio-dictate-focus');
                             updatePerioSummary();
                             refreshPerioLivePreview();
+                            var dictOn = typeof pdDict !== 'undefined' &&
+                                (pdDict.wantOn || pdDict.listening);
+                            if (!dictOn) {
+                                try { td.blur(); } catch (eBlur) { /* ignore */ }
+                            }
                         };
                         td.addEventListener('click', toggleBop);
                         td.addEventListener('keydown', function(e) {
@@ -2101,7 +2705,7 @@ function buildPerioTable(teeth, arch) {
                 });
             } else if (row.type === 'calc') {
                 // CAL = PD − GM  (auto)
-                ['d','m','me'].forEach(function(pos) {
+                pdDisplaySiteOrder(tn).forEach(function(pos) {
                     var td  = document.createElement('td');
                     var key = tn + '_' + row.id + '_' + pos;
                     var sp  = document.createElement('span');
@@ -2246,8 +2850,14 @@ function perioCompactSiteCell(row, tn, pos) {
             var on = !perioState[key];
             perioState[key] = on;
             setVisual(on);
+            cell.classList.remove('perio-dictate-focus');
             updatePerioSummary();
             refreshPerioLivePreview();
+            var dictOn = typeof pdDict !== 'undefined' &&
+                (pdDict.wantOn || pdDict.listening);
+            if (!dictOn) {
+                try { cell.blur(); } catch (eBlur) { /* ignore */ }
+            }
         };
         cell.addEventListener('click', toggle);
         cell.addEventListener('keydown', function(e) {
@@ -2290,6 +2900,10 @@ function perioCompactSiteCell(row, tn, pos) {
         updatePerioSummary();
         refreshPerioLivePreview();
     });
+    inp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && pdFocusProbeNeighbor(inp, 1)) e.preventDefault();
+    });
+    // Site D/M/Me labels stay internal (ids + probe walk) — no visible marks.
     var iv = parseInt(storedVal) || 0;
     if (iv >= 4) inp.classList.add('deep');
     else if (iv <= 2 && iv > 0) inp.classList.add('shallow');
@@ -2396,10 +3010,19 @@ function buildPerioCompactRowCell(row, tn) {
         return td;
     }
 
-    // threeval / bop / calc — tight D/M/Me triple, one flex row per cell
+    // Miniboxes use anatomical order for layout; probe walk uses cell ids.
+    // No visible D/M/Me marks — those exist only for the system walk.
+    var surf = pdRowSurface(row);
+    var displayOrder = pdDisplaySiteOrder(tn);
     var tri = document.createElement('div');
     tri.className = 'perio-ctri';
-    ['d', 'm', 'me'].forEach(function(pos) {
+    tri.setAttribute('data-display-order', displayOrder.join('-'));
+    if (surf) {
+        tri.setAttribute('data-probe-order',
+            pdSiteOrderForToothSurface(tn, surf).join('-'));
+        tri.setAttribute('data-probe-surface', surf);
+    }
+    displayOrder.forEach(function(pos) {
         tri.appendChild(perioCompactSiteCell(row, tn, pos));
     });
     td.appendChild(tri);
@@ -2480,6 +3103,8 @@ function buildPerioCompactTable(rowIds, teeth) {
         htr.appendChild(th);
     });
     thead.appendChild(htr);
+    // Site D/Me mark row intentionally omitted — marks live in the foldable
+    // guide capsule so the grid stays visually clean.
     table.appendChild(thead);
 
     var tbody = document.createElement('tbody');
@@ -2521,15 +3146,22 @@ function buildPerioCompactTable(rowIds, teeth) {
     return wrap;
 }
 
-/** One arch = one panel: editable Buccal grid → live tooth diagram (Buccal
- *  + Lingual mirrored pair) → editable Lingual grid — the interactive,
- *  single-page-width counterpart of pdBuildCompactArchPanelHtml. */
+/** One arch = one panel: surface grids sandwich the live tooth diagram.
+ *  Upper: Buccal above, Lingual below (maxilla).
+ *  Lower: Lingual above, Buccal below (mandible — roots down / facial at bottom). */
 function buildPerioArchPanel(teeth, arch) {
     var panel = document.createElement('div');
     panel.className = 'perio-arch-panel';
-    panel.appendChild(buildPerioCompactTable(PERIO_BUCCAL_ROW_IDS, teeth));
-    panel.appendChild(buildPerioArchDiagram(teeth, arch));
-    panel.appendChild(buildPerioCompactTable(PERIO_LINGUAL_ROW_IDS, teeth));
+    var buccalFirst = arch !== 'lower';
+    if (buccalFirst) {
+        panel.appendChild(buildPerioCompactTable(PERIO_BUCCAL_ROW_IDS, teeth));
+        panel.appendChild(buildPerioArchDiagram(teeth, arch));
+        panel.appendChild(buildPerioCompactTable(PERIO_LINGUAL_ROW_IDS, teeth));
+    } else {
+        panel.appendChild(buildPerioCompactTable(PERIO_LINGUAL_ROW_IDS, teeth));
+        panel.appendChild(buildPerioArchDiagram(teeth, arch));
+        panel.appendChild(buildPerioCompactTable(PERIO_BUCCAL_ROW_IDS, teeth));
+    }
     return panel;
 }
 
@@ -2611,10 +3243,7 @@ function pdBuildDataTableHtml(teeth) {
                 esc(pdToothLabel(tn)) + '</th>';
         }).join('') + '</tr>';
 
-    var theadSub = '<tr class="pd-dtable-sub"><th></th>' +
-        teeth.map(function() { return '<th>D</th><th>M</th><th>Me</th>'; }).join('') +
-        '</tr>';
-
+    // No visible D/M/Me sub-header — site order is carried only in cell order.
     var prevSurface = null;
     var bodyRows = rows.map(function(row) {
         var trCls = (row.surface === 'L' && prevSurface === 'B') ? ' class="pd-dtable-divider"' : '';
@@ -2625,7 +3254,7 @@ function pdBuildDataTableHtml(teeth) {
             cells = teeth.map(function(tn) { return pdDataTableSpanValueHtml(row, tn); }).join('');
         } else {
             cells = teeth.map(function(tn) {
-                return ['d','m','me'].map(function(pos) {
+                return pdDisplaySiteOrder(tn).map(function(pos) {
                     return pdDataTablePosValueHtml(row, tn, pos);
                 }).join('');
             }).join('');
@@ -2633,7 +3262,7 @@ function pdBuildDataTableHtml(teeth) {
         return '<tr' + trCls + '><th>' + esc(chartTr(row.labelKey)) + '</th>' + cells + '</tr>';
     }).join('');
 
-    return '<table class="pd-dtable"><thead>' + theadTop + theadSub + '</thead><tbody>' +
+    return '<table class="pd-dtable"><thead>' + theadTop + '</thead><tbody>' +
         bodyRows + '</tbody></table>';
 }
 
@@ -2683,6 +3312,9 @@ function pdCompactDataCss() {
         '.pd-ctable{border-collapse:collapse;font-size:9px;table-layout:fixed;}' +
         '.pd-ctable th,.pd-ctable td{border:1px solid #d8dee6;padding:2px 1px;text-align:center;}' +
         '.pd-ctable thead th{background:#f1f5f9;font-weight:700;color:#334155;font-size:9px;white-space:nowrap;}' +
+        '.pd-ctable tr.pd-site-head th{font-size:7px;color:#94a3b8;font-weight:600;padding:0;height:12px;}' +
+        '.pd-site-head-tri{display:flex;}' +
+        '.pd-site-head-tri span{flex:1;text-align:center;}' +
         '.pd-ctable tbody th{background:#f8fafc;font-size:8px;font-weight:700;color:#64748b;' +
             'text-align:left;padding:2px 5px;white-space:nowrap;box-sizing:border-box;' +
             'overflow:hidden;text-overflow:ellipsis;}' +
@@ -2754,8 +3386,14 @@ function pdCompactCellHtml(row, tn) {
     if (row.type === 'select' || row.type === 'implant' || row.type === 'furcation' || row.type === 'text') {
         return pdCompactSpanCellHtml(row, tn, false);
     }
-    var tri = ['d', 'm', 'me'].map(function(pos) { return pdCompactSiteHtml(row, tn, pos); }).join('');
-    return '<td><div class="pd-ctri">' + tri + '</div></td>';
+    var tri = pdDisplaySiteOrder(tn).map(function(pos) {
+        return pdCompactSiteHtml(row, tn, pos);
+    }).join('');
+    return '<td><div class="pd-ctri" data-display-order="' +
+        esc(pdDisplaySiteOrder(tn).join('-')) +
+        '" data-probe-order="' +
+        esc(pdSiteOrderForToothSurface(tn, pdRowSurface(row)).join('-')) +
+        '">' + tri + '</div></td>';
 }
 
 /** Dedicated midline gap cell — same width as the tooth diagram's own
@@ -2885,54 +3523,56 @@ function pdCompactToothRowSVG(teeth, flipped) {
     };
 }
 
-/** One arch's schematic Buccal + Lingual tooth rows, arranged as a mirrored
- *  "upside-down pair" meeting crown-to-crown at the middle — the simplified
- *  diagram sandwiched between the Buccal grid (above) and Lingual grid
- *  (below), the way periodontalchart-online.com shows both surfaces of one
- *  arch back-to-back around a shared gum-line reference. */
+/** Inner-surface diagram caption: Palatal on maxilla, Lingual on mandible. */
+function pdDiagramInnerSurfaceLabel(arch) {
+    return arch === 'upper'
+        ? chartTr('chart.perio.diagramPalatal')
+        : chartTr('chart.perio.diagramLingual');
+}
+
+/** One arch's schematic Buccal + Lingual tooth rows.
+ *  Upper: Buccal on top (flipped), Palatal on bottom — crowns meet at mid.
+ *  Lower: Lingual on top (flipped), Buccal on bottom — facial/buccal at the
+ *  lower side of the mandible diagram (anatomically upright). */
 function pdCompactArchDiagramSVG(teeth, arch) {
     var width = pdCompactToothX(teeth.length - 1) + PD_C_TOOTH_W + 4;
     var rowH  = PD_C_CROWN_H + PD_C_ROOT_H;
+    var buccalOnTop = arch !== 'lower';
+    var innerLabel = pdDiagramInnerSurfaceLabel(arch);
+    var buccalLabel = chartTr('chart.perio.diagramBuccal');
 
-    // Buccal row (top): root points up/away (toward the Buccal grid above),
-    // crown points down toward the shared middle line — i.e. flipped.
-    var buccalRow  = pdCompactToothRowSVG(teeth, true);
-    // Lingual row (bottom): crown points up toward the shared middle line,
-    // root points down/away (toward the Lingual grid below) — unflipped.
-    var lingualRow = pdCompactToothRowSVG(teeth, false);
+    var topRow    = pdCompactToothRowSVG(teeth, true);   // flipped → crowns toward mid
+    var bottomRow = pdCompactToothRowSVG(teeth, false);  // normal → crowns toward mid
 
-    var yBuccalTop  = 0;
-    var yLingualTop = rowH + PD_C_ROW_GAP;
-    var height = yLingualTop + rowH;
+    var yTop    = 0;
+    var yBottom = rowH + PD_C_ROW_GAP;
+    var height  = yBottom + rowH;
 
-    var lineBuccalY  = yBuccalTop  + buccalRow.lineY;
-    var lineLingualY = yLingualTop + lingualRow.lineY;
+    var lineTopY    = yTop + topRow.lineY;
+    var lineBottomY = yBottom + bottomRow.lineY;
 
-    // Fine 1mm reference ruling drawn behind the teeth so the pocket-depth
-    // diagram (and this schematic mirror of it) always shows the same
-    // lined-paper backdrop, per-row, across the full width.
-    var gridLines = pdCompactGridLinesSVG(yBuccalTop, rowH, width) +
-        pdCompactGridLinesSVG(yLingualTop, rowH, width);
+    var gridLines = pdCompactGridLinesSVG(yTop, rowH, width) +
+        pdCompactGridLinesSVG(yBottom, rowH, width);
 
-    // Semi-solid light partition marking the dental midline (11/21, 31/41),
-    // running the full height of this schematic diagram — aligned with the
-    // matching partition drawn through the Buccal/Lingual data tables.
     var midX = pdCompactToothX(8) - PD_C_MID_GAP / 2;
     var midlineLine = '<line x1="' + midX + '" y1="0" x2="' + midX + '" y2="' + height +
         '" stroke="#94a3b8" stroke-width="1.2" stroke-opacity="0.55"/>';
 
+    var topLabel = buccalOnTop ? buccalLabel : innerLabel;
+    var bottomLabel = buccalOnTop ? innerLabel : buccalLabel;
+
     return '<svg viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height + '">' +
         gridLines +
-        '<g transform="translate(0,' + yBuccalTop + ')">' + buccalRow.group + '</g>' +
-        '<line x1="' + PD_C_AXIS_W + '" y1="' + lineBuccalY + '" x2="' + width + '" y2="' + lineBuccalY +
+        '<g transform="translate(0,' + yTop + ')">' + topRow.group + '</g>' +
+        '<line x1="' + PD_C_AXIS_W + '" y1="' + lineTopY + '" x2="' + width + '" y2="' + lineTopY +
             '" stroke="#dc2626" stroke-width="1.3"/>' +
-        '<text x="1" y="' + (lineBuccalY + 3) + '" font-size="7" font-weight="700" fill="#94a3b8">' +
-            esc(chartTr('chart.perio.diagramBuccal').charAt(0)) + '</text>' +
-        '<g transform="translate(0,' + yLingualTop + ')">' + lingualRow.group + '</g>' +
-        '<line x1="' + PD_C_AXIS_W + '" y1="' + lineLingualY + '" x2="' + width + '" y2="' + lineLingualY +
+        '<text x="1" y="' + (lineTopY + 3) + '" font-size="7" font-weight="700" fill="#94a3b8">' +
+            esc(topLabel.charAt(0)) + '</text>' +
+        '<g transform="translate(0,' + yBottom + ')">' + bottomRow.group + '</g>' +
+        '<line x1="' + PD_C_AXIS_W + '" y1="' + lineBottomY + '" x2="' + width + '" y2="' + lineBottomY +
             '" stroke="#dc2626" stroke-width="1.3"/>' +
-        '<text x="1" y="' + (lineLingualY + 3) + '" font-size="7" font-weight="700" fill="#94a3b8">' +
-            esc(chartTr('chart.perio.diagramLingual').charAt(0)) + '</text>' +
+        '<text x="1" y="' + (lineBottomY + 3) + '" font-size="7" font-weight="700" fill="#94a3b8">' +
+            esc(bottomLabel.charAt(0)) + '</text>' +
         midlineLine +
         '</svg>';
 }
@@ -2942,17 +3582,20 @@ function pdCompactArchDiagramSVG(teeth, arch) {
  *  single page width instead of the old 3-columns-per-tooth wide table. */
 function pdBuildCompactArchPanelHtml(teeth, arch) {
     var archLabel = arch === 'upper' ? chartTr('chart.upperMaxillary') : chartTr('chart.lowerMandibular');
+    var buccalOnTop = arch !== 'lower';
+    var topRows = buccalOnTop ? PD_COMPACT_TOP_ROWS : PD_COMPACT_BOTTOM_ROWS;
+    var bottomRows = buccalOnTop ? PD_COMPACT_BOTTOM_ROWS : PD_COMPACT_TOP_ROWS;
     return (
         '<div class="pd-cpanel">' +
             '<div class="pd-cpanel-title">' + esc(archLabel) + '</div>' +
-            pdBuildCompactTableHtml(PD_COMPACT_TOP_ROWS, teeth) +
+            pdBuildCompactTableHtml(topRows, teeth) +
             // padding-left shifts the diagram so its own small mm/axis gutter
             // (PD_C_AXIS_W) lines up with the tables' fixed-width row-label
             // column (48px) — keeps the dental-midline partitions aligned.
             '<div class="pd-cpanel-diagram" style="padding-left:' + (48 - PD_C_AXIS_W) + 'px;box-sizing:border-box;">' +
                 pdCompactArchDiagramSVG(teeth, arch) +
             '</div>' +
-            pdBuildCompactTableHtml(PD_COMPACT_BOTTOM_ROWS, teeth) +
+            pdBuildCompactTableHtml(bottomRows, teeth) +
         '</div>'
     );
 }
@@ -3182,17 +3825,25 @@ function pdSanitizeImplantExcludedFields() {
  * Shares the same dentalState array used by the Dental Chart tab so both
  * views of the same tooth always agree.
  */
-function pdToggleMissingTooth(tn) {
+function pdSetToothMissing(tn, missing, opts) {
+    opts = opts || {};
     if (!dentalState[tn]) dentalState[tn] = [];
     var idx = dentalState[tn].indexOf('missing');
-    if (idx >= 0) {
+    var isMissing = idx >= 0;
+    if (missing && !isMissing) {
+        dentalState[tn].push('missing');
+        if (opts.promptReason !== false && typeof promptMissingToothReason === 'function') {
+            promptMissingToothReason(tn);
+        }
+    } else if (!missing && isMissing) {
         dentalState[tn].splice(idx, 1);
         delete dentalState[tn + '_missingReason'];
-    } else {
-        dentalState[tn].push('missing');
-        if (typeof promptMissingToothReason === 'function') promptMissingToothReason(tn);
     }
     if (typeof refreshToothSVG === 'function') refreshToothSVG(tn);
+}
+
+function pdToggleMissingTooth(tn) {
+    pdSetToothMissing(tn, !pdToothIsMissing(tn), { promptReason: true });
     renderPerioPane();
 }
 
@@ -3499,13 +4150,11 @@ function pdToothOutlineSVG(teeth) {
 function pdBuildPoints(teeth, surface) {
     var pts = [];
     teeth.forEach(function(tn, i) {
-        ['d', 'm', 'me'].forEach(function(pos, s) {
-            // Stored GM convention: negative = recession (margin apical to
-            // the CEJ, root exposed), positive = overgrowth (margin coronal
-            // to the CEJ). The diagram's y-axis increases *downward* from
-            // the CEJ (y=0), so the plotted gum-line y must be the negation
-            // of the stored value — recession (negative raw) needs to draw
-            // further down/deeper (positive y), overgrowth further up.
+        // Plot sites in the same left→right order as the input miniboxes
+        // (mesial toward midline), so a value typed in the right-hand box
+        // on tooth 28 lands on the distal side of the diagram — not under
+        // the mesial side.
+        pdDisplaySiteOrder(tn).forEach(function(pos, s) {
             var gmRaw = pdGetSiteVal(tn, surface, pos, 'gm');
             var pd = pdGetSiteVal(tn, surface, pos, 'pd');
             pts.push({
@@ -3644,34 +4293,33 @@ function pdMidRowSVG(teeth) {
 }
 
 /**
- * Full pocket-diagram SVG markup for one arch: Buccal strip / tooth row /
- * Lingual strip — the "mirror style two-side" layout matching
- * periodontalchart-online.com. The Buccal strip is always drawn flipped
- * (crown pointing down) and the Lingual/Palatal strip always drawn normal
- * (crown pointing up), so the two strips meet crown-to-crown around the
- * shared tooth-number/mobility/furcation mid-row in between — regardless
- * of upper vs lower arch.
+ * Full pocket-diagram SVG for one arch (mirror-style two-side layout).
+ * Upper: Buccal (top) / Palatal (bottom).
+ * Lower: Lingual (top) / Buccal (bottom) — facial side on the mandible bottom.
  */
 function pdBuildArchDiagramSVG(teeth, arch) {
     var width  = PD_AXIS_W + pdToothX(teeth.length - 1) + 3 * PD_SITE_W + 8;
     var stripBlockH = PD_CROWN_H + PD_STRIP_H;
     var totalH = PD_LABEL_H + stripBlockH + PD_MID_ROW_H + PD_LABEL_H + stripBlockH;
+    var buccalOnTop = arch !== 'lower';
+    var innerLabel = pdDiagramInnerSurfaceLabel(arch);
+    var buccalLabel = chartTr('chart.perio.diagramBuccal');
 
     var buccalPts  = pdBuildPoints(teeth, 'b');
     var lingualPts = pdBuildPoints(teeth, 'l');
 
-    // Buccal: CEJ anchor sits near the BOTTOM of its block (crown-side),
-    // flipped, so the crown points down toward the mid-row gap.
-    var yBuccalStrip  = PD_LABEL_H + PD_STRIP_H;
+    // Top strip: CEJ near bottom of its block, flipped → crowns toward mid-row.
+    var yTopStrip     = PD_LABEL_H + PD_STRIP_H;
     var yMidRow       = PD_LABEL_H + stripBlockH;
-    var yLingualLabel = yMidRow + PD_MID_ROW_H;
-    // Lingual/Palatal: CEJ anchor sits near the TOP of its block, normal
-    // (unflipped), so the crown points up toward the same mid-row gap.
-    var yLingualStrip = yLingualLabel + PD_LABEL_H + PD_CROWN_H;
+    var yBottomLabel  = yMidRow + PD_MID_ROW_H;
+    // Bottom strip: CEJ near top of its block, normal → crowns toward mid-row.
+    var yBottomStrip  = yBottomLabel + PD_LABEL_H + PD_CROWN_H;
 
-    // Semi-solid light partition marking the dental midline (11/21, 31/41),
-    // running the full height of the diagram — aligned with the matching
-    // partition drawn through the Buccal/Lingual data-charting grids.
+    var topPts = buccalOnTop ? buccalPts : lingualPts;
+    var bottomPts = buccalOnTop ? lingualPts : buccalPts;
+    var topLabel = buccalOnTop ? buccalLabel : innerLabel;
+    var bottomLabel = buccalOnTop ? innerLabel : buccalLabel;
+
     var midX = PD_AXIS_W + pdToothX(8) - PD_MID_GAP / 2;
     var midlineLine = '<line x1="' + midX + '" y1="0" x2="' + midX + '" y2="' + totalH +
         '" stroke="#94a3b8" stroke-width="1.4" stroke-opacity="0.55"/>';
@@ -3679,12 +4327,12 @@ function pdBuildArchDiagramSVG(teeth, arch) {
     return '<svg viewBox="0 0 ' + width + ' ' + totalH + '" width="' + width +
         '" height="' + totalH + '" style="display:block;background:#fff;">' +
         '<text x="1" y="' + (PD_LABEL_H - 3) + '" font-size="9" font-weight="700" ' +
-            'fill="#64748b">' + esc(chartTr('chart.perio.diagramBuccal')) + '</text>' +
-        '<g transform="translate(0,' + yBuccalStrip + ')">' + pdStripSVG(buccalPts, width, teeth, true) + '</g>' +
+            'fill="#64748b">' + esc(topLabel) + '</text>' +
+        '<g transform="translate(0,' + yTopStrip + ')">' + pdStripSVG(topPts, width, teeth, true) + '</g>' +
         '<g transform="translate(0,' + yMidRow + ')">' + pdMidRowSVG(teeth) + '</g>' +
-        '<text x="1" y="' + (yLingualLabel + PD_LABEL_H - 3) + '" font-size="9" font-weight="700" ' +
-            'fill="#64748b">' + esc(chartTr('chart.perio.diagramLingual')) + '</text>' +
-        '<g transform="translate(0,' + yLingualStrip + ')">' + pdStripSVG(lingualPts, width, teeth, false) + '</g>' +
+        '<text x="1" y="' + (yBottomLabel + PD_LABEL_H - 3) + '" font-size="9" font-weight="700" ' +
+            'fill="#64748b">' + esc(bottomLabel) + '</text>' +
+        '<g transform="translate(0,' + yBottomStrip + ')">' + pdStripSVG(bottomPts, width, teeth, false) + '</g>' +
         midlineLine +
         '</svg>';
 }
@@ -4316,7 +4964,8 @@ function deleteChartHistoryRow(row) {
 /** Small styled Yes/No confirmation overlay (used instead of the plain
  *  native confirm() so destructive actions like deleting a chart history
  *  entry get a clear, on-brand prompt). Calls onYes() only if confirmed. */
-function chartConfirmDialog(message, onYes) {
+function chartConfirmDialog(message, onYes, opts) {
+    opts = opts || {};
     var old = g('chartConfirmOverlay');
     if (old) old.remove();
 
@@ -4351,7 +5000,7 @@ function chartConfirmDialog(message, onYes) {
 
     var yesBtn = document.createElement('button');
     yesBtn.type = 'button';
-    yesBtn.textContent = chartTr('chart.confirm.yes');
+    yesBtn.textContent = (opts && opts.yesLabel) ? opts.yesLabel : chartTr('chart.confirm.yes');
     yesBtn.style.cssText =
         'padding:8px 20px;border-radius:8px;border:none;background:#dc2626;' +
         'color:#fff;font-weight:700;cursor:pointer;font-size:13px;';

@@ -6435,8 +6435,9 @@
         'chart.perio.viewTable': { en: '📋 Enter Data', 'zh-CN': '📋 数据输入', 'zh-Hant': '📋 數據輸入' },
         'chart.perio.viewDiagram': { en: '📈 Chart View', 'zh-CN': '📈 图表视图', 'zh-Hant': '📈 圖表視圖' },
         'chart.perio.printBtn': { en: '🖨️ Print Chart', 'zh-CN': '🖨️ 打印图表', 'zh-Hant': '🖨️ 列印圖表' },
-        'chart.perio.diagramBuccal': { en: 'Buccal / Facial', 'zh-CN': '颊侧 / 唇侧', 'zh-Hant': '頰側 / 唇側' },
-        'chart.perio.diagramLingual': { en: 'Lingual / Palatal', 'zh-CN': '舌侧 / 腭侧', 'zh-Hant': '舌側 / 齶側' },
+        'chart.perio.diagramBuccal': { en: 'Buccal', 'zh-CN': '颊侧', 'zh-Hant': '頰側' },
+        'chart.perio.diagramLingual': { en: 'Lingual', 'zh-CN': '舌侧', 'zh-Hant': '舌側' },
+        'chart.perio.diagramPalatal': { en: 'Palatal', 'zh-CN': '腭侧', 'zh-Hant': '齶側' },
         'chart.perio.printTitle': { en: 'Periodontal Pocket Chart', 'zh-CN': '牙周袋深度图表', 'zh-Hant': '牙周袋深度圖表' },
         'chart.perio.alertPopupBlocked': {
             en: '⚠️ Please allow popups for this site to print the perio chart.\nLook for the blocked popup icon in your browser address bar.',
@@ -6507,7 +6508,11 @@
         'chart.perio.numberingFdi': { en: 'FDI (11–48)', 'zh-CN': 'FDI（11–48）', 'zh-Hant': 'FDI（11–48）' },
         'chart.perio.numberingUniversal': { en: 'Universal (1–32)', 'zh-CN': '通用编号（1–32）', 'zh-Hant': '通用編號（1–32）' },
         'chart.perio.setProbingSequence': { en: 'Probing Sequence', 'zh-CN': '探诊顺序', 'zh-Hant': '探診順序' },
-        'chart.perio.seqBern': { en: 'Standard of the Clinic for Periodontology, University of Bern', 'zh-CN': '伯尔尼大学牙周病诊所标准', 'zh-Hant': '伯恩大學牙周病診所標準' },
+        'chart.perio.seqBern': {
+            en: 'Probe walk: 18B→28B, 28L→18L, 38B→48B, 48L→38L',
+            'zh-CN': '探诊行走：18颊→28颊，28舌→18舌，38颊→48颊，48舌→38舌',
+            'zh-Hant': '探診行走：18頰→28頰，28舌→18舌，38頰→48頰，48舌→38舌'
+        },
         'chart.perio.seqRightToLeft': { en: 'Upper and lower jaw from right to left', 'zh-CN': '上下颌从右到左', 'zh-Hant': '上下顎從右到左' },
         'chart.perio.seqPaperTable': { en: 'Ideal for data entry from a paper table', 'zh-CN': '适合从纸质表格录入数据', 'zh-Hant': '適合從紙本表格輸入資料' },
         'chart.perio.blBuccal': { en: 'Bone Level (mm)', 'zh-CN': '骨水平 (mm)', 'zh-Hant': '骨水平 (mm)' },
@@ -6518,6 +6523,170 @@
         'chart.perio.archiveError': { en: '⚠️ Could not save to patient record: {MSG}', 'zh-CN': '⚠️ 无法存入患者病历：{MSG}', 'zh-Hant': '⚠️ 無法存入患者病歷：{MSG}' },
         'chart.perio.archiveDocName': { en: 'Periodontal Chart - {DATE}', 'zh-CN': '牙周图表 - {DATE}', 'zh-Hant': '牙周圖表 - {DATE}' },
         'chart.perio.archiveUnavailable': { en: 'PDF export is not available right now — please try again after the page finishes loading.', 'zh-CN': 'PDF 导出功能暂时不可用，请等待页面加载完成后重试。', 'zh-Hant': 'PDF 匯出功能暫時不可用，請等待頁面載入完成後重試。' },
+        'chart.perio.resetBtn': { en: '↺ Reset', 'zh-CN': '↺ 清空', 'zh-Hant': '↺ 清空' },
+        'chart.perio.resetTitle': {
+            en: 'Clear all periodontal chart values',
+            'zh-CN': '清空全部牙周图表数据',
+            'zh-Hant': '清空全部牙周圖表資料'
+        },
+        'chart.perio.resetConfirm': {
+            en: 'Clear all periodontal chart data (PD, GM, BOP, PI, implants, notes)? This cannot be undone.',
+            'zh-CN': '清空全部牙周图表数据（袋深、龈缘、出血、菌斑、种植体、备注）？此操作无法撤销。',
+            'zh-Hant': '清空全部牙周圖表資料（袋深、齦緣、出血、菌斑、植體、備註）？此操作無法復原。'
+        },
+        'chart.perio.resetConfirmYes': { en: 'Yes, Reset', 'zh-CN': '确认清空', 'zh-Hant': '確認清空' },
+        'chart.perio.resetDone': { en: '✅ Periodontal chart cleared', 'zh-CN': '✅ 牙周图表已清空', 'zh-Hant': '✅ 牙周圖表已清空' },
+        'chart.perio.dictate.mic': { en: 'Dictate', 'zh-CN': '语音录入', 'zh-Hant': '語音輸入' },
+        'chart.perio.dictate.stop': { en: 'Stop dictation', 'zh-CN': '停止语音录入', 'zh-Hant': '停止語音輸入' },
+        'chart.perio.dictate.stopTitle': {
+            en: 'Stop the sound widget now — use before typing values by hand so the mic does not interfere',
+            'zh-CN': '立即关闭语音控件 — 手动录入前请先停止，以免麦克风干扰',
+            'zh-Hant': '立即關閉語音控件 — 手動輸入前請先停止，以免麥克風干擾'
+        },
+        'chart.perio.dictate.micTitle': {
+            en: 'Start dictation (turns green). Click ■ to stop. While green, click a chart cell to set the start site. Say “undo” / “back” to wipe the last box.',
+            'zh-CN': '开始语音录入（按钮变绿）。点 ■ 停止。变绿后点击图表位点设置起点。说 “undo” / “back” 清除上一格。',
+            'zh-Hant': '開始語音輸入（按鈕變綠）。點 ■ 停止。變綠後點擊圖表位點設定起點。說 “undo” / “back” 清除上一格。'
+        },
+        'chart.perio.dictate.listening': { en: 'Listening…', 'zh-CN': '正在听…', 'zh-Hant': '正在聽…' },
+        'chart.perio.dictate.live': { en: 'Live', 'zh-CN': '即时', 'zh-Hant': '即時' },
+        'chart.perio.dictate.batch': { en: 'Batch', 'zh-CN': '批量', 'zh-Hant': '批次' },
+        'chart.perio.dictate.modeTitle': {
+            en: 'Switch Live (apply each phrase now) and Batch (apply after a short pause)',
+            'zh-CN': '切换即时（立即写入）与批量（停顿约 1.5 秒后再写入）',
+            'zh-Hant': '切換即時（立即寫入）與批次（停頓約 1.5 秒後再寫入）'
+        },
+        'chart.perio.dictate.needChrome': {
+            en: 'Dictation uses the browser speech engine — available in Chrome and Edge only.',
+            'zh-CN': '语音录入使用浏览器引擎，仅支持 Chrome 与 Edge。',
+            'zh-Hant': '語音輸入使用瀏覽器引擎，僅支援 Chrome 與 Edge。'
+        },
+        'chart.perio.dictate.micDenied': {
+            en: 'Microphone blocked. Allow the mic for this site, then click 🎙 again.',
+            'zh-CN': '麦克风被阻止。请允许此网站使用麦克风，然后再次点击 🎙。',
+            'zh-Hant': '麥克風被阻止。請允許此網站使用麥克風，然後再次點擊 🎙。'
+        },
+        'chart.perio.dictate.needSecure': {
+            en: 'Microphone needs a secure page — open http://127.0.0.1 or localhost in Chrome/Edge (not a LAN IP).',
+            'zh-CN': '麦克风需要安全页面 — 请在 Chrome/Edge 使用 http://127.0.0.1 或 localhost（不要用局域网 IP）。',
+            'zh-Hant': '麥克風需要安全頁面 — 請在 Chrome/Edge 使用 http://127.0.0.1 或 localhost（不要用區域網 IP）。'
+        },
+        'chart.perio.dictate.requestingMic': {
+            en: 'Allow microphone…',
+            'zh-CN': '请允许麦克风…',
+            'zh-Hant': '請允許麥克風…'
+        },
+        'chart.perio.dictate.micHelp': {
+            en: 'If the mic is blocked: (1) Use Chrome or Edge on http://127.0.0.1 or localhost. (2) Click the lock / tune icon in the address bar → Microphone → Allow. (3) Close other apps using the mic (Zoom, Teams). (4) Click 🎙 once and choose Allow. You can still type commands below without the mic.',
+            'zh-CN': '若麦克风被阻止：(1) 用 Chrome/Edge 打开 http://127.0.0.1 或 localhost。(2) 地址栏锁图标 → 麦克风 → 允许。(3) 关闭占用麦克风的程序（Zoom、Teams）。(4) 再点 🎙 并允许。也可在下方输入指令，无需麦克风。',
+            'zh-Hant': '若麥克風被阻止：(1) 用 Chrome/Edge 開啟 http://127.0.0.1 或 localhost。(2) 網址列鎖圖示 → 麥克風 → 允許。(3) 關閉占用麥克風的程式（Zoom、Teams）。(4) 再點 🎙 並允許。也可在下方輸入指令，無需麥克風。'
+        },
+        'chart.perio.dictate.commands': { en: 'Voice commands (English)', 'zh-CN': '语音指令（英文）', 'zh-Hant': '語音指令（英文）' },
+        'chart.perio.dictate.tipsLabel': { en: '🎙 Tips', 'zh-CN': '🎙 提示', 'zh-Hant': '🎙 提示' },
+        'chart.perio.dictate.tipsTitle': {
+            en: 'Quick voice-control notes for the sound widget',
+            'zh-CN': '语音录入控件速查',
+            'zh-Hant': '語音輸入控件速查'
+        },
+        'chart.perio.dictate.tipStart': {
+            en: 'Start: click 🎙 to turn it green. Optionally click a chart site first (or while green) to choose where to begin.',
+            'zh-CN': '开始：点击 🎙 变绿开麦。可先点选图表位点（或变绿后再点）作为起点。',
+            'zh-Hant': '開始：點擊 🎙 變綠開麥。可先點選圖表位點（或變綠後再點）作為起點。'
+        },
+        'chart.perio.dictate.tipBopPi': {
+            en: 'Plaque / bleeding (BOP·PI): plus / one / 1 = mark · minus / zero / 0 = blank · also yes/no.',
+            'zh-CN': '菌斑 / 出血（BOP·PI）：plus / one / 1 = 标记 · minus / zero / 0 = 空白 · 也可用 yes/no。',
+            'zh-Hant': '菌斑 / 出血（BOP·PI）：plus / one / 1 = 標記 · minus / zero / 0 = 空白 · 也可用 yes/no。'
+        },
+        'chart.perio.dictate.tipUndo': {
+            en: 'Go back / undo: undo · back · wipe · oops · go back · delete last (clears last box).',
+            'zh-CN': '回退 / 撤销：undo · back · wipe · oops · go back · delete last（清除上一格）。',
+            'zh-Hant': '回退 / 撤銷：undo · back · wipe · oops · go back · delete last（清除上一格）。'
+        },
+        'chart.perio.dictate.tipMissing': {
+            en: 'Missing: “missing 18” · “tooth 18 is missing” · “present 21” to restore.',
+            'zh-CN': '缺失：“missing 18” · “tooth 18 is missing” · “present 21” 恢复。',
+            'zh-Hant': '缺失：“missing 18” · “tooth 18 is missing” · “present 21” 恢復。'
+        },
+        'chart.perio.dictate.tipImplant': {
+            en: 'Implant: “implant 14” / “dental implant 36” · “implant 14 remove” to clear.',
+            'zh-CN': '种植体：“implant 14” / “dental implant 36” · “implant 14 remove” 清除。',
+            'zh-Hant': '植體：“implant 14” / “dental implant 36” · “implant 14 remove” 清除。'
+        },
+        'chart.perio.dictate.tipNumbers': {
+            en: 'PD / GM: say millimetre values (e.g. “3” and “5” and “4”, or “3” plus “5” plus “4”) along the probe walk.',
+            'zh-CN': '袋深 / 龈缘：沿探诊顺序说出毫米数（例如 “3” and “5” and “4”，或 “3” plus “5” plus “4”）。',
+            'zh-Hant': '袋深 / 齦緣：沿探診順序說出毫米數（例如 “3” and “5” and “4”，或 “3” plus “5” plus “4”）。'
+        },
+        'chart.perio.dictate.tipStop': {
+            en: 'Stop anytime: tap the black ■ next to 🎙 (or say “stop”) before typing by hand.',
+            'zh-CN': '随时停止：点麦克风旁的黑色 ■（或说 “stop”），手动录入前请先关掉。',
+            'zh-Hant': '隨時停止：點麥克風旁的黑色 ■（或說 “stop”），手動輸入前請先關掉。'
+        },
+        'chart.perio.dictate.tipsMore': {
+            en: 'Need training or the full command list? Open ▾ on the mic widget.',
+            'zh-CN': '需要纠错训练或完整指令表？打开麦克风旁的 ▾。',
+            'zh-Hant': '需要糾錯訓練或完整指令表？打開麥克風旁的 ▾。'
+        },
+        'chart.perio.dictate.langNote': {
+            en: 'Recognition language is English (en-US). Type a command below to try without the microphone.',
+            'zh-CN': '识别语言为英语（en-US）。也可在下方输入指令、无需麦克风。',
+            'zh-Hant': '辨識語言為英語（en-US）。也可在下方輸入指令、無需麥克風。'
+        },
+        'chart.perio.dictate.stutterTip': {
+            en: 'If Chrome drops repeats such as “plus plus plus”, say “next” between them. Wrong value? Say “undo” (or “back” / “wipe”) to clear the last box and re-enter. BOP/PI: say “1” = marked, “zero” = blank.',
+            'zh-CN': '若 Chrome 把重复的 “plus plus plus” 当成口吃丢掉，请在中间加说 “next”。录错了？说 “undo”（或 “back” / “wipe”）清除上一格并重录。BOP/PI：说 “1” = 阳性标记，“zero” = 空白。',
+            'zh-Hant': '若 Chrome 把重複的 “plus plus plus” 當成口吃丟掉，請在中間加說 “next”。錄錯了？說 “undo”（或 “back” / “wipe”）清除上一格並重錄。BOP/PI：說 “1” = 陽性標記，“zero” = 空白。'
+        },
+        'chart.perio.dictate.training': { en: 'Personalized speech training', 'zh-CN': '个性化语音纠错', 'zh-Hant': '個人化語音糾錯' },
+        'chart.perio.dictate.heardAs': { en: 'Misheard as (e.g. disco)', 'zh-CN': '被听成（例如 disco）', 'zh-Hant': '被聽成（例如 disco）' },
+        'chart.perio.dictate.expected': { en: 'Expected command (e.g. plus)', 'zh-CN': '期望指令（例如 plus）', 'zh-Hant': '期望指令（例如 plus）' },
+        'chart.perio.dictate.learn': { en: 'Learn', 'zh-CN': '学习', 'zh-Hant': '學習' },
+        'chart.perio.dictate.noneLearned': { en: 'No words learned yet.', 'zh-CN': '尚未学习任何词。', 'zh-Hant': '尚未學習任何詞。' },
+        'chart.perio.dictate.export': { en: 'Export', 'zh-CN': '导出', 'zh-Hant': '匯出' },
+        'chart.perio.dictate.import': { en: 'Import', 'zh-CN': '导入', 'zh-Hant': '匯入' },
+        'chart.perio.dictate.typePh': {
+            en: 'Type a command or mm — uses clicked site, else 18 PD distobuccal',
+            'zh-CN': '输入指令或毫米数 — 使用已点选位点，否则从 18 颊侧远中 PD',
+            'zh-Hant': '輸入指令或毫米數 — 使用已點選位點，否則從 18 頰側遠心 PD'
+        },
+        'chart.perio.dictate.apply': { en: 'Apply', 'zh-CN': '应用', 'zh-Hant': '套用' },
+        'chart.perio.dictate.noCursor': {
+            en: 'No site selected — click 🎙 to start (default PD 18 distobuccal), or click a chart cell first to choose the site.',
+            'zh-CN': '未选择位点 — 点击 🎙 开始（默认 18 颊侧远中 PD），或先点击图表位点再开麦。',
+            'zh-Hant': '未選擇位點 — 點擊 🎙 開始（預設 18 頰側遠心 PD），或先點擊圖表位點再開麥。'
+        },
+        'chart.perio.dictate.endOfSeq': {
+            en: 'End of probing sequence.',
+            'zh-CN': '已到探诊顺序末尾。',
+            'zh-Hant': '已到探診順序末尾。'
+        },
+        'chart.perio.dictate.noMobImplant': {
+            en: 'Mobility is hidden while an implant is set.',
+            'zh-CN': '已标记种植体时不记录松动度。',
+            'zh-Hant': '已標記植體時不記錄鬆動度。'
+        },
+        'chart.perio.dictate.needNumber': {
+            en: 'Say a millimetre value for PD/GM, or on BOP/PI say “1” (positive) / “zero” (blank).',
+            'zh-CN': '请说出 PD/GM 的毫米数；若在 BOP/PI 位点，说 “1”（阳性）或 “zero”（空白）。',
+            'zh-Hant': '請說出 PD/GM 的毫米數；若在 BOP/PI 位點，說 “1”（陽性）或 “zero”（空白）。'
+        },
+        'chart.perio.dictate.unknown': {
+            en: 'Not a recognized command.',
+            'zh-CN': '无法识别该指令。',
+            'zh-Hant': '無法識別該指令。'
+        },
+        'chart.perio.dictate.stopped': { en: 'Dictation stopped.', 'zh-CN': '语音录入已停止。', 'zh-Hant': '語音輸入已停止。' },
+        'chart.perio.dictate.undid': {
+            en: 'Cleared previous box',
+            'zh-CN': '已清除上一格',
+            'zh-Hant': '已清除上一格'
+        },
+        'chart.perio.dictate.nothingToUndo': {
+            en: 'Nothing to undo.',
+            'zh-CN': '没有可撤销的上一格。',
+            'zh-Hant': '沒有可撤銷的上一格。'
+        },
         'chart.tonetti.title': { en: '🧬 Periodontal Staging & Grading (Tonetti 2018)', 'zh-CN': '🧬 牙周分期与分级（Tonetti 2018）', 'zh-Hant': '🧬 牙周分期與分級（Tonetti 2018）' },
         'chart.tonetti.disclaimer': { en: 'Decision-support estimate only — not a diagnosis. Please confirm clinically.', 'zh-CN': '仅为辅助决策的估算，并非诊断，请以临床判断为准。', 'zh-Hant': '僅為輔助決策的估算，並非診斷，請以臨床判斷為準。' },
         'chart.tonetti.maxCal': { en: 'Max CAL', 'zh-CN': '最大 CAL', 'zh-Hant': '最大 CAL' },

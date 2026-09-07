@@ -28,6 +28,7 @@ var REPORT = (function () {
   var _drDailyIncomeExport = null; // { meta, rows } for Dr Daily Doctor Income Report
   var _dailySummaryIncomeExport = null; // { meta, rows } for Daily Summary monthly Clinic Income layout
   var _clinicIncomeDetailExport = null; // { meta, rows } for Clinic Income detail transaction layout
+  var _txStatsExport = null; // Clinic Solution-style treatment item stats export
   var _monthlyIncomeFromMonth = null; // YYYY-MM
   var _monthlyIncomeToMonth = null; // YYYY-MM
   var _monthlyIncomeLastAnchor = 'to'; // 'from' | 'to' — which side stays when clamping to max span
@@ -1679,6 +1680,7 @@ var REPORT = (function () {
   }
 
   function parseBillItems(itemsJson) {
+    if (Array.isArray(itemsJson)) return itemsJson;
     try {
       var arr = JSON.parse(itemsJson || '[]');
       return Array.isArray(arr) ? arr : [];
@@ -1689,6 +1691,309 @@ var REPORT = (function () {
 
   function billItemLineAmount(it) {
     return Number(it && it.qty != null ? it.qty : 0) * Number(it && it.price != null ? it.price : 0);
+  }
+
+  function reportBillItemDiscPct(it) {
+    var d = Number(it && it.disc != null ? it.disc : 0);
+    if (!isFinite(d) || d < 0) return 0;
+    if (d > 100) return 100;
+    return d;
+  }
+
+  function reportBillItemNet(it) {
+    var grossCents = Math.round(billItemLineAmount(it) * 100);
+    var disc = reportBillItemDiscPct(it);
+    if (grossCents <= 0) return 0;
+    if (disc <= 0) return grossCents / 100;
+    if (disc >= 100) return 0;
+    return Math.round(grossCents * (100 - disc) / 100) / 100;
+  }
+
+  function fmtTxStatsQty(n) {
+    var x = Number(n || 0);
+    if (!isFinite(x)) return '0';
+    if (Math.abs(x - Math.round(x)) < 1e-9) return String(Math.round(x));
+    return String(Math.round(x * 100) / 100);
+  }
+
+  function fmtTxStatsDiscPct(n) {
+    var x = Number(n || 0);
+    if (!isFinite(x) || x <= 0.0005) return '';
+    var s = x.toFixed(2);
+    if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    return s;
+  }
+
+  function txStatsDateArranged(bill, apptIndex) {
+    var byId = (apptIndex && apptIndex.byId) || {};
+    var byPatientDate = (apptIndex && apptIndex.byPatientDate) || {};
+    var aid = bill && bill.appointment_id;
+    if (aid && byId[aid] && byId[aid].date) {
+      return String(byId[aid].date).slice(0, 10);
+    }
+    var pid = String((bill && bill.patient_id) || '');
+    var billDay = String((bill && bill.bill_date) || '').slice(0, 10);
+    if (pid && billDay) {
+      var hit = byPatientDate[billDay + '|' + pid];
+      if (hit && hit.date) return String(hit.date).slice(0, 10);
+    }
+    return billDay;
+  }
+
+  function collectTreatmentItemStatGroups(bills, pmap, apptIndex) {
+    var defaultName = tr('report.treat.defaultName');
+    var groups = {};
+    (bills || []).forEach(function (b) {
+      if (!b) return;
+      var items = parseBillItems(b.items);
+      if (!items.length) return;
+      var p = (pmap && b.patient_id && pmap[b.patient_id]) || {};
+      var dateArranged = txStatsDateArranged(b, apptIndex);
+      items.forEach(function (it) {
+        var desc = String(it && it.desc ? it.desc : '').trim();
+        var qty = Number(it && it.qty != null ? it.qty : 0);
+        var price = Number(it && it.price != null ? it.price : 0);
+        if (!desc && !(qty > 0) && !(price > 0)) return;
+        var name = desc || defaultName;
+        var fee = billItemLineAmount(it);
+        var disc = reportBillItemDiscPct(it);
+        var net = reportBillItemNet(it);
+        if (!groups[name]) {
+          groups[name] = { item: name, details: [], qty: 0, fee: 0, net: 0 };
+        }
+        groups[name].details.push({
+          patient_no: String((p && p.patient_no) || b.patient_no || '').trim(),
+          patient_chinese: String((p && p.chinese_name) || '').trim(),
+          patient_name: String((p && p.full_name) || b.patient_name || '').trim(),
+          date_arranged: dateArranged,
+          qty: qty,
+          fee: fee,
+          discount: disc,
+          net: net
+        });
+        groups[name].qty += qty;
+        groups[name].fee += fee;
+        groups[name].net += net;
+      });
+    });
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k];
+      g.fee = Math.round(g.fee * 100) / 100;
+      g.net = Math.round(g.net * 100) / 100;
+      g.details.sort(function (a, b) {
+        var d = String(a.date_arranged || '').localeCompare(String(b.date_arranged || ''));
+        if (d) return d;
+        return String(a.patient_no || '').localeCompare(String(b.patient_no || ''), undefined, { numeric: true });
+      });
+    });
+    return Object.keys(groups).sort(function (a, b) {
+      return a.localeCompare(b, undefined, { sensitivity: 'base' });
+    }).map(function (k) { return groups[k]; });
+  }
+
+  function treatmentItemStatsChartRows(groups) {
+    return (groups || []).map(function (g) {
+      return { item: g.item, qty: g.qty, amount: Number(g.net || 0) };
+    }).sort(function (a, b) {
+      return b.amount - a.amount;
+    }).slice(0, 40).map(function (r) {
+      return { item: r.item, qty: r.qty, amount: r.amount.toFixed(2) };
+    });
+  }
+
+  function presentTreatmentItemStatsReport(wrap, groups, opts) {
+    opts = opts || {};
+    if (!wrap) return;
+    groups = groups || [];
+    if (!groups.length) {
+      wrap.innerHTML = '<div style="padding:14px;color:#64748b;">' +
+        esc(opts.emptyMsg || tr('report.noData')) + '</div>';
+      _rows = [];
+      _txStatsExport = null;
+      return;
+    }
+
+    var grandQty = 0;
+    var grandFee = 0;
+    var grandNet = 0;
+    groups.forEach(function (g) {
+      grandQty += Number(g.qty || 0);
+      grandFee += Number(g.fee || 0);
+      grandNet += Number(g.net || 0);
+    });
+    grandFee = Math.round(grandFee * 100) / 100;
+    grandNet = Math.round(grandNet * 100) / 100;
+
+    _rows = treatmentItemStatsChartRows(groups);
+    _txStatsExport = {
+      groups: groups,
+      clinic: opts.clinic || '',
+      period: opts.period || '',
+      doctor: opts.doctor || '',
+      fileBase: opts.fileBase || 'treatment_item_stats',
+      grandQty: grandQty,
+      grandFee: grandFee,
+      grandNet: grandNet
+    };
+
+    var th = 'padding:8px 10px;background:#f3f0ff;color:#6d28d9;font-size:12px;font-weight:900;' +
+      'border-bottom:2px solid #e9ddff;text-align:left;white-space:nowrap;';
+    var td = 'padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
+    var itemHead = 'padding:9px 10px;background:#ede9fe;color:#4c1d95;font-size:13px;font-weight:900;' +
+      'border-bottom:1px solid #ddd6fe;';
+    var totTd = 'padding:8px 10px;background:#faf8ff;color:#4c1d95;font-size:13px;font-weight:900;' +
+      'border-bottom:1px solid #e9ddff;';
+
+    var rowsHtml = '';
+    groups.forEach(function (g) {
+      rowsHtml += '<tr>' +
+        '<td colspan="8" style="' + itemHead + '">' +
+          esc(g.item) +
+          '<span style="float:right;font-weight:800;color:#6d28d9;">' +
+            esc(tr('report.col.qty') + ' ' + fmtTxStatsQty(g.qty)) +
+            ' · ' + fmtHK(g.net) +
+          '</span>' +
+        '</td>' +
+      '</tr>';
+      g.details.forEach(function (d) {
+        var cn = d.patient_chinese
+          ? '<span class="patient-dir-name-cn">' + esc(d.patient_chinese) + '</span>'
+          : '';
+        rowsHtml += '<tr>' +
+          '<td style="' + td + 'font-weight:800;color:#0d6efd;">' + esc(d.patient_no) + '</td>' +
+          '<td style="' + td + '">' + cn + '</td>' +
+          '<td style="' + td + '">' + esc(d.patient_name) + '</td>' +
+          '<td style="' + td + 'white-space:nowrap;">' + esc(d.date_arranged || '') + '</td>' +
+          '<td style="' + td + 'text-align:right;">' + esc(fmtTxStatsQty(d.qty)) + '</td>' +
+          '<td style="' + td + 'text-align:right;">' + fmtHK(d.fee) + '</td>' +
+          '<td style="' + td + 'text-align:right;">' + esc(fmtTxStatsDiscPct(d.discount)) + '</td>' +
+          '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(d.net) + '</td>' +
+        '</tr>';
+      });
+      rowsHtml += '<tr>' +
+        '<td colspan="4" style="' + totTd + '">' + esc(tr('report.drDaily.totalLabel')) + '</td>' +
+        '<td style="' + totTd + 'text-align:right;">' + esc(fmtTxStatsQty(g.qty)) + '</td>' +
+        '<td style="' + totTd + 'text-align:right;">' + fmtHK(g.fee) + '</td>' +
+        '<td style="' + totTd + '"></td>' +
+        '<td style="' + totTd + 'text-align:right;">' + fmtHK(g.net) + '</td>' +
+      '</tr>';
+    });
+
+    var pad = opts.padded ? 'padding:12px;' : '';
+    wrap.innerHTML =
+      '<div style="' + pad + '">' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
+          '<div style="background:#f3f0ff;border:1px solid #e9ddff;border-radius:12px;padding:10px 12px;min-width:220px;">' +
+            '<div style="font-size:11px;color:#6d28d9;font-weight:900;">' +
+              esc(opts.grandAmountLabel || tr('report.txStats.grandNet')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#4c1d95;font-weight:900;">' + fmtHK(grandNet) + '</div>' +
+          '</div>' +
+          '<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;min-width:180px;">' +
+            '<div style="font-size:11px;color:#64748b;font-weight:900;">' +
+              esc(opts.grandQtyLabel || tr('report.txStats.grandQty')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#0f172a;font-weight:900;">' +
+              esc(fmtTxStatsQty(grandQty)) + '</div>' +
+          '</div>' +
+          '<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;min-width:180px;">' +
+            '<div style="font-size:11px;color:#64748b;font-weight:900;">' +
+              esc(tr('report.col.fee')) + '</div>' +
+            '<div style="margin-top:2px;font-size:18px;color:#0f172a;font-weight:900;">' + fmtHK(grandFee) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="border:1px solid #e9ddff;border-radius:12px;overflow:hidden;background:#fff;">' +
+          '<div style="overflow:auto;max-height:560px;">' +
+            '<table style="width:100%;border-collapse:collapse;min-width:980px;">' +
+              '<thead><tr>' +
+                '<th style="' + th + '">' + esc(tr('report.col.patientNo')) + '</th>' +
+                '<th style="' + th + '">' + esc(tr('report.col.chinese')) + '</th>' +
+                '<th style="' + th + '">' + esc(tr('report.col.englishName')) + '</th>' +
+                '<th style="' + th + '">' + esc(tr('report.col.dateArranged')) + '</th>' +
+                '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.qty')) + '</th>' +
+                '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.fee')) + '</th>' +
+                '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.discountPct')) + '</th>' +
+                '<th style="' + th + 'text-align:right;">' + esc(tr('report.col.netFee')) + '</th>' +
+              '</tr></thead>' +
+              '<tbody>' + rowsHtml + '</tbody>' +
+            '</table>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function exportTreatmentItemStatsExcel(bundle) {
+    var groups = bundle && bundle.groups;
+    if (!groups || !groups.length) {
+      alert(tr('report.alert.exportNoData'));
+      return;
+    }
+    var aoa = [];
+    var merges = [];
+    var sectionHeaderRows = [];
+    var boldRows = [];
+    aoa.push([tr('report.title.txStats')]);
+    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } });
+    if (bundle.clinic) aoa.push([tr('report.drMonthly.labelClinic'), bundle.clinic]);
+    if (bundle.period) aoa.push([tr('report.col.date'), bundle.period]);
+    if (bundle.doctor) aoa.push([tr('report.dr.labelDoctor'), bundle.doctor]);
+    aoa.push([]);
+    var headerRowIndex = aoa.length;
+    aoa.push([
+      tr('report.col.patientNo'),
+      tr('report.col.chinese'),
+      tr('report.col.englishName'),
+      tr('report.col.dateArranged'),
+      tr('report.col.qty'),
+      tr('report.col.fee'),
+      tr('report.col.discountPct'),
+      tr('report.col.netFee')
+    ]);
+    groups.forEach(function (g) {
+      var headerIdx = aoa.length;
+      aoa.push([g.item, '', '', '', '', '', '', '']);
+      merges.push({ s: { r: headerIdx, c: 0 }, e: { r: headerIdx, c: 7 } });
+      sectionHeaderRows.push(headerIdx);
+      (g.details || []).forEach(function (d) {
+        var disc = fmtTxStatsDiscPct(d.discount);
+        aoa.push([
+          d.patient_no || '',
+          d.patient_chinese || '',
+          d.patient_name || '',
+          d.date_arranged || '',
+          Number(d.qty || 0),
+          Math.round(Number(d.fee || 0) * 100) / 100,
+          disc === '' ? '' : Number(d.discount || 0),
+          Math.round(Number(d.net || 0) * 100) / 100
+        ]);
+      });
+      var totalIdx = aoa.length;
+      aoa.push([
+        tr('report.drDaily.totalLabel'),
+        '',
+        '',
+        '',
+        Number(g.qty || 0),
+        Number(g.fee || 0),
+        '',
+        Number(g.net || 0)
+      ]);
+      boldRows.push(totalIdx);
+      aoa.push([]);
+    });
+    loadReportXlsxLib().then(function () {
+      downloadReportExcelWorkbook(bundle.fileBase || 'treatment_item_stats', {
+        aoa: aoa,
+        merges: merges,
+        colWidths: [110, 140, 200, 120, 70, 100, 80, 100],
+        headerRowIndex: headerRowIndex,
+        colCount: 8,
+        prefaceCount: headerRowIndex,
+        sectionHeaderRows: sectionHeaderRows,
+        boldRows: boldRows,
+        numericColIndices: [4, 5, 6, 7]
+      });
+    }).catch(function (e) {
+      alert(trRepl('report.alert.exportFailed', { MSG: e.message || String(e) }));
+    });
   }
 
   /**
@@ -2059,6 +2364,12 @@ var REPORT = (function () {
   function exportCSV() {
     if (_tab === 'dailySummary') {
       exportDailySummaryCsvFormatted();
+      return;
+    }
+    if (_tab === 'txStats' ||
+        (_tab === 'drDaily' && _drDailyMode === 'treatmentStats') ||
+        (_tab === 'drMonthly' && _drMonthlyMode === 'treatmentStats')) {
+      exportTreatmentItemStatsExcel(_txStatsExport);
       return;
     }
     if (_tab === 'drMonthly' && _drMonthlyMode === 'simple') {
@@ -5012,11 +5323,28 @@ var REPORT = (function () {
     var patientIds = filteredBills.map(function (b) { return b.patient_id; }).filter(Boolean);
     var _drDailyPar2 = await Promise.all([
       loadPatientsByIds(patientIds),
-      loadBillPaymentsForBillIds(filteredBills.map(function (b) { return b.id; }).filter(Boolean))
+      _drDailyMode === 'treatmentStats'
+        ? loadAppointmentsForDailySummary(day, day, filteredBills)
+        : loadBillPaymentsForBillIds(filteredBills.map(function (b) { return b.id; }).filter(Boolean))
     ]);
     var pts = _drDailyPar2[0];
     var pmap = {};
     pts.forEach(function (p) { pmap[p.id] = p; });
+
+    if (_drDailyMode === 'treatmentStats') {
+      var drDailyGroups = collectTreatmentItemStatGroups(filteredBills, pmap, _drDailyPar2[1]);
+      presentTreatmentItemStatsReport(body, drDailyGroups, {
+        emptyMsg: tr('report.dr.noBilledDay'),
+        grandAmountLabel: tr('report.drStats.todayItemGrandTotal'),
+        grandQtyLabel: tr('report.drStats.todayTotalFreq'),
+        clinic: reportActiveClinicLabel(),
+        period: formatDrDailyReportDate(day),
+        doctor: allDoctors ? '' : doctorOptionLabel(dr),
+        fileBase: 'dr_daily_tx_stats_' + day
+      });
+      return;
+    }
+
     var paymentsByBillId = indexPaymentsByBillId(_drDailyPar2[1]);
 
     // When "All clinics" is selected, resolve each bill's clinic so the
@@ -5065,68 +5393,6 @@ var REPORT = (function () {
         allDoctors: allDoctors,
         doctorSlug: drDailyDoctorSlug
       }, { from: day, to: day });
-      return;
-    }
-
-    if (_drDailyMode === 'treatmentStats') {
-      var byItem = {};
-      tx.forEach(function (r) {
-        var paid = Number(r.bill_paid != null ? r.bill_paid : 0);
-        if (paid <= 0.005) return;
-        accumulateTreatmentStatsMap(byItem, r.treatment_items, paid);
-      });
-      var grandFreq = 0;
-      var grandAmt = 0;
-      Object.keys(byItem).forEach(function (k) {
-        grandFreq += byItem[k].frequency;
-        grandAmt += byItem[k].amount_num;
-      });
-      var rows = Object.keys(byItem).map(function (k) {
-        return {
-          item_name: k,
-          frequency: byItem[k].frequency,
-          amount: byItem[k].amount_num.toFixed(2)
-        };
-      }).sort(function (a, b) {
-        return Number(b.amount || 0) - Number(a.amount || 0);
-      });
-      if (!rows.length) {
-        body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledDay')) + '</div>';
-        return;
-      }
-      var th = 'padding:10px 10px;background:#f3f0ff;color:#6d28d9;font-size:12px;font-weight:900;border-bottom:2px solid #e9ddff;text-align:left;';
-      var td = 'padding:9px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:top;';
-      var rowsHtml = rows.map(function (r) {
-        return '<tr>' +
-          '<td style="' + td + 'font-weight:900;color:#0f172a;">' + esc(r.item_name) + '</td>' +
-          '<td style="' + td + 'text-align:right;">' + esc(String(r.frequency || 0)) + '</td>' +
-          '<td style="' + td + 'text-align:right;font-weight:900;">' + fmtHK(Number(r.amount)) + '</td>' +
-        '</tr>';
-      }).join('');
-      body.innerHTML =
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
-          '<div style="background:#f3f0ff;border:1px solid #e9ddff;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#6d28d9;font-weight:900;">' + esc(tr('report.drStats.todayItemGrandTotal')) + '</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#4c1d95;font-weight:900;">' + fmtHK(grandAmt) + '</div>' +
-          '</div>' +
-          '<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:900;">' + esc(tr('report.drStats.todayTotalFreq')) + '</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#0f172a;font-weight:900;">' + grandFreq + '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="border:1px solid #e9ddff;border-radius:12px;overflow:hidden;background:#fff;">' +
-          '<div style="overflow:auto;max-height:560px;">' +
-            '<table style="width:100%;border-collapse:collapse;table-layout:fixed;">' +
-              '<thead><tr>' +
-                '<th style="' + th + '">' + esc(tr('report.drStats.thTreatmentItem')) + '</th>' +
-                '<th style="' + th + 'width:160px;text-align:right;">' + esc(tr('report.drStats.thFrequency')) + '</th>' +
-                '<th style="' + th + 'width:220px;text-align:right;">' + esc(tr('report.drStats.thTotalAmount')) + '</th>' +
-              '</tr></thead>' +
-              '<tbody>' + rowsHtml + '</tbody>' +
-            '</table>' +
-          '</div>' +
-        '</div>';
-      _rows = rows;
       return;
     }
     } catch (e) {
@@ -5249,85 +5515,26 @@ var REPORT = (function () {
     }
 
     // ───────────────────────────────────────────────────────
-    // MODE: Treatment Statistics (monthly)
+    // MODE: Treatment Statistics (monthly) — Clinic Solution item detail
     // ───────────────────────────────────────────────────────
     if (_drMonthlyMode === 'treatmentStats') {
-      var byItem = {};
-      var monthPayRows = await loadBillPaymentsForBillIds(
-        filtered.map(function (b) { return b && b.id; }).filter(Boolean)
-      );
-      var monthPayByBill = indexPaymentsByBillId(monthPayRows);
-      filtered.forEach(function (b) {
-        var paid = reportPaidForIncomeStats(b, (b && b.id) ? monthPayByBill[b.id] : []);
-        if (paid <= 0.005) return;
-        accumulateTreatmentStatsMap(byItem, b.items, paid);
+      var monthPatientIds = filtered.map(function (b) { return b && b.patient_id; }).filter(Boolean);
+      var _moTxPar = await Promise.all([
+        loadPatientsByIds(monthPatientIds),
+        loadAppointmentsForDailySummary(from, to, filtered)
+      ]);
+      var monthPmap = {};
+      (_moTxPar[0] || []).forEach(function (p) { monthPmap[p.id] = p; });
+      var monthGroups = collectTreatmentItemStatGroups(filtered, monthPmap, _moTxPar[1]);
+      presentTreatmentItemStatsReport(body, monthGroups, {
+        emptyMsg: tr('report.dr.noBilledTreatmentMonth'),
+        grandAmountLabel: tr('report.drStats.monthItemGrand'),
+        grandQtyLabel: tr('report.drStats.monthTotalFreq'),
+        clinic: reportActiveClinicLabel(),
+        period: formatDrMonthlyMonthTitle(month),
+        doctor: allDoctors ? '' : doctorOptionLabel(dr),
+        fileBase: 'dr_monthly_tx_stats_' + month
       });
-
-      var grandItems = 0;
-      var grandIncome = 0;
-      Object.keys(byItem).forEach(function (k) {
-        grandItems += byItem[k].frequency;
-        grandIncome += byItem[k].amount_num;
-      });
-
-      var rows = Object.keys(byItem).map(function (k) {
-        return { item: k, freq: byItem[k].frequency, income: byItem[k].amount_num };
-      }).sort(function (a, b) { return b.income - a.income; });
-
-      if (!rows.length) {
-        body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledTreatmentMonth')) + '</div>';
-        _rows = [];
-        return;
-      }
-
-      _rows = rows.map(function (r) {
-        return { item: r.item, frequency: r.freq, income: r.income.toFixed(2) };
-      });
-      // Append total row so it appears in CSV export
-      _rows = _rows.concat([{ item: tr('report.drStats.totalRow'), frequency: grandItems, income: grandIncome.toFixed(2) }]);
-
-      var th = 'padding:10px 12px;background:#f3f0ff;color:#6d28d9;font-size:12px;font-weight:900;border-bottom:2px solid #e9ddff;text-align:left;';
-      var td = 'padding:9px 12px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-align:middle;';
-      var dataRows = _rows.slice(0, _rows.length - 1);
-      var rowsHtml = dataRows.map(function (r) {
-        return '<tr>' +
-          '<td style="' + td + 'font-weight:900;color:#0f172a;">' + esc(r.item) + '</td>' +
-          '<td style="' + td + 'text-align:right;">' + esc(String(r.frequency || 0)) + '</td>' +
-          '<td style="' + td + 'text-align:right;font-weight:900;color:#6d28d9;">' + fmtHK(Number(r.income)) + '</td>' +
-        '</tr>';
-      }).join('');
-      var tfootStyle = 'padding:10px 12px;font-size:13px;vertical-align:middle;background:#f3f0ff;border-top:2px solid #c4b5fd;';
-      var totalFooter =
-        '<tfoot><tr>' +
-          '<td style="' + tfootStyle + 'font-weight:900;color:#4c1d95;">' + esc(tr('report.drStats.totalRow')) + '</td>' +
-          '<td style="' + tfootStyle + 'text-align:right;font-weight:900;color:#4c1d95;">' + esc(String(grandItems)) + '</td>' +
-          '<td style="' + tfootStyle + 'text-align:right;font-weight:900;color:#4c1d95;">' + fmtHK(grandIncome) + '</td>' +
-        '</tr></tfoot>';
-
-      body.innerHTML =
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">' +
-          '<div style="background:#f3f0ff;border:1px solid #e9ddff;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#6d28d9;font-weight:900;">' + esc(tr('report.drStats.monthItemGrand')) + '</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#4c1d95;font-weight:900;">' + fmtHK(grandIncome) + '</div>' +
-          '</div>' +
-          '<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;min-width:220px;">' +
-            '<div style="font-size:11px;color:#64748b;font-weight:900;">' + esc(tr('report.drStats.monthTotalFreq')) + '</div>' +
-            '<div style="margin-top:2px;font-size:18px;color:#0f172a;font-weight:900;">' + grandItems + '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="border:1px solid #e9ddff;border-radius:12px;overflow:hidden;background:#fff;">' +
-          '<div style="overflow:auto;max-height:560px;">' +
-            '<table style="width:100%;border-collapse:collapse;min-width:720px;">' +
-              '<thead><tr>' +
-                '<th style="' + th + '">' + esc(tr('report.drStats.thTreatmentItem')) + '</th>' +
-                '<th style="' + th + 'text-align:right;width:160px;">' + esc(tr('report.drStats.thFrequency')) + '</th>' +
-                '<th style="' + th + 'text-align:right;width:200px;">' + esc(tr('report.drStats.thTotalIncome')) + '</th>' +
-              '</tr></thead>' +
-              '<tbody>' + rowsHtml + '</tbody>' +
-              totalFooter +
-            '</table>' +
-          '</div>' +
-        '</div>';
       return;
     }
 
@@ -7069,35 +7276,32 @@ var REPORT = (function () {
       if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
       if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = '';
 
-      // txStats: bills in date range, income allocated from payment (not bill line prices).
+      // txStats: Clinic Solution billing-item statistic — grouped item + patient detail.
       if (_tab === 'txStats') {
         setHeader(tr('report.title.txStats'), tr('report.hint.txStats'));
         var bills = await loadBills(from, to);
         if (mySeq !== _refreshSeq) return;
-        var txPayRows = await loadBillPaymentsForBillIds(
-          (bills || []).map(function (b) { return b && b.id; }).filter(Boolean)
-        );
+        var txPatientIds = (bills || []).map(function (b) { return b && b.patient_id; }).filter(Boolean);
+        var txCtx = await Promise.all([
+          loadPatientsByIds(txPatientIds),
+          loadAppointmentsForDailySummary(from, to, bills)
+        ]);
         if (mySeq !== _refreshSeq) return;
-        var txPayByBill = indexPaymentsByBillId(txPayRows);
-        var byItem = {};
-        bills.forEach(function (b) {
-          var paid = reportPaidForIncomeStats(b, (b && b.id) ? txPayByBill[b.id] : []);
-          if (paid <= 0.005) return;
-          accumulateTreatmentStatsMap(byItem, b.items, paid);
+        var txPmap = {};
+        (txCtx[0] || []).forEach(function (p) { txPmap[p.id] = p; });
+        var txGroups = collectTreatmentItemStatGroups(bills, txPmap, txCtx[1]);
+        var txPeriod = (from && to && from !== to) ? (from + ' – ' + to) : (from || to || '');
+        var txFile = 'tx_stats_' + (from || '');
+        if (to && to !== from) txFile += '_to_' + to;
+        presentTreatmentItemStatsReport(g('rptTableWrap'), txGroups, {
+          emptyMsg: tr('report.noData'),
+          grandAmountLabel: tr('report.txStats.grandNet'),
+          grandQtyLabel: tr('report.txStats.grandQty'),
+          clinic: reportActiveClinicLabel(),
+          period: txPeriod,
+          fileBase: txFile,
+          padded: true
         });
-        _rows = Object.keys(byItem)
-          .map(function (k) {
-            return { item: k, qty: byItem[k].frequency, amount: byItem[k].amount_num };
-          })
-          .sort(function (a, b) { return b.amount - a.amount; })
-          .slice(0, 40)
-          .map(function (r) {
-            return { item: r.item, qty: r.qty, amount: r.amount.toFixed(2) };
-          });
-        renderTable(
-          [{ key: 'item', label: tr('report.col.item') }, { key: 'qty', label: tr('report.col.qty') }, { key: 'amount', label: tr('report.col.amountHkd') }],
-          _rows
-        );
         renderChartFromRows('item', 'amount');
         return;
       }

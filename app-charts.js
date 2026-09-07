@@ -2854,7 +2854,7 @@ function pdCompactGridLinesSVG(top, height, width) {
     var lines = '';
     for (var y = top; y <= top + height; y += PD_C_MM_PX) {
         lines += '<line x1="' + PD_C_AXIS_W + '" y1="' + y.toFixed(1) + '" x2="' + width +
-            '" y2="' + y.toFixed(1) + '" stroke="#eef1f6" stroke-width="1"/>';
+            '" y2="' + y.toFixed(1) + '" stroke="' + PD_GRID_STROKE + '" stroke-width="1"/>';
     }
     return lines;
 }
@@ -3072,6 +3072,10 @@ var PD_LABEL_H    = 14;   // height of the "Buccal" / "Lingual" caption row
 var PD_MID_ROW_H  = 40;   // height of the tooth-number / mob / furcation row
 var PD_STRIP_H    = PD_MAX_MM * PD_MM_PX;
 var PD_CROWN_H    = 18;   // space above the CEJ (y=0) reserved for the tooth crown outline
+// periodontalchart-online.com reference: navy GM–PD polygon + lined-paper grid.
+var PD_GRID_STROKE        = '#cbd5e1';  // mm ruling — slightly stronger than #eef1f6
+var PD_POCKET_FILL        = '#000080';  // transparent purplish blue over tooth
+var PD_POCKET_FILL_OPACITY = '0.5';
 
 /** x position (left edge) of tooth at index i within its arch's 16-tooth row. */
 function pdToothX(i) {
@@ -3557,7 +3561,7 @@ function pdStripSVG(pts, width, teeth, flip) {
     for (var mm = -crownMm; mm <= PD_MAX_MM; mm++) {
         var y = mm * PD_MM_PX;
         gridLines += '<line x1="0" y1="' + y.toFixed(1) + '" x2="' + (width - 2) +
-            '" y2="' + y.toFixed(1) + '" stroke="#eef1f6" stroke-width="1"/>';
+            '" y2="' + y.toFixed(1) + '" stroke="' + PD_GRID_STROKE + '" stroke-width="1"/>';
         if (mm >= 0 && mm % 2 === 0) {
             var ty = flip ? -y - 1 : y + 3;
             gridText += '<text x="1" y="' + ty.toFixed(1) + '" font-size="8" fill="#aaa">' + mm + '</text>';
@@ -3572,11 +3576,11 @@ function pdStripSVG(pts, width, teeth, flip) {
         ? '<polyline points="' + pdPolylinePoints(pts, 'bl') +
           '" fill="none" stroke="#374151" stroke-width="1.3" stroke-dasharray="4,3"/>'
         : '';
-    // Pocket depth (shaded light blue) + attachment level (blue line) are the
-    // "soul" of the chart — they must always plot immediately against the
-    // tooth outline underneath; GM = red (gum line), AL/pocket outline = blue.
+    // Pocket fill: transparent purplish navy (periodontalchart-online.com style).
+    // GM = red gum line, AL/pocket outline = blue.
     var shapes = outline + gridLines +
-        '<path d="' + pdPocketPath(pts) + '" fill="#bfe3ff" fill-opacity="0.55" stroke="none"/>' +
+        '<path d="' + pdPocketPath(pts) + '" fill="' + PD_POCKET_FILL +
+        '" fill-opacity="' + PD_POCKET_FILL_OPACITY + '" stroke="none"/>' +
         '<polyline points="' + pdPolylinePoints(pts, 'gm') + '" fill="none" stroke="#dc2626" stroke-width="1.8"/>' +
         '<polyline points="' + pdPolylinePoints(pts, 'al') + '" fill="none" stroke="#2563eb" stroke-width="1.8"/>' +
         boneLine +

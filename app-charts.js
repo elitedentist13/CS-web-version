@@ -3572,12 +3572,11 @@ function pdStripSVG(pts, width, teeth, flip) {
         ? '<polyline points="' + pdPolylinePoints(pts, 'bl') +
           '" fill="none" stroke="#374151" stroke-width="1.3" stroke-dasharray="4,3"/>'
         : '';
-    // Pocket depth (shaded light-grey, periodontalchart-online.com style) +
-    // attachment level (blue line) are the "soul" of the chart — they must
-    // always plot immediately against the tooth outline underneath,
-    // GM = red (gum line), AL/pocket outline = blue.
+    // Pocket depth (shaded light blue) + attachment level (blue line) are the
+    // "soul" of the chart — they must always plot immediately against the
+    // tooth outline underneath; GM = red (gum line), AL/pocket outline = blue.
     var shapes = outline + gridLines +
-        '<path d="' + pdPocketPath(pts) + '" fill="#94a3b8" fill-opacity="0.38" stroke="none"/>' +
+        '<path d="' + pdPocketPath(pts) + '" fill="#bfe3ff" fill-opacity="0.55" stroke="none"/>' +
         '<polyline points="' + pdPolylinePoints(pts, 'gm') + '" fill="none" stroke="#dc2626" stroke-width="1.8"/>' +
         '<polyline points="' + pdPolylinePoints(pts, 'al') + '" fill="none" stroke="#2563eb" stroke-width="1.8"/>' +
         boneLine +

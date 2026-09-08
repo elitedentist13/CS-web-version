@@ -9,12 +9,35 @@ Note on gated repositories: if a model requires accepting terms or an access
 token, export HF_TOKEN before running. The script reports which repo failed
 rather than aborting silently, because the service can still run in a degraded
 mode with only one of the two stages available.
+
+On Windows without Developer Mode, huggingface_hub's default symlink cache
+raises WinError 1314 even after the weights landed. Disable symlinks first and
+treat a completed snapshot as success when the expected files exist.
 """
 
+import glob
 import os
 import sys
 
 import config
+
+# Must be set before huggingface_hub creates the cache layout.
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+
+
+def _repo_dir(repo_id, cache_dir):
+    return os.path.join(cache_dir, "models--" + str(repo_id).replace("/", "--"))
+
+
+def repo_has_weights(repo_id, cache_dir):
+    root = _repo_dir(repo_id, cache_dir)
+    if not os.path.isdir(root):
+        return False
+    if glob.glob(os.path.join(root, "**", "*.onnx"), recursive=True):
+        return True
+    safetensors = glob.glob(os.path.join(root, "**", "model.safetensors"), recursive=True)
+    configs = glob.glob(os.path.join(root, "**", "config.json"), recursive=True)
+    return bool(safetensors and configs)
 
 
 def download(repo_id, cache_dir):
@@ -43,6 +66,9 @@ def main():
         try:
             download(repo, config.MODEL_CACHE_DIR)
         except Exception as exc:
+            if repo_has_weights(repo, config.MODEL_CACHE_DIR):
+                print("[ok] weights present after download warning: %s" % exc)
+                continue
             print("[FAIL] %s: %s" % (repo, exc), file=sys.stderr)
             failures.append((repo, str(exc)))
 

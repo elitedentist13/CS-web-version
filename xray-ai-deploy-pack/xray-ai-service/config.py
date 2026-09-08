@@ -37,7 +37,7 @@ def _env_bool(name, default):
 
 
 HOST = _env_str("HOST", "127.0.0.1")
-PORT = _env_int("PORT", 8765)
+PORT = _env_int("PORT", 8877)
 
 # Where HuggingFace weights are cached. Mount this as a volume in Docker to
 # avoid re-downloading models on every container rebuild.
@@ -70,13 +70,16 @@ ENABLE_INTRAORAL_TOOTH_SEG = _env_bool("ENABLE_INTRAORAL_TOOTH_SEG", True)
 # Panoramic bone estimation is unchanged (always on when teeth are present).
 ENABLE_INTRAORAL_BONE = _env_bool("ENABLE_INTRAORAL_BONE", True)
 
-# â”€â”€ Our own caries subsystem (bitewing / PA targeted) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ENABLE_PERIO_ALL_TEETH = _env_bool("ENABLE_PERIO_ALL_TEETH", True)
+PERIO_REPORT_PHYSIOLOGIC = _env_bool("PERIO_REPORT_PHYSIOLOGIC", True)
+
+# ?€?€ Our own caries subsystem (bitewing / PA targeted) ?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 # A fine-tuned instance-segmentation model proposes lesions; a reasoning layer
 # (anatomical correction + contrast assessment + pathology relay) screens out
 # false positives. See caries/ and caries/README.md.
 #
 # Master switch. When on, the subsystem runs on bitewing and periapical images
-# (and optionally panoramics â€” see ENABLE_CARIES_ON_PANORAMIC). If no trained
+# (and optionally panoramics ??see ENABLE_CARIES_ON_PANORAMIC). If no trained
 # weights are present it uses a classical radiolucency proposer with confidence
 # held well below the trained band.
 ENABLE_CARIES_SCREENING = _env_bool("ENABLE_CARIES_SCREENING", True)
@@ -102,7 +105,7 @@ CARIES_WEIGHTS_DIR = _env_str(
 CARIES_MODEL_MIN_SCORE = _env_float("CARIES_MODEL_MIN_SCORE", 0.10)
 
 # When true (default), classical radiolucency proposals are merged with the
-# trained model's â€” important while the bitewing weights are still early, and
+# trained model's ??important while the bitewing weights are still early, and
 # for PAs the model was not trained on. False = model-only when weights load.
 CARIES_UNION_CLASSICAL = _env_bool("CARIES_UNION_CLASSICAL", True)
 
@@ -110,7 +113,7 @@ CARIES_UNION_CLASSICAL = _env_bool("CARIES_UNION_CLASSICAL", True)
 # display filtering rather than the service silently dropping mid-band hits.
 CARIES_ACCEPT_THRESHOLD = _env_float("CARIES_ACCEPT_THRESHOLD", 0.18)
 
-# Anatomy-first EDJ pipeline: tooth â†’ enamel/dentin/pulp/EDJ â†’ EDJ-band
+# Anatomy-first EDJ pipeline: tooth ??enamel/dentin/pulp/EDJ ??EDJ-band
 # shadows. When on, proposes interproximal candidates from EDJ shadows.
 CARIES_ANATOMY_PIPELINE = _env_bool("CARIES_ANATOMY_PIPELINE", True)
 
@@ -125,7 +128,7 @@ CARIES_IMGSZ = _env_int("CARIES_IMGSZ", 640)
 # image + verdict can be captured as a labelled example that later fine-tunes
 # the model (the data flywheel the cleared systems rely on). This writes
 # radiographs to disk, so it carries the same patient-data obligations as any
-# storage â€” see caries/README.md and the main README's PDPO section. Set to
+# storage ??see caries/README.md and the main README's PDPO section. Set to
 # false to disable capture entirely.
 ENABLE_CARIES_FEEDBACK = _env_bool("ENABLE_CARIES_FEEDBACK", True)
 
@@ -206,7 +209,7 @@ EMIT_ANATOMY_LAYERS = _env_bool("EMIT_ANATOMY_LAYERS", True)
 MEAN_TOOTH_WIDTH_MM = _env_float("MEAN_TOOTH_WIDTH_MM", 8.0)
 
 # Intraoral sensors show teeth larger in the frame; a slightly smaller assumed
-# physical width keeps CEJâ€“crest millimetre estimates in a plausible band.
+# physical width keeps CEJ?“crest millimetre estimates in a plausible band.
 MEAN_INTRAORAL_TOOTH_WIDTH_MM = _env_float("MEAN_INTRAORAL_TOOTH_WIDTH_MM", 7.0)
 
 # Origins allowed to call this service. Covers the local static server

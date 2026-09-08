@@ -2,6 +2,10 @@
   "name": "cs-web-version-main",
   "version": "1.0.0",
   "description": "Joyful Smile / Banana Clinic Manager — local static web app",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
   "main": "index.html",
   "scripts": {
     "start": "npx --no-install live-server --port=5500 --host=127.0.0.1 --open=/index.html --ignore=node_modules,.git --ignorePattern=xray-ai-service",
@@ -10,15 +14,9 @@
     "serve:static": "npx --yes http-server -p 8123 -c-1 .",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
+    "http-server": "^14.1.1",
     "live-server": "^1.2.2",
     "supabase": "^2.108.0"
-  },
-  "dependencies": {
-    "http-server": "^14.1.1"
   }
 }

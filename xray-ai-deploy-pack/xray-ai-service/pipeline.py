@@ -75,13 +75,14 @@ class Pipeline:
             },
         }
 
-    def analyze(self, pil_image):
+    def analyze(self, pil_image, modality_hint=None):
         started = time.time()
         rgb = np.asarray(pil_image.convert("RGB"))
         gray = _to_gray(rgb)
         height, width = gray.shape[:2]
 
-        modality = modality_mod.detect_modality(width, height, gray)
+        quality, quality_reasons = assess_image_quality(gray)
+        modality = modality_mod.resolve_hint(modality_hint, width, height, gray)
         teeth, tooth_source = self._detect_teeth(rgb, gray, modality, height)
 
         conditions = []
@@ -138,8 +139,12 @@ class Pipeline:
             findings.extend(self._bone_findings(bone_sites))
 
         findings = [f for f in findings if f["confidence"] >= config.CONFIDENCE_FLOOR]
+        bone_kept = [f for f in findings if str(f.get("type") or "").startswith("bone_")]
+        other = [f for f in findings if not str(f.get("type") or "").startswith("bone_")]
+        other.sort(key=lambda f: f["confidence"], reverse=True)
+        other = other[: max(0, config.MAX_FINDINGS - len(bone_kept))]
+        findings = other + bone_kept
         findings.sort(key=lambda f: f["confidence"], reverse=True)
-        findings = findings[: config.MAX_FINDINGS]
 
         anatomy_layers = []
         anatomy_mode = "disabled"
@@ -164,10 +169,12 @@ class Pipeline:
             # which outputs came from a trained model vs. a heuristic.
             "advisory": {
                 "modality": modality,
+                "quality": quality,
+                "quality_reasons": quality_reasons,
                 "tooth_stage": tooth_source,
                 "anatomy_layers": anatomy_mode,
                 "bone_loss": (
-                    "geometric_heuristic"
+                    "cej_crest_gated_all_teeth"
                     if run_bone
                     else "disabled_for_intraoral"
                 ),
@@ -262,23 +269,24 @@ class Pipeline:
         return out
 
     def _bone_findings(self, bone_sites):
+        # One finding per measured surface, including physiologic (bone_ok).
+        # The browser confidence slider is the filter — do not drop sites here.
         out = []
         for idx, site in enumerate(bone_sites):
-            out.append(
-                {
-                    "type": site["type"],
-                    "box": site["box"],
-                    "confidence": site["confidence"],
-                    "cej": site["cej"],
-                    "crest": site["crest"],
-                    "measurement": site["measurement_mm"],
-                    # Shared key with bone_measurements[].gap so the client can
-                    # hide a measurement row when its finding falls below the
-                    # confidence slider. Findings get reordered and capped, so
-                    # array position alone is not a reliable link.
-                    "gap": idx,
-                }
-            )
+            finding = {
+                "type": site.get("type") or "bone_ok",
+                "box": site["box"],
+                "confidence": site["confidence"],
+                "cej": site["cej"],
+                "crest": site["crest"],
+                "measurement": site["measurement_mm"],
+                "gap": idx,
+                "surface": site.get("surface"),
+                "tooth_class": site.get("tooth_class"),
+            }
+            if site.get("tooth") is not None:
+                finding["tooth"] = site["tooth"]
+            out.append(finding)
         return out
 
     def _anatomy_layers(self, teeth, width, height, gray=None, modality=None):
@@ -327,6 +335,25 @@ class Pipeline:
         elif use_freeform:
             mode = "geometric_rectangles_fallback"
         return layers[:120], mode
+
+
+def assess_image_quality(gray):
+    """
+    Cheap film-quality gate the staff app already knows how to display
+    (advisory.quality === 'poor_image_quality' in app-xray-ai.js).
+    """
+    std = float(np.std(gray))
+    mean = float(np.mean(gray))
+    reasons = []
+    if std < 8.0:
+        reasons.append("low_contrast")
+    if mean < 12.0:
+        reasons.append("underexposed")
+    if mean > 243.0:
+        reasons.append("overexposed")
+    if reasons:
+        return "poor_image_quality", reasons
+    return "ok", []
 
 
 def _to_gray(rgb):
@@ -403,6 +430,8 @@ def _normalize_finding(finding, width, height):
         out["screening"] = True
     if finding.get("surface"):
         out["surface"] = finding["surface"]
+    if finding.get("tooth_class"):
+        out["tooth_class"] = finding["tooth_class"]
     if finding.get("proposer"):
         out["proposer"] = finding["proposer"]
     if finding.get("relay_flags"):
@@ -423,25 +452,36 @@ def _caries_provenance(used_model):
 
 def _normalize_bone_sites(bone_sites, width, height):
     out = []
+    report_phys = getattr(config, "PERIO_REPORT_PHYSIOLOGIC", True)
     for idx, site in enumerate(bone_sites):
+        if not report_phys and not site.get("accepted"):
+            continue
         teeth = [t for t in (site.get("teeth") or []) if t is not None]
-        out.append(
-            {
-                "cej": [
-                    round(v, 5)
-                    for v in geometry.normalize_point(site["cej"], width, height)
-                ],
-                "crest": [
-                    round(v, 5)
-                    for v in geometry.normalize_point(site["crest"], width, height)
-                ],
-                "measurement_mm": site["measurement_mm"],
-                "severity": round(site["severity"], 3),
-                "gap": idx,
-                "tooth": teeth[0] if teeth else None,
-                "teeth": teeth,
-            }
-        )
+        row = {
+            "cej": [
+                round(v, 5)
+                for v in geometry.normalize_point(site["cej"], width, height)
+            ],
+            "crest": [
+                round(v, 5)
+                for v in geometry.normalize_point(site["crest"], width, height)
+            ],
+            "measurement_mm": site["measurement_mm"],
+            "severity": round(site["severity"], 3),
+            "gap": idx,
+            "tooth": site.get("tooth") if site.get("tooth") is not None else (teeth[0] if teeth else None),
+            "teeth": teeth,
+            "accepted": bool(site.get("accepted")),
+            "type": site.get("type"),
+            "confidence": site.get("confidence"),
+        }
+        if site.get("tooth_class"):
+            row["tooth_class"] = site["tooth_class"]
+        if site.get("surface"):
+            row["surface"] = site["surface"]
+        if site.get("gates"):
+            row["gates"] = site["gates"]
+        out.append(row)
     return out
 
 

@@ -5966,6 +5966,11 @@
             'zh-CN': '图像质量提示：{REASONS}。由于低质量影像可能产生看似"可信"却不可靠的结果，本次已跳过蛀牙、牙石、根尖病变及骨吸收检测；修复体标示与解剖参考图层不受影响。如可行，建议重新拍片。',
             'zh-Hant': '影像品質提示：{REASONS}。由於低品質影像可能產生看似「可信」卻不可靠的結果，本次已跳過蛀牙、牙石、根尖病變及骨吸收檢測；修復體標示與解剖參考圖層不受影響。如可行，建議重新拍片。'
         },
+        'media.xrayAi.connOffline': {
+            en: 'Cannot reach the local AI service at http://127.0.0.1:8877 (connection refused or missing files). Double-click start-xray-ai.bat, leave that window open until it says Starting on 8877, then press Analyze again. Until then only browser-level hints are available.',
+            'zh-CN': '无法连接本机 AI 服务 http://127.0.0.1:8877（连接失败或模型文件缺失）。请双击 start-xray-ai.bat，等窗口显示 Starting on 8877 后再按分析。在此之前只有浏览器级提示。',
+            'zh-Hant': '無法連線本機 AI 服務 http://127.0.0.1:8877（連線失敗或模型檔缺失）。請雙擊 start-xray-ai.bat，等視窗顯示 Starting on 8877 後再按分析。在此之前只有瀏覽器級提示。'
+        },
         'media.xrayAi.connLnaMaybe': {
             en: 'Browser blocked access to the local AI service (Local Network Access). When prompted, Allow this site to connect to devices on your local network, keep start-xray-ai.bat running on this PC, then re-run Assist. Until then only the browser fallback is available.',
             'zh-CN': '浏览器拦截了对本机 AI 服务的访问（本地网络权限）。请在提示中允许本站连接本地网络设备，并保持本机 start-xray-ai.bat 运行，然后重新分析。在此之前仅可使用浏览器后备结果。',
@@ -6079,18 +6084,27 @@
         'media.xrayAi.toggleOverlays': { en: 'Toggle all overlays', 'zh-CN': '切换全部叠加', 'zh-Hant': '切換全部疊加' },
         'media.xrayAi.summaryTitle': { en: 'Summary', 'zh-CN': '汇总', 'zh-Hant': '匯總' },
         'media.xrayAi.summaryTotal': { en: '{N} total', 'zh-CN': '共 {N} 处', 'zh-Hant': '共 {N} 處' },
-        'media.xrayAi.boneTitle': { en: 'Bone loss measurements', 'zh-CN': '骨吸收测量', 'zh-Hant': '骨吸收測量' },
+        'media.xrayAi.boneTitle': { en: 'CEJ–crest perio assessment', 'zh-CN': 'CEJ–牙槽嵴牙周评估', 'zh-Hant': 'CEJ–牙槽嵴牙周評估' },
         'media.xrayAi.boneHint': {
             en: 'Approximate vertical drop (mm) — indicative only, not CEJ–crest.',
             'zh-CN': '近似垂直落差（毫米）— 仅供参考，非 CEJ–牙槽嵴标准测量。',
             'zh-Hant': '近似垂直落差（毫米）— 僅供參考，非 CEJ–牙槽嵴標準測量。'
         },
         'media.xrayAi.boneHintPearl': {
-            en: 'CEJ (tooth-neck waist) to alveolar crest (mm) at interproximal contacts — a refined heuristic estimate, not a validated clinical measurement. Always confirm against the actual film.',
-            'zh-CN': '邻面接触区：CEJ（牙颈部）至牙槽嵴距离（毫米）— 经改进的启发式估算，非经验证的临床测量值，请务必以实际片子为准。',
-            'zh-Hant': '鄰面接觸區：CEJ（牙頸部）至牙槽嵴距離（毫米）— 經改進的啟發式估算，非經驗證的臨床測量值，請務必以實際片子為準。'
+            en: 'Every detected tooth (incisor to molar, both sides) is listed. Use the confidence slider to hide weaker sites: physiologic first, then mild, moderate, severe. CEJ-to-crest millimetres are a heuristic — confirm on the film.',
+            'zh-CN': '从切牙到磨牙，每颗牙近远中都会列出。用置信度滑块筛选：先去掉生理距离，再去掉轻、中、重度。CEJ 至牙槽嵴毫米数为启发式估算，请对照片子确认。',
+            'zh-Hant': '從門齒到臼齒，每顆牙近遠心都會列出。用信心滑桿篩選：先去掉生理距離，再去掉輕、中、重度。CEJ 至牙槽嵴毫米數為啟發式估算，請對照片子確認。'
         },
         'media.xrayAi.boneGap': { en: 'Contact {N}', 'zh-CN': '邻面 {N}', 'zh-Hant': '鄰面 {N}' },
+        'media.xrayAi.bonePhysiologic': { en: 'within gate', 'zh-CN': '未超阈值', 'zh-Hant': '未超門檻' },
+        'media.xrayAi.toothClass.incisor': { en: 'incisor', 'zh-CN': '切牙', 'zh-Hant': '門齒' },
+        'media.xrayAi.toothClass.canine': { en: 'canine', 'zh-CN': '尖牙', 'zh-Hant': '犬齒' },
+        'media.xrayAi.toothClass.premolar': { en: 'premolar', 'zh-CN': '前磨牙', 'zh-Hant': '小臼齒' },
+        'media.xrayAi.toothClass.molar': { en: 'molar', 'zh-CN': '磨牙', 'zh-Hant': '大臼齒' },
+        'media.xrayAi.surface.mesial': { en: 'mesial', 'zh-CN': '近中', 'zh-Hant': '近心' },
+        'media.xrayAi.surface.distal': { en: 'distal', 'zh-CN': '远中', 'zh-Hant': '遠心' },
+        'media.xrayAi.surface.left': { en: 'left', 'zh-CN': '左侧', 'zh-Hant': '左側' },
+        'media.xrayAi.surface.right': { en: 'right', 'zh-CN': '右侧', 'zh-Hant': '右側' },
         'media.xrayAi.anatomyTitle': { en: 'Tooth layers', 'zh-CN': '牙体分层', 'zh-Hant': '牙體分層' },
         'media.xrayAi.showLayers': { en: 'Show anatomy layers', 'zh-CN': '显示解剖分层', 'zh-Hant': '顯示解剖分層' },
         'media.xrayAi.showBoneLines': { en: 'Show CEJ–crest lines', 'zh-CN': '显示 CEJ–牙槽嵴线', 'zh-Hant': '顯示 CEJ–牙槽嵴線' },
@@ -6130,14 +6144,19 @@
             'zh-Hant': '伺服器不可用 — 改用瀏覽器分析…'
         },
         'media.xrayAi.errorGeneric': {
-            en: 'Analysis failed. Open the app at http://127.0.0.1:8888/index.html (not port 8080).',
-            'zh-CN': '分析失败。请用 http://127.0.0.1:8888/index.html 打开应用（不要用 8080 端口）。',
-            'zh-Hant': '分析失敗。請用 http://127.0.0.1:8888/index.html 打開應用（不要用 8080 端口）。'
+            en: 'Analysis failed. Keep start-xray-ai.bat running (http://127.0.0.1:8877/health) and open the clinic app at http://127.0.0.1:5500/index.html or :8123.',
+            'zh-CN': '分析失败。请保持 start-xray-ai.bat 运行（http://127.0.0.1:8877/health），并用 http://127.0.0.1:5500/index.html 或 :8123 打开诊所应用。',
+            'zh-Hant': '分析失敗。請保持 start-xray-ai.bat 執行（http://127.0.0.1:8877/health），並用 http://127.0.0.1:5500/index.html 或 :8123 打開診所應用。'
         },
         'media.xrayAi.imageNotReady': {
             en: 'X-ray still loading — wait until the image appears, then try again.',
             'zh-CN': 'X 光仍在加载 — 请等图像显示后再试。',
             'zh-Hant': 'X 光仍在載入 — 請等圖像顯示後再試。'
+        },
+        'media.xrayAi.imageMissing': {
+            en: 'The radiograph file is missing or returned 404. Re-open the X-ray from the patient chart, then press Analyze again.',
+            'zh-CN': 'X 光文件缺失或返回 404。请从患者病历重新打开该片后再按分析。',
+            'zh-Hant': 'X 光檔缺失或回傳 404。請從患者病歷重新打開該片後再按分析。'
         },
         'media.xrayAi.errorApply': {
             en: 'Could not display results: {MSG}',
@@ -6145,9 +6164,9 @@
             'zh-Hant': '無法顯示結果：{MSG}'
         },
         'media.xrayAi.apiUnreachable': {
-            en: 'Browser cannot reach the API. Use http://127.0.0.1:8888/index.html (not https, not port 8080).',
-            'zh-CN': '浏览器无法连接 API。请用 http://127.0.0.1:8888/index.html 打开（不要用 https，不要用 8080 端口）。',
-            'zh-Hant': '瀏覽器無法連接 API。請用 http://127.0.0.1:8888/index.html 打開（不要用 https，不要用 8080 端口）。'
+            en: 'Cannot reach http://127.0.0.1:8877 — starting or waiting for start-xray-ai.bat. If Analyze still falls back to browser mode, the service is not running or model files are missing.',
+            'zh-CN': '无法连接 http://127.0.0.1:8877 — 正在等待 start-xray-ai.bat。若分析仍落回浏览器模式，表示服务未运行或模型文件缺失。',
+            'zh-Hant': '無法連線 http://127.0.0.1:8877 — 正在等待 start-xray-ai.bat。若分析仍落回瀏覽器模式，表示服務未執行或模型檔缺失。'
         },
         'media.xrayAi.done': { en: '{N} finding(s) — use legend to filter', 'zh-CN': '{N} 处发现 — 可用图例筛选', 'zh-Hant': '{N} 處發現 — 可用圖例篩選' },
         'media.xrayAi.noFindings': { en: 'No candidate regions above threshold.', 'zh-CN': '未发现超过阈值的候选区域。', 'zh-Hant': '未發現超過閾值的候選區域。' },
@@ -6168,6 +6187,7 @@
         'media.xrayAi.finding.periapical': { en: 'Periapical radiolucency', 'zh-CN': '根尖透射区', 'zh-Hant': '根尖透射區' },
         'media.xrayAi.finding.margin': { en: 'Defective margin', 'zh-CN': '边缘缺陷', 'zh-Hant': '邊緣缺陷' },
         'media.xrayAi.finding.restoration': { en: 'Restoration (dense)', 'zh-CN': '修复体（高密度）', 'zh-Hant': '修復體（高密度）' },
+        'media.xrayAi.finding.boneOk': { en: 'CEJ–crest — within gate', 'zh-CN': 'CEJ–牙槽嵴 — 未超阈值', 'zh-Hant': 'CEJ–牙槽嵴 — 未超門檻' },
         'media.xrayAi.finding.boneMild': { en: 'Bone loss — mild', 'zh-CN': '骨吸收 — 轻度', 'zh-Hant': '骨吸收 — 輕度' },
         'media.xrayAi.finding.boneMod': { en: 'Bone loss — moderate', 'zh-CN': '骨吸收 — 中度', 'zh-Hant': '骨吸收 — 中度' },
         'media.xrayAi.finding.boneSev': { en: 'Bone loss — severe', 'zh-CN': '骨吸收 — 重度', 'zh-Hant': '骨吸收 — 重度' },

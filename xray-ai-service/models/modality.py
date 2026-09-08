@@ -39,7 +39,28 @@ def detect_modality(width, height, gray=None):
 
 
 def is_intraoral(modality):
-    return modality in ("bitewing", "periapical")
+    return modality in ("bitewing", "periapical", "pabw")
+
+
+def resolve_hint(hint, width, height, gray=None):
+    """
+    Honour the staff app's modality hint without trusting it blindly.
+
+    app-xray-ai.js sends 'panoramic' or 'pabw' (shared PA/bitewing family).
+    'pabw' means "use the intraoral path" — we still split bitewing vs
+    periapical from geometry so bone/caries routing stays correct.
+    """
+    key = str(hint or "").strip().lower()
+    if key in ("panoramic", "pano"):
+        return "panoramic"
+    if key in ("bitewing", "periapical"):
+        return key
+    if key in ("pabw", "intraoral", "pa", "bw"):
+        auto = detect_modality(width, height, gray)
+        if auto != "panoramic":
+            return auto
+        return "bitewing" if width >= height else "periapical"
+    return detect_modality(width, height, gray)
 
 
 def _looks_like_bitewing(gray):

@@ -6,7 +6,7 @@ Implements the contract app-xray-ai.js already expects:
     POST /analyze  -> multipart form field "file" (JPEG), returns findings JSON
 
 Run locally:
-    python -m uvicorn main:app --host 127.0.0.1 --port 8765
+    python -m uvicorn main:app --host 127.0.0.1 --port 8877
 
 The service is stateless: it takes an image and returns JSON. Nothing is stored
 here (the audit row is written client-side to Supabase xray_ai_runs), which is
@@ -35,6 +35,9 @@ from caries.model import CariesModel
 from models.condition_detector import ConditionDetector
 from models.tooth_detector import ToothDetector
 from pipeline import MODEL_VERSION, Pipeline
+
+PANO_MODEL_ID = "cs-xray-assist-pano-v1"
+PABW_MODEL_ID = "cs-xray-assist-pabw-v1"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -158,6 +161,15 @@ def get_pipeline():
             imgsz=config.CARIES_IMGSZ,
         )
         _state["pipeline"] = Pipeline(tooth, condition, caries_model=caries_model)
+        st = _state["pipeline"].status()
+        log.info(
+            "modality=pano ready=%s; modality=pabw ready=%s (%s)",
+            bool(st.get("tooth_detector", {}).get("ready")),
+            bool(st.get("caries_model", {}).get("ready") or config.ENABLE_CARIES_SCREENING),
+            "trained caries weights loaded"
+            if st.get("caries_model", {}).get("ready")
+            else "trained model not yet trained - classical detector only",
+        )
     return _state["pipeline"]
 
 
@@ -193,13 +205,28 @@ CS web app to load radiographs — it calls this service automatically.</p>
 async def health():
     pipeline = _state["pipeline"]
     status = pipeline.status() if pipeline else {"loaded": False}
+    if not isinstance(status, dict):
+        status = {"loaded": False}
+    # Client (app-xray-ai.js) reads models.pano / models.pabw as string ids.
+    status["pano"] = PANO_MODEL_ID
+    status["pabw"] = PABW_MODEL_ID
+    caries_ready = bool(status.get("caries_model", {}).get("ready"))
+    classical_ok = bool(config.ENABLE_CARIES_SCREENING or config.ENABLE_INTRAORAL_TOOTH_SEG)
     ready = bool(
         pipeline
         and (
             status.get("tooth_detector", {}).get("ready")
             or status.get("condition_detector", {}).get("ready")
+            or caries_ready
+            or classical_ok
         )
     )
+    caries_fb = {
+        "enabled": bool(config.ENABLE_CARIES_SCREENING and config.ENABLE_CARIES_FEEDBACK),
+        "training_enabled": bool(config.ENABLE_CARIES_SCREENING and config.ENABLE_CARIES_TRAINING),
+        "dataset": caries_feedback.stats(config.CARIES_CLINIC_DATA_DIR)
+        if config.ENABLE_CARIES_FEEDBACK else None,
+    }
     return {
         "ok": True,
         "ready": ready,
@@ -208,12 +235,8 @@ async def health():
         "device": config.DEVICE,
         "confidence_floor": config.CONFIDENCE_FLOOR,
         "models": status,
-        "caries_feedback": {
-            "enabled": bool(config.ENABLE_CARIES_SCREENING and config.ENABLE_CARIES_FEEDBACK),
-            "training_enabled": bool(config.ENABLE_CARIES_SCREENING and config.ENABLE_CARIES_TRAINING),
-            "dataset": caries_feedback.stats(config.CARIES_CLINIC_DATA_DIR)
-            if config.ENABLE_CARIES_FEEDBACK else None,
-        },
+        "caries_feedback": caries_fb,
+        "pabw_feedback": caries_fb,
         "licenses": config.MODEL_LICENSES,
         "disclaimer": (
             "Decision support only. Not a diagnosis and not a cleared medical "
@@ -229,7 +252,7 @@ async def health():
 
 
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
+async def analyze(file: UploadFile = File(...), modality: str = Form(None)):
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="empty upload")
@@ -245,7 +268,14 @@ async def analyze(file: UploadFile = File(...)):
 
     pipeline = get_pipeline()
     status = pipeline.status()
-    if not status["tooth_detector"]["ready"] and not status["condition_detector"]["ready"]:
+    hf_ready = bool(
+        status.get("tooth_detector", {}).get("ready")
+        or status.get("condition_detector", {}).get("ready")
+    )
+    classical_ok = bool(
+        config.ENABLE_CARIES_SCREENING or config.ENABLE_INTRAORAL_TOOTH_SEG
+    )
+    if not hf_ready and not classical_ok:
         # Nothing loaded: tell the client explicitly so it falls back to its own
         # in-browser heuristic instead of rendering an empty result as "clean".
         return JSONResponse(
@@ -258,7 +288,7 @@ async def analyze(file: UploadFile = File(...)):
         )
 
     try:
-        result = pipeline.analyze(image)
+        result = pipeline.analyze(image, modality_hint=modality)
     except Exception as exc:
         log.exception("analysis failed")
         raise HTTPException(status_code=500, detail="analysis failed: %s" % exc)
@@ -267,6 +297,7 @@ async def analyze(file: UploadFile = File(...)):
 
 
 @app.post("/feedback")
+@app.post("/pabw/feedback")
 async def feedback(
     file: UploadFile = File(...),
     verdict: str = Form(...),
@@ -322,6 +353,7 @@ async def feedback(
 
 
 @app.get("/caries/dataset")
+@app.get("/pabw/dataset")
 async def caries_dataset():
     """Accumulated verdicts + a training-readiness preflight, for the review screen."""
     if not config.ENABLE_CARIES_SCREENING:
@@ -337,6 +369,7 @@ async def caries_dataset():
 
 
 @app.post("/caries/train")
+@app.post("/pabw/train")
 async def caries_train(epochs: int = Form(40), replay_frac: float = Form(0.5)):
     """Kick off a continual-training pass (one at a time)."""
     if not (config.ENABLE_CARIES_SCREENING and config.ENABLE_CARIES_TRAINING):
@@ -345,6 +378,7 @@ async def caries_train(epochs: int = Form(40), replay_frac: float = Form(0.5)):
 
 
 @app.get("/caries/train/status")
+@app.get("/pabw/train/status")
 async def caries_train_status():
     if not config.ENABLE_CARIES_SCREENING:
         raise HTTPException(status_code=403, detail="caries subsystem is disabled")

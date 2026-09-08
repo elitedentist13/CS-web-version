@@ -80,12 +80,20 @@ class ToothDetector:
 
     # ── loading ────────────────────────────────────────────────────
     def _find_onnx(self):
-        hits = sorted(glob.glob(os.path.join(self.cache_dir, "**", "*.onnx"),
+        # HuggingFace snapshot_download stores each repo under
+        # models--org--name/. Search that folder first so a condition-model
+        # ONNX sitting in the same cache cannot be loaded as the FDI detector.
+        repo_dir = os.path.join(
+            self.cache_dir, "models--" + str(self.repo_id).replace("/", "--")
+        )
+        search_root = repo_dir if os.path.isdir(repo_dir) else self.cache_dir
+        hits = sorted(glob.glob(os.path.join(search_root, "**", "*.onnx"),
                                 recursive=True))
         if not hits:
             return None
         for hit in hits:
-            if "dental" in os.path.basename(hit).lower():
+            name = os.path.basename(hit).lower()
+            if "dental" in name or "fdi" in name:
                 return hit
         return hits[0]
 

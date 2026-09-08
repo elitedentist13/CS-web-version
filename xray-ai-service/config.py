@@ -37,7 +37,9 @@ def _env_bool(name, default):
 
 
 HOST = _env_str("HOST", "127.0.0.1")
-PORT = _env_int("PORT", 8765)
+# 8877 matches index.html / start-xray-ai.bat. 8765 is used by dental
+# sensor bridge software (e.g. RayView) on clinic PCs — do not reuse it.
+PORT = _env_int("PORT", 8877)
 
 # Where HuggingFace weights are cached. Mount this as a volume in Docker to
 # avoid re-downloading models on every container rebuild.
@@ -69,6 +71,12 @@ ENABLE_INTRAORAL_TOOTH_SEG = _env_bool("ENABLE_INTRAORAL_TOOTH_SEG", True)
 # Bone-level heuristic on PA/bitewing once intraoral tooth boxes exist.
 # Panoramic bone estimation is unchanged (always on when teeth are present).
 ENABLE_INTRAORAL_BONE = _env_bool("ENABLE_INTRAORAL_BONE", True)
+
+# Measure every detected tooth (incisor through molar) on both proximal
+# surfaces. Physiologic CEJ–crest distances stay in bone_measurements so the
+# overlay can show the line; only gated pathologic sites become findings.
+ENABLE_PERIO_ALL_TEETH = _env_bool("ENABLE_PERIO_ALL_TEETH", True)
+PERIO_REPORT_PHYSIOLOGIC = _env_bool("PERIO_REPORT_PHYSIOLOGIC", True)
 
 # ── Our own caries subsystem (bitewing / PA targeted) ──────────────
 # A fine-tuned instance-segmentation model proposes lesions; a reasoning layer

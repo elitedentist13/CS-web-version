@@ -67,6 +67,11 @@ check("wide frame -> panoramic", modality_mod.detect_modality(1400, 600) == "pan
 check("portrait -> periapical", modality_mod.detect_modality(600, 800) == "periapical")
 check("landscape intraoral -> bitewing", modality_mod.detect_modality(700, 500) == "bitewing")
 check("is_intraoral helper", modality_mod.is_intraoral("bitewing") and not modality_mod.is_intraoral("panoramic"))
+check("is_intraoral pabw alias", modality_mod.is_intraoral("pabw"))
+check("pabw hint on landscape stays bitewing", modality_mod.resolve_hint("pabw", 700, 500) == "bitewing")
+check("pabw hint on portrait stays periapical", modality_mod.resolve_hint("pabw", 600, 800) == "periapical")
+check("pabw hint never becomes panoramic", modality_mod.resolve_hint("pabw", 1400, 600) != "panoramic")
+check("pano hint wins over square frame", modality_mod.resolve_hint("panoramic", 600, 600) == "panoramic")
 
 print("[2] intraoral tooth segmenter")
 pa = np.asarray(_pa_like(), dtype=np.float32)
@@ -96,5 +101,10 @@ r_pano = pipe.analyze(_pano_like().convert("RGB"))
 check("pano modality labelled", r_pano["modality"] == "panoramic")
 check("pano tooth stage is fdi path", "pano_fdi" in r_pano["advisory"]["tooth_stage"])
 check("pano caries default off", r_pano["advisory"]["caries"] == "disabled_for_modality")
+check("quality advisory present", r_pano["advisory"].get("quality") in ("ok", "poor_image_quality"))
+
+r_hint = pipe.analyze(_pano_like().convert("RGB"), modality_hint="pabw")
+check("pabw hint forces intraoral on wide frame", r_hint["modality"] in ("bitewing", "periapical"))
+check("pabw hint opens caries path", r_hint["advisory"]["caries"] != "disabled_for_modality")
 
 print("\nAll %d checks passed." % PASS)

@@ -2,7 +2,7 @@
 '  CS X-ray Assist - hidden autostart launcher
 '
 '  Runs start-xray-ai.bat with no visible console window, so the local AI
-'  service is already listening on http://127.0.0.1:8765 by the time anyone
+'  service is already listening on http://127.0.0.1:8877 by the time anyone
 '  presses "X-ray Assist" in the app. Intended to be triggered by the
 '  "CS X-ray AI Autostart" Task Scheduler task (fires at user logon).
 '

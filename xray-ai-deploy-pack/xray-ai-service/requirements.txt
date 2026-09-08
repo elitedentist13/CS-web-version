@@ -11,3 +11,6 @@ torch>=2.2
 # condition detector fails to load without it.
 torchvision>=0.17
 huggingface_hub>=0.24
+# Caries YOLO loader (caries/model.py). Without this, /health reports
+# "ultralytics not installed" and the trained caries head never loads.
+ultralytics>=8.3

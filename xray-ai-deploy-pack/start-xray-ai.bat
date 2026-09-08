@@ -20,6 +20,9 @@ REM "WinError 206: filename too long" partway through the install.
 set "AI_HOME=%LOCALAPPDATA%\cs-xray-ai"
 set "VENV_DIR=%AI_HOME%\venv"
 set "MODEL_CACHE_DIR=%AI_HOME%\model_cache"
+REM Hugging Face defaults to cache symlinks; Windows without Developer Mode
+REM then fails with WinError 1314 ("missing file") even after the weights land.
+set "HF_HUB_DISABLE_SYMLINKS=1"
 
 echo.
 echo ============================================
@@ -30,16 +33,43 @@ echo   Service files : %CD%
 echo   Environment   : %AI_HOME%
 echo.
 
-REM ---- locate Python -------------------------------------------------
+REM ---- locate Python 3.10+ -------------------------------------------
+REM Do NOT trust `python` on PATH first: clinic PCs often have BioTime 3.7
+REM ahead of a real 3.12 install. Probe known install paths, then py.exe.
 set "PY_CMD="
-where python >nul 2>&1 && set "PY_CMD=python"
-if not defined PY_CMD (
-    where py >nul 2>&1 && set "PY_CMD=py"
+for %%P in (
+    "%LocalAppData%\Programs\Python\Python312\python.exe"
+    "%LocalAppData%\Programs\Python\Python313\python.exe"
+    "%LocalAppData%\Programs\Python\Python311\python.exe"
+    "%LocalAppData%\Programs\Python\Python310\python.exe"
+    "%ProgramFiles%\Python312\python.exe"
+    "%ProgramFiles%\Python313\python.exe"
+    "%ProgramFiles%\Python311\python.exe"
+) do (
+    if not defined PY_CMD if exist "%%~P" (
+        "%%~P" -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+        if not errorlevel 1 set "PY_CMD=%%~P"
+    )
+)
+if not defined PY_CMD if exist "%LocalAppData%\Programs\Python\Launcher\py.exe" (
+    for /f "delims=" %%E in ('"%LocalAppData%\Programs\Python\Launcher\py.exe" -3.12 -c "import sys; print(sys.executable)" 2^>nul') do (
+        if exist "%%E" set "PY_CMD=%%E"
+    )
 )
 if not defined PY_CMD (
-    echo [ERROR] Python was not found on this PC.
+    where py >nul 2>&1 && (
+        for /f "delims=" %%E in ('py -3.12 -c "import sys; print(sys.executable)" 2^>nul') do (
+            if exist "%%E" set "PY_CMD=%%E"
+        )
+    )
+)
+if not defined PY_CMD (
+    where python >nul 2>&1 && python -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1 && set "PY_CMD=python"
+)
+if not defined PY_CMD (
+    echo [ERROR] Python 3.10 or newer was not found on this PC.
     echo.
-    echo Install Python 3.10 or newer from https://www.python.org/downloads/
+    echo Install Python 3.12 from https://www.python.org/downloads/
     echo IMPORTANT: tick "Add python.exe to PATH" in the installer.
     echo.
     echo The X-ray Assist button still works without this service - the app
@@ -61,10 +91,17 @@ for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8877 .*LISTENING"') d
 )
 
 REM ---- virtual environment ------------------------------------------
+if exist "%VENV_DIR%\Scripts\python.exe" (
+    "%VENV_DIR%\Scripts\python.exe" -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+    if errorlevel 1 (
+        echo [2/4] Existing venv is too old — recreating with %PY_CMD%...
+        rmdir /s /q "%VENV_DIR%"
+    )
+)
 if not exist "%VENV_DIR%\Scripts\python.exe" (
     echo [2/4] Creating virtual environment ^(one time^)...
     if not exist "%AI_HOME%" mkdir "%AI_HOME%"
-    %PY_CMD% -m venv "%VENV_DIR%"
+    "%PY_CMD%" -m venv "%VENV_DIR%"
     if errorlevel 1 (
         echo [ERROR] Could not create the virtual environment.
         pause
@@ -76,10 +113,21 @@ if not exist "%VENV_DIR%\Scripts\python.exe" (
 set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
 
 REM ---- dependencies -------------------------------------------------
-if not exist "%VENV_DIR%\.deps-installed" (
+set "NEED_DEPS=0"
+if not exist "%VENV_DIR%\.deps-installed" set "NEED_DEPS=1"
+"%VENV_PY%" -c "import uvicorn, fastapi, ultralytics" >nul 2>&1
+if errorlevel 1 set "NEED_DEPS=1"
+if "%NEED_DEPS%"=="1" (
     echo [3/4] Installing dependencies ^(one time, several minutes^)...
     "%VENV_PY%" -m pip install --upgrade pip
     "%VENV_PY%" -m pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+    "%VENV_PY%" -c "import ultralytics" >nul 2>&1
+    if errorlevel 1 (
+        echo       ultralytics via --no-deps ^(opencv-python-headless already provides cv2^)
+        "%VENV_PY%" -m pip install "ultralytics>=8.3" --no-deps
+        "%VENV_PY%" -m pip install cloudpickle matplotlib "requests>=2.23" psutil "polars>=0.20" nvidia-ml-py "ultralytics-thop>=2.1.6" "ultralytics-platform>=0.1.32"
+    )
+    "%VENV_PY%" -c "import uvicorn, fastapi" >nul 2>&1
     if errorlevel 1 (
         echo [ERROR] Dependency installation failed. See the messages above.
         pause
@@ -91,15 +139,20 @@ if not exist "%VENV_DIR%\.deps-installed" (
 )
 
 REM ---- model weights ------------------------------------------------
-if not exist "%MODEL_CACHE_DIR%\.downloaded" (
-    echo [4/4] Downloading AI models ^(one time, several GB^)...
+set "NEED_MODELS=0"
+if not exist "%MODEL_CACHE_DIR%\.downloaded" set "NEED_MODELS=1"
+dir /s /b "%MODEL_CACHE_DIR%\*.onnx" >nul 2>&1
+if errorlevel 1 set "NEED_MODELS=1"
+if "%NEED_MODELS%"=="1" (
+    echo [4/4] Downloading AI models ^(tooth ONNX + condition weights^)...
     if not exist "%MODEL_CACHE_DIR%" mkdir "%MODEL_CACHE_DIR%"
     "%VENV_PY%" download_models.py
     if errorlevel 1 (
         echo.
-        echo [WARN] One or more models failed to download.
+        echo [WARN] One or more models failed to download ^(missing file^).
         echo        The service will start in degraded mode. Check
         echo        http://127.0.0.1:8877/health for per-model status.
+        echo        If a Hugging Face repo is gated, set HF_TOKEN and re-run.
         echo.
     ) else (
         echo downloaded > "%MODEL_CACHE_DIR%\.downloaded"
@@ -118,6 +171,8 @@ echo   X-ray Assist. Press Ctrl+C to stop.
 echo ============================================
 echo.
 
+set "PORT=8877"
+set "HOST=127.0.0.1"
 "%VENV_PY%" -m uvicorn main:app --host 127.0.0.1 --port 8877
 
 echo.

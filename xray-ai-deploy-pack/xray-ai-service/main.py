@@ -6,7 +6,7 @@ Implements the contract app-xray-ai.js already expects:
     POST /analyze  -> multipart form field "file" (JPEG), returns findings JSON
 
 Run locally:
-    python -m uvicorn main:app --host 127.0.0.1 --port 8765
+    python -m uvicorn main:app --host 127.0.0.1 --port 8877
 
 The service is stateless: it takes an image and returns JSON. Nothing is stored
 here (the audit row is written client-side to Supabase xray_ai_runs), which is

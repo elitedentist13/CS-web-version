@@ -63,7 +63,7 @@
     var FINDING_TYPES_ORDER = [
         'caries_incipient', 'caries_progressed', 'calculus', 'periapical_radiolucency',
         'defective_margin', 'restoration',
-        'bone_loss_mild', 'bone_loss_moderate', 'bone_loss_severe'
+        'bone_ok', 'bone_loss_mild', 'bone_loss_moderate', 'bone_loss_severe'
     ];
 
     /**
@@ -86,6 +86,7 @@
         periapical_radiolucency:{ color: '#3b82f6', shape: 'fill',  i18n: 'media.xrayAi.finding.periapical' },
         defective_margin:       { color: '#a855f7', shape: 'box',   i18n: 'media.xrayAi.finding.margin' },
         restoration:            { color: '#64748b', shape: 'fill',  i18n: 'media.xrayAi.finding.restoration' },
+        bone_ok:                { color: '#94a3b8', shape: 'band',  i18n: 'media.xrayAi.finding.boneOk' },
         bone_loss_mild:         { color: '#22c55e', shape: 'band',  i18n: 'media.xrayAi.finding.boneMild' },
         bone_loss_moderate:     { color: '#eab308', shape: 'band',  i18n: 'media.xrayAi.finding.boneMod' },
         bone_loss_severe:       { color: '#f97316', shape: 'band',  i18n: 'media.xrayAi.finding.boneSev' }
@@ -868,6 +869,7 @@
             }
         });
 
+        xrayAiAssignToothClasses(teeth);
         return {
             toothMask: toothMask, crownMask: crownMask, pulpMask: pulpMask,
             rootMask: rootMask, alveolarMask: alveolarMask, interproxMask: interproxMask,
@@ -983,6 +985,63 @@
         return xrayAiPickBestLayers(layers);
     }
 
+    var PERIO_CLASS_GATES = {
+        incisor:  { phys: 2.0, mild: 3.2, mod: 5.0 },
+        canine:   { phys: 2.0, mild: 3.5, mod: 5.5 },
+        premolar: { phys: 2.0, mild: 3.5, mod: 5.5 },
+        molar:    { phys: 2.2, mild: 4.0, mod: 6.0 }
+    };
+
+    function xrayAiAssignToothClasses(teeth) {
+        if (!teeth || !teeth.length) return;
+        var i, medW, medH, span, minX, maxX;
+        var widths = teeth.map(function (t) { return Math.max(4, t.xRight - t.xLeft); }).sort(function (a, b) { return a - b; });
+        var heights = teeth.map(function (t) { return Math.max(4, Math.abs((t.yApex || 0) - (t.yTop || 0))); }).sort(function (a, b) { return a - b; });
+        medW = widths[(widths.length / 2) | 0] || 20;
+        medH = heights[(heights.length / 2) | 0] || 40;
+        minX = teeth[0].xCenter; maxX = teeth[0].xCenter;
+        for (i = 1; i < teeth.length; i++) {
+            if (teeth[i].xCenter < minX) minX = teeth[i].xCenter;
+            if (teeth[i].xCenter > maxX) maxX = teeth[i].xCenter;
+        }
+        span = Math.max(1, maxX - minX);
+        teeth.forEach(function (t) {
+            var w = Math.max(4, t.xRight - t.xLeft);
+            var h = Math.max(4, Math.abs((t.yApex || 0) - (t.yTop || 0)));
+            var ar = w / h;
+            var distMid = Math.abs(((t.xCenter - minX) / span) - 0.5);
+            if (teeth.length >= 8 && span > 6 * medW) {
+                t.tooth_class = distMid < 0.12 ? 'incisor' : (distMid < 0.20 ? 'canine' : (distMid < 0.36 ? 'premolar' : 'molar'));
+            } else if (ar >= 0.62 || w > 1.22 * medW) {
+                t.tooth_class = 'molar';
+            } else if (ar <= 0.38 || h > 1.22 * medH) {
+                t.tooth_class = 'incisor';
+            } else {
+                t.tooth_class = 'premolar';
+            }
+        });
+    }
+
+    function xrayAiIsBoneType(t) {
+        return t === 'bone_ok' || (t && String(t).indexOf('bone_loss_') === 0);
+    }
+
+    function xrayAiPerioConfidence(type) {
+        if (type === 'bone_loss_severe') return 0.80;
+        if (type === 'bone_loss_moderate') return 0.68;
+        if (type === 'bone_loss_mild') return 0.56;
+        return 0.44;
+    }
+
+    function xrayAiPerioTypeFromMm(mm, toothClass) {
+        var g = PERIO_CLASS_GATES[toothClass] || PERIO_CLASS_GATES.premolar;
+        if (!(mm > 0)) return 'bone_ok';
+        if (mm <= g.phys) return 'bone_ok';
+        if (mm < g.mild) return 'bone_loss_mild';
+        if (mm < g.mod) return 'bone_loss_moderate';
+        return 'bone_loss_severe';
+    }
+
     function xrayAiEstimatePxPerMm(anatomy) {
         if (!anatomy.teeth.length) return anatomy.ch / 35;
         var widths = anatomy.teeth.map(function (t) { return Math.max(4, t.xRight - t.xLeft); });
@@ -1035,44 +1094,63 @@
         var byArch = { upper: [], lower: [] };
         anatomy.teeth.forEach(function (t) { (byArch[t.arch] || byArch.lower).push(t); });
         var gapIdx = 0;
+        function measureSide(tooth, neighbor, side, arch) {
+            var gl, gr, cej = tooth.cejY, cls = tooth.tooth_class || 'premolar';
+            var tw = Math.max(4, tooth.xRight - tooth.xLeft);
+            if (side === 'left') {
+                if (neighbor && (tooth.xCenter - neighbor.xCenter) <= 2.4 * tw) {
+                    gl = neighbor.xRight; gr = tooth.xLeft;
+                } else {
+                    gl = tooth.xLeft - (tw * 0.16); gr = tooth.xLeft + (tw * 0.14);
+                }
+            } else if (neighbor && (neighbor.xCenter - tooth.xCenter) <= 2.4 * tw) {
+                gl = tooth.xRight; gr = neighbor.xLeft;
+            } else {
+                gl = tooth.xRight - (tw * 0.14); gr = tooth.xRight + (tw * 0.16);
+            }
+            if (gr - gl < 1) { var mid = (gl + gr) >> 1; gl = mid - 4; gr = mid + 4; }
+            gl = Math.max(0, gl | 0); gr = Math.min(cw - 1, gr | 0);
+            var cx = ((gl + gr) / 2) | 0;
+            var colW = Math.max(3, Math.min(10, ((gr - gl) / 2 | 0) + 2));
+            var bandH = Math.max((7 * pxMm) | 0, (ch * 0.12) | 0);
+            var y0 = arch === 'upper' ? Math.max(0, cej - bandH) : cej;
+            var y1 = arch === 'upper' ? cej : Math.min(ch, cej + bandH);
+            if (y1 - y0 < 8) return;
+            var profile = [], y, xi, sum, cnt;
+            for (y = y0; y < y1; y++) {
+                sum = 0; cnt = 0;
+                for (xi = cx - colW; xi <= cx + colW; xi++) {
+                    if (xi >= 0 && xi < cw) { sum += gray[y * cw + xi]; cnt++; }
+                }
+                profile.push(cnt ? sum / cnt : 128);
+            }
+            if (arch === 'upper') profile = profile.slice().reverse();
+            var off = xrayAiFindCrestOffset(profile, pxMm);
+            if (off < 0) return;
+            var crestY = arch === 'upper' ? (y1 - 1 - off) : (y0 + off);
+            var mm = Math.abs(crestY - cej) / pxMm;
+            if (mm < 0.4 || mm > 14) return;
+            var btype = xrayAiPerioTypeFromMm(mm, cls);
+            lines.push({
+                gap: gapIdx++,
+                cej: [cx / cw, cej / ch],
+                crest: [cx / cw, crestY / ch],
+                measurement_mm: Math.round(mm * 10) / 10,
+                tooth_class: cls,
+                surface: side,
+                type: btype,
+                accepted: btype.indexOf('bone_loss_') === 0,
+                confidence: xrayAiPerioConfidence(btype)
+            });
+        }
         ['upper', 'lower'].forEach(function (arch) {
             var group = byArch[arch].slice().sort(function (a, b) { return a.xCenter - b.xCenter; });
-            for (var i = 0; i < group.length - 1; i++) {
-                var a = group[i], b = group[i + 1];
-                var gl = a.xRight, gr = b.xLeft;
-                if (gr - gl < 1) { var mid = (gl + gr) >> 1; gl = Math.max(0, mid - 4); gr = Math.min(cw - 1, mid + 4); }
-                var cx = ((gl + gr) / 2) | 0;
-                var cej = arch === 'upper' ? Math.max(a.cejY, b.cejY) : Math.min(a.cejY, b.cejY);
-                var colW = Math.max(3, Math.min(10, ((gr - gl) / 2 | 0) + 2));
-                var bandH = Math.max((7 * pxMm) | 0, (ch * 0.12) | 0);
-                var y0 = arch === 'upper' ? Math.max(0, cej - bandH) : cej;
-                var y1 = arch === 'upper' ? cej : Math.min(ch, cej + bandH);
-                if (y1 - y0 < 8) continue;
-                var profile = [], y, xi, sum, cnt;
-                for (y = y0; y < y1; y++) {
-                    sum = 0; cnt = 0;
-                    for (xi = cx - colW; xi <= cx + colW; xi++) {
-                        if (xi >= 0 && xi < cw) { sum += gray[y * cw + xi]; cnt++; }
-                    }
-                    profile.push(cnt ? sum / cnt : 128);
-                }
-                // Order CEJ → apex for the crest finder.
-                if (arch === 'upper') profile = profile.slice().reverse();
-                var off = xrayAiFindCrestOffset(profile, pxMm);
-                if (off < 0) continue;
-                var crestY = arch === 'upper' ? (y1 - 1 - off) : (y0 + off);
-                var distPx = Math.abs(crestY - cej);
-                var mm = distPx / pxMm;
-                if (mm < 2.0) continue;
-                lines.push({
-                    gap: gapIdx++,
-                    cej: [cx / cw, cej / ch],
-                    crest: [cx / cw, crestY / ch],
-                    measurement_mm: Math.round(mm * 100) / 100
-                });
+            for (var i = 0; i < group.length; i++) {
+                measureSide(group[i], i > 0 ? group[i - 1] : null, 'left', arch);
+                measureSide(group[i], i + 1 < group.length ? group[i + 1] : null, 'right', arch);
             }
         });
-        return lines.slice(0, 8);
+        return lines;
     }
 
     function xrayAiLayerOverlap(anatomy, x, y, bw, bh) {
@@ -1371,7 +1449,7 @@
         var lines = xrayAiMeasureCejCrest(anatomy, gray);
         return lines.map(function (ln) {
             var mm = ln.measurement_mm || 0;
-            var btype = mm < 3.5 ? 'bone_loss_mild' : (mm < 5.5 ? 'bone_loss_moderate' : 'bone_loss_severe');
+            var btype = ln.type || xrayAiPerioTypeFromMm(mm, ln.tooth_class);
             var y0 = Math.min(ln.cej[1], ln.crest[1]);
             var y1 = Math.max(ln.cej[1], ln.crest[1]);
             return {
@@ -1380,14 +1458,15 @@
                 y: y0,
                 w: 0.03,
                 h: Math.max(0.02, y1 - y0),
-                confidence: Math.min(0.88, 0.40 + Math.max(0, mm - 2) / 14),
+                confidence: ln.confidence != null ? ln.confidence : xrayAiPerioConfidence(btype),
                 measurement: Math.round(mm * 10) / 10,
                 cej: ln.cej,
                 crest: ln.crest,
                 gap: ln.gap,
-                surface: 'interproximal'
+                surface: ln.surface || 'interproximal',
+                tooth_class: ln.tooth_class
             };
-        }).slice(0, 6);
+        });
     }
 
     /**
@@ -1552,8 +1631,12 @@
             var p1 = xrayAiNormToCanvas(line.cej[0], line.cej[1], rect);
             var p2 = xrayAiNormToCanvas(line.crest[0], line.crest[1], rect);
             ctx.save();
-            ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-            ctx.lineWidth = 1.5;
+            var lineType = line.type || '';
+            ctx.strokeStyle = lineType === 'bone_loss_severe' ? 'rgba(249,115,22,0.95)'
+                : (lineType === 'bone_loss_moderate' ? 'rgba(234,179,8,0.95)'
+                    : (lineType === 'bone_loss_mild' ? 'rgba(34,197,94,0.95)'
+                        : 'rgba(255,255,255,0.72)'));
+            ctx.lineWidth = line.accepted ? 2 : 1.3;
             ctx.setLineDash([4, 4]);
             ctx.beginPath();
             ctx.moveTo(p1[0], p1[1]);
@@ -1828,9 +1911,16 @@
         var anyKeyed = false;
         var gaps = {};
         xrayAiState.findings.forEach(function (f) {
-            if (!f.type || f.type.indexOf('bone_loss_') !== 0 || f.gap == null) return;
+            if (!xrayAiIsBoneType(f.type) || f.gap == null) return;
             anyKeyed = true;
             if (xrayAiMeetsConfidence(f)) gaps[f.gap] = true;
+        });
+        if (anyKeyed) return gaps;
+        (xrayAiState.boneMeasurements || []).forEach(function (line) {
+            if (line.gap == null) return;
+            anyKeyed = true;
+            var conf = line.confidence != null ? line.confidence : xrayAiPerioConfidence(line.type);
+            if (conf >= xrayAiState.confidenceThreshold) gaps[line.gap] = true;
         });
         return anyKeyed ? gaps : null;
     }
@@ -1842,11 +1932,19 @@
         var items = (xrayAiState.boneMeasurements || []).map(function (line, idx) {
             if (line.measurement_mm == null) return null;
             if (visibleGaps && line.gap != null && !visibleGaps[line.gap]) return null;
-            return { mm: line.measurement_mm, gap: (line.gap != null ? line.gap + 1 : idx + 1) };
+            return {
+                mm: line.measurement_mm,
+                gap: (line.gap != null ? line.gap + 1 : idx + 1),
+                tooth: line.tooth,
+                tooth_class: line.tooth_class,
+                surface: line.surface,
+                type: line.type,
+                accepted: line.accepted
+            };
         }).filter(Boolean);
         if (!items.length) {
             xrayAiState.findings.forEach(function (f, idx) {
-                if (f.type && f.type.indexOf('bone_loss_') === 0 && f.measurement != null &&
+                if (xrayAiIsBoneType(f.type) && f.measurement != null &&
                     xrayAiMeetsConfidence(f)) {
                     items.push({ mm: f.measurement, gap: idx + 1, findingIdx: idx });
                 }
@@ -1862,8 +1960,19 @@
             '<div class="xray-ai-bone-head">' + xrayAiEsc(xrayAiTr('media.xrayAi.boneTitle')) + '</div>' +
             '<p class="xray-ai-bone-hint">' + xrayAiEsc(xrayAiTr('media.xrayAi.boneHintPearl')) + '</p>' +
             items.map(function (it) {
+                var clsKey = it.tooth_class ? 'media.xrayAi.toothClass.' + it.tooth_class : '';
+                var surfKey = it.surface ? 'media.xrayAi.surface.' + it.surface : '';
+                var cls = clsKey && xrayAiTr(clsKey) !== clsKey ? xrayAiTr(clsKey) : (it.tooth_class || '');
+                var surf = surfKey && xrayAiTr(surfKey) !== surfKey ? xrayAiTr(surfKey) : (it.surface || '');
+                var tooth = it.tooth != null ? String(it.tooth) : '';
+                var label = [tooth, cls, surf].filter(Boolean).join(' · ')
+                    || xrayAiTr('media.xrayAi.boneGap', { N: it.gap });
+                var gate = it.type === 'bone_ok' || it.accepted === false
+                    ? xrayAiTr('media.xrayAi.bonePhysiologic')
+                    : '';
                 return '<div class="xray-ai-bone-item">' +
-                    '<span class="xray-ai-bone-label">' + xrayAiEsc(xrayAiTr('media.xrayAi.boneGap', { N: it.gap })) + '</span>' +
+                    '<span class="xray-ai-bone-label">' + xrayAiEsc(label) +
+                    (gate ? ' · ' + xrayAiEsc(gate) : '') + '</span>' +
                     '<span class="xray-ai-bone-mm">' + it.mm + ' mm</span></div>';
             }).join('');
     }
@@ -1941,11 +2050,16 @@
         var el = xrayAiG('xrayAiConnNote');
         if (!el) return;
         var issue = xrayAiState.connIssue;
-        var show = issue === 'lna_maybe' || issue === 'lna_denied';
+        var show = issue === 'offline' || issue === 'lna_maybe' || issue === 'lna_denied';
         el.hidden = !show;
-        el.textContent = show
-            ? xrayAiTr(issue === 'lna_denied' ? 'media.xrayAi.connLnaDenied' : 'media.xrayAi.connLnaMaybe')
-            : '';
+        if (!show) {
+            el.textContent = '';
+            return;
+        }
+        var key = 'media.xrayAi.connOffline';
+        if (issue === 'lna_denied') key = 'media.xrayAi.connLnaDenied';
+        else if (issue === 'lna_maybe') key = 'media.xrayAi.connLnaMaybe';
+        el.textContent = xrayAiTr(key);
     }
 
     function xrayAiUpdatePanel() {
@@ -2021,6 +2135,14 @@
             var extra = (f.enamel_pct != null && f.dentin_pct != null)
                 ? (' · E' + f.enamel_pct + '% · D' + f.dentin_pct + '%')
                 : (f.measurement != null ? (' · ~' + f.measurement + 'mm') : (' · ' + Math.round((f.confidence || 0) * 100) + '%'));
+            if (xrayAiIsBoneType(f.type)) {
+                var bits = [];
+                if (f.tooth != null) bits.push(String(f.tooth));
+                if (f.tooth_class) bits.push(xrayAiTr('media.xrayAi.toothClass.' + f.tooth_class));
+                if (f.surface) bits.push(xrayAiTr('media.xrayAi.surface.' + f.surface));
+                if (bits.length) extra = ' · ' + bits.join(' ') + extra;
+                extra += ' · ' + Math.round((f.confidence || 0) * 100) + '%';
+            }
             return '<div class="xray-ai-finding-row">' +
                 '<button type="button" class="xray-ai-finding-item' +
                 (hidden ? ' is-hidden' : '') + (sel ? ' is-selected' : '') +
@@ -2228,12 +2350,17 @@
             var bare = xrayAiBareImageUrl(imgEl);
             if (/^https?:\/\//i.test(bare)) {
                 fetch(bare, { mode: 'cors', credentials: 'omit', cache: 'no-store' }).then(function (r) {
+                    if (r.status === 404) throw new Error('image_missing');
                     if (!r.ok) throw new Error('img HTTP ' + r.status);
                     return r.blob();
                 }).then(function (blob) {
                     if (blob && blob.size > 0) resolve(blob);
                     else throw new Error('empty_blob');
-                }).catch(function () {
+                }).catch(function (err) {
+                    if (err && err.message === 'image_missing') {
+                        reject(err);
+                        return;
+                    }
                     xrayAiFetchBlobFromCanvas(imgEl).then(resolve).catch(reject);
                 });
                 return;
@@ -2248,16 +2375,23 @@
                 reject(new Error('image_not_ready'));
                 return;
             }
-            var rec = xrayAiFindRecord();
-            if (rec && typeof lbComposeMergeViaFetch === 'function') {
-                lbComposeMergeViaFetch(rec, function (blob) {
-                    if (blob && blob.size > 0) resolve(blob);
-                    else xrayAiFetchBlobDirect(imgEl).then(resolve).catch(reject);
-                });
-                return;
-            }
+            // Always send the raw radiograph. lbComposeMergeViaFetch bakes
+            // brightness/invert plus the overlay canvas (drawings AND prior
+            // AI marks) into the JPEG — that poisons inference on a local
+            // live-server session just as much as on a hosted copy.
             xrayAiFetchBlobDirect(imgEl).then(resolve).catch(reject);
         });
+    }
+
+    function xrayAiModelIdFromHealth(models, key, fallback) {
+        if (!models || models[key] == null) return fallback;
+        var v = models[key];
+        if (typeof v === 'string' && v) return v;
+        if (v && typeof v === 'object') {
+            if (typeof v.id === 'string' && v.id) return v.id;
+            if (typeof v.model === 'string' && v.model) return v.model;
+        }
+        return fallback;
     }
 
     /**
@@ -2348,9 +2482,12 @@
                     // so the panel only offers the buttons when they will work.
                     // The two models train independently, so each has its own flag.
                     xrayAiState.feedbackEnabled = !!(j && j.caries_feedback && j.caries_feedback.enabled);
-                    xrayAiState.pabwFeedbackEnabled = !!(j && j.pabw_feedback && j.pabw_feedback.enabled);
-                    xrayAiState.panoModelId = (j && j.models && j.models.pano) || PANO_MODEL_VERSION;
-                    xrayAiState.pabwModelId = (j && j.models && j.models.pabw) || PABW_MODEL_VERSION;
+                    xrayAiState.pabwFeedbackEnabled = !!(j && (
+                        (j.pabw_feedback && j.pabw_feedback.enabled) ||
+                        (j.caries_feedback && j.caries_feedback.enabled)
+                    ));
+                    xrayAiState.panoModelId = xrayAiModelIdFromHealth(j && j.models, 'pano', PANO_MODEL_VERSION);
+                    xrayAiState.pabwModelId = xrayAiModelIdFromHealth(j && j.models, 'pabw', PABW_MODEL_VERSION);
                     return true;
                 }).catch(function () { return true; });
             })
@@ -2868,6 +3005,8 @@
                             xrayAiSetStatus(xrayAiTr('media.xrayAi.corsError'), 'bad');
                         } else if (errMsg === 'image_not_ready') {
                             xrayAiSetStatus(xrayAiTr('media.xrayAi.imageNotReady'), 'bad');
+                        } else if (errMsg === 'image_missing') {
+                            xrayAiSetStatus(xrayAiTr('media.xrayAi.imageMissing'), 'bad');
                         } else {
                             xrayAiSetStatus(xrayAiTr('media.xrayAi.errorApply', { MSG: errMsg }), 'bad');
                         }
@@ -2905,7 +3044,11 @@
             if (!XRAY_AI_CONFIG.preferApi) { runClient(); return; }
 
             xrayAiCheckApiHealth().then(function (ok) {
-                if (!ok) { runClient('api_down'); return; }
+                if (!ok) {
+                    xrayAiStartServer();
+                    runClient('api_down');
+                    return;
+                }
                 xrayAiFetchBlobFromImg(img).then(xrayAiAnalyzeApi).then(function (res) {
                     applySafe(res, 'api');
                 }).catch(function (err) {
@@ -2914,6 +3057,15 @@
                     if (msg === 'image_not_ready') {
                         xrayAiSetStatus(xrayAiTr('media.xrayAi.imageNotReady'), 'bad');
                         finish();
+                        return;
+                    }
+                    if (msg === 'image_missing') {
+                        xrayAiSetStatus(xrayAiTr('media.xrayAi.imageMissing'), 'bad');
+                        finish();
+                        return;
+                    }
+                    if (msg === 'HTTP 503') {
+                        runClient('api');
                         return;
                     }
                     if (msg.indexOf('HTTP ') === 0) {
@@ -2933,7 +3085,7 @@
         xrayAiClearOverlays();
         xrayAiInitCategoryFilters();
         var hide = typeof lbIsVideo !== 'undefined' && lbIsVideo;
-        ['lbXrayAiBtn', 'lbXrayAiToggleBtn', 'xrayAiPanel'].forEach(function (id) {
+        ['lbXrayAiBtn', 'lbXrayAiToggleBtn', 'lbXrayAiStartBtn', 'lbXrayAiGroup', 'xrayAiPanel'].forEach(function (id) {
             var el = xrayAiG(id);
             if (el) el.style.display = hide ? 'none' : '';
         });

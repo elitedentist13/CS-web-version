@@ -173,7 +173,11 @@ echo.
 
 set "PORT=8877"
 set "HOST=127.0.0.1"
-"%VENV_PY%" -m uvicorn main:app --host 127.0.0.1 --port 8877
+set "UVICORN_APP=main:app"
+if exist "%~dp0xray-ai-service\xray_ai_extras_main_20260909.py" (
+  set "UVICORN_APP=xray_ai_extras_main_20260909:app"
+)
+"%VENV_PY%" -m uvicorn %UVICORN_APP% --host 127.0.0.1 --port 8877
 
 echo.
 echo Service stopped.

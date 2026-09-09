@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260909pm-xray-maxtb3';
+  var BUILD = '20260909pm-xray-aidlg1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -43,7 +43,7 @@
     return path + sep + qs;
   }
   window.__JSM_WITH_BUST = withBust;
-  ['style.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
+  ['style.css', 'style-xray-ai-20260909.css', 'style-mobile.css', 'style-entertainment.css', 'style-doc-tools.css', 'style-tools.css'].forEach(function (path) {
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = withBust(path);
@@ -4027,13 +4027,8 @@
           <canvas id="xrayLbLoupeCanvas" width="192" height="192"></canvas>
           <span class="xray-lb-loupe-badge">3×</span>
         </div>
-        <button id="lbCropApplyBtn" onclick="lbCropApply()"
-                data-i18n="media.lb.applyCrop"
-                style="display:none;position:absolute;bottom:56px;left:50%;
-                       transform:translateX(-50%);z-index:10;
-                       background:#1a73e8;color:#fff;border:none;
-                       border-radius:6px;padding:8px 20px;
-                       font-weight:700;cursor:pointer;font-size:13px;"></button>
+        <button id="lbCropApplyBtn" class="xray-lb-crop-apply-btn" onclick="lbCropApply()"
+                data-i18n="media.lb.applyCrop"></button>
         <button type="button" id="lbRestoreMaxBtn" class="xray-lb-restore-max-btn"
                 onclick="lbToggleMaximize()" aria-hidden="true">
           <span class="xray-lb-restore-max-icon" aria-hidden="true">⤢</span>
@@ -4655,13 +4650,9 @@
             </div>
           </div>
         </div>
-        <button id="photoLbCropApplyBtn" type="button" onclick="photoLbCropApply()"
-                data-i18n="media.lb.applyCrop"
-                style="display:none;position:absolute;bottom:56px;left:50%;
-                       transform:translateX(-50%);z-index:10;
-                       background:#1a73e8;color:#fff;border:none;
-                       border-radius:6px;padding:8px 20px;
-                       font-weight:700;cursor:pointer;font-size:13px;"></button>
+        <button id="photoLbCropApplyBtn" type="button" class="xray-lb-crop-apply-btn"
+                onclick="photoLbCropApply()"
+                data-i18n="media.lb.applyCrop"></button>
         <button type="button" id="photoLbRestoreMaxBtn" class="xray-lb-restore-max-btn"
                 onclick="photoLbToggleMaximize()" aria-hidden="true">
           <span class="xray-lb-restore-max-icon" aria-hidden="true">⤢</span>
@@ -7455,10 +7446,11 @@
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
-    'app-xray.js?v=20260909maxtb3',
+    'app-xray.js?v=20260909crop1',
     'app-xray-link.js?v=20260909link5',
     'app-nnt-scans.js?v=20260828myray5',
-    'app-xray-ai.js?v=20260909edj2',
+    'app-xray-ai.js?v=20260909aidlg1',
+    'app-xray-ai-20260909.js',
     'app-charts.js',
     'app-perio-dictation.js',
     'app-drugs.js',

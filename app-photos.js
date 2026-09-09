@@ -862,7 +862,7 @@ function openPhotoLightbox(idx) {
   var cv = g('photoLbContrastVal');
   if (cv) cv.textContent = '100%';
   var cab = g('photoLbCropApplyBtn');
-  if (cab) cab.style.display = 'none';
+  if (cab) photoLbShowCropApply(false);
   photoLbSetTool('none');
 
   var raster   = g('photoLbRasterStrip');
@@ -1078,7 +1078,7 @@ function photoLbSetTool(tool) {
   if (tool !== 'crop') {
     phLbCropRect = null;
     var cab2 = g('photoLbCropApplyBtn');
-    if (cab2) cab2.style.display = 'none';
+    if (cab2) photoLbShowCropApply(false);
   }
   photoLbUpdateToolBtns();
   photoLbUpdateScrollHostCursor();
@@ -1327,7 +1327,7 @@ function photoLbCanvasUp(e) {
     photoLbDrawShape(ctx, phLbDrawStart, pos, 'crop');
     var btn = g('photoLbCropApplyBtn');
     if (btn && phLbCropRect.w > 5 && phLbCropRect.h > 5) {
-      btn.style.display = 'block';
+      photoLbShowCropApply(true);
     }
     return;
   }
@@ -1357,6 +1357,13 @@ function photoLbCanvasDblClick(e) {
   }
 }
 
+function photoLbShowCropApply(show) {
+  var btn = g('photoLbCropApplyBtn');
+  var viewer = g('photoLbViewerDiv');
+  if (btn) btn.style.display = show ? 'block' : 'none';
+  if (viewer) viewer.classList.toggle('xray-lb-crop-pending', !!show);
+}
+
 function photoLbCropApply() {
   if (!phLbCropRect || phLbCropRect.w < 5 || phLbCropRect.h < 5) return;
   var canvas = g('photoLbCanvas');
@@ -1384,8 +1391,7 @@ function photoLbCropApply() {
   img.onload = function() { photoLbInitCanvas(); };
   img.src    = tmp.toDataURL('image/jpeg', 0.95);
   phLbCropRect = null;
-  var cab3 = g('photoLbCropApplyBtn');
-  if (cab3) cab3.style.display = 'none';
+  photoLbShowCropApply(false);
   phLbDrawHistory = [];
   photoLbSetTool('none');
 }

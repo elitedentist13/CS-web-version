@@ -13,7 +13,7 @@ import urllib.request
 import websockets
 
 PORT = 9334
-APP = "http://127.0.0.1:5500/index.html?_lr=xraymaxtb3"
+APP = "http://127.0.0.1:5500/index.html?_lr=xrayaidlg1"
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 OUT = os.path.join(tempfile.gettempdir(), "cs-xray-maxtb-cdp")
 FAILS = []
@@ -226,7 +226,7 @@ async def run():
                 50,
             )
             build = await cdp.js("window.__JSM_BUILD || ''")
-            check("BUILD is maxtb3", "maxtb3" in str(build).lower(), str(build))
+            check("BUILD is aidlg1", "aidlg" in str(build).lower(), str(build))
 
             print("[2] open real film")
             picked = await cdp.js(
@@ -349,6 +349,101 @@ async def run():
             tool = await cdp.js("window.lbTool")
             check("draw tool still selectable", tool == "free", str(tool))
             await cdp.js("lbSetTool('pan'); true;")
+
+            print("[4b] crop apply vs restore in max view")
+            await cdp.js(
+                """
+                (function(){
+                  lbSetTool('crop');
+                  var cv=document.getElementById('xrayLbCanvas');
+                  var r=cv.getBoundingClientRect();
+                  function fire(typ,x,y){
+                    cv.dispatchEvent(new MouseEvent(typ,{bubbles:true,clientX:x,clientY:y,button:0}));
+                  }
+                  var x0=r.left+r.width*0.35, y0=r.top+r.height*0.35;
+                  var x1=r.left+r.width*0.65, y1=r.top+r.height*0.65;
+                  fire('mousedown',x0,y0);
+                  fire('mousemove',x1,y1);
+                  fire('mouseup',x1,y1);
+                  return true;
+                })()
+                """
+            )
+            await asyncio.sleep(0.2)
+            crop = await cdp.js(
+                """
+                (function(){
+                  var apply=document.getElementById('lbCropApplyBtn');
+                  var rest=document.getElementById('lbRestoreMaxBtn');
+                  var viewer=document.getElementById('xrayLbViewerDiv');
+                  var ar=apply.getBoundingClientRect();
+                  var rr=rest.getBoundingClientRect();
+                  var hit=document.elementFromPoint(ar.left+ar.width/2, ar.top+ar.height/2);
+                  var rst=getComputedStyle(rest);
+                  return {
+                    applyDisp: getComputedStyle(apply).display,
+                    applyVis: ar.height>8 && getComputedStyle(apply).display!=='none',
+                    applyZ: getComputedStyle(apply).zIndex,
+                    restDisp: rst.display,
+                    restVis: rst.display!=='none' && rst.visibility!=='hidden' && rr.height>8,
+                    pending: viewer.classList.contains('xray-lb-crop-pending'),
+                    hitApply: !!(hit && (hit===apply || apply.contains(hit))),
+                    hitId: hit && (hit.id || hit.className || hit.tagName)
+                  };
+                })()
+                """
+            )
+            await screenshot(cdp, "03b-max-crop-apply.png")
+            check("crop apply visible after selection", bool((crop or {}).get("applyVis")), str(crop))
+            check("restore hidden while crop pending", not (crop or {}).get("restVis"), str(crop))
+            check("crop apply is top hit target", bool((crop or {}).get("hitApply")), str(crop))
+            await cdp.js("lbSetTool('pan'); true;")
+
+            print("[4c] AI disclaimer overlay in max view")
+            await cdp.js(
+                "try { localStorage.removeItem('jsm_xray_ai_disclaimer_v2'); } catch (e) {} true;"
+            )
+            await cdp.js("document.getElementById('lbXrayAiBtn').click(); true;")
+            await asyncio.sleep(0.35)
+            dlg = await cdp.js(
+                """
+                (function(){
+                  var ov=document.querySelector('.xray-ai-overlay');
+                  var ok=document.getElementById('xrayAiDisclaimerOk');
+                  var con=document.getElementById('consultationSection');
+                  if (!ov || !ok) return {missing:true};
+                  var r=ok.getBoundingClientRect();
+                  var hit=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);
+                  var ovZ=parseInt(getComputedStyle(ov).zIndex,10)||0;
+                  var conZ=parseInt(con ? getComputedStyle(con).zIndex : '0',10)||0;
+                  return {
+                    ovZ: ovZ,
+                    conZ: conZ,
+                    aboveCon: ovZ > conZ,
+                    okVis: r.height>8 && r.width>8,
+                    hitOk: !!(hit && (hit===ok || ok.contains(hit) ||
+                      (hit.closest && hit.closest('.xray-ai-overlay')))),
+                    hitId: hit && (hit.id || String(hit.className||'') || hit.tagName)
+                  };
+                })()
+                """
+            )
+            await screenshot(cdp, "03c-max-ai-disclaimer.png")
+            check("AI disclaimer overlay present in max", not bool((dlg or {}).get("missing")), str(dlg))
+            check("AI disclaimer z-index above maximized consultation", bool((dlg or {}).get("aboveCon")), str(dlg))
+            check("I understand is visible", bool((dlg or {}).get("okVis")), str(dlg))
+            check("I understand is top hit target", bool((dlg or {}).get("hitOk")), str(dlg))
+            await cdp.js(
+                """
+                (function(){
+                  var c=document.getElementById('xrayAiDisclaimerCancel');
+                  if (c) c.click();
+                  var ov=document.querySelector('.xray-ai-overlay');
+                  if (ov) ov.remove();
+                  return true;
+                })()
+                """
+            )
 
             print("[5] restore window size")
             await cdp.js("lbToggleMaximize(); true;")

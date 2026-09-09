@@ -1,0 +1,21 @@
+{
+  "id": "2026-09-09",
+  "title": "Lightbox maximize, crop, Assist prompt stacking, intraoral decay, no EDJ overlay",
+  "additive": true,
+  "overwrite": false,
+  "web": [
+    "style-xray-ai-20260909.css",
+    "app-xray-ai-20260909.js"
+  ],
+  "service_boot": [
+    "xray_ai_extras_boot_20260909.py",
+    "xray_ai_extras_main_20260909.py"
+  ],
+  "overlay_modules": [
+    "pipeline.py",
+    "caries/detect.py",
+    "caries/reasoning.py",
+    "caries/edj_anatomy.py",
+    "models/intraoral_layers.py"
+  ]
+}

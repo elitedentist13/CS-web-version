@@ -11333,6 +11333,35 @@ body.xray-lb-maximized .active-patient-dock {
     display: inline-flex;
 }
 
+/* Crop-apply sits under the restore pill (z-index 25 vs 10) in max view.
+ * Hide restore while a crop is waiting so Crop selected is clickable. */
+#xrayLightbox.xray-lb-maximized .xray-lb-viewer.xray-lb-crop-pending .xray-lb-restore-max-btn,
+#photoLightbox.xray-lb-maximized .xray-lb-viewer.xray-lb-crop-pending .xray-lb-restore-max-btn {
+    display: none !important;
+}
+
+.xray-lb-crop-apply-btn {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: 56px;
+    transform: translateX(-50%);
+    z-index: 30;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-crop-apply-btn,
+#photoLightbox.xray-lb-maximized .xray-lb-crop-apply-btn {
+    bottom: 28px;
+}
+
 #xrayLightbox .mclose,
 #photoLightbox .mclose {
     z-index: 40;
@@ -16364,7 +16393,8 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 .xray-ai-train-modal {
     position: fixed;
     inset: 0;
-    z-index: 10050;
+    /* Same stacking band as .xray-ai-overlay (above maximized lightbox). */
+    z-index: 50000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -16815,12 +16845,14 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
 .xray-ai-overlay {
     position: fixed;
     inset: 0;
-    z-index: 10050;
+    /* Above maximized lightbox (#consultationSection is z-index 20000). */
+    z-index: 50000;
     background: rgba(15, 23, 42, 0.55);
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 16px;
+    pointer-events: auto;
 }
 
 .xray-ai-modal {

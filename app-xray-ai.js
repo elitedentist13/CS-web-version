@@ -378,6 +378,9 @@
         if (xrayAiDisclaimerAccepted()) { thenFn(); return; }
         var ov = document.createElement('div');
         ov.className = 'xray-ai-overlay';
+        ov.id = 'xrayAiDisclaimerOverlay';
+        // Inline z-index so maximize (consultation z-index 20000) cannot bury this.
+        ov.style.zIndex = '50000';
         ov.innerHTML =
             '<div class="xray-ai-modal" role="dialog">' +
                 '<h2>' + xrayAiEsc(xrayAiTr('media.xrayAi.disclaimerTitle')) + '</h2>' +

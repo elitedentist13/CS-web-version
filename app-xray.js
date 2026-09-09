@@ -1248,7 +1248,7 @@ function openLightbox(idx) {
     var bv = g('lbBrightVal');      if (bv) bv.textContent = '100%';
     var cs = g('lbContrastSlider'); if (cs) cs.value = 100;
     var cv = g('lbContrastVal');    if (cv) cv.textContent = '100%';
-    var cab = g('lbCropApplyBtn');  if (cab) cab.style.display = 'none';
+    var cab = g('lbCropApplyBtn');  if (cab) lbShowCropApply(false);
     lbSetTool('none');
     lbLoupeStop({ resumeDrag: false });
 
@@ -1398,7 +1398,7 @@ function lbSetTool(tool) {
     if (tool !== 'crop') {
         lbCropRect = null;
         var cab = g('lbCropApplyBtn');
-        if (cab) cab.style.display = 'none';
+        if (cab) lbShowCropApply(false);
     }
     lbUpdateToolBtns();
     lbUpdateScrollHostCursor();
@@ -1625,7 +1625,7 @@ function lbCanvasUp(e) {
         else ctx.clearRect(0, 0, canvas.width, canvas.height);
         lbDrawShape(ctx, lbDrawStart, pos, 'crop');
         var btn = g('lbCropApplyBtn');
-        if (btn && lbCropRect.w > 5 && lbCropRect.h > 5) btn.style.display = 'block';
+        if (btn && lbCropRect.w > 5 && lbCropRect.h > 5) lbShowCropApply(true);
         return;
     }
     if (lbTool !== 'free') {
@@ -1653,6 +1653,13 @@ function lbCanvasDblClick(e) {
 // ════════════════════════════════════════════════════════════════
 // LIGHTBOX — CROP APPLY
 // ════════════════════════════════════════════════════════════════
+function lbShowCropApply(show) {
+    var btn = g('lbCropApplyBtn');
+    var viewer = g('xrayLbViewerDiv');
+    if (btn) btn.style.display = show ? 'block' : 'none';
+    if (viewer) viewer.classList.toggle('xray-lb-crop-pending', !!show);
+}
+
 function lbCropApply() {
     if (!lbCropRect || lbCropRect.w < 5 || lbCropRect.h < 5) return;
     var canvas = g('xrayLbCanvas');
@@ -1680,7 +1687,7 @@ function lbCropApply() {
     img.onload = function() { lbInitCanvas(); };
     img.src    = tmp.toDataURL('image/jpeg', 0.95);
     lbCropRect = null;
-    var cab = g('lbCropApplyBtn'); if (cab) cab.style.display = 'none';
+    lbShowCropApply(false);
     lbDrawHistory = [];
     lbSetTool('none');
 }

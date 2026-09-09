@@ -118,6 +118,15 @@ echo.
 "%PY_CMD%" "%SCRIPT%" --root "%INSTALL_ROOT%" %MODE%
 set "ERR=%ERRORLEVEL%"
 
+REM Dated extras sit beside originals. Never replace existing clinic files.
+if /I not "%MODE%"=="--check" (
+    if exist "%INSTALL_ROOT%\xray-ai-service\apply_xray_ai_extras.py" (
+        "%PY_CMD%" "%INSTALL_ROOT%\xray-ai-service\apply_xray_ai_extras.py" --root "%INSTALL_ROOT%"
+    ) else if exist "%~dp0apply_xray_ai_extras.py" (
+        "%PY_CMD%" "%~dp0apply_xray_ai_extras.py" --root "%INSTALL_ROOT%"
+    )
+)
+
 echo.
 if "%ERR%"=="0" (
     echo Installer finished.

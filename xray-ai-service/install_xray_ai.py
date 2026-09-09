@@ -222,6 +222,13 @@ def audit():
             "no caries\\weights\\best.pt — classical caries fallback still works",
         )
 
+    extras_js = REPO / "app-xray-ai-20260909.js"
+    extras_css = REPO / "style-xray-ai-20260909.css"
+    if extras_js.is_file() and extras_css.is_file():
+        rec("2026-09-09 extras", "ok", "additive CSS/JS present")
+    else:
+        rec("2026-09-09 extras", "warn", "run apply_xray_ai_extras.py to add without replacing originals")
+
     if protocol_registered():
         rec("csxrayai:// protocol", "ok", "HKCU registered")
     else:
@@ -355,17 +362,21 @@ def start_service():
     env["HF_HUB_DISABLE_SYMLINKS"] = "1"
     env["PORT"] = "8877"
     env["HOST"] = "127.0.0.1"
-    out("[start] Launching uvicorn on http://127.0.0.1:8877 ...")
+    app_mod = "main:app"
+    extras_main = HERE / "xray_ai_extras_main_20260909.py"
+    if extras_main.is_file():
+        app_mod = "xray_ai_extras_main_20260909:app"
+    out("[start] Launching uvicorn %s on http://127.0.0.1:8877 ..." % app_mod)
     if os.name == "nt":
         subprocess.Popen(
-            [str(VENV_PY), "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8877"],
+            [str(VENV_PY), "-m", "uvicorn", app_mod, "--host", "127.0.0.1", "--port", "8877"],
             cwd=str(HERE),
             env=env,
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
     else:
         subprocess.Popen(
-            [str(VENV_PY), "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8877"],
+            [str(VENV_PY), "-m", "uvicorn", app_mod, "--host", "127.0.0.1", "--port", "8877"],
             cwd=str(HERE),
             env=env,
         )
@@ -391,6 +402,22 @@ def start_app_server():
             [sys.executable, "-m", "http.server", "8123", "--bind", "127.0.0.1"],
             cwd=str(REPO),
         )
+
+
+def ensure_extras():
+    """Add dated extras beside existing files. Never replaces originals."""
+    script = HERE / "apply_xray_ai_extras.py"
+    if not script.is_file():
+        script = REPO / "xray-ai-deploy-pack" / "apply_xray_ai_extras.py"
+    if not script.is_file():
+        out("[install] No extras pack on disk — skip.")
+        return True
+    out("[install] Applying additive extras (existing files stay as-is)...")
+    code = run([sys.executable, str(script), "--root", str(REPO)])
+    if code != 0:
+        out("[WARN] extras apply exited %s — originals were not overwritten." % code)
+        return False
+    return True
 
 
 def needs_work(rows):
@@ -432,6 +459,8 @@ def main(argv=None):
         if not ensure_models():
             return 1
         ensure_protocol()
+
+    ensure_extras()
 
     if args.start:
         start_service()

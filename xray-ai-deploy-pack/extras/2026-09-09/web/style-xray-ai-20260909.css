@@ -1,0 +1,131 @@
+/* Additive 2026-09-09 extras. Loaded AFTER style.css. Does not replace it. */
+
+#xrayLightbox.xray-lb-maximized,
+#photoLightbox.xray-lb-maximized {
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+body:has(#xrayLightbox.xray-lb-maximized) #consultationSection,
+body:has(#photoLightbox.xray-lb-maximized) #consultationSection,
+body.xray-lb-maximized #consultationSection {
+    z-index: 20000;
+}
+
+body:has(#xrayLightbox.xray-lb-maximized) .app-session-strip,
+body:has(#xrayLightbox.xray-lb-maximized) .active-patient-dock,
+body:has(#photoLightbox.xray-lb-maximized) .app-session-strip,
+body:has(#photoLightbox.xray-lb-maximized) .active-patient-dock,
+body.xray-lb-maximized .app-session-strip,
+body.xray-lb-maximized .active-patient-dock {
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lightbox-box,
+#photoLightbox.xray-lb-maximized .xray-lightbox-box {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    resize: none !important;
+    overflow: hidden;
+    min-height: 0;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-toolbar,
+#photoLightbox.xray-lb-maximized .xray-lb-toolbar {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow: visible;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    position: relative;
+    z-index: 6;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-main,
+#photoLightbox.xray-lb-maximized .xray-lb-main {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-viewer,
+#photoLightbox.xray-lb-maximized .xray-lb-viewer,
+#xrayLightbox.xray-lb-maximized .xray-lb-scroll-host,
+#photoLightbox.xray-lb-maximized .xray-lb-scroll-host {
+    min-height: 0;
+    max-height: none;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-restore-max-btn,
+#photoLightbox.xray-lb-maximized .xray-lb-restore-max-btn {
+    display: inline-flex;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-viewer.xray-lb-crop-pending .xray-lb-restore-max-btn,
+#photoLightbox.xray-lb-maximized .xray-lb-viewer.xray-lb-crop-pending .xray-lb-restore-max-btn {
+    display: none !important;
+}
+
+.xray-lb-crop-apply-btn {
+    z-index: 30;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-crop-apply-btn,
+#photoLightbox.xray-lb-maximized .xray-lb-crop-apply-btn {
+    bottom: 28px;
+}
+
+.xray-lb-loupe {
+    position: absolute;
+    width: 192px;
+    height: 192px;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 18;
+    border: 3px solid #f5d76e;
+    box-shadow: 0 0 0 2px rgba(13, 13, 26, 0.9), 0 10px 28px rgba(0, 0, 0, 0.55);
+    background: #080810;
+}
+.xray-lb-loupe[hidden] { display: none !important; }
+.xray-lb-loupe canvas {
+    display: block;
+    width: 192px;
+    height: 192px;
+}
+.xray-lb-loupe-badge {
+    position: absolute;
+    right: 14px;
+    bottom: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #1a1a12;
+    background: #f5d76e;
+    border-radius: 8px;
+    padding: 1px 6px;
+    line-height: 1.4;
+    pointer-events: none;
+}
+.xray-lb-viewer.xray-lb-loupe-on,
+.xray-lb-viewer.xray-lb-loupe-on .xray-lb-scroll-host {
+    cursor: none;
+}
+
+.xray-ai-overlay {
+    z-index: 50000 !important;
+    pointer-events: auto;
+}
+
+.xray-ai-train-modal {
+    z-index: 50000;
+}

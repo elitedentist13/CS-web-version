@@ -126,6 +126,11 @@ CARIES_ANATOMY_PIPELINE = _env_bool("CARIES_ANATOMY_PIPELINE", True)
 # (on EDJ band, enamel/dentin extension, not pulp/bone/gap).
 CARIES_ANATOMY_HARD_GATE = _env_bool("CARIES_ANATOMY_HARD_GATE", True)
 
+# Bitewing / PA: extra decay emphasis. Scores lesions by opacity discrepancy
+# versus segmented enamel/dentin, and by radiolucency change along the EDJ
+# (enamel–dentin junction) line. Panoramics are unchanged.
+CARIES_INTRAORAL_DECAY_EMPHASIS = _env_bool("CARIES_INTRAORAL_DECAY_EMPHASIS", True)
+
 # Inference resolution for the caries model (bitewing training default).
 CARIES_IMGSZ = _env_int("CARIES_IMGSZ", 640)
 

@@ -92,5 +92,21 @@ pulp_box = {
 ok, reason, _ = edj_anatomy.accept(pulp_box, TOOTH, g)
 check("rejects pulp-chamber candidate", not ok, str(reason))
 
+print("EDJ-line radiolucency")
+g2 = _canvas()
+g2[y0:y0 + 16, x0:x0 + 10] -= 55
+intraoral_layers.prepare_tooth_anatomy(g2, TOOTH)
+line_cands = edj_anatomy.propose_edj_line_candidates(g2, [TOOTH])
+check("EDJ-line scan finds contact lucency", len(line_cands) >= 1, str(len(line_cands)))
+if line_cands:
+    check("EDJ-line candidate is tagged", bool(line_cands[0].get("edj_line_seed")))
+    check("EDJ-line records opacity discrepancy",
+          (line_cands[0].get("opacity_discrepancy") or 0) > 4,
+          str(line_cands[0].get("opacity_discrepancy")))
+
+layers = intraoral_layers.layers_for_tooth(g2, TOOTH)
+check("overlay does not draw EDJ",
+      not any(L.get("layer") == "edj" for L in (layers or [])))
+
 print()
 print("%d checks passed" % PASS)

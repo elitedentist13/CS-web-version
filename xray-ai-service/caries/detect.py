@@ -18,7 +18,8 @@ from . import edj_anatomy, reasoning
 log = logging.getLogger("xray-ai.caries.detect")
 
 
-def detect_caries(gray, rgb, teeth, restorations, model=None, cfg=None, union_classical=None):
+def detect_caries(gray, rgb, teeth, restorations, model=None, cfg=None,
+                 union_classical=None, modality=None):
     """
     Args:
         gray: float32 HxW, 0..255 (contrast-stretched by the pipeline).
@@ -28,6 +29,8 @@ def detect_caries(gray, rgb, teeth, restorations, model=None, cfg=None, union_cl
         model: a ready CariesModel, or None.
         union_classical: if True, always merge classical proposals with the
             model. Defaults to config.CARIES_UNION_CLASSICAL (True).
+        modality: 'bitewing' / 'periapical' / 'pabw' / 'panoramic'. Intraoral
+            films get decay emphasis (opacity discrepancy + EDJ-line lucency).
     Returns:
         (findings, model_ready) — findings in the pipeline's internal shape;
         model_ready True when the trained model was engaged this run.
@@ -35,8 +38,20 @@ def detect_caries(gray, rgb, teeth, restorations, model=None, cfg=None, union_cl
     cfg = cfg or reasoning.ReasoningConfig.from_service_config()
     try:
         import config as conf_mod
+        from models import modality as modality_mod
     except Exception:
         conf_mod = None
+        modality_mod = None
+    intraoral = False
+    if modality_mod is not None:
+        intraoral = bool(modality_mod.is_intraoral(modality))
+    elif modality in ("bitewing", "periapical", "pabw"):
+        intraoral = True
+    decay_emphasis = intraoral and bool(
+        getattr(conf_mod, "CARIES_INTRAORAL_DECAY_EMPHASIS", True) if conf_mod else True
+    )
+    if decay_emphasis:
+        cfg.apply_intraoral_decay_emphasis()
     if union_classical is None:
         union_classical = bool(
             getattr(conf_mod, "CARIES_UNION_CLASSICAL", True) if conf_mod else True
@@ -64,6 +79,12 @@ def detect_caries(gray, rgb, teeth, restorations, model=None, cfg=None, union_cl
             c["from_model"] = False
             c["from_anatomy"] = True
         candidates.extend(anatomy_cands)
+        if decay_emphasis:
+            line_cands = edj_anatomy.propose_edj_line_candidates(gray, teeth, cfg=cfg)
+            for c in line_cands:
+                c["from_model"] = False
+                c["from_anatomy"] = True
+            candidates.extend(line_cands)
 
     if model_ready:
         model_cands = model.detect(rgb) or []
@@ -89,6 +110,7 @@ def detect_caries(gray, rgb, teeth, restorations, model=None, cfg=None, union_cl
         cfg=cfg,
         has_model=model_ready,
         anatomy_hard_gate=anatomy_hard_gate,
+        decay_emphasis=decay_emphasis,
     )
     log.info("caries reasoning surfaced %d of %d candidates",
              len(findings), len(candidates))

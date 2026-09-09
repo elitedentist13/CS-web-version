@@ -12,13 +12,27 @@ var xrayAllRecords  = [];   // all DB records for this patient
 var xrayFiltered    = [];   // after filter/search
 var xraySelected    = new Set();
 var xrayCurrentIdx  = 0;
-var xrayView        = 'grid';
+var xrayView        = 'strips';
 var xrayUploadQueue = [];   // files queued for sequential upload
 var xrayUploadQIdx  = 0;
 var diyLinks        = [];   // custom external-system links
 var xrayLocalPaths  = {};   // per-system desktop paths (localStorage)
 var xrayPendingLocalImportKey = null;
 var xrayBulkLocalImport = false;
+
+var xrayLinkedPatients = [];
+var xrayLinkMeta = { method: 'none', ambiguousTags: [], missingHkid: false };
+var xrayClinicScope = 'home';
+var xrayWhenFilter = '';
+var xrayExpandedClinicTags = {};
+var xrayShowAllInRow = {};
+var xrayPinnedId = null;
+var xrayLbNavList = [];
+var xrayLinkResolveToken = 0;
+
+var XRAY_CLINIC_PREF_LS = 'jsm_xray_clinic_scope_v1';
+var XRAY_NOTES_PREF_LS = 'jsm_xray_notes_hidden_v1';
+var XRAY_STRIP_CAP = 40;
 
 var XRAY_LOCAL_PATHS_KEY = 'jsm_xray_local_paths_v1';
 var XRAY_IMAGE_EXT_RE    = /\.(jpe?g|png|bmp|gif|tif?f|webp|dcm)$/i;
@@ -167,6 +181,10 @@ var lbLayoutBaseW   = 0;
 var lbLayoutBaseH   = 0;
 var lbScrollDragging = false;
 var lbScrollLast     = { x: 0, y: 0 };
+var lbLoupeActive    = false;
+var lbLoupeLast      = { x: 0, y: 0 };
+var LB_LOUPE_SIZE    = 192;
+var LB_LOUPE_MAG     = 3;
 
 // ════════════════════════════════════════════════════════════════
 // BUCKET HEALTH CHECK
@@ -329,7 +347,8 @@ function syncXrayPatient(patientId, patientData) {
 
     if (typeof conPatientId !== 'undefined') conPatientId = patientId;
     if (typeof conPatientData !== 'undefined') conPatientData = patientData || conPatientData;
-    if (typeof loadConNotes === 'function') loadConNotes(patientId);
+    if (typeof xrayMaybeLoadNotesOnPatientSync === 'function') xrayMaybeLoadNotesOnPatientSync();
+    else if (typeof loadConNotes === 'function') loadConNotes(patientId);
     
     // Pre-load x-ray records so they're ready
     loadXrayRecords();
@@ -363,7 +382,8 @@ function selectXrayPatient(p) {
 
     if (typeof conPatientId !== 'undefined') conPatientId = p.id;
     if (typeof conPatientData !== 'undefined') conPatientData = p;
-    if (typeof loadConNotes === 'function') loadConNotes(p.id);
+    if (typeof xrayMaybeLoadNotesOnPatientSync === 'function') xrayMaybeLoadNotesOnPatientSync();
+    else if (typeof loadConNotes === 'function') loadConNotes(p.id);
 
     // Probe bucket once so we surface config problems early
     checkXrayBucket();
@@ -404,7 +424,7 @@ function syncXrayNotesToggleLabel() {
     if (!btn) return;
     var hidden = xrayNotesPanelHidden();
     btn.textContent = mediaTr(hidden ? 'con.xray.showNotes' : 'con.xray.hideNotes');
-    btn.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+    btn.setAttribute('aria-pressed', hidden ? 'false' : 'true');
 }
 
 function toggleXrayNotesPanel(forceHidden) {
@@ -414,7 +434,21 @@ function toggleXrayNotesPanel(forceHidden) {
         ? forceHidden
         : !wb.classList.contains('xray-workbench--notes-hidden');
     wb.classList.toggle('xray-workbench--notes-hidden', hidden);
+    try { localStorage.setItem(XRAY_NOTES_PREF_LS, hidden ? '1' : '0'); } catch (e) {}
     syncXrayNotesToggleLabel();
+    if (!hidden) {
+        var pid = xrayPatientId || (typeof conPatientId !== 'undefined' ? conPatientId : null);
+        if (pid && typeof loadConNotes === 'function') loadConNotes(pid);
+    }
+}
+
+function applyXrayNotesDefaultHidden() {
+    var pref = '1';
+    try {
+        var stored = localStorage.getItem(XRAY_NOTES_PREF_LS);
+        if (stored === '0' || stored === '1') pref = stored;
+    } catch (e2) {}
+    toggleXrayNotesPanel(pref !== '0');
 }
 
 // Plain DB URL (no cache-bust params)
@@ -547,6 +581,9 @@ function renderXrayGrid() {
         var typeBadge = getTypeBadge(x.xray_type);
         var dateStr   = x.taken_date ? fmtDateLong(x.taken_date) : mediaTr('media.noDate');
         var imgSrc    = xrayDisplayUrl(x);
+        var clinicHtml = (typeof xrayClinicTagHtml === 'function') ? xrayClinicTagHtml(x) : '';
+        var clinicOverlay = (typeof xrayClinicTagHtml === 'function')
+            ? xrayClinicTagHtml(x, 'xray-clinic-tag--overlay') : '';
 
         var noPreviewSVG =
             'data:image/svg+xml,' +
@@ -567,10 +604,12 @@ function renderXrayGrid() {
                     ? '<img src="' + imgSrc + '" alt="X-Ray" ' +
                       'onerror="this.src=\'' + noPreviewSVG + '\'">'
                     : '<div class="xray-no-img">🔬<br><small>' + esc(mediaTr('media.noPreview')) + '</small></div>') +
+                clinicOverlay +
             '</div>' +
             '<div class="xray-card-body">' +
                 '<div class="xray-card-top">' +
                     typeBadge +
+                    clinicHtml +
                     '<span class="xray-card-date">' + dateStr + '</span>' +
                 '</div>' +
                 (x.notes
@@ -678,6 +717,23 @@ function renderSlideAt(idx) {
     var notesEl = g('xraySlideNotes');
     if (notesEl) notesEl.textContent = x.notes || '—';
 
+    var clinicLabel = (typeof xrayClinicTagLabel === 'function') ? xrayClinicTagLabel(x) : '';
+    var homeClinic = typeof xrayIsHomeRecord === 'function' && xrayIsHomeRecord(x);
+    var infoClinic = g('xraySlideClinic');
+    if (infoClinic) {
+        infoClinic.textContent = clinicLabel || '';
+        infoClinic.hidden = !clinicLabel;
+        infoClinic.classList.toggle('xray-clinic-tag--home', !!(clinicLabel && homeClinic));
+        infoClinic.classList.toggle('xray-clinic-tag--other', !!(clinicLabel && !homeClinic));
+    }
+    var slideChip = g('xraySlideClinicChip');
+    if (slideChip) {
+        slideChip.textContent = clinicLabel || '';
+        slideChip.hidden = !clinicLabel;
+        slideChip.classList.toggle('xray-clinic-tag--home', !!(clinicLabel && homeClinic));
+        slideChip.classList.toggle('xray-clinic-tag--other', !!(clinicLabel && !homeClinic));
+    }
+
     // Highlight active filmstrip thumbnail
     document.querySelectorAll('.xray-fs-thumb').forEach(function(t, i) {
         t.classList.toggle('active', i === idx);
@@ -692,10 +748,13 @@ function renderFilmstrip() {
         var div = document.createElement('div');
         div.className = 'xray-fs-thumb' + (i === xrayCurrentIdx ? ' active' : '');
         var thumb = x.file_url ? xrayDisplayUrl(x) : '';
+        var clinicHtml = (typeof xrayClinicTagHtml === 'function')
+            ? xrayClinicTagHtml(x, 'xray-clinic-tag--fs') : '';
         div.innerHTML =
-            thumb
+            (thumb
                 ? '<img src="' + thumb + '" alt="thumb">'
-                : '<div class="xray-fs-no-img">🔬</div>';
+                : '<div class="xray-fs-no-img">🔬</div>') +
+            clinicHtml;
         div.addEventListener('click', function() { renderSlideAt(i); });
         fs.appendChild(div);
     });
@@ -823,6 +882,9 @@ function lbSyncLightboxChrome(options) {
 
     if (modal) {
         modal.classList.toggle('xray-lb-maximized', lbChromeMaximized);
+    }
+    if (document.body) {
+        document.body.classList.toggle('xray-lb-maximized', lbChromeMaximized);
     }
     if (main) {
         main.classList.toggle('xray-lb-meta-hidden', !lbChromeMetaVisible);
@@ -959,11 +1021,189 @@ function lbUpdateScrollHostCursor() {
         host.style.cursor = '';
         return;
     }
+    if (lbLoupeActive) {
+        host.style.cursor = 'none';
+        return;
+    }
     host.style.cursor =
         lbTransform.scale > 1.02 ? 'grab' : 'default';
 }
 
+// ════════════════════════════════════════════════════════════════
+// LIGHTBOX — 3× CIRCULAR LOUPE
+// ════════════════════════════════════════════════════════════════
+function lbToggleLoupe(e) {
+    if (e && e.clientX) lbLoupeLast = { x: e.clientX, y: e.clientY };
+    if (lbLoupeActive) lbLoupeStop({ resumeDrag: true });
+    else lbLoupeStart();
+}
+
+function lbLoupeStart() {
+    var loupe = g('xrayLbLoupe');
+    var viewer = g('xrayLbViewerDiv');
+    if (!loupe || !viewer) return;
+    lbScrollDragging = false;
+    lbIsDrawing = false;
+    if (lbTool !== 'none' && lbTool !== 'pan') lbSetTool('none');
+    lbLoupeActive = true;
+    loupe.hidden = false;
+    viewer.classList.add('xray-lb-loupe-on');
+    var btn = g('lbLoupeBtn');
+    if (btn) {
+        btn.classList.add('lb-tool-active');
+        btn.setAttribute('aria-pressed', 'true');
+    }
+    lbUpdateScrollHostCursor();
+    lbLoupeRedraw();
+}
+
+function lbLoupeStop(opts) {
+    opts = opts || {};
+    var wasOn = lbLoupeActive;
+    lbLoupeActive = false;
+    var loupe = g('xrayLbLoupe');
+    if (loupe) loupe.hidden = true;
+    var viewer = g('xrayLbViewerDiv');
+    if (viewer) viewer.classList.remove('xray-lb-loupe-on');
+    var btn = g('lbLoupeBtn');
+    if (btn) {
+        btn.classList.remove('lb-tool-active');
+        btn.setAttribute('aria-pressed', 'false');
+    }
+    if (wasOn && opts.resumeDrag) lbSetTool('pan');
+    lbUpdateScrollHostCursor();
+}
+
+function lbScreenToMediaLocal(clientX, clientY) {
+    var wrap = g('lbMediaWrap');
+    if (!wrap) return null;
+    var W = wrap.offsetWidth;
+    var H = wrap.offsetHeight;
+    if (!W || !H) return null;
+    var r = wrap.getBoundingClientRect();
+    var dx = clientX - (r.left + r.width / 2);
+    var dy = clientY - (r.top + r.height / 2);
+    var t = lbTransform || {};
+    var sx = (t.scale || 1) * (t.flipH ? -1 : 1);
+    var sy = (t.scale || 1) * (t.flipV ? -1 : 1);
+    if (Math.abs(sx) < 1e-6) sx = 1e-6;
+    if (Math.abs(sy) < 1e-6) sy = 1e-6;
+    var rad = ((t.rotate || 0) * Math.PI) / 180;
+    var c = Math.cos(rad);
+    var s = Math.sin(rad);
+    var usx = dx / sx;
+    var usy = dy / sy;
+    return {
+        x: usx * c + usy * s + W / 2,
+        y: -usx * s + usy * c + H / 2,
+        w: W,
+        h: H
+    };
+}
+
+function lbLoupeOnMove(e) {
+    if (!lbLoupeActive) return;
+    lbLoupeLast = { x: e.clientX, y: e.clientY };
+    lbLoupeRedraw();
+}
+
+function lbLoupeOnContextMenu(e) {
+    if (!lbLoupeActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    lbLoupeStop({ resumeDrag: true });
+}
+
+function lbLoupeRedraw() {
+    if (!lbLoupeActive) return;
+    var loupe = g('xrayLbLoupe');
+    var canvas = g('xrayLbLoupeCanvas');
+    var viewer = g('xrayLbViewerDiv');
+    if (!loupe || !canvas || !viewer) return;
+    var D = LB_LOUPE_SIZE;
+    var mag = LB_LOUPE_MAG;
+    var vr = viewer.getBoundingClientRect();
+    var cx = lbLoupeLast.x;
+    var cy = lbLoupeLast.y;
+    if (!cx && !cy) {
+        cx = vr.left + vr.width / 2;
+        cy = vr.top + vr.height / 2;
+    }
+    var left = cx - vr.left - D / 2;
+    var top = cy - vr.top - D / 2;
+    left = Math.max(-D / 3, Math.min(vr.width - D * 2 / 3, left));
+    top = Math.max(-D / 3, Math.min(vr.height - D * 2 / 3, top));
+    loupe.style.left = left + 'px';
+    loupe.style.top = top + 'px';
+
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, D, D);
+    ctx.fillStyle = '#080810';
+    ctx.fillRect(0, 0, D, D);
+
+    var local = lbScreenToMediaLocal(cx, cy);
+    var media = lbIsVideo ? g('xrayLbVideo') : g('xrayLbImg');
+    var t = lbTransform || {};
+    var scale = Math.max(0.12, Math.abs(t.scale || 1));
+    var span = D / (mag * scale);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(D / 2, D / 2, D / 2 - 1.5, 0, Math.PI * 2);
+    ctx.clip();
+
+    var filt =
+        (t.invert ? 'invert(1) ' : '') +
+        'brightness(' + lbBrightness + '%) contrast(' + lbContrast + '%)';
+    ctx.filter = filt;
+    ctx.imageSmoothingEnabled = true;
+    if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = 'high';
+
+    if (media && local) {
+        var natW = lbIsVideo ? (media.videoWidth || local.w) : (media.naturalWidth || local.w);
+        var natH = lbIsVideo ? (media.videoHeight || local.h) : (media.naturalHeight || local.h);
+        var sx = (local.x - span / 2) * (natW / local.w);
+        var sy = (local.y - span / 2) * (natH / local.h);
+        var sw = span * (natW / local.w);
+        var sh = span * (natH / local.h);
+        try {
+            ctx.drawImage(media, sx, sy, sw, sh, 0, 0, D, D);
+        } catch (err) { /* tainted image — ring still useful as a pointer */ }
+    }
+
+    ctx.filter = 'none';
+    ['xrayLbAiCanvas', 'xrayLbCanvas'].forEach(function (id) {
+        var ov = g(id);
+        if (!ov || !local || ov.style.display === 'none') return;
+        if (!ov.width || !ov.height) return;
+        var ox = (local.x - span / 2) * (ov.width / local.w);
+        var oy = (local.y - span / 2) * (ov.height / local.h);
+        var ow = span * (ov.width / local.w);
+        var oh = span * (ov.height / local.h);
+        try {
+            ctx.drawImage(ov, ox, oy, ow, oh, 0, 0, D, D);
+        } catch (err2) { /* ignore overlay sample failures */ }
+    });
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(D / 2, D / 2, D / 2 - 2, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(245,215,110,0.95)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(D / 2 - 7, D / 2);
+    ctx.lineTo(D / 2 + 7, D / 2);
+    ctx.moveTo(D / 2, D / 2 - 7);
+    ctx.lineTo(D / 2, D / 2 + 7);
+    ctx.strokeStyle = 'rgba(245,215,110,0.7)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+}
+
 function lbScrollShouldHandleDrag(e) {
+    if (lbLoupeActive) return false;
     if (e.button !== 0) return false;
     if (lbTool !== 'none' && lbTool !== 'pan') {
         if (e.target && e.target.id === 'xrayLbCanvas') return false;
@@ -1010,6 +1250,7 @@ function openLightbox(idx) {
     var cv = g('lbContrastVal');    if (cv) cv.textContent = '100%';
     var cab = g('lbCropApplyBtn');  if (cab) cab.style.display = 'none';
     lbSetTool('none');
+    lbLoupeStop({ resumeDrag: false });
 
     // ── Detect video vs image ─────────────────────────────
     // Match extension on URL without bucket query/cache-busters
@@ -1095,8 +1336,10 @@ function _forceCloseLightbox() {
     lbChromeScaleBeforeMax = 1;
     var modal = g('xrayLightbox');
     if (modal) modal.classList.remove('xray-lb-maximized');
+    if (document.body) document.body.classList.remove('xray-lb-maximized');
     var main = g('xrayLbMain');
     if (main) main.classList.remove('xray-lb-meta-hidden');
+    lbLoupeStop({ resumeDrag: false });
 }
 
 function closeLightbox() {
@@ -1116,6 +1359,7 @@ function closeLightbox() {
 
 function applyLbTransform() {
     lbSyncLightboxScrollShell();
+    if (lbLoupeActive) lbLoupeRedraw();
 }
 
 function lbZoom(f) {
@@ -1142,6 +1386,7 @@ function lbReset() {
 // LIGHTBOX — TOOL SWITCHING
 // ════════════════════════════════════════════════════════════════
 function lbSetTool(tool) {
+    if (tool !== 'loupe' && lbLoupeActive) lbLoupeStop({ resumeDrag: false });
     lbTool    = tool;
     lbPolyPts = [];
     var canvas = g('xrayLbCanvas');
@@ -1936,9 +2181,21 @@ document.addEventListener('DOMContentLoaded', function() {
             lbHost.style.cursor = 'grabbing';
             e.preventDefault();
         });
+        lbHost.addEventListener('mousemove', lbLoupeOnMove);
+        lbHost.addEventListener('contextmenu', lbLoupeOnContextMenu);
     }
-    document.addEventListener('mousemove', lbScrollHostMove);
+    document.addEventListener('mousemove', function (e) {
+        if (lbLoupeActive) lbLoupeOnMove(e);
+        lbScrollHostMove(e);
+    });
     document.addEventListener('mouseup', lbScrollHostUp);
+    document.addEventListener('contextmenu', function (e) {
+        if (!lbLoupeActive) return;
+        var modal = g('xrayLightbox');
+        if (!modal || modal.style.display !== 'block') return;
+        if (!modal.contains(e.target)) return;
+        lbLoupeOnContextMenu(e);
+    }, true);
 
     // ── Lightbox: drawing canvas ──────────────────────────────
     var lbCvs = g('xrayLbCanvas');

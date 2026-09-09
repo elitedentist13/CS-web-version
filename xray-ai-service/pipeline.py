@@ -117,7 +117,9 @@ class Pipeline:
             ]
             cond_findings = [f for f in cond_findings if f["type"] not in CARIES_TYPES]
             caries_findings, caries_used_model = detect_caries(
-                gray, rgb, teeth, restorations, model=self.caries_model
+                gray, rgb, teeth, restorations,
+                model=self.caries_model,
+                modality=modality,
             )
             findings.extend(caries_findings)
 
@@ -314,6 +316,8 @@ class Pipeline:
                 tooth_layers = caries_refine.anatomy_layers_for_tooth(tooth)
 
             for layer in tooth_layers:
+                if layer.get("layer") == "edj":
+                    continue
                 layers.append(
                     {
                         "tooth": layer["tooth"],
@@ -438,6 +442,8 @@ def _normalize_finding(finding, width, height):
         out["relay_flags"] = finding["relay_flags"]
     if finding.get("edj_crossing"):
         out["edj_crossing"] = True
+    if finding.get("opacity_discrepancy") is not None:
+        out["opacity_discrepancy"] = round(float(finding["opacity_discrepancy"]), 2)
     return out
 
 

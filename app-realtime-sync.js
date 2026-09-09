@@ -169,6 +169,10 @@ var REALTIME_SYNC = (function() {
     function rtPatientMediaRelevant(payload, kind) {
         var row = rtPayloadRow(payload);
         if (row && row.patient_id && rtTreatmentRelevant(row)) return true;
+        if (kind === 'xray' && row && row.patient_id &&
+            typeof xrayIsLinkedPatientId === 'function' && xrayIsLinkedPatientId(row.patient_id)) {
+            return true;
+        }
 
         var ev = payload && payload.eventType;
         if (ev === 'DELETE' || (ev === 'UPDATE' && row && !row.patient_id)) {

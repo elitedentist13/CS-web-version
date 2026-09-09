@@ -53,6 +53,7 @@ tooth = {
 layers = intraoral_layers.layers_for_tooth(gray, tooth)
 by_name = {L["layer"]: L for L in layers}
 check("emits enamel + dentin", "enamel" in by_name and "dentin" in by_name)
+check("does not overlay EDJ", "edj" not in by_name)
 check("tooth silhouette attached", isinstance(tooth.get("polygon"), list) and len(tooth["polygon"]) >= 6)
 for name in ("enamel", "dentin"):
     poly = by_name[name]["polygon"]
@@ -73,6 +74,8 @@ check("anatomy mode freeform or fallback",
 if resp["anatomy_layers"]:
     verts = [len(L["polygon"]) for L in resp["anatomy_layers"]]
     check("pipeline layers include free-form polys", max(verts) > 4, str(verts))
+    check("pipeline does not overlay EDJ",
+          not any(L.get("layer") == "edj" for L in resp["anatomy_layers"]))
 
 print("[3] panoramic still uses rectangles")
 pano = Image.fromarray(np.full((600, 1400), 40, np.uint8), "L")

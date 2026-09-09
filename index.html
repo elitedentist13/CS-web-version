@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260908am-perio-slide';
+  var BUILD = '20260909pm-xray-maxtb3';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3376,6 +3376,20 @@
         ⚠️ <span id="conXrayBannerAlert" data-i18n="con.banner.none"></span>
       </div>
     </div>
+    <div id="xrayLinkBar" class="xray-link-bar" style="display:none;" hidden>
+      <button type="button" id="xrayAlsoAtBtn" class="xray-also-at-btn" style="display:none;"
+              onclick="xrayShowAllClinicsFromBanner()"></button>
+      <span id="xrayLinkStatus" class="xray-link-status"></span>
+      <button type="button" id="xrayDupToWorkBtn" class="xray-dup-work-btn" style="display:none;"
+              onclick="xrayDupToWorkingClinic()"></button>
+    </div>
+    <div id="xrayHkidPrompt" class="xray-hkid-prompt" style="display:none;" hidden>
+      <label for="xrayHkidInput" data-i18n="con.xray.hkidPromptLabel"></label>
+      <input id="xrayHkidInput" type="text" autocomplete="off" spellcheck="false"
+             data-i18n-placeholder="con.xray.hkidPromptPh">
+      <button type="button" class="xray-btn xray-btn-refresh" onclick="xraySaveHkidAndRelink()"
+              data-i18n="con.xray.hkidFindBtn"></button>
+    </div>
 
     <!-- ── Main X-Ray Content (hidden until patient selected) ── -->
     <div id="xrayMainContent" style="display:none;">
@@ -3404,7 +3418,9 @@
 
         <!-- View toggle -->
         <div class="xray-view-toggle">
-          <button class="xray-vtoggle active" id="btnGridView"
+          <button class="xray-vtoggle active" id="btnStripsView"
+                  onclick="setXrayView('strips')" data-i18n="con.xray.viewStrips"></button>
+          <button class="xray-vtoggle" id="btnGridView"
                   onclick="setXrayView('grid')" data-i18n="media.grid"></button>
           <button class="xray-vtoggle" id="btnSlideView"
                   onclick="setXrayView('slide')" data-i18n="media.slide"></button>
@@ -3412,7 +3428,7 @@
 
         <button type="button" class="xray-notes-toggle" id="xrayNotesToggleBtn"
                 aria-pressed="false" onclick="toggleXrayNotesPanel()"
-                data-i18n="con.xray.hideNotes"></button>
+                data-i18n="con.xray.showNotes"></button>
 
       </div>
 
@@ -3510,6 +3526,8 @@
 
       </div>
 
+      <p id="xrayHomeWriteHint" class="xray-home-write-hint" hidden></p>
+
       <input type="file" id="xrayLocalFolderInput" multiple
              webkitdirectory directory
              style="display:none;"
@@ -3524,16 +3542,32 @@
       </div>
 
       <!-- ── Filter / Sort Bar ────────────────────────── -->
-      <div class="xray-workbench" id="xrayWorkbench">
+      <div class="xray-workbench xray-workbench--notes-hidden" id="xrayWorkbench">
         <div class="xray-media-col">
       <div class="xray-filter-bar">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <select id="xrayFilterType" onchange="filterXrays()"
-                  class="xray-filter-sel">
+          <label class="xray-clinic-scope-lbl" for="xrayClinicScope">
+            <span data-i18n="con.xray.clinicScope"></span>
+            <select id="xrayClinicScope" class="xray-filter-sel" onchange="xrayOnClinicScopeChange()"></select>
+          </label>
+          <div id="xrayTypeChips" class="xray-chip-row" role="group"
+               data-i18n-aria-label="media.allTypes"></div>
+          <div id="xrayWhenChips" class="xray-chip-row" role="group">
+            <button type="button" class="xray-chip active" data-when="" onclick="xraySetWhenFilter('')"
+                    data-i18n="con.xray.whenAll"></button>
+            <button type="button" class="xray-chip" data-when="visit" onclick="xraySetWhenFilter('visit')"
+                    data-i18n="con.xray.whenVisit"></button>
+            <button type="button" class="xray-chip" data-when="12m" onclick="xraySetWhenFilter('12m')"
+                    data-i18n="con.xray.when12m"></button>
+            <button type="button" class="xray-chip" data-when="older" onclick="xraySetWhenFilter('older')"
+                    data-i18n="con.xray.whenOlder"></button>
+          </div>
+          <select id="xrayFilterType" onchange="xrayOnTypeSelectChange()"
+                  class="xray-filter-sel" style="display:none;">
             <option value="" data-i18n="media.allTypes"></option>
           </select>
           <select id="xrayFilterYear" onchange="filterXrays()"
-                  class="xray-filter-sel">
+                  class="xray-filter-sel" style="display:none;">
             <option value="" data-i18n="media.allYears"></option>
           </select>
           <input type="text" id="xrayFilterSearch"
@@ -3554,8 +3588,10 @@
         </div>
       </div>
 
+      <div id="xrayClinicStrips" class="xray-clinic-strips"></div>
+
       <!-- ── GRID VIEW ─────────────────────────────────── -->
-      <div id="xrayGridView" class="xray-grid">
+      <div id="xrayGridView" class="xray-grid" style="display:none;">
         <div class="xray-empty" id="xrayEmptyState">
           <div style="font-size:56px;margin-bottom:12px;">🔬</div>
           <h3 data-i18n="media.noXraysTitle"></h3>
@@ -3577,6 +3613,7 @@
               <img id="xraySlideImg" src="" data-i18n-alt="media.alt.xray" alt="X-Ray"
                    style="max-width:100%;max-height:100%;
                           object-fit:contain;">
+              <span id="xraySlideClinicChip" class="xray-clinic-tag xray-clinic-tag--slide" hidden></span>
               <div class="xray-slide-tools">
                 <button onclick="xrayZoom(1.2)"
                         data-i18n-title="media.lb.zoomIn">🔍+</button>
@@ -3607,6 +3644,7 @@
             <div class="xsi-top">
               <span class="xsi-counter" id="xraySlideCounter">1 / 1</span>
               <span class="xsi-type" id="xraySlideType">—</span>
+              <span class="xray-clinic-tag" id="xraySlideClinic" hidden></span>
             </div>
             <div class="xsi-date" id="xraySlideDate">—</div>
             <div class="xsi-notes" id="xraySlideNotes">—</div>
@@ -3851,8 +3889,19 @@
       <!-- View -->
       <div class="xray-lb-tgroup">
         <span class="xray-lb-tglabel" data-i18n="media.lb.view"></span>
+        <span id="lbClinicChip" class="xray-lb-clinic-chip" hidden></span>
+        <button type="button" id="lbPrevBtn" data-i18n-title="media.slide.prevAria"
+                onclick="xrayLbNav(-1)">‹</button>
+        <button type="button" id="lbNextBtn" data-i18n-title="media.slide.nextAria"
+                onclick="xrayLbNav(1)">›</button>
+        <button type="button" id="lbPinBtn" class="xray-lb-tool-btn"
+                data-i18n="con.xray.pin" data-i18n-title="con.xray.pinHint"
+                onclick="xrayTogglePinFromLightbox()"></button>
         <button data-i18n-title="media.lb.zoomIn"   onclick="lbZoom(1.25)">🔍+</button>
         <button data-i18n-title="media.lb.zoomOut"  onclick="lbZoom(0.8)">🔍−</button>
+        <button type="button" id="lbLoupeBtn" class="xray-lb-tool-btn"
+                data-i18n-title="media.lb.loupe"
+                onclick="lbToggleLoupe(event)">🔍</button>
         <button data-i18n="media.lb.resetBtn" data-i18n-title="media.lb.resetBtn" onclick="lbReset()"></button>
         <button data-i18n-title="media.lb.print"     onclick="lbPrint()">🖨️</button>
         <button data-i18n-title="media.lb.download"  onclick="downloadLbXray()">💾</button>
@@ -3973,6 +4022,10 @@
               <canvas id="xrayLbCanvas"></canvas>
             </div>
           </div>
+        </div>
+        <div id="xrayLbLoupe" class="xray-lb-loupe" hidden>
+          <canvas id="xrayLbLoupeCanvas" width="192" height="192"></canvas>
+          <span class="xray-lb-loupe-badge">3×</span>
         </div>
         <button id="lbCropApplyBtn" onclick="lbCropApply()"
                 data-i18n="media.lb.applyCrop"
@@ -4099,10 +4152,10 @@
                  data-i18n="media.lb.clickPlaceXray"></small>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;">
-          <button class="btn-add" onclick="saveLbMeta()"
+          <button class="btn-add" id="lbSaveBtn" onclick="saveLbMeta()"
                   data-i18n="media.lb.save"
                   style="flex:1;padding:10px;"></button>
-          <button onclick="deleteLbXray()"
+          <button id="lbDeleteBtn" onclick="deleteLbXray()"
                   data-i18n="media.lb.delete"
                   style="flex:1;padding:10px;background:var(--danger);
                          color:white;border:none;border-radius:6px;
@@ -4112,6 +4165,24 @@
 
     </div><!-- /.xray-lb-main -->
 
+  </div>
+</div>
+
+<div id="xrayCompareModal" class="modal" style="z-index:10000;">
+  <div class="xray-compare-box">
+    <button class="mclose" data-i18n-aria-label="common.closeAria"
+            onclick="xrayCloseCompare()">×</button>
+    <h3 class="xray-compare-title" data-i18n="con.xray.compareTitle"></h3>
+    <div class="xray-compare-grid">
+      <div class="xray-compare-col">
+        <div class="xray-compare-caption" id="xrayCompareCapA">—</div>
+        <img id="xrayCompareImgA" alt="">
+      </div>
+      <div class="xray-compare-col">
+        <div class="xray-compare-caption" id="xrayCompareCapB">—</div>
+        <img id="xrayCompareImgB" alt="">
+      </div>
+    </div>
   </div>
 </div>
 
@@ -7358,7 +7429,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js',
-    'app-i18n-extra.js?v=20260908slide',
+    'app-i18n-extra.js?v=20260909xrayloupe1',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js',
@@ -7384,9 +7455,10 @@
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
-    'app-xray.js?v=20260831digirex3',
+    'app-xray.js?v=20260909maxtb3',
+    'app-xray-link.js?v=20260909link5',
     'app-nnt-scans.js?v=20260828myray5',
-    'app-xray-ai.js?v=20260908slide',
+    'app-xray-ai.js?v=20260909edj2',
     'app-charts.js',
     'app-perio-dictation.js',
     'app-drugs.js',

@@ -740,6 +740,9 @@ function photoLbSyncLightboxChrome(options) {
   if (modal) {
     modal.classList.toggle('xray-lb-maximized', photoLbChromeMaximized);
   }
+  if (document.body) {
+    document.body.classList.toggle('xray-lb-maximized', photoLbChromeMaximized);
+  }
   if (main) {
     main.classList.toggle('xray-lb-meta-hidden', !photoLbChromeMetaVisible);
   }
@@ -1000,6 +1003,7 @@ function _forceClosePhotoLightbox() {
     photoLbChromeScaleBeforeMax = 1;
     var modal = g('photoLightbox');
     if (modal) modal.classList.remove('xray-lb-maximized');
+    if (document.body) document.body.classList.remove('xray-lb-maximized');
     var main = g('photoLbMain');
     if (main) main.classList.remove('xray-lb-meta-hidden');
 }

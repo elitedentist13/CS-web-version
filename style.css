@@ -10658,6 +10658,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     justify-content: center;
     overflow: hidden;
     cursor: pointer;
+    position: relative;
 }
 
 .xray-card-img img {
@@ -10687,9 +10688,53 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     flex-wrap: wrap;
 }
 
-.xray-card-date {
-    font-size: 11px;
-    color: #9ca3af;
+.xray-clinic-tag {
+    font-size: 10px;
+    font-weight: 800;
+    border-radius: 999px;
+    padding: 2px 8px;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+.xray-clinic-tag--home {
+    background: #dbeafe;
+    color: #1e40af;
+}
+.xray-clinic-tag--other {
+    background: #fef3c7;
+    color: #92400e;
+}
+.xray-clinic-tag--overlay {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 2;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.xray-clinic-tag--slide {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 4;
+    font-size: 12px;
+    padding: 4px 10px;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.xray-clinic-tag--fs {
+    position: absolute;
+    left: 2px;
+    bottom: 2px;
+    z-index: 2;
+    font-size: 9px;
+    padding: 1px 5px;
+    max-width: calc(100% - 4px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.xray-card--other-clinic {
+    outline: 1px solid #f6d38b;
 }
 
 .xray-card-notes {
@@ -10875,6 +10920,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     align-items: center;
     justify-content: center;
     transition: border-color 0.15s;
+    position: relative;
 }
 
 .xray-fs-thumb img {
@@ -10897,6 +10943,308 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     text-align: center;
 }
 
+.xray-link-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0 4px;
+}
+.xray-also-at-btn {
+    border: 1px solid #93c5fd;
+    background: #eff6ff;
+    color: var(--primary);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.xray-link-status {
+    font-size: 12px;
+    color: #b45309;
+}
+.xray-hkid-prompt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 10px;
+    padding: 10px 12px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+.xray-hkid-prompt label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+}
+.xray-hkid-prompt input {
+    min-width: 160px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+}
+.xray-home-write-hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.4;
+}
+.xray-clinic-scope-lbl {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+}
+.xray-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.xray-chip {
+    border: 1px solid #dbe3ee;
+    background: #fff;
+    color: #334155;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.xray-chip.active {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    color: #fff;
+}
+.xray-clinic-strips {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+.xray-clinic-row {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    overflow: visible;
+}
+.xray-clinic-row--home {
+    border-color: #93c5fd;
+}
+.xray-clinic-row-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+.xray-clinic-row--home .xray-clinic-row-head {
+    background: #eff6ff;
+    cursor: default;
+}
+.xray-clinic-row-chevron {
+    font-size: 14px;
+    color: #64748b;
+    padding-top: 2px;
+}
+.xray-clinic-row-titles { flex: 1; min-width: 0; }
+.xray-clinic-row-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #0f172a;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+.xray-clinic-row-ident {
+    margin-top: 3px;
+    font-size: 12px;
+    color: #64748b;
+}
+.xray-clinic-row-warn {
+    margin-top: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #b45309;
+}
+.xray-clinic-row-count {
+    font-size: 12px;
+    font-weight: 800;
+    color: #1d4ed8;
+    white-space: nowrap;
+}
+.xray-home-pill,
+.xray-other-pill,
+.xray-match-pill {
+    font-size: 10px;
+    font-weight: 800;
+    border-radius: 999px;
+    padding: 2px 8px;
+}
+.xray-home-pill { background: #dbeafe; color: #1e40af; }
+.xray-other-pill { background: #f1f5f9; color: #475569; }
+.xray-match-pill { background: #fef3c7; color: #92400e; }
+.xray-mismatch-pill { background: #fee2e2; color: #991b1b; }
+.xray-dup-work-btn {
+    border: 1px solid #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.xray-clinic-chart { font-weight: 700; color: #334155; }
+.xray-clinic-row-body { padding: 0 10px 12px; }
+.xray-clinic-scroller {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    padding: 6px 2px 10px;
+}
+.xray-visit-cluster {
+    flex: 0 0 auto;
+}
+.xray-visit-date {
+    font-size: 11px;
+    font-weight: 800;
+    color: #64748b;
+    margin-bottom: 6px;
+}
+.xray-visit-tiles {
+    display: flex;
+    gap: 8px;
+}
+.xray-strip-tile {
+    width: 148px;
+    flex: 0 0 auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #0f172a;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    overflow: hidden;
+}
+.xray-strip-tile--pinned {
+    box-shadow: 0 0 0 3px #2563eb;
+}
+#xrayCompareModal {
+    z-index: 10050;
+}
+.xray-strip-tile-img {
+    display: block;
+    width: 148px;
+    height: 100px;
+    background: #020617;
+}
+.xray-strip-tile-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.xray-strip-tile-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px 8px;
+    background: #fff;
+}
+.xray-strip-tile-date {
+    font-size: 11px;
+    color: #64748b;
+}
+.xray-strip-tile-notes {
+    font-size: 11px;
+    color: #334155;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.xray-clinic-empty {
+    font-size: 13px;
+    color: #64748b;
+    padding: 8px 2px 4px;
+}
+.xray-show-all-row {
+    margin-top: 6px;
+    border: none;
+    background: none;
+    color: var(--primary);
+    font-weight: 800;
+    font-size: 12px;
+    cursor: pointer;
+}
+.xray-lb-clinic-chip {
+    font-size: 11px;
+    font-weight: 800;
+    background: #e0f2fe;
+    color: #075985;
+    border-radius: 999px;
+    padding: 3px 10px;
+}
+.xray-lb-readonly .xray-lb-tgroup:has(#lbTBtn-free),
+.xray-lb-readonly .xray-lb-tgroup:has(#lbTBtn-crop),
+.xray-lb-readonly #lbSaveBtn,
+.xray-lb-readonly #lbDeleteBtn {
+    opacity: 0.45;
+    pointer-events: none;
+}
+#lbPinBtn.active {
+    background: #1d4ed8;
+    color: #fff;
+}
+.xray-compare-box {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 12px;
+    padding: 20px 22px 24px;
+    max-width: min(1200px, 96vw);
+    margin: 4vh auto;
+    position: relative;
+}
+.xray-compare-title {
+    margin: 0 0 12px;
+    font-size: 16px;
+    color: #f8fafc;
+}
+.xray-compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.xray-compare-col img {
+    width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    background: #020617;
+    border-radius: 8px;
+}
+.xray-compare-caption {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #cbd5e1;
+}
+
+@media (max-width: 800px) {
+    .xray-compare-grid { grid-template-columns: 1fr; }
+    .xray-strip-tile, .xray-strip-tile-img { width: 128px; }
+    .xray-strip-tile-img { height: 88px; }
+}
+
 /* ?? Lightbox ??????????????????????????????????????????????? */
 #xrayLightbox,
 #photoLightbox {
@@ -10909,17 +11257,35 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     max-height: calc(100vh - 72px);
 }
 
-/* ?? Maximize mode ?????????????????????????????????????????
- * The lightbox box is ALREADY a working two-zone flex column:
- *   zone 1 = .xray-lb-toolbar  (flex-shrink:0, fixed height)
- *   zone 2 = .xray-lb-main     (flex:1, grows ? image + meta)
- * Maximize ONLY enlarges the box to fill the viewport. We do
- * NOT touch the toolbar/main rules, so the toolbar that shows
- * fine in normal mode keeps showing ? the image zone simply
- * gets more room. This is the whole trick.                    */
+/* Maximize / fit-to-page: fill the viewport but KEEP the full toolbar.
+ * A definite-height flex column + toolbar overflow-x:auto used to collapse
+ * wrapped groups to one clipped row (only a few buttons remained clickable).
+ * Toolbar is height:auto / overflow:visible; the film zone shrinks instead. */
 #xrayLightbox.xray-lb-maximized,
 #photoLightbox.xray-lb-maximized {
     padding: 0 !important;
+    overflow: hidden;
+}
+
+/* Lightbox lives inside #consultationSection (z-index:30). The session
+ * strip (800) and active-patient dock (120) are body-level, so they paint
+ * ON TOP of a "z-index:9999" lightbox. Maximize used to tuck the toolbar
+ * under that chrome — only a wrapped leftover group (e.g. Edit) stayed
+ * clickable. Raise the section while maxed so the full toolbar wins. */
+body:has(#xrayLightbox.xray-lb-maximized) #consultationSection,
+body:has(#photoLightbox.xray-lb-maximized) #consultationSection,
+body.xray-lb-maximized #consultationSection {
+    z-index: 20000;
+}
+
+body:has(#xrayLightbox.xray-lb-maximized) .app-session-strip,
+body:has(#xrayLightbox.xray-lb-maximized) .active-patient-dock,
+body:has(#photoLightbox.xray-lb-maximized) .app-session-strip,
+body:has(#photoLightbox.xray-lb-maximized) .active-patient-dock,
+body.xray-lb-maximized .app-session-strip,
+body.xray-lb-maximized .active-patient-dock {
+    visibility: hidden !important;
+    pointer-events: none !important;
 }
 
 #xrayLightbox.xray-lb-maximized .xray-lightbox-box,
@@ -10931,11 +11297,46 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     margin: 0 !important;
     border-radius: 0 !important;
     resize: none !important;
+    overflow: hidden;
+    min-height: 0;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-toolbar,
+#photoLightbox.xray-lb-maximized .xray-lb-toolbar {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow: visible;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    position: relative;
+    z-index: 6;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-main,
+#photoLightbox.xray-lb-maximized .xray-lb-main {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+#xrayLightbox.xray-lb-maximized .xray-lb-viewer,
+#photoLightbox.xray-lb-maximized .xray-lb-viewer,
+#xrayLightbox.xray-lb-maximized .xray-lb-scroll-host,
+#photoLightbox.xray-lb-maximized .xray-lb-scroll-host {
+    min-height: 0;
+    max-height: none;
 }
 
 #xrayLightbox.xray-lb-maximized .xray-lb-restore-max-btn,
 #photoLightbox.xray-lb-maximized .xray-lb-restore-max-btn {
     display: inline-flex;
+}
+
+#xrayLightbox .mclose,
+#photoLightbox .mclose {
+    z-index: 40;
+    color: #cbd5e1;
 }
 
 .xray-lb-main.xray-lb-meta-hidden {
@@ -11048,11 +11449,17 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    align-content: flex-start;
     padding: 5px 46px 5px 10px;
     border-bottom: 1px solid #2a2a40;
-    overflow-x: auto;
+    /* visible (not overflow-x:auto): auto on one axis forces auto on the
+       other, which clips wrapped groups to a single row in a definite-height
+       lightbox (maximize / manual resize). Groups wrap onto extra rows. */
+    overflow: visible;
     flex-shrink: 0;
     gap: 0;
+    position: relative;
+    z-index: 2;
 }
 
 .xray-lb-tgroup {
@@ -11126,7 +11533,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     display: grid;
     grid-template-columns: 1fr 300px;
     grid-template-rows: minmax(0, 1fr);
-    flex: 1;
+    flex: 1 1 0;
     overflow: hidden;
     min-height: 480px;
     min-width: 0;
@@ -11220,6 +11627,48 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     pointer-events: none;
     touch-action: none;
     z-index: 2;
+}
+
+.xray-lb-loupe {
+    position: absolute;
+    width: 192px;
+    height: 192px;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 18;
+    border: 3px solid #f5d76e;
+    box-shadow: 0 0 0 2px rgba(13, 13, 26, 0.9), 0 10px 28px rgba(0, 0, 0, 0.55);
+    background: #080810;
+}
+.xray-lb-loupe[hidden] { display: none !important; }
+.xray-lb-loupe canvas {
+    display: block;
+    width: 192px;
+    height: 192px;
+}
+.xray-lb-loupe-badge {
+    position: absolute;
+    right: 14px;
+    bottom: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #1a1a12;
+    background: #f5d76e;
+    border-radius: 8px;
+    padding: 1px 6px;
+    line-height: 1.4;
+    pointer-events: none;
+}
+.xray-lb-viewer.xray-lb-loupe-on {
+    cursor: none;
+}
+.xray-lb-viewer.xray-lb-loupe-on .xray-lb-scroll-host {
+    cursor: none;
 }
 
 /* Photos/Documents lightbox ? same stacking as X-ray (#lbMediaWrap / #xrayLbCanvas) */

@@ -324,6 +324,7 @@
         var best = {}, i, layer, key, area;
         for (i = 0; i < layers.length; i++) {
             layer = layers[i];
+            if (layer.layer === 'edj') continue;
             key = String(layer.tooth) + '|' + layer.layer;
             area = xrayAiPolyArea(layer.polygon);
             if (!best[key] || area > best[key].area) best[key] = { layer: layer, area: area };
@@ -336,7 +337,7 @@
         var out = [], i;
         for (i = 0; i < layers.length; i++) {
             var layer = layers[i];
-            if (!layer || !layer.layer) continue;
+            if (!layer || !layer.layer || layer.layer === 'edj') continue;
             var poly = xrayAiSanitizePolygon(layer.polygon, imgW, imgH);
             if (!poly) continue;
             if (layer.layer === 'enamel' && xrayAiPolyYSpan(poly) < 0.05) continue;
@@ -1739,19 +1740,21 @@
             var c1 = xrayAiNormToCanvas((f.x || 0) + (f.w || 0.05), (f.y || 0) + (f.h || 0.05), rect);
             var x = c0[0], y = c0[1], bw = Math.max(1, c1[0] - c0[0]), bh = Math.max(1, c1[1] - c0[1]);
             var selected = idx === xrayAiState.selectedIdx;
+            var isCaries = f.type === 'caries_incipient' || f.type === 'caries_progressed';
+            var decayEmphasis = isCaries && xrayAiIsIntraoralModality(xrayAiState.modality);
             ctx.save();
             ctx.strokeStyle = meta.color;
-            ctx.lineWidth = selected ? 3 : 2;
+            ctx.lineWidth = selected ? (decayEmphasis ? 3.6 : 3) : (decayEmphasis ? 2.7 : 2);
             if (f.polygon && f.polygon.length >= 3) {
                 xrayAiDrawPolygon(ctx, f.polygon, rect);
                 ctx.fillStyle = meta.color;
-                ctx.globalAlpha = selected ? 0.42 : 0.28;
+                ctx.globalAlpha = selected ? (decayEmphasis ? 0.52 : 0.42) : (decayEmphasis ? 0.38 : 0.28);
                 ctx.fill('evenodd');
                 ctx.globalAlpha = 1;
                 ctx.stroke();
             } else if (meta.shape === 'fill' || meta.shape === 'band') {
                 ctx.fillStyle = meta.color;
-                ctx.globalAlpha = selected ? 0.35 : 0.22;
+                ctx.globalAlpha = selected ? (decayEmphasis ? 0.45 : 0.35) : (decayEmphasis ? 0.32 : 0.22);
                 ctx.fillRect(x, y, bw, bh);
                 ctx.globalAlpha = 1;
                 ctx.setLineDash([]);
@@ -1762,7 +1765,6 @@
                 ctx.setLineDash([]);
             }
 
-            var isCaries = f.type === 'caries_incipient' || f.type === 'caries_progressed';
             var showTag = selected || (isCaries && tagCount < XRAY_AI_CONFIG.maxCanvasTags);
             if (isCaries && f.enamel_pct != null && f.dentin_pct != null && showTag) {
                 xrayAiDrawPearlTag(ctx, x, y, bw, bh,
@@ -2197,6 +2199,16 @@
                 xrayAiEsc(xrayAiTr('media.xrayAi.edjCrossingTip')) + '">' +
                 xrayAiEsc(xrayAiTr('media.xrayAi.edjCrossing')) + '</span>';
         }
+        if (f.relay_flags && f.relay_flags.indexOf('edj_line_lucency') !== -1) {
+            chips += '<span class="xray-ai-badge" title="' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.edjLineTip')) + '">' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.edjLine')) + '</span>';
+        }
+        if (f.relay_flags && f.relay_flags.indexOf('opacity_discrepancy') !== -1) {
+            chips += '<span class="xray-ai-badge" title="' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.opacityDiscTip')) + '">' +
+                xrayAiEsc(xrayAiTr('media.xrayAi.opacityDisc')) + '</span>';
+        }
         if (f.relay_flags && f.relay_flags.indexOf('near_restoration') !== -1) {
             chips += '<span class="xray-ai-badge xray-ai-badge-warn" title="' +
                 xrayAiEsc(xrayAiTr('media.xrayAi.nearRestorationTip')) + '">' +
@@ -2325,6 +2337,10 @@
         if (type === 'panoramic') return 'panoramic';
         if (type === 'periapical' || type === 'bitewing') return 'pabw';
         return null;
+    }
+
+    function xrayAiIsIntraoralModality(mod) {
+        return mod === 'bitewing' || mod === 'periapical' || mod === 'pabw';
     }
 
     function xrayAiFetchBlobFromCanvas(imgEl) {
@@ -2935,6 +2951,17 @@
                 .map(function (f) { return xrayAiFinalizeFinding(f, imgW, imgH); })
                 .filter(function (f) { return f && (f.confidence || 0) >= XRAY_AI_CONFIG.retainConfidence; })
         ).slice(0, XRAY_AI_CONFIG.maxFindings);
+        var intraoral = xrayAiIsIntraoralModality(
+            result.modality || (result.advisory && result.advisory.modality) || null
+        );
+        if (intraoral) {
+            xrayAiState.findings.sort(function (a, b) {
+                var ac = (a.type || '').indexOf('caries_') === 0 ? 1 : 0;
+                var bc = (b.type || '').indexOf('caries_') === 0 ? 1 : 0;
+                if (ac !== bc) return bc - ac;
+                return (b.confidence || 0) - (a.confidence || 0);
+            });
+        }
         xrayAiState.hidden = {};
         xrayAiState.selectedIdx = -1;
         xrayAiState.feedback = {};

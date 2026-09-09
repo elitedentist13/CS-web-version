@@ -61,6 +61,9 @@ class ReasoningConfig:
     min_ring_contrast = 6.0
     # EDJ contact seeds may be fainter on bitewings — slightly softer floor.
     min_ring_contrast_edj = 4.0
+    # Layer-relative opacity (segmented enamel/dentin) — used on PA/bitewing.
+    min_layer_opacity = 3.5
+    layer_opacity_full = 28.0
     # Ring contrast that counts as "full" evidence when normalising to 0..1.
     ring_contrast_full = 36.0
     # Upper darkness vs local tooth: emptier than this → gap/air/bone, not caries.
@@ -97,6 +100,12 @@ class ReasoningConfig:
     edj_min_enamel_pct = 12
     # Geometric EDJ span can support a hit only when some enamel share exists.
     allow_geometric_edj_span = True
+    # PA/bitewing: boost when the EDJ-line lucency scan found the spot.
+    edj_line_lucency_boost = 0.12
+    opacity_discrepancy_boost = 0.12
+    segmentation_support_boost = 0.08
+    decay_emphasis = False
+    edj_line_min_drop = 4.0
 
     # Classical proposer — contact-dentin search (sensitive to subtle contacts).
     classical_lucency_thresh = 7
@@ -123,6 +132,22 @@ class ReasoningConfig:
         except Exception:
             pass
         return cfg
+
+    def apply_intraoral_decay_emphasis(self):
+        """
+        Bitewing / periapical: emphasise decay using opacity discrepancy
+        against segmented enamel/dentin and radiolucency change on the EDJ.
+        """
+        self.decay_emphasis = True
+        self.min_ring_contrast = min(self.min_ring_contrast, 4.0)
+        self.min_ring_contrast_edj = min(self.min_ring_contrast_edj, 3.0)
+        self.min_layer_opacity = min(self.min_layer_opacity, 3.0)
+        self.classical_gain = max(self.classical_gain, 0.88)
+        self.accept_threshold = min(self.accept_threshold, 0.14)
+        self.edj_crossing_boost = max(self.edj_crossing_boost, 0.30)
+        self.edj_line_lucency_boost = max(self.edj_line_lucency_boost, 0.14)
+        self.classical_lucency_thresh = min(self.classical_lucency_thresh, 5)
+        return self
 
 
 # ── skill 1: anatomical correction ─────────────────────────────────
@@ -163,6 +188,7 @@ def locate(candidate, teeth, cfg):
         or candidate.get("interproximal_seed")
         or candidate.get("edj_seed")
         or candidate.get("junction_seed")
+        or candidate.get("edj_line_seed")
     )
     if (
         not is_contact_seed
@@ -264,30 +290,52 @@ def contrast_evidence(gray, candidate, tooth, cfg):
     Returns (score_0_1, ring_contrast, sharpness, veto_reason|None). Absolute
     darkness is deliberately not used: a correctly-exposed molar is darker than
     a thin incisor, so the only meaningful comparison is local.
+
+    On PA/bitewing, prefer opacity discrepancy vs segmented enamel/dentin
+    (pulp excluded) over a spatial ring that can include air or bone.
     """
     box = candidate.get("core_box") or candidate["box"]
     pad = max(4.0, min(box["w"], box["h"]) * 0.6)
     ring = _ring_contrast(gray, box, pad)
+    layer_disc, e_frac, d_frac = _layer_opacity_discrepancy(gray, candidate, tooth)
+    if layer_disc is not None:
+        candidate["opacity_discrepancy"] = layer_disc
+        candidate["layer_enamel_frac"] = e_frac
+        candidate["layer_dentin_frac"] = d_frac
+        contrast_raw = 0.75 * layer_disc + 0.25 * max(0.0, ring)
+    else:
+        contrast_raw = ring
+        if candidate.get("opacity_discrepancy") is None:
+            candidate["opacity_discrepancy"] = ring
+
     floor = cfg.min_ring_contrast
     if (
         candidate.get("edj_seed")
         or candidate.get("interproximal_seed")
         or candidate.get("junction_seed")
+        or candidate.get("edj_line_seed")
     ):
         floor = min(floor, cfg.min_ring_contrast_edj)
-    if ring < floor:
-        return 0.0, ring, 0.0, "low_contrast"
+    if layer_disc is not None:
+        floor = min(floor, getattr(cfg, "min_layer_opacity", 3.5))
+    if contrast_raw < floor:
+        return 0.0, contrast_raw, 0.0, "low_contrast"
     # Very deep lucency vs local tooth usually means empty gap / bone, not caries.
-    if ring > cfg.max_ring_contrast:
+    # Keep the lesion if segmented enamel/dentin still contain it.
+    in_tissue = layer_disc is not None and (e_frac + d_frac) >= 0.22
+    if ring > cfg.max_ring_contrast and not in_tissue:
         return 0.0, ring, 0.0, "interdental_gap"
 
-    sharpness = _margin_sharpness(gray, box, ring)
+    sharpness = _margin_sharpness(gray, box, max(contrast_raw, ring, 1.0))
     if sharpness > cfg.max_margin_sharpness:
         # A near-step edge relative to its contrast is man-made, not carious.
-        return 0.0, ring, sharpness, "hard_edge"
+        return 0.0, contrast_raw, sharpness, "hard_edge"
 
-    score = geometry.clamp(ring / cfg.ring_contrast_full, 0.0, 1.0)
-    return score, ring, sharpness, None
+    full = cfg.ring_contrast_full
+    if layer_disc is not None:
+        full = min(full, getattr(cfg, "layer_opacity_full", 28.0))
+    score = geometry.clamp(contrast_raw / max(full, 1e-6), 0.0, 1.0)
+    return score, contrast_raw, sharpness, None
 
 
 # ── skill 3: pathology relay ───────────────────────────────────────
@@ -382,6 +430,7 @@ def screen(
     cfg=None,
     has_model=False,
     anatomy_hard_gate=None,
+    decay_emphasis=None,
 ):
     """
     Run all skills over every candidate and return surfaced lesions.
@@ -397,6 +446,10 @@ def screen(
             anatomy_hard_gate = bool(getattr(conf_mod, "CARIES_ANATOMY_HARD_GATE", True))
         except Exception:
             anatomy_hard_gate = True
+    if decay_emphasis is None:
+        decay_emphasis = bool(getattr(cfg, "decay_emphasis", False))
+    elif decay_emphasis:
+        cfg.decay_emphasis = True
     h, w = gray.shape[:2]
     img_diag = math.hypot(w, h)
     out = []
@@ -574,6 +627,27 @@ def screen(
             if dentin_pct is not None and dentin_pct >= 55:
                 conf = geometry.clamp(conf + 0.08, 0.0, cfg.confidence_ceiling)
                 audit["flags"].append("deep_dentin_edj")
+        if decay_emphasis or getattr(cfg, "decay_emphasis", False):
+            disc = cand.get("opacity_discrepancy")
+            if disc is not None and disc >= 5.0:
+                conf = geometry.clamp(
+                    conf + min(cfg.opacity_discrepancy_boost, disc / 80.0),
+                    0.0,
+                    cfg.confidence_ceiling,
+                )
+                audit["flags"].append("opacity_discrepancy")
+            e_frac = float(cand.get("layer_enamel_frac") or 0.0)
+            d_frac = float(cand.get("layer_dentin_frac") or 0.0)
+            if e_frac >= 0.12 and d_frac >= 0.12:
+                conf = geometry.clamp(
+                    conf + cfg.segmentation_support_boost, 0.0, cfg.confidence_ceiling
+                )
+                audit["flags"].append("segmentation_support")
+            if cand.get("edj_line_seed"):
+                conf = geometry.clamp(
+                    conf + cfg.edj_line_lucency_boost, 0.0, cfg.confidence_ceiling
+                )
+                audit["flags"].append("edj_line_lucency")
         # Facing-contact junction: boost real contacts, soft-penalise lone
         # proximal hits so marked contact lesions shortlist cleanly.
         jboost = _contact_junction_boost(tight_box, teeth, cfg)
@@ -617,6 +691,16 @@ def screen(
             finding.setdefault("relay_flags", [])
             if "edj_crossing" not in finding["relay_flags"]:
                 finding["relay_flags"].append("edj_crossing")
+        if "edj_line_lucency" in audit["flags"]:
+            finding.setdefault("relay_flags", [])
+            if "edj_line_lucency" not in finding["relay_flags"]:
+                finding["relay_flags"].append("edj_line_lucency")
+        if "opacity_discrepancy" in audit["flags"]:
+            finding.setdefault("relay_flags", [])
+            if "opacity_discrepancy" not in finding["relay_flags"]:
+                finding["relay_flags"].append("opacity_discrepancy")
+        if cand.get("opacity_discrepancy") is not None:
+            finding["opacity_discrepancy"] = round(float(cand["opacity_discrepancy"]), 2)
         audit["surface"] = surface
         audit["ring_contrast"] = round(ring, 2)
         audit["margin_sharpness"] = round(sharp, 2)
@@ -827,6 +911,81 @@ def _pulp_zone(tooth, arch):
         "w": max(1.0, box["w"] * 0.40),
         "h": abs(end - start),
     }
+
+
+def _layer_opacity_discrepancy(gray, candidate, tooth):
+    """
+    Lesion mean vs sound enamel+dentin of the SAME tooth (pulp excluded).
+
+    Positive => the candidate is radiolucent relative to segmented tissue.
+    Returns (discrepancy, enamel_frac, dentin_frac) or (None, 0, 0).
+    """
+    anatomy = tooth.get("anatomy") if tooth else None
+    if not anatomy or gray is None:
+        return None, 0.0, 0.0
+    masks = anatomy.get("masks") or {}
+    tooth_m = masks.get("tooth")
+    enamel_m = masks.get("enamel")
+    dentin_m = masks.get("dentin")
+    pulp_m = masks.get("pulp")
+    if tooth_m is None:
+        return None, 0.0, 0.0
+    try:
+        from . import edj_anatomy
+    except Exception:
+        return None, 0.0, 0.0
+    ox, oy = anatomy["origin"]
+    h, w = tooth_m.shape[:2]
+    box = candidate.get("core_box") or candidate.get("box")
+    if not box:
+        return None, 0.0, 0.0
+    comp = edj_anatomy._rasterize_box(box, ox, oy, w, h)
+    if candidate.get("polygon"):
+        poly_m = edj_anatomy._rasterize_polygon(candidate["polygon"], ox, oy, w, h)
+        if poly_m is not None and np.any(poly_m):
+            comp = poly_m
+    if not np.any(comp):
+        return None, 0.0, 0.0
+
+    gh, gw = gray.shape[:2]
+    y2 = min(oy + h, gh)
+    x2 = min(ox + w, gw)
+    if y2 <= oy or x2 <= ox:
+        return None, 0.0, 0.0
+    roi = gray[oy:y2, ox:x2]
+    mh, mw = roi.shape[:2]
+    if mh != h or mw != w:
+        comp = comp[:mh, :mw]
+        enamel_m = enamel_m[:mh, :mw] if enamel_m is not None else None
+        dentin_m = dentin_m[:mh, :mw] if dentin_m is not None else None
+        pulp_m = pulp_m[:mh, :mw] if pulp_m is not None else None
+        tooth_m = tooth_m[:mh, :mw]
+        h, w = mh, mw
+
+    tissue = np.zeros((h, w), dtype=bool)
+    if enamel_m is not None:
+        tissue |= enamel_m > 0
+    if dentin_m is not None:
+        tissue |= dentin_m > 0
+    if not np.any(tissue):
+        tissue = tooth_m > 0
+    if pulp_m is not None:
+        tissue &= pulp_m == 0
+    lesion = (comp > 0) & tissue
+    sound = tissue & (comp == 0)
+    if np.count_nonzero(lesion) < 4 or np.count_nonzero(sound) < 8:
+        return None, 0.0, 0.0
+    disc = float(roi[sound].mean()) - float(roi[lesion].mean())
+    area = float(np.count_nonzero(comp))
+    e_frac = (
+        float(np.count_nonzero(comp & (enamel_m > 0))) / area
+        if enamel_m is not None and area > 0 else 0.0
+    )
+    d_frac = (
+        float(np.count_nonzero(comp & (dentin_m > 0))) / area
+        if dentin_m is not None and area > 0 else 0.0
+    )
+    return disc, e_frac, d_frac
 
 
 def _ring_contrast(gray, box, pad):

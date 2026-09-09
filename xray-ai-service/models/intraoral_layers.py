@@ -39,9 +39,8 @@ def layers_for_tooth(gray, tooth):
     label = fdi if fdi is not None else int(round(box["x"]))
     ox, oy = anatomy["origin"]
     layers = []
-    for name in ("enamel", "dentin", "pulp", "edj"):
-        key = "edj_band" if name == "edj" else name
-        mask = anatomy["masks"].get(key)
+    for name in ("enamel", "dentin", "pulp"):
+        mask = anatomy["masks"].get(name)
         if mask is None or not np.any(mask):
             continue
         try:
@@ -51,6 +50,7 @@ def layers_for_tooth(gray, tooth):
         poly = _mask_to_polygon(mask, ox, oy, cv2)
         if poly and len(poly) >= 3:
             layers.append({"tooth": label, "layer": name, "polygon": poly})
+    # EDJ is identified internally for caries spotting; do not overlay the line.
     return layers
 
 

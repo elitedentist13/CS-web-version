@@ -19,6 +19,15 @@ swcfg.bck
 CB3DConfig.dat
 *.dat
 *.bck
+PATH.txt
+settings.txt
+xray-pc-config.js
+VTE2Loader32.exe
+
+# Local CS SQL DSN probes (contain internal hosts and password guesses)
+_probe-cs-dsn.ps1
+_probe-mcp-cs.ps1
+_probe-cs-*.ps1
 
 # Logs
 server.log

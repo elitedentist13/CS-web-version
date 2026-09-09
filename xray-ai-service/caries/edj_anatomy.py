@@ -63,6 +63,25 @@ def propose_candidates(gray, teeth, cfg=None):
     return out
 
 
+def propose_edj_line_candidates(gray, teeth, cfg=None):
+    """
+    Walk each tooth's EDJ (enamel–dentin junction) and flag contact-band
+    spots where radiolucency changes relative to sound tissue on the same
+    line — enamel-side vs dentin-side of the junction.
+
+    Classic proximal decay darkens first in enamel at the contact, then
+    crosses the EDJ into dentin. Comparing those two sides of the line
+    (and each side against sound EDJ tissue) is more specific than a
+    spatial ring that can include air or pulp.
+    """
+    prepare_teeth(gray, teeth)
+    out = []
+    for tooth in teeth or []:
+        out.extend(_propose_edj_line_for_tooth(gray, tooth, cfg))
+    log.info("EDJ-line lucency proposer added %d candidates", len(out))
+    return out
+
+
 def accept(candidate, tooth, gray=None):
     """
     Hard gate: True when the candidate is an EDJ-anchored tissue shadow.
@@ -285,6 +304,179 @@ def _propose_for_tooth(gray, tooth, anatomy, cv2):
             "edj_crossing": bool(e_frac >= 0.12 and d_frac >= 0.15),
         }
         cands.append(cand)
+    return cands
+
+
+def _geometric_edj_curve(tooth, n=16):
+    """Fallback EDJ polyline when the enamel∩dentin interface is empty."""
+    from models import caries_refine
+
+    tb = tooth.get("box")
+    junction = caries_refine.edj_y(tooth)
+    if not tb or junction is None:
+        return []
+    x0 = tb["x"] + tb["w"] * 0.08
+    x1 = tb["x"] + tb["w"] * 0.92
+    if n < 4:
+        n = 4
+    return [
+        [x0 + (x1 - x0) * i / float(n - 1), float(junction)]
+        for i in range(n)
+    ]
+
+
+def _window_mean(gray, x, y, half=1):
+    h, w = gray.shape[:2]
+    x1 = max(0, int(x) - half)
+    y1 = max(0, int(y) - half)
+    x2 = min(w, int(x) + half + 1)
+    y2 = min(h, int(y) + half + 1)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return float(gray[y1:y2, x1:x2].mean())
+
+
+def _in_mask_roi(mask, ox, oy, x, y):
+    if mask is None:
+        return True
+    ix = int(x) - int(ox)
+    iy = int(y) - int(oy)
+    h, w = mask.shape[:2]
+    if ix < 0 or iy < 0 or ix >= w or iy >= h:
+        return False
+    return bool(mask[iy, ix] > 0)
+
+
+def _propose_edj_line_for_tooth(gray, tooth, cfg=None):
+    anatomy = tooth.get("anatomy")
+    tb = tooth.get("box")
+    arch = tooth.get("arch")
+    if gray is None or not tb or arch not in ("upper", "lower"):
+        return []
+    curve = (anatomy or {}).get("edj_curve") or []
+    if len(curve) < 4:
+        curve = _geometric_edj_curve(tooth)
+    if len(curve) < 4:
+        return []
+
+    sign = geometry.crown_edge_sign(arch)
+    enamel_dir = -int(sign)  # toward occlusal from the EDJ
+    dentin_dir = int(sign)   # toward pulp / apex from the EDJ
+    offset = max(3, int(round(tb["h"] * 0.045)))
+    masks = (anatomy or {}).get("masks") or {}
+    origin = (anatomy or {}).get("origin") or (0, 0)
+    ox, oy = int(origin[0]), int(origin[1])
+    tooth_m = masks.get("tooth")
+    pulp_m = masks.get("pulp")
+    min_drop = float(getattr(cfg, "edj_line_min_drop", 4.0) if cfg else 4.0)
+
+    samples = []
+    for pt in curve:
+        x, y = float(pt[0]), float(pt[1])
+        rel = (x - tb["x"]) / max(tb["w"], 1e-6)
+        if rel < 0.04 or rel > 0.96:
+            continue
+        ex, ey = x, y + enamel_dir * offset
+        dx, dy = x, y + dentin_dir * offset
+        if tooth_m is not None and not (
+            _in_mask_roi(tooth_m, ox, oy, ex, ey) or _in_mask_roi(tooth_m, ox, oy, x, y)
+        ):
+            continue
+        if pulp_m is not None and (
+            _in_mask_roi(pulp_m, ox, oy, ex, ey) or _in_mask_roi(pulp_m, ox, oy, dx, dy)
+        ):
+            continue
+        e_val = _window_mean(gray, ex, ey)
+        d_val = _window_mean(gray, dx, dy)
+        if e_val is None or d_val is None:
+            continue
+        samples.append({
+            "x": x, "y": y, "rel": rel,
+            "e": e_val, "d": d_val,
+            "contact": rel <= _CONTACT_FRAC or rel >= (1.0 - _CONTACT_FRAC),
+        })
+    if len(samples) < 4:
+        return []
+
+    sound = [s for s in samples if 0.32 <= s["rel"] <= 0.68]
+    if len(sound) < 3:
+        sound = samples
+    sound_e = float(np.median([s["e"] for s in sound]))
+    sound_d = float(np.median([s["d"] for s in sound]))
+
+    hits = []
+    for s in samples:
+        if not s["contact"]:
+            continue
+        e_drop = sound_e - s["e"]
+        d_drop = sound_d - s["d"]
+        # Extra darkening into dentin vs the enamel side of the same EDJ point.
+        cross = s["e"] - s["d"]
+        if s["e"] < 28 or s["d"] < 22:
+            continue  # empty gap / air, not tissue
+        if e_drop < min_drop and d_drop < (min_drop + 0.5):
+            continue
+        if (e_drop + d_drop) < (min_drop + 2.0) and not (e_drop >= min_drop and d_drop >= min_drop * 0.7):
+            continue
+        s = dict(s)
+        s["e_drop"] = e_drop
+        s["d_drop"] = d_drop
+        s["cross"] = cross
+        hits.append(s)
+    if not hits:
+        return []
+
+    # Cluster consecutive contact hits (left side vs right side).
+    left = [s for s in hits if s["rel"] <= 0.5]
+    right = [s for s in hits if s["rel"] > 0.5]
+    cands = []
+    for cluster in (left, right):
+        if not cluster:
+            continue
+        xs = [s["x"] for s in cluster]
+        ys = [s["y"] for s in cluster]
+        pad_x = max(3.0, tb["w"] * 0.04)
+        pad_y = max(4.0, float(offset) + 2.0)
+        x1 = min(xs) - pad_x
+        x2 = max(xs) + pad_x
+        y1 = min(ys) - pad_y
+        y2 = max(ys) + pad_y
+        abs_box = {
+            "x": float(x1),
+            "y": float(y1),
+            "w": float(max(4.0, x2 - x1)),
+            "h": float(max(6.0, y2 - y1)),
+        }
+        max_e = max(s["e_drop"] for s in cluster)
+        max_d = max(s["d_drop"] for s in cluster)
+        disc = max(max_e, max_d)
+        e_involved = max_e >= min_drop * 0.8
+        d_involved = max_d >= min_drop * 0.8
+        score = float(min(0.92, 0.52 + disc / 40.0))
+        if e_involved and d_involved:
+            score = min(0.94, score + 0.10)
+        cands.append({
+            "box": abs_box,
+            "core_box": dict(abs_box),
+            "score": score,
+            "polygon": [
+                [abs_box["x"], abs_box["y"]],
+                [abs_box["x"] + abs_box["w"], abs_box["y"]],
+                [abs_box["x"] + abs_box["w"], abs_box["y"] + abs_box["h"]],
+                [abs_box["x"], abs_box["y"] + abs_box["h"]],
+            ],
+            "stage": 2 if (d_involved and max_d >= 8) else 1,
+            "prefer_surface": "interproximal",
+            "interproximal_seed": True,
+            "edj_seed": True,
+            "junction_seed": True,
+            "anatomy_seed": True,
+            "edj_line_seed": True,
+            "edj_crossing": bool(e_involved and d_involved),
+            "opacity_discrepancy": disc,
+            "enamel_pct": 50 if e_involved and d_involved else (70 if e_involved else 20),
+            "dentin_pct": 50 if e_involved and d_involved else (80 if d_involved else 20),
+        })
     return cands
 
 

@@ -1,0 +1,3 @@
+# Extra packages for a dedicated training machine. The clinic service
+# already installs ultralytics via xray-ai-service/requirements.txt.
+ultralytics>=8.3

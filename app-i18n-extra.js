@@ -6621,9 +6621,9 @@
         'chart.perio.dictate.live': { en: 'Live', 'zh-CN': '即时', 'zh-Hant': '即時' },
         'chart.perio.dictate.batch': { en: 'Batch', 'zh-CN': '批量', 'zh-Hant': '批次' },
         'chart.perio.dictate.modeTitle': {
-            en: 'Switch Live (apply each phrase now) and Batch (apply after a short pause)',
-            'zh-CN': '切换即时（立即写入）与批量（停顿约 1.5 秒后再写入）',
-            'zh-Hant': '切換即時（立即寫入）與批次（停頓約 1.5 秒後再寫入）'
+            en: 'Switch Live (apply each phrase now) and Batch (apply after a ~0.5s pause)',
+            'zh-CN': '切换即时（立即写入）与批量（停顿约 0.5 秒后再写入）',
+            'zh-Hant': '切換即時（立即寫入）與批次（停頓約 0.5 秒後再寫入）'
         },
         'chart.perio.dictate.needChrome': {
             en: 'Dictation uses the browser speech engine — available in Chrome and Edge only.',
@@ -6663,9 +6663,9 @@
             'zh-Hant': '開始：點擊 🎙 變綠開麥。可先點選圖表位點（或變綠後再點）作為起點。'
         },
         'chart.perio.dictate.tipBopPi': {
-            en: 'Plaque / bleeding (BOP·PI): plus / one / 1 = mark · minus / zero / 0 = blank · also yes/no.',
-            'zh-CN': '菌斑 / 出血（BOP·PI）：plus / one / 1 = 标记 · minus / zero / 0 = 空白 · 也可用 yes/no。',
-            'zh-Hant': '菌斑 / 出血（BOP·PI）：plus / one / 1 = 標記 · minus / zero / 0 = 空白 · 也可用 yes/no。'
+            en: 'Plaque / bleeding: click a BOP or PI box (green frame), then 🎙. plus / one / 1 = mark · minus / zero / 0 = blank · or say “bleeding” / “plaque”.',
+            'zh-CN': '菌斑 / 出血：先点选 BOP 或 PI 格（绿框），再点 🎙。plus / one / 1 = 标记 · minus / zero / 0 = 空白 · 也可说 “bleeding” / “plaque”。',
+            'zh-Hant': '菌斑 / 出血：先點選 BOP 或 PI 格（綠框），再點 🎙。plus / one / 1 = 標記 · minus / zero / 0 = 空白 · 也可說 “bleeding” / “plaque”。'
         },
         'chart.perio.dictate.tipUndo': {
             en: 'Go back / undo: undo · back · wipe · oops · go back · delete last (clears last box).',
@@ -6683,9 +6683,9 @@
             'zh-Hant': '植體：“implant 14” / “dental implant 36” · “implant 14 remove” 清除。'
         },
         'chart.perio.dictate.tipNumbers': {
-            en: 'PD / GM: say millimetre values (e.g. “3” and “5” and “4”, or “3” plus “5” plus “4”) along the probe walk.',
-            'zh-CN': '袋深 / 龈缘：沿探诊顺序说出毫米数（例如 “3” and “5” and “4”，或 “3” plus “5” plus “4”）。',
-            'zh-Hant': '袋深 / 齦緣：沿探診順序說出毫米數（例如 “3” and “5” and “4”，或 “3” plus “5” plus “4”）。'
+            en: 'PD / GM: say each millimetre as a single digit (“one two one” → 1, 2, 1). Two-digit pockets only as “ten”…“fifteen” (“eleven”, “twelve”). Chrome may glue “121” or “12 1” — that still fills 1, 2, 1. Do not say “plus” between PD values (plus is BOP/PI).',
+            'zh-CN': '袋深 / 龈缘：每位点说一位数字（“one two one” → 1、2、1）。两位数袋深只用 “ten”…“fifteen”（如 “eleven”“twelve”）。Chrome 可能粘成 “121” 或 “12 1”，仍会填 1、2、1。袋深之间不要说 plus（plus 是出血/菌斑标记）。',
+            'zh-Hant': '袋深 / 齦緣：每位點說一位數字（“one two one” → 1、2、1）。兩位數袋深只用 “ten”…“fifteen”（如 “eleven”“twelve”）。Chrome 可能黏成 “121” 或 “12 1”，仍會填 1、2、1。袋深之間不要說 plus（plus 是出血/菌斑標記）。'
         },
         'chart.perio.dictate.tipStop': {
             en: 'Stop anytime: tap the black ■ next to 🎙 (or say “stop”) before typing by hand.',

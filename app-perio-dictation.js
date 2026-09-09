@@ -46,6 +46,9 @@ var UNIVERSAL_TO_FDI = {
     25: 41, 26: 42, 27: 43, 28: 44, 29: 45, 30: 46, 31: 47, 32: 48
 };
 
+/* Spoken digit words = one pocket each (“one two one” → 1, 2, 1).
+ * Two-digit PD only via compound words (“twelve” → 12). Chrome may glue
+ * pauses into “121” / “12 1”; those are split on the PD/GM walk. */
 var PD_DICT_NUM_WORDS = [
     ['twenty eight', '28'], ['twenty seven', '27'], ['twenty six', '26'],
     ['twenty five', '25'], ['twenty four', '24'], ['twenty three', '23'],
@@ -204,11 +207,71 @@ function pdDictApplyTrain(s) {
 
 function pdDictReplaceNumWords(s) {
     PD_DICT_NUM_WORDS.forEach(function(pair) {
-        s = s.replace(new RegExp('\\b' + pair[0] + '\\b', 'g'), pair[1]);
+        var keep = String(pair[1]).length > 1;
+        var repl = keep ? ('\uE000' + pair[1] + '\uE001') : pair[1];
+        s = s.replace(new RegExp('\\b' + pair[0] + '\\b', 'g'), repl);
     });
     // "one" last so it cannot eat "twenty one" leftovers
     s = s.replace(/\bone\b/g, '1');
     return s;
+}
+
+function pdDictRestoreKeptNums(s) {
+    return String(s || '').replace(/\uE000(\d+)\uE001/g, '$1');
+}
+
+function pdDictOnPdWalk() {
+    if (!pdDict.cursor) return false;
+    var m = pdDictEffectiveMeasure(pdDict.cursor.measure);
+    return m === 'pd' || m === 'gm';
+}
+
+function pdDictSplitGluedPdDigits(s) {
+    s = String(s || '');
+    var structural = /\b(missing|present|tooth|teeth|mobility|implant|dental|furcation|wisdom|start|begin)\b/.test(s);
+    var parts = s.split(/(\uE000\d+\uE001)/);
+    var out = [];
+    var i;
+    for (i = 0; i < parts.length; i++) {
+        var p = parts[i];
+        if (!p) continue;
+        if (/^\uE000\d+\uE001$/.test(p)) {
+            out.push(pdDictRestoreKeptNums(p));
+            continue;
+        }
+        if (pdDictOnPdWalk() && !structural) {
+            p = p.replace(/-?\d+/g, function(tok) {
+                if (tok.charAt(0) === '-') return tok;
+                if (tok.length <= 1) return tok;
+                return tok.split('').join(' ');
+            });
+        }
+        out.push(p);
+    }
+    return out.join('').replace(/\s+/g, ' ').trim();
+}
+
+function pdDictTranscriptSplitScore(t) {
+    t = String(t || '').toLowerCase();
+    if (/\b(one|two|three|four|five|six|seven|eight|nine|zero|oh)\b/.test(t)) return 2;
+    if (/\d\s+\d/.test(t)) return 1;
+    return 0;
+}
+
+function pdDictPickResultTranscript(result) {
+    if (!result || !result.length) return '';
+    var best = (result[0] && result[0].transcript) ? result[0].transcript : '';
+    if (!pdDictOnPdWalk()) return best;
+    var i, picked = best, score = pdDictTranscriptSplitScore(best);
+    for (i = 1; i < result.length; i++) {
+        var t = (result[i] && result[i].transcript) ? result[i].transcript : '';
+        var sc = pdDictTranscriptSplitScore(t);
+        if (sc > score) {
+            score = sc;
+            picked = t;
+        }
+    }
+    return picked;
 }
 
 function pdDictIsFdi(n) {
@@ -252,7 +315,9 @@ function pdDictNormalize(raw) {
     var s = String(raw || '').toLowerCase();
     s = s.replace(/[_'`’]+/g, '');
     s = s.replace(/[.,!?;:]+/g, ' ');
-    s = s.replace(/-/g, ' ');
+    // Keep GM negatives like "-2"; only break hyphenated words / ranges.
+    s = s.replace(/([a-z])-([a-z])/g, '$1 $2');
+    s = s.replace(/(\d)-(\d)/g, '$1 $2');
     s = s.replace(/\s+/g, ' ').trim();
     s = pdDictApplyTrain(s);
     s = pdDictReplaceNumWords(s);
@@ -267,6 +332,8 @@ function pdDictNormalize(raw) {
         s = s.replace(/\b(ate)\b/g, '8');
     }
     s = pdDictCollapseToothDigits(s);
+    s = pdDictSplitGluedPdDigits(s);
+    s = pdDictRestoreKeptNums(s);
     s = s.replace(/\s+/g, ' ').trim();
     return s;
 }
@@ -704,11 +771,7 @@ function pdDictPaintCursor(opts) {
     var id = pdDictCellId(c, c.measure);
     var el = typeof g === 'function' ? g(id) : document.getElementById(id);
     if (el) {
-        // PI/BI click-cells: no green ring (fill color alone is enough).
-        // PD/GM inputs still get the active dictation highlight.
-        if (!el.classList.contains('perio-bop-cell')) {
-            el.classList.add('perio-dictate-focus');
-        }
+        el.classList.add('perio-dictate-focus');
         if (!opts.skipFocus) {
             try {
                 el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -1087,7 +1150,7 @@ function pdDictBindHandSiteTracking() {
             pdDict.handSite = site;
             pdDictClearFocus();
             if (cell.classList && cell.classList.contains('perio-bop-cell')) {
-                try { cell.blur(); } catch (eBlur) { /* ignore */ }
+                cell.classList.add('perio-dictate-focus');
             }
         }
     }, true);
@@ -1364,7 +1427,7 @@ function pdDictOnHeard(text, isFinal) {
     if (pdDict.mode === 'batch') {
         pdDict.batchBuf = (pdDict.batchBuf + ' ' + text).trim();
         if (pdDict.batchTimer) clearTimeout(pdDict.batchTimer);
-        pdDict.batchTimer = setTimeout(pdDictFlushBatch, 1500);
+        pdDict.batchTimer = setTimeout(pdDictFlushBatch, 500);
         return;
     }
     pdDictApplyText(text);
@@ -1377,19 +1440,17 @@ function pdDictBindRecognition() {
     if (!Ctor) return null;
     var rec = new Ctor();
     rec.lang = 'en-US';
-    // continuous:false finalizes short pocket depths ("3", "two") reliably;
-    // onend restarts while wantOn so it still feels continuous.
-    rec.continuous = false;
+    // Keep one session so ~0.5s gaps between pocket depths stay in the same
+    // listen. onend still restarts after Chrome's own silence timeout.
+    rec.continuous = true;
     rec.interimResults = true;
-    rec.maxAlternatives = 1;
+    rec.maxAlternatives = 3;
     rec.onresult = function(ev) {
         var interim = '';
         var finals = [];
         var i;
         for (i = ev.resultIndex; i < ev.results.length; i++) {
-            var piece = ev.results[i][0] && ev.results[i][0].transcript
-                ? ev.results[i][0].transcript
-                : '';
+            var piece = pdDictPickResultTranscript(ev.results[i]);
             if (ev.results[i].isFinal) finals.push(piece);
             else interim += piece;
         }

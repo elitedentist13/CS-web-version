@@ -30,14 +30,52 @@ function show(raw) {
     console.log(JSON.stringify(raw), '→', n, '→', JSON.stringify(a));
 }
 
+function vals(raw) {
+    return ctx.pdDictParse(raw).filter(function(x) { return x.type === 'value'; }).map(function(x) { return x.n; });
+}
+
+function eqArr(a, b) {
+    return a.length === b.length && a.every(function(v, i) { return v === b[i]; });
+}
+
+var checks = [];
+function check(name, ok, detail) {
+    checks.push({ name: name, ok: !!ok, detail: detail || '' });
+    console.log(name + ':', ok ? 'PASS' : 'FAIL ' + (detail || ''));
+}
+
 show('3');
 show('two');
 show('3 2 4');
+show('one two one');
+show('121');
+show('twelve');
+show('12 1');
+show('eleven');
 show('tooth 2 8');
 show('for');
 show('start 17 distobuccal 6');
+show('-3');
 
-var bad = ctx.pdDictParse('3 2 4');
-var ok = bad.length === 3 && bad.every(function(x) { return x.type === 'value'; });
-console.log('3 2 4 as three values:', ok ? 'PASS' : 'FAIL ' + JSON.stringify(bad));
-process.exit(ok ? 0 : 1);
+check('3 2 4 as three values', eqArr(vals('3 2 4'), [3, 2, 4]), JSON.stringify(ctx.pdDictParse('3 2 4')));
+check('one two one → 1,2,1', eqArr(vals('one two one'), [1, 2, 1]), JSON.stringify(ctx.pdDictParse('one two one')));
+check('121 glued → 1,2,1', eqArr(vals('121'), [1, 2, 1]), JSON.stringify(ctx.pdDictParse('121')));
+check('twelve stays 12', eqArr(vals('twelve'), [12]), JSON.stringify(ctx.pdDictParse('twelve')));
+check('12 1 glued → 1,2,1', eqArr(vals('12 1'), [1, 2, 1]), JSON.stringify(ctx.pdDictParse('12 1')));
+check('eleven stays 11', eqArr(vals('eleven'), [11]), JSON.stringify(ctx.pdDictParse('eleven')));
+check('tooth 2 8 still joins FDI', ctx.pdDictNormalize('tooth 2 8') === 'tooth 28', ctx.pdDictNormalize('tooth 2 8'));
+check('for → 4', eqArr(vals('for'), [4]), JSON.stringify(ctx.pdDictParse('for')));
+
+var start = ctx.pdDictParse('start 17 distobuccal 6');
+check(
+    'start 17 distobuccal 6',
+    start.length === 2 && start[0].type === 'start' && start[0].tn === 17 &&
+        start[1].type === 'value' && start[1].n === 6,
+    JSON.stringify(start)
+);
+
+ctx.pdDict.cursor = { tn: 18, surface: 'b', pos: 'd', measure: 'gm' };
+check('GM -3 stays negative', eqArr(vals('-3'), [-3]), JSON.stringify(ctx.pdDictParse('-3')));
+
+var failed = checks.filter(function(c) { return !c.ok; });
+process.exit(failed.length ? 1 : 0);

@@ -841,15 +841,14 @@ function injectChartCSS() {
 .perio-bop-cell.perio-dictate-focus,
 .perio-bop-cell.perio-dictate-focus:focus,
 .perio-bop-cell.perio-dictate-focus:focus-visible {
-    outline: none !important;
-    box-shadow: none !important;
+    outline: none;
+    box-shadow: inset 0 0 0 2px #10b981 !important;
 }
-/* Never keep a green wash on PI/BI — selected state is red/blue fill only */
 .perio-bop-cell.perio-dictate-focus:not(.on) {
-    background: transparent !important;
+    background: rgba(16, 185, 129, 0.22) !important;
 }
-.perio-bop-cell.perio-dictate-focus.on {
-    box-shadow: none !important;
+.perio-bop-cell.perio-plaque-cell.perio-dictate-focus:not(.on) {
+    background: rgba(16, 185, 129, 0.22) !important;
 }
 
 .perio-row-label {
@@ -2496,6 +2495,11 @@ function refreshPerioLivePreview() {
     if (loWrap) loWrap.innerHTML = pdBuildArchDiagramSVG(LOWER_RIGHT.concat(LOWER_LEFT), 'lower');
 }
 
+function pdDictationArmed() {
+    return typeof pdDict !== 'undefined' && pdDict &&
+        !!(pdDict.wantOn || pdDict.listening);
+}
+
 /**
  * Keyboard navigation follows the chairside probe walk (not left-to-right
  * on screen): ArrowRight / Tab = next site along the probe, ArrowLeft /
@@ -2653,17 +2657,14 @@ function buildPerioTable(teeth, arch) {
                         };
                         setBopVisual(!!perioState[key]);
                         var toggleBop = function() {
+                            // While 🎙 is live, a click only moves the dictation
+                            // cursor (document capture handler). Do not fill/clear.
+                            if (pdDictationArmed()) return;
                             var on = !perioState[key];
                             perioState[key] = on;
                             setBopVisual(on);
-                            td.classList.remove('perio-dictate-focus');
                             updatePerioSummary();
                             refreshPerioLivePreview();
-                            var dictOn = typeof pdDict !== 'undefined' &&
-                                (pdDict.wantOn || pdDict.listening);
-                            if (!dictOn) {
-                                try { td.blur(); } catch (eBlur) { /* ignore */ }
-                            }
                         };
                         td.addEventListener('click', toggleBop);
                         td.addEventListener('keydown', function(e) {
@@ -2847,17 +2848,12 @@ function perioCompactSiteCell(row, tn, pos) {
         };
         setVisual(!!perioState[key]);
         var toggle = function() {
+            if (pdDictationArmed()) return;
             var on = !perioState[key];
             perioState[key] = on;
             setVisual(on);
-            cell.classList.remove('perio-dictate-focus');
             updatePerioSummary();
             refreshPerioLivePreview();
-            var dictOn = typeof pdDict !== 'undefined' &&
-                (pdDict.wantOn || pdDict.listening);
-            if (!dictOn) {
-                try { cell.blur(); } catch (eBlur) { /* ignore */ }
-            }
         };
         cell.addEventListener('click', toggle);
         cell.addEventListener('keydown', function(e) {

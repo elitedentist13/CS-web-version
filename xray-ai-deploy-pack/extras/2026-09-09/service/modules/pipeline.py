@@ -48,6 +48,30 @@ MODEL_VERSION = "cs-xray-assist-onnx-dfine-v1"
 CARIES_TYPES = ("caries", "caries_incipient", "caries_progressed")
 
 
+def _resolve_modality(hint, width, height, gray):
+    """Use resolve_hint when present; older modality.py only has detect_modality."""
+    fn = getattr(modality_mod, "resolve_hint", None)
+    if callable(fn):
+        return fn(hint, width, height, gray)
+    key = str(hint or "").strip().lower()
+    if key in ("panoramic", "pano"):
+        return "panoramic"
+    if key in ("bitewing", "periapical"):
+        return key
+    if key in ("pabw", "intraoral", "pa", "bw"):
+        auto = modality_mod.detect_modality(width, height, gray)
+        if auto != "panoramic":
+            return auto
+        return "bitewing" if width >= height else "periapical"
+    return modality_mod.detect_modality(width, height, gray)
+
+
+def _is_intraoral(modality):
+    if modality_mod.is_intraoral(modality):
+        return True
+    return modality in ("pabw", "intraoral")
+
+
 class Pipeline:
     def __init__(self, tooth_detector, condition_detector, caries_model=None):
         self.tooth_detector = tooth_detector
@@ -82,7 +106,7 @@ class Pipeline:
         height, width = gray.shape[:2]
 
         quality, quality_reasons = assess_image_quality(gray)
-        modality = modality_mod.resolve_hint(modality_hint, width, height, gray)
+        modality = _resolve_modality(modality_hint, width, height, gray)
         teeth, tooth_source = self._detect_teeth(rgb, gray, modality, height)
 
         conditions = []
@@ -95,7 +119,7 @@ class Pipeline:
         # Caries: open for bitewing / PA; panoramic is opt-in (default off)
         # so the pano path stays focused on tooth/bone/restoration.
         run_caries = config.ENABLE_CARIES_SCREENING and (
-            modality_mod.is_intraoral(modality) or config.ENABLE_CARIES_ON_PANORAMIC
+            _is_intraoral(modality) or config.ENABLE_CARIES_ON_PANORAMIC
         )
         caries_used_model = False
         if run_caries:
@@ -126,7 +150,7 @@ class Pipeline:
         findings.extend(cond_findings)
 
         run_bone = True
-        if modality_mod.is_intraoral(modality) and not config.ENABLE_INTRAORAL_BONE:
+        if _is_intraoral(modality) and not config.ENABLE_INTRAORAL_BONE:
             run_bone = False
         bone_sites = []
         if run_bone:
@@ -298,7 +322,7 @@ class Pipeline:
         """
         layers = []
         use_freeform = (
-            modality_mod.is_intraoral(modality) and gray is not None
+            _is_intraoral(modality) and gray is not None
         )
         mode = "geometric_rectangles"
         freeform_count = 0

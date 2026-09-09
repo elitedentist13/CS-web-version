@@ -73,6 +73,7 @@ def apply():
     if detect is not None and hasattr(detect, "detect_caries"):
         caries.detect_caries = detect.detect_caries
     _overlay("models.intraoral_layers", modules / "models" / "intraoral_layers.py")
+    _overlay("models.modality", modules / "models" / "modality.py")
     _overlay("pipeline", modules / "pipeline.py")
     apply._done = True
     return True

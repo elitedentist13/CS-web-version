@@ -7,10 +7,9 @@ the service's own Python, streams its output to a log file, and `status`
 reports progress and the final promote/reject outcome parsed from that log.
 
 `preflight` is the honest gatekeeper: it checks the things that must be true for
-training to even begin (ultralytics installed, some confirmed clinic labels
-present) and the things that merely should be (a prepared public dataset for the
-replay buffer), and reports exactly what is missing and how to fix it — so the
-review screen never launches a doomed run.
+training to even begin (train script present, ultralytics installed, some
+confirmed clinic labels). A public replay dataset is optional — without it the
+run trains on clinic labels only.
 """
 
 import glob
@@ -53,6 +52,15 @@ def preflight(config):
         "not installed — run: pip install -r caries/train/requirements-train.txt",
     })
 
+    has_script = os.path.isfile(_TRAIN_SCRIPT)
+    checks.append({
+        "check": "train_script",
+        "ok": has_script,
+        "blocking": True,
+        "detail": "ready" if has_script else
+        "missing caries/train/train_continual.py",
+    })
+
     clinic_labels = _count_positive_labels(config.CARIES_CLINIC_DATA_DIR)
     checks.append({
         "check": "clinic_labels",
@@ -63,13 +71,14 @@ def preflight(config):
     })
 
     public_train = _count_images(os.path.join(config.CARIES_PUBLIC_DATA_DIR, "images", "train"))
+    if public_train <= 0:
+        public_train = _count_images(os.path.join(config.CARIES_PUBLIC_DATA_DIR, "train", "images"))
     checks.append({
         "check": "public_replay_dataset",
-        "ok": public_train > 0,
+        "ok": True,
         "blocking": False,
         "detail": ("%d public training images for replay" % public_train) if public_train
-        else "no prepared public dataset — replay buffer will be empty "
-             "(run caries/train/prepare_dataset.py)",
+        else "clinic labels only — public replay set not installed (optional)",
     })
 
     weights = os.path.join(config.CARIES_WEIGHTS_DIR, "best.pt")
@@ -102,13 +111,17 @@ def start(config, epochs=40, replay_frac=0.5):
             return dict(_job, preflight=checks)
 
         weights = os.path.join(config.CARIES_WEIGHTS_DIR, "best.pt")
+        public_train = _count_images(os.path.join(config.CARIES_PUBLIC_DATA_DIR, "images", "train"))
+        if public_train <= 0:
+            public_train = _count_images(os.path.join(config.CARIES_PUBLIC_DATA_DIR, "train", "images"))
+        frac = 0.0 if public_train <= 0 else float(replay_frac)
         cmd = [
             sys.executable, _TRAIN_SCRIPT,
             "--public", config.CARIES_PUBLIC_DATA_DIR,
             "--clinic", config.CARIES_CLINIC_DATA_DIR,
             "--weights", weights,
             "--epochs", str(int(epochs)),
-            "--replay-frac", str(float(replay_frac)),
+            "--replay-frac", str(frac),
         ]
         try:
             logf = open(_LOG_PATH, "w", encoding="utf-8")

@@ -63,11 +63,11 @@ try:
     print("[1] preflight on an empty machine")
     checks, ready = trainer_jobs.preflight(cfg)
     by_name = {c["check"]: c for c in checks}
-    check("reports four checks", len(checks) == 4)
+    check("reports five checks", len(checks) == 5)
     check("no clinic labels -> blocking failure",
           not by_name["clinic_labels"]["ok"] and by_name["clinic_labels"]["blocking"])
-    check("missing public dataset is a warning, not a blocker",
-          not by_name["public_replay_dataset"]["ok"] and not by_name["public_replay_dataset"]["blocking"])
+    check("missing public dataset is optional, not a warning failure",
+          by_name["public_replay_dataset"]["ok"] and not by_name["public_replay_dataset"]["blocking"])
     check("missing incumbent weights never block", by_name["incumbent_weights"]["ok"])
     check("not ready overall", not ready)
 

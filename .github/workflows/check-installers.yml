@@ -1,0 +1,28 @@
+name: Check installer scripts
+
+# Guards against the exact bug class documented in CHANGELOG.md 2026-09-10:
+# non-ASCII bytes in .bat/.cmd files misdecode under non-Western Windows
+# code pages and corrupt cmd.exe's parser. Run on every push/PR so a bad
+# batch-file edit can't reach main even if a contributor's local
+# pre-commit hook (.githooks/pre-commit) isn't set up.
+
+on:
+  push:
+    paths:
+      - "**/*.bat"
+      - "**/*.cmd"
+  pull_request:
+    paths:
+      - "**/*.bat"
+      - "**/*.cmd"
+  workflow_dispatch:
+
+jobs:
+  ascii-guard:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check .bat/.cmd files are ASCII-only
+        shell: powershell
+        run: .\tools\check-ascii-bat.ps1

@@ -1,8 +1,26 @@
+# Default: let git detect text vs binary and normalize line endings on
+# checkin/checkout consistently across every clone/OS, unless overridden
+# below for files where that would corrupt content.
+* text=auto
+
 packages/markitdown/tests/test_files/** linguist-vendored
 packages/markitdown-sample-plugin/tests/test_files/** linguist-vendored
 
 # Treat PDF files as binary to prevent line ending conversion
 *.pdf binary
+
+# Model weights / caches / archives: never text-normalize these -- they are
+# already gitignored, but marking them binary is a second layer of defense
+# in case one is ever force-added.
+*.pt binary
+*.onnx binary
+*.pyc binary
+*.zip binary
+*.dat binary
+
+# Shell scripts (git hooks) must stay LF -- a CRLF shebang line breaks
+# execution under sh/bash even on Windows (Git for Windows' bundled sh).
+.githooks/* text eol=lf
 
 # Windows batch/cmd installer scripts: pin to CRLF and never let git's
 # autocrlf/text-normalization silently rewrite them. These files are

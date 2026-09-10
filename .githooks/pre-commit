@@ -1,0 +1,9 @@
+#!/bin/sh
+# Pre-commit guard: block commits that introduce non-ASCII characters into
+# .bat/.cmd files (see tools/check-ascii-bat.ps1 for why this matters).
+#
+# Activated once per clone via:
+#   git config core.hooksPath .githooks
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(git rev-parse --show-toplevel)/tools/check-ascii-bat.ps1" -Staged
+exit $?

@@ -48,6 +48,12 @@ xray-ai-service/model_cache/
 __pycache__/
 *.pyc
 
+# apply_xray_ai_extras.py's own "installed payload" record -- a straight
+# copy of xray-ai-deploy-pack/extras/<date>/ (the tracked canonical source)
+# written into the clinic folder every time the installer runs. Purely
+# derived/reproducible, not something to hand-edit or commit.
+xray-ai-extras/
+
 # Caries subsystem (panoramic model): trained weights, prepared datasets, training runs
 xray-ai-service/caries/weights/
 xray-ai-service/caries/train/dataset/

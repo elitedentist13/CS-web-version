@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 echo ============================================================
-echo  Joyful Smile CEFLA bridge — check for updates now
+echo  Joyful Smile CEFLA bridge - check for updates now
 echo  (MyRay + NNT/NewTom shared launcher at C:\NNT)
 echo ============================================================
 echo.

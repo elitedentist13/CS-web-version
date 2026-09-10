@@ -53,13 +53,29 @@ Full detail: `xray-ai-service/README.md`.
 
 ## 2. Install on the new clinic PC (align with other branches)
 
-Requirements: Windows, Python 3.10+ on PATH, internet access (for the
+Requirements: Windows, Python 3.10+ **somewhere on the PC** (does not need to
+be on PATH — `find-python.bat` in this folder searches common install
+locations, `py.exe`, and PATH as a last resort), internet access (for the
 one-time dependency + model download — a few GB total, only needed once).
+
+### If you copy this folder via `git clone` instead of a plain file copy
+
+`best.pt` above is deliberately excluded from git (`.gitignore`'s `*.pt` /
+`*.onnx` rules — it's large and its licence terms mean it shouldn't be
+casually re-hosted). A `git clone` of this repo will **not** bring
+`xray-ai-service\caries\weights\best.pt` along even though this document
+says it's included. If you deploy by `git clone` rather than copying the
+raw folder/zip, copy that one file across separately (e.g. via USB or a
+private file share) — the installer runs fine without it, it just falls
+back to the classical (non-trained) caries detector until the file is
+present.
 
 ### Recommended (one-shot)
 
 1. Copy this whole `xray-ai-deploy-pack` folder onto the target PC (or place
-   `start-xray-ai.bat` + `xray-ai-service\` next to that clinic's web app copy).
+   `start-xray-ai.bat` + `find-python.bat` + `xray-ai-service\` next to that
+   clinic's web app copy — `find-python.bat` must sit next to
+   `start-xray-ai.bat` / `install-xray-ai.bat`, they call it directly).
 2. Double-click **`setup-xray-ai-clinic-pc.bat`**.
    - Registers the `csxrayai://` protocol so the web app **▶ Server** button
      can start the AI service from the browser.
@@ -67,6 +83,26 @@ one-time dependency + model download — a few GB total, only needed once).
      installs deps, downloads models on first run).
 3. Open `http://127.0.0.1:8877/health` — expect `"ok": true` and models ready.
 4. In the clinic web app lightbox: **▶ Server** (if needed) → **Analyze**.
+
+### If the installer reports things as missing that you know are installed
+
+This almost always means one of two things:
+
+- **Python detection**: older copies of these scripts only checked a short
+  hardcoded list of install folders, so a Python install in an unusual place
+  (`C:\PythonXY`, a 32-bit install, a brand-new version not yet in the list)
+  was invisible to them and everything downstream reported `[MISS]`. Fixed by
+  `find-python.bat`, which every script here now calls — make sure that file
+  actually made it onto the target PC (see step 1 above).
+- **Garbled `'X' is not recognized as an internal or external command`
+  errors**: these `.bat` files must stay **plain ASCII** (no em-dashes,
+  curly quotes, etc.). `cmd.exe` decodes batch files using the PC's active
+  OEM code page (`chcp`), not UTF-8; a clinic PC set to a non-Western code
+  page (e.g. 950/Big5, 936/GBK) will misdecode a stray Unicode character in
+  a `REM`/`echo` line and corrupt the parsing of the rest of the file. If you
+  edit any `.bat` file here, keep it ASCII-only and re-test with
+  `chcp 950` (or whatever code page the affected clinic uses) active in the
+  test console.
 
 ### Manual (same pieces, separate steps)
 

@@ -33,39 +33,12 @@ echo   Service files : %CD%
 echo   Environment   : %AI_HOME%
 echo.
 
-REM ---- locate Python 3.10+ -------------------------------------------
+REM ---- locate Python 3.10+ (shared, tested detector) -------------------
 REM Do NOT trust `python` on PATH first: clinic PCs often have BioTime 3.7
-REM ahead of a real 3.12 install. Probe known install paths, then py.exe.
+REM ahead of a real 3.12 install. See find-python.bat for the full search
+REM order (per-user/machine folders, C:\PythonXY, py-launcher, PATH last).
 set "PY_CMD="
-for %%P in (
-    "%LocalAppData%\Programs\Python\Python312\python.exe"
-    "%LocalAppData%\Programs\Python\Python313\python.exe"
-    "%LocalAppData%\Programs\Python\Python311\python.exe"
-    "%LocalAppData%\Programs\Python\Python310\python.exe"
-    "%ProgramFiles%\Python312\python.exe"
-    "%ProgramFiles%\Python313\python.exe"
-    "%ProgramFiles%\Python311\python.exe"
-) do (
-    if not defined PY_CMD if exist "%%~P" (
-        "%%~P" -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
-        if not errorlevel 1 set "PY_CMD=%%~P"
-    )
-)
-if not defined PY_CMD if exist "%LocalAppData%\Programs\Python\Launcher\py.exe" (
-    for /f "delims=" %%E in ('"%LocalAppData%\Programs\Python\Launcher\py.exe" -3.12 -c "import sys; print(sys.executable)" 2^>nul') do (
-        if exist "%%E" set "PY_CMD=%%E"
-    )
-)
-if not defined PY_CMD (
-    where py >nul 2>&1 && (
-        for /f "delims=" %%E in ('py -3.12 -c "import sys; print(sys.executable)" 2^>nul') do (
-            if exist "%%E" set "PY_CMD=%%E"
-        )
-    )
-)
-if not defined PY_CMD (
-    where python >nul 2>&1 && python -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1 && set "PY_CMD=python"
-)
+if exist "%~dp0find-python.bat" call "%~dp0find-python.bat"
 if not defined PY_CMD (
     echo [ERROR] Python 3.10 or newer was not found on this PC.
     echo.
@@ -94,7 +67,7 @@ REM ---- virtual environment ------------------------------------------
 if exist "%VENV_DIR%\Scripts\python.exe" (
     "%VENV_DIR%\Scripts\python.exe" -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
     if errorlevel 1 (
-        echo [2/4] Existing venv is too old — recreating with %PY_CMD%...
+        echo [2/4] Existing venv is too old - recreating with %PY_CMD%...
         rmdir /s /q "%VENV_DIR%"
     )
 )

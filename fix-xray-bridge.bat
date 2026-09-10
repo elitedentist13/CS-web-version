@@ -10,7 +10,7 @@ echo   - Carestream Patient.exe
 echo   - Trophy TW.exe
 echo   - SCAN photo strip (/nnt/scans)
 echo.
-echo (An old carestream-only bridge may still be on 17890 — Banana tries 17891 first.)
+echo (An old carestream-only bridge may still be on 17890 - Banana tries 17891 first.)
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\ensure-xray-launcher.ps1"
 echo.

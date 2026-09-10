@@ -1,7 +1,7 @@
 @echo off
 REM ====================================================================
 REM  One-time: register csxrayai:// so the web app "Run AI server" button
-REM  can launch start-xray-ai.bat on this PC (no admin needed — HKCU).
+REM  can launch start-xray-ai.bat on this PC (no admin needed - HKCU).
 REM
 REM  Run this once per Windows user after copying the clinic app folder.
 REM  Then the lightbox "Run AI server" button works from the browser.

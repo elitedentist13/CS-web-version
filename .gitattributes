@@ -3,3 +3,12 @@ packages/markitdown-sample-plugin/tests/test_files/** linguist-vendored
 
 # Treat PDF files as binary to prevent line ending conversion
 *.pdf binary
+
+# Windows batch/cmd installer scripts: pin to CRLF and never let git's
+# autocrlf/text-normalization silently rewrite them. These files are
+# executed by cmd.exe on clinic PCs with varying OEM code pages (e.g.
+# 950/Big5) -- a stray line-ending rewrite is not the risk here (ASCII-only
+# content is immune to that), but pinning them avoids any future churn
+# and keeps every clone byte-for-byte identical to what was tested.
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -1,6 +1,6 @@
 @echo off
 REM ====================================================================
-REM  CS X-ray Assist — clinic installer
+REM  CS X-ray Assist - clinic installer
 REM
 REM  Checks this PC, lists every piece the local AI helper needs, then
 REM  downloads anything missing:
@@ -59,34 +59,12 @@ if not exist "%SCRIPT%" (
     exit /b 1
 )
 
-REM ---- locate Python 3.10+ (never trust PATH `python` first) ----------
+REM ---- locate Python 3.10+ (shared, tested detector) -------------------
+REM      See find-python.bat for why this isn't just a short hardcoded
+REM      list any more -- it now also checks C:\PythonXY, 32-bit installs,
+REM      any py-launcher version, and PATH as a last resort.
 set "PY_CMD="
-for %%P in (
-    "%LocalAppData%\Programs\Python\Python312\python.exe"
-    "%LocalAppData%\Programs\Python\Python313\python.exe"
-    "%LocalAppData%\Programs\Python\Python311\python.exe"
-    "%LocalAppData%\Programs\Python\Python310\python.exe"
-    "%ProgramFiles%\Python312\python.exe"
-    "%ProgramFiles%\Python313\python.exe"
-    "%ProgramFiles%\Python311\python.exe"
-) do (
-    if not defined PY_CMD if exist "%%~P" (
-        "%%~P" -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
-        if not errorlevel 1 set "PY_CMD=%%~P"
-    )
-)
-if not defined PY_CMD if exist "%LocalAppData%\Programs\Python\Launcher\py.exe" (
-    for /f "delims=" %%E in ('"%LocalAppData%\Programs\Python\Launcher\py.exe" -3.12 -c "import sys; print(sys.executable)" 2^>nul') do (
-        if exist "%%E" set "PY_CMD=%%E"
-    )
-)
-if not defined PY_CMD (
-    where py >nul 2>&1 && (
-        for /f "delims=" %%E in ('py -3.12 -c "import sys; print(sys.executable)" 2^>nul') do (
-            if exist "%%E" set "PY_CMD=%%E"
-        )
-    )
-)
+if exist "%~dp0find-python.bat" call "%~dp0find-python.bat"
 
 if not defined PY_CMD (
     echo [1] Python 3.10+ not found. Trying winget Python 3.12 ...
@@ -101,13 +79,19 @@ if not defined PY_CMD (
         exit /b 1
     )
     winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
-    if exist "%LocalAppData%\Programs\Python\Python312\python.exe" (
+    if exist "%~dp0find-python.bat" call "%~dp0find-python.bat"
+    if not defined PY_CMD if exist "%LocalAppData%\Programs\Python\Python312\python.exe" (
         set "PY_CMD=%LocalAppData%\Programs\Python\Python312\python.exe"
     )
 )
 
 if not defined PY_CMD (
-    echo [ERROR] Still no Python 3.10+. Install 3.12 from python.org and re-run.
+    echo [ERROR] Still no Python 3.10+ found.
+    echo         winget may have installed it into a session whose PATH this
+    echo         window can't see yet -- close this window, open a NEW Command
+    echo         Prompt, and re-run install-xray-ai.bat once more.
+    echo         Otherwise, install Python 3.12 from https://www.python.org/downloads/
+    echo         ^(tick "Add python.exe to PATH"^) and re-run.
     pause
     exit /b 1
 )

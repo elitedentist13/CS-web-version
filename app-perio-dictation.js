@@ -230,6 +230,27 @@ function pdDictSplitGluedPdDigits(s) {
     s = String(s || '');
     var structural = /\b(missing|present|tooth|teeth|mobility|implant|dental|furcation|wisdom|start|begin)\b/.test(s);
     var parts = s.split(/(\uE000\d+\uE001)/);
+
+    // Count every "loose" (unmarked) digit run in the whole utterance first.
+    // Speech recognition often renders a spoken number word as its own digit
+    // form directly (e.g. "ten" → the literal text "10") without ever going
+    // through the word list above, so it never gets the \uE000..\uE001
+    // protection. A LONE two-digit run in the realistic PD/GM range (10-15)
+    // with nothing else numeric in the same utterance is almost certainly
+    // that — a single genuine reading — not two single-digit pocket depths
+    // mashed together. That "glued digits" ambiguity only makes sense once a
+    // *second* number is also present in the same utterance (e.g. "12 1"
+    // from a rushed "one two one"), so only skip the split in the lone case.
+    var looseRuns = [];
+    parts.forEach(function(p) {
+        if (!p || /^\uE000\d+\uE001$/.test(p)) return;
+        var m = p.match(/-?\d+/g);
+        if (m) looseRuns = looseRuns.concat(m);
+    });
+    // Allow the sign too: a lone "-10" is the GM equivalent of a lone "10".
+    var soleTeen = pdDictOnPdWalk() && !structural && looseRuns.length === 1 &&
+        /^-?1[0-5]$/.test(looseRuns[0]);
+
     var out = [];
     var i;
     for (i = 0; i < parts.length; i++) {
@@ -241,9 +262,21 @@ function pdDictSplitGluedPdDigits(s) {
         }
         if (pdDictOnPdWalk() && !structural) {
             p = p.replace(/-?\d+/g, function(tok) {
-                if (tok.charAt(0) === '-') return tok;
-                if (tok.length <= 1) return tok;
-                return tok.split('').join(' ');
+                if (soleTeen) return tok;
+                var neg = tok.charAt(0) === '-';
+                var digits = neg ? tok.slice(1) : tok;
+                if (digits.length <= 1) return tok;
+                // 3+ glued digits — with or without a spurious leading "-"
+                // some engines slap on a fast-spoken run of digits (e.g.
+                // "six seven two" transcribed as "-672" instead of "6 7 2",
+                // the way a score or range might be formatted) — are
+                // essentially never one real reading; PD/GM clamp to ±15,
+                // so anything bigger is always separate single-digit
+                // readings. Split back into single digits and drop any such
+                // sign — a genuine run of negative GM readings is dictated
+                // with "minus" before each digit, not as one glued blob, so
+                // there's nothing legitimate lost by dropping it here.
+                return digits.split('').join(' ');
             });
         }
         out.push(p);
@@ -262,6 +295,11 @@ function pdDictPickResultTranscript(result) {
     if (!result || !result.length) return '';
     var best = (result[0] && result[0].transcript) ? result[0].transcript : '';
     if (!pdDictOnPdWalk()) return best;
+    // A transcript that is nothing but one bare number ("10", "-3") is already
+    // an unambiguous single reading — don't let the "prefer a split-looking
+    // alternate" heuristic below swap it for a worse one (this is how saying
+    // "ten" could end up picking an alternate like "one zero").
+    if (/^-?\d{1,2}$/.test(String(best || '').trim())) return best;
     var i, picked = best, score = pdDictTranscriptSplitScore(best);
     for (i = 1; i < result.length; i++) {
         var t = (result[i] && result[i].transcript) ? result[i].transcript : '';

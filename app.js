@@ -2775,6 +2775,7 @@ var SCREENS = [
     'certGenSection',
     'docToolsSection',
     'posterMakerSection',
+    'fileTransferSection',
     'sectionConfig'
 ];
 
@@ -5485,9 +5486,14 @@ document.addEventListener('DOMContentLoaded', function() {
     wireToolCard('poster-maker', function() {
         if (typeof POSTERMKR !== 'undefined' && typeof POSTERMKR.open === 'function') POSTERMKR.open();
     });
+    wireToolCard('file-transfer', function() {
+        if (typeof FILEXFER !== 'undefined' && typeof FILEXFER.open === 'function') FILEXFER.open();
+        else alert(appTr('tools.fileTransferLoading'));
+    });
 
     [['medCalcBack', 'medCalcSection'], ['qrToolBack', 'qrToolSection'],
-     ['pdfUtilBack', 'pdfUtilSection'], ['posterMakerBack', 'posterMakerSection']]
+     ['pdfUtilBack', 'pdfUtilSection'], ['posterMakerBack', 'posterMakerSection'],
+     ['fileTransferBack', 'fileTransferSection']]
     .forEach(function(pair) {
         var b = g(pair[0]);
         if (b) b.addEventListener('click', function() { showOnly('toolsSection'); });
@@ -6084,7 +6090,8 @@ function applyVisibleModuleSectionI18n() {
     var ids = [
         'dashboardSection',
         'patientSection', 'reportSection', 'drugSection', 'memoCardsSection',
-        'consultationSection', 'sectionConfig', 'appointmentSection', 'aiHelperSection'
+        'consultationSection', 'sectionConfig', 'appointmentSection', 'aiHelperSection',
+        'toolsSection', 'fileTransferSection'
     ];
     ids.forEach(function(sid) {
         var el = g(sid);

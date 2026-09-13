@@ -200,6 +200,21 @@ var I18N_STRINGS = {
         'zh-CN': '设计预约提醒、健康贴士及公告海报，可导出或打印',
         'zh-Hant': '設計預約提醒、健康貼士及公告海報，可匯出或列印'
     },
+    'tools.fileTransfer': {
+        en: 'File Transfer',
+        'zh-CN': '文件传送',
+        'zh-Hant': '檔案傳送'
+    },
+    'tools.fileTransferDesc': {
+        en: 'Send large files (up to 500 MB) between Banana clinics — expires in 3 days',
+        'zh-CN': '在香蕉诊所之间传送大文件（最大 500 MB），3 天后失效',
+        'zh-Hant': '在香蕉診所之間傳送大檔案（最大 500 MB），3 天後失效'
+    },
+    'tools.fileTransferLoading': {
+        en: 'File Transfer is still loading. Please try again.',
+        'zh-CN': '文件传送仍在加载，请稍后再试。',
+        'zh-Hant': '檔案傳送仍在載入，請稍後再試。'
+    },
     'tools.cert': {
         en: 'Certificate / Receipt / Label',
         'zh-CN': '证明 / 收据 / 标签',

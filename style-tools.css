@@ -3,7 +3,7 @@
    (Medical calculators · QR generator · PDF utilities · Cert/Receipt/Label)
 ════════════════════════════════════════════════════════════════ */
 
-#medCalcSection, #qrToolSection, #pdfUtilSection, #pdfEditorSection, #certGenSection {
+#medCalcSection, #qrToolSection, #pdfUtilSection, #pdfEditorSection, #certGenSection, #fileTransferSection {
     min-height: 100vh;
     background: #f7f8fc;
 }
@@ -1225,8 +1225,80 @@
     font-family: inherit;
 }
 
+/* ── File Transfer (clinic Fast Pass) ─────────────────────────── */
+.fx-layout { max-width: 720px; }
+.fx-drop {
+    border: 1.5px dashed #c4c9db;
+    border-radius: 14px;
+    padding: 22px 16px;
+    text-align: center;
+    background: #fafbff;
+    color: #5b6275;
+    font-size: 13px;
+    margin-bottom: 14px;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+}
+.fx-drop:hover, .fx-drop.is-drag {
+    border-color: #6366f1;
+    background: #eef2ff;
+    color: #3730a3;
+}
+.fx-drop input { display: none; }
+.fx-file-name { font-weight: 700; color: #1e293b; margin-top: 6px; }
+.fx-code-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 16px 18px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 14px;
+    margin: 12px 0;
+}
+.fx-code {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: #312e81;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.fx-pass-list { display: flex; flex-direction: column; gap: 10px; }
+.fx-pass-card {
+    background: #fff;
+    border: 1px solid #e7e9f2;
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+.fx-pass-card-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+.fx-pass-name { font-weight: 700; color: #1e293b; }
+.fx-pass-meta { font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.5; }
+.fx-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.fx-progress {
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 10px 0 6px;
+}
+.fx-progress > span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    transition: width .15s ease;
+}
+
 /* ── responsive ───────────────────────────────────────────────── */
 @media (max-width: 760px) {
     .ct-qr-layout, .ct-cg-layout { grid-template-columns: 1fr; }
     .ct-cg-preview-wrap { position: static; }
+    .fx-code { font-size: 22px; }
 }

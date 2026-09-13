@@ -7086,7 +7086,60 @@
             en: '<span class="banana-brand">🍌 Banana Clinic Manager</span>',
             'zh-CN': '<span class="banana-brand">🍌 香蕉診所管理系統</span>',
             'zh-Hant': '<span class="banana-brand">🍌 香蕉診所管理系統</span>'
-        }
+        },
+
+        // ── File Transfer (clinic Fast Pass) ───────────────────
+        'filexfer.intro': {
+            en: 'Send a file to another Banana clinic. The other clinic enters the Fast Pass code to download. Parcels expire after 3 days.',
+            'zh-CN': '向另一间香蕉诊所发送文件。对方输入 Fast Pass 代码即可下载。包裹 3 天后失效。',
+            'zh-Hant': '向另一間香蕉診所發送檔案。對方輸入 Fast Pass 代碼即可下載。包裹 3 天後失效。'
+        },
+        'filexfer.tabSend': { en: 'Send', 'zh-CN': '发送', 'zh-Hant': '發送' },
+        'filexfer.tabReceive': { en: 'Receive', 'zh-CN': '接收', 'zh-Hant': '接收' },
+        'filexfer.tabMine': { en: 'My passes', 'zh-CN': '我的传送', 'zh-Hant': '我的傳送' },
+        'filexfer.file': { en: 'File', 'zh-CN': '文件', 'zh-Hant': '檔案' },
+        'filexfer.fileHint': {
+            en: 'One file, up to 500 MB (X-ray, CBCT, PDF, photos…).',
+            'zh-CN': '单个文件，最大 500 MB（X 光、CBCT、PDF、照片…）。',
+            'zh-Hant': '單個檔案，最大 500 MB（X 光、CBCT、PDF、相片…）。'
+        },
+        'filexfer.dest': { en: 'Destination clinic', 'zh-CN': '目标诊所', 'zh-Hant': '目標診所' },
+        'filexfer.destAny': { en: 'Any Banana clinic', 'zh-CN': '任一香蕉诊所', 'zh-Hant': '任一香蕉診所' },
+        'filexfer.note': { en: 'Note (optional)', 'zh-CN': '备注（可选）', 'zh-Hant': '備註（可選）' },
+        'filexfer.notePh': { en: 'e.g. CBCT for tomorrow AM', 'zh-CN': '例如：明天上午的 CBCT', 'zh-Hant': '例如：明天上午的 CBCT' },
+        'filexfer.sendBtn': { en: 'Create Fast Pass', 'zh-CN': '建立 Fast Pass', 'zh-Hant': '建立 Fast Pass' },
+        'filexfer.sending': { en: 'Uploading… {PCT}%', 'zh-CN': '上传中… {PCT}%', 'zh-Hant': '上傳中… {PCT}%' },
+        'filexfer.sendOk': { en: 'Fast Pass created. Tell the other clinic this code.', 'zh-CN': 'Fast Pass 已建立。请把此代码告知对方诊所。', 'zh-Hant': 'Fast Pass 已建立。請把此代碼告知對方診所。' },
+        'filexfer.copy': { en: 'Copy code', 'zh-CN': '复制代码', 'zh-Hant': '複製代碼' },
+        'filexfer.copied': { en: 'Copied', 'zh-CN': '已复制', 'zh-Hant': '已複製' },
+        'filexfer.expires': { en: 'Expires {WHEN}', 'zh-CN': '于 {WHEN} 失效', 'zh-Hant': '於 {WHEN} 失效' },
+        'filexfer.needFile': { en: 'Please choose a file.', 'zh-CN': '请选择文件。', 'zh-Hant': '請選擇檔案。' },
+        'filexfer.tooBig': { en: 'File is too large (max 500 MB).', 'zh-CN': '文件过大（最大 500 MB）。', 'zh-Hant': '檔案過大（最大 500 MB）。' },
+        'filexfer.needLogin': { en: 'Please log in before sending or receiving files.', 'zh-CN': '请先登录再传送或接收文件。', 'zh-Hant': '請先登入再傳送或接收檔案。' },
+        'filexfer.code': { en: 'Fast Pass code', 'zh-CN': 'Fast Pass 代码', 'zh-Hant': 'Fast Pass 代碼' },
+        'filexfer.codePh': { en: 'XXXX-XXXX', 'zh-CN': 'XXXX-XXXX', 'zh-Hant': 'XXXX-XXXX' },
+        'filexfer.lookup': { en: 'Look up', 'zh-CN': '查找', 'zh-Hant': '查找' },
+        'filexfer.download': { en: 'Download', 'zh-CN': '下载', 'zh-Hant': '下載' },
+        'filexfer.notFound': { en: 'No matching Fast Pass, or it has expired.', 'zh-CN': '没有对应的 Fast Pass，或已失效。', 'zh-Hant': '沒有對應的 Fast Pass，或已失效。' },
+        'filexfer.wrongClinic': {
+            en: 'This pass is locked to {CLINIC}. Switch working clinic, or ask the sender for a new pass.',
+            'zh-CN': '此传送仅限 {CLINIC}。请切换工作诊所，或请发送方重发。',
+            'zh-Hant': '此傳送僅限 {CLINIC}。請切換工作診所，或請發送方重發。'
+        },
+        'filexfer.expired': { en: 'This Fast Pass has expired.', 'zh-CN': '此 Fast Pass 已失效。', 'zh-Hant': '此 Fast Pass 已失效。' },
+        'filexfer.from': { en: 'From {CLINIC}', 'zh-CN': '来自 {CLINIC}', 'zh-Hant': '來自 {CLINIC}' },
+        'filexfer.size': { en: '{SIZE}', 'zh-CN': '{SIZE}', 'zh-Hant': '{SIZE}' },
+        'filexfer.mineEmpty': { en: 'No active Fast Passes from this clinic.', 'zh-CN': '此诊所暂无有效 Fast Pass。', 'zh-Hant': '此診所暫無有效 Fast Pass。' },
+        'filexfer.delete': { en: 'Delete now', 'zh-CN': '立即删除', 'zh-Hant': '立即刪除' },
+        'filexfer.deleted': { en: 'Deleted.', 'zh-CN': '已删除。', 'zh-Hant': '已刪除。' },
+        'filexfer.fail': { en: 'Could not complete: {MSG}', 'zh-CN': '无法完成：{MSG}', 'zh-Hant': '無法完成：{MSG}' },
+        'filexfer.setup': {
+            en: 'File Transfer needs a one-time Supabase setup. Run clinic_file_passes.sql in the SQL Editor, then try again.',
+            'zh-CN': '文件传送需在 Supabase 执行一次设置。请在 SQL 编辑器运行 clinic_file_passes.sql 后再试。',
+            'zh-Hant': '檔案傳送需在 Supabase 執行一次設定。請在 SQL 編輯器執行 clinic_file_passes.sql 後再試。'
+        },
+        'filexfer.refresh': { en: 'Refresh', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
+        'filexfer.sendAnother': { en: 'Send another', 'zh-CN': '再发一份', 'zh-Hant': '再發一份' }
     };
 
     var k;

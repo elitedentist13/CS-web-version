@@ -219,6 +219,7 @@ var DoctorAliases = (function () {
                 'DR ZHANG LEYI', 'DR. ZHANG LEYI', 'Dr ZHANG LEYI', 'ZHANG LEYI',
                 'Zhang Leyi', 'Dr Zhang Leyi',
                 'Dr ZHANG LEYI_TKO', 'DR ZHANG LEYI_TKO',
+                'Dr CRYSTAL ZHANG_TKO', 'DR CRYSTAL ZHANG_TKO',
                 '張樂怡', '張樂怡牙科醫生'
             ]
         },

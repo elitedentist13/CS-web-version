@@ -45,7 +45,7 @@ var calWeekApptsCache = [];
 function findApptInCalendarCaches(apptId) {
     var id = String(apptId || '').trim();
     if (!id) return null;
-    var lists = [calMonthApptsCache, calWeekApptsCache, plusApptDayAppts, todayAppts, queueApptsCache];
+    var lists = [calWeekApptsCache, calMonthApptsCache, plusApptDayAppts, todayAppts, queueApptsCache];
     for (var li = 0; li < lists.length; li++) {
         var list = lists[li];
         if (!list || !list.length) continue;
@@ -7907,6 +7907,7 @@ function showCalendarTab() {
         syncApptPlannerDate(todayISO(), { syncCal: true });
     }
     refreshApptPlannerData();
+    if (typeof CalHist !== 'undefined' && CalHist.refreshUi) CalHist.refreshUi();
 }
 
 function initPlusApptTab() {
@@ -10867,6 +10868,10 @@ function apptResolveForEdit(appt) {
     var id = appt.id != null ? String(appt.id) : '';
     if (!id) return appt;
     var merged = Object.assign({}, appt);
+    var keepDate = appt.date;
+    var keepStart = appt.start_time;
+    var keepEnd = appt.end_time;
+    var keepDur = appt.duration;
     var lists = [
         typeof todayAppts !== 'undefined' ? todayAppts : null,
         typeof plusApptDayAppts !== 'undefined' ? plusApptDayAppts : null,
@@ -10883,8 +10888,16 @@ function apptResolveForEdit(appt) {
             }
         }
     }
+    if (keepDate) merged.date = keepDate;
+    if (keepStart) merged.start_time = keepStart;
+    if (keepEnd) merged.end_time = keepEnd;
+    if (keepDur != null && keepDur !== '') merged.duration = keepDur;
     if (apptEditLockRef && String(apptEditLockRef.id) === id) {
         merged = Object.assign({}, apptEditLockRef, merged);
+        if (keepDate) merged.date = keepDate;
+        if (keepStart) merged.start_time = keepStart;
+        if (keepEnd) merged.end_time = keepEnd;
+        if (keepDur != null && keepDur !== '') merged.duration = keepDur;
     }
     return merged;
 }
@@ -10923,6 +10936,8 @@ function apptMergeSavedRowIntoCaches(row) {
     if (typeof plusApptMergeSavedRow === 'function') {
         plusApptMergeSavedRow(row);
     }
+    if (typeof calWeekApptsCache !== 'undefined') patchList(calWeekApptsCache);
+    if (typeof calMonthApptsCache !== 'undefined') patchList(calMonthApptsCache);
 }
 
 function restoreWalkInApptFormFields(appt) {
@@ -12380,6 +12395,12 @@ function saveAppt() {
         if (btnSave) btnSave.disabled = !!busy;
     };
 
+    var calHistEditBefore = (apptEditId && apptEditLockRef &&
+        typeof CalHist !== 'undefined' && CalHist.isCalendarTabActive &&
+        CalHist.isCalendarTabActive() && CalHist.snapFromAppt)
+        ? CalHist.snapFromAppt(apptEditLockRef)
+        : null;
+
     var finishSave = function (savedRow) {
         setSaveBusy(false);
         closeModal('apptModal');
@@ -12401,6 +12422,10 @@ function saveAppt() {
                 if (savedId) rememberWalkInApptPhone(savedId, walkPhoneSaved);
             }
             apptMergeSavedRowIntoCaches(savedRow);
+            if (calHistEditBefore && typeof CalHist !== 'undefined' && CalHist.recordEdit) {
+                CalHist.recordEdit(savedRow, calHistEditBefore);
+            }
+            if (typeof calScrollSaveOnCardChange === 'function') calScrollSaveOnCardChange();
         }
         apptEditId = null;
         apptEditLockRef = null;
@@ -12480,11 +12505,24 @@ function deleteAppt() {
     }
     if (!confirm(tr('appt.confirm.deleteAppt'))) return;
 
+    var calHistDeleted = (apptEditId &&
+        typeof CalHist !== 'undefined' && CalHist.isCalendarTabActive &&
+        CalHist.isCalendarTabActive())
+        ? Object.assign({},
+            (typeof findApptInCalendarCaches === 'function' && findApptInCalendarCaches(apptEditId)) || {},
+            apptEditLockRef || {},
+            { id: apptEditId })
+        : null;
+
     SB.from('appointments')
         .delete()
         .eq('id', apptEditId)
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        if (calHistDeleted && typeof CalHist !== 'undefined' && CalHist.recordDelete) {
+            CalHist.recordDelete(calHistDeleted);
+        }
+        if (typeof calScrollSaveOnCardChange === 'function') calScrollSaveOnCardChange();
         closeModal('apptModal');
         apptEditId = null;
         apptEditLockRef = null;
@@ -15102,8 +15140,63 @@ function updateQueueStatus(apptId, status) {
 // ════════════════════════════════════════════════════════════════
 // CALENDAR
 // ════════════════════════════════════════════════════════════════
+var calScrollMem = { weekTop: null, monthY: null, monthBody: null, winBound: false };
+
+function calScrollSave() {
+    var body = document.getElementById('gcalScrollBody');
+    if (body && body.scrollHeight > body.clientHeight + 20) {
+        if (!(body.scrollTop === 0 && calScrollMem.weekTop != null && calScrollMem.weekTop > 0)) {
+            calScrollMem.weekTop = body.scrollTop;
+        }
+    }
+    var cb = document.getElementById('calBody');
+    if (cb) calScrollMem.monthBody = cb.scrollTop;
+    calScrollMem.monthY = window.pageYOffset || document.documentElement.scrollTop || 0;
+}
+
+function calScrollSaveOnCardChange() {
+    var tab = (typeof apptActiveTabKey === 'function') ? apptActiveTabKey() : null;
+    if (tab && tab !== 'calendar') return;
+    calScrollSave();
+}
+
+function calScrollRestoreWeekly(body) {
+    if (!body || calScrollMem.weekTop == null) return false;
+    body.scrollTop = calScrollMem.weekTop;
+    return true;
+}
+
+function calScrollRestoreMonthly() {
+    var cb = document.getElementById('calBody');
+    if (cb && calScrollMem.monthBody != null) cb.scrollTop = calScrollMem.monthBody;
+    if (calScrollMem.monthY != null) {
+        window.scrollTo(0, calScrollMem.monthY);
+    }
+}
+
+function calScrollBindWeekly(body) {
+    if (!body || body.getAttribute('data-cal-scroll-bound') === '1') return;
+    body.setAttribute('data-cal-scroll-bound', '1');
+    body.addEventListener('scroll', function () {
+        calScrollMem.weekTop = body.scrollTop;
+    }, { passive: true });
+}
+
+function calScrollBindMonthlyWindow() {
+    if (calScrollMem.winBound) return;
+    calScrollMem.winBound = true;
+    window.addEventListener('scroll', function () {
+        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() !== 'calendar') return;
+        if (typeof calView === 'undefined' || calView !== 'monthly') return;
+        calScrollMem.monthY = window.pageYOffset || document.documentElement.scrollTop || 0;
+        var cb = document.getElementById('calBody');
+        if (cb) calScrollMem.monthBody = cb.scrollTop;
+    }, { passive: true });
+}
+
 function renderCal(opts) {
     opts = opts || {};
+    calScrollSave();
     if (!opts.force && apptModuleEditPaused('calendar')) {
         apptModuleMarkRefreshDeferred('calendar');
         opts = Object.assign({}, opts, { soft: true });
@@ -15367,6 +15460,7 @@ function renderMonthly(opts) {
                 apptModuleMarkRefreshDeferred('calendar');
                 return;
             }
+            if (typeof calScrollSave === 'function') calScrollSave();
             var map   = {};
             appts.forEach(function(a) {
                 if (typeof apptIsArrangeRequest === 'function' && apptIsArrangeRequest(a)) return;
@@ -15419,6 +15513,7 @@ function renderMonthly(opts) {
             html += '</div>';
         }
         html += '</div>';
+        if (typeof calScrollSave === 'function') calScrollSave();
         cb.innerHTML = html;
         var monthById = {};
         appts.forEach(function(a) {
@@ -15511,6 +15606,12 @@ function renderMonthly(opts) {
         }
         renderCalMonthMini();
         apptRefreshPatientCountBadge('calendar');
+        if (typeof calScrollBindMonthlyWindow === 'function') calScrollBindMonthlyWindow();
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                if (typeof calScrollRestoreMonthly === 'function') calScrollRestoreMonthly();
+            });
+        });
         });
     });
 }
@@ -15642,6 +15743,598 @@ function persistApptScheduleLock(appt, locked, done) {
         finish(true);
     });
 }
+
+// ════════════════════════════════════════════════════════════════
+// CALENDAR UNDO / REDO + one-line change log (Appointment → Calendar)
+// ════════════════════════════════════════════════════════════════
+var CalHist = (function () {
+    var MAX_STACK = 40;
+    var MAX_LOG = 12;
+    var undoStack = [];
+    var redoStack = [];
+    var logEntries = [];
+    var applying = false;
+
+    function trKey(key, fallback) {
+        return (typeof tr === 'function') ? tr(key) : fallback;
+    }
+
+    function repl(key, vars, fallback) {
+        if (typeof trRepl === 'function') return trRepl(key, vars);
+        var s = fallback || key;
+        Object.keys(vars || {}).forEach(function (k) {
+            s = s.split('{' + k + '}').join(vars[k]);
+        });
+        return s;
+    }
+
+    function normTime(t) {
+        var s = String(t || '');
+        return s.length >= 5 ? s.slice(0, 5) : s;
+    }
+
+    function fmtDay(iso) {
+        if (!iso) return '';
+        return (typeof fmtDateLong === 'function') ? fmtDateLong(iso) : iso;
+    }
+
+    function fmtClock(t) {
+        var tm = normTime(t);
+        if (!tm) return '';
+        return (typeof fmt12 === 'function') ? fmt12(tm) : tm;
+    }
+
+    function fmtSlot(dateIso, time) {
+        return (fmtDay(dateIso) + ' ' + fmtClock(time)).trim();
+    }
+
+    function fmtRange(dateIso, start, end) {
+        return (fmtDay(dateIso) + ' ' + fmtClock(start) + '–' + fmtClock(end)).trim();
+    }
+
+    function patientLabel(a) {
+        if (!a) return '';
+        return String(a.patient_chinese_name || a.patient_name || a.patient_no || '').trim();
+    }
+
+    function entryName(entry) {
+        return (entry && entry.name) || trKey('appt.cal.histSomeone', 'Appointment');
+    }
+
+    function isCalendarTabActive() {
+        var pane = document.getElementById('tab-calendar');
+        return !!(pane && pane.classList.contains('active'));
+    }
+
+    function snapFromAppt(a, keys) {
+        if (!a) return {};
+        var use = keys || ['date', 'start_time', 'end_time', 'duration',
+            'doctor_code', 'doctor_name', 'treatment_items', 'remarks',
+            'patient_id', 'patient_no', 'patient_name', 'patient_chinese_name'];
+        var out = {};
+        use.forEach(function (k) {
+            if (!Object.prototype.hasOwnProperty.call(a, k)) return;
+            var v = a[k];
+            if (k === 'start_time' || k === 'end_time') v = normTime(v);
+            if (k === 'duration' && v != null && v !== '') v = parseInt(v, 10) || v;
+            out[k] = (v === undefined) ? null : v;
+        });
+        return out;
+    }
+
+    function snapsEqual(a, b) {
+        var keys = {};
+        Object.keys(a || {}).concat(Object.keys(b || {})).forEach(function (k) {
+            keys[k] = true;
+        });
+        return Object.keys(keys).every(function (k) {
+            var av = (a && a[k] != null) ? a[k] : '';
+            var bv = (b && b[k] != null) ? b[k] : '';
+            return String(av) === String(bv);
+        });
+    }
+
+    function patchFromSnap(snap) {
+        var p = {};
+        Object.keys(snap || {}).forEach(function (k) {
+            p[k] = snap[k];
+        });
+        return p;
+    }
+
+    function describeAction(entry) {
+        if (!entry) return '';
+        var name = entryName(entry);
+        var first = (entry.items && entry.items[0]) || {};
+        var before = first.before || {};
+        var after = first.after || {};
+        if (entry.kind === 'bulk') {
+            return repl('appt.cal.histBulkMoved', {
+                N: entry.count || (entry.items ? entry.items.length : 0),
+                FROM: fmtDay(entry.fromDate || before.date),
+                TO: fmtDay(entry.toDate || after.date)
+            }, '{N} appointments: {FROM} → {TO}');
+        }
+        if (entry.kind === 'resize') {
+            return repl('appt.cal.histResized', {
+                NAME: name,
+                FROM: fmtRange(before.date || after.date, before.start_time, before.end_time),
+                TO: fmtRange(after.date || before.date, after.start_time, after.end_time)
+            }, '{NAME}: {FROM} → {TO}');
+        }
+        if (entry.kind === 'edit') {
+            return repl('appt.cal.histEdited', {
+                NAME: name,
+                SLOT: fmtSlot(after.date || before.date, after.start_time || before.start_time)
+            }, '{NAME}: edited {SLOT}');
+        }
+        if (entry.kind === 'delete') {
+            return repl('appt.cal.histDeleted', {
+                NAME: name,
+                SLOT: fmtSlot(before.date || after.date, before.start_time || after.start_time)
+            }, '{NAME}: deleted {SLOT}');
+        }
+        return repl('appt.cal.histMoved', {
+            NAME: name,
+            FROM: fmtSlot(before.date, before.start_time),
+            TO: fmtSlot(after.date, after.start_time)
+        }, '{NAME}: {FROM} → {TO}');
+    }
+
+    function describeLog(logItem) {
+        var detail = describeAction(logItem.entry);
+        if (logItem.op === 'undo') {
+            return repl('appt.cal.histUndo', { DETAIL: detail }, 'Undo · {DETAIL}');
+        }
+        if (logItem.op === 'redo') {
+            return repl('appt.cal.histRedo', { DETAIL: detail }, 'Redo · {DETAIL}');
+        }
+        return detail;
+    }
+
+    function renderLog() {
+        var el = document.getElementById('calHistLog');
+        if (!el) return;
+        if (!logEntries.length) {
+            el.classList.add('is-empty');
+            el.textContent = trKey('appt.cal.histEmpty', 'No calendar changes yet.');
+            return;
+        }
+        el.classList.remove('is-empty');
+        el.innerHTML = logEntries.map(function (item, i) {
+            return '<div class="cal-hist-log-line' + (i === 0 ? ' is-latest' : '') + '">' +
+                esc(describeLog(item)) + '</div>';
+        }).join('');
+    }
+
+    function syncButtons() {
+        var u = document.getElementById('calUndoBtn');
+        var r = document.getElementById('calRedoBtn');
+        if (u) {
+            u.disabled = !undoStack.length || applying;
+            u.title = undoStack.length
+                ? describeAction(undoStack[undoStack.length - 1])
+                : trKey('appt.cal.undoTitle', 'Undo last calendar change');
+        }
+        if (r) {
+            r.disabled = !redoStack.length || applying;
+            r.title = redoStack.length
+                ? describeAction(redoStack[redoStack.length - 1])
+                : trKey('appt.cal.redoTitle', 'Redo last undone change');
+        }
+    }
+
+    function refreshUi() {
+        renderLog();
+        syncButtons();
+    }
+
+    function pushLog(op, entry) {
+        logEntries.unshift({ op: op, entry: entry });
+        if (logEntries.length > MAX_LOG) logEntries.pop();
+        renderLog();
+    }
+
+    function refreshLists() {
+        ['refreshApptPlannerData', 'loadToday', 'loadQueue', 'loadApptRecords', 'renderCal']
+            .forEach(function (name) {
+                try {
+                    if (typeof window[name] === 'function') window[name]();
+                } catch (e) { /* keep undo/redo UI even if a list refresh throws */ }
+            });
+    }
+
+    function cloneRow(a) {
+        if (!a) return {};
+        try { return JSON.parse(JSON.stringify(a)); } catch (e) { return Object.assign({}, a); }
+    }
+
+    function insertPayloadFromRow(row, withId) {
+        var src = row || {};
+        var pl = (typeof apptPayloadFromSourceForTransfer === 'function')
+            ? apptPayloadFromSourceForTransfer(src, {})
+            : {};
+        if (!pl) pl = {};
+        if (src.bill_status) pl.bill_status = src.bill_status;
+        if (src.booking_status) pl.booking_status = src.booking_status;
+        if (src.in_queue != null) pl.in_queue = src.in_queue;
+        if (src.arrival_time) pl.arrival_time = src.arrival_time;
+        var walkField = (typeof APPOINTMENT_WALK_IN_PHONE_FIELD !== 'undefined')
+            ? APPOINTMENT_WALK_IN_PHONE_FIELD
+            : 'walk_in_phone';
+        if (src[walkField] && !pl[walkField]) pl[walkField] = src[walkField];
+        if (withId && src.id) pl.id = src.id;
+        Object.keys(pl).forEach(function (k) {
+            if (pl[k] === undefined) delete pl[k];
+        });
+        return pl;
+    }
+
+    function relinkBillsAfterUndelete(oldId, newId, done) {
+        if (!oldId || !newId || String(oldId) === String(newId)) {
+            if (done) done();
+            return;
+        }
+        try {
+            SB.from('bills').update({ appointment_id: newId }).eq('appointment_id', oldId)
+            .then(function () { if (done) done(); }, function () { if (done) done(); });
+        } catch (e) {
+            if (done) done();
+        }
+    }
+
+    function isMissingRowError(msg) {
+        msg = String(msg || '').toLowerCase();
+        return !msg ||
+            msg.indexOf('0 rows') >= 0 ||
+            msg.indexOf('not found') >= 0 ||
+            msg.indexOf('no rows') >= 0 ||
+            msg.indexOf('could not find') >= 0;
+    }
+
+    function tryUndeleteInsert(it, payload, retried, done) {
+        var req = SB.from('appointments').insert([payload]).select('*');
+        var onOk = function (res) {
+            if (res && !res.error && res.data && res.data[0]) {
+                var row = res.data[0];
+                var oldId = it.id;
+                if (row.id) {
+                    it.id = row.id;
+                    if (it.row) it.row.id = row.id;
+                }
+                if (typeof apptMergeSavedRowIntoCaches === 'function') {
+                    apptMergeSavedRowIntoCaches(row);
+                }
+                relinkBillsAfterUndelete(oldId, row.id, function () { done(null); });
+                return;
+            }
+            var msg = String((res && res.error && res.error.message) || 'Insert failed');
+            if (!retried) {
+                var retry = Object.assign({}, payload);
+                var dropped = false;
+                if (retry.id && /id|duplicate|unique|primary/i.test(msg)) {
+                    delete retry.id;
+                    dropped = true;
+                }
+                if (msg.indexOf('patient_chinese_name') >= 0) {
+                    delete retry.patient_chinese_name;
+                    dropped = true;
+                }
+                if (msg.indexOf('clinic_tag') >= 0 &&
+                    typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined') {
+                    delete retry[APPOINTMENT_CLINIC_TAG_FIELD];
+                    dropped = true;
+                }
+                if (msg.indexOf('walk_in_phone') >= 0) {
+                    delete retry.walk_in_phone;
+                    dropped = true;
+                }
+                if (msg.indexOf('booking_status') >= 0) {
+                    delete retry.booking_status;
+                    dropped = true;
+                }
+                if (dropped) {
+                    tryUndeleteInsert(it, retry, true, done);
+                    return;
+                }
+            }
+            done(msg);
+        };
+        var onErr = function (err) {
+            done((err && err.message) || String(err || 'Insert failed'));
+        };
+        if (req && typeof req.then === 'function') req.then(onOk, onErr);
+        else onOk(req);
+    }
+
+    function applyDeleteItems(items, side, done) {
+        var finished = false;
+        var finish = function (err) {
+            if (finished) return;
+            finished = true;
+            done(err || null);
+        };
+        var list = (items || []).filter(function (it) { return it && (it.id || it.row); });
+        if (!list.length) {
+            finish(null);
+            return;
+        }
+        var pending = list.length;
+        var firstErr = null;
+        var oneDone = function () {
+            pending--;
+            if (pending <= 0) finish(firstErr);
+        };
+        list.forEach(function (it) {
+            if (side === 'before') {
+                try {
+                    var payload = insertPayloadFromRow(it.row || it.before, true);
+                    var snap = it.before || {};
+                    if (snap.date) payload.date = snap.date;
+                    if (snap.start_time) payload.start_time = snap.start_time;
+                    if (snap.end_time) payload.end_time = snap.end_time;
+                    if (snap.duration != null && snap.duration !== '') payload.duration = snap.duration;
+                    if (!Object.keys(payload).length) {
+                        if (!firstErr) firstErr = 'Missing appointment data';
+                        oneDone();
+                        return;
+                    }
+                    tryUndeleteInsert(it, payload, false, function (err) {
+                        if (err && !firstErr) firstErr = err;
+                        oneDone();
+                    });
+                } catch (e) {
+                    if (!firstErr) firstErr = (e && e.message) || String(e);
+                    oneDone();
+                }
+                return;
+            }
+            try {
+                var delId = it.id || (it.row && it.row.id);
+                if (!delId) {
+                    oneDone();
+                    return;
+                }
+                var req = SB.from('appointments').delete().eq('id', delId);
+                var onOk = function (res) {
+                    if (res && res.error && !isMissingRowError(res.error.message) && !firstErr) {
+                        firstErr = res.error.message || 'Delete failed';
+                    }
+                    oneDone();
+                };
+                var onErr = function (err) {
+                    var msg = (err && err.message) || String(err || '');
+                    if (!isMissingRowError(msg) && !firstErr) firstErr = msg || 'Delete failed';
+                    oneDone();
+                };
+                if (req && typeof req.then === 'function') req.then(onOk, onErr);
+                else onOk(req);
+            } catch (e) {
+                if (!firstErr) firstErr = (e && e.message) || String(e);
+                oneDone();
+            }
+        });
+    }
+
+    function applyItems(entry, side, done) {
+        if (entry && entry.kind === 'delete') {
+            applyDeleteItems(entry.items, side, done);
+            return;
+        }
+        var finished = false;
+        var finish = function (err) {
+            if (finished) return;
+            finished = true;
+            done(err || null);
+        };
+        var list = ((entry && entry.items) || []).filter(function (it) { return it && it.id; });
+        if (!list.length) {
+            finish(null);
+            return;
+        }
+        var pending = list.length;
+        var firstErr = null;
+        var oneDone = function () {
+            pending--;
+            if (pending <= 0) finish(firstErr);
+        };
+        list.forEach(function (it) {
+            var snap = side === 'before' ? it.before : it.after;
+            var patch = patchFromSnap(snap);
+            if (!Object.keys(patch).length) {
+                oneDone();
+                return;
+            }
+            try {
+                var req = SB.from('appointments').update(patch).eq('id', it.id);
+                var onOk = function (res) {
+                    if (res && res.error && !firstErr) firstErr = res.error.message || 'Unknown error';
+                    else if (res && !res.error && typeof apptMergeSavedRowIntoCaches === 'function') {
+                        apptMergeSavedRowIntoCaches(Object.assign({ id: it.id }, patch));
+                    }
+                    oneDone();
+                };
+                var onErr = function (err) {
+                    if (!firstErr) firstErr = (err && err.message) || String(err || 'Unknown error');
+                    oneDone();
+                };
+                if (req && typeof req.then === 'function') req.then(onOk, onErr);
+                else onOk(req);
+            } catch (e) {
+                if (!firstErr) firstErr = (e && e.message) || String(e);
+                oneDone();
+            }
+        });
+    }
+
+    function jumpToEntry(entry, side) {
+        var first = entry && entry.items && entry.items[0];
+        var snap = first ? (side === 'before' ? first.before : first.after) : null;
+        var iso = (snap && snap.date) || (first && first.before && first.before.date);
+        if (!iso) return;
+        if (typeof syncApptPlannerDate === 'function') {
+            syncApptPlannerDate(iso, { syncCal: true });
+        }
+    }
+
+    function record(entry) {
+        if (applying || !entry || !entry.items || !entry.items.length) return;
+        var usable = entry.items.filter(function (it) {
+            return it && it.id && !snapsEqual(it.before, it.after);
+        });
+        if (!usable.length) return;
+        entry.items = usable;
+        if (!entry.name) {
+            var src = usable[0].after || usable[0].before || {};
+            entry.name = patientLabel(src) || entry.name;
+        }
+        if (typeof calScrollSaveOnCardChange === 'function') calScrollSaveOnCardChange();
+        undoStack.push(entry);
+        if (undoStack.length > MAX_STACK) undoStack.shift();
+        redoStack = [];
+        pushLog('do', entry);
+        syncButtons();
+    }
+
+    function runApply(entry, side, okFn, errFn) {
+        applying = true;
+        syncButtons();
+        var settled = false;
+        var finish = function (err) {
+            if (settled) return;
+            settled = true;
+            applying = false;
+            if (err) errFn(err);
+            else okFn();
+        };
+        try {
+            applyItems(entry, side, finish);
+        } catch (e) {
+            finish((e && e.message) || String(e));
+        }
+    }
+
+    function undo() {
+        if (!undoStack.length || applying) return;
+        var entry = undoStack.pop();
+        runApply(entry, 'before', function () {
+            redoStack.push(entry);
+            pushLog('undo', entry);
+            jumpToEntry(entry, 'before');
+            syncButtons();
+            refreshLists();
+        }, function (err) {
+            undoStack.push(entry);
+            alert(repl('appt.cal.couldUndo', { MSG: err }, 'Could not undo: {MSG}'));
+            syncButtons();
+        });
+    }
+
+    function redo() {
+        if (!redoStack.length || applying) return;
+        var entry = redoStack.pop();
+        runApply(entry, 'after', function () {
+            undoStack.push(entry);
+            pushLog('redo', entry);
+            jumpToEntry(entry, 'after');
+            syncButtons();
+            refreshLists();
+        }, function (err) {
+            redoStack.push(entry);
+            alert(repl('appt.cal.couldRedo', { MSG: err }, 'Could not redo: {MSG}'));
+            syncButtons();
+        });
+    }
+
+    function reset() {
+        undoStack = [];
+        redoStack = [];
+        logEntries = [];
+        applying = false;
+        refreshUi();
+    }
+
+    function recordMove(appt, before, after) {
+        record({
+            kind: 'move',
+            name: patientLabel(appt),
+            items: [{ id: appt && appt.id, before: before, after: after }]
+        });
+    }
+
+    function recordResize(appt, before, after) {
+        record({
+            kind: 'resize',
+            name: patientLabel(appt),
+            items: [{ id: appt && appt.id, before: before, after: after }]
+        });
+    }
+
+    function recordEdit(savedRow, beforeSnap) {
+        if (!isCalendarTabActive() || !savedRow || !savedRow.id || !beforeSnap) return;
+        var afterSnap = snapFromAppt(savedRow);
+        record({
+            kind: 'edit',
+            name: patientLabel(savedRow),
+            items: [{ id: savedRow.id, before: beforeSnap, after: afterSnap }]
+        });
+    }
+
+    function recordBulk(items, fromDate, toDate) {
+        record({
+            kind: 'bulk',
+            fromDate: fromDate,
+            toDate: toDate,
+            count: items ? items.length : 0,
+            items: items || []
+        });
+    }
+
+    function recordDelete(appt) {
+        if (!appt || !appt.id) return;
+        var cached = (typeof findApptInCalendarCaches === 'function')
+            ? findApptInCalendarCaches(appt.id)
+            : null;
+        var row = cloneRow(Object.assign({}, cached || {}, appt));
+        if (appt.date) row.date = appt.date;
+        if (appt.start_time) row.start_time = appt.start_time;
+        if (appt.end_time) row.end_time = appt.end_time;
+        if (appt.duration != null && appt.duration !== '') row.duration = appt.duration;
+        record({
+            kind: 'delete',
+            name: patientLabel(row),
+            items: [{
+                id: row.id,
+                row: row,
+                before: snapFromAppt(row),
+                after: { deleted: true }
+            }]
+        });
+    }
+
+    return {
+        undo: undo,
+        redo: redo,
+        record: record,
+        recordMove: recordMove,
+        recordResize: recordResize,
+        recordEdit: recordEdit,
+        recordBulk: recordBulk,
+        recordDelete: recordDelete,
+        snapFromAppt: snapFromAppt,
+        isCalendarTabActive: isCalendarTabActive,
+        refreshUi: refreshUi,
+        reset: reset,
+        debugState: function () {
+            return {
+                undo: undoStack.length,
+                redo: redoStack.length,
+                applying: applying,
+                logs: logEntries.length
+            };
+        }
+    };
+}());
 
 // ════════════════════════════════════════════════════════════════
 // GOOGLE CALENDAR WEEKLY TIMELINE — GCAL module
@@ -15801,9 +16494,8 @@ var GCAL = (function () {
                     if (k && !kSet[k]) { kSet[k] = true; knownKeys.push(k); }
                 });
                 var panelSt = captureGcalPanelState();
-                var scrollBody = document.getElementById('gcalScrollBody');
-                var savedScrollTop = scrollBody ? scrollBody.scrollTop : 0;
-                buildDOM(cb, { preserveScroll: panelSt.settingsOpen, scrollTop: savedScrollTop });
+                if (typeof calScrollSave === 'function') calScrollSave();
+                buildDOM(cb, { preserveScroll: true });
                 restoreGcalPanelState(panelSt);
                 if (typeof CalDoctorColors !== 'undefined') {
                     CalDoctorColors.renderLegend(appts, typeof currentClinicId !== 'undefined' ? currentClinicId : null);
@@ -16087,13 +16779,20 @@ var GCAL = (function () {
         if (nowTimer) clearInterval(nowTimer);
         nowTimer = setInterval(function () { renderNowLine(body); }, 60000);
 
-        // Scroll to 1 hour past startHour (skip when refreshing with settings panel open)
         requestAnimationFrame(function () {
-            if (opts.preserveScroll && opts.scrollTop != null) {
-                body.scrollTop = opts.scrollTop;
-                return;
-            }
-            body.scrollTop = Math.max(0, (1 * 60 / S.interval) * gcalEffectiveSlotH() - 10);
+            requestAnimationFrame(function () {
+                var restored = typeof calScrollRestoreWeekly === 'function' &&
+                    calScrollRestoreWeekly(body);
+                if (!restored) {
+                    body.scrollTop = Math.max(0, (1 * 60 / S.interval) * gcalEffectiveSlotH() - 10);
+                    if (typeof calScrollMem !== 'undefined') calScrollMem.weekTop = body.scrollTop;
+                } else if (typeof calScrollMem !== 'undefined' &&
+                    calScrollMem.weekTop != null &&
+                    Math.abs(body.scrollTop - calScrollMem.weekTop) > 2) {
+                    body.scrollTop = calScrollMem.weekTop;
+                }
+                if (typeof calScrollBindWeekly === 'function') calScrollBindWeekly(body);
+            });
         });
     }
 
@@ -16492,7 +17191,27 @@ var GCAL = (function () {
                 }
                 rs.appt.start_time = rs.curStart;
                 rs.appt.end_time = rs.curEnd;
+                if (typeof apptMergeSavedRowIntoCaches === 'function') {
+                    apptMergeSavedRowIntoCaches({
+                        id: rs.appt.id,
+                        date: rs.appt.date,
+                        start_time: rs.curStart,
+                        end_time: rs.curEnd
+                    });
+                }
                 setCardTimeInfo(rs.card, rs.curStart, rs.curEnd);
+                if (typeof calScrollSaveOnCardChange === 'function') calScrollSaveOnCardChange();
+                if (typeof CalHist !== 'undefined' && CalHist.recordResize) {
+                    CalHist.recordResize(rs.appt, {
+                        date: rs.appt.date,
+                        start_time: prevStart,
+                        end_time: prevEnd
+                    }, {
+                        date: rs.appt.date,
+                        start_time: rs.curStart,
+                        end_time: rs.curEnd
+                    });
+                }
             });
     }
 
@@ -16694,6 +17413,26 @@ var GCAL = (function () {
                 ds.appt.date       = ds.curDate;
                 ds.appt.start_time = ds.curTime;
                 ds.appt.end_time   = newE;
+                if (typeof apptMergeSavedRowIntoCaches === 'function') {
+                    apptMergeSavedRowIntoCaches({
+                        id: ds.appt.id,
+                        date: ds.curDate,
+                        start_time: ds.curTime,
+                        end_time: newE
+                    });
+                }
+                if (typeof calScrollSaveOnCardChange === 'function') calScrollSaveOnCardChange();
+                if (typeof CalHist !== 'undefined' && CalHist.recordMove) {
+                    CalHist.recordMove(ds.appt, {
+                        date: ds.origDate,
+                        start_time: ds.origTime,
+                        end_time: ds.origEnd
+                    }, {
+                        date: ds.curDate,
+                        start_time: ds.curTime,
+                        end_time: newE
+                    });
+                }
                 if (typeof syncApptPlannerDate === 'function') {
                     syncApptPlannerDate(ds.curDate, { syncCal: true });
                 }
@@ -17117,6 +17856,16 @@ var GCAL = (function () {
                         }
                         apptToast('Moved ' + moved + ' appointments to ' +
                             (typeof fmtDateLong === 'function' ? fmtDateLong(targetIsoBulk) : targetIsoBulk));
+                        if (typeof calScrollSaveOnCardChange === 'function') calScrollSaveOnCardChange();
+                        if (typeof CalHist !== 'undefined' && CalHist.recordBulk) {
+                            CalHist.recordBulk(rows.map(function(row) {
+                                return {
+                                    id: row.id,
+                                    before: { date: fromIsoBulk },
+                                    after: { date: targetIsoBulk }
+                                };
+                            }), fromIsoBulk, targetIsoBulk);
+                        }
                         if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
                         if (typeof loadToday === 'function') loadToday();
                         if (typeof loadQueue === 'function') loadQueue();
@@ -17153,6 +17902,19 @@ var GCAL = (function () {
                     end_time: enCal,
                     duration: durCal
                 });
+                if (typeof CalHist !== 'undefined' && CalHist.recordMove && result && result.newRow) {
+                    CalHist.recordMove(result.newRow, {
+                        date: snapCal.fromDate,
+                        start_time: snapCal.startTime,
+                        end_time: addMins(plusApptNormTime(snapCal.startTime || '09:00'), durCal),
+                        duration: snapCal.duration
+                    }, {
+                        date: targetIso,
+                        start_time: stCal,
+                        end_time: enCal,
+                        duration: durCal
+                    });
+                }
                 plusApptClearTransferAfterSuccess(null, oldCalId);
                 plusApptRenderTransferLog();
                 calDate = parseISO(targetIso);
@@ -17322,12 +18084,17 @@ function deleteDayPanelAppt(a, cardEl) {
     }
     if (!confirm(tr('appt.confirm.deleteAppt'))) return;
     if (cardEl) cardEl.style.opacity = '0.4';
+    var calHistDeleted = Object.assign({}, a);
     SB.from('appointments').delete().eq('id', a.id).then(function(r) {
         if (r.error) {
             if (cardEl) cardEl.style.opacity = '';
             alert(trRepl('appt.msg.error', { MSG: r.error.message }));
             return;
         }
+        if (typeof CalHist !== 'undefined' && CalHist.recordDelete) {
+            CalHist.recordDelete(calHistDeleted);
+        }
+        if (typeof calScrollSaveOnCardChange === 'function') calScrollSaveOnCardChange();
         if (cardEl && cardEl.parentNode) cardEl.parentNode.removeChild(cardEl);
         loadToday();
         loadQueue();
@@ -23867,12 +24634,14 @@ function refreshApptCachedTabsI18n() {
     if (typeof apptRefreshAllPatientCountBadges === 'function') {
         apptRefreshAllPatientCountBadges();
     }
+    if (typeof CalHist !== 'undefined' && CalHist.refreshUi) CalHist.refreshUi();
 }
 
 document.addEventListener('DOMContentLoaded', function () {
     if (typeof refreshApptDurOptions === 'function') refreshApptDurOptions();
     wireBillPanelControls();
     bindApptUnpaidBadgeClickOnce();
+    if (typeof CalHist !== 'undefined' && CalHist.refreshUi) CalHist.refreshUi();
 });
 
 function refreshOpenBillPanelForLang() {

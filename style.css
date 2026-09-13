@@ -6401,6 +6401,77 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     box-shadow: 0 1px 4px rgba(0,0,0,0.1);
 }
 
+.cal-hist-wrap {
+    margin: 4px 0 10px;
+}
+.cal-hist-capsule {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.cal-hist-tip {
+    flex: 1;
+    min-width: 0;
+}
+.cal-hist-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.cal-hist-btn {
+    padding: 3px 11px;
+    border: 1px solid #93c5fd;
+    background: #fff;
+    color: #1d4ed8;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+.cal-hist-btn:hover:not(:disabled) {
+    background: #dbeafe;
+    border-color: #3b82f6;
+}
+.cal-hist-btn:disabled {
+    opacity: 0.42;
+    cursor: default;
+}
+.cal-hist-log {
+    margin-top: 4px;
+    padding: 2px 10px 0;
+    max-height: 4.2em;
+    overflow-x: hidden;
+    overflow-y: auto;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    line-height: 1.4;
+}
+.cal-hist-log.is-empty {
+    color: #94a3b8;
+    font-weight: 500;
+}
+.cal-hist-log-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cal-hist-log-line.is-latest {
+    color: #334155;
+}
+
 .cal-doctor-bar {
     display: flex;
     align-items: center;

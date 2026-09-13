@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260913pm-arclinic1';
+  var BUILD = '20260913pm-calundo4';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1609,10 +1609,20 @@
         <button class="btn-add" id="calAddBtn" data-i18n="appt.addAppt"></button>
       </div>
     </div>
-    <div style="margin:4px 0 10px;padding:7px 10px;border:1px solid #bfdbfe;
-                background:#eff6ff;color:#1d4ed8;border-radius:8px;
-                font-size:12px;font-weight:600;line-height:1.4;"
-         data-i18n="appt.cal.dragMoveHint"></div>
+    <div class="cal-hist-wrap">
+      <div class="cal-hist-capsule">
+        <div class="cal-hist-tip" data-i18n="appt.cal.dragMoveHint"></div>
+        <div class="cal-hist-actions">
+          <button type="button" id="calUndoBtn" class="cal-hist-btn" disabled
+                  onclick="CalHist.undo()" data-i18n="appt.cal.undo"
+                  data-i18n-title="appt.cal.undoTitle">Undo</button>
+          <button type="button" id="calRedoBtn" class="cal-hist-btn" disabled
+                  onclick="CalHist.redo()" data-i18n="appt.cal.redo"
+                  data-i18n-title="appt.cal.redoTitle">Redo</button>
+        </div>
+      </div>
+      <div id="calHistLog" class="cal-hist-log is-empty" aria-live="polite"></div>
+    </div>
     <div class="cal-doctor-bar" id="calDoctorBar">
       <span class="cal-doctor-bar-label" data-i18n="appt.calShowDoctors"></span>
       <div class="cal-doctor-filter-actions">

@@ -2981,7 +2981,10 @@ function openAppHelpPage() {
     window.open(url, '_blank', 'noopener,noreferrer');
 }
 
-function showLogin() { showOnly('loginOverlay'); }
+function showLogin() {
+    showOnly('loginOverlay');
+    if (typeof CalHist !== 'undefined' && CalHist.reset) CalHist.reset();
+}
 
 function markAppReady() {
     if (document.documentElement.classList.contains('app-ready')) return;

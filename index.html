@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260913pm-zhang2';
+  var BUILD = '20260913pm-arclinic1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1683,6 +1683,7 @@
           <table class="appt-tbl" id="arTable">
             <thead>
               <tr>
+                <th id="arThClinic" style="width:70px;display:none;" data-i18n="common.clinic"></th>
                 <th style="width:90px;" data-i18n="appt.arTh.date"></th>
                 <th style="width:70px;" data-i18n="appt.arTh.time"></th>
                 <th style="width:70px;" data-i18n="appt.arTh.duration"></th>

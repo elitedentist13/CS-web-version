@@ -8047,6 +8047,44 @@ function arClinicTagFromId(cid) {
     return '';
 }
 
+function arClinicFilterIsAll() {
+    return !arClinicFilter || arClinicFilter === AR_CLINIC_ALL;
+}
+
+function arApptClinicTag(a) {
+    if (!a) return '';
+    var field = typeof APPOINTMENT_CLINIC_TAG_FIELD !== 'undefined'
+        ? APPOINTMENT_CLINIC_TAG_FIELD
+        : 'clinic_tag';
+    return String(a[field] || a.clinic_tag || '').trim().toUpperCase();
+}
+
+function arRecordsColspan() {
+    return arClinicFilterIsAll() ? 11 : 10;
+}
+
+function arRecordsSyncClinicColumn() {
+    var th = g('arThClinic');
+    if (th) th.style.display = arClinicFilterIsAll() ? '' : 'none';
+}
+
+function arRecordsDateTimeKey(a) {
+    return String((a && a.date) || '') + String((a && a.start_time) || '');
+}
+
+function arRecordsCompareByClinicThenTime(x, y, timeAsc) {
+    var cx = arApptClinicTag(x);
+    var cy = arApptClinicTag(y);
+    if (cx !== cy) {
+        if (!cx) return 1;
+        if (!cy) return -1;
+        return cx.localeCompare(cy);
+    }
+    var tx = arRecordsDateTimeKey(x);
+    var ty = arRecordsDateTimeKey(y);
+    return timeAsc ? tx.localeCompare(ty) : ty.localeCompare(tx);
+}
+
 function arClinicTagsForSession() {
     var tags = [];
     var clinics = (typeof clinicsForWorkingSession === 'function')
@@ -8428,8 +8466,9 @@ function loadApptRecords() {
     populateArDoctorSelect();
     renderArMiniCal();
     arSyncDateLabel();
+    arRecordsSyncClinicColumn();
     tbody.innerHTML =
-        '<tr><td colspan="10" style="text-align:center;color:#aaa;padding:30px;">' +
+        '<tr><td colspan="' + arRecordsColspan() + '" style="text-align:center;color:#aaa;padding:30px;">' +
         esc(tr('common.loadingEllipsis')) + '</td></tr>';
 
     function finishLoad(rows) {
@@ -8459,7 +8498,7 @@ function loadApptRecords() {
         aq.then(function(r) {
             if (r.error) {
                 tbody.innerHTML =
-                    '<tr><td colspan="10" style="color:red;padding:20px;">' +
+                    '<tr><td colspan="' + arRecordsColspan() + '" style="color:red;padding:20px;">' +
                     esc(r.error.message) + '</td></tr>';
                 return;
             }
@@ -8506,6 +8545,8 @@ function arRender() {
             : trRepl('appt.ar.recordCountN', { N: String(rows.length) });
     }
 
+    arRecordsSyncClinicColumn();
+
     if (!rows.length) {
         tbody.innerHTML = '';
         if (emptyMsg) emptyMsg.style.display = 'block';
@@ -8513,14 +8554,20 @@ function arRender() {
     }
     if (emptyMsg) emptyMsg.style.display = 'none';
 
-    // Group: upcoming first (asc), then past (already desc from server)
+    // Upcoming first (asc by time). All-clinics: clinic tag, then time.
+    // Past keeps newest-first within each clinic.
+    var allClinics = arClinicFilterIsAll();
     var future = rows.filter(function(a) { return arRecordFilterBucket(a, today) === 'upcoming'; })
                      .sort(function(x, y) {
-                         return (x.date + x.start_time).localeCompare(y.date + y.start_time);
+                         if (allClinics) return arRecordsCompareByClinicThenTime(x, y, true);
+                         return arRecordsDateTimeKey(x).localeCompare(arRecordsDateTimeKey(y));
                      });
     var older  = rows.filter(function(a) {
         var b = arRecordFilterBucket(a, today);
         return b === 'past' || b === 'noshow';
+    }).sort(function(x, y) {
+        if (allClinics) return arRecordsCompareByClinicThenTime(x, y, false);
+        return arRecordsDateTimeKey(y).localeCompare(arRecordsDateTimeKey(x));
     });
     var sorted = future.concat(older);
 
@@ -8570,7 +8617,7 @@ function bindArRecordsRowsOnce() {
 }
 
 function arSectionHeader(label, bg, color) {
-    return '<tr><td colspan="10" style="background:' + bg + ';color:' + color + ';' +
+    return '<tr><td colspan="' + arRecordsColspan() + '" style="background:' + bg + ';color:' + color + ';' +
            'font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.5px;">' +
            label + '</td></tr>';
 }
@@ -8618,8 +8665,14 @@ function arRow(a, today) {
         : '';
     var webBadge = typeof apptWebBadgeHtml === 'function' ? apptWebBadgeHtml(a) : '';
 
+    var clinicCell = arClinicFilterIsAll()
+        ? '<td style="white-space:nowrap;font-weight:700;color:#0f766e;font-size:12px;">' +
+          esc(arApptClinicTag(a) || '—') + '</td>'
+        : '';
+
     return '<tr class="ar-record-row" data-appt-id="' + esc(a.id) + '" style="' + rowStyle + 'cursor:pointer;" ' +
            'ondblclick="arOpenEdit(\'' + a.id + '\')">' +
+           clinicCell +
            '<td style="white-space:nowrap;font-weight:600;">' + esc(a.date || '') + '</td>' +
            '<td style="white-space:nowrap;">' + fmt12(a.start_time) + '</td>' +
            '<td style="white-space:nowrap;font-size:12px;color:#64748b;">' +

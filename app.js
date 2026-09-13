@@ -4413,6 +4413,9 @@ function closeModal(id) {
     if (id === 'addPatientModal' && typeof clearTodayApptPendingPatientReg === 'function') {
         clearTodayApptPendingPatientReg();
     }
+    if (id === 'billDetailModal' && typeof resetBillDetailItemsDom === 'function') {
+        resetBillDetailItemsDom();
+    }
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -261,6 +261,8 @@ var arBookingMinDateToday = false;
 
 // ── Pending bill item lists (Step 1 / Step 2) ─────────
 var pendingLists = [];   // array fetched from pending_bill_items table
+/** Bumps on each bill-panel open/close so stale pending/history fetches cannot paint. */
+var billPanelLoadGen = 0;
 
 /** Bill saved with no payment — use Pending / N/A, not Cash/Card. */
 var BILL_PAY_TYPE_PENDING = 'Pending';
@@ -10595,8 +10597,19 @@ function statusClass(s) {
 // ════════════════════════════════════════════════════════════════
 // PATIENT SEARCH  (appointment modal)
 // ════════════════════════════════════════════════════════════════
+var apptDobCache = {};
+
+function apptRememberPatientDob(patientId, dob) {
+    var id = String(patientId || '').trim();
+    var val = String(dob || '').trim();
+    if (!id || !val) return;
+    apptDobCache[id] = val;
+}
+
 function apptPatientDobLookup(patientId) {
     if (!patientId) return '';
+    var cached = apptDobCache[String(patientId)];
+    if (cached) return cached;
     if (typeof conPatientData !== 'undefined' && conPatientData &&
         conPatientData.id === patientId && conPatientData.dob) {
         return conPatientData.dob;
@@ -10638,6 +10651,7 @@ function apptRefreshSelectedPatientDob(patientId, dobHint) {
         .then(function (r) {
             if (r.error || !r.data || !r.data.dob) return;
             if (String(g('hPid').value || '').trim() !== String(patientId)) return;
+            apptRememberPatientDob(patientId, r.data.dob);
             apptUpdatePsSelDob(r.data.dob);
         });
 }
@@ -15806,6 +15820,21 @@ var CalHist = (function () {
         return !!(pane && pane.classList.contains('active'));
     }
 
+    function isApptModuleVisible() {
+        var sec = document.getElementById('appointmentSection');
+        if (!sec || sec.style.display === 'none') return false;
+        if (typeof sectionVisible === 'function') return sectionVisible('appointmentSection');
+        return true;
+    }
+
+    function isTypingTarget(el) {
+        if (!el) return false;
+        var tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+        if (el.isContentEditable) return true;
+        return !!(el.closest && el.closest('[contenteditable="true"]'));
+    }
+
     function snapFromAppt(a, keys) {
         if (!a) return {};
         var use = keys || ['date', 'start_time', 'end_time', 'duration',
@@ -15907,20 +15936,30 @@ var CalHist = (function () {
         }).join('');
     }
 
+    function setHistTip(btn, shortcut, label) {
+        if (!btn) return;
+        var wrap = btn.closest ? btn.closest('.cal-hist-tipwrap') : btn.parentElement;
+        if (wrap && wrap.setAttribute) wrap.setAttribute('data-cal-tip', shortcut);
+        btn.removeAttribute('title');
+        if (label) btn.setAttribute('aria-label', label);
+    }
+
     function syncButtons() {
         var u = document.getElementById('calUndoBtn');
         var r = document.getElementById('calRedoBtn');
+        var undoShortcut = trKey('appt.cal.undoShortcut', 'Ctrl+Z');
+        var redoShortcut = trKey('appt.cal.redoShortcut', 'Ctrl+Y');
         if (u) {
             u.disabled = !undoStack.length || applying;
-            u.title = undoStack.length
-                ? describeAction(undoStack[undoStack.length - 1])
-                : trKey('appt.cal.undoTitle', 'Undo last calendar change');
+            setHistTip(u, undoShortcut, undoStack.length
+                ? describeAction(undoStack[undoStack.length - 1]) + ' (' + undoShortcut + ')'
+                : trKey('appt.cal.undoTitle', 'Undo last calendar change (Ctrl+Z)'));
         }
         if (r) {
             r.disabled = !redoStack.length || applying;
-            r.title = redoStack.length
-                ? describeAction(redoStack[redoStack.length - 1])
-                : trKey('appt.cal.redoTitle', 'Redo last undone change');
+            setHistTip(r, redoShortcut, redoStack.length
+                ? describeAction(redoStack[redoStack.length - 1]) + ' (' + redoShortcut + ')'
+                : trKey('appt.cal.redoTitle', 'Redo last undone change (Ctrl+Y)'));
         }
     }
 
@@ -16254,6 +16293,29 @@ var CalHist = (function () {
         refreshUi();
     }
 
+    function handleHotkey(e) {
+        if (!e || e.altKey || e.metaKey || e.repeat || !e.ctrlKey) return false;
+        if (!isCalendarTabActive() || !isApptModuleVisible()) return false;
+        var key = e.key || '';
+        var code = e.code || '';
+        var isUndo = key === 'z' || key === 'Z' || code === 'KeyZ';
+        var isRedo = key === 'y' || key === 'Y' || code === 'KeyY';
+        if (!isUndo && !isRedo) return false;
+        if (isTypingTarget(e.target)) return false;
+        e.preventDefault();
+        e.stopPropagation();
+        if (isUndo) undo();
+        else redo();
+        return true;
+    }
+
+    function bindHotkeys() {
+        if (bindHotkeys.bound) return;
+        bindHotkeys.bound = true;
+        document.addEventListener('keydown', handleHotkey, true);
+    }
+    bindHotkeys();
+
     function recordMove(appt, before, after) {
         record({
             kind: 'move',
@@ -16323,6 +16385,7 @@ var CalHist = (function () {
         recordDelete: recordDelete,
         snapFromAppt: snapFromAppt,
         isCalendarTabActive: isCalendarTabActive,
+        handleHotkey: handleHotkey,
         refreshUi: refreshUi,
         reset: reset,
         debugState: function () {
@@ -18251,6 +18314,84 @@ function showDayPanel(iso, map) {
 // ── Appointment popup ─────────────────────────────────────────
 var _apptPopupCtx = null;
 
+function apptPopupViewportRect() {
+    var vv = window.visualViewport;
+    var top = 8;
+    var left = 8;
+    var bottom = (window.innerHeight || 0) - 8;
+    var right = (window.innerWidth || 0) - 8;
+    if (vv && vv.height) {
+        top = (vv.offsetTop || 0) + 8;
+        left = (vv.offsetLeft || 0) + 8;
+        bottom = (vv.offsetTop || 0) + vv.height - 8;
+        right = (vv.offsetLeft || 0) + vv.width - 8;
+    }
+    var dock = document.querySelector('.active-patient-dock:not([hidden]), #activePatientDock');
+    if (dock && dock.offsetParent !== null) {
+        var dr = dock.getBoundingClientRect();
+        if (dr.top < bottom && dr.bottom > bottom - 120) {
+            bottom = Math.min(bottom, dr.top - 8);
+        }
+    }
+    return {
+        top: top,
+        left: left,
+        bottom: bottom,
+        right: right,
+        height: Math.max(120, bottom - top),
+        width: Math.max(160, right - left)
+    };
+}
+
+function placeApptPopup(pop, anchor) {
+    if (!pop || pop.style.display === 'none') return;
+    var vp = apptPopupViewportRect();
+    var PW = Math.min(310, vp.width);
+    pop.style.maxWidth = PW + 'px';
+    pop.style.maxHeight = vp.height + 'px';
+    var content = g('apptPopupContent');
+    if (content) content.style.maxHeight = Math.max(80, vp.height - 56) + 'px';
+
+    var rect = (anchor && anchor.getBoundingClientRect)
+        ? anchor.getBoundingClientRect()
+        : { top: vp.top, left: vp.left, right: vp.left, bottom: vp.top };
+    var left = rect.right + 8;
+    if (left + PW > vp.right) left = rect.left - PW - 8;
+    left = Math.max(vp.left, Math.min(left, vp.right - PW));
+
+    pop.style.left = left + 'px';
+    var popH = pop.offsetHeight || 0;
+    var top = rect.top;
+    if (top + popH > vp.bottom) top = vp.bottom - popH;
+    if (top < vp.top) top = vp.top;
+    if (top + popH > vp.bottom && (rect.top - 8 - popH) >= vp.top) {
+        top = rect.top - 8 - popH;
+    }
+    if (top + popH > vp.bottom) top = Math.max(vp.top, vp.bottom - popH);
+    pop.style.top = top + 'px';
+    return { top: top, left: left, height: pop.offsetHeight, viewport: vp };
+}
+
+function hideApptPopup() {
+    var pop = g('apptPopup');
+    if (pop) pop.style.display = 'none';
+}
+
+function bindApptPopupViewportClamp() {
+    if (window._apptPopupVpBound) return;
+    window._apptPopupVpBound = true;
+    var relayout = function () {
+        var pop = g('apptPopup');
+        if (!pop || pop.style.display === 'none' || !_apptPopupCtx) return;
+        placeApptPopup(pop, _apptPopupCtx.anchor);
+    };
+    window.addEventListener('resize', relayout);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', relayout);
+        window.visualViewport.addEventListener('scroll', relayout);
+    }
+}
+
 function refreshApptPopupI18n() {
     if (!_apptPopupCtx || !_apptPopupCtx.appt) return;
     var pop = g('apptPopup');
@@ -18298,14 +18439,14 @@ function showApptPopup(a, anchor) {
             ? formatDobAge(popDobRaw)
             : (popDobRaw || '');
         popDobRow =
-            '<tr id="apptPopDobRow"' +
-            (popDobTxt ? '' : ' style="display:none;"') + '>' +
+            '<tr id="apptPopDobRow">' +
             '<td style="color:#888;padding:3px 8px 3px 0;">' +
             esc(tr('appt.cal.popupDob')) + '</td>' +
             '<td id="apptPopDobVal">' + esc(popDobTxt || '—') + '</td></tr>';
     }
 
     content.innerHTML =
+        '<div class="appt-popup-body">' +
         lockBanner +
         walkInBanner +
         '<table style="font-size:13px;width:100%;' +
@@ -18338,7 +18479,8 @@ function showApptPopup(a, anchor) {
                   '</td></tr>'
                 : '') +
         '</table>' +
-        '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">' +
+        '</div>' +
+        '<div class="appt-popup-actions">' +
             '<button id="popEditBtn" ' +
             'style="flex:1;min-width:72px;padding:7px;background:var(--primary);' +
             'color:white;border:none;border-radius:5px;' +
@@ -18367,32 +18509,21 @@ function showApptPopup(a, anchor) {
                 if (!_apptPopupCtx || !_apptPopupCtx.appt ||
                     _apptPopupCtx.appt.id !== popApptId) return;
                 if (r.error || !r.data || !r.data.dob) return;
-                var row = g('apptPopDobRow');
+                apptRememberPatientDob(popPatientId, r.data.dob);
                 var val = g('apptPopDobVal');
-                if (!row || !val) return;
-                val.textContent = typeof formatDobAge === 'function'
-                    ? formatDobAge(r.data.dob)
-                    : r.data.dob;
-                row.style.display = '';
+                if (val) {
+                    val.textContent = typeof formatDobAge === 'function'
+                        ? formatDobAge(r.data.dob)
+                        : r.data.dob;
+                }
+                placeApptPopup(pop, _apptPopupCtx.anchor);
             });
     }
 
-    var rect    = anchor.getBoundingClientRect();
-    var PW      = 310;
-    // Prefer right side; fall back to left if not enough room
-    var left = rect.right + 8;
-    if (left + PW > window.innerWidth - 8) left = rect.left - PW - 8;
-    left = Math.max(8, Math.min(left, window.innerWidth - PW - 8));
-
-    // Measure popup to clamp vertically after showing
-    pop.style.left    = left + 'px';
-    pop.style.top     = '-9999px';
+    if (popDobRaw && a.patient_id) apptRememberPatientDob(a.patient_id, popDobRaw);
+    bindApptPopupViewportClamp();
     pop.style.display = 'block';
-    var popH = pop.offsetHeight || 360;
-    var top  = rect.top;
-    if (top + popH > window.innerHeight - 8) top = window.innerHeight - popH - 8;
-    top = Math.max(8, top);
-    pop.style.top = top + 'px';
+    placeApptPopup(pop, anchor);
 
     g('popEditBtn').addEventListener('click', function() {
         pop.style.display = 'none';
@@ -18801,7 +18932,63 @@ function prefetchBillApptDoctorFromPatient(patientId, cb) {
     });
 }
 
+function clearBillPanelEditorDom() {
+    var tb = g('billItemsBody');
+    if (tb) tb.innerHTML = '';
+    var empty = g('pendingEmptyState');
+    if (empty) empty.style.display = '';
+    var active = g('pendingActiveArea');
+    if (active) active.style.display = 'none';
+    var lock = g('billLockBanner');
+    if (lock) lock.style.display = 'none';
+    var counter = g('pendingCounter');
+    if (counter) counter.textContent = '—';
+    var label = g('pendingListLabel');
+    if (label) label.value = '';
+    var status = g('pendingListStatus');
+    if (status) {
+        status.textContent = '—';
+        status.style.color = '#888';
+    }
+    var sub = g('pendingSubtotal');
+    if (sub) sub.textContent = '0.00';
+    var createBtn = g('createBillBtn');
+    if (createBtn) {
+        createBtn.disabled = false;
+        createBtn.style.opacity = '';
+        createBtn.style.cursor = '';
+        createBtn.title = '';
+    }
+    var removeBtn = g('removePendingBtn');
+    if (removeBtn) removeBtn.disabled = true;
+    var payBody = g('payPreviewBody');
+    if (payBody) payBody.innerHTML = '';
+    var payWrap = g('payPreviewWrap');
+    if (payWrap) payWrap.style.display = 'none';
+    var cards = g('step2ListCards');
+    if (cards) cards.innerHTML = '';
+    var hist = g('billHistoryList');
+    if (hist) {
+        hist.innerHTML = '<p style="color:#aaa;font-size:13px;">' +
+            esc(typeof tr === 'function' ? tr('bill.historyLoading') : 'Loading…') + '</p>';
+    }
+}
+
+function resetBillDetailItemsDom() {
+    var items = g('bdItemsBody');
+    if (items) items.innerHTML = '';
+    var pays = g('bdPaymentHistoryBody');
+    if (pays) {
+        pays.innerHTML =
+            '<tr><td colspan="8" style="padding:12px;text-align:center;' +
+            'color:#aaa;font-size:13px;">' +
+            esc(typeof tr === 'function' ? tr('bill.historyLoading') : 'Loading…') +
+            '</td></tr>';
+    }
+}
+
 function openBillPanel(q) {
+    billPanelLoadGen++;
     billApptId  = q.id;
     billApptDoctorCode = String(q && q.doctor_code ? q.doctor_code : '').trim() || null;
     billApptDefaultDoctorId = billDoctorIdFromApptRow(q) || null;
@@ -18834,6 +19021,7 @@ function openBillPanel(q) {
     billPendingRefreshState = 'idle';
     billPendingLastRefreshAt = null;
     renderBillPendingRefreshMeta();
+    clearBillPanelEditorDom();
 
     function beginBillPanelLoad() {
         loadTreatmentItemsForBilling(function() {
@@ -18842,7 +19030,10 @@ function openBillPanel(q) {
             });
         });
         resetBillHistoryFilterUi();
-        loadBillHistory(function() { renderStep1UI(); });
+        loadBillHistory(function(ok) {
+            if (ok === false) return;
+            renderStep1UI();
+        });
         loadBillDoctors();
     }
 
@@ -18857,6 +19048,7 @@ function openBillPanel(q) {
 
 function closeBillPanel() {
     stopBillPendingAutoRefresh();
+    billPanelLoadGen++;
     g('billPanel').classList.remove('open');
     syncBillPanelBackdrop();
     billApptId   = null;
@@ -18869,6 +19061,7 @@ function closeBillPanel() {
     pendingIdx   = -1;
     payItems     = [];
     payPendingId = null;
+    clearBillPanelEditorDom();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -18916,12 +19109,18 @@ function loadPendingLists(cb) {
         }
         if (isPendingListDirty(pl)) preserveById[pl.id] = pl;
     });
+    var expectedGen = billPanelLoadGen;
+    var expectedPat = billPatId;
     SB.from('pending_bill_items')
         .select('*')
         .eq('patient_id', billPatId)
         .eq('expires_on',  todayISO())
         .order('created_at', { ascending: true })
     .then(function(r) {
+        if (expectedGen !== billPanelLoadGen || billPatId !== expectedPat) {
+            if (cb) cb(false);
+            return;
+        }
         var fetched = (!r.error && r.data) ? r.data : [];
         fetched.forEach(function(pl) {
             if (typeof pl.items === 'string') {
@@ -18977,6 +19176,10 @@ function loadPendingLists(cb) {
             pendingIdx = 0;
         }
         enrichPendingListsDoctorFromBills(pendingLists, function () {
+            if (expectedGen !== billPanelLoadGen || billPatId !== expectedPat) {
+                if (cb) cb(false);
+                return;
+            }
             renderStep1UI();
             if (cb) cb(!r.error);
         });
@@ -19026,7 +19229,14 @@ function renderStep1UI(opts) {
         })
         : '—';
 
-    if (!hasLists) { billItems = []; return; }
+    if (!hasLists) {
+        billItems = [];
+        var emptyTb = g('billItemsBody');
+        if (emptyTb) emptyTb.innerHTML = '';
+        var emptySub = g('pendingSubtotal');
+        if (emptySub) emptySub.textContent = '0.00';
+        return;
+    }
 
     if (pendingIdx < 0 || pendingIdx >= pendingLists.length) pendingIdx = 0;
     var pl = pendingLists[pendingIdx];
@@ -19473,12 +19683,18 @@ function renderStep2(cb, opts) {
         g('bBalance').textContent  = fmtHK(0);
     }
 
+    var expectedGen = billPanelLoadGen;
+    var expectedPat = billPatId;
     SB.from('pending_bill_items')
         .select('*')
         .eq('patient_id', billPatId)
         .eq('expires_on',  todayISO())
         .order('created_at', { ascending: true })
     .then(function(r) {
+        if (expectedGen !== billPanelLoadGen || billPatId !== expectedPat) {
+            if (cb) cb(false);
+            return;
+        }
         var lists  = (!r.error && r.data) ? r.data : [];
         var cards  = g('step2ListCards');
         var noneEl = g('step2NoneMsg');
@@ -21733,8 +21949,14 @@ function loadBillHistory(cb) {
         return;
     }
     wrap.innerHTML = '<p style="color:#aaa;font-size:13px;">' + esc(tr('bill.historyLoading')) + '</p>';
+    var expectedGen = billPanelLoadGen;
+    var expectedPat = billPatId;
 
     function renderHistory(r) {
+        if (expectedGen !== billPanelLoadGen || billPatId !== expectedPat) {
+            if (cb) cb(false);
+            return;
+        }
         if (r.error) {
             billHistoryCache = [];
             wrap.innerHTML =
@@ -22470,6 +22692,7 @@ function printBillDetailReceipt() {
 }
 
 function showBillDetail(b) {
+    resetBillDetailItemsDom();
     bdCurrentBill = b;
     bdNotesEditing = false;
     wireBillDetailNotesEditOnce();
@@ -22801,6 +23024,8 @@ function loadBillPayments(billId) {
         .order('paid_date', { ascending: true })
         .order('created_at', { ascending: true })
     .then(function(r) {
+        if (!bdCurrentBill || String(bdCurrentBill.id) !== String(billId)) return;
+        if (g('bdPaymentHistoryBody') !== tbody) return;
         tbody.innerHTML = '';
         var rows = (!r.error && r.data) ? r.data : [];
         var billForRows = (bdCurrentBill && bdCurrentBill.id === billId) ? bdCurrentBill : null;

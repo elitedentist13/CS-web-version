@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260913pm-calundo4';
+  var BUILD = '20260914am-calhotkey3';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1613,12 +1613,16 @@
       <div class="cal-hist-capsule">
         <div class="cal-hist-tip" data-i18n="appt.cal.dragMoveHint"></div>
         <div class="cal-hist-actions">
-          <button type="button" id="calUndoBtn" class="cal-hist-btn" disabled
-                  onclick="CalHist.undo()" data-i18n="appt.cal.undo"
-                  data-i18n-title="appt.cal.undoTitle">Undo</button>
-          <button type="button" id="calRedoBtn" class="cal-hist-btn" disabled
-                  onclick="CalHist.redo()" data-i18n="appt.cal.redo"
-                  data-i18n-title="appt.cal.redoTitle">Redo</button>
+          <span class="cal-hist-tipwrap" data-cal-tip="Ctrl+Z">
+            <button type="button" id="calUndoBtn" class="cal-hist-btn" disabled
+                    onclick="CalHist.undo()" data-i18n="appt.cal.undo"
+                    aria-keyshortcuts="Control+Z">Undo</button>
+          </span>
+          <span class="cal-hist-tipwrap" data-cal-tip="Ctrl+Y">
+            <button type="button" id="calRedoBtn" class="cal-hist-btn" disabled
+                    onclick="CalHist.redo()" data-i18n="appt.cal.redo"
+                    aria-keyshortcuts="Control+Y">Redo</button>
+          </span>
         </div>
       </div>
       <div id="calHistLog" class="cal-hist-log is-empty" aria-live="polite"></div>

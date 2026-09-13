@@ -381,7 +381,7 @@ function initConsultation() {
     initMedAlertDisplayPrefs();
     refreshConFormsFontSizeSelect();
     refreshConFormsToolbarI18n();
-    conTreatmentNotesCache = [];
+    resetConNotesForPatientSwitch();
     updateConTnPrintBtnState();
 
     var activeP = (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient && _patientDetailsPatient.id)
@@ -615,6 +615,46 @@ function updateConsultationDoctorUI() {
 // ════════════════════════════════════════════════════════════════
 // OPEN FOR SPECIFIC PATIENT (from queue)
 // ════════════════════════════════════════════════════════════════
+function clearConNotesDom(mode) {
+    var loading = mode !== 'empty';
+    var html = loading
+        ? ('<p style="color:#aaa;margin:0;padding:16px;">' +
+            esc(typeof conTr === 'function' ? conTr('common.loadingEllipsis') : 'Loading…') +
+            '</p>')
+        : ('<p style="color:#aaa;margin:0;padding:16px;">' +
+            esc(typeof conTr === 'function' ? conTr('con.noTreatmentNotes') : 'No notes') +
+            '</p>');
+    ['conTimeline', 'xrayConTimeline'].forEach(function (hostId) {
+        var tl = g(hostId);
+        if (tl) tl.innerHTML = html;
+    });
+}
+
+function resetConNotesForPatientSwitch() {
+    conNotesLoadGen++;
+    conTreatmentNotesCache = [];
+    if (typeof conPtlRefreshTimer !== 'undefined' && conPtlRefreshTimer) {
+        clearTimeout(conPtlRefreshTimer);
+        conPtlRefreshTimer = null;
+    }
+    conPatientTimelineEvents = [];
+    clearConNotesDom('loading');
+    var noteInp = g('conNoteInput');
+    if (noteInp) noteInp.value = '';
+    var xrayNoteInp = g('xrayConNoteInput');
+    if (xrayNoteInp) xrayNoteInp.value = '';
+    var bananaWrap = g('conBannerBananaNotesWrap');
+    var bananaEl = g('conBannerBananaNotes');
+    if (bananaWrap) bananaWrap.style.display = 'none';
+    if (bananaEl) bananaEl.textContent = '—';
+    var ptl = g('conPatientTimeline');
+    if (ptl) {
+        ptl.innerHTML = '<p class="con-ptl-placeholder">' +
+            esc(typeof conTr === 'function' ? conTr('con.ptl.loading') : 'Loading…') +
+            '</p>';
+    }
+}
+
 function openConForPatient(patientId, opts) {
     opts = opts || {};
     var doctorCtx = conNormalizeDoctorContext(opts.doctorContext || opts);
@@ -653,6 +693,7 @@ function openConForPatient(patientId, opts) {
     conPatientId   = null;
     conPatientData = null;
     rxLines        = [];
+    resetConNotesForPatientSwitch();
 
     refreshConPatientOutstandingBalance();
 
@@ -808,6 +849,7 @@ function doConPatientSearchChart() {
 // SELECT PATIENT — populate ALL tabs
 // ════════════════════════════════════════════════════════════════
 function selectConPatient(p) {
+    resetConNotesForPatientSwitch();
     if (typeof setDirectoryActivePatient === 'function') {
         setDirectoryActivePatient(p, 'consultation-select');
     }
@@ -937,7 +979,7 @@ function selectConPatient(p) {
         SB.from('patients').select('banana_notes').eq('id', p.id).single()
         .then(function(r) {
             if (r.error || !r.data) return;
-            conPatientData = conPatientData || {};
+            if (!conPatientData || String(conPatientData.id) !== String(p.id)) return;
             conPatientData.banana_notes = r.data.banana_notes || null;
             updateConBannerBananaNotes(conPatientData);
         });
@@ -3222,6 +3264,8 @@ function conClinicCodeFromStoredTag(storedTag) {
 // TREATMENT NOTES — LEFT PANEL
 // ════════════════════════════════════════════════════════════════
 var conTreatmentNotesCache = [];
+/** Bumps on each consultation patient switch so stale note fetches cannot paint. */
+var conNotesLoadGen = 0;
 var conTnPrintFromIso = '';
 var conTnPrintToIso = '';
 var conTnPrintFromCalMonth = new Date();
@@ -3880,6 +3924,7 @@ function loadConPatientTimeline(patientId) {
             : Promise.resolve([]);
         return Promise.all([Promise.resolve(parts), qPayments, qTasks]);
     }).then(function (bundle) {
+        if (pid !== conPatientId) return;
         var parts = bundle[0];
         var payments = bundle[1] || [];
         var tasks = bundle[2] || [];
@@ -4626,21 +4671,21 @@ function renderConNotesEverywhere(rows) {
     renderConNotesIntoHost('xrayConTimeline', rows, { idPrefix: 'xray-cnt', allowEdit: false });
 }
 
-function loadConNotes(pid) {
-    ['conTimeline', 'xrayConTimeline'].forEach(function(hostId) {
-        var tl = g(hostId);
-        if (tl) {
-            tl.innerHTML =
-                '<p style="color:#aaa;margin:0;padding:16px;">' +
-                esc(conTr('common.loadingEllipsis')) +
-                '</p>';
-        }
-    });
+function loadConNotes(pid, opts) {
+    opts = opts || {};
+    var expectedGen = conNotesLoadGen;
+    var expectedPid = pid;
+    if (!opts.keepPaint) clearConNotesDom('loading');
 
     SB.from('treatments').select('*')
         .eq('patient_id', pid)
         .order('created_at', { ascending: false })
     .then(function(r) {
+        if (expectedGen !== conNotesLoadGen) return;
+        if (expectedPid && conPatientId && String(conPatientId) !== String(expectedPid)) {
+            var xpid = (typeof xrayPatientId !== 'undefined') ? xrayPatientId : null;
+            if (!xpid || String(xpid) !== String(expectedPid)) return;
+        }
         conTreatmentNotesCache = (r.data && !r.error) ? r.data : [];
         renderConNotesEverywhere(conTreatmentNotesCache);
         conSchedulePatientTimelineRefresh(pid);
@@ -6843,6 +6888,7 @@ async function loadDrugHistory(patientId) {
 
     var data  = result.data;
     var error = result.error;
+    if (patientId && conPatientId && String(conPatientId) !== String(patientId)) return;
 
     if (error || !data || !data.length) {
         wrap.innerHTML =
@@ -8308,7 +8354,7 @@ document.addEventListener('app-lang-change', function() {
         loadDrugHistory(conPatientId);
     }
     if (conPatientId && typeof loadConNotes === 'function') {
-        loadConNotes(conPatientId);
+        loadConNotes(conPatientId, { keepPaint: true });
     }
     if (conPatientId && conPatientTimelineEvents.length && typeof renderConPatientTimeline === 'function') {
         renderConPatientTimeline();

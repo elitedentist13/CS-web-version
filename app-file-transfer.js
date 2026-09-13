@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════
-// app-file-transfer.js — Clinic Fast Pass (Tools → File Transfer)
-// Send one file (up to 500 MB) to another Banana clinic. 3-day expiry.
-// Requires clinic_file_passes.sql in Supabase (table + clinic-pass bucket).
+// app-file-transfer.js — Clinic file transfer (Tools → File Transfer)
+//   • Fast Pass: upload to private storage, 3-day code (clinic_file_passes.sql)
+//   • Direct: WebRTC data channel, no storage (Supabase Realtime signaling)
 // ════════════════════════════════════════════════════════════════
 var FILEXFER = (function () {
     'use strict';
@@ -11,9 +11,43 @@ var FILEXFER = (function () {
     var MAX_BYTES = 500 * 1024 * 1024;
     var EXPIRE_MS = 3 * 24 * 60 * 60 * 1000;
     var CODE_ALPH = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+    var LIVE_CHUNK = 256 * 1024;
+    var LIVE_BUF_HIGH = 16 * 1024 * 1024;
+    var LIVE_BUF_LOW = 2 * 1024 * 1024;
+    var PART_SIZE = 8 * 1024 * 1024;
+    var PART_CONCUR = 4;
+    var ICE_SERVERS = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ];
     var TAB = 'send';
+    var sendMode = 'pass';
     var chosenFile = null;
     var lastCreated = null;
+    var live = emptyLive();
+
+    function emptyLive() {
+        return {
+            role: null,
+            code: '',
+            channel: null,
+            pc: null,
+            dc: null,
+            file: null,
+            note: '',
+            destId: '',
+            destLabel: '',
+            chunks: [],
+            received: 0,
+            expected: 0,
+            meta: null,
+            pendingIce: [],
+            readyTimer: null,
+            lookTimer: null,
+            closed: false,
+            done: false
+        };
+    }
 
     function trKey(key, fallback) {
         return (typeof t === 'function') ? t(key) : (fallback || key);
@@ -107,6 +141,321 @@ var FILEXFER = (function () {
         if (wrap) wrap.style.display = pct > 0 && pct < 100 ? '' : (pct >= 100 ? '' : 'none');
     }
 
+    function hasWebrtc() {
+        return typeof RTCPeerConnection === 'function';
+    }
+
+    function stopLive(opts) {
+        opts = opts || {};
+        var prev = live;
+        live = emptyLive();
+        live.closed = true;
+        if (prev.readyTimer) clearInterval(prev.readyTimer);
+        if (prev.lookTimer) clearTimeout(prev.lookTimer);
+        try { if (prev.dc) prev.dc.close(); } catch (e) {}
+        try { if (prev.pc) prev.pc.close(); } catch (e2) {}
+        if (prev.channel && typeof SB !== 'undefined' && SB.removeChannel) {
+            try { SB.removeChannel(prev.channel); } catch (e3) {}
+        }
+        if (!opts.silent) setProgress(0);
+    }
+
+    function sig(payload) {
+        if (!live.channel || live.closed) return;
+        live.channel.send({
+            type: 'broadcast',
+            event: 'sig',
+            payload: payload
+        }).then(function () {}, function () {});
+    }
+
+    function liveReadyPayload() {
+        var f = live.file;
+        return {
+            t: 'ready',
+            from: myClinicLabel(),
+            fromId: myClinicId() || '',
+            destId: live.destId || '',
+            destLabel: live.destLabel || '',
+            name: f ? f.name : '',
+            size: f ? f.size : 0,
+            type: f ? (f.type || '') : '',
+            note: live.note || ''
+        };
+    }
+
+    function applyRemoteIce(c) {
+        if (!live.pc || !c) return;
+        var cand = new RTCIceCandidate(c);
+        if (!live.pc.remoteDescription) {
+            live.pendingIce.push(cand);
+            return;
+        }
+        live.pc.addIceCandidate(cand).then(function () {}, function () {});
+    }
+    function flushPendingIce() {
+        if (!live.pc) return;
+        live.pendingIce.forEach(function (c) {
+            live.pc.addIceCandidate(c).then(function () {}, function () {});
+        });
+        live.pendingIce = [];
+    }
+
+    function onIceState() {
+        if (!live.pc) return;
+        var st = live.pc.iceConnectionState;
+        if (st === 'failed') {
+            if (live.done) return;
+            status(trKey('filexfer.liveFail'), 'bad');
+            stopLive({ silent: true });
+        }
+    }
+
+    function wireSenderChannel(dc) {
+        live.dc = dc;
+        dc.binaryType = 'arraybuffer';
+        dc.bufferedAmountLowThreshold = LIVE_BUF_LOW;
+        dc.onopen = function () {
+            status(trReplKey('filexfer.liveSending', { PCT: '0' }), 'work');
+            sendLiveFile();
+        };
+        dc.onerror = function () {
+            if (!live.done) status(trKey('filexfer.liveFail'), 'bad');
+        };
+    }
+
+    function sendLiveFile() {
+        var file = live.file;
+        var dc = live.dc;
+        if (!file || !dc || dc.readyState !== 'open') return;
+        dc.send(JSON.stringify({
+            t: 'meta',
+            name: file.name,
+            size: file.size,
+            type: file.type || '',
+            note: live.note || '',
+            from: myClinicLabel()
+        }));
+        var offset = 0;
+        function pump() {
+            if (live.closed || !live.dc || live.dc.readyState !== 'open') return;
+            if (offset >= file.size) {
+                try { dc.send(JSON.stringify({ t: 'end' })); } catch (e) {}
+                live.done = true;
+                setProgress(100);
+                status(trKey('filexfer.liveDone'), 'ok');
+                return;
+            }
+            if (dc.bufferedAmount > LIVE_BUF_HIGH) {
+                dc.onbufferedamountlow = function () {
+                    dc.onbufferedamountlow = null;
+                    pump();
+                };
+                return;
+            }
+            var slice = file.slice(offset, offset + LIVE_CHUNK);
+            slice.arrayBuffer().then(function (buf) {
+                if (live.closed || !live.dc || live.dc.readyState !== 'open') return;
+                try { dc.send(buf); } catch (e) {
+                    status(trKey('filexfer.liveFail'), 'bad');
+                    return;
+                }
+                offset += buf.byteLength;
+                var pct = Math.round((offset / file.size) * 100);
+                setProgress(pct);
+                status(trReplKey('filexfer.liveSending', { PCT: String(pct) }), 'work');
+                pump();
+            });
+        }
+        pump();
+    }
+
+    function wireRecvChannel(dc) {
+        live.dc = dc;
+        dc.binaryType = 'arraybuffer';
+        dc.onmessage = function (ev) {
+            handleLiveMessage(ev.data);
+        };
+        dc.onerror = function () {
+            if (!live.done) status(trKey('filexfer.liveFail'), 'bad');
+        };
+    }
+
+    function handleLiveMessage(data) {
+        if (typeof data === 'string') {
+            var msg;
+            try { msg = JSON.parse(data); } catch (e) { return; }
+            if (msg.t === 'meta') {
+                live.meta = msg;
+                live.expected = Number(msg.size) || 0;
+                live.received = 0;
+                live.chunks = [];
+                renderLiveRecvCard();
+                status(trReplKey('filexfer.liveReceiving', { PCT: '0' }), 'work');
+                return;
+            }
+            if (msg.t === 'end') {
+                finishLiveRecv();
+            }
+            return;
+        }
+        function takeBuf(buf) {
+            live.chunks.push(buf);
+            live.received += buf.byteLength;
+            var pct = live.expected ? Math.round((live.received / live.expected) * 100) : 0;
+            setProgress(pct);
+            status(trReplKey('filexfer.liveReceiving', { PCT: String(pct) }), 'work');
+        }
+        if (data instanceof Blob) {
+            data.arrayBuffer().then(takeBuf);
+            return;
+        }
+        takeBuf(data);
+    }
+
+    function finishLiveRecv() {
+        live.done = true;
+        var type = (live.meta && live.meta.type) || 'application/octet-stream';
+        var name = (live.meta && live.meta.name) || 'download';
+        var blob = new Blob(live.chunks, { type: type });
+        live.chunks = [];
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 8000);
+        setProgress(100);
+        status(trKey('filexfer.liveRecvDone'), 'ok');
+        renderLiveRecvCard(true);
+    }
+
+    function renderLiveRecvCard(done) {
+        var box = gg('fx_found');
+        if (!box) return;
+        var meta = live.meta || {};
+        box.innerHTML =
+            '<div class="fx-pass-card">' +
+                '<div class="fx-pass-name">' + esc(meta.name || trKey('filexfer.liveConnecting')) + '</div>' +
+                '<div class="fx-pass-meta">' +
+                    esc(fmtSize(meta.size)) + ' · ' +
+                    esc(trReplKey('filexfer.from', { CLINIC: meta.from || '—' })) +
+                    (meta.note ? '<br>' + esc(meta.note) : '') +
+                    '<br>' + esc(done ? trKey('filexfer.liveRecvDone') : trKey('filexfer.modeDirect')) +
+                '</div>' +
+                '<div id="fx_prog" class="fx-progress"' + (done ? ' style="display:none;"' : '') +
+                    '><span id="fx_prog_bar"></span></div>' +
+            '</div>';
+    }
+
+    function createSenderPc() {
+        live.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        live.pc.onicecandidate = function (ev) {
+            if (ev.candidate) sig({ t: 'ice', role: 'send', c: ev.candidate.toJSON() });
+        };
+        live.pc.oniceconnectionstatechange = onIceState;
+        wireSenderChannel(live.pc.createDataChannel('file', { ordered: true }));
+        return live.pc.createOffer().then(function (offer) {
+            return live.pc.setLocalDescription(offer);
+        }).then(function () {
+            sig({ t: 'offer', sdp: { type: live.pc.localDescription.type, sdp: live.pc.localDescription.sdp } });
+        });
+    }
+
+    function acceptOffer(sdp) {
+        live.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        live.pc.ondatachannel = function (ev) { wireRecvChannel(ev.channel); };
+        live.pc.onicecandidate = function (ev) {
+            if (ev.candidate) sig({ t: 'ice', role: 'recv', c: ev.candidate.toJSON() });
+        };
+        live.pc.oniceconnectionstatechange = onIceState;
+        return live.pc.setRemoteDescription(new RTCSessionDescription(sdp)).then(function () {
+            flushPendingIce();
+            return live.pc.createAnswer();
+        }).then(function (answer) {
+            return live.pc.setLocalDescription(answer);
+        }).then(function () {
+            sig({ t: 'answer', sdp: { type: live.pc.localDescription.type, sdp: live.pc.localDescription.sdp } });
+        });
+    }
+
+    function onLiveSignal(msg) {
+        if (!msg || !msg.t || live.closed) return;
+        if (msg.t === 'ready' && live.role === 'recv') {
+            if (msg.destId && myClinicId() && String(msg.destId) !== myClinicId()) {
+                status(trReplKey('filexfer.wrongClinic', { CLINIC: msg.destLabel || msg.destId }), 'bad');
+                stopLive({ silent: true });
+                return;
+            }
+            live.meta = {
+                name: msg.name,
+                size: msg.size,
+                type: msg.type,
+                note: msg.note,
+                from: msg.from
+            };
+            if (live.lookTimer) {
+                clearTimeout(live.lookTimer);
+                live.lookTimer = null;
+            }
+            renderLiveRecvCard();
+            status(trKey('filexfer.liveConnecting'), 'work');
+            sig({ t: 'hello' });
+            return;
+        }
+        if (msg.t === 'hello' && live.role === 'send' && !live.pc) {
+            status(trKey('filexfer.liveConnecting'), 'work');
+            createSenderPc().catch(function () {
+                status(trKey('filexfer.liveFail'), 'bad');
+            });
+            return;
+        }
+        if (msg.t === 'offer' && live.role === 'recv' && msg.sdp && !live.pc) {
+            acceptOffer(msg.sdp).catch(function () {
+                status(trKey('filexfer.liveFail'), 'bad');
+            });
+            return;
+        }
+        if (msg.t === 'answer' && live.role === 'send' && live.pc && msg.sdp) {
+            live.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp))
+                .then(flushPendingIce)
+                .catch(function () { status(trKey('filexfer.liveFail'), 'bad'); });
+            return;
+        }
+        if (msg.t === 'ice' && msg.c) applyRemoteIce(msg.c);
+    }
+
+    function subscribeLive(code, role) {
+        if (typeof SB === 'undefined' || !SB.channel) {
+            return Promise.reject(new Error('rt'));
+        }
+        live.closed = false;
+        live.role = role;
+        live.code = code;
+        var ch = SB.channel('fx-live-' + code, {
+            config: { broadcast: { self: false } }
+        });
+        live.channel = ch;
+        ch.on('broadcast', { event: 'sig' }, function (ev) {
+            onLiveSignal(ev && ev.payload);
+        });
+        return new Promise(function (resolve, reject) {
+            var settled = false;
+            ch.subscribe(function (st) {
+                if (settled) return;
+                if (st === 'SUBSCRIBED') {
+                    settled = true;
+                    resolve(ch);
+                } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') {
+                    settled = true;
+                    reject(new Error('rt'));
+                }
+            });
+        });
+    }
+
     function makeCode() {
         var out = '';
         var i;
@@ -156,7 +505,9 @@ var FILEXFER = (function () {
         box.addEventListener('click', function (e) {
             var b = e.target.closest('[data-fx]');
             if (!b) return;
-            TAB = b.getAttribute('data-fx');
+            var next = b.getAttribute('data-fx');
+            if (next !== TAB && live.role) stopLive();
+            TAB = next;
             lastCreated = null;
             box.querySelectorAll('.ct-seg-btn').forEach(function (x) {
                 x.classList.toggle('active', x === b);
@@ -182,7 +533,38 @@ var FILEXFER = (function () {
         else renderMine(p);
     }
 
+    function renderSendLiveWait(p) {
+        p.innerHTML =
+            '<p>' + esc(trKey('filexfer.liveWait')) + '</p>' +
+            '<div class="fx-code-box">' +
+                '<div class="fx-code" id="fx_code_out">' + esc(displayCode(live.code)) + '</div>' +
+                '<button type="button" class="ct-btn ct-btn-primary" id="fx_copy">' +
+                    esc(trKey('filexfer.copy')) + '</button>' +
+            '</div>' +
+            '<p class="ct-note">' +
+                esc(live.file ? (live.file.name + ' · ' + fmtSize(live.file.size)) : '') +
+                (live.note ? ' · ' + esc(live.note) : '') +
+            '</p>' +
+            '<div id="fx_prog" class="fx-progress" style="display:none;"><span id="fx_prog_bar"></span></div>' +
+            '<div class="fx-actions">' +
+                '<button type="button" class="ct-btn" id="fx_live_cancel">' +
+                    esc(trKey('filexfer.liveCancel')) + '</button>' +
+            '</div>';
+        gg('fx_copy').addEventListener('click', function () {
+            copyText(displayCode(live.code), gg('fx_copy'));
+        });
+        gg('fx_live_cancel').addEventListener('click', function () {
+            stopLive();
+            status('', '');
+            renderPanel();
+        });
+    }
+
     function renderSend(p) {
+        if (live.role === 'send' && live.code) {
+            renderSendLiveWait(p);
+            return;
+        }
         if (lastCreated) {
             p.innerHTML =
                 '<p>' + esc(trKey('filexfer.sendOk')) + '</p>' +
@@ -208,6 +590,15 @@ var FILEXFER = (function () {
         }
         var fname = chosenFile ? chosenFile.name + ' · ' + fmtSize(chosenFile.size) : '';
         p.innerHTML =
+            '<div class="ct-seg" id="fx_modes">' +
+                '<button type="button" class="ct-seg-btn' + (sendMode === 'pass' ? ' active' : '') +
+                    '" data-fx-mode="pass">' + esc(trKey('filexfer.modePass')) + '</button>' +
+                '<button type="button" class="ct-seg-btn' + (sendMode === 'direct' ? ' active' : '') +
+                    '" data-fx-mode="direct">' + esc(trKey('filexfer.modeDirect')) + '</button>' +
+            '</div>' +
+            '<p class="fx-mode-hint" id="fx_mode_hint">' +
+                esc(trKey(sendMode === 'direct' ? 'filexfer.modeDirectHint' : 'filexfer.modePassHint')) +
+            '</p>' +
             '<label class="fx-drop" id="fx_drop">' +
                 esc(trKey('filexfer.fileHint')) +
                 '<div class="fx-file-name" id="fx_fname">' + esc(fname) + '</div>' +
@@ -220,8 +611,18 @@ var FILEXFER = (function () {
                     esc(trKey('filexfer.notePh')) + '"></label>' +
             '<div id="fx_prog" class="fx-progress" style="display:none;"><span id="fx_prog_bar"></span></div>' +
             '<button type="button" class="ct-btn ct-btn-primary" id="fx_send">' +
-                esc(trKey('filexfer.sendBtn')) + '</button>';
+                esc(trKey(sendMode === 'direct' ? 'filexfer.sendDirectBtn' : 'filexfer.sendBtn')) +
+            '</button>';
         wireDrop();
+        var modeBox = gg('fx_modes');
+        if (modeBox) {
+            modeBox.addEventListener('click', function (e) {
+                var b = e.target.closest('[data-fx-mode]');
+                if (!b) return;
+                sendMode = b.getAttribute('data-fx-mode') === 'direct' ? 'direct' : 'pass';
+                renderPanel();
+            });
+        }
         var dest = gg('fx_dest');
         var mine = myClinicId();
         if (dest && mine) {
@@ -233,7 +634,10 @@ var FILEXFER = (function () {
                 }
             }
         }
-        gg('fx_send').addEventListener('click', doSend);
+        gg('fx_send').addEventListener('click', function () {
+            if (sendMode === 'direct') doDirectSend();
+            else doSend();
+        });
     }
 
     function wireDrop() {
@@ -268,13 +672,17 @@ var FILEXFER = (function () {
     }
 
     function renderReceive(p) {
+        var keepCode = (gg('fx_in_code') && gg('fx_in_code').value) || (live.role === 'recv' ? displayCode(live.code) : '');
         p.innerHTML =
+            '<p class="fx-mode-hint">' + esc(trKey('filexfer.recvHint')) + '</p>' +
             '<label class="ct-field"><span>' + esc(trKey('filexfer.code')) + '</span>' +
                 '<input id="fx_in_code" type="text" maxlength="12" placeholder="' +
-                    esc(trKey('filexfer.codePh')) + '" autocomplete="off"></label>' +
+                    esc(trKey('filexfer.codePh')) + '" autocomplete="off" value="' +
+                    esc(keepCode) + '"></label>' +
             '<button type="button" class="ct-btn ct-btn-primary" id="fx_lookup">' +
                 esc(trKey('filexfer.lookup')) + '</button>' +
             '<div id="fx_found" style="margin-top:16px;"></div>';
+        if (live.role === 'recv' && live.meta) renderLiveRecvCard(live.done);
         gg('fx_lookup').addEventListener('click', doLookup);
         gg('fx_in_code').addEventListener('keydown', function (e) {
             if (e.key === 'Enter') { e.preventDefault(); doLookup(); }
@@ -388,6 +796,87 @@ var FILEXFER = (function () {
         ta.remove();
     }
 
+    function sbAnonKey() {
+        return (SB && SB.supabaseKey) || '';
+    }
+    function tusEndpoint() {
+        var storageUrl = (SB && SB.storage && SB.storage.url) || '';
+        if (storageUrl) return String(storageUrl).replace(/\/$/, '') + '/upload/resumable';
+        var base = (SB && SB.supabaseUrl) ? String(SB.supabaseUrl).replace(/\/$/, '') : '';
+        return base + '/storage/v1/upload/resumable';
+    }
+    function b64utf8(s) {
+        return btoa(unescape(encodeURIComponent(String(s || ''))));
+    }
+    function tusHeaders(extra) {
+        var key = sbAnonKey();
+        var h = {
+            Authorization: 'Bearer ' + key,
+            apikey: key,
+            'x-upsert': 'false',
+            'Tus-Resumable': '1.0.0'
+        };
+        Object.keys(extra || {}).forEach(function (k) { h[k] = extra[k]; });
+        return h;
+    }
+    function resolveTusLocation(loc) {
+        if (!loc) return '';
+        if (/^https?:\/\//i.test(loc)) return loc;
+        var endp = tusEndpoint();
+        var origin = endp.replace(/\/storage\/v1\/upload\/resumable$/, '');
+        if (loc.charAt(0) === '/') return origin + loc;
+        return endp.replace(/\/$/, '') + '/' + loc;
+    }
+
+    /** 6 MB chunks — required by Supabase TUS. Progress advances only after each chunk is accepted. */
+    var TUS_CHUNK = 6 * 1024 * 1024;
+
+    function uploadTus(path, file, onPct) {
+        var meta = [
+            'bucketName ' + b64utf8(BUCKET),
+            'objectName ' + b64utf8(path),
+            'contentType ' + b64utf8(file.type || 'application/octet-stream'),
+            'cacheControl ' + b64utf8('3600')
+        ].join(',');
+        return fetch(tusEndpoint(), {
+            method: 'POST',
+            headers: tusHeaders({
+                'Upload-Length': String(file.size),
+                'Upload-Metadata': meta
+            })
+        }).then(function (res) {
+            if (!res.ok && res.status !== 201) {
+                throw new Error('TUS create failed (' + res.status + ')');
+            }
+            var loc = resolveTusLocation(res.headers.get('Location'));
+            if (!loc) throw new Error('TUS location missing');
+            var offset = 0;
+            function patchNext() {
+                if (offset >= file.size) {
+                    if (onPct) onPct(100);
+                    return Promise.resolve();
+                }
+                var end = Math.min(offset + TUS_CHUNK, file.size);
+                if (end >= file.size && onPct) onPct(Math.min(99, Math.round((offset / file.size) * 100)), 'finalize');
+                return fetch(loc, {
+                    method: 'PATCH',
+                    headers: tusHeaders({
+                        'Upload-Offset': String(offset),
+                        'Content-Type': 'application/offset+octet-stream'
+                    }),
+                    body: file.slice(offset, end)
+                }).then(function (pres) {
+                    if (!pres.ok) throw new Error('TUS patch failed (' + pres.status + ')');
+                    var next = parseInt(pres.headers.get('Upload-Offset'), 10);
+                    offset = !isNaN(next) ? next : end;
+                    if (onPct) onPct(Math.min(99, Math.round((offset / file.size) * 100)));
+                    return patchNext();
+                });
+            }
+            return patchNext();
+        });
+    }
+
     function xhrPut(url, file, onPct) {
         return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
@@ -395,18 +884,23 @@ var FILEXFER = (function () {
             if (file.type) xhr.setRequestHeader('Content-Type', file.type);
             xhr.setRequestHeader('x-upsert', 'false');
             xhr.upload.onprogress = function (e) {
-                if (e.lengthComputable && onPct) onPct(Math.round((e.loaded / e.total) * 100));
+                if (!e.lengthComputable || !onPct) return;
+                var pct = Math.round((e.loaded / e.total) * 95);
+                if (pct >= 95) onPct(95, 'finalize');
+                else onPct(Math.max(1, pct));
             };
             xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) resolve();
-                else reject(new Error('Upload failed (' + xhr.status + ')'));
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    if (onPct) onPct(100);
+                    resolve();
+                } else reject(new Error('Upload failed (' + xhr.status + ')'));
             };
             xhr.onerror = function () { reject(new Error('Network error')); };
             xhr.send(file);
         });
     }
 
-    function uploadFile(path, file, onPct) {
+    function uploadSigned(path, file, onPct) {
         return SB.storage.from(BUCKET).createSignedUploadUrl(path).then(function (r) {
             if (!r.error && r.data && r.data.signedUrl) {
                 return xhrPut(r.data.signedUrl, file, onPct);
@@ -423,6 +917,110 @@ var FILEXFER = (function () {
         });
     }
 
+    function mapLimit(items, limit, worker) {
+        var i = 0;
+        var active = 0;
+        var out = new Array(items.length);
+        return new Promise(function (resolve, reject) {
+            function kick() {
+                if (i >= items.length && active === 0) return resolve(out);
+                while (active < limit && i < items.length) {
+                    (function (idx) {
+                        active += 1;
+                        Promise.resolve(worker(items[idx], idx)).then(function (v) {
+                            out[idx] = v;
+                            active -= 1;
+                            kick();
+                        }).catch(reject);
+                    }(i++));
+                }
+            }
+            if (!items.length) resolve(out);
+            else kick();
+        });
+    }
+
+    function isManifestPath(p) {
+        return /\/manifest\.json$/i.test(String(p || ''));
+    }
+
+    function uploadParallel(code, file, onPct) {
+        var n = Math.ceil(file.size / PART_SIZE);
+        var got = [];
+        var idx;
+        for (idx = 0; idx < n; idx++) got[idx] = 0;
+        function report() {
+            var sum = 0;
+            for (var j = 0; j < n; j++) sum += got[j];
+            if (onPct) onPct(Math.min(99, Math.round((sum / file.size) * 100)));
+        }
+        var jobs = [];
+        for (idx = 0; idx < n; idx++) jobs.push(idx);
+        return mapLimit(jobs, PART_CONCUR, function (partIdx) {
+            var blob = file.slice(partIdx * PART_SIZE, partIdx * PART_SIZE + PART_SIZE);
+            var pth = code + '/p' + ('000' + partIdx).slice(-3) + '.bin';
+            return uploadSigned(pth, blob, function (pct) {
+                got[partIdx] = Math.round(blob.size * Math.min(pct, 100) / 100);
+                report();
+            }).then(function () {
+                got[partIdx] = blob.size;
+                report();
+                return pth;
+            });
+        }).then(function (parts) {
+            if (onPct) onPct(99, 'finalize');
+            var manPath = code + '/manifest.json';
+            var man = new Blob([JSON.stringify({
+                v: 1,
+                name: file.name,
+                size: file.size,
+                type: file.type || '',
+                parts: parts
+            })], { type: 'application/json' });
+            return uploadSigned(manPath, man).then(function () {
+                if (onPct) onPct(100);
+                return manPath;
+            });
+        });
+    }
+
+    function uploadSingle(code, file, onPct) {
+        var path = code + '/' + Date.now() + '_' + safeFilePart(file.name);
+        var job = file.size <= TUS_CHUNK
+            ? uploadSigned(path, file, onPct)
+            : uploadTus(path, file, onPct).catch(function (err) {
+                console.warn('[FILEXFER] TUS upload failed, using signed PUT', err);
+                return uploadSigned(path, file, onPct);
+            });
+        return job.then(function () { return path; });
+    }
+
+    function uploadFile(code, file, onPct) {
+        if (file.size > PART_SIZE) {
+            return uploadParallel(code, file, onPct).catch(function (err) {
+                console.warn('[FILEXFER] parallel upload failed, using single stream', err);
+                return uploadSingle(code, file, onPct);
+            });
+        }
+        return uploadSingle(code, file, onPct);
+    }
+
+    function removeStored(path) {
+        if (!path) return Promise.resolve();
+        if (!isManifestPath(path)) {
+            return SB.storage.from(BUCKET).remove([path]).then(function () {}, function () {});
+        }
+        var prefix = path.replace(/\/manifest\.json$/i, '');
+        return SB.storage.from(BUCKET).list(prefix, { limit: 200 }).then(function (r) {
+            var names = ((r && r.data) || []).map(function (f) {
+                return prefix + '/' + f.name;
+            });
+            if (names.indexOf(path) < 0) names.push(path);
+            if (!names.length) return;
+            return SB.storage.from(BUCKET).remove(names);
+        }).then(function () {}, function () {});
+    }
+
     function uniqueCode() {
         var tries = 0;
         function attempt() {
@@ -436,6 +1034,34 @@ var FILEXFER = (function () {
                 });
         }
         return attempt();
+    }
+
+    function doDirectSend() {
+        if (!isLoggedIn()) return status(trKey('filexfer.needLogin'), 'bad');
+        if (!chosenFile) return status(trKey('filexfer.needFile'), 'bad');
+        if (chosenFile.size > MAX_BYTES) return status(trKey('filexfer.tooBig'), 'bad');
+        if (!hasWebrtc()) return status(trKey('filexfer.needWebrtc'), 'bad');
+        if (typeof SB === 'undefined' || !SB.channel) return status(trKey('filexfer.liveNeedRt'), 'bad');
+
+        stopLive({ silent: true });
+        live = emptyLive();
+        live.file = chosenFile;
+        live.note = (gg('fx_note') && gg('fx_note').value || '').trim();
+        live.destId = (gg('fx_dest') && gg('fx_dest').value) || '';
+        live.destLabel = live.destId ? (clinicLabelById(live.destId) || '') : '';
+        var code = makeCode();
+        status(trKey('filexfer.liveConnecting'), 'work');
+        subscribeLive(code, 'send').then(function () {
+            live.readyTimer = setInterval(function () {
+                if (live.role === 'send' && !live.pc) sig(liveReadyPayload());
+            }, 2000);
+            sig(liveReadyPayload());
+            renderPanel();
+            status(trKey('filexfer.liveWait'), 'work');
+        }).catch(function () {
+            stopLive({ silent: true });
+            status(trKey('filexfer.liveNeedRt'), 'bad');
+        });
     }
 
     function doSend() {
@@ -455,12 +1081,14 @@ var FILEXFER = (function () {
         var path = '';
         uniqueCode().then(function (c) {
             code = c;
-            path = c + '/' + Date.now() + '_' + safeFilePart(chosenFile.name);
-            return uploadFile(path, chosenFile, function (pct) {
+            return uploadFile(c, chosenFile, function (pct, phase) {
                 setProgress(pct);
-                status(trReplKey('filexfer.sending', { PCT: String(pct) }), 'work');
+                if (phase === 'finalize') status(trKey('filexfer.finalizing'), 'work');
+                else status(trReplKey('filexfer.sending', { PCT: String(pct) }), 'work');
             });
-        }).then(function () {
+        }).then(function (storedPath) {
+            path = storedPath;
+            status(trKey('filexfer.savingCode'), 'work');
             var row = {
                 pass_code: code,
                 file_name: chosenFile.name,
@@ -475,10 +1103,15 @@ var FILEXFER = (function () {
                 created_by: senderName() || null,
                 expires_at: new Date(Date.now() + EXPIRE_MS).toISOString()
             };
-            return SB.from(TABLE).insert(row).select('*').single().then(function (ins) {
-                if (ins.error) throw ins.error;
-                return ins.data;
-            });
+            return SB.from(TABLE).insert(row).select('id,pass_code,expires_at,file_name').single()
+                .then(function (ins) {
+                    if (ins.error) throw ins.error;
+                    if (ins.data) {
+                        row.id = ins.data.id;
+                        if (ins.data.expires_at) row.expires_at = ins.data.expires_at;
+                    }
+                    return row;
+                });
         }).then(function (row) {
             lastCreated = row;
             chosenFile = null;
@@ -498,11 +1131,11 @@ var FILEXFER = (function () {
         });
     }
 
-    function doLookup() {
-        if (!isLoggedIn()) return status(trKey('filexfer.needLogin'), 'bad');
-        var code = normalizeCode(gg('fx_in_code') && gg('fx_in_code').value);
-        if (code.length < 6) return status(trKey('filexfer.notFound'), 'bad');
-        if (typeof SB === 'undefined' || !SB.from) return status(trKey('filexfer.setup'), 'bad');
+    function storageLookup(code) {
+        if (typeof SB === 'undefined' || !SB.from) {
+            status(trKey('filexfer.setup'), 'bad');
+            return;
+        }
         status(trKey('filexfer.lookup') + '…', 'work');
         SB.from(TABLE).select('*').eq('pass_code', code).maybeSingle().then(function (r) {
             if (r.error) {
@@ -525,24 +1158,88 @@ var FILEXFER = (function () {
         });
     }
 
+    function doLookup() {
+        if (!isLoggedIn()) return status(trKey('filexfer.needLogin'), 'bad');
+        var code = normalizeCode(gg('fx_in_code') && gg('fx_in_code').value);
+        if (code.length < 6) return status(trKey('filexfer.notFound'), 'bad');
+        if (live.role) stopLive({ silent: true });
+        if (!hasWebrtc() || typeof SB === 'undefined' || !SB.channel) {
+            storageLookup(code);
+            return;
+        }
+        status(trKey('filexfer.liveLooking'), 'work');
+        live = emptyLive();
+        subscribeLive(code, 'recv').then(function () {
+            sig({ t: 'hello' });
+            live.lookTimer = setTimeout(function () {
+                if (live.meta || live.pc) return;
+                stopLive({ silent: true });
+                storageLookup(code);
+            }, 2800);
+        }).catch(function () {
+            stopLive({ silent: true });
+            storageLookup(code);
+        });
+    }
+
+    function markDownloaded(row) {
+        if (!row || !row.id) return;
+        SB.from(TABLE).update({
+            download_count: (row.download_count || 0) + 1,
+            last_downloaded_at: new Date().toISOString()
+        }).eq('id', row.id).then(function () {}, function () {});
+    }
+
+    function clickDownload(blobOrUrl, name, isUrl) {
+        var url = isUrl ? blobOrUrl : URL.createObjectURL(blobOrUrl);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = name || 'download';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        if (!isUrl) setTimeout(function () { URL.revokeObjectURL(url); }, 8000);
+    }
+
     function doDownload(row) {
         if (!row || !row.storage_path) return;
         status(trKey('filexfer.download') + '…', 'work');
-        SB.storage.from(BUCKET).createSignedUrl(row.storage_path, 180).then(function (r) {
-            if (r.error || !r.data || !r.data.signedUrl) {
-                throw r.error || new Error('signed url');
-            }
-            var a = document.createElement('a');
-            a.href = r.data.signedUrl;
-            a.download = row.file_name || 'download';
-            a.rel = 'noopener';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            SB.from(TABLE).update({
-                download_count: (row.download_count || 0) + 1,
-                last_downloaded_at: new Date().toISOString()
-            }).eq('id', row.id).then(function () {});
+        var signed = function (p) {
+            return SB.storage.from(BUCKET).createSignedUrl(p, 180).then(function (r) {
+                if (r.error || !r.data || !r.data.signedUrl) throw r.error || new Error('signed url');
+                return r.data.signedUrl;
+            });
+        };
+        var job = isManifestPath(row.storage_path)
+            ? signed(row.storage_path).then(function (url) {
+                return fetch(url).then(function (res) {
+                    if (!res.ok) throw new Error('manifest ' + res.status);
+                    return res.json();
+                });
+            }).then(function (man) {
+                var parts = (man && man.parts) || [];
+                if (!parts.length) throw new Error('empty manifest');
+                return mapLimit(parts, PART_CONCUR, function (p) {
+                    return signed(p).then(function (u) {
+                        return fetch(u).then(function (res) {
+                            if (!res.ok) throw new Error('part ' + res.status);
+                            return res.blob();
+                        });
+                    });
+                }).then(function (blobs) {
+                    clickDownload(
+                        new Blob(blobs, { type: (man && man.type) || row.mime_type || '' }),
+                        (man && man.name) || row.file_name || 'download',
+                        false
+                    );
+                });
+            })
+            : signed(row.storage_path).then(function (url) {
+                clickDownload(url, row.file_name || 'download', true);
+            });
+        job.then(function () {
+            markDownloaded(row);
             status('', '');
         }).catch(function (err) {
             status(trReplKey('filexfer.fail', { MSG: (err && err.message) || String(err) }), 'bad');
@@ -551,10 +1248,7 @@ var FILEXFER = (function () {
 
     function deletePass(row) {
         if (!row) return;
-        var chain = Promise.resolve();
-        if (row.storage_path) {
-            chain = SB.storage.from(BUCKET).remove([row.storage_path]).then(function () {}, function () {});
-        }
+        var chain = removeStored(row.storage_path);
         chain.then(function () {
             return SB.from(TABLE).delete().eq('id', row.id);
         }).then(function (r) {
@@ -573,9 +1267,10 @@ var FILEXFER = (function () {
             if (r.error || !r.data || !r.data.length) return;
             var paths = r.data.map(function (x) { return x.storage_path; }).filter(Boolean);
             var ids = r.data.map(function (x) { return x.id; });
-            var next = paths.length
-                ? SB.storage.from(BUCKET).remove(paths)
-                : Promise.resolve();
+            var next = Promise.resolve();
+            paths.forEach(function (p) {
+                next = next.then(function () { return removeStored(p); });
+            });
             next.then(function () {
                 return SB.from(TABLE).delete().in('id', ids);
             }).then(function () {}, function () {});
@@ -585,6 +1280,7 @@ var FILEXFER = (function () {
     document.addEventListener('app-lang-change', function () {
         var sec = gg('fileTransferSection');
         if (!sec || sec.style.display === 'none') return;
+        if (live.role && !live.done) return;
         render();
     });
 

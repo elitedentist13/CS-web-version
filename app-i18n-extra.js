@@ -7090,9 +7090,54 @@
 
         // ── File Transfer (clinic Fast Pass) ───────────────────
         'filexfer.intro': {
-            en: 'Send a file to another Banana clinic. The other clinic enters the Fast Pass code to download. Parcels expire after 3 days.',
-            'zh-CN': '向另一间香蕉诊所发送文件。对方输入 Fast Pass 代码即可下载。包裹 3 天后失效。',
-            'zh-Hant': '向另一間香蕉診所發送檔案。對方輸入 Fast Pass 代碼即可下載。包裹 3 天後失效。'
+            en: 'Send a file to another Banana clinic. Use Direct when both sides are online now (nothing stored), or Fast Pass to leave a 3-day code.',
+            'zh-CN': '向另一间香蕉诊所发送文件。双方都在线时用直传（不落地存储）；或用 Fast Pass 留下 3 天有效代码。',
+            'zh-Hant': '向另一間香蕉診所發送檔案。雙方都在線時用直傳（不落地儲存）；或用 Fast Pass 留下 3 天有效代碼。'
+        },
+        'filexfer.modePass': { en: 'Fast Pass (3 days)', 'zh-CN': 'Fast Pass（3 天）', 'zh-Hant': 'Fast Pass（3 天）' },
+        'filexfer.modeDirect': { en: 'Direct (live)', 'zh-CN': '直传（实时）', 'zh-Hant': '直傳（即時）' },
+        'filexfer.modePassHint': {
+            en: 'File is uploaded once (large files use several connections). The other clinic can download any time in the next 3 days.',
+            'zh-CN': '文件会上传一次（大文件走多路同时传）。对方可在 3 天内随时下载。',
+            'zh-Hant': '檔案會上傳一次（大檔案走多路同時傳）。對方可在 3 天內隨時下載。'
+        },
+        'filexfer.modeDirectHint': {
+            en: 'Nothing is stored. Keep this page open. The other clinic must enter the same code on Receive now. If connect fails, use Fast Pass.',
+            'zh-CN': '文件不落地。请保持此页打开，对方立刻在“接收”输入同一代码。若连不上，请改用 Fast Pass。',
+            'zh-Hant': '檔案不落地。請保持此頁開啟，對方立刻在「接收」輸入同一代碼。若連不上，請改用 Fast Pass。'
+        },
+        'filexfer.sendDirectBtn': { en: 'Start live transfer', 'zh-CN': '开始直传', 'zh-Hant': '開始直傳' },
+        'filexfer.liveWait': {
+            en: 'Waiting for the other clinic. Keep this page open and give them this code.',
+            'zh-CN': '正在等待对方。请保持此页打开，并把此代码告知对方。',
+            'zh-Hant': '正在等待對方。請保持此頁開啟，並把此代碼告知對方。'
+        },
+        'filexfer.liveCancel': { en: 'Cancel live transfer', 'zh-CN': '取消直传', 'zh-Hant': '取消直傳' },
+        'filexfer.liveConnecting': { en: 'Connecting…', 'zh-CN': '正在连接…', 'zh-Hant': '正在連線…' },
+        'filexfer.liveSending': { en: 'Sending directly… {PCT}%', 'zh-CN': '正在直传… {PCT}%', 'zh-Hant': '正在直傳… {PCT}%' },
+        'filexfer.liveReceiving': { en: 'Receiving directly… {PCT}%', 'zh-CN': '正在接收直传… {PCT}%', 'zh-Hant': '正在接收直傳… {PCT}%' },
+        'filexfer.liveDone': { en: 'Direct transfer finished. The file was not stored on the server.', 'zh-CN': '直传完成。文件未保存在服务器。', 'zh-Hant': '直傳完成。檔案未保存在伺服器。' },
+        'filexfer.liveRecvDone': { en: 'File received. It was not stored on the server.', 'zh-CN': '已收到文件。未保存在服务器。', 'zh-Hant': '已收到檔案。未保存在伺服器。' },
+        'filexfer.liveFail': {
+            en: 'Could not open a direct path (clinic network). Use Fast Pass instead.',
+            'zh-CN': '无法建立直传（诊所网络限制）。请改用 Fast Pass。',
+            'zh-Hant': '無法建立直傳（診所網路限制）。請改用 Fast Pass。'
+        },
+        'filexfer.liveNeedRt': {
+            en: 'Live transfer needs the same realtime connection as clinic sync. Check the network and try again, or use Fast Pass.',
+            'zh-CN': '直传需要与诊所同步相同的实时连接。请检查网络后重试，或改用 Fast Pass。',
+            'zh-Hant': '直傳需要與診所同步相同的即時連線。請檢查網路後重試，或改用 Fast Pass。'
+        },
+        'filexfer.liveLooking': { en: 'Looking for a live sender…', 'zh-CN': '正在查找在线发送方…', 'zh-Hant': '正在查找在線發送方…' },
+        'filexfer.recvHint': {
+            en: 'Same code for live transfer or a 3-day Fast Pass. Live connects first if the sender is waiting.',
+            'zh-CN': '直传与 Fast Pass 使用同一格式代码。若发送方正在等待，会先尝试直传。',
+            'zh-Hant': '直傳與 Fast Pass 使用同一格式代碼。若發送方正在等待，會先嘗試直傳。'
+        },
+        'filexfer.needWebrtc': {
+            en: 'This browser cannot do a direct transfer. Use Fast Pass, or open Banana in Chrome/Edge.',
+            'zh-CN': '此浏览器无法直传。请改用 Fast Pass，或用 Chrome/Edge 打开香蕉系统。',
+            'zh-Hant': '此瀏覽器無法直傳。請改用 Fast Pass，或用 Chrome/Edge 打開香蕉系統。'
         },
         'filexfer.tabSend': { en: 'Send', 'zh-CN': '发送', 'zh-Hant': '發送' },
         'filexfer.tabReceive': { en: 'Receive', 'zh-CN': '接收', 'zh-Hant': '接收' },
@@ -7109,6 +7154,12 @@
         'filexfer.notePh': { en: 'e.g. CBCT for tomorrow AM', 'zh-CN': '例如：明天上午的 CBCT', 'zh-Hant': '例如：明天上午的 CBCT' },
         'filexfer.sendBtn': { en: 'Create Fast Pass', 'zh-CN': '建立 Fast Pass', 'zh-Hant': '建立 Fast Pass' },
         'filexfer.sending': { en: 'Uploading… {PCT}%', 'zh-CN': '上传中… {PCT}%', 'zh-Hant': '上傳中… {PCT}%' },
+        'filexfer.finalizing': {
+            en: 'Confirming the last chunk with the server…',
+            'zh-CN': '正在向服务器确认最后一块…',
+            'zh-Hant': '正在向伺服器確認最後一塊…'
+        },
+        'filexfer.savingCode': { en: 'Creating Fast Pass code…', 'zh-CN': '正在建立 Fast Pass 代码…', 'zh-Hant': '正在建立 Fast Pass 代碼…' },
         'filexfer.sendOk': { en: 'Fast Pass created. Tell the other clinic this code.', 'zh-CN': 'Fast Pass 已建立。请把此代码告知对方诊所。', 'zh-Hant': 'Fast Pass 已建立。請把此代碼告知對方診所。' },
         'filexfer.copy': { en: 'Copy code', 'zh-CN': '复制代码', 'zh-Hant': '複製代碼' },
         'filexfer.copied': { en: 'Copied', 'zh-CN': '已复制', 'zh-Hant': '已複製' },

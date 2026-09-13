@@ -1295,6 +1295,12 @@
     background: linear-gradient(135deg, #6366f1, #8b5cf6);
     transition: width .15s ease;
 }
+.fx-mode-hint {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.45;
+    margin: -6px 0 14px;
+}
 
 /* ── responsive ───────────────────────────────────────────────── */
 @media (max-width: 760px) {

@@ -1248,26 +1248,36 @@ function isBillDropdownExcludedDoctor(d) {
     return false;
 }
 
+function billDoctorClinicCode(d) {
+    if (!d || !d.clinic_id || typeof clinicRecordFromId !== 'function') return '';
+    var rec = clinicRecordFromId(d.clinic_id);
+    return rec ? String(rec.clinic_code || '').trim() : '';
+}
+
 /** Label shown in bill payment doctor dropdown. */
 function billDoctorDropdownLabel(d) {
     if (!d) return '';
     var disp = String(d.display_name || '').trim();
-    if (disp && /^dr\.?\s+/i.test(disp)) return disp;
-    if (typeof doctorDisplayName === 'function') {
-        var shown = doctorDisplayName(d);
-        if (shown) return shown;
+    var base = '';
+    if (disp && /^dr\.?\s+/i.test(disp)) base = disp;
+    else if (typeof doctorDisplayName === 'function') base = doctorDisplayName(d) || '';
+    if (!base) {
+        base = d.english_name || d.chinese_name || disp || String(d.doctor_code || '').trim();
     }
-    return d.english_name || d.chinese_name || disp || String(d.doctor_code || '').trim();
+    var clinic = billDoctorClinicCode(d);
+    if (base && clinic) return String(base) + ' (' + clinic + ')';
+    return base;
 }
 
-/** Stable dedupe key — normalized picker label first (collapses casing / duplicate rows). */
+/** Dedupe within one clinic only — same Chinese label at PL vs TKO must stay two rows. */
 function billDoctorDropdownDedupeKey(d) {
     if (!d) return '';
+    var clinic = String(d.clinic_id || '').trim();
     var labelKey = normalizeDoctorNameKey(billDoctorDropdownLabel(d));
-    if (labelKey) return 'name:' + labelKey;
+    if (labelKey) return 'clinic:' + clinic + '|name:' + labelKey;
     var code = String(d.doctor_code || '').trim().toLowerCase();
-    if (code && !isLoginPlaceholderDoctorCode(code)) return 'code:' + code;
-    return 'id:' + String(d.id != null ? d.id : '');
+    if (code && !isLoginPlaceholderDoctorCode(code)) return 'clinic:' + clinic + '|code:' + code;
+    return 'clinic:' + clinic + '|id:' + String(d.id != null ? d.id : '');
 }
 
 function billDoctorDropdownPickBest(candidates) {
@@ -1285,7 +1295,7 @@ function billDoctorDropdownPickBest(candidates) {
     })[0] || null;
 }
 
-/** Active clinical doctors for bill payment dropdown — deduped by code or normalized label. */
+/** Active clinical doctors for bill payment dropdown — deduped per clinic + label. */
 function doctorsForBillDoctorDropdown(sourceList) {
     var list = (sourceList || []).filter(function (d) {
         return d && d.is_active !== false && !isBillDropdownExcludedDoctor(d);

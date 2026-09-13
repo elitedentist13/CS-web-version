@@ -214,7 +214,13 @@ var DoctorAliases = (function () {
         {
             key: 'crystal-zhang',
             label: 'Dr Crystal Zhang',
-            aliases: ['DR.CRYSTAL ZHANG', 'DR. CRYSTAL ZHANG', 'Crystal Zhang', '張樂怡', '張樂怡牙科醫生']
+            aliases: [
+                'DR.CRYSTAL ZHANG', 'DR. CRYSTAL ZHANG', 'Crystal Zhang',
+                'DR ZHANG LEYI', 'DR. ZHANG LEYI', 'Dr ZHANG LEYI', 'ZHANG LEYI',
+                'Zhang Leyi', 'Dr Zhang Leyi',
+                'Dr ZHANG LEYI_TKO', 'DR ZHANG LEYI_TKO',
+                '張樂怡', '張樂怡牙科醫生'
+            ]
         },
         {
             key: 'jasmine-yeung',
@@ -282,7 +288,11 @@ var DoctorAliases = (function () {
             if (!cleaned) return;
             var g = aliasToGroup[cleaned];
             if (g) {
-                groupHit = { key: g.key, label: g.label, grouped: true };
+                // First group wins. Later fields (often doctor_tag / code) must not
+                // overwrite a different person already identified from doctor_name.
+                if (!groupHit) {
+                    groupHit = { key: g.key, label: g.label, grouped: true };
+                }
                 return;
             }
             if (SHORT_LABELS[cleaned]) {

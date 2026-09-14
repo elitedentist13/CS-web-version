@@ -7096,6 +7096,21 @@
         },
         'filexfer.modePass': { en: 'Fast Pass (3 days)', 'zh-CN': 'Fast Pass（3 天）', 'zh-Hant': 'Fast Pass（3 天）' },
         'filexfer.modeDirect': { en: 'Direct (live)', 'zh-CN': '直传（实时）', 'zh-Hant': '直傳（即時）' },
+        'filexfer.modePassSub': {
+            en: 'Upload once. Download any time within 3 days.',
+            'zh-CN': '上传一次，3 天内随时下载。',
+            'zh-Hant': '上傳一次，3 天內隨時下載。'
+        },
+        'filexfer.modeDirectSub': {
+            en: 'Both clinics stay on this page. Nothing is stored.',
+            'zh-CN': '双方保持此页打开。文件不落地。',
+            'zh-Hant': '雙方保持此頁開啟。檔案不落地。'
+        },
+        'filexfer.dropTitle': {
+            en: 'Drop a file here, or click to choose',
+            'zh-CN': '拖放文件到此处，或点击选择',
+            'zh-Hant': '拖放檔案到此處，或點擊選擇'
+        },
         'filexfer.modePassHint': {
             en: 'File is uploaded once (large files use several connections). The other clinic can download any time in the next 3 days.',
             'zh-CN': '文件会上传一次（大文件走多路同时传）。对方可在 3 天内随时下载。',
@@ -7122,6 +7137,21 @@
             en: 'Could not open a direct path (clinic network). Use Fast Pass instead.',
             'zh-CN': '无法建立直传（诊所网络限制）。请改用 Fast Pass。',
             'zh-Hant': '無法建立直傳（診所網路限制）。請改用 Fast Pass。'
+        },
+        'filexfer.liveFailUpload': {
+            en: 'Direct path blocked by the clinic network. Uploading as Fast Pass with the same code…',
+            'zh-CN': '直传被诊所网络拦住。正在用同一代码改传 Fast Pass…',
+            'zh-Hant': '直傳被診所網路攔住。正在用同一代碼改傳 Fast Pass…'
+        },
+        'filexfer.liveFailSaved': {
+            en: 'Direct path was blocked. File saved as Fast Pass — same code, valid 3 days.',
+            'zh-CN': '直传未通。文件已改存为 Fast Pass，代码不变，有效 3 天。',
+            'zh-Hant': '直傳未通。檔案已改存為 Fast Pass，代碼不變，有效 3 天。'
+        },
+        'filexfer.liveFailLookup': {
+            en: 'Direct path failed. Checking for a Fast Pass…',
+            'zh-CN': '直传失败。正在查找 Fast Pass…',
+            'zh-Hant': '直傳失敗。正在查找 Fast Pass…'
         },
         'filexfer.liveNeedRt': {
             en: 'Live transfer needs the same realtime connection as clinic sync. Check the network and try again, or use Fast Pass.',
@@ -7168,7 +7198,7 @@
         'filexfer.tooBig': { en: 'File is too large (max 500 MB).', 'zh-CN': '文件过大（最大 500 MB）。', 'zh-Hant': '檔案過大（最大 500 MB）。' },
         'filexfer.needLogin': { en: 'Please log in before sending or receiving files.', 'zh-CN': '请先登录再传送或接收文件。', 'zh-Hant': '請先登入再傳送或接收檔案。' },
         'filexfer.code': { en: 'Fast Pass code', 'zh-CN': 'Fast Pass 代码', 'zh-Hant': 'Fast Pass 代碼' },
-        'filexfer.codePh': { en: 'XXXX-XXXX', 'zh-CN': 'XXXX-XXXX', 'zh-Hant': 'XXXX-XXXX' },
+        'filexfer.codePh': { en: 'XXXX', 'zh-CN': 'XXXX', 'zh-Hant': 'XXXX' },
         'filexfer.lookup': { en: 'Look up', 'zh-CN': '查找', 'zh-Hant': '查找' },
         'filexfer.download': { en: 'Download', 'zh-CN': '下载', 'zh-Hant': '下載' },
         'filexfer.notFound': { en: 'No matching Fast Pass, or it has expired.', 'zh-CN': '没有对应的 Fast Pass，或已失效。', 'zh-Hant': '沒有對應的 Fast Pass，或已失效。' },

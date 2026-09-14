@@ -1225,19 +1225,135 @@
     font-family: inherit;
 }
 
-/* ── File Transfer (clinic Fast Pass) ─────────────────────────── */
-.fx-layout { max-width: 720px; }
+/* ── File Transfer ────────────────────────────────────────────── */
+#fileTransferSection.container {
+    max-width: 860px;
+    background: #f4f6fb;
+    box-shadow: none;
+    overflow: visible;
+    padding: 24px 24px 28px;
+}
+#fileTransferSection .top-bar {
+    align-items: center;
+    margin-bottom: 16px;
+}
+#fileTransferApp {
+    padding-bottom: 88px;
+}
+.fx-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 720px;
+}
+.fx-intro {
+    margin: 0;
+    color: #5b6478;
+    font-size: 14px;
+    line-height: 1.55;
+}
+.fx-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    background: #e8ecf4;
+    border-radius: 12px;
+}
+.fx-tab {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: #5b6478;
+    padding: 10px 8px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+.fx-tab:hover:not(.is-on) { color: #1e293b; background: rgba(255,255,255,.45); }
+.fx-tab.is-on {
+    background: #fff;
+    color: #1e293b;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+}
+.fx-card {
+    background: #fff;
+    border: 1px solid #e4e8f1;
+    border-radius: 16px;
+    padding: 20px 22px 18px;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+    min-width: 0;
+}
+.fx-paths {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.fx-path {
+    appearance: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    text-align: left;
+    border: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    min-width: 0;
+    transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.fx-path:hover:not(.is-on) {
+    border-color: #c7cde0;
+    background: #fff;
+}
+.fx-path.is-on {
+    border-color: #6366f1;
+    background: #eef2ff;
+    box-shadow: inset 0 0 0 1px #6366f1;
+}
+.fx-path-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #1e293b;
+}
+.fx-path-sub {
+    font-size: 12px;
+    line-height: 1.4;
+    color: #64748b;
+}
+.fx-lead {
+    margin: 0 0 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #334155;
+    font-weight: 600;
+}
+.fx-hint {
+    margin: 0 0 14px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+}
 .fx-drop {
-    border: 1.5px dashed #c4c9db;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    border: 1.5px dashed #c7cde0;
     border-radius: 14px;
     padding: 22px 16px;
     text-align: center;
     background: #fafbff;
     color: #5b6275;
-    font-size: 13px;
-    margin-bottom: 14px;
+    margin-bottom: 16px;
     cursor: pointer;
-    transition: border-color .15s ease, background .15s ease;
+    min-width: 0;
 }
 .fx-drop:hover, .fx-drop.is-drag {
     border-color: #6366f1;
@@ -1245,66 +1361,164 @@
     color: #3730a3;
 }
 .fx-drop input { display: none; }
-.fx-file-name { font-weight: 700; color: #1e293b; margin-top: 6px; }
+.fx-drop-title { font-size: 14px; font-weight: 700; color: #1e293b; }
+.fx-drop-sub { font-size: 12px; line-height: 1.4; color: #64748b; }
+.fx-file-name {
+    font-weight: 700;
+    color: #312e81;
+    margin-top: 6px;
+    word-break: break-all;
+}
+.fx-file-name:empty { display: none; }
+.fx-fields {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.fx-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    font-size: 13px;
+    color: #3a4055;
+}
+.fx-field > span { font-weight: 700; }
+.fx-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border: 1px solid #d4d8e3;
+    border-radius: 10px;
+    font-size: 14px;
+    background: #fff;
+    color: #1a1f33;
+    font-family: inherit;
+}
+.fx-input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
+}
+.fx-input-code {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.fx-recv-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: end;
+}
+.fx-submit {
+    display: flex;
+    justify-content: flex-end;
+}
+.fx-btn {
+    appearance: none;
+    border: 1px solid #d4d8e3;
+    background: #fff;
+    color: #2a2f45;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.2;
+    white-space: nowrap;
+    transition: transform .08s ease, box-shadow .15s ease, background .15s ease;
+}
+.fx-btn:hover { box-shadow: 0 4px 12px rgba(15, 23, 42, .08); }
+.fx-btn-primary {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    border-color: transparent;
+    color: #fff;
+}
+.fx-btn-primary:hover { box-shadow: 0 6px 16px rgba(79, 70, 229, .28); }
+.fx-btn-ghost {
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #64748b;
+}
+.fx-btn:disabled { opacity: .55; cursor: not-allowed; }
 .fx-code-box {
     display: flex;
-    align-items: center;
-    gap: 12px;
     flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 16px;
     padding: 16px 18px;
     background: #eef2ff;
     border: 1px solid #c7d2fe;
     border-radius: 14px;
-    margin: 12px 0;
+    margin: 0 0 12px;
 }
+.fx-code-box .fx-btn { flex-shrink: 0; }
 .fx-code {
     font-size: 28px;
     font-weight: 800;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.14em;
     color: #312e81;
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    line-height: 1.2;
+    word-break: break-all;
 }
+.fx-code-sm { font-size: 18px; letter-spacing: 0.1em; }
 .fx-pass-list { display: flex; flex-direction: column; gap: 10px; }
 .fx-pass-card {
-    background: #fff;
+    background: #f8fafc;
     border: 1px solid #e7e9f2;
     border-radius: 12px;
     padding: 12px 14px;
+    min-width: 0;
 }
 .fx-pass-card-top {
     display: flex;
     justify-content: space-between;
     gap: 10px;
-    align-items: baseline;
-    flex-wrap: wrap;
+    align-items: center;
 }
-.fx-pass-name { font-weight: 700; color: #1e293b; }
+.fx-pass-name { font-weight: 700; color: #1e293b; word-break: break-word; }
 .fx-pass-meta { font-size: 12px; color: #64748b; margin-top: 4px; line-height: 1.5; }
 .fx-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.fx-actions-top { margin-top: 0; margin-bottom: 12px; }
+.fx-found { margin-top: 16px; }
 .fx-progress {
     height: 8px;
     background: #e2e8f0;
     border-radius: 999px;
     overflow: hidden;
-    margin: 10px 0 6px;
+    margin: 4px 0 14px;
 }
 .fx-progress > span {
     display: block;
     height: 100%;
     width: 0;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
     transition: width .15s ease;
 }
-.fx-mode-hint {
-    color: #64748b;
-    font-size: 12px;
+.fx-status {
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
     line-height: 1.45;
-    margin: -6px 0 14px;
+    background: #eef0f8;
+    color: #3a4055;
 }
+.fx-status--ok   { background: #e7f6ec; color: #1c7a3f; }
+.fx-status--warn { background: #fdf3e2; color: #9a6b15; }
+.fx-status--bad  { background: #fbe9e9; color: #a12d2d; }
+.fx-status--work { background: #eef2ff; color: #3730a3; }
 
 /* ── responsive ───────────────────────────────────────────────── */
 @media (max-width: 760px) {
     .ct-qr-layout, .ct-cg-layout { grid-template-columns: 1fr; }
     .ct-cg-preview-wrap { position: static; }
+    .fx-paths, .fx-recv-row, .fx-tabs { grid-template-columns: 1fr; }
     .fx-code { font-size: 22px; }
+    .fx-submit { justify-content: stretch; }
+    .fx-submit .fx-btn { width: 100%; }
 }

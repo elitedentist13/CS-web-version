@@ -11,15 +11,19 @@ var FILEXFER = (function () {
     var MAX_BYTES = 500 * 1024 * 1024;
     var EXPIRE_MS = 3 * 24 * 60 * 60 * 1000;
     var CODE_ALPH = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+    var CODE_LEN = 4;
     var LIVE_CHUNK = 256 * 1024;
     var LIVE_BUF_HIGH = 16 * 1024 * 1024;
     var LIVE_BUF_LOW = 2 * 1024 * 1024;
     var PART_SIZE = 8 * 1024 * 1024;
     var PART_CONCUR = 4;
     var ICE_SERVERS = [
+        { urls: 'stun:stun.cloudflare.com:3478' },
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
     ];
+    var ICE_WATCH_MS = 18000;
     var TAB = 'send';
     var sendMode = 'pass';
     var chosenFile = null;
@@ -44,9 +48,21 @@ var FILEXFER = (function () {
             pendingIce: [],
             readyTimer: null,
             lookTimer: null,
+            iceTimer: null,
+            restarted: false,
+            fallingBack: false,
+            pollStarted: false,
             closed: false,
             done: false
         };
+    }
+
+    function rtcConfig() {
+        var servers = ICE_SERVERS.slice();
+        var extra = window.FILEXFER_TURN;
+        if (Array.isArray(extra)) servers = servers.concat(extra);
+        else if (extra) servers.push(extra);
+        return { iceServers: servers, iceCandidatePoolSize: 2 };
     }
 
     function trKey(key, fallback) {
@@ -131,7 +147,7 @@ var FILEXFER = (function () {
         var el = gg('fx_status');
         if (!el) return;
         el.style.display = msg ? 'block' : 'none';
-        el.className = 'ct-status' + (tone ? ' ct-tone-' + tone : '');
+        el.className = 'fx-status' + (tone ? ' fx-status--' + tone : '');
         el.innerHTML = (tone === 'work' ? '<span class="ct-spin"></span> ' : '') + esc(msg || '');
     }
     function setProgress(pct) {
@@ -152,6 +168,7 @@ var FILEXFER = (function () {
         live.closed = true;
         if (prev.readyTimer) clearInterval(prev.readyTimer);
         if (prev.lookTimer) clearTimeout(prev.lookTimer);
+        if (prev.iceTimer) clearTimeout(prev.iceTimer);
         try { if (prev.dc) prev.dc.close(); } catch (e) {}
         try { if (prev.pc) prev.pc.close(); } catch (e2) {}
         if (prev.channel && typeof SB !== 'undefined' && SB.removeChannel) {
@@ -203,12 +220,103 @@ var FILEXFER = (function () {
 
     function onIceState() {
         if (!live.pc) return;
-        var st = live.pc.iceConnectionState;
-        if (st === 'failed') {
-            if (live.done) return;
-            status(trKey('filexfer.liveFail'), 'bad');
-            stopLive({ silent: true });
+        var ice = live.pc.iceConnectionState;
+        var conn = live.pc.connectionState;
+        if (ice === 'failed' || conn === 'failed') onPeerFailed();
+    }
+
+    function armIceWatch() {
+        if (live.iceTimer) clearTimeout(live.iceTimer);
+        live.iceTimer = setTimeout(function () {
+            live.iceTimer = null;
+            if (live.done || live.fallingBack || live.closed) return;
+            if (live.dc && live.dc.readyState === 'open') return;
+            onPeerFailed();
+        }, ICE_WATCH_MS);
+    }
+
+    function closePeerOnly() {
+        if (live.iceTimer) {
+            clearTimeout(live.iceTimer);
+            live.iceTimer = null;
         }
+        try { if (live.dc) live.dc.close(); } catch (e) {}
+        try { if (live.pc) live.pc.close(); } catch (e2) {}
+        live.dc = null;
+        live.pc = null;
+    }
+
+    function restartIce() {
+        if (!live.pc || live.role !== 'send') return Promise.resolve(false);
+        status(trKey('filexfer.liveConnecting'), 'work');
+        return live.pc.createOffer({ iceRestart: true }).then(function (offer) {
+            return live.pc.setLocalDescription(offer);
+        }).then(function () {
+            sig({
+                t: 'offer',
+                sdp: { type: live.pc.localDescription.type, sdp: live.pc.localDescription.sdp }
+            });
+            return true;
+        }).catch(function () { return false; });
+    }
+
+    function onPeerFailed() {
+        if (live.done || live.fallingBack || live.closed) return;
+        if (!live.restarted && live.pc) {
+            live.restarted = true;
+            if (live.role === 'send') {
+                restartIce().then(function (ok) {
+                    if (!ok) fallbackFromLive();
+                });
+                return;
+            }
+            status(trKey('filexfer.liveConnecting'), 'work');
+            return;
+        }
+        fallbackFromLive();
+    }
+
+    function fallbackFromLive() {
+        if (live.closed || live.done || live.fallingBack) return;
+        live.fallingBack = true;
+        var code = live.code;
+        var file = live.file;
+        var note = live.note;
+        var destId = live.destId;
+        var destLabel = live.destLabel;
+        var role = live.role;
+        closePeerOnly();
+        if (role === 'recv' && code) {
+            status(trKey('filexfer.liveFailLookup'), 'warn');
+            pollForPass(code);
+            return;
+        }
+        if (role === 'send' && file && code) {
+            status(trKey('filexfer.liveFailUpload'), 'warn');
+            setProgress(1);
+            savePass(code, file, note, destId, destLabel, function (pct, phase) {
+                setProgress(pct);
+                if (phase === 'finalize') status(trKey('filexfer.finalizing'), 'work');
+                else status(trReplKey('filexfer.sending', { PCT: String(pct) }), 'work');
+            }).then(function (row) {
+                sig({ t: 'stored' });
+                lastCreated = row;
+                chosenFile = null;
+                stopLive({ silent: true });
+                setProgress(100);
+                renderPanel();
+                status(trKey('filexfer.liveFailSaved'), 'warn');
+            }).catch(function (err) {
+                stopLive({ silent: true });
+                setProgress(0);
+                status(isMissingTable(err)
+                    ? trKey('filexfer.setup')
+                    : trKey('filexfer.liveFail'), 'bad');
+            });
+            return;
+        }
+        stopLive({ silent: true });
+        status(trKey('filexfer.liveFail'), 'bad');
     }
 
     function wireSenderChannel(dc) {
@@ -220,7 +328,7 @@ var FILEXFER = (function () {
             sendLiveFile();
         };
         dc.onerror = function () {
-            if (!live.done) status(trKey('filexfer.liveFail'), 'bad');
+            if (!live.done) onPeerFailed();
         };
     }
 
@@ -257,7 +365,7 @@ var FILEXFER = (function () {
             slice.arrayBuffer().then(function (buf) {
                 if (live.closed || !live.dc || live.dc.readyState !== 'open') return;
                 try { dc.send(buf); } catch (e) {
-                    status(trKey('filexfer.liveFail'), 'bad');
+                    onPeerFailed();
                     return;
                 }
                 offset += buf.byteLength;
@@ -277,7 +385,7 @@ var FILEXFER = (function () {
             handleLiveMessage(ev.data);
         };
         dc.onerror = function () {
-            if (!live.done) status(trKey('filexfer.liveFail'), 'bad');
+            if (!live.done) onPeerFailed();
         };
     }
 
@@ -351,12 +459,14 @@ var FILEXFER = (function () {
     }
 
     function createSenderPc() {
-        live.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        live.pc = new RTCPeerConnection(rtcConfig());
         live.pc.onicecandidate = function (ev) {
             if (ev.candidate) sig({ t: 'ice', role: 'send', c: ev.candidate.toJSON() });
         };
         live.pc.oniceconnectionstatechange = onIceState;
+        live.pc.onconnectionstatechange = onIceState;
         wireSenderChannel(live.pc.createDataChannel('file', { ordered: true }));
+        armIceWatch();
         return live.pc.createOffer().then(function (offer) {
             return live.pc.setLocalDescription(offer);
         }).then(function () {
@@ -365,12 +475,20 @@ var FILEXFER = (function () {
     }
 
     function acceptOffer(sdp) {
-        live.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        if (live.pc) {
+            try { live.pc.close(); } catch (e) {}
+            live.pc = null;
+            live.dc = null;
+            live.pendingIce = [];
+        }
+        live.pc = new RTCPeerConnection(rtcConfig());
         live.pc.ondatachannel = function (ev) { wireRecvChannel(ev.channel); };
         live.pc.onicecandidate = function (ev) {
             if (ev.candidate) sig({ t: 'ice', role: 'recv', c: ev.candidate.toJSON() });
         };
         live.pc.oniceconnectionstatechange = onIceState;
+        live.pc.onconnectionstatechange = onIceState;
+        armIceWatch();
         return live.pc.setRemoteDescription(new RTCSessionDescription(sdp)).then(function () {
             flushPendingIce();
             return live.pc.createAnswer();
@@ -405,26 +523,29 @@ var FILEXFER = (function () {
             sig({ t: 'hello' });
             return;
         }
-        if (msg.t === 'hello' && live.role === 'send' && !live.pc) {
+        if (msg.t === 'hello' && live.role === 'send' && !live.pc && !live.fallingBack) {
             status(trKey('filexfer.liveConnecting'), 'work');
-            createSenderPc().catch(function () {
-                status(trKey('filexfer.liveFail'), 'bad');
-            });
+            createSenderPc().catch(function () { onPeerFailed(); });
             return;
         }
-        if (msg.t === 'offer' && live.role === 'recv' && msg.sdp && !live.pc) {
-            acceptOffer(msg.sdp).catch(function () {
-                status(trKey('filexfer.liveFail'), 'bad');
-            });
+        if (msg.t === 'offer' && live.role === 'recv' && msg.sdp && !live.fallingBack) {
+            acceptOffer(msg.sdp).catch(function () { onPeerFailed(); });
             return;
         }
         if (msg.t === 'answer' && live.role === 'send' && live.pc && msg.sdp) {
             live.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp))
                 .then(flushPendingIce)
-                .catch(function () { status(trKey('filexfer.liveFail'), 'bad'); });
+                .catch(function () { onPeerFailed(); });
             return;
         }
-        if (msg.t === 'ice' && msg.c) applyRemoteIce(msg.c);
+        if (msg.t === 'stored' && live.role === 'recv' && !live.done) {
+            status(trKey('filexfer.liveFailLookup'), 'warn');
+            pollForPass(live.code);
+            return;
+        }
+        if (msg.t === 'ice' && msg.c && msg.role && msg.role !== live.role) {
+            applyRemoteIce(msg.c);
+        }
     }
 
     function subscribeLive(code, role) {
@@ -460,12 +581,12 @@ var FILEXFER = (function () {
         var out = '';
         var i;
         if (window.crypto && crypto.getRandomValues) {
-            var buf = new Uint8Array(8);
+            var buf = new Uint8Array(CODE_LEN);
             crypto.getRandomValues(buf);
-            for (i = 0; i < 8; i++) out += CODE_ALPH.charAt(buf[i] % CODE_ALPH.length);
+            for (i = 0; i < CODE_LEN; i++) out += CODE_ALPH.charAt(buf[i] % CODE_ALPH.length);
             return out;
         }
-        for (i = 0; i < 8; i++) out += CODE_ALPH.charAt(Math.floor(Math.random() * CODE_ALPH.length));
+        for (i = 0; i < CODE_LEN; i++) out += CODE_ALPH.charAt(Math.floor(Math.random() * CODE_ALPH.length));
         return out;
     }
     function safeFilePart(name) {
@@ -482,22 +603,23 @@ var FILEXFER = (function () {
         var app = gg('fileTransferApp');
         if (!app) return;
         app.innerHTML =
-            '<div class="fx-layout">' +
-                '<p class="ct-intro">' + esc(trKey('filexfer.intro')) + '</p>' +
-                '<div class="ct-seg" id="fx_tabs">' +
-                    tabBtn('send', '📤 ' + trKey('filexfer.tabSend')) +
-                    tabBtn('receive', '📥 ' + trKey('filexfer.tabReceive')) +
-                    tabBtn('mine', '📋 ' + trKey('filexfer.tabMine')) +
+            '<div class="fx-shell">' +
+                '<p class="fx-intro">' + esc(trKey('filexfer.intro')) + '</p>' +
+                '<div class="fx-tabs" id="fx_tabs" role="tablist">' +
+                    tabBtn('send', trKey('filexfer.tabSend')) +
+                    tabBtn('receive', trKey('filexfer.tabReceive')) +
+                    tabBtn('mine', trKey('filexfer.tabMine')) +
                 '</div>' +
-                '<div id="fx_panel" class="ct-panel-box"></div>' +
-                '<div id="fx_status" class="ct-status" style="display:none;"></div>' +
+                '<div id="fx_panel" class="fx-card"></div>' +
+                '<div id="fx_status" class="fx-status" style="display:none;"></div>' +
             '</div>';
         wireTabs();
         renderPanel();
     }
     function tabBtn(id, label) {
-        return '<button type="button" class="ct-seg-btn' + (id === TAB ? ' active' : '') +
-            '" data-fx="' + id + '">' + esc(label) + '</button>';
+        return '<button type="button" class="fx-tab' + (id === TAB ? ' is-on' : '') +
+            '" data-fx="' + id + '" role="tab" aria-selected="' + (id === TAB ? 'true' : 'false') +
+            '">' + esc(label) + '</button>';
     }
     function wireTabs() {
         var box = gg('fx_tabs');
@@ -509,8 +631,10 @@ var FILEXFER = (function () {
             if (next !== TAB && live.role) stopLive();
             TAB = next;
             lastCreated = null;
-            box.querySelectorAll('.ct-seg-btn').forEach(function (x) {
-                x.classList.toggle('active', x === b);
+            box.querySelectorAll('.fx-tab').forEach(function (x) {
+                var on = x === b;
+                x.classList.toggle('is-on', on);
+                x.setAttribute('aria-selected', on ? 'true' : 'false');
             });
             renderPanel();
         });
@@ -535,19 +659,19 @@ var FILEXFER = (function () {
 
     function renderSendLiveWait(p) {
         p.innerHTML =
-            '<p>' + esc(trKey('filexfer.liveWait')) + '</p>' +
+            '<p class="fx-lead">' + esc(trKey('filexfer.liveWait')) + '</p>' +
             '<div class="fx-code-box">' +
                 '<div class="fx-code" id="fx_code_out">' + esc(displayCode(live.code)) + '</div>' +
-                '<button type="button" class="ct-btn ct-btn-primary" id="fx_copy">' +
+                '<button type="button" class="fx-btn fx-btn-primary" id="fx_copy">' +
                     esc(trKey('filexfer.copy')) + '</button>' +
             '</div>' +
-            '<p class="ct-note">' +
+            '<p class="fx-hint">' +
                 esc(live.file ? (live.file.name + ' · ' + fmtSize(live.file.size)) : '') +
                 (live.note ? ' · ' + esc(live.note) : '') +
             '</p>' +
             '<div id="fx_prog" class="fx-progress" style="display:none;"><span id="fx_prog_bar"></span></div>' +
             '<div class="fx-actions">' +
-                '<button type="button" class="ct-btn" id="fx_live_cancel">' +
+                '<button type="button" class="fx-btn" id="fx_live_cancel">' +
                     esc(trKey('filexfer.liveCancel')) + '</button>' +
             '</div>';
         gg('fx_copy').addEventListener('click', function () {
@@ -567,16 +691,16 @@ var FILEXFER = (function () {
         }
         if (lastCreated) {
             p.innerHTML =
-                '<p>' + esc(trKey('filexfer.sendOk')) + '</p>' +
+                '<p class="fx-lead">' + esc(trKey('filexfer.sendOk')) + '</p>' +
                 '<div class="fx-code-box">' +
                     '<div class="fx-code" id="fx_code_out">' + esc(displayCode(lastCreated.pass_code)) + '</div>' +
-                    '<button type="button" class="ct-btn ct-btn-primary" id="fx_copy">' +
+                    '<button type="button" class="fx-btn fx-btn-primary" id="fx_copy">' +
                         esc(trKey('filexfer.copy')) + '</button>' +
                 '</div>' +
-                '<p class="ct-note">' + esc(trReplKey('filexfer.expires', { WHEN: fmtWhen(lastCreated.expires_at) })) +
+                '<p class="fx-hint">' + esc(trReplKey('filexfer.expires', { WHEN: fmtWhen(lastCreated.expires_at) })) +
                     (lastCreated.file_name ? ' · ' + esc(lastCreated.file_name) : '') + '</p>' +
                 '<div class="fx-actions">' +
-                    '<button type="button" class="ct-btn" id="fx_again">' + esc(trKey('filexfer.sendAnother')) + '</button>' +
+                    '<button type="button" class="fx-btn" id="fx_again">' + esc(trKey('filexfer.sendAnother')) + '</button>' +
                 '</div>';
             gg('fx_copy').addEventListener('click', function () {
                 copyText(displayCode(lastCreated.pass_code), gg('fx_copy'));
@@ -590,29 +714,40 @@ var FILEXFER = (function () {
         }
         var fname = chosenFile ? chosenFile.name + ' · ' + fmtSize(chosenFile.size) : '';
         p.innerHTML =
-            '<div class="ct-seg" id="fx_modes">' +
-                '<button type="button" class="ct-seg-btn' + (sendMode === 'pass' ? ' active' : '') +
-                    '" data-fx-mode="pass">' + esc(trKey('filexfer.modePass')) + '</button>' +
-                '<button type="button" class="ct-seg-btn' + (sendMode === 'direct' ? ' active' : '') +
-                    '" data-fx-mode="direct">' + esc(trKey('filexfer.modeDirect')) + '</button>' +
+            '<div class="fx-paths" id="fx_modes">' +
+                '<button type="button" class="fx-path' + (sendMode === 'pass' ? ' is-on' : '') +
+                    '" data-fx-mode="pass">' +
+                    '<span class="fx-path-title">' + esc(trKey('filexfer.modePass')) + '</span>' +
+                    '<span class="fx-path-sub">' + esc(trKey('filexfer.modePassSub')) + '</span>' +
+                '</button>' +
+                '<button type="button" class="fx-path' + (sendMode === 'direct' ? ' is-on' : '') +
+                    '" data-fx-mode="direct">' +
+                    '<span class="fx-path-title">' + esc(trKey('filexfer.modeDirect')) + '</span>' +
+                    '<span class="fx-path-sub">' + esc(trKey('filexfer.modeDirectSub')) + '</span>' +
+                '</button>' +
             '</div>' +
-            '<p class="fx-mode-hint" id="fx_mode_hint">' +
+            '<p class="fx-hint" id="fx_mode_hint">' +
                 esc(trKey(sendMode === 'direct' ? 'filexfer.modeDirectHint' : 'filexfer.modePassHint')) +
             '</p>' +
             '<label class="fx-drop" id="fx_drop">' +
-                esc(trKey('filexfer.fileHint')) +
-                '<div class="fx-file-name" id="fx_fname">' + esc(fname) + '</div>' +
+                '<span class="fx-drop-title">' + esc(trKey('filexfer.dropTitle')) + '</span>' +
+                '<span class="fx-drop-sub">' + esc(trKey('filexfer.fileHint')) + '</span>' +
+                '<span class="fx-file-name" id="fx_fname">' + esc(fname) + '</span>' +
                 '<input id="fx_file" type="file">' +
             '</label>' +
-            '<label class="ct-field"><span>' + esc(trKey('filexfer.dest')) + '</span>' +
-                '<select id="fx_dest" class="ct-select">' + destOptions() + '</select></label>' +
-            '<label class="ct-field"><span>' + esc(trKey('filexfer.note')) + '</span>' +
-                '<input id="fx_note" type="text" maxlength="200" placeholder="' +
-                    esc(trKey('filexfer.notePh')) + '"></label>' +
+            '<div class="fx-fields">' +
+                '<label class="fx-field"><span>' + esc(trKey('filexfer.dest')) + '</span>' +
+                    '<select id="fx_dest" class="fx-input">' + destOptions() + '</select></label>' +
+                '<label class="fx-field"><span>' + esc(trKey('filexfer.note')) + '</span>' +
+                    '<input id="fx_note" class="fx-input" type="text" maxlength="200" placeholder="' +
+                        esc(trKey('filexfer.notePh')) + '"></label>' +
+            '</div>' +
             '<div id="fx_prog" class="fx-progress" style="display:none;"><span id="fx_prog_bar"></span></div>' +
-            '<button type="button" class="ct-btn ct-btn-primary" id="fx_send">' +
-                esc(trKey(sendMode === 'direct' ? 'filexfer.sendDirectBtn' : 'filexfer.sendBtn')) +
-            '</button>';
+            '<div class="fx-submit">' +
+                '<button type="button" class="fx-btn fx-btn-primary" id="fx_send">' +
+                    esc(trKey(sendMode === 'direct' ? 'filexfer.sendDirectBtn' : 'filexfer.sendBtn')) +
+                '</button>' +
+            '</div>';
         wireDrop();
         var modeBox = gg('fx_modes');
         if (modeBox) {
@@ -674,14 +809,16 @@ var FILEXFER = (function () {
     function renderReceive(p) {
         var keepCode = (gg('fx_in_code') && gg('fx_in_code').value) || (live.role === 'recv' ? displayCode(live.code) : '');
         p.innerHTML =
-            '<p class="fx-mode-hint">' + esc(trKey('filexfer.recvHint')) + '</p>' +
-            '<label class="ct-field"><span>' + esc(trKey('filexfer.code')) + '</span>' +
-                '<input id="fx_in_code" type="text" maxlength="12" placeholder="' +
-                    esc(trKey('filexfer.codePh')) + '" autocomplete="off" value="' +
-                    esc(keepCode) + '"></label>' +
-            '<button type="button" class="ct-btn ct-btn-primary" id="fx_lookup">' +
-                esc(trKey('filexfer.lookup')) + '</button>' +
-            '<div id="fx_found" style="margin-top:16px;"></div>';
+            '<p class="fx-hint">' + esc(trKey('filexfer.recvHint')) + '</p>' +
+            '<div class="fx-recv-row">' +
+                '<label class="fx-field"><span>' + esc(trKey('filexfer.code')) + '</span>' +
+                    '<input id="fx_in_code" class="fx-input fx-input-code" type="text" maxlength="9" placeholder="' +
+                        esc(trKey('filexfer.codePh')) + '" autocomplete="off" value="' +
+                        esc(keepCode) + '"></label>' +
+                '<button type="button" class="fx-btn fx-btn-primary" id="fx_lookup">' +
+                    esc(trKey('filexfer.lookup')) + '</button>' +
+            '</div>' +
+            '<div id="fx_found" class="fx-found"></div>';
         if (live.role === 'recv' && live.meta) renderLiveRecvCard(live.done);
         gg('fx_lookup').addEventListener('click', doLookup);
         gg('fx_in_code').addEventListener('keydown', function (e) {
@@ -702,7 +839,7 @@ var FILEXFER = (function () {
                     (row.note ? '<br>' + esc(row.note) : '') +
                 '</div>' +
                 '<div class="fx-actions">' +
-                    '<button type="button" class="ct-btn ct-btn-primary" id="fx_dl">' +
+                    '<button type="button" class="fx-btn fx-btn-primary" id="fx_dl">' +
                         esc(trKey('filexfer.download')) + '</button>' +
                 '</div>' +
             '</div>';
@@ -711,12 +848,12 @@ var FILEXFER = (function () {
 
     function renderMine(p) {
         p.innerHTML =
-            '<div class="fx-actions" style="margin-top:0;margin-bottom:10px;">' +
-                '<button type="button" class="ct-btn" id="fx_mine_refresh">' +
+            '<div class="fx-actions fx-actions-top">' +
+                '<button type="button" class="fx-btn" id="fx_mine_refresh">' +
                     esc(trKey('filexfer.refresh')) + '</button>' +
             '</div>' +
             '<div id="fx_mine_list" class="fx-pass-list">' +
-                '<p class="ct-note">' + esc(trKey('filexfer.mineEmpty')) + '</p>' +
+                '<p class="fx-hint">' + esc(trKey('filexfer.mineEmpty')) + '</p>' +
             '</div>';
         gg('fx_mine_refresh').addEventListener('click', loadMine);
         loadMine();
@@ -726,7 +863,7 @@ var FILEXFER = (function () {
         var list = gg('fx_mine_list');
         if (!list) return;
         if (typeof SB === 'undefined' || !SB.from) {
-            list.innerHTML = '<p class="ct-note">' + esc(trKey('filexfer.setup')) + '</p>';
+            list.innerHTML = '<p class="fx-hint">' + esc(trKey('filexfer.setup')) + '</p>';
             return;
         }
         var cid = myClinicId();
@@ -735,20 +872,20 @@ var FILEXFER = (function () {
         if (cid) q = q.or('from_clinic_id.eq.' + cid + ',to_clinic_id.eq.' + cid);
         q.then(function (r) {
             if (r.error) {
-                list.innerHTML = '<p class="ct-note">' +
+                list.innerHTML = '<p class="fx-hint">' +
                     esc(isMissingTable(r.error) ? trKey('filexfer.setup') : r.error.message) + '</p>';
                 return;
             }
             var rows = r.data || [];
             if (!rows.length) {
-                list.innerHTML = '<p class="ct-note">' + esc(trKey('filexfer.mineEmpty')) + '</p>';
+                list.innerHTML = '<p class="fx-hint">' + esc(trKey('filexfer.mineEmpty')) + '</p>';
                 return;
             }
             list.innerHTML = rows.map(function (row) {
                 return '<div class="fx-pass-card" data-fx-id="' + esc(row.id) + '">' +
                     '<div class="fx-pass-card-top">' +
-                        '<div class="fx-code" style="font-size:18px;">' + esc(displayCode(row.pass_code)) + '</div>' +
-                        '<button type="button" class="ct-btn ct-btn-ghost ct-btn-sm fx-del">' +
+                        '<div class="fx-code fx-code-sm">' + esc(displayCode(row.pass_code)) + '</div>' +
+                        '<button type="button" class="fx-btn fx-btn-ghost fx-del">' +
                             esc(trKey('filexfer.delete')) + '</button>' +
                     '</div>' +
                     '<div class="fx-pass-name">' + esc(row.file_name || '') + '</div>' +
@@ -1036,6 +1173,41 @@ var FILEXFER = (function () {
         return attempt();
     }
 
+    function savePass(code, file, note, destId, destLabel, onPct) {
+        var path = '';
+        return uploadFile(code, file, onPct).then(function (storedPath) {
+            path = storedPath;
+            var row = {
+                pass_code: code,
+                file_name: file.name,
+                file_size: file.size,
+                mime_type: file.type || null,
+                storage_path: path,
+                note: note || null,
+                from_clinic_id: myClinicId() || null,
+                from_clinic_label: myClinicLabel(),
+                to_clinic_id: destId || null,
+                to_clinic_label: destId ? (destLabel || clinicLabelById(destId) || null) : null,
+                created_by: senderName() || null,
+                expires_at: new Date(Date.now() + EXPIRE_MS).toISOString()
+            };
+            return SB.from(TABLE).insert(row).select('id,pass_code,expires_at,file_name').single()
+                .then(function (ins) {
+                    if (ins.error) throw ins.error;
+                    if (ins.data) {
+                        row.id = ins.data.id;
+                        if (ins.data.expires_at) row.expires_at = ins.data.expires_at;
+                    }
+                    return row;
+                });
+        }).catch(function (err) {
+            if (path) {
+                try { SB.storage.from(BUCKET).remove([path]); } catch (e) {}
+            }
+            throw err;
+        });
+    }
+
     function doDirectSend() {
         if (!isLoggedIn()) return status(trKey('filexfer.needLogin'), 'bad');
         if (!chosenFile) return status(trKey('filexfer.needFile'), 'bad');
@@ -1077,41 +1249,13 @@ var FILEXFER = (function () {
         setProgress(1);
         status(trReplKey('filexfer.sending', { PCT: '1' }), 'work');
 
-        var code = '';
-        var path = '';
-        uniqueCode().then(function (c) {
-            code = c;
-            return uploadFile(c, chosenFile, function (pct, phase) {
+        uniqueCode().then(function (code) {
+            status(trKey('filexfer.savingCode'), 'work');
+            return savePass(code, chosenFile, note, destId, destId ? (clinicLabelById(destId) || '') : '', function (pct, phase) {
                 setProgress(pct);
                 if (phase === 'finalize') status(trKey('filexfer.finalizing'), 'work');
                 else status(trReplKey('filexfer.sending', { PCT: String(pct) }), 'work');
             });
-        }).then(function (storedPath) {
-            path = storedPath;
-            status(trKey('filexfer.savingCode'), 'work');
-            var row = {
-                pass_code: code,
-                file_name: chosenFile.name,
-                file_size: chosenFile.size,
-                mime_type: chosenFile.type || null,
-                storage_path: path,
-                note: note || null,
-                from_clinic_id: myClinicId() || null,
-                from_clinic_label: myClinicLabel(),
-                to_clinic_id: destId || null,
-                to_clinic_label: destId ? (clinicLabelById(destId) || null) : null,
-                created_by: senderName() || null,
-                expires_at: new Date(Date.now() + EXPIRE_MS).toISOString()
-            };
-            return SB.from(TABLE).insert(row).select('id,pass_code,expires_at,file_name').single()
-                .then(function (ins) {
-                    if (ins.error) throw ins.error;
-                    if (ins.data) {
-                        row.id = ins.data.id;
-                        if (ins.data.expires_at) row.expires_at = ins.data.expires_at;
-                    }
-                    return row;
-                });
         }).then(function (row) {
             lastCreated = row;
             chosenFile = null;
@@ -1123,12 +1267,55 @@ var FILEXFER = (function () {
             status(isMissingTable(err)
                 ? trKey('filexfer.setup')
                 : trReplKey('filexfer.fail', { MSG: (err && err.message) || String(err) }), 'bad');
-            if (path) {
-                try { SB.storage.from(BUCKET).remove([path]); } catch (e) {}
-            }
         }).then(function () {
             if (btn) btn.disabled = false;
         });
+    }
+
+    function pollForPass(code) {
+        if (!code || live.pollStarted) return;
+        live.pollStarted = true;
+        var n = 0;
+        function tick() {
+            n += 1;
+            if (typeof SB === 'undefined' || !SB.from) {
+                stopLive({ silent: true });
+                status(trKey('filexfer.setup'), 'bad');
+                return;
+            }
+            SB.from(TABLE).select('*').eq('pass_code', code).maybeSingle().then(function (r) {
+                if (r.error) {
+                    if (isMissingTable(r.error) || n >= 150) {
+                        stopLive({ silent: true });
+                        status(isMissingTable(r.error)
+                            ? trKey('filexfer.setup')
+                            : trReplKey('filexfer.fail', { MSG: r.error.message }), 'bad');
+                        return;
+                    }
+                } else if (r.data) {
+                    var row = r.data;
+                    stopLive({ silent: true });
+                    if (new Date(row.expires_at).getTime() <= Date.now()) {
+                        return status(trKey('filexfer.expired'), 'bad');
+                    }
+                    if (row.to_clinic_id && myClinicId() && String(row.to_clinic_id) !== myClinicId()) {
+                        return status(trReplKey('filexfer.wrongClinic', {
+                            CLINIC: row.to_clinic_label || clinicLabelById(row.to_clinic_id) || row.to_clinic_id
+                        }), 'bad');
+                    }
+                    status('', '');
+                    renderFound(row);
+                    return;
+                }
+                if (n >= 150) {
+                    stopLive({ silent: true });
+                    status(trKey('filexfer.notFound'), 'bad');
+                    return;
+                }
+                live.lookTimer = setTimeout(tick, 2000);
+            });
+        }
+        tick();
     }
 
     function storageLookup(code) {
@@ -1161,7 +1348,7 @@ var FILEXFER = (function () {
     function doLookup() {
         if (!isLoggedIn()) return status(trKey('filexfer.needLogin'), 'bad');
         var code = normalizeCode(gg('fx_in_code') && gg('fx_in_code').value);
-        if (code.length < 6) return status(trKey('filexfer.notFound'), 'bad');
+        if (code.length < CODE_LEN) return status(trKey('filexfer.notFound'), 'bad');
         if (live.role) stopLive({ silent: true });
         if (!hasWebrtc() || typeof SB === 'undefined' || !SB.channel) {
             storageLookup(code);

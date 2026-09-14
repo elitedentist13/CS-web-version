@@ -12,9 +12,9 @@ var FILEXFER = (function () {
     var EXPIRE_MS = 3 * 24 * 60 * 60 * 1000;
     var CODE_ALPH = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
     var CODE_LEN = 4;
-    var LIVE_CHUNK = 256 * 1024;
-    var LIVE_BUF_HIGH = 16 * 1024 * 1024;
-    var LIVE_BUF_LOW = 2 * 1024 * 1024;
+    var LIVE_CHUNK = 64 * 1024;
+    var LIVE_BUF_HIGH = 4 * 1024 * 1024;
+    var LIVE_BUF_LOW = 512 * 1024;
     var PART_SIZE = 8 * 1024 * 1024;
     var PART_CONCUR = 4;
     var ICE_SERVERS = [
@@ -49,6 +49,8 @@ var FILEXFER = (function () {
             readyTimer: null,
             lookTimer: null,
             iceTimer: null,
+            failTimer: null,
+            lastPct: -1,
             restarted: false,
             fallingBack: false,
             pollStarted: false,
@@ -169,6 +171,7 @@ var FILEXFER = (function () {
         if (prev.readyTimer) clearInterval(prev.readyTimer);
         if (prev.lookTimer) clearTimeout(prev.lookTimer);
         if (prev.iceTimer) clearTimeout(prev.iceTimer);
+        if (prev.failTimer) clearTimeout(prev.failTimer);
         try { if (prev.dc) prev.dc.close(); } catch (e) {}
         try { if (prev.pc) prev.pc.close(); } catch (e2) {}
         if (prev.channel && typeof SB !== 'undefined' && SB.removeChannel) {
@@ -218,11 +221,32 @@ var FILEXFER = (function () {
         live.pendingIce = [];
     }
 
+    function channelOpen() {
+        return !!(live.dc && live.dc.readyState === 'open');
+    }
+    function transferInFlight() {
+        if (live.done || live.fallingBack || live.closed) return false;
+        if (!channelOpen()) return false;
+        if (live.role === 'send') return !!live.file;
+        return live.received > 0 || !!(live.meta && live.meta.size);
+    }
+    function noteLivePct(pct, sending) {
+        pct = Math.max(0, Math.min(100, pct || 0));
+        if (pct !== 100 && pct < live.lastPct + 1 && pct !== 0) return;
+        live.lastPct = pct;
+        setProgress(pct);
+        status(trReplKey(sending ? 'filexfer.liveSending' : 'filexfer.liveReceiving', {
+            PCT: String(pct)
+        }), 'work');
+    }
+
     function onIceState() {
         if (!live.pc) return;
         var ice = live.pc.iceConnectionState;
         var conn = live.pc.connectionState;
-        if (ice === 'failed' || conn === 'failed') onPeerFailed();
+        if (ice !== 'failed' && conn !== 'failed') return;
+        if (transferInFlight()) return;
+        schedulePeerFail('ice:' + ice + '/' + conn);
     }
 
     function armIceWatch() {
@@ -230,15 +254,22 @@ var FILEXFER = (function () {
         live.iceTimer = setTimeout(function () {
             live.iceTimer = null;
             if (live.done || live.fallingBack || live.closed) return;
-            if (live.dc && live.dc.readyState === 'open') return;
-            onPeerFailed();
+            if (channelOpen()) return;
+            onPeerFailed('ice-watch');
         }, ICE_WATCH_MS);
     }
-
-    function closePeerOnly() {
+    function clearIceWatch() {
         if (live.iceTimer) {
             clearTimeout(live.iceTimer);
             live.iceTimer = null;
+        }
+    }
+
+    function closePeerOnly() {
+        clearIceWatch();
+        if (live.failTimer) {
+            clearTimeout(live.failTimer);
+            live.failTimer = null;
         }
         try { if (live.dc) live.dc.close(); } catch (e) {}
         try { if (live.pc) live.pc.close(); } catch (e2) {}
@@ -260,9 +291,20 @@ var FILEXFER = (function () {
         }).catch(function () { return false; });
     }
 
-    function onPeerFailed() {
+    function schedulePeerFail(why) {
+        if (live.done || live.fallingBack || live.closed || live.failTimer) return;
+        if (transferInFlight()) return;
+        live.failTimer = setTimeout(function () {
+            live.failTimer = null;
+            if (transferInFlight()) return;
+            onPeerFailed(why);
+        }, 1200);
+    }
+
+    function onPeerFailed(why) {
         if (live.done || live.fallingBack || live.closed) return;
-        if (!live.restarted && live.pc) {
+        if (transferInFlight()) return;
+        if (!live.restarted && live.pc && !channelOpen()) {
             live.restarted = true;
             if (live.role === 'send') {
                 restartIce().then(function (ok) {
@@ -272,6 +314,9 @@ var FILEXFER = (function () {
             }
             status(trKey('filexfer.liveConnecting'), 'work');
             return;
+        }
+        if (why) {
+            try { console.warn('[FILEXFER] peer failed', why, live.role); } catch (e) {}
         }
         fallbackFromLive();
     }
@@ -324,11 +369,15 @@ var FILEXFER = (function () {
         dc.binaryType = 'arraybuffer';
         dc.bufferedAmountLowThreshold = LIVE_BUF_LOW;
         dc.onopen = function () {
+            clearIceWatch();
             status(trReplKey('filexfer.liveSending', { PCT: '0' }), 'work');
             sendLiveFile();
         };
         dc.onerror = function () {
-            if (!live.done) onPeerFailed();
+            if (!live.done) schedulePeerFail('send-dc-error');
+        };
+        dc.onclose = function () {
+            if (!live.done) schedulePeerFail('send-dc-close');
         };
     }
 
@@ -365,14 +414,13 @@ var FILEXFER = (function () {
             slice.arrayBuffer().then(function (buf) {
                 if (live.closed || !live.dc || live.dc.readyState !== 'open') return;
                 try { dc.send(buf); } catch (e) {
-                    onPeerFailed();
+                    schedulePeerFail('send-chunk');
                     return;
                 }
                 offset += buf.byteLength;
-                var pct = Math.round((offset / file.size) * 100);
-                setProgress(pct);
-                status(trReplKey('filexfer.liveSending', { PCT: String(pct) }), 'work');
-                pump();
+                noteLivePct(Math.round((offset / file.size) * 100), true);
+                if (dc.bufferedAmount > LIVE_BUF_HIGH / 2) setTimeout(pump, 0);
+                else pump();
             });
         }
         pump();
@@ -381,12 +429,17 @@ var FILEXFER = (function () {
     function wireRecvChannel(dc) {
         live.dc = dc;
         dc.binaryType = 'arraybuffer';
+        dc.onopen = function () { clearIceWatch(); };
         dc.onmessage = function (ev) {
             handleLiveMessage(ev.data);
         };
         dc.onerror = function () {
-            if (!live.done) onPeerFailed();
+            if (!live.done) schedulePeerFail('recv-dc-error');
         };
+        dc.onclose = function () {
+            if (!live.done) schedulePeerFail('recv-dc-close');
+        };
+        if (dc.readyState === 'open') clearIceWatch();
     }
 
     function handleLiveMessage(data) {
@@ -397,9 +450,10 @@ var FILEXFER = (function () {
                 live.meta = msg;
                 live.expected = Number(msg.size) || 0;
                 live.received = 0;
+                live.lastPct = -1;
                 live.chunks = [];
                 renderLiveRecvCard();
-                status(trReplKey('filexfer.liveReceiving', { PCT: '0' }), 'work');
+                noteLivePct(0, false);
                 return;
             }
             if (msg.t === 'end') {
@@ -408,11 +462,10 @@ var FILEXFER = (function () {
             return;
         }
         function takeBuf(buf) {
+            if (!buf) return;
             live.chunks.push(buf);
-            live.received += buf.byteLength;
-            var pct = live.expected ? Math.round((live.received / live.expected) * 100) : 0;
-            setProgress(pct);
-            status(trReplKey('filexfer.liveReceiving', { PCT: String(pct) }), 'work');
+            live.received += buf.byteLength || 0;
+            noteLivePct(live.expected ? Math.round((live.received / live.expected) * 100) : 0, false);
         }
         if (data instanceof Blob) {
             data.arrayBuffer().then(takeBuf);
@@ -525,17 +578,18 @@ var FILEXFER = (function () {
         }
         if (msg.t === 'hello' && live.role === 'send' && !live.pc && !live.fallingBack) {
             status(trKey('filexfer.liveConnecting'), 'work');
-            createSenderPc().catch(function () { onPeerFailed(); });
+            createSenderPc().catch(function () { onPeerFailed('offer'); });
             return;
         }
         if (msg.t === 'offer' && live.role === 'recv' && msg.sdp && !live.fallingBack) {
-            acceptOffer(msg.sdp).catch(function () { onPeerFailed(); });
+            if (channelOpen() || transferInFlight()) return;
+            acceptOffer(msg.sdp).catch(function () { onPeerFailed('answer'); });
             return;
         }
         if (msg.t === 'answer' && live.role === 'send' && live.pc && msg.sdp) {
             live.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp))
                 .then(flushPendingIce)
-                .catch(function () { onPeerFailed(); });
+                .catch(function () { onPeerFailed('remote-sdp'); });
             return;
         }
         if (msg.t === 'stored' && live.role === 'recv' && !live.done) {

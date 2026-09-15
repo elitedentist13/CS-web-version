@@ -216,6 +216,11 @@ var plusApptTransferHistoryCacheKey = '';
 /** After save/edit: select this appointment row once day data reloads. */
 var plusApptPendingSelectApptId = null;
 var plusApptDayLoadSeq = 0;
+/** Pinned + Appointment timeline scroll (time area) across edit → auto-refresh. */
+var plusApptScrollMem = null;
+var plusApptScrollRestoring = false;
+var plusApptScrollRestoreGen = 0;
+var PLUSAPPT_SCROLL_MEM_TTL_MS = 180000;
 var todayLoadSeq = 0;
 var plusApptRemarksLinesCache = {};
 var apptUnpaidByPatientId = {};
@@ -3285,10 +3290,23 @@ function apptModuleBindEditPauseOnce() {
     ['plusappt', 'today', 'calendar'].forEach(function(tabKey) {
         var tab = apptModuleTabEl(tabKey);
         if (!tab) return;
-        tab.addEventListener('focusin', function() {
+        tab.addEventListener('focusin', function(ev) {
             if (apptEditEndTimer) {
                 clearTimeout(apptEditEndTimer);
                 apptEditEndTimer = null;
+            }
+            if (tabKey === 'plusappt' && typeof plusApptCaptureScheduleScroll === 'function') {
+                var slotRow = ev.target && ev.target.closest
+                    ? ev.target.closest('tr.plusappt-slot-row')
+                    : null;
+                if (slotRow) {
+                    plusApptCaptureScheduleScroll({
+                        force: true,
+                        pin: true,
+                        slotTime: slotRow.getAttribute('data-slot-time') || '',
+                        apptId: slotRow.getAttribute('data-appt-id') || ''
+                    });
+                }
             }
         }, true);
         tab.addEventListener('focusout', function() {
@@ -6179,22 +6197,231 @@ function renderPlusApptAllDoctorsBoard() {
     });
 }
 
+function plusApptScheduleScrollWraps() {
+    var out = [];
+    if (typeof plusApptIsAllDoctorsMode === 'function' && plusApptIsAllDoctorsMode()) {
+        var all = g('plusApptAllScroll');
+        if (all) {
+            Array.prototype.forEach.call(all.querySelectorAll('.plusappt-schedule-wrap'), function(el) {
+                out.push(el);
+            });
+        }
+    } else {
+        var single = document.querySelector('#plusApptSingleView .plusappt-schedule-wrap');
+        if (single) out.push(single);
+    }
+    return out;
+}
+
+function plusApptSlotFromScrollWrap(wrap) {
+    if (!wrap) return '';
+    var rows = wrap.querySelectorAll('tr.plusappt-slot-row[data-slot-time]');
+    if (!rows.length) return '';
+    var wrapRect = wrap.getBoundingClientRect();
+    var head = wrap.querySelector('thead');
+    var headH = head ? head.offsetHeight : 0;
+    var targetY = wrapRect.top + headH + 6;
+    var best = '';
+    var bestDist = Infinity;
+    var i;
+    for (i = 0; i < rows.length; i++) {
+        var r = rows[i].getBoundingClientRect();
+        if (r.bottom < wrapRect.top || r.top > wrapRect.bottom) continue;
+        if (r.top <= targetY && r.bottom > targetY) {
+            return rows[i].getAttribute('data-slot-time') || '';
+        }
+        var dist = Math.abs(r.top - targetY);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = rows[i].getAttribute('data-slot-time') || '';
+        }
+    }
+    return best;
+}
+
+function plusApptSlotAnchorOffset(wrap, slotTime) {
+    if (!wrap || !slotTime) return null;
+    var row = wrap.querySelector('tr.plusappt-slot-row[data-slot-time="' + plusApptNormTime(slotTime) + '"]');
+    if (!row) return null;
+    var wrapRect = wrap.getBoundingClientRect();
+    var rowRect = row.getBoundingClientRect();
+    return rowRect.top - wrapRect.top;
+}
+
+function plusApptScrollMemHasOffset(mem) {
+    if (!mem) return false;
+    if ((mem.wrapTop || 0) > 0 || (mem.allLeft || 0) > 0) return true;
+    if (mem.slotTime && plusApptTimeToMin(mem.slotTime) >= (13 * 60 + 30)) return true;
+    var cols = mem.colTops || {};
+    var keys = Object.keys(cols);
+    var i;
+    for (i = 0; i < keys.length; i++) {
+        if ((cols[keys[i]].top || 0) > 0 || (cols[keys[i]].left || 0) > 0) return true;
+    }
+    return false;
+}
+
+function plusApptWrapLooksCollapsed(wrap) {
+    if (!wrap) return true;
+    if ((wrap.scrollTop || 0) > 8) return false;
+    var sh = wrap.scrollHeight || 0;
+    var ch = wrap.clientHeight || 0;
+    return sh <= Math.max(ch, 80) + 24;
+}
+
+function plusApptClearScheduleScrollMem() {
+    plusApptScrollMem = null;
+    plusApptScrollRestoreGen++;
+    plusApptScrollRestoring = false;
+}
+
+function plusApptCaptureScheduleScroll(opts) {
+    opts = opts || {};
+    if (plusApptScrollRestoring && !opts.force) return plusApptScrollMem;
+    var prev = plusApptScrollMem;
+    var prevFresh = prev && (Date.now() - (prev.ts || 0)) < PLUSAPPT_SCROLL_MEM_TTL_MS;
+    if (!opts.force && prevFresh && prev.pinned) return prev;
+
+    var wraps = plusApptScheduleScrollWraps();
+    var colTops = {};
+    var maxTop = 0;
+    wraps.forEach(function(el) {
+        var top = el.scrollTop || 0;
+        var left = el.scrollLeft || 0;
+        var col = el.closest ? el.closest('.plusappt-dr-col') : null;
+        var code = col ? String(col.getAttribute('data-doctor-code') || '') : '';
+        if (code) colTops[code] = { top: top, left: left };
+        if (top > maxTop) maxTop = top;
+    });
+    var allEl = g('plusApptAllScroll');
+    var allLeft = allEl ? (allEl.scrollLeft || 0) : 0;
+    var primary = wraps[0] || null;
+    var slot = opts.slotTime ? plusApptNormTime(opts.slotTime) : '';
+    if (!slot && primary) slot = plusApptSlotFromScrollWrap(primary);
+    var apptId = opts.apptId
+        ? String(opts.apptId)
+        : (plusApptSelectedAppt && plusApptSelectedAppt.id ? String(plusApptSelectedAppt.id) : '');
+    var anchor = (slot && primary) ? plusApptSlotAnchorOffset(primary, slot) : null;
+    var next = {
+        ts: Date.now(),
+        wrapTop: primary ? (primary.scrollTop || 0) : 0,
+        wrapLeft: primary ? (primary.scrollLeft || 0) : 0,
+        allLeft: allLeft,
+        colTops: colTops,
+        slotTime: slot,
+        slotAnchorOffset: (anchor != null) ? anchor : (prev && prev.slotAnchorOffset),
+        apptId: apptId,
+        winY: window.pageYOffset || document.documentElement.scrollTop || 0,
+        pinned: !!opts.pin || (!!prevFresh && prev.pinned)
+    };
+    var nextHas = plusApptScrollMemHasOffset(next) || next.wrapTop > 0 || maxTop > 0;
+    var collapsed = !primary || plusApptWrapLooksCollapsed(primary);
+    if (!opts.force && prevFresh && plusApptScrollMemHasOffset(prev) && (collapsed || !nextHas)) {
+        return prev;
+    }
+    plusApptScrollMem = next;
+    return plusApptScrollMem;
+}
+
+function plusApptFindSlotRow(wrap, slotTime) {
+    if (!wrap || !slotTime) return null;
+    var want = plusApptNormTime(slotTime);
+    var exact = wrap.querySelector('tr.plusappt-slot-row[data-slot-time="' + want + '"]');
+    if (exact) return exact;
+    var rows = wrap.querySelectorAll('tr.plusappt-slot-row[data-slot-time]');
+    var wantMin = plusApptTimeToMin(want);
+    var best = null;
+    var bestDiff = Infinity;
+    var i;
+    for (i = 0; i < rows.length; i++) {
+        var st = rows[i].getAttribute('data-slot-time') || '';
+        var diff = Math.abs(plusApptTimeToMin(st) - wantMin);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            best = rows[i];
+        }
+    }
+    return best;
+}
+
+function plusApptApplyScrollToWrap(wrap, mem, colMem) {
+    if (!wrap || !mem) return;
+    var top = colMem && colMem.top != null ? colMem.top : mem.wrapTop;
+    var left = colMem && colMem.left != null ? colMem.left : mem.wrapLeft;
+    var head = wrap.querySelector('thead');
+    var headH = head ? head.offsetHeight : 0;
+    var row = plusApptFindSlotRow(wrap, mem.slotTime);
+    if (row) {
+        var wrapRect = wrap.getBoundingClientRect();
+        var rowRect = row.getBoundingClientRect();
+        var anchor = (mem.slotAnchorOffset != null) ? mem.slotAnchorOffset : headH;
+        wrap.scrollTop = Math.max(0, wrap.scrollTop + (rowRect.top - wrapRect.top) - anchor);
+    } else if (top != null) {
+        wrap.scrollTop = top;
+    }
+    if (left != null) wrap.scrollLeft = left;
+}
+
+function plusApptRestoreScheduleScroll() {
+    var mem = plusApptScrollMem;
+    if (!mem) return;
+    if ((Date.now() - (mem.ts || 0)) > PLUSAPPT_SCROLL_MEM_TTL_MS) return;
+    if (mem.winY) {
+        window.scrollTo(0, mem.winY);
+    }
+    var allEl = g('plusApptAllScroll');
+    if (allEl && mem.allLeft != null) allEl.scrollLeft = mem.allLeft;
+    plusApptScheduleScrollWraps().forEach(function(el) {
+        var col = el.closest ? el.closest('.plusappt-dr-col') : null;
+        var code = col ? String(col.getAttribute('data-doctor-code') || '') : '';
+        var colMem = (mem.colTops && code) ? mem.colTops[code] : null;
+        plusApptApplyScrollToWrap(el, mem, colMem);
+    });
+}
+
+function plusApptScheduleRestoreAfterRender() {
+    if (!plusApptScrollMem) return;
+    var gen = ++plusApptScrollRestoreGen;
+    plusApptScrollRestoring = true;
+    function run(unpin) {
+        if (gen !== plusApptScrollRestoreGen) return;
+        plusApptRestoreScheduleScroll();
+        if (unpin) {
+            plusApptScrollRestoring = false;
+            if (plusApptScrollMem) plusApptScrollMem.pinned = false;
+        }
+    }
+    run(false);
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function() {
+            run(false);
+            requestAnimationFrame(function() { run(false); });
+        });
+    }
+    [50, 160, 360, 700].forEach(function(ms) {
+        setTimeout(function() { run(ms === 700); }, ms);
+    });
+}
+
 function renderPlusApptSchedule(force) {
     if (!force && apptModuleEditPaused('plusappt')) {
         apptModuleMarkRefreshDeferred('plusappt');
         return;
     }
+    plusApptCaptureScheduleScroll();
     plusApptApplyScheduleLayout();
     plusApptToggleScheduleViews();
     if (plusApptIsAllDoctorsMode()) {
         renderPlusApptAllDoctorsBoard();
         apptRefreshPatientCountBadge('plusappt');
+        plusApptScheduleRestoreAfterRender();
         return;
     }
     var tb = g('plusApptScheduleBody');
     if (!tb) return;
     fillPlusApptScheduleTbody(tb, plusApptActiveDoctorCode);
     apptRefreshPatientCountBadge('plusappt');
+    plusApptScheduleRestoreAfterRender();
 }
 
 function renderPlusApptMiniCal() {
@@ -6263,6 +6490,7 @@ function renderPlusApptMiniCal() {
 }
 
 function plusApptSetDate(iso) {
+    plusApptClearScheduleScrollMem();
     plusApptSaveUiState();
     syncApptPlannerDate(iso, { syncCal: true });
     plusApptClearSelection(true);
@@ -6277,6 +6505,7 @@ function loadPlusApptDay(opts) {
         opts.soft = true;
     }
     if (!plusApptDate) plusApptDate = todayISO();
+    plusApptCaptureScheduleScroll();
     var savedScroll = apptSavedScrollSnapshot(opts);
     var loadSeq = ++plusApptDayLoadSeq;
     plusApptSyncDateLabel();
@@ -6335,6 +6564,7 @@ function loadPlusApptDay(opts) {
                     if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
                         renderPlusApptSchedule();
                         plusApptFinishDayLoadSelection();
+                        plusApptScheduleRestoreAfterRender();
                     }
                 });
             });
@@ -12241,6 +12471,14 @@ function openApptModal(prefillDate) {
 
 function openApptEditModal(appt) {
     appt = apptResolveForEdit(appt);
+    if (typeof plusApptCaptureScheduleScroll === 'function') {
+        plusApptCaptureScheduleScroll({
+            force: true,
+            pin: true,
+            slotTime: appt && appt.start_time,
+            apptId: appt && appt.id
+        });
+    }
     resetApptBookingGuards();
     ensureModalNoBackdropClose('apptModal');
     apptEditLockRef = appt;
@@ -14343,6 +14581,15 @@ function setQueueRemarksApptHint(q) {
 
 function openQueueRemarksEditor(q) {
     if (!q || !q.id) return;
+    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt' &&
+        typeof plusApptCaptureScheduleScroll === 'function') {
+        plusApptCaptureScheduleScroll({
+            force: true,
+            pin: true,
+            slotTime: q.start_time,
+            apptId: q.id
+        });
+    }
     bindQueueRemarksModalOnce();
 
     queueRemarksEditApptId = q.id;
@@ -14506,6 +14753,19 @@ function apptShouldPreserveScroll(opts) {
 var _apptLiveScrollState = null;
 var _apptLiveScrollBound = false;
 
+function apptScrollStateHasOffset(state) {
+    if (!state) return false;
+    if ((state.winY || 0) > 0) return true;
+    var els = state.els || {};
+    var keys = Object.keys(els);
+    var i;
+    for (i = 0; i < keys.length; i++) {
+        var pos = els[keys[i]];
+        if (pos && ((pos.top || 0) > 0 || (pos.left || 0) > 0)) return true;
+    }
+    return false;
+}
+
 function apptBindLiveScrollTrackOnce() {
     if (_apptLiveScrollBound) return;
     _apptLiveScrollBound = true;
@@ -14514,17 +14774,21 @@ function apptBindLiveScrollTrackOnce() {
         if (typeof captureAppScrollState === 'function') {
             _apptLiveScrollState = captureAppScrollState();
         }
+        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt' &&
+            typeof plusApptCaptureScheduleScroll === 'function') {
+            plusApptCaptureScheduleScroll();
+        }
     }, true);
 }
 
 function apptSavedScrollSnapshot(opts) {
     if (!apptShouldPreserveScroll(opts)) return null;
-    if (_apptLiveScrollState && _apptLiveScrollState.winY > 0) return _apptLiveScrollState;
+    if (apptScrollStateHasOffset(_apptLiveScrollState)) return _apptLiveScrollState;
     var live = (typeof captureAppScrollState === 'function') ? captureAppScrollState() : null;
-    if (live && live.winY > 0) return live;
+    if (apptScrollStateHasOffset(live)) return live;
     if (typeof readAppScrollRestorePayload === 'function') {
         var payload = readAppScrollRestorePayload();
-        if (payload && payload.scroll && payload.scroll.winY > 0) return payload.scroll;
+        if (payload && payload.scroll && apptScrollStateHasOffset(payload.scroll)) return payload.scroll;
     }
     return live || _apptLiveScrollState;
 }

@@ -221,6 +221,9 @@ var plusApptScrollMem = null;
 var plusApptScrollRestoring = false;
 var plusApptScrollRestoreGen = 0;
 var PLUSAPPT_SCROLL_MEM_TTL_MS = 180000;
+/** Keep pin long enough to outlast apptFinishScrollPreserve (≤1200ms) + unpaid re-render. */
+var PLUSAPPT_SCROLL_PIN_MS = 3500;
+var plusApptScrollUserUnpinned = false;
 var todayLoadSeq = 0;
 var plusApptRemarksLinesCache = {};
 var apptUnpaidByPatientId = {};
@@ -2403,11 +2406,63 @@ function plusApptResolveRowDragAppt(ev) {
 function plusApptMarkRowDragTransfer(ev, appt) {
     if (!appt || !appt.id) return;
     plusApptDragApptId = appt.id;
+    // Freeze the current timeline viewport for the whole drag → drop → refresh cycle.
+    if (typeof plusApptCaptureScheduleScroll === 'function') {
+        plusApptCaptureScheduleScroll({
+            force: true,
+            pin: true,
+            slotTime: appt.start_time,
+            apptId: appt.id
+        });
+    }
     if (!ev || !ev.dataTransfer) return;
     try {
         ev.dataTransfer.effectAllowed = 'move';
         ev.dataTransfer.setData(PLUSAPPT_ROW_DRAG_TYPE, String(appt.id));
     } catch (_) {}
+}
+
+/** Pin timeline to a slot before move/transfer refresh (destination preferred). */
+function plusApptPinScheduleForMove(slotTime, apptId) {
+    if (typeof plusApptCaptureScheduleScroll !== 'function') return;
+    plusApptScrollUserUnpinned = false;
+    var prev = plusApptScrollMem;
+    var prevTop = prev ? (prev.wrapTop || 0) : 0;
+    var prevAnchor = prev ? prev.slotAnchorOffset : null;
+    var prevLeft = prev ? prev.wrapLeft : 0;
+    var prevAllLeft = prev ? prev.allLeft : 0;
+    var prevCols = prev ? prev.colTops : null;
+    var prevWinY = prev ? prev.winY : 0;
+    plusApptCaptureScheduleScroll({
+        force: true,
+        pin: true,
+        slotTime: slotTime || (prev && prev.slotTime) || '',
+        apptId: apptId || ''
+    });
+    // Drop often happens after drag auto-scroll left the wrap at morning.
+    // Keep the pre-move viewport geometry and only retarget the slot label.
+    if (plusApptScrollMem && prevTop > 40 && (plusApptScrollMem.wrapTop || 0) < 40) {
+        plusApptScrollMem.wrapTop = prevTop;
+        plusApptScrollMem.wrapLeft = prevLeft;
+        plusApptScrollMem.allLeft = prevAllLeft;
+        plusApptScrollMem.colTops = prevCols || plusApptScrollMem.colTops || {};
+        plusApptScrollMem.slotAnchorOffset = prevAnchor;
+        plusApptScrollMem.winY = prevWinY;
+    }
+    if (plusApptScrollMem && slotTime) {
+        plusApptScrollMem.slotTime = plusApptNormTime(slotTime);
+    }
+    if (plusApptScrollMem && typeof plusApptPinScheduleScrollMem === 'function') {
+        plusApptPinScheduleScrollMem(plusApptScrollMem, PLUSAPPT_SCROLL_PIN_MS);
+    }
+}
+
+function plusApptIsRowMoveInteractionActive() {
+    if (plusApptDragApptId) return true;
+    if (plusApptTransferDragActive) return true;
+    if (typeof plusApptTransferDragIsActive === 'function' && plusApptTransferDragIsActive()) return true;
+    if (typeof apptTransferCutIsActive === 'function' && apptTransferCutIsActive()) return true;
+    return false;
 }
 
 function plusApptRestoreDoctorSelection() {
@@ -5064,9 +5119,10 @@ function apptRemoveTransferredSourceRow(oldId, newId, srcRow, done) {
 
 function apptRefreshListsAfterTransfer(oldId) {
     if (oldId) apptPurgeTransferredSourceFromUi(oldId);
-    if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
-    if (typeof loadToday === 'function') loadToday();
-    if (typeof loadQueue === 'function') loadQueue();
+    // Soft + pinned: hard reload was wiping the timeline back to morning after moves.
+    if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData({ soft: true });
+    if (typeof loadToday === 'function') loadToday({ soft: true });
+    if (typeof loadQueue === 'function') loadQueue({ soft: true });
     if (typeof loadApptRecords === 'function') loadApptRecords();
 }
 
@@ -5166,6 +5222,10 @@ function plusApptFinishTransferCutPaste(snap, targetPayload) {
                 : targetPayload.date),
             TIME: fmt12(targetPayload.start_time)
         }));
+        if (typeof plusApptPinScheduleForMove === 'function') {
+            plusApptPinScheduleForMove(targetPayload && targetPayload.start_time, newId);
+        }
+        if (newId) plusApptPendingSelectApptId = String(newId);
         apptRefreshListsAfterTransfer(oldId);
     });
 }
@@ -6051,11 +6111,17 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                     dragAppt.start_time = newStart;
                     dragAppt.end_time = newEnd;
                     dragAppt.duration = dur;
+                    if (typeof plusApptPinScheduleForMove === 'function') {
+                        plusApptPinScheduleForMove(newStart, dragAppt.id);
+                    }
+                    plusApptPendingSelectApptId = String(dragAppt.id);
                     plusApptSelectApptRow(dragAppt, true, { syncActivePatient: false });
                     apptToast(trRepl('appt.cal.rescheduledToast', { TIME: fmt12(newStart) }));
-                    if (typeof refreshApptPlannerData === 'function') refreshApptPlannerData();
-                    if (typeof loadToday === 'function') loadToday();
-                    if (typeof loadQueue === 'function') loadQueue();
+                    if (typeof refreshApptPlannerData === 'function') {
+                        refreshApptPlannerData({ soft: true });
+                    }
+                    if (typeof loadToday === 'function') loadToday({ soft: true });
+                    if (typeof loadQueue === 'function') loadQueue({ soft: true });
                     if (typeof loadApptRecords === 'function') loadApptRecords();
                 });
                 return;
@@ -6269,10 +6335,46 @@ function plusApptWrapLooksCollapsed(wrap) {
     return sh <= Math.max(ch, 80) + 24;
 }
 
+function plusApptMemIsPinned(mem) {
+    if (!mem) return false;
+    if (mem.pinned) return true;
+    if (mem.pinnedUntil && Date.now() < mem.pinnedUntil) return true;
+    return false;
+}
+
+function plusApptOwnsScheduleScrollRestore() {
+    if (plusApptScrollRestoring) return true;
+    if (!plusApptScrollMem) return false;
+    if ((Date.now() - (plusApptScrollMem.ts || 0)) > PLUSAPPT_SCROLL_MEM_TTL_MS) return false;
+    return plusApptMemIsPinned(plusApptScrollMem) || plusApptScrollMemHasOffset(plusApptScrollMem);
+}
+
+function plusApptStripScheduleFromAppScrollState(state) {
+    if (!state) return state;
+    var out = { winY: state.winY, els: {} };
+    var els = state.els || {};
+    Object.keys(els).forEach(function(key) {
+        if (key.indexOf('plusappt-schedule-wrap') >= 0) return;
+        if (key.indexOf('plusApptAllScroll') >= 0) return;
+        out.els[key] = els[key];
+    });
+    return out;
+}
+
 function plusApptClearScheduleScrollMem() {
     plusApptScrollMem = null;
     plusApptScrollRestoreGen++;
     plusApptScrollRestoring = false;
+    plusApptScrollUserUnpinned = false;
+}
+
+function plusApptPinScheduleScrollMem(mem, ms) {
+    if (!mem) return mem;
+    mem.pinned = true;
+    mem.pinnedUntil = Date.now() + (ms != null ? ms : PLUSAPPT_SCROLL_PIN_MS);
+    mem.ts = Date.now();
+    plusApptScrollUserUnpinned = false;
+    return mem;
 }
 
 function plusApptCaptureScheduleScroll(opts) {
@@ -6280,7 +6382,7 @@ function plusApptCaptureScheduleScroll(opts) {
     if (plusApptScrollRestoring && !opts.force) return plusApptScrollMem;
     var prev = plusApptScrollMem;
     var prevFresh = prev && (Date.now() - (prev.ts || 0)) < PLUSAPPT_SCROLL_MEM_TTL_MS;
-    if (!opts.force && prevFresh && prev.pinned) return prev;
+    if (!opts.force && prevFresh && plusApptMemIsPinned(prev)) return prev;
 
     var wraps = plusApptScheduleScrollWraps();
     var colTops = {};
@@ -6312,11 +6414,22 @@ function plusApptCaptureScheduleScroll(opts) {
         slotAnchorOffset: (anchor != null) ? anchor : (prev && prev.slotAnchorOffset),
         apptId: apptId,
         winY: window.pageYOffset || document.documentElement.scrollTop || 0,
-        pinned: !!opts.pin || (!!prevFresh && prev.pinned)
+        pinned: false,
+        pinnedUntil: 0
     };
+    if (opts.pin) {
+        plusApptPinScheduleScrollMem(next, opts.pinMs);
+    } else if (prevFresh && plusApptMemIsPinned(prev)) {
+        next.pinned = true;
+        next.pinnedUntil = prev.pinnedUntil;
+    }
     var nextHas = plusApptScrollMemHasOffset(next) || next.wrapTop > 0 || maxTop > 0;
     var collapsed = !primary || plusApptWrapLooksCollapsed(primary);
-    if (!opts.force && prevFresh && plusApptScrollMemHasOffset(prev) && (collapsed || !nextHas)) {
+    var morningish = (next.wrapTop || 0) < 40 &&
+        (!next.slotTime || plusApptTimeToMin(next.slotTime) < (13 * 60 + 30));
+    // Never let a mid-refresh morning capture replace a known afternoon/pinned position.
+    if (!opts.force && prevFresh && plusApptScrollMemHasOffset(prev) &&
+        (collapsed || !nextHas || morningish)) {
         return prev;
     }
     plusApptScrollMem = next;
@@ -6354,7 +6467,14 @@ function plusApptApplyScrollToWrap(wrap, mem, colMem) {
     if (row) {
         var wrapRect = wrap.getBoundingClientRect();
         var rowRect = row.getBoundingClientRect();
-        var anchor = (mem.slotAnchorOffset != null) ? mem.slotAnchorOffset : headH;
+        // Morningish stored wrapTop + a real slot target → bring the slot to the header
+        // instead of applying a no-op (common after drag auto-scroll to top).
+        var anchor;
+        if ((mem.wrapTop || 0) < 40 && mem.slotTime) {
+            anchor = headH + 6;
+        } else {
+            anchor = (mem.slotAnchorOffset != null) ? mem.slotAnchorOffset : headH;
+        }
         wrap.scrollTop = Math.max(0, wrap.scrollTop + (rowRect.top - wrapRect.top) - anchor);
     } else if (top != null) {
         wrap.scrollTop = top;
@@ -6381,15 +6501,15 @@ function plusApptRestoreScheduleScroll() {
 
 function plusApptScheduleRestoreAfterRender() {
     if (!plusApptScrollMem) return;
+    // Kill competing app-level restores that would write morning into .plusappt-schedule-wrap.
+    if (typeof cancelAppScrollRestore === 'function') cancelAppScrollRestore();
     var gen = ++plusApptScrollRestoreGen;
     plusApptScrollRestoring = true;
-    function run(unpin) {
+    plusApptPinScheduleScrollMem(plusApptScrollMem, PLUSAPPT_SCROLL_PIN_MS);
+    function run(done) {
         if (gen !== plusApptScrollRestoreGen) return;
         plusApptRestoreScheduleScroll();
-        if (unpin) {
-            plusApptScrollRestoring = false;
-            if (plusApptScrollMem) plusApptScrollMem.pinned = false;
-        }
+        if (done) plusApptScrollRestoring = false;
     }
     run(false);
     if (typeof requestAnimationFrame === 'function') {
@@ -6398,8 +6518,9 @@ function plusApptScheduleRestoreAfterRender() {
             requestAnimationFrame(function() { run(false); });
         });
     }
-    [50, 160, 360, 700].forEach(function(ms) {
-        setTimeout(function() { run(ms === 700); }, ms);
+    // Pulse past apptFinishScrollPreserve's 1200ms window and unpaid re-render.
+    [40, 120, 280, 550, 900, 1400, 2200, 3200].forEach(function(ms, idx, arr) {
+        setTimeout(function() { run(idx === arr.length - 1); }, ms);
     });
 }
 
@@ -6562,6 +6683,10 @@ function loadPlusApptDay(opts) {
                     if (!changed) return;
                     if (loadSeq !== plusApptDayLoadSeq) return;
                     if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
+                        // Keep the edit-time pin across the unpaid badge re-render.
+                        if (plusApptScrollMem && typeof plusApptPinScheduleScrollMem === 'function') {
+                            plusApptPinScheduleScrollMem(plusApptScrollMem, PLUSAPPT_SCROLL_PIN_MS);
+                        }
                         renderPlusApptSchedule();
                         plusApptFinishDayLoadSelection();
                         plusApptScheduleRestoreAfterRender();
@@ -14769,15 +14894,50 @@ function apptScrollStateHasOffset(state) {
 function apptBindLiveScrollTrackOnce() {
     if (_apptLiveScrollBound) return;
     _apptLiveScrollBound = true;
-    window.addEventListener('scroll', function() {
+
+    function plusApptOnUserScrollGesture(ev) {
+        if (typeof apptActiveTabKey !== 'function' || apptActiveTabKey() !== 'plusappt') return;
+        if (plusApptScrollRestoring) return;
+        // Drag auto-scroll must NOT clear the pin — that was snapping moved rows to morning.
+        if (typeof plusApptIsRowMoveInteractionActive === 'function' &&
+            plusApptIsRowMoveInteractionActive()) {
+            return;
+        }
+        var t = ev && ev.target;
+        var onWrap = !!(t && t.closest && t.closest('.plusappt-schedule-wrap, #plusApptAllScroll'));
+        if (!onWrap) return;
+        if (plusApptScrollMem && typeof plusApptMemIsPinned === 'function' &&
+            plusApptMemIsPinned(plusApptScrollMem)) {
+            plusApptScrollMem.pinned = false;
+            plusApptScrollMem.pinnedUntil = 0;
+            plusApptScrollUserUnpinned = true;
+        }
+        if (typeof plusApptCaptureScheduleScroll === 'function') {
+            plusApptCaptureScheduleScroll({ force: true });
+        }
+    }
+
+    window.addEventListener('wheel', plusApptOnUserScrollGesture, { passive: true, capture: true });
+    window.addEventListener('touchmove', plusApptOnUserScrollGesture, { passive: true, capture: true });
+
+    window.addEventListener('scroll', function(ev) {
         if (typeof apptSectionIsActive === 'function' && !apptSectionIsActive()) return;
         if (typeof captureAppScrollState === 'function') {
             _apptLiveScrollState = captureAppScrollState();
         }
-        if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt' &&
-            typeof plusApptCaptureScheduleScroll === 'function') {
-            plusApptCaptureScheduleScroll();
+        if (typeof apptActiveTabKey !== 'function' || apptActiveTabKey() !== 'plusappt') return;
+        if (typeof plusApptCaptureScheduleScroll !== 'function') return;
+        if (plusApptScrollRestoring) return;
+        if (typeof plusApptIsRowMoveInteractionActive === 'function' &&
+            plusApptIsRowMoveInteractionActive()) {
+            return;
         }
+        // While pinned, ignore programmatic/auto scroll noise (keep destination pin).
+        if (plusApptScrollMem && typeof plusApptMemIsPinned === 'function' &&
+            plusApptMemIsPinned(plusApptScrollMem)) {
+            return;
+        }
+        plusApptCaptureScheduleScroll(plusApptScrollUserUnpinned ? { force: true } : undefined);
     }, true);
 }
 
@@ -14826,6 +14986,26 @@ function apptSetTbodyHtml(tb, html, opts) {
 
 function apptFinishScrollPreserve(opts, saved) {
     if (!apptShouldPreserveScroll(opts) || !saved) return;
+    var onPlus = typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt';
+    if (onPlus && typeof plusApptStripScheduleFromAppScrollState === 'function') {
+        saved = plusApptStripScheduleFromAppScrollState({
+            winY: saved.winY,
+            els: Object.assign({}, saved.els || {})
+        });
+    }
+    // + Appointment owns its timeline scroller; do not let the generic restore
+    // fight plusApptScheduleRestoreAfterRender (that race snapped back to morning).
+    if (onPlus && typeof plusApptOwnsScheduleScrollRestore === 'function' &&
+        plusApptOwnsScheduleScrollRestore()) {
+        if (typeof cancelAppScrollRestore === 'function') cancelAppScrollRestore();
+        if (typeof plusApptScheduleRestoreAfterRender === 'function') {
+            plusApptScheduleRestoreAfterRender();
+        }
+        if (saved && saved.winY != null && typeof scheduleAppScrollRestore === 'function') {
+            scheduleAppScrollRestore({ winY: saved.winY, els: {} }, { delays: [0, 100, 250] });
+        }
+        return;
+    }
     if (typeof releaseAppScrollLock === 'function') releaseAppScrollLock(false);
     if (typeof scheduleAppScrollRestore === 'function') {
         scheduleAppScrollRestore(saved, { delays: [0, 100, 250, 600, 1200] });

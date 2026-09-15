@@ -3219,10 +3219,21 @@ function applyAppScrollState(state) {
     try {
         if (state.winY != null) window.scrollTo(0, state.winY);
         if (!state.els) return;
+        var skipPlusAppt = false;
+        try {
+            skipPlusAppt = (typeof plusApptOwnsScheduleScrollRestore === 'function')
+                ? !!plusApptOwnsScheduleScrollRestore()
+                : false;
+        } catch (eSkip) { skipPlusAppt = false; }
         Object.keys(state.els).forEach(function(key) {
             var pos = state.els[key];
             if (!pos) return;
             var sel = key.indexOf(':') >= 0 ? key.replace(/:\d+$/, '') : key;
+            if (skipPlusAppt &&
+                (sel.indexOf('plusappt-schedule-wrap') >= 0 ||
+                 sel.indexOf('plusApptAllScroll') >= 0)) {
+                return;
+            }
             var idx = 0;
             var m = key.match(/:(\d+)$/);
             if (m) idx = parseInt(m[1], 10) || 0;

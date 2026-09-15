@@ -10,7 +10,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-appt.js'))) root = process.cwd();
 
-var BUILD = '20260916plussc1';
+var BUILD = '20260916plussc4';
 var fails = [];
 
 function pass(name, ok, detail) {
@@ -79,6 +79,8 @@ function loadScrollFns() {
         plusApptScrollRestoring: false,
         plusApptScrollRestoreGen: 0,
         PLUSAPPT_SCROLL_MEM_TTL_MS: 180000,
+        PLUSAPPT_SCROLL_PIN_MS: 3500,
+        plusApptScrollUserUnpinned: false,
         plusApptSelectedAppt: null,
         plusApptSelectedSlot: null,
         plusApptIsAllDoctorsMode: function () { return false; },
@@ -105,12 +107,24 @@ function loadScrollFns() {
         sliceFn(src, 'plusApptSlotFromScrollWrap', 'plusApptSlotAnchorOffset'),
         sliceFn(src, 'plusApptSlotAnchorOffset', 'plusApptScrollMemHasOffset'),
         sliceFn(src, 'plusApptScrollMemHasOffset', 'plusApptWrapLooksCollapsed'),
-        sliceFn(src, 'plusApptWrapLooksCollapsed', 'plusApptClearScheduleScrollMem'),
-        sliceFn(src, 'plusApptClearScheduleScrollMem', 'plusApptCaptureScheduleScroll'),
+        sliceFn(src, 'plusApptWrapLooksCollapsed', 'plusApptMemIsPinned'),
+        sliceFn(src, 'plusApptMemIsPinned', 'plusApptOwnsScheduleScrollRestore'),
+        sliceFn(src, 'plusApptOwnsScheduleScrollRestore', 'plusApptStripScheduleFromAppScrollState'),
+        sliceFn(src, 'plusApptStripScheduleFromAppScrollState', 'plusApptClearScheduleScrollMem'),
+        sliceFn(src, 'plusApptClearScheduleScrollMem', 'plusApptPinScheduleScrollMem'),
+        sliceFn(src, 'plusApptPinScheduleScrollMem', 'plusApptCaptureScheduleScroll'),
         sliceFn(src, 'plusApptCaptureScheduleScroll', 'plusApptFindSlotRow'),
         sliceFn(src, 'plusApptFindSlotRow', 'plusApptApplyScrollToWrap'),
         sliceFn(src, 'plusApptApplyScrollToWrap', 'plusApptRestoreScheduleScroll'),
-        sliceFn(src, 'plusApptRestoreScheduleScroll', 'plusApptScheduleRestoreAfterRender')
+        sliceFn(src, 'plusApptRestoreScheduleScroll', 'plusApptScheduleRestoreAfterRender'),
+        // Move helpers live near dragstart — pull a small extra slice if present.
+        (function () {
+            var a = src.indexOf('function plusApptPinScheduleForMove');
+            var b = src.indexOf('function plusApptIsRowMoveInteractionActive');
+            var c = src.indexOf('function plusApptRestoreDoctorSelection');
+            if (a < 0 || c < 0) return '';
+            return src.slice(a, c);
+        })()
     ].join('\n');
     vm.createContext(ctx);
     vm.runInContext(code, ctx);
@@ -173,12 +187,31 @@ function fakeWrap(scrollTop, slots) {
     pass('date change clears mem',
         /function plusApptSetDate[\s\S]{0,80}plusApptClearScheduleScrollMem\(\)/.test(apptSrc));
     pass('unpaid hydrate restores again',
-        /hydrateApptUnpaidBalances[\s\S]{0,420}plusApptScheduleRestoreAfterRender\(\)/.test(apptSrc));
+        /hydrateApptUnpaidBalances\(plusApptDayAppts[\s\S]{0,900}plusApptScheduleRestoreAfterRender\(\)/.test(apptSrc));
     pass('snapshot uses element offset not only winY',
         apptSrc.indexOf('function apptScrollStateHasOffset') >= 0);
     pass('index BUILD bumped',
         idxSrc.indexOf("BUILD = '" + BUILD + "'") >= 0,
         (idxSrc.match(/BUILD = '([^']+)'/) || [])[1]);
+    pass('owns-restore guard',
+        apptSrc.indexOf('function plusApptOwnsScheduleScrollRestore') >= 0);
+    pass('strips plusappt from app scroll state',
+        apptSrc.indexOf('function plusApptStripScheduleFromAppScrollState') >= 0);
+    pass('apptFinish defers to plusAppt owner',
+        /function apptFinishScrollPreserve[\s\S]{0,900}plusApptOwnsScheduleScrollRestore/.test(apptSrc));
+    pass('applyAppScrollState skips plusappt wraps',
+        /function applyAppScrollState[\s\S]{0,700}plusApptOwnsScheduleScrollRestore/.test(appSrc));
+    pass('pin for move helper',
+        apptSrc.indexOf('function plusApptPinScheduleForMove') >= 0);
+    pass('dragstart pins viewport',
+        /function plusApptMarkRowDragTransfer[\s\S]{0,450}plusApptCaptureScheduleScroll/.test(apptSrc));
+    pass('drop reschedule soft refresh',
+        /plusApptPinScheduleForMove\(newStart[\s\S]{0,700}refreshApptPlannerData\(\{ soft: true \}\)/.test(apptSrc));
+    pass('transfer refresh soft',
+        /function apptRefreshListsAfterTransfer[\s\S]{0,280}refreshApptPlannerData\(\{ soft: true \}\)/.test(apptSrc));
+    pass('drag auto-scroll does not unpin',
+        /plusApptIsRowMoveInteractionActive[\s\S]{0,220}return;/.test(apptSrc) &&
+        apptSrc.indexOf('plusApptOnUserScrollGesture') >= 0);
 
     console.log('\n=== unit: time + capture/restore ===');
     var fns = loadScrollFns();
@@ -219,6 +252,47 @@ function fakeWrap(scrollTop, slots) {
     pass('findSlotRow nearest to 16:07 is 16:00 or 16:15',
         !!(found && /16:0[05]/.test(found.getAttribute('data-slot-time'))),
         found && found.getAttribute('data-slot-time'));
+
+    // Race: after restore, a morningish live capture must not clobber the pin.
+    wrap.scrollTop = 0;
+    wrap.scrollHeight = 40 + slots.length * 24 + 800;
+    var raced = fns.plusApptCaptureScheduleScroll();
+    pass('morningish capture cannot clobber pinned afternoon',
+        raced && raced.slotTime === '16:00' && raced.wrapTop === 420,
+        raced && (raced.wrapTop + ' @ ' + raced.slotTime));
+    var stripped = fns.plusApptStripScheduleFromAppScrollState({
+        winY: 10,
+        els: {
+            '.plusappt-schedule-wrap': { top: 0, left: 0 },
+            '#plusApptAllScroll': { top: 0, left: 12 },
+            '.queue-wrap': { top: 55, left: 0 }
+        }
+    });
+    pass('strip removes plusappt keys only',
+        !!(stripped && stripped.els && !stripped.els['.plusappt-schedule-wrap'] &&
+            !stripped.els['#plusApptAllScroll'] && stripped.els['.queue-wrap']),
+        stripped && JSON.stringify(stripped.els));
+    pass('owns restore while pinned',
+        typeof fns.plusApptOwnsScheduleScrollRestore === 'function' &&
+        fns.plusApptOwnsScheduleScrollRestore() === true);
+
+    // Move path: pin destination while wrap is at morning must keep prior afternoon viewport.
+    if (typeof fns.plusApptPinScheduleForMove === 'function') {
+        wrap.scrollTop = 0;
+        wrap.scrollHeight = 48;
+        fns.plusApptPinScheduleForMove('16:15', 'move-row');
+        pass('pin-for-move keeps prior afternoon wrapTop',
+            !!(fns.plusApptScrollMem && fns.plusApptScrollMem.wrapTop === 420 &&
+                fns.plusApptScrollMem.slotTime === '16:15'),
+            fns.plusApptScrollMem && (fns.plusApptScrollMem.wrapTop + '@' + fns.plusApptScrollMem.slotTime));
+        wrap.scrollHeight = 40 + slots.length * 24 + 800;
+        fns.plusApptRestoreScheduleScroll();
+        pass('pin-for-move restore leaves morning',
+            wrap.scrollTop !== 0,
+            'scrollTop=' + wrap.scrollTop);
+    } else {
+        pass('pin-for-move helper in unit harness', false, 'missing from vm slice');
+    }
 
     fns.plusApptClearScheduleScrollMem();
     pass('clear wipes mem', fns.plusApptScrollMem == null);

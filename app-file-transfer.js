@@ -154,9 +154,43 @@ var FILEXFER = (function () {
     }
     function setProgress(pct) {
         var bar = gg('fx_prog_bar');
-        if (bar) bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
         var wrap = gg('fx_prog');
-        if (wrap) wrap.style.display = pct > 0 && pct < 100 ? '' : (pct >= 100 ? '' : 'none');
+        var n = Math.max(0, Math.min(100, pct || 0));
+        if (bar) bar.style.width = n + '%';
+        if (wrap) {
+            wrap.style.display = n > 0 ? '' : 'none';
+            wrap.setAttribute('aria-valuenow', String(Math.round(n)));
+            wrap.classList.toggle('is-busy', n > 0 && n < 100);
+        }
+    }
+
+    /** Download a signed URL as a Blob with byte progress (for Fast Pass receive). */
+    function xhrGetBlob(url, onPct) {
+        return new Promise(function (resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url);
+            xhr.responseType = 'blob';
+            xhr.onprogress = function (e) {
+                if (!onPct) return;
+                if (e.lengthComputable && e.total > 0) {
+                    onPct(Math.max(1, Math.min(99, Math.round((e.loaded / e.total) * 100))), e.loaded, e.total);
+                } else if (e.loaded > 0) {
+                    onPct(null, e.loaded, 0);
+                }
+            };
+            xhr.onload = function () {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    var blob = xhr.response;
+                    if (onPct) onPct(100, blob && blob.size || 0, blob && blob.size || 0);
+                    resolve(blob);
+                } else {
+                    reject(new Error('Download failed (' + xhr.status + ')'));
+                }
+            };
+            xhr.onerror = function () { reject(new Error('Network error')); };
+            xhr.onabort = function () { reject(new Error('Download cancelled')); };
+            xhr.send();
+        });
     }
 
     function hasWebrtc() {
@@ -892,6 +926,9 @@ var FILEXFER = (function () {
                     esc(trReplKey('filexfer.expires', { WHEN: fmtWhen(row.expires_at) })) +
                     (row.note ? '<br>' + esc(row.note) : '') +
                 '</div>' +
+                '<div id="fx_prog" class="fx-progress" style="display:none;" role="progressbar" ' +
+                    'aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">' +
+                    '<span id="fx_prog_bar"></span></div>' +
                 '<div class="fx-actions">' +
                     '<button type="button" class="fx-btn fx-btn-primary" id="fx_dl">' +
                         esc(trKey('filexfer.download')) + '</button>' +
@@ -1443,9 +1480,18 @@ var FILEXFER = (function () {
         if (!isUrl) setTimeout(function () { URL.revokeObjectURL(url); }, 8000);
     }
 
+    function noteDownloadPct(pct) {
+        var n = Math.max(1, Math.min(99, Math.round(pct || 0)));
+        setProgress(n);
+        status(trReplKey('filexfer.downloading', { PCT: String(n) }), 'work');
+    }
+
     function doDownload(row) {
         if (!row || !row.storage_path) return;
-        status(trKey('filexfer.download') + '…', 'work');
+        var btn = gg('fx_dl');
+        if (btn) btn.disabled = true;
+        setProgress(1);
+        status(trReplKey('filexfer.downloading', { PCT: '1' }), 'work');
         var signed = function (p) {
             return SB.storage.from(BUCKET).createSignedUrl(p, 180).then(function (r) {
                 if (r.error || !r.data || !r.data.signedUrl) throw r.error || new Error('signed url');
@@ -1461,14 +1507,39 @@ var FILEXFER = (function () {
             }).then(function (man) {
                 var parts = (man && man.parts) || [];
                 if (!parts.length) throw new Error('empty manifest');
-                return mapLimit(parts, PART_CONCUR, function (p) {
+                var n = parts.length;
+                var got = [];
+                var i;
+                for (i = 0; i < n; i++) got[i] = 0;
+                var total = Number((man && man.size) || row.file_size) || 0;
+                function report() {
+                    var sum = 0;
+                    for (var j = 0; j < n; j++) sum += got[j];
+                    if (total > 0) {
+                        noteDownloadPct((sum / total) * 100);
+                    } else {
+                        var done = 0;
+                        for (var k = 0; k < n; k++) if (got[k] > 0) done += 1;
+                        noteDownloadPct((done / n) * 100);
+                    }
+                }
+                return mapLimit(parts, PART_CONCUR, function (p, idx) {
                     return signed(p).then(function (u) {
-                        return fetch(u).then(function (res) {
-                            if (!res.ok) throw new Error('part ' + res.status);
-                            return res.blob();
+                        return xhrGetBlob(u, function (pct, loaded) {
+                            if (loaded != null && loaded > 0) got[idx] = loaded;
+                            else if (pct != null && total > 0) {
+                                got[idx] = Math.round((total / n) * (pct / 100));
+                            }
+                            report();
                         });
+                    }).then(function (blob) {
+                        got[idx] = blob && blob.size || got[idx] || 0;
+                        report();
+                        return blob;
                     });
                 }).then(function (blobs) {
+                    setProgress(99);
+                    status(trKey('filexfer.finalizing'), 'work');
                     clickDownload(
                         new Blob(blobs, { type: (man && man.type) || row.mime_type || '' }),
                         (man && man.name) || row.file_name || 'download',
@@ -1477,13 +1548,28 @@ var FILEXFER = (function () {
                 });
             })
             : signed(row.storage_path).then(function (url) {
-                clickDownload(url, row.file_name || 'download', true);
+                return xhrGetBlob(url, function (pct) {
+                    if (pct != null) noteDownloadPct(pct);
+                    else {
+                        setProgress(5);
+                        status(trKey('filexfer.downloadingBusy'), 'work');
+                    }
+                }).then(function (blob) {
+                    setProgress(99);
+                    status(trKey('filexfer.finalizing'), 'work');
+                    clickDownload(blob, row.file_name || 'download', false);
+                });
             });
         job.then(function () {
             markDownloaded(row);
-            status('', '');
+            setProgress(100);
+            status(trKey('filexfer.downloadOk'), 'ok');
+            setTimeout(function () { setProgress(0); }, 1200);
         }).catch(function (err) {
+            setProgress(0);
             status(trReplKey('filexfer.fail', { MSG: (err && err.message) || String(err) }), 'bad');
+        }).then(function () {
+            if (btn) btn.disabled = false;
         });
     }
 

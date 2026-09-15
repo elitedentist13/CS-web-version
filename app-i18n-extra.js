@@ -7201,6 +7201,13 @@
         'filexfer.codePh': { en: 'XXXX', 'zh-CN': 'XXXX', 'zh-Hant': 'XXXX' },
         'filexfer.lookup': { en: 'Look up', 'zh-CN': '查找', 'zh-Hant': '查找' },
         'filexfer.download': { en: 'Download', 'zh-CN': '下载', 'zh-Hant': '下載' },
+        'filexfer.downloading': { en: 'Downloading… {PCT}%', 'zh-CN': '下载中… {PCT}%', 'zh-Hant': '下載中… {PCT}%' },
+        'filexfer.downloadingBusy': {
+            en: 'Downloading… please keep this page open.',
+            'zh-CN': '下载中… 请保持此页打开。',
+            'zh-Hant': '下載中… 請保持此頁開啟。'
+        },
+        'filexfer.downloadOk': { en: 'Download started.', 'zh-CN': '已开始下载。', 'zh-Hant': '已開始下載。' },
         'filexfer.notFound': { en: 'No matching Fast Pass, or it has expired.', 'zh-CN': '没有对应的 Fast Pass，或已失效。', 'zh-Hant': '沒有對應的 Fast Pass，或已失效。' },
         'filexfer.wrongClinic': {
             en: 'This pass is locked to {CLINIC}. Switch working clinic, or ask the sender for a new pass.',

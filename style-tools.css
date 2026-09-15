@@ -1499,6 +1499,9 @@
     background: linear-gradient(135deg, #4f46e5, #7c3aed);
     transition: width .15s ease;
 }
+.fx-progress.is-busy > span {
+    box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.12);
+}
 .fx-status {
     margin: 0;
     padding: 10px 14px;

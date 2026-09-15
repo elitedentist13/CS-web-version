@@ -234,23 +234,19 @@
         });
 
         Object.keys(byClinic).forEach(function (key) {
-            if (key === homeKey) {
-                if (byClinic[key].length > 1) ambiguousTags.push(homeTag || key);
-                return;
-            }
             var rows = byClinic[key];
-            if (rows.length > 1) {
-                ambiguousTags.push(xrayPatientClinicTag(rows[0]) || key);
-                return;
-            }
-            var row = rows[0];
-            list.push(Object.assign({}, row, {
-                isHome: false,
-                clinic_tag: xrayPatientClinicTag(row),
-                clinicLabel: xrayClinicLabelFromTag(xrayPatientClinicTag(row)),
-                matchMethod: row._matchMethod || 'hkid',
-                detailsDiffer: xrayDetailsDiffer(home, row)
-            }));
+            if (rows.length > 1) ambiguousTags.push(xrayPatientClinicTag(rows[0]) || key);
+            rows.forEach(function (row) {
+                if (!row || !row.id) return;
+                if (String(row.id) === String(home.id)) return;
+                list.push(Object.assign({}, row, {
+                    isHome: false,
+                    clinic_tag: xrayPatientClinicTag(row),
+                    clinicLabel: xrayClinicLabelFromTag(xrayPatientClinicTag(row)),
+                    matchMethod: row._matchMethod || 'hkid',
+                    detailsDiffer: xrayDetailsDiffer(home, row)
+                }));
+            });
         });
 
         return { list: list, ambiguousTags: ambiguousTags };
@@ -556,10 +552,6 @@
 
     window.loadXrayRecords = function () {
         if (!xrayPatientId) return Promise.resolve();
-        if (!window._xrayScopePrefApplied) {
-            xrayClinicScope = xrayReadClinicScopePref();
-            window._xrayScopePrefApplied = true;
-        }
         var token = ++xrayLinkResolveToken;
         if (window._xrayLinkLastPid !== String(xrayPatientId)) {
             xrayExpandedClinicTags = {};
@@ -567,20 +559,27 @@
             xrayPinnedId = null;
             window._xrayLinkLastPid = String(xrayPatientId);
         }
+        xrayClinicScope = xrayReadClinicScopePref() || 'home';
+        window._xrayScopePrefApplied = true;
         var home = xrayPatientData || { id: xrayPatientId };
         return xrayFindLinkedPatients(home).then(function (matches) {
             if (token !== xrayLinkResolveToken) return null;
             var work = xrayWorkingClinicTag();
             var homeTagNow = xrayPatientClinicTag(home);
             var workCharts = xrayChartsAtTag(home, matches, work);
-            if (work && homeTagNow.toUpperCase() !== work.toUpperCase() && workCharts.length === 1 &&
-                String(workCharts[0].id) !== String(xrayPatientId) &&
-                typeof syncXrayPatient === 'function') {
-                syncXrayPatient(workCharts[0].id, workCharts[0]);
-                return null;
-            }
+            // Stay on the chart the user selected. HKID twins keep their own
+            // patient_no; their films join this gallery via patient_id list.
             var built = xrayBuildLinkedSet(home, matches);
             xrayLinkedPatients = built.list;
+            var hkidLinked = !!(xrayNormalizeHkid(home.hkid) && built.list.some(function (p) {
+                return !p.isHome;
+            }));
+            if (hkidLinked) {
+                xrayClinicScope = 'all';
+                built.list.forEach(function (p) {
+                    if (!p.isHome && p.clinic_tag) xrayExpandedClinicTags[p.clinic_tag] = true;
+                });
+            }
             xrayLinkMeta = {
                 method: xrayNormalizeHkid(home.hkid) ? 'hkid' : (matches.length ? 'chart_dob' : 'none'),
                 ambiguousTags: built.ambiguousTags,

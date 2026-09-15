@@ -405,8 +405,13 @@ function billClinicFieldsForSave() {
 
 function billDoctorFieldsForSave(pickedId, opts) {
     opts = opts || {};
-    var picked = pickedId
-        ? (billDoctorList || []).find(function (d) { return String(d.id) === String(pickedId); })
+    var resolvedId = pickedId;
+    if (resolvedId && typeof resolveBillDoctorDropdownId === 'function') {
+        var mapped = resolveBillDoctorDropdownId(resolvedId, billDoctorList || []);
+        if (mapped) resolvedId = mapped;
+    }
+    var picked = resolvedId
+        ? (billDoctorList || []).find(function (d) { return String(d.id) === String(resolvedId); })
         : null;
     if (picked) {
         return {
@@ -19862,15 +19867,24 @@ function renderBillDoctorOptions(selectedId, selectId) {
         sel.innerHTML = '<option value="">' + esc(tr('bill.noDoctorsOption')) + '</option>';
         return;
     }
+    var want = String(selectedId || '').trim();
+    if (want && typeof resolveBillDoctorDropdownId === 'function') {
+        var mapped = resolveBillDoctorDropdownId(want, billDoctorList || []);
+        if (mapped) want = mapped;
+    }
     var html = '<option value="">' + esc(tr('bill.selectDoctor')) + '</option>' +
         docs.map(function (d) {
             var v = d.id || '';
-            var s = (selectedId && String(v) === String(selectedId)) ? ' selected' : '';
+            var s = (want && String(v) === String(want)) ? ' selected' : '';
             return '<option value="' + esc(v) + '"' + s + '>' + esc(billDoctorLabel(d)) + '</option>';
         }).join('');
     sel.innerHTML = html;
-    if (selectedId && sel.value !== String(selectedId)) {
-        sel.value = '';
+    if (want && sel.value !== String(want)) {
+        if (Array.prototype.some.call(sel.options, function (o) { return o.value === String(want); })) {
+            sel.value = String(want);
+        } else {
+            sel.value = '';
+        }
     }
 }
 
@@ -19963,6 +19977,10 @@ function syncPendingListDoctorSelectFromCurrentList() {
         ? pendingLists[pendingIdx]
         : null;
     var want = pl ? (wantBillDoctorIdForList(pl) || '') : '';
+    if (want && typeof resolveBillDoctorDropdownId === 'function') {
+        var mapped = resolveBillDoctorDropdownId(want, billDoctorList || []);
+        if (mapped) want = mapped;
+    }
     if (!sel.options.length || sel.options.length <= 1) {
         renderBillDoctorOptions(want, 'pendingListDoctor');
         return;
@@ -19977,8 +19995,13 @@ function syncPendingListDoctorSelectFromCurrentList() {
 
 function pendingListDoctorLabelById(doctorId) {
     if (!doctorId) return '—';
+    var want = String(doctorId);
+    if (typeof resolveBillDoctorDropdownId === 'function') {
+        var mapped = resolveBillDoctorDropdownId(want, billDoctorList || []);
+        if (mapped) want = mapped;
+    }
     var picked = (billDoctorList || []).find(function (d) {
-        return d && String(d.id) === String(doctorId);
+        return d && String(d.id) === String(want);
     });
     return picked ? billDoctorLabel(picked) : '—';
 }
@@ -20027,9 +20050,17 @@ function defaultBillDoctorId() {
         : (billDoctorList || []);
     function isPickable(id) {
         if (!id) return false;
-        return pickerDocs.some(function (d) { return String(d.id) === String(id); });
+        if (pickerDocs.some(function (d) { return String(d.id) === String(id); })) return true;
+        if (typeof resolveBillDoctorDropdownId === 'function') {
+            var mapped = resolveBillDoctorDropdownId(id, billDoctorList || []);
+            return !!(mapped && pickerDocs.some(function (d) { return String(d.id) === String(mapped); }));
+        }
+        return false;
     }
     if (billDefaultUsesSessionDoctor() && currentDoctorId && isPickable(currentDoctorId)) {
+        if (typeof resolveBillDoctorDropdownId === 'function') {
+            return resolveBillDoctorDropdownId(currentDoctorId, billDoctorList || []) || currentDoctorId;
+        }
         return currentDoctorId;
     }
     var role = String(currentRole || '').toLowerCase();
@@ -20075,7 +20106,7 @@ function loadBillDoctors() {
     }
 
     SB.from('doctors')
-      .select('id,doctor_code,english_name,chinese_name,display_name,is_active')
+      .select('id,doctor_code,english_name,chinese_name,display_name,is_active,clinic_id')
       .eq('is_active', true)
       .order('doctor_code', {ascending: true})
     .then(function(r) {

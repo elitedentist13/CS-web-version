@@ -1187,6 +1187,18 @@ function normalizeDoctorNameKey(v) {
         .replace(/\s+/g, ' ');
 }
 
+/**
+ * Stronger bill-picker identity key (display only).
+ * Folds AU YEUNG / Au-Yeung / "Yuen Kwan,Irene" into one person without DB changes.
+ */
+function strongBillDoctorNameKey(v) {
+    return String(v || '').trim().toLowerCase()
+        .replace(/^dr\.?\s+/i, '')
+        .replace(/[-.,'’]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 /** Plain admin label "NG Pui Ching" (no Dr prefix) — not the clinical boss identity. */
 function isAdminNgPuiChingLabel(v) {
     var s = String(v || '').trim().replace(/\s+/g, ' ');
@@ -1216,13 +1228,19 @@ function billDoctorRecordNameKeys(d) {
     [d && d.display_name, d && d.english_name, d && d.chinese_name].forEach(function (v) {
         var k = normalizeDoctorNameKey(v);
         if (k) seen[k] = true;
+        var sk = strongBillDoctorNameKey(v);
+        if (sk) seen[sk] = true;
     });
     if (typeof billDoctorDropdownLabel === 'function') {
         var shown = normalizeDoctorNameKey(billDoctorDropdownLabel(d));
         if (shown) seen[shown] = true;
+        var shownStrong = strongBillDoctorNameKey(billDoctorDropdownLabel(d));
+        if (shownStrong) seen[shownStrong] = true;
     } else if (typeof doctorDisplayName === 'function') {
         var fallback = normalizeDoctorNameKey(doctorDisplayName(d));
         if (fallback) seen[fallback] = true;
+        var fallbackStrong = strongBillDoctorNameKey(doctorDisplayName(d));
+        if (fallbackStrong) seen[fallbackStrong] = true;
     }
     return Object.keys(seen);
 }
@@ -1254,8 +1272,24 @@ function billDoctorClinicCode(d) {
     return rec ? String(rec.clinic_code || '').trim() : '';
 }
 
-/** Label shown in bill payment doctor dropdown. */
-function billDoctorDropdownLabel(d) {
+/** Clinic used when quietly wiring a collapsed bill-doctor pick to an existing row. */
+function billDoctorPreferredClinicId(opts) {
+    opts = opts || {};
+    if (opts.preferredClinicId) return String(opts.preferredClinicId).trim();
+    if (typeof currentClinicId !== 'undefined' && currentClinicId) {
+        return String(currentClinicId).trim();
+    }
+    if (typeof billClinicFieldsForSave === 'function') {
+        try {
+            var fields = billClinicFieldsForSave();
+            if (fields && fields.clinic_id) return String(fields.clinic_id).trim();
+        } catch (_) {}
+    }
+    return '';
+}
+
+/** Name-only label for bill payment doctor dropdown (no clinic suffix). */
+function billDoctorDropdownBaseLabel(d) {
     if (!d) return '';
     var disp = String(d.display_name || '').trim();
     var base = '';
@@ -1264,24 +1298,39 @@ function billDoctorDropdownLabel(d) {
     if (!base) {
         base = d.english_name || d.chinese_name || disp || String(d.doctor_code || '').trim();
     }
-    var clinic = billDoctorClinicCode(d);
-    if (base && clinic) return String(base) + ' (' + clinic + ')';
     return base;
 }
 
-/** Dedupe within one clinic only — same Chinese label at PL vs TKO must stay two rows. */
-function billDoctorDropdownDedupeKey(d) {
-    if (!d) return '';
-    var clinic = String(d.clinic_id || '').trim();
-    var labelKey = normalizeDoctorNameKey(billDoctorDropdownLabel(d));
-    if (labelKey) return 'clinic:' + clinic + '|name:' + labelKey;
-    var code = String(d.doctor_code || '').trim().toLowerCase();
-    if (code && !isLoginPlaceholderDoctorCode(code)) return 'clinic:' + clinic + '|code:' + code;
-    return 'clinic:' + clinic + '|id:' + String(d.id != null ? d.id : '');
+/** Label shown in bill payment doctor dropdown. */
+function billDoctorDropdownLabel(d) {
+    return billDoctorDropdownBaseLabel(d);
 }
 
-function billDoctorDropdownPickBest(candidates) {
-    return (candidates || []).slice().sort(function (a, b) {
+/** Global person key for bill picker collapse (clinic suffix / spelling variants ignored). */
+function billDoctorDropdownDedupeKey(d) {
+    if (!d) return '';
+    var labelKey = strongBillDoctorNameKey(billDoctorDropdownBaseLabel(d));
+    if (labelKey) return 'name:' + labelKey;
+    var code = String(d.doctor_code || '').trim().toLowerCase();
+    if (code && !isLoginPlaceholderDoctorCode(code)) return 'code:' + code;
+    return 'id:' + String(d.id != null ? d.id : '');
+}
+
+/**
+ * Prefer the working-clinic doctors row when several clinic identities share one name.
+ * Display-only collapse — never creates or rewrites doctor rows.
+ */
+function billDoctorDropdownPickBest(candidates, preferredClinicId) {
+    var list = (candidates || []).slice();
+    if (!list.length) return null;
+    var wantClinic = String(preferredClinicId || '').trim();
+    if (wantClinic) {
+        var atClinic = list.filter(function (d) {
+            return String(d.clinic_id || '').trim() === wantClinic;
+        });
+        if (atClinic.length) list = atClinic;
+    }
+    return list.sort(function (a, b) {
         var aDisp = String(a.display_name || '').trim();
         var bDisp = String(b.display_name || '').trim();
         var aDr = /^dr\.?\s+/i.test(aDisp) ? 0 : 1;
@@ -1295,8 +1344,13 @@ function billDoctorDropdownPickBest(candidates) {
     })[0] || null;
 }
 
-/** Active clinical doctors for bill payment dropdown — deduped per clinic + label. */
-function doctorsForBillDoctorDropdown(sourceList) {
+/**
+ * Active clinical doctors for bill payment dropdown — one row per person.
+ * Option value is the existing doctors.id for the preferred/working clinic when available.
+ */
+function doctorsForBillDoctorDropdown(sourceList, opts) {
+    opts = opts || {};
+    var preferredClinicId = billDoctorPreferredClinicId(opts);
     var list = (sourceList || []).filter(function (d) {
         return d && d.is_active !== false && !isBillDropdownExcludedDoctor(d);
     });
@@ -1307,7 +1361,7 @@ function doctorsForBillDoctorDropdown(sourceList) {
         groups[key].push(d);
     });
     var out = Object.keys(groups).map(function (key) {
-        return billDoctorDropdownPickBest(groups[key]);
+        return billDoctorDropdownPickBest(groups[key], preferredClinicId);
     }).filter(Boolean);
     out.sort(function (a, b) {
         var al = String(billDoctorDropdownLabel(a) || '').toLowerCase();
@@ -1317,6 +1371,23 @@ function doctorsForBillDoctorDropdown(sourceList) {
         return 0;
     });
     return out;
+}
+
+/**
+ * Map any doctors.id (e.g. another branch twin) onto the collapsed bill-picker option id.
+ * Returns '' when the id is not a clinical bill doctor.
+ */
+function resolveBillDoctorDropdownId(doctorId, sourceList, opts) {
+    var want = String(doctorId || '').trim();
+    if (!want) return '';
+    var src = sourceList || (typeof APP_DOCTORS !== 'undefined' ? APP_DOCTORS : []) || [];
+    var docs = doctorsForBillDoctorDropdown(src, opts);
+    if (docs.some(function (d) { return String(d.id) === want; })) return want;
+    var row = src.find(function (d) { return d && String(d.id) === want; });
+    if (!row) return '';
+    var key = billDoctorDropdownDedupeKey(row);
+    var hit = docs.find(function (d) { return billDoctorDropdownDedupeKey(d) === key; });
+    return hit && hit.id ? String(hit.id) : '';
 }
 
 /** Active doctors for one clinic (by doctors.clinic_id). */

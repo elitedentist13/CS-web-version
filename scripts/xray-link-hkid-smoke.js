@@ -73,6 +73,8 @@ function chartNeedle(no) {
     var appSrc = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
     var idxSrc = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
+    var xraySrc = fs.readFileSync(path.join(root, 'app-xray.js'), 'utf8');
+
     console.log('=== smoke: source ===');
     pass('no silent snap to working-clinic twin',
         linkSrc.indexOf('syncXrayPatient(workCharts[0]') < 0);
@@ -84,10 +86,57 @@ function chartNeedle(no) {
         /hkidLinked[\s\S]{0,180}xrayClinicScope = 'all'/.test(linkSrc));
     pass('same-clinic HKID twins stay in linked list',
         linkSrc.indexOf('if (rows.length > 1) {\n                ambiguousTags.push(xrayPatientClinicTag(rows[0]) || key);\n                return;') < 0);
+    pass('upload target helper exported',
+        /window\.xrayUploadTargetPatient\s*=/.test(linkSrc));
+    pass('upload insert uses destId not opened chart',
+        /patient_id\s*:\s*destId/.test(xraySrc) &&
+        /function xrayResolveUploadPatient/.test(xraySrc));
+    pass('insert no longer binds xrayPatientId',
+        !/patient_id\s*:\s*xrayPatientId/.test(xraySrc));
+    pass('chooser opens on no-working-chart',
+        /xrayOpenUploadChooser/.test(xraySrc) &&
+        /window\.xrayOpenUploadChooser\s*=/.test(linkSrc));
+    pass('global clone allocates bare number',
+        /window\.xrayAllocBarePatientNo\s*=/.test(linkSrc) &&
+        linkSrc.indexOf('formatPatientNoFromNumber') < 0);
+    pass('chooser does not create brought-forward bill',
+        !/patientDupCreateBf|brought.forward|insertBill/.test(linkSrc.slice(linkSrc.indexOf('xrayInsertGlobalClone'))));
+    pass('index ships chooser modal',
+        /id="xrayUploadChooserModal"/.test(idxSrc));
     pass('index ships patched xray-link',
-        /app-xray-link\.js\?v=20260915pick3/.test(idxSrc));
+        /app-xray-link\.js\?v=20260917xrayup2/.test(idxSrc));
     pass('index BUILD bumped',
-        /BUILD = '20260915xraypick3'/.test(idxSrc));
+        /BUILD = '20260917xrayup2'/.test(idxSrc));
+
+    console.log('\n=== unit: upload target (working clinic vs chart prefix) ===');
+    function resolveUploadTarget(work, homeTag, openedId, chartsAtWork) {
+        var w = String(work || '').toUpperCase();
+        var h = String(homeTag || '').toUpperCase();
+        if (!work || w === h) return { ok: true, id: openedId };
+        if (chartsAtWork.length === 1) return { ok: true, id: chartsAtWork[0].id };
+        if (chartsAtWork.length > 1) return { ok: false, reason: 'ambiguous' };
+        return { ok: false, reason: 'no-working-chart' };
+    }
+    var same = resolveUploadTarget('MK', 'MK', 'opened-mk', [{ id: 'opened-mk' }]);
+    pass('same-clinic opened chart writes to itself', same.ok && same.id === 'opened-mk');
+    var retarget = resolveUploadTarget('MK', 'TKO', 'opened-tko', [{ id: 'mk-twin' }]);
+    pass('prefix chart retargets to working-clinic twin',
+        retarget.ok && retarget.id === 'mk-twin');
+    var blocked = resolveUploadTarget('MK', 'TKO', 'opened-tko', []);
+    pass('no working-clinic chart signals chooser',
+        !blocked.ok && blocked.reason === 'no-working-chart');
+    function coreKey(no) {
+        var s = String(no || '').replace(/^[A-Za-z]+/, '').replace(/\D/g, '');
+        return s ? String(parseInt(s, 10)) : '';
+    }
+    pass('bare global number has no clinic prefix',
+        !/^[A-Za-z]/.test('010482') && coreKey('010482') === '10482');
+    pass('MK-prefixed same core clashes with bare global',
+        coreKey('MK010482') === coreKey('010482') &&
+        coreKey('TKO010482') === coreKey('010482'));
+    var ambi = resolveUploadTarget('MK', 'TKO', 'opened-tko', [{ id: 'a' }, { id: 'b' }]);
+    pass('ambiguous working-clinic charts block upload',
+        !ambi.ok && ambi.reason === 'ambiguous');
 
     console.log('\n=== unit: HKID normalize ===');
     pass('strips punctuation',
@@ -99,16 +148,21 @@ function chartNeedle(no) {
 
     console.log('\n=== HTTP spot: live-server ===');
     var served = null;
-    var ports = [5500, 8123];
+    var ports = [8123, 5500];
     var i;
+    var expectedBuild = '20260917xrayup2';
     for (i = 0; i < ports.length; i++) {
         try {
-            var idx = await httpGet('127.0.0.1', ports[i], '/index.html');
-            var js = await httpGet('127.0.0.1', ports[i], '/app-xray-link.js?v=20260915pick3');
-            served = { port: ports[i], idx: idx, js: js };
-            break;
+            var idx = await httpGet('127.0.0.1', ports[i], '/index.html?b=' + expectedBuild);
+            var js = await httpGet('127.0.0.1', ports[i], '/app-xray-link.js?v=' + expectedBuild);
+            var hit = { port: ports[i], idx: idx, js: js };
+            if (new RegExp("BUILD = '" + expectedBuild + "'").test(idx.body)) {
+                served = hit;
+                break;
+            }
+            if (!served) served = hit;
         } catch (e) {
-            served = { error: String(e.message || e), port: ports[i] };
+            if (!served) served = { error: String(e.message || e), port: ports[i] };
         }
     }
     if (!served || served.error && !served.idx) {
@@ -116,8 +170,15 @@ function chartNeedle(no) {
     } else {
         pass('index.html ' + served.port, served.idx.status === 200, 'status ' + served.idx.status);
         pass('served BUILD',
-            /BUILD = '20260915xraypick3'/.test(served.idx.body),
+            new RegExp("BUILD = '" + expectedBuild + "'").test(served.idx.body),
             (served.idx.body.match(/BUILD = '([^']+)'/) || [])[1]);
+        pass('served upload target helper',
+            served.js.status === 200 && /window\.xrayUploadTargetPatient\s*=/.test(served.js.body));
+        pass('served chooser modal',
+            /id="xrayUploadChooserModal"/.test(served.idx.body));
+        pass('served chooser + bare allocator',
+            /window\.xrayOpenUploadChooser\s*=/.test(served.js.body) &&
+            /window\.xrayAllocBarePatientNo\s*=/.test(served.js.body));
         pass('served xray-link no snap',
             served.js.status === 200 && served.js.body.indexOf('syncXrayPatient(workCharts[0]') < 0,
             'status ' + served.js.status);

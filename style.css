@@ -11143,6 +11143,84 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     color: #64748b;
     line-height: 1.4;
 }
+.xray-chooser-box {
+    max-width: 480px;
+}
+.xray-chooser-lead {
+    margin: 0 0 14px;
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.45;
+}
+.xray-chooser-opt {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.xray-chooser-opt input[type="radio"] {
+    margin-top: 3px;
+}
+.xray-chooser-opt strong {
+    display: block;
+    margin-bottom: 6px;
+    color: #0f172a;
+}
+.xray-chooser-select,
+.xray-chooser-opt input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+}
+.xray-chooser-newno {
+    display: block;
+    margin: 0 0 8px;
+    font-weight: 700;
+    color: #0f766e;
+}
+.xray-chooser-hkid-lbl {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+}
+.xray-chooser-note {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: #64748b;
+}
+.xray-chooser-error {
+    margin: 0 0 10px;
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 600;
+}
+.xray-chooser-actions {
+    display: flex;
+    gap: 10px;
+}
+.xray-chooser-actions .btn-add {
+    flex: 1;
+    padding: 11px;
+}
+.xray-chooser-cancel {
+    flex: 1;
+    padding: 11px;
+    background: var(--gray);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    font-size: 14px;
+    cursor: pointer;
+}
 .xray-clinic-scope-lbl {
     display: inline-flex;
     align-items: center;

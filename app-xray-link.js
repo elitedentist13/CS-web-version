@@ -90,6 +90,10 @@
         return out;
     }
 
+    function xrayTagEquals(a, b) {
+        return String(a || '').trim().toUpperCase() === String(b || '').trim().toUpperCase();
+    }
+
     window.xrayHomeClinicTag = function () {
         var tag = xrayPatientClinicTag(xrayPatientData);
         if (tag) return tag;
@@ -99,8 +103,409 @@
         return '';
     };
 
+    // New uploads (and lightbox edits of those films) go to the working
+    // clinic chart, not the opened chart-number prefix. Viewing still
+    // stays on the selected chart; HKID twins are a union of patient_ids.
+    window.xrayUploadOverrideTarget = null;
+    var xrayChooserOnDone = null;
+    var xrayChooserBareNo = '';
+
+    window.xrayClearUploadOverride = function () {
+        window.xrayUploadOverrideTarget = null;
+    };
+
+    function xrayMakeWriteTarget(p, extras) {
+        extras = extras || {};
+        if (!p || !p.id) return { ok: false, reason: 'no-patient' };
+        var tag = extras.clinic_tag || xrayPatientClinicTag(p) || xrayWorkingClinicTag();
+        return {
+            ok: true,
+            id: p.id,
+            patient_no: p.patient_no || extras.patient_no || null,
+            full_name: p.full_name || extras.full_name || null,
+            clinic_tag: tag,
+            clinicLabel: extras.clinicLabel || xrayClinicLabelFromTag(tag),
+            sameAsOpened: String(p.id) === String(xrayPatientId)
+        };
+    }
+
+    window.xrayUploadTargetPatient = function () {
+        if (window.xrayUploadOverrideTarget && window.xrayUploadOverrideTarget.ok) {
+            return window.xrayUploadOverrideTarget;
+        }
+        var work = xrayWorkingClinicTag();
+        var home = xrayPatientData;
+        var homeTag = xrayPatientClinicTag(home);
+        var workLabel = xrayClinicLabelFromTag(work);
+        if (!xrayPatientId) {
+            return { ok: false, reason: 'no-patient', workingTag: work, clinicLabel: workLabel };
+        }
+        if (!work || xrayTagEquals(homeTag, work)) {
+            return {
+                ok: true,
+                id: xrayPatientId,
+                patient_no: (home && home.patient_no) || null,
+                full_name: (home && home.full_name) || null,
+                clinic_tag: homeTag || work || '',
+                clinicLabel: xrayClinicLabelFromTag(homeTag || work),
+                sameAsOpened: true
+            };
+        }
+        var charts = xrayChartsAtTag(home, xrayLinkedPatients, work);
+        if (charts.length === 1 && charts[0] && charts[0].id) {
+            var twin = charts[0];
+            return {
+                ok: true,
+                id: twin.id,
+                patient_no: twin.patient_no || null,
+                full_name: twin.full_name || null,
+                clinic_tag: xrayPatientClinicTag(twin) || work,
+                clinicLabel: xrayClinicLabelFromTag(xrayPatientClinicTag(twin) || work),
+                sameAsOpened: String(twin.id) === String(xrayPatientId)
+            };
+        }
+        if (charts.length > 1) {
+            return {
+                ok: false,
+                reason: 'ambiguous',
+                workingTag: work,
+                clinicLabel: workLabel,
+                chartTag: homeTag
+            };
+        }
+        return {
+            ok: false,
+            reason: 'no-working-chart',
+            workingTag: work,
+            clinicLabel: workLabel,
+            chartTag: homeTag
+        };
+    };
+
+    window.xrayExplainUploadBlock = function (target) {
+        if (target && target.ok) return;
+        var work = (target && (target.clinicLabel || target.workingTag)) || xrayWorkingClinicTag();
+        if (target && target.reason === 'ambiguous') {
+            alert(mediaTrRepl('con.xray.uploadAmbiguousWork', { WORK: work }));
+            return;
+        }
+        if (target && target.reason === 'no-working-chart') {
+            alert(mediaTrRepl('con.xray.uploadNeedWorkChart', { WORK: work }));
+            return;
+        }
+        alert(mediaTr('con.forms.alertSelectPatient'));
+    };
+
+    function xrayChooserExistingCharts() {
+        var seen = {};
+        var out = [];
+        function add(p) {
+            if (!p || !p.id) return;
+            var id = String(p.id);
+            if (seen[id]) return;
+            seen[id] = true;
+            out.push(p);
+        }
+        if (xrayPatientData && xrayPatientId) {
+            add(Object.assign({}, xrayPatientData, { id: xrayPatientId }));
+        }
+        (xrayLinkedPatients || []).forEach(add);
+        return out;
+    }
+
+    function xrayChooserCoreKey(no) {
+        var raw = (typeof clinicNoNumbersOnly === 'function')
+            ? clinicNoNumbersOnly(no)
+            : String(no || '').replace(/\D/g, '');
+        if (!raw) return '';
+        return String(parseInt(raw, 10));
+    }
+
+    window.xrayAllocBarePatientNo = function (cb) {
+        if (typeof collectAllPatientNumbersThen !== 'function') {
+            if (cb) cb(null, new Error('no number allocator'));
+            return;
+        }
+        collectAllPatientNumbersThen(function (list, err) {
+            if (err) {
+                if (cb) cb(null, err);
+                return;
+            }
+            var used = {};
+            (list || []).forEach(function (no) {
+                var key = xrayChooserCoreKey(no);
+                if (key) used[key] = true;
+            });
+            var minReg = (typeof patientNoMinReg === 'function') ? patientNoMinReg() : 10000;
+            var maxReg = (typeof patientNoMaxReg === 'function') ? patientNoMaxReg() : 999999;
+            var width = (typeof patientNoDigitWidth === 'function') ? patientNoDigitWidth() : 6;
+            var next = null;
+            var usedNums = Object.keys(used).map(function (k) { return parseInt(k, 10); });
+            if (usedNums.length) {
+                var cand = Math.max.apply(null, usedNums) + 1;
+                if (cand <= maxReg && !used[String(cand)]) next = cand;
+            } else {
+                next = minReg;
+            }
+            if (next == null) {
+                var n;
+                for (n = minReg; n <= maxReg; n++) {
+                    if (!used[String(n)]) {
+                        next = n;
+                        break;
+                    }
+                }
+            }
+            if (next == null) {
+                if (cb) cb(null);
+                return;
+            }
+            var pad = String(next);
+            while (pad.length < width) pad = '0' + pad;
+            if (cb) cb(pad);
+        });
+    };
+
+    function xrayChooserShowError(msg) {
+        var err = g('xrayChooserError');
+        if (!err) return;
+        if (!msg) {
+            err.hidden = true;
+            err.textContent = '';
+            return;
+        }
+        err.hidden = false;
+        err.textContent = msg;
+    }
+
+    window.xrayChooserSyncMode = function () {
+        var globalOn = !!(g('xrayChooserModeGlobal') && g('xrayChooserModeGlobal').checked);
+        var sel = g('xrayChooserChartSelect');
+        var hkid = g('xrayChooserHkid');
+        if (sel) sel.disabled = globalOn;
+        if (hkid) hkid.disabled = !globalOn;
+    };
+
+    function xrayChooserFinish(ok) {
+        var cb = xrayChooserOnDone;
+        xrayChooserOnDone = null;
+        if (typeof closeModal === 'function') closeModal('xrayUploadChooserModal');
+        if (typeof cb === 'function') cb(!!ok);
+    }
+
+    window.xrayCancelUploadChooser = function () {
+        window.xrayClearUploadOverride();
+        xrayChooserFinish(false);
+    };
+
+    window.xrayOpenUploadChooser = function (blockTarget, onDone) {
+        xrayChooserOnDone = onDone;
+        xrayChooserBareNo = '';
+        var work = (blockTarget && (blockTarget.clinicLabel || blockTarget.workingTag)) ||
+            xrayClinicLabelFromTag(xrayWorkingClinicTag());
+        var homeTag = xrayPatientClinicTag(xrayPatientData);
+        var lead = g('xrayChooserLead');
+        if (lead) {
+            lead.textContent = mediaTrRepl('con.xray.chooser.lead', {
+                WORK: work,
+                CHART: xrayClinicLabelFromTag(homeTag || (blockTarget && blockTarget.chartTag)),
+                NO: (xrayPatientData && xrayPatientData.patient_no) || ''
+            });
+        }
+        var sel = g('xrayChooserChartSelect');
+        if (sel) {
+            sel.innerHTML = '';
+            xrayChooserExistingCharts().forEach(function (p) {
+                var o = document.createElement('option');
+                o.value = String(p.id);
+                var tag = xrayClinicLabelFromTag(xrayPatientClinicTag(p));
+                o.textContent = (tag ? tag + ' ' : '') + '#' + (p.patient_no || p.id);
+                sel.appendChild(o);
+            });
+            if (xrayPatientId) sel.value = String(xrayPatientId);
+        }
+        var existing = g('xrayChooserModeExisting');
+        if (existing) existing.checked = true;
+        var hkidInp = g('xrayChooserHkid');
+        if (hkidInp) {
+            hkidInp.value = (xrayPatientData && xrayPatientData.hkid) ? String(xrayPatientData.hkid) : '';
+        }
+        var noEl = g('xrayChooserNewNo');
+        if (noEl) noEl.textContent = mediaTr('con.xray.chooser.newNoWait');
+        xrayChooserShowError('');
+        xrayChooserSyncMode();
+        if (typeof ensureModalNoBackdropClose === 'function') {
+            ensureModalNoBackdropClose('xrayUploadChooserModal');
+        }
+        if (typeof openModal === 'function') openModal('xrayUploadChooserModal');
+        if (typeof applyI18nInRoot === 'function') applyI18nInRoot(g('xrayUploadChooserModal'));
+        window.xrayAllocBarePatientNo(function (no) {
+            xrayChooserBareNo = no || '';
+            if (noEl) {
+                noEl.textContent = no
+                    ? mediaTrRepl('con.xray.chooser.newNo', { NO: no })
+                    : mediaTr('con.xray.chooser.needNo');
+            }
+        });
+    };
+
+    function xrayPersistSourceHkid(raw) {
+        if (!xrayPatientId) return Promise.resolve();
+        var already = xrayNormalizeHkid(xrayPatientData && xrayPatientData.hkid);
+        var want = xrayNormalizeHkid(raw);
+        if (already && already === want) {
+            if (xrayPatientData) xrayPatientData.hkid = raw;
+            return Promise.resolve();
+        }
+        return SB.from('patients').update({ hkid: raw }).eq('id', xrayPatientId).then(function (r) {
+            if (r.error) throw r.error;
+            if (xrayPatientData) xrayPatientData.hkid = raw;
+            if (typeof conPatientData !== 'undefined' && conPatientData &&
+                String(conPatientData.id) === String(xrayPatientId)) {
+                conPatientData.hkid = raw;
+            }
+        });
+    }
+
+    function xrayInsertGlobalClone(src, bareNo, hkidRaw) {
+        var work = xrayWorkingClinicTag();
+        var payload = {
+            patient_no: bareNo,
+            full_name: src.full_name || '',
+            chinese_name: src.chinese_name || null,
+            phone_number: src.phone_number || null,
+            mobile_phone: src.mobile_phone || null,
+            email: src.email || null,
+            sex: src.sex || null,
+            dob: src.dob || null,
+            hkid: hkidRaw,
+            insurance_no: src.insurance_no || null,
+            occupation: src.occupation || null,
+            address: src.address || null,
+            residential_district: src.residential_district || null,
+            medical_alerts: src.medical_alerts || null,
+            family_history: src.family_history || null,
+            referred_by: src.referred_by || null,
+            remarks: src.remarks || null,
+            banana_index: src.banana_index != null ? src.banana_index : null,
+            banana_notes: src.banana_notes || null
+        };
+        var field = (typeof PATIENT_CLINIC_TAG_FIELD === 'string') ? PATIENT_CLINIC_TAG_FIELD : 'clinic_tag';
+        payload[field] = work;
+        function insert(pl, retried) {
+            return SB.from('patients').insert([pl])
+                .select('id,patient_no,full_name,chinese_name,hkid,dob,clinic_tag')
+                .then(function (r) {
+                    if (r.error) {
+                        var msg = String(r.error.message || '').toLowerCase();
+                        if (!retried && msg.indexOf('banana_notes') >= 0) {
+                            var pl2 = Object.assign({}, pl);
+                            delete pl2.banana_notes;
+                            return insert(pl2, true);
+                        }
+                        throw r.error;
+                    }
+                    return (r.data && r.data[0]) ? r.data[0] : null;
+                });
+        }
+        return insert(payload, false);
+    }
+
+    window.xrayConfirmUploadChooser = function () {
+        xrayChooserShowError('');
+        var globalOn = !!(g('xrayChooserModeGlobal') && g('xrayChooserModeGlobal').checked);
+        if (!globalOn) {
+            var sel = g('xrayChooserChartSelect');
+            var id = sel ? String(sel.value || '').trim() : '';
+            var charts = xrayChooserExistingCharts();
+            var picked = null;
+            charts.forEach(function (p) {
+                if (String(p.id) === id) picked = p;
+            });
+            if (!picked) {
+                xrayChooserShowError(mediaTr('con.xray.chooser.needChart'));
+                return;
+            }
+            window.xrayUploadOverrideTarget = xrayMakeWriteTarget(picked);
+            xrayChooserFinish(true);
+            return;
+        }
+        var hkidInp = g('xrayChooserHkid');
+        var hkidRaw = hkidInp ? String(hkidInp.value || '').trim() : '';
+        if (!xrayNormalizeHkid(hkidRaw)) {
+            xrayChooserShowError(mediaTr('con.xray.chooser.hkidNeed'));
+            return;
+        }
+        if (!xrayChooserBareNo) {
+            xrayChooserShowError(mediaTr('con.xray.chooser.needNo'));
+            return;
+        }
+        var btn = g('xrayChooserContinueBtn');
+        if (btn) btn.disabled = true;
+        var srcP = (xrayPatientData && xrayPatientData.id)
+            ? Promise.resolve(xrayPatientData)
+            : SB.from('patients').select('*').eq('id', xrayPatientId).maybeSingle()
+                .then(function (r) { return r.data || {}; });
+        srcP.then(function (src) {
+            return xrayPersistSourceHkid(hkidRaw).then(function () { return src; });
+        }).then(function (src) {
+            if (typeof patientNoDupQuery === 'function') {
+                return patientNoDupQuery(xrayChooserBareNo).then(function (dupr) {
+                    if (dupr.error) throw dupr.error;
+                    if (dupr.data && dupr.data.length) {
+                        throw new Error(mediaTr('con.xray.chooser.needNo'));
+                    }
+                    return src;
+                });
+            }
+            return src;
+        }).then(function (src) {
+            return xrayInsertGlobalClone(src || {}, xrayChooserBareNo, hkidRaw);
+        }).then(function (row) {
+            if (!row || !row.id) throw new Error(mediaTr('con.xray.chooser.needNo'));
+            var work = xrayWorkingClinicTag();
+            window.xrayUploadOverrideTarget = xrayMakeWriteTarget(row, {
+                clinic_tag: work,
+                clinicLabel: xrayClinicLabelFromTag(work)
+            });
+            xrayLinkedPatients = (xrayLinkedPatients || []).concat([Object.assign({}, row, {
+                isHome: false,
+                clinic_tag: work,
+                clinicLabel: xrayClinicLabelFromTag(work),
+                matchMethod: 'hkid',
+                detailsDiffer: false
+            })]);
+            xrayChooserFinish(true);
+        }).catch(function (err) {
+            xrayChooserShowError(mediaTrRepl('con.xray.chooser.cloneFail', {
+                MSG: (err && err.message) ? err.message : String(err || '')
+            }));
+        }).then(function () {
+            if (btn) btn.disabled = false;
+        });
+    };
+
+    window.xrayRevealWriteClinic = function (target) {
+        if (!target || !target.ok || !target.clinic_tag) return;
+        var tag = String(target.clinic_tag);
+        xrayExpandedClinicTags[tag] = true;
+        var home = xrayHomeClinicTag();
+        if (!xrayTagEquals(tag, home) && (xrayClinicScope === 'home' || !xrayClinicScope)) {
+            xrayClinicScope = 'all';
+            var sel = g('xrayClinicScope');
+            if (sel) sel.value = 'all';
+        }
+    };
+
     window.xrayIsHomeRecord = function (rec) {
-        return !!(rec && xrayPatientId && String(rec.patient_id) === String(xrayPatientId));
+        if (!rec) return false;
+        var pid = String(rec.patient_id || '');
+        if (!pid) return false;
+        var write = window.xrayUploadTargetPatient();
+        if (write && write.ok && write.id) {
+            return pid === String(write.id);
+        }
+        return !!(xrayPatientId && pid === String(xrayPatientId));
     };
 
     window.xrayClinicTagLabel = function (rec) {
@@ -481,10 +886,29 @@
             else prompt.setAttribute('hidden', '');
         }
         if (hint) {
-            var homeLabel = xrayClinicLabelFromTag(xrayHomeClinicTag());
-            var no = (xrayPatientData && xrayPatientData.patient_no) ? String(xrayPatientData.patient_no) : '';
-            hint.textContent = mediaTrRepl('con.xray.writeHint', { CLINIC: homeLabel, NO: no });
-            hint.hidden = !((others.length && xrayClinicScope === 'all') || mismatch);
+            var write = window.xrayUploadTargetPatient();
+            if (write && write.ok) {
+                hint.textContent = mediaTrRepl('con.xray.writeHint', {
+                    CLINIC: write.clinicLabel || xrayClinicLabelFromTag(write.clinic_tag),
+                    NO: write.patient_no || ''
+                });
+                hint.hidden = !((others.length && xrayClinicScope === 'all') || mismatch || !write.sameAsOpened);
+            } else if (write && write.reason === 'no-working-chart') {
+                hint.textContent = mediaTrRepl('con.xray.uploadNeedWorkChart', {
+                    WORK: write.clinicLabel || xrayClinicLabelFromTag(write.workingTag)
+                });
+                hint.hidden = false;
+            } else if (write && write.reason === 'ambiguous') {
+                hint.textContent = mediaTrRepl('con.xray.uploadAmbiguousWork', {
+                    WORK: write.clinicLabel || xrayClinicLabelFromTag(write.workingTag)
+                });
+                hint.hidden = false;
+            } else {
+                var homeLabel = xrayClinicLabelFromTag(xrayHomeClinicTag());
+                var no = (xrayPatientData && xrayPatientData.patient_no) ? String(xrayPatientData.patient_no) : '';
+                hint.textContent = mediaTrRepl('con.xray.writeHint', { CLINIC: homeLabel, NO: no });
+                hint.hidden = !((others.length && xrayClinicScope === 'all') || mismatch);
+            }
         }
     };
 
@@ -557,6 +981,7 @@
             xrayExpandedClinicTags = {};
             xrayShowAllInRow = {};
             xrayPinnedId = null;
+            window.xrayClearUploadOverride();
             window._xrayLinkLastPid = String(xrayPatientId);
         }
         xrayClinicScope = xrayReadClinicScopePref() || 'home';
@@ -567,8 +992,9 @@
             var work = xrayWorkingClinicTag();
             var homeTagNow = xrayPatientClinicTag(home);
             var workCharts = xrayChartsAtTag(home, matches, work);
-            // Stay on the chart the user selected. HKID twins keep their own
-            // patient_no; their films join this gallery via patient_id list.
+            // Stay on the chart the user selected for viewing. New uploads
+            // retarget via xrayUploadTargetPatient() to workCharts[0] when
+            // the opened chart number carries another clinic's prefix.
             var built = xrayBuildLinkedSet(home, matches);
             xrayLinkedPatients = built.list;
             var hkidLinked = !!(xrayNormalizeHkid(home.hkid) && built.list.some(function (p) {

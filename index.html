@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260916fxdl1';
+  var BUILD = '20260917xrayup2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4324,6 +4324,42 @@
   </div>
 </div>
 
+<div id="xrayUploadChooserModal" class="modal modal-no-backdrop-close" data-no-backdrop-close="1">
+  <div class="modal-box xray-chooser-box">
+    <button type="button" class="mclose" data-i18n-aria-label="common.closeAria"
+            onclick="xrayCancelUploadChooser()">×</button>
+    <h3 id="xrayChooserTitle" data-i18n="con.xray.chooser.title"></h3>
+    <p id="xrayChooserLead" class="xray-chooser-lead"></p>
+    <label class="xray-chooser-opt">
+      <input type="radio" name="xrayChooserMode" id="xrayChooserModeExisting" value="existing" checked
+             onchange="xrayChooserSyncMode()">
+      <span>
+        <strong data-i18n="con.xray.chooser.optExisting"></strong>
+        <select id="xrayChooserChartSelect" class="xray-chooser-select"></select>
+      </span>
+    </label>
+    <label class="xray-chooser-opt">
+      <input type="radio" name="xrayChooserMode" id="xrayChooserModeGlobal" value="global"
+             onchange="xrayChooserSyncMode()">
+      <span>
+        <strong data-i18n="con.xray.chooser.optGlobal"></strong>
+        <span id="xrayChooserNewNo" class="xray-chooser-newno"></span>
+        <label class="xray-chooser-hkid-lbl" for="xrayChooserHkid" data-i18n="con.xray.chooser.hkid"></label>
+        <input id="xrayChooserHkid" type="text" autocomplete="off" spellcheck="false"
+               data-i18n-placeholder="con.xray.hkidPromptPh">
+      </span>
+    </label>
+    <p class="xray-chooser-note" data-i18n="con.xray.chooser.noBalance"></p>
+    <div id="xrayChooserError" class="xray-chooser-error" hidden></div>
+    <div class="xray-chooser-actions">
+      <button type="button" class="btn-add" id="xrayChooserContinueBtn"
+              onclick="xrayConfirmUploadChooser()" data-i18n="con.xray.chooser.continue"></button>
+      <button type="button" class="xray-chooser-cancel" onclick="xrayCancelUploadChooser()"
+              data-i18n="con.xray.chooser.cancel"></button>
+    </div>
+  </div>
+</div>
+
 
   <!-- ══ PANE: CHARTING ════════════════════════════════════ -->
   <div id="con-charting" class="con-pane">
@@ -7449,7 +7485,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js',
-    'app-i18n-extra.js?v=20260910bop1',
+    'app-i18n-extra.js?v=20260917xrayup2',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20260915billdr1',
@@ -7475,8 +7511,8 @@
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
-    'app-xray.js?v=20260909crop1',
-    'app-xray-link.js?v=20260915pick3',
+    'app-xray.js?v=20260917xrayup2',
+    'app-xray-link.js?v=20260917xrayup2',
     'app-nnt-scans.js?v=20260828myray5',
     'app-xray-ai.js?v=20260909aidlg1',
     'app-xray-ai-20260909.js',

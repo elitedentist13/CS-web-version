@@ -2166,9 +2166,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             if (!fi.files || !fi.files.length) return;
-            xrayUploadQueue = Array.from(fi.files);
-            xrayUploadQIdx  = 0;
-            processNextUpload();
+            xrayStartQueuedUpload(Array.from(fi.files));
             fi.value = '';
         });
     }
@@ -2218,10 +2216,38 @@ document.addEventListener('DOMContentLoaded', function() {
 function processNextUpload() {
     if (xrayUploadQIdx >= xrayUploadQueue.length) {
         closeModal('xrayUploadModal');
+        if (typeof xrayClearUploadOverride === 'function') xrayClearUploadOverride();
         loadXrayRecords();
         return;
     }
     showUploadModal(xrayUploadQueue[xrayUploadQIdx]);
+}
+
+function xrayStartQueuedUpload(files) {
+    if (!files || !files.length) return;
+    xrayUploadQueue = Array.from(files);
+    xrayUploadQIdx = 0;
+    var target = xrayResolveUploadPatient();
+    if (target && target.ok && target.id) {
+        processNextUpload();
+        return;
+    }
+    if (target && target.reason === 'no-working-chart' &&
+        typeof xrayOpenUploadChooser === 'function') {
+        xrayOpenUploadChooser(target, function (ok) {
+            if (!ok) {
+                xrayUploadQueue = [];
+                xrayUploadQIdx = 0;
+                return;
+            }
+            processNextUpload();
+        });
+        return;
+    }
+    xrayUploadQueue = [];
+    xrayUploadQIdx = 0;
+    if (typeof xrayExplainUploadBlock === 'function') xrayExplainUploadBlock(target);
+    else alert(mediaTr('con.forms.alertSelectPatient'));
 }
 
 function showUploadModal(file) {
@@ -2279,12 +2305,39 @@ function confirmUpload() {
     });
 }
 
+function xrayResolveUploadPatient() {
+    if (typeof xrayUploadTargetPatient === 'function') {
+        return xrayUploadTargetPatient();
+    }
+    if (!xrayPatientId) return { ok: false, reason: 'no-patient' };
+    return {
+        ok: true,
+        id: xrayPatientId,
+        patient_no: (xrayPatientData && xrayPatientData.patient_no) || null,
+        full_name: (xrayPatientData && xrayPatientData.full_name) || null,
+        clinic_tag: (xrayPatientData && xrayPatientData.clinic_tag) || '',
+        sameAsOpened: true
+    };
+}
+
+function xrayGuardUploadTarget() {
+    var target = xrayResolveUploadPatient();
+    if (target && target.ok && target.id) return target;
+    if (typeof xrayExplainUploadBlock === 'function') xrayExplainUploadBlock(target);
+    else alert(mediaTr('con.forms.alertSelectPatient'));
+    return null;
+}
+
 function uploadSingleXrayFile(file, type, date, notes, onDone) {
-    if (!file || !xrayPatientId) return;
+    var target = xrayGuardUploadTarget();
+    if (!file || !target) return;
+    var destId = target.id;
+    var destNo = target.patient_no || null;
+    var destName = target.full_name || null;
     showUploadProgress(true, mediaTr('media.upload.preparing'), 5);
 
     var ext      = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    var safeName = xrayPatientId + '/' +
+    var safeName = destId + '/' +
                    Date.now() + '_' +
                    Math.random().toString(36).slice(2) + '.' + ext;
 
@@ -2320,7 +2373,7 @@ function uploadSingleXrayFile(file, type, date, notes, onDone) {
                     mediaTrRepl('media.err.permissionHtml', { BUCKET: XRAY_BUCKET })
                 );
             } else if (/duplicate|already exists/i.test(msg)) {
-                safeName = xrayPatientId + '/' +
+                safeName = destId + '/' +
                            Date.now() + '_retry_' +
                            Math.random().toString(36).slice(2) + '.' + ext;
                 return SB.storage.from(XRAY_BUCKET)
@@ -2348,9 +2401,9 @@ function uploadSingleXrayFile(file, type, date, notes, onDone) {
         showUploadProgress(true, mediaTr('media.upload.savingRecord'), 80);
 
         return SB.from('xrays').insert([{
-            patient_id  : xrayPatientId,
-            patient_no  : (xrayPatientData && xrayPatientData.patient_no)  || null,
-            patient_name: (xrayPatientData && xrayPatientData.full_name)   || null,
+            patient_id  : destId,
+            patient_no  : destNo,
+            patient_name: destName,
             file_path   : res.path,
             file_url    : publicUrl,
             file_name   : file.name,
@@ -2372,6 +2425,7 @@ function uploadSingleXrayFile(file, type, date, notes, onDone) {
             return;
         }
         showUploadProgress(true, mediaTr('media.upload.done'), 100);
+        if (typeof xrayRevealWriteClinic === 'function') xrayRevealWriteClinic(target);
         setTimeout(function() {
             showUploadProgress(false);
             if (onDone) onDone();
@@ -3322,9 +3376,13 @@ function pickXrayLocalFolderForImport(systemKey) {
 function importXrayFilesFromLocalPicker(fileList, systemKey) {
     if (!fileList || !fileList.length || !xrayPatientId) return;
     var patient = xrayPatientData;
+    var write = xrayResolveUploadPatient();
     var files = Array.from(fileList).filter(isXrayImageFile);
-    if (patient) {
-        files = files.filter(function(f) { return xrayFileMatchesPatient(f, patient); });
+    if (patient || (write && write.ok)) {
+        files = files.filter(function(f) {
+            return (patient && xrayFileMatchesPatient(f, patient)) ||
+                (write && write.ok && xrayFileMatchesPatient(f, write));
+        });
     }
     if (!files.length) {
         alert(mediaTr('media.local.noMatchingImages'));
@@ -3338,12 +3396,34 @@ function importXrayFilesFromLocalPicker(fileList, systemKey) {
     var importNote = mediaTrRepl('media.local.importNote', {
         SYS: xraySystemName(systemKey) || mediaTr('media.local.general')
     });
-    processNextLocalBulkUpload(importNote);
+    var target = xrayResolveUploadPatient();
+    if (target && target.ok && target.id) {
+        processNextLocalBulkUpload(importNote);
+        return;
+    }
+    if (target && target.reason === 'no-working-chart' &&
+        typeof xrayOpenUploadChooser === 'function') {
+        xrayOpenUploadChooser(target, function (ok) {
+            if (!ok) {
+                xrayBulkLocalImport = false;
+                xrayUploadQueue = [];
+                xrayUploadQIdx = 0;
+                return;
+            }
+            processNextLocalBulkUpload(importNote);
+        });
+        return;
+    }
+    xrayBulkLocalImport = false;
+    xrayUploadQueue = [];
+    if (typeof xrayExplainUploadBlock === 'function') xrayExplainUploadBlock(target);
+    else alert(mediaTr('con.forms.alertSelectPatient'));
 }
 
 function processNextLocalBulkUpload(importNote) {
     if (xrayUploadQIdx >= xrayUploadQueue.length) {
         xrayBulkLocalImport = false;
+        if (typeof xrayClearUploadOverride === 'function') xrayClearUploadOverride();
         loadXrayRecords();
         return;
     }

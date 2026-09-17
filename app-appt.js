@@ -20301,6 +20301,25 @@ function billDoctorTag(d) {
         '';
 }
 
+/**
+ * Doctor label on bill history / payment panel.
+ * Prefer identity from doctor_name (reports already do this) so a stale
+ * doctor_tag such as "DR. JOSEPH LAM" on 張樂怡 bills does not win.
+ */
+function billDisplayDoctorLabel(b) {
+    if (!b) return '';
+    if (typeof DoctorAliases !== 'undefined' &&
+        typeof DoctorAliases.resolveFromBill === 'function') {
+        var docs = (typeof billDoctorList !== 'undefined' && billDoctorList && billDoctorList.length)
+            ? billDoctorList : null;
+        var person = DoctorAliases.resolveFromBill(b, docs);
+        if (person && person.key && person.key !== '__unknown__' && person.label) {
+            return String(person.label).trim();
+        }
+    }
+    return String(b.doctor_name || b.dentist_name || b.doctor_tag || '').trim();
+}
+
 function renderBillDoctorOptions(selectedId, selectId) {
     var sel = g(selectId || 'pendingListDoctor');
     if (!sel) return;
@@ -22071,7 +22090,8 @@ function billHistoryPrintRowLabel(b) {
     var typeLbl = (typeof dispPayMethod === 'function')
         ? dispPayMethod(b.bill_type)
         : (b.bill_type || '—');
-    var doctor = b.doctor_tag || b.doctor_name || '';
+    var doctor = (typeof billDisplayDoctorLabel === 'function')
+        ? billDisplayDoctorLabel(b) : (b.doctor_name || b.doctor_tag || '');
     var dateDisp = billHistoryPrintDateDisplay(b.bill_date);
     var statusTxt = voided
         ? tr('bill.detail.voidBadge')
@@ -22293,7 +22313,8 @@ function buildBillHistoryPrintHtml(bills, opts) {
         var typeLbl = (typeof dispPayMethod === 'function')
             ? dispPayMethod(b.bill_type)
             : (b.bill_type || '—');
-        var doctor = b.doctor_tag || b.doctor_name || '—';
+        var doctor = ((typeof billDisplayDoctorLabel === 'function')
+            ? billDisplayDoctorLabel(b) : (b.doctor_name || b.doctor_tag)) || '—';
         var total = parseFloat(b.total) || 0;
         var paid = billHistoryDisplayPaid(b);
         var bal = parseFloat(b.balance) || 0;
@@ -22578,7 +22599,8 @@ function billHistoryDisplayPaid(b) {
 function renderBillHistoryRows(wrap, data) {
     wrap.innerHTML = '';
     data.forEach(function(b) {
-            var drTag   = b.doctor_tag || b.doctor_name || '';
+            var drTag   = (typeof billDisplayDoctorLabel === 'function')
+                ? billDisplayDoctorLabel(b) : (b.doctor_name || b.doctor_tag || '');
             var canVoidBill = canModifyBill();
             var voided  = billRecordIsVoid(b);
             var div = document.createElement('div');
@@ -22686,6 +22708,8 @@ function refreshBillDeleteModalCopy(b) {
     if (!b) return;
     var ref  = b.id ? b.id.slice(0, 8).toUpperCase() : '?';
     var info = g('bdDeleteInfo');
+    var drLbl = (typeof billDisplayDoctorLabel === 'function')
+        ? billDisplayDoctorLabel(b) : (b.doctor_name || b.doctor_tag || '');
     if (info) {
         info.textContent =
             trRepl('bill.delete.summary', {
@@ -22696,9 +22720,7 @@ function refreshBillDeleteModalCopy(b) {
                     ? dispPayMethod(b.bill_type)
                     : (b.bill_type || '')
             }) +
-            (b.doctor_tag || b.doctor_name
-                ? trRepl('bill.delete.summaryDoctor', { DOCTOR: (b.doctor_tag || b.doctor_name) })
-                : '');
+            (drLbl ? trRepl('bill.delete.summaryDoctor', { DOCTOR: drLbl }) : '');
     }
 }
 
@@ -23208,7 +23230,8 @@ function showBillDetail(b) {
     bdSet('bdPatient',   _bdDisplayName);
     bdSet('bdPatientNo', _bdDisplayNo);
     bdSet('bdDate',      b.bill_date    || '—');
-    bdSet('bdDoctor',    b.doctor_tag   || b.doctor_name || '—');
+    bdSet('bdDoctor',    ((typeof billDisplayDoctorLabel === 'function')
+        ? billDisplayDoctorLabel(b) : (b.doctor_name || b.doctor_tag)) || '—');
     bdSet('bdClinicCode', billDetailClinicCode(b) || '—');
     bdSet('bdType',      (typeof dispPayMethod === 'function') ? dispPayMethod(b.bill_type) : (b.bill_type || '—'));
 

@@ -10,7 +10,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-appt.js'))) root = process.cwd();
 
-var BUILD = '20260916plussc4';
+var BUILD = '20260917plussc5';
 var fails = [];
 
 function pass(name, ok, detail) {
@@ -79,8 +79,9 @@ function loadScrollFns() {
         plusApptScrollRestoring: false,
         plusApptScrollRestoreGen: 0,
         PLUSAPPT_SCROLL_MEM_TTL_MS: 180000,
-        PLUSAPPT_SCROLL_PIN_MS: 3500,
+        PLUSAPPT_SCROLL_PIN_MS: 900,
         plusApptScrollUserUnpinned: false,
+        Date: Date,
         plusApptSelectedAppt: null,
         plusApptSelectedSlot: null,
         plusApptIsAllDoctorsMode: function () { return false; },
@@ -180,14 +181,30 @@ function fakeWrap(scrollTop, slots) {
         /function renderPlusApptSchedule\(force\)[\s\S]{0,700}plusApptScheduleRestoreAfterRender\(\)/.test(apptSrc));
     pass('loadPlusApptDay captures before fetch',
         /function loadPlusApptDay[\s\S]{0,450}plusApptCaptureScheduleScroll\(\)/.test(apptSrc));
-    pass('edit modal pins time area',
-        /function openApptEditModal[\s\S]{0,280}pin: true/.test(apptSrc));
-    pass('remarks editor pins on plusappt',
-        /function openQueueRemarksEditor[\s\S]{0,420}pin: true/.test(apptSrc));
+    pass('save notify pins time area',
+        /function plusApptNotifyAppointmentSaved[\s\S]{0,2200}pin: true/.test(apptSrc));
+    pass('open edit modal does not pin',
+        !/function openApptEditModal[\s\S]{0,280}pin: true/.test(apptSrc));
+    pass('remarks save pins on plusappt',
+        /function bindQueueRemarksModalOnce[\s\S]{0,2800}pin: true/.test(apptSrc));
+    pass('open remarks editor does not pin',
+        !/function openQueueRemarksEditor[\s\S]{0,280}pin: true/.test(apptSrc));
+    pass('slot focusin does not pin',
+        !/function apptModuleBindEditPauseOnce[\s\S]{0,700}pin: true/.test(apptSrc));
     pass('date change clears mem',
         /function plusApptSetDate[\s\S]{0,80}plusApptClearScheduleScrollMem\(\)/.test(apptSrc));
-    pass('unpaid hydrate restores again',
-        /hydrateApptUnpaidBalances\(plusApptDayAppts[\s\S]{0,900}plusApptScheduleRestoreAfterRender\(\)/.test(apptSrc));
+    pass('unpaid hydrate re-renders without re-pin',
+        /hydrateApptUnpaidBalances\(plusApptDayAppts[\s\S]{0,700}renderPlusApptSchedule\(\)/.test(apptSrc) &&
+        !/hydrateApptUnpaidBalances\(plusApptDayAppts[\s\S]{0,700}plusApptPinScheduleScrollMem/.test(apptSrc));
+    pass('restore-after-render does not re-pin',
+        !/function plusApptScheduleRestoreAfterRender\(\)[\s\S]{0,900}plusApptPinScheduleScrollMem/.test(apptSrc));
+    pass('restore-after-render unpins after pulses',
+        /function plusApptScheduleRestoreAfterRender\(\)[\s\S]{0,900}plusApptUnpinScheduleScrollMem/.test(apptSrc));
+    pass('user scroll cancels restore pulses',
+        /function plusApptOnUserScrollGesture[\s\S]{0,700}plusApptCancelScheduleScrollRestore/.test(apptSrc));
+    pass('owns-restore is pin-only',
+        /function plusApptOwnsScheduleScrollRestore\(\)[\s\S]{0,280}plusApptMemIsPinned\(plusApptScrollMem\);/.test(apptSrc) &&
+        !/function plusApptOwnsScheduleScrollRestore\(\)[\s\S]{0,280}plusApptScrollMemHasOffset/.test(apptSrc));
     pass('snapshot uses element offset not only winY',
         apptSrc.indexOf('function apptScrollStateHasOffset') >= 0);
     pass('index BUILD bumped',
@@ -200,7 +217,7 @@ function fakeWrap(scrollTop, slots) {
     pass('apptFinish defers to plusAppt owner',
         /function apptFinishScrollPreserve[\s\S]{0,900}plusApptOwnsScheduleScrollRestore/.test(apptSrc));
     pass('applyAppScrollState skips plusappt wraps',
-        /function applyAppScrollState[\s\S]{0,700}plusApptOwnsScheduleScrollRestore/.test(appSrc));
+        /function applyAppScrollState[\s\S]{0,700}plusappt-schedule-wrap/.test(appSrc));
     pass('pin for move helper',
         apptSrc.indexOf('function plusApptPinScheduleForMove') >= 0);
     pass('dragstart pins viewport',
@@ -233,7 +250,7 @@ function fakeWrap(scrollTop, slots) {
         clobber === mem && clobber.wrapTop === 420,
         clobber && String(clobber.wrapTop));
 
-    fns.plusApptScrollMem.pinned = false;
+    fns.plusApptUnpinScheduleScrollMem(fns.plusApptScrollMem);
     wrap.scrollTop = 0;
     wrap.scrollHeight = 48;
     wrap.clientHeight = 400;
@@ -253,9 +270,9 @@ function fakeWrap(scrollTop, slots) {
         !!(found && /16:0[05]/.test(found.getAttribute('data-slot-time'))),
         found && found.getAttribute('data-slot-time'));
 
-    // Race: after restore, a morningish live capture must not clobber the pin.
     wrap.scrollTop = 0;
     wrap.scrollHeight = 40 + slots.length * 24 + 800;
+    fns.plusApptPinScheduleScrollMem(fns.plusApptScrollMem);
     var raced = fns.plusApptCaptureScheduleScroll();
     pass('morningish capture cannot clobber pinned afternoon',
         raced && raced.slotTime === '16:00' && raced.wrapTop === 420,
@@ -275,6 +292,27 @@ function fakeWrap(scrollTop, slots) {
     pass('owns restore while pinned',
         typeof fns.plusApptOwnsScheduleScrollRestore === 'function' &&
         fns.plusApptOwnsScheduleScrollRestore() === true);
+
+    fns.plusApptUnpinScheduleScrollMem(fns.plusApptScrollMem);
+    wrap.scrollTop = 0;
+    var free = fns.plusApptCaptureScheduleScroll();
+    pass('unpinned morningish capture can update',
+        !!(free && (free.wrapTop || 0) < 40),
+        free && (free.wrapTop + ' @ ' + free.slotTime));
+    pass('owns restore unpinned offset is false',
+        typeof fns.plusApptOwnsScheduleScrollRestore === 'function' &&
+        fns.plusApptOwnsScheduleScrollRestore() === false);
+
+    wrap.scrollTop = 420;
+    fns.plusApptCaptureScheduleScroll({ force: true, slotTime: '16:00' });
+    wrap.scrollTop = 0;
+    fns.plusApptRestoreScheduleScroll({ layoutOnly: true });
+    pass('layout-only restore uses wrapTop not slot seek',
+        wrap.scrollTop === 420,
+        'scrollTop=' + wrap.scrollTop);
+
+    wrap.scrollTop = 420;
+    fns.plusApptCaptureScheduleScroll({ force: true, pin: true, slotTime: '16:00' });
 
     // Move path: pin destination while wrap is at morning must keep prior afternoon viewport.
     if (typeof fns.plusApptPinScheduleForMove === 'function') {
@@ -299,16 +337,20 @@ function fakeWrap(scrollTop, slots) {
 
     console.log('\n=== HTTP spot: live-server ===');
     var served = null;
-    var ports = [5500, 8123];
+    var ports = [8123, 5500];
     var i;
     for (i = 0; i < ports.length; i++) {
         try {
-            var idx = await httpGet('127.0.0.1', ports[i], '/index.html');
+            var idx = await httpGet('127.0.0.1', ports[i], '/index.html?b=' + BUILD);
             var js = await httpGet('127.0.0.1', ports[i], '/app-appt.js?b=' + BUILD);
-            served = { port: ports[i], idx: idx, js: js };
-            break;
+            var hit = { port: ports[i], idx: idx, js: js };
+            if (idx.body.indexOf("BUILD = '" + BUILD + "'") >= 0) {
+                served = hit;
+                break;
+            }
+            if (!served) served = hit;
         } catch (e) {
-            served = { error: String(e.message || e), port: ports[i] };
+            if (!served) served = { error: String(e.message || e), port: ports[i] };
         }
     }
     if (!served || !served.idx) {
@@ -323,8 +365,10 @@ function fakeWrap(scrollTop, slots) {
             'status ' + served.js.status + ' bytes=' + (served.js.body || '').length);
         pass('served restore-after-render',
             served.js.body.indexOf('function plusApptScheduleRestoreAfterRender') >= 0);
-        pass('served pin on edit modal',
-            /function openApptEditModal[\s\S]{0,280}pin: true/.test(served.js.body));
+        pass('served pin on save notify',
+            /function plusApptNotifyAppointmentSaved[\s\S]{0,2200}pin: true/.test(served.js.body));
+        pass('served restore does not re-pin',
+            !/function plusApptScheduleRestoreAfterRender\(\)[\s\S]{0,900}plusApptPinScheduleScrollMem/.test(served.js.body));
     }
 
     console.log('\n=== API: afternoon appointments exist to restore to ===');

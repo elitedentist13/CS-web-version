@@ -221,8 +221,8 @@ var plusApptScrollMem = null;
 var plusApptScrollRestoring = false;
 var plusApptScrollRestoreGen = 0;
 var PLUSAPPT_SCROLL_MEM_TTL_MS = 180000;
-/** Keep pin long enough to outlast apptFinishScrollPreserve (≤1200ms) + unpaid re-render. */
-var PLUSAPPT_SCROLL_PIN_MS = 3500;
+/** Pin only for post-edit/move restore pulses (not idle scrolling). */
+var PLUSAPPT_SCROLL_PIN_MS = 900;
 var plusApptScrollUserUnpinned = false;
 var todayLoadSeq = 0;
 var plusApptRemarksLinesCache = {};
@@ -1382,6 +1382,14 @@ function plusApptNotifyAppointmentSaved(meta) {
         if (typeof plusApptSyncScopeFromApptBar === 'function') {
             plusApptSyncScopeFromApptBar();
         }
+    }
+    if (typeof plusApptCaptureScheduleScroll === 'function') {
+        plusApptCaptureScheduleScroll({
+            force: true,
+            pin: true,
+            slotTime: meta.start || (meta.savedRow && meta.savedRow.start_time) || '',
+            apptId: meta.apptId || (meta.savedRow && meta.savedRow.id) || ''
+        });
     }
     if (meta.apptId) plusApptPendingSelectApptId = String(meta.apptId);
     if (meta.savedRow && typeof plusApptMergeSavedRow === 'function') {
@@ -3349,19 +3357,6 @@ function apptModuleBindEditPauseOnce() {
             if (apptEditEndTimer) {
                 clearTimeout(apptEditEndTimer);
                 apptEditEndTimer = null;
-            }
-            if (tabKey === 'plusappt' && typeof plusApptCaptureScheduleScroll === 'function') {
-                var slotRow = ev.target && ev.target.closest
-                    ? ev.target.closest('tr.plusappt-slot-row')
-                    : null;
-                if (slotRow) {
-                    plusApptCaptureScheduleScroll({
-                        force: true,
-                        pin: true,
-                        slotTime: slotRow.getAttribute('data-slot-time') || '',
-                        apptId: slotRow.getAttribute('data-appt-id') || ''
-                    });
-                }
             }
         }, true);
         tab.addEventListener('focusout', function() {
@@ -6346,7 +6341,7 @@ function plusApptOwnsScheduleScrollRestore() {
     if (plusApptScrollRestoring) return true;
     if (!plusApptScrollMem) return false;
     if ((Date.now() - (plusApptScrollMem.ts || 0)) > PLUSAPPT_SCROLL_MEM_TTL_MS) return false;
-    return plusApptMemIsPinned(plusApptScrollMem) || plusApptScrollMemHasOffset(plusApptScrollMem);
+    return plusApptMemIsPinned(plusApptScrollMem);
 }
 
 function plusApptStripScheduleFromAppScrollState(state) {
@@ -6375,6 +6370,20 @@ function plusApptPinScheduleScrollMem(mem, ms) {
     mem.ts = Date.now();
     plusApptScrollUserUnpinned = false;
     return mem;
+}
+
+function plusApptUnpinScheduleScrollMem(mem) {
+    if (!mem) return mem;
+    mem.pinned = false;
+    mem.pinnedUntil = 0;
+    return mem;
+}
+
+function plusApptCancelScheduleScrollRestore() {
+    plusApptScrollRestoreGen++;
+    plusApptScrollRestoring = false;
+    plusApptUnpinScheduleScrollMem(plusApptScrollMem);
+    plusApptScrollUserUnpinned = true;
 }
 
 function plusApptCaptureScheduleScroll(opts) {
@@ -6423,13 +6432,10 @@ function plusApptCaptureScheduleScroll(opts) {
         next.pinned = true;
         next.pinnedUntil = prev.pinnedUntil;
     }
-    var nextHas = plusApptScrollMemHasOffset(next) || next.wrapTop > 0 || maxTop > 0;
     var collapsed = !primary || plusApptWrapLooksCollapsed(primary);
-    var morningish = (next.wrapTop || 0) < 40 &&
-        (!next.slotTime || plusApptTimeToMin(next.slotTime) < (13 * 60 + 30));
-    // Never let a mid-refresh morning capture replace a known afternoon/pinned position.
-    if (!opts.force && prevFresh && plusApptScrollMemHasOffset(prev) &&
-        (collapsed || !nextHas || morningish)) {
+    // Keep the last real offset across a collapsed loading wipe only.
+    // A live morning/top scroll on a real timeline must replace mem so the user can stay there.
+    if (!opts.force && prevFresh && plusApptScrollMemHasOffset(prev) && collapsed) {
         return prev;
     }
     plusApptScrollMem = next;
@@ -6457,13 +6463,14 @@ function plusApptFindSlotRow(wrap, slotTime) {
     return best;
 }
 
-function plusApptApplyScrollToWrap(wrap, mem, colMem) {
+function plusApptApplyScrollToWrap(wrap, mem, colMem, opts) {
     if (!wrap || !mem) return;
+    opts = opts || {};
     var top = colMem && colMem.top != null ? colMem.top : mem.wrapTop;
     var left = colMem && colMem.left != null ? colMem.left : mem.wrapLeft;
     var head = wrap.querySelector('thead');
     var headH = head ? head.offsetHeight : 0;
-    var row = plusApptFindSlotRow(wrap, mem.slotTime);
+    var row = opts.layoutOnly ? null : plusApptFindSlotRow(wrap, mem.slotTime);
     if (row) {
         var wrapRect = wrap.getBoundingClientRect();
         var rowRect = row.getBoundingClientRect();
@@ -6482,7 +6489,8 @@ function plusApptApplyScrollToWrap(wrap, mem, colMem) {
     if (left != null) wrap.scrollLeft = left;
 }
 
-function plusApptRestoreScheduleScroll() {
+function plusApptRestoreScheduleScroll(opts) {
+    opts = opts || {};
     var mem = plusApptScrollMem;
     if (!mem) return;
     if ((Date.now() - (mem.ts || 0)) > PLUSAPPT_SCROLL_MEM_TTL_MS) return;
@@ -6495,21 +6503,28 @@ function plusApptRestoreScheduleScroll() {
         var col = el.closest ? el.closest('.plusappt-dr-col') : null;
         var code = col ? String(col.getAttribute('data-doctor-code') || '') : '';
         var colMem = (mem.colTops && code) ? mem.colTops[code] : null;
-        plusApptApplyScrollToWrap(el, mem, colMem);
+        plusApptApplyScrollToWrap(el, mem, colMem, opts);
     });
 }
 
 function plusApptScheduleRestoreAfterRender() {
     if (!plusApptScrollMem) return;
-    // Kill competing app-level restores that would write morning into .plusappt-schedule-wrap.
+    // Idle / realtime re-renders: put wrapTop back once after tbody rebuild.
+    // Slot-seek pulses are only for an edit/move pin — otherwise they fight the user.
+    if (!plusApptMemIsPinned(plusApptScrollMem)) {
+        plusApptRestoreScheduleScroll({ layoutOnly: true });
+        return;
+    }
     if (typeof cancelAppScrollRestore === 'function') cancelAppScrollRestore();
     var gen = ++plusApptScrollRestoreGen;
     plusApptScrollRestoring = true;
-    plusApptPinScheduleScrollMem(plusApptScrollMem, PLUSAPPT_SCROLL_PIN_MS);
     function run(done) {
         if (gen !== plusApptScrollRestoreGen) return;
         plusApptRestoreScheduleScroll();
-        if (done) plusApptScrollRestoring = false;
+        if (done) {
+            plusApptScrollRestoring = false;
+            plusApptUnpinScheduleScrollMem(plusApptScrollMem);
+        }
     }
     run(false);
     if (typeof requestAnimationFrame === 'function') {
@@ -6518,8 +6533,7 @@ function plusApptScheduleRestoreAfterRender() {
             requestAnimationFrame(function() { run(false); });
         });
     }
-    // Pulse past apptFinishScrollPreserve's 1200ms window and unpaid re-render.
-    [40, 120, 280, 550, 900, 1400, 2200, 3200].forEach(function(ms, idx, arr) {
+    [40, 120, 280, 600].forEach(function(ms, idx, arr) {
         setTimeout(function() { run(idx === arr.length - 1); }, ms);
     });
 }
@@ -6683,13 +6697,8 @@ function loadPlusApptDay(opts) {
                     if (!changed) return;
                     if (loadSeq !== plusApptDayLoadSeq) return;
                     if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt') {
-                        // Keep the edit-time pin across the unpaid badge re-render.
-                        if (plusApptScrollMem && typeof plusApptPinScheduleScrollMem === 'function') {
-                            plusApptPinScheduleScrollMem(plusApptScrollMem, PLUSAPPT_SCROLL_PIN_MS);
-                        }
                         renderPlusApptSchedule();
                         plusApptFinishDayLoadSelection();
-                        plusApptScheduleRestoreAfterRender();
                     }
                 });
             });
@@ -12596,14 +12605,6 @@ function openApptModal(prefillDate) {
 
 function openApptEditModal(appt) {
     appt = apptResolveForEdit(appt);
-    if (typeof plusApptCaptureScheduleScroll === 'function') {
-        plusApptCaptureScheduleScroll({
-            force: true,
-            pin: true,
-            slotTime: appt && appt.start_time,
-            apptId: appt && appt.id
-        });
-    }
     resetApptBookingGuards();
     ensureModalNoBackdropClose('apptModal');
     apptEditLockRef = appt;
@@ -14681,6 +14682,14 @@ function bindQueueRemarksModalOnce() {
                         alert(trRepl('appt.msg.error', { MSG: res.error.message }));
                         return;
                     }
+                    if (typeof plusApptCaptureScheduleScroll === 'function') {
+                        plusApptCaptureScheduleScroll({
+                            force: true,
+                            pin: true,
+                            slotTime: (_queueRemarksEditAppt && _queueRemarksEditAppt.start_time) || '',
+                            apptId: queueRemarksEditApptId
+                        });
+                    }
                     closeQm();
                     if (typeof loadQueue === 'function') loadQueue();
                     if (typeof loadToday === 'function') loadToday();
@@ -14706,15 +14715,6 @@ function setQueueRemarksApptHint(q) {
 
 function openQueueRemarksEditor(q) {
     if (!q || !q.id) return;
-    if (typeof apptActiveTabKey === 'function' && apptActiveTabKey() === 'plusappt' &&
-        typeof plusApptCaptureScheduleScroll === 'function') {
-        plusApptCaptureScheduleScroll({
-            force: true,
-            pin: true,
-            slotTime: q.start_time,
-            apptId: q.id
-        });
-    }
     bindQueueRemarksModalOnce();
 
     queueRemarksEditApptId = q.id;
@@ -14897,7 +14897,6 @@ function apptBindLiveScrollTrackOnce() {
 
     function plusApptOnUserScrollGesture(ev) {
         if (typeof apptActiveTabKey !== 'function' || apptActiveTabKey() !== 'plusappt') return;
-        if (plusApptScrollRestoring) return;
         // Drag auto-scroll must NOT clear the pin — that was snapping moved rows to morning.
         if (typeof plusApptIsRowMoveInteractionActive === 'function' &&
             plusApptIsRowMoveInteractionActive()) {
@@ -14906,10 +14905,11 @@ function apptBindLiveScrollTrackOnce() {
         var t = ev && ev.target;
         var onWrap = !!(t && t.closest && t.closest('.plusappt-schedule-wrap, #plusApptAllScroll'));
         if (!onWrap) return;
-        if (plusApptScrollMem && typeof plusApptMemIsPinned === 'function' &&
+        if (plusApptScrollRestoring && typeof plusApptCancelScheduleScrollRestore === 'function') {
+            plusApptCancelScheduleScrollRestore();
+        } else if (plusApptScrollMem && typeof plusApptMemIsPinned === 'function' &&
             plusApptMemIsPinned(plusApptScrollMem)) {
-            plusApptScrollMem.pinned = false;
-            plusApptScrollMem.pinnedUntil = 0;
+            plusApptUnpinScheduleScrollMem(plusApptScrollMem);
             plusApptScrollUserUnpinned = true;
         }
         if (typeof plusApptCaptureScheduleScroll === 'function') {

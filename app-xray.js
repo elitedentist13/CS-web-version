@@ -2213,11 +2213,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+function xrayFinishUploadQueue() {
+    xrayUploadQueue = [];
+    xrayUploadQIdx = 0;
+    if (typeof closeModal === 'function') closeModal('xrayUploadModal');
+    if (typeof xrayClearUploadOverride === 'function') xrayClearUploadOverride();
+    if (typeof refreshXrays === 'function') refreshXrays();
+    else if (typeof loadXrayRecords === 'function') loadXrayRecords();
+    if (window.__JOYFUL_RT_SYNC__ && typeof window.__JOYFUL_RT_SYNC__.nudge === 'function') {
+        window.__JOYFUL_RT_SYNC__.nudge('xray');
+    }
+}
+
 function processNextUpload() {
     if (xrayUploadQIdx >= xrayUploadQueue.length) {
-        closeModal('xrayUploadModal');
-        if (typeof xrayClearUploadOverride === 'function') xrayClearUploadOverride();
-        loadXrayRecords();
+        xrayFinishUploadQueue();
         return;
     }
     showUploadModal(xrayUploadQueue[xrayUploadQIdx]);
@@ -3423,8 +3433,7 @@ function importXrayFilesFromLocalPicker(fileList, systemKey) {
 function processNextLocalBulkUpload(importNote) {
     if (xrayUploadQIdx >= xrayUploadQueue.length) {
         xrayBulkLocalImport = false;
-        if (typeof xrayClearUploadOverride === 'function') xrayClearUploadOverride();
-        loadXrayRecords();
+        xrayFinishUploadQueue();
         return;
     }
     var file = xrayUploadQueue[xrayUploadQIdx];

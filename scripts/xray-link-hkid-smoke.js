@@ -74,6 +74,7 @@ function chartNeedle(no) {
     var idxSrc = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
     var xraySrc = fs.readFileSync(path.join(root, 'app-xray.js'), 'utf8');
+    var rtSrc = fs.readFileSync(path.join(root, 'app-realtime-sync.js'), 'utf8');
 
     console.log('=== smoke: source ===');
     pass('no silent snap to working-clinic twin',
@@ -106,7 +107,16 @@ function chartNeedle(no) {
     pass('index ships patched xray-link',
         /app-xray-link\.js\?v=20260917xrayup2/.test(idxSrc));
     pass('index BUILD bumped',
-        /BUILD = '20260917xrayup2'/.test(idxSrc));
+        /BUILD = '20260919xrayrf1'/.test(idxSrc));
+    pass('upload finish clears queue and refreshes',
+        /function xrayFinishUploadQueue/.test(xraySrc) &&
+        /xrayUploadQueue = \[\]/.test(xraySrc) &&
+        /refreshXrays\(\)/.test(xraySrc) &&
+        /xrayFinishUploadQueue\(\)/.test(xraySrc));
+    pass('realtime pauses xray only while upload in progress',
+        /function rtXrayUploadInProgress/.test(rtSrc) &&
+        /xrayUploadQIdx < xrayUploadQueue.length/.test(rtSrc) &&
+        !/xrayUploadQueue\.length\) return true/.test(rtSrc));
 
     console.log('\n=== unit: upload target (working clinic vs chart prefix) ===');
     function resolveUploadTarget(work, homeTag, openedId, chartsAtWork) {
@@ -146,16 +156,18 @@ function chartNeedle(no) {
     pass('empty stays empty',
         normalizeHkid('  ') === '');
 
-    console.log('\n=== HTTP spot: live-server ===');
+    console.log('\n=== HTTP spot: live-server / static ===');
     var served = null;
-    var ports = [8123, 5500];
+    var ports = [8123, 8124, 5500];
     var i;
-    var expectedBuild = '20260917xrayup2';
+    var expectedBuild = '20260919xrayrf1';
     for (i = 0; i < ports.length; i++) {
         try {
             var idx = await httpGet('127.0.0.1', ports[i], '/index.html?b=' + expectedBuild);
             var js = await httpGet('127.0.0.1', ports[i], '/app-xray-link.js?v=' + expectedBuild);
-            var hit = { port: ports[i], idx: idx, js: js };
+            var xrayJs = await httpGet('127.0.0.1', ports[i], '/app-xray.js?b=' + expectedBuild);
+            var rtJs = await httpGet('127.0.0.1', ports[i], '/app-realtime-sync.js?b=' + expectedBuild);
+            var hit = { port: ports[i], idx: idx, js: js, xrayJs: xrayJs, rtJs: rtJs };
             if (new RegExp("BUILD = '" + expectedBuild + "'").test(idx.body)) {
                 served = hit;
                 break;
@@ -168,10 +180,11 @@ function chartNeedle(no) {
     if (!served || served.error && !served.idx) {
         pass('live-server reachable', false, served && served.error);
     } else {
+        var servedBuild = (served.idx.body.match(/BUILD = '([^']+)'/) || [])[1] || '';
         pass('index.html ' + served.port, served.idx.status === 200, 'status ' + served.idx.status);
         pass('served BUILD',
-            new RegExp("BUILD = '" + expectedBuild + "'").test(served.idx.body),
-            (served.idx.body.match(/BUILD = '([^']+)'/) || [])[1]);
+            servedBuild === expectedBuild,
+            servedBuild + (served.port === 5500 ? '' : ' port=' + served.port));
         pass('served upload target helper',
             served.js.status === 200 && /window\.xrayUploadTargetPatient\s*=/.test(served.js.body));
         pass('served chooser modal',
@@ -184,6 +197,14 @@ function chartNeedle(no) {
             'status ' + served.js.status);
         pass('served xray-link HKID all-scope',
             /hkidLinked[\s\S]{0,180}xrayClinicScope = 'all'/.test(served.js.body));
+        pass('served finish-queue helper',
+            served.xrayJs && served.xrayJs.status === 200 &&
+            /function xrayFinishUploadQueue/.test(served.xrayJs.body) &&
+            /xrayFinishUploadQueue\(\)/.test(served.xrayJs.body));
+        pass('served realtime in-progress pause',
+            served.rtJs && served.rtJs.status === 200 &&
+            /function rtXrayUploadInProgress/.test(served.rtJs.body) &&
+            /xrayUploadQIdx < xrayUploadQueue.length/.test(served.rtJs.body));
     }
 
     console.log('\n=== API: sample charts ===');

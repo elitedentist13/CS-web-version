@@ -226,8 +226,16 @@ var REALTIME_SYNC = (function() {
         return false;
     }
 
+    function rtXrayUploadInProgress() {
+        if (typeof xrayUploadQueue === 'undefined' || !xrayUploadQueue || !xrayUploadQueue.length) {
+            return false;
+        }
+        if (typeof xrayUploadQIdx !== 'number') return true;
+        return xrayUploadQIdx < xrayUploadQueue.length;
+    }
+
     function rtXrayEditPaused() {
-        if (typeof xrayUploadQueue !== 'undefined' && xrayUploadQueue.length) return true;
+        if (rtXrayUploadInProgress()) return true;
         var modal = g('xrayUploadModal');
         if (modal && modal.style.display !== 'none' && modal.style.display !== '') return true;
         return false;
@@ -482,6 +490,7 @@ var REALTIME_SYNC = (function() {
         } else if (kind === 'xray') {
             if (rtXrayEditPaused()) {
                 _pending.xray = true;
+                scheduleRefresh();
             } else if (typeof refreshXrays === 'function' && rtShouldRefreshXrayView()) {
                 refreshXrays();
             }
@@ -984,11 +993,16 @@ var REALTIME_SYNC = (function() {
         }
     }, true);
 
+    function nudge(kind) {
+        scheduleRefresh(kind);
+    }
+
     var _api = {
         start: start,
         stop: stop,
         restart: restart,
-        pulse: pulseSyncIndicator
+        pulse: pulseSyncIndicator,
+        nudge: nudge
     };
     window.__JOYFUL_RT_SYNC__ = _api;
     return _api;

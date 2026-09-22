@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-report.js'))) root = process.cwd();
 
-var BUILD = '20260922zhangpay1';
+var BUILD = '20260922zhangtx1';
 var ZHANG_ID = 'd19183c0-183a-414e-b0e1-ab760f376a93';
 var FROM = '2026-08-01';
 var TO = '2026-08-31';
@@ -147,9 +147,9 @@ function methodKey(raw) {
     pass('monthly detail rows come from those payment slices',
         /var incomeSlices = await loadDoctorIncomeSlices\(from, to, dr, allDoctors\)/.test(monthlyFn) &&
         /buildDoctorPaymentTxRows\(incomeSlices, from, to, _drDailyDoctors\)/.test(monthlyFn));
-    pass('monthly treatment stats unions older bills that were paid in the month',
-        /var paidBills = billsFromIncomeSlices\(incomeSlices\)/.test(monthlyFn) &&
-        /datedMatched\.concat\(paidBills\)/.test(monthlyFn));
+    pass('monthly treatment stats prices items from the month\'s payments',
+        /collectTreatmentItemStatGroupsFromPayments\(incomeSlices/.test(monthlyFn) &&
+        /function collectTreatmentItemStatGroupsFromPayments\(slices, pmap, apptIndex\)/.test(reportSrc));
     pass('detail amount is the in-month payment, not the lifetime bill paid',
         /var paidAmount = payRows\.reduce\(function \(sum, x\) \{ return sum \+ Number\(x\.amount \|\| 0\); \}, 0\)/.test(detailFn) &&
         /buildDailySummaryTxRowFromPaymentSlice\(b, p, paidAmount/.test(detailFn) &&
@@ -233,6 +233,75 @@ function methodKey(raw) {
         !!zhangGroup && zhangGroup.slices.length === 8 && zhangAmt === 42000,
         zhangGroup ? ('slices=' + zhangGroup.slices.length + ' amt=' + zhangAmt) : 'missing');
 
+    var txNames = [
+        'billItemLineAmount',
+        'reportBillItemDiscPct',
+        'reportBillItemNet',
+        'parseBillItems',
+        'txStatsDateArranged',
+        'allocateTreatmentPaymentCents',
+        'treatmentStatsReceivedFee',
+        'collectTreatmentItemStatGroupsFromPayments'
+    ];
+    var txCtx = {
+        console: console,
+        tr: function (k) { return k === 'report.treat.defaultName' ? 'Treatment' : k; }
+    };
+    vm.createContext(txCtx);
+    vm.runInContext(txNames.map(function (n) { return extractFn(reportSrc, n); }).join('\n'), txCtx);
+    var scaled = txCtx.collectTreatmentItemStatGroupsFromPayments([
+        {
+            amount: 3000,
+            paid_date: '2026-08-30',
+            bill: {
+                id: 'old-sin',
+                patient_no: 'TKO002300',
+                patient_name: 'SIN KA WING',
+                bill_date: '2024-12-01',
+                items: JSON.stringify([{ desc: 'Implant', qty: 1, price: 35000, disc: 0 }])
+            }
+        },
+        {
+            amount: 17000,
+            paid_date: '2026-08-02',
+            bill: {
+                id: 'allen',
+                patient_no: 'TKO004253',
+                patient_name: 'TONG NGA LUN ALLEN',
+                bill_date: '2026-05-17',
+                items: JSON.stringify([
+                    { desc: 'Crown', qty: 1, price: 20000, disc: 0 },
+                    { desc: 'Xray', qty: 1, price: 2000, disc: 0 }
+                ])
+            }
+        }
+    ], {}, null);
+    var scaledNet = 0;
+    var byPatient = {};
+    scaled.forEach(function (g) {
+        scaledNet += g.net;
+        g.details.forEach(function (d) {
+            byPatient[d.patient_no] = (byPatient[d.patient_no] || 0) + d.net;
+        });
+    });
+    pass('treatment statistics net equals the payments, not the full fees',
+        Math.round(scaledNet * 100) === 2000000 &&
+        byPatient.TKO002300 === 3000 &&
+        byPatient.TKO004253 === 17000,
+        'net=' + scaledNet + ' sin=' + byPatient.TKO002300 + ' allen=' + byPatient.TKO004253);
+    var crown = null;
+    var xray = null;
+    scaled.forEach(function (g) {
+        g.details.forEach(function (d) {
+            if (d.patient_no !== 'TKO004253') return;
+            if (g.item === 'Crown') crown = d.net;
+            if (g.item === 'Xray') xray = d.net;
+        });
+    });
+    pass('a partial payment keeps each item\'s share',
+        crown === 15454.54 && xray === 1545.46,
+        'crown=' + crown + ' xray=' + xray);
+
     console.log('\n=== live server ===');
     var live = null;
     var livePort = 0;
@@ -253,7 +322,7 @@ function methodKey(raw) {
         pass('served report builds doctor detail from payment-date slices',
             live.body.indexOf('async function loadDoctorIncomeSlices(from, to, dr, allDoctors)') >= 0 &&
             live.body.indexOf('buildDoctorPaymentTxRows(incomeSlices, from, to, _drDailyDoctors)') >= 0 &&
-            live.body.indexOf('datedMatched.concat(paidBills)') >= 0);
+            live.body.indexOf('collectTreatmentItemStatGroupsFromPayments(incomeSlices') >= 0);
         var served = loadReportDoctorFns(live.body);
         served._drDailyDoctors = [zhang, ng];
         pass('served code attributes the $17000 bill to Dr Crystal Zhang',

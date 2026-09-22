@@ -1791,6 +1791,130 @@ var REPORT = (function () {
     }).map(function (k) { return groups[k]; });
   }
 
+  /** Split a received amount across item weights. The shares sum to totalCents. */
+  function allocateTreatmentPaymentCents(weights, totalCents) {
+    var n = (weights || []).length;
+    var out = [];
+    var i;
+    for (i = 0; i < n; i++) out.push(0);
+    if (!n || !(totalCents > 0)) return out;
+    var sum = 0;
+    var lastPos = -1;
+    for (i = 0; i < n; i++) {
+      if (weights[i] > 0) {
+        sum += weights[i];
+        lastPos = i;
+      }
+    }
+    if (!(sum > 0)) {
+      var base = Math.floor(totalCents / n);
+      var rem = totalCents - base * n;
+      for (i = 0; i < n; i++) out[i] = base + (i < rem ? 1 : 0);
+      return out;
+    }
+    var used = 0;
+    for (i = 0; i < n; i++) {
+      if (i === lastPos) continue;
+      var share = weights[i] > 0 ? Math.floor(totalCents * weights[i] / sum) : 0;
+      out[i] = share;
+      used += share;
+    }
+    out[lastPos] = totalCents - used;
+    return out;
+  }
+
+  function treatmentStatsReceivedFee(net, disc) {
+    if (!(net > 0)) return 0;
+    if (!(disc > 0) || disc >= 100) return net;
+    return Math.round((net / (1 - disc / 100)) * 100) / 100;
+  }
+
+  /**
+   * Doctor treatment statistics for the money received in the period.
+   * Each bill's items keep their share of that bill, scaled to the payments
+   * that actually arrived, so the grand net matches doctor and clinic monthly.
+   */
+  function collectTreatmentItemStatGroupsFromPayments(slices, pmap, apptIndex) {
+    var defaultName = tr('report.treat.defaultName');
+    var byBill = {};
+    var order = [];
+    (slices || []).forEach(function (s) {
+      if (!s || !s.bill || !s.bill.id) return;
+      var id = String(s.bill.id);
+      if (!byBill[id]) {
+        byBill[id] = { bill: s.bill, paid: 0 };
+        order.push(id);
+      }
+      byBill[id].paid += Number(s.amount || 0);
+    });
+    var groups = {};
+    order.forEach(function (id) {
+      var entry = byBill[id];
+      var paidCents = Math.round(entry.paid * 100);
+      if (paidCents <= 0) return;
+      var b = entry.bill || {};
+      var p = (pmap && b.patient_id && pmap[b.patient_id]) || {};
+      var dateArranged = txStatsDateArranged(b, apptIndex);
+      var parsed = parseBillItems(b.items);
+      var items = [];
+      parsed.forEach(function (it) {
+        var desc = String(it && it.desc ? it.desc : '').trim();
+        var qty = Number(it && it.qty != null ? it.qty : 0);
+        var price = Number(it && it.price != null ? it.price : 0);
+        if (!desc && !(qty > 0) && !(price > 0)) return;
+        items.push({
+          name: desc || defaultName,
+          qty: qty,
+          disc: reportBillItemDiscPct(it),
+          net: reportBillItemNet(it)
+        });
+      });
+      if (!items.length) {
+        items.push({ name: defaultName, qty: 1, disc: 0, net: 0 });
+      }
+      var netSum = 0;
+      items.forEach(function (it) { if (it.net > 0) netSum += it.net; });
+      var weights = items.map(function (it) { return netSum > 0 ? (it.net > 0 ? it.net : 0) : 0; });
+      var shares = allocateTreatmentPaymentCents(weights, paidCents);
+      items.forEach(function (it, idx) {
+        var netCents = shares[idx] || 0;
+        if (netCents <= 0) return;
+        var net = netCents / 100;
+        var fee = treatmentStatsReceivedFee(net, it.disc);
+        var name = it.name;
+        if (!groups[name]) {
+          groups[name] = { item: name, details: [], qty: 0, feeCents: 0, netCents: 0, fee: 0, net: 0 };
+        }
+        groups[name].details.push({
+          patient_no: String((p && p.patient_no) || b.patient_no || '').trim(),
+          patient_chinese: String((p && p.chinese_name) || '').trim(),
+          patient_name: String((p && p.full_name) || b.patient_name || '').trim(),
+          date_arranged: dateArranged,
+          qty: it.qty,
+          fee: fee,
+          discount: it.disc,
+          net: net
+        });
+        groups[name].qty += Number(it.qty || 0);
+        groups[name].feeCents += Math.round(fee * 100);
+        groups[name].netCents += netCents;
+      });
+    });
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k];
+      g.fee = g.feeCents / 100;
+      g.net = g.netCents / 100;
+      g.details.sort(function (a, b) {
+        var d = String(a.date_arranged || '').localeCompare(String(b.date_arranged || ''));
+        if (d) return d;
+        return String(a.patient_no || '').localeCompare(String(b.patient_no || ''), undefined, { numeric: true });
+      });
+    });
+    return Object.keys(groups).sort(function (a, b) {
+      return a.localeCompare(b, undefined, { sensitivity: 'base' });
+    }).map(function (k) { return groups[k]; });
+  }
+
   function treatmentItemStatsChartRows(groups) {
     return (groups || []).map(function (g) {
       return { item: g.item, qty: g.qty, amount: Number(g.net || 0) };
@@ -5338,7 +5462,7 @@ var REPORT = (function () {
     pts.forEach(function (p) { pmap[p.id] = p; });
 
     if (_drDailyMode === 'treatmentStats') {
-      var drDailyGroups = collectTreatmentItemStatGroups(filteredBills, pmap, _drDailyPar2[1]);
+      var drDailyGroups = collectTreatmentItemStatGroupsFromPayments(daySlices, pmap, _drDailyPar2[1]);
       presentTreatmentItemStatsReport(body, drDailyGroups, {
         emptyMsg: tr('report.dr.noBilledDay'),
         grandAmountLabel: tr('report.drStats.todayItemGrandTotal'),
@@ -5546,35 +5670,26 @@ var REPORT = (function () {
     }
 
     var incomeSlices = await loadDoctorIncomeSlices(from, to, dr, allDoctors);
-    var paidBills = billsFromIncomeSlices(incomeSlices);
-    var datedBills = await loadBillsLiteDedupe(from, to);
-    var datedMatched = allDoctors ? datedBills.slice() : datedBills.filter(function (b) { return billMatchesDoctor(b, dr); });
-    var filteredMap = {};
-    datedMatched.concat(paidBills).forEach(function (b) {
-      if (b && b.id) filteredMap[b.id] = b;
-    });
-    var filtered = Object.keys(filteredMap).map(function (id) { return filteredMap[id]; });
 
-    if (!filtered.length) {
+    if (!incomeSlices.length) {
       body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledMonth')) + '</div>';
       _rows = [];
       _drMonthlyIncomeExport = null;
       return;
     }
 
-    // ───────────────────────────────────────────────────────
-    // MODE: Treatment Statistics (monthly) — Clinic Solution item detail
-    // Bills dated in the month, plus older bills that received a payment then.
-    // ───────────────────────────────────────────────────────
+    // Treatment statistics uses the same payments as doctor and clinic monthly.
+    // Item nets are scaled to the amount received in the month.
     if (_drMonthlyMode === 'treatmentStats') {
-      var monthPatientIds = filtered.map(function (b) { return b && b.patient_id; }).filter(Boolean);
+      var statBills = billsFromIncomeSlices(incomeSlices);
+      var monthPatientIds = statBills.map(function (b) { return b && b.patient_id; }).filter(Boolean);
       var _moTxPar = await Promise.all([
         loadPatientsByIds(monthPatientIds),
-        loadAppointmentsForDailySummary(from, to, filtered)
+        loadAppointmentsForDailySummary(from, to, statBills)
       ]);
       var monthPmap = {};
       (_moTxPar[0] || []).forEach(function (p) { monthPmap[p.id] = p; });
-      var monthGroups = collectTreatmentItemStatGroups(filtered, monthPmap, _moTxPar[1]);
+      var monthGroups = collectTreatmentItemStatGroupsFromPayments(incomeSlices, monthPmap, _moTxPar[1]);
       presentTreatmentItemStatsReport(body, monthGroups, {
         emptyMsg: tr('report.dr.noBilledTreatmentMonth'),
         grandAmountLabel: tr('report.drStats.monthItemGrand'),

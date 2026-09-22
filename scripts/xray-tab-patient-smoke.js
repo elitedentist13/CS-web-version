@@ -99,7 +99,7 @@ function extractFn(src, name) {
     pass('linked loader clears on patient change',
         /_xrayLinkLastPid !== String\(xrayPatientId\)[\s\S]{0,400}xrayClearDisplayedFilms\(/.test(linkSrc));
     pass('build stamp bumped',
-        /BUILD = '20260922zhangpay1'/.test(idxSrc));
+        /BUILD = '20260922zhangtx1'/.test(idxSrc));
 
     console.log('\n=== client simulation ===');
     var strips = { innerHTML: '<div class="xray-card" data-id="old-film">OLD PATIENT FILM</div>' };
@@ -201,9 +201,9 @@ function extractFn(src, name) {
     if (live) {
         pass('clinic UI on :5500', live.status === 200, 'HTTP ' + live.status);
         var build = (live.body.match(/BUILD = '([^']+)'/) || [])[1];
-        pass('served build is 20260922zhangpay1', build === '20260922zhangpay1', build || 'missing');
-        var xrayJs = await httpGet('127.0.0.1', 5500, '/app-xray.js?b=20260922zhangpay1');
-        var conJs = await httpGet('127.0.0.1', 5500, '/app-consultation.js?b=20260922zhangpay1');
+        pass('served build is 20260922zhangtx1', build === '20260922zhangtx1', build || 'missing');
+        var xrayJs = await httpGet('127.0.0.1', 5500, '/app-xray.js?b=20260922zhangtx1');
+        var conJs = await httpGet('127.0.0.1', 5500, '/app-consultation.js?b=20260922zhangtx1');
         pass('served app-xray.js clears on patient change',
             xrayJs.status === 200 &&
             xrayJs.body.indexOf('if (patientChanged) xrayClearDisplayedFilms();') >= 0 &&

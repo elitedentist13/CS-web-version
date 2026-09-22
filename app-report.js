@@ -5319,13 +5319,19 @@ var REPORT = (function () {
       var k = b.id || (String(b.patient_id || '') + '|' + String(b.created_at || '') + '|' + String(b.total || ''));
       byBillId[k] = b;
     });
+    var daySlices = await loadDoctorIncomeSlices(day, day, dr, allDoctors);
+    if (_drDailyMode === 'treatmentStats') {
+      billsFromIncomeSlices(daySlices).forEach(function (b) {
+        if (b && b.id) byBillId[b.id] = b;
+      });
+    }
     var filteredBills = Object.keys(byBillId).map(function (k) { return byBillId[k]; });
     var patientIds = filteredBills.map(function (b) { return b.patient_id; }).filter(Boolean);
     var _drDailyPar2 = await Promise.all([
       loadPatientsByIds(patientIds),
       _drDailyMode === 'treatmentStats'
         ? loadAppointmentsForDailySummary(day, day, filteredBills)
-        : loadBillPaymentsForBillIds(filteredBills.map(function (b) { return b.id; }).filter(Boolean))
+        : Promise.resolve([])
     ]);
     var pts = _drDailyPar2[0];
     var pmap = {};
@@ -5345,39 +5351,12 @@ var REPORT = (function () {
       return;
     }
 
-    var paymentsByBillId = indexPaymentsByBillId(_drDailyPar2[1]);
-
-    // When "All clinics" is selected, resolve each bill's clinic so the
-    // per-clinic breakdown (badges + clinic column) renders like Daily Summary.
-    var drDailyAllClinics = isReportAllClinicsSelected();
-    var drDailyPatientClinicMap = drDailyAllClinics ? patientClinicMapFromPmap(pmap) : null;
-    var drDailyApptResolver = drDailyAllClinics
-      ? await buildAppointmentClinicResolver(day, day, filteredBills)
-      : null;
-
-    var tx = filteredBills.map(function (b) {
-      var p = pmap[b.patient_id] || {};
-      var extra = Object.assign({
-        bill_date: b.bill_date || day,
-        payment_date: b.bill_date || day,
-        doctor_tag: b.doctor_tag || b.doctor_name || (dr ? doctorTagOf(dr) : '') || '',
-        dr_treatments: tByPatient[b.patient_id] || []
-      }, resolveBillDoctorFields(b, _drDailyDoctors));
-      if (drDailyAllClinics) {
-        var clinicTag = dailySummaryClinicTagForBill(
-          b, p, (paymentsByBillId[b.id] || [])[0] || null,
-          drDailyPatientClinicMap, drDailyApptResolver
-        );
-        extra.clinic_tag = clinicTag;
-        extra.clinic_code = clinicCodeFromStoredTag(clinicTag);
-      }
-      return buildDailySummaryTxRow(b, p, paymentsByBillId, extra);
-    });
-
-    _rows = tx;
-    var totalsPaid = sumByKeyPaidMethods(tx, 'payment_method', 'bill_paid');
-
     if (_drDailyMode === 'detail') {
+      var tx = await buildDoctorPaymentTxRows(daySlices, day, day, _drDailyDoctors);
+      tx.forEach(function (row) {
+        row.dr_treatments = tByPatient[row.patient_id] || [];
+      });
+      _rows = tx;
       _clinicIncomeDetailExport = null;
       _drMonthlyIncomeExport = null;
       var drDailyDoctorLabel = allDoctors ? '' : doctorOptionLabel(dr);
@@ -5433,6 +5412,68 @@ var REPORT = (function () {
         '</div>' +
         '<div id="rptDrMonthlyBody" style="min-height:220px;"></div>' +
       '</div>';
+  }
+
+  /**
+   * Doctor income follows the same payments as clinic monthly: money received
+   * in the period, including installments on bills opened earlier.
+   */
+  async function loadDoctorIncomeSlices(from, to, dr, allDoctors) {
+    var slices = await loadReportPaymentSlices(from, to);
+    slices = slices || [];
+    if (!allDoctors && dr) {
+      slices = slices.filter(function (s) {
+        return s.bill && billMatchesDoctor(s.bill, dr);
+      });
+    }
+    return slices;
+  }
+
+  function billsFromIncomeSlices(slices) {
+    var map = {};
+    (slices || []).forEach(function (s) {
+      if (s && s.bill && s.bill.id) map[s.bill.id] = s.bill;
+    });
+    return Object.keys(map).map(function (id) { return map[id]; });
+  }
+
+  async function buildDoctorPaymentTxRows(slices, from, to, doctors) {
+    var groups = {};
+    var order = [];
+    (slices || []).forEach(function (s) {
+      var d = s.paid_date;
+      var bid = s.bill && s.bill.id;
+      if (!d || !bid) return;
+      var gk = d + '|' + bid + '|' + (s.clinic_code || '');
+      if (!groups[gk]) {
+        groups[gk] = { date: d, bill: s.bill, clinic: s.clinic_code || '', payments: [] };
+        order.push(gk);
+      }
+      groups[gk].payments.push(s.payment);
+    });
+    var bills = order.map(function (k) { return groups[k].bill; });
+    var patientIds = uniqIds(bills.map(function (b) { return b && b.patient_id; }));
+    var loaded = await Promise.all([
+      patientIds.length ? loadPatientsByIds(patientIds) : Promise.resolve([]),
+      loadAppointmentsForDailySummary(from, to, bills)
+    ]);
+    var pmap = {};
+    (loaded[0] || []).forEach(function (p) { if (p && p.id) pmap[p.id] = p; });
+    var apptCtx = loaded[1];
+    return order.map(function (gk) {
+      var grp = groups[gk];
+      var b = grp.bill || {};
+      var p = pmap[b.patient_id] || {};
+      var payRows = grp.payments || [];
+      var paidAmount = payRows.reduce(function (sum, x) { return sum + Number(x.amount || 0); }, 0);
+      var allocs = reducePaymentAllocations(payRows);
+      return buildDailySummaryTxRowFromPaymentSlice(b, p, paidAmount, allocs, Object.assign({
+        patient_id: b.patient_id || '',
+        payment_date: grp.date,
+        clinic_tag: grp.clinic,
+        clinic_code: clinicCodeFromStoredTag(grp.clinic)
+      }, resolveBillDoctorFields(b, doctors), resolveBillAppointmentFields(b, apptCtx, grp.date)));
+    }).sort(dailySummaryTxSortCompare);
   }
 
   async function buildDrMonthly() {
@@ -5504,8 +5545,15 @@ var REPORT = (function () {
       return;
     }
 
-    var bills = await loadBillsLiteDedupe(from, to);
-    var filtered = allDoctors ? bills.slice() : bills.filter(function (b) { return billMatchesDoctor(b, dr); });
+    var incomeSlices = await loadDoctorIncomeSlices(from, to, dr, allDoctors);
+    var paidBills = billsFromIncomeSlices(incomeSlices);
+    var datedBills = await loadBillsLiteDedupe(from, to);
+    var datedMatched = allDoctors ? datedBills.slice() : datedBills.filter(function (b) { return billMatchesDoctor(b, dr); });
+    var filteredMap = {};
+    datedMatched.concat(paidBills).forEach(function (b) {
+      if (b && b.id) filteredMap[b.id] = b;
+    });
+    var filtered = Object.keys(filteredMap).map(function (id) { return filteredMap[id]; });
 
     if (!filtered.length) {
       body.innerHTML = '<div style="padding:14px;color:#64748b;">' + esc(tr('report.dr.noBilledMonth')) + '</div>';
@@ -5516,6 +5564,7 @@ var REPORT = (function () {
 
     // ───────────────────────────────────────────────────────
     // MODE: Treatment Statistics (monthly) — Clinic Solution item detail
+    // Bills dated in the month, plus older bills that received a payment then.
     // ───────────────────────────────────────────────────────
     if (_drMonthlyMode === 'treatmentStats') {
       var monthPatientIds = filtered.map(function (b) { return b && b.patient_id; }).filter(Boolean);
@@ -5538,40 +5587,9 @@ var REPORT = (function () {
       return;
     }
 
-    // Build transaction rows for Detail mode (reuse existing renderer)
+    // Detail rows are the payments received in the month, same set as clinic monthly.
     if (_drMonthlyMode === 'detail') {
-      var patientIds = filtered.map(function (b) { return b.patient_id; }).filter(Boolean);
-      var _drMoPar = await Promise.all([
-        loadPatientsByIds(patientIds),
-        loadBillPaymentsForBillIds(filtered.map(function (b) { return b.id; }).filter(Boolean))
-      ]);
-      var pts = _drMoPar[0];
-      var pmap = {};
-      pts.forEach(function (p) { pmap[p.id] = p; });
-      var paymentsByBillId = indexPaymentsByBillId(_drMoPar[1]);
-
-      var drMoAllClinics = isReportAllClinicsSelected();
-      var drMoPatientClinicMap = drMoAllClinics ? patientClinicMapFromPmap(pmap) : null;
-      var drMoApptResolver = drMoAllClinics
-        ? await buildAppointmentClinicResolver(from, to, filtered)
-        : null;
-
-      var tx = filtered.map(function (b) {
-        var p = pmap[b.patient_id] || {};
-        var extra = Object.assign({
-          bill_date: b.bill_date || '',
-          payment_date: b.bill_date || ''
-        }, resolveBillDoctorFields(b, _drDailyDoctors));
-        if (drMoAllClinics) {
-          var clinicTag = dailySummaryClinicTagForBill(
-            b, p, (paymentsByBillId[b.id] || [])[0] || null,
-            drMoPatientClinicMap, drMoApptResolver
-          );
-          extra.clinic_tag = clinicTag;
-          extra.clinic_code = clinicCodeFromStoredTag(clinicTag);
-        }
-        return buildDailySummaryTxRow(b, p, paymentsByBillId, extra);
-      });
+      var tx = await buildDoctorPaymentTxRows(incomeSlices, from, to, _drDailyDoctors);
 
       _rows = tx;
       _clinicIncomeDetailExport = null;

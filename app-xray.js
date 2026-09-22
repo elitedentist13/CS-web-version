@@ -251,10 +251,39 @@ function xrayPatientSearchLabel(patientData) {
 
 function xrayMergePatientRecord(base, extra) {
     if (!extra || !extra.id) return base || null;
-    if (!base || !base.id || String(base.id) !== String(extra.id)) {
-        return Object.assign({}, extra);
-    }
+    if (!base || !base.id) return Object.assign({}, extra);
+    // A different chart is a switch, not a field merge. Keeping `extra`
+    // here reloaded the previous patient's films.
+    if (String(base.id) !== String(extra.id)) return Object.assign({}, base);
     return Object.assign({}, base, extra);
+}
+
+function xrayClearDisplayedFilms() {
+    xrayAllRecords = [];
+    xrayFiltered = [];
+    xrayCurrentIdx = 0;
+    if (xraySelected && xraySelected.clear) xraySelected.clear();
+    var strips = g('xrayClinicStrips');
+    if (strips) {
+        strips.innerHTML =
+            '<p class="xray-loading" style="color:#888;padding:16px;margin:0;">' +
+            esc(mediaTr('common.loadingEllipsis')) + '</p>';
+    }
+    var grid = g('xrayGridView');
+    var empty = g('xrayEmptyState');
+    if (grid) {
+        Array.from(grid.children).forEach(function (c) {
+            if (c !== empty) grid.removeChild(c);
+        });
+    }
+    if (empty) empty.style.display = 'none';
+    var viewer = g('xraySlideViewer');
+    if (viewer) viewer.innerHTML = '';
+    var fs = g('xrayFilmstrip');
+    if (fs) fs.innerHTML = '';
+    var sa = g('xraySelectAll');
+    if (sa) sa.checked = false;
+    if (typeof updateSelectedCount === 'function') updateSelectedCount();
 }
 
 function xrayResolveCurrentPatient() {
@@ -301,6 +330,7 @@ function xraySyncFromActivePatientPayload(p, source) {
 function syncXrayPatient(patientId, patientData) {
     // This is called when a patient is selected in ANY consultation tab
     // It pre-populates the X-ray tab so it's ready when clicked
+    var patientChanged = String(xrayPatientId || '') !== String(patientId || '');
     xrayPatientId   = patientId;
     xrayPatientData = patientData;
     
@@ -349,7 +379,8 @@ function syncXrayPatient(patientId, patientData) {
     if (typeof conPatientData !== 'undefined') conPatientData = patientData || conPatientData;
     if (typeof xrayMaybeLoadNotesOnPatientSync === 'function') xrayMaybeLoadNotesOnPatientSync();
     else if (typeof loadConNotes === 'function') loadConNotes(patientId);
-    
+
+    if (patientChanged) xrayClearDisplayedFilms();
     // Pre-load x-ray records so they're ready
     loadXrayRecords();
     loadDiyLinks();
@@ -358,6 +389,7 @@ function syncXrayPatient(patientId, patientData) {
 
 // ── Single, authoritative definition of selectXrayPatient ─────
 function selectXrayPatient(p) {
+    var patientChanged = !p || String(xrayPatientId || '') !== String(p.id || '');
     xrayPatientId   = p.id;
     xrayPatientData = p;
 
@@ -384,6 +416,8 @@ function selectXrayPatient(p) {
     if (typeof conPatientData !== 'undefined') conPatientData = p;
     if (typeof xrayMaybeLoadNotesOnPatientSync === 'function') xrayMaybeLoadNotesOnPatientSync();
     else if (typeof loadConNotes === 'function') loadConNotes(p.id);
+
+    if (patientChanged) xrayClearDisplayedFilms();
 
     // Probe bucket once so we surface config problems early
     checkXrayBucket();

@@ -107,7 +107,10 @@ function chartNeedle(no) {
     pass('index ships patched xray-link',
         /app-xray-link\.js\?v=20260917xrayup2/.test(idxSrc));
     pass('index BUILD bumped',
-        /BUILD = '20260919xrayrf1'/.test(idxSrc));
+        /BUILD = '20260922xraytab1'/.test(idxSrc));
+    pass('patient switch still loads the HKID film union',
+        /xrayClearDisplayedFilms\(\)/.test(linkSrc) &&
+        /SB\.from\('xrays'\)[\s\S]{0,120}\.in\('patient_id',\s*ids\)/.test(linkSrc));
     pass('upload finish clears queue and refreshes',
         /function xrayFinishUploadQueue/.test(xraySrc) &&
         /xrayUploadQueue = \[\]/.test(xraySrc) &&
@@ -158,9 +161,10 @@ function chartNeedle(no) {
 
     console.log('\n=== HTTP spot: live-server / static ===');
     var served = null;
-    var ports = [8123, 8124, 5500];
+    var ports = [5500, 8123, 8124];
     var i;
-    var expectedBuild = '20260919xrayrf1';
+    var expectedBuild = '20260922xraytab1';
+    var probeErrors = [];
     for (i = 0; i < ports.length; i++) {
         try {
             var idx = await httpGet('127.0.0.1', ports[i], '/index.html?b=' + expectedBuild);
@@ -174,11 +178,11 @@ function chartNeedle(no) {
             }
             if (!served) served = hit;
         } catch (e) {
-            if (!served) served = { error: String(e.message || e), port: ports[i] };
+            probeErrors.push(ports[i] + ' ' + String(e.message || e));
         }
     }
-    if (!served || served.error && !served.idx) {
-        pass('live-server reachable', false, served && served.error);
+    if (!served || !served.idx) {
+        pass('live-server reachable', false, probeErrors.join(' | ') || 'no listener');
     } else {
         var servedBuild = (served.idx.body.match(/BUILD = '([^']+)'/) || [])[1] || '';
         pass('index.html ' + served.port, served.idx.status === 200, 'status ' + served.idx.status);

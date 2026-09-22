@@ -983,6 +983,7 @@
             xrayPinnedId = null;
             window.xrayClearUploadOverride();
             window._xrayLinkLastPid = String(xrayPatientId);
+            if (typeof xrayClearDisplayedFilms === 'function') xrayClearDisplayedFilms();
         }
         xrayClinicScope = xrayReadClinicScopePref() || 'home';
         window._xrayScopePrefApplied = true;

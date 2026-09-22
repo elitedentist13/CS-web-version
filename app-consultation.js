@@ -802,15 +802,19 @@ function switchConTab(tab) {
     }
 
     if (tab === 'xrays') {
-        if (typeof xrayPatientId !== 'undefined' && xrayPatientId) {
-            if (typeof loadXrayRecords === 'function') {
-                loadXrayRecords();
-            }
-        } else if (conPatientId && conPatientData) {
-            // Patient selected in treatment notes but x-ray module not yet synced
-            if (typeof syncXrayPatient === 'function') {
-                syncXrayPatient(conPatientId, conPatientData);
-            }
+        var xrayNow = (conPatientData && conPatientData.id) ? conPatientData : null;
+        if (!xrayNow && typeof activePatientSlots !== 'undefined' &&
+            activePatientSlots[0] && activePatientSlots[0].id) {
+            xrayNow = activePatientSlots[0];
+        }
+        var xrayMismatch = xrayNow && (
+            typeof xrayPatientId === 'undefined' ||
+            String(xrayPatientId || '') !== String(xrayNow.id)
+        );
+        if (xrayMismatch && typeof syncXrayPatient === 'function') {
+            syncXrayPatient(xrayNow.id, xrayNow);
+        } else if (typeof loadXrayRecords === 'function') {
+            loadXrayRecords();
         }
     }
 

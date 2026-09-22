@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260922zhangtx1';
+  var BUILD = '20260923txsum1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -1125,18 +1125,32 @@
   </div>
 
   <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
-    <!-- Horizontal report tabs -->
-    <div style="display:flex;gap:8px;overflow:auto;padding:2px 2px 10px;margin-bottom:10px;border-bottom:1px solid #f0f0f0;">
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="dailySummary"  onclick="REPORT.switchTab('dailySummary')" data-i18n="report.tab.dailySummary"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="dailyIncome"   onclick="REPORT.switchTab('dailyIncome')" data-i18n="report.tab.dailyIncome"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="weeklyIncome"  onclick="REPORT.switchTab('weeklyIncome')" data-i18n="report.tab.weeklyIncome"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="monthlyIncome" onclick="REPORT.switchTab('monthlyIncome')" data-i18n="report.tab.monthlyIncome"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="drDaily"       onclick="REPORT.switchTab('drDaily')" data-i18n="report.tab.drDaily"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="drMonthly"     onclick="REPORT.switchTab('drMonthly')" data-i18n="report.tab.drMonthly"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="txStats"       onclick="REPORT.switchTab('txStats')" data-i18n="report.tab.txStats"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="payStats"      onclick="REPORT.switchTab('payStats')" data-i18n="report.tab.payStats"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="patientDir"    onclick="REPORT.switchTab('patientDir')" data-i18n="report.tab.patientDir"></button>
-      <button class="cfg-nav-item" style="white-space:nowrap;" data-rpt="auditTrail"    onclick="REPORT.switchTab('auditTrail')" data-i18n="report.tab.auditTrail"></button>
+    <div class="rpt-tab-bar" id="rptTabBar">
+      <div class="rpt-tab-group">
+        <div class="rpt-tab-group-label" data-i18n="report.tabGroup.income"></div>
+        <div class="rpt-tab-group-btns">
+          <button class="cfg-nav-item" data-rpt="dailySummary" onclick="REPORT.switchTab('dailySummary')" data-i18n="report.tab.dailySummary"></button>
+          <button class="cfg-nav-item" data-rpt="dailyIncome" onclick="REPORT.switchTab('dailyIncome')" data-i18n="report.tab.dailyIncome"></button>
+          <button class="cfg-nav-item" data-rpt="weeklyIncome" onclick="REPORT.switchTab('weeklyIncome')" data-i18n="report.tab.weeklyIncome"></button>
+          <button class="cfg-nav-item" data-rpt="monthlyIncome" onclick="REPORT.switchTab('monthlyIncome')" data-i18n="report.tab.monthlyIncome"></button>
+        </div>
+      </div>
+      <div class="rpt-tab-group">
+        <div class="rpt-tab-group-label" data-i18n="report.tabGroup.doctors"></div>
+        <div class="rpt-tab-group-btns">
+          <button class="cfg-nav-item" data-rpt="drDaily" onclick="REPORT.switchTab('drDaily')" data-i18n="report.tab.drDaily"></button>
+          <button class="cfg-nav-item" data-rpt="drMonthly" onclick="REPORT.switchTab('drMonthly')" data-i18n="report.tab.drMonthly"></button>
+        </div>
+      </div>
+      <div class="rpt-tab-group">
+        <div class="rpt-tab-group-label" data-i18n="report.tabGroup.records"></div>
+        <div class="rpt-tab-group-btns">
+          <button class="cfg-nav-item" data-rpt="txStats" onclick="REPORT.switchTab('txStats')" data-i18n="report.tab.txStats"></button>
+          <button class="cfg-nav-item" data-rpt="payStats" onclick="REPORT.switchTab('payStats')" data-i18n="report.tab.payStats"></button>
+          <button class="cfg-nav-item" data-rpt="patientDir" onclick="REPORT.switchTab('patientDir')" data-i18n="report.tab.patientDir"></button>
+          <button class="cfg-nav-item" data-rpt="auditTrail" onclick="REPORT.switchTab('auditTrail')" data-i18n="report.tab.auditTrail"></button>
+        </div>
+      </div>
     </div>
 
       <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;">
@@ -1204,6 +1218,8 @@
           <button class="btn-add" style="padding:9px 14px;" onclick="REPORT.refresh()" data-i18n="report.refresh"></button>
         </div>
       </div>
+
+      <div id="rptHeadline" class="rpt-headline" hidden></div>
 
       <div id="rptMainGrid" style="margin-top:14px;display:grid;grid-template-columns:1fr 360px;gap:14px;align-items:start;">
         <!-- Table -->

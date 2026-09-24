@@ -972,7 +972,8 @@ var REALTIME_SYNC = (function() {
         var target = ev.target;
         if (!target) return;
         if (_pending.notes && target.id &&
-            (target.id === 'conNoteInput' || target.id === 'xrayConNoteInput')) {
+            (target.id === 'conNoteInput' || target.id === 'xrayConNoteInput' ||
+                (target.closest && target.closest('.con-note-editing')))) {
             scheduleRefresh('notes');
         }
         if (_pending.rx && (target.id === 'rxDate' || target.id === 'rxDentistName' ||

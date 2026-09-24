@@ -11,7 +11,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-report.js'))) root = process.cwd();
 
-var BUILD = '20260924rxpanel2';
+var BUILD = '20260925notes5';
 var fails = [];
 
 function pass(name, ok, detail) {

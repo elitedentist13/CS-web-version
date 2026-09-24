@@ -616,6 +616,7 @@ function updateConsultationDoctorUI() {
     if (g('conFormsDoctorLabel')) g('conFormsDoctorLabel').textContent = shown;
 
     rxRefreshDoctorChip();
+    if (typeof conNotesRefreshDoctorChip === 'function') conNotesRefreshDoctorChip();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -644,9 +645,12 @@ function resetConNotesForPatientSwitch() {
         conPtlRefreshTimer = null;
     }
     conPatientTimelineEvents = [];
+    conTreatmentNotesAll = [];
     clearConNotesDom('loading');
+    if (typeof conNotesOnPatientSwitch === 'function') conNotesOnPatientSwitch();
     var noteInp = g('conNoteInput');
     if (noteInp) noteInp.value = '';
+    if (typeof conNotesSyncFromTextarea === 'function') conNotesSyncFromTextarea();
     var xrayNoteInp = g('xrayConNoteInput');
     if (xrayNoteInp) xrayNoteInp.value = '';
     var bananaWrap = g('conBannerBananaNotesWrap');
@@ -3274,6 +3278,12 @@ function conClinicCodeFromStoredTag(storedTag) {
 // TREATMENT NOTES — LEFT PANEL
 // ════════════════════════════════════════════════════════════════
 var conTreatmentNotesCache = [];
+/** Every row for the patient, including soft-deleted notes (cache above excludes them). */
+var conTreatmentNotesAll = [];
+/** Set when treatments lacks the author / edit / soft-delete columns (treatments_note_audit.sql not run). */
+var conNoteAuditColsMissing = false;
+var CON_NOTE_AUDIT_COLS = ['author_name', 'author_role', 'author_id', 'edited_at', 'edited_by',
+    'edit_history', 'deleted_at', 'deleted_by', 'parent_id'];
 /** Bumps on each consultation patient switch so stale note fetches cannot paint. */
 var conNotesLoadGen = 0;
 var conTnPrintFromIso = '';
@@ -3442,7 +3452,7 @@ function conPtlBuildFilterBar() {
 }
 
 function conPtlEventsFromNotes(rows) {
-    return (rows || []).map(function (t) {
+    return (rows || []).filter(function (t) { return t && !t.deleted_at; }).map(function (t) {
         var ms = conPtlTsFromAny(t.created_at, null);
         return {
             kind: 'note',
@@ -3955,6 +3965,7 @@ function loadConPatientTimeline(patientId) {
             conPtlEventsFromTasks(tasks, apptMap)
         ]);
         renderConPatientTimeline();
+        if (typeof conNotesRefreshContext === 'function') conNotesRefreshContext();
     });
 }
 
@@ -4394,7 +4405,7 @@ function conTnPrintRangeLabel() {
     return conTrRepl('con.tnPrint.rangeDatedLbl', { FROM: fromLbl, TO: toLbl });
 }
 
-function buildConTnPrintBodyHtml(notes) {
+function buildConTnPrintBodyHtml(notes, rangeLabel) {
     var p = conPatientData || {};
     var name = p.full_name || '—';
     var cn = String(p.chinese_name || '').trim();
@@ -4422,7 +4433,7 @@ function buildConTnPrintBodyHtml(notes) {
               '<div class="tn-print-meta">' +
                 esc(conTrRepl('con.tnPrint.patientLine', { NAME: name, NO: no })) + '<br>' +
                 esc(conTrRepl('con.tnPrint.clinicLine', { CLINIC: clinicLbl })) + '<br>' +
-                esc(conTr('con.tnPrint.rangeLegend')) + ': ' + esc(conTnPrintRangeLabel()) + '<br>' +
+                esc(conTr('con.tnPrint.rangeLegend')) + ': ' + esc(rangeLabel || conTnPrintRangeLabel()) + '<br>' +
                 esc(conTrRepl('con.tnPrint.generatedLine', { AT: genAt })) +
               '</div>' +
             '</div>';
@@ -4466,6 +4477,9 @@ function buildConTnPrintBodyHtml(notes) {
             var tag = t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag || '';
             var code = conClinicCodeFromStoredTag(tag);
             if (code) meta += ' · ' + code;
+            var writtenBy = conNoteWrittenByLabel(t);
+            if (writtenBy) meta += ' · ' + writtenBy;
+            if (t.parent_id) meta += ' · ' + conTr('con.note.addendumTag');
             html +=
                 '<div class="tn-print-note">' +
                   '<div class="tn-print-note-meta">' + esc(meta) + '</div>' +
@@ -4492,13 +4506,13 @@ function openConTnPrintFromPopover() {
     executeConTnPrint();
 }
 
-function executeConTnPrint() {
-    var notes = conTnFilterNotesForPrint();
+function executeConTnPrint(notesOverride, rangeLabel) {
+    var notes = Array.isArray(notesOverride) ? notesOverride : conTnFilterNotesForPrint();
     if (!notes.length) {
         alert(conTr('con.tnPrint.alertNoNotes'));
         return;
     }
-    var bodyHtml = buildConTnPrintBodyHtml(notes);
+    var bodyHtml = buildConTnPrintBodyHtml(notes, rangeLabel);
     var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
         ? String(currentClinicId) : '';
     var printRow = null;
@@ -4589,16 +4603,56 @@ function renderConNotesIntoHost(hostId, rows, opts) {
         return;
     }
 
-    tl.innerHTML = '';
     var todayIso = (typeof todayISO === 'function')
         ? todayISO()
         : conDateIsoFromTs((typeof nowLocal === 'function' ? nowLocal() : new Date()));
     var idPrefix = opts.idPrefix || 'cnt';
     var allowEdit = opts.allowEdit !== false;
+    var filt = (opts.applyFilters && typeof conNotesFilterState === 'function')
+        ? conNotesFilterState() : { q: '', doctor: '', showDeleted: false };
 
+    var visible = rows.filter(function (t) { return filt.showDeleted || !t.deleted_at; });
+    var visibleIds = {};
+    visible.forEach(function (t) { visibleIds[String(t.id)] = true; });
+    var addenda = {};
+    var tops = [];
+    visible.forEach(function (t) {
+        if (t.parent_id && visibleIds[String(t.parent_id)]) {
+            var k = String(t.parent_id);
+            (addenda[k] = addenda[k] || []).push(t);
+        } else {
+            tops.push(t);
+        }
+    });
+    Object.keys(addenda).forEach(function (k) {
+        addenda[k].sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); });
+    });
+
+    if (filt.q || filt.doctor) {
+        var q = String(filt.q || '').toLowerCase();
+        var docKey = filt.doctor ? conNoteNameKey(filt.doctor) : '';
+        tops = tops.filter(function (t) {
+            var fam = [t].concat(addenda[String(t.id)] || []);
+            if (docKey && conNoteNameKey(t.doctor_name || t.dentist_name || t.doctor_tag) !== docKey) return false;
+            if (!q) return true;
+            return fam.some(function (x) {
+                return [x.notes, x.dentist_name, x.author_name].join(' ').toLowerCase().indexOf(q) >= 0;
+            });
+        });
+    }
+
+    if (!tops.length) {
+        tl.innerHTML =
+            '<p style="color:#aaa;margin:0;padding:16px;">' +
+            esc(conTr(rows.some(function (t) { return !t.deleted_at; }) ? 'con.note.noMatch' : 'con.noTreatmentNotes')) +
+            '</p>';
+        return;
+    }
+
+    tl.innerHTML = '';
     var groups = {};
     var order  = [];
-    rows.forEach(function(t) {
+    tops.forEach(function(t) {
         var dk = conDateIsoFromTs(t.created_at);
         if (!dk) dk = '__unknown__';
         if (!groups[dk]) { groups[dk] = []; order.push(dk); }
@@ -4627,58 +4681,142 @@ function renderConNotesIntoHost(hostId, rows, opts) {
         tl.appendChild(sep);
 
         groups[dk].forEach(function(t) {
-            var isToday = dk === todayIso;
-            var canEdit = allowEdit && isToday && currentRole !== 'nurse';
-            var storedClinicTag = t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag || '';
-            var clinicCode = conClinicCodeFromStoredTag(storedClinicTag);
-            var clinicMiniTag = clinicCode
-                ? '<small class="con-note-clinic-tag" title="' + esc(conTr('common.clinic')) + '">' +
-                  esc(clinicCode) + '</small>'
-                : '';
-            var doctorMiniTag = t.dentist_name
-                ? '<small style="color:#888;font-size:11px;">👨‍⚕️ ' + esc(t.dentist_name) + '</small>'
-                : '';
-
-            var div = document.createElement('div');
-            div.className = 'note-card';
-            div.innerHTML =
-                '<div class="note-card-header">' +
-                    '<div style="display:flex;flex-direction:column;gap:2px;">' +
-                        '<small class="note-time">' +
-                            new Date(t.created_at)
-                                .toLocaleTimeString(conUiLocale(), {
-                                    hour: '2-digit', minute: '2-digit'
-                                }) +
-                        '</small>' +
-                        '<div class="con-note-meta-row">' +
-                            doctorMiniTag +
-                            clinicMiniTag +
-                        '</div>' +
-                    '</div>' +
-                    (canEdit
-                        ? '<button class="btn-edit-note btn-sm" ' +
-                          'style="background:var(--primary);">' +
-                          esc(conTr('con.note.edit')) + '</button>'
-                        : '') +
-                '</div>' +
-                '<div id="' + idPrefix + '-' + t.id + '" class="note-body">' +
-                    esc(t.notes) +
-                '</div>';
-            tl.appendChild(div);
-
-            if (canEdit) {
-                div.querySelector('.btn-edit-note')
-                   .addEventListener('click', function() {
-                       editConNote(t.id, t.notes);
-                   });
-            }
+            var card = conNoteCardEl(t, {
+                isToday: dk === todayIso,
+                allowEdit: allowEdit,
+                idPrefix: idPrefix,
+                isAddendum: false
+            });
+            (addenda[String(t.id)] || []).forEach(function (a) {
+                card.appendChild(conNoteCardEl(a, {
+                    isToday: conDateIsoFromTs(a.created_at) === todayIso,
+                    allowEdit: allowEdit,
+                    idPrefix: idPrefix,
+                    isAddendum: true
+                }));
+            });
+            tl.appendChild(card);
         });
     });
 }
 
+var CON_NOTE_CLAMP_LINES = 8;
+var CON_NOTE_CLAMP_CHARS = 600;
+
+function conNoteBodyHtml(text) {
+    if (typeof conNotesFormatBodyHtml === 'function') return conNotesFormatBodyHtml(text);
+    return esc(text || '');
+}
+
+function conNoteCardEl(t, ctx) {
+    var canEdit = ctx.allowEdit && conNoteCanEdit(t, ctx.isToday);
+    var canAddendum = ctx.allowEdit && !ctx.isAddendum && !ctx.isToday && !t.deleted_at;
+    var storedClinicTag = t[TREATMENT_CLINIC_TAG_FIELD] || t.clinic_tag || '';
+    var clinicCode = conClinicCodeFromStoredTag(storedClinicTag);
+    var meta = '';
+    if (ctx.isAddendum) meta += '<small class="con-note-addendum-tag">' + esc(conTr('con.note.addendumTag')) + '</small>';
+    if (t.dentist_name) meta += '<small class="con-note-doctor-tag">👨‍⚕️ ' + esc(t.dentist_name) + '</small>';
+    if (clinicCode) {
+        meta += '<small class="con-note-clinic-tag" title="' + esc(conTr('common.clinic')) + '">' + esc(clinicCode) + '</small>';
+    }
+    var writtenBy = conNoteWrittenByLabel(t);
+    if (writtenBy) meta += '<small class="con-note-author-tag">✍ ' + esc(writtenBy) + '</small>';
+
+    var hist = conNoteEditHistory(t);
+    var editedLine = '';
+    if (t.edited_at) {
+        editedLine = '<button type="button" class="con-note-edited" data-act="history"' + (hist.length ? '' : ' disabled') + '>' +
+            esc(conTrRepl('con.note.editedBy', { TIME: conNoteFmtTime(t.edited_at), NAME: t.edited_by || '—' })) +
+            (hist.length ? ' · ' + esc(conTrRepl('con.note.versions', { N: hist.length })) : '') +
+            '</button>';
+    }
+    var deletedLine = t.deleted_at
+        ? '<div class="con-note-deleted-line">' +
+            esc(conTrRepl('con.note.deletedBy', { WHEN: conNoteFmtDateTime(t.deleted_at), NAME: t.deleted_by || '—' })) +
+          '</div>'
+        : '';
+
+    var actions = '';
+    if (canEdit) {
+        actions += '<button type="button" class="btn-edit-note btn-sm" data-act="edit">' + esc(conTr('con.note.edit')) + '</button>';
+    }
+    if (canAddendum) {
+        actions += '<button type="button" class="con-note-act-btn" data-act="addendum">' + esc(conTr('con.note.addendum')) + '</button>';
+    }
+    if (ctx.allowEdit && !t.deleted_at && !ctx.isAddendum) {
+        actions += '<button type="button" class="con-note-act-btn con-note-act-btn--icon" data-act="print" title="' +
+            esc(conTr('con.note.printOne')) + '" aria-label="' + esc(conTr('con.note.printOne')) + '">🖨</button>';
+    }
+
+    var text = String(t.notes || '');
+    var lines = text.split(/\r?\n/).length;
+    var clamp = lines > CON_NOTE_CLAMP_LINES || text.length > CON_NOTE_CLAMP_CHARS;
+
+    var div = document.createElement('div');
+    div.className = 'note-card' +
+        (ctx.isAddendum ? ' note-card--addendum' : '') +
+        (t.deleted_at ? ' note-card--deleted' : '');
+    div.setAttribute('data-note-id', String(t.id));
+    div.innerHTML =
+        '<div class="note-card-header">' +
+            '<div class="note-card-head-main">' +
+                '<small class="note-time">' + esc(conNoteFmtTime(t.created_at)) + '</small>' +
+                '<div class="con-note-meta-row">' + meta + '</div>' +
+                editedLine +
+            '</div>' +
+            (actions ? '<div class="note-card-actions">' + actions + '</div>' : '') +
+        '</div>' +
+        deletedLine +
+        '<div id="' + ctx.idPrefix + '-' + t.id + '" class="note-body' + (clamp ? ' is-clamped' : '') + '">' +
+            conNoteBodyHtml(text) +
+        '</div>' +
+        (clamp ? '<button type="button" class="con-note-more" data-act="more">' + esc(conTr('con.note.showMore')) + '</button>' : '');
+
+    div.querySelectorAll('[data-act]').forEach(function (btn) {
+        if (btn.closest('.note-card') !== div) return;
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var act = btn.getAttribute('data-act');
+            if (act === 'edit') editConNote(t.id, t.notes);
+            else if (act === 'addendum') conOpenNoteAddendum(t.id, div);
+            else if (act === 'print') conPrintSingleNote(t.id);
+            else if (act === 'more') {
+                var body = g(ctx.idPrefix + '-' + t.id);
+                var open = body.classList.toggle('is-clamped');
+                btn.textContent = conTr(open ? 'con.note.showMore' : 'con.note.showLess');
+            } else if (act === 'history') {
+                conToggleNoteHistory(div, t, hist);
+            }
+        });
+    });
+    return div;
+}
+
+function conToggleNoteHistory(cardEl, t, hist) {
+    var box = null;
+    for (var i = 0; i < cardEl.children.length; i++) {
+        if (cardEl.children[i].classList.contains('con-note-history')) { box = cardEl.children[i]; break; }
+    }
+    if (box) { box.parentNode.removeChild(box); return; }
+    box = document.createElement('div');
+    box.className = 'con-note-history';
+    box.innerHTML = hist.slice().reverse().map(function (h) {
+        return '<div class="con-note-history-item">' +
+            '<div class="con-note-history-meta">' + esc(conTrRepl('con.note.versionMeta', {
+                WHEN: conNoteFmtDateTime(h.at), NAME: h.by || '—'
+            })) + '</div>' +
+            '<div class="con-note-history-text">' + esc(h.notes || '') + '</div>' +
+        '</div>';
+    }).join('');
+    var body = cardEl.querySelector('.note-body');
+    if (body && body.parentNode === cardEl) cardEl.insertBefore(box, body);
+    else cardEl.appendChild(box);
+}
+
 function renderConNotesEverywhere(rows) {
-    renderConNotesIntoHost('conTimeline', rows, { idPrefix: 'cnt', allowEdit: true });
+    renderConNotesIntoHost('conTimeline', rows, { idPrefix: 'cnt', allowEdit: true, applyFilters: true });
     renderConNotesIntoHost('xrayConTimeline', rows, { idPrefix: 'xray-cnt', allowEdit: false });
+    if (typeof conNotesAfterRender === 'function') conNotesAfterRender(rows);
 }
 
 function loadConNotes(pid, opts) {
@@ -4696,8 +4834,12 @@ function loadConNotes(pid, opts) {
             var xpid = (typeof xrayPatientId !== 'undefined') ? xrayPatientId : null;
             if (!xpid || String(xpid) !== String(expectedPid)) return;
         }
-        conTreatmentNotesCache = (r.data && !r.error) ? r.data : [];
-        renderConNotesEverywhere(conTreatmentNotesCache);
+        conTreatmentNotesAll = (r.data && !r.error) ? r.data : [];
+        if (conTreatmentNotesAll.length && !('deleted_at' in conTreatmentNotesAll[0])) conNoteAuditColsMissing = true;
+        else if (conTreatmentNotesAll.length) conNoteAuditColsMissing = false;
+        conTreatmentNotesCache = conTreatmentNotesAll.filter(function (t) { return !t.deleted_at; });
+        renderConNotesEverywhere(conTreatmentNotesAll);
+        if (typeof conNotesAfterLoad === 'function') conNotesAfterLoad(pid);
         conSchedulePatientTimelineRefresh(pid);
     });
 }
@@ -4975,9 +5117,14 @@ function conApplyTemplateToNote() {
     if (!sel || !inp || !ct) return;
     var id = String(sel.value || '');
     if (!id) return;
-    inp.value = String(ct.value || '').trim();
-    inp.focus();
+    var tpl = String(ct.value || '').trim();
     closeModal('conNoteTemplateModal');
+    if (typeof conNotesApplyTemplateText === 'function') {
+        conNotesApplyTemplateText(tpl);
+        return;
+    }
+    inp.value = tpl;
+    inp.focus();
 }
 
 function conSaveTemplateEdits() {
@@ -5070,85 +5217,239 @@ function conDeleteTemplate() {
     });
 }
 
+function conNoteErrMentions(err, cols) {
+    var msg = String((err && (err.message || err.details || err.hint)) || '').toLowerCase();
+    for (var i = 0; i < cols.length; i++) {
+        if (msg.indexOf(String(cols[i]).toLowerCase()) >= 0) return true;
+    }
+    return false;
+}
+
+function conNoteStripAuditCols(row) {
+    var out = Object.assign({}, row);
+    CON_NOTE_AUDIT_COLS.forEach(function (c) { delete out[c]; });
+    return out;
+}
+
+/** Insert one treatments row, dropping optional columns the database does not have yet.
+ *  opts.fallbackNotes replaces notes when parent_id had to be dropped (standalone addendum). */
+function conInsertNoteRow(row, opts) {
+    opts = opts || {};
+    var cur = Object.assign({}, row);
+    if (conNoteAuditColsMissing) {
+        if (cur.parent_id && opts.fallbackNotes) cur.notes = opts.fallbackNotes;
+        cur = conNoteStripAuditCols(cur);
+    }
+    function attempt(tries) {
+        return SB.from('treatments').insert([withWorkingCreatedAt(cur)]).select('*').then(function (r) {
+            if (!r.error) return (r.data && r.data[0]) || cur;
+            if (tries > 4) throw r.error;
+            var err = r.error;
+            if (conNoteErrMentions(err, CON_NOTE_AUDIT_COLS) && ('author_name' in cur || 'parent_id' in cur)) {
+                conNoteAuditColsMissing = true;
+                if (cur.parent_id && opts.fallbackNotes) cur.notes = opts.fallbackNotes;
+                cur = conNoteStripAuditCols(cur);
+                return attempt(tries + 1);
+            }
+            if (conNoteErrMentions(err, ['clinic_tag']) && cur[TREATMENT_CLINIC_TAG_FIELD]) {
+                delete cur[TREATMENT_CLINIC_TAG_FIELD];
+                return attempt(tries + 1);
+            }
+            if (conNoteErrMentions(err, ['doctor_tag', 'doctor_id', 'doctor_name']) && 'doctor_id' in cur) {
+                delete cur.doctor_id;
+                delete cur.doctor_name;
+                delete cur.doctor_tag;
+                return attempt(tries + 1);
+            }
+            throw err;
+        });
+    }
+    return attempt(0);
+}
+
+function conNoteClinicTagForSave() {
+    return (typeof currentClinicCodeForTagging === 'function' ? currentClinicCodeForTagging() : '') ||
+        (conPatientData && conPatientData[PATIENT_CLINIC_TAG_FIELD]
+            ? conPatientData[PATIENT_CLINIC_TAG_FIELD]
+            : '');
+}
+
+/** Logged-in user — not currentName, which switches to the active doctor on doctor change. */
+function conNoteActorName() {
+    if (typeof loggedInUserName !== 'undefined' && loggedInUserName) return String(loggedInUserName);
+    return (typeof currentName !== 'undefined' && currentName) ? String(currentName) : '';
+}
+
+/** Doctor fields come only from the chosen doctor (never the logged-in user); author is who typed. */
+function conBuildNoteRow(note, doctor) {
+    doctor = doctor || {};
+    var row = {
+        patient_id:   conPatientId,
+        dentist_name: doctor.name || null,
+        doctor_id:    doctor.id || null,
+        doctor_name:  doctor.name || null,
+        doctor_tag:   doctor.tag || doctor.name || null,
+        notes:        note,
+        author_name:  conNoteActorName() || null,
+        author_role:  (typeof currentRole !== 'undefined' && currentRole) ? String(currentRole) : null,
+        author_id:    (typeof currentUserId !== 'undefined' && currentUserId) ? String(currentUserId) : null
+    };
+    var ct = conNoteClinicTagForSave();
+    if (ct) row[TREATMENT_CLINIC_TAG_FIELD] = ct;
+    return row;
+}
+
+function conActiveDoctorForNote() {
+    if (!conActiveDoctorId && !conActiveDoctorName) return null;
+    return {
+        id: conActiveDoctorId || null,
+        name: conActiveDoctorName || null,
+        tag: conActiveDoctorTag || conActiveDoctorName || null
+    };
+}
+
 function saveConNoteFromInput(inputId) {
     if (!conPatientId) { alert(conTr('con.note.alertSelectPatient')); return; }
-    var inp  = g(inputId || 'conNoteInput');
+    inputId = inputId || 'conNoteInput';
+    var inp  = g(inputId);
     if (!inp) return;
     var note = (inp.value || '').trim();
     if (!note) { alert(conTr('con.note.alertEnterNote')); return; }
 
-    var row = {
-        patient_id:   conPatientId,
-        dentist_name: conActiveDoctorName || currentName || null,
-        doctor_id:    conActiveDoctorId || null,
-        doctor_name:  conActiveDoctorName || currentName || null,
-        doctor_tag:   conActiveDoctorTag || conActiveDoctorName || currentName || null,
-        notes:        note
-    };
+    var doctor = conActiveDoctorForNote();
+    if (inputId === 'conNoteInput' && !conActiveDoctorId) {
+        alert(conTr('con.note.needDoctor'));
+        if (typeof rxFocusDoctorPicker === 'function') rxFocusDoctorPicker();
+        return;
+    }
 
-    var ctNote = (typeof currentClinicCodeForTagging === 'function'
-            ? currentClinicCodeForTagging()
-            : '') ||
-        (conPatientData && conPatientData[PATIENT_CLINIC_TAG_FIELD]
-            ? conPatientData[PATIENT_CLINIC_TAG_FIELD]
-            : '');
-    if (ctNote) row[TREATMENT_CLINIC_TAG_FIELD] = ctNote;
-
-    SB.from('treatments').insert([withWorkingCreatedAt(row)])
-    .then(function(r) {
-        if (!r.error) {
-            inp.value = '';
-            loadConNotes(conPatientId);
-            conSchedulePatientTimelineRefresh(conPatientId);
-            return;
-        }
-        var msg = String(r.error.message || '').toLowerCase();
-        if (msg.indexOf('clinic_tag') >= 0 && row[TREATMENT_CLINIC_TAG_FIELD]) {
-            var rowCt = Object.assign({}, row);
-            delete rowCt[TREATMENT_CLINIC_TAG_FIELD];
-            SB.from('treatments').insert([withWorkingCreatedAt(rowCt)])
-            .then(function(rc) {
-                if (!rc.error) {
-                    inp.value = '';
-                    loadConNotes(conPatientId);
-                    return;
-                }
-                var msg2 = String(rc.error.message || '').toLowerCase();
-                if (msg2.indexOf('doctor_tag') >= 0 || msg2.indexOf('doctor_id') >= 0 ||
-                    msg2.indexOf('doctor_name') >= 0) {
-                    var legacyRow = {
-                        patient_id: rowCt.patient_id,
-                        dentist_name: rowCt.dentist_name,
-                        notes: rowCt.notes
-                    };
-                    SB.from('treatments').insert([withWorkingCreatedAt(legacyRow)])
-                    .then(function(r2) {
-                        if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
-                        inp.value = '';
-                        loadConNotes(conPatientId);
-                    });
-                    return;
-                }
-                alert(trRepl('appt.msg.error', { MSG: rc.error.message }));
-            });
-            return;
-        }
-        if (msg.indexOf('doctor_tag') >= 0 || msg.indexOf('doctor_id') >= 0 || msg.indexOf('doctor_name') >= 0) {
-            var legacyRow = {
-                patient_id: row.patient_id,
-                dentist_name: row.dentist_name,
-                notes: row.notes
-            };
-            SB.from('treatments').insert([withWorkingCreatedAt(legacyRow)])
-            .then(function(r2) {
-                if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
-                inp.value = '';
-                loadConNotes(conPatientId);
-            });
-            return;
-        }
-        alert(trRepl('appt.msg.error', { MSG: r.error.message }));
+    var pid = conPatientId;
+    var btn = inputId === 'conNoteInput' ? g('conNoteSaveBtn') : null;
+    if (btn) btn.disabled = true;
+    conInsertNoteRow(conBuildNoteRow(note, doctor)).then(function () {
+        if (btn) btn.disabled = false;
+        if (String(conPatientId) !== String(pid)) return;
+        inp.value = '';
+        if (inputId === 'conNoteInput' && typeof conNotesAfterSave === 'function') conNotesAfterSave(pid);
+        loadConNotes(pid);
+        conSchedulePatientTimelineRefresh(pid);
+    }).catch(function (err) {
+        if (btn) btn.disabled = false;
+        alert(trRepl('appt.msg.error', { MSG: (err && err.message) || String(err) }));
     });
+}
+
+function conSaveNoteAddendum(parent, text) {
+    var note = String(text || '').trim();
+    if (!parent || !note) return Promise.resolve(null);
+    var doctor = conActiveDoctorForNote() || {
+        id: parent.doctor_id || null,
+        name: parent.doctor_name || parent.dentist_name || null,
+        tag: parent.doctor_tag || parent.dentist_name || null
+    };
+    var row = conBuildNoteRow(note, doctor);
+    row.parent_id = parent.id;
+    var when = conNoteFmtDateTime(parent.created_at);
+    var fallback = conTrRepl('con.note.addendumPrefix', { WHEN: when }) + '\n' + note;
+    return conInsertNoteRow(row, { fallbackNotes: fallback });
+}
+
+function conNoteFmtTime(ts) {
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString(conUiLocale(), { hour: '2-digit', minute: '2-digit' });
+}
+
+function conNoteFmtDateTime(ts) {
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(conUiLocale(), { day: 'numeric', month: 'short', year: 'numeric' }) +
+        ' ' + conNoteFmtTime(ts);
+}
+
+function conNoteNameKey(s) {
+    return String(s || '').toLowerCase()
+        .replace(/_[a-z0-9]{2,5}$/i, '')
+        .replace(/^dr\.?\s+/, '')
+        .replace(/[^a-z0-9\u3400-\u9fff]+/g, '');
+}
+
+/** "Written by X" when the typist differs from the responsible doctor. */
+function conNoteWrittenByLabel(t) {
+    var author = String((t && t.author_name) || '').trim();
+    if (!author) return '';
+    var doc = (t.doctor_name || t.dentist_name || t.doctor_tag || '');
+    var ak = conNoteNameKey(author);
+    if (doc && ak && (ak === conNoteNameKey(doc) || ak === conNoteNameKey(t.doctor_tag))) return '';
+    return conTrRepl('con.note.writtenBy', { NAME: author });
+}
+
+function conNoteIsMine(t) {
+    if (!t) return false;
+    if (t.author_id && typeof currentUserId !== 'undefined' && currentUserId &&
+        String(t.author_id) === String(currentUserId)) return true;
+    var me = conNoteNameKey(conNoteActorName());
+    return !!(me && t.author_name && conNoteNameKey(t.author_name) === me);
+}
+
+function conNoteCanEdit(t, isToday) {
+    if (!t || t.deleted_at || !isToday) return false;
+    if (typeof currentRole === 'undefined' || currentRole !== 'nurse') return true;
+    return conNoteIsMine(t);
+}
+
+function conNoteRowById(nid) {
+    var all = conTreatmentNotesAll || [];
+    for (var i = 0; i < all.length; i++) {
+        if (String(all[i].id) === String(nid)) return all[i];
+    }
+    return null;
+}
+
+function conNoteEditHistory(t) {
+    var h = t && t.edit_history;
+    if (typeof h === 'string') {
+        try { h = JSON.parse(h); } catch (e) { h = []; }
+    }
+    return Array.isArray(h) ? h.filter(function (x) { return x && typeof x === 'object'; }) : [];
+}
+
+function conUpdateNoteText(t, newText) {
+    var nowIso = new Date().toISOString();
+    var who = conNoteActorName() || null;
+    var patch = { notes: newText };
+    if (!conNoteAuditColsMissing) {
+        var hist = conNoteEditHistory(t).slice();
+        hist.push({ at: t.edited_at || t.created_at || nowIso, by: t.edited_by || t.author_name || t.dentist_name || '', notes: t.notes || '' });
+        patch.edit_history = hist;
+        patch.edited_at = nowIso;
+        patch.edited_by = who;
+    }
+    return SB.from('treatments').update(patch).eq('id', t.id).then(function (r) {
+        if (!r.error) return r;
+        if (!conNoteAuditColsMissing && conNoteErrMentions(r.error, CON_NOTE_AUDIT_COLS)) {
+            conNoteAuditColsMissing = true;
+            return SB.from('treatments').update({ notes: newText }).eq('id', t.id);
+        }
+        return r;
+    });
+}
+
+/** Soft delete (kept for audit); hard delete only when the audit columns are missing. */
+function conDeleteNoteRow(t) {
+    function hard() { return SB.from('treatments').delete().eq('id', t.id); }
+    if (conNoteAuditColsMissing) return hard();
+    return SB.from('treatments')
+        .update({ deleted_at: new Date().toISOString(), deleted_by: conNoteActorName() || null })
+        .eq('id', t.id)
+        .then(function (r) {
+            if (!r.error) return r;
+            if (conNoteErrMentions(r.error, CON_NOTE_AUDIT_COLS)) {
+                conNoteAuditColsMissing = true;
+                return hard();
+            }
+            return r;
+        });
 }
 
 function saveConNote() {
@@ -5174,52 +5475,99 @@ function refreshXrayTreatmentNotes() {
 function editConNote(nid, rawText) {
     var div = g('cnt-' + nid);
     if (!div) return;
+    var t = conNoteRowById(nid) || { id: nid, notes: rawText || '' };
 
+    div.classList.add('con-note-editing');
     div.innerHTML =
-        '<textarea id="cne-' + nid + '" ' +
-        'style="width:100%;height:80px;padding:8px;' +
-        'border:1px solid #ddd;border-radius:6px;' +
-        'font-size:14px;box-sizing:border-box;' +
-        'resize:vertical;"></textarea>' +
-        '<div style="display:flex;justify-content:space-between;' +
-        'margin-top:8px;">' +
-            '<button id="cnd-' + nid + '" ' +
-            'style="background:var(--danger);color:white;' +
-            'border:none;padding:5px 12px;border-radius:4px;' +
-            'cursor:pointer;">' + esc(conTr('common.btnDelete')) + '</button>' +
-            '<div style="display:flex;gap:8px;">' +
-                '<button id="cnc-' + nid + '" ' +
-                'style="background:var(--gray);color:white;' +
-                'border:none;padding:5px 12px;border-radius:4px;' +
-                'cursor:pointer;">' + esc(conTr('common.btnCancel')) + '</button>' +
-                '<button id="cns-' + nid + '" ' +
-                'style="background:var(--success);color:white;' +
-                'border:none;padding:5px 12px;border-radius:4px;' +
-                'cursor:pointer;">' + esc(conTr('common.btnSave')) + '</button>' +
-            '</div>' +
+        '<textarea id="cne-' + nid + '" class="con-note-edit-input" rows="5"></textarea>' +
+        '<div class="con-note-edit-actions">' +
+            '<button type="button" id="cnd-' + nid + '" class="con-note-edit-btn con-note-edit-btn--danger">' +
+                esc(conTr('common.btnDelete')) + '</button>' +
+            '<span class="con-note-edit-hint">' + esc(conTr('con.note.ctrlEnterHint')) + '</span>' +
+            '<button type="button" id="cnc-' + nid + '" class="con-note-edit-btn con-note-edit-btn--muted">' +
+                esc(conTr('common.btnCancel')) + '</button>' +
+            '<button type="button" id="cns-' + nid + '" class="con-note-edit-btn con-note-edit-btn--save">' +
+                esc(conTr('common.btnSave')) + '</button>' +
         '</div>';
 
-    g('cne-' + nid).value = rawText || '';
+    var ta = g('cne-' + nid);
+    ta.value = rawText != null ? rawText : (t.notes || '');
+    ta.focus();
+
+    function done(r) {
+        if (r && r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        loadConNotes(conPatientId, { keepPaint: true });
+        conSchedulePatientTimelineRefresh(conPatientId);
+    }
+    function save() {
+        var v = (ta.value || '').trim();
+        if (!v) { alert(conTr('con.note.alertEnterNote')); return; }
+        if (v === String(t.notes || '').trim()) { loadConNotes(conPatientId, { keepPaint: true }); return; }
+        conUpdateNoteText(t, v).then(done);
+    }
 
     g('cnd-' + nid).addEventListener('click', function() {
         if (!confirm(conTr('con.note.deleteConfirm'))) return;
-        SB.from('treatments').delete().eq('id', nid)
-        .then(function(r) {
-            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-            loadConNotes(conPatientId);
-        });
+        conDeleteNoteRow(t).then(done);
     });
     g('cnc-' + nid).addEventListener('click', function() {
-        loadConNotes(conPatientId);
+        loadConNotes(conPatientId, { keepPaint: true });
     });
-    g('cns-' + nid).addEventListener('click', function() {
-        var v = (g('cne-' + nid).value || '').trim();
-        SB.from('treatments').update({ notes: v }).eq('id', nid)
-        .then(function(r) {
-            if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-            loadConNotes(conPatientId);
+    g('cns-' + nid).addEventListener('click', save);
+    ta.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+        else if (e.key === 'Escape') { e.preventDefault(); loadConNotes(conPatientId, { keepPaint: true }); }
+    });
+}
+
+function conOpenNoteAddendum(parentId, hostEl) {
+    if (!hostEl) return;
+    var existing = hostEl.querySelector('.con-note-addendum-editor');
+    if (existing) { var ex = existing.querySelector('textarea'); if (ex) ex.focus(); return; }
+    var parent = conNoteRowById(parentId);
+    if (!parent) return;
+    var box = document.createElement('div');
+    box.className = 'con-note-addendum-editor con-note-editing';
+    box.innerHTML =
+        '<div class="con-note-addendum-editor-lbl">' + esc(conTrRepl('con.note.addendumFor', { WHEN: conNoteFmtDateTime(parent.created_at) })) + '</div>' +
+        '<textarea class="con-note-edit-input" rows="3" placeholder="' + esc(conTr('con.note.addendumPh')) + '"></textarea>' +
+        '<div class="con-note-edit-actions">' +
+            '<span class="con-note-edit-hint">' + esc(conTr('con.note.ctrlEnterHint')) + '</span>' +
+            '<button type="button" class="con-note-edit-btn con-note-edit-btn--muted" data-act="cancel">' + esc(conTr('common.btnCancel')) + '</button>' +
+            '<button type="button" class="con-note-edit-btn con-note-edit-btn--save" data-act="save">' + esc(conTr('con.note.addendumSave')) + '</button>' +
+        '</div>';
+    hostEl.appendChild(box);
+    var ta = box.querySelector('textarea');
+    var saveBtn = box.querySelector('[data-act="save"]');
+    ta.focus();
+    function close() { if (box.parentNode) box.parentNode.removeChild(box); }
+    function save() {
+        var v = (ta.value || '').trim();
+        if (!v) { ta.focus(); return; }
+        saveBtn.disabled = true;
+        conSaveNoteAddendum(parent, v).then(function () {
+            loadConNotes(conPatientId, { keepPaint: true });
+            conSchedulePatientTimelineRefresh(conPatientId);
+        }).catch(function (err) {
+            saveBtn.disabled = false;
+            alert(trRepl('appt.msg.error', { MSG: (err && err.message) || String(err) }));
         });
+    }
+    box.querySelector('[data-act="cancel"]').addEventListener('click', close);
+    saveBtn.addEventListener('click', save);
+    ta.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+        else if (e.key === 'Escape') { e.preventDefault(); close(); }
     });
+}
+
+function conPrintSingleNote(nid) {
+    var t = conNoteRowById(nid);
+    if (!t) return;
+    var list = [t].concat((conTreatmentNotesCache || []).filter(function (x) {
+        return x.parent_id && String(x.parent_id) === String(t.id);
+    }));
+    executeConTnPrint(list, conNoteFmtDateTime(t.created_at));
 }
 
 // ════════════════════════════════════════════════════════════════

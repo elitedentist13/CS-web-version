@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260924rxpanel2';
+  var BUILD = '20260925notes5';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -2975,7 +2975,20 @@
         </div>
 
         <div id="conTnSubpane-notes" class="con-tn-subpane active" role="tabpanel">
-          <div class="con-add-note-box">
+          <div class="con-add-note-box" id="conNoteComposer">
+            <div id="conNoteContext" class="cn-context" hidden></div>
+            <div class="cn-toolbar">
+              <button type="button" id="conNoteDoctorChip" class="cn-doctor-chip"></button>
+              <div class="cn-mode" role="group" data-i18n-aria-label="con.note.modeLbl">
+                <button type="button" class="cn-mode-btn" data-mode="sections" data-i18n="con.note.modeSections"></button>
+                <button type="button" class="cn-mode-btn" data-mode="free" data-i18n="con.note.modeFree"></button>
+              </div>
+              <span id="conNoteDraftState" class="cn-draft-state" aria-live="polite"></span>
+              <button type="button" id="conNoteMicBtn" class="cn-icon-btn" hidden
+                      data-i18n-title="con.note.micTitle" data-i18n-aria-label="con.note.micTitle">🎤</button>
+              <span id="conNoteMicState" class="cn-mic-state" role="status" aria-live="polite" hidden></span>
+            </div>
+            <div id="conNoteSections" class="cn-sections con-note-editing" hidden></div>
             <textarea id="conNoteInput" rows="4" data-i18n-placeholder="con.notePh"></textarea>
             <div class="con-note-actions-row" style="margin-top:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -2984,8 +2997,19 @@
                 <button type="button" class="btn-add con-note-template-btn"
                         id="conNoteFromTplBtn" data-i18n="con.note.fromTemplate"></button>
               </div>
-              <button class="btn-add" id="conNoteSaveBtn" data-i18n="con.saveNote"></button>
+              <div class="cn-save-wrap">
+                <span class="cn-save-hint" data-i18n="con.note.ctrlEnterHint"></span>
+                <button class="btn-add" id="conNoteSaveBtn" data-i18n="con.saveNote"></button>
+              </div>
             </div>
+          </div>
+          <div id="conNoteHistoryBar" class="cn-history-bar">
+            <input type="search" id="conNoteSearch" class="cn-history-search"
+                   data-i18n-placeholder="con.note.searchPh" data-i18n-aria-label="con.note.searchPh">
+            <select id="conNoteDoctorFilter" class="cn-history-doctor" data-i18n-aria-label="con.note.doctorFilterLbl"></select>
+            <label id="conNoteShowDeletedWrap" class="cn-history-deleted" hidden>
+              <input type="checkbox" id="conNoteShowDeleted"> <span data-i18n="con.note.showDeleted"></span>
+            </label>
           </div>
           <div id="conTimeline" class="con-timeline">
             <p style="color:#aaa;margin:0;padding:16px;" data-i18n="con.noNotes"></p>
@@ -7500,6 +7524,7 @@
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
+    'app-con-notes.js',
     'app-xray.js?v=20260917xrayup2',
     'app-xray-link.js?v=20260917xrayup2',
     'app-nnt-scans.js?v=20260828myray5',

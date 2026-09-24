@@ -631,6 +631,7 @@ function loadDrugMaster() {
         }
 
         drugMasterList = r.data || [];
+        if (typeof rxInvalidateDrugCatalog === 'function') rxInvalidateDrugCatalog();
         renderDrugCatFilter();
         renderDrugList();
     });

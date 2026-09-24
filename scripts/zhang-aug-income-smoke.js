@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-report.js'))) root = process.cwd();
 
-var BUILD = '20260923txsum1';
+var BUILD = '20260924rxpanel2';
 var ZHANG_ID = 'd19183c0-183a-414e-b0e1-ab760f376a93';
 var FROM = '2026-08-01';
 var TO = '2026-08-31';
@@ -306,13 +306,16 @@ function methodKey(raw) {
     var live = null;
     var livePort = 0;
     var ports = [5500, 8123, 8124];
+    // Prefer the port serving this checkout's BUILD; other checkouts may share the machine.
     for (var pi = 0; pi < ports.length; pi++) {
         try {
-            live = await httpGet('127.0.0.1', ports[pi], '/app-report.js?b=' + BUILD);
-            if (live && live.status === 200) { livePort = ports[pi]; break; }
-        } catch (e) {
-            live = null;
-        }
+            var probe = await httpGet('127.0.0.1', ports[pi], '/app-report.js?b=' + BUILD);
+            if (!probe || probe.status !== 200) continue;
+            var idxProbe = await httpGet('127.0.0.1', ports[pi], '/index.html?_lr=' + BUILD);
+            var isOurs = idxProbe.status === 200 && idxProbe.body.indexOf("BUILD = '" + BUILD + "'") >= 0;
+            if (!livePort || isOurs) { live = probe; livePort = ports[pi]; }
+            if (isOurs) break;
+        } catch (e) {}
     }
     pass('clinic UI reachable', !!live && live.status === 200, livePort ? (':' + livePort) : 'no listener');
     if (live && live.status === 200) {

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260923txsum1';
+  var BUILD = '20260924rxpanel2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3017,81 +3017,55 @@
                     data-i18n-title="con.rx.refreshTitle">↻</button>
             <button class="btn-add" id="btnAddPrescription"
                     style="font-size:12px;padding:5px 12px;" data-i18n="con.addDrug"></button>
-            <button id="btnManageDrugList"
-                    style="background:var(--gray);color:white;
-                           border:none;padding:5px 12px;
-                           border-radius:6px;cursor:pointer;
-                           font-size:12px;font-weight:600;" data-i18n="con.manageList"></button>
+            <button type="button" id="btnManageDrugList" class="rx-ghost-btn rx-ghost-btn--sm"
+                    data-i18n-title="con.rx.manageListTitle" data-i18n="con.manageList"></button>
           </div>
         </div>
 
         <!-- Add prescription panel (hidden by default) -->
         <div id="drugAddPanel" style="display:none;">
 
-          <div class="drug-add-header">
-            <strong style="font-size:13px;color:var(--primary);" data-i18n="con.newRx"></strong>
-            <div style="display:flex;gap:8px;align-items:center;
-                        flex-wrap:wrap;">
-              <div style="display:flex;align-items:center;
-                          gap:5px;font-size:12px;">
-                <label style="color:#555;font-weight:600;
-                               white-space:nowrap;" data-i18n="con.rxDate"></label>
-                <input type="date" id="rxDate"
-                       style="padding:4px 7px;border:1px solid #ddd;
-                              border-radius:4px;font-size:12px;">
-              </div>
-              <div style="display:flex;align-items:center;
-                          gap:5px;font-size:12px;">
-                <label style="color:#555;font-weight:600;
-                               white-space:nowrap;" data-i18n="con.rxDr"></label>
-                <input type="text" id="rxDentistName"
-                       style="width:100px;padding:4px 7px;
-                              border:1px solid #ddd;
-                              border-radius:4px;font-size:12px;">
-              </div>
+          <div class="drug-add-header rx-panel-head">
+            <div class="rx-panel-title-wrap">
+              <strong id="rxPanelTitle" class="rx-panel-title" data-i18n="con.newRx"></strong>
+              <span id="rxDraftState" class="rx-draft-state" hidden data-i18n="con.rx.unsaved"></span>
+            </div>
+            <div class="rx-panel-meta">
+              <input type="date" id="rxDate" class="rx-date-input"
+                     data-i18n-title="con.rx.dateTitle" data-i18n-aria-label="con.rx.dateTitle">
+              <input type="text" id="rxDentistName" class="rx-doctor-chip" readonly tabindex="-1"
+                     data-i18n-placeholder="con.rx.doctorMissing"
+                     onclick="rxFocusDoctorPicker()">
             </div>
           </div>
 
           <!-- drug lines rendered by JS -->
-          <div id="rxLinesWrap" style="margin:10px 0;">
-            <p style="color:#aaa;font-size:12px;margin:0;
-                      padding:6px 0;" data-i18n="con.rx.addDrugHint"></p>
+          <div id="rxLinesWrap" class="rx-lines-wrap">
+            <p class="rx-empty-hint" data-i18n="con.rx.addDrugHint"></p>
           </div>
 
-          <div id="rxStagedWrap" class="rx-staged-wrap" style="display:none;">
-            <div class="rx-staged-head" data-i18n="con.rx.stagedListTitle"></div>
-            <div id="rxStagedList" class="rx-staged-list"></div>
-          </div>
-
-          <div style="display:flex;gap:8px;margin-top:8px;
-                      flex-wrap:wrap;align-items:center;">
-            <button id="btnAddDrugLine"
-                    style="background:#e8f4ff;color:var(--primary);
-                           border:1px solid var(--primary);
-                           padding:6px 13px;border-radius:6px;
-                           cursor:pointer;font-size:12px;
-                           font-weight:600;" data-i18n="con.rx.btnAddDrugLine"></button>
-            <button id="btnRxOpenDrugLists"
-                    data-i18n-title="con.rx.savedListsTitle"
-                    style="background:#f0fdf4;color:#166534;
-                           border:1px solid #16a34a;
-                           padding:6px 13px;border-radius:6px;
-                           cursor:pointer;font-size:12px;
-                           font-weight:600;" data-i18n="con.rx.savedLists"></button>
-            <button id="btnRxSaveAsList"
-                    data-i18n-title="con.rx.saveAsListTitle"
-                    style="background:#fefce8;color:#854d0e;
-                           border:1px solid #ca8a04;
-                           padding:6px 13px;border-radius:6px;
-                           cursor:pointer;font-size:12px;
-                           font-weight:600;" data-i18n="con.rx.saveAsList"></button>
-            <button id="btnSaveRx" class="btn-add"
-                    style="padding:6px 18px;font-size:12px;" data-i18n="con.rx.savePrescription"></button>
-            <button id="btnCancelRx"
-                    style="background:var(--gray);color:white;
-                           border:none;padding:6px 12px;
-                           border-radius:6px;cursor:pointer;
-                           font-size:12px;" data-i18n="cfg.btn.cancel"></button>
+          <div class="rx-panel-foot">
+            <div class="rx-panel-foot-left">
+              <button type="button" id="btnAddDrugLine" class="rx-text-btn"
+                      data-i18n="con.rx.btnAddDrugLine"></button>
+              <button type="button" id="btnRxOpenDrugLists" class="rx-text-btn"
+                      data-i18n-title="con.rx.savedListsTitle" data-i18n="con.rx.savedLists"></button>
+              <details class="rx-more" id="rxDraftMore">
+                <summary class="rx-more-btn" data-i18n-title="con.rx.moreActions"
+                         data-i18n-aria-label="con.rx.moreActions">⋯</summary>
+                <div class="rx-more-menu rx-more-menu--up">
+                  <button type="button" id="btnRxSaveAsList"
+                          data-i18n-title="con.rx.saveAsListTitle" data-i18n="con.rx.saveAsList"></button>
+                  <button type="button" id="btnRxPrintDraftEn" data-i18n="con.rx.printDraftEn"></button>
+                  <button type="button" id="btnRxPrintDraftZh" data-i18n="con.rx.printDraftZh"></button>
+                </div>
+              </details>
+            </div>
+            <div class="rx-panel-foot-right">
+              <button type="button" id="btnCancelRx" class="rx-ghost-btn" data-i18n="cfg.btn.cancel"></button>
+              <button type="button" id="btnSaveRx" class="btn-add rx-save-btn"
+                      data-i18n="con.rx.savePrescription"></button>
+            </div>
           </div>
         </div>
         <!-- /drugAddPanel -->
@@ -3108,9 +3082,8 @@
   <div id="drugAllergyWarnModal" class="modal modal-no-backdrop-close"
        style="z-index:100050;display:none;" data-no-backdrop-close="1">
     <div class="modal-box" style="max-width:540px;border:3px solid #dc2626;">
-      <h2 id="drugAllergyWarnTitle" style="color:#dc2626;margin:0 0 12px;font-size:18px;">
-        ⚠ DRUG ALLERGY WARNING
-      </h2>
+      <h2 id="drugAllergyWarnTitle" style="color:#dc2626;margin:0 0 12px;font-size:18px;"
+          data-i18n="con.rx.allergyWarnTitle"></h2>
       <div id="drugAllergyWarnBody" style="font-size:14px;line-height:1.55;color:#1f2937;max-height:55vh;overflow:auto;"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;">
         <button type="button" id="drugAllergyWarnCancel"

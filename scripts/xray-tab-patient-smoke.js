@@ -99,7 +99,7 @@ function extractFn(src, name) {
     pass('linked loader clears on patient change',
         /_xrayLinkLastPid !== String\(xrayPatientId\)[\s\S]{0,400}xrayClearDisplayedFilms\(/.test(linkSrc));
     pass('build stamp bumped',
-        /BUILD = '20260923txsum1'/.test(idxSrc));
+        /BUILD = '20260924rxpanel2'/.test(idxSrc));
 
     console.log('\n=== client simulation ===');
     var strips = { innerHTML: '<div class="xray-card" data-id="old-film">OLD PATIENT FILM</div>' };
@@ -193,17 +193,25 @@ function extractFn(src, name) {
 
     console.log('\n=== live server ===');
     var live = null;
-    try {
-        live = await httpGet('127.0.0.1', 5500, '/index.html');
-    } catch (e) {
-        pass('clinic UI on :5500', false, e.message);
+    var livePort = 0;
+    // Prefer the port serving this checkout's BUILD; other checkouts may share the machine.
+    var ports = [5500, 8123, 8124];
+    for (var pi = 0; pi < ports.length; pi++) {
+        try {
+            var probe = await httpGet('127.0.0.1', ports[pi], '/index.html');
+            if (!probe || probe.status !== 200) continue;
+            var isOurs = probe.body.indexOf("BUILD = '20260924rxpanel2'") >= 0;
+            if (!livePort || isOurs) { live = probe; livePort = ports[pi]; }
+            if (isOurs) break;
+        } catch (e) {}
     }
+    if (!live) pass('clinic UI reachable', false, 'no listener on ' + ports.join('/'));
     if (live) {
-        pass('clinic UI on :5500', live.status === 200, 'HTTP ' + live.status);
+        pass('clinic UI reachable', live.status === 200, ':' + livePort);
         var build = (live.body.match(/BUILD = '([^']+)'/) || [])[1];
-        pass('served build is 20260923txsum1', build === '20260923txsum1', build || 'missing');
-        var xrayJs = await httpGet('127.0.0.1', 5500, '/app-xray.js?b=20260923txsum1');
-        var conJs = await httpGet('127.0.0.1', 5500, '/app-consultation.js?b=20260923txsum1');
+        pass('served build is 20260924rxpanel2', build === '20260924rxpanel2', build || 'missing');
+        var xrayJs = await httpGet('127.0.0.1', livePort, '/app-xray.js?b=20260924rxpanel2');
+        var conJs = await httpGet('127.0.0.1', livePort, '/app-consultation.js?b=20260924rxpanel2');
         pass('served app-xray.js clears on patient change',
             xrayJs.status === 200 &&
             xrayJs.body.indexOf('if (patientChanged) xrayClearDisplayedFilms();') >= 0 &&

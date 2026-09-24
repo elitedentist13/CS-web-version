@@ -10,8 +10,18 @@ var conPsTimer     = null;
 var drugEditId     = null;
 var drugEditRow    = null;
 var rxLines        = [];
-/** Confirmed drug lines (Add to list) shown in the prescription list zone. */
-var rxStagedLines  = [];
+/** Index of the expanded (editable) drug card; others render as one-line summaries. */
+var rxActiveLineIdx = -1;
+/** True once the user changes the open draft; cleared on open / save / cancel. */
+var rxDraftDirty   = false;
+var rxSaveInFlight = false;
+/** Active druglist rows, fetched once and reused by every drug picker. */
+var rxDrugCatalog  = null;
+var rxDrugCatalogPromise = null;
+/** { pid, text } — allergy text of the consultation patient, for Rx checks. */
+var rxPatientAllergy = null;
+/** Set to true after an insert fails because rx_group_id / drug_id are not in the DB yet. */
+var rxHistoryLinkColsMissing = false;
 var rxComboSearchTimer = null;
 /** When set, Save Prescription replaces these drughistory rows instead of appending. */
 var rxEditingHistoryGroup = null;
@@ -337,7 +347,6 @@ function conLblPrint(isZh, slug) {
 }
 
 /** Dropdown value for a line restored from saved history/list but not yet tied to catalogue id */
-var RX_SNAPSHOT_SELECT = '__RX_SNAPSHOT__';
 // ════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════
@@ -606,10 +615,7 @@ function updateConsultationDoctorUI() {
     if (g('drugActiveDoctorLabel')) g('drugActiveDoctorLabel').textContent = shown;
     if (g('conFormsDoctorLabel')) g('conFormsDoctorLabel').textContent = shown;
 
-    // prescription dentist field (if visible)
-    if (g('rxDentistName')) {
-        g('rxDentistName').value = shown === '—' ? '' : shown;
-    }
+    rxRefreshDoctorChip();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -5220,21 +5226,9 @@ function editConNote(nid, rawText) {
 // DRUG PANEL — TOGGLE
 // ════════════════════════════════════════════════════════════════
 
-/** Index of first line missing drug name or days (−1 = all OK). */
-function rxFirstInvalidDrugLineIdx() {
-    for (var i = 0; i < rxLines.length; i++) {
-        var l = rxLines[i];
-        if (typeof rxNormalizeLine === 'function') l = rxNormalizeLine(l);
-        var hasName = !!(l.drug_name && String(l.drug_name).trim());
-        if (!hasName) return i;
-        var hasDays = !!(
-            String(l.duration_code || '').trim() ||
-            String(l.duration_custom || '').trim() ||
-            String(l.duration || '').trim()
-        );
-        if (!hasDays) return i;
-    }
-    return -1;
+function rxPanelIsOpen() {
+    var panel = g('drugAddPanel');
+    return !!(panel && panel.style.display && panel.style.display !== 'none');
 }
 
 /**
@@ -5247,7 +5241,7 @@ function toggleDrugAddPanel(show, opts) {
     if (!panel || !btn) return;
 
     if (show) {
-        var wasHidden = panel.style.display === 'none' || !panel.style.display;
+        var wasHidden = !rxPanelIsOpen();
 
         panel.style.display = 'block';
         btn.style.display   = 'none';
@@ -5258,61 +5252,215 @@ function toggleDrugAddPanel(show, opts) {
 
         if (!opts.keepRxLines) {
             rxLines = [];
-            rxStagedLines = [];
+            rxActiveLineIdx = -1;
+            rxDraftDirty = false;
         }
         if (!rxLines.length) {
-            rxLines.push(typeof rxEmptyLine === 'function' ? rxEmptyLine() : {
-                drug_id: '', drug_name: '', dosage: '',
-                frequency: '', duration: '', route: '',
-                quantity: '', remarks: ''
-            });
+            rxLines.push(rxEmptyLine());
+            rxActiveLineIdx = 0;
         }
 
         if (!opts.keepRxLines || wasHidden ||
             !String((g('rxDate') && g('rxDate').value) || '').trim()) {
-            sv('rxDate',        todayISO());
-            sv('rxDentistName', conActiveDoctorName || currentName || '');
+            sv('rxDate', todayISO());
         }
+        updateConsultationDoctorUI();
+        rxLoadDrugCatalog(wasHidden);
+        if (conPatientId) rxLoadPatientAllergy(conPatientId, { force: wasHidden });
 
-        if (typeof ensureRxPhrasesLoaded === 'function') {
-            ensureRxPhrasesLoaded(function() {
-                renderRxLines();
-                renderRxStagedList();
-            });
-        } else {
+        var paint = function() {
             renderRxLines();
-            renderRxStagedList();
+            rxRefreshPanelChrome();
+            if (wasHidden && rxActiveLineIdx >= 0 && !opts.editingHistory) {
+                rxFocusLine(rxActiveLineIdx);
+            }
+        };
+        if (typeof ensureRxPhrasesLoaded === 'function') {
+            ensureRxPhrasesLoaded(paint);
+        } else {
+            paint();
         }
     } else {
+        rxCloseDrugMenus();
         panel.style.display = 'none';
         btn.style.display   = 'inline-block';
         rxLines = [];
-        rxStagedLines = [];
+        rxActiveLineIdx = -1;
+        rxDraftDirty = false;
         rxClearEditingHistoryGroup();
+        rxRefreshPanelChrome();
     }
 }
 
+/** Cancel button: confirm before throwing away a changed draft. */
+function rxCancelDraft() {
+    if (rxDraftDirty && rxLines.some(rxLineHasDrug) &&
+        !confirm(conTr('con.rx.confirmDiscardDraft'))) {
+        return;
+    }
+    toggleDrugAddPanel(false);
+}
+
+function rxMarkDirty() {
+    if (!rxPanelIsOpen()) return;
+    rxDraftDirty = true;
+    rxRefreshPanelChrome();
+}
+
+/** Called by app-rx-phrases.js after any field change on line idx. */
+function rxOnDraftLineChanged(idx) {
+    rxMarkDirty();
+    rxRefreshAllBadges();
+}
+
+function rxFmtDate(iso) {
+    var s = String(iso || '').trim();
+    if (!s) return '';
+    try {
+        var dt = new Date(s);
+        if (!isNaN(dt)) {
+            return dt.toLocaleDateString(conUiLocale(), {
+                day: '2-digit', month: 'short', year: 'numeric'
+            });
+        }
+    } catch (e) {}
+    return s;
+}
+
+/** Title, unsaved marker, doctor chip and save label — everything outside the drug cards. */
+function rxRefreshPanelChrome() {
+    var title = g('rxPanelTitle');
+    if (title) {
+        var ctx = rxEditingHistoryGroup;
+        title.textContent = (ctx && (ctx.recordIds.length || ctx.prescribed_date))
+            ? conTrRepl('con.rx.editingTitle', { DATE: rxFmtDate(ctx.prescribed_date) || '—' })
+            : conTr('con.newRx');
+    }
+    var state = g('rxDraftState');
+    if (state) {
+        state.hidden = !(rxDraftDirty && rxPanelIsOpen());
+        state.textContent = conTr('con.rx.unsaved');
+    }
+    rxRefreshDoctorChip();
+    rxRefreshSavePrescriptionButtonLabel();
+}
+
+function rxRefreshDoctorChip() {
+    var chip = g('rxDentistName');
+    if (!chip) return;
+    var name = conActiveDoctorId ? String(conActiveDoctorName || '').trim() : '';
+    chip.value = name;
+    chip.placeholder = conTr('con.rx.doctorMissing');
+    chip.classList.toggle('rx-doctor-chip--missing', !name);
+    chip.title = name ? conTr('con.rx.doctorChipTitle') : conTr('con.rx.needDoctor');
+}
+
+function rxFocusDoctorPicker() {
+    var sel = g('conDoctorSelect');
+    if (!sel) return;
+    sel.classList.add('rx-attention');
+    try {
+        sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        sel.focus();
+    } catch (e) {}
+    setTimeout(function() { sel.classList.remove('rx-attention'); }, 2400);
+}
+
 // ════════════════════════════════════════════════════════════════
-// RX LINES — RENDER
+// RX LINES — one card per drug; only the active card is expanded
 // ════════════════════════════════════════════════════════════════
+function rxLineHasDrug(line) {
+    return !!(line && String(line.drug_name || '').trim());
+}
+
+function rxDrugKey(line) {
+    return String((line && line.drug_name) || '').trim().toLowerCase();
+}
+
+function rxCommitActiveLine() {
+    if (rxActiveLineIdx >= 0 && rxLines[rxActiveLineIdx]) {
+        rxSyncLineFromDom(rxActiveLineIdx);
+    }
+}
+
 function addDrugLine() {
-    rxLines.push(typeof rxEmptyLine === 'function' ? rxEmptyLine() : {
-        drug_id: '', drug_name: '', dosage: '',
-        frequency: '', duration: '', route: '',
-        quantity: '', remarks: ''
-    });
-    renderRxLines();
+    rxCommitActiveLine();
+    for (var i = 0; i < rxLines.length; i++) {
+        if (!rxLineHasDrug(rxLines[i])) {
+            rxSetActiveLine(i, { focus: true });
+            return;
+        }
+    }
+    rxLines.push(rxEmptyLine());
+    var prev = rxActiveLineIdx;
+    rxActiveLineIdx = rxLines.length - 1;
+    var wrap = g('rxLinesWrap');
+    if (wrap && wrap.querySelector('.rx-line-card')) {
+        if (prev >= 0 && rxLines[prev]) rxRefreshLineCard(prev);
+        var tmp = document.createElement('div');
+        tmp.innerHTML = rxLineCardHtml(rxActiveLineIdx);
+        wrap.appendChild(tmp.firstElementChild);
+    } else {
+        renderRxLines();
+    }
+    rxFocusLine(rxActiveLineIdx);
 }
 
 function removeRxLine(idx) {
+    if (idx < 0 || idx >= rxLines.length) return;
+    rxCommitActiveLine();
+    var hadDrug = rxLineHasDrug(rxLines[idx]);
     rxLines.splice(idx, 1);
+    if (rxActiveLineIdx === idx) rxActiveLineIdx = -1;
+    else if (rxActiveLineIdx > idx) rxActiveLineIdx--;
+    if (!rxLines.length) {
+        rxLines.push(rxEmptyLine());
+        rxActiveLineIdx = 0;
+    }
+    if (hadDrug) rxMarkDirty();
     renderRxLines();
+    if (rxActiveLineIdx >= 0) rxFocusLine(rxActiveLineIdx);
 }
 
-function rxRemoveStagedLine(idx) {
-    if (idx < 0 || idx >= rxStagedLines.length) return;
-    rxStagedLines.splice(idx, 1);
-    renderRxStagedList();
+/**
+ * Expand card idx (−1 collapses all). An abandoned blank card is dropped instead of
+ * lingering as an empty summary row.
+ */
+function rxSetActiveLine(idx, opts) {
+    opts = opts || {};
+    var prev = rxActiveLineIdx;
+    if (prev === idx) {
+        if (opts.focus && idx >= 0) rxFocusLine(idx);
+        return;
+    }
+    if (prev >= 0 && rxLines[prev]) rxSyncLineFromDom(prev);
+
+    if (prev >= 0 && rxLines[prev] && !rxLineHasDrug(rxLines[prev]) &&
+        rxLines.length > 1 && idx !== prev) {
+        rxLines.splice(prev, 1);
+        if (idx > prev) idx--;
+        rxActiveLineIdx = (idx >= 0 && idx < rxLines.length) ? idx : -1;
+        renderRxLines();
+        if (opts.focus && rxActiveLineIdx >= 0) rxFocusLine(rxActiveLineIdx);
+        return;
+    }
+
+    rxActiveLineIdx = (idx >= 0 && idx < rxLines.length) ? idx : -1;
+    if (prev >= 0 && rxLines[prev]) rxRefreshLineCard(prev);
+    if (rxActiveLineIdx >= 0) rxRefreshLineCard(rxActiveLineIdx);
+    if (opts.focus && rxActiveLineIdx >= 0) rxFocusLine(rxActiveLineIdx);
+}
+
+function rxFocusLine(idx) {
+    var line = rxLines[idx];
+    if (!line) return;
+    var el = rxLineHasDrug(line) ? g('rx-days-sel-' + idx) : g('rx-drug-input-' + idx);
+    if (!el) return;
+    try {
+        el.focus({ preventScroll: true });
+        var card = g('rxline-' + idx);
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (e) {}
 }
 
 function rxLineDisplayMeta(line) {
@@ -5345,343 +5493,700 @@ function rxLineDisplayMeta(line) {
     };
 }
 
-function renderRxStagedList() {
-    var wrap = g('rxStagedWrap');
-    var list = g('rxStagedList');
-    if (!wrap || !list) return;
-
-    if (!rxStagedLines.length) {
-        wrap.style.display = 'none';
-        list.innerHTML = '';
-        return;
-    }
-
-    wrap.style.display = 'block';
-    list.innerHTML = rxStagedLines.map(function(line, idx) {
-        var meta = rxLineDisplayMeta(line);
-        return (
-            '<div class="rx-staged-row">' +
-            '<div class="rx-staged-main">' +
-            '<strong class="rx-staged-drug">' + esc(line.drug_name || '—') + '</strong>' +
-            '<span class="rx-staged-meta">' +
-            esc(meta.dosage) +
-            (meta.frequency ? ' · ' + esc(meta.frequency) : '') +
-            (meta.duration ? ' · ' + esc(meta.duration) : '') +
-            '</span>' +
-            '</div>' +
-            '<div class="rx-staged-qty">' +
-            '<span class="rx-staged-qty-label">' + esc(conTr('con.rx.labelQty')) + '</span> ' +
-            '<strong>' + esc(meta.quantity || '—') + '</strong>' +
-            '</div>' +
-            '<button type="button" class="rx-staged-remove" ' +
-            'onclick="rxRemoveStagedLine(' + idx + ')" title="' +
-            esc(conTr('common.btnDelete')) + '">✕</button>' +
-            '</div>'
-        );
-    }).join('');
-}
-
+/** Only lines with a drug and days; blank cards are ignored. */
 function rxAllDraftLinesForSave() {
+    rxCommitActiveLine();
     var out = [];
-    var i;
-    for (i = 0; i < rxStagedLines.length; i++) {
-        out.push(rxCloneSavedLine(rxStagedLines[i]));
-    }
-    for (i = 0; i < rxLines.length; i++) {
-        if (typeof rxSyncLineFromDom === 'function') rxSyncLineFromDom(i);
-        var l = rxLines[i];
-        if (typeof rxNormalizeLine === 'function') l = rxNormalizeLine(l);
-        var hasName = !!(l.drug_name && String(l.drug_name).trim());
-        var hasDays = !!(
-            String(l.duration_code || '').trim() ||
-            String(l.duration_custom || l.duration || '').trim()
-        );
-        if (!hasName || !hasDays) continue;
-        var qty = typeof rxComputeQuantityFromLine === 'function'
-            ? rxComputeQuantityFromLine(l) : '';
-        if (qty) rxApplyComboTextToLine(l, 'quantity', qty);
-        if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(l);
+    for (var i = 0; i < rxLines.length; i++) {
+        var l = rxNormalizeLine(rxLines[i]);
+        if (!rxLineHasDrug(l) || !rxLineHasDays(l)) continue;
+        rxAutoQuantity(l);
+        rxSyncLineLegacyFields(l);
         rxLines[i] = l;
         out.push(rxCloneSavedLine(l));
     }
     return out;
 }
 
-function renderRxLines() {
-    var wrap = g('rxLinesWrap');
-    if (!wrap) return;
-    wrap.innerHTML = '';
+function rxLineSummaryText(line) {
+    var meta = rxLineDisplayMeta(line);
+    var parts = [];
+    [meta.duration, meta.frequency, meta.dosage].forEach(function(v) {
+        if (v && v !== '—') parts.push(v);
+    });
+    if (meta.quantity && meta.quantity !== '—') {
+        parts.push(conTr('con.rx.labelQty') + ' ' + meta.quantity);
+    }
+    return parts.join(' · ');
+}
 
-    if (!rxLines.length) {
-        wrap.innerHTML =
-            '<p style="color:#aaa;font-size:13px;padding:8px 0;">' +
-            esc(conTr('con.rx.noDrugsYet')) + '</p>';
-        return;
+function rxLineWarnings(idx) {
+    var line = rxLines[idx];
+    var out = { allergy: '', duplicate: false, needDays: false, offCatalog: false };
+    if (!rxLineHasDrug(line)) return out;
+    out.allergy = rxAllergyMatch(line.drug_name);
+    var key = rxDrugKey(line);
+    for (var i = 0; i < rxLines.length; i++) {
+        if (i !== idx && rxDrugKey(rxLines[i]) === key) {
+            out.duplicate = true;
+            break;
+        }
+    }
+    out.needDays = !rxLineHasDays(line);
+    out.offCatalog = !!(rxDrugCatalog && rxDrugCatalog.length && !rxCatalogFindForLine(line));
+    return out;
+}
+
+function rxBadgesHtml(w) {
+    var html = '';
+    if (w.allergy) {
+        html += '<span class="rx-badge rx-badge--danger" title="' +
+            esc(conTrRepl('con.rx.allergyBadgeTitle', { TERM: w.allergy })) + '">' +
+            esc(conTr('con.rx.allergyBadge')) + '</span>';
+    }
+    if (w.duplicate) {
+        html += '<span class="rx-badge rx-badge--warn">' + esc(conTr('con.rx.dupBadge')) + '</span>';
+    }
+    if (w.needDays) {
+        html += '<span class="rx-badge rx-badge--muted">' + esc(conTr('con.rx.needDaysBadge')) + '</span>';
+    }
+    if (w.offCatalog) {
+        html += '<span class="rx-badge rx-badge--muted" title="' +
+            esc(conTr('con.rx.offCatalogTitle')) + '">' + esc(conTr('con.rx.offCatalogBadge')) + '</span>';
+    }
+    return html;
+}
+
+function rxRefreshAllBadges() {
+    for (var i = 0; i < rxLines.length; i++) {
+        var el = g('rx-badges-' + i);
+        if (!el) continue;
+        var w = rxLineWarnings(i);
+        el.innerHTML = rxBadgesHtml(w);
+        var card = g('rxline-' + i);
+        if (card) card.classList.toggle('rx-line-card--alert', !!w.allergy);
+    }
+}
+
+function rxLineCardHtml(idx) {
+    var line = rxNormalizeLine(rxLines[idx]);
+    rxLines[idx] = line;
+    var open = idx === rxActiveLineIdx;
+    var hasDrug = rxLineHasDrug(line);
+    var w = rxLineWarnings(idx);
+    var cls = 'rx-line-card ' + (open ? 'rx-line-card--open' : 'rx-line-card--collapsed') +
+        (w.allergy ? ' rx-line-card--alert' : '');
+    var num = '<span class="rx-line-num">' + (idx + 1) + '</span>';
+    var badges = '<span class="rx-line-badges" id="rx-badges-' + idx + '">' + rxBadgesHtml(w) + '</span>';
+    var removeBtn =
+        '<button type="button" class="rx-line-remove" onclick="removeRxLine(' + idx + ')" ' +
+        'title="' + esc(conTr('con.rx.removeLine')) + '" ' +
+        'aria-label="' + esc(conTr('con.rx.removeLine')) + '">×</button>';
+
+    if (!open) {
+        return (
+            '<div class="' + cls + '" id="rxline-' + idx + '">' +
+                '<button type="button" class="rx-line-summary" ' +
+                'onclick="rxSetActiveLine(' + idx + ',{focus:true})" ' +
+                'title="' + esc(conTr('con.rx.editLineTitle')) + '">' +
+                    num +
+                    '<span class="rx-line-sum-main">' +
+                        '<span class="rx-line-sum-drug">' +
+                            esc(hasDrug ? line.drug_name : conTr('con.rx.searchDrugPh')) +
+                        '</span>' +
+                        '<span class="rx-line-sum-meta">' + esc(hasDrug ? rxLineSummaryText(line) : '') + '</span>' +
+                    '</span>' +
+                    badges +
+                '</button>' +
+                removeBtn +
+            '</div>'
+        );
     }
 
-    rxLines.forEach(function(line, idx) {
-        if (typeof rxNormalizeLine === 'function') {
-            line = rxNormalizeLine(line);
-            rxLines[idx] = line;
-        }
-        var card = document.createElement('div');
-        card.className = 'rx-line-card';
-        card.id = 'rxline-' + idx;
-        card.innerHTML =
-            '<div class="rx-line-header">' +
-                '<span class="rx-line-num">' + esc(conTrRepl('con.rx.lineNumFmt', { N: String(idx + 1) })) + '</span>' +
-                '<div class="rx-line-actions">' +
-                    (typeof rxAddToListBtnMarkup === 'function'
-                        ? rxAddToListBtnMarkup(idx, line)
-                        : '') +
-                    '<button class="btn-label-en" ' +
-                    'onclick="printRxLineLabelEn(this)" ' +
-                    'title="' + esc(conTr('con.rx.printLabelEn')) + '">' + esc(conTr('con.rx.btnPrintEn')) + '</button>' +
-                    '<button class="btn-label-zh" ' +
-                    'onclick="printRxLineLabelZh(this)" ' +
-                    'title="' + esc(conTr('con.rx.printLabelZh')) + '">' + esc(conTr('con.rx.btnPrintZh')) + '</button>' +
-                    '<button class="btn-remove-rx btn-sm" ' +
-                    'style="background:var(--danger);" ' +
-                    'onclick="removeRxLine(' + idx + ')">✕</button>' +
-                '</div>' +
-            '</div>' +
-            '<div class="rx-fields rx-fields--quick">' +
-                '<div class="rx-field-drug">' +
-                    '<label class="rx-phrase-label">' + esc(conTr('con.rx.labelDrug')) + '</label>' +
-                    '<select id="rxSel-' + idx + '" class="rx-drug-sel">' +
-                    '<option value="">' + esc(conTr('con.rx.selectDrug')) + '</option>' +
-                    '</select>' +
-                '</div>' +
-                (typeof rxDaysFieldMarkup === 'function'
-                    ? rxDaysFieldMarkup(idx, line)
-                    : '') +
-                (typeof rxAutoLoadedSummaryMarkup === 'function'
-                    ? rxAutoLoadedSummaryMarkup(idx, line)
-                    : '') +
+    var body = hasDrug
+        ? ('<div class="rx-fields rx-fields--quick">' +
+                rxDaysFieldMarkup(idx, line) +
+                rxAutoLoadedSummaryMarkup(idx, line) +
                 '<details class="rx-advanced-details">' +
                     '<summary>' + esc(conTr('con.rx.advancedDetails')) + '</summary>' +
                     '<div class="rx-advanced-grid">' +
-                        (typeof rxPhraseFieldMarkup === 'function'
-                            ? rxPhraseFieldMarkup('dosage', idx, line, conTr('con.rx.labelDosage'))
-                            : '') +
-                        (typeof rxPhraseFieldMarkup === 'function'
-                            ? rxPhraseFieldMarkup('frequency', idx, line, conTr('con.rx.labelFrequency'))
-                            : '') +
-                        (typeof rxPhraseFieldMarkup === 'function'
-                            ? rxPhraseFieldMarkup('quantity', idx, line, conTr('con.rx.labelQty'))
-                            : '') +
+                        rxPhraseFieldMarkup('dosage', idx, line, esc(conTr('con.rx.labelDosage'))) +
+                        rxPhraseFieldMarkup('frequency', idx, line, esc(conTr('con.rx.labelFrequency'))) +
+                        rxPhraseFieldMarkup('quantity', idx, line, esc(conTr('con.rx.labelQty'))) +
                     '</div>' +
+                    '<div class="rx-phrase-preview"></div>' +
                 '</details>' +
-                '<div class="rx-caution-notes-wrap">' +
-                    (typeof rxDrugCautionNotesMarkup === 'function'
-                        ? rxDrugCautionNotesMarkup(idx, line)
-                        : '') +
-                '</div>' +
-                '<div class="rx-phrase-preview"></div>' +
-            '</div>';
+                '<div class="rx-caution-notes-wrap">' + rxDrugCautionNotesMarkup(idx, line) + '</div>' +
+            '</div>')
+        : '<div class="rx-line-hint">' + esc(conTr('con.rx.addDrugHint')) + '</div>';
 
-        wrap.appendChild(card);
-        populateDrugSelect(idx);
-        if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
+    return (
+        '<div class="' + cls + '" id="rxline-' + idx + '">' +
+            '<div class="rx-line-head">' +
+                num +
+                rxDrugComboMarkup(idx, line) +
+                (hasDrug
+                    ? '<button type="button" class="rx-line-done" onclick="rxSetActiveLine(-1)" ' +
+                      'title="' + esc(conTr('con.rx.lineDoneTitle')) + '" ' +
+                      'aria-label="' + esc(conTr('con.rx.lineDoneTitle')) + '">✓</button>'
+                    : '') +
+                removeBtn +
+            '</div>' +
+            badges +
+            body +
+        '</div>'
+    );
+}
+
+/** Swap one card in place (no full re-render, keeps scroll and other cards' state). */
+function rxRefreshLineCard(idx) {
+    var old = g('rxline-' + idx);
+    if (!old || !old.parentNode) {
+        renderRxLines();
+        return;
+    }
+    if (rxComboState.idx === idx) rxCloseDrugMenus();
+    var tmp = document.createElement('div');
+    tmp.innerHTML = rxLineCardHtml(idx);
+    old.parentNode.replaceChild(tmp.firstElementChild, old);
+    if (idx === rxActiveLineIdx) rxUpdatePhrasePreview(idx);
+}
+
+function renderRxLines() {
+    var wrap = g('rxLinesWrap');
+    if (!wrap) return;
+    rxCloseDrugMenus();
+    if (rxActiveLineIdx >= rxLines.length) rxActiveLineIdx = -1;
+
+    if (!rxLines.length) {
+        wrap.innerHTML = '<p class="rx-empty-hint">' + esc(conTr('con.rx.noDrugsYet')) + '</p>';
+        return;
+    }
+    wrap.innerHTML = rxLines.map(function(_, idx) { return rxLineCardHtml(idx); }).join('');
+    if (rxActiveLineIdx >= 0) rxUpdatePhrasePreview(rxActiveLineIdx);
+}
+
+// ════════════════════════════════════════════════════════════════
+// DRUG CATALOG (druglist) — fetched once, shared by every picker
+// ════════════════════════════════════════════════════════════════
+function rxLoadDrugCatalog(force) {
+    if (rxDrugCatalog && !force) return Promise.resolve(rxDrugCatalog);
+    if (rxDrugCatalogPromise) return rxDrugCatalogPromise;
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        return Promise.resolve(rxDrugCatalog || []);
+    }
+    var fullCols  = 'id,drug_name,category,dosage,frequency,duration,route,remarks,intake_caution';
+    var basicCols = 'id,drug_name,category,dosage,frequency,duration,route,remarks';
+    function query(cols, activeOnly) {
+        var q = SB.from('druglist').select(cols);
+        if (activeOnly) q = q.eq('is_active', true);
+        return q.order('category', { ascending: true }).order('drug_name', { ascending: true });
+    }
+    function rowsOf(r) {
+        return (!r.error && r.data && r.data.length) ? r.data : null;
+    }
+    rxDrugCatalogPromise = Promise.resolve(query(fullCols, true))
+        .then(function(r) {
+            return rowsOf(r) || Promise.resolve(query(basicCols, true)).then(function(r2) {
+                return rowsOf(r2) || Promise.resolve(query(basicCols, false)).then(function(r3) {
+                    return rowsOf(r3) || [];
+                });
+            });
+        })
+        .then(function(rows) {
+            rxDrugCatalog = rows;
+            rxDrugCatalogPromise = null;
+            rxOnDrugCatalogLoaded();
+            return rxDrugCatalog;
+        })
+        .catch(function() {
+            rxDrugCatalogPromise = null;
+            return rxDrugCatalog || [];
+        });
+    return rxDrugCatalogPromise;
+}
+
+function rxInvalidateDrugCatalog() {
+    rxDrugCatalog = null;
+    if (rxPanelIsOpen()) rxLoadDrugCatalog(true);
+}
+
+function rxOnDrugCatalogLoaded() {
+    rxLines.forEach(function(line) {
+        if (!rxLineHasDrug(line) || String(line.drug_id || '').trim()) return;
+        var hit = rxCatalogFindForLine(line);
+        if (hit) line.drug_id = String(hit.id);
+    });
+    if (rxComboState.idx >= 0) rxDrugComboRender(rxComboState.idx);
+    rxRefreshAllBadges();
+}
+
+function rxCatalogFindForLine(line) {
+    if (!rxDrugCatalog || !line) return null;
+    var id = String(line.drug_id || '').trim();
+    var nm = rxDrugKey(line);
+    var i;
+    if (id) {
+        for (i = 0; i < rxDrugCatalog.length; i++) {
+            if (String(rxDrugCatalog[i].id) === id) return rxDrugCatalog[i];
+        }
+    }
+    if (nm) {
+        for (i = 0; i < rxDrugCatalog.length; i++) {
+            if (String(rxDrugCatalog[i].drug_name || '').trim().toLowerCase() === nm) {
+                return rxDrugCatalog[i];
+            }
+        }
+    }
+    return null;
+}
+
+/** New drug picked by the user: catalog defaults replace everything from the previous drug. */
+function rxApplyCatalogDrugToLine(idx, d) {
+    var line = rxLines[idx];
+    if (!line || !d) return;
+    var rem = (typeof drugUnpackRemarks === 'function')
+        ? drugUnpackRemarks(d)
+        : { intakeEn: '', intakeZh: '', generalEn: d.remarks || '', generalZh: '' };
+    var intake = typeof drugPackBilingualText === 'function'
+        ? drugPackBilingualText(rem.intakeEn, rem.intakeZh)
+        : (rem.intakeEn || rem.intakeZh || '');
+    var general = typeof drugPackBilingualText === 'function'
+        ? drugPackBilingualText(rem.generalEn, rem.generalZh)
+        : (rem.generalEn || rem.generalZh || '');
+    ['dosage', 'frequency', 'duration', 'quantity'].forEach(function(ft) {
+        line[ft] = '';
+        line[ft + '_zh'] = '';
+        line[ft + '_code'] = '';
+        line[ft + '_custom'] = '';
+    });
+    line.quantity_manual = false;
+    line.drug_id = String(d.id);
+    line.drug_name = String(d.drug_name || '');
+    line.route = String(d.route || '');
+    rxApplyCatalogDefaultsToLine(idx, {
+        dosage: d.dosage,
+        frequency: d.frequency,
+        duration: d.duration,
+        intake_remarks: intake,
+        remarks: general
     });
 }
 
 // ════════════════════════════════════════════════════════════════
-// POPULATE DRUG SELECT FROM druglist TABLE
+// DRUG TYPEAHEAD
 // ════════════════════════════════════════════════════════════════
-function populateDrugSelect(idx) {
-    var sel = g('rxSel-' + idx);
-    if (!sel) return;
+var rxComboState = { idx: -1, items: [], hi: -1 };
 
-    var line     = rxLines[idx] || {};
-    var wantId   = line.drug_id ? String(line.drug_id) : '';
-    var wantNorm = line.drug_name ? String(line.drug_name).trim().toLowerCase() : '';
-
-    function fillFromDrugData(r) {
-        if (r.error || !r.data) return;
-
-        sel.innerHTML =
-            '<option value="">' + esc(conTr('con.rx.selectDrug')) + '</option>';
-
-        var pickedCatalog  = false;
-        var matchedByName  = false;
-
-        var cats = {};
-        r.data.forEach(function(d) {
-            var catKey = d.category || '';
-            if (!cats[catKey]) {
-                cats[catKey] = { label: conDrugCatLabel(catKey), items: [] };
-            }
-            cats[catKey].items.push(d);
-        });
-
-        Object.keys(cats).sort().forEach(function(catKey) {
-            var og = document.createElement('optgroup');
-            og.label = cats[catKey].label;
-            cats[catKey].items.forEach(function(d) {
-                var o = document.createElement('option');
-                o.value = d.id;
-                o.dataset.name      = d.drug_name  || '';
-                o.dataset.dosage    = d.dosage    || '';
-                o.dataset.frequency = d.frequency || '';
-                o.dataset.duration  = d.duration  || '';
-                o.dataset.route     = d.route     || '';
-                var dRem = (typeof drugUnpackRemarks === 'function')
-                    ? drugUnpackRemarks(d)
-                    : { intakeEn: '', intakeZh: '', generalEn: d.remarks || '', generalZh: '' };
-                o.dataset.intakeRemarks = typeof drugPackBilingualText === 'function'
-                    ? drugPackBilingualText(dRem.intakeEn, dRem.intakeZh)
-                    : (dRem.intakeEn || dRem.intakeZh || '');
-                o.dataset.remarks = typeof drugPackBilingualText === 'function'
-                    ? drugPackBilingualText(dRem.generalEn, dRem.generalZh)
-                    : (dRem.generalEn || dRem.generalZh || '');
-                var dosePair = typeof drugCatalogFieldPair === 'function'
-                    ? drugCatalogFieldPair(d, 'dosage')
-                    : { en: d.dosage || '', zh: '' };
-                var doseLbl = typeof drugFormatBilingualDisplay === 'function'
-                    ? drugFormatBilingualDisplay(dosePair.en, dosePair.zh,
-                        typeof rxUiPhraseLang === 'function' ? rxUiPhraseLang() : 'en')
-                    : (d.dosage || '');
-                o.textContent =
-                    d.drug_name +
-                    (doseLbl ? ' (' + doseLbl + ')' : '');
-
-                var idHit =
-                    !!(wantId && rxLines[idx] && String(d.id) === String(wantId));
-
-                var dn = String(d.drug_name || '').trim().toLowerCase();
-                var nameHit =
-                    !!(wantNorm && dn === wantNorm);
-
-                if (idHit) {
-                    o.selected    = true;
-                    pickedCatalog = true;
-                    rxLines[idx].intake_remarks = o.dataset.intakeRemarks || '';
-                    rxLines[idx].remarks   = o.dataset.remarks || '';
-                    if (typeof rxApplyCatalogDefaultsToLine === 'function') {
-                        rxApplyCatalogDefaultsToLine(idx, {
-                            dosage:    o.dataset.dosage,
-                            frequency: o.dataset.frequency,
-                            duration:  o.dataset.duration,
-                            intake_remarks: o.dataset.intakeRemarks || '',
-                            remarks: o.dataset.remarks || ''
-                        });
-                    }
-                } else if (nameHit && !matchedByName &&
-                    rxLines[idx] && !pickedCatalog) {
-                    o.selected         = true;
-                    pickedCatalog      = true;
-                    matchedByName      = true;
-                    rxLines[idx].drug_id   = String(d.id);
-                    rxLines[idx].drug_name =
-                        d.drug_name || rxLines[idx].drug_name || '';
-                    rxLines[idx].intake_remarks = o.dataset.intakeRemarks || '';
-                    rxLines[idx].remarks   = o.dataset.remarks || '';
-                    if (typeof rxApplyCatalogDefaultsToLine === 'function') {
-                        rxApplyCatalogDefaultsToLine(idx, {
-                            dosage:    o.dataset.dosage,
-                            frequency: o.dataset.frequency,
-                            duration:  o.dataset.duration,
-                            intake_remarks: o.dataset.intakeRemarks || '',
-                            remarks: o.dataset.remarks || ''
-                        });
-                    }
-                }
-
-                og.appendChild(o);
-            });
-            sel.appendChild(og);
-        });
-
-        if (!pickedCatalog && wantNorm && rxLines[idx] && rxLines[idx].drug_name) {
-            var ogImp = document.createElement('optgroup');
-            ogImp.label = conTr('con.rx.fromSavedRx');
-            var ox = document.createElement('option');
-            ox.value       = RX_SNAPSHOT_SELECT;
-            ox.textContent = String(rxLines[idx].drug_name).trim()
-                ? (rxLines[idx].drug_name + conTr('con.rx.pickCatalogLink'))
-                : conTr('con.rx.importedPickCatalog');
-            ox.selected = true;
-            ogImp.appendChild(ox);
-            sel.appendChild(ogImp);
-        }
-
-        sel.onchange = function() {
-            var opt = sel.options[sel.selectedIndex];
-            if (!opt || !opt.value) return;
-            if (opt.value === RX_SNAPSHOT_SELECT) return;
-
-            rxLines[idx].drug_id   = opt.value;
-            rxLines[idx].drug_name = opt.dataset.name;
-            rxLines[idx].intake_remarks = opt.dataset.intakeRemarks || '';
-            rxLines[idx].remarks   = opt.dataset.remarks || '';
-
-            if (typeof rxApplyCatalogDefaultsToLine === 'function') {
-                rxApplyCatalogDefaultsToLine(idx, {
-                    dosage:    opt.dataset.dosage,
-                    frequency: opt.dataset.frequency,
-                    duration:  opt.dataset.duration,
-                    intake_remarks: opt.dataset.intakeRemarks || '',
-                    remarks: opt.dataset.remarks || ''
-                });
-            } else if (typeof rxApplyCatalogTextToLine === 'function') {
-                rxApplyCatalogTextToLine(idx, {
-                    dosage:    opt.dataset.dosage,
-                    frequency: opt.dataset.frequency,
-                    duration:  opt.dataset.duration,
-                    quantity:  opt.dataset.quantity || ''
-                });
-            } else {
-                rxLines[idx].dosage    = opt.dataset.dosage;
-                rxLines[idx].frequency = opt.dataset.frequency;
-                rxLines[idx].duration  = opt.dataset.duration;
-            }
-            rxLines[idx].route = opt.dataset.route || '';
-
-            renderRxLines();
-            var daysSel = g('rx-days-sel-' + idx);
-            if (daysSel) {
-                try { daysSel.focus(); } catch (_) {}
-            }
-        };
-    }
-
-    function loadDrugRows(selectCols, onDone) {
-        SB.from('druglist')
-            .select(selectCols)
-            .eq('is_active', true)
-            .order('category', { ascending: true })
-            .order('drug_name', { ascending: true })
-        .then(function(r) {
-            if (!r.error && r.data && r.data.length) {
-                onDone(r);
-                return;
-            }
-            if (selectCols.indexOf('intake_caution') >= 0) {
-                loadDrugRows(
-                    'id,drug_name,category,dosage,frequency,duration,route,remarks',
-                    onDone
-                );
-                return;
-            }
-            onDone(r);
-        });
-    }
-
-    loadDrugRows(
-        'id,drug_name,category,dosage,frequency,duration,route,remarks,intake_caution',
-        function(r) {
-            if (!r.error && r.data && r.data.length) {
-                fillFromDrugData(r);
-                return;
-            }
-            SB.from('druglist')
-                .select('id,drug_name,category,dosage,frequency,duration,route,remarks')
-                .order('category', { ascending: true })
-                .order('drug_name', { ascending: true })
-            .then(fillFromDrugData);
-        }
+function rxDrugComboMarkup(idx, line) {
+    return (
+        '<div class="rx-drug-combo">' +
+            '<input type="text" id="rx-drug-input-' + idx + '" class="rx-drug-input" ' +
+            'autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" ' +
+            'aria-expanded="false" aria-controls="rx-drug-menu-' + idx + '" ' +
+            'placeholder="' + esc(conTr('con.rx.searchDrugPh')) + '" ' +
+            'value="' + esc((line && line.drug_name) || '') + '" ' +
+            'oninput="rxDrugComboRender(' + idx + ')" ' +
+            'onfocus="rxDrugComboFocus(' + idx + ')" ' +
+            'onclick="rxDrugComboOpen(' + idx + ')" ' +
+            'onkeydown="rxDrugComboKey(event,' + idx + ')" ' +
+            'onblur="rxDrugComboBlur(' + idx + ')">' +
+            '<div class="rx-drug-menu" id="rx-drug-menu-' + idx + '" role="listbox" hidden></div>' +
+        '</div>'
     );
+}
+
+function rxDrugComboFilter(q) {
+    var rows = rxDrugCatalog || [];
+    q = String(q || '').trim().toLowerCase();
+    if (!q) return rows.slice();
+    var compact = q.replace(/[^a-z0-9\u4e00-\u9fff]/g, '');
+    var starts = [];
+    var has = [];
+    rows.forEach(function(d) {
+        var n = String(d.drug_name || '').toLowerCase();
+        if (n.indexOf(q) === 0) {
+            starts.push(d);
+        } else if (n.indexOf(q) >= 0 ||
+            (compact && n.replace(/[^a-z0-9\u4e00-\u9fff]/g, '').indexOf(compact) >= 0) ||
+            String(d.category || '').toLowerCase().indexOf(q) === 0) {
+            has.push(d);
+        }
+    });
+    return starts.concat(has);
+}
+
+function rxDrugOptionMeta(d) {
+    var lang = typeof rxUiPhraseLang === 'function' ? rxUiPhraseLang() : 'en';
+    var dosePair = typeof drugCatalogFieldPair === 'function'
+        ? drugCatalogFieldPair(d, 'dosage')
+        : { en: d.dosage || '', zh: '' };
+    var dose = typeof drugFormatBilingualDisplay === 'function'
+        ? drugFormatBilingualDisplay(dosePair.en, dosePair.zh, lang)
+        : (d.dosage || '');
+    var days = typeof rxParseDaysFromCatalogText === 'function'
+        ? rxParseDaysFromCatalogText(d.duration) : '';
+    return [
+        dose,
+        String(d.frequency || '').trim(),
+        days ? conTrRepl('con.rx.daysShort', { N: days }) : ''
+    ].filter(Boolean).join(' · ');
+}
+
+function rxDrugComboRender(idx) {
+    var menu = g('rx-drug-menu-' + idx);
+    var inp = g('rx-drug-input-' + idx);
+    if (!menu || !inp) return;
+    if (rxComboState.idx >= 0 && rxComboState.idx !== idx) rxCloseDrugMenus();
+
+    if (!rxDrugCatalog) {
+        rxComboState = { idx: idx, items: [], hi: -1 };
+        menu.innerHTML = '<div class="rx-drug-menu-empty">' + esc(conTr('common.loadingEllipsis')) + '</div>';
+        menu.hidden = false;
+        inp.setAttribute('aria-expanded', 'true');
+        rxLoadDrugCatalog();
+        return;
+    }
+
+    var line = rxLines[idx] || {};
+    var typed = String(inp.value || '');
+    var showAll = !typed.trim() || typed.trim() === String(line.drug_name || '').trim();
+    var items = rxDrugComboFilter(showAll ? '' : typed);
+    var hi = items.length ? 0 : -1;
+    if (showAll && line.drug_id) {
+        for (var k = 0; k < items.length; k++) {
+            if (String(items[k].id) === String(line.drug_id)) { hi = k; break; }
+        }
+    }
+    rxComboState = { idx: idx, items: items, hi: hi };
+
+    if (!items.length) {
+        menu.innerHTML = '<div class="rx-drug-menu-empty">' + esc(conTr('con.rx.noDrugMatch')) + '</div>';
+    } else {
+        var html = '';
+        var lastCat = null;
+        items.forEach(function(d, i) {
+            if (showAll) {
+                var cat = d.category || '';
+                if (cat !== lastCat) {
+                    html += '<div class="rx-drug-menu-cat">' + esc(conDrugCatLabel(cat)) + '</div>';
+                    lastCat = cat;
+                }
+            }
+            var allergy = rxAllergyMatch(d.drug_name);
+            var meta = rxDrugOptionMeta(d);
+            html +=
+                '<div class="rx-drug-opt' + (i === hi ? ' is-active' : '') +
+                (allergy ? ' rx-drug-opt--allergy' : '') + '" role="option" ' +
+                'id="rx-drug-opt-' + idx + '-' + i + '" ' +
+                'aria-selected="' + (i === hi ? 'true' : 'false') + '" ' +
+                'onmousedown="rxDrugComboPick(event,' + idx + ',' + i + ')">' +
+                    '<span class="rx-drug-opt-name">' + esc(d.drug_name || '') + '</span>' +
+                    (allergy
+                        ? '<span class="rx-badge rx-badge--danger">' + esc(conTr('con.rx.allergyBadge')) + '</span>'
+                        : '') +
+                    (meta ? '<span class="rx-drug-opt-meta">' + esc(meta) + '</span>' : '') +
+                '</div>';
+        });
+        menu.innerHTML = html;
+    }
+    menu.hidden = false;
+    inp.setAttribute('aria-expanded', 'true');
+    rxDrugComboHighlight(idx);
+}
+
+function rxDrugComboHighlight(idx) {
+    var menu = g('rx-drug-menu-' + idx);
+    var inp = g('rx-drug-input-' + idx);
+    if (!menu) return;
+    var hi = rxComboState.hi;
+    menu.querySelectorAll('.rx-drug-opt').forEach(function(el, i) {
+        var on = i === hi;
+        el.classList.toggle('is-active', on);
+        el.setAttribute('aria-selected', on ? 'true' : 'false');
+        if (on) {
+            try { el.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+        }
+    });
+    if (inp) {
+        if (hi >= 0) inp.setAttribute('aria-activedescendant', 'rx-drug-opt-' + idx + '-' + hi);
+        else inp.removeAttribute('aria-activedescendant');
+    }
+}
+
+function rxDrugComboFocus(idx) {
+    var inp = g('rx-drug-input-' + idx);
+    if (inp && inp.value) {
+        try { inp.select(); } catch (e) {}
+    }
+    rxDrugComboOpen(idx);
+}
+
+function rxDrugComboOpen(idx) {
+    var menu = g('rx-drug-menu-' + idx);
+    if (menu && !menu.hidden && rxComboState.idx === idx) return;
+    rxDrugComboRender(idx);
+}
+
+function rxCloseDrugMenus() {
+    document.querySelectorAll('.rx-drug-menu').forEach(function(m) {
+        m.hidden = true;
+        m.innerHTML = '';
+    });
+    document.querySelectorAll('.rx-drug-input[aria-expanded="true"]').forEach(function(inp) {
+        inp.setAttribute('aria-expanded', 'false');
+        inp.removeAttribute('aria-activedescendant');
+    });
+    rxComboState = { idx: -1, items: [], hi: -1 };
+}
+
+function rxDrugComboRevert(idx) {
+    var inp = g('rx-drug-input-' + idx);
+    if (inp && rxLines[idx]) inp.value = rxLines[idx].drug_name || '';
+}
+
+function rxDrugComboKey(ev, idx) {
+    var menu = g('rx-drug-menu-' + idx);
+    var open = !!(menu && !menu.hidden && rxComboState.idx === idx);
+    var st = rxComboState;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        if (!open) { rxDrugComboRender(idx); return; }
+        if (!st.items.length) return;
+        var step = ev.key === 'ArrowDown' ? 1 : -1;
+        st.hi = (st.hi + step + st.items.length) % st.items.length;
+        rxDrugComboHighlight(idx);
+    } else if (ev.key === 'Enter') {
+        if (open && st.hi >= 0 && st.items[st.hi]) {
+            ev.preventDefault();
+            rxDrugComboChoose(idx, st.items[st.hi]);
+        }
+    } else if (ev.key === 'Escape') {
+        if (open) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            rxDrugComboRevert(idx);
+            rxCloseDrugMenus();
+        }
+    } else if (ev.key === 'Tab') {
+        var inp = g('rx-drug-input-' + idx);
+        var typed = inp ? String(inp.value || '').trim() : '';
+        var current = rxLines[idx] ? String(rxLines[idx].drug_name || '').trim() : '';
+        if (open && typed && typed !== current && st.hi >= 0 && st.items[st.hi]) {
+            ev.preventDefault();
+            rxDrugComboChoose(idx, st.items[st.hi]);
+        }
+    }
+}
+
+function rxDrugComboPick(ev, idx, i) {
+    if (ev) ev.preventDefault();
+    var d = rxComboState.idx === idx ? rxComboState.items[i] : null;
+    if (d) rxDrugComboChoose(idx, d);
+}
+
+function rxDrugComboBlur(idx) {
+    var inp = g('rx-drug-input-' + idx);
+    setTimeout(function() {
+        if (!inp || !inp.isConnected || document.activeElement === inp) return;
+        if (rxComboState.idx === idx) rxCloseDrugMenus();
+        var typed = String(inp.value || '').trim().toLowerCase();
+        var line = rxLines[idx];
+        if (!line) return;
+        if (typed && typed !== rxDrugKey(line) && rxDrugCatalog) {
+            var exact = rxDrugCatalog.filter(function(d) {
+                return String(d.drug_name || '').trim().toLowerCase() === typed;
+            })[0];
+            if (exact) {
+                rxDrugComboChoose(idx, exact, { noFocus: true });
+                return;
+            }
+        }
+        rxDrugComboRevert(idx);
+    }, 150);
+}
+
+function rxDrugComboChoose(idx, d, opts) {
+    opts = opts || {};
+    rxCloseDrugMenus();
+    var line = rxLines[idx];
+    if (!d || !line) return;
+    if (rxLineHasDrug(line) && String(line.drug_id || '') === String(d.id)) {
+        rxDrugComboRevert(idx);
+        if (!opts.noFocus) rxFocusLine(idx);
+        return;
+    }
+    rxApplyCatalogDrugToLine(idx, d);
+    rxMarkDirty();
+    rxRefreshLineCard(idx);
+    rxRefreshAllBadges();
+    if (!opts.noFocus) rxFocusLine(idx);
+}
+
+// ════════════════════════════════════════════════════════════════
+// ALLERGY + DUPLICATE CHECKS
+// ════════════════════════════════════════════════════════════════
+var RX_ALLERGY_CLASSES = [
+    ['penicillin', 'amoxicillin', 'amoxycillin', 'amoxil', 'augmentin', 'ampicillin',
+        'cloxacillin', 'flucloxacillin', 'co-amoxiclav', 'piperacillin',
+        '青霉素', '青黴素', '盤尼西林', '阿莫西林'],
+    ['cephalosporin', 'cefalexin', 'cephalexin', 'cefuroxime', 'cefaclor', 'cefadroxil',
+        'ceftriaxone', 'cefixime', '頭孢', '头孢'],
+    ['nsaid', 'ibuprofen', 'brufen', 'nurofen', 'mefenamic', 'ponstan', 'diclofenac',
+        'voltaren', 'naproxen', 'etoricoxib', 'arcoxia', 'celecoxib', 'celebrex', 'aspirin',
+        'ketorolac', 'piroxicam', '布洛芬', '阿士匹靈', '阿司匹林'],
+    ['sulfa', 'sulpha', 'sulfonamide', 'sulfamethoxazole', 'septrin', 'bactrim', '磺胺'],
+    ['macrolide', 'erythromycin', 'clarithromycin', 'azithromycin', 'klacid', 'zithromax'],
+    ['tetracycline', 'doxycycline', 'minocycline'],
+    ['metronidazole', 'flagyl', '甲硝唑'],
+    ['clindamycin', 'dalacin'],
+    ['opioid', 'codeine', 'tramadol', 'morphine', '可待因'],
+    ['paracetamol', 'acetaminophen', 'panadol', '撲熱息痛', '扑热息痛', '必理痛'],
+    ['chlorhexidine', 'corsodyl', '洗必泰']
+];
+var RX_ALLERGY_NONE_RE =
+    /^(nil|none|no|nkda|nka|nkfa|n\/?a|unknown|nil known|no known|-+|—|無|无|沒有|没有|否)$/i;
+
+function rxAllergyTerms(text) {
+    return String(text || '').toLowerCase()
+        .split(/[,;\/、，；\n|+&]+|\band\b|\bor\b/)
+        .map(function(t) {
+            return t
+                .replace(/allerg(y|ic|ies)?(\s+to)?|過敏|过敏|\bdrugs?\b|[()\[\]:.'"*]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        })
+        .filter(function(t) {
+            if (!t || RX_ALLERGY_NONE_RE.test(t)) return false;
+            return t.length >= 3 || /[\u4e00-\u9fff]/.test(t);
+        });
+}
+
+/** Returns the allergy term that the drug matches (directly or by drug class), else ''. */
+function rxAllergyMatch(drugName, allergyText) {
+    var text = allergyText !== undefined ? allergyText : rxCurrentAllergyText();
+    var dn = String(drugName || '').toLowerCase();
+    if (!dn || !String(text || '').trim()) return '';
+    var firstWord = dn.split(/[^a-z0-9\u4e00-\u9fff-]+/).filter(Boolean)[0] || '';
+    var terms = rxAllergyTerms(text);
+    for (var i = 0; i < terms.length; i++) {
+        var t = terms[i];
+        if (dn.indexOf(t) >= 0) return t;
+        if (firstWord.length >= 4 && t.indexOf(firstWord) >= 0) return t;
+        for (var c = 0; c < RX_ALLERGY_CLASSES.length; c++) {
+            var cls = RX_ALLERGY_CLASSES[c];
+            var termInClass = cls.some(function(k) {
+                return t.indexOf(k) >= 0 || (t.length >= 4 && k.indexOf(t) >= 0);
+            });
+            if (!termInClass) continue;
+            if (cls.some(function(k) { return dn.indexOf(k) >= 0; })) return t;
+        }
+    }
+    return '';
+}
+
+function rxCurrentAllergyText() {
+    if (rxPatientAllergy && conPatientId && String(rxPatientAllergy.pid) === String(conPatientId)) {
+        return rxPatientAllergy.text;
+    }
+    return (conPatientData && conPatientData.allergy) ? String(conPatientData.allergy) : '';
+}
+
+/** Fresh allergy text for pid (opts.force re-reads the DB). Resolves to the text. */
+function rxLoadPatientAllergy(pid, opts) {
+    opts = opts || {};
+    if (!pid) return Promise.resolve('');
+    if (!opts.force && rxPatientAllergy && String(rxPatientAllergy.pid) === String(pid)) {
+        return Promise.resolve(rxPatientAllergy.text);
+    }
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+        return Promise.resolve(rxCurrentAllergyText());
+    }
+    return Promise.resolve(
+        SB.from('patients').select('allergy').eq('id', pid).maybeSingle()
+    ).then(function(r) {
+        if (r.error || !r.data) return rxCurrentAllergyText();
+        var text = String(r.data.allergy || '');
+        rxPatientAllergy = { pid: pid, text: text };
+        if (conPatientData && String(conPatientId) === String(pid)) conPatientData.allergy = text;
+        if (String(conPatientId) === String(pid)) rxRefreshAllBadges();
+        return text;
+    }).catch(function() {
+        return rxCurrentAllergyText();
+    });
+}
+
+/** Resolves true when the user accepts (or there is nothing to warn about). */
+function rxConfirmSafetyChecks(lines) {
+    var allergyText = rxCurrentAllergyText();
+    var allergyHits = [];
+    var dups = [];
+    var seen = {};
+    lines.forEach(function(l) {
+        var hit = rxAllergyMatch(l.drug_name, allergyText);
+        if (hit) allergyHits.push({ drug: l.drug_name, term: hit });
+        var k = rxDrugKey(l);
+        if (seen[k] && dups.indexOf(l.drug_name) < 0) dups.push(l.drug_name);
+        seen[k] = true;
+    });
+    if (!allergyHits.length && !dups.length) return Promise.resolve(true);
+
+    var modal = g('drugAllergyWarnModal');
+    var titleEl = g('drugAllergyWarnTitle');
+    var bodyEl = g('drugAllergyWarnBody');
+    var okBtn = g('drugAllergyWarnProceed');
+    var cancelBtn = g('drugAllergyWarnCancel');
+    if (!modal || !bodyEl || !okBtn || !cancelBtn) {
+        var plain = allergyHits.map(function(h) { return h.drug + ' — ' + h.term; })
+            .concat(dups).join('\n');
+        return Promise.resolve(confirm(conTr('con.rx.safetyConfirmPlain') + '\n\n' + plain));
+    }
+
+    var html = '';
+    if (allergyHits.length) {
+        html +=
+            '<p class="rx-warn-lead">' + esc(conTr('con.rx.allergyWarnLead')) + '</p>' +
+            '<p class="rx-warn-allergy">' + esc(allergyText) + '</p>' +
+            '<ul class="rx-warn-list">' +
+            allergyHits.map(function(h) {
+                return '<li><strong>' + esc(h.drug) + '</strong> — ' +
+                    esc(conTrRepl('con.rx.allergyWarnMatch', { TERM: h.term })) + '</li>';
+            }).join('') +
+            '</ul>';
+    }
+    if (dups.length) {
+        html +=
+            '<p class="rx-warn-lead">' + esc(conTr('con.rx.dupWarnLead')) + '</p>' +
+            '<ul class="rx-warn-list">' +
+            dups.map(function(d) { return '<li><strong>' + esc(d) + '</strong></li>'; }).join('') +
+            '</ul>';
+    }
+    bodyEl.innerHTML = html;
+    if (titleEl) {
+        titleEl.textContent = allergyHits.length
+            ? conTr('con.rx.allergyWarnTitle')
+            : conTr('con.rx.dupWarnTitle');
+    }
+    okBtn.textContent = allergyHits.length
+        ? conTr('con.rx.allergyWarnProceed')
+        : conTr('con.rx.dupWarnProceed');
+    cancelBtn.textContent = conTr('common.btnCancel');
+
+    return new Promise(function(resolve) {
+        var settled = false;
+        function finish(ok) {
+            if (settled) return;
+            settled = true;
+            okBtn.onclick = null;
+            cancelBtn.onclick = null;
+            closeModal('drugAllergyWarnModal');
+            resolve(ok);
+        }
+        okBtn.onclick = function() { finish(true); };
+        cancelBtn.onclick = function() { finish(false); };
+        openModal('drugAllergyWarnModal');
+        try { cancelBtn.focus(); } catch (e) {}
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -5995,7 +6500,22 @@ function rxCloneSavedLine(src) {
         quantity_custom: String(l.quantity_custom || '')
     };
     if (typeof rxNormalizeLine === 'function') rxNormalizeLine(out);
+    out.quantity_manual = (l.quantity_manual === undefined || l.quantity_manual === null)
+        ? rxInferQuantityManual(out)
+        : !!l.quantity_manual;
     return out;
+}
+
+/**
+ * Rows saved before quantity_manual existed: treat the stored quantity as user-set when it
+ * differs from what auto-calc would give (e.g. 20 saved, 21 computed), so it is never overwritten.
+ */
+function rxInferQuantityManual(line) {
+    var stored = String(line.quantity_custom || line.quantity_code || line.quantity || '').trim();
+    if (!stored || stored === '—') return false;
+    var computed = typeof rxComputeQuantityFromLine === 'function'
+        ? rxComputeQuantityFromLine(line) : '';
+    return !computed || String(computed) !== stored;
 }
 
 function rxSnapshotFromDrughistoryRecords(records) {
@@ -6209,15 +6729,23 @@ function rxOpenDrugListsPicker() {
 function rxEnsureRxDraftChromeOnly() {
     var addPanel = g('drugAddPanel');
     var addBtn   = g('btnAddPrescription');
-    if (addPanel && addBtn &&
-        (addPanel.style.display === 'none' || !addPanel.style.display)) {
+    if (addPanel && addBtn && !rxPanelIsOpen()) {
         addPanel.style.display = 'block';
         addBtn.style.display   = 'none';
         if (!String((g('rxDate') && g('rxDate').value) || '').trim()) {
-            sv('rxDate',        todayISO());
-            sv('rxDentistName', conActiveDoctorName || currentName || '');
+            sv('rxDate', todayISO());
         }
+        rxLoadDrugCatalog();
+        if (conPatientId) rxLoadPatientAllergy(conPatientId);
     }
+    rxRefreshPanelChrome();
+}
+
+/** Drop blank cards before appending lines from a list / history. */
+function rxDropBlankLines() {
+    rxCommitActiveLine();
+    rxLines = rxLines.filter(rxLineHasDrug);
+    rxActiveLineIdx = -1;
 }
 
 /**
@@ -6244,17 +6772,26 @@ function rxLoadHistoryGroupIntoDraft(records, opts) {
     }
 
     if (opts.append) {
-        rxClearEditingHistoryGroup();
+        var wasOpen = rxPanelIsOpen();
         rxEnsureRxDraftChromeOnly();
+        if (wasOpen) rxDropBlankLines();
+        else { rxLines = []; rxActiveLineIdx = -1; }
         snap.forEach(function(line) {
             rxLines.push(rxCloneSavedLine(line));
         });
+        rxDraftDirty = true;
     } else {
+        if (rxPanelIsOpen() && rxDraftDirty && rxLines.some(rxLineHasDrug) &&
+            !confirm(conTr('con.rx.confirmDiscardDraft'))) {
+            return false;
+        }
         toggleDrugAddPanel(true, {
             keepRxLines: false,
             editingHistory: !!opts.editingHistory
         });
         rxLines = snap.map(rxCloneSavedLine);
+        rxActiveLineIdx = -1;
+        rxDraftDirty = false;
         if (opts.editingHistory) {
             rxSetEditingHistoryGroup(records);
         } else {
@@ -6263,19 +6800,16 @@ function rxLoadHistoryGroupIntoDraft(records, opts) {
     }
 
     var first = records[0];
-    if (first) {
+    if (first && !opts.append) {
         var nextDate = opts.editingHistory
             ? (String(first.prescribed_date || '').trim() || activeRxDate)
             : activeRxDate;
         sv('rxDate', nextDate);
-        var histDr = String(first.dentist_name || first.doctor_name || first.doctor_tag || '').trim();
-        if (typeof stripDoctorTagPrefix === 'function') histDr = stripDoctorTagPrefix(histDr);
-        sv('rxDentistName', histDr || conActiveDoctorName || currentName || '');
     }
 
     function done() {
         renderRxLines();
-        renderRxStagedList();
+        rxRefreshPanelChrome();
         if (opts.scrollToPanel) {
             var panel = g('drugAddPanel');
             if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -6316,21 +6850,39 @@ function rxSetEditingHistoryGroup(records) {
     });
     rxEditingHistoryGroup = {
         recordIds: ids,
+        rx_group_id: String(first.rx_group_id || '').trim(),
         prescribed_date: String(first.prescribed_date || '').trim(),
         doctor_tag: String(first.doctor_tag || first.dentist_name || '').trim(),
         dentist_name: String(first.dentist_name || '').trim()
     };
-    rxRefreshSavePrescriptionButtonLabel();
+    rxRefreshPanelChrome();
+    rxMarkEditingGroupInHistory();
 }
 
 function rxClearEditingHistoryGroup() {
     rxEditingHistoryGroup = null;
-    rxRefreshSavePrescriptionButtonLabel();
+    rxRefreshPanelChrome();
+    rxMarkEditingGroupInHistory();
+}
+
+function rxMarkEditingGroupInHistory() {
+    var ids = (rxEditingHistoryGroup && rxEditingHistoryGroup.recordIds) || [];
+    document.querySelectorAll('#drugHistoryWrap .rx-group-card').forEach(function(card) {
+        var rowIds = String(card.getAttribute('data-record-ids') || '').split(',');
+        var on = ids.length > 0 && rowIds.some(function(id) { return id && ids.indexOf(id) >= 0; });
+        card.classList.toggle('rx-group-card--editing', on);
+    });
 }
 
 function rxRefreshSavePrescriptionButtonLabel() {
     var btn = g('btnSaveRx');
     if (!btn) return;
+    if (rxSaveInFlight) {
+        btn.textContent = conTr('con.rx.saving');
+        btn.disabled = true;
+        return;
+    }
+    btn.disabled = false;
     var replacing = rxEditingHistoryGroup &&
         (rxEditingHistoryGroup.recordIds.length ||
             rxEditingHistoryGroup.prescribed_date);
@@ -6338,53 +6890,39 @@ function rxRefreshSavePrescriptionButtonLabel() {
     btn.textContent = conTr(key);
 }
 
-function rxDeleteDrughistoryForReplace(ctx, onDone) {
-    if (!ctx || !conPatientId) {
-        onDone();
-        return;
-    }
+function rxSetSaving(on) {
+    rxSaveInFlight = !!on;
+    rxRefreshSavePrescriptionButtonLabel();
+}
+
+/** Resolves null on success, else the error. Only deletes the rows that were loaded for editing. */
+function rxDeleteDrughistoryForReplace(ctx) {
+    if (!ctx || !conPatientId) return Promise.resolve(null);
     var ids = ctx.recordIds || [];
+    function errOf(r) { return (r && r.error) ? r.error : null; }
     if (ids.length) {
-        SB.from('drughistory').delete().in('id', ids).then(function(r) {
-            if (r.error) {
-                alert(trRepl('appt.msg.error', { MSG: r.error.message }));
-                return;
-            }
-            onDone();
-        });
-        return;
+        return Promise.resolve(
+            SB.from('drughistory').delete().in('id', ids).eq('patient_id', conPatientId)
+        ).then(errOf, function(e) { return e || new Error('delete failed'); });
     }
-    if (!ctx.prescribed_date) {
-        onDone();
-        return;
-    }
+    if (!ctx.prescribed_date) return Promise.resolve(null);
     var q = SB.from('drughistory')
         .delete()
         .eq('patient_id', conPatientId)
         .eq('prescribed_date', ctx.prescribed_date);
     if (ctx.doctor_tag) q = q.eq('doctor_tag', ctx.doctor_tag);
-    q.then(function(r) {
+    return Promise.resolve(q).then(function(r) {
         if (r.error && ctx.doctor_tag) {
-            SB.from('drughistory')
-                .delete()
-                .eq('patient_id', conPatientId)
-                .eq('prescribed_date', ctx.prescribed_date)
-                .eq('dentist_name', ctx.doctor_tag)
-            .then(function(r2) {
-                if (r2.error) {
-                    alert(trRepl('appt.msg.error', { MSG: r2.error.message }));
-                    return;
-                }
-                onDone();
-            });
-            return;
+            return Promise.resolve(
+                SB.from('drughistory')
+                    .delete()
+                    .eq('patient_id', conPatientId)
+                    .eq('prescribed_date', ctx.prescribed_date)
+                    .eq('dentist_name', ctx.doctor_tag)
+            ).then(errOf);
         }
-        if (r.error) {
-            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
-            return;
-        }
-        onDone();
-    });
+        return errOf(r);
+    }, function(e) { return e || new Error('delete failed'); });
 }
 
 function rxApplySavedDrugList(listId, mode) {
@@ -6399,21 +6937,21 @@ function rxApplySavedDrugList(listId, mode) {
         var copies = lst.lines.map(rxCloneSavedLine);
         var label  = String(lst.name || conTr('con.rx.untitled')).replace(/"/g, "'");
 
+        var filled = rxLines.filter(rxLineHasDrug).length;
+        if (mode === 'replace' && filled &&
+            !confirm(conTrRepl('con.rx.confirmReplaceDraft', { N: filled, NAME: label }))) {
+            return;
+        }
+        rxDropBlankLines();
         if (mode === 'replace') {
-            if ((rxLines.length || rxStagedLines.length) &&
-                !confirm(conTrRepl('con.rx.confirmReplaceDraft', {
-                    N: rxStagedLines.length + rxLines.length, NAME: label
-                })))
-                return;
             rxLines = [];
-            rxStagedLines = [];
             rxClearEditingHistoryGroup();
         }
 
         copies.forEach(function (line) {
-            rxStagedLines.push(line);
+            rxLines.push(line);
         });
-        renderRxStagedList();
+        rxMarkDirty();
         renderRxLines();
         closeModal('rxDrugListsModal');
     }
@@ -6707,152 +7245,234 @@ function initRxSavedComboListsUI() {
             closeModal('rxDrugListsModal');
         });
     }
+
+    if (!document.body.dataset.rxMoreBound) {
+        document.body.dataset.rxMoreBound = '1';
+        document.addEventListener('click', function(ev) {
+            document.querySelectorAll('details.rx-more[open]').forEach(function(d) {
+                if (!d.contains(ev.target)) d.removeAttribute('open');
+            });
+        });
+        document.addEventListener('keydown', function(ev) {
+            if (ev.key !== 'Escape') return;
+            document.querySelectorAll('details.rx-more[open]').forEach(function(d) {
+                d.removeAttribute('open');
+            });
+        });
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
 // SAVE FULL PRESCRIPTION → drughistory table
 // ════════════════════════════════════════════════════════════════
-function saveFullPrescription() {
-    if (!conPatientId) { alert(conTr('con.forms.alertSelectPatient')); return; }
-
-    var draftLines = rxAllDraftLinesForSave();
-    if (!draftLines.length) {
-        alert(conTr('con.rx.addOneDrugLine')); return;
+function rxNewUuid() {
+    if (typeof crypto !== 'undefined' && crypto && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
     }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
 
-    var badRx = -1;
-    for (var bi = 0; bi < draftLines.length; bi++) {
-        var bl = draftLines[bi];
-        if (!(bl.drug_name && String(bl.drug_name).trim())) { badRx = bi; break; }
-        var hasDays = !!(
-            String(bl.duration_code || '').trim() ||
-            String(bl.duration_custom || bl.duration || '').trim()
-        );
-        if (!hasDays) { badRx = bi; break; }
-    }
-    if (badRx >= 0) {
-        var badLine = draftLines[badRx] || {};
-        if (!(badLine.drug_name && String(badLine.drug_name).trim())) {
-            alert(conTrRepl('con.rx.rowSelectDrugRx', { N: badRx + 1 }));
-        } else {
-            alert(conTrRepl('con.rx.rowSelectDaysRx', { N: badRx + 1 }));
+function rxStripLinkCols(row) {
+    var o = Object.assign({}, row);
+    delete o.rx_group_id;
+    delete o.drug_id;
+    return o;
+}
+
+/**
+ * Insert with graceful fallbacks for older drughistory schemas. Resolves { error }.
+ * tried — which fallbacks were already applied (each runs at most once).
+ */
+function rxInsertDrughistoryRows(payload, tried) {
+    tried = tried || {};
+    if (rxHistoryLinkColsMissing) payload = payload.map(rxStripLinkCols);
+    return Promise.resolve(SB.from('drughistory').insert(payload)).then(function(r) {
+        if (!r.error) return { error: null };
+        var msg = String(r.error.message || '').toLowerCase();
+        if (!tried.link && !rxHistoryLinkColsMissing &&
+            (msg.indexOf('rx_group_id') >= 0 || msg.indexOf('drug_id') >= 0)) {
+            tried.link = true;
+            rxHistoryLinkColsMissing = true;
+            return rxInsertDrughistoryRows(payload, tried);
         }
+        if (!tried.zh && msg.indexOf('_zh') >= 0) {
+            tried.zh = true;
+            return rxInsertDrughistoryRows(payload.map(rxStripZhColumns), tried);
+        }
+        if (!tried.intake && msg.indexOf('intake') >= 0) {
+            tried.intake = true;
+            return rxInsertDrughistoryRows(payload.map(function(x) {
+                var o = Object.assign({}, x);
+                if (o.intake_remarks && typeof drugPackRemarksForLegacyColumn === 'function') {
+                    o.remarks = drugPackRemarksForLegacyColumn(o.intake_remarks, o.remarks);
+                }
+                delete o.intake_remarks;
+                return o;
+            }), tried);
+        }
+        if (!tried.doctor && (msg.indexOf('doctor_tag') >= 0 || msg.indexOf('doctor_id') >= 0 ||
+            msg.indexOf('doctor_name') >= 0)) {
+            tried.doctor = true;
+            return rxInsertDrughistoryRows(payload.map(function(x) {
+                var rem = x.remarks;
+                if (x.intake_remarks && typeof drugPackRemarksForLegacyColumn === 'function') {
+                    rem = drugPackRemarksForLegacyColumn(x.intake_remarks, rem);
+                }
+                var o = {
+                    patient_id: x.patient_id,
+                    patient_no: x.patient_no,
+                    patient_name: x.patient_name,
+                    prescribed_date: x.prescribed_date,
+                    drug_name: x.drug_name,
+                    dosage: x.dosage,
+                    frequency: x.frequency,
+                    duration: x.duration,
+                    route: x.route,
+                    quantity: x.quantity,
+                    remarks: rem,
+                    dentist_name: x.dentist_name
+                };
+                if (x.rx_group_id) o.rx_group_id = x.rx_group_id;
+                if (x.drug_id) o.drug_id = x.drug_id;
+                return o;
+            }), tried);
+        }
+        return { error: r.error };
+    }, function(e) {
+        return { error: e || new Error('insert failed') };
+    });
+}
+
+function saveFullPrescription() {
+    if (rxSaveInFlight) return;
+    if (!conPatientId || !conPatientData) { alert(conTr('con.forms.alertSelectPatient')); return; }
+    if (!conActiveDoctorId) {
+        alert(conTr('con.rx.needDoctor'));
+        rxFocusDoctorPicker();
         return;
     }
 
-    var date    = g('rxDate').value        || todayISO();
-    var dentist = g('rxDentistName').value || conActiveDoctorName || currentName || '';
-
-    var rows = draftLines.map(function(l) {
-        if (typeof rxDrughistoryRowForSave === 'function') {
-            return rxDrughistoryRowForSave(l, date, dentist);
-        }
-        return {
-            patient_id:      conPatientId,
-            patient_no:      conPatientData.patient_no  || null,
-            patient_name:    conPatientData.full_name,
-            prescribed_date: date,
-            drug_name:       l.drug_name || conTr('report.unknown'),
-            dosage:          l.dosage    || null,
-            frequency:       l.frequency || null,
-            duration:        l.duration  || null,
-            route:           l.route     || null,
-            quantity:        l.quantity  || null,
-            intake_remarks:  l.intake_remarks || null,
-            remarks:         l.remarks   || null,
-            dentist_name:    dentist,
-            doctor_id:       conActiveDoctorId || null,
-            doctor_name:     conActiveDoctorName || currentName || null,
-            doctor_tag:      conActiveDoctorTag || dentist || null
-        };
-    });
-
-    function insertRxRows(payload, onDone) {
-        SB.from('drughistory').insert(payload).then(function(r) {
-            if (!r.error) {
-                onDone();
-                return;
-            }
-            var msg = String(r.error.message || '').toLowerCase();
-            if (msg.indexOf('_zh') >= 0 && typeof rxStripZhColumns === 'function') {
-                var stripped = payload.map(rxStripZhColumns);
-                SB.from('drughistory').insert(stripped).then(function(r2) {
-                    if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
-                    onDone();
-                });
-                return;
-            }
-            if (msg.indexOf('intake_remarks') >= 0 || msg.indexOf('intake') >= 0) {
-                var noIntake = payload.map(function(x) {
-                    var o = Object.assign({}, x);
-                    if (o.intake_remarks && typeof drugPackRemarksForLegacyColumn === 'function') {
-                        o.remarks = drugPackRemarksForLegacyColumn(o.intake_remarks, o.remarks);
-                    }
-                    delete o.intake_remarks;
-                    return o;
-                });
-                insertRxRows(noIntake, onDone);
-                return;
-            }
-            if (msg.indexOf('doctor_tag') >= 0 || msg.indexOf('doctor_id') >= 0 ||
-                msg.indexOf('doctor_name') >= 0) {
-                var legacyRows = payload.map(function(x) {
-                    var rem = x.remarks;
-                    if (x.intake_remarks && typeof drugPackRemarksForLegacyColumn === 'function') {
-                        rem = drugPackRemarksForLegacyColumn(x.intake_remarks, rem);
-                    }
-                    return {
-                        patient_id: x.patient_id,
-                        patient_no: x.patient_no,
-                        patient_name: x.patient_name,
-                        prescribed_date: x.prescribed_date,
-                        drug_name: x.drug_name,
-                        dosage: x.dosage,
-                        frequency: x.frequency,
-                        duration: x.duration,
-                        route: x.route,
-                        quantity: x.quantity,
-                        remarks: rem,
-                        dentist_name: x.dentist_name
-                    };
-                });
-                SB.from('drughistory').insert(legacyRows).then(function(r2) {
-                    if (r2.error) { alert(trRepl('appt.msg.error', { MSG: r2.error.message })); return; }
-                    onDone();
-                });
-                return;
-            }
-            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
-        });
+    rxCommitActiveLine();
+    var before = rxLines.length;
+    rxLines = rxLines.filter(rxLineHasDrug);
+    if (rxLines.length !== before) rxActiveLineIdx = -1;
+    if (!rxLines.length) {
+        rxLines.push(rxEmptyLine());
+        rxActiveLineIdx = 0;
+        renderRxLines();
+        rxFocusLine(0);
+        alert(conTr('con.rx.addOneDrugLine'));
+        return;
     }
+    for (var i = 0; i < rxLines.length; i++) {
+        if (!rxLineHasDays(rxLines[i])) {
+            rxActiveLineIdx = i;
+            renderRxLines();
+            rxFocusLine(i);
+            alert(conTrRepl('con.rx.rowSelectDaysRx', { N: i + 1 }));
+            return;
+        }
+    }
+    if (rxLines.length !== before) renderRxLines();
 
+    var draftLines = rxAllDraftLinesForSave();
     var replaceCtx = rxEditingHistoryGroup;
     var isReplace  = !!(replaceCtx &&
         (replaceCtx.recordIds.length || replaceCtx.prescribed_date));
+    var patientId   = conPatientId;
+    var patientName = conPatientData.full_name;
 
-    function afterSave() {
-        rxClearEditingHistoryGroup();
-        rxStagedLines = [];
-        rxLines = [];
-        renderRxStagedList();
+    rxSetSaving(true);
+    rxLoadPatientAllergy(patientId, { force: true })
+        .then(function() {
+            rxSetSaving(false);
+            return rxConfirmSafetyChecks(draftLines);
+        })
+        .then(function(ok) {
+            if (!ok) return;
+            if (String(conPatientId) !== String(patientId)) return;
+            if (isReplace && !confirm(conTrRepl('con.rx.confirmReplaceSaved', {
+                DATE: rxFmtDate(replaceCtx.prescribed_date) || '—',
+                OLD: replaceCtx.recordIds.length || '?',
+                NEW: draftLines.length
+            }))) {
+                return;
+            }
+            rxSetSaving(true);
+            return rxWritePrescription(draftLines, replaceCtx, isReplace, patientId, patientName);
+        })
+        .catch(function(e) {
+            rxSetSaving(false);
+            alert(trRepl('appt.msg.error', { MSG: (e && e.message) || e }));
+        });
+}
+
+/**
+ * Replace = insert the new rows first, then delete the old ones, so a failed insert never
+ * loses the saved prescription. (Legacy groups without record ids fall back to delete → insert.)
+ */
+function rxWritePrescription(draftLines, replaceCtx, isReplace, patientId, patientName) {
+    var date    = (g('rxDate') && g('rxDate').value) || todayISO();
+    var dentist = String(conActiveDoctorName || '').trim();
+    var groupId = (isReplace && replaceCtx.rx_group_id) || rxNewUuid();
+    var rows = draftLines.map(function(l) {
+        return rxDrughistoryRowForSave(l, date, dentist, groupId);
+    });
+    var legacyReplace = isReplace && !(replaceCtx.recordIds && replaceCtx.recordIds.length);
+
+    function fail(err) {
+        rxSetSaving(false);
+        alert(trRepl('appt.msg.error', { MSG: (err && err.message) || err }));
+    }
+
+    function afterSave(warnMsg) {
+        rxSetSaving(false);
+        rxDraftDirty = false;
         toggleDrugAddPanel(false);
-        loadDrugHistory(conPatientId);
-        conSchedulePatientTimelineRefresh(conPatientId);
-        alert(conTrRepl(isReplace ? 'con.rx.prescriptionReplaced' : 'con.rx.prescriptionSaved', {
+        loadDrugHistory(patientId);
+        if (typeof conSchedulePatientTimelineRefresh === 'function') {
+            conSchedulePatientTimelineRefresh(patientId);
+        }
+        var msg = conTrRepl(isReplace ? 'con.rx.prescriptionReplaced' : 'con.rx.prescriptionSaved', {
             N: rows.length,
-            NAME: conPatientData.full_name
-        }));
+            NAME: patientName
+        });
+        if (warnMsg) {
+            alert(msg + '\n\n' + warnMsg);
+        } else if (typeof showAppGlobalToast === 'function') {
+            showAppGlobalToast(msg);
+        } else {
+            alert(msg);
+        }
     }
 
-    function insertThenFinish() {
-        insertRxRows(rows, afterSave);
+    if (legacyReplace) {
+        return rxDeleteDrughistoryForReplace(replaceCtx).then(function(delErr) {
+            if (delErr) return fail(delErr);
+            return rxInsertDrughistoryRows(rows).then(function(res) {
+                if (res.error) return fail(res.error);
+                afterSave();
+            });
+        });
     }
 
-    if (isReplace) {
-        rxDeleteDrughistoryForReplace(replaceCtx, insertThenFinish);
-    } else {
-        insertThenFinish();
-    }
+    return rxInsertDrughistoryRows(rows).then(function(res) {
+        if (res.error) return fail(res.error);
+        if (!isReplace) {
+            afterSave();
+            return;
+        }
+        return rxDeleteDrughistoryForReplace(replaceCtx).then(function(delErr) {
+            afterSave(delErr
+                ? conTrRepl('con.rx.replaceOldDeleteFailed', {
+                    MSG: (delErr && delErr.message) || delErr
+                })
+                : '');
+        });
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -6901,36 +7521,63 @@ async function loadDrugHistory(patientId) {
         return;
     }
 
-    // Group by prescribed_date + doctor tag/name
+    // Newest first; created_at (when present) orders prescriptions saved on the same day.
+    data = data.slice().sort(function(a, b) {
+        var d = String(b.prescribed_date || '').localeCompare(String(a.prescribed_date || ''));
+        if (d) return d;
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    });
+
+    // One group per saved prescription (rx_group_id); legacy rows group by date + doctor.
     var groups = {};
     var order  = [];
     data.forEach(function(r) {
-        var key = (r.prescribed_date || 'unknown') +
-                  '||' + (r.doctor_tag || r.dentist_name || '');
-        if (!groups[key]) { groups[key] = []; order.push(key); }
-        groups[key].push(r);
+        var gid = String(r.rx_group_id || '').trim();
+        var key = gid
+            ? 'g:' + gid
+            : 'd:' + (r.prescribed_date || 'unknown') + '||' + (r.doctor_tag || r.dentist_name || '');
+        if (!groups[key]) {
+            groups[key] = {
+                rows: [],
+                date: r.prescribed_date || '',
+                doctor: String(r.doctor_tag || r.dentist_name || '').trim(),
+                doctorLabel: String(r.dentist_name || r.doctor_tag || '').trim()
+                    .replace(/^dr\.?\s+/i, ''),
+                groupId: gid
+            };
+            order.push(key);
+        }
+        groups[key].rows.push(r);
+    });
+    var perDate = {};
+    order.forEach(function(key) {
+        var d = groups[key].date;
+        perDate[d] = (perDate[d] || 0) + 1;
     });
 
     wrap.innerHTML = '';
 
     order.forEach(function(key) {
-        var rows       = groups[key];
-        var parts      = key.split('||');
-        var dateStr    = parts[0];
-        var doctorTag = parts[1] || '';
-
-        var displayDate = dateStr;
-        try {
-            var dt = new Date(dateStr);
-            if (!isNaN(dt)) {
-                displayDate = dt.toLocaleDateString(conUiLocale(), {
-                    day: '2-digit', month: 'short', year: 'numeric'
-                });
-            }
-        } catch(e) {}
+        var grp        = groups[key];
+        var rows       = grp.rows;
+        var dateStr    = grp.date;
+        var doctorTag  = grp.doctor;
+        var displayDate = rxFmtDate(dateStr) || '—';
+        var timeLabel = '';
+        if (perDate[dateStr] > 1 && rows[0] && rows[0].created_at) {
+            try {
+                var ct = new Date(rows[0].created_at);
+                if (!isNaN(ct)) {
+                    timeLabel = ct.toLocaleTimeString(conUiLocale(), { hour: '2-digit', minute: '2-digit' });
+                }
+            } catch (eT) {}
+        }
 
         var groupDiv = document.createElement('div');
         groupDiv.className = 'rx-group-card';
+        groupDiv.setAttribute('data-record-ids', rows.map(function(r) {
+            return String(r.id || '');
+        }).join(','));
 
         var rowsHtml = rows.map(function(r) {
             var histLine = typeof rxNormalizeLine === 'function'
@@ -6975,10 +7622,11 @@ async function loadDrugHistory(patientId) {
                             esc(r.dosage || '') +
                         '</span>' +
                         '<span class="rx-row-info">' +
-                            esc(r.frequency || '') + ' &bull; ' +
-                            esc(r.duration  || '') + ' &bull; ' +
-                            esc(conTr('con.rx.historyQty')) + ' ' +
-                            esc(qtyDisp || r.quantity || '') +
+                            [
+                                String(r.frequency || '').trim(),
+                                String(r.duration || '').trim(),
+                                qtyDisp ? conTr('con.rx.historyQty') + ' ' + qtyDisp : ''
+                            ].filter(Boolean).map(esc).join(' · ') +
                         '</span>' +
                         (r.remarks
                             ? '<span class="rx-row-remarks">' +
@@ -6987,16 +7635,14 @@ async function loadDrugHistory(patientId) {
                     '</div>' +
                     '<div class="rx-row-side">' +
                     '<div class="rx-row-print-btns">' +
-                        '<button type="button" class="btn-label-sm-en" ' +
+                        '<button type="button" class="rx-icon-btn" ' +
                         'onclick="printHistoryRowLabel(this,\'en\')" ' +
-                        'title="' + esc(conTr('con.rx.printLabelEn')) + '">' +
-                        esc(conTr('con.rx.btnPrintEn')) + '</button>' +
-                        '<button type="button" class="btn-label-sm-zh" ' +
+                        'title="' + esc(conTr('con.rx.printLabelEn')) + '">EN</button>' +
+                        '<button type="button" class="rx-icon-btn" ' +
                         'onclick="printHistoryRowLabel(this,\'zh\')" ' +
-                        'title="' + esc(conTr('con.rx.printLabelZh')) + '">' +
-                        esc(conTr('con.rx.btnPrintZh')) + '</button>' +
+                        'title="' + esc(conTr('con.rx.printLabelZh')) + '">中</button>' +
                     '</div>' +
-                    '<button type="button" class="btn-rx-hist-delete" ' +
+                    '<button type="button" class="btn-rx-hist-delete rx-icon-btn rx-icon-btn--danger" ' +
                     'data-rx-hist-id="' + esc(rowId) + '" ' +
                     'title="' + esc(conTr('con.rx.deleteRowTitle')) + '" ' +
                     'aria-label="' + esc(conTrRepl('con.rx.deleteRowAria', {
@@ -7006,56 +7652,57 @@ async function loadDrugHistory(patientId) {
                 '</div>';
         }).join('');
 
+        var metaLine = [
+            grp.doctorLabel ? conTr('con.rx.historyDrPrefix') + grp.doctorLabel : '',
+            conTrRepl('con.rx.drugCount', { N: rows.length })
+        ].filter(Boolean).join(' · ');
+
         groupDiv.innerHTML =
             '<div class="rx-group-header">' +
                 '<div class="rx-group-meta">' +
-                    '<span class="rx-group-date">📅 ' +
-                        displayDate + '</span>' +
-                    '<span class="rx-group-dr">' + esc(conTr('con.rx.historyDrPrefix')) +
-                        esc(doctorTag) + '</span>' +
+                    '<span class="rx-group-date">' + esc(displayDate) +
+                        (timeLabel ? '<span class="rx-group-time"> · ' + esc(timeLabel) + '</span>' : '') +
+                    '</span>' +
+                    '<span class="rx-group-dr">' + esc(metaLine) + '</span>' +
                 '</div>' +
                 '<div class="rx-group-actions">' +
-                    '<button class="btn-label-group-en" ' +
-                    'onclick="printHistoryGroupLabels(this,\'en\')" ' +
-                    'title="' + esc(conTr('con.rx.printLabelEn')) + '">' +
-                    esc(conTr('con.rx.printAllEn')) + '</button>' +
-                    '<button class="btn-label-group-zh" ' +
-                    'onclick="printHistoryGroupLabels(this,\'zh\')" ' +
-                    'title="' + esc(conTr('con.rx.printLabelZh')) + '">' +
-                    esc(conTr('con.rx.printAllZh')) + '</button>' +
-                    '<button type="button" class="btn-reapply-hist-rx" ' +
-                    'title="' + esc(conTr('con.rx.reApplyTitle')) + '"' +
-                    ' style="padding:5px 9px;font-size:11px;border-radius:5px;' +
-                    'border:1px solid #0284c7;background:#e0f2fe;color:#0369a1;' +
-                    'cursor:pointer;font-weight:600;">' + esc(conTr('con.rx.reApply')) + '</button>' +
-                    '<button type="button" class="btn-save-hist-as-list" ' +
-                    'title="' + esc(conTr('con.rx.saveAsListHistTitle')) + '"' +
-                    ' style="padding:5px 9px;font-size:11px;border-radius:5px;' +
-                    'border:1px solid #ca8a04;background:#fefce8;color:#854d0e;' +
-                    'cursor:pointer;font-weight:600;">' + esc(conTr('con.rx.saveAsListBtn')) + '</button>' +
-                    '<button class="btn-delete-group" ' +
-                    'onclick="deleteRxGroup(this,\'' +
-                        esc(dateStr) + '\',\'' +
-                        esc(doctorTag) + '\')">' +
-                    esc(conTr('con.rx.deleteAll')) + '</button>' +
+                    '<button type="button" class="rx-group-edit" data-act="edit" ' +
+                    'title="' + esc(conTr('con.rx.editHistClickTitle')) + '">' +
+                    esc(conTr('con.rx.edit')) + '</button>' +
+                    '<details class="rx-more">' +
+                        '<summary class="rx-more-btn" title="' + esc(conTr('con.rx.moreActions')) + '" ' +
+                        'aria-label="' + esc(conTr('con.rx.moreActions')) + '">⋯</summary>' +
+                        '<div class="rx-more-menu">' +
+                            '<button type="button" data-act="print-en">' + esc(conTr('con.rx.printAllEn')) + '</button>' +
+                            '<button type="button" data-act="print-zh">' + esc(conTr('con.rx.printAllZh')) + '</button>' +
+                            '<button type="button" data-act="reapply" title="' +
+                                esc(conTr('con.rx.reApplyTitle')) + '">' + esc(conTr('con.rx.reApply')) + '</button>' +
+                            '<button type="button" data-act="save-list" title="' +
+                                esc(conTr('con.rx.saveAsListHistTitle')) + '">' +
+                                esc(conTr('con.rx.saveAsListBtn')) + '</button>' +
+                            '<button type="button" data-act="delete" class="is-danger">' +
+                                esc(conTr('con.rx.deleteAll')) + '</button>' +
+                        '</div>' +
+                    '</details>' +
                 '</div>' +
             '</div>' +
             '<div class="rx-group-body">' + rowsHtml + '</div>';
 
         wrap.appendChild(groupDiv);
-        var saveHistBtn = groupDiv.querySelector('.btn-save-hist-as-list');
-        if (saveHistBtn) {
-            saveHistBtn.addEventListener('click', function() {
-                rxSaveComboListFromHistoryRecords(rows);
-            });
-        }
-        var reApplyBtn = groupDiv.querySelector('.btn-reapply-hist-rx');
-        if (reApplyBtn) {
-            reApplyBtn.addEventListener('click', function(ev) {
+        groupDiv.querySelectorAll('.rx-group-actions [data-act]').forEach(function(btn) {
+            btn.addEventListener('click', function(ev) {
                 ev.stopPropagation();
-                rxReapplyHistoryGroupRecords(rows);
+                var act = btn.getAttribute('data-act');
+                var more = btn.closest('details');
+                if (more) more.removeAttribute('open');
+                if (act === 'edit') rxEditHistoryGroupRecords(rows);
+                else if (act === 'print-en') printHistoryGroupLabels(btn, 'en');
+                else if (act === 'print-zh') printHistoryGroupLabels(btn, 'zh');
+                else if (act === 'reapply') rxReapplyHistoryGroupRecords(rows);
+                else if (act === 'save-list') rxSaveComboListFromHistoryRecords(rows);
+                else if (act === 'delete') rxDeleteHistoryGroup(rows, dateStr, doctorTag);
             });
-        }
+        });
 
         groupDiv.querySelectorAll('.btn-rx-hist-delete').forEach(function(delBtn) {
             delBtn.addEventListener('click', function(ev) {
@@ -7081,6 +7728,36 @@ async function loadDrugHistory(patientId) {
                 rxEditHistoryGroupRecords(rows);
             });
         });
+    });
+    rxMarkEditingGroupInHistory();
+}
+
+/** Delete-all for one prescription: by record ids when available, else legacy date + doctor. */
+function rxDeleteHistoryGroup(rows, dateStr, doctorTag) {
+    if (!conPatientId) return;
+    var ids = (rows || []).map(function(r) { return String(r.id || '').trim(); }).filter(Boolean);
+    if (!ids.length || ids.length !== (rows || []).length) {
+        deleteRxGroup(null, dateStr, doctorTag);
+        return;
+    }
+    if (!confirm(conTrRepl('con.rx.confirmDeleteRx', {
+        DATE: rxFmtDate(dateStr) || '—',
+        N: ids.length
+    }))) return;
+    SB.from('drughistory').delete().in('id', ids).eq('patient_id', conPatientId)
+    .then(function(r) {
+        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        var ctx = rxEditingHistoryGroup;
+        if (ctx && ctx.recordIds && ctx.recordIds.some(function(id) { return ids.indexOf(id) >= 0; })) {
+            rxClearEditingHistoryGroup();
+        }
+        loadDrugHistory(conPatientId);
+        if (typeof conSchedulePatientTimelineRefresh === 'function') {
+            conSchedulePatientTimelineRefresh(conPatientId);
+        }
+    })
+    .catch(function(e) {
+        alert(trRepl('appt.msg.error', { MSG: (e && e.message) || e }));
     });
 }
 
@@ -7302,8 +7979,8 @@ function drugLabelPrintDimensions() {
     };
 }
 
-function printDrugLabel(drugs, lang) {
-    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+/** Self-printing HTML document for a sheet of drug labels (one label per page). */
+function rxLabelDocHtml(drugs, lang) {
     var isZh = (lang === 'zh');
     var clinicNameRaw = currentActiveClinicLabelForPrinting(isZh);
     var clinicName =
@@ -7617,18 +8294,7 @@ function printDrugLabel(drugs, lang) {
         }
     }).join('');
 
-    // ── Wider popup: Chrome/Edge print UI can show options (LHS) + preview (RHS) when space allows.
-    var popup = window.open(
-        '', '_blank',
-        'width=1024,height=760,left=60,top=32,toolbar=0,menubar=0,scrollbars=1,resizable=1'
-    );
-
-    if (!popup) {
-        alert(conTr('con.rx.alertPopupBlocked'));
-        return;
-    }
-
-    popup.document.write(
+    return (
         '<!DOCTYPE html>' +
         '<html lang="' + (isZh ? 'zh-HK' : 'en') + '">' +
         '<head>' +
@@ -7674,82 +8340,79 @@ function printDrugLabel(drugs, lang) {
         '</body>' +
         '</html>'
     );
-    popup.document.close();
-    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
-    try {
-        popup.focus();
-    } catch (ePrintFocus) {}
 }
 
-// ── Get drug data from a live rx-line-card (before save) ─────
-function getDrugFromRxLine(lineEl, lang) {
-    var today = todayISO();
-    var cardId  = lineEl.id;
-    var idx     = cardId ? parseInt(cardId.replace('rxline-', ''), 10) : -1;
-    if (idx >= 0 && typeof rxSyncLineFromDom === 'function') rxSyncLineFromDom(idx);
-    var line = (idx >= 0 && rxLines[idx]) ? rxLines[idx] : {};
+function printDrugLabel(drugs, lang) {
+    drugs = (drugs || []).filter(function(d) { return d && d.drug_name; });
+    if (!drugs.length) return;
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    var html = rxLabelDocHtml(drugs, lang);
+
+    // Wider popup: Chrome/Edge print UI can show options (LHS) + preview (RHS) when space allows.
+    var popup = null;
+    try {
+        popup = window.open(
+            '', '_blank',
+            'width=1024,height=760,left=60,top=32,toolbar=0,menubar=0,scrollbars=1,resizable=1'
+        );
+    } catch (eOpen) {
+        popup = null;
+    }
+    if (popup && popup.document) {
+        popup.document.write(html);
+        popup.document.close();
+        if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(popup);
+        try { popup.focus(); } catch (ePrintFocus) {}
+        return;
+    }
+    if (!rxPrintLabelsInFrame(html)) alert(conTr('con.rx.alertPopupBlocked'));
+}
+
+/** Popup blocked: print the same label document from a hidden iframe instead. */
+function rxPrintLabelsInFrame(html) {
+    var frame = g('rxLabelPrintFrame');
+    if (!frame) {
+        frame = document.createElement('iframe');
+        frame.id = 'rxLabelPrintFrame';
+        frame.title = 'Drug label print';
+        frame.setAttribute('aria-hidden', 'true');
+        frame.style.cssText =
+            'position:fixed;left:-10000px;top:0;width:480px;height:640px;border:0;' +
+            'visibility:hidden;pointer-events:none;';
+        document.body.appendChild(frame);
+    }
+    var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+    if (!doc) return false;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    return true;
+}
+
+// ── Print labels for every drug in the open draft (before save) ─
+function rxPrintDraftLabels(lang) {
+    var more = g('rxDraftMore');
+    if (more) more.removeAttribute('open');
+    if (!conPatientId || !conPatientData) {
+        alert(conTr('con.rx.alertLabelNeedPatient'));
+        return;
+    }
+    var lines = rxAllDraftLinesForSave();
+    if (!lines.length) {
+        alert(conTr('con.rx.alertLabelNeedDrug'));
+        return;
+    }
     var meta = {
         dentist_name:    conActiveDoctorName || currentName || '—',
         doctor_tag:      conActiveDoctorTag || conActiveDoctorName || currentName || '',
-        prescribed_date: (g('rxDate') && g('rxDate').value) || today,
-        patient_no:      (conPatientData && conPatientData.patient_no)
-            ? String(conPatientData.patient_no) : '',
-        patient_name:    (conPatientData && conPatientData.full_name)
-            ? String(conPatientData.full_name) : '',
-        patient_chinese_name: (conPatientData && conPatientData.chinese_name)
-            ? String(conPatientData.chinese_name) : ''
+        prescribed_date: (g('rxDate') && g('rxDate').value) || todayISO(),
+        patient_no:      conPatientData.patient_no ? String(conPatientData.patient_no) : '',
+        patient_name:    conPatientData.full_name ? String(conPatientData.full_name) : '',
+        patient_chinese_name: conPatientData.chinese_name ? String(conPatientData.chinese_name) : ''
     };
-    if (typeof rxLineToPrintDrug === 'function') {
-        return rxLineToPrintDrug(line, lang || 'en', meta);
-    }
-    return {
-        drug_name:       line.drug_name || '',
-        dosage:          line.dosage || '',
-        route:           '',
-        frequency:       line.frequency || '',
-        duration:        line.duration || '',
-        quantity:        line.quantity || '',
-        intake_remarks:  line.intake_remarks || '',
-        remarks:         line.remarks || '',
-        dentist_name:    meta.dentist_name,
-        doctor_tag:      meta.doctor_tag,
-        prescribed_date: meta.prescribed_date,
-        patient_no:      meta.patient_no,
-        patient_name:    meta.patient_name,
-        patient_chinese_name: meta.patient_chinese_name
-    };
-}
-
-// ── Print single label from rx line (EN) ─────────────────────
-function printRxLineLabelEn(btn) {
-    var lineEl = btn.closest('.rx-line-card');
-    if (!lineEl) return;
-    if (!conPatientId || !conPatientData) {
-        alert(conTr('con.rx.alertLabelNeedPatient'));
-        return;
-    }
-    var drug = getDrugFromRxLine(lineEl, 'en');
-    if (!drug.drug_name) {
-        alert(conTr('con.rx.alertLabelNeedDrug'));
-        return;
-    }
-    printDrugLabel([drug], 'en');
-}
-
-// ── Print single label from rx line (中文) ───────────────────
-function printRxLineLabelZh(btn) {
-    var lineEl = btn.closest('.rx-line-card');
-    if (!lineEl) return;
-    if (!conPatientId || !conPatientData) {
-        alert(conTr('con.rx.alertLabelNeedPatient'));
-        return;
-    }
-    var drug = getDrugFromRxLine(lineEl, 'zh');
-    if (!drug.drug_name) {
-        alert(conTr('con.rx.alertLabelNeedDrug'));
-        return;
-    }
-    printDrugLabel([drug], 'zh');
+    printDrugLabel(lines.map(function(l) {
+        return rxLineToPrintDrug(l, lang, meta);
+    }), lang);
 }
 
 // ── Print single label from saved history row ─────────────────
@@ -8052,6 +8715,7 @@ function saveDrugItem() {
             }
             resetDrugForm();
             loadDrugListTable();
+            rxInvalidateDrugCatalog();
         });
     }
 
@@ -8064,6 +8728,7 @@ function deleteDrugItem(id) {
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         loadDrugListTable();
+        rxInvalidateDrugCatalog();
     });
 }
 
@@ -8351,9 +9016,7 @@ document.addEventListener('app-lang-change', function() {
     if (conPatientId && typeof renderRxLines === 'function' && rxLines && rxLines.length) {
         renderRxLines();
     }
-    if (typeof renderRxStagedList === 'function') {
-        renderRxStagedList();
-    }
+    if (typeof rxRefreshPanelChrome === 'function') rxRefreshPanelChrome();
     if (conPatientId && typeof loadDrugHistory === 'function') {
         loadDrugHistory(conPatientId);
     }

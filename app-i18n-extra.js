@@ -4745,20 +4745,100 @@
         'appt.badge.newWalkin': { en: 'NEW', 'zh-CN': '新', 'zh-Hant': '新' },
 
         'con.rx.addDrugHint': {
-            en: 'Select a drug, then choose how many days — dosage and frequency load automatically.',
-            'zh-CN': '选择药品后，只需选择天数 — 剂量和频次将自动填入。',
-            'zh-Hant': '選擇藥物後，只需選擇天數 — 劑量及次數將自動填入。'
+            en: 'Type to search the Drug Book — dose, frequency and days fill in automatically.',
+            'zh-CN': '输入以搜索药物手册 — 剂量、频次及天数会自动填入。',
+            'zh-Hant': '輸入以搜尋藥物手冊 — 劑量、次數及天數會自動填入。'
         },
-        'con.rx.btnAddDrugLine': { en: '+ Add Drug', 'zh-CN': '+ 添加药品', 'zh-Hant': '+ 新增藥物' },
-        'con.rx.savedLists': { en: '📋 Saved lists', 'zh-CN': '📋 已存清单', 'zh-Hant': '📋 已存清單' },
+        'con.rx.btnAddDrugLine': { en: '+ Add drug', 'zh-CN': '+ 添加药品', 'zh-Hant': '+ 新增藥物' },
+        'con.rx.savedLists': { en: 'Saved lists', 'zh-CN': '已存清单', 'zh-Hant': '已存清單' },
         'con.rx.savedListsTitle': { en: 'Pick a saved multi-drug list', 'zh-CN': '选择已保存的多药清单', 'zh-Hant': '選擇已儲存的多藥清單' },
-        'con.rx.saveAsList': { en: '💾 Save as list', 'zh-CN': '💾 存为清单', 'zh-Hant': '💾 存為清單' },
+        'con.rx.saveAsList': { en: 'Save draft as list…', 'zh-CN': '将草稿存为清单…', 'zh-Hant': '將草稿存為清單…' },
         'con.rx.saveAsListTitle': { en: 'Remember this combination under a name', 'zh-CN': '以名称保存此组合', 'zh-Hant': '以名稱儲存此組合' },
-        'con.rx.savePrescription': { en: '💾 Save Prescription', 'zh-CN': '💾 保存处方', 'zh-Hant': '💾 儲存處方' },
+        'con.rx.savePrescription': { en: 'Save prescription', 'zh-CN': '保存处方', 'zh-Hant': '儲存處方' },
         'con.rx.savePrescriptionReplace': {
-            en: '💾 Save Prescription (Replace)',
-            'zh-CN': '💾 保存处方（替换）',
-            'zh-Hant': '💾 儲存處方（取代）'
+            en: 'Save changes',
+            'zh-CN': '保存修改',
+            'zh-Hant': '儲存修改'
+        },
+        'con.rx.saving': { en: 'Saving…', 'zh-CN': '保存中…', 'zh-Hant': '儲存中…' },
+        'con.rx.editingTitle': { en: 'Editing prescription · {DATE}', 'zh-CN': '编辑处方 · {DATE}', 'zh-Hant': '編輯處方 · {DATE}' },
+        'con.rx.unsaved': { en: 'Unsaved', 'zh-CN': '未保存', 'zh-Hant': '未儲存' },
+        'con.rx.dateTitle': { en: 'Prescription date', 'zh-CN': '处方日期', 'zh-Hant': '處方日期' },
+        'con.rx.doctorMissing': { en: 'Select doctor ↑', 'zh-CN': '请选择医生 ↑', 'zh-Hant': '請選擇醫生 ↑' },
+        'con.rx.doctorChipTitle': {
+            en: 'Prescribing doctor — change it with the consultation doctor picker',
+            'zh-CN': '开方医生 — 请用会诊医生选单更改',
+            'zh-Hant': '開方醫生 — 請用會診醫生選單更改'
+        },
+        'con.rx.needDoctor': {
+            en: 'Select the prescribing doctor in the consultation doctor picker first.',
+            'zh-CN': '请先在会诊医生选单中选择开方医生。',
+            'zh-Hant': '請先在會診醫生選單中選擇開方醫生。'
+        },
+        'con.rx.confirmDiscardDraft': {
+            en: 'Discard the unsaved prescription draft?',
+            'zh-CN': '放弃未保存的处方草稿？',
+            'zh-Hant': '放棄未儲存的處方草稿？'
+        },
+        'con.rx.confirmReplaceSaved': {
+            en: 'Replace the saved prescription of {DATE} ({OLD} drug(s)) with this version ({NEW} drug(s))?',
+            'zh-CN': '以此版本（{NEW} 种药品）取代 {DATE} 的已存处方（{OLD} 种药品）？',
+            'zh-Hant': '以此版本（{NEW} 種藥物）取代 {DATE} 的已存處方（{OLD} 種藥物）？'
+        },
+        'con.rx.replaceOldDeleteFailed': {
+            en: 'The new version was saved, but the old rows could not be removed ({MSG}). Please delete the older copy from the history list.',
+            'zh-CN': '新版本已保存，但未能删除旧记录（{MSG}）。请在记录列表中删除旧的一份。',
+            'zh-Hant': '新版本已儲存，但未能刪除舊紀錄（{MSG}）。請在紀錄列表中刪除舊的一份。'
+        },
+        'con.rx.searchDrugPh': { en: 'Search drug…', 'zh-CN': '搜索药品…', 'zh-Hant': '搜尋藥物…' },
+        'con.rx.noDrugMatch': { en: 'No drug in the Drug Book matches.', 'zh-CN': '药物手册中没有相符药品。', 'zh-Hant': '藥物手冊中沒有相符藥物。' },
+        'con.rx.daysShort': { en: '{N} d', 'zh-CN': '{N} 天', 'zh-Hant': '{N} 天' },
+        'con.rx.removeLine': { en: 'Remove this drug', 'zh-CN': '移除此药品', 'zh-Hant': '移除此藥物' },
+        'con.rx.editLineTitle': { en: 'Click to edit this drug', 'zh-CN': '点击编辑此药品', 'zh-Hant': '按一下編輯此藥物' },
+        'con.rx.lineDoneTitle': { en: 'Done — collapse this drug', 'zh-CN': '完成 — 收起此药品', 'zh-Hant': '完成 — 收起此藥物' },
+        'con.rx.qtyManual': { en: '(set by you)', 'zh-CN': '（手动）', 'zh-Hant': '（手動）' },
+        'con.rx.qtyReset': { en: 'auto', 'zh-CN': '自动', 'zh-Hant': '自動' },
+        'con.rx.qtyResetTitle': {
+            en: 'Recalculate quantity from dose × frequency × days',
+            'zh-CN': '按 剂量 × 频次 × 天数 重新计算数量',
+            'zh-Hant': '按 劑量 × 次數 × 天數 重新計算數量'
+        },
+        'con.rx.allergyBadge': { en: '⚠ Allergy', 'zh-CN': '⚠ 过敏', 'zh-Hant': '⚠ 過敏' },
+        'con.rx.allergyBadgeTitle': {
+            en: 'Patient allergy record mentions “{TERM}”',
+            'zh-CN': '病人过敏记录包含「{TERM}」',
+            'zh-Hant': '病人過敏紀錄包含「{TERM}」'
+        },
+        'con.rx.dupBadge': { en: 'Duplicate', 'zh-CN': '重复', 'zh-Hant': '重複' },
+        'con.rx.needDaysBadge': { en: 'Days needed', 'zh-CN': '需选天数', 'zh-Hant': '需選天數' },
+        'con.rx.offCatalogBadge': { en: 'Not in Drug Book', 'zh-CN': '不在药物手册', 'zh-Hant': '不在藥物手冊' },
+        'con.rx.offCatalogTitle': {
+            en: 'This name is not an active Drug Book entry. Search and pick a drug to link it.',
+            'zh-CN': '此名称不是药物手册中的有效项目。请搜索并选择药品以关联。',
+            'zh-Hant': '此名稱不是藥物手冊中的有效項目。請搜尋並選擇藥物以關聯。'
+        },
+        'con.rx.allergyWarnTitle': { en: '⚠ Drug allergy warning', 'zh-CN': '⚠ 药物过敏警告', 'zh-Hant': '⚠ 藥物過敏警告' },
+        'con.rx.allergyWarnLead': { en: 'Recorded allergy:', 'zh-CN': '已记录过敏：', 'zh-Hant': '已記錄過敏：' },
+        'con.rx.allergyWarnMatch': { en: 'matches “{TERM}”', 'zh-CN': '与「{TERM}」相符', 'zh-Hant': '與「{TERM}」相符' },
+        'con.rx.allergyWarnProceed': { en: 'Prescribe anyway', 'zh-CN': '仍然开方', 'zh-Hant': '仍然開方' },
+        'con.rx.dupWarnTitle': { en: 'Duplicate drug', 'zh-CN': '重复药品', 'zh-Hant': '重複藥物' },
+        'con.rx.dupWarnLead': { en: 'These drugs appear more than once:', 'zh-CN': '以下药品出现多于一次：', 'zh-Hant': '以下藥物出現多於一次：' },
+        'con.rx.dupWarnProceed': { en: 'Save anyway', 'zh-CN': '仍然保存', 'zh-Hant': '仍然儲存' },
+        'con.rx.safetyConfirmPlain': {
+            en: 'Please check before saving (allergy / duplicate):',
+            'zh-CN': '保存前请检查（过敏 / 重复）：',
+            'zh-Hant': '儲存前請檢查（過敏 / 重複）：'
+        },
+        'con.rx.drugCount': { en: '{N} drug(s)', 'zh-CN': '{N} 种药品', 'zh-Hant': '{N} 種藥物' },
+        'con.rx.edit': { en: 'Edit', 'zh-CN': '编辑', 'zh-Hant': '編輯' },
+        'con.rx.moreActions': { en: 'More actions', 'zh-CN': '更多操作', 'zh-Hant': '更多操作' },
+        'con.rx.printDraftEn': { en: 'Print labels (EN)', 'zh-CN': '打印标签（英文）', 'zh-Hant': '列印標籤（英文）' },
+        'con.rx.printDraftZh': { en: 'Print labels (中文)', 'zh-CN': '打印标签（中文）', 'zh-Hant': '列印標籤（中文）' },
+        'con.rx.manageListTitle': { en: 'Manage the Drug Book', 'zh-CN': '管理药物手册', 'zh-Hant': '管理藥物手冊' },
+        'con.rx.confirmDeleteRx': {
+            en: 'Delete this prescription of {DATE} ({N} drug(s))?',
+            'zh-CN': '删除 {DATE} 的此处方（{N} 种药品）？',
+            'zh-Hant': '刪除 {DATE} 的此處方（{N} 種藥物）？'
         },
         'con.rx.prescriptionReplaced': {
             en: '✅ Prescription updated — {N} drug(s) for {NAME}',
@@ -4883,19 +4963,19 @@
         'con.rx.loadingHistory': { en: 'Loading...', 'zh-CN': '加载中…', 'zh-Hant': '載入中…' },
         'con.rx.noRxHistoryShort': { en: 'No prescription history.', 'zh-CN': '无处方记录。', 'zh-Hant': '無處方紀錄。' },
         'con.rx.historyQty': { en: 'Qty:', 'zh-CN': '数量：', 'zh-Hant': '數量：' },
-        'con.rx.printAllEn': { en: '🖨 All EN', 'zh-CN': '🖨 全部英文', 'zh-Hant': '🖨 全部英文' },
-        'con.rx.printAllZh': { en: '🖨 All 中文', 'zh-CN': '🖨 全部中文', 'zh-Hant': '🖨 全部中文' },
+        'con.rx.printAllEn': { en: 'Print all labels (EN)', 'zh-CN': '打印全部标签（英文）', 'zh-Hant': '列印全部標籤（英文）' },
+        'con.rx.printAllZh': { en: 'Print all labels (中文)', 'zh-CN': '打印全部标签（中文）', 'zh-Hant': '列印全部標籤（中文）' },
         'con.rx.historyDrPrefix': { en: 'Dr. ', 'zh-CN': 'Dr. ', 'zh-Hant': 'Dr. ' },
-        'con.rx.reApply': { en: '↻ Re-apply', 'zh-CN': '↻ 重新应用', 'zh-Hant': '↻ 重新套用' },
+        'con.rx.reApply': { en: 'Add to current draft', 'zh-CN': '加入当前草稿', 'zh-Hant': '加入目前草稿' },
         'con.rx.reApplyTitle': { en: 'Add this prescription to the Rx draft below (appends)', 'zh-CN': '将此处方追加至下方草稿', 'zh-Hant': '將此處方追加至下方草稿' },
         'con.rx.editHistClickTitle': {
             en: 'Click to edit this prescription in the Rx form',
             'zh-CN': '点击在处方编辑区修改此处方（含全部药品）',
             'zh-Hant': '按一下在處方編輯區修改此處方（含全部藥物）'
         },
-        'con.rx.saveAsListBtn': { en: '💾 Save as list', 'zh-CN': '💾 存为清单', 'zh-Hant': '💾 存為清單' },
+        'con.rx.saveAsListBtn': { en: 'Save as list…', 'zh-CN': '存为清单…', 'zh-Hant': '存為清單…' },
         'con.rx.saveAsListHistTitle': { en: 'Save this prescription bundle as a named reusable list', 'zh-CN': '将此处方组合存为可重用清单', 'zh-Hant': '將此處方組合存為可重用清單' },
-        'con.rx.deleteAll': { en: '🗑 Delete All', 'zh-CN': '🗑 全部删除', 'zh-Hant': '🗑 全部刪除' },
+        'con.rx.deleteAll': { en: 'Delete prescription', 'zh-CN': '删除此处方', 'zh-Hant': '刪除此處方' },
         'con.rx.deleteRowTitle': {
             en: 'Delete this drug only — keep the rest of the list',
             'zh-CN': '仅删除此药品，保留其余处方',

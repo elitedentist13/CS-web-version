@@ -5970,13 +5970,24 @@ document.addEventListener('DOMContentLoaded', function() {
     g('btnAddPrescription').addEventListener('click', function() {
         toggleDrugAddPanel(true);
     });
-    g('btnCancelRx').addEventListener('click', function() {
-        toggleDrugAddPanel(false);
-    });
+    g('btnCancelRx').addEventListener('click', rxCancelDraft);
     g('btnAddDrugLine').addEventListener('click', addDrugLine);
     g('btnSaveRx').addEventListener('click',      saveFullPrescription);
     if (g('btnRxSaveAsList')) {
-        g('btnRxSaveAsList').addEventListener('click', rxSaveCurrentAsComboList);
+        g('btnRxSaveAsList').addEventListener('click', function() {
+            var more = g('rxDraftMore');
+            if (more) more.removeAttribute('open');
+            rxSaveCurrentAsComboList();
+        });
+    }
+    if (g('btnRxPrintDraftEn')) {
+        g('btnRxPrintDraftEn').addEventListener('click', function() { rxPrintDraftLabels('en'); });
+    }
+    if (g('btnRxPrintDraftZh')) {
+        g('btnRxPrintDraftZh').addEventListener('click', function() { rxPrintDraftLabels('zh'); });
+    }
+    if (g('rxDate')) {
+        g('rxDate').addEventListener('change', rxMarkDirty);
     }
     if (g('btnRxOpenDrugLists')) {
         g('btnRxOpenDrugLists').addEventListener('click', rxOpenDrugListsPicker);

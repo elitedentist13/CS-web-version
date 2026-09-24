@@ -201,7 +201,8 @@ function rxEmptyLine() {
         frequency_code: '', frequency_custom: '',
         duration_code: '', duration_custom: '',
         route_code: '', route_custom: '',
-        quantity_code: '', quantity_custom: ''
+        quantity_code: '', quantity_custom: '',
+        quantity_manual: false
     };
 }
 
@@ -556,15 +557,16 @@ function rxLineQuantityText(line) {
 
 function rxSyncLineLegacyFields(line) {
     if (!line) return line;
-    line.dosage    = rxPhraseDisplay(line, 'dosage', 'en');
-    line.frequency = rxPhraseDisplay(line, 'frequency', 'en');
-    line.duration  = rxPhraseDisplay(line, 'duration', 'en');
-    line.route     = '';
+    function val(v) { return v === '—' ? '' : v; }
+    line.dosage    = val(rxPhraseDisplay(line, 'dosage', 'en'));
+    line.frequency = val(rxPhraseDisplay(line, 'frequency', 'en'));
+    line.duration  = val(rxPhraseDisplay(line, 'duration', 'en'));
+    line.route     = String(line.route || '').trim();
     var qty = rxLineQuantityText(line);
     line.quantity  = qty || '';
-    line.dosage_zh    = rxPhraseDisplay(line, 'dosage', 'zh');
-    line.frequency_zh = rxPhraseDisplay(line, 'frequency', 'zh');
-    line.duration_zh  = rxPhraseDisplay(line, 'duration', 'zh');
+    line.dosage_zh    = val(rxPhraseDisplay(line, 'dosage', 'zh'));
+    line.frequency_zh = val(rxPhraseDisplay(line, 'frequency', 'zh'));
+    line.duration_zh  = val(rxPhraseDisplay(line, 'duration', 'zh'));
     line.route_zh     = '';
     line.quantity_zh  = qty || rxPhraseDisplay(line, 'quantity', 'zh');
     if (line.quantity_zh === '—') line.quantity_zh = qty || '';
@@ -590,6 +592,46 @@ function rxApplyComboTextToLine(line, fieldType, rawText) {
     }
 }
 
+/** Recompute quantity from dose × frequency × days unless the user typed their own. */
+function rxAutoQuantity(line) {
+    if (!line || line.quantity_manual) return;
+    var qty = rxComputeQuantityFromLine(line);
+    if (qty) rxApplyComboTextToLine(line, 'quantity', qty);
+}
+
+/** Quantity typed by the user sticks; clearing it hands control back to auto-calc. */
+function rxSetQuantityFromUser(line) {
+    if (!line) return;
+    var has = !!(String(line.quantity_code || '').trim() ||
+        String(line.quantity_custom || '').trim());
+    if (has) {
+        line.quantity_manual = true;
+        return;
+    }
+    line.quantity_manual = false;
+    line.quantity = '';
+    line.quantity_zh = '';
+    rxAutoQuantity(line);
+}
+
+function rxResetQuantityToAuto(idx) {
+    var line = rxLines[idx];
+    if (!line) return;
+    line.quantity_code = '';
+    line.quantity_custom = '';
+    line.quantity = '';
+    line.quantity_zh = '';
+    line.quantity_manual = false;
+    rxAutoQuantity(line);
+    rxSyncLineLegacyFields(line);
+    rxRefreshLineQuickUi(idx);
+    rxNotifyLineChanged(idx);
+}
+
+function rxNotifyLineChanged(idx) {
+    if (typeof rxOnDraftLineChanged === 'function') rxOnDraftLineChanged(idx);
+}
+
 function rxOnPhraseSelectChange(fieldType, idx) {
     var sel = g('rx-' + fieldType + '-sel-' + idx);
     if (!sel || !rxLines[idx]) return;
@@ -599,25 +641,26 @@ function rxOnPhraseSelectChange(fieldType, idx) {
             inp.focus();
             if (inp.value.trim()) {
                 rxApplyComboTextToLine(rxLines[idx], fieldType, inp.value);
+                if (fieldType === 'quantity') rxSetQuantityFromUser(rxLines[idx]);
             }
         }
-        if (typeof rxSyncLineLegacyFields === 'function') {
-            rxSyncLineLegacyFields(rxLines[idx]);
-        }
-        if (typeof rxRefreshAutoLoadedSummary === 'function') {
-            rxRefreshAutoLoadedSummary(idx);
-        }
+        rxSyncLineLegacyFields(rxLines[idx]);
+        rxRefreshAutoLoadedSummary(idx);
         rxUpdatePhrasePreview(idx);
+        rxNotifyLineChanged(idx);
         return;
     }
     rxApplyComboTextToLine(rxLines[idx], fieldType, sel.value || '');
-    if (fieldType === 'dosage' || fieldType === 'frequency') {
-        var qty = rxComputeQuantityFromLine(rxLines[idx]);
-        if (qty) rxApplyComboTextToLine(rxLines[idx], 'quantity', qty);
+    if (fieldType === 'quantity') {
+        rxSetQuantityFromUser(rxLines[idx]);
+    } else if (fieldType === 'dosage' || fieldType === 'frequency') {
+        rxAutoQuantity(rxLines[idx]);
     }
-    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(rxLines[idx]);
-    if (typeof rxRefreshAutoLoadedSummary === 'function') rxRefreshAutoLoadedSummary(idx);
+    rxSyncLineLegacyFields(rxLines[idx]);
+    rxRefreshAutoLoadedSummary(idx);
+    if (fieldType !== 'quantity') rxRefreshQuantityField(idx);
     rxUpdatePhrasePreview(idx);
+    rxNotifyLineChanged(idx);
 }
 
 function rxOnPhraseCustomInput(fieldType, idx) {
@@ -626,13 +669,16 @@ function rxOnPhraseCustomInput(fieldType, idx) {
     var sel = g('rx-' + fieldType + '-sel-' + idx);
     if (sel) sel.value = '__custom__';
     rxApplyComboTextToLine(rxLines[idx], fieldType, inp.value || '');
-    if (fieldType === 'dosage' || fieldType === 'frequency') {
-        var qty = rxComputeQuantityFromLine(rxLines[idx]);
-        if (qty) rxApplyComboTextToLine(rxLines[idx], 'quantity', qty);
+    if (fieldType === 'quantity') {
+        rxSetQuantityFromUser(rxLines[idx]);
+    } else if (fieldType === 'dosage' || fieldType === 'frequency') {
+        rxAutoQuantity(rxLines[idx]);
     }
-    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(rxLines[idx]);
-    if (typeof rxRefreshAutoLoadedSummary === 'function') rxRefreshAutoLoadedSummary(idx);
+    rxSyncLineLegacyFields(rxLines[idx]);
+    rxRefreshAutoLoadedSummary(idx);
+    if (fieldType !== 'quantity') rxRefreshQuantityField(idx);
     rxUpdatePhrasePreview(idx);
+    rxNotifyLineChanged(idx);
 }
 
 function rxUpdatePhrasePreview(idx) {
@@ -791,36 +837,14 @@ function rxApplyDaysToLine(idx, daysCode) {
     var d = String(daysCode || '').trim();
     if (!d) return;
     rxApplyComboTextToLine(rxLines[idx], 'duration', d);
-    var qty = rxComputeQuantityFromLine(rxLines[idx]);
-    if (qty) {
-        rxApplyComboTextToLine(rxLines[idx], 'quantity', qty);
-    }
-    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(rxLines[idx]);
+    rxAutoQuantity(rxLines[idx]);
+    rxSyncLineLegacyFields(rxLines[idx]);
 }
 
-function rxCanConfirmLine(line) {
-    if (!line || !line.drug_name || !String(line.drug_name).trim()) return false;
-    return !!(line.duration_code ||
+function rxLineHasDays(line) {
+    if (!line) return false;
+    return !!(String(line.duration_code || '').trim() ||
         String(line.duration_custom || line.duration || '').trim());
-}
-
-function rxAddToListBtnMarkup(idx, line) {
-    line = line || {};
-    var enabled = rxCanConfirmLine(line);
-    return (
-        '<button type="button" id="rx-header-add-' + idx + '" class="rx-header-add-btn" ' +
-        (enabled ? '' : 'disabled ') +
-        'title="' + esc(rxTr('con.rx.btnAddToListTitle')) + '" ' +
-        'onclick="rxConfirmLineAndAddNext(' + idx + ')">' +
-        esc(rxTr('con.rx.btnAddToList')) +
-        '</button>'
-    );
-}
-
-function rxRefreshHeaderAddBtn(idx) {
-    var btn = g('rx-header-add-' + idx);
-    if (!btn || !rxLines[idx]) return;
-    btn.disabled = !rxCanConfirmLine(rxLines[idx]);
 }
 
 function rxRefreshPhraseField(idx, fieldType) {
@@ -854,7 +878,6 @@ function rxRefreshLineQuickUi(idx) {
     rxRefreshAutoLoadedSummary(idx);
     rxRefreshDaysField(idx);
     rxRefreshQuantityField(idx);
-    rxRefreshHeaderAddBtn(idx);
 }
 
 function rxNormalizeCatalogFrequency(text) {
@@ -938,38 +961,6 @@ function rxDaysFieldMarkup(idx, line) {
     );
 }
 
-function rxConfirmLineAndAddNext(idx) {
-    if (!rxLines[idx]) return;
-    if (typeof rxSyncLineFromDom === 'function') rxSyncLineFromDom(idx);
-    var line = rxLines[idx];
-    if (!line.drug_name || !String(line.drug_name).trim()) {
-        alert(rxTr('con.rx.alertLabelNeedDrug'));
-        return;
-    }
-    if (!line.duration_code && !String(line.duration_custom || line.duration || '').trim()) {
-        alert(rxTr('con.rx.autoPickDays'));
-        return;
-    }
-    if (typeof rxNormalizeLine === 'function') line = rxNormalizeLine(line);
-    var qty = typeof rxComputeQuantityFromLine === 'function'
-        ? rxComputeQuantityFromLine(line) : '';
-    if (qty) rxApplyComboTextToLine(line, 'quantity', qty);
-    if (typeof rxSyncLineLegacyFields === 'function') rxSyncLineLegacyFields(line);
-    rxLines[idx] = line;
-
-    if (typeof rxCloneSavedLine === 'function' && typeof rxStagedLines !== 'undefined') {
-        rxStagedLines.push(rxCloneSavedLine(line));
-        rxLines[idx] = typeof rxEmptyLine === 'function' ? rxEmptyLine() : {};
-        if (typeof renderRxStagedList === 'function') renderRxStagedList();
-        if (typeof renderRxLines === 'function') renderRxLines();
-    } else if (typeof addDrugLine === 'function') {
-        addDrugLine();
-    }
-    if (typeof showAppGlobalToast === 'function') {
-        showAppGlobalToast(rxTr('con.rx.daysReady'));
-    }
-}
-
 function rxAutoLoadedSummaryMarkup(idx, line) {
     if (!line || !String(line.drug_name || '').trim()) {
         return (
@@ -1001,10 +992,18 @@ function rxAutoLoadedSummaryMarkup(idx, line) {
         parts.push(esc(rxTr('con.rx.labelDuration')) + ' ' +
             esc(drugFormatBilingualDisplay(days, daysZh, lang)));
     }
-    if (qty && qty !== '—') parts.push(esc(rxTr('con.rx.labelQty')) + ' ' + esc(qty));
+    if (qty && qty !== '—') {
+        var qtyHtml = esc(rxTr('con.rx.labelQty')) + ' <strong>' + esc(qty) + '</strong>';
+        if (line.quantity_manual) {
+            qtyHtml +=
+                ' <span class="rx-qty-manual">' + esc(rxTr('con.rx.qtyManual')) + '</span>' +
+                ' <button type="button" class="rx-qty-reset" onclick="rxResetQuantityToAuto(' + idx + ')" ' +
+                'title="' + esc(rxTr('con.rx.qtyResetTitle')) + '">' + esc(rxTr('con.rx.qtyReset')) + '</button>';
+        }
+        parts.push(qtyHtml);
+    }
     return (
         '<div class="rx-auto-summary" id="rx-auto-' + idx + '">' +
-        '<span class="rx-auto-summary__title">' + esc(rxTr('con.rx.autoLoadedTitle')) + '</span> ' +
         (parts.length ? parts.join(' · ') : esc(rxTr('con.rx.autoPickDays'))) +
         '</div>'
     );
@@ -1138,6 +1137,7 @@ function rxOnRemarkBilingualInput(inp) {
     var en = enInp ? enInp.value.trim() : '';
     var zh = zhInp ? zhInp.value.trim() : '';
     rxLines[idx][field] = drugPackBilingualText(en, zh);
+    rxNotifyLineChanged(idx);
 }
 
 function rxOnRemarkPresetPick(sel) {
@@ -1170,8 +1170,10 @@ function rxOnDaysCustomInput(idx) {
             rxSyncLineLegacyFields(rxLines[idx]);
         }
     }
-    rxRefreshLineQuickUi(idx);
-    if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
+    rxRefreshAutoLoadedSummary(idx);
+    rxRefreshQuantityField(idx);
+    rxUpdatePhrasePreview(idx);
+    rxNotifyLineChanged(idx);
 }
 
 function rxOnDaysSelectChange(idx) {
@@ -1186,7 +1188,8 @@ function rxOnDaysSelectChange(idx) {
             if (inp.value.trim()) {
                 rxApplyDaysToLine(idx, inp.value.trim());
                 rxRefreshLineQuickUi(idx);
-                if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
+                rxUpdatePhrasePreview(idx);
+                rxNotifyLineChanged(idx);
             }
         }
         return;
@@ -1195,7 +1198,8 @@ function rxOnDaysSelectChange(idx) {
     var daysInp = g('rx-days-custom-' + idx);
     if (daysInp) daysInp.value = '';
     rxRefreshLineQuickUi(idx);
-    if (typeof rxUpdatePhrasePreview === 'function') rxUpdatePhrasePreview(idx);
+    rxUpdatePhrasePreview(idx);
+    rxNotifyLineChanged(idx);
 }
 
 function rxPhraseFieldMarkup(fieldType, idx, line, labelText) {
@@ -1289,10 +1293,10 @@ function rxHistoryRowToDrug(row, lang) {
     };
 }
 
-function rxDrughistoryRowForSave(line, date, dentist) {
+function rxDrughistoryRowForSave(line, date, dentist, rxGroupId) {
     line = rxNormalizeLine(line);
     rxSyncLineLegacyFields(line);
-    return {
+    var row = {
         patient_id:      conPatientId,
         patient_no:      conPatientData.patient_no  || null,
         patient_name:    conPatientData.full_name,
@@ -1304,7 +1308,7 @@ function rxDrughistoryRowForSave(line, date, dentist) {
         frequency_zh:    line.frequency_zh || null,
         duration:        line.duration || null,
         duration_zh:     line.duration_zh || null,
-        route:           null,
+        route:           String(line.route || '').trim() || null,
         route_zh:        null,
         quantity:        line.quantity || null,
         quantity_zh:     line.quantity_zh || null,
@@ -1315,6 +1319,10 @@ function rxDrughistoryRowForSave(line, date, dentist) {
         doctor_name:     conActiveDoctorName || currentName || null,
         doctor_tag:      conActiveDoctorTag || dentist || null
     };
+    if (rxGroupId) row.rx_group_id = rxGroupId;
+    var drugId = String(line.drug_id || '').trim();
+    if (drugId) row.drug_id = drugId;
+    return row;
 }
 
 function rxStripZhColumns(row) {

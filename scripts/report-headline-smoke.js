@@ -11,7 +11,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-report.js'))) root = process.cwd();
 
-var BUILD = '20260923txsum1';
+var BUILD = '20260924rxpanel2';
 var fails = [];
 
 function pass(name, ok, detail) {
@@ -230,13 +230,15 @@ function sliceOf(src, name) {
     var live = null;
     var livePort = 0;
     var ports = [5500, 8123, 8124];
+    // Prefer the port serving this checkout's BUILD; other checkouts may share the machine.
     for (var pi = 0; pi < ports.length; pi++) {
         try {
-            live = await httpGet('127.0.0.1', ports[pi], '/index.html?_lr=' + BUILD);
-            if (live && live.status === 200) { livePort = ports[pi]; break; }
-        } catch (e) {
-            live = null;
-        }
+            var probe = await httpGet('127.0.0.1', ports[pi], '/index.html?_lr=' + BUILD);
+            if (!probe || probe.status !== 200) continue;
+            var isOurs = probe.body.indexOf("BUILD = '" + BUILD + "'") >= 0;
+            if (!livePort || isOurs) { live = probe; livePort = ports[pi]; }
+            if (isOurs) break;
+        } catch (e) {}
     }
     pass('clinic UI reachable', !!live && live.status === 200, livePort ? (':' + livePort) : 'no listener');
     if (live && live.status === 200) {

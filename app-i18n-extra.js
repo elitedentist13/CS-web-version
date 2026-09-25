@@ -289,6 +289,7 @@
         'patient.adv.saved.transferred': { en: 'Opened in Appointment → Broadcast for mass messaging.', 'zh-CN': '已在 预约 → 群发 中打开，可进行群发。', 'zh-Hant': '已在 預約 → 群發 中開啟，可進行群發。' },
         'patient.page.loading': { en: 'Loading patients...', 'zh-CN': '正在加载患者...', 'zh-Hant': '正在載入病人...' },
         'patient.page.empty': { en: 'No matching patients.', 'zh-CN': '没有符合条件的患者。', 'zh-Hant': '沒有符合條件的病人。' },
+        'patient.page.minChars': { en: 'Type at least 2 characters (or one Chinese character) to search.', 'zh-CN': '请输入至少 2 个字符（或 1 个中文字）以搜索。', 'zh-Hant': '請輸入至少 2 個字元（或 1 個中文字）以搜尋。' },
         'patient.page.summary': { en: 'Showing {FROM}–{TO} of {TOTAL}', 'zh-CN': '显示第 {FROM}–{TO} 条，共 {TOTAL} 条', 'zh-Hant': '顯示第 {FROM}–{TO} 筆，共 {TOTAL} 筆' },
         'patient.page.counter': { en: 'Page {PAGE}/{PAGES}', 'zh-CN': '第 {PAGE}/{PAGES} 页', 'zh-Hant': '第 {PAGE}/{PAGES} 頁' },
         'patient.page.counterDefault': { en: 'Page 1/1', 'zh-CN': '第 1/1 页', 'zh-Hant': '第 1/1 頁' },

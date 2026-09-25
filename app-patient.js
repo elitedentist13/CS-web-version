@@ -914,6 +914,23 @@ function renderPatientDirAdvPage() {
     }
 }
 
+/**
+ * Quick search needs 2+ characters, except a single CJK character (e.g. surname 陳)
+ * which is already selective. One Latin letter / digit would scan every patient.
+ */
+function patientDirSearchLongEnough(q) {
+    var raw = typeof patientSearchNormalizeInputQuery === 'function'
+        ? patientSearchNormalizeInputQuery(q)
+        : String(q || '').trim();
+    if (!raw) return true;
+    if (/[\u3400-\u9fff\uf900-\ufaff]/.test(raw)) return true;
+    return raw.replace(/\s+/g, '').length >= 2;
+}
+
+/**
+ * opts.keepCount: page / page-size / jump changes reuse patientDirTotalCount instead of
+ * re-counting every patient (an exact count over the whole table is ~1s per request).
+ */
 function fetchPatients() {
     var opts = arguments[0] || {};
     if (opts.clearAdv) patientDirAdvFilterList = null;
@@ -931,6 +948,14 @@ function fetchPatients() {
     var qEl = g('searchInput');
     if (qEl) qText = String(qEl.value || '').trim();
 
+    if (qText && !patientDirSearchLongEnough(qText)) {
+        ++patientDirFetchToken;
+        var hintEl = g('patientDirPagerInfo');
+        if (hintEl) hintEl.textContent = patTr('patient.page.minChars');
+        return;
+    }
+
+    var reuseCount = !!opts.keepCount && patientDirTotalCount > 0;
     var from = patientDirPageIndex * PATIENT_DIR_PAGE_SIZE;
     var to = from + PATIENT_DIR_PAGE_SIZE - 1;
     var token = ++patientDirFetchToken;
@@ -949,7 +974,7 @@ function fetchPatients() {
 
     function runQuery(useCoreFilterFallback) {
         var q = SB.from('patients')
-            .select('*', { count: 'exact' })
+            .select('*', reuseCount ? undefined : { count: 'exact' })
             .order('patient_no', { ascending: true });
         q = typeof applyPatientQueryClinicTag === 'function'
             ? applyPatientQueryClinicTag(q, 'patientDirClinicFilter')
@@ -969,9 +994,11 @@ function fetchPatients() {
             return;
         }
         patientListCache = r.data || [];
-        patientDirTotalCount = typeof r.count === 'number'
-            ? r.count
-            : ((patientDirPageIndex * PATIENT_DIR_PAGE_SIZE) + patientListCache.length);
+        if (typeof r.count === 'number') {
+            patientDirTotalCount = r.count;
+        } else if (!reuseCount) {
+            patientDirTotalCount = (patientDirPageIndex * PATIENT_DIR_PAGE_SIZE) + patientListCache.length;
+        }
         if (patientDirPageIndex > 0 && !patientListCache.length && patientDirTotalCount > 0) {
             patientDirPageIndex = Math.max(0, Math.ceil(patientDirTotalCount / PATIENT_DIR_PAGE_SIZE) - 1);
             fetchPatients();
@@ -1258,7 +1285,7 @@ function schedulePatientDirSearch() {
             }
         }
         fetchPatients({ resetPage: true, clearAdv: true });
-    }, 220);
+    }, 300);
 }
 
 function patientDirChangePage(delta) {
@@ -1270,7 +1297,7 @@ function patientDirChangePage(delta) {
     if (target > max) target = max;
     if (target === patientDirPageIndex) return;
     patientDirPageIndex = target;
-    fetchPatients();
+    fetchPatients({ keepCount: true });
 }
 
 function patientDirApplyPageSize() {
@@ -1285,7 +1312,7 @@ function patientDirApplyPageSize() {
     PATIENT_DIR_PAGE_SIZE = n;
     patientDirPageIndex = 0;
     setPatientDirJumpHint('');
-    fetchPatients();
+    fetchPatients({ keepCount: true });
 }
 
 function patientDirJumpToPage(rawValue) {
@@ -1310,7 +1337,7 @@ function patientDirJumpToPage(rawValue) {
     if (target === patientDirPageIndex) return;
     patientDirPageIndex = target;
     if (jumpInp) jumpInp.value = '';
-    fetchPatients();
+    fetchPatients({ keepCount: true });
 }
 
 function onPatientDirClinicFilterChange() {

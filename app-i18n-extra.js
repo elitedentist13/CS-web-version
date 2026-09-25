@@ -5704,6 +5704,88 @@
 
         'media.refresh': { en: '↻ Refresh', 'zh-CN': '↻ 刷新', 'zh-Hant': '↻ 重新整理' },
         'media.uploadXray': { en: '📤 Upload X-Ray', 'zh-CN': '📤 上传 X 光', 'zh-Hant': '📤 上載 X 光片' },
+        'media.xcap.launchBtn': { en: '🍌 X-ray Helper', 'zh-CN': '🍌 X 光助手', 'zh-Hant': '🍌 X 光助手' },
+        'media.xcap.launchTitle': {
+            en: 'Floating yellow bar that stays above the X-ray software: press ✂ Selection, drag over the X-ray, and it uploads to this patient',
+            'zh-CN': '浮于 X 光软件上方的黄色小工具栏：按 ✂ 选取，拖选 X 光范围，即上传到此病人',
+            'zh-Hant': '浮於 X 光軟件上方的黃色小工具列：按 ✂ 選取，拖選 X 光範圍，即上載到此病人'
+        },
+        'media.xcap.helperName': { en: 'X-ray Helper', 'zh-CN': 'X 光助手', 'zh-Hant': 'X 光助手' },
+        'media.xcap.title': { en: 'Crop X-ray', 'zh-CN': '裁剪 X 光', 'zh-Hant': '裁剪 X 光片' },
+        'media.xcap.selectionBtn': { en: '✂ Selection', 'zh-CN': '✂ 选取', 'zh-Hant': '✂ 選取' },
+        'media.xcap.selectionTitle': {
+            en: 'Dim the screen and drag over the X-ray; releasing the mouse crops it',
+            'zh-CN': '屏幕变暗后拖选 X 光范围，放开鼠标即裁剪',
+            'zh-Hant': '畫面變暗後拖選 X 光範圍，放開滑鼠即裁剪'
+        },
+        'media.xcap.whole': { en: 'Whole screen', 'zh-CN': '整个画面', 'zh-Hant': '整個畫面' },
+        'media.xcap.retake': { en: 'Retake', 'zh-CN': '重新截取', 'zh-Hant': '重新擷取' },
+        'media.xcap.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
+        'media.xcap.confirm': { en: 'Crop ✓', 'zh-CN': '裁剪 ✓', 'zh-Hant': '裁剪 ✓' },
+        'media.xcap.hint': {
+            en: 'Drag to select the X-ray. Drag the box or its handles to adjust; arrow keys nudge; Enter crops, Esc cancels.',
+            'zh-CN': '拖动选取 X 光范围；可拖动框或控点调整，方向键微调；Enter 裁剪，Esc 取消。',
+            'zh-Hant': '拖動選取 X 光範圍；可拖動框或控點調整，方向鍵微調；Enter 裁剪，Esc 取消。'
+        },
+        'media.xcap.snipHint': {
+            en: 'Drag over the X-ray — releasing the mouse crops it (Esc cancels)',
+            'zh-CN': '拖选 X 光范围 — 放开鼠标即裁剪（Esc 取消）',
+            'zh-Hant': '拖選 X 光範圍 — 放開滑鼠即裁剪（Esc 取消）'
+        },
+        'media.xcap.sourceSize': { en: 'Screen {W}×{H}', 'zh-CN': '画面 {W}×{H}', 'zh-Hant': '畫面 {W}×{H}' },
+        'media.xcap.preparing': { en: 'Cropping…', 'zh-CN': '裁剪中…', 'zh-Hant': '裁剪中…' },
+        'media.xcap.failed': { en: 'X-ray Helper: {MSG}', 'zh-CN': 'X 光助手：{MSG}', 'zh-Hant': 'X 光助手：{MSG}' },
+        'media.xcap.unsupported': {
+            en: 'Screen capture is not available in this browser. Use Chrome or Edge (latest) on this computer.',
+            'zh-CN': '此浏览器不支持屏幕截取，请在本机使用最新版 Chrome 或 Edge。',
+            'zh-Hant': '此瀏覽器不支援螢幕擷取，請在本機使用最新版 Chrome 或 Edge。'
+        },
+        'media.xcap.uploadTo': { en: 'Upload to:', 'zh-CN': '上传到：', 'zh-Hant': '上載到：' },
+        'media.xcap.backToCrop': { en: '← Re-select', 'zh-CN': '← 重新选取', 'zh-Hant': '← 重新選取' },
+        'media.xcap.noPatient': {
+            en: 'Open a patient in Banana first',
+            'zh-CN': '请先在 Banana 打开病人',
+            'zh-Hant': '請先在 Banana 開啟病人'
+        },
+        'media.xcap.sharingOn': { en: 'Screen shared', 'zh-CN': '已共享屏幕', 'zh-Hant': '已分享畫面' },
+        'media.xcap.sharingOff': { en: 'Screen not shared', 'zh-CN': '未共享屏幕', 'zh-Hant': '未分享畫面' },
+        'media.xcap.shareBtn': { en: 'Share screen', 'zh-CN': '共享屏幕', 'zh-Hant': '分享畫面' },
+        'media.xcap.stopShare': { en: 'Stop', 'zh-CN': '停止', 'zh-Hant': '停止' },
+        'media.xcap.closeHelper': { en: 'Close helper', 'zh-CN': '关闭助手', 'zh-Hant': '關閉助手' },
+        'media.xcap.tipCapture': {
+            en: 'When the X-ray appears, press ✂ Selection',
+            'zh-CN': 'X 光出现后按 ✂ 选取',
+            'zh-Hant': 'X 光出現後按 ✂ 選取'
+        },
+        'media.xcap.tipShare': {
+            en: 'Share the X-ray software window (or screen) first',
+            'zh-CN': '请先共享 X 光软件窗口（或整个屏幕）',
+            'zh-Hant': '請先分享 X 光軟件視窗（或整個畫面）'
+        },
+        'media.xcap.dragToHeader': {
+            en: '↑ Drag me to the X-ray app\'s top bar',
+            'zh-CN': '↑ 请把我拖到 X 光软件顶部',
+            'zh-Hant': '↑ 請把我拖到 X 光軟件頂部'
+        },
+        'media.xcap.nowSelect': {
+            en: 'Sharing on — press ✂ Selection',
+            'zh-CN': '已共享 — 请按 ✂ 选取',
+            'zh-Hant': '已分享 — 請按 ✂ 選取'
+        },
+        'media.xcap.shareCancelled': { en: 'Screen sharing was cancelled', 'zh-CN': '已取消屏幕共享', 'zh-Hant': '已取消畫面分享' },
+        'media.xcap.grabbing': { en: 'Capturing…', 'zh-CN': '截取中…', 'zh-Hant': '擷取中…' },
+        'media.xcap.continueInBanana': {
+            en: 'Finish the upload panel in Banana',
+            'zh-CN': '请在 Banana 完成上传面板',
+            'zh-Hant': '請在 Banana 完成上載面板'
+        },
+        'media.xcap.selectInBanana': {
+            en: 'Drag over the X-ray in Banana…',
+            'zh-CN': '请在 Banana 拖选 X 光范围…',
+            'zh-Hant': '請在 Banana 拖選 X 光範圍…'
+        },
+        'media.xcap.greyscale': { en: '8-bit greyscale', 'zh-CN': '8 位灰阶', 'zh-Hant': '8 位元灰階' },
+        'media.xcap.saved': { en: '✓ Saved to {NAME}', 'zh-CN': '✓ 已保存到 {NAME}', 'zh-Hant': '✓ 已儲存到 {NAME}' },
         'media.uploadPhoto': { en: '📤 Upload Photo', 'zh-CN': '📤 上传照片', 'zh-Hant': '📤 上載相片' },
         'media.exportSelected': { en: '📥 Export Selected', 'zh-CN': '📥 导出所选', 'zh-Hant': '📥 匯出所選' },
         'media.exportAll': { en: '📦 Export All', 'zh-CN': '📦 全部导出', 'zh-Hant': '📦 全部匯出' },

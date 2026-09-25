@@ -1066,7 +1066,7 @@
   </div>
 
   <div class="patient-dir-pager">
-    <div id="patientDirPagerInfo" class="patient-dir-pager-info" data-i18n="patient.page.empty"></div>
+    <div id="patientDirPagerInfo" class="patient-dir-pager-info"></div>
     <div class="patient-dir-pager-actions">
       <label for="patientDirPageSize" class="patient-dir-page-size-label" data-i18n="patient.page.sizeLabel"></label>
       <select id="patientDirPageSize" class="patient-dir-page-size-select">
@@ -1075,7 +1075,7 @@
         <option value="200">200</option>
       </select>
       <button type="button" id="patientDirPrevBtn" class="patient-dir-page-btn" data-i18n="patient.page.prev"></button>
-      <div id="patientDirPageLabel" class="patient-dir-page-label" data-i18n="patient.page.counterDefault"></div>
+      <div id="patientDirPageLabel" class="patient-dir-page-label"></div>
       <button type="button" id="patientDirNextBtn" class="patient-dir-page-btn" data-i18n="patient.page.next"></button>
       <label for="patientDirJumpPageInput" class="patient-dir-jump-label" data-i18n="patient.page.jumpLabel"></label>
       <input type="number" id="patientDirJumpPageInput" class="patient-dir-jump-input"
@@ -3436,6 +3436,8 @@
         <!-- Upload -->
         <div class="xray-action-group">
           <label class="xray-upload-btn" for="xrayFileInput" data-i18n="media.uploadXray"></label>
+          <button type="button" id="btnXrayHelper" class="xray-helper-btn" onclick="xrayHelperLaunch()"
+                  aria-pressed="false" data-i18n="media.xcap.launchBtn" data-i18n-title="media.xcap.launchTitle"></button>
           <input type="file" id="xrayFileInput" multiple
                  accept="image/*,.dcm,.jpg,.jpeg,.png,.bmp,.tiff,.tif"
                  style="display:none;">
@@ -7504,8 +7506,8 @@
 (function () {
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
-    'app-i18n.js',
-    'app-i18n-extra.js?v=20260917xrayup2',
+    'app-i18n.js?v=20260926xcap3',
+    'app-i18n-extra.js?v=20260926focus1',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20260915billdr1',
@@ -7520,7 +7522,7 @@
     'app-ai-helper.js',
     'app-memo-ai.js',
     'app-photos.js',
-    'app-patient.js',
+    'app-patient.js?v=20260926xcap3',
     'app-patient-advanced-search.js',
     'app-patient-views.js',
     'cal-doctor-colors.js',
@@ -7533,7 +7535,8 @@
     'app-consultation.js',
     'app-con-dictation-fix.js',
     'app-con-notes.js',
-    'app-xray.js?v=20260917xrayup2',
+    'app-xray.js?v=20260926xcap1',
+    'app-xray-capture.js?v=20260926focus2',
     'app-xray-link.js?v=20260917xrayup2',
     'app-nnt-scans.js?v=20260828myray5',
     'app-xray-ai.js?v=20260909aidlg1',

@@ -601,6 +601,10 @@ function setAppLang(lang, opts) {
     if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
         try {
             window.dispatchEvent(new CustomEvent('app-lang-change', { detail: { lang: appUiLang } }));
+            // Most modules listen on document; a window event never reaches them.
+            if (typeof document !== 'undefined') {
+                document.dispatchEvent(new CustomEvent('app-lang-change', { detail: { lang: appUiLang } }));
+            }
         } catch (eLangEvt) { /* ignore */ }
     }
 }

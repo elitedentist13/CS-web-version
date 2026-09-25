@@ -11022,6 +11022,29 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 .xray-upload-btn:hover { background: #006fd6; }
 
+.xray-helper-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #fde047;
+    color: #713f12;
+    border: 1px solid #eab308;
+    padding: 8px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 800;
+    font-size: 13px;
+    white-space: nowrap;
+    transition: background 0.2s, box-shadow 0.2s;
+}
+.xray-helper-btn:hover { background: #facc15; }
+.xray-helper-btn.is-on {
+    background: #1e293b;
+    color: #fde047;
+    border-color: #0f172a;
+    box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.45);
+}
+
 .xray-upload-hint {
     font-size: 11px;
     color: #aaa;

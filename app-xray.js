@@ -2257,6 +2257,7 @@ function xrayFinishUploadQueue() {
     if (window.__JOYFUL_RT_SYNC__ && typeof window.__JOYFUL_RT_SYNC__.nudge === 'function') {
         window.__JOYFUL_RT_SYNC__.nudge('xray');
     }
+    if (typeof xrayCaptureAfterUpload === 'function') xrayCaptureAfterUpload();
 }
 
 function processNextUpload() {
@@ -2372,9 +2373,16 @@ function xrayGuardUploadTarget() {
     return null;
 }
 
-function uploadSingleXrayFile(file, type, date, notes, onDone) {
+function uploadSingleXrayFile(file, type, date, notes, onDone, onError) {
+    function reportErr(title, html) {
+        showXrayError(title, html);
+        if (onError) onError(title);
+    }
     var target = xrayGuardUploadTarget();
-    if (!file || !target) return;
+    if (!file || !target) {
+        if (file && onError) onError(mediaTr('con.forms.alertSelectPatient'));
+        return;
+    }
     var destId = target.id;
     var destNo = target.patient_no || null;
     var destName = target.full_name || null;
@@ -2407,12 +2415,12 @@ function uploadSingleXrayFile(file, type, date, notes, onDone) {
             var msg = r.error.message || mediaTr('media.err.unknown');
 
             if (msg.toLowerCase().includes('bucket not found')) {
-                showXrayError(
+                reportErr(
                     mediaTr('media.err.bucketNotFoundTitle'),
                     mediaTrRepl('media.err.bucketNotFoundHtml', { BUCKET: XRAY_BUCKET })
                 );
             } else if (/policy|unauthorized|not allowed/i.test(msg)) {
-                showXrayError(
+                reportErr(
                     mediaTr('media.err.permissionTitle'),
                     mediaTrRepl('media.err.permissionHtml', { BUCKET: XRAY_BUCKET })
                 );
@@ -2425,9 +2433,19 @@ function uploadSingleXrayFile(file, type, date, notes, onDone) {
                         cacheControl: '3600',
                         upsert      : true,
                         contentType : contentType
+                    })
+                    .then(function (r2) {
+                        if (r2.error) {
+                            reportErr(
+                                mediaTr('media.err.uploadFailedTitle'),
+                                esc(mediaTrRepl('media.alert.error', { MSG: r2.error.message || '' }))
+                            );
+                            return null;
+                        }
+                        return { ok: true, path: safeName };
                     });
             } else {
-                showXrayError(
+                reportErr(
                     mediaTr('media.err.uploadFailedTitle'),
                     esc(mediaTrRepl('media.alert.error', { MSG: msg }))
                 );
@@ -2462,7 +2480,7 @@ function uploadSingleXrayFile(file, type, date, notes, onDone) {
         if (!r) return;
         if (r.error) {
             showUploadProgress(false);
-            showXrayError(
+            reportErr(
                 mediaTr('media.err.dbTitle'),
                 mediaTrRepl('media.err.dbHtml', { MSG: r.error.message })
             );
@@ -2477,7 +2495,7 @@ function uploadSingleXrayFile(file, type, date, notes, onDone) {
     })
     .catch(function(err) {
         showUploadProgress(false);
-        showXrayError(
+        reportErr(
             mediaTr('media.err.unexpectedTitle'),
             esc(err.message || String(err))
         );

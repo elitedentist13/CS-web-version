@@ -1,14 +1,23 @@
-# Silent Banana autostart: keep http://127.0.0.1:5500 serving, then open index.html.
+# Silent Banana autostart: keep the clinic web UI serving (:5500, or :8123 when Windows
+# has reserved 5500), bring up the rest of the local stack via tools\ensure-clinic-stack.ps1
+# (X-ray launcher :17890, X-ray AI :8877 when already installed), then open index.html.
 # Called hidden at Windows logon via start-banana-hidden.vbs (Startup folder shortcut).
+#
+#   -ServerOnly   only make sure the web UI is serving (used by ensure-clinic-stack.ps1)
+#   -NoStack      skip ensure-clinic-stack.ps1 (web UI + browser only, old behaviour)
 param(
     [switch]$InstallStartup,
-    [switch]$UninstallStartup
+    [switch]$UninstallStartup,
+    [switch]$ServerOnly,
+    [switch]$NoStack
 )
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$url = 'http://127.0.0.1:5500/index.html'
-$port = 5500
+$primaryPort = 5500
+$fallbackPort = 8123
+$port = $primaryPort
+$url = "http://127.0.0.1:$port/index.html"
 $shortcutName = 'Banana Clinic.lnk'
 $logPath = Join-Path $env:TEMP 'banana-autostart.log'
 
@@ -34,7 +43,7 @@ function Install-StartupShortcut {
     $shortcut.Arguments = '"' + $vbs + '"'
     $shortcut.WorkingDirectory = $root
     $shortcut.WindowStyle = 7
-    $shortcut.Description = 'Start Banana local server and open index.html'
+    $shortcut.Description = 'Start Banana local server + X-ray services and open index.html'
     $shortcut.Save()
     Write-Log "Installed Startup shortcut: $path"
     return $path
@@ -56,8 +65,26 @@ if ($InstallStartup) {
     $path = Install-StartupShortcut
     Write-Host "Startup shortcut installed:"
     Write-Host "  $path"
-    Write-Host "Banana will open at $url after the next Windows sign-in."
+    Write-Host "Banana will open after the next Windows sign-in (:$primaryPort, or :$fallbackPort if Windows reserved $primaryPort),"
+    Write-Host "and the X-ray launcher / X-ray AI helper will be started if they are down."
     return
+}
+
+function Set-ServingPort([int]$NewPort) {
+    $script:port = $NewPort
+    $script:url = "http://127.0.0.1:$NewPort/index.html"
+}
+
+# False when Windows has the port in an excluded range (Hyper-V / WinNAT) or it is taken.
+function Test-PortBindable([int]$Port) {
+    try {
+        $l = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $Port)
+        $l.Start()
+        $l.Stop()
+        return $true
+    } catch {
+        return $false
+    }
 }
 
 function Test-PortOpen {
@@ -134,15 +161,48 @@ function Start-BananaServer {
     Write-Log 'No local server available (missing node/live-server and serve-static.ps1).'
 }
 
-# Give Explorer a moment after logon so the browser window lands on the desktop.
-Start-Sleep -Seconds 2
-
-if (-not (Test-PortOpen)) {
+function Ensure-BananaServer {
+    if (Test-PortOpen) {
+        Write-Log "Port $port already in use; using $url"
+        return $true
+    }
+    Set-ServingPort $fallbackPort
+    if (Test-PortOpen) {
+        Write-Log "Primary :$primaryPort down but fallback :$fallbackPort is serving; using $url"
+        return $true
+    }
+    if (Test-PortBindable $primaryPort) {
+        Set-ServingPort $primaryPort
+    } else {
+        Write-Log "Port $primaryPort cannot be bound (Windows excluded range or in use); using fallback :$fallbackPort"
+    }
     Start-BananaServer
     $ready = Wait-UntilServing
     Write-Log $(if ($ready) { "Server ready at $url" } else { "Timed out waiting for $url" })
-} else {
-    Write-Log "Port $port already in use; opening $url"
+    return $ready
+}
+
+if ($ServerOnly) {
+    $ok = Ensure-BananaServer
+    Write-Host $(if ($ok) { "Clinic web UI: $url" } else { "[WARN] Clinic web UI did not come up ($url). See $logPath" })
+    return
+}
+
+# Give Explorer a moment after logon so the browser window lands on the desktop.
+Start-Sleep -Seconds 2
+
+Ensure-BananaServer | Out-Null
+
+if (-not $NoStack) {
+    $stack = Join-Path $root 'tools\ensure-clinic-stack.ps1'
+    if (Test-Path -LiteralPath $stack) {
+        try {
+            Write-Log 'Running tools\ensure-clinic-stack.ps1 -Logon -SkipApp'
+            & $stack -Logon -SkipApp *>> $logPath
+        } catch {
+            Write-Log "ensure-clinic-stack.ps1 failed: $($_.Exception.Message)"
+        }
+    }
 }
 
 try {

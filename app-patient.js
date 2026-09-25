@@ -933,8 +933,25 @@ function patientDirSearchLongEnough(q) {
  * opts.keepCount: page / page-size / jump changes reuse patientDirTotalCount instead of
  * re-counting every patient (an exact count over the whole table is ~1s per request).
  */
+var patientDirPageSizeLoadedFor = null;
+
+function patientDirPageSizeStorageKey() {
+    return 'joyful_patient_dir_page_size_v1:' +
+        (typeof currentUserId !== 'undefined' && currentUserId ? currentUserId : 'anon');
+}
+
+function restorePatientDirPageSizeForUser() {
+    var uid = typeof currentUserId !== 'undefined' ? (currentUserId || null) : null;
+    if (patientDirPageSizeLoadedFor === uid) return;
+    patientDirPageSizeLoadedFor = uid;
+    var n = 0;
+    try { n = parseInt(localStorage.getItem(patientDirPageSizeStorageKey()), 10); } catch (_) {}
+    if (PATIENT_DIR_PAGE_SIZE_OPTIONS.indexOf(n) >= 0) PATIENT_DIR_PAGE_SIZE = n;
+}
+
 function fetchPatients() {
     var opts = arguments[0] || {};
+    restorePatientDirPageSizeForUser();
     if (opts.clearAdv) patientDirAdvFilterList = null;
     // Stay on the Advanced Search result set for pager / page-size changes.
     if (patientDirAdvFilterList != null && !opts.clearAdv && !opts.forceLive) {
@@ -1529,6 +1546,11 @@ function filterTable() {
     schedulePatientDirSearch();
 }
 
+function patientDirFmtInt(n) {
+    var v = Number(n) || 0;
+    try { return v.toLocaleString('en-US'); } catch (_) { return String(v); }
+}
+
 function refreshPatientDirPaginationUI(isLoading) {
     var info = g('patientDirPagerInfo');
     var prev = g('patientDirPrevBtn');
@@ -1550,13 +1572,16 @@ function refreshPatientDirPaginationUI(isLoading) {
         info.textContent = patTr('patient.page.empty');
     } else {
         info.textContent = patTrRepl('patient.page.summary', {
-            FROM: from,
-            TO: to,
-            TOTAL: total
+            FROM: patientDirFmtInt(from),
+            TO: patientDirFmtInt(to),
+            TOTAL: patientDirFmtInt(total)
         });
     }
 
-    lbl.textContent = patTrRepl('patient.page.counter', { PAGE: curPage, PAGES: pageCount });
+    lbl.textContent = patTrRepl('patient.page.counter', {
+        PAGE: patientDirFmtInt(curPage),
+        PAGES: patientDirFmtInt(pageCount)
+    });
     prev.disabled = !!isLoading || patientDirPageIndex <= 0 || !total;
     next.disabled = !!isLoading || (patientDirPageIndex + 1) >= pageCount || !total;
     if (pageSizeSel) pageSizeSel.value = String(PATIENT_DIR_PAGE_SIZE);
@@ -1611,6 +1636,7 @@ function patientDirApplyPageSize() {
     }
     if (n === PATIENT_DIR_PAGE_SIZE) return;
     PATIENT_DIR_PAGE_SIZE = n;
+    try { localStorage.setItem(patientDirPageSizeStorageKey(), String(n)); } catch (_) {}
     patientDirPageIndex = 0;
     setPatientDirJumpHint('');
     fetchPatients({ keepCount: true });

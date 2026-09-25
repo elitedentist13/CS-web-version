@@ -378,6 +378,7 @@
         'patient.th.clinicTag': { en: 'Clinic tag', 'zh-CN': '诊所标签', 'zh-Hant': '診所標籤' },
         'patient.th.dob': { en: 'DOB', 'zh-CN': '出生日期', 'zh-Hant': '出生日期' },
         'patient.th.hkid': { en: 'HKID', 'zh-CN': '香港身份证', 'zh-Hant': '香港身份證' },
+        'patient.dir.moreActions': { en: 'More actions (Duplicate, Appt Reminder)', 'zh-CN': '更多操作（复制到诊所、覆诊提醒）', 'zh-Hant': '更多操作（複製到診所、覆診提醒）' },
         'patient.th.insurance': { en: 'Insurance No.', 'zh-CN': '保险编号', 'zh-Hant': '保險編號' },
         'patient.th.alerts': { en: 'Alerts', 'zh-CN': '警示', 'zh-Hant': '警示' },
         'patient.alertCol.history': { en: 'Hx', 'zh-CN': '病史', 'zh-Hant': '病史' },

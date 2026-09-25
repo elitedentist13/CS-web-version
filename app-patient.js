@@ -1034,6 +1034,72 @@ function fetchPatients() {
     });
 }
 
+function closePatientDirMoreMenus(exceptMenu) {
+    document.querySelectorAll('#patientTableBody .patient-dir-more-menu').forEach(function (m) {
+        if (m === exceptMenu || m.hidden) return;
+        m.hidden = true;
+        var btn = m.parentNode && m.parentNode.querySelector('.patient-dir-more-btn');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+        var tr = m.closest('tr');
+        if (tr) tr.classList.remove('patient-dir-row-menu-open');
+    });
+}
+
+function togglePatientDirMoreMenu(btn) {
+    var menu = btn && btn.parentNode && btn.parentNode.querySelector('.patient-dir-more-menu');
+    if (!menu) return;
+    closePatientDirMoreMenus(menu);
+    var open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    var tr = btn.closest('tr');
+    if (tr) tr.classList.toggle('patient-dir-row-menu-open', open);
+    if (open) {
+        // Open upwards when the row sits near the bottom of the window.
+        var r = btn.getBoundingClientRect();
+        menu.classList.toggle('is-up', (window.innerHeight - r.bottom) < 110);
+        var first = menu.querySelector('button');
+        if (first) first.focus();
+    }
+}
+
+function syncPatientDirStickyOffsets() {
+    var pager = document.querySelector('.patient-dir-pager');
+    var host = pager && pager.parentElement;
+    if (!host) return;
+    var strip = document.getElementById('appSessionStrip');
+    var top = 0;
+    if (strip && getComputedStyle(strip).position === 'fixed' && strip.offsetHeight) {
+        top = Math.max(0, Math.round(strip.getBoundingClientRect().bottom));
+    }
+    host.style.setProperty('--pd-sticky-top', top + 'px');
+    host.style.setProperty('--pd-sticky-thead-top', (top + (pager.offsetHeight || 0)) + 'px');
+}
+
+(function initPatientDirStickyOffsets() {
+    function start() {
+        syncPatientDirStickyOffsets();
+        if (typeof ResizeObserver === 'function') {
+            var ro = new ResizeObserver(syncPatientDirStickyOffsets);
+            var pager = document.querySelector('.patient-dir-pager');
+            var strip = document.getElementById('appSessionStrip');
+            if (pager) ro.observe(pager);
+            if (strip) ro.observe(strip);
+        }
+        window.addEventListener('resize', syncPatientDirStickyOffsets);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+})();
+
+document.addEventListener('click', function (e) {
+    if (e.target && e.target.closest && e.target.closest('.patient-dir-more')) return;
+    closePatientDirMoreMenus();
+});
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closePatientDirMoreMenus();
+});
+
 function renderPatients(list) {
     patientListCache = list || [];
     var tb = g('patientTableBody');
@@ -1099,40 +1165,32 @@ function renderPatients(list) {
             '<td class="patient-dir-banana-cell">' +
                 (typeof patientDirBananaCellHtml === 'function' ? patientDirBananaCellHtml(p) : '-') +
             '</td>' +
-            '<td>' +
-                '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-                    '<button class="btn-notes" ' +
-                    'style="background:#f0f0f0;border:1px solid #ccc;' +
-                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
-                    'data-id="'+p.id+'">' + esc(patTr('patient.btnNotes')) + '</button>' +
-                    '<button class="btn-checkin-p" ' +
-                    'style="background:var(--success);color:white;border:none;' +
-                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
-                    'data-id="'+p.id+'">' + esc(patTr('patient.btnCheckIn')) + '</button>' +
-                    '<button class="btn-editp" ' +
-                    'style="background:var(--primary);color:white;border:none;' +
-                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
-                    'data-id="'+p.id+'">' +
-                    esc(currentRole === 'nurse' ? patTr('patient.btnClinicTag') : patTr('patient.btnEdit')) +
+            '<td class="patient-dir-actions-cell">' +
+                '<div class="patient-dir-actions">' +
+                    '<button type="button" class="pd-act pd-act--notes btn-notes" data-id="' + esc(p.id) + '">' +
+                        esc(patTr('patient.btnNotes')) + '</button>' +
+                    '<button type="button" class="pd-act pd-act--checkin btn-checkin-p" data-id="' + esc(p.id) + '">' +
+                        esc(patTr('patient.btnCheckIn')) + '</button>' +
+                    '<button type="button" class="pd-act pd-act--edit btn-editp" data-id="' + esc(p.id) + '">' +
+                        esc(currentRole === 'nurse' ? patTr('patient.btnClinicTag') : patTr('patient.btnEdit')) +
                     '</button>' +
-                    '<button class="btn-dup-clinic" ' +
-                    'style="background:#0f766e;color:white;border:none;' +
-                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
-                    'data-id="'+p.id+'">' +
-                    esc(patTr('patient.dup.btn')) +
-                    '</button>' +
-                    '<button class="btn-appt-reminder" ' +
-                    'style="background:#f59e0b;color:white;border:none;' +
-                    'padding:6px 12px;border-radius:4px;cursor:pointer;font-size:13px;" ' +
-                    'data-id="'+p.id+'">' +
-                    esc(patTr('patient.apptReminder.btn')) +
-                    '</button>' +
+                    '<div class="patient-dir-more">' +
+                        '<button type="button" data-no-click-guard="1" class="pd-act pd-act--more patient-dir-more-btn" aria-haspopup="true" aria-expanded="false"' +
+                            ' title="' + esc(patTr('patient.dir.moreActions')) + '" aria-label="' + esc(patTr('patient.dir.moreActions')) + '">⋯</button>' +
+                        '<div class="patient-dir-more-menu" role="menu" hidden>' +
+                            '<button type="button" role="menuitem" class="pd-more-item btn-dup-clinic" data-id="' + esc(p.id) + '">' +
+                                esc(patTr('patient.dup.btn')) + '</button>' +
+                            '<button type="button" role="menuitem" class="pd-more-item btn-appt-reminder" data-id="' + esc(p.id) + '">' +
+                                esc(patTr('patient.apptReminder.btn')) + '</button>' +
+                        '</div>' +
+                    '</div>' +
                 '</div>' +
             '</td>';
         tr.addEventListener('click', function(e) {
             var tgt = e.target;
             if (tgt && tgt.closest &&
-                (tgt.closest('button') || tgt.closest('.patient-dir-banana-link'))) return;
+                (tgt.closest('button') || tgt.closest('.patient-dir-banana-link') ||
+                 tgt.closest('.patient-dir-more'))) return;
             setDirectoryActivePatient(p, 'patient-row');
         });
         tr.addEventListener('dragstart', function(e) {
@@ -1184,15 +1242,24 @@ function renderPatients(list) {
             openEditPatient(b.dataset.id);
         });
     });
+    syncPatientDirStickyOffsets();
+    tb.querySelectorAll('.patient-dir-more-btn').forEach(function(b) {
+        b.addEventListener('click', function(e) {
+            e.stopPropagation();
+            togglePatientDirMoreMenu(b);
+        });
+    });
     tb.querySelectorAll('.btn-dup-clinic').forEach(function(b) {
         b.addEventListener('click', function(e){
             e.stopPropagation();
+            closePatientDirMoreMenus();
             openDuplicatePatientToClinic(b.dataset.id);
         });
     });
     tb.querySelectorAll('.btn-appt-reminder').forEach(function(b) {
         b.addEventListener('click', function(e){
             e.stopPropagation();
+            closePatientDirMoreMenus();
             openApptReminderForPatient(b.dataset.id);
         });
     });

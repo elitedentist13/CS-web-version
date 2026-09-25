@@ -648,22 +648,109 @@ function cnMicRenderLangSelect() {
     }).join('');
 }
 
-function cnDictLearned() {
+// Learned corrections live in app_config (one row per login, key conNoteDictFixes:<user id>)
+// so they follow the user to every computer; localStorage is only a cache for instant/offline use.
+// Removals are kept as { del: true } tombstones so a stale cache can't bring them back.
+var CN_DICT_TOMBSTONE_MS = 90 * 24 * 3600 * 1000;
+var cnDictSync = { busy: null, again: false, state: '', lastAt: 0, user: '' };
+
+function cnDictRawList() {
     try {
         var a = JSON.parse(localStorage.getItem(cnUserScopedKey(CN_MIC_FIXES_KEY)) || '[]');
-        return Array.isArray(a) ? a.filter(function (x) { return x && x.from && x.to; }) : [];
+        return Array.isArray(a) ? a.filter(function (x) { return x && x.from; }) : [];
     } catch (e) { return []; }
 }
 
-function cnDictSaveLearned(list) {
+function cnDictWriteRaw(list) {
     try { localStorage.setItem(cnUserScopedKey(CN_MIC_FIXES_KEY), JSON.stringify(list || [])); } catch (e) {}
 }
 
+function cnDictLearned() {
+    return cnDictRawList().filter(function (x) { return !x.del && x.to; });
+}
+
+/** Union by lower-cased "from"; the newest change (add or removal) wins. */
+function cnDictMerge(a, b) {
+    var map = {};
+    (a || []).concat(b || []).forEach(function (x) {
+        if (!x || !x.from) return;
+        var k = String(x.from).toLowerCase();
+        if (!map[k] || Number(x.at || 0) >= Number(map[k].at || 0)) map[k] = x;
+    });
+    var now = Date.now();
+    return Object.keys(map).map(function (k) { return map[k]; })
+        .filter(function (x) { return !x.del || now - Number(x.at || 0) < CN_DICT_TOMBSTONE_MS; })
+        .sort(function (x, y) { return Number(x.at || 0) - Number(y.at || 0); });
+}
+
+function cnDictSetEntry(entry) {
+    cnDictWriteRaw(cnDictMerge(cnDictRawList(), [entry]));
+    cnDictSyncNow();
+}
+
 function cnDictAddLearned(from, to) {
-    var low = String(from).toLowerCase();
-    var list = cnDictLearned().filter(function (x) { return String(x.from).toLowerCase() !== low; });
-    list.push({ from: String(from), to: String(to), at: Date.now() });
-    cnDictSaveLearned(list);
+    cnDictSetEntry({ from: String(from), to: String(to), at: Date.now() });
+}
+
+function cnDictRemoveLearned(from) {
+    cnDictSetEntry({ from: String(from), del: true, at: Date.now() });
+}
+
+function cnDictRemoteKey() {
+    var uid = (typeof currentUserId !== 'undefined' && currentUserId) ? String(currentUserId) : '';
+    return uid ? 'conNoteDictFixes:' + uid : '';
+}
+
+function cnDictSetSyncState(state) {
+    cnDictSync.state = state;
+    cnFixesRender();
+    cnFixesRefreshBtn();
+}
+
+/** Fetch → merge → write back when different. Serialised; a call during a sync re-runs once. */
+function cnDictSyncNow() {
+    var key = cnDictRemoteKey();
+    if (!key || typeof SB === 'undefined' || !SB || !SB.from) {
+        cnDictSetSyncState(key ? 'local' : '');
+        return Promise.resolve(false);
+    }
+    if (cnDictSync.busy) { cnDictSync.again = true; return cnDictSync.busy; }
+    cnDictSync.state = 'syncing';
+    cnDictSync.busy = SB.from('app_config').select('value').eq('key', key).then(function (r) {
+        if (r.error) throw r.error;
+        var remote = [];
+        try { remote = JSON.parse((r.data && r.data[0] && r.data[0].value) || '[]'); } catch (e) {}
+        if (!Array.isArray(remote)) remote = [];
+        if (key !== cnDictRemoteKey()) return false;
+        var merged = cnDictMerge(cnDictRawList(), remote);
+        cnDictWriteRaw(merged);
+        var json = JSON.stringify(merged);
+        if (json === JSON.stringify(cnDictMerge(remote, []))) return true;
+        return SB.from('app_config')
+            .upsert([{ key: key, value: json, updated_at: new Date().toISOString() }], { onConflict: 'key' })
+            .then(function (w) { if (w.error) throw w.error; return true; });
+    }).then(function (ok) {
+        cnDictSync.lastAt = Date.now();
+        cnDictSync.user = key;
+        cnDictSetSyncState('ok');
+        return ok;
+    }).catch(function (err) {
+        if (typeof console !== 'undefined') console.warn('[notes] dictation corrections sync failed', err && (err.message || err));
+        cnDictSetSyncState('local');
+        return false;
+    }).then(function (ok) {
+        cnDictSync.busy = null;
+        if (cnDictSync.again) { cnDictSync.again = false; return cnDictSyncNow(); }
+        return ok;
+    });
+    return cnDictSync.busy;
+}
+
+/** Pull other computers' changes at most once a minute (on login / patient load / opening the panel). */
+function cnDictSyncMaybe(force) {
+    var key = cnDictRemoteKey();
+    if (!key) return;
+    if (force || cnDictSync.user !== key || Date.now() - cnDictSync.lastAt > 60000) cnDictSyncNow();
 }
 
 /** Section vocabulary (default + user chips) helps choose between Chrome's alternatives. */
@@ -822,27 +909,35 @@ function cnTeachOnClick(e) {
 }
 
 // ─── Saved corrections list ───────────────────────────────────
-function cnFixesRender() {
+/** full: rebuild the header/form too (language change); otherwise only the list + sync line,
+ *  so a background sync never wipes what the user is typing. */
+function cnFixesRender(full) {
     var pop = g('cnFixesPop');
     if (!pop || pop.hidden) return;
+    if (full || !g('cnFixesBody')) {
+        pop.innerHTML = '<div class="cn-fixes-head"><b>' + esc(conTr('con.note.fixesTitle')) + '</b>'
+            + '<button type="button" class="cn-fixes-close" data-fix-close="1" aria-label="' + esc(conTr('con.note.close')) + '">×</button></div>'
+            + '<form class="cn-fixes-add" data-fix-add="1">'
+            + '<input type="text" id="cnFixFrom" autocomplete="off" placeholder="' + esc(conTr('con.note.fixesFromPh')) + '">'
+            + '<span>→</span>'
+            + '<input type="text" id="cnFixTo" autocomplete="off" placeholder="' + esc(conTr('con.note.fixesToPh')) + '">'
+            + '<button type="submit" data-no-click-guard="1">' + esc(conTr('con.note.fixesAdd')) + '</button>'
+            + '</form>'
+            + '<div id="cnFixesBody"></div>';
+    }
     var list = cnDictLearned();
     var rows = list.length
-        ? '<ul class="cn-fixes-list">' + list.map(function (x, i) {
+        ? '<ul class="cn-fixes-list">' + list.map(function (x) {
             return '<li><span class="cn-fixes-from">' + esc(x.from) + '</span> → <b>' + esc(x.to) + '</b>'
-                + '<button type="button" class="cn-fixes-del" data-fix-del="' + i + '" data-no-click-guard="1" aria-label="'
+                + '<button type="button" class="cn-fixes-del" data-fix-del="' + esc(x.from) + '" data-no-click-guard="1" aria-label="'
                 + esc(conTr('con.note.fixesDel')) + '" title="' + esc(conTr('con.note.fixesDel')) + '">×</button></li>';
         }).join('') + '</ul>'
         : '<p class="cn-fixes-empty">' + esc(conTr('con.note.fixesEmpty')) + '</p>';
-    pop.innerHTML = '<div class="cn-fixes-head"><b>' + esc(conTr('con.note.fixesTitle')) + '</b>'
-        + '<button type="button" class="cn-fixes-close" data-fix-close="1" aria-label="' + esc(conTr('con.note.close')) + '">×</button></div>'
-        + '<form class="cn-fixes-add" data-fix-add="1">'
-        + '<input type="text" id="cnFixFrom" autocomplete="off" placeholder="' + esc(conTr('con.note.fixesFromPh')) + '">'
-        + '<span>→</span>'
-        + '<input type="text" id="cnFixTo" autocomplete="off" placeholder="' + esc(conTr('con.note.fixesToPh')) + '">'
-        + '<button type="submit" data-no-click-guard="1">' + esc(conTr('con.note.fixesAdd')) + '</button>'
-        + '</form>'
-        + rows
-        + '<p class="cn-fixes-note">' + esc(conTr('con.note.fixesBuiltin')) + '</p>';
+    var st = cnDictSync.state;
+    var sync = st ? '<p class="cn-fixes-sync cn-fixes-sync--' + st + '">'
+        + esc(conTr(st === 'ok' ? 'con.note.fixesSyncOk' : st === 'syncing' ? 'con.note.fixesSyncing' : 'con.note.fixesSyncLocal'))
+        + '</p>' : '';
+    g('cnFixesBody').innerHTML = rows + sync + '<p class="cn-fixes-note">' + esc(conTr('con.note.fixesBuiltin')) + '</p>';
 }
 
 function cnFixesRefreshBtn() {
@@ -865,9 +960,7 @@ function cnFixesToggle() {
             if (e.target.closest('[data-fix-close]')) { pop.hidden = true; return; }
             var del = e.target.closest('[data-fix-del]');
             if (!del) return;
-            var list = cnDictLearned();
-            list.splice(Number(del.getAttribute('data-fix-del')), 1);
-            cnDictSaveLearned(list);
+            cnDictRemoveLearned(del.getAttribute('data-fix-del'));
             cnFixesRender();
             cnFixesRefreshBtn();
         });
@@ -889,7 +982,8 @@ function cnFixesToggle() {
     }
     if (!pop.hidden) { pop.hidden = true; return; }
     pop.hidden = false;
-    cnFixesRender();
+    cnFixesRender(true);
+    cnDictSyncMaybe(true);
     var first = g('cnFixFrom');
     if (first) setTimeout(function () { first.focus(); }, 0);
     if (btn) {
@@ -1106,6 +1200,7 @@ function cnMicToggle() {
     cnMic.gotResult = false;
     cnMic.log = [];
     cnMic.lang = cnMicLang();
+    cnDictSyncMaybe();
     cnMicSetTarget(cnIsNoteField(active) ? active : cnMicTarget());
     cnMicRefresh();
     cnMicStatus('on', conTr('con.note.micStarting'));
@@ -1242,6 +1337,7 @@ function conNotesAfterLoad(pid) {
         }
     }
     conNotesRefreshContext();
+    cnDictSyncMaybe();
 }
 
 function conNotesAfterSave(pid) {
@@ -1538,6 +1634,7 @@ function cnInit() {
         if (fixesBtn) {
             fixesBtn.hidden = false;
             cnFixesRefreshBtn();
+            cnDictSyncMaybe();
             fixesBtn.setAttribute('data-no-click-guard', '1');
             fixesBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
             fixesBtn.addEventListener('click', cnFixesToggle);
@@ -1595,7 +1692,7 @@ function cnInit() {
         conNotesRefreshDoctorChip();
         cnRenderContext();
         cnMicRenderLangSelect();
-        cnFixesRender();
+        cnFixesRender(true);
         cnFixesRefreshBtn();
         var st = g('conNoteDraftState');
         if (st && st.textContent) cnSetDraftState('saved', Date.now());

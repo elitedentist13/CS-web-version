@@ -99,7 +99,7 @@ function extractFn(src, name) {
     pass('linked loader clears on patient change',
         /_xrayLinkLastPid !== String\(xrayPatientId\)[\s\S]{0,400}xrayClearDisplayedFilms\(/.test(linkSrc));
     pass('build stamp bumped',
-        /BUILD = '20260925notes8'/.test(idxSrc));
+        /BUILD = '20260925notes9'/.test(idxSrc));
 
     console.log('\n=== client simulation ===');
     var strips = { innerHTML: '<div class="xray-card" data-id="old-film">OLD PATIENT FILM</div>' };
@@ -200,7 +200,7 @@ function extractFn(src, name) {
         try {
             var probe = await httpGet('127.0.0.1', ports[pi], '/index.html');
             if (!probe || probe.status !== 200) continue;
-            var isOurs = probe.body.indexOf("BUILD = '20260925notes8'") >= 0;
+            var isOurs = probe.body.indexOf("BUILD = '20260925notes9'") >= 0;
             if (!livePort || isOurs) { live = probe; livePort = ports[pi]; }
             if (isOurs) break;
         } catch (e) {}
@@ -209,9 +209,9 @@ function extractFn(src, name) {
     if (live) {
         pass('clinic UI reachable', live.status === 200, ':' + livePort);
         var build = (live.body.match(/BUILD = '([^']+)'/) || [])[1];
-        pass('served build is 20260925notes8', build === '20260925notes8', build || 'missing');
-        var xrayJs = await httpGet('127.0.0.1', livePort, '/app-xray.js?b=20260925notes8');
-        var conJs = await httpGet('127.0.0.1', livePort, '/app-consultation.js?b=20260925notes8');
+        pass('served build is 20260925notes9', build === '20260925notes9', build || 'missing');
+        var xrayJs = await httpGet('127.0.0.1', livePort, '/app-xray.js?b=20260925notes9');
+        var conJs = await httpGet('127.0.0.1', livePort, '/app-consultation.js?b=20260925notes9');
         pass('served app-xray.js clears on patient change',
             xrayJs.status === 200 &&
             xrayJs.body.indexOf('if (patientChanged) xrayClearDisplayedFilms();') >= 0 &&

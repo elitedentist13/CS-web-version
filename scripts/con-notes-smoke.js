@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20260925notes8';
+var EXPECTED_BUILD = '20260925notes9';
 var PID = '18d4d8a2-7d16-403c-962c-cba93540b132';
 var fails = [];
 
@@ -118,7 +118,13 @@ function extractFn(src, name) {
     pass('dictation language no longer follows UI language', extractFn(notesSrc, 'cnMicLang').indexOf('appUiLang') < 0);
     pass('dictation asks Chrome for 5 alternatives', extractFn(notesSrc, 'cnMicStartRecognition').indexOf('maxAlternatives = 5') >= 0);
     pass('final results go through the accuracy layer', extractFn(notesSrc, 'cnMicStartRecognition').indexOf('cnMicProcessFinal(') >= 0);
-    pass('learned corrections stored per login', extractFn(notesSrc, 'cnDictLearned').indexOf('cnUserScopedKey(CN_MIC_FIXES_KEY)') >= 0);
+    pass('learned corrections cached per login', extractFn(notesSrc, 'cnDictRawList').indexOf('cnUserScopedKey(CN_MIC_FIXES_KEY)') >= 0);
+    pass('learned corrections synced to app_config', extractFn(notesSrc, 'cnDictSyncNow').indexOf("SB.from('app_config')") >= 0 &&
+        extractFn(notesSrc, 'cnDictRemoteKey').indexOf("'conNoteDictFixes:'") >= 0);
+    pass('sync runs on patient load, mic start and opening the panel',
+        extractFn(notesSrc, 'conNotesAfterLoad').indexOf('cnDictSyncMaybe()') >= 0 &&
+        extractFn(notesSrc, 'cnMicToggle').indexOf('cnDictSyncMaybe()') >= 0 &&
+        extractFn(notesSrc, 'cnFixesToggle').indexOf('cnDictSyncMaybe(true)') >= 0);
     pass('migration SQL present', fs.existsSync(path.join(root, 'treatments_note_audit.sql')));
     pass('CSS for composer + cards', css.indexOf('.cn-sec-head') >= 0 && css.indexOf('.note-card--addendum') >= 0 &&
         css.indexOf('.cn-tooth-pop') >= 0);
@@ -286,6 +292,70 @@ function extractFn(src, name) {
     ctx.cnDictAddLearned('Ceiling', 'sealing');
     pass('learned corrections per login, latest wins', ctx.cnDictLearned().length === 1 && ctx.cnDictLearned()[0].to === 'sealing' &&
         !store['conNoteDictFixes:v1:u-dict']);
+
+    console.log('\n=== unit: corrections sync across computers ===');
+    var M = ctx.cnDictMerge;
+    var mA = M([{ from: 'ceiling', to: 'scaling', at: 1 }], [{ from: 'Ceiling', to: 'sealing', at: 2 }]);
+    pass('merge: newest change wins (case-insensitive)', mA.length === 1 && mA[0].to === 'sealing');
+    var mB = M([{ from: 'ceiling', to: 'scaling', at: Date.now() - 5000 }], [{ from: 'ceiling', del: true, at: Date.now() }]);
+    pass('merge: newer removal beats older cache', mB.length === 1 && mB[0].del === true);
+    var mC = M([{ from: 'x', del: true, at: Date.now() - 100 * 86400e3 }], []);
+    pass('merge: tombstones expire after 90 days', mC.length === 0);
+
+    var remoteDb = {};
+    var dbWrites = 0;
+    ctx.SB = {
+        from: function (table) {
+            var q = { _key: null };
+            q.select = function () { return q; };
+            q.eq = function (col, v) { q._key = v; return q; };
+            q.then = function (res, rej) {
+                var v = remoteDb[q._key];
+                return Promise.resolve({ data: v == null ? [] : [{ value: v }], error: null }).then(res, rej);
+            };
+            q.upsert = function (rows) {
+                dbWrites++;
+                rows.forEach(function (r) { remoteDb[r.key] = r.value; });
+                return Promise.resolve({ error: null });
+            };
+            return q;
+        }
+    };
+    var pcA = {}, pcB = {};
+    ctx.currentUserId = 'drchan';
+    store = pcA;
+    ctx.cnDictAddLearned('calling', 'scaling');
+    await ctx.cnDictSync.busy;
+    pass('computer A: correction written to app_config', JSON.parse(remoteDb['conNoteDictFixes:drchan'] || '[]').some(function (x) {
+        return x.from === 'calling' && x.to === 'scaling';
+    }), remoteDb['conNoteDictFixes:drchan']);
+    store = pcB;
+    pass('computer B: nothing cached before sync', ctx.cnDictLearned().length === 0);
+    await ctx.cnDictSyncNow();
+    pass('computer B: same login gets it after sync', ctx.cnDictLearned().length === 1 && ctx.cnDictLearned()[0].to === 'scaling');
+    ctx.cnDictRemoveLearned('calling');
+    ctx.cnDictAddLearned('perry', 'peri');
+    await ctx.cnDictSync.busy;
+    await ctx.cnDictSync.busy;
+    store = pcA;
+    await ctx.cnDictSyncNow();
+    var aList = ctx.cnDictLearned().map(function (x) { return x.from; });
+    pass('computer A: removal + new entry from B arrive; stale cache does not resurrect', aList.join() === 'perry', aList.join());
+    var before = dbWrites;
+    await ctx.cnDictSyncNow();
+    pass('no write when nothing changed', dbWrites === before);
+    ctx.currentUserId = 'drlee';
+    pass('other login does not see drchan\'s corrections', ctx.cnDictLearned().length === 0);
+    await ctx.cnDictSyncNow();
+    pass('other login stays empty after sync', ctx.cnDictLearned().length === 0 && !remoteDb['conNoteDictFixes:drlee']);
+    ctx.SB = { from: function () { return { select: function () { return this; }, eq: function () { return Promise.reject(new Error('offline')); } }; } };
+    ctx.currentUserId = 'drchan';
+    ctx.cnDictAddLearned('offline word', 'kept');
+    await ctx.cnDictSync.busy;
+    pass('offline: kept on this computer, state = local', ctx.cnDictLearned().some(function (x) { return x.from === 'offline word'; }) &&
+        ctx.cnDictSync.state === 'local');
+    delete ctx.SB;
+    store = {};
     ctx.currentUserId = 'u-1';
 
     console.log('\n=== HTTP spot ===');
@@ -340,6 +410,17 @@ function extractFn(src, name) {
     } else {
         pass('no leftover smoke notes', left.status === 200);
     }
+
+    console.log('\n=== API: app_config (dictation corrections) ===');
+    var ckey = 'conNoteDictFixes:__smoke__';
+    await rest(sbc.url, sbc.key, 'DELETE', 'app_config', 'key=eq.' + encodeURIComponent(ckey));
+    var cval = JSON.stringify([{ from: 'ceiling', to: 'scaling', at: Date.now() }]);
+    var cins = await rest(sbc.url, sbc.key, 'POST', 'app_config', '', [{ key: ckey, value: cval, updated_at: new Date().toISOString() }]);
+    pass('app_config accepts a corrections row', cins.status === 201, 'HTTP ' + cins.status + ' ' + cins.raw);
+    var cget = await rest(sbc.url, sbc.key, 'GET', 'app_config', 'select=value&key=eq.' + encodeURIComponent(ckey));
+    pass('corrections row reads back', cget.status === 200 && cget.json && cget.json[0] && cget.json[0].value === cval);
+    var cdel = await rest(sbc.url, sbc.key, 'DELETE', 'app_config', 'key=eq.' + encodeURIComponent(ckey));
+    pass('cleanup corrections row', cdel.status >= 200 && cdel.status < 300);
 
     console.log('\n=== result ===');
     if (fails.length) {

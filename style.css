@@ -9933,6 +9933,9 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     cursor: pointer;
 }
 .cn-mic-fixes-btn { font-size: 12px; white-space: nowrap; }
+.cn-fixes-sync { font-size: 11px; margin: 6px 0 0; color: #64748b; }
+.cn-fixes-sync--ok { color: #15803d; }
+.cn-fixes-sync--local { color: #b45309; }
 .cn-fixes-empty, .cn-fixes-note { color: #64748b; font-size: 12px; margin: 6px 0 0; }
 .cn-sec--dictating { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15); }
 #conNoteInput.cn-dictating { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15); }

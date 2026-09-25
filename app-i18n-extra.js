@@ -404,6 +404,12 @@
         'patient.th.bananaIndex': { en: 'Banana Index', 'zh-CN': '香蕉指数', 'zh-Hant': '香蕉指數' },
         'patient.th.actions': { en: 'Actions', 'zh-CN': '操作', 'zh-Hant': '操作' },
         'patient.dirBanana.title': { en: 'Banana Info', 'zh-CN': '香蕉信息', 'zh-Hant': '香蕉資訊' },
+        'patient.th.bananaIndexHelp': {
+            en: 'Banana Index (1–10). Scores with a dot have notes: click to view or edit.',
+            'zh-CN': '香蕉指数（1–10）。带圆点的分数有备注：点击查看或编辑。',
+            'zh-Hant': '香蕉指數（1–10）。帶圓點的分數有備註：點擊查看或編輯。'
+        },
+        'patient.dirBanana.scoreTitle': { en: 'Banana Index: {N}/10', 'zh-CN': '香蕉指数：{N}/10', 'zh-Hant': '香蕉指數：{N}/10' },
         'patient.dirBanana.linkTitle': { en: 'View and edit banana index and notes', 'zh-CN': '查看并编辑香蕉指数与备注', 'zh-Hant': '查看並編輯香蕉指數與備註' },
         'patient.alertBananaColumnsMissing': {
             en: 'Banana Info could not be saved: the database is missing the banana columns. Run banana_fields.sql in the Supabase SQL Editor, then try again. Nothing was saved.',

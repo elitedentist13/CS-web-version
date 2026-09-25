@@ -70,12 +70,17 @@ function patientDirBananaCellHtml(p) {
     if (idx == null) {
         return '<span class="patient-dir-banana-empty">-</span>';
     }
-    if (patientDirBananaNotesText(p)) {
-        return '<button type="button" class="patient-dir-banana-link" data-id="' +
-            esc(p.id) + '" title="' + esc(patTr('patient.dirBanana.linkTitle')) + '">' +
+    var level = idx >= 8 ? 3 : (idx >= 4 ? 2 : 1);
+    var scoreCls = 'pd-banana-score pd-banana-lv' + level;
+    var label = patTrRepl('patient.dirBanana.scoreTitle', { N: idx });
+    var notes = patientDirBananaNotesText(p);
+    if (notes) {
+        var preview = notes.length > 120 ? notes.slice(0, 117) + '…' : notes;
+        return '<button type="button" class="patient-dir-banana-link ' + scoreCls + ' has-notes" data-id="' +
+            esc(p.id) + '" title="' + esc(label + '\n' + preview + '\n\n' + patTr('patient.dirBanana.linkTitle')) + '">' +
             idx + '</button>';
     }
-    return esc(String(idx));
+    return '<span class="' + scoreCls + '" title="' + esc(label) + '">' + idx + '</span>';
 }
 
 function openPatientDirBananaPanel(patientId) {

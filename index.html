@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260925notes5';
+  var BUILD = '20260925notes8';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -2986,7 +2986,13 @@
               <span id="conNoteDraftState" class="cn-draft-state" aria-live="polite"></span>
               <button type="button" id="conNoteMicBtn" class="cn-icon-btn" hidden
                       data-i18n-title="con.note.micTitle" data-i18n-aria-label="con.note.micTitle">🎤</button>
+              <select id="conNoteMicLang" class="cn-mic-lang" hidden
+                      data-i18n-title="con.note.micLangLbl" data-i18n-aria-label="con.note.micLangLbl"></select>
+              <button type="button" id="conNoteMicFixesBtn" class="cn-icon-btn cn-mic-fixes-btn" hidden
+                      data-i18n-title="con.note.fixesTitle" data-i18n-aria-label="con.note.fixesTitle">✎</button>
               <span id="conNoteMicState" class="cn-mic-state" role="status" aria-live="polite" hidden></span>
+              <div id="conNoteAlts" class="cn-alts" hidden></div>
+              <div id="conNoteTeach" class="cn-teach" role="status" aria-live="polite" hidden></div>
             </div>
             <div id="conNoteSections" class="cn-sections con-note-editing" hidden></div>
             <textarea id="conNoteInput" rows="4" data-i18n-placeholder="con.notePh"></textarea>
@@ -7524,6 +7530,7 @@
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js',
+    'app-con-dictation-fix.js',
     'app-con-notes.js',
     'app-xray.js?v=20260917xrayup2',
     'app-xray-link.js?v=20260917xrayup2',

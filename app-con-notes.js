@@ -47,7 +47,14 @@ var CN = {
     todayRxKey: '',
     toothTarget: null,
     toothSurfaces: {},
-    toothLastEnd: -1
+    toothLastEnd: -1,
+    dictSnap: null,
+    dictInserting: false,
+    teachTimer: null,
+    teachOffer: null,
+    teachHideTimer: null,
+    alts: null,
+    altsTimer: null
 };
 
 var cnLabelRe = null;
@@ -597,11 +604,299 @@ function cnMicReleaseFieldFocus() {
     }
 }
 
+var CN_MIC_LANGS = [
+    { v: 'en-GB', key: 'con.note.micLang.enGB' },
+    { v: 'en-US', key: 'con.note.micLang.enUS' },
+    { v: 'yue-Hant-HK', key: 'con.note.micLang.yue' },
+    { v: 'cmn-Hans-CN', key: 'con.note.micLang.cmn' }
+];
+var CN_MIC_LANG_KEY = 'conNoteMicLang';
+var CN_MIC_FIXES_KEY = 'conNoteDictFixes:v1';
+
+function cnUserScopedKey(base) {
+    var uid = (typeof currentUserId !== 'undefined' && currentUserId) ? String(currentUserId) : '';
+    return uid ? base + ':' + uid : base;
+}
+
+/** Dictation language is independent of the UI language (a Chinese UI must not turn
+ *  English dictation into Cantonese); remembered per login, default English. */
 function cnMicLang() {
-    var lang = (typeof appUiLang !== 'undefined') ? appUiLang : 'en';
-    if (lang === 'zh-Hant') return 'yue-Hant-HK';
-    if (lang === 'zh-CN') return 'cmn-Hans-CN';
-    return 'en-US';
+    var v = '';
+    try { v = localStorage.getItem(cnUserScopedKey(CN_MIC_LANG_KEY)) || localStorage.getItem(CN_MIC_LANG_KEY) || ''; } catch (e) {}
+    var ok = CN_MIC_LANGS.some(function (l) { return l.v === v; });
+    return ok ? v : 'en-GB';
+}
+
+function cnMicSetLang(v) {
+    try {
+        localStorage.setItem(cnUserScopedKey(CN_MIC_LANG_KEY), v);
+        localStorage.setItem(CN_MIC_LANG_KEY, v);
+    } catch (e) {}
+    if (cnMic.wantOn) {
+        cnMic.lang = v;
+        cnMicLog('lang → ' + v);
+        cnMicStartRecognition();
+    }
+}
+
+function cnMicRenderLangSelect() {
+    var sel = g('conNoteMicLang');
+    if (!sel) return;
+    var cur = cnMicLang();
+    sel.innerHTML = CN_MIC_LANGS.map(function (l) {
+        return '<option value="' + l.v + '"' + (l.v === cur ? ' selected' : '') + '>' + esc(conTr(l.key)) + '</option>';
+    }).join('');
+}
+
+function cnDictLearned() {
+    try {
+        var a = JSON.parse(localStorage.getItem(cnUserScopedKey(CN_MIC_FIXES_KEY)) || '[]');
+        return Array.isArray(a) ? a.filter(function (x) { return x && x.from && x.to; }) : [];
+    } catch (e) { return []; }
+}
+
+function cnDictSaveLearned(list) {
+    try { localStorage.setItem(cnUserScopedKey(CN_MIC_FIXES_KEY), JSON.stringify(list || [])); } catch (e) {}
+}
+
+function cnDictAddLearned(from, to) {
+    var low = String(from).toLowerCase();
+    var list = cnDictLearned().filter(function (x) { return String(x.from).toLowerCase() !== low; });
+    list.push({ from: String(from), to: String(to), at: Date.now() });
+    cnDictSaveLearned(list);
+}
+
+/** Section vocabulary (default + user chips) helps choose between Chrome's alternatives. */
+function cnDictSectionTerms(key) {
+    var list = (CN_DEFAULT_PHRASES[key] || []).concat(cnUserPhrases()[key] || []);
+    return list.map(function (p) { return String(p).replace(/[^A-Za-z\s-]/g, ' ').trim(); })
+        .filter(function (p) { return p.length >= 3; });
+}
+
+function cnMicProcessFinal(result, ta) {
+    var alts = [];
+    for (var j = 0; j < result.length; j++) alts.push(String(result[j].transcript || ''));
+    var key = ta && ta.getAttribute && ta.getAttribute('data-key');
+    var best = (typeof cnDictBest === 'function')
+        ? cnDictBest(alts, {
+            lang: cnMic.lang || cnMicLang(),
+            learned: cnDictLearned(),
+            extraTerms: key ? cnDictSectionTerms(key) : []
+        })
+        : { text: String(alts[0] || '').trim(), raw: String(alts[0] || '').trim(), index: 0 };
+    if (best.text !== best.raw || best.index > 0) {
+        cnMicLog('heard "' + best.raw + '" (alt ' + best.index + '/' + alts.length + ') → "' + best.text + '"');
+    }
+    var opts = (best.alts || []).filter(function (a) { return a && a !== best.text; });
+    if (typeof cnDictSuggest === 'function') {
+        cnDictSuggest(best.text, { extraTerms: key ? cnDictSectionTerms(key) : [] }).forEach(function (a) {
+            if (a !== best.text && opts.indexOf(a) < 0) opts.push(a);
+        });
+    }
+    best.choices = opts.slice(0, 4);
+    return best;
+}
+
+// ─── "Did you mean…" choices for the last dictated phrase ─────
+function cnAltsShow(ta, start, text, choices) {
+    var bar = g('conNoteAlts');
+    if (!bar) return;
+    if (!choices || !choices.length) { cnAltsHide(); return; }
+    CN.alts = { ta: ta, start: start, text: text, choices: choices };
+    bar.innerHTML = '<span class="cn-alts-lbl">' + esc(conTr('con.note.altsLbl')) + '</span>'
+        + choices.map(function (c, i) {
+            var fx = (typeof cnDictFindCorrection === 'function') ? cnDictFindCorrection(text, c, 0, text.length) : null;
+            var html = esc(c);
+            if (fx) {
+                var at = c.toLowerCase().indexOf(fx.to.toLowerCase());
+                if (at >= 0) html = esc(c.slice(0, at)) + '<b>' + esc(c.slice(at, at + fx.to.length)) + '</b>' + esc(c.slice(at + fx.to.length));
+            }
+            return '<button type="button" class="cn-alt-chip" data-alt="' + i + '" data-no-click-guard="1">' + html + '</button>';
+        }).join('')
+        + '<button type="button" class="cn-alts-x" data-alt-x="1" data-no-click-guard="1" aria-label="'
+        + esc(conTr('con.note.altsDismiss')) + '" title="' + esc(conTr('con.note.altsDismiss')) + '">×</button>';
+    bar.hidden = false;
+    clearTimeout(CN.altsTimer);
+    CN.altsTimer = setTimeout(cnAltsHide, 30000);
+}
+
+function cnAltsHide() {
+    var bar = g('conNoteAlts');
+    if (bar) { bar.hidden = true; bar.innerHTML = ''; }
+    CN.alts = null;
+    clearTimeout(CN.altsTimer);
+}
+
+function cnAltsOnClick(e) {
+    if (e.target.closest('[data-alt-x]')) { cnAltsHide(); return; }
+    var b = e.target.closest('[data-alt]');
+    var a = CN.alts;
+    if (!b || !a) return;
+    var choice = a.choices[Number(b.getAttribute('data-alt'))];
+    var ta = a.ta;
+    var v = ta.value;
+    if (!choice || v.slice(a.start, a.start + a.text.length) !== a.text) { cnAltsHide(); return; }
+    ta.value = v.slice(0, a.start) + choice + v.slice(a.start + a.text.length);
+    var pos = a.start + choice.length;
+    try { ta.setSelectionRange(pos, pos); } catch (err) {}
+    if (ta.classList.contains('cn-sec-input')) cnAutoSize(ta);
+    CN.dictInserting = true;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    CN.dictInserting = false;
+    var snap = CN.dictSnap;
+    if (snap && snap.ta === ta && snap.value === v) {
+        cnTeachRemember(ta, snap.start, snap.end + choice.length - a.text.length);
+    }
+    cnAltsHide();
+    var fx = (typeof cnDictFindCorrection === 'function') ? cnDictFindCorrection(a.text, choice, 0, a.text.length) : null;
+    if (fx) {
+        var low = fx.from.toLowerCase();
+        var known = cnDictLearned().some(function (x) { return String(x.from).toLowerCase() === low && String(x.to) === fx.to; });
+        if (!known) cnTeachShow(fx);
+    }
+}
+
+// ─── Learn from the user's edits to dictated text ─────────────
+function cnTeachRemember(ta, start, end) {
+    CN.dictSnap = { ta: ta, value: ta.value, start: start, end: end, at: Date.now() };
+    clearTimeout(CN.teachTimer);
+    CN.teachTimer = null;
+}
+
+function cnTeachOnInput(e) {
+    var snap = CN.dictSnap;
+    if (CN.dictInserting || !snap || e.target !== snap.ta) return;
+    if (Date.now() - snap.at > 5 * 60 * 1000) { CN.dictSnap = null; return; }
+    clearTimeout(CN.teachTimer);
+    CN.teachTimer = setTimeout(cnTeachCheck, 1400);
+}
+
+function cnTeachCheck() {
+    CN.teachTimer = null;
+    var snap = CN.dictSnap;
+    if (!snap || typeof cnDictFindCorrection !== 'function') return;
+    var fx = cnDictFindCorrection(snap.value, snap.ta.value, snap.start, snap.end);
+    if (!fx) return;
+    var low = fx.from.toLowerCase();
+    var known = cnDictLearned().some(function (x) {
+        return String(x.from).toLowerCase() === low && String(x.to) === fx.to;
+    });
+    CN.dictSnap = null;
+    if (!known) cnTeachShow(fx);
+}
+
+function cnTeachShow(fx) {
+    var bar = g('conNoteTeach');
+    if (!bar) return;
+    CN.teachOffer = fx;
+    bar.innerHTML = '<span class="cn-teach-msg">' + esc(conTrRepl('con.note.teachAsk', { FROM: fx.from, TO: fx.to })) + '</span>'
+        + '<button type="button" class="cn-teach-yes" data-teach="yes" data-no-click-guard="1">' + esc(conTr('con.note.teachYes')) + '</button>'
+        + '<button type="button" class="cn-teach-no" data-teach="no" data-no-click-guard="1">' + esc(conTr('con.note.teachNo')) + '</button>';
+    bar.hidden = false;
+    clearTimeout(CN.teachHideTimer);
+    CN.teachHideTimer = setTimeout(cnTeachHide, 20000);
+}
+
+function cnTeachHide() {
+    var bar = g('conNoteTeach');
+    if (bar) { bar.hidden = true; bar.innerHTML = ''; }
+    CN.teachOffer = null;
+}
+
+function cnTeachOnClick(e) {
+    var b = e.target.closest && e.target.closest('[data-teach]');
+    if (!b) return;
+    var fx = CN.teachOffer;
+    if (b.getAttribute('data-teach') === 'yes' && fx) {
+        cnDictAddLearned(fx.from, fx.to);
+        var bar = g('conNoteTeach');
+        bar.innerHTML = '<span class="cn-teach-msg">' + esc(conTrRepl('con.note.teachSaved', { FROM: fx.from, TO: fx.to })) + '</span>';
+        CN.teachOffer = null;
+        clearTimeout(CN.teachHideTimer);
+        CN.teachHideTimer = setTimeout(cnTeachHide, 3500);
+        cnFixesRender();
+        cnFixesRefreshBtn();
+    } else {
+        cnTeachHide();
+    }
+}
+
+// ─── Saved corrections list ───────────────────────────────────
+function cnFixesRender() {
+    var pop = g('cnFixesPop');
+    if (!pop || pop.hidden) return;
+    var list = cnDictLearned();
+    var rows = list.length
+        ? '<ul class="cn-fixes-list">' + list.map(function (x, i) {
+            return '<li><span class="cn-fixes-from">' + esc(x.from) + '</span> → <b>' + esc(x.to) + '</b>'
+                + '<button type="button" class="cn-fixes-del" data-fix-del="' + i + '" data-no-click-guard="1" aria-label="'
+                + esc(conTr('con.note.fixesDel')) + '" title="' + esc(conTr('con.note.fixesDel')) + '">×</button></li>';
+        }).join('') + '</ul>'
+        : '<p class="cn-fixes-empty">' + esc(conTr('con.note.fixesEmpty')) + '</p>';
+    pop.innerHTML = '<div class="cn-fixes-head"><b>' + esc(conTr('con.note.fixesTitle')) + '</b>'
+        + '<button type="button" class="cn-fixes-close" data-fix-close="1" aria-label="' + esc(conTr('con.note.close')) + '">×</button></div>'
+        + '<form class="cn-fixes-add" data-fix-add="1">'
+        + '<input type="text" id="cnFixFrom" autocomplete="off" placeholder="' + esc(conTr('con.note.fixesFromPh')) + '">'
+        + '<span>→</span>'
+        + '<input type="text" id="cnFixTo" autocomplete="off" placeholder="' + esc(conTr('con.note.fixesToPh')) + '">'
+        + '<button type="submit" data-no-click-guard="1">' + esc(conTr('con.note.fixesAdd')) + '</button>'
+        + '</form>'
+        + rows
+        + '<p class="cn-fixes-note">' + esc(conTr('con.note.fixesBuiltin')) + '</p>';
+}
+
+function cnFixesRefreshBtn() {
+    var btn = g('conNoteMicFixesBtn');
+    if (!btn) return;
+    var n = cnDictLearned().length;
+    btn.textContent = '✎ ' + conTr('con.note.fixesBtn') + (n ? ' (' + n + ')' : '');
+}
+
+function cnFixesToggle() {
+    var pop = g('cnFixesPop');
+    var btn = g('conNoteMicFixesBtn');
+    if (!pop) {
+        pop = document.createElement('div');
+        pop.id = 'cnFixesPop';
+        pop.className = 'cn-fixes-pop';
+        pop.hidden = true;
+        document.body.appendChild(pop);
+        pop.addEventListener('click', function (e) {
+            if (e.target.closest('[data-fix-close]')) { pop.hidden = true; return; }
+            var del = e.target.closest('[data-fix-del]');
+            if (!del) return;
+            var list = cnDictLearned();
+            list.splice(Number(del.getAttribute('data-fix-del')), 1);
+            cnDictSaveLearned(list);
+            cnFixesRender();
+            cnFixesRefreshBtn();
+        });
+        pop.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var from = String((g('cnFixFrom') || {}).value || '').trim();
+            var to = String((g('cnFixTo') || {}).value || '').trim();
+            if (!from || !to || from.toLowerCase() === to.toLowerCase()) {
+                var f = g(from ? 'cnFixTo' : 'cnFixFrom');
+                if (f) f.focus();
+                return;
+            }
+            cnDictAddLearned(from, to);
+            cnFixesRender();
+            cnFixesRefreshBtn();
+            var nf = g('cnFixFrom');
+            if (nf) nf.focus();
+        });
+    }
+    if (!pop.hidden) { pop.hidden = true; return; }
+    pop.hidden = false;
+    cnFixesRender();
+    var first = g('cnFixFrom');
+    if (first) setTimeout(function () { first.focus(); }, 0);
+    if (btn) {
+        var r = btn.getBoundingClientRect();
+        pop.style.top = (r.bottom + 6) + 'px';
+        pop.style.left = Math.max(8, Math.min(r.right - 340, document.documentElement.clientWidth - 348)) + 'px';
+    }
 }
 
 function cnIsNoteField(el) {
@@ -719,7 +1014,7 @@ function cnMicStartRecognition() {
     rec.lang = cnMic.lang || cnMicLang();
     rec.continuous = true;
     rec.interimResults = true;
-    rec.maxAlternatives = 1;
+    rec.maxAlternatives = 5;
     rec.onaudiostart = function () { cnMicLog('audiostart'); };
     rec.onspeechstart = function () { cnMicLog('speechstart'); };
     rec.onresult = function (ev) {
@@ -729,9 +1024,23 @@ function cnMicStartRecognition() {
         for (var i = ev.resultIndex; i < ev.results.length; i++) {
             var piece = String(ev.results[i][0].transcript || '');
             if (ev.results[i].isFinal) {
-                var text = piece.trim();
                 var ta = cnMicTarget();
-                if (text && ta) cnInsertAtCursor(ta, text, null, { noFocus: true });
+                var best = cnMicProcessFinal(ev.results[i], ta);
+                var text = best.text;
+                if (text && ta) {
+                    if (CN.teachTimer) { clearTimeout(CN.teachTimer); CN.teachTimer = null; cnTeachCheck(); }
+                    var prevVal = ta.value;
+                    CN.dictInserting = true;
+                    var end = cnInsertAtCursor(ta, text, null, { noFocus: true });
+                    CN.dictInserting = false;
+                    if (typeof end === 'number') {
+                        var start = end - text.length;
+                        var snap = CN.dictSnap;
+                        if (snap && snap.ta === ta && snap.value === prevVal && snap.end <= start) start = snap.start;
+                        cnTeachRemember(ta, start, end);
+                        cnAltsShow(ta, end - text.length, text, best.choices);
+                    }
+                }
                 cnMic.gotResult = true;
             } else {
                 interim += piece;
@@ -904,6 +1213,9 @@ function conNotesOnPatientSwitch() {
     if (g('conNoteShowDeleted')) g('conNoteShowDeleted').checked = false;
     cnSetDraftState('');
     cnCloseToothPicker();
+    CN.dictSnap = null;
+    cnTeachHide();
+    cnAltsHide();
     var ctx = g('conNoteContext');
     if (ctx) { ctx.hidden = true; ctx.innerHTML = ''; }
 }
@@ -915,6 +1227,8 @@ function conNotesAfterLoad(pid) {
         CN.modeUser = userKey;
         var want = cnPreferredMode();
         if (want !== CN.mode) cnSetMode(want, false);
+        cnMicRenderLangSelect();
+        cnFixesRefreshBtn();
     }
     if (String(CN.draftPid || '') !== String(pid)) {
         CN.draftPid = pid;
@@ -1214,6 +1528,31 @@ function cnInit() {
         mic.addEventListener('mousedown', function (e) { e.preventDefault(); });
         mic.addEventListener('click', cnMicToggle);
         composer.addEventListener('focusin', cnMicOnFocusIn);
+        var langSel = g('conNoteMicLang');
+        if (langSel) {
+            cnMicRenderLangSelect();
+            langSel.hidden = false;
+            langSel.addEventListener('change', function () { cnMicSetLang(langSel.value); });
+        }
+        var fixesBtn = g('conNoteMicFixesBtn');
+        if (fixesBtn) {
+            fixesBtn.hidden = false;
+            cnFixesRefreshBtn();
+            fixesBtn.setAttribute('data-no-click-guard', '1');
+            fixesBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+            fixesBtn.addEventListener('click', cnFixesToggle);
+        }
+        composer.addEventListener('input', cnTeachOnInput);
+        var altsBar = g('conNoteAlts');
+        if (altsBar) {
+            altsBar.addEventListener('mousedown', function (e) { e.preventDefault(); });
+            altsBar.addEventListener('click', cnAltsOnClick);
+        }
+        var teach = g('conNoteTeach');
+        if (teach) {
+            teach.addEventListener('mousedown', function (e) { e.preventDefault(); });
+            teach.addEventListener('click', cnTeachOnClick);
+        }
     }
 
     var search = g('conNoteSearch');
@@ -1235,6 +1574,8 @@ function cnInit() {
     if (bar) bar.hidden = true;
 
     document.addEventListener('mousedown', function (e) {
+        var fp = g('cnFixesPop');
+        if (fp && !fp.hidden && !fp.contains(e.target) && !(e.target.closest && e.target.closest('#conNoteMicFixesBtn'))) fp.hidden = true;
         var pop = g('cnToothPop');
         if (!pop || pop.hidden) return;
         if (pop.contains(e.target) || (e.target.closest && e.target.closest('.cn-chip--tooth'))) return;
@@ -1253,6 +1594,9 @@ function cnInit() {
         cnApplyOpenStates();
         conNotesRefreshDoctorChip();
         cnRenderContext();
+        cnMicRenderLangSelect();
+        cnFixesRender();
+        cnFixesRefreshBtn();
         var st = g('conNoteDraftState');
         if (st && st.textContent) cnSetDraftState('saved', Date.now());
     });

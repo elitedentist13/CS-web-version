@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-consultation.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20260925notes5';
+var EXPECTED_BUILD = '20260925notes8';
 var fails = [];
 
 function pass(name, ok, detail) {

@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20260925notes5';
+var EXPECTED_BUILD = '20260925notes8';
 var PID = '18d4d8a2-7d16-403c-962c-cba93540b132';
 var fails = [];
 
@@ -110,6 +110,15 @@ function extractFn(src, name) {
     pass('dictation inserts without moving focus', extractFn(notesSrc, 'cnMicStartRecognition').indexOf('noFocus: true') >= 0);
     pass('mic button keeps focus in the note field', notesSrc.indexOf("mic.addEventListener('mousedown'") >= 0);
     pass('dictation status line in markup', html.indexOf('id="conNoteMicState"') >= 0);
+    pass('index loads app-con-dictation-fix.js before app-con-notes.js',
+        html.indexOf("'app-con-dictation-fix.js'") >= 0 &&
+        html.indexOf("'app-con-dictation-fix.js'") < html.indexOf("'app-con-notes.js'"));
+    ['conNoteMicLang', 'conNoteMicFixesBtn', 'conNoteTeach', 'conNoteAlts']
+        .forEach(function (id) { pass('markup #' + id, html.indexOf('id="' + id + '"') >= 0); });
+    pass('dictation language no longer follows UI language', extractFn(notesSrc, 'cnMicLang').indexOf('appUiLang') < 0);
+    pass('dictation asks Chrome for 5 alternatives', extractFn(notesSrc, 'cnMicStartRecognition').indexOf('maxAlternatives = 5') >= 0);
+    pass('final results go through the accuracy layer', extractFn(notesSrc, 'cnMicStartRecognition').indexOf('cnMicProcessFinal(') >= 0);
+    pass('learned corrections stored per login', extractFn(notesSrc, 'cnDictLearned').indexOf('cnUserScopedKey(CN_MIC_FIXES_KEY)') >= 0);
     pass('migration SQL present', fs.existsSync(path.join(root, 'treatments_note_audit.sql')));
     pass('CSS for composer + cards', css.indexOf('.cn-sec-head') >= 0 && css.indexOf('.note-card--addendum') >= 0 &&
         css.indexOf('.cn-tooth-pop') >= 0);
@@ -123,6 +132,8 @@ function extractFn(src, name) {
     var re2 = /data-i18n(?:-placeholder|-title|-aria-label)?="(con\.note\.[A-Za-z0-9_.]+)"/g, m2;
     while ((m2 = re2.exec(html))) keys[m2[1]] = 1;
     ['co', 'mh', 'hpc', 'eo', 'io', 'xr', 'si', 'tx', 'px', 'next', 'other'].forEach(function (k) { keys['con.note.sec.' + k] = 1; });
+    var re3 = /key: '(con\.note\.[A-Za-z0-9_.]+)'/g, m3;
+    while ((m3 = re3.exec(notesSrc))) keys[m3[1]] = 1;
     var missing = Object.keys(keys).filter(function (k) { return !/\.$/.test(k); }).filter(function (k) {
         var i = i18n.indexOf("'" + k + "':");
         if (i < 0) return true;
@@ -151,6 +162,7 @@ function extractFn(src, name) {
         conTrRepl: function (k) { return k; }
     };
     vm.createContext(ctx);
+    vm.runInContext(read('app-con-dictation-fix.js'), ctx);
     vm.runInContext(notesSrc, ctx);
     ['conNoteNameKey', 'conNoteWrittenByLabel', 'conNoteEditHistory', 'conNoteIsMine', 'conNoteCanEdit', 'conNoteActorName']
         .forEach(function (fn) { vm.runInContext(extractFn(conSrc, fn), ctx); });
@@ -221,6 +233,60 @@ function extractFn(src, name) {
     store['conNoteDraft:v1:old'] = JSON.stringify({ text: 'x', at: Date.now() - 20 * 86400e3 });
     ctx.cnPruneDrafts();
     pass('drafts older than 14 days pruned', !('conNoteDraft:v1:old' in store));
+
+    console.log('\n=== unit: dictation accuracy ===');
+    var fix = function (s, o) { return ctx.cnDictCorrect(s, o); };
+    pass('ceiling and polishing → scaling and polishing', fix('ceiling and polishing done') === 'scaling and polishing done');
+    pass('Ceiling (capitalised) → Scaling', fix('Ceiling done') === 'Scaling done');
+    pass('chatting → charting', fix('perio chatting completed') === 'perio charting completed');
+    pass('plague / buckle / carries', fix('plague on buckle surface, carries 36') === 'plaque on buccal surface, caries 36');
+    pass('perry apical / lig no cane / bite wings', fix('perry apical x ray, lig no cane, bite wings') === 'periapical X-ray, lignocaine, bitewings');
+    pass('spelled acronyms: o h i / t t p / r c t', fix('o h i given, t t p negative, r c t continue') === 'OHI given, TTP negative, RCT continue');
+    pass('lowercase acronyms uppercased', fix('ohi given, opg taken, tmj nad') === 'OHI given, OPG taken, TMJ NAD');
+    pass('"four six" → 46; "tooth 3 6" → tooth 36', fix('four six MOD') === '46 MOD' && fix('tooth 3 6 caries') === 'tooth 36 caries');
+    pass('normal words untouched', fix('review in two weeks, pain started yesterday') === 'review in two weeks, pain started yesterday');
+    var learned = [{ from: 'sky ling', to: 'scaling' }, { from: 'mouth wash', to: 'mouthwash' }];
+    pass('learned phrase applied (case-insensitive)', fix('Sky ling done, mouth wash given', { learned: learned }) === 'Scaling done, mouthwash given');
+    pass('learned word needs whole-word match', fix('skyline view', { learned: [{ from: 'sky', to: 'X' }] }) === 'skyline view');
+    var best = ctx.cnDictBest(['starting done', 'charting done'], { lang: 'en-GB' });
+    pass('picks the alternative with dental terms', best.text === 'charting done' && best.index === 1);
+    var tie = ctx.cnDictBest(['pain on the left', 'paint on the left'], { lang: 'en-GB' });
+    pass('tie keeps Chrome\'s first choice', tie.index === 0);
+    var cjk = ctx.cnDictBest(['洗牙', 'scaling'], { lang: 'en-GB' });
+    pass('English mode rejects Chinese-character alternatives', cjk.text === 'scaling');
+    var sec = ctx.cnDictBest(['access cavity', 'excess cavity'], { lang: 'en-GB', extraTerms: ctx.cnDictSectionTerms('tx') });
+    pass('section chips steer the pick', sec.text === 'access cavity');
+    pass('best keeps Chrome\'s other guesses as choices', ctx.cnDictBest(['a b', 'charting done', 'a b'], { lang: 'en-GB' }).alts.length === 2);
+    var sug = ctx.cnDictSuggest('calling done');
+    pass('suggests close dental word (calling → scaling)', sug.indexOf('scaling done') >= 0, JSON.stringify(sug));
+    pass('no suggestions for common words / dental words', ctx.cnDictSuggest('pain done today, scaling given').length === 0,
+        JSON.stringify(ctx.cnDictSuggest('pain done today, scaling given')));
+    pass('suggestion keeps capital letter', ctx.cnDictSuggest('Calling done').indexOf('Scaling done') >= 0);
+    var fc = ctx.cnDictFindCorrection;
+    var old = 'Tx: ceiling done';
+    var d1 = fc(old, 'Tx: scaling done', 4, old.length);
+    pass('detects a word swap inside dictated text', d1 && d1.from === 'ceiling' && d1.to === 'scaling', JSON.stringify(d1));
+    var d2 = fc('ok. sky ling done', 'ok. scaling done', 4, 17);
+    pass('detects a two-word → one-word fix', d2 && d2.from === 'sky ling' && d2.to === 'scaling', JSON.stringify(d2));
+    pass('ignores edits outside the dictated range', fc('Pain. ceiling done', 'Pains. ceiling done', 6, 18) === null);
+    pass('ignores pure appends after dictation', fc('ceiling done', 'ceiling done, OHI given', 0, 12) === null);
+    pass('ignores big rewrites', fc('ceiling done today ok', 'completely different sentence here now yes', 0, 21) === null);
+    pass('ignores case-only changes', fc('ceiling done', 'Ceiling done', 0, 12) === null);
+    store = {};
+    ctx.localStorage.getItem = function (k) { return store[k] == null ? null : store[k]; };
+    ctx.localStorage.setItem = function (k, v) { store[k] = String(v); };
+    ctx.currentUserId = 'u-dict';
+    pass('dictation language defaults to English (UK) even with Chinese UI', (ctx.appUiLang = 'zh-Hant', ctx.cnMicLang() === 'en-GB'));
+    ctx.cnMicSetLang('yue-Hant-HK');
+    pass('dictation language remembered per login', store['conNoteMicLang:u-dict'] === 'yue-Hant-HK' && ctx.cnMicLang() === 'yue-Hant-HK');
+    ctx.currentUserId = 'u-other';
+    delete store['conNoteMicLang'];
+    pass('another login keeps its own default', ctx.cnMicLang() === 'en-GB');
+    ctx.cnDictAddLearned('ceiling', 'scaling');
+    ctx.cnDictAddLearned('Ceiling', 'sealing');
+    pass('learned corrections per login, latest wins', ctx.cnDictLearned().length === 1 && ctx.cnDictLearned()[0].to === 'sealing' &&
+        !store['conNoteDictFixes:v1:u-dict']);
+    ctx.currentUserId = 'u-1';
 
     console.log('\n=== HTTP spot ===');
     var port = null;

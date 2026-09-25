@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-report.js'))) root = process.cwd();
 
-var BUILD = '20260925notes5';
+var BUILD = '20260925notes8';
 var ZHANG_ID = 'd19183c0-183a-414e-b0e1-ab760f376a93';
 var FROM = '2026-08-01';
 var TO = '2026-08-31';

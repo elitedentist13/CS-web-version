@@ -238,21 +238,28 @@
             }
         },
         {
-            id: 'queue_actions',
-            icon: '▾',
-            i18nKey: 'ql.queueActions',
-            shortcut: 'Ctrl+Shift+A',
-            requiresQueueSelection: true,
+            id: 'xrays',
+            icon: '🦷',
+            i18nKey: 'ql.xrays',
+            shortcut: 'Ctrl+Shift+X',
+            requiresPatient: true,
             handler: function () {
-                if (!qlHasQueueRowSelection()) {
-                    qlToast(qlTr('ql.needQueueSelection'));
+                var rec = qlResolvePatientRecord();
+                var pid = rec && rec.id ? rec.id : null;
+                if (!pid) {
+                    qlToast(qlTr('ql.needPatient'));
+                    if (typeof initConsultation === 'function') initConsultation();
                     return;
                 }
-                if (typeof openQueueSelectedRowAction === 'function') {
-                    openQueueSelectedRowAction();
-                    return;
+                if (typeof openConForPatient === 'function') {
+                    openConForPatient(pid, {
+                        onReady: function () {
+                            if (typeof switchConTab === 'function') switchConTab('xrays');
+                        }
+                    });
+                } else if (typeof showOnly === 'function') {
+                    showOnly('consultationSection');
                 }
-                qlToast(qlTr('ql.needQueueSelection'));
             }
         },
         {
@@ -570,7 +577,8 @@
     }, true);
 
     // ── i18n refresh on language change ──────────────────────
-    document.addEventListener('app-lang-change', function () {
+    // setAppLang() dispatches on window, which document listeners never receive.
+    window.addEventListener('app-lang-change', function () {
         refreshLabels();
     });
     document.addEventListener('app-active-patient-change', function () {

@@ -392,23 +392,12 @@
         };
         var field = (typeof PATIENT_CLINIC_TAG_FIELD === 'string') ? PATIENT_CLINIC_TAG_FIELD : 'clinic_tag';
         payload[field] = work;
-        function insert(pl, retried) {
-            return SB.from('patients').insert([pl])
-                .select('id,patient_no,full_name,chinese_name,hkid,dob,clinic_tag')
-                .then(function (r) {
-                    if (r.error) {
-                        var msg = String(r.error.message || '').toLowerCase();
-                        if (!retried && msg.indexOf('banana_notes') >= 0) {
-                            var pl2 = Object.assign({}, pl);
-                            delete pl2.banana_notes;
-                            return insert(pl2, true);
-                        }
-                        throw r.error;
-                    }
-                    return (r.data && r.data[0]) ? r.data[0] : null;
-                });
-        }
-        return insert(payload, false);
+        return SB.from('patients').insert([payload])
+            .select('id,patient_no,full_name,chinese_name,hkid,dob,clinic_tag')
+            .then(function (r) {
+                if (r.error) throw r.error;
+                return (r.data && r.data[0]) ? r.data[0] : null;
+            });
     }
 
     window.xrayConfirmUploadChooser = function () {

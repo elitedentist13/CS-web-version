@@ -106,7 +106,7 @@ function savePatientDirBananaPanel() {
     var notes = readBananaNotesField('patientDir_banana_notes');
     var payload = {
         banana_index: idx,
-        banana_notes: idx != null ? notes : null
+        banana_notes: notes
     };
     var savedId = patientDirBananaEditId;
     function doneSave() {
@@ -125,36 +125,26 @@ function savePatientDirBananaPanel() {
         if (typeof patientViewOnActiveChange === 'function') patientViewOnActiveChange(savedP);
         alert(patTr('patient.dirBanana.saved'));
     }
-    function doUpdate(pl, retried) {
-        SB.from('patients').update(pl).eq('id', savedId)
-        .then(function(r) {
-            if (!r.error) { doneSave(); return; }
-            var msg = String(r.error.message || '').toLowerCase();
-            if (!retried && msg.indexOf('banana_notes') >= 0) {
-                var pl2 = Object.assign({}, pl);
-                delete pl2.banana_notes;
-                doUpdate(pl2, true);
-                return;
-            }
-            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
-        });
-    }
-    doUpdate(payload, false);
+    SB.from('patients').update(payload).eq('id', savedId)
+    .then(function(r) {
+        if (!r.error) { doneSave(); return; }
+        alert(bananaSaveErrorMessage(r.error));
+    });
 }
 
+/** Unticking only hides/deactivates the fields; values stay so re-ticking restores them. */
 function toggleAddBananaInfoZone() {
     var chk = g('banana_info_enabled');
     var body = g('addBananaInfoBody');
     var idx = g('banana_index');
     var nts = g('banana_notes');
     var on = !!(chk && chk.checked);
-    if (body) body.classList.toggle('is-disabled', !on);
+    if (body) {
+        body.classList.toggle('is-disabled', !on);
+        body.hidden = !on;
+    }
     if (idx) idx.disabled = !on;
     if (nts) nts.disabled = !on;
-    if (!on) {
-        if (idx) idx.value = '';
-        if (nts) nts.value = '';
-    }
 }
 
 function toggleEditBananaInfoZone(forceDisabled) {
@@ -164,14 +154,33 @@ function toggleEditBananaInfoZone(forceDisabled) {
     var nts = g('edit_banana_notes');
     var on = !!(chk && chk.checked);
     var disabled = !!forceDisabled || !on;
-    if (body) body.classList.toggle('is-disabled', disabled);
+    if (body) {
+        body.classList.toggle('is-disabled', disabled);
+        body.hidden = !on;
+    }
     if (chk) chk.disabled = !!forceDisabled;
     if (idx) idx.disabled = disabled;
     if (nts) nts.disabled = disabled;
-    if (!on) {
-        if (idx) idx.value = '';
-        if (nts) nts.value = '';
+}
+
+/**
+ * banana_index is only kept while the zone is ticked; banana_notes is always kept
+ * (hidden + inactive when unticked) so it is never silently lost.
+ */
+function readBananaPayload(enabledId, indexId, notesId) {
+    var on = !!(g(enabledId) && g(enabledId).checked);
+    return {
+        banana_index: on ? readBananaIndexField(indexId) : null,
+        banana_notes: readBananaNotesField(notesId)
+    };
+}
+
+function bananaSaveErrorMessage(err) {
+    var msg = String((err && err.message) || '');
+    if (msg.toLowerCase().indexOf('banana_') >= 0) {
+        return patTr('patient.alertBananaColumnsMissing') + '\n\n' + msg;
     }
+    return trRepl('appt.msg.error', { MSG: msg });
 }
 
 function refreshPatientSexSelects() {
@@ -822,14 +831,9 @@ function submitAddPatient(e) {
             occupation:     (g('occupation').value   ||'').trim()||null,
             address:        (g('address').value      ||'').trim()||null,
             medical_alerts: (g('alerts').value       ||'').trim()||null,
-            remarks:        (g('remarks').value      ||'').trim()||null,
-            banana_index:   (g('banana_info_enabled') && g('banana_info_enabled').checked)
-                ? readBananaIndexField('banana_index')
-                : null,
-            banana_notes:   (g('banana_info_enabled') && g('banana_info_enabled').checked)
-                ? readBananaNotesField('banana_notes')
-                : null
+            remarks:        (g('remarks').value      ||'').trim()||null
         };
+        Object.assign(payload, readBananaPayload('banana_info_enabled', 'banana_index', 'banana_notes'));
         var extra = readPatientExtraFields(false);
         payload.mobile_phone = extra.mobile_phone;
         payload.residential_district = extra.residential_district;
@@ -856,21 +860,11 @@ function submitAddPatient(e) {
                 alert(patTrRepl('patient.alertRegistered', { NO: no }));
             }
         }
-        function doInsert(pl, retried) {
-            SB.from('patients').insert([pl]).select('id,patient_no,full_name,chinese_name')
-            .then(function(r) {
-                if (!r.error) { finishInsert(r); return; }
-                var msg = String(r.error.message || '').toLowerCase();
-                if (!retried && msg.indexOf('banana_notes') >= 0) {
-                    var pl2 = Object.assign({}, pl);
-                    delete pl2.banana_notes;
-                    doInsert(pl2, true);
-                    return;
-                }
-                alert(trRepl('appt.msg.error', { MSG: r.error.message }));
-            });
-        }
-        doInsert(payload, false);
+        SB.from('patients').insert([payload]).select('id,patient_no,full_name,chinese_name')
+        .then(function(r) {
+            if (!r.error) { finishInsert(r); return; }
+            alert(bananaSaveErrorMessage(r.error));
+        });
     });
 }
 
@@ -1411,8 +1405,7 @@ function openEditPatient(id) {
         sv('edit_remarks',     p.remarks        ||'');
         sv('edit_banana_index', p.banana_index != null ? String(p.banana_index) : '');
         sv('edit_banana_notes', p.banana_notes || '');
-        var hasBanana = readBananaIndexField('edit_banana_index') != null ||
-            !!readBananaNotesField('edit_banana_notes');
+        var hasBanana = readBananaIndexField('edit_banana_index') != null;
         if (g('edit_banana_info_enabled')) {
             g('edit_banana_info_enabled').checked = hasBanana;
             g('edit_banana_info_enabled').onchange = function() {
@@ -1464,15 +1457,10 @@ function submitEditPatient(e) {
               occupation:     (g('edit_occupation').value  ||'').trim()||null,
               address:        (g('edit_address').value     ||'').trim()||null,
               medical_alerts: (g('edit_alerts').value      ||'').trim()||null,
-              remarks:        (g('edit_remarks').value     ||'').trim()||null,
-              banana_index:   (g('edit_banana_info_enabled') && g('edit_banana_info_enabled').checked)
-                  ? readBananaIndexField('edit_banana_index')
-                  : null,
-              banana_notes:   (g('edit_banana_info_enabled') && g('edit_banana_info_enabled').checked)
-                  ? readBananaNotesField('edit_banana_notes')
-                  : null
+              remarks:        (g('edit_remarks').value     ||'').trim()||null
           };
     if (!nurse) {
+        Object.assign(payload, readBananaPayload('edit_banana_info_enabled', 'edit_banana_index', 'edit_banana_notes'));
         var extraEdit = readPatientExtraFields(true);
         payload.mobile_phone = extraEdit.mobile_phone;
         payload.residential_district = extraEdit.residential_district;
@@ -1519,30 +1507,20 @@ function submitEditPatient(e) {
         }
         alert(nurse ? patTr('patient.alertClinicTagSaved') : patTr('patient.alertUpdated'));
     }
-    function doUpdate(pl, retried) {
-        SB.from('patients').update(pl).eq('id',editPatientId)
-        .then(function(r) {
-            if (!r.error) {
-                SB.from('patients').select('*').eq('id', editPatientId).single()
-                .then(function(sr) {
-                    doneUpdate(sr && !sr.error ? sr.data : null);
-                })
-                .catch(function() {
-                    doneUpdate(null);
-                });
-                return;
-            }
-            var msg = String(r.error.message || '').toLowerCase();
-            if (!retried && msg.indexOf('banana_notes') >= 0) {
-                var pl2 = Object.assign({}, pl);
-                delete pl2.banana_notes;
-                doUpdate(pl2, true);
-                return;
-            }
-            alert(trRepl('appt.msg.error', { MSG: r.error.message }));
-        });
-    }
-    doUpdate(payload, false);
+    SB.from('patients').update(payload).eq('id',editPatientId)
+    .then(function(r) {
+        if (!r.error) {
+            SB.from('patients').select('*').eq('id', editPatientId).single()
+            .then(function(sr) {
+                doneUpdate(sr && !sr.error ? sr.data : null);
+            })
+            .catch(function() {
+                doneUpdate(null);
+            });
+            return;
+        }
+        alert(bananaSaveErrorMessage(r.error));
+    });
 }
 
 function deletePatient() {
@@ -2048,18 +2026,11 @@ function confirmDuplicatePatientToClinic() {
             }
         }
 
-        function doInsert(pl, retried) {
+        function doInsert(pl) {
             SB.from('patients').insert([pl]).select('id,patient_no,full_name,chinese_name')
                 .then(function (r) {
                     if (r.error) {
-                        var msg = String(r.error.message || '').toLowerCase();
-                        if (!retried && msg.indexOf('banana_notes') >= 0) {
-                            var pl2 = Object.assign({}, pl);
-                            delete pl2.banana_notes;
-                            doInsert(pl2, true);
-                            return;
-                        }
-                        fail(trRepl('appt.msg.error', { MSG: r.error.message }));
+                        fail(bananaSaveErrorMessage(r.error));
                         return;
                     }
                     var row = r.data && r.data[0] ? r.data[0] : null;
@@ -2072,7 +2043,7 @@ function confirmDuplicatePatientToClinic() {
                     });
                 });
         }
-        doInsert(payload, false);
+        doInsert(payload);
     });
 }
 

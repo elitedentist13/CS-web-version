@@ -45,6 +45,7 @@ node_modules/
 # X-ray AI service: local venv, downloaded model weights, bytecode
 xray-ai-service/.venv/
 xray-ai-service/model_cache/
+xray-ai-deploy-pack/xray-ai-service/model_cache/
 __pycache__/
 *.pyc
 

@@ -132,7 +132,9 @@ function updateConBannerBananaNotes(p) {
     var wrap = g('conBannerBananaNotesWrap');
     var el = g('conBannerBananaNotes');
     if (!wrap || !el) return;
-    var txt = String((p && p.banana_notes) || '').trim();
+    var n = parseInt(p && p.banana_index, 10);
+    // Notes without an index are kept but inactive (Banana Info unticked).
+    var txt = (n >= 1 && n <= 10) ? String((p && p.banana_notes) || '').trim() : '';
     if (!txt) {
         wrap.style.display = 'none';
         el.textContent = '—';

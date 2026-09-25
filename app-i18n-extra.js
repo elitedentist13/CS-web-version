@@ -386,6 +386,11 @@
         'patient.th.actions': { en: 'Actions', 'zh-CN': '操作', 'zh-Hant': '操作' },
         'patient.dirBanana.title': { en: 'Banana Info', 'zh-CN': '香蕉信息', 'zh-Hant': '香蕉資訊' },
         'patient.dirBanana.linkTitle': { en: 'View and edit banana index and notes', 'zh-CN': '查看并编辑香蕉指数与备注', 'zh-Hant': '查看並編輯香蕉指數與備註' },
+        'patient.alertBananaColumnsMissing': {
+            en: 'Banana Info could not be saved: the database is missing the banana columns. Run banana_fields.sql in the Supabase SQL Editor, then try again. Nothing was saved.',
+            'zh-CN': '无法保存香蕉信息：数据库缺少香蕉栏位。请在 Supabase SQL Editor 执行 banana_fields.sql 后再试。本次未有保存任何资料。',
+            'zh-Hant': '無法儲存香蕉資訊：資料庫缺少香蕉欄位。請在 Supabase SQL Editor 執行 banana_fields.sql 後再試。本次未有儲存任何資料。'
+        },
         'patient.dirBanana.saved': { en: 'Banana info saved.', 'zh-CN': '香蕉信息已保存。', 'zh-Hant': '香蕉資訊已儲存。' },
         'patient.empty': { en: 'No patients found.', 'zh-CN': '未找到患者。', 'zh-Hant': '未找到病人。' },
         'patient.alertsNone': { en: 'None', 'zh-CN': '无', 'zh-Hant': '無' },
@@ -532,7 +537,7 @@
         'patient.form.hkid': { en: 'HKID No.', 'zh-CN': '香港身份证号码', 'zh-Hant': '香港身份證號碼' },
         'patient.form.bananaInfo': { en: 'Banana Info', 'zh-CN': '香蕉信息', 'zh-Hant': '香蕉資訊' },
         'patient.form.bananaInfoEnable': { en: 'Enable banana info input', 'zh-CN': '启用香蕉信息输入', 'zh-Hant': '啟用香蕉資訊輸入' },
-        'patient.form.bananaInfoHelp': { en: 'Leave unchecked to skip Banana Info and hide it from the patient banner.', 'zh-CN': '保持未勾选可跳过香蕉信息，且不会显示在病人横幅中。', 'zh-Hant': '保持未勾選可略過香蕉資訊，且不會顯示在病人橫幅中。' },
+        'patient.form.bananaInfoHelp': { en: 'Leave unchecked to skip Banana Info and hide it from the patient banner. Unticking keeps any banana text (hidden); tick again to bring it back.', 'zh-CN': '保持未勾选可跳过香蕉信息，且不会显示在病人横幅中。取消勾选会保留香蕉备注（隐藏），再次勾选即可恢复。', 'zh-Hant': '保持未勾選可略過香蕉資訊，且不會顯示在病人橫幅中。取消勾選會保留香蕉備註（隱藏），再次勾選即可恢復。' },
         'patient.form.bananaIndex': { en: 'Banana Index', 'zh-CN': '香蕉指数', 'zh-Hant': '香蕉指數' },
         'patient.form.bananaNotes': { en: 'Banana Notes', 'zh-CN': '香蕉备注', 'zh-Hant': '香蕉備註' },
         'patient.form.bananaNotesPh': { en: 'Optional notes for banana index...', 'zh-CN': '可填写与香蕉指数相关备注…', 'zh-Hant': '可填寫與香蕉指數相關備註…' },
@@ -7264,6 +7269,7 @@
         'ql.newAppt':       { en: 'New Appointment',     'zh-CN': '新预约',      'zh-Hant': '新預約' },
         'ql.currentQueue':  { en: 'Current Queue',       'zh-CN': '当前队列',    'zh-Hant': '目前隊列' },
         'ql.queueActions':  { en: 'Queue Actions',       'zh-CN': '队列操作',    'zh-Hant': '隊列操作' },
+        'ql.xrays':         { en: 'X-Rays',              'zh-CN': 'X光',         'zh-Hant': 'X光' },
         'ql.needQueueSelection': {
             en: 'Select a row in the Appointment queue first.',
             'zh-CN': '请先在预约模块的队列中选择一行。',

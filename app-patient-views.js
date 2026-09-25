@@ -190,9 +190,10 @@ function patViewOpenPlusAppt(patientRecord) {
 function patViewBananaPanelHtml(p) {
     var idx = (typeof patientDirBananaIndexValue === 'function')
         ? patientDirBananaIndexValue(p) : null;
-    var notes = (typeof patientDirBananaNotesText === 'function')
-        ? patientDirBananaNotesText(p) : String(p.banana_notes || '').trim();
-    if (idx == null && !notes) {
+    // Notes without an index are kept but inactive (Banana Info unticked).
+    var notes = idx == null ? '' : ((typeof patientDirBananaNotesText === 'function')
+        ? patientDirBananaNotesText(p) : String(p.banana_notes || '').trim());
+    if (idx == null) {
         return '<div class="pat-view-banana pat-view-banana--empty">' +
             '<span class="pat-view-banana-ico">🍌</span>' +
             '<span>' + esc(patViewTr('patient.view.bananaEmpty')) + '</span></div>';

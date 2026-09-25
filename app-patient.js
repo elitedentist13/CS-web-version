@@ -1096,12 +1096,115 @@ document.addEventListener('click', function (e) {
     if (e.target && e.target.closest && e.target.closest('.patient-dir-more')) return;
     closePatientDirMoreMenus();
 });
-document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') closePatientDirMoreMenus();
-});
+var patientDirKbdIndex = -1;
+
+function patientDirRows() {
+    var tb = g('patientTableBody');
+    if (!tb || !patientListCache.length) return [];
+    return Array.prototype.slice.call(tb.children, 0, patientListCache.length);
+}
+
+function setPatientDirKbdRow(idx, opts) {
+    var rows = patientDirRows();
+    rows.forEach(function (r) { r.classList.remove('patient-dir-row-kbd'); });
+    if (idx < 0 || !rows.length) { patientDirKbdIndex = -1; return; }
+    patientDirKbdIndex = Math.max(0, Math.min(idx, rows.length - 1));
+    var row = rows[patientDirKbdIndex];
+    row.classList.add('patient-dir-row-kbd');
+    if (!(opts && opts.noScroll)) row.scrollIntoView({ block: 'nearest' });
+}
+
+function patientDirKeyboardEnabled() {
+    var pane = g('patientViewDirectory');
+    if (!pane || !pane.classList.contains('active') || pane.offsetParent === null) return false;
+    var modals = document.querySelectorAll('.modal');
+    for (var i = 0; i < modals.length; i++) {
+        if (modals[i].offsetParent !== null || getComputedStyle(modals[i]).display !== 'none') return false;
+    }
+    return true;
+}
+
+function patientDirIsTypingTarget(el) {
+    if (!el) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    return !!el.isContentEditable;
+}
+
+function onPatientDirKeydown(e) {
+    var openMenu = document.querySelector('#patientTableBody .patient-dir-more-menu:not([hidden])');
+    if (e.key === 'Escape' && openMenu) {
+        var btn = openMenu.parentNode.querySelector('.patient-dir-more-btn');
+        closePatientDirMoreMenus();
+        if (btn) btn.focus();
+        return;
+    }
+    if (!patientDirKeyboardEnabled()) return;
+
+    var search = g('searchInput');
+    var tgt = e.target;
+    var inSearch = tgt === search;
+    var typing = patientDirIsTypingTarget(tgt);
+    var plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === 'k') {
+        e.preventDefault();
+        if (search) { search.focus(); search.select(); }
+        return;
+    }
+    if (typing && !inSearch) return;
+
+    if (inSearch) {
+        if (e.key === 'ArrowDown' && patientListCache.length) {
+            e.preventDefault();
+            search.blur();
+            setPatientDirKbdRow(0);
+        } else if (e.key === 'Escape' && search.value) {
+            e.preventDefault();
+            search.value = '';
+            schedulePatientDirSearch();
+        }
+        return;
+    }
+    if (!plain) return;
+
+    if (e.key === '/') {
+        e.preventDefault();
+        if (search) { search.focus(); search.select(); }
+        return;
+    }
+    if (patientDirKbdIndex < 0) return;
+    var row = patientDirRows()[patientDirKbdIndex];
+    if (!row) { patientDirKbdIndex = -1; return; }
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (e.key === 'ArrowUp' && patientDirKbdIndex === 0) {
+            setPatientDirKbdRow(-1);
+            if (search) search.focus();
+            return;
+        }
+        setPatientDirKbdRow(patientDirKbdIndex + (e.key === 'ArrowDown' ? 1 : -1));
+    } else if (e.key === 'Enter') {
+        if (tgt && tgt.closest && tgt.closest('button, a')) return;
+        e.preventDefault();
+        setDirectoryActivePatient(patientListCache[patientDirKbdIndex], 'patient-row');
+    } else if (e.key === 'c' || e.key === 'C') {
+        var ci = row.querySelector('.btn-checkin-p');
+        if (ci) { e.preventDefault(); ci.click(); }
+    } else if (e.key === 'e' || e.key === 'E') {
+        var ed = row.querySelector('.btn-editp');
+        if (ed) { e.preventDefault(); ed.click(); }
+    } else if (e.key === 'Escape') {
+        setPatientDirKbdRow(-1);
+    }
+}
+
+document.addEventListener('keydown', onPatientDirKeydown);
 
 function renderPatients(list) {
     patientListCache = list || [];
+    patientDirKbdIndex = -1;
     var tb = g('patientTableBody');
     if (!list.length) {
         tb.innerHTML =
@@ -1191,6 +1294,7 @@ function renderPatients(list) {
             if (tgt && tgt.closest &&
                 (tgt.closest('button') || tgt.closest('.patient-dir-banana-link') ||
                  tgt.closest('.patient-dir-more'))) return;
+            setPatientDirKbdRow(Array.prototype.indexOf.call(tb.children, tr), { noScroll: true });
             setDirectoryActivePatient(p, 'patient-row');
         });
         tr.addEventListener('dragstart', function(e) {

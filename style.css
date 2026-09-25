@@ -6085,6 +6085,13 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .pd-more-item.btn-appt-reminder::before { background: #f59e0b; }
 .pd-more-item:hover { background: #f1f5f9; }
 #patientTableBody tr.patient-dir-row-menu-open { position: relative; z-index: 7; }
+#patientTableBody tr {
+    scroll-margin-top: calc(var(--pd-sticky-thead-top, 90px) + 52px);
+    scroll-margin-bottom: 12px;
+}
+#patientTableBody tr.patient-dir-row-kbd td { background: #f5f9ff; }
+#patientTableBody tr.patient-dir-row-kbd td:first-child { box-shadow: inset 3px 0 0 #93c5fd; }
+#patientTableBody tr.patient-dir-row-kbd { outline: 2px solid #60a5fa; outline-offset: -2px; }
 
 #patientTableBody tr.patient-dir-row-active {
     background: #e8f2ff;

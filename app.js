@@ -2174,22 +2174,36 @@ function escapePostgrestIlike(q) {
         .replace(/,/g, '');
 }
 
+function patientSearchIsRealDate(y, mo, d) {
+    var dt = new Date(Date.UTC(y, mo - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * DOB terms for a PostgREST .or() list. The year range must stay wrapped in and(...):
+ * as two separate .or() items, "dob >= Y-01-01 OR dob <= Y-12-31" matches every patient.
+ */
 function patientSearchDobFilterParts(q) {
     var parts = [];
     var raw = String(q || '').trim();
     if (!raw) return parts;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-        parts.push('dob.eq.' + raw);
+    var iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) {
+        if (patientSearchIsRealDate(+iso[1], +iso[2], +iso[3])) parts.push('dob.eq.' + raw);
         return parts;
     }
     var m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
     if (m) {
-        var d = ('0' + parseInt(m[1], 10)).slice(-2);
-        var mo = ('0' + parseInt(m[2], 10)).slice(-2);
-        parts.push('dob.eq.' + m[3] + '-' + mo + '-' + d);
+        var dn = parseInt(m[1], 10);
+        var mn = parseInt(m[2], 10);
+        var yn = parseInt(m[3], 10);
+        if (!patientSearchIsRealDate(yn, mn, dn)) return parts;
+        parts.push('dob.eq.' + m[3] + '-' + ('0' + mn).slice(-2) + '-' + ('0' + dn).slice(-2));
     } else if (/^\d{4}$/.test(raw)) {
-        parts.push('dob.gte.' + raw + '-01-01');
-        parts.push('dob.lte.' + raw + '-12-31');
+        var yr = parseInt(raw, 10);
+        if (yr >= 1900 && yr <= new Date().getFullYear() + 1) {
+            parts.push('and(dob.gte.' + raw + '-01-01,dob.lte.' + raw + '-12-31)');
+        }
     }
     return parts;
 }

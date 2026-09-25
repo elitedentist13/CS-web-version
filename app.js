@@ -3518,6 +3518,12 @@ function renderActivePatientCollapsedTab() {
     var p = activePatientSlots[0];
     tab.textContent = activePatientDockCollapsedName(p);
     tab.title = activePatientDropLabel(p);
+    var noEl = g('activePatientCollapsedNo');
+    if (noEl) {
+        var no = p && p.patient_no ? String(p.patient_no) : '';
+        noEl.textContent = no ? '#' + no : '';
+        noEl.hidden = !no;
+    }
 }
 
 function setActivePatientDockCollapsed(collapsed, persist) {

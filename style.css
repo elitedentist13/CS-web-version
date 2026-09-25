@@ -323,6 +323,21 @@ option {
     white-space: nowrap;
 }
 
+.active-patient-collapsed-no {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 10px;
+    font-weight: 700;
+    color: #1d4ed8;
+    background: #eff6ff;
+    border-radius: 6px;
+    padding: 4px 1px;
+    max-height: 90px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+.active-patient-collapsed-no[hidden] { display: none; }
+
 .active-patient-dock.is-collapsed {
     width: 42px;
 }
@@ -6161,6 +6176,8 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     background: #e8f2ff;
     box-shadow: inset 3px 0 0 #2563eb;
 }
+#patientTableBody tr.patient-dir-row-active td { background: #dbeafe; }
+#patientTableBody tr.patient-dir-row-active td:first-child { box-shadow: inset 5px 0 0 #1d4ed8; }
 .appt-name-cn {
     font-family: var(--font-cjk-sans);
     font-weight: 400;

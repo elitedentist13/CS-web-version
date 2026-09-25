@@ -734,6 +734,8 @@ function applyAddPatientPrefill(prefill) {
     if (fn && g('fullName')) g('fullName').value = fn;
     if (cn && g('chineseName')) g('chineseName').value = cn;
     if (ph && g('phone')) g('phone').value = ph;
+    var hk = prefill.hkid != null ? String(prefill.hkid).trim() : '';
+    if (hk && g('hkid')) g('hkid').value = hk;
 }
 
 function openAddPatient(prefill) {
@@ -1012,6 +1014,7 @@ function fetchPatients() {
                 String(selPatientId || '') !== String(sole.id)) {
                 setDirectoryActivePatient(sole, 'patient-dir-search-single');
             }
+            setPatientDirKbdRow(0, { noScroll: true });
         }
         if (patientDirScrollActivePending) {
             patientDirScrollActivePending = false;
@@ -1097,6 +1100,7 @@ document.addEventListener('click', function (e) {
     closePatientDirMoreMenus();
 });
 var patientDirKbdIndex = -1;
+var patientDirRenderedQuery = '';
 
 function patientDirRows() {
     var tb = g('patientTableBody');
@@ -1159,6 +1163,11 @@ function onPatientDirKeydown(e) {
             e.preventDefault();
             search.blur();
             setPatientDirKbdRow(0);
+        } else if (e.key === 'Enter' && patientListCache.length &&
+                   String(search.value || '').trim() === patientDirRenderedQuery) {
+            e.preventDefault();
+            setPatientDirKbdRow(0);
+            setDirectoryActivePatient(patientListCache[0], 'patient-row');
         } else if (e.key === 'Escape' && search.value) {
             e.preventDefault();
             search.value = '';
@@ -1202,14 +1211,126 @@ function onPatientDirKeydown(e) {
 
 document.addEventListener('keydown', onPatientDirKeydown);
 
+/** Lower-cased needles mirroring patientSearchOrFilter(): raw text, no-space form, and digits-only (4+). */
+function patientDirSearchNeedles(q) {
+    var raw = String(q || '').trim().toLowerCase();
+    if (!raw) return [];
+    var out = [raw];
+    var compact = raw.replace(/\s+/g, '');
+    if (compact && compact !== raw) out.push(compact);
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length >= 4 && out.indexOf(digits) < 0) out.push(digits);
+    return out;
+}
+
+function patientDirTextHits(text, needles) {
+    var s = String(text || '');
+    if (!s || !needles.length) return false;
+    var low = s.toLowerCase();
+    return needles.some(function (n) { return low.indexOf(n) >= 0; });
+}
+
+/** Escaped text with <mark> around every case-insensitive needle occurrence. */
+function patientDirHighlight(text, needles) {
+    var s = String(text == null ? '' : text);
+    if (!s || !needles || !needles.length) return esc(s);
+    var low = s.toLowerCase();
+    var marks = [];
+    needles.forEach(function (n) {
+        if (!n) return;
+        var i = low.indexOf(n);
+        while (i >= 0) {
+            marks.push([i, i + n.length]);
+            i = low.indexOf(n, i + n.length);
+        }
+    });
+    if (!marks.length) return esc(s);
+    marks.sort(function (a, b) { return a[0] - b[0] || b[1] - a[1]; });
+    var merged = [];
+    marks.forEach(function (m) {
+        var last = merged[merged.length - 1];
+        if (last && m[0] <= last[1]) last[1] = Math.max(last[1], m[1]);
+        else merged.push(m.slice());
+    });
+    var html = '';
+    var pos = 0;
+    merged.forEach(function (m) {
+        html += esc(s.slice(pos, m[0])) + '<mark class="pd-hit">' + esc(s.slice(m[0], m[1])) + '</mark>';
+        pos = m[1];
+    });
+    return html + esc(s.slice(pos));
+}
+
+var PATIENT_DIR_HIDDEN_MATCH_FIELDS = [
+    ['mobile_phone', 'patient.dir.field.mobile'],
+    ['email', 'patient.dir.field.email'],
+    ['address', 'patient.dir.field.address'],
+    ['occupation', 'patient.dir.field.occupation'],
+    ['remarks', 'patient.dir.field.remarks'],
+    ['medical_history', 'patient.dir.field.medHistory'],
+    ['current_medications', 'patient.dir.field.medications'],
+    ['allergy', 'patient.dir.field.allergy'],
+    ['medical_alerts', 'patient.dir.field.alerts']
+];
+
+/** Labels of searched-but-not-shown fields that explain why this row matched. */
+function patientDirHiddenMatchLabels(p, needles, visibleTexts) {
+    if (!needles.length) return [];
+    if (visibleTexts.some(function (t) { return patientDirTextHits(t, needles); })) return [];
+    var labels = [];
+    PATIENT_DIR_HIDDEN_MATCH_FIELDS.forEach(function (f) {
+        if (patientDirTextHits(p[f[0]], needles)) labels.push(patTr(f[1]));
+    });
+    return labels;
+}
+
+function patientDirNewPatientPrefill(q) {
+    var raw = String(q || '').trim();
+    if (!raw) return null;
+    if (/[\u3400-\u9fff\uf900-\ufaff]/.test(raw)) return { chineseName: raw };
+    var compact = raw.replace(/[\s()-]/g, '');
+    if (/^\d{8}$/.test(compact) || /^\+?\d{8,15}$/.test(compact)) return { phone: raw };
+    if (/^[A-Za-z]{1,2}\d{6}[0-9Aa]?$/.test(compact)) return { hkid: raw.toUpperCase() };
+    if (/^[A-Za-z][A-Za-z ,.'-]*$/.test(raw)) return { fullName: raw.toUpperCase() };
+    return null;
+}
+
+function renderPatientDirEmpty(tb, qText) {
+    var cols = 9;
+    var head = document.querySelector('.patient-dir-table thead tr');
+    if (head && head.children.length) cols = head.children.length;
+    if (!qText) {
+        tb.innerHTML = '<tr><td colspan="' + cols + '" class="patient-dir-empty">' +
+            esc(patTr('patient.empty')) + '</td></tr>';
+        return;
+    }
+    tb.innerHTML = '<tr><td colspan="' + cols + '" class="patient-dir-empty">' +
+        '<div class="patient-dir-empty-msg">' +
+            esc(patTrRepl('patient.dir.noMatch', { Q: qText })) + '</div>' +
+        '<button type="button" class="patient-dir-empty-add">' +
+            esc(patTr('patient.dir.addFromSearch')) + '</button>' +
+        '</td></tr>';
+    var btn = tb.querySelector('.patient-dir-empty-add');
+    if (btn) {
+        btn.addEventListener('click', function () {
+            openAddPatient(patientDirNewPatientPrefill(qText));
+        });
+    }
+}
+
 function renderPatients(list) {
     patientListCache = list || [];
     patientDirKbdIndex = -1;
     var tb = g('patientTableBody');
+    var qText = patientDirAdvFilterList == null && g('searchInput')
+        ? String(g('searchInput').value || '').trim() : '';
+    var needles = patientDirSearchNeedles(qText);
+    var dobSearch = qText && typeof patientSearchDobFilterParts === 'function' &&
+        patientSearchDobFilterParts(qText).length > 0;
+    var dobYearOnly = dobSearch && /^\d{4}$/.test(qText);
+    patientDirRenderedQuery = qText;
     if (!list.length) {
-        tb.innerHTML =
-            '<tr><td colspan="9" style="text-align:center;' +
-            'padding:30px;color:#999;">' + esc(patTr('patient.empty')) + '</td></tr>';
+        renderPatientDirEmpty(tb, qText);
         return;
     }
     tb.innerHTML = '';
@@ -1229,17 +1350,17 @@ function renderPatients(list) {
         if (p.patient_no || sexIcon) {
             nameHtml += '<div class="patient-dir-name-meta">';
             if (p.patient_no) {
-                nameHtml += '<span class="pno-badge"># ' + esc(p.patient_no) + '</span>';
+                nameHtml += '<span class="pno-badge"># ' + patientDirHighlight(p.patient_no, needles) + '</span>';
             }
             if (sexIcon) nameHtml += sexIcon;
             nameHtml += '</div>';
         }
         if (cn) {
-            nameHtml += '<span class="patient-dir-name-cn">' + esc(cn) + '</span>';
+            nameHtml += '<span class="patient-dir-name-cn">' + patientDirHighlight(cn, needles) + '</span>';
         }
         if (en) {
             nameHtml += (cn ? '<br>' : '') +
-                '<span class="patient-dir-name-en">' + esc(en) + '</span>';
+                '<span class="patient-dir-name-en">' + patientDirHighlight(en, needles) + '</span>';
         }
         if (!cn && !en) {
             nameHtml += '<span class="patient-dir-name-en">—</span>';
@@ -1249,21 +1370,30 @@ function renderPatients(list) {
             ? buildPatientAlertDisplayText(p)
             : String(p.medical_alerts || '').trim();
 
+        var hiddenHits = patientDirHiddenMatchLabels(p, needles,
+            [p.patient_no, cn, en, p.phone_number, p.hkid, p.insurance_no, alertTxt]);
+        if (hiddenHits.length) {
+            nameHtml += '<div class="patient-dir-matched">' +
+                esc(patTrRepl('patient.dir.matchedIn', { FIELDS: hiddenHits.join(', ') })) + '</div>';
+        }
+
         var tr = document.createElement('tr');
         tr.setAttribute('data-patient-id', p.id);
         tr.style.cursor = 'pointer';
         tr.setAttribute('draggable', 'true');
         tr.innerHTML =
             '<td class="patient-dir-name-cell">' + nameHtml + '</td>' +
-            '<td>'+esc(p.phone_number||'--')+'</td>' +
+            '<td>' + (p.phone_number ? patientDirHighlight(p.phone_number, needles) : '--') + '</td>' +
             '<td style="font-size:12px;color:#64748b;">' +
                 esc(p[PATIENT_CLINIC_TAG_FIELD]||'—') +
             '</td>' +
-            '<td style="white-space:nowrap;">'+dob+'</td>' +
-            '<td>'+esc(p.hkid||'--')+'</td>' +
+            '<td style="white-space:nowrap;">' + patientDirHighlight(dob, !dobSearch || !p.dob ? [] :
+                dobYearOnly ? [qText] :
+                [String(typeof formatDobDisplay === 'function' ? formatDobDisplay(p.dob) : p.dob).toLowerCase()]) + '</td>' +
+            '<td>' + (p.hkid ? patientDirHighlight(p.hkid, needles) : '--') + '</td>' +
             '<td>'+esc(p.insurance_no||'--')+'</td>' +
             '<td><small style="color:' + (alertTxt ? 'var(--danger)' : '#bbb') + ';">' +
-                esc(alertTxt || patTr('patient.alertsNone')) +
+                (alertTxt ? patientDirHighlight(alertTxt, needles) : esc(patTr('patient.alertsNone'))) +
             '</small></td>' +
             '<td class="patient-dir-banana-cell">' +
                 (typeof patientDirBananaCellHtml === 'function' ? patientDirBananaCellHtml(p) : '-') +

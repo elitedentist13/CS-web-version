@@ -1557,9 +1557,24 @@
         }
     });
 
+    /** 📖 How to use opens the manual at the section for the language picked on the dashboard. */
+    function syncGuideLink() {
+        var a = document.getElementById('btnXrayHelperGuide');
+        if (!a) return;
+        var lang = typeof getAppLang === 'function' ? String(getAppLang() || 'en') : 'en';
+        if (lang !== 'zh-Hant' && lang !== 'zh-CN') lang = lang.indexOf('zh') === 0 ? 'zh-Hant' : 'en';
+        a.href = a.getAttribute('href').split('#')[0] + '#lang-' + lang;
+    }
+
     window.addEventListener('app-lang-change', function () {
         if (helper.pip && helper.view === 'bar') renderBar();
+        syncGuideLink();
     });
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', syncGuideLink);
+    else syncGuideLink();
+    document.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('#btnXrayHelperGuide')) syncGuideLink();
+    }, true);
 
     window.xrayHelperLaunch = xrayHelperLaunch;
     window.xrayCaptureAfterUpload = xrayCaptureAfterUpload;

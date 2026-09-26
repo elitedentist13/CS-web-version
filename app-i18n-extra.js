@@ -5713,9 +5713,9 @@
         'media.xcap.helperName': { en: 'X-ray Helper', 'zh-CN': 'X 光助手', 'zh-Hant': 'X 光助手' },
         'media.xcap.guideBtn': { en: '📖 How to use', 'zh-CN': '📖 使用说明', 'zh-Hant': '📖 使用說明' },
         'media.xcap.guideTitle': {
-            en: 'Open the X-ray Helper manual (PDF — English / 繁體中文 / 简体中文)',
-            'zh-CN': '打开 X 光助手使用说明（PDF — English / 繁體中文 / 简体中文）',
-            'zh-Hant': '開啟 X 光助手使用說明（PDF — English / 繁體中文 / 简体中文）'
+            en: 'Open the X-ray Helper manual (English / 繁體中文 / 简体中文 — printable, PDF download)',
+            'zh-CN': '打开 X 光助手使用说明（English / 繁體中文 / 简体中文，可打印及下载 PDF）',
+            'zh-Hant': '開啟 X 光助手使用說明（English / 繁體中文 / 简体中文，可列印及下載 PDF）'
         },
         'media.xcap.pickWindow': {
             en: 'In Chrome’s box: Window tab → X-ray software → Share (not a Chrome tab)',

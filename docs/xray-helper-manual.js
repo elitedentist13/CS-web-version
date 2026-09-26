@@ -1,6 +1,6 @@
 // docs/xray-helper-manual.js — content of the Banana X-ray Helper manual (English / 繁體中文 / 简体中文).
-// Rendered by xray-helper-manual.html; the PDF linked from the X-ray tab is printed from that page:
-//   chrome --headless=new --no-pdf-header-footer --print-to-pdf=docs\xray-helper-manual.pdf docs\xray-helper-manual.html
+// Rendered by xray-helper-manual.html (opened from 📖 How to use on the X-ray tab, at #lang-<app language>).
+// After editing, rebuild the downloadable PDF with tools\build-manual-pdf.ps1.
 (function () {
     'use strict';
 
@@ -261,6 +261,21 @@
             '</section>';
         }).join('');
         document.title = 'Banana X-ray Helper — user manual · 使用說明 · 使用说明';
+
+        var printBtn = document.getElementById('xhgPrint');
+        if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
+        function markLang() {
+            var m = /^#lang-(.+)$/.exec(location.hash);
+            var cur = m ? m[1] : '';
+            document.querySelectorAll('.xhg-toolbar [data-lang]').forEach(function (a) {
+                a.classList.toggle('is-on', a.getAttribute('data-lang') === cur);
+            });
+            var el = cur && document.getElementById('lang-' + cur);
+            if (el) el.scrollIntoView({ block: 'start' });
+        }
+        window.addEventListener('hashchange', markLang);
+        // Sections are built by this script, after the browser's own jump to #lang-… was attempted.
+        markLang();
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);

@@ -11080,6 +11080,23 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.45);
 }
 
+.xray-helper-guide-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fffbeb;
+    color: #92400e;
+    border: 1px dashed #eab308;
+    padding: 7px 11px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.xray-helper-guide-btn { text-decoration: none; }
+.xray-helper-guide-btn:hover { background: #fef3c7; border-style: solid; }
+
 .xray-upload-hint {
     font-size: 11px;
     color: #aaa;

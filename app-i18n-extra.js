@@ -5711,6 +5711,27 @@
             'zh-Hant': '浮於 X 光軟件上方的黃色小工具列：按 ✂ 選取，拖選 X 光範圍，即上載到此病人'
         },
         'media.xcap.helperName': { en: 'X-ray Helper', 'zh-CN': 'X 光助手', 'zh-Hant': 'X 光助手' },
+        'media.xcap.guideBtn': { en: '📖 How to use', 'zh-CN': '📖 使用说明', 'zh-Hant': '📖 使用說明' },
+        'media.xcap.guideTitle': {
+            en: 'Open the X-ray Helper manual (PDF — English / 繁體中文 / 简体中文)',
+            'zh-CN': '打开 X 光助手使用说明（PDF — English / 繁體中文 / 简体中文）',
+            'zh-Hant': '開啟 X 光助手使用說明（PDF — English / 繁體中文 / 简体中文）'
+        },
+        'media.xcap.pickWindow': {
+            en: 'In Chrome’s box: Window tab → X-ray software → Share (not a Chrome tab)',
+            'zh-CN': '在 Chrome 对话框：窗口 → X 光软件 → 共享（不要选 Chrome 标签页）',
+            'zh-Hant': '在 Chrome 對話框：視窗 → X 光軟件 → 分享（不要選 Chrome 分頁）'
+        },
+        'media.xcap.wrongSurface': {
+            en: 'A Chrome tab was shared — press Share screen and pick the X-ray software window',
+            'zh-CN': '共享了 Chrome 标签页 — 请点「共享屏幕」并选择 X 光软件窗口',
+            'zh-Hant': '分享了 Chrome 分頁 — 請按「分享畫面」並選擇 X 光軟件視窗'
+        },
+        'media.xcap.wrongSurfaceLong': {
+            en: 'You shared a Chrome tab, so Banana would capture itself instead of the X-ray.\n\nPlease try again and choose the “Window” tab → the X-ray software window (or “Entire screen”).',
+            'zh-CN': '你共享了 Chrome 标签页，Banana 会截到自己而不是 X 光。\n\n请再试一次，选择「窗口」→ X 光软件的窗口（或「整个屏幕」）。',
+            'zh-Hant': '你分享了 Chrome 分頁，Banana 會截到自己而不是 X 光。\n\n請再試一次，選擇「視窗」→ X 光軟件的視窗（或「整個畫面」）。'
+        },
         'media.xcap.title': { en: 'Crop X-ray', 'zh-CN': '裁剪 X 光', 'zh-Hant': '裁剪 X 光片' },
         'media.xcap.selectionBtn': { en: '✂ Selection', 'zh-CN': '✂ 选取', 'zh-Hant': '✂ 選取' },
         'media.xcap.selectionTitle': {

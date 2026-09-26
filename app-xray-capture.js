@@ -136,7 +136,8 @@
 
     function requestDisplayStream() {
         return navigator.mediaDevices.getDisplayMedia({
-            video: { frameRate: { ideal: 5, max: 30 } },
+            // The imaging software is its own program: open Chrome's picker on the "Window" tab.
+            video: { displaySurface: 'window', frameRate: { ideal: 5, max: 30 } },
             audio: false,
             preferCurrentTab: false,
             selfBrowserSurface: 'exclude',
@@ -148,8 +149,21 @@
             if (track && 'contentHint' in track) {
                 try { track.contentHint = 'detail'; } catch (_) {}
             }
+            if (sharedBrowserTab(stream)) {
+                stopStream(stream);
+                var err = new Error('wrong surface');
+                err.name = 'WrongSurface';
+                throw err;
+            }
             return stream;
         });
+    }
+
+    /** A shared Chrome tab would capture Banana (or a web page), never the imaging software. */
+    function sharedBrowserTab(stream) {
+        var track = stream && stream.getVideoTracks()[0];
+        var s = track && typeof track.getSettings === 'function' ? track.getSettings() : null;
+        return !!(s && s.displaySurface === 'browser');
     }
 
     function bitmapToCanvas(src, w, h2) {
@@ -1079,6 +1093,7 @@
             setMsg(tr('media.xcap.unsupported'), 'err');
             return Promise.reject(new Error('unsupported'));
         }
+        setMsg(tr('media.xcap.pickWindow'), 'tip');
         return requestDisplayStream().then(function (stream) {
             if (helper.stream && helper.stream !== stream) stopStream(helper.stream);
             helper.stream = stream;
@@ -1098,7 +1113,9 @@
                 return stream;
             }, function () { setMsg('', ''); return stream; });
         }).catch(function (err) {
-            if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
+            if (err && err.name === 'WrongSurface') {
+                setMsg(tr('media.xcap.wrongSurface'), 'err');
+            } else if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
                 setMsg(tr('media.xcap.shareCancelled'), 'err');
             } else if (err && err.message !== 'unsupported') {
                 setMsg(trRepl('media.xcap.failed', { MSG: err.message || err.name || String(err) }), 'err');
@@ -1397,7 +1414,9 @@
                     if (key !== lastKey) { lastKey = key; renderBar(); }
                 }, 1000);
                 // Start sharing straight away when the browser still allows it; otherwise the bar offers the button.
-                startSharing().catch(function () { setMsg('', ''); });
+                startSharing().catch(function (err) {
+                    if (!err || err.name !== 'WrongSurface') setMsg('', '');
+                });
             })
             .catch(function (err) {
                 alert(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }));
@@ -1477,6 +1496,7 @@
         }).catch(function (err) {
             stopStream(stream);
             inpage.busy = false;
+            if (err && err.name === 'WrongSurface') { alert(tr('media.xcap.wrongSurfaceLong')); return; }
             if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return;
             alert(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }));
         });
@@ -1571,6 +1591,8 @@
         showCropper: showCropper,
         showForm: showForm,
         helperUpload: helperUpload,
-        grabFrame: grabFrame
+        grabFrame: grabFrame,
+        startSharing: startSharing,
+        sharedBrowserTab: sharedBrowserTab
     };
 })();

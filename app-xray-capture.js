@@ -14,7 +14,7 @@
     var XH_MIN_SEL = 8;
     var XH_HANDLE = 9;
     // Slim horizontal bar meant to sit over the imaging software's title/toolbar strip.
-    var XH_BAR_W = 740;
+    var XH_BAR_W = 920;
     var XH_BAR_H = 60;
     // Pages cannot position a PiP window; Chrome reopens it where the user last dragged it.
     var XH_HEADER_ZONE_PX = 140;
@@ -46,6 +46,7 @@
         '.xh-snip-tip .xh-btn{padding:4px 10px;font-size:12px}',
         '.xh-crop--snip{position:relative}',
         '.xh-overlay .xh-snip-tip{top:auto;bottom:18px}',
+        '.xh-guess{font-weight:600;font-size:11px;color:#92400e}',
         '.xh-dot{width:8px;height:8px;border-radius:50%;background:#a8a29e;flex:0 0 auto}',
         '.xh-dot.on{background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.2)}',
         '.xh-btn{border:none;border-radius:8px;padding:8px 10px;font-size:13px;font-weight:700;cursor:pointer;',
@@ -367,12 +368,230 @@
             Math.random().toString(36).slice(2, 6) + '.' + ext;
     }
 
+    /**
+     * Best guess of the film type from the crop's shape; staff confirm it in the upload panel.
+     * Portrait sensors → periapical, very wide → panoramic, large landscape → ceph, else bitewing.
+     */
+    function guessXrayType(w, h2) {
+        if (!w || !h2) return 'Periapical';
+        var r = w / h2;
+        if (r >= 1.75) return 'Panoramic';
+        if (r < 0.9) return 'Periapical';
+        var big = Math.min(w, h2) >= 850;
+        if (r < 1.15) return big ? 'Cephalometric' : 'Periapical';
+        return big && w >= 1100 ? 'Cephalometric' : 'Bitewing';
+    }
+
+    // ── Auto: suggest the biggest X-ray-looking area on the shared screen ──
+    // Works on a downscaled copy split into small blocks. A block looks like film when it is grey,
+    // not dominated by one exact grey level (UI panels and text backgrounds are pixel-perfect,
+    // film always carries sensor noise), has some tonal variation, and few hard edges (not text).
+    var XH_AUTO_MAX_SIDE = 960;
+    var XH_AUTO_BLOCK = 8;
+    var XH_AUTO_MIN_BLOCKS = 16;
+    var XH_AUTO_MAX_RESULTS = 12;
+
+    var XH_AUTO_LINE_HIST = new Uint16Array(256);
+    function autoLineStats(L, C, w, horizontal, idx, a, b) {
+        var hist = XH_AUTO_LINE_HIST;
+        hist.fill(0);
+        var n = 0, sum = 0, sq = 0, col = 0, sharp = 0, prev = -1, mode = 0;
+        for (var t = a; t < b; t++) {
+            var i = horizontal ? idx * w + t : t * w + idx;
+            var v = L[i];
+            sum += v; sq += v * v; col += C[i]; n++;
+            if (++hist[v] > mode) mode = hist[v];
+            if (prev >= 0 && Math.abs(v - prev) > 48) sharp++;
+            prev = v;
+        }
+        if (!n) return { std: 0, colour: 1, sharp: 1, mode: 1 };
+        var mean = sum / n;
+        return { std: Math.sqrt(Math.max(0, sq / n - mean * mean)), colour: col / n, sharp: sharp / n, mode: mode / n };
+    }
+
+    function autoFilmLine(s) { return s.colour < 0.1 && s.mode < 0.3 && s.std >= 1.2 && s.sharp < 0.2; }
+    // Only strip lines that are almost entirely one level (viewer background); burned-out film corners stay.
+    function autoBorderLine(s) { return s.colour >= 0.1 || s.mode > 0.8 || s.std < 0.8; }
+
+    /** Candidate X-ray rectangles in frame pixels, biggest first (empty when nothing looks like film). */
+    function detectXrayAreas(frame) {
+        var fw = frame.width, fh = frame.height;
+        if (!fw || !fh) return [];
+        var sc = Math.min(1, XH_AUTO_MAX_SIDE / Math.max(fw, fh));
+        var w = Math.max(1, Math.round(fw * sc));
+        var hh = Math.max(1, Math.round(fh * sc));
+        var cv = document.createElement('canvas');
+        cv.width = w;
+        cv.height = hh;
+        var ctx = cv.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(frame, 0, 0, w, hh);
+        var d = ctx.getImageData(0, 0, w, hh).data;
+        var n = w * hh;
+        var L = new Uint8Array(n);
+        var C = new Uint8Array(n);
+        for (var i = 0, p = 0; i < n; i++, p += 4) {
+            var r = d[p], g = d[p + 1], b = d[p + 2];
+            var mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            var mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            C[i] = mx - mn > 16 ? 1 : 0;
+            L[i] = (r * 77 + g * 150 + b * 29 + 128) >> 8;
+        }
+
+        var B = XH_AUTO_BLOCK;
+        var gw = Math.floor(w / B), gh = Math.floor(hh / B);
+        if (gw < 4 || gh < 4) return [];
+        var mask = new Uint8Array(gw * gh);
+        var hist = new Uint16Array(256);
+        for (var by = 0; by < gh; by++) {
+            for (var bx = 0; bx < gw; bx++) {
+                hist.fill(0);
+                var sum = 0, sq = 0, col = 0, sharp = 0, diffs = 0, mode = 0, flatH = 0, flatV = 0;
+                for (var y = by * B; y < by * B + B; y++) {
+                    for (var x = bx * B; x < bx * B + B; x++) {
+                        var k = y * w + x;
+                        var v = L[k];
+                        sum += v; sq += v * v; col += C[k];
+                        if (++hist[v] > mode) mode = hist[v];
+                        if (x + 1 < bx * B + B) {
+                            var dh = Math.abs(v - L[k + 1]);
+                            diffs++; if (dh > 48) sharp++; if (!dh) flatH++;
+                        }
+                        if (y + 1 < by * B + B) {
+                            var dv = Math.abs(v - L[k + w]);
+                            diffs++; if (dv > 48) sharp++; if (!dv) flatV++;
+                        }
+                    }
+                }
+                var cnt = B * B;
+                var lines = B * (B - 1);
+                // Gradient toolbars change in one direction only; film noise changes in both.
+                if (col > cnt * 0.1 || mode > cnt * 0.3 || flatH > lines * 0.6 || flatV > lines * 0.6) continue;
+                var mean = sum / cnt;
+                var std = Math.sqrt(Math.max(0, sq / cnt - mean * mean));
+                if (std < 1.2 || sharp > diffs * 0.12) continue;
+                mask[by * gw + bx] = 1;
+            }
+        }
+
+        autoFillHoles(mask, gw, gh);
+
+        var seen = new Uint8Array(gw * gh);
+        var comps = [];
+        var stack = [];
+        for (var s0 = 0; s0 < gw * gh; s0++) {
+            if (!mask[s0] || seen[s0]) continue;
+            var c = { n: 0, x0: gw, y0: gh, x1: -1, y1: -1 };
+            stack.push(s0);
+            seen[s0] = 1;
+            while (stack.length) {
+                var cur = stack.pop();
+                var cx = cur % gw, cy = (cur - cx) / gw;
+                c.n++;
+                if (cx < c.x0) c.x0 = cx;
+                if (cx > c.x1) c.x1 = cx;
+                if (cy < c.y0) c.y0 = cy;
+                if (cy > c.y1) c.y1 = cy;
+                if (cx > 0 && mask[cur - 1] && !seen[cur - 1]) { seen[cur - 1] = 1; stack.push(cur - 1); }
+                if (cx < gw - 1 && mask[cur + 1] && !seen[cur + 1]) { seen[cur + 1] = 1; stack.push(cur + 1); }
+                if (cy > 0 && mask[cur - gw] && !seen[cur - gw]) { seen[cur - gw] = 1; stack.push(cur - gw); }
+                if (cy < gh - 1 && mask[cur + gw] && !seen[cur + gw]) { seen[cur + gw] = 1; stack.push(cur + gw); }
+            }
+            var bw = c.x1 - c.x0 + 1, bh = c.y1 - c.y0 + 1;
+            if (c.n < XH_AUTO_MIN_BLOCKS || bw < 4 || bh < 4 || c.n / (bw * bh) < 0.45) continue;
+            comps.push(c);
+        }
+        comps.sort(function (a, b2) { return b2.n - a.n; });
+
+        var out = [];
+        for (var ci = 0; ci < comps.length && out.length < XH_AUTO_MAX_RESULTS; ci++) {
+            var rc = autoRefine(L, C, w, hh, comps[ci], B);
+            var sel = {
+                x: Math.max(0, Math.floor(rc.x0 / sc)),
+                y: Math.max(0, Math.floor(rc.y0 / sc))
+            };
+            sel.w = Math.min(fw, Math.ceil(rc.x1 / sc)) - sel.x;
+            sel.h = Math.min(fh, Math.ceil(rc.y1 / sc)) - sel.y;
+            if (sel.w >= XH_MIN_SEL && sel.h >= XH_MIN_SEL) out.push(sel);
+        }
+        return out;
+    }
+
+    /** Smooth areas fully enclosed by film (dark air, bright crowns) belong to the film. */
+    function autoFillHoles(mask, gw, gh) {
+        var out = new Uint8Array(gw * gh);
+        var stack = [];
+        function seed(i) { if (!mask[i] && !out[i]) { out[i] = 1; stack.push(i); } }
+        for (var x = 0; x < gw; x++) { seed(x); seed((gh - 1) * gw + x); }
+        for (var y = 0; y < gh; y++) { seed(y * gw); seed(y * gw + gw - 1); }
+        while (stack.length) {
+            var cur = stack.pop();
+            var cx = cur % gw;
+            if (cx > 0) seed(cur - 1);
+            if (cx < gw - 1) seed(cur + 1);
+            if (cur >= gw) seed(cur - gw);
+            if (cur < (gh - 1) * gw) seed(cur + gw);
+        }
+        for (var i = 0; i < gw * gh; i++) if (!mask[i] && !out[i]) mask[i] = 1;
+    }
+
+    /** Pixel-accurate edges: grow into film rows the blocks missed, then trim flat borders. */
+    function autoRefine(L, C, w, hh, c, B) {
+        var r = { x0: c.x0 * B, y0: c.y0 * B, x1: (c.x1 + 1) * B, y1: (c.y1 + 1) * B };
+        var k;
+        for (k = 0; k < B && r.y0 > 0 && autoFilmLine(autoLineStats(L, C, w, true, r.y0 - 1, r.x0, r.x1)); k++) r.y0--;
+        for (k = 0; k < B && r.y1 < hh && autoFilmLine(autoLineStats(L, C, w, true, r.y1, r.x0, r.x1)); k++) r.y1++;
+        for (k = 0; k < B && r.x0 > 0 && autoFilmLine(autoLineStats(L, C, w, false, r.x0 - 1, r.y0, r.y1)); k++) r.x0--;
+        for (k = 0; k < B && r.x1 < w && autoFilmLine(autoLineStats(L, C, w, false, r.x1, r.y0, r.y1)); k++) r.x1++;
+        while (r.y1 - r.y0 > 2 * B && autoBorderLine(autoLineStats(L, C, w, true, r.y0, r.x0, r.x1))) r.y0++;
+        while (r.y1 - r.y0 > 2 * B && autoBorderLine(autoLineStats(L, C, w, true, r.y1 - 1, r.x0, r.x1))) r.y1--;
+        while (r.x1 - r.x0 > 2 * B && autoBorderLine(autoLineStats(L, C, w, false, r.x0, r.y0, r.y1))) r.x0++;
+        while (r.x1 - r.x0 > 2 * B && autoBorderLine(autoLineStats(L, C, w, false, r.x1 - 1, r.y0, r.y1))) r.x1--;
+        return r;
+    }
+
+    function safeDetect(frame) {
+        try { return detectXrayAreas(frame); } catch (_) { return []; }
+    }
+
     function makeCaptureFile(frame, sel) {
-        return encodeBest(cropToCanvas(frame, sel)).then(function (res) {
+        var canvas = cropToCanvas(frame, sel);
+        return encodeBest(canvas).then(function (res) {
             var file = new File([res.blob], captureFileName(res.ext), { type: res.blob.type, lastModified: Date.now() });
             file.xhGrey = !!res.grey;
+            file.xhCapture = true;
+            file.xhTypeGuess = guessXrayType(canvas.width, canvas.height);
+            file.xhSel = {
+                x: Math.max(0, Math.floor(sel.x)), y: Math.max(0, Math.floor(sel.y)),
+                w: canvas.width, h: canvas.height, fw: frame.width, fh: frame.height
+            };
             return file;
         });
+    }
+
+    // ── Patient lock: a capture belongs to the patient open when Selection was pressed ──
+
+    function patientLabel() {
+        var pi = patientInfo();
+        return pi ? (pi.no + ' ' + pi.name).trim() : '';
+    }
+
+    function currentLock() {
+        return hasPatient() ? { pid: String(xrayPatientId), label: patientLabel() } : null;
+    }
+
+    function stampLock(file, lock) {
+        if (!file || !lock) return;
+        file.xhLockedPid = lock.pid;
+        file.xhLockedLabel = lock.label;
+    }
+
+    /** Used by the upload panel: blocks a capture from being saved to a different patient. */
+    function xrayCaptureLockCheck(file) {
+        if (!file || !file.xhLockedPid) return { ok: true };
+        var ok = hasPatient() && String(xrayPatientId) === String(file.xhLockedPid);
+        return { ok: ok, captured: file.xhLockedLabel || '', current: hasPatient() ? patientLabel() : '' };
     }
 
     // ── Cropper (works in the PiP window or the Banana page) ─────
@@ -381,15 +600,23 @@
      * opts.snip: Snipping-Tool style — dimmed frozen screen, one drag, crop on mouse release.
      * Otherwise a full cropper with move/resize handles and a Crop button.
      */
+    function copySel(s) { return { x: s.x, y: s.y, w: s.w, h: s.h }; }
+
     function createCropper(doc, win, host, frame, cb, opts) {
         opts = opts || {};
         var snip = !!opts.snip;
-        var st = { sel: null, drag: null, view: null, base: null, done: false };
+        var list = snip && opts.auto && opts.suggest && opts.suggest.length ? opts.suggest : null;
+        var st = { sel: null, drag: null, view: null, base: null, done: false, auto: list ? { list: list, idx: 0 } : null };
+        if (st.auto) st.sel = copySel(list[0]);
+        var tipText = !opts.auto ? tr('media.xcap.snipHint') : tr(list ? 'media.xcap.autoFound' : 'media.xcap.autoNone');
         host.innerHTML = snip
             ? '<div class="xh-root xh-crop xh-crop--snip">' +
                 '<div class="xh-snip-tip">' +
-                    '<span>' + h(tr('media.xcap.snipHint')) + '</span>' +
+                    '<span>' + h(tipText) + '</span>' +
                     '<span class="xh-crop-size" data-xh="size"></span>' +
+                    (list ? '<button type="button" class="xh-btn xh-btn--go" data-xh="use">' + h(tr('media.xcap.autoUse')) + '</button>' : '') +
+                    (list && list.length > 1
+                        ? '<button type="button" class="xh-btn" data-xh="next">' + h(tr('media.xcap.autoNext')) + '</button>' : '') +
                     '<button type="button" class="xh-btn" data-xh="whole">' + h(tr('media.xcap.whole')) + '</button>' +
                     '<button type="button" class="xh-btn" data-xh="cancel">' + h(tr('media.xcap.cancel')) + '</button>' +
                     '<button type="button" data-xh="confirm" hidden></button>' +
@@ -503,7 +730,8 @@
                 }
             }
             sizeEl.textContent = sel
-                ? Math.round(sel.w) + ' × ' + Math.round(sel.h) + ' px'
+                ? Math.round(sel.w) + ' × ' + Math.round(sel.h) + ' px' +
+                    (st.auto && st.auto.list.length > 1 && !st.drag ? ' · ' + (st.auto.idx + 1) + '/' + st.auto.list.length : '')
                 : trRepl('media.xcap.sourceSize', { W: frame.width, H: frame.height });
             goBtn.disabled = !selOk();
         }
@@ -573,11 +801,24 @@
 
         function onUp(e) {
             if (!st.drag) return;
+            onMove(e);
             try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
             st.drag = null;
-            if (!selOk()) st.sel = null;
+            if (!selOk()) {
+                // A stray click must not throw away the Auto suggestion.
+                st.sel = st.auto ? copySel(st.auto.list[st.auto.idx]) : null;
+                draw();
+                return;
+            }
             draw();
-            if (snip && selOk()) confirm();
+            if (snip) confirm();
+        }
+
+        function nextSuggestion() {
+            if (!st.auto || st.done) return;
+            st.auto.idx = (st.auto.idx + 1) % st.auto.list.length;
+            st.sel = copySel(st.auto.list[st.auto.idx]);
+            draw();
         }
 
         function selectWhole() {
@@ -620,6 +861,7 @@
             var handled = true;
             if (k === 'Escape') cb.onCancel();
             else if (k === 'Enter') confirm();
+            else if (k === 'Tab' && st.auto) nextSuggestion();
             else if (snip) handled = false;
             else if ((e.ctrlKey || e.metaKey) && String(k).toLowerCase() === 'a') selectWhole();
             else if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') {
@@ -637,7 +879,8 @@
             if (act === 'whole') selectWhole();
             else if (act === 'retake') cb.onRetake();
             else if (act === 'cancel') cb.onCancel();
-            else if (act === 'confirm') confirm();
+            else if (act === 'confirm' || act === 'use') confirm();
+            else if (act === 'next') nextSuggestion();
         });
         cv.addEventListener('pointerdown', onDown);
         cv.addEventListener('pointermove', onMove);
@@ -673,9 +916,10 @@
     function renderUploadForm(doc, host, file, cb) {
         var pi = patientInfo();
         var url = URL.createObjectURL(file);
+        var defType = file.xhTypeGuess || 'Periapical';
         var opts = (typeof XRAY_TYPE_PAIRS !== 'undefined' ? XRAY_TYPE_PAIRS : [['Other', 'media.categoryOther']])
             .map(function (pair) {
-                return '<option value="' + h(pair[0]) + '"' + (pair[0] === 'Periapical' ? ' selected' : '') + '>' +
+                return '<option value="' + h(pair[0]) + '"' + (pair[0] === defType ? ' selected' : '') + '>' +
                     h(tr(pair[1])) + '</option>';
             }).join('');
         host.innerHTML =
@@ -685,7 +929,9 @@
                     h(pi ? (pi.no + ' ' + pi.name).trim() : '—') + '</b></div>' +
                 '<div class="xh-prev"><img alt="" src="' + url + '"><small data-xh="dim"></small></div>' +
                 '<label class="xh-fg">' + h(tr('media.upload.xrayType')) +
-                    '<select data-xh="type">' + opts + '</select></label>' +
+                    '<select data-xh="type">' + opts + '</select>' +
+                    (file.xhTypeGuess ? '<small class="xh-guess">' + h(tr('media.xcap.typeGuessed')) + '</small>' : '') +
+                '</label>' +
                 '<label class="xh-fg">' + h(tr('media.upload.dateTaken')) +
                     '<input type="date" data-xh="date" value="' + h(todayStr()) + '"></label>' +
                 '<label class="xh-fg">' + h(tr('media.upload.notesFindings')) +
@@ -789,7 +1035,7 @@
         var on = sharing();
         var root = doc.getElementById('xhRoot');
         var status = helper.msg;
-        var kind = helper.msgKind;
+        var kind = status ? helper.msgKind : '';
         if (!status && !helperInHeaderZone()) { status = tr('media.xcap.dragToHeader'); kind = 'tip'; }
         if (!status) status = tr(on ? 'media.xcap.tipCapture' : 'media.xcap.tipShare');
         var who = pi ? (pi.no + ' ' + pi.name).trim() : '';
@@ -801,6 +1047,12 @@
                 '</div>' +
                 '<button type="button" class="xh-btn xh-btn--go" data-xh="capture"' + (pi ? '' : ' disabled') +
                     ' title="' + h(tr('media.xcap.selectionTitle')) + '">' + h(tr('media.xcap.selectionBtn')) + '</button>' +
+                '<button type="button" class="xh-btn xh-btn--auto" data-xh="auto"' + (pi ? '' : ' disabled') +
+                    ' title="' + h(tr('media.xcap.autoTitle')) + '">' + h(tr('media.xcap.autoBtn')) + '</button>' +
+                (hasSavedSel()
+                    ? '<button type="button" class="xh-btn xh-btn--same" data-xh="same"' + (pi ? '' : ' disabled') +
+                        ' title="' + h(tr('media.xcap.sameAreaTitle')) + '">' + h(tr('media.xcap.sameAreaBtn')) + '</button>'
+                    : '') +
                 '<div class="xh-status' + (kind ? ' ' + kind : '') + '" title="' + h(status) + '">' +
                     '<span class="xh-dot' + (on ? ' on' : '') + '" title="' +
                         h(tr(on ? 'media.xcap.sharingOn' : 'media.xcap.sharingOff')) + '"></span>' +
@@ -873,7 +1125,8 @@
      * (Chrome allows 80% of the display) and show the frozen frame dimmed for a one-drag snip.
      * The frame is grabbed before growing so the enlarged helper never appears in it.
      */
-    function helperSelection() {
+    function helperSelection(auto) {
+        auto = auto === true;
         if (helper.busy) return;
         if (!hasPatient()) { setMsg(tr('media.xcap.noPatient'), 'err'); return; }
         if (!sharing()) {
@@ -882,6 +1135,7 @@
             return;
         }
         helper.busy = true;
+        helper.lock = currentLock();
         setMsg(tr('media.xcap.grabbing'), '');
         grabFrame(helper.stream, helper.video).then(function (frame) {
             helper.busy = false;
@@ -889,7 +1143,8 @@
             // and snip there, so the bar never has to grow and Banana is already in front after saving.
             try { window.focus(); } catch (_) {}
             revealConsultation();
-            inpageOpenCropper(frame, { snip: true, fromHelper: true });
+            var extra = { auto: auto, suggest: auto ? safeDetect(frame) : null };
+            inpageOpenCropper(frame, { snip: true, fromHelper: true, lock: helper.lock, auto: extra.auto, suggest: extra.suggest });
             setMsg(tr('media.xcap.selectInBanana'), 'tip');
             setTimeout(function () {
                 if (document.hasFocus() || !inpage.overlay || !inpage.fromHelper) return;
@@ -897,8 +1152,95 @@
                 inpageClose();
                 var sc = screenSize();
                 if (pipResize(sc.w * 0.8, sc.h * 0.8)) helper.big = true;
-                showCropper(frame);
+                showCropper(frame, extra);
             }, 500);
+        }).catch(function (err) {
+            helper.busy = false;
+            setMsg(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }), 'err');
+        });
+    }
+
+    // Same area is per desktop (each clinic's X-ray software sits in a different place), so it lives
+    // in this browser's localStorage, keyed by shared-screen size for PCs that switch monitor layouts.
+    var XH_SAME_AREA_KEY = 'banana.xrayHelper.sameArea.v1';
+    var XH_SAME_AREA_MAX = 6;
+
+    function loadSameAreas() {
+        try {
+            var o = JSON.parse(localStorage.getItem(XH_SAME_AREA_KEY) || '{}');
+            return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+        } catch (_) { return {}; }
+    }
+
+    function validSel(s) {
+        return !!s && [s.x, s.y, s.w, s.h, s.fw, s.fh].every(function (n) { return typeof n === 'number' && isFinite(n) && n >= 0; }) &&
+            s.w > 0 && s.h > 0 && s.x + s.w <= s.fw && s.y + s.h <= s.fh;
+    }
+
+    function savedSelFor(fw, fh) {
+        var s = loadSameAreas()[fw + 'x' + fh];
+        return validSel(s) ? s : null;
+    }
+
+    function hasSavedSel() {
+        if (helper.lastSel) return true;
+        var all = loadSameAreas();
+        return Object.keys(all).some(function (k) { return validSel(all[k]); });
+    }
+
+    function rememberSel(file) {
+        var s = file && file.xhSel;
+        if (!validSel(s)) return;
+        helper.lastSel = s;
+        try {
+            var all = loadSameAreas();
+            delete all[s.fw + 'x' + s.fh];
+            all[s.fw + 'x' + s.fh] = { x: s.x, y: s.y, w: s.w, h: s.h, fw: s.fw, fh: s.fh, at: Date.now() };
+            var keys = Object.keys(all).sort(function (a, b) { return (all[b].at || 0) - (all[a].at || 0); });
+            keys.slice(XH_SAME_AREA_MAX).forEach(function (k) { delete all[k]; });
+            localStorage.setItem(XH_SAME_AREA_KEY, JSON.stringify(all));
+        } catch (_) {}
+    }
+
+    /** Opens the usual Banana upload panel for a capture (Banana must already be in front). */
+    function uploadInBanana(file) {
+        revealConsultation();
+        helper.pendingName = file.name;
+        setMsg(tr('media.xcap.continueInBanana'), 'tip');
+        if (typeof xrayStartQueuedUpload === 'function') xrayStartQueuedUpload([file]);
+    }
+
+    /**
+     * "Same area": re-crop last time's rectangle from a fresh frame — imaging software shows each new
+     * film in the same place, so no dragging is needed.
+     */
+    function helperSameArea() {
+        if (helper.busy || !hasSavedSel()) return;
+        if (!hasPatient()) { setMsg(tr('media.xcap.noPatient'), 'err'); return; }
+        if (!sharing()) {
+            startSharing().then(function () { setMsg(tr('media.xcap.nowSelect'), 'tip'); }, function () {});
+            return;
+        }
+        helper.busy = true;
+        var lock = currentLock();
+        setMsg(tr('media.xcap.grabbing'), '');
+        grabFrame(helper.stream, helper.video).then(function (frame) {
+            var last = helper.lastSel;
+            var sel = last && last.fw === frame.width && last.fh === frame.height
+                ? last : savedSelFor(frame.width, frame.height);
+            if (!sel) {
+                helper.busy = false;
+                setMsg(tr('media.xcap.sameAreaChanged'), 'err');
+                return null;
+            }
+            // Focus before the slow encode, while the click's permission is still fresh.
+            try { window.focus(); } catch (_) {}
+            revealConsultation();
+            return makeCaptureFile(frame, sel).then(function (file) {
+                helper.busy = false;
+                stampLock(file, lock);
+                uploadInBanana(file);
+            });
         }).catch(function (err) {
             helper.busy = false;
             setMsg(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }), 'err');
@@ -922,7 +1264,8 @@
         renderBar();
     }
 
-    function showCropper(frame) {
+    function showCropper(frame, extra) {
+        extra = extra || {};
         var doc = pipDoc();
         if (!doc) return;
         helper.view = 'crop';
@@ -932,11 +1275,13 @@
             onConfirm: function (file) {
                 helper.cropper.destroy();
                 helper.cropper = null;
+                stampLock(file, helper.lock);
+                rememberSel(file);
                 showForm(file);
             },
             onCancel: function () { backToBar('', ''); },
             onRetake: function () { backToBar('', ''); }
-        }, { snip: true });
+        }, { snip: true, auto: !!extra.auto, suggest: extra.suggest });
         try { helper.pip.focus(); } catch (_) {}
     }
 
@@ -958,6 +1303,12 @@
     }
 
     function helperUpload(file, type, date, notes) {
+        var lock = xrayCaptureLockCheck(file);
+        if (!lock.ok) {
+            backToBar(tr('media.xcap.patientChangedShort'), 'err');
+            alert(trRepl('media.xcap.patientChanged', { CAPTURED: lock.captured || '—', CURRENT: lock.current || '—' }));
+            return;
+        }
         var target = typeof xrayResolveUploadPatient === 'function' ? xrayResolveUploadPatient() : null;
         if (!target || !target.ok || !target.id) {
             // Chart choice / linking prompts live in the Banana window: continue there.
@@ -982,11 +1333,13 @@
         var b = e.target.closest && e.target.closest('[data-xh]');
         var act = b && !b.disabled ? b.getAttribute('data-xh') : '';
         // After an Esc (no gesture) the window may still be large: the next click on the bar shrinks it.
-        if (helper.big && act !== 'capture') {
+        if (helper.big && act !== 'capture' && act !== 'auto') {
             shrinkToBar();
             if (!act) return;
         }
         if (act === 'capture') helperSelection();
+        else if (act === 'auto') helperSelection(true);
+        else if (act === 'same') helperSameArea();
         else if (act === 'share') startSharing().catch(function () {});
         else if (act === 'stop') stopSharing();
         else if (act === 'close') closeHelper();
@@ -1081,11 +1434,17 @@
         inpage.overlay = ov;
         inpage.fromHelper = !!opts.fromHelper;
         var fromHelper = inpage.fromHelper;
+        var lock = opts.lock || currentLock();
         inpage.cropper = createCropper(document, window, ov, frame, {
             onConfirm: function (file) {
                 inpageClose();
+                stampLock(file, lock);
+                if (fromHelper) {
+                    rememberSel(file);
+                    uploadInBanana(file);
+                    return;
+                }
                 helper.pendingName = file.name;
-                if (fromHelper) setMsg(tr('media.xcap.continueInBanana'), 'tip');
                 if (typeof xrayStartQueuedUpload === 'function') xrayStartQueuedUpload([file]);
             },
             onCancel: function () {
@@ -1093,7 +1452,7 @@
                 if (fromHelper) setMsg('', '');
             },
             onRetake: function () { inpageClose(); inpageCaptureOnce(); }
-        }, { snip: !!opts.snip });
+        }, { snip: !!opts.snip, auto: !!opts.auto, suggest: opts.suggest });
         return inpage.cropper;
     }
 
@@ -1126,6 +1485,11 @@
     /** X-ray tab button: floating helper when available, else one-shot capture in the page. */
     function xrayHelperLaunch() {
         if (!hasPatient()) { alert(tr('con.forms.alertSelectPatient')); return; }
+        // Screen capture and the floating window only exist on https:// or http://localhost / 127.0.0.1.
+        if (window.isSecureContext === false) {
+            alert(trRepl('media.xcap.insecure', { URL: location.origin }));
+            return;
+        }
         if (pipSupported()) {
             if (helper.pip) closeHelper();
             else openHelper();
@@ -1179,6 +1543,7 @@
 
     window.xrayHelperLaunch = xrayHelperLaunch;
     window.xrayCaptureAfterUpload = xrayCaptureAfterUpload;
+    window.xrayCaptureLockCheck = xrayCaptureLockCheck;
     window.__XRAY_HELPER__ = {
         helper: helper,
         inpage: inpage,
@@ -1197,6 +1562,9 @@
         closeHelper: closeHelper,
         renderBar: renderBar,
         helperSelection: helperSelection,
+        helperSameArea: helperSameArea,
+        guessXrayType: guessXrayType,
+        detectXrayAreas: detectXrayAreas,
         ensureCss: ensureCss,
         onPipClick: onPipClick,
         helperInHeaderZone: helperInHeaderZone,

@@ -5784,6 +5784,55 @@
             'zh-CN': '请在 Banana 拖选 X 光范围…',
             'zh-Hant': '請在 Banana 拖選 X 光範圍…'
         },
+        'media.xcap.autoBtn': { en: '✨ Auto', 'zh-CN': '✨ 自动', 'zh-Hant': '✨ 自動' },
+        'media.xcap.autoTitle': {
+            en: 'Find the biggest X-ray on screen and suggest it — press Enter to use it',
+            'zh-CN': '自动找出画面上最大的 X 光并预选，按 Enter 确认',
+            'zh-Hant': '自動找出畫面上最大的 X 光並預選，按 Enter 確認'
+        },
+        'media.xcap.autoFound': {
+            en: '✨ X-ray found — Use this, Tab = next, or drag to change',
+            'zh-CN': '✨ 已找到 X 光：按「使用」，Tab 换下一个，或拖选修改',
+            'zh-Hant': '✨ 已找到 X 光：按「使用」，Tab 換下一個，或拖選修改'
+        },
+        'media.xcap.autoNone': {
+            en: 'No X-ray found automatically — drag over the X-ray',
+            'zh-CN': '未能自动找到 X 光，请拖选 X 光范围',
+            'zh-Hant': '未能自動找到 X 光，請拖選 X 光範圍'
+        },
+        'media.xcap.autoUse': { en: '✓ Use this', 'zh-CN': '✓ 使用', 'zh-Hant': '✓ 使用' },
+        'media.xcap.autoNext': { en: 'Next ⇥', 'zh-CN': '下一个 ⇥', 'zh-Hant': '下一個 ⇥' },
+        'media.xcap.sameAreaBtn': { en: '⟲ Same area', 'zh-CN': '⟲ 同一范围', 'zh-Hant': '⟲ 同一範圍' },
+        'media.xcap.sameAreaTitle': {
+            en: 'Capture the same rectangle as last time — no dragging needed',
+            'zh-CN': '截取与上次相同的范围，无需拖选',
+            'zh-Hant': '擷取與上次相同的範圍，無需拖選'
+        },
+        'media.xcap.sameAreaChanged': {
+            en: 'Screen size changed — use ✂ Selection',
+            'zh-CN': '画面尺寸已改变，请用 ✂ 选取',
+            'zh-Hant': '畫面尺寸已改變，請用 ✂ 選取'
+        },
+        'media.xcap.typeGuessed': {
+            en: 'Type guessed from the image shape — please check',
+            'zh-CN': '类型按影像形状推测，请核对',
+            'zh-Hant': '類型按影像形狀推測，請核對'
+        },
+        'media.xcap.patientChanged': {
+            en: '⚠ Patient changed: this X-ray was captured for {CAPTURED}, but {CURRENT} is open now. Upload blocked — reopen {CAPTURED} or capture again.',
+            'zh-CN': '⚠ 病人已更改：此 X 光是为 {CAPTURED} 截取的，但现在打开的是 {CURRENT}。已阻止上传，请重新打开 {CAPTURED} 或重新截取。',
+            'zh-Hant': '⚠ 病人已更改：此 X 光是為 {CAPTURED} 擷取的，但現在開啟的是 {CURRENT}。已阻止上載，請重新開啟 {CAPTURED} 或重新擷取。'
+        },
+        'media.xcap.patientChangedShort': {
+            en: '⚠ Patient changed — upload blocked',
+            'zh-CN': '⚠ 病人已更改，已阻止上传',
+            'zh-Hant': '⚠ 病人已更改，已阻止上載'
+        },
+        'media.xcap.insecure': {
+            en: 'The X-ray Helper needs Banana opened from this PC (http://127.0.0.1…) or the https:// site. Chrome blocks screen capture on {URL}. Open Banana from this PC\'s Banana shortcut and try again.',
+            'zh-CN': 'X 光助手需要从本机（http://127.0.0.1…）或 https:// 网址打开 Banana。Chrome 在 {URL} 禁止屏幕截取。请从本机的 Banana 快捷方式打开后再试。',
+            'zh-Hant': 'X 光助手需要從本機（http://127.0.0.1…）或 https:// 網址開啟 Banana。Chrome 在 {URL} 禁止螢幕擷取。請從本機的 Banana 捷徑開啟後再試。'
+        },
         'media.xcap.greyscale': { en: '8-bit greyscale', 'zh-CN': '8 位灰阶', 'zh-Hant': '8 位元灰階' },
         'media.xcap.saved': { en: '✓ Saved to {NAME}', 'zh-CN': '✓ 已保存到 {NAME}', 'zh-Hant': '✓ 已儲存到 {NAME}' },
         'media.uploadPhoto': { en: '📤 Upload Photo', 'zh-CN': '📤 上传照片', 'zh-Hant': '📤 上載相片' },

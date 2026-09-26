@@ -4315,11 +4315,13 @@
     <button class="mclose" data-i18n-aria-label="common.closeAria"
             onclick="closeModal('xrayUploadModal')">×</button>
     <h3 data-i18n="media.upload.xrayTitle"></h3>
+    <div id="uploadTargetInfo" class="xray-upload-target" hidden></div>
     <div id="uploadPreviewWrap"
          style="text-align:center;margin-bottom:16px;"></div>
     <div class="fg">
       <label data-i18n="media.upload.xrayType"></label>
       <select id="uploadType"></select>
+      <small id="uploadTypeHint" class="xray-upload-type-hint" hidden></small>
     </div>
     <div class="fg">
       <label data-i18n="media.upload.dateTaken"></label>
@@ -7507,7 +7509,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20260926xcap3',
-    'app-i18n-extra.js?v=20260926focus1',
+    'app-i18n-extra.js?v=20260926xh7',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20260915billdr1',
@@ -7535,8 +7537,8 @@
     'app-consultation.js',
     'app-con-dictation-fix.js',
     'app-con-notes.js',
-    'app-xray.js?v=20260926xcap1',
-    'app-xray-capture.js?v=20260926focus2',
+    'app-xray.js?v=20260926xh2',
+    'app-xray-capture.js?v=20260926xh9',
     'app-xray-link.js?v=20260917xrayup2',
     'app-nnt-scans.js?v=20260828myray5',
     'app-xray-ai.js?v=20260909aidlg1',

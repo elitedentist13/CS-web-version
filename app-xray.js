@@ -2317,9 +2317,16 @@ function showUploadModal(file) {
     };
     reader.readAsDataURL(file);
 
-    sv('uploadType',  'Periapical');
+    var guess = file && file.xhTypeGuess;
+    sv('uploadType',  guess || 'Periapical');
     sv('uploadDate',  todayISO());
     sv('uploadNotes', '');
+    var hint = g('uploadTypeHint');
+    if (hint) {
+        hint.textContent = guess ? mediaTr('media.xcap.typeGuessed') : '';
+        hint.hidden = !guess;
+    }
+    xrayRenderUploadTarget(file);
 
     var info = g('uploadMultiInfo');
     if (info) {
@@ -2338,8 +2345,40 @@ function showUploadModal(file) {
 // ════════════════════════════════════════════════════════════════
 // CONFIRM UPLOAD  — storage → public URL → DB insert
 // ════════════════════════════════════════════════════════════════
+/** Who the upload panel will save to; screen captures are refused if the open patient changed. */
+function xrayRenderUploadTarget(file) {
+    var box = g('uploadTargetInfo');
+    var btn = g('btnConfirmUpload');
+    var lock = (file && typeof xrayCaptureLockCheck === 'function') ? xrayCaptureLockCheck(file) : { ok: true };
+    if (btn) btn.disabled = !lock.ok;
+    if (!box) return;
+    if (!lock.ok) {
+        box.className = 'xray-upload-target is-mismatch';
+        box.textContent = mediaTrRepl('media.xcap.patientChanged', {
+            CAPTURED: lock.captured || '—',
+            CURRENT: lock.current || '—'
+        });
+        box.hidden = false;
+        return;
+    }
+    var t = xrayResolveUploadPatient();
+    if (!t || !t.ok) { box.hidden = true; return; }
+    var cn = (t.sameAsOpened && xrayPatientData && xrayPatientData.chinese_name) || '';
+    var who = [t.patient_no ? '#' + t.patient_no : '', cn, t.full_name || ''].filter(Boolean).join(' ');
+    box.className = 'xray-upload-target';
+    box.innerHTML = esc(mediaTr('media.xcap.uploadTo')) + ' <b>' + esc(who) + '</b>' +
+        (t.clinicLabel ? ' <span class="xray-upload-target-clinic">' + esc(t.clinicLabel) + '</span>' : '');
+    box.hidden = false;
+}
+
 function confirmUpload() {
     var file  = xrayUploadQueue[xrayUploadQIdx];
+    var lock = (file && typeof xrayCaptureLockCheck === 'function') ? xrayCaptureLockCheck(file) : { ok: true };
+    if (!lock.ok) {
+        xrayRenderUploadTarget(file);
+        alert(mediaTrRepl('media.xcap.patientChanged', { CAPTURED: lock.captured || '—', CURRENT: lock.current || '—' }));
+        return;
+    }
     var type  = g('uploadType').value || 'Other';
     var date  = g('uploadDate').value || todayISO();
     var notes = (g('uploadNotes').value || '').trim();

@@ -11038,6 +11038,41 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     transition: background 0.2s, box-shadow 0.2s;
 }
 .xray-helper-btn:hover { background: #facc15; }
+
+.xray-upload-target {
+    margin: -4px 0 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
+    color: #1e3a8a;
+    font-size: 13px;
+    line-height: 1.4;
+}
+.xray-upload-target b { font-size: 14px; color: #0f172a; }
+.xray-upload-target-clinic {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #dbeafe;
+    font-size: 11px;
+    font-weight: 700;
+}
+.xray-upload-target.is-mismatch {
+    background: #fef2f2;
+    border-color: #f87171;
+    color: #991b1b;
+    font-weight: 700;
+}
+.xray-upload-type-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #92400e;
+}
+.xray-upload-type-hint[hidden] { display: none; }
+#btnConfirmUpload:disabled { opacity: 0.45; cursor: not-allowed; }
 .xray-helper-btn.is-on {
     background: #1e293b;
     color: #fde047;

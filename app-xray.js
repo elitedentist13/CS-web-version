@@ -2319,8 +2319,8 @@ function showUploadModal(file) {
 
     var guess = file && file.xhTypeGuess;
     sv('uploadType',  guess || 'Periapical');
-    sv('uploadDate',  todayISO());
-    sv('uploadNotes', '');
+    sv('uploadDate',  (file && file.xhDate) || todayISO());
+    sv('uploadNotes', (file && file.xhNotes) || '');
     var hint = g('uploadTypeHint');
     if (hint) {
         hint.textContent = guess ? mediaTr('media.xcap.typeGuessed') : '';

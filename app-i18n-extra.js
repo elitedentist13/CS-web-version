@@ -6085,9 +6085,9 @@
             'zh-Hant': '✗ 瀏覽器先前已封鎖連接本機啟動器。\n\n請按網址列的鎖頭/網站設定圖示，允許此網站的「本機網絡存取」，然後重新載入網頁。病人資料已複製到剪貼簿。'
         },
         'media.local.carestreamUsePatientBrowser': {
-            en: '(Carestream Patient Browser — search by patient name or no. in the app)',
-            'zh-CN': '（Carestream 患者浏览器 — 在软件内按患者姓名或编号搜索）',
-            'zh-Hant': '（Carestream 患者瀏覽器 — 在軟件內按病人姓名或編號搜尋）'
+            en: '(Opens Carestream TW.exe on this patient, the same way Clinic Solution does. Films on or before 11 July 2026 and after that date are read from both the chart folder and D:\\CSDB. A new patient opens a file in their name, ready for the next x-ray.)',
+            'zh-CN': '（以 Clinic Solution 的方式打开 Carestream TW.exe。2026年7月11日及之前、以及该日之后的影像，都会从病历资料夹和 D:\\CSDB 两边读取。新病人会以姓名开档，准备拍摄新片。）',
+            'zh-Hant': '（以 Clinic Solution 的方式開啟 Carestream TW.exe。2026年7月11日及之前、以及該日之後的影像，都會從病歷資料夾和 D:\\CSDB 兩邊讀取。新病人會以姓名開檔，準備拍攝新片。）'
         },
         'media.local.desktopUsePatientSearch': {
             en: '(Open the desktop app, then search by copied patient name or no.)',

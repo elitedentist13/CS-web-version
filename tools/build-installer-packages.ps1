@@ -49,7 +49,7 @@ $Packages = @(
         name = "EzDenti"
         folder = "installer-ezdenti"
         zipName = "Banana-EzDenti-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
     },
     [ordered]@{
         name = "NNT-NEWTOM"

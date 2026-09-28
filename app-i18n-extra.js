@@ -6064,6 +6064,11 @@
             'zh-CN': '✗ 本机启动器未运行。\n请先运行：current work\\{BAT} 并保持窗口打开。',
             'zh-Hant': '✗ 本機啟動器未運行。\n請先執行：current work\\{BAT} 並保持視窗開啟。'
         },
+        'media.local.ezdentiProtocolOpened': {
+            en: 'Chrome may ask to open CS X-ray. Choose Open. You can tick Always allow.\n\nEzDent-i then starts on this PC. This path does not use the local-network permission.\n\nIf nothing opens, run Install EzDent-i Bridge.bat once on this PC, then click EzDent-i again.',
+            'zh-CN': 'Chrome 可能会询问是否打开 CS X-ray。请选择打开。可以勾选始终允许。\n\n然后 EzDent-i 会在这台电脑上启动。这条路径不需要本机网络权限。\n\n如果没有任何程序打开，请在这台电脑上运行一次 Install EzDent-i Bridge.bat，然后再点 EzDent-i。',
+            'zh-Hant': 'Chrome 可能會詢問是否開啟 CS X-ray。請選擇開啟。可以勾選一律允許。\n\n然後 EzDent-i 會在這台電腦上啟動。這條路徑不需要本機網絡權限。\n\n如果沒有任何程式開啟，請在這台電腦上執行一次 Install EzDent-i Bridge.bat，然後再按 EzDent-i。'
+        },
         'media.local.launcherHttpsBlocked': {
             en: '✗ Cannot reach local launcher from an HTTPS page. Open the app via file:// or http://localhost (Live Server), not https.',
             'zh-CN': '✗ 无法从 HTTPS 页面连接本机启动器。请通过 file:// 或 http://localhost（Live Server）打开应用，不要用 https。',

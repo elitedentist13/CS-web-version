@@ -2870,6 +2870,26 @@ function pingXrayLauncher(cb) {
     });
 }
 
+function launchEzdentiViaCsxrayProtocol(patient, opts) {
+    opts = opts || {};
+    var qParts = [];
+    appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '');
+    if (opts.appPath) {
+        qParts.push('app_path=' + encodeURIComponent(opts.appPath));
+    }
+    if (opts.searchText) {
+        qParts.push('search_text=' + encodeURIComponent(opts.searchText));
+    }
+    var href = 'csxray://open/ezdenti' + (qParts.length ? ('?' + qParts.join('&')) : '');
+    var link = document.createElement('a');
+    link.href = href;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    alert(mediaTr('media.local.ezdentiProtocolOpened'));
+}
+
 function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
     if (typeof opts === 'function') {
         cb = opts;
@@ -3706,6 +3726,17 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
     if (!confirm(msg)) return;
 
     copyTextToClipboard(clipboardText);
+
+    // EzDent-i uses csxray:// so Chrome's local-network permission cannot
+    // block the launch. The registered handler on this PC calls the bridge.
+    if (launcherKey === 'ezdenti') {
+        launchEzdentiViaCsxrayProtocol(patient, {
+            appPath: appPath,
+            folderPath: folderPath,
+            searchText: xrayPatientSearchTextForLauncher(patient, launcherKey)
+        });
+        return;
+    }
 
     pingXrayLauncher(function(status) {
         status = status || { online: false };

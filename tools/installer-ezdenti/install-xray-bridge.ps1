@@ -304,6 +304,35 @@ function Stop-BridgeOnPort($TargetPort) {
     return 1
 }
 
+function Test-ServesEzdenti {
+    if (-not $EnabledSystems -or @($EnabledSystems).Count -eq 0) { return $true }
+    foreach ($sys in $EnabledSystems) {
+        if ([string]$sys -eq "ezdenti") { return $true }
+    }
+    return $false
+}
+
+function Register-CsxrayProtocol([string]$HandlerPath) {
+    $ps = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $command = "`"$ps`" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$HandlerPath`" `"%1`""
+    & reg.exe add "HKCU\Software\Classes\csxray" /ve /d "URL:Joyful Smile X-ray Bridge" /f | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    & reg.exe add "HKCU\Software\Classes\csxray" /v "URL Protocol" /d "" /f | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    & reg.exe add "HKCU\Software\Classes\csxray\shell\open\command" /ve /d $command /f | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Unregister-CsxrayProtocol {
+    $prop = Get-ItemProperty -Path "HKCU:\Software\Classes\csxray\shell\open\command" -ErrorAction SilentlyContinue
+    $command = ""
+    if ($prop) { $command = [string]$prop.'(default)' }
+    if (-not $command) { return $false }
+    if ($command -notlike ("*" + $InstallPath + "*")) { return $false }
+    Remove-Item -LiteralPath "HKCU:\Software\Classes\csxray" -Recurse -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
 if (-not $NoElevate -and -not (Test-IsElevated)) {
     Write-Host "Requesting Administrator so auto-start can cover every Windows account on this PC..." -ForegroundColor Cyan
     $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`" -InstallPath `"$InstallPath`" -Port $Port -ShortcutName `"$ShortcutName`" -UpdateBaseUrl `"$UpdateBaseUrl`" -PackageFolder `"$PackageFolder`" -UpdateCheckIntervalHours $UpdateCheckIntervalHours"
@@ -321,6 +350,9 @@ if (-not $NoElevate -and -not (Test-IsElevated)) {
 
 if ($Uninstall) {
     Write-Step "Uninstalling Joyful Smile X-Ray bridge"
+    if (Unregister-CsxrayProtocol) {
+        Write-Ok "Removed the csxray:// protocol for this install."
+    }
     $removedAny = $false
     foreach ($candidate in @((Get-AllUsersStartupShortcutPath), (Get-UserStartupShortcutPath))) {
         if (Remove-ShortcutIfExists $candidate) {
@@ -416,6 +448,28 @@ foreach ($name in $RequiredCompanionScripts) {
     Copy-Item -LiteralPath $srcCompanion -Destination $destCompanion -Force
     Write-Ok "Copied $name -> $destCompanion"
     $installedCompanions.Add($destCompanion)
+}
+
+$csxrayRegistered = $false
+if (Test-ServesEzdenti) {
+    $sourceProtocol = Join-Path $sourceDir "launch-csxray-protocol.ps1"
+    $destProtocol = Join-Path $InstallPath "launch-csxray-protocol.ps1"
+    if (-not (Test-Path -LiteralPath $sourceProtocol)) {
+        Write-Warn2 "launch-csxray-protocol.ps1 not found next to this installer. EzDent-i will keep using the browser fetch until this file is installed."
+    } else {
+        if (-not $runningInPlace) {
+            Copy-Item -LiteralPath $sourceProtocol -Destination $destProtocol -Force
+            Write-Ok "Copied launch-csxray-protocol.ps1 -> $destProtocol"
+        } else {
+            Write-Ok "Already running from inside $InstallPath -- launch-csxray-protocol.ps1 is already in place, skipping copy."
+        }
+        if (Register-CsxrayProtocol $destProtocol) {
+            $csxrayRegistered = $true
+            Write-Ok "Registered csxray:// for this Windows account. EzDent-i opens without the browser local-network prompt."
+        } else {
+            Write-Warn2 "Could not register csxray://. EzDent-i will keep using the browser fetch."
+        }
+    }
 }
 
 Write-Step "Self-testing the installed copies (no listener, nothing launched)"
@@ -538,5 +592,8 @@ if ($RequiredCompanionScripts.Count -eq 0) {
 }
 Write-Host "  Startup shortcut:  $shortcutPath"
 Write-Host "  Status endpoint:   http://127.0.0.1:$Port/status"
+if (Test-ServesEzdenti) {
+    Write-Host "  EzDent-i launch:   $(if ($csxrayRegistered) { 'csxray:// (browser local-network permission not required)' } else { 'browser fetch to 127.0.0.1 (csxray:// not registered)' })"
+}
 Write-Host "  Auto-update:       $(if ($NoAutoUpdate) { 'disabled (-NoAutoUpdate)' } elseif ($updateTaskRegistered) { "every $UpdateCheckIntervalHours hour(s) from $UpdateBaseUrl" } else { 'NOT set up -- see warnings above' })"
 Write-Host "  To remove:         run this installer again with -Uninstall"

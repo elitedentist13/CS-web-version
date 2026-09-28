@@ -28,10 +28,13 @@ package.
    launch EzDent-i itself).
 3. Double-click **`Install EzDent-i Bridge.bat`**. Click **Yes** if Windows
    asks for Administrator. Installs to `C:\BananaBridge-EzDenti`, sets up
-   auto-start at login, and starts the bridge immediately.
+   auto-start at login, starts the bridge, and registers `csxray://` for
+   this Windows account. Re-run this once on a PC that was installed
+   before that protocol existed.
 4. In Banana: patient → **Consultation → X-ray** tab → **EzDent-i
-   (Vatech)** for OPG/CT, or **Digirex (Apixia)** for periapical/bitewing
-   (same bridge; Digirex login is `apixia` / `digirex`).
+   (Vatech)** for OPG/CT. Chrome asks once to open CS X-ray; choose Open.
+   Digirex (Apixia) for periapical/bitewing still uses the local bridge
+   on port 17890 (login `apixia` / `digirex`).
 
 To remove: double-click **`Uninstall EzDent-i Bridge.bat`**.
 Safe to re-run the installer any time (e.g. after a code update).

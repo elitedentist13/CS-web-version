@@ -2870,7 +2870,7 @@ function pingXrayLauncher(cb) {
     });
 }
 
-function launchEzdentiViaCsxrayProtocol(patient, opts) {
+function launchViaCsxrayProtocol(launcherKey, patient, opts) {
     opts = opts || {};
     var qParts = [];
     appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '');
@@ -2880,14 +2880,15 @@ function launchEzdentiViaCsxrayProtocol(patient, opts) {
     if (opts.searchText) {
         qParts.push('search_text=' + encodeURIComponent(opts.searchText));
     }
-    var href = 'csxray://open/ezdenti' + (qParts.length ? ('?' + qParts.join('&')) : '');
+    var href = 'csxray://open/' + encodeURIComponent(launcherKey || 'carestream') +
+        (qParts.length ? ('?' + qParts.join('&')) : '');
     var link = document.createElement('a');
     link.href = href;
     link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
     link.remove();
-    alert(mediaTr('media.local.ezdentiProtocolOpened'));
+    if (!opts.quiet) alert(mediaTr('media.local.protocolOpened'));
 }
 
 function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
@@ -3727,10 +3728,11 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
 
     copyTextToClipboard(clipboardText);
 
-    // EzDent-i uses csxray:// so Chrome's local-network permission cannot
-    // block the launch. The registered handler on this PC calls the bridge.
-    if (launcherKey === 'ezdenti') {
-        launchEzdentiViaCsxrayProtocol(patient, {
+    // Desktop launches go through csxray:// so Chrome's local-network
+    // permission cannot block them. The handler on this PC calls the bridge.
+    // Sirona stays on its own sidexis4:// link (no launcherKey).
+    if (sys.launcherKey) {
+        launchViaCsxrayProtocol(launcherKey, patient, {
             appPath: appPath,
             folderPath: folderPath,
             searchText: xrayPatientSearchTextForLauncher(patient, launcherKey)
@@ -3903,78 +3905,15 @@ function launchDigirexViaBridge(patient) {
     var cfg = getEffectiveXrayLocalPathCfg('digirex');
     var folderPath = buildLocalPatientFolderPathWithCfg('digirex', patient, cfg);
     var appPath = (cfg && cfg.appPath) || (sys && sys.defaultAppPath) || '';
-    var batPath = (sys && sys.launcherBat) || 'tools\\installer-digirex\\Start Digirex Launcher.bat';
     copyTextToClipboard(xrayPatientSearchClipboardText(patient) || '');
 
-    xrayShowSysToast('Digirex: contacting local bridge on 127.0.0.1:17890…', { hold: true });
-
-    pingXrayLauncher(function (status) {
-        status = status || { online: false };
-        if (status.blocked) {
-            xrayShowSysToast('Digirex: this page cannot reach 127.0.0.1 (HTTPS / local-network block). Open Banana on http://127.0.0.1:5500', { err: true, ms: 14000 });
-            return;
-        }
-        if (status.permissionPrompt) {
-            xrayShowSysToast('Digirex: Chrome asked to allow local network access — click Allow, then click Digirex again.', { err: true, ms: 14000 });
-            return;
-        }
-        if (status.permissionDenied) {
-            xrayShowSysToast('Digirex: local network access was denied. Allow 127.0.0.1 for this site, then retry.', { err: true, ms: 14000 });
-            return;
-        }
-        if (!status.online) {
-            xrayShowSysToast(
-                'Digirex: local X-ray bridge is not running on port 17890.\n' +
-                'Start the EXISTING EzDent-i or MyRay launcher on this PC (do not install a second one).\n' +
-                'Or: ' + batPath,
-                { err: true, ms: 16000 }
-            );
-            return;
-        }
-
-        xrayShowSysToast('Digirex: bridge is up — sending patient (prefix stripped)…', { hold: true });
-        tryLaunchDesktopAppViaLocalBridge('digirex', patient, {
-            appPath: appPath,
-            folderPath: folderPath,
-            searchText: xrayPatientSearchTextForLauncher(patient, 'digirex')
-        }, function (attached, bridgeBody) {
-            bridgeBody = bridgeBody || {};
-            if (attached || bridgeBody.ok) {
-                var chart = (bridgeBody.bridge && (bridgeBody.bridge.chart_number || bridgeBody.bridge.patient_id))
-                    || bridgeBody.nnt_patid
-                    || '';
-                var existing = bridgeBody.bridge && bridgeBody.bridge.existing_match;
-                xrayShowSysToast(
-                    'Digirex launched.' +
-                    (chart ? (' Chart ' + chart) : '') +
-                    (existing ? ' (matched existing films)' : ' (new or unmatched chart)') +
-                    '. If the window did not appear, Digirex is not installed on this PC, or the running bridge is an old copy — re-run Install EzDent-i / MyRay Bridge so Digirex is a sidecar.',
-                    { ok: true, ms: 14000 }
-                );
-                return;
-            }
-            var err = String(bridgeBody.error || '');
-            if (bridgeBody.fetchFailed) {
-                xrayShowSysToast('Digirex: browser blocked the launch request. Use http://127.0.0.1:5500 and allow local network.', { err: true, ms: 14000 });
-                return;
-            }
-            if (/not found/i.test(err) || /not installed/i.test(err) || /shortcut/i.test(err)) {
-                xrayShowSysToast(
-                    'Bridge answered, but Digirex is not on this PC (or this bridge build is too old).\n' +
-                    '1) Confirm digirex.exe is installed.\n' +
-                    '2) Re-run Install EzDent-i Bridge (PL) or Install MyRay Bridge (KT) — same port 17890, sidecar only.\n' +
-                    'Do not start a second launcher.',
-                    { err: true, ms: 18000 }
-                );
-                return;
-            }
-            xrayShowSysToast(
-                'Digirex did not open. ' + (err || 'Unknown bridge error.') +
-                (status.digirex_exists === false ? ' digirex.exe was not found by the bridge.' : ''),
-                { err: true, ms: 16000 }
-            );
-        });
+    launchViaCsxrayProtocol('digirex', patient, {
+        appPath: appPath,
+        folderPath: folderPath,
+        searchText: xrayPatientSearchTextForLauncher(patient, 'digirex'),
+        quiet: true
     });
+    xrayShowSysToast(mediaTr('media.local.protocolOpened'), { ok: true, ms: 12000 });
 }
 function openXraySystem(key) {
     if (!XRAY_SYSTEMS || !key) {

@@ -33,8 +33,9 @@ package.
    before that protocol existed.
 4. In Banana: patient → **Consultation → X-ray** tab → **EzDent-i
    (Vatech)** for OPG/CT. Chrome asks once to open CS X-ray; choose Open.
-   Digirex (Apixia) for periapical/bitewing still uses the local bridge
-   on port 17890 (login `apixia` / `digirex`).
+   Digirex (Apixia) for periapical/bitewing uses the same `csxray://`
+   path (login `apixia` / `digirex`). Film lists in the page still use
+   port 17890.
 
 To remove: double-click **`Uninstall EzDent-i Bridge.bat`**.
 Safe to re-run the installer any time (e.g. after a code update).

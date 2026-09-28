@@ -55,31 +55,31 @@ $Packages = @(
         name = "NNT-NEWTOM"
         folder = "installer-nntnewtom"
         zipName = "Banana-NNT-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
     },
     [ordered]@{
         name = "Rayscan"
         folder = "installer-rayscan"
         zipName = "Banana-Rayscan-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
     },
     [ordered]@{
         name = "MyRay"
         folder = "installer-myray"
         zipName = "Banana-MyRay-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1", "_nnt_identity_guard.ps1", "_nnt_new_opg_watcher.ps1")
     },
     [ordered]@{
         name = "Digirex"
         folder = "installer-digirex"
         zipName = "Banana-Digirex-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
     },
     [ordered]@{
         name = "Ai-Dental"
         folder = "installer-aidental"
         zipName = "Banana-AiDental-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1")
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
     }
 )
 

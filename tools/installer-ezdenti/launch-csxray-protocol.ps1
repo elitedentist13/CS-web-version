@@ -1,16 +1,18 @@
-# Joyful Smile / Banana — csxray:// handler for EzDent-i.
+# Joyful Smile / Banana — csxray:// handler for every local X-ray bridge.
 #
 # Chrome's local-network permission blocks the page from calling
 # http://127.0.0.1:17890. This script is registered as the csxray://
 # protocol so the browser only has to open a link. Windows starts this
-# process, which talks to the bridge on loopback itself (no browser
-# permission) and asks it to open EzDent-i.
+# process, which talks to the bridge on loopback itself and asks it to
+# open the named program (ezdenti, digirex, nntnewtom, myray, rayscan,
+# carestream, trophy, aidental).
 #
-# EzDent-i only. Any other key is ignored so this first cut cannot
-# launch a different imaging program by mistake.
+# If the bridge is not already listening, this starts the launcher that
+# lives in the same folder, using csxray-bridge.txt written by the
+# installer (which systems this PC is allowed to serve, and which port).
 #
 #   powershell -File launch-csxray-protocol.ps1 -SelfTest
-#   powershell -File launch-csxray-protocol.ps1 -DryRun "csxray://open/ezdenti?patient_no=PL001287"
+#   powershell -File launch-csxray-protocol.ps1 -DryRun "csxray://open/digirex?patient_no=PL001287"
 
 param(
     [Parameter(Position = 0)]
@@ -21,6 +23,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$AllowedKeys = @(
+    "ezdenti", "digirex", "nntnewtom", "myray",
+    "rayscan", "carestream", "trophy", "aidental"
+)
 
 function Convert-CsxrayUrl([string]$Raw) {
     $s = [string]$Raw
@@ -38,15 +45,30 @@ function Convert-CsxrayUrl([string]$Raw) {
     return $null
 }
 
-function Get-EzdentiOpenUri([string]$Query, [int]$TargetPort) {
-    $uri = "http://127.0.0.1:$TargetPort/open/ezdenti"
+function Get-OpenUri([string]$Key, [string]$Query, [int]$TargetPort) {
+    $uri = "http://127.0.0.1:$TargetPort/open/$Key"
     if ($Query) { $uri += "?" + $Query }
     return $uri
 }
 
+function Read-BridgeConfig {
+    $result = @{ port = $Port; enabled = @() }
+    $cfg = Join-Path $PSScriptRoot "csxray-bridge.txt"
+    if (-not (Test-Path -LiteralPath $cfg)) { return $result }
+    foreach ($line in (Get-Content -LiteralPath $cfg)) {
+        $text = ([string]$line).Trim()
+        if ($text -match '^port=(\d+)$') {
+            $result.port = [int]$Matches[1]
+        } elseif ($text -match '^enabled=(.*)$') {
+            $result.enabled = @($Matches[1] -split ',' | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
+        }
+    }
+    return $result
+}
+
 function Write-ProtocolLog([string]$Line) {
     try {
-        $path = Join-Path $env:TEMP "csxray-ezdenti-last.log"
+        $path = Join-Path $env:TEMP "csxray-protocol-last.log"
         $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         Add-Content -LiteralPath $path -Value ("$stamp $Line") -Encoding ASCII
     } catch {}
@@ -59,7 +81,7 @@ function Show-ProtocolError([string]$Message) {
         Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.MessageBox]::Show(
             $Message,
-            "EzDent-i",
+            "X-ray bridge",
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Warning
         ) | Out-Null
@@ -84,19 +106,22 @@ function Test-BridgePort([int]$TargetPort) {
     }
 }
 
-function Start-EzdentiBridgeProcess([int]$TargetPort) {
+function Start-InstalledBridge([int]$TargetPort, [string[]]$EnabledSystems) {
     $launcher = Join-Path $PSScriptRoot "xray-local-launcher.ps1"
     if (-not (Test-Path -LiteralPath $launcher)) {
-        throw "xray-local-launcher.ps1 is not next to this handler ($PSScriptRoot). Re-run Install EzDent-i Bridge.bat."
+        throw "xray-local-launcher.ps1 is not next to this handler ($PSScriptRoot). Re-run this PC's X-ray bridge installer."
     }
-    $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$launcher`" -Port $TargetPort -EnabledSystems `"ezdenti`""
+    $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$launcher`" -Port $TargetPort"
+    foreach ($sys in @($EnabledSystems)) {
+        if ($sys) { $arg += " -EnabledSystems `"$sys`"" }
+    }
     Start-Process -FilePath "powershell.exe" -ArgumentList $arg -WindowStyle Minimized | Out-Null
     $deadline = (Get-Date).AddSeconds(8)
     while ((Get-Date) -lt $deadline) {
         if (Test-BridgePort $TargetPort) { return }
         Start-Sleep -Milliseconds 300
     }
-    throw "The EzDent-i bridge did not start on port $TargetPort."
+    throw "The X-ray bridge did not start on port $TargetPort."
 }
 
 function Invoke-SelfTest {
@@ -114,11 +139,17 @@ function Invoke-SelfTest {
     $a = Convert-CsxrayUrl "csxray://open/ezdenti?patient_no=PL001287&patient_name=TANG%20PUI"
     Assert-Equal "ezdenti key" "ezdenti" $a.key
     Assert-Equal "query kept encoded" "patient_no=PL001287&patient_name=TANG%20PUI" $a.query
-    Assert-Equal "open uri" "http://127.0.0.1:17890/open/ezdenti?patient_no=PL001287&patient_name=TANG%20PUI" (Get-EzdentiOpenUri $a.query 17890)
-    $quoted = Convert-CsxrayUrl '"csxray://open/ezdenti?patient_no=1"'
-    Assert-Equal "quoted url" "ezdenti" $quoted.key
-    $other = Convert-CsxrayUrl "csxray://open/nntnewtom?patient_no=1"
-    Assert-Equal "other key is parsed but not ezdenti" "nntnewtom" $other.key
+    Assert-Equal "ezdenti uri" "http://127.0.0.1:17890/open/ezdenti?patient_no=PL001287&patient_name=TANG%20PUI" (Get-OpenUri $a.key $a.query 17890)
+    $dig = Convert-CsxrayUrl "csxray://open/digirex?patient_no=PL001287"
+    Assert-Equal "digirex key" "digirex" $dig.key
+    Assert-Equal "digirex uri" "http://127.0.0.1:17890/open/digirex?patient_no=PL001287" (Get-OpenUri $dig.key $dig.query 17890)
+    $nnt = Convert-CsxrayUrl '"csxray://open/nntnewtom?patient_no=1"'
+    Assert-Equal "quoted nnt key" "nntnewtom" $nnt.key
+    foreach ($key in @("myray", "rayscan", "carestream", "trophy", "aidental")) {
+        $parsed = Convert-CsxrayUrl ("csxray://open/" + $key + "?patient_no=1")
+        Assert-Equal ($key + " allowed") $key $parsed.key
+        Assert-Equal ($key + " in allow list") $true ($AllowedKeys -contains $parsed.key)
+    }
     $bad = Convert-CsxrayUrl "https://example.com"
     Assert-Equal "non-protocol rejected" "" $(if ($bad) { $bad.key } else { "" })
     if ($script:failed.Count -gt 0) {
@@ -135,32 +166,38 @@ if ($SelfTest) {
 
 $parsed = Convert-CsxrayUrl $Url
 if (-not $parsed) {
-    Show-ProtocolError "This PC received a csxray link it did not understand. Re-run Install EzDent-i Bridge.bat, then click EzDent-i again."
+    Show-ProtocolError "This PC received a csxray link it did not understand. Re-run this PC's X-ray bridge installer, then click the button again."
     exit 1
 }
-if ($parsed.key -ne "ezdenti") {
+if ($AllowedKeys -notcontains $parsed.key) {
     Write-ProtocolLog ("SKIP key=" + $parsed.key)
+    Show-ProtocolError ("This X-ray link (" + $parsed.key + ") is not one of the bridge programs.")
     exit 0
 }
 
-$openUri = Get-EzdentiOpenUri $parsed.query $Port
+$settings = Read-BridgeConfig
+$targetPort = [int]$settings.port
+if ($targetPort -le 0) { $targetPort = $Port }
+$openUri = Get-OpenUri $parsed.key $parsed.query $targetPort
 if ($DryRun) {
+    $enabledNote = if (@($settings.enabled).Count -gt 0) { $settings.enabled -join "," } else { "all" }
     Write-Output ("CSXRAY_OPEN " + $openUri)
+    Write-Output ("CSXRAY_ENABLED " + $enabledNote)
     exit 0
 }
 
 try {
-    if (-not (Test-BridgePort $Port)) {
-        Start-EzdentiBridgeProcess $Port
+    if (-not (Test-BridgePort $targetPort)) {
+        Start-InstalledBridge $targetPort @($settings.enabled)
     }
     $resp = Invoke-RestMethod -Uri $openUri -TimeoutSec 25 -ErrorAction Stop
     if ($resp -and $resp.ok -eq $true) {
-        Write-ProtocolLog "OK ezdenti"
+        Write-ProtocolLog ("OK " + $parsed.key)
         exit 0
     }
-    Show-ProtocolError "The EzDent-i bridge answered but did not open the program. Check that EzDent-i is installed, then click the button again."
+    Show-ProtocolError "The X-ray bridge answered but did not open the program. Check that it is installed on this PC, then click the button again."
     exit 1
 } catch {
-    Show-ProtocolError ("Could not open EzDent-i on this PC.`r`n`r`n" + $_.Exception.Message + "`r`n`r`nRe-run Install EzDent-i Bridge.bat if this keeps happening.")
+    Show-ProtocolError ("Could not open the X-ray program on this PC.`r`n`r`n" + $_.Exception.Message + "`r`n`r`nRe-run this PC's X-ray bridge installer if this keeps happening.")
     exit 1
 }

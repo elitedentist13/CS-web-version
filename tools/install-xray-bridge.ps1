@@ -304,12 +304,23 @@ function Stop-BridgeOnPort($TargetPort) {
     return 1
 }
 
-function Test-ServesEzdenti {
-    if (-not $EnabledSystems -or @($EnabledSystems).Count -eq 0) { return $true }
-    foreach ($sys in $EnabledSystems) {
-        if ([string]$sys -eq "ezdenti") { return $true }
+function Get-CsxrayEnabledList {
+    $list = New-Object System.Collections.Generic.List[string]
+    foreach ($sys in @($EnabledSystems)) {
+        foreach ($part in ([string]$sys -split ',')) {
+            $key = $part.Trim().ToLowerInvariant()
+            if ($key -and -not $list.Contains($key)) { $list.Add($key) }
+        }
     }
-    return $false
+    return @($list)
+}
+
+function Write-CsxrayBridgeConfig([int]$TargetPort) {
+    $enabled = (Get-CsxrayEnabledList) -join ','
+    $path = Join-Path $InstallPath "csxray-bridge.txt"
+    $body = "port=$TargetPort`r`nenabled=$enabled`r`n"
+    Set-Content -LiteralPath $path -Value $body -Encoding ASCII
+    return $path
 }
 
 function Register-CsxrayProtocol([string]$HandlerPath) {
@@ -451,24 +462,27 @@ foreach ($name in $RequiredCompanionScripts) {
 }
 
 $csxrayRegistered = $false
-if (Test-ServesEzdenti) {
-    $sourceProtocol = Join-Path $sourceDir "launch-csxray-protocol.ps1"
-    $destProtocol = Join-Path $InstallPath "launch-csxray-protocol.ps1"
-    if (-not (Test-Path -LiteralPath $sourceProtocol)) {
-        Write-Warn2 "launch-csxray-protocol.ps1 not found next to this installer. EzDent-i will keep using the browser fetch until this file is installed."
+$sourceProtocol = Join-Path $sourceDir "launch-csxray-protocol.ps1"
+$destProtocol = Join-Path $InstallPath "launch-csxray-protocol.ps1"
+if (-not (Test-Path -LiteralPath $sourceProtocol) -and -not (Test-Path -LiteralPath $destProtocol)) {
+    Write-Warn2 "launch-csxray-protocol.ps1 not found next to this installer. X-ray buttons will keep using the browser fetch until this file is installed."
+} else {
+    if ((Test-Path -LiteralPath $sourceProtocol) -and -not $runningInPlace) {
+        Copy-Item -LiteralPath $sourceProtocol -Destination $destProtocol -Force
+        Write-Ok "Copied launch-csxray-protocol.ps1 -> $destProtocol"
+    } elseif ($runningInPlace) {
+        Write-Ok "Already running from inside $InstallPath -- launch-csxray-protocol.ps1 is already in place, skipping copy."
+    }
+    $cfgPath = Write-CsxrayBridgeConfig $Port
+    Write-Ok "Wrote $cfgPath"
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $destProtocol -SelfTest | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn2 "launch-csxray-protocol.ps1 self-test failed. csxray:// was not registered."
+    } elseif (Register-CsxrayProtocol $destProtocol) {
+        $csxrayRegistered = $true
+        Write-Ok "Registered csxray:// for this Windows account. Desktop X-ray buttons open without the browser local-network prompt."
     } else {
-        if (-not $runningInPlace) {
-            Copy-Item -LiteralPath $sourceProtocol -Destination $destProtocol -Force
-            Write-Ok "Copied launch-csxray-protocol.ps1 -> $destProtocol"
-        } else {
-            Write-Ok "Already running from inside $InstallPath -- launch-csxray-protocol.ps1 is already in place, skipping copy."
-        }
-        if (Register-CsxrayProtocol $destProtocol) {
-            $csxrayRegistered = $true
-            Write-Ok "Registered csxray:// for this Windows account. EzDent-i opens without the browser local-network prompt."
-        } else {
-            Write-Warn2 "Could not register csxray://. EzDent-i will keep using the browser fetch."
-        }
+        Write-Warn2 "Could not register csxray://. X-ray buttons will keep using the browser fetch."
     }
 }
 
@@ -592,8 +606,6 @@ if ($RequiredCompanionScripts.Count -eq 0) {
 }
 Write-Host "  Startup shortcut:  $shortcutPath"
 Write-Host "  Status endpoint:   http://127.0.0.1:$Port/status"
-if (Test-ServesEzdenti) {
-    Write-Host "  EzDent-i launch:   $(if ($csxrayRegistered) { 'csxray:// (browser local-network permission not required)' } else { 'browser fetch to 127.0.0.1 (csxray:// not registered)' })"
-}
+Write-Host "  Desktop launch:    $(if ($csxrayRegistered) { 'csxray:// (browser local-network permission not required)' } else { 'browser fetch to 127.0.0.1 (csxray:// not registered)' })"
 Write-Host "  Auto-update:       $(if ($NoAutoUpdate) { 'disabled (-NoAutoUpdate)' } elseif ($updateTaskRegistered) { "every $UpdateCheckIntervalHours hour(s) from $UpdateBaseUrl" } else { 'NOT set up -- see warnings above' })"
 Write-Host "  To remove:         run this installer again with -Uninstall"

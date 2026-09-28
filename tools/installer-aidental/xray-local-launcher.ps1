@@ -125,10 +125,14 @@ $Systems = @{
             "C:\Program Files\Carestream\Patient Browser\Patient.exe"
         )
     }
-    # Trophy F7 in Clinic Solution (Carestream CSImaging / TW.exe). Traced live
-    # 2026-08-27 on Dr-1-MCP: CS.exe spawns TW.exe with the patient's CS SCAN
-    # folder and bilingual UI labels, e.g.
-    #   TW.exe -P\\RECEPTION_MCP\IMAGE\SCAN\001074 -NLUI HOI TING  雷凱婷 -FLUI HOI TING  雷凱婷
+    # Trophy / CS Imaging (Carestream CSImaging / TW.exe).
+    # Live trace 2026-09-27: CS.exe spawns TW.exe. -N and -F are glued to the
+    # bilingual label (no space, no quotes). A 2026-08-27 note wrote this as
+    # -NLUI / -FLUI only because that patient's surname was LUI.
+    #   Existing chart: TW.exe -P\\RECEPTION_MCP\IMAGE\SCAN\003509 -N{English}  {Chinese} -F{English}  {Chinese}
+    #   Unbound new image, no chart selected: TW.exe -P\\...\\SCAN\000000 -NNEW -FNEW
+    # Banana always has a selected patient, so it sends that chart folder and
+    # the registered name, including when the folder is not on disk yet.
     trophy = @{
         shortcuts = @()
         executables = @(
@@ -1124,6 +1128,652 @@ function Get-NntScanFileBytes($PatientNo, $Name) {
     }
 }
 
+# Carestream films live in two stores. 11 July 2026 is the divider:
+# on or before that day the chart folder is the usual place, and after
+# that day D:\CSDB is the usual place. The fetch still reads BOTH stores
+# on BOTH sides of that day so a film is not missed for landing in the
+# other folder.
+$script:CarestreamPartitionDate = Get-Date -Year 2026 -Month 7 -Day 11 -Hour 0 -Minute 0 -Second 0
+$script:CarestreamCsdbRoot = "D:\CSDB"
+$script:CarestreamCaseCache = $null
+$script:CarestreamCaseCacheAt = [datetime]::MinValue
+
+function Get-CarestreamFilmSide($When) {
+    $when = [datetime]$When
+    if ($when.Date -le $script:CarestreamPartitionDate.Date) { return "before" }
+    return "after"
+}
+
+$script:CarestreamJpegCache = @{}
+$script:CarestreamPanoDecoderReady = $false
+
+# Carestream OPGs are 12-bit lossless JPEG (SOF3). A browser cannot draw
+# that and shows a black page, so those are decoded and saved as a
+# lossless 8-bit PNG. An ordinary JPEG is returned unchanged.
+function Initialize-CarestreamPanoDecoder {
+    if ($script:CarestreamPanoDecoderReady) { return }
+    if (-not ("CarestreamPanoJpeg" -as [type])) {
+        Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public static class CarestreamPanoJpeg {
+    public static byte[] Extract(byte[] file) {
+        if (file == null || file.Length < 4) return null;
+        int soi = FindSoi(file);
+        if (soi < 0) return null;
+        int at;
+        int kind = PeekFrame(file, soi, out at);
+        if (kind != 0xC3) return Slice(file, soi);
+        try { return DecodeLossless(file, soi); }
+        catch { return null; }
+    }
+
+    static int FindSoi(byte[] file) {
+        for (int i = 0; i < file.Length - 3; i++) {
+            if (file[i] == 0xFF && file[i + 1] == 0xD8 && file[i + 2] == 0xFF) return i;
+        }
+        return -1;
+    }
+
+    static int PeekFrame(byte[] file, int soi, out int at) {
+        at = -1;
+        int pos = soi + 2;
+        while (pos + 3 < file.Length) {
+            if (file[pos] != 0xFF) return -1;
+            while (pos < file.Length && file[pos] == 0xFF) pos++;
+            if (pos >= file.Length) return -1;
+            int marker = file[pos++];
+            if (marker == 0xD9) return -1;
+            if (marker >= 0xD0 && marker <= 0xD7) continue;
+            if (marker == 0x01) continue;
+            if (pos + 1 >= file.Length) return -1;
+            int seglen = (file[pos] << 8) | file[pos + 1];
+            if (marker == 0xC0 || marker == 0xC1 || marker == 0xC2 || marker == 0xC3) return marker;
+            if (marker == 0xDA) return -1;
+            if (seglen < 2 || pos + seglen > file.Length) return -1;
+            pos += seglen;
+        }
+        return -1;
+    }
+
+    static byte[] Slice(byte[] file, int start) {
+        int end = -1;
+        for (int i = start + 2; i < file.Length - 1; i++) {
+            if (file[i] == 0xFF && file[i + 1] == 0xD9) { end = i + 1; break; }
+        }
+        if (end < start) return null;
+        int len = end - start + 1;
+        byte[] jpeg = new byte[len];
+        Array.Copy(file, start, jpeg, 0, len);
+        return jpeg;
+    }
+
+    static byte[] DecodeLossless(byte[] file, int soi) {
+        int pos = soi + 2;
+        int precision = 0, width = 0, height = 0, predictor = 1, pt = 0;
+        int[] bits = null;
+        byte[] symbols = null;
+        while (pos + 3 < file.Length) {
+            if (file[pos] != 0xFF) return null;
+            while (pos < file.Length && file[pos] == 0xFF) pos++;
+            int marker = file[pos++];
+            if (marker == 0xD9) return null;
+            if (marker >= 0xD0 && marker <= 0xD7) continue;
+            if (marker == 0x01) continue;
+            int seglen = (file[pos] << 8) | file[pos + 1];
+            if (seglen < 2 || pos + seglen > file.Length) return null;
+            if (marker == 0xC3) {
+                precision = file[pos + 2];
+                height = (file[pos + 3] << 8) | file[pos + 4];
+                width = (file[pos + 5] << 8) | file[pos + 6];
+            } else if (marker == 0xC4) {
+                int o = pos + 3;
+                bits = new int[16];
+                int nsym = 0;
+                for (int k = 0; k < 16; k++) { bits[k] = file[o++]; nsym += bits[k]; }
+                if (nsym < 1 || o + nsym > file.Length) return null;
+                symbols = new byte[nsym];
+                for (int k = 0; k < nsym; k++) symbols[k] = file[o++];
+            } else if (marker == 0xDA) {
+                predictor = file[pos + 5];
+                pt = file[pos + 7] & 0x0F;
+                pos += seglen;
+                break;
+            }
+            if (marker != 0xDA) pos += seglen;
+        }
+        if (bits == null || symbols == null) return null;
+        if (precision < 8 || precision > 12) return null;
+        if (pt >= precision) return null;
+        if (width < 1 || height < 1 || width > 20000 || height > 20000) return null;
+        long pixels = (long)width * height;
+        if (pixels > 20000000L) return null;
+        int maxLen = 0;
+        for (int k = 0; k < 16; k++) if (bits[k] > 0) maxLen = k + 1;
+        if (maxLen < 1 || maxLen > 16) return null;
+        int tableSize = 1 << maxLen;
+        int[] lookSym = new int[tableSize];
+        int[] lookLen = new int[tableSize];
+        int code = 0;
+        int si = 0;
+        for (int len = 1; len <= 16; len++) {
+            for (int n = 0; n < bits[len - 1]; n++) {
+                if (si >= symbols.Length) return null;
+                int sym = symbols[si++];
+                int fill = 1 << (maxLen - len);
+                int baseCode = code << (maxLen - len);
+                for (int f = 0; f < fill; f++) {
+                    lookSym[baseCode + f] = sym;
+                    lookLen[baseCode + f] = len;
+                }
+                code++;
+            }
+            code <<= 1;
+        }
+        int bitbuf = 0, nbits = 0, scan = pos;
+        ushort[] pix = new ushort[pixels];
+        ushort[] prev = new ushort[width];
+        int mask = (1 << precision) - 1;
+        int shiftMask = (1 << (precision - pt)) - 1;
+        int decoded = 0;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int cat = -1;
+                int acc = 0;
+                for (int k = 0; k < maxLen; k++) {
+                    if (nbits == 0) {
+                        if (scan >= file.Length) return null;
+                        int b = file[scan++];
+                        if (b == 0xFF) {
+                            if (scan >= file.Length) return null;
+                            int nxt = file[scan++];
+                            if (nxt != 0) return null;
+                        }
+                        bitbuf = b;
+                        nbits = 8;
+                    }
+                    nbits--;
+                    acc = (acc << 1) | ((bitbuf >> nbits) & 1);
+                    int len = k + 1;
+                    int slot = acc << (maxLen - len);
+                    if (lookLen[slot] == len) { cat = lookSym[slot]; break; }
+                }
+                if (cat < 0 || cat > 16) return null;
+                int diff = 0;
+                if (cat > 0) {
+                    int raw = 0;
+                    for (int k = 0; k < cat; k++) {
+                        if (nbits == 0) {
+                            if (scan >= file.Length) return null;
+                            int b = file[scan++];
+                            if (b == 0xFF) {
+                                if (scan >= file.Length) return null;
+                                int nxt = file[scan++];
+                                if (nxt != 0) return null;
+                            }
+                            bitbuf = b;
+                            nbits = 8;
+                        }
+                        nbits--;
+                        raw = (raw << 1) | ((bitbuf >> nbits) & 1);
+                    }
+                    int half = 1 << (cat - 1);
+                    diff = raw < half ? raw - ((1 << cat) - 1) : raw;
+                }
+                int pred;
+                if (x == 0 && y == 0) pred = 1 << (precision - pt - 1);
+                else if (y == 0) pred = pix[x - 1];
+                else if (x == 0) pred = prev[0];
+                else {
+                    int ra = pix[y * width + x - 1];
+                    int rb = prev[x];
+                    int rc = prev[x - 1];
+                    switch (predictor) {
+                        case 1: pred = ra; break;
+                        case 2: pred = rb; break;
+                        case 3: pred = rc; break;
+                        case 4: pred = ra + rb - rc; break;
+                        case 5: pred = ra + ((rb - rc) >> 1); break;
+                        case 6: pred = rb + ((ra - rc) >> 1); break;
+                        case 7: pred = (ra + rb) >> 1; break;
+                        default: pred = 0; break;
+                    }
+                }
+                pred &= shiftMask;
+                int val = (pred + diff) & shiftMask;
+                if (pt > 0) val <<= pt;
+                val &= mask;
+                pix[decoded++] = (ushort)val;
+            }
+            for (int x = 0; x < width; x++) prev[x] = pix[y * width + x];
+        }
+        if (decoded != pixels) return null;
+        return EncodeDisplayPng(pix, width, height, precision);
+    }
+
+    static int Percentile(int[] hist, int levels, int count, double p) {
+        int need = (int)(count * p);
+        if (need < 1) need = 1;
+        int seen = 0;
+        for (int v = 0; v < levels; v++) {
+            seen += hist[v];
+            if (seen >= need) return v;
+        }
+        return levels - 1;
+    }
+
+    // The raw panoramic is squeezed into the bright end of the sensor, so a
+    // straight stretch looks foggy. Spread it into the gray range of a
+    // Carestream display, then sharpen enamel edges and trabeculae.
+    static byte[] BuildDisplayLut(int[] hist, int levels, int count) {
+        double[] sp = { 0.02, 0.10, 0.25, 0.50, 0.75, 0.90, 0.98 };
+        int[] dst = { 0, 28, 78, 129, 168, 201, 241 };
+        int[] src = new int[sp.Length];
+        for (int i = 0; i < sp.Length; i++) src[i] = Percentile(hist, levels, count, sp[i]);
+        for (int i = 1; i < src.Length; i++) if (src[i] < src[i - 1]) src[i] = src[i - 1];
+        byte[] lut = new byte[levels];
+        int last = src.Length - 1;
+        for (int v = 0; v < levels; v++) {
+            int g;
+            if (v <= src[0]) g = 0;
+            else if (v >= src[last]) {
+                int span = Math.Max(1, (levels - 1) - src[last]);
+                g = 241 + (14 * Math.Min(span, v - src[last]) / span);
+            } else {
+                int s = 0;
+                while (s < last - 1 && v >= src[s + 1]) s++;
+                int a = src[s], b = src[s + 1];
+                if (b <= a) g = dst[s];
+                else g = dst[s] + (v - a) * (dst[s + 1] - dst[s]) / (b - a);
+            }
+            if (g < 0) g = 0;
+            if (g > 255) g = 255;
+            lut[v] = (byte)g;
+        }
+        return lut;
+    }
+
+    static void Unsharp(byte[] pix, int w, int h, int radius, double amount) {
+        if (w < 3 || h < 3 || radius < 1) return;
+        int n = w * h;
+        int[] horiz = new int[n];
+        byte[] blur = new byte[n];
+        int div = radius * 2 + 1;
+        int area = div * div;
+        for (int y = 0; y < h; y++) {
+            int row = y * w;
+            int sum = 0;
+            for (int k = -radius; k <= radius; k++) {
+                int x = k;
+                if (x < 0) x = 0;
+                if (x >= w) x = w - 1;
+                sum += pix[row + x];
+            }
+            for (int x = 0; x < w; x++) {
+                horiz[row + x] = sum;
+                int remove = x - radius;
+                int add = x + radius + 1;
+                if (remove < 0) remove = 0;
+                if (add >= w) add = w - 1;
+                sum += pix[row + add] - pix[row + remove];
+            }
+        }
+        for (int x = 0; x < w; x++) {
+            int sum = 0;
+            for (int k = -radius; k <= radius; k++) {
+                int y = k;
+                if (y < 0) y = 0;
+                if (y >= h) y = h - 1;
+                sum += horiz[y * w + x];
+            }
+            for (int y = 0; y < h; y++) {
+                blur[y * w + x] = (byte)(sum / area);
+                int remove = y - radius;
+                int add = y + radius + 1;
+                if (remove < 0) remove = 0;
+                if (add >= h) add = h - 1;
+                sum += horiz[add * w + x] - horiz[remove * w + x];
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            int v = (int)Math.Round(pix[i] + amount * (pix[i] - blur[i]));
+            if (v < 0) v = 0;
+            if (v > 255) v = 255;
+            pix[i] = (byte)v;
+        }
+    }
+
+    static byte[] EncodeDisplayPng(ushort[] pix, int width, int height, int precision) {
+        int levels = 1 << precision;
+        int[] hist = new int[levels];
+        int count = width * height;
+        for (int i = 0; i < count; i++) {
+            int v = pix[i];
+            if (v < 0) v = 0;
+            if (v >= levels) v = levels - 1;
+            hist[v]++;
+        }
+        byte[] lut = BuildDisplayLut(hist, levels, count);
+        byte[] tone = new byte[count];
+        for (int i = 0; i < count; i++) tone[i] = lut[pix[i] < levels ? pix[i] : levels - 1];
+        Unsharp(tone, width, height, 2, 4.0);
+        using (Bitmap bmp = new Bitmap(width, height, PixelFormat.Format8bppIndexed)) {
+            ColorPalette pal = bmp.Palette;
+            for (int i = 0; i < 256; i++) pal.Entries[i] = Color.FromArgb(255, i, i, i);
+            bmp.Palette = pal;
+            Rectangle rect = new Rectangle(0, 0, width, height);
+            BitmapData data = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format8bppIndexed);
+            int stride = data.Stride;
+            byte[] row = new byte[stride];
+            for (int y = 0; y < height; y++) {
+                int rowOff = y * width;
+                for (int x = 0; x < width; x++) row[x] = tone[rowOff + x];
+                Marshal.Copy(row, 0, IntPtr.Add(data.Scan0, y * stride), stride);
+            }
+            bmp.UnlockBits(data);
+            using (MemoryStream ms = new MemoryStream()) {
+                bmp.Save(ms, ImageFormat.Png);
+                return ms.ToArray();
+            }
+        }
+    }
+}
+'@
+    }
+    $script:CarestreamPanoDecoderReady = $true
+}
+
+function Get-CarestreamEmbeddedJpeg([string]$Path) {
+    try {
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $bytes = [IO.File]::ReadAllBytes($item.FullName)
+    } catch {
+        return $null
+    }
+    if (-not $script:CarestreamJpegCache) { $script:CarestreamJpegCache = @{} }
+    $key = $item.FullName + "|" + $item.Length + "|" + $item.LastWriteTimeUtc.Ticks
+    if ($script:CarestreamJpegCache.ContainsKey($key)) {
+        return $script:CarestreamJpegCache[$key]
+    }
+    Initialize-CarestreamPanoDecoder
+    try {
+        $jpeg = [CarestreamPanoJpeg]::Extract($bytes)
+    } catch {
+        return $null
+    }
+    if ($jpeg -and $jpeg.Length -gt 0) {
+        if ($script:CarestreamJpegCache.Count -ge 8) { $script:CarestreamJpegCache.Clear() }
+        $script:CarestreamJpegCache[$key] = $jpeg
+    }
+    return $jpeg
+}
+
+function Get-CarestreamChartIds($PatientNo) {
+    $ids = New-Object System.Collections.Generic.List[string]
+    foreach ($id in (Get-NntScanIdCandidates $PatientNo)) {
+        if ($id -and -not $ids.Contains($id)) { $ids.Add($id) }
+    }
+    return $ids
+}
+
+function Test-CarestreamNameInText([string]$Text, [string]$PatientName) {
+    if ([string]::IsNullOrWhiteSpace($Text) -or [string]::IsNullOrWhiteSpace($PatientName)) { return $false }
+    $norm = ([regex]::Replace($PatientName.ToUpperInvariant(), "[^A-Z0-9]", ""))
+    if ($norm.Length -lt 4) { return $false }
+    $hay = ([regex]::Replace($Text.ToUpperInvariant(), "[^A-Z0-9]", ""))
+    return $hay.Contains($norm)
+}
+
+function Test-CarestreamCaseMatchesPatient($MetaText, $ChartIds, $PatientName) {
+    $text = [string]$MetaText
+    foreach ($id in $ChartIds) {
+        if (-not $id) { continue }
+        if ([regex]::IsMatch($text, "(?<!\d)" + [regex]::Escape([string]$id) + "(?!\d)")) { return $true }
+    }
+    return (Test-CarestreamNameInText $text $PatientName)
+}
+
+function Get-CarestreamCaseIndex {
+    $now = Get-Date
+    if ($script:CarestreamCaseCache -and (($now - $script:CarestreamCaseCacheAt).TotalSeconds -lt 45)) {
+        return $script:CarestreamCaseCache
+    }
+    $list = New-Object System.Collections.Generic.List[object]
+    $root = $script:CarestreamCsdbRoot
+    if (Test-Path -LiteralPath $root) {
+        Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Name -notmatch "^[0-9a-fA-F]{32}$") { return }
+            $caseDir = $_.FullName
+            Get-ChildItem -LiteralPath $caseDir -Filter "*.pano" -File -ErrorAction SilentlyContinue | ForEach-Object {
+                $metaPath = Join-Path $caseDir (".csi_data\1@" + $_.Name + "\meta")
+                $metaText = ""
+                if (Test-Path -LiteralPath $metaPath) {
+                    try { $metaText = [IO.File]::ReadAllText($metaPath) } catch { $metaText = "" }
+                }
+                $taken = $_.LastWriteTime
+                $study = [regex]::Match($metaText, "sS'studyDate'\s*\r?\np\d+\s*\r?\nS'(\d{4}-\d{2}-\d{2})")
+                if ($study.Success) {
+                    try {
+                        $taken = [datetime]::ParseExact($study.Groups[1].Value, "yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture)
+                    } catch {}
+                }
+                $thumb = Join-Path $caseDir (".csi_data\1@" + $_.Name + "\t.png")
+                $list.Add([pscustomobject]@{
+                    case_id = $caseDir.Substring($caseDir.LastIndexOf("\") + 1)
+                    name = $_.Name
+                    size = [int64]$_.Length
+                    taken = $taken
+                    has_thumb = [bool](Test-Path -LiteralPath $thumb)
+                    meta_text = $metaText
+                })
+            }
+        }
+    }
+    $script:CarestreamCaseCache = $list
+    $script:CarestreamCaseCacheAt = $now
+    return $list
+}
+
+function Convert-CarestreamSince($Raw) {
+    if ([string]::IsNullOrWhiteSpace([string]$Raw)) { return [datetime]::MinValue }
+    try {
+        return [datetime]::Parse([string]$Raw, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeLocal)
+    } catch {
+        return [datetime]::MinValue
+    }
+}
+
+# A film counts as new only after the watcher started and the write has
+# settled, so a panoramic still being saved is not offered early.
+function Test-CarestreamArrivalSettled($Written, $Since, $Now) {
+    $written = [datetime]$Written
+    $since = [datetime]$Since
+    $now = [datetime]$Now
+    if ($written -le $since) { return $false }
+    if (($now - $written).TotalSeconds -lt 4) { return $false }
+    return $true
+}
+
+function Get-CarestreamNewFiles($SinceRaw) {
+    $since = Convert-CarestreamSince $SinceRaw
+    $now = Get-Date
+    $files = New-Object System.Collections.Generic.List[object]
+    $root = $script:CarestreamCsdbRoot
+    $floor = $since.AddMinutes(-2)
+    if (Test-Path -LiteralPath $root) {
+        Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Name -notmatch "^[0-9a-fA-F]{32}$") { return }
+            if ($_.LastWriteTime -le $floor) { return }
+            $caseDir = $_.FullName
+            $caseId = $_.Name
+            Get-ChildItem -LiteralPath $caseDir -Filter "*.pano" -File -ErrorAction SilentlyContinue | ForEach-Object {
+                if (-not (Test-CarestreamArrivalSettled $_.LastWriteTime $since $now)) { return }
+                $taken = $_.LastWriteTime
+                $metaPath = Join-Path $caseDir (".csi_data\1@" + $_.Name + "\meta")
+                if (Test-Path -LiteralPath $metaPath) {
+                    try {
+                        $metaText = [IO.File]::ReadAllText($metaPath)
+                        $study = [regex]::Match($metaText, "sS'studyDate'\s*\r?\np\d+\s*\r?\nS'(\d{4}-\d{2}-\d{2})")
+                        if ($study.Success) {
+                            $taken = [datetime]::ParseExact($study.Groups[1].Value, "yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture)
+                        }
+                    } catch {}
+                }
+                $files.Add([ordered]@{
+                    case_id = $caseId
+                    name = $_.Name
+                    size = [int64]$_.Length
+                    taken = $taken.ToString("yyyy-MM-ddTHH:mm:ss")
+                    written = $_.LastWriteTime.ToString("yyyy-MM-ddTHH:mm:ss")
+                })
+            }
+        }
+    }
+    return [ordered]@{
+        ok = $true
+        files = @($files.ToArray())
+    }
+}
+
+function Find-McpReceptionScanFolder($PatientNo) {
+    $root = "\\RECEPTION_MCP\IMAGE\SCAN"
+    foreach ($id in (Get-NntScanIdCandidates $PatientNo)) {
+        if ([string]::IsNullOrWhiteSpace($id)) { continue }
+        $folder = Join-Path $root ([string]$id)
+        if (Test-Path -LiteralPath $folder) { return $folder }
+    }
+    return ""
+}
+
+function Get-CarestreamFiles($PatientNo, $PatientName, $Scope) {
+    $chartIds = @(Get-CarestreamChartIds $PatientNo)
+    $chart = if ($chartIds.Count -gt 0) { [string]$chartIds[0] } else { "" }
+    $scanOnly = ([string]$Scope).ToLowerInvariant() -eq "scan"
+    $folder = if ($scanOnly) { Find-McpReceptionScanFolder $PatientNo } else { Find-NntScanFolder $PatientNo }
+    $files = New-Object System.Collections.Generic.List[object]
+    $imageExts = @(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".pano")
+    if ($folder) {
+        Get-ChildItem -LiteralPath $folder -File -ErrorAction SilentlyContinue | ForEach-Object {
+            $ext = $_.Extension.ToLowerInvariant()
+            if ($imageExts -notcontains $ext) { return }
+            $files.Add([ordered]@{
+                store = "scan"
+                side = (Get-CarestreamFilmSide $_.LastWriteTime)
+                name = $_.Name
+                case_id = ""
+                size = [int64]$_.Length
+                taken = $_.LastWriteTime.ToString("yyyy-MM-ddTHH:mm:ss")
+                matched = $true
+                preview = "full"
+            })
+        }
+    }
+    if (-not $scanOnly) {
+    foreach ($case in @(Get-CarestreamCaseIndex)) {
+        $matched = Test-CarestreamCaseMatchesPatient $case.meta_text $chartIds $PatientName
+        $files.Add([ordered]@{
+            store = "csdb"
+            side = (Get-CarestreamFilmSide $case.taken)
+            name = [string]$case.name
+            case_id = [string]$case.case_id
+            size = [int64]$case.size
+            taken = $case.taken.ToString("yyyy-MM-ddTHH:mm:ss")
+            matched = [bool]$matched
+            preview = $(if ($case.has_thumb) { "thumb" } else { "full" })
+        })
+    }
+    }
+    $matchedCount = @($files | Where-Object { $_.matched }).Count
+    return [ordered]@{
+        ok = $true
+        partition = $script:CarestreamPartitionDate.ToString("yyyy-MM-dd")
+        scope = $(if ($scanOnly) { "scan" } else { "both" })
+        chart = $chart
+        scan_folder = [string]$folder
+        csdb_root = $script:CarestreamCsdbRoot
+        new_patient = ($matchedCount -eq 0)
+        files = @($files.ToArray())
+    }
+}
+
+function Convert-CarestreamDisplayPayload($Bytes, $BaseName) {
+    $png = ($Bytes.Length -ge 8 -and $Bytes[0] -eq 137 -and $Bytes[1] -eq 80 -and $Bytes[2] -eq 78 -and $Bytes[3] -eq 71)
+    $stem = [IO.Path]::GetFileNameWithoutExtension([string]$BaseName)
+    if ($png) {
+        return [ordered]@{ bytes = $Bytes; content_type = "image/png"; name = ($stem + ".png") }
+    }
+    return [ordered]@{ bytes = $Bytes; content_type = "image/jpeg"; name = ($stem + ".jpg") }
+}
+
+function Get-CarestreamFileBytes($Source, $PatientNo, $Name, $CaseId, $View) {
+    $name = [string]$Name
+    if ([string]::IsNullOrWhiteSpace($name) -or $name -match "[\\/]" -or $name.Contains("..")) { return $null }
+    if ($name -notmatch "^[A-Za-z0-9._-]+$") { return $null }
+    if ($Source -eq "scan") {
+        $folder = ""
+        $mcpFolder = Find-McpReceptionScanFolder $PatientNo
+        if ($mcpFolder -and (Test-Path -LiteralPath (Join-Path $mcpFolder $name))) { $folder = $mcpFolder }
+        if (-not $folder) {
+            $altFolder = Find-NntScanFolder $PatientNo
+            if ($altFolder -and (Test-Path -LiteralPath (Join-Path $altFolder $name))) { $folder = $altFolder }
+        }
+        if (-not $folder) { return $null }
+        $full = Join-Path $folder $name
+        if (-not (Test-Path -LiteralPath $full)) { return $null }
+        if (-not (Test-PathIsUnder $full $folder)) { return $null }
+        $ext = [IO.Path]::GetExtension($full).ToLowerInvariant()
+        if ($ext -eq ".pano") {
+            $image = Get-CarestreamEmbeddedJpeg $full
+            if (-not $image) { return $null }
+            return (Convert-CarestreamDisplayPayload $image $name)
+        }
+        $allowed = @(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff")
+        if ($allowed -notcontains $ext) { return $null }
+        try {
+            return [ordered]@{
+                bytes = [IO.File]::ReadAllBytes($full)
+                content_type = (Get-NntScanContentType $ext)
+                name = [IO.Path]::GetFileName($full)
+            }
+        } catch {
+            return $null
+        }
+    }
+    if ($Source -eq "csdb") {
+        $id = [string]$CaseId
+        if ($id -notmatch "^[0-9a-fA-F]{32}$") { return $null }
+        $caseDir = Join-Path $script:CarestreamCsdbRoot $id
+        if (-not (Test-Path -LiteralPath $caseDir)) { return $null }
+        if (-not (Test-PathIsUnder $caseDir $script:CarestreamCsdbRoot)) { return $null }
+        if ($View -eq "thumb") {
+            $thumb = Join-Path $caseDir (".csi_data\1@" + $name + "\t.png")
+            if (-not (Test-Path -LiteralPath $thumb)) {
+                $thumb = Join-Path $caseDir ".csi_data\1@P1.pano\t.png"
+            }
+            if ((Test-Path -LiteralPath $thumb) -and (Test-PathIsUnder $thumb $caseDir)) {
+                try {
+                    return [ordered]@{ bytes = [IO.File]::ReadAllBytes($thumb); content_type = "image/png"; name = "thumb.png" }
+                } catch {
+                    return $null
+                }
+            }
+            return $null
+        }
+        if (-not $name.ToLowerInvariant().EndsWith(".pano")) { return $null }
+        $pano = Join-Path $caseDir $name
+        if (-not (Test-Path -LiteralPath $pano)) { return $null }
+        if (-not (Test-PathIsUnder $pano $caseDir)) { return $null }
+        $image = Get-CarestreamEmbeddedJpeg $pano
+        if (-not $image) { return $null }
+        return (Convert-CarestreamDisplayPayload $image $name)
+    }
+    return $null
+}
+
 function Build-PatientContext($Query) {
     return [ordered]@{
         patient_id = $Query["patient_id"]
@@ -1569,7 +2219,7 @@ if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [RayWin]::AttachThreadInput($
     } catch {}
 }
 
-# CS Trophy F7 -> TW.exe (Carestream CSImaging). Traced live 2026-08-27 Dr-1-MCP.
+# CS Imaging -> TW.exe. Command shape traced 2026-09-27 from CS.exe.
 function Build-TrophyTwUiLabel($Patient) {
     $en = [string]$Patient.patient_name
     $zh = [string]$Patient.chinese_name
@@ -1595,27 +2245,35 @@ function Get-TrophyScanFolderPath($PatientNo) {
     return ""
 }
 
+function Resolve-TrophyTwExe($Resolved) {
+    $target = if ($Resolved) { [string]$Resolved.target } else { "" }
+    if ($target -and ($target -match '(?i)(^|[\\/])TW\.exe$') -and (Test-PathSafe $target)) {
+        return $target
+    }
+    return First-Existing $Systems.trophy.executables
+}
+
+function Build-TrophyTwCommandLine($ScanPath, $UiLabel) {
+    # CS glues the value to the switch and does not quote the name, even
+    # when it contains spaces: -NSIU KAI WING  {chinese}
+    return ("-P" + $ScanPath + " -N" + $UiLabel + " -F" + $UiLabel)
+}
+
 function Start-TrophyTwPatient($Resolved, $Patient) {
-    $tw = if ($Resolved -and (Test-PathSafe $Resolved.target)) { $Resolved.target } else { "" }
-    if (-not $tw) { $tw = First-Existing $Systems.trophy.executables }
+    $tw = Resolve-TrophyTwExe $Resolved
     $patNo = [string]$Patient.patient_no
     $scanPath = Get-TrophyScanFolderPath $patNo
     if (-not $tw -or [string]::IsNullOrWhiteSpace($scanPath)) {
         return $null
     }
     $uiLabel = Build-TrophyTwUiLabel $Patient
+    if ([string]::IsNullOrWhiteSpace($uiLabel)) { $uiLabel = $patNo.Trim() }
     if ([string]::IsNullOrWhiteSpace($uiLabel)) { return $null }
 
-    $workDir = if ($Resolved.workingDirectory) { $Resolved.workingDirectory } else { Split-Path -Parent $tw }
-    $argList = New-Object System.Collections.Generic.List[string]
-    # CS passes -P attached directly to the UNC path (no space after -P).
-    $argList.Add("-P" + $scanPath)
-    $argList.Add("-NLUI")
-    $argList.Add((Quote-ProcessArg $uiLabel))
-    $argList.Add("-FLUI")
-    $argList.Add((Quote-ProcessArg $uiLabel))
+    $workDir = Split-Path -Parent $tw
+    $argLine = Build-TrophyTwCommandLine $scanPath $uiLabel
 
-    $startArgs = @{ FilePath = $tw; ArgumentList = ($argList -join " "); WindowStyle = "Normal" }
+    $startArgs = @{ FilePath = $tw; ArgumentList = $argLine; WindowStyle = "Normal" }
     if ($workDir -and (Test-PathSafe $workDir)) {
         $startArgs.WorkingDirectory = $workDir
     }
@@ -1628,7 +2286,7 @@ function Start-TrophyTwPatient($Resolved, $Patient) {
         scan_path = $scanPath
         ui_label = $uiLabel
         mode = "trophy_tw"
-        argList = ($argList -join " ")
+        argList = $argLine
     }
 }
 
@@ -2550,6 +3208,26 @@ function Handle-Request($RawPath) {
         }
         return @{ status = 200; contentType = $file.content_type; bytes = $file.bytes }
     }
+    if ($pathOnly -eq "/carestream/new") {
+        $query = Parse-Query $RawPath
+        return @{ status = 200; body = (Get-CarestreamNewFiles $query["since"]) }
+    }
+    if ($pathOnly -eq "/carestream/files") {
+        $query = Parse-Query $RawPath
+        $patientNo = $query["patient_no"]
+        if ([string]::IsNullOrWhiteSpace($patientNo)) {
+            return @{ status = 400; body = [ordered]@{ ok = $false; error = "patient_no is required." } }
+        }
+        return @{ status = 200; body = (Get-CarestreamFiles $patientNo $query["patient_name"] $query["scope"]) }
+    }
+    if ($pathOnly -eq "/carestream/file") {
+        $query = Parse-Query $RawPath
+        $file = Get-CarestreamFileBytes $query["source"] $query["patient_no"] $query["name"] $query["id"] $query["view"]
+        if (-not $file) {
+            return @{ status = 404; body = [ordered]@{ ok = $false; error = "Carestream image not found." } }
+        }
+        return @{ status = 200; contentType = $file.content_type; bytes = $file.bytes }
+    }
     if ($pathOnly -match "^/open/([^/]+)$") {
         $key = (UrlDecode $Matches[1]).ToLowerInvariant()
         $query = Parse-Query $RawPath
@@ -2558,6 +3236,14 @@ function Handle-Request($RawPath) {
             return @{ status = 404; body = [ordered]@{ ok = $false; error = "X-ray program shortcut/executable not found."; key = $key } }
         }
         $patientContext = Build-PatientContext $query
+        # A new Carestream chart must be created by TW.exe from the -P -N -F
+        # launch. Writing nnt-patient-info here would create an empty SCAN
+        # folder before the patient file exists.
+        if (($key -eq "trophy" -or $key -eq "carestream") -and $patientContext.folder_path) {
+            if (-not (Test-Path -LiteralPath ([string]$patientContext.folder_path))) {
+                $patientContext.folder_path = ""
+            }
+        }
         $patientInfoPath = Save-PatientContext $patientContext
         Copy-PatientContextToClipboard $patientContext
         $bridgeLaunch = $null
@@ -2567,7 +3253,9 @@ function Handle-Request($RawPath) {
             $bridgeLaunch = Start-EzdentiBridgePatient $resolved $patientContext
         } elseif ($key -eq "rayscan") {
             $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext
-        } elseif ($key -eq "trophy") {
+        } elseif ($key -eq "trophy" -or $key -eq "carestream") {
+            # Clinic Solution's Carestream button is TW.exe, not Patient.exe.
+            # Patient.exe stays the fallback when this PC has no TW.exe.
             $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
         } elseif ($key -eq "myray") {
             $bridgeLaunch = Start-MyRayBridgePatient $resolved $patientContext
@@ -2640,6 +3328,39 @@ function Invoke-SelfTest {
     Assert-Equal "Empty stays empty"   ""            (Convert-NntBirthDate "")
     Assert-Equal "Null stays empty"    ""            (Convert-NntBirthDate $null)
     Assert-Equal "Slash legacy format" "09/06/1958"  (Convert-NntBirthDate "1958/6/9")
+
+    Write-Host "== Build-TrophyTwCommandLine (CS 2026-09-27: -P -N -F glued, unquoted) ==" -ForegroundColor Cyan
+    Assert-Equal "existing chart command" `
+        "-P\\RECEPTION_MCP\IMAGE\SCAN\003509 -NSIU KAI WING  TEST -FSIU KAI WING  TEST" `
+        (Build-TrophyTwCommandLine "\\RECEPTION_MCP\IMAGE\SCAN\003509" "SIU KAI WING  TEST")
+    Assert-Equal "label is not quoted" $false ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B") -match '"')
+
+    Write-Host "== Carestream date sides (11 July 2026 stays with the chart folder) ==" -ForegroundColor Cyan
+    Assert-Equal "11 July 2026 is the before side" "before" (Get-CarestreamFilmSide "2026-07-11T15:14:00")
+    Assert-Equal "12 July 2026 is the after side" "after" (Get-CarestreamFilmSide "2026-07-12T00:00:00")
+    $jpegProbe = Join-Path $env:TEMP "cs-pano-selftest.bin"
+    [IO.File]::WriteAllBytes($jpegProbe, [byte[]](1, 2, 0xFF, 0xD8, 0xFF, 0xD9))
+    $jpegOut = Get-CarestreamEmbeddedJpeg $jpegProbe
+    Remove-Item -LiteralPath $jpegProbe -Force -ErrorAction SilentlyContinue
+    Assert-Equal "embedded jpeg length" "4" ([string]$jpegOut.Length)
+    Assert-Equal "embedded jpeg starts FFD8" "255" ([string]$jpegOut[0])
+    $losslessProbe = Join-Path $env:TEMP "cs-pano-lossless.bin"
+    [IO.File]::WriteAllBytes($losslessProbe, [byte[]]@(
+        0xFF,0xD8,
+        0xFF,0xC3,0x00,0x0B,0x08,0x00,0x01,0x00,0x01,0x01,0x01,0x11,0x00,
+        0xFF,0xC4,0x00,0x14,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0xFF,0xDA,0x00,0x08,0x01,0x01,0x00,0x01,0x00,0x00,
+        0x7F,
+        0xFF,0xD9
+    ))
+    $losslessOut = Get-CarestreamEmbeddedJpeg $losslessProbe
+    Remove-Item -LiteralPath $losslessProbe -Force -ErrorAction SilentlyContinue
+    Assert-Equal "lossless opg becomes a png" "137" ([string]$losslessOut[0])
+    Assert-Equal "lossless opg png signature" "80" ([string]$losslessOut[1])
+    Assert-Equal "lossless opg is re-encoded" $true ([int]$losslessOut.Length -gt 50)
+    Assert-Equal "arrival before watcher is ignored" $false (Test-CarestreamArrivalSettled "2026-09-27T08:00:00" "2026-09-27T09:00:00" "2026-09-27T09:05:00")
+    Assert-Equal "arrival still writing is ignored" $false (Test-CarestreamArrivalSettled "2026-09-27T09:04:58" "2026-09-27T09:00:00" "2026-09-27T09:05:00")
+    Assert-Equal "settled arrival is new" $true (Test-CarestreamArrivalSettled "2026-09-27T09:04:00" "2026-09-27T09:00:00" "2026-09-27T09:05:00")
 
     Write-Host "== Convert-NntSex (Banana <select id=sex> only ever sends M / F / '') ==" -ForegroundColor Cyan
     Assert-Equal "Male"          "M" (Convert-NntSex "M")

@@ -216,17 +216,10 @@ $managed.Add([ordered]@{ name = "xray-bridge-auto-update.ps1"; required = $false
 foreach ($c in $CompanionScripts) {
     $managed.Add([ordered]@{ name = $c; required = $false; selfTest = $true })
 }
-# EzDent-i opens through csxray:// so Chrome's local-network permission
-# is not required. Other imaging packages do not ship this file.
-$servesEzdenti = (-not $EnabledSystems -or @($EnabledSystems).Count -eq 0)
-if (-not $servesEzdenti) {
-    foreach ($sys in $EnabledSystems) {
-        if ([string]$sys -eq "ezdenti") { $servesEzdenti = $true }
-    }
-}
-if ($servesEzdenti) {
-    $managed.Add([ordered]@{ name = "launch-csxray-protocol.ps1"; required = $false; selfTest = $false })
-}
+# Desktop buttons open through csxray:// so Chrome's local-network
+# permission is not required. required=$false so a 404 before this file
+# is published does not fail the update cycle.
+$managed.Add([ordered]@{ name = "launch-csxray-protocol.ps1"; required = $false; selfTest = $false })
 
 $tempDir = Join-Path $env:TEMP ("xray-bridge-update-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null

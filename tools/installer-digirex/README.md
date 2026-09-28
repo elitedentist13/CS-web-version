@@ -50,7 +50,8 @@ To remove: double-click **`Uninstall Digirex Bridge.bat`**.
 
 ## Do not mix installers on one PC
 
-Banana always talks to `http://127.0.0.1:17890`. Installing this
+The Digirex button opens `csxray://`, which talks to the one bridge on
+`http://127.0.0.1:17890`. Installing this
 package **and** `installer-ezdenti` / `installer-myray` on the same
 machine will fight over that port. Use one bridge process:
 

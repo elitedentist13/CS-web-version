@@ -1776,16 +1776,9 @@
                 var side = selected ? 12 : 9;
                 var sx = x + (bw / 2) - (side / 2);
                 var sy = y + (bh / 2) - (side / 2);
-                var mid = side / 2;
                 ctx.globalAlpha = 1;
                 ctx.lineWidth = selected ? 1.6 : 1.15;
-                ctx.beginPath();
-                ctx.rect(sx, sy, side, side);
-                ctx.moveTo(sx + mid, sy);
-                ctx.lineTo(sx + mid, sy + side);
-                ctx.moveTo(sx, sy + mid);
-                ctx.lineTo(sx + side, sy + mid);
-                ctx.stroke();
+                ctx.strokeRect(sx, sy, side, side);
             } else if (f.polygon && f.polygon.length >= 3) {
                 xrayAiDrawPolygon(ctx, f.polygon, rect);
                 ctx.fillStyle = meta.color;

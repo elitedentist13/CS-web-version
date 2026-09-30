@@ -6083,10 +6083,31 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // modal backdrop click to close (skipped for modals with data-no-backdrop-close)
+    // modal backdrop click to close (skipped for modals with data-no-backdrop-close).
+    // A CSS resize drag on the lightbox ends with the pointer outside the box;
+    // that mouseup would otherwise click the backdrop and close the panel.
+    document.querySelectorAll('.xray-lightbox-box').forEach(function (box) {
+        var modal = box.closest('.modal');
+        if (!modal) return;
+        var resizing = false;
+        box.addEventListener('mousedown', function (e) {
+            var r = box.getBoundingClientRect();
+            if ((r.right - e.clientX) <= 32 && (r.bottom - e.clientY) <= 32) resizing = true;
+        });
+        document.addEventListener('mouseup', function () {
+            if (!resizing) return;
+            resizing = false;
+            modal._lbSuppressBackdropClose = true;
+            setTimeout(function () { modal._lbSuppressBackdropClose = false; }, 0);
+        });
+    });
     document.querySelectorAll('.modal').forEach(function(m) {
         m.addEventListener('click', function(e) {
             if (e.target !== m) return;
+            if (m._lbSuppressBackdropClose) {
+                m._lbSuppressBackdropClose = false;
+                return;
+            }
             if (!modalAllowsBackdropClose(m)) return;
             if (m.id) closeModal(m.id);
             else m.style.display = 'none';

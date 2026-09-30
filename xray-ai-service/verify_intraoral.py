@@ -100,7 +100,7 @@ check("PA caries not modality-disabled", r_pa["advisory"]["caries"] != "disabled
 r_pano = pipe.analyze(_pano_like().convert("RGB"))
 check("pano modality labelled", r_pano["modality"] == "panoramic")
 check("pano tooth stage is fdi path", "pano_fdi" in r_pano["advisory"]["tooth_stage"])
-check("pano caries default off", r_pano["advisory"]["caries"] == "disabled_for_modality")
+check("pano caries path open", r_pano["advisory"]["caries"] != "disabled_for_modality")
 check("quality advisory present", r_pano["advisory"].get("quality") in ("ok", "poor_image_quality"))
 
 r_hint = pipe.analyze(_pano_like().convert("RGB"), modality_hint="pabw")

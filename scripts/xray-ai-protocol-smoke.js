@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20260930xraytrain1';
+var BUILD = '20260930xraypano1';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -217,6 +217,13 @@ function classifyHost(src, host) {
     pass('hosted analyze does not fall back to browser heuristic',
         aiSrc.indexOf("xrayAiTr('media.xrayAi.protocolWorking')") >= 0 &&
         aiSrc.indexOf('if (!xrayAiPageIsLocalServer())') >= 0);
+    pass('panoramic toggles caries spots and bone loss',
+        aiSrc.indexOf('function xrayAiUpdatePanoToggle()') >= 0 &&
+        aiSrc.indexOf("panoOverlay: 'caries'") >= 0 &&
+        aiSrc.indexOf('var panoSpot = isCaries && xrayAiState.modality === \'panoramic\'') >= 0);
+    pass('caries hints keep tick and cross',
+        aiSrc.indexOf("if (!xrayAiIsCaries(f) || xrayAiState.lastSource !== 'api')") >= 0 &&
+        aiSrc.indexOf('var trainingReady') < 0);
     pass('training button stays visible',
         aiSrc.indexOf('if (trainBtn) trainBtn.hidden = false;') >= 0 &&
         idx.indexOf('id="xrayAiTrainOpenBtn"') >= 0 &&
@@ -519,6 +526,44 @@ function classifyHost(src, host) {
             train && train.pabwOn === true && train.panoOn === true, train ? ('pabw=' + train.pabwOn + ' pano=' + train.panoOn) : 'none');
         pass('live page training panel closes',
             train && train.closed === true, train ? ('closed=' + train.closed) : 'none');
+
+        var fb = await cdp.js(`(() => {
+          const section = document.getElementById('consultationSection');
+          if (section) section.style.display = 'block';
+          const lb = document.getElementById('xrayLightbox');
+          const main = document.getElementById('xrayLbMain');
+          if (lb) lb.style.display = 'block';
+          if (main) main.classList.remove('xray-lb-meta-hidden');
+          if (typeof openModal === 'function') openModal('xrayLightbox');
+          const list = document.getElementById('xrayAiFindingsList');
+          if (!list) return { ready: false };
+          list.innerHTML = '<div class="xray-ai-finding-row">' +
+            '<button type="button" class="xray-ai-finding-item">enamel caries · 42%</button>' +
+            '<span class="xray-ai-fb">' +
+            '<button type="button" class="xray-ai-fb-btn xray-ai-fb-yes">\\u2713</button>' +
+            '<button type="button" class="xray-ai-fb-btn xray-ai-fb-no">\\u2717</button>' +
+            '</span></div>';
+          const yes = list.querySelector('.xray-ai-fb-yes');
+          const no = list.querySelector('.xray-ai-fb-no');
+          const yesR = yes.getBoundingClientRect();
+          const noR = no.getBoundingClientRect();
+          const listR = list.getBoundingClientRect();
+          const box = document.querySelector('#xrayLightbox .xray-lightbox-box');
+          return {
+            ready: true,
+            yesW: Math.round(yesR.width),
+            noW: Math.round(noR.width),
+            listW: Math.round(listR.width),
+            boxW: box ? Math.round(box.getBoundingClientRect().width) : -1,
+            innerW: window.innerWidth,
+            lb: lb ? getComputedStyle(lb).display : '',
+            inside: listR.width > 0 && yesR.width > 0 && yesR.left >= listR.left - 1 && noR.right <= listR.right + 1,
+            color: getComputedStyle(yes).color
+          };
+        })()`, true, 15000);
+        pass('tick and cross sit inside the findings list',
+            fb && fb.ready && fb.yesW >= 16 && fb.noW >= 16 && fb.inside === true,
+            fb ? JSON.stringify(fb) : 'none');
 
         await cdp.call('Page.navigate', { url: 'http://127.0.0.1:' + PAGE_PORT + '/index.html?_lr=' + BUILD });
         await sleep(600);

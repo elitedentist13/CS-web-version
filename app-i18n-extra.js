@@ -6533,6 +6533,18 @@
             'zh-Hant': '服務端已關閉訓練（ENABLE_CARIES_TRAINING）。'
         },
         'media.xrayAi.toggleOverlays': { en: 'Toggle all overlays', 'zh-CN': '切换全部叠加', 'zh-Hant': '切換全部疊加' },
+        'media.xrayAi.panoToggleCaries': { en: 'Caries', 'zh-CN': '龋坏', 'zh-Hant': '齲壞' },
+        'media.xrayAi.panoToggleBone': { en: 'Alveolar bone loss', 'zh-CN': '牙槽骨丧失', 'zh-Hant': '牙槽骨喪失' },
+        'media.xrayAi.panoEmptyCaries': {
+            en: 'No caries spots in this view. Switch to alveolar bone loss to see the periodontal lines.',
+            'zh-CN': '此视图没有龋坏小方点。切换到牙槽骨丧失可看牙周线。',
+            'zh-Hant': '此檢視沒有齲壞小方點。切換到牙槽骨喪失可看牙周線。'
+        },
+        'media.xrayAi.panoEmptyBone': {
+            en: 'No alveolar bone loss in this view. Switch to caries to see the spots.',
+            'zh-CN': '此视图没有牙槽骨丧失。切换到龋坏可看小方点。',
+            'zh-Hant': '此檢視沒有牙槽骨喪失。切換到齲壞可看小方點。'
+        },
         'media.xrayAi.summaryTitle': { en: 'Summary', 'zh-CN': '汇总', 'zh-Hant': '匯總' },
         'media.xrayAi.summaryTotal': { en: '{N} total', 'zh-CN': '共 {N} 处', 'zh-Hant': '共 {N} 處' },
         'media.xrayAi.boneTitle': { en: 'CEJ–crest perio assessment', 'zh-CN': 'CEJ–牙槽嵴牙周评估', 'zh-Hant': 'CEJ–牙槽嵴牙周評估' },

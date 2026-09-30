@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20260930xraytrain1';
+  var BUILD = '20260930xraypano1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4122,6 +4122,7 @@
           <div id="xrayAiLegend" class="xray-ai-legend"></div>
           <div id="xrayAiSummary" class="xray-ai-summary"></div>
           <div id="xrayAiRunMeta" class="xray-ai-run-meta"></div>
+          <div id="xrayAiPanoToggle" class="xray-ai-pano-toggle" hidden></div>
           <div id="xrayAiBoneMeasures" class="xray-ai-bone-measures"></div>
           <div id="xrayAiFindingsList" class="xray-ai-findings-list"></div>
         </div>
@@ -7546,7 +7547,7 @@
     'app-xray-capture.js?v=20260926xg3',
     'app-xray-link.js?v=20260917xrayup2',
     'app-nnt-scans.js?v=20260930xraygithub1',
-    'app-xray-ai.js?v=20260930xraytrain1',
+    'app-xray-ai.js?v=20260930xraypano1',
     'app-xray-ai-20260909.js',
     'app-charts.js?v=20260910bop1',
     'app-perio-dictation.js?v=20260910bop1',

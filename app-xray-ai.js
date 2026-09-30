@@ -134,6 +134,9 @@
         panoModelId: PANO_MODEL_VERSION,
         pabwModelId: PABW_MODEL_VERSION,
         feedback: {},
+        // Panoramic films carry both caries spots and alveolar bone loss.
+        // The clinician toggles which of those two overlays is on screen.
+        panoOverlay: 'caries',
         // Set when a health-check/analyze call to the local service fails.
         // null | 'offline' | 'lna_maybe' | 'lna_denied' — see
         // xrayAiApiCrossesToPrivateNetwork() / xrayAiUpdateConnNote(). This
@@ -1626,6 +1629,7 @@
 
     function xrayAiRenderBoneLines(ctx, rect) {
         if (!xrayAiState.showBoneLines) return;
+        if (xrayAiPanoToggleActive() && xrayAiState.panoOverlay !== 'bone') return;
         var boneGaps = xrayAiVisibleBoneGaps();
         var lines = (xrayAiState.boneMeasurements || []).filter(function (line) {
             return !(boneGaps && line.gap != null && !boneGaps[line.gap]);
@@ -1712,10 +1716,29 @@
         xrayAiRenderOverlays();
     }
 
+    function xrayAiPanoToggleActive() {
+        return xrayAiState.modality === 'panoramic';
+    }
+
+    /** 'caries', 'bone', or '' for everything else (restorations, calculus, …). */
+    function xrayAiFindingGroup(f) {
+        if (xrayAiIsCaries(f)) return 'caries';
+        if (f && xrayAiIsBoneType(f.type)) return 'bone';
+        return '';
+    }
+
+    function xrayAiMatchesPanoOverlay(f) {
+        if (!xrayAiPanoToggleActive()) return true;
+        var group = xrayAiFindingGroup(f);
+        if (!group) return true;
+        return group === xrayAiState.panoOverlay;
+    }
+
     function xrayAiIsFindingVisible(idx, f) {
         if (!xrayAiState.showOverlays) return false;
         if (xrayAiState.hidden[idx]) return false;
         if (xrayAiState.categoryHidden[f.type]) return false;
+        if (!xrayAiMatchesPanoOverlay(f)) return false;
         if (!xrayAiMeetsConfidence(f)) return false;
         return true;
     }
@@ -1744,11 +1767,22 @@
             var x = c0[0], y = c0[1], bw = Math.max(1, c1[0] - c0[0]), bh = Math.max(1, c1[1] - c0[1]);
             var selected = idx === xrayAiState.selectedIdx;
             var isCaries = f.type === 'caries_incipient' || f.type === 'caries_progressed';
+            var panoSpot = isCaries && xrayAiState.modality === 'panoramic';
             var decayEmphasis = isCaries && xrayAiIsIntraoralModality(xrayAiState.modality);
             ctx.save();
             ctx.strokeStyle = meta.color;
             ctx.lineWidth = selected ? (decayEmphasis ? 3.6 : 3) : (decayEmphasis ? 2.7 : 2);
-            if (f.polygon && f.polygon.length >= 3) {
+            if (panoSpot) {
+                var side = selected ? 14 : 11;
+                var sx = x + (bw / 2) - (side / 2);
+                var sy = y + (bh / 2) - (side / 2);
+                ctx.fillStyle = meta.color;
+                ctx.globalAlpha = selected ? 0.9 : 0.78;
+                ctx.fillRect(sx, sy, side, side);
+                ctx.globalAlpha = 1;
+                ctx.lineWidth = selected ? 2 : 1.4;
+                ctx.strokeRect(sx, sy, side, side);
+            } else if (f.polygon && f.polygon.length >= 3) {
                 xrayAiDrawPolygon(ctx, f.polygon, rect);
                 ctx.fillStyle = meta.color;
                 ctx.globalAlpha = selected ? (decayEmphasis ? 0.52 : 0.42) : (decayEmphasis ? 0.38 : 0.28);
@@ -1768,7 +1802,7 @@
                 ctx.setLineDash([]);
             }
 
-            var showTag = selected || (isCaries && tagCount < XRAY_AI_CONFIG.maxCanvasTags);
+            var showTag = selected || (isCaries && !panoSpot && tagCount < XRAY_AI_CONFIG.maxCanvasTags);
             if (isCaries && f.enamel_pct != null && f.dentin_pct != null && showTag) {
                 xrayAiDrawPearlTag(ctx, x, y, bw, bh,
                     xrayAiTr('media.xrayAi.tag.caries'),
@@ -1789,6 +1823,30 @@
                 ctx.fillText(label, x + 4, Math.max(15, y + bh + 16));
             }
             ctx.restore();
+        });
+    }
+
+    function xrayAiUpdatePanoToggle() {
+        var el = xrayAiG('xrayAiPanoToggle');
+        if (!el) return;
+        if (!xrayAiPanoToggleActive()) {
+            el.hidden = true;
+            el.innerHTML = '';
+            return;
+        }
+        var mode = xrayAiState.panoOverlay === 'bone' ? 'bone' : 'caries';
+        el.hidden = false;
+        el.innerHTML =
+            '<button type="button" class="xray-ai-pano-btn' + (mode === 'caries' ? ' is-on' : '') +
+                '" data-pano-overlay="caries">' + xrayAiEsc(xrayAiTr('media.xrayAi.panoToggleCaries')) + '</button>' +
+            '<button type="button" class="xray-ai-pano-btn' + (mode === 'bone' ? ' is-on' : '') +
+                '" data-pano-overlay="bone">' + xrayAiEsc(xrayAiTr('media.xrayAi.panoToggleBone')) + '</button>';
+        el.querySelectorAll('[data-pano-overlay]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                xrayAiState.panoOverlay = btn.getAttribute('data-pano-overlay') === 'bone' ? 'bone' : 'caries';
+                xrayAiRenderOverlays();
+                xrayAiUpdatePanel();
+            });
         });
     }
 
@@ -1933,6 +1991,11 @@
     function xrayAiUpdateBoneMeasures() {
         var el = xrayAiG('xrayAiBoneMeasures');
         if (!el) return;
+        if (xrayAiPanoToggleActive() && xrayAiState.panoOverlay !== 'bone') {
+            el.innerHTML = '';
+            el.style.display = 'none';
+            return;
+        }
         var visibleGaps = xrayAiVisibleBoneGaps();
         var items = (xrayAiState.boneMeasurements || []).map(function (line, idx) {
             if (line.measurement_mm == null) return null;
@@ -2108,6 +2171,7 @@
         xrayAiUpdateScopeNote();
         xrayAiUpdateQualityNote();
         xrayAiUpdateConnNote();
+        xrayAiUpdatePanoToggle();
         // The training-review entry point only makes sense when the local
         // service is up and accepting feedback for at least one of the two
         // models (panoramic or PA/bitewing train independently).
@@ -2119,15 +2183,22 @@
         xrayAiUpdateBoneMeasures();
         xrayAiSyncConfidenceControl();
         if (!list) return;
+        if (xrayAiPanoToggleActive()) {
+            visible = visible.filter(function (item) { return xrayAiMatchesPanoOverlay(item.f); });
+        }
         if (!visible.length) {
-            // Distinguish "nothing found" from "everything is below the slider",
-            // otherwise a high threshold reads as a clean radiograph.
-            var msg = xrayAiState.findings.length
-                ? xrayAiTr('media.xrayAi.allBelowThreshold', {
-                    N: xrayAiState.findings.length,
-                    PCT: Math.round(xrayAiState.confidenceThreshold * 100)
-                })
-                : xrayAiTr('media.xrayAi.noFindings');
+            var otherView = xrayAiPanoToggleActive() && xrayAiState.findings.some(function (f) {
+                return xrayAiMeetsConfidence(f) && !xrayAiMatchesPanoOverlay(f);
+            });
+            var msg = otherView
+                ? xrayAiTr(xrayAiState.panoOverlay === 'bone'
+                    ? 'media.xrayAi.panoEmptyBone' : 'media.xrayAi.panoEmptyCaries')
+                : (xrayAiState.findings.length
+                    ? xrayAiTr('media.xrayAi.allBelowThreshold', {
+                        N: xrayAiState.findings.length,
+                        PCT: Math.round(xrayAiState.confidenceThreshold * 100)
+                    })
+                    : xrayAiTr('media.xrayAi.noFindings'));
             list.innerHTML = '<div class="xray-ai-empty">' + xrayAiEsc(msg) + '</div>';
             return;
         }
@@ -2222,8 +2293,9 @@
 
     /** Confirm/reject controls, or a "recorded" note once a verdict was sent. */
     function xrayAiFeedbackHtml(idx, f) {
-        var trainingReady = xrayAiState.feedbackEnabled || !xrayAiPageIsLocalServer();
-        if (!xrayAiIsCaries(f) || xrayAiState.lastSource !== 'api' || !trainingReady) {
+        // Every caries hint from the service keeps its tick and cross, on the
+        // Banana page and on GitHub. A skipped /health probe must not hide them.
+        if (!xrayAiIsCaries(f) || xrayAiState.lastSource !== 'api') {
             return '';
         }
         var given = xrayAiState.feedback[idx];
@@ -2829,12 +2901,9 @@
         var f = xrayAiState.findings[idx];
         if (!f || !xrayAiIsCaries(f)) return;
         if (xrayAiState.lastSource !== 'api') return;
-        // Each model has its own continual-training loop and its own enabled
-        // flag, so which endpoint (and which flag) applies depends on which
-        // model actually produced this run's findings.
+        // Which endpoint applies depends on which model produced this run.
         var mod = xrayAiState.modality || xrayAiCurrentXrayModality();
         var isPabw = (mod === 'pabw' || mod === 'periapical' || mod === 'bitewing');
-        if (xrayAiPageIsLocalServer() && (isPabw ? !xrayAiState.pabwFeedbackEnabled : !xrayAiState.feedbackEnabled)) return;
         if (xrayAiState.feedback[idx]) return;
         var img = xrayAiG('xrayLbImg');
         if (!img) return;

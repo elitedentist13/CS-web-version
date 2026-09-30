@@ -89,9 +89,9 @@ PERIO_REPORT_PHYSIOLOGIC = _env_bool("PERIO_REPORT_PHYSIOLOGIC", True)
 # held well below the trained band.
 ENABLE_CARIES_SCREENING = _env_bool("ENABLE_CARIES_SCREENING", True)
 
-# Caries screening is clinically for bitewings/PAs. Panoramics keep their
-# existing tooth/bone path; caries on pano is opt-in (classical only is weak).
-ENABLE_CARIES_ON_PANORAMIC = _env_bool("ENABLE_CARIES_ON_PANORAMIC", False)
+# Panoramics also get caries hints (small spots). The page toggles those
+# against the alveolar-bone overlay so the two are not drawn at once.
+ENABLE_CARIES_ON_PANORAMIC = _env_bool("ENABLE_CARIES_ON_PANORAMIC", True)
 
 # Whether to attempt loading trained weights at all. Independent of the master
 # switch so the classical fallback can be exercised on its own for testing.

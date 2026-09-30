@@ -116,8 +116,8 @@ class Pipeline:
         findings = []
         cond_findings = self._condition_findings(conditions, teeth, gray)
 
-        # Caries: open for bitewing / PA; panoramic is opt-in (default off)
-        # so the pano path stays focused on tooth/bone/restoration.
+        # Caries runs on bitewing / PA and on panoramics. The page shows
+        # panoramic caries spots and alveolar bone loss as two views.
         run_caries = config.ENABLE_CARIES_SCREENING and (
             _is_intraoral(modality) or config.ENABLE_CARIES_ON_PANORAMIC
         )

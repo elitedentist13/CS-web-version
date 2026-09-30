@@ -2112,13 +2112,7 @@
         // service is up and accepting feedback for at least one of the two
         // models (panoramic or PA/bitewing train independently).
         var trainBtn = xrayAiG('xrayAiTrainOpenBtn');
-        if (trainBtn) {
-            // The Banana page shows training only after /health says it is on.
-            // The GitHub page does not call 127.0.0.1 for that probe, so the
-            // same button stays available and its requests use the protocol.
-            if (!xrayAiPageIsLocalServer()) trainBtn.hidden = false;
-            else trainBtn.hidden = !(xrayAiState.feedbackEnabled || xrayAiState.pabwFeedbackEnabled);
-        }
+        if (trainBtn) trainBtn.hidden = false;
         xrayAiUpdateLegend();
         xrayAiUpdateAnatomyLegend();
         xrayAiUpdateSummaryRow();
@@ -3365,10 +3359,8 @@
             if (el) el.style.display = hide ? 'none' : '';
         });
         setTimeout(xrayAiSyncCanvasSize, 50);
-        if (!xrayAiPageIsLocalServer()) {
-            var trainBtn = xrayAiG('xrayAiTrainOpenBtn');
-            if (trainBtn) trainBtn.hidden = false;
-        }
+        var trainBtn = xrayAiG('xrayAiTrainOpenBtn');
+        if (trainBtn) trainBtn.hidden = false;
     }
 
     function xrayAiOnLightboxClose() {

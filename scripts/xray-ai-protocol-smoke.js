@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20260930xrayhints1';
+var BUILD = '20260930xraytrain1';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -217,8 +217,10 @@ function classifyHost(src, host) {
     pass('hosted analyze does not fall back to browser heuristic',
         aiSrc.indexOf("xrayAiTr('media.xrayAi.protocolWorking')") >= 0 &&
         aiSrc.indexOf('if (!xrayAiPageIsLocalServer())') >= 0);
-    pass('github page keeps the training button',
-        aiSrc.indexOf('if (!xrayAiPageIsLocalServer()) trainBtn.hidden = false;') >= 0);
+    pass('training button stays visible',
+        aiSrc.indexOf('if (trainBtn) trainBtn.hidden = false;') >= 0 &&
+        idx.indexOf('id="xrayAiTrainOpenBtn"') >= 0 &&
+        idx.indexOf('id="xrayAiTrainOpenBtn" class="xray-ai-train-open"\n                    onclick="xrayAiOpenTrainingReview()" hidden') < 0);
     pass('5500 page still uses the direct AI service',
         aiSrc.indexOf("runClient('api_down')") >= 0 &&
         aiSrc.indexOf('xrayAiCheckApiHealth()') >= 0);
@@ -338,6 +340,19 @@ function classifyHost(src, host) {
             'HTTP ' + health.status + (hj.model ? ' model=' + hj.model : ''));
     } catch (e) {
         pass('local AI /health', false, 'not running (' + e.message + ') — wiring tests do not start it');
+    }
+
+    for (const dsPath of ['/caries/dataset', '/pabw/dataset']) {
+        try {
+            var ds = await httpGet('127.0.0.1', 8877, dsPath);
+            var dj = {};
+            try { dj = JSON.parse(ds.body); } catch (e2) {}
+            var recentN = Array.isArray(dj.recent) ? dj.recent.length : -1;
+            pass('training history API ' + dsPath, ds.status === 200 && recentN >= 0,
+                'HTTP ' + ds.status + ' recent=' + recentN);
+        } catch (e) {
+            pass('training history API ' + dsPath, false, e.message);
+        }
     }
 
     try {
@@ -467,10 +482,11 @@ function classifyHost(src, host) {
             if (String(tag).toLowerCase() === 'a') el.click = function () {};
             return el;
           };
+          if (typeof openModal === 'function') openModal('xrayLightbox');
           xrayAiOnLightboxOpen('smoke-xray');
-          const shown = btn.hidden === false;
+          const shown = btn.hidden === false && (btn.textContent || '').indexOf('Training') >= 0;
           const label = (btn.getAttribute('data-i18n') || '') + '|' + (btn.textContent || '').trim();
-          xrayAiOpenTrainingReview();
+          btn.click();
           const opened = modal.hidden === false;
           const panoTab = document.getElementById('xrayAiTrainTabPano');
           const pabwTab = document.getElementById('xrayAiTrainTabPabw');
@@ -523,21 +539,84 @@ function classifyHost(src, host) {
           }
           const btn = document.getElementById('xrayAiTrainOpenBtn');
           const before = btn ? btn.hidden : null;
+          if (typeof openModal === 'function') openModal('xrayLightbox');
           if (typeof xrayAiOnLightboxOpen === 'function') xrayAiOnLightboxOpen('smoke-xray');
+          const sample = {
+            stats: { confirm: 2, reject: 1, images: 2 },
+            preflight: [{ check: 'weights', ok: true, detail: 'ready' }],
+            ready_to_train: false,
+            training_enabled: true,
+            recent: [
+              { verdict: 'confirm', ts: '2026-09-30T12:00:00', confidence: 0.42, type: 'caries_enamel', surface: 'mesial' },
+              { verdict: 'reject', ts: '2026-09-30T12:05:00', confidence: 0.2, type: 'caries_dentin', surface: 'distal' }
+            ]
+          };
+          const origFetch = window.fetch;
+          window.__trainHits = [];
+          window.fetch = function (url, opts) {
+            const u = String(url && url.url ? url.url : url || '');
+            if (u.indexOf('/dataset') >= 0 || u.indexOf('/train/status') >= 0) window.__trainHits.push(u);
+            if (u.indexOf('/dataset') >= 0) {
+              return Promise.resolve(new Response(JSON.stringify(sample), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+            }
+            if (u.indexOf('/train/status') >= 0) {
+              return Promise.resolve(new Response(JSON.stringify({ state: 'idle', message: 'idle' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+            }
+            return origFetch.apply(this, arguments);
+          };
+          const typeEl = document.getElementById('lbType');
+          if (typeEl) typeEl.value = 'panoramic';
+          const modal = document.getElementById('xrayAiTrainModal');
+          if (btn) btn.click();
+          const verdicts = document.getElementById('xrayAiTrainVerdicts');
+          const pabwVerdicts = document.getElementById('xrayAiTrainVerdictsPabw');
+          async function waitPane(el) {
+            const deadline = Date.now() + 8000;
+            while (Date.now() < deadline) {
+              const text = el ? (el.textContent || '').trim() : '';
+              const n = el ? el.querySelectorAll('.xray-ai-train-verdict').length : 0;
+              if (n > 0 || (text && text.indexOf('Loading') < 0)) return text;
+              await new Promise(function (r) { setTimeout(r, 200); });
+            }
+            return el ? (el.textContent || '').trim() : '';
+          }
+          let history = await waitPane(verdicts);
+          if (typeof xrayAiSwitchTrainTab === 'function') xrayAiSwitchTrainTab('pabw');
+          let pabwHistory = await waitPane(pabwVerdicts);
+          const rows = verdicts ? verdicts.querySelectorAll('.xray-ai-train-verdict').length : 0;
+          const pabwRows = pabwVerdicts ? pabwVerdicts.querySelectorAll('.xray-ai-train-verdict').length : 0;
+          const empty = (verdicts ? verdicts.querySelectorAll('.xray-ai-train-empty').length : 0) +
+            (pabwVerdicts ? pabwVerdicts.querySelectorAll('.xray-ai-train-empty').length : 0);
           return {
             host: location.hostname,
             port: location.port,
             local: xrayAiPageIsLocalServer(),
             trainHidden: btn ? btn.hidden : null,
-            trainWasHidden: before
+            trainWasHidden: before,
+            clickedOpen: !!(modal && modal.hidden === false),
+            history: history.slice(0, 180),
+            pabwHistory: pabwHistory.slice(0, 120),
+            rows: rows,
+            pabwRows: pabwRows,
+            empty: empty,
+            stats: (document.getElementById('xrayAiTrainStats') || {}).textContent || '',
+            hits: window.__trainHits || [],
+            btnW: btn ? Math.round(btn.getBoundingClientRect().width) : 0,
+            lbDisplay: (document.getElementById('xrayLightbox') || {}).style ? document.getElementById('xrayLightbox').style.display : ''
           };
-        })()`, true, 30000);
+        })()`, true, 40000);
         pass('same files on 127.0.0.1 still count as the local page',
             loop && loop.local === true && loop.host === '127.0.0.1' && String(loop.port) !== String(BANANA_LIVE_PORT),
             loop ? (loop.host + ':' + loop.port + ' local=' + loop.local) : 'none');
-        pass('5500-style page keeps the training button until the service health check',
-            loop && loop.trainWasHidden === true && loop.trainHidden === true,
+        pass('5500-style page shows the training button in the lightbox',
+            loop && loop.trainHidden === false,
             loop ? ('before=' + loop.trainWasHidden + ' after=' + loop.trainHidden) : 'none');
+        pass('clicking Training opens the panel',
+            loop && loop.clickedOpen === true, loop ? ('open=' + loop.clickedOpen) : 'none');
+        pass('training history is shown',
+            loop && loop.rows >= 2 && loop.pabwRows >= 2 &&
+                loop.history.indexOf('Loading') < 0 && loop.pabwHistory.indexOf('Loading') < 0,
+            loop ? ('pano=' + loop.rows + ' pabw=' + loop.pabwRows + ' hits=' + JSON.stringify(loop.hits) + ' ' + loop.history + ' | ' + loop.pabwHistory) : 'none');
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));
     } finally {

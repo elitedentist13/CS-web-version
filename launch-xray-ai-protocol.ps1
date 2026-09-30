@@ -148,14 +148,26 @@ function Invoke-LocalApi($Job) {
     if ($tmp) {
         $curlArgs += @("-F", "file=@$tmp;type=image/jpeg;filename=xray.jpg")
     }
+    # Form values (the finding JSON especially) contain quotes and can be
+    # longer than the Windows command line. Curl reads each one from a file
+    # so the verdict is not truncated into an unreadable field.
+    $fieldFiles = @()
     if ($payload -and $payload.fields) {
-        $payload.fields.PSObject.Properties | ForEach-Object {
-            $curlArgs += @("-F", ("{0}={1}" -f $_.Name, $_.Value))
+        $utf8 = New-Object System.Text.UTF8Encoding $false
+        foreach ($prop in @($payload.fields.PSObject.Properties)) {
+            $safe = [regex]::Replace([string]$prop.Name, '[^A-Za-z0-9_-]', '_')
+            $fieldPath = Join-Path $env:TEMP ("cs-xray-ai-" + $Job.id + "-" + $safe + ".txt")
+            [System.IO.File]::WriteAllText($fieldPath, [string]$prop.Value, $utf8)
+            $fieldFiles += $fieldPath
+            $curlArgs += @("-F", ([string]$prop.Name + "=<" + $fieldPath))
         }
     }
     $curlArgs += $url
     $raw = & $curl @curlArgs
     if ($tmp) { Remove-Item -Force $tmp -ErrorAction SilentlyContinue }
+    foreach ($fieldPath in $fieldFiles) {
+        Remove-Item -Force $fieldPath -ErrorAction SilentlyContinue
+    }
     # A native program's stdout arrives as one string per line. Casting that
     # array to [string] joins with spaces and glues the HTTP status onto the
     # JSON, which the page then cannot read (findings look empty).

@@ -136,7 +136,7 @@
         feedback: {},
         // Panoramic films carry both caries spots and alveolar bone loss.
         // The clinician toggles which of those two overlays is on screen.
-        panoOverlay: 'caries',
+        panoOverlay: 'bone',
         // Set when a health-check/analyze call to the local service fails.
         // null | 'offline' | 'lna_maybe' | 'lna_denied' — see
         // xrayAiApiCrossesToPrivateNetwork() / xrayAiUpdateConnNote(). This
@@ -2944,7 +2944,17 @@
                 xrayAiUpdatePanel();
                 return;
             }
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (!r.ok) {
+                return r.json().then(function (body) {
+                    var detail = body && body.detail;
+                    if (detail && typeof detail !== 'string') {
+                        try { detail = JSON.stringify(detail); } catch (e1) { detail = ''; }
+                    }
+                    throw new Error(detail || ('HTTP ' + r.status));
+                }, function () {
+                    throw new Error('HTTP ' + r.status);
+                });
+            }
             return r.json().then(function () {
                 xrayAiState.feedback[idx] = verdict;
                 xrayAiSetStatus(xrayAiTr('media.xrayAi.fbThanks'), 'ok');

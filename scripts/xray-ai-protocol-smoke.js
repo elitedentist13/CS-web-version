@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20260930lbresize1';
+var BUILD = '20260930xraybone1';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -219,7 +219,7 @@ function classifyHost(src, host) {
         aiSrc.indexOf('if (!xrayAiPageIsLocalServer())') >= 0);
     pass('panoramic toggles caries spots and bone loss',
         aiSrc.indexOf('function xrayAiUpdatePanoToggle()') >= 0 &&
-        aiSrc.indexOf("panoOverlay: 'caries'") >= 0 &&
+        aiSrc.indexOf("panoOverlay: 'bone'") >= 0 &&
         aiSrc.indexOf('var panoSpot = isCaries && xrayAiState.modality === \'panoramic\'') >= 0);
     pass('caries hints keep tick and cross',
         aiSrc.indexOf("if (!xrayAiIsCaries(f) || xrayAiState.lastSource !== 'api')") >= 0 &&

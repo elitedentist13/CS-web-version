@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-report.js'))) root = process.cwd();
 
-var BUILD = '20260925notes9';
+var BUILD = '20260930txcheap1';
 var ZHANG_ID = 'd19183c0-183a-414e-b0e1-ab760f376a93';
 var FROM = '2026-08-01';
 var TO = '2026-08-31';
@@ -149,7 +149,7 @@ function methodKey(raw) {
         /buildDoctorPaymentTxRows\(incomeSlices, from, to, _drDailyDoctors\)/.test(monthlyFn));
     pass('monthly treatment stats prices items from the month\'s payments',
         /collectTreatmentItemStatGroupsFromPayments\(incomeSlices/.test(monthlyFn) &&
-        /function collectTreatmentItemStatGroupsFromPayments\(slices, pmap, apptIndex\)/.test(reportSrc));
+        /function collectTreatmentItemStatGroupsFromPayments\(slices, pmap, apptIndex, priorPaidByBill\)/.test(reportSrc));
     pass('detail amount is the in-month payment, not the lifetime bill paid',
         /var paidAmount = payRows\.reduce\(function \(sum, x\) \{ return sum \+ Number\(x\.amount \|\| 0\); \}, 0\)/.test(detailFn) &&
         /buildDailySummaryTxRowFromPaymentSlice\(b, p, paidAmount/.test(detailFn) &&
@@ -240,6 +240,7 @@ function methodKey(raw) {
         'parseBillItems',
         'txStatsDateArranged',
         'allocateTreatmentPaymentCents',
+        'allocateTreatmentPaymentCheapestFirst',
         'treatmentStatsReceivedFee',
         'collectTreatmentItemStatGroupsFromPayments'
     ];
@@ -298,9 +299,39 @@ function methodKey(raw) {
             if (g.item === 'Xray') xray = d.net;
         });
     });
-    pass('a partial payment keeps each item\'s share',
-        crown === 15454.54 && xray === 1545.46,
+    pass('a partial payment settles the cheapest item first',
+        crown === 15000 && xray === 2000,
         'crown=' + crown + ' xray=' + xray);
+
+    function itemNets(groups) {
+        var m = {};
+        groups.forEach(function (g) {
+            g.details.forEach(function (d) { m[g.item] = (m[g.item] || 0) + d.net; });
+        });
+        return m;
+    }
+    var kwokBill = {
+        id: 'kwok',
+        patient_no: 'TKO002615',
+        patient_name: 'KWOK YEE KAN',
+        bill_date: '2026-09-21',
+        items: JSON.stringify([
+            { desc: 'X-RAY', qty: 1, price: 150, disc: 0 },
+            { desc: 'ROOT CANAL TREATMENT (RCT)', qty: 1, price: 8000, disc: 0 }
+        ])
+    };
+    var kwokSep = itemNets(txCtx.collectTreatmentItemStatGroupsFromPayments([
+        { amount: 5150, paid_date: '2026-09-21', bill: kwokBill }
+    ], {}, null, {}));
+    pass('TKO002615 $5150 of $8150: X-RAY gets its full $150',
+        kwokSep['X-RAY'] === 150 && kwokSep['ROOT CANAL TREATMENT (RCT)'] === 5000,
+        JSON.stringify(kwokSep));
+    var kwokOct = itemNets(txCtx.collectTreatmentItemStatGroupsFromPayments([
+        { amount: 3000, paid_date: '2026-10-05', bill: kwokBill }
+    ], {}, null, { kwok: 5150 }));
+    pass('the later $3000 balance goes to RCT, not X-RAY again',
+        !kwokOct['X-RAY'] && kwokOct['ROOT CANAL TREATMENT (RCT)'] === 3000,
+        JSON.stringify(kwokOct));
 
     console.log('\n=== live server ===');
     var live = null;
@@ -407,6 +438,56 @@ function methodKey(raw) {
     pass('each of the six charts has treatment lines for the statistics view',
         charts.every(function (c) { return withItems[c]; }),
         charts.filter(function (c) { return !withItems[c]; }).join(',') || 'all six');
+
+    console.log('\n=== API: TKO002615 cheapest-first ===');
+    var kwokBills = await restGet(sb.url, sb.key, 'bills',
+        'select=id,patient_no,patient_name,bill_date,total,amount_paid,balance,items,voided_at' +
+        '&voided_at=is.null&patient_no=eq.TKO002615&order=bill_date.desc');
+    pass('TKO002615 bills readable',
+        kwokBills.status === 200 && Array.isArray(kwokBills.json) && kwokBills.json.length > 0,
+        'HTTP ' + kwokBills.status + ' n=' + ((kwokBills.json && kwokBills.json.length) || 0));
+    var rctBill = (kwokBills.json || []).filter(function (b) {
+        var items = b.items;
+        if (typeof items === 'string') {
+            try { items = JSON.parse(items); } catch (e) { items = []; }
+        }
+        if (!Array.isArray(items)) return false;
+        var descs = items.map(function (it) { return String(it.desc || '').toUpperCase(); }).join('|');
+        return descs.indexOf('X-RAY') >= 0 && descs.indexOf('ROOT CANAL') >= 0;
+    })[0];
+    pass('TKO002615 has X-RAY + RCT bill',
+        !!rctBill && Number(rctBill.total) === 8150 && Number(rctBill.amount_paid) === 5150,
+        rctBill ? ('id=' + rctBill.id + ' total=' + rctBill.total + ' paid=' + rctBill.amount_paid) : 'missing');
+    if (rctBill) {
+        var kwokPays = await restGet(sb.url, sb.key, 'bill_payments',
+            'select=id,bill_id,paid_date,amount,method,voided_at&voided_at=is.null&bill_id=eq.' + rctBill.id);
+        var paySum = (kwokPays.json || []).reduce(function (s, p) { return s + Number(p.amount || 0); }, 0);
+        pass('TKO002615 RCT bill payments sum to $5150',
+            kwokPays.status === 200 && Math.round(paySum * 100) === 515000,
+            'HTTP ' + kwokPays.status + ' sum=' + paySum);
+        var liveGroups = txCtx.collectTreatmentItemStatGroupsFromPayments(
+            (kwokPays.json || []).map(function (p) {
+                return { amount: Number(p.amount || 0), paid_date: String(p.paid_date || '').slice(0, 10), bill: rctBill };
+            }),
+            {},
+            null,
+            {}
+        );
+        var liveNets = itemNets(liveGroups);
+        function netByHint(nets, hint) {
+            var keys = Object.keys(nets || {});
+            for (var i = 0; i < keys.length; i++) {
+                if (String(keys[i]).toUpperCase().indexOf(hint) >= 0) return nets[keys[i]];
+            }
+            return null;
+        }
+        pass('live API TKO002615 allocates X-RAY $150 then RCT $5000',
+            netByHint(liveNets, 'X-RAY') === 150 && netByHint(liveNets, 'ROOT CANAL') === 5000,
+            JSON.stringify(liveNets));
+        pass('served report uses cheapest-first allocator',
+            reportSrc.indexOf('function allocateTreatmentPaymentCheapestFirst') >= 0 &&
+            reportSrc.indexOf('allocateTreatmentPaymentCheapestFirst(caps, priorCents, paidCents)') >= 0);
+    }
 
     console.log('\n' + (fails.length ? 'FAILED ' + fails.length : 'SMOKE + SPOT + LIVE + API ALL PASS'));
     if (fails.length) {

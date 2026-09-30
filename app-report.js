@@ -1983,6 +1983,77 @@ var REPORT = (function () {
     return out;
   }
 
+  /**
+   * Settle a bill's items cheapest first. Money paid before the period (priorCents)
+   * fills items first, then this period's payment (totalCents) continues from there.
+   * Anything beyond the bill's item total is spread pro-rata. Shares sum to totalCents.
+   */
+  function allocateTreatmentPaymentCheapestFirst(capsCents, priorCents, totalCents) {
+    var n = (capsCents || []).length;
+    var out = [];
+    var i;
+    for (i = 0; i < n; i++) out.push(0);
+    if (!n || !(totalCents > 0)) return out;
+    var capSum = 0;
+    for (i = 0; i < n; i++) if (capsCents[i] > 0) capSum += capsCents[i];
+    if (!(capSum > 0)) return allocateTreatmentPaymentCents(capsCents, totalCents);
+    var order = [];
+    for (i = 0; i < n; i++) if (capsCents[i] > 0) order.push(i);
+    order.sort(function (a, b) { return (capsCents[a] - capsCents[b]) || (a - b); });
+    var prior = Math.max(0, Math.round(priorCents || 0));
+    var left = totalCents;
+    order.forEach(function (idx) {
+      var room = capsCents[idx];
+      var usedByPrior = Math.min(room, prior);
+      prior -= usedByPrior;
+      room -= usedByPrior;
+      var take = Math.min(room, left);
+      out[idx] += take;
+      left -= take;
+    });
+    if (left > 0) {
+      var extra = allocateTreatmentPaymentCents(capsCents, left);
+      for (i = 0; i < n; i++) out[i] += extra[i];
+    }
+    return out;
+  }
+
+  /**
+   * Per bill, what was paid before the earliest in-period slice: earlier bill_payments
+   * plus any bill.amount_paid not recorded as a payment row.
+   */
+  async function loadTreatmentPriorPaidByBill(slices) {
+    var firstDay = {};
+    var bills = {};
+    (slices || []).forEach(function (s) {
+      if (!s || !s.bill || !s.bill.id) return;
+      if (s.payment && s.payment._synthetic) return;
+      var id = String(s.bill.id);
+      var d = paymentDateKey(s.paid_date);
+      bills[id] = s.bill;
+      if (d && (!firstDay[id] || d < firstDay[id])) firstDay[id] = d;
+    });
+    var ids = Object.keys(bills);
+    var out = {};
+    if (!ids.length) return out;
+    var byBill = indexPaymentsByBillId(await loadBillPaymentsForBillIds(ids));
+    ids.forEach(function (id) {
+      var rows = byBill[id] || [];
+      var all = 0;
+      var before = 0;
+      rows.forEach(function (p) {
+        var amt = Number(p.amount || 0);
+        all += amt;
+        var d = paymentDateKey(p.paid_date);
+        if (d && firstDay[id] && d < firstDay[id]) before += amt;
+      });
+      var gap = reportBillPaidValue(bills[id]) - all;
+      if (rows.length && gap > 0.005) before += gap;
+      if (before > 0.005) out[id] = before;
+    });
+    return out;
+  }
+
   function treatmentStatsReceivedFee(net, disc) {
     if (!(net > 0)) return 0;
     if (!(disc > 0) || disc >= 100) return net;
@@ -1991,10 +2062,10 @@ var REPORT = (function () {
 
   /**
    * Doctor treatment statistics for the money received in the period.
-   * Each bill's items keep their share of that bill, scaled to the payments
-   * that actually arrived, so the grand net matches doctor and clinic monthly.
+   * Payments settle a bill's items cheapest first (after earlier payments on the
+   * same bill), so the grand net matches doctor and clinic monthly.
    */
-  function collectTreatmentItemStatGroupsFromPayments(slices, pmap, apptIndex) {
+  function collectTreatmentItemStatGroupsFromPayments(slices, pmap, apptIndex, priorPaidByBill) {
     var defaultName = tr('report.treat.defaultName');
     var byBill = {};
     var order = [];
@@ -2032,10 +2103,9 @@ var REPORT = (function () {
       if (!items.length) {
         items.push({ name: defaultName, qty: 1, disc: 0, bill: 0 });
       }
-      var netSum = 0;
-      items.forEach(function (it) { if (it.bill > 0) netSum += it.bill; });
-      var weights = items.map(function (it) { return netSum > 0 ? (it.bill > 0 ? it.bill : 0) : 0; });
-      var shares = allocateTreatmentPaymentCents(weights, paidCents);
+      var caps = items.map(function (it) { return it.bill > 0 ? Math.round(it.bill * 100) : 0; });
+      var priorCents = Math.round(Number((priorPaidByBill && priorPaidByBill[id]) || 0) * 100);
+      var shares = allocateTreatmentPaymentCheapestFirst(caps, priorCents, paidCents);
       items.forEach(function (it, idx) {
         var netCents = shares[idx] || 0;
         if (netCents <= 0) return;
@@ -5768,7 +5838,8 @@ var REPORT = (function () {
     pts.forEach(function (p) { pmap[p.id] = p; });
 
     if (_drDailyMode === 'treatmentStats') {
-      var drDailyGroups = collectTreatmentItemStatGroupsFromPayments(daySlices, pmap, _drDailyPar2[1]);
+      var drDailyPrior = await loadTreatmentPriorPaidByBill(daySlices);
+      var drDailyGroups = collectTreatmentItemStatGroupsFromPayments(daySlices, pmap, _drDailyPar2[1], drDailyPrior);
       paintHeadlineFromSlices(daySlices, {
         agree: allDoctors ? tr('report.headline.agreeAll') : trRepl('report.headline.agree', { A: fmtHK(headlinePartsFromSlices(daySlices).total) }),
         compareFrom: day,
@@ -6012,11 +6083,12 @@ var REPORT = (function () {
       var monthPatientIds = statBills.map(function (b) { return b && b.patient_id; }).filter(Boolean);
       var _moTxPar = await Promise.all([
         loadPatientsByIds(monthPatientIds),
-        loadAppointmentsForDailySummary(from, to, statBills)
+        loadAppointmentsForDailySummary(from, to, statBills),
+        loadTreatmentPriorPaidByBill(incomeSlices)
       ]);
       var monthPmap = {};
       (_moTxPar[0] || []).forEach(function (p) { monthPmap[p.id] = p; });
-      var monthGroups = collectTreatmentItemStatGroupsFromPayments(incomeSlices, monthPmap, _moTxPar[1]);
+      var monthGroups = collectTreatmentItemStatGroupsFromPayments(incomeSlices, monthPmap, _moTxPar[1], _moTxPar[2]);
       paintHeadlineFromSlices(incomeSlices, {
         doctors: allDoctors,
         agree: allDoctors ? tr('report.headline.agreeAll') : trRepl('report.headline.agree', { A: fmtHK(headlinePartsFromSlices(incomeSlices).total) }),
@@ -7742,12 +7814,13 @@ var REPORT = (function () {
         var txPatientIds = txBills.map(function (b) { return b && b.patient_id; }).filter(Boolean);
         var txCtx = await Promise.all([
           loadPatientsByIds(txPatientIds),
-          loadAppointmentsForDailySummary(from, to, txBills)
+          loadAppointmentsForDailySummary(from, to, txBills),
+          loadTreatmentPriorPaidByBill(txSlices)
         ]);
         if (mySeq !== _refreshSeq) return;
         var txPmap = {};
         (txCtx[0] || []).forEach(function (p) { txPmap[p.id] = p; });
-        var txGroups = collectTreatmentItemStatGroupsFromPayments(txSlices, txPmap, txCtx[1]);
+        var txGroups = collectTreatmentItemStatGroupsFromPayments(txSlices, txPmap, txCtx[1], txCtx[2]);
         var txPeriod = (from && to && from !== to) ? (from + ' – ' + to) : (from || to || '');
         var txFile = 'tx_stats_' + (from || '');
         if (to && to !== from) txFile += '_to_' + to;

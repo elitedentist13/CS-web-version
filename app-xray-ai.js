@@ -1773,15 +1773,19 @@
             ctx.strokeStyle = meta.color;
             ctx.lineWidth = selected ? (decayEmphasis ? 3.6 : 3) : (decayEmphasis ? 2.7 : 2);
             if (panoSpot) {
-                var side = selected ? 14 : 11;
+                var side = selected ? 12 : 9;
                 var sx = x + (bw / 2) - (side / 2);
                 var sy = y + (bh / 2) - (side / 2);
-                ctx.fillStyle = meta.color;
-                ctx.globalAlpha = selected ? 0.9 : 0.78;
-                ctx.fillRect(sx, sy, side, side);
+                var mid = side / 2;
                 ctx.globalAlpha = 1;
-                ctx.lineWidth = selected ? 2 : 1.4;
-                ctx.strokeRect(sx, sy, side, side);
+                ctx.lineWidth = selected ? 1.6 : 1.15;
+                ctx.beginPath();
+                ctx.rect(sx, sy, side, side);
+                ctx.moveTo(sx + mid, sy);
+                ctx.lineTo(sx + mid, sy + side);
+                ctx.moveTo(sx, sy + mid);
+                ctx.lineTo(sx + side, sy + mid);
+                ctx.stroke();
             } else if (f.polygon && f.polygon.length >= 3) {
                 xrayAiDrawPolygon(ctx, f.polygon, rect);
                 ctx.fillStyle = meta.color;

@@ -160,6 +160,18 @@ function rememberDetectedCsScanRoot(body) {
     if (root) window.__JSM_CS_SCAN_ROOT = root;
 }
 
+// Local film strips are files on this PC, served by the bridge on :17890.
+// The Banana page (127.0.0.1:5500 / :8123) loads them directly. The GitHub
+// page does not call 127.0.0.1; its X-ray buttons use csxray:// instead.
+function clinicPageIsLocalServer() {
+    try {
+        var host = String(window.location.hostname || '').toLowerCase();
+        return host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
+    } catch (e) {
+        return false;
+    }
+}
+
 function nntScanChartNo(patient) {
     var raw = patient && String(patient.patient_no || '').trim();
     if (!raw) return '';
@@ -361,7 +373,7 @@ function loadNntLocalScans() {
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var ids = nntScanIdCandidates(patient);
     var no = ids.length ? ids[0] : '';
-    if (!no || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
+    if (!no || !clinicPageIsLocalServer() || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
         hideNntLocalScans();
         return;
     }
@@ -674,7 +686,7 @@ function loadCarestreamFiles() {
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var ids = nntScanIdCandidates(patient);
     var no = ids.length ? ids[0] : '';
-    if (!no || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
+    if (!no || !clinicPageIsLocalServer() || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
         hideCarestreamFilms();
         return;
     }
@@ -951,7 +963,7 @@ function loadMcpScanStrip() {
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var ids = nntScanIdCandidates(patient);
     var no = ids.length ? ids[0] : '';
-    if (!no || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
+    if (!no || !clinicPageIsLocalServer() || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
         hideMcpScanStrip();
         return;
     }

@@ -15,6 +15,7 @@ model is absent — it just has lower recall and says so.
 import glob
 import logging
 import os
+import threading
 
 log = logging.getLogger("xray-ai.caries.model")
 
@@ -36,6 +37,8 @@ class CariesModel:
         self.model = None
         self.weights_path = None
         self.load_error = None
+        self._infer_lock = threading.Lock()
+        self._enabled = bool(enabled)
         if not enabled:
             self.load_error = "disabled by configuration (ENABLE_CARIES_MODEL=false)"
             log.info("caries model %s", self.load_error)
@@ -43,6 +46,20 @@ class CariesModel:
         self._load()
 
     def _find_weights(self):
+        # Continual training publishes the live file via ACTIVE so we never
+        # overwrite the checkpoint this process already has open (Windows
+        # rejects that replace). The pointer is a bare filename.
+        active = os.path.join(self.weights_dir, "ACTIVE")
+        if os.path.isfile(active):
+            try:
+                with open(active, "r", encoding="utf-8") as fh:
+                    name = fh.read().strip().splitlines()[0].strip()
+            except (OSError, IndexError):
+                name = ""
+            if name and os.path.basename(name) == name:
+                pointed = os.path.join(self.weights_dir, name)
+                if os.path.isfile(pointed):
+                    return pointed
         for pattern in ("*.pt", "*.onnx"):
             hits = sorted(glob.glob(os.path.join(self.weights_dir, "**", pattern),
                                     recursive=True))
@@ -86,21 +103,37 @@ class CariesModel:
     def ready(self):
         return self.model is not None
 
+    def reload(self):
+        """Drop the loaded checkpoint and read ACTIVE / weights again."""
+        if not self._enabled:
+            return False, self.weights_path, self.load_error
+        with self._infer_lock:
+            self.model = None
+            self.weights_path = None
+            self.load_error = None
+            self._load()
+            return self.ready, self.weights_path, self.load_error
+
     def detect(self, rgb):
         """
         Run the model and return candidates in the reasoning-layer format:
         [{"box": {x,y,w,h}, "score": float, "polygon": [[x,y]..]|None,
           "stage": int|None}]  (all pixel coords).
         """
-        if not self.ready or rgb is None:
+        if rgb is None:
             return []
-        try:
-            results = self.model.predict(
-                rgb, imgsz=self.imgsz, conf=self.min_score, verbose=False
-            )
-        except Exception as exc:
-            log.warning("caries model inference failed: %s", exc)
-            return []
+        with self._infer_lock:
+            if not self.ready:
+                return []
+            try:
+                results = self.model.predict(
+                    rgb, imgsz=self.imgsz, conf=self.min_score, verbose=False
+                )
+            except Exception as exc:
+                log.warning("caries model inference failed: %s", exc)
+                return []
+            return self._candidates_from_results(results)
+    def _candidates_from_results(self, results):
         if not results:
             return []
 

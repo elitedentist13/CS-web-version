@@ -155,6 +155,15 @@ CARIES_CLINIC_DATA_DIR = _env_str(
 # reference set (see train_continual.py).
 ENABLE_CARIES_TRAINING = _env_bool("ENABLE_CARIES_TRAINING", True)
 
+# When on, the service watches clinic labels and fine-tunes by itself.
+# A run starts only after new confirmed labels, and only after the cooldown,
+# so one verdict does not launch a second training pass immediately.
+ENABLE_CARIES_AUTOTRAIN = _env_bool("ENABLE_CARIES_AUTOTRAIN", True)
+CARIES_AUTOTRAIN_EPOCHS = _env_int("CARIES_AUTOTRAIN_EPOCHS", 8)
+CARIES_AUTOTRAIN_POLL_SEC = _env_int("CARIES_AUTOTRAIN_POLL_SEC", 30)
+CARIES_AUTOTRAIN_COOLDOWN_SEC = _env_int("CARIES_AUTOTRAIN_COOLDOWN_SEC", 900)
+CARIES_AUTOTRAIN_REPLAY = _env_float("CARIES_AUTOTRAIN_REPLAY", 0.5)
+
 # Prepared public dataset (replay buffer + val/test) that continual training
 # mixes with the clinic data. Produced by caries/train/prepare_dataset.py.
 CARIES_PUBLIC_DATA_DIR = _env_str(

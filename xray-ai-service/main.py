@@ -65,7 +65,23 @@ async def lifespan(_app):
         get_pipeline()
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("model warmup failed, service will run degraded: %s", exc)
-    yield
+    if config.ENABLE_CARIES_SCREENING and config.ENABLE_CARIES_TRAINING:
+        trainer_jobs.start_autotrain(config, on_promoted=_reload_promoted_caries)
+    try:
+        yield
+    finally:
+        trainer_jobs.stop_autotrain()
+
+
+def _reload_promoted_caries():
+    """Swap the live caries head to the checkpoint continual training just published."""
+    pipe = _state.get("pipeline")
+    model = getattr(pipe, "caries_model", None) if pipe is not None else None
+    if model is None or not hasattr(model, "reload"):
+        log.warning("caries model promoted; it will load on the next service start")
+        return
+    ready, path, err = model.reload()
+    log.warning("caries weights reloaded ready=%s path=%s err=%s", ready, path, err)
 
 
 def _log_licence_notice():
@@ -349,6 +365,7 @@ async def feedback(
         raise HTTPException(status_code=500, detail="feedback capture failed: %s" % exc)
 
     stats = caries_feedback.stats(config.CARIES_CLINIC_DATA_DIR)
+    trainer_jobs.nudge()
     return {"ok": True, "recorded": summary, "dataset": stats}
 
 
@@ -365,6 +382,7 @@ async def caries_dataset():
         "training_enabled": bool(config.ENABLE_CARIES_TRAINING),
         "preflight": checks,
         "ready_to_train": ready,
+        "auto": trainer_jobs.describe_auto(config),
     }
 
 

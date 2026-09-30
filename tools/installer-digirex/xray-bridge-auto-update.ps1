@@ -34,6 +34,12 @@
 #   6. Network failures (clinic PC offline, site unreachable) fail quietly
 #      and leave the current bridge completely untouched -- just logged,
 #      retried next scheduled cycle.
+#   7. The csxrayai:// helper (register-xray-ai-protocol.bat plus its
+#      launcher) is fetched from the site root and registered for this
+#      Windows account. Those files are not part of the bridge process:
+#      a .bat/.cmd is not PowerShell-parsed, and installing them does not
+#      restart or roll back the bridge. A missing AI file does not fail
+#      the bridge update.
 #
 # Usage (normally only ever invoked by the Scheduled Task registered at
 # install time -- see install-xray-bridge.ps1 -- with the same
@@ -202,6 +208,58 @@ function Invoke-BridgeRestart {
     return ($installerExitCode -eq 0 -and (Test-BridgeAlive $Port))
 }
 
+# The bridge folder (C:\NNT, C:\BananaBridge-*, ...) is not the clinic
+# folder that contains start-xray-ai.bat. If this PC already registered
+# csxrayai:// from that clinic folder, remember it so the updated launcher
+# can still start the service after HKCU is pointed at the bridge copy.
+function Find-ExistingAiHome {
+    try {
+        $prop = Get-ItemProperty -Path "HKCU:\Software\Classes\csxrayai\shell\open\command" -ErrorAction Stop
+        $command = [string]$prop.'(default)'
+        if ($command -match '"([^"]+)"') {
+            $dir = Split-Path -Parent $Matches[1]
+            if ($dir -and (Test-Path -LiteralPath (Join-Path $dir "start-xray-ai.bat"))) { return $dir }
+            if ($dir) {
+                $parent = Split-Path -Parent $dir
+                if ($parent -and (Test-Path -LiteralPath (Join-Path $parent "start-xray-ai.bat"))) { return $parent }
+            }
+        }
+    } catch {}
+    return $null
+}
+
+function Register-XrayAiProtocol {
+    $bat = Join-Path $InstallPath "register-xray-ai-protocol.bat"
+    $cmd = Join-Path $InstallPath "launch-xray-ai-protocol.cmd"
+    $ps1 = Join-Path $InstallPath "launch-xray-ai-protocol.ps1"
+    if (-not ((Test-Path -LiteralPath $bat) -and (Test-Path -LiteralPath $cmd) -and (Test-Path -LiteralPath $ps1))) {
+        Write-UpdateLog "AI protocol files are not all installed yet -- csxrayai:// registration skipped."
+        return
+    }
+    $homeFile = Join-Path $InstallPath "xray-ai-home.txt"
+    $homeOk = $false
+    if (Test-Path -LiteralPath $homeFile) {
+        $existingHome = (Get-Content -LiteralPath $homeFile -TotalCount 1 -ErrorAction SilentlyContinue)
+        if ($existingHome) { $existingHome = $existingHome.Trim() }
+        if ($existingHome -and (Test-Path -LiteralPath (Join-Path $existingHome "start-xray-ai.bat"))) {
+            $homeOk = $true
+        }
+    }
+    if (-not $homeOk) {
+        $found = Find-ExistingAiHome
+        if ($found) {
+            Set-Content -LiteralPath $homeFile -Value $found -Encoding ASCII
+            Write-UpdateLog "Noted existing AI service folder: $found"
+        }
+    }
+    $proc = Start-Process -FilePath $env:ComSpec -ArgumentList @("/c", "call `"$bat`" nopause") -WorkingDirectory $InstallPath -Wait -PassThru -WindowStyle Hidden
+    if ($proc.ExitCode -eq 0) {
+        Write-UpdateLog "Registered csxrayai:// for this Windows account."
+    } else {
+        Write-UpdateLog "csxrayai:// registration exited $($proc.ExitCode). The X-ray bridge was left as it was."
+    }
+}
+
 # ════════════════════════════════════════════════════════════════
 # 1. Build the set of managed files: main launcher + installer (kept in
 #    sync so future restart/registration logic ships too) + this updater
@@ -220,6 +278,13 @@ foreach ($c in $CompanionScripts) {
 # permission is not required. required=$false so a 404 before this file
 # is published does not fail the update cycle.
 $managed.Add([ordered]@{ name = "launch-csxray-protocol.ps1"; required = $false; selfTest = $false })
+# Hosted clinic pages reach the local AI helper through csxrayai://.
+# These three files are the repo-root copies (site root), not tools\.
+# fromRoot falls back to the package folder if the root URL 404s.
+# required=$false so a 404 does not fail the bridge update.
+$managed.Add([ordered]@{ name = "launch-xray-ai-protocol.ps1"; required = $false; selfTest = $false; fromRoot = $true })
+$managed.Add([ordered]@{ name = "launch-xray-ai-protocol.cmd"; required = $false; selfTest = $false; fromRoot = $true })
+$managed.Add([ordered]@{ name = "register-xray-ai-protocol.bat"; required = $false; selfTest = $false; fromRoot = $true })
 
 $tempDir = Join-Path $env:TEMP ("xray-bridge-update-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -227,9 +292,13 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 try {
     $fetchFailed = $false
     foreach ($m in $managed) {
-        $url = "$UpdateBaseUrl/$prefix/$($m.name)"
+        $url = if ($m.fromRoot) { "$UpdateBaseUrl/$($m.name)" } else { "$UpdateBaseUrl/$prefix/$($m.name)" }
         $dest = Join-Path $tempDir $m.name
         $ok = Get-RemoteFile $url $dest
+        if (-not $ok -and $m.fromRoot) {
+            $fallback = "$UpdateBaseUrl/$prefix/$($m.name)"
+            if ($fallback -ne $url) { $ok = Get-RemoteFile $fallback $dest }
+        }
         $m.tempPath = if ($ok) { $dest } else { $null }
         $m.fetched = $ok
         if (-not $ok -and $m.required) { $fetchFailed = $true }
@@ -242,14 +311,24 @@ try {
     }
 
     # ════════════════════════════════════════════════════════════
-    # 2. Parse-check every fetched file BEFORE looking at hashes/self-test --
+    # 2. Parse-check every fetched .ps1 BEFORE looking at hashes/self-test --
     #    a corrupt/half-downloaded file must never be treated as "identical"
-    #    or "different", it must just be rejected outright.
+    #    or "different", it must just be rejected outright. .bat and .cmd
+    #    are not PowerShell; parsing them would abort the whole cycle.
+    #    An optional file that fails to parse is skipped, not fatal.
     # ════════════════════════════════════════════════════════════
     $parseFailed = @()
     foreach ($m in $managed) {
         if (-not $m.fetched) { continue }
-        if (-not (Test-ScriptParses $m.tempPath)) { $parseFailed += $m.name }
+        if ([System.IO.Path]::GetExtension($m.name) -ne ".ps1") { continue }
+        if (-not (Test-ScriptParses $m.tempPath)) {
+            if ($m.required) {
+                $parseFailed += $m.name
+            } else {
+                Write-UpdateLog "Optional file failed to parse, skipping: $($m.name)"
+                $m.fetched = $false
+            }
+        }
     }
     if ($parseFailed.Count -gt 0) {
         Write-UpdateLog "Downloaded file(s) failed to parse, aborting: $($parseFailed -join ', ')"
@@ -277,6 +356,7 @@ try {
 
     if ($changed.Count -eq 0) {
         Write-UpdateLog "Up to date -- no changes found at $UpdateBaseUrl/$prefix/"
+        Register-XrayAiProtocol
         Write-UpdateState "up_to_date" ([ordered]@{
             launcher_hash = (Get-FileSha256 (Join-Path $InstallPath "xray-local-launcher.ps1"))
         })
@@ -311,36 +391,54 @@ try {
         $backups[$m.name] = Backup-InstalledFile $m.installedPath
         Copy-Item -LiteralPath $m.tempPath -Destination $m.installedPath -Force
     }
-    Write-UpdateLog "Applied $($changed.Count) file(s). Restarting bridge..."
+    Write-UpdateLog "Applied $($changed.Count) file(s)."
 
     # ════════════════════════════════════════════════════════════
     # 6. Restart on the new code, then verify it actually came up. If it
     #    didn't, restore backups and restart again on the OLD code so an
     #    unattended cycle can never leave the clinic with a dead bridge.
+    #    AI protocol files are applied above but are not bridge code: if
+    #    they are the only change, the bridge is left running.
     # ════════════════════════════════════════════════════════════
-    $alive = Invoke-BridgeRestart
-    if ($alive) {
-        Write-UpdateLog "Updated successfully -- bridge is responding on port $Port."
+    $aiNames = @(
+        "register-xray-ai-protocol.bat",
+        "launch-xray-ai-protocol.cmd",
+        "launch-xray-ai-protocol.ps1"
+    )
+    $bridgeChanged = @($changed | Where-Object { $aiNames -notcontains $_.name })
+    if ($bridgeChanged.Count -eq 0) {
+        Write-UpdateLog "Only AI protocol files changed. Bridge left running."
         Write-UpdateState "updated" ([ordered]@{
             changed = @($changed | ForEach-Object { [ordered]@{ name = $_.name; before = $_.beforeHash; after = $_.afterHash } })
         })
     } else {
-        Write-UpdateLog "New version did NOT come up after restart -- rolling back to the previous version."
-        foreach ($m in $changed) {
-            $backupPath = $backups[$m.name]
-            if ($backupPath -and (Test-Path -LiteralPath $backupPath)) {
-                Copy-Item -LiteralPath $backupPath -Destination $m.installedPath -Force
+        Write-UpdateLog "Restarting bridge..."
+        $alive = Invoke-BridgeRestart
+        if ($alive) {
+            Write-UpdateLog "Updated successfully -- bridge is responding on port $Port."
+            Write-UpdateState "updated" ([ordered]@{
+                changed = @($changed | ForEach-Object { [ordered]@{ name = $_.name; before = $_.beforeHash; after = $_.afterHash } })
+            })
+        } else {
+            Write-UpdateLog "New version did NOT come up after restart -- rolling back to the previous version."
+            foreach ($m in $changed) {
+                if ($aiNames -contains $m.name) { continue }
+                $backupPath = $backups[$m.name]
+                if ($backupPath -and (Test-Path -LiteralPath $backupPath)) {
+                    Copy-Item -LiteralPath $backupPath -Destination $m.installedPath -Force
+                }
+            }
+            $recovered = Invoke-BridgeRestart
+            if ($recovered) {
+                Write-UpdateLog "Rollback succeeded -- bridge is back on the previous version and responding."
+                Write-UpdateState "rollback_applied" ([ordered]@{ attempted = @($bridgeChanged | ForEach-Object { $_.name }) })
+            } else {
+                Write-UpdateLog "ROLLBACK FAILED -- bridge is not responding even on the previous version. Needs a person to check this PC."
+                Write-UpdateState "rollback_failed_bridge_down" ([ordered]@{ attempted = @($bridgeChanged | ForEach-Object { $_.name }) })
             }
         }
-        $recovered = Invoke-BridgeRestart
-        if ($recovered) {
-            Write-UpdateLog "Rollback succeeded -- bridge is back on the previous version and responding."
-            Write-UpdateState "rollback_applied" ([ordered]@{ attempted = @($changed | ForEach-Object { $_.name }) })
-        } else {
-            Write-UpdateLog "ROLLBACK FAILED -- bridge is not responding even on the previous version. Needs a person to check this PC."
-            Write-UpdateState "rollback_failed_bridge_down" ([ordered]@{ attempted = @($changed | ForEach-Object { $_.name }) })
-        }
     }
+    Register-XrayAiProtocol
 } finally {
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 }

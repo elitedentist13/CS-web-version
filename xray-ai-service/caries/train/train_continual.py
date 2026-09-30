@@ -17,6 +17,7 @@ import os
 import random
 import shutil
 import sys
+import time
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 
@@ -145,10 +146,37 @@ def _map50(metrics):
     return None
 
 
-def _promote(candidate_pt, dest_pt):
-    os.makedirs(os.path.dirname(dest_pt), exist_ok=True)
-    shutil.copy2(candidate_pt, dest_pt)
-    print("PROMOTED candidate -> %s" % dest_pt)
+def _promote(candidate_pt, weights_dir):
+    """
+    Publish a new generation file and point ACTIVE at it.
+
+    The live service keeps the previous checkpoint open. Overwriting that
+    file fails on Windows, so the promoted weights are a new file and the
+    service reloads whatever ACTIVE names.
+    """
+    os.makedirs(weights_dir, exist_ok=True)
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    dest = os.path.join(weights_dir, "gen-%s.pt" % stamp)
+    shutil.copy2(candidate_pt, dest)
+    active = os.path.join(weights_dir, "ACTIVE")
+    tmp = active + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(os.path.basename(dest) + "\n")
+    os.replace(tmp, active)
+    best = os.path.join(weights_dir, "best.pt")
+    try:
+        shutil.copy2(candidate_pt, best)
+    except OSError as exc:
+        print("best.pt left unchanged (%s); live file is %s" % (exc, os.path.basename(dest)))
+    gens = sorted(glob.glob(os.path.join(weights_dir, "gen-*.pt")))
+    for old in gens[:-3]:
+        if os.path.abspath(old) == os.path.abspath(dest):
+            continue
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    print("PROMOTED candidate -> %s" % dest)
 
 
 def main(argv=None):
@@ -190,31 +218,43 @@ def main(argv=None):
 
     runs = os.path.join(here, "runs")
     batch = 1 if n_train < 4 else min(4, n_train)
+    # A fresh run name so ultralytics does not try to resume a crashed
+    # "continual" folder. workers=0 avoids the Windows dataloader spawn
+    # crash that otherwise kills the job before the first epoch.
+    run_name = "continual_" + time.strftime("%Y%m%dT%H%M%S")
     model.train(
         data=yaml_path,
         epochs=max(1, int(args.epochs)),
         imgsz=int(args.imgsz),
         batch=batch,
         device=device,
+        workers=0,
+        amp=(device != "cpu"),
         project=runs,
-        name="continual",
-        exist_ok=True,
+        name=run_name,
+        exist_ok=False,
         plots=False,
         verbose=True,
         patience=max(5, int(args.epochs) // 4),
     )
 
-    cand = os.path.join(runs, "continual", "weights", "best.pt")
+    cand = os.path.join(runs, run_name, "weights", "best.pt")
     if not os.path.isfile(cand):
-        last = os.path.join(runs, "continual", "weights", "last.pt")
+        last = os.path.join(runs, run_name, "weights", "last.pt")
         cand = last if os.path.isfile(last) else ""
     if not cand:
         raise SystemExit("training finished but no best.pt / last.pt was written")
 
-    dest = args.weights if args.weights else os.path.join(
-        os.path.dirname(here), "weights", "best.pt"
+    if args.weights:
+        weights_dir = os.path.dirname(os.path.abspath(args.weights))
+    else:
+        weights_dir = os.path.join(os.path.dirname(here), "weights")
+    incumbent_path = args.weights if args.weights and os.path.isfile(args.weights) else ""
+    incumbent = (
+        incumbent_path
+        if incumbent_path and os.path.abspath(incumbent_path) != os.path.abspath(cand)
+        else ""
     )
-    incumbent = dest if os.path.isfile(dest) and os.path.abspath(dest) != os.path.abspath(cand) else ""
 
     try:
         cand_m = YOLO(cand).val(data=yaml_path, imgsz=int(args.imgsz), device=device, verbose=False)
@@ -231,7 +271,7 @@ def main(argv=None):
     except Exception as exc:
         print("hold-out eval skipped (%s) — promoting the trained weights" % exc)
 
-    _promote(cand, dest)
+    _promote(cand, weights_dir)
     return 0
 
 

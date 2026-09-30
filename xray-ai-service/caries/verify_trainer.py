@@ -56,6 +56,7 @@ def _reset_job():
 tmp = tempfile.mkdtemp(prefix="cs-caries-train-")
 real_script = trainer_jobs._TRAIN_SCRIPT
 real_log = trainer_jobs._LOG_PATH
+real_auto = trainer_jobs._AUTO_STATE_PATH
 real_preflight = trainer_jobs.preflight
 try:
     cfg = _config(tmp)
@@ -93,6 +94,7 @@ try:
         fh.write("import sys\nprint('args:', sys.argv[1:])\nprint('PROMOTED candidate -> weights/best.pt')\n")
     trainer_jobs._TRAIN_SCRIPT = fake
     trainer_jobs._LOG_PATH = os.path.join(tmp, "run.log")
+    trainer_jobs._AUTO_STATE_PATH = os.path.join(tmp, "continual_auto.json")
     trainer_jobs.preflight = lambda c: ([], True)
 
     st = trainer_jobs.start(cfg, epochs=3, replay_frac=0.25)
@@ -143,9 +145,81 @@ try:
     check("limit respected", len(rec) == 2)
     check("newest first", rec[0]["xray_id"] == "x2" and rec[1]["xray_id"] == "x1")
 
+    print("[9] auto-start waits for new labels and a cooldown")
+    fp = trainer_jobs.clinic_fingerprint(cfg.CARIES_CLINIC_DATA_DIR)
+    check("fingerprint sees the confirmed label", bool(fp))
+    start, msg = trainer_jobs.should_autostart("", {}, 1000, 900, True)
+    check("no labels does not start", start is False and "waiting" in msg)
+    start, msg = trainer_jobs.should_autostart(fp, {}, 1000, 900, False)
+    check("switch off does not start", start is False)
+    start, msg = trainer_jobs.should_autostart(fp, {}, 1000, 900, True)
+    check("first new labels start immediately", start is True, msg)
+    start, msg = trainer_jobs.should_autostart(fp, {"fingerprint": fp}, 1000, 900, True)
+    check("same labels stay idle", start is False and "up to date" in msg)
+    start, msg = trainer_jobs.should_autostart(
+        fp + "|extra", {"fingerprint": fp, "finished_at_ts": 1000}, 1100, 900, True
+    )
+    check("cooldown holds a new label", start is False and "next run" in msg)
+    start, msg = trainer_jobs.should_autostart(
+        fp + "|extra", {"fingerprint": fp, "finished_at_ts": 1000}, 2000, 900, True
+    )
+    check("cooldown expiry starts", start is True, msg)
+
+    print("[10] a promoted run reloads once, then does not retrain the same labels")
+    reloads = []
+    trainer_jobs._on_promoted = lambda: reloads.append(1)
+    cfg.ENABLE_CARIES_TRAINING = True
+    cfg.ENABLE_CARIES_AUTOTRAIN = True
+    cfg.CARIES_AUTOTRAIN_EPOCHS = 1
+    cfg.CARIES_AUTOTRAIN_COOLDOWN_SEC = 0
+    cfg.CARIES_AUTOTRAIN_REPLAY = 0
+    # Forget the passes the earlier tests already finished.
+    try:
+        os.remove(trainer_jobs._AUTO_STATE_PATH)
+    except OSError:
+        pass
+    trainer_jobs._auto["accounted"] = None
+    trainer_jobs._auto["needs_reload"] = None
+    trainer_jobs._auto["reloaded_for"] = None
+    trainer_jobs._auto["pending_fingerprint"] = ""
+    _reset_job()
+    with open(fake, "w") as fh:
+        fh.write("print('PROMOTED candidate -> gen.pt')\n")
+    trainer_jobs.service_tick(cfg)
+    st = _wait_done()
+    check("auto tick launched a run", st["outcome"] == "promoted", st.get("message") or "")
+    trainer_jobs.service_tick(cfg)
+    check("promoted model reload ran once", len(reloads) == 1, str(len(reloads)))
+    trainer_jobs.service_tick(cfg)
+    check("second tick does not reload again", len(reloads) == 1)
+    check("same labels are not trained again",
+          "up to date" in (trainer_jobs._auto.get("message") or ""),
+          trainer_jobs._auto.get("message") or "")
+    saved = trainer_jobs._load_auto_state()
+    check("finished labels were remembered", saved.get("fingerprint") == fp)
+
+    print("[11] ACTIVE pointer is what the caries loader reads")
+    from caries.model import CariesModel
+    wdir = os.path.join(tmp, "wptr")
+    os.makedirs(wdir)
+    gen = os.path.join(wdir, "gen-test.pt")
+    with open(gen, "wb") as fh:
+        fh.write(b"not a real checkpoint")
+    with open(os.path.join(wdir, "best.pt"), "wb") as fh:
+        fh.write(b"old")
+    with open(os.path.join(wdir, "ACTIVE"), "w", encoding="utf-8") as fh:
+        fh.write("gen-test.pt\n")
+    loader = CariesModel(wdir, enabled=False)
+    chosen = loader._find_weights()
+    check("loader follows ACTIVE", chosen == gen, chosen or "")
+
     print("\nAll %d checks passed." % PASS)
 finally:
     trainer_jobs._TRAIN_SCRIPT = real_script
     trainer_jobs._LOG_PATH = real_log
+    trainer_jobs._AUTO_STATE_PATH = real_auto
     trainer_jobs.preflight = real_preflight
+    trainer_jobs._on_promoted = None
+    trainer_jobs._auto_config = None
+    trainer_jobs.stop_autotrain()
     shutil.rmtree(tmp, ignore_errors=True)

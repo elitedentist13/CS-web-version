@@ -6516,9 +6516,9 @@
         'media.xrayAi.train.starting': { en: 'Starting…', 'zh-CN': '正在启动…', 'zh-Hant': '正在啟動…' },
         'media.xrayAi.train.running': { en: 'Training in progress… this can take a long time.', 'zh-CN': '训练进行中…… 可能需时较长。', 'zh-Hant': '訓練進行中…… 可能需時較長。' },
         'media.xrayAi.train.promoted': {
-            en: 'New model promoted — restart the AI service to load it.',
-            'zh-CN': '新模型已采用 —— 重启 AI 服务后生效。',
-            'zh-Hant': '新模型已採用 —— 重啟 AI 服務後生效。'
+            en: 'New model promoted — it is already loaded for the next analysis.',
+            'zh-CN': '新模型已采用 —— 下一次分析即会使用。',
+            'zh-Hant': '新模型已採用 —— 下一次分析即會使用。'
         },
         'media.xrayAi.train.rejected': {
             en: 'Candidate regressed on the reference set — the current model was kept.',
@@ -6588,6 +6588,26 @@
             en: 'Analyzing… (first run may take up to 60s on CPU)',
             'zh-CN': '分析中…（CPU 首次分析最多约 60 秒）',
             'zh-Hant': '分析中…（CPU 首次分析最多約 60 秒）'
+        },
+        'media.xrayAi.protocolWorking': {
+            en: 'Sending this X-ray to the AI service on this PC…',
+            'zh-CN': '正在把这张 X 光交给本机 AI 服务…',
+            'zh-Hant': '正在把這張 X 光交給本機 AI 服務…'
+        },
+        'media.xrayAi.protocolStarted': {
+            en: 'Asked this PC to start the AI service. Press Analyze when you are ready.',
+            'zh-CN': '已要求本机启动 AI 服务。准备好后按分析。',
+            'zh-Hant': '已要求本機啟動 AI 服務。準備好後按分析。'
+        },
+        'media.xrayAi.protocolTimeout': {
+            en: 'This PC did not finish the analysis. Run register-xray-ai-protocol.bat once, keep start-xray-ai.bat running, and allow the csxrayai link when Windows asks.',
+            'zh-CN': '本机没有完成分析。请先运行一次 register-xray-ai-protocol.bat，保持 start-xray-ai.bat 运行，并在 Windows 询问时允许 csxrayai 链接。',
+            'zh-Hant': '本機沒有完成分析。請先執行一次 register-xray-ai-protocol.bat，保持 start-xray-ai.bat 執行，並在 Windows 詢問時允許 csxrayai 連結。'
+        },
+        'media.xrayAi.protocolFailed': {
+            en: 'Local AI protocol failed ({MSG}). Run register-xray-ai-protocol.bat once on this PC, and run xray_ai_jobs.sql in Supabase if you have not.',
+            'zh-CN': '本机 AI 协议失败（{MSG}）。请在这台电脑运行一次 register-xray-ai-protocol.bat；若尚未执行，请在 Supabase 运行 xray_ai_jobs.sql。',
+            'zh-Hant': '本機 AI 協議失敗（{MSG}）。請在這台電腦執行一次 register-xray-ai-protocol.bat；若尚未執行，請在 Supabase 執行 xray_ai_jobs.sql。'
         },
         'media.xrayAi.fallbackClient': {
             en: 'Server unavailable — using browser analysis…',

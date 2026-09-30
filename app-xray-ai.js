@@ -2528,6 +2528,20 @@
         }
         setBusy(true);
         xrayAiSetStatus(xrayAiTr('media.xrayAi.serverStarting'), 'work');
+        if (!xrayAiPageIsLocalServer()) {
+            try {
+                var startHref = XRAY_AI_CONFIG.startProtocol || 'csxrayai://start';
+                var startLink = document.createElement('a');
+                startLink.href = startHref;
+                startLink.style.display = 'none';
+                document.body.appendChild(startLink);
+                startLink.click();
+                startLink.remove();
+            } catch (e) {}
+            xrayAiSetStatus(xrayAiTr('media.xrayAi.protocolStarted'), 'ok');
+            setBusy(false);
+            return;
+        }
         xrayAiCheckApiHealth().then(function (alreadyUp) {
             if (alreadyUp) {
                 xrayAiSetStatus(xrayAiTr('media.xrayAi.serverAlreadyUp'), 'ok');
@@ -2568,8 +2582,168 @@
         });
     }
 
+    /**
+     * True only when this page itself was opened from the local live server.
+     * Anywhere else (hosted site, file://, another PC's address) the browser
+     * blocks calls to 127.0.0.1, so those calls go through csxrayai:// instead.
+     */
+    function xrayAiPageIsLocalServer() {
+        var host = '';
+        try { host = String(window.location.hostname || '').toLowerCase(); } catch (e) {}
+        return host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
+    }
+
+    function xrayAiIsLocalApiUrl(url) {
+        return String(url || '').indexOf(XRAY_AI_CONFIG.apiUrl) === 0;
+    }
+
+    function xrayAiUuid() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+            return window.crypto.randomUUID();
+        }
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var r = Math.random() * 16 | 0;
+            var v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
+    function xrayAiOpenJobProtocol(jobId) {
+        var href = 'csxrayai://job?id=' + encodeURIComponent(jobId);
+        var link = document.createElement('a');
+        link.href = href;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }
+
+    function xrayAiUploadInboxBlob(blob) {
+        return new Promise(function (resolve, reject) {
+            if (typeof SB === 'undefined' || !SB.storage) {
+                reject(new Error('supabase'));
+                return;
+            }
+            var path = 'ai-inbox/' + xrayAiUuid() + '.jpg';
+            SB.storage.from('xrays').upload(path, blob, {
+                cacheControl: '3600',
+                upsert: false,
+                contentType: 'image/jpeg'
+            }).then(function (up) {
+                if (up && up.error) {
+                    reject(new Error(up.error.message || 'upload'));
+                    return;
+                }
+                var url = (typeof xrayGetPublicUrlForPath === 'function')
+                    ? xrayGetPublicUrlForPath(path) : '';
+                if (!url) reject(new Error('upload'));
+                else resolve(url);
+            }, function (e) {
+                reject(e || new Error('upload'));
+            });
+        });
+    }
+
+    function xrayAiJobImageUrl(body) {
+        var fields = {};
+        var blob = null;
+        if (body && typeof FormData !== 'undefined' && body instanceof FormData && body.entries) {
+            var step = body.entries();
+            var item = step.next();
+            while (!item.done) {
+                var key = item.value[0];
+                var val = item.value[1];
+                if (val && typeof val === 'object' && typeof val.size === 'number') blob = val;
+                else fields[key] = String(val);
+                item = step.next();
+            }
+        }
+        if (!blob) return Promise.resolve({ fields: fields, image_url: null });
+        var bare = '';
+        try { bare = xrayAiBareImageUrl(xrayAiG('xrayLbImg')); } catch (e) {}
+        if (/^https?:\/\//i.test(bare)) {
+            return Promise.resolve({ fields: fields, image_url: bare });
+        }
+        return xrayAiUploadInboxBlob(blob).then(function (url) {
+            return { fields: fields, image_url: url };
+        });
+    }
+
+    function xrayAiPollJob(jobId, ms) {
+        var deadline = Date.now() + (ms || 180000);
+        function once() {
+            return SB.from('xray_ai_jobs').select('status,result,error').eq('id', jobId).maybeSingle()
+                .then(function (res) {
+                    if (res && res.error) throw new Error(res.error.message || 'job');
+                    var row = res && res.data;
+                    if (row && (row.status === 'done' || row.status === 'error')) return row;
+                    if (Date.now() > deadline) throw new Error('timeout');
+                    return new Promise(function (resolve) {
+                        setTimeout(function () { resolve(once()); }, 1200);
+                    });
+                });
+        }
+        return once();
+    }
+
+    function xrayAiProtocolResultBody(result) {
+        result = result || {};
+        if (result.body && typeof result.body === 'object') return result.body;
+        if (typeof result.body_json === 'string' && result.body_json) {
+            try { return JSON.parse(result.body_json); } catch (e) { return {}; }
+        }
+        return {};
+    }
+
+    /**
+     * Hosted / file pages cannot fetch the local AI port. Hand the request
+     * to the csxrayai:// handler on this PC and wait for the job row.
+     */
+    function xrayAiProtocolFetch(url, options, ms) {
+        if (typeof SB === 'undefined' || !SB.from) {
+            return Promise.reject(new Error('supabase'));
+        }
+        var path = String(url || '').slice(XRAY_AI_CONFIG.apiUrl.length) || '/';
+        var opts = options || {};
+        var method = String(opts.method || 'GET').toUpperCase();
+        return xrayAiJobImageUrl(opts.body).then(function (extra) {
+            var jobId = xrayAiUuid();
+            return SB.from('xray_ai_jobs').insert([{
+                id: jobId,
+                kind: extra.image_url ? 'file' : 'http',
+                status: 'pending',
+                image_url: extra.image_url || null,
+                payload: { method: method, path: path, fields: extra.fields || {} }
+            }]).then(function (ins) {
+                if (ins && ins.error) throw new Error(ins.error.message || 'job');
+                xrayAiOpenJobProtocol(jobId);
+                return xrayAiPollJob(jobId, ms);
+            });
+        }).then(function (row) {
+            if (!row || row.status === 'error') {
+                throw new Error((row && row.error) || 'protocol');
+            }
+            var result = row.result || {};
+            var status = result.http_status || 200;
+            var body = xrayAiProtocolResultBody(result);
+            return {
+                ok: status >= 200 && status < 300,
+                status: status,
+                json: function () { return Promise.resolve(body); }
+            };
+        });
+    }
+
     function xrayAiFetchWithTimeout(url, options, ms) {
         ms = ms || 90000;
+        if (!xrayAiPageIsLocalServer() && xrayAiIsLocalApiUrl(url)) {
+            var pathOnly = String(url).slice(XRAY_AI_CONFIG.apiUrl.length);
+            // A 5s /health probe must not pop the protocol dialog.
+            if (pathOnly.indexOf('/health') === 0 && ms <= 8000) {
+                return Promise.reject(new Error('local-protocol'));
+            }
+            return xrayAiProtocolFetch(url, options, ms);
+        }
         return new Promise(function (resolve, reject) {
             var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
             var timer = setTimeout(function () {
@@ -2588,7 +2762,7 @@
         });
     }
 
-    function xrayAiAnalyzeApi(blob) {
+    function xrayAiAnalyzeApi(blob, viaProtocol) {
         // Tell the service which of its two models to use. This is a hint,
         // not a guarantee — an unlabeled or CBCT/other image sends no
         // modality field at all, so the service falls back to its own
@@ -2596,7 +2770,8 @@
         var modalityHint = xrayAiCurrentXrayModality();
         var fallbackModel = (modalityHint === 'pabw' ? PABW_MODEL_VERSION :
             (modalityHint === 'panoramic' ? PANO_MODEL_VERSION : MODEL_VERSION)) + '-api';
-        return xrayAiFetchWithTimeout(XRAY_AI_CONFIG.apiUrl + '/analyze', {
+        var analyzeUrl = XRAY_AI_CONFIG.apiUrl + '/analyze';
+        var analyzeOpts = {
             method: 'POST',
             body: (function () {
                 var fd = new FormData();
@@ -2605,7 +2780,11 @@
                 return fd;
             })(),
             mode: 'cors'
-        }, 120000).then(function (r) {
+        };
+        var analyzeCall = viaProtocol
+            ? xrayAiProtocolFetch(analyzeUrl, analyzeOpts, 120000)
+            : xrayAiFetchWithTimeout(analyzeUrl, analyzeOpts, 120000);
+        return analyzeCall.then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         }).then(function (data) {
@@ -2773,7 +2952,7 @@
                 return r.json();
             })
             .then(function (data) {
-                xrayAiRenderTrainStats(data.stats || {}, which);
+                xrayAiRenderTrainStats(data.stats || {}, which, data.auto || null);
                 xrayAiRenderTrainPreflight(data.preflight || [], !!data.ready_to_train, data.training_enabled !== false, which);
                 xrayAiRenderTrainVerdicts(data.recent || [], which);
                 return xrayAiFetchTrainStatus(which);
@@ -2783,14 +2962,16 @@
             });
     }
 
-    function xrayAiRenderTrainStats(s, which) {
+    function xrayAiRenderTrainStats(s, which, auto) {
         var ids = xrayAiTrainIds(which || xrayAiActiveTrainTab);
         if (!ids.stats) return;
-        ids.stats.textContent = xrayAiTr('media.xrayAi.train.stats', {
+        var line = xrayAiTr('media.xrayAi.train.stats', {
             CONFIRM: s.confirm || 0,
             REJECT: s.reject || 0,
             IMAGES: s.images || 0
         });
+        if (auto && auto.message) line += ' · ' + auto.message;
+        ids.stats.textContent = line;
     }
 
     function xrayAiRenderTrainPreflight(checks, ready, trainingEnabled, which) {
@@ -2867,6 +3048,9 @@
                 text = xrayAiTr('media.xrayAi.train.failed');
             } else if (st.message) {
                 text = st.message;
+            }
+            if (!running && st.auto && st.auto.message) {
+                text = text ? (text + ' · ' + st.auto.message) : st.auto.message;
             }
             ids.stateEl.textContent = text;
             ids.stateEl.className = 'xray-ai-train-state' +
@@ -3073,13 +3257,48 @@
 
             if (!XRAY_AI_CONFIG.preferApi) { runClient(); return; }
 
+            function reportProtocolError(err) {
+                console.warn('[xray-ai] protocol failed', err);
+                var pmsg = (err && err.message) || '';
+                if (pmsg === 'image_not_ready') {
+                    xrayAiSetStatus(xrayAiTr('media.xrayAi.imageNotReady'), 'bad');
+                } else if (pmsg === 'image_missing') {
+                    xrayAiSetStatus(xrayAiTr('media.xrayAi.imageMissing'), 'bad');
+                } else if (pmsg === 'timeout') {
+                    xrayAiSetStatus(xrayAiTr('media.xrayAi.protocolTimeout'), 'bad');
+                } else {
+                    xrayAiSetStatus(xrayAiTr('media.xrayAi.protocolFailed', { MSG: pmsg || 'error' }), 'bad');
+                }
+                finish();
+            }
+
+            function runProtocol() {
+                xrayAiSetStatus(xrayAiTr('media.xrayAi.protocolWorking'), 'work');
+                xrayAiFetchBlobFromImg(img).then(function (blob) {
+                    return xrayAiAnalyzeApi(blob, true);
+                }).then(function (res) {
+                    applySafe(res, 'api');
+                }).catch(reportProtocolError);
+            }
+
+            // GitHub / any non-loopback page cannot call 127.0.0.1.
+            // Analyze goes through csxrayai:// on this PC.
+            if (!xrayAiPageIsLocalServer()) {
+                runProtocol();
+                return;
+            }
+
+            // The Banana live server page (127.0.0.1:5500 or :8123) keeps
+            // the direct service call, and the in-browser helper if it is down.
             xrayAiCheckApiHealth().then(function (ok) {
                 if (!ok) {
                     xrayAiStartServer();
                     runClient('api_down');
                     return;
                 }
-                xrayAiFetchBlobFromImg(img).then(xrayAiAnalyzeApi).then(function (res) {
+                xrayAiFetchBlobFromImg(img).then(function (blob) {
+                    return xrayAiAnalyzeApi(blob, false);
+                }).then(function (res) {
                     applySafe(res, 'api');
                 }).catch(function (err) {
                     console.warn('[xray-ai] api failed', err);

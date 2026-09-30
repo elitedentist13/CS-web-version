@@ -12592,6 +12592,18 @@ body.xray-lb-maximized .active-patient-dock {
     min-height: min-content;
 }
 
+/* Whole film is smaller than the viewport: center it. Used after a
+   panoramic maximize contain-fit (and any other fit that does not overflow). */
+#xrayLbScrollHost.xray-lb-scroll-host-fit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#xrayLbScrollHost.xray-lb-scroll-host-fit > .xray-lb-scroll-inner {
+    flex: 0 0 auto;
+    margin: auto;
+}
+
 /* Transform target ? img + canvas scale/rotate together (scroll host handles pan) */
 #lbMediaWrap {
     position: relative;

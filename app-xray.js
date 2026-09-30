@@ -845,6 +845,24 @@ function lbResetLightboxChrome() {
     lbSyncLightboxChrome();
 }
 
+function lbOpenFilmIsPanoramic() {
+    var type = '';
+    var i;
+    if (lbCurrentId && typeof xrayFiltered !== 'undefined' && xrayFiltered) {
+        for (i = 0; i < xrayFiltered.length; i++) {
+            if (xrayFiltered[i] && xrayFiltered[i].id === lbCurrentId) {
+                type = xrayFiltered[i].xray_type || '';
+                break;
+            }
+        }
+    }
+    if (!type) {
+        var typeEl = g('lbType');
+        if (typeEl) type = typeEl.value || '';
+    }
+    return String(type).toLowerCase() === 'panoramic';
+}
+
 function lbFitToScrollHost() {
     if (!lbLayoutBaseW || !lbLayoutBaseH) return;
     var host = g('xrayLbScrollHost');
@@ -862,10 +880,12 @@ function lbFitToScrollHost() {
     if (!d.bw || !d.bh) return;
     var fitW = vpW / d.bw;
     var fitH = vpH / d.bh;
-    // When maximized, magnify to fill the display width as much as allowed
-    // (vertical overflow is handled by the scroll viewport). Otherwise fit
-    // the whole image within the viewport.
-    var fit = lbChromeMaximized ? fitW : Math.min(fitW, fitH);
+    // A maximized panoramic is much wider than the panel is tall. Filling
+    // the width alone leaves the arch past the top and bottom. Contain-fit
+    // keeps the whole film inside the display area. Other films still fill
+    // the width when maximized; the normal (restored) panel always contains.
+    var contain = !lbChromeMaximized || lbOpenFilmIsPanoramic();
+    var fit = contain ? Math.min(fitW, fitH) : fitW;
     if (!isFinite(fit) || fit <= 0) return;
 
     lbTransform.scale = Math.max(0.12, Math.min(14, fit));
@@ -1033,13 +1053,37 @@ function lbSyncLightboxScrollShell() {
     wrap.style.height = lbLayoutBaseH + 'px';
 
     var d = lbScrollOuterDims();
-    inner.style.width  = d.bw + 'px';
+    // Size the scroll box to the painted film, and center the unscaled
+    // layout box inside it. A scale below 1 used to leave the panoramic
+    // in the middle of a much larger layout box, so maximize showed empty
+    // margin while the film sat off the panel.
+    inner.style.position = 'relative';
+    inner.style.overflow = 'hidden';
+    inner.style.boxSizing = 'content-box';
+    inner.style.flex = '0 0 auto';
+    inner.style.maxWidth = 'none';
+    inner.style.maxHeight = 'none';
+    inner.style.width = d.bw + 'px';
     inner.style.height = d.bh + 'px';
+    // Keep the scroll box at the painted size. A min of 0 let a wide
+    // panoramic shrink to the panel and clip both ends of the arch.
+    inner.style.minWidth = d.bw + 'px';
+    inner.style.minHeight = d.bh + 'px';
 
+    wrap.style.position = 'absolute';
+    wrap.style.left = '50%';
+    wrap.style.top = '50%';
     wrap.style.transform =
+        'translate(-50%, -50%) ' +
         'scale(' + (t.scale * (t.flipH ? -1 : 1)) + ',' +
                    (t.scale * (t.flipV ? -1 : 1)) + ') ' +
         'rotate(' + t.rotate + 'deg)';
+
+    var host = g('xrayLbScrollHost');
+    if (host) {
+        var contained = d.bw <= host.clientWidth + 1 && d.bh <= host.clientHeight + 1;
+        host.classList.toggle('xray-lb-scroll-host-fit', contained);
+    }
     lbUpdateScrollHostCursor();
 }
 

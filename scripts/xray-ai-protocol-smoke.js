@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20260930xraybone1';
+var BUILD = '20261001panofit1';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -236,6 +236,10 @@ function classifyHost(src, host) {
     pass('xray software opens through csxray://',
         xraySrc.indexOf("csxray://open/") >= 0 &&
         xraySrc.indexOf('if (sys.launcherKey)') >= 0);
+    pass('maximized panoramic fits inside the panel',
+        xraySrc.indexOf('function lbOpenFilmIsPanoramic()') >= 0 &&
+        xraySrc.indexOf('!lbChromeMaximized || lbOpenFilmIsPanoramic()') >= 0 &&
+        xraySrc.indexOf("classList.toggle('xray-lb-scroll-host-fit'") >= 0);
     pass('github page does not fetch local film strips',
         nntSrc.indexOf('function clinicPageIsLocalServer()') >= 0 &&
         nntSrc.indexOf('!clinicPageIsLocalServer()') >= 0);

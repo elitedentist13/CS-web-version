@@ -156,7 +156,12 @@ function Invoke-LocalApi($Job) {
     $curlArgs += $url
     $raw = & $curl @curlArgs
     if ($tmp) { Remove-Item -Force $tmp -ErrorAction SilentlyContinue }
-    $text = [string]$raw
+    # A native program's stdout arrives as one string per line. Casting that
+    # array to [string] joins with spaces and glues the HTTP status onto the
+    # JSON, which the page then cannot read (findings look empty).
+    if ($null -eq $raw) { $text = "" }
+    elseif ($raw -is [System.Array]) { $text = ($raw -join "`n") }
+    else { $text = [string]$raw }
     $idx = $text.LastIndexOf("`n")
     $code = 0
     $doc = $text

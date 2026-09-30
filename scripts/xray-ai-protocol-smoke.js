@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20260930xraygithub1';
+var BUILD = '20260930xrayhints1';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -217,6 +217,8 @@ function classifyHost(src, host) {
     pass('hosted analyze does not fall back to browser heuristic',
         aiSrc.indexOf("xrayAiTr('media.xrayAi.protocolWorking')") >= 0 &&
         aiSrc.indexOf('if (!xrayAiPageIsLocalServer())') >= 0);
+    pass('github page keeps the training button',
+        aiSrc.indexOf('if (!xrayAiPageIsLocalServer()) trainBtn.hidden = false;') >= 0);
     pass('5500 page still uses the direct AI service',
         aiSrc.indexOf("runClient('api_down')") >= 0 &&
         aiSrc.indexOf('xrayAiCheckApiHealth()') >= 0);
@@ -265,6 +267,15 @@ function classifyHost(src, host) {
     pass('protocol click target',
         hrefBox.href === 'csxrayai://job?id=11111111-1111-4111-8111-111111111111',
         hrefBox.href || '(empty)');
+
+    var parseFn = extractFn(aiSrc, 'xrayAiParseJsonDocument');
+    var parseCtx = { JSON: JSON, result: null };
+    vm.createContext(parseCtx);
+    vm.runInContext(parseFn + '\nresult = xrayAiParseJsonDocument(\'{"findings":[{"type":"caries_enamel"}],"model":"m"} 200\');', parseCtx);
+    var parsed = parseCtx.result || {};
+    pass('protocol body keeps findings when a status code is stuck on the end',
+        parsed && parsed.findings && parsed.findings.length === 1 && parsed.findings[0].type === 'caries_enamel',
+        parsed && parsed.findings ? String(parsed.findings.length) : 'none');
 
     var filmFn = extractFn(nntSrc, 'clinicPageIsLocalServer');
     [['127.0.0.1', true], ['localhost', true], ['elitedentist13.github.io', false], ['xray-ai.test', false]].forEach(function (row) {
@@ -438,6 +449,61 @@ function classifyHost(src, host) {
             live && live.href === 'csxrayai://job?id=22222222-2222-4222-8222-222222222222',
             live && live.href);
 
+        var train = await cdp.js(`(async () => {
+          const deadline = Date.now() + 20000;
+          while (Date.now() < deadline) {
+            if (typeof xrayAiOnLightboxOpen === 'function' && typeof xrayAiOpenTrainingReview === 'function' && typeof xrayAiCloseTrainingReview === 'function' && typeof xrayAiSwitchTrainTab === 'function') break;
+            await new Promise(function (r) { setTimeout(r, 200); });
+          }
+          const btn = document.getElementById('xrayAiTrainOpenBtn');
+          const modal = document.getElementById('xrayAiTrainModal');
+          const panel = document.getElementById('xrayAiPanel');
+          if (!btn || !modal || !panel) {
+            return { ready: false, hasBtn: !!btn, hasModal: !!modal, hasPanel: !!panel };
+          }
+          const orig = document.createElement.bind(document);
+          document.createElement = function (tag) {
+            const el = orig(tag);
+            if (String(tag).toLowerCase() === 'a') el.click = function () {};
+            return el;
+          };
+          xrayAiOnLightboxOpen('smoke-xray');
+          const shown = btn.hidden === false;
+          const label = (btn.getAttribute('data-i18n') || '') + '|' + (btn.textContent || '').trim();
+          xrayAiOpenTrainingReview();
+          const opened = modal.hidden === false;
+          const panoTab = document.getElementById('xrayAiTrainTabPano');
+          const pabwTab = document.getElementById('xrayAiTrainTabPabw');
+          const panoPane = document.getElementById('xrayAiTrainPanePano');
+          const pabwPane = document.getElementById('xrayAiTrainPanePabw');
+          const runPano = document.getElementById('xrayAiTrainRunBtn');
+          const runPabw = document.getElementById('xrayAiTrainRunBtnPabw');
+          xrayAiSwitchTrainTab('pabw');
+          const pabwOn = pabwPane && pabwPane.hidden === false && panoPane && panoPane.hidden === true;
+          xrayAiSwitchTrainTab('pano');
+          const panoOn = panoPane && panoPane.hidden === false && pabwPane && pabwPane.hidden === true;
+          xrayAiCloseTrainingReview();
+          document.createElement = orig;
+          return {
+            ready: true,
+            shown: shown,
+            label: label,
+            opened: opened,
+            closed: modal.hidden === true,
+            tabs: !!(panoTab && pabwTab && runPano && runPabw),
+            pabwOn: pabwOn,
+            panoOn: panoOn
+          };
+        })()`, true, 30000);
+        pass('live page training button is on the GitHub-style page',
+            train && train.ready && train.shown === true, train ? JSON.stringify(train) : 'none');
+        pass('live page training panel opens',
+            train && train.opened === true && train.tabs === true, train ? ('opened=' + train.opened) : 'none');
+        pass('live page training panel switches panoramic and bitewing',
+            train && train.pabwOn === true && train.panoOn === true, train ? ('pabw=' + train.pabwOn + ' pano=' + train.panoOn) : 'none');
+        pass('live page training panel closes',
+            train && train.closed === true, train ? ('closed=' + train.closed) : 'none');
+
         await cdp.call('Page.navigate', { url: 'http://127.0.0.1:' + PAGE_PORT + '/index.html?_lr=' + BUILD });
         await sleep(600);
         var loop = await cdp.js(`(async () => {
@@ -451,11 +517,27 @@ function classifyHost(src, host) {
             else if (src[j] === '}') { depth--; if (depth === 0) { end = j + 1; break; } }
           }
           eval(src.slice(start, end));
-          return { host: location.hostname, port: location.port, local: xrayAiPageIsLocalServer() };
-        })()`, true, 20000);
+          const deadline = Date.now() + 20000;
+          while (Date.now() < deadline && typeof xrayAiOnLightboxOpen !== 'function') {
+            await new Promise(function (r) { setTimeout(r, 200); });
+          }
+          const btn = document.getElementById('xrayAiTrainOpenBtn');
+          const before = btn ? btn.hidden : null;
+          if (typeof xrayAiOnLightboxOpen === 'function') xrayAiOnLightboxOpen('smoke-xray');
+          return {
+            host: location.hostname,
+            port: location.port,
+            local: xrayAiPageIsLocalServer(),
+            trainHidden: btn ? btn.hidden : null,
+            trainWasHidden: before
+          };
+        })()`, true, 30000);
         pass('same files on 127.0.0.1 still count as the local page',
             loop && loop.local === true && loop.host === '127.0.0.1' && String(loop.port) !== String(BANANA_LIVE_PORT),
             loop ? (loop.host + ':' + loop.port + ' local=' + loop.local) : 'none');
+        pass('5500-style page keeps the training button until the service health check',
+            loop && loop.trainWasHidden === true && loop.trainHidden === true,
+            loop ? ('before=' + loop.trainWasHidden + ' after=' + loop.trainHidden) : 'none');
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));
     } finally {

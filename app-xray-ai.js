@@ -2112,7 +2112,13 @@
         // service is up and accepting feedback for at least one of the two
         // models (panoramic or PA/bitewing train independently).
         var trainBtn = xrayAiG('xrayAiTrainOpenBtn');
-        if (trainBtn) trainBtn.hidden = !(xrayAiState.feedbackEnabled || xrayAiState.pabwFeedbackEnabled);
+        if (trainBtn) {
+            // The Banana page shows training only after /health says it is on.
+            // The GitHub page does not call 127.0.0.1 for that probe, so the
+            // same button stays available and its requests use the protocol.
+            if (!xrayAiPageIsLocalServer()) trainBtn.hidden = false;
+            else trainBtn.hidden = !(xrayAiState.feedbackEnabled || xrayAiState.pabwFeedbackEnabled);
+        }
         xrayAiUpdateLegend();
         xrayAiUpdateAnatomyLegend();
         xrayAiUpdateSummaryRow();
@@ -2222,7 +2228,8 @@
 
     /** Confirm/reject controls, or a "recorded" note once a verdict was sent. */
     function xrayAiFeedbackHtml(idx, f) {
-        if (!xrayAiIsCaries(f) || xrayAiState.lastSource !== 'api' || !xrayAiState.feedbackEnabled) {
+        var trainingReady = xrayAiState.feedbackEnabled || !xrayAiPageIsLocalServer();
+        if (!xrayAiIsCaries(f) || xrayAiState.lastSource !== 'api' || !trainingReady) {
             return '';
         }
         var given = xrayAiState.feedback[idx];
@@ -2686,11 +2693,26 @@
         return once();
     }
 
+    function xrayAiParseJsonDocument(raw) {
+        if (raw && typeof raw === 'object') return raw;
+        var text = String(raw || '').trim();
+        if (!text) return {};
+        try { return JSON.parse(text); } catch (e) {}
+        // A status code stuck on the end of the document must not wipe findings.
+        var close = String.fromCharCode(125);
+        var end = text.length - 1;
+        while (end >= 0 && text.charAt(end) !== close) end -= 1;
+        if (end > 0) {
+            try { return JSON.parse(text.slice(0, end + 1)); } catch (e2) {}
+        }
+        return {};
+    }
+
     function xrayAiProtocolResultBody(result) {
         result = result || {};
         if (result.body && typeof result.body === 'object') return result.body;
         if (typeof result.body_json === 'string' && result.body_json) {
-            try { return JSON.parse(result.body_json); } catch (e) { return {}; }
+            return xrayAiParseJsonDocument(result.body_json);
         }
         return {};
     }
@@ -2818,7 +2840,7 @@
         // model actually produced this run's findings.
         var mod = xrayAiState.modality || xrayAiCurrentXrayModality();
         var isPabw = (mod === 'pabw' || mod === 'periapical' || mod === 'bitewing');
-        if (isPabw ? !xrayAiState.pabwFeedbackEnabled : !xrayAiState.feedbackEnabled) return;
+        if (xrayAiPageIsLocalServer() && (isPabw ? !xrayAiState.pabwFeedbackEnabled : !xrayAiState.feedbackEnabled)) return;
         if (xrayAiState.feedback[idx]) return;
         var img = xrayAiG('xrayLbImg');
         if (!img) return;
@@ -3273,6 +3295,10 @@
             }
 
             function runProtocol() {
+                // Training stays available through the same gateway. The live
+                // server page still learns this from /health.
+                xrayAiState.feedbackEnabled = true;
+                xrayAiState.pabwFeedbackEnabled = true;
                 xrayAiSetStatus(xrayAiTr('media.xrayAi.protocolWorking'), 'work');
                 xrayAiFetchBlobFromImg(img).then(function (blob) {
                     return xrayAiAnalyzeApi(blob, true);
@@ -3339,6 +3365,10 @@
             if (el) el.style.display = hide ? 'none' : '';
         });
         setTimeout(xrayAiSyncCanvasSize, 50);
+        if (!xrayAiPageIsLocalServer()) {
+            var trainBtn = xrayAiG('xrayAiTrainOpenBtn');
+            if (trainBtn) trainBtn.hidden = false;
+        }
     }
 
     function xrayAiOnLightboxClose() {

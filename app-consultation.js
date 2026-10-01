@@ -408,6 +408,7 @@ function initConsultation() {
     }
     if (typeof applyAddMedicalTermProgramUi === 'function') applyAddMedicalTermProgramUi();
     if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
+    if (typeof conHistBindDirtyOnce === 'function') conHistBindDirtyOnce();
 }
 
 function setConBillBtn(enabled) {
@@ -789,6 +790,16 @@ function switchConTab(tab) {
         _conFormsCheckUnsavedThen(function() { switchConTab(tab); });
         return;
     }
+    var leavingMed = document.querySelector('.con-tab[data-tab="medhistory"].active');
+    var leavingDen = document.querySelector('.con-tab[data-tab="denhistory"].active');
+    if (leavingMed && tab !== 'medhistory' && conHistDirty && conHistDirty.med) {
+        conHistCheckUnsavedThen('med', function () { switchConTab(tab); });
+        return;
+    }
+    if (leavingDen && tab !== 'denhistory' && conHistDirty && conHistDirty.den) {
+        conHistCheckUnsavedThen('den', function () { switchConTab(tab); });
+        return;
+    }
 
     document.querySelectorAll('.con-tab').forEach(function(b) {
         b.classList.toggle('active', b.dataset.tab === tab);
@@ -832,6 +843,18 @@ function switchConTab(tab) {
 
     if (tab === 'forms') {
         initConForms();
+    }
+
+    if (tab === 'treatment' && typeof refreshConMhReviewChip === 'function') {
+        refreshConMhReviewChip();
+    }
+
+    if (tab === 'medhistory' || tab === 'denhistory') {
+        if (typeof conHistApplySharedPatient === 'function') conHistApplySharedPatient();
+        if (conPatientId) {
+            if (tab === 'medhistory' && typeof loadMedicalHistory === 'function') loadMedicalHistory();
+            if (tab === 'denhistory' && typeof loadDentalHistory === 'function') loadDentalHistory();
+        }
     }
 }
 
@@ -1004,42 +1027,6 @@ function selectConPatient(p) {
     var layout = g('conMainLayout');
     if (layout) layout.style.display = 'grid';
 
-    var medInput = g('conPsInputMed');
-    if (medInput && document.activeElement !== medInput) {
-        medInput.value = (typeof patientSearchInputDisplayValue === 'function')
-            ? patientSearchInputDisplayValue(p)
-            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
-        medInput.dataset.psLockedPatientId = String(p.id || '');
-    }
-    var medDrop = g('conPsDropMed');
-    if (medDrop) medDrop.style.display = 'none';
-
-    var medBanner = g('conMedBanner');
-    if (medBanner) medBanner.style.display = 'flex';
-
-    if (g('conMedBannerName'))
-        g('conMedBannerName').textContent = p.full_name;
-    if (g('conMedBannerNo'))
-        g('conMedBannerNo').textContent = p.patient_no || '-';
-    if (g('conMedBannerDob'))
-        g('conMedBannerDob').textContent =
-            p.dob ? formatDobAge(p.dob) : '-';
-    setConBannerAlert('conMedBannerAlert', p);
-    if (g('conMedFormPatientName')) {
-        g('conMedFormPatientName').textContent =
-            p.full_name + '  (#' + (p.patient_no || '-') + ')';
-    }
-
-    var denInput = g('conPsInputDen');
-    if (denInput && document.activeElement !== denInput) {
-        denInput.value = (typeof patientSearchInputDisplayValue === 'function')
-            ? patientSearchInputDisplayValue(p)
-            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
-        denInput.dataset.psLockedPatientId = String(p.id || '');
-    }
-    var denDrop = g('conPsDropDen');
-    if (denDrop) denDrop.style.display = 'none';
-
     var chartInput = g('conPsInputChart');
     if (chartInput && document.activeElement !== chartInput) {
         chartInput.value = (typeof patientSearchInputDisplayValue === 'function')
@@ -1070,21 +1057,9 @@ function selectConPatient(p) {
     var formsDrop = g('conFormsPsDrop');
     if (formsDrop) formsDrop.style.display = 'none';
 
-    var denBanner = g('conDenBanner');
-    if (denBanner) denBanner.style.display = 'flex';
-
-    if (g('conDenBannerName'))
-        g('conDenBannerName').textContent = p.full_name;
-    if (g('conDenBannerNo'))
-        g('conDenBannerNo').textContent = p.patient_no || '-';
-    if (g('conDenBannerDob'))
-        g('conDenBannerDob').textContent =
-            p.dob ? formatDobAge(p.dob) : '-';
-    setConBannerAlert('conDenBannerAlert', p);
-    if (g('conDenFormPatientName')) {
-        g('conDenFormPatientName').textContent =
-            p.full_name + '  (#' + (p.patient_no || '-') + ')';
-    }
+    fillConHistoryBanner('med', p);
+    fillConHistoryBanner('den', p);
+    if (typeof conHistApplySharedPatient === 'function') conHistApplySharedPatient();
 
     toggleDrugAddPanel(false);
     rxLines = [];
@@ -2354,6 +2329,51 @@ function conFormsTimeOfDayPair(d) {
     return { en: 'evening', chi: '晚上' };
 }
 
+function conHistFormFieldText(kind) {
+    var p = conFormsPatientData || conPatientData || conMedPatientData || {};
+    var stored = '';
+    var elId = '';
+    if (kind === 'allergy') { stored = p.allergy || ''; elId = 'fldAllergy'; }
+    else if (kind === 'medications') { stored = p.current_medications || ''; elId = 'fldMedications'; }
+    else if (kind === 'history') { stored = p.medical_history || ''; elId = 'fldMedHistory'; }
+    else return '';
+    var el = elId ? g(elId) : null;
+    var live = el ? String(el.value || '').trim() : '';
+    if (live) return live;
+    if (el && conHistDirty && conHistDirty.med) return live;
+    return String(stored || '').trim();
+}
+
+function conHistMedicalSummaryText() {
+    var mh = conHistFormFieldText('history');
+    var meds = conHistFormFieldText('medications');
+    var all = conHistFormFieldText('allergy');
+    var parts = [];
+    var repl = (typeof conTrRepl === 'function') ? conTrRepl : function (k, v) { return (v && v.V) || k; };
+    if (mh) parts.push(mh);
+    if (meds) parts.push(repl('con.hist.summary.meds', { V: meds }));
+    if (all) parts.push(repl('con.hist.summary.allergy', { V: all }));
+    return parts.join('\n') || '—';
+}
+
+function conHistNormalizeFormPlaceholders(html) {
+    return String(html || '').replace(
+        /\{\{\s*(allergy|medications|medical_summary|medical_history|current_medications)\s*\}\}/gi,
+        '{$1}'
+    );
+}
+
+function conFormsInsertHistPlaceholder(key) {
+    var map = (typeof conFormsPlaceholderMap === 'function') ? conFormsPlaceholderMap() : {};
+    var val = map && map[key] != null ? String(map[key]) : '';
+    if (typeof DocEditor !== 'undefined' && DocEditor.insertText) {
+        DocEditor.insertText('conFormsDocEditor', val || ('{' + key + '}'));
+        return;
+    }
+    var ed = g('conFormsDocEditor');
+    if (ed) ed.textContent = (ed.textContent || '') + (val || ('{' + key + '}'));
+}
+
 function conFormsPlaceholderMap(opts) {
     opts = opts || {};
     var p = conFormsPatientData || {};
@@ -2416,7 +2436,12 @@ function conFormsPlaceholderMap(opts) {
         time_of_day_en: tod.en,
         time_of_day_chi: tod.chi,
         receipt_no: '',
-        total_amount: ''
+        total_amount: '',
+        allergy: conHistFormFieldText('allergy') || '—',
+        medications: conHistFormFieldText('medications') || '—',
+        current_medications: conHistFormFieldText('medications') || '—',
+        medical_history: conHistFormFieldText('history') || '—',
+        medical_summary: conHistMedicalSummaryText()
     };
     if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
         var sl = conFormsSickLeavePlaceholderFields();
@@ -2429,6 +2454,7 @@ function conFormsPlaceholderMap(opts) {
 }
 
 function applyConFormsPlaceholders(html, opts) {
+    html = conHistNormalizeFormPlaceholders(html);
     return conFormsRenderShellTemplate(html, conFormsPlaceholderMap(opts));
 }
 
@@ -3416,7 +3442,8 @@ function conPtlBuildFilterBar() {
         { key: 'xray', labelKey: 'con.ptl.filter.xray' },
         { key: 'photo', labelKey: 'con.ptl.filter.photo' },
         { key: 'chart', labelKey: 'con.ptl.filter.chart' },
-        { key: 'task', labelKey: 'con.ptl.filter.task' }
+        { key: 'task', labelKey: 'con.ptl.filter.task' },
+        { key: 'history', labelKey: 'con.ptl.filter.history' }
     ];
     var filterHtml = defs.map(function (d) {
         var on = conPtlFilterKey === d.key;
@@ -3902,6 +3929,7 @@ function loadConPatientTimeline(patientId) {
     var qChart = SB.from('dental_charts').select(
         'id,chart_date,dental_data,perio_data,created_at'
     ).eq('patient_id', pid).order('chart_date', { ascending: false }).limit(60);
+    var qHist = SB.from('patients').select('mh_edit_history,dh_edit_history').eq('id', pid).limit(1);
 
     Promise.all([
         conPtlSafeRows(qNotes),
@@ -3911,7 +3939,8 @@ function loadConPatientTimeline(patientId) {
         conPtlSafeRows(qDocs),
         conPtlSafeRows(qXray),
         conPtlSafeRows(qPhoto),
-        conPtlSafeRows(qChart)
+        conPtlSafeRows(qChart),
+        conPtlSafeOptionalRows(qHist, 'mh_edit_history')
     ]).then(function (parts) {
         var bills = parts[3];
         if (!bills.length && pno) {
@@ -3964,7 +3993,9 @@ function loadConPatientTimeline(patientId) {
             conPtlEventsFromPhotos(parts[6]),
             conPtlEventsFromCharts(parts[7]),
             conPtlEventsFromPayments(payments, billMap),
-            conPtlEventsFromTasks(tasks, apptMap)
+            conPtlEventsFromTasks(tasks, apptMap),
+            conPtlEventsFromHistorySnaps('med', conHistParseSnapshots((parts[8] && parts[8][0] && parts[8][0].mh_edit_history) || (conPatientData && conPatientData.mh_edit_history))),
+            conPtlEventsFromHistorySnaps('den', conHistParseSnapshots((parts[8] && parts[8][0] && parts[8][0].dh_edit_history) || (conPatientData && conPatientData.dh_edit_history)))
         ]);
         renderConPatientTimeline();
         if (typeof conNotesRefreshContext === 'function') conNotesRefreshContext();
@@ -4068,6 +4099,14 @@ function renderConPatientTimeline() {
 
 function conPtlOpenEvent(ev) {
     if (!ev) return;
+    if (ev.action === 'medhistory') {
+        switchConTab('medhistory');
+        return;
+    }
+    if (ev.action === 'denhistory') {
+        switchConTab('denhistory');
+        return;
+    }
     if (ev.action === 'notes') {
         switchConTnSubtab('notes');
         return;
@@ -9083,51 +9122,583 @@ function deleteDrugItem(id) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// MEDICAL HISTORY TAB
+// MEDICAL / DENTAL HISTORY — same Consultation patient
 // ════════════════════════════════════════════════════════════════
-function doConPatientSearchMed() {
-    runPatientSearchDropdown({
-        inputId: 'conPsInputMed',
-        dropId: 'conPsDropMed',
-        clinicFilterId: 'conPsClinicFilterMed',
-        autoSelectSingle: false,
-        activeSource: 'consultation-med-search',
-        onSelect: selectMedPatient
+function fillConHistoryBanner(kind, p) {
+    if (!p) return;
+    var prefix = kind === 'den' ? 'conDen' : 'conMed';
+    var banner = g(prefix + 'Banner');
+    if (banner) banner.style.display = 'flex';
+    if (g(prefix + 'BannerName')) g(prefix + 'BannerName').textContent = p.full_name || '—';
+    if (g(prefix + 'BannerNo')) g(prefix + 'BannerNo').textContent = p.patient_no || '-';
+    if (g(prefix + 'BannerDob')) {
+        g(prefix + 'BannerDob').textContent = p.dob ? formatDobAge(p.dob) : '-';
+    }
+    setConBannerAlert(prefix + 'BannerAlert', p);
+    if (g(prefix + 'FormPatientName')) {
+        g(prefix + 'FormPatientName').textContent =
+            (p.full_name || '—') + '  (#' + (p.patient_no || '-') + ')';
+    }
+}
+
+function conHistHasPatient() {
+    return !!(typeof conPatientId !== 'undefined' && conPatientId);
+}
+
+function conHistApplySharedPatient() {
+    var has = conHistHasPatient();
+    function setHidden(id, hidden) {
+        var el = g(id);
+        if (el) el.hidden = !!hidden;
+    }
+    setHidden('conMedNeedPatient', has);
+    setHidden('conDenNeedPatient', has);
+    setHidden('conMedSamePatient', !has);
+    setHidden('conDenSamePatient', !has);
+    if (!has) {
+        ['conMedBanner', 'conMedForm', 'conDenBanner', 'conDenForm'].forEach(function (id) {
+            var el = g(id);
+            if (el) el.style.display = 'none';
+        });
+        if (typeof refreshConMhReviewChip === 'function') refreshConMhReviewChip();
+        return;
+    }
+    var p = conPatientData || conMedPatientData || conDenPatientData;
+    if (p) {
+        fillConHistoryBanner('med', p);
+        fillConHistoryBanner('den', p);
+    }
+    if (typeof refreshConMhReviewChip === 'function') refreshConMhReviewChip();
+}
+
+function conHistGoToPatientSearch() {
+    if (typeof switchConTab === 'function') switchConTab('treatment');
+    var inp = g('conPsInput');
+    if (inp) {
+        try { inp.focus(); inp.select(); } catch (e) {}
+    }
+}
+
+var conHistDirty = { med: false, den: false };
+var conHistReviewColsOk = null;
+var CON_HIST_REVIEW_STALE_DAYS = 180;
+
+function conHistReviewColNames(kind) {
+    return kind === 'den'
+        ? { at: 'dh_reviewed_at', by: 'dh_reviewed_by' }
+        : { at: 'mh_reviewed_at', by: 'mh_reviewed_by' };
+}
+
+function conHistIsMissingReviewCol(err) {
+    var m = String((err && (err.message || err.details || err.hint)) || '');
+    return /mh_reviewed_at|mh_reviewed_by|dh_reviewed_at|dh_reviewed_by|mh_edit_history|dh_edit_history|schema cache/i.test(m);
+}
+
+function conHistStampPayload(kind) {
+    var c = conHistReviewColNames(kind);
+    var o = {};
+    o[c.at] = new Date().toISOString();
+    o[c.by] = (typeof conNoteActorName === 'function' ? conNoteActorName() : '') || '';
+    return o;
+}
+
+function conHistFormatReviewAt(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    try { return d.toLocaleString(); }
+    catch (e) { return d.toISOString().slice(0, 16).replace('T', ' '); }
+}
+
+function conHistReviewIsStale(iso) {
+    if (!iso) return true;
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return true;
+    return (Date.now() - d.getTime()) > (CON_HIST_REVIEW_STALE_DAYS * 24 * 60 * 60 * 1000);
+}
+
+function conHistRenderReview(kind, at, by) {
+    var el = g(kind === 'den' ? 'conDenReviewed' : 'conMedReviewed');
+    if (!el) return;
+    var tFn = (typeof conTr === 'function') ? conTr : function (k) { return k; };
+    var repl = (typeof conTrRepl === 'function') ? conTrRepl : function (k) { return k; };
+    el.classList.remove('is-stale', 'is-never');
+    if (!at) {
+        el.textContent = tFn('con.hist.review.never');
+        el.classList.add('is-never');
+        return;
+    }
+    el.textContent = repl('con.hist.review.stamp', { BY: by || '—', AT: conHistFormatReviewAt(at) });
+    if (conHistReviewIsStale(at)) el.classList.add('is-stale');
+}
+
+function conHistApplyReviewFromRow(kind, row) {
+    row = row || {};
+    var c = conHistReviewColNames(kind);
+    var at = row[c.at] || '';
+    var by = row[c.by] || '';
+    conHistRenderReview(kind, at, by);
+    var fields = {};
+    fields[c.at] = at;
+    fields[c.by] = by;
+    if (kind === 'den' && typeof syncConDentalFieldsToPatientData === 'function') {
+        syncConDentalFieldsToPatientData(fields);
+    } else if (kind !== 'den' && typeof syncConMedicalFieldsToPatientData === 'function') {
+        syncConMedicalFieldsToPatientData(fields);
+    }
+}
+
+function conHistRefreshTimelineSnaps(kind, arr) {
+    if (typeof conPtlEventsFromHistorySnaps !== 'function') return;
+    var evs = conPtlEventsFromHistorySnaps(kind, conHistParseSnapshots(arr).slice(-1));
+    if (!evs.length) return;
+    conPatientTimelineEvents = (typeof conPtlMergeEvents === 'function')
+        ? conPtlMergeEvents([conPatientTimelineEvents || [], evs])
+        : (conPatientTimelineEvents || []).concat(evs);
+    if (typeof conTnActiveSubtab !== 'undefined' && conTnActiveSubtab === 'timeline' &&
+        typeof renderConPatientTimeline === 'function') {
+        renderConPatientTimeline();
+    }
+}
+
+function conHistParseSnapshots(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.slice();
+    try {
+        var parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function conHistPushSnapshot(kind, prevRow, fields) {
+    var key = kind === 'den' ? 'dh_edit_history' : 'mh_edit_history';
+    var arr = conHistParseSnapshots(prevRow && prevRow[key]);
+    var snap = {
+        at: new Date().toISOString(),
+        by: (typeof conNoteActorName === 'function' ? conNoteActorName() : '') || '',
+        fields: fields || {}
+    };
+    arr.push(snap);
+    if (arr.length > 40) arr = arr.slice(-40);
+    return arr;
+}
+
+function conPtlEventsFromHistorySnaps(kind, arr) {
+    return (arr || []).map(function (s) {
+        s = s || {};
+        var f = s.fields || {};
+        var bits = kind === 'den'
+            ? [f.dental_history, f.parafunctional_habits, f.oral_hygiene_notes]
+            : [f.medical_history, f.current_medications, f.allergy];
+        return {
+            kind: 'history',
+            ts: (typeof conPtlTsFromAny === 'function') ? conPtlTsFromAny(s.at, null) : Date.parse(s.at || '') || 0,
+            title: kind === 'den'
+                ? ((typeof conTr === 'function') ? conTr('con.ptl.type.denHist') : 'Dental History saved')
+                : ((typeof conTr === 'function') ? conTr('con.ptl.type.medHist') : 'Medical History saved'),
+            body: (typeof conPtlTruncate === 'function')
+                ? conPtlTruncate(bits.filter(Boolean).join(' · ') || (s.by || ''), 280)
+                : (bits.filter(Boolean).join(' · ') || ''),
+            meta: s.by || '',
+            action: kind === 'den' ? 'denhistory' : 'medhistory'
+        };
     });
 }
 
-function selectMedPatient(p) {
-    conMedPatientId   = p.id;
-    conMedPatientData = p;
+function conHistSelectPatientHistory(kind, id) {
+    var base = kind === 'den'
+        ? 'dental_history,parafunctional_habits,oral_hygiene_notes'
+        : 'medical_history,current_medications,allergy';
+    var extra = kind === 'den'
+        ? ',dh_reviewed_at,dh_reviewed_by,dh_edit_history'
+        : ',mh_reviewed_at,mh_reviewed_by,mh_edit_history';
+    var sel = (conHistReviewColsOk === false) ? base : (base + extra);
+    return SB.from('patients').select(sel).eq('id', id).single().then(function (r) {
+        if (r.error && conHistIsMissingReviewCol(r.error) && conHistReviewColsOk !== false) {
+            conHistReviewColsOk = false;
+            return SB.from('patients').select(base).eq('id', id).single();
+        }
+        if (!r.error && sel !== base) conHistReviewColsOk = true;
+        return r;
+    });
+}
 
-    var medBanner = g('conMedBanner');
-    if (medBanner) medBanner.style.display = 'flex';
-    if (g('conMedBannerName'))
-        g('conMedBannerName').textContent = p.full_name;
-    if (g('conMedBannerNo'))
-        g('conMedBannerNo').textContent = p.patient_no || '-';
-    if (g('conMedBannerDob'))
-        g('conMedBannerDob').textContent =
-            p.dob ? formatDobAge(p.dob) : '-';
-    setConBannerAlert('conMedBannerAlert', p);
-    if (g('conMedFormPatientName')) {
-        g('conMedFormPatientName').textContent =
-            p.full_name + '  (#' + (p.patient_no || '-') + ')';
+function conHistStripReviewCols(payload) {
+    var out = {};
+    Object.keys(payload || {}).forEach(function (k) {
+        if (k === 'mh_reviewed_at' || k === 'mh_reviewed_by' ||
+            k === 'dh_reviewed_at' || k === 'dh_reviewed_by' ||
+            k === 'mh_edit_history' || k === 'dh_edit_history') return;
+        out[k] = payload[k];
+    });
+    return out;
+}
+
+function conHistPatientsUpdate(id, payload) {
+    var body = payload;
+    if (conHistReviewColsOk === false) body = conHistStripReviewCols(payload);
+    return SB.from('patients').update(body).eq('id', id).then(function (r) {
+        if (r.error && conHistIsMissingReviewCol(r.error) && conHistReviewColsOk !== false) {
+            conHistReviewColsOk = false;
+            return SB.from('patients').update(conHistStripReviewCols(payload)).eq('id', id);
+        }
+        if (!r.error && payload && (payload.mh_reviewed_at || payload.dh_reviewed_at) &&
+            conHistReviewColsOk !== false && body === payload) {
+            conHistReviewColsOk = true;
+        }
+        return r;
+    });
+}
+
+function conHistMhReviewDueInfo(p) {
+    p = p || {};
+    var at = p.mh_reviewed_at || p._merged_mh_reviewed_at || '';
+    var known = (typeof p.mh_reviewed_at !== 'undefined') ||
+        (typeof p._merged_mh_reviewed_at !== 'undefined') ||
+        conHistReviewColsOk === true;
+    if (!known) return { due: false, unknown: true, never: false, stale: false };
+    if (!at) return { due: true, unknown: false, never: true, stale: false };
+    if (conHistReviewIsStale(at)) return { due: true, unknown: false, never: false, stale: true };
+    return { due: false, unknown: false, never: false, stale: false };
+}
+
+function conHistJumpToMed() {
+    if (typeof switchConTab === 'function') switchConTab('medhistory');
+}
+
+function conHistJumpToNotes() {
+    if (typeof switchConTab === 'function') switchConTab('treatment');
+}
+
+function refreshConMhReviewChip() {
+    var wrap = g('conMhReviewChip');
+    if (!wrap) return;
+    if (!conHistHasPatient()) {
+        wrap.hidden = true;
+        return;
     }
-    loadMedicalHistory();
+    wrap.hidden = false;
+    var p = conPatientData || conMedPatientData || {};
+    var at = p.mh_reviewed_at || '';
+    var by = p.mh_reviewed_by || '';
+    var text = g('conMhReviewChipText');
+    wrap.classList.remove('is-stale', 'is-never', 'is-ok');
+    var tFn = (typeof conTr === 'function') ? conTr : function (k) { return k; };
+    var repl = (typeof conTrRepl === 'function') ? conTrRepl : function (k) { return k; };
+    if (!at) {
+        if (text) text.textContent = tFn('con.hist.review.never');
+        wrap.classList.add('is-never');
+    } else if (conHistReviewIsStale(at)) {
+        if (text) text.textContent = repl('con.hist.review.stale', { DAYS: String(CON_HIST_REVIEW_STALE_DAYS) });
+        wrap.classList.add('is-stale');
+    } else {
+        if (text) text.textContent = repl('con.hist.review.stamp', { BY: by || '—', AT: conHistFormatReviewAt(at) });
+        wrap.classList.add('is-ok');
+    }
+    var btn = g('conMhReviewChipBtn');
+    var allowed = typeof medicalNotesEditingAllowed !== 'function' || medicalNotesEditingAllowed();
+    if (btn) btn.style.display = allowed ? '' : 'none';
+}
+
+function conHistMarkReviewed(kind) {
+    if (kind === 'den') saveDentalHistory({ reviewedOnly: true });
+    else saveMedicalHistory({ reviewedOnly: true });
+}
+
+function conHistToast(msg) {
+    if (typeof showAppGlobalToast === 'function') showAppGlobalToast(msg);
+    else if (msg) alert(msg);
+}
+
+function conHistBindDirtyOnce() {
+    function bind(ids, kind) {
+        ids.forEach(function (id) {
+            var el = g(id);
+            if (!el || el._conHistDirtyBound) return;
+            el._conHistDirtyBound = true;
+            el.addEventListener('input', function () { conHistDirty[kind] = true; });
+        });
+    }
+    bind(['fldMedHistory', 'fldMedications', 'fldAllergy'], 'med');
+    bind(['fldDentalHistory', 'fldParafunctional', 'fldOralHygiene'], 'den');
+    var allEl = g('fldAllergy');
+    if (allEl && !allEl._conAllergyChipBound) {
+        allEl._conAllergyChipBound = true;
+        allEl.addEventListener('input', function () {
+            if (typeof conAllergySyncFromTextarea === 'function') conAllergySyncFromTextarea();
+        });
+    }
+    var medEl = g('fldMedications');
+    if (medEl && !medEl._conMedsChipBound) {
+        medEl._conMedsChipBound = true;
+        medEl.addEventListener('input', function () {
+            if (typeof conMedsSyncFromTextarea === 'function') conMedsSyncFromTextarea();
+        });
+    }
+}
+
+function conHistCheckUnsavedThen(kind, proceed) {
+    if (!conHistDirty[kind]) { proceed(); return; }
+    var saveFn = kind === 'den' ? saveDentalHistory : saveMedicalHistory;
+    var keys = {
+        messageKey: 'con.hist.unsaved.message',
+        saveKey: 'con.hist.unsaved.save',
+        discardKey: 'con.hist.unsaved.discard',
+        cancelKey: 'con.hist.unsaved.cancel'
+    };
+    if (typeof showMediaUnsavedOverlay === 'function') {
+        showMediaUnsavedOverlay(
+            'consultationSection',
+            function () {
+                saveFn();
+                setTimeout(proceed, 300);
+            },
+            function () {
+                conHistDirty[kind] = false;
+                proceed();
+            },
+            keys
+        );
+        return;
+    }
+    var tFn = (typeof conTr === 'function') ? conTr : function (k) { return k; };
+    if (confirm(tFn(keys.messageKey))) {
+        saveFn();
+        setTimeout(proceed, 300);
+    } else {
+        conHistDirty[kind] = false;
+        proceed();
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+// MEDICAL HISTORY TAB
+// ════════════════════════════════════════════════════════════════
+function doConPatientSearchMed() {
+    conHistGoToPatientSearch();
+    if (typeof doConPatientSearch === 'function') doConPatientSearch();
+}
+
+function selectMedPatient(p) {
+    if (typeof selectConPatient === 'function') selectConPatient(p);
+}
+
+function conAllergyIsNkda(text) {
+    return /^\s*(nkda|nka|nil known|no known (drug )?allerg(?:y|ies)?|无明显过敏|沒有已知過敏)\s*$/i.test(String(text || ''));
+}
+
+function conAllergyParse(text) {
+    if (conAllergyIsNkda(text)) return [];
+    return String(text || '')
+        .split(/[,;\/、，；\n|+]+/)
+        .map(function (t) { return String(t || '').replace(/\s+/g, ' ').trim(); })
+        .filter(function (t) { return t && !conAllergyIsNkda(t); });
+}
+
+function conAllergyJoin(items, nkda) {
+    if (nkda) return 'NKDA';
+    return (items || []).join(', ');
+}
+
+var CON_ALLERGY_QUICK = ['Penicillin', 'Amoxicillin', 'Latex', 'NSAID', 'Aspirin', 'Iodine', 'Local anaesthetic'];
+
+function conAllergyWrite(items, nkda, fromUi) {
+    var text = conAllergyJoin(items, nkda);
+    var el = g('fldAllergy');
+    if (el) el.value = text;
+    if (fromUi) conHistDirty.med = true;
+    conAllergySyncFromTextarea();
+    if (typeof refreshConPatientAlertBanners === 'function') refreshConPatientAlertBanners();
+}
+
+function conAllergySyncFromTextarea() {
+    var raw = g('fldAllergy') ? g('fldAllergy').value : '';
+    var nkda = conAllergyIsNkda(raw);
+    var items = conAllergyParse(raw);
+    var cb = g('conAllergyNkda');
+    if (cb) cb.checked = nkda;
+    var list = g('conAllergyChips');
+    if (list) {
+        list.innerHTML = items.map(function (item, i) {
+            return '<span class="history-chip">' + (typeof esc === 'function' ? esc(item) : item) +
+                '<button type="button" data-allergy-i="' + i + '" aria-label="remove">×</button></span>';
+        }).join('');
+        list.querySelectorAll('button[data-allergy-i]').forEach(function (btn) {
+            btn.onclick = function () {
+                var next = conAllergyParse(g('fldAllergy') ? g('fldAllergy').value : '');
+                next.splice(parseInt(btn.getAttribute('data-allergy-i'), 10), 1);
+                conAllergyWrite(next, false, true);
+            };
+        });
+    }
+    var inp = g('conAllergyChipInput');
+    var addBtn = document.querySelector('#conMedForm .history-chip-add-btn');
+    if (inp) inp.disabled = nkda || (typeof medicalNotesEditingAllowed === 'function' && !medicalNotesEditingAllowed());
+    if (addBtn) addBtn.disabled = nkda;
+    var quick = g('conAllergyQuick');
+    if (quick && !quick._conAllergyQuickBuilt) {
+        quick._conAllergyQuickBuilt = true;
+        quick.innerHTML = CON_ALLERGY_QUICK.map(function (name) {
+            return '<button type="button" data-allergy-quick="' +
+                (typeof esc === 'function' ? esc(name) : name) + '">' +
+                (typeof esc === 'function' ? esc(name) : name) + '</button>';
+        }).join('');
+        quick.querySelectorAll('button[data-allergy-quick]').forEach(function (btn) {
+            btn.onclick = function () { conAllergyAddNamed(btn.getAttribute('data-allergy-quick')); };
+        });
+    }
+    if (quick) {
+        var lower = items.map(function (x) { return x.toLowerCase(); });
+        quick.querySelectorAll('button[data-allergy-quick]').forEach(function (btn) {
+            var on = lower.indexOf(String(btn.getAttribute('data-allergy-quick') || '').toLowerCase()) >= 0;
+            btn.classList.toggle('is-on', on);
+            btn.disabled = nkda;
+        });
+    }
+}
+
+function conAllergyAddNamed(name) {
+    name = String(name || '').replace(/\s+/g, ' ').trim();
+    if (!name || conAllergyIsNkda(name)) return;
+    if (typeof medicalNotesEditingAllowed === 'function' && !medicalNotesEditingAllowed()) return;
+    var items = conAllergyParse(g('fldAllergy') ? g('fldAllergy').value : '');
+    var hit = items.some(function (x) { return x.toLowerCase() === name.toLowerCase(); });
+    if (!hit) items.push(name);
+    conAllergyWrite(items, false, true);
+}
+
+function conAllergyAddChip() {
+    var inp = g('conAllergyChipInput');
+    var name = inp ? inp.value : '';
+    conAllergyAddNamed(name);
+    if (inp) inp.value = '';
+}
+
+function conAllergyNkdaChange() {
+    var cb = g('conAllergyNkda');
+    if (!cb) return;
+    if (typeof medicalNotesEditingAllowed === 'function' && !medicalNotesEditingAllowed()) {
+        conAllergySyncFromTextarea();
+        return;
+    }
+    if (cb.checked) conAllergyWrite([], true, true);
+    else conAllergyWrite([], false, true);
+}
+
+function conMedsParse(text) {
+    return String(text || '')
+        .split(/[,;\n]+/)
+        .map(function (t) { return String(t || '').replace(/\s+/g, ' ').trim(); })
+        .filter(Boolean);
+}
+
+function conMedsJoin(items) {
+    return (items || []).join(', ');
+}
+
+function conMedsWrite(items, fromUi) {
+    var el = g('fldMedications');
+    if (el) el.value = conMedsJoin(items);
+    if (fromUi) conHistDirty.med = true;
+    conMedsSyncFromTextarea();
+}
+
+function conMedsSyncFromTextarea() {
+    var items = conMedsParse(g('fldMedications') ? g('fldMedications').value : '');
+    var list = g('conMedsChips');
+    if (list) {
+        list.innerHTML = items.map(function (item, i) {
+            return '<span class="history-chip is-med">' + (typeof esc === 'function' ? esc(item) : item) +
+                '<button type="button" data-meds-i="' + i + '" aria-label="remove">×</button></span>';
+        }).join('');
+        list.querySelectorAll('button[data-meds-i]').forEach(function (btn) {
+            btn.onclick = function () {
+                var next = conMedsParse(g('fldMedications') ? g('fldMedications').value : '');
+                next.splice(parseInt(btn.getAttribute('data-meds-i'), 10), 1);
+                conMedsWrite(next, true);
+            };
+        });
+    }
+}
+
+function conMedsAddNamed(name) {
+    name = String(name || '').replace(/\s+/g, ' ').trim();
+    if (!name) return;
+    if (typeof medicalNotesEditingAllowed === 'function' && !medicalNotesEditingAllowed()) return;
+    var items = conMedsParse(g('fldMedications') ? g('fldMedications').value : '');
+    var hit = items.some(function (x) { return x.toLowerCase() === name.toLowerCase(); });
+    if (!hit) items.push(name);
+    conMedsWrite(items, true);
+    var drop = g('conMedsSuggest');
+    if (drop) { drop.hidden = true; drop.innerHTML = ''; }
+}
+
+function conMedsAddChip() {
+    var inp = g('conMedsChipInput');
+    var name = inp ? inp.value : '';
+    conMedsAddNamed(name);
+    if (inp) inp.value = '';
+}
+
+function conMedsSuggest() {
+    var inp = g('conMedsChipInput');
+    var drop = g('conMedsSuggest');
+    if (!inp || !drop) return;
+    var q = String(inp.value || '').trim().toLowerCase();
+    if (q.length < 2) { drop.hidden = true; drop.innerHTML = ''; return; }
+    function show(rows) {
+        var html = (rows || []).slice(0, 8).map(function (d) {
+            var n = d.drug_name || d.name || '';
+            return '<button type="button" data-meds-name="' +
+                (typeof esc === 'function' ? esc(n) : n) + '">' +
+                (typeof esc === 'function' ? esc(n) : n) + '</button>';
+        }).join('');
+        drop.innerHTML = html;
+        drop.hidden = !html;
+        drop.querySelectorAll('button[data-meds-name]').forEach(function (btn) {
+            btn.onclick = function () {
+                conMedsAddNamed(btn.getAttribute('data-meds-name'));
+                inp.value = '';
+            };
+        });
+    }
+    if (typeof rxDrugCatalog !== 'undefined' && rxDrugCatalog && rxDrugCatalog.length) {
+        show(rxDrugCatalog.filter(function (d) {
+            return String(d.drug_name || '').toLowerCase().indexOf(q) >= 0;
+        }));
+        return;
+    }
+    if (typeof rxLoadDrugCatalog === 'function') {
+        rxLoadDrugCatalog().then(function (rows) {
+            show((rows || []).filter(function (d) {
+                return String(d.drug_name || '').toLowerCase().indexOf(q) >= 0;
+            }));
+        });
+    }
 }
 
 function loadMedicalHistory() {
-    if (!conMedPatientId) return;
+    if (conHistDirty && conHistDirty.med) {
+        var stay = g('conMedForm');
+        if (stay) stay.style.display = 'block';
+        return;
+    }
+    if (!conMedPatientId) {
+        if (conPatientId) {
+            conMedPatientId = conPatientId;
+            conMedPatientData = conPatientData;
+        } else {
+            return;
+        }
+    }
     var form = g('conMedForm');
 
-    SB.from('patients')
-        .select('medical_history,current_medications,allergy')
-        .eq('id', conMedPatientId)
-        .single()
+    conHistSelectPatientHistory('med', conMedPatientId)
     .then(function(r) {
         if (r.error) {
-            alert(conTrRepl('con.alert.medLoadFail', { MSG: r.error.message }));
+            conHistToast(conTrRepl('con.alert.medLoadFail', { MSG: r.error.message }));
             return;
         }
         var d = r.data || {};
@@ -9135,9 +9706,15 @@ function loadMedicalHistory() {
         sv('fldMedHistory',  d.medical_history     || '');
         sv('fldMedications', d.current_medications || '');
         sv('fldAllergy',     d.allergy             || '');
+        conHistApplyReviewFromRow('med', d);
+        conHistDirty.med = false;
+        conHistBindDirtyOnce();
+        if (typeof conAllergySyncFromTextarea === 'function') conAllergySyncFromTextarea();
+        if (typeof conMedsSyncFromTextarea === 'function') conMedsSyncFromTextarea();
         refreshConPatientAlertBanners();
         if (form) form.style.display = 'block';
         if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
+        if (typeof refreshConMhReviewChip === 'function') refreshConMhReviewChip();
     });
 }
 
@@ -9149,16 +9726,27 @@ function syncConMedicalFieldsToPatientData(fields) {
         if (typeof fields.current_medications !== 'undefined') p.current_medications = fields.current_medications || '';
         if (typeof fields.allergy !== 'undefined') p.allergy = fields.allergy || '';
         if (typeof fields.medical_alerts !== 'undefined') p.medical_alerts = fields.medical_alerts || '';
+        if (typeof fields.mh_reviewed_at !== 'undefined') p.mh_reviewed_at = fields.mh_reviewed_at || '';
+        if (typeof fields.mh_reviewed_by !== 'undefined') p.mh_reviewed_by = fields.mh_reviewed_by || '';
+        if (typeof fields.mh_edit_history !== 'undefined') p.mh_edit_history = fields.mh_edit_history || [];
     });
     if (typeof setDirectoryActivePatient === 'function' && conPatientData && conPatientData.id) {
         setDirectoryActivePatient(conPatientData, 'consultation-medical-history-save');
     }
 }
 
-function saveMedicalHistory() {
-    if (!conMedPatientId) { alert(conTr('con.alert.noPatientSelected')); return; }
+function saveMedicalHistory(opts) {
+    opts = opts || {};
+    if (!conMedPatientId) {
+        if (conPatientId) {
+            conMedPatientId = conPatientId;
+            conMedPatientData = conPatientData;
+        } else {
+            conHistToast(conTr('con.alert.noPatientSelected')); return;
+        }
+    }
     if (typeof medicalNotesEditingAllowed === 'function' && !medicalNotesEditingAllowed()) {
-        alert(conTr('con.alert.medReadOnly'));
+        conHistToast(conTr('con.alert.medReadOnly'));
         return;
     }
     var payload = {
@@ -9166,15 +9754,29 @@ function saveMedicalHistory() {
         current_medications: (g('fldMedications').value || '').trim(),
         allergy:             (g('fldAllergy').value     || '').trim()
     };
-    SB.from('patients').update(payload).eq('id', conMedPatientId)
+    var stamp = conHistStampPayload('med');
+    Object.keys(stamp).forEach(function (k) { payload[k] = stamp[k]; });
+    payload.mh_edit_history = conHistPushSnapshot('med', conMedPatientData || conPatientData, {
+        medical_history: payload.medical_history,
+        current_medications: payload.current_medications,
+        allergy: payload.allergy
+    });
+    conHistPatientsUpdate(conMedPatientId, payload)
     .then(function(r) {
-        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        if (r.error) { conHistToast(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         syncConMedicalFieldsToPatientData(payload);
+        conHistApplyReviewFromRow('med', payload);
         refreshConPatientAlertBanners(conMedPatientData || conPatientData);
-        alert(conTrRepl('con.alert.medSaved', { NAME: conMedPatientData.full_name }));
+        conHistDirty.med = false;
+        var name = (conMedPatientData && conMedPatientData.full_name) || '';
+        conHistToast(opts.reviewedOnly
+            ? conTrRepl('con.hist.review.saved', { NAME: name })
+            : conTrRepl('con.alert.medSaved', { NAME: name }));
         if (typeof refreshPatientAlertDisplayViews === 'function') {
             refreshPatientAlertDisplayViews();
         }
+        if (typeof refreshConMhReviewChip === 'function') refreshConMhReviewChip();
+        if (typeof conHistRefreshTimelineSnaps === 'function') conHistRefreshTimelineSnaps('med', payload.mh_edit_history);
     });
 }
 
@@ -9218,69 +9820,102 @@ function initMedAlertDisplayPrefs() {
 // DENTAL HISTORY TAB
 // ════════════════════════════════════════════════════════════════
 function doConPatientSearchDen() {
-    runPatientSearchDropdown({
-        inputId: 'conPsInputDen',
-        dropId: 'conPsDropDen',
-        clinicFilterId: 'conPsClinicFilterDen',
-        autoSelectSingle: false,
-        activeSource: 'consultation-den-search',
-        onSelect: selectDenPatient
-    });
+    conHistGoToPatientSearch();
+    if (typeof doConPatientSearch === 'function') doConPatientSearch();
 }
 
 function selectDenPatient(p) {
-    conDenPatientId   = p.id;
-    conDenPatientData = p;
-
-    var denBanner = g('conDenBanner');
-    if (denBanner) denBanner.style.display = 'flex';
-    if (g('conDenBannerName'))
-        g('conDenBannerName').textContent = p.full_name;
-    if (g('conDenBannerNo'))
-        g('conDenBannerNo').textContent = p.patient_no || '-';
-    if (g('conDenBannerDob'))
-        g('conDenBannerDob').textContent =
-            p.dob ? formatDobAge(p.dob) : '-';
-    setConBannerAlert('conDenBannerAlert', p);
-    if (g('conDenFormPatientName')) {
-        g('conDenFormPatientName').textContent =
-            p.full_name + '  (#' + (p.patient_no || '-') + ')';
-    }
-    loadDentalHistory();
+    if (typeof selectConPatient === 'function') selectConPatient(p);
 }
 
 function loadDentalHistory() {
-    if (!conDenPatientId) return;
+    if (conHistDirty && conHistDirty.den) {
+        var stay = g('conDenForm');
+        if (stay) stay.style.display = 'block';
+        return;
+    }
+    if (!conDenPatientId) {
+        if (conPatientId) {
+            conDenPatientId = conPatientId;
+            conDenPatientData = conPatientData;
+        } else {
+            return;
+        }
+    }
     var form = g('conDenForm');
 
-    SB.from('patients')
-        .select('dental_history,parafunctional_habits,oral_hygiene_notes')
-        .eq('id', conDenPatientId)
-        .single()
+    conHistSelectPatientHistory('den', conDenPatientId)
     .then(function(r) {
         if (r.error) {
-            alert(conTrRepl('con.alert.denLoadFail', { MSG: r.error.message }));
+            conHistToast(conTrRepl('con.alert.denLoadFail', { MSG: r.error.message }));
             return;
         }
         var d = r.data || {};
+        syncConDentalFieldsToPatientData(d);
         sv('fldDentalHistory',  d.dental_history        || '');
         sv('fldParafunctional', d.parafunctional_habits || '');
         sv('fldOralHygiene',    d.oral_hygiene_notes    || '');
+        conHistApplyReviewFromRow('den', d);
+        conHistDirty.den = false;
+        conHistBindDirtyOnce();
         if (form) form.style.display = 'block';
+        if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
     });
 }
 
-function saveDentalHistory() {
-    if (!conDenPatientId) { alert(conTr('con.alert.noPatientSelected')); return; }
+function syncConDentalFieldsToPatientData(fields) {
+    fields = fields || {};
+    [conPatientData, conMedPatientData, conDenPatientData, conFormsPatientData].forEach(function(p) {
+        if (!p || !p.id || String(p.id) !== String(conDenPatientId || conPatientId || p.id)) return;
+        if (typeof fields.dental_history !== 'undefined') p.dental_history = fields.dental_history || '';
+        if (typeof fields.parafunctional_habits !== 'undefined') p.parafunctional_habits = fields.parafunctional_habits || '';
+        if (typeof fields.oral_hygiene_notes !== 'undefined') p.oral_hygiene_notes = fields.oral_hygiene_notes || '';
+        if (typeof fields.dh_reviewed_at !== 'undefined') p.dh_reviewed_at = fields.dh_reviewed_at || '';
+        if (typeof fields.dh_reviewed_by !== 'undefined') p.dh_reviewed_by = fields.dh_reviewed_by || '';
+        if (typeof fields.dh_edit_history !== 'undefined') p.dh_edit_history = fields.dh_edit_history || [];
+    });
+    if (typeof setDirectoryActivePatient === 'function' && conPatientData && conPatientData.id) {
+        setDirectoryActivePatient(conPatientData, 'consultation-dental-history-save');
+    }
+}
+
+function saveDentalHistory(opts) {
+    opts = opts || {};
+    if (!conDenPatientId) {
+        if (conPatientId) {
+            conDenPatientId = conPatientId;
+            conDenPatientData = conPatientData;
+        } else {
+            conHistToast(conTr('con.alert.noPatientSelected')); return;
+        }
+    }
+    if (typeof medicalNotesEditingAllowed === 'function' && !medicalNotesEditingAllowed()) {
+        conHistToast(conTr('con.alert.denReadOnly'));
+        return;
+    }
     var payload = {
         dental_history:        (g('fldDentalHistory').value  || '').trim(),
         parafunctional_habits: (g('fldParafunctional').value || '').trim(),
         oral_hygiene_notes:    (g('fldOralHygiene').value    || '').trim()
     };
-    SB.from('patients').update(payload).eq('id', conDenPatientId)
+    var stamp = conHistStampPayload('den');
+    Object.keys(stamp).forEach(function (k) { payload[k] = stamp[k]; });
+    payload.dh_edit_history = conHistPushSnapshot('den', conDenPatientData || conPatientData, {
+        dental_history: payload.dental_history,
+        parafunctional_habits: payload.parafunctional_habits,
+        oral_hygiene_notes: payload.oral_hygiene_notes
+    });
+    conHistPatientsUpdate(conDenPatientId, payload)
     .then(function(r) {
-        if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-        alert(conTrRepl('con.alert.denSaved', { NAME: conDenPatientData.full_name }));
+        if (r.error) { conHistToast(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        syncConDentalFieldsToPatientData(payload);
+        conHistApplyReviewFromRow('den', payload);
+        conHistDirty.den = false;
+        var name = (conDenPatientData && conDenPatientData.full_name) || (conPatientData && conPatientData.full_name) || '';
+        conHistToast(opts.reviewedOnly
+            ? conTrRepl('con.hist.review.saved', { NAME: name })
+            : conTrRepl('con.alert.denSaved', { NAME: name }));
+        if (typeof conHistRefreshTimelineSnaps === 'function') conHistRefreshTimelineSnaps('den', payload.dh_edit_history);
     });
 }
 

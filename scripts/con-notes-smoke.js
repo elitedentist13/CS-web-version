@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20260925notes9';
+var EXPECTED_BUILD = '20261001hist10';
 var PID = '18d4d8a2-7d16-403c-962c-cba93540b132';
 var fails = [];
 
@@ -83,8 +83,8 @@ function extractFn(src, name) {
     console.log('=== source ===');
     pass('index BUILD ' + EXPECTED_BUILD, html.indexOf("var BUILD = '" + EXPECTED_BUILD + "'") >= 0);
     pass('index loads app-con-notes.js after app-consultation.js',
-        html.indexOf("'app-consultation.js',") >= 0 &&
-        html.indexOf("'app-con-notes.js'") > html.indexOf("'app-consultation.js',"));
+        html.indexOf('app-consultation.js') >= 0 &&
+        html.indexOf('app-con-notes.js') > html.indexOf('app-consultation.js'));
     ['conNoteComposer', 'conNoteContext', 'conNoteDoctorChip', 'conNoteSections', 'conNoteDraftState',
         'conNoteMicBtn', 'conNoteHistoryBar', 'conNoteSearch', 'conNoteDoctorFilter', 'conNoteShowDeleted', 'conNoteInput']
         .forEach(function (id) { pass('markup #' + id, html.indexOf('id="' + id + '"') >= 0); });

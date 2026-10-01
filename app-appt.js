@@ -4056,7 +4056,25 @@ function apptCountableApptsForTab(tab) {
     return apptFilterCountableAppts(list);
 }
 
-function apptRenderPatientCountEl(el, counts) {
+function apptMhDueCount(list) {
+    var seen = {};
+    var n = 0;
+    (list || []).forEach(function (a) {
+        var pid = a && a.patient_id ? String(a.patient_id) : '';
+        if (!pid || seen[pid]) return;
+        seen[pid] = true;
+        var info = typeof conHistMhReviewDueInfo === 'function'
+            ? conHistMhReviewDueInfo({
+                mh_reviewed_at: a.mh_reviewed_at,
+                _merged_mh_reviewed_at: a._merged_mh_reviewed_at
+            })
+            : null;
+        if (info && info.due) n += 1;
+    });
+    return n;
+}
+
+function apptRenderPatientCountEl(el, counts, dueCount) {
     if (!el) return;
     counts = counts || { am: 0, pm: 0, total: 0 };
     var amKey = tr('appt.patientCount.am');
@@ -4075,7 +4093,15 @@ function apptRenderPatientCountEl(el, counts) {
         '<span class="appt-patient-count-seg appt-patient-count-seg--total">' +
             '<span class="appt-patient-count-key">' + esc(totKey) + '</span>' +
             '<span class="appt-patient-count-val">' + esc(String(counts.total)) + '</span>' +
-        '</span>';
+        '</span>' +
+        (dueCount
+            ? ('<span class="appt-patient-count-seg appt-mh-due-count">' +
+                '<span class="appt-patient-count-key">' +
+                    esc((typeof conTr === 'function' ? conTr : tr)('con.hist.appt.due')) +
+                '</span>' +
+                '<span class="appt-patient-count-val">' + esc(String(dueCount)) + '</span>' +
+               '</span>')
+            : '');
     el.title = trRepl('appt.patientCount.title', {
         AM: String(counts.am),
         PM: String(counts.pm),
@@ -4086,7 +4112,8 @@ function apptRenderPatientCountEl(el, counts) {
 function apptRefreshPatientCountBadge(tab) {
     var el = apptPatientCountEl(tab);
     if (!el) return;
-    apptRenderPatientCountEl(el, apptCountAmPmTotal(apptCountableApptsForTab(tab)));
+    var list = apptCountableApptsForTab(tab);
+    apptRenderPatientCountEl(el, apptCountAmPmTotal(list), apptMhDueCount(list));
 }
 
 function apptRefreshAllPatientCountBadges() {
@@ -13042,6 +13069,7 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
     var pHistoryMap = {};
     var pMedsMap = {};
     var pAllergyMap = {};
+    var pMhReviewMap = {};
     var pPhoneMap = {};
     var pMobileMap = {};
     var pSearchMap = {};
@@ -13083,6 +13111,10 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
                 a._merged_current_medications = pMedsMap[String(a.patient_id)] || '';
                 a._merged_allergy = pAllergyMap[String(a.patient_id)] || '';
             }
+            if (a.patient_id && Object.prototype.hasOwnProperty.call(pMhReviewMap, String(a.patient_id))) {
+                a._merged_mh_reviewed_at = pMhReviewMap[String(a.patient_id)];
+                a.mh_reviewed_at = pMhReviewMap[String(a.patient_id)];
+            }
             if (a.patient_id && pPhoneMap[String(a.patient_id)]) {
                 a._merged_phone = pPhoneMap[String(a.patient_id)];
             }
@@ -13110,11 +13142,11 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
         patientAlertDisplayNeedsExtraFields()) {
         augmentPatientSelect += ',medical_history,current_medications,allergy';
     }
+    if (typeof conHistReviewColsOk === 'undefined' || conHistReviewColsOk !== false) {
+        augmentPatientSelect += ',mh_reviewed_at';
+    }
 
-    SB.from('patients')
-        .select(augmentPatientSelect)
-        .in('id', ids)
-    .then(function(pr) {
+    function applyAugmentRows(pr) {
         if (!pr.error && pr.data) {
             pr.data.forEach(function(p) {
                 var pid = String(p.id);
@@ -13122,10 +13154,15 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
                 pNameMap[pid] = String(p.full_name || '').trim();
                 pNoMap[pid] = String(p.patient_no || '').trim();
                 pAlertMap[pid] = p.medical_alerts;
-                if (patientAlertDisplayNeedsExtraFields()) {
+                if (typeof patientAlertDisplayNeedsExtraFields === 'function' &&
+                    patientAlertDisplayNeedsExtraFields()) {
                     pHistoryMap[pid] = p.medical_history;
                     pMedsMap[pid] = p.current_medications;
                     pAllergyMap[pid] = p.allergy;
+                }
+                if (Object.prototype.hasOwnProperty.call(p, 'mh_reviewed_at')) {
+                    pMhReviewMap[pid] = p.mh_reviewed_at || '';
+                    if (typeof conHistReviewColsOk !== 'undefined') conHistReviewColsOk = true;
                 }
                 pPhoneMap[pid] = String(p.phone_number || p.mobile_phone || '').trim();
                 pMobileMap[pid] = String(p.mobile_phone || '').trim();
@@ -13135,6 +13172,18 @@ function augmentAppointmentsChineseFromPatients(rows, callback) {
             });
         }
         finalize();
+    }
+
+    SB.from('patients')
+        .select(augmentPatientSelect)
+        .in('id', ids)
+    .then(function(pr) {
+        if (pr.error && /mh_reviewed_at/i.test(String((pr.error && pr.error.message) || ''))) {
+            if (typeof conHistReviewColsOk !== 'undefined') conHistReviewColsOk = false;
+            var stripped = augmentPatientSelect.replace(/,mh_reviewed_at/g, '');
+            return SB.from('patients').select(stripped).in('id', ids).then(applyAugmentRows);
+        }
+        applyAugmentRows(pr);
     })
     .catch(function() {
         finalize();
@@ -13150,9 +13199,23 @@ function apptMergedAlertText(a) {
 }
 
 function apptAlertCellHtml(a) {
+    var tFn = (typeof conTr === 'function') ? conTr : ((typeof tr === 'function') ? tr : function (k) { return k; });
+    var due = (typeof conHistMhReviewDueInfo === 'function')
+        ? conHistMhReviewDueInfo({
+            mh_reviewed_at: a && a.mh_reviewed_at,
+            _merged_mh_reviewed_at: a && a._merged_mh_reviewed_at
+        })
+        : null;
+    var badge = '';
+    if (due && due.due) {
+        badge = '<span class="appt-mh-due">' + esc(tFn(due.never ? 'con.hist.appt.never' : 'con.hist.appt.due')) + '</span>';
+    }
     var txt = apptMergedAlertText(a);
-    if (!txt) return '<span class="appt-alert-empty">—</span>';
-    return '<div class="appt-alert-scroll" title="' + esc(txt) + '">' + esc(txt) + '</div>';
+    if (!txt && !badge) return '<span class="appt-alert-empty">—</span>';
+    var title = [badge ? tFn(due.never ? 'con.hist.appt.never' : 'con.hist.appt.due') : '', txt]
+        .filter(Boolean).join(' · ');
+    return '<div class="appt-alert-scroll" title="' + esc(title) + '">' +
+        badge + (txt ? (badge ? ' ' : '') + esc(txt) : '') + '</div>';
 }
 
 /** @returns {string} HTML (already escaped inner text) */

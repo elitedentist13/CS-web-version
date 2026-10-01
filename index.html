@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261001aiproto1';
+  var BUILD = '20261001hist10';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -2963,7 +2963,14 @@
       <div class="con-note-col">
         <div class="con-col-header">
           <h3 data-i18n="con.treatmentTitle"></h3>
-          <div style="display:flex;gap:8px;align-items:center;">
+          <div class="con-col-header-actions">
+            <span id="conMhReviewChip" class="con-mh-review-chip" hidden>
+              <span id="conMhReviewChipText"></span>
+              <button type="button" id="conMhReviewChipBtn"
+                      onclick="conHistMarkReviewed('med')" data-i18n="con.hist.review.noChange"></button>
+            </span>
+            <button type="button" id="conJumpMedHistBtn" class="btn-add con-jump-med-btn"
+                    onclick="conHistJumpToMed()" data-i18n="con.hist.jumpMed"></button>
             <button type="button" id="conBackQueueBtn" class="btn-add con-tn-back-queue-btn"
                     data-i18n="con.tnBackQueue.btn"></button>
             <button type="button" id="conTnPrintBtn" class="btn-add con-tn-print-btn"
@@ -3167,20 +3174,13 @@
 <div id="con-medhistory" class="con-pane">
   <div class="history-pane-wrap">
 
-    <!-- Search Card -->
+    <!-- Same patient as Treatment Notes — no separate search -->
     <div class="history-search-card">
       <div class="history-search-title" data-i18n="con.med.title"></div>
-      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
-        <div class="ps-wrap" style="flex:1;max-width:480px;">
-          <input type="text" id="conPsInputMed"
-                 data-i18n-placeholder="con.searchPh"
-                 autocomplete="off" spellcheck="false">
-          <div class="ps-drop" id="conPsDropMed"></div>
-        </div>
-        <select id="conPsClinicFilterMed" data-i18n-title="common.conPsClinicTitle"
-                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
-        <span class="history-search-hint" data-i18n="con.med.searchHint"></span>
-      </div>
+      <p class="history-search-hint" id="conMedNeedPatient" data-i18n="con.hist.needPatient"></p>
+      <p class="history-search-hint" id="conMedSamePatient" data-i18n="con.hist.samePatient" hidden></p>
+      <button type="button" class="btn-add" id="conMedPickPatientBtn"
+              onclick="conHistGoToPatientSearch()" data-i18n="con.hist.pickPatient"></button>
     </div>
 
     <!-- Alert column display settings -->
@@ -3231,6 +3231,8 @@
         <span class="history-form-title" data-i18n="con.med.formTitle"></span>
         <span class="history-form-sub"
               id="conMedFormPatientName"></span>
+        <button type="button" class="history-jump-btn" id="conMedJumpNotesBtn"
+                onclick="conHistJumpToNotes()" data-i18n="con.hist.jumpNotes"></button>
       </div>
 
       <div class="history-form-body">
@@ -3253,6 +3255,18 @@
           <textarea id="fldMedications" rows="4"
                     data-i18n-placeholder="con.med.phMeds">
           </textarea>
+          <div class="history-struct-row">
+            <div id="conMedsChips" class="history-chip-list"></div>
+            <div class="history-chip-add">
+              <input type="text" id="conMedsChipInput" data-i18n-placeholder="con.hist.meds.addPh"
+                     autocomplete="off"
+                     oninput="conMedsSuggest()"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();conMedsAddChip();}">
+              <button type="button" class="history-chip-add-btn" onclick="conMedsAddChip()"
+                      data-i18n="con.hist.allergy.add"></button>
+            </div>
+            <div id="conMedsSuggest" class="history-chip-suggest" hidden></div>
+          </div>
         </div>
 
         <div class="history-field">
@@ -3260,6 +3274,20 @@
             <span class="history-label-icon">⚠️</span>
             <span data-i18n="con.med.fieldAllergy"></span>
           </label>
+          <div class="history-struct-row">
+            <label class="history-nkda">
+              <input type="checkbox" id="conAllergyNkda" onchange="conAllergyNkdaChange()">
+              <span data-i18n="con.hist.allergy.nkda"></span>
+            </label>
+            <div id="conAllergyChips" class="history-chip-list"></div>
+            <div class="history-chip-add">
+              <input type="text" id="conAllergyChipInput" data-i18n-placeholder="con.hist.allergy.addPh"
+                     autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();conAllergyAddChip();}">
+              <button type="button" class="history-chip-add-btn" onclick="conAllergyAddChip()"
+                      data-i18n="con.hist.allergy.add"></button>
+            </div>
+            <div id="conAllergyQuick" class="history-chip-quick"></div>
+          </div>
           <textarea id="fldAllergy" rows="3"
                     data-i18n-placeholder="con.med.phAllergy">
           </textarea>
@@ -3268,6 +3296,11 @@
       </div>
 
       <div class="history-form-footer">
+        <div class="history-review-meta">
+          <span id="conMedReviewed" class="history-review-stamp" data-i18n="con.hist.review.never"></span>
+          <button type="button" class="history-review-btn" id="conMedReviewedBtn"
+                  onclick="conHistMarkReviewed('med')" data-i18n="con.hist.review.noChange"></button>
+        </div>
         <span class="history-save-hint" data-i18n="con.med.saveHint"></span>
         <button class="history-save-btn"
                 onclick="saveMedicalHistory()" data-i18n="con.med.saveBtn"></button>
@@ -3282,20 +3315,13 @@
 <div id="con-denhistory" class="con-pane">
   <div class="history-pane-wrap">
 
-    <!-- Search Card -->
+    <!-- Same patient as Treatment Notes — no separate search -->
     <div class="history-search-card">
       <div class="history-search-title" data-i18n="con.den.title"></div>
-      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
-        <div class="ps-wrap" style="flex:1;max-width:480px;">
-          <input type="text" id="conPsInputDen"
-                 data-i18n-placeholder="con.searchPh"
-                 autocomplete="off" spellcheck="false">
-          <div class="ps-drop" id="conPsDropDen"></div>
-        </div>
-        <select id="conPsClinicFilterDen" data-i18n-title="common.conPsClinicTitle"
-                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
-        <span class="history-search-hint" data-i18n="con.den.searchHint"></span>
-      </div>
+      <p class="history-search-hint" id="conDenNeedPatient" data-i18n="con.hist.needPatient"></p>
+      <p class="history-search-hint" id="conDenSamePatient" data-i18n="con.hist.samePatient" hidden></p>
+      <button type="button" class="btn-add" id="conDenPickPatientBtn"
+              onclick="conHistGoToPatientSearch()" data-i18n="con.hist.pickPatient"></button>
     </div>
 
     <!-- Patient Banner -->
@@ -3363,6 +3389,11 @@
       </div>
 
       <div class="history-form-footer">
+        <div class="history-review-meta">
+          <span id="conDenReviewed" class="history-review-stamp" data-i18n="con.hist.review.never"></span>
+          <button type="button" class="history-review-btn" id="conDenReviewedBtn"
+                  onclick="conHistMarkReviewed('den')" data-i18n="con.hist.review.noChange"></button>
+        </div>
         <span class="history-save-hint" data-i18n="con.den.saveHint"></span>
         <button class="history-save-btn"
                 onclick="saveDentalHistory()" data-i18n="con.den.saveBtn"></button>
@@ -3810,6 +3841,12 @@
 
         <div id="conFormsEditorWrap" style="display:none;margin-top:12px;">
           <div style="font-size:12px;color:#64748b;margin-bottom:8px;" data-i18n="con.forms.editorHint"></div>
+          <div id="conFormsHistTags" class="doc-rt-ph-row">
+            <span class="doc-rt-ph-label" data-i18n="con.forms.histTagsLabel"></span>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('allergy')">{allergy}</button>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('medications')">{medications}</button>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('medical_summary')">{medical_summary}</button>
+          </div>
           <div id="conFormsToolbarMount"></div>
           <div id="conFormsDocEditor" class="doc-rt-editor" contenteditable="true"
                data-placeholder-mode="1" style="min-height:420px;border-radius:0 0 12px 12px;"></div>
@@ -7515,12 +7552,12 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20260926xcap3',
-    'app-i18n-extra.js?v=20260930xraycowork1',
+    'app-i18n-extra.js?v=20261001hist10',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20260930lbresize1',
     'app-doc-editor.js',
-    'app-program-settings.js',
+    'app-program-settings.js?v=20261001hist7',
     'app-audit.js',
     'app-auth.js',
     'treatment-items-catalog.js',
@@ -7535,12 +7572,12 @@
     'app-patient-views.js',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
-    'app-appt.js',
+    'app-appt.js?v=20261001hist9',
     'app-rsvp-recall.js',
     'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-consultation.js',
+    'app-consultation.js?v=20261001hist10',
     'app-con-dictation-fix.js',
     'app-con-notes.js',
     'app-xray.js?v=20261001panofit1',

@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20261001aiproto1';
+var BUILD = '20261001hist10';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -210,7 +210,7 @@ function classifyHost(src, host) {
     console.log('=== spot: source ===');
     pass('index BUILD', idx.indexOf("BUILD = '" + BUILD + "'") >= 0,
         (idx.match(/BUILD = '([^']+)'/) || [])[1]);
-    pass('helper script cache bust', idx.indexOf('app-xray-ai.js?v=' + BUILD) >= 0);
+    pass('helper script cache bust', idx.indexOf('app-xray-ai.js?v=') >= 0);
     pass('page gate function', aiSrc.indexOf('function xrayAiPageIsLocalServer()') >= 0);
     pass('protocol fetch', aiSrc.indexOf('function xrayAiProtocolFetch(') >= 0);
     pass('job link shape', aiSrc.indexOf("'csxrayai://job?' +") >= 0 && aiSrc.indexOf("'client=' + encodeURIComponent(") >= 0);

@@ -241,16 +241,34 @@ function medicalNotesEditingAllowed() {
 
 function applyMedicalNotesProgramLocks() {
     var allowed = medicalNotesEditingAllowed();
-    ['fldMedHistory', 'fldMedications', 'fldAllergy'].forEach(function (id) {
+    ['fldMedHistory', 'fldMedications', 'fldAllergy',
+     'fldDentalHistory', 'fldParafunctional', 'fldOralHygiene'].forEach(function (id) {
         var el = g(id);
         if (!el) return;
         el.readOnly = !allowed;
         el.style.background = allowed ? '' : '#f8fafc';
     });
-    var saveBtn = document.querySelector('#conMedForm .history-save-btn');
-    if (saveBtn) saveBtn.style.display = allowed ? '' : 'none';
-    var hint = document.querySelector('#conMedForm .history-save-hint');
-    if (hint) hint.style.display = allowed ? '' : 'none';
+    ['conAllergyChipInput', 'conAllergyNkda', 'conMedsChipInput'].forEach(function (id) {
+        var el = g(id);
+        if (!el) return;
+        el.disabled = !allowed;
+    });
+    document.querySelectorAll('.history-chip-add-btn, .history-chip-quick button, .history-chip button').forEach(function (btn) {
+        btn.disabled = !allowed;
+        btn.style.opacity = allowed ? '' : '0.45';
+        btn.style.pointerEvents = allowed ? '' : 'none';
+    });
+    ['#conMedForm', '#conDenForm'].forEach(function (sel) {
+        var form = document.querySelector(sel);
+        if (!form) return;
+        var saveBtn = form.querySelector('.history-save-btn');
+        if (saveBtn) saveBtn.style.display = allowed ? '' : 'none';
+        var hint = form.querySelector('.history-save-hint');
+        if (hint) hint.style.display = allowed ? '' : 'none';
+        var reviewBtn = form.querySelector('.history-review-btn');
+        if (reviewBtn) reviewBtn.style.display = allowed ? '' : 'none';
+    });
+    if (typeof refreshConMhReviewChip === 'function') refreshConMhReviewChip();
 }
 
 function applyAddMedicalTermProgramUi() {

@@ -9347,8 +9347,69 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .con-col-header .con-tn-print-btn {
   font-size: 12px;
   padding: 5px 14px;
-  margin-left: auto;
   flex-shrink: 0;
+}
+
+.con-col-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.con-jump-med-btn {
+  font-size: 12px;
+  padding: 5px 14px;
+  flex-shrink: 0;
+}
+
+.con-mh-review-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  max-width: 420px;
+}
+
+.con-mh-review-chip[hidden] {
+  display: none !important;
+}
+
+.con-mh-review-chip.is-never {
+  background: #f3f4f6;
+}
+
+.con-mh-review-chip.is-stale {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.con-mh-review-chip.is-ok {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.con-mh-review-chip #conMhReviewChipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.con-mh-review-chip button {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .con-rx-refresh-btn {
@@ -9851,6 +9912,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     box-shadow: 0 0 0 1px #a7f3d0;
 }
 .con-ptl-event--note { --ptl-dot: #2563eb; --ptl-type: #1d4ed8; }
+.con-ptl-event--history { --ptl-dot: #4338ca; --ptl-type: #3730a3; }
 .con-ptl-event--rx { --ptl-dot: #7c3aed; --ptl-type: #6d28d9; }
 .con-ptl-event--visit { --ptl-dot: #059669; --ptl-type: #047857; }
 .con-ptl-event--bill { --ptl-dot: #d97706; --ptl-type: #b45309; }
@@ -10705,6 +10767,10 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     font-style: italic;
 }
 
+.history-search-card .btn-add {
+    margin-top: 10px;
+}
+
 .history-alert-display-card {
     background: #fff;
     border: 1px solid #e5e7eb;
@@ -10840,6 +10906,23 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     padding: 3px 12px;
 }
 
+.history-jump-btn {
+    margin-left: auto;
+    background: #fff;
+    border: 1px solid #c7d2fe;
+    color: #4338ca;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.history-jump-btn:hover {
+    background: #eef2ff;
+}
+
 .history-form-body {
     padding: 24px;
     display: flex;
@@ -10897,6 +10980,179 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     border-top: 1px solid #e5e7eb;
     gap: 12px;
     flex-wrap: wrap;
+}
+
+.history-review-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    flex: 1 1 220px;
+    min-width: 180px;
+}
+
+.history-review-stamp {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+.history-review-stamp.is-never {
+    color: #9ca3af;
+}
+
+.history-review-stamp.is-stale {
+    color: #b45309;
+    font-weight: 600;
+}
+
+.history-review-btn {
+    background: #fff;
+    border: 1px solid #c7d2fe;
+    color: #4338ca;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.history-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 8px;
+}
+
+.history-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+    border-radius: 999px;
+    padding: 3px 8px 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.history-chip button {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.history-struct-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.history-nkda {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+}
+
+.history-chip-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.history-chip-add input {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.history-chip-add-btn {
+    background: #fff;
+    border: 1px solid #c7d2fe;
+    color: #4338ca;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.history-chip-quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.history-chip-quick button {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px dashed #fdba74;
+    background: #fff;
+    color: #9a3412;
+    cursor: pointer;
+}
+
+.history-chip-quick button.is-on {
+    background: #fff7ed;
+    border-style: solid;
+}
+
+.history-chip.is-med {
+    background: #eef2ff;
+    color: #3730a3;
+    border-color: #c7d2fe;
+}
+
+.history-chip-suggest {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    max-height: 180px;
+    overflow: auto;
+}
+
+.history-chip-suggest button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.appt-mh-due {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: #9a3412;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 999px;
+    padding: 1px 6px;
+    margin-right: 4px;
+    white-space: nowrap;
+}
+
+.appt-mh-due-count {
+    background: #fff7ed !important;
+    color: #9a3412;
 }
 
 .history-save-hint {
@@ -16729,11 +16985,20 @@ body.ql-hidden .bc-trigger-btn { display: none !important; }
     gap: 8px;
     align-items: center;
 }
-.doc-rt-ph-label {
-    font-size: 12px;
-    color: #555;
-    font-weight: 800;
-    margin-right: 4px;
+.doc-rt-ph-btn {
+    font-size: 11px;
+    padding: 3px 8px;
+    border: 1px solid #c7d2fe;
+    background: #fff;
+    color: #4338ca;
+    border-radius: 999px;
+    cursor: pointer;
+    font-weight: 600;
+    font-family: ui-monospace, Consolas, monospace;
+}
+
+.doc-rt-ph-btn:hover {
+    background: #eef2ff;
 }
 .doc-rt-editor {
     padding: 16px 18px;

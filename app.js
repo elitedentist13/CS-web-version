@@ -171,8 +171,6 @@ var CLINIC_TAG_FILTER_SELECT_IDS = [
     'patientDirClinicFilter',
     'recallClinicFilter',
     'conPsClinicFilter',
-    'conPsClinicFilterMed',
-    'conPsClinicFilterDen',
     'conPsClinicFilterXray',
     'conPsClinicFilterPhoto',
     'conPsClinicFilterChart',
@@ -185,8 +183,6 @@ var CLINIC_TAG_FILTER_SELECT_IDS = [
 /** Consultation module patient-search clinic filters (all subtabs). */
 var CONSULTATION_CLINIC_FILTER_SELECT_IDS = [
     'conPsClinicFilter',
-    'conPsClinicFilterMed',
-    'conPsClinicFilterDen',
     'conPsClinicFilterXray',
     'conPsClinicFilterPhoto',
     'conPsClinicFilterChart',
@@ -487,8 +483,6 @@ var CLINIC_FILTER_FOLLOW_HEADER = {
     patientDirClinicFilter: false,
     recallClinicFilter: true,
     conPsClinicFilter: false,
-    conPsClinicFilterMed: false,
-    conPsClinicFilterDen: false,
     conPsClinicFilterXray: false,
     conPsClinicFilterPhoto: false,
     conPsClinicFilterChart: false,
@@ -2560,12 +2554,6 @@ function refreshVisiblePatientSearchDropdowns() {
         }},
         { drop: 'conPsDrop', input: 'conPsInput', run: function () {
             if (typeof doConPatientSearch === 'function') doConPatientSearch();
-        }},
-        { drop: 'conPsDropMed', input: 'conPsInputMed', run: function () {
-            if (typeof doConPatientSearchMed === 'function') doConPatientSearchMed();
-        }},
-        { drop: 'conPsDropDen', input: 'conPsInputDen', run: function () {
-            if (typeof doConPatientSearchDen === 'function') doConPatientSearchDen();
         }},
         { drop: 'conPsDropXray', input: 'conPsInputXray', run: function () {
             if (typeof doConPatientSearchXray === 'function') doConPatientSearchXray();
@@ -5706,8 +5694,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     wireConClinicFilter('conPsClinicFilter', 'conPsInput', doConPatientSearch);
-    wireConClinicFilter('conPsClinicFilterMed', 'conPsInputMed', doConPatientSearchMed);
-    wireConClinicFilter('conPsClinicFilterDen', 'conPsInputDen', doConPatientSearchDen);
     wireConClinicFilter('conPsClinicFilterXray', 'conPsInputXray', doConPatientSearchXray);
     wireConClinicFilter('conPsClinicFilterPhoto', 'conPsInputPhoto', doConPatientSearchPhoto);
     wireConClinicFilter('conPsClinicFilterChart', 'conPsInputChart', doConPatientSearchChart);
@@ -5927,14 +5913,6 @@ document.addEventListener('DOMContentLoaded', function() {
             { inputId: 'conPsInput', dropId: 'conPsDrop', clinicFilterId: 'conPsClinicFilter',
               activeSource: 'consultation-treatment-search', onSelect: function (p) {
                   if (typeof selectConPatient === 'function') selectConPatient(p);
-              }},
-            { inputId: 'conPsInputMed', dropId: 'conPsDropMed', clinicFilterId: 'conPsClinicFilterMed',
-              activeSource: 'consultation-med-search', onSelect: function (p) {
-                  if (typeof selectMedPatient === 'function') selectMedPatient(p);
-              }},
-            { inputId: 'conPsInputDen', dropId: 'conPsDropDen', clinicFilterId: 'conPsClinicFilterDen',
-              activeSource: 'consultation-den-search', onSelect: function (p) {
-                  if (typeof selectDenPatient === 'function') selectDenPatient(p);
               }},
             { inputId: 'conPsInputXray', dropId: 'conPsDropXray', clinicFilterId: 'conPsClinicFilterXray',
               activeSource: 'consultation-xray-search', onSelect: function (p) {

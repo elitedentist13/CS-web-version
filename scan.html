@@ -54,6 +54,37 @@
   .sc-fmt input:checked + span { color:var(--acc); font-weight:700; }
   .sc-fmt label:has(input:checked) { border-color:var(--acc); }
   .sc-status { min-height:20px; font-size:14px; color:var(--mute); text-align:center; }
+  .sc-last { position:relative; width:56px; height:72px; padding:0; border-radius:8px; border:2px solid #fff; overflow:hidden; background:#000; margin-left:auto; display:block; }
+  .sc-last img { width:100%; height:100%; object-fit:cover; display:block; }
+  .sc-thumb img, #scPreviewCanvas { cursor:zoom-in; }
+  #scViewer { position:fixed; inset:0; z-index:30; background:rgba(2,6,23,.97); display:flex; flex-direction:column; }
+  .sc-vbar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:calc(8px + env(safe-area-inset-top)) 12px 8px; }
+  .sc-vbar .sc-row { gap:8px; }
+  .sc-vbar button { padding:9px 14px; font-size:14px; }
+  #scViewerLabel { font-size:14px; font-weight:700; }
+  #scViewerScroll { flex:1; min-height:0; position:relative; overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none; }
+  #scViewerImg { position:absolute; left:50%; top:50%; transform-origin:center center; background:#fff; max-width:none; max-height:none; will-change:transform; -webkit-user-drag:none; }
+
+  #scOverlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .sc-seg { display:inline-flex; background:rgba(15,23,42,.78); border-radius:999px; padding:3px; }
+  .sc-seg button { border:0; background:transparent; color:#cbd5e1; font-size:13px; font-weight:700; padding:6px 14px; border-radius:999px; }
+  .sc-seg button.is-on { background:#0891b2; color:#fff; }
+  .sc-automsg { position:absolute; left:50%; transform:translateX(-50%); top:calc(64px + env(safe-area-inset-top)); max-width:86%; text-align:center;
+    background:rgba(15,23,42,.78); color:#fff; border-radius:999px; padding:7px 14px; font-size:14px; font-weight:600; pointer-events:none; }
+  .sc-automsg:empty { display:none; }
+  .sc-shutter-wrap { position:relative; width:88px; height:88px; display:flex; align-items:center; justify-content:center; }
+  #scCount { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+  #scCount svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
+  .sc-ring-bg { fill:none; stroke:rgba(255,255,255,.3); stroke-width:6; }
+  .sc-ring { fill:none; stroke:#22d3ee; stroke-width:6; stroke-linecap:round; stroke-dasharray:289.03; stroke-dashoffset:289.03; }
+  #scCount.is-run .sc-ring { animation:scRing 3s linear forwards; }
+  @keyframes scRing { from { stroke-dashoffset:289.03; } to { stroke-dashoffset:0; } }
+  #scFlash { position:absolute; inset:0; background:#fff; opacity:.85; pointer-events:none; z-index:6; }
+  .sc-ptop { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .sc-ptop .sc-pill { background:var(--card); }
+  .sc-actions button { padding:12px 14px; font-size:15px; }
+  .sc-vnav { display:flex; justify-content:space-between; padding:8px 14px calc(10px + env(safe-area-inset-bottom)); }
+  .sc-vnav button { padding:10px 22px; font-size:20px; }
   .sc-ok { font-size:56px; }
   #scErrorMsg { color:var(--bad); font-size:16px; max-width:320px; line-height:1.5; }
 </style>
@@ -66,7 +97,7 @@
   <button id="scStartBtn" class="sc-btn-wide" type="button" data-s="start">Open scanner</button>
   <label class="sc-btn sc-btn-ghost sc-btn-wide">
     <span data-s="gallery">Choose from gallery</span>
-    <input id="scGalleryFile" type="file" accept="image/*">
+    <input id="scGalleryFile" type="file" accept="image/*,application/pdf" multiple>
   </label>
   <label class="sc-btn sc-btn-ghost sc-btn-wide">
     <span data-s="capture">Take photo</span>
@@ -78,18 +109,35 @@
 
 <section id="scCamera" class="sc-view" hidden>
   <video id="scVideo" autoplay playsinline muted></video>
+  <canvas id="scOverlay"></canvas>
   <div class="sc-guide"></div>
+  <div id="scFlash" hidden></div>
   <div class="sc-cam-top">
     <span class="sc-pill"><span data-s="pages">Pages</span>: <span id="scPagesBadge">0</span></span>
-    <button id="scFinishBtn" type="button" disabled data-s="finish">Review &amp; send</button>
+    <div id="scMode" class="sc-seg" role="group" aria-label="Shutter mode">
+      <button id="scModeAuto" type="button" class="is-on" aria-pressed="true">Auto</button>
+      <button id="scModeManual" type="button" aria-pressed="false">Manual</button>
+    </div>
+    <button id="scFinishBtn" type="button" disabled data-s="finish">Next</button>
   </div>
+  <div id="scAutoMsg" class="sc-automsg"></div>
   <div class="sc-cam-bar">
     <div class="sc-side">
       <label class="sc-btn sc-btn-ghost"><span data-s="gallery">Choose from gallery</span>
-        <input id="scCamFile" type="file" accept="image/*"></label>
+        <input id="scCamFile" type="file" accept="image/*,application/pdf" multiple></label>
     </div>
-    <button id="scShutter" class="sc-shutter" type="button" aria-label="Take photo"></button>
-    <div class="sc-side"></div>
+    <div class="sc-shutter-wrap">
+      <button id="scShutter" class="sc-shutter" type="button" aria-label="Take photo"></button>
+      <div id="scCount" hidden>
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="sc-ring-bg" cx="50" cy="50" r="46"></circle>
+          <circle id="scCountRing" class="sc-ring" cx="50" cy="50" r="46"></circle>
+        </svg>
+      </div>
+    </div>
+    <div class="sc-side">
+      <button id="scLastThumb" class="sc-last" type="button" hidden aria-label="Last page"><img id="scLastImg" alt=""></button>
+    </div>
   </div>
 </section>
 
@@ -97,12 +145,16 @@
   <div class="sc-note" data-s="crop">Drag the corners to fit the page</div>
   <div id="scCropStage"><canvas id="scCropCanvas"></canvas></div>
   <div class="sc-row">
-    <button id="scCropRetake" class="sc-btn-ghost" type="button" data-s="retake">Retake</button>
-    <button id="scCropNext" type="button" data-s="next">Next</button>
+    <button id="scCropRetake" class="sc-btn-ghost" type="button" data-s="cancel">Cancel</button>
+    <button id="scCropNext" type="button" data-s="apply">Apply</button>
   </div>
 </section>
 
 <section id="scPreview" class="sc-view" hidden>
+  <div class="sc-ptop">
+    <span class="sc-pill"><span data-s="pages">Pages</span>: <span id="scPreviewPages">0</span></span>
+    <button id="scPreviewNext" type="button" data-s="finish">Next</button>
+  </div>
   <div class="sc-row">
     <button class="sc-chip" type="button" data-filter="orig" data-s="fOrig">Original</button>
     <button class="sc-chip" type="button" data-filter="color" data-s="fColor">Enhanced</button>
@@ -110,17 +162,21 @@
     <button class="sc-chip" type="button" data-filter="bw" data-s="fBw">Black &amp; white</button>
   </div>
   <div class="sc-row"><canvas id="scPreviewCanvas"></canvas></div>
-  <div class="sc-row">
-    <button id="scPreviewBack" class="sc-btn-ghost" type="button" data-s="back">Back</button>
+  <div class="sc-note" data-s="tapEnlarge">Tap the page to enlarge it and check the clarity</div>
+  <div id="scPreviewStatus" class="sc-status"></div>
+  <div class="sc-row sc-actions">
+    <button id="scPreviewRetake" class="sc-btn-ghost" type="button" data-s="retake">Retake</button>
+    <button id="scPreviewCrop" class="sc-btn-ghost" type="button" data-s="cropPage">Crop</button>
     <button id="scRotate" class="sc-btn-ghost" type="button" data-s="rotate">Rotate</button>
     <button id="scAddPage" type="button" data-s="add">Add page</button>
   </div>
 </section>
 
 <section id="scSend" class="sc-view" hidden>
-  <h1><span data-s="pages">Pages</span>: <span id="scTrayCount">0</span></h1>
+  <h1><span data-s="queueTitle">Pending upload</span>: <span id="scTrayCount">0</span></h1>
   <div id="scTrayEmpty" class="sc-note" data-s="noPages">No pages yet</div>
   <div id="scTray" class="sc-tray"></div>
+  <div class="sc-note" data-s="hintTap">Tap a page to enlarge it and check the clarity, or crop it. PDF files are sent as they are.</div>
   <div class="sc-note" data-s="format">Send as</div>
   <div class="sc-fmt">
     <label><input id="scFmtPdf" type="radio" name="fmt" checked><span data-s="asPdf">One PDF</span></label>
@@ -128,7 +184,7 @@
   </div>
   <div id="scSendStatus" class="sc-status"></div>
   <div class="sc-row">
-    <button id="scSendBack" class="sc-btn-ghost" type="button" data-s="back">Back</button>
+    <button id="scSendBack" class="sc-btn-ghost" type="button" data-s="more">Scan more</button>
     <button id="scSendBtn" type="button" data-s="send">Send to computer</button>
   </div>
   <div class="sc-lock" data-s="sentLocked">Sent pages are kept on the clinic computer and cannot be changed here.</div>
@@ -148,8 +204,24 @@
   <div id="scErrorMsg"></div>
 </section>
 
+<div id="scViewer" hidden>
+  <div class="sc-vbar">
+    <span id="scViewerLabel"></span>
+    <span class="sc-row">
+      <button id="scViewerZoom" class="sc-chip" type="button">Fit</button>
+      <button id="scViewerCrop" class="sc-chip" type="button" data-s="cropPage">Crop</button>
+      <button id="scViewerClose" class="sc-btn-ghost" type="button" data-s="close">Close</button>
+    </span>
+  </div>
+  <div id="scViewerScroll"><img id="scViewerImg" alt="" draggable="false"></div>
+  <div class="sc-vnav">
+    <button id="scViewerPrev" class="sc-btn-ghost" type="button" aria-label="Previous">‹</button>
+    <button id="scViewerNext" class="sc-btn-ghost" type="button" aria-label="Next">›</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="scan.js?v=20261002scan2"></script>
+<script src="scan.js?v=20261002scan8"></script>
 <script>CSPhoneScan.boot();</script>
 </body>
 </html>

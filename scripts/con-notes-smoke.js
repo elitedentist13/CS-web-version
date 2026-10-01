@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20261002scan2';
+var EXPECTED_BUILD = '20261002scan8';
 var PID = '18d4d8a2-7d16-403c-962c-cba93540b132';
 var fails = [];
 

@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002scan2';
+var BUILD = '20261002scan8';
 var PAGE_PORT = 8795;
 var CDP_PORT = 9357;
 var CHROME = process.env.CHROME_PATH ||
@@ -222,6 +222,7 @@ function getPx(img, x, y) {
         scanHtml.indexOf('scan.js?v=' + BUILD) >= 0 && scanHtml.indexOf('CSPhoneScan.boot()') >= 0);
     pass('scan page has every view the script drives',
         ['scIntro', 'scCamera', 'scCrop', 'scPreview', 'scSend', 'scDone', 'scError', 'scVideo', 'scShutter', 'scFinishBtn',
+         'scModeAuto', 'scModeManual', 'scCount', 'scOverlay', 'scPreviewNext', 'scPreviewRetake', 'scPreviewCrop', 'scAddPage', 'scViewerScroll',
          'scCropCanvas', 'scPreviewCanvas', 'scSendBtn', 'scFmtPdf', 'scFmtImg', 'scTray', 'scMoreBtn'].every(function (id) {
             return scanHtml.indexOf('id="' + id + '"') >= 0;
         }));
@@ -334,6 +335,145 @@ function getPx(img, x, y) {
     pass('PDF page size follows the scan orientation',
         scan.pdfPageSize(1000, 1400).orient === 'portrait' && scan.pdfPageSize(1400, 1000).orient === 'landscape' &&
         Math.max(scan.pdfPageSize(1000, 1400).w, scan.pdfPageSize(1000, 1400).h) === 842);
+
+    pass('file picker rules: pdf as-is, any picture becomes JPEG, empty / oversize / other types refused',
+        scan.classifyFile({ type: 'application/pdf', name: 'a.pdf', size: 1000 }) === 'pdf' &&
+        scan.classifyFile({ type: '', name: 'Scan.PDF', size: 1000 }) === 'pdf' &&
+        scan.classifyFile({ type: 'image/jpeg', name: 'a.jpg', size: 1000 }) === 'image' &&
+        scan.classifyFile({ type: 'image/heic', name: 'a.heic', size: 1000 }) === 'image' &&
+        scan.classifyFile({ type: '', name: 'b.PNG', size: 1000 }) === 'image' &&
+        scan.classifyFile({ type: 'text/plain', name: 'a.txt', size: 10 }) === '' &&
+        scan.classifyFile({ type: 'model/stl', name: 'a.stl', size: 10 }) === '' &&
+        scan.classifyFile({ type: 'application/pdf', name: 'a.pdf', size: 0 }) === '' &&
+        scan.classifyFile({ type: 'application/pdf', name: 'a.pdf', size: 25 * 1024 * 1024 }) === '' &&
+        scan.classifyFile(null) === '');
+    var vfit = scan.fitSize(2000, 1000, 400, 800);
+    pass('viewer: page fits inside the screen keeping its aspect ratio',
+        vfit.w === 400 && vfit.h === 200 && scan.fitSize(0, 10, 100, 100).w === 0);
+    var vz = scan.zoomAbout({ s: 1, tx: 0, ty: 0 }, 2, 300, 200, 400, 800);
+    pass('viewer: pinch zoom keeps the point under the fingers where it was',
+        (function () {
+            var fx = 300 - 200, fy = 200 - 400;
+            var before = { x: fx - 0, y: fy - 0 };
+            var after = { x: fx - vz.tx, y: fy - vz.ty };
+            return Math.abs(before.x / 1 - after.x / 2) < 1e-9 && Math.abs(before.y / 1 - after.y / 2) < 1e-9;
+        })());
+    pass('viewer: panning is limited to the page edges (none when it fits)',
+        (function () {
+            var fit = scan.viewClamp({ s: 1, tx: 300, ty: -300 }, 400, 200, 400, 800);
+            var big = scan.viewClamp({ s: 3, tx: 9999, ty: 9999 }, 400, 200, 400, 800);
+            var bigY = scan.viewClamp({ s: 5, tx: 0, ty: 9999 }, 400, 200, 400, 800);
+            return fit.tx === 0 && fit.ty === 0 && big.tx === 400 && big.ty === 0 && bigY.ty === 100 &&
+                scan.viewClamp({ s: 99, tx: 0, ty: 0 }, 400, 200, 400, 800).s === 8 && scan.clampScale(0.2) === 1;
+        })());
+    pass('viewer: double-tap goes fit -> real pixels -> fit; percentage is of real pixels',
+        (function () {
+            var s1 = scan.nextViewScale(1, 400, 2000, 2);
+            return s1 > 1.5 && Math.abs(s1 - scan.clampScale(2000 / 2 / 400)) < 1e-9 && scan.nextViewScale(s1, 400, 2000, 2) === 1 &&
+                scan.zoomPercent(1, 400, 2000, 2) === 40 && scan.zoomPercent(s1, 400, 2000, 2) === 100 && scan.zoomPercent(1, 400, 0, 2) === 0;
+        })());
+    var cm = scan.coverMap(640, 480, 400, 800);
+    pass('overlay mapping follows object-fit: cover (centre crop)',
+        Math.abs(cm.s - 800 / 480) < 1e-9 && Math.abs(cm.ox - (400 - 640 * cm.s) / 2) < 1e-9 && cm.oy === 0 &&
+        scan.coverMap(400, 800, 400, 800).ox === 0);
+    pass('page cap and PDF / picture split',
+        scan.MAX_PAGES === 40 && scan.roomFor(38, 5) === 2 && scan.roomFor(40, 3) === 0 && scan.roomFor(0, 3) === 3 &&
+        (function () { var sp = scan.splitPages([{ pdf: true }, {}, {}]); return sp.pdfs.length === 1 && sp.images.length === 2; })());
+    pass('scan page: gallery inputs are multiple and accept pdf; tray hint present',
+        /id="scGalleryFile"[^>]*accept="image\/\*,application\/pdf"[^>]*multiple/.test(scanHtml) &&
+        /id="scCamFile"[^>]*accept="image\/\*,application\/pdf"[^>]*multiple/.test(scanHtml) && scanHtml.indexOf('data-s="hintTap"') >= 0);
+
+    function inQuad(q, x, y) {
+        var sign = 0;
+        for (var i = 0; i < 4; i++) {
+            var a = q[i], b = q[(i + 1) % 4];
+            var cr = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+            if (cr !== 0) { if (sign && (cr > 0) !== (sign > 0)) return false; sign = cr > 0 ? 1 : -1; }
+        }
+        return true;
+    }
+    function synth(w, h, q, withText) {
+        var g = new Uint8Array(w * h);
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+            var v = 60 + ((x * 7 + y * 13) % 9);
+            if (q && inQuad(q, x + 0.5, y + 0.5)) {
+                v = 225;
+                if (withText && y % 7 < 2 && x % 25 < 17) {
+                    var cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
+                    if (inQuad(q.map(function (p) { return { x: cx + (p.x - cx) * 0.85, y: cy + (p.y - cy) * 0.85 }; }), x + 0.5, y + 0.5)) v = 35;
+                }
+            }
+            g[y * w + x] = v;
+        }
+        return g;
+    }
+    var W = 200, H = 150;
+    var pageQ = [{ x: 50, y: 15 }, { x: 150, y: 18 }, { x: 146, y: 130 }, { x: 46, y: 126 }];
+    var d1 = scan.detectDocument(synth(W, H, pageQ, true), W, H);
+    pass('detector finds a page with text and returns its four corners',
+        d1.found && d1.reason === 'ok' && d1.quad.length === 4 &&
+        pageQ.every(function (c, i) { return Math.abs(d1.quad[i].x * W - c.x) < 4 && Math.abs(d1.quad[i].y * H - c.y) < 4; }),
+        JSON.stringify(d1.quad && d1.quad.map(function (p) { return [Math.round(p.x * W), Math.round(p.y * H)]; })) + ' ' + d1.reason);
+    var d2 = scan.detectDocument(synth(W, H, pageQ, false), W, H);
+    pass('a blank sheet is not a text page (no count-down)', d2.found === false && d2.reason === 'notext', d2.reason);
+    var d3 = scan.detectDocument(synth(W, H, null, false), W, H);
+    pass('an empty scene finds nothing', d3.found === false);
+    var d4 = scan.detectDocument(synth(W, H, [{ x: 0, y: 10 }, { x: 120, y: 12 }, { x: 118, y: 140 }, { x: 0, y: 138 }], true), W, H);
+    pass('a page cut off by the frame edge is rejected ("move back")', d4.found === false && d4.reason === 'full', d4.reason);
+    var d5 = scan.detectDocument(synth(W, H, [{ x: 80, y: 60 }, { x: 110, y: 60 }, { x: 110, y: 90 }, { x: 80, y: 90 }], true), W, H);
+    pass('a tiny sheet far away is rejected ("move closer")', d5.found === false && d5.reason === 'small', d5.reason);
+    var rgba = new Uint8ClampedArray([255, 255, 255, 255, 0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255]);
+    var gr = scan.rgbaToGray(rgba, 4, 1);
+    pass('grey conversion: white, black, and green brighter than red', gr[0] >= 254 && gr[1] === 0 && gr[3] > gr[2], Array.from(gr).join());
+
+    var fixed = { found: true, quad: d1.quad };
+    var shifted = { found: true, quad: d1.quad.map(function (p) { return { x: p.x + 0.2, y: p.y }; }) };
+    var none = { found: false, quad: null };
+    var A = scan.AUTO;
+    (function () {
+        var st = scan.autoNew(true), t = 1000, log = [];
+        function step(det, dt) { t += dt; var r = scan.autoStep(st, det, t); log.push(r.action); return r; }
+        step(fixed, 0);
+        pass('auto: a page is first seen, then must hold steady before the count-down', log[0] === 'steady' && st.phase === 'steady');
+        step(fixed, 300);
+        var early = step(fixed, 300);
+        pass('auto: no count-down before 0.7 s of stillness', early.action === 'none' && st.phase === 'steady');
+        var started = step(fixed, 200);
+        pass('auto: count-down starts at 3 s', started.action === 'start' && started.remaining === A.countdownMs && st.phase === 'count');
+        var r2 = step(fixed, 1000);
+        var r3 = step(fixed, 1000);
+        pass('auto: count-down ticks 3 -> 2 -> 1', r2.action === 'tick' && Math.ceil(r2.remaining / 1000) === 2 && r3.action === 'tick' && Math.ceil(r3.remaining / 1000) === 1,
+            r2.remaining + ',' + r3.remaining);
+        var fire = step(fixed, 1000);
+        pass('auto: fires exactly when the 3 s are up', fire.action === 'fire' && st.armed === false);
+        var after = [];
+        for (var i = 0; i < 40; i++) after.push(step(fixed, 250).action);
+        pass('auto: the same page held in place is never captured twice', after.every(function (a) { return a === 'none'; }));
+        for (var j = 0; j < 4; j++) step(none, 250);
+        pass('auto: re-arms after the page has been taken away', st.armed === true);
+        step(fixed, 250); step(fixed, 400);
+        var again = step(fixed, 300);
+        pass('auto: a new page starts a new count-down', again.action === 'start', log.slice(-6).join());
+    })();
+    (function () {
+        var st = scan.autoNew(true), t = 0;
+        function step(det, dt) { t += dt; return scan.autoStep(st, det, t); }
+        step(fixed, 0);
+        var s = step(fixed, 800);
+        var mv = step(shifted, 500);
+        pass('auto: moving the page during the count-down cancels it', s.action === 'start' && mv.action === 'cancel' && st.phase === 'steady');
+        var st2 = scan.autoNew(true); t = 0; st = st2;
+        step(fixed, 0); step(fixed, 800);
+        var lost1 = step(none, 500);
+        var back = step(fixed, 300);
+        pass('auto: a brief dropout does not cancel the count-down', lost1.action === 'tick' && back.action === 'tick');
+        step(none, 300); var lost2 = step(none, 1000);
+        pass('auto: a long dropout cancels', lost2.action === 'cancel' && st.phase === 'search');
+        var st3 = scan.autoNew(false, d1.quad); st = st3; t = 0;
+        var a1 = step(fixed, 0), a2 = step(fixed, 1000);
+        var a3 = step(shifted, 300);
+        pass('auto: after a capture, moving to a clearly different page re-arms', a1.action === 'none' && a2.action === 'none' && a3.action === 'steady');
+    })();
 
     var seen = [];
     var tokenBucket = {};
@@ -822,6 +962,28 @@ function getPx(img, x, y) {
         await phone.cdp.call('Page.addScriptToEvaluateOnNewDocument', {
             source: `
               window.__uploads = []; window.__forbidden = []; window.__failNext = 0;
+              (function () {
+                const md = navigator.mediaDevices;
+                if (!md || !md.getUserMedia) return;
+                const real = md.getUserMedia.bind(md);
+                md.getUserMedia = async function (c) {
+                  if (!window.__docCam) return real(c);
+                  const cv = document.createElement('canvas'); cv.width = 640; cv.height = 480;
+                  const x = cv.getContext('2d');
+                  const draw = () => {
+                    x.fillStyle = '#323232'; x.fillRect(0, 0, 640, 480);
+                    if (window.__docShow) {
+                      x.fillStyle = '#ececec';
+                      x.beginPath(); x.moveTo(200, 40); x.lineTo(440, 44); x.lineTo(432, 440); x.lineTo(192, 436); x.closePath(); x.fill();
+                      x.fillStyle = '#222';
+                      for (let y = 80; y < 400; y += 36) x.fillRect(215, y, 195, 6);
+                    }
+                  };
+                  draw();
+                  setInterval(draw, 60);
+                  return cv.captureStream(15);
+                };
+              })();
               window.__CS_SCAN_SB = {
                 from() { window.__forbidden.push('table'); return {}; },
                 storage: { from(b) {
@@ -882,39 +1044,60 @@ function getPx(img, x, y) {
           const $ = (id) => document.getElementById(id);
           const vis = (id) => !$(id).hidden;
           const out = {};
+          const mkc = (type, w, h, color) => new Promise((res) => {
+            const c = document.createElement('canvas'); c.width = w; c.height = h;
+            const x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0, 0, w, h); x.fillStyle = '#000'; x.fillRect(5, 5, w / 3, h / 3);
+            c.toBlob((bl) => res(bl), type, 0.9);
+          });
+          window.__h = {
+            wait, until, $, vis, mkc,
+            pick: (id, files) => { const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); const inp = $(id); inp.files = dt.files; inp.dispatchEvent(new Event('change')); },
+            scanOne: async (filter) => {
+              $('scShutter').click();
+              const prev = await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 8000);
+              if (filter) $('scPreview').querySelector('[data-filter="' + filter + '"]').click();
+              await wait(200);
+              return { prev: prev, direct: !vis('scCrop'), w: $('scPreviewCanvas').width, h: $('scPreviewCanvas').height };
+            }
+          };
           out.helloSent = await until(() => window.__uploads.some((u) => /\\/h\\.png$/.test(u.p) && u.type === 'image/png'), 4000);
           out.introVisible = vis('scIntro') && $('scLabel').textContent.indexOf('#S1') === 0;
           out.finishDisabled = $('scFinishBtn').disabled === true;
 
+          window.__docCam = true;
+          window.__docShow = false;
           $('scStartBtn').click();
           out.cameraShown = await until(() => vis('scCamera'), 8000);
           out.videoLive = await until(() => $('scVideo').videoWidth > 0, 8000);
+          out.autoBtnOn = $('scModeAuto').getAttribute('aria-pressed') === 'true' && $('scModeManual').getAttribute('aria-pressed') === 'false' &&
+            $('scModeAuto').textContent === 'Auto' && $('scModeManual').textContent === 'Manual' && $('scModeAuto').classList.contains('is-on');
 
-          async function scanOne(filter, dragCorner) {
-            $('scShutter').click();
-            const crop = await until(() => vis('scCrop') && $('scCropCanvas').width > 50, 5000);
-            const cv = $('scCropCanvas');
-            const before = cv.toDataURL().length;
-            let dragged = false;
-            if (dragCorner) {
-              const r = cv.getBoundingClientRect();
-              const x0 = r.left + r.width * 0.06, y0 = r.top + r.height * 0.06;
-              const ev = (type, x, y) => new PointerEvent(type, { clientX: x, clientY: y, pointerId: 7, bubbles: true, cancelable: true });
-              cv.dispatchEvent(ev('pointerdown', x0, y0));
-              cv.dispatchEvent(ev('pointermove', x0 + 40, y0 + 30));
-              cv.dispatchEvent(ev('pointerup', x0 + 40, y0 + 30));
-              dragged = cv.toDataURL() !== undefined;
-            }
-            $('scCropNext').click();
-            const prev = await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 8000);
-            if (filter) $('scPreview').querySelector('[data-filter="' + filter + '"]').click();
-            await wait(200);
-            return { crop: crop, prev: prev, dragged: dragged, w: $('scPreviewCanvas').width, h: $('scPreviewCanvas').height };
-          }
+          await wait(1500);
+          out.noCountWithoutPage = !window.__scanState().auto.counting && !vis('scCount');
 
-          const a = await scanOne('bw', true);
-          out.firstScan = a;
+          /* manual shutter works at any time and goes straight to the preview (no crop screen in between) */
+          const first = await window.__h.scanOne(null);
+          out.manualDirect = first.prev === true && first.direct === true && $('scPreviewPages').textContent === '1' && $('scAddPage').textContent === 'Add page';
+          $('scPreviewRetake').click();
+          out.retakeToCamera = await until(() => vis('scCamera'), 4000) && window.__scanState().pages === 0 && $('scPagesBadge').textContent === '0';
+          await until(() => $('scVideo').videoWidth > 0, 8000);
+
+          /* a text page comes into view: hold steady, then a 3 second count-down, then it captures by itself */
+          window.__docShow = true;
+          out.countStarted = await until(() => window.__scanState().auto.counting === true, 8000);
+          const t0 = Date.now();
+          out.countVisible = vis('scCount');
+          await wait(400);
+          out.countMsg = $('scAutoMsg').textContent;
+          out.autoFired = await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 8000);
+          out.autoMs = Date.now() - t0;
           const pc = $('scPreviewCanvas');
+          out.autoCrop = pc.height > pc.width && pc.width < 560 && pc.width > 100;
+          out.autoSize = pc.width + 'x' + pc.height;
+          out.countHidden = !vis('scCount') && window.__scanState().auto.counting === false;
+
+          $('scPreview').querySelector('[data-filter="bw"]').click();
+          await wait(200);
           const img = pc.getContext('2d').getImageData(0, 0, pc.width, pc.height).data;
           let onlyBw = true;
           for (let i = 0; i < img.length; i += 4 * 37) { const v = img[i]; if (!((v === 0 || v === 255) && img[i + 1] === v && img[i + 2] === v)) { onlyBw = false; break; } }
@@ -924,16 +1107,73 @@ function getPx(img, x, y) {
           $('scRotate').click();
           await wait(200);
           out.rotated = pc.height === wBefore;
+          $('scRotate').click();
+          await wait(200);
+          /* tap the preview to enlarge the page before accepting it */
+          pc.click();
+          out.previewEnlarges = await until(() => vis('scViewer') && $('scViewerImg').naturalWidth === pc.width, 6000);
+          out.previewNoNav = $('scViewerPrev').hidden && $('scViewerNext').hidden && $('scViewerCrop').hidden;
+          $('scViewerClose').click();
+          out.previewViewerClosed = !vis('scViewer') && !$('scViewerImg').getAttribute('src') && vis('scPreview');
+
+          /* Crop sits on the preview: Cancel returns to the same preview, Apply re-cuts it */
+          const wPrev = pc.width, hPrev = pc.height;
+          $('scPreviewCrop').click();
+          out.cropOpens = await until(() => vis('scCrop') && $('scCropCanvas').width > 50, 5000);
+          const cv = $('scCropCanvas');
+          const r = cv.getBoundingClientRect();
+          const x0 = r.left + r.width * 0.06, y0 = r.top + r.height * 0.06;
+          const ev = (type, x, y) => new PointerEvent(type, { clientX: x, clientY: y, pointerId: 7, bubbles: true, cancelable: true });
+          cv.dispatchEvent(ev('pointerdown', x0, y0));
+          cv.dispatchEvent(ev('pointermove', x0 + 40, y0 + 30));
+          cv.dispatchEvent(ev('pointerup', x0 + 40, y0 + 30));
+          $('scCropRetake').click();
+          out.cropCancelKeeps = await until(() => vis('scPreview'), 3000) && pc.width === wPrev && pc.height === hPrev && window.__scanState().hasCurrent === true;
+          $('scPreviewCrop').click();
+          await until(() => vis('scCrop'), 3000);
+          $('scCropNext').click();
+          out.cropApplied = await until(() => vis('scPreview') && pc.width > 40, 5000);
+
           $('scAddPage').click();
           out.backToCamera = await until(() => vis('scCamera') && $('scPagesBadge').textContent === '1', 8000);
-          await until(() => $('scVideo').videoWidth > 0, 8000);
-          const b = await scanOne('color', false);
-          $('scAddPage').click();
-          out.twoPages = await until(() => $('scPagesBadge').textContent === '2', 8000);
-          out.finishEnabled = $('scFinishBtn').disabled === false;
+          out.lastThumbShown = vis('scLastThumb') && !!$('scLastImg').getAttribute('src');
 
-          $('scFinishBtn').click();
-          out.sendView = vis('scSend') && !vis('scCamera') && document.querySelectorAll('#scTray .sc-thumb').length === 2;
+          /* the same page left in view is not captured twice; taking it away re-arms */
+          await wait(1800);
+          out.noDoubleShot = vis('scCamera') && !window.__scanState().auto.counting && window.__scanState().auto.armed === false;
+          window.__docShow = false;
+          out.rearmed = await until(() => window.__scanState().auto.armed === true, 4000);
+
+          /* the last page thumbnail enlarges on tap; the zoom button toggles fit / real pixels */
+          $('scLastThumb').click();
+          out.lastEnlarges = await until(() => vis('scViewer') && $('scViewerImg').naturalWidth > 100, 6000);
+          out.lastLabel = $('scViewerLabel').textContent;
+          out.fitFirst = $('scViewerZoom').textContent === 'Fit' && window.__scanState().viewer.s === 1;
+          $('scViewerZoom').click();
+          out.zoomIn = /^[0-9]+%$/.test($('scViewerZoom').textContent) && window.__scanState().viewer.s > 1.4;
+          $('scViewerZoom').click();
+          out.zoomBackToFit = $('scViewerZoom').textContent === 'Fit' && window.__scanState().viewer.s === 1;
+          $('scViewerClose').click();
+          out.lastClosed = !vis('scViewer') && vis('scCamera');
+
+          /* the round shutter can be pressed during the count-down: it captures at once and stops the count-down */
+          await until(() => $('scVideo').videoWidth > 0, 8000);
+          window.__docShow = true;
+          out.count2 = await until(() => window.__scanState().auto.counting === true, 8000);
+          await wait(500);
+          const t1 = Date.now();
+          $('scShutter').click();
+          out.manualDuring = await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 1500) && Date.now() - t1 < 1500;
+          out.countStopped = !vis('scCount') && window.__scanState().auto.counting === false;
+          window.__docShow = false;
+
+          /* top-right Next opens the pending-upload queue, with the page just taken in it */
+          $('scPreviewNext').click();
+          await until(() => vis('scSend'), 4000);
+          out.nextOpensQueue = vis('scSend') && !vis('scPreview') && document.querySelectorAll('#scTray .sc-thumb').length === 2 &&
+            /pending upload/i.test(document.querySelector('#scSend h1').textContent);
+          out.twoPages = window.__scanState().pages === 2;
+          out.sendView = out.nextOpensQueue;
           document.querySelector('#scTray .sc-thumb-x').click();
           out.discardedLocally = document.querySelectorAll('#scTray .sc-thumb').length === 1 && $('scTrayCount').textContent === '1' && window.__uploads.length === 1;
 
@@ -955,9 +1195,24 @@ function getPx(img, x, y) {
           $('scMoreBtn').click();
           await until(() => vis('scCamera'), 8000);
           await until(() => $('scVideo').videoWidth > 0, 8000);
-          await scanOne('gray', false); $('scAddPage').click(); await until(() => $('scPagesBadge').textContent === '1', 8000);
+          await window.__h.scanOne('gray');
+          $('scPreviewRetake').click();
+          out.retakeDropsIt = await until(() => vis('scCamera'), 4000) && window.__scanState().pages === 0 && $('scPagesBadge').textContent === '0';
           await until(() => $('scVideo').videoWidth > 0, 8000);
-          await scanOne('orig', false); $('scAddPage').click(); await until(() => $('scPagesBadge').textContent === '2', 8000);
+          $('scModeManual').click();
+          out.autoOffState = window.__scanState().auto.on === false && $('scModeManual').getAttribute('aria-pressed') === 'true' &&
+            $('scModeAuto').getAttribute('aria-pressed') === 'false' && $('scModeManual').classList.contains('is-on');
+          window.__docShow = true;
+          await wait(2400);
+          out.noCountWhenOff = !window.__scanState().auto.counting && !vis('scCount') && vis('scCamera');
+          $('scModeAuto').click();
+          out.backToAuto = await until(() => window.__scanState().auto.counting === true, 8000);
+          $('scModeManual').click();
+          out.manualStopsCount = window.__scanState().auto.counting === false && !vis('scCount') && window.__scanState().auto.on === false;
+          window.__docShow = false;
+          await window.__h.scanOne('gray'); $('scAddPage').click(); await until(() => $('scPagesBadge').textContent === '1', 8000);
+          await until(() => $('scVideo').videoWidth > 0, 8000);
+          await window.__h.scanOne('orig'); $('scAddPage').click(); await until(() => $('scPagesBadge').textContent === '2', 8000);
           $('scFinishBtn').click();
           $('scFmtPdf').checked = true;
           const beforeN = window.__uploads.length;
@@ -971,6 +1226,137 @@ function getPx(img, x, y) {
           out.uniquePaths = okUploads.length > 3 && new Set(okUploads.map((u) => u.p)).size === okUploads.length;
           out.pageNames = window.__uploads.filter((u) => u.ok && /\\/p\\d+\\./.test(u.p)).map((u) => u.p.split('/').pop()).join(',');
           out.allowedTypes = window.__uploads.every((u) => ['image/jpeg', 'image/png', 'application/pdf'].indexOf(u.type) >= 0);
+          /* third round: photos + a PDF picked from the albums in one go */
+          const mk = (type, w, h, color) => new Promise((res) => {
+            const c = document.createElement('canvas'); c.width = w; c.height = h;
+            const x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0, 0, w, h); x.fillStyle = '#000'; x.fillRect(5, 5, w / 3, h / 3);
+            c.toBlob((bl) => res(bl), type, 0.9);
+          });
+          const jpgA = await mk('image/jpeg', 800, 600, '#ddd');
+          const pngB = await mk('image/png', 500, 700, '#cde');
+          const pick = (id, files) => { const dt = new DataTransfer(); files.forEach((f) => dt.items.add(f)); const inp = $(id); inp.files = dt.files; inp.dispatchEvent(new Event('change')); };
+          const pdfBody = '%PDF-1.4 fake pdf body';
+          out.galleryInput = (() => { const i = $('scGalleryFile'), j = $('scCamFile'); return i.multiple && j.multiple && /application\\/pdf/.test(i.accept) && /application\\/pdf/.test(j.accept); })();
+          $('scMoreBtn').click();
+          await until(() => vis('scCamera'), 8000);
+          pick('scCamFile', [new File([jpgA], 'one.jpg', { type: 'image/jpeg' })]);
+          out.singleStillPreview = await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 6000) && !vis('scCrop');
+          $('scPreviewRetake').click();
+          await until(() => vis('scCamera'), 8000);
+
+          pick('scCamFile', [new File([jpgA], 'a.jpg', { type: 'image/jpeg' }), new File([pngB], 'b.png', { type: 'image/png' }),
+            new File([pdfBody], 'report.pdf', { type: 'application/pdf' }), new File(['junk'], 'x.txt', { type: 'text/plain' })]);
+          out.multiView = await until(() => vis('scSend') && document.querySelectorAll('#scTray .sc-thumb').length === 3, 8000);
+          out.multiStatus = $('scSendStatus').textContent;
+          const thumbs = Array.from(document.querySelectorAll('#scTray .sc-thumb img'));
+          out.pdfThumb = thumbs.length === 3 && thumbs[2].src.indexOf('data:image/png') === 0;
+          out.pngBecameJpeg = window.__scanState().pages === 3;
+          const firstThumbBefore = thumbs[0].src;
+          thumbs[0].click();
+          out.trayEnlarges = await until(() => vis('scViewer') && $('scViewerImg').naturalWidth > 100, 6000);
+          out.trayLabel = $('scViewerLabel').textContent;
+          out.trayNav = !$('scViewerPrev').hidden && $('scViewerPrev').disabled && !$('scViewerNext').disabled && !$('scViewerCrop').hidden;
+          $('scViewerNext').click();
+          await wait(150);
+          out.trayNext = $('scViewerLabel').textContent === '#2 / 3' && $('scViewerNext').disabled && !$('scViewerPrev').disabled;
+          $('scViewerPrev').click();
+          await wait(100);
+
+          /* gestures on the enlarged page (pointer events, as a touch screen delivers them) */
+          const box = $('scViewerScroll');
+          const R = box.getBoundingClientRect();
+          const cw = R.width, ch = R.height;
+          const pe = (type, id, x, y) => box.dispatchEvent(new PointerEvent(type, { pointerId: id, clientX: R.left + x, clientY: R.top + y, bubbles: true, cancelable: true, pointerType: 'touch' }));
+          const vs = () => window.__scanState().viewer;
+          const pinch = (from, to) => {
+            const cx = cw / 2, cy = ch / 2;
+            pe('pointerdown', 11, cx - from, cy); pe('pointerdown', 12, cx + from, cy);
+            for (let i = 1; i <= 8; i++) { const d = from + (to - from) * i / 8; pe('pointermove', 11, cx - d, cy); pe('pointermove', 12, cx + d, cy); }
+            pe('pointerup', 11, cx - to, cy); pe('pointerup', 12, cx + to, cy);
+          };
+          const swipe = (x1, y1, x2, y2) => {
+            pe('pointerdown', 21, x1, y1);
+            for (let i = 1; i <= 6; i++) pe('pointermove', 21, x1 + (x2 - x1) * i / 6, y1 + (y2 - y1) * i / 6);
+            pe('pointerup', 21, x2, y2);
+          };
+          pinch(30, 110);
+          out.pinchOut = vs().s > 2.5 && /^[0-9]+%$/.test($('scViewerZoom').textContent);
+          const tx0 = vs().tx;
+          swipe(cw * 0.6, ch / 2, cw * 0.4, ch / 2);
+          out.zoomedPans = vs().idx === 0 && vs().tx !== tx0 && vs().s > 2.5;
+          pinch(110, 30);
+          out.pinchIn = vs().s < 1.05 && $('scViewerZoom').textContent === 'Fit';
+          swipe(cw * 0.8, ch / 2, cw * 0.2, ch / 2);
+          out.swipeLeftNext = vs().idx === 1 && $('scViewerLabel').textContent === '#2 / 3' && vs().s < 1.02;
+          swipe(cw * 0.8, ch / 2, cw * 0.2, ch / 2);
+          out.swipeEdgeStays = vs().idx === 1;
+          swipe(cw * 0.2, ch / 2, cw * 0.8, ch / 2);
+          out.swipeRightPrev = vs().idx === 0 && $('scViewerLabel').textContent === '#1 / 3';
+          swipe(cw / 2, ch * 0.3, cw / 2 + 20, ch * 0.7);
+          out.verticalNoNav = vs().idx === 0;
+          swipe(cw * 0.5, ch / 2, cw * 0.5 + 15, ch / 2);
+          out.shortNoNav = vs().idx === 0;
+          pe('pointerdown', 31, cw / 2, ch / 2); pe('pointerup', 31, cw / 2, ch / 2);
+          pe('pointerdown', 32, cw / 2, ch / 2); pe('pointerup', 32, cw / 2, ch / 2);
+          out.doubleTapIn = vs().s > 1.4;
+          await wait(400);
+          pe('pointerdown', 33, cw / 2, ch / 2); pe('pointerup', 33, cw / 2, ch / 2);
+          pe('pointerdown', 34, cw / 2, ch / 2); pe('pointerup', 34, cw / 2, ch / 2);
+          out.doubleTapOut = vs().s < 1.02;
+          box.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, clientX: R.left + cw / 2, clientY: R.top + ch / 2, bubbles: true, cancelable: true }));
+          out.wheelZoom = vs().s > 1.5;
+          $('scViewerZoom').click();
+          out.zoomButtonBack = vs().s < 1.02;
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+          out.arrowKey = vs().idx === 1;
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+          $('scViewerClose').click();
+          thumbs[0].click();
+          await until(() => vis('scViewer') && $('scViewerImg').naturalWidth > 100, 6000);
+          $('scViewerCrop').click();
+          out.viewerClosedForCrop = !vis('scViewer');
+          out.tapCrops = await until(() => vis('scCrop') && $('scCropCanvas').width > 50, 6000);
+          $('scCropNext').click();
+          await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 6000);
+          $('scAddPage').click();
+          out.cropBack = await until(() => vis('scSend') && document.querySelectorAll('#scTray .sc-thumb').length === 3, 6000);
+          out.cropReplaced = document.querySelector('#scTray .sc-thumb img').src !== firstThumbBefore;
+          window.__opened = [];
+          const realOpen = window.open;
+          window.open = (u) => { window.__opened.push(String(u)); return null; };
+          document.querySelector('#scTray .sc-thumb:last-child img').click();
+          window.open = realOpen;
+          out.pdfNotCroppable = vis('scSend') && !vis('scCrop') && !vis('scViewer') && window.__opened.length === 1 && window.__opened[0].indexOf('blob:') === 0;
+
+          $('scFmtPdf').checked = true;
+          const m0 = window.__uploads.length;
+          $('scSendBtn').click();
+          out.multiDone = await until(() => vis('scDone') && window.__uploads.filter((u) => u.ok && u.p.endsWith('.pdf')).length >= 3, 20000);
+          const isPage = (u) => /\\/p\\d{3}\\./.test(u.p);
+          const mUp = window.__uploads.slice(m0).filter((u) => isPage(u) && u.ok);
+          out.multiTypes = mUp.map((u) => u.type).join(',');
+          out.multiExact = mUp.length === 2 ? await mUp[1].blob.text() === pdfBody : false;
+          out.multiMerged = mUp.length === 2 ? (await mUp[0].blob.slice(0, 5).text()) === '%PDF-' && mUp[0].size > 800 : false;
+          out.multiNames = mUp.map((u) => u.p.split('/').pop()).join(',');
+
+          $('scMoreBtn').click();
+          await until(() => vis('scCamera'), 8000);
+          pick('scCamFile', [new File([jpgA], 'c.jpg', { type: 'image/jpeg' }), new File([pngB], 'd.png', { type: 'image/png' })]);
+          await until(() => vis('scSend') && document.querySelectorAll('#scTray .sc-thumb').length === 2, 8000);
+          $('scFmtImg').checked = true;
+          const m1 = window.__uploads.length;
+          $('scSendBtn').click();
+          out.separateDone = await until(() => vis('scDone') && window.__uploads.slice(m1).filter((u) => u.ok && u.p.endsWith('.jpg')).length === 2, 12000);
+          out.separateTypes = window.__uploads.slice(m1).filter((u) => u.ok && isPage(u)).map((u) => u.type).join(',');
+
+          $('scMoreBtn').click();
+          await until(() => vis('scCamera'), 8000);
+          const many = []; for (let i = 0; i < 45; i++) many.push(new File([jpgA], 'm' + i + '.jpg', { type: 'image/jpeg' }));
+          pick('scCamFile', many);
+          await until(() => vis('scSend') && window.__scanState().pages === 40, 30000);
+          out.limit40 = window.__scanState().pages === 40;
+          out.limitStatus = $('scSendStatus').textContent;
+
           out.forbidden = window.__forbidden.slice();
           return out;
         })()`, true, 120000);
@@ -978,11 +1364,30 @@ function getPx(img, x, y) {
         pass('phone: opening the page sends only a "hello" marker; the intro shows the patient label and no page can be sent yet',
             flow.helloSent === true && flow.introVisible === true && flow.finishDisabled === true);
         pass('phone: the live camera starts (fake device) and shows video', flow.cameraShown === true && flow.videoLive === true);
-        pass('phone: capture -> crop (corner drag) -> preview works', flow.firstScan && flow.firstScan.crop === true && flow.firstScan.prev === true &&
-            flow.firstScan.dragged === true && flow.firstScan.w > 40, JSON.stringify(flow.firstScan));
+        pass('phone: Auto is on by default and nothing counts down while no page is in view',
+            flow.autoBtnOn === true && flow.noCountWithoutPage === true, JSON.stringify([flow.autoBtnOn, flow.noCountWithoutPage]));
+        pass('phone: the round shutter works at any time and goes straight to the preview (no crop screen); Retake returns to the camera and drops it',
+            flow.manualDirect === true && flow.retakeToCamera === true, JSON.stringify([flow.manualDirect, flow.retakeToCamera]));
+        pass('phone: a text page in view starts the on-screen count-down (3 s ring)', flow.countStarted === true && flow.countVisible === true &&
+            /capturing in/i.test(flow.countMsg || ''), JSON.stringify([flow.countStarted, flow.countVisible, flow.countMsg]));
+        pass('phone: after the 3 s it snapshots by itself and lands on the preview with the page edges already cut out',
+            flow.autoFired === true && flow.autoMs >= 2200 && flow.autoMs <= 5500 && flow.autoCrop === true && flow.countHidden === true,
+            JSON.stringify([flow.autoFired, flow.autoMs, flow.autoSize, flow.autoCrop, flow.countHidden]));
         pass('phone: black & white filter is applied and rotate swaps the page orientation', flow.bwApplied === true && flow.chipOn === true && flow.rotated === true);
-        pass('phone: pages are collected, badge counts them, review & send enabled', flow.backToCamera === true && flow.twoPages === true && flow.finishEnabled === true);
+        pass('phone: Crop is on the preview - Cancel keeps the same preview, Apply re-cuts it',
+            flow.cropOpens === true && flow.cropCancelKeeps === true && flow.cropApplied === true, JSON.stringify([flow.cropOpens, flow.cropCancelKeeps, flow.cropApplied]));
+        pass('phone: Add page returns to the camera with the count; the same page left in view is not captured twice, taking it away re-arms',
+            flow.backToCamera === true && flow.noDoubleShot === true && flow.rearmed === true, JSON.stringify([flow.backToCamera, flow.noDoubleShot, flow.rearmed]));
+        pass('phone: pressing the round shutter during the count-down captures at once and stops the count-down',
+            flow.count2 === true && flow.manualDuring === true && flow.countStopped === true, JSON.stringify([flow.count2, flow.manualDuring, flow.countStopped]));
+        pass('phone: Next (top right of the preview) opens the Pending upload queue with the pages taken so far',
+            flow.nextOpensQueue === true && flow.twoPages === true);
         pass('phone: an unsent page can be discarded locally (nothing was uploaded for it)', flow.sendView === true && flow.discardedLocally === true);
+        pass('phone: Retake on the preview drops the page; Auto can be turned off (no count-down) and the shutter still works',
+            flow.retakeDropsIt === true && flow.autoOffState === true && flow.noCountWhenOff === true,
+            JSON.stringify([flow.retakeDropsIt, flow.autoOffState, flow.noCountWhenOff]));
+        pass('phone: header Auto / Manual switch - Manual stops auto-capture, switching back to Auto restarts the 3 s count-down, switching to Manual cancels it',
+            flow.backToAuto === true && flow.manualStopsCount === true, JSON.stringify([flow.backToAuto, flow.manualStopsCount]));
         pass('phone: a failed send keeps the page and reports it; nothing marks the session done',
             flow.failShown === true && flow.pagesKept === true, JSON.stringify([flow.failShown, flow.pagesKept]));
         pass('phone: retry sends the image (jpeg, upsert off), then a done marker, and clears the local pages',
@@ -992,6 +1397,37 @@ function getPx(img, x, y) {
         pass('phone: every upload is a new unique path under phone-scan/<token>/ in the photos bucket', flow.pagesAllPaths === true && flow.uniquePaths === true);
         pass('phone: pages are numbered p000, p001... (the desktop probes these names) and only bucket-allowed types are sent',
             flow.pageNames === 'p000.jpg,p001.pdf' && flow.allowedTypes === true, flow.pageNames);
+        pass('phone: both gallery pickers allow several files at once and accept PDF', flow.galleryInput === true);
+        pass('phone: a single picked photo goes through the same auto-crop -> preview flow', flow.singleStillPreview === true);
+        pass('phone: several photos + a PDF picked together go straight to the page list; the unusable file is skipped and reported',
+            flow.multiView === true && flow.pdfThumb === true && /3 added, 1 skipped/.test(flow.multiStatus || ''), JSON.stringify([flow.multiView, flow.pdfThumb, flow.multiStatus]));
+        pass('phone: tapping the preview enlarges the page before it is added (no crop / navigation buttons), close returns to the preview',
+            flow.previewEnlarges === true && flow.previewNoNav === true && flow.previewViewerClosed === true,
+            JSON.stringify([flow.previewEnlarges, flow.previewNoNav, flow.previewViewerClosed]));
+        pass('phone: after each scan the camera screen shows the latest page as a thumbnail; tap enlarges it, the zoom button toggles Fit / real pixels',
+            flow.lastThumbShown === true && flow.lastEnlarges === true && flow.fitFirst === true && flow.zoomIn === true &&
+                flow.zoomBackToFit === true && flow.lastClosed === true && /^#1 \/ 1$/.test(flow.lastLabel || ''),
+            JSON.stringify([flow.lastThumbShown, flow.lastEnlarges, flow.fitFirst, flow.zoomIn, flow.zoomBackToFit, flow.lastClosed, flow.lastLabel]));
+        pass('phone: enlarged page - two fingers apart zoom in, together zoom out; zoomed, one finger moves the page instead of changing page',
+            flow.pinchOut === true && flow.zoomedPans === true && flow.pinchIn === true, JSON.stringify([flow.pinchOut, flow.zoomedPans, flow.pinchIn]));
+        pass('phone: enlarged page - swipe left / right moves between pages (not past the ends; vertical or short drags do not)',
+            flow.swipeLeftNext === true && flow.swipeEdgeStays === true && flow.swipeRightPrev === true && flow.verticalNoNav === true && flow.shortNoNav === true,
+            JSON.stringify([flow.swipeLeftNext, flow.swipeEdgeStays, flow.swipeRightPrev, flow.verticalNoNav, flow.shortNoNav]));
+        pass('phone: enlarged page - double-tap toggles real pixels / fit; wheel and arrow keys work on desktop browsers',
+            flow.doubleTapIn === true && flow.doubleTapOut === true && flow.wheelZoom === true && flow.zoomButtonBack === true && flow.arrowKey === true,
+            JSON.stringify([flow.doubleTapIn, flow.doubleTapOut, flow.wheelZoom, flow.zoomButtonBack, flow.arrowKey]));
+        pass('phone: tapping a page in the list enlarges it, prev / next move between pages (PDFs skipped), Crop opens the crop screen',
+            flow.trayEnlarges === true && flow.trayLabel === '#1 / 3' && flow.trayNav === true && flow.trayNext === true && flow.viewerClosedForCrop === true && flow.tapCrops === true,
+            JSON.stringify([flow.trayEnlarges, flow.trayLabel, flow.trayNav, flow.trayNext, flow.viewerClosedForCrop, flow.tapCrops]));
+        pass('phone: cropping a listed page replaces it in the list; a PDF opens in the phone PDF viewer instead and cannot be cropped',
+            flow.cropBack === true && flow.cropReplaced === true && flow.pdfNotCroppable === true,
+            JSON.stringify([flow.cropBack, flow.cropReplaced, flow.pdfNotCroppable]));
+        pass('phone: "One PDF" merges the pictures into one PDF and sends the picked PDF byte-for-byte as its own file',
+            flow.multiDone === true && flow.multiTypes === 'application/pdf,application/pdf' && flow.multiExact === true && flow.multiMerged === true,
+            JSON.stringify([flow.multiDone, flow.multiTypes, flow.multiExact, flow.multiMerged, flow.multiNames]));
+        pass('phone: "Separate images" sends every picked photo as a JPEG (png converted)',
+            flow.separateDone === true && flow.separateTypes === 'image/jpeg,image/jpeg', flow.separateTypes);
+        pass('phone: the page list is capped at 40 and the extras are reported', flow.limit40 === true && /5 skipped/.test(flow.limitStatus || ''), flow.limitStatus);
         pass('phone: during the whole session it never touched a table or any storage method except upload',
             Array.isArray(flow.forbidden) && flow.forbidden.length === 0, JSON.stringify(flow.forbidden));
 

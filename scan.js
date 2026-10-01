@@ -16,8 +16,341 @@
     var MAX_OUT_EDGE = 2000;
     var MAX_SRC_EDGE = 3000;
     var CDN_JSPDF = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+    var MAX_PAGES = 40;
+    var MAX_FILE_BYTES = 19 * 1024 * 1024;
+    var MAX_PICK_EDGE = 4000;
 
     /* ── pure helpers (unit-tested in Node) ───────────────────── */
+
+    /**
+     * What to do with a file picked from the phone's albums / files:
+     *  'pdf'   - sent exactly as it is;
+     *  'image' - a picture: turned upright and saved as JPEG (so any phone format works, and it can join a PDF);
+     *  ''      - not usable (empty, too large, or another file type).
+     */
+    function classifyFile(f) {
+        if (!f) return '';
+        var type = String(f.type || '').toLowerCase();
+        var name = String(f.name || '').toLowerCase();
+        var size = f.size == null ? 0 : f.size;
+        if (size <= 0 || size > MAX_FILE_BYTES) return '';
+        if (type === 'application/pdf' || (!type && /\.pdf$/.test(name))) return 'pdf';
+        if (type.indexOf('image/') === 0 || (!type && /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/.test(name))) return 'image';
+        return '';
+    }
+
+    /** How many of `incoming` files fit when `have` pages are already collected. */
+    function roomFor(have, incoming) { return Math.max(0, Math.min(incoming, MAX_PAGES - have)); }
+
+    /* ── enlarged-page viewer: pinch / drag / double-tap maths ──────────────
+     * view = { s, tx, ty }: scale relative to "fit the screen" and the shift of the page centre from the
+     * centre of the viewing box. */
+
+    var VIEW_MAX = 8;
+
+    function clampScale(s, lo, hi) { return Math.max(lo == null ? 1 : lo, Math.min(hi == null ? VIEW_MAX : hi, s)); }
+
+    /** Size of an image shown "contain" inside a cw x ch box. */
+    function fitSize(nw, nh, cw, ch) {
+        if (!nw || !nh || !cw || !ch) return { w: 0, h: 0 };
+        var k = Math.min(cw / nw, ch / nh);
+        return { w: nw * k, h: nh * k };
+    }
+
+    /** Keep the page inside the box: centred when smaller than the box, edge-to-edge limits when larger. */
+    function viewClamp(v, fw, fh, cw, ch) {
+        var s = clampScale(v.s);
+        var maxX = Math.max(0, (fw * s - cw) / 2), maxY = Math.max(0, (fh * s - ch) / 2);
+        return { s: s, tx: Math.max(-maxX, Math.min(maxX, v.tx)), ty: Math.max(-maxY, Math.min(maxY, v.ty)) };
+    }
+
+    /** Zoom to scale ns keeping the point under (cx, cy) - container coordinates - where it is. */
+    function zoomAbout(v, ns, cx, cy, cw, ch) {
+        var fx = cx - cw / 2, fy = cy - ch / 2;
+        var r = ns / v.s;
+        return { s: ns, tx: fx - (fx - v.tx) * r, ty: fy - (fy - v.ty) * r };
+    }
+
+    /** Zoom as % of real pixels (100% = one image pixel per device pixel). */
+    function zoomPercent(s, fitW, naturalW, dpr) {
+        if (!naturalW) return 0;
+        return Math.round(s * fitW * (dpr > 0 ? dpr : 1) / naturalW * 100);
+    }
+
+    /** The zoom button / double-tap: fit -> real pixels -> fit. */
+    function nextViewScale(s, fitW, naturalW, dpr) {
+        var real = Math.max(1.5, naturalW / (dpr > 0 ? dpr : 1) / Math.max(1, fitW));
+        return s < real * 0.95 ? clampScale(real) : 1;
+    }
+
+    /* ── automatic page detection: runs on a small grey copy of the camera frame ── */
+
+    var DET_W = 200;
+
+    function rgbaToGray(data, w, h) {
+        var g = new Uint8Array(w * h);
+        for (var i = 0, p = 0; i < g.length; i++, p += 4) g[i] = (data[p] * 77 + data[p + 1] * 150 + data[p + 2] * 29) >> 8;
+        return g;
+    }
+
+    function blur3(g, w, h) {
+        var o = new Uint8Array(w * h);
+        for (var y = 0; y < h; y++) {
+            for (var x = 0; x < w; x++) {
+                var s = 0, n = 0;
+                for (var dy = -1; dy <= 1; dy++) {
+                    var yy = y + dy;
+                    if (yy < 0 || yy >= h) continue;
+                    for (var dx = -1; dx <= 1; dx++) {
+                        var xx = x + dx;
+                        if (xx < 0 || xx >= w) continue;
+                        s += g[yy * w + xx];
+                        n++;
+                    }
+                }
+                o[y * w + x] = (s / n) | 0;
+            }
+        }
+        return o;
+    }
+
+    function otsuThreshold(g) {
+        var hist = new Uint32Array(256), i;
+        for (i = 0; i < g.length; i++) hist[g[i]]++;
+        var total = g.length, sum = 0;
+        for (i = 0; i < 256; i++) sum += i * hist[i];
+        var sumB = 0, wB = 0, best = -1, thr = 127;
+        for (i = 0; i < 256; i++) {
+            wB += hist[i];
+            if (!wB) continue;
+            var wF = total - wB;
+            if (!wF) break;
+            sumB += i * hist[i];
+            var mB = sumB / wB, mF = (sum - sumB) / wF;
+            var between = wB * wF * (mB - mF) * (mB - mF);
+            if (between > best) { best = between; thr = i; }
+        }
+        return thr;
+    }
+
+    function polyArea(q) {
+        var a = 0;
+        for (var i = 0; i < q.length; i++) {
+            var p = q[i], n = q[(i + 1) % q.length];
+            a += p.x * n.y - n.x * p.y;
+        }
+        return Math.abs(a) / 2;
+    }
+
+    function pointInQuad(q, x, y) {
+        var sign = 0;
+        for (var i = 0; i < 4; i++) {
+            var a = q[i], b = q[(i + 1) % 4];
+            var c = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+            if (c !== 0) {
+                var s = c > 0 ? 1 : -1;
+                if (sign && s !== sign) return false;
+                sign = s;
+            }
+        }
+        return true;
+    }
+
+    function scaleQuad(q, w, h) { return q.map(function (p) { return { x: p.x * w, y: p.y * h }; }); }
+
+    function fullQuad(w, h) { return [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]; }
+
+    /** Largest corner movement between two normalised quads (fractions of the frame). */
+    function quadShift(a, b) {
+        var m = 0;
+        for (var i = 0; i < 4; i++) m = Math.max(m, Math.sqrt(Math.pow(a[i].x - b[i].x, 2) + Math.pow(a[i].y - b[i].y, 2)));
+        return m;
+    }
+
+    function quadsClose(a, b, tol) { return !!a && !!b && quadShift(a, b) <= tol; }
+
+    /**
+     * Is a page with printed or written text in front of the camera? gray = Uint8Array w*h (a small frame).
+     * Looks for the biggest bright blob that is shaped like a page, sits wholly inside the frame and carries
+     * text-like dark marks spread over it. Resolves { found, quad (normalised, tl tr br bl), reason }:
+     * reason is 'ok' | 'none' | 'small' | 'full' | 'shape' | 'notext'.
+     */
+    function detectDocument(gray, w, h) {
+        var N = w * h;
+        var g = blur3(gray, w, h);
+        var t = otsuThreshold(g);
+        var sumHi = 0, nHi = 0, sumLo = 0, nLo = 0, i;
+        for (i = 0; i < N; i++) { if (g[i] > t) { sumHi += g[i]; nHi++; } else { sumLo += g[i]; nLo++; } }
+        if (!nHi || !nLo || sumHi / nHi - sumLo / nLo < 35) return { found: false, quad: null, reason: 'none' };
+
+        var label = new Int32Array(N);
+        var stack = new Int32Array(N);
+        var comps = [];
+        for (var start = 0; start < N; start++) {
+            if (g[start] <= t || label[start]) continue;
+            var id = comps.length + 1;
+            var sp = 0;
+            stack[sp++] = start;
+            label[start] = id;
+            var c = { id: id, area: 0, border: 0, minS: 1e9, maxS: -1e9, minD: 1e9, maxD: -1e9, tl: null, br: null, tr: null, bl: null };
+            while (sp) {
+                var p = stack[--sp];
+                var x = p % w, y = (p / w) | 0;
+                c.area++;
+                var s = x + y, d = x - y;
+                if (s < c.minS) { c.minS = s; c.tl = { x: x, y: y }; }
+                if (s > c.maxS) { c.maxS = s; c.br = { x: x, y: y }; }
+                if (d > c.maxD) { c.maxD = d; c.tr = { x: x, y: y }; }
+                if (d < c.minD) { c.minD = d; c.bl = { x: x, y: y }; }
+                if (x === 0 || y === 0 || x === w - 1 || y === h - 1) c.border++;
+                if (x > 0 && g[p - 1] > t && !label[p - 1]) { label[p - 1] = id; stack[sp++] = p - 1; }
+                if (x < w - 1 && g[p + 1] > t && !label[p + 1]) { label[p + 1] = id; stack[sp++] = p + 1; }
+                if (y > 0 && g[p - w] > t && !label[p - w]) { label[p - w] = id; stack[sp++] = p - w; }
+                if (y < h - 1 && g[p + w] > t && !label[p + w]) { label[p + w] = id; stack[sp++] = p + w; }
+            }
+            comps.push(c);
+        }
+        comps.sort(function (a, b) { return b.area - a.area; });
+
+        var firstReason = 'none';
+        for (var ci = 0; ci < comps.length && ci < 3; ci++) {
+            var comp = comps[ci];
+            if (comp.area < N * 0.08) { if (ci === 0) firstReason = 'small'; break; }
+            var reason = null;
+            var q = [comp.tl, comp.tr, comp.br, comp.bl];
+            var qa = polyArea(q);
+            if (comp.border > Math.max(6, w * 0.03)) reason = 'full';
+            else if (qa < N * 0.12) reason = 'small';
+            else if (qa > N * 0.97) reason = 'full';
+            else if (comp.area / qa < 0.7) reason = 'shape';
+            else {
+                var sign = 0, convex = true, minSide = 1e9;
+                for (var k = 0; k < 4; k++) {
+                    var a0 = q[k], b0 = q[(k + 1) % 4], c0 = q[(k + 2) % 4];
+                    var cr = (b0.x - a0.x) * (c0.y - b0.y) - (b0.y - a0.y) * (c0.x - b0.x);
+                    var sg = cr > 0 ? 1 : (cr < 0 ? -1 : 0);
+                    if (!sg || (sign && sg !== sign)) convex = false;
+                    sign = sg || sign;
+                    minSide = Math.min(minSide, dist(a0, b0));
+                }
+                if (!convex || minSide < Math.min(w, h) * 0.12) reason = 'shape';
+            }
+            if (reason) { if (ci === 0) firstReason = reason; continue; }
+
+            /* text check: dark marks inside the page, spread over the page */
+            var cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
+            var sq = q.map(function (pt) { return { x: cx + (pt.x - cx) * 0.9, y: cy + (pt.y - cy) * 0.9 }; });
+            var x0 = Math.max(0, Math.floor(Math.min(sq[0].x, sq[1].x, sq[2].x, sq[3].x)));
+            var x1 = Math.min(w - 1, Math.ceil(Math.max(sq[0].x, sq[1].x, sq[2].x, sq[3].x)));
+            var y0 = Math.max(0, Math.floor(Math.min(sq[0].y, sq[1].y, sq[2].y, sq[3].y)));
+            var y1 = Math.min(h - 1, Math.ceil(Math.max(sq[0].y, sq[1].y, sq[2].y, sq[3].y)));
+            var hist = new Uint32Array(256), nPaper = 0, xx, yy;
+            for (yy = y0; yy <= y1; yy++) for (xx = x0; xx <= x1; xx++) {
+                if (label[yy * w + xx] === comp.id) { hist[gray[yy * w + xx]]++; nPaper++; }
+            }
+            var acc = 0, median = 200;
+            for (i = 0; i < 256; i++) { acc += hist[i]; if (acc >= nPaper / 2) { median = i; break; } }
+            var inkLevel = median * 0.78;
+            var cellInk = new Uint32Array(16), cellN = new Uint32Array(16), nQ = 0, ink = 0;
+            var bw = Math.max(1, x1 - x0 + 1), bh = Math.max(1, y1 - y0 + 1);
+            for (yy = y0; yy <= y1; yy++) {
+                for (xx = x0; xx <= x1; xx++) {
+                    if (!pointInQuad(sq, xx + 0.5, yy + 0.5)) continue;
+                    var cell = Math.min(3, ((yy - y0) * 4 / bh) | 0) * 4 + Math.min(3, ((xx - x0) * 4 / bw) | 0);
+                    nQ++;
+                    cellN[cell]++;
+                    if (label[yy * w + xx] !== comp.id || gray[yy * w + xx] < inkLevel) { ink++; cellInk[cell]++; }
+                }
+            }
+            if (!nQ) { if (ci === 0) firstReason = 'shape'; continue; }
+            var inkFrac = ink / nQ;
+            var spread = 0;
+            for (i = 0; i < 16; i++) if (cellN[i] > 8 && cellInk[i] / cellN[i] > 0.004) spread++;
+            if (inkFrac < 0.006 || spread < 5) { if (ci === 0) firstReason = 'notext'; continue; }
+            if (inkFrac > 0.55) { if (ci === 0) firstReason = 'shape'; continue; }
+            return {
+                found: true,
+                reason: 'ok',
+                inkFrac: inkFrac,
+                quad: q.map(function (pt) { return { x: (pt.x + 0.5) / w, y: (pt.y + 0.5) / h }; })
+            };
+        }
+        return { found: false, quad: null, reason: firstReason };
+    }
+
+    /* Auto-capture: a page must hold still for a moment, then a 3-second count-down runs; moving the page
+     * or taking it away cancels it. After a capture it re-arms only once the page is taken away or the
+     * camera moves to another page, so one page is never captured twice. */
+
+    var AUTO = { steadyMs: 700, countdownMs: 3000, steadyTol: 0.035, countTol: 0.07, loseMs: 900, rearmGoneMs: 700, rearmMove: 0.12 };
+
+    function autoNew(armed, refQuad) {
+        return { phase: 'search', armed: armed !== false, since: 0, quad: null, lostAt: 0, goneAt: 0, countAt: 0, refQuad: refQuad || null };
+    }
+
+    /** One detection result in; returns { action: none|steady|lost|start|tick|cancel|fire, remaining }. Mutates st. */
+    function autoStep(st, det, now, cfg) {
+        cfg = cfg || AUTO;
+        var found = !!(det && det.found);
+        var out = { action: 'none', remaining: 0 };
+        if (!st.armed) {
+            if (!found) {
+                if (!st.goneAt) st.goneAt = now;
+                if (now - st.goneAt >= cfg.rearmGoneMs) st.armed = true;
+            } else {
+                st.goneAt = 0;
+                if (st.refQuad && quadShift(det.quad, st.refQuad) > cfg.rearmMove) st.armed = true;
+            }
+            if (!st.armed) return out;
+            st.phase = 'search';
+            st.quad = null;
+            if (!found) return out;
+        }
+        if (st.phase === 'search') {
+            if (found) { st.phase = 'steady'; st.quad = det.quad; st.since = now; out.action = 'steady'; }
+            return out;
+        }
+        if (st.phase === 'steady') {
+            if (!found) { st.phase = 'search'; st.quad = null; out.action = 'lost'; return out; }
+            if (!quadsClose(det.quad, st.quad, cfg.steadyTol)) { st.quad = det.quad; st.since = now; return out; }
+            if (now - st.since >= cfg.steadyMs) { st.phase = 'count'; st.countAt = now; st.lostAt = 0; out.action = 'start'; out.remaining = cfg.countdownMs; }
+            return out;
+        }
+        if (found && quadsClose(det.quad, st.quad, cfg.countTol)) {
+            st.lostAt = 0;
+        } else if (found) {
+            st.phase = 'steady'; st.quad = det.quad; st.since = now; out.action = 'cancel';
+            return out;
+        } else {
+            if (!st.lostAt) st.lostAt = now;
+            if (now - st.lostAt > cfg.loseMs) { st.phase = 'search'; st.quad = null; out.action = 'cancel'; return out; }
+        }
+        var remaining = cfg.countdownMs - (now - st.countAt);
+        if (remaining <= 0) {
+            st.phase = 'search';
+            st.armed = false;
+            st.goneAt = 0;
+            st.refQuad = st.quad;
+            out.action = 'fire';
+            return out;
+        }
+        out.action = 'tick';
+        out.remaining = remaining;
+        return out;
+    }
+
+    /** Where a normalised video point lands on screen when the video fills its box with object-fit: cover. */
+    function coverMap(vw, vh, cw, ch) {
+        var s = Math.max(cw / vw, ch / vh);
+        return { s: s, ox: (cw - vw * s) / 2, oy: (ch - vh * s) / 2 };
+    }
+
+    /** Pages (as collected on the phone) split into pictures and ready-made PDFs. */
+    function splitPages(pages) {
+        var out = { images: [], pdfs: [] };
+        (pages || []).forEach(function (p) { (p.pdf ? out.pdfs : out.images).push(p); });
+        return out;
+    }
 
     function parseParams(search) {
         var out = { token: '', label: '', lang: '', exp: 0 };
@@ -327,11 +660,19 @@
 
     var S = {
         en: {
-            title: 'Scan a document', for: 'Scanning for', start: 'Open scanner', gallery: 'Choose from gallery',
+            title: 'Scan a document', for: 'Scanning for', start: 'Open scanner', gallery: 'Choose photos / PDF',
+            added: 'added', skipped: 'skipped (unreadable, too large or over the page limit)',
+            hintTap: 'Tap a page to enlarge it and check the clarity, or crop it. PDF files are sent as they are.',
+            cropPage: 'Crop', close: 'Close', fit: 'Fit',
+            queueTitle: 'Pending upload', cancel: 'Cancel', apply: 'Apply', save: 'Save',
+            maxPages: 'Page limit reached - send these first.', tapEnlarge: 'Tap the page to enlarge it and check the clarity',
+            autoOn: 'Auto', autoOff: 'Manual', autoSearch: 'Point the camera at a page', autoHold: 'Hold steady…',
+            autoCount: 'Capturing in', autoFull: 'Fit the whole page in view', autoNoText: 'Looking for text on the page',
+            autoOffMsg: 'Tap the round button to scan',
             writeOnly: 'This page can only add new pages. Nothing can be changed or deleted from your phone.',
-            camDenied: 'Camera not available. Use "Choose from gallery" or the camera button instead.',
+            camDenied: 'Camera not available. Use "Choose photos / PDF" or the camera button instead.',
             needHttps: 'The live camera needs a secure (https) page. Use the camera button instead.',
-            capture: 'Take photo', pages: 'Pages', finish: 'Review & send', crop: 'Drag the corners to fit the page',
+            capture: 'Take photo', pages: 'Pages', finish: 'Next', crop: 'Drag the corners to fit the page',
             next: 'Next', retake: 'Retake', back: 'Back', add: 'Add page', rotate: 'Rotate',
             fOrig: 'Original', fColor: 'Enhanced', fGray: 'Grey', fBw: 'Black & white',
             send: 'Send to computer', asPdf: 'One PDF', asImages: 'Separate images', format: 'Send as',
@@ -343,11 +684,19 @@
             keepOpen: 'You can close this page, or scan more pages.', pdfFail: 'PDF could not be created, sending images instead.'
         },
         'zh-Hant': {
-            title: '掃描文件', for: '掃描對象', start: '開啟掃描器', gallery: '從相簿選擇',
+            title: '掃描文件', for: '掃描對象', start: '開啟掃描器', gallery: '選擇相片／PDF（可多選）',
+            added: '已加入', skipped: '已略過（無法讀取、檔案過大或超過頁數上限）',
+            hintTap: '點選頁面可放大檢查清晰度，或重新裁切；PDF 檔案會原樣傳送。',
+            cropPage: '裁切', close: '關閉', fit: '適合',
+            queueTitle: '待上傳', cancel: '取消', apply: '套用', save: '儲存',
+            maxPages: '已達頁數上限，請先傳送。', tapEnlarge: '點選頁面可放大檢查清晰度',
+            autoOn: '自動', autoOff: '手動', autoSearch: '請將相機對準文件', autoHold: '請保持穩定…',
+            autoCount: '即將拍攝', autoFull: '請讓整頁文件入鏡', autoNoText: '正在尋找頁面上的文字',
+            autoOffMsg: '請按圓形按鈕拍攝',
             writeOnly: '此頁面只能新增頁面，無法在手機上修改或刪除任何內容。',
-            camDenied: '無法使用相機。請改用「從相簿選擇」或相機按鈕。',
+            camDenied: '無法使用相機。請改用「選擇相片／PDF」或相機按鈕。',
             needHttps: '即時相機需要安全 (https) 網頁，請改用相機按鈕。',
-            capture: '拍照', pages: '頁數', finish: '檢查並傳送', crop: '拖曳四角對齊文件',
+            capture: '拍照', pages: '頁數', finish: '下一步', crop: '拖曳四角對齊文件',
             next: '下一步', retake: '重拍', back: '返回', add: '加入頁面', rotate: '旋轉',
             fOrig: '原圖', fColor: '增強', fGray: '灰階', fBw: '黑白',
             send: '傳送到電腦', asPdf: '單一 PDF', asImages: '分開圖片', format: '傳送格式',
@@ -359,11 +708,19 @@
             keepOpen: '你可以關閉此頁，或繼續掃描更多頁面。', pdfFail: '無法建立 PDF，改為傳送圖片。'
         },
         'zh-CN': {
-            title: '扫描文件', for: '扫描对象', start: '打开扫描器', gallery: '从相册选择',
+            title: '扫描文件', for: '扫描对象', start: '打开扫描器', gallery: '选择照片/PDF（可多选）',
+            added: '已加入', skipped: '已跳过（无法读取、文件过大或超过页数上限）',
+            hintTap: '点按页面可放大检查清晰度，或重新裁剪；PDF 文件会原样发送。',
+            cropPage: '裁剪', close: '关闭', fit: '适合',
+            queueTitle: '待上传', cancel: '取消', apply: '应用', save: '保存',
+            maxPages: '已达页数上限，请先发送。', tapEnlarge: '点按页面可放大检查清晰度',
+            autoOn: '自动', autoOff: '手动', autoSearch: '请将相机对准文件', autoHold: '请保持稳定…',
+            autoCount: '即将拍摄', autoFull: '请让整页文件入镜', autoNoText: '正在寻找页面上的文字',
+            autoOffMsg: '请按圆形按钮拍摄',
             writeOnly: '此页面只能新增页面，无法在手机上修改或删除任何内容。',
-            camDenied: '无法使用相机。请改用“从相册选择”或相机按钮。',
+            camDenied: '无法使用相机。请改用“选择照片/PDF”或相机按钮。',
             needHttps: '实时相机需要安全 (https) 网页，请改用相机按钮。',
-            capture: '拍照', pages: '页数', finish: '检查并发送', crop: '拖动四角对齐文件',
+            capture: '拍照', pages: '页数', finish: '下一步', crop: '拖动四角对齐文件',
             next: '下一步', retake: '重拍', back: '返回', add: '加入页面', rotate: '旋转',
             fOrig: '原图', fColor: '增强', fGray: '灰度', fBw: '黑白',
             send: '发送到电脑', asPdf: '单个 PDF', asImages: '分开图片', format: '发送格式',
@@ -402,6 +759,7 @@
         var stream = null;
         var cur = null;
         var dragIdx = -1;
+        var editIdx = -1;
 
         doc.querySelectorAll('[data-s]').forEach(function (el) { el.textContent = L[el.getAttribute('data-s')] || el.textContent; });
         $('scLabel').textContent = params.label || '';
@@ -432,6 +790,7 @@
                 var img = doc.createElement('img');
                 img.src = p.thumb;
                 img.alt = '#' + (i + 1);
+                img.addEventListener('click', function () { openPageViewer(i); });
                 var x = doc.createElement('button');
                 x.type = 'button';
                 x.className = 'sc-thumb-x';
@@ -448,10 +807,339 @@
                 tray.appendChild(b);
             });
             $('scTrayEmpty').hidden = n > 0;
+            $('scLastThumb').hidden = n === 0;
+            if (n) $('scLastImg').src = pages[n - 1].thumb;
+        }
+
+        /* ── enlarged page viewer: check how sharp a scan is ───── */
+
+        /* Two fingers apart / together = zoom, one finger = move when zoomed or swipe to the next / previous
+         * page when not zoomed, double-tap = real pixels / fit. */
+        var viewer = { items: [], idx: 0, v: { s: 1, tx: 0, ty: 0 }, fw: 0, fh: 0, cw: 0, ch: 0, ptrs: {}, g: null, lastTap: null, dragX: 0 };
+
+        function viewerPaint() {
+            var img = $('scViewerImg');
+            var v = viewer.v;
+            img.style.transform = 'translate(' + (v.tx + viewer.dragX) + 'px,' + v.ty + 'px) scale(' + v.s + ')';
+            $('scViewerZoom').textContent = v.s <= 1.02 ? L.fit : zoomPercent(v.s, viewer.fw, img.naturalWidth, root.devicePixelRatio || 1) + '%';
+        }
+
+        function viewerLayout() {
+            var box = $('scViewerScroll');
+            var img = $('scViewerImg');
+            viewer.cw = box.clientWidth;
+            viewer.ch = box.clientHeight;
+            var fs = fitSize(img.naturalWidth, img.naturalHeight, viewer.cw, viewer.ch);
+            viewer.fw = fs.w;
+            viewer.fh = fs.h;
+            img.style.width = fs.w + 'px';
+            img.style.height = fs.h + 'px';
+            img.style.marginLeft = (-fs.w / 2) + 'px';
+            img.style.marginTop = (-fs.h / 2) + 'px';
+            viewer.v = viewClamp(viewer.v, viewer.fw, viewer.fh, viewer.cw, viewer.ch);
+            viewerPaint();
+        }
+
+        function viewerRender() {
+            var it = viewer.items[viewer.idx];
+            if (!it) return;
+            viewer.v = { s: 1, tx: 0, ty: 0 };
+            viewer.dragX = 0;
+            viewer.ptrs = {};
+            viewer.g = null;
+            var img = $('scViewerImg');
+            img.onload = viewerLayout;
+            img.src = it.url;
+            if (img.complete && img.naturalWidth) viewerLayout();
+            $('scViewerLabel').textContent = it.label || '';
+            $('scViewerCrop').hidden = it.pageIdx == null;
+            var many = viewer.items.length > 1;
+            $('scViewerPrev').hidden = !many;
+            $('scViewerNext').hidden = !many;
+            $('scViewerPrev').disabled = viewer.idx === 0;
+            $('scViewerNext').disabled = viewer.idx === viewer.items.length - 1;
+        }
+
+        function viewerGo(step) {
+            var n = viewer.idx + step;
+            if (n < 0 || n >= viewer.items.length) return false;
+            viewer.idx = n;
+            viewerRender();
+            return true;
+        }
+
+        function openViewer(items, idx) {
+            viewer.items = items;
+            viewer.idx = idx || 0;
+            $('scViewer').hidden = false;
+            viewerRender();
+        }
+
+        function closeViewer() {
+            viewer.items.forEach(function (it) { if (it.revoke) URL.revokeObjectURL(it.url); });
+            viewer.items = [];
+            viewer.ptrs = {};
+            viewer.g = null;
+            $('scViewer').hidden = true;
+            $('scViewerImg').removeAttribute('src');
+        }
+
+        function viewerPoint(e) {
+            var r = $('scViewerScroll').getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        }
+
+        function viewerPtrList() { return Object.keys(viewer.ptrs).map(function (k) { return viewer.ptrs[k]; }); }
+
+        function viewerBaseline() {
+            var ps = viewerPtrList();
+            if (ps.length >= 2) {
+                var a = ps[0], b = ps[1];
+                viewer.g = { mode: 'pinch', d0: Math.max(1, dist(a, b)), m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, v0: { s: viewer.v.s, tx: viewer.v.tx, ty: viewer.v.ty } };
+            } else if (ps.length === 1) {
+                viewer.g = { mode: 'one', sx: ps[0].x, sy: ps[0].y, t: Date.now(), moved: false, v0: { s: viewer.v.s, tx: viewer.v.tx, ty: viewer.v.ty }, fromPinch: !!viewer.g && viewer.g.mode === 'pinch' };
+            } else {
+                viewer.g = null;
+            }
+        }
+
+        function viewerDown(e) {
+            if (!viewer.items.length) return;
+            try { $('scViewerScroll').setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            viewer.ptrs[e.pointerId] = viewerPoint(e);
+            viewerBaseline();
+            e.preventDefault();
+        }
+
+        function viewerMove(e) {
+            if (!viewer.ptrs[e.pointerId] || !viewer.g) return;
+            viewer.ptrs[e.pointerId] = viewerPoint(e);
+            var g = viewer.g;
+            var ps = viewerPtrList();
+            if (g.mode === 'pinch' && ps.length >= 2) {
+                var d = dist(ps[0], ps[1]);
+                var m = { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 };
+                var nv = zoomAbout(g.v0, clampScale(g.v0.s * d / g.d0), g.m0.x, g.m0.y, viewer.cw, viewer.ch);
+                nv.tx += m.x - g.m0.x;
+                nv.ty += m.y - g.m0.y;
+                viewer.v = viewClamp(nv, viewer.fw, viewer.fh, viewer.cw, viewer.ch);
+                viewerPaint();
+            } else if (g.mode === 'one' && ps.length === 1) {
+                var dx = ps[0].x - g.sx, dy = ps[0].y - g.sy;
+                if (Math.abs(dx) > 6 || Math.abs(dy) > 6) g.moved = true;
+                if (viewer.v.s > 1.02) {
+                    viewer.v = viewClamp({ s: g.v0.s, tx: g.v0.tx + dx, ty: g.v0.ty + dy }, viewer.fw, viewer.fh, viewer.cw, viewer.ch);
+                } else if (viewer.items.length > 1 && Math.abs(dx) > Math.abs(dy)) {
+                    var edge = (viewer.idx === 0 && dx > 0) || (viewer.idx === viewer.items.length - 1 && dx < 0);
+                    viewer.dragX = edge ? dx / 4 : dx;
+                }
+                viewerPaint();
+            }
+            e.preventDefault();
+        }
+
+        function viewerUp(e) {
+            if (!viewer.ptrs[e.pointerId]) return;
+            var last = viewer.ptrs[e.pointerId];
+            var g = viewer.g;
+            delete viewer.ptrs[e.pointerId];
+            if (!g) return;
+            if (g.mode === 'pinch') {
+                viewerBaseline();
+                if (viewer.g) viewer.g.moved = true;
+                return;
+            }
+            var dx = last.x - g.sx, dy = last.y - g.sy;
+            viewer.g = null;
+            var swiped = false;
+            if (viewer.v.s <= 1.02 && !g.fromPinch && viewer.items.length > 1 && Math.abs(dx) >= 50 && Math.abs(dx) > 1.4 * Math.abs(dy)) {
+                viewer.dragX = 0;
+                swiped = viewerGo(dx < 0 ? 1 : -1);
+            }
+            if (!swiped) {
+                viewer.dragX = 0;
+                if (!g.moved && !g.fromPinch) {
+                    var now = Date.now();
+                    var lt = viewer.lastTap;
+                    if (lt && now - lt.t < 320 && Math.abs(lt.x - last.x) < 36 && Math.abs(lt.y - last.y) < 36) {
+                        var ns = nextViewScale(viewer.v.s, viewer.fw, $('scViewerImg').naturalWidth, root.devicePixelRatio || 1);
+                        viewer.v = viewClamp(zoomAbout(viewer.v, ns, last.x, last.y, viewer.cw, viewer.ch), viewer.fw, viewer.fh, viewer.cw, viewer.ch);
+                        viewer.lastTap = null;
+                    } else {
+                        viewer.lastTap = { t: now, x: last.x, y: last.y };
+                    }
+                }
+                viewerPaint();
+            }
+        }
+
+        function viewerWheel(e) {
+            if (!viewer.items.length) return;
+            e.preventDefault();
+            var p = viewerPoint(e);
+            var ns = clampScale(viewer.v.s * Math.exp(-e.deltaY * 0.0015));
+            viewer.v = viewClamp(zoomAbout(viewer.v, ns, p.x, p.y, viewer.cw, viewer.ch), viewer.fw, viewer.fh, viewer.cw, viewer.ch);
+            viewerPaint();
+        }
+
+        function viewerZoomButton() {
+            var ns = nextViewScale(viewer.v.s, viewer.fw, $('scViewerImg').naturalWidth, root.devicePixelRatio || 1);
+            viewer.v = viewClamp(zoomAbout(viewer.v, ns, viewer.cw / 2, viewer.ch / 2, viewer.cw, viewer.ch), viewer.fw, viewer.fh, viewer.cw, viewer.ch);
+            viewerPaint();
+        }
+
+        function openPageViewer(pageIdx) {
+            var p = pages[pageIdx];
+            if (!p) return;
+            if (p.pdf) {
+                var u = URL.createObjectURL(p.blob);
+                root.open(u, '_blank');
+                setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
+                return;
+            }
+            var items = [];
+            var at = 0;
+            pages.forEach(function (pg, i) {
+                if (pg.pdf) return;
+                if (i === pageIdx) at = items.length;
+                items.push({ url: pg.thumb, pageIdx: i, label: '#' + (i + 1) + ' / ' + pages.length });
+            });
+            openViewer(items, at);
+        }
+
+        function openPreviewViewer() {
+            $('scPreviewCanvas').toBlob(function (blob) {
+                if (!blob) return;
+                openViewer([{ url: URL.createObjectURL(blob), label: '', revoke: true }], 0);
+            }, 'image/jpeg', 0.86);
+        }
+
+        /* ── automatic page detection + 3 second count-down ───── */
+
+        var auto = { on: true, st: autoNew(true), timer: null, det: null, last: null, lastAt: 0, counting: false, work: null, refQuad: null };
+
+        function autoPaintBtn() {
+            var a = $('scModeAuto'), m = $('scModeManual');
+            a.textContent = L.autoOn;
+            m.textContent = L.autoOff;
+            a.classList.toggle('is-on', auto.on);
+            m.classList.toggle('is-on', !auto.on);
+            a.setAttribute('aria-pressed', auto.on ? 'true' : 'false');
+            m.setAttribute('aria-pressed', auto.on ? 'false' : 'true');
+        }
+
+        function countShow(on) {
+            var el = $('scCount');
+            auto.counting = on;
+            if (on) {
+                el.hidden = false;
+                el.className = '';
+                void el.offsetWidth;
+                el.className = 'is-run';
+            } else {
+                el.hidden = true;
+                el.className = '';
+            }
+        }
+
+        function overlayDraw(det) {
+            var cv = $('scOverlay');
+            var v = $('scVideo');
+            cv.width = cv.clientWidth;
+            cv.height = cv.clientHeight;
+            var ctx = cv.getContext('2d');
+            ctx.clearRect(0, 0, cv.width, cv.height);
+            if (!det || !det.found || !v.videoWidth || !cv.width) return;
+            var m = coverMap(v.videoWidth, v.videoHeight, cv.width, cv.height);
+            var q = det.quad.map(function (p) { return { x: m.ox + p.x * v.videoWidth * m.s, y: m.oy + p.y * v.videoHeight * m.s }; });
+            ctx.beginPath();
+            ctx.moveTo(q[0].x, q[0].y);
+            for (var i = 1; i < 4; i++) ctx.lineTo(q[i].x, q[i].y);
+            ctx.closePath();
+            ctx.fillStyle = auto.counting ? 'rgba(34,197,94,0.18)' : 'rgba(34,211,238,0.16)';
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = auto.counting ? '#22c55e' : '#22d3ee';
+            ctx.stroke();
+        }
+
+        function detectFrame(el, sw, sh) {
+            var w = DET_W, h = Math.max(8, Math.round(w * sh / sw));
+            var c = auto.work || (auto.work = doc.createElement('canvas'));
+            c.width = w;
+            c.height = h;
+            var x = c.getContext('2d', { willReadFrequently: true });
+            x.drawImage(el, 0, 0, w, h);
+            var d = x.getImageData(0, 0, w, h);
+            return detectDocument(rgbaToGray(d.data, w, h), w, h);
+        }
+
+        function autoMessage(det) {
+            if (!auto.on) return L.autoOffMsg;
+            if (auto.counting) return L.autoCount + '…';
+            if (auto.st.phase === 'steady' && auto.st.armed) return L.autoHold;
+            if (det && det.reason === 'full') return L.autoFull;
+            if (det && det.reason === 'notext') return L.autoNoText;
+            return L.autoSearch;
+        }
+
+        function autoTick() {
+            auto.timer = null;
+            if (!stream || $('scCamera').hidden) return;
+            var v = $('scVideo');
+            if (auto.on && v.videoWidth > 0 && v.readyState >= 2) {
+                var det = detectFrame(v, v.videoWidth, v.videoHeight);
+                var now = Date.now();
+                auto.det = det;
+                if (det.found) { auto.last = det; auto.lastAt = now; }
+                var r = autoStep(auto.st, det, now);
+                if (r.action === 'start') countShow(true);
+                else if (r.action === 'cancel') countShow(false);
+                else if (r.action === 'fire') {
+                    countShow(false);
+                    overlayDraw(null);
+                    capture();
+                    return;
+                }
+                overlayDraw(det);
+                $('scAutoMsg').textContent = autoMessage(det);
+            } else {
+                overlayDraw(null);
+                $('scAutoMsg').textContent = auto.on ? '' : L.autoOffMsg;
+            }
+            auto.timer = setTimeout(autoTick, 220);
+        }
+
+        function autoStart() {
+            clearTimeout(auto.timer);
+            auto.last = null;
+            auto.det = null;
+            countShow(false);
+            autoPaintBtn();
+            $('scAutoMsg').textContent = auto.on ? L.autoSearch : L.autoOffMsg;
+            auto.timer = setTimeout(autoTick, 300);
+        }
+
+        function autoStop() {
+            clearTimeout(auto.timer);
+            auto.timer = null;
+            countShow(false);
+            overlayDraw(null);
+        }
+
+        function autoSet(on) {
+            if (auto.on === on) return;
+            auto.on = on;
+            auto.st = autoNew(true);
+            countShow(false);
+            overlayDraw(null);
+            autoPaintBtn();
+            $('scAutoMsg').textContent = auto.on ? L.autoSearch : L.autoOffMsg;
         }
 
         /* camera */
         function stopCamera() {
+            autoStop();
             if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
             var v = $('scVideo');
             if (v) v.srcObject = null;
@@ -470,6 +1158,7 @@
                     v.srcObject = s;
                     v.setAttribute('playsinline', 'true');
                     show('scCamera');
+                    autoStart();
                     return v.play().then(function () { return true; }, function () { return true; });
                 }, function () {
                     $('scIntroNote').textContent = L.camDenied;
@@ -487,10 +1176,29 @@
             return c;
         }
 
-        function beginCrop(canvas) {
-            cur = { src: canvas, quad: defaultQuad(canvas.width, canvas.height), mode: 'color', base: null };
+        /** Crop editor, opened from the preview (Crop) or from a page in the pending list. */
+        function beginCrop(canvas, mode) {
+            cur = { src: canvas, quad: defaultQuad(canvas.width, canvas.height), mode: mode || 'color', base: null };
             show('scCrop');
             drawCrop();
+        }
+
+        /** A new capture / picked photo goes straight to the preview with the page edges already cut out. */
+        function beginFromSource(canvas, quad) {
+            cur = { src: canvas, quad: quad, mode: 'color', base: null };
+            applyCrop();
+        }
+
+        function detectQuadFor(canvas, fallback) {
+            var d = detectFrame(canvas, canvas.width, canvas.height);
+            if (!d.found && fallback && fallback.found) d = fallback;
+            if (!d.found) return { quad: fullQuad(canvas.width, canvas.height), det: null };
+            var q = scaleQuad(d.quad, canvas.width, canvas.height);
+            var cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
+            q = q.map(function (p) {
+                return { x: Math.max(0, Math.min(canvas.width, cx + (p.x - cx) * 1.012)), y: Math.max(0, Math.min(canvas.height, cy + (p.y - cy) * 1.012)) };
+            });
+            return { quad: quadIsValid(q, canvas.width, canvas.height) ? q : fullQuad(canvas.width, canvas.height), det: d };
         }
 
         function cropGeom() {
@@ -589,6 +1297,10 @@
             cur.base = c;
             show('scPreview');
             renderPreview();
+            var editing = editIdx >= 0;
+            $('scPreviewPages').textContent = String(pages.length + (editing ? 0 : 1));
+            $('scAddPage').textContent = editing ? L.save : L.add;
+            $('scPreviewStatus').textContent = '';
         }
 
         function renderPreview() {
@@ -606,15 +1318,39 @@
             });
         }
 
-        function addPage() {
+        /** Keep what is on the preview as a page in the pending list; done(editing) says what to show next. */
+        function commitPreview(done) {
+            if (!cur) return;
+            if (editIdx < 0 && pages.length >= MAX_PAGES) { $('scPreviewStatus').textContent = L.maxPages; return; }
             $('scPreviewCanvas').toBlob(function (blob) {
-                if (!blob) return;
+                if (!blob || !cur) return;
                 var pv = $('scPreviewCanvas');
-                pages.push({ blob: blob, w: pv.width, h: pv.height, thumb: URL.createObjectURL(blob) });
+                var np = { blob: blob, w: pv.width, h: pv.height, thumb: URL.createObjectURL(blob) };
+                var editing = editIdx >= 0 && !!pages[editIdx];
+                if (editing) {
+                    URL.revokeObjectURL(pages[editIdx].thumb);
+                    pages[editIdx] = np;
+                } else {
+                    pages.push(np);
+                    auto.st = autoNew(!auto.refQuad, auto.refQuad);
+                }
+                editIdx = -1;
                 cur = null;
                 updateBadges();
-                startCamera();
+                done(editing);
             }, 'image/jpeg', 0.86);
+        }
+
+        function addPage() { commitPreview(function (editing) { if (editing) show('scSend'); else startCamera(); }); }
+
+        function previewNext() { commitPreview(function () { show('scSend'); }); }
+
+        function previewRetake() {
+            cur = null;
+            if (editIdx >= 0) { editIdx = -1; show('scSend'); return; }
+            auto.st = autoNew(true);
+            auto.refQuad = null;
+            startCamera();
         }
 
         function loadFile(file) {
@@ -624,16 +1360,118 @@
             im.onload = function () {
                 var c = drawToSource(im, im.naturalWidth, im.naturalHeight);
                 URL.revokeObjectURL(url);
-                beginCrop(c);
+                editIdx = -1;
+                auto.refQuad = null;
+                beginFromSource(c, detectQuadFor(c).quad);
             };
             im.onerror = function () { URL.revokeObjectURL(url); };
             im.src = url;
         }
 
+        /* ── several photos / PDFs picked from the phone ───────── */
+
+        function pdfThumb() {
+            var c = doc.createElement('canvas');
+            c.width = 84;
+            c.height = 112;
+            var x = c.getContext('2d');
+            x.fillStyle = '#334155';
+            x.fillRect(0, 0, 84, 112);
+            x.fillStyle = '#f87171';
+            x.fillRect(0, 36, 84, 34);
+            x.fillStyle = '#fff';
+            x.font = 'bold 22px sans-serif';
+            x.textAlign = 'center';
+            x.fillText('PDF', 42, 61);
+            return c.toDataURL('image/png');
+        }
+
+        function readPicked(file) {
+            var kind = classifyFile(file);
+            if (kind === 'pdf') return Promise.resolve({ pdf: true, blob: file, w: 0, h: 0, thumb: pdfThumb(), name: file.name || '' });
+            if (kind !== 'image') return Promise.resolve(null);
+            return new Promise(function (resolve) {
+                var url = URL.createObjectURL(file);
+                var im = new root.Image();
+                im.onload = function () {
+                    var w = im.naturalWidth, h = im.naturalHeight;
+                    var k = Math.min(1, MAX_PICK_EDGE / Math.max(w, h));
+                    var c = doc.createElement('canvas');
+                    c.width = Math.max(1, Math.round(w * k));
+                    c.height = Math.max(1, Math.round(h * k));
+                    var x = c.getContext('2d');
+                    x.fillStyle = '#fff';
+                    x.fillRect(0, 0, c.width, c.height);
+                    x.drawImage(im, 0, 0, c.width, c.height);
+                    URL.revokeObjectURL(url);
+                    c.toBlob(function (blob) {
+                        if (!blob) { resolve(null); return; }
+                        resolve({ blob: blob, w: c.width, h: c.height, thumb: URL.createObjectURL(blob), name: file.name || '' });
+                    }, 'image/jpeg', 0.9);
+                };
+                im.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+                im.src = url;
+            });
+        }
+
+        /** One picture keeps the crop screen; several pictures or any PDF go straight to the page list. */
+        function pickFiles(list) {
+            var files = Array.prototype.slice.call(list || []);
+            if (!files.length) return Promise.resolve();
+            if (files.length === 1 && classifyFile(files[0]) === 'image' && pages.length < MAX_PAGES) {
+                loadFile(files[0]);
+                return Promise.resolve();
+            }
+            var take = files.slice(0, roomFor(pages.length, files.length));
+            var added = 0;
+            var chain = Promise.resolve();
+            take.forEach(function (f) {
+                chain = chain.then(function () {
+                    return readPicked(f).then(function (p) { if (p) { pages.push(p); added++; } });
+                });
+            });
+            return chain.then(function () {
+                updateBadges();
+                if (added) { stopCamera(); show('scSend'); }
+                var skipped = files.length - added;
+                setProgress(added + ' ' + L.added + (skipped > 0 ? ', ' + skipped + ' ' + L.skipped : ''));
+            });
+        }
+
+        function recropPage(i) {
+            var p = pages[i];
+            if (!p || p.pdf) return;
+            var url = URL.createObjectURL(p.blob);
+            var im = new root.Image();
+            im.onload = function () {
+                var c = drawToSource(im, im.naturalWidth, im.naturalHeight);
+                URL.revokeObjectURL(url);
+                editIdx = i;
+                beginCrop(c, 'orig');
+            };
+            im.onerror = function () { URL.revokeObjectURL(url); };
+            im.src = url;
+        }
+
+        function flash() {
+            var f = $('scFlash');
+            f.hidden = false;
+            setTimeout(function () { f.hidden = true; }, 140);
+        }
+
+        /** Shutter - pressed by hand at any time (also during the count-down) or fired by the auto timer. */
         function capture() {
             var v = $('scVideo');
             if (!v.videoWidth) return;
-            beginCrop(drawToSource(v, v.videoWidth, v.videoHeight));
+            var now = Date.now();
+            var seen = (auto.last && now - auto.lastAt < 1500) ? auto.last : null;
+            countShow(false);
+            var src = drawToSource(v, v.videoWidth, v.videoHeight);
+            var found = detectQuadFor(src, seen);
+            auto.refQuad = (seen && seen.quad) || (found.det && found.det.quad) || null;
+            editIdx = -1;
+            flash();
+            beginFromSource(src, found.quad);
         }
 
         function blobToDataUrl(blob) {
@@ -656,12 +1494,12 @@
             });
         }
 
-        function buildPdfBlob() {
+        function buildPdfBlob(list) {
             return loadJsPdf().then(function (JsPDF) {
                 if (!JsPDF) throw new Error('jspdf');
-                return Promise.all(pages.map(function (p) { return blobToDataUrl(p.blob); })).then(function (urls) {
+                return Promise.all(list.map(function (p) { return blobToDataUrl(p.blob); })).then(function (urls) {
                     var pdf = null;
-                    pages.forEach(function (p, i) {
+                    list.forEach(function (p, i) {
                         var sz = pdfPageSize(p.w, p.h);
                         if (!pdf) pdf = new JsPDF({ unit: 'pt', format: [sz.w, sz.h], orientation: sz.orient });
                         else pdf.addPage([sz.w, sz.h], sz.orient);
@@ -679,13 +1517,16 @@
             var asPdf = $('scFmtPdf').checked;
             $('scSendBtn').disabled = true;
             setProgress(L.sending);
-            var prep = asPdf
-                ? buildPdfBlob().then(function (b) { return [{ blob: b, ext: 'pdf', contentType: 'application/pdf' }]; })
+            var sp = splitPages(pages);
+            var jpgItems = sp.images.map(function (p) { return { blob: p.blob, ext: 'jpg', contentType: 'image/jpeg' }; });
+            var pdfItems = sp.pdfs.map(function (p) { return { blob: p.blob, ext: 'pdf', contentType: 'application/pdf' }; });
+            var prep = (asPdf && sp.images.length)
+                ? buildPdfBlob(sp.images).then(function (b) { return [{ blob: b, ext: 'pdf', contentType: 'application/pdf' }].concat(pdfItems); })
                     .catch(function () {
                         setProgress(L.pdfFail);
-                        return pages.map(function (p) { return { blob: p.blob, ext: 'jpg', contentType: 'image/jpeg' }; });
+                        return jpgItems.concat(pdfItems);
                     })
-                : Promise.resolve(pages.map(function (p) { return { blob: p.blob, ext: 'jpg', contentType: 'image/jpeg' }; }));
+                : Promise.resolve(jpgItems.concat(pdfItems));
             prep.then(function (items) {
                 return uploadItems(sb, params.token, items, function (i, n) { setProgress(L.sending + ' ' + i + '/' + n); }, seq)
                     .then(function (res) {
@@ -711,27 +1552,74 @@
         /* wiring */
         $('scStartBtn').addEventListener('click', function () { startCamera(); });
         $('scShutter').addEventListener('click', capture);
-        $('scCamFile').addEventListener('change', function (e) { loadFile(e.target.files && e.target.files[0]); e.target.value = ''; });
-        $('scGalleryFile').addEventListener('change', function (e) { loadFile(e.target.files && e.target.files[0]); e.target.value = ''; });
+        ['scCamFile', 'scGalleryFile'].forEach(function (id) {
+            $(id).addEventListener('change', function (e) {
+                var picked = Array.prototype.slice.call(e.target.files || []);
+                e.target.value = '';
+                pickFiles(picked);
+            });
+        });
         $('scIntroCamFile').addEventListener('change', function (e) { loadFile(e.target.files && e.target.files[0]); e.target.value = ''; });
         $('scFinishBtn').addEventListener('click', function () { if (pages.length) { stopCamera(); show('scSend'); } });
         $('scCropNext').addEventListener('click', applyCrop);
-        $('scCropRetake').addEventListener('click', function () { cur = null; startCamera(); });
-        $('scPreviewBack').addEventListener('click', function () { show('scCrop'); drawCrop(); });
+        $('scCropRetake').addEventListener('click', function () {
+            if (cur && cur.base) { show('scPreview'); renderPreview(); return; }
+            cur = null;
+            if (editIdx >= 0) { editIdx = -1; show('scSend'); } else startCamera();
+        });
+        $('scPreviewCrop').addEventListener('click', function () { if (cur) { show('scCrop'); drawCrop(); } });
+        $('scPreviewRetake').addEventListener('click', previewRetake);
+        $('scPreviewNext').addEventListener('click', previewNext);
+        $('scModeAuto').addEventListener('click', function () { autoSet(true); });
+        $('scModeManual').addEventListener('click', function () { autoSet(false); });
         $('scRotate').addEventListener('click', function () { cur.base = rotateCanvas(cur.base); renderPreview(); });
         $('scAddPage').addEventListener('click', addPage);
         doc.querySelectorAll('[data-filter]').forEach(function (el) {
             el.addEventListener('click', function () { cur.mode = el.getAttribute('data-filter'); renderPreview(); });
         });
+        $('scLastThumb').addEventListener('click', function () { openPageViewer(pages.length - 1); });
+        $('scPreviewCanvas').addEventListener('click', openPreviewViewer);
+        $('scViewerClose').addEventListener('click', closeViewer);
+        var vbox = $('scViewerScroll');
+        vbox.addEventListener('pointerdown', viewerDown);
+        vbox.addEventListener('pointermove', viewerMove);
+        vbox.addEventListener('pointerup', viewerUp);
+        vbox.addEventListener('pointercancel', viewerUp);
+        vbox.addEventListener('wheel', viewerWheel, { passive: false });
+        $('scViewerZoom').addEventListener('click', viewerZoomButton);
+        $('scViewerPrev').addEventListener('click', function () { viewerGo(-1); });
+        $('scViewerNext').addEventListener('click', function () { viewerGo(1); });
+        doc.addEventListener('keydown', function (e) {
+            if ($('scViewer').hidden) return;
+            if (e.key === 'ArrowLeft') viewerGo(-1);
+            else if (e.key === 'ArrowRight') viewerGo(1);
+            else if (e.key === 'Escape') closeViewer();
+        });
+        $('scViewerCrop').addEventListener('click', function () {
+            var it = viewer.items[viewer.idx];
+            var pi = it ? it.pageIdx : null;
+            closeViewer();
+            if (pi != null) recropPage(pi);
+        });
         $('scSendBack').addEventListener('click', function () { startCamera(); });
         $('scSendBtn').addEventListener('click', send);
         $('scMoreBtn').addEventListener('click', function () { startCamera(); });
         root.addEventListener('pagehide', stopCamera);
-        root.addEventListener('resize', function () { if (cur && $('scCrop').hidden === false) drawCrop(); });
+        root.addEventListener('resize', function () {
+            if (cur && $('scCrop').hidden === false) drawCrop();
+            if (!$('scViewer').hidden && viewer.items.length) viewerLayout();
+        });
 
         updateBadges();
+        autoPaintBtn();
         show('scIntro');
-        root.__scanState = function () { return { pages: pages.length, sent: sentCount, hasCurrent: !!cur }; };
+        root.__scanState = function () {
+            return {
+                pages: pages.length, sent: sentCount, hasCurrent: !!cur,
+                auto: { on: auto.on, phase: auto.st.phase, armed: auto.st.armed, counting: auto.counting },
+                viewer: { s: viewer.v.s, tx: viewer.v.tx, ty: viewer.v.ty, idx: viewer.idx, n: viewer.items.length }
+            };
+        };
     }
 
     function boot() {
@@ -754,6 +1642,10 @@
         buildPath: buildPath, buildHelloPath: buildHelloPath, buildDonePath: buildDonePath,
         squareToQuad: squareToQuad, mapUnit: mapUnit, outputSize: outputSize, defaultQuad: defaultQuad,
         quadIsValid: quadIsValid, warpQuad: warpQuad, enhance: enhance, pdfPageSize: pdfPageSize,
+        clampScale: clampScale, fitSize: fitSize, viewClamp: viewClamp, zoomAbout: zoomAbout, zoomPercent: zoomPercent, nextViewScale: nextViewScale,
+        rgbaToGray: rgbaToGray, detectDocument: detectDocument, quadShift: quadShift, quadsClose: quadsClose, scaleQuad: scaleQuad, fullQuad: fullQuad,
+        autoNew: autoNew, autoStep: autoStep, AUTO: AUTO, coverMap: coverMap, DET_W: DET_W,
+        classifyFile: classifyFile, roomFor: roomFor, splitPages: splitPages, MAX_PAGES: MAX_PAGES,
         makeUploader: makeUploader, uploadItems: uploadItems, sendMarker: sendMarker,
         strings: strings, boot: boot
     };

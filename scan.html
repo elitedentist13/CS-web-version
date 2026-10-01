@@ -65,7 +65,9 @@
   #scViewerScroll { flex:1; min-height:0; position:relative; overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none; }
   #scViewerImg { position:absolute; left:50%; top:50%; transform-origin:center center; background:#fff; max-width:none; max-height:none; will-change:transform; -webkit-user-drag:none; }
 
-  #scOverlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .sc-guide { transition:border-color .2s, box-shadow .2s; box-shadow:0 0 0 100vmax rgba(0,0,0,.28); }
+  .sc-guide.is-found { border-style:solid; border-color:#22d3ee; }
+  .sc-guide.is-count { border-style:solid; border-color:#22c55e; }
   .sc-seg { display:inline-flex; background:rgba(15,23,42,.78); border-radius:999px; padding:3px; }
   .sc-seg button { border:0; background:transparent; color:#cbd5e1; font-size:13px; font-weight:700; padding:6px 14px; border-radius:999px; }
   .sc-seg button.is-on { background:#0891b2; color:#fff; }
@@ -109,8 +111,7 @@
 
 <section id="scCamera" class="sc-view" hidden>
   <video id="scVideo" autoplay playsinline muted></video>
-  <canvas id="scOverlay"></canvas>
-  <div class="sc-guide"></div>
+  <div id="scGuide" class="sc-guide"></div>
   <div id="scFlash" hidden></div>
   <div class="sc-cam-top">
     <span class="sc-pill"><span data-s="pages">Pages</span>: <span id="scPagesBadge">0</span></span>
@@ -221,7 +222,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="scan.js?v=20261002scan8"></script>
+<script src="scan.js?v=20261002scan9"></script>
 <script>CSPhoneScan.boot();</script>
 </body>
 </html>

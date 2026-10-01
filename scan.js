@@ -86,6 +86,7 @@
     /* ── automatic page detection: runs on a small grey copy of the camera frame ── */
 
     var DET_W = 200;
+    var DETX_W = 360;
 
     function rgbaToGray(data, w, h) {
         var g = new Uint8Array(w * h);
@@ -278,14 +279,128 @@
         return { found: false, quad: null, reason: firstReason };
     }
 
+    /* ── the dotted frame: text-on-paper test and a movement signature of what is inside it ──
+     * The camera view is cropped to the dotted guide; whatever sits inside is the page. So auto-capture does
+     * not need to find page corners (fragile with real lighting and desks): it needs "paper with text fills
+     * the frame" and "it is holding still". */
+
+    var SIG_N = 24;
+
+    /** SIG_N x SIG_N brightness signature of a grey frame, normalised for overall brightness. */
+    function sigOf(gray, w, h) {
+        var out = new Float32Array(SIG_N * SIG_N), cnt = new Uint32Array(SIG_N * SIG_N), i, x, y;
+        for (y = 0; y < h; y++) {
+            var cy = Math.min(SIG_N - 1, (y * SIG_N / h) | 0);
+            for (x = 0; x < w; x++) {
+                var k = cy * SIG_N + Math.min(SIG_N - 1, (x * SIG_N / w) | 0);
+                out[k] += gray[y * w + x];
+                cnt[k]++;
+            }
+        }
+        var mean = 0;
+        for (i = 0; i < out.length; i++) { out[i] = cnt[i] ? out[i] / cnt[i] : 0; mean += out[i]; }
+        mean /= out.length;
+        for (i = 0; i < out.length; i++) out[i] -= mean;
+        return out;
+    }
+
+    function sigDiff(a, b) {
+        if (!a || !b || a.length !== b.length) return 255;
+        var d = 0;
+        for (var i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]);
+        return d / a.length;
+    }
+
+    /**
+     * Is there a page with printed / written text filling this (guide-cropped) grey frame?
+     * Works on 6 x 6 pixel blocks: text blocks have a strong light/dark range, blank paper blocks are bright and
+     * flat. Needs both, and the text spread over the page, so a blank sheet, a wall, a desk or a dark room do not count.
+     * Resolves { found, reason: 'ok' | 'dark' | 'nopaper' | 'notext', quad (the whole frame), sig }.
+     */
+    function detectText(gray, w, h) {
+        var B = 6, bw = Math.floor(w / B), bh = Math.floor(h / B);
+        var whole = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+        var res = { found: false, quad: null, reason: 'dark', sig: null, textFrac: 0, blankFrac: 0 };
+        if (bw < 8 || bh < 8) return res;
+        var N = bw * bh, mean = new Float32Array(N), range = new Float32Array(N), i, x, y;
+        var hist = new Uint32Array(256), total = 0;
+        for (var by = 0; by < bh; by++) {
+            for (var bx = 0; bx < bw; bx++) {
+                var lo = 255, hi = 0, sum = 0;
+                for (y = 0; y < B; y++) {
+                    var row = (by * B + y) * w + bx * B;
+                    for (x = 0; x < B; x++) {
+                        var v = gray[row + x];
+                        if (v < lo) lo = v;
+                        if (v > hi) hi = v;
+                        sum += v;
+                    }
+                }
+                var m = sum / (B * B);
+                mean[by * bw + bx] = m;
+                range[by * bw + bx] = hi - lo;
+                hist[m | 0]++;
+                total++;
+            }
+        }
+        var acc = 0, P = 255;
+        for (i = 0; i < 256; i++) { acc += hist[i]; if (acc >= total * 0.85) { P = i; break; } }
+        if (P < 80) return res;
+        var text = 0, blank = 0, cellT = new Uint32Array(16), cellN = new Uint32Array(16);
+        for (var cy = 0; cy < bh; cy++) {
+            for (var cx = 0; cx < bw; cx++) {
+                var k = cy * bw + cx, cell = Math.min(3, (cy * 4 / bh) | 0) * 4 + Math.min(3, (cx * 4 / bw) | 0);
+                cellN[cell]++;
+                if (range[k] >= 24 && mean[k] > 0.3 * P) { text++; cellT[cell]++; }
+                else if (range[k] < 14 && mean[k] >= 0.6 * P) blank++;
+            }
+        }
+        var spread = 0;
+        for (i = 0; i < 16; i++) if (cellN[i] && cellT[i] / cellN[i] >= 0.03) spread++;
+        res.textFrac = text / N;
+        res.blankFrac = blank / N;
+        res.sig = sigOf(gray, w, h);
+        if (blank / N < 0.1) { res.reason = 'nopaper'; return res; }
+        if (text / N < 0.03 || text / N > 0.85 || spread < 6) { res.reason = 'notext'; return res; }
+        res.found = true;
+        res.reason = 'ok';
+        res.quad = whole;
+        return res;
+    }
+
+    /** The dotted guide (box coordinates) as a pixel rectangle of the camera frame, for object-fit: cover. */
+    function guideToVideo(gx, gy, gw, gh, cw, ch, vw, vh) {
+        var m = coverMap(vw, vh, cw, ch);
+        var x0 = (gx - m.ox) / m.s, y0 = (gy - m.oy) / m.s, x1 = (gx + gw - m.ox) / m.s, y1 = (gy + gh - m.oy) / m.s;
+        x0 = Math.max(0, Math.min(vw, x0)); x1 = Math.max(0, Math.min(vw, x1));
+        y0 = Math.max(0, Math.min(vh, y0)); y1 = Math.max(0, Math.min(vh, y1));
+        return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
+    }
+
     /* Auto-capture: a page must hold still for a moment, then a 3-second count-down runs; moving the page
      * or taking it away cancels it. After a capture it re-arms only once the page is taken away or the
      * camera moves to another page, so one page is never captured twice. */
 
-    var AUTO = { steadyMs: 700, countdownMs: 3000, steadyTol: 0.035, countTol: 0.07, loseMs: 900, rearmGoneMs: 700, rearmMove: 0.12 };
+    var AUTO = {
+        steadyMs: 700, countdownMs: 3000, loseMs: 900, rearmGoneMs: 700,
+        steadyTol: 0.035, countTol: 0.07, rearmMove: 0.12,
+        sigSteady: 6, sigCount: 12, sigRearm: 16
+    };
 
-    function autoNew(armed, refQuad) {
-        return { phase: 'search', armed: armed !== false, since: 0, quad: null, lostAt: 0, goneAt: 0, countAt: 0, refQuad: refQuad || null };
+    function autoNew(armed, ref) {
+        return { phase: 'search', armed: armed !== false, since: 0, ref: null, lostAt: 0, goneAt: 0, countAt: 0, refDet: Array.isArray(ref) ? { quad: ref } : (ref || null) };
+    }
+
+    function detClose(a, b, tolQuad, tolSig) {
+        if (!a || !b) return false;
+        if (a.sig && b.sig) return sigDiff(a.sig, b.sig) <= tolSig;
+        return quadsClose(a.quad, b.quad, tolQuad);
+    }
+
+    function detFar(a, b, cfg) {
+        if (!a || !b) return false;
+        if (a.sig && b.sig) return sigDiff(a.sig, b.sig) > cfg.sigRearm;
+        return !!a.quad && !!b.quad && quadShift(a.quad, b.quad) > cfg.rearmMove;
     }
 
     /** One detection result in; returns { action: none|steady|lost|start|tick|cancel|fire, remaining }. Mutates st. */
@@ -299,38 +414,38 @@
                 if (now - st.goneAt >= cfg.rearmGoneMs) st.armed = true;
             } else {
                 st.goneAt = 0;
-                if (st.refQuad && quadShift(det.quad, st.refQuad) > cfg.rearmMove) st.armed = true;
+                if (st.refDet && detFar(det, st.refDet, cfg)) st.armed = true;
             }
             if (!st.armed) return out;
             st.phase = 'search';
-            st.quad = null;
+            st.ref = null;
             if (!found) return out;
         }
         if (st.phase === 'search') {
-            if (found) { st.phase = 'steady'; st.quad = det.quad; st.since = now; out.action = 'steady'; }
+            if (found) { st.phase = 'steady'; st.ref = det; st.since = now; out.action = 'steady'; }
             return out;
         }
         if (st.phase === 'steady') {
-            if (!found) { st.phase = 'search'; st.quad = null; out.action = 'lost'; return out; }
-            if (!quadsClose(det.quad, st.quad, cfg.steadyTol)) { st.quad = det.quad; st.since = now; return out; }
+            if (!found) { st.phase = 'search'; st.ref = null; out.action = 'lost'; return out; }
+            if (!detClose(det, st.ref, cfg.steadyTol, cfg.sigSteady)) { st.ref = det; st.since = now; return out; }
             if (now - st.since >= cfg.steadyMs) { st.phase = 'count'; st.countAt = now; st.lostAt = 0; out.action = 'start'; out.remaining = cfg.countdownMs; }
             return out;
         }
-        if (found && quadsClose(det.quad, st.quad, cfg.countTol)) {
+        if (found && detClose(det, st.ref, cfg.countTol, cfg.sigCount)) {
             st.lostAt = 0;
         } else if (found) {
-            st.phase = 'steady'; st.quad = det.quad; st.since = now; out.action = 'cancel';
+            st.phase = 'steady'; st.ref = det; st.since = now; out.action = 'cancel';
             return out;
         } else {
             if (!st.lostAt) st.lostAt = now;
-            if (now - st.lostAt > cfg.loseMs) { st.phase = 'search'; st.quad = null; out.action = 'cancel'; return out; }
+            if (now - st.lostAt > cfg.loseMs) { st.phase = 'search'; st.ref = null; out.action = 'cancel'; return out; }
         }
         var remaining = cfg.countdownMs - (now - st.countAt);
         if (remaining <= 0) {
             st.phase = 'search';
             st.armed = false;
             st.goneAt = 0;
-            st.refQuad = st.quad;
+            st.refDet = st.ref;
             out.action = 'fire';
             return out;
         }
@@ -666,7 +781,7 @@
             cropPage: 'Crop', close: 'Close', fit: 'Fit',
             queueTitle: 'Pending upload', cancel: 'Cancel', apply: 'Apply', save: 'Save',
             maxPages: 'Page limit reached - send these first.', tapEnlarge: 'Tap the page to enlarge it and check the clarity',
-            autoOn: 'Auto', autoOff: 'Manual', autoSearch: 'Point the camera at a page', autoHold: 'Hold steady…',
+            autoOn: 'Auto', autoOff: 'Manual', autoSearch: 'Fit the page inside the dotted frame', autoHold: 'Hold steady…',
             autoCount: 'Capturing in', autoFull: 'Fit the whole page in view', autoNoText: 'Looking for text on the page',
             autoOffMsg: 'Tap the round button to scan',
             writeOnly: 'This page can only add new pages. Nothing can be changed or deleted from your phone.',
@@ -690,7 +805,7 @@
             cropPage: '裁切', close: '關閉', fit: '適合',
             queueTitle: '待上傳', cancel: '取消', apply: '套用', save: '儲存',
             maxPages: '已達頁數上限，請先傳送。', tapEnlarge: '點選頁面可放大檢查清晰度',
-            autoOn: '自動', autoOff: '手動', autoSearch: '請將相機對準文件', autoHold: '請保持穩定…',
+            autoOn: '自動', autoOff: '手動', autoSearch: '請將文件放入虛線框內', autoHold: '請保持穩定…',
             autoCount: '即將拍攝', autoFull: '請讓整頁文件入鏡', autoNoText: '正在尋找頁面上的文字',
             autoOffMsg: '請按圓形按鈕拍攝',
             writeOnly: '此頁面只能新增頁面，無法在手機上修改或刪除任何內容。',
@@ -714,7 +829,7 @@
             cropPage: '裁剪', close: '关闭', fit: '适合',
             queueTitle: '待上传', cancel: '取消', apply: '应用', save: '保存',
             maxPages: '已达页数上限，请先发送。', tapEnlarge: '点按页面可放大检查清晰度',
-            autoOn: '自动', autoOff: '手动', autoSearch: '请将相机对准文件', autoHold: '请保持稳定…',
+            autoOn: '自动', autoOff: '手动', autoSearch: '请将文件放入虚线框内', autoHold: '请保持稳定…',
             autoCount: '即将拍摄', autoFull: '请让整页文件入镜', autoNoText: '正在寻找页面上的文字',
             autoOffMsg: '请按圆形按钮拍摄',
             writeOnly: '此页面只能新增页面，无法在手机上修改或删除任何内容。',
@@ -1016,7 +1131,7 @@
 
         /* ── automatic page detection + 3 second count-down ───── */
 
-        var auto = { on: true, st: autoNew(true), timer: null, det: null, last: null, lastAt: 0, counting: false, work: null, refQuad: null };
+        var auto = { on: true, st: autoNew(true), timer: null, det: null, counting: false, work: null, refDet: null };
 
         function autoPaintBtn() {
             var a = $('scModeAuto'), m = $('scModeManual');
@@ -1026,6 +1141,12 @@
             m.classList.toggle('is-on', !auto.on);
             a.setAttribute('aria-pressed', auto.on ? 'true' : 'false');
             m.setAttribute('aria-pressed', auto.on ? 'false' : 'true');
+        }
+
+        function guideMark(det) {
+            var g = $('scGuide');
+            g.classList.toggle('is-found', !!(det && det.found));
+            g.classList.toggle('is-count', auto.counting);
         }
 
         function countShow(on) {
@@ -1040,27 +1161,17 @@
                 el.hidden = true;
                 el.className = '';
             }
+            $('scGuide').classList.toggle('is-count', on);
         }
 
-        function overlayDraw(det) {
-            var cv = $('scOverlay');
-            var v = $('scVideo');
-            cv.width = cv.clientWidth;
-            cv.height = cv.clientHeight;
-            var ctx = cv.getContext('2d');
-            ctx.clearRect(0, 0, cv.width, cv.height);
-            if (!det || !det.found || !v.videoWidth || !cv.width) return;
-            var m = coverMap(v.videoWidth, v.videoHeight, cv.width, cv.height);
-            var q = det.quad.map(function (p) { return { x: m.ox + p.x * v.videoWidth * m.s, y: m.oy + p.y * v.videoHeight * m.s }; });
-            ctx.beginPath();
-            ctx.moveTo(q[0].x, q[0].y);
-            for (var i = 1; i < 4; i++) ctx.lineTo(q[i].x, q[i].y);
-            ctx.closePath();
-            ctx.fillStyle = auto.counting ? 'rgba(34,197,94,0.18)' : 'rgba(34,211,238,0.16)';
-            ctx.fill();
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = auto.counting ? '#22c55e' : '#22d3ee';
-            ctx.stroke();
+        /** The area inside the dotted frame, in camera-frame pixels - this is what gets scanned. */
+        function guideRoi() {
+            var v = $('scVideo'), g = $('scGuide');
+            if (!v.videoWidth) return null;
+            var vr = v.getBoundingClientRect(), gr = g.getBoundingClientRect();
+            if (!vr.width || !gr.width) return null;
+            var r = guideToVideo(gr.left - vr.left, gr.top - vr.top, gr.width, gr.height, vr.width, vr.height, v.videoWidth, v.videoHeight);
+            return (r.w > 20 && r.h > 20) ? r : null;
         }
 
         function detectFrame(el, sw, sh) {
@@ -1074,11 +1185,23 @@
             return detectDocument(rgbaToGray(d.data, w, h), w, h);
         }
 
+        function detectInGuide(v) {
+            var r = guideRoi();
+            if (!r) return null;
+            var w = DETX_W, h = Math.max(24, Math.round(w * r.h / r.w));
+            var c = auto.work || (auto.work = doc.createElement('canvas'));
+            c.width = w;
+            c.height = h;
+            var x = c.getContext('2d', { willReadFrequently: true });
+            x.drawImage(v, r.x, r.y, r.w, r.h, 0, 0, w, h);
+            var d = x.getImageData(0, 0, w, h);
+            return detectText(rgbaToGray(d.data, w, h), w, h);
+        }
+
         function autoMessage(det) {
             if (!auto.on) return L.autoOffMsg;
             if (auto.counting) return L.autoCount + '…';
             if (auto.st.phase === 'steady' && auto.st.armed) return L.autoHold;
-            if (det && det.reason === 'full') return L.autoFull;
             if (det && det.reason === 'notext') return L.autoNoText;
             return L.autoSearch;
         }
@@ -1086,35 +1209,42 @@
         function autoTick() {
             auto.timer = null;
             if (!stream || $('scCamera').hidden) return;
-            var v = $('scVideo');
-            if (auto.on && v.videoWidth > 0 && v.readyState >= 2) {
-                var det = detectFrame(v, v.videoWidth, v.videoHeight);
-                var now = Date.now();
-                auto.det = det;
-                if (det.found) { auto.last = det; auto.lastAt = now; }
-                var r = autoStep(auto.st, det, now);
-                if (r.action === 'start') countShow(true);
-                else if (r.action === 'cancel') countShow(false);
-                else if (r.action === 'fire') {
-                    countShow(false);
-                    overlayDraw(null);
-                    capture();
-                    return;
+            var fire = false;
+            try {
+                var v = $('scVideo');
+                if (auto.on && v.videoWidth > 0 && v.readyState >= 2) {
+                    var det = detectInGuide(v);
+                    if (det) {
+                        auto.det = det;
+                        var r = autoStep(auto.st, det, Date.now());
+                        if (r.action === 'start') countShow(true);
+                        else if (r.action === 'cancel') countShow(false);
+                        else if (r.action === 'fire') fire = true;
+                        guideMark(det);
+                        $('scAutoMsg').textContent = autoMessage(det);
+                    }
+                } else {
+                    auto.det = null;
+                    guideMark(null);
+                    $('scAutoMsg').textContent = auto.on ? '' : L.autoOffMsg;
                 }
-                overlayDraw(det);
-                $('scAutoMsg').textContent = autoMessage(det);
-            } else {
-                overlayDraw(null);
-                $('scAutoMsg').textContent = auto.on ? '' : L.autoOffMsg;
+            } catch (e) {
+                auto.det = null;
             }
-            auto.timer = setTimeout(autoTick, 220);
+            if (fire) {
+                countShow(false);
+                guideMark(null);
+                capture();
+                return;
+            }
+            auto.timer = setTimeout(autoTick, 250);
         }
 
         function autoStart() {
             clearTimeout(auto.timer);
-            auto.last = null;
             auto.det = null;
             countShow(false);
+            guideMark(null);
             autoPaintBtn();
             $('scAutoMsg').textContent = auto.on ? L.autoSearch : L.autoOffMsg;
             auto.timer = setTimeout(autoTick, 300);
@@ -1124,15 +1254,16 @@
             clearTimeout(auto.timer);
             auto.timer = null;
             countShow(false);
-            overlayDraw(null);
+            guideMark(null);
         }
 
         function autoSet(on) {
             if (auto.on === on) return;
             auto.on = on;
             auto.st = autoNew(true);
+            auto.det = null;
             countShow(false);
-            overlayDraw(null);
+            guideMark(null);
             autoPaintBtn();
             $('scAutoMsg').textContent = auto.on ? L.autoSearch : L.autoOffMsg;
         }
@@ -1189,10 +1320,11 @@
             applyCrop();
         }
 
-        function detectQuadFor(canvas, fallback) {
+        /** Page corners inside a picture; the whole picture when none are found (or the page is smaller than minArea of it). */
+        function detectQuadFor(canvas, minArea) {
             var d = detectFrame(canvas, canvas.width, canvas.height);
-            if (!d.found && fallback && fallback.found) d = fallback;
             if (!d.found) return { quad: fullQuad(canvas.width, canvas.height), det: null };
+            if (minArea && polyArea(d.quad) < minArea) return { quad: fullQuad(canvas.width, canvas.height), det: null };
             var q = scaleQuad(d.quad, canvas.width, canvas.height);
             var cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
             q = q.map(function (p) {
@@ -1332,7 +1464,7 @@
                     pages[editIdx] = np;
                 } else {
                     pages.push(np);
-                    auto.st = autoNew(!auto.refQuad, auto.refQuad);
+                    auto.st = autoNew(!auto.refDet, auto.refDet);
                 }
                 editIdx = -1;
                 cur = null;
@@ -1349,7 +1481,7 @@
             cur = null;
             if (editIdx >= 0) { editIdx = -1; show('scSend'); return; }
             auto.st = autoNew(true);
-            auto.refQuad = null;
+            auto.refDet = null;
             startCamera();
         }
 
@@ -1361,7 +1493,7 @@
                 var c = drawToSource(im, im.naturalWidth, im.naturalHeight);
                 URL.revokeObjectURL(url);
                 editIdx = -1;
-                auto.refQuad = null;
+                auto.refDet = null;
                 beginFromSource(c, detectQuadFor(c).quad);
             };
             im.onerror = function () { URL.revokeObjectURL(url); };
@@ -1463,12 +1595,16 @@
         function capture() {
             var v = $('scVideo');
             if (!v.videoWidth) return;
-            var now = Date.now();
-            var seen = (auto.last && now - auto.lastAt < 1500) ? auto.last : null;
             countShow(false);
-            var src = drawToSource(v, v.videoWidth, v.videoHeight);
-            var found = detectQuadFor(src, seen);
-            auto.refQuad = (seen && seen.quad) || (found.det && found.det.quad) || null;
+            /* only what is inside the dotted frame is scanned */
+            var roi = guideRoi() || { x: 0, y: 0, w: v.videoWidth, h: v.videoHeight };
+            var k = Math.min(1, MAX_SRC_EDGE / Math.max(roi.w, roi.h));
+            var src = doc.createElement('canvas');
+            src.width = Math.max(1, Math.round(roi.w * k));
+            src.height = Math.max(1, Math.round(roi.h * k));
+            src.getContext('2d').drawImage(v, roi.x, roi.y, roi.w, roi.h, 0, 0, src.width, src.height);
+            var found = detectQuadFor(src, 0.5);
+            auto.refDet = (auto.det && auto.det.found) ? auto.det : null;
             editIdx = -1;
             flash();
             beginFromSource(src, found.quad);
@@ -1616,7 +1752,7 @@
         root.__scanState = function () {
             return {
                 pages: pages.length, sent: sentCount, hasCurrent: !!cur,
-                auto: { on: auto.on, phase: auto.st.phase, armed: auto.st.armed, counting: auto.counting },
+                auto: { on: auto.on, phase: auto.st.phase, armed: auto.st.armed, counting: auto.counting, reason: auto.det ? auto.det.reason : '', roi: guideRoi() },
                 viewer: { s: viewer.v.s, tx: viewer.v.tx, ty: viewer.v.ty, idx: viewer.idx, n: viewer.items.length }
             };
         };
@@ -1644,7 +1780,8 @@
         quadIsValid: quadIsValid, warpQuad: warpQuad, enhance: enhance, pdfPageSize: pdfPageSize,
         clampScale: clampScale, fitSize: fitSize, viewClamp: viewClamp, zoomAbout: zoomAbout, zoomPercent: zoomPercent, nextViewScale: nextViewScale,
         rgbaToGray: rgbaToGray, detectDocument: detectDocument, quadShift: quadShift, quadsClose: quadsClose, scaleQuad: scaleQuad, fullQuad: fullQuad,
-        autoNew: autoNew, autoStep: autoStep, AUTO: AUTO, coverMap: coverMap, DET_W: DET_W,
+        autoNew: autoNew, autoStep: autoStep, AUTO: AUTO, coverMap: coverMap, DET_W: DET_W, DETX_W: DETX_W,
+        detectText: detectText, sigOf: sigOf, sigDiff: sigDiff, guideToVideo: guideToVideo,
         classifyFile: classifyFile, roomFor: roomFor, splitPages: splitPages, MAX_PAGES: MAX_PAGES,
         makeUploader: makeUploader, uploadItems: uploadItems, sendMarker: sendMarker,
         strings: strings, boot: boot

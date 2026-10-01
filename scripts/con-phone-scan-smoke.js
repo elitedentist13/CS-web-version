@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002scan8';
+var BUILD = '20261002scan9';
 var PAGE_PORT = 8795;
 var CDP_PORT = 9357;
 var CHROME = process.env.CHROME_PATH ||
@@ -222,7 +222,7 @@ function getPx(img, x, y) {
         scanHtml.indexOf('scan.js?v=' + BUILD) >= 0 && scanHtml.indexOf('CSPhoneScan.boot()') >= 0);
     pass('scan page has every view the script drives',
         ['scIntro', 'scCamera', 'scCrop', 'scPreview', 'scSend', 'scDone', 'scError', 'scVideo', 'scShutter', 'scFinishBtn',
-         'scModeAuto', 'scModeManual', 'scCount', 'scOverlay', 'scPreviewNext', 'scPreviewRetake', 'scPreviewCrop', 'scAddPage', 'scViewerScroll',
+         'scModeAuto', 'scModeManual', 'scCount', 'scGuide', 'scPreviewNext', 'scPreviewRetake', 'scPreviewCrop', 'scAddPage', 'scViewerScroll',
          'scCropCanvas', 'scPreviewCanvas', 'scSendBtn', 'scFmtPdf', 'scFmtImg', 'scTray', 'scMoreBtn'].every(function (id) {
             return scanHtml.indexOf('id="' + id + '"') >= 0;
         }));
@@ -473,6 +473,99 @@ function getPx(img, x, y) {
         var a1 = step(fixed, 0), a2 = step(fixed, 1000);
         var a3 = step(shifted, 300);
         pass('auto: after a capture, moving to a clearly different page re-arms', a1.action === 'none' && a2.action === 'none' && a3.action === 'steady');
+    })();
+
+    /* ── dotted-frame detector: text on paper filling the guide ── */
+    function textPage(w, h, opts) {
+        opts = opts || {};
+        var g = new Uint8Array(w * h);
+        var seed = opts.seed || 7;
+        function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+            var light = opts.base == null ? 215 : opts.base;
+            var v = light - (opts.gradient ? 50 * x / w : 0) + (rnd() - 0.5) * (opts.noise == null ? 6 : opts.noise);
+            g[y * w + x] = Math.max(0, Math.min(255, v));
+        }
+        if (opts.text !== false) {
+            var pitch = opts.pitch || 12, th = opts.th || 5;
+            for (var ly = 24; ly + th < h - 20; ly += pitch) {
+                var xx = 20;
+                while (xx < w - 24) {
+                    var wl = 14 + Math.floor(rnd() * 40);
+                    if (xx + wl > w - 24) wl = w - 24 - xx;
+                    for (var yy = ly; yy < ly + th; yy++) for (var xw = xx; xw < xx + wl; xw++) g[yy * w + xw] = opts.ink == null ? 55 : opts.ink;
+                    xx += wl + 6 + Math.floor(rnd() * 6);
+                }
+            }
+        }
+        return g;
+    }
+    var TW = 360, TH = 620;
+    var t1 = scan.detectText(textPage(TW, TH), TW, TH);
+    pass('guide detector: a page of text filling the frame counts', t1.found === true && t1.reason === 'ok' && !!t1.sig, JSON.stringify([t1.reason, t1.textFrac, t1.blankFrac]));
+    var t2 = scan.detectText(textPage(TW, TH, { gradient: true, noise: 10 }), TW, TH);
+    pass('guide detector: uneven lighting and camera noise do not stop it', t2.found === true, JSON.stringify([t2.reason, t2.textFrac, t2.blankFrac]));
+    var t3 = scan.detectText(textPage(TW, TH, { text: false }), TW, TH);
+    pass('guide detector: a blank sheet is not a text page', t3.found === false && t3.reason === 'notext', t3.reason);
+    var t4 = scan.detectText(textPage(TW, TH, { base: 40, ink: 15, noise: 4 }), TW, TH);
+    pass('guide detector: a dark scene is ignored', t4.found === false, t4.reason);
+    var t5 = scan.detectText(textPage(TW, TH, { text: false, noise: 90 }), TW, TH);
+    pass('guide detector: noise / clutter with no paper is ignored', t5.found === false, t5.reason);
+    var t6 = scan.detectText(textPage(TW, TH, { pitch: 7, th: 4, ink: 120 }), TW, TH);
+    pass('guide detector: small, light handwriting-like text still counts', t6.found === true, JSON.stringify([t6.reason, t6.textFrac, t6.blankFrac]));
+    var t7 = scan.detectText(textPage(TW, TH, { pitch: 9, th: 8, ink: 40 }), TW, TH);
+    pass('guide detector: a page that is almost all text (no margin) is not mistaken for paper-less clutter', t7.found === true || t7.reason !== 'dark', t7.reason);
+
+    var sA = scan.sigOf(textPage(TW, TH, { seed: 3 }), TW, TH);
+    var shiftedPage = (function () {
+        var g0 = textPage(TW, TH, { seed: 3 }), g1 = new Uint8Array(TW * TH);
+        for (var y = 0; y < TH; y++) for (var x = 0; x < TW; x++) g1[y * TW + x] = g0[y * TW + Math.max(0, x - 3)];
+        return g1;
+    })();
+    var farPage = textPage(TW, TH, { seed: 3, pitch: 17 });
+    var brighter = (function () { var g0 = textPage(TW, TH, { seed: 3 }), g1 = new Uint8Array(TW * TH); for (var i = 0; i < g1.length; i++) g1[i] = Math.min(255, g0[i] + 25); return g1; })();
+    pass('movement signature: same view ~0, a 3 px wobble stays under the steady limit, another page / big move is above the count limit, brightness drift is ignored',
+        scan.sigDiff(sA, scan.sigOf(textPage(TW, TH, { seed: 3 }), TW, TH)) < 0.01 &&
+        scan.sigDiff(sA, scan.sigOf(shiftedPage, TW, TH)) < scan.AUTO.sigSteady &&
+        scan.sigDiff(sA, scan.sigOf(farPage, TW, TH)) > 0 &&
+        scan.sigDiff(sA, scan.sigOf(brighter, TW, TH)) < 1.5,
+        [scan.sigDiff(sA, scan.sigOf(shiftedPage, TW, TH)), scan.sigDiff(sA, scan.sigOf(farPage, TW, TH)), scan.sigDiff(sA, scan.sigOf(brighter, TW, TH))].join(' / '));
+    var halfMoved = (function () {
+        var g0 = textPage(TW, TH, { seed: 3 }), g1 = new Uint8Array(TW * TH);
+        for (var y = 0; y < TH; y++) for (var x = 0; x < TW; x++) g1[y * TW + x] = (x < TW / 2) ? 215 : g0[y * TW + x];
+        return g1;
+    })();
+    pass('movement signature: covering half the page reads as a large change', scan.sigDiff(sA, scan.sigOf(halfMoved, TW, TH)) > scan.AUTO.sigCount);
+
+    var gv = scan.guideToVideo(23, 67, 344, 590, 390, 844, 720, 960);
+    var gcm = scan.coverMap(720, 960, 390, 844);
+    pass('dotted frame maps back to the right pixels of the camera frame (object-fit: cover)',
+        Math.abs(gv.x - (23 - gcm.ox) / gcm.s) < 1e-9 && Math.abs(gv.w - 344 / gcm.s) < 1e-9 && Math.abs(gv.h - 590 / gcm.s) < 1e-9 && gv.x >= 0 && gv.y >= 0 &&
+        gv.x + gv.w <= 720 + 1e-9 && gv.y + gv.h <= 960 + 1e-9);
+    var gvLand = scan.guideToVideo(23, 67, 344, 590, 390, 844, 1920, 1080);
+    pass('landscape camera frame: the frame covers only the middle slice, still inside the picture',
+        gvLand.w > 0 && gvLand.x >= 0 && gvLand.x + gvLand.w <= 1920 + 1e-9 && gvLand.w < 700);
+
+    (function () {
+        var detOk = function (sig) { return { found: true, quad: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], sig: sig }; };
+        var p1 = scan.sigOf(textPage(TW, TH, { seed: 3 }), TW, TH);
+        var p1b = scan.sigOf(shiftedPage, TW, TH);
+        var p2 = scan.sigOf(halfMoved, TW, TH);
+        var st = scan.autoNew(true), t = 0, acts = [];
+        function step(det, dt) { t += dt; var r = scan.autoStep(st, det, t); acts.push(r.action); return r; }
+        step(detOk(p1), 0); step(detOk(p1b), 250); step(detOk(p1), 250);
+        var s1 = step(detOk(p1b), 250);
+        pass('auto (frame): a held page with a little hand shake still reaches the count-down', s1.action === 'start', acts.join());
+        var c1 = step(detOk(p1b), 1000);
+        var cx = step(detOk(p2), 300);
+        pass('auto (frame): the count-down keeps running through shake but a different view cancels it', c1.action === 'tick' && cx.action === 'cancel', acts.join());
+        var st2 = scan.autoNew(true); t = 0; st = st2;
+        step(detOk(p1), 0); step(detOk(p1), 800); step(detOk(p1), 2900);
+        var f2 = step(detOk(p1), 200);
+        pass('auto (frame): fires after 3 s and the same page is not shot twice until the view changes', f2.action === 'fire' && st.armed === false);
+        var noRe = step(detOk(p1b), 400);
+        var re = step(detOk(p2), 400);
+        pass('auto (frame): a different page re-arms it', noRe.action === 'none' && st.armed === true, acts.slice(-3).join());
     })();
 
     var seen = [];
@@ -968,19 +1061,40 @@ function getPx(img, x, y) {
                 const real = md.getUserMedia.bind(md);
                 md.getUserMedia = async function (c) {
                   if (!window.__docCam) return real(c);
-                  const cv = document.createElement('canvas'); cv.width = 640; cv.height = 480;
+                  const W = 720, H = 960;
+                  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
                   const x = cv.getContext('2d');
+                  let seed = 11; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
                   const draw = () => {
-                    x.fillStyle = '#323232'; x.fillRect(0, 0, 640, 480);
-                    if (window.__docShow) {
-                      x.fillStyle = '#ececec';
-                      x.beginPath(); x.moveTo(200, 40); x.lineTo(440, 44); x.lineTo(432, 440); x.lineTo(192, 436); x.closePath(); x.fill();
-                      x.fillStyle = '#222';
-                      for (let y = 80; y < 400; y += 36) x.fillRect(215, y, 195, 6);
+                    x.fillStyle = '#3a3a3a'; x.fillRect(0, 0, W, H);
+                    const mode = window.__docShow;
+                    if (!mode) return;
+                    const v = document.getElementById('scVideo'), gd = document.getElementById('scGuide');
+                    if (!v || !gd) return;
+                    const vr = v.getBoundingClientRect(), gr = gd.getBoundingClientRect();
+                    if (!vr.width || !gr.width) return;
+                    const s = Math.max(vr.width / W, vr.height / H), ox = (vr.width - W * s) / 2, oy = (vr.height - H * s) / 2;
+                    let px = (gr.left - vr.left - ox) / s, py = (gr.top - vr.top - oy) / s, pw = gr.width / s, ph = gr.height / s;
+                    if (mode === 'small') { px += pw * 0.08; pw *= 0.84; py += ph * 0.15; ph *= 0.7; }
+                    else { px -= pw * 0.03; pw *= 1.06; py -= ph * 0.03; ph *= 1.06; }
+                    window.__docRect = { px, py, pw, ph };
+                    const grad = x.createLinearGradient(px, 0, px + pw, 0);
+                    grad.addColorStop(0, '#ededed'); grad.addColorStop(1, '#cbcbcb');
+                    x.fillStyle = grad; x.fillRect(px, py, pw, ph);
+                    x.fillStyle = '#222';
+                    seed = 11;
+                    for (let ly = py + pw * 0.08; ly < py + ph - pw * 0.06; ly += pw * 0.045) {
+                      let lx = px + pw * 0.07;
+                      while (lx < px + pw * 0.92) {
+                        let wl = pw * (0.04 + rnd() * 0.12);
+                        if (lx + wl > px + pw * 0.93) wl = px + pw * 0.93 - lx;
+                        x.fillRect(lx, ly, wl, pw * 0.02);
+                        lx += wl + pw * 0.02;
+                      }
                     }
                   };
                   draw();
-                  setInterval(draw, 60);
+                  setInterval(draw, 66);
                   return cv.captureStream(15);
                 };
               })();
@@ -1083,17 +1197,28 @@ function getPx(img, x, y) {
           await until(() => $('scVideo').videoWidth > 0, 8000);
 
           /* a text page comes into view: hold steady, then a 3 second count-down, then it captures by itself */
-          window.__docShow = true;
+          window.__docShow = 'fill';
           out.countStarted = await until(() => window.__scanState().auto.counting === true, 8000);
           const t0 = Date.now();
+          const roiLive = window.__scanState().auto.roi;
+          const corners = (cv) => {
+            const c = cv.getContext('2d'); let s = 0, n = 0;
+            [[2, 2], [cv.width - 10, 2], [2, cv.height - 10], [cv.width - 10, cv.height - 10]].forEach((p) => {
+              const d = c.getImageData(p[0], p[1], 8, 8).data; for (let i = 0; i < d.length; i += 4) { s += d[i]; n++; }
+            });
+            return s / n;
+          };
+          window.__h.corners = corners;
+          out.roiSeen = !!roiLive && roiLive.w > 100 && roiLive.h > 100;
           out.countVisible = vis('scCount');
           await wait(400);
           out.countMsg = $('scAutoMsg').textContent;
           out.autoFired = await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 8000);
           out.autoMs = Date.now() - t0;
           const pc = $('scPreviewCanvas');
-          out.autoCrop = pc.height > pc.width && pc.width < 560 && pc.width > 100;
-          out.autoSize = pc.width + 'x' + pc.height;
+          out.autoCornerLum = Math.round(corners(pc));
+          out.autoCrop = !!roiLive && Math.abs(pc.width / pc.height - roiLive.w / roiLive.h) < 0.06 && out.autoCornerLum > 170;
+          out.autoSize = pc.width + 'x' + pc.height + ' roi ' + (roiLive ? Math.round(roiLive.w) + 'x' + Math.round(roiLive.h) : '-');
           out.countHidden = !vis('scCount') && window.__scanState().auto.counting === false;
 
           $('scPreview').querySelector('[data-filter="bw"]').click();
@@ -1144,6 +1269,21 @@ function getPx(img, x, y) {
           window.__docShow = false;
           out.rearmed = await until(() => window.__scanState().auto.armed === true, 4000);
 
+          /* a page smaller than the dotted frame is cut out of it; the desk around it is dropped */
+          window.__docShow = 'small';
+          await wait(400);
+          const roiSmall = window.__scanState().auto.roi;
+          const smallShot = await window.__h.scanOne(null);
+          const pcs = $('scPreviewCanvas');
+          const dr = window.__docRect;
+          out.smallPageCut = smallShot.prev === true && !!dr && Math.abs(pcs.width / pcs.height - dr.pw / dr.ph) < 0.1 &&
+            Math.abs(pcs.width / pcs.height - roiSmall.w / roiSmall.h) > 0.08 && window.__h.corners(pcs) > 170;
+          out.smallInfo = pcs.width + 'x' + pcs.height + ' page ' + (dr ? Math.round(dr.pw) + 'x' + Math.round(dr.ph) : '-') + ' corners ' + Math.round(window.__h.corners(pcs));
+          window.__docShow = false;
+          $('scPreviewRetake').click();
+          await until(() => vis('scCamera'), 4000);
+          await until(() => $('scVideo').videoWidth > 0, 8000);
+
           /* the last page thumbnail enlarges on tap; the zoom button toggles fit / real pixels */
           $('scLastThumb').click();
           out.lastEnlarges = await until(() => vis('scViewer') && $('scViewerImg').naturalWidth > 100, 6000);
@@ -1158,7 +1298,7 @@ function getPx(img, x, y) {
 
           /* the round shutter can be pressed during the count-down: it captures at once and stops the count-down */
           await until(() => $('scVideo').videoWidth > 0, 8000);
-          window.__docShow = true;
+          window.__docShow = 'fill';
           out.count2 = await until(() => window.__scanState().auto.counting === true, 8000);
           await wait(500);
           const t1 = Date.now();
@@ -1202,7 +1342,7 @@ function getPx(img, x, y) {
           $('scModeManual').click();
           out.autoOffState = window.__scanState().auto.on === false && $('scModeManual').getAttribute('aria-pressed') === 'true' &&
             $('scModeAuto').getAttribute('aria-pressed') === 'false' && $('scModeManual').classList.contains('is-on');
-          window.__docShow = true;
+          window.__docShow = 'fill';
           await wait(2400);
           out.noCountWhenOff = !window.__scanState().auto.counting && !vis('scCount') && vis('scCamera');
           $('scModeAuto').click();
@@ -1370,9 +1510,10 @@ function getPx(img, x, y) {
             flow.manualDirect === true && flow.retakeToCamera === true, JSON.stringify([flow.manualDirect, flow.retakeToCamera]));
         pass('phone: a text page in view starts the on-screen count-down (3 s ring)', flow.countStarted === true && flow.countVisible === true &&
             /capturing in/i.test(flow.countMsg || ''), JSON.stringify([flow.countStarted, flow.countVisible, flow.countMsg]));
-        pass('phone: after the 3 s it snapshots by itself and lands on the preview with the page edges already cut out',
-            flow.autoFired === true && flow.autoMs >= 2200 && flow.autoMs <= 5500 && flow.autoCrop === true && flow.countHidden === true,
-            JSON.stringify([flow.autoFired, flow.autoMs, flow.autoSize, flow.autoCrop, flow.countHidden]));
+        pass('phone: after the 3 s it snapshots by itself - only the area inside the dotted frame (same shape, no desk in the corners)',
+            flow.roiSeen === true && flow.autoFired === true && flow.autoMs >= 2200 && flow.autoMs <= 5500 && flow.autoCrop === true && flow.countHidden === true,
+            JSON.stringify([flow.roiSeen, flow.autoFired, flow.autoMs, flow.autoSize, flow.autoCornerLum, flow.autoCrop, flow.countHidden]));
+        pass('phone: a page smaller than the dotted frame is cut out of it (its own shape, no desk)', flow.smallPageCut === true, flow.smallInfo);
         pass('phone: black & white filter is applied and rotate swaps the page orientation', flow.bwApplied === true && flow.chipOn === true && flow.rotated === true);
         pass('phone: Crop is on the preview - Cancel keeps the same preview, Apply re-cuts it',
             flow.cropOpens === true && flow.cropCancelKeeps === true && flow.cropApplied === true, JSON.stringify([flow.cropOpens, flow.cropCancelKeeps, flow.cropApplied]));

@@ -47,6 +47,7 @@
   .sc-tray { display:flex; gap:10px; overflow-x:auto; padding:4px 0 8px; }
   .sc-thumb { position:relative; flex:0 0 auto; width:84px; height:112px; border-radius:8px; overflow:hidden; background:#000; }
   .sc-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .sc-thumb-e { position:absolute; left:3px; bottom:3px; height:26px; padding:0 8px; border-radius:13px; background:rgba(15,23,42,.85); color:#fff; font-size:12px; line-height:26px; white-space:nowrap; }
   .sc-thumb-x { position:absolute; top:3px; right:3px; width:26px; height:26px; padding:0; border-radius:50%; background:rgba(15,23,42,.85); color:#fff; font-size:16px; line-height:1; }
   .sc-fmt { display:flex; gap:8px; }
   .sc-fmt label { flex:1; background:var(--card); border-radius:12px; padding:12px; text-align:center; font-size:14px; border:2px solid transparent; }
@@ -201,7 +202,7 @@
   <h1><span data-s="queueTitle">Pending upload</span>: <span id="scTrayCount">0</span></h1>
   <div id="scTrayEmpty" class="sc-note" data-s="noPages">No pages yet</div>
   <div id="scTray" class="sc-tray"></div>
-  <div class="sc-note" data-s="hintTap">Tap a page to enlarge it and check the clarity, or crop it. PDF files are sent as they are.</div>
+  <div class="sc-note" data-s="hintTap">Tap a page to enlarge it and check the clarity. Tap Edit to crop, rotate or change the scan style. PDF files are sent as they are.</div>
   <div class="sc-note" data-s="format">Send as</div>
   <div class="sc-fmt">
     <label><input id="scFmtPdf" type="radio" name="fmt" checked><span data-s="asPdf">One PDF</span></label>
@@ -234,7 +235,7 @@
     <span id="scViewerLabel"></span>
     <span class="sc-row">
       <button id="scViewerZoom" class="sc-chip" type="button">Fit</button>
-      <button id="scViewerCrop" class="sc-chip" type="button" data-s="cropPage">Crop</button>
+      <button id="scViewerCrop" class="sc-chip" type="button" data-s="edit">Edit</button>
       <button id="scViewerClose" class="sc-btn-ghost" type="button" data-s="close">Close</button>
     </span>
   </div>
@@ -265,7 +266,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="scan.js?v=20261002cnl1"></script>
+<script src="scan.js?v=20261002cnl2"></script>
 <script>CSPhoneScan.boot();</script>
 </body>
 </html>

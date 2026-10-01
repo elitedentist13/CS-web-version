@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002cnl1';
+var BUILD = '20261002cnl2';
 var PAGE_PORT = 8795;
 var CDP_PORT = 9357;
 var CHROME = process.env.CHROME_PATH ||
@@ -1475,6 +1475,24 @@ function getPx(img, x, y) {
           await until(() => $('scVideo').videoWidth > 0, 8000);
           await window.__h.scanOne('orig'); $('scAddPage').click(); await until(() => $('scPagesBadge').textContent === '2', 8000);
           $('scFinishBtn').click();
+          /* camera pages can be edited from the queue as well: style remembered, original shot kept for Crop */
+          await until(() => vis('scSend'), 4000);
+          const camBtns = document.querySelectorAll('#scTray .sc-thumb-e');
+          camBtns[0].click();
+          out.camEditOpens = await until(() => vis('scPreview') && !$('scEditPanel').hidden && pc.width > 40, 6000);
+          out.camStyleKept = $('scPreview').querySelector('[data-filter="gray"]').classList.contains('is-on');
+          $('scPreviewCrop').click();
+          out.camCropOriginal = await until(() => vis('scCrop') && $('scCropCanvas').width > 50, 4000);
+          $('scCropRetake').click();
+          await until(() => vis('scPreview'), 3000);
+          $('scPreview').querySelector('[data-filter="color"]').click();
+          await wait(250);
+          $('scAddPage').click();
+          out.camEditSaved = await until(() => vis('scSend') && window.__scanState().pages === 2 && window.__scanState().hasCurrent === false, 4000);
+          document.querySelectorAll('#scTray .sc-thumb-e')[1].click();
+          out.camSecondOrig = await until(() => vis('scPreview') && $('scPreview').querySelector('[data-filter="orig"]').classList.contains('is-on'), 6000);
+          $('scPreviewRetake').click();
+          await until(() => vis('scSend'), 3000);
           $('scFmtPdf').checked = true;
           const beforeN = window.__uploads.length;
           $('scSendBtn').click();
@@ -1574,14 +1592,77 @@ function getPx(img, x, y) {
           $('scViewerClose').click();
           thumbs[0].click();
           await until(() => vis('scViewer') && $('scViewerImg').naturalWidth > 100, 6000);
+          out.viewerEditLabel = $('scViewerCrop').textContent === 'Edit';
           $('scViewerCrop').click();
           out.viewerClosedForCrop = !vis('scViewer');
-          out.tapCrops = await until(() => vis('scCrop') && $('scCropCanvas').width > 50, 6000);
-          $('scCropNext').click();
-          await until(() => vis('scPreview') && $('scPreviewCanvas').width > 40, 6000);
+          out.tapCrops = await until(() => vis('scPreview') && !$('scEditPanel').hidden && $('scPreviewCanvas').width > 40, 6000);
+          out.viewerEditCropped = pc.width === 800 && pc.height === 600;
+          out.editLabels = $('scAddPage').textContent === 'Save' && $('scPreviewRetake').textContent === 'Cancel' && $('scPreviewPages').textContent === '3';
+          out.editOrigOn = $('scPreview').querySelector('[data-filter="orig"]').classList.contains('is-on') && $('scFineTune').hidden === true;
+          const origSum = sumPx();
+          $('scPreview').querySelector('[data-filter="gray"]').click();
+          await wait(250);
+          $('scFineTune').click();
+          setR('scTuneContrast', 60); setR('scTuneSharp', 40);
+          await wait(250);
+          $('scTuneSave').click();
+          await wait(350);
+          const grayTunedSum = sumPx();
+          out.editRestyled = grayTunedSum !== origSum && $('scFineTune').classList.contains('is-on');
           $('scAddPage').click();
           out.cropBack = await until(() => vis('scSend') && document.querySelectorAll('#scTray .sc-thumb').length === 3, 6000);
           out.cropReplaced = document.querySelector('#scTray .sc-thumb img').src !== firstThumbBefore;
+          /* an Edit button on every image thumbnail in the queue (not on the PDF) */
+          const eBtns = () => Array.from(document.querySelectorAll('#scTray .sc-thumb')).map((t) => !!t.querySelector('.sc-thumb-e'));
+          out.thumbEditBtns = eBtns().join(',') === 'true,true,false' && document.querySelector('#scTray .sc-thumb-e').textContent.indexOf('Edit') >= 0;
+          out.hintMentionsEdit = /Edit/.test(document.querySelector('#scSend [data-s="hintTap"]').textContent);
+
+          /* reopen: the saved style + fine tune come back, and Original brings back the untouched shot */
+          const thumbAfterSave = document.querySelector('#scTray .sc-thumb img').src;
+          document.querySelector('#scTray .sc-thumb-e').click();
+          out.reopenPanel = await until(() => vis('scPreview') && !$('scEditPanel').hidden && pc.width === 800, 6000);
+          out.reopenKeepsStyle = $('scPreview').querySelector('[data-filter="gray"]').classList.contains('is-on') && $('scFineTune').classList.contains('is-on') && sumPx() === grayTunedSum;
+          $('scFineTune').click();
+          out.reopenKeepsTune = $('scTuneContrast').value === '60' && $('scTuneSharp').value === '40';
+          $('scTuneCancel').click();
+          $('scPreview').querySelector('[data-filter="orig"]').click();
+          await wait(250);
+          out.originalComesBack = sumPx() === origSum;
+
+          /* Cancel leaves the queued page exactly as it was */
+          $('scPreviewRetake').click();
+          out.cancelKeeps = await until(() => vis('scSend'), 4000) && document.querySelector('#scTray .sc-thumb img').src === thumbAfterSave && window.__scanState().pages === 3 && window.__scanState().hasCurrent === false;
+
+          /* Crop starts from the original shot (full 4:3 frame, not the already-cut page) */
+          document.querySelector('#scTray .sc-thumb-e').click();
+          await until(() => vis('scPreview') && !$('scEditPanel').hidden, 6000);
+          $('scPreviewCrop').click();
+          out.cropFromOriginal = await until(() => vis('scCrop') && $('scCropCanvas').width > 50, 4000) && Math.abs($('scCropCanvas').width / $('scCropCanvas').height - 800 / 600) < 0.02;
+          $('scCropRetake').click();
+          await until(() => vis('scPreview'), 3000);
+
+          /* Rotate is remembered, even after Crop re-cuts the page from the original */
+          $('scRotate').click();
+          await wait(200);
+          const rotW = pc.width, rotH = pc.height;
+          $('scPreviewCrop').click();
+          await until(() => vis('scCrop'), 3000);
+          $('scCropNext').click();
+          await until(() => vis('scPreview') && pc.width > 40, 4000);
+          out.rotateSurvivesCrop = rotW === 600 && rotH === 800 && pc.width === rotW && pc.height === rotH;
+          $('scAddPage').click();
+          await until(() => vis('scSend'), 4000);
+          document.querySelectorAll('#scTray .sc-thumb-e')[0].click();
+          await until(() => vis('scPreview') && !$('scEditPanel').hidden, 6000);
+          out.rotateSaved = pc.width === 600 && pc.height === 800;
+          $('scPreviewRetake').click();
+          await until(() => vis('scSend'), 3000);
+
+          /* the second picture (a different size) opens from its own thumbnail */
+          document.querySelectorAll('#scTray .sc-thumb-e')[1].click();
+          out.secondEdits = await until(() => vis('scPreview') && !$('scEditPanel').hidden && pc.width === 500 && pc.height === 700, 6000);
+          $('scPreviewRetake').click();
+          await until(() => vis('scSend'), 3000);
           window.__opened = [];
           const realOpen = window.open;
           window.open = (u) => { window.__opened.push(String(u)); return null; };
@@ -1675,6 +1756,9 @@ function getPx(img, x, y) {
             flow.failShown === true && flow.pagesKept === true, JSON.stringify([flow.failShown, flow.pagesKept]));
         pass('phone: retry sends the image (jpeg, upsert off), then a done marker, and clears the local pages',
             flow.doneView === true && flow.sentJpg === true && flow.doneMarker === true && flow.pagesCleared === true && /1/.test(flow.countText || ''));
+        pass('phone: a page taken with the camera can be edited from the queue too (style remembered, Crop shows the original shot, Save replaces it)',
+            flow.camEditOpens === true && flow.camStyleKept === true && flow.camCropOriginal === true && flow.camEditSaved === true && flow.camSecondOrig === true,
+            JSON.stringify([flow.camEditOpens, flow.camStyleKept, flow.camCropOriginal, flow.camEditSaved, flow.camSecondOrig]));
         pass('phone: "one PDF" mode uploads a single real PDF built from the pages', flow.pdfDone === true && flow.pdfSent === true && flow.pdfHeader === '%PDF-',
             JSON.stringify([flow.pdfDone, flow.pdfSent, flow.pdfHeader]));
         pass('phone: every upload is a new unique path under phone-scan/<token>/ in the photos bucket', flow.pagesAllPaths === true && flow.uniquePaths === true);
@@ -1699,12 +1783,23 @@ function getPx(img, x, y) {
         pass('phone: enlarged page - double-tap toggles real pixels / fit; wheel and arrow keys work on desktop browsers',
             flow.doubleTapIn === true && flow.doubleTapOut === true && flow.wheelZoom === true && flow.zoomButtonBack === true && flow.arrowKey === true,
             JSON.stringify([flow.doubleTapIn, flow.doubleTapOut, flow.wheelZoom, flow.zoomButtonBack, flow.arrowKey]));
-        pass('phone: tapping a page in the list enlarges it, prev / next move between pages (PDFs skipped), Crop opens the crop screen',
-            flow.trayEnlarges === true && flow.trayLabel === '#1 / 3' && flow.trayNav === true && flow.trayNext === true && flow.viewerClosedForCrop === true && flow.tapCrops === true,
-            JSON.stringify([flow.trayEnlarges, flow.trayLabel, flow.trayNav, flow.trayNext, flow.viewerClosedForCrop, flow.tapCrops]));
-        pass('phone: cropping a listed page replaces it in the list; a PDF opens in the phone PDF viewer instead and cannot be cropped',
-            flow.cropBack === true && flow.cropReplaced === true && flow.pdfNotCroppable === true,
-            JSON.stringify([flow.cropBack, flow.cropReplaced, flow.pdfNotCroppable]));
+        pass('phone: tapping a page in the list enlarges it, prev / next move between pages (PDFs skipped); the viewer button is now Edit and opens the scan-edit preview with the Edit panel open',
+            flow.trayEnlarges === true && flow.trayLabel === '#1 / 3' && flow.trayNav === true && flow.trayNext === true && flow.viewerEditLabel === true &&
+                flow.viewerClosedForCrop === true && flow.tapCrops === true && flow.viewerEditCropped === true,
+            JSON.stringify([flow.trayEnlarges, flow.trayLabel, flow.trayNav, flow.trayNext, flow.viewerEditLabel, flow.viewerClosedForCrop, flow.tapCrops, flow.viewerEditCropped]));
+        pass('phone: editing a queued page shows Save / Cancel, restores its style (Original) and lets the style + Fine tune be changed, then replaces it in the list',
+            flow.editLabels === true && flow.editOrigOn === true && flow.editRestyled === true && flow.cropBack === true && flow.cropReplaced === true,
+            JSON.stringify([flow.editLabels, flow.editOrigOn, flow.editRestyled, flow.cropBack, flow.cropReplaced]));
+        pass('phone: every image thumbnail in the queue has its own Edit button (none on the PDF); the hint mentions Edit',
+            flow.thumbEditBtns === true && flow.hintMentionsEdit === true, JSON.stringify([flow.thumbEditBtns, flow.hintMentionsEdit]));
+        pass('phone: reopening a queued page restores the saved style and Fine tune, and Original brings back the untouched shot; Cancel leaves the page unchanged',
+            flow.reopenPanel === true && flow.reopenKeepsStyle === true && flow.reopenKeepsTune === true && flow.originalComesBack === true && flow.cancelKeeps === true,
+            JSON.stringify([flow.reopenPanel, flow.reopenKeepsStyle, flow.reopenKeepsTune, flow.originalComesBack, flow.cancelKeeps]));
+        pass('phone: Crop on a queued page starts from the original shot; Rotate is remembered through Crop and Save; each thumbnail opens its own picture',
+            flow.cropFromOriginal === true && flow.rotateSurvivesCrop === true && flow.rotateSaved === true && flow.secondEdits === true,
+            JSON.stringify([flow.cropFromOriginal, flow.rotateSurvivesCrop, flow.rotateSaved, flow.secondEdits]));
+        pass('phone: a PDF opens in the phone PDF viewer instead and cannot be edited',
+            flow.pdfNotCroppable === true, JSON.stringify([flow.pdfNotCroppable]));
         pass('phone: "One PDF" merges the pictures into one PDF and sends the picked PDF byte-for-byte as its own file',
             flow.multiDone === true && flow.multiTypes === 'application/pdf,application/pdf' && flow.multiExact === true && flow.multiMerged === true,
             JSON.stringify([flow.multiDone, flow.multiTypes, flow.multiExact, flow.multiMerged, flow.multiNames]));

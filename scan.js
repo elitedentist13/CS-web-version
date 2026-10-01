@@ -839,7 +839,7 @@
         en: {
             title: 'Scan a document', for: 'Scanning for', start: 'Open scanner', gallery: 'Choose photos / PDF',
             added: 'added', skipped: 'skipped (unreadable, too large or over the page limit)',
-            hintTap: 'Tap a page to enlarge it and check the clarity, or crop it. PDF files are sent as they are.',
+            hintTap: 'Tap a page to enlarge it and check the clarity. Tap Edit to crop, rotate or change the scan style. PDF files are sent as they are.',
             cropPage: 'Crop', close: 'Close', fit: 'Fit',
             queueTitle: 'Pending upload', cancel: 'Cancel', apply: 'Apply', save: 'Save',
             maxPages: 'Page limit reached - send these first.', tapEnlarge: 'Tap the page to enlarge it and check the clarity',
@@ -864,7 +864,7 @@
         'zh-Hant': {
             title: '掃描文件', for: '掃描對象', start: '開啟掃描器', gallery: '選擇相片／PDF（可多選）',
             added: '已加入', skipped: '已略過（無法讀取、檔案過大或超過頁數上限）',
-            hintTap: '點選頁面可放大檢查清晰度，或重新裁切；PDF 檔案會原樣傳送。',
+            hintTap: '點選頁面可放大檢查清晰度；按「編輯」可裁切、旋轉或更改掃描風格。PDF 檔案會原樣傳送。',
             cropPage: '裁切', close: '關閉', fit: '適合',
             queueTitle: '待上傳', cancel: '取消', apply: '套用', save: '儲存',
             maxPages: '已達頁數上限，請先傳送。', tapEnlarge: '點選頁面可放大檢查清晰度',
@@ -889,7 +889,7 @@
         'zh-CN': {
             title: '扫描文件', for: '扫描对象', start: '打开扫描器', gallery: '选择照片/PDF（可多选）',
             added: '已加入', skipped: '已跳过（无法读取、文件过大或超过页数上限）',
-            hintTap: '点按页面可放大检查清晰度，或重新裁剪；PDF 文件会原样发送。',
+            hintTap: '点按页面可放大检查清晰度；点“编辑”可裁剪、旋转或更改扫描风格。PDF 文件会原样发送。',
             cropPage: '裁剪', close: '关闭', fit: '适合',
             queueTitle: '待上传', cancel: '取消', apply: '应用', save: '保存',
             maxPages: '已达页数上限，请先发送。', tapEnlarge: '点按页面可放大检查清晰度',
@@ -984,6 +984,15 @@
                 });
                 b.appendChild(img);
                 b.appendChild(x);
+                if (!p.pdf) {
+                    var e = doc.createElement('button');
+                    e.type = 'button';
+                    e.className = 'sc-thumb-e';
+                    e.setAttribute('aria-label', L.edit);
+                    e.textContent = '✎ ' + L.edit;
+                    e.addEventListener('click', function () { editPage(i); });
+                    b.appendChild(e);
+                }
                 tray.appendChild(b);
             });
             $('scTrayEmpty').hidden = n > 0;
@@ -1380,16 +1389,9 @@
             $('scPreviewEdit').setAttribute('aria-expanded', open ? 'true' : 'false');
         }
 
-        /** Crop editor, opened from the preview (Crop) or from a page in the pending list. */
-        function beginCrop(canvas, mode) {
-            cur = { src: canvas, quad: defaultQuad(canvas.width, canvas.height), mode: mode || 'bw', base: null, tune: { sharp: 0, contrast: 0 } };
-            show('scCrop');
-            drawCrop();
-        }
-
         /** A new capture / picked photo goes straight to the preview with the page edges already cut out. */
         function beginFromSource(canvas, quad) {
-            cur = { src: canvas, quad: quad, mode: 'bw', base: null, tune: { sharp: 0, contrast: 0 } };
+            cur = { src: canvas, quad: quad, mode: 'bw', base: null, tune: { sharp: 0, contrast: 0 }, rot: 0 };
             editPanel(false);
             applyCrop();
         }
@@ -1500,12 +1502,15 @@
             c.width = warped.width;
             c.height = warped.height;
             c.getContext('2d').putImageData(new root.ImageData(warped.data, warped.width, warped.height), 0, 0);
-            cur.base = c;
+            var turned = c;
+            for (var t = 0; t < (cur.rot || 0); t++) turned = rotateCanvas(turned);
+            cur.base = turned;
             show('scPreview');
             renderPreview();
             var editing = editIdx >= 0;
             $('scPreviewPages').textContent = String(pages.length + (editing ? 0 : 1));
             $('scAddPage').textContent = editing ? L.save : L.add;
+            $('scPreviewRetake').textContent = editing ? L.cancel : L.retake;
             $('scPreviewStatus').textContent = '';
         }
 
@@ -1582,23 +1587,44 @@
         function commitPreview(done) {
             if (!cur) return;
             if (editIdx < 0 && pages.length >= MAX_PAGES) { $('scPreviewStatus').textContent = L.maxPages; return; }
+            var snap = cur;
             $('scPreviewCanvas').toBlob(function (blob) {
-                if (!blob || !cur) return;
-                var pv = $('scPreviewCanvas');
-                var np = { blob: blob, w: pv.width, h: pv.height, thumb: URL.createObjectURL(blob) };
-                var editing = editIdx >= 0 && !!pages[editIdx];
-                if (editing) {
-                    URL.revokeObjectURL(pages[editIdx].thumb);
-                    pages[editIdx] = np;
-                } else {
-                    pages.push(np);
-                    auto.st = autoNew(!auto.refDet, auto.refDet);
-                }
-                editIdx = -1;
-                cur = null;
-                updateBadges();
-                done(editing);
+                if (!blob || cur !== snap) return;
+                srcBlobOf(snap, function (srcBlob) {
+                    if (cur !== snap) return;
+                    var pv = $('scPreviewCanvas');
+                    var np = { blob: blob, w: pv.width, h: pv.height, thumb: URL.createObjectURL(blob) };
+                    if (srcBlob) np.edit = editRecord(snap, srcBlob);
+                    var editing = editIdx >= 0 && !!pages[editIdx];
+                    if (editing) {
+                        URL.revokeObjectURL(pages[editIdx].thumb);
+                        pages[editIdx] = np;
+                    } else {
+                        pages.push(np);
+                        auto.st = autoNew(!auto.refDet, auto.refDet);
+                    }
+                    editIdx = -1;
+                    cur = null;
+                    updateBadges();
+                    done(editing);
+                });
             }, 'image/jpeg', 0.86);
+        }
+
+        /** The original shot as a JPEG, encoded once and then reused every time the page is edited again. */
+        function srcBlobOf(c, cb) {
+            if (c.srcBlob) { cb(c.srcBlob); return; }
+            c.src.toBlob(function (b) { if (b) c.srcBlob = b; cb(b); }, 'image/jpeg', 0.92);
+        }
+
+        /** What a queued page needs to be edited again later: original shot, page corners (as fractions), style, fine tune, turns. */
+        function editRecord(c, srcBlob) {
+            var w = c.src.width, h = c.src.height;
+            return {
+                src: srcBlob,
+                quadN: c.quad.map(function (p) { return { x: p.x / w, y: p.y / h }; }),
+                mode: c.mode, tune: tuneOf(c.tune), rot: c.rot || 0
+            };
         }
 
         function addPage() { commitPreview(function (editing) { if (editing) show('scSend'); else startCamera(); }); }
@@ -1666,7 +1692,10 @@
                     URL.revokeObjectURL(url);
                     c.toBlob(function (blob) {
                         if (!blob) { resolve(null); return; }
-                        resolve({ blob: blob, w: c.width, h: c.height, thumb: URL.createObjectURL(blob), name: file.name || '' });
+                        resolve({
+                            blob: blob, w: c.width, h: c.height, thumb: URL.createObjectURL(blob), name: file.name || '',
+                            edit: { src: blob, quadN: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], mode: 'orig', tune: { sharp: 0, contrast: 0 }, rot: 0 }
+                        });
                     }, 'image/jpeg', 0.9);
                 };
                 im.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
@@ -1698,16 +1727,24 @@
             });
         }
 
-        function recropPage(i) {
+        /** Edit a queued page: same preview + Edit sheet as a fresh scan, cropping from the original shot. */
+        function editPage(i) {
             var p = pages[i];
             if (!p || p.pdf) return;
-            var url = URL.createObjectURL(p.blob);
+            var ed = p.edit || { src: p.blob, quadN: null, mode: 'orig', tune: { sharp: 0, contrast: 0 }, rot: 0 };
+            var url = URL.createObjectURL(ed.src);
             var im = new root.Image();
             im.onload = function () {
                 var c = drawToSource(im, im.naturalWidth, im.naturalHeight);
                 URL.revokeObjectURL(url);
+                var q = ed.quadN
+                    ? ed.quadN.map(function (pt) { return { x: pt.x * c.width, y: pt.y * c.height }; })
+                    : fullQuad(c.width, c.height);
+                if (!quadIsValid(q, c.width, c.height)) q = fullQuad(c.width, c.height);
                 editIdx = i;
-                beginCrop(c, 'orig');
+                cur = { src: c, srcBlob: ed.src, quad: q, mode: ed.mode, base: null, tune: tuneOf(ed.tune), rot: ed.rot || 0 };
+                applyCrop();
+                editPanel(true);
             };
             im.onerror = function () { URL.revokeObjectURL(url); };
             im.src = url;
@@ -1837,7 +1874,7 @@
         $('scPreviewNext').addEventListener('click', previewNext);
         $('scModeAuto').addEventListener('click', function () { autoSet(true); });
         $('scModeManual').addEventListener('click', function () { autoSet(false); });
-        $('scRotate').addEventListener('click', function () { cur.base = rotateCanvas(cur.base); renderPreview(); });
+        $('scRotate').addEventListener('click', function () { cur.base = rotateCanvas(cur.base); cur.rot = ((cur.rot || 0) + 1) % 4; renderPreview(); });
         $('scAddPage').addEventListener('click', addPage);
         doc.querySelectorAll('[data-filter]').forEach(function (el) {
             el.addEventListener('click', function () {
@@ -1874,7 +1911,7 @@
             var it = viewer.items[viewer.idx];
             var pi = it ? it.pageIdx : null;
             closeViewer();
-            if (pi != null) recropPage(pi);
+            if (pi != null) editPage(pi);
         });
         $('scSendBack').addEventListener('click', function () { startCamera(); });
         $('scSendBtn').addEventListener('click', send);

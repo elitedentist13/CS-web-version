@@ -1,17 +1,12 @@
 @echo off
 REM Invoked by the csxrayai:// URL protocol from the web app.
-REM   csxrayai://start          starts start-xray-ai.bat
+REM   csxrayai://start          starts start-xray-ai.bat if 8877 is down
 REM   csxrayai://job?id=<uuid>  runs that job against 127.0.0.1:8877
+REM The URL holds "&", so it is only ever expanded inside quotes.
 setlocal
 cd /d "%~dp0"
-set "URL=%~1"
-echo %URL% | findstr /I "://job" >nul
-if not errorlevel 1 (
-    if not exist "%~dp0launch-xray-ai-protocol.ps1" (
-        echo [ERROR] launch-xray-ai-protocol.ps1 missing in %~dp0
-        exit /b 1
-    )
-    powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0launch-xray-ai-protocol.ps1" "%URL%"
+if exist "%~dp0launch-xray-ai-protocol.ps1" (
+    powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0launch-xray-ai-protocol.ps1" "%~1"
     exit /b %errorlevel%
 )
 call :FindStartBat

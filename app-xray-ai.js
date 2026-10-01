@@ -28,6 +28,9 @@
             ? window.XRAY_AI_START_PROTOCOL
             : 'csxrayai://start',
         preferApi: window.XRAY_AI_PREFER_API !== false,
+        // Every page reaches the AI helper through csxrayai://. true brings
+        // back the browser's own call to the local port, on a loopback page only.
+        directApi: window.XRAY_AI_DIRECT_API === true,
         // Default position of the confidence slider — unchanged from the
         // previous fixed cutoff, so out-of-the-box output looks the same.
         minConfidence: 0.38,
@@ -2598,7 +2601,7 @@
         }
         setBusy(true);
         xrayAiSetStatus(xrayAiTr('media.xrayAi.serverStarting'), 'work');
-        if (!xrayAiPageIsLocalServer()) {
+        if (xrayAiUseProtocol()) {
             try {
                 var startHref = XRAY_AI_CONFIG.startProtocol || 'csxrayai://start';
                 var startLink = document.createElement('a');
@@ -2663,8 +2666,44 @@
         return host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
     }
 
+    function xrayAiUseProtocol() {
+        return !(XRAY_AI_CONFIG.directApi && xrayAiPageIsLocalServer());
+    }
+
     function xrayAiIsLocalApiUrl(url) {
         return String(url || '').indexOf(XRAY_AI_CONFIG.apiUrl) === 0;
+    }
+
+    // The csxrayai:// worker idles out 10 minutes after its last job and
+    // keeps claiming this browser's rows until then, so it is not launched
+    // again while fresh. Chrome blocks repeated protocol launches that do
+    // not follow a click, which timed calls such as training status are.
+    var XRAY_AI_WORKER_FRESH_MS = 8 * 60 * 1000;
+    var XRAY_AI_LAUNCH_GRACE_MS = 30 * 1000;
+    var XRAY_AI_PENDING_RELAUNCH_MS = 6000;
+    var XRAY_AI_CLIENT_KEY = 'jsm_xray_ai_protocol_client_v1';
+    var xrayAiWorker = { seenAt: 0, launchedAt: 0 };
+
+    function xrayAiProtocolClientId() {
+        var id = '';
+        try { id = localStorage.getItem(XRAY_AI_CLIENT_KEY) || ''; } catch (e) {}
+        if (!/^[A-Za-z0-9-]{8,64}$/.test(id)) {
+            id = xrayAiUuid();
+            try { localStorage.setItem(XRAY_AI_CLIENT_KEY, id); } catch (e2) {}
+        }
+        return id;
+    }
+
+    function xrayAiWorkerFresh() {
+        var now = Date.now();
+        return (now - xrayAiWorker.seenAt) < XRAY_AI_WORKER_FRESH_MS ||
+            (now - xrayAiWorker.launchedAt) < XRAY_AI_LAUNCH_GRACE_MS;
+    }
+
+    /** Call at the top of click handlers so the launch keeps the click's activation. */
+    function xrayAiProtocolWake() {
+        if (!xrayAiUseProtocol() || xrayAiWorkerFresh()) return;
+        xrayAiOpenJobProtocol(null);
     }
 
     function xrayAiUuid() {
@@ -2679,7 +2718,10 @@
     }
 
     function xrayAiOpenJobProtocol(jobId) {
-        var href = 'csxrayai://job?id=' + encodeURIComponent(jobId);
+        var href = 'csxrayai://job?' +
+            (jobId ? 'id=' + encodeURIComponent(jobId) + '&' : '') +
+            'client=' + encodeURIComponent(xrayAiProtocolClientId());
+        xrayAiWorker.launchedAt = Date.now();
         var link = document.createElement('a');
         link.href = href;
         link.style.display = 'none';
@@ -2740,14 +2782,24 @@
     }
 
     function xrayAiPollJob(jobId, ms) {
-        var deadline = Date.now() + (ms || 180000);
+        var started = Date.now();
+        var deadline = started + (ms || 180000);
+        var relaunched = false;
         function once() {
             return SB.from('xray_ai_jobs').select('status,result,error').eq('id', jobId).maybeSingle()
                 .then(function (res) {
                     if (res && res.error) throw new Error(res.error.message || 'job');
                     var row = res && res.data;
+                    if (row && row.status && row.status !== 'pending') xrayAiWorker.seenAt = Date.now();
                     if (row && (row.status === 'done' || row.status === 'error')) return row;
                     if (Date.now() > deadline) throw new Error('timeout');
+                    // The worker this page thought was up has gone; one more launch.
+                    if (!relaunched && (!row || row.status === 'pending') &&
+                        Date.now() - started > XRAY_AI_PENDING_RELAUNCH_MS) {
+                        relaunched = true;
+                        xrayAiWorker.seenAt = 0;
+                        xrayAiOpenJobProtocol(jobId);
+                    }
                     return new Promise(function (resolve) {
                         setTimeout(function () { resolve(once()); }, 1200);
                     });
@@ -2791,17 +2843,26 @@
         var path = String(url || '').slice(XRAY_AI_CONFIG.apiUrl.length) || '/';
         var opts = options || {};
         var method = String(opts.method || 'GET').toUpperCase();
+        var jobId = xrayAiUuid();
+        // A cold worker has to start PowerShell and possibly the AI service.
+        ms = Math.max(ms || 0, 60000);
+        // Launched before the upload so it still follows the user's click;
+        // the worker waits for the row to appear.
+        if (!xrayAiWorkerFresh()) xrayAiOpenJobProtocol(jobId);
         return xrayAiJobImageUrl(opts.body).then(function (extra) {
-            var jobId = xrayAiUuid();
             return SB.from('xray_ai_jobs').insert([{
                 id: jobId,
                 kind: extra.image_url ? 'file' : 'http',
                 status: 'pending',
                 image_url: extra.image_url || null,
-                payload: { method: method, path: path, fields: extra.fields || {} }
+                payload: {
+                    method: method,
+                    path: path,
+                    fields: extra.fields || {},
+                    client: xrayAiProtocolClientId()
+                }
             }]).then(function (ins) {
                 if (ins && ins.error) throw new Error(ins.error.message || 'job');
-                xrayAiOpenJobProtocol(jobId);
                 return xrayAiPollJob(jobId, ms);
             });
         }).then(function (row) {
@@ -2821,7 +2882,7 @@
 
     function xrayAiFetchWithTimeout(url, options, ms) {
         ms = ms || 90000;
-        if (!xrayAiPageIsLocalServer() && xrayAiIsLocalApiUrl(url)) {
+        if (xrayAiUseProtocol() && xrayAiIsLocalApiUrl(url)) {
             var pathOnly = String(url).slice(XRAY_AI_CONFIG.apiUrl.length);
             // A 5s /health probe must not pop the protocol dialog.
             if (pathOnly.indexOf('/health') === 0 && ms <= 8000) {
@@ -2866,8 +2927,9 @@
             })(),
             mode: 'cors'
         };
+        // Up to 180 s of that can be the worker waiting for a cold AI service.
         var analyzeCall = viaProtocol
-            ? xrayAiProtocolFetch(analyzeUrl, analyzeOpts, 120000)
+            ? xrayAiProtocolFetch(analyzeUrl, analyzeOpts, 240000)
             : xrayAiFetchWithTimeout(analyzeUrl, analyzeOpts, 120000);
         return analyzeCall.then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -2904,6 +2966,7 @@
         if (xrayAiState.feedback[idx]) return;
         var img = xrayAiG('xrayLbImg');
         if (!img) return;
+        xrayAiProtocolWake();
 
         var feedbackUrl = XRAY_AI_CONFIG.apiUrl + (isPabw ? '/pabw/feedback' : '/feedback');
         var modelForFeedback = isPabw ? xrayAiState.pabwModelId : xrayAiState.panoModelId;
@@ -3019,6 +3082,7 @@
     function xrayAiOpenTrainingReview() {
         var modal = xrayAiG('xrayAiTrainModal');
         if (!modal) return;
+        xrayAiProtocolWake();
         modal.hidden = false;
         // Default to whichever model matches the X-ray currently open, when known.
         var mod = xrayAiCurrentXrayModality();
@@ -3177,6 +3241,7 @@
 
     function xrayAiRunContinualTraining(which) {
         which = which || xrayAiActiveTrainTab;
+        xrayAiProtocolWake();
         var ids = xrayAiTrainIds(which);
         if (ids.runBtn) ids.runBtn.disabled = true;
         if (ids.stateEl) ids.stateEl.textContent = xrayAiTr('media.xrayAi.train.starting');
@@ -3365,8 +3430,9 @@
             }
 
             function runProtocol() {
-                // Training stays available through the same gateway. The live
-                // server page still learns this from /health.
+                xrayAiProtocolWake();
+                // Training stays available through the same gateway. A
+                // XRAY_AI_DIRECT_API page still learns this from /health.
                 xrayAiState.feedbackEnabled = true;
                 xrayAiState.pabwFeedbackEnabled = true;
                 xrayAiSetStatus(xrayAiTr('media.xrayAi.protocolWorking'), 'work');
@@ -3377,15 +3443,13 @@
                 }).catch(reportProtocolError);
             }
 
-            // GitHub / any non-loopback page cannot call 127.0.0.1.
-            // Analyze goes through csxrayai:// on this PC.
-            if (!xrayAiPageIsLocalServer()) {
+            if (xrayAiUseProtocol()) {
                 runProtocol();
                 return;
             }
 
-            // The Banana live server page (127.0.0.1:5500 or :8123) keeps
-            // the direct service call, and the in-browser helper if it is down.
+            // XRAY_AI_DIRECT_API on a loopback page: the browser calls the
+            // service itself, and uses the in-browser helper if it is down.
             xrayAiCheckApiHealth().then(function (ok) {
                 if (!ok) {
                     xrayAiStartServer();

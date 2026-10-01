@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261001panofit1';
+  var BUILD = '20261001aiproto1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -33,9 +33,9 @@
   window.XRAY_AI_API_URL = 'http://127.0.0.1:8877';
   /* One-time on each PC: double-click register-xray-ai-protocol.bat */
   window.XRAY_AI_START_PROTOCOL = 'csxrayai://start';
-  /* 127.0.0.1:5500 / :8123 keeps calling the local AI service directly.
-     The GitHub page does not call 127.0.0.1: X-ray buttons use csxray://
-     and Analyze uses csxrayai://job?id=… */
+  /* No page calls 127.0.0.1:8877 itself: X-ray buttons use csxray:// and
+     the AI helper (Analyze, tick/cross, training) uses csxrayai://job.
+     Set XRAY_AI_DIRECT_API = true to let a 127.0.0.1 page call it directly. */
   window.XRAY_AI_PREFER_API = true;
   function withBust(path) {
     var sep = path.indexOf('?') >= 0 ? '&' : '?';
@@ -7547,7 +7547,7 @@
     'app-xray-capture.js?v=20260926xg3',
     'app-xray-link.js?v=20260917xrayup2',
     'app-nnt-scans.js?v=20260930xraygithub1',
-    'app-xray-ai.js?v=20261001panofit1',
+    'app-xray-ai.js?v=20261001aiproto1',
     'app-xray-ai-20260909.js',
     'app-charts.js?v=20260910bop1',
     'app-perio-dictation.js?v=20260910bop1',

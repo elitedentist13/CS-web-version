@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20261001panofit1';
+var BUILD = '20261001aiproto1';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -213,10 +213,10 @@ function classifyHost(src, host) {
     pass('helper script cache bust', idx.indexOf('app-xray-ai.js?v=' + BUILD) >= 0);
     pass('page gate function', aiSrc.indexOf('function xrayAiPageIsLocalServer()') >= 0);
     pass('protocol fetch', aiSrc.indexOf('function xrayAiProtocolFetch(') >= 0);
-    pass('job link shape', aiSrc.indexOf("csxrayai://job?id=") >= 0);
-    pass('hosted analyze does not fall back to browser heuristic',
+    pass('job link shape', aiSrc.indexOf("'csxrayai://job?' +") >= 0 && aiSrc.indexOf("'client=' + encodeURIComponent(") >= 0);
+    pass('analyze does not fall back to browser heuristic',
         aiSrc.indexOf("xrayAiTr('media.xrayAi.protocolWorking')") >= 0 &&
-        aiSrc.indexOf('if (!xrayAiPageIsLocalServer())') >= 0);
+        aiSrc.indexOf('if (xrayAiUseProtocol()) {') >= 0);
     pass('panoramic toggles caries spots and bone loss',
         aiSrc.indexOf('function xrayAiUpdatePanoToggle()') >= 0 &&
         aiSrc.indexOf("panoOverlay: 'bone'") >= 0 &&
@@ -228,9 +228,26 @@ function classifyHost(src, host) {
         aiSrc.indexOf('if (trainBtn) trainBtn.hidden = false;') >= 0 &&
         idx.indexOf('id="xrayAiTrainOpenBtn"') >= 0 &&
         idx.indexOf('id="xrayAiTrainOpenBtn" class="xray-ai-train-open"\n                    onclick="xrayAiOpenTrainingReview()" hidden') < 0);
-    pass('5500 page still uses the direct AI service',
-        aiSrc.indexOf("runClient('api_down')") >= 0 &&
-        aiSrc.indexOf('xrayAiCheckApiHealth()') >= 0);
+    pass('every page uses csxrayai:// unless XRAY_AI_DIRECT_API',
+        aiSrc.indexOf('directApi: window.XRAY_AI_DIRECT_API === true') >= 0 &&
+        aiSrc.indexOf('return !(XRAY_AI_CONFIG.directApi && xrayAiPageIsLocalServer());') >= 0 &&
+        aiSrc.indexOf('if (xrayAiUseProtocol() && xrayAiIsLocalApiUrl(url))') >= 0 &&
+        aiSrc.indexOf('if (!xrayAiPageIsLocalServer())') < 0);
+    pass('protocol is launched from the click and not again while the worker is fresh',
+        aiSrc.indexOf('if (!xrayAiWorkerFresh()) xrayAiOpenJobProtocol(jobId);') >= 0 &&
+        aiSrc.indexOf('client: xrayAiProtocolClientId()') >= 0 &&
+        aiSrc.indexOf('xrayAiProtocolWake();') >= 0);
+    pass('handler starts the AI service only when it is down',
+        ps1.indexOf('function Start-AiIfDown') >= 0 && ps1.indexOf('if (Test-AiHealth) { return $true }') >= 0);
+    pass('handler does not assign the read-only $HOME',
+        !/^\s*\$home\s*=/im.test(ps1));
+    pass('handler runs one worker per session with atomic claims',
+        ps1.indexOf('Local\\CsXrayAiProtocolWorker') >= 0 && ps1.indexOf('status=eq.pending&select=*') >= 0);
+    ['launch-xray-ai-protocol.cmd', 'launch-xray-ai-protocol.ps1', 'register-xray-ai-protocol.bat'].forEach(function (name) {
+        var deployPath = path.join(root, 'xray-ai-deploy-pack', name);
+        pass('deploy pack ' + name + ' matches the root copy',
+            fs.existsSync(deployPath) && fs.readFileSync(deployPath, 'utf8') === read(name));
+    });
     var xraySrc = read('app-xray.js');
     var nntSrc = read('app-nnt-scans.js');
     pass('xray software opens through csxray://',
@@ -243,7 +260,8 @@ function classifyHost(src, host) {
     pass('github page does not fetch local film strips',
         nntSrc.indexOf('function clinicPageIsLocalServer()') >= 0 &&
         nntSrc.indexOf('!clinicPageIsLocalServer()') >= 0);
-    pass('cmd dispatches job URLs', cmd.indexOf('://job') >= 0 && cmd.indexOf('launch-xray-ai-protocol.ps1') >= 0);
+    pass('cmd hands every URL to the handler, quoted',
+        cmd.indexOf('launch-xray-ai-protocol.ps1" "%~1"') >= 0 && cmd.indexOf('echo %URL%') < 0);
     pass('jobs table SQL', sql.indexOf('xray_ai_jobs') >= 0 && sql.indexOf('xray_ai_jobs_anon_all') >= 0);
 
     console.log('\n=== clienttest: host gate (no browser) ===');
@@ -274,11 +292,16 @@ function classifyHost(src, host) {
         },
         body: { appendChild: function () {}, removeChild: function () {} }
     };
-    var ctx = { document: doc, encodeURIComponent: encodeURIComponent };
+    var ctx = { document: doc, encodeURIComponent: encodeURIComponent, Date: Date };
     vm.createContext(ctx);
-    vm.runInContext(openFn + '\nxrayAiOpenJobProtocol("11111111-1111-4111-8111-111111111111");', ctx);
+    vm.runInContext('var xrayAiWorker = {};\nfunction xrayAiProtocolClientId() { return "smoke-client-0001"; }\n' +
+        openFn + '\nxrayAiOpenJobProtocol("11111111-1111-4111-8111-111111111111");', ctx);
     pass('protocol click target',
-        hrefBox.href === 'csxrayai://job?id=11111111-1111-4111-8111-111111111111',
+        hrefBox.href === 'csxrayai://job?id=11111111-1111-4111-8111-111111111111&client=smoke-client-0001',
+        hrefBox.href || '(empty)');
+    hrefBox.href = '';
+    vm.runInContext('xrayAiOpenJobProtocol(null);', ctx);
+    pass('wake link carries only the client', hrefBox.href === 'csxrayai://job?client=smoke-client-0001',
         hrefBox.href || '(empty)');
 
     var parseFn = extractFn(aiSrc, 'xrayAiParseJsonDocument');
@@ -448,7 +471,8 @@ function classifyHost(src, host) {
             }
             return el;
           };
-          eval(localFn + '\\n' + openFn + '\\nwindow.__xrayAiSmoke = { local: xrayAiPageIsLocalServer() };\\nxrayAiOpenJobProtocol("22222222-2222-4222-8222-222222222222");');
+          eval('var xrayAiWorker = {};\\nfunction xrayAiProtocolClientId() { return "smoke-client-0002"; }\\n' +
+            localFn + '\\n' + openFn + '\\nwindow.__xrayAiSmoke = { local: xrayAiPageIsLocalServer() };\\nxrayAiOpenJobProtocol("22222222-2222-4222-8222-222222222222");');
           document.createElement = orig;
           const xraySrc = await (await fetch('/app-xray.js?b=${BUILD}', { cache: 'no-store' })).text();
           const nntSrc = await (await fetch('/app-nnt-scans.js?b=${BUILD}', { cache: 'no-store' })).text();
@@ -458,7 +482,7 @@ function classifyHost(src, host) {
             build: window.__JSM_BUILD || '',
             local: window.__xrayAiSmoke.local,
             href: href,
-            scriptHasProtocol: src.indexOf('csxrayai://job?id=') >= 0,
+            scriptHasProtocol: src.indexOf("'csxrayai://job?' +") >= 0,
             xrayProtocol: xraySrc.indexOf('csxray://open/') >= 0,
             filmsLocalOnly: nntSrc.indexOf('function clinicPageIsLocalServer()') >= 0
           };
@@ -472,7 +496,7 @@ function classifyHost(src, host) {
             live && live.xrayProtocol === true && live.scriptHasProtocol === true && live.filmsLocalOnly === true,
             live ? ('xray=' + live.xrayProtocol + ' ai=' + live.scriptHasProtocol) : 'none');
         pass('Runtime.evaluate job link not navigated',
-            live && live.href === 'csxrayai://job?id=22222222-2222-4222-8222-222222222222',
+            live && live.href === 'csxrayai://job?id=22222222-2222-4222-8222-222222222222&client=smoke-client-0002',
             live && live.href);
 
         var train = await cdp.js(`(async () => {
@@ -600,18 +624,48 @@ function classifyHost(src, host) {
               { verdict: 'reject', ts: '2026-09-30T12:05:00', confidence: 0.2, type: 'caries_dentin', surface: 'distal' }
             ]
           };
+          // The page must reach the AI helper only through xray_ai_jobs +
+          // csxrayai://, even on 127.0.0.1. The mailbox is faked here so no
+          // real job row is written and no real handler is launched.
           const origFetch = window.fetch;
           window.__trainHits = [];
+          window.__directHits = [];
+          window.__launches = [];
           window.fetch = function (url, opts) {
             const u = String(url && url.url ? url.url : url || '');
-            if (u.indexOf('/dataset') >= 0 || u.indexOf('/train/status') >= 0) window.__trainHits.push(u);
-            if (u.indexOf('/dataset') >= 0) {
-              return Promise.resolve(new Response(JSON.stringify(sample), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-            }
-            if (u.indexOf('/train/status') >= 0) {
-              return Promise.resolve(new Response(JSON.stringify({ state: 'idle', message: 'idle' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-            }
+            if (u.indexOf('127.0.0.1:8877') >= 0) window.__directHits.push(u);
             return origFetch.apply(this, arguments);
+          };
+          const origCreate = document.createElement.bind(document);
+          document.createElement = function (tag) {
+            const el = origCreate(tag);
+            if (String(tag).toLowerCase() === 'a') {
+              el.click = function () {
+                if (String(el.href).indexOf('csxrayai:') === 0) window.__launches.push(el.href);
+              };
+            }
+            return el;
+          };
+          const jobs = {};
+          const origFrom = SB.from.bind(SB);
+          SB.from = function (table) {
+            if (table !== 'xray_ai_jobs') return origFrom(table);
+            return {
+              insert: function (rows) {
+                rows.forEach(function (r) { jobs[r.id] = r; });
+                return Promise.resolve({ data: null, error: null });
+              },
+              select: function () {
+                return { eq: function (col, id) { return { maybeSingle: function () {
+                  const job = jobs[id];
+                  if (!job) return Promise.resolve({ data: null, error: null });
+                  const p = (job.payload && job.payload.path) || '';
+                  if (p.indexOf('/dataset') >= 0 || p.indexOf('/train/status') >= 0) window.__trainHits.push(p + '|' + (job.payload.client ? 'client' : 'noclient'));
+                  const body = p.indexOf('/dataset') >= 0 ? sample : { state: 'idle', message: 'idle' };
+                  return Promise.resolve({ data: { status: 'done', result: { http_status: 200, body_json: JSON.stringify(body) }, error: null }, error: null });
+                } }; } };
+              }
+            };
           };
           const typeEl = document.getElementById('lbType');
           if (typeEl) typeEl.value = 'panoramic';
@@ -650,6 +704,8 @@ function classifyHost(src, host) {
             empty: empty,
             stats: (document.getElementById('xrayAiTrainStats') || {}).textContent || '',
             hits: window.__trainHits || [],
+            directHits: window.__directHits || [],
+            launches: window.__launches || [],
             btnW: btn ? Math.round(btn.getBoundingClientRect().width) : 0,
             lbDisplay: (document.getElementById('xrayLightbox') || {}).style ? document.getElementById('xrayLightbox').style.display : ''
           };
@@ -666,6 +722,13 @@ function classifyHost(src, host) {
             loop && loop.rows >= 2 && loop.pabwRows >= 2 &&
                 loop.history.indexOf('Loading') < 0 && loop.pabwHistory.indexOf('Loading') < 0,
             loop ? ('pano=' + loop.rows + ' pabw=' + loop.pabwRows + ' hits=' + JSON.stringify(loop.hits) + ' ' + loop.history + ' | ' + loop.pabwHistory) : 'none');
+        pass('127.0.0.1 page reaches the helper through csxrayai:// jobs, not the browser',
+            loop && loop.hits.length >= 2 && loop.directHits.length === 0 &&
+                loop.hits.every(function (h) { return /\|client$/.test(h); }),
+            loop ? ('jobs=' + JSON.stringify(loop.hits) + ' direct=' + JSON.stringify(loop.directHits)) : 'none');
+        pass('csxrayai:// launched once for several requests',
+            loop && loop.launches.length === 1 && /^csxrayai:\/\/job\?(id=[0-9a-f-]{36}&)?client=[A-Za-z0-9-]+$/.test(loop.launches[0]),
+            loop ? JSON.stringify(loop.launches) : 'none');
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));
     } finally {

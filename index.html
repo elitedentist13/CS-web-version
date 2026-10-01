@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261001patflash1';
+  var BUILD = '20261002media1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3759,21 +3759,16 @@
 <div id="con-forms" class="con-pane">
   <div class="history-pane-wrap">
 
-    <!-- Patient search -->
+    <!-- Same patient as Treatment Notes — no separate search -->
     <div class="history-search-card">
       <div class="history-search-title" data-i18n="con.forms.title"></div>
-      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
-        <div class="ps-wrap" style="flex:1;max-width:480px;">
-          <input type="text" id="conFormsPsInput"
-                 data-i18n-placeholder="con.searchPh"
-                 autocomplete="off" spellcheck="false">
-          <div class="ps-drop" id="conFormsPsDrop"></div>
-        </div>
-        <select id="conFormsPsClinicFilter" data-i18n-title="common.conPsClinicTitle"
-                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
-        <span class="history-search-hint" data-i18n="con.forms.searchHint"></span>
-      </div>
+      <p class="history-search-hint" id="conFormsNeedPatient" data-i18n="cm.need"></p>
+      <p class="history-search-hint" id="conFormsSamePatient" data-i18n="cm.same" hidden></p>
+      <button type="button" class="btn-add" id="conFormsPickPatientBtn"
+              onclick="conHistGoToPatientSearch()" data-i18n="cm.pick"></button>
     </div>
+
+    <div id="conMediaHubForms" class="con-media-hub" hidden></div>
 
     <!-- Template selector -->
     <div id="conFormsTplCard" class="history-form-card" style="display:none;">
@@ -3787,6 +3782,11 @@
       </div>
 
       <div class="history-form-body">
+        <div id="conFormsDraftBar" class="con-forms-draft-bar" hidden>
+          <span id="conFormsDraftText"></span>
+          <button type="button" class="btn-add" onclick="conMediaFormsDraftRestore()" data-i18n="cm.forms.draftRestore"></button>
+          <button type="button" class="cm-link-btn" onclick="conMediaFormsDraftDiscard()" data-i18n="cm.forms.draftDiscard"></button>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 220px;gap:12px;align-items:end;">
           <div class="history-field">
             <label class="history-label">
@@ -3807,6 +3807,25 @@
             <input id="conFormsDocName" type="text"
                    data-i18n-placeholder="con.forms.phDocName"
                    style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;">
+          </div>
+        </div>
+
+        <div id="conFormsCtxRow" class="con-media-ctx con-forms-ctx-row" data-ctx-kind="docs" hidden>
+          <div class="history-field">
+            <label class="history-label" for="conFormsStatusSel"><span data-i18n="cm.field.status"></span></label>
+            <select id="conFormsStatusSel"></select>
+          </div>
+          <div class="history-field">
+            <label class="history-label" for="conFormsCategorySel"><span data-i18n="cm.field.category"></span></label>
+            <select id="conFormsCategorySel"></select>
+          </div>
+          <div class="history-field">
+            <label class="history-label" for="conFormsApptSel"><span data-i18n="cm.field.visit"></span></label>
+            <select id="conFormsApptSel"></select>
+          </div>
+          <div class="history-field">
+            <label class="history-label" for="conFormsValidUntil"><span data-i18n="cm.field.validUntil"></span></label>
+            <input type="date" id="conFormsValidUntil">
           </div>
         </div>
 
@@ -3846,6 +3865,11 @@
             <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('allergy')">{allergy}</button>
             <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('medications')">{medications}</button>
             <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('medical_summary')">{medical_summary}</button>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('visit_date')">{visit_date}</button>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('treatment_done')">{treatment_done}</button>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('next_appointment')">{next_appointment}</button>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('receipt_no')">{receipt_no}</button>
+            <button type="button" class="doc-rt-ph-btn" onclick="conFormsInsertHistPlaceholder('total_amount')">{total_amount}</button>
           </div>
           <div id="conFormsToolbarMount"></div>
           <div id="conFormsDocEditor" class="doc-rt-editor" contenteditable="true"
@@ -3882,9 +3906,21 @@
                       onclick="refreshConFormsDocs()" data-i18n="media.refresh"></button>
             </div>
           </div>
+          <div class="con-media-docfilter">
+            <input type="search" id="conFormsHistQ" data-i18n-placeholder="cm.forms.filterSearchPh"
+                   oninput="conMediaDocFilterChanged()" autocomplete="off">
+            <select id="conFormsHistType" onchange="conMediaDocFilterChanged(true)"></select>
+            <select id="conFormsHistStatus" class="con-media-ctx" data-ctx-kind="docs" hidden
+                    onchange="conMediaDocFilterChanged(true)"></select>
+            <span id="conFormsHistCount" class="con-media-docfilter-count"></span>
+          </div>
           <div id="conFormsExistingList"
-               style="background:#fff;border:1px solid #eee;border-radius:12px;overflow:hidden;max-height:280px;overflow-y:auto;">
+               style="background:#fff;border:1px solid #eee;border-radius:12px;overflow:hidden;max-height:360px;overflow-y:auto;">
             <div style="padding:10px;color:#888;">—</div>
+          </div>
+          <div class="con-media-more-wrap">
+            <button type="button" id="conFormsHistMore" class="btn-add" hidden
+                    onclick="conMediaDocLoadMore()" data-i18n="cm.forms.loadMore"></button>
           </div>
         </div>
       </div>
@@ -4458,21 +4494,16 @@
 <div id="con-photos" class="con-pane">
   <div class="xray-pane-wrap">
 
-    <!-- ── Search Card ─────────────────────────────────── -->
+    <!-- Same patient as Treatment Notes — no separate search -->
     <div class="history-search-card">
       <div class="history-search-title" data-i18n="con.photo.title"></div>
-      <div class="history-search-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
-        <div class="ps-wrap" style="flex:1;max-width:480px;">
-          <input type="text" id="conPsInputPhoto"
-                 data-i18n-placeholder="con.searchPh"
-                 autocomplete="off" spellcheck="false">
-          <div class="ps-drop" id="conPsDropPhoto"></div>
-        </div>
-        <select id="conPsClinicFilterPhoto" data-i18n-title="common.conPsClinicTitle"
-                style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
-        <span class="history-search-hint" data-i18n="con.photo.searchHint"></span>
-      </div>
+      <p class="history-search-hint" id="conPhotoNeedPatient" data-i18n="cm.need"></p>
+      <p class="history-search-hint" id="conPhotoSamePatient" data-i18n="cm.same" hidden></p>
+      <button type="button" class="btn-add" id="conPhotoPickPatientBtn"
+              onclick="conHistGoToPatientSearch()" data-i18n="cm.pick"></button>
     </div>
+
+    <div id="conMediaHubPhotos" class="con-media-hub" hidden></div>
 
     <!-- ── Patient Banner ──────────────────────────────── -->
     <div id="conPhotoBanner" class="history-banner" style="display:none;">
@@ -4510,6 +4541,12 @@
                  accept="image/*,.pdf,.jpg,.jpeg,.png,.webp,.heic"
                  style="display:none;">
           <span class="xray-upload-hint" data-i18n="media.uploadFormatsPhoto"></span>
+        </div>
+
+        <!-- Compare -->
+        <div class="xray-action-group">
+          <button class="xray-btn" id="photoCompareBtn" type="button"
+                  onclick="conMediaCompareButton()" data-i18n="cm.cmp.btn"></button>
         </div>
 
         <!-- Export -->
@@ -4808,6 +4845,32 @@
                     data-i18n-placeholder="media.lb.captionPh"
                     class="xlm-input"></textarea>
         </div>
+        <div class="con-media-ctx" data-ctx-kind="photos" hidden>
+          <div class="xray-lb-meta-row">
+            <span class="xlm-label" data-i18n="cm.field.tooth"></span>
+            <input type="text" id="photoLbTooth" class="xlm-input"
+                   data-i18n-placeholder="cm.field.toothPh">
+          </div>
+          <div class="xray-lb-meta-row">
+            <span class="xlm-label" data-i18n="cm.field.tags"></span>
+            <input type="text" id="photoLbTags" class="xlm-input"
+                   data-i18n-placeholder="cm.field.tagsPh">
+          </div>
+          <div class="xray-lb-meta-row">
+            <span class="xlm-label" data-i18n="cm.field.visit"></span>
+            <select id="photoLbAppt" class="xlm-input"></select>
+          </div>
+        </div>
+        <div class="xray-lb-meta-row" id="photoLbOriginalRow" hidden>
+          <button type="button" class="lb-meta-tool-btn" onclick="conMediaPhotoLbOpenOriginal()"
+                  data-i18n="cm.photo.viewOriginal"></button>
+        </div>
+        <div class="xray-lb-meta-row">
+          <label class="cm-replace-orig">
+            <input type="checkbox" id="photoLbReplaceOrig">
+            <span data-i18n="cm.photo.replaceOrig"></span>
+          </label>
+        </div>
         <div class="xray-lb-meta-row" id="photoLbAnnotMetaRow">
           <span class="xlm-label" data-i18n="media.lb.textOnImagePhoto"></span>
           <input type="text" id="photoLbAnnotTextInput" class="xlm-input"
@@ -4877,6 +4940,20 @@
       <label data-i18n="media.upload.captionNotes"></label>
       <textarea id="photoUploadCaption" rows="2"
                 data-i18n-placeholder="media.upload.captionPh"></textarea>
+    </div>
+    <div class="con-media-ctx" data-ctx-kind="photos" hidden>
+      <div class="fg">
+        <label data-i18n="cm.field.tooth"></label>
+        <input type="text" id="photoUploadTooth" data-i18n-placeholder="cm.field.toothPh">
+      </div>
+      <div class="fg">
+        <label data-i18n="cm.field.tags"></label>
+        <input type="text" id="photoUploadTags" data-i18n-placeholder="cm.field.tagsPh">
+      </div>
+      <div class="fg">
+        <label data-i18n="cm.field.visit"></label>
+        <select id="photoUploadAppt"></select>
+      </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:6px;">
       <button class="btn-add" id="btnConfirmPhotoUpload"
@@ -7555,7 +7632,7 @@
     'app-i18n-extra.js?v=20261001hist10',
     'app-login-log.js',
     'app-admin-verify.js',
-    'app.js?v=20261001patflash1',
+    'app.js?v=20261002media1',
     'app-doc-editor.js',
     'app-program-settings.js?v=20261001hist7',
     'app-audit.js',
@@ -7566,10 +7643,10 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js',
-    'app-patient.js?v=20261001patflash1',
+    'app-photos.js?v=20261002media1',
+    'app-patient.js?v=20261002media1',
     'app-patient-advanced-search.js',
-    'app-patient-views.js',
+    'app-patient-views.js?v=20261002media1',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
     'app-appt.js?v=20261001hist9',
@@ -7577,9 +7654,10 @@
     'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-consultation.js?v=20261001patflash1',
+    'app-consultation.js?v=20261002media1',
     'app-con-dictation-fix.js',
-    'app-con-notes.js',
+    'app-con-media.js?v=20261002media1',
+    'app-con-notes.js?v=20261002media1',
     'app-xray.js?v=20261001panofit1',
     'app-xray-capture.js?v=20260926xg3',
     'app-xray-link.js?v=20260917xrayup2',

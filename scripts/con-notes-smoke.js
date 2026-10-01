@@ -13,7 +13,7 @@ var vm = require('vm');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20261001patflash1';
+var EXPECTED_BUILD = '20261002media1';
 var PID = '18d4d8a2-7d16-403c-962c-cba93540b132';
 var fails = [];
 
@@ -112,7 +112,7 @@ function extractFn(src, name) {
     pass('dictation status line in markup', html.indexOf('id="conNoteMicState"') >= 0);
     pass('index loads app-con-dictation-fix.js before app-con-notes.js',
         html.indexOf("'app-con-dictation-fix.js'") >= 0 &&
-        html.indexOf("'app-con-dictation-fix.js'") < html.indexOf("'app-con-notes.js'"));
+        html.indexOf("'app-con-dictation-fix.js'") < html.indexOf("'app-con-notes.js"));
     ['conNoteMicLang', 'conNoteMicFixesBtn', 'conNoteTeach', 'conNoteAlts']
         .forEach(function (id) { pass('markup #' + id, html.indexOf('id="' + id + '"') >= 0); });
     pass('dictation language no longer follows UI language', extractFn(notesSrc, 'cnMicLang').indexOf('appUiLang') < 0);

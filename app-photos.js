@@ -42,6 +42,12 @@ function mediaErr(msg) {
     return mediaTrRepl('media.alert.error', { MSG: msg });
 }
 
+/** Non-blocking toast; falls back to the browser dialog if the media hub module is unavailable. */
+function mediaNotify(msg, kind) {
+    if (typeof conMediaNotify === 'function') conMediaNotify(msg, kind);
+    else window.alert(msg);
+}
+
 var PHOTO_CATEGORY_PAIRS = [
     ['Intraoral', 'media.cat.intraoral'],
     ['Extraoral', 'media.cat.extraoral'],
@@ -73,6 +79,9 @@ function refreshPhotoCategorySelects() {
         PHOTO_CATEGORY_PAIRS.forEach(function(pair) {
             html += '<option value="' + esc(pair[0]) + '">' + esc(mediaTr(pair[1])) + '</option>';
         });
+        if (includeAll && typeof conMediaTr === 'function') {
+            html += '<option value="__consent_lab">' + esc(conMediaTr('cm.hub.consent')) + '</option>';
+        }
         sel.innerHTML = html;
         if (prev) sel.value = prev;
     }
@@ -219,16 +228,7 @@ function _afterPhotoPatientSelected() {
    SECTION 2 – PATIENT SEARCH (standalone within photos tab)
    ========================================================= */
 
-function doConPatientSearchPhoto() {
-  runPatientSearchDropdown({
-    inputId: 'conPsInputPhoto',
-    dropId: 'conPsDropPhoto',
-    clinicFilterId: 'conPsClinicFilterPhoto',
-    autoSelectSingle: false,
-    activeSource: 'consultation-photo-search',
-    onSelect: selectPhotoPatient
-  });
-}
+/* Patient is chosen once in the Consultation header; this tab follows it (no separate search box). */
 
 /* =========================================================
    SECTION 3 – LOAD RECORDS
@@ -254,6 +254,9 @@ function loadPhotoRecords() {
     populatePhotoCatFilter();
     populatePhotoYearFilter();
     filterPhotos();
+    if (typeof conMediaConsumePendingOpen === 'function') conMediaConsumePendingOpen();
+    if (typeof conMediaScheduleSummary === 'function') conMediaScheduleSummary(true);
+    if (typeof conMediaCompareSync === 'function') conMediaCompareSync();
   });
 }
 
@@ -302,14 +305,21 @@ function filterPhotos() {
   var cat   = (g('photoFilterCat')    ? g('photoFilterCat').value    : '').toLowerCase();
   var year  = (g('photoFilterYear')   ? g('photoFilterYear').value   : '');
   var query = (g('photoFilterSearch') ? g('photoFilterSearch').value : '').toLowerCase();
+  var consentLabOnly = cat === '__consent_lab';
 
   photoFiltered = photoAllRecords.filter(function(x) {
-    if (cat  && (x.category || '').toLowerCase() !== cat) return false;
+    if (consentLabOnly) {
+      if (typeof conMediaIsConsentLabCat !== 'function' || !conMediaIsConsentLabCat(x.category)) return false;
+    } else if (cat && (x.category || '').toLowerCase() !== cat) return false;
     if (year && (!x.taken_date || !x.taken_date.startsWith(year))) return false;
-    if (query && !(
+    if (query) {
+      if (typeof conMediaPhotoMatchesQuery === 'function') {
+        if (!conMediaPhotoMatchesQuery(x, query)) return false;
+      } else if (!(
           (x.caption || '').toLowerCase().includes(query) ||
           (x.notes   || '').toLowerCase().includes(query)
         )) return false;
+    }
     return true;
   });
 
@@ -406,6 +416,7 @@ function renderPhotoGrid() {
           catBadge +
           '<span class="xray-card-date">' + dateStr + '</span>' +
         '</div>' +
+        (typeof conMediaPhotoBadgesHtml === 'function' ? conMediaPhotoBadgesHtml(x) : '') +
         (x.caption
           ? '<div class="xray-card-notes">' + esc(x.caption) + '</div>'
           : '') +
@@ -413,6 +424,9 @@ function renderPhotoGrid() {
           '<button class="xray-cb-open" data-idx="' + idx + '">' +
             esc(mediaTr('media.btn.view')) +
           '</button>' +
+          (!isPdf && typeof conMediaCompareToggle === 'function'
+            ? '<button class="xray-cb-cmp" type="button" title="' + esc(conMediaTr('cm.cmp.toggleTitle')) + '">⇄</button>'
+            : '') +
           (!isPdf
             ? '<button class="xray-cb-dl" ' +
               'data-url="'  + esc(imgSrc) + '" ' +
@@ -449,7 +463,13 @@ function renderPhotoGrid() {
         photoDownloadFile(this.dataset.url, this.dataset.name);
       });
     }
+
+    var cmpBtn = card.querySelector('.xray-cb-cmp');
+    if (cmpBtn) {
+      cmpBtn.addEventListener('click', function() { conMediaCompareToggle(x.id); });
+    }
   });
+  if (typeof conMediaCompareSync === 'function') conMediaCompareSync();
 }
 
 function getPhotoCatBadge(cat) {
@@ -896,6 +916,7 @@ function openPhotoLightbox(idx) {
     sv('photoLbCaption', x.caption    || '');
     sv('photoLbDr',      x.dr         || '');
     sv('photoLbClinic',  x.clinic     || '');
+    photoLbFillContext(x);
 
     _photoLbMetaDirty = false;
     _photoLbWireDirtyListeners();
@@ -964,6 +985,7 @@ function openPhotoLightbox(idx) {
   sv('photoLbCaption', x.caption    || '');
   sv('photoLbDr',      x.dr         || '');
   sv('photoLbClinic',  x.clinic     || '');
+  photoLbFillContext(x);
 
   _photoLbMetaDirty = false;
   _photoLbWireDirtyListeners();
@@ -978,8 +1000,14 @@ function openPhotoLightbox(idx) {
   if (typeof photoLbSyncLightboxChrome === 'function') photoLbSyncLightboxChrome();
 }
 
+function photoLbFillContext(rec) {
+    if (typeof conMediaPhotoCtxFill === 'function') conMediaPhotoCtxFill('photoLb', rec, false);
+    if (typeof conMediaPhotoLbSyncExtras === 'function') conMediaPhotoLbSyncExtras(rec);
+}
+
 function _photoLbWireDirtyListeners() {
-    ['photoLbCat','photoLbDate','photoLbCaption','photoLbDr','photoLbClinic'].forEach(function(id) {
+    ['photoLbCat','photoLbDate','photoLbCaption','photoLbDr','photoLbClinic',
+     'photoLbTooth','photoLbTags','photoLbAppt'].forEach(function(id) {
         var el = g(id);
         if (!el || el._photoLbDirtyBound) return;
         el._photoLbDirtyBound = true;
@@ -1384,7 +1412,7 @@ function photoLbCropApply() {
       phLbCropRect.x, phLbCropRect.y, phLbCropRect.w, phLbCropRect.h,
       0, 0, tmp.width, tmp.height);
   } catch (err) {
-    alert(mediaTr('media.alert.cropFail'));
+    mediaNotify(mediaTr('media.alert.cropFail'));
     return;
   }
   img.crossOrigin = 'anonymous';
@@ -1411,7 +1439,7 @@ function photoLbPrint() {
       tmp2.getContext('2d').drawImage(video, 0, 0);
       src = tmp2.toDataURL('image/jpeg', 0.95);
     } else {
-      alert(mediaTr('media.alert.noVideoFrame'));
+      mediaNotify(mediaTr('media.alert.noVideoFrame'));
       return;
     }
   } else {
@@ -1441,7 +1469,7 @@ function photoLbPrint() {
 
   var w = window.open('', '_blank', 'width=920,height=720');
   if (!w) {
-    alert(mediaTr('media.alert.popupBlocked'));
+    mediaNotify(mediaTr('media.alert.popupBlocked'));
     return;
   }
   w.document.write(
@@ -1699,24 +1727,35 @@ function savePhotoLbMeta() {
     _photoLbMetaDirty = false;   // clear before close so no re-prompt
     _forceClosePhotoLightbox();
     loadPhotoRecords().then(function() {
-      alert(msg || mediaTr('media.alert.savedDefault'));
+      mediaNotify(msg || mediaTr('media.alert.savedDefault'));
     });
   }
 
   function metaPayload() {
-    return {
+    var body = {
       category   : g('photoLbCat') ? g('photoLbCat').value : null,
       taken_date : g('photoLbDate') ? g('photoLbDate').value || null : null,
       caption    : g('photoLbCaption') ? g('photoLbCaption').value.trim() : null,
       dr         : g('photoLbDr') ? g('photoLbDr').value.trim() : null,
       clinic     : g('photoLbClinic') ? g('photoLbClinic').value.trim() : null
     };
+    if (typeof conMediaPhotoCtxRead === 'function') Object.assign(body, conMediaPhotoCtxRead('photoLb'));
+    return body;
   }
 
+  function writePhoto(makeOp, body) {
+    return (typeof conMediaWrite === 'function')
+      ? conMediaWrite('photos', makeOp, body)
+      : Promise.resolve(makeOp(body));
+  }
+
+  var lbId = photoLbCurrentId;
+
   function saveMetaOnly() {
-    SB.from('photos').update(metaPayload()).eq('id', photoLbCurrentId)
-      .then(function(r) {
-        if (r.error) { alert(mediaErr(r.error.message)); return; }
+    writePhoto(function(body) {
+      return SB.from('photos').update(body).eq('id', lbId).select('id');
+    }, metaPayload()).then(function(r) {
+        if (r.error) { mediaNotify(mediaErr(r.error.message), 'error'); return; }
         finishOk(mediaTr('media.alert.photoDetailsSaved'));
       });
   }
@@ -1731,13 +1770,13 @@ function savePhotoLbMeta() {
 
   photoLbExportEditedJpegForSave(function(blob) {
     if (!blob) {
-      alert(mediaTr('media.alert.exportEditFail'));
+      mediaNotify(mediaTr('media.alert.exportEditFail'));
       saveMetaOnly();
       return;
     }
 
     if (!photoPatientId) {
-      alert(mediaTr('media.alert.patientContextMissingDetails'));
+      mediaNotify(mediaTr('media.alert.patientContextMissingDetails'));
       saveMetaOnly();
       return;
     }
@@ -1747,48 +1786,81 @@ function savePhotoLbMeta() {
       Math.random().toString(36).slice(2) + '.jpg';
 
     var oldPath = rec && rec.file_path;
+    var replaceEl = g('photoLbReplaceOrig');
+    var replaceOriginal = !!(replaceEl && replaceEl.checked) || !rec;
 
-    SB.storage.from(PHOTO_BUCKET)
-      .upload(safeName, blob, {
-        cacheControl: '3600',
-        upsert     : false,
-        contentType: 'image/jpeg'
-      })
+    var probe = (typeof conMediaProbeCtx === 'function') ? conMediaProbeCtx() : Promise.resolve();
+    probe.then(function() {
+      return SB.storage.from(PHOTO_BUCKET)
+        .upload(safeName, blob, {
+          cacheControl: '3600',
+          upsert     : false,
+          contentType: 'image/jpeg'
+        });
+    })
       .then(function(up) {
         if (up.error) {
-          alert(mediaTrRepl('media.alert.uploadFailedMetaOnly', { MSG: up.error.message }));
+          mediaNotify(mediaTrRepl('media.alert.uploadFailedMetaOnly', { MSG: up.error.message }), 'error');
           saveMetaOnly();
           return null;
         }
         var publicUrl = photoGetPublicUrlForPath(safeName);
 
         if (!publicUrl) {
-          alert(mediaTrRepl('media.alert.publicUrlFail', { BUCKET: PHOTO_BUCKET }));
+          mediaNotify(mediaTrRepl('media.alert.publicUrlFail', { BUCKET: PHOTO_BUCKET }), 'error');
+          SB.storage.from(PHOTO_BUCKET).remove([safeName]).then(function() {}, function() {});
           saveMetaOnly();
           return null;
         }
 
-        var chain = Promise.resolve();
-        if (oldPath && oldPath !== safeName) {
-          chain = SB.storage.from(PHOTO_BUCKET)
-            .remove([oldPath])
-            .then(function() {}, function() {});
+        var payload = metaPayload();
+        payload.file_path = safeName;
+        payload.public_url = publicUrl;
+
+        if (replaceOriginal) {
+          return writePhoto(function(body) {
+            return SB.from('photos').update(body).eq('id', lbId).select('id');
+          }, payload).then(function(r) {
+            if (r && !r.error && oldPath && oldPath !== safeName) {
+              SB.storage.from(PHOTO_BUCKET).remove([oldPath]).then(function() {}, function() {});
+            }
+            if (r && r.error) {
+              SB.storage.from(PHOTO_BUCKET).remove([safeName]).then(function() {}, function() {});
+            }
+            return { res: r, copy: false };
+          });
         }
 
-        return chain.then(function() {
-          var payload = metaPayload();
-          payload.file_path = safeName;
-          payload.public_url = publicUrl;
-          return SB.from('photos').update(payload).eq('id', photoLbCurrentId);
+        /* Non-destructive: keep the original and store the edit as a new linked record. */
+        var ctxOn = typeof conMediaCtxOk === 'function' && conMediaCtxOk('photos');
+        var copy = Object.assign({}, payload, {
+          patient_id : photoPatientId,
+          uploaded_by: (typeof currentName !== 'undefined' ? currentName : null)
+        });
+        if (ctxOn) {
+          copy.parent_photo_id = lbId;
+        } else if (!/\(edited\)\s*$/i.test(String(copy.caption || ''))) {
+          copy.caption = (String(copy.caption || '').trim() + ' (edited)').trim();
+        }
+        return writePhoto(function(body) {
+          return SB.from('photos').insert([body]).select('id');
+        }, copy).then(function(r) {
+          if (r && r.error) {
+            SB.storage.from(PHOTO_BUCKET).remove([safeName]).then(function() {}, function() {});
+          }
+          return { res: r, copy: true };
         });
       })
-      .then(function(r) {
-        if (!r) return;
-        if (r.error) {
-          alert(mediaTrRepl('media.alert.dbUpdateFailPhoto', { MSG: r.error.message }));
+      .then(function(out) {
+        if (!out) return;
+        var r = out.res;
+        if (!r || r.error) {
+          mediaNotify(mediaTrRepl('media.alert.dbUpdateFailPhoto', { MSG: (r && r.error && r.error.message) || '' }), 'error');
           return;
         }
-        finishOk(mediaTr('media.alert.photoSavedFull'));
+        finishOk(out.copy
+          ? (typeof conMediaTr === 'function' ? conMediaTr('cm.photo.savedCopy') : mediaTr('media.alert.photoSavedFull'))
+          : mediaTr('media.alert.photoSavedFull'));
       });
   });
 }
@@ -1811,7 +1883,7 @@ function deletePhotoLb() {
   chain.then(function() {
     return SB.from('photos').delete().eq('id', photoLbCurrentId);
   }).then(function(r) {
-    if (r.error) { alert(mediaErr(r.error.message)); return; }
+    if (r.error) { mediaNotify(mediaErr(r.error.message)); return; }
     closePhotoLightbox();
     loadPhotoRecords();
     if (typeof conPatientId !== 'undefined' && conPatientId &&
@@ -1841,16 +1913,20 @@ document.addEventListener('DOMContentLoaded', function() {
   var fi = g('photoFileInput');
   if (fi) {
     fi.addEventListener('change', function() {
-      if (!photoPatientId) {
-        alert(mediaTr('con.forms.alertSelectPatient'));
-        fi.value = '';
+      if (!fi.files || !fi.files.length) return;
+      var picked = Array.from(fi.files);
+      fi.value = '';
+      if (typeof photoHandleFiles === 'function') {
+        photoHandleFiles(picked);
         return;
       }
-      if (!fi.files || !fi.files.length) return;
-      photoUploadQueue = Array.from(fi.files);
+      if (!photoPatientId) {
+        mediaNotify(mediaTr('con.forms.alertSelectPatient'), 'error');
+        return;
+      }
+      photoUploadQueue = picked;
       photoUploadQIdx  = 0;
       processNextPhotoUpload();
-      fi.value = '';
     });
   }
 
@@ -1889,6 +1965,9 @@ function processNextPhotoUpload() {
   if (photoUploadQIdx >= photoUploadQueue.length) {
     closeModal('photoUploadModal');
     loadPhotoRecords();
+    if (typeof conSchedulePatientTimelineRefresh === 'function' && photoPatientId) {
+      conSchedulePatientTimelineRefresh(photoPatientId);
+    }
     return;
   }
   showPhotoUploadModal(photoUploadQueue[photoUploadQIdx]);
@@ -1922,6 +2001,7 @@ function showPhotoUploadModal(file) {
   sv('photoUploadDr',    '');
   sv('photoUploadClinic','');
   sv('photoUploadCaption','');
+  if (typeof conMediaPhotoCtxFill === 'function') conMediaPhotoCtxFill('photoUpload', null, true);
 
   var info = g('photoUploadMultiInfo');
   if (info) {
@@ -1944,71 +2024,23 @@ function confirmPhotoUpload() {
   var dr      = g('photoUploadDr')     ? g('photoUploadDr').value.trim()        : '';
   var clinic  = g('photoUploadClinic') ? g('photoUploadClinic').value.trim()    : '';
   var caption = g('photoUploadCaption')? g('photoUploadCaption').value.trim()   : '';
+  var ctx     = (typeof conMediaPhotoCtxRead === 'function') ? conMediaPhotoCtxRead('photoUpload') : {};
 
   closeModal('photoUploadModal');
   showPhotoUploadProgress(true, mediaTr('media.upload.preparing'), 5);
 
-  var ext      = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  var safeName = photoPatientId + '/' +
-                 Date.now() + '_' +
-                 Math.random().toString(36).slice(2) + '.' + ext;
-
-  var mimeMap = {
-    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-    'png': 'image/png',  'webp': 'image/webp',
-    'heic':'image/heic', 'pdf' : 'application/pdf'
-  };
-  var contentType = file.type || mimeMap[ext] || 'application/octet-stream';
-
-  showPhotoUploadProgress(true, mediaTr('media.upload.uploadingStorage'), 20);
-
-  /* ── Step 1: Upload to Storage ── */
-  SB.storage.from(PHOTO_BUCKET)
-    .upload(safeName, file, {
-      cacheControl: '3600',
-      upsert      : false,
-      contentType : contentType
-    })
-  .then(function(r) {
-    if (r.error) {
-      showPhotoUploadProgress(false);
-      alert(mediaTrRepl('media.alert.uploadFailed', { MSG: r.error.message }));
-      return null;
-    }
-    showPhotoUploadProgress(true, mediaTr('media.upload.gettingUrl'), 60);
-    return { ok: true, path: safeName };
-  })
-
-  /* ── Step 2: Get public URL ── */
+  photoUploadOne(file, {
+    category  : cat,
+    taken_date: date,
+    dr        : dr,
+    clinic    : clinic,
+    caption   : caption,
+    ctx       : ctx
+  }, function(label, pct) { showPhotoUploadProgress(true, label, pct); })
   .then(function(res) {
-    if (!res || !res.ok) return null;
-
-    var urlRes    = SB.storage.from(PHOTO_BUCKET).getPublicUrl(res.path);
-    var publicUrl = (urlRes.data && urlRes.data.publicUrl)
-                    ? urlRes.data.publicUrl : null;
-
-    showPhotoUploadProgress(true, mediaTr('media.upload.savingRecord'), 80);
-
-    /* ── Step 3: Insert DB record ── */
-    return SB.from('photos').insert([{
-      patient_id : photoPatientId,
-      file_path  : res.path,
-      public_url : publicUrl,
-      category   : cat,
-      caption    : caption || null,
-      taken_date : date    || null,
-      dr         : dr      || null,
-      clinic     : clinic  || null,
-      uploaded_by: (typeof currentName !== 'undefined' ? currentName : null)
-    }]);
-  })
-
-  /* ── Step 4: Handle result ── */
-  .then(function(r) {
-    if (!r) return;
-    if (r.error) {
+    if (!res || !res.ok) {
       showPhotoUploadProgress(false);
-      alert(mediaTrRepl('media.alert.dbError', { MSG: r.error.message }));
+      if (res && res.msg) mediaNotify(res.msg, 'error');
       return;
     }
     showPhotoUploadProgress(true, mediaTr('media.upload.done'), 100);
@@ -2017,10 +2049,71 @@ function confirmPhotoUpload() {
       photoUploadQIdx++;
       processNextPhotoUpload();
     }, 700);
-  })
-  .catch(function(err) {
-    showPhotoUploadProgress(false);
-    alert(mediaTrRepl('media.alert.unexpected', { MSG: (err.message || String(err)) }));
+  });
+}
+
+/**
+ * Upload one file to storage and insert its `photos` row.
+ * Resolves { ok, id, path, msg }; removes the stored file again if the row cannot be written.
+ */
+function photoUploadOne(file, meta, onProgress) {
+  meta = meta || {};
+  var progress = (typeof onProgress === 'function') ? onProgress : function() {};
+  if (!photoPatientId) {
+    return Promise.resolve({ ok: false, msg: mediaTr('con.forms.alertSelectPatient') });
+  }
+  var pid  = photoPatientId;
+  var ext  = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase();
+  var path = pid + '/' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.' + ext;
+
+  var mimeMap = {
+    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+    'png': 'image/png',  'webp': 'image/webp',
+    'heic':'image/heic', 'pdf' : 'application/pdf'
+  };
+  var contentType = file.type || mimeMap[ext] || 'application/octet-stream';
+
+  progress(mediaTr('media.upload.uploadingStorage'), 20);
+
+  return Promise.resolve(SB.storage.from(PHOTO_BUCKET).upload(path, file, {
+    cacheControl: '3600',
+    upsert      : false,
+    contentType : contentType
+  })).then(function(up) {
+    if (up && up.error) {
+      return { ok: false, msg: mediaTrRepl('media.alert.uploadFailed', { MSG: up.error.message }) };
+    }
+    progress(mediaTr('media.upload.gettingUrl'), 60);
+    var publicUrl = photoGetPublicUrlForPath(path) || null;
+    progress(mediaTr('media.upload.savingRecord'), 80);
+
+    var row = {
+      patient_id : pid,
+      file_path  : path,
+      public_url : publicUrl,
+      category   : meta.category || 'Other',
+      caption    : meta.caption || null,
+      taken_date : meta.taken_date || null,
+      dr         : meta.dr || null,
+      clinic     : meta.clinic || null,
+      uploaded_by: (typeof currentName !== 'undefined' ? currentName : null)
+    };
+    if (meta.ctx) Object.assign(row, meta.ctx);
+
+    var write = (typeof conMediaWrite === 'function')
+      ? conMediaWrite('photos', function(body) { return SB.from('photos').insert([body]).select('id'); }, row)
+      : Promise.resolve(SB.from('photos').insert([row]).select('id'));
+
+    return write.then(function(r) {
+      if (!r || r.error) {
+        SB.storage.from(PHOTO_BUCKET).remove([path]).then(function() {}, function() {});
+        return { ok: false, msg: mediaTrRepl('media.alert.dbError', { MSG: (r && r.error && r.error.message) || '' }) };
+      }
+      var id = r.data && r.data[0] ? r.data[0].id : null;
+      return { ok: true, id: id, path: path };
+    });
+  }).catch(function(err) {
+    return { ok: false, msg: mediaTrRepl('media.alert.unexpected', { MSG: (err && err.message) || String(err) }) };
   });
 }
 
@@ -2041,7 +2134,7 @@ function showPhotoUploadProgress(show, label, pct) {
 
 function exportSelectedPhotos() {
   if (!photoSelected.size) {
-    alert(mediaTr('media.alert.selectPhotoExport'));
+    mediaNotify(mediaTr('media.alert.selectPhotoExport'));
     return;
   }
   var toExport = photoFiltered.filter(function(x) {
@@ -2056,7 +2149,7 @@ function exportSelectedPhotos() {
 }
 
 function exportAllPhotos() {
-  if (!photoFiltered.length) { alert(mediaTr('media.alert.noPhotosExport')); return; }
+  if (!photoFiltered.length) { mediaNotify(mediaTr('media.alert.noPhotosExport')); return; }
   if (!confirm(mediaTrRepl('media.alert.confirmDownloadPhotos', { N: String(photoFiltered.length) }))) return;
   photoFiltered.forEach(function(x, i) {
     setTimeout(function() {
@@ -2067,7 +2160,7 @@ function exportAllPhotos() {
 }
 
 function photoDownloadFile(url, filename) {
-  if (!url) { alert(mediaTr('media.alert.noFileUrl')); return; }
+  if (!url) { mediaNotify(mediaTr('media.alert.noFileUrl')); return; }
   fetch(url)
     .then(function(res) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2084,7 +2177,7 @@ function photoDownloadFile(url, filename) {
       setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 10000);
     })
     .catch(function(err) {
-      alert(mediaTrRepl('media.alert.downloadFailed', { MSG: err.message }));
+      mediaNotify(mediaTrRepl('media.alert.downloadFailed', { MSG: err.message }));
     });
 }
 
@@ -2116,7 +2209,7 @@ function updatePhotoSelectedCount() {
 
 function bulkDeletePhotos() {
   if (!photoSelected.size) {
-    alert(mediaTr('media.alert.selectPhotoDelete'));
+    mediaNotify(mediaTr('media.alert.selectPhotoDelete'));
     return;
   }
   if (!confirm(mediaTrRepl('media.alert.confirmBulkDeletePhotos', { N: String(photoSelected.size) })))
@@ -2139,7 +2232,7 @@ function bulkDeletePhotos() {
   chain.then(function() {
     return SB.from('photos').delete().in('id', ids);
   }).then(function(r) {
-    if (r.error) { alert(mediaTrRepl('media.alert.bulkDeleteFailed', { MSG: r.error.message })); return; }
+    if (r.error) { mediaNotify(mediaTrRepl('media.alert.bulkDeleteFailed', { MSG: r.error.message })); return; }
     photoSelected.clear();
     loadPhotoRecords();
   });

@@ -904,6 +904,8 @@ function switchConTab(tab) {
         initConForms();
     }
 
+    if (typeof conMediaOnTabShown === 'function') conMediaOnTabShown(tab);
+
     if (tab === 'treatment' && typeof refreshConMhReviewChip === 'function') {
         refreshConMhReviewChip();
     }
@@ -952,6 +954,9 @@ function selectConPatient(p) {
     if (!samePatient) {
         conPatientSelectGen++;
         resetConNotesForPatientSwitch();
+        if (typeof conMediaOnPatientSwitch === 'function') {
+            conMediaOnPatientSwitch(conFormsPatientId, p.id);
+        }
     }
     if (typeof setDirectoryActivePatient === 'function') {
         setDirectoryActivePatient(p, 'consultation-select');
@@ -1117,16 +1122,6 @@ function selectConPatient(p) {
     var treatDrop = g('conPsDrop');
     if (treatDrop) treatDrop.style.display = 'none';
 
-    var formsInput = g('conFormsPsInput');
-    if (formsInput && document.activeElement !== formsInput) {
-        formsInput.value = (typeof patientSearchInputDisplayValue === 'function')
-            ? patientSearchInputDisplayValue(p)
-            : (p.full_name + ' (#' + (p.patient_no || '') + ')');
-        formsInput.dataset.psLockedPatientId = String(p.id || '');
-    }
-    var formsDrop = g('conFormsPsDrop');
-    if (formsDrop) formsDrop.style.display = 'none';
-
     fillConHistoryBanner('med', shared);
     fillConHistoryBanner('den', shared);
     if (typeof conHistApplySharedPatient === 'function') conHistApplySharedPatient();
@@ -1207,6 +1202,7 @@ function initConForms() {
             });
         }
     }
+    if (typeof conMediaFormsDraftBar === 'function') conMediaFormsDraftBar();
 }
 
 function conFormsShowHistCard(show) {
@@ -1246,7 +1242,10 @@ function conFormsUpdateEditingBadge() {
     else badge.classList.remove('is-on');
 }
 
-function conFormsStartNewDoc() {
+function conFormsStartNewDoc(keepDraft) {
+    if (keepDraft !== true && typeof conMediaFormsDraftClear === 'function') {
+        conMediaFormsDraftClear(conFormsPatientId);
+    }
     _conFormsDirty = false;
     conFormsEditingDocId = null;
     conFormsUpdateEditingBadge();
@@ -1569,18 +1568,10 @@ function updateConFormsPatientLabel() {
     });
 }
 
-function doConFormsPatientSearch() {
-    runPatientSearchDropdown({
-        inputId: 'conFormsPsInput',
-        dropId: 'conFormsPsDrop',
-        clinicFilterId: 'conFormsPsClinicFilter',
-        autoSelectSingle: false,
-        activeSource: 'consultation-forms-search',
-        onSelect: function (p) {
-            selectConPatient(p);
-            initConForms();
-        }
-    });
+/** Toast instead of a blocking alert(); falls back to alert() if the media module is missing. */
+function conFormsNotify(msg, kind) {
+    if (typeof conMediaNotify === 'function') conMediaNotify(msg, kind);
+    else alert(msg);
 }
 
 function conFormsPatientGenderLabel(sex) {
@@ -1958,12 +1949,24 @@ function loadConFormsDoctor(done, forceReload) {
 
 function conFormsWhenReadyForPlaceholders(cb) {
     var n = 0;
+    var need = 2;
     function tick() {
         n++;
-        if (n >= 2 && typeof cb === 'function') cb();
+        if (n >= need && typeof cb === 'function') cb();
     }
     loadConFormsShellSettings(tick);
     loadConFormsDoctor(tick, true);
+    if (typeof conMediaLoadVisitCtx === 'function' && conFormsPatientId) {
+        need = 3;
+        var done = false;
+        var once = function () { if (done) return; done = true; tick(); };
+        var vpid = conFormsPatientId;
+        var apptReady = (typeof conMediaLoadAppts === 'function') ? conMediaLoadAppts(vpid) : Promise.resolve();
+        apptReady.then(function () {
+            var apptSel = g('conFormsApptSel');
+            return conMediaLoadVisitCtx(vpid, apptSel ? apptSel.value : '');
+        }).then(once, once);
+    }
 }
 
 function conFormsSickLeaveDatesReady() {
@@ -2356,6 +2359,7 @@ function onConFormsTemplateChange() {
     if (g('conFormsDocName') && !g('conFormsDocName').value) {
         g('conFormsDocName').value = conFormsSelectedTemplate.template_name || '';
     }
+    if (typeof conMediaFormsCtxOnTemplate === 'function') conMediaFormsCtxOnTemplate(conFormsSelectedTemplate);
 
     if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate)) {
         conFormsInitSickLeaveDefaults();
@@ -2532,6 +2536,13 @@ function conFormsPlaceholderMap(opts) {
         var sk;
         for (sk in sl) {
             if (Object.prototype.hasOwnProperty.call(sl, sk)) map[sk] = sl[sk];
+        }
+    }
+    if (typeof conMediaVisitPlaceholders === 'function') {
+        var visit = conMediaVisitPlaceholders();
+        var vk;
+        for (vk in visit) {
+            if (Object.prototype.hasOwnProperty.call(visit, vk) && (visit[vk] || !map[vk])) map[vk] = visit[vk];
         }
     }
     return map;
@@ -2801,23 +2812,23 @@ function conFormsInsertTag(tag) {
 
 function saveConFormsDoc(andPrint) {
     if (!conFormsPatientId || !conFormsPatientData) {
-        alert(conTr('con.forms.alertSelectPatient'));
+        conFormsNotify(conTr('con.forms.alertSelectPatient'), 'error');
         return;
     }
     var sel = g('conFormsTemplateSel');
     if (!sel || !sel.value) {
-        alert(conTr('con.forms.alertSelectTemplate'));
+        conFormsNotify(conTr('con.forms.alertSelectTemplate'), 'error');
         return;
     }
 
     var docName = (g('conFormsDocName') ? g('conFormsDocName').value : '').trim();
     if (!docName) {
-        alert(conTr('con.forms.alertDocName'));
+        conFormsNotify(conTr('con.forms.alertDocName'), 'error');
         return;
     }
 
     if (conFormsIsSickLeaveTemplate(conFormsSelectedTemplate) && !conFormsSickLeaveDatesReady()) {
-        alert(conTr('con.forms.alertSickLeaveDates'));
+        conFormsNotify(conTr('con.forms.alertSickLeaveDates'), 'error');
         return;
     }
 
@@ -2825,7 +2836,7 @@ function saveConFormsDoc(andPrint) {
         ? DocEditor.getHtml('conFormsDocEditor')
         : (g('conFormsDocEditor') ? g('conFormsDocEditor').innerHTML : '').trim();
     if (!html) {
-        alert(conTr('con.forms.alertEmpty'));
+        conFormsNotify(conTr('con.forms.alertEmpty'), 'error');
         return;
     }
     html = conFormsEnsureDefaultShell(html, true);
@@ -2846,19 +2857,29 @@ function saveConFormsDoc(andPrint) {
         document_date: todayISO(),
         content_html: html
     };
+    if (typeof conMediaFormsCtxRead === 'function') {
+        Object.assign(payload, conMediaFormsCtxRead());
+    }
 
     var wasEdit = !!conFormsEditingDocId;
-    var op = wasEdit
-        ? SB.from('patient_documents').update(payload).eq('id', conFormsEditingDocId)
-        : SB.from('patient_documents').insert([payload]).select('id');
+    var editId = conFormsEditingDocId;
+    var makeOp = function (body) {
+        return wasEdit
+            ? SB.from('patient_documents').update(body).eq('id', editId).select('id')
+            : SB.from('patient_documents').insert([body]).select('id');
+    };
+    var op = (typeof conMediaWrite === 'function')
+        ? conMediaWrite('docs', makeOp, payload)
+        : makeOp(payload);
 
     op.then(function(r) {
         if (r.error) {
-            alert(conTrRepl('con.forms.alertSaveFailed', { MSG: r.error.message }));
+            conFormsNotify(conTrRepl('con.forms.alertSaveFailed', { MSG: r.error.message }), 'error');
             return;
         }
         _conFormsDirty = false;
-        alert(conTr(wasEdit ? 'con.forms.updatedOk' : 'con.forms.savedOk'));
+        if (typeof conMediaFormsDraftClear === 'function') conMediaFormsDraftClear(conFormsPatientId);
+        conFormsNotify(conTr(wasEdit ? 'con.forms.updatedOk' : 'con.forms.savedOk'), 'info');
         if (!wasEdit && r.data && r.data[0] && r.data[0].id) {
             conFormsEditingDocId = r.data[0].id;
         }
@@ -2940,16 +2961,16 @@ function conFormsGetPrintSheetCss() {
 
 function conExportFormsPdf() {
     if (!conFormsPatientId || !conFormsPatientData) {
-        alert(conTr('con.forms.alertSelectPatient'));
+        conFormsNotify(conTr('con.forms.alertSelectPatient'), 'error');
         return;
     }
     if (typeof PDFEDITOR === 'undefined' || typeof PDFEDITOR.exportFormsHtmlToPatient !== 'function') {
-        alert(conTr('con.forms.pdfExportUnavailable'));
+        conFormsNotify(conTr('con.forms.pdfExportUnavailable'), 'error');
         return;
     }
     var html = conFormsCollectEditorHtml();
     if (!html || !String(html).replace(/<[^>]+>/g, '').trim()) {
-        alert(conTr('con.forms.alertEmpty'));
+        conFormsNotify(conTr('con.forms.alertEmpty'), 'error');
         return;
     }
     var docNameEl = g('conFormsDocName');
@@ -2992,11 +3013,12 @@ function conExportFormsPdf() {
     }).then(function (docId) {
         if (docId) conFormsEditingDocId = docId;
         conFormsUpdateEditingBadge();
-        alert(conTr('con.forms.exportPdfOk'));
+        conFormsNotify(conTr('con.forms.exportPdfOk'), 'info');
+        if (typeof conMediaFormsDraftClear === 'function') conMediaFormsDraftClear(conFormsPatientId);
         searchConFormsDocs();
         conSchedulePatientTimelineRefresh(conPatientId);
     }).catch(function (e) {
-        alert(conTrRepl('con.forms.exportPdfFailed', { MSG: (e && e.message) || String(e) }));
+        conFormsNotify(conTrRepl('con.forms.exportPdfFailed', { MSG: (e && e.message) || String(e) }), 'error');
     }).finally(function () {
         if (exportBtn) {
             exportBtn.disabled = false;
@@ -3068,7 +3090,7 @@ function printConFormsHtml(html) {
         'width=' + popW + ',height=' + popH + ',scrollbars=1,resizable=1,toolbar=0,menubar=0'
     );
     if (!popup) {
-        alert(conTr('con.alert.popupBlocked'));
+        conFormsNotify(conTr('con.alert.popupBlocked'), 'error');
         return;
     }
     popup.document.write(
@@ -3123,22 +3145,31 @@ function searchConFormsDocs() {
     if (selAll) selAll.checked = false;
     conFormsUpdateHistActions();
 
-    SB.from('patient_documents')
-      .select('id,document_name,document_date,template_name,template_type,created_at,content_html')
-      .eq('patient_id', conFormsPatientId)
-      .order('created_at', { ascending: false })
-      .limit(30)
-    .then(function(r) {
-        if (!list) return;
-        if (r.error) {
+    var reqPid = conFormsPatientId;
+    var fetchDocs = (typeof conMediaFetchDocs === 'function')
+        ? conMediaFetchDocs(reqPid)
+        : Promise.resolve(SB.from('patient_documents')
+            .select('id,document_name,document_date,template_name,template_type,created_at,content_html')
+            .eq('patient_id', reqPid)
+            .order('created_at', { ascending: false })
+            .limit(30)).then(function (r) {
+                return { error: r.error, rows: r.data || [], hasMore: false };
+            });
+    fetchDocs.then(function(res) {
+        if (!list || String(reqPid) !== String(conFormsPatientId)) return;
+        if (res.error) {
             list.innerHTML = '<div style="color:#dc3545;padding:10px;">' +
-                esc(conTrRepl('con.forms.errLoadDocs', { MSG: r.error.message })) +
+                esc(conTrRepl('con.forms.errLoadDocs', { MSG: res.error.message })) +
                 '<br><small>' + esc(conTr('con.forms.errLoadDocsHint')) + '</small></div>';
             return;
         }
-        var rows = r.data || [];
+        var rows = res.rows || [];
+        if (typeof conMediaDocAfterRender === 'function') conMediaDocAfterRender(res);
         if (!rows.length) {
-            list.innerHTML = '<div style="color:#888;padding:10px;">' + esc(conTr('con.forms.noDocs')) + '</div>';
+            var filtered = typeof CON_MEDIA !== 'undefined' && CON_MEDIA.docFilter &&
+                (CON_MEDIA.docFilter.q || CON_MEDIA.docFilter.type || CON_MEDIA.docFilter.status);
+            list.innerHTML = '<div style="color:#888;padding:10px;">' +
+                esc(filtered && typeof conMediaTr === 'function' ? conMediaTr('cm.forms.noMatch') : conTr('con.forms.noDocs')) + '</div>';
             return;
         }
         rows.forEach(function (d) { conFormsDocsCache[d.id] = d; });
@@ -3166,6 +3197,8 @@ function searchConFormsDocs() {
                   '<div style="font-size:12px;color:#888;margin-top:2px;">' +
                     esc(d.document_date || '') + ' · ' + esc(meta) +
                   '</div>' +
+                  (typeof conMediaDocBadgesHtml === 'function'
+                      ? '<div class="con-media-badges">' + conMediaDocBadgesHtml(d) + '</div>' : '') +
                 '</div>' +
                 '</div>' +
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
@@ -3251,9 +3284,10 @@ function conFormsDeleteSelectedDocs() {
       .delete()
       .in('id', conFormsSelectedDocIds)
     .then(function (r) {
-        if (r.error) { alert(conTrRepl('con.alert.deleteFailed', { MSG: r.error.message })); return; }
+        if (r.error) { conFormsNotify(conTrRepl('con.alert.deleteFailed', { MSG: r.error.message }), 'error'); return; }
         // refresh history list
         searchConFormsDocs();
+        if (typeof conSchedulePatientTimelineRefresh === 'function') conSchedulePatientTimelineRefresh(conPatientId);
     });
 }
 
@@ -3269,7 +3303,7 @@ function conFormsPrintSelectedDocs() {
           .select('id,content_html')
           .in('id', conFormsSelectedDocIds)
         .then(function (r) {
-            if (r.error) { alert(conTrRepl('con.alert.printFailed', { MSG: r.error.message })); return; }
+            if (r.error) { conFormsNotify(conTrRepl('con.alert.printFailed', { MSG: r.error.message }), 'error'); return; }
             var rows = r.data || [];
             var html = rows.map(function (d) {
                 return conFormsPreparePrintHtml(d.content_html || '', true);
@@ -3296,7 +3330,7 @@ function conFormsPrintOneDoc(id) {
     }
     SB.from('patient_documents').select('content_html').eq('id', id).single()
     .then(function (r) {
-        if (r.error || !r.data) { alert(conTr('con.alert.loadDocFail')); return; }
+        if (r.error || !r.data) { conFormsNotify(conTr('con.alert.loadDocFail'), 'error'); return; }
         printConFormsHtml(conFormsPreparePrintHtml(r.data.content_html || '', true));
     });
 }
@@ -3307,7 +3341,7 @@ function openConFormsDoc(id) {
       .eq('id', id)
       .single()
     .then(function(r) {
-        if (r.error || !r.data) { alert(conTr('con.alert.loadDocFail')); return; }
+        if (r.error || !r.data) { conFormsNotify(conTr('con.alert.loadDocFail'), 'error'); return; }
         var d = r.data;
         if (conFormsDocIsPdfRecord(d)) {
             conOpenPdfEditorWithRecord(d);
@@ -3325,6 +3359,7 @@ function openConFormsDoc(id) {
             g('conFormsTemplateSel').value = d.template_id;
             conFormsSelectedTemplate = conFormsTemplates.find(function (t) { return t.id === d.template_id; }) || null;
         }
+        if (typeof conMediaFormsCtxWrite === 'function') conMediaFormsCtxWrite(d);
         if (typeof conFormsSyncSickLeaveDatePanel === 'function') conFormsSyncSickLeaveDatePanel();
         if (typeof conFormsSyncReferralHintPanel === 'function') conFormsSyncReferralHintPanel();
         if (typeof conFormsHydrateSickLeaveFieldsFromHtml === 'function') {
@@ -3794,7 +3829,9 @@ function conPtlEventsFromDocs(rows) {
             body: d.document_name || d.template_name || '—',
             meta: [d.document_date, d.template_name, d.template_type].filter(Boolean).join(' · '),
             action: 'doc',
-            refId: d.id
+            refId: d.id,
+            apptId: d.appointment_id || null,
+            status: d.status || null
         };
     });
 }
@@ -3808,9 +3845,13 @@ function conPtlEventsFromPhotos(rows) {
             ts: ms,
             title: conTr('con.ptl.type.photo'),
             body: p.category || '—',
-            meta: [p.taken_date, conPtlTruncate(p.caption, 120)].filter(Boolean).join(' · '),
+            meta: [p.taken_date, p.tooth_no ? ('🦷 ' + p.tooth_no) : '', conPtlTruncate(p.caption, 120)].filter(Boolean).join(' · '),
             action: 'photo',
-            refId: p.id
+            refId: p.id,
+            category: p.category || '',
+            toothNo: p.tooth_no || '',
+            tags: Array.isArray(p.tags) ? p.tags : [],
+            apptId: p.appointment_id || null
         };
     });
 }
@@ -4000,12 +4041,14 @@ function loadConPatientTimeline(patientId) {
         'id,date,start_time,end_time,bill_status,treatment_items,remarks,' +
         'dentist_name,doctor_name,doctor_code,created_at'
     ).eq('patient_id', pid).order('date', { ascending: false }).limit(150);
-    var qDocs = SB.from('patient_documents').select(
-        'id,document_name,document_date,template_name,template_type,created_at'
-    ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
+    var docCols = 'id,document_name,document_date,template_name,template_type,created_at';
+    if (typeof conMediaDocCols === 'function') docCols = conMediaDocCols(docCols);
+    var qDocs = SB.from('patient_documents').select(docCols).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
     var qXray = SB.from('xrays').select('id,xray_type,taken_date,notes,file_name,created_at')
         .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
-    var qPhoto = SB.from('photos').select('id,category,caption,taken_date,created_at')
+    var photoCols = 'id,category,caption,taken_date,created_at';
+    if (typeof conMediaPhotoCols === 'function') photoCols = conMediaPhotoCols(photoCols);
+    var qPhoto = SB.from('photos').select(photoCols)
         .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
 
     var qBill = SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
@@ -4213,6 +4256,10 @@ function conPtlOpenEvent(ev) {
         return;
     }
     if (ev.action === 'photo') {
+        if (ev.refId && typeof conMediaOpenPhoto === 'function') {
+            conMediaOpenPhoto(conPatientId, ev.refId);
+            return;
+        }
         switchConTab('photos');
         setTimeout(function () {
             if (typeof refreshPhotos === 'function') refreshPhotos();
@@ -9231,6 +9278,7 @@ function conHistHasPatient() {
 
 function conHistApplySharedPatient() {
     var has = conHistHasPatient();
+    if (typeof conMediaApplySharedPatient === 'function') conMediaApplySharedPatient();
     function setHidden(id, hidden) {
         var el = g(id);
         if (el) el.hidden = !!hidden;

@@ -172,9 +172,7 @@ var CLINIC_TAG_FILTER_SELECT_IDS = [
     'recallClinicFilter',
     'conPsClinicFilter',
     'conPsClinicFilterXray',
-    'conPsClinicFilterPhoto',
     'conPsClinicFilterChart',
-    'conFormsPsClinicFilter',
     'aiBirthClinicFilter',
     'aiRecallClinicFilter',
     'reportPatientDirClinicFilter'
@@ -184,9 +182,7 @@ var CLINIC_TAG_FILTER_SELECT_IDS = [
 var CONSULTATION_CLINIC_FILTER_SELECT_IDS = [
     'conPsClinicFilter',
     'conPsClinicFilterXray',
-    'conPsClinicFilterPhoto',
-    'conPsClinicFilterChart',
-    'conFormsPsClinicFilter'
+    'conPsClinicFilterChart'
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -484,9 +480,7 @@ var CLINIC_FILTER_FOLLOW_HEADER = {
     recallClinicFilter: true,
     conPsClinicFilter: false,
     conPsClinicFilterXray: false,
-    conPsClinicFilterPhoto: false,
     conPsClinicFilterChart: false,
-    conFormsPsClinicFilter: false,
     aiBirthClinicFilter: false,
     aiRecallClinicFilter: false,
     reportPatientDirClinicFilter: false
@@ -2558,14 +2552,8 @@ function refreshVisiblePatientSearchDropdowns() {
         { drop: 'conPsDropXray', input: 'conPsInputXray', run: function () {
             if (typeof doConPatientSearchXray === 'function') doConPatientSearchXray();
         }},
-        { drop: 'conPsDropPhoto', input: 'conPsInputPhoto', run: function () {
-            if (typeof doConPatientSearchPhoto === 'function') doConPatientSearchPhoto();
-        }},
         { drop: 'conPsDropChart', input: 'conPsInputChart', run: function () {
             if (typeof doConPatientSearchChart === 'function') doConPatientSearchChart();
-        }},
-        { drop: 'conFormsPsDrop', input: 'conFormsPsInput', run: function () {
-            if (typeof doConFormsPatientSearch === 'function') doConFormsPatientSearch();
         }}
     ];
     specs.forEach(function (s) {
@@ -3446,9 +3434,10 @@ function bindAppScrollPersistOnce() {
 }
 
 var appGlobalToastTimer = null;
-function showAppGlobalToast(msg) {
+function showAppGlobalToast(msg, opts) {
     var text = String(msg || '').trim();
     if (!text) return;
+    var isErr = !!(opts && opts.kind === 'error');
     var box = g('appGlobalToast');
     if (!box) {
         box = document.createElement('div');
@@ -3457,11 +3446,12 @@ function showAppGlobalToast(msg) {
         document.body.appendChild(box);
     }
     box.textContent = text;
+    box.classList.toggle('app-global-toast--err', isErr);
     box.classList.add('app-global-toast--in');
     if (appGlobalToastTimer) clearTimeout(appGlobalToastTimer);
     appGlobalToastTimer = setTimeout(function() {
         box.classList.remove('app-global-toast--in');
-    }, 1300);
+    }, (opts && opts.duration) || (isErr ? 4200 : (opts && opts.kind === 'info' ? 2600 : 1300)));
 }
 
 function showClinicRefreshToast(clinicId, isAll) {
@@ -5727,9 +5717,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     wireConClinicFilter('conPsClinicFilter', 'conPsInput', doConPatientSearch);
     wireConClinicFilter('conPsClinicFilterXray', 'conPsInputXray', doConPatientSearchXray);
-    wireConClinicFilter('conPsClinicFilterPhoto', 'conPsInputPhoto', doConPatientSearchPhoto);
     wireConClinicFilter('conPsClinicFilterChart', 'conPsInputChart', doConPatientSearchChart);
-    wireConClinicFilter('conFormsPsClinicFilter', 'conFormsPsInput', doConFormsPatientSearch);
 
 
     g('closeAddPatient').addEventListener('click', function() {
@@ -5953,18 +5941,9 @@ document.addEventListener('DOMContentLoaded', function() {
               activeSource: 'consultation-xray-search', onSelect: function (p) {
                   if (typeof selectXrayPatient === 'function') selectXrayPatient(p);
               }},
-            { inputId: 'conPsInputPhoto', dropId: 'conPsDropPhoto', clinicFilterId: 'conPsClinicFilterPhoto',
-              activeSource: 'consultation-photo-search', onSelect: function (p) {
-                  if (typeof selectPhotoPatient === 'function') selectPhotoPatient(p);
-              }},
             { inputId: 'conPsInputChart', dropId: 'conPsDropChart', clinicFilterId: 'conPsClinicFilterChart',
               activeSource: 'consultation-chart-search', onSelect: function (p) {
                   if (typeof selectConPatient === 'function') selectConPatient(p);
-              }},
-            { inputId: 'conFormsPsInput', dropId: 'conFormsPsDrop', clinicFilterId: 'conFormsPsClinicFilter',
-              activeSource: 'consultation-forms-search', onSelect: function (p) {
-                  if (typeof selectConPatient === 'function') selectConPatient(p);
-                  if (typeof initConForms === 'function') initConForms();
               }}
         ].forEach(function (spec) {
             bindModulePatientSearchOnce(spec);

@@ -1453,7 +1453,61 @@ function cnTodayItems() {
         seen[text] = 1;
         items.push({ kind: 'xray', icon: '🩻', key: 'xr', text: text, match: text });
     });
+    cnTodayMediaItems(today).forEach(function (it) { items.push(it); });
     return items;
+}
+
+function cnPhotoSectionKey(cat) {
+    if (cat === 'Intraoral') return 'io';
+    if (cat === 'Extraoral') return 'eo';
+    return 'si';
+}
+
+/** Today's clinical photos (grouped by category) and documents, as note-insertable chips. */
+function cnTodayMediaItems(today) {
+    var out = [];
+    var events = (typeof conPatientTimelineEvents !== 'undefined' ? conPatientTimelineEvents : []) || [];
+    var groups = {};
+    var order = [];
+    events.forEach(function (ev) {
+        if (!ev || !ev.ts || conDateIsoFromTs(new Date(ev.ts)) !== today) return;
+        if (ev.kind === 'photo') {
+            var cat = ev.category || 'Other';
+            if (typeof conMediaIsConsentLabCat === 'function' && conMediaIsConsentLabCat(cat)) return;
+            var gp = groups[cat];
+            if (!gp) { gp = groups[cat] = { n: 0, teeth: [] }; order.push(cat); }
+            gp.n++;
+            String(ev.toothNo || '').split(/[\s,;]+/).forEach(function (tn) {
+                if (tn && gp.teeth.indexOf(tn) < 0) gp.teeth.push(tn);
+            });
+        } else if (ev.kind === 'doc') {
+            var name = String(ev.body || '').trim();
+            if (name && name !== '—') out.push({ kind: 'doc', icon: '📄', key: 'tx', text: name, match: name });
+        }
+    });
+    var photoItems = order.map(function (cat) {
+        var gp = groups[cat];
+        var label = typeof photoCategoryLabel === 'function' ? photoCategoryLabel(cat) : cat;
+        var text = label + ' ×' + gp.n + (gp.teeth.length ? ' (' + gp.teeth.join(', ') + ')' : '');
+        return { kind: 'photo', icon: '📷', key: cnPhotoSectionKey(cat), text: text, match: text };
+    });
+    return photoItems.concat(out);
+}
+
+function cnMediaJumpChips() {
+    var pid = (typeof conPatientId !== 'undefined') ? conPatientId : null;
+    var sum = (pid && typeof conMediaSummaryFor === 'function') ? conMediaSummaryFor(pid) : null;
+    if (!sum || (!sum.photos && !sum.docs)) return '';
+    var html = '';
+    if (sum.photos) {
+        html += '<button type="button" data-no-click-guard="1" class="cn-ctx-chip cn-ctx-chip--jump" data-goto="photos" title="' +
+            esc(conMediaTr('cm.notes.openPhotos')) + '">📷 ' + esc(conMediaTr('cm.hub.photos')) + ' (' + sum.photos + ')</button>';
+    }
+    if (sum.docs) {
+        html += '<button type="button" data-no-click-guard="1" class="cn-ctx-chip cn-ctx-chip--jump" data-goto="forms" title="' +
+            esc(conMediaTr('cm.notes.openDocs')) + '">📄 ' + esc(conMediaTr('cm.hub.docs')) + ' (' + sum.docs + ')</button>';
+    }
+    return html;
 }
 
 function cnRenderContext() {
@@ -1464,7 +1518,8 @@ function cnRenderContext() {
     var items = compact ? [] : cnTodayItems();
     var carry = (compact || CN.carryDismissed) ? null : cnCarryForward();
     var html = '';
-    if (allergy || items.length) {
+    var jumps = (compact || typeof conMediaTr !== 'function') ? '' : cnMediaJumpChips();
+    if (allergy || items.length || jumps) {
         html += '<div class="cn-ctx-row">';
         if (allergy) {
             html += '<span class="cn-ctx-allergy" title="' + esc(conTr('con.note.allergyTitle')) + '">⚠ ' +
@@ -1478,7 +1533,7 @@ function cnRenderContext() {
                     it.icon + ' ' + esc(it.text) + '</button>';
             });
         }
-        html += '</div>';
+        html += jumps + '</div>';
     }
     if (carry) {
         html += '<div class="cn-ctx-carry">' +
@@ -1511,6 +1566,12 @@ function cnRefreshContextMarks() {
 
 function cnOnContextClick(e) {
     var box = g('conNoteContext');
+    var jump = e.target.closest('[data-goto]');
+    if (jump) {
+        var dest = jump.getAttribute('data-goto');
+        if (typeof switchConTab === 'function' && (dest === 'photos' || dest === 'forms')) switchConTab(dest);
+        return;
+    }
     var chip = e.target.closest('[data-ctx]');
     if (chip) {
         var it = (box._items || [])[Number(chip.getAttribute('data-ctx'))];

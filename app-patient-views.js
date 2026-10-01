@@ -312,11 +312,11 @@ function patViewLoadDashboard() {
             .eq('patient_id', pid).order('created_at', { ascending: false }).limit(25)),
         patViewSafeRows(SB.from('bills').select('id,total,balance,voided_at,created_at,bill_date')
             .eq('patient_id', pid).order('created_at', { ascending: false }).limit(300)),
-        patViewSafeRows(SB.from('photos').select('id,file_path,public_url,category,caption,taken_date,created_at')
+        patViewSafeRows(SB.from('photos').select(patViewMediaCols('photos', 'id,file_path,public_url,category,caption,taken_date,created_at'))
             .eq('patient_id', pid).order('taken_date', { ascending: false })
             .order('created_at', { ascending: false }).limit(24)),
         patViewSafeRows(SB.from('patient_documents').select(
-            'id,document_name,document_date,template_name,template_type,created_at'
+            patViewMediaCols('docs', 'id,document_name,document_date,template_name,template_type,created_at')
         ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(30)),
         patViewSafeRows(SB.from('drughistory').select('id,drug_name,prescribed_date,doctor_tag')
             .eq('patient_id', pid).order('prescribed_date', { ascending: false }).limit(20)),
@@ -434,9 +434,9 @@ function patViewRenderDashboard(host, data) {
             '</dl>') +
         patViewDashWidget(patViewTr('patient.view.widget.rx'),
             patViewRxListHtml(data.rx)) +
-        patViewDashWidget(patViewTr('patient.view.widget.photos'),
+        patViewDashWidget(patViewCountTitle(patViewTr('patient.view.widget.photos'), data.photos, 24),
             patViewPhotosGridHtml(data.photos), 'pat-dash-widget--wide') +
-        patViewDashWidget(patViewTr('patient.view.widget.docs'),
+        patViewDashWidget(patViewCountTitle(patViewTr('patient.view.widget.docs'), data.docs, 30),
             patViewDocsListHtml(data.docs), 'pat-dash-widget--wide') +
         patViewDashWidget(patViewTr('patient.view.widget.xrays'),
             patViewXraysGridHtml(data.xrays), 'pat-dash-widget--wide') +
@@ -505,6 +505,20 @@ function patViewRxListHtml(rows) {
     }).join('') + '</ul>';
 }
 
+/** Select list for photos/documents: optional context columns only once the DB has them. */
+function patViewMediaCols(kind, base) {
+    if (kind === 'photos' && typeof conMediaPhotoCols === 'function') return conMediaPhotoCols(base);
+    if (kind === 'docs' && typeof conMediaDocCols === 'function') return conMediaDocCols(base);
+    return base;
+}
+
+/** Widget title with a count; "+" when the list was capped by its query limit. */
+function patViewCountTitle(title, rows, limit) {
+    var n = rows ? rows.length : 0;
+    if (!n) return title;
+    return title + ' (' + n + (n >= limit ? '+' : '') + ')';
+}
+
 function patViewPhotosGridHtml(rows) {
     if (!rows || !rows.length) {
         return '<p class="pat-view-muted">' + esc(patViewTr('patient.view.noPhotos')) + '</p>';
@@ -513,13 +527,15 @@ function patViewPhotosGridHtml(rows) {
         var url = patViewPhotoUrl(ph);
         var dateLbl = patViewFmtDate(ph.taken_date || ph.created_at || '');
         var subLbl = ph.caption || ph.category || '';
-        var figcap = dateLbl + (subLbl ? ' · ' + subLbl : '');
+        var tooth = ph.tooth_no ? ('🦷 ' + ph.tooth_no) : '';
+        var figcap = dateLbl + (subLbl ? ' · ' + subLbl : '') + (tooth ? ' · ' + tooth : '');
+        var attrs = ' data-act="open-photo" data-media-id="' + esc(ph.id) + '" style="cursor:pointer;" tabindex="0" role="button"';
         if (url) {
-            return '<figure class="pat-dash-photo-thumb">' +
+            return '<figure class="pat-dash-photo-thumb"' + attrs + '>' +
                 '<img src="' + esc(url) + '" alt="" loading="lazy">' +
                 '<figcaption>' + esc(figcap) + '</figcaption></figure>';
         }
-        return '<figure class="pat-dash-photo-thumb pat-dash-photo-thumb--placeholder">' +
+        return '<figure class="pat-dash-photo-thumb pat-dash-photo-thumb--placeholder"' + attrs + '>' +
             '<span>📷</span><figcaption>' + esc(figcap) + '</figcaption></figure>';
     }).join('') + '</div>';
 }
@@ -529,7 +545,8 @@ function patViewDocsListHtml(rows) {
         return '<p class="pat-view-muted">' + esc(patViewTr('patient.view.noDocs')) + '</p>';
     }
     return '<ul class="pat-dash-docs">' + rows.map(function (d) {
-        return '<li class="pat-dash-doc-item">' +
+        return '<li class="pat-dash-doc-item" data-act="open-doc" data-media-id="' + esc(d.id) +
+            '" style="cursor:pointer;" tabindex="0" role="button">' +
             '<span class="pat-dash-doc-name">' + esc(d.document_name || d.template_name || '—') + '</span>' +
             '<span class="pat-dash-doc-meta">' + esc(patViewFmtDate(d.document_date || d.created_at)) +
             (d.template_type ? ' · ' + esc(d.template_type) : '') + '</span></li>';
@@ -732,6 +749,19 @@ function patViewWireHostActions(host) {
         if (act === 'chart') {
             patDashOpenChartRecord(id, btn.getAttribute('data-chart-date') || '');
         }
+        if (act === 'open-photo' && typeof conMediaOpenPhoto === 'function') {
+            conMediaOpenPhoto(selPatientId, btn.getAttribute('data-media-id'));
+        }
+        if (act === 'open-doc' && typeof conMediaOpenDoc === 'function') {
+            conMediaOpenDoc(selPatientId, btn.getAttribute('data-media-id'));
+        }
+    });
+    host.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var el = e.target && e.target.closest ? e.target.closest('[data-act="open-photo"],[data-act="open-doc"]') : null;
+        if (!el || !host.contains(el)) return;
+        e.preventDefault();
+        el.click();
     });
 }
 
@@ -782,11 +812,11 @@ function patDashLoadTimeline(pid) {
         safeRows(SB.from('bills').select('id,total,balance,voided_at,created_at,appointment_id')
             .eq('patient_id', pid).order('created_at', { ascending: false }).limit(120)),
         safeRows(SB.from('patient_documents').select(
-            'id,document_name,document_date,template_name,template_type,created_at'
+            patViewMediaCols('docs', 'id,document_name,document_date,template_name,template_type,created_at')
         ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80)),
         safeRows(SB.from('xrays').select('id,xray_type,taken_date,notes,file_name,created_at')
             .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80)),
-        safeRows(SB.from('photos').select('id,file_path,public_url,category,caption,taken_date,created_at')
+        safeRows(SB.from('photos').select(patViewMediaCols('photos', 'id,file_path,public_url,category,caption,taken_date,created_at'))
             .eq('patient_id', pid).order('taken_date', { ascending: false })
             .order('created_at', { ascending: false }).limit(80)),
         safeRows(SB.from('dental_charts').select(
@@ -999,6 +1029,10 @@ function patDashPtlOpenEvent(ev) {
     }
 
     if (ev.action === 'photo') {
+        if (ev.refId && typeof conMediaOpenPhoto === 'function') {
+            conMediaOpenPhoto(pid, ev.refId);
+            return;
+        }
         openConForPatient(pid);
         setTimeout(function () {
             if (typeof switchConTab === 'function') switchConTab('photos');

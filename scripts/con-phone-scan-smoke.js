@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002scan9';
+var BUILD = '20261002scan10';
 var PAGE_PORT = 8795;
 var CDP_PORT = 9357;
 var CHROME = process.env.CHROME_PATH ||
@@ -222,7 +222,7 @@ function getPx(img, x, y) {
         scanHtml.indexOf('scan.js?v=' + BUILD) >= 0 && scanHtml.indexOf('CSPhoneScan.boot()') >= 0);
     pass('scan page has every view the script drives',
         ['scIntro', 'scCamera', 'scCrop', 'scPreview', 'scSend', 'scDone', 'scError', 'scVideo', 'scShutter', 'scFinishBtn',
-         'scModeAuto', 'scModeManual', 'scCount', 'scGuide', 'scPreviewNext', 'scPreviewRetake', 'scPreviewCrop', 'scAddPage', 'scViewerScroll',
+         'scModeAuto', 'scModeManual', 'scCount', 'scGuide', 'scPreviewNext', 'scPreviewRetake', 'scPreviewEdit', 'scEditPanel', 'scPreviewCrop', 'scAddPage', 'scViewerScroll',
          'scCropCanvas', 'scPreviewCanvas', 'scSendBtn', 'scFmtPdf', 'scFmtImg', 'scTray', 'scMoreBtn'].every(function (id) {
             return scanHtml.indexOf('id="' + id + '"') >= 0;
         }));
@@ -1221,12 +1221,25 @@ function getPx(img, x, y) {
           out.autoSize = pc.width + 'x' + pc.height + ' roi ' + (roiLive ? Math.round(roiLive.w) + 'x' + Math.round(roiLive.h) : '-');
           out.countHidden = !vis('scCount') && window.__scanState().auto.counting === false;
 
+          const isBw = () => {
+            const d = pc.getContext('2d').getImageData(0, 0, pc.width, pc.height).data;
+            for (let i = 0; i < d.length; i += 4 * 37) { const v = d[i]; if (!((v === 0 || v === 255) && d[i + 1] === v && d[i + 2] === v)) return false; }
+            return true;
+          };
+          /* new scans default to black & white; Crop / Rotate / scan style live behind the Edit button */
+          out.defaultBw = isBw() && $('scPreview').querySelector('[data-filter="bw"]').classList.contains('is-on');
+          out.editClosed = $('scEditPanel').hidden === true && $('scPreviewEdit').getAttribute('aria-expanded') === 'false';
+          out.mainRow = Array.from(document.querySelectorAll('#scPreview .sc-actions button')).map((b) => b.id).join(',');
+          $('scPreviewEdit').click();
+          out.editOpen = !$('scEditPanel').hidden && $('scPreviewEdit').getAttribute('aria-expanded') === 'true' && $('scPreview').classList.contains('is-editing');
+          out.editHolds = ['scPreviewCrop', 'scRotate'].every((id) => $('scEditPanel').contains($(id))) &&
+            Array.from($('scEditPanel').querySelectorAll('[data-filter]')).map((b) => b.getAttribute('data-filter')).join(',') === 'orig,color,gray,bw';
+          $('scPreview').querySelector('[data-filter="color"]').click();
+          await wait(200);
+          out.styleSwitch = !isBw() && $('scPreview').querySelector('[data-filter="color"]').classList.contains('is-on') && !$('scPreview').querySelector('[data-filter="bw"]').classList.contains('is-on');
           $('scPreview').querySelector('[data-filter="bw"]').click();
           await wait(200);
-          const img = pc.getContext('2d').getImageData(0, 0, pc.width, pc.height).data;
-          let onlyBw = true;
-          for (let i = 0; i < img.length; i += 4 * 37) { const v = img[i]; if (!((v === 0 || v === 255) && img[i + 1] === v && img[i + 2] === v)) { onlyBw = false; break; } }
-          out.bwApplied = onlyBw;
+          out.bwApplied = isBw();
           out.chipOn = $('scPreview').querySelector('[data-filter="bw"]').classList.contains('is-on');
           const wBefore = pc.width;
           $('scRotate').click();
@@ -1234,6 +1247,8 @@ function getPx(img, x, y) {
           out.rotated = pc.height === wBefore;
           $('scRotate').click();
           await wait(200);
+          $('scPreviewEdit').click();
+          out.editToggles = $('scEditPanel').hidden === true && !$('scPreview').classList.contains('is-editing');
           /* tap the preview to enlarge the page before accepting it */
           pc.click();
           out.previewEnlarges = await until(() => vis('scViewer') && $('scViewerImg').naturalWidth === pc.width, 6000);
@@ -1514,7 +1529,13 @@ function getPx(img, x, y) {
             flow.roiSeen === true && flow.autoFired === true && flow.autoMs >= 2200 && flow.autoMs <= 5500 && flow.autoCrop === true && flow.countHidden === true,
             JSON.stringify([flow.roiSeen, flow.autoFired, flow.autoMs, flow.autoSize, flow.autoCornerLum, flow.autoCrop, flow.countHidden]));
         pass('phone: a page smaller than the dotted frame is cut out of it (its own shape, no desk)', flow.smallPageCut === true, flow.smallInfo);
-        pass('phone: black & white filter is applied and rotate swaps the page orientation', flow.bwApplied === true && flow.chipOn === true && flow.rotated === true);
+        pass('phone: a new scan defaults to black & white', flow.defaultBw === true);
+        pass('phone: the preview has Retake / Edit / Add page; Crop, Rotate and the four scan styles are inside the Edit panel, which opens and closes',
+            flow.mainRow === 'scPreviewRetake,scPreviewEdit,scAddPage' && flow.editClosed === true && flow.editOpen === true && flow.editHolds === true && flow.editToggles === true,
+            JSON.stringify([flow.mainRow, flow.editClosed, flow.editOpen, flow.editHolds, flow.editToggles]));
+        pass('phone: scan style switches (enhanced, then back to black & white) and rotate swaps the page orientation',
+            flow.styleSwitch === true && flow.bwApplied === true && flow.chipOn === true && flow.rotated === true,
+            JSON.stringify([flow.styleSwitch, flow.bwApplied, flow.chipOn, flow.rotated]));
         pass('phone: Crop is on the preview - Cancel keeps the same preview, Apply re-cuts it',
             flow.cropOpens === true && flow.cropCancelKeeps === true && flow.cropApplied === true, JSON.stringify([flow.cropOpens, flow.cropCancelKeeps, flow.cropApplied]));
         pass('phone: Add page returns to the camera with the count; the same page left in view is not captured twice, taking it away re-arms',

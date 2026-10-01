@@ -788,7 +788,7 @@
             camDenied: 'Camera not available. Use "Choose photos / PDF" or the camera button instead.',
             needHttps: 'The live camera needs a secure (https) page. Use the camera button instead.',
             capture: 'Take photo', pages: 'Pages', finish: 'Next', crop: 'Drag the corners to fit the page',
-            next: 'Next', retake: 'Retake', back: 'Back', add: 'Add page', rotate: 'Rotate',
+            next: 'Next', retake: 'Retake', back: 'Back', add: 'Add page', rotate: 'Rotate', edit: 'Edit', scanStyle: 'Scan style',
             fOrig: 'Original', fColor: 'Enhanced', fGray: 'Grey', fBw: 'Black & white',
             send: 'Send to computer', asPdf: 'One PDF', asImages: 'Separate images', format: 'Send as',
             discard: 'Discard', sending: 'Sending…', sent: 'Sent!', sentN: 'pages sent to the clinic computer.',
@@ -812,7 +812,7 @@
             camDenied: '無法使用相機。請改用「選擇相片／PDF」或相機按鈕。',
             needHttps: '即時相機需要安全 (https) 網頁，請改用相機按鈕。',
             capture: '拍照', pages: '頁數', finish: '下一步', crop: '拖曳四角對齊文件',
-            next: '下一步', retake: '重拍', back: '返回', add: '加入頁面', rotate: '旋轉',
+            next: '下一步', retake: '重拍', back: '返回', add: '加入頁面', rotate: '旋轉', edit: '編輯', scanStyle: '掃描風格',
             fOrig: '原圖', fColor: '增強', fGray: '灰階', fBw: '黑白',
             send: '傳送到電腦', asPdf: '單一 PDF', asImages: '分開圖片', format: '傳送格式',
             discard: '捨棄', sending: '傳送中…', sent: '已傳送！', sentN: '頁已傳送到診所電腦。',
@@ -836,7 +836,7 @@
             camDenied: '无法使用相机。请改用“选择照片/PDF”或相机按钮。',
             needHttps: '实时相机需要安全 (https) 网页，请改用相机按钮。',
             capture: '拍照', pages: '页数', finish: '下一步', crop: '拖动四角对齐文件',
-            next: '下一步', retake: '重拍', back: '返回', add: '加入页面', rotate: '旋转',
+            next: '下一步', retake: '重拍', back: '返回', add: '加入页面', rotate: '旋转', edit: '编辑', scanStyle: '扫描风格',
             fOrig: '原图', fColor: '增强', fGray: '灰度', fBw: '黑白',
             send: '发送到电脑', asPdf: '单个 PDF', asImages: '分开图片', format: '发送格式',
             discard: '丢弃', sending: '发送中…', sent: '已发送！', sentN: '页已发送到诊所电脑。',
@@ -1307,16 +1307,25 @@
             return c;
         }
 
+        /** Edit sheet on the preview: Crop, Rotate and the scan style. */
+        function editPanel(open) {
+            $('scEditPanel').hidden = !open;
+            $('scPreview').classList.toggle('is-editing', !!open);
+            $('scPreviewEdit').classList.toggle('is-on', !!open);
+            $('scPreviewEdit').setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+
         /** Crop editor, opened from the preview (Crop) or from a page in the pending list. */
         function beginCrop(canvas, mode) {
-            cur = { src: canvas, quad: defaultQuad(canvas.width, canvas.height), mode: mode || 'color', base: null };
+            cur = { src: canvas, quad: defaultQuad(canvas.width, canvas.height), mode: mode || 'bw', base: null };
             show('scCrop');
             drawCrop();
         }
 
         /** A new capture / picked photo goes straight to the preview with the page edges already cut out. */
         function beginFromSource(canvas, quad) {
-            cur = { src: canvas, quad: quad, mode: 'color', base: null };
+            cur = { src: canvas, quad: quad, mode: 'bw', base: null };
+            editPanel(false);
             applyCrop();
         }
 
@@ -1703,6 +1712,7 @@
             cur = null;
             if (editIdx >= 0) { editIdx = -1; show('scSend'); } else startCamera();
         });
+        $('scPreviewEdit').addEventListener('click', function () { editPanel($('scEditPanel').hidden); });
         $('scPreviewCrop').addEventListener('click', function () { if (cur) { show('scCrop'); drawCrop(); } });
         $('scPreviewRetake').addEventListener('click', previewRetake);
         $('scPreviewNext').addEventListener('click', previewNext);

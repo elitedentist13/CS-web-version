@@ -85,6 +85,12 @@
   .sc-ptop { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .sc-ptop .sc-pill { background:var(--card); }
   .sc-actions button { padding:12px 14px; font-size:15px; }
+  .sc-actions #scPreviewEdit.is-on { background:var(--acc); color:#04202a; }
+  .sc-edit { display:flex; flex-direction:column; gap:10px; padding:12px; background:var(--card); border-radius:14px; }
+  .sc-edit .sc-chip { background:rgba(255,255,255,.08); }
+  .sc-edit .sc-chip.is-on { background:var(--acc); color:#04202a; }
+  .sc-edit .sc-note { margin:0; }
+  #scPreview.is-editing #scPreviewCanvas { max-height:40vh; }
   .sc-vnav { display:flex; justify-content:space-between; padding:8px 14px calc(10px + env(safe-area-inset-bottom)); }
   .sc-vnav button { padding:10px 22px; font-size:20px; }
   .sc-ok { font-size:56px; }
@@ -156,19 +162,25 @@
     <span class="sc-pill"><span data-s="pages">Pages</span>: <span id="scPreviewPages">0</span></span>
     <button id="scPreviewNext" type="button" data-s="finish">Next</button>
   </div>
-  <div class="sc-row">
-    <button class="sc-chip" type="button" data-filter="orig" data-s="fOrig">Original</button>
-    <button class="sc-chip" type="button" data-filter="color" data-s="fColor">Enhanced</button>
-    <button class="sc-chip" type="button" data-filter="gray" data-s="fGray">Grey</button>
-    <button class="sc-chip" type="button" data-filter="bw" data-s="fBw">Black &amp; white</button>
-  </div>
   <div class="sc-row"><canvas id="scPreviewCanvas"></canvas></div>
   <div class="sc-note" data-s="tapEnlarge">Tap the page to enlarge it and check the clarity</div>
   <div id="scPreviewStatus" class="sc-status"></div>
+  <div id="scEditPanel" class="sc-edit" hidden>
+    <div class="sc-row">
+      <button id="scPreviewCrop" class="sc-chip" type="button" data-s="cropPage">Crop</button>
+      <button id="scRotate" class="sc-chip" type="button" data-s="rotate">Rotate</button>
+    </div>
+    <div class="sc-note" data-s="scanStyle">Scan style</div>
+    <div class="sc-row">
+      <button class="sc-chip" type="button" data-filter="orig" data-s="fOrig">Original</button>
+      <button class="sc-chip" type="button" data-filter="color" data-s="fColor">Enhanced</button>
+      <button class="sc-chip" type="button" data-filter="gray" data-s="fGray">Grey</button>
+      <button class="sc-chip" type="button" data-filter="bw" data-s="fBw">Black &amp; white</button>
+    </div>
+  </div>
   <div class="sc-row sc-actions">
     <button id="scPreviewRetake" class="sc-btn-ghost" type="button" data-s="retake">Retake</button>
-    <button id="scPreviewCrop" class="sc-btn-ghost" type="button" data-s="cropPage">Crop</button>
-    <button id="scRotate" class="sc-btn-ghost" type="button" data-s="rotate">Rotate</button>
+    <button id="scPreviewEdit" class="sc-btn-ghost" type="button" aria-expanded="false" data-s="edit">Edit</button>
     <button id="scAddPage" type="button" data-s="add">Add page</button>
   </div>
 </section>
@@ -222,7 +234,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="scan.js?v=20261002scan9"></script>
+<script src="scan.js?v=20261002scan10"></script>
 <script>CSPhoneScan.boot();</script>
 </body>
 </html>

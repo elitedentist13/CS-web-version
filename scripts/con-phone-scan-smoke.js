@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002perio1';
+var BUILD = '20261002tune1';
 var PAGE_PORT = 8795;
 var CDP_PORT = 9357;
 var CHROME = process.env.CHROME_PATH ||
@@ -223,6 +223,7 @@ function getPx(img, x, y) {
     pass('scan page has every view the script drives',
         ['scIntro', 'scCamera', 'scCrop', 'scPreview', 'scSend', 'scDone', 'scError', 'scVideo', 'scShutter', 'scFinishBtn',
          'scModeAuto', 'scModeManual', 'scCount', 'scGuide', 'scPreviewNext', 'scPreviewRetake', 'scPreviewEdit', 'scEditPanel', 'scPreviewCrop', 'scAddPage', 'scViewerScroll',
+         'scFineTune', 'scTune', 'scTuneCanvas', 'scTuneSharp', 'scTuneContrast', 'scTuneSharpVal', 'scTuneContrastVal', 'scTuneSave', 'scTuneCancel', 'scTuneReset',
          'scCropCanvas', 'scPreviewCanvas', 'scSendBtn', 'scFmtPdf', 'scFmtImg', 'scTray', 'scMoreBtn'].every(function (id) {
             return scanHtml.indexOf('id="' + id + '"') >= 0;
         }));
@@ -332,6 +333,53 @@ function getPx(img, x, y) {
     var orig = solid(10, 10, [90, 90, 90]);
     var same = scan.enhance({ data: new Uint8ClampedArray(orig.data), width: 10, height: 10 }, 'orig');
     pass('original leaves pixels alone', getPx(same, 3, 3)[0] === 90);
+
+    /* fine tune: sharpness 0..100, contrast -100..100 on grey / black & white */
+    function ramp(w, h, edgeFrom, edgeTo) {
+        var im = solid(w, h, [0, 0, 0]);
+        for (var ry = 0; ry < h; ry++) for (var rx = 0; rx < w; rx++) {
+            var v = 70 + 120 / (1 + Math.exp(-(rx - (edgeFrom + edgeTo) / 2) / ((edgeTo - edgeFrom) / 6)));
+            setPx(im, rx, ry, [v, v, v]);
+        }
+        return im;
+    }
+    function sumOf(im) { var s = 0; for (var si = 0; si < im.data.length; si += 4) s += im.data[si]; return s; }
+    function cloneOf(im) { return { data: new Uint8ClampedArray(im.data), width: im.width, height: im.height }; }
+    var edgeImg = ramp(80, 20, 30, 50);
+    ['gray', 'bw'].forEach(function (m) {
+        var a = scan.enhance(cloneOf(edgeImg), m), b = scan.enhance(cloneOf(edgeImg), m, { sharp: 0, contrast: 0 });
+        pass('fine tune at 0 / 0 (or none) gives the exact same ' + m + ' result', sumOf(a) === sumOf(b));
+    });
+    var gSoft = scan.enhance(cloneOf(edgeImg), 'gray', { sharp: 0, contrast: 1 });
+    var gSharp = scan.enhance(cloneOf(edgeImg), 'gray', { sharp: 100, contrast: 0 });
+    function mids(im) { var best = 0; for (var mi = 1; mi < im.width; mi++) best = Math.max(best, Math.abs(getPx(im, mi, 10)[0] - getPx(im, mi - 1, 10)[0])); return best; }
+    pass('sharpness steepens a soft edge (bigger step between neighbouring pixels)', mids(gSharp) > mids(gSoft), mids(gSoft) + ' < ' + mids(gSharp));
+    var grad = ramp(80, 4, 0, 79);
+    var gHi = scan.enhance(cloneOf(grad), 'gray', { sharp: 0, contrast: 100 });
+    var gLo = scan.enhance(cloneOf(grad), 'gray', { sharp: 0, contrast: -100 });
+    var gMid = scan.enhance(cloneOf(grad), 'gray', { sharp: 0, contrast: 0 });
+    function span(im) { var lo = 255, hi = 0; for (var xi = 0; xi < im.width; xi++) { var v = getPx(im, xi, 1)[0]; lo = Math.min(lo, v); hi = Math.max(hi, v); } return hi - lo; }
+    function stdev(im) { var vals = [], s = 0; for (var xi = 0; xi < im.width; xi++) { vals.push(getPx(im, xi, 1)[0]); s += vals[xi]; } var mu = s / vals.length, q = 0; vals.forEach(function (v) { q += (v - mu) * (v - mu); }); return Math.sqrt(q / vals.length); }
+    pass('grey contrast: + spreads the tones, - flattens them, 0 is the plain stretch',
+        stdev(gHi) > stdev(gMid) && stdev(gLo) < stdev(gMid) && span(gLo) < span(gMid), [stdev(gLo), stdev(gMid), stdev(gHi)].map(Math.round).join(' < '));
+    var faint = solid(64, 64, [200, 200, 200]);
+    for (var fy = 29; fy < 35; fy++) for (var fx = 29; fx < 35; fx++) setPx(faint, fx, fy, [184, 184, 184]);
+    var bwHi = scan.enhance(cloneOf(faint), 'bw', { sharp: 0, contrast: 100 });
+    var bwDef = scan.enhance(cloneOf(faint), 'bw');
+    var bwLo = scan.enhance(cloneOf(faint), 'bw', { sharp: 0, contrast: -100 });
+    pass('black & white contrast: + picks up faint ink, default / - leave it white',
+        getPx(bwHi, 32, 32)[0] === 0 && getPx(bwDef, 32, 32)[0] === 255 && getPx(bwLo, 32, 32)[0] === 255,
+        [getPx(bwHi, 32, 32)[0], getPx(bwDef, 32, 32)[0], getPx(bwLo, 32, 32)[0]].join('/'));
+    var bwSharp = scan.enhance(cloneOf(edgeImg), 'bw', { sharp: 100, contrast: 50 });
+    var stillBw = true;
+    for (var wi = 0; wi < bwSharp.data.length; wi += 4) if (!(bwSharp.data[wi] === 0 || bwSharp.data[wi] === 255)) stillBw = false;
+    pass('tuned black & white stays pure black / white', stillBw);
+    var wild = scan.enhance(cloneOf(edgeImg), 'gray', { sharp: 'x', contrast: 1e9 });
+    var wild2 = scan.enhance(cloneOf(edgeImg), 'gray', { sharp: 0, contrast: 100 });
+    pass('out-of-range / garbage tune values are clamped, never throw', sumOf(wild) === sumOf(wild2));
+    var ftOrig = scan.enhance(cloneOf(edgeImg), 'orig', { sharp: 100, contrast: 100 });
+    var ftCol = scan.enhance(cloneOf(edgeImg), 'color', { sharp: 100, contrast: 100 });
+    pass('tune never touches Original / Enhanced', sumOf(ftOrig) === sumOf(edgeImg) && sumOf(ftCol) === sumOf(scan.enhance(cloneOf(edgeImg), 'color')));
     pass('PDF page size follows the scan orientation',
         scan.pdfPageSize(1000, 1400).orient === 'portrait' && scan.pdfPageSize(1400, 1000).orient === 'landscape' &&
         Math.max(scan.pdfPageSize(1000, 1400).w, scan.pdfPageSize(1000, 1400).h) === 842);
@@ -1247,6 +1295,64 @@ function getPx(img, x, y) {
           out.rotated = pc.height === wBefore;
           $('scRotate').click();
           await wait(200);
+
+          /* Fine tune (grey / black & white only): mini preview + Sharpness + Contrast, Save / Cancel */
+          const ft = $('scFineTune');
+          const sumPx = () => { const d = pc.getContext('2d').getImageData(0, 0, pc.width, pc.height).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i]; return s; };
+          const miniSum = () => { const m = $('scTuneCanvas'); const d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i]; return s; };
+          const setR = (id, v) => { const e = $(id); e.value = String(v); e.dispatchEvent(new Event('input', { bubbles: true })); };
+          out.ftInEdit = $('scEditPanel').contains(ft) && ft.hidden === false && ft.textContent === 'Fine tune';
+          out.ftHiddenInColor = (() => { $('scPreview').querySelector('[data-filter="color"]').click(); const h = ft.hidden; $('scPreview').querySelector('[data-filter="orig"]').click(); const h2 = ft.hidden; return h === true && h2 === true; })();
+          $('scPreview').querySelector('[data-filter="gray"]').click();
+          await wait(250);
+          out.ftShownGray = ft.hidden === false && !ft.classList.contains('is-on');
+          const g0 = sumPx();
+          ft.click();
+          out.ftOpens = !$('scTune').hidden && $('scTuneCanvas').width > 20 && $('scTuneCanvas').width <= 640 && $('scTuneCanvas').height > 20;
+          out.ftSliders = $('scTuneSharp').type === 'range' && $('scTuneContrast').type === 'range' &&
+            $('scTuneSharp').min === '0' && $('scTuneSharp').max === '100' && $('scTuneContrast').min === '-100' && $('scTuneContrast').max === '100' &&
+            $('scTuneSharp').value === '0' && $('scTuneContrast').value === '0';
+          out.ftTexts = $('scTune').textContent.indexOf('Sharpness') >= 0 && $('scTune').textContent.indexOf('Contrast') >= 0 &&
+            ['scTuneCancel', 'scTuneSave', 'scTuneReset'].every((id) => !!$(id));
+          const miniBefore = miniSum();
+          setR('scTuneContrast', 100); setR('scTuneSharp', 80);
+          await wait(250);
+          out.ftLabels = $('scTuneContrastVal').textContent === '100' && $('scTuneSharpVal').textContent === '80';
+          out.ftMiniLive = miniSum() !== miniBefore;
+          out.ftPageUntouched = sumPx() === g0;
+          $('scTuneCancel').click();
+          await wait(200);
+          out.ftCancel = $('scTune').hidden === true && sumPx() === g0 && !ft.classList.contains('is-on');
+          ft.click();
+          out.ftCancelledNotKept = $('scTuneContrast').value === '0' && $('scTuneSharp').value === '0';
+          setR('scTuneContrast', 100); setR('scTuneSharp', 80);
+          await wait(250);
+          const mSave = miniSum();
+          $('scTuneSave').click();
+          await wait(350);
+          const g1 = sumPx();
+          out.ftSave = $('scTune').hidden === true && g1 !== g0 && ft.classList.contains('is-on');
+          ft.click();
+          out.ftReopenKeeps = $('scTuneContrast').value === '100' && $('scTuneSharp').value === '80' && miniSum() === mSave;
+          $('scTuneReset').click();
+          await wait(200);
+          out.ftReset = $('scTuneContrast').value === '0' && $('scTuneSharp').value === '0' && $('scTuneSharpVal').textContent === '0' && sumPx() === g1;
+          $('scTuneCancel').click();
+          out.ftKeepsSavedOnCancel = sumPx() === g1 && ft.classList.contains('is-on');
+          $('scPreview').querySelector('[data-filter="bw"]').click();
+          await wait(250);
+          out.ftResetOnStyle = !ft.classList.contains('is-on') && ft.hidden === false;
+          ft.click();
+          setR('scTuneContrast', -100); setR('scTuneSharp', 100);
+          await wait(250);
+          $('scTuneSave').click();
+          await wait(350);
+          out.ftBwTuned = isBw() && ft.classList.contains('is-on');
+          $('scPreview').querySelector('[data-filter="gray"]').click();
+          $('scPreview').querySelector('[data-filter="bw"]').click();
+          await wait(250);
+          out.ftBwBack = isBw() && !ft.classList.contains('is-on');
+
           $('scPreviewEdit').click();
           out.editToggles = $('scEditPanel').hidden === true && !$('scPreview').classList.contains('is-editing');
           /* tap the preview to enlarge the page before accepting it */
@@ -1536,6 +1642,21 @@ function getPx(img, x, y) {
         pass('phone: scan style switches (enhanced, then back to black & white) and rotate swaps the page orientation',
             flow.styleSwitch === true && flow.bwApplied === true && flow.chipOn === true && flow.rotated === true,
             JSON.stringify([flow.styleSwitch, flow.bwApplied, flow.chipOn, flow.rotated]));
+        pass('phone: Fine tune button sits in the Edit panel, only for Grey / Black & white (hidden for Original / Enhanced)',
+            flow.ftInEdit === true && flow.ftHiddenInColor === true && flow.ftShownGray === true,
+            JSON.stringify([flow.ftInEdit, flow.ftHiddenInColor, flow.ftShownGray]));
+        pass('phone: Fine tune pops up a mini preview with Sharpness and Contrast range sliders plus Save / Cancel / Reset',
+            flow.ftOpens === true && flow.ftSliders === true && flow.ftTexts === true, JSON.stringify([flow.ftOpens, flow.ftSliders, flow.ftTexts]));
+        pass('phone: moving the sliders updates the value labels and the mini preview live, without touching the page until Save',
+            flow.ftLabels === true && flow.ftMiniLive === true && flow.ftPageUntouched === true, JSON.stringify([flow.ftLabels, flow.ftMiniLive, flow.ftPageUntouched]));
+        pass('phone: Cancel discards the adjustment (page unchanged, sliders back to 0 next time)',
+            flow.ftCancel === true && flow.ftCancelledNotKept === true, JSON.stringify([flow.ftCancel, flow.ftCancelledNotKept]));
+        pass('phone: Save applies it to the page; reopening shows the saved values; Reset zeroes them; Cancel keeps what was saved',
+            flow.ftSave === true && flow.ftReopenKeeps === true && flow.ftReset === true && flow.ftKeepsSavedOnCancel === true,
+            JSON.stringify([flow.ftSave, flow.ftReopenKeeps, flow.ftReset, flow.ftKeepsSavedOnCancel]));
+        pass('phone: tuning works for black & white too (stays pure black / white); picking another style resets the tune',
+            flow.ftResetOnStyle === true && flow.ftBwTuned === true && flow.ftBwBack === true,
+            JSON.stringify([flow.ftResetOnStyle, flow.ftBwTuned, flow.ftBwBack]));
         pass('phone: Crop is on the preview - Cancel keeps the same preview, Apply re-cuts it',
             flow.cropOpens === true && flow.cropCancelKeeps === true && flow.cropApplied === true, JSON.stringify([flow.cropOpens, flow.cropCancelKeeps, flow.cropApplied]));
         pass('phone: Add page returns to the camera with the count; the same page left in view is not captured twice, taking it away re-arms',

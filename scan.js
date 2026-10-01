@@ -632,13 +632,64 @@
         return { lo: lo, hi: hi };
     }
 
-    /** modes: orig | color | gray | bw. Works in place on { data, width, height }. */
-    function enhance(img, mode) {
+    /** Fine-tune settings for the grey / black & white styles: sharp 0..100, contrast -100..100 (0 = untouched). */
+    function tuneOf(t) {
+        var s = Number(t && t.sharp), c = Number(t && t.contrast);
+        return {
+            sharp: isFinite(s) ? Math.max(0, Math.min(100, s)) : 0,
+            contrast: isFinite(c) ? Math.max(-100, Math.min(100, c)) : 0
+        };
+    }
+
+    /** Box blur with edge clamping; src and the result are w*h Float32 grids. */
+    function boxBlur(src, w, h, r) {
+        var tmp = new Float32Array(w * h), out = new Float32Array(w * h), win = 2 * r + 1, x, y, k, acc, row;
+        for (y = 0; y < h; y++) {
+            row = y * w;
+            acc = 0;
+            for (k = -r; k <= r; k++) acc += src[row + Math.max(0, Math.min(w - 1, k))];
+            for (x = 0; x < w; x++) {
+                tmp[row + x] = acc / win;
+                acc += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+            }
+        }
+        for (x = 0; x < w; x++) {
+            acc = 0;
+            for (k = -r; k <= r; k++) acc += tmp[Math.max(0, Math.min(h - 1, k)) * w + x];
+            for (y = 0; y < h; y++) {
+                out[y * w + x] = acc / win;
+                acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+            }
+        }
+        return out;
+    }
+
+    /** Unsharp mask on a w*h grey grid, in place (values stay inside 0..255). */
+    function sharpenGrid(g, w, h, sharp) {
+        if (!(sharp > 0)) return g;
+        var amount = sharp / 100 * 3, r = Math.max(1, Math.round(Math.min(w, h) / 700));
+        var blur = boxBlur(g, w, h, r);
+        for (var i = 0; i < g.length; i++) {
+            var v = g[i] + amount * (g[i] - blur[i]);
+            g[i] = v < 0 ? 0 : (v > 255 ? 255 : v);
+        }
+        return g;
+    }
+
+    /** modes: orig | color | gray | bw. Works in place on { data, width, height }; tune only affects gray and bw. */
+    function enhance(img, mode, tune) {
         if (!mode || mode === 'orig') return img;
         var d = img.data, w = img.width, h = img.height, n = w * h, i;
+        var tn = tuneOf(tune);
         if (mode === 'bw') {
             var gray = new Uint8ClampedArray(n);
             for (i = 0; i < n; i++) gray[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+            if (tn.sharp > 0) {
+                var gf = new Float32Array(gray);
+                sharpenGrid(gf, w, h, tn.sharp);
+                for (i = 0; i < n; i++) gray[i] = gf[i];
+            }
+            var ratio = 0.88 + tn.contrast / 100 * 0.08;
             var integral = new Float64Array((w + 1) * (h + 1));
             for (var y = 0; y < h; y++) {
                 var row = 0;
@@ -655,7 +706,7 @@
                     var count = (x2 - x1 + 1) * (y2 - y1 + 1);
                     var sum = integral[(y2 + 1) * (w + 1) + (x2 + 1)] - integral[y1 * (w + 1) + (x2 + 1)] -
                         integral[(y2 + 1) * (w + 1) + x1] + integral[y1 * (w + 1) + x1];
-                    var v = gray[yy * w + xx] * count < sum * 0.88 ? 0 : 255;
+                    var v = gray[yy * w + xx] * count < sum * ratio ? 0 : 255;
                     var o = (yy * w + xx) * 4;
                     d[o] = d[o + 1] = d[o + 2] = v;
                     d[o + 3] = 255;
@@ -665,6 +716,17 @@
         }
         var pr = percentiles(lumaHistogram(d), n, 0.02, 0.97);
         var span = pr.hi - pr.lo;
+        if (mode === 'gray' && (tn.sharp > 0 || tn.contrast !== 0)) {
+            var gg = new Float32Array(n), cf = 1 + (tn.contrast >= 0 ? tn.contrast / 100 : tn.contrast / 100 * 0.6);
+            for (i = 0; i < n; i++) {
+                var gv = (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114 - pr.lo) * 255 / span;
+                gv = (Math.max(0, Math.min(255, gv)) - 128) * cf + 128;
+                gg[i] = gv < 0 ? 0 : (gv > 255 ? 255 : gv);
+            }
+            sharpenGrid(gg, w, h, tn.sharp);
+            for (i = 0; i < n; i++) { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = gg[i]; d[i * 4 + 3] = 255; }
+            return img;
+        }
         for (i = 0; i < d.length; i += 4) {
             if (mode === 'gray') {
                 var g = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
@@ -789,6 +851,7 @@
             needHttps: 'The live camera needs a secure (https) page. Use the camera button instead.',
             capture: 'Take photo', pages: 'Pages', finish: 'Next', crop: 'Drag the corners to fit the page',
             next: 'Next', retake: 'Retake', back: 'Back', add: 'Add page', rotate: 'Rotate', edit: 'Edit', scanStyle: 'Scan style',
+            fineTune: 'Fine tune', sharpness: 'Sharpness', contrast: 'Contrast', reset: 'Reset',
             fOrig: 'Original', fColor: 'Enhanced', fGray: 'Grey', fBw: 'Black & white',
             send: 'Send to computer', asPdf: 'One PDF', asImages: 'Separate images', format: 'Send as',
             discard: 'Discard', sending: 'Sending…', sent: 'Sent!', sentN: 'pages sent to the clinic computer.',
@@ -813,6 +876,7 @@
             needHttps: '即時相機需要安全 (https) 網頁，請改用相機按鈕。',
             capture: '拍照', pages: '頁數', finish: '下一步', crop: '拖曳四角對齊文件',
             next: '下一步', retake: '重拍', back: '返回', add: '加入頁面', rotate: '旋轉', edit: '編輯', scanStyle: '掃描風格',
+            fineTune: '微調', sharpness: '銳利度', contrast: '對比度', reset: '重設',
             fOrig: '原圖', fColor: '增強', fGray: '灰階', fBw: '黑白',
             send: '傳送到電腦', asPdf: '單一 PDF', asImages: '分開圖片', format: '傳送格式',
             discard: '捨棄', sending: '傳送中…', sent: '已傳送！', sentN: '頁已傳送到診所電腦。',
@@ -837,6 +901,7 @@
             needHttps: '实时相机需要安全 (https) 网页，请改用相机按钮。',
             capture: '拍照', pages: '页数', finish: '下一步', crop: '拖动四角对齐文件',
             next: '下一步', retake: '重拍', back: '返回', add: '加入页面', rotate: '旋转', edit: '编辑', scanStyle: '扫描风格',
+            fineTune: '微调', sharpness: '锐利度', contrast: '对比度', reset: '重置',
             fOrig: '原图', fColor: '增强', fGray: '灰度', fBw: '黑白',
             send: '发送到电脑', asPdf: '单个 PDF', asImages: '分开图片', format: '发送格式',
             discard: '丢弃', sending: '发送中…', sent: '已发送！', sentN: '页已发送到诊所电脑。',
@@ -1317,14 +1382,14 @@
 
         /** Crop editor, opened from the preview (Crop) or from a page in the pending list. */
         function beginCrop(canvas, mode) {
-            cur = { src: canvas, quad: defaultQuad(canvas.width, canvas.height), mode: mode || 'bw', base: null };
+            cur = { src: canvas, quad: defaultQuad(canvas.width, canvas.height), mode: mode || 'bw', base: null, tune: { sharp: 0, contrast: 0 } };
             show('scCrop');
             drawCrop();
         }
 
         /** A new capture / picked photo goes straight to the preview with the page edges already cut out. */
         function beginFromSource(canvas, quad) {
-            cur = { src: canvas, quad: quad, mode: 'bw', base: null };
+            cur = { src: canvas, quad: quad, mode: 'bw', base: null, tune: { sharp: 0, contrast: 0 } };
             editPanel(false);
             applyCrop();
         }
@@ -1452,11 +1517,65 @@
             var ctx = pv.getContext('2d');
             ctx.drawImage(b, 0, 0);
             var img = ctx.getImageData(0, 0, b.width, b.height);
-            enhance(img, cur.mode);
+            enhance(img, cur.mode, cur.tune);
             ctx.putImageData(img, 0, 0);
             doc.querySelectorAll('[data-filter]').forEach(function (el) {
                 el.classList.toggle('is-on', el.getAttribute('data-filter') === cur.mode);
             });
+            var tunable = cur.mode === 'gray' || cur.mode === 'bw';
+            var tn = tuneOf(cur.tune);
+            $('scFineTune').hidden = !tunable;
+            $('scFineTune').classList.toggle('is-on', tunable && (tn.sharp > 0 || tn.contrast !== 0));
+        }
+
+        /** Fine tune sheet: mini preview + Sharpness / Contrast sliders, Save or Cancel. */
+        var tuneSt = { small: null, draft: null, raf: 0 };
+
+        function tunePaint() {
+            tuneSt.raf = 0;
+            var s = tuneSt.small;
+            if (!s || !cur) return;
+            var cv = $('scTuneCanvas');
+            cv.width = s.width;
+            cv.height = s.height;
+            var ctx = cv.getContext('2d');
+            ctx.drawImage(s, 0, 0);
+            var img = ctx.getImageData(0, 0, s.width, s.height);
+            enhance(img, cur.mode, tuneSt.draft);
+            ctx.putImageData(img, 0, 0);
+        }
+
+        function tuneSync() {
+            $('scTuneSharp').value = String(tuneSt.draft.sharp);
+            $('scTuneContrast').value = String(tuneSt.draft.contrast);
+            $('scTuneSharpVal').textContent = String(Math.round(tuneSt.draft.sharp));
+            $('scTuneContrastVal').textContent = String(Math.round(tuneSt.draft.contrast));
+        }
+
+        function tuneSchedule() {
+            if (tuneSt.raf) return;
+            tuneSt.raf = (root.requestAnimationFrame || function (fn) { return root.setTimeout(fn, 16); })(tunePaint);
+        }
+
+        function tuneOpen() {
+            if (!cur || !cur.base || !(cur.mode === 'gray' || cur.mode === 'bw')) return;
+            var b = cur.base, k = Math.min(1, 640 / Math.max(b.width, b.height));
+            var small = doc.createElement('canvas');
+            small.width = Math.max(1, Math.round(b.width * k));
+            small.height = Math.max(1, Math.round(b.height * k));
+            small.getContext('2d').drawImage(b, 0, 0, small.width, small.height);
+            tuneSt.small = small;
+            tuneSt.draft = tuneOf(cur.tune);
+            tuneSync();
+            $('scTune').hidden = false;
+            tunePaint();
+        }
+
+        function tuneClose(save) {
+            if (save && cur) cur.tune = tuneOf(tuneSt.draft);
+            tuneSt.small = null;
+            $('scTune').hidden = true;
+            if (save && cur) renderPreview();
         }
 
         /** Keep what is on the preview as a page in the pending list; done(editing) says what to show next. */
@@ -1721,8 +1840,18 @@
         $('scRotate').addEventListener('click', function () { cur.base = rotateCanvas(cur.base); renderPreview(); });
         $('scAddPage').addEventListener('click', addPage);
         doc.querySelectorAll('[data-filter]').forEach(function (el) {
-            el.addEventListener('click', function () { cur.mode = el.getAttribute('data-filter'); renderPreview(); });
+            el.addEventListener('click', function () {
+                cur.mode = el.getAttribute('data-filter');
+                cur.tune = { sharp: 0, contrast: 0 };
+                renderPreview();
+            });
         });
+        $('scFineTune').addEventListener('click', tuneOpen);
+        $('scTuneSharp').addEventListener('input', function () { tuneSt.draft.sharp = Number($('scTuneSharp').value); tuneSync(); tuneSchedule(); });
+        $('scTuneContrast').addEventListener('input', function () { tuneSt.draft.contrast = Number($('scTuneContrast').value); tuneSync(); tuneSchedule(); });
+        $('scTuneReset').addEventListener('click', function () { tuneSt.draft = { sharp: 0, contrast: 0 }; tuneSync(); tunePaint(); });
+        $('scTuneSave').addEventListener('click', function () { tuneClose(true); });
+        $('scTuneCancel').addEventListener('click', function () { tuneClose(false); });
         $('scLastThumb').addEventListener('click', function () { openPageViewer(pages.length - 1); });
         $('scPreviewCanvas').addEventListener('click', openPreviewViewer);
         $('scViewerClose').addEventListener('click', closeViewer);

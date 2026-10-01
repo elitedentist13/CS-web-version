@@ -91,6 +91,15 @@
   .sc-edit .sc-chip.is-on { background:var(--acc); color:#04202a; }
   .sc-edit .sc-note { margin:0; }
   #scPreview.is-editing #scPreviewCanvas { max-height:40vh; }
+  #scFineTune[hidden] { display:none; }
+  #scFineTune.is-on { background:var(--acc); color:#04202a; }
+  #scTune { position:fixed; inset:0; z-index:32; background:rgba(2,6,23,.94); display:flex; align-items:center; justify-content:center; padding:16px; }
+  #scTune[hidden] { display:none; }
+  .sc-tune-card { width:min(100%,420px); display:flex; flex-direction:column; gap:14px; }
+  #scTuneCanvas { align-self:center; max-width:100%; max-height:42vh; background:#fff; border-radius:8px; }
+  .sc-tune-row { display:flex; flex-direction:column; gap:6px; }
+  .sc-tune-lbl { display:flex; justify-content:space-between; font-size:14px; font-weight:700; }
+  .sc-tune-row input[type=range] { width:100%; accent-color:#22d3ee; }
   .sc-vnav { display:flex; justify-content:space-between; padding:8px 14px calc(10px + env(safe-area-inset-bottom)); }
   .sc-vnav button { padding:10px 22px; font-size:20px; }
   .sc-ok { font-size:56px; }
@@ -177,6 +186,9 @@
       <button class="sc-chip" type="button" data-filter="gray" data-s="fGray">Grey</button>
       <button class="sc-chip" type="button" data-filter="bw" data-s="fBw">Black &amp; white</button>
     </div>
+    <div class="sc-row">
+      <button id="scFineTune" class="sc-chip" type="button" data-s="fineTune" hidden>Fine tune</button>
+    </div>
   </div>
   <div class="sc-row sc-actions">
     <button id="scPreviewRetake" class="sc-btn-ghost" type="button" data-s="retake">Retake</button>
@@ -233,8 +245,27 @@
   </div>
 </div>
 
+<div id="scTune" hidden>
+  <div class="sc-tune-card">
+    <canvas id="scTuneCanvas"></canvas>
+    <label class="sc-tune-row">
+      <span class="sc-tune-lbl"><span data-s="sharpness">Sharpness</span><b id="scTuneSharpVal">0</b></span>
+      <input id="scTuneSharp" type="range" min="0" max="100" step="1" value="0">
+    </label>
+    <label class="sc-tune-row">
+      <span class="sc-tune-lbl"><span data-s="contrast">Contrast</span><b id="scTuneContrastVal">0</b></span>
+      <input id="scTuneContrast" type="range" min="-100" max="100" step="1" value="0">
+    </label>
+    <div class="sc-row">
+      <button id="scTuneCancel" class="sc-btn-ghost" type="button" data-s="cancel">Cancel</button>
+      <button id="scTuneReset" class="sc-chip" type="button" data-s="reset">Reset</button>
+      <button id="scTuneSave" type="button" data-s="save">Save</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="scan.js?v=20261002perio1"></script>
+<script src="scan.js?v=20261002tune1"></script>
 <script>CSPhoneScan.boot();</script>
 </body>
 </html>

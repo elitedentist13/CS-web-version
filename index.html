@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261002media1';
+  var BUILD = '20261002scan1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4909,6 +4909,55 @@
 
 
 <!-- ════════════════════════════════════════════════════════
+     MODAL — PHONE SCAN UPLOAD (QR → phone scanner → auto-save)
+════════════════════════════════════════════════════════════ -->
+<div id="conScanModal" class="modal">
+  <div class="modal-box con-scan-box">
+    <button class="mclose" data-i18n-aria-label="common.closeAria" data-scan-act="close">×</button>
+    <h3 data-i18n="cm.scan.title"></h3>
+    <div id="conScanFor" class="con-scan-for"></div>
+    <div class="con-scan-body">
+      <div id="conScanQrCol" class="con-scan-qrcol">
+        <div id="conScanQr" class="con-scan-qr"></div>
+        <div id="conScanTimer" class="con-scan-timer"></div>
+      </div>
+      <div class="con-scan-side">
+        <ol class="con-scan-steps">
+          <li data-i18n="cm.scan.step1"></li>
+          <li data-i18n="cm.scan.step2"></li>
+          <li data-i18n="cm.scan.step3"></li>
+        </ol>
+        <div class="fg">
+          <label for="conScanCat" data-i18n="cm.scan.category"></label>
+          <select id="conScanCat"></select>
+        </div>
+        <label class="con-scan-check">
+          <input type="checkbox" id="conScanAutoClose" checked>
+          <span data-i18n="cm.scan.autoClose"></span>
+        </label>
+        <div id="conScanStatus" class="con-scan-status" data-state="waiting" aria-live="polite"></div>
+        <div id="conScanList" class="con-scan-list"></div>
+        <div class="con-scan-lock" data-i18n="cm.scan.writeOnly"></div>
+      </div>
+    </div>
+    <details class="con-scan-adv">
+      <summary data-i18n="cm.scan.link"></summary>
+      <div class="con-scan-adv-row">
+        <input type="text" id="conScanBase" spellcheck="false" autocomplete="off">
+        <button type="button" class="btn-add" data-scan-act="copy" data-i18n="cm.scan.copy"></button>
+      </div>
+      <div class="con-scan-hint" data-i18n="cm.scan.linkHint"></div>
+      <div id="conScanLocalWarn" class="con-scan-warn" data-i18n="cm.scan.localWarn" hidden></div>
+    </details>
+    <div class="con-scan-actions">
+      <button type="button" class="btn-add" id="conScanShowBtn" data-scan-act="show" data-i18n="cm.scan.showFiles" hidden></button>
+      <button type="button" data-scan-act="new" class="con-scan-btn-ghost" data-i18n="cm.scan.newCode"></button>
+      <button type="button" data-scan-act="close" class="con-scan-btn-ghost" data-i18n="cm.scan.close"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
      MODAL — UPLOAD PHOTO METADATA
 ════════════════════════════════════════════════════════════ -->
 <div id="photoUploadModal" class="modal">
@@ -7632,7 +7681,7 @@
     'app-i18n-extra.js?v=20261001hist10',
     'app-login-log.js',
     'app-admin-verify.js',
-    'app.js?v=20261002media1',
+    'app.js?v=20261002scan1',
     'app-doc-editor.js',
     'app-program-settings.js?v=20261001hist7',
     'app-audit.js',
@@ -7643,10 +7692,10 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261002media1',
-    'app-patient.js?v=20261002media1',
+    'app-photos.js?v=20261002scan1',
+    'app-patient.js?v=20261002scan1',
     'app-patient-advanced-search.js',
-    'app-patient-views.js?v=20261002media1',
+    'app-patient-views.js?v=20261002scan1',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
     'app-appt.js?v=20261001hist9',
@@ -7654,10 +7703,11 @@
     'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-consultation.js?v=20261002media1',
+    'app-consultation.js?v=20261002scan1',
     'app-con-dictation-fix.js',
-    'app-con-media.js?v=20261002media1',
-    'app-con-notes.js?v=20261002media1',
+    'app-con-media.js?v=20261002scan1',
+    'app-con-phonescan.js?v=20261002scan1',
+    'app-con-notes.js?v=20261002scan1',
     'app-xray.js?v=20261001panofit1',
     'app-xray-capture.js?v=20260926xg3',
     'app-xray-link.js?v=20260917xrayup2',

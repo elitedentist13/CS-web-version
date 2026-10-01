@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20261002media1';
+var BUILD = '20261002scan1';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;

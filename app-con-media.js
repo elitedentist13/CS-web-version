@@ -18,7 +18,7 @@
         'cm.pick': { en: 'Pick / change patient on Treatment Notes', 'zh-CN': '到治疗记录选择或更换患者', 'zh-Hant': '到治療記錄選擇或更換病人' },
         'cm.hub.photos': { en: 'Photos', 'zh-CN': '照片', 'zh-Hant': '相片' },
         'cm.hub.docs': { en: 'Documents', 'zh-CN': '文件', 'zh-Hant': '文件' },
-        'cm.hub.consent': { en: 'Consents & Lab', 'zh-CN': '同意书与化验', 'zh-Hant': '同意書與化驗' },
+        'cm.hub.consent': { en: 'Consents, Lab & Scans', 'zh-CN': '同意书、化验与扫描', 'zh-Hant': '同意書、化驗與掃描' },
         'cm.hub.add': { en: '＋ Add', 'zh-CN': '＋ 新增', 'zh-Hant': '＋ 新增' },
         'cm.hub.lastAdded': { en: 'Last added {DATE}', 'zh-CN': '最近新增 {DATE}', 'zh-Hant': '最近新增 {DATE}' },
         'cm.hub.empty': { en: 'Nothing stored yet', 'zh-CN': '尚无记录', 'zh-Hant': '尚無紀錄' },
@@ -130,7 +130,7 @@ var CON_MEDIA_PHOTO_CTX_KEYS = ['appointment_id', 'tooth_no', 'tags', 'parent_ph
 var CON_MEDIA_DOC_CTX_KEYS = ['appointment_id', 'bill_id', 'status', 'category', 'valid_until'];
 var CON_MEDIA_DOC_STATUSES = ['draft', 'issued', 'signed'];
 var CON_MEDIA_DOC_CATEGORIES = ['letter', 'certificate', 'referral', 'consent', 'receipt', 'prescription', 'report', 'other'];
-var CON_MEDIA_CONSENT_LAB_CATS = ['Consent Form', 'Lab Report'];
+var CON_MEDIA_CONSENT_LAB_CATS = ['Consent Form', 'Lab Report', 'Scanned Document'];
 var CON_MEDIA_DRAFT_PREFIX = 'conFormsDraft:v1:';
 var CON_MEDIA_DRAFT_MAX_AGE_MS = 14 * 24 * 3600 * 1000;
 
@@ -485,6 +485,7 @@ function conMediaHubHtml(view, sum) {
         : '';
     var items = [
         ['upload', '📷', 'cm.add.photo'],
+        ['phone', '📱', 'cm.add.phone'],
         ['qc:letter', '✉️', 'cm.add.letter'],
         ['qc:sick_leave', '🩺', 'cm.add.sickLeave'],
         ['qc:referral', '🔁', 'cm.add.referral'],
@@ -537,6 +538,7 @@ function conMediaWireHub(host) {
         }
         if (menu) menu.hidden = true;
         if (act === 'upload') conMediaPickFiles();
+        else if (act === 'phone') { if (typeof conScanOpen === 'function') conScanOpen(); }
         else if (act.indexOf('qc:') === 0) conMediaQuickCreate(act.slice(3));
     });
 }

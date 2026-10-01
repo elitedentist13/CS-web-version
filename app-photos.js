@@ -54,6 +54,7 @@ var PHOTO_CATEGORY_PAIRS = [
     ['Before/After', 'media.cat.beforeAfter'],
     ['Consent Form', 'media.cat.consentForm'],
     ['Lab Report', 'media.cat.labReport'],
+    ['Scanned Document', 'media.cat.scanDoc'],
     ['Other', 'media.categoryOther']
 ];
 
@@ -134,7 +135,7 @@ var photoLbChromeScaleBeforeMax = 1;
 
 const PHOTO_CATEGORIES = [
   'Intraoral', 'Extraoral', 'Before/After',
-  'Consent Form', 'Lab Report', 'Other'
+  'Consent Form', 'Lab Report', 'Scanned Document', 'Other'
 ];
 
 /* =========================================================
@@ -479,6 +480,7 @@ function getPhotoCatBadge(cat) {
     'Before/After': '#fef9c3:#713f12',
     'Consent Form': '#fce7f3:#9d174d',
     'Lab Report'  : '#ede9fe:#5b21b6',
+    'Scanned Document': '#cffafe:#155e75',
     'Other'       : '#f3f4f6:#374151'
   };
   var c = (palette[cat] || palette['Other']).split(':');
@@ -2059,10 +2061,10 @@ function confirmPhotoUpload() {
 function photoUploadOne(file, meta, onProgress) {
   meta = meta || {};
   var progress = (typeof onProgress === 'function') ? onProgress : function() {};
-  if (!photoPatientId) {
+  var pid = meta.patientId || photoPatientId;
+  if (!pid) {
     return Promise.resolve({ ok: false, msg: mediaTr('con.forms.alertSelectPatient') });
   }
-  var pid  = photoPatientId;
   var ext  = (String(file.name || '').split('.').pop() || 'jpg').toLowerCase();
   var path = pid + '/' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.' + ext;
 

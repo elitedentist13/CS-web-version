@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002media1';
+var BUILD = '20261002scan1';
 var PAGE_PORT = 8794;
 var CDP_PORT = 9356;
 var CHROME = process.env.CHROME_PATH ||
@@ -299,7 +299,8 @@ function loadHubSandbox(extra) {
     ['letter', 'certificate', 'referral', 'consent', 'receipt', 'prescription', 'report', 'other'].forEach(function (c) {
         usedKeys['cm.dcat.' + c] = 1;
     });
-    var missingKeys = Object.keys(usedKeys).filter(function (k) { return !i18nHasAll(mediaSrc, k); });
+    var scanDeskSrc = read('app-con-phonescan.js');
+    var missingKeys = Object.keys(usedKeys).filter(function (k) { return !i18nHasAll(mediaSrc, k) && !i18nHasAll(scanDeskSrc, k); });
     pass('every cm.* key has en + zh-CN + zh-Hant', missingKeys.length === 0,
         missingKeys.length ? missingKeys.slice(0, 8).join(', ') : Object.keys(usedKeys).length + ' keys');
 
@@ -921,8 +922,8 @@ function loadHubSandbox(extra) {
             live && live.samePatient === true && live.hubShown === true);
         pass('live: hub shows Photos / Documents / Consents counts', live && live.segs === 3 &&
             JSON.stringify(live.counts) === '["1","0","2"]', live ? JSON.stringify(live.counts) : 'none');
-        pass('live: Add menu lists upload + six quick-create letters, opens and closes',
-            live && live.menuItems === 7 && live.menuHiddenAtStart === true && live.menuOpens === true &&
+        pass('live: Add menu lists upload + phone scan + six quick-create letters, opens and closes',
+            live && live.menuItems === 8 && live.menuHiddenAtStart === true && live.menuOpens === true &&
                 live.menuClosesOnOutsideClick === true);
         pass('live: Consents view filters photos and lists consent documents',
             live && live.consentFilter === true && live.consentChip === true);

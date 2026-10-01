@@ -6,6 +6,11 @@
 // ── State ─────────────────────────────────────────────────────
 var conPatientId   = null;
 var conPatientData = null;
+/** Last patient fully applied by selectConPatient (not directory/dock side effects). */
+var conAppliedPatientId = null;
+/** Bumps on each consultation patient switch so stale history/hydrate work cannot revert the card. */
+var conPatientSelectGen = 0;
+var _initConsultationRestoreTimer = null;
 var conPsTimer     = null;
 var drugEditId     = null;
 var drugEditRow    = null;
@@ -352,9 +357,72 @@ function conLblPrint(isZh, slug) {
 // ════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════
+function resolveConsultationActivePatient() {
+    if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
+        return conPatientData;
+    }
+    if (typeof conPatientId !== 'undefined' && conPatientId) {
+        if (typeof activePatientSlots !== 'undefined' && activePatientSlots[0] &&
+            String(activePatientSlots[0].id) === String(conPatientId)) {
+            return activePatientSlots[0];
+        }
+        if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
+            String(_patientDetailsPatient.id) === String(conPatientId)) {
+            return _patientDetailsPatient;
+        }
+    }
+    if (typeof activePatientSlots !== 'undefined' &&
+        activePatientSlots[0] && activePatientSlots[0].id) {
+        return activePatientSlots[0];
+    }
+    if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
+        _patientDetailsPatient.id) {
+        return _patientDetailsPatient;
+    }
+    return null;
+}
+
+function pinConsultationPatientToActiveSlot(source) {
+    var p = (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id)
+        ? conPatientData
+        : resolveConsultationActivePatient();
+    if (!p || !p.id || typeof setActivePatientSlot !== 'function') return;
+    setActivePatientSlot(0, p, source || 'consultation-pin', false);
+}
+
+function initConsultationChrome() {
+    if (typeof refreshConsultationClinicFilterSelects === 'function') {
+        refreshConsultationClinicFilterSelects();
+    } else if (typeof refreshAllClinicTagFilterSelects === 'function') {
+        refreshAllClinicTagFilterSelects();
+    }
+    loadConsultationDoctors();
+    initMedAlertDisplayPrefs();
+    refreshConFormsFontSizeSelect();
+    refreshConFormsToolbarI18n();
+    updateConTnPrintBtnState();
+    if (typeof applyAddMedicalTermProgramUi === 'function') applyAddMedicalTermProgramUi();
+    if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
+    if (typeof conHistBindDirtyOnce === 'function') conHistBindDirtyOnce();
+}
+
 function initConsultation() {
+    if (_initConsultationRestoreTimer) {
+        clearTimeout(_initConsultationRestoreTimer);
+        _initConsultationRestoreTimer = null;
+    }
+
+    var keepP = resolveConsultationActivePatient();
     showOnly('consultationSection');
     switchConTab('treatment');
+    initConsultationChrome();
+
+    if (keepP && keepP.id) {
+        pinConsultationPatientToActiveSlot('consultation-reenter');
+        selectConPatient(keepP);
+        return;
+    }
+
     sv('conPsInput', '');
 
     var dd = g('conPsDrop');
@@ -378,37 +446,13 @@ function initConsultation() {
 
     conPatientId   = null;
     conPatientData = null;
+    conAppliedPatientId = null;
     rxLines        = [];
 
     refreshConPatientOutstandingBalance();
 
     setConBillBtn(false);
-    if (typeof refreshConsultationClinicFilterSelects === 'function') {
-        refreshConsultationClinicFilterSelects();
-    } else if (typeof refreshAllClinicTagFilterSelects === 'function') {
-        refreshAllClinicTagFilterSelects();
-    }
-    loadConsultationDoctors();
-    initMedAlertDisplayPrefs();
-    refreshConFormsFontSizeSelect();
-    refreshConFormsToolbarI18n();
     resetConNotesForPatientSwitch();
-    updateConTnPrintBtnState();
-
-    var activeP = (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient && _patientDetailsPatient.id)
-        ? _patientDetailsPatient
-        : null;
-    if (!activeP && typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
-        activeP = conPatientData;
-    }
-    if (activeP) {
-        setTimeout(function() {
-            selectConPatient(activeP);
-        }, 0);
-    }
-    if (typeof applyAddMedicalTermProgramUi === 'function') applyAddMedicalTermProgramUi();
-    if (typeof applyMedicalNotesProgramLocks === 'function') applyMedicalNotesProgramLocks();
-    if (typeof conHistBindDirtyOnce === 'function') conHistBindDirtyOnce();
 }
 
 function setConBillBtn(enabled) {
@@ -674,6 +718,20 @@ function openConForPatient(patientId, opts) {
     if (doctorCtx) {
         conPendingDoctorContext = doctorCtx;
     }
+    if (patientId && conAppliedPatientId && String(conAppliedPatientId) === String(patientId) &&
+        conPatientData && String(conPatientData.id) === String(patientId)) {
+        showOnly('consultationSection');
+        switchConTab('treatment');
+        if (typeof refreshConsultationClinicFilterSelects === 'function') {
+            refreshConsultationClinicFilterSelects();
+        }
+        if (doctorCtx) loadConsultationDoctors();
+        pinConsultationPatientToActiveSlot('consultation-open-same');
+        if (typeof opts.onReady === 'function') {
+            try { opts.onReady(conPatientData); } catch (e) { /* ignore */ }
+        }
+        return;
+    }
     showOnly('consultationSection');
     switchConTab('treatment');
     if (typeof refreshConsultationClinicFilterSelects === 'function') {
@@ -705,6 +763,7 @@ function openConForPatient(patientId, opts) {
 
     conPatientId   = null;
     conPatientData = null;
+    conAppliedPatientId = null;
     rxLines        = [];
     resetConNotesForPatientSwitch();
 
@@ -888,18 +947,29 @@ function doConPatientSearchChart() {
 // SELECT PATIENT — populate ALL tabs
 // ════════════════════════════════════════════════════════════════
 function selectConPatient(p) {
-    resetConNotesForPatientSwitch();
+    if (!p || !p.id) return;
+    var samePatient = !!(conAppliedPatientId && String(conAppliedPatientId) === String(p.id));
+    if (!samePatient) {
+        conPatientSelectGen++;
+        resetConNotesForPatientSwitch();
+    }
     if (typeof setDirectoryActivePatient === 'function') {
         setDirectoryActivePatient(p, 'consultation-select');
     }
-    conPatientId      = p.id;
-    conPatientData    = p;
+    conPatientId = p.id;
+    if (!conPatientData || String(conPatientData.id) !== String(p.id)) {
+        conPatientData = p;
+    }
+    if (typeof setActivePatientSlot === 'function') {
+        setActivePatientSlot(0, conPatientData || p, 'consultation-select', false);
+    }
+    var shared = conPatientData || p;
     conMedPatientId   = p.id;
-    conMedPatientData = p;
+    conMedPatientData = shared;
     conDenPatientId   = p.id;
-    conDenPatientData = p;
+    conDenPatientData = shared;
     conFormsPatientId = p.id;
-    conFormsPatientData = p;
+    conFormsPatientData = shared;
 
     var todayStr = typeof fmtNowDateTimeHK === 'function'
         ? fmtNowDateTimeHK()
@@ -1057,26 +1127,40 @@ function selectConPatient(p) {
     var formsDrop = g('conFormsPsDrop');
     if (formsDrop) formsDrop.style.display = 'none';
 
-    fillConHistoryBanner('med', p);
-    fillConHistoryBanner('den', p);
+    fillConHistoryBanner('med', shared);
+    fillConHistoryBanner('den', shared);
     if (typeof conHistApplySharedPatient === 'function') conHistApplySharedPatient();
 
-    toggleDrugAddPanel(false);
-    rxLines = [];
+    if (!samePatient) {
+        toggleDrugAddPanel(false);
+        rxLines = [];
+    }
 
     setConBillBtn(true);
     updateConTnPrintBtnState();
 
     if (typeof syncPhotoPatient === 'function') {
-        syncPhotoPatient(p.id, p);
+        syncPhotoPatient(p.id, shared);
     }
     if (typeof syncXrayPatient === 'function') {
-        syncXrayPatient(p.id, p);
+        syncXrayPatient(p.id, shared);
     }
 
+    conAppliedPatientId = p.id;
+
+    if (samePatient) {
+        refreshConPatientOutstandingBalance();
+        updateConFormsPatientLabel();
+        return;
+    }
+
+    var loadGen = conPatientSelectGen;
+    var loadId = p.id;
     setTimeout(function() {
-        loadConNotes(p.id);
-        loadDrugHistory(p.id);
+        if (loadGen !== conPatientSelectGen) return;
+        if (!conPatientId || String(conPatientId) !== String(loadId)) return;
+        loadConNotes(loadId);
+        loadDrugHistory(loadId);
         loadMedicalHistory();
         loadDentalHistory();
         refreshConPatientOutstandingBalance();
@@ -1085,7 +1169,7 @@ function selectConPatient(p) {
 
         var activeTab = document.querySelector('.con-tab.active');
         if (activeTab && activeTab.dataset.tab === 'charting') {
-            initChart(p.id, p.full_name);
+            initChart(loadId, p.full_name);
         }
     }, 0);
 }
@@ -9694,15 +9778,19 @@ function loadMedicalHistory() {
         }
     }
     var form = g('conMedForm');
+    var loadId = conMedPatientId;
+    var loadGen = conPatientSelectGen;
 
-    conHistSelectPatientHistory('med', conMedPatientId)
+    conHistSelectPatientHistory('med', loadId)
     .then(function(r) {
+        if (loadGen !== conPatientSelectGen) return;
+        if (String(conMedPatientId || conPatientId || '') !== String(loadId)) return;
         if (r.error) {
             conHistToast(conTrRepl('con.alert.medLoadFail', { MSG: r.error.message }));
             return;
         }
         var d = r.data || {};
-        syncConMedicalFieldsToPatientData(d);
+        syncConMedicalFieldsToPatientData(d, false);
         sv('fldMedHistory',  d.medical_history     || '');
         sv('fldMedications', d.current_medications || '');
         sv('fldAllergy',     d.allergy             || '');
@@ -9718,7 +9806,7 @@ function loadMedicalHistory() {
     });
 }
 
-function syncConMedicalFieldsToPatientData(fields) {
+function syncConMedicalFieldsToPatientData(fields, pushActive) {
     fields = fields || {};
     [conPatientData, conMedPatientData, conDenPatientData, conFormsPatientData].forEach(function(p) {
         if (!p || !p.id || String(p.id) !== String(conMedPatientId || conPatientId || p.id)) return;
@@ -9730,7 +9818,7 @@ function syncConMedicalFieldsToPatientData(fields) {
         if (typeof fields.mh_reviewed_by !== 'undefined') p.mh_reviewed_by = fields.mh_reviewed_by || '';
         if (typeof fields.mh_edit_history !== 'undefined') p.mh_edit_history = fields.mh_edit_history || [];
     });
-    if (typeof setDirectoryActivePatient === 'function' && conPatientData && conPatientData.id) {
+    if (pushActive && typeof setDirectoryActivePatient === 'function' && conPatientData && conPatientData.id) {
         setDirectoryActivePatient(conPatientData, 'consultation-medical-history-save');
     }
 }
@@ -9764,7 +9852,7 @@ function saveMedicalHistory(opts) {
     conHistPatientsUpdate(conMedPatientId, payload)
     .then(function(r) {
         if (r.error) { conHistToast(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-        syncConMedicalFieldsToPatientData(payload);
+        syncConMedicalFieldsToPatientData(payload, true);
         conHistApplyReviewFromRow('med', payload);
         refreshConPatientAlertBanners(conMedPatientData || conPatientData);
         conHistDirty.med = false;
@@ -9843,15 +9931,19 @@ function loadDentalHistory() {
         }
     }
     var form = g('conDenForm');
+    var loadId = conDenPatientId;
+    var loadGen = conPatientSelectGen;
 
-    conHistSelectPatientHistory('den', conDenPatientId)
+    conHistSelectPatientHistory('den', loadId)
     .then(function(r) {
+        if (loadGen !== conPatientSelectGen) return;
+        if (String(conDenPatientId || conPatientId || '') !== String(loadId)) return;
         if (r.error) {
             conHistToast(conTrRepl('con.alert.denLoadFail', { MSG: r.error.message }));
             return;
         }
         var d = r.data || {};
-        syncConDentalFieldsToPatientData(d);
+        syncConDentalFieldsToPatientData(d, false);
         sv('fldDentalHistory',  d.dental_history        || '');
         sv('fldParafunctional', d.parafunctional_habits || '');
         sv('fldOralHygiene',    d.oral_hygiene_notes    || '');
@@ -9863,7 +9955,7 @@ function loadDentalHistory() {
     });
 }
 
-function syncConDentalFieldsToPatientData(fields) {
+function syncConDentalFieldsToPatientData(fields, pushActive) {
     fields = fields || {};
     [conPatientData, conMedPatientData, conDenPatientData, conFormsPatientData].forEach(function(p) {
         if (!p || !p.id || String(p.id) !== String(conDenPatientId || conPatientId || p.id)) return;
@@ -9874,7 +9966,7 @@ function syncConDentalFieldsToPatientData(fields) {
         if (typeof fields.dh_reviewed_by !== 'undefined') p.dh_reviewed_by = fields.dh_reviewed_by || '';
         if (typeof fields.dh_edit_history !== 'undefined') p.dh_edit_history = fields.dh_edit_history || [];
     });
-    if (typeof setDirectoryActivePatient === 'function' && conPatientData && conPatientData.id) {
+    if (pushActive && typeof setDirectoryActivePatient === 'function' && conPatientData && conPatientData.id) {
         setDirectoryActivePatient(conPatientData, 'consultation-dental-history-save');
     }
 }
@@ -9908,7 +10000,7 @@ function saveDentalHistory(opts) {
     conHistPatientsUpdate(conDenPatientId, payload)
     .then(function(r) {
         if (r.error) { conHistToast(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
-        syncConDentalFieldsToPatientData(payload);
+        syncConDentalFieldsToPatientData(payload, true);
         conHistApplyReviewFromRow('den', payload);
         conHistDirty.den = false;
         var name = (conDenPatientData && conDenPatientData.full_name) || (conPatientData && conPatientData.full_name) || '';

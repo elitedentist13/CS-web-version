@@ -381,7 +381,9 @@ function applyPatientDirSearchQuery(q, patientId) {
 
 function syncPatientDirSearchFromActivePatient(p, source) {
     if (!p || !p.id) return;
+    var src = String(source || '');
     if (source && PATIENT_DIR_SEARCH_SKIP_SOURCES[source]) return;
+    if (src.indexOf('consultation-') === 0 || src.indexOf('active-slot-') === 0) return;
     var q = patientDirSearchTextFromPatient(p);
     if (q) {
         applyPatientDirSearchQuery(q, p.id);
@@ -417,14 +419,30 @@ function scrollPatientDirActiveRowIntoView() {
 
 function setDirectoryActivePatient(p, source) {
     if (!p || !p.id) return;
+    if (_patientDetailsPatient && String(_patientDetailsPatient.id) === String(p.id) &&
+        _patientDetailsPatient !== p) {
+        Object.keys(p).forEach(function (k) {
+            if (p[k] != null && p[k] !== '') _patientDetailsPatient[k] = p[k];
+        });
+        p = _patientDetailsPatient;
+    } else {
+        _patientDetailsPatient = p;
+    }
     selPatientId = p.id;
-    _patientDetailsPatient = p;
     selPatientClinicTag = p[PATIENT_CLINIC_TAG_FIELD] ||
         (typeof currentClinicCodeForTagging === 'function'
             ? currentClinicCodeForTagging()
             : '');
     if (typeof conPatientId !== 'undefined') conPatientId = p.id;
-    if (typeof conPatientData !== 'undefined') conPatientData = p;
+    if (typeof conPatientData !== 'undefined') {
+        if (conPatientData && String(conPatientData.id) === String(p.id) && conPatientData !== p) {
+            Object.keys(p).forEach(function (k) {
+                if (p[k] != null && p[k] !== '') conPatientData[k] = p[k];
+            });
+        } else {
+            conPatientData = p;
+        }
+    }
     syncPatientDirSearchFromActivePatient(p, source);
     updatePatientDirActiveRowHighlight();
     try {

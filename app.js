@@ -3481,6 +3481,7 @@ function showClinicRefreshToast(clinicId, isAll) {
 }
 
 var activePatientSlots = [null, null];
+var activePatientSlotHydrateGen = [0, 0];
 var activePatientSwapAnimTimer = null;
 var ACTIVE_PATIENT_COMPACT_MAX_W = 1320;
 var ACTIVE_PATIENT_COLLAPSE_LS = 'active_patient_dock_collapsed_v1';
@@ -4063,6 +4064,15 @@ function hydrateActivePatientDetailsIfNeeded(slotIdx) {
 function syncPrimaryPatientContext(source) {
     var p = activePatientSlots[0];
     if (p && p.id) {
+        if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id &&
+            String(conPatientData.id) === String(p.id)) {
+            overlayCanonicalPatientFields(conPatientData, p);
+            p = conPatientData;
+        } else if (typeof _patientDetailsPatient !== 'undefined' && _patientDetailsPatient &&
+            _patientDetailsPatient.id && String(_patientDetailsPatient.id) === String(p.id)) {
+            overlayCanonicalPatientFields(_patientDetailsPatient, p);
+            p = _patientDetailsPatient;
+        }
         if (typeof setDirectoryActivePatient === 'function') {
             setDirectoryActivePatient(p, source || 'active-slot-sync');
             return;
@@ -4101,6 +4111,18 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
         activePatientSlots[1] = null;
     }
 
+    if (norm && activePatientSlots[slotIdx] &&
+        String(activePatientSlots[slotIdx].id) === String(norm.id)) {
+        overlayCanonicalPatientFields(activePatientSlots[slotIdx], p);
+        overlayCanonicalPatientFields(activePatientSlots[slotIdx], norm);
+        renderActivePatientSlot(slotIdx, activePatientSlots[slotIdx]);
+        if (slotIdx === 0) renderActivePatientCollapsedTab();
+        if (syncPrimary !== false && slotIdx === 0) {
+            syncPrimaryPatientContext(source || 'active-slot-set');
+        }
+        return;
+    }
+
     function commit(patient) {
         activePatientSlots[slotIdx] = patient;
         renderActivePatientSlots();
@@ -4110,6 +4132,7 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
     }
 
     if (!norm) {
+        activePatientSlotHydrateGen[slotIdx] += 1;
         activePatientSlots[slotIdx] = null;
         renderActivePatientSlots();
         if (syncPrimary !== false && slotIdx === 0) {
@@ -4121,11 +4144,13 @@ function setActivePatientSlot(slotIdx, p, source, syncPrimary) {
     if (typeof SB !== 'undefined' && SB.from) {
         norm.__detailsHydrateDone = true;
     }
+    var hydrateGen = ++activePatientSlotHydrateGen[slotIdx];
     commit(norm);
     if (typeof SB === 'undefined' || !SB.from) return;
 
     SB.from('patients').select(ACTIVE_PATIENT_CANONICAL_SELECT).eq('id', norm.id).limit(1)
     .then(function(r) {
+        if (hydrateGen !== activePatientSlotHydrateGen[slotIdx]) return;
         if (!r.data || !r.data[0]) return;
         if (!activePatientSlots[slotIdx] ||
             String(activePatientSlots[slotIdx].id) !== String(norm.id)) return;
@@ -4352,6 +4377,13 @@ function bindActivePatientCardOnce() {
             return;
         }
         if (detail.patient && detail.patient.id) {
+            var cur = activePatientSlots[0];
+            if (cur && String(cur.id) === String(detail.patient.id)) {
+                overlayCanonicalPatientFields(cur, detail.patient);
+                renderActivePatientSlot(0, cur);
+                renderActivePatientCollapsedTab();
+                return;
+            }
             setActivePatientSlot(0, detail.patient, 'active-slot-event', false);
         } else if (!detail.patient) {
             setActivePatientSlot(0, null, 'active-slot-event-clear', false);
@@ -5860,6 +5892,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // CONSULTATION SECTION WIRING
     // ════════════════════════════════════════════════════════
     g('conBack').addEventListener('click', function() {
+        if (typeof pinConsultationPatientToActiveSlot === 'function') {
+            pinConsultationPatientToActiveSlot('consultation-leave');
+        }
         if (typeof _conFormsDirty !== 'undefined' && _conFormsDirty &&
                 typeof _conFormsCheckUnsavedThen === 'function') {
             _conFormsCheckUnsavedThen(showDashboard);

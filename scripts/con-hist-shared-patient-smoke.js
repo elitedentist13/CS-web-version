@@ -9,7 +9,7 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261001hist10';
+var BUILD = '20261001patflash1';
 var PAGE_PORT = 8792;
 var CDP_PORT = 9354;
 var CHROME = process.env.CHROME_PATH ||

@@ -9343,6 +9343,9 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 
 .con-col-header h3 { margin: 0; font-size: 15px; color: #333; }
+/* The title stays on one row; the action buttons beside it wrap instead of squeezing it. */
+.con-col-header > h3 { white-space: nowrap; flex: 0 0 auto; }
+.con-col-header > .con-col-header-actions { min-width: 0; }
 
 .con-col-header .con-tn-print-btn {
   font-size: 12px;
@@ -10039,10 +10042,19 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 }
 .cn-mode-btn + .cn-mode-btn { border-left: 1px solid #cbd5e1; }
 .cn-mode-btn.is-active { background: var(--primary); color: #fff; }
+/* Fixed-size slot: the text changes ("Unsaved…" / "Draft saved hh:mm") but the box never does,
+   so the toolbar cannot gain or lose a row (or a pixel) and push the main text box up and down. */
 .cn-draft-state {
+    flex: 1 1 0;
+    min-width: 130px;
+    min-height: 16px;
+    line-height: 16px;
     font-size: 11px;
     color: #94a3b8;
-    margin-left: auto;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .cn-draft-state--unsaved { color: #b45309; }
 .cn-draft-state--restored { color: #0f766e; font-weight: 600; }

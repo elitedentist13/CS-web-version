@@ -24,6 +24,16 @@ var perioViewMode = 'table';
 // periodontal therapy visits.
 var perioCompactMode = false;
 
+// Header PD-depth filter: '' (off) or one of the four mutually-exclusive
+// criteria below. Matching PD boxes + tooth-number boxes light up pink.
+var perioPdFilter = '';
+var PERIO_PD_FILTERS = {
+    eq4: { op: 'eq', v: 4, label: '=4mm' },
+    ge4: { op: 'ge', v: 4, label: '\u22654mm' },
+    eq5: { op: 'eq', v: 5, label: '=5mm' },
+    ge5: { op: 'ge', v: 5, label: '\u22655mm' }
+};
+
 // Active tool for dental charting
 var activeTool  = 'missing';
 
@@ -827,6 +837,35 @@ function injectChartCSS() {
 .perio-input.bleeding { background: #fff0f0 !important; }
 .perio-input.deep     { background: #fff3e0 !important; color:#e74c3c; font-weight:700; }
 .perio-input.shallow  { background: #f0fff4 !important; }
+.perio-input.perio-pd-hl {
+    background: rgba(255, 45, 146, 0.42) !important;
+    box-shadow: inset 0 0 0 2px rgba(255, 20, 147, 0.85);
+    color: #9d0a52;
+}
+th.perio-tooth-cell.perio-pd-hl-tooth {
+    background: rgba(255, 45, 146, 0.42) !important;
+    box-shadow: inset 0 0 0 2px rgba(255, 20, 147, 0.85);
+    color: #9d0a52 !important;
+}
+.perio-pd-filter {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border: 1px solid #f9a8d4; border-radius: 8px;
+    background: #fff5fa;
+}
+.perio-pd-filter-lbl { font-size: 11px; font-weight: 700; color: #9d0a52; }
+.perio-pd-btn {
+    padding: 5px 10px; border: 1px solid #f9a8d4; border-radius: 6px;
+    background: #fff; color: #9d0a52; font-size: 12px; font-weight: 700;
+    cursor: pointer;
+}
+.perio-pd-btn.on {
+    background: rgba(255, 45, 146, 0.85); border-color: #db2777; color: #fff;
+}
+.perio-pd-count {
+    width: 44px; padding: 4px 2px; text-align: center; font-size: 13px;
+    font-weight: 800; color: #9d0a52; background: #fff;
+    border: 1px solid #f9a8d4; border-radius: 6px;
+}
 
 /* BOP / Plaque cells: the whole box is the click target — one click fills
    it (light red for Bleeding on Probing, light blue for Plaque), another
@@ -2341,6 +2380,8 @@ function buildPerioViewToolbar() {
         mountPerioDictationWidget(bar);
     }
 
+    bar.appendChild(buildPerioPdFilterGroup());
+
     var spacer = document.createElement('div');
     spacer.style.flex = '1';
     bar.appendChild(spacer);
@@ -2577,6 +2618,7 @@ function buildPerioTable(teeth, arch) {
         var th = document.createElement('th');
         th.colSpan = 3;
         th.className = 'perio-tooth-cell';
+        th.setAttribute('data-tn', String(tn));
         th.style.borderBottom = '2px solid var(--primary)';
         th.style.cursor = 'pointer';
         th.title = chartTr('chart.perio.clickMissingTitle');
@@ -3088,6 +3130,7 @@ function buildPerioCompactTable(rowIds, teeth) {
         if (i === 8) htr.appendChild(gapCell('th'));
         var th = document.createElement('th');
         th.className = 'perio-tooth-cell';
+        th.setAttribute('data-tn', String(tn));
         th.title = chartTr('chart.perio.clickMissingTitle');
         th.textContent = pdToothLabel(tn);
         if (pdToothIsMissing(tn)) {
@@ -3689,6 +3732,104 @@ function updatePerioSummary() {
     if (summAvgCAL) summAvgCAL.textContent = avg(calVals);
     if (summBopPct) summBopPct.textContent = totalSites ? Math.round(bopCount    / totalSites * 100) : 0;
     if (summPiPct)  summPiPct.textContent  = totalSites ? Math.round(plaqueCount / totalSites * 100) : 0;
+
+    perioPdApplyFilter();
+}
+
+function perioPdSiteMatches(v) {
+    var f = PERIO_PD_FILTERS[perioPdFilter];
+    if (!f || !(v > 0)) return false;
+    return f.op === 'eq' ? v === f.v : v >= f.v;
+}
+
+/** True when the tooth is present and any PD site (buccal or lingual) meets the active criterion. */
+function perioPdToothMatches(tn) {
+    if (!PERIO_PD_FILTERS[perioPdFilter] || pdToothIsMissing(tn)) return false;
+    var surfs = ['b', 'l'];
+    var poss = ['d', 'm', 'me'];
+    for (var i = 0; i < surfs.length; i++) {
+        for (var j = 0; j < poss.length; j++) {
+            if (perioPdSiteMatches(pdGetSiteVal(tn, surfs[i], poss[j], 'pd'))) return true;
+        }
+    }
+    return false;
+}
+
+/** Re-paints the pink highlights (PD boxes, tooth-number boxes) and the teeth counter. */
+function perioPdApplyFilter() {
+    var pane = g('chartPane-perio');
+    if (!pane) return;
+    var old = pane.querySelectorAll('.perio-pd-hl, .perio-pd-hl-tooth');
+    for (var i = 0; i < old.length; i++) {
+        old[i].classList.remove('perio-pd-hl');
+        old[i].classList.remove('perio-pd-hl-tooth');
+    }
+    var count = 0;
+    if (PERIO_PD_FILTERS[perioPdFilter]) {
+        var inputs = pane.querySelectorAll('input.perio-input');
+        for (var k = 0; k < inputs.length; k++) {
+            var p = pdParsePerioCellId(inputs[k].id);
+            if (!p || p.measure !== 'pd' || pdToothIsMissing(p.tn)) continue;
+            if (perioPdSiteMatches(pdGetSiteVal(p.tn, p.surface, p.pos, 'pd'))) {
+                inputs[k].classList.add('perio-pd-hl');
+            }
+        }
+        var heads = pane.querySelectorAll('th.perio-tooth-cell[data-tn]');
+        for (var h = 0; h < heads.length; h++) {
+            if (perioPdToothMatches(parseInt(heads[h].getAttribute('data-tn'), 10))) {
+                heads[h].classList.add('perio-pd-hl-tooth');
+            }
+        }
+        var ALL = UPPER_RIGHT.concat(UPPER_LEFT, LOWER_RIGHT, LOWER_LEFT);
+        for (var t = 0; t < ALL.length; t++) if (perioPdToothMatches(ALL[t])) count++;
+    }
+    var box = g('perioPdCount');
+    if (box) box.value = PERIO_PD_FILTERS[perioPdFilter] ? String(count) : '';
+    var btns = pane.querySelectorAll('.perio-pd-btn');
+    for (var b = 0; b < btns.length; b++) {
+        var on = btns[b].getAttribute('data-pd') === perioPdFilter;
+        btns[b].className = 'perio-pd-btn' + (on ? ' on' : '');
+        btns[b].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+}
+
+function buildPerioPdFilterGroup() {
+    var grp = document.createElement('div');
+    grp.className = 'perio-pd-filter';
+    grp.id = 'perioPdFilterGroup';
+    grp.title = chartTr('chart.perio.pdFilterTitle');
+    var lbl = document.createElement('span');
+    lbl.className = 'perio-pd-filter-lbl';
+    lbl.textContent = chartTr('chart.perio.pdFilterLabel');
+    grp.appendChild(lbl);
+    Object.keys(PERIO_PD_FILTERS).forEach(function(key) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'perio-pd-btn';
+        btn.setAttribute('data-pd', key);
+        btn.setAttribute('aria-pressed', 'false');
+        btn.id = 'perioPdBtn-' + key;
+        btn.textContent = PERIO_PD_FILTERS[key].label;
+        btn.addEventListener('click', function() {
+            perioPdFilter = (perioPdFilter === key) ? '' : key;
+            perioPdApplyFilter();
+            refreshPerioLivePreview();
+        });
+        grp.appendChild(btn);
+    });
+    var cnt = document.createElement('input');
+    cnt.type = 'text';
+    cnt.readOnly = true;
+    cnt.id = 'perioPdCount';
+    cnt.className = 'perio-pd-count';
+    cnt.title = chartTr('chart.perio.pdFilterCountTitle');
+    cnt.setAttribute('aria-label', chartTr('chart.perio.pdFilterCountTitle'));
+    grp.appendChild(cnt);
+    var unit = document.createElement('span');
+    unit.className = 'perio-pd-filter-lbl';
+    unit.textContent = chartTr('chart.perio.pdFilterUnit');
+    grp.appendChild(unit);
+    return grp;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -4269,8 +4410,14 @@ function pdMidRowSVG(teeth) {
         var mob = perioState[tn + '_mob'];
         var frc = perioState[tn + '_frc'];
         var hasMob = !implantVal && mob && mob !== '0';
+        var pdHl = perioPdToothMatches(tn);
+        if (pdHl) {
+            out += '<rect class="perio-pd-hl-svg" x="' + (cx - 12) + '" y="3" width="24" height="16" rx="3" ' +
+                'fill="rgba(255,45,146,0.42)" stroke="rgba(255,20,147,0.85)" stroke-width="1.5"/>';
+        }
         out += '<text x="' + cx + '" y="15" font-size="11" font-weight="700" ' +
-            'text-anchor="middle" fill="#1d4ed8">' + esc(pdToothLabel(tn)) + '</text>';
+            'text-anchor="middle" fill="' + (pdHl ? '#9d0a52' : '#1d4ed8') + '">' +
+            esc(pdToothLabel(tn)) + '</text>';
         if (implantVal > 0) {
             var implColors = ['', '#334155', '#dc2626', '#16a34a'];
             out += '<circle cx="' + (cx + 12) + '" cy="10" r="3.2" fill="none" ' +

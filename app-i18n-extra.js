@@ -7009,6 +7009,18 @@
             'zh-CN': '在完整图表与简化复诊视图（仅 PD、BOP、菌斑）之间切换',
             'zh-Hant': '在完整圖表與簡化複診視圖（僅 PD、BOP、菌斑）之間切換'
         },
+        'chart.perio.pdFilterLabel': { en: 'PD', 'zh-CN': '探诊深度', 'zh-Hant': '探診深度' },
+        'chart.perio.pdFilterTitle': {
+            en: 'Highlight pocket depths (PD) matching the chosen criterion — click again to clear',
+            'zh-CN': '高亮符合所选条件的牙周袋深度（PD）——再次点击可取消',
+            'zh-Hant': '標示符合所選條件的牙周袋深度（PD）——再次點擊可取消'
+        },
+        'chart.perio.pdFilterCountTitle': {
+            en: 'Number of teeth with at least one PD site meeting the criterion',
+            'zh-CN': '至少有一个 PD 位点符合条件的牙齿数',
+            'zh-Hant': '至少有一個 PD 位點符合條件的牙齒數'
+        },
+        'chart.perio.pdFilterUnit': { en: 'teeth', 'zh-CN': '颗牙', 'zh-Hant': '顆牙' },
         'chart.perio.settingsBtn': { en: '⚙️ Settings', 'zh-CN': '⚙️ 设置', 'zh-Hant': '⚙️ 設定' },
         'chart.perio.settingsTitle': { en: 'Periodontal Chart Settings', 'zh-CN': '牙周图表设置', 'zh-Hant': '牙周圖表設定' },
         'chart.perio.settingsClose': { en: 'Close', 'zh-CN': '关闭', 'zh-Hant': '關閉' },

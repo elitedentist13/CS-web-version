@@ -53,6 +53,7 @@ var CON_SCAN_POLL_MS = 2500;
 var CON_SCAN_BASE_KEY = 'csPhoneScanBase';
 var CON_SCAN_AUTOCLOSE_KEY = 'csPhoneScanAutoClose';
 var CON_SCAN_PREFIX = 'phone-scan';
+var CON_SCAN_WINDOW = 3;
 var CON_SCAN_CATEGORY = 'Scanned Document';
 var CON_SCAN_QR_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
 
@@ -64,7 +65,8 @@ var CON_SCAN = {
     expiresAt: 0,
     handled: {},
     attempts: {},
-    markers: {},
+    nextIdx: 0,
+    nextDone: 1,
     items: [],
     savedIds: [],
     phoneSeen: false,
@@ -135,19 +137,51 @@ function conScanBuildUrl(base, token, label, lang, expiresAt) {
     return b + (b.indexOf('?') >= 0 ? '&' : '?') + q;
 }
 
-/** Classify a listing of the inbox folder into files to import and markers. */
-function conScanClassify(listing) {
-    var out = { files: [], hello: [], done: [] };
-    (listing || []).forEach(function (o) {
-        var n = o && o.name ? String(o.name) : '';
-        if (!n || n.charAt(0) === '.') return;
-        if (n.indexOf('_hello_') === 0) out.hello.push(n);
-        else if (n.indexOf('_done_') === 0) out.done.push(n);
-        else if (n.charAt(0) === '_') return;
-        else out.files.push(n);
+/*
+ * Anonymous users cannot LIST the photos bucket, so the phone and this module agree on predictable
+ * names and this side simply asks the public URL whether each one exists:
+ *   p000.pdf / p000.jpg, p001.* ...   pages        h.png   phone connected        d1.png, d2.png ...  phone finished
+ */
+function conScanPad(n) {
+    var s = String(n);
+    while (s.length < 3) s = '0' + s;
+    return s;
+}
+
+function conScanFilePath(token, idx, ext) { return CON_SCAN_PREFIX + '/' + token + '/p' + conScanPad(idx) + '.' + ext; }
+function conScanHelloPath(token) { return CON_SCAN_PREFIX + '/' + token + '/h.png'; }
+function conScanDonePath(token, k) { return CON_SCAN_PREFIX + '/' + token + '/d' + k + '.png'; }
+
+function conScanPublicUrl(bucket, path) {
+    try {
+        var ur = SB.storage.from(bucket).getPublicUrl(path);
+        if (ur && ur.data && ur.data.publicUrl) return ur.data.publicUrl;
+        if (ur && typeof ur.publicUrl === 'string') return ur.publicUrl;
+    } catch (e) { /* fall through */ }
+    return '';
+}
+
+function conScanProbe(bucket, path) {
+    var url = conScanPublicUrl(bucket, path);
+    if (!url || typeof fetch !== 'function') return Promise.resolve(false);
+    return fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'cb=' + Date.now(), { method: 'HEAD', cache: 'no-store' })
+        .then(function (r) { return !!(r && r.ok); }, function () { return false; });
+}
+
+/** Which of the next few page numbers exist? Resolves [{ idx, ext, name }] ordered by idx. */
+function conScanProbeFiles(bucket, token, from) {
+    var jobs = [];
+    for (var i = 0; i < CON_SCAN_WINDOW; i++) {
+        ['pdf', 'jpg'].forEach(function (ext) {
+            var idx = from + i;
+            jobs.push(conScanProbe(bucket, conScanFilePath(token, idx, ext)).then(function (ok) {
+                return ok ? { idx: idx, ext: ext, name: 'p' + conScanPad(idx) + '.' + ext } : null;
+            }));
+        });
+    }
+    return Promise.all(jobs).then(function (rows) {
+        return rows.filter(Boolean).sort(function (a, b) { return a.idx - b.idx; });
     });
-    out.files.sort();
-    return out;
 }
 
 function conScanExt(name) {
@@ -253,7 +287,8 @@ function conScanStartSession() {
     CON_SCAN.expiresAt = Date.now() + CON_SCAN_TTL_MS;
     CON_SCAN.handled = {};
     CON_SCAN.attempts = {};
-    CON_SCAN.markers = {};
+    CON_SCAN.nextIdx = 0;
+    CON_SCAN.nextDone = 1;
     CON_SCAN.items = [];
     CON_SCAN.savedIds = [];
     CON_SCAN.phoneSeen = false;
@@ -329,35 +364,57 @@ function conScanPoll() {
     CON_SCAN.busy = true;
     var token = CON_SCAN.token;
     var bucket = (typeof PHOTO_BUCKET !== 'undefined') ? PHOTO_BUCKET : 'photos';
-    return Promise.resolve(SB.storage.from(bucket).list(CON_SCAN_PREFIX + '/' + token, {
-        limit: 100, sortBy: { column: 'name', order: 'asc' }
-    })).then(function (r) {
-        if (token !== CON_SCAN.token || !CON_SCAN.active) return;
-        if (r && r.error) {
-            CON_SCAN.errMsg = String(r.error.message || r.error);
+    var live = function () { return token === CON_SCAN.token && CON_SCAN.active; };
+
+    var probeSignals = function () {
+        var jobs = [];
+        if (!CON_SCAN.phoneSeen) {
+            jobs.push(conScanProbe(bucket, conScanHelloPath(token)).then(function (ok) {
+                if (ok) { CON_SCAN.phoneSeen = true; conScanRemoveStaged(bucket, token, 'h.png'); }
+            }));
+        }
+        var done = { hit: false };
+        [0, 1].forEach(function (off) {
+            var k = CON_SCAN.nextDone + off;
+            jobs.push(conScanProbe(bucket, conScanDonePath(token, k)).then(function (ok) {
+                if (ok) { done.hit = true; done.k = Math.max(done.k || 0, k); conScanRemoveStaged(bucket, token, 'd' + k + '.png'); }
+            }));
+        });
+        return Promise.all(jobs).then(function () {
+            if (done.hit) { CON_SCAN.nextDone = done.k + 1; CON_SCAN.phoneSeen = true; }
+            return done.hit;
+        });
+    };
+
+    var drain = function () {
+        if (!live()) return Promise.resolve();
+        return conScanProbeFiles(bucket, token, CON_SCAN.nextIdx).then(function (found) {
+            if (!live() || !found.length) return;
+            CON_SCAN.nextIdx = found[found.length - 1].idx + 1;
+            CON_SCAN.phoneSeen = true;
+            found.forEach(function (f) { CON_SCAN.handled[f.name] = 'queued'; });
             conScanRender();
-            return;
-        }
+            return found.reduce(function (chain, f) {
+                return chain.then(function () { return conScanImportOne(bucket, token, f.name); });
+            }, Promise.resolve()).then(drain);
+        });
+    };
+
+    var retryFailed = Object.keys(CON_SCAN.handled).filter(function (n) {
+        return CON_SCAN.handled[n] === 'failed' && (CON_SCAN.attempts[n] || 0) < 3;
+    });
+
+    return retryFailed.reduce(function (chain, name) {
+        return chain.then(function () { return conScanImportOne(bucket, token, name); });
+    }, Promise.resolve()).then(probeSignals).then(function (doneSeen) {
+        if (!live()) return;
         CON_SCAN.errMsg = '';
-        var cls = conScanClassify(r && r.data);
-        if (cls.hello.length) CON_SCAN.phoneSeen = true;
-        var newDone = false;
-        cls.done.forEach(function (n) {
-            if (!CON_SCAN.markers[n]) { CON_SCAN.markers[n] = 1; newDone = true; }
-        });
-        if (cls.hello.length || cls.done.length) {
-            cls.hello.concat(cls.done).forEach(function (n) { conScanRemoveStaged(bucket, token, n); });
-        }
-        var fresh = cls.files.filter(function (n) {
-            var h = CON_SCAN.handled[n];
-            return !h || (h === 'failed' && (CON_SCAN.attempts[n] || 0) < 3);
-        });
-        fresh.forEach(function (n) { CON_SCAN.handled[n] = 'queued'; });
-        if (newDone) CON_SCAN.phoneDone = true;
         conScanRender();
-        return fresh.reduce(function (chain, name) {
-            return chain.then(function () { return conScanImportOne(bucket, token, name); });
-        }, Promise.resolve());
+        /* the "finished" marker is uploaded after every page, so drain the pages first, then trust it */
+        return drain().then(function () {
+            if (live() && doneSeen) CON_SCAN.phoneDone = true;
+            conScanRender();
+        });
     }).catch(function (e) {
         CON_SCAN.errMsg = String((e && e.message) || e);
         conScanRender();
@@ -387,10 +444,14 @@ function conScanImportOne(bucket, token, name) {
     conScanRender();
     var path = CON_SCAN_PREFIX + '/' + token + '/' + name;
     var pid = CON_SCAN.pid;
-    return Promise.resolve(SB.storage.from(bucket).download(path)).then(function (r) {
-        if (!r || r.error || !r.data) throw new Error((r && r.error && r.error.message) || 'download failed');
+    var url = conScanPublicUrl(bucket, path);
+    return fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'cb=' + Date.now(), { cache: 'no-store' }).then(function (r) {
+        if (!r || !r.ok) throw new Error('download failed (' + (r && r.status) + ')');
+        return r.blob();
+    }).then(function (blob) {
+        if (!blob || !blob.size) throw new Error('download failed');
         var ext = item.ext;
-        var file = new File([r.data], conScanFileName(Date.now(), CON_SCAN.items.length, ext), { type: conScanMime(ext) });
+        var file = new File([blob], conScanFileName(Date.now(), CON_SCAN.items.length, ext), { type: conScanMime(ext) });
         var catEl = conScanEl('conScanCat');
         var meta = {
             category: (catEl && catEl.value) || CON_SCAN_CATEGORY,

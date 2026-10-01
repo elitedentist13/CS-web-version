@@ -50,18 +50,31 @@
         return 'en';
     }
 
-    function rand6() { return Math.random().toString(36).slice(2, 8).padEnd(6, '0'); }
+    /*
+     * The photos bucket is public but anonymous users cannot LIST it, and it only accepts image / PDF
+     * types. So the clinic computer finds files by PREDICTABLE names (it asks for p000, p001, ... on the
+     * public URL) and the "phone connected" / "phone finished" signals are tiny PNG markers.
+     */
+    function pad3(n) {
+        var s = String(n == null ? 0 : n);
+        while (s.length < 3) s = '0' + s;
+        return s;
+    }
 
-    function buildPath(token, seq, ext, now, rnd) {
+    function buildPath(token, seq, ext) {
         var e = String(ext || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-        var n = String(seq == null ? 0 : seq);
-        while (n.length < 3) n = '0' + n;
-        return PREFIX + '/' + token + '/' + (now == null ? Date.now() : now) + '_' + n + '_' + (rnd || rand6()) + '.' + e;
+        return PREFIX + '/' + token + '/p' + pad3(seq) + '.' + e;
     }
 
-    function buildMarkerPath(token, kind, now, rnd) {
-        return PREFIX + '/' + token + '/_' + kind + '_' + (now == null ? Date.now() : now) + '_' + (rnd || rand6()) + '.json';
-    }
+    function buildHelloPath(token) { return PREFIX + '/' + token + '/h.png'; }
+
+    function buildDonePath(token, k) { return PREFIX + '/' + token + '/d' + String(k == null ? 1 : k) + '.png'; }
+
+    /* 1x1 transparent PNG, used as a marker because the bucket rejects non-image types */
+    var PNG_1PX = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
+        0, 0, 0, 10, 73, 68, 65, 84, 120, 156, 99, 0, 1, 0, 0, 5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130];
+
+    function isConflict(msg) { return /already exists|duplicate/i.test(String(msg || '')); }
 
     /** Heckbert square-to-quad projective map. quad = [tl, tr, br, bl] each {x,y}. */
     function squareToQuad(q) {
@@ -251,11 +264,12 @@
         var left = tries == null ? 2 : tries;
         return up.upload(path, blob, contentType).then(function (r) {
             if (r && r.error) {
-                if (left > 0 && !/already exists|duplicate|not allowed/i.test(String(r.error.message || ''))) {
+                var m = String(r.error.message || '');
+                if (left > 0 && !isConflict(m) && !/not allowed/i.test(m)) {
                     return new Promise(function (res) { setTimeout(res, 600); })
                         .then(function () { return sendOne(up, path, blob, contentType, left - 1); });
                 }
-                return { ok: false, msg: String(r.error.message || 'upload failed') };
+                return { ok: false, conflict: isConflict(m), msg: m || 'upload failed' };
             }
             return { ok: true };
         }, function (err) {
@@ -267,26 +281,46 @@
         });
     }
 
-    /** items: [{ blob, ext, contentType }]. Sequential; resolves { sent, failed }. */
+    /**
+     * items: [{ blob, ext, contentType }]. Sequential, numbered p000, p001, ... If a number is already
+     * taken (page reloaded mid-session) the next free one is used. Resolves { sent, failed, nextSeq }.
+     */
     function uploadItems(sb, token, items, onProgress, seqStart) {
         var up = makeUploader(sb);
         var sent = 0, failed = 0, seq = seqStart || 0;
         var chain = Promise.resolve();
+        function attempt(it, bumps) {
+            return sendOne(up, buildPath(token, seq, it.ext), it.blob, it.contentType).then(function (r) {
+                if (!r.ok && r.conflict && bumps < 8) { seq++; return attempt(it, bumps + 1); }
+                if (r.ok) seq++;
+                return r;
+            });
+        }
         items.forEach(function (it, idx) {
             chain = chain.then(function () {
-                return sendOne(up, buildPath(token, seq + idx, it.ext), it.blob, it.contentType).then(function (r) {
+                return attempt(it, 0).then(function (r) {
                     if (r.ok) sent++; else failed++;
                     if (onProgress) onProgress(idx + 1, items.length, r);
                 });
             });
         });
-        return chain.then(function () { return { sent: sent, failed: failed }; });
+        return chain.then(function () { return { sent: sent, failed: failed, nextSeq: seq }; });
     }
 
-    function sendMarker(sb, token, kind, payload) {
+    /** kind 'hello' -> h.png ; kind 'done' -> d<k>.png (next free k from the given one). */
+    function sendMarker(sb, token, kind, k) {
         var up = makeUploader(sb);
-        var blob = new Blob([JSON.stringify(payload || {})], { type: 'application/json' });
-        return sendOne(up, buildMarkerPath(token, kind), blob, 'application/json', 1);
+        var blob = new Blob([new Uint8Array(PNG_1PX)], { type: 'image/png' });
+        if (kind === 'hello') return sendOne(up, buildHelloPath(token), blob, 'image/png', 1);
+        var n = k || 1;
+        function attempt(bumps) {
+            return sendOne(up, buildDonePath(token, n), blob, 'image/png', 1).then(function (r) {
+                if (!r.ok && r.conflict && bumps < 5) { n++; return attempt(bumps + 1); }
+                r.k = n;
+                return r;
+            });
+        }
+        return attempt(0);
     }
 
     /* ── UI strings ──────────────────────────────────────────── */
@@ -354,7 +388,17 @@
         var sb = env.sb;
         var pages = [];
         var sentCount = 0;
-        var seq = 0;
+        /* page numbering survives a reload of this tab, so the clinic computer never misses a page */
+        var seqKey = 'csScanSeq_' + params.token;
+        var seq = 0, doneK = 1;
+        try {
+            var kept = (root.sessionStorage.getItem(seqKey) || '').split(',');
+            seq = Math.max(0, parseInt(kept[0], 10) || 0);
+            doneK = Math.max(1, parseInt(kept[1], 10) || 1);
+        } catch (e) { /* private mode: start from zero */ }
+        function keepSeq() {
+            try { root.sessionStorage.setItem(seqKey, seq + ',' + doneK); } catch (e) { /* ignore */ }
+        }
         var stream = null;
         var cur = null;
         var dragIdx = -1;
@@ -374,7 +418,7 @@
         if (!isValidToken(params.token)) { fail(L.invalid); return; }
         if (isExpired(params.exp)) { fail(L.expired); return; }
 
-        sendMarker(sb, params.token, 'hello', { t: Date.now() });
+        sendMarker(sb, params.token, 'hello');
 
         function updateBadges() {
             var n = pages.length;
@@ -645,7 +689,8 @@
             prep.then(function (items) {
                 return uploadItems(sb, params.token, items, function (i, n) { setProgress(L.sending + ' ' + i + '/' + n); }, seq)
                     .then(function (res) {
-                        seq += items.length;
+                        seq = res.nextSeq;
+                        keepSeq();
                         $('scSendBtn').disabled = false;
                         if (res.failed) {
                             setProgress(L.failed);
@@ -655,7 +700,7 @@
                         pages.forEach(function (p) { URL.revokeObjectURL(p.thumb); });
                         pages = [];
                         updateBadges();
-                        sendMarker(sb, params.token, 'done', { pages: sentCount });
+                        sendMarker(sb, params.token, 'done', doneK).then(function (m) { if (m && m.k) { doneK = m.k + 1; keepSeq(); } });
                         $('scDoneCount').textContent = sentCount + ' ' + L.sentN;
                         setProgress('');
                         show('scDone');
@@ -706,7 +751,7 @@
     var api = {
         BUCKET: BUCKET, PREFIX: PREFIX,
         parseParams: parseParams, isValidToken: isValidToken, isExpired: isExpired, normLang: normLang,
-        buildPath: buildPath, buildMarkerPath: buildMarkerPath,
+        buildPath: buildPath, buildHelloPath: buildHelloPath, buildDonePath: buildDonePath,
         squareToQuad: squareToQuad, mapUnit: mapUnit, outputSize: outputSize, defaultQuad: defaultQuad,
         quadIsValid: quadIsValid, warpQuad: warpQuad, enhance: enhance, pdfPageSize: pdfPageSize,
         makeUploader: makeUploader, uploadItems: uploadItems, sendMarker: sendMarker,

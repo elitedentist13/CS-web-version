@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002scan1';
+var BUILD = '20261002scan2';
 var PAGE_PORT = 8795;
 var CDP_PORT = 9357;
 var CHROME = process.env.CHROME_PATH ||
@@ -264,11 +264,13 @@ function getPx(img, x, y) {
     pass('scan.js only writes under phone-scan/<token>/ and refuses other paths',
         /indexOf\(PREFIX \+ '\/'\) !== 0/.test(scanSrc) && scanSrc.indexOf("var PREFIX = 'phone-scan'") >= 0);
     pass('scan page does not load any app code, session or patient data',
-        !/app\.js|app-con|localStorage|sessionStorage|patients|currentUser/.test(scanSrc.replace(/\/\*[\s\S]*?\*\//, '')) &&
+        !/app\.js|app-con|localStorage|patients|currentUser/.test(scanSrc.replace(/\/\*[\s\S]*?\*\//, '')) &&
+        (scanSrc.match(/sessionStorage/g) || []).length === 2 && /csScanSeq_/.test(scanSrc) &&
         !/app\.js|app-con/.test(scanHtml));
     pass('scan page tells the user it can only add', scanHtml.indexOf('data-s="writeOnly"') >= 0 && scanHtml.indexOf('data-s="sentLocked"') >= 0);
-    pass('desktop side is the only place that lists, downloads and removes the staged files',
-        /\.list\(CON_SCAN_PREFIX/.test(deskSrc) && /\.download\(path\)/.test(deskSrc) && /\.remove\(\[CON_SCAN_PREFIX/.test(deskSrc));
+    pass('desktop finds staged files by probing public URLs - it never relies on storage list/download (anon cannot list)',
+        !/\.list\s*\(/.test(deskSrc) && !/\.download\s*\(/.test(deskSrc) && /method: 'HEAD'/.test(deskSrc) && /getPublicUrl/.test(deskSrc) &&
+        /\.remove\(\[CON_SCAN_PREFIX/.test(deskSrc));
     pass('desktop saves through the normal photo pipeline for the session patient',
         /photoUploadOne\(file, meta/.test(deskSrc) && /patientId: pid/.test(deskSrc));
 
@@ -282,13 +284,12 @@ function getPx(img, x, y) {
     pass('expiry check', scan.isExpired(1000, 2000) === true && scan.isExpired(3000, 2000) === false && scan.isExpired(0, 2000) === false);
     pass('language normalisation', scan.normLang('zh-TW') === 'zh-Hant' && scan.normLang('zh-HK') === 'zh-Hant' &&
         scan.normLang('zh-CN') === 'zh-CN' && scan.normLang('zh-Hans') === 'zh-CN' && scan.normLang('en-GB') === 'en' && scan.normLang('') === 'en');
-    var p1 = scan.buildPath(tok, 3, 'JPG', 1700000000000, 'abc123');
-    pass('storage path is unique, inside phone-scan/<token>/ and sanitised',
-        p1 === 'phone-scan/' + tok + '/1700000000000_003_abc123.jpg' &&
-        scan.buildPath(tok, 1, '../x', 1, 'r').indexOf('..') < 0 &&
-        scan.buildPath(tok, 1, 'jpg') !== scan.buildPath(tok, 1, 'jpg'));
-    pass('marker paths start with an underscore so they are never imported',
-        scan.buildMarkerPath(tok, 'hello', 5, 'r1') === 'phone-scan/' + tok + '/_hello_5_r1.json');
+    pass('page paths are predictable (p000, p001...), inside phone-scan/<token>/ and sanitised',
+        scan.buildPath(tok, 3, 'JPG') === 'phone-scan/' + tok + '/p003.jpg' &&
+        scan.buildPath(tok, 12, 'pdf') === 'phone-scan/' + tok + '/p012.pdf' &&
+        scan.buildPath(tok, 1, '../x').indexOf('..') < 0);
+    pass('marker paths are PNG names the bucket accepts (hello h.png, finished d<k>.png)',
+        scan.buildHelloPath(tok) === 'phone-scan/' + tok + '/h.png' && scan.buildDonePath(tok, 2) === 'phone-scan/' + tok + '/d2.png');
 
     var sq = scan.squareToQuad([{ x: 10, y: 20 }, { x: 110, y: 30 }, { x: 100, y: 120 }, { x: 5, y: 100 }]);
     var corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(function (uv) { return scan.mapUnit(sq, uv[0], uv[1]); });
@@ -363,10 +364,24 @@ function getPx(img, x, y) {
     pass('uploadItems sends every page with upsert off, to unique paths, touching nothing else',
         upRes.sent === 2 && upRes.failed === 0 && seen.length === 2 && seen[0].p !== seen[1].p &&
         seen.every(function (s) { return s.o.upsert === false && s.p.indexOf('phone-scan/' + tok + '/') === 0 && s.bucket === 'photos'; }));
-    var mk = await scan.sendMarker(guardedSb, tok, 'hello', { t: 1 });
-    pass('markers upload as small json under an underscore name', mk.ok === true && /\/_hello_\d+_[a-z0-9]+\.json$/.test(seen[seen.length - 1].p));
+    pass('pages are numbered in order', seen[0].p.endsWith('/p000.jpg') && seen[1].p.endsWith('/p001.jpg') && upRes.nextSeq === 2);
+    var mk = await scan.sendMarker(guardedSb, tok, 'hello');
+    pass('hello marker uploads as a tiny PNG (image/png, the bucket rejects json)',
+        mk.ok === true && /\/h\.png$/.test(seen[seen.length - 1].p) && seen[seen.length - 1].o.contentType === 'image/png' && seen[seen.length - 1].size < 200);
+    var mk2 = await scan.sendMarker(guardedSb, tok, 'done', 1);
+    var mk3 = await scan.sendMarker(guardedSb, tok, 'done', 1);
+    pass('finished marker takes the next free d<k>.png when one already exists',
+        mk2.ok && mk2.k === 1 && mk3.ok && mk3.k === 2 && /\/d2\.png$/.test(seen[seen.length - 1].p));
+    var bucketAllowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'application/pdf'];
+    pass('every content type the phone sends is accepted by the photos bucket allow-list',
+        seen.every(function (s) { return bucketAllowed.indexOf(s.o.contentType) >= 0; }));
+    var pgBefore = seen.length;
+    var clash = await scan.uploadItems(guardedSb, tok, [{ blob: blobA, ext: 'jpg', contentType: 'image/jpeg' }], null, 0);
+    pass('a page number that is already taken moves on to the next free one (page reloaded mid-session)',
+        clash.sent === 1 && clash.failed === 0 && seen.length === pgBefore + 3 && clash.nextSeq === 3, 'nextSeq ' + clash.nextSeq);
+    var seenBeforeRefuse = seen.length;
     var refused = await scan.makeUploader(guardedSb).upload('other-folder/x.jpg', blobA, 'image/jpeg');
-    pass('uploader refuses any path outside phone-scan/', refused.error && /not allowed/.test(refused.error.message) && seen.length === 3);
+    pass('uploader refuses any path outside phone-scan/', refused.error && /not allowed/.test(refused.error.message) && seen.length === seenBeforeRefuse);
     var dupe = await scan.makeUploader(guardedSb).upload('phone-scan/' + tok + '/same.jpg', blobA, 'image/jpeg');
     var dupe2 = await scan.makeUploader(guardedSb).upload('phone-scan/' + tok + '/same.jpg', blobA, 'image/jpeg');
     pass('an existing file can never be replaced (second write with the same name is rejected)',
@@ -400,10 +415,20 @@ function getPx(img, x, y) {
         back.token === tok && back.label === '#P1 · C. T. M.' && back.lang === 'zh-Hant' && back.exp === 1790000000000 && link.indexOf('http') === 0, link);
     pass('QR link never contains the full name or a patient id',
         link.indexOf('Chan') < 0 && D.conScanBuildUrl('https://a/b.html?z=1', tok, '', 'en', 0).indexOf('?z=1&t=') > 0);
-    var cl = D.conScanClassify([{ name: '.emptyFolderPlaceholder' }, { name: '_hello_1_a.json' }, { name: '_done_9_b.json' },
-        { name: '1700_001_x.jpg' }, { name: '1700_000_y.pdf' }, { name: '_other.json' }]);
-    pass('inbox listing is split into files (sorted) and markers; unknown underscore files are ignored',
-        JSON.stringify(cl.files) === '["1700_000_y.pdf","1700_001_x.jpg"]' && cl.hello.length === 1 && cl.done.length === 1);
+    pass('desktop and phone agree on every staged name (pages, hello, finished)',
+        D.conScanFilePath(tok, 4, 'pdf') === scan.buildPath(tok, 4, 'pdf') && D.conScanFilePath(tok, 4, 'jpg') === scan.buildPath(tok, 4, 'jpg') &&
+        D.conScanHelloPath(tok) === scan.buildHelloPath(tok) && D.conScanDonePath(tok, 3) === scan.buildDonePath(tok, 3));
+    var probed = [];
+    var D2 = loadDeskSandbox();
+    D2.SB = { storage: { from: function () { return { getPublicUrl: function (p) { return { data: { publicUrl: 'http://files.test/' + p } }; } }; } } };
+    D2.fetch = function (u, o) {
+        probed.push({ u: u, m: o && o.method });
+        var m = /files\.test\/(.*?)(\?|$)/.exec(u);
+        return Promise.resolve({ ok: m && m[1].endsWith('p001.pdf') });
+    };
+    var pf = await D2.conScanProbeFiles('photos', tok, 0);
+    pass('probing asks the public URL (HEAD) for the next few page numbers as pdf and jpg and returns only those that exist',
+        pf.length === 1 && pf[0].name === 'p001.pdf' && pf[0].idx === 1 && probed.length === 6 && probed.every(function (p) { return p.m === 'HEAD'; }));
     pass('extension / mime / file name helpers',
         D.conScanExt('a.PDF') === 'pdf' && D.conScanExt('noext') === 'jpg' && D.conScanMime('pdf') === 'application/pdf' &&
         D.conScanMime('jpg') === 'image/jpeg' && /^scan_\d{8}_\d{6}_2\.pdf$/.test(D.conScanFileName(Date.now(), 2, 'pdf')));
@@ -425,18 +450,18 @@ function getPx(img, x, y) {
 
     var apiTok = 'z' + Math.random().toString(36).slice(2, 12) + 'probe' + Date.now().toString(36);
     try {
-        var lr = await fetch(sbCfg.url + '/storage/v1/object/list/photos', {
-            method: 'POST',
-            headers: { apikey: sbCfg.key, Authorization: 'Bearer ' + sbCfg.key, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prefix: 'phone-scan/' + apiTok, limit: 10, offset: 0 })
-        });
-        var ltxt = await lr.text();
-        var lj = null;
-        try { lj = JSON.parse(ltxt); } catch (e) { /* ignore */ }
-        pass('API (read-only): the desktop can list the photos bucket inbox folder with the app key (empty folder -> [])',
-            lr.status === 200 && Array.isArray(lj) && lj.length === 0, 'HTTP ' + lr.status + ' ' + ltxt.slice(0, 120));
+        var hdr = { apikey: sbCfg.key, Authorization: 'Bearer ' + sbCfg.key };
+        var br = await fetch(sbCfg.url + '/storage/v1/bucket/photos', { headers: hdr });
+        var bj = await br.json();
+        var mimes = bj && bj.allowed_mime_types;
+        pass('API (read-only): photos bucket is public and its mime allow-list takes pdf, jpeg and png (so no json markers)',
+            br.status === 200 && bj.public === true && (!mimes || (mimes.indexOf('application/pdf') >= 0 && mimes.indexOf('image/jpeg') >= 0 &&
+                mimes.indexOf('image/png') >= 0 && mimes.indexOf('application/json') < 0)), JSON.stringify(mimes));
+        var hr = await fetch(sbCfg.url + '/storage/v1/object/public/photos/phone-scan/' + apiTok + '/p000.pdf?cb=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
+        pass('API (read-only): probing a staged page that does not exist answers "not found" (not 200, not a server error)',
+            hr.status === 400 || hr.status === 404, 'HTTP ' + hr.status);
     } catch (e) {
-        pass('API (read-only): storage list reachable', false, e.message);
+        pass('API (read-only): bucket info + public probe reachable', false, e.message);
     }
 
     if (!fs.existsSync(CHROME)) {
@@ -525,8 +550,19 @@ function getPx(img, x, y) {
           const realSB = window.SB;
           const store = new Map();
           const rows = { photos: [] };
-          const calls = { list: 0, download: 0, removed: [], uploads: [] };
+          const calls = { list: 0, download: 0, probes: 0, removed: [], uploads: [] };
           let failDownload = false;
+          /* the real bucket is public: HEAD/GET on the public URL work, but anonymous list/download return nothing */
+          const realFetch = window.fetch.bind(window);
+          window.fetch = (u, o) => {
+            const m = /^http:\\/\\/files\\.test\\/(.*?)(\\?|$)/.exec(String(u));
+            if (!m) return realFetch(u, o);
+            const p = decodeURIComponent(m[1]);
+            const head = !!(o && o.method === 'HEAD');
+            if (head) calls.probes++; else calls.download++;
+            if (!store.has(p) || (!head && failDownload)) return Promise.resolve({ ok: false, status: 404 });
+            return Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(store.get(p)) });
+          };
           function tbl(table) {
             const st = { ops: [] };
             const b = {};
@@ -553,8 +589,8 @@ function getPx(img, x, y) {
             from: tbl,
             storage: { from: (bucket) => ({
               upload: (p, f, o) => { calls.uploads.push(p); if (store.has(p)) return Promise.resolve({ error: { message: 'The resource already exists' } }); store.set(p, f); return Promise.resolve({ data: { path: p }, error: null }); },
-              list: (prefix) => { calls.list++; const o = []; store.forEach((v, k) => { if (k.indexOf(prefix + '/') === 0) o.push({ name: k.slice(prefix.length + 1) }); }); o.sort((a, b2) => a.name < b2.name ? -1 : 1); return Promise.resolve({ data: o, error: null }); },
-              download: (p) => { calls.download++; if (failDownload) return Promise.resolve({ data: null, error: { message: 'boom' } }); return store.has(p) ? Promise.resolve({ data: store.get(p), error: null }) : Promise.resolve({ data: null, error: { message: 'Object not found' } }); },
+              list: () => { calls.list++; return Promise.resolve({ data: [], error: null }); },
+              download: () => { calls.download++; return Promise.resolve({ data: null, error: { message: 'Object not found' } }); },
               remove: (ps) => { ps.forEach((p) => { calls.removed.push(p); store.delete(p); }); return Promise.resolve({ data: [], error: null }); },
               getPublicUrl: (p) => ({ data: { publicUrl: 'http://files.test/' + p } })
             }) }
@@ -563,7 +599,13 @@ function getPx(img, x, y) {
           CON_MEDIA.ctx.photos = true; CON_MEDIA.ctx.docs = true;
           CON_MEDIA._probe = Promise.resolve(CON_MEDIA.ctx);
           const staged = () => Array.from(store.keys()).filter((k) => k.indexOf('phone-scan/') === 0);
-          const phoneSend = (items) => Scan.uploadItems(fakeSB, CON_SCAN.token, items);
+          const phoneSeq = {};
+          const phoneSend = async (items) => {
+            const t = CON_SCAN.token;
+            const r = await Scan.uploadItems(fakeSB, t, items, null, phoneSeq[t] || 0);
+            phoneSeq[t] = r.nextSeq;
+            return r;
+          };
           const pdfBlob = new Blob(['%PDF-1.4 fake'], { type: 'application/pdf' });
           const jpgBlob = new Blob(['jpgdata'], { type: 'image/jpeg' });
 
@@ -584,10 +626,10 @@ function getPx(img, x, y) {
           out.catList = document.getElementById('conScanCat').value === 'Scanned Document' && document.getElementById('conScanCat').options.length >= 6;
 
           /* phone connected, nothing sent yet */
-          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'hello', { t: Date.now() });
+          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'hello');
           await conScanPoll();
           out.stateConnected = document.getElementById('conScanStatus').getAttribute('data-state') === 'connected' && CON_SCAN.phoneSeen === true;
-          out.helloCleaned = staged().every((k) => k.indexOf('/_hello_') < 0);
+          out.helloCleaned = staged().every((k) => k.indexOf('/h.png') < 0);
 
           /* phone sends a PDF and an image */
           const sess1 = CON_SCAN.token;
@@ -612,7 +654,7 @@ function getPx(img, x, y) {
           conPatientId = 'smoke-pid';
 
           /* done -> modal closes by itself, Photos tab shows the new cards */
-          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'done', { pages: 3 });
+          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'done', 1);
           await conScanPoll();
           await until(() => document.querySelectorAll('#photoGridView .xray-card.con-scan-new').length >= 3, 6000);
           out.autoClosed = document.getElementById('conScanModal').style.display === 'none' && CON_SCAN.active === false;
@@ -629,7 +671,7 @@ function getPx(img, x, y) {
           document.getElementById('conScanAutoClose').checked = false;
           conScanOpen();
           await phoneSend([{ blob: jpgBlob, ext: 'jpg', contentType: 'image/jpeg' }]);
-          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'done', { pages: 1 });
+          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'done', 1);
           await conScanPoll();
           out.stateDone = document.getElementById('conScanStatus').getAttribute('data-state') === 'done';
           out.staysOpen = document.getElementById('conScanModal').style.display === 'block' && CON_SCAN.active === true;
@@ -648,12 +690,33 @@ function getPx(img, x, y) {
           out.chosenCategory = rows.photos.length === 1 && rows.photos[0].category === 'Lab Report';
           conScanClose();
 
+          /* many pages (more than the probe window) arrive in one poll, and the window waits for all of them */
+          rows.photos.length = 0;
+          document.getElementById('conScanAutoClose').checked = true;
+          conScanOpen();
+          await phoneSend([1, 2, 3, 4, 5, 6, 7].map(() => ({ blob: jpgBlob, ext: 'jpg', contentType: 'image/jpeg' })));
+          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'done', 1);
+          await conScanPoll();
+          out.sevenPages = rows.photos.length === 7 && CON_SCAN.nextIdx === 7;
+          out.sevenAutoClosed = CON_SCAN.active === false && document.getElementById('conScanModal').style.display === 'none';
+          await wait(300);
+
+          /* a jpg and a pdf with the same page number (two phone tabs) are both found and both saved */
+          rows.photos.length = 0;
+          document.getElementById('conScanAutoClose').checked = false;
+          conScanOpen();
+          await phoneSend([{ blob: jpgBlob, ext: 'jpg', contentType: 'image/jpeg' }]);
+          await Scan.uploadItems(fakeSB, CON_SCAN.token, [{ blob: pdfBlob, ext: 'pdf', contentType: 'application/pdf' }], null, 0);
+          await conScanPoll();
+          out.sameNumberBoth = rows.photos.length === 2 && CON_SCAN.nextIdx === 1;
+          conScanClose();
+
           /* failed import: stays visible, retried, never silently auto-closed */
           rows.photos.length = 0;
           conScanOpen();
           failDownload = true;
           await phoneSend([{ blob: jpgBlob, ext: 'jpg', contentType: 'image/jpeg' }]);
-          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'done', { pages: 1 });
+          await Scan.sendMarker(fakeSB, CON_SCAN.token, 'done', 1);
           await conScanPoll(); await conScanPoll(); await conScanPoll(); await conScanPoll();
           out.failedShown = CON_SCAN.items.length === 1 && CON_SCAN.items[0].status === 'failed' &&
             document.querySelectorAll('#conScanList .con-scan-item.is-failed').length === 1;
@@ -695,9 +758,9 @@ function getPx(img, x, y) {
             document.getElementById('conScanStatus').getAttribute('data-state') === 'expired' &&
             document.getElementById('conScanQrCol').classList.contains('is-dim');
           await phoneSend([{ blob: jpgBlob, ext: 'jpg', contentType: 'image/jpeg' }]);
-          const listBefore = calls.list;
+          const probesBefore = calls.probes;
           await conScanPoll();
-          out.expiredNoPoll = calls.list === listBefore && rows.photos.length === 0;
+          out.expiredNoPoll = calls.probes === probesBefore && rows.photos.length === 0;
           conScanClose();
 
           /* hub menu entry */
@@ -709,6 +772,8 @@ function getPx(img, x, y) {
           out.menuOpensModal = document.getElementById('conScanModal').style.display === 'block' && CON_SCAN.active === true;
           conScanClose();
 
+          out.neverListed = calls.list === 0;
+          window.fetch = realFetch;
           window.SB = realSB;
           return out;
         })()`, true, 90000);
@@ -737,6 +802,10 @@ function getPx(img, x, y) {
         pass('live: with auto-close off the window stays open until "Show in Photos"',
             live && live.stateDone === true && live.staysOpen === true && live.closeShows === true);
         pass('live: category picked on the desktop is used', live && live.chosenCategory === true);
+        pass('live: anonymous storage list/download are never needed (the real bucket returns nothing for them)', live && live.neverListed === true);
+        pass('live: 7 pages (more than one probe window) in one go are all saved before the window auto-closes',
+            live && live.sevenPages === true && live.sevenAutoClosed === true, live ? JSON.stringify([live.sevenPages, live.sevenAutoClosed]) : 'none');
+        pass('live: a jpg and a pdf sharing a page number are both imported', live && live.sameNumberBoth === true);
         pass('live: a failed save is shown, retried up to 3 times, keeps the window open and keeps the staged file',
             live && live.failedShown === true && live.failedRetried3 === true && live.failedKeepsOpen === true && live.failedStagedKept === true,
             live ? JSON.stringify([live.failedShown, live.failedRetried3, live.failedKeepsOpen, live.failedStagedKept]) : 'none');
@@ -813,7 +882,7 @@ function getPx(img, x, y) {
           const $ = (id) => document.getElementById(id);
           const vis = (id) => !$(id).hidden;
           const out = {};
-          out.helloSent = await until(() => window.__uploads.some((u) => /\\/_hello_/.test(u.p)), 4000);
+          out.helloSent = await until(() => window.__uploads.some((u) => /\\/h\\.png$/.test(u.p) && u.type === 'image/png'), 4000);
           out.introVisible = vis('scIntro') && $('scLabel').textContent.indexOf('#S1') === 0;
           out.finishDisabled = $('scFinishBtn').disabled === true;
 
@@ -873,12 +942,12 @@ function getPx(img, x, y) {
           window.__failNext = 3;
           $('scSendBtn').click();
           out.failShown = await until(() => /did not send/i.test($('scSendStatus').textContent), 10000);
-          out.pagesKept = $('scTrayCount').textContent === '1' && vis('scSend') && !window.__uploads.some((u) => /\\/_done_/.test(u.p));
+          out.pagesKept = $('scTrayCount').textContent === '1' && vis('scSend') && !window.__uploads.some((u) => /\\/d\\d+\\.png$/.test(u.p));
           $('scSendBtn').click();
           out.doneView = await until(() => vis('scDone'), 8000);
-          const up = window.__uploads.filter((u) => /\\.jpg$/.test(u.p) && !/\\/_/.test(u.p));
+          const up = window.__uploads.filter((u) => /\\/p\\d+\\.jpg$/.test(u.p));
           out.sentJpg = up.length >= 1 && up[up.length - 1].type === 'image/jpeg' && up[up.length - 1].opts.upsert === false && up[up.length - 1].size > 500;
-          out.doneMarker = window.__uploads.some((u) => /\\/_done_/.test(u.p));
+          out.doneMarker = await until(() => window.__uploads.some((u) => /\\/d1\\.png$/.test(u.p) && u.type === 'image/png'), 4000);
           out.countText = $('scDoneCount').textContent;
           out.pagesCleared = window.__scanState().pages === 0 && window.__scanState().sent === 1;
 
@@ -900,6 +969,8 @@ function getPx(img, x, y) {
           out.pagesAllPaths = window.__uploads.every((u) => u.p.indexOf('phone-scan/phonetoken0123456789ab/') === 0 && u.bucket === 'photos');
           const okUploads = window.__uploads.filter((u) => u.ok);
           out.uniquePaths = okUploads.length > 3 && new Set(okUploads.map((u) => u.p)).size === okUploads.length;
+          out.pageNames = window.__uploads.filter((u) => u.ok && /\\/p\\d+\\./.test(u.p)).map((u) => u.p.split('/').pop()).join(',');
+          out.allowedTypes = window.__uploads.every((u) => ['image/jpeg', 'image/png', 'application/pdf'].indexOf(u.type) >= 0);
           out.forbidden = window.__forbidden.slice();
           return out;
         })()`, true, 120000);
@@ -919,6 +990,8 @@ function getPx(img, x, y) {
         pass('phone: "one PDF" mode uploads a single real PDF built from the pages', flow.pdfDone === true && flow.pdfSent === true && flow.pdfHeader === '%PDF-',
             JSON.stringify([flow.pdfDone, flow.pdfSent, flow.pdfHeader]));
         pass('phone: every upload is a new unique path under phone-scan/<token>/ in the photos bucket', flow.pagesAllPaths === true && flow.uniquePaths === true);
+        pass('phone: pages are numbered p000, p001... (the desktop probes these names) and only bucket-allowed types are sent',
+            flow.pageNames === 'p000.jpg,p001.pdf' && flow.allowedTypes === true, flow.pageNames);
         pass('phone: during the whole session it never touched a table or any storage method except upload',
             Array.isArray(flow.forbidden) && flow.forbidden.length === 0, JSON.stringify(flow.forbidden));
 

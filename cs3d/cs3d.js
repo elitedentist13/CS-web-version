@@ -5,7 +5,7 @@
     var TG_MPR = 'banana-cs3d-mpr';
     var TG_3D = 'banana-cs3d-3d';
     var VP = { AX: 'CS3D_AXIAL', SAG: 'CS3D_SAGITTAL', COR: 'CS3D_CORONAL', VOL: 'CS3D_VOLUME' };
-    var last = { source: '', n: 0, mode: '', volumeId: '', tool: 'WindowLevel', ready: false, error: '' };
+    var last = { source: '', n: 0, skipped: 0, mode: '', volumeId: '', tool: 'WindowLevel', ready: false, error: '' };
     var nLoad = 0;
 
     function $(id) { return document.getElementById(id); }
@@ -267,6 +267,69 @@
         }
     }
 
+    function metaGet(type, imageId) {
+        var core = window.csCore;
+        try {
+            if (core && core.metaData && typeof core.metaData.get === 'function') {
+                return core.metaData.get(type, imageId);
+            }
+        } catch (e) { /* ignore */ }
+        return null;
+    }
+
+    function hasReconstructablePlane(imageId) {
+        var plane = metaGet('imagePlaneModule', imageId);
+        if (!plane) return false;
+        var ipp = plane.imagePositionPatient;
+        var iop = plane.imageOrientationPatient;
+        return !!(ipp && ipp.length >= 3 && iop && iop.length >= 6);
+    }
+
+    function seriesKey(imageId) {
+        var series = metaGet('generalSeriesModule', imageId);
+        var plane = metaGet('imagePlaneModule', imageId);
+        return (series && (series.seriesInstanceUID || series.SeriesInstanceUID)) ||
+            (plane && plane.frameOfReferenceUID) ||
+            'unknown';
+    }
+
+    function expandFrames(imageIds) {
+        var out = [];
+        (imageIds || []).forEach(function (id) {
+            var n = 0;
+            var mf = metaGet('multiframeModule', id) || metaGet('multiFrameModule', id);
+            if (mf) n = Number(mf.NumberOfFrames || mf.numberOfFrames || 0);
+            if (!n) {
+                var inst = metaGet('instance', id);
+                if (inst) n = Number(inst.NumberOfFrames || inst.numberOfFrames || 0);
+            }
+            if (n > 1) {
+                var base = String(id).replace(/[?&]frame=\d+$/i, '');
+                var i;
+                for (i = 1; i <= n; i++) out.push(base + (base.indexOf('?') >= 0 ? '&' : '?') + 'frame=' + i);
+            } else {
+                out.push(id);
+            }
+        });
+        return out;
+    }
+
+    function pickVolumeImageIds(imageIds) {
+        var usable = (imageIds || []).filter(hasReconstructablePlane);
+        if (!usable.length) return [];
+        var groups = {};
+        usable.forEach(function (id) {
+            var key = seriesKey(id);
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(id);
+        });
+        var best = [];
+        Object.keys(groups).forEach(function (k) {
+            if (groups[k].length > best.length) best = groups[k];
+        });
+        return best;
+    }
+
     function apply3dPreset(viewport) {
         var core = window.csCore;
         try {
@@ -394,13 +457,38 @@
             destroyEngine();
             purgeFiles();
             var imageIds = list.map(fileToImageId);
-            if (typeof window.csDicom.convertMultiframeImageIds === 'function') {
-                imageIds = window.csDicom.convertMultiframeImageIds(imageIds);
-            }
             await prefetchMeta(imageIds);
-            if (imageIds.length >= 3) await loadVolume(imageIds, label);
-            else await loadStack(imageIds, label);
-            return true;
+            if (typeof window.csDicom.convertMultiframeImageIds === 'function') {
+                try { imageIds = window.csDicom.convertMultiframeImageIds(imageIds); } catch (eMf) { /* keep ids */ }
+            }
+            imageIds = expandFrames(imageIds);
+            var volumeIds = pickVolumeImageIds(imageIds);
+            var skipped = imageIds.length - volumeIds.length;
+            last.skipped = skipped;
+            if (volumeIds.length >= 3) {
+                try {
+                    await loadVolume(volumeIds, label);
+                    if (skipped > 0) {
+                        setStatus((label || 'Loaded') + ': ' + volumeIds.length +
+                            ' instances · volume + three planes (skipped ' + skipped +
+                            ' file' + (skipped === 1 ? '' : 's') + ' without slice positions).', 'ok');
+                    }
+                    return true;
+                } catch (volErr) {
+                    console.warn('[cs3d] volume failed, trying stack', volErr);
+                    await loadStack(volumeIds, label);
+                    return true;
+                }
+            }
+            if (volumeIds.length) {
+                await loadStack(volumeIds, label);
+                return true;
+            }
+            if (imageIds.length === 1) {
+                await loadStack(imageIds, label);
+                return true;
+            }
+            throw new Error('No reconstructable slices (need Image Position). This zip may mix reports/scouts with a volume — load one series, or use the OHIF CBCT viewer.');
         } catch (err) {
             last.ready = false;
             last.error = (err && err.message) ? err.message : String(err);
@@ -462,6 +550,7 @@
             vendor: vendorOk(),
             source: last.source,
             n: last.n,
+            skipped: last.skipped || 0,
             mode: last.mode,
             tool: last.tool,
             volumeId: last.volumeId,
@@ -565,6 +654,8 @@
     window.CS3D_PAGE = {
         loadFiles: loadFiles,
         loadTestVolume: loadTestVolume,
+        pickVolumeImageIds: pickVolumeImageIds,
+        hasReconstructablePlane: hasReconstructablePlane,
         setTool: setTool,
         setStatus: setStatus,
         resetCameras: resetCameras,

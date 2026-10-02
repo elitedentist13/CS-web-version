@@ -12,8 +12,8 @@ var child_process = require('child_process');
 var os = require('os');
 
 var BUILD = '20261003cbe';
-var PAGE_PORT = 8804;
-var CDP_PORT = 9372;
+var PAGE_PORT = 8808;
+var CDP_PORT = 9378;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 var root = path.resolve(__dirname, '..');
 var fails = [];
@@ -200,6 +200,9 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
     pass('sidecar has volume + three planes + measure tools',
         /VOLUME_3D/.test(app) && /OrientationAxis\.AXIAL/.test(app) && /LengthTool/.test(app) &&
         /CrosshairsTool/.test(app) && /WindowLevelTool/.test(app));
+    pass('sidecar skips zip members without slice positions instead of crashing',
+        /function pickVolumeImageIds/.test(app) && /function hasReconstructablePlane/.test(app) &&
+        /imagePositionPatient/.test(app) && /No reconstructable slices/.test(app));
     pass('sidecar unpacks zip without calling OHIF',
         /bananaCs3dUnzip/.test(read('cs3d/cs3d-load.js')) && !/bananaOhif/.test(read('cs3d/cs3d-load.js')) &&
         /banana-load\.js/.test(read('ohif/index.html')));
@@ -284,6 +287,43 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
     vm.runInContext(read('cs3d/cs3d-load.js'), loadBox);
     var dcm = Buffer.alloc(140, 0);
     dcm[128] = 68; dcm[129] = 73; dcm[130] = 67; dcm[131] = 77;
+    function storeZipMany(entries) {
+        var locals = [];
+        var cds = [];
+        var offset = 0;
+        entries.forEach(function (ent) {
+            var nameB = Buffer.from(ent.name);
+            var data = Buffer.isBuffer(ent.data) ? ent.data : Buffer.from(ent.data);
+            var local = Buffer.alloc(30 + nameB.length + data.length);
+            local.writeUInt32LE(0x04034b50, 0);
+            local.writeUInt16LE(20, 4);
+            local.writeUInt32LE(data.length, 18);
+            local.writeUInt32LE(data.length, 22);
+            local.writeUInt16LE(nameB.length, 26);
+            nameB.copy(local, 30);
+            data.copy(local, 30 + nameB.length);
+            var cd = Buffer.alloc(46 + nameB.length);
+            cd.writeUInt32LE(0x02014b50, 0);
+            cd.writeUInt16LE(20, 4);
+            cd.writeUInt16LE(20, 6);
+            cd.writeUInt32LE(data.length, 20);
+            cd.writeUInt32LE(data.length, 24);
+            cd.writeUInt16LE(nameB.length, 28);
+            cd.writeUInt32LE(offset, 42);
+            nameB.copy(cd, 46);
+            locals.push(local);
+            cds.push(cd);
+            offset += local.length;
+        });
+        var cdBuf = Buffer.concat(cds);
+        var eocd = Buffer.alloc(22);
+        eocd.writeUInt32LE(0x06054b50, 0);
+        eocd.writeUInt16LE(entries.length, 8);
+        eocd.writeUInt16LE(entries.length, 10);
+        eocd.writeUInt32LE(cdBuf.length, 12);
+        eocd.writeUInt32LE(offset, 16);
+        return Buffer.concat(locals.concat([cdBuf, eocd]));
+    }
     function storeZip(name, data) {
         var nameB = Buffer.from(name);
         var local = Buffer.alloc(30 + nameB.length + data.length);
@@ -345,6 +385,17 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         pass('public BBMRI CT series downloaded (6 real DICOM slices)',
             samples.length === 6 && samples.every(function (s) { return s.buf[128] === 68 && s.buf[131] === 77; }),
             samples.reduce(function (n, s) { return n + s.buf.length; }, 0) + ' bytes');
+        var dummyDcm = Buffer.alloc(140, 0);
+        dummyDcm[128] = 68; dummyDcm[129] = 73; dummyDcm[130] = 67; dummyDcm[131] = 77;
+        extraFiles['/__cs3d-sample/report.dcm'] = { buf: dummyDcm, type: 'application/dicom' };
+        if (samples.length === 6) {
+            var zipEntries = samples.map(function (s) {
+                return { name: 'study/' + s.name, data: s.buf };
+            });
+            zipEntries.push({ name: 'study/report.dcm', data: dummyDcm });
+            var mixedZip = storeZipMany(zipEntries);
+            extraFiles['/__cs3d-sample/mixed.zip'] = { buf: mixedZip, type: 'application/zip' };
+        }
     } catch (e) {
         pass('public BBMRI CT series downloaded (6 real DICOM slices)', false, e.message);
     }
@@ -372,6 +423,10 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         pass('GET /__cs3d-sample serves a real DICOM',
             samp.status === 200 && samp.body.length > 8000 && samp.body[128] === 68,
             samp.body.length + ' bytes');
+        var zipGet = await httpGetText(PAGE_PORT, '/__cs3d-sample/mixed.zip');
+        pass('GET /__cs3d-sample/mixed.zip is a study zip',
+            zipGet.status === 200 && zipGet.body[0] === 0x50 && zipGet.body[1] === 0x4b,
+            zipGet.body.length + ' bytes');
     }
 
     console.log('\n=== CDP live page ===');
@@ -467,6 +522,52 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
                 live ? JSON.stringify({ mode: live.state && live.state.mode, dims: live.dims, spacing: live.spacing, actors: live.actors, range: live.range, sizes: live.sizes, err: live.state && live.state.error, status: live.status }) : 'none');
             pass('live: Length tool is active after the real load',
                 live && live.tool === 'Length', live && live.tool);
+            var mixed = await cdp.js(`(async () => {
+              const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+              const names = ${JSON.stringify(BBMRI_SLICES)};
+              const files = [];
+              for (const name of names) {
+                const r = await fetch('/__cs3d-sample/' + name);
+                const buf = await r.arrayBuffer();
+                files.push(new File([buf], name, { type: 'application/dicom' }));
+              }
+              const dummy = await fetch('/__cs3d-sample/report.dcm');
+              files.push(new File([await dummy.arrayBuffer()], 'report.dcm', { type: 'application/dicom' }));
+              const ok = await CS3D_PAGE.loadFiles(files, 'mixed-study');
+              await wait(600);
+              const state = CS3D_PAGE.state();
+              const vol = csCore.cache && csCore.cache.getVolume && csCore.cache.getVolume(state.volumeId);
+              return {
+                ok, mode: state.mode, n: state.n, skipped: state.skipped, err: state.error,
+                dims: vol && vol.dimensions, range: vol && vol.voxelManager && vol.voxelManager.getRange && vol.voxelManager.getRange(),
+                status: (document.getElementById('status') || {}).textContent
+              };
+            })()`, true, 90000);
+            pass('live: mixed study skips the non-volume DICOM instead of crashing',
+                mixed && mixed.ok === true && mixed.mode === 'volume' && mixed.n === 6 &&
+                mixed.skipped >= 1 && mixed.dims && mixed.dims[0] > 32 &&
+                !(mixed.range && mixed.range[0] === 20 && mixed.range[1] === 220) &&
+                String(mixed.err || '') === '',
+                mixed ? JSON.stringify(mixed) : 'none');
+            var zipped = await cdp.js(`(async () => {
+              const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+              const r = await fetch('/__cs3d-sample/mixed.zip');
+              if (!r.ok) throw new Error('mixed zip HTTP ' + r.status);
+              const f = new File([await r.arrayBuffer()], 'mixed.zip', { type: 'application/zip' });
+              const ok = await bananaCs3dHandleList([f], 'zip');
+              await wait(800);
+              const state = CS3D_PAGE.state();
+              const vol = csCore.cache && csCore.cache.getVolume && csCore.cache.getVolume(state.volumeId);
+              return {
+                ok, mode: state.mode, n: state.n, skipped: state.skipped, err: state.error,
+                dims: vol && vol.dimensions,
+                status: (document.getElementById('status') || {}).textContent
+              };
+            })()`, true, 90000);
+            pass('live: Load zip of CT + report builds the CT volume',
+                zipped && zipped.ok === true && zipped.mode === 'volume' && zipped.n === 6 &&
+                zipped.dims && zipped.dims[0] > 32 && String(zipped.err || '') === '',
+                zipped ? JSON.stringify(zipped) : 'none');
         } else {
             pass('live: real BBMRI DICOM series imported', false, 'no sample files');
         }

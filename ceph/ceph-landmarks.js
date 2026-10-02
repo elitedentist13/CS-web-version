@@ -1,5 +1,5 @@
-/* ISBI 2015 19-landmark set. Auto-place uses the empirical mean of 400
-   ISBI senior tracings plus 1000 Aariz / CEPHA29 films (GitHub manwaarkhd/aariz).
+/* ISBI 2015 19-landmark set. Auto-place uses the empirical mean of
+   ISBI + Aariz + PKU/DentalCepha tracings, then a local edge/darkness snap.
    Images are not shipped. */
 (function (g) {
     var CAT = null;
@@ -137,25 +137,104 @@
         return defs().map(function (d) { return d.id; });
     }
 
+    function grayProxy(img) {
+        var max = 400;
+        var s = Math.min(1, max / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+        var w = Math.max(1, Math.round((img.naturalWidth || 1) * s));
+        var h = Math.max(1, Math.round((img.naturalHeight || 1) * s));
+        var c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        var ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        return { data: ctx.getImageData(0, 0, w, h).data, w: w, h: h, s: s };
+    }
+
+    function luAt(g, x, y) {
+        x = Math.max(0, Math.min(g.w - 1, x | 0));
+        y = Math.max(0, Math.min(g.h - 1, y | 0));
+        var i = (y * g.w + x) * 4;
+        return g.data[i] * 0.3 + g.data[i + 1] * 0.59 + g.data[i + 2] * 0.11;
+    }
+
+    function diskMean(g, x, y, r) {
+        var acc = 0, n = 0, dy, dx;
+        for (dy = -r; dy <= r; dy++) {
+            for (dx = -r; dx <= r; dx++) {
+                if (dx * dx + dy * dy > r * r) continue;
+                acc += luAt(g, x + dx, y + dy);
+                n++;
+            }
+        }
+        return n ? acc / n : 128;
+    }
+
+    function gradAt(g, x, y) {
+        return {
+            gx: luAt(g, x + 1, y) - luAt(g, x - 1, y),
+            gy: luAt(g, x, y + 1) - luAt(g, x, y - 1)
+        };
+    }
+
+    function edgeScore(g, id, x, y) {
+        var gr = gradAt(g, x, y);
+        var mag = Math.hypot(gr.gx, gr.gy);
+        if (id === 'S' || id === 'Po' || id === 'Ar') return 255 - diskMean(g, x, y, 3);
+        if (id === 'Me' || id === 'Gn') return mag + gr.gy * 0.45;
+        if (id === 'N') return mag + gr.gx * 0.4;
+        if (id === 'A' || id === 'ANS') return mag + gr.gx * 0.3;
+        if (id === 'Pog' || id === 'Go' || id === 'Or') return mag;
+        if (id === 'U1' || id === 'L1') return mag;
+        return mag * 0.55;
+    }
+
+    var SNAP = { S: 1, Me: 1, Go: 1, Po: 1, Or: 1, Ar: 1, Pog: 1, ANS: 1 };
+
+    function refinePts(img, pts, scaleX, scaleY, useImgStd) {
+        var g = grayProxy(img);
+        var out = {};
+        defs().forEach(function (d) {
+            var p = pts[d.id];
+            if (!p) return;
+            if (!SNAP[d.id]) { out[d.id] = { x: p.x, y: p.y }; return; }
+            var sx = useImgStd ? (d.isx || 0.03) : (d.sx || 0.04);
+            var sy = useImgStd ? (d.isy || 0.03) : (d.sy || 0.04);
+            var capX = Math.max(4, sx * scaleX * 1.15);
+            var capY = Math.max(4, sy * scaleY * 1.15);
+            var winX = capX * g.s, winY = capY * g.s;
+            var cx = p.x * g.s, cy = p.y * g.s;
+            var bestX = cx, bestY = cy, best = edgeScore(g, d.id, cx, cy);
+            var step = Math.max(1, Math.round(Math.min(winX, winY) / 6));
+            var x, y, sc;
+            for (y = cy - winY; y <= cy + winY; y += step) {
+                for (x = cx - winX; x <= cx + winX; x += step) {
+                    sc = edgeScore(g, d.id, x, y);
+                    if (sc > best) { best = sc; bestX = x; bestY = y; }
+                }
+            }
+            out[d.id] = {
+                x: (p.x * 0.55) + (bestX / g.s) * 0.45,
+                y: (p.y * 0.55) + (bestY / g.s) * 0.45
+            };
+        });
+        return out;
+    }
+
     function detectLocal(img) {
         if (!img || !img.naturalWidth) return { pts: emptyPts(), source: 'empty' };
         var box = findHeadBox(img);
         var area = (box.w * box.h) / Math.max(1, img.naturalWidth * img.naturalHeight);
         var n = (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 400;
+        var pts, src;
         if (area >= 0.68) {
-            return {
-                pts: placeImgMean(img),
-                source: 'isbi+aariz-' + n + '-imgmean',
-                box: box,
-                films: n
-            };
+            pts = placeImgMean(img);
+            pts = refinePts(img, pts, img.naturalWidth, img.naturalHeight, true);
+            src = 'isbi+aariz+pku-' + n + '-imgmean+edge';
+        } else {
+            pts = localBoxMean(box);
+            pts = refinePts(img, pts, box.w, box.h, false);
+            src = 'isbi+aariz+pku-' + n + '-boxmean+edge';
         }
-        return {
-            pts: localBoxMean(box),
-            source: 'isbi+aariz-' + n + '-boxmean',
-            box: box,
-            films: n
-        };
+        return { pts: pts, source: src, box: box, films: n };
     }
 
     function applyRemote(payload, img) {

@@ -8,7 +8,7 @@ var http = require('http');
 var path = require('path');
 var vm = require('vm');
 
-var BUILD = '20261002cbb';
+var BUILD = '20261002cbc';
 var PAGE_PORT = 8794;
 var root = path.resolve(__dirname, '..');
 var fails = [];

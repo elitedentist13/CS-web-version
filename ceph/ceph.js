@@ -140,7 +140,7 @@
             if (done) done({ ok: true, source: remote.source, via: 'api' });
         }).catch(function () {
             setPts(local.pts, local.source);
-            setStatus('Landmarks from the ISBI + Aariz mean (' + local.source + '). Drag to correct.');
+            setStatus('Landmarks from the 1502-film mean plus local snap (' + local.source + '). Drag to correct.');
             if (done) done({ ok: true, source: local.source, via: 'local' });
         });
     }

@@ -7,6 +7,7 @@ Sources (coordinates only — no radiographs are written into the repo):
     (ISBI 2015 senior train + Test1, 300 films x 19 points)
   - GitHub manwaarkhd/aariz + Figshare 10.6084/m9.figshare.27986417
     (Aariz / CEPHA29, 1000 films x 29 points; 19 overlap ISBI)
+  - Figshare PKU / DentalCepha (Zeng et al. 2020), 102 films x 19 points
 """
 from __future__ import annotations
 
@@ -253,6 +254,69 @@ def load_aariz_films(root: Path) -> dict[str, dict]:
     return films
 
 
+def extract_txt_only(zip_path: Path, dest: Path, must_contain: str) -> int:
+    dest.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with zipfile.ZipFile(zip_path) as zf:
+        for info in zf.infolist():
+            name = info.filename.replace("\\", "/")
+            if info.is_dir() or not name.lower().endswith(".txt"):
+                continue
+            if must_contain and must_contain not in name.replace("\\", "/").lower():
+                continue
+            parts = [p for p in name.split("/") if p and p not in (".", "..")]
+            target = dest.joinpath(*parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, target.open("wb") as out:
+                out.write(src.read())
+            n += 1
+    return n
+
+
+def parse_isbi_txt(text: str) -> dict[str, tuple[float, float]] | None:
+    pts = {}
+    i = 0
+    for line in text.splitlines():
+        line = line.strip().replace(";", ",")
+        if not line:
+            continue
+        parts = [p for p in line.replace(",", " ").split() if p]
+        if len(parts) < 2:
+            continue
+        try:
+            x, y = float(parts[0]), float(parts[1])
+        except ValueError:
+            continue
+        if i >= len(IDS):
+            break
+        pts[IDS[i]] = (x, y)
+        i += 1
+    return pts if len(pts) == 19 else None
+
+
+def load_pku_films(root: Path) -> dict[str, dict]:
+    buckets: dict[str, list] = {}
+    for fp in root.rglob("*.txt"):
+        pts = parse_isbi_txt(fp.read_text(encoding="utf-8", errors="replace"))
+        if not pts:
+            continue
+        buckets.setdefault(fp.stem, []).append(pts)
+    films = {}
+    for stem, group in buckets.items():
+        merged = {}
+        for lid in IDS:
+            vals = [g[lid] for g in group if lid in g]
+            if not vals:
+                continue
+            merged[lid] = (
+                sum(v[0] for v in vals) / len(vals),
+                sum(v[1] for v in vals) / len(vals),
+            )
+        if len(merged) == 19:
+            films[stem] = {"src": "pku-dentalcepha", "w": None, "h": None, "pts": merged}
+    return films
+
+
 def main() -> None:
     hf_dir = TMP / "hf-landmarks" / "Landmarks"
     csv_train = parse_csv(TMP / "train_senior.csv")
@@ -298,8 +362,21 @@ def main() -> None:
     for stem, rec in aariz.items():
         films[f"aariz-{stem}"] = rec
 
+    pku_root = TMP / "pku-annotations"
+    pku_zip = TMP / "dental-cepha-dataset.zip"
+    if pku_zip.exists() and pku_zip.stat().st_size > 100_000:
+        have = list(pku_root.rglob("*.txt")) if pku_root.exists() else []
+        if len(have) < 50:
+            print(f"extracting PKU / DentalCepha txt from {pku_zip} ...")
+            n = extract_txt_only(pku_zip, pku_root, "doctor")
+            print(f"  extracted {n} annotation files (no radiographs)")
+    pku = load_pku_films(pku_root) if pku_root.exists() else {}
+    print(f"PKU / DentalCepha films with 19 points: {len(pku)}")
+    for stem, rec in pku.items():
+        films[f"pku-{stem}"] = rec
+
     # Image-normalized stats stay ISBI-only (same 1935x2400 framing).
-    # Bbox-normalized mean + shapes use ISBI + Aariz (multi-device).
+    # Bbox-normalized mean + shapes use ISBI + Aariz + PKU (multi-device).
     img_xs = {k: [] for k in IDS}
     img_ys = {k: [] for k in IDS}
     box_xs = {k: [] for k in IDS}
@@ -349,11 +426,12 @@ def main() -> None:
     catalog = {
         "id": "isbi2015",
         "name": "ISBI 2015 + Aariz / CEPHA29 cephalometric landmarks",
-        "citation": "Wang et al., IEEE ISBI 2015. Khalid et al., Scientific Data 2025 (Aariz / CEPHA29). Coordinates only; radiographs are not shipped.",
+        "citation": "Wang et al., IEEE ISBI 2015. Khalid et al., Scientific Data 2025 (Aariz / CEPHA29). Zeng et al., Med Image Anal 2020 (PKU / DentalCepha). Coordinates only; radiographs are not shipped.",
         "images": 400,
         "importedFilms": len(films),
         "isbiFilms": isbi_n,
         "aarizFilms": len(aariz),
+        "pkuFilms": len(pku),
         "train": 150,
         "test1": 150,
         "test2": 100,
@@ -372,7 +450,9 @@ def main() -> None:
             "cepha29": "https://github.com/manwaarkhd/CEPHA29",
             "aariz": "https://github.com/manwaarkhd/aariz",
             "aarizFigshare": "https://doi.org/10.6084/m9.figshare.27986417",
+            "pku": "https://doi.org/10.6084/m9.figshare.13265471",
             "cephtrace": "https://github.com/sidwiz/cephtrace-research",
+            "diverseCeph19": "not public (request: rashmibe.nayak@gmail.com)",
         },
         "landmarks": landmarks,
     }
@@ -385,7 +465,7 @@ def main() -> None:
         "note": "Each shape.p is 19 (nx,ny) pairs, landmark-bbox normalized with 6% pad. ISBI + Aariz. No images.",
         "shapes": shapes,
     }, separators=(",", ":")) + "\n", encoding="utf-8")
-    print(f"wrote {OUT_CAT}  films={len(films)} (ISBI {isbi_n} + Aariz {len(aariz)})  mean SNA={catalog['meanSna']}")
+    print(f"wrote {OUT_CAT}  films={len(films)} (ISBI {isbi_n} + Aariz {len(aariz)} + PKU {len(pku)})  mean SNA={catalog['meanSna']}")
     print(f"wrote {OUT_SHAPES}  bytes={OUT_SHAPES.stat().st_size}")
     print("bbox mean nx,ny:")
     for d in landmarks:

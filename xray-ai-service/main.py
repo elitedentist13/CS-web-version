@@ -212,7 +212,7 @@ CS web app to load radiographs — it calls this service automatically.</p>
   <li><a href="/health"><code>/health</code></a> — readiness JSON</li>
   <li><a href="/docs"><code>/docs</code></a> — interactive API docs</li>
   <li><code>POST /analyze</code> — radiograph upload (used by the app)</li>
-  <li><code>POST /ceph/landmarks</code> — lateral ceph 19 ISBI points (mean-shape until a model is trained)</li>
+  <li><code>POST /ceph/landmarks</code> — lateral ceph 19 ISBI points (400-film senior mean until a model is trained)</li>
 </ul>
 </body></html>"""
     return HTMLResponse(html)

@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002cb9';
+var BUILD = '20261002cba';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -182,6 +182,7 @@ var PAGE_SCRIPT = `(async () => {
     var html = read('index.html');
     var launch = read('app-xray-ceph.js');
     var cat = JSON.parse(read('ceph/data/isbi2015.json'));
+    var shapes = JSON.parse(read('ceph/data/shapes.json'));
 
     console.log('=== source ===');
     pass('index BUILD ' + BUILD, html.indexOf("var BUILD = '" + BUILD + "'") >= 0);
@@ -193,9 +194,16 @@ var PAGE_SCRIPT = `(async () => {
     pass('ceph.html forwards to the sidecar folder', /ceph\//.test(read('ceph.html')));
     pass('sidecar has load / auto-detect / export and a live-page hook',
         /btnDetect/.test(read('ceph/index.html')) && /window\.CEPH_PAGE/.test(read('ceph/ceph.js')));
+    pass('auto-detect uses the 400-film image / box mean',
+        /isbi2015-/.test(read('ceph/ceph-landmarks.js')) && /placeImgMean/.test(read('ceph/ceph-landmarks.js')) &&
+        /shapes\.json/.test(read('ceph/ceph-landmarks.js')));
     pass('ISBI 2015 catalog has 19 landmarks', cat.landmarks.length === 19 && cat.landmarks[0].id === 'S' && cat.landmarks[18].id === 'Ar');
-    pass('dataset README points at Figshare + MIT analysis apps',
+    pass('catalog imported 400 senior films', cat.importedFilms === 400 && cat.landmarks[0].ix > 0.3 && cat.landmarks[1].ix > 0.6);
+    pass('empirical mean SNA is near the Steiner norm', cat.meanSna > 80 && cat.meanSna < 86, String(cat.meanSna));
+    pass('shapes.json has 400 bbox-normalized tracings', shapes.n === 400 && shapes.ids.length === 19 && shapes.shapes[0].p.length === 38);
+    pass('dataset README points at Figshare + GitHub CSVs + MIT analysis apps',
         /figshare\.com\/s\/37ec464af8e81ae6ebbf/.test(read('ceph/data/README.md')) &&
+        /mariam-bebawy\/SBME_CV_CephalometricLandmarks/.test(read('ceph/data/README.md')) &&
         /alexcorvi\/cephalometric/.test(read('ceph/data/README.md')));
     pass('AI service has a /ceph/landmarks hook',
         /ceph\/landmarks/.test(read('xray-ai-service/main.py')));
@@ -214,6 +222,13 @@ var PAGE_SCRIPT = `(async () => {
     var res = box.CEPH_AN.run(pts, 0.1);
     pass('Steiner SNA is a finite angle', res.groups[0].rows[0].value > 70 && res.groups[0].rows[0].value < 100, String(res.groups[0].rows[0].value));
     pass('five analysis groups', res.groups.map(function (g) { return g.id; }).join(',') === 'steiner,downs,tweed,wits,mcnamara');
+    var meanPts = {};
+    cat.landmarks.forEach(function (d) {
+        meanPts[d.id] = { x: d.ix * 1935, y: d.iy * 2400 };
+    });
+    var meanRes = box.CEPH_AN.run(meanPts, 0.1);
+    pass('400-film image mean SNA is 80–86°', meanRes.groups[0].rows[0].value >= 80 && meanRes.groups[0].rows[0].value <= 86,
+        String(meanRes.groups[0].rows[0].value));
 
     console.log('\n=== testclient: launcher ===');
     var L = {
@@ -279,7 +294,9 @@ var PAGE_SCRIPT = `(async () => {
     var page = await httpGetText(PAGE_PORT, '/ceph/');
     pass('GET /ceph/ is the sidecar', page.status === 200 && /btnDetect/.test(page.body.toString()));
     var catGet = await httpGetText(PAGE_PORT, '/ceph/data/isbi2015.json');
-    pass('GET /ceph/data/isbi2015.json', catGet.status === 200 && /"S"/.test(catGet.body.toString()));
+    pass('GET /ceph/data/isbi2015.json', catGet.status === 200 && /"S"/.test(catGet.body.toString()) && /importedFilms/.test(catGet.body.toString()));
+    var shGet = await httpGetText(PAGE_PORT, '/ceph/data/shapes.json');
+    pass('GET /ceph/data/shapes.json', shGet.status === 200 && /"n":400/.test(shGet.body.toString()));
     if (sample && sample.buf) {
         var samp = await httpGetText(PAGE_PORT, '/__ceph-sample.jpg');
         pass('GET /__ceph-sample.jpg serves the clinic film', samp.status === 200 && samp.body.length > 8000,

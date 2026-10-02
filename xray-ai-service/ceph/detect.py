@@ -1,7 +1,7 @@
-"""ISBI 2015 mean-shape fallback for POST /ceph/landmarks.
+"""ISBI 2015 empirical-mean fallback for POST /ceph/landmarks.
 
-A trained detector can replace `detect_landmarks`. Until then this returns
-the same 19-point template the browser uses, scaled to the image size.
+Uses the 400-film senior mean (image-normalized) written by
+scripts/import-ceph-landmarks.py. A trained detector can replace this.
 """
 import json
 from pathlib import Path
@@ -17,17 +17,21 @@ def catalog():
 def detect_landmarks(width, height):
     cat = catalog()
     pts = []
+    n = cat.get("importedFilms") or cat.get("images") or 400
     for d in cat.get("landmarks") or []:
+        nx = d.get("ix", d.get("nx"))
+        ny = d.get("iy", d.get("ny"))
         pts.append({
             "id": d["id"],
             "i": d["i"],
             "name": d["name"],
-            "x": float(d["nx"]) * float(width),
-            "y": float(d["ny"]) * float(height),
+            "x": float(nx) * float(width),
+            "y": float(ny) * float(height),
         })
     return {
-        "source": "isbi2015-mean",
+        "source": "isbi2015-%s-imgmean" % n,
         "dataset": "ISBI2015-19",
+        "films": n,
         "landmarks": pts,
         "mmPerPx": cat.get("mmPerPx", 0.1),
     }

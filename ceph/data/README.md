@@ -1,8 +1,23 @@
 # Lateral cephalometric datasets (do not commit patient images)
 
-Banana’s `/ceph` sidecar uses the **ISBI 2015** 19-landmark vocabulary. The X-ray images themselves are not in this repo.
+Banana’s `/ceph` sidecar uses the **ISBI 2015** 19-landmark vocabulary. Auto-detect now fits the **empirical mean of 400 published senior tracings** (plus a 24-neighbour shape pick on tight crops). The X-ray images themselves are not in this repo.
 
-## Primary: ISBI 2015 Grand Challenge
+Rebuild the catalogs after downloading new coordinate dumps:
+
+```
+python scripts/import-ceph-landmarks.py
+```
+
+## Imported (coordinates only)
+
+| Set | Films | What we took | Where |
+|---|---:|---|---|
+| ISBI 2015 senior | 400 | 19-pt JSON, aligned to image space (RMSE 1.4 px vs GitHub CSV) | [Hugging Face Ceph-Biometrics-400](https://huggingface.co/datasets/YongchengYAO/Ceph-Biometrics-400) `Landmarks.zip` |
+| ISBI 2015 senior train+Test1 | 300 | `train_senior.csv` + `test1_senior.csv` (cross-check) | [mariam-bebawy/SBME_CV_CephalometricLandmarks](https://github.com/mariam-bebawy/SBME_CV_CephalometricLandmarks/tree/main/data_csv) |
+
+Mean SNA on the imported 400 is **83.3°** (Steiner norm ~82°). `isbi2015.json` holds the mean + std; `shapes.json` holds the 400 bbox-normalized shapes (no pixels).
+
+## Primary images (gitignored)
 
 - 400 lateral cephalograms, 1935×2400, **0.1 mm/pixel**
 - 19 landmarks, two senior annotators (mean = ground truth)
@@ -22,15 +37,15 @@ xray-ai-service/ceph/dataset/
   AnnotationsByMD/400_junior/*.txt
 ```
 
-Each annotation file is 19 lines of `x,y` (or `x y`) in ISBI order (Sella … Articulare). See `isbi2015.json`.
-
-## Extra (more devices / more points)
+## Extra (more devices / more points — images not imported)
 
 | Set | Images | Landmarks | Where |
 |---|---:|---:|---|
-| Aariz / CEPHA29 | 1000 | 29 | MICCAI CL-Detection / Kaggle “Aariz” |
-| DentalCepha | 102 | 19 | see CephTrace paper |
-| ISBI 2023 | 700 train | 29 (use the shared 19) | challenge site |
+| Aariz / CEPHA29 | 1000 | 29 (19 overlap ISBI) | [manwaarkhd/CEPHA29](https://github.com/manwaarkhd/CEPHA29), [manwaarkhd/aariz](https://github.com/manwaarkhd/aariz-cephalometric-dataset), Figshare `10.6084/m9.figshare.27986417` (2 GB zip with films) |
+| DentalCepha | 102 | 19 | Zeng et al. 2020; see CephTrace |
+| CephAdoAdu | 1000 | 10 | [ShanghaiTech-IMPACT/CeLDA](https://github.com/ShanghaiTech-IMPACT/CeLDA) (application required) |
+
+CEPHA29 names that map onto ISBI: S N Or Po A B Pog Me Gn Go LIT→L1 UIT→U1 Ls Li Sn Pog`→PogS PNS ANS Ar. Drop a landmarks-only folder under `tmp-ceph-import/cepha29/` and extend the import script — do not commit the radiographs.
 
 CephTrace research (ONNX, not shipped here — ~277 MB): https://github.com/sidwiz/cephtrace-research
 

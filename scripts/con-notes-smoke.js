@@ -15,7 +15,7 @@ var os = require('os');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20261002cb9';
+var EXPECTED_BUILD = '20261002cba';
 var PAGE_PORT = 8802;
 var CDP_PORT = 9370;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';

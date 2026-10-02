@@ -140,7 +140,7 @@
             if (done) done({ ok: true, source: remote.source, via: 'api' });
         }).catch(function () {
             setPts(local.pts, local.source);
-            setStatus('ISBI-2015 mean shape fitted to the head box. Drag points, then export. Train a detector on the Figshare set to replace this.');
+            setStatus('Landmarks from the 400-film ISBI senior mean (' + local.source + '). Drag to correct.');
             if (done) done({ ok: true, source: local.source, via: 'local' });
         });
     }

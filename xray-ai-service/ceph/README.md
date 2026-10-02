@@ -1,6 +1,6 @@
 # Cephalometric landmark service (optional)
 
-The Banana `/ceph` sidecar works without this service: it fits the ISBI 2015 mean shape to the film. When this folder later holds a trained model, `POST /ceph/landmarks` can replace that first pass.
+The Banana `/ceph` sidecar works without this service: it fits the empirical 400-film ISBI 2015 senior mean to the film. When this folder later holds a trained model, `POST /ceph/landmarks` can replace that first pass.
 
 ## Dataset (not in git)
 

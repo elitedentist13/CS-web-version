@@ -1,12 +1,20 @@
-/* ISBI 2015 19-landmark set + mean-shape auto placement.
-   Images are not shipped. Mean (nx, ny) is a right-facing template. */
+/* ISBI 2015 19-landmark set. Auto-place uses the empirical mean of 400
+   published senior tracings (Hugging Face + GitHub CSVs). Images are not shipped. */
 (function (g) {
     var CAT = null;
+    var SHAPES = null;
 
     function loadCatalog(done) {
-        if (CAT) { if (done) done(CAT); return Promise.resolve(CAT); }
-        return fetch('data/isbi2015.json').then(function (r) { return r.json(); }).then(function (j) {
-            CAT = j;
+        if (CAT && SHAPES) {
+            if (done) done(CAT);
+            return Promise.resolve(CAT);
+        }
+        return Promise.all([
+            fetch('data/isbi2015.json').then(function (r) { return r.json(); }),
+            fetch('data/shapes.json').then(function (r) { return r.json(); }).catch(function () { return null; })
+        ]).then(function (pair) {
+            CAT = pair[0];
+            SHAPES = pair[1];
             if (done) done(CAT);
             return CAT;
         });
@@ -71,22 +79,82 @@
         };
     }
 
-    function placeMean(img, box) {
-        var b = box || { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
+    function placeOn(box, keyX, keyY) {
         var pts = {};
         defs().forEach(function (d) {
+            var nx = d[keyX], ny = d[keyY];
+            if (nx == null || ny == null) { nx = d.nx; ny = d.ny; }
             pts[d.id] = {
-                x: b.x + d.nx * b.w,
-                y: b.y + d.ny * b.h
+                x: box.x + nx * box.w,
+                y: box.y + ny * box.h
             };
         });
         return pts;
     }
 
+    function placeMean(img, box) {
+        return placeOn(box || { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight }, 'nx', 'ny');
+    }
+
+    function placeImgMean(img) {
+        return placeOn({ x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight }, 'ix', 'iy');
+    }
+
+    function localBoxMean(box) {
+        var list = SHAPES && SHAPES.shapes;
+        var ids = (SHAPES && SHAPES.ids) || IDS_FALLBACK();
+        if (!list || !list.length) return placeOn(box, 'nx', 'ny');
+        var aspect = box.w / Math.max(1, box.h);
+        var scored = list.map(function (sh, i) {
+            var a = (sh && sh.a != null) ? sh.a : (CAT && CAT.meanBoxAspect) || 0.89;
+            return { i: i, d: Math.abs(a - aspect) };
+        });
+        scored.sort(function (a, b) { return a.d - b.d; });
+        var k = Math.min(24, scored.length);
+        var acc = {};
+        var j, p, id, sh;
+        for (j = 0; j < ids.length; j++) acc[ids[j]] = { x: 0, y: 0 };
+        for (j = 0; j < k; j++) {
+            sh = list[scored[j].i];
+            p = sh.p || sh;
+            ids.forEach(function (id, idx) {
+                acc[id].x += p[idx * 2];
+                acc[id].y += p[idx * 2 + 1];
+            });
+        }
+        var pts = {};
+        ids.forEach(function (id) {
+            pts[id] = {
+                x: box.x + (acc[id].x / k) * box.w,
+                y: box.y + (acc[id].y / k) * box.h
+            };
+        });
+        return pts;
+    }
+
+    function IDS_FALLBACK() {
+        return defs().map(function (d) { return d.id; });
+    }
+
     function detectLocal(img) {
         if (!img || !img.naturalWidth) return { pts: emptyPts(), source: 'empty' };
         var box = findHeadBox(img);
-        return { pts: placeMean(img, box), source: 'isbi2015-mean+bbox', box: box };
+        var area = (box.w * box.h) / Math.max(1, img.naturalWidth * img.naturalHeight);
+        var n = (SHAPES && SHAPES.n) || (CAT && CAT.importedFilms) || 400;
+        if (area >= 0.68) {
+            return {
+                pts: placeImgMean(img),
+                source: 'isbi2015-' + n + '-imgmean',
+                box: box,
+                films: n
+            };
+        }
+        return {
+            pts: localBoxMean(box),
+            source: 'isbi2015-' + n + '-boxmean',
+            box: box,
+            films: n
+        };
     }
 
     function applyRemote(payload, img) {
@@ -102,11 +170,6 @@
             if (id && pts[id] !== undefined) {
                 pts[id] = { x: Number(p.x), y: Number(p.y) };
             }
-        }
-        if (payload && payload.normalized && img) {
-            Object.keys(pts).forEach(function (k) {
-                if (payload.landmarks) return;
-            });
         }
         return { pts: pts, source: payload && payload.source ? payload.source : 'api' };
     }

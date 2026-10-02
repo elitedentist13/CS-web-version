@@ -1,5 +1,6 @@
 /* ISBI 2015 19-landmark set. Auto-place uses the empirical mean of 400
-   published senior tracings (Hugging Face + GitHub CSVs). Images are not shipped. */
+   ISBI senior tracings plus 1000 Aariz / CEPHA29 films (GitHub manwaarkhd/aariz).
+   Images are not shipped. */
 (function (g) {
     var CAT = null;
     var SHAPES = null;
@@ -140,18 +141,18 @@
         if (!img || !img.naturalWidth) return { pts: emptyPts(), source: 'empty' };
         var box = findHeadBox(img);
         var area = (box.w * box.h) / Math.max(1, img.naturalWidth * img.naturalHeight);
-        var n = (SHAPES && SHAPES.n) || (CAT && CAT.importedFilms) || 400;
+        var n = (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 400;
         if (area >= 0.68) {
             return {
                 pts: placeImgMean(img),
-                source: 'isbi2015-' + n + '-imgmean',
+                source: 'isbi+aariz-' + n + '-imgmean',
                 box: box,
                 films: n
             };
         }
         return {
             pts: localBoxMean(box),
-            source: 'isbi2015-' + n + '-boxmean',
+            source: 'isbi+aariz-' + n + '-boxmean',
             box: box,
             films: n
         };

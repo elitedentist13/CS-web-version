@@ -1,7 +1,8 @@
 """ISBI 2015 empirical-mean fallback for POST /ceph/landmarks.
 
-Uses the 400-film senior mean (image-normalized) written by
-scripts/import-ceph-landmarks.py. A trained detector can replace this.
+Uses the ISBI 400-film image-normalized senior mean written by
+scripts/import-ceph-landmarks.py (Aariz shapes feed the browser box mean).
+A trained detector can replace this.
 """
 import json
 from pathlib import Path
@@ -29,7 +30,7 @@ def detect_landmarks(width, height):
             "y": float(ny) * float(height),
         })
     return {
-        "source": "isbi2015-%s-imgmean" % n,
+        "source": "isbi+aariz-%s-imgmean" % n,
         "dataset": "ISBI2015-19",
         "films": n,
         "landmarks": pts,

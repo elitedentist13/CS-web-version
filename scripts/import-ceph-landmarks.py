@@ -2,12 +2,11 @@
 
 Sources (coordinates only — no radiographs are written into the repo):
   - Hugging Face YongchengYAO/Ceph-Biometrics-400 Landmarks.zip
-    (ISBI 2015 400_senior, 400 films × 19 points)
+    (ISBI 2015 400_senior, 400 films x 19 points)
   - GitHub mariam-bebawy/SBME_CV_CephalometricLandmarks data_csv
-    (ISBI 2015 senior train + Test1, 300 films × 19 points)
-
-Aariz / CEPHA29 (1000 × 29) is documented but shipped as a 2 GB image zip;
-only the 19 shared ISBI names would be used if a landmarks-only dump appears.
+    (ISBI 2015 senior train + Test1, 300 films x 19 points)
+  - GitHub manwaarkhd/aariz + Figshare 10.6084/m9.figshare.27986417
+    (Aariz / CEPHA29, 1000 films x 29 points; 19 overlap ISBI)
 """
 from __future__ import annotations
 
@@ -17,6 +16,7 @@ import json
 import math
 import os
 import statistics
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,9 +38,21 @@ NAMES = {
 P_TO_ID = {f"P{i}": IDS[i - 1] for i in range(1, 20)}
 ISBI_W, ISBI_H = 1935.0, 2400.0
 
+# CEPHA29 / Aariz symbols -> ISBI 19. Extras (Pn, R, Co, LPM, LMT, UPM, UIA, UMT, LIA, N`) stay unused.
+AARIZ_TO_ISBI = {
+    "S": "S", "N": "N", "OR": "Or", "PO": "Po", "A": "A", "B": "B",
+    "POG": "Pog", "ME": "Me", "GN": "Gn", "GO": "Go",
+    "L1": "L1", "LIT": "L1", "U1": "U1", "UIT": "U1",
+    "LS": "Ls", "LI": "Li", "SN": "Sn",
+    "POGS": "PogS", "POG'": "PogS", "POG`": "PogS", "POGSOFT": "PogS",
+    "PNS": "PNS", "ANS": "ANS", "AR": "Ar",
+}
+
 
 def parse_csv(path: Path) -> dict[str, dict[str, tuple[float, float]]]:
     out = {}
+    if not path.exists():
+        return out
     with path.open(encoding="utf-8", newline="") as f:
         r = csv.DictReader(f)
         for row in r:
@@ -65,6 +77,8 @@ def parse_csv(path: Path) -> dict[str, dict[str, tuple[float, float]]]:
 
 def parse_hf(folder: Path) -> dict[str, dict[str, tuple[float, float, float]]]:
     out = {}
+    if not folder.exists():
+        return out
     for fp in sorted(folder.glob("*.json.gz")):
         with gzip.open(fp, "rt", encoding="utf-8") as f:
             j = json.load(f)
@@ -144,6 +158,101 @@ def sna(pts: dict[str, tuple[float, float]]) -> float | None:
     return ang(S, N, A)
 
 
+def _norm_symbol(raw: str) -> str:
+    s = (raw or "").strip()
+    s = s.replace("’", "'").replace("`", "'").replace("′", "'")
+    s = s.replace(" ", "").replace("-", "").replace("_", "")
+    return s.upper()
+
+
+def parse_aariz_json(obj: dict) -> dict[str, tuple[float, float]]:
+    pts = {}
+    for lm in obj.get("landmarks") or []:
+        if not isinstance(lm, dict):
+            continue
+        val = lm.get("value") or {}
+        try:
+            x = float(val.get("x"))
+            y = float(val.get("y"))
+        except (TypeError, ValueError):
+            continue
+        for key in (lm.get("symbol"), lm.get("title"), lm.get("name"), lm.get("id")):
+            nid = AARIZ_TO_ISBI.get(_norm_symbol(str(key or "")))
+            if nid:
+                pts[nid] = (x, y)
+                break
+    return pts
+
+
+def extract_aariz_annotations(zip_path: Path, dest: Path) -> int:
+    dest.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with zipfile.ZipFile(zip_path) as zf:
+        for info in zf.infolist():
+            name = info.filename.replace("\\", "/")
+            low = name.lower()
+            if info.is_dir():
+                continue
+            keep_csv = name.lower().endswith("cephalogram_machine_mappings.csv")
+            keep_json = (
+                low.endswith(".json")
+                and "cephalometric landmarks" in low
+                and ("senior" in low or "junior" in low)
+            )
+            if not (keep_csv or keep_json):
+                continue
+            parts = [p for p in name.split("/") if p and p not in (".", "..")]
+            if "cephalograms" in [p.lower() for p in parts]:
+                continue
+            target = dest.joinpath(*parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, target.open("wb") as out:
+                out.write(src.read())
+            n += 1
+    return n
+
+
+def load_aariz_films(root: Path) -> dict[str, dict]:
+    """Average junior + senior when both exist; senior-only otherwise."""
+    files = list(root.rglob("*.json"))
+    buckets: dict[str, dict[str, list]] = {}
+    for fp in files:
+        low = str(fp).lower()
+        if "cephalometric landmarks" not in low:
+            continue
+        who = "senior" if "senior" in low else ("junior" if "junior" in low else "")
+        if not who:
+            continue
+        try:
+            obj = json.loads(fp.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        pts = parse_aariz_json(obj)
+        if len(pts) < 15:
+            continue
+        stem = obj.get("ceph_id") or fp.stem
+        rec = buckets.setdefault(str(stem), {"senior": [], "junior": []})
+        rec[who].append(pts)
+
+    films = {}
+    for stem, rec in buckets.items():
+        merged = {}
+        for lid in IDS:
+            vals = []
+            for pts in rec["senior"] + rec["junior"]:
+                if lid in pts:
+                    vals.append(pts[lid])
+            if not vals:
+                continue
+            merged[lid] = (
+                sum(v[0] for v in vals) / len(vals),
+                sum(v[1] for v in vals) / len(vals),
+            )
+        if len(merged) == 19:
+            films[stem] = {"src": "aariz-cepha29", "w": None, "h": None, "pts": merged}
+    return films
+
+
 def main() -> None:
     hf_dir = TMP / "hf-landmarks" / "Landmarks"
     csv_train = parse_csv(TMP / "train_senior.csv")
@@ -174,8 +283,23 @@ def main() -> None:
         key = f"isbi-{stem}"
         if key not in films:
             films[key] = {"src": "isbi2015-github-senior", "w": ISBI_W, "h": ISBI_H, "pts": pts}
+    isbi_n = len(films)
 
-    # Image-normalized and landmark-bbox-normalized stats.
+    aariz_root = TMP / "aariz-annotations"
+    zip_path = TMP / "Aariz.zip"
+    if zip_path.exists() and zip_path.stat().st_size > 1_000_000:
+        have = list(aariz_root.rglob("*.json")) if aariz_root.exists() else []
+        if len(have) < 100:
+            print(f"extracting Aariz landmark JSON from {zip_path} ...")
+            n = extract_aariz_annotations(zip_path, aariz_root)
+            print(f"  extracted {n} annotation files (no radiographs)")
+    aariz = load_aariz_films(aariz_root) if aariz_root.exists() else {}
+    print(f"Aariz / CEPHA29 films with 19 shared points: {len(aariz)}")
+    for stem, rec in aariz.items():
+        films[f"aariz-{stem}"] = rec
+
+    # Image-normalized stats stay ISBI-only (same 1935x2400 framing).
+    # Bbox-normalized mean + shapes use ISBI + Aariz (multi-device).
     img_xs = {k: [] for k in IDS}
     img_ys = {k: [] for k in IDS}
     box_xs = {k: [] for k in IDS}
@@ -185,7 +309,6 @@ def main() -> None:
     shapes = []
     for rec in films.values():
         pts = rec["pts"]
-        w, h = rec["w"], rec["h"]
         bn, box = bbox_norm(pts)
         aspects.append(box[2] / box[3])
         s = sna(pts)
@@ -193,12 +316,15 @@ def main() -> None:
             snas.append(s)
         row = []
         for k in IDS:
-            img_xs[k].append(pts[k][0] / w)
-            img_ys[k].append(pts[k][1] / h)
             box_xs[k].append(bn[k][0])
             box_ys[k].append(bn[k][1])
             row.extend([round(bn[k][0], 4), round(bn[k][1], 4)])
-        shapes.append({"a": round(box[2] / box[3], 4), "p": row})
+        shapes.append({"a": round(box[2] / box[3], 4), "p": row, "s": rec["src"][:8]})
+        if rec.get("w") and rec.get("h"):
+            w, h = rec["w"], rec["h"]
+            for k in IDS:
+                img_xs[k].append(pts[k][0] / w)
+                img_ys[k].append(pts[k][1] / h)
 
     landmarks = []
     for i, k in enumerate(IDS, start=1):
@@ -222,10 +348,12 @@ def main() -> None:
 
     catalog = {
         "id": "isbi2015",
-        "name": "ISBI 2015 Automatic Cephalometric Landmark Detection",
-        "citation": "Wang et al., IEEE ISBI 2015 Grand Challenge. 400 lateral cephalograms, 19 landmarks, 0.1 mm/pixel, 1935×2400. Senior coordinates via Hugging Face YongchengYAO/Ceph-Biometrics-400 and GitHub mariam-bebawy/SBME_CV_CephalometricLandmarks.",
+        "name": "ISBI 2015 + Aariz / CEPHA29 cephalometric landmarks",
+        "citation": "Wang et al., IEEE ISBI 2015. Khalid et al., Scientific Data 2025 (Aariz / CEPHA29). Coordinates only; radiographs are not shipped.",
         "images": 400,
         "importedFilms": len(films),
+        "isbiFilms": isbi_n,
+        "aarizFilms": len(aariz),
         "train": 150,
         "test1": 150,
         "test2": 100,
@@ -242,21 +370,22 @@ def main() -> None:
             "huggingface": "https://huggingface.co/datasets/YongchengYAO/Ceph-Biometrics-400",
             "githubCsv": "https://github.com/mariam-bebawy/SBME_CV_CephalometricLandmarks/tree/main/data_csv",
             "cepha29": "https://github.com/manwaarkhd/CEPHA29",
-            "aariz": "https://github.com/manwaarkhd/aariz-cephalometric-dataset",
+            "aariz": "https://github.com/manwaarkhd/aariz",
+            "aarizFigshare": "https://doi.org/10.6084/m9.figshare.27986417",
             "cephtrace": "https://github.com/sidwiz/cephtrace-research",
         },
         "landmarks": landmarks,
     }
     OUT_CAT.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
     OUT_SHAPES.write_text(json.dumps({
-        "id": "isbi2015-bbox-shapes",
+        "id": "isbi2015-aariz-bbox-shapes",
         "ids": IDS,
         "n": len(shapes),
         "pad": 0.06,
-        "note": "Each shape.p is 19 (nx,ny) pairs, landmark-bbox normalized with 6% pad. shape.a is the original landmark-box aspect. No images.",
+        "note": "Each shape.p is 19 (nx,ny) pairs, landmark-bbox normalized with 6% pad. ISBI + Aariz. No images.",
         "shapes": shapes,
     }, separators=(",", ":")) + "\n", encoding="utf-8")
-    print(f"wrote {OUT_CAT}  films={len(films)}  mean SNA={catalog['meanSna']}")
+    print(f"wrote {OUT_CAT}  films={len(films)} (ISBI {isbi_n} + Aariz {len(aariz)})  mean SNA={catalog['meanSna']}")
     print(f"wrote {OUT_SHAPES}  bytes={OUT_SHAPES.stat().st_size}")
     print("bbox mean nx,ny:")
     for d in landmarks:

@@ -11320,6 +11320,20 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     white-space: nowrap;
 }
 .xray-cbct-btn:hover { background: #164e63; color: #fff; }
+.xray-ceph-btn {
+    display: inline-flex;
+    align-items: center;
+    background: #1e1b4b;
+    color: #c4b5fd;
+    border: 1px solid #8b5cf6;
+    padding: 8px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 800;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.xray-ceph-btn:hover { background: #4c1d95; color: #fff; }
 
 .xray-upload-target {
     margin: -4px 0 12px;

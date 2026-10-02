@@ -1,0 +1,44 @@
+:root {
+    --bg: #0b1020;
+    --panel: #141a2e;
+    --line: #2a3558;
+    --text: #e8eefc;
+    --muted: #93a0c2;
+    --accent: #38bdf8;
+    --warn: #facc15;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, Segoe UI, sans-serif; }
+#bananaCephBar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    padding: 8px 12px; background: #854d0e; color: #fffbeb; font-weight: 700;
+}
+#app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; padding-bottom: 44px; }
+#top {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 10px 12px; border-bottom: 1px solid var(--line); background: #10162a;
+}
+#top button, #top label.btn, #top select {
+    background: #1e293b; color: var(--text); border: 1px solid #334155;
+    border-radius: 6px; padding: 6px 10px; font-weight: 700; cursor: pointer;
+}
+#top button.primary { background: #0e7490; border-color: #22d3ee; }
+#top input[type=number] { width: 72px; background: #0b1020; color: var(--text); border: 1px solid #334155; border-radius: 6px; padding: 5px; }
+#stage { display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+#viewWrap { position: relative; min-width: 0; background: #080b14; overflow: hidden; }
+#view { display: block; width: 100%; height: 100%; cursor: crosshair; }
+#side { overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 10px 12px 24px; }
+#side h2 { margin: 14px 0 6px; font-size: 13px; color: var(--accent); }
+#side table { width: 100%; border-collapse: collapse; }
+#side td, #side th { padding: 3px 4px; border-bottom: 1px solid #243049; text-align: left; }
+#side th { color: var(--muted); font-weight: 600; }
+.lm { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; cursor: pointer; }
+.lm.is-on { color: var(--warn); }
+.hint { color: var(--muted); font-size: 12px; }
+.status { color: var(--warn); min-height: 1.2em; }
+#filePick { display: none; }
+@media (max-width: 900px) {
+    #stage { grid-template-columns: 1fr; }
+    #side { max-height: 40vh; }
+}

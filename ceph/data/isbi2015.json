@@ -1,0 +1,39 @@
+{
+  "id": "isbi2015",
+  "name": "ISBI 2015 Automatic Cephalometric Landmark Detection",
+  "citation": "Wang et al., IEEE ISBI 2015 Grand Challenge. 400 lateral cephalograms, 19 landmarks, 0.1 mm/pixel, 1935×2400.",
+  "images": 400,
+  "train": 150,
+  "test1": 150,
+  "test2": 100,
+  "mmPerPx": 0.1,
+  "nativeWidth": 1935,
+  "nativeHeight": 2400,
+  "sources": {
+    "challenge": "http://www-o.ntust.edu.tw/~cweiwang/ISBI2015/challenge1/",
+    "figshare": "https://figshare.com/s/37ec464af8e81ae6ebbf",
+    "cepha29": "https://www.kaggle.com/datasets (Aariz / CEPHA29, 1000 images, 29 landmarks)",
+    "cephtrace": "https://github.com/sidwiz/cephtrace-research"
+  },
+  "landmarks": [
+    { "id": "S", "i": 1, "name": "Sella", "nx": 0.405, "ny": 0.355 },
+    { "id": "N", "i": 2, "name": "Nasion", "nx": 0.618, "ny": 0.268 },
+    { "id": "Or", "i": 3, "name": "Orbitale", "nx": 0.572, "ny": 0.392 },
+    { "id": "Po", "i": 4, "name": "Porion", "nx": 0.348, "ny": 0.398 },
+    { "id": "A", "i": 5, "name": "A-point (Subspinale)", "nx": 0.638, "ny": 0.508 },
+    { "id": "B", "i": 6, "name": "B-point (Supramentale)", "nx": 0.612, "ny": 0.628 },
+    { "id": "Pog", "i": 7, "name": "Pogonion", "nx": 0.608, "ny": 0.698 },
+    { "id": "Me", "i": 8, "name": "Menton", "nx": 0.582, "ny": 0.742 },
+    { "id": "Gn", "i": 9, "name": "Gnathion", "nx": 0.602, "ny": 0.728 },
+    { "id": "Go", "i": 10, "name": "Gonion", "nx": 0.368, "ny": 0.668 },
+    { "id": "L1", "i": 11, "name": "Incision inferius", "nx": 0.628, "ny": 0.598 },
+    { "id": "U1", "i": 12, "name": "Incision superius", "nx": 0.642, "ny": 0.548 },
+    { "id": "Ls", "i": 13, "name": "Upper lip", "nx": 0.698, "ny": 0.542 },
+    { "id": "Li", "i": 14, "name": "Lower lip", "nx": 0.688, "ny": 0.598 },
+    { "id": "Sn", "i": 15, "name": "Subnasale", "nx": 0.682, "ny": 0.498 },
+    { "id": "PogS", "i": 16, "name": "Soft-tissue pogonion", "nx": 0.678, "ny": 0.702 },
+    { "id": "PNS", "i": 17, "name": "Posterior nasal spine", "nx": 0.468, "ny": 0.498 },
+    { "id": "ANS", "i": 18, "name": "Anterior nasal spine", "nx": 0.648, "ny": 0.478 },
+    { "id": "Ar", "i": 19, "name": "Articulare", "nx": 0.358, "ny": 0.468 }
+  ]
+}

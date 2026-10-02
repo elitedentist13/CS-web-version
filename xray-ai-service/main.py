@@ -212,6 +212,7 @@ CS web app to load radiographs — it calls this service automatically.</p>
   <li><a href="/health"><code>/health</code></a> — readiness JSON</li>
   <li><a href="/docs"><code>/docs</code></a> — interactive API docs</li>
   <li><code>POST /analyze</code> — radiograph upload (used by the app)</li>
+  <li><code>POST /ceph/landmarks</code> — lateral ceph 19 ISBI points (mean-shape until a model is trained)</li>
 </ul>
 </body></html>"""
     return HTMLResponse(html)
@@ -265,6 +266,24 @@ async def health():
             "only - see 'licenses'."
         ),
     }
+
+
+@app.post("/ceph/landmarks")
+async def ceph_landmarks(file: UploadFile = File(...)):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="empty upload")
+    try:
+        image = Image.open(io.BytesIO(raw))
+        image.load()
+        w, h = image.size
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="unreadable image: " + str(exc))
+    try:
+        from ceph.detect import detect_landmarks
+        return detect_landmarks(w, h)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/analyze")

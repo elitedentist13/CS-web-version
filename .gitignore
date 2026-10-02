@@ -79,6 +79,10 @@ xray-ai-service/pabw/train/dataset_continual/
 xray-ai-service/pabw/train/raw/
 xray-ai-service/pabw/train/runs/
 
+# Lateral ceph ISBI / Aariz images — patient radiographs. Never commit.
+xray-ai-service/ceph/dataset/
+xray-ai-service/ceph/weights/
+
 # Continual-learning capture — contains PATIENT RADIOGRAPHS. Never commit.
 xray-ai-service/caries/clinic_data/
 xray-ai-service/pabw/clinic_data/

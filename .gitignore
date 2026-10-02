@@ -48,6 +48,9 @@ ohif/ort/
 ohif/dicom-microscopy-viewer/
 ohif/**/*.map
 
+# Cornerstone3D sidecar maps (rebuild with node scripts/build-cs3d-sidecar.js)
+cs3d/**/*.map
+
 # X-ray AI service: local venv, downloaded model weights, bytecode
 xray-ai-service/.venv/
 xray-ai-service/model_cache/

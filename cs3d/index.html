@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Banana Dicom Reader</title>
+  <script src="./cs3d-boot.js?v=20261003cbe"></script>
+  <link rel="stylesheet" href="./cs3d.css?v=20261003cbe">
+</head>
+<body>
+  <div id="app">
+    <header id="top">
+      <strong>Banana Dicom Reader</strong>
+      <button type="button" class="primary" id="btnZip">Load zip</button>
+      <button type="button" id="btnFolder">Load folder</button>
+      <button type="button" id="btnFiles">Load files</button>
+      <input id="zipPick" type="file" accept=".zip,application/zip">
+      <input id="folderPick" type="file" multiple webkitdirectory directory>
+      <input id="filePick" type="file" multiple accept=".dcm,.dicom,.ima,application/dicom">
+      <div id="tools" class="tools"></div>
+      <span id="status" class="status">Load a DICOM zip, folder, or files. Share this window in X-ray Helper to save a view.</span>
+    </header>
+    <div id="grid">
+      <div class="pane" data-vp="AXIAL">
+        <div class="label">Axial</div>
+        <div class="vp" id="vpAxial" oncontextmenu="return false"></div>
+      </div>
+      <div class="pane" data-vp="SAGITTAL">
+        <div class="label">Sagittal</div>
+        <div class="vp" id="vpSagittal" oncontextmenu="return false"></div>
+      </div>
+      <div class="pane" data-vp="CORONAL">
+        <div class="label">Coronal</div>
+        <div class="vp" id="vpCoronal" oncontextmenu="return false"></div>
+      </div>
+      <div class="pane" data-vp="VOLUME_3D">
+        <div class="label">Volume</div>
+        <div class="vp" id="vpVolume" oncontextmenu="return false"></div>
+      </div>
+    </div>
+    <div id="bananaCs3dBar">
+      Banana Dicom Reader — Cornerstone3D volume + three planes. Independent of OHIF. Share THIS window in X-ray Helper to save a view.
+      <span id="bananaCs3dWho"></span>
+    </div>
+  </div>
+  <script src="./vendor/cs3d.bundle.js?v=20261003cbe"></script>
+  <script src="./cs3d-load.js?v=20261003cbe"></script>
+  <script src="./cs3d.js?v=20261003cbg"></script>
+</body>
+</html>

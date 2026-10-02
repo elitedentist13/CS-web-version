@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261002cbc';
+  var BUILD = '20261003cbd';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3474,6 +3474,8 @@
                   aria-pressed="false" data-i18n="media.xcap.launchBtn" data-i18n-title="media.xcap.launchTitle"></button>
           <button type="button" id="btnCbctViewer" class="xray-cbct-btn" onclick="xrayCbctViewerOpen()"
                   data-i18n="xb.open" data-i18n-title="xb.openTitle"></button>
+          <button type="button" id="btnCs3dViewer" class="xray-cs3d-btn" onclick="xrayCs3dViewerOpen()"
+                  data-i18n="xdr.open" data-i18n-title="xdr.openTitle"></button>
           <button type="button" id="btnCephViewer" class="xray-ceph-btn" onclick="xrayCephViewerOpen()"
                   data-i18n="xc.open" data-i18n-title="xc.openTitle"></button>
           <a id="btnXrayHelperGuide" class="xray-helper-guide-btn" href="docs/xray-helper-manual.html?v=20260926b#lang-en" target="_blank"
@@ -7829,10 +7831,10 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20260926xcap3',
-    'app-i18n-extra.js?v=20261002cbc',
+    'app-i18n-extra.js?v=20261003cbd',
     'app-login-log.js',
     'app-admin-verify.js',
-    'app.js?v=20261002cbc',
+    'app.js?v=20261003cbd',
     'app-doc-editor.js',
     'app-program-settings.js?v=20261001hist7',
     'app-audit.js',
@@ -7843,10 +7845,10 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261002cbc',
-    'app-patient.js?v=20261002cbc',
+    'app-photos.js?v=20261003cbd',
+    'app-patient.js?v=20261003cbd',
     'app-patient-advanced-search.js',
-    'app-patient-views.js?v=20261002cbc',
+    'app-patient-views.js?v=20261003cbd',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
     'app-appt.js?v=20261001hist9',
@@ -7854,24 +7856,25 @@
     'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-consultation.js?v=20261002cbc',
+    'app-consultation.js?v=20261003cbd',
     'app-con-dictation-fix.js',
-    'app-con-media.js?v=20261002cbc',
-    'app-con-phonescan.js?v=20261002cbc',
-    'app-con-notes.js?v=20261002cbc',
-    'app-xray.js?v=20261002cbc',
-    'app-xray-capture.js?v=20261002cbc',
-    'app-xray-link.js?v=20261002cbc',
-    'app-xray-ctx.js?v=20261002cbc',
-    'app-nnt-scans.js?v=20261002cbc',
-    'app-xray-ai.js?v=20261002cbc',
+    'app-con-media.js?v=20261003cbd',
+    'app-con-phonescan.js?v=20261003cbd',
+    'app-con-notes.js?v=20261003cbd',
+    'app-xray.js?v=20261003cbd',
+    'app-xray-capture.js?v=20261003cbd',
+    'app-xray-link.js?v=20261003cbd',
+    'app-xray-ctx.js?v=20261003cbd',
+    'app-nnt-scans.js?v=20261003cbd',
+    'app-xray-ai.js?v=20261003cbd',
     'app-xray-ai-20260909.js',
-    'app-charts.js?v=20261002cbc',
-    'app-xray-wire.js?v=20261002cbc',
-    'app-xray-viewer.js?v=20261002cbc',
-    'app-xray-dicom.js?v=20261002cbc',
-    'app-xray-cbct.js?v=20261002cbc',
-    'app-xray-ceph.js?v=20261002cbc',
+    'app-charts.js?v=20261003cbd',
+    'app-xray-wire.js?v=20261003cbd',
+    'app-xray-viewer.js?v=20261003cbd',
+    'app-xray-dicom.js?v=20261003cbd',
+    'app-xray-cbct.js?v=20261003cbd',
+    'app-xray-cs3d.js?v=20261003cbd',
+    'app-xray-ceph.js?v=20261003cbd',
     'app-perio-dictation.js?v=20260910bop1',
     'app-drugs.js',
     'app-broadcast.js?v=20260524c',

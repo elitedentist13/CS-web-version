@@ -11,7 +11,7 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002cbc';
+var BUILD = '20261003cbd';
 var PAGE_PORT = 8798;
 var CDP_PORT = 9362;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';

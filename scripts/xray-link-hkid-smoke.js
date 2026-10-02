@@ -105,9 +105,9 @@ function chartNeedle(no) {
     pass('index ships chooser modal',
         /id="xrayUploadChooserModal"/.test(idxSrc));
     pass('index ships patched xray-link',
-        /app-xray-link\.js\?v=20261002cbc/.test(idxSrc));
+        /app-xray-link\.js\?v=20261003cbd/.test(idxSrc));
     pass('index BUILD bumped',
-        /BUILD = '20261002cbc'/.test(idxSrc));
+        /BUILD = '20261003cbd'/.test(idxSrc));
     pass('patient switch still loads the HKID film union',
         /xrayClearDisplayedFilms\(\)/.test(linkSrc) &&
         /SB\.from\('xrays'\)[\s\S]{0,120}\.in\('patient_id',\s*ids\)/.test(linkSrc));
@@ -163,7 +163,7 @@ function chartNeedle(no) {
     var served = null;
     var ports = [5500, 8123, 8124];
     var i;
-    var expectedBuild = '20261002cbc';
+    var expectedBuild = '20261003cbd';
     var probeErrors = [];
     for (i = 0; i < ports.length; i++) {
         try {

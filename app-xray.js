@@ -179,6 +179,7 @@ function xrayGetPublicUrlForPath(storagePath) {
 // ── Lightbox extended state ──────────────────────────────
 var lbBrightness  = 100;    // CSS brightness %
 var lbContrast    = 100;    // CSS contrast %
+var lbSharpness   = 0;      // 0–100 unsharp / edge enhance
 var lbTool        = 'none'; // none | pan | free | line | arrow | rect | ellipse | poly | crop | text
 
 var lbDrawColor   = '#ff0000';
@@ -1054,10 +1055,7 @@ function lbSyncLightboxScrollShell() {
     var vid   = g('xrayLbVideo');
     if (!inner || !wrap) return;
 
-    var t = lbTransform;
-    var filt =
-        (t.invert ? 'invert(1) ' : '') +
-        'brightness(' + lbBrightness + '%) contrast(' + lbContrast + '%)';
+    var filt = lbCssFilter();
     if (img && img.style.display !== 'none') img.style.filter = filt;
     if (vid && vid.style.display !== 'none') vid.style.filter = filt;
 
@@ -1245,9 +1243,7 @@ function lbLoupeRedraw() {
     ctx.arc(D / 2, D / 2, D / 2 - 1.5, 0, Math.PI * 2);
     ctx.clip();
 
-    var filt =
-        (t.invert ? 'invert(1) ' : '') +
-        'brightness(' + lbBrightness + '%) contrast(' + lbContrast + '%)';
+    var filt = lbCssFilter();
     ctx.filter = filt;
     ctx.imageSmoothingEnabled = true;
     if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = 'high';
@@ -1328,7 +1324,7 @@ function openLightbox(idx) {
 
     // ── Reset all transform + draw state ──────────────────
     lbTransform  = { scale:1, rotate:0, flipH:false, flipV:false, invert:false };
-    lbBrightness = 100; lbContrast = 100;
+    lbResetTune(false);
     lbLayoutBaseW = 0;
     lbLayoutBaseH = 0;
     lbPolyPts = []; lbDrawHistory = []; lbCropRect = null;
@@ -1336,10 +1332,6 @@ function openLightbox(idx) {
     lbResetScrollHost();
     lbResetLightboxChrome();
 
-    var bs = g('lbBrightSlider');   if (bs) bs.value = 100;
-    var bv = g('lbBrightVal');      if (bv) bv.textContent = '100%';
-    var cs = g('lbContrastSlider'); if (cs) cs.value = 100;
-    var cv = g('lbContrastVal');    if (cv) cv.textContent = '100%';
     var cab = g('lbCropApplyBtn');  if (cab) lbShowCropApply(false);
     lbSetTool('none');
     lbLoupeStop({ resumeDrag: false });
@@ -1466,11 +1458,7 @@ function lbFlip(a)   { if (a === 'h') lbTransform.flipH = !lbTransform.flipH; el
 function lbInvert()  { lbTransform.invert  = !lbTransform.invert; applyLbTransform(); }
 function lbReset() {
     lbTransform  = { scale:1, rotate:0, flipH:false, flipV:false, invert:false };
-    lbBrightness = 100; lbContrast = 100;
-    var bs = g('lbBrightSlider');   if (bs) bs.value = 100;
-    var bv = g('lbBrightVal');      if (bv) bv.textContent = '100%';
-    var cs = g('lbContrastSlider'); if (cs) cs.value = 100;
-    var cv = g('lbContrastVal');    if (cv) cv.textContent = '100%';
+    lbResetTune(false);
     lbResetScrollHost();
     applyLbTransform();
 }
@@ -1512,6 +1500,38 @@ function lbSetStrokeWidth(val) { lbStrokeWidth = parseInt(val) || 4; }
 // ════════════════════════════════════════════════════════════════
 // LIGHTBOX — BRIGHTNESS & CONTRAST
 // ════════════════════════════════════════════════════════════════
+function lbCssFilter() {
+    var t = lbTransform || {};
+    var s = (t.invert ? 'invert(1) ' : '') +
+        'brightness(' + lbBrightness + '%) contrast(' + lbContrast + '%)';
+    if (lbSharpness > 0) {
+        lbSyncSharpenKernel();
+        s += ' url(#lbSharpenFx)';
+    }
+    return s;
+}
+
+function lbSyncSharpenKernel() {
+    var a = Math.max(0, Math.min(100, Number(lbSharpness) || 0)) / 100;
+    var e = -a;
+    var c = 1 + (4 * a);
+    var el = g('lbSharpenKernel');
+    if (el) el.setAttribute('kernelMatrix', '0 ' + e + ' 0 ' + e + ' ' + c + ' ' + e + ' 0 ' + e + ' 0');
+}
+
+function lbResetTune(apply) {
+    lbBrightness = 100;
+    lbContrast = 100;
+    lbSharpness = 0;
+    var bs = g('lbBrightSlider');   if (bs) bs.value = 100;
+    var bv = g('lbBrightVal');      if (bv) bv.textContent = '100%';
+    var cs = g('lbContrastSlider'); if (cs) cs.value = 100;
+    var cv = g('lbContrastVal');    if (cv) cv.textContent = '100%';
+    var ss = g('lbSharpSlider');    if (ss) ss.value = 0;
+    var sv = g('lbSharpVal');       if (sv) sv.textContent = '0';
+    if (apply !== false) applyLbTransform();
+}
+
 function lbSetBrightness(val) {
     lbBrightness = parseInt(val) || 100;
     var el = g('lbBrightVal'); if (el) el.textContent = lbBrightness + '%';
@@ -1520,6 +1540,12 @@ function lbSetBrightness(val) {
 function lbSetContrast(val) {
     lbContrast = parseInt(val) || 100;
     var el = g('lbContrastVal'); if (el) el.textContent = lbContrast + '%';
+    applyLbTransform();
+}
+function lbSetSharpness(val) {
+    var n = parseInt(val, 10);
+    lbSharpness = isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+    var el = g('lbSharpVal'); if (el) el.textContent = String(lbSharpness);
     applyLbTransform();
 }
 
@@ -1812,9 +1838,7 @@ function lbPrint() {
             merged.width  = canvas.width  || img.naturalWidth  || 800;
             merged.height = canvas.height || img.naturalHeight || 600;
             var mCtx = merged.getContext('2d');
-            mCtx.filter =
-                (lbTransform.invert ? 'invert(1) ' : '') +
-                'brightness(' + lbBrightness + '%) contrast(' + lbContrast + '%)';
+            mCtx.filter = lbCssFilter();
             mCtx.drawImage(img, 0, 0, merged.width, merged.height);
             mCtx.filter = 'none';
             mCtx.save();
@@ -1908,7 +1932,7 @@ function lbNeedsImagePersist() {
     var img = g('xrayLbImg');
     if (img && img.src && img.src.indexOf('data:image') === 0) return true;
     if (lbOrientChanged()) return true;
-    if (lbBrightness !== 100 || lbContrast !== 100 || lbTransform.invert) {
+    if (lbBrightness !== 100 || lbContrast !== 100 || lbSharpness > 0 || lbTransform.invert) {
         return true;
     }
     return lbOverlayHasInk();
@@ -1994,9 +2018,7 @@ function lbBuildMergedImageBlobInner(callback) {
         merged.height = nh;
         var mCtx = merged.getContext('2d');
 
-        mCtx.filter =
-            (lbTransform.invert ? 'invert(1) ' : '') +
-            'brightness(' + lbBrightness + '%) contrast(' + lbContrast + '%)';
+        mCtx.filter = lbCssFilter();
         mCtx.drawImage(img, 0, 0, nw, nh);
         mCtx.filter = 'none';
         mCtx.save();
@@ -2041,9 +2063,7 @@ function lbComposeMergeViaFetch(record, callback) {
                     merged.height = nh;
                     var mCtx = merged.getContext('2d');
 
-                    mCtx.filter =
-                        (lbTransform.invert ? 'invert(1) ' : '') +
-                        'brightness(' + lbBrightness + '%) contrast(' + lbContrast + '%)';
+                    mCtx.filter = lbCssFilter();
                     mCtx.drawImage(im, 0, 0, nw, nh);
                     mCtx.filter = 'none';
                     mCtx.save();

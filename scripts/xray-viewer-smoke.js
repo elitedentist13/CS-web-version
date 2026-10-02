@@ -14,7 +14,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002cb2';
+var BUILD = '20261002cb4';
 var PAGE_PORT = 8797;
 var CDP_PORT = 9365;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -317,6 +317,10 @@ var PAGE_SCRIPT = `(async () => {
     pass('lightbox has the measure tools, overlay, panel and known-length field',
         ['lbMeasBtn-length', 'lbMeasBtn-angle', 'lbMeasBtn-bone', 'lbMeasBtn-cal', 'lbMeasKnown', 'lbMeasClear', 'xrayLbMeasure', 'xrayMeasPanel', 'lbToothTlBtn']
             .every(function (id) { return html.indexOf('id="' + id + '"') >= 0; }));
+    pass('lightbox Adjust has brightness, contrast, sharpness and reset tune',
+        ['lbBrightSlider', 'lbContrastSlider', 'lbSharpSlider', 'lbSharpenFx'].every(function (id) {
+            return html.indexOf('id="' + id + '"') >= 0;
+        }) && /function lbSetSharpness/.test(read('app-xray.js')) && /function lbCssFilter/.test(read('app-xray.js')));
     pass('compare modal has sync, zoom, reset, swap and per-side views',
         ['xrayCmpSync', 'xrayCmpViewA', 'xrayCmpViewB', 'xrayCmpSelA', 'xrayCmpSelB', 'xrayCmpScope']
             .every(function (id) { return html.indexOf('id="' + id + '"') >= 0; }));

@@ -6,7 +6,7 @@ if (!fs.existsSync(from)) from = process.env.OHIF_DIST || from;
 function skip(n) {
     return /\.map$/.test(n) ||
         n === 'ort' || n === 'dicom-microscopy-viewer' ||
-        n === 'banana-app-config.js' || n === 'banana-boot.js' || n === 'README.md';
+        n === 'banana-app-config.js' || n === 'banana-boot.js' || n === 'banana-load.js' || n === 'README.md';
 }
 function copy(a, b) {
     fs.mkdirSync(b, { recursive: true });
@@ -23,7 +23,10 @@ fs.copyFileSync(path.join(to, 'banana-app-config.js'), path.join(to, 'app-config
 var htmlPath = path.join(to, 'index.html');
 var html = fs.readFileSync(htmlPath, 'utf8');
 if (html.indexOf('banana-boot.js') < 0) {
-    html = html.replace('<head>', '<head><script src="./banana-boot.js"></script>');
+    html = html.replace('<head>', '<head><script src="./banana-boot.js"></script><script src="./banana-load.js"></script>');
+    fs.writeFileSync(htmlPath, html);
+} else if (html.indexOf('banana-load.js') < 0) {
+    html = html.replace('banana-boot.js"></script>', 'banana-boot.js"></script><script src="./banana-load.js"></script>');
     fs.writeFileSync(htmlPath, html);
 }
 var files = fs.readdirSync(to);

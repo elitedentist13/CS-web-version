@@ -50,7 +50,7 @@
             'position:fixed;left:0;right:0;bottom:0;z-index:2147483000;display:flex;gap:12px;align-items:center;' +
             'padding:6px 12px;background:#111827;color:#fde047;font:700 12px/1.3 Segoe UI,sans-serif;' +
             'border-top:1px solid #334155;');
-        el.textContent = 'Banana: load a DICOM zip or folder here. Share THIS window in X-ray Helper to save a view to the chart.';
+        el.textContent = 'Banana: use Load zip / Load folder here (OHIF cannot open a .zip by itself). Share THIS window in X-ray Helper to save a view.';
         if (ctx && (ctx.patientNo || ctx.name)) {
             var who = document.createElement('span');
             who.setAttribute('style', 'margin-left:auto;color:#7dd3fc;');

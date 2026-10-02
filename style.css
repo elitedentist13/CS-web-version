@@ -12730,6 +12730,7 @@ body.xray-lb-maximized .active-patient-dock {
 
 /* ?? Toolbar strip ??????????????????????????????????????????? */
 .xray-lb-toolbar {
+    position: relative;
     background: #1a1a2e;
     display: flex;
     flex-wrap: wrap;
@@ -12793,6 +12794,7 @@ body.xray-lb-maximized .active-patient-dock {
 }
 .xray-lb-slider-lbl input[type=range] { width: 64px; accent-color: #1a73e8; }
 .xray-lb-slider-lbl span             { min-width: 32px; font-size: 10px; }
+#lbTuneSvg { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
 
 .xray-lb-color-pick {
     width: 26px; height: 26px;

@@ -7,7 +7,7 @@
 (function () {
     var MORE = {
         'xb.open': { en: 'CBCT viewer', 'zh-CN': 'CBCT 查看器', 'zh-Hant': 'CBCT 檢視器' },
-        'xb.openTitle': { en: 'Open the OHIF sidecar. Load a DICOM zip or folder there, then share that window in X-ray Helper to save a view to this patient.', 'zh-CN': '打开 OHIF 侧窗。在其中载入 DICOM zip 或文件夹，再用 X 光助手分享该窗口，把画面存回当前病人。', 'zh-Hant': '開啟 OHIF 側窗。在其中載入 DICOM zip 或資料夾，再用 X 光助手分享該視窗，把畫面存回目前病人。' },
+        'xb.openTitle': { en: 'Open the OHIF sidecar. Use Load zip or Load folder on the yellow bar (a .zip is unpacked here — OHIF cannot read the archive itself), then share that window in X-ray Helper to save a view to this patient.', 'zh-CN': '打开 OHIF 侧窗。用黄条上的 Load zip / Load folder（zip 由 Banana 解压，OHIF 本身读不了压缩包），再用 X 光助手分享该窗口，把画面存回当前病人。', 'zh-Hant': '開啟 OHIF 側窗。用黃條上的 Load zip / Load folder（zip 由 Banana 解壓，OHIF 本身讀不了壓縮包），再用 X 光助手分享該視窗，把畫面存回目前病人。' },
         'xb.needPatient': { en: 'Select a patient before opening the CBCT viewer.', 'zh-CN': '请先选择病人再打开 CBCT 查看器。', 'zh-Hant': '請先選擇病人再開啟 CBCT 檢視器。' }
     };
     if (typeof I18N_STRINGS !== 'undefined') {

@@ -8,7 +8,7 @@ var http = require('http');
 var path = require('path');
 var vm = require('vm');
 
-var BUILD = '20261002cb2';
+var BUILD = '20261002cb4';
 var PAGE_PORT = 8794;
 var root = path.resolve(__dirname, '..');
 var fails = [];
@@ -84,6 +84,8 @@ function startStaticServer(port) {
         /lastIndexOf\('\/ohif'\)/.test(cfg));
     pass('sidecar index is present (placeholder or full build)',
         /OHIF/.test(ohifIdx) && /banana-boot\.js/.test(ohifIdx));
+    pass('sidecar unpacks zip before handing files to OHIF',
+        /banana-load\.js/.test(ohifIdx) && /bananaOhifUnzip/.test(read('ohif/banana-load.js')));
     var built = fs.readdirSync(path.join(root, 'ohif')).some(function (f) {
         return /^app\.bundle\.[a-f0-9]+\.js$/.test(f);
     });
@@ -127,6 +129,60 @@ function startStaticServer(port) {
         cfgBox.config && cfgBox.config.routerBasename === '/CS-web-version/ohif'
         && cfgBox.config.defaultDataSourceName === 'dicomlocal');
 
+    var loadBox = {
+        document: {
+            addEventListener: function () {},
+            readyState: 'complete',
+            getElementById: function () { return null; },
+            querySelector: function () { return null; },
+            querySelectorAll: function () { return []; },
+            createElement: function () {
+                return { setAttribute: function () {}, addEventListener: function () {}, style: {}, appendChild: function () {} };
+            }
+        },
+        TextDecoder: TextDecoder,
+        Uint8Array: Uint8Array,
+        Promise: Promise,
+        console: console,
+        setTimeout: setTimeout
+    };
+    loadBox.window = loadBox;
+    vm.createContext(loadBox);
+    vm.runInContext(read('ohif/banana-load.js'), loadBox);
+    var dcm = Buffer.alloc(140, 0);
+    dcm[128] = 68; dcm[129] = 73; dcm[130] = 67; dcm[131] = 77;
+    function storeZip(name, data) {
+        var nameB = Buffer.from(name);
+        var local = Buffer.alloc(30 + nameB.length + data.length);
+        local.writeUInt32LE(0x04034b50, 0);
+        local.writeUInt16LE(20, 4);
+        local.writeUInt32LE(data.length, 18);
+        local.writeUInt32LE(data.length, 22);
+        local.writeUInt16LE(nameB.length, 26);
+        nameB.copy(local, 30);
+        data.copy(local, 30 + nameB.length);
+        var cd = Buffer.alloc(46 + nameB.length);
+        cd.writeUInt32LE(0x02014b50, 0);
+        cd.writeUInt16LE(20, 4);
+        cd.writeUInt16LE(20, 6);
+        cd.writeUInt32LE(data.length, 20);
+        cd.writeUInt32LE(data.length, 24);
+        cd.writeUInt16LE(nameB.length, 28);
+        nameB.copy(cd, 46);
+        var eocd = Buffer.alloc(22);
+        eocd.writeUInt32LE(0x06054b50, 0);
+        eocd.writeUInt16LE(1, 8);
+        eocd.writeUInt16LE(1, 10);
+        eocd.writeUInt32LE(cd.length, 12);
+        eocd.writeUInt32LE(local.length, 16);
+        return Buffer.concat([local, cd, eocd]);
+    }
+    var zipped = storeZip('study/slice.dcm', dcm);
+    var unzipped = await loadBox.bananaOhifUnzip(new Uint8Array(zipped), 0);
+    pass('testclient: a store zip of one .dcm unpacks to a DICOM instance',
+        unzipped && unzipped.length === 1 && unzipped[0].name === 'slice.dcm'
+        && loadBox.bananaOhifLooksDicom(unzipped[0].name, unzipped[0].bytes));
+
     console.log('\n=== HTTP spot ===');
     var server = await startStaticServer(PAGE_PORT);
     var idx = await httpGetText(PAGE_PORT, '/index.html?_lr=' + BUILD);
@@ -139,6 +195,8 @@ function startStaticServer(port) {
     pass('GET /ohif/local falls back to the OHIF SPA', loc.status === 200 && /OHIF/.test(loc.body));
     var boot = await httpGetText(PAGE_PORT, '/ohif/banana-boot.js');
     pass('GET /ohif/banana-boot.js is served', boot.status === 200 && /banana\.cbct\.v1/.test(boot.body) && /replaceState/.test(boot.body));
+    var loadJs = await httpGetText(PAGE_PORT, '/ohif/banana-load.js');
+    pass('GET /ohif/banana-load.js is served', loadJs.status === 200 && /bananaOhifUnzip/.test(loadJs.body));
     try { server.close(); } catch (e) { /* ignore */ }
 
     console.log('\n' + (fails.length ? 'FAILED ' + fails.length : 'SMOKE + SPOT + TESTCLIENT PASS'));

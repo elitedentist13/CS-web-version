@@ -6202,6 +6202,8 @@
         'media.btn.view': { en: '🔍 View', 'zh-CN': '🔍 查看', 'zh-Hant': '🔍 檢視' },
         'media.lb.transform': { en: 'Transform', 'zh-CN': '变换', 'zh-Hant': '變換' },
         'media.lb.adjust': { en: 'Adjust', 'zh-CN': '调整', 'zh-Hant': '調整' },
+        'media.lb.sharp': { en: 'Sharpness', 'zh-CN': '锐化', 'zh-Hant': '銳化' },
+        'media.lb.adjustReset': { en: 'Reset tune', 'zh-CN': '重置调图', 'zh-Hant': '重置調圖' },
         'media.lb.video': { en: 'Video', 'zh-CN': '视频', 'zh-Hant': '視訊' },
         'media.lb.draw': { en: 'Draw', 'zh-CN': '绘制', 'zh-Hant': '繪製' },
         'media.alert.error': { en: 'Error: {MSG}', 'zh-CN': '错误：{MSG}', 'zh-Hant': '錯誤：{MSG}' },

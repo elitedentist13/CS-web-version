@@ -4325,6 +4325,9 @@ function bindConBackQueueBtnOnce() {
     btn.dataset.bound = '1';
     btn.addEventListener('click', function() {
         var doExit = function() {
+            if (typeof pinConsultationPatientToActiveSlot === 'function') {
+                pinConsultationPatientToActiveSlot('consultation-back-queue');
+            }
             if (typeof showOnly === 'function') showOnly('appointmentSection');
             setTimeout(function() {
                 if (typeof switchApptTab === 'function') switchApptTab('queue');

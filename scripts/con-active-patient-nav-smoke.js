@@ -10,8 +10,8 @@ var child_process = require('child_process');
 var os = require('os');
 var vm = require('vm');
 
-var BUILD = '20261003cbd';
-var PAGE_PORT = 8793;
+var BUILD = '20261003cbe';
+var PAGE_PORT = 8796;
 var CDP_PORT = 9355;
 var CHROME = process.env.CHROME_PATH ||
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -188,6 +188,7 @@ function finish(code) {
     var html = read('index.html');
     var conSrc = read('app-consultation.js');
     var appSrc = read('app.js');
+    var apptSrc = read('app-appt.js');
     var patSrc = read('app-patient.js');
 
     console.log('=== spot: source ===');
@@ -223,6 +224,16 @@ function finish(code) {
 
     pass('back to dashboard pins the consultation patient onto the dock',
         appSrc.indexOf("pinConsultationPatientToActiveSlot('consultation-leave')") >= 0);
+
+    pass('back to current queue pins the consultation patient before opening the queue',
+        conSrc.indexOf("pinConsultationPatientToActiveSlot('consultation-back-queue')") >= 0 &&
+        /function bindConBackQueueBtnOnce\(\) \{[\s\S]{0,700}consultation-back-queue/.test(conSrc));
+
+    pass('queue/today restore keeps the dock patient instead of the stale selected row',
+        apptSrc.indexOf('function apptRestoreListRowSelection') >= 0 &&
+        apptSrc.indexOf('function apptFindListRowForPatient') >= 0 &&
+        /function apptRestoreListRowSelection\(tb, tabKey\) \{[\s\S]{0,900}apptSetActivePatientFromAppt/.test(apptSrc) === false &&
+        apptSrc.indexOf("apptSetActivePatientFromAppt(a, 'appt-' + tabKey + '-row-restore')") < 0);
 
     pass('slot hydrate is generation-guarded so a previous patient cannot overlay',
         appSrc.indexOf('var activePatientSlotHydrateGen = [0, 0];') >= 0 &&
@@ -261,6 +272,50 @@ function finish(code) {
     pass('testclient stale _patientDetailsPatient cannot win over the consultation pick',
         afterStaleDir && afterStaleDir.id === 'b');
 
+    console.log('\n=== testclient: queue restore keeps the current dock patient ===');
+    var restoreBox = {
+        activePatientSlots: [{ id: 'b', full_name: 'Current Patient' }, null],
+        queueApptsCache: [
+            { id: 'wong-appt', patient_id: 'a', patient_name: 'Wong Chun Fai' },
+            { id: 'current-appt', patient_id: 'b', patient_name: 'Current Patient' }
+        ],
+        todayAppts: [],
+        arAllData: [],
+        apptListSelectedApptId: 'wong-appt',
+        apptListSelectedTab: 'queue',
+        selectedIds: [],
+        apptSetActivePatientFromAppt: function () { restoreBox.overwrote = true; }
+    };
+    restoreBox.overwrote = false;
+    restoreBox.document = {
+        querySelectorAll: function () { return []; }
+    };
+    var fakeTb = {
+        querySelector: function (sel) {
+            restoreBox.lastSel = sel;
+            return { classList: { add: function () { restoreBox.highlighted = sel; } } };
+        },
+        querySelectorAll: function () { return []; }
+    };
+    vm.createContext(restoreBox);
+    vm.runInContext(
+        extractFn(apptSrc, 'apptActiveDockPatientId') + '\n' +
+        extractFn(apptSrc, 'apptFindListRowForPatient') + '\n' +
+        extractFn(apptSrc, 'apptMarkListRowSelected') + '\n' +
+        extractFn(apptSrc, 'apptRestoreListRowSelection'),
+        restoreBox
+    );
+    restoreBox.apptRestoreListRowSelection(fakeTb, 'queue');
+    pass('testclient restore highlights the current patient row, not the stale Wong row',
+        restoreBox.apptListSelectedApptId === 'current-appt' &&
+            restoreBox.overwrote !== true &&
+            String(restoreBox.highlighted || '').indexOf('current-appt') >= 0,
+        JSON.stringify({
+            selected: restoreBox.apptListSelectedApptId,
+            overwrote: restoreBox.overwrote,
+            highlighted: restoreBox.highlighted
+        }));
+
     console.log('\n=== live server HTTP ===');
     var liveHttp = null;
     var livePort = 0;
@@ -292,6 +347,10 @@ function finish(code) {
             appJs.body.indexOf("pinConsultationPatientToActiveSlot('consultation-leave')") >= 0 &&
             appJs.body.indexOf('activePatientSlotHydrateGen') >= 0,
             'HTTP ' + appJs.status);
+        pass('served consultation pins the dock on Current Queue',
+            conJs.status === 200 &&
+            conJs.body.indexOf("pinConsultationPatientToActiveSlot('consultation-back-queue')") >= 0,
+            'HTTP ' + conJs.status);
         pass('served app-patient.js skips consultation directory-search rewrite',
             patJs.status === 200 && patJs.body.indexOf("src.indexOf('consultation-') === 0") >= 0,
             'HTTP ' + patJs.status);
@@ -364,7 +423,9 @@ function finish(code) {
                 typeof pinConsultationPatientToActiveSlot === 'function' &&
                 typeof setActivePatientSlot === 'function' &&
                 typeof showDashboard === 'function' &&
-                typeof showOnly === 'function') break;
+                typeof showOnly === 'function' &&
+                typeof bindConBackQueueBtnOnce === 'function' &&
+                typeof apptRestoreListRowSelection === 'function') break;
             await new Promise(function (r) { setTimeout(r, 200); });
           }
           const login = document.getElementById('loginOverlay');
@@ -445,7 +506,38 @@ function finish(code) {
             ? [activePatientSlotHydrateGen[0], activePatientSlotHydrateGen[1]]
             : null;
 
-          const flashedBack = [afterSelect, afterDash, afterReenter].some(function (s) {
+          if (typeof bindConBackQueueBtnOnce === 'function') bindConBackQueueBtnOnce();
+          apptListSelectedApptId = 'wong-appt';
+          apptListSelectedTab = 'queue';
+          queueApptsCache = [
+            { id: 'wong-appt', patient_id: 'nav-smoke-a', patient_name: 'Wong Chun Fai' },
+            { id: 'current-appt', patient_id: 'nav-smoke-b', patient_name: 'Current Patient' }
+          ];
+          var qTb = document.getElementById('queueBody');
+          if (qTb && typeof apptRestoreListRowSelection === 'function') {
+            apptRestoreListRowSelection(qTb, 'queue');
+          }
+          const afterRestore = {
+            slot: activePatientSlots[0] && activePatientSlots[0].id,
+            card: cardId(),
+            selected: apptListSelectedApptId,
+            text: cardText()
+          };
+          showOnly('consultationSection');
+          var queueBtn = document.getElementById('conBackQueueBtn');
+          if (queueBtn) queueBtn.click();
+          await new Promise(function (r) { setTimeout(r, 120); });
+          const afterQueueBtn = {
+            slot: activePatientSlots[0] && activePatientSlots[0].id,
+            card: cardId(),
+            conId: conPatientData && conPatientData.id,
+            text: cardText(),
+            selected: apptListSelectedApptId,
+            apptShown: !!(document.getElementById('appointmentSection') &&
+              document.getElementById('appointmentSection').style.display !== 'none')
+          };
+
+          const flashedBack = [afterSelect, afterDash, afterReenter, afterRestore, afterQueueBtn].some(function (s) {
             return s.slot === 'nav-smoke-a' || s.card === 'nav-smoke-a' ||
               s.conId === 'nav-smoke-a' || s.con === 'nav-smoke-a' ||
               (s.text && s.text.indexOf('Previous Patient') >= 0) ||
@@ -461,6 +553,8 @@ function finish(code) {
             afterSelect: afterSelect,
             afterDash: afterDash,
             afterReenter: afterReenter,
+            afterRestore: afterRestore,
+            afterQueueBtn: afterQueueBtn,
             staleIgnored: staleIgnored,
             hydrateGens: hydrateGens,
             flashedBack: flashedBack,
@@ -472,7 +566,10 @@ function finish(code) {
               afterReenter.slot === 'nav-smoke-b' &&
               afterReenter.card === 'nav-smoke-b' &&
               afterReenter.conId === 'nav-smoke-b' &&
-              afterReenter.resolved === 'nav-smoke-b'
+              afterReenter.resolved === 'nav-smoke-b' &&
+              afterRestore.slot === 'nav-smoke-b' &&
+              afterQueueBtn.slot === 'nav-smoke-b' &&
+              afterQueueBtn.card === 'nav-smoke-b'
           };
         })()`, true, 40000);
 
@@ -501,6 +598,17 @@ function finish(code) {
                 live.afterReenter.conShown === true &&
                 String(live.afterReenter.banner || '').indexOf('Current Patient') >= 0,
             live ? JSON.stringify(live.afterReenter) : 'none');
+        pass('live queue restore does not put a stale selected row on the dock',
+            live && live.afterRestore && live.afterRestore.slot === 'nav-smoke-b' &&
+                live.afterRestore.card === 'nav-smoke-b' &&
+                live.afterRestore.selected === 'current-appt',
+            live ? JSON.stringify(live.afterRestore) : 'none');
+        pass('live Current Queue button keeps the current active patient',
+            live && live.afterQueueBtn && live.afterQueueBtn.slot === 'nav-smoke-b' &&
+                live.afterQueueBtn.card === 'nav-smoke-b' &&
+                live.afterQueueBtn.conId === 'nav-smoke-b' &&
+                String(live.afterQueueBtn.text || '').indexOf('Previous Patient') < 0,
+            live ? JSON.stringify(live.afterQueueBtn) : 'none');
         pass('stale _patientDetailsPatient cannot flash the previous patient back',
             live && live.flashedBack === false && live.stuckOnCurrent === true,
             live ? ('flashed=' + live.flashedBack + ' stuck=' + live.stuckOnCurrent) : 'none');

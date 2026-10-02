@@ -151,12 +151,44 @@ function apptSelectListRow(a, row, tabKey) {
     } catch (eSel) {}
 }
 
+function apptActiveDockPatientId() {
+    var ap = (typeof activePatientSlots !== 'undefined' &&
+              activePatientSlots[0] && activePatientSlots[0].id)
+        ? activePatientSlots[0]
+        : null;
+    return ap ? String(ap.id) : '';
+}
+
+function apptFindListRowForPatient(patientId, tabKey) {
+    var pid = String(patientId || '');
+    if (!pid) return null;
+    var list = tabKey === 'queue'
+        ? (queueApptsCache || [])
+        : (tabKey === 'today'
+            ? (todayAppts || [])
+            : (tabKey === 'records'
+                ? (typeof arAllData !== 'undefined' ? (arAllData || []) : [])
+                : []));
+    var i;
+    for (i = 0; i < list.length; i++) {
+        if (list[i] && String(list[i].patient_id || '') === pid) return list[i];
+    }
+    return null;
+}
+
 function apptRestoreListRowSelection(tb, tabKey) {
-    if (!tb || !apptListSelectedApptId || apptListSelectedTab !== tabKey) return;
+    if (!tb) return;
+    var activePid = apptActiveDockPatientId();
+    var match = activePid ? apptFindListRowForPatient(activePid, tabKey) : null;
+    if (match && match.id) {
+        apptListSelectedTab = tabKey;
+        var matchRow = tb.querySelector('tr[data-appt-id="' + String(match.id) + '"]');
+        apptMarkListRowSelected(matchRow, match.id);
+        return;
+    }
+    if (!apptListSelectedApptId || apptListSelectedTab !== tabKey) return;
     var row = tb.querySelector('tr[data-appt-id="' + apptListSelectedApptId + '"]');
     if (row) row.classList.add('appt-list-row-selected');
-    var a = apptFindListRowAppt(apptListSelectedApptId, tabKey);
-    if (a) apptSetActivePatientFromAppt(a, 'appt-' + tabKey + '-row-restore');
 }
 
 function apptBindListRowPatientDrag(row, a) {

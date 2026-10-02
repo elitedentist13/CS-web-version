@@ -5422,6 +5422,7 @@
         'con.note.sec.si': { en: 'Special investigation', 'zh-CN': '特殊检查', 'zh-Hant': '特殊檢查' },
         'con.note.sec.tx': { en: 'Treatment', 'zh-CN': '治疗', 'zh-Hant': '治療' },
         'con.note.sec.px': { en: 'Prescription', 'zh-CN': '处方', 'zh-Hant': '處方' },
+        'con.note.sec.ohi': { en: 'Oral hygiene instruction', 'zh-CN': '口腔卫生指导', 'zh-Hant': '口腔衛生指導' },
         'con.note.sec.next': { en: 'Next visit', 'zh-CN': '下次覆诊', 'zh-Hant': '下次覆診' },
         'con.note.sec.other': { en: 'Other notes', 'zh-CN': '其他', 'zh-Hant': '其他' },
         'con.note.tooth': { en: 'Tooth', 'zh-CN': '牙位', 'zh-Hant': '牙位' },

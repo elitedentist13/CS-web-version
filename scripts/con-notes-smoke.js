@@ -1,6 +1,6 @@
 /**
- * Consultation treatment notes: smoke / unit / HTTP spot / API.
- *  - sections parse/compose (C/O, MH, HPC, E/O, I/O, Xrays, SI, Tx, Px, Next)
+ * Consultation treatment notes: smoke / unit / HTTP spot / API + CDP Runtime.evaluate / live page.
+ *  - sections parse/compose (C/O, MH, HPC, E/O, I/O, Xrays, SI, Tx, Px, OHI, Next)
  *  - doctor required, author saved, edit history, soft delete, addenda (graceful fallback)
  *  - drafts, context chips, history filters wiring
  * Run: node scripts/con-notes-smoke.js
@@ -9,11 +9,16 @@ var fs = require('fs');
 var http = require('http');
 var path = require('path');
 var vm = require('vm');
+var child_process = require('child_process');
+var os = require('os');
 
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20261002cb7';
+var EXPECTED_BUILD = '20261002cb8';
+var PAGE_PORT = 8802;
+var CDP_PORT = 9370;
+var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 var PID = '18d4d8a2-7d16-403c-962c-cba93540b132';
 var fails = [];
 
@@ -59,6 +64,129 @@ function rest(base, key, method, table, qs, body) {
         });
     });
 }
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function httpGetJson(url) {
+    return new Promise(function (resolve, reject) {
+        http.get(url, function (r) {
+            var d = '';
+            r.on('data', function (c) { d += c; });
+            r.on('end', function () { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } });
+        }).on('error', reject);
+    });
+}
+async function waitJson(url, timeoutMs) {
+    var deadline = Date.now() + timeoutMs, last = null;
+    while (Date.now() < deadline) {
+        try { return await httpGetJson(url); } catch (e) { last = e; await sleep(250); }
+    }
+    throw new Error('timeout ' + url + ' last=' + (last && last.message));
+}
+function Cdp(ws) {
+    this.ws = ws; this.n = 0; this.pending = {};
+    var self = this;
+    ws.addEventListener('message', function (ev) {
+        var data = JSON.parse(ev.data);
+        if (data.id != null && self.pending[data.id]) {
+            var p = self.pending[data.id];
+            delete self.pending[data.id];
+            if (data.error) p.reject(new Error(JSON.stringify(data.error)));
+            else p.resolve(data.result || {});
+        }
+    });
+}
+Cdp.prototype.call = function (method, params, timeoutMs) {
+    var self = this;
+    timeoutMs = timeoutMs || 30000;
+    return new Promise(function (resolve, reject) {
+        var id = ++self.n;
+        var t = setTimeout(function () { delete self.pending[id]; reject(new Error('CDP timeout ' + method)); }, timeoutMs);
+        self.pending[id] = {
+            resolve: function (v) { clearTimeout(t); resolve(v); },
+            reject: function (e) { clearTimeout(t); reject(e); }
+        };
+        self.ws.send(JSON.stringify({ id: id, method: method, params: params || {} }));
+    });
+};
+Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
+    var r = await this.call('Runtime.evaluate', {
+        expression: expression, returnByValue: true, awaitPromise: !!awaitPromise, timeout: (timeoutMs || 45000)
+    }, (timeoutMs || 45000) + 5000);
+    if (r.exceptionDetails) {
+        var ex = r.exceptionDetails.exception || {};
+        throw new Error(ex.description || JSON.stringify(r.exceptionDetails));
+    }
+    return (r.result || {}).value;
+};
+function startStaticServer(port) {
+    var types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
+    var server = http.createServer(function (req, res) {
+        var urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+        if (urlPath === '/') urlPath = '/index.html';
+        var file = path.normalize(path.join(root, urlPath));
+        if (file.indexOf(root) !== 0) { res.writeHead(403); res.end('no'); return; }
+        fs.readFile(file, function (err, buf) {
+            if (err) { res.writeHead(404); res.end('missing'); return; }
+            res.writeHead(200, { 'Content-Type': types[path.extname(file).toLowerCase()] || 'application/octet-stream' });
+            res.end(buf);
+        });
+    });
+    return new Promise(function (resolve, reject) {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', function () { resolve(server); });
+    });
+}
+
+var PAGE_SCRIPT = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const deadline = Date.now() + 25000;
+  while (Date.now() < deadline) {
+    if (typeof cnRenderSections === 'function' && typeof cnSetMode === 'function' && document.getElementById('conNoteSections')) break;
+    await wait(200);
+  }
+  const out = { ready: typeof cnRenderSections === 'function' && typeof CN_SECTIONS !== 'undefined', build: window.__JSM_BUILD || '' };
+  if (!out.ready) return out;
+  const $ = (id) => document.getElementById(id);
+  const login = $('loginOverlay'); if (login) login.style.display = 'none';
+  const con = $('consultationSection');
+  if (con) { con.style.display = 'block'; con.removeAttribute('aria-hidden'); }
+  const layout = $('conMainLayout');
+  if (layout) layout.style.display = 'grid';
+  const tab = $('conTnSubpane-notes'); if (tab) { tab.hidden = false; tab.classList.add('active'); }
+  const inp = $('conNoteInput');
+  if (inp) inp.value = 'Px: CHX rinse\\nOHI: brushing twice daily\\nNext: review 1 week';
+  cnSetMode('sections', false);
+  cnRenderSections();
+  await wait(80);
+  const keys = Array.from(document.querySelectorAll('#conNoteSections .cn-sec')).map((el) => el.getAttribute('data-key'));
+  out.keys = keys.join(',');
+  const iPx = keys.indexOf('px'), iOhi = keys.indexOf('ohi'), iNext = keys.indexOf('next');
+  out.ohiBetween = iPx >= 0 && iOhi === iPx + 1 && iNext === iOhi + 1;
+  const ohiLbl = document.querySelector('#conNoteSections .cn-sec[data-key="ohi"] .cn-sec-lbl');
+  const ohiName = document.querySelector('#conNoteSections .cn-sec[data-key="ohi"] .cn-sec-name');
+  const ohiTa = document.querySelector('#conNoteSections .cn-sec-input[data-key="ohi"]');
+  out.ohiLbl = ohiLbl ? ohiLbl.textContent : '';
+  out.ohiNameEn = ohiName ? ohiName.textContent : '';
+  out.ohiValue = ohiTa ? ohiTa.value : '';
+  out.parsed = cnParse(inp.value).sections.ohi;
+  out.composed = cnCompose({ px: 'a', ohi: 'b', next: 'c' });
+  out.orderOk = out.composed.indexOf('Px: a') >= 0 && out.composed.indexOf('OHI: b') > out.composed.indexOf('Px: a') &&
+    out.composed.indexOf('Next: c') > out.composed.indexOf('OHI: b');
+  const langs = {};
+  for (const lang of ['en', 'zh-Hant', 'zh-CN']) {
+    setAppLang(lang);
+    await wait(80);
+    cnRenderSections();
+    const n = document.querySelector('#conNoteSections .cn-sec[data-key="ohi"] .cn-sec-name');
+    langs[lang] = n ? n.textContent : '';
+  }
+  setAppLang('en');
+  out.langs = langs;
+  out.langsOk = langs.en === 'Oral hygiene instruction' && !!langs['zh-Hant'] && !!langs['zh-CN'] &&
+    langs['zh-Hant'] !== langs.en && langs['zh-CN'] !== langs.en && langs['zh-Hant'] !== langs['zh-CN'];
+  out.sectionsVisible = !!($('conNoteSections') && !$('conNoteSections').hidden);
+  return out;
+})()`;
 
 function extractFn(src, name) {
     var start = src.indexOf('function ' + name + '(');
@@ -137,7 +265,7 @@ function extractFn(src, name) {
     });
     var re2 = /data-i18n(?:-placeholder|-title|-aria-label)?="(con\.note\.[A-Za-z0-9_.]+)"/g, m2;
     while ((m2 = re2.exec(html))) keys[m2[1]] = 1;
-    ['co', 'mh', 'hpc', 'eo', 'io', 'xr', 'si', 'tx', 'px', 'next', 'other'].forEach(function (k) { keys['con.note.sec.' + k] = 1; });
+    ['co', 'mh', 'hpc', 'eo', 'io', 'xr', 'si', 'tx', 'px', 'ohi', 'next', 'other'].forEach(function (k) { keys['con.note.sec.' + k] = 1; });
     var re3 = /key: '(con\.note\.[A-Za-z0-9_.]+)'/g, m3;
     while ((m3 = re3.exec(notesSrc))) keys[m3[1]] = 1;
     var missing = Object.keys(keys).filter(function (k) { return !/\.$/.test(k); }).filter(function (k) {
@@ -176,13 +304,15 @@ function extractFn(src, name) {
     var full = {
         co: 'Pain 36 x 3 days', mh: 'NAD', hpc: 'Worse at night', eo: 'No facial swelling, TMJ NAD',
         io: '36 deep caries DO\nGingiva healthy', xr: 'PA 36: deep caries close to pulp', si: 'Cold test +ve lingering',
-        tx: 'LA given. Access cavity 36', px: 'Ibuprofen 400mg tds x 3 days', next: 'RCT continue 36', other: ''
+        tx: 'LA given. Access cavity 36', px: 'Ibuprofen 400mg tds x 3 days',
+        ohi: 'Brushing instruction', next: 'RCT continue 36', other: ''
     };
     var composed = ctx.cnCompose(full);
-    pass('compose order C/O → Next with E/O, I/O',
+    pass('compose order C/O → Next with E/O, I/O and OHI after Px',
         composed.indexOf('C/O: ') === 0 && composed.indexOf('E/O: ') > composed.indexOf('HPC: ') &&
         composed.indexOf('I/O: ') > composed.indexOf('E/O: ') && composed.indexOf('Xrays: ') > composed.indexOf('I/O: ') &&
-        composed.indexOf('Next: ') > composed.indexOf('Px: '));
+        composed.indexOf('OHI: ') > composed.indexOf('Px: ') &&
+        composed.indexOf('Next: ') > composed.indexOf('OHI: '));
     var back = ctx.cnParse(composed);
     pass('round trip keeps every section (incl. multi-line I/O)', Object.keys(full).every(function (k) {
         return String(back.sections[k] || '') === full[k];
@@ -194,6 +324,10 @@ function extractFn(src, name) {
         aliases.sections.si === 'TTP +ve');
     pass('E/O and I/O short forms', ctx.cnParse('E/O: NAD\nI/O: plaque').sections.eo === 'NAD' &&
         ctx.cnParse('E/O: NAD\nI/O: plaque').sections.io === 'plaque');
+    pass('OHI sits between Px and Next',
+        ctx.cnParse('Px: CHX\nOHI: brushing\nNext: review').sections.ohi === 'brushing' &&
+        ctx.CN_SECTIONS.map(function (s) { return s.key; }).join(',') ===
+            'co,mh,hpc,eo,io,xr,si,tx,px,ohi,next');
     var free = ctx.cnParse('Scaling done, OHI given');
     pass('free text → Other section', free.labeled === 0 && free.sections.other === 'Scaling done, OHI given');
     pass('no false label mid-sentence', ctx.cnParse('Pt says tx: later').labeled === 0);
@@ -370,6 +504,9 @@ function extractFn(src, name) {
     if (port) {
         var js = await httpGet(port, '/app-con-notes.js');
         pass('GET /app-con-notes.js', js.status === 200 && js.body.indexOf('conNotesFormatBodyHtml') >= 0, 'HTTP ' + js.status);
+        pass('served notes JS has OHI between Px and Next',
+            js.status === 200 &&
+            /key: 'px'[\s\S]{0,180}key: 'ohi'[\s\S]{0,180}key: 'next'/.test(js.body));
     }
 
     console.log('\n=== API: treatments ===');
@@ -422,12 +559,63 @@ function extractFn(src, name) {
     var cdel = await rest(sbc.url, sbc.key, 'DELETE', 'app_config', 'key=eq.' + encodeURIComponent(ckey));
     pass('cleanup corrections row', cdel.status >= 200 && cdel.status < 300);
 
+    console.log('\n=== CDP live page / Runtime.evaluate ===');
+    var server = null;
+    var proc = null;
+    var ws = null;
+    try {
+        if (!fs.existsSync(CHROME)) throw new Error('Chrome not found: ' + CHROME);
+        server = await startStaticServer(PAGE_PORT);
+        var profile = path.join(os.tmpdir(), 'cs-con-notes-ohi-cdp');
+        try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+        fs.mkdirSync(profile, { recursive: true });
+        var hosted = 'http://xray-ai.test:' + PAGE_PORT + '/index.html?_lr=' + EXPECTED_BUILD;
+        proc = child_process.spawn(CHROME, [
+            '--remote-debugging-port=' + CDP_PORT, '--user-data-dir=' + profile,
+            '--no-first-run', '--no-default-browser-check', '--disable-sync',
+            '--host-resolver-rules=MAP xray-ai.test 127.0.0.1', '--window-size=1500,1000', hosted
+        ], { stdio: 'ignore' });
+        await waitJson('http://127.0.0.1:' + CDP_PORT + '/json/version', 20000);
+        var tabs = await waitJson('http://127.0.0.1:' + CDP_PORT + '/json/list', 8000);
+        var page = (tabs || []).find(function (t) { return t.type === 'page' && String(t.url || '').indexOf('devtools://') < 0; });
+        pass('CDP page target', !!page && !!page.webSocketDebuggerUrl);
+        ws = new WebSocket(page.webSocketDebuggerUrl);
+        await new Promise(function (resolve, reject) { ws.addEventListener('open', resolve); ws.addEventListener('error', reject); });
+        var cdp = new Cdp(ws);
+        await cdp.call('Page.enable');
+        await cdp.call('Runtime.enable');
+        try { await cdp.call('Page.bringToFront'); } catch (e) { /* ignore */ }
+        try { await cdp.call('Emulation.setFocusEmulationEnabled', { enabled: true }); } catch (e) { /* ignore */ }
+        await cdp.call('Page.navigate', { url: hosted });
+        await sleep(1200);
+        pass('Runtime.evaluate page BUILD', (await cdp.js('window.__JSM_BUILD || ""')) === EXPECTED_BUILD);
+        var live = await cdp.js(PAGE_SCRIPT, true, 60000);
+        pass('live: notes composer loaded', live && live.ready === true && live.build === EXPECTED_BUILD,
+            live ? ('ready=' + live.ready + ' build=' + live.build) : 'none');
+        if (live && live.ready) {
+            pass('live: OHI heading is between Px and Next',
+                live.ohiBetween === true && live.ohiLbl === 'OHI' && live.sectionsVisible === true,
+                live.keys);
+            pass('live: Runtime.evaluate parse/compose keeps OHI',
+                live.parsed === 'brushing twice daily' && live.ohiValue === 'brushing twice daily' && live.orderOk === true,
+                JSON.stringify([live.parsed, live.ohiValue, live.composed]));
+            pass('live: OHI label translated in English, 繁體中文 and 简体中文',
+                live.langsOk === true, JSON.stringify(live.langs));
+        }
+    } catch (e) {
+        pass('CDP live page', false, e && e.message ? e.message : String(e));
+    } finally {
+        try { if (ws) ws.close(); } catch (e) { /* ignore */ }
+        try { if (proc) proc.kill(); } catch (e) { /* ignore */ }
+        try { if (server) server.close(); } catch (e) { /* ignore */ }
+    }
+
     console.log('\n=== result ===');
     if (fails.length) {
         console.log('FAILED ' + fails.length + '  ' + fails.join(' | '));
         process.exit(1);
     }
-    console.log('SMOKE + UNIT + HTTP + API ALL PASS');
+    console.log('SMOKE + UNIT + HTTP + API + CDP + LIVE PAGE ALL PASS');
     process.exit(0);
 })().catch(function (err) {
     console.error('ERROR', err && err.stack ? err.stack : err);

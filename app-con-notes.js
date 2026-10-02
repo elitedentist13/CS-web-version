@@ -12,6 +12,7 @@ var CN_SECTIONS = [
     { key: 'si',   label: 'Special investigation', short: 'SI', aliases: ['special investigation', 'special investigations', 'si'] },
     { key: 'tx',   label: 'Tx',    aliases: ['tx', 'treatment'] },
     { key: 'px',   label: 'Px',    aliases: ['px', 'rx', 'prescription'] },
+    { key: 'ohi',  label: 'OHI',   aliases: ['ohi', 'oral hygiene', 'oral hygiene instruction', 'oral hygiene instructions'] },
     { key: 'next', label: 'Next',  aliases: ['next', 'next visit', 'plan'] }
 ];
 var CN_TOOTH_KEYS = { co: 1, hpc: 1, io: 1, xr: 1, si: 1, tx: 1, next: 1 };
@@ -26,6 +27,7 @@ var CN_DEFAULT_PHRASES = {
     si:   ['EPT +ve', 'EPT -ve', 'Cold test +ve', 'TTP +ve', 'TTP -ve', 'Mobility grade I'],
     tx:   ['LA 2% lignocaine 1:80k 2.2 ml', 'Scaling and polishing', 'OHI given', 'Composite restoration', 'Access cavity', 'Pt tolerated well'],
     px:   ['Analgesics as needed', 'Chlorhexidine mouthwash', 'Post-op instructions given'],
+    ohi:  ['OHI given', 'Brushing instruction', 'Flossing instruction', 'Interdental brush', 'Smoking cessation advice'],
     next: ['Review 1 week', 'RCT continue', 'Recall 6 months', 'Scaling and polishing'],
     other: []
 };

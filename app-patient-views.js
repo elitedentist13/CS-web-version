@@ -814,7 +814,7 @@ function patDashLoadTimeline(pid) {
         safeRows(SB.from('patient_documents').select(
             patViewMediaCols('docs', 'id,document_name,document_date,template_name,template_type,created_at')
         ).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80)),
-        safeRows(SB.from('xrays').select('id,xray_type,taken_date,notes,file_name,created_at')
+        safeRows(SB.from('xrays').select('*')
             .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80)),
         safeRows(SB.from('photos').select(patViewMediaCols('photos', 'id,file_path,public_url,category,caption,taken_date,created_at'))
             .eq('patient_id', pid).order('taken_date', { ascending: false })
@@ -1021,6 +1021,10 @@ function patDashPtlOpenEvent(ev) {
     }
 
     if (ev.action === 'xray') {
+        if (ev.refId && typeof xrayWireOpenFilm === 'function') {
+            xrayWireOpenFilm(pid, ev.refId);
+            return;
+        }
         openConForPatient(pid);
         setTimeout(function () {
             if (typeof switchConTab === 'function') switchConTab('xrays');

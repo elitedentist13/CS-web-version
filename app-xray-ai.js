@@ -3342,14 +3342,14 @@
     function xrayAiRunAssist() {
         if (xrayAiState.running) return;
         if (typeof lbIsVideo !== 'undefined' && lbIsVideo) {
-            alert(xrayAiTr('media.xrayAi.imagesOnly')); return;
+            xrayNotify(xrayAiTr('media.xrayAi.imagesOnly')); return;
         }
         var img = xrayAiG('xrayLbImg');
         if (!img || img.style.display === 'none' || !img.src) {
-            alert(xrayAiTr('media.xrayAi.noImage')); return;
+            xrayNotify(xrayAiTr('media.xrayAi.noImage')); return;
         }
         if (!xrayAiImageReady(img)) {
-            alert(xrayAiTr('media.xrayAi.imageNotReady')); return;
+            xrayNotify(xrayAiTr('media.xrayAi.imageNotReady')); return;
         }
         xrayAiEnsureDisclaimer(function () {
             xrayAiState.running = true;

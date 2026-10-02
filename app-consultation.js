@@ -3861,14 +3861,19 @@ function conPtlEventsFromXrays(rows) {
         var ms = conPtlTsFromAny(x.created_at, x.taken_date) ||
             conPtlTsFromIsoDateTime(x.taken_date, '12:00');
         var typeLbl = x.xray_type || x.file_name || '';
+        var teeth = Array.isArray(x.teeth) ? x.teeth : [];
         return {
             kind: 'xray',
             ts: ms,
             title: conTr('con.ptl.type.xray'),
             body: typeLbl || '—',
-            meta: conPtlTruncate(x.notes, 120),
+            meta: [teeth.length ? ('🦷 ' + teeth.join(', ')) : '', conPtlTruncate(x.notes, 120)].filter(Boolean).join(' · '),
             action: 'xray',
-            refId: x.id
+            refId: x.id,
+            patientId: x.patient_id || null,
+            teeth: teeth,
+            apptId: x.appointment_id || null,
+            reviewStatus: x.review_status || ''
         };
     });
 }
@@ -4044,7 +4049,7 @@ function loadConPatientTimeline(patientId) {
     var docCols = 'id,document_name,document_date,template_name,template_type,created_at';
     if (typeof conMediaDocCols === 'function') docCols = conMediaDocCols(docCols);
     var qDocs = SB.from('patient_documents').select(docCols).eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
-    var qXray = SB.from('xrays').select('id,xray_type,taken_date,notes,file_name,created_at')
+    var qXray = SB.from('xrays').select('*')
         .eq('patient_id', pid).order('created_at', { ascending: false }).limit(80);
     var photoCols = 'id,category,caption,taken_date,created_at';
     if (typeof conMediaPhotoCols === 'function') photoCols = conMediaPhotoCols(photoCols);
@@ -4252,6 +4257,10 @@ function conPtlOpenEvent(ev) {
         return;
     }
     if (ev.action === 'xray') {
+        if (ev.refId && typeof xrayWireOpenFilm === 'function') {
+            xrayWireOpenFilm(ev.patientId || conPatientId, ev.refId);
+            return;
+        }
         switchConTab('xrays');
         return;
     }

@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002cnl2';
+var BUILD = '20261002xc5';
 var PAGE_PORT = 8796;
 var CDP_PORT = 9358;
 var CHROME = process.env.CHROME_PATH ||

@@ -186,14 +186,14 @@
         if (target && target.ok) return;
         var work = (target && (target.clinicLabel || target.workingTag)) || xrayWorkingClinicTag();
         if (target && target.reason === 'ambiguous') {
-            alert(mediaTrRepl('con.xray.uploadAmbiguousWork', { WORK: work }));
+            xrayNotify(mediaTrRepl('con.xray.uploadAmbiguousWork', { WORK: work }));
             return;
         }
         if (target && target.reason === 'no-working-chart') {
-            alert(mediaTrRepl('con.xray.uploadNeedWorkChart', { WORK: work }));
+            xrayNotify(mediaTrRepl('con.xray.uploadNeedWorkChart', { WORK: work }));
             return;
         }
-        alert(mediaTr('con.forms.alertSelectPatient'));
+        xrayNotify(mediaTr('con.forms.alertSelectPatient'));
     };
 
     function xrayChooserExistingCharts() {
@@ -688,7 +688,9 @@
         if (!xrayWhenFilter) return true;
         var d = String(x.taken_date || '').slice(0, 10);
         var today = (typeof todayISO === 'function') ? todayISO() : new Date().toISOString().slice(0, 10);
-        if (xrayWhenFilter === 'visit') return d === today;
+        if (xrayWhenFilter === 'visit') {
+            return (typeof xrayCtxMatchesVisit === 'function') ? xrayCtxMatchesVisit(x, d, today) : d === today;
+        }
         var cutoff = today;
         try {
             var dt = new Date(today + 'T00:00:00');
@@ -906,13 +908,13 @@
         var raw = inp ? String(inp.value || '').trim() : '';
         var norm = xrayNormalizeHkid(raw);
         if (!norm || !xrayPatientId) {
-            alert(mediaTr('con.xray.hkidNeedValue'));
+            xrayNotify(mediaTr('con.xray.hkidNeedValue'));
             return;
         }
         SB.from('patients').update({ hkid: raw }).eq('id', xrayPatientId)
             .then(function (r) {
                 if (r.error) {
-                    alert(mediaErr(r.error.message));
+                    xrayNotify(mediaErr(r.error.message));
                     return;
                 }
                 if (xrayPatientData) xrayPatientData.hkid = raw;
@@ -1045,11 +1047,13 @@
     window.filterXrays = function () {
         var type = ((g('xrayFilterType') && g('xrayFilterType').value) || '').toLowerCase();
         var query = ((g('xrayFilterSearch') && g('xrayFilterSearch').value) || '').toLowerCase();
+        if (typeof xrayCtxSync === 'function') xrayCtxSync();
 
         var typed = xrayAllRecords.filter(function (x) {
             if (type && (x.xray_type || '').toLowerCase() !== type) return false;
             if (query && !(x.notes || '').toLowerCase().includes(query)) return false;
             if (!xrayRecordMatchesWhen(x)) return false;
+            if (typeof xrayCtxFilter === 'function' && !xrayCtxFilter(x)) return false;
             return true;
         });
 
@@ -1259,6 +1263,7 @@
                             html += '<span class="xray-strip-tile-meta">';
                             html += typeof getTypeBadge === 'function' ? getTypeBadge(x.xray_type) : esc(x.xray_type || '');
                             html += '<span class="xray-strip-tile-date">' + esc(grp.date ? dateLbl : mediaTr('media.noDate')) + '</span>';
+                            if (typeof xrayCtxBadgesHtml === 'function') html += xrayCtxBadgesHtml(x);
                             if (notes) html += '<span class="xray-strip-tile-notes">' + esc(notes) + '</span>';
                             html += '</span></button>';
                         });
@@ -1500,7 +1505,7 @@
         window.saveLbMeta = function () {
             var rec = xrayFindRecordById(lbCurrentId);
             if (rec && !xrayIsHomeRecord(rec)) {
-                alert(mediaTr('con.xray.readonlyOtherClinic'));
+                xrayNotify(mediaTr('con.xray.readonlyOtherClinic'));
                 return;
             }
             return xraySaveLbMetaCore();
@@ -1510,7 +1515,7 @@
         window.deleteLbXray = function () {
             var rec = xrayFindRecordById(lbCurrentId);
             if (rec && !xrayIsHomeRecord(rec)) {
-                alert(mediaTr('con.xray.readonlyOtherClinic'));
+                xrayNotify(mediaTr('con.xray.readonlyOtherClinic'));
                 return;
             }
             return xrayDeleteLbCore();

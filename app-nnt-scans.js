@@ -287,22 +287,22 @@ function nntScanSelectedChecks() {
 function addSelectedNntScansToBanana() {
     if (nntScanImportBusy) return;
     if (typeof xrayPatientId === 'undefined' || !xrayPatientId) {
-        alert(nntScanTr('media.local.nntScansNeedPatient', 'Open a patient in the X-ray tab first.'));
+        xrayNotify(nntScanTr('media.local.nntScansNeedPatient', 'Open a patient in the X-ray tab first.'));
         return;
     }
     if (typeof uploadSingleXrayFile !== 'function') {
-        alert(nntScanTr('media.local.nntScansImportFail', 'Could not read {FILE} from the Clinic Solution SCAN folder.', { FILE: '' }));
+        xrayNotify(nntScanTr('media.local.nntScansImportFail', 'Could not read {FILE} from the Clinic Solution SCAN folder.', { FILE: '' }));
         return;
     }
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var patientNo = nntScanChartNo(patient);
     if (!patientNo) {
-        alert(nntScanTr('media.local.nntScansNeedPatient', 'Open a patient in the X-ray tab first.'));
+        xrayNotify(nntScanTr('media.local.nntScansNeedPatient', 'Open a patient in the X-ray tab first.'));
         return;
     }
     var checks = nntScanSelectedChecks();
     if (!checks.length) {
-        alert(nntScanTr('media.local.nntScansSelectFirst', 'Select at least one thumbnail first.'));
+        xrayNotify(nntScanTr('media.local.nntScansSelectFirst', 'Select at least one thumbnail first.'));
         return;
     }
     var msg = nntScanTr('media.local.nntScansConfirmAdd',
@@ -363,7 +363,7 @@ function uploadNntScanItemAt(items, idx, patientNo) {
             var btn2 = g('nntScanAddToBananaBtn');
             if (btn2) btn2.disabled = false;
             if (typeof showUploadProgress === 'function') showUploadProgress(false);
-            alert(nntScanTr('media.local.nntScansImportFail',
+            xrayNotify(nntScanTr('media.local.nntScansImportFail',
                 'Could not read {FILE} from the Clinic Solution SCAN folder.',
                 { FILE: item.name }));
         });
@@ -604,19 +604,19 @@ function renderCarestreamFilms(patientNo, body) {
 function addSelectedCarestreamFilesToBanana() {
     if (nntScanImportBusy) return;
     if (typeof xrayPatientId === 'undefined' || !xrayPatientId) {
-        alert('Open a patient in the X-ray tab first.');
+        xrayNotify('Open a patient in the X-ray tab first.');
         return;
     }
     if (typeof uploadSingleXrayFile !== 'function') return;
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var patientNo = nntScanChartNo(patient);
     if (!patientNo) {
-        alert('Open a patient in the X-ray tab first.');
+        xrayNotify('Open a patient in the X-ray tab first.');
         return;
     }
     var checks = Array.prototype.slice.call(document.querySelectorAll('#carestreamLocalStrip .cs-film-chk:checked'));
     if (!checks.length) {
-        alert('Select at least one film first.');
+        xrayNotify('Select at least one film first.');
         return;
     }
     var unfiled = checks.some(function(chk) { return chk.getAttribute('data-cs-matched') !== '1'; });
@@ -678,7 +678,7 @@ function uploadCarestreamItemAt(items, idx, patientNo, btnId) {
             var btn2 = g(buttonId);
             if (btn2) btn2.disabled = false;
             if (typeof showUploadProgress === 'function') showUploadProgress(false);
-            alert('Could not read ' + item.name + ' from Carestream.');
+            xrayNotify('Could not read ' + item.name + ' from Carestream.');
         });
 }
 
@@ -866,19 +866,19 @@ function renderMcpScanStrip(patientNo, files) {
 function addSelectedMcpScanFilms() {
     if (nntScanImportBusy) return;
     if (typeof xrayPatientId === 'undefined' || !xrayPatientId) {
-        alert('Open a patient in the X-ray tab first.');
+        xrayNotify('Open a patient in the X-ray tab first.');
         return;
     }
     if (typeof uploadSingleXrayFile !== 'function') return;
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var patientNo = nntScanChartNo(patient);
     if (!patientNo) {
-        alert('Open a patient in the X-ray tab first.');
+        xrayNotify('Open a patient in the X-ray tab first.');
         return;
     }
     var checks = Array.prototype.slice.call(document.querySelectorAll('#mcpScanStrip .mcp-film-chk:checked'));
     if (!checks.length) {
-        alert('Select at least one film first.');
+        xrayNotify('Select at least one film first.');
         return;
     }
     if (!confirm('Copy ' + checks.length + ' film(s) into this patient\'s Banana X-ray tab?')) return;
@@ -1232,7 +1232,7 @@ function acceptCsdbNewFilm() {
         if (typeof xrayStartQueuedUpload === 'function') xrayStartQueuedUpload([upload]);
         showNextCsdbNewPrompt();
     }).catch(function() {
-        alert('Could not read the new Carestream x-ray from D:\\CSDB.');
+        xrayNotify('Could not read the new Carestream x-ray from D:\\CSDB.');
         showNextCsdbNewPrompt();
     });
 }

@@ -1449,6 +1449,7 @@ function cnTodayItems() {
         if (!ev || ev.kind !== 'xray' || !ev.ts) return;
         if (conDateIsoFromTs(new Date(ev.ts)) !== today) return;
         var text = String(ev.body || '').trim();
+        if (text && text !== '—' && Array.isArray(ev.teeth) && ev.teeth.length) text += ' (' + ev.teeth.join(', ') + ')';
         if (!text || text === '—' || seen[text]) return;
         seen[text] = 1;
         items.push({ kind: 'xray', icon: '🩻', key: 'xr', text: text, match: text });
@@ -1497,7 +1498,7 @@ function cnTodayMediaItems(today) {
 function cnMediaJumpChips() {
     var pid = (typeof conPatientId !== 'undefined') ? conPatientId : null;
     var sum = (pid && typeof conMediaSummaryFor === 'function') ? conMediaSummaryFor(pid) : null;
-    if (!sum || (!sum.photos && !sum.docs)) return '';
+    if (!sum || (!sum.photos && !sum.docs && !sum.xrays)) return '';
     var html = '';
     if (sum.photos) {
         html += '<button type="button" data-no-click-guard="1" class="cn-ctx-chip cn-ctx-chip--jump" data-goto="photos" title="' +
@@ -1506,6 +1507,10 @@ function cnMediaJumpChips() {
     if (sum.docs) {
         html += '<button type="button" data-no-click-guard="1" class="cn-ctx-chip cn-ctx-chip--jump" data-goto="forms" title="' +
             esc(conMediaTr('cm.notes.openDocs')) + '">📄 ' + esc(conMediaTr('cm.hub.docs')) + ' (' + sum.docs + ')</button>';
+    }
+    if (sum.xrays) {
+        html += '<button type="button" data-no-click-guard="1" class="cn-ctx-chip cn-ctx-chip--jump" data-goto="xrays" title="' +
+            esc(conMediaTr('cm.notes.openXrays')) + '">🩻 ' + esc(conMediaTr('cm.hub.xrays')) + ' (' + sum.xrays + ')</button>';
     }
     return html;
 }
@@ -1569,7 +1574,7 @@ function cnOnContextClick(e) {
     var jump = e.target.closest('[data-goto]');
     if (jump) {
         var dest = jump.getAttribute('data-goto');
-        if (typeof switchConTab === 'function' && (dest === 'photos' || dest === 'forms')) switchConTab(dest);
+        if (typeof switchConTab === 'function' && (dest === 'photos' || dest === 'forms' || dest === 'xrays')) switchConTab(dest);
         return;
     }
     var chip = e.target.closest('[data-ctx]');

@@ -1323,7 +1323,7 @@
         var lock = xrayCaptureLockCheck(file);
         if (!lock.ok) {
             backToBar(tr('media.xcap.patientChangedShort'), 'err');
-            alert(trRepl('media.xcap.patientChanged', { CAPTURED: lock.captured || '—', CURRENT: lock.current || '—' }));
+            xrayNotify(trRepl('media.xcap.patientChanged', { CAPTURED: lock.captured || '—', CURRENT: lock.current || '—' }));
             return;
         }
         var target = typeof xrayResolveUploadPatient === 'function' ? xrayResolveUploadPatient() : null;
@@ -1419,7 +1419,7 @@
                 });
             })
             .catch(function (err) {
-                alert(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }));
+                xrayNotify(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }));
             });
     }
 
@@ -1477,8 +1477,8 @@
 
     function inpageCaptureOnce() {
         if (inpage.busy) return;
-        if (!hasPatient()) { alert(tr('con.forms.alertSelectPatient')); return; }
-        if (!displaySupported()) { alert(tr('media.xcap.unsupported')); return; }
+        if (!hasPatient()) { xrayNotify(tr('con.forms.alertSelectPatient')); return; }
+        if (!displaySupported()) { xrayNotify(tr('media.xcap.unsupported')); return; }
         inpage.busy = true;
         var stream = null;
         requestDisplayStream().then(function (s) {
@@ -1496,18 +1496,18 @@
         }).catch(function (err) {
             stopStream(stream);
             inpage.busy = false;
-            if (err && err.name === 'WrongSurface') { alert(tr('media.xcap.wrongSurfaceLong')); return; }
+            if (err && err.name === 'WrongSurface') { xrayNotify(tr('media.xcap.wrongSurfaceLong')); return; }
             if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return;
-            alert(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }));
+            xrayNotify(trRepl('media.xcap.failed', { MSG: (err && (err.message || err.name)) || String(err) }));
         });
     }
 
     /** X-ray tab button: floating helper when available, else one-shot capture in the page. */
     function xrayHelperLaunch() {
-        if (!hasPatient()) { alert(tr('con.forms.alertSelectPatient')); return; }
+        if (!hasPatient()) { xrayNotify(tr('con.forms.alertSelectPatient')); return; }
         // Screen capture and the floating window only exist on https:// or http://localhost / 127.0.0.1.
         if (window.isSecureContext === false) {
-            alert(trRepl('media.xcap.insecure', { URL: location.origin }));
+            xrayNotify(trRepl('media.xcap.insecure', { URL: location.origin }));
             return;
         }
         if (pipSupported()) {
@@ -1549,9 +1549,9 @@
             var blob = items[i].getAsFile();
             if (!blob) continue;
             e.preventDefault();
-            if (!hasPatient()) { alert(tr('con.forms.alertSelectPatient')); return; }
+            if (!hasPatient()) { xrayNotify(tr('con.forms.alertSelectPatient')); return; }
             openCropperFromBlob(blob).catch(function (err) {
-                alert(trRepl('media.xcap.failed', { MSG: err && err.message ? err.message : String(err) }));
+                xrayNotify(trRepl('media.xcap.failed', { MSG: err && err.message ? err.message : String(err) }));
             });
             return;
         }

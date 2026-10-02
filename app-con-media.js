@@ -16,6 +16,9 @@
         'cm.need': { en: 'Pick a patient on Treatment Notes first. Photos and Forms always show that same person.', 'zh-CN': '请先在治疗记录中选择患者。照片与表格始终显示同一人。', 'zh-Hant': '請先在治療記錄中選擇病人。相片與表格始終顯示同一人。' },
         'cm.same': { en: 'Same patient as Treatment Notes.', 'zh-CN': '与治疗记录为同一患者。', 'zh-Hant': '與治療記錄為同一病人。' },
         'cm.pick': { en: 'Pick / change patient on Treatment Notes', 'zh-CN': '到治疗记录选择或更换患者', 'zh-Hant': '到治療記錄選擇或更換病人' },
+        'cm.notes.openXrays': { en: 'Open this patient\'s X-rays', 'zh-CN': '打开该患者的X光片', 'zh-Hant': '開啟該病人的X光片' },
+        'cm.hub.xrays': { en: 'X-rays', 'zh-CN': 'X光', 'zh-Hant': 'X光' },
+        'cm.hub.xraysNew': { en: '{N} to review', 'zh-CN': '{N} 张待审阅', 'zh-Hant': '{N} 張待審閱' },
         'cm.hub.photos': { en: 'Photos', 'zh-CN': '照片', 'zh-Hant': '相片' },
         'cm.hub.docs': { en: 'Documents', 'zh-CN': '文件', 'zh-Hant': '文件' },
         'cm.hub.consent': { en: 'Consents, Lab & Scans', 'zh-CN': '同意书、化验与扫描', 'zh-Hant': '同意書、化驗與掃描' },
@@ -407,19 +410,23 @@ function conMediaFillApptSelect(selId, pid, selected, preferToday) {
 
 /* ── summary strip + hub ─────────────────────────────────── */
 
-function conMediaBuildSummary(photos, docs) {
+function conMediaBuildSummary(photos, docs, xrays) {
     photos = photos || [];
     docs = docs || [];
+    xrays = xrays || [];
     var consentLabPhotos = photos.filter(function (p) { return conMediaIsConsentLabCat(p.category); });
     var consentDocs = docs.filter(function (d) { return String(d.template_type || '').toLowerCase() === 'consent'; });
     var last = '';
-    photos.concat(docs).forEach(function (r) {
+    photos.concat(docs, xrays).forEach(function (r) {
         var ts = String((r && r.created_at) || '');
         if (ts > last) last = ts;
     });
+    var trackReview = xrays.some(function (x) { return x && Object.prototype.hasOwnProperty.call(x, 'review_status'); });
     return {
         photos: photos.length - consentLabPhotos.length,
         docs: docs.length - consentDocs.length,
+        xrays: xrays.length,
+        xraysNew: trackReview ? xrays.filter(function (x) { return x.review_status !== 'reviewed'; }).length : 0,
         consentLab: consentLabPhotos.length + consentDocs.length,
         lastAt: last,
         consentDocs: consentDocs.slice(0, 6).map(function (d) {
@@ -436,11 +443,13 @@ function conMediaLoadSummary(pid) {
         Promise.resolve(SB.from('patient_documents')
             .select('id,template_type,document_name,document_date,created_at')
             .eq('patient_id', pid)
-            .order('created_at', { ascending: false }))
+            .order('created_at', { ascending: false })),
+        Promise.resolve(SB.from('xrays').select('*').eq('patient_id', pid))
     ]).then(function (res) {
         var photos = (res[0] && !res[0].error && res[0].data) || [];
         var docs = (res[1] && !res[1].error && res[1].data) || [];
-        var sum = conMediaBuildSummary(photos, docs);
+        var xrays = (res[2] && !res[2].error && res[2].data) || [];
+        var sum = conMediaBuildSummary(photos, docs, xrays);
         CON_MEDIA.summary[pid] = sum;
         if (String(conMediaPid()) === String(pid)) {
             conMediaRenderHub();
@@ -501,6 +510,10 @@ function conMediaHubHtml(view, sum) {
         seg('photos', '📷', 'cm.hub.photos', sum ? sum.photos : 0) +
         seg('docs', '📄', 'cm.hub.docs', sum ? sum.docs : 0) +
         seg('consent', '📝', 'cm.hub.consent', sum ? sum.consentLab : 0) +
+        '<button type="button" class="con-media-seg" data-cm-view="xrays">🩻 ' + conMediaEsc(conMediaTr('cm.hub.xrays')) +
+        ' <span class="con-media-count">' + (sum ? (sum.xrays || 0) : '·') + '</span>' +
+        (sum && sum.xraysNew ? '<span class="con-media-new" title="' + conMediaEsc(conMediaTrRepl('cm.hub.xraysNew', { N: sum.xraysNew })) + '">' + sum.xraysNew + '</span>' : '') +
+        '</button>' +
         '<span class="con-media-last">' + conMediaEsc(last) + '</span>' +
         '<div class="con-media-add"><button type="button" class="btn-add con-media-add-btn" data-cm-act="menu">' +
         conMediaEsc(conMediaTr('cm.hub.add')) + ' ▾</button>' +
@@ -563,6 +576,10 @@ function conMediaRenderHub() {
 }
 
 function conMediaSetView(v) {
+    if (v === 'xrays') {
+        if (typeof switchConTab === 'function') switchConTab('xrays');
+        return;
+    }
     if (v === 'docs') {
         if (typeof switchConTab === 'function') switchConTab('forms');
         return;

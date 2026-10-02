@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002cnl2';
+var BUILD = '20261002xc5';
 var PAGE_PORT = 8794;
 var CDP_PORT = 9356;
 var CHROME = process.env.CHROME_PATH ||
@@ -920,8 +920,8 @@ function loadHubSandbox(extra) {
             live && live.needShown === true && live.hubHiddenNoPatient === true);
         pass('live: with a patient -> same-patient card and hub',
             live && live.samePatient === true && live.hubShown === true);
-        pass('live: hub shows Photos / Documents / Consents counts', live && live.segs === 3 &&
-            JSON.stringify(live.counts) === '["1","0","2"]', live ? JSON.stringify(live.counts) : 'none');
+        pass('live: hub shows Photos / Documents / Consents / X-rays counts', live && live.segs === 4 &&
+            JSON.stringify(live.counts) === '["1","0","2","0"]', live ? JSON.stringify(live.counts) : 'none');
         pass('live: Add menu lists upload + phone scan + six quick-create letters, opens and closes',
             live && live.menuItems === 8 && live.menuHiddenAtStart === true && live.menuOpens === true &&
                 live.menuClosesOnOutsideClick === true);

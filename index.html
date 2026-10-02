@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261002cnl2';
+  var BUILD = '20261002xc5';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3497,6 +3497,8 @@
                   onclick="setXrayView('grid')" data-i18n="media.grid"></button>
           <button class="xray-vtoggle" id="btnSlideView"
                   onclick="setXrayView('slide')" data-i18n="media.slide"></button>
+          <button class="xray-vtoggle xray-ctx" id="btnMountView" hidden
+                  onclick="xrayMountOpen()" data-i18n="xv.mount"></button>
         </div>
 
         <button type="button" class="xray-notes-toggle" id="xrayNotesToggleBtn"
@@ -3551,7 +3553,7 @@
         <button class="xray-sys-btn xray-sys-myray"
                 type="button"
                 id="btnOpenMyRay"
-                onclick="try{openMyRay();}catch(e){alert('MyRay: '+e);}"
+                onclick="try{openMyRay();}catch(e){xrayNotify('MyRay: '+e);}"
                 data-i18n-title="media.sys.myray.desktopHint">
           <span class="sys-icon">🦷</span>
           <span data-i18n="media.sys.myray"></span>
@@ -3561,7 +3563,7 @@
                 type="button"
                 id="btnOpenDigirex"
                 data-no-click-guard="1"
-                onclick="try{if(typeof openDigirex==='function'){openDigirex();}else{openXraySystem('digirex');}}catch(e){alert('Digirex: '+e);}"
+                onclick="try{if(typeof openDigirex==='function'){openDigirex();}else{openXraySystem('digirex');}}catch(e){xrayNotify('Digirex: '+e);}"
                 data-i18n-title="media.sys.digirex.desktopHint">
           <span class="sys-icon">🎞️</span>
           <span data-i18n="media.sys.digirex"></span>
@@ -3617,6 +3619,7 @@
       <!-- ── Filter / Sort Bar ────────────────────────── -->
       <div class="xray-workbench xray-workbench--notes-hidden" id="xrayWorkbench">
         <div class="xray-media-col">
+      <div id="xrayVisitBar" class="xray-visit-bar" hidden></div>
       <div class="xray-filter-bar">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <label class="xray-clinic-scope-lbl" for="xrayClinicScope">
@@ -3634,6 +3637,18 @@
                     data-i18n="con.xray.when12m"></button>
             <button type="button" class="xray-chip" data-when="older" onclick="xraySetWhenFilter('older')"
                     data-i18n="con.xray.whenOlder"></button>
+          </div>
+          <div id="xrayCtxFilters" class="xray-ctx xray-ctx-filters" hidden>
+            <div id="xrayCtxRevChips" class="xray-chip-row" role="group">
+              <button type="button" class="xray-chip active" data-rev="" onclick="xrayCtxSetRev('')"
+                      data-i18n="xc.fAny"></button>
+              <button type="button" class="xray-chip" data-rev="new" onclick="xrayCtxSetRev('new')"
+                      data-i18n="xc.fNew"></button>
+              <button type="button" class="xray-chip" data-rev="reviewed" onclick="xrayCtxSetRev('reviewed')"
+                      data-i18n="xc.fRev"></button>
+            </div>
+            <input type="text" id="xrayFilterTooth" class="xray-filter-input xray-ctx-tooth-filter"
+                   data-i18n-placeholder="xc.fToothPh" autocomplete="off" oninput="xrayCtxOnToothInput()">
           </div>
           <select id="xrayFilterType" onchange="xrayOnTypeSelectChange()"
                   class="xray-filter-sel" style="display:none;">
@@ -3720,6 +3735,7 @@
               <span class="xray-clinic-tag" id="xraySlideClinic" hidden></span>
             </div>
             <div class="xsi-date" id="xraySlideDate">—</div>
+            <div class="xsi-ctx xray-ctx" id="xraySlideCtx" hidden></div>
             <div class="xsi-notes" id="xraySlideNotes">—</div>
           </div>
 
@@ -4012,6 +4028,8 @@
         <button type="button" id="lbPinBtn" class="xray-lb-tool-btn"
                 data-i18n="con.xray.pin" data-i18n-title="con.xray.pinHint"
                 onclick="xrayTogglePinFromLightbox()"></button>
+        <button type="button" id="lbToothTlBtn" class="xray-lb-tool-btn xray-ctx" hidden
+                data-i18n-title="xv.toothTlHint" onclick="xrayViewerToothTimeline()">⏱ <span data-i18n="xv.toothTl"></span></button>
         <button data-i18n-title="media.lb.zoomIn"   onclick="lbZoom(1.25)">🔍+</button>
         <button data-i18n-title="media.lb.zoomOut"  onclick="lbZoom(0.8)">🔍−</button>
         <button type="button" id="lbLoupeBtn" class="xray-lb-tool-btn"
@@ -4067,6 +4085,23 @@
         <button type="button" class="xray-lb-tool-btn" data-i18n="media.xrayAi.clearBtn"
                 data-i18n-title="media.xrayAi.clearTitle"
                 onclick="xrayAiClearFindings()">✕</button>
+      </div>
+
+      <!-- Measure (editable vector layer, calibrated) -->
+      <div class="xray-lb-tgroup" id="lbMeasureGroup">
+        <span class="xray-lb-tglabel" data-i18n="xv.measure"></span>
+        <button type="button" id="lbMeasBtn-length" class="xray-lb-tool-btn" data-i18n-title="xv.mLength"
+                onclick="xrayMeasSetTool('length')">📏</button>
+        <button type="button" id="lbMeasBtn-angle" class="xray-lb-tool-btn" data-i18n-title="xv.mAngle"
+                onclick="xrayMeasSetTool('angle')">∠</button>
+        <button type="button" id="lbMeasBtn-bone" class="xray-lb-tool-btn" data-i18n-title="xv.mBone"
+                onclick="xrayMeasSetTool('bone')">🦴</button>
+        <button type="button" id="lbMeasBtn-cal" class="xray-lb-tool-btn" data-i18n-title="xv.mCal"
+                onclick="xrayMeasSetTool('cal')">📐</button>
+        <input type="number" id="lbMeasKnown" class="xray-lb-meas-known" min="0.1" step="0.1"
+               data-i18n-placeholder="xv.knownPh" data-i18n-title="xv.knownTitle">
+        <button type="button" id="lbMeasClear" class="xray-lb-tool-btn" data-i18n-title="xv.clear"
+                onclick="xrayMeasClear()">✕</button>
       </div>
 
       <!-- Draw -->
@@ -4135,8 +4170,14 @@
               <video id="xrayLbVideo" style="display:none;" preload="metadata"></video>
               <canvas id="xrayLbAiCanvas" aria-hidden="true"></canvas>
               <canvas id="xrayLbCanvas"></canvas>
+              <svg id="xrayLbMeasure" class="xray-lb-measure" aria-hidden="true" preserveAspectRatio="none"></svg>
             </div>
           </div>
+        </div>
+        <div id="xrayMeasPanel" class="xray-meas-panel" hidden>
+          <div id="xrayMeasStatus" class="xray-meas-status"></div>
+          <div id="xrayMeasList" class="xray-meas-list"></div>
+          <div id="xrayMeasHint" class="xray-meas-hint"></div>
         </div>
         <div id="xrayLbLoupe" class="xray-lb-loupe" hidden>
           <canvas id="xrayLbLoupeCanvas" width="192" height="192"></canvas>
@@ -4165,6 +4206,27 @@
           <span class="xlm-label" data-i18n="media.lb.date"></span>
           <input type="date" id="lbDate" class="xlm-input">
         </div>
+        <div class="xray-lb-meta-row xray-ctx" hidden>
+          <span class="xlm-label" data-i18n="xc.visit"></span>
+          <select id="lbAppt" class="xlm-input"></select>
+        </div>
+        <div class="xray-lb-meta-row xray-ctx" hidden>
+          <span class="xlm-label" data-i18n="xc.teeth"></span>
+          <div class="xray-ctx-teethrow">
+            <input type="text" id="lbTeeth" class="xlm-input" data-i18n-placeholder="xc.teethPh" autocomplete="off">
+            <button type="button" id="lbTeethPick" class="xray-ctx-pick" data-xc-pick="lbTeeth"
+                    data-i18n-title="xc.teethPick" onclick="xrayCtxToggleTeethPicker('lbTeeth', this)">🦷</button>
+          </div>
+        </div>
+        <div class="xray-lb-meta-row xray-ctx" hidden>
+          <span class="xlm-label" data-i18n="xc.review"></span>
+          <select id="lbReviewStatus" class="xlm-input">
+            <option value="new" data-i18n="xc.statusNew"></option>
+            <option value="reviewed" data-i18n="xc.statusReviewed"></option>
+          </select>
+          <small id="lbReviewInfo" class="xray-ctx-review-info" hidden></small>
+        </div>
+        <p class="xray-ctx-off-hint xray-ctx-off" hidden data-i18n="xc.off"></p>
         <div class="xray-lb-meta-row">
           <span class="xlm-label" data-i18n="media.lb.notes"></span>
           <textarea id="lbNotes" rows="4"
@@ -4279,19 +4341,49 @@
   </div>
 </div>
 
+<div id="xrayMountModal" class="modal" style="z-index:10000;">
+  <div class="xray-mount-box">
+    <button class="mclose" data-i18n-aria-label="common.closeAria"
+            onclick="closeModal('xrayMountModal')">×</button>
+    <h3 class="xray-mount-title" data-i18n="xv.mountTitle"></h3>
+    <div class="xray-mount-bar">
+      <select id="xrayMountLayout" class="xray-cmp-sel" onchange="xrayMountRender()">
+        <option value="fmx" data-i18n="xv.layoutFmx"></option>
+        <option value="bw" data-i18n="xv.layoutBw"></option>
+      </select>
+      <span id="xrayMountSummary" class="xray-mount-summary"></span>
+    </div>
+    <div id="xrayMountBody" class="xray-mount-body"></div>
+  </div>
+</div>
+
 <div id="xrayCompareModal" class="modal" style="z-index:10000;">
   <div class="xray-compare-box">
     <button class="mclose" data-i18n-aria-label="common.closeAria"
             onclick="xrayCloseCompare()">×</button>
     <h3 class="xray-compare-title" data-i18n="con.xray.compareTitle"></h3>
+    <div class="xray-cmp-bar">
+      <label class="xray-cmp-sync"><input type="checkbox" id="xrayCmpSync" checked onchange="xrayCmpSetSync(this.checked)">
+        <span data-i18n="xv.cmpSync"></span></label>
+      <button type="button" class="xray-cmp-btn" onclick="xrayCmpZoom(1.25)">🔍+</button>
+      <button type="button" class="xray-cmp-btn" onclick="xrayCmpZoom(0.8)">🔍−</button>
+      <button type="button" class="xray-cmp-btn" onclick="xrayCmpReset()" data-i18n="xv.cmpReset"></button>
+      <button type="button" class="xray-cmp-btn" onclick="xrayCmpSwap()" data-i18n="xv.cmpSwap"></button>
+      <select id="xrayCmpScope" class="xray-cmp-sel" onchange="xrayCmpSetScope(this.value)" hidden>
+        <option value="tooth" data-i18n="xv.cmpScopeTooth"></option>
+        <option value="all" data-i18n="xv.cmpScopeAll"></option>
+      </select>
+    </div>
     <div class="xray-compare-grid">
       <div class="xray-compare-col">
+        <select id="xrayCmpSelA" class="xray-cmp-sel" onchange="xrayCmpPick('a', this.value)" hidden></select>
         <div class="xray-compare-caption" id="xrayCompareCapA">—</div>
-        <img id="xrayCompareImgA" alt="">
+        <div class="xray-cmp-view" id="xrayCmpViewA"><img id="xrayCompareImgA" alt="" draggable="false"></div>
       </div>
       <div class="xray-compare-col">
+        <select id="xrayCmpSelB" class="xray-cmp-sel" onchange="xrayCmpPick('b', this.value)" hidden></select>
         <div class="xray-compare-caption" id="xrayCompareCapB">—</div>
-        <img id="xrayCompareImgB" alt="">
+        <div class="xray-cmp-view" id="xrayCmpViewB"><img id="xrayCompareImgB" alt="" draggable="false"></div>
       </div>
     </div>
   </div>
@@ -4406,6 +4498,19 @@
       <label data-i18n="media.upload.dateTaken"></label>
       <input type="date" id="uploadDate">
     </div>
+    <div class="fg xray-ctx" hidden>
+      <label data-i18n="xc.visit"></label>
+      <select id="uploadAppt"></select>
+    </div>
+    <div class="fg xray-ctx" hidden>
+      <label data-i18n="xc.teeth"></label>
+      <div class="xray-ctx-teethrow">
+        <input type="text" id="uploadTeeth" data-i18n-placeholder="xc.teethPh" autocomplete="off">
+        <button type="button" class="xray-ctx-pick" data-xc-pick="uploadTeeth"
+                data-i18n-title="xc.teethPick" onclick="xrayCtxToggleTeethPicker('uploadTeeth', this)">🦷</button>
+      </div>
+    </div>
+    <p class="xray-ctx-off-hint xray-ctx-off" hidden data-i18n="xc.off"></p>
     <div class="fg">
       <label data-i18n="media.upload.notesFindings"></label>
       <textarea id="uploadNotes" rows="3"
@@ -7678,10 +7783,10 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20260926xcap3',
-    'app-i18n-extra.js?v=20261002cnl2',
+    'app-i18n-extra.js?v=20261002xc5',
     'app-login-log.js',
     'app-admin-verify.js',
-    'app.js?v=20261002cnl2',
+    'app.js?v=20261002xc5',
     'app-doc-editor.js',
     'app-program-settings.js?v=20261001hist7',
     'app-audit.js',
@@ -7692,10 +7797,10 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261002cnl2',
-    'app-patient.js?v=20261002cnl2',
+    'app-photos.js?v=20261002xc5',
+    'app-patient.js?v=20261002xc5',
     'app-patient-advanced-search.js',
-    'app-patient-views.js?v=20261002cnl2',
+    'app-patient-views.js?v=20261002xc5',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
     'app-appt.js?v=20261001hist9',
@@ -7703,18 +7808,21 @@
     'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-consultation.js?v=20261002cnl2',
+    'app-consultation.js?v=20261002xc5',
     'app-con-dictation-fix.js',
-    'app-con-media.js?v=20261002cnl2',
-    'app-con-phonescan.js?v=20261002cnl2',
-    'app-con-notes.js?v=20261002cnl2',
-    'app-xray.js?v=20261001panofit1',
-    'app-xray-capture.js?v=20260926xg3',
-    'app-xray-link.js?v=20260917xrayup2',
-    'app-nnt-scans.js?v=20260930xraygithub1',
-    'app-xray-ai.js?v=20261001aiproto1',
+    'app-con-media.js?v=20261002xc5',
+    'app-con-phonescan.js?v=20261002xc5',
+    'app-con-notes.js?v=20261002xc5',
+    'app-xray.js?v=20261002xc5',
+    'app-xray-capture.js?v=20261002xc5',
+    'app-xray-link.js?v=20261002xc5',
+    'app-xray-ctx.js?v=20261002xc5',
+    'app-nnt-scans.js?v=20261002xc5',
+    'app-xray-ai.js?v=20261002xc5',
     'app-xray-ai-20260909.js',
-    'app-charts.js?v=20261002cnl2',
+    'app-charts.js?v=20261002xc5',
+    'app-xray-wire.js?v=20261002xc5',
+    'app-xray-viewer.js?v=20261002xc5',
     'app-perio-dictation.js?v=20260910bop1',
     'app-drugs.js',
     'app-broadcast.js?v=20260524c',

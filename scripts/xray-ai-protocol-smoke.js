@@ -12,7 +12,7 @@ var os = require('os');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var BUILD = '20261002cb4';
+var BUILD = '20261002cb7';
 var PAGE_PORT = 8791;
 var CDP_PORT = 9353;
 var BANANA_LIVE_PORT = 5500;
@@ -255,8 +255,13 @@ function classifyHost(src, host) {
         xraySrc.indexOf('if (sys.launcherKey)') >= 0);
     pass('maximized panoramic fits inside the panel',
         xraySrc.indexOf('function lbOpenFilmIsPanoramic()') >= 0 &&
-        xraySrc.indexOf('!lbChromeMaximized || lbOpenFilmIsPanoramic()') >= 0 &&
-        xraySrc.indexOf("classList.toggle('xray-lb-scroll-host-fit'") >= 0);
+        xraySrc.indexOf('function lbOpenFilmIsWide()') >= 0 &&
+        xraySrc.indexOf('!lbChromeMaximized || lbOpenFilmIsWide()') >= 0 &&
+        xraySrc.indexOf('var t = lbTransform') >= 0 &&
+        xraySrc.indexOf('function lbCenterScrollHost') >= 0 &&
+        xraySrc.indexOf("classList.toggle('xray-lb-scroll-host-fit'") >= 0 &&
+        xraySrc.indexOf('contained && !wideMax') >= 0 &&
+        xraySrc.indexOf('if (wideMax) lbResetScrollHost()') >= 0);
     pass('github page does not fetch local film strips',
         nntSrc.indexOf('function clinicPageIsLocalServer()') >= 0 &&
         nntSrc.indexOf('!clinicPageIsLocalServer()') >= 0);

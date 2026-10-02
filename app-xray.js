@@ -875,7 +875,19 @@ function lbOpenFilmIsPanoramic() {
         var typeEl = g('lbType');
         if (typeEl) type = typeEl.value || '';
     }
-    return String(type).toLowerCase() === 'panoramic';
+    var s = String(type).toLowerCase();
+    return s === 'panoramic' || s === 'opg' || s.indexOf('pano') >= 0 || s.indexOf('opg') >= 0;
+}
+
+function lbOpenFilmIsWide() {
+    if (lbOpenFilmIsPanoramic()) return true;
+    if (lbLayoutBaseW > 0 && lbLayoutBaseH > 0 && (lbLayoutBaseW / lbLayoutBaseH) >= 1.8) return true;
+    var img = g('xrayLbImg');
+    if (img && img.naturalWidth > 0 && img.naturalHeight > 0 &&
+        (img.naturalWidth / img.naturalHeight) >= 1.8) {
+        return true;
+    }
+    return false;
 }
 
 function lbFitToScrollHost() {
@@ -883,7 +895,10 @@ function lbFitToScrollHost() {
     var host = g('xrayLbScrollHost');
     if (!host) return;
 
-    var pad = 20;
+    var wideMax = lbChromeMaximized && lbOpenFilmIsWide();
+    // Maximized OPG/pano hugs the viewing zone (small inset). Other
+    // films keep the usual margin so they do not sit on the chrome.
+    var pad = wideMax ? 4 : 20;
     var vpW = Math.max(1, host.clientWidth - pad * 2);
     var vpH = Math.max(1, host.clientHeight - pad * 2);
 
@@ -897,15 +912,17 @@ function lbFitToScrollHost() {
     var fitH = vpH / d.bh;
     // A maximized panoramic is much wider than the panel is tall. Filling
     // the width alone leaves the arch past the top and bottom. Contain-fit
-    // keeps the whole film inside the display area. Other films still fill
-    // the width when maximized; the normal (restored) panel always contains.
-    var contain = !lbChromeMaximized || lbOpenFilmIsPanoramic();
+    // keeps the whole film inside the display area at the largest scale
+    // that still fits. Other films still fill the width when maximized;
+    // the normal (restored) panel always contains.
+    var contain = !lbChromeMaximized || lbOpenFilmIsWide();
     var fit = contain ? Math.min(fitW, fitH) : fitW;
     if (!isFinite(fit) || fit <= 0) return;
 
     lbTransform.scale = Math.max(0.12, Math.min(14, fit));
-    lbResetScrollHost();
     lbSyncLightboxScrollShell();
+    if (wideMax) lbResetScrollHost();
+    else lbCenterScrollHost();
 }
 
 if (!window.__lbMaxResizeBound) {
@@ -1061,6 +1078,7 @@ function lbSyncLightboxScrollShell() {
 
     if (!lbLayoutBaseW || !lbLayoutBaseH) return;
 
+    var t = lbTransform || { scale: 1, rotate: 0, flipH: false, flipV: false };
     wrap.style.width  = lbLayoutBaseW + 'px';
     wrap.style.height = lbLayoutBaseH + 'px';
 
@@ -1083,6 +1101,11 @@ function lbSyncLightboxScrollShell() {
     inner.style.minHeight = d.bh + 'px';
 
     wrap.style.position = 'absolute';
+    var wideMax = lbChromeMaximized && lbOpenFilmIsWide();
+    // Center the unscaled box inside the painted bbox so rotate stays
+    // inside the scroll inner. The host places that inner: top-left
+    // for a maximized OPG (no flex-center), otherwise centered when
+    // the film fits. Scroll / drag still moves the film afterward.
     wrap.style.left = '50%';
     wrap.style.top = '50%';
     wrap.style.transform =
@@ -1094,7 +1117,7 @@ function lbSyncLightboxScrollShell() {
     var host = g('xrayLbScrollHost');
     if (host) {
         var contained = d.bw <= host.clientWidth + 1 && d.bh <= host.clientHeight + 1;
-        host.classList.toggle('xray-lb-scroll-host-fit', contained);
+        host.classList.toggle('xray-lb-scroll-host-fit', contained && !wideMax);
     }
     lbUpdateScrollHostCursor();
 }
@@ -1117,6 +1140,16 @@ function lbUpdateScrollHostCursor() {
     }
     host.style.cursor =
         lbTransform.scale > 1.02 ? 'grab' : 'default';
+}
+
+function lbCenterScrollHost() {
+    var host = g('xrayLbScrollHost');
+    var inner = g('xrayLbScrollInner');
+    if (!host || !inner) return;
+    var x = inner.offsetWidth - host.clientWidth;
+    var y = inner.offsetHeight - host.clientHeight;
+    host.scrollLeft = x > 1 ? Math.round(x / 2) : 0;
+    host.scrollTop = y > 1 ? Math.round(y / 2) : 0;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1561,6 +1594,7 @@ function lbInitCanvas() {
     canvas.height = img.offsetHeight || 600;
     lbDrawHistory = [];
     lbSyncLightboxScrollShell();
+    if (lbChromeMaximized) lbFitToScrollHost();
     if (typeof xrayAiOnCanvasResize === 'function') xrayAiOnCanvasResize();
 }
 

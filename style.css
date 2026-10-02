@@ -12877,7 +12877,9 @@ body.xray-lb-maximized .active-patient-dock {
 }
 
 /* Whole film is smaller than the viewport: center it. Used after a
-   panoramic maximize contain-fit (and any other fit that does not overflow). */
+   contain-fit that does not overflow (restored panel, non-OPG max).
+   Maximized OPG skips this class so the film starts at the upper-left
+   and stays free to scroll / drag. */
 #xrayLbScrollHost.xray-lb-scroll-host-fit {
     display: flex;
     align-items: center;

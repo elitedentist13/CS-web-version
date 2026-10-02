@@ -7382,7 +7382,7 @@
         'memo.untitledShort': { en: '(untitled)', 'zh-CN': '（未命名）', 'zh-Hant': '（未命名）' },
         'memo.copyLabel': { en: 'Copy', 'zh-CN': '复制', 'zh-Hant': '複製' },
         'memo.copyPrefix': { en: 'Copy · {TITLE}', 'zh-CN': '复制 · {TITLE}', 'zh-Hant': '複製 · {TITLE}' },
-        'media.uploadFormatsXray': { en: 'JPG, PNG, BMP, TIFF, DCM', 'zh-CN': 'JPG, PNG, BMP, TIFF, DCM', 'zh-Hant': 'JPG, PNG, BMP, TIFF, DCM' },
+        'media.uploadFormatsXray': { en: 'JPG, PNG, BMP, TIFF, DCM / DICOM', 'zh-CN': 'JPG, PNG, BMP, TIFF, DCM / DICOM', 'zh-Hant': 'JPG, PNG, BMP, TIFF, DCM / DICOM' },
         'media.uploadFormatsPhoto': { en: 'JPG, PNG, WEBP, HEIC, PDF', 'zh-CN': 'JPG, PNG, WEBP, HEIC, PDF', 'zh-Hant': 'JPG, PNG, WEBP, HEIC, PDF' },
         'guard.sdkTitle': { en: 'Cannot load Supabase SDK', 'zh-CN': '无法加载 Supabase SDK', 'zh-Hant': '無法載入 Supabase SDK' },
         'guard.sdkHint': { en: 'Check your internet connection and refresh.', 'zh-CN': '请检查网络连接后刷新。', 'zh-Hant': '請檢查網路連線後重新整理。' },

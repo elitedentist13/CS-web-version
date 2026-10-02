@@ -13,7 +13,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261002xc5';
+var BUILD = '20261002cb2';
 var PAGE_PORT = 8799;
 var CDP_PORT = 9363;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -399,10 +399,10 @@ var PAGE_SCRIPT = `(async () => {
     pass('index BUILD ' + BUILD, html.indexOf("var BUILD = '" + BUILD + "'") >= 0);
     var iLink = html.indexOf("'app-xray-link.js?v=");
     var iCtx = html.indexOf("'app-xray-ctx.js?v=");
-    pass('x-ray context module is loaded (cache-busted) right after the link module', iLink > 0 && iCtx > iLink && /app-xray-ctx\.js\?v=20261002xc5/.test(html));
+    pass('x-ray context module is loaded (cache-busted) right after the link module', iLink > 0 && iCtx > iLink && html.indexOf("app-xray-ctx.js?v=" + BUILD) >= 0);
     pass('every changed x-ray script has a fresh cache-buster',
         ['app-xray.js', 'app-xray-capture.js', 'app-xray-link.js', 'app-nnt-scans.js', 'app-xray-ai.js'].every(function (f) {
-            return html.indexOf("'" + f + '?v=20261002xc5\'') >= 0;
+            return html.indexOf("'" + f + '?v=' + BUILD + "'") >= 0;
         }));
     pass('upload modal, lightbox, filters and slide host have the context fields',
         ['uploadAppt', 'uploadTeeth', 'lbAppt', 'lbTeeth', 'lbReviewStatus', 'lbReviewInfo', 'xrayCtxFilters', 'xrayCtxRevChips', 'xrayFilterTooth', 'xraySlideCtx', 'lbTeethPick']

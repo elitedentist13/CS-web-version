@@ -11306,6 +11306,20 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     transition: background 0.2s, box-shadow 0.2s;
 }
 .xray-helper-btn:hover { background: #facc15; }
+.xray-cbct-btn {
+    display: inline-flex;
+    align-items: center;
+    background: #0f172a;
+    color: #7dd3fc;
+    border: 1px solid #38bdf8;
+    padding: 8px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 800;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.xray-cbct-btn:hover { background: #164e63; color: #fff; }
 
 .xray-upload-target {
     margin: -4px 0 12px;
@@ -20575,3 +20589,14 @@ tr.rsvp-row-pending td   { background: #fffef5; }
 .xm-slot-date { color: #cbd5e1; }
 .xm-slot-none { color: #f59e0b; font-weight: 700; }
 @media (max-width: 800px) { .xm-row { grid-template-columns: repeat(2, 1fr); } .xm-row--4 { grid-template-columns: repeat(2, 1fr); } }
+#lbDicomGroup.xd-group { align-items: center; }
+#lbDicomGroup .xray-lb-slider-lbl input[type=range] { width: 88px; }
+.xd-meta { margin: 8px 0 10px; padding: 8px 10px; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: #e2e8f0; font-size: 12px; }
+.xd-meta[hidden], .xd-status[hidden], #lbDicomFrameWrap[hidden] { display: none; }
+.xd-title { font-weight: 800; color: #7dd3fc; margin-bottom: 6px; }
+.xd-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+.xd-row span { color: #94a3b8; }
+.xd-row b { font-weight: 700; color: #f8fafc; text-align: right; }
+.xd-warn { margin: 8px 0 0; color: #fbbf24; font-weight: 700; }
+.xd-note { margin: 6px 0 0; color: #93c5fd; }
+.xd-status { margin: 0 0 10px; color: #7dd3fc; font-size: 12px; font-weight: 700; }

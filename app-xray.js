@@ -35,7 +35,7 @@ var XRAY_NOTES_PREF_LS = 'jsm_xray_notes_hidden_v1';
 var XRAY_STRIP_CAP = 40;
 
 var XRAY_LOCAL_PATHS_KEY = 'jsm_xray_local_paths_v1';
-var XRAY_IMAGE_EXT_RE    = /\.(jpe?g|png|bmp|gif|tif?f|webp|dcm)$/i;
+var XRAY_IMAGE_EXT_RE    = /\.(jpe?g|png|bmp|gif|tif?f|webp|dcm|dicom)$/i;
 
 function xrayClinicImageRoot() {
     if (typeof window !== 'undefined' && typeof window.CLINIC_IMAGE_ROOT === 'string' && window.CLINIC_IMAGE_ROOT) {
@@ -647,7 +647,7 @@ function renderXrayGrid() {
             '</div>' +
             '<div class="xray-card-img" data-idx="' + idx + '">' +
                 (imgSrc
-                    ? '<img src="' + imgSrc + '" alt="X-Ray" ' +
+                    ? '<img src="' + imgSrc + '" alt="X-Ray" data-xray-id="' + x.id + '" ' +
                       'onerror="this.src=\'' + noPreviewSVG + '\'">'
                     : '<div class="xray-no-img">🔬<br><small>' + esc(mediaTr('media.noPreview')) + '</small></div>') +
                 clinicOverlay +
@@ -800,7 +800,7 @@ function renderFilmstrip() {
             ? xrayClinicTagHtml(x, 'xray-clinic-tag--fs') : '';
         div.innerHTML =
             (thumb
-                ? '<img src="' + thumb + '" alt="thumb">'
+                ? '<img src="' + thumb + '" alt="thumb" data-xray-id="' + x.id + '">'
                 : '<div class="xray-fs-no-img">🔬</div>') +
             clinicHtml;
         div.addEventListener('click', function() { renderSlideAt(i); });
@@ -2509,7 +2509,7 @@ function uploadSingleXrayFile(file, type, date, notes, onDone, onError, ctx) {
         'jpg' : 'image/jpeg', 'jpeg': 'image/jpeg',
         'png' : 'image/png',  'bmp' : 'image/bmp',
         'tiff': 'image/tiff', 'tif' : 'image/tiff',
-        'webp': 'image/webp', 'dcm' : 'application/dicom'
+        'webp': 'image/webp', 'dcm' : 'application/dicom', 'dicom': 'application/dicom'
     };
     var contentType = file.type || mimeMap[ext] || 'application/octet-stream';
 

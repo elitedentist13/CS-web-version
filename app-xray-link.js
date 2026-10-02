@@ -1256,7 +1256,7 @@
                                 ? ((typeof xrayDisplayUrl === 'function') ? xrayDisplayUrl(x) : x.file_url)
                                 : '';
                             html += imgSrc
-                                ? '<img loading="lazy" src="' + imgSrc + '" alt="" data-full="' +
+                                ? '<img loading="lazy" src="' + imgSrc + '" alt="" data-xray-id="' + esc(x.id) + '" data-full="' +
                                   esc(fullSrc) + '" onerror="xrayStripThumbFallback(this)">'
                                 : '<span class="xray-fs-no-img">🔬</span>';
                             html += '</span>';
@@ -1355,6 +1355,7 @@
             pinBtn.classList.toggle('active', !!(xrayPinnedId && rec && String(xrayPinnedId) === String(rec.id)));
         }
     }
+    window.xrayApplyLightboxReadonly = xrayApplyLightboxReadonly;
 
     window.xrayTogglePinFromLightbox = function () {
         if (!lbCurrentId) return;

@@ -152,7 +152,7 @@ function xrayMeasClean(raw) {
     var out = { cal: null, items: [] };
     if (!raw || typeof raw !== 'object') return out;
     if (raw.cal && raw.cal.mmPerPx > 0 && isFinite(raw.cal.mmPerPx)) {
-        out.cal = { mmPerPx: Number(raw.cal.mmPerPx), knownMm: Number(raw.cal.knownMm) || 0, pts: [] };
+        out.cal = { mmPerPx: Number(raw.cal.mmPerPx), knownMm: Number(raw.cal.knownMm) || 0, pts: [], source: raw.cal.source || '' };
         var cp = (Array.isArray(raw.cal.pts) ? raw.cal.pts : []).map(xrayMeasCleanPoint);
         if (cp.length === 2 && cp[0] && cp[1]) out.cal.pts = cp;
     }
@@ -299,7 +299,9 @@ function xrayMeasRenderPanel() {
     });
     if (!show) return;
     var status = xvEl('xrayMeasStatus');
-    var msg = d.cal ? xvTr('xv.cal', { MM: d.cal.mmPerPx.toFixed(4) }) : xvTr('xv.uncal');
+    var msg = d.cal
+        ? ((d.cal.source === 'dicom' && typeof xdTr === 'function') ? xdTr('xd.cal', { MM: d.cal.mmPerPx.toFixed(4) }) : xvTr('xv.cal', { MM: d.cal.mmPerPx.toFixed(4) }))
+        : xvTr('xv.uncal');
     if (ro) msg += ' · ' + xvTr('xv.readonly');
     else if (XRAY_MEAS.rec && !xrayMeasStorable(XRAY_MEAS.rec)) msg += ' · ' + xvTr('xv.noStore');
     if (status) status.textContent = msg;
@@ -354,7 +356,7 @@ function xrayMeasCommit() {
         var px = xrayMeasDist(pts[0], pts[1]);
         if (!(known > 0)) { xvToast(xvTr('xv.need')); xrayMeasRender(); return; }
         if (px < 2) { xrayMeasRender(); return; }
-        XRAY_MEAS.data.cal = { mmPerPx: known / px, knownMm: known, pts: pts };
+        XRAY_MEAS.data.cal = { mmPerPx: known / px, knownMm: known, pts: pts, source: 'user' };
         XRAY_MEAS.tool = '';
     } else {
         var id = 'm' + (XRAY_MEAS.nextId++) + '_' + Date.now().toString(36);
@@ -756,7 +758,7 @@ function xrayMountRender() {
             navList.push(s.film);
             var url = typeof xrayDisplayUrl === 'function' ? xrayDisplayUrl(s.film) : (s.film.file_url || '');
             html += '<button type="button" class="xm-slot is-filled" data-id="' + xvEsc(s.film.id) + '" data-no-click-guard="1">' +
-                '<span class="xm-slot-img"><img src="' + xvEsc(url) + '" alt="" loading="lazy"></span>' + name + teeth +
+                '<span class="xm-slot-img"><img src="' + xvEsc(url) + '" alt="" loading="lazy" data-xray-id="' + xvEsc(s.film.id) + '"></span>' + name + teeth +
                 '<span class="xm-slot-date">' + xvEsc(xvFilmDay(s.film)) + (s.more ? ' <b>+' + s.more + '</b>' : '') + '</span></button>';
         });
         html += '</div>';

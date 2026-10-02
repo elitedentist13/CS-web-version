@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261002xc5';
+  var BUILD = '20261002cb2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3472,10 +3472,12 @@
           <label class="xray-upload-btn" for="xrayFileInput" data-i18n="media.uploadXray"></label>
           <button type="button" id="btnXrayHelper" class="xray-helper-btn" onclick="xrayHelperLaunch()"
                   aria-pressed="false" data-i18n="media.xcap.launchBtn" data-i18n-title="media.xcap.launchTitle"></button>
+          <button type="button" id="btnCbctViewer" class="xray-cbct-btn" onclick="xrayCbctViewerOpen()"
+                  data-i18n="xb.open" data-i18n-title="xb.openTitle"></button>
           <a id="btnXrayHelperGuide" class="xray-helper-guide-btn" href="docs/xray-helper-manual.html?v=20260926b#lang-en" target="_blank"
              rel="noopener" data-i18n="media.xcap.guideBtn" data-i18n-title="media.xcap.guideTitle"></a>
           <input type="file" id="xrayFileInput" multiple
-                 accept="image/*,.dcm,.jpg,.jpeg,.png,.bmp,.tiff,.tif"
+                 accept="image/*,.dcm,.dicom,.jpg,.jpeg,.png,.bmp,.tiff,.tif"
                  style="display:none;">
           <span class="xray-upload-hint" data-i18n="media.uploadFormatsXray"></span>
         </div>
@@ -4143,6 +4145,32 @@
         <button data-i18n="media.lb.clear" data-i18n-title="media.lb.clear" onclick="lbClearCanvas()"></button>
       </div>
 
+      <!-- DICOM window / frame (hidden until a .dcm file is opened) -->
+      <div class="xray-lb-tgroup xd-group" id="lbDicomGroup" style="display:none;">
+        <span class="xray-lb-tglabel" data-i18n="xd.group"></span>
+        <label class="xray-lb-slider-lbl" data-i18n-title="xd.wc">
+          <span data-i18n="xd.wc"></span>
+          <input type="range" id="lbDicomWc" min="-1024" max="4095" value="128" step="1"
+                 oninput="xrayDicomOnWc(this.value)">
+          <span id="lbDicomWcVal">128</span>
+        </label>
+        <label class="xray-lb-slider-lbl" data-i18n-title="xd.ww">
+          <span data-i18n="xd.ww"></span>
+          <input type="range" id="lbDicomWw" min="1" max="4095" value="256" step="1"
+                 oninput="xrayDicomOnWw(this.value)">
+          <span id="lbDicomWwVal">256</span>
+        </label>
+        <button type="button" class="xray-lb-tool-btn" data-i18n="xd.reset" data-i18n-title="xd.reset"
+                onclick="xrayDicomResetWl()"></button>
+        <span id="lbDicomFrameWrap" hidden>
+          <label class="xray-lb-slider-lbl" data-i18n-title="xd.frame">
+            <span data-i18n="xd.frame"></span>
+            <input type="range" id="lbDicomFrame" min="0" max="0" value="0" step="1"
+                   oninput="xrayDicomOnFrame(this.value)">
+          </label>
+        </span>
+      </div>
+
       <!-- Video (hidden until a video file is opened) -->
       <div class="xray-lb-tgroup" id="lbVideoGroup" style="display:none;">
         <span class="xray-lb-tglabel" data-i18n="media.lb.video"></span>
@@ -4227,6 +4255,8 @@
           <small id="lbReviewInfo" class="xray-ctx-review-info" hidden></small>
         </div>
         <p class="xray-ctx-off-hint xray-ctx-off" hidden data-i18n="xc.off"></p>
+        <div id="xrayDicomMeta" class="xd-meta" hidden></div>
+        <p id="xrayDicomStatus" class="xd-status" hidden></p>
         <div class="xray-lb-meta-row">
           <span class="xlm-label" data-i18n="media.lb.notes"></span>
           <textarea id="lbNotes" rows="4"
@@ -7783,10 +7813,10 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20260926xcap3',
-    'app-i18n-extra.js?v=20261002xc5',
+    'app-i18n-extra.js?v=20261002cb2',
     'app-login-log.js',
     'app-admin-verify.js',
-    'app.js?v=20261002xc5',
+    'app.js?v=20261002cb2',
     'app-doc-editor.js',
     'app-program-settings.js?v=20261001hist7',
     'app-audit.js',
@@ -7797,10 +7827,10 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261002xc5',
-    'app-patient.js?v=20261002xc5',
+    'app-photos.js?v=20261002cb2',
+    'app-patient.js?v=20261002cb2',
     'app-patient-advanced-search.js',
-    'app-patient-views.js?v=20261002xc5',
+    'app-patient-views.js?v=20261002cb2',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
     'app-appt.js?v=20261001hist9',
@@ -7808,21 +7838,23 @@
     'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-consultation.js?v=20261002xc5',
+    'app-consultation.js?v=20261002cb2',
     'app-con-dictation-fix.js',
-    'app-con-media.js?v=20261002xc5',
-    'app-con-phonescan.js?v=20261002xc5',
-    'app-con-notes.js?v=20261002xc5',
-    'app-xray.js?v=20261002xc5',
-    'app-xray-capture.js?v=20261002xc5',
-    'app-xray-link.js?v=20261002xc5',
-    'app-xray-ctx.js?v=20261002xc5',
-    'app-nnt-scans.js?v=20261002xc5',
-    'app-xray-ai.js?v=20261002xc5',
+    'app-con-media.js?v=20261002cb2',
+    'app-con-phonescan.js?v=20261002cb2',
+    'app-con-notes.js?v=20261002cb2',
+    'app-xray.js?v=20261002cb2',
+    'app-xray-capture.js?v=20261002cb2',
+    'app-xray-link.js?v=20261002cb2',
+    'app-xray-ctx.js?v=20261002cb2',
+    'app-nnt-scans.js?v=20261002cb2',
+    'app-xray-ai.js?v=20261002cb2',
     'app-xray-ai-20260909.js',
-    'app-charts.js?v=20261002xc5',
-    'app-xray-wire.js?v=20261002xc5',
-    'app-xray-viewer.js?v=20261002xc5',
+    'app-charts.js?v=20261002cb2',
+    'app-xray-wire.js?v=20261002cb2',
+    'app-xray-viewer.js?v=20261002cb2',
+    'app-xray-dicom.js?v=20261002cb2',
+    'app-xray-cbct.js?v=20261002cb2',
     'app-perio-dictation.js?v=20260910bop1',
     'app-drugs.js',
     'app-broadcast.js?v=20260524c',

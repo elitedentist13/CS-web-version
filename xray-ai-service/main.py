@@ -22,6 +22,7 @@ import io
 import json
 import logging
 from contextlib import asynccontextmanager
+from typing import Any, Dict
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -213,6 +214,7 @@ CS web app to load radiographs — it calls this service automatically.</p>
   <li><a href="/docs"><code>/docs</code></a> — interactive API docs</li>
   <li><code>POST /analyze</code> — radiograph upload (used by the app)</li>
   <li><code>POST /ceph/landmarks</code> — lateral ceph 19 ISBI points (400-film senior mean until a model is trained)</li>
+  <li><code>GET / POST /ceph/reference</code> — clinic training traces (kept separate from the 1502 published shapes)</li>
 </ul>
 </body></html>"""
     return HTMLResponse(html)
@@ -284,6 +286,23 @@ async def ceph_landmarks(file: UploadFile = File(...)):
         return detect_landmarks(w, h)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/ceph/reference")
+async def ceph_reference_get():
+    from ceph import reference as ceph_ref
+    db = ceph_ref.load()
+    st = ceph_ref.stats(db)
+    return {"ok": True, "films": st["films"], "points": st["points"], "traces": db.get("traces") or []}
+
+
+@app.post("/ceph/reference")
+async def ceph_reference_post(payload: Dict[str, Any]):
+    from ceph import reference as ceph_ref
+    try:
+        return ceph_ref.add(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/analyze")

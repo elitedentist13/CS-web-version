@@ -101,7 +101,16 @@
         return placeOn({ x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight }, 'ix', 'iy');
     }
 
-    function localBoxMean(box) {
+    function clonePts(pts) {
+        var o = {};
+        Object.keys(pts || {}).forEach(function (id) {
+            var p = pts[id];
+            o[id] = p ? { x: p.x, y: p.y } : { x: 0, y: 0 };
+        });
+        return o;
+    }
+
+    function localBoxMean(box, kWant) {
         var list = SHAPES && SHAPES.shapes;
         var ids = (SHAPES && SHAPES.ids) || IDS_FALLBACK();
         if (!list || !list.length) return placeOn(box, 'nx', 'ny');
@@ -111,10 +120,10 @@
             return { i: i, d: Math.abs(a - aspect) };
         });
         scored.sort(function (a, b) { return a.d - b.d; });
-        var k = Math.min(24, scored.length);
+        var k = Math.min(kWant || 24, scored.length);
         var acc = {};
-        var j, p, id, sh;
-        for (j = 0; j < ids.length; j++) acc[ids[j]] = { x: 0, y: 0 };
+        var j, p, sh;
+        ids.forEach(function (id) { acc[id] = { x: 0, y: 0 }; });
         for (j = 0; j < k; j++) {
             sh = list[scored[j].i];
             p = sh.p || sh;
@@ -219,22 +228,80 @@
         return out;
     }
 
-    function detectLocal(img) {
-        if (!img || !img.naturalWidth) return { pts: emptyPts(), source: 'empty' };
+    function overlayTraining(pts, box, useTraining) {
+        var out = clonePts(pts);
+        var train = { pts: {}, films: 0, ids: [] };
+        if (useTraining && g.CEPH_LEARN && typeof g.CEPH_LEARN.placeTraining === 'function') {
+            train = g.CEPH_LEARN.placeTraining(box) || train;
+            (train.ids || Object.keys(train.pts || {})).forEach(function (id) {
+                if (train.pts && train.pts[id]) out[id] = { x: train.pts[id].x, y: train.pts[id].y };
+            });
+        }
+        return {
+            pts: out,
+            films: train.films || 0,
+            ids: train.ids || [],
+            used: !!(useTraining && train.films)
+        };
+    }
+
+    function detectSets(img, opts) {
+        if (!img || !img.naturalWidth) {
+            return { sets: [], defaultIndex: 0, box: null, films: 0, clinic: 0, trainingSource: '', usedTraining: false };
+        }
+        opts = opts || {};
+        var useTraining = !!opts.useTraining;
         var box = findHeadBox(img);
         var area = (box.w * box.h) / Math.max(1, img.naturalWidth * img.naturalHeight);
-        var n = (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 400;
-        var pts, src;
-        if (area >= 0.68) {
-            pts = placeImgMean(img);
-            pts = refinePts(img, pts, img.naturalWidth, img.naturalHeight, true);
-            src = 'isbi+aariz+pku-' + n + '-imgmean+edge';
-        } else {
-            pts = localBoxMean(box);
-            pts = refinePts(img, pts, box.w, box.h, false);
-            src = 'isbi+aariz+pku-' + n + '-boxmean+edge';
-        }
-        return { pts: pts, source: src, box: box, films: n };
+        var n = (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 1502;
+        var prefix = 'isbi+aariz+pku-' + n;
+        var imgMean = placeImgMean(img);
+        var boxMean = localBoxMean(box, 24);
+        var closeMean = localBoxMean(box, 8);
+        var imgEdge = refinePts(img, imgMean, img.naturalWidth, img.naturalHeight, true);
+        var boxEdge = refinePts(img, boxMean, box.w, box.h, false);
+        var closeEdge = refinePts(img, closeMean, box.w, box.h, false);
+        var over = overlayTraining(boxEdge, box, useTraining);
+        var trainSrc = over.used ? ('clinic-train-' + over.films) : '';
+        var fifth = over.used
+            ? { id: 'clinic', label: 'Clinic overlay', source: prefix + '-boxmean+edge; training:' + trainSrc, pts: over.pts, publishedSource: prefix + '-boxmean+edge', trainingSource: trainSrc }
+            : { id: 'close', label: 'Close-match', source: prefix + '-boxmean8+edge', pts: clonePts(closeEdge), publishedSource: prefix + '-boxmean8+edge', trainingSource: '' };
+        var sets = [
+            { id: 'img', label: 'Image mean', source: prefix + '-imgmean', pts: clonePts(imgMean), publishedSource: prefix + '-imgmean' },
+            { id: 'box', label: 'Head-box', source: prefix + '-boxmean', pts: clonePts(boxMean), publishedSource: prefix + '-boxmean' },
+            { id: 'imgEdge', label: 'Image + edge', source: prefix + '-imgmean+edge', pts: clonePts(imgEdge), publishedSource: prefix + '-imgmean+edge' },
+            { id: 'boxEdge', label: 'Box + edge', source: prefix + '-boxmean+edge', pts: clonePts(boxEdge), publishedSource: prefix + '-boxmean+edge' },
+            fifth
+        ];
+        var defaultIndex = over.used ? 4 : (area >= 0.68 ? 2 : 3);
+        return {
+            sets: sets,
+            defaultIndex: defaultIndex,
+            box: box,
+            films: n,
+            clinic: over.films || 0,
+            trainingSource: trainSrc,
+            usedTraining: over.used,
+            area: area
+        };
+    }
+
+    function detectLocal(img, opts) {
+        var pack = detectSets(img, opts);
+        var i = pack.defaultIndex || 0;
+        var s = (pack.sets && pack.sets[i]) || { pts: emptyPts(), source: 'empty', publishedSource: '' };
+        return {
+            pts: s.pts,
+            source: s.source,
+            publishedSource: s.publishedSource || s.source,
+            trainingSource: pack.trainingSource || '',
+            box: pack.box,
+            films: pack.films,
+            clinic: pack.clinic || 0,
+            usedTraining: !!pack.usedTraining,
+            sets: pack.sets,
+            setIndex: i
+        };
     }
 
     function applyRemote(payload, img) {
@@ -275,12 +342,24 @@
         });
     }
 
+    function publishedStats() {
+        return {
+            films: (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 1502,
+            ids: ((SHAPES && SHAPES.ids) || IDS_FALLBACK()).length,
+            dataset: 'ISBI2015+Aariz+PKU',
+            kind: 'published'
+        };
+    }
+
     g.CEPH_LM = {
         loadCatalog: loadCatalog,
         defs: defs,
         emptyPts: emptyPts,
         detectLocal: detectLocal,
+        detectSets: detectSets,
         detectApi: detectApi,
-        placeMean: placeMean
+        placeMean: placeMean,
+        findHeadBox: findHeadBox,
+        publishedStats: publishedStats
     };
 })(typeof window !== 'undefined' ? window : this);

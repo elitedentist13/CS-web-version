@@ -12,10 +12,10 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261003cbe';
+var BUILD = '20261005fx5';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
-var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
 var root = path.resolve(__dirname, '..');
 var fails = [];
 var extraFiles = {};
@@ -175,6 +175,39 @@ var PAGE_SCRIPT = `(async () => {
     if (!p) return;
     if (p.x < -2 || p.y < -2 || p.x > st.imgW + 2 || p.y > st.imgH + 2) out.inBounds = false;
   });
+  out.nSets = st.nSets;
+  out.setIndex = st.setIndex;
+  out.setIds = window.CEPH_PAGE && CEPH_PAGE.sets ? CEPH_PAGE.sets().map((s) => s.id).join(',') : '';
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.adoptSet === 'function') {
+    CEPH_PAGE.adoptSet(0);
+    out.set0 = CEPH_PAGE.state().source;
+    CEPH_PAGE.adoptSet(2);
+    out.set2 = CEPH_PAGE.state().source;
+  }
+  if (window.CEPH_LEARN && window.CEPH_PAGE) {
+    CEPH_LEARN.useMemory();
+    CEPH_PAGE.selectIds(['S', 'N']);
+    const added = CEPH_PAGE.includeSelected();
+    out.learnOk = !!(added && added.ok && added.films === 1);
+    out.learnIncluded = added && added.included ? added.included.join(',') : '';
+    out.learnPartial = !!(added && added.trace && added.trace.p && added.trace.p.filter((x) => x == null).length >= 2);
+    CEPH_PAGE.setUseTraining(false);
+    const afterOff = await CEPH_PAGE.runDetect();
+    const stOff = CEPH_PAGE.state();
+    out.learnOffVia = afterOff && afterOff.via;
+    out.learnOffSource = stOff && stOff.source;
+    out.learnOffUse = stOff && stOff.useTraining;
+    CEPH_PAGE.setUseTraining(true);
+    const after = await CEPH_PAGE.runDetect();
+    const st2 = CEPH_PAGE.state();
+    out.learnSource = st2 && st2.source;
+    out.learnVia = after && after.via;
+    out.learnClinic = st2 && st2.clinicFilms;
+    out.learnPublished = st2 && st2.publishedFilms;
+    out.learnPublishedSource = st2 && st2.publishedSource;
+    out.learnTrainingSource = st2 && st2.trainingSource;
+    out.learnUse = st2 && st2.useTraining;
+  }
   return out;
 })()`;
 
@@ -194,9 +227,22 @@ var PAGE_SCRIPT = `(async () => {
     pass('ceph.html forwards to the sidecar folder', /ceph\//.test(read('ceph.html')));
     pass('sidecar has load / auto-detect / export and a live-page hook',
         /btnDetect/.test(read('ceph/index.html')) && /window\.CEPH_PAGE/.test(read('ceph/ceph.js')));
+    pass('sidecar lets staff opt in marked landmarks to clinic training',
+        /btnLearn/.test(read('ceph/index.html')) && /CEPH_LEARN/.test(read('ceph/ceph-learn.js')) &&
+        /includeSelected/.test(read('ceph/ceph.js')) && /clinicTrain/.test(read('ceph/ceph-learn.js')));
     pass('auto-detect uses the 1502-film mean plus a local edge snap',
         /isbi\+aariz\+pku-/.test(read('ceph/ceph-landmarks.js')) && /refinePts/.test(read('ceph/ceph-landmarks.js')) &&
         /shapes\.json/.test(read('ceph/ceph-landmarks.js')));
+    pass('sidecar has an option to also take reference from clinic training',
+        /btnUseTrain/.test(read('ceph/index.html')) && /setUseTraining/.test(read('ceph/ceph.js')) &&
+        /useTraining/.test(read('ceph/ceph-landmarks.js')));
+    pass('sidecar shows 5 auto-detect sets on a selection bar',
+        /setBar/.test(read('ceph/index.html')) && /detectSets/.test(read('ceph/ceph-landmarks.js')) &&
+        /adoptSet/.test(read('ceph/ceph.js')));
+    var lmSrc = read('ceph/ceph-landmarks.js');
+    pass('published 1502 k-NN stays separate from clinic training overlay',
+        /placeTraining/.test(lmSrc) && /training:/.test(lmSrc) &&
+        !/mergePublished/.test(lmSrc) && !/publishedPlusClinic/.test(lmSrc) && !/sh && sh\.clinic/.test(lmSrc));
     pass('ISBI 2015 catalog has 19 landmarks', cat.landmarks.length === 19 && cat.landmarks[0].id === 'S' && cat.landmarks[18].id === 'Ar');
     pass('catalog imported 400 ISBI + 1000 Aariz + 102 PKU films', cat.isbiFilms === 400 && cat.aarizFilms === 1000 && cat.pkuFilms === 102 && cat.importedFilms === 1502 && cat.landmarks[0].ix > 0.3 && cat.landmarks[1].ix > 0.6);
     pass('empirical mean SNA is near the Steiner norm', cat.meanSna > 80 && cat.meanSna < 86, String(cat.meanSna));
@@ -207,6 +253,10 @@ var PAGE_SCRIPT = `(async () => {
         /alexcorvi\/cephalometric/.test(read('ceph/data/README.md')));
     pass('AI service has a /ceph/landmarks hook',
         /ceph\/landmarks/.test(read('xray-ai-service/main.py')));
+    pass('AI service stores clinic training (not published 1502) at /ceph/reference',
+        /ceph\/reference/.test(read('xray-ai-service/main.py')) &&
+        /clinic_reference\.json/.test(read('xray-ai-service/ceph/reference.py')) &&
+        /banana\.ceph\.clinicTrain/.test(read('xray-ai-service/ceph/reference.py')));
 
     console.log('\n=== testclient: analysis ===');
     var box = { window: {}, Math: Math, isFinite: isFinite };
@@ -229,6 +279,35 @@ var PAGE_SCRIPT = `(async () => {
     var meanRes = box.CEPH_AN.run(meanPts, 0.1);
     pass('400-film image mean SNA is 80–86°', meanRes.groups[0].rows[0].value >= 80 && meanRes.groups[0].rows[0].value <= 86,
         String(meanRes.groups[0].rows[0].value));
+
+    console.log('\n=== testclient: clinic training (separate from 1502) ===');
+    var Learn = { Math: Math, Date: Date, isFinite: isFinite, JSON: JSON };
+    Learn.window = Learn;
+    vm.createContext(Learn);
+    vm.runInContext(read('ceph/ceph-learn.js'), Learn);
+    Learn.CEPH_LEARN.useMemory();
+    var none = Learn.CEPH_LEARN.includeSelected({ pts: {}, included: ['S'] });
+    pass('refuses an empty opt-in', none && none.ok === false);
+    var added = Learn.CEPH_LEARN.includeSelected({
+        pts: { S: { x: 10, y: 12 }, N: { x: 40, y: 8 }, A: { x: 42, y: 50 } },
+        included: ['S', 'N'],
+        box: { x: 0, y: 0, w: 100, h: 80 }
+    });
+    pass('stores only the ticked landmarks', added && added.ok === true && added.films === 1 &&
+        added.included.join(',') === 'S,N', added && added.included && added.included.join(','));
+    var pArr = added.trace.p;
+    pass('unticked landmarks are null in the stored shape', pArr && pArr[0] != null && pArr[2] != null && pArr[4] == null);
+    pass('clinic training store is not the published library', added.trace && added.trace.clinic === true &&
+        Learn.CEPH_LEARN.shapes().n === 1 && Learn.CEPH_LEARN.shapes().n !== 1502);
+    var pubBefore = JSON.parse(read('ceph/data/shapes.json'));
+    var placed = Learn.CEPH_LEARN.placeTraining({ x: 0, y: 0, w: 100, h: 80 });
+    var pubAfter = JSON.parse(read('ceph/data/shapes.json'));
+    pass('clinic-only placement covers ticked landmarks only', placed && placed.films === 1 &&
+        placed.kind === 'banana.ceph.clinicTrain' && placed.ids.join(',') === 'S,N' &&
+        placed.pts.S && placed.pts.N && !placed.pts.A);
+    pass('overlay does not mutate published shapes.json (n stays 1502)',
+        pubBefore.n === 1502 && pubAfter.n === 1502 && pubAfter.shapes.length === pubBefore.shapes.length &&
+        !Learn.CEPH_LEARN.mergePublished);
 
     console.log('\n=== testclient: launcher ===');
     var L = {
@@ -292,7 +371,9 @@ var PAGE_SCRIPT = `(async () => {
     var js = await httpGetText(PAGE_PORT, '/app-xray-ceph.js?v=' + BUILD);
     pass('GET /app-xray-ceph.js', js.status === 200 && /function xrayCephViewerOpen/.test(js.body.toString()));
     var page = await httpGetText(PAGE_PORT, '/ceph/');
-    pass('GET /ceph/ is the sidecar', page.status === 200 && /btnDetect/.test(page.body.toString()));
+    pass('GET /ceph/ is the sidecar', page.status === 200 && /btnDetect/.test(page.body.toString()) && /btnLearn/.test(page.body.toString()));
+    var learnJs = await httpGetText(PAGE_PORT, '/ceph/ceph-learn.js');
+    pass('GET /ceph/ceph-learn.js', learnJs.status === 200 && /includeSelected/.test(learnJs.body.toString()));
     var catGet = await httpGetText(PAGE_PORT, '/ceph/data/isbi2015.json');
     pass('GET /ceph/data/isbi2015.json', catGet.status === 200 && /"S"/.test(catGet.body.toString()) && /importedFilms/.test(catGet.body.toString()));
     var shGet = await httpGetText(PAGE_PORT, '/ceph/data/shapes.json');
@@ -336,9 +417,26 @@ var PAGE_SCRIPT = `(async () => {
             live ? (live.imgW + 'x' + live.imgH + ' via=' + live.via) : 'none');
         pass('live: 19 landmarks placed inside the film', live && live.nPts === 19 && live.inBounds === true,
             live ? ('n=' + live.nPts + ' source=' + live.source) : 'none');
+        pass('live: 5 auto-detect sets can be adopted from the selection bar',
+            live && live.nSets === 5 && /imgmean/.test(String(live.set0 || '')) &&
+            /imgmean\+edge/.test(String(live.set2 || '')) && live.set0 !== live.set2,
+            live ? ('ids=' + live.setIds + ' 1=' + live.set0 + ' 3=' + live.set2) : 'none');
         pass('live: Steiner / Downs / Tweed / Wits / McNamara ran',
             live && live.groups && live.groups.join(',') === 'steiner,downs,tweed,wits,mcnamara' && live.sna != null,
             live ? ('SNA=' + live.sna) : 'none');
+        pass('live: ticked S and N can be added to clinic training',
+            live && live.learnOk === true && live.learnIncluded === 'S,N' && live.learnPartial === true,
+            live ? ('films=' + live.learnClinic + ' src=' + live.learnSource) : 'none');
+        pass('live: overlay stays off until Also use clinic training is turned on',
+            live && live.learnOffUse === false && live.learnOffVia !== 'clinic' &&
+            !/training:clinic-train-/.test(String(live.learnOffSource || '')),
+            live ? ('off via=' + live.learnOffVia + ' src=' + live.learnOffSource) : 'none');
+        pass('live: auto-detect overlays clinic training without mixing into 1502',
+            live && live.learnUse === true && live.learnVia === 'clinic' && live.learnPublished === 1502 &&
+            /isbi\+aariz\+pku-1502/.test(String(live.learnPublishedSource || live.learnSource || '')) &&
+            /training:clinic-train-/.test(String(live.learnSource || '')) &&
+            !/\+clinic-/.test(String(live.learnPublishedSource || '')),
+            live ? ('via=' + live.learnVia + ' pub=' + live.learnPublishedSource + ' train=' + live.learnTrainingSource) : 'none');
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));
     } finally {

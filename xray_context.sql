@@ -14,6 +14,32 @@ alter table public.xrays
 alter table public.xrays
     add column if not exists measurements jsonb;
 
+-- Staff-adopted 19-point lateral tracing for this film. Not the clinic-training library.
+alter table public.xrays
+    add column if not exists ceph_tracing jsonb;
+
+-- Saved ceph study: bucket copy + ID + tracing. See xray_ceph.sql.
+create table if not exists public.ceph_saves (
+    id uuid primary key default gen_random_uuid(),
+    patient_id uuid references public.patients (id) on delete cascade,
+    source_xray_id uuid references public.xrays (id) on delete set null,
+    file_path text,
+    file_url text,
+    file_name text,
+    tracing jsonb not null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+create unique index if not exists ceph_saves_source_uidx
+    on public.ceph_saves (source_xray_id)
+    where source_xray_id is not null;
+
+alter table public.ceph_saves enable row level security;
+drop policy if exists ceph_saves_read on public.ceph_saves;
+drop policy if exists ceph_saves_write on public.ceph_saves;
+create policy ceph_saves_read on public.ceph_saves for select using (true);
+create policy ceph_saves_write on public.ceph_saves for all using (true) with check (true);
+
 alter table public.xrays
     drop constraint if exists xrays_review_status_chk;
 alter table public.xrays

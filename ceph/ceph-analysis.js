@@ -110,6 +110,11 @@
                 ANB: { mean: 2, sd: 2 },
                 'SN–GoGn': { mean: 32, sd: 5 },
                 Interincisal: { mean: 130, sd: 6 },
+                'U1–SN': { mean: 104, sd: 6 },
+                'U1–NA': { mean: 22, sd: 6 },
+                'U1–NA mm': { mean: 4, sd: 2 },
+                'L1–NB': { mean: 25, sd: 6 },
+                'L1–NB mm': { mean: 4, sd: 2 },
                 'Facial angle': { mean: 87.8, sd: 3.6 },
                 'Angle of convexity': { mean: 0, sd: 5 },
                 'Y-axis': { mean: 59.4, sd: 3.8 },
@@ -121,7 +126,18 @@
                 'A to N-perp': { mean: 1, sd: 2 },
                 'Pog to N-perp': { lo: -2, hi: 4 },
                 'Ls to Sn–PogS': { mean: 0, sd: 2 },
-                'Li to Sn–PogS': { mean: 0, sd: 2 }
+                'Li to Sn–PogS': { mean: 0, sd: 2 },
+                'U1–APog': { mean: 28, sd: 4 },
+                'U1–APog mm': { mean: 3.5, sd: 2.3 },
+                'L1–APog': { mean: 22, sd: 4 },
+                'L1–APog mm': { mean: 1, sd: 2 },
+                'Ls to E-line': { mean: -4, sd: 2 },
+                'Li to E-line': { mean: -2, sd: 2 },
+                'N–S–Ar': { mean: 123, sd: 5 },
+                'S–Ar–Go': { mean: 143, sd: 6 },
+                'Ar–Go–Me': { mean: 130, sd: 7 },
+                'Jarabak sum': { mean: 396, sd: 6 },
+                'PFH/AFH': { mean: 65, sd: 4 }
             }
         },
         chinese: {
@@ -134,6 +150,11 @@
                 ANB: { mean: 3.5, sd: 2.0 },
                 'SN–GoGn': { mean: 34.5, sd: 4.5 },
                 Interincisal: { mean: 124, sd: 8 },
+                'U1–SN': { mean: 108, sd: 6 },
+                'U1–NA': { mean: 24, sd: 6 },
+                'U1–NA mm': { mean: 6, sd: 2 },
+                'L1–NB': { mean: 30, sd: 6 },
+                'L1–NB mm': { mean: 6, sd: 2 },
                 'Facial angle': { mean: 85.0, sd: 3.5 },
                 'Angle of convexity': { mean: 6, sd: 5 },
                 'Y-axis': { mean: 63.0, sd: 4.0 },
@@ -145,7 +166,18 @@
                 'A to N-perp': { mean: 1, sd: 3 },
                 'Pog to N-perp': { lo: -6, hi: 2 },
                 'Ls to Sn–PogS': { mean: 2, sd: 2 },
-                'Li to Sn–PogS': { mean: 2, sd: 2 }
+                'Li to Sn–PogS': { mean: 2, sd: 2 },
+                'U1–APog': { mean: 28, sd: 5 },
+                'U1–APog mm': { mean: 6, sd: 2.5 },
+                'L1–APog': { mean: 25, sd: 5 },
+                'L1–APog mm': { mean: 4, sd: 2.5 },
+                'Ls to E-line': { mean: -1, sd: 2 },
+                'Li to E-line': { mean: 0, sd: 2 },
+                'N–S–Ar': { mean: 124, sd: 5 },
+                'S–Ar–Go': { mean: 143, sd: 6 },
+                'Ar–Go–Me': { mean: 128, sd: 6 },
+                'Jarabak sum': { mean: 396, sd: 6 },
+                'PFH/AFH': { mean: 64, sd: 4 }
             }
         }
     };
@@ -155,6 +187,42 @@
             { id: 'caucasian', label: SETS.caucasian.label, source: SETS.caucasian.source },
             { id: 'chinese', label: SETS.chinese.label, source: SETS.chinese.source }
         ];
+    }
+    function applyDemo(base, age, sex) {
+        base = base || SETS.caucasian;
+        var out = {
+            id: base.id,
+            label: base.label,
+            source: base.source,
+            age: age === 'child' ? 'child' : 'adult',
+            sex: (sex === 'f' || sex === 'm') ? sex : '',
+            measures: {}
+        };
+        var k;
+        for (k in base.measures) {
+            if (!Object.prototype.hasOwnProperty.call(base.measures, k)) continue;
+            var spec = base.measures[k];
+            out.measures[k] = { mean: spec.mean, sd: spec.sd, lo: spec.lo, hi: spec.hi };
+            var m = out.measures[k];
+            if (out.age === 'child' && m.mean != null) {
+                if (k === 'SNA' || k === 'SNB') m.mean -= 1;
+                if (k === 'ANB') m.mean += 0.5;
+                if (k === 'IMPA') m.mean += 2;
+                if (k === 'SN–GoGn' || k === 'FMA' || k === 'FH–MP') m.mean += 1;
+                if (k === 'Interincisal') m.mean -= 3;
+            }
+            if (out.sex === 'f' && m.mean != null) {
+                if (k === 'SNA' || k === 'SNB') m.mean -= 0.5;
+                if (m.sd == null && (k.indexOf('mm') >= 0 || k.indexOf('E-line') >= 0 || k.indexOf('PogS') >= 0)) m.mean -= 0.5;
+                if (m.sd != null && k.indexOf('mm') >= 0) m.mean -= 0.5;
+            }
+        }
+        var extra = [];
+        if (out.age === 'child') extra.push('child (approx vs adult table)');
+        if (out.sex === 'f') extra.push('female offset (approx)');
+        if (out.sex === 'm') extra.push('male');
+        if (extra.length) out.source = base.source + ' · ' + extra.join(' · ');
+        return out;
     }
     function getSet(id) {
         return SETS[id] || SETS.caucasian;
@@ -194,6 +262,17 @@
         var d = signedDistToLine(p, N, { x: N.x + lx, y: N.y + ly });
         return d * mmPerPx;
     }
+    /* Steiner U1–SN is the obtuse supplement (~104°). U1–NA / L1–NB stay the acute fold (~22° / 25°). */
+    function incisorToPlane(apex, tip, a, b, supplement) {
+        if (!apex || !tip || !a || !b) return null;
+        var d = planeAng(apex, tip, a, b);
+        if (d == null) return null;
+        return supplement ? (180 - d) : d;
+    }
+    function pointToLineMm(p, a, b, mmPerPx) {
+        if (!p || !a || !b) return null;
+        return signedDistToLine(p, a, b) * mmPerPx;
+    }
     function witsMm(A, B, p1, p2, mmPerPx) {
         if (!A || !B || !p1 || !p2) return null;
         var ao = project(A, p1, p2);
@@ -212,7 +291,7 @@
         mmPerPx = Number(mmPerPx);
         if (!isFinite(mmPerPx) || mmPerPx <= 0) mmPerPx = 0.1;
         opts = opts || {};
-        var set = getSet(opts.normSet);
+        var set = applyDemo(getSet(opts.normSet), opts.age, opts.sex);
         var S = pt(pts, 'S'), N = pt(pts, 'N'), A = pt(pts, 'A'), B = pt(pts, 'B');
         var Pog = pt(pts, 'Pog'), Me = pt(pts, 'Me'), Gn = pt(pts, 'Gn'), Go = pt(pts, 'Go');
         var Or = pt(pts, 'Or'), Po = pt(pts, 'Po'), U1 = pt(pts, 'U1'), L1 = pt(pts, 'L1');
@@ -223,8 +302,12 @@
         var U1a = extraPt(extra, 'U1a', U1 ? { x: U1.x - 18, y: U1.y - 36 } : null);
         var FopA = extraPt(extra, 'FopA', U1);
         var FopP = extraPt(extra, 'FopP', L1);
+        var Pn = extraPt(extra, 'Pn', (Sn && N)
+            ? { x: Sn.x + 10, y: N.y * 0.4 + Sn.y * 0.6 }
+            : (Sn ? { x: Sn.x + 10, y: Sn.y - 26 } : null));
         var usedFop = !!(extra.FopA && extra.FopP);
         var usedApex = !!(extra.L1a || extra.U1a);
+        var usedPn = !!(extra.Pn);
         var sna = (S && N && A) ? ang3(S, N, A) : null;
         var snb = (S && N && B) ? ang3(S, N, B) : null;
         var anb = (sna != null && snb != null) ? (sna - snb) : ((A && N && B) ? ang3(A, N, B) : null);
@@ -234,6 +317,15 @@
         var impa = (fma != null && fmia != null) ? (180 - fma - fmia)
             : ((L1 && L1a && Go && Me) ? planeAng(L1a, L1, Go, Me) : null);
         var inter = (U1 && U1a && L1 && L1a) ? dentalAng(U1a, U1, L1a, L1) : null;
+        var u1sn = (U1 && U1a && S && N) ? incisorToPlane(U1a, U1, S, N, true) : null;
+        var u1na = (U1 && U1a && N && A) ? incisorToPlane(U1a, U1, N, A, false) : null;
+        var u1naMm = (U1 && N && A) ? pointToLineMm(U1, N, A, mmPerPx) : null;
+        var l1nb = (L1 && L1a && N && B) ? incisorToPlane(L1a, L1, N, B, false) : null;
+        var l1nbMm = (L1 && N && B) ? pointToLineMm(L1, N, B, mmPerPx) : null;
+        var u1apog = (U1 && U1a && A && Pog) ? incisorToPlane(U1a, U1, A, Pog, false) : null;
+        var u1apogMm = (U1 && A && Pog) ? pointToLineMm(U1, A, Pog, mmPerPx) : null;
+        var l1apog = (L1 && L1a && A && Pog) ? incisorToPlane(L1a, L1, A, Pog, false) : null;
+        var l1apogMm = (L1 && A && Pog) ? pointToLineMm(L1, A, Pog, mmPerPx) : null;
         var facial = (Po && Or && N && Pog) ? planeAng(Po, Or, N, Pog) : null;
         var convex = convexityDeg(N, A, Pog, ANS || U1);
         var yaxis = (Po && Or && S && Gn) ? planeAng(Po, Or, S, Gn) : null;
@@ -246,6 +338,13 @@
         var arGo = (Ar && Go) ? dist(Ar, Go) * mmPerPx : null;
         var lsLine = (Ls && Sn && PogS) ? signedDistToLine(Ls, Sn, PogS) * mmPerPx : null;
         var liLine = (Li && Sn && PogS) ? signedDistToLine(Li, Sn, PogS) * mmPerPx : null;
+        var lsE = (Ls && Pn && PogS) ? pointToLineMm(Ls, Pn, PogS, mmPerPx) : null;
+        var liE = (Li && Pn && PogS) ? pointToLineMm(Li, Pn, PogS, mmPerPx) : null;
+        var nsa = (N && S && Ar) ? ang3(N, S, Ar) : null;
+        var sargo = (S && Ar && Go) ? ang3(S, Ar, Go) : null;
+        var gonial = (Ar && Go && Me) ? ang3(Ar, Go, Me) : null;
+        var jsum = (nsa != null && sargo != null && gonial != null) ? (nsa + sargo + gonial) : null;
+        var pfhAfh = (sGo != null && nMe != null && nMe > 0) ? (sGo / nMe * 100) : null;
 
         var result = {
             mmPerPx: mmPerPx,
@@ -253,6 +352,8 @@
             normSet: set.id,
             normLabel: set.label,
             normSource: set.source,
+            age: set.age,
+            sex: set.sex,
             groups: [
                 {
                     id: 'steiner',
@@ -262,7 +363,12 @@
                         row(set, 'SNB', snb, '°'),
                         row(set, 'ANB', anb, '°', anbClass(anb, set.measures.ANB)),
                         row(set, 'SN–GoGn', snMp, '°'),
-                        row(set, 'Interincisal', inter, '°', usedApex ? 'U1a-U1 / L1a-L1' : 'approx (drag U1a / L1a)')
+                        row(set, 'Interincisal', inter, '°', usedApex ? 'U1a-U1 / L1a-L1' : 'approx (drag U1a / L1a)'),
+                        row(set, 'U1–SN', u1sn, '°', usedApex ? 'U1a-U1 vs SN' : 'approx (drag U1a)'),
+                        row(set, 'U1–NA', u1na, '°', usedApex ? 'U1a-U1 vs NA' : 'approx (drag U1a)'),
+                        row(set, 'U1–NA mm', u1naMm, 'mm'),
+                        row(set, 'L1–NB', l1nb, '°', usedApex ? 'L1a-L1 vs NB' : 'approx (drag L1a)'),
+                        row(set, 'L1–NB mm', l1nbMm, 'mm')
                     ]
                 },
                 {
@@ -304,11 +410,34 @@
                     ]
                 },
                 {
+                    id: 'ricketts',
+                    title: 'Ricketts',
+                    rows: [
+                        row(set, 'U1–APog', u1apog, '°', usedApex ? 'U1a-U1 vs A-Pog' : 'approx (drag U1a)'),
+                        row(set, 'U1–APog mm', u1apogMm, 'mm'),
+                        row(set, 'L1–APog', l1apog, '°', usedApex ? 'L1a-L1 vs A-Pog' : 'approx (drag L1a)'),
+                        row(set, 'L1–APog mm', l1apogMm, 'mm')
+                    ]
+                },
+                {
+                    id: 'jarabak',
+                    title: 'Jarabak',
+                    rows: [
+                        row(set, 'N–S–Ar', nsa, '°', 'saddle'),
+                        row(set, 'S–Ar–Go', sargo, '°', 'articular'),
+                        row(set, 'Ar–Go–Me', gonial, '°', 'gonial'),
+                        row(set, 'Jarabak sum', jsum, '°', 'N-S-Ar + S-Ar-Go + Ar-Go-Me'),
+                        row(set, 'PFH/AFH', pfhAfh, '%', 'S-Go / N-Me')
+                    ]
+                },
+                {
                     id: 'soft',
                     title: 'Soft tissue',
                     rows: [
                         row(set, 'Ls to Sn–PogS', lsLine, 'mm', 'Steiner S-line (Sn–Pog′)'),
-                        row(set, 'Li to Sn–PogS', liLine, 'mm', 'Steiner S-line (Sn–Pog′)')
+                        row(set, 'Li to Sn–PogS', liLine, 'mm', 'Steiner S-line (Sn–Pog′)'),
+                        row(set, 'Ls to E-line', lsE, 'mm', usedPn ? 'Ricketts Pn-Pog\'' : 'Ricketts Pn-Pog\' (drag Pn)'),
+                        row(set, 'Li to E-line', liE, 'mm', usedPn ? 'Ricketts Pn-Pog\'' : 'Ricketts Pn-Pog\' (drag Pn)')
                     ]
                 }
             ]
@@ -516,11 +645,14 @@
         planeAng: planeAng,
         dentalAng: dentalAng,
         convexityDeg: convexityDeg,
+        applyDemo: applyDemo,
         listSets: listSets,
         getSet: getSet,
         score: score,
         nPerpMm: nPerpMm,
         witsMm: witsMm,
+        incisorToPlane: incisorToPlane,
+        pointToLineMm: pointToLineMm,
         summarise: summarise,
         extractionIndex: extractionIndex
     };

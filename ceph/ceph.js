@@ -23,8 +23,15 @@
     var USE_TRAIN_KEY = 'banana.ceph.useTrain.v1';
     var useTraining = false;
     var NORM_KEY = 'banana.ceph.normSet.v1';
+    var AGE_KEY = 'banana.ceph.ageBand.v1';
+    var SEX_KEY = 'banana.ceph.sexBand.v1';
     var TRACE_KEY = 'banana.ceph.savedTrace.v1';
+    var TRACE_CH = 'banana.ceph.save.v1';
+    var restoreHold = null;
+    var restoreVia = '';
     var normSet = 'chinese';
+    var ageBand = 'adult';
+    var sexBand = '';
 
     function $(id) { return document.getElementById(id); }
     function canvas() { return $('view'); }
@@ -68,7 +75,9 @@
     function groupTitleTx(en) {
         var map = {
             Steiner: 'g.steiner', Downs: 'g.downs', Tweed: 'g.tweed',
-            Wits: 'g.wits', McNamara: 'g.mcnamara', 'Soft tissue': 'g.soft',
+            Wits: 'g.wits', McNamara: 'g.mcnamara', Ricketts: 'g.ricketts',
+            Jarabak: 'g.jarabak',
+            'Soft tissue': 'g.soft',
             'Extraction index': 'g.extract'
         };
         return map[en] ? tx(map[en]) : en;
@@ -118,13 +127,32 @@
         return { s: s, ox: ox, oy: oy };
     }
 
+    function filmCenter() {
+        return { x: (img.naturalWidth || 1) / 2, y: (img.naturalHeight || 1) / 2 };
+    }
+    function fhRot() {
+        if (!fhUp) return 0;
+        var Po = pts.Po, Or = pts.Or;
+        if (!Po || !Or || !isFinite(Po.x) || !isFinite(Po.y) || !isFinite(Or.x) || !isFinite(Or.y)) return 0;
+        return -Math.atan2(Or.y - Po.y, Or.x - Po.x);
+    }
+    function rotAbout(p, ang) {
+        if (!p || !isFinite(p.x) || !isFinite(p.y)) return { x: 0, y: 0 };
+        var c = filmCenter();
+        var x = p.x - c.x, y = p.y - c.y;
+        var cs = Math.cos(ang), sn = Math.sin(ang);
+        return { x: c.x + x * cs - y * sn, y: c.y + x * sn + y * cs };
+    }
     function toView(p) {
+        if (!p || !isFinite(p.x) || !isFinite(p.y)) return { x: 0, y: 0 };
         var f = fit();
-        return { x: f.ox + p.x * f.s, y: f.oy + p.y * f.s };
+        var q = rotAbout(p, fhRot());
+        return { x: f.ox + q.x * f.s, y: f.oy + q.y * f.s };
     }
     function toImg(x, y) {
         var f = fit();
-        return { x: (x - f.ox) / f.s, y: (y - f.oy) / f.s };
+        var q = { x: (x - f.ox) / f.s, y: (y - f.oy) / f.s };
+        return rotAbout(q, -fhRot());
     }
 
     var extra = {};
@@ -133,23 +161,62 @@
         { id: 'U1a', name: 'U1 apex', pair: 'U1' },
         { id: 'L1a', name: 'L1 apex', pair: 'L1' },
         { id: 'FopA', name: 'FOP anterior', pair: '' },
-        { id: 'FopP', name: 'FOP posterior', pair: '' }
+        { id: 'FopP', name: 'FOP posterior', pair: '' },
+        { id: 'Pn', name: 'Pronasale', pair: 'Sn' }
     ];
     var viewZoom = 1;
     var panX = 0;
     var panY = 0;
     var panning = null;
     var invertFilm = false;
+    var filmBright = 1;
+    var filmContrast = 1;
+    var fhUp = false;
     var hiMeasure = '';
     var labOpen = false;
     var qaIds = {};
+    var WALK_IDS = ['Go', 'Po', 'Or', 'Ar', 'U1a', 'L1a', 'Pn'];
+    var walkOn = false;
+    var walkIdx = -1;
     var undoStack = [];
+    var lastProfileN = 0;
+    var overlayRec = null;
+    var overlayMode = 'sn';
+    var overlayMapped = null;
+    function strokePath(ctx, ids, color, width) {
+        var on = [];
+        ids.forEach(function (id) {
+            var p = loc(id);
+            if (p) on.push(p);
+        });
+        if (on.length < 2) return 0;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width || 2;
+        ctx.beginPath();
+        var v0 = toView(on[0]);
+        ctx.moveTo(v0.x, v0.y);
+        on.slice(1).forEach(function (p) {
+            var v = toView(p);
+            ctx.lineTo(v.x, v.y);
+        });
+        ctx.stroke();
+        return on.length - 1;
+    }
     var HIGHLIGHT = {
         SNA: [['S', 'N'], ['N', 'A']],
         SNB: [['S', 'N'], ['N', 'B']],
         ANB: [['A', 'N'], ['N', 'B']],
         'SN–GoGn': [['S', 'N'], ['Go', 'Gn']],
         Interincisal: [['U1a', 'U1'], ['L1a', 'L1']],
+        'U1–SN': [['U1a', 'U1'], ['S', 'N']],
+        'U1–NA': [['U1a', 'U1'], ['N', 'A']],
+        'U1–NA mm': [['N', 'A'], ['U1', 'A']],
+        'L1–NB': [['L1a', 'L1'], ['N', 'B']],
+        'L1–NB mm': [['N', 'B'], ['L1', 'B']],
+        'U1–APog': [['U1a', 'U1'], ['A', 'Pog']],
+        'U1–APog mm': [['A', 'Pog'], ['U1', 'A']],
+        'L1–APog': [['L1a', 'L1'], ['A', 'Pog']],
+        'L1–APog mm': [['A', 'Pog'], ['L1', 'A']],
         'Facial angle': [['Po', 'Or'], ['N', 'Pog']],
         'Angle of convexity': [['N', 'A'], ['A', 'Pog']],
         'Y-axis': [['Po', 'Or'], ['S', 'Gn']],
@@ -165,9 +232,20 @@
         'S–Go': [['S', 'Go']],
         'Ar–Go': [['Ar', 'Go']],
         'Ls to Sn–PogS': [['Sn', 'PogS'], ['Ls', 'Sn']],
-        'Li to Sn–PogS': [['Sn', 'PogS'], ['Li', 'Sn']]
+        'Li to Sn–PogS': [['Sn', 'PogS'], ['Li', 'Sn']],
+        'Ls to E-line': [['Pn', 'PogS'], ['Ls', 'Pn']],
+        'Li to E-line': [['Pn', 'PogS'], ['Li', 'Pn']],
+        'N–S–Ar': [['N', 'S'], ['S', 'Ar']],
+        'S–Ar–Go': [['S', 'Ar'], ['Ar', 'Go']],
+        'Ar–Go–Me': [['Ar', 'Go'], ['Go', 'Me']],
+        'Jarabak sum': [['N', 'S'], ['S', 'Ar'], ['Ar', 'Go'], ['Go', 'Me']],
+        'PFH/AFH': [['S', 'Go'], ['N', 'Me']]
     };
-    function loc(id) { return (pts && pts[id]) || extra[id] || null; }
+    function loc(id) {
+        var p = (pts && pts[id]) || extra[id] || null;
+        if (!p || !isFinite(p.x) || !isFinite(p.y)) return null;
+        return p;
+    }
     var PLANES = [
         ['S', 'N'], ['Po', 'Or'], ['Go', 'Gn'], ['Go', 'Me'], ['N', 'Pog'],
         ['U1', 'L1'], ['A', 'B'], ['PNS', 'ANS'], ['S', 'Gn']
@@ -182,13 +260,17 @@
         ctx.fillRect(0, 0, vs.w, vs.h);
         if (img.naturalWidth) {
             var f = fit();
-            if (invertFilm) {
-                ctx.filter = 'invert(1) hue-rotate(180deg)';
-                ctx.drawImage(img, f.ox, f.oy, img.naturalWidth * f.s, img.naturalHeight * f.s);
-                ctx.filter = 'none';
-            } else {
-                ctx.drawImage(img, f.ox, f.oy, img.naturalWidth * f.s, img.naturalHeight * f.s);
-            }
+            var dw = img.naturalWidth * f.s, dh = img.naturalHeight * f.s;
+            var cx = f.ox + dw / 2, cy = f.oy + dh / 2;
+            var filt = 'brightness(' + filmBright + ') contrast(' + filmContrast + ')';
+            if (invertFilm) filt += ' invert(1) hue-rotate(180deg)';
+            ctx.save();
+            ctx.filter = filt;
+            ctx.translate(cx, cy);
+            ctx.rotate(fhRot());
+            ctx.translate(-cx, -cy);
+            ctx.drawImage(img, f.ox, f.oy, dw, dh);
+            ctx.restore();
         }
         ctx.lineWidth = 1.4;
         ctx.strokeStyle = 'rgba(56,189,248,0.75)';
@@ -198,6 +280,33 @@
             var A = toView(a), B = toView(b);
             ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
         });
+        lastProfileN = strokePath(ctx, ['Pn', 'Sn', 'Ls', 'Li', 'PogS'], 'rgba(251,146,60,0.95)', 2.2);
+        lastProfileN += strokePath(ctx, ['S', 'N'], 'rgba(125,211,252,0.95)', 2);
+        lastProfileN += strokePath(ctx, ['Go', 'Me'], 'rgba(125,211,252,0.95)', 2);
+        if (overlayMapped) {
+            ctx.fillStyle = 'rgba(244,114,182,0.95)';
+            Object.keys(overlayMapped).forEach(function (id) {
+                var p = overlayMapped[id];
+                if (!p || !isFinite(p.x)) return;
+                var v = toView(p);
+                ctx.beginPath(); ctx.arc(v.x, v.y, 3, 0, Math.PI * 2); ctx.fill();
+            });
+            var ovPath = ['Pn', 'Sn', 'Ls', 'Li', 'PogS'].map(function (id) { return overlayMapped[id]; }).filter(function (p) {
+                return p && isFinite(p.x);
+            });
+            if (ovPath.length >= 2) {
+                ctx.strokeStyle = 'rgba(244,114,182,0.9)';
+                ctx.lineWidth = 1.6;
+                ctx.beginPath();
+                var v0 = toView(ovPath[0]);
+                ctx.moveTo(v0.x, v0.y);
+                ovPath.slice(1).forEach(function (p) {
+                    var v = toView(p);
+                    ctx.lineTo(v.x, v.y);
+                });
+                ctx.stroke();
+            }
+        }
         var hi = HIGHLIGHT[hiMeasure];
         if (hi) {
             ctx.strokeStyle = '#facc15';
@@ -273,6 +382,7 @@
             var p = pts[d.id] || {};
             var mark = touched[d.id] ? ' is-touched' : '';
             if (qaIds[d.id]) mark += ' is-qa';
+            if (walkOn && WALK_IDS[walkIdx] === d.id) mark += ' is-walk';
             return '<div class="lm' + (sel === d.id ? ' is-on' : '') + mark + '" data-id="' + d.id + '">' +
                 '<span>' + d.i + '. ' + d.id + ' — ' + lmName(d) +
                 (qaIds[d.id] ? ' ' + tx('tag.check') : '') +
@@ -281,7 +391,9 @@
         }).join('');
         host.innerHTML += EXTRA_DEFS.map(function (d) {
             var p = extra[d.id] || {};
-            return '<div class="lm' + (sel === d.id ? ' is-on' : '') + '" data-id="' + d.id + '">' +
+            var extraMark = extraTouched[d.id] ? ' is-touched' : '';
+            if (walkOn && WALK_IDS[walkIdx] === d.id) extraMark += ' is-walk';
+            return '<div class="lm' + (sel === d.id ? ' is-on' : '') + extraMark + '" data-id="' + d.id + '">' +
                 '<span>' + d.id + ' — ' + extraName(d) + (extraTouched[d.id] ? ' ' + tx('tag.moved') : '') + '</span>' +
                 '<span>' + (p.x ? Math.round(p.x) + ',' + Math.round(p.y) : '—') + '</span></div>';
         }).join('');
@@ -322,11 +434,29 @@
         setStatus(tx('st.norms', { label: tx(normSet === 'chinese' ? 'btn.normCn' : 'btn.normCauc') }));
         return normSet;
     }
+    function writeAge(id) {
+        ageBand = id === 'child' ? 'child' : 'adult';
+        try { if (window.localStorage) localStorage.setItem(AGE_KEY, ageBand); } catch (e) { /* ignore */ }
+        syncNormBtn();
+        renderAnalysis();
+        setStatus(tx('st.age', { label: tx(ageBand === 'child' ? 'btn.ageChild' : 'btn.ageAdult') }));
+        return ageBand;
+    }
+    function writeSex(id) {
+        sexBand = (id === 'f' || id === 'm') ? id : '';
+        try { if (window.localStorage) localStorage.setItem(SEX_KEY, sexBand); } catch (e) { /* ignore */ }
+        syncNormBtn();
+        renderAnalysis();
+        setStatus(tx('st.sex', { label: tx(sexBand === 'f' ? 'btn.sexF' : (sexBand === 'm' ? 'btn.sexM' : 'btn.sexU')) }));
+        return sexBand;
+    }
     function syncNormBtn() {
         var cauc = $('btnNormCauc');
         var cn = $('btnNormCn');
         var src = $('normSource');
-        var pack = window.CEPH_AN && CEPH_AN.getSet ? CEPH_AN.getSet(normSet) : null;
+        var pack = window.CEPH_AN && CEPH_AN.applyDemo
+            ? CEPH_AN.applyDemo(CEPH_AN.getSet(normSet), ageBand, sexBand)
+            : (window.CEPH_AN && CEPH_AN.getSet ? CEPH_AN.getSet(normSet) : null);
         [[cauc, normSet === 'caucasian'], [cn, normSet === 'chinese']].forEach(function (pair) {
             var btn = pair[0];
             if (!btn) return;
@@ -334,7 +464,14 @@
             if (pair[1]) btn.classList.add('is-on');
             else btn.classList.remove('is-on');
         });
-        if (src && pack) src.textContent = tx('norm.src.' + normSet) || pack.source || '';
+        [['btnAgeAdult', ageBand === 'adult'], ['btnAgeChild', ageBand === 'child'],
+            ['btnSexM', sexBand === 'm'], ['btnSexF', sexBand === 'f']].forEach(function (pair) {
+            var btn = $(pair[0]);
+            if (!btn) return;
+            btn.setAttribute('aria-pressed', pair[1] ? 'true' : 'false');
+            btn.classList.toggle('is-on', pair[1]);
+        });
+        if (src && pack) src.textContent = pack.source || tx('norm.src.' + normSet) || '';
     }
 
     function readUseTraining() {
@@ -431,7 +568,7 @@
     function renderAnalysis() {
         var host = $('tables');
         if (!host || typeof CEPH_AN === 'undefined') return;
-        var res = CEPH_AN.run(pts, mmPerPx, { normSet: normSet, calibrated: calibrated, extra: extra });
+        var res = CEPH_AN.run(pts, mmPerPx, { normSet: normSet, calibrated: calibrated, extra: extra, age: ageBand, sex: sexBand });
         host.innerHTML = res.groups.map(function (g) {
             return '<h2>' + groupTitleTx(g.title) + '</h2><table><tr><th>' + tx('th.measure') + '</th><th>' +
                 tx('th.value') + '</th><th>' + tx('th.delta') + '</th><th>' + tx('th.norm') + '</th><th></th></tr>' +
@@ -469,7 +606,7 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx22" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx36" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair, i) {
                 var cls = (i === 4 && s.extractionBand) ? ('summary-extract is-' + s.extractionBand) : '';
@@ -549,6 +686,81 @@
         draw();
         return invertFilm;
     }
+    function setFilmLook(opts) {
+        opts = opts || {};
+        if (opts.bright != null) filmBright = Math.max(0.3, Math.min(2.5, Number(opts.bright) || 1));
+        if (opts.contrast != null) filmContrast = Math.max(0.3, Math.min(2.5, Number(opts.contrast) || 1));
+        if ($('filmBright')) $('filmBright').value = String(filmBright);
+        if ($('filmContrast')) $('filmContrast').value = String(filmContrast);
+        draw();
+        return { bright: filmBright, contrast: filmContrast, fhUp: !!fhUp };
+    }
+    function setFhUp(on) {
+        fhUp = !!on;
+        if ($('btnFhUp')) {
+            $('btnFhUp').classList.toggle('is-on', fhUp);
+            $('btnFhUp').setAttribute('aria-pressed', fhUp ? 'true' : 'false');
+        }
+        draw();
+        return { ok: true, fhUp: fhUp, rotDeg: Math.round(fhRot() * 1800 / Math.PI) / 10 };
+    }
+    function overlayAnchor(mode, src) {
+        src = src || {};
+        if (mode === 'fh') return { a: src.Po, b: src.Or };
+        if (mode === 'pp') return { a: src.ANS, b: src.PNS };
+        return { a: src.S, b: src.N };
+    }
+    function mapOverlayPts(srcPts, mode) {
+        if (!srcPts) return null;
+        var live = overlayAnchor(mode, pts);
+        var other = overlayAnchor(mode, srcPts);
+        if (!live.a || !live.b || !other.a || !other.b) return srcPts;
+        if (!isFinite(live.a.x) || !isFinite(other.a.x) || !isFinite(live.b.x) || !isFinite(other.b.x)) return srcPts;
+        var rot = Math.atan2(live.b.y - live.a.y, live.b.x - live.a.x) -
+            Math.atan2(other.b.y - other.a.y, other.b.x - other.a.x);
+        var cs = Math.cos(rot), sn = Math.sin(rot);
+        var out = {}, k;
+        for (k in srcPts) {
+            if (!Object.prototype.hasOwnProperty.call(srcPts, k) || !srcPts[k]) continue;
+            var p = srcPts[k];
+            if (!isFinite(p.x) || !isFinite(p.y)) continue;
+            var x = p.x - other.a.x, y = p.y - other.a.y;
+            out[k] = { x: live.a.x + x * cs - y * sn, y: live.a.y + x * sn + y * cs };
+        }
+        return out;
+    }
+    function refreshOverlay() {
+        overlayMapped = overlayRec && overlayRec.pts ? mapOverlayPts(overlayRec.pts, overlayMode) : null;
+        ['btnOverlaySn', 'btnOverlayFh', 'btnOverlayPp'].forEach(function (id) {
+            var el = $(id);
+            if (!el) return;
+            var on = (id === 'btnOverlaySn' && overlayMode === 'sn') ||
+                (id === 'btnOverlayFh' && overlayMode === 'fh') ||
+                (id === 'btnOverlayPp' && overlayMode === 'pp');
+            el.classList.toggle('is-on', !!(overlayMapped && on));
+            el.setAttribute('aria-pressed', overlayMapped && on ? 'true' : 'false');
+        });
+        draw();
+        return overlayMapped;
+    }
+    function setOverlay(rec) {
+        if (!rec || !rec.pts) {
+            overlayRec = null;
+            overlayMapped = null;
+            refreshOverlay();
+            setStatus(tx('st.overlayOff'));
+            return { ok: false };
+        }
+        overlayRec = { pts: rec.pts, extra: rec.extra || {}, label: rec.fileName || rec.label || 'prior' };
+        refreshOverlay();
+        setStatus(tx('st.overlayOn', { mode: overlayMode, n: Object.keys(overlayMapped || {}).length }));
+        return { ok: true, n: Object.keys(overlayMapped || {}).length, mode: overlayMode };
+    }
+    function setOverlayMode(mode) {
+        overlayMode = (mode === 'fh' || mode === 'pp') ? mode : 'sn';
+        refreshOverlay();
+        return { ok: true, mode: overlayMode, n: overlayMapped ? Object.keys(overlayMapped).length : 0 };
+    }
     function traceStoreKey() {
         var p = (ctxInfo && (ctxInfo.patientNo || ctxInfo.patientId)) || 'anon';
         var x = (ctxInfo && ctxInfo.xrayId) || fileName || 'film';
@@ -561,39 +773,122 @@
             return db && typeof db === 'object' ? db : {};
         } catch (e) { return {}; }
     }
-    function saveTrace() {
-        if (!img.naturalWidth || !placedIds().length) {
-            setStatus(tx('st.saveNeed'));
-            return { ok: false };
+    function findStoredTrace() {
+        var db = readTraceStore();
+        var id = ctxInfo && ctxInfo.xrayId ? String(ctxInfo.xrayId) : '';
+        var rec = db[traceStoreKey()];
+        if (isTrace(rec)) return rec;
+        var k;
+        for (k in db) {
+            if (!Object.prototype.hasOwnProperty.call(db, k)) continue;
+            rec = db[k];
+            if (!isTrace(rec)) continue;
+            if (id && String(rec.xrayId) === id) return rec;
+            if (fileName && rec.fileName === fileName) return rec;
         }
-        var db = readTraceStore();
-        var key = traceStoreKey();
-        db[key] = {
-            v: 1,
-            kind: 'banana.ceph.savedTrace',
-            key: key,
-            patientNo: ctxInfo && ctxInfo.patientNo,
-            xrayId: ctxInfo && ctxInfo.xrayId,
-            fileName: fileName,
-            pts: pts,
-            extra: extra,
-            mmPerPx: mmPerPx,
-            calibrated: !!calibrated,
-            normSet: normSet,
-            source: source,
-            setId: sets[setIndex] && sets[setIndex].id,
-            savedAt: new Date().toISOString()
-        };
-        try { localStorage.setItem(TRACE_KEY, JSON.stringify(db)); } catch (e) { return { ok: false, error: 'store' }; }
-        setStatus(tx('st.saved', { key: key }));
-        return { ok: true, key: key };
+        return null;
     }
-    function loadTrace(key) {
-        var db = readTraceStore();
-        var rec = db[key || traceStoreKey()];
-        if (!rec || !rec.pts) return { ok: false };
-        pts = rec.pts;
-        extra = rec.extra || {};
+    function pendingTrace() {
+        if (ctxInfo && isTrace(ctxInfo.tracing)) {
+            return { rec: ctxInfo.tracing, via: ctxInfo.tracingVia === 'local' ? 'local' : 'cloud' };
+        }
+        var rec = findStoredTrace();
+        if (isTrace(rec)) return { rec: rec, via: 'local' };
+        return null;
+    }
+    function syncLoadBtn() {
+        var btn = $('btnLoadTrace');
+        if (!btn) return;
+        var on = !!pendingTrace();
+        btn.disabled = !on;
+        btn.setAttribute('aria-disabled', on ? 'false' : 'true');
+    }
+    function openerSb() {
+        try {
+            if (window.opener && !window.opener.closed && window.opener.SB) return window.opener.SB;
+        } catch (e) { /* ignore */ }
+        return null;
+    }
+    function applyCloudTrace(t) {
+        if (!isTrace(t)) return null;
+        if (ctxInfo) {
+            ctxInfo.tracing = t;
+            ctxInfo.tracingVia = 'cloud';
+            if (t.cephSaveId) ctxInfo.cephSaveId = t.cephSaveId;
+            if (t.fileUrl) ctxInfo.studyUrl = t.fileUrl;
+        }
+        return t;
+    }
+    function pullCloudTrace() {
+        var id = ctxInfo && ctxInfo.xrayId;
+        if (!id) return Promise.resolve(null);
+        try {
+            if (window.opener && !window.opener.closed) {
+                if (typeof window.opener.xrayCephFetchSave === 'function') {
+                    return Promise.resolve(window.opener.xrayCephFetchSave(id)).then(function (save) {
+                        if (save && isTrace(save.tracing)) {
+                            applyCloudTrace(save.tracing);
+                            if (ctxInfo && save.id) ctxInfo.cephSaveId = save.id;
+                            if (ctxInfo && save.file_url) ctxInfo.studyUrl = save.file_url;
+                            return save.tracing;
+                        }
+                        if (typeof window.opener.xrayCephFetchTracing === 'function') {
+                            return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(applyCloudTrace, function () { return null; });
+                        }
+                        return null;
+                    }, function () { return null; });
+                }
+                if (typeof window.opener.xrayCephFetchTracing === 'function') {
+                    return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(applyCloudTrace, function () { return null; });
+                }
+            }
+        } catch (e) { /* ignore */ }
+        var sb = openerSb();
+        if (!sb) return Promise.resolve(null);
+        return Promise.resolve(sb.from('ceph_saves').select('id,file_url,tracing').eq('source_xray_id', id).limit(1)).then(function (r) {
+            var row = r && r.data && (Array.isArray(r.data) ? r.data[0] : r.data);
+            if (row && isTrace(row.tracing)) {
+                if (row.id) row.tracing.cephSaveId = row.id;
+                if (row.file_url) row.tracing.fileUrl = row.file_url;
+                return applyCloudTrace(row.tracing);
+            }
+            return Promise.resolve(sb.from('xrays').select('ceph_tracing').eq('id', id).limit(1)).then(function (r2) {
+                var row2 = r2 && r2.data && (Array.isArray(r2.data) ? r2.data[0] : r2.data);
+                return applyCloudTrace(row2 && row2.ceph_tracing);
+            }, function () { return null; });
+        }, function () {
+            return Promise.resolve(sb.from('xrays').select('ceph_tracing').eq('id', id).limit(1)).then(function (r2) {
+                var row2 = r2 && r2.data && (Array.isArray(r2.data) ? r2.data[0] : r2.data);
+                return applyCloudTrace(row2 && row2.ceph_tracing);
+            }, function () { return null; });
+        });
+    }
+    function clonePts(o) {
+        var out = {}, k;
+        if (!o) return out;
+        for (k in o) {
+            if (!Object.prototype.hasOwnProperty.call(o, k) || !o[k]) continue;
+            if (isFinite(o[k].x) && isFinite(o[k].y)) out[k] = { x: o[k].x, y: o[k].y };
+        }
+        return out;
+    }
+    function isTrace(rec) {
+        if (!rec || typeof rec !== 'object' || !rec.pts) return false;
+        var k;
+        for (k in rec.pts) {
+            if (!Object.prototype.hasOwnProperty.call(rec.pts, k)) continue;
+            var p = rec.pts[k];
+            if (p && isFinite(p.x) && isFinite(p.y) && (p.x !== 0 || p.y !== 0)) return true;
+        }
+        return false;
+    }
+    function applyTraceRec(rec, via, opt) {
+        opt = opt || {};
+        if (!isTrace(rec)) return { ok: false };
+        pts = clonePts(rec.pts);
+        extra = rec.extra && typeof rec.extra === 'object' ? clonePts(rec.extra) : {};
+        extraTouched = {};
+        seedExtra(false);
         if (rec.mmPerPx) {
             mmPerPx = rec.mmPerPx;
             if ($('mmPerPx')) $('mmPerPx').value = String(mmPerPx);
@@ -602,9 +897,118 @@
         if (rec.normSet) { normSet = rec.normSet; syncNormBtn(); }
         source = rec.source || source;
         if (sets[setIndex]) sets[setIndex].pts = pts;
+        restoreVia = via || restoreVia || 'local';
+        hideSetBar();
         refresh();
-        setStatus(tx('st.restored'));
-        return { ok: true, key: rec.key || key, nPts: placedIds().length };
+        syncLoadBtn();
+        if (!opt.quiet) {
+            setStatus(via === 'cloud' ? tx('st.restoredCloud') : tx('st.restoredLocal'));
+        }
+        return { ok: true, key: rec.key || traceStoreKey(), nPts: placedIds().length, via: via };
+    }
+    function filmDataUrl() {
+        if (!img.naturalWidth) return '';
+        try {
+            var c = document.createElement('canvas');
+            c.width = img.naturalWidth;
+            c.height = img.naturalHeight;
+            var g = c.getContext('2d');
+            if (!g) return '';
+            g.drawImage(img, 0, 0);
+            return c.toDataURL('image/jpeg', 0.92);
+        } catch (e) { return ''; }
+    }
+    function publishTrace(rec) {
+        var xrayId = rec && rec.xrayId;
+        if (!xrayId) return Promise.resolve({ ok: false, error: 'id' });
+        var opt = { filmDataUrl: filmDataUrl(), fileName: rec.fileName, patientId: rec.patientId };
+        var payload = { type: 'banana.ceph.saveTrace', xrayId: xrayId, tracing: rec, opt: { fileName: rec.fileName, patientId: rec.patientId } };
+        try {
+            if (window.opener && !window.opener.closed && typeof window.opener.xrayCephSaveTracing === 'function') {
+                return Promise.resolve(window.opener.xrayCephSaveTracing(xrayId, rec, opt)).then(function (r) {
+                    return r || { ok: false };
+                }, function () { return { ok: false, error: 'opener' }; });
+            }
+        } catch (e) { /* ignore */ }
+        var sb = openerSb();
+        if (sb) {
+            return Promise.resolve(sb.from('xrays').update({ ceph_tracing: rec }).eq('id', xrayId)).then(function (r) {
+                if (r && r.error) return { ok: false, error: 'write' };
+                return { ok: true, cloud: true, xrayId: xrayId };
+            }, function () { return { ok: false, error: 'net' }; });
+        }
+        try {
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage(payload, window.location.origin);
+            }
+        } catch (e2) { /* ignore */ }
+        try {
+            var ch = new BroadcastChannel(TRACE_CH);
+            ch.postMessage(payload);
+            setTimeout(function () { try { ch.close(); } catch (e3) { /* ignore */ } }, 800);
+        } catch (e4) { /* ignore */ }
+        return Promise.resolve({ ok: false, error: 'bus' });
+    }
+    function saveTrace() {
+        if (!img.naturalWidth || !placedIds().length) {
+            setStatus(tx('st.saveNeed'));
+            return { ok: false };
+        }
+        var db = readTraceStore();
+        var key = traceStoreKey();
+        var rec = {
+            v: 1,
+            kind: 'banana.ceph.savedTrace',
+            key: key,
+            patientId: ctxInfo && ctxInfo.patientId,
+            patientNo: ctxInfo && ctxInfo.patientNo,
+            xrayId: ctxInfo && ctxInfo.xrayId,
+            fileName: fileName,
+            pts: clonePts(pts),
+            extra: clonePts(extra),
+            mmPerPx: mmPerPx,
+            calibrated: !!calibrated,
+            normSet: normSet,
+            source: source,
+            setId: sets[setIndex] && sets[setIndex].id,
+            savedAt: new Date().toISOString()
+        };
+        db[key] = rec;
+        try { localStorage.setItem(TRACE_KEY, JSON.stringify(db)); } catch (e) { return { ok: false, error: 'store' }; }
+        if (ctxInfo) {
+            ctxInfo.tracing = rec;
+            ctxInfo.tracingVia = 'local';
+            try { sessionStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (e2) { /* ignore */ }
+            try { localStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (e3) { /* ignore */ }
+        }
+        syncLoadBtn();
+        setStatus(tx('st.savedLocal', { key: key }));
+        publishTrace(rec).then(function (r) {
+            if (r && r.ok && r.cloud) {
+                if (ctxInfo) {
+                    ctxInfo.tracingVia = 'cloud';
+                    if (r.cephSaveId) ctxInfo.cephSaveId = r.cephSaveId;
+                    if (r.fileUrl && ctxInfo.tracing) ctxInfo.tracing.fileUrl = r.fileUrl;
+                    if (r.cephSaveId && ctxInfo.tracing) ctxInfo.tracing.cephSaveId = r.cephSaveId;
+                }
+                setStatus(tx('st.savedCloud'));
+            } else if (r && (r.error === 'col' || r.needSql)) setStatus(tx('st.savedNeedSql'));
+        });
+        return { ok: true, key: key, rec: rec };
+    }
+    function loadTrace(key) {
+        if (key) {
+            var rec = readTraceStore()[key];
+            if (!isTrace(rec)) { setStatus(tx('st.loadNone')); return { ok: false }; }
+            return applyTraceRec(rec, 'local');
+        }
+        var pending = pendingTrace();
+        if (!pending) {
+            setStatus(tx('st.loadNone'));
+            syncLoadBtn();
+            return { ok: false };
+        }
+        return applyTraceRec(pending.rec, pending.via);
     }
     function printReport() {
         window.print();
@@ -630,6 +1034,74 @@
             if (nrm > 0.08) qaIds[d.id] = true;
         });
         return Object.keys(qaIds);
+    }
+    function syncWalkUi() {
+        var on = !!walkOn;
+        if ($('btnWalk')) {
+            $('btnWalk').classList.toggle('is-on', on);
+            $('btnWalk').setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        ['btnWalkNext', 'btnWalkSkip', 'btnWalkDone'].forEach(function (id) {
+            var btn = $(id);
+            if (!btn) return;
+            if (on) btn.classList.remove('is-hidden');
+            else btn.classList.add('is-hidden');
+        });
+    }
+    function focusWalkPt(id) {
+        var p = loc(id);
+        if (!p) return false;
+        sel = id;
+        viewZoom = 2.2;
+        panX = 0;
+        panY = 0;
+        var vs = viewSize();
+        var f = fit();
+        var q = rotAbout(p, fhRot());
+        panX = vs.w / 2 - (f.ox + q.x * f.s);
+        panY = vs.h / 2 - (f.oy + q.y * f.s);
+        renderList();
+        draw();
+        return true;
+    }
+    function showWalkStep() {
+        if (!walkOn || walkIdx < 0 || walkIdx >= WALK_IDS.length) return stopWalk();
+        var id = WALK_IDS[walkIdx];
+        focusWalkPt(id);
+        syncWalkUi();
+        setStatus(tx('st.walk', {
+            n: walkIdx + 1,
+            of: WALK_IDS.length,
+            id: id,
+            hint: tx('walk.' + id)
+        }));
+        return { ok: true, id: id, i: walkIdx, n: WALK_IDS.length, walkOn: true };
+    }
+    function startWalk() {
+        if (!img.naturalWidth) return { ok: false };
+        walkOn = true;
+        walkIdx = 0;
+        return showWalkStep();
+    }
+    function walkNext() {
+        if (!walkOn) return startWalk();
+        walkIdx += 1;
+        if (walkIdx >= WALK_IDS.length) return stopWalk();
+        return showWalkStep();
+    }
+    function walkSkip() {
+        return walkNext();
+    }
+    function stopWalk(opt) {
+        opt = opt || {};
+        var was = walkOn;
+        walkOn = false;
+        walkIdx = -1;
+        syncWalkUi();
+        if (!opt.keepView) resetView();
+        if (was && !opt.quiet) setStatus(tx('st.walkDone'));
+        renderList();
+        return { ok: true, walkOn: false };
     }
     function setLabMode(on) {
         labOpen = !!on;
@@ -712,6 +1184,12 @@
     }
 
     function seedExtra(force) {
+        if (pts.Sn && (force || !extra.Pn)) {
+            extra.Pn = {
+                x: pts.Sn.x + 10,
+                y: pts.N ? (pts.N.y * 0.4 + pts.Sn.y * 0.6) : (pts.Sn.y - 26)
+            };
+        }
         if (!pts.U1 || !pts.L1) return extra;
         if (force || !extra.U1a) extra.U1a = { x: pts.U1.x - 18, y: pts.U1.y - 36 };
         if (force || !extra.L1a) extra.L1a = { x: pts.L1.x - 16, y: pts.L1.y + 36 };
@@ -761,6 +1239,7 @@
         var s = sets[setIndex];
         hideSetBar();
         setStatus(tx('st.adopted', { n: setIndex + 1, label: setLabelTx(s) }));
+        startWalk();
         return { ok: true, i: setIndex, id: s.id, label: s.label, source: s.source };
     }
 
@@ -775,8 +1254,11 @@
     }
 
     function afterLoad(done, skipRestore) {
+        if (walkOn) stopWalk({ quiet: true, keepView: true });
         clearUndo();
         userPickedSet = false;
+        restoreHold = (!skipRestore) ? pendingTrace() : null;
+        restoreVia = '';
         var pack = CEPH_LM.detectSets(img, { useTraining: useTraining });
         sets = pack.sets || [];
         lastBox = pack.box || lastBox;
@@ -784,73 +1266,107 @@
         setTouched = [{}, {}, {}];
         viewedSets = [false, false, false];
         var idx = pack.defaultIndex || 0;
-        showSetBar();
-        previewSet(idx, false);
-        var clinicN = pack.clinic || 0;
-        function finish(payload) {
-            if (!skipRestore) {
-                var restored = loadTrace();
-                if (restored && restored.ok) payload.restored = true;
+
+        function applyHeld() {
+            if (restoreHold) {
+                hideSetBar();
+                applyTraceRec(restoreHold.rec, restoreHold.via, { quiet: true });
+            } else {
+                showSetBar();
+                previewSet(idx, false);
             }
+            syncLoadBtn();
+        }
+        function finish(payload) {
+            if (restoreHold) {
+                applyTraceRec(restoreHold.rec, restoreHold.via);
+                payload.restored = true;
+                payload.restoreVia = restoreHold.via;
+                if (restoreHold.via === 'local' && ctxInfo && ctxInfo.xrayId) publishTrace(restoreHold.rec);
+            }
+            syncLoadBtn();
             if (done) done(payload);
         }
-        if (useTraining && clinicN > 0) {
-            setStatus(tx('st.refClinic', {
-                n: clinicN,
-                i: setIndex + 1,
-                label: setLabelTx(sets[setIndex]) || tx('set.clinic')
-            }));
-            finish({
-                ok: true,
-                source: source,
-                via: 'clinic',
-                publishedSource: sets[setIndex] && sets[setIndex].publishedSource,
-                trainingSource: pack.trainingSource,
-                useTraining: true,
-                setIndex: setIndex,
-                nSets: sets.length
+        function continueLoad() {
+            var clinicN = pack.clinic || 0;
+            if (useTraining && clinicN > 0) {
+                if (!restoreHold) {
+                    setStatus(tx('st.refClinic', {
+                        n: clinicN,
+                        i: setIndex + 1,
+                        label: setLabelTx(sets[setIndex]) || tx('set.clinic')
+                    }));
+                }
+                finish({
+                    ok: true,
+                    source: source,
+                    via: restoreHold ? restoreHold.via : 'clinic',
+                    publishedSource: sets[setIndex] && sets[setIndex].publishedSource,
+                    trainingSource: pack.trainingSource,
+                    useTraining: true,
+                    setIndex: setIndex,
+                    nSets: sets.length
+                });
+                return;
+            }
+            var api = (window.XRAY_AI_API_URL || 'http://127.0.0.1:8877');
+            CEPH_LM.detectApi(img, api).then(function (remote) {
+                sets[2] = {
+                    id: 'api',
+                    label: 'AI service',
+                    source: remote.source,
+                    publishedSource: remote.source,
+                    pts: remote.pts
+                };
+                if (!userPickedSet && !restoreHold) previewSet(2, false);
+                else renderSetBar();
+                if (!restoreHold) {
+                    setStatus(tx('st.threeReady', {
+                        n: setIndex + 1,
+                        label: setLabelTx(sets[setIndex])
+                    }));
+                }
+                finish({
+                    ok: true,
+                    source: source,
+                    via: restoreHold ? restoreHold.via : (userPickedSet ? 'local' : 'api'),
+                    useTraining: false,
+                    setIndex: setIndex,
+                    nSets: sets.length
+                });
+            }).catch(function () {
+                if (!restoreHold) {
+                    setStatus(tx('st.threeLocal', {
+                        n: setIndex + 1,
+                        label: setLabelTx(sets[setIndex])
+                    }));
+                }
+                finish({
+                    ok: true,
+                    source: source,
+                    via: restoreHold ? restoreHold.via : 'local',
+                    publishedSource: sets[setIndex] && sets[setIndex].publishedSource,
+                    trainingSource: pack.trainingSource,
+                    useTraining: false,
+                    setIndex: setIndex,
+                    nSets: sets.length
+                });
+            });
+        }
+
+        if (!restoreHold && !skipRestore) {
+            pullCloudTrace().then(function (t) {
+                if (isTrace(t)) restoreHold = { rec: t, via: 'cloud' };
+                applyHeld();
+                continueLoad();
+            }, function () {
+                applyHeld();
+                continueLoad();
             });
             return;
         }
-        var api = (window.XRAY_AI_API_URL || 'http://127.0.0.1:8877');
-        CEPH_LM.detectApi(img, api).then(function (remote) {
-            sets[2] = {
-                id: 'api',
-                label: 'AI service',
-                source: remote.source,
-                publishedSource: remote.source,
-                pts: remote.pts
-            };
-            if (!userPickedSet) previewSet(2, false);
-            else renderSetBar();
-            setStatus(tx('st.threeReady', {
-                n: setIndex + 1,
-                label: setLabelTx(sets[setIndex])
-            }));
-            finish({
-                ok: true,
-                source: source,
-                via: userPickedSet ? 'local' : 'api',
-                useTraining: false,
-                setIndex: setIndex,
-                nSets: sets.length
-            });
-        }).catch(function () {
-            setStatus(tx('st.threeLocal', {
-                n: setIndex + 1,
-                label: setLabelTx(sets[setIndex])
-            }));
-            finish({
-                ok: true,
-                source: source,
-                via: 'local',
-                publishedSource: sets[setIndex] && sets[setIndex].publishedSource,
-                trainingSource: pack.trainingSource,
-                useTraining: false,
-                setIndex: setIndex,
-                nSets: sets.length
-            });
-        });
+        applyHeld();
+        continueLoad();
     }
 
     function runDetect() {
@@ -1011,7 +1527,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx22';
+        var url = 'extraction.html?v=20261005fx36';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }
@@ -1082,6 +1598,7 @@
             }
             if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
             else setStatus(tx('st.loadHint'));
+            syncLoadBtn();
         }).catch(function () { setStatus(tx('st.missingCat')); });
 
         $('btnLoad').onclick = function () { $('filePick').click(); };
@@ -1093,6 +1610,13 @@
         syncNormBtn();
         if ($('btnNormCauc')) $('btnNormCauc').onclick = function () { writeNormSet('caucasian'); };
         if ($('btnNormCn')) $('btnNormCn').onclick = function () { writeNormSet('chinese'); };
+        try { var ag = window.localStorage && localStorage.getItem(AGE_KEY); if (ag === 'child') ageBand = 'child'; } catch (eA) { /* ignore */ }
+        try { var sx = window.localStorage && localStorage.getItem(SEX_KEY); if (sx === 'f' || sx === 'm') sexBand = sx; } catch (eS) { /* ignore */ }
+        if ($('btnAgeAdult')) $('btnAgeAdult').onclick = function () { writeAge('adult'); };
+        if ($('btnAgeChild')) $('btnAgeChild').onclick = function () { writeAge('child'); };
+        if ($('btnSexM')) $('btnSexM').onclick = function () { writeSex(sexBand === 'm' ? '' : 'm'); };
+        if ($('btnSexF')) $('btnSexF').onclick = function () { writeSex(sexBand === 'f' ? '' : 'f'); };
+        syncNormBtn();
         if ($('btnAdvanced')) $('btnAdvanced').onclick = function () { setLabMode(!labOpen); };
         setLabMode(false);
         function bindRef(id, onPlus) {
@@ -1132,6 +1656,7 @@
         $('btnPng').onclick = exportPng;
         if ($('btnExtractHelp')) $('btnExtractHelp').onclick = openExtractNotes;
         if ($('btnSaveTrace')) $('btnSaveTrace').onclick = saveTrace;
+        if ($('btnLoadTrace')) $('btnLoadTrace').onclick = function () { loadTrace(); };
         if ($('btnPrint')) $('btnPrint').onclick = printReport;
         if ($('btnCalibrate')) $('btnCalibrate').onclick = function () {
             if (calMode) {
@@ -1205,7 +1730,34 @@
             draw();
         }, { passive: false });
         if ($('btnInvert')) $('btnInvert').onclick = function () { setInvert(!invertFilm); };
+        if ($('filmBright')) $('filmBright').oninput = function () { setFilmLook({ bright: this.value }); };
+        if ($('filmContrast')) $('filmContrast').oninput = function () { setFilmLook({ contrast: this.value }); };
+        if ($('btnFhUp')) $('btnFhUp').onclick = function () { setFhUp(!fhUp); };
+        (function fillOverlayPick() {
+            var sel = $('overlayPick');
+            if (!sel) return;
+            var rows = (ctxInfo && ctxInfo.otherTraces) || [];
+            sel.innerHTML = '<option value="">' + tx('h.overlay') + '</option>' + rows.map(function (r, i) {
+                return '<option value="' + i + '">' + (r.fileName || r.taken || ('#' + (i + 1))) + '</option>';
+            }).join('');
+            sel.onchange = function () {
+                var i = parseInt(sel.value, 10);
+                if (!isFinite(i) || !rows[i]) { setOverlay(null); return; }
+                setOverlay(rows[i].tracing);
+            };
+        })();
+        if ($('btnOverlaySn')) $('btnOverlaySn').onclick = function () { setOverlayMode('sn'); };
+        if ($('btnOverlayFh')) $('btnOverlayFh').onclick = function () { setOverlayMode('fh'); };
+        if ($('btnOverlayPp')) $('btnOverlayPp').onclick = function () { setOverlayMode('pp'); };
+        if ($('btnOverlayOff')) $('btnOverlayOff').onclick = function () { setOverlay(null); };
         if ($('btnUndoPt')) $('btnUndoPt').onclick = undoMove;
+        if ($('btnWalk')) $('btnWalk').onclick = function () {
+            if (walkOn) stopWalk();
+            else startWalk();
+        };
+        if ($('btnWalkNext')) $('btnWalkNext').onclick = walkNext;
+        if ($('btnWalkSkip')) $('btnWalkSkip').onclick = walkSkip;
+        if ($('btnWalkDone')) $('btnWalkDone').onclick = stopWalk;
         if ($('btnResetView')) $('btnResetView').onclick = resetView;
         window.addEventListener('keydown', function (e) {
             if (!e.ctrlKey && !e.metaKey) return;
@@ -1223,6 +1775,21 @@
             var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
             if (f) loadFile(f);
         });
+        try {
+            var chOpen = new BroadcastChannel(TRACE_CH);
+            chOpen.onmessage = function (ev) {
+                var d = ev && ev.data;
+                if (!d || d.type !== 'banana.ceph.open' || !d.ctx) return;
+                ctxInfo = d.ctx;
+                try { sessionStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (eO) { /* ignore */ }
+                if (ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+            };
+        } catch (eCh) { /* ignore */ }
+        window.addEventListener('storage', function (ev) {
+            if (!ev || ev.key !== 'banana.ceph.v1' || !ev.newValue) return;
+            try { ctxInfo = JSON.parse(ev.newValue); } catch (eS) { return; }
+            if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+        });
     }
 
     window.CEPH_PAGE = {
@@ -1239,12 +1806,22 @@
         setUseTraining: writeUseTraining,
         setRefMode: setRefMode,
         setNormSet: writeNormSet,
+        setAgeBand: writeAge,
+        setSexBand: writeSex,
         calibrate: applyRuler,
         startCalibrate: startCalibrate,
         highlightMeasure: highlightMeasure,
         undoMove: undoMove,
         resetView: resetView,
         setInvert: setInvert,
+        setFilmLook: setFilmLook,
+        setFhUp: setFhUp,
+        setOverlay: setOverlay,
+        setOverlayMode: setOverlayMode,
+        startWalk: startWalk,
+        walkNext: walkNext,
+        walkSkip: walkSkip,
+        walkStop: stopWalk,
         saveTrace: saveTrace,
         loadTrace: loadTrace,
         printReport: printReport,
@@ -1271,6 +1848,8 @@
                 snaBand: last.result && last.result.groups && last.result.groups[0] && last.result.groups[0].rows[0] && last.result.groups[0].rows[0].band,
                 snaNorm: last.result && last.result.groups && last.result.groups[0] && last.result.groups[0].rows[0] && last.result.groups[0].rows[0].norm,
                 normSet: (last.result && last.result.normSet) || normSet,
+                ageBand: ageBand,
+                sexBand: sexBand,
                 groups: last.result ? last.result.groups.map(function (g) { return g.id; }) : [],
                 patient: ctxInfo,
                 publishedFilms: publishedN(),
@@ -1290,8 +1869,21 @@
                 hiMeasure: hiMeasure,
                 viewZoom: viewZoom,
                 invert: !!invertFilm,
+                filmBright: filmBright,
+                filmContrast: filmContrast,
+                fhUp: !!fhUp,
+                fhRotDeg: Math.round(fhRot() * 1800 / Math.PI) / 10,
+                profileN: lastProfileN,
+                overlayOn: !!overlayMapped,
+                overlayMode: overlayMode,
+                walkOn: !!walkOn,
+                walkId: walkOn ? (WALK_IDS[walkIdx] || '') : '',
+                walkIdx: walkIdx,
+                overlayN: overlayMapped ? Object.keys(overlayMapped).length : 0,
                 summary: last.result && last.result.summary,
                 labOpen: !!labOpen,
+                restoreVia: restoreVia,
+                hasSavedTrace: !!pendingTrace(),
                 qa: Object.keys(qaIds),
                 selected: placedIds(),
                 undoN: undoStack.length,

@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx22';
+var BUILD = '20261005fx36';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -167,6 +167,7 @@ var PAGE_SCRIPT = `(async () => {
   out.imgW = st.imgW;
   out.imgH = st.imgH;
   out.nPts = st.nPts;
+  out.profileN = st.profileN;
   out.sna = st.sna;
   out.snaBand = st.snaBand;
   out.snaNorm = st.snaNorm;
@@ -182,6 +183,41 @@ var PAGE_SCRIPT = `(async () => {
     const mc = (window.__cephLast && window.__cephLast.result && window.__cephLast.result.groups || [])
       .find((g) => g.id === 'mcnamara');
     out.nperpNote = mc && mc.rows && mc.rows[0] ? String(mc.rows[0].note || '') : '';
+    const stn = (window.__cephLast && window.__cephLast.result && window.__cephLast.result.groups || [])
+      .find((g) => g.id === 'steiner');
+    const pick = (name) => {
+      const r = stn && stn.rows && stn.rows.find((x) => x.name === name);
+      return r ? r.value : null;
+    };
+    out.u1sn = pick('U1–SN');
+    out.u1na = pick('U1–NA');
+    out.u1naMm = pick('U1–NA mm');
+    out.l1nb = pick('L1–NB');
+    out.l1nbMm = pick('L1–NB mm');
+    const rick = (window.__cephLast && window.__cephLast.result && window.__cephLast.result.groups || [])
+      .find((g) => g.id === 'ricketts');
+    const pickR = (name) => {
+      const r = rick && rick.rows && rick.rows.find((x) => x.name === name);
+      return r ? r.value : null;
+    };
+    out.u1apog = pickR('U1–APog');
+    out.l1apogMm = pickR('L1–APog mm');
+    const softG = (window.__cephLast && window.__cephLast.result && window.__cephLast.result.groups || [])
+      .find((g) => g.id === 'soft');
+    const pickS = (name) => {
+      const r = softG && softG.rows && softG.rows.find((x) => x.name === name);
+      return r ? r.value : null;
+    };
+    out.lsE = pickS('Ls to E-line');
+    out.liE = pickS('Li to E-line');
+    const jar = (window.__cephLast && window.__cephLast.result && window.__cephLast.result.groups || [])
+      .find((g) => g.id === 'jarabak');
+    const pickJ = (name) => {
+      const r = jar && jar.rows && jar.rows.find((x) => x.name === name);
+      return r ? r.value : null;
+    };
+    out.pfhAfh = pickJ('PFH/AFH');
+    out.jsum = pickJ('Jarabak sum');
   } catch (e) { out.witsNote = ''; }
   out.groups = st.groups;
   out.summarySkeletal = st.summary && st.summary.skeletal;
@@ -204,6 +240,9 @@ var PAGE_SCRIPT = `(async () => {
     const locked = typeof CEPH_PAGE.lockAdopt === 'function' ? CEPH_PAGE.lockAdopt() : null;
     out.adopted = !!(locked && locked.ok);
     out.setBarHidden = !!(CEPH_PAGE.state() && CEPH_PAGE.state().setBarHidden);
+    out.walkAdoptOn = CEPH_PAGE.state().walkOn === true;
+    out.walkAdoptId = CEPH_PAGE.state().walkId;
+    if (typeof CEPH_PAGE.walkStop === 'function') CEPH_PAGE.walkStop();
   }
   if (window.CEPH_LEARN && window.CEPH_PAGE) {
     CEPH_LEARN.useMemory();
@@ -237,6 +276,22 @@ var PAGE_SCRIPT = `(async () => {
     out.cnNorm = CEPH_PAGE.state().snaNorm;
     out.cnSet = CEPH_PAGE.state().normSet;
     out.cnBand = CEPH_PAGE.state().snaBand;
+    if (typeof CEPH_PAGE.setAgeBand === 'function') {
+      CEPH_PAGE.setNormSet('caucasian');
+      CEPH_PAGE.setAgeBand('adult');
+      if (typeof CEPH_PAGE.setSexBand === 'function') CEPH_PAGE.setSexBand('');
+      out.adultNorm = CEPH_PAGE.state().snaNorm;
+      out.adultAge = CEPH_PAGE.state().ageBand;
+      CEPH_PAGE.setAgeBand('child');
+      out.childNorm = CEPH_PAGE.state().snaNorm;
+      out.childAge = CEPH_PAGE.state().ageBand;
+      CEPH_PAGE.setSexBand('f');
+      out.childFNorm = CEPH_PAGE.state().snaNorm;
+      out.childFSex = CEPH_PAGE.state().sexBand;
+      CEPH_PAGE.setAgeBand('adult');
+      CEPH_PAGE.setSexBand('');
+      CEPH_PAGE.setNormSet('chinese');
+    }
   }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.calibrate === 'function') {
     out.calBefore = CEPH_PAGE.state().calibrated === true;
@@ -252,6 +307,40 @@ var PAGE_SCRIPT = `(async () => {
     CEPH_PAGE.setInvert(true);
     out.invert = CEPH_PAGE.state().invert === true;
     CEPH_PAGE.setInvert(false);
+    if (typeof CEPH_PAGE.setFilmLook === 'function') {
+      const look = CEPH_PAGE.setFilmLook({ bright: 1.25, contrast: 1.15 });
+      out.lookBright = look && look.bright;
+      out.lookContrast = look && look.contrast;
+      const fh = typeof CEPH_PAGE.setFhUp === 'function' ? CEPH_PAGE.setFhUp(true) : null;
+      out.fhOn = !!(fh && fh.fhUp);
+      out.fhDeg = !!(fh && Math.abs(fh.rotDeg) > 0.15);
+      if (typeof CEPH_PAGE.setFhUp === 'function') CEPH_PAGE.setFhUp(false);
+      CEPH_PAGE.setFilmLook({ bright: 1, contrast: 1 });
+    }
+    if (typeof CEPH_PAGE.setOverlay === 'function') {
+      const src = JSON.parse(JSON.stringify(CEPH_PAGE.state().pts || {}));
+      Object.keys(src).forEach((k) => {
+        if (src[k] && typeof src[k].x === 'number') { src[k].x += 14; src[k].y += 9; }
+      });
+      const ov = CEPH_PAGE.setOverlay({ pts: src });
+      out.ovOk = !!(ov && ov.ok && ov.n >= 19);
+      const ovFh = typeof CEPH_PAGE.setOverlayMode === 'function' ? CEPH_PAGE.setOverlayMode('fh') : null;
+      out.ovFh = !!(ovFh && ovFh.mode === 'fh' && ovFh.n >= 19);
+      CEPH_PAGE.setOverlay(null);
+      out.ovOff = CEPH_PAGE.state().overlayOn === false;
+    }
+    if (typeof CEPH_PAGE.startWalk === 'function') {
+      const w0 = CEPH_PAGE.startWalk();
+      out.walk0 = w0 && w0.id;
+      out.walkN = w0 && w0.n;
+      out.walkZoom = CEPH_PAGE.state().viewZoom > 1.4;
+      const w1 = typeof CEPH_PAGE.walkNext === 'function' ? CEPH_PAGE.walkNext() : null;
+      out.walk1 = w1 && w1.id;
+      const w2 = typeof CEPH_PAGE.walkSkip === 'function' ? CEPH_PAGE.walkSkip() : null;
+      out.walk2 = w2 && w2.id;
+      const done = typeof CEPH_PAGE.walkStop === 'function' ? CEPH_PAGE.walkStop() : null;
+      out.walkOff = !!(done && done.walkOn === false);
+    }
   }
   if (window.CEPH_PAGE) {
     const stEx = CEPH_PAGE.state();
@@ -298,10 +387,21 @@ var PAGE_SCRIPT = `(async () => {
     out.csvNoTeeth = !/14,\s*24/.test(csv || '');
   }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.saveTrace === 'function') {
+    const nKeep = CEPH_PAGE.state().pts && CEPH_PAGE.state().pts.N;
     const saved = CEPH_PAGE.saveTrace();
     out.saveOk = !!(saved && saved.ok && saved.key);
+    out.loadBtn = !!document.getElementById('btnLoadTrace');
+    out.loadBtnOn = CEPH_PAGE.state().hasSavedTrace === true;
     const loaded = CEPH_PAGE.loadTrace();
     out.loadOk = !!(loaded && loaded.ok && loaded.nPts === 19);
+    await CEPH_PAGE.runDetect();
+    await wait(80);
+    out.detectShowSets = CEPH_PAGE.state().setBarHidden === false;
+    const loaded2 = CEPH_PAGE.loadTrace();
+    const n2 = CEPH_PAGE.state().pts && CEPH_PAGE.state().pts.N;
+    out.loadAfterDetect = !!(loaded2 && loaded2.ok && loaded2.nPts === 19);
+    out.loadRecalled = !!(nKeep && n2 && Math.abs(n2.x - nKeep.x) < 0.51);
+    out.saveBarHidden = CEPH_PAGE.state().setBarHidden === true;
     out.printFn = typeof CEPH_PAGE.printReport === 'function';
   }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.setLabMode === 'function') {
@@ -339,6 +439,11 @@ var PAGE_SCRIPT = `(async () => {
     pass('launcher opens ceph/ and starts Helper',
         /ceph\/\?v=/.test(launch) && /xrayHelperLaunch/.test(launch) && /banana\.ceph\.v1/.test(launch));
     pass('ceph.html forwards to the sidecar folder', /ceph\//.test(read('ceph.html')));
+    pass('sidecar name is prefixed Banana',
+        /Banana · Lateral ceph/.test(read('ceph/index.html')) &&
+        /香蕉 · 侧位头影/.test(read('ceph/ceph-i18n.js')) &&
+        /香蕉 · 側位頭影/.test(read('ceph/ceph-i18n.js')) &&
+        /Banana Ceph analysis/.test(launch) && /var title = 'Banana Ceph'/.test(launch));
     pass('sidecar has load / auto-detect / export and a live-page hook',
         /btnDetect/.test(read('ceph/index.html')) && /window\.CEPH_PAGE/.test(read('ceph/ceph.js')));
     pass('sidecar lets staff add an adopted 19-point set to clinic training',
@@ -358,15 +463,42 @@ var PAGE_SCRIPT = `(async () => {
         /btnNormCn/.test(read('ceph/index.html')) && /btnNormCauc/.test(read('ceph/index.html')) &&
         /normSet/.test(read('ceph/ceph-analysis.js')) && /band-out/.test(read('ceph/ceph.css')) &&
         /Chan 1972/.test(read('ceph/ceph-analysis.js')));
+    pass('sidecar has Adult/Child and M/F approximate offsets on the published tables',
+        /btnAgeAdult/.test(read('ceph/index.html')) && /btnAgeChild/.test(read('ceph/index.html')) &&
+        /btnSexM/.test(read('ceph/index.html')) && /btnSexF/.test(read('ceph/index.html')) &&
+        /function applyDemo/.test(read('ceph/ceph-analysis.js')) && /setAgeBand/.test(read('ceph/ceph.js')));
     pass('sidecar calibrates millimetres from a two-click film ruler',
         /btnCalibrate/.test(read('ceph/index.html')) && /applyRuler/.test(read('ceph/ceph.js')) &&
         /not calibrated/.test(read('ceph/ceph-analysis.js')));
     pass('Wits uses FOP, N-perp uses Frankfort, IMPA uses draggable apices',
         /nPerpMm/.test(read('ceph/ceph-analysis.js')) && /witsMm/.test(read('ceph/ceph-analysis.js')) &&
         /FopA/.test(read('ceph/ceph.js')) && /L1a/.test(read('ceph/ceph.js')));
+    pass('Steiner table includes U1-SN, U1-NA and L1-NB (deg and mm)',
+        /U1–SN/.test(read('ceph/ceph-analysis.js')) &&         /U1–NA mm/.test(read('ceph/ceph-analysis.js')) &&
+        /L1–NB mm/.test(read('ceph/ceph-analysis.js')) && /incisorToPlane/.test(read('ceph/ceph-analysis.js')));
+    pass('Ricketts table measures incisors to A-Pog',
+        /U1–APog mm/.test(read('ceph/ceph-analysis.js')) && /L1–APog mm/.test(read('ceph/ceph-analysis.js')) &&
+        /id: 'ricketts'/.test(read('ceph/ceph-analysis.js')));
+    pass('soft tissue has Ricketts E-line using a draggable pronasale',
+        /Ls to E-line/.test(read('ceph/ceph-analysis.js')) && /id: 'Pn'/.test(read('ceph/ceph.js')) &&
+        /extra\.Pn/.test(read('ceph/ceph-i18n.js')));
+    pass('Jarabak PFH/AFH percent and cranial-base angles are tabulated',
+        /PFH\/AFH/.test(read('ceph/ceph-analysis.js')) && /Jarabak sum/.test(read('ceph/ceph-analysis.js')) &&
+        /id: 'jarabak'/.test(read('ceph/ceph-analysis.js')));
     pass('clicking a table row highlights that construction; zoom pan invert undo exist',
         /highlightMeasure/.test(read('ceph/ceph.js')) && /btnInvert/.test(read('ceph/index.html')) &&
         /btnUndoPt/.test(read('ceph/index.html')) && /viewZoom/.test(read('ceph/ceph.js')));
+    pass('film brightness, contrast and Frankfort-horizontal rotate exist',
+        /btnFhUp/.test(read('ceph/index.html')) && /setFhUp/.test(read('ceph/ceph.js')) &&
+        /setFilmLook/.test(read('ceph/ceph.js')) && /filmBright/.test(read('ceph/index.html')));
+    pass('sidecar draws a soft-tissue profile polyline plus SN and mandibular plane',
+        /strokePath/.test(read('ceph/ceph.js')) && /Pn.*Sn.*Ls.*Li.*PogS/.test(read('ceph/ceph.js')));
+    pass('progress overlay registers a prior tracing on SN, FH or palatal plane',
+        /setOverlay/.test(read('ceph/ceph.js')) && /setOverlayMode/.test(read('ceph/ceph.js')) &&
+        /btnOverlaySn/.test(read('ceph/index.html')) && /otherTraces/.test(launch));
+    pass('sidecar walks through Go/Po/Or/Ar, apices and Pn after Adopt or restore',
+        /btnWalk/.test(read('ceph/index.html')) && /WALK_IDS/.test(read('ceph/ceph.js')) &&
+        /startWalk/.test(read('ceph/ceph.js')) && /walk\.Go/.test(read('ceph/ceph-i18n.js')));
     pass('Undo point keeps a declared undo stack',
         /var undoStack = \[\]/.test(read('ceph/ceph.js')) && /function undoMove/.test(read('ceph/ceph.js')));
     pass('CSV export sanitises punctuation for Excel',
@@ -401,7 +533,18 @@ var PAGE_SCRIPT = `(async () => {
         /openExtractNotes/.test(read('ceph/ceph.js')));
     pass('sidecar saves a patient tracing and can print a report',
         /btnSaveTrace/.test(read('ceph/index.html')) && /btnPrint/.test(read('ceph/index.html')) &&
-        /savedTrace/.test(read('ceph/ceph.js')) && /@media print/.test(read('ceph/ceph.css')));
+        /savedTrace/.test(read('ceph/ceph.js')) && /@media print/.test(read('ceph/ceph.css')) &&
+        /#top #btnSaveTrace/.test(read('ceph/ceph.css')));
+    pass('saved tracing copies the film into the xrays bucket, creates a ceph_saves ID, and restores as default landmarks',
+        /ceph_saves/.test(read('xray_ceph.sql')) && /ceph_saves/.test(read('xray_context.sql')) &&
+        /ceph_tracing/.test(read('xray_ceph.sql')) && /\/ceph\//.test(read('app-xray-ceph.js')) &&
+        /xrayCephSaveTracing/.test(launch) && /xrayCephFetchSave/.test(launch) &&
+        /pendingTrace/.test(read('ceph/ceph.js')) && /restoreHold/.test(read('ceph/ceph.js')) &&
+        /st.savedCloud/.test(read('ceph/ceph-i18n.js')) && /film copy/.test(read('ceph/ceph-i18n.js')) &&
+        /描记已存为该病人头影研究/.test(read('ceph/ceph-i18n.js')) &&
+        !/noopener/.test(launch) && /xrayCephFetchTracing/.test(launch) &&
+        /btnLoadTrace/.test(read('ceph/index.html')) && /pullCloudTrace/.test(read('ceph/ceph.js')) &&
+        /filmDataUrl/.test(read('ceph/ceph.js')));
     pass('clinic mode hides training until Advanced; QA flags Go/Po/Or/Ar',
         /btnAdvanced/.test(read('ceph/index.html')) && /labOnly/.test(read('ceph/index.html')) &&
         /qaScan/.test(read('ceph/ceph.js')) && /is-qa/.test(read('ceph/ceph.css')));
@@ -437,9 +580,22 @@ var PAGE_SCRIPT = `(async () => {
     };
     var res = box.CEPH_AN.run(pts, 0.1);
     pass('Steiner SNA is a finite angle', res.groups[0].rows[0].value > 70 && res.groups[0].rows[0].value < 100, String(res.groups[0].rows[0].value));
-    pass('five analysis groups plus soft tissue and extraction index', res.groups.map(function (g) { return g.id; }).join(',') === 'steiner,downs,tweed,wits,mcnamara,soft,extract');
+    pass('five analysis groups plus Ricketts, Jarabak, soft tissue and extraction index', res.groups.map(function (g) { return g.id; }).join(',') === 'steiner,downs,tweed,wits,mcnamara,ricketts,jarabak,soft,extract');
     pass('one-page summary names skeletal class', !!(res.summary && res.summary.skeletal), res.summary && res.summary.skeletal);
     pass('Caucasian SNA norm is 82 ± 2', res.groups[0].rows[0].norm === '82 ± 2' && res.normSet === 'caucasian');
+    var childRes = box.CEPH_AN.run(pts, 0.1, { age: 'child' });
+    var femaleRes = box.CEPH_AN.run(pts, 0.1, { sex: 'f' });
+    var childFRes = box.CEPH_AN.run(pts, 0.1, { age: 'child', sex: 'f' });
+    pass('child offset lowers Caucasian SNA mean to 81, adult table stays 82',
+        childRes.groups[0].rows[0].norm === '81 ± 2' && childRes.age === 'child' &&
+        res.groups[0].rows[0].norm === '82 ± 2' &&
+        /child \(approx vs adult table\)/.test(String(childRes.normSource || '')));
+    pass('female offset lowers Caucasian SNA mean to 81.5 without changing the published table',
+        femaleRes.groups[0].rows[0].norm === '81.5 ± 2' && femaleRes.sex === 'f' &&
+        /female offset \(approx\)/.test(String(femaleRes.normSource || '')) &&
+        box.CEPH_AN.getSet('caucasian').measures.SNA.mean === 82);
+    pass('child + female stacks to SNA 80.5',
+        childFRes.groups[0].rows[0].norm === '80.5 ± 2' && childFRes.age === 'child' && childFRes.sex === 'f');
     var cn = box.CEPH_AN.run(pts, 0.1, { normSet: 'chinese' });
     pass('HK Chinese SNA norm is 83.8 ± 3.2', cn.normSet === 'chinese' && /83\.8/.test(cn.groups[0].rows[0].norm) &&
         cn.groups[0].rows[0].norm !== res.groups[0].rows[0].norm, cn.groups[0].rows[0].norm);
@@ -466,6 +622,22 @@ var PAGE_SCRIPT = `(async () => {
     });
     pass('IMPA uses the L1 apex handle when provided',
         /L1a/.test(withApex.groups[2].rows[1].note) && withApex.groups[2].rows[1].value != null);
+    function anRow(result, gid, name) {
+        var g = (result.groups || []).filter(function (x) { return x.id === gid; })[0];
+        if (!g) return null;
+        return (g.rows || []).filter(function (x) { return x.name === name; })[0] || null;
+    }
+    var u1sn = anRow(withApex, 'steiner', 'U1–SN');
+    var u1na = anRow(withApex, 'steiner', 'U1–NA');
+    var u1naMm = anRow(withApex, 'steiner', 'U1–NA mm');
+    var l1nb = anRow(withApex, 'steiner', 'L1–NB');
+    var l1nbMm = anRow(withApex, 'steiner', 'L1–NB mm');
+    pass('Steiner U1-SN is the obtuse supplement, U1-NA / L1-NB stay acute',
+        u1sn && u1sn.value > 90 && u1na && u1na.value > 0 && u1na.value < 60 &&
+        l1nb && l1nb.value > 0 && l1nb.value < 60 &&
+        u1sn.value > u1na.value &&
+        u1naMm && u1naMm.unit === 'mm' && l1nbMm && l1nbMm.unit === 'mm',
+        'U1SN=' + (u1sn && u1sn.value) + ' U1NA=' + (u1na && u1na.value) + ' L1NB=' + (l1nb && l1nb.value));
     var convRow = cn.groups[1].rows[1];
     pass('Downs convexity is a small signed angle, not angle N-A-Pog',
         convRow && convRow.value != null && convRow.value > -40 && convRow.value < 45,
@@ -512,6 +684,36 @@ var PAGE_SCRIPT = `(async () => {
     var meanRes = box.CEPH_AN.run(meanPts, 0.1);
     pass('400-film image mean SNA is 80–86°', meanRes.groups[0].rows[0].value >= 80 && meanRes.groups[0].rows[0].value <= 86,
         String(meanRes.groups[0].rows[0].value));
+    var meanU1sn = anRow(meanRes, 'steiner', 'U1–SN');
+    var meanU1na = anRow(meanRes, 'steiner', 'U1–NA');
+    var meanSna = anRow(meanRes, 'steiner', 'SNA');
+    pass('Steiner identity U1-SN is near SNA + U1-NA on the 1502 mean',
+        meanU1sn && meanU1na && meanSna &&
+        Math.abs(meanU1sn.value - (meanSna.value + meanU1na.value)) < 4,
+        'SNA=' + (meanSna && meanSna.value) + ' U1NA=' + (meanU1na && meanU1na.value) +
+        ' U1SN=' + (meanU1sn && meanU1sn.value));
+    var meanL1ap = anRow(meanRes, 'ricketts', 'L1–APog mm');
+    var meanU1ap = anRow(meanRes, 'ricketts', 'U1–APog');
+    pass('Ricketts A-Pog rows exist on the 1502 mean',
+        meanU1ap && meanU1ap.value > 0 && meanU1ap.value < 50 &&
+        meanL1ap && meanL1ap.unit === 'mm' && meanL1ap.value != null,
+        'U1APog=' + (meanU1ap && meanU1ap.value) + ' L1APogmm=' + (meanL1ap && meanL1ap.value));
+    var meanLsE = anRow(meanRes, 'soft', 'Ls to E-line');
+    var meanLiE = anRow(meanRes, 'soft', 'Li to E-line');
+    pass('E-line lip distances exist on the 1502 mean',
+        meanLsE && meanLsE.unit === 'mm' && meanLsE.value != null &&
+        meanLiE && meanLiE.unit === 'mm' && meanLiE.value != null,
+        'LsE=' + (meanLsE && meanLsE.value) + ' LiE=' + (meanLiE && meanLiE.value));
+    var meanPfh = anRow(meanRes, 'jarabak', 'PFH/AFH');
+    var meanJsum = anRow(meanRes, 'jarabak', 'Jarabak sum');
+    var meanNsa = anRow(meanRes, 'jarabak', 'N–S–Ar');
+    var meanSar = anRow(meanRes, 'jarabak', 'S–Ar–Go');
+    var meanGon = anRow(meanRes, 'jarabak', 'Ar–Go–Me');
+    pass('Jarabak sum is N-S-Ar + S-Ar-Go + Ar-Go-Me and PFH/AFH is a percent',
+        meanJsum && meanNsa && meanSar && meanGon &&
+        Math.abs(meanJsum.value - (meanNsa.value + meanSar.value + meanGon.value)) < 0.21 &&
+        meanPfh && meanPfh.unit === '%' && meanPfh.value > 50 && meanPfh.value < 80,
+        'sum=' + (meanJsum && meanJsum.value) + ' PFH/AFH=' + (meanPfh && meanPfh.value));
 
     console.log('\n=== testclient: clinic training (separate from 1502) ===');
     var Learn = { Math: Math, Date: Date, isFinite: isFinite, JSON: JSON };
@@ -566,6 +768,137 @@ var PAGE_SCRIPT = `(async () => {
     L.xrayPatientId = 'p1';
     L.xrayCephViewerOpen();
     pass('opens ceph/ and launches Helper', /ceph\/\?/.test(L._url || '') && L._helper === true, L._url);
+    L.xrayAllRecords = [{
+        id: 'x1', xray_type: 'Cephalometric', file_url: 'http://example/c.jpg', file_name: 'c.png',
+        patient_id: 'p1', file_path: 'p1/old.png',
+        ceph_tracing: { v: 1, pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } } }
+    }];
+    var ctxT = L.xrayCephContext();
+    pass('context carries saved tracing from the film',
+        !!(ctxT && ctxT.tracing && ctxT.tracing.pts && ctxT.tracing.pts.S && ctxT.tracing.pts.S.x === 11));
+    L.XRAY_CEPH.off = null;
+    L.XRAY_CEPH.savesOff = null;
+    L._row = null;
+    L._saveRows = [];
+    L.atob = function (s) { return Buffer.from(s, 'base64').toString('binary'); };
+    L.Uint8Array = Uint8Array;
+    L.Date = Date;
+    L.Promise = Promise;
+    L.isFinite = isFinite;
+    L.Blob = typeof Blob === 'function' ? Blob : function (parts, opt) {
+        this.size = (parts && parts[0] && parts[0].length) || 0;
+        this.type = (opt && opt.type) || '';
+    };
+    L.XRAY_BUCKET = 'xrays';
+    function thenable(data, error) {
+        var r = { data: data, error: error || null };
+        r.then = function (ok, fail) { return Promise.resolve({ data: r.data, error: r.error }).then(ok, fail); };
+        r.limit = function () { return thenable(data, error); };
+        r.select = function () { return thenable(data, error); };
+        r.eq = function (col, id) { L._eq = { col: col, id: id }; return thenable(data, error); };
+        return r;
+    }
+    L.SB = {
+        storage: {
+            from: function (b) {
+                L._bucket = b;
+                return {
+                    upload: function (path, file, opt) {
+                        L._up = { path: path, upsert: !!(opt && opt.upsert), type: file && file.type };
+                        return Promise.resolve({ error: null });
+                    },
+                    download: function () { return Promise.resolve({ data: null, error: { message: 'skip' } }); },
+                    getPublicUrl: function (p) { return { data: { publicUrl: 'http://example/' + p } }; }
+                };
+            }
+        },
+        from: function (table) {
+            L._table = table;
+            if (table === 'ceph_saves') {
+                return {
+                    select: function () {
+                        return {
+                            eq: function (col, id) {
+                                L._saveSel = { col: col, id: id };
+                                return thenable(L._saveRows || []);
+                            }
+                        };
+                    },
+                    insert: function (row) {
+                        L._saveInsert = row;
+                        L._saveRows = [{
+                            id: 'save-1',
+                            file_url: row.file_url,
+                            file_path: row.file_path,
+                            file_name: row.file_name,
+                            tracing: row.tracing,
+                            source_xray_id: row.source_xray_id
+                        }];
+                        return thenable(L._saveRows);
+                    },
+                    update: function (row) {
+                        L._saveUpdate = row;
+                        return {
+                            eq: function (col, id) {
+                                L._saveEq = { col: col, id: id };
+                                return thenable([{ id: id, file_url: row.file_url, file_path: row.file_path }]);
+                            }
+                        };
+                    }
+                };
+            }
+            return {
+                update: function (row) {
+                    L._row = row;
+                    return { eq: function (col, id) { L._eq = { col: col, id: id }; return { error: null }; } };
+                },
+                select: function () {
+                    return {
+                        eq: function (col, id) {
+                            L._sel = { col: col, id: id };
+                            return thenable([{ ceph_tracing: { v: 1, pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } } } }]);
+                        }
+                    };
+                }
+            };
+        }
+    };
+    var savedCloud = await L.xrayCephSaveTracing('x1', { v: 1, pts: { S: { x: 10, y: 10 } } }, {
+        filmDataUrl: 'data:image/jpeg;base64,QQ==',
+        fileName: 'c.jpg',
+        patientId: 'p1'
+    });
+    pass('saves tracing onto xrays.ceph_tracing',
+        !!(savedCloud && savedCloud.ok && savedCloud.cloud && L._row && L._row.ceph_tracing &&
+            L._eq && L._eq.id === 'x1'));
+    pass('copies the ceph film into the xrays bucket under a save path',
+        !!(savedCloud && savedCloud.copied && L._bucket === 'xrays' && L._up &&
+            L._up.path === 'p1/ceph/x1.jpg' && L._up.upsert === true));
+    pass('creates a ceph_saves ID wired to the tracing',
+        !!(savedCloud && savedCloud.cephSaveId === 'save-1' && L._saveInsert &&
+            L._saveInsert.source_xray_id === 'x1' && L._saveInsert.tracing &&
+            L._saveInsert.tracing.pts.S.x === 10));
+    var fetched = await L.xrayCephFetchTracing('x1');
+    pass('reads tracing back from the ceph_saves row',
+        !!(fetched && fetched.pts && fetched.pts.S && fetched.pts.S.x === 10 && fetched.cephSaveId === 'save-1'));
+    L._saveRows = [];
+    var fetchedFilm = await L.xrayCephFetchTracing('x1');
+    pass('falls back to the patient film row when no save exists',
+        !!(fetchedFilm && fetchedFilm.pts && fetchedFilm.pts.S && fetchedFilm.pts.S.x === 11));
+    L.XRAY_CEPH.off = null;
+    L.XRAY_CEPH.savesOff = null;
+    L.SB = {
+        from: function () {
+            return {
+                update: function () {
+                    return { eq: function () { return { error: { code: 'PGRST204', message: 'Could not find the ceph_tracing column' } }; } };
+                }
+            };
+        }
+    };
+    var miss = await L.xrayCephSaveTracing('x1', { pts: { S: { x: 1, y: 1 } } });
+    pass('missing ceph_tracing column falls back locally',
+        !!(miss && !miss.ok && miss.error === 'col' && L.XRAY_CEPH.off === true));
 
     console.log('\n=== API (read-only, anon): real ceph films ===');
     var sb = sbCfg();
@@ -581,6 +914,26 @@ var PAGE_SCRIPT = `(async () => {
         film = (rows || []).find(function (x) { return /lateral|DX_Lateral|ceph/i.test(x.file_name || '') && x.file_url; }) ||
             (rows || []).find(function (x) { return x.file_url; });
         pass('a clinic lateral ceph URL is available', !!film, film && film.file_name);
+        var rt = await fetch(sb.url.replace(/\/$/, '') +
+            '/rest/v1/xrays?select=id,ceph_tracing&xray_type=eq.Cephalometric&limit=1', {
+            headers: { apikey: sb.key, Authorization: 'Bearer ' + sb.key, Accept: 'application/json' }
+        });
+        var tb = await rt.json();
+        var colOk = rt.status === 200;
+        var pendingSql = rt.status === 400 && /ceph_tracing/i.test(JSON.stringify(tb));
+        pass('xrays.ceph_tracing column readable or SQL still to run',
+            colOk || pendingSql,
+            colOk ? 'present' : ('HTTP ' + rt.status));
+        var rs = await fetch(sb.url.replace(/\/$/, '') +
+            '/rest/v1/ceph_saves?select=id&limit=1', {
+            headers: { apikey: sb.key, Authorization: 'Bearer ' + sb.key, Accept: 'application/json' }
+        });
+        var ts = await rs.json().catch(function () { return {}; });
+        var savesOk = rs.status === 200;
+        var pendingSaves = rs.status === 404 || (rs.status === 400 && /ceph_saves|schema cache|PGRST205/i.test(JSON.stringify(ts)));
+        pass('ceph_saves table readable or SQL still to run',
+            savesOk || pendingSaves,
+            savesOk ? 'present' : ('HTTP ' + rs.status));
     } catch (e) {
         pass('xrays table readable for Cephalometric', false, e.message);
     }
@@ -659,16 +1012,35 @@ var PAGE_SCRIPT = `(async () => {
             live ? (live.imgW + 'x' + live.imgH + ' via=' + live.via) : 'none');
         pass('live: 19 landmarks placed inside the film', live && live.nPts === 19 && live.inBounds === true,
             live ? ('n=' + live.nPts + ' source=' + live.source) : 'none');
+        pass('live: a profile polyline is drawn on the film',
+            live && live.profileN >= 4,
+            live ? ('profileN=' + live.profileN) : 'none');
         pass('live: 3 auto-detect sets can be viewed then adopted',
             live && live.nSets === 3 && /imgmean\+edge/.test(String(live.set0 || '')) &&
             /boxmean\+edge/.test(String(live.set1 || '')) && live.set0 !== live.set1 &&
             live.adopted === true && live.setBarHidden === true,
             live ? ('ids=' + live.setIds + ' 1=' + live.set0 + ' 2=' + live.set1 + ' hidden=' + live.setBarHidden) : 'none');
+        pass('live: Adopt starts a Go/Po/Or/Ar/apex/Pn walk-through',
+            live && live.walkAdoptOn === true && live.walkAdoptId === 'Go',
+            live ? ('adoptWalk=' + live.walkAdoptId) : 'none');
         pass('live: Steiner / Downs / Tweed / Wits / McNamara ran',
             live && live.groups && ['steiner', 'downs', 'tweed', 'wits', 'mcnamara'].every(function (id) {
                 return live.groups.indexOf(id) >= 0;
             }) && live.sna != null,
             live ? ('SNA=' + live.sna + ' groups=' + (live.groups && live.groups.join(','))) : 'none');
+        pass('live: Ricketts U1-APog and L1-APog mm are on the table',
+            live && live.u1apog > 0 && live.u1apog < 50 && live.l1apogMm != null,
+            live ? ('U1APog=' + live.u1apog + ' L1APogmm=' + live.l1apogMm) : 'none');
+        pass('live: E-line uses pronasale and reports lip millimetres',
+            live && /Pn/.test(String(live.extraIds || '')) && live.lsE != null && live.liE != null,
+            live ? ('Pn in ' + live.extraIds + ' LsE=' + live.lsE + ' LiE=' + live.liE) : 'none');
+        pass('live: Jarabak PFH/AFH and angle sum are on the table',
+            live && live.pfhAfh > 50 && live.pfhAfh < 80 && live.jsum > 370 && live.jsum < 420,
+            live ? ('PFH/AFH=' + live.pfhAfh + ' sum=' + live.jsum) : 'none');
+        pass('live: Steiner U1-SN / U1-NA / L1-NB are on the table',
+            live && live.u1sn > 90 && live.u1sn < 130 && live.u1na > 0 && live.u1na < 50 &&
+            live.l1nb > 0 && live.l1nb < 55 && live.u1naMm != null && live.l1nbMm != null,
+            live ? ('U1SN=' + live.u1sn + ' U1NA=' + live.u1na + ' L1NB=' + live.l1nb) : 'none');
         pass('live: clinical summary is filled',
             live && /Class/.test(String(live.summarySkeletal || '')),
             live ? ('skeletal=' + live.summarySkeletal) : 'none');
@@ -684,17 +1056,34 @@ var PAGE_SCRIPT = `(async () => {
             live.cnSet === 'chinese' && /83\.8/.test(String(live.cnNorm || '')) &&
             live.caucNorm !== live.cnNorm && /^(in|warn|out)$/.test(String(live.cnBand || '')),
             live ? ('cauc=' + live.caucNorm + ' cn=' + live.cnNorm + ' band=' + live.cnBand) : 'none');
+        pass('live: Adult vs Child and female offsets change the SNA mean, not the published table',
+            live && live.adultAge === 'adult' && /82/.test(String(live.adultNorm || '')) &&
+            live.childAge === 'child' && /81/.test(String(live.childNorm || '')) &&
+            live.adultNorm !== live.childNorm &&
+            live.childFSex === 'f' && /80\.5/.test(String(live.childFNorm || '')),
+            live ? ('adult=' + live.adultNorm + ' child=' + live.childNorm + ' childF=' + live.childFNorm) : 'none');
         pass('live: two-click ruler calibrates millimetres',
             live && live.calBefore === false && live.calOk === true && live.calAfter === true &&
             live.calMmPerPx === 0.1,
             live ? ('before=' + live.calBefore + ' mm/px=' + live.calMmPerPx) : 'none');
         pass('live: FOP and incisor-apex handles are on the tracing',
-            live && live.extraIds === 'FopA,FopP,L1a,U1a' && /FOP/.test(String(live.witsNote || '')) &&
+            live && live.extraIds === 'FopA,FopP,L1a,Pn,U1a' && /FOP/.test(String(live.witsNote || '')) &&
             /FH/.test(String(live.nperpNote || '')),
             live ? ('extra=' + live.extraIds + ' wits=' + live.witsNote) : 'none');
         pass('live: clicking SNA highlights SN and NA on the film',
             live && live.hiOk === true && live.hiMeasure === 'SNA' && live.invert === true,
             live ? ('hi=' + live.hiMeasure + ' invertWas=' + live.invert) : 'none');
+        pass('live: brightness/contrast and FH-up rotate the film',
+            live && live.lookBright === 1.25 && live.lookContrast === 1.15 &&
+            live.fhOn === true && live.fhDeg === true,
+            live ? ('b=' + live.lookBright + ' c=' + live.lookContrast + ' fhDeg=' + live.fhDeg) : 'none');
+        pass('live: a prior tracing overlays on SN then FH',
+            live && live.ovOk === true && live.ovFh === true && live.ovOff === true,
+            live ? ('ov=' + live.ovOk + ' fh=' + live.ovFh + ' off=' + live.ovOff) : 'none');
+        pass('live: Check points walks Go then Po then Or and zooms in',
+            live && live.walk0 === 'Go' && live.walk1 === 'Po' && live.walk2 === 'Or' &&
+            live.walkN === 7 && live.walkZoom === true && live.walkOff === true,
+            live ? ('0=' + live.walk0 + ' 1=' + live.walk1 + ' 2=' + live.walk2 + ' n=' + live.walkN) : 'none');
         pass('live: Undo point restores the last moved landmark',
             live && live.undoMoved === true && live.undoOk === true);
         pass('live: extraction why updates when the tracing moves',
@@ -703,8 +1092,10 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: CSV export is Excel-readable ASCII with a BOM',
             live && live.csvBom === true && live.csvAscii === true && live.csvHasSna === true && live.csvNoDegree === true);
         pass('live: tracing saves for this patient and can be restored',
-            live && live.saveOk === true && live.loadOk === true && live.printFn === true,
-            live ? ('save=' + live.saveOk + ' load=' + live.loadOk) : 'none');
+            live && live.saveOk === true && live.loadOk === true && live.printFn === true &&
+            live.saveBarHidden === true && live.loadBtn === true && live.loadBtnOn === true &&
+            live.detectShowSets === true && live.loadAfterDetect === true && live.loadRecalled === true,
+            live ? ('save=' + live.saveOk + ' load=' + live.loadOk + ' recalled=' + live.loadRecalled) : 'none');
         pass('live: Advanced training stays hidden until toggled',
             live && live.labOff === true && live.labOn === true,
             live ? ('off=' + live.labOff + ' on=' + live.labOn + ' qa=' + (live.qa && live.qa.join(','))) : 'none');

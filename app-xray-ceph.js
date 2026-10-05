@@ -223,9 +223,127 @@ function xrayCephUpsertSave(row) {
 function xrayCephAttachSave(tracing, save) {
     if (!tracing || !save) return tracing;
     if (save.id) tracing.cephSaveId = save.id;
+    if (save.cephXrayId) tracing.cephXrayId = save.cephXrayId;
     if (save.file_url) tracing.fileUrl = save.file_url;
     if (save.file_path) tracing.filePath = save.file_path;
     return tracing;
+}
+
+function xrayCephPatchStudyMem(row) {
+    if (!row || !row.id) return;
+    var rec = {
+        id: row.id,
+        patient_id: row.patient_id,
+        file_path: row.file_path,
+        file_url: row.file_url,
+        file_name: row.file_name,
+        xray_type: row.xray_type || 'Cephalometric',
+        notes: row.notes || 'Banana Ceph study',
+        ceph_tracing: row.ceph_tracing || row.tracing || null
+    };
+    var rows = (typeof xrayAllRecords !== 'undefined' && xrayAllRecords) ? xrayAllRecords : null;
+    if (rows) {
+        var found = false;
+        rows.forEach(function (r, i) {
+            if (r && String(r.id) === String(rec.id)) {
+                rows[i] = Object.assign({}, r, rec);
+                found = true;
+            }
+        });
+        if (!found) rows.unshift(rec);
+    }
+    if (typeof xrayCtxRecord === 'function') {
+        var other = xrayCtxRecord(rec.id);
+        if (other) Object.keys(rec).forEach(function (k) { other[k] = rec[k]; });
+    }
+}
+
+function xrayCephUpsertStudyFilm(copy, body, blob) {
+    if (!copy || !copy.filePath || !body || !body.patientId) return Promise.resolve(null);
+    if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(null);
+    var p = (typeof xrayPatientData !== 'undefined' && xrayPatientData) || {};
+    var row = {
+        patient_id: body.patientId,
+        patient_no: p.patient_no || null,
+        patient_name: String(p.chinese_name || p.full_name || '').trim() || null,
+        file_path: copy.filePath,
+        file_url: copy.fileUrl || '',
+        file_name: copy.fileName || body.fileName || '',
+        file_size: blob && blob.size ? blob.size : null,
+        xray_type: 'Cephalometric',
+        notes: 'Banana Ceph study',
+        ceph_tracing: body,
+        taken_date: (body.savedAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+        uploaded_by: (typeof currentName !== 'undefined' ? currentName : null)
+    };
+    return Promise.resolve(SB.from('xrays').select('id').eq('file_path', copy.filePath).limit(1)).then(function (found) {
+        var existing = xrayCephRow(found);
+        if (existing && existing.id) {
+            return Promise.resolve(SB.from('xrays').update({
+                ceph_tracing: body,
+                file_url: row.file_url,
+                notes: row.notes
+            }).eq('id', existing.id)).then(function () {
+                var out = { id: existing.id, file_path: copy.filePath, file_url: copy.fileUrl };
+                xrayCephPatchStudyMem(Object.assign({}, row, out));
+                if (typeof loadXrayRecords === 'function') {
+                    try { loadXrayRecords(); } catch (eR0) { /* ignore */ }
+                }
+                return out;
+            }, function () { return { id: existing.id, file_path: copy.filePath, file_url: copy.fileUrl }; });
+        }
+        var ins = SB.from('xrays').insert([row]);
+        if (ins && typeof ins.select === 'function') ins = ins.select('id,file_path,file_url').limit(1);
+        return Promise.resolve(ins).then(function (r) {
+            if (r && r.error && xrayCephMissingCol(r.error) && /ceph_tracing/i.test(String(r.error.message || ''))) {
+                delete row.ceph_tracing;
+                var ins2 = SB.from('xrays').insert([row]);
+                if (ins2 && typeof ins2.select === 'function') ins2 = ins2.select('id,file_path,file_url').limit(1);
+                return Promise.resolve(ins2).then(function (r2) {
+                    var created2 = xrayCephRow(r2);
+                    if (created2) {
+                        xrayCephPatchStudyMem(Object.assign({}, row, created2));
+                        if (typeof loadXrayRecords === 'function') {
+                            try { loadXrayRecords(); } catch (eR2) { /* ignore */ }
+                        }
+                    }
+                    return created2;
+                }, function () { return null; });
+            }
+            if (r && r.error) return null;
+            var created = xrayCephRow(r);
+            if (created) {
+                xrayCephPatchStudyMem(Object.assign({}, row, created));
+                if (typeof loadXrayRecords === 'function') {
+                    try { loadXrayRecords(); } catch (eR3) { /* ignore */ }
+                }
+            }
+            return created;
+        }, function () { return null; });
+    }, function () { return null; });
+}
+
+function xrayCephFetchLatestForPatient(patientId) {
+    if (!patientId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(null);
+    if (XRAY_CEPH.savesOff) return Promise.resolve(null);
+    var q;
+    try { q = SB.from('ceph_saves'); } catch (e) { return Promise.resolve(null); }
+    if (!q || typeof q.select !== 'function') return Promise.resolve(null);
+    var sel = q.select('id,patient_id,source_xray_id,file_url,file_path,file_name,tracing,updated_at').eq('patient_id', patientId);
+    if (sel && typeof sel.order === 'function') sel = sel.order('updated_at', { ascending: false });
+    if (sel && typeof sel.limit === 'function') sel = sel.limit(1);
+    return Promise.resolve(sel).then(function (r) {
+        if (r && r.error && xrayCephMissingRel(r.error)) {
+            XRAY_CEPH.savesOff = true;
+            return null;
+        }
+        if (r && r.error) return null;
+        var row = xrayCephRow(r);
+        if (!row || !xrayCephIsTrace(row.tracing)) return null;
+        xrayCephAttachSave(row.tracing, row);
+        if (row.source_xray_id) xrayCephPatchMem(row.source_xray_id, row.tracing);
+        return row;
+    }, function () { return null; });
 }
 
 function xrayCephFetchSave(xrayId) {
@@ -301,7 +419,9 @@ function xrayCephSaveTracing(xrayId, tracing, opt) {
         normSet: tracing.normSet,
         source: tracing.source,
         cvm: tracing.cvm || 0,
-        cvmVia: tracing.cvmVia || ''
+        cvmVia: tracing.cvmVia || '',
+        cephSaveId: tracing.cephSaveId || '',
+        cephXrayId: tracing.cephXrayId || ''
     };
     xrayCephPatchMem(xrayId, body);
     return xrayCephStampFilm(xrayId, body).then(function (base) {
@@ -317,31 +437,44 @@ function xrayCephSaveTracing(xrayId, tracing, opt) {
                     tracing: body,
                     updated_at: new Date().toISOString()
                 };
-                return xrayCephUpsertSave(saveRow).then(function (saved) {
+                var studyP = copy ? xrayCephUpsertStudyFilm(copy, body, blob) : Promise.resolve(null);
+                return studyP.then(function (study) {
+                    if (study && study.id) body.cephXrayId = study.id;
+                    if (copy) {
+                        body.fileUrl = copy.fileUrl;
+                        body.filePath = copy.filePath;
+                    }
+                    saveRow.tracing = body;
+                    return xrayCephUpsertSave(saveRow).then(function (saved) {
                     if (saved && saved.id) {
+                        saved.cephXrayId = body.cephXrayId || (study && study.id) || saved.cephXrayId;
                         xrayCephAttachSave(body, saved);
                         xrayCephPatchMem(xrayId, body);
                         return xrayCephStampFilm(xrayId, body).then(function (again) {
                             var out = (again && again.ok) ? again : { ok: true, cloud: !!(base && base.cloud), xrayId: xrayId };
                             if (base && base.error === 'col' && !again.ok) out.needSql = true;
                             out.cephSaveId = saved.id;
+                            out.cephXrayId = body.cephXrayId || (study && study.id) || '';
                             out.fileUrl = saved.file_url || saveRow.file_url;
                             out.filePath = saved.file_path || saveRow.file_path;
                             out.copied = !!(copy && copy.filePath);
                             if (out.ok) out.cloud = true;
+                            if (out.cephXrayId && String(out.cephXrayId) !== String(xrayId)) {
+                                xrayCephStampFilm(out.cephXrayId, body);
+                            }
                             return out;
                         });
                     }
                     if (copy && copy.filePath) {
-                        body.fileUrl = copy.fileUrl;
-                        body.filePath = copy.filePath;
                         xrayCephPatchMem(xrayId, body);
                         base.fileUrl = copy.fileUrl;
                         base.filePath = copy.filePath;
                         base.copied = true;
                         base.needSql = !!(base.error === 'col' || XRAY_CEPH.savesOff);
+                        if (study && study.id) base.cephXrayId = study.id;
                     }
                     return base;
+                    });
                 });
             });
         });
@@ -355,6 +488,7 @@ function xrayCephApplyOpenCtx(ctx, tracing) {
     ctx.tracing = tracing;
     ctx.tracingVia = 'cloud';
     if (tracing.cephSaveId) ctx.cephSaveId = tracing.cephSaveId;
+    if (tracing.cephXrayId) ctx.cephXrayId = tracing.cephXrayId;
     if (tracing.fileUrl) ctx.studyUrl = tracing.fileUrl;
     return ctx;
 }
@@ -368,11 +502,20 @@ function xrayCephContext(rec) {
         recs.forEach(function (r) { if (r && String(r.id) === String(only)) rec = r; });
     }
     if (!rec && recs && recs.length) {
+        var study = null;
+        var anyCeph = null;
         recs.forEach(function (r) {
-            if (rec) return;
-            var t = String((r && r.xray_type) || '').toLowerCase();
-            if (t.indexOf('ceph') >= 0 || t.indexOf('lateral') >= 0) rec = r;
+            if (!r) return;
+            var t = String(r.xray_type || '').toLowerCase();
+            var isCeph = t.indexOf('ceph') >= 0 || t.indexOf('lateral') >= 0 || /\/ceph\//.test(String(r.file_path || ''));
+            if (!isCeph) return;
+            if (!anyCeph) anyCeph = r;
+            if (xrayCephIsTrace(r.ceph_tracing)) {
+                if (String(r.notes || '') === 'Banana Ceph study') study = r;
+                else if (!study) study = r;
+            }
         });
+        rec = study || anyCeph || rec;
     }
     var url = '';
     var name = '';
@@ -382,6 +525,13 @@ function xrayCephContext(rec) {
     }
     var tracing = rec && xrayCephIsTrace(rec.ceph_tracing) ? rec.ceph_tracing : null;
     var tracingVia = tracing ? 'cloud' : '';
+    if (!tracing) {
+        recs.forEach(function (r) {
+            if (tracing || !r || !xrayCephIsTrace(r.ceph_tracing)) return;
+            tracing = r.ceph_tracing;
+            tracingVia = 'cloud';
+        });
+    }
     if (!tracing) {
         var local = xrayCephLocalTrace(rec && rec.id, name);
         if (local) { tracing = local; tracingVia = 'local'; }
@@ -396,6 +546,7 @@ function xrayCephContext(rec) {
         fileName: name,
         xrayId: rec && rec.id ? rec.id : '',
         cephSaveId: tracing && tracing.cephSaveId ? tracing.cephSaveId : '',
+        cephXrayId: tracing && tracing.cephXrayId ? tracing.cephXrayId : ((rec && String(rec.notes || '') === 'Banana Ceph study') ? rec.id : ''),
         tracing: tracing,
         tracingVia: tracingVia,
         otherTraces: (function () {
@@ -437,19 +588,29 @@ function xrayCephViewerOpen(rec) {
         try { w.document.title = title; } catch (e2) { /* ignore until load */ }
     }
     if (typeof xrayHelperLaunch === 'function') xrayHelperLaunch();
-    if (ctx.xrayId) {
-        xrayCephFetchTracing(ctx.xrayId).then(function (t) {
-            if (!xrayCephIsTrace(t)) return;
-            xrayCephApplyOpenCtx(ctx, t);
-            try { sessionStorage.setItem(XRAY_CEPH_KEY, JSON.stringify(ctx)); } catch (e3) { /* ignore */ }
-            try { localStorage.setItem(XRAY_CEPH_KEY, JSON.stringify(ctx)); } catch (e4) { /* ignore */ }
-            try {
-                var ch = new BroadcastChannel(XRAY_CEPH_CH);
-                ch.postMessage({ type: 'banana.ceph.open', ctx: ctx });
-                setTimeout(function () { try { ch.close(); } catch (e5) { /* ignore */ } }, 800);
-            } catch (e6) { /* ignore */ }
-        });
+    function publishOpen(t, save) {
+        if (save && save.file_url) ctx.studyUrl = save.file_url;
+        if (save && save.source_xray_id && !ctx.xrayId) ctx.xrayId = save.source_xray_id;
+        if (xrayCephIsTrace(t)) xrayCephApplyOpenCtx(ctx, t);
+        try { sessionStorage.setItem(XRAY_CEPH_KEY, JSON.stringify(ctx)); } catch (e3) { /* ignore */ }
+        try { localStorage.setItem(XRAY_CEPH_KEY, JSON.stringify(ctx)); } catch (e4) { /* ignore */ }
+        try {
+            var ch = new BroadcastChannel(XRAY_CEPH_CH);
+            ch.postMessage({ type: 'banana.ceph.open', ctx: ctx });
+            setTimeout(function () { try { ch.close(); } catch (e5) { /* ignore */ } }, 800);
+        } catch (e6) { /* ignore */ }
     }
+    var boot = ctx.xrayId ? xrayCephFetchTracing(ctx.xrayId) : Promise.resolve(null);
+    boot.then(function (t) {
+        if (xrayCephIsTrace(t)) {
+            publishOpen(t);
+            return;
+        }
+        if (!ctx.patientId) return;
+        return xrayCephFetchLatestForPatient(ctx.patientId).then(function (save) {
+            if (save && xrayCephIsTrace(save.tracing)) publishOpen(save.tracing, save);
+        });
+    });
 }
 
 function xrayCephBindBus() {
@@ -478,5 +639,6 @@ window.xrayCephContext = xrayCephContext;
 window.xrayCephSaveTracing = xrayCephSaveTracing;
 window.xrayCephFetchTracing = xrayCephFetchTracing;
 window.xrayCephFetchSave = xrayCephFetchSave;
+window.xrayCephFetchLatestForPatient = xrayCephFetchLatestForPatient;
 window.xrayCephLocalTrace = xrayCephLocalTrace;
 window.xrayCephIsTrace = xrayCephIsTrace;

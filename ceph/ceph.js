@@ -708,7 +708,7 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx42" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx44" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair) {
                 var isExtract = pair[0] === tx('sum.extract');
@@ -919,13 +919,32 @@
             ctxInfo.tracing = t;
             ctxInfo.tracingVia = 'cloud';
             if (t.cephSaveId) ctxInfo.cephSaveId = t.cephSaveId;
+            if (t.cephXrayId) ctxInfo.cephXrayId = t.cephXrayId;
             if (t.fileUrl) ctxInfo.studyUrl = t.fileUrl;
         }
         return t;
     }
     function pullCloudTrace() {
         var id = ctxInfo && ctxInfo.xrayId;
-        if (!id) return Promise.resolve(null);
+        function fromLatest() {
+            try {
+                if (window.opener && !window.opener.closed && typeof window.opener.xrayCephFetchLatestForPatient === 'function' && ctxInfo && ctxInfo.patientId) {
+                    return Promise.resolve(window.opener.xrayCephFetchLatestForPatient(ctxInfo.patientId)).then(function (save) {
+                        if (save && isTrace(save.tracing)) {
+                            applyCloudTrace(save.tracing);
+                            if (ctxInfo && save.id) ctxInfo.cephSaveId = save.id;
+                            if (ctxInfo && save.file_url) ctxInfo.studyUrl = save.file_url;
+                            if (ctxInfo && save.source_xray_id && !ctxInfo.xrayId) ctxInfo.xrayId = save.source_xray_id;
+                            return save.tracing;
+                        }
+                        return null;
+                    }, function () { return null; });
+                }
+            } catch (eP) { /* ignore */ }
+            return Promise.resolve(null);
+        }
+        function orLatest(t) { return isTrace(t) ? t : fromLatest(); }
+        if (!id) return fromLatest();
         try {
             if (window.opener && !window.opener.closed) {
                 if (typeof window.opener.xrayCephFetchSave === 'function') {
@@ -937,18 +956,22 @@
                             return save.tracing;
                         }
                         if (typeof window.opener.xrayCephFetchTracing === 'function') {
-                            return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(applyCloudTrace, function () { return null; });
+                            return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(function (t) {
+                                return orLatest(applyCloudTrace(t));
+                            }, fromLatest);
                         }
-                        return null;
-                    }, function () { return null; });
+                        return fromLatest();
+                    }, fromLatest);
                 }
                 if (typeof window.opener.xrayCephFetchTracing === 'function') {
-                    return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(applyCloudTrace, function () { return null; });
+                    return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(function (t) {
+                        return orLatest(applyCloudTrace(t));
+                    }, fromLatest);
                 }
             }
         } catch (e) { /* ignore */ }
         var sb = openerSb();
-        if (!sb) return Promise.resolve(null);
+        if (!sb) return fromLatest();
         return Promise.resolve(sb.from('ceph_saves').select('id,file_url,tracing').eq('source_xray_id', id).limit(1)).then(function (r) {
             var row = r && r.data && (Array.isArray(r.data) ? r.data[0] : r.data);
             if (row && isTrace(row.tracing)) {
@@ -958,13 +981,13 @@
             }
             return Promise.resolve(sb.from('xrays').select('ceph_tracing').eq('id', id).limit(1)).then(function (r2) {
                 var row2 = r2 && r2.data && (Array.isArray(r2.data) ? r2.data[0] : r2.data);
-                return applyCloudTrace(row2 && row2.ceph_tracing);
-            }, function () { return null; });
+                return orLatest(applyCloudTrace(row2 && row2.ceph_tracing));
+            }, fromLatest);
         }, function () {
             return Promise.resolve(sb.from('xrays').select('ceph_tracing').eq('id', id).limit(1)).then(function (r2) {
                 var row2 = r2 && r2.data && (Array.isArray(r2.data) ? r2.data[0] : r2.data);
-                return applyCloudTrace(row2 && row2.ceph_tracing);
-            }, function () { return null; });
+                return orLatest(applyCloudTrace(row2 && row2.ceph_tracing));
+            }, fromLatest);
         });
     }
     function clonePts(o) {
@@ -1031,7 +1054,7 @@
         var xrayId = rec && rec.xrayId;
         if (!xrayId) return Promise.resolve({ ok: false, error: 'id' });
         var opt = { filmDataUrl: filmDataUrl(), fileName: rec.fileName, patientId: rec.patientId };
-        var payload = { type: 'banana.ceph.saveTrace', xrayId: xrayId, tracing: rec, opt: { fileName: rec.fileName, patientId: rec.patientId } };
+        var payload = { type: 'banana.ceph.saveTrace', xrayId: xrayId, tracing: rec, opt: opt };
         try {
             if (window.opener && !window.opener.closed && typeof window.opener.xrayCephSaveTracing === 'function') {
                 return Promise.resolve(window.opener.xrayCephSaveTracing(xrayId, rec, opt)).then(function (r) {
@@ -1082,6 +1105,8 @@
             setId: sets[setIndex] && sets[setIndex].id,
             cvm: cvmStageN || 0,
             cvmVia: cvmVia || '',
+            cephSaveId: ctxInfo && ctxInfo.cephSaveId,
+            cephXrayId: ctxInfo && ctxInfo.cephXrayId,
             savedAt: new Date().toISOString()
         };
         db[key] = rec;
@@ -1093,17 +1118,20 @@
             try { localStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (e3) { /* ignore */ }
         }
         syncLoadBtn();
-        setStatus(tx('st.savedLocal', { key: key }));
+        setStatus(tx('st.savingCloud'));
         publishTrace(rec).then(function (r) {
             if (r && r.ok && r.cloud) {
                 if (ctxInfo) {
                     ctxInfo.tracingVia = 'cloud';
                     if (r.cephSaveId) ctxInfo.cephSaveId = r.cephSaveId;
+                    if (r.cephXrayId) ctxInfo.cephXrayId = r.cephXrayId;
                     if (r.fileUrl && ctxInfo.tracing) ctxInfo.tracing.fileUrl = r.fileUrl;
                     if (r.cephSaveId && ctxInfo.tracing) ctxInfo.tracing.cephSaveId = r.cephSaveId;
+                    if (r.cephXrayId && ctxInfo.tracing) ctxInfo.tracing.cephXrayId = r.cephXrayId;
                 }
                 setStatus(tx('st.savedCloud'));
             } else if (r && (r.error === 'col' || r.needSql)) setStatus(tx('st.savedNeedSql'));
+            else setStatus(tx('st.savedLocal', { key: key }));
         });
         return { ok: true, key: key, rec: rec };
     }
@@ -1356,7 +1384,6 @@
         var s = sets[setIndex];
         hideSetBar();
         setStatus(tx('st.adopted', { n: setIndex + 1, label: setLabelTx(s) }));
-        startWalk();
         return { ok: true, i: setIndex, id: s.id, label: s.label, source: s.source };
     }
 
@@ -1400,11 +1427,13 @@
             syncLoadBtn();
         }
         function finish(payload) {
-            if (restoreHold) {
-                applyTraceRec(restoreHold.rec, restoreHold.via);
+            var hold = restoreHold;
+            if (!hold && !skipRestore) hold = pendingTrace();
+            if (hold && isTrace(hold.rec)) {
+                applyTraceRec(hold.rec, hold.via, { quiet: true });
                 payload.restored = true;
-                payload.restoreVia = restoreHold.via;
-                if (restoreHold.via === 'local' && ctxInfo && ctxInfo.xrayId) publishTrace(restoreHold.rec);
+                payload.restoreVia = hold.via;
+                if (hold.via === 'local' && ctxInfo && ctxInfo.xrayId) publishTrace(hold.rec);
             }
             syncLoadBtn();
             if (done) done(payload);
@@ -1643,7 +1672,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx42';
+        var url = 'extraction.html?v=20261005fx44';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }
@@ -1907,13 +1936,19 @@
                 if (!d || d.type !== 'banana.ceph.open' || !d.ctx) return;
                 ctxInfo = d.ctx;
                 try { sessionStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (eO) { /* ignore */ }
-                if (ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+                if (isTrace(ctxInfo.tracing) && img.naturalWidth) {
+                    hideSetBar();
+                    applyTraceRec(ctxInfo.tracing, ctxInfo.tracingVia || 'cloud');
+                } else if (ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
             };
         } catch (eCh) { /* ignore */ }
         window.addEventListener('storage', function (ev) {
             if (!ev || ev.key !== 'banana.ceph.v1' || !ev.newValue) return;
             try { ctxInfo = JSON.parse(ev.newValue); } catch (eS) { return; }
-            if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+            if (ctxInfo && isTrace(ctxInfo.tracing) && img.naturalWidth) {
+                hideSetBar();
+                applyTraceRec(ctxInfo.tracing, ctxInfo.tracingVia || 'cloud');
+            } else if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
         });
     }
 

@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx42';
+var BUILD = '20261005fx44';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -544,9 +544,11 @@ var PAGE_SCRIPT = `(async () => {
     pass('progress overlay registers a prior tracing on SN, FH or palatal plane',
         /setOverlay/.test(read('ceph/ceph.js')) && /setOverlayMode/.test(read('ceph/ceph.js')) &&
         /btnOverlaySn/.test(read('ceph/index.html')) && /otherTraces/.test(launch));
-    pass('sidecar walks through Go/Po/Or/Ar, apices and Pn after Adopt or restore',
+    pass('sidecar walks through Go/Po/Or/Ar, apices and Pn only when Check points is clicked',
         /btnWalk/.test(read('ceph/index.html')) && /WALK_IDS/.test(read('ceph/ceph.js')) &&
-        /startWalk/.test(read('ceph/ceph.js')) && /walk\.Go/.test(read('ceph/ceph-i18n.js')));
+        /startWalk/.test(read('ceph/ceph.js')) && /walk\.Go/.test(read('ceph/ceph-i18n.js')) &&
+        /btnWalk.*startWalk/.test(read('ceph/ceph.js').replace(/\s+/g, ' ')) &&
+        !/function lockAdopt\(\)\{[^}]*startWalk/.test(read('ceph/ceph.js').replace(/\s+/g, '')));
     pass('Undo point keeps a declared undo stack',
         /var undoStack = \[\]/.test(read('ceph/ceph.js')) && /function undoMove/.test(read('ceph/ceph.js')));
     pass('CSV export sanitises punctuation for Excel',
@@ -587,12 +589,15 @@ var PAGE_SCRIPT = `(async () => {
         /ceph_saves/.test(read('xray_ceph.sql')) && /ceph_saves/.test(read('xray_context.sql')) &&
         /ceph_tracing/.test(read('xray_ceph.sql')) && /\/ceph\//.test(read('app-xray-ceph.js')) &&
         /xrayCephSaveTracing/.test(launch) && /xrayCephFetchSave/.test(launch) &&
+        /xrayCephUpsertStudyFilm/.test(launch) && /xrayCephFetchLatestForPatient/.test(launch) &&
+        /Banana Ceph study/.test(launch) && /cephXrayId/.test(launch) &&
         /pendingTrace/.test(read('ceph/ceph.js')) && /restoreHold/.test(read('ceph/ceph.js')) &&
-        /st.savedCloud/.test(read('ceph/ceph-i18n.js')) && /film copy/.test(read('ceph/ceph-i18n.js')) &&
+        /st.savedCloud/.test(read('ceph/ceph-i18n.js')) && /st.savingCloud/.test(read('ceph/ceph-i18n.js')) &&
+        /film copy/.test(read('ceph/ceph-i18n.js')) &&
         /描记已存为该病人头影研究/.test(read('ceph/ceph-i18n.js')) &&
         !/noopener/.test(launch) && /xrayCephFetchTracing/.test(launch) &&
         /btnLoadTrace/.test(read('ceph/index.html')) && /pullCloudTrace/.test(read('ceph/ceph.js')) &&
-        /filmDataUrl/.test(read('ceph/ceph.js')));
+        /filmDataUrl/.test(read('ceph/ceph.js')) && /opt: opt/.test(read('ceph/ceph.js')));
     pass('clinic mode hides training until Advanced; QA flags Go/Po/Or/Ar',
         /btnAdvanced/.test(read('ceph/index.html')) && /labOnly/.test(read('ceph/index.html')) &&
         /qaScan/.test(read('ceph/ceph.js')) && /is-qa/.test(read('ceph/ceph.css')));
@@ -890,6 +895,7 @@ var PAGE_SCRIPT = `(async () => {
         r.then = function (ok, fail) { return Promise.resolve({ data: r.data, error: r.error }).then(ok, fail); };
         r.limit = function () { return thenable(data, error); };
         r.select = function () { return thenable(data, error); };
+        r.order = function () { L._ordered = true; return thenable(data, error); };
         r.eq = function (col, id) { L._eq = { col: col, id: id }; return thenable(data, error); };
         return r;
     }
@@ -947,10 +953,17 @@ var PAGE_SCRIPT = `(async () => {
                     L._row = row;
                     return { eq: function (col, id) { L._eq = { col: col, id: id }; return { error: null }; } };
                 },
+                insert: function (row) {
+                    var rec = Array.isArray(row) ? row[0] : row;
+                    L._studyInsert = rec;
+                    L._studyRows = [{ id: 'study-1', file_path: rec.file_path, file_url: rec.file_url }];
+                    return thenable(L._studyRows);
+                },
                 select: function () {
                     return {
                         eq: function (col, id) {
                             L._sel = { col: col, id: id };
+                            if (col === 'file_path') return thenable([]);
                             return thenable([{ ceph_tracing: { v: 1, pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } } } }]);
                         }
                     };
@@ -965,7 +978,7 @@ var PAGE_SCRIPT = `(async () => {
     });
     pass('saves tracing onto xrays.ceph_tracing',
         !!(savedCloud && savedCloud.ok && savedCloud.cloud && L._row && L._row.ceph_tracing &&
-            L._eq && L._eq.id === 'x1'));
+            L._eq && (L._eq.id === 'x1' || L._eq.id === 'study-1')));
     pass('copies the ceph film into the xrays bucket under a save path',
         !!(savedCloud && savedCloud.copied && L._bucket === 'xrays' && L._up &&
             L._up.path === 'p1/ceph/x1.jpg' && L._up.upsert === true));
@@ -973,6 +986,12 @@ var PAGE_SCRIPT = `(async () => {
         !!(savedCloud && savedCloud.cephSaveId === 'save-1' && L._saveInsert &&
             L._saveInsert.source_xray_id === 'x1' && L._saveInsert.tracing &&
             L._saveInsert.tracing.pts.S.x === 10));
+    pass('creates a patient xrays study ID for the film copy',
+        !!(savedCloud && savedCloud.cephXrayId === 'study-1' && L._studyInsert &&
+            L._studyInsert.patient_id === 'p1' && L._studyInsert.file_path === 'p1/ceph/x1.jpg' &&
+            L._studyInsert.xray_type === 'Cephalometric' &&
+            L._studyInsert.notes === 'Banana Ceph study' &&
+            L._saveInsert.tracing.cephXrayId === 'study-1'));
     var fetched = await L.xrayCephFetchTracing('x1');
     pass('reads tracing back from the ceph_saves row',
         !!(fetched && fetched.pts && fetched.pts.S && fetched.pts.S.x === 10 && fetched.cephSaveId === 'save-1'));
@@ -980,6 +999,19 @@ var PAGE_SCRIPT = `(async () => {
     var fetchedFilm = await L.xrayCephFetchTracing('x1');
     pass('falls back to the patient film row when no save exists',
         !!(fetchedFilm && fetchedFilm.pts && fetchedFilm.pts.S && fetchedFilm.pts.S.x === 11));
+    L._saveRows = [{
+        id: 'save-1',
+        patient_id: 'p1',
+        source_xray_id: 'x1',
+        file_url: 'http://example/p1/ceph/x1.jpg',
+        file_path: 'p1/ceph/x1.jpg',
+        tracing: { v: 1, pts: { S: { x: 10, y: 10 } }, cephSaveId: 'save-1', cephXrayId: 'study-1' }
+    }];
+    var latest = await L.xrayCephFetchLatestForPatient('p1');
+    pass('reopens the latest patient save when the selected film has no tracing',
+        !!(latest && latest.tracing && latest.tracing.pts.S.x === 10 &&
+            latest.tracing.cephSaveId === 'save-1' && L._ordered === true &&
+            L._saveSel && L._saveSel.col === 'patient_id'));
     L.XRAY_CEPH.off = null;
     L.XRAY_CEPH.savesOff = null;
     L.SB = {
@@ -1119,8 +1151,8 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: 1502 average is mapped into the UNet landmark box',
             live && /boxmean\+unetbox/.test(String(live.set1 || '')) && live.libShiftPx != null && live.libShiftPx < 80,
             live ? ('shift=' + live.libShiftPx + ' lib=' + live.set1) : 'none');
-        pass('live: Adopt starts a Go/Po/Or/Ar/apex/Pn walk-through',
-            live && live.walkAdoptOn === true && live.walkAdoptId === 'Go',
+        pass('live: Adopt does not auto-start Check points',
+            live && live.walkAdoptOn === false,
             live ? ('adoptWalk=' + live.walkAdoptId) : 'none');
         pass('live: Steiner / Downs / Tweed / Wits / McNamara ran',
             live && live.groups && ['steiner', 'downs', 'tweed', 'wits', 'mcnamara'].every(function (id) {

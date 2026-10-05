@@ -401,13 +401,21 @@
         var sum = $('summary');
         if (sum && res.summary) {
             var s = res.summary;
-            sum.innerHTML = [
+            var chips = [
                 ['Skeletal · 骨性', s.skeletal],
                 ['Vertical · 垂直', s.vertical],
                 ['Profile · 侧貌', s.profile],
                 ['Incisors / lip · 切牙/唇', s.incisor + ' · lip ' + s.lip]
-            ].map(function (pair) {
-                return '<div><div class="k">' + pair[0] + '</div><div class="v">' + pair[1] + '</div></div>';
+            ];
+            if (s.extraction) {
+                chips.push(['Extraction · 拔牙倾向', s.extraction +
+                    (s.extractionWhy ? ' · ' + s.extractionWhy : '') +
+                    ' · <a href="extraction.html?v=20261005fx19" target="_blank" rel="noopener">notes</a>']);
+            }
+            sum.innerHTML = chips.map(function (pair, i) {
+                var cls = (i === 4 && s.extractionBand) ? ('summary-extract is-' + s.extractionBand) : '';
+                var title = (i === 4 && s.extractionNote) ? (' title="' + String(s.extractionNote).replace(/"/g, '') + '"') : '';
+                return '<div' + (cls ? ' class="' + cls + '"' : '') + title + '><div class="k">' + pair[0] + '</div><div class="v">' + pair[1] + '</div></div>';
             }).join('');
         }
     }
@@ -1187,7 +1195,12 @@
                 labOpen: !!labOpen,
                 qa: Object.keys(qaIds),
                 selected: placedIds(),
-                undoN: undoStack.length
+                undoN: undoStack.length,
+                extractScore: last.result && last.result.extraction && last.result.extraction.score,
+                extractBand: last.result && last.result.extraction && last.result.extraction.band,
+                extractLabel: last.result && last.result.extraction && last.result.extraction.label,
+                extractNote: last.result && last.result.extraction && last.result.extraction.note,
+                extractHint: last.result && last.result.extraction && last.result.extraction.hint
             };
         }
     };

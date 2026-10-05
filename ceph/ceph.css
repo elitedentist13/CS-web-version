@@ -19,10 +19,11 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     padding: 10px 12px; border-bottom: 1px solid var(--line); background: #10162a;
 }
-#top button, #top label.btn, #top select {
+#top button, #top label.btn, #top select, #top a.btn {
     background: #1e293b; color: var(--text); border: 1px solid #334155;
     border-radius: 6px; padding: 6px 10px; font-weight: 700; cursor: pointer;
 }
+#top a.btn { text-decoration: none; display: inline-block; }
 #top button.is-on, #top button[aria-pressed="true"] { border-color: var(--warn); color: #fde68a; }
 #top .refGroup, .refGroup {
     display: inline-flex;
@@ -171,6 +172,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 }
 .summary .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .summary .v { font-weight: 800; margin-top: 2px; }
+.summary-extract { grid-column: 1 / -1; }
+.summary-extract.is-low .v { color: #86efac; }
+.summary-extract.is-borderline .v,
+.summary-extract.is-moderate .v { color: #facc15; }
+.summary-extract.is-high .v { color: #fb7185; }
+.summary-extract a { color: #7dd3fc; font-weight: 700; }
 .lm { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; cursor: pointer; align-items: center; }
 .lm.is-on { color: var(--warn); }
 .lm.is-touched .lm-inc { color: #86efac; }
@@ -189,7 +196,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 #top #btnAdvanced.is-on { border-color: var(--warn); color: #fde68a; }
 .lm.is-qa span:first-child::after { content: ' check'; color: #fb7185; font-weight: 800; }
 @media print {
-    #top button, #top input, #filePick, #setBar, #btnChangeSet, .libs, .hint, #lmList { display: none !important; }
+    #top button, #top a.btn, #top input, #filePick, #setBar, #btnChangeSet, .libs, .hint, #lmList { display: none !important; }
     #bananaCephBar { position: static; background: #fff; color: #111; }
     #app { height: auto; padding: 0; }
     #stage { grid-template-columns: 1fr 280px; }

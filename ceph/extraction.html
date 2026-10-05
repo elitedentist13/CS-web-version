@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Banana · Extraction index reminder</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #141a2e;
+      --line: #2a3558;
+      --text: #e8eefc;
+      --muted: #93a0c2;
+      --extract: #fb7185;
+      --keep: #86efac;
+      --warn: #facc15;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, Segoe UI, sans-serif; }
+    body { padding: 24px 18px 48px; }
+    main { max-width: 860px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 22px 0 8px; }
+    .lead { color: var(--muted); margin: 0 0 16px; }
+    .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+    .bar a, .bar button {
+      background: #1e293b; color: var(--text); border: 1px solid #334155;
+      border-radius: 6px; padding: 6px 10px; font-weight: 700; text-decoration: none; cursor: pointer;
+    }
+    .warn {
+      background: #422006; color: #fffbeb; border: 1px solid #854d0e;
+      border-radius: 8px; padding: 10px 12px; font-weight: 700; margin: 0 0 18px;
+    }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+    .card h3 { margin: 0 0 8px; font-size: 16px; }
+    .card.extract { border-color: #7f1d1d; }
+    .card.extract h3 { color: var(--extract); }
+    .card.keep { border-color: #14532d; }
+    .card.keep h3 { color: var(--keep); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .bands { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    @media (max-width: 720px) { .bands { grid-template-columns: 1fr 1fr; } }
+    .band { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+    .band b { display: block; }
+    .band.low b { color: var(--keep); }
+    .band.mid b { color: var(--warn); }
+    .band.high b { color: var(--extract); }
+    ul { margin: 0; padding-left: 18px; }
+    li { margin: 4px 0; }
+    .muted { color: var(--muted); }
+    @media print {
+      body { background: #fff; color: #111; padding: 0; }
+      .bar { display: none; }
+      .warn, .card, .band { background: #fff; color: #111; border-color: #ccc; }
+      .lead, .muted, h2, th { color: #444; }
+      .card.extract h3, .band.high b { color: #9f1239; }
+      .card.keep h3, .band.low b { color: #166534; }
+      .band.mid b { color: #854d0e; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="bar">
+    <a href="./?v=20261005fx19">Back to tracing</a>
+    <button type="button" onclick="window.print()">Print</button>
+  </div>
+  <h1>Extraction index · 拔牙倾向</h1>
+  <p class="lead">Chairside reminder of what the Banana ceph score is looking at. It is a tracing vs the selected norm set — not a decision to extract.</p>
+  <p class="warn">Do not extract from this number alone. Crowding, Bolton, growth, TMJ, smile and the patient’s wish are not on the lateral film.</p>
+
+  <h2>What the score is</h2>
+  <div class="card">
+    <p>Starts at <strong>50</strong> (undecided). Each measure that is 1–2 SD from the chosen <strong>HK Chinese</strong> or <strong>Caucasian</strong> mean tilts the score. 2 SD tilts more. Soft-tissue millimetres count only after the film ruler is calibrated.</p>
+    <p class="muted">Use <strong>HK Chinese</strong> (Chan 1972; Cooke &amp; Wei 1988) for this clinic. Caucasian IMPA 90° and lips on the S-line will call many Southern Chinese faces “extract” when they are only the local norm.</p>
+  </div>
+
+  <h2>Bands</h2>
+  <div class="bands">
+    <div class="band low"><b>Low 0–34</b> Keep / IPR / expansion more likely from the ceph.</div>
+    <div class="band mid"><b>Borderline 35–54</b> Mixed. Models and smile decide.</div>
+    <div class="band mid"><b>Moderate 55–74</b> Extraction camouflage is on the table.</div>
+    <div class="band high"><b>High 75–100</b> Typical bimax / convex / lip-protrusive pattern.</div>
+  </div>
+
+  <h2>Extract or keep — from the tracing</h2>
+  <div class="cols">
+    <div class="card extract">
+      <h3>Leans extract · 倾向拔牙</h3>
+      <ul>
+        <li><strong>IMPA high</strong> — lower incisors already proclined; little room to unravel crowding without making the lip worse.</li>
+        <li><strong>Interincisal acute</strong> — bimaxillary protrusion (common in HK).</li>
+        <li><strong>FMIA low</strong> — Tweed: lower incisor too proclined relative to Frankfort.</li>
+        <li><strong>Convex profile</strong> — A-point ahead of N–Pog; retraction can flatten the face.</li>
+        <li><strong>Lips ahead of Steiner S-line</strong> (Ls / Li to Sn–Pog′) — after calibration.</li>
+        <li><strong>Class II ANB / Wits</strong> — scored as <em>upper-arch camouflage</em> (premolars more often than four premolars).</li>
+      </ul>
+    </div>
+    <div class="card keep">
+      <h3>Leans keep · 倾向不拔</h3>
+      <ul>
+        <li><strong>IMPA low / retroclined</strong> — further retraction dumps the incisors and hollows the lip.</li>
+        <li><strong>Interincisal obtuse</strong> — not a bimax face.</li>
+        <li><strong>FMIA high</strong> — Tweed already “upright”.</li>
+        <li><strong>Concave profile / strong chin</strong> — extraction can make the face dish-in.</li>
+        <li><strong>Retrusive lips</strong> on the S-line — do not retract for “numbers”.</li>
+        <li><strong>High-angle (SN–GoGn out)</strong> — small penalty: retraction needs vertical control; not an automatic extract.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Class II vs Class III — not the same extraction</h2>
+  <div class="card">
+    <ul>
+      <li><strong>Class II</strong> adds to the score as upper-arch camouflage. Typical pattern is upper premolars (sometimes two uppers only), not automatic 14-24-34-44.</li>
+      <li><strong>Class III</strong> is <em>not</em> added as a 4-premolar extract. The hint says lower-arch camouflage or surgery. Retroclined lower incisors in Class III usually argue against more lower retraction.</li>
+    </ul>
+  </div>
+
+  <h2>Measures the index actually uses</h2>
+  <table>
+    <thead>
+      <tr><th>Measure</th><th>Extract if…</th><th>Keep if…</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>IMPA</td><td>High vs norm</td><td>Low / retroclined</td><td>Needs L1 apex (L1a) dragged onto the root.</td></tr>
+      <tr><td>FMIA</td><td>Low (Tweed)</td><td>High</td><td>Same apex. Tweed wanted ~65° Caucasian; HK mean is lower.</td></tr>
+      <tr><td>Interincisal</td><td>Acute (bimax)</td><td>Obtuse</td><td>Needs U1a and L1a.</td></tr>
+      <tr><td>Angle of convexity</td><td>Convex</td><td>Concave</td><td>N–A–Pog. HK mean ~6°, not 0°.</td></tr>
+      <tr><td>Ls / Li to S-line</td><td>Lips ahead</td><td>Lips retrusive</td><td>Ignored until millimetres are calibrated.</td></tr>
+      <tr><td>ANB</td><td>Class II (adds)</td><td>Class I (no tilt)</td><td>Class III is a warning, not +points for 4s.</td></tr>
+      <tr><td>Wits AO–BO</td><td>Class II, if calibrated</td><td>—</td><td>Uses FOP (FopA–FopP). Proxy U1–L1 if you have not dragged FOP.</td></tr>
+      <tr><td>SN–GoGn</td><td>—</td><td>High-angle: −4 only</td><td>Vertical caution, not a keep/extract vote.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What is missing (so the index stays humble)</h2>
+  <div class="card">
+    <ul>
+      <li>Arch-length discrepancy / crowding / spacing</li>
+      <li>Bolton, tooth-size, unerupted 8s</li>
+      <li>Growth remaining, FMA vs age, airway / tonsils</li>
+      <li>TMJ, periodontal support, restorations, missing teeth</li>
+      <li>Smile arc, gingival display, nasolabial angle on the photo</li>
+    </ul>
+    <p class="muted">If those conflict with a High score, trust the mouth and the face, not the chip.</p>
+  </div>
+</main>
+</body>
+</html>

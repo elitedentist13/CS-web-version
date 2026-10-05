@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana · Lateral cephalometric</title>
-  <link rel="stylesheet" href="ceph.css?v=20261005fx17">
+  <link rel="stylesheet" href="ceph.css?v=20261005fx19">
 </head>
 <body>
   <div id="app">
@@ -31,6 +31,7 @@
       <button type="button" id="btnJson">Export JSON</button>
       <button type="button" id="btnCsv">Export CSV</button>
       <button type="button" id="btnPng">Export marked PNG</button>
+      <a class="btn" id="btnExtractHelp" href="extraction.html?v=20261005fx19" target="_blank" rel="noopener" title="Chairside reminder of extract vs keep on the tracing.">Extraction notes</a>
       <span id="status" class="status"></span>
     </div>
     <div id="stage">
@@ -46,7 +47,7 @@
         <button type="button" id="btnChangeSet" class="changeSet is-hidden">Change set</button>
       </div>
       <aside id="side">
-        <p class="hint">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Choose <strong>Published 1502</strong> or <strong>Published + in-house</strong>. Auto-detect offers 3 candidate sets. Compare values to <strong>Caucasian</strong> or <strong>HK Chinese</strong> norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film.</p>
+        <p class="hint">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Choose <strong>Published 1502</strong> or <strong>Published + in-house</strong>. Auto-detect offers 3 candidate sets. Compare values to <strong>Caucasian</strong> or <strong>HK Chinese</strong> norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The <strong>extraction index</strong> is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.</p>
         <div class="libs labOnly is-hidden">
           <div class="lib">
             <h3>Published tracings</h3>
@@ -75,9 +76,9 @@
     </div>
     <div id="bananaCephBar">Banana cephalometric sidecar</div>
   </div>
-  <script src="ceph-landmarks.js?v=20261005fx17"></script>
-  <script src="ceph-learn.js?v=20261005fx17"></script>
-  <script src="ceph-analysis.js?v=20261005fx17"></script>
-  <script src="ceph.js?v=20261005fx17"></script>
+  <script src="ceph-landmarks.js?v=20261005fx19"></script>
+  <script src="ceph-learn.js?v=20261005fx19"></script>
+  <script src="ceph-analysis.js?v=20261005fx19"></script>
+  <script src="ceph.js?v=20261005fx19"></script>
 </body>
 </html>

@@ -304,7 +304,28 @@
                 });
             });
         }
+        result.extraction = extractionIndex(result);
+        result.groups.push({
+            id: 'extract',
+            title: 'Extraction index',
+            rows: [{
+                name: 'Extraction index',
+                value: result.extraction.score,
+                unit: '',
+                norm: '50 undecided',
+                delta: result.extraction.score - 50,
+                band: result.extraction.tableBand,
+                note: result.extraction.note
+            }]
+        });
         result.summary = summarise(result);
+        if (result.summary && result.extraction) {
+            result.summary.extraction = result.extraction.label + ' ' + result.extraction.score;
+            result.summary.extractionBand = result.extraction.band;
+            result.summary.extractionHint = result.extraction.hint;
+            result.summary.extractionWhy = result.extraction.why;
+            result.summary.extractionNote = result.extraction.note;
+        }
         return result;
     }
 
@@ -354,6 +375,94 @@
         };
     }
 
+    /* Ceph-only extraction tendency vs the selected norm set.
+       Not a treatment plan: crowding, Bolton, growth and the chart are absent. */
+    function tilt(row, wOut, wWarn, invert) {
+        if (!row || row.delta == null || !row.band || row.band === 'in') return 0;
+        var w = row.band === 'out' ? wOut : (row.band === 'warn' ? wWarn : 0);
+        if (!w) return 0;
+        var high = row.delta > 0;
+        var towardExtract = invert ? !high : high;
+        return towardExtract ? w : -w;
+    }
+    function addWhy(why, pts, plus, minus) {
+        if (pts >= 6 && plus) why.push(plus);
+        else if (pts <= -6 && minus) why.push(minus);
+    }
+    function extractionIndex(result) {
+        var score = 50;
+        var why = [];
+        var hint = 'ceph guidance only; crowding not assessed';
+        var impa = findRow(result, 'tweed', 'IMPA');
+        var fmia = findRow(result, 'tweed', 'FMIA');
+        var inter = findRow(result, 'steiner', 'Interincisal');
+        var conv = findRow(result, 'downs', 'Angle of convexity');
+        var anb = findRow(result, 'steiner', 'ANB');
+        var mp = findRow(result, 'steiner', 'SN–GoGn');
+        var ls = findRow(result, 'soft', 'Ls to Sn–PogS');
+        var li = findRow(result, 'soft', 'Li to Sn–PogS');
+        var wits = findRow(result, 'wits', 'AO–BO');
+        var t;
+        t = tilt(impa, 15, 8, false);
+        score += t;
+        addWhy(why, t, 'proclined lower incisors (IMPA)', 'retroclined lower incisors');
+        t = tilt(inter, 15, 8, true);
+        score += t;
+        addWhy(why, t, 'acute interincisal (bimax)', 'obtuse interincisal');
+        t = tilt(conv, 10, 6, false);
+        score += t;
+        addWhy(why, t, 'convex profile', 'concave profile');
+        t = tilt(fmia, 10, 6, true);
+        score += t;
+        addWhy(why, t, 'low FMIA (Tweed)', 'high FMIA');
+        t = tilt(ls, 12, 8, false);
+        score += t;
+        addWhy(why, t, 'upper lip ahead of S-line', 'retrusive upper lip');
+        t = tilt(li, 10, 6, false);
+        score += t;
+        addWhy(why, t, 'lower lip ahead of S-line', 'retrusive lower lip');
+        if (anb && anb.delta != null && anb.band && anb.band !== 'in') {
+            if (anb.delta > 0) {
+                t = anb.band === 'out' ? 12 : 8;
+                score += t;
+                why.push('Class II skeletal (upper-arch camouflage)');
+                hint = 'Class II camouflage (upper premolars more often than 4 premolars)';
+            } else {
+                hint = 'Class III: lower-arch camouflage or surgery; not a 4-premolar pattern';
+                why.push('Class III skeletal (not scored as 4-premolar extraction)');
+            }
+        }
+        if (wits && wits.delta != null && wits.band && wits.band !== 'in' && wits.delta > 0) {
+            score += wits.band === 'out' ? 8 : 5;
+            why.push('Wits Class II');
+        }
+        if (mp && mp.delta != null && mp.delta > 0 && mp.band === 'out') {
+            score -= 4;
+            why.push('high-angle: retract with vertical control');
+        }
+        if (score < 0) score = 0;
+        if (score > 100) score = 100;
+        var band = 'borderline';
+        var label = 'Borderline';
+        var tableBand = 'warn';
+        if (score <= 34) { band = 'low'; label = 'Low'; tableBand = 'in'; }
+        else if (score <= 54) { band = 'borderline'; label = 'Borderline'; tableBand = 'warn'; }
+        else if (score <= 74) { band = 'moderate'; label = 'Moderate'; tableBand = 'warn'; }
+        else { band = 'high'; label = 'High'; tableBand = 'out'; }
+        var note = (why.length ? why.join('; ') + '. ' : '') +
+            'Ceph only; crowding / Bolton / growth not assessed. Not a treatment plan.';
+        return {
+            score: score,
+            band: band,
+            label: label,
+            tableBand: tableBand,
+            hint: hint,
+            why: why.slice(0, 3).join(' + ') || 'angles near this norm set',
+            reasons: why,
+            note: note
+        };
+    }
+
     function csvSafe(v) {
         if (v == null) return '';
         return String(v)
@@ -386,6 +495,7 @@
         score: score,
         nPerpMm: nPerpMm,
         witsMm: witsMm,
-        summarise: summarise
+        summarise: summarise,
+        extractionIndex: extractionIndex
     };
 })(typeof window !== 'undefined' ? window : this);

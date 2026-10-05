@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx17';
+var BUILD = '20261005fx19';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -253,6 +253,14 @@ var PAGE_SCRIPT = `(async () => {
     out.invert = CEPH_PAGE.state().invert === true;
     CEPH_PAGE.setInvert(false);
   }
+  if (window.CEPH_PAGE) {
+    const stEx = CEPH_PAGE.state();
+    out.extractScore = stEx.extractScore;
+    out.extractBand = stEx.extractBand;
+    out.extractLabel = stEx.extractLabel;
+    out.extractNote = stEx.extractNote;
+    out.extractHint = stEx.extractHint;
+  }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.movePoint === 'function') {
     const n0 = CEPH_PAGE.state().pts.N;
     CEPH_PAGE.movePoint('N', n0.x + 40, n0.y);
@@ -274,6 +282,8 @@ var PAGE_SCRIPT = `(async () => {
     out.csvAscii = !!(csv && ascii);
     out.csvHasSna = /SNA/.test(csv || '');
     out.csvNoDegree = csv.indexOf('\u00B0') < 0 && csv.indexOf('\u00B1') < 0 && csv.indexOf('\u2013') < 0;
+    out.csvHasExtract = /Extraction index/.test(csv || '');
+    out.csvNoTeeth = !/14,\s*24/.test(csv || '');
   }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.saveTrace === 'function') {
     const saved = CEPH_PAGE.saveTrace();
@@ -342,6 +352,15 @@ var PAGE_SCRIPT = `(async () => {
     pass('sidecar has a one-page clinical summary and Steiner S-line lips',
         /id="summary"/.test(read('ceph/index.html')) && /summarise/.test(read('ceph/ceph-analysis.js')) &&
         /Ls to Sn/.test(read('ceph/ceph-analysis.js')));
+    pass('sidecar has a ceph-only extraction index (not a treatment plan)',
+        /function extractionIndex/.test(read('ceph/ceph-analysis.js')) &&
+        /拔牙倾向/.test(read('ceph/ceph.js')) && /crowding not assessed/.test(read('ceph/ceph-analysis.js')));
+    pass('extraction notes page explains extract vs keep',
+        /btnExtractHelp/.test(read('ceph/index.html')) &&
+        /Leans extract/.test(read('ceph/extraction.html')) &&
+        /Leans keep/.test(read('ceph/extraction.html')) &&
+        /Class III/.test(read('ceph/extraction.html')) &&
+        /crowding/.test(read('ceph/extraction.html')));
     pass('sidecar saves a patient tracing and can print a report',
         /btnSaveTrace/.test(read('ceph/index.html')) && /btnPrint/.test(read('ceph/index.html')) &&
         /savedTrace/.test(read('ceph/ceph.js')) && /@media print/.test(read('ceph/ceph.css')));
@@ -380,7 +399,7 @@ var PAGE_SCRIPT = `(async () => {
     };
     var res = box.CEPH_AN.run(pts, 0.1);
     pass('Steiner SNA is a finite angle', res.groups[0].rows[0].value > 70 && res.groups[0].rows[0].value < 100, String(res.groups[0].rows[0].value));
-    pass('five analysis groups plus soft tissue', res.groups.map(function (g) { return g.id; }).join(',') === 'steiner,downs,tweed,wits,mcnamara,soft');
+    pass('five analysis groups plus soft tissue and extraction index', res.groups.map(function (g) { return g.id; }).join(',') === 'steiner,downs,tweed,wits,mcnamara,soft,extract');
     pass('one-page summary names skeletal class', !!(res.summary && res.summary.skeletal), res.summary && res.summary.skeletal);
     pass('Caucasian SNA norm is 82 ± 2', res.groups[0].rows[0].norm === '82 ± 2' && res.normSet === 'caucasian');
     var cn = box.CEPH_AN.run(pts, 0.1, { normSet: 'chinese' });
@@ -414,6 +433,21 @@ var PAGE_SCRIPT = `(async () => {
     pass('CSV body is readable ASCII (no degree/en-dash/plus-minus glyphs)',
         !/[^\x09\x0A\x0D\x20-\x7E]/.test(csv.slice(1)) && /deg/.test(csv) && /\+\/-/.test(csv) &&
         csv.indexOf('SN-GoGn') >= 0 && csv.indexOf('\u00B0') < 0);
+    pass('CSV includes the extraction index without tooth numbers',
+        /Extraction index/.test(csv) && /crowding/.test(csv) && !/14,\s*24/.test(csv));
+    var ex = cn.extraction;
+    pass('extraction index is a 0-100 band, not a percent chance',
+        ex && ex.score >= 0 && ex.score <= 100 && /^(low|borderline|moderate|high)$/.test(ex.band) &&
+        /crowding/.test(ex.note) && String(ex.label).indexOf('%') < 0,
+        ex && (ex.label + ' ' + ex.score + ' ' + ex.band));
+    var class3Pts = JSON.parse(JSON.stringify(pts));
+    class3Pts.B = { x: 700, y: 600 };
+    class3Pts.Pog = { x: 710, y: 680 };
+    var class3 = box.CEPH_AN.run(class3Pts, 0.1, { normSet: 'chinese' });
+    pass('Class III is not scored as a 4-premolar extraction pattern',
+        class3.extraction && /Class III/.test(class3.extraction.hint) &&
+        /not a 4-premolar/.test(class3.extraction.hint),
+        class3.extraction && class3.extraction.hint);
     var meanPts = {};
     cat.landmarks.forEach(function (d) {
         meanPts[d.id] = { x: d.ix * 1935, y: d.iy * 2400 };
@@ -520,6 +554,10 @@ var PAGE_SCRIPT = `(async () => {
     pass('GET /ceph/data/isbi2015.json', catGet.status === 200 && /"S"/.test(catGet.body.toString()) && /importedFilms/.test(catGet.body.toString()));
     var shGet = await httpGetText(PAGE_PORT, '/ceph/data/shapes.json');
     pass('GET /ceph/data/shapes.json', shGet.status === 200 && /"n":1502/.test(shGet.body.toString()));
+    var helpGet = await httpGetText(PAGE_PORT, '/ceph/extraction.html');
+    pass('GET /ceph/extraction.html is the extract-vs-keep reminder',
+        helpGet.status === 200 && /Leans extract/.test(helpGet.body.toString()) &&
+        /Leans keep/.test(helpGet.body.toString()) && /Class III/.test(helpGet.body.toString()));
     if (sample && sample.buf) {
         var samp = await httpGetText(PAGE_PORT, '/__ceph-sample.jpg');
         pass('GET /__ceph-sample.jpg serves the clinic film', samp.status === 200 && samp.body.length > 8000,
@@ -572,6 +610,13 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: clinical summary is filled',
             live && /Class/.test(String(live.summarySkeletal || '')),
             live ? ('skeletal=' + live.summarySkeletal) : 'none');
+        pass('live: extraction index is a ceph-only tendency band',
+            live && live.extractScore >= 0 && live.extractScore <= 100 &&
+            /^(low|borderline|moderate|high)$/.test(String(live.extractBand || '')) &&
+            /crowding/.test(String(live.extractNote || '')) &&
+            !/%/.test(String(live.extractLabel || '')) &&
+            live.csvHasExtract === true && live.csvNoTeeth === true,
+            live ? (live.extractLabel + ' ' + live.extractScore + ' ' + live.extractBand) : 'none');
         pass('live: Caucasian vs HK Chinese norms colour the SNA row',
             live && live.caucSet === 'caucasian' && /82/.test(String(live.caucNorm || '')) &&
             live.cnSet === 'chinese' && /83\.8/.test(String(live.cnNorm || '')) &&

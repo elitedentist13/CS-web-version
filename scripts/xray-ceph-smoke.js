@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx16';
+var BUILD = '20261005fx17';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -253,6 +253,28 @@ var PAGE_SCRIPT = `(async () => {
     out.invert = CEPH_PAGE.state().invert === true;
     CEPH_PAGE.setInvert(false);
   }
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.movePoint === 'function') {
+    const n0 = CEPH_PAGE.state().pts.N;
+    CEPH_PAGE.movePoint('N', n0.x + 40, n0.y);
+    const n1 = CEPH_PAGE.state().pts.N;
+    const und = CEPH_PAGE.undoMove();
+    const n2 = CEPH_PAGE.state().pts.N;
+    out.undoMoved = !!(n0 && n1 && Math.abs(n1.x - n0.x) > 20);
+    out.undoOk = !!(und && und.ok && n2 && Math.abs(n2.x - n0.x) < 0.51);
+  }
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.csvText === 'function') {
+    const csv = CEPH_PAGE.csvText();
+    out.csvBom = !!(csv && csv.charCodeAt(0) === 0xFEFF);
+    let ascii = true;
+    for (let i = 1; csv && i < csv.length; i++) {
+      const c = csv.charCodeAt(i);
+      if (c === 9 || c === 10 || c === 13) continue;
+      if (c < 32 || c > 126) { ascii = false; break; }
+    }
+    out.csvAscii = !!(csv && ascii);
+    out.csvHasSna = /SNA/.test(csv || '');
+    out.csvNoDegree = csv.indexOf('\u00B0') < 0 && csv.indexOf('\u00B1') < 0 && csv.indexOf('\u2013') < 0;
+  }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.saveTrace === 'function') {
     const saved = CEPH_PAGE.saveTrace();
     out.saveOk = !!(saved && saved.ok && saved.key);
@@ -312,6 +334,11 @@ var PAGE_SCRIPT = `(async () => {
     pass('clicking a table row highlights that construction; zoom pan invert undo exist',
         /highlightMeasure/.test(read('ceph/ceph.js')) && /btnInvert/.test(read('ceph/index.html')) &&
         /btnUndoPt/.test(read('ceph/index.html')) && /viewZoom/.test(read('ceph/ceph.js')));
+    pass('Undo point keeps a declared undo stack',
+        /var undoStack = \[\]/.test(read('ceph/ceph.js')) && /function undoMove/.test(read('ceph/ceph.js')));
+    pass('CSV export sanitises punctuation for Excel',
+        /function csvSafe/.test(read('ceph/ceph-analysis.js')) &&
+        read('ceph/ceph-analysis.js').indexOf('\\uFEFF') >= 0);
     pass('sidecar has a one-page clinical summary and Steiner S-line lips',
         /id="summary"/.test(read('ceph/index.html')) && /summarise/.test(read('ceph/ceph-analysis.js')) &&
         /Ls to Sn/.test(read('ceph/ceph-analysis.js')));
@@ -382,6 +409,11 @@ var PAGE_SCRIPT = `(async () => {
     });
     pass('IMPA uses the L1 apex handle when provided',
         /L1a/.test(withApex.groups[2].rows[1].note) && withApex.groups[2].rows[1].value != null);
+    var csv = box.CEPH_AN.toCsv(cn);
+    pass('CSV starts with a UTF-8 BOM so Excel opens it', csv.charCodeAt(0) === 0xFEFF);
+    pass('CSV body is readable ASCII (no degree/en-dash/plus-minus glyphs)',
+        !/[^\x09\x0A\x0D\x20-\x7E]/.test(csv.slice(1)) && /deg/.test(csv) && /\+\/-/.test(csv) &&
+        csv.indexOf('SN-GoGn') >= 0 && csv.indexOf('\u00B0') < 0);
     var meanPts = {};
     cat.landmarks.forEach(function (d) {
         meanPts[d.id] = { x: d.ix * 1935, y: d.iy * 2400 };
@@ -556,6 +588,10 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: clicking SNA highlights SN and NA on the film',
             live && live.hiOk === true && live.hiMeasure === 'SNA' && live.invert === true,
             live ? ('hi=' + live.hiMeasure + ' invertWas=' + live.invert) : 'none');
+        pass('live: Undo point restores the last moved landmark',
+            live && live.undoMoved === true && live.undoOk === true);
+        pass('live: CSV export is Excel-readable ASCII with a BOM',
+            live && live.csvBom === true && live.csvAscii === true && live.csvHasSna === true && live.csvNoDegree === true);
         pass('live: tracing saves for this patient and can be restored',
             live && live.saveOk === true && live.loadOk === true && live.printFn === true,
             live ? ('save=' + live.saveOk + ' load=' + live.loadOk) : 'none');

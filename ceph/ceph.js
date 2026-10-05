@@ -91,6 +91,7 @@
     var hiMeasure = '';
     var labOpen = false;
     var qaIds = {};
+    var undoStack = [];
     var HIGHLIGHT = {
         SNA: [['S', 'N'], ['N', 'A']],
         SNB: [['S', 'N'], ['N', 'B']],
@@ -417,24 +418,51 @@
         draw();
         return { ok: true, measure: hiMeasure, planes: HIGHLIGHT[hiMeasure] || [] };
     }
+    function isExtraId(id) {
+        return EXTRA_DEFS.some(function (d) { return d.id === id; });
+    }
+    function cloneUndo() {
+        return {
+            pts: JSON.parse(JSON.stringify(pts)),
+            extra: JSON.parse(JSON.stringify(extra)),
+            touched: JSON.parse(JSON.stringify(touched)),
+            extraTouched: JSON.parse(JSON.stringify(extraTouched))
+        };
+    }
     function pushUndo() {
-        try {
-            undoStack.push({
-                pts: JSON.parse(JSON.stringify(pts)),
-                extra: JSON.parse(JSON.stringify(extra))
-            });
-        } catch (e) { return; }
+        try { undoStack.push(cloneUndo()); } catch (e) { return; }
         if (undoStack.length > 40) undoStack.shift();
     }
+    function clearUndo() { undoStack = []; }
     function undoMove() {
         var s = undoStack.pop();
         if (!s) { setStatus('Nothing to undo.'); return { ok: false }; }
         pts = s.pts || pts;
         extra = s.extra || extra;
+        if (s.touched) {
+            touched = s.touched;
+            if (sets[setIndex]) setTouched[setIndex] = touched;
+        }
+        if (s.extraTouched) extraTouched = s.extraTouched;
         if (sets[setIndex]) sets[setIndex].pts = pts;
         refresh();
         setStatus('Undid the last point move.');
-        return { ok: true };
+        return { ok: true, n: undoStack.length };
+    }
+    function setPointAt(id, imgPt, record) {
+        if (!id || !imgPt || !isFinite(imgPt.x) || !isFinite(imgPt.y)) return { ok: false };
+        if (record) pushUndo();
+        if (isExtraId(id)) {
+            extra[id] = { x: imgPt.x, y: imgPt.y };
+            extraTouched[id] = true;
+        } else {
+            pts[id] = { x: imgPt.x, y: imgPt.y };
+            touched[id] = true;
+            if (sets[setIndex]) sets[setIndex].pts = pts;
+        }
+        sel = id;
+        refresh();
+        return { ok: true, id: id, x: imgPt.x, y: imgPt.y };
     }
     function resetView() {
         viewZoom = 1;
@@ -678,6 +706,7 @@
     }
 
     function afterLoad(done, skipRestore) {
+        clearUndo();
         userPickedSet = false;
         var pack = CEPH_LM.detectSets(img, { useTraining: useTraining });
         sets = pack.sets || [];
@@ -854,11 +883,15 @@
         download(blob, (fileName.replace(/\.[^.]+$/, '') || 'ceph') + '-analysis.json');
     }
 
-    function exportCsv() {
+    function csvText() {
         var last = window.__cephLast;
         if (!last || !last.result) renderAnalysis();
         last = window.__cephLast;
-        var blob = new Blob([CEPH_AN.toCsv(last.result)], { type: 'text/csv' });
+        return CEPH_AN.toCsv(last && last.result);
+    }
+    function exportCsv() {
+        var text = csvText();
+        var blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
         download(blob, (fileName.replace(/\.[^.]+$/, '') || 'ceph') + '-analysis.csv');
     }
 
@@ -915,7 +948,7 @@
         }
     }
     function hit(x, y) {
-        var best = '', bestD = 12;
+        var best = '', bestD = 22;
         CEPH_LM.defs().forEach(function (d) {
             var p = pts[d.id];
             if (!p) return;
@@ -1068,6 +1101,15 @@
         if ($('btnInvert')) $('btnInvert').onclick = function () { setInvert(!invertFilm); };
         if ($('btnUndoPt')) $('btnUndoPt').onclick = undoMove;
         if ($('btnResetView')) $('btnResetView').onclick = resetView;
+        window.addEventListener('keydown', function (e) {
+            if (!e.ctrlKey && !e.metaKey) return;
+            if (e.key !== 'z' && e.key !== 'Z') return;
+            if (e.shiftKey) return;
+            var t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+            e.preventDefault();
+            undoMove();
+        });
         window.addEventListener('resize', draw);
         c.addEventListener('dragover', function (e) { e.preventDefault(); });
         c.addEventListener('drop', function (e) {
@@ -1083,6 +1125,8 @@
         runDetect: runDetect,
         exportJson: exportJson,
         exportCsv: exportCsv,
+        csvText: csvText,
+        movePoint: function (id, x, y) { return setPointAt(id, { x: x, y: y }, true); },
         exportPng: exportPng,
         includeSelected: includeSelected,
         setUseTraining: writeUseTraining,
@@ -1142,7 +1186,8 @@
                 summary: last.result && last.result.summary,
                 labOpen: !!labOpen,
                 qa: Object.keys(qaIds),
-                selected: placedIds()
+                selected: placedIds(),
+                undoN: undoStack.length
             };
         }
     };

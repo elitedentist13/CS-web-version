@@ -354,16 +354,25 @@
         };
     }
 
+    function csvSafe(v) {
+        if (v == null) return '';
+        return String(v)
+            .replace(/[\u2012\u2013\u2014\u2015\u2212]/g, '-')
+            .replace(/\u00B1/g, '+/-')
+            .replace(/\u00B0/g, 'deg')
+            .replace(/[\u2032\u2033]/g, "'");
+    }
     function toCsv(result) {
+        result = result || {};
         var lines = ['analysis,measurement,value,unit,norm,delta,band,note'];
         (result.groups || []).forEach(function (g) {
             (g.rows || []).forEach(function (r) {
                 lines.push([g.title, r.name, r.value == null ? '' : r.value, r.unit, r.norm,
                     r.delta == null ? '' : r.delta, r.band || '', r.note]
-                    .map(function (x) { return '"' + String(x).replace(/"/g, '""') + '"'; }).join(','));
+                    .map(function (x) { return '"' + csvSafe(x).replace(/"/g, '""') + '"'; }).join(','));
             });
         });
-        return lines.join('\n');
+        return '\uFEFF' + lines.join('\r\n');
     }
 
     g.CEPH_AN = {

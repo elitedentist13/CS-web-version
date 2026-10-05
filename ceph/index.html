@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana · Lateral cephalometric</title>
-  <link rel="stylesheet" href="ceph.css?v=20261005fx36">
+  <link rel="stylesheet" href="ceph.css?v=20261005fx41">
 </head>
 <body>
   <div id="app">
@@ -46,23 +46,23 @@
       <button type="button" id="btnJson" data-i18n="btn.json">Export JSON</button>
       <button type="button" id="btnCsv" data-i18n="btn.csv">Export CSV</button>
       <button type="button" id="btnPng" data-i18n="btn.png">Export marked PNG</button>
-      <a class="btn" id="btnExtractHelp" href="extraction.html?v=20261005fx36" target="_blank" data-i18n="btn.extractHelp" data-i18n-title="btn.extractHelpTitle">Extraction notes</a>
+      <a class="btn" id="btnExtractHelp" href="extraction.html?v=20261005fx41" target="_blank" data-i18n="btn.extractHelp" data-i18n-title="btn.extractHelpTitle">Extraction notes</a>
       <span id="status" class="status"></span>
     </div>
     <div id="stage">
       <div id="viewWrap">
         <canvas id="view"></canvas>
-        <div id="setBar" class="setBar is-hidden" tabindex="0" data-i18n-title="setBar.title" title="Click 1–3 to view a set, then Adopt selection.">
+        <div id="setBar" class="setBar is-hidden" tabindex="0" data-i18n-title="setBar.title" title="Click UNet or 1502 to view a set, then Adopt selection.">
           <div class="setBar-row">
             <div id="setBtns" class="setBtns"></div>
             <button type="button" class="primary" id="btnAdoptSet" data-i18n="btn.adopt">Adopt selection</button>
           </div>
-          <p id="setCaption" class="hint">View 1–3, then Adopt selection.</p>
+          <p id="setCaption" class="hint">View UNet and 1502, then Adopt selection.</p>
         </div>
         <button type="button" id="btnChangeSet" class="changeSet is-hidden" data-i18n="btn.changeSet">Change set</button>
       </div>
       <aside id="side">
-        <p class="hint" id="sideHint" data-i18n="hint.side">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Choose Published 1502 or Published + in-house. Auto-detect offers 3 candidate sets. Compare values to Caucasian or HK Chinese norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The extraction index is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.</p>
+        <p class="hint" id="sideHint" data-i18n="hint.side">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Auto-detect offers 2 sets: UNet (default) and the 1502 library average (plus in-house if Published + in-house is on). Compare values to Caucasian or HK Chinese norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The extraction index is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.</p>
         <div class="libs labOnly is-hidden">
           <div class="lib">
             <h3 data-i18n="h.pub">Published tracings</h3>
@@ -103,6 +103,20 @@
             <button type="button" id="btnSexF" aria-pressed="false" data-i18n="btn.sexF">F</button>
           </span>
           <p id="normSource" class="hint">Southern Chinese / Hong Kong adult (Chan 1972; Cooke &amp; Wei 1988)</p>
+          <div id="cvmBar" class="cvmBar is-hidden">
+            <span class="normBar-label" data-i18n="lbl.cvm">CVM</span>
+            <span class="refGroup" id="cvmGroup" role="group" aria-label="CVM stage">
+              <button type="button" data-cvm="1" aria-pressed="false">CS1</button>
+              <button type="button" data-cvm="2" aria-pressed="false">CS2</button>
+              <button type="button" data-cvm="3" aria-pressed="false">CS3</button>
+              <button type="button" data-cvm="4" aria-pressed="false">CS4</button>
+              <button type="button" data-cvm="5" aria-pressed="false">CS5</button>
+              <button type="button" data-cvm="6" aria-pressed="false">CS6</button>
+              <button type="button" data-cvm="" id="btnCvmClear" aria-pressed="false" data-i18n="btn.cvmClear">Clear</button>
+              <button type="button" id="btnAutoCvm" data-i18n="btn.autoCvm" data-i18n-title="btn.autoCvmTitle">Auto CVM</button>
+            </span>
+            <p id="cvmHint" class="hint" data-i18n="cvm.need">Stage C2–C4 on the film (Baccetti CS1–CS6 / Aariz). The 19 landmarks cannot classify CVM. Timing hint only — not a treatment plan.</p>
+          </div>
         </div>
         <div id="summary" class="summary"></div>
         <div id="tables"></div>
@@ -110,10 +124,10 @@
     </div>
     <div id="bananaCephBar">Banana cephalometric sidecar</div>
   </div>
-  <script src="ceph-i18n.js?v=20261005fx36"></script>
-  <script src="ceph-landmarks.js?v=20261005fx36"></script>
-  <script src="ceph-learn.js?v=20261005fx36"></script>
-  <script src="ceph-analysis.js?v=20261005fx36"></script>
-  <script src="ceph.js?v=20261005fx36"></script>
+  <script src="ceph-i18n.js?v=20261005fx41"></script>
+  <script src="ceph-landmarks.js?v=20261005fx41"></script>
+  <script src="ceph-learn.js?v=20261005fx41"></script>
+  <script src="ceph-analysis.js?v=20261005fx41"></script>
+  <script src="ceph.js?v=20261005fx41"></script>
 </body>
 </html>

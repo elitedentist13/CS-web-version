@@ -192,6 +192,13 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .normBar .refGroup { display: flex; width: 100%; }
 .normBar .refGroup button { flex: 1; }
 #normSource { margin: 6px 0 8px; }
+.cvmBar { margin: 8px 0 4px; }
+.cvmBar.is-hidden { display: none; }
+.cvmBar .refGroup { display: flex; flex-wrap: wrap; width: 100%; }
+.cvmBar .refGroup button { flex: 1 1 12%; min-width: 44px; }
+.cvmBar #btnAutoCvm { flex: 1 1 22%; border-color: #7dd3fc; color: #0369a1; }
+.summary-cvm { grid-column: 1 / -1; }
+.summary-cvm .v { font-weight: 700; }
 #side tr.band-in td:nth-child(2) { color: #86efac; font-weight: 700; }
 #side tr.band-warn td:nth-child(2) { color: #facc15; font-weight: 700; }
 #side tr.band-out td:nth-child(2) { color: #fb7185; font-weight: 800; }

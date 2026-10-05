@@ -227,6 +227,50 @@
     function getSet(id) {
         return SETS[id] || SETS.caucasian;
     }
+
+    /* CVM CS1–CS6 follows Baccetti / Aariz (Dental_001, manwaarkhd/aariz).
+       Staff-staged on C2–C4. The 19 ISBI landmarks cannot classify CVM. */
+    var CVM_META = {
+        1: { id: 'CS1', name: 'Initiation', peak: 'peak ~2 y away', band: 'in',
+            comment: 'Early interceptive (crossbite, habits, space) can start now. Functional Class II usually waits — peak is still about 2 years away.' },
+        2: { id: 'CS2', name: 'Acceleration', peak: 'peak ~1 y away', band: 'in',
+            comment: 'Continue interceptive if needed. Plan functional / growth-modification for CS3 — about 1 year to peak.' },
+        3: { id: 'CS3', name: 'Transition', peak: 'peak this year', band: 'warn',
+            comment: 'Peak window. Best time for growth-modification / functional Class II if indicated. Finish remaining interceptive problems now.' },
+        4: { id: 'CS4', name: 'Deceleration', peak: 'peak just passed', band: 'warn',
+            comment: 'Peak just passed. Residual growth only; the interceptive window is closing.' },
+        5: { id: 'CS5', name: 'Maturation', peak: 'little residual growth', band: 'out',
+            comment: 'Little residual growth. Early interceptive timing has passed; comprehensive treatment rather than growth modification.' },
+        6: { id: 'CS6', name: 'Completion', peak: 'growth complete', band: 'out',
+            comment: 'Growth complete. Not an interceptive-timing stage.' }
+    };
+    function parseCvm(raw) {
+        if (raw == null || raw === '' || raw === 0) return 0;
+        if (typeof raw === 'number' && raw >= 1 && raw <= 6) return raw;
+        var m = String(raw).match(/([1-6])/);
+        var n = m ? parseInt(m[1], 10) : 0;
+        return (n >= 1 && n <= 6) ? n : 0;
+    }
+    function cvmStage(raw) {
+        var n = parseCvm(raw);
+        if (!n) {
+            return {
+                stage: 0, id: '', name: '', peak: '', band: '',
+                comment: 'Stage C2–C4 on the film (Baccetti CS1–CS6 / Aariz). The 19 landmarks cannot classify CVM.',
+                commentKey: 'cvm.need'
+            };
+        }
+        var m = CVM_META[n];
+        return {
+            stage: n,
+            id: m.id,
+            name: m.name,
+            peak: m.peak,
+            band: m.band,
+            comment: m.comment,
+            commentKey: 'cvm.cs' + n
+        };
+    }
     function anbClass(anb, spec) {
         if (anb == null) return '';
         var mean = spec && spec.mean != null ? spec.mean : 2;
@@ -442,6 +486,33 @@
                 }
             ]
         };
+        if (set.age === 'child') {
+            result.cvm = cvmStage(opts.cvm);
+            result.groups.push({
+                id: 'cvm',
+                title: 'CVM',
+                rows: [
+                    {
+                        name: 'CVM stage',
+                        value: result.cvm.id || '—',
+                        unit: '',
+                        norm: 'CS1–CS6 (Baccetti / Aariz)',
+                        delta: result.cvm.stage || null,
+                        band: result.cvm.band,
+                        note: result.cvm.name || 'staff-staged on C2–C4'
+                    },
+                    {
+                        name: 'Interceptive timing',
+                        value: result.cvm.peak || '—',
+                        unit: '',
+                        norm: '',
+                        delta: null,
+                        band: result.cvm.band,
+                        note: result.cvm.comment
+                    }
+                ]
+            });
+        }
         if (!opts.calibrated) {
             result.groups.forEach(function (g) {
                 (g.rows || []).forEach(function (r) {
@@ -474,6 +545,12 @@
             result.summary.extractionWhy = result.extraction.why;
             result.summary.extractionReasons = result.extraction.reasons || [];
             result.summary.extractionNote = result.extraction.note;
+        }
+        if (result.summary && result.cvm) {
+            result.summary.cvm = result.cvm.id ? (result.cvm.id + ' ' + result.cvm.name) : 'not staged';
+            result.summary.cvmPeak = result.cvm.peak || '';
+            result.summary.cvmComment = result.cvm.comment;
+            result.summary.cvmKey = result.cvm.commentKey;
         }
         return result;
     }
@@ -654,6 +731,8 @@
         incisorToPlane: incisorToPlane,
         pointToLineMm: pointToLineMm,
         summarise: summarise,
-        extractionIndex: extractionIndex
+        extractionIndex: extractionIndex,
+        cvmStage: cvmStage,
+        parseCvm: parseCvm
     };
 })(typeof window !== 'undefined' ? window : this);

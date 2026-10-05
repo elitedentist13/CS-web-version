@@ -73,6 +73,7 @@ xray-ai-service/_samples/
 xray-ai-service/caries/train/runs/
 runs/
 *.pt
+*.pth
 *.onnx
 
 # PA/bitewing subsystem: same shape as caries/, separate model + dataset
@@ -86,6 +87,9 @@ xray-ai-service/pabw/train/runs/
 xray-ai-service/ceph/dataset/
 xray-ai-service/ceph/weights/
 xray-ai-service/ceph/clinic_reference.json
+ceph/unet/weights/
+ceph/unet/dataset/
+ceph/unet/runs/
 tmp-ceph-import/
 
 # Continual-learning capture — contains PATIENT RADIOGRAPHS. Never commit.

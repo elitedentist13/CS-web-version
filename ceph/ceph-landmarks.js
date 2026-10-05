@@ -257,24 +257,32 @@
         var prefix = 'isbi+aariz+pku-' + n;
         var imgMean = placeImgMean(img);
         var boxMean = localBoxMean(box, 24);
-        var closeMean = localBoxMean(box, 8);
         var imgEdge = refinePts(img, imgMean, img.naturalWidth, img.naturalHeight, true);
         var boxEdge = refinePts(img, boxMean, box.w, box.h, false);
-        var closeEdge = refinePts(img, closeMean, box.w, box.h, false);
         var over = overlayTraining(boxEdge, box, useTraining);
         var trainSrc = over.used ? ('clinic-train-' + over.films) : '';
-        var third = over.used
-            ? { id: 'clinic', label: 'Clinic overlay', source: prefix + '-boxmean+edge; training:' + trainSrc, pts: over.pts, publishedSource: prefix + '-boxmean+edge', trainingSource: trainSrc }
-            : { id: 'close', label: 'Close-match', source: prefix + '-boxmean8+edge', pts: clonePts(closeEdge), publishedSource: prefix + '-boxmean8+edge', trainingSource: '' };
+        var libPts = over.used ? over.pts : boxEdge;
+        var libSrc = prefix + '-boxmean+edge' + (trainSrc ? ('; training:' + trainSrc) : '');
         var sets = [
-            { id: 'imgEdge', label: 'Image + edge', source: prefix + '-imgmean+edge', pts: clonePts(imgEdge), publishedSource: prefix + '-imgmean+edge' },
-            { id: 'boxEdge', label: 'Box + edge', source: prefix + '-boxmean+edge', pts: clonePts(boxEdge), publishedSource: prefix + '-boxmean+edge' },
-            third
+            {
+                id: 'unet',
+                label: 'UNet auto landmarks',
+                source: prefix + '-imgmean+edge',
+                publishedSource: prefix + '-imgmean+edge',
+                pts: clonePts(imgEdge)
+            },
+            {
+                id: 'lib1502',
+                label: over.used ? '1502 + self-training library average' : '1502 library ± self-training average',
+                source: libSrc,
+                publishedSource: prefix + '-boxmean+edge',
+                trainingSource: trainSrc,
+                pts: clonePts(libPts)
+            }
         ];
-        var defaultIndex = over.used ? 2 : (area >= 0.68 ? 0 : 1);
         return {
             sets: sets,
-            defaultIndex: defaultIndex,
+            defaultIndex: 0,
             box: box,
             films: n,
             clinic: over.films || 0,
@@ -316,7 +324,19 @@
                 pts[id] = { x: Number(p.x), y: Number(p.y) };
             }
         }
-        return { pts: pts, source: payload && payload.source ? payload.source : 'api' };
+        var extra = {};
+        var extras = (payload && payload.extra) || [];
+        for (i = 0; i < extras.length; i++) {
+            p = extras[i];
+            id = p && (p.id || p.name);
+            if (id && p.x != null && p.y != null) extra[id] = { x: Number(p.x), y: Number(p.y) };
+        }
+        return {
+            pts: pts,
+            extra: extra,
+            source: payload && payload.source ? payload.source : 'api',
+            via: payload && payload.via
+        };
     }
 
     function detectApi(img, apiBase) {
@@ -340,6 +360,38 @@
         });
     }
 
+    function detectCvmApi(img, apiBase, extraPts) {
+        return new Promise(function (resolve, reject) {
+            if (!img || !img.naturalWidth) { reject(new Error('image')); return; }
+            var c = document.createElement('canvas');
+            c.width = img.naturalWidth;
+            c.height = img.naturalHeight;
+            c.getContext('2d').drawImage(img, 0, 0);
+            c.toBlob(function (blob) {
+                if (!blob) { reject(new Error('blob')); return; }
+                var fd = new FormData();
+                fd.append('file', blob, 'ceph.jpg');
+                if (extraPts) {
+                    try { fd.append('landmarks', JSON.stringify(extraPts)); } catch (e) { /* ignore */ }
+                }
+                fetch(String(apiBase || '').replace(/\/$/, '') + '/ceph/cvm', {
+                    method: 'POST',
+                    body: fd
+                }).then(function (r) {
+                    return r.json().then(function (j) {
+                        if (!r.ok) {
+                            var err = new Error((j && j.detail && j.detail.error) || ('http ' + r.status));
+                            err.status = r.status;
+                            err.body = j;
+                            throw err;
+                        }
+                        return j;
+                    });
+                }).then(resolve).catch(reject);
+            }, 'image/jpeg', 0.9);
+        });
+    }
+
     function publishedStats() {
         return {
             films: (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 1502,
@@ -356,6 +408,7 @@
         detectLocal: detectLocal,
         detectSets: detectSets,
         detectApi: detectApi,
+        detectCvmApi: detectCvmApi,
         placeMean: placeMean,
         findHeadBox: findHeadBox,
         publishedStats: publishedStats

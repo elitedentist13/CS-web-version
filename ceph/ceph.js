@@ -14,16 +14,17 @@
     var lastBox = null;
     var lastDetect = null;
     var touched = {};
-    var setTouched = [{}, {}, {}];
+    var setTouched = [{}, {}];
     var sets = [];
     var setIndex = 0;
     var userPickedSet = false;
     var setBarHidden = true;
-    var viewedSets = [false, false, false];
+    var viewedSets = [false, false];
     var USE_TRAIN_KEY = 'banana.ceph.useTrain.v1';
     var useTraining = false;
     var NORM_KEY = 'banana.ceph.normSet.v1';
     var AGE_KEY = 'banana.ceph.ageBand.v1';
+    var CVM_KEY = 'banana.ceph.cvm.v1';
     var SEX_KEY = 'banana.ceph.sexBand.v1';
     var TRACE_KEY = 'banana.ceph.savedTrace.v1';
     var TRACE_CH = 'banana.ceph.save.v1';
@@ -31,6 +32,9 @@
     var restoreVia = '';
     var normSet = 'chinese';
     var ageBand = 'adult';
+    var cvmStageN = 0;
+    var cvmVia = '';
+    var cvmAutoTried = false;
     var sexBand = '';
 
     function $(id) { return document.getElementById(id); }
@@ -68,6 +72,10 @@
     }
     function setLabelTx(s) {
         if (!s) return '';
+        if (s.id === 'lib1502' && (s.trainingSource || /training:/.test(String(s.source || '')))) {
+            var plus = tx('set.lib1502plus');
+            if (plus && plus !== 'set.lib1502plus') return plus;
+        }
         var k = 'set.' + s.id;
         var t = tx(k);
         return (t && t !== k) ? t : (s.label || '');
@@ -78,7 +86,8 @@
             Wits: 'g.wits', McNamara: 'g.mcnamara', Ricketts: 'g.ricketts',
             Jarabak: 'g.jarabak',
             'Soft tissue': 'g.soft',
-            'Extraction index': 'g.extract'
+            'Extraction index': 'g.extract',
+            CVM: 'g.cvm'
         };
         return map[en] ? tx(map[en]) : en;
     }
@@ -438,9 +447,99 @@
         ageBand = id === 'child' ? 'child' : 'adult';
         try { if (window.localStorage) localStorage.setItem(AGE_KEY, ageBand); } catch (e) { /* ignore */ }
         syncNormBtn();
+        syncCvmBar();
         renderAnalysis();
         setStatus(tx('st.age', { label: tx(ageBand === 'child' ? 'btn.ageChild' : 'btn.ageAdult') }));
+        if (ageBand === 'child') maybeAutoCvm();
         return ageBand;
+    }
+    function parseCvmN(raw) {
+        if (window.CEPH_AN && typeof CEPH_AN.parseCvm === 'function') return CEPH_AN.parseCvm(raw);
+        var n = parseInt(raw, 10);
+        return (n >= 1 && n <= 6) ? n : 0;
+    }
+    function writeCvm(raw, via) {
+        cvmStageN = parseCvmN(raw);
+        cvmVia = cvmStageN ? (via || 'staff') : '';
+        try { if (window.localStorage) localStorage.setItem(CVM_KEY, String(cvmStageN || '')); } catch (e) { /* ignore */ }
+        syncCvmBar();
+        renderAnalysis();
+        var info = window.CEPH_AN && CEPH_AN.cvmStage ? CEPH_AN.cvmStage(cvmStageN) : null;
+        var label = (info && info.id) ? info.id : tx('btn.cvmClear');
+        setStatus(cvmVia === 'api' ? tx('st.cvmApi', { label: label }) : tx('st.cvm', { label: label }));
+        return cvmStageN;
+    }
+    function cvmPtsPayload() {
+        var out = {};
+        ['Po', 'Ar', 'Go', 'S', 'N'].forEach(function (id) {
+            if (pts[id] && isFinite(pts[id].x) && isFinite(pts[id].y)) out[id] = { x: pts[id].x, y: pts[id].y };
+        });
+        return out;
+    }
+    function pullCvmApi(opts) {
+        if (!img.naturalWidth) return Promise.resolve({ ok: false, error: 'image' });
+        if (!window.CEPH_LM || typeof CEPH_LM.detectCvmApi !== 'function') {
+            return Promise.resolve({ ok: false, error: 'api' });
+        }
+        setStatus(tx('st.cvmRun'));
+        var api = (window.XRAY_AI_API_URL || 'http://127.0.0.1:8877');
+        var auto = !!(opts && opts.auto);
+        return CEPH_LM.detectCvmApi(img, api, cvmPtsPayload()).then(function (j) {
+            if (auto && cvmVia === 'staff' && cvmStageN) {
+                return { ok: true, stage: cvmStageN, via: 'staff', skipped: true };
+            }
+            if (j && j.ok && j.stage) {
+                writeCvm(j.stage, 'api');
+                return { ok: true, stage: j.stage, via: 'api', roi: j.roi };
+            }
+            if (auto && cvmVia === 'staff' && cvmStageN) {
+                return { ok: true, stage: cvmStageN, via: 'staff', skipped: true };
+            }
+            if (j && j.error === 'weights') setStatus(tx('st.cvmNeedWeights'));
+            else setStatus(tx('st.cvmFail'));
+            return { ok: false, error: (j && j.error) || 'cvm' };
+        }, function (err) {
+            if (auto && cvmVia === 'staff' && cvmStageN) {
+                return { ok: true, stage: cvmStageN, via: 'staff', skipped: true };
+            }
+            var body = err && err.body;
+            var detail = body && body.detail;
+            var code = (detail && detail.error) || (err && err.message) || '';
+            setStatus(/weights/.test(String(code)) ? tx('st.cvmNeedWeights') : tx('st.cvmFail'));
+            return { ok: false, error: code || 'net' };
+        });
+    }
+    function maybeAutoCvm() {
+        if (ageBand !== 'child' || !img.naturalWidth || cvmStageN || cvmAutoTried) return;
+        cvmAutoTried = true;
+        pullCvmApi({ auto: true });
+    }
+    function cvmCommentTx(info) {
+        if (!info) return '';
+        if (info.commentKey) {
+            var s = tx(info.commentKey);
+            if (s && s !== info.commentKey) return s;
+        }
+        return info.comment || '';
+    }
+    function syncCvmBar() {
+        var bar = $('cvmBar');
+        if (bar) {
+            if (ageBand === 'child') bar.classList.remove('is-hidden');
+            else bar.classList.add('is-hidden');
+        }
+        var hint = $('cvmHint');
+        var info = window.CEPH_AN && CEPH_AN.cvmStage ? CEPH_AN.cvmStage(cvmStageN) : null;
+        if (hint) hint.textContent = cvmCommentTx(info) || tx('cvm.need');
+        var group = $('cvmGroup');
+        if (!group) return;
+        group.querySelectorAll('button[data-cvm]').forEach(function (btn) {
+            var v = btn.getAttribute('data-cvm');
+            var on = (v === '' && !cvmStageN) || (parseCvmN(v) === cvmStageN && cvmStageN);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            if (on) btn.classList.add('is-on');
+            else btn.classList.remove('is-on');
+        });
     }
     function writeSex(id) {
         sexBand = (id === 'f' || id === 'm') ? id : '';
@@ -568,7 +667,7 @@
     function renderAnalysis() {
         var host = $('tables');
         if (!host || typeof CEPH_AN === 'undefined') return;
-        var res = CEPH_AN.run(pts, mmPerPx, { normSet: normSet, calibrated: calibrated, extra: extra, age: ageBand, sex: sexBand });
+        var res = CEPH_AN.run(pts, mmPerPx, { normSet: normSet, calibrated: calibrated, extra: extra, age: ageBand, sex: sexBand, cvm: cvmStageN });
         host.innerHTML = res.groups.map(function (g) {
             return '<h2>' + groupTitleTx(g.title) + '</h2><table><tr><th>' + tx('th.measure') + '</th><th>' +
                 tx('th.value') + '</th><th>' + tx('th.delta') + '</th><th>' + tx('th.norm') + '</th><th></th></tr>' +
@@ -599,6 +698,9 @@
                 [tx('sum.profile'), ph(s.profile)],
                 [tx('sum.incisor'), ph(s.incisor) + ' · ' + tx('sum.lip') + ' ' + ph(s.lip)]
             ];
+            if (s.cvm || s.cvmComment) {
+                chips.push([tx('sum.cvm'), ph(s.cvm || tx('btn.cvmClear')) + (s.cvmComment ? ' · ' + ph(cvmCommentTx({ comment: s.cvmComment, commentKey: s.cvmKey })) : '')]);
+            }
             if (s.extraction) {
                 var scoreBit = String(s.extraction).replace(/^[A-Za-z\-]+\s+/, '');
                 var whyBits = (s.extractionReasons && s.extractionReasons.length)
@@ -606,11 +708,13 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx36" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx41" target="_blank">' + tx('sum.notes') + '</a>']);
             }
-            sum.innerHTML = chips.map(function (pair, i) {
-                var cls = (i === 4 && s.extractionBand) ? ('summary-extract is-' + s.extractionBand) : '';
-                var title = (i === 4 && s.extractionNote) ? (' title="' + extractNoteTx(s.extractionNote).replace(/"/g, '') + '"') : '';
+            sum.innerHTML = chips.map(function (pair) {
+                var isExtract = pair[0] === tx('sum.extract');
+                var isCvm = pair[0] === tx('sum.cvm');
+                var cls = isExtract && s.extractionBand ? ('summary-extract is-' + s.extractionBand) : (isCvm ? 'summary-cvm' : '');
+                var title = (isExtract && s.extractionNote) ? (' title="' + extractNoteTx(s.extractionNote).replace(/"/g, '') + '"') : '';
                 return '<div' + (cls ? ' class="' + cls + '"' : '') + title + '><div class="k">' + pair[0] + '</div><div class="v">' + pair[1] + '</div></div>';
             }).join('');
             var notes = sum.querySelector('a.extract-notes');
@@ -895,6 +999,11 @@
         }
         if (rec.calibrated) calibrated = true;
         if (rec.normSet) { normSet = rec.normSet; syncNormBtn(); }
+        if (rec.cvm != null) {
+            cvmStageN = parseCvmN(rec.cvm);
+            cvmVia = rec.cvmVia || (cvmStageN ? 'staff' : '');
+            syncCvmBar();
+        }
         source = rec.source || source;
         if (sets[setIndex]) sets[setIndex].pts = pts;
         restoreVia = via || restoreVia || 'local';
@@ -971,6 +1080,8 @@
             normSet: normSet,
             source: source,
             setId: sets[setIndex] && sets[setIndex].id,
+            cvm: cvmStageN || 0,
+            cvmVia: cvmVia || '',
             savedAt: new Date().toISOString()
         };
         db[key] = rec;
@@ -1145,7 +1256,7 @@
 
     function remainingView() {
         var left = [];
-        sets.forEach(function (s, i) { if (!viewedSets[i]) left.push(String(i + 1)); });
+        sets.forEach(function (s, i) { if (!viewedSets[i]) left.push(s.id === 'unet' ? 'UNet' : '1502'); });
         return left;
     }
 
@@ -1156,8 +1267,8 @@
         var ready = viewedAll();
         if (host) {
             if (!sets.length) {
-                host.innerHTML = [0, 1, 2].map(function (i) {
-                    return '<button type="button" disabled>' + (i + 1) + '</button>';
+                host.innerHTML = [0, 1].map(function (i) {
+                    return '<button type="button" disabled>' + (i ? '1502' : 'UNet') + '</button>';
                 }).join('');
                 if (adopt) adopt.disabled = true;
             } else {
@@ -1165,7 +1276,7 @@
                     var on = i === setIndex;
                     return '<button type="button" class="' + (on ? 'is-on' : '') + '" data-set="' + i +
                         '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' + (s.label || ('Set ' + (i + 1))) +
-                        '">' + (i + 1) + '</button>';
+                        '">' + (s.id === 'unet' ? 'UNet' : '1502') + '</button>';
                 }).join('');
                 host.querySelectorAll('button').forEach(function (btn) {
                     btn.onclick = function () {
@@ -1217,6 +1328,12 @@
         extraTouched = {};
         extra = {};
         seedExtra(true);
+        if (s.extra) {
+            Object.keys(s.extra).forEach(function (id) {
+                var p = s.extra[id];
+                if (p && isFinite(p.x) && isFinite(p.y)) extra[id] = { x: p.x, y: p.y };
+            });
+        }
         renderSetBar();
         refresh();
         if (fromUser) {
@@ -1257,14 +1374,19 @@
         if (walkOn) stopWalk({ quiet: true, keepView: true });
         clearUndo();
         userPickedSet = false;
+        cvmAutoTried = false;
         restoreHold = (!skipRestore) ? pendingTrace() : null;
+        if (!restoreHold || !parseCvmN(restoreHold.rec && restoreHold.rec.cvm)) {
+            cvmStageN = 0;
+            cvmVia = '';
+        }
         restoreVia = '';
         var pack = CEPH_LM.detectSets(img, { useTraining: useTraining });
         sets = pack.sets || [];
         lastBox = pack.box || lastBox;
         lastDetect = pack;
-        setTouched = [{}, {}, {}];
-        viewedSets = [false, false, false];
+        setTouched = [{}, {}];
+        viewedSets = [false, false];
         var idx = pack.defaultIndex || 0;
 
         function applyHeld() {
@@ -1286,42 +1408,25 @@
             }
             syncLoadBtn();
             if (done) done(payload);
+            maybeAutoCvm();
         }
         function continueLoad() {
-            var clinicN = pack.clinic || 0;
-            if (useTraining && clinicN > 0) {
-                if (!restoreHold) {
-                    setStatus(tx('st.refClinic', {
-                        n: clinicN,
-                        i: setIndex + 1,
-                        label: setLabelTx(sets[setIndex]) || tx('set.clinic')
-                    }));
-                }
-                finish({
-                    ok: true,
-                    source: source,
-                    via: restoreHold ? restoreHold.via : 'clinic',
-                    publishedSource: sets[setIndex] && sets[setIndex].publishedSource,
-                    trainingSource: pack.trainingSource,
-                    useTraining: true,
-                    setIndex: setIndex,
-                    nSets: sets.length
-                });
-                return;
-            }
             var api = (window.XRAY_AI_API_URL || 'http://127.0.0.1:8877');
             CEPH_LM.detectApi(img, api).then(function (remote) {
-                sets[2] = {
-                    id: 'api',
-                    label: 'AI service',
-                    source: remote.source,
-                    publishedSource: remote.source,
-                    pts: remote.pts
+                sets[0] = {
+                    id: 'unet',
+                    label: 'UNet auto landmarks',
+                    source: remote.source || 'dental_001-unet-29',
+                    publishedSource: /unet/i.test(String(remote.source || ''))
+                        ? 'dental_001-unet-29'
+                        : (remote.source || ''),
+                    pts: remote.pts,
+                    extra: remote.extra || null
                 };
-                if (!userPickedSet && !restoreHold) previewSet(2, false);
+                if (!userPickedSet && !restoreHold) previewSet(0, false);
                 else renderSetBar();
                 if (!restoreHold) {
-                    setStatus(tx('st.threeReady', {
+                    setStatus(tx('st.twoReady', {
                         n: setIndex + 1,
                         label: setLabelTx(sets[setIndex])
                     }));
@@ -1330,13 +1435,15 @@
                     ok: true,
                     source: source,
                     via: restoreHold ? restoreHold.via : (userPickedSet ? 'local' : 'api'),
-                    useTraining: false,
+                    publishedSource: sets[setIndex] && sets[setIndex].publishedSource,
+                    trainingSource: pack.trainingSource,
+                    useTraining: !!useTraining,
                     setIndex: setIndex,
                     nSets: sets.length
                 });
             }).catch(function () {
                 if (!restoreHold) {
-                    setStatus(tx('st.threeLocal', {
+                    setStatus(tx('st.twoLocal', {
                         n: setIndex + 1,
                         label: setLabelTx(sets[setIndex])
                     }));
@@ -1347,7 +1454,7 @@
                     via: restoreHold ? restoreHold.via : 'local',
                     publishedSource: sets[setIndex] && sets[setIndex].publishedSource,
                     trainingSource: pack.trainingSource,
-                    useTraining: false,
+                    useTraining: !!useTraining,
                     setIndex: setIndex,
                     nSets: sets.length
                 });
@@ -1527,7 +1634,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx36';
+        var url = 'extraction.html?v=20261005fx41';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }
@@ -1612,11 +1719,20 @@
         if ($('btnNormCn')) $('btnNormCn').onclick = function () { writeNormSet('chinese'); };
         try { var ag = window.localStorage && localStorage.getItem(AGE_KEY); if (ag === 'child') ageBand = 'child'; } catch (eA) { /* ignore */ }
         try { var sx = window.localStorage && localStorage.getItem(SEX_KEY); if (sx === 'f' || sx === 'm') sexBand = sx; } catch (eS) { /* ignore */ }
+        try { var cv = window.localStorage && localStorage.getItem(CVM_KEY); if (cv) { cvmStageN = parseCvmN(cv); cvmVia = cvmStageN ? 'staff' : ''; } } catch (eC) { /* ignore */ }
         if ($('btnAgeAdult')) $('btnAgeAdult').onclick = function () { writeAge('adult'); };
         if ($('btnAgeChild')) $('btnAgeChild').onclick = function () { writeAge('child'); };
         if ($('btnSexM')) $('btnSexM').onclick = function () { writeSex(sexBand === 'm' ? '' : 'm'); };
         if ($('btnSexF')) $('btnSexF').onclick = function () { writeSex(sexBand === 'f' ? '' : 'f'); };
+        var cvmGroup = $('cvmGroup');
+        if (cvmGroup) {
+            cvmGroup.querySelectorAll('button[data-cvm]').forEach(function (btn) {
+                btn.onclick = function () { writeCvm(btn.getAttribute('data-cvm'), 'staff'); };
+            });
+        }
+        if ($('btnAutoCvm')) $('btnAutoCvm').onclick = function () { pullCvmApi(); };
         syncNormBtn();
+        syncCvmBar();
         if ($('btnAdvanced')) $('btnAdvanced').onclick = function () { setLabMode(!labOpen); };
         setLabMode(false);
         function bindRef(id, onPlus) {
@@ -1808,6 +1924,8 @@
         setNormSet: writeNormSet,
         setAgeBand: writeAge,
         setSexBand: writeSex,
+        setCvm: writeCvm,
+        autoCvm: pullCvmApi,
         calibrate: applyRuler,
         startCalibrate: startCalibrate,
         highlightMeasure: highlightMeasure,
@@ -1850,6 +1968,10 @@
                 normSet: (last.result && last.result.normSet) || normSet,
                 ageBand: ageBand,
                 sexBand: sexBand,
+                cvm: cvmStageN || 0,
+                cvmVia: cvmVia || '',
+                cvmId: last.result && last.result.cvm && last.result.cvm.id,
+                cvmComment: last.result && last.result.summary && last.result.summary.cvmComment,
                 groups: last.result ? last.result.groups.map(function (g) { return g.id; }) : [],
                 patient: ctxInfo,
                 publishedFilms: publishedN(),

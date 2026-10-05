@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx36';
+var BUILD = '20261005fx41';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -235,8 +235,7 @@ var PAGE_SCRIPT = `(async () => {
     out.set0 = CEPH_PAGE.state().source;
     CEPH_PAGE.adoptSet(1);
     out.set1 = CEPH_PAGE.state().source;
-    CEPH_PAGE.adoptSet(2);
-    out.set2 = CEPH_PAGE.state().source;
+    out.set2 = '';
     const locked = typeof CEPH_PAGE.lockAdopt === 'function' ? CEPH_PAGE.lockAdopt() : null;
     out.adopted = !!(locked && locked.ok);
     out.setBarHidden = !!(CEPH_PAGE.state() && CEPH_PAGE.state().setBarHidden);
@@ -264,9 +263,12 @@ var PAGE_SCRIPT = `(async () => {
     out.learnVia = after && after.via;
     out.learnClinic = st2 && st2.clinicFilms;
     out.learnPublished = st2 && st2.publishedFilms;
-    out.learnPublishedSource = st2 && st2.publishedSource;
-    out.learnTrainingSource = st2 && st2.trainingSource;
     out.learnUse = st2 && st2.useTraining;
+    if (typeof CEPH_PAGE.adoptSet === 'function') CEPH_PAGE.adoptSet(1);
+    const stLib = CEPH_PAGE.state();
+    out.learnLibSource = stLib && stLib.source;
+    out.learnPublishedSource = stLib && stLib.publishedSource;
+    out.learnTrainingSource = stLib && stLib.trainingSource;
   }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.setNormSet === 'function') {
     CEPH_PAGE.setNormSet('caucasian');
@@ -288,6 +290,16 @@ var PAGE_SCRIPT = `(async () => {
       CEPH_PAGE.setSexBand('f');
       out.childFNorm = CEPH_PAGE.state().snaNorm;
       out.childFSex = CEPH_PAGE.state().sexBand;
+      CEPH_PAGE.setAgeBand('child');
+      if (typeof CEPH_PAGE.setCvm === 'function') CEPH_PAGE.setCvm(3);
+      out.cvmStage = CEPH_PAGE.state().cvm;
+      out.cvmId = CEPH_PAGE.state().cvmId;
+      out.cvmComment = CEPH_PAGE.state().cvmComment;
+      out.cvmGroup = !!(CEPH_PAGE.state().groups && CEPH_PAGE.state().groups.indexOf('cvm') >= 0);
+      if (typeof CEPH_PAGE.setCvm === 'function') CEPH_PAGE.setCvm(0);
+      out.autoCvmBtn = !!document.getElementById('btnAutoCvm');
+      out.autoCvmFn = typeof CEPH_PAGE.autoCvm === 'function';
+      out.detectCvmApi = !!(window.CEPH_LM && typeof CEPH_LM.detectCvmApi === 'function');
       CEPH_PAGE.setAgeBand('adult');
       CEPH_PAGE.setSexBand('');
       CEPH_PAGE.setNormSet('chinese');
@@ -453,12 +465,22 @@ var PAGE_SCRIPT = `(async () => {
     pass('auto-detect uses the 1502-film mean plus a local edge snap',
         /isbi\+aariz\+pku-/.test(read('ceph/ceph-landmarks.js')) && /refinePts/.test(read('ceph/ceph-landmarks.js')) &&
         /shapes\.json/.test(read('ceph/ceph-landmarks.js')));
+    pass('sidecar owns ResNet-50 UNet for Banana development (service only imports it)',
+        /class UNetHeatmapModel/.test(read('ceph/unet/model.py')) &&
+        /banana_ceph_unet/.test(read('xray-ai-service/ceph/unet.py')) &&
+        /ceph\/unet/.test(read('xray-ai-service/ceph/unet.py')) &&
+        /dental_001-unet-29/.test(read('ceph/unet/infer.py')) &&
+        /def detect_image/.test(read('xray-ai-service/ceph/detect.py')) &&
+        /"via": "mean"/.test(read('xray-ai-service/ceph/detect.py')) &&
+        /payload\.extra/.test(read('ceph/ceph-landmarks.js')));
     pass('sidecar has Published 1502 vs Published + in-house reference modes',
         /btnRefPub/.test(read('ceph/index.html')) && /btnRefPlus/.test(read('ceph/index.html')) &&
         /setUseTraining/.test(read('ceph/ceph.js')) && /useTraining/.test(read('ceph/ceph-landmarks.js')));
-    pass('sidecar shows 3 auto-detect sets and Adopt selection on a compact film bar',
+    pass('sidecar shows 2 auto-detect sets (UNet default + 1502 library) and Adopt selection',
         /setBar/.test(read('ceph/index.html')) && /btnAdoptSet/.test(read('ceph/index.html')) &&
-        /lockAdopt/.test(read('ceph/ceph.js')) && /detectSets/.test(read('ceph/ceph-landmarks.js')));
+        /id: 'unet'/.test(read('ceph/ceph-landmarks.js')) && /id: 'lib1502'/.test(read('ceph/ceph-landmarks.js')) &&
+        !/id: 'imgEdge'/.test(read('ceph/ceph-landmarks.js')) &&
+        /lockAdopt/.test(read('ceph/ceph.js')));
     pass('sidecar has Caucasian vs HK Chinese norms with in/warn/out bands',
         /btnNormCn/.test(read('ceph/index.html')) && /btnNormCauc/.test(read('ceph/index.html')) &&
         /normSet/.test(read('ceph/ceph-analysis.js')) && /band-out/.test(read('ceph/ceph.css')) &&
@@ -467,6 +489,17 @@ var PAGE_SCRIPT = `(async () => {
         /btnAgeAdult/.test(read('ceph/index.html')) && /btnAgeChild/.test(read('ceph/index.html')) &&
         /btnSexM/.test(read('ceph/index.html')) && /btnSexF/.test(read('ceph/index.html')) &&
         /function applyDemo/.test(read('ceph/ceph-analysis.js')) && /setAgeBand/.test(read('ceph/ceph.js')));
+    pass('child CVM is staff-staged CS1–CS6 with an interceptive timing comment',
+        /id="cvmBar"/.test(read('ceph/index.html')) && /function cvmStage/.test(read('ceph/ceph-analysis.js')) &&
+        /Baccetti/.test(read('ceph/ceph-analysis.js')) && /interceptive/.test(read('ceph/ceph-analysis.js')) &&
+        /cvm.cs3/.test(read('ceph/ceph-i18n.js')) && /setCvm/.test(read('ceph/ceph.js')));
+    pass('Auto CVM forks Dental_001 C2–C4 (YOLO + CORAL), staff can still override',
+        /id="btnAutoCvm"/.test(read('ceph/index.html')) && /detectCvmApi/.test(read('ceph/ceph-landmarks.js')) &&
+        /CoralEfficientNet/.test(read('xray-ai-service/ceph/cvm.py')) &&
+        /dental_001-c2c4/.test(read('xray-ai-service/ceph/cvm.py')) &&
+        /ceph\/cvm/.test(read('xray-ai-service/main.py')) &&
+        /pullCvmApi/.test(read('ceph/ceph.js')) && /maybeAutoCvm/.test(read('ceph/ceph.js')) &&
+        /btn.autoCvm/.test(read('ceph/ceph-i18n.js')));
     pass('sidecar calibrates millimetres from a two-click film ruler',
         /btnCalibrate/.test(read('ceph/index.html')) && /applyRuler/.test(read('ceph/ceph.js')) &&
         /not calibrated/.test(read('ceph/ceph-analysis.js')));
@@ -561,7 +594,46 @@ var PAGE_SCRIPT = `(async () => {
         /manwaarkhd\/aariz/.test(read('ceph/data/README.md')) &&
         /alexcorvi\/cephalometric/.test(read('ceph/data/README.md')));
     pass('AI service has a /ceph/landmarks hook',
-        /ceph\/landmarks/.test(read('xray-ai-service/main.py')));
+        /ceph\/landmarks/.test(read('xray-ai-service/main.py')) &&
+        /detect_image/.test(read('xray-ai-service/main.py')) &&
+        /class UNetHeatmapModel/.test(read('ceph/unet/model.py')));
+    var unetHome = child_process.spawnSync(process.platform === 'win32' ? 'py' : 'python3', [
+        '-3', path.join(root, 'ceph', 'unet', 'verify.py')
+    ], { cwd: path.join(root, 'ceph', 'unet'), encoding: 'utf8' });
+    if (unetHome.error || unetHome.status !== 0) {
+        unetHome = child_process.spawnSync('python', [
+            path.join(root, 'ceph', 'unet', 'verify.py')
+        ], { cwd: path.join(root, 'ceph', 'unet'), encoding: 'utf8' });
+    }
+    pass('Banana sidecar UNet clone maps Aariz 29 → ISBI 19 (no weights required)',
+        unetHome.status === 0 && /ok banana unet clone/.test(String(unetHome.stdout || '')),
+        String((unetHome.stdout || '') + (unetHome.stderr || '')).slice(0, 180));
+    var unetPy = child_process.spawnSync(process.platform === 'win32' ? 'py' : 'python3', [
+        '-3', '-c', 'from ceph.verify_unet import main; main()'
+    ], { cwd: path.join(root, 'xray-ai-service'), encoding: 'utf8' });
+    if (unetPy.error || unetPy.status !== 0) {
+        unetPy = child_process.spawnSync('python', [
+            '-c', 'from ceph.verify_unet import main; main()'
+        ], { cwd: path.join(root, 'xray-ai-service'), encoding: 'utf8' });
+    }
+    pass('AI service shim maps Aariz 29 → ISBI 19 from the sidecar UNet',
+        unetPy.status === 0 && /ok unet map/.test(String(unetPy.stdout || '')),
+        String((unetPy.stdout || '') + (unetPy.stderr || '')).slice(0, 180));
+    pass('AI service has a /ceph/cvm hook (Dental_001 C2–C4)',
+        /@app.post\("\/ceph\/cvm"\)/.test(read('xray-ai-service/main.py')) &&
+        /class CoralEfficientNet/.test(read('xray-ai-service/ceph/cvm.py')) &&
+        /best_cvm_v2_768px/.test(read('xray-ai-service/ceph/cvm.py')));
+    var cvmPy = child_process.spawnSync(process.platform === 'win32' ? 'py' : 'python3', [
+        '-3', '-c', 'from ceph.verify_cvm import main; main()'
+    ], { cwd: path.join(root, 'xray-ai-service'), encoding: 'utf8' });
+    if (cvmPy.error || cvmPy.status !== 0) {
+        cvmPy = child_process.spawnSync('python', [
+            '-c', 'from ceph.verify_cvm import main; main()'
+        ], { cwd: path.join(root, 'xray-ai-service'), encoding: 'utf8' });
+    }
+    pass('CVM fork fallback bbox + status (no weights required)',
+        cvmPy.status === 0 && /ok fallback/.test(String(cvmPy.stdout || '')),
+        String((cvmPy.stdout || '') + (cvmPy.stderr || '')).slice(0, 180));
     pass('AI service stores clinic training (not published 1502) at /ceph/reference',
         /ceph\/reference/.test(read('xray-ai-service/main.py')) &&
         /clinic_reference\.json/.test(read('xray-ai-service/ceph/reference.py')) &&
@@ -596,6 +668,14 @@ var PAGE_SCRIPT = `(async () => {
         box.CEPH_AN.getSet('caucasian').measures.SNA.mean === 82);
     pass('child + female stacks to SNA 80.5',
         childFRes.groups[0].rows[0].norm === '80.5 ± 2' && childFRes.age === 'child' && childFRes.sex === 'f');
+    var cvm3 = box.CEPH_AN.cvmStage(3);
+    var childCvm = box.CEPH_AN.run(pts, 0.1, { age: 'child', cvm: 3 });
+    pass('adult analysis has no CVM group', res.groups.every(function (g) { return g.id !== 'cvm'; }));
+    pass('child CS3 CVM comment is the peak interceptive window',
+        !!(cvm3 && cvm3.id === 'CS3' && /peak/i.test(cvm3.comment) && /interceptive|functional/i.test(cvm3.comment)) &&
+        childCvm.groups.some(function (g) { return g.id === 'cvm'; }) &&
+        childCvm.summary && /CS3/.test(String(childCvm.summary.cvm || '')) &&
+        /Peak window/.test(String(childCvm.summary.cvmComment || '')));
     var cn = box.CEPH_AN.run(pts, 0.1, { normSet: 'chinese' });
     pass('HK Chinese SNA norm is 83.8 ± 3.2', cn.normSet === 'chinese' && /83\.8/.test(cn.groups[0].rows[0].norm) &&
         cn.groups[0].rows[0].norm !== res.groups[0].rows[0].norm, cn.groups[0].rows[0].norm);
@@ -1015,11 +1095,12 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: a profile polyline is drawn on the film',
             live && live.profileN >= 4,
             live ? ('profileN=' + live.profileN) : 'none');
-        pass('live: 3 auto-detect sets can be viewed then adopted',
-            live && live.nSets === 3 && /imgmean\+edge/.test(String(live.set0 || '')) &&
+        pass('live: 2 auto-detect sets — UNet (default) and 1502 library average',
+            live && live.nSets === 2 && /unet/.test(String(live.setIds || '')) && /lib1502/.test(String(live.setIds || '')) &&
+            (/dental_001-unet/.test(String(live.set0 || '')) || /isbi\+aariz\+pku-/.test(String(live.set0 || ''))) &&
             /boxmean\+edge/.test(String(live.set1 || '')) && live.set0 !== live.set1 &&
             live.adopted === true && live.setBarHidden === true,
-            live ? ('ids=' + live.setIds + ' 1=' + live.set0 + ' 2=' + live.set1 + ' hidden=' + live.setBarHidden) : 'none');
+            live ? ('ids=' + live.setIds + ' unet=' + live.set0 + ' lib=' + live.set1 + ' hidden=' + live.setBarHidden) : 'none');
         pass('live: Adopt starts a Go/Po/Or/Ar/apex/Pn walk-through',
             live && live.walkAdoptOn === true && live.walkAdoptId === 'Go',
             live ? ('adoptWalk=' + live.walkAdoptId) : 'none');
@@ -1062,6 +1143,13 @@ var PAGE_SCRIPT = `(async () => {
             live.adultNorm !== live.childNorm &&
             live.childFSex === 'f' && /80\.5/.test(String(live.childFNorm || '')),
             live ? ('adult=' + live.adultNorm + ' child=' + live.childNorm + ' childF=' + live.childFNorm) : 'none');
+        pass('live: child CVM CS3 shows a peak interceptive comment',
+            live && live.cvmStage === 3 && live.cvmId === 'CS3' && live.cvmGroup === true &&
+            /peak/i.test(String(live.cvmComment || '')),
+            live ? ('cvm=' + live.cvmId + ' ' + live.cvmComment) : 'none');
+        pass('live: Auto CVM is wired (C2–C4 API); missing weights stay manual',
+            live && live.autoCvmBtn === true && live.autoCvmFn === true && live.detectCvmApi === true,
+            live ? ('btn=' + live.autoCvmBtn + ' fn=' + live.autoCvmFn) : 'none');
         pass('live: two-click ruler calibrates millimetres',
             live && live.calBefore === false && live.calOk === true && live.calAfter === true &&
             live.calMmPerPx === 0.1,
@@ -1110,12 +1198,12 @@ var PAGE_SCRIPT = `(async () => {
             live && live.learnOffUse === false && live.learnOffVia !== 'clinic' &&
             !/training:clinic-train-/.test(String(live.learnOffSource || '')),
             live ? ('off via=' + live.learnOffVia + ' src=' + live.learnOffSource) : 'none');
-        pass('live: auto-detect overlays clinic training without mixing into 1502',
-            live && live.learnUse === true && live.learnVia === 'clinic' && live.learnPublished === 1502 &&
-            /isbi\+aariz\+pku-1502/.test(String(live.learnPublishedSource || live.learnSource || '')) &&
-            /training:clinic-train-/.test(String(live.learnSource || '')) &&
+        pass('live: auto-detect overlays clinic training on the 1502 set without mixing into 1502',
+            live && live.learnUse === true && live.learnPublished === 1502 &&
+            /isbi\+aariz\+pku-1502/.test(String(live.learnPublishedSource || '')) &&
+            /training:clinic-train-/.test(String(live.learnLibSource || '')) &&
             !/\+clinic-/.test(String(live.learnPublishedSource || '')),
-            live ? ('via=' + live.learnVia + ' pub=' + live.learnPublishedSource + ' train=' + live.learnTrainingSource) : 'none');
+            live ? ('via=' + live.learnVia + ' lib=' + live.learnLibSource + ' pub=' + live.learnPublishedSource + ' train=' + live.learnTrainingSource) : 'none');
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));
     } finally {

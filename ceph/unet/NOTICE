@@ -1,0 +1,18 @@
+Banana lateral-ceph sidecar — ResNet-50 UNet (owned development tree)
+
+This directory is Banana’s working copy of the HyunchanAn/Dental_001
+ResNet-50 UNet heatmap landmark model. Edit files here. The AI service
+(`xray-ai-service/ceph/unet.py`) only imports this package.
+
+Upstream (MIT):
+  https://github.com/HyunchanAn/Dental_001
+  src/landmark/model.py
+  src/landmark/dataset.py
+  src/config.py
+
+Copyright (c) 2023 Muhammad Anwaar Khalid
+See LICENSE (MIT) in this folder.
+
+Banana additions (ISBI-19 map, extras U1a/L1a/Pn, clinic weight lookup,
+sidecar infer/train) stay out of the published 1502 library.
+Weights (*.pth) are not committed.

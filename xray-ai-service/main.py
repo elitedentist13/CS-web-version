@@ -213,7 +213,10 @@ CS web app to load radiographs — it calls this service automatically.</p>
   <li><a href="/health"><code>/health</code></a> — readiness JSON</li>
   <li><a href="/docs"><code>/docs</code></a> — interactive API docs</li>
   <li><code>POST /analyze</code> — radiograph upload (used by the app)</li>
-  <li><code>POST /ceph/landmarks</code> — lateral ceph 19 ISBI points (400-film senior mean until a model is trained)</li>
+  <li><code>GET /ceph/landmarks</code> — UNet landmark status (weights present or not)</li>
+  <li><code>POST /ceph/landmarks</code> — 19 ISBI points (Banana sidecar ResNet-50 UNet when weights exist; else 1502 mean)</li>
+  <li><code>GET /ceph/cvm</code> — C2–C4 classifier status (weights present or not)</li>
+  <li><code>POST /ceph/cvm</code> — C2–C4 CVM stage (Dental_001 YOLO + CORAL; CS1–CS6)</li>
   <li><code>GET / POST /ceph/reference</code> — clinic training traces (kept separate from the 1502 published shapes)</li>
 </ul>
 </body></html>"""
@@ -270,6 +273,12 @@ async def health():
     }
 
 
+@app.get("/ceph/landmarks")
+async def ceph_landmarks_status():
+    from ceph import unet as ceph_unet
+    return ceph_unet.status()
+
+
 @app.post("/ceph/landmarks")
 async def ceph_landmarks(file: UploadFile = File(...)):
     raw = await file.read()
@@ -278,12 +287,11 @@ async def ceph_landmarks(file: UploadFile = File(...)):
     try:
         image = Image.open(io.BytesIO(raw))
         image.load()
-        w, h = image.size
     except Exception as exc:
         raise HTTPException(status_code=400, detail="unreadable image: " + str(exc))
     try:
-        from ceph.detect import detect_landmarks
-        return detect_landmarks(w, h)
+        from ceph.detect import detect_image
+        return detect_image(image)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -294,6 +302,30 @@ async def ceph_reference_get():
     db = ceph_ref.load()
     st = ceph_ref.stats(db)
     return {"ok": True, "films": st["films"], "points": st["points"], "traces": db.get("traces") or []}
+
+
+@app.get("/ceph/cvm")
+async def ceph_cvm_status():
+    from ceph import cvm as ceph_cvm
+    return ceph_cvm.status()
+
+
+@app.post("/ceph/cvm")
+async def ceph_cvm(file: UploadFile = File(...), landmarks: str = Form(None)):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="empty upload")
+    try:
+        image = Image.open(io.BytesIO(raw))
+        image.load()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="unreadable image: " + str(exc))
+    from ceph import cvm as ceph_cvm
+    pts = ceph_cvm.parse_landmarks(landmarks)
+    out = ceph_cvm.detect_cvm(image, pts)
+    if not out.get("ok") and out.get("error") == "weights":
+        raise HTTPException(status_code=503, detail=out)
+    return out
 
 
 @app.post("/ceph/reference")

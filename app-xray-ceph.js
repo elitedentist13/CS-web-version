@@ -299,7 +299,9 @@ function xrayCephSaveTracing(xrayId, tracing, opt) {
         mmPerPx: tracing.mmPerPx,
         calibrated: !!tracing.calibrated,
         normSet: tracing.normSet,
-        source: tracing.source
+        source: tracing.source,
+        cvm: tracing.cvm || 0,
+        cvmVia: tracing.cvmVia || ''
     };
     xrayCephPatchMem(xrayId, body);
     return xrayCephStampFilm(xrayId, body).then(function (base) {

@@ -2659,21 +2659,12 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
 # starts digirex.exe. It never touches EzDent-i Linkage.xml, NNTBridge
 # args, RAYBridge, or MyRay. Same :17890 listener -- no second port.
 #
-# CORRECTED 2026-09-03 (Po Lam / "PL" clinic bug report: Traditional
-# Chinese chart name fails to display in Digirex after opening a patient
-# from Banana). Root cause: Switch.ini was written as plain UTF-8 (no
-# BOM). Apixia's own Switch.ini reader is a legacy Win32 INI parser with
-# no Unicode awareness -- like every other non-BOM text file on this
-# fleet (see this file's own 2026-08-20 "lost its UTF-8 BOM" changelog
-# entry), it decodes bytes using the PC's system ANSI code page, which on
-# every one of this clinic's Windows installs is Traditional Chinese Big5
-# (950). Decoding UTF-8's multi-byte sequences as single/double-byte Big5
-# turns the Chinese name into mojibake or an empty-looking field --
-# exactly this report. Fix: Get-DigirexIniEncoding below writes Switch.ini
-# using the OS's own ANSI code page (Big5 here, but this adapts
-# automatically to whatever locale a given clinic PC actually runs,
-# matching the same page Digirex itself reads with) instead of a
-# hardcoded UTF-8. See Get-DigirexIniEncoding for the override hook.
+# CORRECTED 2026-10-05 (Po Lam): do not send the Chinese chart name to
+# Apixia Digirex. Switch.ini is a legacy ANSI file. Putting the Chinese
+# name in Last= makes Digirex show a garbled name and then refuse to
+# export the image. First= keeps the English patient_name only, with any
+# Chinese characters removed. Last= is left blank. Chart ID, sex and DOB
+# are unchanged, so an existing Digirex chart still matches.
 # ════════════════════════════════════════════════════════════════
 
 function Convert-DigirexPatientId($Value) {
@@ -2711,23 +2702,16 @@ function Convert-DigirexBirthParts($Value) {
     return $out
 }
 
+function Remove-DigirexNonAscii([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $clean = [regex]::Replace($Value, '[^\x20-\x7E]', ' ')
+    return ([regex]::Replace($clean, '\s+', ' ')).Trim()
+}
+
 function Split-DigirexPatientName($Patient) {
-    $first = [string]$Patient.patient_name
-    $last = [string]$Patient.chinese_name
-    $first = $first.Trim()
-    $last = $last.Trim()
-    if ($first -and $last) {
-        return [ordered]@{ First = $first; Last = $last }
-    }
-    if ($first) {
-        $split = Split-RayPatientName $first
-        if ($split.last -and $split.first) {
-            return [ordered]@{ First = $split.first; Last = $split.last }
-        }
-        return [ordered]@{ First = $first; Last = "" }
-    }
-    if ($last) { return [ordered]@{ First = $last; Last = "" } }
-    return [ordered]@{ First = ""; Last = "" }
+    # Chinese name is never sent. Apixia garbles it and then cannot export.
+    $first = Remove-DigirexNonAscii ([string]$Patient.patient_name)
+    return [ordered]@{ First = $first; Last = "" }
 }
 
 function Get-DigirexRegistryExePaths {
@@ -3070,6 +3054,9 @@ function Start-DigirexBridgePatient($Resolved, $Patient) {
     $clipPatient = [ordered]@{}
     foreach ($k in $Patient.Keys) { $clipPatient[$k] = $Patient[$k] }
     $clipPatient.patient_no = $chartNo
+    $clipNames = Split-DigirexPatientName $Patient
+    $clipPatient.patient_name = $clipNames.First
+    $clipPatient.chinese_name = ""
     Copy-PatientContextToClipboard $clipPatient
 
     return [ordered]@{
@@ -3807,7 +3794,9 @@ function Invoke-SelfTest {
     Assert-Equal "Day"   "23"   $dxDob.Day
     $dxNames = Split-DigirexPatientName ([ordered]@{ patient_name = "HSIUNG KWAN MING"; chinese_name = "熊關明" })
     Assert-Equal "First is English name" "HSIUNG KWAN MING" $dxNames.First
-    Assert-Equal "Last is Chinese name"  "熊關明"            $dxNames.Last
+    Assert-Equal "Last omits Chinese name" ""              $dxNames.Last
+    $dxMixed = Split-DigirexPatientName ([ordered]@{ patient_name = "CHAN 陳大文"; chinese_name = "陳大文" })
+    Assert-Equal "Chinese characters stripped from First" "CHAN" $dxMixed.First
     $dxPatient = Build-PatientContext (Parse-Query (
         "/open/digirex?patient_no=" + [Uri]::EscapeDataString("PL001287") +
         "&patient_name=" + [Uri]::EscapeDataString("HSIUNG KWAN MING") +
@@ -3821,7 +3810,8 @@ function Invoke-SelfTest {
     Assert-Equal "PL prefix not left on ID"     $false ($dxIni -like "*ID=PL001287*")
     Assert-Equal "Gender word Male"             $true ($dxIni -like "*Gender=Male*")
     Assert-Equal "First English"                $true ($dxIni -like "*First=HSIUNG KWAN MING*")
-    Assert-Equal "Last Chinese"                 $true ($dxIni -like "*Last=熊關明*")
+    Assert-Equal "Last is blank"                $true ($dxIni -match '(?m)^Last=\r?$')
+    Assert-Equal "Chinese name not in Switch.ini" $false ($dxIni -like "*熊關明*")
     Assert-Equal "Year 1969"                    $true ($dxIni -like "*Year=1969*")
     Assert-Equal "Month 5"                      $true ($dxIni -like "*Month=5*")
     Assert-Equal "Day 23"                       $true ($dxIni -like "*Day=23*")
@@ -3849,13 +3839,8 @@ function Invoke-SelfTest {
         Assert-Equal "Switch.ini exists" $true (Test-Path -LiteralPath $iniPath)
         $roundTripDentist = Read-DigirexSwitchIniDentistId $iniPath
         Assert-Equal "Read-back dentist ID" "apixia" $roundTripDentist
-        # CORRECTED 2026-09-03: proves the fix for the "Chinese chart name
-        # doesn't display in Digirex" bug -- writing with the wrong
-        # encoding (e.g. plain UTF-8, the old behavior) and reading back
-        # with the OS ANSI code page (what Apixia's own reader does) would
-        # turn "熊關明" into mojibake, failing this assertion.
         $dxReadBack = [IO.File]::ReadAllText($iniPath, (Get-DigirexIniEncoding))
-        Assert-Equal "Chinese chart name survives the Switch.ini write/read round-trip" $true ($dxReadBack -like "*Last=熊關明*")
+        Assert-Equal "Switch.ini read-back has no Chinese name" $false ($dxReadBack -like "*熊關明*")
         $serverIni = @"
 [Account]
 Remember=1

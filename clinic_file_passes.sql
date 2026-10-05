@@ -38,9 +38,12 @@ create policy clinic_file_passes_read
 create policy clinic_file_passes_write
     on public.clinic_file_passes for all using (true) with check (true);
 
--- ── Private storage bucket (500 MB objects, 3-day app expiry) ───
+-- ── Private storage bucket (5 GB objects, 3-day app expiry) ─────
+-- Supabase Pro. Before running this, set Dashboard → Storage →
+-- Global file size limit to at least 5 GB (5368709120 bytes).
+-- The global limit wins over this bucket limit.
 insert into storage.buckets (id, name, public, file_size_limit)
-values ('clinic-pass', 'clinic-pass', false, 524288000)
+values ('clinic-pass', 'clinic-pass', false, 5368709120)
 on conflict (id) do update
     set public = excluded.public,
         file_size_limit = excluded.file_size_limit;

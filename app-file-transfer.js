@@ -1,18 +1,27 @@
 // ════════════════════════════════════════════════════════════════
 // app-file-transfer.js — Clinic file transfer (Tools → File Transfer)
 //   • Fast Pass: upload to private storage, 3-day code (clinic_file_passes.sql)
+//     Cap is 5 GB (Supabase Pro). Files over 512 MB are one resumable object.
 //   • Direct: WebRTC data channel, no storage (Supabase Realtime signaling)
+//     No size cap. Files over 500 MB are written to disk as they arrive,
+//     so the transfer lasts as long as both clinics keep this page open.
 // ════════════════════════════════════════════════════════════════
 var FILEXFER = (function () {
     'use strict';
 
     var BUCKET = 'clinic-pass';
     var TABLE = 'clinic_file_passes';
-    var MAX_BYTES = 500 * 1024 * 1024;
+    var PASS_MAX = 5 * 1024 * 1024 * 1024;
+    /** Above this, Direct asks for a save location and streams to disk. */
+    var DIRECT_MEMORY_MAX = 500 * 1024 * 1024;
+    /** Above this, Fast Pass is one TUS object (not 8 MB parts held in RAM). */
+    var PARALLEL_MAX = 512 * 1024 * 1024;
+    /** Signed URL must outlive a multi-GB download on a clinic link. */
+    var SIGNED_TTL_SEC = 4 * 60 * 60;
     var EXPIRE_MS = 3 * 24 * 60 * 60 * 1000;
     var CODE_ALPH = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
     var CODE_LEN = 4;
-    var LIVE_CHUNK = 64 * 1024;
+    var LIVE_CHUNK = 16 * 1024;
     var LIVE_BUF_HIGH = 4 * 1024 * 1024;
     var LIVE_BUF_LOW = 512 * 1024;
     var PART_SIZE = 8 * 1024 * 1024;
@@ -55,7 +64,12 @@ var FILEXFER = (function () {
             fallingBack: false,
             pollStarted: false,
             closed: false,
-            done: false
+            done: false,
+            finishing: false,
+            awaitingSave: false,
+            helloSent: false,
+            writer: null,
+            writeChain: null
         };
     }
 
@@ -89,7 +103,12 @@ var FILEXFER = (function () {
         var b = Number(n) || 0;
         if (b < 1024) return b + ' B';
         if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
-        return (b / (1024 * 1024)).toFixed(1) + ' MB';
+        if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB';
+        return (b / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    }
+    function safeDownloadName(name) {
+        var s = String(name || 'download').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+        return s || 'download';
     }
     function fmtWhen(iso) {
         if (!iso) return '';
@@ -206,8 +225,13 @@ var FILEXFER = (function () {
         if (prev.lookTimer) clearTimeout(prev.lookTimer);
         if (prev.iceTimer) clearTimeout(prev.iceTimer);
         if (prev.failTimer) clearTimeout(prev.failTimer);
+        prev.closed = true;
         try { if (prev.dc) prev.dc.close(); } catch (e) {}
         try { if (prev.pc) prev.pc.close(); } catch (e2) {}
+        try {
+            if (prev.writer && !prev.done && prev.writer.abort) prev.writer.abort();
+        } catch (e4) {}
+        prev.writer = null;
         if (prev.channel && typeof SB !== 'undefined' && SB.removeChannel) {
             try { SB.removeChannel(prev.channel); } catch (e3) {}
         }
@@ -366,11 +390,26 @@ var FILEXFER = (function () {
         var role = live.role;
         closePeerOnly();
         if (role === 'recv' && code) {
+            var tooBigForPass = live.meta && Number(live.meta.size) > PASS_MAX;
+            if (live.writer && live.writer.abort) {
+                try { live.writer.abort(); } catch (eAbort) {}
+                live.writer = null;
+            }
+            if (tooBigForPass) {
+                stopLive({ silent: true });
+                status(trKey('filexfer.liveFailNoPass'), 'bad');
+                return;
+            }
             status(trKey('filexfer.liveFailLookup'), 'warn');
             pollForPass(code);
             return;
         }
         if (role === 'send' && file && code) {
+            if (file.size > PASS_MAX) {
+                stopLive({ silent: true });
+                status(trKey('filexfer.liveFailNoPass'), 'bad');
+                return;
+            }
             status(trKey('filexfer.liveFailUpload'), 'warn');
             setProgress(1);
             savePass(code, file, note, destId, destLabel, function (pct, phase) {
@@ -471,7 +510,7 @@ var FILEXFER = (function () {
             if (!live.done) schedulePeerFail('recv-dc-error');
         };
         dc.onclose = function () {
-            if (!live.done) schedulePeerFail('recv-dc-close');
+            if (!live.done && !live.finishing) schedulePeerFail('recv-dc-close');
         };
         if (dc.readyState === 'open') clearIceWatch();
     }
@@ -497,6 +536,10 @@ var FILEXFER = (function () {
         }
         function takeBuf(buf) {
             if (!buf) return;
+            if (live.writer) {
+                enqueueWrite(buf);
+                return;
+            }
             live.chunks.push(buf);
             live.received += buf.byteLength || 0;
             noteLivePct(live.expected ? Math.round((live.received / live.expected) * 100) : 0, false);
@@ -508,7 +551,68 @@ var FILEXFER = (function () {
         takeBuf(data);
     }
 
+    function enqueueWrite(buf) {
+        var session = live;
+        var n = buf.byteLength || 0;
+        session.writeChain = (session.writeChain || Promise.resolve()).then(function () {
+            if (session.closed || !session.writer) return;
+            return session.writer.write(buf);
+        }).then(function () {
+            if (session.closed || session !== live) return;
+            session.received += n;
+            noteLivePct(session.expected ? Math.round((session.received / session.expected) * 100) : 0, false);
+        }).catch(function () {
+            if (!session.done && !session.closed && session === live) schedulePeerFail('disk-write');
+        });
+    }
+
+    function acceptLiveFile() {
+        var meta = live.meta || {};
+        if (typeof window.showSaveFilePicker !== 'function') {
+            status(trKey('filexfer.needDisk'), 'bad');
+            return;
+        }
+        var btn = gg('fx_live_save');
+        if (btn) btn.disabled = true;
+        window.showSaveFilePicker({ suggestedName: safeDownloadName(meta.name) }).then(function (handle) {
+            return handle.createWritable().then(function (writer) {
+                live.writer = writer;
+                live.writeChain = Promise.resolve();
+                live.awaitingSave = false;
+                live.helloSent = true;
+                status(trKey('filexfer.liveConnecting'), 'work');
+                renderLiveRecvCard(false);
+                sig({ t: 'hello' });
+            });
+        }).catch(function (err) {
+            if (btn) btn.disabled = false;
+            if (err && err.name === 'AbortError') {
+                status(trKey('filexfer.liveSaveHint'), 'warn');
+                return;
+            }
+            status(trReplKey('filexfer.fail', { MSG: (err && err.message) || String(err) }), 'bad');
+        });
+    }
+
     function finishLiveRecv() {
+        if (live.finishing || live.done) return;
+        if (live.writer) {
+            var session = live;
+            session.finishing = true;
+            session.writeChain = (session.writeChain || Promise.resolve()).then(function () {
+                if (session.writer) return session.writer.close();
+            }).then(function () {
+                session.writer = null;
+                session.done = true;
+                setProgress(100);
+                status(trKey('filexfer.liveRecvDone'), 'ok');
+                renderLiveRecvCard(true);
+            }).catch(function (err) {
+                session.finishing = false;
+                status(trReplKey('filexfer.fail', { MSG: (err && err.message) || String(err) }), 'bad');
+            });
+            return;
+        }
         live.done = true;
         var type = (live.meta && live.meta.type) || 'application/octet-stream';
         var name = (live.meta && live.meta.name) || 'download';
@@ -531,6 +635,10 @@ var FILEXFER = (function () {
         var box = gg('fx_found');
         if (!box) return;
         var meta = live.meta || {};
+        var saveBtn = (!done && live.awaitingSave)
+            ? '<button type="button" class="fx-btn fx-btn-primary" id="fx_live_save">' +
+                esc(trKey('filexfer.liveSave')) + '</button>'
+            : '';
         box.innerHTML =
             '<div class="fx-pass-card">' +
                 '<div class="fx-pass-name">' + esc(meta.name || trKey('filexfer.liveConnecting')) + '</div>' +
@@ -540,9 +648,12 @@ var FILEXFER = (function () {
                     (meta.note ? '<br>' + esc(meta.note) : '') +
                     '<br>' + esc(done ? trKey('filexfer.liveRecvDone') : trKey('filexfer.modeDirect')) +
                 '</div>' +
-                '<div id="fx_prog" class="fx-progress"' + (done ? ' style="display:none;"' : '') +
+                saveBtn +
+                '<div id="fx_prog" class="fx-progress"' + (done || live.awaitingSave ? ' style="display:none;"' : '') +
                     '><span id="fx_prog_bar"></span></div>' +
             '</div>';
+        var saveEl = gg('fx_live_save');
+        if (saveEl) saveEl.addEventListener('click', acceptLiveFile);
     }
 
     function createSenderPc() {
@@ -589,6 +700,7 @@ var FILEXFER = (function () {
     function onLiveSignal(msg) {
         if (!msg || !msg.t || live.closed) return;
         if (msg.t === 'ready' && live.role === 'recv') {
+            if (live.helloSent || live.awaitingSave || live.pc || live.writer || live.done) return;
             if (msg.destId && myClinicId() && String(msg.destId) !== myClinicId()) {
                 status(trReplKey('filexfer.wrongClinic', { CLINIC: msg.destLabel || msg.destId }), 'bad');
                 stopLive({ silent: true });
@@ -605,6 +717,17 @@ var FILEXFER = (function () {
                 clearTimeout(live.lookTimer);
                 live.lookTimer = null;
             }
+            var incoming = Number(msg.size) || 0;
+            if (incoming > DIRECT_MEMORY_MAX) {
+                live.awaitingSave = true;
+                renderLiveRecvCard();
+                status(trKey(typeof window.showSaveFilePicker === 'function'
+                    ? 'filexfer.liveSaveHint'
+                    : 'filexfer.needDisk'), typeof window.showSaveFilePicker === 'function' ? 'work' : 'bad');
+                return;
+            }
+            live.awaitingSave = false;
+            live.helloSent = true;
             renderLiveRecvCard();
             status(trKey('filexfer.liveConnecting'), 'work');
             sig({ t: 'hello' });
@@ -819,7 +942,7 @@ var FILEXFER = (function () {
             '</p>' +
             '<label class="fx-drop" id="fx_drop">' +
                 '<span class="fx-drop-title">' + esc(trKey('filexfer.dropTitle')) + '</span>' +
-                '<span class="fx-drop-sub">' + esc(trKey('filexfer.fileHint')) + '</span>' +
+                '<span class="fx-drop-sub">' + esc(trKey(sendMode === 'direct' ? 'filexfer.fileHintDirect' : 'filexfer.fileHint')) + '</span>' +
                 '<span class="fx-file-name" id="fx_fname">' + esc(fname) + '</span>' +
                 '<input id="fx_file" type="file">' +
             '</label>' +
@@ -869,7 +992,7 @@ var FILEXFER = (function () {
         if (!drop || !inp) return;
         function take(file) {
             if (!file) return;
-            if (file.size > MAX_BYTES) {
+            if (sendMode !== 'direct' && file.size > PASS_MAX) {
                 status(trKey('filexfer.tooBig'), 'bad');
                 chosenFile = null;
                 return;
@@ -1217,6 +1340,7 @@ var FILEXFER = (function () {
         var job = file.size <= TUS_CHUNK
             ? uploadSigned(path, file, onPct)
             : uploadTus(path, file, onPct).catch(function (err) {
+                if (file.size > PARALLEL_MAX) throw err;
                 console.warn('[FILEXFER] TUS upload failed, using signed PUT', err);
                 return uploadSigned(path, file, onPct);
             });
@@ -1224,7 +1348,7 @@ var FILEXFER = (function () {
     }
 
     function uploadFile(code, file, onPct) {
-        if (file.size > PART_SIZE) {
+        if (file.size > PART_SIZE && file.size <= PARALLEL_MAX) {
             return uploadParallel(code, file, onPct).catch(function (err) {
                 console.warn('[FILEXFER] parallel upload failed, using single stream', err);
                 return uploadSingle(code, file, onPct);
@@ -1239,10 +1363,17 @@ var FILEXFER = (function () {
             return SB.storage.from(BUCKET).remove([path]).then(function () {}, function () {});
         }
         var prefix = path.replace(/\/manifest\.json$/i, '');
-        return SB.storage.from(BUCKET).list(prefix, { limit: 200 }).then(function (r) {
-            var names = ((r && r.data) || []).map(function (f) {
-                return prefix + '/' + f.name;
+        var names = [];
+        var page = 100;
+        function nextPage(offset) {
+            return SB.storage.from(BUCKET).list(prefix, { limit: page, offset: offset }).then(function (r) {
+                var rows = (r && r.data) || [];
+                rows.forEach(function (f) { names.push(prefix + '/' + f.name); });
+                if (rows.length < page) return names;
+                return nextPage(offset + rows.length);
             });
+        }
+        return nextPage(0).then(function () {
             if (names.indexOf(path) < 0) names.push(path);
             if (!names.length) return;
             return SB.storage.from(BUCKET).remove(names);
@@ -1302,7 +1433,6 @@ var FILEXFER = (function () {
     function doDirectSend() {
         if (!isLoggedIn()) return status(trKey('filexfer.needLogin'), 'bad');
         if (!chosenFile) return status(trKey('filexfer.needFile'), 'bad');
-        if (chosenFile.size > MAX_BYTES) return status(trKey('filexfer.tooBig'), 'bad');
         if (!hasWebrtc()) return status(trKey('filexfer.needWebrtc'), 'bad');
         if (typeof SB === 'undefined' || !SB.channel) return status(trKey('filexfer.liveNeedRt'), 'bad');
 
@@ -1330,7 +1460,7 @@ var FILEXFER = (function () {
     function doSend() {
         if (!isLoggedIn()) return status(trKey('filexfer.needLogin'), 'bad');
         if (!chosenFile) return status(trKey('filexfer.needFile'), 'bad');
-        if (chosenFile.size > MAX_BYTES) return status(trKey('filexfer.tooBig'), 'bad');
+        if (chosenFile.size > PASS_MAX) return status(trKey('filexfer.tooBig'), 'bad');
         if (typeof SB === 'undefined' || !SB.from) return status(trKey('filexfer.setup'), 'bad');
 
         var destId = (gg('fx_dest') && gg('fx_dest').value) || '';
@@ -1448,12 +1578,11 @@ var FILEXFER = (function () {
         status(trKey('filexfer.liveLooking'), 'work');
         live = emptyLive();
         subscribeLive(code, 'recv').then(function () {
-            sig({ t: 'hello' });
             live.lookTimer = setTimeout(function () {
-                if (live.meta || live.pc) return;
+                if (live.meta || live.pc || live.awaitingSave) return;
                 stopLive({ silent: true });
                 storageLookup(code);
-            }, 2800);
+            }, 7000);
         }).catch(function () {
             stopLive({ silent: true });
             storageLookup(code);
@@ -1486,14 +1615,53 @@ var FILEXFER = (function () {
         status(trReplKey('filexfer.downloading', { PCT: String(n) }), 'work');
     }
 
+    /** Write a large Fast Pass object straight to disk. The signed URL must stay valid for the whole download. */
+    function streamDownload(url, name, totalHint) {
+        function pumpTo(writer) {
+            return fetch(url).then(function (res) {
+                if (!res.ok || !res.body) throw new Error('Download failed (' + res.status + ')');
+                var total = Number(totalHint) || Number(res.headers.get('Content-Length')) || 0;
+                var reader = res.body.getReader();
+                var got = 0;
+                function pump() {
+                    return reader.read().then(function (r) {
+                        if (r.done) return writer.close();
+                        got += r.value.byteLength;
+                        if (total) noteDownloadPct((got / total) * 100);
+                        return writer.write(r.value).then(pump);
+                    });
+                }
+                return pump().catch(function (err) {
+                    try { writer.abort(); } catch (e) {}
+                    throw err;
+                });
+            });
+        }
+        if (typeof window.showSaveFilePicker !== 'function') {
+            clickDownload(url, name, true);
+            status(trKey('filexfer.downloadingBusy'), 'work');
+            return Promise.resolve();
+        }
+        return window.showSaveFilePicker({ suggestedName: safeDownloadName(name) }).then(function (handle) {
+            return handle.createWritable().then(pumpTo);
+        }).catch(function (err) {
+            if (err && err.name === 'AbortError') {
+                var cancel = new Error('cancel');
+                cancel.code = 'cancel';
+                throw cancel;
+            }
+            throw err;
+        });
+    }
+
     function doDownload(row) {
         if (!row || !row.storage_path) return;
         var btn = gg('fx_dl');
         if (btn) btn.disabled = true;
         setProgress(1);
         status(trReplKey('filexfer.downloading', { PCT: '1' }), 'work');
-        var signed = function (p) {
-            return SB.storage.from(BUCKET).createSignedUrl(p, 180).then(function (r) {
+        var signed = function (p, ttl) {
+            return SB.storage.from(BUCKET).createSignedUrl(p, ttl || 180).then(function (r) {
                 if (r.error || !r.data || !r.data.signedUrl) throw r.error || new Error('signed url');
                 return r.data.signedUrl;
             });
@@ -1547,7 +1715,11 @@ var FILEXFER = (function () {
                     );
                 });
             })
-            : signed(row.storage_path).then(function (url) {
+            : (Number(row.file_size) > PARALLEL_MAX
+                ? signed(row.storage_path, SIGNED_TTL_SEC).then(function (url) {
+                    return streamDownload(url, row.file_name || 'download', Number(row.file_size) || 0);
+                })
+                : signed(row.storage_path).then(function (url) {
                 return xhrGetBlob(url, function (pct) {
                     if (pct != null) noteDownloadPct(pct);
                     else {
@@ -1559,7 +1731,7 @@ var FILEXFER = (function () {
                     status(trKey('filexfer.finalizing'), 'work');
                     clickDownload(blob, row.file_name || 'download', false);
                 });
-            });
+            }));
         job.then(function () {
             markDownloaded(row);
             setProgress(100);
@@ -1567,6 +1739,10 @@ var FILEXFER = (function () {
             setTimeout(function () { setProgress(0); }, 1200);
         }).catch(function (err) {
             setProgress(0);
+            if (err && err.code === 'cancel') {
+                status('', '');
+                return;
+            }
             status(trReplKey('filexfer.fail', { MSG: (err && err.message) || String(err) }), 'bad');
         }).then(function () {
             if (btn) btn.disabled = false;

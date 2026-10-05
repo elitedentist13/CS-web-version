@@ -7573,14 +7573,14 @@
             'zh-Hant': '拖放檔案到此處，或點擊選擇'
         },
         'filexfer.modePassHint': {
-            en: 'File is uploaded once (large files use several connections). The other clinic can download any time in the next 3 days.',
-            'zh-CN': '文件会上传一次（大文件走多路同时传）。对方可在 3 天内随时下载。',
-            'zh-Hant': '檔案會上傳一次（大檔案走多路同時傳）。對方可在 3 天內隨時下載。'
+            en: 'Upload once, up to 5 GB. The other clinic can download any time in the next 3 days.',
+            'zh-CN': '上传一次，最大 5 GB。对方可在 3 天内随时下载。',
+            'zh-Hant': '上傳一次，最大 5 GB。對方可在 3 天內隨時下載。'
         },
         'filexfer.modeDirectHint': {
-            en: 'Nothing is stored. Keep this page open. The other clinic must enter the same code on Receive now. If connect fails, use Fast Pass.',
-            'zh-CN': '文件不落地。请保持此页打开，对方立刻在“接收”输入同一代码。若连不上，请改用 Fast Pass。',
-            'zh-Hant': '檔案不落地。請保持此頁開啟，對方立刻在「接收」輸入同一代碼。若連不上，請改用 Fast Pass。'
+            en: 'No size limit and nothing is stored. Both clinics must keep this page open until it finishes. Files over 500 MB are saved to disk as they arrive.',
+            'zh-CN': '不限大小，文件不落地。双方必须保持此页打开直到传完。超过 500 MB 的文件会边收边存到磁盘。',
+            'zh-Hant': '不限大小，檔案不落地。雙方必須保持此頁開啟直到傳完。超過 500 MB 的檔案會邊收邊存到磁碟。'
         },
         'filexfer.sendDirectBtn': { en: 'Start live transfer', 'zh-CN': '开始直传', 'zh-Hant': '開始直傳' },
         'filexfer.liveWait': {
@@ -7609,6 +7609,26 @@
             'zh-CN': '直传未通。文件已改存为 Fast Pass，代码不变，有效 3 天。',
             'zh-Hant': '直傳未通。檔案已改存為 Fast Pass，代碼不變，有效 3 天。'
         },
+        'filexfer.liveFailNoPass': {
+            en: 'Direct transfer stopped. This file is over 5 GB, so it was not saved as a Fast Pass. Keep both pages open and try Direct again.',
+            'zh-CN': '直传已中断。文件超过 5 GB，无法改存为 Fast Pass。请双方保持页面打开后重新直传。',
+            'zh-Hant': '直傳已中斷。檔案超過 5 GB，無法改存為 Fast Pass。請雙方保持頁面開啟後重新直傳。'
+        },
+        'filexfer.liveSave': {
+            en: 'Choose where to save',
+            'zh-CN': '选择保存位置',
+            'zh-Hant': '選擇儲存位置'
+        },
+        'filexfer.liveSaveHint': {
+            en: 'This file is over 500 MB. Choose where to save it, then keep this page open until the transfer finishes.',
+            'zh-CN': '此文件超过 500 MB。请选择保存位置，并保持此页打开直到传完。',
+            'zh-Hant': '此檔案超過 500 MB。請選擇儲存位置，並保持此頁開啟直到傳完。'
+        },
+        'filexfer.needDisk': {
+            en: 'Files over 500 MB need Chrome or Edge so they can be written to disk while both clinics stay online.',
+            'zh-CN': '超过 500 MB 的文件需要 Chrome 或 Edge，才能在双方在线时直接写入磁盘。',
+            'zh-Hant': '超過 500 MB 的檔案需要 Chrome 或 Edge，才能在雙方在線時直接寫入磁碟。'
+        },
         'filexfer.liveFailLookup': {
             en: 'Direct path failed. Checking for a Fast Pass…',
             'zh-CN': '直传失败。正在查找 Fast Pass…',
@@ -7635,9 +7655,14 @@
         'filexfer.tabMine': { en: 'My passes', 'zh-CN': '我的传送', 'zh-Hant': '我的傳送' },
         'filexfer.file': { en: 'File', 'zh-CN': '文件', 'zh-Hant': '檔案' },
         'filexfer.fileHint': {
-            en: 'One file, up to 500 MB (X-ray, CBCT, PDF, photos…).',
-            'zh-CN': '单个文件，最大 500 MB（X 光、CBCT、PDF、照片…）。',
-            'zh-Hant': '單個檔案，最大 500 MB（X 光、CBCT、PDF、相片…）。'
+            en: 'One file, up to 5 GB (X-ray, CBCT, PDF, photos…).',
+            'zh-CN': '单个文件，最大 5 GB（X 光、CBCT、PDF、照片…）。',
+            'zh-Hant': '單個檔案，最大 5 GB（X 光、CBCT、PDF、相片…）。'
+        },
+        'filexfer.fileHintDirect': {
+            en: 'One file, no size limit. Both clinics must stay on this page until it finishes.',
+            'zh-CN': '单个文件，不限大小。双方必须保持此页打开直到传完。',
+            'zh-Hant': '單個檔案，不限大小。雙方必須保持此頁開啟直到傳完。'
         },
         'filexfer.dest': { en: 'Destination clinic', 'zh-CN': '目标诊所', 'zh-Hant': '目標診所' },
         'filexfer.destAny': { en: 'Any Banana clinic', 'zh-CN': '任一香蕉诊所', 'zh-Hant': '任一香蕉診所' },
@@ -7656,7 +7681,11 @@
         'filexfer.copied': { en: 'Copied', 'zh-CN': '已复制', 'zh-Hant': '已複製' },
         'filexfer.expires': { en: 'Expires {WHEN}', 'zh-CN': '于 {WHEN} 失效', 'zh-Hant': '於 {WHEN} 失效' },
         'filexfer.needFile': { en: 'Please choose a file.', 'zh-CN': '请选择文件。', 'zh-Hant': '請選擇檔案。' },
-        'filexfer.tooBig': { en: 'File is too large (max 500 MB).', 'zh-CN': '文件过大（最大 500 MB）。', 'zh-Hant': '檔案過大（最大 500 MB）。' },
+        'filexfer.tooBig': {
+            en: 'Fast Pass allows up to 5 GB. For a larger file, choose Direct and keep both clinics on this page.',
+            'zh-CN': 'Fast Pass 最大 5 GB。更大的文件请改用直传，并让双方保持此页打开。',
+            'zh-Hant': 'Fast Pass 最大 5 GB。更大的檔案請改用直傳，並讓雙方保持此頁開啟。'
+        },
         'filexfer.needLogin': { en: 'Please log in before sending or receiving files.', 'zh-CN': '请先登录再传送或接收文件。', 'zh-Hant': '請先登入再傳送或接收檔案。' },
         'filexfer.code': { en: 'Fast Pass code', 'zh-CN': 'Fast Pass 代码', 'zh-Hant': 'Fast Pass 代碼' },
         'filexfer.codePh': { en: 'XXXX', 'zh-CN': 'XXXX', 'zh-Hant': 'XXXX' },

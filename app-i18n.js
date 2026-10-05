@@ -206,9 +206,9 @@ var I18N_STRINGS = {
         'zh-Hant': '檔案傳送'
     },
     'tools.fileTransferDesc': {
-        en: 'Send large files (up to 500 MB) between Banana clinics — expires in 3 days',
-        'zh-CN': '在香蕉诊所之间传送大文件（最大 500 MB），3 天后失效',
-        'zh-Hant': '在香蕉診所之間傳送大檔案（最大 500 MB），3 天後失效'
+        en: 'Send files between Banana clinics — Fast Pass up to 5 GB for 3 days, or Direct with no size limit while both stay online',
+        'zh-CN': '在香蕉诊所之间传送文件 — Fast Pass 最大 5 GB、3 天有效；或双方在线时直传，不限大小',
+        'zh-Hant': '在香蕉診所之間傳送檔案 — Fast Pass 最大 5 GB、3 天有效；或雙方在線時直傳，不限大小'
     },
     'tools.fileTransferLoading': {
         en: 'File Transfer is still loading. Please try again.',

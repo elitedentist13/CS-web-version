@@ -16,17 +16,25 @@
       --warn: #facc15;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, Segoe UI, sans-serif; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, "Segoe UI", "Microsoft JhengHei", "Microsoft YaHei", sans-serif; }
     body { padding: 24px 18px 48px; }
     main { max-width: 860px; margin: 0 auto; }
     h1 { font-size: 22px; margin: 0 0 6px; }
     h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 22px 0 8px; }
     .lead { color: var(--muted); margin: 0 0 16px; }
-    .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
-    .bar a, .bar button {
+    .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+    .bar a, .bar > button {
       background: #1e293b; color: var(--text); border: 1px solid #334155;
       border-radius: 6px; padding: 6px 10px; font-weight: 700; text-decoration: none; cursor: pointer;
     }
+    .lang-toggle {
+      display: inline-flex; border: 1px solid #334155; border-radius: 8px; overflow: hidden; margin-left: auto;
+    }
+    .lang-toggle-btn {
+      border: 0; background: transparent; color: #93a0c2; font-weight: 700; padding: 6px 10px; cursor: pointer;
+    }
+    .lang-toggle-btn + .lang-toggle-btn { border-left: 1px solid #334155; }
+    .lang-toggle-btn.active { background: #0084ff; color: #fff; }
     .warn {
       background: #422006; color: #fffbeb; border: 1px solid #854d0e;
       border-radius: 8px; padding: 10px 12px; font-weight: 700; margin: 0 0 18px;
@@ -66,89 +74,132 @@
 <body>
 <main>
   <div class="bar">
-    <a href="./?v=20261005fx19">Back to tracing</a>
-    <button type="button" onclick="window.print()">Print</button>
+    <button type="button" id="btnBackTrace" data-i18n="ex.back">Back to tracing</button>
+    <button type="button" id="btnPrintNotes" data-i18n="ex.print">Print</button>
+    <div class="lang-toggle" role="group" data-i18n-aria="lang.group">
+      <button type="button" class="lang-toggle-btn" data-lang="en" data-i18n="lang.en">English</button>
+      <button type="button" class="lang-toggle-btn" data-lang="zh-CN" data-i18n="lang.zhCN">中文</button>
+      <button type="button" class="lang-toggle-btn" data-lang="zh-Hant" data-i18n="lang.zhHant">繁體中文</button>
+    </div>
   </div>
-  <h1>Extraction index · 拔牙倾向</h1>
-  <p class="lead">Chairside reminder of what the Banana ceph score is looking at. It is a tracing vs the selected norm set — not a decision to extract.</p>
-  <p class="warn">Do not extract from this number alone. Crowding, Bolton, growth, TMJ, smile and the patient’s wish are not on the lateral film.</p>
+  <p id="backHint" class="muted" hidden></p>
+  <h1 data-i18n="ex.title">Extraction index · 拔牙倾向</h1>
+  <p class="lead" data-i18n="ex.lead">Chairside reminder of what the Banana ceph score is looking at. It is a tracing vs the selected norm set — not a decision to extract.</p>
+  <p class="warn" data-i18n="ex.warn">Do not extract from this number alone. Crowding, Bolton, growth, TMJ, smile and the patient’s wish are not on the lateral film.</p>
 
-  <h2>What the score is</h2>
+  <h2 data-i18n="ex.hScore">What the score is</h2>
   <div class="card">
-    <p>Starts at <strong>50</strong> (undecided). Each measure that is 1–2 SD from the chosen <strong>HK Chinese</strong> or <strong>Caucasian</strong> mean tilts the score. 2 SD tilts more. Soft-tissue millimetres count only after the film ruler is calibrated.</p>
-    <p class="muted">Use <strong>HK Chinese</strong> (Chan 1972; Cooke &amp; Wei 1988) for this clinic. Caucasian IMPA 90° and lips on the S-line will call many Southern Chinese faces “extract” when they are only the local norm.</p>
+    <p data-i18n="ex.scoreP">Starts at 50 (undecided). Each measure that is 1–2 SD from the chosen HK Chinese or Caucasian mean tilts the score. 2 SD tilts more. Soft-tissue millimetres count only after the film ruler is calibrated.</p>
+    <p class="muted" data-i18n="ex.scoreHk">Use HK Chinese (Chan 1972; Cooke &amp; Wei 1988) for this clinic. Caucasian IMPA 90° and lips on the S-line will call many Southern Chinese faces “extract” when they are only the local norm.</p>
   </div>
 
-  <h2>Bands</h2>
+  <h2 data-i18n="ex.hBands">Bands</h2>
   <div class="bands">
-    <div class="band low"><b>Low 0–34</b> Keep / IPR / expansion more likely from the ceph.</div>
-    <div class="band mid"><b>Borderline 35–54</b> Mixed. Models and smile decide.</div>
-    <div class="band mid"><b>Moderate 55–74</b> Extraction camouflage is on the table.</div>
-    <div class="band high"><b>High 75–100</b> Typical bimax / convex / lip-protrusive pattern.</div>
+    <div class="band low"><b data-i18n="ex.bandLow">Low 0–34</b> <span data-i18n="ex.bandLowD">Keep / IPR / expansion more likely from the ceph.</span></div>
+    <div class="band mid"><b data-i18n="ex.bandMid">Borderline 35–54</b> <span data-i18n="ex.bandMidD">Mixed. Models and smile decide.</span></div>
+    <div class="band mid"><b data-i18n="ex.bandMod">Moderate 55–74</b> <span data-i18n="ex.bandModD">Extraction camouflage is on the table.</span></div>
+    <div class="band high"><b data-i18n="ex.bandHigh">High 75–100</b> <span data-i18n="ex.bandHighD">Typical bimax / convex / lip-protrusive pattern.</span></div>
   </div>
 
-  <h2>Extract or keep — from the tracing</h2>
+  <h2 data-i18n="ex.hOr">Extract or keep — from the tracing</h2>
   <div class="cols">
     <div class="card extract">
-      <h3>Leans extract · 倾向拔牙</h3>
+      <h3 data-i18n="ex.leansExtract">Leans extract · 倾向拔牙</h3>
       <ul>
-        <li><strong>IMPA high</strong> — lower incisors already proclined; little room to unravel crowding without making the lip worse.</li>
-        <li><strong>Interincisal acute</strong> — bimaxillary protrusion (common in HK).</li>
-        <li><strong>FMIA low</strong> — Tweed: lower incisor too proclined relative to Frankfort.</li>
-        <li><strong>Convex profile</strong> — A-point ahead of N–Pog; retraction can flatten the face.</li>
-        <li><strong>Lips ahead of Steiner S-line</strong> (Ls / Li to Sn–Pog′) — after calibration.</li>
-        <li><strong>Class II ANB / Wits</strong> — scored as <em>upper-arch camouflage</em> (premolars more often than four premolars).</li>
+        <li data-i18n="ex.ex1">IMPA high — lower incisors already proclined; little room to unravel crowding without making the lip worse.</li>
+        <li data-i18n="ex.ex2">Interincisal acute — bimaxillary protrusion (common in HK).</li>
+        <li data-i18n="ex.ex3">FMIA low — Tweed: lower incisor too proclined relative to Frankfort.</li>
+        <li data-i18n="ex.ex4">Convex profile — A-point ahead of N–Pog; retraction can flatten the face.</li>
+        <li data-i18n="ex.ex5">Lips ahead of Steiner S-line (Ls / Li to Sn–Pog′) — after calibration.</li>
+        <li data-i18n="ex.ex6">Class II ANB / Wits — scored as upper-arch camouflage (premolars more often than four premolars).</li>
       </ul>
     </div>
     <div class="card keep">
-      <h3>Leans keep · 倾向不拔</h3>
+      <h3 data-i18n="ex.leansKeep">Leans keep · 倾向不拔</h3>
       <ul>
-        <li><strong>IMPA low / retroclined</strong> — further retraction dumps the incisors and hollows the lip.</li>
-        <li><strong>Interincisal obtuse</strong> — not a bimax face.</li>
-        <li><strong>FMIA high</strong> — Tweed already “upright”.</li>
-        <li><strong>Concave profile / strong chin</strong> — extraction can make the face dish-in.</li>
-        <li><strong>Retrusive lips</strong> on the S-line — do not retract for “numbers”.</li>
-        <li><strong>High-angle (SN–GoGn out)</strong> — small penalty: retraction needs vertical control; not an automatic extract.</li>
+        <li data-i18n="ex.k1">IMPA low / retroclined — further retraction dumps the incisors and hollows the lip.</li>
+        <li data-i18n="ex.k2">Interincisal obtuse — not a bimax face.</li>
+        <li data-i18n="ex.k3">FMIA high — Tweed already “upright”.</li>
+        <li data-i18n="ex.k4">Concave profile / strong chin — extraction can make the face dish-in.</li>
+        <li data-i18n="ex.k5">Retrusive lips on the S-line — do not retract for “numbers”.</li>
+        <li data-i18n="ex.k6">High-angle (SN–GoGn out) — small penalty: retraction needs vertical control; not an automatic extract.</li>
       </ul>
     </div>
   </div>
 
-  <h2>Class II vs Class III — not the same extraction</h2>
+  <h2 data-i18n="ex.hClass">Class II vs Class III — not the same extraction</h2>
   <div class="card">
     <ul>
-      <li><strong>Class II</strong> adds to the score as upper-arch camouflage. Typical pattern is upper premolars (sometimes two uppers only), not automatic 14-24-34-44.</li>
-      <li><strong>Class III</strong> is <em>not</em> added as a 4-premolar extract. The hint says lower-arch camouflage or surgery. Retroclined lower incisors in Class III usually argue against more lower retraction.</li>
+      <li data-i18n="ex.c2">Class II adds to the score as upper-arch camouflage. Typical pattern is upper premolars (sometimes two uppers only), not automatic 14-24-34-44.</li>
+      <li data-i18n="ex.c3">Class III is not added as a 4-premolar extract. The hint says lower-arch camouflage or surgery. Retroclined lower incisors in Class III usually argue against more lower retraction.</li>
     </ul>
   </div>
 
-  <h2>Measures the index actually uses</h2>
+  <h2 data-i18n="ex.hTable">Measures the index actually uses</h2>
   <table>
     <thead>
-      <tr><th>Measure</th><th>Extract if…</th><th>Keep if…</th><th>Notes</th></tr>
+      <tr>
+        <th data-i18n="ex.thM">Measure</th>
+        <th data-i18n="ex.thE">Extract if…</th>
+        <th data-i18n="ex.thK">Keep if…</th>
+        <th data-i18n="ex.thN">Notes</th>
+      </tr>
     </thead>
     <tbody>
-      <tr><td>IMPA</td><td>High vs norm</td><td>Low / retroclined</td><td>Needs L1 apex (L1a) dragged onto the root.</td></tr>
-      <tr><td>FMIA</td><td>Low (Tweed)</td><td>High</td><td>Same apex. Tweed wanted ~65° Caucasian; HK mean is lower.</td></tr>
-      <tr><td>Interincisal</td><td>Acute (bimax)</td><td>Obtuse</td><td>Needs U1a and L1a.</td></tr>
-      <tr><td>Angle of convexity</td><td>Convex</td><td>Concave</td><td>N–A–Pog. HK mean ~6°, not 0°.</td></tr>
-      <tr><td>Ls / Li to S-line</td><td>Lips ahead</td><td>Lips retrusive</td><td>Ignored until millimetres are calibrated.</td></tr>
-      <tr><td>ANB</td><td>Class II (adds)</td><td>Class I (no tilt)</td><td>Class III is a warning, not +points for 4s.</td></tr>
-      <tr><td>Wits AO–BO</td><td>Class II, if calibrated</td><td>—</td><td>Uses FOP (FopA–FopP). Proxy U1–L1 if you have not dragged FOP.</td></tr>
-      <tr><td>SN–GoGn</td><td>—</td><td>High-angle: −4 only</td><td>Vertical caution, not a keep/extract vote.</td></tr>
+      <tr><td>IMPA</td><td data-i18n="ex.tIMPA_e">High vs norm</td><td data-i18n="ex.tIMPA_k">Low / retroclined</td><td>L1a</td></tr>
+      <tr><td>FMIA</td><td data-i18n="ex.tFMIA_e">Low (Tweed)</td><td data-i18n="ex.tFMIA_k">High</td><td>L1a / FH</td></tr>
+      <tr><td>Interincisal</td><td data-i18n="ex.tII_e">Acute (bimax)</td><td data-i18n="ex.tII_k">Obtuse</td><td>U1a / L1a</td></tr>
+      <tr><td>Angle of convexity</td><td data-i18n="ex.tConv_e">Convex</td><td data-i18n="ex.tConv_k">Concave</td><td>N–A–Pog</td></tr>
+      <tr><td>Ls / Li to S-line</td><td data-i18n="ex.tLip_e">Lips ahead</td><td data-i18n="ex.tLip_k">Lips retrusive</td><td data-i18n="ex.tMm">mm</td></tr>
+      <tr><td>ANB</td><td data-i18n="ex.tANB_e">Class II</td><td data-i18n="ex.tANB_k">Class I</td><td data-i18n="ex.tANB_n">Class III ≠ 4s</td></tr>
+      <tr><td>Wits AO–BO</td><td data-i18n="ex.tWits_e">Class II</td><td data-i18n="ex.tWits_k">—</td><td>FOP</td></tr>
+      <tr><td>SN–GoGn</td><td data-i18n="ex.tGo_e">—</td><td data-i18n="ex.tGo_k">High-angle −4</td><td data-i18n="ex.tGo_n">vertical</td></tr>
     </tbody>
   </table>
 
-  <h2>What is missing (so the index stays humble)</h2>
+  <h2 data-i18n="ex.hMiss">What is missing (so the index stays humble)</h2>
   <div class="card">
     <ul>
-      <li>Arch-length discrepancy / crowding / spacing</li>
-      <li>Bolton, tooth-size, unerupted 8s</li>
-      <li>Growth remaining, FMA vs age, airway / tonsils</li>
-      <li>TMJ, periodontal support, restorations, missing teeth</li>
-      <li>Smile arc, gingival display, nasolabial angle on the photo</li>
+      <li data-i18n="ex.m1">Arch-length discrepancy / crowding / spacing</li>
+      <li data-i18n="ex.m2">Bolton, tooth-size, unerupted 8s</li>
+      <li data-i18n="ex.m3">Growth remaining, FMA vs age, airway / tonsils</li>
+      <li data-i18n="ex.m4">TMJ, periodontal support, restorations, missing teeth</li>
+      <li data-i18n="ex.m5">Smile arc, gingival display, nasolabial angle on the photo</li>
     </ul>
-    <p class="muted">If those conflict with a High score, trust the mouth and the face, not the chip.</p>
+    <p class="muted" data-i18n="ex.trust">If those conflict with a High score, trust the mouth and the face, not the chip.</p>
   </div>
 </main>
+<script src="ceph-i18n.js?v=20261005fx21"></script>
+<script>
+(function () {
+  if (window.CEPH_I18N) CEPH_I18N.boot();
+  var hint = document.getElementById('backHint');
+  function say(key) {
+    if (!hint) return;
+    hint.hidden = false;
+    hint.textContent = window.CEPH_I18N ? CEPH_I18N.t(key) : key;
+  }
+  var printBtn = document.getElementById('btnPrintNotes');
+  if (printBtn) printBtn.onclick = function () { window.print(); };
+  var btn = document.getElementById('btnBackTrace');
+  if (!btn) return;
+  btn.onclick = function () {
+    var op = window.opener;
+    if (op && !op.closed) {
+      try { op.focus(); } catch (e) {}
+      window.close();
+      setTimeout(function () {
+        if (!window.closed) say('ex.backOther');
+      }, 250);
+      return;
+    }
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    say('ex.backAlone');
+  };
+})();
+</script>
 </body>
 </html>

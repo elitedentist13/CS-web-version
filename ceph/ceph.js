@@ -28,20 +28,71 @@
 
     function $(id) { return document.getElementById(id); }
     function canvas() { return $('view'); }
+    function tx(key, vars) {
+        return (window.CEPH_I18N && typeof CEPH_I18N.t === 'function') ? CEPH_I18N.t(key, vars) : key;
+    }
+    function ph(en) {
+        if (en == null || en === '') return '';
+        return (window.CEPH_I18N && typeof CEPH_I18N.phrase === 'function') ? CEPH_I18N.phrase(en) : String(en);
+    }
+    function phJoin(en) {
+        if (!en) return '';
+        return String(en).split(/\s*\+\s*|;\s*/).map(function (part) {
+            return ph(String(part).replace(/\.\s*$/, '').trim());
+        }).filter(Boolean).join(' · ');
+    }
+    function extractNoteTx(note) {
+        if (!note) return '';
+        var tail = tx('extract.disclaimer');
+        var head = String(note).replace(/\s*Ceph only; crowding \/ Bolton \/ growth not assessed\. Not a treatment plan\.\s*$/, '');
+        head = head.replace(/\.\s*$/, '');
+        return (head ? phJoin(head) + '. ' : '') + tail;
+    }
+    function lmName(d) {
+        var k = 'lm.' + d.id;
+        var s = tx(k);
+        return (s && s !== k) ? s : (d.name || d.id);
+    }
+    function extraName(d) {
+        var k = 'extra.' + d.id;
+        var s = tx(k);
+        return (s && s !== k) ? s : (d.name || d.id);
+    }
+    function setLabelTx(s) {
+        if (!s) return '';
+        var k = 'set.' + s.id;
+        var t = tx(k);
+        return (t && t !== k) ? t : (s.label || '');
+    }
+    function groupTitleTx(en) {
+        var map = {
+            Steiner: 'g.steiner', Downs: 'g.downs', Tweed: 'g.tweed',
+            Wits: 'g.wits', McNamara: 'g.mcnamara', 'Soft tissue': 'g.soft',
+            'Extraction index': 'g.extract'
+        };
+        return map[en] ? tx(map[en]) : en;
+    }
+    function extractBandTx(band) {
+        var k = 'extract.' + String(band || '');
+        var s = tx(k);
+        return (s && s !== k) ? s : String(band || '');
+    }
 
     function readCtx() {
         try { ctxInfo = JSON.parse(sessionStorage.getItem('banana.ceph.v1') || 'null'); } catch (e) { ctxInfo = null; }
         if (!ctxInfo) {
             try { ctxInfo = JSON.parse(localStorage.getItem('banana.ceph.v1') || 'null'); } catch (e2) { ctxInfo = null; }
         }
-        var title = 'Ceph';
+        var title = tx('ui.title');
         if (ctxInfo && ctxInfo.patientNo) title += ' · #' + ctxInfo.patientNo;
         if (ctxInfo && ctxInfo.name) title += ' · ' + ctxInfo.name;
         document.title = title;
         var bar = $('bananaCephBar');
         if (bar) {
-            var who = (ctxInfo && (ctxInfo.name || ctxInfo.patientNo)) ? ('Patient ' + (ctxInfo.patientNo || '') + ' ' + (ctxInfo.name || '')).trim() : 'No Banana patient in this window';
-            bar.textContent = 'Banana cephalometric sidecar — ' + who + ' — choose Published 1502 or Published + in-house, then view sets 1–3 and Adopt selection. Share this window in X-ray Helper to save a view.';
+            var who = (ctxInfo && (ctxInfo.name || ctxInfo.patientNo))
+                ? (tx('bar.who') + ' ' + (ctxInfo.patientNo || '') + ' ' + (ctxInfo.name || '')).trim()
+                : tx('st.noPatient');
+            bar.textContent = tx('bar.line', { who: who });
         }
     }
 
@@ -222,15 +273,15 @@
             var mark = touched[d.id] ? ' is-touched' : '';
             if (qaIds[d.id]) mark += ' is-qa';
             return '<div class="lm' + (sel === d.id ? ' is-on' : '') + mark + '" data-id="' + d.id + '">' +
-                '<span>' + d.i + '. ' + d.id + ' — ' + d.name +
-                (qaIds[d.id] ? ' (check)' : '') +
-                (touched[d.id] ? ' (moved)' : '') + '</span>' +
+                '<span>' + d.i + '. ' + d.id + ' — ' + lmName(d) +
+                (qaIds[d.id] ? ' ' + tx('tag.check') : '') +
+                (touched[d.id] ? ' ' + tx('tag.moved') : '') + '</span>' +
                 '<span>' + (p.x ? Math.round(p.x) + ',' + Math.round(p.y) : '—') + '</span></div>';
         }).join('');
         host.innerHTML += EXTRA_DEFS.map(function (d) {
             var p = extra[d.id] || {};
             return '<div class="lm' + (sel === d.id ? ' is-on' : '') + '" data-id="' + d.id + '">' +
-                '<span>' + d.id + ' — ' + d.name + (extraTouched[d.id] ? ' (moved)' : '') + '</span>' +
+                '<span>' + d.id + ' — ' + extraName(d) + (extraTouched[d.id] ? ' ' + tx('tag.moved') : '') + '</span>' +
                 '<span>' + (p.x ? Math.round(p.x) + ',' + Math.round(p.y) : '—') + '</span></div>';
         }).join('');
         host.querySelectorAll('.lm').forEach(function (el) {
@@ -267,8 +318,7 @@
         try { if (window.localStorage) localStorage.setItem(NORM_KEY, normSet); } catch (e2) { /* ignore */ }
         syncNormBtn();
         renderAnalysis();
-        var pack = window.CEPH_AN && CEPH_AN.getSet ? CEPH_AN.getSet(normSet) : null;
-        setStatus('Norms: ' + ((pack && pack.label) || normSet) + '. Green = within 1 SD, amber = 1–2 SD, red = beyond.');
+        setStatus(tx('st.norms', { label: tx(normSet === 'chinese' ? 'btn.normCn' : 'btn.normCauc') }));
         return normSet;
     }
     function syncNormBtn() {
@@ -283,7 +333,7 @@
             if (pair[1]) btn.classList.add('is-on');
             else btn.classList.remove('is-on');
         });
-        if (src && pack) src.textContent = pack.source || '';
+        if (src && pack) src.textContent = tx('norm.src.' + normSet) || pack.source || '';
     }
 
     function readUseTraining() {
@@ -305,7 +355,6 @@
     }
 
     function syncUseTrainBtn() {
-        var pubN = String(publishedN());
         var pairs = [
             [$('btnRefPub'), !useTraining],
             [$('btnRefPlus'), useTraining]
@@ -318,18 +367,18 @@
             if (on) btn.classList.add('is-on');
             else btn.classList.remove('is-on');
         });
-        if ($('btnRefPub')) $('btnRefPub').textContent = 'Published ' + pubN;
+        if ($('btnRefPub')) $('btnRefPub').textContent = tx('btn.refPub');
     }
 
     function setRefMode(onPlus) {
         var st = (window.CEPH_LEARN && CEPH_LEARN.stats) ? CEPH_LEARN.stats() : { films: 0 };
         writeUseTraining(!!onPlus);
         if (useTraining && !st.films) {
-            setStatus('Published + in-house is selected, but there are no in-house films yet. Adopt a set and add it to clinic training first.');
+            setStatus(tx('st.plusEmpty'));
         } else if (useTraining) {
-            setStatus('Reference: 1502 published PLUS ' + st.films + ' in-house training film(s). Libraries stay separate.');
+            setStatus(tx('st.plusRef', { n: st.films }));
         } else {
-            setStatus('Reference: published 1502 library only. In-house training is stored but not used.');
+            setStatus(tx('st.pubOnly'));
         }
         if (img.naturalWidth) runDetect();
         return useTraining;
@@ -343,18 +392,19 @@
         if (pubEl) pubEl.textContent = String(publishedN());
         if (filmsEl) filmsEl.textContent = String(st.films);
         if (nEl) {
-            nEl.textContent = st.films + ' whole set' + (st.films === 1 ? '' : 's') +
-                ', ' + st.points + ' points. Reference: ' +
-                (useTraining ? ('1502 + in-house') : 'published 1502 only') +
-                '. Never mixed into the 1502 library.';
+            nEl.textContent = tx('learn.line', {
+                n: st.films,
+                p: st.points,
+                ref: useTraining ? tx('learn.plus') : tx('learn.pub')
+            });
         }
     }
 
     function includeSelected() {
         if (!window.CEPH_LEARN) return { ok: false, error: 'learn' };
-        if (!img.naturalWidth) { setStatus('Load a lateral ceph first.'); return { ok: false }; }
+        if (!img.naturalWidth) { setStatus(tx('st.loadFirst')); return { ok: false }; }
         var picked = placedIds();
-        if (!picked.length) { setStatus('Auto-detect or adopt a set first. Training stores the whole 19-point set.'); return { ok: false, error: 'none' }; }
+        if (!picked.length) { setStatus(tx('st.learnNone')); return { ok: false, error: 'none' }; }
         var box = lastBox || (CEPH_LM.findHeadBox ? CEPH_LM.findHeadBox(img) : null);
         var out = CEPH_LEARN.includeSelected({
             pts: pts,
@@ -364,10 +414,12 @@
             setId: sets[setIndex] && sets[setIndex].id,
             setLabel: sets[setIndex] && sets[setIndex].label
         });
-        if (!out.ok) { setStatus('Could not add that set.'); return out; }
-        setStatus('Added the whole adopted set (' + out.included.length + ' landmarks' +
-            (sets[setIndex] && sets[setIndex].label ? ', ' + sets[setIndex].label : '') +
-            ') to clinic training (' + out.films + ' film(s)). The 1502 published tracings stay unchanged.');
+        if (!out.ok) { setStatus(tx('st.learnFail')); return out; }
+        setStatus(tx('st.learnAdded', {
+            n: out.included.length,
+            label: sets[setIndex] ? (', ' + setLabelTx(sets[setIndex])) : '',
+            films: out.films
+        }));
         renderLearn();
         if (out.trace && typeof CEPH_LEARN.postRemote === 'function') {
             CEPH_LEARN.postRemote(out.trace);
@@ -380,13 +432,15 @@
         if (!host || typeof CEPH_AN === 'undefined') return;
         var res = CEPH_AN.run(pts, mmPerPx, { normSet: normSet, calibrated: calibrated, extra: extra });
         host.innerHTML = res.groups.map(function (g) {
-            return '<h2>' + g.title + '</h2><table><tr><th>Measure</th><th>Value</th><th>Δ</th><th>Norm</th><th></th></tr>' +
+            return '<h2>' + groupTitleTx(g.title) + '</h2><table><tr><th>' + tx('th.measure') + '</th><th>' +
+                tx('th.value') + '</th><th>' + tx('th.delta') + '</th><th>' + tx('th.norm') + '</th><th></th></tr>' +
                 g.rows.map(function (r) {
                     var cls = r.band ? (' class="band-' + r.band + '"') : '';
                     var delta = r.delta == null ? '' : ((r.delta > 0 ? '+' : '') + r.delta);
                     return '<tr' + cls + ' data-measure="' + r.name + '"><td>' + r.name + '</td><td>' +
                         (r.value == null ? '—' : r.value + ' ' + r.unit) +
-                        '</td><td class="delta">' + delta + '</td><td>' + (r.norm || '') + '</td><td>' + (r.note || '') + '</td></tr>';
+                        '</td><td class="delta">' + delta + '</td><td>' + (r.norm || '') + '</td><td>' +
+                        (r.name === 'Extraction index' ? extractNoteTx(r.note) : ph(r.note || '')) + '</td></tr>';
                 }).join('') + '</table>';
         }).join('');
         host.querySelectorAll('tr[data-measure]').forEach(function (tr) {
@@ -402,21 +456,24 @@
         if (sum && res.summary) {
             var s = res.summary;
             var chips = [
-                ['Skeletal · 骨性', s.skeletal],
-                ['Vertical · 垂直', s.vertical],
-                ['Profile · 侧貌', s.profile],
-                ['Incisors / lip · 切牙/唇', s.incisor + ' · lip ' + s.lip]
+                [tx('sum.skeletal'), ph(s.skeletal)],
+                [tx('sum.vertical'), ph(s.vertical)],
+                [tx('sum.profile'), ph(s.profile)],
+                [tx('sum.incisor'), ph(s.incisor) + ' · ' + tx('sum.lip') + ' ' + ph(s.lip)]
             ];
             if (s.extraction) {
-                chips.push(['Extraction · 拔牙倾向', s.extraction +
-                    (s.extractionWhy ? ' · ' + s.extractionWhy : '') +
-                    ' · <a href="extraction.html?v=20261005fx19" target="_blank" rel="noopener">notes</a>']);
+                var scoreBit = String(s.extraction).replace(/^[A-Za-z\-]+\s+/, '');
+                chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
+                    (s.extractionWhy ? ' · ' + phJoin(s.extractionWhy) : '') +
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx21" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair, i) {
                 var cls = (i === 4 && s.extractionBand) ? ('summary-extract is-' + s.extractionBand) : '';
-                var title = (i === 4 && s.extractionNote) ? (' title="' + String(s.extractionNote).replace(/"/g, '') + '"') : '';
+                var title = (i === 4 && s.extractionNote) ? (' title="' + extractNoteTx(s.extractionNote).replace(/"/g, '') + '"') : '';
                 return '<div' + (cls ? ' class="' + cls + '"' : '') + title + '><div class="k">' + pair[0] + '</div><div class="v">' + pair[1] + '</div></div>';
             }).join('');
+            var notes = sum.querySelector('a.extract-notes');
+            if (notes) notes.onclick = openExtractNotes;
         }
     }
 
@@ -444,7 +501,7 @@
     function clearUndo() { undoStack = []; }
     function undoMove() {
         var s = undoStack.pop();
-        if (!s) { setStatus('Nothing to undo.'); return { ok: false }; }
+        if (!s) { setStatus(tx('st.nothingUndo')); return { ok: false }; }
         pts = s.pts || pts;
         extra = s.extra || extra;
         if (s.touched) {
@@ -454,7 +511,7 @@
         if (s.extraTouched) extraTouched = s.extraTouched;
         if (sets[setIndex]) sets[setIndex].pts = pts;
         refresh();
-        setStatus('Undid the last point move.');
+        setStatus(tx('st.undid'));
         return { ok: true, n: undoStack.length };
     }
     function setPointAt(id, imgPt, record) {
@@ -502,7 +559,7 @@
     }
     function saveTrace() {
         if (!img.naturalWidth || !placedIds().length) {
-            setStatus('Adopt a set before saving a tracing.');
+            setStatus(tx('st.saveNeed'));
             return { ok: false };
         }
         var db = readTraceStore();
@@ -524,7 +581,7 @@
             savedAt: new Date().toISOString()
         };
         try { localStorage.setItem(TRACE_KEY, JSON.stringify(db)); } catch (e) { return { ok: false, error: 'store' }; }
-        setStatus('Tracing saved for this patient (' + key + '). Reopen Ceph analysis to restore it.');
+        setStatus(tx('st.saved', { key: key }));
         return { ok: true, key: key };
     }
     function loadTrace(key) {
@@ -542,7 +599,7 @@
         source = rec.source || source;
         if (sets[setIndex]) sets[setIndex].pts = pts;
         refresh();
-        setStatus('Restored the saved tracing for this patient.');
+        setStatus(tx('st.restored'));
         return { ok: true, key: rec.key || key, nPts: placedIds().length };
     }
     function printReport() {
@@ -644,9 +701,9 @@
         }
         if (cap) {
             var s = sets[setIndex];
-            if (!s) cap.textContent = 'Run Auto landmarks, then view 1–3.';
-            else if (!ready) cap.textContent = 'View ' + remainingView().join(', ') + ' still, then Adopt.';
-            else cap.textContent = (setIndex + 1) + ' · ' + s.label + ' — Adopt to keep.';
+            if (!s) cap.textContent = tx('cap.needDetect');
+            else if (!ready) cap.textContent = tx('cap.still', { left: remainingView().join(', ') });
+            else cap.textContent = tx('cap.ready', { n: setIndex + 1, label: setLabelTx(s) });
         }
     }
 
@@ -682,24 +739,24 @@
         refresh();
         if (fromUser) {
             setStatus(viewedAll()
-                ? ('Viewing set ' + (i + 1) + ' · ' + s.label + '. Click Adopt selection to keep it.')
-                : ('Viewing set ' + (i + 1) + ' · ' + s.label + '. Click the other sets first.'));
+                ? tx('st.viewAdopt', { n: i + 1, label: setLabelTx(s) })
+                : tx('st.viewOther', { n: i + 1, label: setLabelTx(s) }));
         }
         return { ok: true, i: i, id: s.id, label: s.label, source: s.source };
     }
 
     function lockAdopt() {
         if (!sets.length || !sets[setIndex]) {
-            setStatus('Run Auto landmarks first, then view the 3 sets.');
+            setStatus(tx('st.need3'));
             return { ok: false };
         }
         if (!viewedAll()) {
-            setStatus('Click-view all 3 sets first, then Adopt selection.');
+            setStatus(tx('st.viewAll'));
             return { ok: false };
         }
         var s = sets[setIndex];
         hideSetBar();
-        setStatus('Adopted set ' + (setIndex + 1) + ' · ' + s.label + '. Selection bar hidden so the film is clear.');
+        setStatus(tx('st.adopted', { n: setIndex + 1, label: setLabelTx(s) }));
         return { ok: true, i: setIndex, id: s.id, label: s.label, source: s.source };
     }
 
@@ -734,9 +791,11 @@
             if (done) done(payload);
         }
         if (useTraining && clinicN > 0) {
-            setStatus('Reference: 1502 published + ' + clinicN + ' in-house film(s). Viewing set ' +
-                (setIndex + 1) + ' · ' + ((sets[setIndex] && sets[setIndex].label) || 'clinic overlay') +
-                '. Click 1–3 to compare, then Adopt selection.');
+            setStatus(tx('st.refClinic', {
+                n: clinicN,
+                i: setIndex + 1,
+                label: setLabelTx(sets[setIndex]) || tx('set.clinic')
+            }));
             finish({
                 ok: true,
                 source: source,
@@ -760,8 +819,10 @@
             };
             if (!userPickedSet) previewSet(2, false);
             else renderSetBar();
-            setStatus('3 auto-detect sets ready. Viewing set ' + (setIndex + 1) + ' · ' +
-                (sets[setIndex] && sets[setIndex].label) + '. Click 1–3 to compare, then Adopt selection.');
+            setStatus(tx('st.threeReady', {
+                n: setIndex + 1,
+                label: setLabelTx(sets[setIndex])
+            }));
             finish({
                 ok: true,
                 source: source,
@@ -771,9 +832,10 @@
                 nSets: sets.length
             });
         }).catch(function () {
-            setStatus('3 auto-detect sets from the 1502 published tracings. Viewing set ' +
-                (setIndex + 1) + ' · ' + ((sets[setIndex] && sets[setIndex].label) || '') +
-                '. Click 1–3 to compare, then Adopt selection.');
+            setStatus(tx('st.threeLocal', {
+                n: setIndex + 1,
+                label: setLabelTx(sets[setIndex])
+            }));
             finish({
                 ok: true,
                 source: source,
@@ -788,8 +850,8 @@
     }
 
     function runDetect() {
-        if (!img.naturalWidth) { setStatus('Load a lateral ceph first.'); return Promise.resolve({ ok: false }); }
-        setStatus('Auto-detecting landmarks…');
+        if (!img.naturalWidth) { setStatus(tx('st.loadFirst')); return Promise.resolve({ ok: false }); }
+        setStatus(tx('st.detecting'));
         return new Promise(function (resolve) { afterLoad(resolve, true); });
     }
 
@@ -802,7 +864,7 @@
                 URL.revokeObjectURL(url);
                 afterLoad(resolve);
             };
-            img.onerror = function () { setStatus('Could not read that file.'); resolve({ ok: false }); };
+            img.onerror = function () { setStatus(tx('st.badFile')); resolve({ ok: false }); };
             img.src = url;
         });
     }
@@ -813,7 +875,7 @@
         img.crossOrigin = 'anonymous';
         return new Promise(function (resolve) {
             img.onload = function () { afterLoad(resolve); };
-            img.onerror = function () { setStatus('Could not fetch the Banana film (CORS). Use Load file.'); resolve({ ok: false, error: 'load' }); };
+            img.onerror = function () { setStatus(tx('st.cors')); resolve({ ok: false, error: 'load' }); };
             img.src = url;
         });
     }
@@ -836,12 +898,15 @@
         }
         renderAnalysis();
         draw();
-        setStatus('Calibrated: ' + mm + ' mm = ' + Math.round(px) + ' px → ' +
-            (Math.round(mmPerPx * 10000) / 10000) + ' mm/px. Linear measures are now in millimetres.');
+        setStatus(tx('st.calOk', {
+            mm: mm,
+            px: Math.round(px),
+            scale: Math.round(mmPerPx * 10000) / 10000
+        }));
         return { ok: true, mmPerPx: mmPerPx, px: px, mm: mm, calibrated: true };
     }
     function startCalibrate() {
-        if (!img.naturalWidth) { setStatus('Load a lateral ceph first.'); return false; }
+        if (!img.naturalWidth) { setStatus(tx('st.loadFirst')); return false; }
         calMode = true;
         calFirst = null;
         if ($('btnCalibrate')) {
@@ -849,7 +914,7 @@
             $('btnCalibrate').setAttribute('aria-pressed', 'true');
         }
         var mm = ($('rulerMm') && parseFloat($('rulerMm').value)) || 10;
-        setStatus('Calibration: click two ends of a ' + mm + ' mm marker on the film.');
+        setStatus(tx('st.calStart', { mm: mm }));
         return true;
     }
 
@@ -905,7 +970,7 @@
 
     function exportPng() {
         var out = document.createElement('canvas');
-        if (!img.naturalWidth) { setStatus('Nothing to export.'); return; }
+        if (!img.naturalWidth) { setStatus(tx('st.noExport')); return; }
         out.width = img.naturalWidth;
         out.height = img.naturalHeight;
         var ctx = out.getContext('2d');
@@ -939,6 +1004,20 @@
         a.download = name;
         a.click();
         setTimeout(function () { URL.revokeObjectURL(a.href); }, 1500);
+    }
+
+    function openExtractNotes(e) {
+        var url = 'extraction.html?v=20261005fx21';
+        if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
+            url = e.currentTarget.getAttribute('href');
+        }
+        var w = window.open(url, 'cephExtractNotes');
+        if (w) {
+            if (e) e.preventDefault();
+            try { w.focus(); } catch (err) {}
+            return false;
+        }
+        return true;
     }
 
     function onMove(e) {
@@ -975,6 +1054,20 @@
     }
 
     function boot() {
+        if (window.CEPH_I18N && typeof CEPH_I18N.boot === 'function') {
+            CEPH_I18N.boot({
+                onLang: function () {
+                    readCtx();
+                    renderList();
+                    renderAnalysis();
+                    renderLearn();
+                    renderSetBar();
+                    syncUseTrainBtn();
+                    syncNormBtn();
+                    if (!img.naturalWidth) setStatus(tx('st.loadHint'));
+                }
+            });
+        }
         readCtx();
         CEPH_LM.loadCatalog().then(function () {
             pts = CEPH_LM.emptyPts();
@@ -984,8 +1077,8 @@
                 CEPH_LEARN.pullRemote().then(function () { renderLearn(); });
             }
             if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
-            else setStatus('Load a lateral cephalogram (JPG / PNG / BMP). Auto-detect shows 3 sets; Adopt selection keeps one.');
-        }).catch(function () { setStatus('Missing data/isbi2015.json'); });
+            else setStatus(tx('st.loadHint'));
+        }).catch(function () { setStatus(tx('st.missingCat')); });
 
         $('btnLoad').onclick = function () { $('filePick').click(); };
         $('filePick').onchange = function () { loadFile(this.files && this.files[0]); this.value = ''; };
@@ -1021,18 +1114,19 @@
         };
         if ($('btnChangeSet')) $('btnChangeSet').onclick = function () {
             showSetBar();
-            setStatus('Compare sets 1–3, then Adopt selection.');
+            setStatus(tx('st.compare'));
         };
         if ($('btnLearn')) $('btnLearn').onclick = includeSelected;
         if ($('btnLearnUndo')) $('btnLearnUndo').onclick = function () {
             if (!window.CEPH_LEARN) return;
             var st = CEPH_LEARN.undoLast();
-            setStatus('Removed the last clinic training film. Now ' + st.films + ' film(s). Published 1502 unchanged.');
+            setStatus(tx('st.learnUndo', { n: st.films }));
             renderLearn();
         };
         $('btnJson') && ($('btnJson').onclick = exportJson);
         $('btnCsv').onclick = exportCsv;
         $('btnPng').onclick = exportPng;
+        if ($('btnExtractHelp')) $('btnExtractHelp').onclick = openExtractNotes;
         if ($('btnSaveTrace')) $('btnSaveTrace').onclick = saveTrace;
         if ($('btnPrint')) $('btnPrint').onclick = printReport;
         if ($('btnCalibrate')) $('btnCalibrate').onclick = function () {
@@ -1041,7 +1135,7 @@
                 calFirst = null;
                 $('btnCalibrate').classList.remove('is-on');
                 $('btnCalibrate').setAttribute('aria-pressed', 'false');
-                setStatus('Calibration cancelled.');
+                setStatus(tx('st.calCancel'));
                 draw();
                 return;
             }
@@ -1051,7 +1145,7 @@
             mmPerPx = parseFloat(this.value) || 0.1;
             calibrated = true;
             renderAnalysis();
-            setStatus('Manual scale ' + mmPerPx + ' mm/px. Linear measures use this value.');
+            setStatus(tx('st.manualScale', { n: mmPerPx }));
         };
         var c = canvas();
         c.addEventListener('mousedown', function (e) {
@@ -1063,7 +1157,7 @@
                 if (!calFirst) {
                     calFirst = imgPt;
                     draw();
-                    setStatus('First ruler point set. Click the other end.');
+                    setStatus(tx('st.calFirst'));
                     return;
                 }
                 var mm = ($('rulerMm') && parseFloat($('rulerMm').value)) || 10;
@@ -1134,6 +1228,7 @@
         exportJson: exportJson,
         exportCsv: exportCsv,
         csvText: csvText,
+        openExtractNotes: openExtractNotes,
         movePoint: function (id, x, y) { return setPointAt(id, { x: x, y: y }, true); },
         exportPng: exportPng,
         includeSelected: includeSelected,

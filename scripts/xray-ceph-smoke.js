@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx19';
+var BUILD = '20261005fx21';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -299,6 +299,17 @@ var PAGE_SCRIPT = `(async () => {
     CEPH_PAGE.setLabMode(false);
     out.qa = CEPH_PAGE.state().qa;
   }
+  if (window.CEPH_I18N && typeof CEPH_I18N.setLang === 'function') {
+    const prev = CEPH_I18N.lang();
+    const loadBtn = document.getElementById('btnLoad');
+    CEPH_I18N.setLang('zh-Hant');
+    out.zhLoad = loadBtn ? String(loadBtn.textContent || '') : '';
+    out.zhHtmlLang = document.documentElement.getAttribute('lang');
+    CEPH_I18N.setLang('zh-CN');
+    out.cnLoad = loadBtn ? String(loadBtn.textContent || '') : '';
+    CEPH_I18N.setLang(prev || 'en');
+    out.enLoad = loadBtn ? String(loadBtn.textContent || '') : '';
+  }
   return out;
 })()`;
 
@@ -354,13 +365,28 @@ var PAGE_SCRIPT = `(async () => {
         /Ls to Sn/.test(read('ceph/ceph-analysis.js')));
     pass('sidecar has a ceph-only extraction index (not a treatment plan)',
         /function extractionIndex/.test(read('ceph/ceph-analysis.js')) &&
-        /拔牙倾向/.test(read('ceph/ceph.js')) && /crowding not assessed/.test(read('ceph/ceph-analysis.js')));
+        /sum.extract/.test(read('ceph/ceph.js')) &&
+        /拔牙倾向/.test(read('ceph/ceph-i18n.js')) &&
+        /crowding not assessed/.test(read('ceph/ceph-analysis.js')));
+    pass('sidecar follows dashboard language (en / zh-CN / zh-Hant)',
+        /ceph-i18n.js/.test(read('ceph/index.html')) &&
+        /joyful_ui_lang_v1/.test(read('ceph/ceph-i18n.js')) &&
+        /載入底片/.test(read('ceph/ceph-i18n.js')) &&
+        /载入底片/.test(read('ceph/ceph-i18n.js')) &&
+        /data-lang="zh-Hant"/.test(read('ceph/index.html')) &&
+        /CEPH_I18N/.test(read('ceph/ceph.js')) &&
+        /data-i18n="ex.back"/.test(read('ceph/extraction.html')));
     pass('extraction notes page explains extract vs keep',
         /btnExtractHelp/.test(read('ceph/index.html')) &&
         /Leans extract/.test(read('ceph/extraction.html')) &&
         /Leans keep/.test(read('ceph/extraction.html')) &&
         /Class III/.test(read('ceph/extraction.html')) &&
         /crowding/.test(read('ceph/extraction.html')));
+    pass('Back to tracing does not load a fresh empty ceph',
+        /history\.back/.test(read('ceph/extraction.html')) &&
+        /window\.opener/.test(read('ceph/extraction.html')) &&
+        !/href="\.\/\?v=/.test(read('ceph/extraction.html')) &&
+        /openExtractNotes/.test(read('ceph/ceph.js')));
     pass('sidecar saves a patient tracing and can print a report',
         /btnSaveTrace/.test(read('ceph/index.html')) && /btnPrint/.test(read('ceph/index.html')) &&
         /savedTrace/.test(read('ceph/ceph.js')) && /@media print/.test(read('ceph/ceph.css')));
@@ -554,10 +580,15 @@ var PAGE_SCRIPT = `(async () => {
     pass('GET /ceph/data/isbi2015.json', catGet.status === 200 && /"S"/.test(catGet.body.toString()) && /importedFilms/.test(catGet.body.toString()));
     var shGet = await httpGetText(PAGE_PORT, '/ceph/data/shapes.json');
     pass('GET /ceph/data/shapes.json', shGet.status === 200 && /"n":1502/.test(shGet.body.toString()));
+    var i18nGet = await httpGetText(PAGE_PORT, '/ceph/ceph-i18n.js');
+    pass('GET /ceph/ceph-i18n.js follows dashboard locales',
+        i18nGet.status === 200 && /joyful_ui_lang_v1/.test(i18nGet.body.toString()) &&
+        /載入底片/.test(i18nGet.body.toString()));
     var helpGet = await httpGetText(PAGE_PORT, '/ceph/extraction.html');
     pass('GET /ceph/extraction.html is the extract-vs-keep reminder',
         helpGet.status === 200 && /Leans extract/.test(helpGet.body.toString()) &&
-        /Leans keep/.test(helpGet.body.toString()) && /Class III/.test(helpGet.body.toString()));
+        /Leans keep/.test(helpGet.body.toString()) && /Class III/.test(helpGet.body.toString()) &&
+        /history\.back/.test(helpGet.body.toString()) && !/href="\.\/\?v=/.test(helpGet.body.toString()));
     if (sample && sample.buf) {
         var samp = await httpGetText(PAGE_PORT, '/__ceph-sample.jpg');
         pass('GET /__ceph-sample.jpg serves the clinic film', samp.status === 200 && samp.body.length > 8000,
@@ -643,6 +674,10 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: Advanced training stays hidden until toggled',
             live && live.labOff === true && live.labOn === true,
             live ? ('off=' + live.labOff + ' on=' + live.labOn + ' qa=' + (live.qa && live.qa.join(','))) : 'none');
+        pass('live: language toggle follows dashboard en / zh-CN / zh-Hant',
+            live && live.zhLoad === '載入底片' && live.cnLoad === '载入底片' &&
+            live.enLoad === 'Load film' && live.zhHtmlLang === 'zh-Hant',
+            live ? ('hant=' + live.zhLoad + ' cn=' + live.cnLoad + ' en=' + live.enLoad) : 'none');
         pass('live: the adopted set is added as a whole 19-point film',
             live && live.learnOk === true && live.learnIncluded === 19 && live.learnWhole === true,
             live ? ('films=' + live.learnClinic + ' n=' + live.learnIncluded + ' src=' + live.learnSource) : 'none');

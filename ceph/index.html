@@ -4,69 +4,74 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana · Lateral cephalometric</title>
-  <link rel="stylesheet" href="ceph.css?v=20261005fx19">
+  <link rel="stylesheet" href="ceph.css?v=20261005fx21">
 </head>
 <body>
   <div id="app">
     <div id="top">
-      <strong>Lateral ceph</strong>
-      <button type="button" class="primary" id="btnLoad">Load film</button>
+      <strong data-i18n="ui.brand">Lateral ceph</strong>
+      <div id="cephLangToggle" class="lang-toggle" role="group" data-i18n-aria="lang.group">
+        <button type="button" class="lang-toggle-btn" data-lang="en" data-i18n="lang.en">English</button>
+        <button type="button" class="lang-toggle-btn" data-lang="zh-CN" data-i18n="lang.zhCN">中文</button>
+        <button type="button" class="lang-toggle-btn" data-lang="zh-Hant" data-i18n="lang.zhHant">繁體中文</button>
+      </div>
+      <button type="button" class="primary" id="btnLoad" data-i18n="btn.load">Load film</button>
       <input id="filePick" type="file" accept="image/*,.bmp,.jpg,.jpeg,.png,.tif,.tiff">
-      <button type="button" id="btnDetect">Auto landmarks</button>
-      <button type="button" id="btnAdvanced" title="Show training library and reference-set tools.">Advanced</button>
+      <button type="button" id="btnDetect" data-i18n="btn.detect">Auto landmarks</button>
+      <button type="button" id="btnAdvanced" data-i18n="btn.advanced" data-i18n-title="btn.advancedTitle" title="Show training library and reference-set tools.">Advanced</button>
       <span class="refGroup labOnly is-hidden" role="group" aria-label="Reference library">
-        <button type="button" id="btnRefPub" aria-pressed="true" title="Auto-detect from the read-only 1502 published tracings only.">Published 1502</button>
-        <button type="button" id="btnRefPlus" aria-pressed="false" title="Auto-detect from the 1502 published tracings plus in-house training films. The two libraries stay stored separately.">Published + in-house</button>
+        <button type="button" id="btnRefPub" aria-pressed="true" data-i18n="btn.refPub" data-i18n-title="btn.refPubTitle">Published 1502</button>
+        <button type="button" id="btnRefPlus" aria-pressed="false" data-i18n="btn.refPlus" data-i18n-title="btn.refPlusTitle">Published + in-house</button>
       </span>
-      <button type="button" class="primary labOnly is-hidden" id="btnLearn">Add this set to clinic training</button>
-      <button type="button" class="labOnly is-hidden" id="btnLearnUndo">Undo last film</button>
-      <label>mm/px <input id="mmPerPx" type="number" step="0.01" min="0.01" value="0.1" title="Set after calibrating a known millimetre marker. ISBI 2015 is 0.1 mm/pixel."></label>
-      <button type="button" id="btnCalibrate" title="Click two ends of a known millimetre marker on the film (ear rod, 10 mm ruler). Linear measures stay untrusted until this is done.">Calibrate ruler</button>
-      <label>ruler mm <input id="rulerMm" type="number" step="0.1" min="1" value="10" title="Known length between the two calibration clicks."></label>
-      <button type="button" id="btnInvert" title="Invert the film for tracing dark fossae.">Invert</button>
-      <button type="button" id="btnUndoPt" title="Undo the last landmark drag.">Undo point</button>
-      <button type="button" id="btnResetView" title="Reset zoom and pan.">Reset view</button>
-      <button type="button" class="primary" id="btnSaveTrace" title="Save this tracing for this Banana patient so it can be reopened later.">Save tracing</button>
-      <button type="button" id="btnPrint" title="Print a one-page ceph report.">Print report</button>
-      <button type="button" id="btnJson">Export JSON</button>
-      <button type="button" id="btnCsv">Export CSV</button>
-      <button type="button" id="btnPng">Export marked PNG</button>
-      <a class="btn" id="btnExtractHelp" href="extraction.html?v=20261005fx19" target="_blank" rel="noopener" title="Chairside reminder of extract vs keep on the tracing.">Extraction notes</a>
+      <button type="button" class="primary labOnly is-hidden" id="btnLearn" data-i18n="btn.learn">Add this set to clinic training</button>
+      <button type="button" class="labOnly is-hidden" id="btnLearnUndo" data-i18n="btn.learnUndo">Undo last film</button>
+      <label><span data-i18n="lbl.mmPx">mm/px</span> <input id="mmPerPx" type="number" step="0.01" min="0.01" value="0.1" title="Set after calibrating a known millimetre marker. ISBI 2015 is 0.1 mm/pixel."></label>
+      <button type="button" id="btnCalibrate" data-i18n="btn.calibrate" data-i18n-title="btn.calibrateTitle">Calibrate ruler</button>
+      <label><span data-i18n="lbl.rulerMm">ruler mm</span> <input id="rulerMm" type="number" step="0.1" min="1" value="10"></label>
+      <button type="button" id="btnInvert" data-i18n="btn.invert" data-i18n-title="btn.invertTitle">Invert</button>
+      <button type="button" id="btnUndoPt" data-i18n="btn.undo" data-i18n-title="btn.undoTitle">Undo point</button>
+      <button type="button" id="btnResetView" data-i18n="btn.reset" data-i18n-title="btn.resetTitle">Reset view</button>
+      <button type="button" class="primary" id="btnSaveTrace" data-i18n="btn.save" data-i18n-title="btn.saveTitle">Save tracing</button>
+      <button type="button" id="btnPrint" data-i18n="btn.print" data-i18n-title="btn.printTitle">Print report</button>
+      <button type="button" id="btnJson" data-i18n="btn.json">Export JSON</button>
+      <button type="button" id="btnCsv" data-i18n="btn.csv">Export CSV</button>
+      <button type="button" id="btnPng" data-i18n="btn.png">Export marked PNG</button>
+      <a class="btn" id="btnExtractHelp" href="extraction.html?v=20261005fx21" target="_blank" data-i18n="btn.extractHelp" data-i18n-title="btn.extractHelpTitle">Extraction notes</a>
       <span id="status" class="status"></span>
     </div>
     <div id="stage">
       <div id="viewWrap">
         <canvas id="view"></canvas>
-        <div id="setBar" class="setBar is-hidden" tabindex="0" title="Click 1–3 to view a set, then Adopt selection.">
+        <div id="setBar" class="setBar is-hidden" tabindex="0" data-i18n-title="setBar.title" title="Click 1–3 to view a set, then Adopt selection.">
           <div class="setBar-row">
             <div id="setBtns" class="setBtns"></div>
-            <button type="button" class="primary" id="btnAdoptSet">Adopt selection</button>
+            <button type="button" class="primary" id="btnAdoptSet" data-i18n="btn.adopt">Adopt selection</button>
           </div>
           <p id="setCaption" class="hint">View 1–3, then Adopt selection.</p>
         </div>
-        <button type="button" id="btnChangeSet" class="changeSet is-hidden">Change set</button>
+        <button type="button" id="btnChangeSet" class="changeSet is-hidden" data-i18n="btn.changeSet">Change set</button>
       </div>
       <aside id="side">
-        <p class="hint">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Choose <strong>Published 1502</strong> or <strong>Published + in-house</strong>. Auto-detect offers 3 candidate sets. Compare values to <strong>Caucasian</strong> or <strong>HK Chinese</strong> norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The <strong>extraction index</strong> is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.</p>
+        <p class="hint" id="sideHint" data-i18n="hint.side">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Choose Published 1502 or Published + in-house. Auto-detect offers 3 candidate sets. Compare values to Caucasian or HK Chinese norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The extraction index is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.</p>
         <div class="libs labOnly is-hidden">
           <div class="lib">
-            <h3>Published tracings</h3>
+            <h3 data-i18n="h.pub">Published tracings</h3>
             <div class="n" id="pubCount">1502</div>
-            <p class="hint">ISBI 2015 + Aariz + PKU. Read-only.</p>
+            <p class="hint" data-i18n="h.pubHint">ISBI 2015 + Aariz + PKU. Read-only.</p>
           </div>
           <div class="lib">
-            <h3>Clinic training</h3>
+            <h3 data-i18n="h.clinic">Clinic training</h3>
             <div class="n" id="learnFilms">0</div>
             <p class="hint" id="learnCount">Whole adopted sets only. 0 films.</p>
           </div>
         </div>
-        <h2>Landmarks</h2>
+        <h2 data-i18n="h.landmarks">Landmarks</h2>
         <div id="lmList"></div>
         <div class="normBar">
-          <span class="normBar-label">Norms</span>
+          <span class="normBar-label" data-i18n="lbl.norms">Norms</span>
           <span class="refGroup" role="group" aria-label="Norm set">
-            <button type="button" id="btnNormCauc" aria-pressed="false" title="Caucasian adult textbook means (Steiner / Downs / Tweed).">Caucasian</button>
-            <button type="button" id="btnNormCn" aria-pressed="true" title="Southern Chinese / Hong Kong adult composite (Chan 1972; Cooke &amp; Wei 1988).">HK Chinese</button>
+            <button type="button" id="btnNormCauc" aria-pressed="false" data-i18n="btn.normCauc" data-i18n-title="btn.normCaucTitle">Caucasian</button>
+            <button type="button" id="btnNormCn" aria-pressed="true" data-i18n="btn.normCn" data-i18n-title="btn.normCnTitle">HK Chinese</button>
           </span>
           <p id="normSource" class="hint">Southern Chinese / Hong Kong adult (Chan 1972; Cooke &amp; Wei 1988)</p>
         </div>
@@ -76,9 +81,10 @@
     </div>
     <div id="bananaCephBar">Banana cephalometric sidecar</div>
   </div>
-  <script src="ceph-landmarks.js?v=20261005fx19"></script>
-  <script src="ceph-learn.js?v=20261005fx19"></script>
-  <script src="ceph-analysis.js?v=20261005fx19"></script>
-  <script src="ceph.js?v=20261005fx19"></script>
+  <script src="ceph-i18n.js?v=20261005fx21"></script>
+  <script src="ceph-landmarks.js?v=20261005fx21"></script>
+  <script src="ceph-learn.js?v=20261005fx21"></script>
+  <script src="ceph-analysis.js?v=20261005fx21"></script>
+  <script src="ceph.js?v=20261005fx21"></script>
 </body>
 </html>

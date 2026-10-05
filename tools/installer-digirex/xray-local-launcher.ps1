@@ -2514,25 +2514,123 @@ function Start-RayBridgePatient($Resolved, $Patient) {
 # instead of the old OPG/CT. Same root cause as NNT /PATID and Rayscan
 # ID: -- reuse Convert-NntPatientId so ANY clinic letter prefix is
 # stripped, not just the literal "PL" this report named.
+#
+# CORRECTED 2026-10-05 (Po Lam): each Banana open must start from a clean
+# handoff. EzDent-i's CheckInstance reuses the already-open window, so the
+# last viewed chart (e.g. CHENG HING FUN) stays selected and capture stays
+# locked to that person. Linkage.xml was also left on disk from a previous
+# patient (CHENG SIN HEI / 021602 on 2026-09-29) because this install
+# never deletes it. Fix: close the running EzDent-i/bridge processes,
+# delete any leftover Linkage.xml, write a fresh file for THIS patient
+# only (ASCII English name, no Chinese -- same class of "Invalid value"
+# failure as Digirex), and refresh VCapture PatientInfo.ini so the PaX-i
+# console cannot keep a years-old chart. Birthday uses yyyy-MM-dd to
+# match this PC's VTE2_Setting.xml DateFormat.
 function Convert-EzdentiPatientId($Value) {
     return Convert-NntPatientId $Value
 }
 
+function Remove-EzdentiNonAscii([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $clean = [regex]::Replace($Value, '[^\x20-\x7E]', ' ')
+    return ([regex]::Replace($clean, '\s+', ' ')).Trim()
+}
+
+function Convert-EzdentiBirthDate($Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy")
+    foreach ($fmt in $formats) {
+        try {
+            $dt = [DateTime]::ParseExact($Value, $fmt, [Globalization.CultureInfo]::InvariantCulture)
+            return $dt.ToString("yyyy-MM-dd")
+        } catch {}
+    }
+    try {
+        $dt = [DateTime]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture)
+        return $dt.ToString("yyyy-MM-dd")
+    } catch {
+        return ""
+    }
+}
+
+function Convert-EzdentiBirthCompact($Value) {
+    $iso = Convert-EzdentiBirthDate $Value
+    if (-not $iso) { return "" }
+    return $iso.Replace("-", "")
+}
+
+function Split-EzdentiPatientName($Patient) {
+    # Chinese is never written into Linkage.xml or PatientInfo.ini.
+    $ascii = Remove-EzdentiNonAscii ([string]$Patient.patient_name)
+    if ([string]::IsNullOrWhiteSpace($ascii)) {
+        $chart = if ($Patient.patient_no) { Convert-EzdentiPatientId $Patient.patient_no } else { "" }
+        return [ordered]@{ First = $chart; Last = $chart }
+    }
+    $parts = Split-RayPatientName $ascii
+    $last = [string]$parts.last
+    $first = (@($parts.first, $parts.middle) | Where-Object { $_ }) -join " "
+    if ([string]::IsNullOrWhiteSpace($first)) { $first = $last }
+    return [ordered]@{ First = $first; Last = $last }
+}
+
+function Get-EzdentiProcessNames {
+    return @(
+        "VTEzDent-iLoader32",
+        "VTE2Loader32",
+        "VTE2Loader_ReqAdmin32",
+        "VTEzDent-i32",
+        "VTE232",
+        "VTE2_ReqAdmin32",
+        "VTEzBridge32"
+    )
+}
+
+function Stop-EzdentiProcesses {
+    $names = Get-EzdentiProcessNames
+    foreach ($name in $names) {
+        Get-Process -Name $name -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    $deadline = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $deadline) {
+        $left = @(Get-Process -Name $names -ErrorAction SilentlyContinue)
+        if ($left.Count -eq 0) { return $true }
+        Start-Sleep -Milliseconds 400
+    }
+    return $false
+}
+
+function Get-EzdentiLinkageFilePaths([string]$WorkDir) {
+    $list = New-Object System.Collections.Generic.List[string]
+    if ([string]::IsNullOrWhiteSpace($WorkDir)) { return @() }
+    $list.Add((Join-Path $WorkDir "Linkage.xml"))
+    $list.Add((Join-Path $WorkDir "linkage.xml"))
+    return $list
+}
+
+function Clear-EzdentiStaleHandoff([string]$WorkDir) {
+    $removed = 0
+    foreach ($path in Get-EzdentiLinkageFilePaths $WorkDir) {
+        if (Test-Path -LiteralPath $path) {
+            try {
+                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+                $removed++
+            } catch {}
+        }
+    }
+    return $removed
+}
+
 function New-EzdentiLinkageXml($Patient) {
     $chartNo = if ($Patient.patient_no) { Convert-EzdentiPatientId $Patient.patient_no } else { $Patient.patient_id }
-    # Chinese-name clinics: mirrors the NNT /NAME (English) + /SURNAME
-    # (Chinese) split above. EzDent-i's LastName/FirstName attributes are a
-    # Western given/family-name pair, so this is a best-effort mapping, not
-    # a confirmed one -- see the caveat above.
-    $firstName = [string]$Patient.patient_name
-    $lastName  = if ($Patient.chinese_name) { [string]$Patient.chinese_name } else { "" }
-    $birthday  = Convert-NntBirthDate $Patient.dob
-    $gender    = Convert-GenderWord $Patient.sex
+    $names = Split-EzdentiPatientName $Patient
+    $birthday = Convert-EzdentiBirthDate $Patient.dob
+    $gender = Convert-GenderWord $Patient.sex
 
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.Append('<?xml version="1.0" encoding="utf-8"?>' + [Environment]::NewLine)
     [void]$sb.Append('<LinkageParameter>' + [Environment]::NewLine)
-    [void]$sb.Append('  <Patient LastName="' + (Escape-Xml $lastName) + '" FirstName="' + (Escape-Xml $firstName) + '" ChartNumber="' + (Escape-Xml $chartNo) + '">' + [Environment]::NewLine)
+    [void]$sb.Append('  <Patient LastName="' + (Escape-Xml $names.Last) + '" FirstName="' + (Escape-Xml $names.First) + '" ChartNumber="' + (Escape-Xml $chartNo) + '">' + [Environment]::NewLine)
     if ($birthday) { [void]$sb.Append('    <Birthday>' + (Escape-Xml $birthday) + '</Birthday>' + [Environment]::NewLine) }
     if ($Patient.address) { [void]$sb.Append('    <Address>' + (Escape-Xml $Patient.address) + '</Address>' + [Environment]::NewLine) }
     if ($Patient.phone) { [void]$sb.Append('    <Phone>' + (Escape-Xml $Patient.phone) + '</Phone>' + [Environment]::NewLine) }
@@ -2542,6 +2640,43 @@ function New-EzdentiLinkageXml($Patient) {
     [void]$sb.Append('  </Patient>' + [Environment]::NewLine)
     [void]$sb.Append('</LinkageParameter>' + [Environment]::NewLine)
     return $sb.ToString()
+}
+
+function Write-EzdentiCapturePatientInfo($Patient) {
+    $chartNo = if ($Patient.patient_no) { Convert-EzdentiPatientId $Patient.patient_no } else { "" }
+    if ([string]::IsNullOrWhiteSpace($chartNo)) { return "" }
+    $names = Split-EzdentiPatientName $Patient
+    $fname = (@($names.Last, $names.First) | Where-Object { $_ }) -join " "
+    if (-not $fname) { $fname = $chartNo }
+    $gender = Convert-NntSex $Patient.sex
+    if (-not $gender) { $gender = "M" }
+    $bday = Convert-EzdentiBirthCompact $Patient.dob
+    $age = ""
+    if ($bday.Length -eq 8) {
+        try {
+            $dt = [DateTime]::ParseExact($bday, "yyyyMMdd", [Globalization.CultureInfo]::InvariantCulture)
+            $age = [int][math]::Floor(((Get-Date) - $dt).TotalDays / 365.25)
+            if ($age -lt 0) { $age = "" }
+        } catch { $age = "" }
+    }
+    $ini = "[PATIENT_INFO]`r`nChartNumber=$chartNo`r`nFNAME=$fname^`r`n"
+    if ($age -ne "") { $ini += "AGE=$age`r`n" }
+    $ini += "GENDER=$gender`r`n"
+    if ($bday) { $ini += "BIRTHDAY=$bday`r`n" }
+
+    $written = ""
+    foreach ($path in @(
+        "C:\VCaptureSW\Exe\PatientInfo.ini",
+        "C:\Ez Scan\Exchanging\PatientInfo.ini"
+    )) {
+        $dir = Split-Path -Parent $path
+        if (-not (Test-PathSafe $dir)) { continue }
+        try {
+            [IO.File]::WriteAllText($path, $ini, [Text.Encoding]::Default)
+            if (-not $written) { $written = $path }
+        } catch {}
+    }
+    return $written
 }
 
 # VTEzBridge32.exe lives next to the loader/app exe. Resolved separately
@@ -2569,8 +2704,14 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
     $chartNo = if ($Patient.patient_no) { Convert-EzdentiPatientId $Patient.patient_no } else { $Patient.patient_id }
     $workDir = if ($Resolved.workingDirectory -and (Test-PathSafe $Resolved.workingDirectory)) { $Resolved.workingDirectory } else { Split-Path -Parent $Resolved.target }
 
-    # Best-effort only -- see the caveat above New-EzdentiLinkageXml. Never
-    # blocks or fails the rest of this function if it doesn't pan out.
+    # Close the already-open window first. CheckInstance otherwise keeps
+    # the previous chart selected and ignores the new Linkage.xml.
+    Stop-EzdentiProcesses | Out-Null
+    $cleared = 0
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $cleared = Clear-EzdentiStaleHandoff $workDir
+    }
+
     $xmlPath = ""
     if (-not [string]::IsNullOrWhiteSpace($chartNo) -and $workDir -and (Test-PathSafe $workDir)) {
         try {
@@ -2579,6 +2720,8 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
             $xmlPath = $candidatePath
         } catch {}
     }
+
+    $captureIni = Write-EzdentiCapturePatientInfo $Patient
 
     $bridgeExe = Resolve-EzdentiBridge $Resolved
     if ($bridgeExe) {
@@ -2618,8 +2761,10 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
         workingDirectory = $workDir
         bridge_exe = $bridgeExe
         linkage_xml = $xmlPath
+        capture_ini = $captureIni
+        stale_cleared = $cleared
         chart_number = $chartNo
-        mode = "ezdenti-open-plus-besteffort-linkage"
+        mode = "ezdenti-fresh-linkage"
     }
 }
 
@@ -3697,9 +3842,10 @@ function Invoke-SelfTest {
     $ezXml = New-EzdentiLinkageXml $ezPatient
     Assert-Equal "Root element"        $true ($ezXml -like "*<LinkageParameter>*")
     Assert-Equal "ChartNumber attr"    $true ($ezXml -like '*ChartNumber="001287"*')
-    Assert-Equal "FirstName attr (EN)" $true ($ezXml -like "*FirstName=`"$rawName`"*")
-    Assert-Equal "LastName attr (ZH)"  $true ($ezXml -like "*LastName=`"$rawChinese`"*")
-    Assert-Equal "Birthday dd/MM/yyyy" $true ($ezXml -like "*<Birthday>23/05/1969</Birthday>*")
+    Assert-Equal "FirstName given names" $true ($ezXml -like '*FirstName="KWAN MING"*')
+    Assert-Equal "LastName family ASCII" $true ($ezXml -like '*LastName="HSIUNG"*')
+    Assert-Equal "Chinese name omitted from XML" $false ($ezXml -like "*$rawChinese*")
+    Assert-Equal "Birthday yyyy-MM-dd" $true ($ezXml -like "*<Birthday>1969-05-23</Birthday>*")
     Assert-Equal "Gender word"         $true ($ezXml -like "*<Gender>Male</Gender>*")
     Assert-Equal "SocialID (HKID)"     $true ($ezXml -like "*<SocialID>A123456(7)</SocialID>*")
     Assert-Equal "Address"             $true ($ezXml -like "*<Address>1 Main St</Address>*")
@@ -3710,6 +3856,24 @@ function Invoke-SelfTest {
     $ezXmlPl = New-EzdentiLinkageXml (Build-PatientContext (Parse-Query "/open/ezdenti?patient_no=PL001287"))
     Assert-Equal "PL prefix stripped from ChartNumber" $true ($ezXmlPl -like '*ChartNumber="001287"*')
     Assert-Equal "PL prefix not left on ChartNumber"   $false ($ezXmlPl -like '*ChartNumber="PL001287"*')
+    $ezMixed = Split-EzdentiPatientName ([ordered]@{ patient_name = "CHAN 陳大文"; chinese_name = "陳大文"; patient_no = "PL021602" })
+    Assert-Equal "Mixed name strips Chinese" "CHAN" $ezMixed.Last
+    Assert-Equal "Single ASCII token fills First" "CHAN" $ezMixed.First
+    $ezStaleDir = Join-Path $env:TEMP ("ez-stale-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $ezStaleDir -Force | Out-Null
+    try {
+        Set-Content -LiteralPath (Join-Path $ezStaleDir "Linkage.xml") -Value "OLD CACHE CHENG HING FUN" -Encoding UTF8
+        $removed = Clear-EzdentiStaleHandoff $ezStaleDir
+        Assert-Equal "Stale Linkage.xml deleted" $true ($removed -ge 1)
+        Assert-Equal "No leftover Linkage.xml" $false (Test-Path -LiteralPath (Join-Path $ezStaleDir "Linkage.xml"))
+        $freshXml = New-EzdentiLinkageXml $ezPatient
+        Set-Content -LiteralPath (Join-Path $ezStaleDir "Linkage.xml") -Value $freshXml -Encoding UTF8
+        $roundTrip = Get-Content -LiteralPath (Join-Path $ezStaleDir "Linkage.xml") -Raw
+        Assert-Equal "Fresh file is current patient" $true ($roundTrip -like '*ChartNumber="001287"*')
+        Assert-Equal "Fresh file is not old cache name" $false ($roundTrip -like "*CHENG HING FUN*")
+    } finally {
+        Remove-Item -LiteralPath $ezStaleDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
     $ezClip = Build-PatientContext (Parse-Query "/open/ezdenti?patient_no=PL001287&patient_name=TEST")
     $ezClip.patient_no = Convert-EzdentiPatientId $ezClip.patient_no
     $ezClipText = Patient-ContextText $ezClip
@@ -3988,11 +4152,9 @@ Pass=digirex
             Assert-Equal "/open/nntnewtom returns 404 when NNT not installed on this PC" 404 $nntOpenResp.status
         }
         # Same opt-in trade-off as NNT above: if EzDent-i is actually installed
-        # here, this really does open it (VTE2Loader32.exe -> visible VTE232.exe
-        # window) and best-effort fire VTEzBridge32.exe, with the fabricated
-        # patient above. Confirmed live (2026-08-19) to open the app; the
-        # linkage.xml/VTEzBridge32.exe half is best-effort and unconfirmed --
-        # see the comment above New-EzdentiLinkageXml.
+        # here, this really does close any already-open window, wipe leftover
+        # Linkage.xml, write a fresh handoff, and open the app
+        # (VTE2Loader32.exe -> visible VTE232.exe window).
         $ezOpenResp = Handle-Request ("/open/ezdenti?" + $ezQs.Split('?')[1])
         if ($ezResolveCheck.exists) {
             Assert-Equal "/open/ezdenti returns 200 and opens the real app" 200 $ezOpenResp.status

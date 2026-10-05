@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx41';
+var BUILD = '20261005fx42';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -233,8 +233,18 @@ var PAGE_SCRIPT = `(async () => {
   if (window.CEPH_PAGE && typeof CEPH_PAGE.adoptSet === 'function') {
     CEPH_PAGE.adoptSet(0);
     out.set0 = CEPH_PAGE.state().source;
+    const p0 = (CEPH_PAGE.state().pts || {});
     CEPH_PAGE.adoptSet(1);
     out.set1 = CEPH_PAGE.state().source;
+    const p1 = (CEPH_PAGE.state().pts || {});
+    let shift = 0, nShift = 0;
+    ['S', 'N', 'Me', 'Go', 'A'].forEach((id) => {
+      if (p0[id] && p1[id]) {
+        shift += Math.hypot(p0[id].x - p1[id].x, p0[id].y - p1[id].y);
+        nShift += 1;
+      }
+    });
+    out.libShiftPx = nShift ? shift / nShift : null;
     out.set2 = '';
     const locked = typeof CEPH_PAGE.lockAdopt === 'function' ? CEPH_PAGE.lockAdopt() : null;
     out.adopted = !!(locked && locked.ok);
@@ -481,6 +491,11 @@ var PAGE_SCRIPT = `(async () => {
         /id: 'unet'/.test(read('ceph/ceph-landmarks.js')) && /id: 'lib1502'/.test(read('ceph/ceph-landmarks.js')) &&
         !/id: 'imgEdge'/.test(read('ceph/ceph-landmarks.js')) &&
         /lockAdopt/.test(read('ceph/ceph.js')));
+    pass('1502 library average is boxed from the UNet landmarks then k-NN mapped',
+        /function boxFromPts/.test(read('ceph/ceph-landmarks.js')) &&
+        /function fitLibToGuide/.test(read('ceph/ceph-landmarks.js')) &&
+        /boxmean\+unetbox/.test(read('ceph/ceph-landmarks.js')) &&
+        /fitLibToGuide/.test(read('ceph/ceph.js')));
     pass('sidecar has Caucasian vs HK Chinese norms with in/warn/out bands',
         /btnNormCn/.test(read('ceph/index.html')) && /btnNormCauc/.test(read('ceph/index.html')) &&
         /normSet/.test(read('ceph/ceph-analysis.js')) && /band-out/.test(read('ceph/ceph.css')) &&
@@ -1098,9 +1113,12 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: 2 auto-detect sets — UNet (default) and 1502 library average',
             live && live.nSets === 2 && /unet/.test(String(live.setIds || '')) && /lib1502/.test(String(live.setIds || '')) &&
             (/dental_001-unet/.test(String(live.set0 || '')) || /isbi\+aariz\+pku-/.test(String(live.set0 || ''))) &&
-            /boxmean\+edge/.test(String(live.set1 || '')) && live.set0 !== live.set1 &&
+            /boxmean\+(unetbox|edge)/.test(String(live.set1 || '')) && live.set0 !== live.set1 &&
             live.adopted === true && live.setBarHidden === true,
             live ? ('ids=' + live.setIds + ' unet=' + live.set0 + ' lib=' + live.set1 + ' hidden=' + live.setBarHidden) : 'none');
+        pass('live: 1502 average is mapped into the UNet landmark box',
+            live && /boxmean\+unetbox/.test(String(live.set1 || '')) && live.libShiftPx != null && live.libShiftPx < 80,
+            live ? ('shift=' + live.libShiftPx + ' lib=' + live.set1) : 'none');
         pass('live: Adopt starts a Go/Po/Or/Ar/apex/Pn walk-through',
             live && live.walkAdoptOn === true && live.walkAdoptId === 'Go',
             live ? ('adoptWalk=' + live.walkAdoptId) : 'none');

@@ -708,7 +708,7 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx41" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx42" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair) {
                 var isExtract = pair[0] === tx('sum.extract');
@@ -1423,7 +1423,16 @@
                     pts: remote.pts,
                     extra: remote.extra || null
                 };
+                if (remote.pts && typeof CEPH_LM.fitLibToGuide === 'function') {
+                    var lib = CEPH_LM.fitLibToGuide(img, remote.pts, { useTraining: useTraining });
+                    if (lib && lib.pts) {
+                        sets[1] = lib;
+                        lastBox = lib.box || lastBox;
+                        pack.trainingSource = lib.trainingSource || pack.trainingSource;
+                    }
+                }
                 if (!userPickedSet && !restoreHold) previewSet(0, false);
+                else if (setIndex === 1 && !restoreHold) previewSet(1, false);
                 else renderSetBar();
                 if (!restoreHold) {
                     setStatus(tx('st.twoReady', {
@@ -1634,7 +1643,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx41';
+        var url = 'extraction.html?v=20261005fx42';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }

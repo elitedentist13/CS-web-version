@@ -120,12 +120,16 @@
             return { i: i, d: Math.abs(a - aspect) };
         });
         scored.sort(function (a, b) { return a.d - b.d; });
-        var k = Math.min(kWant || 24, scored.length);
+        var want = Math.min(kWant || 24, scored.length);
+        var close = scored.filter(function (s) { return s.d <= 0.12; });
+        if (close.length < 8) close = scored.slice(0, want);
+        else if (close.length > want) close = close.slice(0, want);
+        var k = close.length;
         var acc = {};
         var j, p, sh;
         ids.forEach(function (id) { acc[id] = { x: 0, y: 0 }; });
         for (j = 0; j < k; j++) {
-            sh = list[scored[j].i];
+            sh = list[close[j].i];
             p = sh.p || sh;
             ids.forEach(function (id, idx) {
                 acc[id].x += p[idx * 2];
@@ -140,6 +144,85 @@
             };
         });
         return pts;
+    }
+
+    function catalogIdSet() {
+        var o = {};
+        defs().forEach(function (d) { o[d.id] = true; });
+        return o;
+    }
+
+    function boxPad() {
+        if (SHAPES && SHAPES.pad != null) return Number(SHAPES.pad);
+        if (CAT && CAT.bboxPad != null) return Number(CAT.bboxPad);
+        return 0.06;
+    }
+
+    function boxFromPts(pts, img) {
+        var ids = catalogIdSet();
+        var xs = [], ys = [], id, p;
+        for (id in pts) {
+            if (!Object.prototype.hasOwnProperty.call(pts, id) || !ids[id]) continue;
+            p = pts[id];
+            if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+            xs.push(p.x);
+            ys.push(p.y);
+        }
+        if (xs.length < 8) return null;
+        var pad = boxPad();
+        var minx = Math.min.apply(null, xs);
+        var maxx = Math.max.apply(null, xs);
+        var miny = Math.min.apply(null, ys);
+        var maxy = Math.max.apply(null, ys);
+        var bw = Math.max(1, maxx - minx);
+        var bh = Math.max(1, maxy - miny);
+        var box = {
+            x: minx - bw * pad,
+            y: miny - bh * pad,
+            w: bw * (1 + 2 * pad),
+            h: bh * (1 + 2 * pad),
+            via: 'unet'
+        };
+        if (img && img.naturalWidth) {
+            if (box.w > img.naturalWidth * 1.5 || box.h > img.naturalHeight * 1.5) return null;
+        }
+        return box;
+    }
+
+    function libPrefix() {
+        var n = (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 1502;
+        return 'isbi+aariz+pku-' + n;
+    }
+
+    function placeLibAverage(img, box, opts) {
+        opts = opts || {};
+        var useTraining = !!opts.useTraining;
+        var prefix = libPrefix();
+        var tag = (box && box.via === 'unet') ? 'boxmean+unetbox' : 'boxmean+edge';
+        var mean = localBoxMean(box, opts.k || 24);
+        var pts = (opts.snap === false) ? mean : refinePts(img, mean, box.w, box.h, false);
+        var over = overlayTraining(pts, box, useTraining);
+        var trainSrc = over.used ? ('clinic-train-' + over.films) : '';
+        return {
+            id: 'lib1502',
+            label: over.used ? '1502 + self-training library average' : '1502 library ± self-training average',
+            source: prefix + '-' + tag + (trainSrc ? ('; training:' + trainSrc) : ''),
+            publishedSource: prefix + '-' + tag,
+            trainingSource: trainSrc,
+            pts: clonePts(over.used ? over.pts : pts),
+            box: box,
+            usedTraining: over.used,
+            clinicFilms: over.films || 0
+        };
+    }
+
+    function fitLibToGuide(img, guidePts, opts) {
+        var box = boxFromPts(guidePts, img);
+        if (!box) {
+            box = findHeadBox(img);
+            box.via = 'head';
+        }
+        return placeLibAverage(img, box, opts || {});
     }
 
     function IDS_FALLBACK() {
@@ -253,16 +336,10 @@
         var useTraining = !!opts.useTraining;
         var box = findHeadBox(img);
         var area = (box.w * box.h) / Math.max(1, img.naturalWidth * img.naturalHeight);
-        var n = (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 1502;
-        var prefix = 'isbi+aariz+pku-' + n;
+        var prefix = libPrefix();
         var imgMean = placeImgMean(img);
-        var boxMean = localBoxMean(box, 24);
         var imgEdge = refinePts(img, imgMean, img.naturalWidth, img.naturalHeight, true);
-        var boxEdge = refinePts(img, boxMean, box.w, box.h, false);
-        var over = overlayTraining(boxEdge, box, useTraining);
-        var trainSrc = over.used ? ('clinic-train-' + over.films) : '';
-        var libPts = over.used ? over.pts : boxEdge;
-        var libSrc = prefix + '-boxmean+edge' + (trainSrc ? ('; training:' + trainSrc) : '');
+        var lib = placeLibAverage(img, box, { useTraining: useTraining });
         var sets = [
             {
                 id: 'unet',
@@ -271,23 +348,16 @@
                 publishedSource: prefix + '-imgmean+edge',
                 pts: clonePts(imgEdge)
             },
-            {
-                id: 'lib1502',
-                label: over.used ? '1502 + self-training library average' : '1502 library ± self-training average',
-                source: libSrc,
-                publishedSource: prefix + '-boxmean+edge',
-                trainingSource: trainSrc,
-                pts: clonePts(libPts)
-            }
+            lib
         ];
         return {
             sets: sets,
             defaultIndex: 0,
-            box: box,
-            films: n,
-            clinic: over.films || 0,
-            trainingSource: trainSrc,
-            usedTraining: over.used,
+            box: lib.box || box,
+            films: (CAT && CAT.importedFilms) || (SHAPES && SHAPES.n) || 1502,
+            clinic: lib.clinicFilms || 0,
+            trainingSource: lib.trainingSource || '',
+            usedTraining: !!lib.usedTraining,
             area: area
         };
     }
@@ -411,6 +481,9 @@
         detectCvmApi: detectCvmApi,
         placeMean: placeMean,
         findHeadBox: findHeadBox,
+        boxFromPts: boxFromPts,
+        fitLibToGuide: fitLibToGuide,
+        placeLibAverage: placeLibAverage,
         publishedStats: publishedStats
     };
 })(typeof window !== 'undefined' ? window : this);

@@ -17,7 +17,7 @@ python scripts/import-ceph-landmarks.py
 | Aariz / CEPHA29 | 1000 | 29-pt JSON; junior+senior average; 19 shared ISBI names | [manwaarkhd/aariz](https://github.com/manwaarkhd/aariz) loader + [Figshare 27986417](https://doi.org/10.6084/m9.figshare.27986417) (JSON only extracted) |
 | PKU / DentalCepha | 102 | 19-pt txt (doctor1+doctor2 average), ISBI order | [Figshare 13265471](https://doi.org/10.6084/m9.figshare.13265471) (Zeng et al. 2020) |
 
-Mean SNA on the imported 1502 is **81.7°**. Full-plate placement still uses the ISBI image-normalized mean. Tight crops use the combined bbox library. `shapes.json` holds bbox-normalized shapes (no pixels).
+Mean SNA on the imported 1502 is **81.7°**. Auto landmarks sizes the 1502 bbox from the UNet 19-point box (same 6% pad as `shapes.json`), then places the aspect-matched 24-neighbour average into that frame. Full-plate fallback still uses the ISBI image-normalized mean. `shapes.json` holds bbox-normalized shapes (no pixels).
 
 ## Primary images (gitignored)
 

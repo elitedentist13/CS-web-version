@@ -8,3 +8,7 @@ $script:DigirexDentistPassword = "digirex"
 
 # $script:DigirexExePath = "C:\DIGIREX\digirex.exe"
 # $script:DigirexDataRoots = @("C:\DIGIREX\DATA")
+
+# EzDent-i loader, if it is not under Program Files\VATECH\EzDent-i\Bin
+# and there is no Start Menu shortcut. File or install folder both work.
+# $script:EzdentiExePath = "D:\VATECH\EzDent-i\Bin\VTE2Loader32.exe"

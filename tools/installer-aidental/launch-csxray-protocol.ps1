@@ -74,6 +74,39 @@ function Write-ProtocolLog([string]$Line) {
     } catch {}
 }
 
+function Read-HttpErrorBody($ErrorRecord) {
+    try {
+        $resp = $ErrorRecord.Exception.Response
+        if (-not $resp) { return "" }
+        $stream = $resp.GetResponseStream()
+        if (-not $stream) { return "" }
+        $reader = New-Object System.IO.StreamReader($stream)
+        $text = $reader.ReadToEnd()
+        $reader.Close()
+        return [string]$text
+    } catch {
+        return ""
+    }
+}
+
+function Start-EzdentiFallback {
+    # The listener on :17890 may be an older process whose /open/ezdenti
+    # returns 404 (fixed install path only). This handler is started fresh
+    # on every click, so it can still open the loader the bridge missed.
+    $launcher = Join-Path $PSScriptRoot "xray-local-launcher.ps1"
+    if (-not (Test-Path -LiteralPath $launcher)) { return "" }
+    $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -FindEzdenti
+    $exe = ""
+    foreach ($line in @($out)) {
+        $text = ([string]$line).Trim()
+        if ($text -match '(?i)\.exe$') { $exe = $text }
+    }
+    if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { return "" }
+    $work = Split-Path -Parent $exe
+    Start-Process -FilePath $exe -WorkingDirectory $work | Out-Null
+    return $exe
+}
+
 function Show-ProtocolError([string]$Message) {
     Write-ProtocolLog ("ERROR " + $Message)
     if ($DryRun -or $SelfTest) { return }
@@ -111,7 +144,7 @@ function Start-InstalledBridge([int]$TargetPort, [string[]]$EnabledSystems) {
     if (-not (Test-Path -LiteralPath $launcher)) {
         throw "xray-local-launcher.ps1 is not next to this handler ($PSScriptRoot). Re-run this PC's X-ray bridge installer."
     }
-    $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$launcher`" -Port $TargetPort"
+    $arg = "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$launcher`" -Port $TargetPort"
     foreach ($sys in @($EnabledSystems)) {
         if ($sys) { $arg += " -EnabledSystems `"$sys`"" }
     }
@@ -198,6 +231,24 @@ try {
     Show-ProtocolError "The X-ray bridge answered but did not open the program. Check that it is installed on this PC, then click the button again."
     exit 1
 } catch {
-    Show-ProtocolError ("Could not open the X-ray program on this PC.`r`n`r`n" + $_.Exception.Message + "`r`n`r`nRe-run this PC's X-ray bridge installer if this keeps happening.")
+    $detail = $_.Exception.Message
+    $body = Read-HttpErrorBody $_
+    if ($body) {
+        try {
+            $parsedBody = $body | ConvertFrom-Json
+            if ($parsedBody.error) { $detail = [string]$parsedBody.error }
+        } catch {
+            $detail = $body.Trim()
+        }
+    }
+    if ($parsed.key -eq "ezdenti") {
+        $opened = Start-EzdentiFallback
+        if ($opened) {
+            Write-ProtocolLog ("OK ezdenti fallback " + $opened)
+            exit 0
+        }
+        $detail = $detail + " EzDent-i was not found under Program Files, VATECH, the Start Menu, or the uninstall registry. Set EzdentiExePath in xray-launcher-config.ps1 if it is installed somewhere else."
+    }
+    Show-ProtocolError ("Could not open the X-ray program on this PC.`r`n`r`n" + $detail + "`r`n`r`nRe-run this PC's X-ray bridge installer if this keeps happening.")
     exit 1
 }

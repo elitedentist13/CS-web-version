@@ -23,6 +23,9 @@ param(
     # NNTBridge.exe / NNT.exe. Pass this switch only when you want that real,
     # visible launch as part of the check.
     [switch]$IncludeLiveLaunch,
+    # Print the EzDent-i loader/app exe and exit. Used by launch-csxray-protocol.ps1
+    # when the already-running bridge answers /open/ezdenti with 404.
+    [switch]$FindEzdenti,
     [int]$Port = 0,
     # Restricts this instance to only the listed $Systems key(s), e.g.
     # -EnabledSystems ezdenti. Unlisted systems are treated exactly like an
@@ -260,6 +263,9 @@ $Systems = @{
             "C:\Program Files\VATECH\EzDent-i\Bin\VTEzDent-iLoader32.exe",
             # Last resort: the app itself, same as CS's own (blind) launch --
             # guarantees a window opens even if no loader exe is found.
+            # Older builds are VTE232.exe; this PC's install is VTEzDent-i32.exe.
+            "C:\Program Files (x86)\VATECH\EzDent-i\Bin\VTEzDent-i32.exe",
+            "C:\Program Files\VATECH\EzDent-i\Bin\VTEzDent-i32.exe",
             "C:\Program Files (x86)\VATECH\EzDent-i\Bin\VTE232.exe",
             "C:\Program Files\VATECH\EzDent-i\Bin\VTE232.exe"
         )
@@ -293,6 +299,125 @@ $Systems = @{
     }
 }
 
+# EzDent-i is often not at the 2026-08-19 Program Files path and not on the
+# desktop (Start Menu / a moved VATECH folder / a per-machine install dir).
+# /open/ezdenti then 404s with "shortcut/executable not found" and the
+# csxray:// handler surfaces that as "The remote server returned an error:
+# (404) Not Found." These helpers find the loader without ever treating
+# VTEzBridge32.exe as the app (that exe exits immediately with no window).
+function Get-EzdentiLoaderFileNames {
+    return @(
+        "VTE2Loader32.exe",
+        "VTE2Loader_ReqAdmin32.exe",
+        "VTEzDent-iLoader32.exe",
+        "VTEzDent-i32.exe",
+        "VTE232.exe"
+    )
+}
+
+function Resolve-EzdentiExeInDir([string]$Dir) {
+    if ([string]::IsNullOrWhiteSpace($Dir)) { return "" }
+    $dir = $Dir.Trim().Trim('"')
+    $dir = (($dir -split ",")[0]).Trim().Trim('"')
+    if ($dir -match '(?i)\.exe$') {
+        if ($dir -match '(?i)\\VTEzBridge32\.exe$') { return "" }
+        $leaf = Split-Path -Leaf $dir
+        if ($leaf -match '(?i)^(VTE2Loader32|VTE2Loader_ReqAdmin32|VTEzDent-iLoader32|VTEzDent-i32|VTE232)\.exe$' -and (Test-PathSafe $dir)) {
+            return $dir
+        }
+        $dir = Split-Path -Parent $dir
+    }
+    if (-not (Test-PathSafe $dir)) { return "" }
+    foreach ($name in (Get-EzdentiLoaderFileNames)) {
+        $direct = Join-Path $dir $name
+        if (Test-PathSafe $direct) { return $direct }
+        $bin = Join-Path (Join-Path $dir "Bin") $name
+        if (Test-PathSafe $bin) { return $bin }
+    }
+    return ""
+}
+
+function Get-EzdentiRegistryInstallDirs {
+    $found = New-Object System.Collections.Generic.List[string]
+    $roots = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        try {
+            Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue | ForEach-Object {
+                try {
+                    $p = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+                    $name = [string]$p.DisplayName
+                    if ($name -notmatch '(?i)ezdent') { return }
+                    if ($name -match '(?i)ez3d') { return }
+                    foreach ($loc in @($p.InstallLocation, $p.DisplayIcon, $p.InstallSource)) {
+                        $s = [string]$loc
+                        if (-not [string]::IsNullOrWhiteSpace($s)) { $found.Add($s.Trim()) }
+                    }
+                } catch {}
+            }
+        } catch {}
+    }
+    return @($found)
+}
+
+function Get-EzdentiShortcutTargets {
+    $found = New-Object System.Collections.Generic.List[string]
+    $roots = New-Object System.Collections.Generic.List[string]
+    foreach ($root in @(
+        (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"),
+        (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"),
+        $PublicDesktop,
+        $UserDesktop
+    )) {
+        if ($root -and (Test-PathSafe $root)) { $roots.Add($root) }
+    }
+    foreach ($root in $roots) {
+        try {
+            Get-ChildItem -LiteralPath $root -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+                $lnkName = $_.Name
+                if ($lnkName -notmatch '(?i)ezdent') { return }
+                if ($lnkName -match '(?i)ez3d|bridge') { return }
+                $info = Resolve-Shortcut $_.FullName
+                if ($info -and $info.target) { $found.Add([string]$info.target) }
+            }
+        } catch {}
+    }
+    return @($found)
+}
+
+function Find-EzdentiExecutable {
+    if ($script:EzdentiExePath) {
+        $configured = Resolve-EzdentiExeInDir ([string]$script:EzdentiExePath)
+        if ($configured) { return $configured }
+    }
+    if ($env:EZDENTI_HOME) {
+        $fromEnv = Resolve-EzdentiExeInDir $env:EZDENTI_HOME
+        if ($fromEnv) { return $fromEnv }
+    }
+    $dirs = New-Object System.Collections.Generic.List[string]
+    foreach ($extra in @(
+        "C:\VATECH\EzDent-i",
+        "D:\VATECH\EzDent-i",
+        "C:\EzDent-i",
+        "D:\EzDent-i",
+        "C:\Program Files (x86)\VATECH\EzDent-i",
+        "C:\Program Files\VATECH\EzDent-i",
+        "C:\Program Files (x86)\Vatech\EzDent-i",
+        "C:\Program Files\Vatech\EzDent-i"
+    )) { $dirs.Add($extra) }
+    foreach ($reg in (Get-EzdentiRegistryInstallDirs)) { $dirs.Add($reg) }
+    foreach ($target in (Get-EzdentiShortcutTargets)) { $dirs.Add($target) }
+    foreach ($dir in $dirs) {
+        $hit = Resolve-EzdentiExeInDir $dir
+        if ($hit) { return $hit }
+    }
+    return ""
+}
+
 function Resolve-System($Key, $PreferredExecutable) {
     if (-not (Test-SystemEnabled $Key)) { return $null }
     $cfg = $Systems[$Key]
@@ -300,9 +425,16 @@ function Resolve-System($Key, $PreferredExecutable) {
 
     $preferred = ""
     if (Test-PathSafe $PreferredExecutable) { $preferred = $PreferredExecutable }
+    if (-not $preferred -and $Key -eq "ezdenti" -and $script:EzdentiExePath) {
+        $configured = Resolve-EzdentiExeInDir ([string]$script:EzdentiExePath)
+        if ($configured) { $preferred = $configured }
+    }
     $shortcut = First-Existing $cfg.shortcuts
     $shortcutInfo = Resolve-Shortcut $shortcut
     $exe = First-Existing $cfg.executables
+    if ($Key -eq "ezdenti" -and -not $exe) {
+        $exe = Find-EzdentiExecutable
+    }
     $target = if ($preferred) { $preferred } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { $shortcutInfo.target } elseif ($exe) { $exe } else { $shortcut }
     $type = if ($preferred) { "configured" } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { "shortcut-target" } elseif ($exe) { "executable" } elseif ($shortcut) { "shortcut" } else { "" }
     $arguments = if ($shortcutInfo) { $shortcutInfo.arguments } else { "" }
@@ -3172,7 +3304,12 @@ function Start-AiDentalBridgePatient($Resolved, $Patient) {
 }
 
 function Handle-Request($RawPath) {
-    $pathOnly = ($RawPath -split "\?", 2)[0]
+    $raw = [string]$RawPath
+    # Some clients send an absolute-form request line
+    # (GET http://127.0.0.1:17890/open/ezdenti?... ). That does not match
+    # ^/open/ and used to fall through to HTTP 404 "Not found".
+    if ($raw -match '^https?://[^/]+(?<path>/.*)$') { $raw = $Matches['path'] }
+    $pathOnly = ($raw -split "\?", 2)[0]
     if ($pathOnly -eq "/status") {
         return @{ status = 200; body = (Status-Payload) }
     }
@@ -3188,7 +3325,7 @@ function Handle-Request($RawPath) {
         }
     }
     if ($pathOnly -eq "/nnt/scans") {
-        $query = Parse-Query $RawPath
+        $query = Parse-Query $raw
         $patientNo = $query["patient_no"]
         if ([string]::IsNullOrWhiteSpace($patientNo)) {
             return @{ status = 400; body = [ordered]@{ ok = $false; error = "patient_no is required." } }
@@ -3196,7 +3333,7 @@ function Handle-Request($RawPath) {
         return @{ status = 200; body = (Get-NntScanFiles $patientNo) }
     }
     if ($pathOnly -eq "/nnt/file") {
-        $query = Parse-Query $RawPath
+        $query = Parse-Query $raw
         $patientNo = $query["patient_no"]
         $name = $query["name"]
         if ([string]::IsNullOrWhiteSpace($patientNo) -or [string]::IsNullOrWhiteSpace($name)) {
@@ -3209,11 +3346,11 @@ function Handle-Request($RawPath) {
         return @{ status = 200; contentType = $file.content_type; bytes = $file.bytes }
     }
     if ($pathOnly -eq "/carestream/new") {
-        $query = Parse-Query $RawPath
+        $query = Parse-Query $raw
         return @{ status = 200; body = (Get-CarestreamNewFiles $query["since"]) }
     }
     if ($pathOnly -eq "/carestream/files") {
-        $query = Parse-Query $RawPath
+        $query = Parse-Query $raw
         $patientNo = $query["patient_no"]
         if ([string]::IsNullOrWhiteSpace($patientNo)) {
             return @{ status = 400; body = [ordered]@{ ok = $false; error = "patient_no is required." } }
@@ -3221,7 +3358,7 @@ function Handle-Request($RawPath) {
         return @{ status = 200; body = (Get-CarestreamFiles $patientNo $query["patient_name"] $query["scope"]) }
     }
     if ($pathOnly -eq "/carestream/file") {
-        $query = Parse-Query $RawPath
+        $query = Parse-Query $raw
         $file = Get-CarestreamFileBytes $query["source"] $query["patient_no"] $query["name"] $query["id"] $query["view"]
         if (-not $file) {
             return @{ status = 404; body = [ordered]@{ ok = $false; error = "Carestream image not found." } }
@@ -3230,7 +3367,7 @@ function Handle-Request($RawPath) {
     }
     if ($pathOnly -match "^/open/([^/]+)$") {
         $key = (UrlDecode $Matches[1]).ToLowerInvariant()
-        $query = Parse-Query $RawPath
+        $query = Parse-Query $raw
         $resolved = Resolve-System $key $query["app_path"]
         if (-not $resolved -or -not $resolved.exists) {
             return @{ status = 404; body = [ordered]@{ ok = $false; error = "X-ray program shortcut/executable not found."; key = $key } }
@@ -3420,6 +3557,20 @@ function Invoke-SelfTest {
     Assert-Equal "No patient_no/id -> returns null" $true ($null -eq $noPatId)
     $noResolvedRay = Start-RayBridgePatient $null $rayPatient
     Assert-Equal "Null resolved -> still safe (no throw)" $true ($true)
+
+    Write-Host "== Resolve-EzdentiExeInDir (install folder is not always Program Files\\VATECH\\...\\Bin) ==" -ForegroundColor Cyan
+    $ezTemp = Join-Path $env:TEMP ("ezdenti-resolve-" + [guid]::NewGuid().ToString("N"))
+    $ezBin = Join-Path $ezTemp "Bin"
+    New-Item -ItemType Directory -Path $ezBin -Force | Out-Null
+    $ezLoader = Join-Path $ezBin "VTE2Loader32.exe"
+    [IO.File]::WriteAllBytes($ezLoader, [byte[]](0x4D, 0x5A))
+    $ezBridgeOnly = Join-Path $ezTemp "VTEzBridge32.exe"
+    [IO.File]::WriteAllBytes($ezBridgeOnly, [byte[]](0x4D, 0x5A))
+    Assert-Equal "moved install dir resolves loader" $ezLoader (Resolve-EzdentiExeInDir $ezTemp)
+    Assert-Equal "Bin path resolves loader" $ezLoader (Resolve-EzdentiExeInDir $ezBin)
+    Assert-Equal "bridge exe is not the app" "" (Resolve-EzdentiExeInDir $ezBridgeOnly)
+    Assert-Equal "missing dir stays empty" "" (Resolve-EzdentiExeInDir (Join-Path $ezTemp "nope"))
+    Remove-Item -LiteralPath $ezTemp -Recurse -Force -ErrorAction SilentlyContinue
 
     Write-Host "== Convert-GenderWord (EzDent-i linkage.xml wants Male/Female words) ==" -ForegroundColor Cyan
     Assert-Equal "Male"          "Male"   (Convert-GenderWord "M")
@@ -3836,6 +3987,8 @@ Pass=digirex
     Assert-Equal "/status body ok=true"       $true $statusResp.body.ok
     $missingResp = Handle-Request "/open/does-not-exist"
     Assert-Equal "/open/<unknown key> returns 404" 404 $missingResp.status
+    $absOpen = Handle-Request "http://127.0.0.1:17890/open/does-not-exist?patient_no=1"
+    Assert-Equal "absolute-form /open still routes (not a generic 404)" "does-not-exist" ([string]$absOpen.body.key)
     if ($IncludeLiveLaunch) {
         # Opt-in only: if NNT is actually installed here, this really does invoke
         # NNTBridge.exe / NNT.exe with the fabricated patient below
@@ -3916,6 +4069,15 @@ if ($SelfTest) {
     exit (Invoke-SelfTest)
 }
 
+if ($FindEzdenti) {
+    $found = Find-EzdentiExecutable
+    if ($found) {
+        Write-Output $found
+        exit 0
+    }
+    exit 2
+}
+
 # ════════════════════════════════════════════════════════════════
 # SERVER — only reached in normal (non -SelfTest) operation.
 # ════════════════════════════════════════════════════════════════
@@ -3932,10 +4094,22 @@ Write-Host "Leave this window open while using CS Imaging / Ai-Dental / NNT-NEWT
 while ($true) {
     $client = $listener.AcceptTcpClient()
     try {
+        # Socket timeouts, not only the stream. A quiet Chrome connection
+        # was blocking Read() forever, so the next EzDent-i click never got
+        # a turn. A partial "GET /op" used to be parsed as the path and
+        # /open/ezdenti answered 404.
+        $client.ReceiveTimeout = 2500
+        $client.SendTimeout = 2500
         $stream = $client.GetStream()
+        $stream.ReadTimeout = 2500
         $buffer = New-Object byte[] 8192
-        $read = $stream.Read($buffer, 0, $buffer.Length)
-        $request = [Text.Encoding]::ASCII.GetString($buffer, 0, $read)
+        $request = ""
+        while ($request.IndexOf("`n") -lt 0 -and $request.Length -lt 65536) {
+            $read = $stream.Read($buffer, 0, $buffer.Length)
+            if ($read -le 0) { break }
+            $request += [Text.Encoding]::ASCII.GetString($buffer, 0, $read)
+        }
+        if ($request.IndexOf("`n") -lt 0) { continue }
         $firstLine = ($request -split "`r?`n")[0]
         $parts = $firstLine -split " "
         $method = if ($parts.Count -gt 0) { $parts[0] } else { "" }
@@ -3952,9 +4126,14 @@ while ($true) {
             }
         }
     } catch {
-        try {
-            Send-Json $client 500 ([ordered]@{ ok = $false; error = $_.Exception.Message })
-        } catch {}
+        $msg = [string]$_.Exception.Message
+        # Idle socket or a half-sent line. Closing it is enough — a 404/500
+        # here is what the EzDent-i button was showing.
+        if ($msg -notmatch 'timed out|time-out|timeout') {
+            try {
+                Send-Json $client 500 ([ordered]@{ ok = $false; error = $_.Exception.Message })
+            } catch {}
+        }
     } finally {
         $client.Close()
     }

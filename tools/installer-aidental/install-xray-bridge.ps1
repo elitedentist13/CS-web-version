@@ -164,7 +164,7 @@ function New-BridgeStartupShortcut($ShortcutPath, $LauncherPath, $TargetPort, $W
     $wsh = New-Object -ComObject WScript.Shell
     $shortcut = $wsh.CreateShortcut($ShortcutPath)
     $shortcut.TargetPath = (Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe")
-    $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$LauncherPath`" -Port $TargetPort" + (Get-EnabledSystemsArgs)
+    $shortcut.Arguments = "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$LauncherPath`" -Port $TargetPort" + (Get-EnabledSystemsArgs)
     $shortcut.WorkingDirectory = $WorkDir
     $shortcut.WindowStyle = 7  # minimized
     $shortcut.Description = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) {
@@ -550,7 +550,7 @@ if (Test-BridgeAlive $Port) {
     }
 }
 
-$argString = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$destLauncher`" -Port $Port" + (Get-EnabledSystemsArgs)
+$argString = "-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Minimized -File `"$destLauncher`" -Port $Port" + (Get-EnabledSystemsArgs)
 Start-Process -FilePath "powershell" -ArgumentList $argString -WindowStyle Minimized | Out-Null
 Start-Sleep -Seconds 2
 if (Test-BridgeAlive $Port) {

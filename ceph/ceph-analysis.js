@@ -30,6 +30,24 @@
         while (d > 90) d = Math.abs(d - 180);
         return d;
     }
+    /* Interincisal is the larger angle between the two long axes (~120–140°), not the acute fold. */
+    function dentalAng(a1, a2, b1, b2) {
+        if (!a1 || !a2 || !b1 || !b2) return null;
+        var a = planeAng(a1, a2, b1, b2);
+        return a == null ? null : (180 - a);
+    }
+    /* Downs convexity: 180 − ∠N-A-Pog, positive when A is on the facial side of N–Pog. */
+    function convexityDeg(N, A, Pog, face) {
+        if (!N || !A || !Pog) return null;
+        var mag = 180 - ang3(N, A, Pog);
+        if (!isFinite(mag)) return null;
+        if (face && face !== A) {
+            var fs = signedDistToLine(face, N, Pog);
+            var as = signedDistToLine(A, N, Pog);
+            if (fs !== 0 && as * fs < 0) mag = -mag;
+        }
+        return mag;
+    }
     function project(p, a, b) {
         var vx = b.x - a.x, vy = b.y - a.y;
         var L = vx * vx + vy * vy;
@@ -201,8 +219,8 @@
         var ANS = pt(pts, 'ANS'), PNS = pt(pts, 'PNS'), Ar = pt(pts, 'Ar');
         var Ls = pt(pts, 'Ls'), Li = pt(pts, 'Li'), Sn = pt(pts, 'Sn'), PogS = pt(pts, 'PogS');
         var extra = opts.extra || {};
-        var L1a = extraPt(extra, 'L1a', L1 ? { x: L1.x - 8, y: L1.y + 28 } : null);
-        var U1a = extraPt(extra, 'U1a', U1 ? { x: U1.x - 6, y: U1.y + 26 } : null);
+        var L1a = extraPt(extra, 'L1a', L1 ? { x: L1.x - 16, y: L1.y + 36 } : null);
+        var U1a = extraPt(extra, 'U1a', U1 ? { x: U1.x - 18, y: U1.y - 36 } : null);
         var FopA = extraPt(extra, 'FopA', U1);
         var FopP = extraPt(extra, 'FopP', L1);
         var usedFop = !!(extra.FopA && extra.FopP);
@@ -212,11 +230,12 @@
         var anb = (sna != null && snb != null) ? (sna - snb) : ((A && N && B) ? ang3(A, N, B) : null);
         var snMp = (S && N && Go && Gn) ? planeAng(S, N, Go, Gn) : null;
         var fma = (Po && Or && Go && Me) ? planeAng(Po, Or, Go, Me) : null;
-        var impa = (L1 && L1a && Go && Me) ? planeAng(L1a, L1, Go, Me) : null;
         var fmia = (Po && Or && L1 && L1a) ? planeAng(Po, Or, L1a, L1) : null;
-        var inter = (U1 && U1a && L1 && L1a) ? planeAng(U1a, U1, L1a, L1) : null;
+        var impa = (fma != null && fmia != null) ? (180 - fma - fmia)
+            : ((L1 && L1a && Go && Me) ? planeAng(L1a, L1, Go, Me) : null);
+        var inter = (U1 && U1a && L1 && L1a) ? dentalAng(U1a, U1, L1a, L1) : null;
         var facial = (Po && Or && N && Pog) ? planeAng(Po, Or, N, Pog) : null;
-        var convex = (N && A && Pog) ? ang3(N, A, Pog) : null;
+        var convex = convexityDeg(N, A, Pog, ANS || U1);
         var yaxis = (Po && Or && S && Gn) ? planeAng(Po, Or, S, Gn) : null;
         var wits = witsMm(A, B, FopA, FopP, mmPerPx);
         var nperpA = nPerpMm(A, N, Po, Or, mmPerPx);
@@ -324,6 +343,7 @@
             result.summary.extractionBand = result.extraction.band;
             result.summary.extractionHint = result.extraction.hint;
             result.summary.extractionWhy = result.extraction.why;
+            result.summary.extractionReasons = result.extraction.reasons || [];
             result.summary.extractionNote = result.extraction.note;
         }
         return result;
@@ -386,8 +406,8 @@
         return towardExtract ? w : -w;
     }
     function addWhy(why, pts, plus, minus) {
-        if (pts >= 6 && plus) why.push(plus);
-        else if (pts <= -6 && minus) why.push(minus);
+        if (pts >= 6 && plus) why.push({ t: plus, w: pts });
+        else if (pts <= -6 && minus) why.push({ t: minus, w: pts });
     }
     function extractionIndex(result) {
         var score = 50;
@@ -425,20 +445,21 @@
             if (anb.delta > 0) {
                 t = anb.band === 'out' ? 12 : 8;
                 score += t;
-                why.push('Class II skeletal (upper-arch camouflage)');
+                why.push({ t: 'Class II skeletal (upper-arch camouflage)', w: t });
                 hint = 'Class II camouflage (upper premolars more often than 4 premolars)';
             } else {
                 hint = 'Class III: lower-arch camouflage or surgery; not a 4-premolar pattern';
-                why.push('Class III skeletal (not scored as 4-premolar extraction)');
+                why.push({ t: 'Class III skeletal (not scored as 4-premolar extraction)', w: -1 });
             }
         }
         if (wits && wits.delta != null && wits.band && wits.band !== 'in' && wits.delta > 0) {
-            score += wits.band === 'out' ? 8 : 5;
-            why.push('Wits Class II');
+            t = wits.band === 'out' ? 8 : 5;
+            score += t;
+            why.push({ t: 'Wits Class II', w: t });
         }
         if (mp && mp.delta != null && mp.delta > 0 && mp.band === 'out') {
             score -= 4;
-            why.push('high-angle: retract with vertical control');
+            why.push({ t: 'high-angle: retract with vertical control', w: -4 });
         }
         if (score < 0) score = 0;
         if (score > 100) score = 100;
@@ -449,7 +470,10 @@
         else if (score <= 54) { band = 'borderline'; label = 'Borderline'; tableBand = 'warn'; }
         else if (score <= 74) { band = 'moderate'; label = 'Moderate'; tableBand = 'warn'; }
         else { band = 'high'; label = 'High'; tableBand = 'out'; }
-        var note = (why.length ? why.join('; ') + '. ' : '') +
+        why.sort(function (a, b) { return Math.abs(b.w) - Math.abs(a.w); });
+        var texts = why.map(function (x) { return x.t; });
+        var top = texts.slice(0, 3);
+        var note = (texts.length ? texts.join('; ') + '. ' : '') +
             'Ceph only; crowding / Bolton / growth not assessed. Not a treatment plan.';
         return {
             score: score,
@@ -457,8 +481,8 @@
             label: label,
             tableBand: tableBand,
             hint: hint,
-            why: why.slice(0, 3).join(' + ') || 'angles near this norm set',
-            reasons: why,
+            why: top.join(' + ') || 'angles near this norm set',
+            reasons: top,
             note: note
         };
     }
@@ -490,6 +514,8 @@
         ang3: ang3,
         dist: dist,
         planeAng: planeAng,
+        dentalAng: dentalAng,
+        convexityDeg: convexityDeg,
         listSets: listSets,
         getSet: getSet,
         score: score,

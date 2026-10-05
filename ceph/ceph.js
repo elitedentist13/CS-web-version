@@ -37,7 +37,8 @@
     }
     function phJoin(en) {
         if (!en) return '';
-        return String(en).split(/\s*\+\s*|;\s*/).map(function (part) {
+        var parts = Array.isArray(en) ? en : String(en).split(/\s*\+\s*|;\s*/);
+        return parts.map(function (part) {
             return ph(String(part).replace(/\.\s*$/, '').trim());
         }).filter(Boolean).join(' · ');
     }
@@ -463,9 +464,12 @@
             ];
             if (s.extraction) {
                 var scoreBit = String(s.extraction).replace(/^[A-Za-z\-]+\s+/, '');
+                var whyBits = (s.extractionReasons && s.extractionReasons.length)
+                    ? s.extractionReasons
+                    : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
-                    (s.extractionWhy ? ' · ' + phJoin(s.extractionWhy) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx21" target="_blank">' + tx('sum.notes') + '</a>']);
+                    (whyBits ? ' · ' + phJoin(whyBits) : '') +
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx22" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair, i) {
                 var cls = (i === 4 && s.extractionBand) ? ('summary-extract is-' + s.extractionBand) : '';
@@ -709,8 +713,8 @@
 
     function seedExtra(force) {
         if (!pts.U1 || !pts.L1) return extra;
-        if (force || !extra.U1a) extra.U1a = { x: pts.U1.x - 6, y: pts.U1.y + 26 };
-        if (force || !extra.L1a) extra.L1a = { x: pts.L1.x - 8, y: pts.L1.y + 28 };
+        if (force || !extra.U1a) extra.U1a = { x: pts.U1.x - 18, y: pts.U1.y - 36 };
+        if (force || !extra.L1a) extra.L1a = { x: pts.L1.x - 16, y: pts.L1.y + 36 };
         if (force || !extra.FopA) {
             extra.FopA = { x: (pts.U1.x + pts.L1.x) / 2, y: (pts.U1.y + pts.L1.y) / 2 };
         }
@@ -1007,7 +1011,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx21';
+        var url = 'extraction.html?v=20261005fx22';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }
@@ -1295,7 +1299,8 @@
                 extractBand: last.result && last.result.extraction && last.result.extraction.band,
                 extractLabel: last.result && last.result.extraction && last.result.extraction.label,
                 extractNote: last.result && last.result.extraction && last.result.extraction.note,
-                extractHint: last.result && last.result.extraction && last.result.extraction.hint
+                extractHint: last.result && last.result.extraction && last.result.extraction.hint,
+                extractWhy: last.result && last.result.summary && last.result.summary.extractionWhy
             };
         }
     };

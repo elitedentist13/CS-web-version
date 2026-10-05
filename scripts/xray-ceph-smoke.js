@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx21';
+var BUILD = '20261005fx22';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -269,6 +269,18 @@ var PAGE_SCRIPT = `(async () => {
     const n2 = CEPH_PAGE.state().pts.N;
     out.undoMoved = !!(n0 && n1 && Math.abs(n1.x - n0.x) > 20);
     out.undoOk = !!(und && und.ok && n2 && Math.abs(n2.x - n0.x) < 0.51);
+    const why0 = CEPH_PAGE.state().extractWhy;
+    const e0 = typeof CEPH_PAGE.extra === 'function' ? CEPH_PAGE.extra() : null;
+    const l1a = e0 && e0.L1a;
+    if (l1a) CEPH_PAGE.movePoint('L1a', l1a.x - 70, l1a.y - 30);
+    else {
+      const a0 = CEPH_PAGE.state().pts.A;
+      CEPH_PAGE.movePoint('A', a0.x - 90, a0.y);
+    }
+    out.whyAfter = CEPH_PAGE.state().extractWhy;
+    CEPH_PAGE.undoMove();
+    out.whyBefore = why0;
+    out.whyChanged = !!(why0 && out.whyAfter && String(why0) !== String(out.whyAfter));
   }
   if (window.CEPH_PAGE && typeof CEPH_PAGE.csvText === 'function') {
     const csv = CEPH_PAGE.csvText();
@@ -454,6 +466,25 @@ var PAGE_SCRIPT = `(async () => {
     });
     pass('IMPA uses the L1 apex handle when provided',
         /L1a/.test(withApex.groups[2].rows[1].note) && withApex.groups[2].rows[1].value != null);
+    var convRow = cn.groups[1].rows[1];
+    pass('Downs convexity is a small signed angle, not angle N-A-Pog',
+        convRow && convRow.value != null && convRow.value > -40 && convRow.value < 45,
+        String(convRow && convRow.value));
+    var iiRow = cn.groups[0].rows[4];
+    pass('Interincisal is the dental supplement, not the acute fold',
+        iiRow && iiRow.value > 90 && iiRow.value < 180,
+        String(iiRow && iiRow.value));
+    var fmaV = cn.groups[2].rows[0].value, impaV = cn.groups[2].rows[1].value, fmiaV = cn.groups[2].rows[2].value;
+    pass('Tweed FMA + IMPA + FMIA is 180',
+        Math.abs(fmaV + impaV + fmiaV - 180) < 0.21,
+        String(fmaV) + '+' + impaV + '+' + fmiaV);
+    var postA = JSON.parse(JSON.stringify(pts));
+    postA.A = { x: 560, y: 510 };
+    var postR = box.CEPH_AN.run(postA, 0.1, { normSet: 'chinese' });
+    pass('extraction why updates when A-point moves',
+        cn.extraction && postR.extraction && cn.extraction.why !== postR.extraction.why &&
+        /concave/.test(postR.extraction.why),
+        (cn.extraction && cn.extraction.why) + ' -> ' + (postR.extraction && postR.extraction.why));
     var csv = box.CEPH_AN.toCsv(cn);
     pass('CSV starts with a UTF-8 BOM so Excel opens it', csv.charCodeAt(0) === 0xFEFF);
     pass('CSV body is readable ASCII (no degree/en-dash/plus-minus glyphs)',
@@ -666,6 +697,9 @@ var PAGE_SCRIPT = `(async () => {
             live ? ('hi=' + live.hiMeasure + ' invertWas=' + live.invert) : 'none');
         pass('live: Undo point restores the last moved landmark',
             live && live.undoMoved === true && live.undoOk === true);
+        pass('live: extraction why updates when the tracing moves',
+            live && live.whyChanged === true,
+            live ? (String(live.whyBefore) + ' -> ' + String(live.whyAfter)) : 'none');
         pass('live: CSV export is Excel-readable ASCII with a BOM',
             live && live.csvBom === true && live.csvAscii === true && live.csvHasSna === true && live.csvNoDegree === true);
         pass('live: tracing saves for this patient and can be restored',

@@ -263,17 +263,15 @@
         var closeEdge = refinePts(img, closeMean, box.w, box.h, false);
         var over = overlayTraining(boxEdge, box, useTraining);
         var trainSrc = over.used ? ('clinic-train-' + over.films) : '';
-        var fifth = over.used
+        var third = over.used
             ? { id: 'clinic', label: 'Clinic overlay', source: prefix + '-boxmean+edge; training:' + trainSrc, pts: over.pts, publishedSource: prefix + '-boxmean+edge', trainingSource: trainSrc }
             : { id: 'close', label: 'Close-match', source: prefix + '-boxmean8+edge', pts: clonePts(closeEdge), publishedSource: prefix + '-boxmean8+edge', trainingSource: '' };
         var sets = [
-            { id: 'img', label: 'Image mean', source: prefix + '-imgmean', pts: clonePts(imgMean), publishedSource: prefix + '-imgmean' },
-            { id: 'box', label: 'Head-box', source: prefix + '-boxmean', pts: clonePts(boxMean), publishedSource: prefix + '-boxmean' },
             { id: 'imgEdge', label: 'Image + edge', source: prefix + '-imgmean+edge', pts: clonePts(imgEdge), publishedSource: prefix + '-imgmean+edge' },
             { id: 'boxEdge', label: 'Box + edge', source: prefix + '-boxmean+edge', pts: clonePts(boxEdge), publishedSource: prefix + '-boxmean+edge' },
-            fifth
+            third
         ];
-        var defaultIndex = over.used ? 4 : (area >= 0.68 ? 2 : 3);
+        var defaultIndex = over.used ? 2 : (area >= 0.68 ? 0 : 1);
         return {
             sets: sets,
             defaultIndex: defaultIndex,

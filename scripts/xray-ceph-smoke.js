@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx8';
+var BUILD = '20261005fx16';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -168,7 +168,23 @@ var PAGE_SCRIPT = `(async () => {
   out.imgH = st.imgH;
   out.nPts = st.nPts;
   out.sna = st.sna;
+  out.snaBand = st.snaBand;
+  out.snaNorm = st.snaNorm;
+  out.normSet = st.normSet;
+  out.calibrated = st.calibrated;
+  out.mmPerPx = st.mmPerPx;
+  out.extraIds = st.extra ? Object.keys(st.extra).sort().join(',') : '';
+  out.witsNote = '';
+  try {
+    const wits = (window.__cephLast && window.__cephLast.result && window.__cephLast.result.groups || [])
+      .find((g) => g.id === 'wits');
+    out.witsNote = wits && wits.rows && wits.rows[0] ? String(wits.rows[0].note || '') : '';
+    const mc = (window.__cephLast && window.__cephLast.result && window.__cephLast.result.groups || [])
+      .find((g) => g.id === 'mcnamara');
+    out.nperpNote = mc && mc.rows && mc.rows[0] ? String(mc.rows[0].note || '') : '';
+  } catch (e) { out.witsNote = ''; }
   out.groups = st.groups;
+  out.summarySkeletal = st.summary && st.summary.skeletal;
   out.inBounds = true;
   Object.keys(st.pts || {}).forEach((k) => {
     const p = st.pts[k];
@@ -181,8 +197,13 @@ var PAGE_SCRIPT = `(async () => {
   if (window.CEPH_PAGE && typeof CEPH_PAGE.adoptSet === 'function') {
     CEPH_PAGE.adoptSet(0);
     out.set0 = CEPH_PAGE.state().source;
+    CEPH_PAGE.adoptSet(1);
+    out.set1 = CEPH_PAGE.state().source;
     CEPH_PAGE.adoptSet(2);
     out.set2 = CEPH_PAGE.state().source;
+    const locked = typeof CEPH_PAGE.lockAdopt === 'function' ? CEPH_PAGE.lockAdopt() : null;
+    out.adopted = !!(locked && locked.ok);
+    out.setBarHidden = !!(CEPH_PAGE.state() && CEPH_PAGE.state().setBarHidden);
   }
   if (window.CEPH_LEARN && window.CEPH_PAGE) {
     CEPH_LEARN.useMemory();
@@ -207,6 +228,44 @@ var PAGE_SCRIPT = `(async () => {
     out.learnPublishedSource = st2 && st2.publishedSource;
     out.learnTrainingSource = st2 && st2.trainingSource;
     out.learnUse = st2 && st2.useTraining;
+  }
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.setNormSet === 'function') {
+    CEPH_PAGE.setNormSet('caucasian');
+    out.caucNorm = CEPH_PAGE.state().snaNorm;
+    out.caucSet = CEPH_PAGE.state().normSet;
+    CEPH_PAGE.setNormSet('chinese');
+    out.cnNorm = CEPH_PAGE.state().snaNorm;
+    out.cnSet = CEPH_PAGE.state().normSet;
+    out.cnBand = CEPH_PAGE.state().snaBand;
+  }
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.calibrate === 'function') {
+    out.calBefore = CEPH_PAGE.state().calibrated === true;
+    const cal = CEPH_PAGE.calibrate({ x: 100, y: 200 }, { x: 200, y: 200 }, 10);
+    out.calOk = !!(cal && cal.ok);
+    out.calMmPerPx = CEPH_PAGE.state().mmPerPx;
+    out.calAfter = CEPH_PAGE.state().calibrated === true;
+  }
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.highlightMeasure === 'function') {
+    const hi = CEPH_PAGE.highlightMeasure('SNA');
+    out.hiOk = !!(hi && hi.ok && hi.measure === 'SNA' && hi.planes && hi.planes.length >= 2);
+    out.hiMeasure = CEPH_PAGE.state().hiMeasure;
+    CEPH_PAGE.setInvert(true);
+    out.invert = CEPH_PAGE.state().invert === true;
+    CEPH_PAGE.setInvert(false);
+  }
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.saveTrace === 'function') {
+    const saved = CEPH_PAGE.saveTrace();
+    out.saveOk = !!(saved && saved.ok && saved.key);
+    const loaded = CEPH_PAGE.loadTrace();
+    out.loadOk = !!(loaded && loaded.ok && loaded.nPts === 19);
+    out.printFn = typeof CEPH_PAGE.printReport === 'function';
+  }
+  if (window.CEPH_PAGE && typeof CEPH_PAGE.setLabMode === 'function') {
+    out.labOff = CEPH_PAGE.state().labOpen === false;
+    CEPH_PAGE.setLabMode(true);
+    out.labOn = CEPH_PAGE.state().labOpen === true;
+    CEPH_PAGE.setLabMode(false);
+    out.qa = CEPH_PAGE.state().qa;
   }
   return out;
 })()`;
@@ -237,9 +296,31 @@ var PAGE_SCRIPT = `(async () => {
     pass('sidecar has Published 1502 vs Published + in-house reference modes',
         /btnRefPub/.test(read('ceph/index.html')) && /btnRefPlus/.test(read('ceph/index.html')) &&
         /setUseTraining/.test(read('ceph/ceph.js')) && /useTraining/.test(read('ceph/ceph-landmarks.js')));
-    pass('sidecar shows 5 auto-detect sets on a selection bar',
-        /setBar/.test(read('ceph/index.html')) && /detectSets/.test(read('ceph/ceph-landmarks.js')) &&
-        /adoptSet/.test(read('ceph/ceph.js')));
+    pass('sidecar shows 3 auto-detect sets and Adopt selection on a compact film bar',
+        /setBar/.test(read('ceph/index.html')) && /btnAdoptSet/.test(read('ceph/index.html')) &&
+        /lockAdopt/.test(read('ceph/ceph.js')) && /detectSets/.test(read('ceph/ceph-landmarks.js')));
+    pass('sidecar has Caucasian vs HK Chinese norms with in/warn/out bands',
+        /btnNormCn/.test(read('ceph/index.html')) && /btnNormCauc/.test(read('ceph/index.html')) &&
+        /normSet/.test(read('ceph/ceph-analysis.js')) && /band-out/.test(read('ceph/ceph.css')) &&
+        /Chan 1972/.test(read('ceph/ceph-analysis.js')));
+    pass('sidecar calibrates millimetres from a two-click film ruler',
+        /btnCalibrate/.test(read('ceph/index.html')) && /applyRuler/.test(read('ceph/ceph.js')) &&
+        /not calibrated/.test(read('ceph/ceph-analysis.js')));
+    pass('Wits uses FOP, N-perp uses Frankfort, IMPA uses draggable apices',
+        /nPerpMm/.test(read('ceph/ceph-analysis.js')) && /witsMm/.test(read('ceph/ceph-analysis.js')) &&
+        /FopA/.test(read('ceph/ceph.js')) && /L1a/.test(read('ceph/ceph.js')));
+    pass('clicking a table row highlights that construction; zoom pan invert undo exist',
+        /highlightMeasure/.test(read('ceph/ceph.js')) && /btnInvert/.test(read('ceph/index.html')) &&
+        /btnUndoPt/.test(read('ceph/index.html')) && /viewZoom/.test(read('ceph/ceph.js')));
+    pass('sidecar has a one-page clinical summary and Steiner S-line lips',
+        /id="summary"/.test(read('ceph/index.html')) && /summarise/.test(read('ceph/ceph-analysis.js')) &&
+        /Ls to Sn/.test(read('ceph/ceph-analysis.js')));
+    pass('sidecar saves a patient tracing and can print a report',
+        /btnSaveTrace/.test(read('ceph/index.html')) && /btnPrint/.test(read('ceph/index.html')) &&
+        /savedTrace/.test(read('ceph/ceph.js')) && /@media print/.test(read('ceph/ceph.css')));
+    pass('clinic mode hides training until Advanced; QA flags Go/Po/Or/Ar',
+        /btnAdvanced/.test(read('ceph/index.html')) && /labOnly/.test(read('ceph/index.html')) &&
+        /qaScan/.test(read('ceph/ceph.js')) && /is-qa/.test(read('ceph/ceph.css')));
     var lmSrc = read('ceph/ceph-landmarks.js');
     pass('published 1502 k-NN stays separate from clinic training overlay',
         /placeTraining/.test(lmSrc) && /training:/.test(lmSrc) &&
@@ -272,7 +353,35 @@ var PAGE_SCRIPT = `(async () => {
     };
     var res = box.CEPH_AN.run(pts, 0.1);
     pass('Steiner SNA is a finite angle', res.groups[0].rows[0].value > 70 && res.groups[0].rows[0].value < 100, String(res.groups[0].rows[0].value));
-    pass('five analysis groups', res.groups.map(function (g) { return g.id; }).join(',') === 'steiner,downs,tweed,wits,mcnamara');
+    pass('five analysis groups plus soft tissue', res.groups.map(function (g) { return g.id; }).join(',') === 'steiner,downs,tweed,wits,mcnamara,soft');
+    pass('one-page summary names skeletal class', !!(res.summary && res.summary.skeletal), res.summary && res.summary.skeletal);
+    pass('Caucasian SNA norm is 82 ± 2', res.groups[0].rows[0].norm === '82 ± 2' && res.normSet === 'caucasian');
+    var cn = box.CEPH_AN.run(pts, 0.1, { normSet: 'chinese' });
+    pass('HK Chinese SNA norm is 83.8 ± 3.2', cn.normSet === 'chinese' && /83\.8/.test(cn.groups[0].rows[0].norm) &&
+        cn.groups[0].rows[0].norm !== res.groups[0].rows[0].norm, cn.groups[0].rows[0].norm);
+    pass('value 90 vs 82±2 is out of range', box.CEPH_AN.score(90, { mean: 82, sd: 2 }).band === 'out');
+    pass('value 82 vs 82±2 is in range', box.CEPH_AN.score(82, { mean: 82, sd: 2 }).band === 'in');
+    pass('value 85 vs 82±2 is warn (1–2 SD)', box.CEPH_AN.score(85, { mean: 82, sd: 2 }).band === 'warn');
+    var witsNote = res.groups[3].rows[0].note || '';
+    pass('linear mm rows stay untrusted until the film is calibrated',
+        /not calibrated/.test(witsNote) && res.calibrated !== true);
+    var calRes = box.CEPH_AN.run(pts, 0.1, { calibrated: true });
+    pass('calibrated linear rows drop the not-calibrated stamp',
+        calRes.calibrated === true && !/not calibrated/.test(String(calRes.groups[3].rows[0].note || '')));
+    var imageX = Math.abs(pts.A.x - pts.N.x) * 0.1;
+    var fhNperp = box.CEPH_AN.nPerpMm(pts.A, pts.N, pts.Po, pts.Or, 0.1);
+    pass('N-perp is perpendicular to Frankfort, not image-x',
+        fhNperp != null && Math.abs(fhNperp - imageX) > 0.05, 'fh=' + fhNperp + ' x=' + imageX);
+    var proxyWits = box.CEPH_AN.witsMm(pts.A, pts.B, pts.U1, pts.L1, 0.1);
+    var fopWits = box.CEPH_AN.witsMm(pts.A, pts.B, { x: 640, y: 575 }, { x: 560, y: 585 }, 0.1);
+    pass('Wits on FOP can differ from the U1–L1 proxy',
+        proxyWits != null && fopWits != null && Math.abs(proxyWits - fopWits) > 0.2,
+        'proxy=' + proxyWits + ' fop=' + fopWits);
+    var withApex = box.CEPH_AN.run(pts, 0.1, {
+        extra: { L1a: { x: pts.L1.x - 20, y: pts.L1.y + 40 }, U1a: { x: pts.U1.x - 18, y: pts.U1.y + 38 } }
+    });
+    pass('IMPA uses the L1 apex handle when provided',
+        /L1a/.test(withApex.groups[2].rows[1].note) && withApex.groups[2].rows[1].value != null);
     var meanPts = {};
     cat.landmarks.forEach(function (d) {
         meanPts[d.id] = { x: d.ix * 1935, y: d.iy * 2400 };
@@ -418,13 +527,41 @@ var PAGE_SCRIPT = `(async () => {
             live ? (live.imgW + 'x' + live.imgH + ' via=' + live.via) : 'none');
         pass('live: 19 landmarks placed inside the film', live && live.nPts === 19 && live.inBounds === true,
             live ? ('n=' + live.nPts + ' source=' + live.source) : 'none');
-        pass('live: 5 auto-detect sets can be adopted from the selection bar',
-            live && live.nSets === 5 && /imgmean/.test(String(live.set0 || '')) &&
-            /imgmean\+edge/.test(String(live.set2 || '')) && live.set0 !== live.set2,
-            live ? ('ids=' + live.setIds + ' 1=' + live.set0 + ' 3=' + live.set2) : 'none');
+        pass('live: 3 auto-detect sets can be viewed then adopted',
+            live && live.nSets === 3 && /imgmean\+edge/.test(String(live.set0 || '')) &&
+            /boxmean\+edge/.test(String(live.set1 || '')) && live.set0 !== live.set1 &&
+            live.adopted === true && live.setBarHidden === true,
+            live ? ('ids=' + live.setIds + ' 1=' + live.set0 + ' 2=' + live.set1 + ' hidden=' + live.setBarHidden) : 'none');
         pass('live: Steiner / Downs / Tweed / Wits / McNamara ran',
-            live && live.groups && live.groups.join(',') === 'steiner,downs,tweed,wits,mcnamara' && live.sna != null,
-            live ? ('SNA=' + live.sna) : 'none');
+            live && live.groups && ['steiner', 'downs', 'tweed', 'wits', 'mcnamara'].every(function (id) {
+                return live.groups.indexOf(id) >= 0;
+            }) && live.sna != null,
+            live ? ('SNA=' + live.sna + ' groups=' + (live.groups && live.groups.join(','))) : 'none');
+        pass('live: clinical summary is filled',
+            live && /Class/.test(String(live.summarySkeletal || '')),
+            live ? ('skeletal=' + live.summarySkeletal) : 'none');
+        pass('live: Caucasian vs HK Chinese norms colour the SNA row',
+            live && live.caucSet === 'caucasian' && /82/.test(String(live.caucNorm || '')) &&
+            live.cnSet === 'chinese' && /83\.8/.test(String(live.cnNorm || '')) &&
+            live.caucNorm !== live.cnNorm && /^(in|warn|out)$/.test(String(live.cnBand || '')),
+            live ? ('cauc=' + live.caucNorm + ' cn=' + live.cnNorm + ' band=' + live.cnBand) : 'none');
+        pass('live: two-click ruler calibrates millimetres',
+            live && live.calBefore === false && live.calOk === true && live.calAfter === true &&
+            live.calMmPerPx === 0.1,
+            live ? ('before=' + live.calBefore + ' mm/px=' + live.calMmPerPx) : 'none');
+        pass('live: FOP and incisor-apex handles are on the tracing',
+            live && live.extraIds === 'FopA,FopP,L1a,U1a' && /FOP/.test(String(live.witsNote || '')) &&
+            /FH/.test(String(live.nperpNote || '')),
+            live ? ('extra=' + live.extraIds + ' wits=' + live.witsNote) : 'none');
+        pass('live: clicking SNA highlights SN and NA on the film',
+            live && live.hiOk === true && live.hiMeasure === 'SNA' && live.invert === true,
+            live ? ('hi=' + live.hiMeasure + ' invertWas=' + live.invert) : 'none');
+        pass('live: tracing saves for this patient and can be restored',
+            live && live.saveOk === true && live.loadOk === true && live.printFn === true,
+            live ? ('save=' + live.saveOk + ' load=' + live.loadOk) : 'none');
+        pass('live: Advanced training stays hidden until toggled',
+            live && live.labOff === true && live.labOn === true,
+            live ? ('off=' + live.labOff + ' on=' + live.labOn + ' qa=' + (live.qa && live.qa.join(','))) : 'none');
         pass('live: the adopted set is added as a whole 19-point film',
             live && live.learnOk === true && live.learnIncluded === 19 && live.learnWhole === true,
             live ? ('films=' + live.learnClinic + ' n=' + live.learnIncluded + ' src=' + live.learnSource) : 'none');

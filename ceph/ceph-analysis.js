@@ -1,7 +1,8 @@
 /* Common lateral cephalometric analyses from the ISBI 19 landmarks.
    Methods follow the MIT cephalometric web apps (alexcorvi/cephalometric,
    tjandrayana/ortho-cephalometry): Steiner, Downs, Tweed, Wits, McNamara.
-   Degrees are scale-free. Linear values use mmPerPx (ISBI default 0.1). */
+   Degrees are scale-free. Linear values use mmPerPx (ISBI default 0.1).
+   Norm sets: Caucasian textbook vs Southern Chinese / Hong Kong adult composite. */
 (function (g) {
     function pt(pts, id) {
         var p = pts && pts[id];
@@ -42,130 +43,340 @@
         if (!L) return 0;
         return ((p.x - a.x) * vy - (p.y - a.y) * vx) / L;
     }
-    function row(name, value, unit, norm, note) {
-        return {
-            name: name,
-            value: value == null || !isFinite(value) ? null : Math.round(value * 10) / 10,
-            unit: unit || '°',
-            norm: norm || '',
-            note: note || ''
-        };
+    function round1(n) {
+        return Math.round(n * 10) / 10;
     }
-    function anbClass(anb) {
-        if (anb == null) return '';
-        if (anb > 4) return 'skeletal Class II tendency';
-        if (anb < 0) return 'skeletal Class III tendency';
-        return 'skeletal Class I';
+    function fmtN(n) {
+        if (n < 0) return '−' + String(Math.abs(round1(n)));
+        if (n > 0) return '+' + String(round1(n));
+        return String(round1(n));
+    }
+    function formatSpec(spec) {
+        if (!spec) return '';
+        if (spec.mean != null && spec.sd != null) return round1(spec.mean) + ' ± ' + round1(spec.sd);
+        if (spec.lo != null && spec.hi != null) return fmtN(spec.lo).replace(/^\+/, '') + ' to ' + fmtN(spec.hi);
+        return '';
+    }
+    function score(value, spec) {
+        var out = { band: '', delta: null };
+        if (value == null || !isFinite(value) || !spec) return out;
+        if (spec.mean != null && spec.sd != null && spec.sd > 0) {
+            var d = value - spec.mean;
+            var a = Math.abs(d);
+            out.delta = round1(d);
+            out.band = a <= spec.sd ? 'in' : (a <= 2 * spec.sd ? 'warn' : 'out');
+            return out;
+        }
+        if (spec.lo != null && spec.hi != null) {
+            if (value >= spec.lo && value <= spec.hi) out.band = 'in';
+            else {
+                var pad = Math.max(1, (spec.hi - spec.lo) * 0.25);
+                out.band = (value >= spec.lo - pad && value <= spec.hi + pad) ? 'warn' : 'out';
+            }
+        }
+        return out;
     }
 
-    function run(pts, mmPerPx) {
+    /* Caucasian: Steiner / Downs / Tweed textbook adults.
+       Chinese: Southern Chinese / Hong Kong adult composite (Chan 1972 Cantonese;
+       Cooke & Wei 1988 HK Chinese vs British Caucasian). Linear McNamara ranges
+       stay similar; ANB Class I sits higher than the Caucasian 2°. */
+    var SETS = {
+        caucasian: {
+            id: 'caucasian',
+            label: 'Caucasian',
+            source: 'Caucasian adult textbook (Steiner / Downs / Tweed / McNamara)',
+            measures: {
+                SNA: { mean: 82, sd: 2 },
+                SNB: { mean: 80, sd: 2 },
+                ANB: { mean: 2, sd: 2 },
+                'SN–GoGn': { mean: 32, sd: 5 },
+                Interincisal: { mean: 130, sd: 6 },
+                'Facial angle': { mean: 87.8, sd: 3.6 },
+                'Angle of convexity': { mean: 0, sd: 5 },
+                'Y-axis': { mean: 59.4, sd: 3.8 },
+                'FH–MP': { mean: 21.9, sd: 3.2 },
+                FMA: { mean: 25, sd: 3 },
+                IMPA: { mean: 90, sd: 5 },
+                FMIA: { mean: 65, sd: 3 },
+                'AO–BO': { mean: 0, sd: 2 },
+                'A to N-perp': { mean: 1, sd: 2 },
+                'Pog to N-perp': { lo: -2, hi: 4 },
+                'Ls to Sn–PogS': { mean: 0, sd: 2 },
+                'Li to Sn–PogS': { mean: 0, sd: 2 }
+            }
+        },
+        chinese: {
+            id: 'chinese',
+            label: 'HK Chinese',
+            source: 'Southern Chinese / Hong Kong adult (Chan 1972; Cooke & Wei 1988)',
+            measures: {
+                SNA: { mean: 83.8, sd: 3.2 },
+                SNB: { mean: 80.0, sd: 3.2 },
+                ANB: { mean: 3.5, sd: 2.0 },
+                'SN–GoGn': { mean: 34.5, sd: 4.5 },
+                Interincisal: { mean: 124, sd: 8 },
+                'Facial angle': { mean: 85.0, sd: 3.5 },
+                'Angle of convexity': { mean: 6, sd: 5 },
+                'Y-axis': { mean: 63.0, sd: 4.0 },
+                'FH–MP': { mean: 26.0, sd: 4.0 },
+                FMA: { mean: 28, sd: 4 },
+                IMPA: { mean: 93, sd: 6 },
+                FMIA: { mean: 59, sd: 5 },
+                'AO–BO': { mean: -1, sd: 3 },
+                'A to N-perp': { mean: 1, sd: 3 },
+                'Pog to N-perp': { lo: -6, hi: 2 },
+                'Ls to Sn–PogS': { mean: 2, sd: 2 },
+                'Li to Sn–PogS': { mean: 2, sd: 2 }
+            }
+        }
+    };
+
+    function listSets() {
+        return [
+            { id: 'caucasian', label: SETS.caucasian.label, source: SETS.caucasian.source },
+            { id: 'chinese', label: SETS.chinese.label, source: SETS.chinese.source }
+        ];
+    }
+    function getSet(id) {
+        return SETS[id] || SETS.caucasian;
+    }
+    function anbClass(anb, spec) {
+        if (anb == null) return '';
+        var mean = spec && spec.mean != null ? spec.mean : 2;
+        var sd = spec && spec.sd != null ? spec.sd : 2;
+        if (anb > mean + sd) return 'skeletal Class II tendency';
+        if (anb < mean - sd) return 'skeletal Class III tendency';
+        return 'skeletal Class I';
+    }
+    function row(set, name, value, unit, note) {
+        var spec = set.measures[name];
+        var sc = score(value, spec);
+        return {
+            name: name,
+            value: value == null || !isFinite(value) ? null : round1(value),
+            unit: unit || '°',
+            norm: formatSpec(spec),
+            note: note || '',
+            band: sc.band,
+            delta: sc.delta
+        };
+    }
+
+    function extraPt(extra, id, fallback) {
+        var p = extra && extra[id];
+        if (p && isFinite(p.x) && isFinite(p.y)) return p;
+        return fallback || null;
+    }
+    function nPerpMm(p, N, Po, Or, mmPerPx) {
+        if (!p || !N || !Po || !Or) return null;
+        var fx = Or.x - Po.x, fy = Or.y - Po.y;
+        if (!Math.hypot(fx, fy)) return null;
+        var lx = -fy, ly = fx;
+        var d = signedDistToLine(p, N, { x: N.x + lx, y: N.y + ly });
+        return d * mmPerPx;
+    }
+    function witsMm(A, B, p1, p2, mmPerPx) {
+        if (!A || !B || !p1 || !p2) return null;
+        var ao = project(A, p1, p2);
+        var bo = project(B, p1, p2);
+        var dirx = p2.x - p1.x, diry = p2.y - p1.y;
+        var L = Math.hypot(dirx, diry);
+        if (!L) return null;
+        var tA = ((ao.x - p1.x) * dirx + (ao.y - p1.y) * diry) / L;
+        var tB = ((bo.x - p1.x) * dirx + (bo.y - p1.y) * diry) / L;
+        var signed = tA - tB;
+        if (dirx < 0) signed = -signed;
+        return signed * mmPerPx;
+    }
+
+    function run(pts, mmPerPx, opts) {
         mmPerPx = Number(mmPerPx);
         if (!isFinite(mmPerPx) || mmPerPx <= 0) mmPerPx = 0.1;
+        opts = opts || {};
+        var set = getSet(opts.normSet);
         var S = pt(pts, 'S'), N = pt(pts, 'N'), A = pt(pts, 'A'), B = pt(pts, 'B');
         var Pog = pt(pts, 'Pog'), Me = pt(pts, 'Me'), Gn = pt(pts, 'Gn'), Go = pt(pts, 'Go');
         var Or = pt(pts, 'Or'), Po = pt(pts, 'Po'), U1 = pt(pts, 'U1'), L1 = pt(pts, 'L1');
         var ANS = pt(pts, 'ANS'), PNS = pt(pts, 'PNS'), Ar = pt(pts, 'Ar');
+        var Ls = pt(pts, 'Ls'), Li = pt(pts, 'Li'), Sn = pt(pts, 'Sn'), PogS = pt(pts, 'PogS');
+        var extra = opts.extra || {};
+        var L1a = extraPt(extra, 'L1a', L1 ? { x: L1.x - 8, y: L1.y + 28 } : null);
+        var U1a = extraPt(extra, 'U1a', U1 ? { x: U1.x - 6, y: U1.y + 26 } : null);
+        var FopA = extraPt(extra, 'FopA', U1);
+        var FopP = extraPt(extra, 'FopP', L1);
+        var usedFop = !!(extra.FopA && extra.FopP);
+        var usedApex = !!(extra.L1a || extra.U1a);
         var sna = (S && N && A) ? ang3(S, N, A) : null;
         var snb = (S && N && B) ? ang3(S, N, B) : null;
         var anb = (sna != null && snb != null) ? (sna - snb) : ((A && N && B) ? ang3(A, N, B) : null);
         var snMp = (S && N && Go && Gn) ? planeAng(S, N, Go, Gn) : null;
         var fma = (Po && Or && Go && Me) ? planeAng(Po, Or, Go, Me) : null;
-        var impa = (L1 && Go && Me) ? planeAng(L1, { x: L1.x, y: L1.y - 40 }, Go, Me) : null;
-        if (L1 && Go && Me) {
-            var apexGuess = { x: L1.x - 8, y: L1.y + 28 };
-            impa = planeAng(apexGuess, L1, Go, Me);
-        }
-        var fmia = (Po && Or && L1) ? planeAng(Po, Or, L1, { x: L1.x - 8, y: L1.y + 28 }) : null;
-        var inter = (U1 && L1) ? planeAng(U1, { x: U1.x - 6, y: U1.y + 26 }, L1, { x: L1.x - 8, y: L1.y + 28 }) : null;
+        var impa = (L1 && L1a && Go && Me) ? planeAng(L1a, L1, Go, Me) : null;
+        var fmia = (Po && Or && L1 && L1a) ? planeAng(Po, Or, L1a, L1) : null;
+        var inter = (U1 && U1a && L1 && L1a) ? planeAng(U1a, U1, L1a, L1) : null;
         var facial = (Po && Or && N && Pog) ? planeAng(Po, Or, N, Pog) : null;
         var convex = (N && A && Pog) ? ang3(N, A, Pog) : null;
         var yaxis = (Po && Or && S && Gn) ? planeAng(Po, Or, S, Gn) : null;
-        var wits = null;
-        if (A && B && U1 && L1) {
-            var ao = project(A, U1, L1);
-            var bo = project(B, U1, L1);
-            wits = dist(ao, bo) * mmPerPx;
-            if (ao.x < bo.x) wits = -wits;
-        }
-        var nperpA = null, nperpPog = null;
-        if (N && Po && Or && A) {
-            var fh1 = Po, fh2 = Or;
-            var nA = project(A, N, { x: N.x + (fh2.x - fh1.x), y: N.y + (fh2.y - fh1.y) });
-            nperpA = signedDistToLine(A, N, { x: N.x, y: N.y + 100 }) * mmPerPx;
-            nperpA = Math.abs(A.x - N.x) * mmPerPx * (A.x >= N.x ? 1 : -1);
-        }
-        if (N && Pog) nperpPog = Math.abs(Pog.x - N.x) * mmPerPx * (Pog.x >= N.x ? 1 : -1);
+        var wits = witsMm(A, B, FopA, FopP, mmPerPx);
+        var nperpA = nPerpMm(A, N, Po, Or, mmPerPx);
+        var nperpPog = nPerpMm(Pog, N, Po, Or, mmPerPx);
         var ansMe = (ANS && Me) ? dist(ANS, Me) * mmPerPx : null;
         var nMe = (N && Me) ? dist(N, Me) * mmPerPx : null;
         var sGo = (S && Go) ? dist(S, Go) * mmPerPx : null;
         var arGo = (Ar && Go) ? dist(Ar, Go) * mmPerPx : null;
+        var lsLine = (Ls && Sn && PogS) ? signedDistToLine(Ls, Sn, PogS) * mmPerPx : null;
+        var liLine = (Li && Sn && PogS) ? signedDistToLine(Li, Sn, PogS) * mmPerPx : null;
 
-        return {
+        var result = {
             mmPerPx: mmPerPx,
+            calibrated: !!opts.calibrated,
+            normSet: set.id,
+            normLabel: set.label,
+            normSource: set.source,
             groups: [
                 {
                     id: 'steiner',
                     title: 'Steiner',
                     rows: [
-                        row('SNA', sna, '°', '82 ± 2'),
-                        row('SNB', snb, '°', '80 ± 2'),
-                        row('ANB', anb, '°', '2 ± 2', anbClass(anb)),
-                        row('SN–GoGn', snMp, '°', '32 ± 5'),
-                        row('Interincisal', inter, '°', '130 ± 6')
+                        row(set, 'SNA', sna, '°'),
+                        row(set, 'SNB', snb, '°'),
+                        row(set, 'ANB', anb, '°', anbClass(anb, set.measures.ANB)),
+                        row(set, 'SN–GoGn', snMp, '°'),
+                        row(set, 'Interincisal', inter, '°', usedApex ? 'U1a-U1 / L1a-L1' : 'approx (drag U1a / L1a)')
                     ]
                 },
                 {
                     id: 'downs',
                     title: 'Downs',
                     rows: [
-                        row('Facial angle', facial, '°', '87.8 ± 3.6'),
-                        row('Angle of convexity', convex, '°', '0 ± 5'),
-                        row('Y-axis', yaxis, '°', '59.4 ± 3.8'),
-                        row('FH–MP', fma, '°', '21.9 ± 3.2')
+                        row(set, 'Facial angle', facial, '°'),
+                        row(set, 'Angle of convexity', convex, '°'),
+                        row(set, 'Y-axis', yaxis, '°'),
+                        row(set, 'FH–MP', fma, '°')
                     ]
                 },
                 {
                     id: 'tweed',
                     title: 'Tweed',
                     rows: [
-                        row('FMA', fma, '°', '25 ± 3'),
-                        row('IMPA', impa, '°', '90 ± 5'),
-                        row('FMIA', fmia, '°', '65 ± 3')
+                        row(set, 'FMA', fma, '°'),
+                        row(set, 'IMPA', impa, '°', usedApex ? 'L1–L1a vs MP' : 'approx (drag L1a)'),
+                        row(set, 'FMIA', fmia, '°', usedApex ? 'L1–L1a vs FH' : 'approx (drag L1a)')
                     ]
                 },
                 {
                     id: 'wits',
                     title: 'Wits',
                     rows: [
-                        row('AO–BO', wits, 'mm', '0 ± 2', 'on U1–L1 occlusal')
+                        row(set, 'AO–BO', wits, 'mm', usedFop ? 'on FOP' : 'proxy U1-L1 (drag FopA / FopP)')
                     ]
                 },
                 {
                     id: 'mcnamara',
                     title: 'McNamara',
                     rows: [
-                        row('A to N-perp', nperpA, 'mm', '1 ± 2'),
-                        row('Pog to N-perp', nperpPog, 'mm', '−2 to +4'),
-                        row('ANS–Me', ansMe, 'mm', ''),
-                        row('N–Me', nMe, 'mm', ''),
-                        row('S–Go', sGo, 'mm', ''),
-                        row('Ar–Go', arGo, 'mm', '')
+                        row(set, 'A to N-perp', nperpA, 'mm', 'N-perp to FH'),
+                        row(set, 'Pog to N-perp', nperpPog, 'mm', 'N-perp to FH'),
+                        row(set, 'ANS–Me', ansMe, 'mm'),
+                        row(set, 'N–Me', nMe, 'mm'),
+                        row(set, 'S–Go', sGo, 'mm'),
+                        row(set, 'Ar–Go', arGo, 'mm')
+                    ]
+                },
+                {
+                    id: 'soft',
+                    title: 'Soft tissue',
+                    rows: [
+                        row(set, 'Ls to Sn–PogS', lsLine, 'mm', 'Steiner S-line (Sn–Pog′)'),
+                        row(set, 'Li to Sn–PogS', liLine, 'mm', 'Steiner S-line (Sn–Pog′)')
                     ]
                 }
+            ]
+        };
+        if (!opts.calibrated) {
+            result.groups.forEach(function (g) {
+                (g.rows || []).forEach(function (r) {
+                    if (r.unit !== 'mm') return;
+                    r.band = '';
+                    r.delta = null;
+                    r.note = r.note ? (r.note + '; not calibrated') : 'not calibrated';
+                });
+            });
+        }
+        result.summary = summarise(result);
+        return result;
+    }
+
+    function findRow(result, groupId, name) {
+        var g = (result.groups || []).filter(function (x) { return x.id === groupId; })[0];
+        if (!g) return null;
+        return (g.rows || []).filter(function (x) { return x.name === name; })[0] || null;
+    }
+    function summarise(result) {
+        var anb = findRow(result, 'steiner', 'ANB');
+        var mp = findRow(result, 'steiner', 'SN–GoGn');
+        var conv = findRow(result, 'downs', 'Angle of convexity');
+        var impa = findRow(result, 'tweed', 'IMPA');
+        var ls = findRow(result, 'soft', 'Ls to Sn–PogS');
+        var skeletal = (anb && anb.note) || '—';
+        var vertical = 'average';
+        if (mp && mp.delta != null) {
+            if (mp.band === 'out' || (mp.band === 'warn' && Math.abs(mp.delta) > 0)) {
+                vertical = mp.delta > 0 ? 'high-angle' : 'low-angle';
+            }
+        }
+        var profile = 'straight';
+        if (conv && conv.delta != null) {
+            if (conv.delta > 2) profile = 'convex';
+            else if (conv.delta < -2) profile = 'concave';
+        }
+        var incisor = 'average';
+        if (impa && impa.delta != null) {
+            if (impa.delta > 2) incisor = 'proclined';
+            else if (impa.delta < -2) incisor = 'retroclined';
+        }
+        var lip = '—';
+        if (ls && ls.delta != null) lip = ls.delta > 1 ? 'protrusive' : (ls.delta < -1 ? 'retrusive' : 'balanced');
+        return {
+            skeletal: skeletal,
+            vertical: vertical,
+            profile: profile,
+            incisor: incisor,
+            lip: lip,
+            lines: [
+                skeletal,
+                vertical + ' mandible',
+                profile + ' profile',
+                incisor + ' lower incisors',
+                'upper lip ' + lip
             ]
         };
     }
 
     function toCsv(result) {
-        var lines = ['analysis,measurement,value,unit,norm,note'];
+        var lines = ['analysis,measurement,value,unit,norm,delta,band,note'];
         (result.groups || []).forEach(function (g) {
             (g.rows || []).forEach(function (r) {
-                lines.push([g.title, r.name, r.value == null ? '' : r.value, r.unit, r.norm, r.note]
+                lines.push([g.title, r.name, r.value == null ? '' : r.value, r.unit, r.norm,
+                    r.delta == null ? '' : r.delta, r.band || '', r.note]
                     .map(function (x) { return '"' + String(x).replace(/"/g, '""') + '"'; }).join(','));
             });
         });
         return lines.join('\n');
     }
 
-    g.CEPH_AN = { run: run, toCsv: toCsv, ang3: ang3, dist: dist, planeAng: planeAng };
+    g.CEPH_AN = {
+        run: run,
+        toCsv: toCsv,
+        ang3: ang3,
+        dist: dist,
+        planeAng: planeAng,
+        listSets: listSets,
+        getSet: getSet,
+        score: score,
+        nPerpMm: nPerpMm,
+        witsMm: witsMm,
+        summarise: summarise
+    };
 })(typeof window !== 'undefined' ? window : this);

@@ -23,7 +23,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     background: #1e293b; color: var(--text); border: 1px solid #334155;
     border-radius: 6px; padding: 6px 10px; font-weight: 700; cursor: pointer;
 }
-#top button.primary { background: #0e7490; border-color: #22d3ee; }
+#top button.is-on, #top button[aria-pressed="true"] { border-color: var(--warn); color: #fde68a; }
 #top .refGroup, .refGroup {
     display: inline-flex;
     gap: 0;
@@ -46,74 +46,131 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     background: #0e7490;
     color: #ecfeff;
 }
-.refRow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-}
-.refRow .setBar-kicker { margin: 0; }
-.refRow .refGroup { flex: 1; min-width: 240px; }
-.refRow .refGroup button { flex: 1; min-height: 40px; font-size: 13px; }
 #top input[type=number] { width: 72px; background: #0b1020; color: var(--text); border: 1px solid #334155; border-radius: 6px; padding: 5px; }
 #stage { display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
 #viewWrap { position: relative; min-width: 0; background: #080b14; overflow: hidden; }
 #view { display: block; width: 100%; height: 100%; cursor: crosshair; }
 .setBar {
     position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
+    top: 6px;
+    right: 6px;
+    left: auto;
+    bottom: auto;
     z-index: 6;
+    width: auto;
+    max-width: min(252px, calc(100% - 12px));
     margin: 0;
-    padding: 10px 12px;
+    padding: 4px 6px 3px;
     border: 1px solid #38bdf8;
-    border-radius: 10px;
-    background: rgba(16, 22, 42, 0.94);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    border-radius: 6px;
+    background: rgba(16, 22, 42, 0.9);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
     outline: none;
 }
+.setBar.is-hidden { display: none; }
 .setBar:focus { border-color: var(--warn); }
-.setBar-kicker {
-    display: block;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--accent);
-    font-weight: 800;
-    margin-bottom: 8px;
+.setBar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 .setBtns {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(3, 34px);
+    gap: 4px;
+    flex: 0 0 auto;
 }
 .setBtns button {
     background: #1e293b;
     color: var(--text);
     border: 1px solid #64748b;
-    border-radius: 8px;
-    padding: 10px 0 8px;
+    border-radius: 6px;
+    padding: 4px 0;
     font-weight: 800;
-    font-size: 16px;
+    font-size: 13px;
     cursor: pointer;
-    min-height: 44px;
+    min-height: 28px;
 }
 .setBtns button:disabled { opacity: 0.55; cursor: default; }
 .setBtns button.is-on, .setBtns button[aria-pressed="true"] {
     background: #0e7490;
     border-color: #22d3ee;
     color: #ecfeff;
-    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35);
 }
-#setCaption { margin: 8px 0 0; color: #e8eefc; }
+#btnAdoptSet {
+    flex: 1;
+    min-height: 28px;
+    padding: 4px 8px;
+    font-size: 12px;
+    background: #0e7490;
+    color: #ecfeff;
+    border: 1px solid #22d3ee;
+    border-radius: 6px;
+    font-weight: 800;
+    cursor: pointer;
+}
+#btnAdoptSet:disabled { opacity: 0.5; cursor: default; }
+#setCaption {
+    margin: 2px 0 0;
+    color: #e8eefc;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.changeSet {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 6;
+    background: rgba(16, 22, 42, 0.9);
+    color: #e8eefc;
+    border: 1px solid #38bdf8;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-weight: 700;
+    font-size: 11px;
+    cursor: pointer;
+}
+.changeSet.is-hidden { display: none; }
 #side { overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 10px 12px 24px; }
 #side h2 { margin: 14px 0 6px; font-size: 13px; color: var(--accent); }
 #side table { width: 100%; border-collapse: collapse; }
 #side td, #side th { padding: 3px 4px; border-bottom: 1px solid #243049; text-align: left; }
 #side th { color: var(--muted); font-weight: 600; }
+.normBar { margin: 12px 0 4px; }
+.normBar-label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+    font-weight: 700;
+}
+.normBar .refGroup { display: flex; width: 100%; }
+.normBar .refGroup button { flex: 1; }
+#normSource { margin: 6px 0 8px; }
+#side tr.band-in td:nth-child(2) { color: #86efac; font-weight: 700; }
+#side tr.band-warn td:nth-child(2) { color: #facc15; font-weight: 700; }
+#side tr.band-out td:nth-child(2) { color: #fb7185; font-weight: 800; }
+#side tr.is-hi { background: rgba(250, 204, 21, 0.14); outline: 1px solid rgba(250, 204, 21, 0.5); }
+#viewWrap { cursor: grab; }
+.summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin: 0 0 10px;
+}
+.summary div {
+    background: #10162a;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+.summary .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.summary .v { font-weight: 800; margin-top: 2px; }
 .lm { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; cursor: pointer; align-items: center; }
 .lm.is-on { color: var(--warn); }
 .lm.is-touched .lm-inc { color: #86efac; }
@@ -128,6 +185,17 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .hint { color: var(--muted); font-size: 12px; }
 .status { color: var(--warn); min-height: 1.2em; }
 #filePick { display: none; }
+.labOnly.is-hidden { display: none !important; }
+#top #btnAdvanced.is-on { border-color: var(--warn); color: #fde68a; }
+.lm.is-qa span:first-child::after { content: ' check'; color: #fb7185; font-weight: 800; }
+@media print {
+    #top button, #top input, #filePick, #setBar, #btnChangeSet, .libs, .hint, #lmList { display: none !important; }
+    #bananaCephBar { position: static; background: #fff; color: #111; }
+    #app { height: auto; padding: 0; }
+    #stage { grid-template-columns: 1fr 280px; }
+    body, html { background: #fff; color: #111; }
+    #side { border: 0; background: #fff; color: #111; }
+}
 @media (max-width: 900px) {
     #stage { grid-template-columns: 1fr; }
     #side { max-height: 40vh; }

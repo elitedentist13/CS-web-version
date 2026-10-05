@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana · Lateral cephalometric</title>
-  <link rel="stylesheet" href="ceph.css?v=20261005fx8">
+  <link rel="stylesheet" href="ceph.css?v=20261005fx16">
 </head>
 <body>
   <div id="app">
@@ -13,13 +13,21 @@
       <button type="button" class="primary" id="btnLoad">Load film</button>
       <input id="filePick" type="file" accept="image/*,.bmp,.jpg,.jpeg,.png,.tif,.tiff">
       <button type="button" id="btnDetect">Auto landmarks</button>
-      <span class="refGroup" role="group" aria-label="Reference library">
+      <button type="button" id="btnAdvanced" title="Show training library and reference-set tools.">Advanced</button>
+      <span class="refGroup labOnly is-hidden" role="group" aria-label="Reference library">
         <button type="button" id="btnRefPub" aria-pressed="true" title="Auto-detect from the read-only 1502 published tracings only.">Published 1502</button>
         <button type="button" id="btnRefPlus" aria-pressed="false" title="Auto-detect from the 1502 published tracings plus in-house training films. The two libraries stay stored separately.">Published + in-house</button>
       </span>
-      <button type="button" class="primary" id="btnLearn">Add this set to clinic training</button>
-      <button type="button" id="btnLearnUndo">Undo last film</button>
-      <label>mm/px <input id="mmPerPx" type="number" step="0.01" min="0.01" value="0.1" title="ISBI 2015 is 0.1 mm/pixel"></label>
+      <button type="button" class="primary labOnly is-hidden" id="btnLearn">Add this set to clinic training</button>
+      <button type="button" class="labOnly is-hidden" id="btnLearnUndo">Undo last film</button>
+      <label>mm/px <input id="mmPerPx" type="number" step="0.01" min="0.01" value="0.1" title="Set after calibrating a known millimetre marker. ISBI 2015 is 0.1 mm/pixel."></label>
+      <button type="button" id="btnCalibrate" title="Click two ends of a known millimetre marker on the film (ear rod, 10 mm ruler). Linear measures stay untrusted until this is done.">Calibrate ruler</button>
+      <label>ruler mm <input id="rulerMm" type="number" step="0.1" min="1" value="10" title="Known length between the two calibration clicks."></label>
+      <button type="button" id="btnInvert" title="Invert the film for tracing dark fossae.">Invert</button>
+      <button type="button" id="btnUndoPt" title="Undo the last landmark drag.">Undo point</button>
+      <button type="button" id="btnResetView" title="Reset zoom and pan.">Reset view</button>
+      <button type="button" class="primary" id="btnSaveTrace" title="Save this tracing for this Banana patient so it can be reopened later.">Save tracing</button>
+      <button type="button" id="btnPrint" title="Print a one-page ceph report.">Print report</button>
       <button type="button" id="btnJson">Export JSON</button>
       <button type="button" id="btnCsv">Export CSV</button>
       <button type="button" id="btnPng">Export marked PNG</button>
@@ -28,22 +36,18 @@
     <div id="stage">
       <div id="viewWrap">
         <canvas id="view"></canvas>
-        <div id="setBar" class="setBar" tabindex="0" title="Click a set to adopt it. Scroll here to cycle sets.">
-          <div class="refRow">
-            <span class="setBar-kicker">Reference</span>
-            <div class="refGroup" role="group" aria-label="Reference library">
-              <button type="button" id="btnRefPubBar" aria-pressed="true">Published 1502</button>
-              <button type="button" id="btnRefPlusBar" aria-pressed="false">Published + in-house</button>
-            </div>
+        <div id="setBar" class="setBar is-hidden" tabindex="0" title="Click 1–3 to view a set, then Adopt selection.">
+          <div class="setBar-row">
+            <div id="setBtns" class="setBtns"></div>
+            <button type="button" class="primary" id="btnAdoptSet">Adopt selection</button>
           </div>
-          <span class="setBar-kicker">Auto-detect sets</span>
-          <div id="setBtns" class="setBtns"></div>
-          <p id="setCaption" class="hint">Choose Published 1502, or Published + in-house training. Then click 1–5 to compare sets.</p>
+          <p id="setCaption" class="hint">View 1–3, then Adopt selection.</p>
         </div>
+        <button type="button" id="btnChangeSet" class="changeSet is-hidden">Change set</button>
       </div>
       <aside id="side">
-        <p class="hint">19 ISBI 2015 landmarks. Choose <strong>Published 1502</strong> (ISBI + Aariz + PKU, read-only) or <strong>Published + in-house</strong> (1502 plus whole clinic-training films, stored separately). Auto-detect builds 5 candidate sets. Click 1–5 to compare, then <strong>Add this set to clinic training</strong> to store all 19 points. Analyses: Steiner, Downs, Tweed, Wits, McNamara.</p>
-        <div class="libs">
+        <p class="hint">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Choose <strong>Published 1502</strong> or <strong>Published + in-house</strong>. Auto-detect offers 3 candidate sets. Compare values to <strong>Caucasian</strong> or <strong>HK Chinese</strong> norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film.</p>
+        <div class="libs labOnly is-hidden">
           <div class="lib">
             <h3>Published tracings</h3>
             <div class="n" id="pubCount">1502</div>
@@ -57,14 +61,23 @@
         </div>
         <h2>Landmarks</h2>
         <div id="lmList"></div>
+        <div class="normBar">
+          <span class="normBar-label">Norms</span>
+          <span class="refGroup" role="group" aria-label="Norm set">
+            <button type="button" id="btnNormCauc" aria-pressed="false" title="Caucasian adult textbook means (Steiner / Downs / Tweed).">Caucasian</button>
+            <button type="button" id="btnNormCn" aria-pressed="true" title="Southern Chinese / Hong Kong adult composite (Chan 1972; Cooke &amp; Wei 1988).">HK Chinese</button>
+          </span>
+          <p id="normSource" class="hint">Southern Chinese / Hong Kong adult (Chan 1972; Cooke &amp; Wei 1988)</p>
+        </div>
+        <div id="summary" class="summary"></div>
         <div id="tables"></div>
       </aside>
     </div>
     <div id="bananaCephBar">Banana cephalometric sidecar</div>
   </div>
-  <script src="ceph-landmarks.js"></script>
-  <script src="ceph-learn.js"></script>
-  <script src="ceph-analysis.js"></script>
-  <script src="ceph.js"></script>
+  <script src="ceph-landmarks.js?v=20261005fx16"></script>
+  <script src="ceph-learn.js?v=20261005fx16"></script>
+  <script src="ceph-analysis.js?v=20261005fx16"></script>
+  <script src="ceph.js?v=20261005fx16"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
 (function () {
     var MORE = {
         'xc.open': { en: 'Ceph analysis', 'zh-CN': '头影测量', 'zh-Hant': '頭影測量' },
-        'xc.openTitle': { en: 'Open the lateral cephalometric sidecar. Auto-detect the 19 ISBI landmarks from the read-only 1502 published tracings. Correct any point, tick landmarks to add to clinic training, then turn on Also use clinic training to overlay that set. Steiner / Downs / Tweed / Wits / McNamara. Export JSON, CSV or a marked PNG. Share that window in X-ray Helper to save a view to this patient.', 'zh-CN': '打开侧位头影片侧窗。用只读的 1502 份公开描记自动标 19 个 ISBI 标志点。改正后勾选纳入诊所训练库，再打开“同时用诊所训练”作为叠加参考。Steiner / Downs / Tweed / Wits / McNamara。导出 JSON、CSV 或带点的 PNG。用 X 光助手分享该窗口即可存回当前病人。', 'zh-Hant': '開啟側位頭影片側窗。用唯讀的 1502 份公開描記自動標 19 個 ISBI 標誌點。改正後勾選納入診所訓練庫，再開啟「同時用診所訓練」作為疊加參考。Steiner / Downs / Tweed / Wits / McNamara。匯出 JSON、CSV 或帶點的 PNG。用 X 光助手分享該視窗即可存回目前病人。' },
+        'xc.openTitle': { en: 'Open the lateral cephalometric sidecar. Choose Published 1502 or Published + in-house training, auto-detect five 19-point sets, adopt one, and add the whole set to clinic training. Steiner / Downs / Tweed / Wits / McNamara. Export JSON, CSV or a marked PNG. Share that window in X-ray Helper to save a view to this patient.', 'zh-CN': '打开侧位头影片侧窗。可选只用 1502 份公开描记，或公开库加诊所训练。自动标 5 组 19 点，选定后整组纳入训练库。Steiner / Downs / Tweed / Wits / McNamara。导出 JSON、CSV 或带点的 PNG。用 X 光助手分享该窗口即可存回当前病人。', 'zh-Hant': '開啟側位頭影片側窗。可選只用 1502 份公開描記，或公開庫加診所訓練。自動標 5 組 19 點，選定後整組納入訓練庫。Steiner / Downs / Tweed / Wits / McNamara。匯出 JSON、CSV 或帶點的 PNG。用 X 光助手分享該視窗即可存回目前病人。' },
         'xc.needPatient': { en: 'Select a patient before opening cephalometric analysis.', 'zh-CN': '请先选择病人再打开头影测量。', 'zh-Hant': '請先選擇病人再開啟頭影測量。' }
     };
     if (typeof I18N_STRINGS !== 'undefined') {

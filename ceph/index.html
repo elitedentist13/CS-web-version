@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana · Lateral cephalometric</title>
-  <link rel="stylesheet" href="ceph.css">
+  <link rel="stylesheet" href="ceph.css?v=20261005fx8">
 </head>
 <body>
   <div id="app">
@@ -13,11 +13,11 @@
       <button type="button" class="primary" id="btnLoad">Load film</button>
       <input id="filePick" type="file" accept="image/*,.bmp,.jpg,.jpeg,.png,.tif,.tiff">
       <button type="button" id="btnDetect">Auto landmarks</button>
-      <button type="button" id="btnUseTrain" aria-pressed="false" title="Overlay staff-trained landmarks on top of the read-only 1502 published tracings. Off = published library only.">Also use clinic training</button>
-      <button type="button" class="primary" id="btnLearn">Add selected to clinic training</button>
-      <button type="button" id="btnLearnTouched">Select corrected</button>
-      <button type="button" id="btnLearnAll">Select all</button>
-      <button type="button" id="btnLearnClear">Clear ticks</button>
+      <span class="refGroup" role="group" aria-label="Reference library">
+        <button type="button" id="btnRefPub" aria-pressed="true" title="Auto-detect from the read-only 1502 published tracings only.">Published 1502</button>
+        <button type="button" id="btnRefPlus" aria-pressed="false" title="Auto-detect from the 1502 published tracings plus in-house training films. The two libraries stay stored separately.">Published + in-house</button>
+      </span>
+      <button type="button" class="primary" id="btnLearn">Add this set to clinic training</button>
       <button type="button" id="btnLearnUndo">Undo last film</button>
       <label>mm/px <input id="mmPerPx" type="number" step="0.01" min="0.01" value="0.1" title="ISBI 2015 is 0.1 mm/pixel"></label>
       <button type="button" id="btnJson">Export JSON</button>
@@ -26,9 +26,23 @@
       <span id="status" class="status"></span>
     </div>
     <div id="stage">
-      <div id="viewWrap"><canvas id="view"></canvas></div>
+      <div id="viewWrap">
+        <canvas id="view"></canvas>
+        <div id="setBar" class="setBar" tabindex="0" title="Click a set to adopt it. Scroll here to cycle sets.">
+          <div class="refRow">
+            <span class="setBar-kicker">Reference</span>
+            <div class="refGroup" role="group" aria-label="Reference library">
+              <button type="button" id="btnRefPubBar" aria-pressed="true">Published 1502</button>
+              <button type="button" id="btnRefPlusBar" aria-pressed="false">Published + in-house</button>
+            </div>
+          </div>
+          <span class="setBar-kicker">Auto-detect sets</span>
+          <div id="setBtns" class="setBtns"></div>
+          <p id="setCaption" class="hint">Choose Published 1502, or Published + in-house training. Then click 1–5 to compare sets.</p>
+        </div>
+      </div>
       <aside id="side">
-        <p class="hint">19 ISBI 2015 landmarks (Sella → Articulare). Auto-detect builds <strong>5 candidate sets</strong> from the read-only 1502 published tracings. Click a set on the bar (or scroll on that bar only) to adopt it — the landmark list still scrolls normally. Turn on <strong>Also use clinic training</strong> to put staff-opted landmarks in set 5. Analyses: Steiner, Downs, Tweed, Wits, McNamara.</p>
+        <p class="hint">19 ISBI 2015 landmarks. Choose <strong>Published 1502</strong> (ISBI + Aariz + PKU, read-only) or <strong>Published + in-house</strong> (1502 plus whole clinic-training films, stored separately). Auto-detect builds 5 candidate sets. Click 1–5 to compare, then <strong>Add this set to clinic training</strong> to store all 19 points. Analyses: Steiner, Downs, Tweed, Wits, McNamara.</p>
         <div class="libs">
           <div class="lib">
             <h3>Published tracings</h3>
@@ -38,15 +52,10 @@
           <div class="lib">
             <h3>Clinic training</h3>
             <div class="n" id="learnFilms">0</div>
-            <p class="hint" id="learnCount">Staff-opted landmarks only. 0 films.</p>
+            <p class="hint" id="learnCount">Whole adopted sets only. 0 films.</p>
           </div>
         </div>
         <h2>Landmarks</h2>
-        <div id="setBar" class="setBar" tabindex="0" title="Click a set to adopt it. Scroll here to cycle sets. The landmark list below still scrolls normally.">
-          <span class="setBar-kicker">Auto-detect sets</span>
-          <div id="setBtns" class="setBtns"></div>
-          <p id="setCaption" class="hint">Run Auto landmarks to build 5 candidate sets, then pick one to adopt.</p>
-        </div>
         <div id="lmList"></div>
         <div id="tables"></div>
       </aside>

@@ -9,7 +9,6 @@
     var fileName = 'ceph.png';
     var lastBox = null;
     var lastDetect = null;
-    var inc = {};
     var touched = {};
     var setTouched = [{}, {}, {}, {}, {}];
     var sets = [];
@@ -33,7 +32,7 @@
         var bar = $('bananaCephBar');
         if (bar) {
             var who = (ctxInfo && (ctxInfo.name || ctxInfo.patientNo)) ? ('Patient ' + (ctxInfo.patientNo || '') + ' ' + (ctxInfo.name || '')).trim() : 'No Banana patient in this window';
-            bar.textContent = 'Banana cephalometric sidecar — ' + who + ' — Auto landmarks builds 5 sets; click the set bar (or scroll on it) to adopt one. Tick trusted points into clinic training. Share this window in X-ray Helper to save a view.';
+            bar.textContent = 'Banana cephalometric sidecar — ' + who + ' — choose Published 1502 or Published + in-house, then compare sets 1–5. Share this window in X-ray Helper to save a view.';
         }
     }
 
@@ -110,33 +109,26 @@
         if (!host) return;
         host.innerHTML = CEPH_LM.defs().map(function (d) {
             var p = pts[d.id] || {};
-            var on = !!inc[d.id];
             var mark = touched[d.id] ? ' is-touched' : '';
             return '<div class="lm' + (sel === d.id ? ' is-on' : '') + mark + '" data-id="' + d.id + '">' +
-                '<label class="lm-inc"><input type="checkbox" data-inc="' + d.id + '"' + (on ? ' checked' : '') + '>' +
-                d.i + '. ' + d.id + ' — ' + d.name + (touched[d.id] ? ' (moved)' : '') + '</label>' +
+                '<span>' + d.i + '. ' + d.id + ' — ' + d.name + (touched[d.id] ? ' (moved)' : '') + '</span>' +
                 '<span>' + (p.x ? Math.round(p.x) + ',' + Math.round(p.y) : '—') + '</span></div>';
         }).join('');
         host.querySelectorAll('.lm').forEach(function (el) {
-            el.onclick = function (e) {
-                if (e.target && e.target.getAttribute('data-inc')) return;
+            el.onclick = function () {
                 sel = el.getAttribute('data-id');
                 renderList();
                 draw();
             };
         });
-        host.querySelectorAll('input[data-inc]').forEach(function (box) {
-            box.onchange = function (e) {
-                e.stopPropagation();
-                inc[box.getAttribute('data-inc')] = box.checked;
-                renderLearn();
-            };
-        });
         renderLearn();
     }
 
-    function selectedIds() {
-        return CEPH_LM.defs().map(function (d) { return d.id; }).filter(function (id) { return inc[id] && pts[id] && pts[id].x; });
+    function placedIds() {
+        return CEPH_LM.defs().map(function (d) { return d.id; }).filter(function (id) {
+            var p = pts[id];
+            return p && isFinite(p.x) && isFinite(p.y) && (p.x !== 0 || p.y !== 0);
+        });
     }
 
     function publishedN() {
@@ -163,23 +155,34 @@
     }
 
     function syncUseTrainBtn() {
-        var btn = $('btnUseTrain');
-        if (!btn) return;
-        btn.setAttribute('aria-pressed', useTraining ? 'true' : 'false');
-        if (useTraining) btn.classList.add('is-on');
-        else btn.classList.remove('is-on');
-        btn.textContent = useTraining ? 'Using clinic training' : 'Also use clinic training';
+        var pubN = String(publishedN());
+        var pairs = [
+            [$('btnRefPub'), !useTraining],
+            [$('btnRefPlus'), useTraining],
+            [$('btnRefPubBar'), !useTraining],
+            [$('btnRefPlusBar'), useTraining]
+        ];
+        pairs.forEach(function (pair) {
+            var btn = pair[0];
+            if (!btn) return;
+            var on = pair[1];
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            if (on) btn.classList.add('is-on');
+            else btn.classList.remove('is-on');
+        });
+        if ($('btnRefPub')) $('btnRefPub').textContent = 'Published ' + pubN;
+        if ($('btnRefPubBar')) $('btnRefPubBar').textContent = 'Published ' + pubN;
     }
 
-    function toggleUseTraining() {
+    function setRefMode(onPlus) {
         var st = (window.CEPH_LEARN && CEPH_LEARN.stats) ? CEPH_LEARN.stats() : { films: 0 };
-        writeUseTraining(!useTraining);
+        writeUseTraining(!!onPlus);
         if (useTraining && !st.films) {
-            setStatus('Clinic training overlay is on, but the set is empty. Tick landmarks and Add selected to clinic training first.');
+            setStatus('Published + in-house is selected, but there are no in-house films yet. Adopt a set and add it to clinic training first.');
         } else if (useTraining) {
-            setStatus('Auto-detect will overlay clinic training (' + st.films + ' film(s)) on the 1502 published tracings.');
+            setStatus('Reference: 1502 published PLUS ' + st.films + ' in-house training film(s). Libraries stay separate.');
         } else {
-            setStatus('Auto-detect uses the 1502 published tracings only. Clinic training is stored but not used as reference.');
+            setStatus('Reference: published 1502 library only. In-house training is stored but not used.');
         }
         if (img.naturalWidth) runDetect();
         return useTraining;
@@ -190,31 +193,34 @@
         var filmsEl = $('learnFilms');
         var pubEl = $('pubCount');
         var st = (window.CEPH_LEARN && CEPH_LEARN.stats) ? CEPH_LEARN.stats() : { films: 0, points: 0 };
-        var picked = selectedIds();
         if (pubEl) pubEl.textContent = String(publishedN());
         if (filmsEl) filmsEl.textContent = String(st.films);
         if (nEl) {
-            nEl.textContent = st.films + ' film' + (st.films === 1 ? '' : 's') +
-                ', ' + st.points + ' opted-in points. Selected now: ' + picked.length +
-                '. Overlay: ' + (useTraining ? 'on' : 'off') + '. Never mixed into the 1502 library.';
+            nEl.textContent = st.films + ' whole set' + (st.films === 1 ? '' : 's') +
+                ', ' + st.points + ' points. Reference: ' +
+                (useTraining ? ('1502 + in-house') : 'published 1502 only') +
+                '. Never mixed into the 1502 library.';
         }
     }
 
     function includeSelected() {
         if (!window.CEPH_LEARN) return { ok: false, error: 'learn' };
         if (!img.naturalWidth) { setStatus('Load a lateral ceph first.'); return { ok: false }; }
-        var picked = selectedIds();
-        if (!picked.length) { setStatus('Tick the landmark checkboxes you want to keep in clinic training.'); return { ok: false, error: 'none' }; }
+        var picked = placedIds();
+        if (!picked.length) { setStatus('Auto-detect or adopt a set first. Training stores the whole 19-point set.'); return { ok: false, error: 'none' }; }
         var box = lastBox || (CEPH_LM.findHeadBox ? CEPH_LM.findHeadBox(img) : null);
         var out = CEPH_LEARN.includeSelected({
             pts: pts,
             box: box,
-            included: picked,
             fileName: fileName,
-            patientNo: ctxInfo && ctxInfo.patientNo
+            patientNo: ctxInfo && ctxInfo.patientNo,
+            setId: sets[setIndex] && sets[setIndex].id,
+            setLabel: sets[setIndex] && sets[setIndex].label
         });
-        if (!out.ok) { setStatus('Could not add those points.'); return out; }
-        setStatus('Added ' + out.included.join(', ') + ' to clinic training (' + out.films + ' films). The 1502 published tracings stay unchanged.');
+        if (!out.ok) { setStatus('Could not add that set.'); return out; }
+        setStatus('Added the whole adopted set (' + out.included.length + ' landmarks' +
+            (sets[setIndex] && sets[setIndex].label ? ', ' + sets[setIndex].label : '') +
+            ') to clinic training (' + out.films + ' film(s)). The 1502 published tracings stay unchanged.');
         renderLearn();
         if (out.trace && typeof CEPH_LEARN.postRemote === 'function') {
             CEPH_LEARN.postRemote(out.trace);
@@ -269,8 +275,9 @@
         if (cap) {
             var s = sets[setIndex];
             cap.textContent = s
-                ? ('Adopted set ' + (setIndex + 1) + ' · ' + s.label + '. Click 1–5 or scroll this bar to compare.')
-                : 'Run Auto landmarks to build 5 candidate sets, then pick one to adopt.';
+                ? ((useTraining ? 'Published + in-house' : 'Published ' + publishedN()) +
+                    ' · adopted set ' + (setIndex + 1) + ' · ' + s.label + '. Click 1–5 to compare.')
+                : 'Choose Published 1502 or Published + in-house, then run Auto landmarks.';
         }
     }
 
@@ -314,8 +321,9 @@
         adoptSet(idx, false);
         var clinicN = pack.clinic || 0;
         if (useTraining && clinicN > 0) {
-            setStatus('5 auto-detect sets ready. Adopted set ' + (setIndex + 1) +
-                ' · clinic overlay on ' + clinicN + ' training film(s). Published 1502 unchanged.');
+            setStatus('Reference: 1502 published + ' + clinicN + ' in-house film(s). Adopted set ' +
+                (setIndex + 1) + ' · ' + ((sets[setIndex] && sets[setIndex].label) || 'clinic overlay') +
+                '. Published library was not rewritten.');
             if (done) done({
                 ok: true,
                 source: source,
@@ -509,7 +517,7 @@
                 CEPH_LEARN.pullRemote().then(function () { renderLearn(); });
             }
             if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
-            else setStatus('Load a lateral cephalogram (JPG / PNG / BMP). Tick landmarks you trust, add them to clinic training, then turn on Also use clinic training.');
+            else setStatus('Load a lateral cephalogram (JPG / PNG / BMP). Compare sets 1–5, then Add this set to clinic training to store all 19 points.');
         }).catch(function () { setStatus('Missing data/isbi2015.json'); });
 
         $('btnLoad').onclick = function () { $('filePick').click(); };
@@ -517,7 +525,16 @@
         $('btnDetect').onclick = runDetect;
         useTraining = readUseTraining();
         syncUseTrainBtn();
-        if ($('btnUseTrain')) $('btnUseTrain').onclick = toggleUseTraining;
+        function bindRef(id, onPlus) {
+            if ($(id)) $(id).onclick = function (e) {
+                e.stopPropagation();
+                setRefMode(onPlus);
+            };
+        }
+        bindRef('btnRefPub', false);
+        bindRef('btnRefPlus', true);
+        bindRef('btnRefPubBar', false);
+        bindRef('btnRefPlusBar', true);
         var setBar = $('setBar');
         if (setBar) {
             setBar.addEventListener('wheel', function (e) {
@@ -528,18 +545,6 @@
             }, { passive: false });
         }
         if ($('btnLearn')) $('btnLearn').onclick = includeSelected;
-        if ($('btnLearnAll')) $('btnLearnAll').onclick = function () {
-            CEPH_LM.defs().forEach(function (d) { if (pts[d.id] && pts[d.id].x) inc[d.id] = true; });
-            renderList();
-        };
-        if ($('btnLearnTouched')) $('btnLearnTouched').onclick = function () {
-            Object.keys(touched).forEach(function (id) { if (touched[id] && pts[id] && pts[id].x) inc[id] = true; });
-            renderList();
-        };
-        if ($('btnLearnClear')) $('btnLearnClear').onclick = function () {
-            inc = {};
-            renderList();
-        };
         if ($('btnLearnUndo')) $('btnLearnUndo').onclick = function () {
             if (!window.CEPH_LEARN) return;
             var st = CEPH_LEARN.undoLast();
@@ -584,15 +589,9 @@
         exportPng: exportPng,
         includeSelected: includeSelected,
         setUseTraining: writeUseTraining,
-        toggleUseTraining: toggleUseTraining,
+        setRefMode: setRefMode,
         adoptSet: function (i) { return adoptSet(i, true); },
         sets: setMeta,
-        selectIds: function (list) {
-            inc = {};
-            (list || []).forEach(function (id) { inc[id] = true; });
-            renderList();
-            return selectedIds();
-        },
         learnStats: function () { return window.CEPH_LEARN ? CEPH_LEARN.stats() : { films: 0, points: 0 }; },
         state: function () {
             var last = window.__cephLast || {};
@@ -618,7 +617,7 @@
                 nSets: sets.length,
                 setId: sets[setIndex] && sets[setIndex].id,
                 setLabel: sets[setIndex] && sets[setIndex].label,
-                selected: selectedIds()
+                selected: placedIds()
             };
         }
     };

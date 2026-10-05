@@ -24,15 +24,91 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     border-radius: 6px; padding: 6px 10px; font-weight: 700; cursor: pointer;
 }
 #top button.primary { background: #0e7490; border-color: #22d3ee; }
-#top button.is-on, #top button[aria-pressed="true"] {
-    background: #14532d;
-    border-color: #86efac;
-    color: #dcfce7;
+#top .refGroup, .refGroup {
+    display: inline-flex;
+    gap: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #22d3ee;
 }
+.refGroup button {
+    background: #1e293b;
+    color: var(--text);
+    border: 0;
+    border-right: 1px solid #334155;
+    border-radius: 0;
+    padding: 7px 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+.refGroup button:last-child { border-right: 0; }
+.refGroup button.is-on, .refGroup button[aria-pressed="true"] {
+    background: #0e7490;
+    color: #ecfeff;
+}
+.refRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.refRow .setBar-kicker { margin: 0; }
+.refRow .refGroup { flex: 1; min-width: 240px; }
+.refRow .refGroup button { flex: 1; min-height: 40px; font-size: 13px; }
 #top input[type=number] { width: 72px; background: #0b1020; color: var(--text); border: 1px solid #334155; border-radius: 6px; padding: 5px; }
 #stage { display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
 #viewWrap { position: relative; min-width: 0; background: #080b14; overflow: hidden; }
 #view { display: block; width: 100%; height: 100%; cursor: crosshair; }
+.setBar {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 6;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid #38bdf8;
+    border-radius: 10px;
+    background: rgba(16, 22, 42, 0.94);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    outline: none;
+}
+.setBar:focus { border-color: var(--warn); }
+.setBar-kicker {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+.setBtns {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+}
+.setBtns button {
+    background: #1e293b;
+    color: var(--text);
+    border: 1px solid #64748b;
+    border-radius: 8px;
+    padding: 10px 0 8px;
+    font-weight: 800;
+    font-size: 16px;
+    cursor: pointer;
+    min-height: 44px;
+}
+.setBtns button:disabled { opacity: 0.55; cursor: default; }
+.setBtns button.is-on, .setBtns button[aria-pressed="true"] {
+    background: #0e7490;
+    border-color: #22d3ee;
+    color: #ecfeff;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35);
+}
+#setCaption { margin: 8px 0 0; color: #e8eefc; }
 #side { overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 10px 12px 24px; }
 #side h2 { margin: 14px 0 6px; font-size: 13px; color: var(--accent); }
 #side table { width: 100%; border-collapse: collapse; }
@@ -49,40 +125,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .lib h3 { margin: 0 0 4px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
 .lib .n { font-size: 22px; font-weight: 800; line-height: 1.1; }
 .lib .hint { margin: 4px 0 0; }
-.setBar {
-    margin: 8px 0 10px;
-    padding: 8px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: #10162a;
-    outline: none;
-}
-.setBar:focus { border-color: var(--accent); }
-.setBar-kicker {
-    display: block;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--accent);
-    font-weight: 700;
-    margin-bottom: 6px;
-}
-.setBtns button:disabled { opacity: 0.45; cursor: default; }
-.setBtns button {
-    background: #1e293b;
-    color: var(--text);
-    border: 1px solid #334155;
-    border-radius: 6px;
-    padding: 7px 0;
-    font-weight: 800;
-    cursor: pointer;
-}
-.setBtns button.is-on, .setBtns button[aria-pressed="true"] {
-    background: #0e7490;
-    border-color: #22d3ee;
-    color: #ecfeff;
-}
-#setCaption { margin: 6px 0 0; }
 .hint { color: var(--muted); font-size: 12px; }
 .status { color: var(--warn); min-height: 1.2em; }
 #filePick { display: none; }

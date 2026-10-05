@@ -55,6 +55,7 @@ def add(trace):
         "a": float(trace.get("a") or 1.0),
         "p": p,
         "clinic": True,
+        "whole": True,
         "kind": "banana.ceph.clinicTrain",
     }
     db["kind"] = "banana.ceph.clinicTrain"

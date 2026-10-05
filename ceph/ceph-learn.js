@@ -1,6 +1,6 @@
 /* Clinic training set for lateral ceph — separate from the read-only
    1502 published ISBI + Aariz + PKU tracings in data/shapes.json.
-   Staff opt in marked points; stored as bbox-normalized coordinates only. */
+   Each adopted auto-detect set is stored as one whole 19-point film. */
 (function (g) {
     var KEY = 'banana.ceph.clinicTrain.v1';
     var LEGACY_KEY = 'banana.ceph.clinicRef.v1';
@@ -55,10 +55,17 @@
         return { films: films, points: points, kind: 'banana.ceph.clinicTrain' };
     }
 
+    function placedIds(pts) {
+        return ids().filter(function (id) {
+            var pt = pts && pts[id];
+            return pt && isFinite(pt.x) && isFinite(pt.y) && (pt.x !== 0 || pt.y !== 0);
+        });
+    }
+
     function normalizePts(pts, box, included) {
+        var list = ids();
         var want = {};
         (included || []).forEach(function (id) { want[id] = true; });
-        var list = ids();
         var p = [];
         var kept = [];
         list.forEach(function (id) {
@@ -79,7 +86,7 @@
     function includeSelected(opts) {
         opts = opts || {};
         var pts = opts.pts || {};
-        var included = (opts.included || []).filter(function (id) { return !!pts[id]; });
+        var included = placedIds(pts);
         if (!included.length) return { ok: false, error: 'none' };
         var box = opts.box;
         if (!box || !box.w || !box.h) {
@@ -108,10 +115,13 @@
             ts: new Date().toISOString(),
             fileName: String(opts.fileName || '').slice(0, 180),
             patientNo: String(opts.patientNo || '').slice(0, 32),
+            setId: String(opts.setId || '').slice(0, 24),
+            setLabel: String(opts.setLabel || '').slice(0, 40),
             included: norm.included,
             a: norm.a,
             p: norm.p,
-            clinic: true
+            clinic: true,
+            whole: true
         };
         db.traces.push(trace);
         if (db.traces.length > MAX_TRACES) db.traces = db.traces.slice(-MAX_TRACES);

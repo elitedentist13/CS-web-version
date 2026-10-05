@@ -7697,7 +7697,7 @@
             'zh-CN': '下载中… 请保持此页打开。',
             'zh-Hant': '下載中… 請保持此頁開啟。'
         },
-        'filexfer.downloadOk': { en: 'Download started.', 'zh-CN': '已开始下载。', 'zh-Hant': '已開始下載。' },
+        'filexfer.downloadOk': { en: 'Download completed.', 'zh-CN': '下载完成。', 'zh-Hant': '下載完成。' },
         'filexfer.notFound': { en: 'No matching Fast Pass, or it has expired.', 'zh-CN': '没有对应的 Fast Pass，或已失效。', 'zh-Hant': '沒有對應的 Fast Pass，或已失效。' },
         'filexfer.wrongClinic': {
             en: 'This pass is locked to {CLINIC}. Switch working clinic, or ask the sender for a new pass.',

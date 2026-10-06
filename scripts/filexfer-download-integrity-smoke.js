@@ -11,7 +11,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx60';
+var BUILD = '20261006fx62';
 var CDP_PORT = 9377;
 var PAGE_PORT = 5500;
 var SIZE = 2 * 1024 * 1024;
@@ -127,6 +127,10 @@ function main() {
     pass('copies fetch chunks with slice', /r\.value\.slice\(\)/.test(fxSrc));
     pass('does not pipeTo the disk writer', fxSrc.indexOf('pipeTo(writer)') < 0);
     pass('checks saved file size', fxSrc.indexOf('function assertSavedSize') >= 0);
+    pass('stages in OPFS then copies as octet-stream',
+        fxSrc.indexOf('function stageThenCopy') >= 0 &&
+        fxSrc.indexOf('function sameBytes') >= 0 &&
+        /function writeFileOnce[\s\S]{0,500}application\/octet-stream/.test(fxSrc));
 
     var sb = readSbConfig(fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
     var payload = makePayload();

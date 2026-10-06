@@ -11,7 +11,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx60';
+var BUILD = '20261006fx62';
 var CDP_PORT = 9374;
 var PAGE_PORT = 5500;
 var CHROME = process.env.CHROME_PATH || (
@@ -225,8 +225,13 @@ function main() {
         fxSrc.indexOf('function pickSaveFile') < 0);
     pass('disk writer copies fetch chunks before write',
         /function pipeUrlToWriter[\s\S]{0,1800}r\.value\.slice\(\)/.test(fxSrc) &&
-        /function pipeUrlToWriter[\s\S]{0,2200}new Blob\(pending\)/.test(fxSrc) &&
-        /function doDownload[\s\S]{0,8000}assertSavedSize/.test(fxSrc));
+        /function writeDisk[\s\S]{0,900}new Blob\(\[piece\]/.test(fxSrc) &&
+        /function stageThenCopy[\s\S]{0,1800}getDirectory/.test(fxSrc) &&
+        /function writeFileOnce[\s\S]{0,500}application\/octet-stream/.test(fxSrc) &&
+        /function copyOpfsToHandle[\s\S]{0,900}writeFileOnce/.test(fxSrc) &&
+        /function sameBytes[\s\S]{0,2000}Copied file does not match/.test(fxSrc) &&
+        /function doDownload[\s\S]{0,8000}stageThenCopy/.test(fxSrc) &&
+        /function doDownload[\s\S]{0,9000}stageThenCopy/.test(fxSrc));
     pass('Look up prefetches signed URL before Download click',
         /function renderFound[\s\S]{0,4000}prefetchFor\(row\)/.test(fxSrc));
     pass('download chips update the same bar',

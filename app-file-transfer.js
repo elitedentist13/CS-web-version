@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════
 // app-file-transfer.js — Clinic file transfer (Tools → File Transfer)
 //   • Fast Pass: 3-day code in clinic-pass, cap 5 GB. Upload is 8 MB chips
-//     in parallel. Download: picker in the click, then copied chunks / 8 MB
-//     chips to disk. Firefox (no picker) falls back to the browser download bar.
+//     in parallel. Download: picker in the click, stage in the browser, then
+//     copy as one octet-stream Blob (or 8 MB pieces if huge). Firefox uses the download bar.
 //   • Direct: WebRTC. Files over 500 MB: picker on the save click, then stream.
 // ════════════════════════════════════════════════════════════════
 var FILEXFER = (function () {
@@ -200,7 +200,8 @@ var FILEXFER = (function () {
         return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
             xhr.open('GET', encodeSignedUrl(url));
-            xhr.responseType = 'blob';
+            xhr.overrideMimeType('application/octet-stream');
+            xhr.responseType = 'arraybuffer';
             xhr.onprogress = function (e) {
                 if (!onPct) return;
                 if (e.lengthComputable && e.total > 0) {
@@ -211,8 +212,10 @@ var FILEXFER = (function () {
             };
             xhr.onload = function () {
                 if (xhr.status >= 200 && xhr.status < 300) {
-                    var blob = xhr.response;
-                    if (onPct) onPct(100, blob && blob.size || 0, blob && blob.size || 0);
+                    var buf = xhr.response;
+                    var copy = buf ? new Uint8Array(buf).slice() : new Uint8Array(0);
+                    var blob = new Blob([copy], { type: 'application/octet-stream' });
+                    if (onPct) onPct(100, blob.size, blob.size);
                     resolve(blob);
                 } else {
                     reject(new Error('Download failed (' + xhr.status + ')'));
@@ -1212,7 +1215,7 @@ var FILEXFER = (function () {
         var meta = [
             'bucketName ' + b64utf8(BUCKET),
             'objectName ' + b64utf8(path),
-            'contentType ' + b64utf8(file.type || 'application/octet-stream'),
+            'contentType ' + b64utf8('application/octet-stream'),
             'cacheControl ' + b64utf8('3600')
         ].join(',');
         return fetch(tusEndpoint(), {
@@ -1258,7 +1261,7 @@ var FILEXFER = (function () {
         return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
             xhr.open('PUT', url);
-            if (file.type) xhr.setRequestHeader('Content-Type', file.type);
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
             xhr.setRequestHeader('x-upsert', 'false');
             xhr.upload.onprogress = function (e) {
                 if (!e.lengthComputable || !onPct) return;
@@ -1286,7 +1289,7 @@ var FILEXFER = (function () {
             return SB.storage.from(BUCKET).upload(path, file, {
                 cacheControl: '3600',
                 upsert: false,
-                contentType: file.type || 'application/octet-stream'
+                contentType: 'application/octet-stream'
             }).then(function (up) {
                 if (up.error) throw up.error;
                 if (onPct) onPct(100);
@@ -1688,15 +1691,42 @@ var FILEXFER = (function () {
         document.body.appendChild(a);
         a.click();
         a.remove();
-        if (!isUrl) setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
+        if (!isUrl) {
+            var life = 120000;
+            if (blobOrUrl && blobOrUrl.size) {
+                life = Math.max(120000, Math.min(30 * 60 * 1000, Math.round(blobOrUrl.size / 20000)));
+            }
+            setTimeout(function () { URL.revokeObjectURL(url); }, life);
+        }
     }
 
     /**
-     * Fetch reuses its ArrayBuffers. Writing those views (or pipeTo) onto a
-     * FileSystemWritableFileStream leaves a full-size file whose bytes are junk.
-     * Copy every chunk, then write 2 MB Blobs which Chrome's disk writer accepts.
+     * Stage in OPFS (fetch buffers are copied). Then copy to the picked folder
+     * as plain Blobs — Chrome's {type:'write'} writer on a Windows folder
+     * can leave a full-size zip that will not open.
      */
-    var WRITE_BATCH = 2 * 1024 * 1024;
+    var WRITE_BATCH = 1024 * 1024;
+    function writeDisk(writer, data) {
+        function fromU8(u8) {
+            var offset = 0;
+            function step() {
+                if (offset >= u8.byteLength) return Promise.resolve();
+                var n = Math.min(WRITE_BATCH, u8.byteLength - offset);
+                var piece = u8.slice(offset, offset + n);
+                offset += n;
+                return writer.write(new Blob([piece], { type: 'application/octet-stream' })).then(step);
+            }
+            return step();
+        }
+        if (data && typeof data.arrayBuffer === 'function') {
+            return data.arrayBuffer().then(function (ab) {
+                return fromU8(new Uint8Array(ab));
+            });
+        }
+        if (data instanceof ArrayBuffer) return fromU8(new Uint8Array(data));
+        return fromU8(data);
+    }
+
     function pipeUrlToWriter(writer, url, totalHint) {
         var got = 0;
         var total = Number(totalHint) || 0;
@@ -1705,12 +1735,18 @@ var FILEXFER = (function () {
         var pendingBytes = 0;
         function flush() {
             if (!pending.length) return Promise.resolve();
-            var blob = new Blob(pending);
+            var joined = new Uint8Array(pendingBytes);
+            var o = 0;
+            var i;
+            for (i = 0; i < pending.length; i++) {
+                joined.set(pending[i], o);
+                o += pending[i].byteLength;
+            }
             pending = [];
             pendingBytes = 0;
-            return writer.write(blob);
+            return writeDisk(writer, joined);
         }
-        return fetch(encodeSignedUrl(url)).then(function (res) {
+        return fetch(encodeSignedUrl(url), { cache: 'no-store' }).then(function (res) {
             if (!res.ok || !res.body) throw new Error('Download failed (' + res.status + ')');
             var headerLen = Number(res.headers.get('Content-Length')) || 0;
             if (!total && headerLen) total = headerLen;
@@ -1744,12 +1780,151 @@ var FILEXFER = (function () {
         });
     }
 
-    function assertSavedSize(handle, expected) {
-        if (!handle || !expected || typeof handle.getFile !== 'function') return Promise.resolve();
+    /** One Blob write stays in RAM. Larger files copy as 8 MB octet-stream pieces. */
+    var COPY_ONESHOT_MAX = 256 * 1024 * 1024;
+
+    function writeFileInChips(writer, file) {
+        var offset = 0;
+        function step() {
+            if (offset >= file.size) return Promise.resolve();
+            var n = Math.min(PART_SIZE, file.size - offset);
+            var blob = file.slice(offset, offset + n);
+            offset += n;
+            return blob.arrayBuffer().then(function (ab) {
+                return writer.write(new Blob([ab], { type: 'application/octet-stream' }));
+            }).then(step);
+        }
+        return step();
+    }
+
+    function writeFileOnce(writer, file) {
+        if (file.size <= COPY_ONESHOT_MAX) {
+            return file.arrayBuffer().then(function (ab) {
+                return writer.write(new Blob([ab], { type: 'application/octet-stream' }));
+            });
+        }
+        return writeFileInChips(writer, file);
+    }
+
+    function openDestWriter(destHandle) {
+        return destHandle.createWritable({ keepExistingData: false }).then(function (writer) {
+            function run(job) {
+                return Promise.resolve(job).then(function () {
+                    return writer.close();
+                }).catch(function (err) {
+                    try { writer.abort(); } catch (e) {}
+                    throw err;
+                });
+            }
+            return { writer: writer, run: run };
+        });
+    }
+
+    function sameBytes(srcHandle, destHandle) {
+        return Promise.all([srcHandle.getFile(), destHandle.getFile()]).then(function (pair) {
+            var a = pair[0];
+            var b = pair[1];
+            if (Number(a.size) !== Number(b.size)) {
+                throw new Error('Copied file is ' + b.size + ' bytes; expected ' + a.size);
+            }
+            var spots = [0];
+            if (a.size > 65536) spots.push(Math.max(0, Math.floor(a.size / 2) - 32768));
+            if (a.size > 8) spots.push(Math.max(0, a.size - 65536));
+            function check(i) {
+                if (i >= spots.length) return;
+                var start = spots[i];
+                var n = Math.min(65536, a.size - start);
+                if (n <= 0) return check(i + 1);
+                return Promise.all([
+                    a.slice(start, start + n).arrayBuffer(),
+                    b.slice(start, start + n).arrayBuffer()
+                ]).then(function (bufs) {
+                    var x = new Uint8Array(bufs[0]);
+                    var y = new Uint8Array(bufs[1]);
+                    var k;
+                    for (k = 0; k < x.length; k++) {
+                        if (x[k] !== y[k]) {
+                            throw new Error('Copied file does not match the download.');
+                        }
+                    }
+                    return check(i + 1);
+                });
+            }
+            return check(0);
+        });
+    }
+
+    function copyOpfsToHandle(srcHandle, destHandle, saveName) {
+        return srcHandle.getFile().then(function (file) {
+            function attempt(useChips) {
+                return openDestWriter(destHandle).then(function (sink) {
+                    var job = useChips ? writeFileInChips(sink.writer, file) : writeFileOnce(sink.writer, file);
+                    return sink.run(job);
+                }).then(function () {
+                    return sameBytes(srcHandle, destHandle);
+                });
+            }
+            return attempt(false).catch(function () {
+                return attempt(true);
+            }).catch(function () {
+                clickDownload(file, saveName || 'download', false);
+                throw new Error('Chrome could not write that folder correctly. Use the good copy in Downloads, and delete the damaged file you picked.');
+            });
+        });
+    }
+
+    function stageThenCopy(destHandle, downloadToWriter, expected, saveName) {
+        var opfsFn = navigator.storage && navigator.storage.getDirectory;
+        if (typeof opfsFn !== 'function') {
+            return destHandle.createWritable({ keepExistingData: false }).then(function (writer) {
+                return downloadToWriter(writer).then(function () {
+                    return assertSavedSize(destHandle, expected, saveName);
+                }).catch(function (err) {
+                    try { writer.abort(); } catch (e) {}
+                    throw err;
+                });
+            });
+        }
+        var tmpName = 'fx-dl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.part';
+        var rootRef = null;
+        return navigator.storage.getDirectory().then(function (root) {
+            rootRef = root;
+            return root.getFileHandle(tmpName, { create: true });
+        }).then(function (tmpHandle) {
+            return tmpHandle.createWritable({ keepExistingData: false }).then(function (tmpWriter) {
+                return downloadToWriter(tmpWriter).catch(function (err) {
+                    try { tmpWriter.abort(); } catch (e) {}
+                    throw err;
+                });
+            }).then(function () {
+                return assertSavedSize(tmpHandle, expected, saveName);
+            }).then(function () {
+                setProgress(99);
+                status(trReplKey('filexfer.downloading', { PCT: '99' }), 'work');
+                return copyOpfsToHandle(tmpHandle, destHandle, saveName);
+            }).then(function () {
+                return assertSavedSize(destHandle, expected, saveName);
+            }).then(function () {
+                if (rootRef && rootRef.removeEntry) {
+                    return rootRef.removeEntry(tmpName).then(function () {}, function () {});
+                }
+            });
+        });
+    }
+
+    function assertSavedSize(handle, expected, saveName) {
+        if (!handle || typeof handle.getFile !== 'function') return Promise.resolve();
         return handle.getFile().then(function (file) {
-            if (Number(file.size) !== Number(expected)) {
+            if (expected && Number(file.size) !== Number(expected)) {
                 throw new Error('Saved file is ' + file.size + ' bytes; expected ' + expected);
             }
+            if (!/\.zip$/i.test(String(saveName || file.name || ''))) return;
+            return file.slice(0, 4).arrayBuffer().then(function (ab) {
+                var u = new Uint8Array(ab);
+                if (u[0] !== 0x50 || u[1] !== 0x4B) {
+                    throw new Error('Saved zip is not a valid archive. Delete it and download again.');
+                }
+            });
         });
     }
 
@@ -1775,7 +1950,7 @@ var FILEXFER = (function () {
                     var blob = slots[idx];
                     writeIdx += 1;
                     delete slots[idx];
-                    return writer.write(blob).then(function () {
+                    return writeDisk(writer, blob).then(function () {
                         got += blob.size || 0;
                         if (total) noteDownloadPct((got / total) * 100);
                         return loop();
@@ -1905,19 +2080,12 @@ var FILEXFER = (function () {
                 setProgress(1);
                 status(trReplKey('filexfer.downloading', { PCT: '1' }), 'work');
                 showWaitNote('filexfer.waitOtherTab');
-                return handle.createWritable().then(function (writer) {
-                    var work = isManifestPath(row.storage_path)
-                        ? manifestJob(writer)
-                        : singleUrl(false).then(function (url) {
-                            return pipeUrlToWriter(writer, url, saveSize);
-                        });
-                    return work.then(function () {
-                        return assertSavedSize(handle, saveSize);
-                    }).catch(function (err) {
-                        try { writer.abort(); } catch (e) {}
-                        throw err;
+                return stageThenCopy(handle, function (writer) {
+                    if (isManifestPath(row.storage_path)) return manifestJob(writer);
+                    return singleUrl(false).then(function (url) {
+                        return pipeUrlToWriter(writer, url, saveSize);
                     });
-                });
+                }, saveSize, saveName);
             }).catch(function (err) {
                 if (err && err.name === 'AbortError') {
                     var cancel = new Error('cancel');

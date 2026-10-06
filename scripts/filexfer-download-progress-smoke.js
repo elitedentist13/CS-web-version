@@ -11,7 +11,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx59';
+var BUILD = '20261006fx60';
 var CDP_PORT = 9374;
 var PAGE_PORT = 5500;
 var CHROME = process.env.CHROME_PATH || (
@@ -212,16 +212,21 @@ function main() {
         /function doSend[\s\S]{0,2200}filexfer\.sending/.test(fxSrc));
     pass('send form keeps fx_prog',
         /function renderSend[\s\S]{0,3500}id="fx_prog"/.test(fxSrc));
-    pass('Fast Pass download: picker first then pipeTo / 8 MB chips',
+    pass('Fast Pass download: picker first then copied chunks / 8 MB chips',
         fxSrc.indexOf('function clickDownload') >= 0 &&
         fxSrc.indexOf('function xhrGetBlob') >= 0 &&
         fxSrc.indexOf('function pipeUrlToWriter') >= 0 &&
         fxSrc.indexOf('function prefetchFor') >= 0 &&
         /function doDownload[\s\S]{0,400}showSaveFilePicker/.test(fxSrc) &&
         /function doDownload[\s\S]{0,5000}clickDownload/.test(fxSrc) &&
-        /pipeTo\(writer\)/.test(fxSrc) &&
+        /r\.value\.slice\(\)/.test(fxSrc) &&
+        fxSrc.indexOf('pipeTo(writer)') < 0 &&
         fxSrc.indexOf('function streamToWriter') < 0 &&
         fxSrc.indexOf('function pickSaveFile') < 0);
+    pass('disk writer copies fetch chunks before write',
+        /function pipeUrlToWriter[\s\S]{0,1800}r\.value\.slice\(\)/.test(fxSrc) &&
+        /function pipeUrlToWriter[\s\S]{0,2200}new Blob\(pending\)/.test(fxSrc) &&
+        /function doDownload[\s\S]{0,8000}assertSavedSize/.test(fxSrc));
     pass('Look up prefetches signed URL before Download click',
         /function renderFound[\s\S]{0,4000}prefetchFor\(row\)/.test(fxSrc));
     pass('download chips update the same bar',
@@ -293,9 +298,11 @@ function main() {
                 fx.status + ' len=' + fx.body.length);
             pass('live setProgress served', fx.body.indexOf('function setProgress') >= 0);
             pass('live noteDownloadPct served', fx.body.indexOf('function noteDownloadPct') >= 0);
-            pass('live Fast Pass picker + pipeTo',
+            pass('live Fast Pass copies chunks to disk',
                 /function doDownload[\s\S]{0,400}showSaveFilePicker/.test(fx.body) &&
                 fx.body.indexOf('function pipeUrlToWriter') >= 0 &&
+                /r\.value\.slice\(\)/.test(fx.body) &&
+                fx.body.indexOf('pipeTo(writer)') < 0 &&
                 /function doDownload[\s\S]{0,5000}clickDownload/.test(fx.body) &&
                 fx.body.indexOf('function streamToWriter') < 0);
             pass('live i18n sending+downloading',

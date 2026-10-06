@@ -1,8 +1,8 @@
 // ════════════════════════════════════════════════════════════════
 // app-file-transfer.js — Clinic file transfer (Tools → File Transfer)
 //   • Fast Pass: 3-day code in clinic-pass, cap 5 GB. Upload is 8 MB chips
-//     in parallel. Download: picker in the click, then pipe/chips to disk.
-//     Firefox (no picker) falls back to the browser download bar.
+//     in parallel. Download: picker in the click, then copied chunks / 8 MB
+//     chips to disk. Firefox (no picker) falls back to the browser download bar.
 //   • Direct: WebRTC. Files over 500 MB: picker on the save click, then stream.
 // ════════════════════════════════════════════════════════════════
 var FILEXFER = (function () {
@@ -1645,21 +1645,20 @@ var FILEXFER = (function () {
     }
 
     function signObject(path, ttl, saveName) {
-        return SB.storage.from(BUCKET).createSignedUrl(path, ttl || SIGNED_TTL_SEC, {
-            download: saveName || true
-        }).then(function (r) {
+        var extra = saveName ? { download: saveName } : {};
+        return SB.storage.from(BUCKET).createSignedUrl(path, ttl || SIGNED_TTL_SEC, extra).then(function (r) {
             if (r.error || !r.data || !r.data.signedUrl) throw r.error || new Error('signed url');
             return encodeSignedUrl(r.data.signedUrl);
         });
     }
 
-    var prefetch = { id: '', url: '', man: null, p: null };
+    var prefetch = { id: '', url: '', urlDl: '', man: null, p: null };
     function prefetchFor(row) {
-        prefetch = { id: row && row.id || '', url: '', man: null, p: null };
+        prefetch = { id: row && row.id || '', url: '', urlDl: '', man: null, p: null };
         if (!row || !row.storage_path) return;
         var name = safeDownloadName(row.file_name || 'download');
         if (isManifestPath(row.storage_path)) {
-            prefetch.p = signObject(row.storage_path, 180, name).then(function (url) {
+            prefetch.p = signObject(row.storage_path, 180).then(function (url) {
                 return fetch(url).then(function (res) {
                     if (!res.ok) throw new Error('manifest ' + res.status);
                     return res.json();
@@ -1670,9 +1669,13 @@ var FILEXFER = (function () {
             }).catch(function () {});
             return;
         }
-        prefetch.p = signObject(row.storage_path, SIGNED_TTL_SEC, name).then(function (url) {
+        prefetch.p = signObject(row.storage_path, SIGNED_TTL_SEC).then(function (url) {
             if (prefetch.id !== row.id) return;
             prefetch.url = url;
+            return signObject(row.storage_path, SIGNED_TTL_SEC, name);
+        }).then(function (urlDl) {
+            if (prefetch.id !== row.id) return;
+            prefetch.urlDl = urlDl;
         }).catch(function () {});
     }
 
@@ -1688,47 +1691,48 @@ var FILEXFER = (function () {
         if (!isUrl) setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
     }
 
-    /** Native pipe (no 64 KB Blob copies). Falls back to slice()+write. pipeTo closes the writer. */
+    /**
+     * Fetch reuses its ArrayBuffers. Writing those views (or pipeTo) onto a
+     * FileSystemWritableFileStream leaves a full-size file whose bytes are junk.
+     * Copy every chunk, then write 2 MB Blobs which Chrome's disk writer accepts.
+     */
+    var WRITE_BATCH = 2 * 1024 * 1024;
     function pipeUrlToWriter(writer, url, totalHint) {
         var got = 0;
         var total = Number(totalHint) || 0;
         var sealed = false;
+        var pending = [];
+        var pendingBytes = 0;
+        function flush() {
+            if (!pending.length) return Promise.resolve();
+            var blob = new Blob(pending);
+            pending = [];
+            pendingBytes = 0;
+            return writer.write(blob);
+        }
         return fetch(encodeSignedUrl(url)).then(function (res) {
             if (!res.ok || !res.body) throw new Error('Download failed (' + res.status + ')');
             var headerLen = Number(res.headers.get('Content-Length')) || 0;
             if (!total && headerLen) total = headerLen;
-            if (typeof TransformStream === 'function' && typeof res.body.pipeTo === 'function') {
-                var meter = new TransformStream({
-                    transform: function (chunk, controller) {
-                        got += chunk.byteLength || 0;
-                        if (total) noteDownloadPct((got / total) * 100);
-                        controller.enqueue(chunk);
-                    }
-                });
-                return res.body.pipeThrough(meter).pipeTo(writer).then(function () {
-                    sealed = true;
-                    if (total && got && got !== total) {
-                        throw new Error('Download ended early (' + got + ' of ' + total + ' bytes)');
-                    }
-                });
-            }
             var reader = res.body.getReader();
             function pump() {
                 return reader.read().then(function (r) {
                     if (r.done) {
-                        if (total && got !== total) {
-                            throw new Error('Download ended early (' + got + ' of ' + total + ' bytes)');
-                        }
-                        sealed = true;
-                        return writer.close();
+                        return flush().then(function () {
+                            if (total && got !== total) {
+                                throw new Error('Download ended early (' + got + ' of ' + total + ' bytes)');
+                            }
+                            sealed = true;
+                            return writer.close();
+                        });
                     }
-                    var chunk = r.value;
-                    got += chunk.byteLength || 0;
+                    var copy = r.value.slice();
+                    got += copy.byteLength || 0;
                     if (total) noteDownloadPct((got / total) * 100);
-                    var copy = (chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength)
-                        ? chunk
-                        : chunk.slice();
-                    return writer.write(copy).then(pump);
+                    pending.push(copy);
+                    pendingBytes += copy.byteLength || 0;
+                    if (pendingBytes >= WRITE_BATCH) return flush().then(pump);
+                    return pump();
                 });
             }
             return pump();
@@ -1737,6 +1741,15 @@ var FILEXFER = (function () {
                 try { writer.abort(); } catch (e) {}
             }
             throw err;
+        });
+    }
+
+    function assertSavedSize(handle, expected) {
+        if (!handle || !expected || typeof handle.getFile !== 'function') return Promise.resolve();
+        return handle.getFile().then(function (file) {
+            if (Number(file.size) !== Number(expected)) {
+                throw new Error('Saved file is ' + file.size + ' bytes; expected ' + expected);
+            }
         });
     }
 
@@ -1813,6 +1826,9 @@ var FILEXFER = (function () {
         lastNotePct = -1;
         lastNoteAt = 0;
         var signed = function (p, ttl) {
+            return signObject(p, ttl);
+        };
+        var signedDl = function (p, ttl) {
             return signObject(p, ttl, saveName);
         };
         function manifestJob(toWriter) {
@@ -1865,7 +1881,16 @@ var FILEXFER = (function () {
                 });
             });
         }
-        function singleUrl() {
+        function singleUrl(wantDl) {
+            if (wantDl) {
+                if (prefetch.id === row.id && prefetch.urlDl) return Promise.resolve(prefetch.urlDl);
+                if (prefetch.id === row.id && prefetch.p) {
+                    return prefetch.p.then(function () {
+                        return prefetch.urlDl || signedDl(row.storage_path, SIGNED_TTL_SEC);
+                    });
+                }
+                return signedDl(row.storage_path, SIGNED_TTL_SEC);
+            }
             if (prefetch.id === row.id && prefetch.url) return Promise.resolve(prefetch.url);
             if (prefetch.id === row.id && prefetch.p) {
                 return prefetch.p.then(function () {
@@ -1883,10 +1908,12 @@ var FILEXFER = (function () {
                 return handle.createWritable().then(function (writer) {
                     var work = isManifestPath(row.storage_path)
                         ? manifestJob(writer)
-                        : singleUrl().then(function (url) {
+                        : singleUrl(false).then(function (url) {
                             return pipeUrlToWriter(writer, url, saveSize);
                         });
-                    return work.catch(function (err) {
+                    return work.then(function () {
+                        return assertSavedSize(handle, saveSize);
+                    }).catch(function (err) {
                         try { writer.abort(); } catch (e) {}
                         throw err;
                     });
@@ -1905,7 +1932,7 @@ var FILEXFER = (function () {
             showWaitNote('filexfer.waitChromeSave');
             job = isManifestPath(row.storage_path)
                 ? manifestJob(null)
-                : singleUrl().then(function (url) {
+                : singleUrl(true).then(function (url) {
                     clickDownload(url, saveName, true);
                     setProgress(99);
                     status(trKey('filexfer.chromeSaving'), 'work');

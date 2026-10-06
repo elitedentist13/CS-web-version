@@ -1059,10 +1059,10 @@
 
         xrayFiltered = typed.filter(xrayScopeFilter);
 
-        xraySelected.clear();
-        if (typeof updateSelectedCount === 'function') updateSelectedCount();
-        var sa = g('xraySelectAll');
-        if (sa) sa.checked = false;
+        if (typeof xrayPruneSelection === 'function') xrayPruneSelection(typed);
+        else if (xraySelected && xraySelected.clear) xraySelected.clear();
+        if (typeof xraySyncSelectionUi === 'function') xraySyncSelectionUi();
+        else if (typeof updateSelectedCount === 'function') updateSelectedCount();
 
         renderXrayClinicStrips(typed);
         if (xrayView === 'grid' && typeof renderXrayGrid === 'function') renderXrayGrid();
@@ -1248,6 +1248,12 @@
                             shown += 1;
                             var imgSrc = x.file_url ? xrayThumbUrl(x) : '';
                             var notes = String(x.notes || '').trim();
+                            html += '<div class="xray-strip-tile-wrap' +
+                                (typeof xrayIsSelected === 'function' && xrayIsSelected(x.id) ? ' is-selected' : '') + '">';
+                            html += '<label class="xray-strip-check">' +
+                                '<input type="checkbox" class="xray-cb" data-id="' + esc(x.id) + '"' +
+                                ((typeof xrayIsSelected === 'function' && xrayIsSelected(x.id)) ? ' checked' : '') +
+                                '></label>';
                             html += '<button type="button" class="xray-strip-tile' +
                                 (xrayPinnedId && String(x.id) === String(xrayPinnedId) ? ' xray-strip-tile--pinned' : '') +
                                 '" data-id="' + esc(x.id) + '" data-tag="' + esc(tag) + '">';
@@ -1265,7 +1271,7 @@
                             html += '<span class="xray-strip-tile-date">' + esc(grp.date ? dateLbl : mediaTr('media.noDate')) + '</span>';
                             if (typeof xrayCtxBadgesHtml === 'function') html += xrayCtxBadgesHtml(x);
                             if (notes) html += '<span class="xray-strip-tile-notes">' + esc(notes) + '</span>';
-                            html += '</span></button>';
+                            html += '</span></button></div>';
                         });
                         html += '</div></div>';
                     });
@@ -1287,6 +1293,12 @@
         }
         host.innerHTML = html;
         Array.prototype.forEach.call(host.querySelectorAll('.xray-clinic-scroller'), xrayBindStripWheel);
+        Array.prototype.forEach.call(host.querySelectorAll('.xray-cb'), function (cb) {
+            if (typeof xrayBindSelectCb === 'function') xrayBindSelectCb(cb);
+        });
+        Array.prototype.forEach.call(host.querySelectorAll('.xray-strip-check'), function (lab) {
+            lab.addEventListener('click', function (ev) { ev.stopPropagation(); });
+        });
         Array.prototype.forEach.call(host.querySelectorAll('.xray-strip-tile'), function (btn) {
             btn.addEventListener('click', function () {
                 var id = btn.getAttribute('data-id');
@@ -1459,21 +1471,6 @@
             });
         };
     }
-    if (typeof toggleSelectAll === 'function') {
-        var _toggleSelectAll = toggleSelectAll;
-        window.toggleSelectAll = function (checked) {
-            if (!checked) return _toggleSelectAll(checked);
-            xraySelected.clear();
-            xrayFiltered.forEach(function (x) {
-                if (xrayIsHomeRecord(x)) xraySelected.add(x.id);
-            });
-            document.querySelectorAll('.xray-cb').forEach(function (cb) {
-                var rec = xrayFindRecordById(cb.getAttribute('data-id'));
-                cb.checked = !!(rec && xrayIsHomeRecord(rec) && xraySelected.has(rec.id));
-            });
-            if (typeof updateSelectedCount === 'function') updateSelectedCount();
-        };
-    }
     if (typeof exportAllXrays === 'function') {
         var _exportAllXrays = exportAllXrays;
         window.exportAllXrays = function () {
@@ -1489,16 +1486,19 @@
             }
         };
     }
-    if (typeof exportSelectedXrays === 'function') {
-        var _exportSelectedXrays = exportSelectedXrays;
-        window.exportSelectedXrays = function () {
+    if (typeof bulkDeleteXrays === 'function') {
+        var _bulkDeleteXrays = bulkDeleteXrays;
+        window.bulkDeleteXrays = function () {
             var extra = [];
             xraySelected.forEach(function (id) {
                 var rec = xrayFindRecordById(id);
                 if (rec && !xrayIsHomeRecord(rec)) extra.push(id);
             });
-            extra.forEach(function (id) { xraySelected.delete(id); });
-            return _exportSelectedXrays();
+            if (extra.length && extra.length === xraySelected.size) {
+                xrayNotify(mediaTr('con.xray.readonlyOtherClinic'));
+                return;
+            }
+            return _bulkDeleteXrays();
         };
     }
 

@@ -11430,6 +11430,11 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     color: white;
 }
 
+.xray-btn-danger {
+    background: #b91c1c;
+    color: white;
+}
+
 .xray-view-toggle {
     margin-left: auto;
     display: flex;
@@ -12410,6 +12415,42 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     display: flex;
     gap: 8px;
 }
+.xray-strip-tile-wrap {
+    position: relative;
+    width: 148px;
+    flex: 0 0 auto;
+}
+.xray-strip-tile-wrap.is-selected .xray-strip-tile,
+.xray-fs-thumb.is-selected {
+    box-shadow: 0 0 0 2px #0284c7;
+}
+.xray-strip-check {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 3;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.62);
+    border-radius: 5px;
+}
+.xray-strip-check input,
+.xray-fs-check input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--primary);
+}
+.xray-fs-check {
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+}
 .xray-strip-tile {
     width: 148px;
     flex: 0 0 auto;
@@ -12525,7 +12566,7 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 @media (max-width: 800px) {
     .xray-compare-grid { grid-template-columns: 1fr; }
-    .xray-strip-tile, .xray-strip-tile-img { width: 128px; }
+    .xray-strip-tile-wrap, .xray-strip-tile, .xray-strip-tile-img { width: 128px; }
     .xray-strip-tile-img { height: 88px; }
 }
 

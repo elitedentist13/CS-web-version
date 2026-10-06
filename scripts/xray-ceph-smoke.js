@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx48';
+var BUILD = '20261005fx52';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -182,10 +182,15 @@ var PAGE_SCRIPT = `(async () => {
   }
   const out = { ready: !!(window.CEPH_PAGE && window.CEPH_LM) };
   if (!out.ready) return out;
-  const loaded = await CEPH_PAGE.loadUrl('/__ceph-sample.jpg', 'clinic-lateral.jpg');
+  const loaded = await CEPH_PAGE.openFromStrip('/__ceph-sample.jpg', 'clinic-lateral.jpg', {
+    xrayType: 'Cephalometric', xrayId: 'strip-ceph'
+  });
   await wait(80);
   const st = CEPH_PAGE.state();
   out.loaded = !!(loaded && loaded.ok);
+  out.viaStrip = st.viaStrip === true;
+  out.xrayType = st.xrayType;
+  out.openedStrip = /Cephalometric/i.test(String((document.getElementById('status') || {}).textContent || ''));
   out.via = loaded && loaded.via;
   out.source = st.source;
   out.imgW = st.imgW;
@@ -616,6 +621,9 @@ var PAGE_SCRIPT = `(async () => {
         /xrayCephUpsertStudyFilm/.test(launch) && /xrayCephRefreshStrip/.test(launch) &&
         /xrayCephClearStripFilters/.test(launch) && /xrayRevealWriteClinic/.test(launch) &&
         /_ceph_/.test(launch) && /xrayCephReuseSourceUrl/.test(launch) &&
+        /xrayCephReplySave/.test(launch) && /st.saveNeedPatient/.test(read('ceph/ceph-i18n.js')) &&
+        /xrayCephPublishSource/.test(launch) && /publishSourceFile/.test(read('ceph/ceph.js')) &&
+        /Banana Ceph film/.test(launch) && /markedDataUrl/.test(read('ceph/ceph.js')) &&
         /__ceph-strip.html/.test(read('scripts/xray-ceph-smoke.js')) &&
         /banana-ceph-smoke/.test(read('scripts/xray-ceph-smoke.js')) &&
         /xrayCephFetchLatestForPatient/.test(launch) &&
@@ -625,6 +633,16 @@ var PAGE_SCRIPT = `(async () => {
         /film copy/.test(read('ceph/ceph-i18n.js')) &&
         /头颅测量片/.test(read('ceph/ceph-i18n.js')) &&
         /XRAY_CEPH_TYPE/.test(launch) && /xraySetTypeFilter/.test(launch) &&
+        /xrayCephStripPick/.test(launch) && /xrayCephIsCephType/.test(launch) &&
+        /viaStrip/.test(launch) && /viaStrip/.test(read('ceph/ceph.js')) &&
+        /openFromStrip/.test(read('ceph/ceph.js')) &&
+        /st.openedStrip/.test(read('ceph/ceph-i18n.js')) &&
+        /xray-strip-check/.test(read('app-xray-link.js')) &&
+        /xrayBindSelectCb/.test(read('app-xray.js')) &&
+        /printSelectedXrays/.test(read('app-xray.js')) &&
+        /bulkDeleteXrays/.test(read('app-xray.js')) &&
+        /btnPrintSelected/.test(html) && /btnDeleteSelected/.test(html) &&
+        /xrayCephSelectedPick/.test(launch) && /xc.needCephFilm/.test(launch) &&
         !/noopener/.test(launch) && /xrayCephFetchTracing/.test(launch) &&
         /btnLoadTrace/.test(read('ceph/index.html')) && /pullCloudTrace/.test(read('ceph/ceph.js')) &&
         /filmDataUrl/.test(read('ceph/ceph.js')) && /opt: opt/.test(read('ceph/ceph.js')));
@@ -906,6 +924,77 @@ var PAGE_SCRIPT = `(async () => {
     var ctxT = L.xrayCephContext();
     pass('context carries saved tracing from the film',
         !!(ctxT && ctxT.tracing && ctxT.tracing.pts && ctxT.tracing.pts.S && ctxT.tracing.pts.S.x === 11));
+    L.xrayAllRecords = [
+        { id: 'opg1', xray_type: 'OPG', file_url: 'http://example/opg.jpg', file_name: 'opg.jpg' },
+        {
+            id: 'c1', xray_type: 'Cephalometric', file_url: 'http://example/c1.jpg', file_name: 'c1.jpg',
+            notes: 'Banana Ceph study',
+            ceph_tracing: { v: 1, pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } }, cephXrayId: 'c1' }
+        },
+        { id: 'c2', xray_type: 'Cephalometric', file_url: 'http://example/c2.jpg', file_name: 'c2.jpg', notes: 'Banana Ceph film' }
+    ];
+    L.xrayFiltered = L.xrayAllRecords;
+    L.xrayCurrentIdx = 0;
+    L.xrayPinnedId = null;
+    L.lbCurrentId = 'c2';
+    L.xraySelected = { size: 0, forEach: function () {} };
+    var ctxStrip = L.xrayCephContext();
+    pass('strip lightbox Cephalometric film becomes the sidecar source',
+        !!(ctxStrip && ctxStrip.viaStrip && ctxStrip.xrayId === 'c2' &&
+            /c2\.jpg/.test(ctxStrip.studyUrl || '') && !ctxStrip.tracing &&
+            ctxStrip.xrayType === 'Cephalometric'),
+        ctxStrip && (ctxStrip.xrayId + ' ' + ctxStrip.studyUrl + ' type=' + ctxStrip.xrayType));
+    L.lbCurrentId = 'opg1';
+    var ctxOpg = L.xrayCephContext();
+    pass('selected OPG is not opened as a ceph source',
+        !!(ctxOpg && ctxOpg.xrayId !== 'opg1' && ctxOpg.xrayId === 'c1' && !ctxOpg.viaStrip),
+        ctxOpg && ctxOpg.xrayId);
+    L.lbCurrentId = null;
+    L.xrayPinnedId = 'c2';
+    var ctxPin = L.xrayCephContext();
+    pass('pinned Cephalometric strip tile becomes the sidecar source',
+        !!(ctxPin && ctxPin.viaStrip && ctxPin.xrayId === 'c2' && /c2\.jpg/.test(ctxPin.studyUrl || '')));
+    L.xrayPinnedId = null;
+    L.xraySelected = { size: 1, forEach: function (fn) { fn('c2'); } };
+    var ctxCb = L.xrayCephContext();
+    pass('checkbox-selected Cephalometric film becomes the sidecar source',
+        !!(ctxCb && ctxCb.viaStrip && ctxCb.xrayId === 'c2'));
+    L.lbCurrentId = null;
+    L.xrayPinnedId = null;
+    L.xrayCurrentIdx = 0;
+    L._url = '';
+    L._note = '';
+    L.xrayNotify = function (m) { L._note = m; };
+    L.xraySelected = { size: 1, forEach: function (fn) { fn('opg1'); } };
+    L.xrayCephViewerOpen();
+    pass('checkbox OPG does not launch Banana Ceph', !L._url && L._note === 'xc.needCephFilm', L._note);
+    L._url = '';
+    L._note = '';
+    L.xraySelected = { size: 2, forEach: function (fn) { fn('opg1'); fn('c2'); } };
+    L.xrayCephViewerOpen();
+    pass('checkbox Cephalometric among mixed selection launches that film',
+        /[?&]x=c2/.test(L._url || ''), L._url);
+    L.xraySelected = { size: 0, forEach: function () {} };
+    L.xrayCurrentIdx = 2;
+    var ctxSlide = L.xrayCephContext();
+    pass('slide-index Cephalometric film becomes the sidecar source',
+        !!(ctxSlide && ctxSlide.viaStrip && ctxSlide.xrayId === 'c2'));
+    L.xrayCurrentIdx = 0;
+    L._url = '';
+    L.lbCurrentId = 'c2';
+    L.xrayCephViewerOpen();
+    pass('open from strip Cephalometric film passes that film id',
+        /[?&]x=c2/.test(L._url || ''), L._url);
+    L.lbCurrentId = null;
+    L.xrayPinnedId = null;
+    L.xrayCurrentIdx = 0;
+    L.xraySelected = { size: 0, forEach: function () {} };
+    L.xrayAllRecords = [{
+        id: 'x1', xray_type: 'Cephalometric', file_url: 'http://example/c.jpg', file_name: 'c.png',
+        patient_id: 'p1', file_path: 'p1/old.png',
+        ceph_tracing: { v: 1, pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } } }
+    }];
+    L.xrayFiltered = L.xrayAllRecords;
     L.XRAY_CEPH.off = null;
     L.XRAY_CEPH.savesOff = null;
     L._row = null;
@@ -1051,6 +1140,24 @@ var PAGE_SCRIPT = `(async () => {
         !!(savedReuse && savedReuse.cephXrayId === 'study-1' && savedReuse.reusedUrl &&
             L._studyInsert && L._studyInsert.file_url === 'http://example/c.jpg' &&
             /_ceph_/.test(L._studyInsert.file_path)));
+    var savedNew = await L.xrayCephSaveTracing('', { v: 1, pts: { S: { x: 3, y: 4 } } }, {
+        filmDataUrl: 'data:image/jpeg;base64,QQ==',
+        fileName: 'c.jpg',
+        patientId: 'p1'
+    });
+    pass('saves to Banana without a source film id',
+        !!(savedNew && savedNew.ok && savedNew.cloud && savedNew.cephXrayId === 'study-1'));
+    L._studyInsert = null;
+    L._up = null;
+    var published = await L.xrayCephPublishSource(null, {
+        filmDataUrl: 'data:image/jpeg;base64,QQ==',
+        fileName: 'in.jpg',
+        patientId: 'p1'
+    });
+    pass('Load film publishes a Cephalometric source onto the patient strip',
+        !!(published && published.ok && published.xrayId === 'study-1' && L._studyInsert &&
+            L._studyInsert.xray_type === 'Cephalometric' && L._studyInsert.notes === 'Banana Ceph film' &&
+            L._up && /^p1\/\d+_ceph_/.test(L._up.path)));
     var fetched = await L.xrayCephFetchTracing('x1');
     pass('reads tracing back from the ceph_saves row',
         !!(fetched && fetched.pts && fetched.pts.S && fetched.pts.S.x === 10 && fetched.cephSaveId === 'save-1'));
@@ -1254,16 +1361,22 @@ var PAGE_SCRIPT = `(async () => {
                 'window.__STRIP=null;(async function(){' +
                 'const rec=await (await fetch("/__ceph-study.json")).json();' +
                 'const host=document.getElementById("xrayClinicStrips");' +
-                'if(rec.xray_type!=="Cephalometric"){window.__STRIP={tile:false,notes:"",type:rec.xray_type||"",imgOk:false,pts:false};return;}' +
-                'host.innerHTML=\'<div class="xray-clinic-scroller" data-type="Cephalometric"><button type="button" class="xray-strip-tile xray-strip-tile--pinned" data-id="\'+rec.id+\'" data-type="Cephalometric">' +
+                'if(rec.xray_type!=="Cephalometric"){window.__STRIP={tile:false,notes:"",type:rec.xray_type||"",imgOk:false,pts:false,cb:false};return;}' +
+                'host.innerHTML=\'<div class="xray-clinic-scroller" data-type="Cephalometric">' +
+                '<div class="xray-strip-tile-wrap"><label class="xray-strip-check">' +
+                '<input type="checkbox" class="xray-cb" data-id="\'+rec.id+\'"></label>' +
+                '<button type="button" class="xray-strip-tile xray-strip-tile--pinned" data-id="\'+rec.id+\'" data-type="Cephalometric">' +
                 '<span class="xray-strip-tile-img"><img src="\'+rec.file_url+\'" alt="" data-xray-id="\'+rec.id+\'"></span>' +
                 '<span class="xray-strip-tile-type">Cephalometric</span>' +
-                '<span class="xray-strip-tile-notes">\'+(rec.notes||"")+\'</span></button></div>\';' +
+                '<span class="xray-strip-tile-notes">\'+(rec.notes||"")+\'</span></button></div></div>\';' +
                 'const img=host.querySelector("img");' +
+                'const cb=host.querySelector(".xray-cb");' +
+                'if(cb){cb.checked=true;}' +
                 'await new Promise(function(resolve){if(img.complete&&img.naturalWidth)return resolve();img.onload=resolve;img.onerror=resolve;});' +
                 'window.__STRIP={tile:!!host.querySelector(".xray-strip-tile"),notes:(host.querySelector(".xray-strip-tile-notes")||{}).textContent||"",' +
                 'type:rec.xray_type||"",' +
                 'id:rec.id,imgW:img.naturalWidth||0,imgOk:!!(img.naturalWidth>10),' +
+                'cb:!!cb,cbChecked:!!(cb&&cb.checked),cbId:cb&&cb.getAttribute("data-id"),' +
                 'pts:!!(rec.ceph_tracing&&rec.ceph_tracing.pts&&rec.ceph_tracing.pts.S)};' +
                 '})();</script></body></html>'
             ),
@@ -1285,8 +1398,20 @@ var PAGE_SCRIPT = `(async () => {
     }
     var idx = await httpGetText(PAGE_PORT, '/index.html');
     pass('GET /index.html has the Ceph button', idx.status === 200 && idx.body.indexOf('btnCephViewer') >= 0);
+    pass('GET /index.html has selected export / print / delete actions',
+        idx.status === 200 && idx.body.indexOf('btnExportSelected') >= 0 &&
+        idx.body.indexOf('btnPrintSelected') >= 0 && idx.body.indexOf('btnDeleteSelected') >= 0);
     var js = await httpGetText(PAGE_PORT, '/app-xray-ceph.js?v=' + BUILD);
     pass('GET /app-xray-ceph.js', js.status === 200 && /function xrayCephViewerOpen/.test(js.body.toString()));
+    var xrayJs = await httpGetText(PAGE_PORT, '/app-xray.js?v=' + BUILD);
+    pass('GET /app-xray.js wires selected export / print / delete',
+        xrayJs.status === 200 && /function printSelectedXrays/.test(xrayJs.body.toString()) &&
+        /function bulkDeleteXrays/.test(xrayJs.body.toString()) &&
+        /function xrayBindSelectCb/.test(xrayJs.body.toString()));
+    var linkJs = await httpGetText(PAGE_PORT, '/app-xray-link.js?v=' + BUILD);
+    pass('GET /app-xray-link.js puts a checkbox on every strip thumbnail',
+        linkJs.status === 200 && /xray-strip-check/.test(linkJs.body.toString()) &&
+        /xrayBindSelectCb/.test(linkJs.body.toString()));
     var page = await httpGetText(PAGE_PORT, '/ceph/');
     pass('GET /ceph/ is the sidecar', page.status === 200 && /btnDetect/.test(page.body.toString()) && /btnLearn/.test(page.body.toString()));
     var learnJs = await httpGetText(PAGE_PORT, '/ceph/ceph-learn.js');
@@ -1296,9 +1421,9 @@ var PAGE_SCRIPT = `(async () => {
     var shGet = await httpGetText(PAGE_PORT, '/ceph/data/shapes.json');
     pass('GET /ceph/data/shapes.json', shGet.status === 200 && /"n":1502/.test(shGet.body.toString()));
     var i18nGet = await httpGetText(PAGE_PORT, '/ceph/ceph-i18n.js');
-    pass('GET /ceph/ceph-i18n.js follows dashboard locales',
+    pass('GET /ceph/ceph-i18n.js follows dashboard locales and strip-open copy',
         i18nGet.status === 200 && /joyful_ui_lang_v1/.test(i18nGet.body.toString()) &&
-        /載入底片/.test(i18nGet.body.toString()));
+        /載入底片/.test(i18nGet.body.toString()) && /st.openedStrip/.test(i18nGet.body.toString()));
     var helpGet = await httpGetText(PAGE_PORT, '/ceph/extraction.html');
     pass('GET /ceph/extraction.html is the extract-vs-keep reminder',
         helpGet.status === 200 && /Leans extract/.test(helpGet.body.toString()) &&
@@ -1341,6 +1466,9 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: sidecar ready', live && live.ready === true);
         pass('live: real clinic lateral imported', live && live.loaded === true && live.imgW > 200 && live.imgH > 200,
             live ? (live.imgW + 'x' + live.imgH + ' via=' + live.via) : 'none');
+        pass('live: selected Cephalometric strip film auto-loads as the source',
+            live && live.viaStrip === true && live.xrayType === 'Cephalometric' && live.openedStrip === true,
+            live ? ('viaStrip=' + live.viaStrip + ' type=' + live.xrayType + ' status=' + live.openedStrip) : 'none');
         pass('live: 19 landmarks placed inside the film', live && live.nPts === 19 && live.inBounds === true,
             live ? ('n=' + live.nPts + ' source=' + live.source) : 'none');
         pass('live: a profile polyline is drawn on the film',
@@ -1467,6 +1595,9 @@ var PAGE_SCRIPT = `(async () => {
                     strip.imgOk === true && strip.type === 'Cephalometric'),
                 strip ? ('id=' + String(strip.id || '').slice(0, 8) + ' imgW=' + strip.imgW +
                     ' type=' + strip.type + ' notes=' + strip.notes) : 'none');
+            pass('live: strip thumbnail checkbox is present and selectable',
+                !!(strip && strip.cb === true && strip.cbChecked === true && strip.cbId === strip.id),
+                strip ? ('cb=' + strip.cb + ' checked=' + strip.cbChecked + ' id=' + strip.cbId) : 'none');
         } else {
             pass('live: saved study tile is on the patient xray strip slider', false, 'no live study row');
         }

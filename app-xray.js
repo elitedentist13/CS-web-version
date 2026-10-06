@@ -12,6 +12,99 @@ var xrayAllRecords  = [];   // all DB records for this patient
 var xrayFiltered    = [];   // after filter/search
 var xraySelected    = new Set();
 var xrayCurrentIdx  = 0;
+
+function xrayRecordById(id) {
+    if (id == null || id === '') return null;
+    var lists = [xrayAllRecords, xrayFiltered];
+    if (typeof xrayLbNavList !== 'undefined' && xrayLbNavList) lists.push(xrayLbNavList);
+    var i, j, r;
+    for (i = 0; i < lists.length; i++) {
+        if (!lists[i]) continue;
+        for (j = 0; j < lists[i].length; j++) {
+            r = lists[i][j];
+            if (r && String(r.id) === String(id)) return r;
+        }
+    }
+    return null;
+}
+
+function xrayIsSelected(id) {
+    if (id == null || id === '') return false;
+    if (xraySelected.has(id)) return true;
+    var hit = false;
+    xraySelected.forEach(function (k) { if (String(k) === String(id)) hit = true; });
+    return hit;
+}
+
+function xraySelectedRecords(opt) {
+    opt = opt || {};
+    var recs = [];
+    var seen = {};
+    xraySelected.forEach(function (id) {
+        var rec = xrayRecordById(id);
+        if (!rec || seen[String(rec.id)]) return;
+        if (opt.homeOnly && typeof xrayIsHomeRecord === 'function' && !xrayIsHomeRecord(rec)) return;
+        seen[String(rec.id)] = true;
+        recs.push(rec);
+    });
+    return recs;
+}
+
+function xrayPruneSelection(keepRecs) {
+    if (!xraySelected || !xraySelected.size) return;
+    var keep = {};
+    (keepRecs || []).forEach(function (r) {
+        if (r && r.id != null) keep[String(r.id)] = true;
+    });
+    var drop = [];
+    xraySelected.forEach(function (id) {
+        if (!keep[String(id)]) drop.push(id);
+    });
+    drop.forEach(function (id) { xraySelected.delete(id); });
+}
+
+function xrayToggleSelectedId(id, on) {
+    var rec = xrayRecordById(id);
+    var key = rec ? rec.id : id;
+    if (on) xraySelected.add(key);
+    else {
+        xraySelected.delete(key);
+        xraySelected.delete(id);
+    }
+    xraySyncSelectionUi();
+}
+
+function xrayBindSelectCb(cb) {
+    if (!cb || cb.getAttribute('data-xray-cb') === '1') return;
+    cb.setAttribute('data-xray-cb', '1');
+    cb.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    cb.addEventListener('change', function (ev) {
+        ev.stopPropagation();
+        xrayToggleSelectedId(cb.getAttribute('data-id'), cb.checked);
+    });
+}
+
+function xraySyncSelectionUi() {
+    document.querySelectorAll('.xray-cb').forEach(function (cb) {
+        var id = cb.getAttribute('data-id');
+        cb.checked = xrayIsSelected(id);
+        var wrap = cb.closest('.xray-strip-tile-wrap') || cb.closest('.xray-fs-thumb') || cb.closest('.xray-card');
+        if (wrap) wrap.classList.toggle('is-selected', cb.checked);
+    });
+    var all = g('xraySelectAll');
+    if (all) {
+        var n = 0, sel = 0;
+        (xrayFiltered || []).forEach(function (x) {
+            if (!x) return;
+            if (typeof xrayIsHomeRecord === 'function' && !xrayIsHomeRecord(x)) return;
+            n += 1;
+            if (xrayIsSelected(x.id)) sel += 1;
+        });
+        all.checked = n > 0 && sel === n;
+        all.indeterminate = sel > 0 && sel < n;
+    }
+    updateSelectedCount();
+}
 var xrayView        = 'strips';
 var xrayUploadQueue = [];   // files queued for sequential upload
 var xrayUploadQIdx  = 0;
@@ -572,11 +665,9 @@ function filterXrays() {
         return true;
     });
 
-    xraySelected.clear();
-    updateSelectedCount();
-
-    var sa = g('xraySelectAll');
-    if (sa) sa.checked = false;
+    xrayPruneSelection(xrayFiltered);
+    if (typeof xraySyncSelectionUi === 'function') xraySyncSelectionUi();
+    else updateSelectedCount();
 
     if (xrayView === 'grid') renderXrayGrid();
     else                     renderXraySlide();
@@ -644,7 +735,7 @@ function renderXrayGrid() {
         card.innerHTML =
             '<div class="xray-card-check">' +
                 '<input type="checkbox" class="xray-cb" data-id="' + x.id + '"' +
-                (xraySelected.has(x.id) ? ' checked' : '') + '>' +
+                (xrayIsSelected(x.id) ? ' checked' : '') + '>' +
             '</div>' +
             '<div class="xray-card-img" data-idx="' + idx + '">' +
                 (imgSrc
@@ -679,12 +770,7 @@ function renderXrayGrid() {
         var dlBtn = card.querySelector('.xray-cb-dl');
         if (dlBtn && imgSrc) dlBtn.dataset.url = imgSrc;
 
-        // Checkbox toggle
-        card.querySelector('.xray-cb').addEventListener('change', function() {
-            if (this.checked) xraySelected.add(x.id);
-            else              xraySelected.delete(x.id);
-            updateSelectedCount();
-        });
+        xrayBindSelectCb(card.querySelector('.xray-cb'));
 
         // Open lightbox — image click or View button
         card.querySelector('.xray-card-img')
@@ -800,10 +886,16 @@ function renderFilmstrip() {
         var clinicHtml = (typeof xrayClinicTagHtml === 'function')
             ? xrayClinicTagHtml(x, 'xray-clinic-tag--fs') : '';
         div.innerHTML =
+            '<label class="xray-strip-check xray-fs-check">' +
+                '<input type="checkbox" class="xray-cb" data-id="' + x.id + '"' +
+                (xrayIsSelected(x.id) ? ' checked' : '') + '>' +
+            '</label>' +
             (thumb
                 ? '<img src="' + thumb + '" alt="thumb" data-xray-id="' + x.id + '">'
                 : '<div class="xray-fs-no-img">🔬</div>') +
             clinicHtml;
+        xrayBindSelectCb(div.querySelector('.xray-cb'));
+        div.classList.toggle('is-selected', xrayIsSelected(x.id));
         div.addEventListener('click', function() { renderSlideAt(i); });
         fs.appendChild(div);
     });
@@ -2716,18 +2808,86 @@ function showXrayError(title, htmlMsg) {
 // EXPORT  (selected or all)
 // ════════════════════════════════════════════════════════════════
 function exportSelectedXrays() {
-    if (!xraySelected.size) {
+    var toExport = xraySelectedRecords({ homeOnly: true });
+    if (!toExport.length) {
         xrayNotify(mediaTr('media.alert.selectXrayExport'));
         return;
     }
-    var toExport = xrayFiltered.filter(function(x) {
-        return xraySelected.has(x.id);
-    });
     toExport.forEach(function(x, i) {
         setTimeout(function() {
             downloadFile(xrayDisplayUrl(x),
                 'xray-' + (x.xray_type || 'image') + '-' + i + '.jpg');
         }, i * 400);
+    });
+}
+
+function printSelectedXrays() {
+    var recs = xraySelectedRecords();
+    if (!recs.length) {
+        xrayNotify(mediaTr('media.alert.selectXrayPrint'));
+        return;
+    }
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+    var imgs = recs.map(function (x) {
+        var url = (typeof xrayDisplayUrl === 'function') ? xrayDisplayUrl(x) : (x.file_url || '');
+        if (!url) return '';
+        return '<figure><img src="' + url + '"><figcaption>' +
+            esc(xrayTypeLabel(x.xray_type) || '') + ' · ' +
+            esc(x.taken_date || x.file_name || '') + '</figcaption></figure>';
+    }).join('');
+    if (!imgs) {
+        xrayNotify(mediaTr('media.alert.noFileUrl'));
+        return;
+    }
+    var w = window.open('', '_blank', 'width=920,height=720');
+    if (!w) { xrayNotify(mediaTr('media.alert.popupBlocked')); return; }
+    w.document.write(
+        '<!DOCTYPE html><html><head>' +
+        '<style>body{margin:16px;background:#fff;font-family:sans-serif;}' +
+        'figure{page-break-after:always;margin:0 0 24px;text-align:center;}' +
+        'img{max-width:100%;max-height:88vh;}' +
+        'figcaption{font-size:12px;color:#334155;margin-top:8px;}</style></head><body>' +
+        '<script>' +
+        (typeof printPopupAutoCloseInlineScript === 'function' ? printPopupAutoCloseInlineScript() : '') +
+        '<\/script>' +
+        imgs +
+        '<script>setTimeout(function(){try{window.print();}catch(e){if(typeof __ppClose===\'function\')__ppClose();}},300);<\/script>' +
+        '</body></html>'
+    );
+    w.document.close();
+    if (typeof wirePrintPopupAutoClose === 'function') wirePrintPopupAutoClose(w);
+}
+
+function bulkDeleteXrays() {
+    var recs = xraySelectedRecords({ homeOnly: true });
+    if (!recs.length) {
+        xrayNotify(mediaTr('media.alert.selectXrayDelete'));
+        return;
+    }
+    if (!confirm(mediaTrRepl('media.alert.confirmBulkDeleteXrays', { N: String(recs.length) }))) return;
+    var ids = recs.map(function (r) { return r.id; });
+    var paths = recs.map(function (r) { return r.file_path; }).filter(Boolean);
+    var chain = Promise.resolve();
+    if (paths.length) {
+        chain = SB.storage.from(XRAY_BUCKET).remove(paths).then(function (r) {
+            if (r && r.error) console.warn('[X-Ray] Bulk storage delete:', r.error.message);
+        });
+    }
+    chain.then(function () {
+        return SB.from('xrays').delete().in('id', ids);
+    }).then(function (r) {
+        if (r && r.error) {
+            xrayNotify(mediaTrRepl('media.alert.bulkDeleteFailed', { MSG: r.error.message }));
+            return;
+        }
+        ids.forEach(function (id) { xraySelected.delete(id); });
+        if (typeof loadXrayRecords === 'function') loadXrayRecords();
+        if (typeof conPatientId !== 'undefined' && conPatientId &&
+            typeof xrayPatientId !== 'undefined' && xrayPatientId &&
+            String(conPatientId) === String(xrayPatientId) &&
+            typeof loadConPatientTimeline === 'function') {
+            loadConPatientTimeline(conPatientId);
+        }
     });
 }
 
@@ -2770,13 +2930,11 @@ function downloadFile(url, filename) {
 // ════════════════════════════════════════════════════════════════
 function toggleSelectAll(checked) {
     xrayFiltered.forEach(function(x) {
+        if (typeof xrayIsHomeRecord === 'function' && !xrayIsHomeRecord(x)) return;
         if (checked) xraySelected.add(x.id);
         else         xraySelected.delete(x.id);
     });
-    document.querySelectorAll('.xray-cb').forEach(function(cb) {
-        cb.checked = checked;
-    });
-    updateSelectedCount();
+    xraySyncSelectionUi();
 }
 
 function updateSelectedCount() {

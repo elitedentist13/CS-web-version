@@ -102,6 +102,20 @@
         if (!ctxInfo) {
             try { ctxInfo = JSON.parse(localStorage.getItem('banana.ceph.v1') || 'null'); } catch (e2) { ctxInfo = null; }
         }
+        try {
+            var qx = new URLSearchParams(window.location.search).get('x');
+            if (qx && ctxInfo && !ctxInfo.xrayId) ctxInfo.xrayId = qx;
+            else if (qx && !ctxInfo) ctxInfo = { xrayId: qx };
+        } catch (eQ) { /* ignore */ }
+        try {
+            if (window.opener && !window.opener.closed && typeof window.opener.xrayCephContext === 'function') {
+                var live = window.opener.xrayCephContext();
+                if (live && typeof live === 'object') ctxInfo = Object.assign({}, ctxInfo || {}, live);
+            }
+            if (window.opener && !window.opener.closed && window.opener.xrayPatientId && ctxInfo && !ctxInfo.patientId) {
+                ctxInfo.patientId = window.opener.xrayPatientId;
+            }
+        } catch (eO) { /* ignore */ }
         var title = tx('ui.title');
         if (ctxInfo && ctxInfo.patientNo) title += ' · #' + ctxInfo.patientNo;
         if (ctxInfo && ctxInfo.name) title += ' · ' + ctxInfo.name;
@@ -708,7 +722,7 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx48" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx52" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair) {
                 var isExtract = pair[0] === tx('sum.extract');
@@ -920,13 +934,19 @@
             ctxInfo.tracingVia = 'cloud';
             if (t.cephSaveId) ctxInfo.cephSaveId = t.cephSaveId;
             if (t.cephXrayId) ctxInfo.cephXrayId = t.cephXrayId;
-            if (t.fileUrl) ctxInfo.studyUrl = t.fileUrl;
+            if (t.fileUrl) {
+                var same = !ctxInfo.viaStrip || !ctxInfo.xrayId ||
+                    String(t.xrayId || '') === String(ctxInfo.xrayId) ||
+                    String(t.cephXrayId || '') === String(ctxInfo.xrayId);
+                if (same) ctxInfo.studyUrl = t.fileUrl;
+            }
         }
         return t;
     }
     function pullCloudTrace() {
         var id = ctxInfo && ctxInfo.xrayId;
         function fromLatest() {
+            if (ctxInfo && ctxInfo.viaStrip) return Promise.resolve(null);
             try {
                 if (window.opener && !window.opener.closed && typeof window.opener.xrayCephFetchLatestForPatient === 'function' && ctxInfo && ctxInfo.patientId) {
                     return Promise.resolve(window.opener.xrayCephFetchLatestForPatient(ctxInfo.patientId)).then(function (save) {
@@ -1050,42 +1070,184 @@
             return c.toDataURL('image/jpeg', 0.92);
         } catch (e) { return ''; }
     }
+    function markedDataUrl() {
+        if (!img.naturalWidth) return '';
+        try {
+            var c = document.createElement('canvas');
+            c.width = img.naturalWidth;
+            c.height = img.naturalHeight;
+            var g = c.getContext('2d');
+            if (!g) return '';
+            g.drawImage(img, 0, 0);
+            g.strokeStyle = 'rgba(56,189,248,0.85)';
+            g.lineWidth = Math.max(2, c.width / 900);
+            (typeof PLANES !== 'undefined' ? PLANES : []).forEach(function (ab) {
+                var a = pts[ab[0]], b = pts[ab[1]];
+                if (!a || !b) return;
+                g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+            });
+            (CEPH_LM.defs() || []).forEach(function (d) {
+                var p = pts[d.id];
+                if (!p) return;
+                g.beginPath();
+                g.fillStyle = '#facc15';
+                g.arc(p.x, p.y, Math.max(4, c.width / 280), 0, Math.PI * 2);
+                g.fill();
+            });
+            return c.toDataURL('image/jpeg', 0.88);
+        } catch (e) { return filmDataUrl(); }
+    }
+    function openerPatientId() {
+        try {
+            if (window.opener && !window.opener.closed && window.opener.xrayPatientId) {
+                return String(window.opener.xrayPatientId);
+            }
+        } catch (e) { /* ignore */ }
+        return '';
+    }
     function publishTrace(rec) {
-        var xrayId = rec && rec.xrayId;
-        if (!xrayId) return Promise.resolve({ ok: false, error: 'id' });
+        if (!rec) return Promise.resolve({ ok: false, error: 'payload' });
+        if (!rec.patientId) rec.patientId = (ctxInfo && ctxInfo.patientId) || openerPatientId();
+        if (!rec.xrayId) rec.xrayId = (ctxInfo && ctxInfo.xrayId) || '';
         var opt = {
-            filmDataUrl: filmDataUrl(),
+            filmDataUrl: markedDataUrl() || filmDataUrl(),
             fileName: rec.fileName,
             patientId: rec.patientId,
             fileUrl: (ctxInfo && (ctxInfo.studyUrl || ctxInfo.fileUrl)) || '',
             filePath: (ctxInfo && ctxInfo.filePath) || rec.filePath || ''
         };
-        var payload = { type: 'banana.ceph.saveTrace', xrayId: xrayId, tracing: rec, opt: opt };
-        try {
-            if (window.opener && !window.opener.closed && typeof window.opener.xrayCephSaveTracing === 'function') {
-                return Promise.resolve(window.opener.xrayCephSaveTracing(xrayId, rec, opt)).then(function (r) {
-                    return r || { ok: false };
-                }, function () { return { ok: false, error: 'opener' }; });
-            }
-        } catch (e) { /* ignore */ }
-        var sb = openerSb();
-        if (sb) {
-            return Promise.resolve(sb.from('xrays').update({ ceph_tracing: rec }).eq('id', xrayId)).then(function (r) {
-                if (r && r.error) return { ok: false, error: 'write' };
-                return { ok: true, cloud: true, xrayId: xrayId };
-            }, function () { return { ok: false, error: 'net' }; });
+        var payload = {
+            type: 'banana.ceph.saveTrace',
+            xrayId: rec.xrayId || '',
+            tracing: rec,
+            opt: opt,
+            reqId: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8)
+        };
+        function viaOpener() {
+            try {
+                if (window.opener && !window.opener.closed && typeof window.opener.xrayCephSaveTracing === 'function') {
+                    return Promise.resolve(window.opener.xrayCephSaveTracing(rec.xrayId || '', rec, opt)).then(function (r) {
+                        return r || { ok: false, error: 'opener' };
+                    }, function () { return null; });
+                }
+            } catch (e) { /* ignore */ }
+            return Promise.resolve(null);
         }
-        try {
-            if (window.parent && window.parent !== window) {
-                window.parent.postMessage(payload, window.location.origin);
+        function viaBus() {
+            return new Promise(function (resolve) {
+                var ch = null;
+                try { ch = new BroadcastChannel(TRACE_CH); } catch (eB) { resolve(null); return; }
+                var timer = setTimeout(function () {
+                    try { ch.close(); } catch (eT) { /* ignore */ }
+                    resolve(null);
+                }, 8000);
+                ch.onmessage = function (ev) {
+                    var d = ev && ev.data;
+                    if (!d || d.type !== 'banana.ceph.saveTrace.done' || String(d.reqId) !== payload.reqId) return;
+                    clearTimeout(timer);
+                    try { ch.close(); } catch (eC) { /* ignore */ }
+                    resolve(d.result || { ok: false });
+                };
+                try {
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage(payload, window.location.origin);
+                    }
+                } catch (eP) { /* ignore */ }
+                try { ch.postMessage(payload); } catch (eM) {
+                    clearTimeout(timer);
+                    try { ch.close(); } catch (eX) { /* ignore */ }
+                    resolve(null);
+                }
+            });
+        }
+        return viaOpener().then(function (r) {
+            if (r && (r.ok || r.error === 'col' || r.needSql || r.error === 'patient' || r.error === 'film')) return r;
+            return viaBus().then(function (b) {
+                return b || r || { ok: false, error: rec.patientId ? 'bus' : 'patient' };
+            });
+        });
+    }
+    function applySourceRec(r) {
+        if (!r || !r.xrayId) return r;
+        if (!ctxInfo) ctxInfo = {};
+        ctxInfo.xrayId = r.xrayId;
+        if (r.fileUrl) {
+            ctxInfo.studyUrl = r.fileUrl;
+            ctxInfo.fileUrl = r.fileUrl;
+        }
+        if (r.filePath) ctxInfo.filePath = r.filePath;
+        if (r.fileName) ctxInfo.fileName = r.fileName;
+        try { sessionStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (eS) { /* ignore */ }
+        try { localStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (eL) { /* ignore */ }
+        return r;
+    }
+    function fileToDataUrl(file) {
+        return new Promise(function (resolve) {
+            if (!file) return resolve('');
+            if (typeof FileReader !== 'function') return resolve('');
+            var reader = new FileReader();
+            reader.onload = function () { resolve(String(reader.result || '')); };
+            reader.onerror = function () { resolve(''); };
+            reader.readAsDataURL(file);
+        });
+    }
+    function publishSourceFile(file) {
+        if (!file) return Promise.resolve({ ok: false, error: 'film' });
+        var patientId = (ctxInfo && ctxInfo.patientId) || openerPatientId();
+        setStatus(tx('st.sourceSaving'));
+        return fileToDataUrl(file).then(function (dataUrl) {
+            var opt = { fileName: file.name || fileName, patientId: patientId, filmDataUrl: dataUrl };
+            function viaOpener() {
+                try {
+                    if (window.opener && !window.opener.closed && typeof window.opener.xrayCephPublishSource === 'function') {
+                        return Promise.resolve(window.opener.xrayCephPublishSource(file, opt)).then(function (r) {
+                            return r || { ok: false, error: 'opener' };
+                        }, function () { return null; });
+                    }
+                } catch (e) { /* ignore */ }
+                return Promise.resolve(null);
             }
-        } catch (e2) { /* ignore */ }
-        try {
-            var ch = new BroadcastChannel(TRACE_CH);
-            ch.postMessage(payload);
-            setTimeout(function () { try { ch.close(); } catch (e3) { /* ignore */ } }, 800);
-        } catch (e4) { /* ignore */ }
-        return Promise.resolve({ ok: false, error: 'bus' });
+            function viaBus() {
+                var payload = {
+                    type: 'banana.ceph.publishSource',
+                    opt: opt,
+                    reqId: String(Date.now()) + '-src-' + Math.random().toString(36).slice(2, 8)
+                };
+                return new Promise(function (resolve) {
+                    var ch = null;
+                    try { ch = new BroadcastChannel(TRACE_CH); } catch (eB) { resolve(null); return; }
+                    var timer = setTimeout(function () {
+                        try { ch.close(); } catch (eT) { /* ignore */ }
+                        resolve(null);
+                    }, 8000);
+                    ch.onmessage = function (ev) {
+                        var d = ev && ev.data;
+                        if (!d || d.type !== 'banana.ceph.saveTrace.done' || String(d.reqId) !== payload.reqId) return;
+                        clearTimeout(timer);
+                        try { ch.close(); } catch (eC) { /* ignore */ }
+                        resolve(d.result || { ok: false });
+                    };
+                    try { ch.postMessage(payload); } catch (eM) {
+                        clearTimeout(timer);
+                        try { ch.close(); } catch (eX) { /* ignore */ }
+                        resolve(null);
+                    }
+                });
+            }
+            return viaOpener().then(function (r) {
+                if (r && r.ok) return applySourceRec(r);
+                return viaBus().then(function (b) {
+                    var out = b || r || { ok: false, error: patientId ? 'bus' : 'patient' };
+                    if (out && out.ok) applySourceRec(out);
+                    return out;
+                });
+            });
+        }).then(function (r) {
+            if (r && r.ok && r.xrayId) setStatus(tx('st.sourceCloud'));
+            else if (r && r.error === 'patient') setStatus(tx('st.saveNeedPatient'));
+            else setStatus(tx('st.sourceFail'));
+            return r;
+        });
     }
     function saveTrace() {
         if (!img.naturalWidth || !placedIds().length) {
@@ -1131,6 +1293,7 @@
                     ctxInfo.tracingVia = 'cloud';
                     if (r.cephSaveId) ctxInfo.cephSaveId = r.cephSaveId;
                     if (r.cephXrayId) ctxInfo.cephXrayId = r.cephXrayId;
+                    if (r.xrayId) ctxInfo.xrayId = r.xrayId;
                     if (r.fileUrl && ctxInfo.tracing) ctxInfo.tracing.fileUrl = r.fileUrl;
                     if (r.cephSaveId && ctxInfo.tracing) ctxInfo.tracing.cephSaveId = r.cephSaveId;
                     if (r.cephXrayId && ctxInfo.tracing) ctxInfo.tracing.cephXrayId = r.cephXrayId;
@@ -1138,6 +1301,8 @@
                 setStatus(tx('st.savedCloud'));
             } else if (r && r.ok && r.cloud) setStatus(tx('st.savedNoStrip'));
             else if (r && (r.error === 'col' || r.needSql)) setStatus(tx('st.savedNeedSql'));
+            else if (r && r.error === 'patient') setStatus(tx('st.saveNeedPatient'));
+            else if (r && (r.error === 'film' || r.error === 'opener' || r.error === 'bus')) setStatus(tx('st.savedFail'));
             else setStatus(tx('st.savedLocal', { key: key }));
         });
         return { ok: true, key: key, rec: rec };
@@ -1471,10 +1636,12 @@
                 else if (setIndex === 1 && !restoreHold) previewSet(1, false);
                 else renderSetBar();
                 if (!restoreHold) {
-                    setStatus(tx('st.twoReady', {
-                        n: setIndex + 1,
-                        label: setLabelTx(sets[setIndex])
-                    }));
+                    setStatus(ctxInfo && ctxInfo.viaStrip
+                        ? tx('st.openedStrip')
+                        : tx('st.twoReady', {
+                            n: setIndex + 1,
+                            label: setLabelTx(sets[setIndex])
+                        }));
                 }
                 finish({
                     ok: true,
@@ -1488,10 +1655,12 @@
                 });
             }).catch(function () {
                 if (!restoreHold) {
-                    setStatus(tx('st.twoLocal', {
-                        n: setIndex + 1,
-                        label: setLabelTx(sets[setIndex])
-                    }));
+                    setStatus(ctxInfo && ctxInfo.viaStrip
+                        ? tx('st.openedStrip')
+                        : tx('st.twoLocal', {
+                            n: setIndex + 1,
+                            label: setLabelTx(sets[setIndex])
+                        }));
                 }
                 finish({
                     ok: true,
@@ -1534,6 +1703,7 @@
         return new Promise(function (resolve) {
             img.onload = function () {
                 URL.revokeObjectURL(url);
+                publishSourceFile(file);
                 afterLoad(resolve);
             };
             img.onerror = function () { setStatus(tx('st.badFile')); resolve({ ok: false }); };
@@ -1679,7 +1849,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx48';
+        var url = 'extraction.html?v=20261005fx52';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }
@@ -1748,8 +1918,10 @@
             if (window.CEPH_LEARN && typeof CEPH_LEARN.pullRemote === 'function') {
                 CEPH_LEARN.pullRemote().then(function () { renderLearn(); });
             }
-            if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
-            else setStatus(tx('st.loadHint'));
+            if (ctxInfo && ctxInfo.studyUrl) {
+                loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+                if (ctxInfo.viaStrip) setStatus(tx('st.openedStrip'));
+            } else setStatus(tx('st.loadHint'));
             syncLoadBtn();
         }).catch(function () { setStatus(tx('st.missingCat')); });
 
@@ -1961,6 +2133,17 @@
 
     window.CEPH_PAGE = {
         loadUrl: loadUrl,
+        openFromStrip: function (url, name, extra) {
+            extra = extra || {};
+            if (!ctxInfo) ctxInfo = {};
+            ctxInfo.viaStrip = true;
+            ctxInfo.studyUrl = url || extra.studyUrl || ctxInfo.studyUrl || '';
+            ctxInfo.fileName = name || extra.fileName || ctxInfo.fileName || '';
+            ctxInfo.xrayType = extra.xrayType || ctxInfo.xrayType || 'Cephalometric';
+            if (extra.xrayId) ctxInfo.xrayId = extra.xrayId;
+            if (extra.patientId) ctxInfo.patientId = extra.patientId;
+            return loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+        },
         loadFile: loadFile,
         runDetect: runDetect,
         exportJson: exportJson,
@@ -1992,6 +2175,7 @@
         walkSkip: walkSkip,
         walkStop: stopWalk,
         saveTrace: saveTrace,
+        publishSourceFile: publishSourceFile,
         loadTrace: loadTrace,
         printReport: printReport,
         setLabMode: setLabMode,
@@ -2008,6 +2192,9 @@
             var st = window.CEPH_LEARN ? CEPH_LEARN.stats() : { films: 0, points: 0 };
             return {
                 fileName: fileName,
+                viaStrip: !!(ctxInfo && ctxInfo.viaStrip),
+                xrayType: (ctxInfo && ctxInfo.xrayType) || '',
+                xrayId: (ctxInfo && ctxInfo.xrayId) || '',
                 source: source,
                 imgW: img.naturalWidth || 0,
                 imgH: img.naturalHeight || 0,

@@ -11,7 +11,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx62';
+var BUILD = '20261006fx63';
 var CDP_PORT = 9377;
 var PAGE_PORT = 5500;
 var SIZE = 2 * 1024 * 1024;
@@ -200,6 +200,7 @@ function main() {
                     return cdp.js(
                         '(async function(){\n' +
                         '  window.currentUserId="fx-trial";\n' +
+                        '  window.__FX_FORCE_PICKER = true;\n' +
                         '  window.showSaveFilePicker = function(opts){\n' +
                         '    return navigator.storage.getDirectory().then(function(root){\n' +
                         '      return root.getFileHandle((opts && opts.suggestedName) || "integrity.bin", { create: true });\n' +

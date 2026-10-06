@@ -12,7 +12,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx62';
+var BUILD = '20261006fx63';
 var CDP_PORT = Number(process.env.FX_CDP_PORT) || 9378;
 var PAGE_PORT = 5500;
 var CHROME = process.env.CHROME_PATH || (
@@ -23,6 +23,8 @@ var CHROME = process.env.CHROME_PATH || (
 var ZIP_BIG = process.env.FX_ZIP_BIG || path.join(os.tmpdir(), 'cs-fx-zip-trial', 'chips.zip');
 var ZIP_SMALL = process.env.FX_ZIP_SMALL || path.join(os.tmpdir(), 'cs-fx-zip-trial', 'small.zip');
 var SKIP_SMALL = process.env.FX_SKIP_SMALL === '1';
+var NATIVE_DL = process.env.FX_NATIVE_DL === '1';
+var DL_DIR = path.join(os.tmpdir(), 'cs-fx-native-dl');
 var fails = [];
 var proc = null;
 var ws = null;
@@ -145,6 +147,72 @@ function cleanupPass(sb, code) {
     }).catch(function () {});
 }
 
+function waitNativeFile(dir, expectSize, timeoutMs) {
+    var deadline = Date.now() + timeoutMs;
+    function tick() {
+        var names = [];
+        try { names = fs.readdirSync(dir); } catch (e) { names = []; }
+        var i;
+        for (i = 0; i < names.length; i++) {
+            if (/\.crdownload$/i.test(names[i]) || /\.tmp$/i.test(names[i]) || names[i] === 'desktop.ini') continue;
+            var p = path.join(dir, names[i]);
+            try {
+                var st = fs.statSync(p);
+                if (st.isFile() && Number(st.size) === Number(expectSize)) return Promise.resolve(p);
+            } catch (e2) {}
+        }
+        if (Date.now() > deadline) throw new Error('native download missing; saw ' + names.join(','));
+        return sleep(400).then(tick);
+    }
+    return tick();
+}
+
+function nativeReceive(cdp, code, filePath, expectSha, label) {
+    var expectSize = fs.statSync(filePath).size;
+    try { fs.rmSync(DL_DIR, { recursive: true, force: true }); } catch (e) {}
+    fs.mkdirSync(DL_DIR, { recursive: true });
+    return cdp.call('Browser.setDownloadBehavior', {
+        behavior: 'allow',
+        downloadPath: DL_DIR,
+        eventsEnabled: true
+    }).catch(function () {
+        return cdp.call('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: DL_DIR });
+    }).then(function () {
+        return cdp.js(
+            '(async function(){\n' +
+            '  window.currentUserId="fx-trial";\n' +
+            '  window.__FX_FORCE_PICKER = false;\n' +
+            '  FILEXFER.open();\n' +
+            '  await new Promise(function(r){ setTimeout(r,200); });\n' +
+            '  var recv=document.querySelector("[data-fx=\\"receive\\"]");\n' +
+            '  if (recv) recv.click();\n' +
+            '  await new Promise(function(r){ setTimeout(r,200); });\n' +
+            '  var inp=document.getElementById("fx_in_code");\n' +
+            '  if (inp) inp.value=' + JSON.stringify(code) + ';\n' +
+            '  var btn=document.getElementById("fx_lookup");\n' +
+            '  if (btn) btn.click();\n' +
+            '  await new Promise(function(r){ setTimeout(r,8500); });\n' +
+            '  var dl=document.getElementById("fx_dl");\n' +
+            '  if (!dl) throw new Error("no download button");\n' +
+            '  dl.click();\n' +
+            '  return "clicked";\n' +
+            '})()',
+            true,
+            60000
+        );
+    }).then(function () {
+        return waitNativeFile(DL_DIR, expectSize, 180000);
+    }).then(function (gotPath) {
+        pass(label + ' native disk size', fs.statSync(gotPath).size === expectSize, gotPath + ' ' + fs.statSync(gotPath).size);
+        pass(label + ' native PK', pkOk(gotPath));
+        pass(label + ' native sha256', sha(gotPath) === expectSha, sha(gotPath));
+        var listed = child_process.spawnSync('tar.exe', ['-tf', gotPath], { encoding: 'utf8' });
+        pass(label + ' native unzip list', listed.status === 0 && String(listed.stdout || '').trim().length > 0,
+            ((listed.stdout || listed.stderr || '') + '').trim().slice(0, 180));
+        return code;
+    });
+}
+
 function roundTrip(cdp, filePath, expectSha, label) {
     return cdp.js(
         'window.currentUserId="fx-trial"; FILEXFER.open(); var s=document.querySelector("[data-fx=\\"send\\"]"); if(s) s.click(); "send-tab"',
@@ -177,9 +245,11 @@ function roundTrip(cdp, filePath, expectSha, label) {
         return tick();
     }).then(function (code) {
         pass(label + ' send code', code.length >= 4, code);
+        if (NATIVE_DL) return nativeReceive(cdp, code, filePath, expectSha, label);
         return cdp.js(
             '(async function(){\n' +
             '  window.currentUserId="fx-trial";\n' +
+            '  window.__FX_FORCE_PICKER = true;\n' +
             '  window.showSaveFilePicker = function(opts){\n' +
             '    return navigator.storage.getDirectory().then(function(root){\n' +
             '      return root.getFileHandle((opts && opts.suggestedName) || "dl.zip", { create: true });\n' +

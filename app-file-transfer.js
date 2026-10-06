@@ -1,8 +1,9 @@
 // ════════════════════════════════════════════════════════════════
 // app-file-transfer.js — Clinic file transfer (Tools → File Transfer)
 //   • Fast Pass: 3-day code in clinic-pass, cap 5 GB. Upload is 8 MB chips
-//     in parallel. Download: picker in the click, stage in the browser, then
-//     copy as one octet-stream Blob (or 8 MB pieces if huge). Firefox uses the download bar.
+//     in parallel. Download: on Windows, Chrome's download bar writes the file
+//     (folder picker leaves a zip that will not unzip). Other browsers may pick
+//     a folder. Tests set window.__FX_FORCE_PICKER to keep the picker path.
 //   • Direct: WebRTC. Files over 500 MB: picker on the save click, then stream.
 // ════════════════════════════════════════════════════════════════
 var FILEXFER = (function () {
@@ -1682,6 +1683,20 @@ var FILEXFER = (function () {
         }).catch(function () {});
     }
 
+    function wantFolderPicker() {
+        if (typeof window.showSaveFilePicker !== 'function') return false;
+        if (window.__FX_FORCE_PICKER) return true;
+        var ua = navigator.userAgent || '';
+        var plat = navigator.platform || '';
+        if (/Windows/i.test(ua) || /Win\d/i.test(plat)) return false;
+        return true;
+    }
+
+    function chromeSaveWaitMs(bytes) {
+        var n = Number(bytes) || 0;
+        return Math.min(10 * 60 * 1000, Math.max(8000, Math.round(n / (2 * 1024 * 1024) * 1000) + 4000));
+    }
+
     function clickDownload(blobOrUrl, name, isUrl) {
         var url = isUrl ? encodeSignedUrl(blobOrUrl) : URL.createObjectURL(blobOrUrl);
         var a = document.createElement('a');
@@ -1993,9 +2008,15 @@ var FILEXFER = (function () {
         if (!row || !row.storage_path) return;
         var saveName = safeDownloadName(row.file_name || 'download');
         var saveSize = Number(row.file_size) || 0;
-        var picker = typeof window.showSaveFilePicker === 'function'
+        var picker = wantFolderPicker()
             ? window.showSaveFilePicker({ suggestedName: saveName })
             : null;
+        var chromeUrlNow = null;
+        if (!picker && !isManifestPath(row.storage_path)) {
+            if (prefetch.id === row.id && prefetch.urlDl) chromeUrlNow = prefetch.urlDl;
+            else if (prefetch.id === row.id && prefetch.url) chromeUrlNow = prefetch.url;
+            if (chromeUrlNow) clickDownload(chromeUrlNow, saveName, true);
+        }
         var btn = gg('fx_dl');
         if (btn) btn.disabled = true;
         lastNotePct = -1;
@@ -2098,14 +2119,20 @@ var FILEXFER = (function () {
             setProgress(1);
             status(trReplKey('filexfer.downloading', { PCT: '1' }), 'work');
             showWaitNote('filexfer.waitChromeSave');
-            job = isManifestPath(row.storage_path)
-                ? manifestJob(null)
-                : singleUrl(true).then(function (url) {
+            if (isManifestPath(row.storage_path)) {
+                job = manifestJob(null);
+            } else if (chromeUrlNow) {
+                setProgress(99);
+                status(trKey('filexfer.chromeSaving'), 'work');
+                job = Promise.resolve({ via: 'chrome' });
+            } else {
+                job = singleUrl(true).then(function (url) {
                     clickDownload(url, saveName, true);
                     setProgress(99);
                     status(trKey('filexfer.chromeSaving'), 'work');
                     return { via: 'chrome' };
                 });
+            }
         }
         job.then(function (result) {
             markDownloaded(row);
@@ -2117,7 +2144,7 @@ var FILEXFER = (function () {
                         hideWaitNote();
                         setProgress(0);
                     }, 2000);
-                }, 8000);
+                }, chromeSaveWaitMs(saveSize));
                 return;
             }
             setProgress(100);

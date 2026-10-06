@@ -7685,14 +7685,14 @@
             'zh-Hant': '可以另開一個香蕉頁面繼續工作。請讓此頁保持運行直到進度條走完。'
         },
         'filexfer.waitChromeSave': {
-            en: 'You can open another Banana page and keep working. Leave this tab running. This browser has no folder picker — the file will land in Downloads when the download bar finishes.',
-            'zh-CN': '可以另开一个香蕉页面继续工作。请让此页保持运行。此浏览器没有文件夹选择器 — 下载条走完后文件会落在“下载”文件夹。',
-            'zh-Hant': '可以另開一個香蕉頁面繼續工作。請讓此頁保持運行。此瀏覽器沒有資料夾選擇器 — 下載列走完後檔案會落在「下載」資料夾。'
+            en: 'You can open another Banana page and keep working. Leave this tab running. Unzip the file from Chrome’s download bar (usually Downloads) — not an older copy from a previous Save-as dialog.',
+            'zh-CN': '可以另开一个香蕉页面继续工作。请让此页保持运行。请解压 Chrome 下载条里的那个文件（通常在“下载”文件夹），不要解压以前“另存为”留下的旧文件。',
+            'zh-Hant': '可以另開一個香蕉頁面繼續工作。請讓此頁保持運行。請解壓 Chrome 下載列裡的那個檔案（通常在「下載」資料夾），不要解壓以前「另存為」留下的舊檔。'
         },
         'filexfer.chromeSaving': {
-            en: 'The browser is saving the file to Downloads. When the download bar finishes, the file is on disk.',
-            'zh-CN': '浏览器正在把文件保存到“下载”文件夹。下载条走完后，文件已在磁盘上。',
-            'zh-Hant': '瀏覽器正在把檔案儲存到「下載」資料夾。下載列走完後，檔案已在磁碟上。'
+            en: 'Chrome is saving the file with its download bar. Wait until that bar finishes, then unzip that file.',
+            'zh-CN': 'Chrome 正在用下载条保存文件。请等下载条走完，再解压那个文件。',
+            'zh-Hant': 'Chrome 正在用下載列儲存檔案。請等下載列走完，再解壓那個檔案。'
         },
         'filexfer.finalizing': {
             en: 'Confirming the last chunk with the server…',

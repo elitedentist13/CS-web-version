@@ -206,9 +206,9 @@ var I18N_STRINGS = {
         'zh-Hant': '檔案傳送'
     },
     'tools.fileTransferDesc': {
-        en: 'Send files between Banana clinics — Fast Pass up to 5 GB for 3 days, or Direct with no size limit while both stay online',
-        'zh-CN': '在香蕉诊所之间传送文件 — Fast Pass 最大 5 GB、3 天有效；或双方在线时直传，不限大小',
-        'zh-Hant': '在香蕉診所之間傳送檔案 — Fast Pass 最大 5 GB、3 天有效；或雙方在線時直傳，不限大小'
+        en: 'Send files between Banana clinics. For zips: Fast Pass (browser download) at any size; Direct only under 500 MB. A Direct zip over 500 MB on Windows can look valid but fail to unzip.',
+        'zh-CN': '在香蕉诊所之间传送文件。压缩包请用 Fast Pass（浏览器下载栏），不限大小；直传仅用于 500 MB 以下。Windows 上超过 500 MB 的直传压缩包可能看起来像 zip 但解压失败。',
+        'zh-Hant': '在香蕉診所之間傳送檔案。壓縮檔請用 Fast Pass（瀏覽器下載列），不限大小；直傳僅用於 500 MB 以下。Windows 上超過 500 MB 的直傳壓縮檔可能看起來像 zip 但解壓失敗。'
     },
     'tools.fileTransferLoading': {
         en: 'File Transfer is still loading. Please try again.',

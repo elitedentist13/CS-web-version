@@ -11,7 +11,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx63';
+var BUILD = '20261006fx64';
 var CDP_PORT = 9377;
 var PAGE_PORT = 5500;
 var SIZE = 2 * 1024 * 1024;

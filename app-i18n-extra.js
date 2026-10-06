@@ -7555,9 +7555,9 @@
 
         // ── File Transfer (clinic Fast Pass) ───────────────────
         'filexfer.intro': {
-            en: 'Send a file to another Banana clinic. Use Direct when both sides are online now (nothing stored), or Fast Pass to leave a 3-day code.',
-            'zh-CN': '向另一间香蕉诊所发送文件。双方都在线时用直传（不落地存储）；或用 Fast Pass 留下 3 天有效代码。',
-            'zh-Hant': '向另一間香蕉診所發送檔案。雙方都在線時用直傳（不落地儲存）；或用 Fast Pass 留下 3 天有效代碼。'
+            en: 'Send a file to another Banana clinic. Fast Pass leaves a 3-day code (up to 5 GB). Direct needs both sides online and stores nothing. For zips: use Fast Pass at any size, or Direct only under 500 MB — a larger Direct zip on Windows can look valid but fail to unzip.',
+            'zh-CN': '向另一间香蕉诊所发送文件。Fast Pass 留下 3 天代码（最大 5 GB）。直传需双方在线且不落地存储。压缩包请用 Fast Pass（不限大小），或仅对 500 MB 以下用直传 — Windows 上更大的直传压缩包可能看起来像 zip 但解压失败。',
+            'zh-Hant': '向另一間香蕉診所發送檔案。Fast Pass 留下 3 天代碼（最大 5 GB）。直傳需雙方在線且不落地儲存。壓縮檔請用 Fast Pass（不限大小），或僅對 500 MB 以下用直傳 — Windows 上更大的直傳壓縮檔可能看起來像 zip 但解壓失敗。'
         },
         'filexfer.modePass': { en: 'Fast Pass (3 days)', 'zh-CN': 'Fast Pass（3 天）', 'zh-Hant': 'Fast Pass（3 天）' },
         'filexfer.modeDirect': { en: 'Direct (live)', 'zh-CN': '直传（实时）', 'zh-Hant': '直傳（即時）' },
@@ -7582,9 +7582,9 @@
             'zh-Hant': '按 6 MB 分片上傳到診所雲端，最大 5 GB。對方從雲端直接寫入磁碟，瀏覽器不快取整份檔案。'
         },
         'filexfer.modeDirectHint': {
-            en: 'No size limit and nothing is stored. Both clinics must keep this page open until it finishes. Files over 500 MB are saved to disk as they arrive.',
-            'zh-CN': '不限大小，文件不落地。双方必须保持此页打开直到传完。超过 500 MB 的文件会边收边存到磁盘。',
-            'zh-Hant': '不限大小，檔案不落地。雙方必須保持此頁開啟直到傳完。超過 500 MB 的檔案會邊收邊存到磁碟。'
+            en: 'Nothing is stored. Both clinics must keep this page open until it finishes. Direct zips under 500 MB unzip normally. Over 500 MB, Windows saves via the folder picker and the zip can look valid but fail to unzip — use Fast Pass instead.',
+            'zh-CN': '文件不落地。双方必须保持此页打开直到传完。500 MB 以下的直传压缩包可正常解压。超过 500 MB 时 Windows 会用文件夹选择器保存，压缩包可能看起来像 zip 但解压失败 — 请改用 Fast Pass。',
+            'zh-Hant': '檔案不落地。雙方必須保持此頁開啟直到傳完。500 MB 以下的直傳壓縮檔可正常解壓。超過 500 MB 時 Windows 會用資料夾選擇器儲存，壓縮檔可能看起來像 zip 但解壓失敗 — 請改用 Fast Pass。'
         },
         'filexfer.sendDirectBtn': { en: 'Start live transfer', 'zh-CN': '开始直传', 'zh-Hant': '開始直傳' },
         'filexfer.liveWait': {

@@ -11,7 +11,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx63';
+var BUILD = '20261006fx64';
 var CDP_PORT = 9374;
 var PAGE_PORT = 5500;
 var CHROME = process.env.CHROME_PATH || (
@@ -264,8 +264,10 @@ function main() {
     pass('Fast Pass shows wait note on upload and download',
         /function doSend[\s\S]{0,800}showWaitNote/.test(fxSrc) &&
         /function doDownload[\s\S]{0,5000}showWaitNote/.test(fxSrc));
-    pass('i18n downloadOk',
-        i18nSrc.indexOf("'filexfer.downloadOk'") >= 0);
+    pass('i18n zip practical rule on Tools card + Direct hint',
+        fs.readFileSync(path.join(root, 'app-i18n.js'), 'utf8').indexOf('Direct only under 500 MB') >= 0 &&
+        i18nSrc.indexOf('larger Direct zip on Windows') >= 0 &&
+        i18nSrc.indexOf('use Fast Pass instead') >= 0);
     pass('css fx-progress',
         cssSrc.indexOf('.fx-progress') >= 0);
     pass('file-transfer loaded from index',

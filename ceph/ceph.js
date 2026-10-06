@@ -722,7 +722,7 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx52" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx53" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair) {
                 var isExtract = pair[0] === tx('sum.extract');
@@ -1070,6 +1070,20 @@
             return c.toDataURL('image/jpeg', 0.92);
         } catch (e) { return ''; }
     }
+    function paintShortName(g, id, p, w, r) {
+        if (!p || !isFinite(p.x) || !isFinite(p.y) || !id) return;
+        var fontPx = Math.max(16, Math.round(w / 80));
+        var dx = Math.round(r + 4);
+        var dy = Math.round(fontPx * 0.35);
+        g.font = 'bold ' + fontPx + 'px sans-serif';
+        g.textBaseline = 'alphabetic';
+        g.lineJoin = 'round';
+        g.lineWidth = Math.max(3, fontPx / 5);
+        g.strokeStyle = 'rgba(15,23,42,0.88)';
+        g.strokeText(id, p.x + dx, p.y - dy);
+        g.fillStyle = '#fde68a';
+        g.fillText(id, p.x + dx, p.y - dy);
+    }
     function markedDataUrl() {
         if (!img.naturalWidth) return '';
         try {
@@ -1086,13 +1100,24 @@
                 if (!a || !b) return;
                 g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
             });
+            var r = Math.max(4, c.width / 280);
             (CEPH_LM.defs() || []).forEach(function (d) {
                 var p = pts[d.id];
                 if (!p) return;
                 g.beginPath();
                 g.fillStyle = '#facc15';
-                g.arc(p.x, p.y, Math.max(4, c.width / 280), 0, Math.PI * 2);
+                g.arc(p.x, p.y, r, 0, Math.PI * 2);
                 g.fill();
+                paintShortName(g, d.id, p, c.width, r);
+            });
+            EXTRA_DEFS.forEach(function (d) {
+                var p = extra[d.id];
+                if (!p) return;
+                g.beginPath();
+                g.fillStyle = '#c4b5fd';
+                g.arc(p.x, p.y, Math.max(3, r * 0.75), 0, Math.PI * 2);
+                g.fill();
+                paintShortName(g, d.id, p, c.width, r);
             });
             return c.toDataURL('image/jpeg', 0.88);
         } catch (e) { return filmDataUrl(); }
@@ -1849,7 +1874,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx52';
+        var url = 'extraction.html?v=20261005fx53';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }
@@ -2133,6 +2158,7 @@
 
     window.CEPH_PAGE = {
         loadUrl: loadUrl,
+        markedDataUrl: markedDataUrl,
         openFromStrip: function (url, name, extra) {
             extra = extra || {};
             if (!ctxInfo) ctxInfo = {};

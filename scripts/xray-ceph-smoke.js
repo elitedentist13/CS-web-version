@@ -12,7 +12,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx52';
+var BUILD = '20261005fx53';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -197,6 +197,12 @@ var PAGE_SCRIPT = `(async () => {
   out.imgH = st.imgH;
   out.nPts = st.nPts;
   out.profileN = st.profileN;
+  out.markedFn = typeof CEPH_PAGE.markedDataUrl === 'function';
+  try {
+    const marked = CEPH_PAGE.markedDataUrl();
+    out.markedJpeg = String(marked || '').indexOf('data:image/jpeg') === 0;
+    out.markedBytes = (marked || '').length;
+  } catch (eM) { out.markedJpeg = false; out.markedBytes = 0; }
   out.sna = st.sna;
   out.snaBand = st.snaBand;
   out.snaNorm = st.snaNorm;
@@ -624,6 +630,7 @@ var PAGE_SCRIPT = `(async () => {
         /xrayCephReplySave/.test(launch) && /st.saveNeedPatient/.test(read('ceph/ceph-i18n.js')) &&
         /xrayCephPublishSource/.test(launch) && /publishSourceFile/.test(read('ceph/ceph.js')) &&
         /Banana Ceph film/.test(launch) && /markedDataUrl/.test(read('ceph/ceph.js')) &&
+        /paintShortName/.test(read('ceph/ceph.js')) && /fillText\(id/.test(read('ceph/ceph.js')) &&
         /__ceph-strip.html/.test(read('scripts/xray-ceph-smoke.js')) &&
         /banana-ceph-smoke/.test(read('scripts/xray-ceph-smoke.js')) &&
         /xrayCephFetchLatestForPatient/.test(launch) &&
@@ -1471,6 +1478,9 @@ var PAGE_SCRIPT = `(async () => {
             live ? ('viaStrip=' + live.viaStrip + ' type=' + live.xrayType + ' status=' + live.openedStrip) : 'none');
         pass('live: 19 landmarks placed inside the film', live && live.nPts === 19 && live.inBounds === true,
             live ? ('n=' + live.nPts + ' source=' + live.source) : 'none');
+        pass('live: Banana Ceph study JPEG paints short landmark names with the dots',
+            live && live.markedFn === true && live.markedJpeg === true && live.markedBytes > 8000,
+            live ? ('jpeg=' + live.markedJpeg + ' bytes=' + live.markedBytes) : 'none');
         pass('live: a profile polyline is drawn on the film',
             live && live.profileN >= 4,
             live ? ('profileN=' + live.profileN) : 'none');

@@ -1515,6 +1515,17 @@
 .fx-status--warn { background: #fdf3e2; color: #9a6b15; }
 .fx-status--bad  { background: #fbe9e9; color: #a12d2d; }
 .fx-status--work { background: #eef2ff; color: #3730a3; }
+.fx-wait-note {
+    display: none;
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #5b6275;
+    background: #f8fafc;
+    border: 1px solid #e8ecf4;
+}
 
 /* ── responsive ───────────────────────────────────────────────── */
 @media (max-width: 760px) {

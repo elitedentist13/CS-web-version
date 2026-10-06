@@ -7562,9 +7562,9 @@
         'filexfer.modePass': { en: 'Fast Pass (3 days)', 'zh-CN': 'Fast Pass（3 天）', 'zh-Hant': 'Fast Pass（3 天）' },
         'filexfer.modeDirect': { en: 'Direct (live)', 'zh-CN': '直传（实时）', 'zh-Hant': '直傳（即時）' },
         'filexfer.modePassSub': {
-            en: 'Upload once. Download any time within 3 days.',
-            'zh-CN': '上传一次，3 天内随时下载。',
-            'zh-Hant': '上傳一次，3 天內隨時下載。'
+            en: 'Stored in the clinic bucket. Download any time within 3 days.',
+            'zh-CN': '存入诊所云盘，3 天内随时下载。',
+            'zh-Hant': '存入診所雲端，3 天內隨時下載。'
         },
         'filexfer.modeDirectSub': {
             en: 'Both clinics stay on this page. Nothing is stored.',
@@ -7577,9 +7577,9 @@
             'zh-Hant': '拖放檔案到此處，或點擊選擇'
         },
         'filexfer.modePassHint': {
-            en: 'Upload once, up to 5 GB. The other clinic can download any time in the next 3 days.',
-            'zh-CN': '上传一次，最大 5 GB。对方可在 3 天内随时下载。',
-            'zh-Hant': '上傳一次，最大 5 GB。對方可在 3 天內隨時下載。'
+            en: 'Uploads to the clinic bucket in 6 MB pieces, up to 5 GB. The other clinic streams it from the bucket onto disk — nothing is kept in the browser.',
+            'zh-CN': '按 6 MB 分片上传到诊所云盘，最大 5 GB。对方从云盘直接写入磁盘，浏览器不缓存整份文件。',
+            'zh-Hant': '按 6 MB 分片上傳到診所雲端，最大 5 GB。對方從雲端直接寫入磁碟，瀏覽器不快取整份檔案。'
         },
         'filexfer.modeDirectHint': {
             en: 'No size limit and nothing is stored. Both clinics must keep this page open until it finishes. Files over 500 MB are saved to disk as they arrive.',
@@ -7633,6 +7633,11 @@
             'zh-CN': '超过 500 MB 的文件需要 Chrome 或 Edge，才能在双方在线时直接写入磁盘。',
             'zh-Hant': '超過 500 MB 的檔案需要 Chrome 或 Edge，才能在雙方在線時直接寫入磁碟。'
         },
+        'filexfer.needDiskSave': {
+            en: 'Fast Pass saves from the clinic bucket to a file you choose. Open Banana in Chrome or Edge, then pick a folder in the save window.',
+            'zh-CN': 'Fast Pass 从诊所云盘直接存到你选择的文件。请用 Chrome 或 Edge 打开香蕉系统，并在保存窗口中选择位置。',
+            'zh-Hant': 'Fast Pass 從診所雲端直接存到你選擇的檔案。請用 Chrome 或 Edge 開啟香蕉系統，並在儲存視窗中選擇位置。'
+        },
         'filexfer.liveFailLookup': {
             en: 'Direct path failed. Checking for a Fast Pass…',
             'zh-CN': '直传失败。正在查找 Fast Pass…',
@@ -7659,9 +7664,9 @@
         'filexfer.tabMine': { en: 'My passes', 'zh-CN': '我的传送', 'zh-Hant': '我的傳送' },
         'filexfer.file': { en: 'File', 'zh-CN': '文件', 'zh-Hant': '檔案' },
         'filexfer.fileHint': {
-            en: 'One file, up to 5 GB (X-ray, CBCT, PDF, photos…).',
-            'zh-CN': '单个文件，最大 5 GB（X 光、CBCT、PDF、照片…）。',
-            'zh-Hant': '單個檔案，最大 5 GB（X 光、CBCT、PDF、相片…）。'
+            en: 'One file, up to 5 GB. It is stored in the clinic bucket, not in this browser.',
+            'zh-CN': '单个文件，最大 5 GB。存入诊所云盘，不占用本机浏览器缓存。',
+            'zh-Hant': '單個檔案，最大 5 GB。存入診所雲端，不佔用本機瀏覽器快取。'
         },
         'filexfer.fileHintDirect': {
             en: 'One file, no size limit. Both clinics must stay on this page until it finishes.',
@@ -7674,6 +7679,11 @@
         'filexfer.notePh': { en: 'e.g. CBCT for tomorrow AM', 'zh-CN': '例如：明天上午的 CBCT', 'zh-Hant': '例如：明天上午的 CBCT' },
         'filexfer.sendBtn': { en: 'Create Fast Pass', 'zh-CN': '建立 Fast Pass', 'zh-Hant': '建立 Fast Pass' },
         'filexfer.sending': { en: 'Uploading… {PCT}%', 'zh-CN': '上传中… {PCT}%', 'zh-Hant': '上傳中… {PCT}%' },
+        'filexfer.waitOtherTab': {
+            en: 'You can open another Banana page and keep working. Leave this tab running until the bar finishes.',
+            'zh-CN': '可以另开一个香蕉页面继续工作。请让此页保持运行直到进度条走完。',
+            'zh-Hant': '可以另開一個香蕉頁面繼續工作。請讓此頁保持運行直到進度條走完。'
+        },
         'filexfer.finalizing': {
             en: 'Confirming the last chunk with the server…',
             'zh-CN': '正在向服务器确认最后一块…',

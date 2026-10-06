@@ -708,7 +708,7 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx44" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx46" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair) {
                 var isExtract = pair[0] === tx('sum.extract');
@@ -1120,7 +1120,7 @@
         syncLoadBtn();
         setStatus(tx('st.savingCloud'));
         publishTrace(rec).then(function (r) {
-            if (r && r.ok && r.cloud) {
+            if (r && r.ok && r.cloud && r.cephXrayId) {
                 if (ctxInfo) {
                     ctxInfo.tracingVia = 'cloud';
                     if (r.cephSaveId) ctxInfo.cephSaveId = r.cephSaveId;
@@ -1130,7 +1130,8 @@
                     if (r.cephXrayId && ctxInfo.tracing) ctxInfo.tracing.cephXrayId = r.cephXrayId;
                 }
                 setStatus(tx('st.savedCloud'));
-            } else if (r && (r.error === 'col' || r.needSql)) setStatus(tx('st.savedNeedSql'));
+            } else if (r && r.ok && r.cloud) setStatus(tx('st.savedNoStrip'));
+            else if (r && (r.error === 'col' || r.needSql)) setStatus(tx('st.savedNeedSql'));
             else setStatus(tx('st.savedLocal', { key: key }));
         });
         return { ok: true, key: key, rec: rec };
@@ -1672,7 +1673,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx44';
+        var url = 'extraction.html?v=20261005fx46';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }

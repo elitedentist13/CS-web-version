@@ -146,6 +146,32 @@
         return pts;
     }
 
+    function globalBoxMean(box) {
+        var list = SHAPES && SHAPES.shapes;
+        var ids = (SHAPES && SHAPES.ids) || IDS_FALLBACK();
+        if (!list || !list.length) return placeOn(box, 'nx', 'ny');
+        var acc = {};
+        var j, p, sh, k;
+        ids.forEach(function (id) { acc[id] = { x: 0, y: 0 }; });
+        k = list.length;
+        for (j = 0; j < k; j++) {
+            sh = list[j];
+            p = sh.p || sh;
+            ids.forEach(function (id, idx) {
+                acc[id].x += p[idx * 2];
+                acc[id].y += p[idx * 2 + 1];
+            });
+        }
+        var pts = {};
+        ids.forEach(function (id) {
+            pts[id] = {
+                x: box.x + (acc[id].x / k) * box.w,
+                y: box.y + (acc[id].y / k) * box.h
+            };
+        });
+        return pts;
+    }
+
     function catalogIdSet() {
         var o = {};
         defs().forEach(function (d) { o[d.id] = true; });
@@ -197,15 +223,20 @@
     function placeLibAverage(img, box, opts) {
         opts = opts || {};
         var useTraining = !!opts.useTraining;
+        var all = !!opts.all;
         var prefix = libPrefix();
-        var tag = (box && box.via === 'unet') ? 'boxmean+unetbox' : 'boxmean+edge';
-        var mean = localBoxMean(box, opts.k || 24);
-        var pts = (opts.snap === false) ? mean : refinePts(img, mean, box.w, box.h, false);
+        var tag = all
+            ? ((box && box.via === 'unet') ? 'allmean+unetbox' : 'allmean')
+            : ((box && box.via === 'unet') ? 'boxmean+unetbox' : 'boxmean+edge');
+        var mean = all ? globalBoxMean(box) : localBoxMean(box, opts.k || 24);
+        var pts = (all || opts.snap === false) ? mean : refinePts(img, mean, box.w, box.h, false);
         var over = overlayTraining(pts, box, useTraining);
         var trainSrc = over.used ? ('clinic-train-' + over.films) : '';
         return {
-            id: 'lib1502',
-            label: over.used ? '1502 + self-training library average' : '1502 library ± self-training average',
+            id: all ? 'lib1502all' : 'lib1502',
+            label: all
+                ? (over.used ? '1502 mean + self-training' : '1502 library mean (all films)')
+                : (over.used ? '1502 + self-training library average' : '1502 library ± self-training average'),
             source: prefix + '-' + tag + (trainSrc ? ('; training:' + trainSrc) : ''),
             publishedSource: prefix + '-' + tag,
             trainingSource: trainSrc,
@@ -216,13 +247,25 @@
         };
     }
 
-    function fitLibToGuide(img, guidePts, opts) {
+    function guideBox(img, guidePts) {
         var box = boxFromPts(guidePts, img);
         if (!box) {
             box = findHeadBox(img);
             box.via = 'head';
         }
-        return placeLibAverage(img, box, opts || {});
+        return box;
+    }
+
+    function fitLibToGuide(img, guidePts, opts) {
+        return placeLibAverage(img, guideBox(img, guidePts), opts || {});
+    }
+
+    function fitLibAll(img, guidePts, opts) {
+        var next = {};
+        opts = opts || {};
+        Object.keys(opts).forEach(function (k) { next[k] = opts[k]; });
+        next.all = true;
+        return placeLibAverage(img, guideBox(img, guidePts), next);
     }
 
     function IDS_FALLBACK() {
@@ -340,6 +383,7 @@
         var imgMean = placeImgMean(img);
         var imgEdge = refinePts(img, imgMean, img.naturalWidth, img.naturalHeight, true);
         var lib = placeLibAverage(img, box, { useTraining: useTraining });
+        var libAll = placeLibAverage(img, lib.box || box, { useTraining: useTraining, all: true });
         var sets = [
             {
                 id: 'unet',
@@ -348,7 +392,8 @@
                 publishedSource: prefix + '-imgmean+edge',
                 pts: clonePts(imgEdge)
             },
-            lib
+            lib,
+            libAll
         ];
         return {
             sets: sets,
@@ -483,6 +528,7 @@
         findHeadBox: findHeadBox,
         boxFromPts: boxFromPts,
         fitLibToGuide: fitLibToGuide,
+        fitLibAll: fitLibAll,
         placeLibAverage: placeLibAverage,
         publishedStats: publishedStats
     };

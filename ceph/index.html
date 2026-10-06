@@ -52,17 +52,17 @@
     <div id="stage">
       <div id="viewWrap">
         <canvas id="view"></canvas>
-        <div id="setBar" class="setBar is-hidden" tabindex="0" data-i18n-title="setBar.title" title="Click UNet or 1502 to view a set, then Adopt selection.">
+        <div id="setBar" class="setBar is-hidden" tabindex="0" data-i18n-title="setBar.title" title="Click UNet, 1502, or All to view a set, then Adopt selection.">
           <div class="setBar-row">
             <div id="setBtns" class="setBtns"></div>
             <button type="button" class="primary" id="btnAdoptSet" data-i18n="btn.adopt">Adopt selection</button>
           </div>
-          <p id="setCaption" class="hint">View UNet and 1502, then Adopt selection.</p>
+          <p id="setCaption" class="hint">View UNet, 1502, and All, then Adopt selection.</p>
         </div>
         <button type="button" id="btnChangeSet" class="changeSet is-hidden" data-i18n="btn.changeSet">Change set</button>
       </div>
       <aside id="side">
-        <p class="hint" id="sideHint" data-i18n="hint.side">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Auto-detect offers 2 sets: UNet (default) and the 1502 library average (plus in-house if Published + in-house is on). Compare values to Caucasian or HK Chinese norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The extraction index is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.</p>
+        <p class="hint" id="sideHint" data-i18n="hint.side">19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Auto-detect offers 3 sets: UNet (default), the 1502 nearest-film average, and the 1502 all-film mean (plus in-house if Published + in-house is on). Compare values to Caucasian or HK Chinese norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The extraction index is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.</p>
         <div class="libs labOnly is-hidden">
           <div class="lib">
             <h3 data-i18n="h.pub">Published tracings</h3>

@@ -14,12 +14,12 @@
     var lastBox = null;
     var lastDetect = null;
     var touched = {};
-    var setTouched = [{}, {}];
+    var setTouched = [{}, {}, {}];
     var sets = [];
     var setIndex = 0;
     var userPickedSet = false;
     var setBarHidden = true;
-    var viewedSets = [false, false];
+    var viewedSets = [false, false, false];
     var USE_TRAIN_KEY = 'banana.ceph.useTrain.v1';
     var useTraining = false;
     var NORM_KEY = 'banana.ceph.normSet.v1';
@@ -72,13 +72,23 @@
     }
     function setLabelTx(s) {
         if (!s) return '';
-        if (s.id === 'lib1502' && (s.trainingSource || /training:/.test(String(s.source || '')))) {
-            var plus = tx('set.lib1502plus');
-            if (plus && plus !== 'set.lib1502plus') return plus;
+        if ((s.id === 'lib1502' || s.id === 'lib1502all') &&
+            (s.trainingSource || /training:/.test(String(s.source || '')))) {
+            var plusKey = s.id === 'lib1502all' ? 'set.lib1502allplus' : 'set.lib1502plus';
+            var plus = tx(plusKey);
+            if (plus && plus !== plusKey) return plus;
         }
         var k = 'set.' + s.id;
         var t = tx(k);
         return (t && t !== k) ? t : (s.label || '');
+    }
+    function setChip(s) {
+        var k = 'set.chip.' + (s && s.id ? s.id : 'unet');
+        var t = tx(k);
+        if (t && t !== k) return t;
+        if (!s || s.id === 'unet') return 'UNet';
+        if (s.id === 'lib1502all') return 'All';
+        return '1502';
     }
     function groupTitleTx(en) {
         var map = {
@@ -1481,7 +1491,7 @@
 
     function remainingView() {
         var left = [];
-        sets.forEach(function (s, i) { if (!viewedSets[i]) left.push(s.id === 'unet' ? 'UNet' : '1502'); });
+        sets.forEach(function (s, i) { if (!viewedSets[i]) left.push(setChip(s)); });
         return left;
     }
 
@@ -1492,8 +1502,8 @@
         var ready = viewedAll();
         if (host) {
             if (!sets.length) {
-                host.innerHTML = [0, 1].map(function (i) {
-                    return '<button type="button" disabled>' + (i ? '1502' : 'UNet') + '</button>';
+                host.innerHTML = [0, 1, 2].map(function (i) {
+                    return '<button type="button" disabled>' + (i === 0 ? 'UNet' : (i === 2 ? 'All' : '1502')) + '</button>';
                 }).join('');
                 if (adopt) adopt.disabled = true;
             } else {
@@ -1501,7 +1511,7 @@
                     var on = i === setIndex;
                     return '<button type="button" class="' + (on ? 'is-on' : '') + '" data-set="' + i +
                         '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' + (s.label || ('Set ' + (i + 1))) +
-                        '">' + (s.id === 'unet' ? 'UNet' : '1502') + '</button>';
+                        '">' + setChip(s) + '</button>';
                 }).join('');
                 host.querySelectorAll('button').forEach(function (btn) {
                     btn.onclick = function () {
@@ -1609,8 +1619,8 @@
         sets = pack.sets || [];
         lastBox = pack.box || lastBox;
         lastDetect = pack;
-        setTouched = [{}, {}];
-        viewedSets = [false, false];
+        setTouched = sets.map(function () { return {}; });
+        viewedSets = sets.map(function () { return false; });
         var idx = pack.defaultIndex || 0;
 
         function applyHeld() {
@@ -1656,9 +1666,13 @@
                         lastBox = lib.box || lastBox;
                         pack.trainingSource = lib.trainingSource || pack.trainingSource;
                     }
+                    if (typeof CEPH_LM.fitLibAll === 'function') {
+                        var libAll = CEPH_LM.fitLibAll(img, remote.pts, { useTraining: useTraining });
+                        if (libAll && libAll.pts) sets[2] = libAll;
+                    }
                 }
                 if (!userPickedSet && !restoreHold) previewSet(0, false);
-                else if (setIndex === 1 && !restoreHold) previewSet(1, false);
+                else if (setIndex > 0 && !restoreHold) previewSet(setIndex, false);
                 else renderSetBar();
                 if (!restoreHold) {
                     setStatus(ctxInfo && ctxInfo.viaStrip

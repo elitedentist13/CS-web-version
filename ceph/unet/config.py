@@ -10,6 +10,12 @@ NUM_LANDMARKS = 29
 INPUT_SIZE = 512
 HEATMAP_SIZE = 256
 IMAGE_SIZE = (INPUT_SIZE, INPUT_SIZE)
+# Gaussian std on the 256 heatmap. 1.5 is sharper than Dental_001's sigma=2
+# so the mode sits closer to the labelled point.
+HEATMAP_SIGMA = 1.5
+# Local soft-argmax window. Radius 5 covers a sigma≈2 blob from older weights.
+PEAK_RADIUS = 5
+PEAK_BETA = 16.0
 BATCH_SIZE = 8
 VALID_BATCH_SIZE = 8
 

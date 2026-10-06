@@ -10,6 +10,7 @@ if str(HERE) not in sys.path:
 
 import infer
 from config import AARIZ_SYMBOLS, ISBI_FROM_AARIZ, NUM_LANDMARKS
+from dataset import render_heatmaps
 
 
 def main():
@@ -44,8 +45,51 @@ def main():
     assert st["home"] == "ceph/unet"
     assert st["owned"] == "banana"
     assert st["model"] == "resnet50-unet-heatmap-29"
+    assert st["decode"] == "local-soft-argmax"
+    _check_subpixel()
+    _check_fractional_heatmap()
     print("ok banana unet clone", len(isbi), "extra", sorted(extra.keys()),
           "home", st["home"], "status", st["available"])
+
+
+def _check_fractional_heatmap():
+    # Label between pixels must peak on that fraction, not on the floor cell.
+    hm = render_heatmaps([(20.8, 40.3)], (64, 64), (64, 64), sigma=1.5)
+    assert hm.shape == (1, 64, 64)
+    flat = hm[0].reshape(-1)
+    idx = int(flat.argmax())
+    py, px = divmod(idx, 64)
+    assert abs(px - 20.8) < 0.6, px
+    assert abs(py - 40.3) < 0.6, py
+
+
+def _check_subpixel():
+    try:
+        import torch
+    except ImportError:
+        print("skip subpixel (no torch)")
+        return
+    h = w = 64
+    cy, cx = 20.35, 11.7
+    yy = torch.arange(h).float()[:, None]
+    xx = torch.arange(w).float()[None, :]
+    sigma = 1.5
+    g = torch.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma * sigma))
+    heatmaps = g.view(1, 1, h, w)
+    coords = infer._coords_from_heatmaps(heatmaps, w, h)
+    assert abs(coords[0][0] - cx) < 0.2, coords
+    assert abs(coords[0][1] - cy) < 0.2, coords
+    spike = torch.zeros(1, 1, h, w)
+    spike[0, 0, 15, 8] = 1
+    coords = infer._coords_from_heatmaps(spike, w, h)
+    assert abs(coords[0][0] - 8) < 1e-3, coords
+    assert abs(coords[0][1] - 15) < 1e-3, coords
+    # Original-image scale: heatmap 256, film 1935×2400, peak at heatmap (10, 20).
+    film = torch.zeros(1, 1, 32, 32)
+    film[0, 0, 20, 10] = 1
+    coords = infer._coords_from_heatmaps(film, 1935, 2400)
+    assert abs(coords[0][0] - 10 * (1935 / 32.0)) < 0.05, coords
+    assert abs(coords[0][1] - 20 * (2400 / 32.0)) < 0.05, coords
 
 
 if __name__ == "__main__":

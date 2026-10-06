@@ -7,8 +7,10 @@ Cloned from HyunchanAn/Dental_001 `src/landmark/dataset.py`. Folder layout:
   <root>/{train,valid,test}/Annotations/Cephalometric Landmarks/Junior Orthodontists/
 
 Heatmap output defaults to 256×256 to match `UNetHeatmapModel` (Dental_001
-dataset.py defaulted to 64×64). Albumentations is imported only when a
-dataset is constructed so infer/verify stay lightweight.
+dataset.py defaulted to 64×64). Gaussians are centred on the continuous
+heatmap coordinate (not the truncated pixel) so the mode matches the label.
+Albumentations is imported only when a dataset is constructed so infer/verify
+stay lightweight.
 """
 from __future__ import annotations
 
@@ -18,13 +20,46 @@ import os
 import numpy as np
 
 try:
-    from .config import NUM_LANDMARKS
+    from .config import HEATMAP_SIGMA, NUM_LANDMARKS
 except ImportError:
-    from config import NUM_LANDMARKS
+    from config import HEATMAP_SIGMA, NUM_LANDMARKS
+
+
+def render_heatmaps(landmarks, output_size, image_size, sigma=HEATMAP_SIGMA):
+    """Float32 heatmaps (N, H, W). Landmark xy is in resized-image pixels.
+
+    The gaussian is sampled on the grid around the fractional heatmap
+    coordinate, so a label at 10.4 peaks at 10.4 rather than at floor(10.4).
+    """
+    out_h, out_w = int(output_size[0]), int(output_size[1])
+    in_h = float(image_size[0]) or 1.0
+    in_w = float(image_size[1]) or 1.0
+    n = len(landmarks)
+    heatmaps = np.zeros((n, out_h, out_w), dtype=np.float32)
+    scale_x = out_w / in_w
+    scale_y = out_h / in_h
+    sigma = float(sigma) if float(sigma) > 0 else 1.0
+    rad = int(np.ceil(sigma * 3.0))
+    denom = 2.0 * sigma * sigma
+    for i, point in enumerate(landmarks):
+        cx = float(point[0]) * scale_x
+        cy = float(point[1]) * scale_y
+        if not (0.0 <= cx < out_w and 0.0 <= cy < out_h):
+            continue
+        x0 = max(int(np.floor(cx)) - rad, 0)
+        x1 = min(int(np.floor(cx)) + rad + 1, out_w)
+        y0 = max(int(np.floor(cy)) - rad, 0)
+        y1 = min(int(np.floor(cy)) + rad + 1, out_h)
+        xs = np.arange(x0, x1, dtype=np.float32)
+        ys = np.arange(y0, y1, dtype=np.float32)
+        g = np.exp(-((xs - np.float32(cx)) ** 2)[None, :] / denom
+                   - ((ys - np.float32(cy)) ** 2)[:, None] / denom)
+        heatmaps[i, y0:y1, x0:x1] = g
+    return heatmaps
 
 
 class HeatmapDataset:
-    def __init__(self, dataset_folder_path, mode, image_size, output_size=(256, 256), sigma=2):
+    def __init__(self, dataset_folder_path, mode, image_size, output_size=(256, 256), sigma=HEATMAP_SIGMA):
         import cv2
         import torch
         from torch.utils.data import Dataset
@@ -73,38 +108,9 @@ class HeatmapDataset:
         transformed = self.transform(image=image, keypoints=landmarks)
         image = transformed["image"]
         landmarks = transformed["keypoints"]
-        heatmaps = self._generate_heatmaps(landmarks)
+        heatmaps = render_heatmaps(landmarks, self.output_size, self.image_size, self.sigma)
         t = self._torch
         return image, t.tensor(heatmaps, dtype=t.float32), t.tensor(landmarks, dtype=t.float32)
-
-    def _generate_heatmaps(self, landmarks):
-        heatmaps = np.zeros((NUM_LANDMARKS, self.output_size[0], self.output_size[1]), dtype=np.float32)
-        scale_x = self.output_size[1] / self.image_size[1]
-        scale_y = self.output_size[0] / self.image_size[0]
-        for i, (x, y) in enumerate(landmarks):
-            hm_x = int(x * scale_x)
-            hm_y = int(y * scale_y)
-            if 0 <= hm_x < self.output_size[1] and 0 <= hm_y < self.output_size[0]:
-                heatmaps[i] = self._create_gaussian_heatmap(hm_x, hm_y)
-        return heatmaps
-
-    def _create_gaussian_heatmap(self, center_x, center_y):
-        heatmap = np.zeros((self.output_size[0], self.output_size[1]), dtype=np.float32)
-        tmp_size = self.sigma * 3
-        size = 2 * tmp_size + 1
-        x = np.arange(0, size, 1, np.float32)
-        y = x[:, np.newaxis]
-        x0 = y0 = size // 2
-        g = np.exp(-((x - x0) ** 2 + (y - y0) ** 2) / (2 * self.sigma ** 2))
-        left = min(center_x, tmp_size)
-        right = min(self.output_size[1] - center_x, tmp_size + 1)
-        top = min(center_y, tmp_size)
-        bottom = min(self.output_size[0] - center_y, tmp_size + 1)
-        cropped_g = g[y0 - top:y0 + bottom, x0 - left:x0 + right]
-        paste_y1, paste_y2 = center_y - top, center_y + bottom
-        paste_x1, paste_x2 = center_x - left, center_x + right
-        heatmap[paste_y1:paste_y2, paste_x1:paste_x2] = cropped_g
-        return heatmap
 
     def _get_image(self, file_name):
         file_path = os.path.join(self.images_root_path, file_name)
@@ -119,8 +125,9 @@ class HeatmapDataset:
             junior = [[lm["value"]["x"], lm["value"]["y"]] for lm in json.load(fh)["landmarks"]]
         landmarks = np.zeros((NUM_LANDMARKS, 2), dtype=np.float32)
         for i in range(NUM_LANDMARKS):
-            landmarks[i, 0] = np.ceil(0.5 * (junior[i][0] + senior[i][0]))
-            landmarks[i, 1] = np.ceil(0.5 * (junior[i][1] + senior[i][1]))
+            # Plain mean. ceil() shoved every label up-right by up to 1 px.
+            landmarks[i, 0] = 0.5 * (float(junior[i][0]) + float(senior[i][0]))
+            landmarks[i, 1] = 0.5 * (float(junior[i][1]) + float(senior[i][1]))
         return landmarks
 
     def __len__(self):

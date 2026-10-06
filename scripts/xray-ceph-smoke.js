@@ -280,7 +280,8 @@ var PAGE_SCRIPT = `(async () => {
       }
     });
     out.libShiftPx = nShift ? shift / nShift : null;
-    out.set2 = '';
+    CEPH_PAGE.adoptSet(2);
+    out.set2 = CEPH_PAGE.state().source;
     const locked = typeof CEPH_PAGE.lockAdopt === 'function' ? CEPH_PAGE.lockAdopt() : null;
     out.adopted = !!(locked && locked.ok);
     out.setBarHidden = !!(CEPH_PAGE.state() && CEPH_PAGE.state().setBarHidden);
@@ -521,9 +522,11 @@ var PAGE_SCRIPT = `(async () => {
     pass('sidecar has Published 1502 vs Published + in-house reference modes',
         /btnRefPub/.test(read('ceph/index.html')) && /btnRefPlus/.test(read('ceph/index.html')) &&
         /setUseTraining/.test(read('ceph/ceph.js')) && /useTraining/.test(read('ceph/ceph-landmarks.js')));
-    pass('sidecar shows 2 auto-detect sets (UNet default + 1502 library) and Adopt selection',
+    pass('sidecar shows 3 auto-detect sets (UNet default + 1502 nearest + 1502 all-film mean) and Adopt selection',
         /setBar/.test(read('ceph/index.html')) && /btnAdoptSet/.test(read('ceph/index.html')) &&
-        /id: 'unet'/.test(read('ceph/ceph-landmarks.js')) && /id: 'lib1502'/.test(read('ceph/ceph-landmarks.js')) &&
+        /id: 'unet'/.test(read('ceph/ceph-landmarks.js')) && /'lib1502'/.test(read('ceph/ceph-landmarks.js')) &&
+        /'lib1502all'/.test(read('ceph/ceph-landmarks.js')) &&
+        /function fitLibAll/.test(read('ceph/ceph-landmarks.js')) &&
         !/id: 'imgEdge'/.test(read('ceph/ceph-landmarks.js')) &&
         /lockAdopt/.test(read('ceph/ceph.js')));
     pass('1502 library average is boxed from the UNet landmarks then k-NN mapped',
@@ -1484,12 +1487,15 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: a profile polyline is drawn on the film',
             live && live.profileN >= 4,
             live ? ('profileN=' + live.profileN) : 'none');
-        pass('live: 2 auto-detect sets — UNet (default) and 1502 library average',
-            live && live.nSets === 2 && /unet/.test(String(live.setIds || '')) && /lib1502/.test(String(live.setIds || '')) &&
+        pass('live: 3 auto-detect sets — UNet (default), 1502 nearest, and 1502 all-film mean',
+            live && live.nSets === 3 && /unet/.test(String(live.setIds || '')) &&
+            /lib1502,lib1502all/.test(String(live.setIds || '')) &&
             (/dental_001-unet/.test(String(live.set0 || '')) || /isbi\+aariz\+pku-/.test(String(live.set0 || ''))) &&
-            /boxmean\+(unetbox|edge)/.test(String(live.set1 || '')) && live.set0 !== live.set1 &&
+            /boxmean\+(unetbox|edge)/.test(String(live.set1 || '')) &&
+            /allmean/.test(String(live.set2 || '')) &&
+            live.set0 !== live.set1 && live.set1 !== live.set2 &&
             live.adopted === true && live.setBarHidden === true,
-            live ? ('ids=' + live.setIds + ' unet=' + live.set0 + ' lib=' + live.set1 + ' hidden=' + live.setBarHidden) : 'none');
+            live ? ('ids=' + live.setIds + ' unet=' + live.set0 + ' lib=' + live.set1 + ' all=' + live.set2 + ' hidden=' + live.setBarHidden) : 'none');
         pass('live: 1502 average is mapped into the UNet landmark box',
             live && /boxmean\+unetbox/.test(String(live.set1 || '')) && live.libShiftPx != null && live.libShiftPx < 80,
             live ? ('shift=' + live.libShiftPx + ' lib=' + live.set1) : 'none');

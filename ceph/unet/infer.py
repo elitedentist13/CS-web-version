@@ -1,4 +1,4 @@
-"""Banana UNet inference: load weights, argmax heatmaps, map Aariz → ISBI.
+"""Banana UNet inference: load weights, sub-pixel heatmap peaks, map Aariz → ISBI.
 
 Clinic Auto landmarks calls this through the AI service shim. The published
 1502 mean is never written here.
@@ -12,12 +12,14 @@ from typing import Any, Dict, List, Optional, Tuple
 try:
     from .config import (
         AARIZ_SYMBOLS, EXTRA_FROM_AARIZ, HEATMAP_SIZE, HF_REPO, HF_UNET_REPO,
-        INPUT_SIZE, ISBI_FROM_AARIZ, SERVICE_WEIGHTS_DIR, UNET_NAMES, WEIGHTS_DIR,
+        INPUT_SIZE, ISBI_FROM_AARIZ, PEAK_BETA, PEAK_RADIUS,
+        SERVICE_WEIGHTS_DIR, UNET_NAMES, WEIGHTS_DIR,
     )
 except ImportError:
     from config import (
         AARIZ_SYMBOLS, EXTRA_FROM_AARIZ, HEATMAP_SIZE, HF_REPO, HF_UNET_REPO,
-        INPUT_SIZE, ISBI_FROM_AARIZ, SERVICE_WEIGHTS_DIR, UNET_NAMES, WEIGHTS_DIR,
+        INPUT_SIZE, ISBI_FROM_AARIZ, PEAK_BETA, PEAK_RADIUS,
+        SERVICE_WEIGHTS_DIR, UNET_NAMES, WEIGHTS_DIR,
     )
 
 log = logging.getLogger("banana.ceph.unet")
@@ -74,6 +76,7 @@ def status() -> Dict[str, Any]:
         "weightsDir": str(WEIGHTS_DIR),
         "weightsFile": str(path) if path else "",
         "heatmap": HEATMAP_SIZE,
+        "decode": "local-soft-argmax",
     }
 
 
@@ -176,17 +179,50 @@ def _load():
     log.warning("UNet weights did not match ResNet-50 heatmap heads")
 
 
-def _coords_from_heatmaps(heatmaps, width: int, height: int) -> List[Tuple[float, float]]:
+def local_soft_argmax(heatmaps, radius=PEAK_RADIUS, beta=PEAK_BETA):
+    """Sub-pixel peak per channel. heatmaps (B, C, H, W) → xy (B, C, 2).
+
+    Argmax picks the cell, then a softmax over the local window takes the
+    expected coordinate. A symmetric spike stays on that pixel; a gaussian
+    whose mode sits between pixels shifts toward the mass. Gradients flow
+    through the window values (the window index itself is discrete).
+    """
     import torch
+    import torch.nn.functional as F
+
+    b, c, h, w = heatmaps.shape
+    radius = int(radius)
+    k = radius * 2 + 1
+    flat = heatmaps.reshape(b, c, -1)
+    idx = flat.argmax(dim=-1)
+    py = idx // w
+    px = idx % w
+    padded = F.pad(heatmaps, (radius, radius, radius, radius), mode="constant", value=0)
+    windows = padded.unfold(2, k, 1).unfold(3, k, 1)
+    bb = torch.arange(b, device=heatmaps.device)[:, None]
+    cc = torch.arange(c, device=heatmaps.device)[None, :]
+    win = windows[bb, cc, py, px]
+    peak = win.amax(dim=(-1, -2), keepdim=True)
+    yy = torch.arange(k, device=heatmaps.device)
+    xx = torch.arange(k, device=heatmaps.device)
+    gy = py[:, :, None, None] + (yy[None, None, :, None] - radius)
+    gx = px[:, :, None, None] + (xx[None, None, None, :] - radius)
+    valid = (gy >= 0) & (gy < h) & (gx >= 0) & (gx < w)
+    logits = (win - peak) * float(beta)
+    logits = logits.masked_fill(~valid, -1e4)
+    prob = torch.softmax(logits.reshape(b, c, -1), dim=-1).reshape(b, c, k, k)
+    exp_y = (prob * gy.to(heatmaps.dtype)).sum(dim=(-1, -2))
+    exp_x = (prob * gx.to(heatmaps.dtype)).sum(dim=(-1, -2))
+    return torch.stack((exp_x, exp_y), dim=-1)
+
+
+def _coords_from_heatmaps(heatmaps, width: int, height: int) -> List[Tuple[float, float]]:
     _, n, h, w = heatmaps.shape
-    flat = heatmaps.reshape(1, n, -1)
-    idx = torch.argmax(flat, dim=2)
-    ys = (idx // w).float()
-    xs = (idx % w).float()
-    scale_512 = float(INPUT_SIZE) / float(w)
-    xs = xs * scale_512 * (float(width) / float(INPUT_SIZE))
-    ys = ys * scale_512 * (float(height) / float(INPUT_SIZE))
-    return [(float(xs[0, i]), float(ys[0, i])) for i in range(n)]
+    xy = local_soft_argmax(heatmaps)
+    # Heatmap pixel → original image. INPUT_SIZE cancels: hm * width / heatmap_w.
+    xs = xy[0, :, 0] * (float(width) / float(w))
+    ys = xy[0, :, 1] * (float(height) / float(h))
+    return [(float(xs[i]), float(ys[i])) for i in range(n)]
 
 
 def detect(image) -> Dict[str, Any]:

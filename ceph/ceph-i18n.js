@@ -192,7 +192,7 @@
         'st.saveNeed': { en: 'Adopt a set before saving a tracing.', 'zh-CN': '请先采用一组再保存描记。', 'zh-Hant': '請先採用一組再儲存描記。' },
         'st.saved': { en: 'Tracing saved for this patient ({key}). Reopen Banana Ceph analysis to restore it.', 'zh-CN': '已为该病人保存描记（{key}）。再次打开香蕉头影测量即可恢复。', 'zh-Hant': '已為該病人儲存描記（{key}）。再次開啟香蕉頭影測量即可恢復。' },
         'st.savingCloud': { en: 'Saving a film copy and study ID for this patient…', 'zh-CN': '正在为该病人保存底片副本与研究 ID…', 'zh-Hant': '正在為該病人儲存底片副本與研究 ID…' },
-        'st.savedCloud': { en: 'Tracing saved as a patient ceph study (film copy + ID). Reopen Banana Ceph analysis on any clinic PC to restore it.', 'zh-CN': '描记已存为该病人头影研究（底片副本与 ID）。任意诊所电脑再次打开香蕉头影测量即可恢复。', 'zh-Hant': '描記已存為該病人頭影研究（底片副本與 ID）。任意診所電腦再次開啟香蕉頭影測量即可恢復。' },
+        'st.savedCloud': { en: 'Tracing saved as a Cephalometric film on this patient’s X-ray strip.', 'zh-CN': '描记已保存为该病人 X 光条上的头颅测量片。', 'zh-Hant': '描記已儲存為該病人 X 光條上的頭顱測量片。' },
         'st.savedNoStrip': { en: 'Tracing saved on the film, but a strip copy was not created. Check the xrays bucket, then Save tracing again.', 'zh-CN': '描记已写到该底片，但未在 X 光条上新增副本。请检查 xrays 桶后再保存一次。', 'zh-Hant': '描記已寫到該底片，但未在 X 光條上新增副本。請檢查 xrays 桶後再儲存一次。' },
         'st.savedLocal': { en: 'Tracing saved on this computer ({key}). Reopen this film here to restore it.', 'zh-CN': '描记已保存在这台电脑（{key}）。在此再次打开该片可恢复。', 'zh-Hant': '描記已儲存在這台電腦（{key}）。在此再次開啟該片可恢復。' },
         'st.savedNeedSql': { en: 'Tracing kept on this computer. Run xray_ceph.sql in Supabase so a film copy, save ID and tracing follow the patient.', 'zh-CN': '描记只留在这台电脑。请在 Supabase 运行 xray_ceph.sql，才会把底片副本、保存 ID 和描记跟该病人走。', 'zh-Hant': '描記只留在這台電腦。請在 Supabase 執行 xray_ceph.sql，才會把底片副本、保存 ID 和描記跟該病人走。' },

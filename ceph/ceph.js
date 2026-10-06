@@ -708,7 +708,7 @@
                     : s.extractionWhy;
                 chips.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit +
                     (whyBits ? ' · ' + phJoin(whyBits) : '') +
-                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx46" target="_blank">' + tx('sum.notes') + '</a>']);
+                    ' · <a class="extract-notes" href="extraction.html?v=20261005fx48" target="_blank">' + tx('sum.notes') + '</a>']);
             }
             sum.innerHTML = chips.map(function (pair) {
                 var isExtract = pair[0] === tx('sum.extract');
@@ -1053,7 +1053,13 @@
     function publishTrace(rec) {
         var xrayId = rec && rec.xrayId;
         if (!xrayId) return Promise.resolve({ ok: false, error: 'id' });
-        var opt = { filmDataUrl: filmDataUrl(), fileName: rec.fileName, patientId: rec.patientId };
+        var opt = {
+            filmDataUrl: filmDataUrl(),
+            fileName: rec.fileName,
+            patientId: rec.patientId,
+            fileUrl: (ctxInfo && (ctxInfo.studyUrl || ctxInfo.fileUrl)) || '',
+            filePath: (ctxInfo && ctxInfo.filePath) || rec.filePath || ''
+        };
         var payload = { type: 'banana.ceph.saveTrace', xrayId: xrayId, tracing: rec, opt: opt };
         try {
             if (window.opener && !window.opener.closed && typeof window.opener.xrayCephSaveTracing === 'function') {
@@ -1673,7 +1679,7 @@
     }
 
     function openExtractNotes(e) {
-        var url = 'extraction.html?v=20261005fx46';
+        var url = 'extraction.html?v=20261005fx48';
         if (e && e.currentTarget && e.currentTarget.getAttribute('href')) {
             url = e.currentTarget.getAttribute('href');
         }

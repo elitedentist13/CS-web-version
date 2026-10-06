@@ -11,7 +11,7 @@ var child_process = require('child_process');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-file-transfer.js'))) root = process.cwd();
 
-var BUILD = '20261006fx57';
+var BUILD = '20261006fx59';
 var CDP_PORT = 9374;
 var PAGE_PORT = 5500;
 var CHROME = process.env.CHROME_PATH || (
@@ -200,33 +200,42 @@ function main() {
         fxSrc.indexOf('function noteDownloadPct') >= 0);
     pass('setProgress helper',
         fxSrc.indexOf('function setProgress') >= 0);
-    pass('Fast Pass upload is TUS to the bucket',
+    pass('Fast Pass upload uses 8 MB chips in parallel',
+        fxSrc.indexOf('function uploadParallel') >= 0 &&
+        /var PART_SIZE = 8 \* 1024 \* 1024/.test(fxSrc) &&
+        /function uploadFile[\s\S]{0,400}uploadParallel/.test(fxSrc));
+    pass('upload TUS kept as fallback',
         fxSrc.indexOf('function uploadTus') >= 0 &&
-        /function uploadFile[\s\S]{0,500}uploadTus/.test(fxSrc) &&
-        fxSrc.indexOf('function uploadParallel') < 0);
-    pass('upload TUS reports onPct',
         /function uploadTus[\s\S]{0,1800}onPct\(Math\.min\(99/.test(fxSrc));
     pass('doSend drives the progress bar',
         /function doSend[\s\S]{0,900}setProgress\(1\)/.test(fxSrc) &&
         /function doSend[\s\S]{0,2200}filexfer\.sending/.test(fxSrc));
     pass('send form keeps fx_prog',
         /function renderSend[\s\S]{0,3500}id="fx_prog"/.test(fxSrc));
-    pass('Fast Pass download streams from bucket to disk',
-        fxSrc.indexOf('function streamToWriter') >= 0 &&
-        /function doDownload[\s\S]{0,1800}streamToWriter/.test(fxSrc) &&
-        fxSrc.indexOf('function xhrGetBlob') < 0 &&
-        fxSrc.indexOf('function clickDownload') < 0);
-    pass('download streams update the same bar',
+    pass('Fast Pass download: picker first then pipeTo / 8 MB chips',
+        fxSrc.indexOf('function clickDownload') >= 0 &&
+        fxSrc.indexOf('function xhrGetBlob') >= 0 &&
+        fxSrc.indexOf('function pipeUrlToWriter') >= 0 &&
+        fxSrc.indexOf('function prefetchFor') >= 0 &&
+        /function doDownload[\s\S]{0,400}showSaveFilePicker/.test(fxSrc) &&
+        /function doDownload[\s\S]{0,5000}clickDownload/.test(fxSrc) &&
+        /pipeTo\(writer\)/.test(fxSrc) &&
+        fxSrc.indexOf('function streamToWriter') < 0 &&
+        fxSrc.indexOf('function pickSaveFile') < 0);
+    pass('Look up prefetches signed URL before Download click',
+        /function renderFound[\s\S]{0,4000}prefetchFor\(row\)/.test(fxSrc));
+    pass('download chips update the same bar',
         /function noteDownloadPct[\s\S]{0,400}setProgress/.test(fxSrc) &&
-        /function streamToWriter[\s\S]{0,1200}noteDownloadPct/.test(fxSrc));
-    pass('save picker opens in the download click',
-        /function doDownload[\s\S]{0,400}pickSaveFile/.test(fxSrc));
-    pass('old multipart passes stream part-by-part',
-        fxSrc.indexOf('function streamManifestToWriter') >= 0);
+        /function doDownload[\s\S]{0,4000}noteDownloadPct/.test(fxSrc));
+    pass('wait notes: picker path + no-picker fallback',
+        /function doDownload[\s\S]{0,6000}waitOtherTab/.test(fxSrc) &&
+        /function doDownload[\s\S]{0,6000}waitChromeSave/.test(fxSrc));
+    pass('Direct save picker runs before disabling the button',
+        /var pick = window\.showSaveFilePicker[\s\S]{0,180}btn\.disabled = true/.test(fxSrc));
     pass('renderFound includes fx_prog',
         /function renderFound[\s\S]{0,900}id="fx_prog"/.test(fxSrc));
     pass('download button disabled while busy',
-        /function doDownload[\s\S]{0,200}btn\.disabled = true/.test(fxSrc));
+        /function doDownload[\s\S]{0,500}btn\.disabled = true/.test(fxSrc));
     pass('progress helpers exported for live tests',
         /setProgress: setProgress/.test(fxSrc) && /renderFound: renderFound/.test(fxSrc));
     pass('i18n sending + downloading',
@@ -234,9 +243,12 @@ function main() {
         i18nSrc.indexOf("'filexfer.downloading'") >= 0);
     pass('i18n wait-other-tab note',
         i18nSrc.indexOf("'filexfer.waitOtherTab'") >= 0);
+    pass('i18n Chrome save dialog note',
+        i18nSrc.indexOf("'filexfer.waitChromeSave'") >= 0 &&
+        i18nSrc.indexOf("'filexfer.chromeSaving'") >= 0);
     pass('Fast Pass shows wait note on upload and download',
         /function doSend[\s\S]{0,800}showWaitNote/.test(fxSrc) &&
-        /function doDownload[\s\S]{0,2200}showWaitNote/.test(fxSrc));
+        /function doDownload[\s\S]{0,5000}showWaitNote/.test(fxSrc));
     pass('i18n downloadOk',
         i18nSrc.indexOf("'filexfer.downloadOk'") >= 0);
     pass('css fx-progress',
@@ -257,12 +269,12 @@ function main() {
     pass('TUS last chunk stays 99 until close',
         tusPct(1306119473, 1306119473) === 99,
         String(tusPct(1306119473, 1306119473)));
-    pass('download bar caps at 99 until writer.close',
+    pass('download bar caps at 99 until Chrome save',
         notePct(100) === 99 && notePct(0.4) === 1,
         String(notePct(100)));
-    pass('stream alreadyGot+got reports combined',
-        notePct(((600 * 1024 * 1024) / 1306119473) * 100) === 48,
-        String(notePct(((600 * 1024 * 1024) / 1306119473) * 100)));
+    pass('8 MB chip aggregate mid file',
+        notePct(((4 * 8 * 1024 * 1024) / (16 * 8 * 1024 * 1024)) * 100) === 25,
+        String(notePct(((4 * 8 * 1024 * 1024) / (16 * 8 * 1024 * 1024)) * 100)));
 
     console.log('\n=== HTTP live :' + PAGE_PORT + ' ===');
     return httpGet('127.0.0.1', PAGE_PORT, '/index.html').then(function (idx) {
@@ -277,13 +289,15 @@ function main() {
             var fx = arr[0];
             var i18n = arr[1];
             var css = arr[2];
-            pass('live app-file-transfer.js', fx.status === 200 && fx.body.indexOf('function streamToWriter') >= 0,
+            pass('live app-file-transfer.js', fx.status === 200 && fx.body.indexOf('function clickDownload') >= 0,
                 fx.status + ' len=' + fx.body.length);
             pass('live setProgress served', fx.body.indexOf('function setProgress') >= 0);
             pass('live noteDownloadPct served', fx.body.indexOf('function noteDownloadPct') >= 0);
-            pass('live Fast Pass streams to disk',
-                /function doDownload[\s\S]{0,1800}streamToWriter/.test(fx.body) &&
-                fx.body.indexOf('function xhrGetBlob') < 0);
+            pass('live Fast Pass picker + pipeTo',
+                /function doDownload[\s\S]{0,400}showSaveFilePicker/.test(fx.body) &&
+                fx.body.indexOf('function pipeUrlToWriter') >= 0 &&
+                /function doDownload[\s\S]{0,5000}clickDownload/.test(fx.body) &&
+                fx.body.indexOf('function streamToWriter') < 0);
             pass('live i18n sending+downloading',
                 i18n.status === 200 &&
                 i18n.body.indexOf('filexfer.sending') >= 0 &&

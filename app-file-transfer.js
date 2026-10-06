@@ -1,12 +1,9 @@
 // ════════════════════════════════════════════════════════════════
 // app-file-transfer.js — Clinic file transfer (Tools → File Transfer)
-//   • Fast Pass: one object in the clinic-pass bucket, 3-day code
-//     (clinic_file_passes.sql). Cap is 5 GB. Upload is TUS 6 MB chunks
-//     from disk; download streams from a signed URL onto disk. The
-//     browser never holds the file in memory.
-//   • Direct: WebRTC data channel, no storage (Supabase Realtime signaling)
-//     No size cap. Files over 500 MB are written to disk as they arrive,
-//     so the transfer lasts as long as both clinics keep this page open.
+//   • Fast Pass: 3-day code in clinic-pass, cap 5 GB. Upload is 8 MB chips
+//     in parallel. Download: picker in the click, then pipe/chips to disk.
+//     Firefox (no picker) falls back to the browser download bar.
+//   • Direct: WebRTC. Files over 500 MB: picker on the save click, then stream.
 // ════════════════════════════════════════════════════════════════
 var FILEXFER = (function () {
     'use strict';
@@ -24,8 +21,10 @@ var FILEXFER = (function () {
     var LIVE_CHUNK = 16 * 1024;
     var LIVE_BUF_HIGH = 4 * 1024 * 1024;
     var LIVE_BUF_LOW = 512 * 1024;
-    /** 6 MB chunks — required by Supabase TUS. */
+    /** 6 MB chunks — required by Supabase TUS (fallback if 8 MB chips fail). */
     var TUS_CHUNK = 6 * 1024 * 1024;
+    var PART_SIZE = 8 * 1024 * 1024;
+    var PART_CONCUR = 6;
     var ICE_SERVERS = [
         { urls: 'stun:stun.cloudflare.com:3478' },
         { urls: 'stun:stun.l.google.com:19302' },
@@ -182,18 +181,47 @@ var FILEXFER = (function () {
             wrap.classList.toggle('is-busy', n > 0 && n < 100);
         }
     }
-    var waitNoteOn = false;
-    function showWaitNote() {
-        waitNoteOn = true;
+    var waitNoteKey = '';
+    function showWaitNote(key) {
+        waitNoteKey = key || 'filexfer.waitOtherTab';
         var el = gg('fx_wait_note');
         if (!el) return;
         el.style.display = 'block';
-        el.textContent = trKey('filexfer.waitOtherTab');
+        el.textContent = trKey(waitNoteKey);
     }
     function hideWaitNote() {
-        waitNoteOn = false;
+        waitNoteKey = '';
         var el = gg('fx_wait_note');
         if (el) el.style.display = 'none';
+    }
+
+    /** Download a signed URL as a Blob with byte progress (8 MB Fast Pass chips). */
+    function xhrGetBlob(url, onPct) {
+        return new Promise(function (resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', encodeSignedUrl(url));
+            xhr.responseType = 'blob';
+            xhr.onprogress = function (e) {
+                if (!onPct) return;
+                if (e.lengthComputable && e.total > 0) {
+                    onPct(Math.max(1, Math.min(99, Math.round((e.loaded / e.total) * 100))), e.loaded, e.total);
+                } else if (e.loaded > 0) {
+                    onPct(null, e.loaded, 0);
+                }
+            };
+            xhr.onload = function () {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    var blob = xhr.response;
+                    if (onPct) onPct(100, blob && blob.size || 0, blob && blob.size || 0);
+                    resolve(blob);
+                } else {
+                    reject(new Error('Download failed (' + xhr.status + ')'));
+                }
+            };
+            xhr.onerror = function () { reject(new Error('Network error')); };
+            xhr.onabort = function () { reject(new Error('Download cancelled')); };
+            xhr.send();
+        });
     }
 
     function hasWebrtc() {
@@ -538,6 +566,10 @@ var FILEXFER = (function () {
         takeBuf(data);
     }
 
+    function diskChunk(bytes) {
+        return new Blob([bytes]);
+    }
+
     function enqueueWrite(buf) {
         var session = live;
         var n = buf.byteLength || 0;
@@ -559,9 +591,10 @@ var FILEXFER = (function () {
             status(trKey('filexfer.needDisk'), 'bad');
             return;
         }
+        var pick = window.showSaveFilePicker({ suggestedName: safeDownloadName(meta.name) });
         var btn = gg('fx_live_save');
         if (btn) btn.disabled = true;
-        window.showSaveFilePicker({ suggestedName: safeDownloadName(meta.name) }).then(function (handle) {
+        pick.then(function (handle) {
             return handle.createWritable().then(function (writer) {
                 live.writer = writer;
                 live.writeChain = Promise.resolve();
@@ -811,8 +844,8 @@ var FILEXFER = (function () {
                 '<div id="fx_panel" class="fx-card"></div>' +
                 '<div id="fx_status" class="fx-status" style="display:none;"></div>' +
                 '<p id="fx_wait_note" class="fx-wait-note" style="display:' +
-                    (waitNoteOn ? 'block' : 'none') + ';">' +
-                    esc(trKey('filexfer.waitOtherTab')) + '</p>' +
+                    (waitNoteKey ? 'block' : 'none') + ';">' +
+                    esc(trKey(waitNoteKey || 'filexfer.waitOtherTab')) + '</p>' +
             '</div>';
         wireTabs();
         renderPanel();
@@ -1052,6 +1085,7 @@ var FILEXFER = (function () {
                 '</div>' +
             '</div>';
         gg('fx_dl').addEventListener('click', function () { doDownload(row); });
+        prefetchFor(row);
     }
 
     function renderMine(p) {
@@ -1260,18 +1294,90 @@ var FILEXFER = (function () {
         });
     }
 
+    function mapLimit(items, limit, worker) {
+        var i = 0;
+        var active = 0;
+        var out = new Array(items.length);
+        return new Promise(function (resolve, reject) {
+            function kick() {
+                if (i >= items.length && active === 0) return resolve(out);
+                while (active < limit && i < items.length) {
+                    (function (idx) {
+                        active += 1;
+                        Promise.resolve(worker(items[idx], idx)).then(function (v) {
+                            out[idx] = v;
+                            active -= 1;
+                            kick();
+                        }).catch(reject);
+                    }(i++));
+                }
+            }
+            if (!items.length) resolve(out);
+            else kick();
+        });
+    }
+
     function isManifestPath(p) {
         return /\/manifest\.json$/i.test(String(p || ''));
     }
 
-    /** One object in clinic-pass. Tiny files use a signed PUT of the File handle
-        (the browser streams from disk). Everything else is TUS 6 MB chunks. */
-    function uploadFile(code, file, onPct) {
+    function uploadParallel(code, file, onPct) {
+        var n = Math.ceil(file.size / PART_SIZE);
+        var got = [];
+        var idx;
+        for (idx = 0; idx < n; idx++) got[idx] = 0;
+        function report() {
+            var sum = 0;
+            for (var j = 0; j < n; j++) sum += got[j];
+            if (onPct) onPct(Math.min(99, Math.round((sum / file.size) * 100)));
+        }
+        var jobs = [];
+        for (idx = 0; idx < n; idx++) jobs.push(idx);
+        return mapLimit(jobs, PART_CONCUR, function (partIdx) {
+            var blob = file.slice(partIdx * PART_SIZE, partIdx * PART_SIZE + PART_SIZE);
+            var pth = code + '/p' + ('000' + partIdx).slice(-3) + '.bin';
+            return uploadSigned(pth, blob, function (pct) {
+                got[partIdx] = Math.round(blob.size * Math.min(pct, 100) / 100);
+                report();
+            }).then(function () {
+                got[partIdx] = blob.size;
+                report();
+                return pth;
+            });
+        }).then(function (parts) {
+            if (onPct) onPct(99, 'finalize');
+            var manPath = code + '/manifest.json';
+            var man = new Blob([JSON.stringify({
+                v: 1,
+                name: file.name,
+                size: file.size,
+                type: file.type || '',
+                parts: parts
+            })], { type: 'application/json' });
+            return uploadSigned(manPath, man).then(function () {
+                if (onPct) onPct(100);
+                return manPath;
+            });
+        });
+    }
+
+    function uploadSingle(code, file, onPct) {
         var path = code + '/' + Date.now() + '_' + safeFilePart(file.name);
         var job = file.size <= TUS_CHUNK
             ? uploadSigned(path, file, onPct)
             : uploadTus(path, file, onPct);
         return job.then(function () { return path; });
+    }
+
+    /** 8 MB chips in parallel (6 at a time). Tiny files are one PUT; TUS if chips fail. */
+    function uploadFile(code, file, onPct) {
+        if (file.size > PART_SIZE) {
+            return uploadParallel(code, file, onPct).catch(function (err) {
+                console.warn('[FILEXFER] parallel chips failed, using single stream', err);
+                return uploadSingle(code, file, onPct);
+            });
+        }
+        return uploadSingle(code, file, onPct);
     }
 
     function removeStored(path) {
@@ -1532,159 +1638,299 @@ var FILEXFER = (function () {
         status(trReplKey('filexfer.downloading', { PCT: String(n) }), 'work');
     }
 
-    /** The sign API leaves a raw space in names like "license info(Kary Yip).zip".
-        A URL with that space is rejected before the body can be saved. */
+    /** The sign API leaves a raw space in names like "license info(Kary Yip).zip". */
     function encodeSignedUrl(url) {
         try { return new URL(String(url)).href; }
         catch (e) { return String(url || '').replace(/ /g, '%20'); }
     }
 
-    /** Copy a stream view into its own Blob. The last read of a multi-GB body is a
-        short Uint8Array into a larger buffer; Chrome's disk writer throws on that
-        view, and abort() then deletes the file that just finished. */
-    function diskChunk(bytes) {
-        return new Blob([bytes]);
-    }
-
-    function pickSaveFile(name) {
-        if (typeof window.showSaveFilePicker !== 'function') {
-            var need = new Error(trKey('filexfer.needDiskSave'));
-            need.code = 'need-disk';
-            return Promise.reject(need);
-        }
-        return window.showSaveFilePicker({ suggestedName: safeDownloadName(name) }).catch(function (err) {
-            if (err && err.name === 'AbortError') {
-                var cancel = new Error('cancel');
-                cancel.code = 'cancel';
-                throw cancel;
-            }
-            throw err;
+    function signObject(path, ttl, saveName) {
+        return SB.storage.from(BUCKET).createSignedUrl(path, ttl || SIGNED_TTL_SEC, {
+            download: saveName || true
+        }).then(function (r) {
+            if (r.error || !r.data || !r.data.signedUrl) throw r.error || new Error('signed url');
+            return encodeSignedUrl(r.data.signedUrl);
         });
     }
 
-    /** Stream a signed bucket URL into an open disk writer. Each network chunk is
-        copied as a small Blob; the full 5 GB object never sits in memory. */
-    function streamToWriter(writer, url, totalHint, opts) {
-        opts = opts || {};
+    var prefetch = { id: '', url: '', man: null, p: null };
+    function prefetchFor(row) {
+        prefetch = { id: row && row.id || '', url: '', man: null, p: null };
+        if (!row || !row.storage_path) return;
+        var name = safeDownloadName(row.file_name || 'download');
+        if (isManifestPath(row.storage_path)) {
+            prefetch.p = signObject(row.storage_path, 180, name).then(function (url) {
+                return fetch(url).then(function (res) {
+                    if (!res.ok) throw new Error('manifest ' + res.status);
+                    return res.json();
+                });
+            }).then(function (man) {
+                if (prefetch.id !== row.id) return;
+                prefetch.man = man;
+            }).catch(function () {});
+            return;
+        }
+        prefetch.p = signObject(row.storage_path, SIGNED_TTL_SEC, name).then(function (url) {
+            if (prefetch.id !== row.id) return;
+            prefetch.url = url;
+        }).catch(function () {});
+    }
+
+    function clickDownload(blobOrUrl, name, isUrl) {
+        var url = isUrl ? encodeSignedUrl(blobOrUrl) : URL.createObjectURL(blobOrUrl);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = name || 'download';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        if (!isUrl) setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
+    }
+
+    /** Native pipe (no 64 KB Blob copies). Falls back to slice()+write. pipeTo closes the writer. */
+    function pipeUrlToWriter(writer, url, totalHint) {
         var got = 0;
         var total = Number(totalHint) || 0;
-        var already = Number(opts.alreadyGot) || 0;
-        var grand = Number(opts.grandTotal) || 0;
-        var closeWhenDone = opts.close !== false;
         var sealed = false;
         return fetch(encodeSignedUrl(url)).then(function (res) {
             if (!res.ok || !res.body) throw new Error('Download failed (' + res.status + ')');
             var headerLen = Number(res.headers.get('Content-Length')) || 0;
             if (!total && headerLen) total = headerLen;
-            var reader = res.body.getReader();
-            function report() {
-                if (grand) noteDownloadPct(((already + got) / grand) * 100);
-                else if (total) noteDownloadPct((got / total) * 100);
+            if (typeof TransformStream === 'function' && typeof res.body.pipeTo === 'function') {
+                var meter = new TransformStream({
+                    transform: function (chunk, controller) {
+                        got += chunk.byteLength || 0;
+                        if (total) noteDownloadPct((got / total) * 100);
+                        controller.enqueue(chunk);
+                    }
+                });
+                return res.body.pipeThrough(meter).pipeTo(writer).then(function () {
+                    sealed = true;
+                    if (total && got && got !== total) {
+                        throw new Error('Download ended early (' + got + ' of ' + total + ' bytes)');
+                    }
+                });
             }
+            var reader = res.body.getReader();
             function pump() {
                 return reader.read().then(function (r) {
                     if (r.done) {
                         if (total && got !== total) {
                             throw new Error('Download ended early (' + got + ' of ' + total + ' bytes)');
                         }
-                        if (closeWhenDone) {
-                            sealed = true;
-                            return writer.close().then(function () { return got; });
-                        }
-                        return got;
+                        sealed = true;
+                        return writer.close();
                     }
-                    got += r.value.byteLength || 0;
-                    report();
-                    return writer.write(diskChunk(r.value)).then(pump);
+                    var chunk = r.value;
+                    got += chunk.byteLength || 0;
+                    if (total) noteDownloadPct((got / total) * 100);
+                    var copy = (chunk.byteOffset === 0 && chunk.byteLength === chunk.buffer.byteLength)
+                        ? chunk
+                        : chunk.slice();
+                    return writer.write(copy).then(pump);
                 });
             }
             return pump();
         }).catch(function (err) {
-            if (closeWhenDone && !sealed) {
+            if (!sealed) {
                 try { writer.abort(); } catch (e) {}
             }
             throw err;
         });
     }
 
-    /** Older Fast Passes stored 8 MB parts + manifest.json. Stream each part onto disk. */
-    function streamManifestToWriter(writer, row, signed) {
-        return signed(row.storage_path, 180).then(function (url) {
-            return fetch(url).then(function (res) {
-                if (!res.ok) throw new Error('manifest ' + res.status);
-                return res.json();
-            });
-        }).then(function (man) {
-            var parts = (man && man.parts) || [];
-            if (!parts.length) throw new Error('empty manifest');
-            var total = Number((man && man.size) || row.file_size) || 0;
-            var got = 0;
-            var sealed = false;
-            function next(i) {
-                if (i >= parts.length) {
-                    if (total && got !== total) {
-                        throw new Error('Download ended early (' + got + ' of ' + total + ' bytes)');
-                    }
-                    sealed = true;
-                    return writer.close();
-                }
-                return signed(parts[i], SIGNED_TTL_SEC).then(function (url) {
-                    return streamToWriter(writer, url, 0, {
-                        close: false,
-                        alreadyGot: got,
-                        grandTotal: total
-                    });
-                }).then(function (n) {
-                    got += Number(n) || 0;
-                    return next(i + 1);
-                });
+    /** At most 6 × 8 MB chips in flight; write in order so RAM stays bounded. */
+    function writeChipsToWriter(writer, parts, signed, total) {
+        var fetchIdx = 0;
+        var writeIdx = 0;
+        var flying = 0;
+        var slots = {};
+        var got = 0;
+        var writeLock = Promise.resolve();
+        return new Promise(function (resolve, reject) {
+            var settled = false;
+            function fail(err) {
+                if (settled) return;
+                settled = true;
+                reject(err);
             }
-            return next(0).catch(function (err) {
-                if (!sealed) {
-                    try { writer.abort(); } catch (e) {}
+            function drain() {
+                writeLock = writeLock.then(function loop() {
+                    if (!slots[writeIdx]) return;
+                    var idx = writeIdx;
+                    var blob = slots[idx];
+                    writeIdx += 1;
+                    delete slots[idx];
+                    return writer.write(blob).then(function () {
+                        got += blob.size || 0;
+                        if (total) noteDownloadPct((got / total) * 100);
+                        return loop();
+                    });
+                }).then(function () {
+                    kick();
+                    if (!settled && writeIdx >= parts.length) {
+                        settled = true;
+                        resolve();
+                    }
+                }, fail);
+            }
+            function kick() {
+                if (settled) return;
+                while (flying < PART_CONCUR && fetchIdx < parts.length &&
+                        (fetchIdx - writeIdx) < PART_CONCUR) {
+                    (function (idx) {
+                        flying += 1;
+                        signed(parts[idx]).then(function (u) {
+                            return xhrGetBlob(u);
+                        }).then(function (blob) {
+                            flying -= 1;
+                            slots[idx] = blob;
+                            drain();
+                        }).catch(fail);
+                    }(fetchIdx++));
                 }
-                throw err;
-            });
+            }
+            if (!parts.length) {
+                resolve();
+                return;
+            }
+            kick();
+        }).then(function () {
+            return writer.close();
         });
     }
 
     function doDownload(row) {
         if (!row || !row.storage_path) return;
-        var btn = gg('fx_dl');
-        if (btn) btn.disabled = true;
         var saveName = safeDownloadName(row.file_name || 'download');
         var saveSize = Number(row.file_size) || 0;
-        var handleP = pickSaveFile(saveName);
+        var picker = typeof window.showSaveFilePicker === 'function'
+            ? window.showSaveFilePicker({ suggestedName: saveName })
+            : null;
+        var btn = gg('fx_dl');
+        if (btn) btn.disabled = true;
         lastNotePct = -1;
         lastNoteAt = 0;
         var signed = function (p, ttl) {
-            return SB.storage.from(BUCKET).createSignedUrl(p, ttl || SIGNED_TTL_SEC).then(function (r) {
-                if (r.error || !r.data || !r.data.signedUrl) throw r.error || new Error('signed url');
-                return encodeSignedUrl(r.data.signedUrl);
-            });
+            return signObject(p, ttl, saveName);
         };
-        var job = handleP.then(function (handle) {
-            setProgress(1);
-            status(trReplKey('filexfer.downloading', { PCT: '1' }), 'work');
-            showWaitNote();
-            return handle.createWritable().then(function (writer) {
-                var work = isManifestPath(row.storage_path)
-                    ? streamManifestToWriter(writer, row, signed)
-                    : signed(row.storage_path, SIGNED_TTL_SEC).then(function (url) {
-                        return streamToWriter(writer, url, saveSize);
+        function manifestJob(toWriter) {
+            var manP = (prefetch.id === row.id && prefetch.man)
+                ? Promise.resolve(prefetch.man)
+                : (prefetch.id === row.id && prefetch.p ? prefetch.p.then(function () {
+                    return prefetch.man;
+                }) : Promise.resolve(null)).then(function (man) {
+                    if (man) return man;
+                    return signed(row.storage_path, 180).then(function (url) {
+                        return fetch(url).then(function (res) {
+                            if (!res.ok) throw new Error('manifest ' + res.status);
+                            return res.json();
+                        });
                     });
-                return work.catch(function (err) {
-                    try { writer.abort(); } catch (e) {}
-                    throw err;
+                });
+            return manP.then(function (man) {
+                var parts = (man && man.parts) || [];
+                if (!parts.length) throw new Error('empty manifest');
+                var total = Number((man && man.size) || saveSize) || 0;
+                if (toWriter) return writeChipsToWriter(toWriter, parts, signed, total);
+                var n = parts.length;
+                var got = [];
+                var i;
+                for (i = 0; i < n; i++) got[i] = 0;
+                function report() {
+                    var sum = 0;
+                    for (var j = 0; j < n; j++) sum += got[j];
+                    if (total > 0) noteDownloadPct((sum / total) * 100);
+                }
+                return mapLimit(parts, PART_CONCUR, function (p, idx) {
+                    return signed(p).then(function (u) {
+                        return xhrGetBlob(u, function (pct, loaded) {
+                            if (loaded != null && loaded > 0) got[idx] = loaded;
+                            report();
+                        });
+                    }).then(function (blob) {
+                        got[idx] = blob && blob.size || got[idx] || 0;
+                        report();
+                        return blob;
+                    });
+                }).then(function (blobs) {
+                    setProgress(99);
+                    status(trKey('filexfer.finalizing'), 'work');
+                    clickDownload(
+                        new Blob(blobs, { type: (man && man.type) || row.mime_type || '' }),
+                        (man && man.name) || saveName,
+                        false
+                    );
                 });
             });
-        });
-        job.then(function () {
+        }
+        function singleUrl() {
+            if (prefetch.id === row.id && prefetch.url) return Promise.resolve(prefetch.url);
+            if (prefetch.id === row.id && prefetch.p) {
+                return prefetch.p.then(function () {
+                    return prefetch.url || signed(row.storage_path, SIGNED_TTL_SEC);
+                });
+            }
+            return signed(row.storage_path, SIGNED_TTL_SEC);
+        }
+        var job;
+        if (picker) {
+            job = picker.then(function (handle) {
+                setProgress(1);
+                status(trReplKey('filexfer.downloading', { PCT: '1' }), 'work');
+                showWaitNote('filexfer.waitOtherTab');
+                return handle.createWritable().then(function (writer) {
+                    var work = isManifestPath(row.storage_path)
+                        ? manifestJob(writer)
+                        : singleUrl().then(function (url) {
+                            return pipeUrlToWriter(writer, url, saveSize);
+                        });
+                    return work.catch(function (err) {
+                        try { writer.abort(); } catch (e) {}
+                        throw err;
+                    });
+                });
+            }).catch(function (err) {
+                if (err && err.name === 'AbortError') {
+                    var cancel = new Error('cancel');
+                    cancel.code = 'cancel';
+                    throw cancel;
+                }
+                throw err;
+            });
+        } else {
+            setProgress(1);
+            status(trReplKey('filexfer.downloading', { PCT: '1' }), 'work');
+            showWaitNote('filexfer.waitChromeSave');
+            job = isManifestPath(row.storage_path)
+                ? manifestJob(null)
+                : singleUrl().then(function (url) {
+                    clickDownload(url, saveName, true);
+                    setProgress(99);
+                    status(trKey('filexfer.chromeSaving'), 'work');
+                    return { via: 'chrome' };
+                });
+        }
+        job.then(function (result) {
             markDownloaded(row);
-            hideWaitNote();
+            if (result && result.via === 'chrome') {
+                setTimeout(function () {
+                    setProgress(100);
+                    status(trKey('filexfer.downloadOk'), 'ok');
+                    setTimeout(function () {
+                        hideWaitNote();
+                        setProgress(0);
+                    }, 2000);
+                }, 8000);
+                return;
+            }
             setProgress(100);
             status(trKey('filexfer.downloadOk'), 'ok');
-            setTimeout(function () { setProgress(0); }, 1200);
+            setTimeout(function () {
+                hideWaitNote();
+                setProgress(0);
+            }, 1200);
         }).catch(function (err) {
             hideWaitNote();
             setProgress(0);

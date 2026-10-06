@@ -7684,6 +7684,16 @@
             'zh-CN': '可以另开一个香蕉页面继续工作。请让此页保持运行直到进度条走完。',
             'zh-Hant': '可以另開一個香蕉頁面繼續工作。請讓此頁保持運行直到進度條走完。'
         },
+        'filexfer.waitChromeSave': {
+            en: 'You can open another Banana page and keep working. Leave this tab running. This browser has no folder picker — the file will land in Downloads when the download bar finishes.',
+            'zh-CN': '可以另开一个香蕉页面继续工作。请让此页保持运行。此浏览器没有文件夹选择器 — 下载条走完后文件会落在“下载”文件夹。',
+            'zh-Hant': '可以另開一個香蕉頁面繼續工作。請讓此頁保持運行。此瀏覽器沒有資料夾選擇器 — 下載列走完後檔案會落在「下載」資料夾。'
+        },
+        'filexfer.chromeSaving': {
+            en: 'The browser is saving the file to Downloads. When the download bar finishes, the file is on disk.',
+            'zh-CN': '浏览器正在把文件保存到“下载”文件夹。下载条走完后，文件已在磁盘上。',
+            'zh-Hant': '瀏覽器正在把檔案儲存到「下載」資料夾。下載列走完後，檔案已在磁碟上。'
+        },
         'filexfer.finalizing': {
             en: 'Confirming the last chunk with the server…',
             'zh-CN': '正在向服务器确认最后一块…',

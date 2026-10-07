@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261007imp7';
+var BUILD = '20261007imp8';
 var PAGE_PORT = 8808;
 var CDP_PORT = 9378;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -219,6 +219,8 @@ function mockDom() {
     pass('s1 source: WebGL proxy fallback',
         /function loseViewportGl/.test(page) && /include3d: false/.test(page) && /function patchCanvasGl/.test(page) &&
         /if \(!result\) return null/.test(read('cs3d/vendor/cs3d.bundle.js')));
+    pass('s1 source: eMpr hoisted for stack fallback',
+        /var eMpr = null/.test(page) && /catch \(eMprErr\)/.test(page) && !/catch \(eMpr\)/.test(page));
 
     console.log('\n=== step 2 source / smoke: model ===');
     pass('s2 source: addImplant / serializeImplants / loadImplants',

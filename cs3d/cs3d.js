@@ -639,10 +639,12 @@
                 } catch (volErr) {
                     console.warn('[cs3d] volume failed', volErr);
                     await new Promise(function (r) { setTimeout(r, 80); });
+                    var eMpr = null;
                     try {
                         await loadVolume(volumeIds, label, { include3d: false });
                         return true;
-                    } catch (eMpr) {
+                    } catch (eMprErr) {
+                        eMpr = eMprErr;
                         console.warn('[cs3d] MPR-only retry failed', eMpr);
                     }
                     try {

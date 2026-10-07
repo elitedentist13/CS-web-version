@@ -101,7 +101,7 @@ For **AI Helper → Twilio Send** (SMS / WhatsApp) on the published site:
 
 | Item | Works on Pages? |
 |------|------------------|
-| `START-AI.bat` / local proxy | No (only on your PC) |
+| Local chat-AI proxy (`tools/ai-local-proxy.mjs`) | No (only on your PC; GitHub Pages uses the Edge function) |
 | `tools/.env` on GitHub | No (gitignored; never commit keys) |
 | AI without Edge deploy | No (shows demo templates) |
 | Twilio WhatsApp without Edge deploy | No (button fails until `twilio-whatsapp` is deployed) |

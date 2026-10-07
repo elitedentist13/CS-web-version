@@ -1692,6 +1692,14 @@
             var api = (window.XRAY_AI_API_URL || 'http://127.0.0.1:8877');
             CEPH_LM.detectApi(img, api).then(function (remote) {
                 if (!alive()) { finish({ ok: false, error: 'stale' }); return; }
+                var unetPts = (remote.pts && typeof CEPH_LM.scaleAboutPog === 'function')
+                    ? CEPH_LM.scaleAboutPog(remote.pts, 1.15)
+                    : remote.pts;
+                var unetExtra = remote.extra
+                    ? ((typeof CEPH_LM.scaleAboutPog === 'function')
+                        ? CEPH_LM.scaleAboutPog(remote.extra, 1.15, remote.pts)
+                        : remote.extra)
+                    : null;
                 sets[0] = {
                     id: 'unet',
                     label: 'UNet auto landmarks',
@@ -1699,8 +1707,8 @@
                     publishedSource: /unet/i.test(String(remote.source || ''))
                         ? 'dental_001-unet-29'
                         : (remote.source || ''),
-                    pts: remote.pts,
-                    extra: remote.extra || null
+                    pts: unetPts,
+                    extra: unetExtra
                 };
                 if (remote.pts && typeof CEPH_LM.fitLibToGuide === 'function') {
                     var lib = CEPH_LM.fitLibToGuide(img, remote.pts, { useTraining: useTraining });

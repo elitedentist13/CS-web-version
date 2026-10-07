@@ -736,7 +736,7 @@ var PAGE_SCRIPT = `(async () => {
     cat.landmarks.forEach(function (d) { popogNorm[d.id] = { x: d.nx, y: d.ny }; });
     var popogGuide = { Po: { x: 200, y: 400 }, Pog: { x: 700, y: 900 } };
     var popogPlaced = lmBox.CEPH_LM.placeByPoPog(popogNorm, popogGuide);
-    var popogWant = Math.hypot(500, 500) * 0.75;
+    var popogWant = Math.hypot(500, 500) * 0.75 * 0.9;
     var popogGot = popogPlaced && Math.hypot(popogPlaced.Pog.x - popogPlaced.Po.x, popogPlaced.Pog.y - popogPlaced.Po.y);
     var popogMax = 0;
     if (popogPlaced) {
@@ -746,7 +746,7 @@ var PAGE_SCRIPT = `(async () => {
         });
     }
     pass('1502 shape scales from Po–Pog, then 25% smaller',
-        popogPlaced && Math.abs(popogPlaced.Po.x - 200) < 1 && Math.abs(popogPlaced.Po.y - 400) < 1 &&
+        popogPlaced && Math.abs(popogPlaced.Pog.x - 575) < 1 && Math.abs(popogPlaced.Pog.y - 775) < 1 &&
         Math.abs(popogGot - popogWant) < 1 && popogMax < popogWant * 2.2,
         popogPlaced ? ('len=' + Math.round(popogGot) + ' max=' + Math.round(popogMax)) : 'none');
     var filmGuide = {};
@@ -770,10 +770,11 @@ var PAGE_SCRIPT = `(async () => {
     }
     pass('1502 shape stays inside the skull when Pog leaves the jaw',
         filmPlaced && wildPlaced &&
-        Math.abs(filmLen - trueLen * 0.75) < trueLen * 0.04 &&
-        wildLen < trueLen * 0.85 &&
+        Math.abs(filmLen - trueLen * 0.75 * 0.9) < trueLen * 0.04 &&
+        wildLen < trueLen * 0.8 &&
         wildMax < trueLen &&
-        wildPlaced.Po.x === filmGuide.Po.x,
+        Math.abs(filmPlaced.Pog.x - (filmGuide.Po.x + (filmGuide.Pog.x - filmGuide.Po.x) * 0.75)) < 2 &&
+        Math.abs(filmPlaced.Pog.y - (filmGuide.Po.y + (filmGuide.Pog.y - filmGuide.Po.y) * 0.75)) < 2,
         filmPlaced && wildPlaced ? ('film=' + Math.round(filmLen) + ' true=' + Math.round(trueLen) +
             ' wild=' + Math.round(wildLen) + ' wildMax=' + Math.round(wildMax)) : 'none');
     var aspect = cat.meanBoxAspect || 0.948;
@@ -786,7 +787,7 @@ var PAGE_SCRIPT = `(async () => {
     var softOk = true;
     var softDetail = [];
     ['Sn', 'Ls', 'Li'].forEach(function (id) {
-        var want = 0.75 * normDist(catById[id], catById.PogS) / bone;
+        var want = (0.75 / 0.9) * normDist(catById[id], catById.PogS) / bone;
         var got = Math.hypot(filmPlaced[id].x - filmPlaced.PogS.x, filmPlaced[id].y - filmPlaced.PogS.y) /
             Math.hypot(filmPlaced.N.x - filmPlaced.Po.x, filmPlaced.N.y - filmPlaced.Po.y);
         if (!(Math.abs(got - want) < 0.02)) softOk = false;
@@ -796,6 +797,33 @@ var PAGE_SCRIPT = `(async () => {
         softOk && filmPlaced.PogS &&
         Math.hypot(filmPlaced.Pog.x - filmPlaced.Po.x, filmPlaced.Pog.y - filmPlaced.Po.y) > 1,
         softDetail.join(' '));
+    function pxDist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    var hardRatio = pxDist(filmPlaced.N, filmPlaced.Pog) / normDist(catById.N, catById.Pog);
+    var poRatio = pxDist(filmPlaced.Po, filmPlaced.Pog) / normDist(catById.Po, catById.Pog);
+    var pogSRatio = pxDist(filmPlaced.PogS, filmPlaced.Pog) / normDist(catById.PogS, catById.Pog);
+    pass('1502 hard tissue is 10% closer to Pog',
+        Math.abs(hardRatio - poRatio) < poRatio * 0.02 && pogSRatio > poRatio * 1.05,
+        'hard=' + hardRatio.toFixed(1) + ' po=' + poRatio.toFixed(1) + ' pogS=' + pogSRatio.toFixed(1));
+    var unetGrown = lmBox.CEPH_LM.scaleAboutPog({
+        Pog: { x: 100, y: 200 },
+        N: { x: 100, y: 100 },
+        Po: { x: 40, y: 180 },
+        Ls: { x: 160, y: 210 }
+    }, 1.15);
+    var unetExtra = lmBox.CEPH_LM.scaleAboutPog(
+        { Pn: { x: 170, y: 150 } },
+        1.15,
+        { Pog: { x: 100, y: 200 } }
+    );
+    pass('UNet landmark box scales up 15% about Pog',
+        unetGrown && unetGrown.Pog.x === 100 && unetGrown.Pog.y === 200 &&
+        Math.abs(unetGrown.N.y - 85) < 0.01 &&
+        Math.abs(unetGrown.Po.x - 31) < 0.01 &&
+        Math.abs(unetGrown.Ls.x - 169) < 0.01 &&
+        unetExtra && Math.abs(unetExtra.Pn.x - 180.5) < 0.01 &&
+        /scaleAboutPog\(remote\.pts, 1\.15\)/.test(read('ceph/ceph.js')) &&
+        /fitLibToGuide\(img, remote\.pts/.test(read('ceph/ceph.js')),
+        unetGrown ? ('N.y=' + unetGrown.N.y + ' Po.x=' + unetGrown.Po.x) : 'none');
     pass('dataset README points at Figshare PKU + GitHub Aariz + MIT analysis apps',
         /13265471/.test(read('ceph/data/README.md')) &&
         /manwaarkhd\/aariz/.test(read('ceph/data/README.md')) &&

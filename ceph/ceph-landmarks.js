@@ -324,7 +324,46 @@
                 };
             });
         }
-        return scaleSoftAboutPogS(out);
+        return scaleHardAboutPog(scaleSoftAboutPogS(out));
+    }
+
+    // Bony landmarks sit a little outside the skull after the Po–Pog scale.
+    // Pull them 10% closer to Pog. Soft tissue is left on its own pivot.
+    function scaleHardAboutPog(pts) {
+        var pivot = pts && pts.Pog;
+        if (!pivot || !isFinite(pivot.x) || !isFinite(pivot.y)) return pts;
+        ['S', 'N', 'Or', 'Po', 'A', 'B', 'Me', 'Gn', 'Go', 'L1', 'U1', 'PNS', 'ANS', 'Ar'].forEach(function (id) {
+            var p = pts[id];
+            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+            pts[id] = {
+                x: pivot.x + (p.x - pivot.x) * 0.9,
+                y: pivot.y + (p.y - pivot.y) * 0.9
+            };
+        });
+        return pts;
+    }
+
+    // The UNet landmark box is drawn 15% larger about Pog. Pog stays.
+    function scaleAboutPog(pts, factor, pivotPts) {
+        var src = pivotPts || pts;
+        var pivot = src && src.Pog;
+        var out = {};
+        var p;
+        if (!pts) return out;
+        Object.keys(pts).forEach(function (key) {
+            p = pts[key];
+            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+            out[key] = { x: p.x, y: p.y };
+        });
+        if (!pivot || !isFinite(pivot.x) || !isFinite(pivot.y) || !(factor > 0)) return out;
+        Object.keys(out).forEach(function (key) {
+            p = out[key];
+            out[key] = {
+                x: pivot.x + (p.x - pivot.x) * factor,
+                y: pivot.y + (p.y - pivot.y) * factor
+            };
+        });
+        return out;
     }
 
     // Sn, Ls and Li form the soft-tissue line. Draw that line 25% shorter
@@ -475,7 +514,7 @@
             via: box.via
         } : box;
         var mean = fitted || (norm.Po ? placeNormOnBox(norm, fitBox) : (all ? globalBoxMean(fitBox) : localBoxMean(fitBox, opts.k || 24)));
-        if (!fitted) scaleSoftAboutPogS(mean);
+        if (!fitted) scaleHardAboutPog(scaleSoftAboutPogS(mean));
         if (fitted) tag += '+popog';
         var spanW = box.w;
         var spanH = box.h;
@@ -650,7 +689,7 @@
                 label: 'UNet auto landmarks',
                 source: prefix + '-imgmean+edge',
                 publishedSource: prefix + '-imgmean+edge',
-                pts: clonePts(imgEdge)
+                pts: scaleAboutPog(imgEdge, 1.15)
             },
             lib,
             libAll
@@ -831,6 +870,7 @@
         boxFromPts: boxFromPts,
         fitLibToGuide: fitLibToGuide,
         placeByPoPog: placeByPoPog,
+        scaleAboutPog: scaleAboutPog,
         fitLibAll: fitLibAll,
         placeLibAverage: placeLibAverage,
         publishedStats: publishedStats

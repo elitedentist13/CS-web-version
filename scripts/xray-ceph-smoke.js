@@ -693,6 +693,10 @@ var PAGE_SCRIPT = `(async () => {
         /13265471/.test(read('ceph/data/README.md')) &&
         /manwaarkhd\/aariz/.test(read('ceph/data/README.md')) &&
         /alexcorvi\/cephalometric/.test(read('ceph/data/README.md')));
+    pass('UNet set refines each point on a one-fifth crop',
+        /CROP_FRAC = 0\.20/.test(read('ceph/unet/infer.py')) &&
+        /def refine_coords/.test(read('ceph/unet/infer.py')) &&
+        /refine_coords\(/.test(read('ceph/unet/infer.py')));
     pass('AI service has a /ceph/landmarks hook',
         /ceph\/landmarks/.test(read('xray-ai-service/main.py')) &&
         /detect_image/.test(read('xray-ai-service/main.py')) &&

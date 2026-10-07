@@ -48,8 +48,23 @@ def main():
     assert st["decode"] == "local-soft-argmax"
     _check_subpixel()
     _check_fractional_heatmap()
+    _check_crop()
     print("ok banana unet clone", len(isbi), "extra", sorted(extra.keys()),
           "home", st["home"], "status", st["available"])
+
+
+def _check_crop():
+    # A fifth of a 2000×2250 film, centred, stays on the plate.
+    x0, y0, x1, y1 = infer.crop_box(1000, 1125, 2000, 2250)
+    assert x1 - x0 == 400, (x0, x1)
+    assert y1 - y0 == 450, (y0, y1)
+    assert x0 == 800 and y0 == 900, (x0, y0)
+    # A peak a few pixels off the coarse point is kept; a jump to the far edge is not.
+    assert infer.accept_refined(210, 230, 1000, 1125, 800, 900, 400, 450)
+    assert not infer.accept_refined(10, 10, 1000, 1125, 800, 900, 400, 450)
+    # A point on the left border shifts the window onto the film.
+    bx0, by0, bx1, by1 = infer.crop_box(10, 1125, 2000, 2250)
+    assert bx0 == 0 and bx1 - bx0 == 400, (bx0, bx1, by0, by1)
 
 
 def _check_fractional_heatmap():

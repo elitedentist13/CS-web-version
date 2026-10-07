@@ -225,6 +225,109 @@ def _coords_from_heatmaps(heatmaps, width: int, height: int) -> List[Tuple[float
     return [(float(xs[i]), float(ys[i])) for i in range(n)]
 
 
+# Second-stage window is one fifth of each film side, centred on the coarse point.
+CROP_FRAC = 0.20
+# A refined peak may move at most this fraction of the half-window.
+REFINE_REACH = 0.45
+
+
+def crop_box(cx: float, cy: float, width: int, height: int, frac: float = CROP_FRAC) -> Tuple[int, int, int, int]:
+    """Axis-aligned window around a coarse landmark, shifted to stay on the film."""
+    side_w = max(32, int(round(float(width) * float(frac))))
+    side_h = max(32, int(round(float(height) * float(frac))))
+    side_w = min(side_w, int(width))
+    side_h = min(side_h, int(height))
+    x0 = int(round(float(cx) - side_w / 2.0))
+    y0 = int(round(float(cy) - side_h / 2.0))
+    x1 = x0 + side_w
+    y1 = y0 + side_h
+    if x0 < 0:
+        x1 -= x0
+        x0 = 0
+    if y0 < 0:
+        y1 -= y0
+        y0 = 0
+    if x1 > width:
+        x0 -= x1 - width
+        x1 = width
+    if y1 > height:
+        y0 -= y1 - height
+        y1 = height
+    x0 = max(0, x0)
+    y0 = max(0, y0)
+    x1 = min(int(width), max(x1, x0 + 1))
+    y1 = min(int(height), max(y1, y0 + 1))
+    return x0, y0, x1, y1
+
+
+def accept_refined(lx: float, ly: float, cx: float, cy: float, x0: int, y0: int, crop_w: int, crop_h: int) -> bool:
+    """Keep a crop peak when it is inside the window and near the coarse point."""
+    if crop_w < 8 or crop_h < 8:
+        return False
+    margin_x = crop_w * 0.06
+    margin_y = crop_h * 0.06
+    if lx < margin_x or ly < margin_y or lx > crop_w - margin_x or ly > crop_h - margin_y:
+        return False
+    ox = float(cx) - float(x0)
+    oy = float(cy) - float(y0)
+    reach = REFINE_REACH * 0.5 * float(max(crop_w, crop_h))
+    dx = float(lx) - ox
+    dy = float(ly) - oy
+    return dx * dx + dy * dy <= reach * reach
+
+
+def _output_channels() -> List[int]:
+    channels = []
+    for i, sym in enumerate(AARIZ_SYMBOLS):
+        if ISBI_FROM_AARIZ.get(sym) or EXTRA_FROM_AARIZ.get(sym):
+            channels.append(i)
+    return channels
+
+
+def refine_coords(rgb, model, tf, coords: List[Tuple[float, float]], width: int, height: int) -> List[Tuple[float, float]]:
+    """Second pass: one fifth-film crop per output landmark, peak mapped back."""
+    import torch
+
+    refined = list(coords)
+    device = next(model.parameters()).device
+    crops = []
+    meta = []
+    for chan in _output_channels():
+        if chan >= len(coords):
+            continue
+        cx, cy = coords[chan]
+        if not (0.0 <= cx < width and 0.0 <= cy < height):
+            continue
+        x0, y0, x1, y1 = crop_box(cx, cy, width, height)
+        if x1 - x0 < 32 or y1 - y0 < 32:
+            continue
+        crops.append(rgb.crop((x0, y0, x1, y1)))
+        meta.append((chan, cx, cy, x0, y0, x1, y1))
+    if not crops:
+        return refined
+    step = 8
+    for start in range(0, len(crops), step):
+        chunk = crops[start:start + step]
+        rows = meta[start:start + step]
+        batch = torch.stack([tf(crop) for crop in chunk]).to(device)
+        with torch.no_grad():
+            heatmaps = model(batch)
+        xy = local_soft_argmax(heatmaps)
+        hm_h = float(heatmaps.shape[-2])
+        hm_w = float(heatmaps.shape[-1])
+        for b, (chan, cx, cy, x0, y0, x1, y1) in enumerate(rows):
+            crop_w = float(x1 - x0)
+            crop_h = float(y1 - y0)
+            lx = float(xy[b, chan, 0]) * (crop_w / hm_w)
+            ly = float(xy[b, chan, 1]) * (crop_h / hm_h)
+            if not accept_refined(lx, ly, cx, cy, x0, y0, int(crop_w), int(crop_h)):
+                continue
+            fx = min(max(float(x0) + lx, 0.0), float(width) - 1.0)
+            fy = min(max(float(y0) + ly, 0.0), float(height) - 1.0)
+            refined[chan] = (fx, fy)
+    return refined
+
+
 def detect(image) -> Dict[str, Any]:
     """Run the Banana UNet on a PIL image. Returns ok=False if weights or sanity fail."""
     _load()
@@ -249,7 +352,20 @@ def detect(image) -> Dict[str, Any]:
     with torch.no_grad():
         heatmaps = model(tensor)
     coords = _coords_from_heatmaps(heatmaps, w, h)
-    isbi, extra = map_aariz_xy(coords)
+    refined = coords
+    try:
+        refined = refine_coords(rgb, model, tf, coords, w, h)
+    except Exception as exc:
+        log.warning("UNet crop refine failed: %s", exc)
+        refined = coords
+    isbi, extra = map_aariz_xy(refined)
+    used_crop = any(
+        abs(refined[i][0] - coords[i][0]) > 0.5 or abs(refined[i][1] - coords[i][1]) > 0.5
+        for i in range(min(len(refined), len(coords)))
+    )
+    if not points_sane(isbi, w, h):
+        isbi, extra = map_aariz_xy(coords)
+        used_crop = False
     if not points_sane(isbi, w, h):
         return {"ok": False, "available": True, "error": "sane", "source": "dental_001-unet-29"}
     return {
@@ -260,5 +376,7 @@ def detect(image) -> Dict[str, Any]:
         "source": "dental_001-unet-29",
         "model": _state.get("kind") or "unet",
         "home": "ceph/unet",
-        "note": "Banana ResNet-50 UNet (cloned from Dental_001 / Aariz 29). Staff can drag. Not mixed into published 1502.",
+        "refine": "crop" if used_crop else "",
+        "note": "Banana ResNet-50 UNet (cloned from Dental_001 / Aariz 29). "
+                "A second pass refines each point on a one-fifth crop. Staff can drag. Not mixed into published 1502.",
     }

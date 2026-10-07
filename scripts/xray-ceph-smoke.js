@@ -653,6 +653,17 @@ var PAGE_SCRIPT = `(async () => {
         /window\.opener/.test(read('ceph/extraction.html')) &&
         !/href="\.\/\?v=/.test(read('ceph/extraction.html')) &&
         /openExtractNotes/.test(read('ceph/ceph.js')));
+    pass('sidecar can export a PDF report to a chosen folder',
+        /id="btnPdf"/.test(read('ceph/index.html')) &&
+        /function exportPdf/.test(read('ceph/ceph.js')) &&
+        /showSaveFilePicker/.test(read('ceph/ceph.js')) &&
+        /function reportFilmCanvas/.test(read('ceph/ceph.js')) &&
+        /pdf\.hard/.test(read('ceph/ceph-i18n.js')) &&
+        /pdf\.chart/.test(read('ceph/ceph-i18n.js')) &&
+        /function reportPatientGrid/.test(read('ceph/ceph.js')) &&
+        /hkid: String\(p\.hkid/.test(read('app-xray-ceph.js')) &&
+        /g\.extract/.test(read('ceph/ceph.js')) &&
+        /btn\.pdf/.test(read('ceph/ceph-i18n.js')));
     pass('sidecar saves a patient tracing and can print a report',
         /btnSaveTrace/.test(read('ceph/index.html')) && /btnPrint/.test(read('ceph/index.html')) &&
         /savedTrace/.test(read('ceph/ceph.js')) && /@media print/.test(read('ceph/ceph.css')) &&
@@ -1098,7 +1109,15 @@ var PAGE_SCRIPT = `(async () => {
         patient_id: 'p1', file_path: 'p1/old.png',
         ceph_tracing: { v: 1, pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } } }
     }];
+    L.xrayPatientData = {
+        id: 'p1', patient_no: 'MK001', full_name: 'Chan Tai Man', chinese_name: '陳大文',
+        sex: 'F', dob: '2012-02-01', hkid: 'A123456(7)', phone: '91234567', mobile_phone: '61234567'
+    };
     var ctxT = L.xrayCephContext();
+    pass('context carries chart name, sex, age source, HKID, phone and chart no.',
+        !!(ctxT && ctxT.cn === '陳大文' && ctxT.en === 'Chan Tai Man' && ctxT.sex === 'F' &&
+            ctxT.dob === '2012-02-01' && ctxT.hkid === 'A123456(7)' && ctxT.phone === '91234567' &&
+            ctxT.mobile === '61234567' && ctxT.patientNo === 'MK001'));
     pass('context carries saved tracing from the film',
         !!(ctxT && ctxT.tracing && ctxT.tracing.pts && ctxT.tracing.pts.S && ctxT.tracing.pts.S.x === 11));
     L.xrayAllRecords = [

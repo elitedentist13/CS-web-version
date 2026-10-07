@@ -130,6 +130,9 @@
                         if (!ctxInfo.patientNo && live.patientNo) ctxInfo.patientNo = live.patientNo;
                         if (!ctxInfo.name && live.name) ctxInfo.name = live.name;
                         if (!ctxInfo.en && live.en) ctxInfo.en = live.en;
+                        ['cn', 'sex', 'dob', 'hkid', 'phone', 'mobile', 'email', 'taken'].forEach(function (k) {
+                            if (live[k]) ctxInfo[k] = live[k];
+                        });
                     } else ctxInfo = Object.assign({}, ctxInfo || {}, live);
                 }
             }
@@ -137,6 +140,7 @@
                 ctxInfo.patientId = window.opener.xrayPatientId;
             }
         } catch (eO) { /* ignore */ }
+        absorbChartDemo();
         var title = tx('ui.title');
         if (ctxInfo && ctxInfo.patientNo) title += ' · #' + ctxInfo.patientNo;
         if (ctxInfo && ctxInfo.name) title += ' · ' + ctxInfo.name;
@@ -148,6 +152,107 @@
                 : tx('st.noPatient');
             bar.textContent = tx('bar.line', { who: who });
         }
+    }
+
+    function absorbChartDemo() {
+        var chart = null;
+        try {
+            if (window.opener && !window.opener.closed && window.opener.xrayPatientData) {
+                var p = window.opener.xrayPatientData;
+                var cn = String(p.chinese_name || '').trim();
+                var enName = String(p.full_name || '').trim();
+                chart = {
+                    patientId: p.id || '',
+                    patientNo: String(p.patient_no || '').trim(),
+                    cn: cn,
+                    en: enName,
+                    name: cn || enName,
+                    sex: String(p.sex || '').trim(),
+                    dob: String(p.dob || '').trim(),
+                    hkid: String(p.hkid || '').trim(),
+                    phone: String(p.phone_number || p.phone || '').trim(),
+                    mobile: String(p.mobile_phone || '').trim(),
+                    email: String(p.email || '').trim()
+                };
+            }
+        } catch (e) { chart = null; }
+        if (chart && (chart.patientNo || chart.name || chart.hkid || chart.en)) {
+            if (!ctxInfo) ctxInfo = {};
+            ['patientId', 'patientNo', 'cn', 'en', 'name', 'sex', 'dob', 'hkid', 'phone', 'mobile', 'email'].forEach(function (k) {
+                if (chart[k]) ctxInfo[k] = chart[k];
+            });
+        }
+        if (ctxInfo && !ctxInfo.taken) {
+            var taken = takenFromOpener(ctxInfo.xrayId);
+            if (taken) ctxInfo.taken = taken;
+        }
+    }
+
+    function takenFromOpener(xrayId) {
+        if (!xrayId) return '';
+        try {
+            if (!window.opener || window.opener.closed) return '';
+            var lists = [window.opener.xrayAllRecords, window.opener.xrayFiltered];
+            var li, recs, i, r;
+            for (li = 0; li < lists.length; li++) {
+                recs = lists[li];
+                if (!recs || !recs.length) continue;
+                for (i = 0; i < recs.length; i++) {
+                    r = recs[i];
+                    if (r && String(r.id) === String(xrayId)) return String(r.taken_date || r.created_at || '');
+                }
+            }
+        } catch (e) { /* ignore */ }
+        return '';
+    }
+
+    function chartAgeYears(dob) {
+        var m = String(dob || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) return null;
+        var born = new Date(+m[1], +m[2] - 1, +m[3]);
+        if (isNaN(born.getTime())) return null;
+        var today = new Date();
+        var age = today.getFullYear() - born.getFullYear();
+        var mo = today.getMonth() - born.getMonth();
+        if (mo < 0 || (mo === 0 && today.getDate() < born.getDate())) age--;
+        return age >= 0 ? age : null;
+    }
+
+    function fmtChartDate(iso) {
+        var s = String(iso || '').trim();
+        if (!s) return '';
+        var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return m[3] + '/' + m[2] + '/' + m[1];
+        var d = new Date(s);
+        if (isNaN(d.getTime())) return s;
+        function pad(n) { return (n < 10 ? '0' : '') + n; }
+        return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
+    }
+
+    function reportPatientGrid() {
+        var p = ctxInfo || {};
+        var cn = (p.cn != null && String(p.cn).trim()) ? String(p.cn).trim()
+            : ((p.name && p.name !== p.en) ? String(p.name) : '');
+        var enName = String(p.en || '').trim();
+        if (!cn && p.name && !enName) cn = String(p.name);
+        var su = String(p.sex || sexBand || '').trim().toUpperCase();
+        var sexText = (su === 'M' || su === 'MALE') ? tx('pdf.male')
+            : ((su === 'F' || su === 'FEMALE') ? tx('pdf.female') : '');
+        var years = chartAgeYears(p.dob);
+        var ageText = years == null ? '' : tx('pdf.ageY', { n: years });
+        var phone = [p.phone, (p.mobile && p.mobile !== p.phone) ? p.mobile : ''].filter(Boolean).join(' · ');
+        var now = new Date();
+        function pad(n) { return (n < 10 ? '0' : '') + n; }
+        var reportDate = fmtChartDate(now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()));
+        var rows = [
+            [tx('pdf.cn'), cn, tx('pdf.en'), enName],
+            [tx('pdf.sex'), sexText, tx('pdf.age'), ageText],
+            [tx('pdf.dob'), fmtChartDate(p.dob), tx('pdf.hkid'), String(p.hkid || '')],
+            [tx('pdf.phone'), phone, tx('pdf.chart'), String(p.patientNo || '')],
+            [tx('pdf.date'), reportDate, tx('pdf.filmDate'), fmtChartDate(p.taken)]
+        ];
+        if (p.email) rows.push([tx('pdf.email'), String(p.email), '', '']);
+        return rows;
     }
 
     function setStatus(s) {
@@ -2019,6 +2124,399 @@
         }, 'image/png');
     }
 
+    function reportFilmCanvas() {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        var base = document.createElement('canvas');
+        base.width = w;
+        base.height = h;
+        var bctx = base.getContext('2d');
+        bctx.fillStyle = '#0b1020';
+        bctx.fillRect(0, 0, w, h);
+        var ang = fhRot();
+        bctx.save();
+        bctx.translate(w / 2, h / 2);
+        bctx.rotate(ang);
+        bctx.translate(-w / 2, -h / 2);
+        var filt = 'brightness(' + filmBright + ') contrast(' + filmContrast + ')';
+        if (invertFilm) filt += ' invert(1) hue-rotate(180deg)';
+        bctx.filter = filt;
+        bctx.drawImage(img, 0, 0);
+        bctx.restore();
+        var marks = [];
+        function addMark(id, p) {
+            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+            var q = rotAbout(p, ang);
+            marks.push({ id: id, x: q.x, y: q.y });
+        }
+        if (window.CEPH_LM && CEPH_LM.defs) CEPH_LM.defs().forEach(function (d) { addMark(d.id, pts[d.id]); });
+        EXTRA_DEFS.forEach(function (d) { addMark(d.id, extra[d.id]); });
+        var minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+        marks.forEach(function (m) {
+            if (m.x < minx) minx = m.x;
+            if (m.y < miny) miny = m.y;
+            if (m.x > maxx) maxx = m.x;
+            if (m.y > maxy) maxy = m.y;
+        });
+        if (!marks.length) { minx = 0; miny = 0; maxx = w; maxy = h; }
+        var span = Math.max(1, Math.max(maxx - minx, maxy - miny));
+        var pad = Math.max(24, Math.round(span * 0.08));
+        minx = Math.max(0, Math.floor(minx - pad));
+        miny = Math.max(0, Math.floor(miny - pad));
+        maxx = Math.min(w, Math.ceil(maxx + pad));
+        maxy = Math.min(h, Math.ceil(maxy + pad));
+        var cw = Math.max(1, maxx - minx), ch = Math.max(1, maxy - miny);
+        var crop = document.createElement('canvas');
+        crop.width = cw;
+        crop.height = ch;
+        var ctx = crop.getContext('2d');
+        ctx.drawImage(base, minx, miny, cw, ch, 0, 0, cw, ch);
+        function at(id) {
+            var i, m;
+            for (i = 0; i < marks.length; i++) {
+                m = marks[i];
+                if (m.id === id) return { x: m.x - minx, y: m.y - miny };
+            }
+            return null;
+        }
+        var lw = Math.max(2, cw / 420);
+        function seg(a, b, color) {
+            var A = at(a), B = at(b);
+            if (!A || !B) return;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lw;
+            ctx.beginPath();
+            ctx.moveTo(A.x, A.y);
+            ctx.lineTo(B.x, B.y);
+            ctx.stroke();
+        }
+        PLANES.forEach(function (ab) { seg(ab[0], ab[1], 'rgba(56,189,248,0.9)'); });
+        [['Pn', 'Sn'], ['Sn', 'Ls'], ['Ls', 'Li'], ['Li', 'PogS']].forEach(function (ab) {
+            seg(ab[0], ab[1], 'rgba(251,146,60,0.95)');
+        });
+        var dot = Math.max(4, cw / 220);
+        ctx.font = 'bold ' + Math.max(14, Math.round(cw / 70)) + 'px sans-serif';
+        marks.forEach(function (m) {
+            var x = m.x - minx, y = m.y - miny;
+            ctx.beginPath();
+            ctx.fillStyle = '#facc15';
+            ctx.arc(x, y, dot, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#111827';
+            ctx.fillText(m.id, x + dot + 2, y - dot - 2);
+        });
+        return crop;
+    }
+
+    function jpegPagesToPdf(pages) {
+        var PW = 595.28, PH = 841.89;
+        var parts = [];
+        var off = 0;
+        function add(u8) { parts.push(u8); off += u8.length; }
+        function addStr(s) { add(new TextEncoder().encode(s)); }
+        var xref = [0];
+        function obj(n, body) {
+            xref[n] = off;
+            addStr(n + ' 0 obj\n');
+            if (typeof body === 'string') addStr(body);
+            else body();
+            addStr('\nendobj\n');
+        }
+        addStr('%PDF-1.4\n');
+        var nPages = pages.length;
+        var ids = [];
+        var next = 3;
+        var pi;
+        for (pi = 0; pi < nPages; pi++) {
+            ids.push({ page: next, content: next + 1, image: next + 2 });
+            next += 3;
+        }
+        obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+        obj(2, '<< /Type /Pages /Count ' + nPages + ' /Kids [' +
+            ids.map(function (id) { return id.page + ' 0 R'; }).join(' ') + '] >>');
+        pages.forEach(function (page, i) {
+            var id = ids[i];
+            var content = 'q\n' + PW.toFixed(2) + ' 0 0 ' + PH.toFixed(2) + ' 0 0 cm\n/Im0 Do\nQ\n';
+            obj(id.page, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + PW.toFixed(2) + ' ' + PH.toFixed(2) +
+                '] /Contents ' + id.content + ' 0 R /Resources << /XObject << /Im0 ' + id.image + ' 0 R >> >> >>');
+            obj(id.content, '<< /Length ' + content.length + ' >>\nstream\n' + content + 'endstream');
+            obj(id.image, function () {
+                addStr('<< /Type /XObject /Subtype /Image /Width ' + page.w + ' /Height ' + page.h +
+                    ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + page.jpeg.length + ' >>\nstream\n');
+                add(page.jpeg);
+                addStr('\nendstream');
+            });
+        });
+        var xrefPos = off;
+        addStr('xref\n0 ' + next + '\n');
+        addStr('0000000000 65535 f \n');
+        var oi;
+        for (oi = 1; oi < next; oi++) {
+            addStr(('0000000000' + (xref[oi] || 0)).slice(-10) + ' 00000 n \n');
+        }
+        addStr('trailer\n<< /Size ' + next + ' /Root 1 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF\n');
+        var out = new Uint8Array(off);
+        var p = 0;
+        parts.forEach(function (u) { out.set(u, p); p += u.length; });
+        return new Blob([out], { type: 'application/pdf' });
+    }
+
+    function buildReportCanvases() {
+        var PW = 1190, PH = 1684, M = 56;
+        var font = "'Segoe UI', 'Microsoft YaHei', 'PingFang TC', sans-serif";
+        var pages = [];
+        var ctx, y;
+        function newPage(title) {
+            var c = document.createElement('canvas');
+            c.width = PW;
+            c.height = PH;
+            ctx = c.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, PW, PH);
+            ctx.fillStyle = '#111827';
+            ctx.textBaseline = 'top';
+            y = M;
+            pages.push(c);
+            if (title) {
+                ctx.font = '600 18px ' + font;
+                ctx.fillStyle = '#64748b';
+                ctx.fillText(title, M, y);
+                y += 36;
+                ctx.fillStyle = '#111827';
+            }
+        }
+        function need(h) {
+            if (y + h > PH - M) newPage(tx('pdf.findings'));
+        }
+        function wrap(text, maxW) {
+            var s = String(text == null ? '' : text).replace(/\r/g, '');
+            var lines = [];
+            var line = '';
+            function pushHard(chunk) {
+                var part = '';
+                var k, t2;
+                for (k = 0; k < chunk.length; k++) {
+                    t2 = part + chunk.charAt(k);
+                    if (part && ctx.measureText(t2).width > maxW) {
+                        lines.push(part);
+                        part = chunk.charAt(k);
+                    } else part = t2;
+                }
+                return part;
+            }
+            function take(chunk) {
+                var trial = line + chunk;
+                if (line && ctx.measureText(trial).width > maxW) {
+                    lines.push(line.replace(/\s+$/, ''));
+                    line = chunk.replace(/^\s+/, '');
+                    if (ctx.measureText(line).width > maxW) line = pushHard(line);
+                } else line = trial;
+            }
+            s.split('\n').forEach(function (para, pi) {
+                if (pi) { lines.push(line.replace(/\s+$/, '')); line = ''; }
+                para.split(/(\s+)/).forEach(function (chunk) {
+                    if (!chunk) return;
+                    if (/^\s+$/.test(chunk)) { if (line) take(chunk); return; }
+                    if (ctx.measureText(chunk).width <= maxW) { take(chunk); return; }
+                    var buf = '', ci, ch;
+                    for (ci = 0; ci < chunk.length; ci++) {
+                        ch = chunk.charAt(ci);
+                        if (ch.charCodeAt(0) > 255) {
+                            if (buf) { take(buf); buf = ''; }
+                            take(ch);
+                        } else buf += ch;
+                    }
+                    if (buf) take(buf);
+                });
+            });
+            if (line) lines.push(line.replace(/\s+$/, ''));
+            return lines.length ? lines : [''];
+        }
+        function heading(text) {
+            need(40);
+            ctx.font = '700 26px ' + font;
+            ctx.fillStyle = '#0f172a';
+            ctx.fillText(text, M, y);
+            y += 36;
+        }
+        function body(text, size, color) {
+            ctx.font = (size || 16) + 'px ' + font;
+            wrap(text, PW - M * 2).forEach(function (line) {
+                need((size || 16) + 8);
+                ctx.font = (size || 16) + 'px ' + font;
+                ctx.fillStyle = color || '#1f2937';
+                ctx.fillText(line, M, y);
+                y += (size || 16) + 8;
+            });
+        }
+        var res = (window.__cephLast && window.__cephLast.result) || null;
+        var s = res && res.summary;
+        newPage('');
+        ctx.font = '700 34px ' + font;
+        ctx.fillStyle = '#0f172a';
+        ctx.fillText(tx('ui.brand') || 'Banana · Lateral ceph', M, y);
+        y += 44;
+        heading(tx('pdf.patient'));
+        var idRows = reportPatientGrid();
+        var col2 = M + Math.floor((PW - M * 2) / 2);
+        var labelW = 168;
+        function clipText(text, x, y0, maxW) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y0 - 2, maxW, 24);
+            ctx.clip();
+            ctx.font = '16px ' + font;
+            ctx.fillStyle = '#111827';
+            ctx.fillText(String(text), x, y0);
+            ctx.restore();
+        }
+        idRows.forEach(function (r) {
+            need(28);
+            ctx.font = '600 15px ' + font;
+            ctx.fillStyle = '#64748b';
+            ctx.fillText(r[0], M, y);
+            if (r[2]) ctx.fillText(r[2], col2, y);
+            clipText(r[1] || '—', M + labelW, y, col2 - M - labelW - 16);
+            if (r[2]) clipText(r[3] || '—', col2 + labelW, y, PW - M - (col2 + labelW));
+            y += 26;
+        });
+        y += 6;
+        body([fileName, tx(normSet === 'chinese' ? 'btn.normCn' : 'btn.normCauc')].filter(Boolean).join('  ·  '), 15, '#64748b');
+        y += 8;
+        var film = reportFilmCanvas();
+        var maxW = PW - M * 2;
+        var maxH = 480;
+        var scale = Math.min(maxW / film.width, maxH / film.height);
+        var dw = Math.round(film.width * scale);
+        var dh = Math.round(film.height * scale);
+        need(dh + 16);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(M - 1, y - 1, dw + 2, dh + 2);
+        ctx.drawImage(film, M, y, dw, dh);
+        y += dh + 28;
+        if (s) {
+            heading(tx('pdf.hard'));
+            body(tx('sum.skeletal') + '  ' + ph(s.skeletal), 18);
+            body(tx('sum.vertical') + '  ' + ph(s.vertical), 18);
+            y += 8;
+            heading(tx('pdf.soft'));
+            body(tx('sum.profile') + '  ' + ph(s.profile), 18);
+            body(tx('sum.incisor') + '  ' + ph(s.incisor) + ' · ' + tx('sum.lip') + ' ' + ph(s.lip), 18);
+            y += 8;
+        }
+        if (s && s.extraction) {
+            heading(tx('g.extract'));
+            var scoreBit = String(s.extraction).replace(/^[A-Za-z\-]+\s+/, '');
+            body(extractBandTx(s.extractionBand) + '  ' + scoreBit, 20);
+            var whyBits = (s.extractionReasons && s.extractionReasons.length) ? s.extractionReasons : s.extractionWhy;
+            if (whyBits) body(phJoin(whyBits), 16);
+            if (s.extractionNote) body(extractNoteTx(s.extractionNote), 15, '#475569');
+            y += 8;
+        }
+        if (s && (s.cvm || s.cvmComment)) {
+            heading(tx('g.cvm'));
+            body(ph(s.cvm || ''), 18);
+            if (s.cvmComment) body(cvmCommentTx({ comment: s.cvmComment, commentKey: s.cvmKey }), 16, '#475569');
+        }
+        heading(tx('pdf.findings'));
+        var colM = M, colV = M + 460, colD = M + 680, colN = M + 820;
+        (res && res.groups || []).forEach(function (g) {
+            var label = groupTitleTx(g.title);
+            need(36);
+            ctx.font = '700 20px ' + font;
+            ctx.fillStyle = '#0f172a';
+            ctx.fillText(label, M, y);
+            y += 30;
+            ctx.font = '600 14px ' + font;
+            ctx.fillStyle = '#64748b';
+            ctx.fillText(tx('th.measure'), colM, y);
+            ctx.fillText(tx('th.value'), colV, y);
+            ctx.fillText(tx('th.delta'), colD, y);
+            ctx.fillText(tx('th.norm'), colN, y);
+            y += 24;
+            (g.rows || []).forEach(function (r) {
+                var note = r.name === 'Extraction index' ? extractNoteTx(r.note) : ph(r.note || '');
+                ctx.font = '14px ' + font;
+                var noteLines = note ? wrap(note, PW - M * 2) : [];
+                if (noteLines.length > 4) noteLines = noteLines.slice(0, 4);
+                need(26 + noteLines.length * 20);
+                var color = r.band === 'out' ? '#b91c1c' : (r.band === 'warn' ? '#a16207' : '#111827');
+                ctx.font = '16px ' + font;
+                ctx.fillStyle = color;
+                ctx.fillText(String(r.name || ''), colM, y);
+                var val = r.value == null ? '—' : (r.value + (r.unit ? (' ' + r.unit) : ''));
+                ctx.fillText(String(val), colV, y);
+                var delta = r.delta == null ? '' : ((r.delta > 0 ? '+' : '') + r.delta);
+                ctx.fillText(String(delta), colD, y);
+                ctx.fillText(String(r.norm || ''), colN, y);
+                y += 24;
+                if (noteLines.length) {
+                    ctx.font = '14px ' + font;
+                    ctx.fillStyle = '#64748b';
+                    noteLines.forEach(function (line) {
+                        ctx.fillText(line, colM, y);
+                        y += 20;
+                    });
+                }
+            });
+            y += 12;
+        });
+        return pages;
+    }
+
+    function canvasToJpeg(c) {
+        return new Promise(function (resolve, reject) {
+            c.toBlob(function (blob) {
+                if (!blob) { reject(new Error('jpeg')); return; }
+                blob.arrayBuffer().then(function (buf) {
+                    resolve({ w: c.width, h: c.height, jpeg: new Uint8Array(buf) });
+                }, reject);
+            }, 'image/jpeg', 0.86);
+        });
+    }
+
+    function exportPdf() {
+        if (!img.naturalWidth) {
+            setStatus(tx('st.noExport'));
+            return Promise.resolve({ ok: false, error: 'image' });
+        }
+        renderAnalysis();
+        var name = (fileName.replace(/\.[^.]+$/, '') || 'ceph') + '-report.pdf';
+        var pick = null;
+        try {
+            if (typeof window.showSaveFilePicker === 'function') {
+                pick = window.showSaveFilePicker({
+                    suggestedName: name,
+                    types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }]
+                });
+            }
+        } catch (ePick) { pick = null; }
+        return Promise.resolve(pick).then(function (handle) {
+            var pages = buildReportCanvases();
+            return Promise.all(pages.map(canvasToJpeg)).then(function (jpegs) {
+                var blob = jpegPagesToPdf(jpegs);
+                if (!handle) {
+                    download(blob, name);
+                    setStatus(tx('st.pdfSaved'));
+                    return { ok: true, via: 'download' };
+                }
+                return handle.createWritable().then(function (stream) {
+                    return stream.write(blob).then(function () { return stream.close(); });
+                }).then(function () {
+                    setStatus(tx('st.pdfSaved'));
+                    return { ok: true, via: 'picker' };
+                });
+            });
+        }, function (err) {
+            if (err && err.name === 'AbortError') {
+                setStatus(tx('st.pdfCancel'));
+                return { ok: false, error: 'cancel' };
+            }
+            setStatus(tx('st.pdfFail'));
+            return { ok: false, error: 'pdf' };
+        });
+    }
+
     function download(blob, name) {
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -2172,6 +2670,7 @@
         $('btnJson') && ($('btnJson').onclick = exportJson);
         $('btnCsv').onclick = exportCsv;
         $('btnPng').onclick = exportPng;
+        if ($('btnPdf')) $('btnPdf').onclick = function () { exportPdf(); };
         if ($('btnExtractHelp')) $('btnExtractHelp').onclick = openExtractNotes;
         if ($('btnSaveTrace')) $('btnSaveTrace').onclick = saveTrace;
         if ($('btnLoadTrace')) $('btnLoadTrace').onclick = function () { loadTrace(); };
@@ -2335,6 +2834,7 @@
         openExtractNotes: openExtractNotes,
         movePoint: function (id, x, y) { return setPointAt(id, { x: x, y: y }, true); },
         exportPng: exportPng,
+        exportPdf: exportPdf,
         includeSelected: includeSelected,
         setUseTraining: writeUseTraining,
         setRefMode: setRefMode,

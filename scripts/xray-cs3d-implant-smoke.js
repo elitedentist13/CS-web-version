@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261007imp8';
+var BUILD = '20261007imp9';
 var PAGE_PORT = 8808;
 var CDP_PORT = 9378;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -234,6 +234,12 @@ function mockDom() {
         /function cylinderSlice/.test(js) && /function syncMprToImplant/.test(js) && /function jumpSliceToWorld/.test(js));
     pass('s4 source: tapered cylinder head>tip',
         /TAPER_TIP/.test(js) && /function radiusAt/.test(js) && /function appendTaper/.test(js));
+    pass('s4 source: moving an implant does not recenter the MPR',
+        js.indexOf('Leave the MPR cameras') >= 0 &&
+        js.indexOf('syncMprToImplant(imp, vpId)') < 0 &&
+        js.indexOf('syncMprToImplant(imp);') < 0 &&
+        js.indexOf('syncMprToImplant(copy)') < 0 &&
+        js.indexOf('if (sel) syncMprToImplant(sel)') < 0);
     pass('s4 source: Crosshairs snap to implant position',
         /function alignMprToSelectedImplant/.test(js) && /function snapCrosshairsToWorld/.test(page) &&
         /function centerViewportOnWorld/.test(js));

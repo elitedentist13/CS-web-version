@@ -674,7 +674,8 @@
             diameterMm: Number($('impDia') && $('impDia').value) || 4,
             lengthMm: Number($('impLen') && $('impLen').value) || 10
         });
-        try { syncMprToImplant(imp, vpId); } catch (eSync) { /* keep place even if cameras fail */ }
+        // The click is already a DICOM millimetre point. Leave the MPR cameras
+        // where the clinician had them; redraw so the implant stays on the volume.
         try { draw(); } catch (eDraw) { /* ignore */ }
         return imp;
     }
@@ -683,7 +684,6 @@
         var imp = findImp(id || model.selectedId);
         if (!imp || imp.locked) return null;
         imp.position = vAdd(imp.position, delta);
-        syncMprToImplant(imp);
         draw();
         paintPanel();
         return imp;
@@ -699,7 +699,6 @@
         var rel = vSub(imp.position, pivot);
         imp.axis = newAxis;
         imp.position = vAdd(pivot, vRot(rel, axis, rad));
-        syncMprToImplant(imp);
         draw();
         paintPanel();
         return imp;
@@ -740,7 +739,6 @@
             axis: imp.axis.slice(),
             color: COLORS[model.implants.length % COLORS.length]
         });
-        syncMprToImplant(copy);
         return copy;
     }
 
@@ -757,8 +755,6 @@
 
     function selectImplant(id) {
         if (findImp(id)) model.selectedId = id;
-        var imp = findImp(model.selectedId);
-        if (imp) syncMprToImplant(imp);
         draw();
         paintPanel();
         return model.selectedId;
@@ -850,10 +846,6 @@
     }
 
     function onPointerUp() {
-        if (drag) {
-            var imp = findImp(drag.id);
-            if (imp) syncMprToImplant(imp);
-        }
         drag = null;
         paintPanel();
         draw();
@@ -990,8 +982,6 @@
         suspended = false;
         hookRender();
         if (!model.implants.length) restoreImplants();
-        var sel = findImp(model.selectedId);
-        if (sel) syncMprToImplant(sel);
         try { draw(); } catch (e) { /* ignore */ }
         paintPanel();
         bindSvgs();
